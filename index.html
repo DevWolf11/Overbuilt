@@ -1,241 +1,139 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#14110d">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Cam-Strike: a tactical first-person shooter with bomb defusal that runs in the browser and on Android.">
-  <title>Cam-Strike</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/style.css">
-  <script src="lib/peerjs.min.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Orbit Forge</title>
+<meta name="description" content="Build rockets from parts, fly them to orbit and land on the Moon. A 2D spaceflight sandbox for desktop and mobile.">
+<meta name="theme-color" content="#05070d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <canvas id="gl"></canvas>
-  <div id="scope" class="hidden"><div class="hole"></div><i class="h"></i><i class="v"></i></div>
-  <div id="flashbang"></div>
+<canvas id="view" aria-label="Game view"></canvas>
 
-  <!-- ===== HUD ===== -->
-  <div id="hud" class="hidden">
-    <div id="vignette"></div>
-    <div id="tags"></div>
-    <canvas id="minimap" width="320" height="320"></canvas>
-    <div id="hudLeftCol"><div id="money">$800</div><div id="callout"></div><div id="radio"></div></div>
-    <div id="scorebar">
-      <div class="team t"><span class="alive" id="aliveT"></span><b id="scoreT">0</b></div>
-      <div id="timer">1:55</div>
-      <div class="team ct"><b id="scoreCT">0</b><span class="alive" id="aliveCT"></span></div>
+<!-- ============================== BUILD ============================== -->
+<div id="build-ui" class="ui">
+  <header id="build-top" class="topbar">
+    <div class="brand"><span class="brand-mark" data-icon="rocket"></span><span class="brand-name">Orbit Forge</span></div>
+    <div class="topbar-actions">
+      <button id="btn-templates" class="btn">Rockets</button>
+      <button id="btn-sym" class="btn toggle" aria-pressed="true" title="Mirror parts across the centre line"><span>Sym<span class="long">metry</span></span></button>
+      <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
+      <button id="btn-help" class="btn icon-only" aria-label="How to play">?</button>
+      <button id="btn-sound" class="btn icon-only" aria-label="Mute sound"></button>
+      <button id="btn-launch" class="btn primary launch">Launch</button>
     </div>
-    <div id="bombTimer" class="hidden">BOMB <span></span></div>
-    <div id="punish" class="hidden"></div>
-    <div id="killfeed"></div>
-    <div id="center-msg"></div>
-    <div id="sub-msg"></div>
-    <div id="hint"></div>
-    <div id="progress" class="hidden"><div class="label"></div><div class="bar"><div></div></div></div>
-    <div id="crosshair"><i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i><i class="dot"></i></div>
-    <div id="hitmarker"></div>
-    <div id="vitals">
-      <div class="hp"><span class="ico">✚</span><b id="hp">100</b></div>
-      <div class="armor"><span class="ico">⛨</span><b id="armor">0</b></div>
-      <div id="bombIcon" class="hidden tag-icon">C4</div>
-      <div id="kitIcon" class="hidden tag-icon">KIT</div>
+  </header>
+
+  <section id="stats" class="panel stats" aria-label="Rocket stats">
+    <dl class="stat-grid">
+      <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
+      <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
+      <div><dt>TWR</dt><dd><span id="s-twr">—</span></dd></div>
+      <div><dt>Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
+    </dl>
+    <details class="stage-details" open>
+      <summary><span id="s-stages">0</span> stages</summary>
+      <ol id="s-stage-list" class="stage-list"></ol>
+    </details>
+    <p id="s-warn" class="warn" hidden></p>
+  </section>
+
+  <section id="part-info" class="panel part-info" hidden>
+    <div class="pi-head">
+      <h3 id="pi-name"></h3>
+      <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
     </div>
-    <div id="ammo"><b id="mag">12</b><span>/</span><span id="reserve">48</span><div id="wname">P-9 Pistol</div></div>
-    <div id="weapons"></div>
-    <div id="spectating" class="hidden"></div>
-    <div id="dmg-vignette"></div>
-    <div id="dmg-dir"></div>
+    <p id="pi-specs" class="pi-specs"></p>
+    <p id="pi-desc" class="pi-desc"></p>
+  </section>
+
+  <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
+
+  <footer id="palette" class="palette">
+    <div id="palette-tabs" class="tabs" role="tablist"></div>
+    <div id="palette-items" class="items"></div>
+  </footer>
+</div>
+
+<!-- ============================== FLIGHT ============================== -->
+<div id="flight-ui" class="ui" hidden>
+  <section class="panel telemetry" aria-label="Telemetry">
+    <div class="t-head"><span id="t-body" class="t-body">Earth</span><span id="t-time" class="t-time">00:00:00</span></div>
+    <dl class="t-grid">
+      <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
+      <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
+      <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
+      <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
+      <div><dt>Apoapsis</dt><dd id="t-ap">—</dd></div>
+      <div><dt>Periapsis</dt><dd id="t-pe">—</dd></div>
+      <div><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
+    </dl>
+    <div id="row-enc" class="t-enc" hidden><span id="t-enc"></span></div>
+  </section>
+
+  <div id="warp" class="warp" aria-label="Time warp">
+    <button id="warp-down" class="btn icon-only" data-icon="rw" aria-label="Slower time warp"></button>
+    <span id="warp-label" class="warp-label">1×</span>
+    <button id="warp-up" class="btn icon-only" data-icon="ff" aria-label="Faster time warp"></button>
   </div>
 
-  <!-- ===== Touch controls ===== -->
-  <div id="touch" class="hidden">
-    <div id="stick"><div id="knob"></div></div>
-    <button data-btn="fire" id="btnFire" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
-    <button data-btn="fireL" id="btnFireL" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/></svg></button>
-    <button data-btn="jump" id="btnJump" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 20V6M6 11l6-6 6 6M5 21h14"/></svg></button>
-    <button data-btn="crouch" id="btnCrouch" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 4v14M6 13l6 6 6-6M5 21h14"/></svg></button>
-    <button data-btn="reload" id="btnReload" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
-    <button data-btn="scope" id="btnScope" class="tbtn hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></button>
-    <button data-btn="use" id="btnUse" class="tbtn hidden">USE</button>
-    <button data-btn="buy" id="btnBuy" class="tbtn rect hidden">BUY</button>
-    <button data-btn="score" id="btnScore" class="tbtn rect">TAB</button>
-    <button data-btn="pause" id="btnPause" class="tbtn rect">❚❚</button>
+  <div class="flight-top-right">
+    <button id="btn-recover" class="btn primary" hidden>Recover</button>
+    <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Re-centre map" hidden></button>
+    <button id="btn-map" class="btn" data-icon="map">Map</button>
+    <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
   </div>
 
-  <!-- ===== Buy menu ===== -->
-  <div id="buy" class="overlay hidden">
-    <div class="panel">
-      <div class="panel-head"><h2>Buy Menu</h2><span id="buyMoney">$0</span><button id="buyClose" class="x" aria-label="Close">✕</button></div>
-      <h3 class="sec">Weapons</h3><div id="buyGuns" class="grid"></div>
-      <h3 class="sec">Grenades <small>(max 4)</small></h3><div id="buyNades" class="grid"></div>
-      <h3 class="sec">Equipment</h3><div id="buyGear" class="grid"></div>
+  <div id="map-legend" class="map-legend" hidden>
+    <span><i class="sw amber"></i>Current path</span><span><i class="sw cyan"></i>After encounter</span><span class="muted">Drag to pan · pinch or scroll to zoom</span>
+  </div>
+
+  <div class="throttle-box">
+    <button id="btn-tmax" class="btn small">Max</button>
+    <div id="throttle-track" class="throttle-track" role="slider" aria-label="Throttle">
+      <div id="throttle-fill" class="throttle-fill"></div>
+      <div class="throttle-ticks"></div>
     </div>
+    <span id="throttle-label" class="throttle-label">100%</span>
+    <button id="btn-tcut" class="btn small">Cut</button>
   </div>
 
-  <!-- ===== Scoreboard ===== -->
-  <div id="scoreboard" class="overlay hidden">
-    <div class="panel wide">
-      <div class="panel-head"><h2>Scoreboard</h2><span id="sbRound"></span><button id="sbClose" class="x" aria-label="Close">✕</button></div>
-      <div class="sb-cols"><div id="sbT"></div><div id="sbCT"></div></div>
+  <div class="rot-controls">
+    <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
+    <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+  </div>
+
+  <div class="stage-box">
+    <div class="fuel">
+      <div class="fuel-bar"><div id="fuel-fill" class="fuel-fill"></div></div>
+      <span id="fuel-label" class="fuel-label"></span>
     </div>
+    <div class="stage-info"><span id="stage-num" class="stage-num"></span><span id="stage-next" class="stage-next"></span></div>
+    <button id="btn-stage" class="stage-btn">Stage</button>
   </div>
+</div>
 
-  <!-- ===== Pause ===== -->
-  <div id="pause" class="overlay hidden">
-    <div class="panel narrow">
-      <h2>Paused</h2>
-      <label class="field">Look sensitivity <input type="range" id="pauseSens" min="0.3" max="2.5" step="0.05"></label>
-      <label class="field">Controls size <input type="range" id="pauseUi" min="0.7" max="1.6" step="0.05"></label>
-      <label class="field">Minimap size <input type="range" id="pauseMap" min="0.6" max="1.8" step="0.05"></label>
-      <button id="pauseLayout" class="menu-btn ghost">Move &amp; resize buttons</button>
-      <button id="resume" class="menu-btn">Resume</button>
-      <button id="quit" class="menu-btn ghost">Quit to menu</button>
-    </div>
-  </div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="modal" class="modal" hidden><div id="modal-card" class="modal-card" role="dialog" aria-modal="true"></div></div>
 
-  <!-- ===== Map loading ===== -->
-  <div id="loading" class="overlay hidden">
-    <div class="load-box"><b id="loadName">Loading</b><div class="load-bar"><i id="loadBar"></i></div><small>Loading map…</small></div>
-  </div>
-
-  <!-- ===== Main menu ===== -->
-  <div id="menu" class="overlay">
-    <div class="menu-box">
-      <h1>CAM<span>·</span>STRIKE</h1>
-      <div class="tabs" role="tablist">
-        <button class="tab on" data-mode="competitive"><b>Competitive</b><small>5v5 · first to 8 · friendly fire</small></button>
-        <button class="tab" data-mode="custom"><b>Custom</b><small>Your team sizes &amp; rules</small></button>
-      </div>
-
-      <h3 class="sec">Map</h3>
-      <div id="mapPick" class="maps"></div>
-
-      <div id="customPanel" class="custom hidden">
-        <label class="field">Terrorists <output id="oT">5</output><input type="range" id="cT" min="1" max="10" value="5"></label>
-        <label class="field">Counter-Terrorists <output id="oCT">5</output><input type="range" id="cCT" min="1" max="10" value="5"></label>
-        <label class="field">Rounds to win <output id="oR">8</output><input type="range" id="cR" min="1" max="16" value="8"></label>
-        <label class="field">Start money <output id="oM">$800</output><input type="range" id="cM" min="800" max="16000" step="200" value="800"></label>
-        <label class="field">Round time <output id="oRT">1:55</output><input type="range" id="cRT" min="60" max="240" step="5" value="115"></label>
-        <label class="chk"><input type="checkbox" id="cFF" checked> Friendly fire (teamkills are punished)</label>
-      </div>
-
-      <h3 class="sec">Play with friends</h3>
-      <div class="mp">
-        <label class="field">Your name <input id="mpName" maxlength="16" autocomplete="nickname"></label>
-        <button id="mpHost" class="menu-btn">Host a game</button>
-        <div class="mp-join">
-          <input id="mpCode" placeholder="Room code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Room code">
-          <button id="mpJoin" class="menu-btn ghost">Join</button>
-        </div>
-      </div>
-      <p id="mpStatus" class="tip" role="status"></p>
-
-      <h3 class="sec">Play solo with bots</h3>
-      <div class="row">
-        <button class="team-btn t" data-team="T"><b>Terrorists</b><small>Plant the bomb at A or B</small></button>
-        <button class="team-btn ct" data-team="CT"><b>Counter-Terrorists</b><small>Defend the sites, defuse</small></button>
-      </div>
-
-      <div class="row opts">
-        <label>Bots
-          <select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
-        </label>
-        <label>Graphics
-          <select id="quality"><option value="low">Low (fast)</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
-        </label>
-        <label class="chk"><input type="checkbox" id="aimAssist" checked> Aim assist (touch)</label>
-      </div>
-      <div class="row sliders">
-        <label class="field">Look sensitivity <input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="1"></label>
-        <label class="field">Controls size <input type="range" id="uiScale" min="0.7" max="1.6" step="0.05" value="1"></label>
-        <label class="field">Minimap size <input type="range" id="mapScale" min="0.6" max="1.8" step="0.05" value="1"></label>
-      </div>
-      <div class="row">
-        <button id="openLoadout" class="menu-btn ghost half">Loadout &amp; skins</button>
-        <button id="openLayout" class="menu-btn ghost half">Move &amp; resize buttons</button>
-      </div>
-      <details class="help">
-        <summary>How to play</summary>
-        <p><b>Goal:</b> Terrorists win a round by detonating the bomb at site A or B or eliminating the Counter-Terrorists. Counter-Terrorists win by defusing, eliminating the Terrorists before a plant, or running out the clock.</p>
-        <p><b>Touch:</b> left thumb moves (the joystick appears where you touch). Drag on the right to look. Hold the red button to fire, and keep dragging on it to aim while shooting. Tap a weapon on the right to switch: primary, pistol, knife, grenades. With a grenade out, fire throws it and the scope button lobs it underhand. Hold <b>USE</b> on a site to plant (3s) or at the bomb to defuse (10s, 5s with a kit).</p>
-        <p><b>Keyboard:</b> WASD, mouse, click fire, right-click scope or lob, R reload, E plant or defuse, Space jump, Shift walk, 1 primary, 2 pistol, 3 knife, 4 grenades (press again to cycle), Q last weapon, B buy, Tab scores, Esc pause.</p>
-        <p><b>Friendly fire:</b> bullets and grenades hurt teammates (half damage). Kill one and you lose your guns: knife only, no buying and no money for the next 2 rounds.</p>
-      </details>
-      <p id="installHint" class="tip"></p>
-    </div>
-  </div>
-
-  <!-- ===== Multiplayer lobby ===== -->
-  <div id="lobby" class="overlay hidden">
-    <div class="panel wide">
-      <div class="panel-head">
-        <h2>Lobby</h2>
-        <span id="lbCode" class="room-code"></span>
-        <button id="lbCopy" class="menu-btn ghost chip-btn">Copy invite link</button>
-        <button id="lbLeave" class="x" aria-label="Leave lobby">✕</button>
-      </div>
-      <p id="lbInfo" class="tip"></p>
-      <div class="lb-teams">
-        <div class="lb-team t"><h3>Terrorists</h3><ul id="lbT"></ul><button class="menu-btn ghost" data-join="T">Join Terrorists</button></div>
-        <div class="lb-team ct"><h3>Counter-Terrorists</h3><ul id="lbCT"></ul><button class="menu-btn ghost" data-join="CT">Join Counter-Terrorists</button></div>
-      </div>
-      <div id="lbHost" class="lb-host">
-        <label class="field">Map <select id="lbMap"></select></label>
-        <label class="chk"><input type="checkbox" id="lbBots" checked> Fill empty slots with bots</label>
-        <button id="lbStart" class="menu-btn">Start match</button>
-      </div>
-      <p id="lbWait" class="tip">Waiting for the host to start the match…</p>
-    </div>
-  </div>
-
-  <!-- ===== Loadout & skins ===== -->
-  <div id="loadout" class="overlay hidden">
-    <div class="panel wide loadout">
-      <div class="panel-head"><h2>Loadout &amp; skins</h2><button id="loClose" class="x" aria-label="Close">✕</button></div>
-      <div class="lo-body">
-        <div class="lo-left">
-          <div id="loWeapons" class="lo-list"></div>
-          <h3 class="sec">Agents</h3>
-          <div id="loAgents" class="lo-agents"></div>
-        </div>
-        <div class="lo-right">
-          <canvas id="loPreview" width="480" height="300"></canvas>
-          <div id="loKnifeTypes" class="chips hidden"></div>
-          <div id="loSkins" class="skins"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== Layout editor ===== -->
-  <div id="layoutEditor" class="hidden">
-    <div class="le-bar">
-      <b>Drag any control</b> · <span id="leName">Fire</span>
-      <label>Size <input type="range" id="leSize" min="0.5" max="2.6" step="0.05"></label>
-      <button id="leReset" class="menu-btn ghost">Reset</button>
-      <button id="leDone" class="menu-btn">Done</button>
-    </div>
-  </div>
-
-  <!-- ===== Match over ===== -->
-  <div id="over" class="overlay hidden">
-    <div class="menu-box">
-      <h1 id="overTitle">Victory</h1>
-      <p id="overScore" class="tag"></p>
-      <button id="again" class="menu-btn">Play again</button>
-      <p id="overWait" class="tip hidden">Waiting for the host…</p>
-      <button id="toMenu" class="menu-btn ghost">Main menu</button>
-    </div>
-  </div>
-
-  <div id="rotate" class="hidden"><div>↻</div><p>Rotate your device to landscape</p></div>
-
-  <script type="module" src="js/main.js"></script>
+<script src="js/util.js"></script>
+<script src="js/space.js"></script>
+<script src="js/parts.js"></script>
+<script src="js/vessel.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/builder.js"></script>
+<script src="js/flight.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

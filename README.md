@@ -1,305 +1,65 @@
-# Cam-Strike
+# Orbit Forge
 
-A tactical first-person shooter in the spirit of Counter-Strike, built to run in a mobile browser (Android Chrome) and installable as an app. Play solo against bots or online with friends. No build step and no downloads beyond the page itself: plain HTML + JavaScript modules + [three.js](https://threejs.org) (vendored in `lib/`, so it also works offline).
+A 2D rocket-building and spaceflight game inspired by *Spaceflight Simulator*. Snap parts together on a blueprint, launch from the pad, fly a gravity turn into orbit, transfer to the Moon, land, and come home under a parachute.
 
-▶ Play now: https://devwolf11.github.io/Cam-Strike/ (works on most browsers; on your phone, use "Add to Home screen" to play full screen like an app)
+It runs in any modern browser on desktop and mobile. There is no build step and no dependencies: open `index.html` and play.
 
-## Game modes
+## Play
 
-- **Competitive:** 5v5 bomb defusal, first to 8 rounds, friendly fire on.
-- **Custom:** pick the team sizes (1 to 10 players per side), rounds to win, starting money, round length and whether friendly fire is on.
-
-You play one of the players; every other slot is a bot.
-
-**Terrorists** win a round by planting the bomb at **site A or B** and letting it detonate (40s), or by eliminating every Counter-Terrorist. **Counter-Terrorists** win by defusing the bomb (10s, 5s with a kit), eliminating the Terrorists before they plant, or running out the clock.
-
-## Online multiplayer (play with friends)
-
-1. Open the game and type your name under **Play with friends**.
-2. One person taps **Host a game**. They get a 5-letter **room code** and a **Copy invite link** button to send to friends.
-3. Friends open the invite link (or type the code and tap **Join**). Everyone picks a team in the lobby.
-4. The host picks the map, chooses whether bots fill the empty slots, and taps **Start match**. The mode and rules come from the host's menu (Competitive or Custom).
-
-Up to 10 people can play together, and bots fill the rest of each team if you like. After the match the host can take everyone **back to the lobby** for a rematch. If a friend drops out mid-match, a bot takes over their player.
-
-How it works: it's peer-to-peer over WebRTC ([PeerJS](https://peerjs.com), vendored in `lib/`). There's no game server to run. The host's device runs the real match (bots, damage, money, rounds). Each friend's device predicts their own movement and shots so controls feel instant, and draws everyone else slightly behind (interpolation). Hits from friends are lag-compensated on the host. PeerJS's free public server only introduces the players to each other. Game traffic goes directly between devices, or through PeerJS's free relay when a mobile network blocks direct connections.
-
-Things to know:
-- The host must keep the game open in the foreground. If the host switches apps, the match freezes for everyone, and if the host leaves, the match ends.
-- Movement is trusted from each player's device, so it's meant for friends, not strangers.
-- Online play needs the hosted version (GitHub Pages or any web server), not a local `file://` copy.
-- For testing with your own signaling server, add `?peer=host:port` to the URL. It points the game at a self-hosted [PeerJS server](https://github.com/peers/peerjs-server).
-
-## Maps
-
-Four original maps that play like the classics, rebuilt for the map update at CS2-like scale (160 x 160 m) with a lot more detail. Each has a 1m grid with real floor heights (stairs, ramps, raised sites, jumpable crates, low cover you can shoot over) and indoor areas with ceilings. The HUD shows the callout for where you're standing, and the bots work out every map's routes, holds, plant spots and grenade lineups from its layout. The spawns can't see each other, so there's no sniping across the map at round start (Sirocco's mid doors are two staggered gates, and two containers stand across Stockpile's CT mid).
-
-| Map | Setting | Layout |
-|---|---|---|
-| **Sirocco** | Sun-baked desert town at midday | Raised T spawn, Long through the covered long doors with the Pit, Catwalk climbing out of Mid, mid crates and Mid doors under a covered passage, upper and lower tunnels to B, B doors, a raised B window over the site, raised A site with ramps |
-| **Medina** | Whitewashed old quarter at golden hour | T spawn east, T ramp and A main, the Palace arcade over A, Connector and Jungle, a raised CT Window over Mid, Apartments and Short to B, the covered Market |
-| **Stockpile** | Industrial depot and container yard | Quad and Truck on A, Squeaky, Highway, the Garage from Mid into A main, White box, Z connector, Checkers, Sun room, B heaven |
-| **Reactor** | Power plant on two levels | The main level sits 2.4m up and B is a real lower floor, reached by the Ramp room, the CT decon ramp and the vent from A. A is a tall hall with a Heaven catwalk. Outside yard with silos, Lobby, Hut, Squeaky |
-
-What makes them detailed:
-
-- **Real materials.** Every surface is a photographed material (sandstone blocks, lime plaster, cobbles, clay tiles, cracked asphalt, corrugated iron, container steel...) with a normal map, tiled at its real-world size. A large-scale variation layer and patches of sand, dirt or asphalt keep big areas from looking repetitive.
-- **Real props.** Barrels, crates, covered cars, jersey barriers, generators, shelves, planters, benches, lamps, roller shutters, iron gates and more are real 3D models. Solid props block movement and bullets like walls do.
-- **Buildings, not boxes.** A facade kit dresses every wall run in the map's style: windows with frames, shutters, grilles and curtains, doors and shopfronts with awnings and signs, balconies, corner quoins, cornices and parapets, tile bands, AC units, lamps, drainpipes, ducts, ladders, meter boxes, posters, hazard stripes, rooftop water tanks, dishes and antennas, and cables strung across the streets. Interiors get skirting, wainscot, blind arcades, sconces, rugs, beams, strip lights and extinguishers. Buildings vary in height and colour.
-- **Real skies.** Each map has a photographed sky (a Poly Haven HDRI), and the sun's direction and colour are measured from the photo, so shadows and light match the sky.
-
-Maps load their textures, models and sky (about 4 to 5 MB per map) with a progress bar before the match; they're cached for offline play after that.
-
-## Graphics
-
-Maps use photographed materials, real prop models and photographed skies (see **Maps**). Effects, signs and posters are generated in code.
-
-- **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves) and matches the sky photo, lit interiors with light fittings, a faint distant skyline for each map, filmic tone mapping and ambient occlusion baked into the map.
-- **Materials:** 1024px colour textures with normal maps, tiled at real-world scale, brightness-matched so every material sits in a realistic range. Big static geometry is split into chunks so the parts behind you aren't drawn.
-- **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, and starburst muzzle flashes that light up nearby walls. Smoke, fire and explosions are camera-facing billboards drawn in one batch per kind, with their textures generated from noise when the match loads:
-  - **Smoke grenades** vent for about a second and a half. Lit, lumpy puffs burst out of the canister, slow down, pile up against walls and fill the space: a dome about 4 m wide and 5 m tall, the same size as the cloud that blocks sight. If you stand inside, the view greys out, but not your own gun.
-  - **HE grenades and the bomb** explode as a white flash, then a churning fireball (an animated flipbook going from white-hot to orange to soot). The fireball cools into grey-brown smoke that rises and spreads, while a ring of dust rolls out along the ground, and sparks, debris, a scorch mark and camera shake follow.
-  - **Molotovs** splash, then a burning pool spreads from where the bottle broke. Flame tongues and low flames keep springing up across it, with a flickering orange glow that lights the walls, dark smoke, embers and a charred patch. Smoke puts it out.
-  - **Flashbangs** give a white glare that swells and vanishes in a blink, a hard light on everything around, sparks and a wisp of smoke.
-  - Thrown grenades tumble in the air and roll to a stop.
-- **Weapons:** every gun is modelled from real-style side profiles with rounded edges and turned barrels. That means a stamped receiver with rivets and a curved 30-round magazine on the AR-47, a roller-lock SMG with an integral suppressor, a pump shotgun with a vent rib, a thumbhole sniper with a turreted scope, and a pistol with slide serrations. Knives and grenades get the same treatment. In first person, steel, wood and polymer use physically based materials that reflect the map's sky, and your hands have real fingers wrapped around the grip and handguard.
-- **Animation:**
-  - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land, trails your jumps, and bobs in a figure-8 in step with your footsteps. Every motion is spring-based and frame-rate independent, so it feels the same at 30 and 60 fps.
-  - The gun is lit by the map's sun and darkens when you step into shade.
-  - Other players' legs move the way they're actually going (strafe, backpedal), and they lean into runs, kick when firing and reach for the magazine when reloading.
-
-**Graphics quality** (in the menu):
-
-| Setting | What you get |
-|---|---|
-| **Low** | No shadows or normal maps, lighter facade detail, reduced resolution. For older phones |
-| **Medium** | Sun shadows, normal maps, full detail, native resolution (default) |
-| **High** | Softer and sharper shadows, sharper texture filtering, higher resolution |
-
-On every setting the game watches its frame rate. If your device can't keep up (below about 45 fps), it lowers the render resolution a step at a time, and raises it again when there's headroom. Add `?fixedres` to the URL to turn this off.
-
-## Weapons and equipment
-
-| Slot | Weapon | Price | Notes |
-|---|---|---|---|
-| 1 | Viper SMG | $1250 | 850 rpm, forgiving on the move, $600 kill reward |
-| 1 | Breacher 12G | $1100 | Shotgun, 9 pellets, $900 kill reward |
-| 1 | AR-47 Rifle | $2700 | One-shot headshot, recoil climbs while spraying |
-| 1 | Longshot .338 | $4750 | Scoped sniper, one-shot body kill |
-| 2 | P-9 Pistol | $200 | Everyone spawns with one |
-| 3 | Knife | free | 40 damage, 180 from behind (backstab), fastest movement, $1500 kill reward |
-| 4 | Grenades (max 4) | | **HE** $300 (up to 125 damage in a 9m blast), **Flashbang** $200 (blinds anyone looking at it within 26m, max 2), **Smoke** $300 (18s cloud that blocks vision for players *and* bots), **Molotov** $400 (8s fire zone, 4.2m wide, 55 damage per second, put out by smoke) |
-
-A full-strength throw carries a grenade about 35m; the underhand lob is for short, precise tosses. Also available: Kevlar + Helmet ($1000) and a Defuse Kit ($400, CT only). Headshots do 4× damage. You're most accurate standing still, and the crosshair shows your current spread.
-
-### Weapon models and first-person arms
-
-Every gun, all four grenades, the classic knife and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18, a bottle molotov, an M9-style bayonet and a C4 bundle). The guns, grenades and C4 each have two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knife and molotov are small enough to use one model for both. The molotov's rag burns in your hand and trails flames in flight. The Karambit, Butterfly and Bayonet knife styles are still built in code.
-
-In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist). Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. A wrist can't roll against the forearm without the skin pinching into a thin neck, so most of each hand's roll is carried by the forearm, as it is in a real arm.
-
-The grips are solved against each model, not posed by hand (see `tools/README.md`):
-
-- **Measuring:** each gun's real mesh becomes a signed distance field, and the arm's real skin is checked against it, so skin inside the gun and gaps between palm or fingertips and the gun are measured in millimetres.
-- **Searching:** an optimiser (CMA-ES) moves each wrist, aims the thumb and trigger finger, and places the off-screen shoulder the arm comes from. At every step the fingers close joint by joint until their skin touches the gun.
-- **Scoring:** it minimises penetration, gaps, the index pad's distance to the trigger face (found automatically from the gun's side silhouette) and wrist bend, plus a few grip-style preferences.
-- **Baking:** the results are baked into `assets/weapons/grips.json`.
-
-So the right hand wraps each pistol grip with its palm flush and its index finger inside the trigger guard on the trigger, and the left hand cradles the handguard from below. The pistol is held two-handed in a thumbs-forward grip, with the support hand's fingers wrapped around the shooting hand's (the two hands never pass through each other) and both thumbs along the frame. Grenades sit in the fist with their bodies in view above it. Compared with the old ellipse fitting, skin sinking into the guns dropped from up to 18 mm to about a millimetre. The knife sits in a hammer grip, knuckles toward the edge. Its idle, draw and two slashes are motion-captured from an animated knife model: the knife's path is replayed in view space and our own arms grip and follow it, so they match every other weapon. Swings alternate the two slashes, and a new swing blends in from wherever the knife is. Grenades sit in the fist with the thumb over the spoon. The throw winds up, whips forward, follows through, and then the next grenade is drawn. If the models can't load, the game falls back to its built-in guns and hands.
-
-### Skins and agents
-
-In **Loadout & skins** you can give every gun and the knife one of 12 skins (the skin's pattern is painted over the model's own texture, so the metal parts keep their shading and gold skins turn metallic), from Factory New up to Covert (Desert Storm, Tiger Tooth, Crimson Web, Neon Rider, Dragon Scale, Nebula, Gilded and more). You can also pick a knife style (Classic, Karambit, Butterfly, Bayonet) and an agent outfit for each team (T: Phoenix, Elite Crew, Separatist, Guerrilla; CT: SWAT, SAS, GIGN, SEAL). A live 3D preview shows the result. Bots roll random outfits and skins.
-
-### Friendly fire and teamkills
-
-Every living teammate has their name and a team-coloured marker above their head, dimmed when they're behind a wall, so a friend coming round a corner is easy to tell apart. With friendly fire on, your bullets, knife and grenades hurt teammates at half damage. Bots won't fire through a teammate who's in the way, but grenades and stray sprays can still cause accidents. **Kill a teammate** and you lose your guns and grenades on the spot and pay a $300 penalty. For the rest of that round and the next 2 rounds you have **only the knife**, can't buy and earn no money.
-
-## Bots
-
-The bots are built to play like people, not like aimbots with their accuracy turned down.
-
-**They learn each map from its layout.** The first time a map is played, the bots analyse its grid behind the loading screen (a fraction of a second). They work out:
-- walking distances from both spawns;
-- the distinct routes each side can take into each bombsite, and the chokepoint where each route enters it;
-- the spots defenders hold each entrance from, scored for cover, distance, angle and exposure to the other entrances;
-- where attackers can wait out of sight, where to plant, and grenade lineups.
-
-Lineups are found by simulating the game's own grenade physics, so a smoke lands where it was planned. Nothing is placed by hand, so a new map gets all of this for free (`node tools/botnavcheck.mjs` draws it).
-
-**They see and hear like players.**
-- **Sight.** Vision is a cone with real line of sight. Smokes block it and flashbangs blind it. An enemy far away is a few pixels tall, so it's only noticed near the crosshair.
-- **Hearing.** Footsteps, shots, reloads, grenade pins and bounces, and the bomb being planted or defused all make noise, muffled by walls.
-- **Memory and radio.** Bots remember where they last saw or heard each enemy and tell their team on the radio using the map's callouts ("Two at Long", "Bomb carrier at Mid", "He's at B Car, 34 HP"). The calls show on your HUD when bots are on your team, and reach friends on their team in online games.
-
-**They aim and fight like players.**
-- **Aim.** An enemy who appears takes a moment to react to, longer if he's far from where the bot was looking. The flick lands off by a share of its size and settles over time, leaving a slight tremor. Moving targets are tracked with a little lag, and recoil is pulled down.
-- **Fighting.** Bots put their crosshair on corners before they open up and stop before they shoot. They tap at range, spray up close and strafe between bursts in close fights. They step back into cover to reload, or when they're hurt and losing. They switch to the pistol when the rifle runs dry up close, and go for the trade when a teammate falls nearby.
-- **Holding angles.** Someone holding an angle for a long time loses some sharpness and glances at other angles, so a well-timed peek can catch them. Footsteps coming their way bring their focus back.
-
-**They play as teams.** Each side has a brain that decides the buy and the plan. The buy is a pistol round, eco, force or full buy, and rifles are dropped for teammates who can't afford one.
-- **Terrorists** choose a site and a strategy:
-  - an execute with smokes on the long angles, a pop flash and a molotov on the close corner;
-  - a default that spreads out, reads the map and hits the emptier site;
-  - a rush, a split from two sides, or a fake.
-
-  They wait out of sight, throw their utility from the lineup spots, close in, then go through together. If the first player in dies at a camped doorway, the others hold back, flash or burn the angle, and swing in pairs or switch to another way in. The bomb is planted at a covered spot. The post-plant is played from spread-out positions watching the bomb and the way in, and a defuse gets a molotov.
-- **Counter-Terrorists** cover every entrance of both sites, with anchors watching two at once. They molotov or HE a rush, rotate when the information says a site is being hit, and fall back from a lost site to retake it. On the retake they group up out of sight, flash in and smoke the nastiest angle, then the player with a kit defuses while the rest cover. If there's no time, they save. Late in a round they clearly have the numbers in, all but one player per site go and hunt the last Terrorists down: towards the last sighting, else through the spots Ts wait in.
-
-**Difficulty** (Easy, Normal, Hard) changes reaction time, how far off a flick lands and how fast it settles, tremor, tracking, recoil control, head-shot rate, and discipline (stopping before shooting). It also changes hearing, crosshair placement on corners, how often and how well they use grenades, and whether they turn away from flashes they see coming. In tests, a Hard player holding an angle beats a Normal one coming through it about 9 times in 10.
-
-Characters are real, fully textured and skinned models, one per outfit:
-
-| Team | Outfit | Model |
-|---|---|---|
-| T | Phoenix | ski mask and street clothes (`thug.glb`) |
-| T | Elite Crew | MM-14 digital camo with a face wrap (`rebel.glb`) |
-| T | Separatist | balaclava and plate carrier (`terrorista.glb`) |
-| T | Guerrilla | woodland gear, helmet and balaclava (`militia.glb`) |
-| CT | SWAT | police gear and gas mask (`swat_gasmask.glb`) |
-| CT | SAS | urban camo and goggles (`swat_spec.glb`) |
-| CT | GIGN | blue uniform and helmet (`swat_blue.glb`) |
-| CT | SEAL | olive tactical gear, headset and sunglasses (`tactical.glb`) |
-
-They move with **motion capture**, from Mixamo's "Pro Rifle Pack":
-- Walking and running in 8 directions are blended by speed and direction. Walking cycles are matched to the movement speed so feet don't slide. The captured run is a quick jog, so at full speed the run cycle uses a longer stride (about 3 steps a second instead of 5) to keep the legs from looking frantic.
-- There are also an idle stance, a mid-air pose for jumps, and a kneel while planting or defusing.
-- The clips are stored as trajectories of the game's own joints (`assets/anims/locomotion.json`, 76 KB), not as bone rotations, so the same data drives every character regardless of how its skeleton is built.
-- The rifle pack's bladed stance is mostly turned back toward the aim. The direction clips are picked at a matching offset, so the feet still step along the real travel direction.
-- There's a full crouching set too: a kneel when still, and crouch-walks in 8 directions.
-- The upper body stays on the aim: the gun is shouldered and pointed where the player looks, and it moves with the captured torso.
-- **Turning in place:** a character standing still keeps its feet planted while the torso twists toward the aim. Past about 50° the feet step round to catch up, leading with the foot on the turning side.
-
-`js/skinned.js` fits whichever model the outfit uses to those joints every frame. That fit:
-- aims the hips, spine and head, keeping each model's natural neck lean;
-- uses two-bone IK for the arms and legs, so the hands really hold the gun;
-- rolls the feet heel-to-toe from the captured toe positions;
-- curls the fingers into a grip.
-
-Without the motion data, a procedural walk cycle takes over. Any character with a Mixamo-named skeleton can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted to a single skinned mesh of about 14–16k triangles with compressed textures (0.5–1.8 MB each). The SEAL and Separatist models use one texture atlas each, so each character is a single draw call. The SEAL model's Character Creator skeleton was renamed to Mixamo bone names. The Separatist model came without a skeleton; it was rigged by copying the skeleton and skin weights of a Mixamo-rigged SWAT model onto it. If a model can't load, that outfit borrows another character's model, and if none load, the game uses built-in procedural characters.
-
-On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
-- it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
-- bodies pile on top of each other;
-- living players shove bodies aside as they walk through them;
-- explosions throw bodies, and bullets passing through a body jolt it.
-
-## Sound
-
-The game uses real recordings, all public domain (CC0). They are cut, cleaned (rumble filtered, faded, levelled) and packed into one 440 KB file (`assets/audio/sfx.mp3`, with offsets in `sfx.json`), which loads with the game:
-
-- **Guns:** each gun has its own shots, two recordings each, picked at random with slight pitch changes so sprays don't sound mechanical: a 9 mm Glock, a suppressed H&K for the integrally suppressed SMG, a Mossberg pump shotgun, an AK and a big bolt-action rifle. The shotgun pumps and the sniper works its bolt after every shot.
-- **Handling:** reloads play in steps that line up with the reload animation: magazine out, magazine in, then the bolt or slide, or shells one at a time and then the pump. There's also a dry-fire click, a draw sound, knife slashes, stabs and scrapes, a grenade pin, the throw, and metal clinks when a grenade bounces.
-- **World:** footsteps, landing, bullet impacts and the odd ricochet, shell casings tinkling on the floor, and bullets whizzing past your head. The HE blast has a low thump, the flashbang has a sharp crack followed by an ear-ringing tone and muffled hearing, the smoke grenade hisses, and the molotov has glass breaking, then a whoosh and the roar of the fire for as long as it burns. The bomb's blast is the biggest of all.
-- **Mixing:** far sounds get quieter and duller, and more of them is reverb (a generated room echo). Sounds behind walls are muffled, left and right are panned, a compressor keeps many overlapping shots from clipping, and a voice limit drops the quietest sounds first when it gets busy. Other players' reloads and footsteps are audible nearby, like in CS.
-- **Beeps:** the bomb beep, round jingles and hit markers are synthesized. If the sound file can't load, a small synthesizer plays every sound instead.
+- **Online:** https://devwolf11.github.io/Rocket-Science-Simulator/ (deployed from `main` by `.github/workflows/pages.yml`; needs Settings → Pages → Source set to "GitHub Actions"). On a phone, use "Add to Home Screen" to install it and play offline.
+- **Locally:** double-click `index.html`, or serve the folder (`npx serve .`) to also get the offline/installable PWA.
+- **Single file:** `node tools/build-single.mjs` writes `dist/orbit-forge.html`, the whole game in one HTML file you can send to someone.
 
 ## Controls
 
-**Touch (Android phone or tablet, in landscape):**
-- Left thumb: a movement joystick appears wherever you touch.
-- Drag anywhere on the right to look.
-- Hold the red button to fire, and keep dragging on it to aim while you shoot. There's a second fire button on the left.
-- The weapon bar at the bottom switches between primary, pistol, knife and each grenade type. With a grenade out, fire throws it and the scope button lobs it underhand.
-- Hold **USE** (it appears on a site or at the bomb) to plant or defuse.
-- The **crouch** button (the down arrow next to jump) toggles crouching.
-- **Controls scale with the screen.** Tablets get proportionally bigger buttons and minimap. **Controls size** and **Minimap size** sliders are in the menu and the pause screen. **Move & resize buttons** lets you drag any control anywhere and resize each one; the layout is saved on your device.
-- Aim assist (on by default for touch) slows your look over an enemy and gently pulls toward them while you move or shoot.
+| Action | Desktop | Touch |
+| --- | --- | --- |
+| Rotate | `A` / `D` or `←` / `→` | Hold the ⟲ ⟳ buttons |
+| Throttle | `W` / `S` or `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
+| Next stage | `Space` | STAGE button |
+| Use one part | Click it | Tap it (engines toggle, separators fire, parachutes open) |
+| Map view | `M` | Map button |
+| Time warp | `,` / `.` | ⏪ ⏩ buttons |
+| Zoom | Mouse wheel | Pinch |
+| Pause | `Esc` | Menu button |
 
-**Crouching:**
-- You move at a third of the speed, and crouch-walking makes no footstep sound.
-- Your spread is about 30% tighter.
-- Your eye line and hitboxes drop, so you can hide behind low cover.
-- Lag compensation rewinds the crouch along with your position.
-- Bots aim at a crouched player's real head height, and some of them crouch to spray at range.
+In the builder, drag parts from the tray onto the blueprint (tap a tray part to auto-stack it), drag a part back onto the tray to remove it, and press `Enter` or **Launch** to fly.
 
-**Keyboard + mouse:** WASD move, mouse look (click to capture), left click fire or throw, right click scope or lob, `R` reload, hold `E` plant/defuse, `Space` jump, `Shift` walk, hold `C` or `Ctrl` crouch, `1` primary, `2` pistol, `3` knife, `4` grenades (press again to cycle), `Q` last weapon, `B` buy, `Tab` scoreboard, `Esc` pause.
+## What's in it
 
-## Run it
+- **Builder:** 16 parts across command pods, tanks, four engines, separators, nose cones, parachutes and landing legs. Edge snapping, symmetry mode for side boosters, live mass, thrust, TWR and Δv per stage, and an automatic staging order (shown as numbered badges). The design autosaves.
+- **Physics:** rigid-body rockets with centre-of-mass and moment-of-inertia tracking, engine gimbal and reaction wheels, Isp that varies with air pressure, exponential atmosphere with drag, reentry glow, parachutes with a drogue phase, and per-corner ground contact. Parts break if they hit the ground too hard.
+- **Orbits:** patched conics. Earth and the Moon each have a sphere of influence. Out of the atmosphere, time warp up to 50,000× runs the craft "on rails" with exact Kepler propagation. Warp drops back automatically when you hit the atmosphere or change sphere of influence.
+- **Map view:** predicted trajectory with apoapsis and periapsis, Moon encounters (with the periapsis you'll get), escapes and impact points.
+- **Milestones:** liftoff, space, orbit, lunar encounter, lunar orbit, Moon landing, and returning home.
+- **Sound:** procedural engine rumble, separation thunks and explosions (Web Audio, no files).
 
-It must be served over HTTP, because ES modules don't load from `file://`:
+## Scale
 
-```sh
-python3 -m http.server 8000
-# open http://localhost:8000
+Like Spaceflight Simulator, the solar system is shrunk: Earth has a 315 km radius with real surface gravity (9.8 m/s²) and a 30 km atmosphere. Low orbit takes about 1.7 km/s of orbital speed and about 2.5 km/s of Δv. The Moon (90 km radius, 1.62 m/s²) orbits 6,200 km out.
+
+## Project layout
+
+```
+index.html            page shell and HUD markup
+css/style.css         all styling (HUD, builder, responsive rules)
+js/util.js            maths, formatting, storage helpers
+js/space.js           bodies, terrain, Kepler orbits, trajectory prediction
+js/parts.js           part catalogue, attachment rules, staging, Δv, part drawing
+js/vessel.js          rigid-body vessel: forces, fuel, ground contact, splitting
+js/builder.js         build screen and rocket templates
+js/flight.js          flight screen: simulation loop, time warp, camera, map, HUD
+js/ui.js, audio.js    dialogs/toasts and procedural sound
+js/main.js            app shell and main loop
+sw.js, manifest.webmanifest, icons/   offline support and install icons
+tools/build-single.mjs bundles everything into dist/orbit-forge.html
+.github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
 ```
 
-### Play on Android via GitHub Pages
+This repository used to hold Cam-Strike, a 5v5 FPS. Its full history is still in git: the last version is commit `30e7bc8`.
 
-The included workflow (`.github/workflows/pages.yml`) deploys every push to `main` (Settings → Pages → Source: **GitHub Actions**). Open the Pages URL in Chrome on Android, then **⋮ → Install app** to play fullscreen in landscape and offline.
+Scripts are plain (non-module) JavaScript so the game also works when opened straight from disk.
 
-For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com) to generate an Android package (Trusted Web Activity), or wrap the folder with Capacitor.
+## Ideas for later
 
-## Code layout
-
-| File | What it does |
-|---|---|
-| `index.html`, `css/style.css` | DOM for the HUD, menus, loadout, layout editor and touch controls |
-| `js/main.js` | Boot, menus, renderer, main loop, pause, PWA install |
-| `js/config.js` | **All tuning:** weapons, grenades, economy, rules, bot difficulty |
-| `js/world.js` | Active map grid: collision with floor heights, bullet raycasts, line of sight and smoke, A* pathfinding |
-| `js/maps/*.js` | Map layouts written with a small builder (`dsl.js`): building lots, floors, stairs, crates, roofs, props with collision, zones, callouts and bot tactics; `skies.js` holds each sky's measured sun |
-| `js/mapmesh.js`, `js/geom.js` | Turn a map into chunked, merged meshes with baked ambient occlusion, instanced prop models, sun shadows, fog and lights |
-| `js/mapkit.js` | The facade kit: dresses wall runs, interiors and rooftops in each map's style |
-| `js/mapassets.js` | Loads a map's textures, prop models and sky before the match, and builds the surface materials |
-| `js/sky.js`, `js/textures.js` | Photo sky dome and the distant skyline; canvas textures for signs, site decals, posters, particles and fabric |
-| `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
-| `js/grenades.js` | Grenades in the match: HE, flashbang, smoke and molotov effects |
-| `js/nadephys.js` | Grenade flight in fixed 1/180 s steps (the same at any frame rate), shared by the game and the bots' lineup solver |
-| `js/bot.js` | One bot: sight, hearing and memory, the aim model, fighting, movement, pre-aiming corners, grenade throws, buying |
-| `js/botteam.js` | Team brains: economy, T strategies and executes, CT setups, rotations and retakes, shared intel, radio callouts |
-| `js/botnav.js` | Map analysis for the bots: routes, chokepoints, holds, staging, plant and post-plant spots, cover, grenade lineups |
-| `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
-| `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
-| `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
-| `js/weapons3d.js` | Loads the gun, grenade, knife and C4 models (built-in fallbacks), knives, weapon skins |
-| `js/knifeanim.js` | The knife's first-person idle, slash and draw motion (sampled from the animated knife model) |
-| `js/fparms.js` | Rigged first-person arms: IK hand placement on each gun, finger grips |
-| `js/agent.js` | Per-player state: inventory, health and money |
-| `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
-| `js/hud.js`, `js/layout.js`, `js/loadout.js` | HUD and buy menu, adaptive and editable touch layout, loadout screen |
-| `js/net.js` | Online play: host and client over PeerJS, lobby, snapshots, events, pings |
-| `js/netgame.js` | A friend's copy of the match: local prediction, interpolation, applying host snapshots and events |
-| `js/effects.js` | Pooled effects: tracers, muzzle flashes and light, impact sparks and debris, bullet-hole/blood/scorch decals, shell casings, explosions, dust motes, camera shake |
-| `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input; sound (sprite loading, distance, walls, reverb, mixing) |
-| `js/particles.js` | Billboard particles (smoke, flames, fireballs) and their generated textures |
-| `tools/gripsolve.js`, `tools/solve-grips.mjs` | Dev tool: solves the first-person grips against each weapon's mesh and bakes `assets/weapons/grips.json` (see `tools/README.md`) |
-| `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
-| `tools/propconv.mjs` | Dev tool: converts Poly Haven glTF models into the game's compact prop GLBs (see `tools/README.md`) |
-
-three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models and the locomotion animations (Pro Rifle Pack) come from Adobe Mixamo. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
-
-- Phoenix: ["terrorist"](https://skfb.ly/6AnKG) by DJMaesen. Rigged with Mixamo.
-- Elite Crew: ["Ukrainian Soldier"](https://skfb.ly/ot9Ny) by doctortex. Rigged with Mixamo.
-- Separatist: ["Terrorista"](https://skfb.ly/6xsAy) by jeferson. Rigged for the game.
-- SEAL: ["Soldier Full Tactical Gear (LowPolyGameReady)"](https://skfb.ly/pMDAV) by DanlyVostok.
-
-The Guerrilla model (`militia.glb`) is free to use without attribution.
-
-Weapon and first-person arm models, converted and optimised for the game (`assets/weapons/`), licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) unless noted:
-
-- Viper SMG: ["MP5SD"](https://skfb.ly/oyUN9) by ecler
-- Breacher 12G: ["Remington 870 Shotgun"](https://skfb.ly/o9MZx) by Milin Andrei
-- AR-47 Rifle: ["AK 47 PBR"](https://skfb.ly/6YAOL) by ErhanMatur
-- Longshot .338: ["AWP"](https://skfb.ly/6Z8yp) by Rifeor
-- P-9 Pistol: ["Glock 17 Pistol | Low Poly Game Ready 3D Model"](https://sketchfab.com/3d-models/glock-17-pistol-low-poly-game-ready-3d-model-6ca031e39a274fe39416b1e21bedd76c) by JaNaZa_ZaIb, under the Sketchfab Standard license
-- HE grenade: ["M67"](https://skfb.ly/oDYJJ) by Firewarden
-- Flashbang: ["M84 Stun Grenade 'Flashbang'"](https://skfb.ly/6RKVO) by Vanillatography
-- Smoke grenade: ["M18 Smoke Grenade"](https://skfb.ly/6Soqp) by Vanillatography
-- C4: ["Simple C4- Bomb"](https://skfb.ly/6zLxq) by Blender3D
-- First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen
-- Classic knife and its motion: ["knife Animated"](https://skfb.ly/6XZJB) by DJMaesen (the knife mesh and the knife's path through the idle, slash and draw clips; the model's own arms aren't used)
-- Molotov: ["Molotov Cocktail"](https://sketchfab.com/3d-models/molotov-cocktail-e57a0fd669974a3dab7d3919bda9032c) by LiliumLetifer (the bottle's brand label was painted out and the model's flame sprites were left out; the flames are the game's own)
-
-Map textures, prop models and skies, all CC0 (public domain), from [Poly Haven](https://polyhaven.com), resized and converted for the game:
-- **Textures** (`assets/textures/`): sandstone cracks, sandy gravel 02, sandstone blocks 08, beige wall 002, clay plaster, white sandstone bricks 03, red sandstone pavement, patio tiles, cobblestone square, terracotta floor tiles, patterned terracotta tiling, plastered wall 02, damaged plaster, plaster stone wall 02, red plaster weathered, asphalt 02, concrete floor worn 001, concrete wall 006 and 008, factory brick, corrugated iron 02, box profile metal sheet, container side, concrete block wall, metal plate, rusty metal 02, hangar concrete floor, painted concrete, factory wall, grey plaster 02, anti-skid tiles, grass path 2, wood planks, wood shutter, rusty metal shutter, clay roof tiles 02, ceiling interior, blue painted planks. The crate face is composed from the wood planks texture.
-- **Models** (`assets/props/`): Barrel 01 and 02, barrel 03, wooden crate 01 and 02, cardboard box 01, concrete road barrier and barrier 02, covered car (recoloured), utility box 01 and 02, power box 01, street lamp 01 and 02, fire hydrant, metal trash can, old tyre, rollershutter door and window 01, large iron gate, metal jerrycan, industrial plastic container, cement bag, planter pot clay, ceramic pot, planter box 01, wooden picnic table, painted wooden bench, plastic monobloc chair 01, wooden table 02, security light, security camera 01, industrial wall lamp, hanging industrial lamp, modular airduct circular 01 (vent fan), modular industrial pipes 01, water manhole cover, wooden bucket 01, wooden lantern 01, steel frame shelves 01, portable generator, worn metal rack, compost bags, namaqualand boulder 02, stone fire pit, metal tool chest.
-- **Skies** (`assets/skies/`): Kloofendal 43d Clear (Pure Sky), Citrus Orchard Road (Pure Sky), Kloofendal 48d Partly Cloudy (Pure Sky), Sunflowers (Pure Sky).
-
-Sound effects, all CC0 (public domain), from [Freesound](https://freesound.org) and [Kenney](https://kenney.nl):
-- **Gunshots:** "9mm pistol shot" by michorvath, "Glock 19X" and "Heckler & Koch MP7 Suppressed" by areniporgen, "silenced pistol shot" by Clutvh, "Mossberg 500A - 1 shot and pump" by AnthonyChan0, "shotgun shoot" by MrGungus, two AK-47 recordings by serøutōnin--deprivəd, "FPS Sniper Shot" by qubodup, "Rifle Gun Shot 02" by LilMati.
-- **Handling:** "Assault Rifle Reload" by qubodup, "pistol reload sound" by GFL7, "shell load" by CeebFrack, "SXP_SHOTGUN_RACK_01" by dasBUTCHER84, "22 Bolt" by Danwardvs, "9mm Handgun Being Dry Fired" by serøutōnin--deprivəd, "Unholster Gun" by qubodup.
-- **Knife:** "Clean fast Swoosh" by Danjocross, "FX - Swoosh - Knife (High Pitch)" by bolkmar, "Large Swede Stab with Whoosh" by minituffy.
-- **Grenades and fire:** "Grenade Explosion SFX" by unfa, "CTS 7290" (flashbang) by areniporgen, "Gas Grenade" by Themiwa100, "Breaking Glass #3" by abstraktgeneriert, "Flame Burst" and "Flame Loop" by magnuswaker, "low mid afar explosion 1" by Logicogonist.
-- **World:** "bullet ricochet" by aust_paul, ".30 Shell Bouncing" by Danwardvs, "Fly-by whiz SFX" by modusmogulus, "FPS Footsteps Loop" by qubodup, "jump_land" by nhill2003, "Videogame Menu BUTTON CLICK" by Christopherderp.
-- **Kenney packs:** "Impact Sounds" and "RPG Audio" (metal clinks, body hits, the grenade pin and the knife draw).
+Mars and a heliocentric layer, docking, fairings and fins with aerodynamic stability, solar panels and batteries, a career mode with funds and part unlocks, saving flights mid-mission, and custom staging edits in the builder.
