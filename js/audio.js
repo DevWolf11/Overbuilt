@@ -2,7 +2,7 @@
 // Procedural sound: engine rumble, separation thunk, explosions, achievement chime.
 
 const Sound = {
-  ctx: null, muted: store.get('orbitforge.muted', false),
+  ctx: null, muted: store.get('rss.muted', false),
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try {
@@ -27,7 +27,7 @@ const Sound = {
     } catch (e) { this.ctx = null; }
   },
   setMuted(m) {
-    this.muted = m; store.set('orbitforge.muted', m);
+    this.muted = m; store.set('rss.muted', m);
     if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.05);
   },
   engine(level, air) {

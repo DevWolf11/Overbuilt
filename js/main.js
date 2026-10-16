@@ -20,7 +20,7 @@ const App = {
     document.addEventListener('gesturestart', (e) => e.preventDefault());
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
-    if (!store.get('orbitforge.seenHelp', false)) { store.set('orbitforge.seenHelp', true); setTimeout(() => this.showHelp(), 300); }
+    if (!store.get('rss.seenHelp', false)) { store.set('rss.seenHelp', true); setTimeout(() => this.showHelp(), 300); }
     setTimeout(() => Builder.fitView(), 50);
   },
 
@@ -90,6 +90,6 @@ const App = {
 
 addEventListener('DOMContentLoaded', () => App.init());
 
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.ORBIT_FORGE_NO_SW) {
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.RSS_NO_SW) {
   addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
 }

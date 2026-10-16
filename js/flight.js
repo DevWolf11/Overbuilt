@@ -513,8 +513,8 @@ const Flight = {
       const a = ACHIEVEMENTS.find((x) => x.id === id);
       this.toast(a.name, 'achievement');
       Sound.chime();
-      const all = store.get('orbitforge.achievements', {});
-      all[id] = true; store.set('orbitforge.achievements', all);
+      const all = store.get('rss.achievements', {});
+      all[id] = true; store.set('rss.achievements', all);
     };
     if (v.body === EARTH && alt > 60 && this.time > 1) award('liftoff');
     if (v.body === EARTH && alt > EARTH.atmoHeight) award('space');
