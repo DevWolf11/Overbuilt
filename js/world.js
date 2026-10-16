@@ -625,7 +625,7 @@ const World = {
     ctx.translate(x, y); ctx.rotate(v.rot); ctx.translate(-v.com.x, -v.com.y);
     const rho = airDensity(v.body, v.altitude());
     ctx.globalCompositeOperation = 'lighter';
-    for (const p of v.parts) if (p.def.thrust && p.firing > 0) this.drawFlame(ctx, p, p.firing, rho);
+    for (const p of v.parts) if (p.def.thrust && p.firing > 0 && p.def.plume !== 'none') this.drawFlame(ctx, p, p.firing, rho);
     ctx.globalCompositeOperation = 'source-over';
   },
 
@@ -642,7 +642,8 @@ const World = {
       nuclear: ['230,255,250', '140,230,255', '80,160,255'],
       ion: ['200,225,255', '90,150,255', '60,90,255'],
       spike: ['255,220,150', '255,150,60', '255,90,30'],
-    }[type];
+      jet: ['255,228,196', '255,160,96', '150,120,255'],
+    }[type] || ['255,214,140', '255,140,40', '255,70,20'];
     const lenK = type === 'ion' ? 3.5 : type === 'solid' ? 4.2 : type === 'hydro' ? 3.4 : 3.2;
     const len = Math.max(d.w, 1) * (1.4 + lenK * k) * (1 + (type === 'spike' ? 0 : vac * 0.9)) * flick;
     const spread = bw * (type === 'spike' ? 1 : 1 + vac * (type === 'ion' ? 0.4 : 1.8));

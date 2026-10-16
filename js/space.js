@@ -61,6 +61,25 @@ const EARTH = makeBody({
   blurb: 'Home. Oceans, clouds and a launch pad.',
 });
 
+// The space centre sits on an island. Everything is measured in metres east of the pad along the
+// surface; east is screen-right at the pad, which is the direction of decreasing angle.
+EARTH.sites = {
+  pad: { name: 'Launch pad', east: 0 },
+  helipad: { name: 'Helipad', east: 160 },
+  runway: { name: 'Runway', east: 760 }, // planes and cars start at the west end, facing east
+};
+EARTH.runway = { from: 700, to: 2700 }; // the paved strip
+// Flattened ground: each flat blends from `height` back to the natural terrain over `blend` metres.
+// Later entries win where they overlap.
+EARTH.flats = [
+  { name: 'spaceCentre', east: 0, half: 220, blend: 1350, height: 40 },
+  { name: 'causeway', east: 8000, half: 4700, blend: 600, height: 12 }, // road to the mainland, 3.3–12.7 km
+  { name: 'runway', east: 1700, half: 1100, blend: 700, height: 40 },
+];
+for (const f of EARTH.flats) f.ang = EARTH.padAngle - f.east / EARTH.radius;
+
+function siteAngle(b, east) { return b.padAngle - east / b.radius; }
+
 const MOON = makeBody({
   id: 'moon', name: 'Moon', radius: 90000, surfaceG: 1.62, parent: EARTH, orbitRadius: 6.2e6, orbitPhase: 2.4, orbitDir: -1,
   colors: { ground: '#6e6f73', surface: '#a8a9ad', deep: '#4b4c50', map: '#9a9ba0', rock: '#5c5d61', halo: '0,0,0' },
@@ -134,15 +153,28 @@ function bodyVel(b, t) {
   return b._v;
 }
 
-function terrainHeight(b, ang) {
+// Natural terrain, before the space centre's flattened ground.
+function terrainRaw(b, ang) {
   let h = b.terrainBase || 0;
   for (const [k, amp, ph] of b.terrain) h += amp * Math.sin(k * ang + ph);
   if (b.craters) h -= b.craters[1] * Math.pow(Math.abs(Math.sin(b.craters[0] * ang + 0.7)), 6);
-  if (b.padAngle != null) {
-    const d = Math.abs(wrapAngle(ang - b.padAngle));
-    h = lerp(b.padHeight, h, smoothstep(0.0007, 0.005, d));
+  return h;
+}
+function terrainHeight(b, ang) {
+  let h = terrainRaw(b, ang);
+  if (b.flats) {
+    for (const f of b.flats) {
+      const d = Math.abs(wrapAngle(ang - f.ang)) * b.radius;
+      if (d < f.half + f.blend) h = lerp(f.height, h, smoothstep(f.half, f.half + f.blend, d));
+    }
   }
   return h;
+}
+// True on built-up flat ground (pad, runway, causeway), where no trees or rocks grow.
+function clearZone(b, ang) {
+  if (!b.flats) return false;
+  for (const f of b.flats) if (Math.abs(wrapAngle(ang - f.ang)) * b.radius < f.half + 30) return true;
+  return false;
 }
 function surfaceRadius(b, ang) {
   const h = terrainHeight(b, ang);

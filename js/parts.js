@@ -10,7 +10,18 @@ const PART_CATEGORIES = [
   { id: 'aero', name: 'Aero' },
   { id: 'utility', name: 'Utility' },
   { id: 'structure', name: 'Structure' },
+  { id: 'air', name: 'Aircraft' },
+  { id: 'ground', name: 'Ground' },
 ];
+
+// Vehicle kinds decide where a design launches and how the builder shows it. launchRot is the
+// craft's rotation at launch: planes are built and launched nose-right (local +y points east).
+const VEHICLE_KINDS = {
+  rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0 },
+  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2 },
+  car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0 },
+  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0 },
+};
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
 const AMBIENT_T = 290;
@@ -90,7 +101,7 @@ const PARTS = {
     desc: 'Big canopy for heavy landers.' },
   leg: { cat: 'utility', name: 'Landing Leg', w: 0.5, h: 3, mass: 0.08, leg: true, breakSpeed: 16, shape: 'leg', tier: 1, cost: 600,
     desc: 'Mount on a side. Absorbs harder touchdowns.' },
-  wheel: { cat: 'utility', name: 'Rover Wheel', w: 1, h: 1, mass: 0.1, wheel: true, breakSpeed: 14, shape: 'wheel', tier: 3, cost: 1200,
+  wheel: { cat: 'utility', name: 'Rover Wheel', w: 1, h: 1, mass: 0.1, wheel: { r: 0.45, drive: true, speed: 12, accel: 2.5, track: 2 }, breakSpeed: 14, shape: 'wheel', tier: 3, cost: 1200,
     desc: 'Mount under a chassis. On the ground, the rotate controls drive.' },
   rcs: { cat: 'utility', name: 'RCS Block', w: 0.5, h: 0.75, mass: 0.05, torque: 9000, shape: 'rcs', tier: 2, cost: 1200,
     desc: 'Side-mounted thrusters. Extra turning power for big rockets.' },
@@ -99,6 +110,47 @@ const PARTS = {
   girder: { cat: 'structure', name: 'Girder', w: 0.5, h: 4, mass: 0.12, shape: 'girder', tier: 1, cost: 300, desc: 'Light lattice beam for building outward.' },
   adapter: { cat: 'structure', name: 'Adapter 2–1', w: 2, h: 1, topW: 1, mass: 0.08, shape: 'adapter', tier: 1, cost: 300, desc: 'Narrows a 2 m stack to 1 m.' },
   adapterL: { cat: 'structure', name: 'Adapter 3–2', w: 3, h: 1, topW: 2, mass: 0.12, shape: 'adapter', tier: 2, cost: 400, desc: 'Narrows a 3 m stack to 2 m.' },
+
+  // ---- aircraft. Planes are built nose-right: the stack runs along local +y (the nose) and the
+  // landing gear hangs on the local +x side, which is down once the plane sits on the runway.
+  // The 2D world is a side view, so a wing part is the wing's cross-section; `span` only matters
+  // for the 3D view, and `area` is the lifting area of the whole wing.
+  cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 9000, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
+    tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
+  fuselage: Object.assign(tank('Fuselage', 2, 4, 0, 'Fuel tank with an airliner paint job, for plane bodies.'), { cat: 'air', shape: 'fuselage' }),
+  tailcone: { cat: 'air', name: 'Tail Cone', w: 2, h: 2.5, botW: 0.7, mass: 0.15, shape: 'tailcone', aero: true, tier: 0, cost: 400,
+    desc: 'Tapers the back of a fuselage up towards the tail.' },
+  wing: { cat: 'air', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 18, span: 10 }, breakSpeed: 14, tier: 0, cost: 1500,
+    desc: 'Main wing (one part is the whole span). Mount it on the side of the fuselage near the centre of mass. Lift grows with speed and angle of attack, until it stalls.' },
+  wingS: { cat: 'air', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5 }, breakSpeed: 14, tier: 0, cost: 700,
+    desc: 'Short wing for small planes, canards or a fixed tailplane.' },
+  elevator: { cat: 'air', name: 'Elevator', w: 0.3, h: 1.5, mass: 0.12, shape: 'elevator', wing: { area: 5, span: 5, control: 0.35 }, breakSpeed: 14, tier: 0, cost: 900,
+    desc: 'Moving tail surface. The rotate controls and the autopilot pitch the plane with it. Put it far behind the centre of mass.' },
+  vtail: { cat: 'air', name: 'Vertical Tail', w: 1.6, h: 2.2, mass: 0.1, shape: 'vtail', tier: 0, cost: 400,
+    desc: 'Tail fin for planes. Mount it on top of the tail.' },
+  propeller: { cat: 'air', name: 'Propeller', w: 2.6, h: 0.9, mass: 0.35, thrust: 34, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 45 },
+    shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 0, cost: 4000,
+    desc: 'Piston engine and propeller. Mount it on the nose. Needs air, and pulls hardest at low speed.' },
+  jet: { cat: 'air', name: 'Turbojet', w: 1.5, h: 3, mass: 1.1, thrust: 110, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 650 },
+    shape: 'jet', plume: 'jet', maxTemp: 2000, tier: 2, cost: 12000,
+    desc: 'Air-breathing jet for fast planes. Thrust grows with speed up to about Mach 2, but it flames out in thin air.' },
+  rotor: { cat: 'air', name: 'Main Rotor', w: 10, h: 1.2, mass: 0.7, thrust: 80, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'rotor', v0: 25, torque: 14000 },
+    shape: 'rotor', plume: 'none', breakSpeed: 8, maxTemp: 1500, tier: 1, cost: 9000,
+    desc: 'Helicopter rotor and turboshaft. Throttle sets the lift; the rotate controls tilt the craft. Mount it on top of the cabin.' },
+  tailRotor: { cat: 'air', name: 'Tail Rotor', w: 1.6, h: 1.6, mass: 0.05, shape: 'tailrotor', tier: 1, cost: 800,
+    desc: 'Anti-torque rotor for the end of a tail boom. Spins with the main rotor.' },
+  gear: { cat: 'air', name: 'Landing Gear', w: 1.4, h: 0.9, mass: 0.15, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 1.8 }, breakSpeed: 7, tier: 0, cost: 800,
+    desc: 'Wheel on a sideways strut. Mount it under the fuselage. It rolls freely; hold B to brake.' },
+
+  // ---- ground
+  cab: { cat: 'ground', name: 'Driver Cab', w: 2.4, h: 1.5, mass: 0.6, control: 2, torque: 4000, crew: 2, shape: 'cab', depth: 2, aero: true, breakSpeed: 11, tier: 0, cost: 2500,
+    desc: 'Two-seat cab for cars and trucks.' },
+  chassis: { cat: 'ground', name: 'Chassis', w: 4, h: 0.5, mass: 0.5, shape: 'chassis', depth: 2.2, tier: 0, cost: 800,
+    desc: 'Flat car frame. Hang wheels under it and put a cab on top.' },
+  chassisL: { cat: 'ground', name: 'Long Chassis', w: 6, h: 0.5, mass: 0.75, shape: 'chassis', depth: 2.4, tier: 1, cost: 1100,
+    desc: 'Longer frame for trucks and big rovers.' },
+  carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
+    desc: 'Driven road wheel. Mount it under a chassis. On the ground the rotate controls drive; hold B to brake.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -129,6 +181,14 @@ function makePart(type, x, y, extra) {
 function partRect(p) {
   const d = p.def;
   return { l: p.x - d.w / 2, r: p.x + d.w / 2, b: p.y - d.h / 2, t: p.y + d.h / 2 };
+}
+
+// Wheel centre and radius in part space. Most wheels hang below an upright strut; landing gear
+// struts run sideways, with the wheel at the outer end (away from the fuselage).
+function wheelGeom(p) {
+  const d = p.def, r = d.wheel.r || Math.min(d.w, d.h) * 0.45;
+  if (d.shape === 'gear') return { x: p.x + (p.flip ? -1 : 1) * (d.w / 2 - r), y: p.y, r };
+  return { x: p.x, y: p.y - d.h * 0.05, r };
 }
 
 // Two parts are attached if they share an edge segment.
@@ -360,17 +420,23 @@ const PAL = {
   orange: '#ff7a1a', glass: '#7fd8ff', gold: '#d9a441', goldDark: '#a7782a', hazard: '#ffc93c', chuteA: '#ff7a1a', chuteB: '#f3f1ea',
   shield: '#3a2f2a', shieldLight: '#5a4a40', nuclear: '#7dffb0', ion: '#7fb8ff',
 };
+// With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
+// where real lighting does the shading).
+const PartPaint = { flat: false };
 function hullGradient(ctx, l, r) {
+  if (PartPaint.flat) return '#e3e7eb';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#9da6b0'); g.addColorStop(0.3, '#f5f7f9'); g.addColorStop(0.55, '#e6e9ed'); g.addColorStop(1, '#8e97a1');
   return g;
 }
 function metalGradient(ctx, l, r) {
+  if (PartPaint.flat) return '#8d96a0';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#3f454d'); g.addColorStop(0.35, '#b8c0c9'); g.addColorStop(0.6, '#8a939d'); g.addColorStop(1, '#353a41');
   return g;
 }
 function goldGradient(ctx, l, r) {
+  if (PartPaint.flat) return '#d6a243';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#8c6420'); g.addColorStop(0.35, '#f0c35c'); g.addColorStop(0.65, '#d9a441'); g.addColorStop(1, '#7c5718');
   return g;
@@ -683,6 +749,9 @@ function drawPart(ctx, p, lw) {
       ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       break;
     }
+    default: // shapes without a dedicated drawing yet
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill(); ctx.stroke();
+      break;
     case 'adapter': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip(); ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.12); ctx.fillRect(l, t - 0.12, w, 0.12); ctx.restore();
