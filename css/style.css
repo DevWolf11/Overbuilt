@@ -1,4 +1,4 @@
-/* Orbit Forge — mission-control HUD over a canvas.
+/* Rocket Science Simulator — mission-control HUD over a canvas.
    Layout: full-bleed canvas; HUD panels pinned to the edges, clear of the safe-area insets. */
 :root {
   --space: #05070d;
@@ -290,6 +290,9 @@ kbd {
 .template-blurb { font-size: 13px; color: var(--muted); line-height: 1.35; }
 
 /* ------------------------------------------------------------------ responsive */
+@media (max-width: 1000px) {
+  .brand-name { display: none; }
+}
 @media (max-width: 420px) {
   .brand { display: none; }
   #btn-clear { width: 34px; padding: 0; }

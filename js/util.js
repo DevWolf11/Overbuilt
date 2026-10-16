@@ -65,7 +65,9 @@ const fmt = {
 const store = {
   get(key, fallback) {
     try {
-      const v = localStorage.getItem(key);
+      let v = localStorage.getItem(key);
+      // saves from before the rename used an "orbitforge." prefix
+      if (v == null && key.startsWith('rss.')) v = localStorage.getItem('orbitforge.' + key.slice(4));
       return v == null ? fallback : JSON.parse(v);
     } catch (e) { return fallback; }
   },

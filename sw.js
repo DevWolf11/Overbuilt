@@ -1,5 +1,5 @@
 // Offline cache: serve the game shell from cache, refresh it in the background.
-const CACHE = 'orbit-forge-v1';
+const CACHE = 'rocket-science-sim-v2';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/util.js', 'js/space.js', 'js/parts.js', 'js/vessel.js', 'js/ui.js', 'js/audio.js',

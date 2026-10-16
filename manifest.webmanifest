@@ -1,6 +1,6 @@
 {
-  "name": "Orbit Forge",
-  "short_name": "Orbit Forge",
+  "name": "Rocket Science Simulator",
+  "short_name": "Rocket Sim",
   "description": "Build rockets, reach orbit and land on the Moon.",
   "start_url": "./",
   "scope": "./",

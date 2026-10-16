@@ -34,11 +34,11 @@ const Builder = {
     this.selected = null;
     this.cam = { x: 0, y: 8, scale: 26 };
     this.pointers = new Map();
-    this.symmetry = store.get('orbitforge.symmetry', true);
+    this.symmetry = store.get('rss.symmetry', true);
     this.category = 'command';
     this.buildPalette();
     this.bindDom();
-    const saved = store.get('orbitforge.design', null);
+    const saved = store.get('rss.design', null);
     if (saved && saved.parts && saved.parts.length) this.loadDesign(saved);
     else this.loadTemplate('orbiter');
   },
@@ -47,7 +47,7 @@ const Builder = {
   serialize() {
     return { parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip })) };
   },
-  save() { store.set('orbitforge.design', this.serialize()); },
+  save() { store.set('rss.design', this.serialize()); },
   loadDesign(d) {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip }));
     this.linkMirrors();
@@ -403,7 +403,7 @@ const Builder = {
     sym.setAttribute('aria-pressed', String(this.symmetry));
     sym.addEventListener('click', () => {
       this.symmetry = !this.symmetry;
-      store.set('orbitforge.symmetry', this.symmetry);
+      store.set('rss.symmetry', this.symmetry);
       sym.setAttribute('aria-pressed', String(this.symmetry));
     });
     $('#btn-clear').addEventListener('click', () => {

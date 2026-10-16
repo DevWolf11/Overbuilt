@@ -1,4 +1,4 @@
-# Orbit Forge
+# Rocket Science Simulator
 
 A 2D rocket-building and spaceflight game inspired by *Spaceflight Simulator*. Snap parts together on a blueprint, launch from the pad, fly a gravity turn into orbit, transfer to the Moon, land, and come home under a parachute.
 
@@ -8,7 +8,7 @@ It runs in any modern browser on desktop and mobile. There is no build step and 
 
 - **Online:** https://devwolf11.github.io/Rocket-Science-Simulator/ (deployed from `main` by `.github/workflows/pages.yml`; needs Settings → Pages → Source set to "GitHub Actions"). On a phone, use "Add to Home Screen" to install it and play offline.
 - **Locally:** double-click `index.html`, or serve the folder (`npx serve .`) to also get the offline/installable PWA.
-- **Single file:** `node tools/build-single.mjs` writes `dist/orbit-forge.html`, the whole game in one HTML file you can send to someone.
+- **Single file:** `node tools/build-single.mjs` writes `dist/rocket-science-simulator.html`, the whole game in one HTML file you can send to someone.
 
 ## Controls
 
@@ -52,7 +52,7 @@ js/flight.js          flight screen: simulation loop, time warp, camera, map, HU
 js/ui.js, audio.js    dialogs/toasts and procedural sound
 js/main.js            app shell and main loop
 sw.js, manifest.webmanifest, icons/   offline support and install icons
-tools/build-single.mjs bundles everything into dist/orbit-forge.html
+tools/build-single.mjs bundles everything into dist/rocket-science-simulator.html
 .github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
 ```
 
