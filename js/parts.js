@@ -1,55 +1,120 @@
 'use strict';
-// Part catalogue and part drawing. Units: metres, tonnes, kN, seconds.
+// Part catalogue, attachment rules, staging, Δv and part drawing.
+// Units: metres, tonnes, kN, seconds, kelvin.
 
 const PART_CATEGORIES = [
   { id: 'command', name: 'Command' },
   { id: 'fuel', name: 'Fuel' },
   { id: 'engine', name: 'Engines' },
   { id: 'coupling', name: 'Coupling' },
+  { id: 'aero', name: 'Aero' },
   { id: 'utility', name: 'Utility' },
+  { id: 'structure', name: 'Structure' },
 ];
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
+const AMBIENT_T = 290;
 
-function tank(name, w, h, desc) {
+function tank(name, w, h, tier, desc) {
   const fuel = +(w * h * FUEL_PER_M2).toFixed(2);
-  return { cat: 'fuel', name, w, h, fuel, mass: +(fuel / 9).toFixed(3), shape: 'tank', desc };
+  return { cat: 'fuel', name, w, h, fuel, mass: +(fuel / 9).toFixed(3), shape: 'tank', tier, cost: Math.round(200 + fuel * 600), desc };
 }
 
 const PARTS = {
-  pod: { cat: 'command', name: 'Command Pod', w: 2, h: 2, mass: 1.2, control: 2, torque: 25000, shape: 'pod', aero: true, breakSpeed: 12,
-    desc: 'Crew capsule with a reaction wheel. Put a parachute on top to bring it home.' },
+  // ---- command
+  pod: { cat: 'command', name: 'Command Pod', w: 2, h: 2, mass: 1.2, control: 3, torque: 25000, shape: 'pod', aero: true, breakSpeed: 12, maxTemp: 2600,
+    tier: 0, cost: 6000, crew: 2, desc: 'Two-seat capsule with a reaction wheel and a built-in heat shield.' },
+  podSmall: { cat: 'command', name: 'Mini Pod', w: 1, h: 1.25, mass: 0.55, control: 2, torque: 7000, shape: 'pod', aero: true, breakSpeed: 11, maxTemp: 2400,
+    tier: 1, cost: 3500, crew: 1, desc: 'A single-seat capsule for slim landers.' },
   probe: { cat: 'command', name: 'Probe Core', w: 1, h: 1, mass: 0.25, control: 1, torque: 6000, shape: 'probe',
-    desc: 'Light uncrewed controller. Weak reaction wheel.' },
+    tier: 0, cost: 3000, desc: 'Light uncrewed controller. Weak reaction wheel.' },
+  probeL: { cat: 'command', name: 'Probe Core L', w: 2, h: 0.75, mass: 0.45, control: 1, torque: 14000, shape: 'probeL',
+    tier: 1, cost: 5000, desc: 'Flat probe core that fits standard 2 m stacks.' },
 
-  tankS: tank('Fuel Tank S', 2, 1, 'Short tank. Good for fine-tuning stages.'),
-  tankM: tank('Fuel Tank M', 2, 2, 'Standard tank.'),
-  tankL: tank('Fuel Tank L', 2, 4, 'Long tank for core stages.'),
-  tankThin: tank('Slim Tank', 1, 2, 'Narrow tank for landers and probes.'),
-  tankWide: tank('Wide Tank', 3, 3, 'Heavy tank sized for the Titan.'),
+  // ---- fuel
+  tankS: tank('Fuel Tank S', 2, 1, 0, 'Short tank for fine-tuning a stage.'),
+  tankM: tank('Fuel Tank M', 2, 2, 0, 'Standard tank.'),
+  tankL: tank('Fuel Tank L', 2, 4, 0, 'Long tank for core stages.'),
+  tankXL: tank('Fuel Tank XL', 2, 6, 1, 'Extra-long tank. Heavy, but saves separators.'),
+  tankThinS: tank('Slim Tank S', 1, 1, 1, 'Tiny tank for probes and landers.'),
+  tankThin: tank('Slim Tank', 1, 2, 1, 'Narrow tank for landers and boosters.'),
+  tankThinL: tank('Slim Tank L', 1, 4, 1, 'Long narrow tank for side boosters.'),
+  tankWide: tank('Wide Tank', 3, 3, 2, 'Heavy tank sized for the Titan.'),
+  tankWideL: tank('Wide Tank L', 3, 6, 2, 'The biggest tank. Fill it, then add more engines.'),
 
-  hawk: { cat: 'engine', name: 'Hawk', w: 2, h: 2, mass: 1.4, thrust: 200, ispSL: 250, ispVac: 290, gimbal: 0.07, shape: 'engine',
-    mount: 0.34, bellTop: 0.36, bellBot: 0.86, desc: 'Reliable first-stage engine. Strong at sea level.' },
-  titan: { cat: 'engine', name: 'Titan', w: 3, h: 3, mass: 3.6, thrust: 520, ispSL: 260, ispVac: 300, gimbal: 0.06, shape: 'engine',
-    mount: 0.3, bellTop: 0.34, bellBot: 0.9, desc: 'Heavy lifter for big rockets.' },
-  valiant: { cat: 'engine', name: 'Valiant', w: 2, h: 1.5, mass: 0.55, thrust: 50, ispSL: 190, ispVac: 345, gimbal: 0.08, shape: 'engine',
-    mount: 0.28, bellTop: 0.3, bellBot: 1.0, desc: 'Vacuum engine. Weak in the air, very efficient in space.' },
-  kolibri: { cat: 'engine', name: 'Kolibri', w: 1, h: 1, mass: 0.12, thrust: 12, ispSL: 230, ispVac: 315, gimbal: 0.1, shape: 'engine',
-    mount: 0.35, bellTop: 0.4, bellBot: 0.9, desc: 'Tiny engine for landers and probes.' },
+  // ---- engines
+  hawk: { cat: 'engine', name: 'Hawk', w: 2, h: 2, mass: 1.4, thrust: 200, ispSL: 250, ispVac: 290, gimbal: 0.07, shape: 'engine', plume: 'kero',
+    mount: 0.34, bellTop: 0.36, bellBot: 0.86, tier: 0, cost: 8000, maxTemp: 2300, desc: 'Reliable first-stage engine. Strong at sea level.' },
+  titan: { cat: 'engine', name: 'Titan', w: 3, h: 3, mass: 3.6, thrust: 520, ispSL: 260, ispVac: 300, gimbal: 0.06, shape: 'engine', plume: 'kero',
+    mount: 0.3, bellTop: 0.34, bellBot: 0.9, tier: 2, cost: 20000, maxTemp: 2300, desc: 'Heavy lifter for big rockets.' },
+  valiant: { cat: 'engine', name: 'Valiant', w: 2, h: 1.5, mass: 0.55, thrust: 50, ispSL: 190, ispVac: 345, gimbal: 0.08, shape: 'engine', plume: 'hydro',
+    mount: 0.28, bellTop: 0.3, bellBot: 1.0, tier: 1, cost: 6000, maxTemp: 2300, desc: 'Vacuum engine. Weak in the air, very efficient in space.' },
+  kolibri: { cat: 'engine', name: 'Kolibri', w: 1, h: 1, mass: 0.12, thrust: 12, ispSL: 230, ispVac: 315, gimbal: 0.1, shape: 'engine', plume: 'hydro',
+    mount: 0.35, bellTop: 0.4, bellBot: 0.9, tier: 1, cost: 1500, maxTemp: 2300, desc: 'Tiny engine for landers and probes.' },
+  spire: { cat: 'engine', name: 'Spire Aerospike', w: 2, h: 1.5, mass: 1.2, thrust: 130, ispSL: 300, ispVac: 325, gimbal: 0.05, shape: 'spike', plume: 'spike',
+    mount: 0.3, tier: 2, cost: 15000, maxTemp: 2300, desc: 'Keeps its efficiency at every altitude. Great for single-stage landers.' },
+  prometheus: { cat: 'engine', name: 'Prometheus', w: 2, h: 3, mass: 3.0, thrust: 70, ispSL: 280, ispVac: 850, gimbal: 0.04, shape: 'engine', style: 'nuclear', plume: 'nuclear',
+    mount: 0.48, bellTop: 0.3, bellBot: 0.8, tier: 3, cost: 30000, maxTemp: 2500, desc: 'Nuclear thermal engine. Heavy, gentle, and astonishingly efficient.' },
+  whisper: { cat: 'engine', name: 'Whisper Ion', w: 1, h: 0.75, mass: 0.25, thrust: 6, ispSL: 120, ispVac: 3000, gimbal: 0.12, shape: 'ion', plume: 'ion',
+    tier: 4, cost: 20000, maxTemp: 1800, desc: 'Ion drive. Feeble push, enormous range. Use physics warp for long burns.' },
+  spark: { cat: 'engine', name: 'Spark SRB', w: 1, h: 4, mass: 0.35, thrust: 140, ispSL: 200, ispVac: 225, gimbal: 0, shape: 'srb', plume: 'solid', solid: true,
+    fuel: 2.0, tier: 0, cost: 2500, maxTemp: 2100, desc: 'Solid rocket booster. Cheap and punchy, but once lit it burns to the end.' },
+  thunder: { cat: 'engine', name: 'Thunder SRB', w: 1.5, h: 8, mass: 0.9, thrust: 420, ispSL: 210, ispVac: 235, gimbal: 0, shape: 'srb', plume: 'solid', solid: true,
+    fuel: 6.5, tier: 2, cost: 7000, maxTemp: 2100, desc: 'Heavy solid booster for big launches. Cannot be throttled or shut down.' },
 
-  separator: { cat: 'coupling', name: 'Separator', w: 2, h: 0.5, mass: 0.08, separator: true, shape: 'sep',
+  // ---- coupling
+  separator: { cat: 'coupling', name: 'Separator', w: 2, h: 0.5, mass: 0.08, separator: true, shape: 'sep', tier: 0, cost: 400,
     desc: 'Splits the rocket in two. Stays attached to the part that falls away.' },
-  sideSep: { cat: 'coupling', name: 'Side Separator', w: 0.5, h: 2, mass: 0.06, separator: true, side: true, shape: 'sep',
+  separatorS: { cat: 'coupling', name: 'Separator S', w: 1, h: 0.5, mass: 0.04, separator: true, shape: 'sep', tier: 1, cost: 250,
+    desc: 'Separator for 1 m stacks.' },
+  separatorL: { cat: 'coupling', name: 'Separator L', w: 3, h: 0.5, mass: 0.14, separator: true, shape: 'sep', tier: 2, cost: 600,
+    desc: 'Separator for 3 m stacks.' },
+  sideSep: { cat: 'coupling', name: 'Side Separator', w: 0.5, h: 2, mass: 0.06, separator: true, side: true, shape: 'sep', tier: 1, cost: 350,
     desc: 'Attach boosters to the side of a stage.' },
 
-  nose: { cat: 'utility', name: 'Nose Cone', w: 2, h: 1.5, mass: 0.08, aero: true, shape: 'nose',
-    desc: 'Cuts drag when it leads the way.' },
-  chute: { cat: 'utility', name: 'Parachute', w: 1, h: 0.5, mass: 0.1, chute: true, shape: 'chute',
-    desc: 'Deploy below 250 m/s in an atmosphere for a gentle landing.' },
-  leg: { cat: 'utility', name: 'Landing Leg', w: 0.5, h: 3, mass: 0.08, leg: true, breakSpeed: 16, shape: 'leg',
+  // ---- aero
+  nose: { cat: 'aero', name: 'Nose Cone', w: 2, h: 1.5, mass: 0.08, aero: true, shape: 'nose', tier: 0, cost: 300, desc: 'Cuts drag when it leads the way.' },
+  noseS: { cat: 'aero', name: 'Nose Cone S', w: 1, h: 1, mass: 0.04, aero: true, shape: 'nose', tier: 0, cost: 150, desc: 'Small cone for boosters and probes.' },
+  noseL: { cat: 'aero', name: 'Nose Cone L', w: 3, h: 2, mass: 0.15, aero: true, shape: 'nose', tier: 2, cost: 500, desc: 'Cone for heavy 3 m rockets.' },
+  fin: { cat: 'aero', name: 'Fin', w: 0.75, h: 1.5, mass: 0.05, fin: true, shape: 'fin', tier: 0, cost: 250,
+    desc: 'Mount low on the sides to keep the rocket pointing where it flies.' },
+  heatShield: { cat: 'aero', name: 'Heat Shield', w: 2, h: 0.5, mass: 0.3, heatShield: true, shape: 'shield', maxTemp: 4200, breakSpeed: 12, tier: 1, cost: 1500,
+    desc: 'Lead with it on reentry. Fast returns from the Moon or planets need one.' },
+  heatShieldL: { cat: 'aero', name: 'Heat Shield L', w: 3, h: 0.5, mass: 0.45, heatShield: true, shape: 'shield', maxTemp: 4200, breakSpeed: 12, tier: 2, cost: 2200,
+    desc: 'Heat shield for 3 m craft.' },
+
+  // ---- utility
+  chute: { cat: 'utility', name: 'Parachute', w: 1, h: 0.5, mass: 0.1, chute: true, chuteArea: 1, shape: 'chute', maxTemp: 1700, tier: 0, cost: 800,
+    desc: 'Opens below 250 m/s in Earth\u2019s air (faster in thin air). A drogue first, the main canopy near the ground.' },
+  chuteL: { cat: 'utility', name: 'Heavy Parachute', w: 2, h: 0.5, mass: 0.25, chute: true, chuteArea: 2.6, shape: 'chute', maxTemp: 1700, tier: 2, cost: 1600,
+    desc: 'Big canopy for heavy landers.' },
+  leg: { cat: 'utility', name: 'Landing Leg', w: 0.5, h: 3, mass: 0.08, leg: true, breakSpeed: 16, shape: 'leg', tier: 1, cost: 600,
     desc: 'Mount on a side. Absorbs harder touchdowns.' },
+  wheel: { cat: 'utility', name: 'Rover Wheel', w: 1, h: 1, mass: 0.1, wheel: true, breakSpeed: 14, shape: 'wheel', tier: 3, cost: 1200,
+    desc: 'Mount under a chassis. On the ground, the rotate controls drive.' },
+  rcs: { cat: 'utility', name: 'RCS Block', w: 0.5, h: 0.75, mass: 0.05, torque: 9000, shape: 'rcs', tier: 2, cost: 1200,
+    desc: 'Side-mounted thrusters. Extra turning power for big rockets.' },
+
+  // ---- structure
+  girder: { cat: 'structure', name: 'Girder', w: 0.5, h: 4, mass: 0.12, shape: 'girder', tier: 1, cost: 300, desc: 'Light lattice beam for building outward.' },
+  adapter: { cat: 'structure', name: 'Adapter 2–1', w: 2, h: 1, topW: 1, mass: 0.08, shape: 'adapter', tier: 1, cost: 300, desc: 'Narrows a 2 m stack to 1 m.' },
+  adapterL: { cat: 'structure', name: 'Adapter 3–2', w: 3, h: 1, topW: 2, mass: 0.12, shape: 'adapter', tier: 2, cost: 400, desc: 'Narrows a 3 m stack to 2 m.' },
 };
-for (const k in PARTS) PARTS[k].type = k;
+for (const k in PARTS) {
+  const d = PARTS[k];
+  d.type = k;
+  d.maxTemp = d.maxTemp || 2000;
+  if (d.solid) d.cost = d.cost || 2000;
+}
+
+// Tech tiers for career mode.
+const TIERS = [
+  { name: 'Basic rocketry', cost: 0 },
+  { name: 'Orbital flight', cost: 20000 },
+  { name: 'Heavy lifting', cost: 60000 },
+  { name: 'Deep space', cost: 150000 },
+  { name: 'Advanced propulsion', cost: 400000 },
+];
 
 function partDryKg(def) { return def.mass * 1000; }
 function partFuelKg(def) { return (def.fuel || 0) * 1000; }
@@ -57,7 +122,7 @@ function partFuelKg(def) { return (def.fuel || 0) * 1000; }
 let _partSeq = 1;
 function makePart(type, x, y, extra) {
   const def = PARTS[type];
-  const p = { id: _partSeq++, type, def, x, y, flip: x < 0, fuel: partFuelKg(def), active: false, deployed: 0 };
+  const p = { id: _partSeq++, type, def, x, y, flip: x < 0, fuel: partFuelKg(def), active: false, deployed: 0, temp: AMBIENT_T };
   if (extra) Object.assign(p, extra);
   return p;
 }
@@ -103,6 +168,18 @@ function findControlPart(parts) {
   let best = null;
   for (const p of parts) if (p.def.control && (!best || p.def.control > best.def.control)) best = p;
   return best;
+}
+
+function designCost(parts) { return parts.reduce((s, p) => s + (p.def || PARTS[p.type]).cost, 0); }
+
+// Exhaust exit of an engine, in part space relative to the part centre.
+function nozzleOf(def) {
+  switch (def.shape) {
+    case 'srb': return { y: -def.h / 2, half: def.w * 0.36 };
+    case 'ion': return { y: -def.h / 2, half: def.w * 0.32 };
+    case 'spike': return { y: -def.h / 2, half: def.w * 0.42 };
+    default: return { y: -def.h / 2, half: (def.w * (def.bellBot || 0.8)) / 2 };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +243,6 @@ function computeStages(parts, adj, controlId) {
     const st = [];
     for (const s of seps) if (s.depth === d) {
       if (!st.includes(s.id)) st.push(s.id);
-      // drop the far segment and everything beyond it
       const stack = [s.far];
       while (stack.length) {
         const k = stack.pop(); dropped.add(k);
@@ -191,28 +267,28 @@ function describeStage(ids, byId) {
   return Object.entries(counts).map(([k, n]) => (n > 1 && !k.startsWith('Separate') ? `${k} ×${n}` : k)).join(' · ') || '—';
 }
 
-// Delta-v estimate (vacuum) by replaying the stage list.
+// Δv estimate by replaying the stage list.
 function estimateDeltaV(parts, adj, controlId, stages, useSeaLevel) {
-  if (!controlId) return { total: 0, perStage: [] };
+  if (!controlId) return { total: 0, perStage: [], twr: [] };
   const P = parts.map((p) => ({ ...p, fuel: p.fuel }));
   const byId = new Map(P.map((p) => [p.id, p]));
   const A = new Map([...adj].map(([k, v]) => [k, new Set(v)]));
   let attached = componentOf(controlId, A);
   const active = new Set();
-  const perStage = [];
+  const perStage = [], twr = [];
   let total = 0;
   for (const st of stages) {
     for (const id of st) {
       const p = byId.get(id);
-      if (!attached.has(id)) continue;
+      if (!p || !attached.has(id)) continue;
       if (p.def.thrust) active.add(id);
       if (p.def.separator) {
         cutSeparator(id, A, controlId);
         attached = componentOf(controlId, A);
       }
     }
-    let dv = 0;
-    for (let guard = 0; guard < 20; guard++) {
+    let dv = 0, firstTwr = 0;
+    for (let guard = 0; guard < 24; guard++) {
       const groups = fuelGroups([...attached].map((i) => byId.get(i)), A);
       let F = 0, mdot = 0;
       const burning = [];
@@ -230,17 +306,19 @@ function estimateDeltaV(parts, adj, controlId, stages, useSeaLevel) {
       if (!burning.length) break;
       const tBurn = Math.min(...burning.map((b) => b.fuel / b.gm));
       const m0 = [...attached].reduce((s, i) => s + byId.get(i).def.mass * 1000 + byId.get(i).fuel, 0);
+      if (!firstTwr) firstTwr = F / (m0 * EARTH.surfaceG);
       const m1 = m0 - mdot * tBurn;
       dv += (F / mdot) * Math.log(m0 / m1);
       for (const b of burning) {
         const used = b.gm * tBurn;
-        for (const t of b.g.tanks) t.fuel -= used * (t.fuel / b.fuel);
+        for (const t of b.g.tanks) t.fuel = Math.max(0, t.fuel - used * (t.fuel / b.fuel));
       }
     }
     perStage.push(dv);
+    twr.push(firstTwr);
     total += dv;
   }
-  return { total, perStage };
+  return { total, perStage, twr };
 }
 
 // Fire a separator: cut its links on the control part's side, so it stays with the piece that falls away.
@@ -251,7 +329,8 @@ function cutSeparator(sepId, adj, controlId) {
   }
 }
 
-// Fuel flows freely inside a segment; separators block it.
+// Liquid fuel flows freely inside a segment; separators and solid boosters block it.
+// Each solid booster is its own group, burning its own propellant.
 function fuelGroups(parts, adj) {
   const ids = new Set(parts.map((p) => p.id));
   const byId = new Map(parts.map((p) => [p.id, p]));
@@ -259,7 +338,8 @@ function fuelGroups(parts, adj) {
   const groups = [];
   for (const p of parts) {
     if (seen.has(p.id) || p.def.separator) continue;
-    const comp = componentOf(p.id, adj, (n) => !ids.has(n) || byId.get(n).def.separator);
+    if (p.def.solid) { seen.add(p.id); groups.push({ tanks: [p], engines: [p], solid: true }); continue; }
+    const comp = componentOf(p.id, adj, (n) => !ids.has(n) || byId.get(n).def.separator || byId.get(n).def.solid);
     const g = { tanks: [], engines: [] };
     for (const id of comp) {
       seen.add(id);
@@ -277,9 +357,9 @@ function fuelGroups(parts, adj) {
 
 const PAL = {
   ink: '#1a1f27', steel: '#79828d', steelLight: '#c4cbd3', steelDark: '#4d545d',
-  orange: '#ff7a1a', glass: '#7fd8ff', gold: '#d9a441', hazard: '#ffc93c', chuteA: '#ff7a1a', chuteB: '#f3f1ea',
+  orange: '#ff7a1a', glass: '#7fd8ff', gold: '#d9a441', goldDark: '#a7782a', hazard: '#ffc93c', chuteA: '#ff7a1a', chuteB: '#f3f1ea',
+  shield: '#3a2f2a', shieldLight: '#5a4a40', nuclear: '#7dffb0', ion: '#7fb8ff',
 };
-const _gradCache = new WeakMap();
 function hullGradient(ctx, l, r) {
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#9da6b0'); g.addColorStop(0.3, '#f5f7f9'); g.addColorStop(0.55, '#e6e9ed'); g.addColorStop(1, '#8e97a1');
@@ -289,6 +369,82 @@ function metalGradient(ctx, l, r) {
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#3f454d'); g.addColorStop(0.35, '#b8c0c9'); g.addColorStop(0.6, '#8a939d'); g.addColorStop(1, '#353a41');
   return g;
+}
+function goldGradient(ctx, l, r) {
+  const g = ctx.createLinearGradient(l, 0, r, 0);
+  g.addColorStop(0, '#8c6420'); g.addColorStop(0.35, '#f0c35c'); g.addColorStop(0.65, '#d9a441'); g.addColorStop(1, '#7c5718');
+  return g;
+}
+
+// Outline path of a part (used for fills, heat glow and highlights).
+function partPath(ctx, p) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
+  const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+  ctx.beginPath();
+  switch (d.shape) {
+    case 'pod': {
+      const tw = w * 0.42;
+      ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath();
+      break;
+    }
+    case 'adapter': {
+      const tw = d.topW;
+      ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath();
+      break;
+    }
+    case 'nose':
+      ctx.moveTo(l, b);
+      ctx.bezierCurveTo(l, b + h * 0.6, x - w * 0.18, t, x, t);
+      ctx.bezierCurveTo(x + w * 0.18, t, r, b + h * 0.6, r, b);
+      ctx.closePath();
+      break;
+    case 'fin': {
+      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2;
+      ctx.moveTo(inn, t); ctx.lineTo(out, b + h * 0.28); ctx.lineTo(out, b); ctx.lineTo(inn, b); ctx.closePath();
+      break;
+    }
+    case 'shield':
+      ctx.moveTo(l, t); ctx.lineTo(r, t); ctx.lineTo(r, b + h * 0.45);
+      ctx.quadraticCurveTo(x, b - h * 0.25, l, b + h * 0.45); ctx.closePath();
+      break;
+    case 'wheel':
+      ctx.arc(x, y - h * 0.05, Math.min(w, h) * 0.45, 0, TAU);
+      break;
+    case 'probe': {
+      const bh = h * 0.7, c = 0.18 * w;
+      ctx.moveTo(l + c, b); ctx.lineTo(r - c, b); ctx.lineTo(r, b + c); ctx.lineTo(r, b + bh - c); ctx.lineTo(r - c, b + bh);
+      ctx.lineTo(l + c, b + bh); ctx.lineTo(l, b + bh - c); ctx.lineTo(l, b + c); ctx.closePath();
+      break;
+    }
+    case 'engine': {
+      const mh = h * d.mount, tw = w * d.bellTop / 2, bw = w * d.bellBot / 2, yt = t - mh;
+      ctx.rect(l + w * 0.12, yt, w * 0.76, mh);
+      ctx.moveTo(x - tw, yt);
+      ctx.bezierCurveTo(x - tw, yt - (yt - b) * 0.45, x - bw * 0.95, b + (yt - b) * 0.2, x - bw, b);
+      ctx.lineTo(x + bw, b);
+      ctx.bezierCurveTo(x + bw * 0.95, b + (yt - b) * 0.2, x + tw, yt - (yt - b) * 0.45, x + tw, yt);
+      ctx.closePath();
+      break;
+    }
+    case 'spike': {
+      const mh = h * d.mount;
+      ctx.rect(l + w * 0.05, t - mh, w * 0.9, mh);
+      ctx.moveTo(l + w * 0.08, t - mh); ctx.lineTo(r - w * 0.08, t - mh); ctx.lineTo(x + w * 0.14, b); ctx.lineTo(x - w * 0.14, b); ctx.closePath();
+      break;
+    }
+    case 'srb': {
+      const nh = Math.min(0.7, h * 0.12);
+      ctx.rect(l, b + nh, w, h - nh);
+      ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
+      break;
+    }
+    case 'chute':
+      ctx.rect(l + w * 0.1, b, w * 0.8, h * 0.4);
+      ctx.moveTo(l + w * 0.1, b + h * 0.4); ctx.quadraticCurveTo(x, t + h * 0.4, r - w * 0.1, b + h * 0.4); ctx.closePath();
+      break;
+    default:
+      ctx.rect(l, b, w, h);
+  }
 }
 
 function drawPart(ctx, p, lw) {
@@ -300,27 +456,39 @@ function drawPart(ctx, p, lw) {
   switch (d.shape) {
     case 'pod': {
       const tw = w * 0.42;
-      ctx.beginPath(); ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath();
-      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
-      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, h * 0.09);
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.fillStyle = '#4a3a30'; ctx.fillRect(l, b, w, h * 0.09);
       ctx.fillStyle = PAL.orange; ctx.fillRect(x - tw / 2, t - h * 0.08, tw, h * 0.08);
+      // panel line
+      ctx.strokeStyle = 'rgba(20,26,34,0.25)';
+      ctx.beginPath(); ctx.moveTo(l + w * 0.08, b + h * 0.45); ctx.lineTo(r - w * 0.08, b + h * 0.45); ctx.stroke();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       ctx.beginPath(); ctx.arc(x - w * 0.1, y + h * 0.02, w * 0.14, 0, TAU);
       ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x - w * 0.13, y + h * 0.06, w * 0.05, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fill();
+      partPath(ctx, p); ctx.stroke();
       break;
     }
     case 'probe': {
       const bh = h * 0.7;
-      ctx.beginPath();
-      const c = 0.18 * w;
-      ctx.moveTo(l + c, b); ctx.lineTo(r - c, b); ctx.lineTo(r, b + c); ctx.lineTo(r, b + bh - c); ctx.lineTo(r - c, b + bh);
-      ctx.lineTo(l + c, b + bh); ctx.lineTo(l, b + bh - c); ctx.lineTo(l, b + c); ctx.closePath();
-      ctx.fillStyle = PAL.gold; ctx.fill(); ctx.stroke();
+      partPath(ctx, p); ctx.fillStyle = goldGradient(ctx, l, r); ctx.fill(); ctx.stroke();
       ctx.fillStyle = PAL.ink; ctx.fillRect(x - w * 0.22, b + bh * 0.3, w * 0.44, bh * 0.4);
       ctx.fillStyle = PAL.glass; ctx.fillRect(x - w * 0.1, b + bh * 0.42, w * 0.2, bh * 0.16);
       ctx.beginPath(); ctx.moveTo(x + w * 0.2, b + bh); ctx.lineTo(x + w * 0.2, t - 0.04);
-      ctx.lineWidth = lw * 1.5; ctx.stroke();
+      ctx.lineWidth = lw * 1.5; ctx.stroke(); ctx.lineWidth = lw;
       ctx.beginPath(); ctx.arc(x + w * 0.2, t - 0.06, 0.06, 0, TAU); ctx.fillStyle = PAL.orange; ctx.fill();
+      break;
+    }
+    case 'probeL': {
+      ctx.fillStyle = goldGradient(ctx, l, r);
+      ctx.fillRect(l, b, w, h * 0.75); ctx.strokeRect(l, b, w, h * 0.75);
+      ctx.fillStyle = PAL.goldDark;
+      for (let i = 1; i < 4; i++) ctx.fillRect(l + (w * i) / 4 - 0.02, b, 0.04, h * 0.75);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(x - w * 0.18, b + h * 0.18, w * 0.36, h * 0.38);
+      ctx.fillStyle = PAL.glass; ctx.fillRect(x - w * 0.06, b + h * 0.28, w * 0.12, h * 0.16);
+      // dish
+      ctx.beginPath(); ctx.ellipse(r - w * 0.2, b + h * 0.86, w * 0.14, h * 0.12, 0, Math.PI, TAU);
+      ctx.fillStyle = PAL.steelLight; ctx.fill(); ctx.stroke();
       break;
     }
     case 'tank': {
@@ -336,15 +504,35 @@ function drawPart(ctx, p, lw) {
         for (let yy = b + 2; yy < t - 0.5; yy += 2) { ctx.beginPath(); ctx.moveTo(l, yy); ctx.lineTo(r, yy); ctx.stroke(); }
         ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       }
+      // fuel gauge stripe (flight only)
+      if (p.fuelFrac != null && d.fuel) {
+        const f = p.fuelFrac;
+        ctx.fillStyle = 'rgba(10,14,20,0.18)';
+        ctx.fillRect(r - w * 0.16, b + band, w * 0.08, (h - band * 2) * (1 - f) );
+      }
       ctx.strokeRect(l, b, w, h);
       break;
     }
     case 'engine': {
       const mh = h * d.mount;
-      ctx.fillStyle = metalGradient(ctx, l + w * 0.12, r - w * 0.12);
-      ctx.fillRect(l + w * 0.12, t - mh, w * 0.76, mh);
-      ctx.strokeRect(l + w * 0.12, t - mh, w * 0.76, mh);
-      ctx.fillStyle = PAL.ink; ctx.fillRect(l + w * 0.12, t - mh * 0.35, w * 0.76, mh * 0.12);
+      if (d.style === 'nuclear') {
+        ctx.fillStyle = '#2b3138'; ctx.fillRect(l + w * 0.1, t - mh, w * 0.8, mh); ctx.strokeRect(l + w * 0.1, t - mh, w * 0.8, mh);
+        ctx.fillStyle = PAL.nuclear;
+        for (let i = 0; i < 3; i++) ctx.fillRect(l + w * 0.1, t - mh * (0.25 + i * 0.25), w * 0.8, mh * 0.05);
+        ctx.fillStyle = '#ffd23f';
+        ctx.beginPath(); ctx.arc(x, t - mh * 0.5, w * 0.08, 0, TAU); ctx.fill();
+        // radiator fins
+        ctx.fillStyle = '#5a636d';
+        ctx.fillRect(l, t - mh * 0.85, w * 0.1, mh * 0.6); ctx.fillRect(r - w * 0.1, t - mh * 0.85, w * 0.1, mh * 0.6);
+      } else {
+        ctx.fillStyle = metalGradient(ctx, l + w * 0.12, r - w * 0.12);
+        ctx.fillRect(l + w * 0.12, t - mh, w * 0.76, mh);
+        ctx.strokeRect(l + w * 0.12, t - mh, w * 0.76, mh);
+        ctx.fillStyle = PAL.ink; ctx.fillRect(l + w * 0.12, t - mh * 0.35, w * 0.76, mh * 0.12);
+        ctx.strokeStyle = 'rgba(30,34,40,0.8)';
+        ctx.beginPath(); ctx.moveTo(x - w * 0.2, t - mh * 0.2); ctx.lineTo(x - w * 0.1, t - mh); ctx.moveTo(x + w * 0.2, t - mh * 0.2); ctx.lineTo(x + w * 0.1, t - mh); ctx.stroke();
+        ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      }
       const tw = w * d.bellTop / 2, bw = w * d.bellBot / 2, yt = t - mh;
       ctx.beginPath();
       ctx.moveTo(x - tw, yt);
@@ -353,8 +541,48 @@ function drawPart(ctx, p, lw) {
       ctx.bezierCurveTo(x + bw * 0.95, b + (yt - b) * 0.2, x + tw, yt - (yt - b) * 0.45, x + tw, yt);
       ctx.closePath();
       ctx.fillStyle = metalGradient(ctx, x - bw, x + bw); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath(); ctx.moveTo(x - bw * 0.35, b + 0.05); ctx.lineTo(x - tw * 0.4, yt - 0.05); ctx.stroke();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       ctx.fillStyle = 'rgba(10,12,16,0.6)'; ctx.fillRect(x - bw, b, bw * 2, Math.min(0.1, h * 0.05));
-      if (p.active && p.flameout) { ctx.fillStyle = 'rgba(255,93,93,0.5)'; ctx.fillRect(x - bw, b, bw * 2, 0.08); }
+      if (p.firing > 0) { ctx.fillStyle = `rgba(255,170,80,${0.35 * p.firing})`; ctx.fillRect(x - bw * 0.9, b, bw * 1.8, Math.min(0.25, h * 0.1)); }
+      break;
+    }
+    case 'spike': {
+      const mh = h * d.mount;
+      ctx.fillStyle = metalGradient(ctx, l, r); ctx.fillRect(l + w * 0.05, t - mh, w * 0.9, mh); ctx.strokeRect(l + w * 0.05, t - mh, w * 0.9, mh);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l + w * 0.05, t - mh * 0.4, w * 0.9, mh * 0.15);
+      ctx.beginPath(); ctx.moveTo(l + w * 0.08, t - mh); ctx.lineTo(r - w * 0.08, t - mh); ctx.lineTo(x + w * 0.14, b); ctx.lineTo(x - w * 0.14, b); ctx.closePath();
+      ctx.fillStyle = metalGradient(ctx, l, r); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(20,24,30,0.55)';
+      ctx.beginPath(); ctx.moveTo(l + w * 0.08, t - mh); ctx.lineTo(x - w * 0.14, b); ctx.lineTo(x - w * 0.05, b); ctx.lineTo(x - w * 0.12, t - mh); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(r - w * 0.08, t - mh); ctx.lineTo(x + w * 0.14, b); ctx.lineTo(x + w * 0.05, b); ctx.lineTo(x + w * 0.12, t - mh); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'ion': {
+      ctx.fillStyle = metalGradient(ctx, l, r); ctx.fillRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7); ctx.strokeRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7);
+      ctx.fillStyle = '#20262e'; ctx.beginPath(); ctx.ellipse(x, b + h * 0.3, w * 0.4, h * 0.3, 0, Math.PI, TAU); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(127,184,255,0.7)';
+      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(x + i * w * 0.08, b + h * 0.3); ctx.lineTo(x + i * w * 0.08, b + h * 0.06); ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.fillStyle = PAL.gold; ctx.fillRect(l + w * 0.2, t - h * 0.25, w * 0.6, h * 0.12);
+      break;
+    }
+    case 'srb': {
+      const nh = Math.min(0.7, h * 0.12);
+      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b + nh, w, h - nh);
+      ctx.fillStyle = PAL.ink;
+      const seg = (h - nh) / 4;
+      for (let i = 1; i < 4; i++) ctx.fillRect(l, b + nh + seg * i - 0.05, w, 0.1);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - 0.35, w, 0.35);
+      ctx.fillStyle = '#2b3138'; ctx.fillRect(l, b + nh, w, 0.14);
+      ctx.strokeRect(l, b + nh, w, h - nh);
+      ctx.beginPath(); ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
+      ctx.fillStyle = metalGradient(ctx, x - w * 0.36, x + w * 0.36); ctx.fill(); ctx.stroke();
+      if (p.fuelFrac != null) {
+        ctx.fillStyle = 'rgba(10,14,20,0.18)';
+        ctx.fillRect(r - w * 0.2, b + nh + 0.2, w * 0.1, (h - nh - 0.6) * (1 - p.fuelFrac));
+      }
       break;
     }
     case 'sep': {
@@ -372,17 +600,29 @@ function drawPart(ctx, p, lw) {
       break;
     }
     case 'nose': {
-      ctx.beginPath(); ctx.moveTo(l, b);
-      ctx.bezierCurveTo(l, b + h * 0.6, x - w * 0.18, t, x, t);
-      ctx.bezierCurveTo(x + w * 0.18, t, r, b + h * 0.6, r, b);
-      ctx.closePath();
-      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip(); ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
-      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.1); ctx.restore();
-      ctx.beginPath(); ctx.moveTo(l, b);
-      ctx.bezierCurveTo(l, b + h * 0.6, x - w * 0.18, t, x, t);
-      ctx.bezierCurveTo(x + w * 0.18, t, r, b + h * 0.6, r, b);
-      ctx.closePath(); ctx.stroke();
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, Math.min(0.1, h * 0.08)); ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'fin': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      const s = p.flip ? -1 : 1;
+      ctx.fillStyle = PAL.orange; ctx.fillRect(Math.min(x + s * w * 0.25, x + s * w / 2), b, w * 0.25, h);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'shield': {
+      partPath(ctx, p);
+      const g = ctx.createLinearGradient(0, b, 0, t);
+      g.addColorStop(0, '#241c18'); g.addColorStop(1, PAL.shieldLight);
+      ctx.fillStyle = g; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      for (let i = 0; i < w * 4; i++) ctx.fillRect(l + 0.12 + i * 0.25, b + h * 0.45, 0.06, 0.06);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - 0.08, w, 0.08);
       break;
     }
     case 'chute': {
@@ -410,6 +650,55 @@ function drawPart(ctx, p, lw) {
       ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       break;
     }
+    case 'wheel': {
+      const rad = Math.min(w, h) * 0.45, cy = y - h * 0.05;
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w * 0.1, cy, w * 0.2, t - cy);
+      ctx.beginPath(); ctx.arc(x, cy, rad, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, cy, rad * 0.62, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
+      ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = rad * 0.1;
+      const sp = p.spin || 0;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) { const a = sp + (i * TAU) / 5; ctx.moveTo(x, cy); ctx.lineTo(x + Math.cos(a) * rad * 0.6, cy + Math.sin(a) * rad * 0.6); }
+      ctx.stroke();
+      ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.beginPath(); ctx.arc(x, cy, rad * 0.16, 0, TAU); ctx.fillStyle = PAL.orange; ctx.fill();
+      break;
+    }
+    case 'rcs': {
+      const s = p.flip ? -1 : 1, out = x + s * w / 2;
+      ctx.fillStyle = '#d7dce1'; ctx.fillRect(l, y - h * 0.3, w, h * 0.6); ctx.strokeRect(l, y - h * 0.3, w, h * 0.6);
+      ctx.fillStyle = PAL.steelDark;
+      ctx.fillRect(x - w * 0.12, t - h * 0.2, w * 0.24, h * 0.2);
+      ctx.fillRect(x - w * 0.12, b, w * 0.24, h * 0.2);
+      ctx.fillRect(Math.min(out, out - s * w * 0.2), y - h * 0.1, w * 0.2, h * 0.2);
+      break;
+    }
+    case 'girder': {
+      ctx.strokeStyle = '#9aa3ad'; ctx.lineWidth = 0.08;
+      const xl = l + w * 0.15, xr = r - w * 0.15;
+      ctx.beginPath(); ctx.moveTo(xl, b); ctx.lineTo(xl, t); ctx.moveTo(xr, b); ctx.lineTo(xr, t);
+      for (let yy = b; yy < t - 0.01; yy += 0.5) { ctx.moveTo(xl, yy); ctx.lineTo(xr, Math.min(t, yy + 0.5)); ctx.moveTo(xl, yy); ctx.lineTo(xr, yy); }
+      ctx.stroke();
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, b, w, 0.1); ctx.fillRect(l, t - 0.1, w, 0.1);
+      ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      break;
+    }
+    case 'adapter': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.12); ctx.fillRect(l, t - 0.12, w, 0.12); ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+  }
+  // heat glow
+  const hot = p.temp ? (p.temp - 900) / (d.maxTemp - 900) : 0;
+  if (hot > 0) {
+    ctx.save();
+    partPath(ctx, p); ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,${Math.round(110 - 60 * Math.min(1, hot))},30,${Math.min(0.85, hot * 0.9)})`;
+    ctx.fillRect(l - 0.5, b - 0.5, w + 1, h + 1);
+    ctx.restore();
   }
 }
 
@@ -417,8 +706,9 @@ function drawPart(ctx, p, lw) {
 function drawCanopy(ctx, p, lw) {
   const k = p.deployed;
   if (k <= 0 || p.used) return;
+  const big = p.def.chuteArea > 1 ? 1.5 : 1;
   const x = p.x, base = p.y + p.def.h / 2;
-  const cw = 2.5 + 6.5 * k, ch = 3 + 6 * k;
+  const cw = (2.5 + 6.5 * k) * big, ch = (3 + 6 * k) * big;
   const top = base + ch;
   ctx.lineWidth = lw;
   ctx.strokeStyle = 'rgba(230,230,230,0.7)';
@@ -444,9 +734,9 @@ function renderPartIcon(type, size, dpr) {
   c.width = c.height = Math.round(size * dpr);
   const ctx = c.getContext('2d');
   const def = PARTS[type];
-  const s = (size * dpr * 0.78) / Math.max(def.w, def.h, 1.2);
+  const s = (size * dpr * 0.8) / Math.max(def.w, def.h, 1.2);
   ctx.setTransform(s, 0, 0, -s, c.width / 2, c.height / 2);
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0 };
-  drawPart(ctx, p, 1.4 / s * dpr);
+  drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
 }

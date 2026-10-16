@@ -39,7 +39,8 @@ const fmt = {
     if (!isFinite(m)) return '—';
     if (a < 10000) return `${Math.round(m).toLocaleString('en-US')} m`;
     if (a < 1e6) return `${(m / 1000).toFixed(1)} km`;
-    return `${Math.round(m / 1000).toLocaleString('en-US')} km`;
+    if (a < 1e10) return `${Math.round(m / 1000).toLocaleString('en-US')} km`;
+    return `${(m / 1e9).toFixed(2)} Gm`;
   },
   speed(v) {
     if (!isFinite(v)) return '—';
@@ -57,7 +58,8 @@ const fmt = {
     if (!isFinite(s)) return '—';
     if (s < 60) return `${Math.round(s)}s`;
     if (s < 3600) return `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, '0')}s`;
-    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+    return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
   },
   mass(kg) { return `${(kg / 1000).toFixed(kg < 10000 ? 2 : 1)} t`; },
 };

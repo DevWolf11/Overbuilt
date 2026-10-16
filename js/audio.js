@@ -1,8 +1,8 @@
 'use strict';
-// Procedural sound: engine rumble, separation thunk, explosions, achievement chime.
+// Procedural sound: engine rumble, wind and reentry roar, staging, explosions, chimes.
 
 const Sound = {
-  ctx: null, muted: store.get('rss.muted', false),
+  ctx: null,
   unlock() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try {
@@ -10,8 +10,8 @@ const Sound = {
       if (!AC) return;
       const ctx = this.ctx = new AC();
       this.master = ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 0.8;
       this.master.connect(ctx.destination);
+      this.applyVolume();
       // brown noise buffer shared by everything
       const len = ctx.sampleRate * 2;
       const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -19,16 +19,22 @@ const Sound = {
       let last = 0;
       for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
       this.noise = buf;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-      this.engFilter = ctx.createBiquadFilter(); this.engFilter.type = 'lowpass'; this.engFilter.frequency.value = 300;
-      this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
-      src.connect(this.engFilter); this.engFilter.connect(this.engGain); this.engGain.connect(this.master);
-      src.start();
-    } catch (e) { this.ctx = null; }
+      const loop = (type, freq) => {
+        const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+        const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+        const g = ctx.createGain(); g.gain.value = 0;
+        src.connect(f); f.connect(g); g.connect(this.master);
+        src.start(0, Math.random() * 1.5);
+        return { f, g };
+      };
+      const e = loop('lowpass', 300); this.engFilter = e.f; this.engGain = e.g;
+      const w = loop('bandpass', 700); this.windFilter = w.f; this.windGain = w.g;
+      this.windFilter.Q.value = 0.6;
+    } catch (err) { this.ctx = null; }
   },
-  setMuted(m) {
-    this.muted = m; store.set('rss.muted', m);
-    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.05);
+  applyVolume() {
+    if (!this.master) return;
+    this.master.gain.setTargetAtTime(Settings.get('volume'), this.ctx.currentTime, 0.05);
   },
   engine(level, air) {
     if (!this.ctx) return;
@@ -36,6 +42,13 @@ const Sound = {
     const g = clamp(level, 0, 1) * (0.25 + 0.75 * clamp(air, 0, 1)) * 0.9;
     this.engGain.gain.setTargetAtTime(g, t, 0.08);
     this.engFilter.frequency.setTargetAtTime(180 + 520 * clamp(level, 0, 1) * (0.4 + 0.6 * air), t, 0.1);
+  },
+  wind(k) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    k = clamp(k, 0, 1.5);
+    this.windGain.gain.setTargetAtTime(k * 0.35, t, 0.15);
+    this.windFilter.frequency.setTargetAtTime(400 + k * 900, t, 0.2);
   },
   burst(dur, freq, vol, type = 'lowpass') {
     if (!this.ctx) return;
@@ -46,6 +59,7 @@ const Sound = {
     src.connect(f); f.connect(g); g.connect(this.master);
     src.start(t, Math.random()); src.stop(t + dur + 0.05);
   },
+  ignite() { this.burst(0.5, 500, 0.9); this.burst(0.15, 2000, 0.3, 'highpass'); },
   separate() { this.burst(0.25, 900, 0.9, 'bandpass'); },
   explode() { this.burst(1.6, 260, 1.6); this.burst(0.5, 1200, 0.5); },
   click() { this.burst(0.06, 2400, 0.25, 'highpass'); },
