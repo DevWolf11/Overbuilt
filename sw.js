@@ -1,9 +1,9 @@
 // Offline cache: serve the game shell from cache, refresh it in the background.
-const CACHE = 'rocket-science-sim-v2';
+const CACHE = 'rocket-science-sim-v3';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/util.js', 'js/space.js', 'js/parts.js', 'js/vessel.js', 'js/ui.js', 'js/audio.js',
-  'js/builder.js', 'js/flight.js', 'js/main.js',
+  'js/world.js', 'js/career.js', 'js/map.js', 'js/builder.js', 'js/flight.js', 'js/main.js',
 ];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

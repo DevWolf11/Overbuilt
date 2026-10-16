@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Rocket Science Simulator</title>
-<meta name="description" content="Build rockets from parts, fly them to orbit and land on the Moon. A 2D spaceflight sandbox for desktop and mobile.">
+<meta name="description" content="Build rockets from parts, fly them to orbit, explore a whole solar system and come home. A 2D spaceflight sandbox for desktop and mobile.">
 <meta name="theme-color" content="#05070d">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -20,27 +20,64 @@
 <body>
 <canvas id="view" aria-label="Game view"></canvas>
 
+<!-- ============================== HOME ============================== -->
+<div id="home" class="ui home">
+  <div class="home-inner">
+    <div class="home-title">
+      <span class="home-kicker">2D spaceflight sandbox</span>
+      <h1>Rocket Science<br>Simulator</h1>
+      <p class="home-tag">Build it, launch it, and see how far it gets: orbit, the Moon, Mars, the moons of Jupiter.</p>
+    </div>
+    <div id="home-modes" class="home-modes" hidden>
+      <p class="home-choose">Choose how you want to play. You can switch later.</p>
+      <button class="mode-card" data-mode="career">
+        <span class="mode-name">Career</span>
+        <span class="mode-desc">Start with $50,000 and the basics. Fly missions to earn funds, unlock better parts tier by tier, and push outward planet by planet.</span>
+      </button>
+      <button class="mode-card" data-mode="sandbox">
+        <span class="mode-name">Sandbox</span>
+        <span class="mode-desc">Every part unlocked, money no object. Build whatever you can imagine.</span>
+      </button>
+    </div>
+    <div id="home-main" class="home-main" hidden>
+      <button id="home-resume" class="home-btn resume" hidden><span class="hb-name">Resume flight</span><span id="home-resume-sub" class="hb-sub"></span></button>
+      <button id="home-build" class="home-btn primary"><span class="hb-name">Enter the hangar</span><span class="hb-sub">Build and launch a rocket</span></button>
+      <button id="home-mode" class="home-btn"><span id="home-mode-label" class="hb-name">Career</span><span id="home-mode-sub" class="hb-sub"></span></button>
+      <div class="home-row">
+        <button id="home-dv" class="btn">Δv map</button>
+        <button id="home-help" class="btn">How to fly</button>
+        <button id="home-settings" class="btn">Settings</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ============================== BUILD ============================== -->
-<div id="build-ui" class="ui">
+<div id="build-ui" class="ui" hidden>
   <header id="build-top" class="topbar">
-    <div class="brand"><span class="brand-mark" data-icon="rocket"></span><span class="brand-name">Rocket Science Simulator</span></div>
+    <div class="brand"><button id="btn-home" class="btn icon-only" data-icon="home" aria-label="Home"></button><span class="brand-name">Rocket Science Simulator</span></div>
     <div class="topbar-actions">
-      <button id="btn-templates" class="btn">Rockets</button>
+      <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
       <button id="btn-sym" class="btn toggle" aria-pressed="true" title="Mirror parts across the centre line"><span>Sym<span class="long">metry</span></span></button>
+      <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
+      <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
-      <button id="btn-help" class="btn icon-only" aria-label="How to play">?</button>
-      <button id="btn-sound" class="btn icon-only" aria-label="Mute sound"></button>
       <button id="btn-launch" class="btn primary launch">Launch</button>
     </div>
   </header>
 
   <section id="stats" class="panel stats" aria-label="Rocket stats">
+    <div id="s-name" class="s-name">Rocket</div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
       <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
       <div><dt>TWR</dt><dd><span id="s-twr">—</span></dd></div>
       <div><dt>Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
     </dl>
+    <div id="career-row" class="career-row">
+      <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Funds</span><span id="s-funds">$0</span></div>
+      <div class="cr-btns"><button id="btn-rd" class="btn small">R&amp;D</button><button id="btn-missions" class="btn small">Missions</button></div>
+    </div>
     <details class="stage-details" open>
       <summary><span id="s-stages">0</span> stages</summary>
       <ol id="s-stage-list" class="stage-list"></ol>
@@ -51,7 +88,10 @@
   <section id="part-info" class="panel part-info" hidden>
     <div class="pi-head">
       <h3 id="pi-name"></h3>
-      <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
+      <div class="pi-btns">
+        <button id="btn-dup" class="btn small icon-only" data-icon="copy" aria-label="Duplicate"></button>
+        <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
+      </div>
     </div>
     <p id="pi-specs" class="pi-specs"></p>
     <p id="pi-desc" class="pi-desc"></p>
@@ -69,34 +109,39 @@
 <div id="flight-ui" class="ui" hidden>
   <section class="panel telemetry" aria-label="Telemetry">
     <div class="t-head"><span id="t-body" class="t-body">Earth</span><span id="t-time" class="t-time">00:00:00</span></div>
+    <div id="t-vessel" class="t-vessel"></div>
     <dl class="t-grid">
       <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
       <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
-      <div><dt>Apoapsis</dt><dd id="t-ap">—</dd></div>
-      <div><dt>Periapsis</dt><dd id="t-pe">—</dd></div>
+      <div><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
+      <div><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
       <div><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
     </dl>
+    <div id="row-heat" class="t-heat" hidden><span>Heat</span><div class="heat-bar"><div id="heat-fill" class="heat-fill"></div></div></div>
+    <div id="row-target" class="t-target" hidden><span id="t-target"></span></div>
     <div id="row-enc" class="t-enc" hidden><span id="t-enc"></span></div>
   </section>
 
   <div id="warp" class="warp" aria-label="Time warp">
     <button id="warp-down" class="btn icon-only" data-icon="rw" aria-label="Slower time warp"></button>
-    <span id="warp-label" class="warp-label">1×</span>
+    <button id="warp-label" class="warp-label" aria-label="Reset time warp">1×</button>
     <button id="warp-up" class="btn icon-only" data-icon="ff" aria-label="Faster time warp"></button>
   </div>
 
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
-    <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Re-centre map" hidden></button>
+    <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Centre on vessel" hidden></button>
     <button id="btn-map" class="btn" data-icon="map">Map</button>
     <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
   </div>
 
   <div id="map-legend" class="map-legend" hidden>
-    <span><i class="sw amber"></i>Current path</span><span><i class="sw cyan"></i>After encounter</span><span class="muted">Drag to pan · pinch or scroll to zoom</span>
+    <span><i class="sw amber"></i>Current path</span><span><i class="sw cyan"></i>After encounter</span><span class="muted">Tap a planet to target it · drag to pan</span>
   </div>
+
+  <div id="hint" class="hint" hidden><span id="hint-text"></span></div>
 
   <div class="throttle-box">
     <button id="btn-tmax" class="btn small">Max</button>
@@ -108,9 +153,19 @@
     <button id="btn-tcut" class="btn small">Cut</button>
   </div>
 
-  <div class="rot-controls">
-    <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
-    <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+  <div class="left-controls">
+    <div class="sas" role="group" aria-label="Autopilot">
+      <button class="sas-btn" data-sas="hold" data-icon="sasHold" aria-label="Hold attitude" title="Hold (1)"></button>
+      <button class="sas-btn" data-sas="prograde" data-icon="sasPro" aria-label="Point prograde" title="Prograde (2)"></button>
+      <button class="sas-btn" data-sas="retrograde" data-icon="sasRetro" aria-label="Point retrograde" title="Retrograde (3)"></button>
+      <button class="sas-btn" data-sas="radialOut" data-icon="sasUp" aria-label="Point radial out" title="Radial out (4)"></button>
+      <button class="sas-btn" data-sas="radialIn" data-icon="sasDown" aria-label="Point radial in" title="Radial in (5)"></button>
+      <button class="sas-btn" data-sas="target" data-icon="sasTarget" aria-label="Point at target" title="Target (6)"></button>
+    </div>
+    <div class="rot-controls">
+      <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
+      <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+    </div>
   </div>
 
   <div class="stage-box">
@@ -131,7 +186,10 @@
 <script src="js/parts.js"></script>
 <script src="js/vessel.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/world.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/career.js"></script>
+<script src="js/map.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/main.js"></script>

@@ -1,34 +1,29 @@
 'use strict';
-// App shell: canvas sizing, scene switching and the main loop.
+// App shell: canvas sizing, scenes (home, hangar, flight), menus and the main loop.
 
 const App = {
-  scene: 'build',
+  scene: 'home',
 
   init() {
     this.canvas = $('#view');
     this.ctx = this.canvas.getContext('2d');
     this.resize();
     addEventListener('resize', () => this.resize());
-    // fill the inline icons
     document.querySelectorAll('[data-icon]').forEach((n) => n.prepend(icon(n.dataset.icon)));
     Builder.init(this.canvas);
     Flight.init(this.canvas);
-    $('#btn-sound').addEventListener('click', () => { Sound.unlock(); Sound.setMuted(!Sound.muted); this.syncSound(); });
-    this.syncSound();
-    $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !Flight.ended) UI.closeModal(); });
+    this.homeTime = 0;
+    this.bindHome();
+    $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !(App.scene === 'flight' && Flight.ended)) UI.closeModal(); });
     addEventListener('keydown', (e) => { if (e.code === 'Escape' && UI.modalOpen && !(App.scene === 'flight' && Flight.ended)) { e.preventDefault(); e.stopImmediatePropagation(); UI.closeModal(); } }, true);
     document.addEventListener('gesturestart', (e) => e.preventDefault());
+    // phones kill background tabs without warning: save the flight whenever the page is hidden
+    const stash = () => { if (this.scene === 'flight') Flight.save(); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stash(); });
+    addEventListener('pagehide', stash);
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
-    if (!store.get('rss.seenHelp', false)) { store.set('rss.seenHelp', true); setTimeout(() => this.showHelp(), 300); }
-    setTimeout(() => Builder.fitView(), 50);
-  },
-
-  syncSound() {
-    const b = $('#btn-sound');
-    b.innerHTML = '';
-    b.append(icon(Sound.muted ? 'mute' : 'sound'));
-    b.setAttribute('aria-label', Sound.muted ? 'Unmute sound' : 'Mute sound');
+    this.toHome();
   },
 
   resize() {
@@ -44,47 +39,214 @@ const App = {
     this.last = t;
     try {
       if (this.scene === 'build') Builder.render(this.ctx, this.W, this.H, this.dpr);
-      else { Flight.update(dt); Flight.render(this.ctx, this.W, this.H, this.dpr); }
+      else if (this.scene === 'flight') { Flight.update(dt); Flight.render(this.ctx, this.W, this.H, this.dpr); }
+      else this.renderHome(dt);
     } catch (err) {
       console.error(err);
     }
     requestAnimationFrame((tt) => this.frame(tt));
   },
 
-  launch() {
-    if (!Builder.ctrl) { UI.toast('Add a Command Pod or Probe Core first'); return; }
-    if (Builder.statsData.loose) UI.toast(`${Builder.statsData.loose} loose part(s) left in the hangar`);
-    const design = Builder.serialize();
-    this.scene = 'flight';
-    $('#build-ui').hidden = true;
-    $('#flight-ui').hidden = false;
-    Flight.start(design);
-    Flight.mapMode = false;
-    $('#btn-map').classList.remove('on');
-    $('#btn-center').hidden = true;
-    UI.toast('Press STAGE (Space) to ignite');
+  showScene(name) {
+    this.scene = name;
+    $('#home').hidden = name !== 'home';
+    $('#build-ui').hidden = name !== 'build';
+    $('#flight-ui').hidden = name !== 'flight';
   },
 
+  // ---------------------------------------------------------------- home
+  bindHome() {
+    $('#home-build').addEventListener('click', () => this.toBuild());
+    $('#home-resume').addEventListener('click', () => this.resumeFlight());
+    $('#home-settings').addEventListener('click', () => this.showSettings());
+    $('#home-help').addEventListener('click', () => this.showHelp());
+    $('#home-dv').addEventListener('click', () => this.showDeltaV());
+    $('#home-mode').addEventListener('click', () => this.chooseMode());
+    $('#btn-home').addEventListener('click', () => this.toHome());
+    document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+      Career.setMode(b.dataset.mode);
+      this.toHome();
+      Builder.buildPalette(); Builder.changed(true);
+      if (!store.get('rss.seenHelp', false)) { store.set('rss.seenHelp', true); setTimeout(() => this.showHelp(), 250); }
+    }));
+  },
+
+  toHome() {
+    if (this.scene === 'flight') { Flight.save(); Flight.stop(); }
+    this.showScene('home');
+    const first = !Career.mode;
+    $('#home-modes').hidden = !first;
+    $('#home-main').hidden = first;
+    const saved = store.get('rss.flight', null);
+    $('#home-resume').hidden = !(saved && saved.vessels && saved.vessels.length);
+    if (saved && saved.vessels && saved.vessels.length) {
+      const av = saved.vessels[clamp(saved.active || 0, 0, saved.vessels.length - 1)];
+      $('#home-resume-sub').textContent = `${av.name} · ${BODY_BY_ID[av.body] ? BODY_BY_ID[av.body].name : ''} · T+ ${fmt.clock(saved.time || 0)}`;
+    }
+    const p = Career.progress();
+    $('#home-mode-label').textContent = Career.sandbox ? 'Sandbox' : 'Career';
+    $('#home-mode-sub').textContent = Career.sandbox ? 'Every part, unlimited funds' : `${money(Career.data.funds)} · Tier ${Career.data.tier} · ${p.done}/${p.total} missions`;
+  },
+
+  chooseMode() {
+    $('#home-modes').hidden = false;
+    $('#home-main').hidden = true;
+  },
+
+  renderHome(dt) {
+    this.homeTime += dt * 40000;
+    const ctx = this.ctx, dpr = this.dpr;
+    const portrait = this.H > this.W * 1.1;
+    const S = (Math.min(this.W, this.H * (portrait ? 0.55 : 1)) * 0.48 * dpr) / (MARS.orbitRadius * 1.08);
+    // keep the system clear of the title: right of it on wide screens, above it on phones
+    const c = portrait ? { x: 0, y: -(this.H * 0.26 * dpr) / S } : { x: -(this.W * 0.16 * dpr) / S, y: 0 };
+    MapView.drawSystem(ctx, this.W * dpr, this.H * dpr, dpr, this.homeTime, c, S, {});
+  },
+
+  // ---------------------------------------------------------------- scenes
   toBuild() {
-    Flight.stop();
-    this.scene = 'build';
-    $('#flight-ui').hidden = true;
-    $('#build-ui').hidden = false;
+    if (this.scene === 'flight') { Flight.save(); Flight.stop(); }
+    this.showScene('build');
+    Builder.buildPalette();
+    Builder.changed(true);
     Builder.fitView();
   },
 
+  launch() {
+    if (!Builder.ctrl) { UI.toast('Add a Command Pod or Probe Core first'); return; }
+    const s = Builder.statsData;
+    if (s.locked.length) { UI.toast('This rocket uses parts you haven’t unlocked yet'); return; }
+    if (!Career.canAfford(s.cost)) { UI.toast(`Not enough funds: this rocket costs ${money(s.cost)}`); return; }
+    const go = () => {
+      if (s.loose) UI.toast(`${s.loose} loose part(s) left in the hangar`);
+      store.set('rss.flight', null);
+      this.showScene('flight');
+      Flight.start(Builder.serialize());
+      if (Settings.get('hints')) UI.toast('Press STAGE (Space) to ignite');
+    };
+    const saved = store.get('rss.flight', null);
+    if (saved && saved.vessels && saved.vessels.length) {
+      UI.modal({
+        title: 'Abandon the saved flight?', body: 'Launching a new rocket replaces the flight you saved earlier.',
+        actions: [{ label: 'Cancel' }, { label: 'Resume saved flight', onClick: () => this.resumeFlight() }, { label: 'Launch new', primary: true, onClick: go }],
+      });
+      return;
+    }
+    go();
+  },
+
+  resumeFlight() {
+    const saved = store.get('rss.flight', null);
+    if (!saved) return;
+    this.showScene('flight');
+    try { Flight.restore(saved); } catch (e) { console.error(e); UI.toast('That saved flight could not be loaded'); store.set('rss.flight', null); this.toBuild(); }
+  },
+
+  // ---------------------------------------------------------------- menus
   showHelp() {
     UI.modal({
       kicker: 'Flight manual', title: 'How to fly',
       body: `<ol class="howto">
-        <li><b>Build.</b> Drag parts from the tray onto the blueprint. Parts snap together when their edges touch. Tap a tray part to stack it automatically. Drag a part back onto the tray to remove it.</li>
-        <li><b>Stage.</b> The orange numbers show the firing order. Separators split the rocket, and fuel can't flow through them.</li>
-        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 5 km, then lean east (right) a little at a time.</li>
-        <li><b>Orbit.</b> Open the map. When your apoapsis is above 30 km, cut the engines, coast to it, and burn sideways until the periapsis rises above 30 km too.</li>
-        <li><b>Moon.</b> From orbit, burn prograde when the Moon is rising over the horizon until the map shows an encounter. Time warp is your friend.</li>
+        <li><b>Build.</b> Drag parts from the tray onto the blueprint; edges snap together. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
+        <li><b>Stage.</b> Orange numbers show the firing order. Separators split the rocket, and fuel can't flow through them. Solid boosters can't be shut down.</li>
+        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean right a little at a time.</li>
+        <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
+        <li><b>Travel.</b> In the map, tap a planet or moon to target it. The HUD tells you when the transfer window opens. Warp to it, burn prograde until an encounter appears, then burn retrograde at periapsis to be captured.</li>
+        <li><b>Come home hot.</b> Returns from the Moon and planets heat the leading part. Lead with a heat shield, then open the parachute below 250 m/s.</li>
       </ol>${Flight.controlsHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
+  },
+
+  showResearch() {
+    const wrap = el('div', { class: 'tiers' });
+    TIERS.forEach((t, i) => {
+      const owned = Career.sandbox || i <= Career.data.tier;
+      const next = !Career.sandbox && i === Career.data.tier + 1;
+      const parts = Object.values(PARTS).filter((p) => p.tier === i).map((p) => p.name).join(', ');
+      const row = el('div', { class: 'tier' + (owned ? ' owned' : '') },
+        el('div', { class: 'tier-head' }, el('span', { class: 'tier-num', text: `Tier ${i}` }), el('span', { class: 'tier-name', text: t.name }),
+          el('span', { class: 'tier-cost', text: owned ? 'Unlocked' : money(t.cost) })),
+        el('p', { class: 'tier-parts', text: parts }));
+      if (next) {
+        const b = el('button', { class: 'btn primary small', text: `Unlock for ${money(t.cost)}` });
+        b.disabled = Career.data.funds < t.cost;
+        b.addEventListener('click', () => {
+          if (Career.buyTier()) { UI.toast(`${t.name} unlocked`); Sound.chime(); UI.closeModal(); Builder.buildPalette(); Builder.changed(true); this.showResearch(); }
+        });
+        row.append(b);
+      }
+      wrap.append(row);
+    });
+    UI.modal({ kicker: Career.sandbox ? 'Sandbox: everything unlocked' : `Funds ${money(Career.data.funds)}`, title: 'Research & Development', body: wrap, actions: [{ label: 'Close' }] });
+  },
+
+  showMissions() {
+    const wrap = el('div', { class: 'missions' });
+    let lastBody = null;
+    for (const m of MISSIONS) {
+      const group = m.body ? m.body.name : 'Earth';
+      if (group !== lastBody) { wrap.append(el('h3', { class: 'summary-h', text: group })); lastBody = group; }
+      const done = Career.isDone(m.id);
+      wrap.append(el('div', { class: 'mission' + (done ? ' done' : '') },
+        el('span', { class: 'mission-check', text: done ? '✓' : '' }),
+        el('div', { class: 'mission-text' }, el('b', { text: m.title }), el('span', { text: m.desc })),
+        el('span', { class: 'mission-reward', text: Career.sandbox ? '' : money(m.reward) })));
+    }
+    const p = Career.progress();
+    UI.modal({ kicker: `${p.done} of ${p.total} complete`, title: 'Missions', body: wrap, actions: [{ label: 'Close' }] });
+  },
+
+  showDeltaV() {
+    const rows = deltaVChart();
+    const t = el('table', { class: 'dv-table' });
+    t.innerHTML = `<thead><tr><th>Body</th><th>Land ↔ orbit</th><th>From Earth orbit</th><th>Capture</th><th>Trip</th></tr></thead>`;
+    const tb = el('tbody');
+    for (const r of rows) {
+      const tr = el('tr');
+      tr.innerHTML = `<td><span class="dot" style="background:${r.body.colors.map}"></span>${r.body.name}</td>
+        <td>${r.landable ? Math.round(r.ascent).toLocaleString('en-US') : '—'}</td>
+        <td>${r.body === EARTH ? '—' : Math.round(r.travel).toLocaleString('en-US')}</td>
+        <td>${r.body === EARTH ? '—' : Math.round(r.arrive).toLocaleString('en-US')}</td>
+        <td>${r.time ? fmt.duration(r.time) : '—'}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb);
+    const wrap = el('div', { class: 'dv-wrap' }, t);
+    wrap.append(el('p', { class: 'muted small', text: 'Δv in m/s, measured from low orbits, assuming Hohmann transfers and a good launch. Thick atmospheres cost more to climb out of; parachutes and aerobraking save fuel on the way down.' }));
+    UI.modal({ kicker: 'Reference', title: 'Δv map', body: wrap, actions: [{ label: 'Close' }] });
+  },
+
+  showSettings() {
+    const wrap = el('div', { class: 'settings' });
+    const row = (label, control) => el('label', { class: 'setting' }, el('span', { text: label }), control);
+    const vol = el('input', { id: 'set-volume', type: 'range', min: '0', max: '1', step: '0.05', value: String(Settings.get('volume')) });
+    vol.addEventListener('input', () => { Settings.set('volume', +vol.value); Sound.unlock(); Sound.applyVolume(); });
+    const q = el('select', { id: 'set-quality' });
+    q.innerHTML = '<option value="high">High: clouds, trees, effects</option><option value="low">Low: faster on older phones</option>';
+    q.value = Settings.get('quality');
+    q.addEventListener('change', () => Settings.set('quality', q.value));
+    const hints = el('input', { id: 'set-hints', type: 'checkbox' }); hints.checked = Settings.get('hints');
+    hints.addEventListener('change', () => Settings.set('hints', hints.checked));
+    const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
+    marks.addEventListener('change', () => Settings.set('markers', marks.checked));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Flight hints', hints), row('Prograde markers', marks));
+    const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
+    fs.addEventListener('click', () => {
+      try {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen().catch(() => UI.toast('Fullscreen isn’t available here'));
+      } catch (e) { UI.toast('Fullscreen isn’t available here'); }
+    });
+    const reset = el('button', { class: 'btn small danger', text: 'Reset career progress' });
+    reset.addEventListener('click', () => {
+      if (reset.dataset.armed) {
+        Career.reset(); store.set('rss.flight', null);
+        UI.closeModal(); UI.toast('Career progress reset'); Builder.buildPalette(); Builder.changed(true); this.toHome();
+      } else { reset.dataset.armed = '1'; reset.textContent = 'Tap again to reset everything'; }
+    });
+    wrap.append(el('div', { class: 'setting-actions' }, fs, reset));
+    UI.modal({ kicker: 'Settings', title: 'Options', body: wrap, actions: [{ label: 'Done', primary: true }] });
   },
 };
 
