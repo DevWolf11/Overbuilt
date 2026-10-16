@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Orbit Forge</title>
+<meta name="description" content="Build rockets from parts, fly them to orbit and land on the Moon. A 2D spaceflight sandbox for desktop and mobile.">
+<meta name="theme-color" content="#05070d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="view" aria-label="Game view"></canvas>
+
+<!-- ============================== BUILD ============================== -->
+<div id="build-ui" class="ui">
+  <header id="build-top" class="topbar">
+    <div class="brand"><span class="brand-mark" data-icon="rocket"></span><span class="brand-name">Orbit Forge</span></div>
+    <div class="topbar-actions">
+      <button id="btn-templates" class="btn">Rockets</button>
+      <button id="btn-sym" class="btn toggle" aria-pressed="true" title="Mirror parts across the centre line"><span>Sym<span class="long">metry</span></span></button>
+      <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
+      <button id="btn-help" class="btn icon-only" aria-label="How to play">?</button>
+      <button id="btn-sound" class="btn icon-only" aria-label="Mute sound"></button>
+      <button id="btn-launch" class="btn primary launch">Launch</button>
+    </div>
+  </header>
+
+  <section id="stats" class="panel stats" aria-label="Rocket stats">
+    <dl class="stat-grid">
+      <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
+      <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
+      <div><dt>TWR</dt><dd><span id="s-twr">—</span></dd></div>
+      <div><dt>Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
+    </dl>
+    <details class="stage-details" open>
+      <summary><span id="s-stages">0</span> stages</summary>
+      <ol id="s-stage-list" class="stage-list"></ol>
+    </details>
+    <p id="s-warn" class="warn" hidden></p>
+  </section>
+
+  <section id="part-info" class="panel part-info" hidden>
+    <div class="pi-head">
+      <h3 id="pi-name"></h3>
+      <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
+    </div>
+    <p id="pi-specs" class="pi-specs"></p>
+    <p id="pi-desc" class="pi-desc"></p>
+  </section>
+
+  <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
+
+  <footer id="palette" class="palette">
+    <div id="palette-tabs" class="tabs" role="tablist"></div>
+    <div id="palette-items" class="items"></div>
+  </footer>
+</div>
+
+<!-- ============================== FLIGHT ============================== -->
+<div id="flight-ui" class="ui" hidden>
+  <section class="panel telemetry" aria-label="Telemetry">
+    <div class="t-head"><span id="t-body" class="t-body">Earth</span><span id="t-time" class="t-time">00:00:00</span></div>
+    <dl class="t-grid">
+      <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
+      <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
+      <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
+      <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
+      <div><dt>Apoapsis</dt><dd id="t-ap">—</dd></div>
+      <div><dt>Periapsis</dt><dd id="t-pe">—</dd></div>
+      <div><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
+    </dl>
+    <div id="row-enc" class="t-enc" hidden><span id="t-enc"></span></div>
+  </section>
+
+  <div id="warp" class="warp" aria-label="Time warp">
+    <button id="warp-down" class="btn icon-only" data-icon="rw" aria-label="Slower time warp"></button>
+    <span id="warp-label" class="warp-label">1×</span>
+    <button id="warp-up" class="btn icon-only" data-icon="ff" aria-label="Faster time warp"></button>
+  </div>
+
+  <div class="flight-top-right">
+    <button id="btn-recover" class="btn primary" hidden>Recover</button>
+    <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Re-centre map" hidden></button>
+    <button id="btn-map" class="btn" data-icon="map">Map</button>
+    <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
+  </div>
+
+  <div id="map-legend" class="map-legend" hidden>
+    <span><i class="sw amber"></i>Current path</span><span><i class="sw cyan"></i>After encounter</span><span class="muted">Drag to pan · pinch or scroll to zoom</span>
+  </div>
+
+  <div class="throttle-box">
+    <button id="btn-tmax" class="btn small">Max</button>
+    <div id="throttle-track" class="throttle-track" role="slider" aria-label="Throttle">
+      <div id="throttle-fill" class="throttle-fill"></div>
+      <div class="throttle-ticks"></div>
+    </div>
+    <span id="throttle-label" class="throttle-label">100%</span>
+    <button id="btn-tcut" class="btn small">Cut</button>
+  </div>
+
+  <div class="rot-controls">
+    <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
+    <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+  </div>
+
+  <div class="stage-box">
+    <div class="fuel">
+      <div class="fuel-bar"><div id="fuel-fill" class="fuel-fill"></div></div>
+      <span id="fuel-label" class="fuel-label"></span>
+    </div>
+    <div class="stage-info"><span id="stage-num" class="stage-num"></span><span id="stage-next" class="stage-next"></span></div>
+    <button id="btn-stage" class="stage-btn">Stage</button>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="modal" class="modal" hidden><div id="modal-card" class="modal-card" role="dialog" aria-modal="true"></div></div>
+
+<script src="js/util.js"></script>
+<script src="js/space.js"></script>
+<script src="js/parts.js"></script>
+<script src="js/vessel.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/builder.js"></script>
+<script src="js/flight.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
