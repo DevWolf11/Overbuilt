@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Rocket Science Simulator</title>
-<meta name="description" content="Build rockets from parts, fly them to orbit, explore a whole solar system and come home. A 2D spaceflight sandbox for desktop and mobile.">
+<meta name="description" content="Build rockets, planes, cars and helicopters from parts, fly to orbit, explore a whole solar system and come home. A spaceflight sandbox in 2D and 3D for desktop and mobile.">
 <meta name="theme-color" content="#05070d">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -18,15 +18,16 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<canvas id="view3d" aria-hidden="true"></canvas>
 <canvas id="view" aria-label="Game view"></canvas>
 
 <!-- ============================== HOME ============================== -->
 <div id="home" class="ui home">
   <div class="home-inner">
     <div class="home-title">
-      <span class="home-kicker">2D spaceflight sandbox</span>
+      <span class="home-kicker">Spaceflight sandbox · 2D and 3D</span>
       <h1>Rocket Science<br>Simulator</h1>
-      <p class="home-tag">Build it, launch it, and see how far it gets: orbit, the Moon, Mars, the moons of Jupiter.</p>
+      <p class="home-tag">Build rockets, planes, cars and helicopters, launch them, and see how far they get: orbit, the Moon, Mars, the moons of Jupiter.</p>
     </div>
     <div id="home-modes" class="home-modes" hidden>
       <p class="home-choose">Choose how you want to play. You can switch later.</p>
@@ -41,7 +42,7 @@
     </div>
     <div id="home-main" class="home-main" hidden>
       <button id="home-resume" class="home-btn resume" hidden><span class="hb-name">Resume flight</span><span id="home-resume-sub" class="hb-sub"></span></button>
-      <button id="home-build" class="home-btn primary"><span class="hb-name">Enter the hangar</span><span class="hb-sub">Build and launch a rocket</span></button>
+      <button id="home-build" class="home-btn primary"><span class="hb-name">Enter the hangar</span><span class="hb-sub">Build and launch a rocket, plane, car or helicopter</span></button>
       <button id="home-mode" class="home-btn"><span id="home-mode-label" class="hb-name">Career</span><span id="home-mode-sub" class="hb-sub"></span></button>
       <div class="home-row">
         <button id="home-dv" class="btn">Δv map</button>
@@ -58,6 +59,7 @@
     <div class="brand"><button id="btn-home" class="btn icon-only" data-icon="home" aria-label="Home"></button><span class="brand-name">Rocket Science Simulator</span></div>
     <div class="topbar-actions">
       <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
+      <button id="btn-3d-build" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
       <button id="btn-sym" class="btn toggle" aria-pressed="true" title="Mirror parts across the centre line"><span>Sym<span class="long">metry</span></span></button>
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
@@ -67,12 +69,18 @@
   </header>
 
   <section id="stats" class="panel stats" aria-label="Rocket stats">
+    <div id="kind-select" class="kind-select" role="radiogroup" aria-label="Vehicle type">
+      <button class="kind-btn" role="radio" data-kind="rocket" data-icon="rocket" title="Rocket: launches from the pad"><span>Rocket</span></button>
+      <button class="kind-btn" role="radio" data-kind="plane" data-icon="plane" title="Plane: built nose-right, takes off from the runway"><span>Plane</span></button>
+      <button class="kind-btn" role="radio" data-kind="car" data-icon="car" title="Car: drives from the runway"><span>Car</span></button>
+      <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
+    </div>
     <div id="s-name" class="s-name">Rocket</div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
       <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
-      <div><dt>TWR</dt><dd><span id="s-twr">—</span></dd></div>
-      <div><dt>Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
+      <div id="s-twr-row"><dt id="s-twr-label">TWR</dt><dd><span id="s-twr">—</span></dd></div>
+      <div><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
     </dl>
     <div id="career-row" class="career-row">
       <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Funds</span><span id="s-funds">$0</span></div>
@@ -98,6 +106,7 @@
   </section>
 
   <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
+  <div id="build-3d-hint" class="chip-hint" hidden>3D preview · drag to orbit · switch to 2D to place parts by hand</div>
 
   <footer id="palette" class="palette">
     <div id="palette-tabs" class="tabs" role="tablist"></div>
@@ -114,10 +123,11 @@
       <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
       <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
+      <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
-      <div><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
-      <div><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
-      <div><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
+      <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
+      <div class="orbit-row"><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
+      <div class="orbit-row"><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
     </dl>
     <div id="row-heat" class="t-heat" hidden><span>Heat</span><div class="heat-bar"><div id="heat-fill" class="heat-fill"></div></div></div>
     <div id="row-target" class="t-target" hidden><span id="t-target"></span></div>
@@ -133,6 +143,7 @@
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
     <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Centre on vessel" hidden></button>
+    <button id="btn-3d" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
     <button id="btn-map" class="btn" data-icon="map">Map</button>
     <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
   </div>
@@ -165,6 +176,7 @@
     <div class="rot-controls">
       <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
       <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+      <button id="btn-brake" class="round brake" aria-label="Brake (hold)" hidden>Brake</button>
     </div>
   </div>
 
@@ -187,6 +199,8 @@
 <script src="js/vessel.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/world.js"></script>
+<script src="js/parts3d.js"></script>
+<script src="js/render3d.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/career.js"></script>
 <script src="js/map.js"></script>

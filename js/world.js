@@ -3,7 +3,7 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true }, store.get('rss.settings', {})),
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, view3d: false }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
@@ -448,7 +448,7 @@ const World = {
           const h1 = hash1(i, 1);
           if (h1 > 0.42) continue;
           const ang = (i * step) / R;
-          if (Math.abs(wrapAngle(ang - (b.padAngle ?? 99))) < 0.0016) continue;
+          if (clearZone(b, ang)) continue;
           const th = terrainHeight(b, ang);
           if (th < 4) continue;
           const tall = 6 + hash1(i, 2) * 10;
@@ -565,6 +565,63 @@ const World = {
     ctx.fillStyle = dk('#ff7a1a'); ctx.fillRect(37.5, 20, 7.5, 1.2);
     ctx.fillStyle = dk('#9aa0a8'); ctx.fillRect(-30, 0, 0.3, 14);
     ctx.fillStyle = dk('#ffb547'); ctx.fillRect(-29.7, 10.5, 5, 3.2);
+    this.drawAirfield(ctx, cam, base, S, F, env, dk);
+  },
+
+  // Runway, helipad and the causeway road. They run for kilometres, so each piece is placed at its own
+  // spot on the curved surface instead of in one flat frame.
+  drawAirfield(ctx, cam, base, S, F, env, dk) {
+    const e = bodyPos(EARTH, F.time), R = EARTH.radius;
+    const W = F.canvas.width, H = F.canvas.height, reach = Math.hypot(W, H) / 2 / S + 200;
+    const at = (east, h) => {
+      const a = siteAngle(EARTH, east), r = R + terrainHeight(EARTH, a) + (h || 0);
+      const x = e.x + r * Math.cos(a) - cam.x, y = e.y + r * Math.sin(a) - cam.y;
+      if (Math.hypot(x, y) > reach) return false;
+      ctx.setTransform(...base); ctx.translate(x, y); ctx.rotate(a - Math.PI / 2);
+      return true;
+    };
+    const night = env.night > 0.4;
+    // helipad
+    if (at(EARTH.sites.helipad.east)) {
+      ctx.fillStyle = dk('#4a5059'); ctx.fillRect(-10, -0.6, 20, 0.6);
+      ctx.fillStyle = dk('#e9edf1'); ctx.fillRect(-10, -0.12, 20, 0.12);
+      ctx.fillStyle = dk('#ffc93c'); ctx.fillRect(-3, -0.1, 6, 0.1);
+      ctx.fillStyle = night ? '#7dffb0' : dk('#5b636d'); ctx.fillRect(-10.2, 0, 0.4, 0.4); ctx.fillRect(9.8, 0, 0.4, 0.4);
+    }
+    // runway: asphalt with dashes, and edge lights that glow at night
+    const rw = EARTH.runway;
+    if (S > 0.05) {
+      for (let x = rw.from; x < rw.to; x += 40) {
+        if (!at(x + 20)) continue;
+        ctx.fillStyle = dk('#2b2f35'); ctx.fillRect(-20.5, -0.5, 41, 0.5);
+        ctx.fillStyle = dk('#e9edf1');
+        if (((x - rw.from) / 40) % 2 === 0) ctx.fillRect(-10, -0.08, 20, 0.08);
+        if (x === rw.from || x + 40 >= rw.to) ctx.fillRect(-20, -0.08, 40, 0.08);
+        ctx.fillStyle = night ? '#ffe9a8' : dk('#9aa0a8'); ctx.fillRect(-0.15, 0, 0.3, 0.35);
+      }
+    }
+    // causeway road with railing posts
+    if (S > 0.4) {
+      for (let x = 3300; x < 12700; x += 25) {
+        if (!at(x + 12.5)) continue;
+        ctx.fillStyle = dk('#34383e'); ctx.fillRect(-12.6, -0.4, 25.2, 0.4);
+        ctx.fillStyle = dk('#d9dde2'); ctx.fillRect(-4, -0.06, 8, 0.06);
+        ctx.fillStyle = dk('#8a929c'); ctx.fillRect(-0.1, 0, 0.2, 1); ctx.fillRect(-12.5, 0.85, 25, 0.12);
+      }
+    }
+    // airport hangar and control tower beside the runway
+    if (at(900)) {
+      ctx.fillStyle = dk('#aab2bb');
+      ctx.beginPath(); ctx.moveTo(-30, 0); ctx.lineTo(-30, 12); ctx.quadraticCurveTo(0, 22, 30, 12); ctx.lineTo(30, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = dk('#5b636d'); ctx.fillRect(-22, 0, 44, 10);
+      ctx.fillStyle = dk('#ff7a1a'); ctx.fillRect(-30, 11, 60, 0.8);
+    }
+    if (at(1250)) {
+      ctx.fillStyle = dk('#c9ccd1'); ctx.fillRect(-2, 0, 4, 22);
+      ctx.fillStyle = night ? '#ffd98a' : dk('#7fb8d8'); ctx.fillRect(-3.5, 22, 7, 3);
+      ctx.fillStyle = dk('#5b636d'); ctx.fillRect(-4, 25, 8, 0.8);
+      ctx.fillStyle = Math.sin(performance.now() / 400) > 0 ? '#ff5d5d' : '#7a2a2a'; ctx.fillRect(-0.3, 25.8, 0.6, 0.6);
+    }
   },
 
   drawVessel(ctx, v, cam, base, S, F) {
@@ -625,7 +682,7 @@ const World = {
     ctx.translate(x, y); ctx.rotate(v.rot); ctx.translate(-v.com.x, -v.com.y);
     const rho = airDensity(v.body, v.altitude());
     ctx.globalCompositeOperation = 'lighter';
-    for (const p of v.parts) if (p.def.thrust && p.firing > 0) this.drawFlame(ctx, p, p.firing, rho);
+    for (const p of v.parts) if (p.def.thrust && p.firing > 0 && p.def.plume !== 'none') this.drawFlame(ctx, p, p.firing, rho);
     ctx.globalCompositeOperation = 'source-over';
   },
 
@@ -642,7 +699,8 @@ const World = {
       nuclear: ['230,255,250', '140,230,255', '80,160,255'],
       ion: ['200,225,255', '90,150,255', '60,90,255'],
       spike: ['255,220,150', '255,150,60', '255,90,30'],
-    }[type];
+      jet: ['255,228,196', '255,160,96', '150,120,255'],
+    }[type] || ['255,214,140', '255,140,40', '255,70,20'];
     const lenK = type === 'ion' ? 3.5 : type === 'solid' ? 4.2 : type === 'hydro' ? 3.4 : 3.2;
     const len = Math.max(d.w, 1) * (1.4 + lenK * k) * (1 + (type === 'spike' ? 0 : vac * 0.9)) * flick;
     const spread = bw * (type === 'spike' ? 1 : 1 + vac * (type === 'ion' ? 0.4 : 1.8));
@@ -689,19 +747,35 @@ const World = {
     const mark = (wx, wy, kind, color) => {
       const l = Math.hypot(wx, wy); if (!l) return;
       const d = toScreenDir(wx / l, wy / l);
-      const x = cx + d.x * R, y = cy + d.y * R, r = 7 * dpr;
-      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2 * dpr;
-      ctx.beginPath();
-      if (kind === 'pro') {
-        ctx.arc(x, y, r, 0, TAU); ctx.moveTo(x, y - r); ctx.lineTo(x, y - r * 1.8); ctx.moveTo(x - r, y); ctx.lineTo(x - r * 1.8, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r * 1.8, y);
-        ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 1.6 * dpr, 0, TAU); ctx.fill();
-      } else if (kind === 'retro') {
-        ctx.arc(x, y, r, 0, TAU); ctx.moveTo(x - r * 0.7, y - r * 0.7); ctx.lineTo(x + r * 0.7, y + r * 0.7); ctx.moveTo(x + r * 0.7, y - r * 0.7); ctx.lineTo(x - r * 0.7, y + r * 0.7); ctx.stroke();
-      } else {
-        ctx.moveTo(x, y - r * 1.2); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r * 1.2); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke();
-        ctx.beginPath(); ctx.arc(x, y, 1.6 * dpr, 0, TAU); ctx.fill();
-      }
+      this.markerGlyph(ctx, cx + d.x * R, cy + d.y * R, kind, color, dpr);
     };
+    this.markersFor(v, F, bp, mark);
+    // far zoom: keep the craft findable
+    if ((v.bounds.maxY - v.bounds.minY) * S < 6 * dpr) this.findRing(ctx, cx, cy, dpr);
+  },
+
+  // The same markers over the 3D view, placed on a ring around the craft in the sim plane.
+  drawOverlay3D(ctx, W, H, dpr, F) {
+    const v = F.active;
+    if (!v || !v.parts.length || !Settings.get('markers')) return;
+    const bp = bodyPos(v.body, F.time), ax = bp.x + v.x, ay = bp.y + v.y;
+    const c = Render3D.project(ax, ay, 0);
+    if (c.behind) return;
+    const mpp = Render3D.metresPerPixelAt(ax, ay);
+    if (!(mpp > 0)) return;
+    const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY);
+    const Rm = Math.max(ext * 0.7, 70 * mpp);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const mark = (wx, wy, kind, color) => {
+      const l = Math.hypot(wx, wy); if (!l) return;
+      const p = Render3D.project(ax + (wx / l) * Rm, ay + (wy / l) * Rm, 0);
+      if (!p.behind) this.markerGlyph(ctx, p.x * dpr, p.y * dpr, kind, color, dpr);
+    };
+    this.markersFor(v, F, bp, mark);
+    if (ext / mpp < 6) this.findRing(ctx, c.x * dpr, c.y * dpr, dpr);
+  },
+
+  markersFor(v, F, bp, mark) {
     if (!v.landed && v.speed() > 1) {
       mark(v.vx, v.vy, 'pro', 'rgba(185,255,120,0.85)');
       mark(-v.vx, -v.vy, 'retro', 'rgba(185,255,120,0.55)');
@@ -710,10 +784,25 @@ const World = {
       const tp = bodyPos(F.target, F.time);
       mark(tp.x - (bp.x + v.x), tp.y - (bp.y + v.y), 'target', 'rgba(232,120,255,0.85)');
     }
-    // far zoom: keep the craft findable
-    if ((v.bounds.maxY - v.bounds.minY) * S < 6 * dpr) {
-      ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 1.5 * dpr;
-      ctx.beginPath(); ctx.arc(cx, cy, 7 * dpr, 0, TAU); ctx.stroke();
+  },
+
+  markerGlyph(ctx, x, y, kind, color, dpr) {
+    const r = 7 * dpr;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    if (kind === 'pro') {
+      ctx.arc(x, y, r, 0, TAU); ctx.moveTo(x, y - r); ctx.lineTo(x, y - r * 1.8); ctx.moveTo(x - r, y); ctx.lineTo(x - r * 1.8, y); ctx.moveTo(x + r, y); ctx.lineTo(x + r * 1.8, y);
+      ctx.stroke(); ctx.beginPath(); ctx.arc(x, y, 1.6 * dpr, 0, TAU); ctx.fill();
+    } else if (kind === 'retro') {
+      ctx.arc(x, y, r, 0, TAU); ctx.moveTo(x - r * 0.7, y - r * 0.7); ctx.lineTo(x + r * 0.7, y + r * 0.7); ctx.moveTo(x + r * 0.7, y - r * 0.7); ctx.lineTo(x - r * 0.7, y + r * 0.7); ctx.stroke();
+    } else {
+      ctx.moveTo(x, y - r * 1.2); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r * 1.2); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 1.6 * dpr, 0, TAU); ctx.fill();
     }
+  },
+
+  findRing(ctx, x, y, dpr) {
+    ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, 7 * dpr, 0, TAU); ctx.stroke();
   },
 };

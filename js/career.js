@@ -8,6 +8,12 @@ const MISSIONS = (() => {
     { id: 'recoverSpace', title: 'Safe Return', desc: 'Recover a craft on Earth after it reached space.', reward: 12000, flag: 'recoveredSpace' },
     { id: 'orbitEarth', title: 'Into Orbit', desc: 'Reach a stable orbit around Earth.', reward: 30000, flag: 'orbit:earth' },
     { id: 'splash', title: 'Splashdown', desc: 'Land in an ocean and recover the craft.', reward: 8000, flag: 'splashdown' },
+    { id: 'drive1k', title: 'Road Trip', desc: 'Drive a car 1 km.', reward: 5000, flag: 'drive1k' },
+    { id: 'takeoff', title: 'Wheels Up', desc: 'Take off from the runway in a plane.', reward: 6000, flag: 'takeoff' },
+    { id: 'hover', title: 'Hover', desc: 'Hold a helicopter steady above 20 m for 10 seconds.', reward: 6000, flag: 'hover' },
+    { id: 'runwayLanding', title: 'Greaser', desc: 'Land a plane back on the runway and stop.', reward: 12000, flag: 'runwayLanding' },
+    { id: 'flyHigh', title: 'High Flyer', desc: 'Fly a plane above 8 km.', reward: 10000, flag: 'flyHigh' },
+    { id: 'supersonic', title: 'Sound Barrier', desc: 'Beat 340 m/s below 15 km on air-breathing engines.', reward: 15000, flag: 'supersonic' },
   ];
   const tier = { moon: 1, venus: 2, mars: 2, mercury: 3, phobos: 3, jupiter: 4, europa: 5 };
   for (const b of [MOON, VENUS, MARS, MERCURY, PHOBOS, JUPITER, EUROPA]) {
