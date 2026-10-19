@@ -1042,13 +1042,14 @@ function drawCanopy(ctx, p, lw) {
 }
 
 // Render a part onto a small canvas for the palette.
-function renderPartIcon(type, size, dpr) {
+function renderPartIcon(type, size, dpr, rot = 0) {
   const c = document.createElement('canvas');
   c.width = c.height = Math.round(size * dpr);
   const ctx = c.getContext('2d');
   const def = PARTS[type];
   const s = (size * dpr * 0.8) / Math.max(def.w, def.h, 1.2);
   ctx.setTransform(s, 0, 0, -s, c.width / 2, c.height / 2);
+  ctx.rotate(rot);
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0 };
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;

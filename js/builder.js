@@ -98,6 +98,7 @@ const Builder = {
     if (d.name) this.name = d.name;
     const kind = VEHICLE_KINDS[d.kind] ? d.kind : 'rocket';
     if (kind === 'plane' && this.kind !== 'plane' && this.symmetry) { this.symmetry = false; $('#btn-sym').setAttribute('aria-pressed', 'false'); }
+    const turned = kind !== this.kind;
     this.kind = kind;
     this.renderKind();
     this.linkMirrors();
@@ -105,7 +106,8 @@ const Builder = {
     if (!keepHistory) { this.history = []; this.future = []; }
     this.changed(!!keepHistory);
     this.renderInfo();
-    if (!keepHistory) this.fitView();
+    if (turned && $('#palette-items').childElementCount) this.buildPalette();
+    if (!keepHistory || turned) this.fitView();
   },
   loadTemplate(key) {
     const t = TEMPLATES[key];
@@ -301,7 +303,7 @@ const Builder = {
       if (def.cat !== this.category) continue;
       const locked = !Career.unlocked(def);
       const item = el('button', { class: 'part-item' + (locked ? ' locked' : ''), title: def.desc || def.name });
-      item.append(renderPartIcon(type, 56, dpr));
+      item.append(renderPartIcon(type, 56, dpr, this.viewRot)); // drawn the way the blueprint shows it
       item.append(el('span', { class: 'part-name', text: def.name }));
       item.append(el('span', { class: 'part-spec', text: locked ? `Tier ${def.tier}` : this.specLine(def) }));
       if (!Career.sandbox && !locked) item.append(el('span', { class: 'part-cost', text: money(def.cost) }));
@@ -383,6 +385,7 @@ const Builder = {
   setKind(kind) {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
     this.kind = kind;
+    this.buildPalette();
     if (kind === 'plane' && this.symmetry) {
       this.symmetry = false;
       $('#btn-sym').setAttribute('aria-pressed', 'false');
