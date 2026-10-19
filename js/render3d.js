@@ -1236,7 +1236,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           surf(e, h, z, p); pos.push(p.x, p.y, p.z); uv.push((e - e0) / uScale, v);
           surf(e, h + 1, z, q); q.sub(p); nor.push(q.x, q.y, q.z);
         }
-        if (i < n) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+        if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); } // wound to face up
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

@@ -12,6 +12,7 @@ const App = {
     document.querySelectorAll('[data-icon]').forEach((n) => n.prepend(icon(n.dataset.icon)));
     Builder.init(this.canvas);
     Flight.init(this.canvas);
+    this.init3D();
     this.homeTime = 0;
     this.bindHome();
     $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !(App.scene === 'flight' && Flight.ended)) UI.closeModal(); });
@@ -32,19 +33,75 @@ const App = {
     this.W = innerWidth; this.H = innerHeight;
     this.canvas.width = Math.round(this.W * dpr);
     this.canvas.height = Math.round(this.H * dpr);
+    if (Render3D.ready) Render3D.resize(this.W, this.H, this.dpr);
   },
 
   frame(t) {
     const dt = Math.min(0.1, (t - this.last) / 1000);
     this.last = t;
     try {
-      if (this.scene === 'build') Builder.render(this.ctx, this.W, this.H, this.dpr);
-      else if (this.scene === 'flight') { Flight.update(dt); Flight.render(this.ctx, this.W, this.H, this.dpr); }
-      else this.renderHome(dt);
+      let in3d = false;
+      if (this.scene === 'build') {
+        in3d = this.use3D();
+        if (in3d) { Render3D.setVisible(true); Render3D.renderBuilder(Builder, dt); this.clear2D(); } else Builder.render(this.ctx, this.W, this.H, this.dpr);
+      } else if (this.scene === 'flight') {
+        Flight.update(dt);
+        in3d = this.use3D() && !Flight.mapMode && Flight.running;
+        if (in3d) {
+          Flight.updateCamera();
+          Render3D.setVisible(true);
+          Render3D.renderFlight(Flight, dt);
+          this.clear2D();
+          World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
+        } else Flight.render(this.ctx, this.W, this.H, this.dpr);
+      } else this.renderHome(dt);
+      if (!in3d && Render3D.ready) Render3D.setVisible(false);
     } catch (err) {
       console.error(err);
     }
     requestAnimationFrame((tt) => this.frame(tt));
+  },
+
+  clear2D() { this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); },
+
+  // ---------------------------------------------------------------- 3D view
+  get view3d() { return !!Settings.get('view3d') && Render3D.supported && !Render3D.failed; },
+  use3D() {
+    if (!this.view3d || !Render3D.ready) {
+      if (Render3D.failed && Settings.get('view3d') && !this.warned3d) { this.warned3d = true; UI.toast('3D view stopped working. Back to 2D.'); this.sync3D(); }
+      return false;
+    }
+    return true;
+  },
+  init3D() {
+    const show = Render3D.supported;
+    document.querySelectorAll('.view3d-toggle').forEach((b) => { b.hidden = !show; b.addEventListener('click', () => this.set3D(!Settings.get('view3d'))); });
+    if (this.view3d) this.load3D();
+    this.sync3D();
+  },
+  load3D() {
+    Render3D.load().then(() => { Render3D.resize(this.W, this.H, this.dpr); this.sync3D(); }).catch((e) => {
+      console.error(e);
+      Settings.set('view3d', false);
+      this.sync3D();
+      UI.toast('3D view isn’t available on this device');
+    });
+  },
+  set3D(on) {
+    if (on && !Render3D.supported) { UI.toast('3D view isn’t available on this device'); return; }
+    Settings.set('view3d', !!on);
+    if (on) { this.load3D(); if (!Render3D.ready) UI.toast('Loading 3D view…'); }
+    Sound.click();
+    this.sync3D();
+  },
+  sync3D() {
+    const on = this.view3d;
+    document.querySelectorAll('.view3d-toggle').forEach((b) => {
+      b.setAttribute('aria-pressed', String(on));
+      b.title = on ? 'Switch to 2D view (V)' : 'Switch to 3D view (V)';
+      b.setAttribute('aria-label', b.title);
+    });
+    $('#build-3d-hint').hidden = !on;
   },
 
   showScene(name) {
@@ -122,7 +179,8 @@ const App = {
       store.set('rss.flight', null);
       this.showScene('flight');
       Flight.start(Builder.serialize());
-      if (Settings.get('hints')) UI.toast('Press STAGE (Space) to ignite');
+      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with D and A (⟳ ⟲)', heli: 'Press STAGE (Space) to start the rotor' }[Builder.kind];
+      if (Settings.get('hints') && tip) UI.toast(tip);
     };
     const saved = store.get('rss.flight', null);
     if (saved && saved.vessels && saved.vessels.length) {
@@ -153,6 +211,8 @@ const App = {
         <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
         <li><b>Travel.</b> In the map, tap a planet or moon to target it. The HUD tells you when the transfer window opens. Warp to it, burn prograde until an encounter appears, then burn retrograde at periapsis to be captured.</li>
         <li><b>Come home hot.</b> Returns from the Moon and planets heat the leading part. Lead with a heat shield, then open the parachute below 250 m/s.</li>
+        <li><b>Other vehicles.</b> Pick Plane, Car or Helicopter above the stats. Planes are built nose-right with wings, a tail and landing gear, and take off from the runway: full throttle, then pull up with ⟲ at about 55 m/s. Cars drive with ⟲ ⟳. Helicopters lift off from the helipad as you raise the throttle. Hold B (or Brake) to stop on the ground.</li>
+        <li><b>3D.</b> The 3D button shows the same world in 3D. Drag to look around; the zoom and controls stay the same.</li>
       </ol>${Flight.controlsHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
@@ -223,14 +283,16 @@ const App = {
     const vol = el('input', { id: 'set-volume', type: 'range', min: '0', max: '1', step: '0.05', value: String(Settings.get('volume')) });
     vol.addEventListener('input', () => { Settings.set('volume', +vol.value); Sound.unlock(); Sound.applyVolume(); });
     const q = el('select', { id: 'set-quality' });
-    q.innerHTML = '<option value="high">High: clouds, trees, effects</option><option value="low">Low: faster on older phones</option>';
+    q.innerHTML = '<option value="high">High: clouds, trees, shadows, effects</option><option value="low">Low: faster on older phones</option>';
     q.value = Settings.get('quality');
     q.addEventListener('change', () => Settings.set('quality', q.value));
     const hints = el('input', { id: 'set-hints', type: 'checkbox' }); hints.checked = Settings.get('hints');
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
     const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
     marks.addEventListener('change', () => Settings.set('markers', marks.checked));
-    wrap.append(row('Volume', vol), row('Graphics', q), row('Flight hints', hints), row('Prograde markers', marks));
+    const v3 = el('input', { id: 'set-3d', type: 'checkbox' }); v3.checked = !!Settings.get('view3d'); v3.disabled = !Render3D.supported;
+    v3.addEventListener('change', () => this.set3D(v3.checked));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('3D view', v3), row('Flight hints', hints), row('Prograde markers', marks));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

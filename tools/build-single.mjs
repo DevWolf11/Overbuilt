@@ -11,8 +11,9 @@ let html = readFileSync(join(root, 'index.html'), 'utf8');
 
 // inline the stylesheet
 html = html.replace(/<link rel="stylesheet" href="css\/style.css">/, () => `<style>\n${readFileSync(join(root, 'css/style.css'), 'utf8')}</style>`);
-// inline scripts, in order
-html = html.replace(/<script src="(js\/[\w-]+\.js)"><\/script>/g, (_, src) => `<script>\n${readFileSync(join(root, src), 'utf8')}</script>`);
+// inline scripts, in order; three.js goes in ahead of the 3D code so it never has to be fetched
+html = html.replace('<script src="js/parts3d.js"></script>', '<script src="js/vendor/three.min.js"></script>\n<script src="js/parts3d.js"></script>');
+html = html.replace(/<script src="(js\/[\w/.-]+\.js)"><\/script>/g, (_, src) => `<script>\n${readFileSync(join(root, src), 'utf8').replace(/<\/script/gi, '<\\/script')}</script>`);
 // a single file has no service worker, manifest or icon files next to it
 html = html.replace(/<link rel="(manifest|icon|apple-touch-icon)"[^>]*>\n/g, '');
 html = html.replace('<script>\n\'use strict\';\n// Shared helpers', '<script>window.RSS_NO_SW = true;</script>\n<script>\n\'use strict\';\n// Shared helpers');

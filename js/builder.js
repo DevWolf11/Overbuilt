@@ -78,6 +78,7 @@ const Builder = {
     this.symmetry = store.get('rss.symmetry', true);
     this.category = 'command';
     this.name = 'Rocket';
+    this.kind = 'rocket';
     this.history = [];
     this.future = [];
     this.bindDom();
@@ -89,12 +90,16 @@ const Builder = {
 
   // ---------------------------------------------------------------- design io
   serialize() {
-    return { name: this.name, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip })) };
+    return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip })) };
   },
   save() { store.set('rss.design', this.serialize()); },
   loadDesign(d, keepHistory) {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip }));
     if (d.name) this.name = d.name;
+    const kind = VEHICLE_KINDS[d.kind] ? d.kind : 'rocket';
+    if (kind === 'plane' && this.kind !== 'plane' && this.symmetry) { this.symmetry = false; $('#btn-sym').setAttribute('aria-pressed', 'false'); }
+    this.kind = kind;
+    this.renderKind();
     this.linkMirrors();
     this.selected = null;
     if (!keepHistory) { this.history = []; this.future = []; }
@@ -104,7 +109,7 @@ const Builder = {
   },
   loadTemplate(key) {
     const t = TEMPLATES[key];
-    this.loadDesign({ name: t.name, parts: t.parts.map(([type, x, y]) => ({ type, x, y, flip: x < 0 })) });
+    this.loadDesign({ name: t.name, kind: t.kind, parts: t.parts.map(([type, x, y]) => ({ type, x, y, flip: x < 0 })) });
   },
   linkMirrors() {
     for (const p of this.parts) p.mirror = null;
@@ -135,7 +140,7 @@ const Builder = {
     const locked = this.parts.filter((p) => !Career.unlocked(p.def));
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
-      loose: this.parts.length - ps.length, cost: designCost(ps), locked,
+      loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
     };
     this.renderStats();
     if (!fromHistory) {
@@ -168,10 +173,16 @@ const Builder = {
   },
 
   // ---------------------------------------------------------------- geometry
-  screenToWorld(sx, sy) {
+  // The blueprint shows a design the way it will sit at launch (planes nose-right), so the camera works
+  // in display space and parts in part space: display = R(viewRot) · part.
+  get viewRot() { return VEHICLE_KINDS[this.kind].launchRot; },
+  toDisp(x, y) { const c = Math.cos(this.viewRot), s = Math.sin(this.viewRot); return { x: c * x - s * y, y: s * x + c * y }; },
+  toPart(x, y) { const c = Math.cos(this.viewRot), s = Math.sin(this.viewRot); return { x: c * x + s * y, y: -s * x + c * y }; },
+  screenToDisp(sx, sy) {
     const r = this.canvas.getBoundingClientRect();
     return { x: this.cam.x + (sx - r.left - r.width / 2) / this.cam.scale, y: this.cam.y - (sy - r.top - r.height / 2) / this.cam.scale };
   },
+  screenToWorld(sx, sy) { const d = this.screenToDisp(sx, sy); return this.toPart(d.x, d.y); },
   hitPart(w) {
     for (let i = this.parts.length - 1; i >= 0; i--) {
       const r = partRect(this.parts[i]);
@@ -183,7 +194,13 @@ const Builder = {
   fitView() {
     if (!this.parts.length) { this.cam = { x: 0, y: 6, scale: 26 }; return; }
     let l = Infinity, r = -Infinity, b = Infinity, t = -Infinity;
-    for (const p of this.parts) { const R = partRect(p); l = Math.min(l, R.l); r = Math.max(r, R.r); b = Math.min(b, R.b); t = Math.max(t, R.t); }
+    for (const p of this.parts) {
+      const R = partRect(p);
+      for (const [x, y] of [[R.l, R.b], [R.r, R.b], [R.l, R.t], [R.r, R.t]]) {
+        const d = this.toDisp(x, y);
+        l = Math.min(l, d.x); r = Math.max(r, d.x); b = Math.min(b, d.y); t = Math.max(t, d.y);
+      }
+    }
     const area = this.viewArea();
     const scale = Math.min(area.w / (r - l + 6), area.h / (t - b + 4));
     this.cam.scale = clamp(scale, 5, 60);
@@ -320,8 +337,8 @@ const Builder = {
       start = null;
       if (e.type === 'pointercancel') { this.drag = null; return; }
       if (locked) { this.showLocked(type); return; }
-      if (wasDrag) this.dropDrag(e.clientY);
-      else this.quickAdd(type);
+      if (wasDrag && !App.use3D()) this.dropDrag(e.clientY);
+      else { this.drag = null; this.quickAdd(type); }
     };
     item.addEventListener('pointerup', end);
     item.addEventListener('pointercancel', end);
@@ -363,25 +380,56 @@ const Builder = {
     this.addPart(type, spot.x, spot.y);
   },
 
+  setKind(kind) {
+    if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
+    this.kind = kind;
+    if (kind === 'plane' && this.symmetry) {
+      this.symmetry = false;
+      $('#btn-sym').setAttribute('aria-pressed', 'false');
+      UI.toast('Symmetry off: planes are drawn from the side');
+    }
+    this.renderKind();
+    this.changed();
+    this.fitView();
+    Sound.click();
+  },
+  renderKind() {
+    document.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.kind === this.kind)));
+  },
+
   renderStats() {
     const s = this.statsData;
     const set = (id, t) => { $(id).textContent = t; };
     set('#s-name', this.name);
     set('#s-mass', fmt.mass(s.mass));
     set('#s-thrust', `${Math.round(s.thrust / 1000).toLocaleString('en-US')} kN`);
+    const kind = this.kind, rocket = kind === 'rocket';
     set('#s-twr', s.thrust ? s.twr.toFixed(2) : '—');
-    set('#s-dv', `${Math.round(s.dv).toLocaleString('en-US')} m/s`);
+    set('#s-twr-label', rocket ? 'TWR' : 'T/W');
+    $('#s-twr-row').hidden = kind === 'car';
+    set('#s-dv-label', rocket ? 'Δv vac' : 'Fuel');
+    set('#s-dv', rocket ? `${Math.round(s.dv).toLocaleString('en-US')} m/s` : fmt.mass(s.fuel));
     set('#s-stages', String(this.stages.length));
-    $('#s-twr').className = s.thrust && s.twr < 1 ? 'bad' : '';
+    $('#s-twr').className = s.thrust && s.twr < 1 && (rocket || kind === 'heli') ? 'bad' : '';
     $('#career-row').hidden = Career.sandbox;
     if (!Career.sandbox) {
       set('#s-cost', money(s.cost));
       set('#s-funds', money(Career.data.funds));
       $('#s-cost').className = s.cost > Career.data.funds ? 'bad' : '';
     }
-    const warn = [];
-    if (!this.ctrl) warn.push('Add a Command Pod or Probe Core to fly.');
-    else if (!s.thrust) warn.push('No engine fires in stage 1.');
+    const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
+    if (!this.ctrl) warn.push(kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
+    else if (kind === 'plane') {
+      if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly.');
+      if (!has((p) => p.def.thrust)) warn.push('Add an engine: a propeller or a jet.');
+      if (!has((p) => p.def.wheel)) warn.push('Add landing gear under the fuselage to roll down the runway.');
+      if (!has((p) => p.def.wing && p.def.wing.control)) warn.push('An elevator at the tail makes it much easier to steer.');
+    } else if (kind === 'car') {
+      if (!has((p) => p.def.wheel && p.def.wheel.drive)) warn.push('Add car wheels under the chassis to drive.');
+    } else if (kind === 'heli') {
+      if (!has((p) => p.def.air && p.def.air.kind === 'rotor')) warn.push('Add a main rotor on top.');
+      else if (s.twr < 1) warn.push('Too heavy to lift off: the rotor needs T/W above 1.');
+    } else if (!s.thrust) warn.push('No engine fires in stage 1.');
     else if (s.twr < 1) warn.push('Too heavy to lift off: TWR below 1.');
     if (s.loose) warn.push(`${s.loose} part${s.loose > 1 ? 's' : ''} not attached. They stay behind.`);
     if (s.locked.length) warn.push(`Uses ${s.locked.length} locked part${s.locked.length > 1 ? 's' : ''}. Unlock them in R&D.`);
@@ -422,7 +470,7 @@ const Builder = {
   openHangar() {
     const wrap = el('div', { class: 'hangar' });
     const saves = store.get('rss.hangar', []);
-    const nameIn = el('input', { id: 'hangar-name', type: 'text', maxlength: '40', value: this.name, 'aria-label': 'Rocket name' });
+    const nameIn = el('input', { id: 'hangar-name', type: 'text', maxlength: '40', value: this.name, 'aria-label': 'Design name' });
     const saveBtn = el('button', { class: 'btn primary small', text: 'Save' });
     saveBtn.addEventListener('click', () => {
       const name = nameIn.value.trim() || 'Rocket';
@@ -435,13 +483,13 @@ const Builder = {
     });
     wrap.append(el('div', { class: 'hangar-save' }, nameIn, saveBtn));
     if (saves.length) {
-      wrap.append(el('h3', { class: 'summary-h', text: 'Your rockets' }));
+      wrap.append(el('h3', { class: 'summary-h', text: 'Your designs' }));
       const list = el('div', { class: 'template-list' });
       for (const s of saves) {
         const cost = designCost(s.parts.filter((q) => PARTS[q.type]));
         const row = el('div', { class: 'template row' },
           el('button', { class: 'template-main' }, el('span', { class: 'template-name', text: s.name }),
-            el('span', { class: 'template-blurb', text: `${s.parts.length} parts${Career.sandbox ? '' : ' · ' + money(cost)}` })));
+            el('span', { class: 'template-blurb', text: `${VEHICLE_KINDS[s.kind] ? VEHICLE_KINDS[s.kind].name : 'Rocket'} · ${s.parts.length} parts${Career.sandbox ? '' : ' · ' + money(cost)}` })));
         const del = el('button', { class: 'btn icon-only small danger', 'aria-label': `Delete ${s.name}` });
         del.append(icon('trash'));
         row.querySelector('.template-main').addEventListener('click', () => { UI.closeModal(); this.loadDesign(s); });
@@ -454,19 +502,24 @@ const Builder = {
       }
       wrap.append(list);
     }
-    wrap.append(el('h3', { class: 'summary-h', text: 'Example rockets' }));
-    const tl = el('div', { class: 'template-list' });
-    for (const key in TEMPLATES) {
-      const t = TEMPLATES[key];
-      const locked = !Career.sandbox && t.tier > Career.data.tier;
-      const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
-        el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
-        el('span', { class: 'template-blurb', text: t.blurb }));
-      b.addEventListener('click', () => { UI.closeModal(); this.loadTemplate(key); });
-      tl.append(b);
+    const groups = { rocket: 'Example rockets', plane: 'Planes', car: 'Cars', heli: 'Helicopters' };
+    for (const kind in groups) {
+      const keys = Object.keys(TEMPLATES).filter((k) => (TEMPLATES[k].kind || 'rocket') === kind);
+      if (!keys.length) continue;
+      wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
+      const tl = el('div', { class: 'template-list' });
+      for (const key of keys) {
+        const t = TEMPLATES[key];
+        const locked = !Career.sandbox && t.tier > Career.data.tier;
+        const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
+          el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
+          el('span', { class: 'template-blurb', text: t.blurb }));
+        b.addEventListener('click', () => { UI.closeModal(); this.loadTemplate(key); });
+        tl.append(b);
+      }
+      wrap.append(tl);
     }
-    wrap.append(tl);
-    UI.modal({ kicker: 'Hangar', title: 'Rockets', body: wrap, actions: [{ label: 'Close' }] });
+    UI.modal({ kicker: 'Hangar', title: 'Vehicles', body: wrap, actions: [{ label: 'Close' }] });
   },
 
   // ---------------------------------------------------------------- input
@@ -480,8 +533,11 @@ const Builder = {
         if (this.drag && !this.drag.fromPalette) this.cancelDrag();
         this.pan = null;
         this.pinch = this.pinchInfo();
+        this.orbit = null;
         return;
       }
+      // 3D preview: drag to orbit, tap a part to select it
+      if (App.use3D()) { this.orbit = { pointerId: e.pointerId, moved: false }; return; }
       const w = this.screenToWorld(e.clientX, e.clientY);
       const hit = this.hitPart(w);
       if (hit && e.button !== 2 && e.button !== 1) {
@@ -498,7 +554,7 @@ const Builder = {
       if (App.scene !== 'build') return;
       const p = this.pointers.get(e.pointerId);
       if (!p) {
-        if (!isTouch) { const h = this.hitPart(this.screenToWorld(e.clientX, e.clientY)); c.style.cursor = h ? 'grab' : 'default'; }
+        if (!isTouch) { const h = !App.use3D() && this.hitPart(this.screenToWorld(e.clientX, e.clientY)); c.style.cursor = h ? 'grab' : 'default'; }
         return;
       }
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -509,6 +565,11 @@ const Builder = {
         this.cam.x -= (now.cx - this.pinch.cx) / this.cam.scale;
         this.cam.y += (now.cy - this.pinch.cy) / this.cam.scale;
         this.pinch = now;
+        return;
+      }
+      if (this.orbit && this.orbit.pointerId === e.pointerId) {
+        if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 6) this.orbit.moved = true;
+        Render3D.orbitBy(dx, dy);
         return;
       }
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
@@ -525,6 +586,15 @@ const Builder = {
       if (App.scene !== 'build') return;
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = null;
+      if (this.orbit && this.orbit.pointerId === e.pointerId) {
+        if (!this.orbit.moved && e.type !== 'pointercancel') {
+          const hit = Render3D.pickPart(e.clientX, e.clientY);
+          this.selected = hit && hit.part ? hit.part : null;
+          this.renderInfo();
+        }
+        this.orbit = null;
+        return;
+      }
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
         if (e.type === 'pointercancel') this.cancelDrag();
         else if (this.drag.moved) this.dropDrag(e.clientY);
@@ -553,6 +623,7 @@ const Builder = {
       else if (mod && e.code === 'KeyD') { e.preventDefault(); this.duplicateSelected(); }
       else if (e.code === 'Enter' && this.ctrl) App.launch();
       else if (e.code === 'KeyF') this.fitView();
+      else if (e.code === 'KeyV') App.set3D(!Settings.get('view3d'));
     });
 
     $('#btn-launch').addEventListener('click', () => App.launch());
@@ -575,6 +646,7 @@ const Builder = {
       });
     });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
+    document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.setKind(b.dataset.kind)));
     $('#btn-rd').addEventListener('click', () => App.showResearch());
     $('#btn-missions').addEventListener('click', () => App.showMissions());
   },
@@ -584,9 +656,9 @@ const Builder = {
     return { d: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
   },
   zoomAt(f, sx, sy) {
-    const before = this.screenToWorld(sx, sy);
+    const before = this.screenToDisp(sx, sy);
     this.cam.scale = clamp(this.cam.scale * f, 3, 90);
-    const after = this.screenToWorld(sx, sy);
+    const after = this.screenToDisp(sx, sy);
     this.cam.x += before.x - after.x;
     this.cam.y += before.y - after.y;
   },
@@ -595,7 +667,7 @@ const Builder = {
     const d = this.drag;
     const w = this.screenToWorld(cx, cy);
     const want = { x: w.x - d.offset.x, y: w.y - d.offset.y };
-    if (d.fromPalette && isTouch) want.y += 40 / this.cam.scale; // keep it visible above the finger
+    if (d.fromPalette && isTouch) { const up = this.toPart(0, 40 / this.cam.scale); want.x += up.x; want.y += up.y; } // keep it visible above the finger
     const ignore = d.part ? [d.part, d.part.mirror].filter(Boolean) : [];
     const s = this.snap(d.type, want, ignore);
     d.ghost = s;
@@ -664,13 +736,18 @@ const Builder = {
     ctx.fillStyle = 'rgba(150,185,230,0.45)';
     ctx.font = `500 ${9 * dpr}px "IBM Plex Mono", ui-monospace, monospace`;
     ctx.textAlign = 'left';
-    for (let y = Math.ceil(y0 / 2) * 2; y <= y1; y += 2) if (this.cam.scale > 8) ctx.fillText(`${y} m`, 4 * dpr, Y(y) - 3 * dpr);
+    const rot = this.viewRot;
+    if (!rot) for (let y = Math.ceil(y0 / 2) * 2; y <= y1; y += 2) if (this.cam.scale > 8) ctx.fillText(`${y} m`, 4 * dpr, Y(y) - 3 * dpr);
+    // the symmetry axis is the part-space centre line, wherever the view turns it
     ctx.strokeStyle = this.symmetry ? 'rgba(255,181,71,0.35)' : 'rgba(120,170,230,0.25)';
     ctx.setLineDash([6 * dpr, 6 * dpr]);
-    ctx.beginPath(); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), Hd); ctx.stroke();
+    const ax = this.toDisp(0, 1), far = (Wd + Hd) / S;
+    ctx.beginPath(); ctx.moveTo(X(-ax.x * far), Y(-ax.y * far)); ctx.lineTo(X(ax.x * far), Y(ax.y * far)); ctx.stroke();
     ctx.setLineDash([]);
+    const XY = (x, y) => { const d = this.toDisp(x, y); return [X(d.x), Y(d.y)]; };
 
     ctx.setTransform(S, 0, 0, -S, Wd / 2 - this.cam.x * S, Hd / 2 + this.cam.y * S);
+    ctx.rotate(rot);
     const lw = 1.2 / this.cam.scale;
     const drawList = (filter) => {
       for (const p of this.parts) {
@@ -713,7 +790,7 @@ const Builder = {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // centre of mass and thrust markers
     if (this.com) {
-      const cx = X(this.com.x), cy = Y(this.com.y), r = 9 * dpr;
+      const [cx, cy] = XY(this.com.x, this.com.y), r = 9 * dpr;
       ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
       ctx.fillStyle = '#14181f';
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, 0, Math.PI / 2); ctx.closePath(); ctx.fill();
@@ -721,9 +798,11 @@ const Builder = {
       ctx.strokeStyle = '#14181f'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
     }
     if (this.cot) {
-      const cx = X(this.cot.x), cy = Y(this.cot.y) + 14 * dpr;
+      const [cx, cy] = XY(this.cot.x, this.cot.y);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(-rot); ctx.translate(0, 14 * dpr); // an arrow along the thrust
       ctx.fillStyle = '#c38cff';
-      ctx.beginPath(); ctx.moveTo(cx, cy - 10 * dpr); ctx.lineTo(cx + 7 * dpr, cy + 6 * dpr); ctx.lineTo(cx, cy + 2 * dpr); ctx.lineTo(cx - 7 * dpr, cy + 6 * dpr); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, -10 * dpr); ctx.lineTo(7 * dpr, 6 * dpr); ctx.lineTo(0, 2 * dpr); ctx.lineTo(-7 * dpr, 6 * dpr); ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
     // stage badges
     ctx.font = `600 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`;
@@ -732,7 +811,8 @@ const Builder = {
       const st = this.stageOf.get(p.id);
       if (!st) continue;
       const r = partRect(p);
-      const sx = X(p.x < -0.01 ? r.l : r.r) + (p.x < -0.01 ? -10 : 10) * dpr, sy = Y(p.y);
+      const [ex, ey] = XY(p.x < -0.01 ? r.l : r.r, p.y), [px, py] = XY(p.x, p.y), k = 10 * dpr / (Math.hypot(ex - px, ey - py) || 1);
+      const sx = ex + (ex - px) * k, sy = ey + (ey - py) * k;
       ctx.fillStyle = 'rgba(5,9,18,0.85)';
       ctx.beginPath(); ctx.arc(sx, sy, 8 * dpr, 0, TAU); ctx.fill();
       ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 1 * dpr; ctx.stroke();
