@@ -3,7 +3,7 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, view3d: false }, store.get('rss.settings', {})),
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
@@ -23,44 +23,54 @@ function rgba(hex, a) { const c = hexToRgb(hex); return `rgba(${c[0]},${c[1]},${
 // ---------------------------------------------------------------------------
 // Particles and effects
 
+function randDir() {
+  const z = Math.random() * 2 - 1, a = Math.random() * TAU, s = Math.sqrt(1 - z * z);
+  return { x: s * Math.cos(a), y: s * Math.sin(a), z };
+}
+
 const FX = {
   list: [],
   max() { return Settings.high ? 900 : 350; },
   add(p) {
     p.life = 0;
+    if (p.z === undefined) { p.z = 0; p.vz = 0; }
     this.list.push(p);
     if (this.list.length > this.max()) this.list.splice(0, this.list.length - this.max());
   },
   clear() { this.list.length = 0; },
-  puff(body, x, y, vx, vy, n, color) {
+  // p and v are {x, y, z} relative to the body; bursts fly out in every direction.
+  puff(body, p, v, n, color) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * TAU, s = 2 + Math.random() * 6;
-      this.add({ kind: 'smoke', b: body, x, y, vx: vx + Math.cos(a) * s, vy: vy + Math.sin(a) * s, max: 0.8 + Math.random() * 0.6, size: 0.6, grow: 2.5, color, alpha: 0.6 });
+      const d = randDir(), s = 2 + Math.random() * 6;
+      this.add({ kind: 'smoke', b: body, x: p.x, y: p.y, z: p.z, vx: v.x + d.x * s, vy: v.y + d.y * s, vz: v.z + d.z * s, max: 0.8 + Math.random() * 0.6, size: 0.6, grow: 2.5, color, alpha: 0.6 });
     }
   },
-  sparks(body, x, y, vx, vy, n) {
+  sparks(body, p, v, n) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * TAU, s = 6 + Math.random() * 24;
-      this.add({ kind: 'spark', b: body, x, y, vx: vx + Math.cos(a) * s, vy: vy + Math.sin(a) * s, max: 0.3 + Math.random() * 0.5, size: 0.15, grow: 0, color: '#ffd27a', alpha: 1 });
+      const d = randDir(), s = 6 + Math.random() * 24;
+      this.add({ kind: 'spark', b: body, x: p.x, y: p.y, z: p.z, vx: v.x + d.x * s, vy: v.y + d.y * s, vz: v.z + d.z * s, max: 0.3 + Math.random() * 0.5, size: 0.15, grow: 0, color: '#ffd27a', alpha: 1 });
     }
   },
-  explosion(body, x, y, vx, vy, size, air) {
-    this.add({ kind: 'flash', b: body, x, y, vx, vy, max: 0.35, size: size * 4, grow: size * 8, color: '#fff3c4', alpha: 1 });
-    this.add({ kind: 'ring', b: body, x, y, vx, vy, max: 0.7, size: size, grow: size * 14, color: '#ffe2a8', alpha: 0.7 });
+  explosion(body, p, v, size, air) {
+    const at = { b: body, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z };
+    this.add({ kind: 'flash', ...at, max: 0.35, size: size * 4, grow: size * 8, color: '#fff3c4', alpha: 1 });
+    this.add({ kind: 'ring', ...at, max: 0.7, size: size, grow: size * 14, color: '#ffe2a8', alpha: 0.7 });
     for (let i = 0; i < 26; i++) {
-      const a = Math.random() * TAU, s = 4 + Math.random() * 22;
-      this.add({ kind: 'fire', b: body, x, y, vx: vx + Math.cos(a) * s, vy: vy + Math.sin(a) * s, max: 0.6 + Math.random() * 1.4, size: size * 0.5, grow: size * 1.5, color: i % 3 ? '#ff9a3c' : '#ffe08a', alpha: 1 });
+      const d = randDir(), s = 4 + Math.random() * 22;
+      this.add({ kind: 'fire', ...at, vx: v.x + d.x * s, vy: v.y + d.y * s, vz: v.z + d.z * s, max: 0.6 + Math.random() * 1.4, size: size * 0.5, grow: size * 1.5, color: i % 3 ? '#ff9a3c' : '#ffe08a', alpha: 1 });
     }
     if (air) for (let i = 0; i < 14; i++) {
-      const a = Math.random() * TAU, s = 2 + Math.random() * 8;
-      this.add({ kind: 'smoke', b: body, x, y, vx: vx + Math.cos(a) * s, vy: vy + Math.sin(a) * s, max: 2 + Math.random() * 2.5, size: size * 0.6, grow: size * 2.5, color: '#4a4f57', alpha: 0.75 });
+      const d = randDir(), s = 2 + Math.random() * 8;
+      this.add({ kind: 'smoke', ...at, vx: v.x + d.x * s, vy: v.y + d.y * s, vz: v.z + d.z * s, max: 2 + Math.random() * 2.5, size: size * 0.6, grow: size * 2.5, color: '#4a4f57', alpha: 0.75 });
     }
-    this.sparks(body, x, y, vx, vy, 16);
+    this.sparks(body, p, v, 16);
   },
-  splash(body, x, y, nx, ny, n) {
-    for (let i = 0; i < n; i++) {
-      const s = 4 + Math.random() * 10, j = (Math.random() - 0.5) * 8;
-      this.add({ kind: 'smoke', b: body, x, y, vx: nx * s - ny * j, vy: ny * s + nx * j, max: 0.8 + Math.random(), size: 0.4, grow: 2.5, color: '#e6f3ff', alpha: 0.8, heavy: true });
+  // spray thrown up around n (the ground's normal) at p
+  splash(body, p, n, count) {
+    for (let i = 0; i < count; i++) {
+      const s = 4 + Math.random() * 10, d = randDir(), j = 4;
+      this.add({ kind: 'smoke', b: body, x: p.x, y: p.y, z: p.z, vx: n.x * s + d.x * j, vy: n.y * s + d.y * j, vz: n.z * s + d.z * j,
+        max: 0.8 + Math.random(), size: 0.4, grow: 2.5, color: '#e6f3ff', alpha: 0.8, heavy: true });
     }
   },
   update(dt, F) {
@@ -69,12 +79,12 @@ const FX = {
       p.life += dt;
       if (p.life >= p.max) continue;
       const k = Math.exp(-(p.kind === 'fire' ? 2.5 : p.kind === 'spark' ? 0.6 : 1.6) * dt);
-      p.vx *= k; p.vy *= k;
+      p.vx *= k; p.vy *= k; p.vz *= k;
       if (p.heavy || p.kind === 'spark') {
-        const r = Math.hypot(p.x, p.y) || 1, g = (p.b.mu / (r * r)) * dt;
-        p.vx -= (p.x / r) * g; p.vy -= (p.y / r) * g;
+        const r = Math.hypot(p.x, p.y, p.z) || 1, g = (p.b.mu / (r * r)) * dt;
+        p.vx -= (p.x / r) * g; p.vy -= (p.y / r) * g; p.vz -= (p.z / r) * g;
       }
-      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       keep.push(p);
     }
     this.list = keep;
@@ -754,21 +764,21 @@ const World = {
     if ((v.bounds.maxY - v.bounds.minY) * S < 6 * dpr) this.findRing(ctx, cx, cy, dpr);
   },
 
-  // The same markers over the 3D view, placed on a ring around the craft in the sim plane.
+  // The same markers over the 3D view: each one sits where its direction points, on a sphere around the craft.
   drawOverlay3D(ctx, W, H, dpr, F) {
     const v = F.active;
     if (!v || !v.parts.length || !Settings.get('markers')) return;
-    const bp = bodyPos(v.body, F.time), ax = bp.x + v.x, ay = bp.y + v.y;
-    const c = Render3D.project(ax, ay, 0);
+    const bp = bodyPos(v.body, F.time), ax = bp.x + v.x, ay = bp.y + v.y, az = v.z;
+    const c = Render3D.project(ax, ay, az);
     if (c.behind) return;
-    const mpp = Render3D.metresPerPixelAt(ax, ay);
+    const mpp = Render3D.metresPerPixelAt(ax, ay, az);
     if (!(mpp > 0)) return;
     const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY);
     const Rm = Math.max(ext * 0.7, 70 * mpp);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const mark = (wx, wy, kind, color) => {
-      const l = Math.hypot(wx, wy); if (!l) return;
-      const p = Render3D.project(ax + (wx / l) * Rm, ay + (wy / l) * Rm, 0);
+    const mark = (wx, wy, kind, color, wz = 0) => {
+      const l = Math.hypot(wx, wy, wz); if (!l) return;
+      const p = Render3D.project(ax + (wx / l) * Rm, ay + (wy / l) * Rm, az + (wz / l) * Rm);
       if (!p.behind) this.markerGlyph(ctx, p.x * dpr, p.y * dpr, kind, color, dpr);
     };
     this.markersFor(v, F, bp, mark);
@@ -777,12 +787,12 @@ const World = {
 
   markersFor(v, F, bp, mark) {
     if (!v.landed && v.speed() > 1) {
-      mark(v.vx, v.vy, 'pro', 'rgba(185,255,120,0.85)');
-      mark(-v.vx, -v.vy, 'retro', 'rgba(185,255,120,0.55)');
+      mark(v.vx, v.vy, 'pro', 'rgba(185,255,120,0.85)', v.vz);
+      mark(-v.vx, -v.vy, 'retro', 'rgba(185,255,120,0.55)', -v.vz);
     }
     if (F.target && F.target !== v.body) {
       const tp = bodyPos(F.target, F.time);
-      mark(tp.x - (bp.x + v.x), tp.y - (bp.y + v.y), 'target', 'rgba(232,120,255,0.85)');
+      mark(tp.x - (bp.x + v.x), tp.y - (bp.y + v.y), 'target', 'rgba(232,120,255,0.85)', -v.z);
     }
   },
 

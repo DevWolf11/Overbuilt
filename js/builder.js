@@ -58,7 +58,7 @@ const TEMPLATES = {
       ['vtail', -1.55, 1.5], ['gear', 1.7, 4.2], ['gear', 1.7, 8]],
   },
   buggy: {
-    name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with the rotate controls. The causeway leads to the mainland.',
+    name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with W/S, steer with A/D. The causeway leads to the mainland.',
     parts: [['chassis', 0, 1.25], ['cab', -0.4, 2.25], ['carWheel', 1.4, 0.4], ['carWheel', -1.4, 0.4]],
   },
   dragonfly: {
@@ -90,11 +90,11 @@ const Builder = {
 
   // ---------------------------------------------------------------- design io
   serialize() {
-    return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip })) };
+    return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip, rot: p.rot || 0 })) };
   },
   save() { store.set('rss.design', this.serialize()); },
   loadDesign(d, keepHistory) {
-    this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip }));
+    this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
     if (d.name) this.name = d.name;
     const kind = VEHICLE_KINDS[d.kind] ? d.kind : 'rocket';
     if (kind === 'plane' && this.kind !== 'plane' && this.symmetry) { this.symmetry = false; $('#btn-sym').setAttribute('aria-pressed', 'false'); }
@@ -111,13 +111,13 @@ const Builder = {
   },
   loadTemplate(key) {
     const t = TEMPLATES[key];
-    this.loadDesign({ name: t.name, kind: t.kind, parts: t.parts.map(([type, x, y]) => ({ type, x, y, flip: x < 0 })) });
+    this.loadDesign({ name: t.name, kind: t.kind, parts: t.parts.map(([type, x, y, rot]) => ({ type, x, y, flip: x < 0, rot: rot || 0 })) });
   },
   linkMirrors() {
     for (const p of this.parts) p.mirror = null;
     for (const p of this.parts) {
       if (p.mirror || Math.abs(p.x) < 0.01) continue;
-      const m = this.parts.find((q) => q !== p && !q.mirror && q.type === p.type && Math.abs(q.x + p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01);
+      const m = this.parts.find((q) => q !== p && !q.mirror && q.type === p.type && Math.abs(q.x + p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01 && (q.rot || 0) === mirrorRot(p.rot));
       if (m) { p.mirror = m; m.mirror = p; }
     }
   },
@@ -136,7 +136,7 @@ const Builder = {
     let mass = 0, thrust = 0, tx = 0, ty = 0, cx = 0, cy = 0;
     for (const p of ps) { const m = p.def.mass * 1000 + p.fuel; mass += m; cx += m * p.x; cy += m * p.y; }
     const first = new Set(this.stages[0] || []);
-    for (const p of ps) if (first.has(p.id) && p.def.thrust) { thrust += p.def.thrust * 1000; tx += p.def.thrust * p.x; ty += p.def.thrust * (p.y - p.def.h / 2); }
+    for (const p of ps) if (first.has(p.id) && p.def.thrust) { const n = partPt(p, 0, -p.def.h / 2); thrust += p.def.thrust * 1000; tx += p.def.thrust * n.x; ty += p.def.thrust * n.y; }
     this.com = mass ? { x: cx / mass, y: cy / mass } : null;
     this.cot = thrust ? { x: (tx * 1000) / thrust, y: (ty * 1000) / thrust } : null;
     const locked = this.parts.filter((p) => !Career.unlocked(p.def));
@@ -217,12 +217,12 @@ const Builder = {
     return { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
   },
 
-  // Find a good spot for a part of `type` near the desired centre.
-  snap(type, want, ignore) {
+  // Find a good spot for a part of `type`, turned by `rot` quarter turns, near the desired centre.
+  snap(type, want, ignore, rot = 0) {
     const def = PARTS[type];
-    const w = def.w, h = def.h;
+    const { w, h } = partDims({ def, rot });
     const others = this.parts.filter((p) => !ignore.includes(p));
-    const probe = (x, y) => ({ def, type, x, y });
+    const probe = (x, y) => ({ def, type, x, y, rot });
     const free = (x, y) => !others.some((o) => partsOverlap(probe(x, y), o));
     const radius = Math.max(1.4, 26 / this.cam.scale);
     let best = null, bestD = radius;
@@ -239,27 +239,28 @@ const Builder = {
       consider(R.r + w / 2, yy); consider(R.l - w / 2, yy);
       consider(R.r + w / 2, R.t - h / 2); consider(R.l - w / 2, R.t - h / 2);
       consider(R.r + w / 2, R.b + h / 2); consider(R.l - w / 2, R.b + h / 2);
-      if (Math.abs(want.x - o.x) < w) { consider(g(want.x), R.t + h / 2); consider(g(want.x), R.b - h / 2); }
+      // on top of or under `o`, wherever along it the pointer is, as long as the two still overlap
+      if (Math.abs(g(want.x) - o.x) < (w + R.r - R.l) / 2 - 0.1) { consider(g(want.x), R.t + h / 2); consider(g(want.x), R.b - h / 2); }
     }
     if (best) return { ...best, attached: true, ok: true };
     const gx = g(want.x), gy = g(want.y);
     return { x: gx, y: gy, attached: false, ok: free(gx, gy) };
   },
 
-  mirrorOk(type, x, y, ignore) {
+  mirrorOk(type, x, y, ignore, rot = 0) {
     if (Math.abs(x) < 0.01) return false;
-    const probe = { def: PARTS[type], type, x: -x, y };
-    const self = { def: PARTS[type], type, x, y };
+    const probe = { def: PARTS[type], type, x: -x, y, rot: mirrorRot(rot) };
+    const self = { def: PARTS[type], type, x, y, rot };
     if (partsOverlap(probe, self)) return false;
     return !this.parts.some((o) => !ignore.includes(o) && partsOverlap(probe, o));
   },
 
-  addPart(type, x, y) {
+  addPart(type, x, y, rot = 0) {
     if (!Career.unlocked(PARTS[type])) { UI.toast(`${PARTS[type].name} unlocks with ${TIERS[PARTS[type].tier].name}`); return; }
-    const p = makePart(type, x, y, { flip: x < 0 });
+    const p = makePart(type, x, y, { flip: x < 0, rot });
     this.parts.push(p);
-    if (this.symmetry && this.mirrorOk(type, x, y, [])) {
-      const m = makePart(type, -x, y, { flip: -x < 0 });
+    if (this.symmetry && this.mirrorOk(type, x, y, [], rot)) {
+      const m = makePart(type, -x, y, { flip: -x < 0, rot: mirrorRot(rot) });
       this.parts.push(m);
       p.mirror = m; m.mirror = p;
     }
@@ -281,9 +282,29 @@ const Builder = {
   duplicateSelected() {
     const p = this.selected;
     if (!p) return;
-    const s = this.snap(p.type, { x: p.x, y: partRect(p).t + p.def.h / 2 }, []);
+    const s = this.snap(p.type, { x: p.x, y: partRect(p).t + partDims(p).h / 2 }, [], p.rot || 0);
     if (!s.ok) { UI.toast('No room to duplicate it there'); return; }
-    this.addPart(p.type, s.x, s.y);
+    this.addPart(p.type, s.x, s.y, p.rot || 0);
+  },
+
+  // Turn the selected part (and its mirror twin) a quarter turn; while dragging from the palette, turn the
+  // part being placed. If it no longer fits where it is, it moves to the nearest free spot.
+  rotateSelected() {
+    const d = this.drag;
+    if (d && d.fromPalette) { d.rot = ((d.rot || 0) + 1) & 3; if (d.last) this.dragTo(d.last.x, d.last.y); Sound.click(); return; }
+    const p = this.selected;
+    if (!p) { UI.toast('Select a part to rotate it (R)'); return; }
+    const k = ((p.rot || 0) + 1) & 3, m = p.mirror, ignore = [p, m].filter(Boolean);
+    const s = this.snap(p.type, { x: p.x, y: p.y }, ignore, k);
+    if (!s.ok) { UI.toast('No room to turn it here'); return; }
+    p.rot = k; p.x = s.x; p.y = s.y; p.flip = p.x < 0;
+    if (m) {
+      if (this.mirrorOk(p.type, p.x, p.y, ignore, k)) { m.rot = mirrorRot(k); m.x = -p.x; m.y = p.y; m.flip = m.x < 0; }
+      else { p.mirror = null; m.mirror = null; }
+    }
+    Sound.click();
+    this.changed();
+    this.renderInfo();
   },
 
   // ---------------------------------------------------------------- palette & panels
@@ -339,7 +360,7 @@ const Builder = {
       start = null;
       if (e.type === 'pointercancel') { this.drag = null; return; }
       if (locked) { this.showLocked(type); return; }
-      if (wasDrag && !App.use3D()) this.dropDrag(e.clientY);
+      if (wasDrag && !App.preview3D()) this.dropDrag(e.clientY);
       else { this.drag = null; this.quickAdd(type); }
     };
     item.addEventListener('pointerup', end);
@@ -540,7 +561,7 @@ const Builder = {
         return;
       }
       // 3D preview: drag to orbit, tap a part to select it
-      if (App.use3D()) { this.orbit = { pointerId: e.pointerId, moved: false }; return; }
+      if (App.preview3D()) { this.orbit = { pointerId: e.pointerId, moved: false }; return; }
       const w = this.screenToWorld(e.clientX, e.clientY);
       const hit = this.hitPart(w);
       if (hit && e.button !== 2 && e.button !== 1) {
@@ -557,7 +578,7 @@ const Builder = {
       if (App.scene !== 'build') return;
       const p = this.pointers.get(e.pointerId);
       if (!p) {
-        if (!isTouch) { const h = !App.use3D() && this.hitPart(this.screenToWorld(e.clientX, e.clientY)); c.style.cursor = h ? 'grab' : 'default'; }
+        if (!isTouch) { const h = !App.preview3D() && this.hitPart(this.screenToWorld(e.clientX, e.clientY)); c.style.cursor = h ? 'grab' : 'default'; }
         return;
       }
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -626,12 +647,14 @@ const Builder = {
       else if (mod && e.code === 'KeyD') { e.preventDefault(); this.duplicateSelected(); }
       else if (e.code === 'Enter' && this.ctrl) App.launch();
       else if (e.code === 'KeyF') this.fitView();
-      else if (e.code === 'KeyV') App.set3D(!Settings.get('view3d'));
+      else if (e.code === 'KeyR' && !mod) this.rotateSelected();
+      else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
     });
 
     $('#btn-launch').addEventListener('click', () => App.launch());
     $('#btn-delete').addEventListener('click', () => this.deleteSelected());
     $('#btn-dup').addEventListener('click', () => this.duplicateSelected());
+    $('#btn-rotate').addEventListener('click', () => this.rotateSelected());
     $('#btn-fit').addEventListener('click', () => this.fitView());
     $('#btn-undo').addEventListener('click', () => this.undo());
     $('#btn-redo').addEventListener('click', () => this.redo());
@@ -668,15 +691,17 @@ const Builder = {
 
   dragTo(cx, cy) {
     const d = this.drag;
+    d.last = { x: cx, y: cy };
     const w = this.screenToWorld(cx, cy);
     const want = { x: w.x - d.offset.x, y: w.y - d.offset.y };
     if (d.fromPalette && isTouch) { const up = this.toPart(0, 40 / this.cam.scale); want.x += up.x; want.y += up.y; } // keep it visible above the finger
     const ignore = d.part ? [d.part, d.part.mirror].filter(Boolean) : [];
-    const s = this.snap(d.type, want, ignore);
+    const rot = d.part ? d.part.rot || 0 : d.rot || 0;
+    const s = this.snap(d.type, want, ignore, rot);
     d.ghost = s;
     if (d.part) {
       d.part.x = s.x; d.part.y = s.y;
-      if (d.part.mirror && this.mirrorOk(d.type, s.x, s.y, ignore)) { d.part.mirror.x = -s.x; d.part.mirror.y = s.y; }
+      if (d.part.mirror && this.mirrorOk(d.type, s.x, s.y, ignore, rot)) { d.part.mirror.x = -s.x; d.part.mirror.y = s.y; }
     }
   },
 
@@ -687,7 +712,7 @@ const Builder = {
     const overPalette = clientY > $('#palette').getBoundingClientRect().top;
     if (d.fromPalette) {
       if (overPalette || !d.ghost.ok) return;
-      this.addPart(d.type, d.ghost.x, d.ghost.y);
+      this.addPart(d.type, d.ghost.x, d.ghost.y, d.rot || 0);
       return;
     }
     const p = d.part;
@@ -696,10 +721,10 @@ const Builder = {
     p.flip = p.x < 0;
     if (p.mirror) {
       const m = p.mirror;
-      if (this.mirrorOk(p.type, p.x, p.y, [p, m])) { m.x = -p.x; m.y = p.y; m.flip = m.x < 0; }
+      if (this.mirrorOk(p.type, p.x, p.y, [p, m], p.rot || 0)) { m.x = -p.x; m.y = p.y; m.flip = m.x < 0; }
       else { if (d.mirrorOrig) { m.x = d.mirrorOrig.x; m.y = d.mirrorOrig.y; } p.mirror = null; m.mirror = null; }
-    } else if (this.symmetry && this.mirrorOk(p.type, p.x, p.y, [p])) {
-      const m = makePart(p.type, -p.x, p.y, { flip: -p.x < 0 });
+    } else if (this.symmetry && this.mirrorOk(p.type, p.x, p.y, [p], p.rot || 0)) {
+      const m = makePart(p.type, -p.x, p.y, { flip: -p.x < 0, rot: mirrorRot(p.rot) });
       this.parts.push(m); p.mirror = m; m.mirror = p;
     }
     this.changed();
@@ -778,16 +803,16 @@ const Builder = {
     }
     const d = this.drag;
     if (d && d.fromPalette && d.ghost) {
-      const gp = { def: PARTS[d.type], type: d.type, x: d.ghost.x, y: d.ghost.y, flip: d.ghost.x < 0, deployed: 0 };
+      const gp = { def: PARTS[d.type], type: d.type, x: d.ghost.x, y: d.ghost.y, flip: d.ghost.x < 0, deployed: 0, rot: d.rot || 0 };
       ctx.globalAlpha = 0.75;
       drawPart(ctx, gp, lw);
-      if (this.symmetry && this.mirrorOk(d.type, gp.x, gp.y, [])) { ctx.globalAlpha = 0.35; drawPart(ctx, { ...gp, x: -gp.x, flip: !gp.flip }, lw); }
+      if (this.symmetry && this.mirrorOk(d.type, gp.x, gp.y, [], gp.rot)) { ctx.globalAlpha = 0.35; drawPart(ctx, { ...gp, x: -gp.x, flip: !gp.flip, rot: mirrorRot(gp.rot) }, lw); }
       ctx.globalAlpha = 1;
     }
     if (d && d.ghost && !d.ghost.ok) {
-      const def = PARTS[d.type];
+      const r = partRect({ def: PARTS[d.type], x: d.ghost.x, y: d.ghost.y, rot: d.part ? d.part.rot || 0 : d.rot || 0 });
       ctx.fillStyle = 'rgba(255,93,93,0.35)';
-      ctx.fillRect(d.ghost.x - def.w / 2, d.ghost.y - def.h / 2, def.w, def.h);
+      ctx.fillRect(r.l, r.b, r.r - r.l, r.t - r.b);
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);

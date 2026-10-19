@@ -1,5 +1,6 @@
 'use strict';
 // Celestial bodies, terrain, two-body (Kepler) orbits and patched-conic trajectory prediction.
+// All bodies orbit in the sim's XY plane (the ecliptic); craft fly in full 3D, +z being depth.
 // Like Spaceflight Simulator, the solar system is shrunk: real surface gravity, small radii,
 // so a trip to Mars takes a few in-game days instead of months.
 
@@ -198,7 +199,39 @@ function airDensity(b, alt) {
 }
 
 // ---------------------------------------------------------------------------
-// Kepler orbits (2D). dir = +1 counterclockwise, -1 clockwise.
+// Kepler orbits. Every orbit lies in a plane: the elements are worked out in that plane (2D, dir = +1
+// counterclockwise seen from +z, -1 clockwise) and states are lifted back into 3D. An orbit in the ecliptic
+// (the sim's XY plane, where all the bodies orbit) uses the sim's own x and y axes, so its 2D elements are
+// the same as if the third dimension did not exist.
+
+function orbitPlane(s) {
+  const z = s.z || 0, vz = s.vz || 0;
+  let hx = s.y * vz - z * s.vy, hy = z * s.vx - s.x * vz, hz = s.x * s.vy - s.y * s.vx;
+  const r = Math.hypot(s.x, s.y, z), hl = Math.hypot(hx, hy, hz);
+  if (hl < 1e-9 * r * Math.max(1, Math.hypot(s.vx, s.vy, vz))) {
+    // radial: any plane through r will do; prefer the one closest to the ecliptic
+    const ux = s.x / r, uy = s.y / r, uz = z / r;
+    hx = -uz * ux; hy = -uz * uy; hz = 1 - uz * uz;
+    if (Math.hypot(hx, hy, hz) < 1e-6) { hx = 1; hy = 0; hz = 0; }
+  }
+  const e3 = norm3(v3(hx, hy, hz));
+  if (e3.z < 0 || (e3.z === 0 && (e3.y < 0 || (e3.y === 0 && e3.x < 0)))) { e3.x = -e3.x; e3.y = -e3.y; e3.z = -e3.z; }
+  if (e3.z > 1 - 1e-12) return { e1: v3(1, 0, 0), e2: v3(0, 1, 0), e3: v3(0, 0, 1) };
+  // e1: the sim's x axis laid into the plane (its y axis when the plane faces x)
+  let e1 = v3(1 - e3.x * e3.x, -e3.x * e3.y, -e3.x * e3.z);
+  if (len3(e1) < 0.1) e1 = v3(-e3.y * e3.x, 1 - e3.y * e3.y, -e3.y * e3.z);
+  norm3(e1);
+  return { e1, e2: cross3(e3, e1), e3 };
+}
+// Elements from a 3D state {x, y, z, vx, vy, vz} relative to the body (z and vz may be left out).
+function orbitOf(s, mu) {
+  const P = orbitPlane(s), { e1, e2 } = P, z = s.z || 0, vz = s.vz || 0;
+  const o = elementsFromState(s.x * e1.x + s.y * e1.y + z * e1.z, s.x * e2.x + s.y * e2.y + z * e2.z,
+    s.vx * e1.x + s.vy * e1.y + vz * e1.z, s.vx * e2.x + s.vy * e2.y + vz * e2.z, mu);
+  o.e1 = P.e1; o.e2 = P.e2; o.e3 = P.e3;
+  o.incl = Math.acos(clamp(P.e3.z, -1, 1)); // 0 in the ecliptic
+  return o;
+}
 
 function elementsFromState(rx, ry, vx, vy, mu) {
   const r = Math.hypot(rx, ry);
@@ -277,7 +310,11 @@ function stateFromNu(o, nu) {
   const sq = Math.sqrt(o.mu / p);
   const vr = sq * e * Math.sin(nu);
   const vt = sq * (1 + e * Math.cos(nu)) * o.dir;
-  return { x: r * c, y: r * s, vx: vr * c - vt * s, vy: vr * s + vt * c, nu, r };
+  const x = r * c, y = r * s, vx = vr * c - vt * s, vy = vr * s + vt * c;
+  if (!o.e1 || o.incl === 0) return { x, y, z: 0, vx, vy, vz: 0, nu, r };
+  const { e1, e2 } = o;
+  return { x: x * e1.x + y * e2.x, y: x * e1.y + y * e2.y, z: x * e1.z + y * e2.z,
+    vx: vx * e1.x + vy * e2.x, vy: vx * e1.y + vy * e2.y, vz: vx * e1.z + vy * e2.z, nu, r };
 }
 
 function stateAt(o, dt) { return stateFromNu(o, nuFromMean(o, o.M0 + o.n * dt)); }
@@ -301,11 +338,12 @@ function nuAtRadius(o, R) {
 
 // Gravity-only velocity-Verlet step (for degenerate, straight-up trajectories).
 function gravityStep(s, mu, dt) {
-  let r = Math.hypot(s.x, s.y), k = -mu / (r * r * r);
-  s.vx += 0.5 * dt * k * s.x; s.vy += 0.5 * dt * k * s.y;
-  s.x += dt * s.vx; s.y += dt * s.vy;
-  r = Math.hypot(s.x, s.y); k = -mu / (r * r * r);
-  s.vx += 0.5 * dt * k * s.x; s.vy += 0.5 * dt * k * s.y;
+  s.z = s.z || 0; s.vz = s.vz || 0;
+  let r = Math.hypot(s.x, s.y, s.z), k = -mu / (r * r * r);
+  s.vx += 0.5 * dt * k * s.x; s.vy += 0.5 * dt * k * s.y; s.vz += 0.5 * dt * k * s.z;
+  s.x += dt * s.vx; s.y += dt * s.vy; s.z += dt * s.vz;
+  r = Math.hypot(s.x, s.y, s.z); k = -mu / (r * r * r);
+  s.vx += 0.5 * dt * k * s.x; s.vy += 0.5 * dt * k * s.y; s.vz += 0.5 * dt * k * s.z;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,9 +351,9 @@ function gravityStep(s, mu, dt) {
 
 function predictTrajectory(body, st, t0, maxPatches = 4) {
   const patches = [];
-  let b = body, s = { x: st.x, y: st.y, vx: st.vx, vy: st.vy }, t = t0;
+  let b = body, s = { x: st.x, y: st.y, z: st.z || 0, vx: st.vx, vy: st.vy, vz: st.vz || 0 }, t = t0;
   for (let k = 0; k < maxPatches; k++) {
-    const o = elementsFromState(s.x, s.y, s.vx, s.vy, b.mu);
+    const o = orbitOf(s, b.mu);
     const patch = { body: b, o, t0: t, tEnd: Infinity, end: null };
     patches.push(patch);
     if (o.degenerate) { patch.end = 'radial'; break; }
@@ -346,12 +384,12 @@ function predictTrajectory(body, st, t0, maxPatches = 4) {
     if (kind === 'encounter') {
       const sv = stateAt(o, best);
       const cp = childRel(next, t + best), cv = childRelVel(next, t + best);
-      s = { x: sv.x - cp.x, y: sv.y - cp.y, vx: sv.vx - cv.x, vy: sv.vy - cv.y };
+      s = { x: sv.x - cp.x, y: sv.y - cp.y, z: sv.z, vx: sv.vx - cv.x, vy: sv.vy - cv.y, vz: sv.vz };
       b = next; t += best;
     } else if (kind === 'escape') {
       const sv = stateAt(o, best);
       const bp = childRel(b, t + best), bv = childRelVel(b, t + best);
-      s = { x: sv.x + bp.x, y: sv.y + bp.y, vx: sv.vx + bv.x, vy: sv.vy + bv.y };
+      s = { x: sv.x + bp.x, y: sv.y + bp.y, z: sv.z, vx: sv.vx + bv.x, vy: sv.vy + bv.y, vz: sv.vz };
       b = b.parent; t += best;
     } else break;
   }
@@ -374,12 +412,12 @@ function findEncounter(o, parent, t0, horizon) {
     for (const c of kids) {
       if (Math.abs(s.r - c.orbitRadius) > c.soi) continue;
       const cp = childRel(c, t0 + tt);
-      if ((s.x - cp.x) ** 2 + (s.y - cp.y) ** 2 < c.soi * c.soi) {
+      if ((s.x - cp.x) ** 2 + (s.y - cp.y) ** 2 + s.z * s.z < c.soi * c.soi) {
         let a = prev, b = tt;
         for (let j = 0; j < 32; j++) {
           const mid = (a + b) / 2;
           const sm = stateAt(o, mid), mm = childRel(c, t0 + mid);
-          if ((sm.x - mm.x) ** 2 + (sm.y - mm.y) ** 2 < c.soi * c.soi) b = mid; else a = mid;
+          if ((sm.x - mm.x) ** 2 + (sm.y - mm.y) ** 2 + sm.z * sm.z < c.soi * c.soi) b = mid; else a = mid;
         }
         return { t: b, body: c };
       }
@@ -403,7 +441,7 @@ function closestApproach(patches, target) {
   for (let i = 0; i <= N; i++) {
     const tt = (span * i) / N;
     const s = stateAt(o, tt), c = childRel(target, patch.t0 + tt);
-    const d = Math.hypot(s.x - c.x, s.y - c.y);
+    const d = Math.hypot(s.x - c.x, s.y - c.y, s.z);
     if (d < best) { best = d; bt = tt; }
   }
   const s = stateAt(o, bt), c = childRel(target, patch.t0 + bt);

@@ -97,6 +97,7 @@
     <div class="pi-head">
       <h3 id="pi-name"></h3>
       <div class="pi-btns">
+        <button id="btn-rotate" class="btn small icon-only" data-icon="rotR" aria-label="Rotate a quarter turn (R)" title="Rotate (R)"></button>
         <button id="btn-dup" class="btn small icon-only" data-icon="copy" aria-label="Duplicate"></button>
         <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
       </div>
@@ -123,6 +124,7 @@
       <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
       <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
+      <div id="row-mach" class="t-mach" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
       <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
@@ -143,7 +145,6 @@
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
     <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Centre on vessel" hidden></button>
-    <button id="btn-3d" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
     <button id="btn-map" class="btn" data-icon="map">Map</button>
     <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
   </div>
@@ -174,8 +175,11 @@
       <button class="sas-btn" data-sas="target" data-icon="sasTarget" aria-label="Point at target" title="Target (6)"></button>
     </div>
     <div class="rot-controls">
-      <button id="rot-left" class="round" data-icon="rotL" aria-label="Rotate left"></button>
-      <button id="rot-right" class="round" data-icon="rotR" aria-label="Rotate right"></button>
+      <div id="joy" class="joy" role="application" aria-label="Flight stick: drag to steer"><div class="joy-knob"></div></div>
+      <div class="roll-btns">
+        <button id="rot-left" class="round small-round" data-icon="rotL" aria-label="Roll or yaw left (Q)" title="Q"></button>
+        <button id="rot-right" class="round small-round" data-icon="rotR" aria-label="Roll or yaw right (E)" title="E"></button>
+      </div>
       <button id="btn-brake" class="round brake" aria-label="Brake (hold)" hidden>Brake</button>
     </div>
   </div>
@@ -195,6 +199,7 @@
 
 <script src="js/util.js"></script>
 <script src="js/space.js"></script>
+<script src="js/terrain.js"></script>
 <script src="js/parts.js"></script>
 <script src="js/vessel.js"></script>
 <script src="js/ui.js"></script>

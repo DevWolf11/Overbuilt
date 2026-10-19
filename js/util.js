@@ -13,6 +13,55 @@ function wrapAngle(a) {
   return a - Math.PI;
 }
 
+// 3D vectors are plain {x, y, z}; quaternions {w, x, y, z} rotate part space into the world.
+function v3(x = 0, y = 0, z = 0) { return { x, y, z }; }
+function dot3(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+function cross3(a, b, o = v3()) { const x = a.y * b.z - a.z * b.y, y = a.z * b.x - a.x * b.z, z = a.x * b.y - a.y * b.x; o.x = x; o.y = y; o.z = z; return o; }
+function len3(a) { return Math.hypot(a.x, a.y, a.z); }
+function norm3(a, o = a) { const l = Math.hypot(a.x, a.y, a.z) || 1; o.x = a.x / l; o.y = a.y / l; o.z = a.z / l; return o; }
+function quat(w = 1, x = 0, y = 0, z = 0) { return { w, x, y, z }; }
+function qmul(a, b, o = quat()) {
+  const w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+  const y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+  o.w = w; o.x = x; o.y = y; o.z = z; return o;
+}
+function qnorm(q) { const l = Math.hypot(q.w, q.x, q.y, q.z) || 1; q.w /= l; q.x /= l; q.y /= l; q.z /= l; return q; }
+function qconj(q, o = quat()) { o.w = q.w; o.x = -q.x; o.y = -q.y; o.z = -q.z; return o; }
+function qaxis(ax, ay, az, ang) { const s = Math.sin(ang / 2), l = Math.hypot(ax, ay, az) || 1; return quat(Math.cos(ang / 2), (ax / l) * s, (ay / l) * s, (az / l) * s); }
+// Rotate (x, y, z) by q, or by its inverse.
+function qrot(q, x, y, z, o = v3()) {
+  const tx = 2 * (q.y * z - q.z * y), ty = 2 * (q.z * x - q.x * z), tz = 2 * (q.x * y - q.y * x);
+  o.x = x + q.w * tx + q.y * tz - q.z * ty; o.y = y + q.w * ty + q.z * tx - q.x * tz; o.z = z + q.w * tz + q.x * ty - q.y * tx;
+  return o;
+}
+function qunrot(q, x, y, z, o = v3()) { return qrot({ w: q.w, x: -q.x, y: -q.y, z: -q.z }, x, y, z, o); }
+// Quaternion whose rotation takes the basis (ex, ey, ez) to the world axes' images: columns of a rotation matrix.
+function qbasis(ex, ey, ez) {
+  const m00 = ex.x, m10 = ex.y, m20 = ex.z, m01 = ey.x, m11 = ey.y, m21 = ey.z, m02 = ez.x, m12 = ez.y, m22 = ez.z, tr = m00 + m11 + m22;
+  let q;
+  if (tr > 0) { const s = Math.sqrt(tr + 1) * 2; q = quat(0.25 * s, (m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s); }
+  else if (m00 > m11 && m00 > m22) { const s = Math.sqrt(1 + m00 - m11 - m22) * 2; q = quat((m21 - m12) / s, 0.25 * s, (m01 + m10) / s, (m02 + m20) / s); }
+  else if (m11 > m22) { const s = Math.sqrt(1 + m11 - m00 - m22) * 2; q = quat((m02 - m20) / s, (m01 + m10) / s, 0.25 * s, (m12 + m21) / s); }
+  else { const s = Math.sqrt(1 + m22 - m00 - m11) * 2; q = quat((m10 - m01) / s, (m02 + m20) / s, (m12 + m21) / s, 0.25 * s); }
+  return qnorm(q);
+}
+function qslerp(a, b, t, o = quat()) {
+  let bw = b.w, bx = b.x, by = b.y, bz = b.z, c = a.w * bw + a.x * bx + a.y * by + a.z * bz;
+  if (c < 0) { c = -c; bw = -bw; bx = -bx; by = -by; bz = -bz; }
+  let k0 = 1 - t, k1 = t;
+  if (c < 0.9995) { const th = Math.acos(c), s = Math.sin(th); k0 = Math.sin((1 - t) * th) / s; k1 = Math.sin(t * th) / s; }
+  o.w = a.w * k0 + bw * k1; o.x = a.x * k0 + bx * k1; o.y = a.y * k0 + by * k1; o.z = a.z * k0 + bz * k1;
+  return qnorm(o);
+}
+// The surface frame at a point: up = radial, east = up × world z (screen-right at the pad), north = east × up.
+function surfaceFrame(x, y, z) {
+  const up = norm3(v3(x, y, z));
+  let east = cross3(up, v3(0, 0, 1));
+  if (len3(east) < 1e-6) east = v3(1, 0, 0);
+  norm3(east);
+  return { up, east, north: cross3(east, up) };
+}
+
 function mulberry32(seed) {
   return function () {
     seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
