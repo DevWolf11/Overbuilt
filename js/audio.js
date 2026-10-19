@@ -63,6 +63,23 @@ const Sound = {
   separate() { this.burst(0.25, 900, 0.9, 'bandpass'); },
   explode() { this.burst(1.6, 260, 1.6); this.burst(0.5, 1200, 0.5); },
   click() { this.burst(0.06, 2400, 0.25, 'highpass'); },
+  // Sonic boom: the double crack of an N-wave (bow and tail shocks), then a rolling rumble.
+  boom(k = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime, sr = ctx.sampleRate;
+    if (!this.nwave) {
+      const len = Math.round(sr * 0.32), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0), n = Math.round(sr * 0.045);
+      for (const at of [0, Math.round(sr * 0.13)]) for (let i = 0; i < n && at + i < len; i++) d[at + i] += (1 - (2 * i) / n) * (at ? 0.8 : 1);
+      this.nwave = buf;
+    }
+    const src = ctx.createBufferSource(); src.buffer = this.nwave;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    const g = ctx.createGain(); g.gain.value = 1.4 * k;
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t);
+    this.burst(1.8, 140, 1.1 * k);
+    this.burst(0.35, 600, 0.4 * k, 'bandpass');
+  },
   chime() {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;

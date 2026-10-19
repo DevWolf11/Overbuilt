@@ -15,7 +15,7 @@ const Flight = {
     this.canvas = canvas;
     this.keys = new Set();
     this.pointers = new Map();
-    this.touchRot = 0;
+    this.stick = { v: 0, h: 0, r: 0 }; // touch joystick and roll buttons
     this.scale = 12;
     this.bindDom();
   },
@@ -23,7 +23,7 @@ const Flight = {
   // ------------------------------------------------------------------ lifecycle
   start(design) {
     this.design = design;
-    const parts = design.parts.map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip }));
+    const parts = design.parts.map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: q.rot || 0 }));
     const adjAll = buildAdjacency(parts);
     const ctrl = findControlPart(parts);
     const keep = componentOf(ctrl.id, adjAll);
@@ -71,8 +71,11 @@ const Flight = {
     this.target = null;
     this.predTimer = 0; this.hudTimer = 0; this.dvTimer = 0; this.saveTimer = 10;
     this.dvLeft = 0;
-    this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.camAbs = this.absPos(active);
+    this.camRel = { b: active.body, x: active.x, y: active.y, z: active.z };
+    this.viewQ = this.viewFrame(active.x, active.y, active.z);
+    this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
+    this.machWas = 0;
     this.running = true;
     MapView.focusVessel();
     $('#btn-map').classList.remove('on');
@@ -136,7 +139,13 @@ const Flight = {
   // ------------------------------------------------------------------ helpers
   absPos(v) {
     const b = bodyPos(v.body, this.time);
-    return { x: b.x + v.x, y: b.y + v.y };
+    return { x: b.x + v.x, y: b.y + v.y, z: v.z };
+  },
+  dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); },
+  // The view's axes at a body-relative point: y up, x east, z north. Returns the sim -> view rotation.
+  viewFrame(x, y, z) {
+    const F = surfaceFrame(x, y, z);
+    return qconj(qbasis(F.east, F.up, F.north));
   },
   toast(t, k) { UI.toast(t, k); },
 
@@ -160,7 +169,7 @@ const Flight = {
         i = Math.min(i, PHYS_WARP_MAX);
       }
     }
-    if (i > PHYS_WARP_MAX && this.warpIdx <= PHYS_WARP_MAX) for (const v of this.vessels) v.w = 0;
+    if (i > PHYS_WARP_MAX && this.warpIdx <= PHYS_WARP_MAX) for (const v of this.vessels) v.av = v3();
     this.warpIdx = i;
     this.updateHUD(true);
   },
@@ -232,18 +241,19 @@ const Flight = {
     const mBefore = v.mass;
     const pieces = v.splitComponents();
     for (const piece of pieces) {
-      let dx = piece.x - v.x, dy = piece.y - v.y;
-      const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+      let dx = piece.x - v.x, dy = piece.y - v.y, dz = piece.z - v.z;
+      const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
       const mu = (piece.mass * v.mass) / (piece.mass + v.mass);
       const J = 2.2 * mu;
-      piece.vx += dx * J / piece.mass; piece.vy += dy * J / piece.mass;
-      v.vx -= dx * J / v.mass; v.vy -= dy * J / v.mass;
-      piece.w += (Math.random() - 0.5) * 0.15;
+      piece.vx += dx * J / piece.mass; piece.vy += dy * J / piece.mass; piece.vz += dz * J / piece.mass;
+      v.vx -= dx * J / v.mass; v.vy -= dy * J / v.mass; v.vz -= dz * J / v.mass;
+      const tw = randDir();
+      piece.av.x += tw.x * 0.08; piece.av.y += tw.y * 0.08; piece.av.z += tw.z * 0.08;
       this.vessels.push(piece);
     }
-    const wp = v.toWorld(sep.x, sep.y);
-    FX.puff(v.body, wp.x, wp.y, v.vx, v.vy, 12, '#e8edf2');
-    FX.sparks(v.body, wp.x, wp.y, v.vx, v.vy, 10);
+    const wp = v.toWorld(sep.x, sep.y), vel = { x: v.vx, y: v.vy, z: v.vz };
+    FX.puff(v.body, wp, vel, 12, '#e8edf2');
+    FX.sparks(v.body, wp, vel, 10);
     Sound.separate();
     if (pieces.length) this.toast(`Separated ${fmt.mass(mBefore - v.mass)}`);
   },
@@ -264,14 +274,15 @@ const Flight = {
 
   breakParts(v, parts, cause) {
     const air = airDensity(v.body, v.altitude()) > 0.01;
+    const kv = cause === 'heat' ? 0.9 : 0.2;
     for (const p of parts) {
       const wp = v.toWorld(p.x, p.y);
-      FX.explosion(v.body, wp.x, wp.y, v.vx * (cause === 'heat' ? 0.9 : 0.2), v.vy * (cause === 'heat' ? 0.9 : 0.2), Math.max(p.def.w, p.def.h), air);
+      FX.explosion(v.body, wp, { x: v.vx * kv, y: v.vy * kv, z: v.vz * kv }, Math.max(p.def.w, p.def.h), air);
       v.parts = v.parts.filter((q) => q !== p);
       for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id);
       v.adj.delete(p.id);
     }
-    if (v === this.active || Math.hypot(this.absPos(v).x - this.camAbs.x, this.absPos(v).y - this.camAbs.y) < 3000) { Sound.explode(); haptic([40, 30, 60]); }
+    if (v === this.active || this.dist(this.absPos(v), this.camAbs) < 3000) { Sound.explode(); haptic([40, 30, 60]); }
     if (!v.parts.length) { v.dead = true; if (v === this.active) this.onDestroyed(); return; }
     const hadControl = !!v.control;
     const pieces = v.splitComponents();
@@ -356,8 +367,10 @@ const Flight = {
 
   controlsHelp() {
     return `<div class="help-grid">
-      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Rotate (drive a car, pitch a plane)</span></div>
-      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>Shift</kbd><kbd>Ctrl</kbd><span>Throttle up / down</span></div>
+      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Pitch: nose down / up (a car drives forward / back)</span></div>
+      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Rockets turn left / right; planes and helicopters roll; cars steer</span></div>
+      <div><kbd>Q</kbd><kbd>E</kbd><span>Rockets roll; planes and helicopters yaw</span></div>
+      <div><kbd>Shift</kbd><kbd>Ctrl</kbd><span>Throttle up / down</span></div>
       <div><kbd>Z</kbd><kbd>X</kbd><span>Full throttle / cut</span></div>
       <div><kbd>Space</kbd><span>Activate next stage</span></div>
       <div><kbd>1</kbd>–<kbd>6</kbd><span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
@@ -366,8 +379,7 @@ const Flight = {
       <div><kbd>[</kbd><kbd>]</kbd><span>Switch between your vessels</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
       <div><kbd>B</kbd><span>Hold to brake on wheels</span></div>
-      <div><kbd>V</kbd><span>Switch between 2D and 3D</span></div>
-      <div><kbd>C</kbd><span>3D: reset the camera (drag to look around)</span></div>
+      <div><kbd>C</kbd><span>Reset the camera (drag to look around)</span></div>
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
     </div>`;
   },
@@ -390,8 +402,7 @@ const Flight = {
         const ap = this.absPos(this.active);
         for (const v of this.vessels) {
           if (v === this.active) { near.push(v); continue; }
-          const p = this.absPos(v);
-          const d = Math.hypot(p.x - ap.x, p.y - ap.y);
+          const d = this.dist(this.absPos(v), ap);
           if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
           else if (!v.landed) far.push(v);
         }
@@ -421,7 +432,8 @@ const Flight = {
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       Sound.engine(maxT ? (v.thrust || 0) / maxT : 0, air);
-      Sound.wind(clamp((v.q || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1));
+      Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1));
+      this.soundBarrier(v);
     } else { Sound.engine(0, 0); Sound.wind(0); }
 
     this.predTimer -= rdt;
@@ -434,18 +446,35 @@ const Flight = {
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
 
+  // The stick: W/S (↑/↓), A/D (←/→) and Q/E, plus the touch joystick and roll buttons.
   readControls(dt) {
-    const k = this.keys;
-    let rot = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    rot += this.touchRot;
+    const k = this.keys, key = (...c) => c.some((x) => k.has(x)) ? 1 : 0;
     const v = this.active;
     if (!v) return;
-    v.input = clamp(rot, -1, 1);
-    let dT = 0;
-    if (k.has('KeyW') || k.has('ShiftLeft') || k.has('ShiftRight') || k.has('ArrowUp')) dT += 1;
-    if (k.has('KeyS') || k.has('ControlLeft') || k.has('ControlRight') || k.has('ArrowDown')) dT -= 1;
+    const st = this.stick;
+    v.ctl.v = clamp(key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown') + st.v, -1, 1);
+    v.ctl.h = clamp(key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft') + st.h, -1, 1);
+    v.ctl.r = clamp(key('KeyE') - key('KeyQ') + st.r, -1, 1);
+    const dT = key('ShiftLeft', 'ShiftRight', 'PageUp') - key('ControlLeft', 'ControlRight', 'PageDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
     v.brake = k.has('KeyB') || this.touchBrake;
+  },
+
+  // Breaking the sound barrier: a boom when the craft first passes Mach 1 in thick enough air.
+  soundBarrier(v) {
+    const m = v.mach || 0, air = airDensity(v.body, v.altitude());
+    if (m >= 1 && this.machWas < 1 && air > 0.05 && this.warpIdx <= PHYS_WARP_MAX) {
+      Sound.boom(clamp(air / 1.2, 0.3, 1));
+      haptic([30, 20, 50]);
+      this.boomAt = performance.now();
+      // the shock wave: a ring racing outwards and a burst of condensation
+      const pos = { x: v.x, y: v.y, z: v.z }, vel = { x: v.vx * 0.9, y: v.vy * 0.9, z: v.vz * 0.9 }, L = Math.max(v.width, v.bounds.maxY - v.bounds.minY, 3);
+      FX.add({ kind: 'ring', b: v.body, ...pos, vx: vel.x, vy: vel.y, vz: vel.z, max: 0.7, size: L * 0.6, grow: L * 7, color: '#eef6ff', alpha: 0.9 });
+      FX.puff(v.body, pos, vel, 22, '#f4f8ff');
+      if (!this.flags.machOne) this.toast('Sound barrier broken!', 'achievement');
+      this.flags.machOne = true;
+    }
+    if (m < 0.97 || m >= 1) this.machWas = m;
   },
 
   setThrottle(t) {
@@ -469,14 +498,14 @@ const Flight = {
     for (const c of b.children) {
       const cp = childRel(c, t);
       const dx = v.x - cp.x, dy = v.y - cp.y;
-      if (dx * dx + dy * dy < c.soi * c.soi) {
+      if (dx * dx + dy * dy + v.z * v.z < c.soi * c.soi) {
         const cv = childRelVel(c, t);
         v.x = dx; v.y = dy; v.vx -= cv.x; v.vy -= cv.y; v.body = c;
         if (v === this.active) { this.toast(`Entered ${c.name}’s sphere of influence`); this.prediction = null; }
         return true;
       }
     }
-    if (b.parent && Math.hypot(v.x, v.y) > b.soi) {
+    if (b.parent && v.radius() > b.soi) {
       const bp = childRel(b, t), bv = childRelVel(b, t);
       v.x += bp.x; v.y += bp.y; v.vx += bv.x; v.vy += bv.y; v.body = b.parent;
       if (v === this.active) { this.toast(`Left ${b.name}’s sphere of influence`); this.prediction = null; }
@@ -500,12 +529,13 @@ const Flight = {
   // On-rails Kepler propagation with event detection (atmosphere/surface, SOI changes).
   railsAdvance(v, T, isActive, t0) {
     if (v.landed && v.speed() < 0.2) return T;
-    v.w = 0;
+    v.av = v3();
     let done = 0;
+    const put = (s) => { v.x = s.x; v.y = s.y; v.z = s.z; v.vx = s.vx; v.vy = s.vy; v.vz = s.vz; };
     for (let guard = 0; guard < 400 && done < T - 1e-9; guard++) {
       const body = v.body;
-      const start = { x: v.x, y: v.y, vx: v.vx, vy: v.vy };
-      const o = elementsFromState(start.x, start.y, start.vx, start.vy, body.mu);
+      const start = { x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz };
+      const o = orbitOf(start, body.mu);
       const stateFn = (dtt) => {
         if (!o.degenerate) return stateAt(o, dtt);
         const s = { ...start };
@@ -516,23 +546,23 @@ const Flight = {
       const minR = body.radius + body.warpAlt;
       const tBase = t0 + done;
       const event = (s, tt) => {
-        const r = Math.hypot(s.x, s.y);
+        const r = Math.hypot(s.x, s.y, s.z);
         if (r < minR) return 'low';
         if (body.parent && r > body.soi) return 'out';
         for (const c of body.children) {
           if (Math.abs(r - c.orbitRadius) > c.soi) continue;
           const cp = childRel(c, tBase + tt);
-          if ((s.x - cp.x) ** 2 + (s.y - cp.y) ** 2 < c.soi * c.soi) return 'in';
+          if ((s.x - cp.x) ** 2 + (s.y - cp.y) ** 2 + s.z * s.z < c.soi * c.soi) return 'in';
         }
         return null;
       };
-      const speed = Math.hypot(start.vx, start.vy);
+      const speed = Math.hypot(start.vx, start.vy, start.vz);
       let maxChunk = 120;
       for (const c of body.children) maxChunk = Math.min(maxChunk, (c.soi * 0.5) / (speed + c.orbitSpeed + 1));
       let elapsed = 0, hit = null;
       const remaining = T - done;
       while (elapsed < remaining - 1e-9) {
-        const r = Math.hypot(v.x, v.y);
+        const r = v.radius();
         const tdyn = Math.sqrt((r * r * r) / body.mu);
         const chunk = Math.min(remaining - elapsed, maxChunk, Math.max(0.5, tdyn * 0.04));
         const s = stateFn(elapsed + chunk);
@@ -543,12 +573,11 @@ const Flight = {
             const mid = (lo + hi) / 2;
             if (event(stateFn(mid), mid)) hi = mid; else lo = mid;
           }
-          const sh = stateFn(hi);
-          v.x = sh.x; v.y = sh.y; v.vx = sh.vx; v.vy = sh.vy;
+          put(stateFn(hi));
           elapsed = hi; hit = ev;
           break;
         }
-        v.x = s.x; v.y = s.y; v.vx = s.vx; v.vy = s.vy;
+        put(s);
         elapsed += chunk;
       }
       done += elapsed;
@@ -571,8 +600,7 @@ const Flight = {
     this.vessels = this.vessels.filter((v) => {
       if (v.dead || !v.parts.length) return false;
       if (v === a || v.control) return true;
-      const p = this.absPos(v);
-      return Math.hypot(p.x - ap.x, p.y - ap.y) < 150000;
+      return this.dist(this.absPos(v), ap) < 150000;
     });
   },
 
@@ -592,7 +620,7 @@ const Flight = {
     if (!v || !v.parts.length || this.destroyed) return;
     const b = v.body, alt = v.altitude(), sp = v.speed();
     const ap = this.absPos(v), ep = bodyPos(EARTH, this.time);
-    this.stats.maxAlt = Math.max(this.stats.maxAlt, Math.hypot(ap.x - ep.x, ap.y - ep.y) - EARTH.radius);
+    this.stats.maxAlt = Math.max(this.stats.maxAlt, Math.hypot(ap.x - ep.x, ap.y - ep.y, ap.z) - EARTH.radius);
     this.stats.maxSpeed = Math.max(this.stats.maxSpeed, sp);
     const o = this.prediction && this.prediction[0] && this.prediction[0].body === b ? this.prediction[0].o : null;
     if (b === EARTH && alt > EARTH.padHeight + 60 && this.time > 1) this.award('liftoff');
@@ -607,14 +635,14 @@ const Flight = {
     const dtm = Math.max(0, this.time - (this.lastCheck ?? this.time));
     this.lastCheck = this.time;
     if (b === EARTH && v.control) {
-      const ga = v.groundAltitude(), r = Math.hypot(v.x, v.y), vs = (v.x * v.vx + v.y * v.vy) / r;
+      const ga = v.groundAltitude(), vs = v.vSpeed();
       if (v.kind === 'plane') {
         if (!v.wheelsDown && ga > 10 && sp > 30) this.award('takeoff');
         if (alt > 8000 && v.lift > 0.3 * v.mass * G0) this.award('flyHigh');
-        const east = -wrapAngle(Math.atan2(v.y, v.x) - EARTH.padAngle) * EARTH.radius;
-        if (this.flags.takeoff && settled && east > EARTH.runway.from && east < EARTH.runway.to) this.award('runwayLanding');
+        const east = -wrapAngle(Math.atan2(v.y, v.x) - EARTH.padAngle) * EARTH.radius, north = Math.asin(clamp(v.z / v.radius(), -1, 1)) * EARTH.radius;
+        if (this.flags.takeoff && settled && east > EARTH.runway.from && east < EARTH.runway.to && Math.abs(north) < 40) this.award('runwayLanding');
       }
-      if (sp > 340 && alt < 15000 && v.parts.some((p) => p.def.air && p.firing > 0)) this.award('supersonic');
+      if (v.mach >= 1 && alt < 15000 && v.parts.some((p) => p.def.air && p.firing > 0)) this.award('supersonic');
       if (v.kind === 'heli' && ga > 20 && Math.abs(vs) < 2 && sp < 5) {
         if (this.hoverSince == null) this.hoverSince = this.time;
         if (this.time - this.hoverSince >= 10) this.award('hover');
@@ -630,14 +658,15 @@ const Flight = {
   updatePrediction() {
     const v = this.active;
     if (!v || !v.parts.length) { this.prediction = null; return; }
-    this.prediction = predictTrajectory(v.body, { x: v.x, y: v.y, vx: v.vx, vy: v.vy }, this.time, 4);
+    this.prediction = predictTrajectory(v.body, { x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz }, this.time, 4);
     this.approach = this.target ? closestApproach(this.prediction, this.target) : null;
     this.window = null;
     const t = this.target;
     if (t && t.parent && !v.landed) {
       const o = this.prediction[0].o;
-      if (t.parent === v.body && !o.degenerate && o.e < 0.5 && Math.sign(o.dir) === Math.sign(t.orbitDir)) {
-        const r = Math.hypot(v.x, v.y);
+      // phase angles only make sense for an orbit close to the planets' plane
+      if (t.parent === v.body && !o.degenerate && o.e < 0.5 && o.incl < 0.35 && Math.sign(o.dir) === Math.sign(t.orbitDir)) {
+        const r = v.radius();
         this.window = transferWindow(r, Math.atan2(v.y, v.x), Math.sqrt(v.body.mu / (r * r * r)), t, this.time);
       } else if (v.body.parent && t.parent === v.body.parent && t !== v.body) {
         const bp = childRel(v.body, this.time);
@@ -658,19 +687,19 @@ const Flight = {
     const rate = Settings.high ? 1 : 0.45;
     for (const v of this.vessels) {
       const rho = airDensity(v.body, v.altitude());
-      const fx = -Math.sin(v.rot), fy = Math.cos(v.rot);
       for (const e of v.parts) {
         if (!e.firing) continue;
-        const nz = nozzleOf(e.def);
         if (e.def.air) { if (e.def.air.kind === 'rotor' && v === this.active) this.rotorWash(v, e, dt); continue; }
+        const nz = nozzleOf(e.def), ax = partAxis(e), dir = v.axis(ax.x, ax.y, 0); // dir: the way the engine pushes
         if (rho > 0.01 || e.def.solid) {
           const smoky = e.def.solid ? 2.2 : e.def.plume === 'hydro' || e.def.plume === 'ion' || e.def.plume === 'nuclear' ? 0.35 : 1;
           e._emit = (e._emit || 0) + 22 * e.firing * Math.max(e.def.w, 1) * smoky * Math.min(1, rho * 2 + (e.def.solid ? 0.3 : 0)) * rate * dt;
           while (e._emit >= 1) {
             e._emit -= 1;
-            const wp = v.toWorld(e.x, e.y + nz.y - e.def.w * 0.6);
-            const sp = 25 + Math.random() * 25, j = (Math.random() - 0.5) * 10;
-            FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, vx: v.vx - fx * sp + j * fy, vy: v.vy - fy * sp - j * fx,
+            const np = partPt(e, 0, nz.y - e.def.w * 0.6), wp = v.toWorld(np.x, np.y);
+            const sp = 25 + Math.random() * 25, j = randDir(), js = Math.random() * 5;
+            FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z,
+              vx: v.vx - dir.x * sp + j.x * js, vy: v.vy - dir.y * sp + j.y * js, vz: v.vz - dir.z * sp + j.z * js,
               max: 2.2 + Math.random() * 2.6, size: Math.max(e.def.w, 1) * 0.7, grow: Math.max(e.def.w, 1) * 3.4, color: e.def.solid ? '#e9e6e0' : '#d9dde2', alpha: 0.34 });
           }
         }
@@ -678,16 +707,8 @@ const Flight = {
         if (v === this.active && Settings.high) {
           const ga = v.groundAltitude();
           if (ga < 40 && ga > -5 && e.firing > 0.2) {
-            const ang = Math.atan2(v.y, v.x), n = surfaceNormal(v.body, ang);
-            const water = waterAt(v.body, ang);
-            const base = surfaceRadius(v.body, ang);
             e._dust = (e._dust || 0) + 30 * e.firing * (1 - ga / 40) * dt;
-            while (e._dust >= 1) {
-              e._dust -= 1;
-              const side = Math.random() < 0.5 ? -1 : 1, s = 8 + Math.random() * 18;
-              FX.add({ kind: 'smoke', b: v.body, x: n.x * base, y: n.y * base, vx: v.vx + (-n.y * side) * s + n.x * 3, vy: v.vy + (n.x * side) * s + n.y * 3,
-                max: 1.5 + Math.random() * 1.5, size: 1, grow: 5, color: water ? '#eaf4ff' : clearZone(v.body, ang) ? '#c9ccd1' : v.body.colors.surface, alpha: 0.45 });
-            }
+            e._dust = this.groundDust(v, e._dust, 8, 18, 3, 1, 0.45);
           }
         }
       }
@@ -696,13 +717,34 @@ const Flight = {
         const k = clamp((v.heatFlux - 4e7) / 1.5e8, 0, 1);
         if (Math.random() < 0.6 * k + 0.2) {
           const sp = v.speed() || 1;
-          FX.add({ kind: 'plasma', b: v.body, x: v.x - (v.vx / sp) * 2, y: v.y - (v.vy / sp) * 2, vx: v.vx * 0.85, vy: v.vy * 0.85,
+          FX.add({ kind: 'plasma', b: v.body, x: v.x - (v.vx / sp) * 2, y: v.y - (v.vy / sp) * 2, z: v.z - (v.vz / sp) * 2, vx: v.vx * 0.85, vy: v.vy * 0.85, vz: v.vz * 0.85,
             max: 0.4 + Math.random() * 0.4, size: Math.max(v.width, 1.5) * 0.6, grow: Math.max(v.width, 1.5), color: '#ff9a4a', alpha: 0.5 * k });
         }
       }
-      if (v.splashed && !v._splashFx) { v._splashFx = true; const ang = Math.atan2(v.y, v.x), n = surfaceNormal(v.body, ang); FX.splash(v.body, v.x, v.y, n.x, n.y, 30); }
+      if (v.splashed && !v._splashFx) {
+        v._splashFx = true;
+        const L = v.surfaceSpot();
+        FX.splash(v.body, { x: v.x, y: v.y, z: v.z }, Terrain.normalAt(v.body, L.a, L.z), 30);
+      }
       if (!v.splashed) v._splashFx = false;
     }
+  },
+
+  // Dust or spray thrown sideways along the ground under a craft; returns the unspent fraction of `count`.
+  groundDust(v, count, s0, s1, lift, size, alpha) {
+    if (count < 1) return count;
+    const b = v.body, L = v.surfaceSpot(), n = Terrain.normalAt(b, L.a, L.z), water = Terrain.waterAt(b, L.a, L.z);
+    const base = b.radius + Terrain.surfaceAt(b, L.a, L.z), r = v.radius();
+    const px = (v.x / r) * base, py = (v.y / r) * base, pz = (v.z / r) * base;
+    const color = water ? '#eaf4ff' : clearZone(b, L.a) && Math.abs(L.z) < 300 ? '#c9ccd1' : b.colors.surface;
+    while (count >= 1) {
+      count -= 1;
+      const d = randDir(), dn = dot3(d, n), l = Math.hypot(d.x - n.x * dn, d.y - n.y * dn, d.z - n.z * dn) || 1, s = s0 + Math.random() * s1;
+      const tx = (d.x - n.x * dn) / l, ty = (d.y - n.y * dn) / l, tz = (d.z - n.z * dn) / l;
+      FX.add({ kind: 'smoke', b, x: px, y: py, z: pz, vx: v.vx + tx * s + n.x * lift, vy: v.vy + ty * s + n.y * lift, vz: v.vz + tz * s + n.z * lift,
+        max: 1.2 + Math.random() * 1.5, size: size, grow: 4.5 * size, color, alpha });
+    }
+    return count;
   },
 
   // Downwash from a helicopter rotor near the ground kicks up dust or spray.
@@ -710,14 +752,8 @@ const Flight = {
     if (!Settings.high) return;
     const ga = v.groundAltitude();
     if (ga > 15 || ga < -2 || e.firing < 0.2) return;
-    const ang = Math.atan2(v.y, v.x), n = surfaceNormal(v.body, ang), water = waterAt(v.body, ang), base = surfaceRadius(v.body, ang);
     e._dust = (e._dust || 0) + 26 * e.firing * (1 - ga / 15) * dt;
-    while (e._dust >= 1) {
-      e._dust -= 1;
-      const side = Math.random() < 0.5 ? -1 : 1, s = 6 + Math.random() * 12;
-      FX.add({ kind: 'smoke', b: v.body, x: n.x * base, y: n.y * base, vx: v.vx + -n.y * side * s + n.x * 1.5, vy: v.vy + n.x * side * s + n.y * 1.5,
-        max: 1.2 + Math.random() * 1.2, size: 0.8, grow: 4, color: water ? '#eaf4ff' : clearZone(v.body, ang) ? '#c9ccd1' : v.body.colors.surface, alpha: 0.4 });
-    }
+    e._dust = this.groundDust(v, e._dust, 6, 12, 1.5, 0.8, 0.4);
   },
 
   // ------------------------------------------------------------------ input
@@ -739,12 +775,11 @@ const Flight = {
         case 'BracketLeft': case 'BracketRight': this.cycleVessel(e.code === 'BracketRight' ? 1 : -1); break;
         case 'Escape': case 'KeyP': this.openMenu(); break;
         case 'KeyR': if (this.canRecover()) this.recover(); break;
-        case 'KeyV': App.set3D(!Settings.get('view3d')); break;
         case 'KeyC': if (App.use3D()) Render3D.resetCamera(); break;
       }
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); this.touchRot = 0; this.touchBrake = false; });
+    addEventListener('blur', () => { this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; });
 
     c.addEventListener('wheel', (e) => {
       if (App.scene !== 'flight') return;
@@ -786,8 +821,8 @@ const Flight = {
     c.addEventListener('pointercancel', up);
 
     const hold = (btn, val) => {
-      const on = (e) => { e.preventDefault(); btn.setPointerCapture && btn.setPointerCapture(e.pointerId); this.touchRot = val; btn.classList.add('held'); };
-      const off = () => { if (this.touchRot === val) this.touchRot = 0; btn.classList.remove('held'); };
+      const on = (e) => { e.preventDefault(); btn.setPointerCapture && btn.setPointerCapture(e.pointerId); this.stick.r = val; btn.classList.add('held'); };
+      const off = () => { if (this.stick.r === val) this.stick.r = 0; btn.classList.remove('held'); };
       btn.addEventListener('pointerdown', on);
       btn.addEventListener('pointerup', off);
       btn.addEventListener('pointercancel', off);
@@ -796,6 +831,23 @@ const Flight = {
     };
     hold($('#rot-left'), -1);
     hold($('#rot-right'), 1);
+    // the flight stick: drag the knob; up is W (nose down, drive forward), right is D
+    const joy = $('#joy'), knob = joy.querySelector('.joy-knob');
+    let joyId = null;
+    const joyMove = (e) => {
+      const r = joy.getBoundingClientRect(), R = r.width * 0.36;
+      let dx = (e.clientX - (r.left + r.width / 2)) / R, dy = (e.clientY - (r.top + r.height / 2)) / R;
+      const l = Math.hypot(dx, dy);
+      if (l > 1) { dx /= l; dy /= l; }
+      knob.style.transform = `translate(${dx * R}px, ${dy * R}px)`;
+      const dead = (x) => (Math.abs(x) < 0.12 ? 0 : (x - Math.sign(x) * 0.12) / 0.88);
+      this.stick.h = dead(dx); this.stick.v = dead(-dy);
+    };
+    const joyOff = () => { joyId = null; this.stick.h = 0; this.stick.v = 0; knob.style.transform = ''; joy.classList.remove('held'); };
+    joy.addEventListener('pointerdown', (e) => { e.preventDefault(); joyId = e.pointerId; joy.setPointerCapture(e.pointerId); joy.classList.add('held'); joyMove(e); });
+    joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyMove(e); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) joy.addEventListener(ev, (e) => { if (e.pointerId === joyId) joyOff(); });
+    joy.addEventListener('contextmenu', (e) => e.preventDefault());
     const brake = $('#btn-brake');
     const brakeOff = () => { this.touchBrake = false; brake.classList.remove('held'); };
     brake.addEventListener('pointerdown', (e) => { e.preventDefault(); brake.setPointerCapture && brake.setPointerCapture(e.pointerId); this.touchBrake = true; brake.classList.add('held'); });
@@ -873,7 +925,7 @@ const Flight = {
     const pad = Math.max(0.25, 14 / this.scale);
     for (const ves of [v, ...this.vessels.filter((x) => x !== v)]) {
       const bp = bodyPos(ves.body, this.time);
-      const lp = ves.toLocal(this.camAbs.x + wx - bp.x, this.camAbs.y + wy - bp.y);
+      const lp = ves.toLocal(this.camAbs.x + wx - bp.x, this.camAbs.y + wy - bp.y, ves.z);
       const p = ves.hitTest(lp.x, lp.y, pad);
       if (!p) continue;
       if (ves !== v) { if (ves.control) this.switchTo(ves); return; }
@@ -907,9 +959,9 @@ const Flight = {
     if (v.kind !== 'rocket' && b === EARTH) return this.vehicleHint(v);
     if (b === EARTH) {
       if (v.stageIdx === 0 && v.landed && this.time < 20) return 'Tap STAGE (Space) to light the engines.';
-      const lean = Math.abs(wrapAngle(v.rot - (Math.atan2(v.y, v.x) - Math.PI / 2)));
+      const lean = Math.PI / 2 - v.attitude().pitch;
       if (!this.flags.space && alt < 2500 && v.thrust > 0) return 'Climb straight up for now.';
-      if (!this.flags.space && alt < 22000 && v.thrust > 0 && lean < 0.35) return 'Lean right (D or ⟳) toward 45° to build sideways speed.';
+      if (!this.flags.space && alt < 22000 && v.thrust > 0 && lean < 0.35) return isTouch ? 'Push the stick right to lean east, toward 45°, and build sideways speed.' : 'Lean east with D toward 45° to build sideways speed.';
       if (o && !o.degenerate && o.ra - EARTH.radius > 34000 && o.rp < EARTH.radius + 30000 && alt < 30000 && v.thrust > 0)
         return 'Apoapsis is above the air. Cut the throttle (X) and coast up.';
       if (o && !o.degenerate && o.e < 1 && o.rp < EARTH.radius + 30000 && alt > 28000 && v.thrust === 0 && !v.landed)
@@ -919,7 +971,7 @@ const Flight = {
       if (this.target && this.window && this.window.wait > 120) return `Warp ahead: the ${this.target.name} transfer window opens in ${fmt.duration(this.window.wait)}.`;
       if (this.target && this.window && this.window.wait <= 120 && !(this.approach && this.approach.encounter)) return 'Window open: burn prograde until the map shows an encounter.';
       const chute = v.parts.find((p) => p.def.chute && !p.deployed && !p.used);
-      if (chute && alt < 9000 && (v.speed() < 250 || (v.q || 0) < 12000) && !v.landed && (v.x * v.vx + v.y * v.vy) < 0) return 'Deploy the parachute now (STAGE).';
+      if (chute && alt < 9000 && (v.speed() < 250 || (v.dynP || 0) < 12000) && !v.landed && v.vSpeed() < 0) return 'Deploy the parachute now (STAGE).';
       if (this.canRecover()) return 'Safely down. Tap Recover to finish the mission.';
     }
     if (b !== EARTH && !b.star && v.landed && this.flags[`land:${b.id}`]) return `You landed on ${b.name}. Plan your trip home from the map.`;
@@ -933,19 +985,20 @@ const Flight = {
     if (v.kind === 'plane') {
       if (!started && v.parts.some((p) => p.def.thrust)) return 'Tap STAGE (Space) to start the engine.';
       if (v.wheelsDown && v.throttle < 0.9 && sp < 20 && !this.flags.takeoff) return 'Full throttle (Z) and roll down the runway.';
-      if (v.wheelsDown && !this.flags.takeoff) return sp < 50 ? 'Keep rolling straight…' : 'Pull up gently with A (⟲) to take off.';
-      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return 'Let go of the controls: the autopilot holds the attitude you leave it in.';
+      if (v.wheelsDown && !this.flags.takeoff) return sp < 50 ? (isTouch ? 'Keep rolling straight (the stick steers the nose wheel)…' : 'Keep rolling straight (A/D steer the nose wheel)…') : (isTouch ? 'Pull the stick back gently to take off.' : 'Pull up gently with S to take off.');
+      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. Let go and the autopilot holds the attitude.' : 'Roll with A/D to bank and turn, pitch with W/S. Let go and the autopilot holds the attitude.';
+      if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
       if (v.wheelsDown && sp > 2) return 'Hold B (Brake) to stop.';
       return '';
     }
     if (v.kind === 'car') {
-      if (sp < 1 && !this.flags.drive1k) return 'Drive with D and A (⟳ ⟲). Hold B to brake. The causeway leads 13 km east to the mainland.';
+      if (sp < 1 && !this.flags.drive1k) return isTouch ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 13 km east to the mainland.' : 'W/S to drive, A/D to steer, hold B to brake. The causeway leads 13 km east to the mainland.';
       return '';
     }
     if (v.kind === 'heli') {
       if (!started) return 'Tap STAGE (Space) to start the rotor.';
-      if (v.landed && v.throttle < 0.6) return 'Raise the throttle (W) until it lifts off.';
-      if (!v.landed && !this.flags.hover) return 'Tilt with ⟲ ⟳ to fly sideways. Lower the throttle (S) to come down.';
+      if (v.landed && v.throttle < 0.6) return isTouch ? 'Raise the throttle until it lifts off.' : 'Raise the throttle (Shift) until it lifts off.';
+      if (!v.landed && !this.flags.hover) return isTouch ? 'The stick tilts it to fly that way; let go and it levels out. ⟲ ⟳ turn. Lower the throttle to come down.' : 'W/A/S/D tilt it to fly that way; let go and it levels out. Q/E turn. Lower the throttle (Ctrl) to come down.';
       return '';
     }
     return '';
@@ -955,10 +1008,9 @@ const Flight = {
     const v = this.active;
     if (!v || !v.parts.length) return;
     const b = v.body;
-    const r = Math.hypot(v.x, v.y);
-    const alt = r - b.radius;
+    const alt = v.altitude();
     const ground = v.groundAltitude();
-    const vs = (v.x * v.vx + v.y * v.vy) / r;
+    const vs = v.vSpeed();
     const set = (id, txt) => { const e = document.getElementById(id); if (e.textContent !== txt) e.textContent = txt; };
     set('t-body', b.name + (v.splashed ? ' · splashed' : v.landed ? ' · landed' : ''));
     set('t-vessel', v.name);
@@ -967,6 +1019,9 @@ const Flight = {
     set('t-ground', fmt.dist(Math.max(0, ground)));
     const rocket = v.kind === 'rocket';
     set('t-speed', rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`);
+    const mach = v.mach > 0.3 && !v.landed;
+    $('#row-mach').hidden = !mach;
+    if (mach) { set('t-mach', `M ${v.mach.toFixed(2)}`); $('#row-mach').classList.toggle('sonic', v.mach >= 0.95 && v.mach < 1.15); }
     const aoa = v.kind === 'plane' && v.aoa != null && !v.landed;
     $('#row-aoa').hidden = !aoa;
     if (aoa) set('t-aoa', `${(v.aoa * 180 / Math.PI).toFixed(1)}°`);
@@ -1012,7 +1067,7 @@ const Flight = {
         enc = `${p1.body.name} in ${fmt.duration(p0.tEnd - this.time)} · Pe ${pe2 < 0 ? 'impact' : fmt.dist(pe2)}`;
       } else if (p0.end === 'escape') enc = `Leaves ${b.name} SOI in ${fmt.duration(p0.tEnd - this.time)}`;
     }
-    if (!enc && pred && pred[0].end === 'impact' && !v.landed && ground > 200) enc = `Impact in ${fmt.duration(pred[0].tEnd - this.time)}`;
+    if (!enc && orbital && pred && pred[0].end === 'impact' && !v.landed && ground > 200) enc = `Impact in ${fmt.duration(pred[0].tEnd - this.time)}`;
     $('#row-enc').hidden = !enc;
     set('t-enc', enc);
 
@@ -1028,7 +1083,7 @@ const Flight = {
 
     const next = v.stages[v.stageIdx];
     set('stage-num', v.stageIdx < v.stages.length ? `Stage ${v.stageIdx + 1}/${v.stages.length}` : 'Staging done');
-    set('stage-next', next ? describeStage(next, v.byId) : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? 'Drive with ⟲ ⟳ · hold B to brake' : 'Tap parts to use them');
+    set('stage-next', next ? describeStage(next, v.byId) : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? 'Drive with W/S, steer A/D · hold B to brake' : 'Tap parts to use them');
     $('#btn-brake').hidden = !v.wheels.length;
     $('#btn-stage').disabled = !next || this.destroyed;
     $('#btn-recover').hidden = !this.canRecover();
@@ -1040,11 +1095,15 @@ const Flight = {
 
   // ------------------------------------------------------------------ rendering
   // Follow the active vessel; the view turns so its local "up" points up (both renderers use this).
+  // The camera follows the craft's position relative to its body, so after a crash it stays over the
+  // wreck instead of being left behind in space while the planet moves on along its orbit.
   updateCamera() {
-    const v = this.active;
-    if (!v || !v.parts.length) return;
-    this.camAbs = this.absPos(v);
-    const want = Math.PI / 2 - Math.atan2(v.y, v.x);
+    const v = this.active, c = this.camRel;
+    if (v && v.parts.length && !v.dead) { c.b = v.body; c.x = v.x; c.y = v.y; c.z = v.z; }
+    const bp = bodyPos(c.b, this.time);
+    this.camAbs = { x: bp.x + c.x, y: bp.y + c.y, z: c.z };
+    this.viewQ = qslerp(this.viewQ, this.viewFrame(c.x, c.y, c.z), 0.25, this.viewQ);
+    const want = Math.PI / 2 - Math.atan2(c.y, c.x);
     this.viewRot += wrapAngle(want - this.viewRot) * 0.25;
   },
 

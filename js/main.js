@@ -42,7 +42,7 @@ const App = {
     try {
       let in3d = false;
       if (this.scene === 'build') {
-        in3d = this.use3D();
+        in3d = this.preview3D();
         if (in3d) { Render3D.setVisible(true); Render3D.renderBuilder(Builder, dt); this.clear2D(); } else Builder.render(this.ctx, this.W, this.H, this.dpr);
       } else if (this.scene === 'flight') {
         Flight.update(dt);
@@ -65,40 +65,40 @@ const App = {
   clear2D() { this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); },
 
   // ---------------------------------------------------------------- 3D view
-  get view3d() { return !!Settings.get('view3d') && Render3D.supported && !Render3D.failed; },
+  // Flight is always drawn in 3D; the flat 2D renderer is only a fallback for devices without WebGL.
+  // The hangar is a 2D blueprint with an optional 3D preview.
   use3D() {
-    if (!this.view3d || !Render3D.ready) {
-      if (Render3D.failed && Settings.get('view3d') && !this.warned3d) { this.warned3d = true; UI.toast('3D view stopped working. Back to 2D.'); this.sync3D(); }
+    if (!Render3D.supported || Render3D.failed || !Render3D.ready) {
+      if ((Render3D.failed || !Render3D.supported) && this.scene === 'flight' && !this.warned3d) { this.warned3d = true; UI.toast('3D isn’t available on this device: flying in 2D'); }
       return false;
     }
     return true;
   },
+  preview3D() { return !!Settings.get('build3d') && this.use3D(); },
   init3D() {
     const show = Render3D.supported;
-    document.querySelectorAll('.view3d-toggle').forEach((b) => { b.hidden = !show; b.addEventListener('click', () => this.set3D(!Settings.get('view3d'))); });
-    if (this.view3d) this.load3D();
+    document.querySelectorAll('.view3d-toggle').forEach((b) => { b.hidden = !show; b.addEventListener('click', () => this.setPreview3D(!Settings.get('build3d'))); });
+    if (show) this.load3D();
     this.sync3D();
   },
   load3D() {
     Render3D.load().then(() => { Render3D.resize(this.W, this.H, this.dpr); this.sync3D(); }).catch((e) => {
       console.error(e);
-      Settings.set('view3d', false);
       this.sync3D();
-      UI.toast('3D view isn’t available on this device');
     });
   },
-  set3D(on) {
+  setPreview3D(on) {
     if (on && !Render3D.supported) { UI.toast('3D view isn’t available on this device'); return; }
-    Settings.set('view3d', !!on);
-    if (on) { this.load3D(); if (!Render3D.ready) UI.toast('Loading 3D view…'); }
+    Settings.set('build3d', !!on);
+    if (on && !Render3D.ready) UI.toast('Loading 3D view…');
     Sound.click();
     this.sync3D();
   },
   sync3D() {
-    const on = this.view3d;
+    const on = !!Settings.get('build3d') && Render3D.supported && !Render3D.failed;
     document.querySelectorAll('.view3d-toggle').forEach((b) => {
       b.setAttribute('aria-pressed', String(on));
-      b.title = on ? 'Switch to 2D view (V)' : 'Switch to 3D view (V)';
+      b.title = on ? 'Back to the 2D blueprint (V)' : '3D preview (V)';
       b.setAttribute('aria-label', b.title);
     });
     $('#build-3d-hint').hidden = !on;
@@ -179,7 +179,7 @@ const App = {
       store.set('rss.flight', null);
       this.showScene('flight');
       Flight.start(Builder.serialize());
-      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with D and A (⟳ ⟲)', heli: 'Press STAGE (Space) to start the rotor' }[Builder.kind];
+      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor' }[Builder.kind];
       if (Settings.get('hints') && tip) UI.toast(tip);
     };
     const saved = store.get('rss.flight', null);
@@ -205,14 +205,15 @@ const App = {
     UI.modal({
       kicker: 'Flight manual', title: 'How to fly',
       body: `<ol class="howto">
-        <li><b>Build.</b> Drag parts from the tray onto the blueprint; edges snap together. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
+        <li><b>Build.</b> Drag parts from the tray onto the blueprint; edges snap together. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. Press R (or the turn button) to rotate the selected part a quarter turn. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
         <li><b>Stage.</b> Orange numbers show the firing order. Separators split the rocket, and fuel can't flow through them. Solid boosters can't be shut down.</li>
-        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean right a little at a time.</li>
+        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean east (D) a little at a time. W/S lean the rocket towards or away from you and Q/E roll it: the world is fully 3D, so you can fly in any direction.</li>
         <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
         <li><b>Travel.</b> In the map, tap a planet or moon to target it. The HUD tells you when the transfer window opens. Warp to it, burn prograde until an encounter appears, then burn retrograde at periapsis to be captured.</li>
         <li><b>Come home hot.</b> Returns from the Moon and planets heat the leading part. Lead with a heat shield, then open the parachute below 250 m/s.</li>
-        <li><b>Other vehicles.</b> Pick Plane, Car or Helicopter above the stats. Planes are built nose-right with wings, a tail and landing gear, and take off from the runway: full throttle, then pull up with ⟲ at about 55 m/s. Cars drive with ⟲ ⟳. Helicopters lift off from the helipad as you raise the throttle. Hold B (or Brake) to stop on the ground.</li>
-        <li><b>3D.</b> The 3D button shows the same world in 3D. Drag to look around; the zoom and controls stay the same.</li>
+        <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (S) at about 55 m/s. Bank with A/D to turn, Q/E use the rudder. Let go and the autopilot holds your pitch and bank. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1.</li>
+        <li><b>Cars and helicopters.</b> Cars drive with W/S and steer with A/D. Helicopters lift off as you raise the throttle (Shift); the stick tilts them to fly that way and they level out when you let go, Q/E turn. Hold B (or Brake) to stop on the ground.</li>
+        <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, C to reset. It follows behind planes, cars and helicopters and beside rockets. On touch screens the stick at the bottom left flies the craft.</li>
       </ol>${Flight.controlsHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
@@ -290,9 +291,7 @@ const App = {
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
     const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
     marks.addEventListener('change', () => Settings.set('markers', marks.checked));
-    const v3 = el('input', { id: 'set-3d', type: 'checkbox' }); v3.checked = !!Settings.get('view3d'); v3.disabled = !Render3D.supported;
-    v3.addEventListener('change', () => this.set3D(v3.checked));
-    wrap.append(row('Volume', vol), row('Graphics', q), row('3D view', v3), row('Flight hints', hints), row('Prograde markers', marks));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Flight hints', hints), row('Prograde markers', marks));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

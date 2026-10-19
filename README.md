@@ -1,8 +1,8 @@
 # Rocket Science Simulator
 
-A rocket-building and spaceflight game inspired by *Spaceflight Simulator*, played in 2D or 3D. Snap parts together on a blueprint, launch from the pad, fly into orbit, and explore a small solar system: land on the Moon, drive a rover, parachute onto Mars, dive past the Sun, and bring the crew home through a fiery reentry. You can also build planes that take off from the runway, cars that drive to the mainland, and helicopters.
+A rocket-building and spaceflight game inspired by *Spaceflight Simulator*. Snap parts together on a 2D blueprint, then fly in a full 3D world: launch from the pad, reach orbit, and explore a small solar system: land on the Moon, drive a rover, parachute onto Mars, dive past the Sun, and bring the crew home through a fiery reentry. You can also build planes that bank and turn over the island and break the sound barrier, cars that drive to the mainland, and helicopters.
 
-It runs in any modern browser on desktop and mobile. There is no build step: open `index.html` and play. The 3D view uses three.js, which ships in the repo and only loads when you switch to 3D.
+It runs in any modern browser on desktop and mobile. There is no build step: open `index.html` and play. The 3D world uses three.js, which ships in the repo; on a device without WebGL the game falls back to a flat 2D side view.
 
 ## Play
 
@@ -19,9 +19,11 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 
 | Action | Desktop | Touch |
 | --- | --- | --- |
-| Rotate (drive a car, pitch a plane) | `A` / `D` or `←` / `→` | Hold the ⟲ ⟳ buttons |
+| Pitch (cars: drive forward / back) | `W` / `S` or `↑` / `↓`; `W` is nose down | Push the stick forward / back |
+| Rockets: turn · planes and helicopters: roll · cars: steer | `A` / `D` or `←` / `→` | Push the stick left / right |
+| Rockets: roll · planes and helicopters: yaw | `Q` / `E` | Hold the ⟲ ⟳ buttons |
 | Brake on wheels | Hold `B` | Hold Brake |
-| Throttle | `W` / `S` or `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
+| Throttle | `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
 | Next stage | `Space` | STAGE button |
 | Autopilot | `1` hold · `2` prograde · `3` retrograde · `4` radial out · `5` radial in · `6` target | Autopilot buttons above the rotate controls |
 | Use one part | Click it | Tap it (engines toggle, separators fire, parachutes open) |
@@ -29,24 +31,24 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 | Switch vessel | `[` / `]`, or click it | Tap it in flight or on the map |
 | Time warp | `,` / `.` (click the readout to reset) | ⏪ ⏩ buttons |
 | Zoom | Mouse wheel | Pinch |
-| 2D / 3D view | `V` | 3D button |
-| 3D camera | Drag to look around; `C` or double-click resets it | Drag |
+| Camera | Drag to look around; `C` or double-click resets it | Drag |
 | Pause, save & exit | `Esc` | Menu button |
 
-Builder: pick Rocket, Plane, Car or Helicopter above the stats, drag parts from the tray onto the blueprint (tap a tray part to auto-stack it), drag a part back onto the tray to remove it, `Ctrl+Z` / `Ctrl+Y` to undo and redo, `Ctrl+D` to duplicate, `F` to fit the view, `Enter` to launch. In 3D the blueprint becomes a turntable preview: drag to look around, tap a part to select it. The Hangar saves and loads your own named designs and has eleven examples: seven rockets, the Skylark trainer and Hornet jet, the Dune Buggy and the Dragonfly helicopter.
+Builder: pick Rocket, Plane, Car or Helicopter above the stats, drag parts from the tray onto the blueprint (tap a tray part to auto-stack it), drag a part back onto the tray to remove it, `R` (or the turn button) to rotate the selected part, or the one you are dragging, a quarter turn, `Ctrl+Z` / `Ctrl+Y` to undo and redo, `Ctrl+D` to duplicate, `F` to fit the view, `Enter` to launch. The 3D button (`V`) turns the blueprint into a turntable preview: drag to look around, tap a part to select it. The Hangar saves and loads your own named designs and has eleven examples: seven rockets, the Skylark trainer and Hornet jet, the Dune Buggy and the Dragonfly helicopter.
 
 ## What's in it
 
-- **3D view:** a button switches between the classic 2D side view and a full 3D view of the same world: textured planets seen from space, terrain with oceans, beaches, trees and clouds near the ground, the space centre with its runway, helipad and causeway, shadows, engine plumes and smoke. The physics stays the same 2D simulation, so saves, orbits and controls work identically in both views.
-- **Vehicles:** rockets launch from the pad, planes take off from the runway, cars drive from it (a causeway road leads 13 km east to the mainland), and helicopters lift off from the helipad. Wings make lift from the airflow and stall at high angles, elevators steer, propellers and jets need air, rotors give lift and steering, car wheels drive, landing gear rolls freely and everything brakes. Aircraft hold their attitude when you let go.
+- **A 3D world:** craft move and turn in all three dimensions: orbits can be inclined, planes bank and turn anywhere over the island, cars drive off across the countryside. You see textured planets from space, terrain with oceans, beaches, trees and clouds near the ground, the space centre with its runway, helipad and causeway, shadows, engine plumes and smoke. The camera follows behind planes, cars and helicopters and beside rockets. Building stays on a 2D blueprint.
+- **Vehicles:** rockets launch from the pad, planes take off from the runway, cars drive from it (a causeway road leads 13 km east to the mainland), and helicopters lift off from the helipad. Wings make lift from the airflow and stall at high angles; ailerons roll, elevators pitch and the tail fin's rudder yaws and keeps a plane pointing into the wind, so banked turns are coordinated. Propellers and jets need air, rotors give lift and the stick tilts a helicopter (it levels itself when you let go), car wheels drive and the front ones steer, landing gear rolls freely and everything brakes. Planes hold their pitch and bank when you let go.
+- **The sound barrier:** past Mach 1 in thick air a vapour cone wraps the craft, a shock ring bursts outwards and a sonic boom cracks; the HUD shows the Mach number.
 - **56 parts** in nine categories: crew pods and probe cores; tanks in 1, 2 and 3 m widths; nine rocket engines including solid boosters that can't be shut down, an aerospike that keeps its efficiency at every altitude, a nuclear engine and an ion drive; separators; nose cones, fins and heat shields; parachutes, landing legs, rover wheels and RCS; girders and adapters; aircraft parts (cockpit, fuselage, tail cone, wings, elevator, tail fin, propeller, turbojet, main and tail rotors, landing gear); ground parts (driver cab, chassis, car wheels).
-- **Builder:** edge snapping, symmetry, automatic staging with per-stage Δv and TWR, centre-of-mass and thrust markers, cost and tech-tier locks in career, undo/redo, named saves.
-- **Physics:** rigid bodies with centre of mass and inertia, gimbal and reaction wheels, pressure-dependent Isp, drag and fin stability, reentry heating that burns away the leading part unless a heat shield takes it, parachutes limited by dynamic pressure (drogue first, main canopy near the ground), oceans you can splash down in, rover driving with self-levelling, and per-corner ground contact where hard landings break parts.
+- **Builder:** edge snapping, quarter-turn part rotation, symmetry (mirrored parts turn the other way), automatic staging with per-stage Δv and TWR, centre-of-mass and thrust markers, cost and tech-tier locks in career, undo/redo, named saves.
+- **Physics:** 3D rigid bodies with a full inertia tensor and quaternion attitude, gimbal and reaction wheels, pressure-dependent Isp, drag and fin stability, wings simulated in halves so rolling damps itself, reentry heating that burns away the leading part unless a heat shield takes it, parachutes limited by dynamic pressure (drogue first, main canopy near the ground), oceans you can splash down in, rover driving with steering, self-levelling and a hand back onto the wheels if it tips over, and per-corner ground contact on the 3D terrain where hard landings break parts. A rocket's legs and fins stand in fours around the stack.
 - **Solar system:** the Sun, Mercury, Venus, Earth and the Moon, Mars and Phobos, Jupiter and Europa, each with its own gravity, terrain, colours, and atmosphere where it has one. Patched conics with spheres of influence; time warp up to 1,000,000× runs craft on exact Kepler orbits and stops automatically at atmospheres and sphere changes.
 - **Navigation:** the map predicts up to four patches ahead, showing apoapsis and periapsis, encounters (with the periapsis you'll get), escapes and impacts. Tap a planet to target it and see the closest approach and when the next transfer window opens. Autopilot modes hold prograde, retrograde, radial or target, and prograde/retrograde markers sit around the craft. A Δv map covers every destination.
 - **Graphics:** day and night as Earth circles the Sun, sunsets and sun glare, stars and a faint Milky Way, oceans and beaches, clouds, trees, rocks, a launch site with a tower and buildings, shaded planets with atmospheres, Mars' ice caps and Jupiter's bands, engine plumes per propellant with shock diamonds, smoke, dust kicked off the ground, reentry plasma, heat glow on parts, explosions with flashes and shockwaves.
 - **Saving:** designs and flights save automatically (also when a phone backgrounds the page). Resume a flight from the home screen.
-- **Settings:** volume, graphics quality (also shadows and scenery in 3D), 3D view, flight hints, markers, fullscreen, career reset.
+- **Settings:** volume, graphics quality (shadows, scenery, effects), flight hints, markers, fullscreen, career reset. The 3D view lowers its resolution on its own when frames run long and raises it again when there is time to spare.
 
 ## Scale
 
@@ -58,11 +60,12 @@ Like Spaceflight Simulator, the solar system is shrunk. Earth has a 315 km radiu
 index.html            page shell, home screen and HUD markup
 css/style.css         all styling (HUD, builder, home, responsive rules)
 js/util.js            maths, formatting, storage helpers
-js/space.js           bodies, terrain, Kepler orbits, patched-conic prediction, transfer windows, Δv chart
+js/space.js           bodies, the 2D terrain profile, Kepler orbits (in any plane), patched-conic prediction, transfer windows, Δv chart
+js/terrain.js         the 3D ground grown from the profile, shared by the physics (cached heights and normals) and the renderer
 js/parts.js           part catalogue, tech tiers, attachment rules, staging, Δv, part drawing
-js/vessel.js          rigid-body vessel: engines, wings, aero, heating, autopilot, wheels, ground and water contact, splitting
-js/world.js           2D flight view: sky and lighting, planets, scenery, the airfield, plumes, particles, markers
-js/render3d.js        3D view (three.js, loaded on demand): sky, planets, terrain, space centre, particles, hangar turntable
+js/vessel.js          3D rigid-body vessel: engines, wings and control surfaces, aero, heating, autopilot, wheels, ground and water contact, splitting
+js/world.js           particles, 3D markers, and the 2D fallback flight view (sky, planets, scenery, plumes)
+js/render3d.js        the 3D flight view (three.js): sky, planets, terrain, space centre, particles, vapour cone, hangar turntable
 js/parts3d.js         3D part meshes, plumes and parachutes, kept in sync with the simulation
 js/vendor/three.min.js three.js r159 (MIT licence in js/vendor/three.LICENSE)
 js/map.js             map view: orbits, trajectories, targets, vessels

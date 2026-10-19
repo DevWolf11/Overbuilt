@@ -813,7 +813,9 @@ void main() {
   }
 
   // Object3D for one part, origin at the part centre. Its materials belong to it (VesselMesh disposes them).
-  function buildPart(p, builder) {
+  // radial: a rocket's legs and fins stand in fours around the stack, so each gets a twin turned 90° about
+  // the stack's axis (the physics adds the same copies to the hull).
+  function buildPart(p, builder, radial) {
     need(); ensureShared();
     const d = p.def, m = model(d, !!p.flip), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
@@ -823,8 +825,16 @@ void main() {
     if (!builder && d.thrust && d.plume !== 'none') rig.plume = makePlume(p, root);
     if (!builder && d.chute) { rig.canopy = makeCanopy(p, root); rig.meshes.push(rig.canopy.dome); }
     root.position.set(p.x, p.y, 0);
+    root.rotation.z = ((p.rot || 0) & 3) * Math.PI / 2;
     root.userData.part = p;
     root.userData.rig = rig;
+    if (radial && (d.leg || d.fin)) {
+      const tw = rig.twin = new THREE.Group();
+      instance(m, tw, rig);
+      tw.position.set(0, p.y, -p.x);
+      tw.rotation.set(0, Math.PI / 2, root.rotation.z);
+      tw.userData.part = p;
+    }
     return root;
   }
 
@@ -842,6 +852,7 @@ void main() {
 
   function freeRig(rig) {
     rig.root.removeFromParent();
+    if (rig.twin) rig.twin.removeFromParent();
     for (const m of rig.matList) m.dispose();
     if (rig.disc) rig.disc.dispose();
     if (rig.plume) for (const m of rig.plume.mats) m.dispose();
@@ -856,6 +867,7 @@ void main() {
     constructor(parts, opts) {
       need(); ensureShared();
       this.builder = !!(opts && opts.builder);
+      this.radial = !!(opts && opts.radial);
       this.group = new THREE.Group();
       this.items = new Map();
       this.list = [];
@@ -868,10 +880,11 @@ void main() {
     }
 
     add(p) {
-      const obj = buildPart(p, this.builder), rig = obj.userData.rig;
+      const obj = buildPart(p, this.builder, this.radial), rig = obj.userData.rig;
       this.items.set(p, rig);
       this.list.push(rig);
       this.group.add(obj);
+      if (rig.twin) this.group.add(rig.twin);
       for (const m of rig.meshes) this.pickables.push(m);
       return rig;
     }
@@ -960,7 +973,8 @@ void main() {
             if (shock) { m.position.y = -len * (0.14 + 0.13 * i); m.scale.setScalar(bw * (0.42 - 0.07 * i)); }
           }
           const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, k: 0, color: 0 });
-          e.x = p.x; e.y = p.y + P.nz.y; e.k = k; e.color = P.hex;
+          const np = partPt(p, 0, P.nz.y);
+          e.x = np.x; e.y = np.y; e.k = k; e.color = P.hex;
           this.exhaust.push(e);
         }
       }

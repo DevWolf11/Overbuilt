@@ -102,7 +102,7 @@ const PARTS = {
   leg: { cat: 'utility', name: 'Landing Leg', w: 0.5, h: 3, mass: 0.08, leg: true, breakSpeed: 16, shape: 'leg', tier: 1, cost: 600,
     desc: 'Mount on a side. Absorbs harder touchdowns.' },
   wheel: { cat: 'utility', name: 'Rover Wheel', w: 1, h: 1, mass: 0.1, wheel: { r: 0.45, drive: true, speed: 12, accel: 2.5, track: 2 }, breakSpeed: 14, shape: 'wheel', tier: 3, cost: 1200,
-    desc: 'Mount under a chassis. On the ground, the rotate controls drive.' },
+    desc: 'Mount under a chassis. On the ground, W/S drive and A/D steer.' },
   rcs: { cat: 'utility', name: 'RCS Block', w: 0.5, h: 0.75, mass: 0.05, torque: 9000, shape: 'rcs', tier: 2, cost: 1200,
     desc: 'Side-mounted thrusters. Extra turning power for big rockets.' },
 
@@ -122,13 +122,13 @@ const PARTS = {
   tailcone: { cat: 'air', name: 'Tail Cone', w: 2, h: 2.5, botW: 0.7, mass: 0.15, shape: 'tailcone', aero: true, tier: 0, cost: 400,
     desc: 'Tapers the back of a fuselage up towards the tail.' },
   wing: { cat: 'air', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 28, span: 12 }, breakSpeed: 14, tier: 0, cost: 1500,
-    desc: 'Main wing (one part is the whole span). Mount it on the side of the fuselage near the centre of mass. Lift grows with speed and angle of attack, until it stalls.' },
+    desc: 'Main wing with ailerons (one part is the whole span). Mount it on the side of the fuselage near the centre of mass. Lift grows with speed and angle of attack, until it stalls.' },
   wingS: { cat: 'air', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5 }, breakSpeed: 14, tier: 0, cost: 700,
     desc: 'Short wing for small planes, canards or a fixed tailplane.' },
   elevator: { cat: 'air', name: 'Elevator', w: 0.3, h: 1.5, mass: 0.12, shape: 'elevator', wing: { area: 5, span: 5, control: 0.35 }, breakSpeed: 14, tier: 0, cost: 900,
-    desc: 'Moving tail surface. The rotate controls and the autopilot pitch the plane with it. Put it far behind the centre of mass.' },
+    desc: 'Moving tail surface. The stick (W/S) and the autopilot pitch the plane with it, and it helps roll too. Put it far behind the centre of mass.' },
   vtail: { cat: 'air', name: 'Vertical Tail', w: 1.6, h: 2.2, mass: 0.1, shape: 'vtail', tier: 0, cost: 400,
-    desc: 'Tail fin for planes. Mount it on top of the tail.' },
+    desc: 'Tail fin with a rudder (Q/E). Keeps a plane pointing into the wind. Mount it on top of the tail.' },
   propeller: { cat: 'air', name: 'Propeller', w: 2.6, h: 0.9, mass: 0.35, thrust: 34, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 45 },
     shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 0, cost: 4000,
     desc: 'Piston engine and propeller. Mount it on the nose. Needs air, and pulls hardest at low speed.' },
@@ -137,7 +137,7 @@ const PARTS = {
     desc: 'Air-breathing jet for fast planes. Thrust grows with speed up to about Mach 2, but it flames out in thin air.' },
   rotor: { cat: 'air', name: 'Main Rotor', w: 10, h: 1.2, mass: 0.7, thrust: 80, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'rotor', v0: 25, torque: 14000 },
     shape: 'rotor', plume: 'none', breakSpeed: 8, maxTemp: 1500, tier: 1, cost: 9000,
-    desc: 'Helicopter rotor and turboshaft. Throttle sets the lift; the rotate controls tilt the craft. Mount it on top of the cabin.' },
+    desc: 'Helicopter rotor and turboshaft. Throttle sets the lift; the stick tilts the craft. Mount it on top of the cabin.' },
   tailRotor: { cat: 'air', name: 'Tail Rotor', w: 1.6, h: 1.6, mass: 0.05, shape: 'tailrotor', tier: 1, cost: 800,
     desc: 'Anti-torque rotor for the end of a tail boom. Spins with the main rotor.' },
   gear: { cat: 'air', name: 'Landing Gear', w: 1.4, h: 0.9, mass: 0.15, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 1.8 }, breakSpeed: 7, tier: 0, cost: 800,
@@ -151,7 +151,7 @@ const PARTS = {
   chassisL: { cat: 'ground', name: 'Long Chassis', w: 6, h: 0.5, mass: 0.75, shape: 'chassis', depth: 2.4, tier: 1, cost: 1100,
     desc: 'Longer frame for trucks and big rovers.' },
   carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
-    desc: 'Driven road wheel. Mount it under a chassis. On the ground the rotate controls drive; hold B to brake.' },
+    desc: 'Driven road wheel. Mount it under a chassis. W/S drive, A/D steer the front wheels; hold B to brake.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -179,17 +179,42 @@ function makePart(type, x, y, extra) {
   if (extra) Object.assign(p, extra);
   return p;
 }
+// Parts turn in 90° steps about their centre: p.rot = 0..3, counterclockwise in part space.
+function partDims(p) { const d = p.def; return p.rot & 1 ? { w: d.h, h: d.w } : { w: d.w, h: d.h }; }
+// A point given relative to the centre of the unturned part -> part space.
+function partPt(p, lx, ly) {
+  switch (p.rot & 3) {
+    case 1: return { x: p.x - ly, y: p.y + lx };
+    case 2: return { x: p.x - lx, y: p.y - ly };
+    case 3: return { x: p.x + ly, y: p.y - lx };
+    default: return { x: p.x + lx, y: p.y + ly };
+  }
+}
+const PART_AXES = [{ x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: 0 }];
+// Where the part's own "up" points: engines thrust along it, wings fly along it.
+function partAxis(p) { return PART_AXES[p.rot & 3]; }
+// A part's mirror image across the stack's axis is turned the other way.
+function mirrorRot(k) { return (4 - ((k || 0) & 3)) & 3; }
 function partRect(p) {
+  const { w, h } = partDims(p);
+  return { l: p.x - w / 2, r: p.x + w / 2, b: p.y - h / 2, t: p.y + h / 2 };
+}
+// Size across the build plane (z): round parts are as deep as they are wide, wings span it.
+function partDepth(p) {
   const d = p.def;
-  return { l: p.x - d.w / 2, r: p.x + d.w / 2, b: p.y - d.h / 2, t: p.y + d.h / 2 };
+  if (d.depth) return d.depth;
+  if (d.wing) return d.wing.span;
+  if (d.fin || d.shape === 'vtail' || d.shape === 'tailrotor') return 0.15;
+  if (d.wheel) return 0.4;
+  return d.w;
 }
 
 // Wheel centre and radius in part space. Most wheels hang below an upright strut; landing gear
 // struts run sideways, with the wheel at the outer end (away from the fuselage).
 function wheelGeom(p) {
   const d = p.def, r = d.wheel.r || Math.min(d.w, d.h) * 0.45;
-  if (d.shape === 'gear') return { x: p.x + (p.flip ? -1 : 1) * (d.w / 2 - r), y: p.y, r };
-  return { x: p.x, y: p.y - d.h * 0.05, r };
+  const c = d.shape === 'gear' ? partPt(p, (p.flip ? -1 : 1) * (d.w / 2 - r), 0) : partPt(p, 0, -d.h * 0.05);
+  return { x: c.x, y: c.y, r };
 }
 
 // Two parts are attached if they share an edge segment.
@@ -496,7 +521,21 @@ const HULLS = {
 };
 
 // Outline path of a part (used for fills, heat glow and highlights).
-function partPath(ctx, p) {
+// A turned part is drawn as an unturned copy at the origin, inside a rotated frame.
+function turned(ctx, p, draw) {
+  const k = p.rot & 3;
+  if (!k) return draw(p);
+  ctx.save();
+  ctx.translate(p.x, p.y); ctx.rotate((k * Math.PI) / 2);
+  const q = Object.create(p);
+  q.x = 0; q.y = 0; q.rot = 0;
+  draw(q);
+  ctx.restore();
+}
+function partPath(ctx, p) { turned(ctx, p, (q) => partPath0(ctx, q)); }
+function drawPart(ctx, p, lw) { turned(ctx, p, (q) => drawPart0(ctx, q, lw)); }
+
+function partPath0(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
   const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
   ctx.beginPath();
@@ -596,7 +635,7 @@ function partPath(ctx, p) {
   }
 }
 
-function drawPart(ctx, p, lw) {
+function drawPart0(ctx, p, lw) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
   const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
   ctx.lineWidth = lw;

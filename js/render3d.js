@@ -1,8 +1,8 @@
 'use strict';
-// 3D view of the same 2D simulation, drawn with three.js (loaded on demand): sky, planets, terrain and
-// scenery, the space centre, vessels (meshes from Parts3D), particles, and a turntable in the hangar.
-// The sim plane is the XY plane and +Z points at the default camera. Everything is placed relative to the
-// active vessel (floating origin) inside groups turned like the 2D view, so local up is +Y.
+// The flight view, drawn with three.js: sky, planets, terrain and scenery, the space centre, vessels
+// (meshes from Parts3D), particles and the sound-barrier vapour cone, plus a turntable in the hangar.
+// The planets orbit in the sim's XY plane; craft fly in full 3D. Everything is placed relative to the
+// focus (floating origin) inside groups turned into the local surface frame: y up, x east, z north.
 
 const Render3D = (() => {
   const FOV = 50, TANH = Math.tan((FOV * Math.PI) / 360);
@@ -14,39 +14,8 @@ const Render3D = (() => {
   let spaceScene, spaceWorld, localScene, localWorld, studio, camera, bcam;
   const api = { ready: false, failed: false, envMap: null };
 
-  // ------------------------------------------------------------------ noise and colour helpers
-  function hashI(x, y, s) {
-    let h = Math.imul(s ^ 0x5bd1e995, 0x85ebca6b);
-    h = Math.imul(h ^ x, 0xcc9e2d51); h = (h << 15) | (h >>> 17);
-    h = Math.imul(h ^ y, 0x1b873593); h = (h << 13) | (h >>> 19);
-    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-  }
-  // value noise in [0, 1]; px (py) > 0 makes it periodic in x (y): seamless around a planet, or tileable
-  function vnoise2(x, y, px, s, py = 0) {
-    const ix = Math.floor(x), iy = Math.floor(y);
-    let fx = x - ix, fy = y - iy;
-    fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-    let x0 = ix, x1 = ix + 1, y0 = iy, y1 = iy + 1;
-    if (px) { x0 = ((x0 % px) + px) % px; x1 = (x0 + 1) % px; }
-    if (py) { y0 = ((y0 % py) + py) % py; y1 = (y0 + 1) % py; }
-    const a = hashI(x0, y0, s), b = hashI(x1, y0, s), c = hashI(x0, y1, s), d = hashI(x1, y1, s);
-    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
-  }
-  function vnoise3(x, y, z, s) {
-    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
-    let fx = x - ix, fy = y - iy, fz = z - iz;
-    fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); fz = fz * fz * (3 - 2 * fz);
-    const s0 = s + Math.imul(iz, 0x27d4eb2f), s1 = s + Math.imul(iz + 1, 0x27d4eb2f);
-    const a = lerp(lerp(hashI(ix, iy, s0), hashI(ix + 1, iy, s0), fx), lerp(hashI(ix, iy + 1, s0), hashI(ix + 1, iy + 1, s0), fx), fy);
-    const b = lerp(lerp(hashI(ix, iy, s1), hashI(ix + 1, iy, s1), fx), lerp(hashI(ix, iy + 1, s1), hashI(ix + 1, iy + 1, s1), fx), fy);
-    return a + (b - a) * fz;
-  }
-  function fbm3(x, y, z, oct, s) {
-    let v = 0, a = 0.5;
-    for (let i = 0; i < oct; i++) { v += a * (vnoise3(x, y, z, s + i * 131) * 2 - 1); x *= 2.03; y *= 2.03; z *= 2.03; a *= 0.5; }
-    return v;
-  }
+  // ------------------------------------------------------------------ colour helpers (noise and terrain live in terrain.js)
+  const { hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW } = Terrain;
   const LIN = new Float32Array(256);
   for (let i = 0; i < 256; i++) { const c = i / 255; LIN[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
   const lin = (c) => LIN[c < 0 ? 0 : c > 255 ? 255 : Math.round(c)];
@@ -58,157 +27,6 @@ const Render3D = (() => {
   const setCol3 = (col, c, k = 1) => col.setRGB(lin(c[0]) * k, lin(c[1]) * k, lin(c[2]) * k);
   const lum = (c) => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
 
-  // ------------------------------------------------------------------ terrain: the 2D profile grown into 3D
-  // Along the track (where craft drive and land, |z| <= trackHalf) the ground is exactly terrainHeight. Away
-  // from it, each octave of the 1D profile carries on at its own angle, the profile's craters become round
-  // bowls, and noise adds continents, more craters and detail. Short wavelengths fade out where the grid is
-  // too coarse to hold them, so rebuilding the grid never makes the far terrain pop.
-  const DIRS = [0.62, -0.85, 1.4, -0.42, 1.05, -1.7, 0.3, -1.2];
-  const LOOK = {
-    mercury: { kind: 'rock', cont: 280, det: [6, 2], cr: [[1 / 10, 0.5, 0.2], [1600, 0.45, 0.28], [300, 0.35, 0.34]], relief: 5 },
-    venus: { kind: 'venus', cont: 320, det: [5, 1.5], relief: 3 },
-    earth: { kind: 'earth', cont: 420, bias: -90, det: [4, 1.2], relief: 3 },
-    moon: { kind: 'rock', cont: 320, det: [6, 2], cr: [[1 / 10, 0.45, 0.2], [1600, 0.42, 0.28], [300, 0.32, 0.34]], relief: 5 },
-    mars: { kind: 'mars', cont: 520, det: [7, 2], cr: [[1 / 14, 0.3, 0.18], [2000, 0.25, 0.25], [400, 0.2, 0.3]], relief: 4 },
-    phobos: { kind: 'rock', cont: 120, det: [4, 1.5], cr: [[1 / 5, 0.5, 0.22], [400, 0.45, 0.3], [90, 0.35, 0.34]], relief: 4 },
-    jupiter: { kind: 'jupiter', cont: 30, det: [2, 0], relief: 1 },
-    europa: { kind: 'europa', cont: 80, det: [3, 1], cr: [[900, 0.08, 0.2]], relief: 3 },
-  };
-  // Earth: built-up ground around the space centre, runway and causeway (metres east of the pad, z)
-  const APRONS = [{ e0: 820, e1: 1330, z0: -165, z1: -18, bl: 170 }];
-  function trackHalf(e) {
-    let h = 25;
-    h = lerp(h, 260, 1 - smoothstep(300, 520, Math.abs(e)));
-    h = lerp(h, 45, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
-    return lerp(h, 14, 1 - smoothstep(4700, 5000, Math.abs(e - 8000)));
-  }
-  function trackBlend(e) {
-    let b = 150;
-    b = lerp(b, 330, 1 - smoothstep(300, 520, Math.abs(e)));
-    return lerp(b, 230, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
-  }
-
-  const cfgs = new Map();
-  function cfgOf(b) {
-    let c = cfgs.get(b);
-    if (c) return c;
-    const L = LOOK[b.id] || {}, R = b.radius, circ = TAU * R;
-    const per = (cell) => { const n = Math.max(4, Math.round(circ / cell)); return [circ / n, n]; };
-    let seed = 7;
-    for (const ch of b.id) seed = Math.imul(seed ^ ch.charCodeAt(0), 0x01000193);
-    c = {
-      b, R, kind: L.kind || 'rock', seed, base: b.terrainBase || 0, k: [], amp: [], ph: [], kc: [],
-      ck: b.craters ? b.craters[0] : 0, cd: b.craters ? b.craters[1] : 0,
-      cont: L.cont || 0, bias: L.bias || 0, cf: 7, c0: 1200, c1: Math.max(8000, R * 0.08),
-      det: L.det ? [[...per(160), L.det[0]], [...per(40), L.det[1]]].filter((d) => d[2] > 0) : [],
-      cr: (L.cr || []).map(([cell, p, df]) => [...per(cell < 1 ? cell * R : cell), p, df]),
-      relief: L.relief || 3,
-      pal: {
-        ground: C(b.colors.ground || '#777777'), surface: C(b.colors.surface || '#999999'), deep: C(b.colors.deep || '#555555'),
-        rock: C(b.colors.rock || b.colors.deep || '#666666'), map: C(b.colors.map || '#888888'),
-      },
-    };
-    b.terrain.forEach(([k, amp, ph], i) => { c.k.push(k); c.amp.push(amp); c.ph.push(ph); c.kc.push(k * DIRS[i % DIRS.length]); });
-    c.hmax = b.terrainMax + c.cont * 0.6 + 50;
-    c.G1 = grid(1, 1, c.k.length);
-    cfgs.set(b, c);
-    return c;
-  }
-
-  // Column (angle) and row (depth) caches: the expensive trigonometry is done once per column or row.
-  function grid(nc, nr, no) {
-    const F = (n) => new Float64Array(Math.max(1, n));
-    return {
-      nc, nr, ang: F(nc), al: F(nc), th: F(nc), half: F(nc), bl: F(nc), ea: F(nc), ch: F(nc), dx: F(nc), cs: F(nc * no), cc: F(nc * no),
-      z: F(nr), phi: F(nr), dz: F(nr), rs: F(nr * no), rc: F(nr * no),
-    };
-  }
-  function setCol(c, G, i, a, dx) {
-    const no = c.k.length, R = c.R;
-    G.ang[i] = a; G.dx[i] = dx;
-    let al = (a % TAU) * R;
-    if (al < 0) al += TAU * R;
-    G.al[i] = al;
-    G.th[i] = terrainHeight(c.b, a);
-    for (let o = 0; o < no; o++) { const q = c.k[o] * a + c.ph[o]; G.cs[i * no + o] = Math.sin(q); G.cc[i * no + o] = Math.cos(q); }
-    if (c.ck) { const u = c.ck * a + 0.7 - Math.PI / 2; G.ch[i] = u - Math.PI * Math.round(u / Math.PI); }
-    if (c.b === EARTH) {
-      const e = -wrapAngle(a - EARTH.padAngle) * R;
-      G.ea[i] = e; G.half[i] = trackHalf(e); G.bl[i] = trackBlend(e);
-    } else { G.ea[i] = 1e9; G.half[i] = 25; G.bl[i] = 150; }
-  }
-  function setRow(c, G, j, z, dz) {
-    const no = c.k.length, phi = z / c.R;
-    G.z[j] = z; G.phi[j] = phi; G.dz[j] = dz;
-    for (let o = 0; o < no; o++) { const q = c.kc[o] * phi; G.rs[j * no + o] = Math.sin(q); G.rc[j * no + o] = Math.cos(q); }
-  }
-  function contAt(c, a, phi) {
-    if (!c.cont) return 0;
-    const cp = Math.cos(phi), f = c.cf;
-    return c.cont * fbm3(cp * Math.cos(a) * f + 11.3, cp * Math.sin(a) * f - 4.1, Math.sin(phi) * f + 2.7, 4, c.seed) + c.bias;
-  }
-  let crDark = 0; // side result of the last height evaluation: how deep inside a crater (for colour)
-  function craters(c, al, z, cell) {
-    let h = 0;
-    for (const [cs, n, p, df] of c.cr) {
-      const fx = al / cs, fz = z / cs, ix = Math.floor(fx) % n, iz = Math.floor(fz);
-      if (hashI(ix, iz, c.seed + 11) > p) continue;
-      const rad = 0.08 + 0.16 * hashI(ix, iz, c.seed + 12), cz = iz + 0.25 + 0.5 * hashI(ix, iz, c.seed + 13);
-      if (Math.abs(cz) < rad + 300 / cs) continue; // keep the track clear
-      const w = 1 - smoothstep(0.5, 1.2, cell / (rad * cs));
-      if (w <= 0) continue;
-      const dx = fx - Math.floor(fx) - 0.25 - 0.5 * hashI(ix, iz, c.seed + 14), dz = fz - cz, r2 = (dx * dx + dz * dz) / (rad * rad);
-      if (r2 >= 1) continue;
-      const r = Math.sqrt(r2), q = 1 - r2;
-      let v = -q * q;
-      if (r > 0.72) { const s = Math.sin((Math.PI * (r - 0.72)) / 0.28); v += 0.25 * s * s; }
-      h += df * rad * cs * v * w;
-      crDark = Math.max(crDark, w * (r < 0.85 ? 0.75 * q : -0.5 * v));
-    }
-    return h;
-  }
-  function natural(c, G, i, j, cont) {
-    const no = c.k.length, z = G.z[j], az = Math.abs(z), cell = Math.max(G.dx[i], G.dz[j]);
-    let h = c.base;
-    for (let o = 0, ci = i * no, rj = j * no; o < no; o++) h += c.amp[o] * (G.cs[ci + o] * G.rc[rj + o] + G.cc[ci + o] * G.rs[rj + o]);
-    crDark = 0;
-    if (c.ck) {
-      const kp = c.ck * G.phi[j], d2 = G.ch[i] * G.ch[i] + kp * kp;
-      if (d2 < 2.4674) { const q = Math.cos(Math.sqrt(d2)), q3 = q * q * q; h -= c.cd * q3 * q3; crDark = q3 * 0.6; }
-    }
-    if (c.cr.length && az > 100) h += craters(c, G.al[i], z, cell);
-    const wd = smoothstep(30, 400, az);
-    if (wd > 0) for (const [cs, n, amp] of c.det) {
-      const wb = 1 - smoothstep(0.3 * cs, 0.6 * cs, cell);
-      if (wb > 0) h += amp * wd * wb * (vnoise2(G.al[i] / cs, z / cs, n, c.seed) * 2 - 1);
-    }
-    return h + cont * smoothstep(c.c0, c.c1, az);
-  }
-  function apronW(e, z) {
-    let B = 0;
-    for (const a of APRONS) {
-      const dx = Math.max(a.e0 - e, 0, e - a.e1), dz = Math.max(a.z0 - z, 0, z - a.z1);
-      B = Math.max(B, 1 - smoothstep(0, a.bl, Math.hypot(dx, dz)));
-    }
-    return B;
-  }
-  function builtW(c, G, i, j) {
-    const z = G.z[j];
-    let B = 1 - smoothstep(G.half[i], G.half[i] + G.bl[i], Math.abs(z));
-    if (c.b === EARTH && B < 1 && G.ea[i] > 0 && G.ea[i] < 2000) B = Math.max(B, apronW(G.ea[i], z));
-    return B;
-  }
-  function height(c, G, i, j, cont) {
-    const B = builtW(c, G, i, j);
-    if (B >= 1) { crDark = 0; return G.th[i]; }
-    const hn = natural(c, G, i, j, cont);
-    return B > 0 ? lerp(hn, G.th[i], B) : hn;
-  }
-  // Exact 3D terrain at one point (slow path: camera clamp away from the patch).
-  function h3dAt(c, a, z) {
-    setCol(c, c.G1, 0, a, 0); setRow(c, c.G1, 0, z, 0);
-    return height(c, c.G1, 0, 0, contAt(c, a, z / c.R));
-  }
 
   // Colours (sRGB 0..255) for ground and planet maps. tex: painting a whole-planet texture.
   const P = {
@@ -510,6 +328,20 @@ void main() {
   ${OUT}
 }`;
 
+  // Condensation cone around a craft near Mach 1: dense where the shock meets the hull, wispy behind.
+  const VAPOR_FS = `${LOGF}uniform float uK, uT;
+varying vec3 vN, vV; varying vec2 vUv;
+void main() {
+  #include <logdepthbuf_fragment>
+  float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  float along = vUv.y; // 0 at the nose, 1 at the rim
+  float streak = 0.8 + 0.2 * sin(vUv.x * 62.83 + uT * 9.0) * sin(vUv.x * 25.13 - uT * 5.0 + along * 6.0);
+  float body = smoothstep(0.08, 0.8, along) * (1.0 - smoothstep(0.9, 1.0, along));
+  float a = uK * (0.32 + 0.68 * pow(f, 1.1)) * body * streak;
+  gl_FragColor = vec4(vec3(0.94, 0.97, 1.0), clamp(a, 0.0, 0.8));
+  ${OUT}
+}`;
+
   // ------------------------------------------------------------------ setup
   const S = {}; // scene objects
   const tmpV = () => new THREE.Vector3();
@@ -724,7 +556,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const kx = Math.floor(x / SUB), tx = (x - kx * SUB) / SUB;
         const cont = lerp(lerp(sub[kx], sub[kx + 1], tx), lerp(sub[sw + kx], sub[sw + kx + 1], tx), ty);
         const i = y * TW + x;
-        hs[i] = height(c, G, x, 0, cont); dk[i] = crDark; cs[i] = cont;
+        hs[i] = height(c, G, x, 0, cont); dk[i] = Terrain.dark(); cs[i] = cont;
         ns[i] = vnoise2((x / TW) * 64, (y / TH) * 32, 64, c.seed + 5) * 0.65 + vnoise2((x / TW) * 256, (y / TH) * 128, 256, c.seed + 6) * 0.35;
       }
     }
@@ -808,6 +640,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.sheath = new THREE.Mesh(sg, smat({ uniforms: S.sheathU, vertexShader: SUN_VS, fragmentShader: SHEATH_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     S.sheath.visible = false;
     localWorld.add(S.sheath);
+    // the sound-barrier vapour cone: a bell, nose forwards (+y), open towards the tail
+    S.vaporU = { uK: { value: 0 }, uT: { value: 0 } };
+    const bell = [];
+    for (let i = 0; i <= 16; i++) { const t = i / 16; bell.push(new THREE.Vector2(0.02 + 0.98 * Math.pow(t, 0.55), 0.5 - t)); } // nose to rim
+    S.vapor = new THREE.Mesh(new THREE.LatheGeometry(bell, 48), smat({ uniforms: S.vaporU, vertexShader: SUN_VS, fragmentShader: VAPOR_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+    S.vapor.visible = false; S.vapor.renderOrder = 4; S.vaporK = 0;
+    localWorld.add(S.vapor);
     // glowing point lights (runway edge lights, beacons)
     S.glowU = { uScale: { value: 1 }, uMin: { value: 1.5 }, uAlpha: { value: 0 } };
     S.blinkU = { uScale: S.glowU.uScale, uMin: { value: 2 }, uAlpha: { value: 0 } };
@@ -888,14 +727,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     patch.frame.visible = false;
   }
   const cellOf = (a, i) => (a[Math.min(i + 1, a.length - 1)] - a[Math.max(i - 1, 0)]) / 2;
-  function buildPatch(b, a0, span) {
-    const c = cfgOf(b), R = c.R, no = c.k.length, { nc, nr, n, m, sx, sz } = patch;
+  function buildPatch(b, a0, z0, span) {
+    const c = cfgOf(b), R = c.R, no = c.k.length, { nc, nr, n, m, sx, sz } = patch, kl = latK(z0, R);
     if (!patch.G || patch.G.no !== no) { patch.G = grid(nc, nr, no); patch.G.no = no; }
     const G = patch.G, hs = patch.h, dk = patch.dk, cn = patch.cont;
     for (let i = 0; i < nc; i++) { const u = (i - n) / n; sx[i] = Math.sign(u) * Math.pow(Math.abs(u), PW) * span; }
     for (let j = 0; j < nr; j++) { const u = (j - m) / m; sz[j] = Math.sign(u) * Math.pow(Math.abs(u), PW) * span; }
-    for (let i = 0; i < nc; i++) setCol(c, G, i, a0 + sx[i] / R, cellOf(sx, i));
-    for (let j = 0; j < nr; j++) setRow(c, G, j, sz[j], cellOf(sz, j));
+    for (let i = 0; i < nc; i++) setCol(c, G, i, a0 + sx[i] / (R * kl), cellOf(sx, i));
+    for (let j = 0; j < nr; j++) setRow(c, G, j, z0 + sz[j], cellOf(sz, j));
     // continents vary slowly: sample every 4th vertex and interpolate
     const ST = 4, ci = [], cj = [];
     for (let i = 0; i < nc; i += ST) ci.push(i);
@@ -911,21 +750,21 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         cn[j * nc + i] = lerp(lerp(sub[q * L + p], sub[q * L + p + 1], tx), lerp(sub[(q + 1) * L + p], sub[(q + 1) * L + p + 1], tx), ty);
       }
     }
-    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) { const k = j * nc + i; hs[k] = height(c, G, i, j, cn[k]); dk[k] = crDark; }
+    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) { const k = j * nc + i; hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark(); }
     // positions in the frame at a0 (origin on the sea-level sphere, x east, y up, z depth)
     const pos = patch.mesh.geometry.attributes.position.array, nor = patch.mesh.geometry.attributes.normal.array;
     const uv = patch.mesh.geometry.attributes.uv.array, colr = patch.mesh.geometry.attributes.color.array;
     const sd = new Float64Array(nc), cd = new Float64Array(nc);
-    for (let i = 0; i < nc; i++) { sd[i] = Math.sin(sx[i] / R); cd[i] = Math.cos(sx[i] / R); }
-    let al0 = (a0 % TAU) * R;
-    if (al0 < 0) al0 += TAU * R;
-    const uo = al0 % TILE;
+    for (let i = 0; i < nc; i++) { sd[i] = Math.sin(sx[i] / (R * kl)); cd[i] = Math.cos(sx[i] / (R * kl)); }
+    let al0 = (a0 % TAU) * R * kl;
+    if (al0 < 0) al0 += TAU * R * kl;
+    const uo = al0 % TILE, vo = z0 % TILE;
     for (let j = 0; j < nr; j++) {
       const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
       for (let i = 0; i < nc; i++) {
         const k = j * nc + i, r = R + hs[k];
         pos[k * 3] = -r * cp * sd[i]; pos[k * 3 + 1] = r * cp * cd[i] - R; pos[k * 3 + 2] = r * sp;
-        uv[k * 2] = (sx[i] + uo) / TILE; uv[k * 2 + 1] = sz[j] / TILE;
+        uv[k * 2] = (sx[i] + uo) / TILE; uv[k * 2 + 1] = (sz[j] + vo) / TILE;
       }
     }
     const out = [0, 0, 0];
@@ -944,7 +783,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       paint(c, hs[k], nn, cn[k], dk[k], slope * 3, G.phi[j], false, out);
       if (b === EARTH && hs[k] > 6 && G.ea[i] > 560 && G.ea[i] < 12800) { // concrete shoulders along the runway and causeway
         const w = G.half[i];
-        mixC(out, P.concrete, (1 - smoothstep(w - 4, w + 3, Math.abs(sz[j]))) * 0.85, out);
+        mixC(out, P.concrete, (1 - smoothstep(w - 4, w + 3, Math.abs(G.z[j]))) * 0.85, out);
       }
       colr[k * 3] = lin(out[0]); colr[k * 3 + 1] = lin(out[1]); colr[k * 3 + 2] = lin(out[2]);
     }
@@ -969,7 +808,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       for (const a of ['position', 'normal', 'color']) og.attributes[a].needsUpdate = true;
       og.boundingSphere.radius = span * 1.6;
     }
-    Object.assign(patch, { b, a0, span, at: clock });
+    Object.assign(patch, { b, a0, z0, kl, span, at: clock });
     S.scenery.dirty = true;
   }
   // Height of the rendered terrain mesh (what the eye sees), or null outside it.
@@ -978,9 +817,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (a[mid] <= v) lo = mid; else hi = mid - 1; }
     return lo;
   }
-  function meshHeight(b, a, z) {
+  function meshHeight(b, a, zz) {
     if (!patch.b || patch.b !== b) return null;
-    const s = wrapAngle(a - patch.a0) * b.radius, sx = patch.sx, sz = patch.sz;
+    const s = wrapAngle(a - patch.a0) * b.radius * patch.kl, sx = patch.sx, sz = patch.sz, z = zz - patch.z0;
     if (Math.abs(s) >= patch.span * 0.999 || Math.abs(z) >= patch.span * 0.999) return null;
     const i = bsearch(sx, s), j = bsearch(sz, z), nc = patch.nc;
     const tx = (s - sx[i]) / (sx[i + 1] - sx[i]), tz = (z - sz[j]) / (sz[j + 1] - sz[j]), h = patch.h, k = j * nc + i;
@@ -1004,7 +843,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // Trees and rocks within a few hundred metres to a few km, seated on the rendered terrain.
-  function buildScenery(b, a0, rad) {
+  function buildScenery(b, a0, z0, rad) {
     const R = b.radius, c = cfgOf(b), hi = Settings.high, sc = S.scenery;
     let nt = [0, 0], nr = 0;
     const place = (mesh, idx, a, z, h, sXZ, sY, yaw, color) => {
@@ -1020,12 +859,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const tmpC = new THREE.Color(), rockC = C(b.colors.rock || b.colors.deep || '#666');
     if (b.trees) {
       const cell = hi ? 22 : 34, max = hi ? 7000 : 2400, n = Math.ceil(rad / cell);
-      const ia = Math.floor((a0 * R) / cell);
-      for (let q = -n; q <= n && nt[0] + nt[1] < max * 2; q++) for (let p = -n; p <= n; p++) {
+      const ia = Math.floor((a0 * R) / cell), iq = Math.floor(z0 / cell), kl = latK(z0, R);
+      for (let q = iq - n; q <= iq + n && nt[0] + nt[1] < max * 2; q++) for (let p = -n; p <= n; p++) {
         const ix = ia + p, h0 = hashI(ix, q, 41);
         if (h0 > 0.6) continue;
         const along = (ix + 0.2 + 0.6 * hashI(ix, q, 42)) * cell, z = (q + 0.2 + 0.6 * hashI(ix, q, 43)) * cell;
-        if (Math.hypot(along - a0 * R, z) > rad) continue;
+        if (Math.hypot((along - a0 * R) * kl, z - z0) > rad) continue;
         const a = along / R, forest = vnoise2(along / 420, z / 420, 0, 44);
         if (h0 > forest * 0.9 - 0.05) continue;
         if (offTrack(b, a, z) < 8 || (builtAt(b, a, z) > 0.3 && clearZone(b, a))) continue;
@@ -1041,12 +880,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     if (b.rocks) {
       const cell = hi ? 9 : 14, max = hi ? 5000 : 1800, rr = Math.min(rad, hi ? 650 : 400), n = Math.ceil(rr / cell);
-      const ia = Math.floor((a0 * R) / cell);
-      for (let q = -n; q <= n && nr < max; q++) for (let p = -n; p <= n && nr < max; p++) {
+      const ia = Math.floor((a0 * R) / cell), iq = Math.floor(z0 / cell), kl = latK(z0, R);
+      for (let q = iq - n; q <= iq + n && nr < max; q++) for (let p = -n; p <= n && nr < max; p++) {
         const ix = ia + p, h0 = hashI(ix, q, 51);
         if (h0 > 0.22) continue;
         const along = (ix + hashI(ix, q, 52)) * cell, z = (q + hashI(ix, q, 53)) * cell;
-        if (Math.hypot(along - a0 * R, z) > rr) continue;
+        if (Math.hypot((along - a0 * R) * kl, z - z0) > rr) continue;
         const a = along / R;
         if (offTrack(b, a, z) < 4) continue;
         const h = meshHeight(b, a, z);
@@ -1062,26 +901,26 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
-    Object.assign(sc, { b, a0, rad, dirty: false });
+    Object.assign(sc, { b, a0, z0, rad, dirty: false });
   }
 
   // Cumulus on a hashed 750 m grid; the row through the flight plane uses the 2D view's clouds.
-  function buildClouds(b, a0) {
+  function buildClouds(b, a0, z0) {
     const R = b.radius, step = 750, hi = Settings.high, n = Math.ceil((hi ? 15000 : 9000) / step), puffs = hi ? 5 : 3;
-    const ia = Math.floor((a0 * R) / step);
+    const ia = Math.floor((a0 * R) / step), iq = Math.round(z0 / step);
     let k = 0;
     const tmpC = new THREE.Color();
-    for (let q = -n; q <= n; q++) for (let p = -n; p <= n; p++) {
-      const i = ia + p, row0 = q === 0;
+    for (let qq = -n; qq <= n; qq++) for (let p = -n; p <= n; p++) {
+      const q = iq + qq, i = ia + p, row0 = q === 0;
       const hh = (s) => (row0 ? hash1(i, s) : hashI(i, q, s * 7 + 3));
       if (hh(21) > 0.62) continue;
-      if (Math.hypot(p, q) > n) continue;
+      if (Math.hypot(p, qq) > n) continue;
       const alt = 2200 + hh(22) * 4500, wdt = 260 + hh(23) * 700, ang = (i * step) / R, zc = row0 ? 0 : (q + (hh(27) - 0.5) * 0.6) * step;
       for (let j = 0; j < puffs && k < S.puffs.instanceMatrix.count; j++) {
         const g = (s) => (row0 ? hash1(i * 7 + j, s) : hashI(i * 7 + j, q, s));
         const ox = (g(24) - 0.5) * wdt * 0.8, oy = g(25) * wdt * 0.12, rx = wdt * (0.22 + 0.15 * g(26)), oz = (g(28) - 0.5) * wdt * 0.5;
-        const a = ang - ox / R, z = zc + oz, d = a - a0, r = R + alt + oy;
-        V1.set(-r * Math.sin(d), r * Math.cos(d) - R, z);
+        const a = ang - ox / R, z = zc + oz, d = a - a0, r = R + alt + oy, cz = Math.cos(z / R);
+        V1.set(-r * cz * Math.sin(d), r * cz * Math.cos(d) - R, r * Math.sin(z / R));
         M1.makeRotationZ(-d); M1.scale(V2.set(rx, wdt * 0.11 * (1.1 + 0.6 * g(29)), rx * (0.6 + 0.4 * g(30)))); M1.setPosition(V1);
         S.puffs.setMatrixAt(k, M1);
         const sh = 0.86 + 0.14 * g(31);
@@ -1092,7 +931,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.puffs.count = k;
     S.puffs.instanceMatrix.needsUpdate = true;
     if (S.puffs.instanceColor) S.puffs.instanceColor.needsUpdate = true;
-    Object.assign(S.clouds, { b, a0 });
+    Object.assign(S.clouds, { b, a0, z0 });
   }
 
   // ------------------------------------------------------------------ space centre (Earth)
@@ -1360,9 +1199,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let ns = 0, nf = 0;
     const ps = S.smoke.geometry.attributes, pf = S.fire.geometry.attributes;
     for (const p of list) {
-      if (p.z === undefined) p.z = (Math.random() - 0.5) * (p.size + p.grow) * 0.7;
+      if (p.jz === undefined) p.jz = (Math.random() - 0.5) * (p.size + p.grow) * 0.3;
       const bp = bodyPos(p.b, t), k = p.life / p.max, size = p.size + p.grow * k;
-      const x = bp.x + p.x - camAbs.x, y = bp.y + p.y - camAbs.y;
+      const x = bp.x + p.x - camAbs.x, y = bp.y + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
       let add = p.kind !== 'smoke', c = null, a = p.alpha * (1 - k), kind = 0, sz = size;
       switch (p.kind) {
         case 'spark': c = fxColor(p.color); a = 1 - k; sz = 0.22; break;
@@ -1373,7 +1212,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
       const A = add ? pf : ps, i = add ? nf++ : ns++;
       if (i >= S.smoke.N) { if (add) nf--; else ns--; continue; }
-      A.iPos.array[i * 3] = x; A.iPos.array[i * 3 + 1] = y; A.iPos.array[i * 3 + 2] = p.z;
+      A.iPos.array[i * 3] = x; A.iPos.array[i * 3 + 1] = y; A.iPos.array[i * 3 + 2] = z;
       const m = add ? 1 : dim;
       A.iCol.array[i * 4] = c[0] * m; A.iCol.array[i * 4 + 1] = c[1] * m; A.iCol.array[i * 4 + 2] = c[2] * m; A.iCol.array[i * 4 + 3] = clamp(a, 0, 1);
       A.iSize.array[i * 2] = sz; A.iSize.array[i * 2 + 1] = kind;
@@ -1418,9 +1257,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // ------------------------------------------------------------------ per frame: flight
-  const camAbs = { x: 0, y: 0 };
-  let viewRot = 0;
-  const fc = { yaw: 0.5, pitch: 0.16, ty: 0.5, tp: 0.16 }, bc = { yaw: 0.5, pitch: 0.16, ty: 0.5, tp: 0.16, auto: true };
+  const camAbs = { x: 0, y: 0, z: 0 };
+  const viewQ = quat(); // sim -> view
+  // the flight camera orbits the focus: `follow` tracks the craft's heading, yaw/pitch are the player's offset
+  const fc = { yaw: 0.5, pitch: 0.16, ty: 0.5, tp: 0.16, follow: 0, vessel: null, kind: 'rocket' }, bc = { yaw: 0.5, pitch: 0.16, ty: 0.5, tp: 0.16, auto: true };
   const vessels = new Map();
   const envV = {}, envC = {};
   const zen = [0, 0, 0], hor = [0, 0, 0], ZEN0 = C('#03050b'), HOR0 = C('#04060d'), SUNSET = C('#ff8a4a');
@@ -1448,10 +1288,26 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     mixC(HOR0, C(b.colors.horizon || '#03050b'), Math.pow(a, 0.45) * (0.14 + 0.86 * e.day), hor);
     if (e.sunset > 0) mixC(hor, SUNSET, e.sunset * 0.75, hor);
   }
-  // rotate between sim orientation and the view (local up = +Y)
-  const toView = (x, y, out) => { const c = Math.cos(viewRot), s = Math.sin(viewRot); out.x = c * x - s * y; out.y = s * x + c * y; return out; };
-  const toSim = (x, y, out) => { const c = Math.cos(viewRot), s = Math.sin(viewRot); out.x = c * x + s * y; out.y = -s * x + c * y; return out; };
-  const T2D = { x: 0, y: 0 };
+  // turn between the sim's axes and the view's (local up = +Y)
+  const toView = (x, y, z, out) => qrot(viewQ, x, y, z, out);
+  const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
+  const T3 = v3(), LOC = {};
+  // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
+  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22] };
+  function followCam(v, dt, snap) {
+    if (!v || !v.parts.length || v.dead) return;
+    if (fc.vessel !== v) {
+      if (fc.kind !== v.kind || !fc.vessel) { const d = CAM0[v.kind] || CAM0.rocket; fc.ty = fc.yaw = d[0]; fc.tp = fc.pitch = d[1]; }
+      fc.vessel = v; fc.kind = v.kind; snap = true;
+    }
+    // rockets: look from the side the blueprint faces (part +z); others: from behind the nose
+    const P = v.pilot, a = v.kind === 'rocket' ? v.axis(0, 0, 1, T3) : v.axis(-P.F.x, -P.F.y, -P.F.z, T3);
+    toView(a.x, a.y, a.z, a);
+    const h = Math.hypot(a.x, a.z);
+    if (h < 0.25) return;
+    const want = Math.atan2(a.x, a.z);
+    fc.follow += wrapAngle(want - fc.follow) * (snap ? 1 : (1 - Math.exp(-dt * 2.2)) * Math.min(1, (h - 0.25) * 4));
+  }
 
   function renderFlight(F, dt) {
     if (!api.ready || !shown || !F || !F.active) return;
@@ -1459,19 +1315,22 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     dt = clamp(dt || 0, 0, 0.1);
     clock += dt; frameNo++;
     applyQuality();
+    adaptResolution(dt);
     const v = F.active, b = v.body, t = F.time, bp = bodyPos(b, t), R = b.radius, hi = Settings.high;
-    camAbs.x = F.camAbs.x; camAbs.y = F.camAbs.y; viewRot = F.viewRot;
-    spaceWorld.rotation.z = localWorld.rotation.z = viewRot;
-    const vx = camAbs.x - bp.x, vy = camAbs.y - bp.y; // the focus, relative to the body
+    camAbs.x = F.camAbs.x; camAbs.y = F.camAbs.y; camAbs.z = F.camAbs.z || 0;
+    const fq = F.viewQ || quat();
+    viewQ.w = fq.w; viewQ.x = fq.x; viewQ.y = fq.y; viewQ.z = fq.z;
+    spaceWorld.quaternion.set(viewQ.x, viewQ.y, viewQ.z, viewQ.w); localWorld.quaternion.copy(spaceWorld.quaternion);
+    const vx = camAbs.x - bp.x, vy = camAbs.y - bp.y, vz = camAbs.z; // the focus, relative to the body
 
-    // ---- camera: orbit around the craft, zoom shared with 2D, never below the ground
+    // ---- camera: orbit around the craft, following its heading; never below the ground
+    followCam(v, dt, false);
     const s = 1 - Math.exp(-dt * 14);
     fc.yaw += (fc.ty - fc.yaw) * s; fc.pitch += (fc.tp - fc.pitch) * s;
     const dist = (H / 2) / F.scale / TANH;
-    const cp = Math.cos(fc.pitch);
-    let px = dist * Math.sin(fc.yaw) * cp, py = dist * Math.sin(fc.pitch), pz = dist * Math.cos(fc.yaw) * cp;
-    toSim(px, py, T2D);
-    let rx = vx + T2D.x, ry = vy + T2D.y, rz = pz;
+    const cp = Math.cos(fc.pitch), yaw = fc.follow + fc.yaw;
+    toSim(dist * Math.sin(yaw) * cp, dist * Math.sin(fc.pitch), dist * Math.cos(yaw) * cp, T3);
+    let rx = vx + T3.x, ry = vy + T3.y, rz = vz + T3.z;
     let r3 = Math.hypot(rx, ry, rz), camAlt = r3 - R;
     // near the surface: a terrain patch around the craft
     const near = !b.star && camAlt < Math.max(60000, 0.35 * R);
@@ -1481,8 +1340,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const need = R + groundAt(b, ca, gz) + 2;
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
-    toView(rx - vx, ry - vy, T2D);
-    camera.position.set(T2D.x, T2D.y, rz);
+    toView(rx - vx, ry - vy, rz - vz, T3);
+    camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
@@ -1490,12 +1349,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
     // ---- light and sky
     envAt(b, rx, ry, rz, cax, cay, envC);
-    envAt(b, vx, vy, 0, camAbs.x, camAbs.y, envV);
+    envAt(b, vx, vy, vz, camAbs.x, camAbs.y, envV);
     skyColors(envC);
     const U = S.skyU;
     setCol3(U.uZen.value, zen); setCol3(U.uHor.value, hor);
-    toView(envC.ux, envC.uy, T2D); U.uUp.value.set(T2D.x, T2D.y, envC.uz).normalize();
-    toView(envC.sx, envC.sy, T2D); U.uSun.value.set(T2D.x, T2D.y, 0);
+    toView(envC.ux, envC.uy, envC.uz, T3); U.uUp.value.set(T3.x, T3.y, T3.z).normalize();
+    toView(envC.sx, envC.sy, 0, T3); U.uSun.value.set(T3.x, T3.y, T3.z);
     U.uDip.value = envC.alt > 0 && !b.star ? Math.acos(clamp(R / (R + envC.alt), -1, 1)) : 0;
     U.uSunsetK.value = envC.sunset * 0.8;
     U.uGlare.value = envC.day * (0.25 + 0.75 * envC.atmo) * (b.star ? 0 : 1);
@@ -1506,12 +1365,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.starU.uAlpha.value = starA; S.bandU.uAlpha.value = starA;
     S.starU.uPx.value = Math.min(DPR, 2) * (H > 1400 ? 1.4 : 1);
     S.stars.visible = S.band.visible = starA > 0.02;
-    toSim(camera.position.x, camera.position.y, T2D);
-    S.stars.position.set(T2D.x, T2D.y, camera.position.z); S.band.position.copy(S.stars.position);
-    // the Sun as a light: leaning towards the camera by TILT (see top)
+    toSim(camera.position.x, camera.position.y, camera.position.z, T3);
+    S.stars.position.set(T3.x, T3.y, T3.z); S.band.position.copy(S.stars.position);
+    // the Sun as a light: leaning out of the ecliptic by TILT (see top)
     const sx = envV.sx, sy = envV.sy, cT = Math.cos(TILT), sT = Math.sin(TILT);
-    toView(sx * cT, sy * cT, T2D);
-    const sunDir = V2.set(T2D.x, T2D.y, sT);
+    toView(sx * cT, sy * cT, sT, T3);
+    const sunDir = V2.set(T3.x, T3.y, T3.z);
     S.sunS.position.copy(sunDir); S.sunS.target.position.set(0, 0, 0);
     S.ambS.intensity = 0.03 + 0.05 * envC.atmo;
 
@@ -1543,8 +1402,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updateScenery(F, b, near, dist);
     updateClouds(F, b, camAlt);
 
-    // ---- vessels, engine glow, plasma, particles
+    // ---- vessels, engine glow, plasma, vapour cone, particles
     syncVessels(F, dt, dist);
+    vaporCone(F, dt);
     updateParticles(F, envV);
 
     // ---- shadows fitted around the active craft
@@ -1567,22 +1427,21 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
   function updateBodies(F, cur, env, dist) {
     const t = F.time, pxPerRad = H / (2 * TANH), dots = S.dots.geometry.attributes;
-    const sunAbs = bodyPos(SUN, t);
+    const sunAbs = bodyPos(SUN, t), camSim = toSim(camera.position.x, camera.position.y, camera.position.z, v3());
     bodies.forEach((e, k) => {
-      const b = e.b, p = bodyPos(b, t), x = p.x - camAbs.x, y = p.y - camAbs.y;
-      toSim(camera.position.x, camera.position.y, T2D);
-      const cx = x - T2D.x, cy = y - T2D.y, cz = -camera.position.z, d = Math.hypot(cx, cy, cz);
+      const b = e.b, p = bodyPos(b, t), x = p.x - camAbs.x, y = p.y - camAbs.y, z = -camAbs.z;
+      const cx = x - camSim.x, cy = y - camSim.y, cz = z - camSim.z, d = Math.hypot(cx, cy, cz);
       const pr = (b.radius / Math.max(d, 1)) * pxPerRad;
-      e.mesh.position.set(x, y, 0);
+      e.mesh.position.set(x, y, z);
       e.mesh.visible = pr > 0.6;
       if (e.glow) {
-        e.glow.position.set(x, y, 0);
+        e.glow.position.set(x, y, z);
         e.glow.scale.setScalar(Math.max(b.radius * 9, d * 0.09));
       }
       if (!b.star && !e.ready && pr > 40 && e.job) finishJob(e.job);
       // atmosphere glow seen from outside
       if (e.atm) {
-        e.atm.position.set(x, y, 0);
+        e.atm.position.set(x, y, z);
         e.atm.visible = pr > 2;
         const u = e.atmU;
         u.uCam.value.set(-cx / e.atmR, -cy / e.atmR, -cz / e.atmR);
@@ -1591,7 +1450,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         u.uK.value = (b.haze ? 1.2 : 1) * smoothstep(b.atmoHeight * 0.4, b.atmoHeight * 1.4, d - b.radius);
       }
       if (e.deck) {
-        e.deck.position.set(x, y, 0);
+        e.deck.position.set(x, y, z);
         const alt = d - b.radius;
         if (b.clouds) {
           e.deck.rotation.z = t * 0.000002; // drifts like the 2D clouds
@@ -1607,7 +1466,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (e.atm.parent !== want) want.add(e.atm);
       }
       // dot when smaller than a couple of pixels
-      dots.position.array[k * 3] = x; dots.position.array[k * 3 + 1] = y; dots.position.array[k * 3 + 2] = 0;
+      dots.position.array[k * 3] = x; dots.position.array[k * 3 + 1] = y; dots.position.array[k * 3 + 2] = z;
       const m = C(b.colors.map), vis = (1 - smoothstep(0.8, 2, pr)) * (b.star ? 3 : 0.9);
       dots.aCol.array[k * 3] = lin(m[0]) * vis; dots.aCol.array[k * 3 + 1] = lin(m[1]) * vis; dots.aCol.array[k * 3 + 2] = lin(m[2]) * vis;
       dots.aSize.array[k] = 0;
@@ -1620,16 +1479,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     sun.glow.material.color.setRGB(2.2, 1.9 - 0.6 * env.sunset, 1.5 - 0.8 * env.sunset);
   }
 
+  // where the focus is over its body: angle around it and depth along the surface
+  function focusSpot(F, b) { const bp = bodyPos(b, F.time); return Terrain.locate(b, camAbs.x - bp.x, camAbs.y - bp.y, camAbs.z, LOC); }
+  const latK = (z, R) => Math.max(0.2, Math.cos(z / R)); // metres per radian of angle shrink away from the equator
   function updatePatch(F, b, near, camAlt, dist) {
     if (!near) { patch.active = false; patch.frame.visible = false; return; }
-    const c = cfgOf(b), R = b.radius;
-    const a = Math.atan2(camAbs.y - bodyPos(b, F.time).y, camAbs.x - bodyPos(b, F.time).x);
+    const c = cfgOf(b), R = b.radius, L = focusSpot(F, b), a = L.a, z = L.z;
     const span = Math.min(R * 1.2, Math.sqrt(2 * R * camAlt + camAlt * camAlt) + Math.sqrt(2 * R * Math.max(c.hmax, 50)) + dist * 1.5);
-    const moved = Math.abs(wrapAngle(a - patch.a0)) * R;
+    const moved = Math.hypot(wrapAngle(a - patch.a0) * R * latK(z, R), z - (patch.z0 || 0));
     const stale = patch.b !== b || moved > patch.span * 0.012 || span > patch.span * 1.6 || span < patch.span / 1.6;
     if (stale) {
       // rails warp can move the craft by thousands of km per frame: rebuild at most a few times a second
-      if (clock - patch.at > 0.12 || patch.b !== b || !patch.active) buildPatch(b, a, span);
+      if (clock - patch.at > 0.12 || patch.b !== b || !patch.active) buildPatch(b, a, z, span);
       else if (moved > patch.span * 0.3) { patch.active = false; patch.frame.visible = false; return; }
     }
     patch.active = true;
@@ -1638,7 +1499,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   function placeFrame(obj, b, a0, t, h = 0) {
     const bp = bodyPos(b, t), r = b.radius + h;
-    obj.position.set(bp.x + r * Math.cos(a0) - camAbs.x, bp.y + r * Math.sin(a0) - camAbs.y, 0);
+    obj.position.set(bp.x + r * Math.cos(a0) - camAbs.x, bp.y + r * Math.sin(a0) - camAbs.y, -camAbs.z);
     obj.rotation.z = a0 - Math.PI / 2;
   }
 
@@ -1647,10 +1508,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const on = near && patch.active && (b.trees || b.rocks) && dist < 9000;
     fr.visible = !!on;
     if (!on) return;
-    const R = b.radius, bp = bodyPos(b, F.time), a = Math.atan2(camAbs.y - bp.y, camAbs.x - bp.x);
+    const R = b.radius, L = focusSpot(F, b), a = L.a, z = L.z;
     const rad = clamp(dist * 3 + 600, 800, 2400);
-    if (sc.dirty || sc.b !== b || Math.abs(wrapAngle(a - sc.a0)) * R > sc.rad * 0.25 || rad > sc.rad * 1.5 || rad < sc.rad / 1.5) {
-      if (sc.b === b && clock - (sc.at || 0) < 0.3 && !sc.dirty) { /* throttle */ } else { buildScenery(b, a, rad); sc.at = clock; }
+    if (sc.dirty || sc.b !== b || Math.hypot(wrapAngle(a - sc.a0) * R * latK(z, R), z - sc.z0) > sc.rad * 0.25 || rad > sc.rad * 1.5 || rad < sc.rad / 1.5) {
+      if (sc.b === b && clock - (sc.at || 0) < 0.3 && !sc.dirty) { /* throttle */ } else { buildScenery(b, a, z, rad); sc.at = clock; }
     }
     placeFrame(fr, b, sc.a0, F.time);
   }
@@ -1659,9 +1520,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const on = b === EARTH && camAlt < 12000 && patch.active;
     S.cloudFrame.visible = on;
     if (!on) return;
-    const R = b.radius, bp = bodyPos(b, F.time), drift = F.time * 0.000002;
-    const a = Math.atan2(camAbs.y - bp.y, camAbs.x - bp.x) - drift;
-    if (S.clouds.b !== b || Math.abs(wrapAngle(a - S.clouds.a0)) * R > 1500) buildClouds(b, a);
+    const R = b.radius, drift = F.time * 0.000002, L = focusSpot(F, b), a = L.a - drift, z = L.z;
+    if (S.clouds.b !== b || Math.abs(wrapAngle(a - S.clouds.a0)) * R > 1500 || Math.abs(z - S.clouds.z0) > 1500) buildClouds(b, a, z);
     placeFrame(S.cloudFrame, b, S.clouds.a0 + drift, F.time);
     const e = envV, sh = 0.35 + 0.65 * e.day;
     S.puffs.material.color.setRGB(sh, sh, sh * 1.02);
@@ -1672,10 +1532,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const ep = bodyPos(EARTH, F.time);
     const pa = EARTH.padAngle, r = EARTH.radius + EARTH.padHeight;
     const ox = ep.x + r * Math.cos(pa) - camAbs.x, oy = ep.y + r * Math.sin(pa) - camAbs.y;
-    const on = Math.hypot(ox, oy) < 60000 + dist;
+    const on = Math.hypot(ox, oy, camAbs.z) < 60000 + dist;
     S.sc.visible = on;
     if (!on) return;
-    S.sc.position.set(ox, oy, 0);
+    S.sc.position.set(ox, oy, -camAbs.z);
     S.sc.rotation.z = pa - Math.PI / 2;
     for (const m of S.nightMats) m.emissiveIntensity = env.night * 1.4;
     S.glowU.uAlpha.value = 0.08 + env.night * 1.2;
@@ -1686,55 +1546,75 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh;
     const q = { dt, time: F.time, rho: 0, quality: Settings.high ? 'high' : 'low' };
     let glowK = 0;
+    const camSim = toSim(camera.position.x, camera.position.y, camera.position.z, v3());
     for (const v of F.vessels) {
       if (!have || !v.parts.length || v.dead) continue;
       let e = vessels.get(v);
       if (!e) {
-        e = { vm: new Parts3D.VesselMesh(v.parts), root: new THREE.Group() };
+        e = { vm: new Parts3D.VesselMesh(v.parts, { radial: v.kind === 'rocket' }), root: new THREE.Group() };
         e.root.add(e.vm.group);
         localWorld.add(e.root);
         vessels.set(v, e);
       }
       e.seen = frameNo;
-      const bp = bodyPos(v.body, F.time), x = bp.x + v.x - camAbs.x, y = bp.y + v.y - camAbs.y;
+      const bp = bodyPos(v.body, F.time), x = bp.x + v.x - camAbs.x, y = bp.y + v.y - camAbs.y, z = v.z - camAbs.z;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1);
-      toSim(camera.position.x, camera.position.y, T2D);
-      const d = Math.hypot(x - T2D.x, y - T2D.y, camera.position.z);
+      const d = Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z);
       const vis = d < 50000 || (ext / d) * (H / (2 * TANH)) > 1;
       e.root.visible = vis;
       if (!vis) continue;
-      e.root.position.set(x, y, 0);
-      e.root.rotation.z = v.rot;
+      e.root.position.set(x, y, z);
+      e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
       e.vm.group.position.set(-v.com.x, -v.com.y, 0);
       q.rho = airDensity(v.body, v.altitude());
       e.vm.sync(v, q);
-      if (v === F.active) glowK = engineGlow(v, e.vm, x, y);
+      if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
     }
     for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
   }
-  function engineGlow(v, vm, x, y) {
+  function engineGlow(v, vm, x, y, z) {
     let ex = 0, ey = 0, ek = 0;
     for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ek += e.k; }
     if (ek <= 0) return 0;
-    const lx = ex / ek - v.com.x, ly = ey / ek - v.com.y - 2, c = Math.cos(v.rot), s = Math.sin(v.rot);
-    S.engine.position.set(x + c * lx - s * ly, y + s * lx + c * ly, 0);
+    const o = qrot(v.q, ex / ek - v.com.x, ey / ek - v.com.y - 2, 0, T3);
+    S.engine.position.set(x + o.x, y + o.y, z + o.z);
     S.engine.intensity = 1400 * Math.min(ek, 4) * (0.9 + Math.random() * 0.2);
     S.engine.distance = 70 + 25 * Math.sqrt(ek);
     return ek;
+  }
+  // Vapour cone: grows as the craft nears Mach 1 in thick air, flashes as it crosses, fades once supersonic.
+  function vaporCone(F, dt) {
+    const v = F.active, m = S.vapor;
+    let want = 0;
+    if (v && v.parts.length && !v.dead && v.mach > 0.85) {
+      const air = clamp(airDensity(v.body, v.altitude()) / 0.5, 0, 1), M = v.mach;
+      want = air * (M < 1 ? smoothstep(0.9, 1, M) : 1 - smoothstep(1.02, 1.2, M));
+    }
+    S.vaporK += (want - S.vaporK) * (1 - Math.exp(-dt * (want > S.vaporK ? 9 : 3)));
+    if (S.vaporK < 0.01 || !v || !v.parts.length) { m.visible = false; return; }
+    const sp = v.speed() || 1, ux = v.vx / sp, uy = v.vy / sp, uz = v.vz / sp;
+    const L = Math.max(v.bounds.maxY - v.bounds.minY, v.width, 2), r = Math.max(v.width * 0.6, v.depth * 0.5, 1.5) * 1.05;
+    const len = L * 0.55, off = L * 0.3 - len / 2; // the nose of the bell just behind the craft's nose
+    const bp = bodyPos(v.body, F.time), jitter = 1 + 0.03 * Math.sin(clock * 47);
+    m.visible = true;
+    m.position.set(bp.x + v.x + ux * off - camAbs.x, bp.y + v.y + uy * off - camAbs.y, v.z + uz * off - camAbs.z);
+    m.quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, V1.set(ux, uy, uz));
+    m.scale.set(r * jitter, len, r * jitter);
+    S.vaporU.uK.value = S.vaporK; S.vaporU.uT.value = clock;
   }
   // reentry plasma, like the 2D sheath: on the leading side, trailing behind
   function sheath(F) {
     const v = F.active, m = S.sheath;
     if (!v || !v.parts.length || !(v.heatFlux > 3e7)) { m.visible = false; return; }
-    const k = clamp((v.heatFlux - 3e7) / 1.5e8, 0, 1), sp = v.speed() || 1, ux = v.vx / sp, uy = v.vy / sp;
+    const k = clamp((v.heatFlux - 3e7) / 1.5e8, 0, 1), sp = v.speed() || 1, ux = v.vx / sp, uy = v.vy / sp, uz = v.vz / sp;
     const L = v.bounds.maxY - v.bounds.minY, w = Math.max(v.width, 2);
-    const c = Math.cos(-v.rot), s = Math.sin(-v.rot), lvx = c * ux - s * uy, lvy = s * ux + c * uy;
-    const lx = v.com.x + lvx * v.width * 0.55, ly = v.com.y + lvy * L * 0.5, wp = v.toWorld(lx, ly), bp = bodyPos(v.body, F.time);
+    const lv = qunrot(v.q, ux, uy, uz, T3);
+    const wp = v.toWorld(v.com.x + lv.x * v.width * 0.55, v.com.y + lv.y * L * 0.5, lv.z * v.depth * 0.55), bp = bodyPos(v.body, F.time);
     m.visible = true;
-    m.position.set(bp.x + wp.x - camAbs.x, bp.y + wp.y - camAbs.y, 0);
-    m.rotation.set(0, 0, Math.atan2(uy, ux) + Math.PI / 2);
+    m.position.set(bp.x + wp.x - camAbs.x, bp.y + wp.y - camAbs.y, wp.z - camAbs.z);
+    m.quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, V1.set(-ux, -uy, -uz)); // trails behind
     m.scale.set(w * (0.75 + 0.5 * k), L * (1.2 + 1.6 * k), w * (0.75 + 0.5 * k));
     S.sheathU.uK.value = k; S.sheathU.uT.value = clock;
   }
@@ -1748,11 +1628,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     applyQuality();
     const bd = S.bd, have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh;
     // rebuild the meshes only when the design changes
-    let snap = String(B.parts.length);
-    for (const p of B.parts) snap += `|${p.id},${p.type},${p.x},${p.y},${p.flip ? 1 : 0}`;
+    let snap = String(B.parts.length) + (B.kind || '');
+    for (const p of B.parts) snap += `|${p.id},${p.type},${p.x},${p.y},${p.flip ? 1 : 0},${p.rot || 0}`;
     if (snap !== bd.snap || bd.parts !== B.parts) {
       if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
-      if (have && B.parts.length) { bd.vm = new Parts3D.VesselMesh(B.parts, { builder: true }); S.design.add(bd.vm.group); }
+      if (have && B.parts.length) { bd.vm = new Parts3D.VesselMesh(B.parts, { builder: true, radial: (B.kind || 'rocket') === 'rocket' }); S.design.add(bd.vm.group); }
       bd.snap = snap; bd.parts = B.parts; bd.att = '';
     }
     const att = B.parts.map((p) => (B.attached && B.attached.has(p.id) ? 1 : 0)).join('');
@@ -1802,6 +1682,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // ------------------------------------------------------------------ quality, sizing, API
+  // Adaptive resolution: when frames run long, render fewer pixels (down to 55%) and win them back when
+  // there is time to spare. The HUD is HTML, so it stays sharp either way.
+  const perf = { ema: 1 / 60, scale: 1, at: 0 };
+  function adaptResolution(dt) {
+    if (!(dt > 0)) return;
+    perf.ema += (Math.min(dt, 0.1) - perf.ema) * 0.08;
+    if (clock - perf.at < 0.6) return;
+    let k = perf.scale;
+    if (perf.ema > 1 / 42) k = Math.max(0.55, k - 0.08);
+    else if (perf.ema < 1 / 57) k = Math.min(1, k + 0.04);
+    if (k !== perf.scale) { perf.scale = k; perf.at = clock; renderer.setPixelRatio(basePixelRatio() * k); renderer.setSize(W, H, true); }
+  }
+  const basePixelRatio = () => (Settings.high ? Math.min(DPR, 1.75) : 1);
   function applyQuality() {
     const hi = Settings.high;
     if (hi === high) return;
@@ -1815,7 +1708,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function resize(w, h, dpr) {
     W = Math.max(1, w); H = Math.max(1, h); DPR = dpr || 1;
     if (!renderer) return;
-    renderer.setPixelRatio(Settings.high ? Math.min(DPR, 1.75) : 1);
+    renderer.setPixelRatio(basePixelRatio() * perf.scale);
     renderer.setSize(W, H, true);
     camera.aspect = bcam.aspect = W / H;
     camera.updateProjectionMatrix(); bcam.updateProjectionMatrix();
@@ -1823,8 +1716,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function activeCam() { return mode === 'builder' ? bcam : camera; }
   function scenePoint(ax, ay, az, out) {
     if (mode === 'builder') return out.set(ax, ay, az || 0).applyMatrix4(S.design.matrixWorld);
-    toView(ax - camAbs.x, ay - camAbs.y, T2D);
-    return out.set(T2D.x, T2D.y, az || 0);
+    toView(ax - camAbs.x, ay - camAbs.y, (az || 0) - camAbs.z, T3);
+    return out.set(T3.x, T3.y, T3.z);
   }
 
   Object.assign(api, {
@@ -1868,9 +1761,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       p.project(cam);
       return { x: (p.x + 1) * 0.5 * W, y: (1 - p.y) * 0.5 * H, behind };
     },
-    metresPerPixelAt(ax, ay) {
+    metresPerPixelAt(ax, ay, az) {
       if (!api.ready) return 1;
-      const cam = activeCam(), d = Math.max(0.01, -scenePoint(ax, ay, 0, V1).applyMatrix4(cam.matrixWorldInverse).z);
+      const cam = activeCam(), d = Math.max(0.01, -scenePoint(ax, ay, az, V1).applyMatrix4(cam.matrixWorldInverse).z);
       return (2 * d * TANH) / H;
     },
     pickPart(cx, cy) {
@@ -1897,9 +1790,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (mode === 'builder') bc.auto = false;
     },
     resetCamera() {
-      const c = mode === 'builder' ? bc : fc;
-      const turns = Math.round((c.yaw - 0.5) / TAU) * TAU; // come back the short way
-      c.ty = 0.5 + turns; c.tp = 0.16;
+      const c = mode === 'builder' ? bc : fc, d = mode === 'builder' ? [0.5, 0.16] : CAM0[fc.kind] || CAM0.rocket;
+      const turns = Math.round((c.yaw - d[0]) / TAU) * TAU; // come back the short way
+      c.ty = d[0] + turns; c.tp = d[1];
       if (mode === 'builder') bc.auto = true;
     },
   });
