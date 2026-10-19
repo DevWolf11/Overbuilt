@@ -52,6 +52,7 @@ const FX = {
     }
   },
   explosion(body, p, v, size, air) {
+    if (Silly.on('hollywood')) size *= 3;
     const at = { b: body, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z };
     this.add({ kind: 'flash', ...at, max: 0.35, size: size * 4, grow: size * 8, color: '#fff3c4', alpha: 1 });
     this.add({ kind: 'ring', ...at, max: 0.7, size: size, grow: size * 14, color: '#ffe2a8', alpha: 0.7 });

@@ -1588,8 +1588,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function vaporCone(F, dt) {
     const v = F.active, m = S.vapor;
     let want = 0;
-    if (v && v.parts.length && !v.dead && v.mach > 0.85) {
-      const air = clamp(airDensity(v.body, v.altitude()) / 0.5, 0, 1), M = v.mach;
+    if (v && v.parts.length && !v.dead && effectMach(v) > 0.85) {
+      const air = clamp(airDensity(v.body, v.altitude()) / 0.5, 0, 1), M = effectMach(v);
       want = air * (M < 1 ? smoothstep(0.9, 1, M) : 1 - smoothstep(1.02, 1.2, M));
     }
     S.vaporK += (want - S.vaporK) * (1 - Math.exp(-dt * (want > S.vaporK ? 9 : 3)));

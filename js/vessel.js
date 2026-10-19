@@ -496,6 +496,12 @@ class Vessel {
         this.pitchHold = clamp(this.pitchHold + err * 0.6 * dt, -0.35, 0.45);
         const turn = Math.max(0, 1 / Math.max(0.3, Math.cos(at.bank)) - 1) * 0.06; // a banked turn needs the nose a touch higher
         want.pitch = clamp((this.pitchHold + err * 0.5 + turn - at.pitch) * 1.5, -0.3, 0.3);
+        // the vintage version only glanced at the climb rate now and then, and overreacted every time
+        if (Silly.on('ogAutopilot')) {
+          this.ogT = (this.ogT || 0) - dt;
+          if (this.ogT <= 0) { this.ogT = 0.8; this.ogCmd = clamp((vsW - vs) * 0.1, -0.15, 0.15); }
+          want.pitch = this.ogCmd;
+        }
       }
       if (mode === 'heading') {
         const hdg = this.heading();
@@ -663,7 +669,7 @@ class Vessel {
           Fn = -qS * (1.2 * sn * Math.abs(sn) + 0.02 * sn); Fc = -qS * 0.02 * uc / V;
         }
         // pull too hard and the structure gives way
-        if (Math.abs(Fn) > (W ? W.load : 21000) * area && !rip.includes(p)) rip.push(p);
+        if (Math.abs(Fn) > (W ? W.load : 21000) * area * (Silly.on('noodle') ? 0.25 : 1) && !rip.includes(p)) rip.push(p);
         const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
         T.x += ry * fz - rz * fy; T.y += rz * fx - rx * fz; T.z += rx * fy - ry * fx;
@@ -782,7 +788,8 @@ class Vessel {
       const air = k.p.def.air;
       if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water) broken.add(k.p);
     }
-    if (broken.size) { sim.breakParts(this, [...broken], 'impact'); return; }
+    if (broken.size && !Silly.on('bouncy')) { sim.breakParts(this, [...broken], 'impact'); return; }
+    const bounce = Silly.on('bouncy') ? 0.75 : 0;
 
     const wheelContacts = contacts.filter((k) => k.wheel);
     const driveContacts = wheelContacts.filter((k) => k.p.def.wheel.drive);
@@ -824,7 +831,7 @@ class Vessel {
         this.pointVel(k.r, vp);
         const vn = dot3(vp, n);
         if (vn >= 0) continue;
-        const jn = -vn / effMass(k, n);
+        const jn = -vn * (vn < -2 ? 1 + bounce : 1) / effMass(k, n);
         impulse(k, n, jn);
         this.pointVel(k.r, vp);
         if (k.t1) {

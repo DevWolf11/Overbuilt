@@ -68,6 +68,7 @@ const App = {
   // Flight is always drawn in 3D; the flat 2D renderer is only a fallback for devices without WebGL.
   // The hangar is a 2D blueprint with an optional 3D preview.
   use3D() {
+    if (this.scene === 'flight' && Silly.on('retro2d')) return false;
     if (!Render3D.supported || Render3D.failed || !Render3D.ready) {
       if ((Render3D.failed || !Render3D.supported) && this.scene === 'flight' && !this.warned3d) { this.warned3d = true; UI.toast('3D isn’t available on this device: flying in 2D'); }
       return false;
@@ -308,6 +309,37 @@ const App = {
     });
     wrap.append(el('div', { class: 'setting-actions' }, fs, reset));
     UI.modal({ kicker: 'Settings', title: 'Options', body: wrap, actions: [{ label: 'Done', primary: true }] });
+    // the secret: tap the title seven times
+    if (Silly.unlocked) { wrap.append(this.sillySettings()); return; }
+    let taps = 0;
+    $('#modal-card .modal-title').addEventListener('click', () => {
+      if (Silly.unlocked) return;
+      if (++taps >= 7) {
+        Silly.unlock(); Sound.unlock(); Sound.boom(0.6);
+        UI.toast('You found the silly settings. No refunds.');
+        const box = this.sillySettings();
+        wrap.append(box);
+        box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else if (taps >= 3) UI.toast(`${7 - taps} more…`);
+    });
+  },
+
+  sillySettings() {
+    const box = el('div', { class: 'silly' },
+      el('div', { class: 'silly-head', text: 'Silly settings' }),
+      el('p', { class: 'muted small', text: 'Unofficial, unbalanced and mostly unsafe. They work in career too; we won’t tell.' }));
+    const boxes = [];
+    for (const [k, label, desc] of Silly.list) {
+      const cb = el('input', { type: 'checkbox', 'data-silly': k });
+      cb.checked = Silly.on(k);
+      cb.addEventListener('change', () => Silly.set(k, cb.checked));
+      boxes.push(cb);
+      box.append(el('label', { class: 'silly-row' }, cb, el('span', null, el('b', { text: label }), el('small', { text: desc }))));
+    }
+    const off = el('button', { class: 'btn small', text: 'All off' });
+    off.addEventListener('click', () => { for (const cb of boxes) { cb.checked = false; Silly.set(cb.dataset.silly, false); } });
+    box.append(off);
+    return box;
   },
 };
 
