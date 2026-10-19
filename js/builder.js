@@ -3,27 +3,27 @@
 
 const TEMPLATES = {
   hopper: {
-    name: 'Hopper', tier: 0, blurb: 'A suborbital hop. Fly up, separate, open the parachute.',
+    name: 'Hopper', kind: 'rocket', tier: 0, blurb: 'A suborbital hop. Fly up, separate, open the parachute.',
     parts: [['hawk', 0, 1], ['tankM', 0, 3], ['separator', 0, 4.25], ['pod', 0, 5.5], ['chute', 0, 6.75]],
   },
   pathfinder: {
-    name: 'Pathfinder', tier: 0, blurb: 'Two Hawk stages and basic parts. Enough to reach Earth orbit.',
+    name: 'Pathfinder', kind: 'rocket', tier: 0, blurb: 'Two Hawk stages and basic parts. Enough to reach Earth orbit.',
     parts: [['hawk', 0, 1], ['tankL', 0, 4], ['tankL', 0, 8], ['separator', 0, 10.25], ['hawk', 0, 11.5], ['tankM', 0, 13.5],
       ['pod', 0, 15.5], ['chute', 0, 16.75], ['fin', 1.375, 2.75], ['fin', -1.375, 2.75]],
   },
   orbiter: {
-    name: 'Orbiter', tier: 1, blurb: 'Efficient vacuum upper stage. Orbit with fuel to spare.',
+    name: 'Orbiter', kind: 'rocket', tier: 1, blurb: 'Efficient vacuum upper stage. Orbit with fuel to spare.',
     parts: [['hawk', 0, 1], ['tankL', 0, 4], ['tankL', 0, 8], ['separator', 0, 10.25], ['valiant', 0, 11.25],
       ['tankM', 0, 13], ['pod', 0, 15], ['chute', 0, 16.25], ['fin', 1.375, 2.75], ['fin', -1.375, 2.75]],
   },
   probe: {
-    name: 'Moon Probe', tier: 1, blurb: 'A light probe on a two-stage booster. Land it gently on the Moon.',
+    name: 'Moon Probe', kind: 'rocket', tier: 1, blurb: 'A light probe on a two-stage booster. Land it gently on the Moon.',
     parts: [['hawk', 0, 1], ['tankL', 0, 4], ['tankM', 0, 7], ['separator', 0, 8.25], ['valiant', 0, 9.25],
       ['tankM', 0, 11], ['separator', 0, 12.25], ['kolibri', 0, 13], ['tankThin', 0, 14.5], ['probe', 0, 16],
       ['leg', 0.75, 14], ['leg', -0.75, 14]],
   },
   lunar: {
-    name: 'Lunar Lander', tier: 1, blurb: 'Boosters, a transfer stage, a lander and a shielded capsule. Moon and back.',
+    name: 'Lunar Lander', kind: 'rocket', tier: 1, blurb: 'Boosters, a transfer stage, a lander and a shielded capsule. Moon and back.',
     parts: [['hawk', 0, 1], ['tankL', 0, 4], ['tankL', 0, 8], ['separator', 0, 10.25], ['valiant', 0, 11.25],
       ['tankL', 0, 14], ['separator', 0, 16.25], ['valiant', 0, 17.25], ['tankM', 0, 19], ['separator', 0, 20.25],
       ['heatShield', 0, 20.75], ['pod', 0, 22], ['chute', 0, 23.25],
@@ -32,19 +32,39 @@ const TEMPLATES = {
       ['sideSep', -1.25, 5], ['tankL', -2.5, 4], ['hawk', -2.5, 1], ['nose', -2.5, 6.75]],
   },
   rover: {
-    name: 'Lunar Rover', tier: 3, blurb: 'A rover that flies itself to the Moon, lands on its wheels and drives.',
+    name: 'Lunar Rover', kind: 'rocket', tier: 3, blurb: 'A rover that flies itself to the Moon, lands on its wheels and drives.',
     parts: [['titan', 0, 1.5], ['tankWideL', 0, 6], ['tankWideL', 0, 12], ['separatorL', 0, 15.25], ['valiant', 0, 16.25], ['tankL', 0, 19],
       ['separatorL', 0, 21.25], ['kolibri', 0.5, 22], ['kolibri', -0.5, 22], ['wheel', 1.75, 22], ['wheel', -1.75, 22],
       ['tankWide', 0, 24], ['probeL', 0, 25.875]],
   },
   ares: {
-    name: 'Ares Mars Lander', tier: 3, blurb: 'Titan and Thunder boosters, a nuclear transfer stage and a shielded Mars lander.',
+    name: 'Ares Mars Lander', kind: 'rocket', tier: 3, blurb: 'Titan and Thunder boosters, a nuclear transfer stage and a shielded Mars lander.',
     parts: [['titan', 0, 1.5], ['tankWideL', 0, 6], ['tankWideL', 0, 12], ['adapterL', 0, 15.5], ['separator', 0, 16.25],
       ['prometheus', 0, 18], ['tankXL', 0, 22.5], ['separator', 0, 25.75], ['heatShield', 0, 26.25], ['separator', 0, 26.75],
       ['spire', 0, 27.75], ['tankM', 0, 29.5], ['probeL', 0, 30.875], ['chuteL', 0, 31.5],
       ['leg', 1.25, 28.5], ['leg', -1.25, 28.5],
       ['sideSep', 1.75, 5], ['thunder', 2.75, 4], ['noseS', 2.75, 8.5],
       ['sideSep', -1.75, 5], ['thunder', -2.75, 4], ['noseS', -2.75, 8.5]],
+  },
+  // Planes are built nose-right: the stack runs along +y and the landing gear sits on the +x side.
+  skylark: {
+    name: 'Skylark', kind: 'plane', tier: 0, blurb: 'A propeller trainer. Full throttle, then pull up gently at about 55 m/s.',
+    parts: [['tailcone', 0, 1.25], ['fuselage', 0, 4.5], ['cockpit', 0, 7.75], ['propeller', 0, 9.45],
+      ['wing', -1.25, 4.6], ['elevator', -0.65, -0.75], ['vtail', -1.8, 1.1], ['gear', 1.7, 4.6], ['gear', 1.7, 7.6]],
+  },
+  hornet: {
+    name: 'Hornet', kind: 'plane', tier: 2, blurb: 'A turbojet fighter. Fast enough to break the sound barrier.',
+    parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpit', 0, 8.25], ['wing', -1.25, 4.6], ['elevator', 0.9, 0.9],
+      ['vtail', -1.55, 1.5], ['gear', 1.7, 4.2], ['gear', 1.7, 8]],
+  },
+  buggy: {
+    name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with the rotate controls. The causeway leads to the mainland.',
+    parts: [['chassis', 0, 1.25], ['cab', -0.4, 2.25], ['carWheel', 1.4, 0.4], ['carWheel', -1.4, 0.4]],
+  },
+  dragonfly: {
+    name: 'Dragonfly', kind: 'heli', tier: 1, blurb: 'A light helicopter. Raise the throttle until it lifts, then tilt to fly.',
+    parts: [['cab', 0, 1.75], ['tankS', 0, 3], ['rotor', -0.7, 4.1], ['chassis', -3.2, 2.05], ['tailRotor', -4.6, 1],
+      ['carWheel', 0.9, 0.4], ['carWheel', -0.9, 0.4]],
   },
 };
 

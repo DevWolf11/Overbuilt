@@ -117,10 +117,11 @@ const PARTS = {
   // for the 3D view, and `area` is the lifting area of the whole wing.
   cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 9000, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
-  fuselage: Object.assign(tank('Fuselage', 2, 4, 0, 'Fuel tank with an airliner paint job, for plane bodies.'), { cat: 'air', shape: 'fuselage' }),
+  fuselage: { cat: 'air', name: 'Fuselage', w: 2, h: 4, fuel: 2, mass: 0.35, shape: 'fuselage', tier: 0, cost: 1800,
+    desc: 'Plane body with passenger windows and a fuel tank in its belly.' },
   tailcone: { cat: 'air', name: 'Tail Cone', w: 2, h: 2.5, botW: 0.7, mass: 0.15, shape: 'tailcone', aero: true, tier: 0, cost: 400,
     desc: 'Tapers the back of a fuselage up towards the tail.' },
-  wing: { cat: 'air', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 18, span: 10 }, breakSpeed: 14, tier: 0, cost: 1500,
+  wing: { cat: 'air', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 28, span: 12 }, breakSpeed: 14, tier: 0, cost: 1500,
     desc: 'Main wing (one part is the whole span). Mount it on the side of the fuselage near the centre of mass. Lift grows with speed and angle of attack, until it stalls.' },
   wingS: { cat: 'air', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5 }, breakSpeed: 14, tier: 0, cost: 700,
     desc: 'Short wing for small planes, canards or a fixed tailplane.' },
@@ -238,6 +239,7 @@ function nozzleOf(def) {
     case 'srb': return { y: -def.h / 2, half: def.w * 0.36 };
     case 'ion': return { y: -def.h / 2, half: def.w * 0.32 };
     case 'spike': return { y: -def.h / 2, half: def.w * 0.42 };
+    case 'jet': return { y: -def.h / 2, half: def.w * 0.28 };
     default: return { y: -def.h / 2, half: (def.w * (def.bellBot || 0.8)) / 2 };
   }
 }
@@ -341,7 +343,7 @@ function estimateDeltaV(parts, adj, controlId, stages, useSeaLevel) {
     for (const id of st) {
       const p = byId.get(id);
       if (!p || !attached.has(id)) continue;
-      if (p.def.thrust) active.add(id);
+      if (p.def.thrust && !p.def.air) active.add(id); // air-breathing engines don't count in space
       if (p.def.separator) {
         cutSeparator(id, A, controlId);
         attached = componentOf(controlId, A);
@@ -442,6 +444,57 @@ function goldGradient(ctx, l, r) {
   return g;
 }
 
+// Airfoil half-thickness (NACA 00xx, 1 at the thickest point); f = 0 at the leading edge.
+function foilHalf(f) { return (0.2969 * Math.sqrt(f) - 0.126 * f - 0.3516 * f * f + 0.2843 * f ** 3 - 0.1036 * f ** 4) / 0.1; }
+
+// Wing cross-section: leading edge at +y, turned about the quarter chord by p.deflect.
+function foilPath(ctx, p) {
+  const d = p.def, x = p.x, h = d.h, t = p.y + h / 2, py = p.y + h / 4, a = p.deflect || 0;
+  const c = Math.cos(a), s = Math.sin(a), N = 18, pts = [];
+  for (let i = 0; i <= N; i++) { const f = Math.pow(i / N, 1.6); pts.push([foilHalf(f) * d.w / 2, t - f * h]); }
+  const put = (dx, yy, first) => {
+    const dy = yy - py, X = x + c * dx - s * dy, Y = py + s * dx + c * dy;
+    if (first) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+  };
+  pts.forEach(([hx, yy], i) => put(hx, yy, i === 0));
+  for (let i = N; i >= 0; i--) put(-pts[i][0], pts[i][1], false);
+  ctx.closePath();
+}
+
+// Side-view outlines of the aircraft and ground hulls (parts3d.js revolves or extrudes the same shapes).
+const HULLS = {
+  cockpit(ctx, x, y, w, h) { // nose at +y; the canopy sits on the -x side, drawn separately
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w / 2, b); ctx.lineTo(x + w / 2, b); ctx.lineTo(x + w / 2, b + h * 0.28);
+    ctx.bezierCurveTo(x + w / 2, b + h * 0.72, x + w * 0.26, t, x + w * 0.12, t);
+    ctx.lineTo(x, t);
+    ctx.bezierCurveTo(x - w * 0.3, t, x - w / 2, b + h * 0.88, x - w / 2, b + h * 0.6);
+    ctx.closePath();
+  },
+  tailcone(ctx, x, y, w, h, d) { // the -x edge stays straight; the +x edge sweeps up to it
+    const b = y - h / 2, t = y + h / 2, bw = d.botW || w * 0.35;
+    ctx.moveTo(x - w / 2, b); ctx.lineTo(x - w / 2 + bw, b);
+    ctx.bezierCurveTo(x - w / 2 + bw + w * 0.12, b + h * 0.4, x + w / 2, t - h * 0.5, x + w / 2, t);
+    ctx.lineTo(x - w / 2, t); ctx.closePath();
+  },
+  jet(ctx, x, y, w, h) {
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w * 0.3, b); ctx.lineTo(x + w * 0.3, b);
+    ctx.bezierCurveTo(x + w * 0.4, b + h * 0.22, x + w / 2, b + h * 0.4, x + w / 2, b + h * 0.62);
+    ctx.bezierCurveTo(x + w / 2, t - h * 0.1, x + w * 0.47, t, x + w * 0.43, t);
+    ctx.lineTo(x - w * 0.43, t);
+    ctx.bezierCurveTo(x - w * 0.47, t, x - w / 2, t - h * 0.1, x - w / 2, b + h * 0.62);
+    ctx.bezierCurveTo(x - w / 2, b + h * 0.4, x - w * 0.4, b + h * 0.22, x - w * 0.3, b);
+    ctx.closePath();
+  },
+  cab(ctx, x, y, w, h) { // driving towards +x
+    const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(r, b + h * 0.45); ctx.lineTo(r - w * 0.05, b + h * 0.53);
+    ctx.lineTo(r - w * 0.3, b + h * 0.56); ctx.lineTo(r - w * 0.46, t); ctx.lineTo(l + w * 0.06, t); ctx.lineTo(l, t - h * 0.08);
+    ctx.closePath();
+  },
+};
+
 // Outline path of a part (used for fills, heat glow and highlights).
 function partPath(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
@@ -502,6 +555,36 @@ function partPath(ctx, p) {
       const nh = Math.min(0.7, h * 0.12);
       ctx.rect(l, b + nh, w, h - nh);
       ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
+      break;
+    }
+    case 'cockpit': case 'tailcone': case 'jet': case 'cab':
+      HULLS[d.shape](ctx, x, y, w, h, d);
+      break;
+    case 'wing': case 'elevator':
+      foilPath(ctx, p);
+      break;
+    case 'vtail': {
+      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2;
+      ctx.moveTo(inn, b); ctx.lineTo(inn, t); ctx.lineTo(out, b + h * 0.4); ctx.lineTo(out, b); ctx.closePath();
+      break;
+    }
+    case 'prop':
+      ctx.rect(x - 0.36, b, 0.72, h * 0.3);
+      ctx.moveTo(x - 0.3, b + h * 0.3); ctx.quadraticCurveTo(x - 0.3, t, x, t); ctx.quadraticCurveTo(x + 0.3, t, x + 0.3, b + h * 0.3); ctx.closePath();
+      ctx.rect(l, b + h * 0.42 - 0.05, w, 0.1);
+      break;
+    case 'rotor':
+      ctx.rect(x - 0.09, b, 0.18, h - 0.28);
+      ctx.rect(x - 0.32, t - 0.38, 0.64, 0.2);
+      ctx.rect(l, t - 0.31, w, 0.06);
+      break;
+    case 'tailrotor':
+      ctx.arc(x, y, Math.min(w, h) * 0.47, 0, TAU);
+      break;
+    case 'gear': {
+      const g = wheelGeom(p), i = x - (p.flip ? -1 : 1) * w / 2;
+      ctx.rect(Math.min(i, g.x), g.y - 0.08, Math.abs(g.x - i), 0.16);
+      ctx.moveTo(g.x + g.r, g.y); ctx.arc(g.x, g.y, g.r, 0, TAU);
       break;
     }
     case 'chute':
@@ -749,7 +832,168 @@ function drawPart(ctx, p, lw) {
       ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
       break;
     }
-    default: // shapes without a dedicated drawing yet
+    case 'cockpit': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.1, w, h * 0.1); // nose cap
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.12, h * 0.75); // stripe along the belly side
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      // bubble canopy on the -x side (the top of a plane)
+      ctx.beginPath(); ctx.ellipse(x - w * 0.42, b + h * 0.42, w * 0.22, h * 0.3, 0, 0, TAU);
+      ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * 0.5, w * 0.06, h * 0.12, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+      break;
+    }
+    case 'fuselage': {
+      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
+      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h); // cheatline
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = PAL.glass;
+      for (let yy = b + 0.35; yy < t - 0.3; yy += 0.55) ctx.fillRect(x - w * 0.2, yy, w * 0.13, 0.28);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.06); ctx.fillRect(l, t - 0.06, w, 0.06);
+      if (p.fuelFrac != null) { ctx.fillStyle = 'rgba(10,14,20,0.18)'; ctx.fillRect(x - w * 0.42, b + 0.1, w * 0.06, (h - 0.2) * (1 - p.fuelFrac)); }
+      ctx.strokeRect(l, b, w, h);
+      break;
+    }
+    case 'tailcone': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.12);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'wing': case 'elevator': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = PAL.steel; ctx.fillRect(l - 1, t - h * 0.08, w + 2, h * 0.08); // leading edge
+      ctx.fillStyle = d.shape === 'elevator' ? PAL.orange : 'rgba(255,122,26,0.85)';
+      ctx.fillRect(l - 1, b - 1, w + 2, h * (d.shape === 'elevator' ? 0.35 : 0.18) + 1);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'vtail': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      const s = p.flip ? -1 : 1, out = x + s * w / 2;
+      ctx.fillStyle = PAL.orange; ctx.fillRect(Math.min(out, out - s * w * 0.3), b, w * 0.3, h);
+      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(l, b, w, h * 0.12);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'prop': {
+      const yb = b + h * 0.42, R = w / 2;
+      ctx.fillStyle = metalGradient(ctx, x - 0.36, x + 0.36); ctx.fillRect(x - 0.36, b, 0.72, h * 0.3); ctx.strokeRect(x - 0.36, b, 0.72, h * 0.3);
+      if (p.firing > 0.3) { // blur of the spinning disc, seen edge-on
+        ctx.fillStyle = `rgba(150,160,175,${0.25 * p.firing})`;
+        ctx.beginPath(); ctx.ellipse(x, yb, R, 0.08, 0, 0, TAU); ctx.fill();
+      }
+      ctx.fillStyle = '#2b3036';
+      for (let i = 0; i < 3; i++) {
+        const k = Math.cos((p.spin || 0) + (i * TAU) / 3) * R;
+        ctx.fillRect(Math.min(x, x + k), yb - 0.06, Math.abs(k), 0.12);
+        ctx.fillStyle = PAL.hazard; ctx.fillRect(x + k - Math.sign(k) * 0.14 - 0.07, yb - 0.06, 0.14, 0.12); ctx.fillStyle = '#2b3036';
+      }
+      ctx.beginPath(); ctx.moveTo(x - 0.3, b + h * 0.3); ctx.quadraticCurveTo(x - 0.3, t, x, t); ctx.quadraticCurveTo(x + 0.3, t, x + 0.3, b + h * 0.3); ctx.closePath();
+      ctx.fillStyle = hullGradient(ctx, x - 0.3, x + 0.3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = PAL.orange; ctx.beginPath(); ctx.arc(x, t - 0.1, 0.07, 0, TAU); ctx.fill();
+      break;
+    }
+    case 'jet': {
+      partPath(ctx, p); ctx.fillStyle = metalGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, t - h * 0.55, w, h * 0.55); // cowling
+      ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.58, w, h * 0.04);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.06, w, h * 0.06); // intake lip
+      ctx.fillStyle = 'rgba(20,24,30,0.45)'; for (let i = 1; i < 4; i++) ctx.fillRect(l, b + h * 0.1 * i, w, 0.04);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      ctx.fillStyle = '#15181c'; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.08);
+      if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.4 * p.firing})`; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.12); }
+      break;
+    }
+    case 'rotor': {
+      const yb = t - 0.28, R = w / 2;
+      ctx.fillStyle = PAL.steel; ctx.fillRect(x - 0.09, b, 0.18, yb - b);
+      ctx.fillStyle = PAL.steelDark; ctx.beginPath(); ctx.moveTo(x - 0.42, b); ctx.lineTo(x + 0.42, b); ctx.lineTo(x + 0.11, b + 0.36); ctx.lineTo(x - 0.11, b + 0.36); ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (p.firing > 0.3) {
+        ctx.fillStyle = `rgba(150,160,175,${0.22 * p.firing})`;
+        ctx.beginPath(); ctx.ellipse(x, yb, R, 0.07, 0, 0, TAU); ctx.fill();
+      }
+      const droop = 0.18 * (1 - Math.min(1, (p.firing || 0) * 2));
+      for (let i = 0; i < 4; i++) {
+        const k = Math.cos((p.spin || 0) + (i * TAU) / 4) * R;
+        if (Math.abs(k) < 0.05) continue;
+        ctx.strokeStyle = '#30353c'; ctx.lineWidth = 0.09; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x + k, yb - droop * Math.abs(k) / R); ctx.stroke();
+        ctx.strokeStyle = PAL.hazard; ctx.beginPath(); ctx.moveTo(x + k * 0.94, yb - droop * 0.94); ctx.lineTo(x + k, yb - droop * Math.abs(k) / R); ctx.stroke();
+      }
+      ctx.lineCap = 'butt'; ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - 0.3, yb - 0.08, 0.6, 0.16); ctx.strokeRect(x - 0.3, yb - 0.08, 0.6, 0.16);
+      ctx.fillStyle = PAL.orange; ctx.beginPath(); ctx.arc(x, yb + 0.1, 0.12, Math.PI, TAU); ctx.fill();
+      break;
+    }
+    case 'tailrotor': {
+      const R = Math.min(w, h) * 0.47;
+      if (p.firing > 0.3) { ctx.fillStyle = `rgba(150,160,175,${0.25 * p.firing})`; ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = '#30353c'; ctx.lineWidth = 0.14; ctx.lineCap = 'round';
+      const a = p.spin || 0;
+      ctx.beginPath(); ctx.moveTo(x - Math.cos(a) * R, y - Math.sin(a) * R); ctx.lineTo(x + Math.cos(a) * R, y + Math.sin(a) * R); ctx.stroke();
+      ctx.strokeStyle = PAL.orange; ctx.lineWidth = 0.14;
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * R * 0.85, y + Math.sin(a) * R * 0.85); ctx.lineTo(x + Math.cos(a) * R, y + Math.sin(a) * R);
+      ctx.moveTo(x - Math.cos(a) * R * 0.85, y - Math.sin(a) * R * 0.85); ctx.lineTo(x - Math.cos(a) * R, y - Math.sin(a) * R); ctx.stroke();
+      ctx.lineCap = 'butt'; ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.fillStyle = PAL.steelDark; ctx.beginPath(); ctx.arc(x, y, 0.14, 0, TAU); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case 'gear': {
+      const g = wheelGeom(p), s = p.flip ? -1 : 1, i = x - s * w / 2;
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(Math.min(i, i + s * 0.12), g.y - 0.2, 0.12, 0.4);
+      ctx.strokeStyle = PAL.steelLight; ctx.lineWidth = 0.12; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(i + s * 0.1, g.y); ctx.lineTo(g.x, g.y); ctx.stroke();
+      ctx.lineCap = 'butt'; ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.6, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
+      ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = g.r * 0.12;
+      ctx.beginPath();
+      for (let k = 0; k < 5; k++) { const a = (p.spin || 0) + (k * TAU) / 5; ctx.moveTo(g.x, g.y); ctx.lineTo(g.x + Math.cos(a) * g.r * 0.58, g.y + Math.sin(a) * g.r * 0.58); }
+      ctx.stroke();
+      ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.18, 0, TAU); ctx.fillStyle = PAL.orange; ctx.fill();
+      break;
+    }
+    case 'cab': {
+      partPath(ctx, p); ctx.fillStyle = PartPaint.flat ? '#e2642e' : (() => { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, '#b8481d'); g.addColorStop(0.5, '#ef7a3c'); g.addColorStop(1, '#d4602a'); return g; })();
+      ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, h * 0.12);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(l, b + h * 0.3, w, h * 0.06);
+      ctx.restore();
+      // side windows: one behind the windscreen, one at the back
+      ctx.fillStyle = PAL.glass;
+      ctx.beginPath(); ctx.moveTo(r - w * 0.33, b + h * 0.6); ctx.lineTo(r - w * 0.47, t - h * 0.1); ctx.lineTo(x - w * 0.02, t - h * 0.1); ctx.lineTo(x - w * 0.02, b + h * 0.6); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillRect(l + w * 0.1, b + h * 0.6, w * 0.32, h * 0.3); ctx.strokeRect(l + w * 0.1, b + h * 0.6, w * 0.32, h * 0.3);
+      ctx.fillStyle = '#fff4d6'; ctx.fillRect(r - 0.12, b + h * 0.3, 0.12, 0.14); // headlight
+      ctx.fillStyle = '#ff3b2f'; ctx.fillRect(l, b + h * 0.3, 0.1, 0.14);
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'chassis': {
+      ctx.fillStyle = '#3a4048'; ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, b + h * 0.35, w, h * 0.3);
+      ctx.fillStyle = PAL.hazard; ctx.fillRect(l, t - h * 0.18, 0.4, h * 0.18); ctx.fillRect(r - 0.4, t - h * 0.18, 0.4, h * 0.18);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      for (let xx = l + 0.5; xx < r - 0.3; xx += 0.75) { ctx.beginPath(); ctx.arc(xx, y, 0.06, 0, TAU); ctx.fill(); }
+      ctx.strokeRect(l, b, w, h);
+      break;
+    }
+    default: // shapes without a dedicated drawing
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill(); ctx.stroke();
       break;
     case 'adapter': {

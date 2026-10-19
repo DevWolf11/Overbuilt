@@ -2,6 +2,25 @@
 // A vessel is a rigid assembly of parts flying around one body (patched conics).
 
 const DEFAULT_BREAK_SPEED = 9;
+const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit']);
+const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
+
+// Lift coefficient of a wing at angle of attack a (forward flow): linear up to the stall, then it
+// sinks towards a flat plate's.
+function liftCoef(a) {
+  const x = Math.abs(a), stall = 0.28;
+  const cl = x < stall ? 5.5 * x : lerp(5.5 * stall, 1.1 * Math.sin(2 * x), smoothstep(stall, stall + 0.22, x));
+  return Math.sign(a) * cl;
+}
+
+// Thrust factor of an air-breathing engine for the air density and the airspeed along its axis.
+function airThrust(a, rho, vA) {
+  if (rho < MIN_AIR) return 0;
+  let k = Math.min(1.3, Math.pow(rho / EARTH.rho0, 0.7));
+  if (a.kind === 'jet') k *= vA < a.vmax ? 1 + 0.3 * Math.max(0, vA) / a.vmax : Math.max(0, 1.3 * (1 - (vA - a.vmax) / 200));
+  else k *= Math.min(1, a.v0 / Math.max(vA, 1)); // props and rotors: constant power above v0
+  return k;
+}
 const SAS_MODES = ['hold', 'prograde', 'retrograde', 'radialOut', 'radialIn', 'target'];
 
 class Vessel {
@@ -24,6 +43,13 @@ class Vessel {
     this.name = 'Vessel';
     this.thrust = 0;
     this.maxHeat = 0;
+    this.kind = 'rocket';
+    this.brake = false;
+    this.ctrlCmd = 0;   // control-surface command, -1..1
+    this.surfAuth = 0;  // torque the control surfaces gave at full deflection last step
+    this.aoa = null;
+    this.lift = 0;
+    this.airspeed = 0;
     this.com = { x: 0, y: 0 };
     this.recompute(true);
   }
@@ -66,7 +92,32 @@ class Vessel {
     this.noseAero = !!(top && (top.def.aero || top.def.chute));
     this.wheels = this.parts.filter((p) => p.def.wheel);
     this.fins = this.parts.filter((p) => p.def.fin);
+    this.wings = this.parts.filter((p) => p.def.wing);
+    this.aircraft = this.wings.length > 0;
+    this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
+    this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
+    this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
     this.recompute(false);
+    this.computeAreas();
+  }
+
+  // Projected areas for vehicles that aren't rockets: nose-first (along local y) and side-on (along x).
+  // Each slice through the craft sums the parts it cuts; wings carry their own drag.
+  computeAreas() {
+    const body = this.parts.filter((p) => !p.def.wing);
+    const front = (p) => (p.def.wheel ? 0.25 : p.def.depth ? p.def.w * p.def.depth : ROUND3D.has(p.def.shape) ? 0.785 * p.def.w * p.def.w : p.def.w * 0.3);
+    const side = (p) => (p.def.wheel ? p.def.h * 0.8 : p.def.h * (p.def.depth || (ROUND3D.has(p.def.shape) ? p.def.w : 0.3)));
+    let aF = 0, aS = 0;
+    for (const s of body) {
+      let f = 0, g = 0;
+      for (const p of body) {
+        if (Math.abs(p.y - s.y) < p.def.h / 2) f += front(p);
+        if (Math.abs(p.x - s.x) < p.def.w / 2) g += side(p);
+      }
+      aF = Math.max(aF, f); aS = Math.max(aS, g);
+    }
+    this.areaFront = Math.max(aF, 0.5);
+    this.areaSide = Math.max(aS, 0.5);
   }
 
   // Local (part space) -> position relative to body centre.
@@ -83,9 +134,16 @@ class Vessel {
 
   altitude() { return Math.hypot(this.x, this.y) - this.body.radius; }
   speed() { return Math.hypot(this.vx, this.vy); }
+  // Height of the craft's lowest corner above the ground below it.
   groundAltitude() {
-    const r = Math.hypot(this.x, this.y);
-    return r - surfaceRadius(this.body, Math.atan2(this.y, this.x)) - (this.com.y - this.bounds.minY);
+    const r = Math.hypot(this.x, this.y), ux = this.x / r, uy = this.y / r;
+    const c = Math.cos(this.rot), s = Math.sin(this.rot), B = this.bounds;
+    let low = Infinity;
+    for (const [lx, ly] of [[B.minX, B.minY], [B.maxX, B.minY], [B.minX, B.maxY], [B.maxX, B.maxY]]) {
+      const dx = lx - this.com.x, dy = ly - this.com.y;
+      low = Math.min(low, (c * dx - s * dy) * ux + (s * dx + c * dy) * uy);
+    }
+    return r + low - surfaceRadius(this.body, Math.atan2(this.y, this.x));
   }
 
   hasFuelFor(p) {
@@ -95,8 +153,8 @@ class Vessel {
   }
 
   // Thrust and torque produced this step; also burns propellant.
-  applyEngines(dt, rho) {
-    let F = 0, torque = 0, gimbal = 0;
+  applyEngines(dt, rho, vA, sim) {
+    let F = 0, torque = 0, gimbal = 0, rotorTorque = 0;
     const pressure = clamp(rho / EARTH.rho0, 0, 1);
     let changed = false;
     const fire = (e, f) => {
@@ -129,7 +187,17 @@ class Vessel {
         if (!e.active) continue;
         if (fuel <= 0.01) { e.flameout = true; continue; }
         e.flameout = false;
-        const f = e.def.thrust * 1000 * this.throttle;
+        let f = e.def.thrust * 1000 * this.throttle;
+        if (e.def.air) {
+          const k = airThrust(e.def.air, rho, vA);
+          if (k <= 0) {
+            if (!e.noAir && sim && !this.isDebris) sim.toast(`${e.def.name}: no air to breathe`, 'warn');
+            e.noAir = true;
+            continue;
+          }
+          e.noAir = false;
+          f *= k;
+        }
         if (f <= 0) continue;
         const isp = lerp(e.def.ispVac, e.def.ispSL, pressure);
         demand += (f / (isp * G0)) * dt;
@@ -140,12 +208,30 @@ class Vessel {
       for (const t of g.tanks) t.fuel = Math.max(0, t.fuel - demand * scale * (t.fuel / fuel));
       for (const [e, f] of firing) {
         fire(e, f * scale);
-        e.firing = (f * scale) / (e.def.thrust * 1000);
+        e.firing = Math.min(1, (f * scale) / (e.def.thrust * 1000));
+        if (e.def.air && e.def.air.torque) rotorTorque += e.def.air.torque * Math.min(1, e.firing * 1.5);
       }
       changed = true;
     }
     if (changed) this.recompute(false);
-    return { F, torque, gimbal };
+    return { F, torque, gimbal, rotorTorque };
+  }
+
+  // Props, rotors and tail rotors wind up and down; wheels spin from their ground speed in ground().
+  spinRotors(dt) {
+    let main = 0;
+    for (const p of this.parts) {
+      const a = p.def.air;
+      if (!a || a.kind === 'jet') continue;
+      const want = (p.firing || 0) * (a.kind === 'rotor' ? 28 : 45);
+      p.rpm = (p.rpm || 0) + (want - (p.rpm || 0)) * Math.min(1, dt * 1.2);
+      p.spin = ((p.spin || 0) + p.rpm * dt) % TAU;
+      if (a.kind === 'rotor') main = Math.max(main, p.rpm / 28);
+    }
+    for (const p of this.tailRotors) {
+      p.firing = main;
+      p.spin = ((p.spin || 0) + main * 120 * dt) % TAU;
+    }
   }
 
   // Direction the autopilot wants the nose to point (world angle), or null to just hold.
@@ -168,6 +254,32 @@ class Vessel {
     }
   }
 
+  // Angular velocity the craft should turn at (pilot, rover levelling or autopilot); null leaves it free.
+  turnTarget(sim, engF) {
+    const driving = this.input !== 0 && this.wheelsDown && this.canDrive;
+    if (this.input !== 0) this.holdRot = null;
+    if (this.input !== 0 && !driving) return -this.input * 1.1;
+    // rovers and cars level themselves to the ground while driving or bouncing over bumps
+    const rover = this.wheels.length && !this.aircraft && this.kind !== 'plane' && this.sas === 'hold'
+      && (this.wheelsDown || (engF === 0 && this.groundAltitude() < 40));
+    if (rover) {
+      const n = surfaceNormal(this.body, Math.atan2(this.y, this.x));
+      return clamp(wrapAngle(Math.atan2(n.y, n.x) - Math.PI / 2 - this.rot) * 2.5, -1.2, 1.2);
+    }
+    if (this.sas === 'off') return null;
+    const head = this.sasHeading(sim);
+    if (head != null) return clamp(wrapAngle(head - Math.PI / 2 - this.rot) * 2.2, -1.1, 1.1);
+    if (this.chuteOpen) return null;
+    // aircraft hold the attitude they had when the pilot let go: their own stability would otherwise
+    // keep turning them towards the airflow
+    if (this.aircraft && this.sas === 'hold') {
+      const vert = Math.atan2(this.y, this.x) - Math.PI / 2; // measured from the local horizon
+      if (this.holdRot == null) this.holdRot = wrapAngle(this.rot - vert);
+      return clamp(wrapAngle(this.holdRot + vert - this.rot) * 1.5, -0.6, 0.6);
+    }
+    return 0;
+  }
+
   physicsStep(dt, sim) {
     const b = this.body;
     const r = Math.hypot(this.x, this.y);
@@ -178,24 +290,48 @@ class Vessel {
     let ax = -b.mu * this.x / (r * r * r);
     let ay = -b.mu * this.y / (r * r * r);
 
-    const eng = this.applyEngines(dt, rho);
     const fx = -Math.sin(this.rot), fy = Math.cos(this.rot);
+    const eng = this.applyEngines(dt, rho, this.vx * fx + this.vy * fy, sim);
+    this.spinRotors(dt);
     ax += fx * eng.F / this.mass;
     ay += fy * eng.F / this.mass;
     let torque = eng.torque;
+
+    // Control: reaction wheels, gimbals and rotors steer towards a target angular velocity. Control
+    // surfaces get a command too; the wings below turn it into lift this same step.
+    let tMax = eng.gimbal + eng.rotorTorque;
+    for (const p of this.parts) if (p.def.torque) tMax += p.def.torque;
+    if (this.wheelsDown) tMax *= 0.5;
+    let need = null;
+    if (!this.isDebris) {
+      const wTarget = this.turnTarget(sim, eng.F);
+      if (wTarget != null) need = (wTarget - this.w) * this.inertia / Math.max(dt, 1e-3) * 0.35;
+    }
+    this.ctrlCmd = need == null || this.surfAuth <= 0 ? 0 : clamp(need / Math.max(1, this.surfAuth + tMax), -1, 1);
+    if (need != null && tMax > 0) torque += clamp(need, -tMax, tMax);
 
     // Aerodynamics
     const v = Math.hypot(this.vx, this.vy);
     this.chuteOpen = false;
     this.q = 0.5 * rho * v * v;
+    this.airspeed = rho > 0 ? v : 0;
+    this.lift = 0;
+    this.aoa = null;
+    let auth = 0;
     if (rho > 0 && v > 0.01) {
       const vxh = this.vx / v, vyh = this.vy / v;
       const along = fx * vxh + fy * vyh; // 1 = nose first
       const cross = fx * vyh - fy * vxh; // sin of the angle from the nose to the velocity
-      const cd = along > 0.85 ? (this.noseAero ? 0.32 : 0.62) : along < -0.85 ? 0.75 : 1.0;
       const side = Math.abs(along);
       const L = this.bounds.maxY - this.bounds.minY;
-      const area = this.width * (this.width * side + L * (1 - side)) * 0.8;
+      let cd, area;
+      if (this.kind === 'rocket') { // tuned for ascents and reentries; keep as is
+        cd = along > 0.85 ? (this.noseAero ? 0.32 : 0.62) : along < -0.85 ? 0.75 : 1.0;
+        area = this.width * (this.width * side + L * (1 - side)) * 0.8;
+      } else {
+        cd = along > 0.85 ? (this.noseAero ? 0.3 : 0.55) : along < -0.85 ? 0.7 : this.kind === 'car' ? 0.5 : 0.9;
+        area = this.areaFront * side + this.areaSide * (1 - side);
+      }
       let cdA = cd * area;
       const aboveGround = alt - terrainHeight(b, Math.atan2(this.y, this.x));
       for (const p of this.parts) {
@@ -220,33 +356,41 @@ class Vessel {
       let finStab = 0;
       for (const f of this.fins) finStab += f.def.w * f.def.h * 0.8 * (this.com.y - f.y);
       torque += cross * this.q * (area * 0.04 * Math.min(L, 6) * (along > 0 ? 1 : -1) + finStab);
-    }
-    if (this.updateHeat(dt, rho, v, sim)) return;
 
-    // Control: reaction wheels + gimbal steer towards a target angular velocity.
-    let wheel = 0;
-    for (const p of this.parts) if (p.def.torque) wheel += p.def.torque;
-    let tMax = wheel + eng.gimbal;
-    if (this.wheelsDown) tMax *= 0.5;
-    if (tMax > 0 && !this.isDebris) {
-      let wTarget = null;
-      const driving = this.wheelsDown && this.input !== 0;
-      // rovers level themselves to the ground while driving or bouncing over bumps
-      const rover = this.wheels.length && this.sas === 'hold' && (this.wheelsDown || (eng.F === 0 && this.groundAltitude() < 40));
-      if (this.input !== 0 && !driving) wTarget = -this.input * 1.1;
-      else if (rover) {
-        const n = surfaceNormal(b, Math.atan2(this.y, this.x));
-        wTarget = clamp(wrapAngle(Math.atan2(n.y, n.x) - Math.PI / 2 - this.rot) * 2.5, -1.2, 1.2);
-      } else if (this.sas !== 'off') {
-        const head = this.sasHeading(sim);
-        if (head != null) wTarget = clamp(wrapAngle(head - Math.PI / 2 - this.rot) * 2.2, -1.1, 1.1);
-        else if (!this.chuteOpen) wTarget = 0;
+      // Wings: lift and drag at each wing's quarter-chord point, from the air flowing past that point
+      if (this.wings.length) {
+        const c = Math.cos(this.rot), s = Math.sin(this.rot), upx = this.x / r, upy = this.y / r;
+        for (const p of this.wings) {
+          const wd = p.def.wing, lx = p.x - this.com.x, ly = p.y + p.def.h / 4 - this.com.y;
+          const rx = c * lx - s * ly, ry = s * lx + c * ly;
+          const pvx = this.vx - this.w * ry, pvy = this.vy + this.w * rx;
+          const ux = c * pvx + s * pvy, uy = -s * pvx + c * pvy; // in part space; +y is forward
+          const V = Math.hypot(ux, uy);
+          p.deflect = 0;
+          if (V < 0.5) continue;
+          const qS = 0.5 * rho * V * V * wd.area;
+          let Fx, Fy;
+          if (uy > 0) {
+            // a surface ahead of the centre of mass deflects the other way to give the same turn
+            if (wd.control) { p.deflect = this.ctrlCmd * wd.control * (ly >= 0 ? 1 : -1); auth += qS * 5.5 * wd.control * Math.abs(ly); }
+            const a = Math.atan2(ux, uy), ae = a + p.deflect, cl = liftCoef(ae), x = Math.abs(ae);
+            const cdw = 0.02 + 0.06 * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(0.28, 0.5, x);
+            Fx = qS * (-cl * uy - cdw * ux) / V; // lift along (-uy, ux)/V, drag against the flow
+            Fy = qS * (cl * ux - cdw * uy) / V;
+            if (p === this.mainWing) this.aoa = a;
+          } else { // air flowing backwards over the wing: a flat plate
+            const sn = ux / V;
+            Fx = -qS * (1.2 * sn * Math.abs(sn) + 0.02 * sn); Fy = -qS * 0.02 * uy / V;
+          }
+          const wx = c * Fx - s * Fy, wy = s * Fx + c * Fy;
+          ax += wx / this.mass; ay += wy / this.mass;
+          torque += rx * wy - ry * wx;
+          this.lift += wx * upx + wy * upy;
+        }
       }
-      if (wTarget != null) {
-        const need = (wTarget - this.w) * this.inertia / Math.max(dt, 1e-3) * 0.35;
-        torque += clamp(need, -tMax, tMax);
-      }
-    }
+    } else for (const p of this.wings) p.deflect = 0;
+    this.surfAuth = auth;
+    if (this.updateHeat(dt, rho, v, sim)) return;
 
     this.vx += ax * dt; this.vy += ay * dt;
     this.w += (torque / this.inertia) * dt;
@@ -305,8 +449,8 @@ class Vessel {
     const c = Math.cos(this.rot), s = Math.sin(this.rot);
     for (const p of this.parts) {
       if (p.def.wheel) {
-        const rad = Math.min(p.def.w, p.def.h) * 0.45;
-        const dx = p.x - this.com.x, dy = p.y - p.def.h * 0.05 - this.com.y;
+        const g = wheelGeom(p), rad = g.r;
+        const dx = g.x - this.com.x, dy = g.y - this.com.y;
         const rx = c * dx - s * dy, ry = s * dx + c * dy;
         const wx = this.x + rx, wy = this.y + ry;
         const ang = Math.atan2(wy, wx);
@@ -340,8 +484,12 @@ class Vessel {
     if (broken.size) { sim.breakParts(this, [...broken], 'impact'); return; }
 
     const wheelContacts = contacts.filter((k) => k.wheel);
+    const driveContacts = wheelContacts.filter((k) => k.p.def.wheel.drive);
     this.wheelsDown = wheelContacts.length > 0;
-    const driving = this.wheelsDown && this.input !== 0;
+    // aircraft roll freely: their rotate controls pitch instead of driving
+    this.canDrive = !this.aircraft && driveContacts.length > 0;
+    const driving = this.canDrive && this.input !== 0;
+    const braking = this.brake && this.wheelsDown;
     const invM = 1 / this.mass, invI = 1 / this.inertia;
     for (let iter = 0; iter < 4; iter++) {
       for (const k of contacts) {
@@ -356,7 +504,8 @@ class Vessel {
         const vpx2 = this.vx - this.w * ry, vpy2 = this.vy + this.w * rx;
         const vt = vpx2 * tx + vpy2 * ty;
         const rt = rx * ty - ry * tx;
-        const mu = k.wheel ? (driving || Math.abs(this.wheelSpeed || 0) > 0.5 ? 0.04 : 0.9) : k.water ? 0.15 : 0.9;
+        const mu = !k.wheel ? (k.water ? 0.15 : 0.9) : braking ? 0.8
+          : this.canDrive ? (driving || Math.abs(this.wheelSpeed || 0) > 0.5 ? 0.04 : 0.9) : 0.025;
         const jt = clamp(-vt / (invM + rt * rt * invI), -mu * jn, mu * jn);
         this.vx += jt * tx * invM; this.vy += jt * ty * invM; this.w += rt * jt * invI;
       }
@@ -365,17 +514,21 @@ class Vessel {
     for (const k of contacts) if (k.pen > maxPen) { maxPen = k.pen; nx = k.n.x; ny = k.n.y; }
     if (maxPen > 0) { this.x += nx * maxPen * 0.9; this.y += ny * maxPen * 0.9; }
 
-    // rover drive: a simple speed controller along the ground
+    // driven wheels: a simple speed controller along the ground (the brake works through friction above)
     if (this.wheelsDown) {
       const n = wheelContacts[0].n;
       const ex = n.y, ey = -n.x; // "east" along the surface (screen right)
       const vt = this.vx * ex + this.vy * ey;
-      const grip = wheelContacts.length / Math.max(1, this.wheels.length);
-      // drive towards the commanded speed; with no input, brake gently instead of locking the wheels
-      const accel = driving ? clamp((this.input * 12 - vt) * 1.5, -2.5, 2.5) * grip : clamp(-vt * 1.2, -2, 2) * grip;
-      this.vx += ex * accel * dt; this.vy += ey * accel * dt;
+      if (this.canDrive && !braking) {
+        let top = Infinity, acc = 0;
+        for (const k of driveContacts) { top = Math.min(top, k.p.def.wheel.speed || 12); acc = Math.max(acc, k.p.def.wheel.accel || 2.5); }
+        const grip = driveContacts.length / Math.max(1, this.wheels.length);
+        // drive towards the commanded speed; with no input, slow down gently instead of locking the wheels
+        const accel = driving ? clamp((this.input * top - vt) * 1.5, -acc, acc) * grip : clamp(-vt * 1.2, -2, 2) * grip;
+        this.vx += ex * accel * dt; this.vy += ey * accel * dt;
+      }
       this.wheelSpeed = vt;
-      for (const w of this.wheels) w.spin = (w.spin || 0) - (vt / (Math.min(w.def.w, w.def.h) * 0.45)) * dt;
+      if (!braking) for (const w of this.wheels) w.spin = ((w.spin || 0) - (vt / wheelGeom(w).r) * dt) % TAU;
     }
     this.splashed = contacts.some((k) => k.water);
     if (this.splashed) { const k = Math.exp(-0.6 * dt); this.vx *= k; this.vy *= k; this.w *= k; }
@@ -387,6 +540,27 @@ class Vessel {
       this.restTime += dt;
       if (this.restTime > 0.5) { this.vx = 0; this.vy = 0; this.w *= 0.5; }
     } else this.restTime = 0;
+  }
+
+  // Rest on the surface of `body` at angle `ang`, turned by `rot` from upright there.
+  placeOnSurface(body, ang, rot) {
+    this.body = body;
+    this.rot = wrapAngle(rot + ang - Math.PI / 2);
+    const c = Math.cos(this.rot), s = Math.sin(this.rot), ux = Math.cos(ang), uy = Math.sin(ang);
+    let low = Infinity;
+    const reach = (lx, ly, rad) => {
+      const dx = lx - this.com.x, dy = ly - this.com.y;
+      low = Math.min(low, (c * dx - s * dy) * ux + (s * dx + c * dy) * uy - rad);
+    };
+    for (const p of this.parts) {
+      if (p.def.wheel) { const g = wheelGeom(p); reach(g.x, g.y, g.r); continue; }
+      const R = partRect(p);
+      reach(R.l, R.b, 0); reach(R.r, R.b, 0); reach(R.l, R.t, 0); reach(R.r, R.t, 0);
+    }
+    const r = surfaceRadius(body, ang) - low + 0.02;
+    this.x = ux * r; this.y = uy * r;
+    this.vx = 0; this.vy = 0; this.w = 0;
+    this.landed = true;
   }
 
   // Engines/separators/chutes that respond to a tap.
@@ -456,6 +630,7 @@ class Vessel {
       v.vx = this.vx - this.w * ry; v.vy = this.vy + this.w * rx;
       v.rot = this.rot; v.w = this.w;
       v.throttle = this.throttle;
+      v.kind = this.kind;
       v.isDebris = !v.control;
       v.name = v.control ? `${this.name} (${v.control.def.name})` : 'Debris';
       v.stages = remaining.map((st) => st.filter((id) => ids.has(id))).filter((st) => st.length);
@@ -473,7 +648,7 @@ class Vessel {
   serialize() {
     return {
       body: this.body.id, x: this.x, y: this.y, vx: this.vx, vy: this.vy, rot: this.rot, w: this.w,
-      throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name,
+      throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
       parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, flip: p.flip, fuel: p.fuel, active: p.active,
         deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout })),
@@ -492,7 +667,7 @@ class Vessel {
     for (const p of parts) if (!adj.has(p.id)) adj.set(p.id, new Set());
     const v = new Vessel(parts, adj, BODY_BY_ID[d.body] || EARTH);
     Object.assign(v, { x: d.x, y: d.y, vx: d.vx, vy: d.vy, rot: d.rot, w: d.w, throttle: d.throttle, sas: d.sas || 'hold',
-      isDebris: d.isDebris, name: d.name || 'Vessel', stages: d.stages || [], stageIdx: d.stageIdx || 0, landed: !!d.landed });
+      isDebris: d.isDebris, name: d.name || 'Vessel', stages: d.stages || [], stageIdx: d.stageIdx || 0, landed: !!d.landed, kind: d.kind || 'rocket' });
     v.rebuildGroups();
     // rebuildGroups shifts position for the COM; restore the saved values
     Object.assign(v, { x: d.x, y: d.y });
