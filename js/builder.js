@@ -47,15 +47,48 @@ const TEMPLATES = {
       ['sideSep', -1.75, 5], ['thunder', -2.75, 4], ['noseS', -2.75, 8.5]],
   },
   // Planes are built nose-right: the stack runs along +y and the landing gear sits on the +x side.
+  // Planes are built nose-right: the stack runs along +y and the landing gear sits on the +x side.
+  // Wings and tail surfaces go through the fuselage; pods and drop tanks hang from a wing.
   skylark: {
-    name: 'Skylark', kind: 'plane', tier: 0, blurb: 'A propeller trainer. Full throttle, then pull up gently at about 55 m/s.',
-    parts: [['tailcone', 0, 1.25], ['fuselage', 0, 4.5], ['cockpit', 0, 7.75], ['propeller', 0, 9.45],
-      ['wing', -1.25, 4.6], ['elevator', -0.65, -0.75], ['vtail', -1.8, 1.1], ['gear', 1.7, 4.6], ['gear', 1.7, 7.6]],
+    name: 'Skylark', kind: 'plane', tier: 0, blurb: 'A forgiving high-wing trainer. Full throttle, then pull back gently at about 130 km/h.',
+    parts: [['tailcone', 0, 1.25], ['fuselageS', 0, 3.5], ['cockpit', 0, 5.75], ['propeller', 0, 7.45],
+      ['wing', -0.85, 3.6], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.0], ['gear', 1.7, 3.6], ['gear', 1.7, 6.3]],
+  },
+  bushhopper: {
+    name: 'Bushhopper', kind: 'plane', tier: 0, blurb: 'A light taildragger: slow, gentle and short on the runway. Raise the tail, then lift off.',
+    parts: [['tailconeS', 0, 1.25], ['fuselageSlim', 0, 4.5], ['cockpitS', 0, 7.5], ['propS', 0, 8.85],
+      ['wing', -0.6, 4.2], ['elevator', -0.3, 0.75], ['vtailS', -1.2, 0.75], ['gearS', 1.25, 5.9], ['tailWheel', 1.05, 0.3]],
+  },
+  barnstormer: {
+    name: 'Barnstormer', kind: 'plane', tier: 1, blurb: 'A biplane with a big radial engine. Torquey, draggy and loads of fun to throw around.',
+    parts: [['tailcone', 0, 1.25], ['fuselageS', 0, 3.5], ['cockpit', 0, 5.75], ['propL', 0, 7.65],
+      ['wing', -1.2, 3.7], ['wing', 0.95, 3.5], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.1], ['gearS', 1.5, 5.6], ['tailWheel', 1.3, 0.3]],
   },
   hornet: {
-    name: 'Hornet', kind: 'plane', tier: 2, blurb: 'A turbojet fighter. Fast enough to break the sound barrier.',
-    parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpit', 0, 8.25], ['wing', -1.25, 4.6], ['elevator', 0.9, 0.9],
-      ['vtail', -1.55, 1.5], ['gear', 1.7, 4.2], ['gear', 1.7, 8]],
+    name: 'Hornet', kind: 'plane', tier: 2, blurb: 'A turbojet fighter with swept wings. Fast enough to break the sound barrier.',
+    parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpitJet', 0, 9.1], ['wingSwept', 0.2, 5.3], ['elevator', 0.25, 1.2],
+      ['vtail', -1.45, 1.6], ['gearR', 1.7, 4.4], ['gearR', 1.5, 8.6], ['airbrake', -1.125, 5.6]],
+  },
+  viper: {
+    name: 'Viper', kind: 'plane', tier: 3, blurb: 'Delta-wing interceptor with an afterburner (full throttle) and canards. Mach 2, if you dare.',
+    parts: [['jetAB', 0, 2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
+      ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3]],
+  },
+  jumbo: {
+    name: 'Jumbo', kind: 'plane', tier: 2, blurb: 'A wide-body airliner on two turbofans. Long take-off roll: use half flaps (F) and rotate gently.',
+    parts: [['tailconeW', 0, 2.25], ['fuselageW', 0, 7.5], ['fuselageW', 0, 13.5], ['cockpitAir', 0, 18.2],
+      ['wingL', 0.9, 11.6], ['fanPods', 1.8, 12.4], ['elevatorL', -0.9, 1.6], ['vtailL', -2.4, 1.9],
+      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2]],
+  },
+  albatross: {
+    name: 'Albatross', kind: 'plane', tier: 0, blurb: 'A glider with a JATO rocket to get it up. Once the rocket burns out, ride the long slow glide home.',
+    parts: [['tailconeS', 0, 1.25], ['fuselageSlim', 0, 4.5], ['cockpitS', 0, 7.5], ['wingGlider', -0.5, 4.4],
+      ['elevator', -0.3, 0.75], ['vtailS', -1.2, 0.75], ['jato', 1.05, 4.1], ['gearS', 1.25, 6.6], ['tailWheel', 1.05, 0.3]],
+  },
+  seagull: {
+    name: 'Seagull', kind: 'plane', tier: 1, blurb: 'A floatplane. It starts on the water in the bay west of the island: full throttle and lift off the waves.',
+    parts: [['tailcone', 0, 1.25], ['fuselageS', 0, 3.5], ['cockpit', 0, 5.75], ['propeller', 0, 7.45],
+      ['wing', -0.85, 3.6], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.0], ['floats', 1.5, 4.3]],
   },
   buggy: {
     name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with W/S, steer with A/D. The causeway leads to the mainland.',
@@ -100,6 +133,7 @@ const Builder = {
     if (kind === 'plane' && this.kind !== 'plane' && this.symmetry) { this.symmetry = false; $('#btn-sym').setAttribute('aria-pressed', 'false'); }
     const turned = kind !== this.kind;
     this.kind = kind;
+    if (turned) this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
     this.renderKind();
     this.linkMirrors();
     this.selected = null;
@@ -139,10 +173,21 @@ const Builder = {
     for (const p of ps) if (first.has(p.id) && p.def.thrust) { const n = partPt(p, 0, -p.def.h / 2); thrust += p.def.thrust * 1000; tx += p.def.thrust * n.x; ty += p.def.thrust * n.y; }
     this.com = mass ? { x: cx / mass, y: cy / mass } : null;
     this.cot = thrust ? { x: (tx * 1000) / thrust, y: (ty * 1000) / thrust } : null;
+    // planes: centre of lift (every horizontal surface, weighted by how much lift it makes per degree)
+    // and the speed the wings stall at, clean and with full flaps, at sea level
+    let la = 0, lx = 0, ly = 0, clS = 0, clF = 0, wingArea = 0;
+    for (const p of ps) if (p.def.wing) {
+      const W = wingAero(p.def), wd = p.def.wing, k = wd.area * W.slope, c = partPt(p, 0, p.def.h / 4 - W.back);
+      la += k; lx += k * c.x; ly += k * c.y;
+      if (!wd.control) { clS += k * W.stall; clF += wd.flaps ? k * (W.stall - 0.03) + 0.8 * wd.area : k * W.stall; wingArea += wd.area; }
+    }
+    this.col = la ? { x: lx / la, y: ly / la } : null;
+    const vStall = (cl) => (cl > 0 ? Math.sqrt((2 * mass * G0) / (1.225 * cl)) : 0);
     const locked = this.parts.filter((p) => !Career.unlocked(p.def));
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
       loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
+      air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps) },
     };
     this.renderStats();
     if (!fromHistory) {
@@ -223,7 +268,7 @@ const Builder = {
     const { w, h } = partDims({ def, rot });
     const others = this.parts.filter((p) => !ignore.includes(p));
     const probe = (x, y) => ({ def, type, x, y, rot });
-    const free = (x, y) => !others.some((o) => partsOverlap(probe(x, y), o));
+    const free = (x, y) => !others.some((o) => partsClash(probe(x, y), o));
     const radius = Math.max(1.4, 26 / this.cam.scale);
     let best = null, bestD = radius;
     const consider = (x, y) => {
@@ -231,6 +276,12 @@ const Builder = {
       if (d < bestD && free(x, y)) { best = { x, y }; bestD = d; }
     };
     const g = (v) => Math.round(v * 4) / 4;
+    // wings and tail surfaces sit right where they are dropped, through the part they mount on; pods and
+    // drop tanks hang from a wing the same way
+    if (isSurface(def) || def.pod) {
+      const gx = g(want.x), gy = g(want.y), pr = probe(gx, gy);
+      if (free(gx, gy) && others.some((o) => partsMounted(pr, o) && (!def.pod || isSurface(o.def)))) return { x: gx, y: gy, attached: true, ok: true };
+    }
     for (const o of others) {
       const R = partRect(o);
       consider(o.x, R.t + h / 2);
@@ -251,8 +302,8 @@ const Builder = {
     if (Math.abs(x) < 0.01) return false;
     const probe = { def: PARTS[type], type, x: -x, y, rot: mirrorRot(rot) };
     const self = { def: PARTS[type], type, x, y, rot };
-    if (partsOverlap(probe, self)) return false;
-    return !this.parts.some((o) => !ignore.includes(o) && partsOverlap(probe, o));
+    if (partsClash(probe, self)) return false;
+    return !this.parts.some((o) => !ignore.includes(o) && partsClash(probe, o));
   },
 
   addPart(type, x, y, rot = 0) {
@@ -335,6 +386,7 @@ const Builder = {
   },
 
   specLine(def) {
+    if (def.wing) return `${def.wing.area} m² · ${def.wing.span} m span`;
     if (def.thrust) return `${def.thrust} kN · ${def.ispVac}s`;
     if (def.fuel) return `${def.fuel} t fuel`;
     return `${def.mass} t`;
@@ -382,7 +434,25 @@ const Builder = {
     const centre = this.screenToWorld(area.cx, area.cy);
     const def = PARTS[type];
     let spot = null;
-    if (this.parts.length) {
+    const ok = (t) => {
+      const probe = { def, type, x: t.x, y: t.y };
+      return !this.parts.some((o) => partsClash(probe, o)) && (!(isSurface(def) || def.pod) || this.parts.some((o) => partsMounted(probe, o)));
+    };
+    if (this.parts.length && (isSurface(def) || def.pod)) {
+      // planes: a main wing goes through the fuselage just behind the centre of mass, tail surfaces through
+      // the rearmost hull part, a canard through the front one, pods under a wing
+      const g = (v) => Math.round(v * 4) / 4, hull = this.parts.filter((p) => !isSurface(p.def) && !p.def.pod && !p.def.wheel);
+      const com = this.com || { x: 0, y: 0 }, tries = [];
+      const rear = hull.reduce((m, p) => (!m || partRect(p).b < partRect(m).b ? p : m), null);
+      const front = hull.reduce((m, p) => (!m || partRect(p).t > partRect(m).t ? p : m), null);
+      const at = (y) => hull.find((p) => partRect(p).b <= y && partRect(p).t >= y) || rear;
+      if (def.pod) for (const wg of this.parts.filter((p) => p.def.wing && !p.def.wing.control)) tries.push({ x: g(wg.x + def.w * 0.35), y: wg.y });
+      else if (def.shape === 'vtail' && rear) for (const dy of [0, 0.5, 1]) tries.push({ x: g(partRect(rear).l - def.w / 2 + 0.25), y: g(rear.y + dy) });
+      else if (def.wing && def.wing.control && type === 'canard' && front) tries.push({ x: front.x, y: g(front.y) });
+      else if ((def.wing && def.wing.control) || type === 'stabilizer') { if (rear) for (const dy of [0, -0.5, 0.5]) tries.push({ x: rear.x, y: g(rear.y + dy) }); }
+      else if (def.wing) for (const dy of [0, -0.5, 0.5, -1, 1]) { const y = g(com.y - def.h / 4 - 0.2 + dy), h = at(y); if (h) tries.push({ x: h.x, y }); }
+      spot = tries.find(ok) || null;
+    } else if (this.parts.length) {
       const centred = this.parts.filter((p) => Math.abs(p.x) < 0.01);
       const sorted = centred.sort((a, b) => partRect(b).t - partRect(a).t);
       const topP = sorted[0], botP = sorted[sorted.length - 1];
@@ -393,10 +463,7 @@ const Builder = {
         for (const p of centred) tries.push({ x: p.def.w / 2 + def.w / 2, y: def.fin ? partRect(p).b + def.h / 2 : p.y });
       } else if (def.control || def.chute || def.aero) tries.push(top, bottom);
       else tries.push(bottom, top);
-      for (const t of tries.filter(Boolean)) {
-        const probe = { def, type, x: t.x, y: t.y };
-        if (!this.parts.some((o) => partsOverlap(probe, o))) { spot = t; break; }
-      }
+      for (const t of tries.filter(Boolean)) if (ok(t)) { spot = t; break; }
     }
     if (!spot) { const s = this.snap(type, centre, []); spot = s.ok ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
@@ -406,6 +473,7 @@ const Builder = {
   setKind(kind) {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
     this.kind = kind;
+    this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
     this.buildPalette();
     if (kind === 'plane' && this.symmetry) {
       this.symmetry = false;
@@ -419,6 +487,13 @@ const Builder = {
   },
   renderKind() {
     document.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.kind === this.kind)));
+  },
+
+  // Nose-to-tail length of a design (along part y).
+  length(ps) {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of ps) { const r = partRect(p); lo = Math.min(lo, r.b); hi = Math.max(hi, r.t); }
+    return hi > lo ? hi - lo : 0;
   },
 
   renderStats() {
@@ -444,10 +519,22 @@ const Builder = {
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
     if (!this.ctrl) warn.push(kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
     else if (kind === 'plane') {
-      if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly.');
+      const com = this.com, col = this.col, L = Math.max(4, s.air.length);
+      if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
       if (!has((p) => p.def.thrust)) warn.push('Add an engine: a propeller or a jet.');
-      if (!has((p) => p.def.wheel)) warn.push('Add landing gear under the fuselage to roll down the runway.');
+      if (!has((p) => p.def.wheel) && !has((p) => p.def.float)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).');
+      else if (has((p) => p.def.wheel) && com) {
+        const ahead = ps.some((p) => p.def.wheel && p.y > com.y), behind = ps.some((p) => p.def.wheel && p.y < com.y);
+        if (!ahead || !behind) warn.push('Put landing gear both ahead of and behind the centre of mass, or it will tip onto its nose or tail.');
+      }
       if (!has((p) => p.def.wing && p.def.wing.control)) warn.push('An elevator at the tail makes it much easier to steer.');
+      if (!has((p) => p.def.shape === 'vtail')) warn.push('Add a tail fin, or it will yaw and spin.');
+      if (com && col) {
+        const m = (com.y - col.y) / L; // how far the lift sits behind the weight, in plane lengths
+        if (m < -0.01) warn.push('The centre of lift (blue) is ahead of the centre of mass: it will flip over. Move the wing back or the weight forward.');
+        else if (m > 0.22) warn.push('Very nose-heavy: the centre of lift is far behind the centre of mass, so it may not lift its nose. Move the wing forward.');
+      }
+      if (s.thrust && s.twr < 0.2) warn.push('Underpowered: it will struggle to take off.');
     } else if (kind === 'car') {
       if (!has((p) => p.def.wheel && p.def.wheel.drive)) warn.push('Add car wheels under the chassis to drive.');
     } else if (kind === 'heli') {
@@ -460,6 +547,9 @@ const Builder = {
     else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
+    const a = s.air, airLine = kind === 'plane' && a.stall > 0;
+    $('#s-air').hidden = !airLine;
+    if (airLine) $('#s-air').textContent = `Stalls at ${Math.round(a.stall * 3.6)} km/h (${Math.round(a.stallFlaps * 3.6)} with flaps) · lifts off near ${Math.round(a.stallFlaps * 1.2 * 3.6)} km/h · wing ${Math.round(a.wingArea)} m²`;
     const list = $('#s-stage-list');
     list.innerHTML = '';
     const byId = new Map(this.parts.map((p) => [p.id, p]));
@@ -788,8 +878,12 @@ const Builder = {
         }
       }
     };
-    drawList((p) => p.def.leg || p.def.fin || p.def.wheel);
-    drawList((p) => !p.def.leg && !p.def.fin && !p.def.wheel);
+    // wings and tail surfaces pass through the hull: draw them (and the pods hanging off them) on top
+    const over = (p) => isSurface(p.def) || p.def.pod;
+    drawList((p) => (p.def.leg || p.def.fin || p.def.wheel) && !over(p));
+    drawList((p) => !p.def.leg && !p.def.fin && !p.def.wheel && !over(p));
+    drawList((p) => isSurface(p.def));
+    drawList((p) => p.def.pod);
     ctx.globalAlpha = 1;
     if (this.selected) {
       for (const p of [this.selected, this.selected.mirror]) {
@@ -824,6 +918,12 @@ const Builder = {
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, 0, Math.PI / 2); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, Math.PI, Math.PI * 1.5); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#14181f'; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+    }
+    if (this.col && this.kind === 'plane') { // centre of lift: a blue disc with a wing through it
+      const [cx, cy] = XY(this.col.x, this.col.y), r = 8 * dpr;
+      ctx.fillStyle = '#4aa8ff'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#0b2440'; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - r * 1.6, cy); ctx.lineTo(cx + r * 1.6, cy); ctx.strokeStyle = '#4aa8ff'; ctx.lineWidth = 2.5 * dpr; ctx.stroke();
     }
     if (this.cot) {
       const [cx, cy] = XY(this.cot.x, this.cot.y);

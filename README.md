@@ -12,7 +12,7 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 
 ## Modes
 
-- **Career:** start with $50,000 and basic parts. Every launch costs the price of its parts; recovering a craft on Earth refunds 90%. Complete 39 missions (first hop, orbit, flybys, orbits, landings and returns for every body, a Sun dive, interstellar escape, plus a first takeoff, a runway landing, the sound barrier, a hover and a road trip) to earn funds, and spend them in R&D to unlock five tiers of technology.
+- **Career:** start with $50,000 and basic parts. Every launch costs the price of its parts; recovering a craft on Earth refunds 90%. Complete 41 missions (first hop, orbit, flybys, orbits, landings and returns for every body, a Sun dive, interstellar escape, plus a first takeoff, a runway landing, the sound barrier, Mach 2, a seaplane round trip, a hover and a road trip) to earn funds, and spend them in R&D to unlock five tiers of technology.
 - **Sandbox:** every part unlocked and no money involved.
 
 ## Controls
@@ -22,10 +22,12 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 | Pitch (cars: drive forward / back) | `W` / `S` or `↑` / `↓`; `W` is nose down | Push the stick forward / back |
 | Rockets: turn · planes and helicopters: roll · cars: steer | `A` / `D` or `←` / `→` | Push the stick left / right |
 | Rockets: roll · planes and helicopters: yaw | `Q` / `E` | Hold the ⟲ ⟳ buttons |
-| Brake on wheels | Hold `B` | Hold Brake |
+| Brake on wheels, air brakes | Hold `B` | Hold Brake |
 | Throttle | `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
 | Next stage | `Space` | STAGE button |
 | Autopilot | `1` hold · `2` prograde · `3` retrograde · `4` radial out · `5` radial in · `6` target | Autopilot buttons above the rotate controls |
+| Plane autopilot | `1` hold attitude · `2` level (holds altitude-ish) · `3` heading (`A` / `D` turn it) · `4` off | Autopilot buttons |
+| Flaps · landing gear | `F` cycles flaps up / takeoff / landing · `G` raises or lowers retractable gear | Flaps and Gear pills |
 | Use one part | Click it | Tap it (engines toggle, separators fire, parachutes open) |
 | Map view | `M`; click a planet to target it | Map button; tap a planet |
 | Switch vessel | `[` / `]`, or click it | Tap it in flight or on the map |
@@ -34,14 +36,19 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 | Camera | Drag to look around; `C` or double-click resets it | Drag |
 | Pause, save & exit | `Esc` | Menu button |
 
-Builder: pick Rocket, Plane, Car or Helicopter above the stats, drag parts from the tray onto the blueprint (tap a tray part to auto-stack it), drag a part back onto the tray to remove it, `R` (or the turn button) to rotate the selected part, or the one you are dragging, a quarter turn, `Ctrl+Z` / `Ctrl+Y` to undo and redo, `Ctrl+D` to duplicate, `F` to fit the view, `Enter` to launch. The 3D button (`V`) turns the blueprint into a turntable preview: drag to look around, tap a part to select it. The Hangar saves and loads your own named designs and has eleven examples: seven rockets, the Skylark trainer and Hornet jet, the Dune Buggy and the Dragonfly helicopter.
+Builder: pick Rocket, Plane, Car or Helicopter above the stats, drag parts from the tray onto the blueprint (tap a tray part to auto-stack it), drag a part back onto the tray to remove it, `R` (or the turn button) to rotate the selected part, or the one you are dragging, a quarter turn, `Ctrl+Z` / `Ctrl+Y` to undo and redo, `Ctrl+D` to duplicate, `F` to fit the view, `Enter` to launch. The 3D button (`V`) turns the blueprint into a turntable preview: drag to look around, tap a part to select it. The Hangar saves and loads your own named designs and has seventeen examples: seven rockets, eight planes (the Skylark trainer, Bushhopper STOL, Barnstormer biplane, Hornet and Viper jets, Jumbo airliner, Albatross glider and Seagull seaplane), the Dune Buggy and the Dragonfly helicopter. In Plane mode a blue marker shows the centre of lift, and the stats warn about tail-heavy designs, badly placed gear, missing fins and weak engines.
 
 ## What's in it
 
 - **A 3D world:** craft move and turn in all three dimensions: orbits can be inclined, planes bank and turn anywhere over the island, cars drive off across the countryside. You see textured planets from space, terrain with oceans, beaches, trees and clouds near the ground, the space centre with its runway, helipad and causeway, shadows, engine plumes and smoke. The camera follows behind planes, cars and helicopters and beside rockets. Building stays on a 2D blueprint.
-- **Vehicles:** rockets launch from the pad, planes take off from the runway, cars drive from it (a causeway road leads 13 km east to the mainland), and helicopters lift off from the helipad. Wings make lift from the airflow and stall at high angles; ailerons roll, elevators pitch and the tail fin's rudder yaws and keeps a plane pointing into the wind, so banked turns are coordinated. Propellers and jets need air, rotors give lift and the stick tilts a helicopter (it levels itself when you let go), car wheels drive and the front ones steer, landing gear rolls freely and everything brakes. Planes hold their pitch and bank when you let go.
+- **Vehicles:** rockets launch from the pad, planes take off from the runway, cars drive from it (a causeway road leads 13 km east to the mainland), and helicopters lift off from the helipad. Wings make lift from the airflow and stall at high angles; ailerons roll, elevators pitch and the tail fin's rudder yaws and keeps a plane pointing into the wind, so banked turns are coordinated. Propellers and jets need air, rotors give lift and the stick tilts a helicopter (it levels itself when you let go), car wheels drive and the front ones steer, landing gear rolls freely and everything brakes. Planes hold their pitch and bank when you let go, or the autopilot can level them out or hold a heading.
 - **The sound barrier:** past Mach 1 in thick air a vapour cone wraps the craft, a shock ring bursts outwards and a sonic boom cracks; the HUD shows the Mach number.
-- **56 parts** in nine categories: crew pods and probe cores; tanks in 1, 2 and 3 m widths; nine rocket engines including solid boosters that can't be shut down, an aerospike that keeps its efficiency at every altitude, a nuclear engine and an ion drive; separators; nose cones, fins and heat shields; parachutes, landing legs, rover wheels and RCS; girders and adapters; aircraft parts (cockpit, fuselage, tail cone, wings, elevator, tail fin, propeller, turbojet, main and tail rotors, landing gear); ground parts (driver cab, chassis, car wheels).
+- **98 parts** in twelve categories: crew pods and probe cores; tanks in 1, 2 and 3 m widths; nine rocket engines including solid boosters that can't be shut down, an aerospike that keeps its efficiency at every altitude, a nuclear engine and an ion drive; separators; nose cones, fins and heat shields; parachutes, landing legs, rover wheels and RCS; girders and adapters; ground parts (driver cab, chassis, car wheels); and 54 aircraft parts:
+  - **Fuselage:** four cockpits (bush, standard, fighter nose, airliner nose), a radome, five fuselage sections, an adapter and four tail cones.
+  - **Wings:** short, standard and long wings (with flaps and fuel), swept, delta and glider wings, stabilisers, two elevators, a canard, four tail fins including a twin-tail pair, and air brakes.
+  - **Aero engines:** small, standard and four-blade propellers, a turboprop, a pusher prop, twin wing-mounted props, small and standard turbojets, an afterburning jet, jet pods, a turbofan, fan pods, a ramjet that only lights at speed, JATO bottles and helicopter rotors.
+  - **Gear:** small, standard and heavy gear, retractable gear, a tail wheel, floats, drop tanks and a brake chute.
+- **Flight model:** wings and tail fins mount straight through the fuselage, and pods, floats and drop tanks hang off them in mirrored pairs. Each wing gets its own lift slope from its aspect ratio and sweep, induced drag, a stall angle, dihedral that rolls you level, ground effect and transonic wave drag; flaps add lift and drag, control surfaces stiffen at high speed, and pulling too many g tears wings and tails off. Jets gain thrust with ram air and afterburners kick in above 90% throttle, turbofans lose thrust as they speed up, single props twist the plane, props break if they strike the ground, retracted gear stops dragging and seaplanes take off from the bay.
 - **Builder:** edge snapping, quarter-turn part rotation, symmetry (mirrored parts turn the other way), automatic staging with per-stage Δv and TWR, centre-of-mass and thrust markers, cost and tech-tier locks in career, undo/redo, named saves.
 - **Physics:** 3D rigid bodies with a full inertia tensor and quaternion attitude, gimbal and reaction wheels, pressure-dependent Isp, drag and fin stability, wings simulated in halves so rolling damps itself, reentry heating that burns away the leading part unless a heat shield takes it, parachutes limited by dynamic pressure (drogue first, main canopy near the ground), oceans you can splash down in, rover driving with steering, self-levelling and a hand back onto the wheels if it tips over, and per-corner ground contact on the 3D terrain where hard landings break parts. A rocket's legs and fins stand in fours around the stack.
 - **Solar system:** the Sun, Mercury, Venus, Earth and the Moon, Mars and Phobos, Jupiter and Europa, each with its own gravity, terrain, colours, and atmosphere where it has one. Patched conics with spheres of influence; time warp up to 1,000,000× runs craft on exact Kepler orbits and stops automatically at atmospheres and sphere changes.
@@ -85,4 +92,4 @@ This repository used to hold Cam-Strike, a 5v5 FPS. Its full history is still in
 
 ## Ideas for later
 
-Docking and space stations, payload fairings, solar panels and batteries for ion engines, editable staging, boats, part rotation in the builder, building directly in 3D, more moons around Jupiter, and planet rotation.
+Docking and space stations, payload fairings, solar panels and batteries for ion engines, editable staging, boats, building directly in 3D, more moons around Jupiter, and planet rotation.

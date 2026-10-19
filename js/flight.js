@@ -6,6 +6,8 @@ const PHYS_WARP_MAX = 3; // index of the last physics warp (8x)
 const PHYS_DT = 1 / 120;
 const NEAR_DIST = 6000;  // vessels closer than this to the active one get full physics
 const SAS_KEYS = { Digit1: 'hold', Digit2: 'prograde', Digit3: 'retrograde', Digit4: 'radialOut', Digit5: 'radialIn', Digit6: 'target' };
+const PLANE_SAS_KEYS = { Digit1: 'hold', Digit2: 'level', Digit3: 'heading', Digit4: 'off' };
+const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off']);
 const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
 
 const Flight = {
@@ -37,7 +39,9 @@ const Flight = {
     v.rebuildGroups();
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
-    v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[K.site].east), K.launchRot);
+    // a plane on floats and no wheels starts on the water, nose out to sea
+    const sea = v.kind === 'plane' && v.parts.some((p) => p.def.float) && !v.wheels.length;
+    v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
     if (v.kind === 'heli') v.throttle = 0;
     this.launchCost = designCost(ps);
     Career.spend(this.launchCost);
@@ -179,11 +183,55 @@ const Flight = {
     if (!v) return;
     if (mode === 'target' && !this.target) { this.toast('Pick a target on the map first'); return; }
     v.sas = v.sas === mode && mode !== 'hold' ? 'hold' : mode;
+    v.holdPitch = v.holdBank = v.altHold = v.hdgHold = null; // each mode starts from where the craft is now
+    if (v.kind === 'plane') this.toast({ hold: 'Autopilot: hold attitude', level: 'Autopilot: level flight, holding altitude', heading: 'Autopilot: holding heading and altitude (A/D turn)', off: 'Autopilot off: you fly it' }[v.sas]);
     this.syncSas();
   },
+  // Planes get their own autopilot buttons; everything else gets the rocket set.
   syncSas() {
-    const m = this.active ? this.active.sas : 'hold';
-    document.querySelectorAll('[data-sas]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sas === m)));
+    const v = this.active, m = v ? v.sas : 'hold', plane = !!v && v.kind === 'plane';
+    document.querySelectorAll('[data-sas]').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.sas === m));
+      b.hidden = plane ? !PLANE_SAS.has(b.dataset.sas) : !!b.dataset.plane;
+    });
+    $('#sas-bar').classList.toggle('plane', plane);
+  },
+
+  // Flaps in three steps; retractable gear up and down.
+  cycleFlaps() {
+    const v = this.active;
+    if (!v || !v.hasFlaps) { this.toast('No flaps on this craft'); return; }
+    v.flaps = v.flaps >= 1 ? 0 : v.flaps + 0.5;
+    Sound.click();
+    this.updateHUD(true);
+  },
+  toggleGear() {
+    const v = this.active;
+    if (!v || !v.hasRetract) { this.toast('No retractable gear on this craft'); return; }
+    if (!v.gearUp && v.wheelsDown) { this.toast('Can’t raise the gear on the ground'); return; }
+    v.gearUp = !v.gearUp;
+    for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = v.gearUp;
+    Sound.click();
+    this.toast(v.gearUp ? 'Gear up' : 'Gear down');
+    this.updateHUD(true);
+  },
+  // Over-stressed wings tear off and tumble away as debris.
+  ripParts(v, parts) {
+    const ctrl = v.control;
+    for (const p of parts) {
+      for (const n of [...(v.adj.get(p.id) || [])]) { v.adj.get(p.id).delete(n); v.adj.get(n) && v.adj.get(n).delete(p.id); }
+      const wp = v.toWorld(p.x, p.y), vel = { x: v.vx, y: v.vy, z: v.vz };
+      FX.sparks(v.body, wp, vel, 14);
+      FX.puff(v.body, wp, vel, 8, '#cfd5dc');
+    }
+    if (v === this.active) {
+      this.toast(`${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
+      Sound.explode(); haptic([60, 40, 80]);
+    }
+    const pieces = v.splitComponents();
+    for (const piece of pieces) { piece.isDebris = !piece.control; this.vessels.push(piece); }
+    v.rebuildGroups();
+    if (v === this.active && !v.control && ctrl) this.onDestroyed();
   },
 
   setTarget(b) {
@@ -374,11 +422,13 @@ const Flight = {
       <div><kbd>Z</kbd><kbd>X</kbd><span>Full throttle / cut</span></div>
       <div><kbd>Space</kbd><span>Activate next stage</span></div>
       <div><kbd>1</kbd>–<kbd>6</kbd><span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
+      <div><kbd>1</kbd>–<kbd>4</kbd><span>Plane autopilot: hold attitude, level (holds altitude), heading, off</span></div>
       <div><kbd>M</kbd><span>Map view (tap a planet to target it)</span></div>
       <div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>
       <div><kbd>[</kbd><kbd>]</kbd><span>Switch between your vessels</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
-      <div><kbd>B</kbd><span>Hold to brake on wheels</span></div>
+      <div><kbd>B</kbd><span>Hold to brake on wheels (and pop the air brakes)</span></div>
+      <div><kbd>F</kbd><kbd>G</kbd><span>Planes: flaps (three steps), retractable gear up / down</span></div>
       <div><kbd>C</kbd><span>Reset the camera (drag to look around)</span></div>
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
     </div>`;
@@ -434,6 +484,10 @@ const Flight = {
       Sound.engine(maxT ? (v.thrust || 0) / maxT : 0, air);
       Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1));
       this.soundBarrier(v);
+      // stall warning horn
+      const stall = v.aircraft && v.aoa != null && !v.wheelsDown && v.airspeed > 10 && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
+      this.stallBeep = stall ? (this.stallBeep || 0) - rdt : 0;
+      if (stall && this.stallBeep <= 0) { Sound.beep(880); this.stallBeep = 0.35; }
     } else { Sound.engine(0, 0); Sound.wind(0); }
 
     this.predTimer -= rdt;
@@ -637,12 +691,14 @@ const Flight = {
     if (b === EARTH && v.control) {
       const ga = v.groundAltitude(), vs = v.vSpeed();
       if (v.kind === 'plane') {
-        if (!v.wheelsDown && ga > 10 && sp > 30) this.award('takeoff');
+        if (!v.wheelsDown && !v.onFloats && ga > 10 && sp > 30) this.award('takeoff');
         if (alt > 8000 && v.lift > 0.3 * v.mass * G0) this.award('flyHigh');
         const east = -wrapAngle(Math.atan2(v.y, v.x) - EARTH.padAngle) * EARTH.radius, north = Math.asin(clamp(v.z / v.radius(), -1, 1)) * EARTH.radius;
         if (this.flags.takeoff && settled && east > EARTH.runway.from && east < EARTH.runway.to && Math.abs(north) < 40) this.award('runwayLanding');
       }
       if (v.mach >= 1 && alt < 15000 && v.parts.some((p) => p.def.air && p.firing > 0)) this.award('supersonic');
+      if (v.kind === 'plane' && v.mach >= 2) this.award('mach2');
+      if (v.kind === 'plane' && this.flags.takeoff && v.onFloats && v.splashed && settled) this.award('seaplane');
       if (v.kind === 'heli' && ga > 20 && Math.abs(vs) < 2 && sp < 5) {
         if (this.hoverSince == null) this.hoverSince = this.time;
         if (this.time - this.hoverSince >= 10) this.award('hover');
@@ -712,6 +768,16 @@ const Flight = {
           }
         }
       }
+      // condensation streaks from the wingtips when pulling hard in moist low air
+      if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
+        const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
+        for (const s of [-1, 1]) {
+          if (Math.random() > 0.35 + 0.6 * k) continue;
+          const wp = v.toWorld(v.mainWing.x, v.mainWing.y, s * half * 0.97);
+          FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
+            max: 0.5 + 0.6 * k, size: 0.25, grow: 0.9, color: '#f4f8ff', alpha: 0.5 + 0.35 * k });
+        }
+      }
       // reentry plasma trail
       if (v.heatFlux > 4e7 && Settings.high) {
         const k = clamp((v.heatFlux - 4e7) / 1.5e8, 0, 1);
@@ -764,7 +830,8 @@ const Flight = {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
-      if (SAS_KEYS[e.code]) { this.setSas(SAS_KEYS[e.code]); return; }
+      const sasKeys = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
+      if (sasKeys[e.code]) { this.setSas(sasKeys[e.code]); return; }
       switch (e.code) {
         case 'Space': this.stage(); break;
         case 'KeyM': this.toggleMap(); break;
@@ -776,6 +843,8 @@ const Flight = {
         case 'Escape': case 'KeyP': this.openMenu(); break;
         case 'KeyR': if (this.canRecover()) this.recover(); break;
         case 'KeyC': if (App.use3D()) Render3D.resetCamera(); break;
+        case 'KeyF': this.cycleFlaps(); break;
+        case 'KeyG': this.toggleGear(); break;
       }
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -854,6 +923,8 @@ const Flight = {
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) brake.addEventListener(ev, brakeOff);
     brake.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#btn-stage').addEventListener('click', () => this.stage());
+    $('#btn-flaps').addEventListener('click', () => this.cycleFlaps());
+    $('#btn-gear').addEventListener('click', () => this.toggleGear());
     $('#btn-map').addEventListener('click', () => this.toggleMap());
     $('#btn-menu').addEventListener('click', () => this.openMenu());
     $('#btn-recover').addEventListener('click', () => this.recover());
@@ -986,7 +1057,9 @@ const Flight = {
       if (!started && v.parts.some((p) => p.def.thrust)) return 'Tap STAGE (Space) to start the engine.';
       if (v.wheelsDown && v.throttle < 0.9 && sp < 20 && !this.flags.takeoff) return 'Full throttle (Z) and roll down the runway.';
       if (v.wheelsDown && !this.flags.takeoff) return sp < 50 ? (isTouch ? 'Keep rolling straight (the stick steers the nose wheel)…' : 'Keep rolling straight (A/D steer the nose wheel)…') : (isTouch ? 'Pull the stick back gently to take off.' : 'Pull up gently with S to take off.');
-      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. Let go and the autopilot holds the attitude.' : 'Roll with A/D to bank and turn, pitch with W/S. Let go and the autopilot holds the attitude.';
+      if (v.aoa != null && !v.wheelsDown && v.aoa > v.stallAoA * 0.9) return 'Stalling! Push the nose down and add power.';
+      if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return 'Raise the gear (G) to cut drag.';
+      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : 'Bank with A/D to turn, pitch with W/S. Press 2 for level flight (holds altitude), 3 to hold a heading.';
       if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
       if (v.wheelsDown && sp > 2) return 'Hold B (Brake) to stop.';
       return '';
@@ -1024,7 +1097,12 @@ const Flight = {
     if (mach) { set('t-mach', `M ${v.mach.toFixed(2)}`); $('#row-mach').classList.toggle('sonic', v.mach >= 0.95 && v.mach < 1.15); }
     const aoa = v.kind === 'plane' && v.aoa != null && !v.landed;
     $('#row-aoa').hidden = !aoa;
-    if (aoa) set('t-aoa', `${(v.aoa * 180 / Math.PI).toFixed(1)}°`);
+    const stalling = aoa && !v.wheelsDown && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
+    if (aoa) set('t-aoa', stalling ? `STALL ${(v.aoa * 180 / Math.PI).toFixed(0)}°` : `${(v.aoa * 180 / Math.PI).toFixed(1)}°`);
+    $('#row-aoa').classList.toggle('danger', !!stalling);
+    const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
+    $('#row-g').hidden = !gload;
+    if (gload) { set('t-g', `${v.gForce.toFixed(1)} g`); $('#row-g').classList.toggle('danger', v.gForce > 7); }
     // orbital readouts mean little for a car or a plane low in the air
     const orbital = rocket || !b.atmoHeight || alt > b.atmoHeight * 0.7;
     if (this._orbital !== orbital) { this._orbital = orbital; document.querySelectorAll('.orbit-row').forEach((e) => { e.hidden = !orbital; }); }
@@ -1084,7 +1162,13 @@ const Flight = {
     const next = v.stages[v.stageIdx];
     set('stage-num', v.stageIdx < v.stages.length ? `Stage ${v.stageIdx + 1}/${v.stages.length}` : 'Staging done');
     set('stage-next', next ? describeStage(next, v.byId) : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? 'Drive with W/S, steer A/D · hold B to brake' : 'Tap parts to use them');
-    $('#btn-brake').hidden = !v.wheels.length;
+    $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length;
+    $('#btn-flaps').hidden = !v.hasFlaps;
+    set('btn-flaps', v.flaps ? `Flaps ${Math.round(v.flaps * 100)}%` : 'Flaps');
+    $('#btn-flaps').classList.toggle('on', v.flaps > 0);
+    $('#btn-gear').hidden = !v.hasRetract;
+    set('btn-gear', v.gearUp ? 'Gear up' : 'Gear down');
+    $('#btn-gear').classList.toggle('on', !v.gearUp);
     $('#btn-stage').disabled = !next || this.destroyed;
     $('#btn-recover').hidden = !this.canRecover();
     const h = this.hint();
