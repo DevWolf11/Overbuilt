@@ -1,5 +1,6 @@
-// Offline cache: serve the game shell from cache, refresh it in the background.
-const CACHE = 'rocket-science-sim-v4';
+// Offline support: always try the network first so updates show up on the next load, and fall back to
+// the cached copy when offline.
+const CACHE = 'rocket-science-sim-v5';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/util.js', 'js/space.js', 'js/parts.js', 'js/vessel.js', 'js/ui.js', 'js/audio.js',
@@ -7,7 +8,8 @@ const SHELL = [
   'js/career.js', 'js/map.js', 'js/builder.js', 'js/flight.js', 'js/main.js',
 ];
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // bypass the browser's HTTP cache so a new version never caches old files
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
@@ -15,15 +17,12 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then((hit) => {
-      const net = fetch(e.request).then((res) => {
-        if (res.ok && new URL(e.request.url).origin === location.origin) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => hit);
-      return hit || net;
-    })
+    fetch(e.request).then((res) => {
+      if (res.ok && new URL(e.request.url).origin === location.origin) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html')))
   );
 });
