@@ -315,5 +315,12 @@ const App = {
 addEventListener('DOMContentLoaded', () => App.init());
 
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.RSS_NO_SW) {
-  addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  addEventListener('load', () => { navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {}); });
+  // a new version took over: reload into it, unless that would interrupt a flight
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    if (App.scene === 'flight') UI.toast('A new version is ready. It loads next time you open the game.');
+    else location.reload();
+  });
 }
