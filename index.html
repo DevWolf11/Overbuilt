@@ -91,6 +91,7 @@
       <ol id="s-stage-list" class="stage-list"></ol>
     </details>
     <p id="s-warn" class="warn" hidden></p>
+    <p id="s-air" class="air-info" hidden></p>
   </section>
 
   <section id="part-info" class="panel part-info" hidden>
@@ -126,6 +127,7 @@
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
       <div id="row-mach" class="t-mach" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
       <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
+      <div id="row-g" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
       <div class="orbit-row"><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
@@ -166,13 +168,20 @@
   </div>
 
   <div class="left-controls">
-    <div class="sas" role="group" aria-label="Autopilot">
+    <div class="air-btns">
+      <button id="btn-flaps" class="pill" hidden title="Flaps (F)">Flaps</button>
+      <button id="btn-gear" class="pill" hidden title="Gear (G)">Gear down</button>
+    </div>
+    <div id="sas-bar" class="sas" role="group" aria-label="Autopilot">
       <button class="sas-btn" data-sas="hold" data-icon="sasHold" aria-label="Hold attitude" title="Hold (1)"></button>
       <button class="sas-btn" data-sas="prograde" data-icon="sasPro" aria-label="Point prograde" title="Prograde (2)"></button>
       <button class="sas-btn" data-sas="retrograde" data-icon="sasRetro" aria-label="Point retrograde" title="Retrograde (3)"></button>
       <button class="sas-btn" data-sas="radialOut" data-icon="sasUp" aria-label="Point radial out" title="Radial out (4)"></button>
       <button class="sas-btn" data-sas="radialIn" data-icon="sasDown" aria-label="Point radial in" title="Radial in (5)"></button>
       <button class="sas-btn" data-sas="target" data-icon="sasTarget" aria-label="Point at target" title="Target (6)"></button>
+      <button class="sas-btn" data-sas="level" data-plane="1" data-icon="sasLevel" aria-label="Level flight, hold altitude" title="Level (2)" hidden></button>
+      <button class="sas-btn" data-sas="heading" data-plane="1" data-icon="sasHeading" aria-label="Hold heading and altitude" title="Heading (3)" hidden></button>
+      <button class="sas-btn" data-sas="off" data-plane="1" data-icon="sasOff" aria-label="Autopilot off" title="Off (4)" hidden></button>
     </div>
     <div class="rot-controls">
       <div id="joy" class="joy" role="application" aria-label="Flight stick: drag to steer"><div class="joy-knob"></div></div>

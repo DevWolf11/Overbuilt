@@ -63,6 +63,13 @@ const Sound = {
   separate() { this.burst(0.25, 900, 0.9, 'bandpass'); },
   explode() { this.burst(1.6, 260, 1.6); this.burst(0.5, 1200, 0.5); },
   click() { this.burst(0.06, 2400, 0.25, 'highpass'); },
+  beep(f = 880) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 0.18);
+  },
   // Sonic boom: the double crack of an N-wave (bow and tail shocks), then a rolling rumble.
   boom(k = 1) {
     if (!this.ctx) return;

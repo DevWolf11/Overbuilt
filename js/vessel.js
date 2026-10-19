@@ -5,24 +5,48 @@
 // velocity in sim axes. Positions and velocities are relative to the body's centre.
 
 const DEFAULT_BREAK_SPEED = 9;
-const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit', 'rotor', 'prop']);
+const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit', 'rotor', 'prop',
+  'jetnose', 'airnose', 'float', 'droptank']);
 const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
 const MAX_SPIN = 6;   // rad/s
 
-// Lift coefficient of a wing at angle of attack a (forward flow): linear up to the stall, then it
-// sinks towards a flat plate's.
-function liftCoef(a) {
-  const x = Math.abs(a), stall = 0.28;
-  const cl = x < stall ? 5.5 * x : lerp(5.5 * stall, 1.1 * Math.sin(2 * x), smoothstep(stall, stall + 0.22, x));
+// Lift coefficient of a wing at angle of attack a (forward flow): linear (slope per radian) up to the
+// stall, then it sinks towards a flat plate's.
+function liftCoef(a, slope = 5.5, stall = 0.28) {
+  const x = Math.abs(a);
+  const cl = x < stall ? slope * x : lerp(slope * stall, 1.1 * Math.sin(2 * x), smoothstep(stall, stall + 0.22, x));
   return Math.sign(a) * cl;
 }
+// The aerodynamics of one wing, worked out once per part type: lift slope from the aspect ratio
+// (Helmbold's formula, less for sweep), induced drag, stall angle, where wave drag starts.
+const WING_AERO = new Map();
+function wingAero(d) {
+  let a = WING_AERO.get(d);
+  if (a) return a;
+  const w = d.wing, AR = (w.span * w.span) / w.area, sw = w.sweep || 0;
+  a = {
+    AR, slope: w.slope || (TAU * AR * Math.cos(sw)) / (2 + Math.sqrt(4 + AR * AR)), stall: w.stall || 0.3,
+    kInd: 1 / (Math.PI * 0.8 * AR), mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
+    back: Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord
+    dihedral: w.dihedral != null ? w.dihedral : w.control ? 0 : 0.06, load: (w.load || 1) * (w.control ? 70000 : 14000),
+  };
+  WING_AERO.set(d, a);
+  return a;
+}
+// Extra drag coefficient near and past Mach 1 (shock waves), from the Mach number where it starts.
+function waveDrag(M, mcrit) { return smoothstep(mcrit, mcrit + 0.2, M) * (1 - 0.45 * smoothstep(1.2, 2.3, M)); }
 
 // Thrust factor of an air-breathing engine for the air density and the airspeed along its axis.
 function airThrust(a, rho, vA) {
   if (rho < MIN_AIR) return 0;
   let k = Math.min(1.3, Math.pow(rho / EARTH.rho0, 0.7));
-  if (a.kind === 'jet') k *= vA < a.vmax ? 1 + 0.3 * Math.max(0, vA) / a.vmax : Math.max(0, 1.3 * (1 - (vA - a.vmax) / 200));
-  else k *= Math.min(1, a.v0 / Math.max(vA, 1)); // props and rotors: constant power above v0
+  const v = Math.max(0, vA);
+  switch (a.kind) {
+    case 'jet': k *= vA < a.vmax ? 1 + 0.5 * v / a.vmax : Math.max(0, 1.5 * (1 - (vA - a.vmax) / 200)); break; // ram air helps at speed
+    case 'fan': k *= vA < a.vmax ? 1 - 0.45 * v / a.vmax : Math.max(0, 0.55 * (1 - (vA - a.vmax) / 120)); break; // strong at take-off, fades with speed
+    case 'ram': k *= smoothstep(a.vmin * 0.8, a.vmin, vA) * (vA < a.vmax ? 0.6 + (0.6 * (vA - a.vmin)) / (a.vmax - a.vmin) : Math.max(0, 1.2 * (1 - (vA - a.vmax) / 300))); break;
+    default: k *= Math.min(1, a.v0 / Math.max(vA, 1)); // props and rotors: constant power above v0
+  }
   return k;
 }
 // Speed of sound near the surface, dropping a little with height.
@@ -74,6 +98,10 @@ class Vessel {
     this.mach = 0;
     this.dynP = 0;
     this.steer = 0;
+    this.flaps = 0;       // 0..1, planes
+    this.gearUp = false;  // retractable gear folded away
+    this.brakeOut = 0;    // air brakes, 0..1
+    this.rip = [];        // wings overstressed this step
     this.com = { x: 0, y: 0 };
     this._loc = {};
     this.recompute(true);
@@ -106,7 +134,7 @@ class Vessel {
     let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, D = 0;
     for (const p of this.parts) {
       const pm = p.def.mass * 1000 + p.fuel, { w, h } = partDims(p), d = partDepth(p);
-      const dx = p.x - cx, dy = p.y - cy, dz2 = p.def.wheel ? (p.def.wheel.track || 0) ** 2 / 4 : 0;
+      const tz = p.def.twinZ || (p.def.wheel ? (p.def.wheel.track || 0) / 2 : 0), dx = p.x - cx, dy = p.y - cy, dz2 = tz * tz;
       Ixx += pm * ((h * h + d * d) / 12 + dy * dy + dz2);
       Iyy += pm * ((w * w + d * d) / 12 + dx * dx + dz2);
       Izz += pm * ((w * w + h * h) / 12 + dx * dx + dy * dy);
@@ -140,8 +168,13 @@ class Vessel {
     this.fins = this.parts.filter((p) => p.def.fin);
     this.wings = this.parts.filter((p) => p.def.wing);
     this.vtails = this.parts.filter((p) => p.def.shape === 'vtail');
+    this.airbrakes = this.parts.filter((p) => p.def.airbrake);
+    this.hasFlaps = this.wings.some((p) => p.def.wing.flaps);
+    this.hasRetract = this.wheels.some((p) => p.def.wheel.retract);
+    this.noseSharp = !!(top && top.def.sharp);
     this.aircraft = this.wings.length > 0;
     this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
+    this.stallAoA = this.mainWing ? wingAero(this.mainWing.def).stall : 0.3;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
     this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
     this.recompute(false);
@@ -152,7 +185,7 @@ class Vessel {
   // Projected areas seen along each part axis. Each slice through the craft sums the parts it cuts;
   // wings carry their own drag.
   computeAreas() {
-    const D = this.parts.filter((p) => !p.def.wing)
+    const D = this.parts.filter((p) => !p.def.wing && !p.def.wheel)
       .map((p) => ({ p, d: partDims(p), z: p.def.wheel ? 0.25 : partDepth(p), round: ROUND3D.has(p.def.shape) }));
     let ax = 0, ay = 0, az = 0;
     for (const s of D) {
@@ -166,6 +199,12 @@ class Vessel {
     }
     this.area = v3(Math.max(ax, 0.5), Math.max(ay, 0.5), Math.max(az, 0.5));
     this.areaFront = this.area.y;
+    // landing gear hanging in the wind (folded retractable gear doesn't count)
+    this.gearDrag = 0; this.gearDragFixed = 0;
+    for (const p of this.wheels) {
+      const r = wheelGeom(p).r, k = 0.5 * r * (p.def.wheel.track ? 2 : 1);
+      this.gearDrag += k; if (!p.def.wheel.retract) this.gearDragFixed += k;
+    }
   }
 
   // Points the ground can touch, in part space: the corners of each part's box (a diamond around a round
@@ -175,14 +214,17 @@ class Vessel {
     const pts = [], wheels = [], radial = this.kind === 'rocket';
     let reach = 0;
     const add = (p, x, y, z) => {
-      pts.push({ p, x, y, z });
-      if (radial && (p.def.leg || p.def.fin)) pts.push({ p, x: z, y, z: -x });
-      reach = Math.max(reach, Math.hypot(x - this.com.x, y - this.com.y, z), radial ? Math.hypot(x, y - this.com.y) : 0);
+      const tz = p.def.twinZ;
+      for (const zz of tz ? [z - tz, z + tz] : [z]) {
+        pts.push({ p, x, y, z: zz });
+        if (radial && (p.def.leg || p.def.fin)) pts.push({ p, x: zz, y, z: -x });
+        reach = Math.max(reach, Math.hypot(x - this.com.x, y - this.com.y, zz), radial ? Math.hypot(x, y - this.com.y) : 0);
+      }
     };
     for (const p of this.parts) {
       if (p.def.wheel) {
         const g = wheelGeom(p), tr = (p.def.wheel.track || 0) / 2;
-        for (const z of tr ? [-tr, tr] : [0]) wheels.push({ p, x: g.x, y: g.y, z, r: g.r });
+        for (const z of tr ? [-tr, tr] : [0]) wheels.push({ p, x: g.x, y: g.y, z, r: g.r, retract: !!p.def.wheel.retract });
         reach = Math.max(reach, Math.hypot(g.x - this.com.x, g.y - this.com.y, tr) + g.r);
         continue;
       }
@@ -237,6 +279,7 @@ class Vessel {
       low = Math.min(low, o.x * ux + o.y * uy + o.z * uz);
     }
     for (const k of this.wheelPts) {
+      if (k.retract && this.gearUp) continue;
       const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1);
       low = Math.min(low, o.x * ux + o.y * uy + o.z * uz - k.r);
     }
@@ -287,19 +330,22 @@ class Vessel {
         if (!e.active) continue;
         if (fuel <= 0.01) { e.flameout = true; continue; }
         e.flameout = false;
-        let f = e.def.thrust * 1000 * this.throttle;
+        let f = e.def.thrust * 1000 * this.throttle, abK = 0;
+        e.ab = 0;
         if (e.def.air) {
           const a = partAxis(e), k = airThrust(e.def.air, rho, vb.x * a.x + vb.y * a.y);
           if (k <= 0) {
-            if (!e.noAir && sim && !this.isDebris) sim.toast(`${e.def.name}: no air to breathe`, 'warn');
+            if (!e.noAir && sim && !this.isDebris) sim.toast(rho >= MIN_AIR && e.def.air.kind === 'ram' ? `${e.def.name}: too slow to light (needs ${Math.round(e.def.air.vmin * 3.6)} km/h)` : `${e.def.name}: no air to breathe`, 'warn');
             e.noAir = true;
             continue;
           }
           e.noAir = false;
           f *= k;
+          // the afterburner lights above 90% throttle
+          if (e.def.air.ab && this.throttle > 0.9) { abK = (this.throttle - 0.9) / 0.1; f *= 1 + (e.def.air.ab - 1) * abK; e.ab = abK; }
         }
         if (f <= 0) continue;
-        const isp = lerp(e.def.ispVac, e.def.ispSL, pressure);
+        const isp = lerp(e.def.ispVac, e.def.ispSL, pressure) / (1 + 1.6 * abK);
         demand += (f / (isp * G0)) * dt;
         firing.push([e, f]);
       }
@@ -310,6 +356,8 @@ class Vessel {
         fire(e, f * scale);
         e.firing = Math.min(1, (f * scale) / (e.def.thrust * 1000));
         if (e.def.air && e.def.air.torque) rotorTorque += e.def.air.torque * Math.min(1, e.firing * 1.5);
+        // a single propeller twists the plane the other way (a twin pair turns in opposite directions)
+        if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2); T.x += a.x * tq; T.y += a.y * tq; }
       }
       changed = true;
     }
@@ -368,7 +416,7 @@ class Vessel {
 
   // Angular velocity (part axes) the craft should turn at: pilot, autopilot, attitude hold or rover
   // levelling. null leaves it free.
-  turnTarget(sim, engF) {
+  turnTarget(sim, engF, dt = 1 / 120) {
     const P = this.pilot, c = this.ctl, wb = this.bodyAV();
     const onWheels = this.wheelsDown && this.canDrive;
     // pilot-frame rates: pitch (+ nose up), roll (+ right wing down), yaw (+ nose right); null = no input
@@ -424,17 +472,59 @@ class Vessel {
     }
     if (this.chuteOpen) return anyInput ? toBody(want) : null;
     if (heli) return toBody(want);
-    if (this.aircraft) {
-      // planes hold their pitch and bank when the pilot lets go and leave the heading to the tail
-      const at = this.attitude();
+    if (this.aircraft) return toBody(this.planeTarget(want, c, dt));
+    for (const k in want) if (want[k] == null) want[k] = 0;
+    return toBody(want);
+  }
+
+  // The plane autopilot, on top of the pilot's stick. The yaw is always left to the tail fin.
+  //   hold: keep the pitch and bank the pilot lets go at.
+  //   level: wings level and hold the altitude (pitch with the stick, let go to hold the new height).
+  //   heading: hold the altitude and a compass heading; A/D turn the heading instead of rolling.
+  // In every mode it won't pull much past 8 g (or push past -3 g) and lowers the nose before the wing
+  // stalls. 'off' (handled before this) is the bare stick: no help at all.
+  planeTarget(want, c, dt) {
+    const at = this.attitude(), V = Math.max(this.speed(), 20), mode = this.sas;
+    if (mode === 'level' || mode === 'heading') {
+      const alt = this.altitude(), vs = this.vSpeed();
+      if (want.pitch != null || this.altHold == null) { this.altHold = alt; this.pitchHold = at.pitch; }
+      if (want.pitch == null) {
+        // an attitude loop: the pitch to hold creeps until the climb angle matches what the altitude
+        // error asks for, and leads by the error itself, so heavy planes don't porpoise
+        const vsW = clamp((this.altHold - alt) * 0.2, -12, 12);
+        const err = Math.asin(clamp(vsW / V, -0.5, 0.5)) - Math.asin(clamp(vs / V, -1, 1));
+        this.pitchHold = clamp(this.pitchHold + err * 0.6 * dt, -0.35, 0.45);
+        const turn = Math.max(0, 1 / Math.max(0.3, Math.cos(at.bank)) - 1) * 0.06; // a banked turn needs the nose a touch higher
+        want.pitch = clamp((this.pitchHold + err * 0.5 + turn - at.pitch) * 1.5, -0.3, 0.3);
+      }
+      if (mode === 'heading') {
+        const hdg = this.heading();
+        if (this.hdgHold == null) this.hdgHold = hdg;
+        if (c.h) this.hdgHold = wrapAngle(this.hdgHold + c.h * 0.3 * dt);
+        const bankW = clamp(wrapAngle(this.hdgHold - hdg) * 1.5, -0.45, 0.45);
+        want.roll = clamp(wrapAngle(bankW - at.bank) * 1.6, -0.7, 0.7);
+      } else if (want.roll == null) want.roll = clamp(wrapAngle(-at.bank) * 1.6, -0.8, 0.8);
+    } else {
       if (this.holdPitch == null) this.holdPitch = at.pitch;
       if (this.holdBank == null) this.holdBank = Math.abs(at.bank) < 0.06 ? 0 : at.bank;
       if (want.pitch == null) want.pitch = clamp((this.holdPitch - at.pitch) * 1.6, -0.5, 0.5);
       if (want.roll == null) want.roll = clamp(wrapAngle(this.holdBank - at.bank) * 1.6, -0.8, 0.8);
-      return toBody(want);
     }
-    for (const k in want) if (want[k] == null) want[k] = 0;
-    return toBody(want);
+    if (want.pitch != null) {
+      if (this.wheelsDown) want.pitch *= 0.4; // rotate gently on the runway
+      want.pitch = clamp(want.pitch, (-3 * G0) / V, (8 * G0) / V);
+      const a = this.aoa, st = this.stallAoA - 0.03 * this.flaps;
+      if (a != null && a > st * 0.85 && !this.wheelsDown) want.pitch = Math.min(want.pitch, -2 * (a - st * 0.85));
+    }
+    return want;
+  }
+  // Heading of the flight path (radians; east is 90°, turning right adds), or of the nose when slow.
+  // The surface frame's "north" (+z at the pad) lies to the right of east, so this counts from -north.
+  heading() {
+    const F = surfaceFrame(this.x, this.y, this.z);
+    let e = this.vx * F.east.x + this.vy * F.east.y + this.vz * F.east.z, n = this.vx * F.north.x + this.vy * F.north.y + this.vz * F.north.z;
+    if (Math.hypot(e, n) < 5) { const f = qrot(this.q, this.pilot.F.x, this.pilot.F.y, this.pilot.F.z, _t1); e = dot3(f, F.east); n = dot3(f, F.north); }
+    return Math.atan2(e, -n);
   }
 
   physicsStep(dt, sim) {
@@ -462,7 +552,7 @@ class Vessel {
     if (this.righting) { const g = this.mass * 14 * Math.max(1, this.width); A.x += g; A.y += g; A.z += g; }
     this.cmd.x = 0; this.cmd.y = 0; this.cmd.z = 0;
     if (!this.isDebris) {
-      const wt = this.turnTarget(sim, eng.total);
+      const wt = this.turnTarget(sim, eng.total, dt);
       if (wt) {
         const k = 0.35 / Math.max(dt, 1e-3), need = this.mulI(v3((wt.x - wb.x) * k, (wt.y - wb.y) * k, (wt.z - wb.z) * k));
         for (const a of ['x', 'y', 'z']) {
@@ -494,13 +584,29 @@ class Vessel {
         cdA = cd * area;
       } else {
         const cdF = along > 0.85 ? (this.noseAero ? 0.3 : 0.55) : along < -0.85 ? 0.7 : 0.8, cdO = this.kind === 'car' ? 0.5 : 0.9;
-        const sx = this.area.x * Math.abs(hx), sy = this.area.y * Math.abs(hy), sz = this.area.z * Math.abs(hz);
+        // flow along an axis sees that axis's area; on a slender plane, cross-flow drag grows with the square of the angle
+        const sq = this.kind === 'plane', ax = Math.abs(hx), ay = Math.abs(hy), az = Math.abs(hz);
+        const ex = Math.abs(P.F.x) > 0.5 || !sq ? ax : ax * ax, ey = Math.abs(P.F.y) > 0.5 || !sq ? ay : ay * ay;
+        const sx = this.area.x * ex, sy = this.area.y * ey, sz = this.area.z * (sq ? az * az : az);
         area = sx + sy + sz;
         cdA = (Math.abs(P.F.x) > 0.5 ? cdF : cdO) * sx + (Math.abs(P.F.y) > 0.5 ? cdF : cdO) * sy + cdO * sz;
+        // shock waves near Mach 1 (a pointed nose eases them), dangling landing gear, air brakes
+        cdA *= 1 + (this.noseSharp ? 0.4 : 1) * waveDrag(this.mach, 0.85);
+        cdA += this.gearUp ? this.gearDragFixed : this.gearDrag;
+        this.brakeOut += ((this.brake ? 1 : 0) - this.brakeOut) * Math.min(1, dt * 5);
+        for (const p of this.airbrakes) { cdA += p.def.airbrake * this.brakeOut; p.deflect = this.brakeOut * 1.1; }
       }
       const above = alt - this.groundHeight();
       for (const p of this.parts) {
         if (!p.def.chute || p.deployed <= 0 || p.used) continue;
+        if (p.def.brakeChute) { // a drag chute: just drag, opens at once, collapses when the craft stops
+          if (p.deployed < 1) p.deployed = Math.min(1, p.deployed + dt * 2);
+          cdA += (18 + 520 * p.deployed * p.deployed) * p.def.chuteArea;
+          this.chuteOpen = true;
+          if (this.dynP > 9500) { p.used = true; sim.toast('Brake chute torn off: too fast'); }
+          else if (this.landed && v < 3) p.used = true;
+          continue;
+        }
         // drogue first; the main canopy opens fully close to the ground
         const cap = above < 1500 ? 1 : 0.3;
         if (p.deployed < cap) p.deployed = Math.min(cap, p.deployed + dt * (p.deployed < 0.3 ? 0.5 : 0.35));
@@ -523,24 +629,32 @@ class Vessel {
       const vane = this.dynP * (area * 0.04 * Math.min(L, 6) * (along > 0 ? 1 : -1) + finStab);
       T.x += P.F.y * hz * vane; T.y -= P.F.x * hz * vane; T.z += (P.F.x * hy - P.F.y * hx) * vane; // (nose × flow)
 
-      // Wings (in two halves, so rolling damps itself and ailerons work) and tail fins: lift and drag at
-      // each surface's quarter-chord point, from the air flowing past that point.
-      const surf = (p, area, nrm, ch, rz, kd, main) => {
-        const rx = p.x + ch.x * p.def.h / 4 - this.com.x, ry = p.y + ch.y * p.def.h / 4 - this.com.y;
+      // Wings (in two halves, so rolling damps itself, ailerons work and one half can stall before the
+      // other) and tail fins: lift and drag at each surface's centre of lift, from the air flowing past it.
+      // W: the wing's aerodynamics (null for a fin); ge: ground effect, more lift within a span of the ground.
+      const M = this.mach, rip = this.rip;
+      const surf = (p, area, nrm, ch, rz, kd, main, W, ge) => {
+        const back = W ? W.back : 0;
+        const rx = p.x + ch.x * (p.def.h / 4 - back) - this.com.x, ry = p.y + ch.y * (p.def.h / 4 - back) - this.com.y;
         const ux = vb.x + wb.y * rz - wb.z * ry, uy = vb.y + wb.z * rx - wb.x * rz, uz = vb.z + wb.x * ry - wb.y * rx;
         const un = ux * nrm.x + uy * nrm.y + uz * nrm.z, uc = ux * ch.x + uy * ch.y, V = Math.hypot(un, uc);
         if (V < 0.5) return 0;
-        const qS = 0.5 * rho * V * V * area;
+        const qS = 0.5 * rho * V * V * area, slope = W ? W.slope : 3.5;
         // torque per unit of lift coefficient: -qS (r × n)
         const gx = -qS * (ry * nrm.z - rz * nrm.y), gy = -qS * (rz * nrm.x - rx * nrm.z), gz = -qS * (rx * nrm.y - ry * nrm.x);
         let Fn, Fc, defl = 0;
         if (uc > 0) {
-          // a moving surface deflects whichever way turns the craft as commanded
-          const gl = Math.hypot(gx, gy, gz) || 1;
-          defl = kd * clamp((this.cmd.x * gx + this.cmd.y * gy + this.cmd.z * gz) / gl, -1, 1);
-          auth.x += Math.abs(gx) * 5.5 * kd; auth.y += Math.abs(gy) * 5.5 * kd; auth.z += Math.abs(gz) * 5.5 * kd;
-          const a = Math.atan2(un, uc), ae = a + defl, cl = liftCoef(ae), x = Math.abs(ae);
-          const cdw = 0.02 + 0.06 * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(0.28, 0.5, x);
+          // a moving surface deflects whichever way turns the craft as commanded; at high speed the air
+          // pushes it back, so it can't swing as far
+          const gl = Math.hypot(gx, gy, gz) || 1, kq = kd * Math.min(1, 26000 / Math.max(1, qS / area));
+          defl = kq * clamp((this.cmd.x * gx + this.cmd.y * gy + this.cmd.z * gz) / gl, -1, 1);
+          auth.x += Math.abs(gx) * slope * kq; auth.y += Math.abs(gy) * slope * kq; auth.z += Math.abs(gz) * slope * kq;
+          const flap = W && p.def.wing.flaps ? this.flaps : 0, stall = (W ? W.stall : 0.3) - 0.03 * flap;
+          // flaps add lift (and drag) at any angle, and make the wing stall a little sooner
+          const a = Math.atan2(un, uc), ae = a + defl, x = Math.abs(ae);
+          const cl = (liftCoef(ae, slope, stall) + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge;
+          const cdw = 0.012 + (W ? W.kInd : 0.1) * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(stall, stall + 0.22, x)
+            + 0.06 * flap + (W ? 0.03 * W.wave : 0.03) * waveDrag(M, W ? W.mcrit : 0.85);
           Fn = qS * (-cl * uc - cdw * un) / V; // lift along (-uc, un)/V, drag against the flow
           Fc = qS * (cl * un - cdw * uc) / V;
           if (main) this.aoa = a;
@@ -548,18 +662,27 @@ class Vessel {
           const sn = un / V;
           Fn = -qS * (1.2 * sn * Math.abs(sn) + 0.02 * sn); Fc = -qS * 0.02 * uc / V;
         }
+        // pull too hard and the structure gives way
+        if (Math.abs(Fn) > (W ? W.load : 21000) * area && !rip.includes(p)) rip.push(p);
         const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
         T.x += ry * fz - rz * fy; T.y += rz * fx - rx * fz; T.z += rx * fy - ry * fx;
         return defl;
       };
       for (const p of this.wings) {
-        const wd = p.def.wing, ch = partAxis(p), nrm = v3(ch.y, -ch.x, 0), s = wd.span / 4;
+        const wd = p.def.wing, W = wingAero(p.def), ch = partAxis(p), s = wd.span / 4;
         const kd = wd.control || 0.12; // plain wings carry ailerons
-        const d0 = surf(p, wd.area / 2, nrm, ch, s, kd, p === this.mainWing), d1 = surf(p, wd.area / 2, nrm, ch, -s, kd, false);
+        const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span);
+        // dihedral: each half's lift leans in towards the middle, so a sideslip rolls the plane level
+        const cg = Math.cos(W.dihedral), sg = Math.sin(W.dihedral);
+        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s, kd, p === this.mainWing, W, ge);
+        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s, kd, false, W, ge);
         p.deflect = (d0 + d1) / 2; p.aileron = (d0 - d1) / 2;
       }
-      for (const p of this.vtails) p.deflect = surf(p, p.def.w * p.def.h * 0.7, v3(0, 0, 1), partAxis(p), 0, 0.3, false);
+      for (const p of this.vtails) {
+        const ar = p.def.w * p.def.h * 0.7 * (p.def.twinZ ? 2 : 1);
+        p.deflect = surf(p, ar, v3(0, 0, 1), partAxis(p), 0, 0.3, false, null, 1);
+      }
       this.slip = Math.asin(clamp(hz, -1, 1));
     } else for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
@@ -583,6 +706,7 @@ class Vessel {
     this.accel = eng.total / m0;
     this.gForce = Math.hypot(ax - gk * this.x, ay - gk * this.y, az - gk * this.z) / G0;
     this.ground(dt, sim);
+    if (this.rip.length) { const r = this.rip.filter((p) => this.byId.has(p.id)); this.rip = []; if (r.length && sim.ripParts) sim.ripParts(this, r); }
   }
 
   integrateSpin(dt) {
@@ -595,7 +719,8 @@ class Vessel {
 
   // Reentry heating: the leading face takes the heat; everything cools by radiation.
   updateHeat(dt, rho, v, vb, sim) {
-    const flux = rho > 0 ? rho * v * v * v : 0;
+    // compression heating only matters well above the speed of sound (jets don't glow; reentries do)
+    const flux = rho > 0 ? rho * v * v * v * smoothstep(500, 1400, v) : 0;
     let front = -Infinity;
     if (flux > 2e6) {
       const lx = vb.x / v, ly = vb.y / v, lz = Math.abs(vb.z / v);
@@ -641,10 +766,10 @@ class Vessel {
       if (pen <= 0) return;
       const n = Terrain.normalAt(b, loc.a, loc.z);
       if (rad) { o.x -= n.x * rad; o.y -= n.y * rad; o.z -= n.z * rad; }
-      contacts.push({ p: k.p, k, r: o, pen, n, wheel, water: Terrain.waterAt(b, loc.a, loc.z) });
+      contacts.push({ p: k.p, k, r: o, pen, n, wheel, float: !!k.p.def.float, water: Terrain.waterAt(b, loc.a, loc.z) });
     };
     for (const k of this.hull) probe(k, 0, false);
-    for (const k of this.wheelPts) probe(k, k.r, true);
+    for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
     if (!contacts.length) return clear();
 
     // crash check
@@ -653,6 +778,9 @@ class Vessel {
       this.pointVel(k.r, vp);
       const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : 1);
       if (-dot3(vp, k.n) > lim) broken.add(k.p);
+      // a spinning propeller or rotor that touches the ground shatters
+      const air = k.p.def.air;
+      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water) broken.add(k.p);
     }
     if (broken.size) { sim.breakParts(this, [...broken], 'impact'); return; }
 
@@ -678,14 +806,18 @@ class Vessel {
       this.av.x += ir.x * j; this.av.y += ir.y * j; this.av.z += ir.z * j;
     };
     const effMass = (k, dir) => { cross3(k.r, dir, rn); this.invIWorld(rn, ir); cross3(ir, k.r, t); return invM + dot3(t, dir); };
-    for (const k of wheelContacts) {
-      // rolling direction and sideways direction of each wheel on the ground
-      const front = (k.k.x - this.com.x) * D.F.x + (k.k.y - this.com.y) * D.F.y > 0.3;
+    const roll = braking ? 0.8 : this.canDrive ? (driving || Math.abs(this.wheelSpeed || 0) > 0.5 ? 0.04 : 0.9) : 0.025;
+    for (const k of contacts) {
+      if (!k.wheel && !k.float) continue;
+      // rolling (or sliding) direction and sideways direction of each wheel or float on the ground
+      const front = k.wheel && (k.k.x - this.com.x) * D.F.x + (k.k.y - this.com.y) * D.F.y > 0.3;
       const axle = front ? v3(D.R.x * cs - D.F.x * sn, D.R.y * cs - D.F.y * sn, D.R.z * cs - D.F.z * sn) : D.R;
       const aw = qrot(this.q, axle.x, axle.y, axle.z);
       k.t1 = norm3(cross3(aw, k.n)); k.t2 = cross3(k.n, k.t1);
+      // floats glide on water and drag on land; a tail wheel swivels, so it barely resists sideways
+      if (k.float) { k.mu1 = k.water ? 0.035 : 0.45; k.mu2 = k.water ? 0.4 : 0.8; }
+      else { k.mu1 = k.p.def.wheel.caster && !braking ? 0.02 : roll; k.mu2 = k.water ? 0.15 : k.p.def.wheel.caster ? 0.25 : 0.8; }
     }
-    const roll = braking ? 0.8 : this.canDrive ? (driving || Math.abs(this.wheelSpeed || 0) > 0.5 ? 0.04 : 0.9) : 0.025;
     for (let iter = 0; iter < 4; iter++) {
       for (const k of contacts) {
         const n = k.n;
@@ -695,13 +827,12 @@ class Vessel {
         const jn = -vn / effMass(k, n);
         impulse(k, n, jn);
         this.pointVel(k.r, vp);
-        if (k.wheel) {
+        if (k.t1) {
           let vt = dot3(vp, k.t1);
-          impulse(k, k.t1, clamp(-vt / effMass(k, k.t1), -roll * jn, roll * jn));
+          impulse(k, k.t1, clamp(-vt / effMass(k, k.t1), -k.mu1 * jn, k.mu1 * jn));
           this.pointVel(k.r, vp);
-          const mu = k.water ? 0.15 : 0.8;
           vt = dot3(vp, k.t2);
-          impulse(k, k.t2, clamp(-vt / effMass(k, k.t2), -mu * jn, mu * jn));
+          impulse(k, k.t2, clamp(-vt / effMass(k, k.t2), -k.mu2 * jn, k.mu2 * jn));
         } else {
           const vnn = dot3(vp, n);
           t.x = vp.x - n.x * vnn; t.y = vp.y - n.y * vnn; t.z = vp.z - n.z * vnn;
@@ -733,7 +864,8 @@ class Vessel {
       if (!braking) for (const w of this.wheels) w.spin = ((w.spin || 0) - (vt / wheelGeom(w).r) * dt) % TAU;
     }
     this.splashed = contacts.some((k) => k.water);
-    if (this.splashed) {
+    this.onFloats = contacts.some((k) => k.float);
+    if (contacts.some((k) => k.water && !k.float)) { // ploughing through water (floats skim over it)
       const k = Math.exp(-0.6 * dt);
       this.vx *= k; this.vy *= k; this.vz *= k; this.av.x *= k; this.av.y *= k; this.av.z *= k;
     }
@@ -748,12 +880,12 @@ class Vessel {
   }
 
   // Rest on the surface of `body` at angle `ang` and depth z0, turned by `rot` (about the depth axis)
-  // from upright there: part x points east, y up and z north.
-  placeOnSurface(body, ang, rot, z0 = 0) {
+  // from upright there (part x east, y up, z north), then by `yaw` about the vertical.
+  placeOnSurface(body, ang, rot, z0 = 0, yaw = 0) {
     this.body = body;
     const lat = z0 / body.radius, cl = Math.cos(lat);
     const F = surfaceFrame(cl * Math.cos(ang), cl * Math.sin(ang), Math.sin(lat));
-    this.q = qmul(qbasis(F.east, F.up, F.north), qaxis(0, 0, 1, rot));
+    this.q = qmul(qbasis(F.east, F.up, F.north), qmul(qaxis(0, 1, 0, yaw), qaxis(0, 0, 1, rot)));
     const u = F.up;
     let low = Infinity;
     for (const k of this.hull) low = Math.min(low, dot3(qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1), u));
@@ -831,6 +963,7 @@ class Vessel {
       v.q = quat(this.q.w, this.q.x, this.q.y, this.q.z); v.av = v3(this.av.x, this.av.y, this.av.z);
       v.throttle = this.throttle;
       v.kind = this.kind;
+      v.gearUp = this.gearUp;
       v.isDebris = !v.control;
       v.name = v.control ? `${this.name} (${v.control.def.name})` : 'Debris';
       v.stages = remaining.map((st) => st.filter((id) => ids.has(id))).filter((st) => st.length);
@@ -849,7 +982,7 @@ class Vessel {
     return {
       body: this.body.id, x: this.x, y: this.y, z: this.z, vx: this.vx, vy: this.vy, vz: this.vz,
       q: [this.q.w, this.q.x, this.q.y, this.q.z], av: [this.av.x, this.av.y, this.av.z],
-      throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind,
+      throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind, flaps: this.flaps, gearUp: this.gearUp,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
       parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
         deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout })),
@@ -868,10 +1001,11 @@ class Vessel {
     for (const p of parts) if (!adj.has(p.id)) adj.set(p.id, new Set());
     const v = new Vessel(parts, adj, BODY_BY_ID[d.body] || EARTH);
     Object.assign(v, { throttle: d.throttle, sas: d.sas || 'hold', isDebris: d.isDebris, name: d.name || 'Vessel',
-      stages: d.stages || [], stageIdx: d.stageIdx || 0, landed: !!d.landed, kind: d.kind || 'rocket' });
+      stages: d.stages || [], stageIdx: d.stageIdx || 0, landed: !!d.landed, kind: d.kind || 'rocket', flaps: d.flaps || 0, gearUp: !!d.gearUp });
     // flights saved before the third dimension only turned about z
     v.q = d.q ? qnorm(quat(...d.q)) : qaxis(0, 0, 1, d.rot || 0);
     v.av = d.av ? v3(...d.av) : v3(0, 0, d.w || 0);
+    for (const p of parts) if (p.def.wheel && p.def.wheel.retract) p.retracted = v.gearUp;
     v.rebuildGroups();
     // rebuildGroups shifts position for the COM; restore the saved values
     Object.assign(v, { x: d.x, y: d.y, z: d.z || 0, vx: d.vx, vy: d.vy, vz: d.vz || 0 });

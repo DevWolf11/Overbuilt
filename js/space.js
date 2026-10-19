@@ -68,6 +68,7 @@ EARTH.sites = {
   pad: { name: 'Launch pad', east: 0 },
   helipad: { name: 'Helipad', east: 160 },
   runway: { name: 'Runway', east: 760 }, // planes and cars start at the west end, facing east
+  bay: { name: 'Bay', east: -2300 }, // seaplanes start on the water west of the island, facing out to sea
 };
 EARTH.runway = { from: 700, to: 2700 }; // the paved strip
 // Flattened ground: each flat blends from `height` back to the natural terrain over `blend` metres.

@@ -31,10 +31,11 @@ const Parts3D = (() => {
     lamp: { basic: '#fff4d6' },
     tail: { basic: '#ff3b2f' },
   };
-  const LATHE = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit']);
+  const LATHE = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
+    'jetnose', 'airnose', 'float', 'droptank']);
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep' };
   const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
-    wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear' };
+    wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake' };
   const FLAT_DEPTH = { fin: 0.12 };
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -154,6 +155,10 @@ const Parts3D = (() => {
       c.bezierCurveTo(-w / 2, b + h * 0.4, -w * 0.4, b + h * 0.22, -w * 0.3, b);
       c.closePath();
     },
+    jetnose(c, w, h, d) { HULLS.jetnose(c, 0, 0, w, h, d); },
+    airnose(c, w, h, d) { HULLS.airnose(c, 0, 0, w, h, d); },
+    float(c, w, h, d) { HULLS.float(c, 0, 0, w, h, d); },
+    droptank(c, w, h, d) { HULLS.droptank(c, 0, 0, w, h, d); },
     cab(c, w, h) { // side view, driving towards +x
       const l = -w / 2, r = w / 2, b = -h / 2, t = h / 2;
       c.moveTo(l, b); c.lineTo(r, b); c.lineTo(r, b + h * 0.45); c.lineTo(r - w * 0.05, b + h * 0.53);
@@ -388,9 +393,10 @@ const Parts3D = (() => {
   // Wing: the airfoil cross-section extruded over the whole span (z), tapering and sweeping towards the
   // tips, white with a darker leading edge and orange tip bands.
   function wingGeo(d) {
-    const w = d.w, h = d.h, half = ((d.wing && d.wing.span) || 5) / 2, white = lin('#eef1f4'), lead = lin('#9aa3ad'), tip = lin(PAL.orange), st = [];
+    const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, white = lin('#eef1f4'), lead = lin('#9aa3ad'), tip = lin(PAL.orange), st = [];
+    const taper = wd.taper != null ? wd.taper : 0.45, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
     for (const [a, col] of [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]]) {
-      const s = Math.abs(a), c = h * (1 - 0.45 * s), qc = h / 4 - 0.08 * half * s;
+      const s = Math.abs(a), c = h * (1 - taper * s), qc = h / 4 - back * s;
       st.push({ o: [0, qc + c / 4, a * half], A: [0, -1, 0], B: [1, 0, 0], c, t: (w / 2) * (1 - 0.4 * s), col, lead });
     }
     return sweep(st, 'foil');
@@ -460,6 +466,16 @@ const Parts3D = (() => {
         const R = w * 0.14, y0 = b + h * 0.75, x0 = w / 2 - w * 0.2, pts = [];
         for (let i = 0; i <= 8; i++) { const k = i / 8; pts.push(v2(R * k, y0 + 0.03 + h * 0.11 * k * k)); }
         list.push([new THREE.LatheGeometry(pts, 24).translate(x0, 0, 0), 'dish'], [rod([x0, y0, 0], [x0, y0 + h * 0.22, 0], 0.014, 6), 'steelDark']);
+      } else if (sh === 'jetnose') { // long bubble canopy and the pilot
+        list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.21 * w, 0.24 * h, 0.24 * w).translate(-0.4 * w, b + 0.3 * h, 0), 'glass'],
+          [new THREE.SphereGeometry(0.08 * w, 16, 12).translate(-0.46 * w, b + 0.28 * h, 0), 'white']);
+      } else if (sh === 'airnose') { // flight-deck windows wrapping round the top of the nose
+        for (const z of [-1, 1]) list.push([box(0.04, h * 0.12, w * 0.3, -0.32 * w, b + h * 0.66, z * w * 0.17).rotateY(z * 0.5), 'glass']);
+        list.push([box(0.04, h * 0.12, w * 0.22, -0.4 * w, b + h * 0.64, 0), 'glass']);
+      } else if (sh === 'float') { // struts up to the hull
+        for (const yy of [0.18 * h, -0.22 * h]) list.push([rod([-w / 2, yy, 0], [-w * 0.05, yy, 0], 0.05, 8), 'steelDark']);
+      } else if (sh === 'droptank') {
+        list.push([box(w * 0.5, h * 0.3, 0.08, -w * 0.25, 0, 0), 'steelDark']);
       } else if (sh === 'cockpit') {
         list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.22 * w, 0.3 * h, 0.27 * w).translate(-0.42 * w, b + 0.42 * h, 0), 'glass'],
           [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.47 * w, b + 0.4 * h, 0), 'white']); // the pilot's helmet
@@ -522,6 +538,11 @@ const Parts3D = (() => {
       return node(list);
     },
 
+    airbrake(d) { // a panel hinged at its back edge; the pivot lifts its front edge into the wind
+      const w = d.w, h = d.h, g = projUV(extrudeGeo([rectPoly(w, h)], 1.1, 0.02), d, true).translate(0, h / 2, 0);
+      return node([[box(w * 0.6, 0.1, 0.9, 0, -h / 2, 0), 'steelDark']], [{ role: 'pivot', pos: [0, -h / 2, 0], pieces: [[g, 'hull']], subs: [] }]);
+    },
+
     chassis(d) {
       return node([[projUV(extrudeGeo([rectPoly(d.w, d.h)], d.depth || 2.2, 0.05), d, true), 'hull']]);
     },
@@ -549,11 +570,13 @@ const Parts3D = (() => {
     },
 
     prop(d) {
-      const w = d.w, h = d.h, b = -h / 2, t = h / 2, R = w / 2, y = b + h * 0.42, nose = [], blades = [];
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, R = w / 2, y = b + h * 0.42, nose = [], blades = [], nb = d.blades || 3, ch = R > 1.5 ? 0.34 : 0.26;
       for (let i = 0; i <= 10; i++) { const k = i / 10; nose.push(v2(0.3 * Math.pow(1 - k ** 1.7, 0.6), lerp(b + h * 0.3, t, k))); }
-      for (let i = 0; i < 3; i++) blades.push(bladeGeo(0.22, R, 0.26, 0.13, 0.03, 0.8, 0.22, 'xz', lin('#2b3036'), lin(PAL.hazard), 0.14).rotateY((i * TAU) / 3));
+      for (let i = 0; i < nb; i++) blades.push(bladeGeo(0.22, R, ch, ch * 0.5, 0.03, 0.8, 0.22, 'xz', lin('#2b3036'), lin(PAL.hazard), 0.14).rotateY((i * TAU) / nb));
+      const extra = [];
+      if (d.twinZ) extra.push([new THREE.LatheGeometry([v2(0.12, b - 2.4), v2(0.38, b - 1.6), v2(0.46, b - 0.6), v2(0.4, b)], 24), 'white']); // nacelle back over the wing
       return node([[projUV(new THREE.LatheGeometry([v2(0, b), v2(0.33, b), v2(0.36, b + 0.04), v2(0.36, b + h * 0.26), v2(0.3, b + h * 0.3)], 28), d), 'hull'],
-        [projUV(new THREE.LatheGeometry(nose, 28), d), 'hull'], [new THREE.CircleGeometry(R, 48).rotateX(-Math.PI / 2).translate(0, y, 0), 'disc']],
+        [projUV(new THREE.LatheGeometry(nose, 28), d), 'hull'], [new THREE.CircleGeometry(R, 48).rotateX(-Math.PI / 2).translate(0, y, 0), 'disc'], ...extra],
       [{ role: 'spin', axis: 'y', pos: [0, y, 0], pieces: [[merge(blades), 'vc']], subs: [] }], { anim: { rate: 45, disc: [12, 35, 0.22] } });
     },
 
@@ -767,7 +790,7 @@ void main() {
     outer.raycast = core.raycast = glow.raycast = noop;
     g.add(outer, core, glow);
     const dia = [];
-    if (type === 'kero' || type === 'solid' || type === 'spike') for (let i = 0; i < 4; i++) {
+    if (type === 'kero' || type === 'solid' || type === 'spike' || (d.air && d.air.ab)) for (let i = 0; i < 4; i++) {
       const m = new THREE.Mesh(shared.diamond, new THREE.MeshBasicMaterial({ color: 0xfff6dc, transparent: true, opacity: 0.55 - 0.11 * i,
         blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
       m.raycast = noop;
@@ -819,13 +842,16 @@ void main() {
     need(); ensureShared();
     const d = p.def, m = model(d, !!p.flip), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
-      nozzle: null, plume: null, canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1 };
-    instance(m, root, rig);
+      nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1 };
+    // twin parts are a pair, one each side
+    const holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.position.z = s * d.twinZ; root.add(g); return g; }) : [root];
+    for (const h of holders) instance(m, h, rig);
     rig.nozzle = rig.mats.nozzle || null;
-    if (!builder && d.thrust && d.plume !== 'none') rig.plume = makePlume(p, root);
+    if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.map((h) => makePlume(p, h));
+    rig.plume = rig.plumes[0] || null;
     if (!builder && d.chute) { rig.canopy = makeCanopy(p, root); rig.meshes.push(rig.canopy.dome); }
     root.position.set(p.x, p.y, 0);
-    root.rotation.z = ((p.rot || 0) & 3) * Math.PI / 2;
+    root.rotation.z = (((p.rot || 0) + (d.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
     root.userData.part = p;
     root.userData.rig = rig;
     if (radial && (d.leg || d.fin)) {
@@ -855,7 +881,7 @@ void main() {
     if (rig.twin) rig.twin.removeFromParent();
     for (const m of rig.matList) m.dispose();
     if (rig.disc) rig.disc.dispose();
-    if (rig.plume) for (const m of rig.plume.mats) m.dispose();
+    for (const P of rig.plumes) for (const m of P.mats) m.dispose();
   }
 
   function shown(o) {
@@ -949,34 +975,35 @@ void main() {
           c.scale.set((cw / 2) * br, ch, (cw / 2) * br);
         }
       }
-      const P = rig.plume;
-      if (P) {
-        const k = p.firing > 0 ? Math.min(1, p.firing) : 0;
+      if (d.wheel && d.wheel.retract) rig.root.visible = !p.retracted;
+      for (let n = 0; n < rig.plumes.length; n++) {
+        const P = rig.plumes[n], k = p.firing > 0 ? Math.min(1, p.firing) : 0, ab = p.ab || 0;
         P.g.visible = k > 0;
-        if (k > 0) {
-          // length and spread as in World.drawFlame, with a smooth flicker instead of a random one
-          const type = P.type, vac = 1 - clamp(rho / 0.4, 0, 1), bw = P.nz.half;
-          const lenK = type === 'ion' ? 3.5 : type === 'solid' ? 4.2 : type === 'hydro' ? 3.4 : 3.2;
-          const flick = 1 + 0.12 * (0.6 * Math.sin(time * 37.3 + P.seed) + 0.4 * Math.sin(time * 71.9 + P.seed * 2.1));
-          const len = Math.max(d.w, 1) * (1.4 + lenK * k) * (1 + (type === 'spike' ? 0 : vac * 0.9)) * flick;
-          const spread = bw * (type === 'spike' ? 1 : 1 + vac * (type === 'ion' ? 0.4 : 1.8)), tw = time % 600;
-          P.outer.uP0.value.set(bw * 0.92, 0); P.outer.uP1.value.set(spread, -len * 0.35); P.outer.uP2.value.set(0, -len);
-          P.core.uP0.value.set(bw * 0.55, 0); P.core.uP1.value.set(bw * 0.5, -len * 0.2); P.core.uP2.value.set(0, -len * 0.5);
-          P.outer.uK.value = P.core.uK.value = Math.min(1, 0.3 + k);
-          P.outer.uTime.value = P.core.uTime.value = tw;
-          P.glow.material.opacity = 0.55 * k;
-          P.glow.scale.setScalar(bw * 4.8);
-          const shock = rho > 0.25 && high;
-          for (let i = 0; i < P.dia.length; i++) {
-            const m = P.dia[i];
-            m.visible = shock;
-            if (shock) { m.position.y = -len * (0.14 + 0.13 * i); m.scale.setScalar(bw * (0.42 - 0.07 * i)); }
-          }
-          const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, k: 0, color: 0 });
-          const np = partPt(p, 0, P.nz.y);
-          e.x = np.x; e.y = np.y; e.k = k; e.color = P.hex;
-          this.exhaust.push(e);
+        if (k <= 0) continue;
+        // length and spread as in World.drawFlame, with a smooth flicker instead of a random one; an
+        // afterburner stretches the flame and lights shock diamonds in it
+        const type = P.type, vac = 1 - clamp(rho / 0.4, 0, 1), bw = P.nz.half;
+        const lenK = type === 'ion' ? 3.5 : type === 'solid' ? 4.2 : type === 'hydro' ? 3.4 : 3.2;
+        const flick = 1 + 0.12 * (0.6 * Math.sin(time * 37.3 + P.seed) + 0.4 * Math.sin(time * 71.9 + P.seed * 2.1));
+        const len = Math.max(d.w, 1) * (1.4 + lenK * k) * (1 + (type === 'spike' ? 0 : vac * 0.9)) * (1 + 1.3 * ab) * flick;
+        const spread = bw * (type === 'spike' ? 1 : 1 + vac * (type === 'ion' ? 0.4 : 1.8)), tw = time % 600;
+        P.outer.uP0.value.set(bw * 0.92, 0); P.outer.uP1.value.set(spread, -len * 0.35); P.outer.uP2.value.set(0, -len);
+        P.core.uP0.value.set(bw * 0.55, 0); P.core.uP1.value.set(bw * 0.5, -len * 0.2); P.core.uP2.value.set(0, -len * 0.5);
+        P.outer.uK.value = P.core.uK.value = Math.min(1.6, 0.3 + k + 0.6 * ab);
+        P.outer.uTime.value = P.core.uTime.value = tw;
+        P.glow.material.opacity = 0.55 * k + 0.4 * ab;
+        P.glow.scale.setScalar(bw * (4.8 + 3 * ab));
+        const shock = (rho > 0.25 || ab > 0.3) && high && (type !== 'jet' || ab > 0.3);
+        for (let i = 0; i < P.dia.length; i++) {
+          const m = P.dia[i];
+          m.visible = shock;
+          if (shock) { m.position.y = -len * (0.14 + 0.13 * i); m.scale.setScalar(bw * (0.42 - 0.07 * i)); }
         }
+        if (n) continue;
+        const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, k: 0, color: 0 });
+        const np = partPt(p, 0, P.nz.y);
+        e.x = np.x; e.y = np.y; e.k = k * rig.plumes.length; e.color = P.hex;
+        this.exhaust.push(e);
       }
     }
 

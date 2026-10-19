@@ -13,7 +13,9 @@ const MISSIONS = (() => {
     { id: 'hover', title: 'Hover', desc: 'Hold a helicopter steady above 20 m for 10 seconds.', reward: 6000, flag: 'hover' },
     { id: 'runwayLanding', title: 'Greaser', desc: 'Land a plane back on the runway and stop.', reward: 12000, flag: 'runwayLanding' },
     { id: 'flyHigh', title: 'High Flyer', desc: 'Fly a plane above 8 km.', reward: 10000, flag: 'flyHigh' },
-    { id: 'supersonic', title: 'Sound Barrier', desc: 'Beat 340 m/s below 15 km on air-breathing engines.', reward: 15000, flag: 'supersonic' },
+    { id: 'supersonic', title: 'Sound Barrier', desc: 'Fly faster than Mach 1 below 15 km on air-breathing engines.', reward: 15000, flag: 'supersonic' },
+    { id: 'mach2', title: 'Mach 2', desc: 'Fly a plane at twice the speed of sound.', reward: 30000, flag: 'mach2' },
+    { id: 'seaplane', title: 'Seaplane', desc: 'Take off from the water and land on it again on floats.', reward: 12000, flag: 'seaplane' },
   ];
   const tier = { moon: 1, venus: 2, mars: 2, mercury: 3, phobos: 3, jupiter: 4, europa: 5 };
   for (const b of [MOON, VENUS, MARS, MERCURY, PHOBOS, JUPITER, EUROPA]) {

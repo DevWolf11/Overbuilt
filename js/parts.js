@@ -10,7 +10,10 @@ const PART_CATEGORIES = [
   { id: 'aero', name: 'Aero' },
   { id: 'utility', name: 'Utility' },
   { id: 'structure', name: 'Structure' },
-  { id: 'air', name: 'Aircraft' },
+  { id: 'air', name: 'Fuselage' },
+  { id: 'wings', name: 'Wings' },
+  { id: 'airEng', name: 'Aero engines' },
+  { id: 'airGear', name: 'Gear' },
   { id: 'ground', name: 'Ground' },
 ];
 
@@ -113,35 +116,132 @@ const PARTS = {
 
   // ---- aircraft. Planes are built nose-right: the stack runs along local +y (the nose) and the
   // landing gear hangs on the local +x side, which is down once the plane sits on the runway.
-  // The 2D world is a side view, so a wing part is the wing's cross-section; `span` only matters
-  // for the 3D view, and `area` is the lifting area of the whole wing.
-  cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 9000, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
+  // The blueprint is a side view, so a wing part is the wing's cross-section: `span` is how far it
+  // reaches across (shown in 3D), `area` its lifting area. Wings and tail surfaces may pass through
+  // the fuselage they are mounted on; twin parts (twinZ) are a pair, one on each side.
+  // Wing fields: sweep (rad), taper (tip chord lost, 0..1), stall (rad), mcrit (Mach where wave drag
+  // starts), load (strength, 1 = about 9 g for a light plane), dihedral (rad), flaps.
+
+  // fuselage
+  cockpitS: { cat: 'air', name: 'Bush Cockpit', w: 1.5, h: 2, mass: 0.45, control: 3, torque: 1500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 11,
+    tier: 0, cost: 2500, desc: 'Small cockpit for light planes and gliders.' },
+  cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
+  cockpitJet: { cat: 'air', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, shape: 'jetnose', aero: true, sharp: true,
+    breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag.' },
+  cockpitAir: { cat: 'air', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
+    tier: 1, cost: 6500, desc: 'Flight deck for a wide fuselage.' },
+  radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600,
+    desc: 'Pointed nose cone for a fuselage. Lower drag, especially near Mach 1.' },
+  fuselageS: { cat: 'air', name: 'Short Fuselage', w: 2, h: 2, fuel: 1, mass: 0.18, shape: 'fuselage', tier: 0, cost: 1000,
+    desc: 'Short plane body with a fuel tank.' },
   fuselage: { cat: 'air', name: 'Fuselage', w: 2, h: 4, fuel: 2, mass: 0.35, shape: 'fuselage', tier: 0, cost: 1800,
     desc: 'Plane body with passenger windows and a fuel tank in its belly.' },
+  fuselageL: { cat: 'air', name: 'Long Fuselage', w: 2, h: 8, fuel: 4, mass: 0.7, shape: 'fuselage', tier: 1, cost: 3200,
+    desc: 'Long passenger cabin with lots of fuel.' },
+  fuselageSlim: { cat: 'air', name: 'Slim Fuselage', w: 1.5, h: 4, fuel: 1.2, mass: 0.22, shape: 'fuselage', tier: 0, cost: 1300,
+    desc: 'Narrow body for light planes and gliders.' },
+  fuselageW: { cat: 'air', name: 'Wide Fuselage', w: 3, h: 6, fuel: 7, mass: 1.1, shape: 'fuselage', tier: 1, cost: 4500,
+    desc: 'Wide-body airliner cabin.' },
+  fuselageAd: { cat: 'air', name: 'Fuselage Adapter', w: 3, h: 1.5, topW: 2, mass: 0.12, shape: 'adapter', tier: 1, cost: 500,
+    desc: 'Narrows a 3 m fuselage to 2 m towards the nose. Rotate it to narrow towards the tail.' },
+  tailconeS: { cat: 'air', name: 'Slim Tail Cone', w: 1.5, h: 2.5, botW: 0.5, mass: 0.1, shape: 'tailcone', aero: true, tier: 0, cost: 300,
+    desc: 'Tail cone for a slim fuselage.' },
   tailcone: { cat: 'air', name: 'Tail Cone', w: 2, h: 2.5, botW: 0.7, mass: 0.15, shape: 'tailcone', aero: true, tier: 0, cost: 400,
     desc: 'Tapers the back of a fuselage up towards the tail.' },
-  wing: { cat: 'air', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 28, span: 12 }, breakSpeed: 14, tier: 0, cost: 1500,
-    desc: 'Main wing with ailerons (one part is the whole span). Mount it on the side of the fuselage near the centre of mass. Lift grows with speed and angle of attack, until it stalls.' },
-  wingS: { cat: 'air', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5 }, breakSpeed: 14, tier: 0, cost: 700,
-    desc: 'Short wing for small planes, canards or a fixed tailplane.' },
-  elevator: { cat: 'air', name: 'Elevator', w: 0.3, h: 1.5, mass: 0.12, shape: 'elevator', wing: { area: 5, span: 5, control: 0.35 }, breakSpeed: 14, tier: 0, cost: 900,
+  tailconeL: { cat: 'air', name: 'Long Tail Cone', w: 2, h: 4, botW: 0.6, mass: 0.22, shape: 'tailcone', aero: true, tier: 1, cost: 600,
+    desc: 'Longer tail: the tail surfaces get more leverage.' },
+  tailconeW: { cat: 'air', name: 'Wide Tail Cone', w: 3, h: 4.5, botW: 0.9, mass: 0.35, shape: 'tailcone', aero: true, tier: 1, cost: 800,
+    desc: 'Tail cone for a wide fuselage.' },
+
+  // wings and tails
+  wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true }, breakSpeed: 14, tier: 0, cost: 700,
+    desc: 'Short wing with ailerons and flaps, for small planes or a canard.' },
+  wing: { cat: 'wings', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 30, span: 13, flaps: true }, breakSpeed: 14, tier: 0, cost: 1500,
+    desc: 'Main wing with ailerons and flaps (one part is the whole span). Put it through the fuselage near the centre of mass, high, low or in the middle. It stalls if the nose is pulled too high.' },
+  wingL: { cat: 'wings', name: 'Large Wing', w: 0.8, h: 5, mass: 1.6, fuel: 3, shape: 'wing', wing: { area: 75, span: 28, flaps: true, sweep: 0.42, taper: 0.62, mcrit: 0.82, load: 1.1 },
+    breakSpeed: 14, tier: 1, cost: 4500, desc: 'Long, gently swept airliner wing with flaps and fuel tanks inside.' },
+  wingSwept: { cat: 'wings', name: 'Swept Wing', w: 0.45, h: 4, mass: 0.6, shape: 'wing', wing: { area: 32, span: 11, sweep: 0.6, taper: 0.55, mcrit: 0.9, load: 1.4, flaps: true },
+    breakSpeed: 14, tier: 2, cost: 3500, desc: 'Swept back for fast jets: less drag near Mach 1, but it needs more speed to lift.' },
+  wingDelta: { cat: 'wings', name: 'Delta Wing', w: 0.5, h: 7, mass: 1.1, fuel: 1.5, shape: 'wing',
+    wing: { area: 48, span: 9.5, sweep: 1, taper: 0.92, slope: 2.6, stall: 0.55, mcrit: 0.95, wave: 0.5, load: 1.8, dihedral: 0 },
+    breakSpeed: 14, tier: 2, cost: 5000, desc: 'Big triangle for supersonic fighters. Hard to stall, little wave drag, but sluggish at low speed.' },
+  wingGlider: { cat: 'wings', name: 'Glider Wing', w: 0.25, h: 1.4, mass: 0.25, shape: 'wing', wing: { area: 21, span: 19, taper: 0.5, load: 0.6, dihedral: 0.09 },
+    breakSpeed: 12, tier: 0, cost: 1800, desc: 'Very long, thin wing: hardly any drag, so it glides for miles. Fragile at high speed.' },
+  stabilizer: { cat: 'wings', name: 'Tailplane', w: 0.3, h: 1.8, mass: 0.12, shape: 'wing', wing: { area: 6, span: 6 }, breakSpeed: 14, tier: 0, cost: 500,
+    desc: 'Fixed horizontal tail: keeps the nose steady. Pair it with an elevator to pitch.' },
+  elevator: { cat: 'wings', name: 'Elevator', w: 0.3, h: 1.5, mass: 0.12, shape: 'elevator', wing: { area: 5, span: 5, control: 0.35 }, breakSpeed: 14, tier: 0, cost: 900,
     desc: 'Moving tail surface. The stick (W/S) and the autopilot pitch the plane with it, and it helps roll too. Put it far behind the centre of mass.' },
-  vtail: { cat: 'air', name: 'Vertical Tail', w: 1.6, h: 2.2, mass: 0.1, shape: 'vtail', tier: 0, cost: 400,
+  elevatorL: { cat: 'wings', name: 'Large Elevator', w: 0.35, h: 2.2, mass: 0.25, shape: 'elevator', wing: { area: 11, span: 9, control: 0.35 }, breakSpeed: 14, tier: 1, cost: 1500,
+    desc: 'All-moving tail for big planes.' },
+  canard: { cat: 'wings', name: 'Canard', w: 0.25, h: 1.2, mass: 0.08, shape: 'elevator', wing: { area: 3, span: 4, control: 0.3 }, breakSpeed: 14, tier: 1, cost: 900,
+    desc: 'Small moving foreplane near the nose. Twitchy and fun.' },
+  vtailS: { cat: 'wings', name: 'Small Tail Fin', w: 1.1, h: 1.5, mass: 0.05, shape: 'vtail', tier: 0, cost: 250,
+    desc: 'Tail fin with a rudder for light planes.' },
+  vtail: { cat: 'wings', name: 'Vertical Tail', w: 1.6, h: 2.2, mass: 0.1, shape: 'vtail', tier: 0, cost: 400,
     desc: 'Tail fin with a rudder (Q/E). Keeps a plane pointing into the wind. Mount it on top of the tail.' },
-  propeller: { cat: 'air', name: 'Propeller', w: 2.6, h: 0.9, mass: 0.35, thrust: 34, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 45 },
+  vtailL: { cat: 'wings', name: 'Large Tail Fin', w: 2.4, h: 3.4, mass: 0.25, shape: 'vtail', tier: 1, cost: 800,
+    desc: 'Big fin for airliners.' },
+  vtailTwin: { cat: 'wings', name: 'Twin Tail Fins', w: 1.6, h: 2.2, mass: 0.2, shape: 'vtail', twinZ: 1.4, tier: 2, cost: 900,
+    desc: 'A pair of fins, one each side, like a fighter jet.' },
+  airbrake: { cat: 'wings', name: 'Air Brake', w: 0.25, h: 1.4, mass: 0.06, shape: 'airbrake', airbrake: 3.5, tier: 1, cost: 700,
+    desc: 'Panel on top of the fuselage. Hold B in the air to pop it up and slow down.' },
+
+  // aero engines
+  propS: { cat: 'airEng', name: 'Small Propeller', w: 1.9, h: 0.7, mass: 0.15, thrust: 14, ispSL: 3400, ispVac: 3400, gimbal: 0, air: { kind: 'prop', v0: 40 }, blades: 2,
+    shape: 'prop', plume: 'none', aero: true, breakSpeed: 9, maxTemp: 1500, tier: 0, cost: 1800, desc: 'Little two-blade engine for light planes.' },
+  propeller: { cat: 'airEng', name: 'Propeller', w: 2.6, h: 0.9, mass: 0.35, thrust: 34, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 45 },
     shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 0, cost: 4000,
     desc: 'Piston engine and propeller. Mount it on the nose. Needs air, and pulls hardest at low speed.' },
-  jet: { cat: 'air', name: 'Turbojet', w: 1.5, h: 3, mass: 1.1, thrust: 110, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 650 },
+  propL: { cat: 'airEng', name: 'Radial Engine', w: 3.4, h: 1.3, mass: 0.8, thrust: 62, ispSL: 3000, ispVac: 3000, gimbal: 0, air: { kind: 'prop', v0: 70 }, blades: 4,
+    shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 1, cost: 6500, desc: 'Big four-blade warbird engine. Lots of torque: the plane wants to roll.' },
+  turboprop: { cat: 'airEng', name: 'Turboprop', w: 3.6, h: 1.8, mass: 0.7, thrust: 70, ispSL: 5200, ispVac: 5200, gimbal: 0, air: { kind: 'prop', v0: 95 }, blades: 5,
+    shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1600, tier: 2, cost: 9000, desc: 'Gas turbine driving a five-blade prop: fast, frugal and strong.' },
+  pusher: { cat: 'airEng', name: 'Pusher Propeller', w: 2.6, h: 0.9, mass: 0.35, thrust: 32, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 45 }, pusher: true,
+    shape: 'prop', plume: 'none', breakSpeed: 10, maxTemp: 1500, tier: 1, cost: 4000, desc: 'Propeller that faces backwards: mount it on the tail end and it pushes.' },
+  propTwin: { cat: 'airEng', name: 'Twin Wing Props', w: 2.6, h: 1.6, mass: 0.9, thrust: 64, ispSL: 3200, ispVac: 3200, gimbal: 0, air: { kind: 'prop', v0: 55 },
+    twinZ: 3.2, pod: true, shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 1, cost: 8000,
+    desc: 'Two propeller engines in nacelles, one on each wing. Drop them onto a wing.' },
+  jetS: { cat: 'airEng', name: 'Small Turbojet', w: 1, h: 2.2, mass: 0.45, thrust: 45, ispSL: 4000, ispVac: 4000, gimbal: 0, air: { kind: 'jet', vmax: 550 },
+    shape: 'jet', plume: 'jet', maxTemp: 2000, tier: 1, cost: 6000, desc: 'Compact jet for light fast planes.' },
+  jet: { cat: 'airEng', name: 'Turbojet', w: 1.5, h: 3, mass: 1.1, thrust: 110, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 650 },
     shape: 'jet', plume: 'jet', maxTemp: 2000, tier: 2, cost: 12000,
     desc: 'Air-breathing jet for fast planes. Thrust grows with speed up to about Mach 2, but it flames out in thin air.' },
-  rotor: { cat: 'air', name: 'Main Rotor', w: 10, h: 1.2, mass: 0.7, thrust: 80, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'rotor', v0: 25, torque: 14000 },
+  jetAB: { cat: 'airEng', name: 'Afterburning Turbojet', w: 1.8, h: 4, mass: 1.6, thrust: 135, ispSL: 4000, ispVac: 4000, gimbal: 0.03, air: { kind: 'jet', vmax: 1100, ab: 1.75 },
+    shape: 'jet', plume: 'jet', maxTemp: 2200, tier: 3, cost: 18000, desc: 'Above 90% throttle the afterburner lights: much more thrust, much more fuel. Mach 2 and beyond.' },
+  jetPods: { cat: 'airEng', name: 'Twin Jet Pods', w: 1.2, h: 2.6, mass: 1, thrust: 90, ispSL: 4000, ispVac: 4000, gimbal: 0, air: { kind: 'jet', vmax: 600 },
+    twinZ: 2.8, pod: true, shape: 'jet', plume: 'jet', maxTemp: 2000, tier: 1, cost: 11000, desc: 'Two small jets in pods under the wings. Drop them onto a wing.' },
+  turbofan: { cat: 'airEng', name: 'Turbofan', w: 2.4, h: 3.2, mass: 1.5, thrust: 150, ispSL: 9000, ispVac: 9000, gimbal: 0, air: { kind: 'fan', vmax: 290 },
+    shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 2, cost: 14000, desc: 'Big quiet airliner engine: very frugal and strong at take-off, but it runs out of puff near Mach 1.' },
+  fanPods: { cat: 'airEng', name: 'Twin Turbofan Pods', w: 2.2, h: 3.4, mass: 2.6, thrust: 230, ispSL: 8500, ispVac: 8500, gimbal: 0, air: { kind: 'fan', vmax: 290 },
+    twinZ: 5.5, pod: true, shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 2, cost: 24000, desc: 'A pair of turbofans hanging under the wings. Drop them onto a wing.' },
+  ramjet: { cat: 'airEng', name: 'Ramjet', w: 1.3, h: 4.4, mass: 0.6, thrust: 180, ispSL: 3500, ispVac: 3500, gimbal: 0, air: { kind: 'ram', vmin: 260, vmax: 1100 },
+    shape: 'jet', plume: 'jet', maxTemp: 2600, tier: 3, cost: 15000, desc: 'No moving parts and huge thrust, but only above about 950 km/h. Get there on another engine first.' },
+  jato: { cat: 'airEng', name: 'JATO Booster', w: 0.6, h: 2, mass: 0.08, fuel: 0.22, thrust: 45, ispSL: 200, ispVac: 210, gimbal: 0, shape: 'srb', plume: 'solid', solid: true,
+    tier: 0, cost: 900, maxTemp: 2000, desc: 'Strap-on rocket for a short take-off or a glider launch. Burns for about ten seconds.' },
+  rotor: { cat: 'airEng', name: 'Main Rotor', w: 10, h: 1.2, mass: 0.7, thrust: 80, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'rotor', v0: 25, torque: 14000 },
     shape: 'rotor', plume: 'none', breakSpeed: 8, maxTemp: 1500, tier: 1, cost: 9000,
     desc: 'Helicopter rotor and turboshaft. Throttle sets the lift; the stick tilts the craft. Mount it on top of the cabin.' },
-  tailRotor: { cat: 'air', name: 'Tail Rotor', w: 1.6, h: 1.6, mass: 0.05, shape: 'tailrotor', tier: 1, cost: 800,
+  tailRotor: { cat: 'airEng', name: 'Tail Rotor', w: 1.6, h: 1.6, mass: 0.05, shape: 'tailrotor', tier: 1, cost: 800,
     desc: 'Anti-torque rotor for the end of a tail boom. Spins with the main rotor.' },
-  gear: { cat: 'air', name: 'Landing Gear', w: 1.4, h: 0.9, mass: 0.15, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 1.8 }, breakSpeed: 7, tier: 0, cost: 800,
+
+  // gear and extras
+  gearS: { cat: 'airGear', name: 'Small Gear', w: 1, h: 0.7, mass: 0.06, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 1.4 }, breakSpeed: 6, tier: 0, cost: 500,
+    desc: 'Light landing gear for small planes.' },
+  gear: { cat: 'airGear', name: 'Landing Gear', w: 1.4, h: 0.9, mass: 0.15, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 1.8 }, breakSpeed: 7, tier: 0, cost: 800,
     desc: 'Wheel on a sideways strut. Mount it under the fuselage. It rolls freely; hold B to brake.' },
+  gearL: { cat: 'airGear', name: 'Heavy Gear', w: 2, h: 1.4, mass: 0.5, shape: 'gear', wheel: { r: 0.6, drive: false, brake: true, track: 2.8 }, breakSpeed: 9, tier: 1, cost: 2000,
+    desc: 'Big wheels for heavy planes.' },
+  gearR: { cat: 'airGear', name: 'Retractable Gear', w: 1.4, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 1.8, retract: true }, breakSpeed: 7,
+    tier: 1, cost: 1800, desc: 'Folds away in flight (G) to cut drag. Remember to put it down before landing!' },
+  tailWheel: { cat: 'airGear', name: 'Tail Wheel', w: 0.6, h: 0.5, mass: 0.03, shape: 'gear', wheel: { r: 0.2, drive: false, track: 0, caster: true }, breakSpeed: 6, tier: 0, cost: 300,
+    desc: 'Little swivelling wheel under the tail, for a taildragger.' },
+  floats: { cat: 'airGear', name: 'Floats', w: 1, h: 5, mass: 0.3, shape: 'float', float: true, twinZ: 1.6, aero: true, breakSpeed: 10, tier: 1, cost: 1500,
+    desc: 'A pair of pontoons: take off from and land on water. They skid on land.' },
+  dropTanks: { cat: 'airGear', name: 'Drop Tanks', w: 0.7, h: 2.6, mass: 0.08, fuel: 1.2, shape: 'droptank', twinZ: 3, pod: true, aero: true, tier: 1, cost: 900,
+    desc: 'Extra fuel in a pair of tanks under the wings. Drop them onto a wing.' },
+  brakeChute: { cat: 'airGear', name: 'Brake Chute', w: 0.7, h: 0.5, mass: 0.05, chute: true, brakeChute: true, chuteArea: 0.35, shape: 'chute', tier: 1, cost: 600,
+    desc: 'Drag chute for short landings: open it (STAGE or tap) after touchdown, below 400 km/h.' },
 
   // ---- ground
   cab: { cat: 'ground', name: 'Driver Cab', w: 2.4, h: 1.5, mass: 0.6, control: 2, torque: 4000, crew: 2, shape: 'cab', depth: 2, aero: true, breakSpeed: 11, tier: 0, cost: 2500,
@@ -230,13 +330,27 @@ function partsOverlap(a, b) {
   const A = partRect(a), B = partRect(b);
   return Math.min(A.r, B.r) - Math.max(A.l, B.l) > 0.02 && Math.min(A.t, B.t) - Math.max(A.b, B.b) > 0.02;
 }
+// Wings and tail surfaces are thin plates that may pass through the hull they are mounted on (a mid or
+// low wing, a fin on the tail cone), and engine pods and drop tanks hang off wings. So a surface and a
+// non-surface may overlap, and overlapping is how they attach; two parts of the same sort may not.
+function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
+// Twin parts sit out to the sides (twinZ), so in the side view they may also overlap the centreline hull.
+function partsClash(a, b) {
+  if (!!a.def.twinZ !== !!b.def.twinZ) return false;
+  return isSurface(a.def) === isSurface(b.def) && partsOverlap(a, b);
+}
+function partsMounted(a, b) {
+  if (isSurface(a.def) === isSurface(b.def)) return false;
+  const A = partRect(a), B = partRect(b);
+  return Math.min(A.r, B.r) - Math.max(A.l, B.l) > 0.04 && Math.min(A.t, B.t) - Math.max(A.b, B.b) > 0.04;
+}
 
 function buildAdjacency(parts) {
   const adj = new Map();
   for (const p of parts) adj.set(p.id, new Set());
   for (let i = 0; i < parts.length; i++)
     for (let j = i + 1; j < parts.length; j++)
-      if (partsTouch(parts[i], parts[j])) { adj.get(parts[i].id).add(parts[j].id); adj.get(parts[j].id).add(parts[i].id); }
+      if (partsTouch(parts[i], parts[j]) || partsMounted(parts[i], parts[j])) { adj.get(parts[i].id).add(parts[j].id); adj.get(parts[j].id).add(parts[i].id); }
   return adj;
 }
 
@@ -512,6 +626,32 @@ const HULLS = {
     ctx.bezierCurveTo(x - w / 2, b + h * 0.4, x - w * 0.4, b + h * 0.22, x - w * 0.3, b);
     ctx.closePath();
   },
+  jetnose(ctx, x, y, w, h) { // long ogive towards +y; the canopy (on the -x side) is drawn separately
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w / 2, b); ctx.lineTo(x + w / 2, b);
+    ctx.bezierCurveTo(x + w / 2, b + h * 0.45, x + w * 0.14, t - h * 0.08, x, t);
+    ctx.bezierCurveTo(x - w * 0.14, t - h * 0.08, x - w / 2, b + h * 0.45, x - w / 2, b);
+    ctx.closePath();
+  },
+  airnose(ctx, x, y, w, h) { // blunt airliner nose, rounder on the top (-x) side
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w / 2, b); ctx.lineTo(x + w / 2, b);
+    ctx.bezierCurveTo(x + w / 2, b + h * 0.55, x + w * 0.3, t, x + w * 0.05, t);
+    ctx.bezierCurveTo(x - w * 0.3, t, x - w / 2, b + h * 0.7, x - w / 2, b + h * 0.35);
+    ctx.closePath();
+  },
+  float(ctx, x, y, w, h) { // pontoon on the +x side with a stepped bottom; struts drawn separately
+    const l = x - w * 0.1, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(l, b + h * 0.06); ctx.lineTo(l, t - h * 0.2);
+    ctx.bezierCurveTo(l, t - h * 0.04, x + w * 0.2, t, r, t - h * 0.02);
+    ctx.lineTo(r, b + h * 0.45); ctx.lineTo(r - w * 0.08, b + h * 0.42); ctx.lineTo(r - w * 0.08, b);
+    ctx.lineTo(l + w * 0.1, b); ctx.closePath();
+  },
+  droptank(ctx, x, y, w, h) { // tank on the +x side, pointed at both ends; pylon drawn separately
+    const l = x - w * 0.05, r = x + w / 2, c = (l + r) / 2, b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(c, t); ctx.bezierCurveTo(r, t - h * 0.2, r, b + h * 0.25, c, b);
+    ctx.bezierCurveTo(l, b + h * 0.25, l, t - h * 0.2, c, t); ctx.closePath();
+  },
   cab(ctx, x, y, w, h) { // driving towards +x
     const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
     ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(r, b + h * 0.45); ctx.lineTo(r - w * 0.05, b + h * 0.53);
@@ -523,7 +663,7 @@ const HULLS = {
 // Outline path of a part (used for fills, heat glow and highlights).
 // A turned part is drawn as an unturned copy at the origin, inside a rotated frame.
 function turned(ctx, p, draw) {
-  const k = p.rot & 3;
+  const k = (p.rot + (p.def.pusher ? 2 : 0)) & 3; // a pusher prop is a tractor drawn the other way round
   if (!k) return draw(p);
   ctx.save();
   ctx.translate(p.x, p.y); ctx.rotate((k * Math.PI) / 2);
@@ -596,8 +736,11 @@ function partPath0(ctx, p) {
       ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
       break;
     }
-    case 'cockpit': case 'tailcone': case 'jet': case 'cab':
+    case 'cockpit': case 'tailcone': case 'jet': case 'cab': case 'jetnose': case 'airnose': case 'float': case 'droptank':
       HULLS[d.shape](ctx, x, y, w, h, d);
+      break;
+    case 'airbrake':
+      ctx.rect(l, b, w, h);
       break;
     case 'wing': case 'elevator':
       foilPath(ctx, p);
@@ -884,6 +1027,57 @@ function drawPart0(ctx, p, lw) {
       ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * 0.5, w * 0.06, h * 0.12, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
       break;
     }
+    case 'jetnose': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = '#3a4048'; ctx.fillRect(l, t - h * 0.2, w, h * 0.2); // radome tip
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.1, h * 0.6);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.42, b + h * 0.3, w * 0.2, h * 0.2, 0, 0, TAU);
+      ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * 0.36, w * 0.05, h * 0.07, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+      break;
+    }
+    case 'airnose': {
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
+      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h * 0.8);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h * 0.7);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.05, w, h * 0.05);
+      ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      ctx.fillStyle = PAL.ink; // windscreen, on the top side near the nose
+      for (let i = 0; i < 3; i++) ctx.fillRect(x - w * 0.36 + i * w * 0.07, b + h * 0.62 - i * h * 0.03, w * 0.05, h * 0.11);
+      ctx.fillStyle = PAL.glass;
+      for (let yy = b + 0.3; yy < b + h * 0.45; yy += 0.5) ctx.fillRect(x - w * 0.2, yy, w * 0.1, 0.24);
+      break;
+    }
+    case 'float': {
+      const s = 0.09, xa = x - w / 2, xb = x - w * 0.1;
+      ctx.fillStyle = PAL.steelDark; // struts up to the fuselage
+      for (const yy of [y + h * 0.18, y - h * 0.22]) ctx.fillRect(xa, yy - s / 2, xb - xa, s);
+      partPath(ctx, p); ctx.fillStyle = PartPaint.flat ? '#e8b23a' : (() => { const g = ctx.createLinearGradient(xb, 0, x + w / 2, 0); g.addColorStop(0, '#ffd36a'); g.addColorStop(1, '#c98f1c'); return g; })();
+      ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = PAL.ink; ctx.fillRect(x + w * 0.3, b, w * 0.2, h); ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'droptank': {
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w / 2, y - h * 0.15, w * 0.5, h * 0.3); // pylon
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, x - w * 0.05, r); ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.14, w, h * 0.06); ctx.fillRect(l, b + h * 0.08, w, h * 0.06); ctx.restore();
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'airbrake': {
+      ctx.fillStyle = PAL.steelLight; ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = PAL.hazard;
+      for (let yy = b; yy < t - 0.01; yy += 0.3) ctx.fillRect(l, yy, w, 0.15);
+      ctx.strokeRect(l, b, w, h);
+      break;
+    }
     case 'fuselage': {
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
       ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
@@ -934,8 +1128,9 @@ function drawPart0(ctx, p, lw) {
         ctx.beginPath(); ctx.ellipse(x, yb, R, 0.08, 0, 0, TAU); ctx.fill();
       }
       ctx.fillStyle = '#2b3036';
-      for (let i = 0; i < 3; i++) {
-        const k = Math.cos((p.spin || 0) + (i * TAU) / 3) * R;
+      const nb = d.blades || 3;
+      for (let i = 0; i < nb; i++) {
+        const k = Math.cos((p.spin || 0) + (i * TAU) / nb) * R;
         ctx.fillRect(Math.min(x, x + k), yb - 0.06, Math.abs(k), 0.12);
         ctx.fillStyle = PAL.hazard; ctx.fillRect(x + k - Math.sign(k) * 0.14 - 0.07, yb - 0.06, 0.14, 0.12); ctx.fillStyle = '#2b3036';
       }
@@ -993,6 +1188,7 @@ function drawPart0(ctx, p, lw) {
     }
     case 'gear': {
       const g = wheelGeom(p), s = p.flip ? -1 : 1, i = x - s * w / 2;
+      if (p.retracted) { ctx.fillStyle = PAL.steelDark; ctx.fillRect(Math.min(i, i + s * 0.3), g.y - 0.2, 0.3, 0.4); break; }
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(Math.min(i, i + s * 0.12), g.y - 0.2, 0.12, 0.4);
       ctx.strokeStyle = PAL.steelLight; ctx.lineWidth = 0.12; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(i + s * 0.1, g.y); ctx.lineTo(g.x, g.y); ctx.stroke();
