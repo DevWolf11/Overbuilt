@@ -696,7 +696,7 @@ class Vessel {
         if (rr > strain) strain = rr;
         if (rr > 1) {
           p.stress = (p.stress || 0) + (rr - 1) * 2 * dt;
-          if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p)) { rip.push(p); this.ripWhy = 'g'; }
+          if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p)) rip.push(p);
         }
         const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
@@ -720,14 +720,9 @@ class Vessel {
       this.slip = Math.asin(clamp(hz, -1, 1));
       this.strain = strain;
       this.nz = (Fb.x * P.U.x + Fb.y * P.U.y + Fb.z * P.U.z) / (this.mass * G0); // load factor through the floor
-      // past the never-exceed speed the wings flutter, and tear off: soon a little over it, at once far over
+      // how close to the never-exceed speed (a warning only: going faster breaks nothing)
       const eas = Math.sqrt(this.dynP / 0.6125); // equivalent airspeed, sqrt(2q / 1.225)
       this.overspeed = this.vne ? eas / this.vne : 0;
-      if (this.overspeed > 1 && this.mainWing && !noodle) {
-        const w = this.mainWing;
-        w.stress = (w.stress || 0) + (this.overspeed - 1) * 3 * dt + 0.12 * dt;
-        if ((this.overspeed > 1.3 || w.stress >= 1) && !rip.includes(w)) { rip.push(w); this.ripWhy = 'speed'; }
-      }
     } else {
       for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
       this.strain = 0; this.overspeed = 0; this.nz = 0;
