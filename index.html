@@ -60,7 +60,7 @@
     <div class="topbar-actions">
       <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
       <button id="btn-3d-build" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
-      <button id="btn-sym" class="btn toggle" aria-pressed="true" title="Mirror parts across the centre line"><span>Sym<span class="long">metry</span></span></button>
+      <button id="btn-sym" class="btn toggle" data-icon="sym" aria-pressed="true" aria-label="Symmetry" title="Mirror parts across the centre line"><span class="sym-text">Sym<span class="long">metry</span></span></button>
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
@@ -69,13 +69,13 @@
   </header>
 
   <section id="stats" class="panel stats" aria-label="Rocket stats">
+    <div class="s-head"><div id="s-name" class="s-name">Rocket</div><button id="btn-stats" class="stats-toggle" aria-expanded="true" aria-controls="stats" aria-label="Show less" title="Show less"></button></div>
     <div id="kind-select" class="kind-select" role="radiogroup" aria-label="Vehicle type">
       <button class="kind-btn" role="radio" data-kind="rocket" data-icon="rocket" title="Rocket: launches from the pad"><span>Rocket</span></button>
       <button class="kind-btn" role="radio" data-kind="plane" data-icon="plane" title="Plane: built nose-right, takes off from the runway"><span>Plane</span></button>
       <button class="kind-btn" role="radio" data-kind="car" data-icon="car" title="Car: drives from the runway"><span>Car</span></button>
       <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
     </div>
-    <div id="s-name" class="s-name">Rocket</div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
       <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
@@ -99,8 +99,8 @@
       <h3 id="pi-name"></h3>
       <div class="pi-btns">
         <button id="btn-rotate" class="btn small icon-only" data-icon="rotR" aria-label="Rotate a quarter turn (R)" title="Rotate (R)"></button>
-        <button id="btn-dup" class="btn small icon-only" data-icon="copy" aria-label="Duplicate"></button>
-        <button id="btn-delete" class="btn danger small" data-icon="trash">Remove</button>
+        <button id="btn-dup" class="btn small icon-only" data-icon="copy" aria-label="Duplicate" title="Duplicate (Ctrl+D)"></button>
+        <button id="btn-delete" class="btn danger small icon-only" data-icon="trash" aria-label="Remove (Delete)" title="Remove (Delete) · or drag the part onto the tray"></button>
       </div>
     </div>
     <p id="pi-specs" class="pi-specs"></p>
@@ -108,7 +108,7 @@
   </section>
 
   <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
-  <div id="build-3d-hint" class="chip-hint" hidden>3D preview · drag to orbit · switch to 2D to place parts by hand</div>
+  <div id="build-3d-hint" class="chip-hint" hidden></div>
 
   <footer id="palette" class="palette">
     <div id="palette-tabs" class="tabs" role="tablist"></div>

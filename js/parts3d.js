@@ -842,7 +842,7 @@ void main() {
     need(); ensureShared();
     const d = p.def, m = model(d, !!p.flip), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
-      nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1 };
+      nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '' };
     // twin parts are a pair, one each side
     const holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.position.z = s * d.twinZ; root.add(g); return g; }) : [root];
     for (const h of holders) instance(m, h, rig);
@@ -945,6 +945,27 @@ void main() {
     for (const P of rig.plumes) for (const m of P.mats) m.dispose();
   }
 
+  // A part's place and quarter turn (they change as it is dragged around the blueprint).
+  function place(rig) {
+    const p = rig.part;
+    rig.root.position.set(p.x, p.y, 0);
+    rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2;
+    if (rig.twin) { rig.twin.position.set(0, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }
+  }
+  function tint(rig, r, g, b, k) {
+    const key = k > 0 ? `${r},${g},${b},${k}` : '';
+    if (rig.tint === key) return;
+    rig.tint = key;
+    for (const m of rig.matList) if (m.isMeshStandardMaterial) { m.emissive.setRGB(r, g, b); m.emissiveIntensity = k; }
+  }
+  // The builder's see-through part following the pointer before it is dropped (radial: with its twin).
+  function ghost(p, radial) {
+    const root = buildPart(p, true, radial), rig = root.userData.rig;
+    for (const m of rig.matList) { m.transparent = true; m.opacity = (m.userData.op || 1) * 0.6; m.depthWrite = false; }
+    for (const mesh of rig.meshes) mesh.castShadow = false;
+    return rig;
+  }
+
   function shown(o) {
     for (; o; o = o.parent) if (!o.visible) return false;
     return true;
@@ -1020,7 +1041,7 @@ void main() {
 
     update(rig, dt, time, rho, high, rotor) {
       const p = rig.part, d = p.def, A = rig.anim;
-      rig.root.position.set(p.x, p.y, 0);
+      place(rig);
       const hot = p.temp > 900 ? (p.temp - 900) / (d.maxTemp - 900) : 0, fire = rig.nozzle && p.firing > 0 ? Math.min(1, p.firing) : 0;
       if (Math.abs(hot - rig.heat) > 0.003 || (hot > 0) !== (rig.heat > 0) || fire !== rig.fire) { rig.heat = hot; rig.fire = fire; emissive(rig); }
       if (rig.spins.length) {
@@ -1085,6 +1106,12 @@ void main() {
       return null;
     }
 
+    // Builder: a glow over a part's paint (selection, hover, a spot it can't go), or none (k = 0).
+    setTint(part, r, g, b, k) {
+      const rig = this.items.get(part);
+      if (rig) tint(rig, r, g, b, k);
+    }
+
     // Builder: parts not attached to the control part are drawn see-through.
     setOpacity(part, a) {
       const rig = this.items.get(part);
@@ -1118,6 +1145,10 @@ void main() {
     textureFor,
     buildPart: (p) => buildPart(p, false),
     VesselMesh,
+    ghost,
+    place,
+    tint,
+    freeGhost: freeRig,
   };
   return api;
 })();
