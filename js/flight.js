@@ -228,7 +228,7 @@ const Flight = {
       FX.puff(v.body, wp, vel, 8, '#cfd5dc');
     }
     if (v === this.active) {
-      this.toast(v.ripWhy === 'speed' ? `Flutter tore the ${parts[0].def.name.toLowerCase()} off at ${Math.round(v.speed() * 3.6)} km/h!` : `${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
+      this.toast(`${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
       Sound.explode(); haptic([60, 40, 80]);
     }
     const pieces = v.splitComponents();
@@ -1180,11 +1180,11 @@ const Flight = {
       set('t-g', gr ? `${v.nz.toFixed(1)} / ${gr.toFixed(gr < 10 ? 1 : 0)} g` : `${v.gForce.toFixed(1)} g`);
       $('#row-g').classList.toggle('danger', !!(st && st.kind === 'g'));
     }
-    // over-g or overspeed: a flashing banner while the wings are at risk
+    // over-g (the wings are at risk) or overspeed (past the design's never-exceed speed: a warning only)
     const al = $('#flight-alert');
     al.hidden = !st;
     if (st) {
-      set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${Math.round(v.speed() * 3.6)} km/h · slow down`);
+      set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${Math.round(v.speed() * 3.6)} km/h`);
       al.classList.toggle('critical', st.level > 1);
     }
     // orbital readouts mean little for a car or a plane low in the air
