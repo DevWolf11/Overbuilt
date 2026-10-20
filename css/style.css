@@ -685,3 +685,15 @@ kbd {
   width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; resize: vertical; word-break: break-all;
   font: 500 12px var(--mono); color: var(--text); background: rgba(20, 32, 54, 0.8); border: 1px solid var(--line-strong);
 }
+
+/* ---- the globe map */
+.map-legend .legend-globe { display: none; }
+.map-legend.globe .legend-system { display: none; }
+.map-legend.globe .legend-globe { display: inline; }
+#globe-info { font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  /* under the telemetry panel, clear of the throttle */
+  .map-legend.globe { display: flex !important; flex-direction: column; gap: 2px; white-space: normal; text-align: left;
+    left: var(--gut-l); transform: none; top: calc(232px + var(--safe-t)); bottom: auto; max-width: calc(100vw - var(--gut-l) - 104px); font-size: 10.5px; }
+  .map-legend.globe .legend-globe.muted { display: none; }
+}

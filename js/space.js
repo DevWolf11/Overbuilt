@@ -62,8 +62,10 @@ const EARTH = makeBody({
   blurb: 'Home. Oceans, clouds and a launch pad.',
 });
 
-// The space centre sits on an island. Everything is measured in metres east of the pad along the
-// surface; east is screen-right at the pad, which is the direction of decreasing angle.
+// The space centre sits on the Faroe Islands (terrain.js places it on the real map). Everything is measured
+// in metres "east" of the pad along the surface: east is screen-right at the pad, the direction of decreasing
+// angle, and on the real Earth it runs ESE (bearing 119°), along the runway and out across the sea to Shetland.
+// That way is the game's own east: orbits launched from the pad go round the planet along it.
 EARTH.sites = {
   pad: { name: 'Launch pad', east: 0 },
   helipad: { name: 'Helipad', east: 160 },
@@ -71,11 +73,12 @@ EARTH.sites = {
   bay: { name: 'Bay', east: -2300 }, // seaplanes start on the water west of the island, facing out to sea
 };
 EARTH.runway = { from: 700, to: 2700 }; // the paved strip
+EARTH.causeway = { from: 3300, to: 17200, shore: 17850 }; // the sea road to Shetland: raised from..to, ashore at `shore`
 // Flattened ground: each flat blends from `height` back to the natural terrain over `blend` metres.
 // Later entries win where they overlap.
 EARTH.flats = [
-  { name: 'spaceCentre', east: 0, half: 220, blend: 1350, height: 40 },
-  { name: 'causeway', east: 8000, half: 4700, blend: 600, height: 12 }, // road to the mainland, 3.3–12.7 km
+  { name: 'spaceCentre', east: 0, half: 220, blend: 600, height: 40 }, // the pad stands on the west coast
+  { name: 'causeway', east: (EARTH.causeway.from + EARTH.causeway.to) / 2, half: (EARTH.causeway.to - EARTH.causeway.from) / 2, blend: 600, height: 12 },
   { name: 'runway', east: 1700, half: 1100, blend: 700, height: 40 },
 ];
 for (const f of EARTH.flats) f.ang = EARTH.padAngle - f.east / EARTH.radius;

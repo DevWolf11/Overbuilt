@@ -641,7 +641,7 @@ const World = {
     }
     // causeway road with railing posts
     if (S > 0.4) {
-      for (let x = 3300; x < 12700; x += 25) {
+      for (let x = EARTH.causeway.from; x < EARTH.causeway.to; x += 25) {
         if (!at(x + 12.5)) continue;
         ctx.fillStyle = dk('#34383e'); ctx.fillRect(-12.6, -0.4, 25.2, 0.4);
         ctx.fillStyle = dk('#d9dde2'); ctx.fillRect(-4, -0.06, 8, 0.06);

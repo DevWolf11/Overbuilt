@@ -129,6 +129,7 @@
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
       <div id="row-mach" class="t-mach" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
       <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
+      <div id="row-hdg" hidden><dt>Heading</dt><dd id="t-hdg">0°</dd></div>
       <div id="row-g" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
@@ -148,13 +149,15 @@
 
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
+    <button id="btn-mapview" class="btn" hidden title="Switch between the globe and the solar system (N)">System</button>
     <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Centre on vessel" hidden></button>
     <button id="btn-map" class="btn" data-icon="map">Map</button>
     <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
   </div>
 
   <div id="map-legend" class="map-legend" hidden>
-    <span><i class="sw amber"></i>Current path</span><span><i class="sw cyan"></i>After encounter</span><span class="muted">Tap a planet to target it · drag to pan</span>
+    <span class="legend-system"><i class="sw amber"></i>Current path</span><span class="legend-system"><i class="sw cyan"></i>After encounter</span><span class="legend-system muted">Tap a planet to target it · drag to pan</span>
+    <span id="globe-info" class="legend-globe"></span><span class="legend-globe muted">Drag to turn · pinch or scroll to zoom</span>
   </div>
 
   <div id="hint" class="hint" hidden><span id="hint-text"></span></div>
@@ -220,6 +223,7 @@
 <script src="js/audio.js"></script>
 <script src="js/career.js"></script>
 <script src="js/map.js"></script>
+<script src="js/globe.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/main.js"></script>

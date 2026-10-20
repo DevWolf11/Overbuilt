@@ -31,7 +31,7 @@ const Render3D = (() => {
   // Colours (sRGB 0..255) for ground and planet maps. tex: painting a whole-planet texture.
   const P = {
     sand: C('#d2bf8e'), wet: C('#b9a676'), seabed: C('#3d5b5a'), grassA: C('#77a152'), grassB: C('#4a6b3c'), forest: C('#3e5f35'),
-    arid: C('#b39c66'), hill: C('#6b7148'), rockE: C('#77705f'), snow: C('#eef3f6'), concrete: C('#9fa3a7'),
+    arid: C('#b39c66'), hill: C('#6b7148'), rockE: C('#77705f'), basalt: C('#4a4844'), snow: C('#eef3f6'), concrete: C('#9fa3a7'),
     oceanD: C('#123a6a'), oceanS: C('#2873ab'), ice: C('#e9f1f6'), marsDust: C('#d58e5f'), venA: C('#e8cd8c'), venB: C('#c9a35f'),
     venC: C('#f4e2b4'), jupA: C('#e6d1ae'), jupB: C('#c08d5c'), jupC: C('#9c6b45'), jupD: C('#d9b88a'), spot: C('#c2603f'),
     eurA: C('#e5eff4'), eurB: C('#c8d6de'), linea: C('#9b6a4c'),
@@ -46,6 +46,7 @@ const Render3D = (() => {
   // photo shows water but the ground is land (the space centre's island, coasts the two maps disagree
   // on), BIOW says how much to trust it: 0 for open water.
   let BIOW = 1;
+  let CLIFF = 0; // the Faroes and Shetland: sea cliffs, not beaches (set per vertex, like BIOL)
   function bioAt(a, z) {
     Terrain.earthColor(a, z, BIO);
     for (let k = 0; k < 3; k++) BIOL[k] = Math.min(255, 255 * Math.pow(BIO[k] / 255, 0.8) * 1.08);
@@ -66,19 +67,19 @@ const Render3D = (() => {
             if (BIOW < 1) mixC(mixC(P.grassB, P.arid, 0.25, T2), BIOL, BIOW, BIOL); // land the photo shows as sea
             return mixC(out, BIOL, smoothstep(-5, 5, h), out);
           }
-          if (h < 0) mixC(P.wet, P.seabed, smoothstep(-2, -40, h), out);
+          if (h < 0) mixC(P.wet, P.seabed, Math.max(smoothstep(-2, -40, h), CLIFF * 0.9), out); // (rock, not sand, under the cliffs)
           else {
             mixC(P.grassA, P.grassB, clamp(n * 1.2 - 0.1, 0, 1), out);
             mixC(out, BIOL, 0.72 * BIOW, out);
-            mixC(out, P.sand, (1 - smoothstep(18, 45, SHORE)) * (1 - FAR), out); // a beach some tens of metres wide, however gentle the coast
-            if (SHORE < 6) mixC(out, mixC(P.wet, P.sand, SHORE / 6, T1), 1 - FAR, out);
+            mixC(out, P.sand, (1 - smoothstep(18, 45, SHORE)) * (1 - FAR) * (1 - CLIFF), out); // a beach some tens of metres wide, however gentle the coast
+            if (SHORE < 6) mixC(out, mixC(P.wet, P.sand, SHORE / 6, T1), (1 - FAR) * (1 - CLIFF * 0.7), out);
             const k = 0.9 + 0.2 * n; out[0] *= k; out[1] *= k; out[2] *= k; // meadows and woods, lighter and darker
             mixC(out, P.rockE, smoothstep(650, 1000, h) * 0.6, out);
             // snow where the photo is bright and colourless (ice, snowfields), not merely bright (desert sand)
             const mx = Math.max(BIOL[0], BIOL[1], BIOL[2]), sat = mx > 0 ? (mx - Math.min(BIOL[0], BIOL[1], BIOL[2])) / mx : 0;
             mixC(out, P.snow, Math.max(smoothstep(0.62, 0.8, lum(BIOL)) * (1 - smoothstep(0.08, 0.2, sat)) * BIOW, smoothstep(1050, 1300, h)), out);
           }
-          if (!tex && h >= 0) mixC(out, P.rockE, smoothstep(0.28, 0.55, slope), out);
+          if (!tex && h >= 0) mixC(out, CLIFF > 0 ? mixC(P.rockE, P.basalt, CLIFF, T1) : P.rockE, Math.max(smoothstep(0.28, 0.55, slope), CLIFF * smoothstep(0.1, 0.3, slope) * smoothstep(1, 5, h)), out);
           return out;
         }
         if (h < 0) {
@@ -991,8 +992,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       // each octave fades to its mean once the cells outgrow it (aliased noise smears into blotches far off)
       const cl = Math.max(G.dx[i], G.dz[j]), f90 = 1 - smoothstep(35, 110, cl), f23 = 1 - smoothstep(9, 28, cl);
       const nn = lerp(0.5, vnoise2(G.al[i] / 90, sz[j] / 90, 0, c.seed + 3), f90) * 0.7 + lerp(0.5, vnoise2(G.al[i] / 23, sz[j] / 23, 0, c.seed + 4), f23) * 0.3;
-      if (c.mapped) { bioAt(G.ang[i], G.z[j]); FAR = smoothstep(60, 400, Math.max(G.dx[i], G.dz[j])); }
+      if (c.mapped) { bioAt(G.ang[i], G.z[j]); FAR = smoothstep(60, 400, Math.max(G.dx[i], G.dz[j])); CLIFF = Terrain.cliffAt(G.ang[i], G.z[j]); }
       paint(c, hs[k], nn, cn[k], dk[k], slope * 3, G.phi[j], false, out);
+      CLIFF = 0;
       nightA[k] = 0;
       if (c.mapped && hs[k] >= 0) {
         const cell = Math.max(G.dx[i], G.dz[j]), X = G.al[i], Z = G.z[j], u = Terrain.urbanAt(G.ang[i], Z);
@@ -1022,7 +1024,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (rdw[k] > 0) mixC(out, ASPHALT, rdw[k], out);              // roads
         nightA[k] = clamp(Math.max(0, Terrain.nightAt(G.ang[i], Z) - 0.08) * 1.2 + u * 0.1 + rdw[k] * 0.1, 0, 1) * (0.15 + 0.85 * smoothstep(30, 400, cell));
       }
-      if (b === EARTH && hs[k] > 6 && G.ea[i] > 560 && G.ea[i] < 12800) { // concrete shoulders along the runway and causeway
+      if (b === EARTH && hs[k] > 6 && G.ea[i] > 560 && G.ea[i] < EARTH.causeway.shore - 1000) { // concrete shoulders along the runway and causeway
         const w = G.half[i];
         mixC(out, P.concrete, (1 - smoothstep(w - 4, w + 3, Math.abs(G.z[j]))) * 0.85 * (1 - smoothstep(30, 120, Math.max(G.dx[i], G.dz[j]))), out);
       }
@@ -1159,7 +1161,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // on the real Earth: is (a, z) on a road, a river, a lake or in town? (pad: extra metres of clearance)
     const offFeature = (a, z, pad, town) => {
       if (Terrain.lakeAt(a, z) > 0.2 || (!town && Terrain.urbanAt(a, z) > 0.35)) return true;
-      const q = Terrain.lineQuery(Terrain.earthLon(a) * Terrain.DEG, ((Terrain.NORTH * z) / R) * Terrain.DEG);
+      const g = Terrain.toGeo(a, z / R), q = Terrain.lineQuery(g.lon * Terrain.DEG, g.lat * Terrain.DEG);
       return q.wd < q.ww / 2 + pad || q.rd < q.rw / 2 + pad;
     };
     // a point in the scenery frame (as place() puts things)
@@ -1177,6 +1179,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const a = along / R, veg = c.mapped ? vegOf(bioAt(a, z)) : 1, forest = vnoise2(along / 420, z / 420, 0, 44) * (0.35 + 0.75 * veg) - (c.mapped ? 0.25 * (1 - veg) : 0);
         if (h0 > forest * 0.9 - 0.05) continue;
         if (offTrack(b, a, z) < 8 || (builtAt(b, a, z) > 0.3 && clearZone(b, a))) continue;
+        if (c.mapped && Terrain.treelessAt(a, z)) continue; // the Faroes and Shetland: grass, no trees
         const h = meshHeight(b, a, z);
         if (h == null || h < 4 || h > (c.mapped ? 950 : 420)) continue;
         if (c.mapped && offFeature(a, z, 5)) continue;
@@ -1197,14 +1200,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     };
     if (b === EARTH && c.mapped) {
       // real cities (Natural Earth): plots on a grid over the city's footprint, dense and tall in the middle
-      const DEG = Terrain.DEG, lon0 = Terrain.earthMap.lon0, kl = latK(z0, R), cellB = 30, maxB = hi ? 5200 : 1800;
-      const near = Terrain.citiesNear(Terrain.earthLon(a0) * DEG, ((Terrain.NORTH * z0) / R) * DEG, (rad + 4300) / (R / DEG));
+      const DEG = Terrain.DEG, kl = latK(z0, R), cellB = 30, maxB = hi ? 5200 : 1800, g0 = Terrain.toGeo(a0, z0 / R), sim = {};
+      const near = Terrain.citiesNear(g0.lon * DEG, g0.lat * DEG, (rad + 4300) / (R / DEG));
       const glass = ['#7f8c96', '#9aa3a8', '#5f6d78', '#b9bab4', '#a89a8a', '#c8c0b0'].map(col), walls = ['#ddd0b8', '#d2bf9c', '#c8b294', '#dacfbf', '#bdb4a7', '#b9a184', '#adaba6'].map(col), roofs = ['#9c4a35', '#7d6a5a', '#5d6268', '#a65a3c'].map(col); const zinc = col('#6a7076');
       for (const [city, dist] of near) {
         if (nw >= maxB) break;
         const rc = Terrain.cityRadius(city[2]);
         if (dist > rad + rc) continue;
-        const ca = EARTH.padAngle - wrapAngle(city[3] / DEG - lon0), cz = ((Terrain.NORTH * city[4]) / DEG) * R;
+        Terrain.toSim(city[3] / DEG, city[4] / DEG, sim);
+        const ca = EARTH.padAngle + wrapAngle(sim.a - EARTH.padAngle), cz = sim.phi * R;
         const seed = Math.round(city[3] * 100) * 7 + Math.round(city[4] * 100), yaw0 = hashI(seed, 1, 101) * Math.PI / 2;
         const big = city[2] > 600000, mega = city[2] > 4e6, cy = Math.cos(yaw0), sy = Math.sin(yaw0);
         // the view's centre in the city's (turned) plot grid, and plots in order of distance from it
@@ -1220,6 +1224,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           if (H(102) > 0.2 + 0.7 * dens) continue;
           const a = ca + X / (R * kl), z = cz + Z;
           if (Math.hypot(wrapAngle(a - a0) * R * kl, z - z0) > rad) continue;
+          if (offTrack(b, a, z) < 60 || Terrain.apronW(-wrapAngle(a - EARTH.padAngle) * R, z) > 0) continue; // (Tórshavn is by the runway)
           const h = meshHeight(b, a, z);
           if (h == null || h < 1.5 || offFeature(a, z, 7, true)) continue;
           const core = Math.pow(dens, 3), cbd = 1 - smoothstep(rc * 0.03, rc * 0.14, dc), tall = big && H(103) < (mega ? 0.22 : 0.12) * cbd; // towers only in a downtown
@@ -1248,8 +1253,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const ca = (ix + 0.25 + 0.5 * hashI(ix, q, 62)) * cellV, cz = (q + 0.25 + 0.5 * hashI(ix, q, 63)) * cellV;
         if (Math.hypot((ca - a0 * R) * kl, cz - z0) > rad + 300) continue;
         const a = ca / R, e = -wrapAngle(a - EARTH.padAngle) * R;
-        if (Math.hypot((e - 900) / 2600, cz / 1500) < 1.6) continue; // the space centre's island
-        if (e > 12900 && e < 15100 && Math.abs(cz) < 900) continue; // the port town is there already
+        if (Math.hypot((e - Terrain.ISLE.e) / Terrain.ISLE.a, cz / Terrain.ISLE.b) < 1.3) continue; // the space centre
+        if (e > EARTH.causeway.shore - 100 && e < EARTH.causeway.shore + 2100 && Math.abs(cz) < 900) continue; // the port town is there already
         const hc = meshHeight(b, a, cz);
         if (hc == null || hc < 3 || hc > 700) continue;
         if (c.mapped) { bioAt(a, cz); if (BIOW < 0.6) continue; }
@@ -1513,7 +1518,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const heli = new THREE.Mesh(new THREE.CylinderGeometry(10, 10.4, 0.5, 48), [stdMat({ color: '#3d424a' }), stdMat({ map: hp, roughness: 0.8 }), stdMat({ color: '#3d424a' })]);
     heli.geometry.translate(0, -0.21, 0);
     place(heli, EARTH.sites.helipad.east, EARTH.padHeight, 0).castShadow = false;
-    // ---- runway 09/27 and the causeway road: strips that follow the curved ground
+    // ---- runway 12/30 (it heads 119°) and the causeway road: strips that follow the curved ground
     const strip = (e0, e1, step, z0, z1, hAt, uScale, mat) => {
       const pos = [], uv = [], nor = [], idx = [], n = Math.ceil((e1 - e0) / step), p = tmpV(), q = tmpV();
       for (let i = 0; i <= n; i++) {
@@ -1555,15 +1560,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       cx.fillRect(440, 186, 72, 12);
       cx.restore();
     });
-    strip(rw.from, rw.from + 60, 10, -22.5, 22.5, rh, 60, stdMat({ map: endTex('09', false), roughness: 0.9 }));
-    strip(rw.to - 60, rw.to, 10, -22.5, 22.5, rh, 60, stdMat({ map: endTex('27', true), roughness: 0.9 }));
+    strip(rw.from, rw.from + 60, 10, -22.5, 22.5, rh, 60, stdMat({ map: endTex('12', false), roughness: 0.9 }));
+    strip(rw.to - 60, rw.to, 10, -22.5, 22.5, rh, 60, stdMat({ map: endTex('30', true), roughness: 0.9 }));
     const rdTex = canvasTex(256, 128, (cx) => { // 24 m along, 12 m across
       asphalt(cx, 256, 128);
       cx.fillStyle = '#e9ebe6'; cx.fillRect(0, 6, 256, 4); cx.fillRect(0, 118, 256, 4);
       cx.fillStyle = '#ffc93c'; cx.fillRect(0, 62, 128, 4);
     }, true, true);
     const roadMat = stdMat({ map: rdTex, roughness: 0.9 }), gh = (e) => terrainHeight(EARTH, siteAngle(EARTH, e)) + 0.05;
-    strip(rw.to, 13400, 20, -6, 6, gh, 24, roadMat);
+    strip(rw.to, EARTH.causeway.shore + 150, 20, -6, 6, gh, 24, roadMat);
     strip(12, EARTH.sites.helipad.east - 11, 8, -4, 4, gh, 24, roadMat);
     strip(EARTH.sites.helipad.east + 11, rw.from, 10, -4, 4, gh, 24, roadMat);
     // ---- airport: an arched hangar and a control tower beside the runway
@@ -1597,7 +1602,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let e = rw.from; e <= rw.to + 0.1; e += 60) for (const z of [-24, 24]) add(e, rh(e) + 0.4, z, [1, 0.9, 0.7], 0.9);
     for (let z = -20; z <= 20; z += 5) { add(rw.from - 3, rh(rw.from) + 0.4, z, [0.3, 1, 0.45], 1); add(rw.to + 3, rh(rw.to) + 0.4, z, [1, 0.25, 0.2], 1); }
     for (let a = 0; a < 12; a++) add(EARTH.sites.helipad.east + Math.cos(a * TAU / 12) * 10.6, EARTH.padHeight + 0.3, Math.sin(a * TAU / 12) * 10.6, [1, 0.8, 0.3], 0.7);
-    for (let e = rw.to + 40; e < 13400; e += 80) for (const z of [-6.6, 6.6]) add(e, terrainHeight(EARTH, siteAngle(EARTH, e)) + 1.2, z, [1, 0.85, 0.6], 0.6);
+    for (let e = rw.to + 40; e < EARTH.causeway.shore + 150; e += 80) for (const z of [-6.6, 6.6]) add(e, terrainHeight(EARTH, siteAngle(EARTH, e)) + 1.2, z, [1, 0.85, 0.6], 0.6);
     const glowPts = (p, c, s, U) => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
@@ -1617,14 +1622,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.rotors = [];
   }
 
-  // Around the space centre: a lighthouse on the island's west point, wind turbines on its hills, a tank
-  // farm by the pad, a pier in the seaplane bay and a port town where the causeway reaches Gabon.
+  // Around the space centre: a lighthouse on the west coast, wind turbines on the hills, a tank farm by the
+  // pad, a pier in the seaplane bay and a port town where the causeway comes ashore on Shetland.
   function initLandmarks([g, place, stdMat, lit, glowPts]) {
     const ground = (e, z) => Terrain.heightAt(EARTH, siteAngle(EARTH, e), z);
     const vcol = stdMat({ vertexColors: true });
     // ---- lighthouse: banded tower, gallery, lantern, and a beam that sweeps round at night
-    let le = -1500, lz = 220;
-    for (let e = -1900; e < -900; e += 20) if (ground(e, lz) > 6) { le = e + 40; break; }
+    let le = -300, lz = 220;
+    for (let e = -1500; e < 600; e += 20) if (ground(e, lz) > 6) { le = e + 40; break; }
     const lb = new Batch(), white = col('#f2f2ee'), red = col('#c8372d'), dark = col('#2a2e33');
     for (let i = 0; i < 4; i++) { const r0 = 3.1 - i * 0.22, r1 = r0 - 0.22; lb.geo(new THREE.CylinderGeometry(r1, r0, 5.5, 20), 0, 2.75 + i * 5.5, 0, i % 2 ? red : white); }
     lb.geo(new THREE.CylinderGeometry(2.9, 2.9, 0.35, 20), 0, 22.2, 0, dark).geo(new THREE.CylinderGeometry(1.7, 1.7, 0.4, 16), 0, 25.6, 0, dark);
@@ -1643,15 +1648,16 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     place(lh, le, ground(le, lz), lz);
     const shade = (o) => o.traverse((m) => { if (m.isMesh) m.castShadow = m.receiveShadow = m.material !== S.beamMat; });
     shade(lh);
-    // ---- wind turbines on the island's north side, rotors facing the sea breeze
+    // ---- wind turbines on the hills north of the runway (as on the real islands), rotors facing the sea breeze
     const tw = new Batch().geo(new THREE.CylinderGeometry(0.85, 1.6, 40, 12), 0, 20, 0, white).box(0.3, 40.6, 0, 4.4, 2.3, 2.3, white);
     const towerGeo = tw.build();
     const blade = new Batch();
     blade.geo(new THREE.SphereGeometry(0.9, 12, 8), 0, 0, 0, white);
     for (let k = 0; k < 3; k++) blade.geo(new THREE.BoxGeometry(0.25, 19, 1.3), 0, 9.8 * Math.cos(k * TAU / 3), 9.8 * Math.sin(k * TAU / 3), white, k * TAU / 3, 0, 0);
     const bladeGeo = blade.build();
-    [[1980, -780], [2280, -790], [2580, -660]].forEach(([e, z], i) => {
-      const h = ground(e, z);
+    [[450, -900], [800, -1050], [1150, -850]].forEach(([e0, z0], i) => {
+      let e = e0, z = z0, h = ground(e, z); // the highest ground nearby
+      for (let k = 0; k < 24; k++) { const de = e0 + 60 * Math.cos(k * 2.4) * (1 + (k >> 3)), dz = z0 + 60 * Math.sin(k * 2.4) * (1 + (k >> 3)), g = ground(de, dz); if (g > h) { h = g; e = de; z = dz; } }
       if (h < 4) return;
       const t = new THREE.Group(), rotor = new THREE.Group();
       t.add(new THREE.Mesh(towerGeo, vcol));
@@ -1670,8 +1676,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     tk.box(-56, 1.1, 60, 44, 0.6, 0.6, pipe).box(-18, 1.1, 30, 0.6, 0.6, 60, pipe);
     place(new THREE.Mesh(tk.build(), stdMat({ vertexColors: true, metalness: 0.35, roughness: 0.45 })), 0, EARTH.padHeight, 0);
     // ---- pier into the seaplane bay, with a boat tied up
-    let se = -1700;
-    for (let e = -1300; e > -2200; e -= 10) if (ground(e, -60) < 0.5) { se = e; break; }
+    let se = -400;
+    for (let e = 400; e > -2200; e -= 10) if (ground(e, -60) < 0.5) { se = e; break; }
     const pr = new Batch(), wood = col('#8a6a4a'), post = col('#5b4532');
     const pierLen = 150, deckH = 1.8;
     for (let x = 30; x > -pierLen; x -= 8) { pr.box(x - 4, deckH, 0, 8.2, 0.35, 4, wood); pr.box(x, deckH / 2 - 2, 1.8, 0.4, deckH + 4, 0.4, post).box(x, deckH / 2 - 2, -1.8, 0.4, deckH + 4, 0.4, post); }
@@ -1682,14 +1688,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     boat.rotation.order = 'ZYX';
     place(boat, se - pierLen + 6, 0, -51);
     boat.rotation.y = 0.08;
-    // ---- port town on the Gabon shore, at the end of the causeway; windows light up at night
+    // ---- port town on the Shetland shore, at the end of the causeway; windows light up at night
     const town = new Batch(), lights = [], lc = [], ls = [];
     const walls = ['#efe6d2', '#f4f1ea', '#e3c79a', '#e8b8a6', '#cfdde6', '#d9d2c0'].map(col), roofs = ['#b5523b', '#8e4a33', '#5d6268', '#c2643f'].map(col);
     const m4 = new THREE.Matrix4(), mr = new THREE.Matrix4(), ms = new THREE.Matrix4(), pv = tmpV();
     let built = 0;
     for (let i = 0; i < 400 && built < 110; i++) {
       // packed along the road where it comes ashore, thinning out away from it
-      const e = 12950 + hashI(i, 1, 71) * 1300, side = hashI(i, 2, 71) < 0.5 ? -1 : 1, z = side * (24 + 520 * Math.pow(hashI(i, 12, 71), 1.6));
+      const e = EARTH.causeway.shore + 100 + hashI(i, 1, 71) * 1300, side = hashI(i, 2, 71) < 0.5 ? -1 : 1, z = side * (24 + 520 * Math.pow(hashI(i, 12, 71), 1.6));
       const h = ground(e, z);
       if (h < 2.5 || h > 120) continue;
       const w = 6 + 5 * hashI(i, 3, 71), d = 5 + 3 * hashI(i, 4, 71), hh = hashI(i, 5, 71) < 0.2 ? 6.5 : 3.6, yaw = Math.round(hashI(i, 6, 71) * 4) * (Math.PI / 2) + (hashI(i, 7, 71) - 0.5) * 0.3;
@@ -2425,6 +2431,113 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   buildPatchNow = timed('patchNow', buildPatchNow); buildSceneryNow = timed('sceneryNow', buildSceneryNow);
+  // ------------------------------------------------------------------ the globe (map view)
+  // The planet as a lit globe, seen from a camera GlobeView aims (body-relative sim coordinates, north up).
+  // Its texture is the space view's; up close a sharper tile of the real map is painted for the region in view.
+  const GL = { scene: null, cam: null, mesh: null, mat: null, light: null, tile: null, tileMat: null, job: null, want: null, bg: null };
+  function initGlobe() {
+    GL.scene = new THREE.Scene();
+    GL.cam = new THREE.PerspectiveCamera(FOV, 1, 1, 1e9);
+    GL.mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+    GL.mesh = new THREE.Mesh(S.sphere, GL.mat);
+    GL.light = new THREE.DirectionalLight(0xffffff, 1.7);
+    GL.scene.add(GL.mesh, GL.light, GL.light.target, new THREE.HemisphereLight(0xdfe9ff, 0x404650, 1.25));
+    GL.tileMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    GL.tile = new THREE.Mesh(new THREE.BufferGeometry(), GL.tileMat);
+    GL.tile.visible = false; GL.tile.renderOrder = 1;
+    GL.scene.add(GL.tile);
+    GL.bg = new THREE.Color('#05080f'); GL.oc = new THREE.Color();
+  }
+  // A square of the real map around (a, phi) (sim angle and latitude), half a side of s radians, painted at
+  // n x n texels with hill shading; built a few rows per frame and swapped in when done.
+  function* tileJob(b, a0, p0, s, n) {
+    const c = cfgOf(b), R = c.R, sa = s / Math.max(Math.cos(p0), 0.05), N1 = n + 1, hs = new Float32Array(N1 * N1);
+    const A = (i) => a0 + (i / n - 0.5) * 2 * sa, Ph = (j) => clamp(p0 + (j / n - 0.5) * 2 * s, -1.55, 1.55);
+    const exact = s * R < 15000; // up close: the ground as the game shapes it (cliffs, the runway's island), not the raw map
+    for (let j = 0; j <= n; j++) {
+      const phi = Ph(j);
+      for (let i = 0; i <= n; i++) hs[j * N1 + i] = exact ? h3dAt(c, A(i), phi * R) : contAt(c, A(i), phi);
+      if ((j & 1) === 1) yield;
+    }
+    const data = new Uint8Array(n * n * 4), out = [0, 0, 0], cell = (2 * s * R) / n;
+    for (let j = 0; j < n; j++) {
+      const phi = Ph(j + 0.5), z = phi * R;
+      for (let i = 0; i < n; i++) {
+        const a = A(i + 0.5), k = j * N1 + i;
+        const h = (hs[k] + hs[k + 1] + hs[k + N1] + hs[k + N1 + 1]) / 4;
+        bioAt(a, z);
+        if (h < -8) mixC(P.oceanD, P.oceanS, 0.55 * smoothstep(-700, -30, h) ** 2, out); // open sea: by depth alone (the photo's coastal tint makes a square)
+        else paint(c, h, 0.5, h, 0, 0, phi, true, out);
+        if (Terrain.lakeAt(a, z) > 0.3) mixC(out, LAKE_D, 0.85, out);
+        if (h > 0) { // light from the north-west (map convention): east is decreasing angle, north is +j here
+          const dE = (hs[k] + hs[k + N1] - hs[k + 1] - hs[k + N1 + 1]) / (2 * cell), dN = (hs[k + N1] + hs[k + N1 + 1] - hs[k] - hs[k + 1]) / (2 * cell);
+          const sh = clamp(1 + (dE - dN) * 2.2, 0.62, 1.32);
+          out[0] *= sh; out[1] *= sh; out[2] *= sh;
+        }
+        const o = (j * n + i) * 4, ex = Math.min(i, j, n - 1 - i, n - 1 - j) / n;
+        data[o] = clamp(out[0], 0, 255); data[o + 1] = clamp(out[1], 0, 255); data[o + 2] = clamp(out[2], 0, 255);
+        data[o + 3] = 255 * smoothstep(0, 0.12, ex); // fade into the globe's own texture at the edges
+      }
+      if ((j & 7) === 7) yield;
+    }
+    // the curved patch it lies on
+    const M = 40, pos = [], uv = [], idx = [], lift = R * 1e-4;
+    for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) {
+      const a = A((i / M) * n), phi = Ph((j / M) * n), r = R + lift, cp = Math.cos(phi);
+      pos.push(r * cp * Math.cos(a), r * cp * Math.sin(a), r * Math.sin(phi)); uv.push(i / M, j / M);
+    }
+    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) { const q = j * (M + 1) + i; idx.push(q, q + 1, q + M + 2, q, q + M + 2, q + M + 1); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter; tex.anisotropy = maxAniso; tex.needsUpdate = true;
+    if (GL.tileMat.map) GL.tileMat.map.dispose();
+    GL.tile.geometry.dispose();
+    GL.tile.geometry = geo; GL.tileMat.map = tex; GL.tileMat.needsUpdate = true;
+    GL.have = { b, a0, p0, s };
+  }
+  // v: { body, cam: {x,y,z}, up: {x,y,z}, alt } (sim, body-relative). Returns false if it couldn't draw.
+  function renderGlobe(v, dt) {
+    if (!api.ready) return false;
+    if (!GL.scene) initGlobe();
+    mode = 'globe';
+    clock += dt || 0;
+    const b = v.body, R = b.radius, e = bodies.find((q) => q.b === b);
+    if (e && e.mat && GL.mat.map !== e.mat.map) { GL.mat.map = e.mat.map; GL.mat.normalMap = e.mat.normalMap !== S.flatN ? e.mat.normalMap : null; GL.mat.needsUpdate = true; }
+    if (e && !e.mat && e.sunU) { GL.mat.map = e.sunU.uMap.value; GL.mat.emissiveMap = GL.mat.map; GL.mat.emissive.setRGB(1, 1, 1); GL.mat.needsUpdate = true; }
+    GL.mesh.scale.setScalar(R);
+    const cam = GL.cam, d = Math.hypot(v.cam.x, v.cam.y, v.cam.z);
+    cam.position.set(v.cam.x, v.cam.y, v.cam.z);
+    cam.up.set(v.up.x, v.up.y, v.up.z);
+    cam.lookAt(0, 0, 0);
+    cam.near = Math.max(1, (d - R) * 0.2); cam.far = d + R * 1.2;
+    cam.aspect = W / H; cam.updateProjectionMatrix();
+    GL.light.position.copy(cam.position).add(V1.set(v.up.x, v.up.y, v.up.z).multiplyScalar(d * 0.6)); // from over the viewer's shoulder, a little north
+    // the sharp tile: Earth with its map, close enough for the globe texture to blur
+    const near = b === EARTH && cfgOf(b).mapped && v.alt < R * 0.45;
+    if (near) {
+      // s: half the width of the view (radians of arc), with a margin so small pans stay sharp
+      const p0 = Math.asin(clamp(v.cam.z / d, -1, 1)), a0 = Math.atan2(v.cam.y, v.cam.x), s = clamp(((v.alt * TANH) / R) * Math.max(1, W / H) * 1.15, 0.003, 0.45);
+      const h = GL.have, off = h && h.b === b ? Math.hypot(wrapAngle(a0 - h.a0) * Math.cos(p0), p0 - h.p0) / h.s : Infinity;
+      const stale = !h || h.b !== b || off > 0.45 || s / h.s > 1.25 || s / h.s < 0.45;
+      if (stale && !GL.job) GL.job = tileJob(b, a0, p0, s * 1.3, s * R < 12000 ? 256 : Settings.high ? 512 : 384);
+    }
+    if (GL.job) {
+      const t0 = performance.now();
+      while (performance.now() - t0 < 10) if (GL.job.next().done) { GL.job = null; break; }
+    }
+    GL.tile.visible = near && !!GL.have && GL.have.b === b;
+    renderer.setRenderTarget(null);
+    const oc = renderer.getClearColor(GL.oc), oa = renderer.getClearAlpha();
+    renderer.setClearColor(GL.bg, 1);
+    renderer.clear();
+    if (!api.skipDraw) renderer.render(GL.scene, cam);
+    renderer.setClearColor(oc, oa);
+    return true;
+  }
+
   Object.assign(api, {
     // draw calls and triangles in the last frame (for tuning)
     info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
@@ -2462,6 +2575,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     resize,
     renderFlight,
     renderBuilder,
+    renderGlobe,
     project(ax, ay, az) {
       if (!api.ready) return { x: 0, y: 0, behind: true };
       const cam = activeCam(), p = scenePoint(ax, ay, az, V1);

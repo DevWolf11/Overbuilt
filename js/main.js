@@ -48,8 +48,13 @@ const App = {
         if (in3d) { Render3D.setVisible(true); Render3D.renderBuilder(Builder, dt); this.clear2D(); } else Builder.render(this.ctx, this.W, this.H, this.dpr);
       } else if (this.scene === 'flight') {
         Flight.update(dt);
-        in3d = this.use3D() && !Flight.mapMode && Flight.running;
-        if (in3d) {
+        const globe = Flight.running && Flight.mapMode && GlobeView.active && this.use3D();
+        in3d = (this.use3D() && !Flight.mapMode && Flight.running) || globe;
+        if (globe) {
+          Flight.updateCamera();
+          Render3D.setVisible(true);
+          GlobeView.render(this.ctx, this.W, this.H, this.dpr, Flight, dt);
+        } else if (in3d) {
           Flight.updateCamera();
           Render3D.setVisible(true);
           Render3D.renderFlight(Flight, dt);

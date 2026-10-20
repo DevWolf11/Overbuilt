@@ -7,6 +7,7 @@ const PHYS_DT = 1 / 120;
 const NEAR_DIST = 6000;  // vessels closer than this to the active one get full physics
 const SAS_KEYS = { Digit1: 'hold', Digit2: 'prograde', Digit3: 'retrograde', Digit4: 'radialOut', Digit5: 'radialIn', Digit6: 'target' };
 const PLANE_SAS_KEYS = { Digit1: 'hold', Digit2: 'level', Digit3: 'heading', Digit4: 'off' };
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off']);
 const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
 
@@ -852,6 +853,7 @@ const Flight = {
       switch (e.code) {
         case 'Space': this.stage(); break;
         case 'KeyM': this.toggleMap(); break;
+        case 'KeyN': if (this.mapMode) this.setMapView(GlobeView.active ? 'system' : 'globe'); break;
         case 'Comma': this.setWarp(this.warpIdx - 1); break;
         case 'Period': this.setWarp(this.warpIdx + 1); break;
         case 'KeyZ': this.setThrottle(1); break;
@@ -888,9 +890,9 @@ const Flight = {
       if (this.pointers.size === 2 && this.pinch) {
         const now = this.pinchInfo();
         this.zoomBy(now.d / this.pinch.d, now.cx, now.cy);
-        if (this.mapMode) MapView.pan(now.cx - this.pinch.cx, now.cy - this.pinch.cy);
+        if (this.mapMode) this.mapPan(now.cx - this.pinch.cx, now.cy - this.pinch.cy);
         this.pinch = now;
-      } else if (this.pointers.size === 1 && this.mapMode) MapView.pan(dx, dy);
+      } else if (this.pointers.size === 1 && this.mapMode) this.mapPan(dx, dy);
       else if (this.pointers.size === 1 && App.use3D()) Render3D.orbitBy(dx, dy);
     });
     c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D()) Render3D.resetCamera(); });
@@ -950,7 +952,8 @@ const Flight = {
     $('#warp-label').addEventListener('click', () => this.setWarp(0));
     $('#btn-tmax').addEventListener('click', () => this.setThrottle(1));
     $('#btn-tcut').addEventListener('click', () => this.setThrottle(0));
-    $('#btn-center').addEventListener('click', () => { MapView.focusVessel(); MapView.fit(this); MapView.focusVessel(); });
+    $('#btn-center').addEventListener('click', () => { if (GlobeView.active) GlobeView.center(); else { MapView.focusVessel(); MapView.fit(this); MapView.focusVessel(); } });
+    $('#btn-mapview').addEventListener('click', () => this.setMapView(GlobeView.active ? 'system' : 'globe'));
     document.querySelectorAll('[data-sas]').forEach((b) => b.addEventListener('click', () => this.setSas(b.dataset.sas)));
     const track = $('#throttle-track');
     const setFromY = (e) => { const r = track.getBoundingClientRect(); this.setThrottle(1 - (e.clientY - r.top) / r.height); };
@@ -973,22 +976,36 @@ const Flight = {
   },
 
   zoomBy(f, cx, cy) {
-    if (this.mapMode) MapView.zoom(f, cx, cy);
-    else this.scale = clamp(this.scale * f, 0.00005, 80);
+    if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); } else this.scale = clamp(this.scale * f, 0.00005, 80);
   },
 
   toggleMap() {
     this.mapMode = !this.mapMode;
-    if (this.mapMode) { this.updatePrediction(); MapView.fit(this); }
+    if (this.mapMode) { this.updatePrediction(); MapView.fit(this); GlobeView.open(this); }
     $('#btn-map').classList.toggle('on', this.mapMode);
     $('#map-legend').hidden = !this.mapMode;
     $('#btn-center').hidden = !this.mapMode;
+    this.syncMapView();
   },
+  // The map has two views: the globe of the planet you're at (3D) and the whole solar system (flat).
+  setMapView(m) {
+    GlobeView.setMode(m, this);
+    this.syncMapView();
+  },
+  syncMapView() {
+    const globe = this.mapMode && GlobeView.active && App.use3D();
+    if (this.mapMode && GlobeView.active && !App.use3D()) GlobeView.mode = 'system'; // the globe needs WebGL
+    $('#btn-mapview').hidden = !this.mapMode || !App.use3D();
+    $('#btn-mapview').textContent = globe ? 'System' : 'Globe';
+    $('#map-legend').classList.toggle('globe', globe);
+  },
+  mapPan(dx, dy) { if (GlobeView.active) GlobeView.drag(dx, dy); else MapView.pan(dx, dy); },
 
   tapAt(cx, cy) {
     const v = this.active;
     if (!v || !v.parts.length) return;
     if (this.mapMode) {
+      if (GlobeView.active) return;
       const hit = MapView.hit(this, cx, cy);
       if (!hit) return;
       if (hit.vessel) { this.switchTo(hit.vessel); return; }
@@ -1082,7 +1099,7 @@ const Flight = {
       return '';
     }
     if (v.kind === 'car') {
-      if (sp < 1 && !this.flags.drive1k) return isTouch ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 13 km east to the mainland.' : 'W/S to drive, A/D to steer, hold B to brake. The causeway leads 13 km east to the mainland.';
+      if (sp < 1 && !this.flags.drive1k) return isTouch ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 18 km out across the sea to Shetland.' : 'W/S to drive, A/D to steer, hold B to brake. The causeway leads 18 km out across the sea to Shetland.';
       return '';
     }
     if (v.kind === 'heli') {
@@ -1096,6 +1113,12 @@ const Flight = {
 
   // Where on the real Earth: the country or sea below, and the nearest town (refreshed every second or so).
   // Is a plane's structure at risk? { kind: 'g' or 'speed', level: 1 near the limit, 2 over it (breaking) }.
+  // Compass heading (degrees, real north on the real Earth) of the flight path, or of the nose when slow.
+  compass(v) {
+    const h = v.heading();
+    if (v.body !== EARTH || !EARTH.mapped) return (((h * 180) / Math.PI) % 360 + 360) % 360;
+    return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
+  },
   structAlert(v) {
     if (!v || v.kind !== 'plane' || v.landed || !(v.airspeed > 20)) return null;
     const stress = v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0);
@@ -1107,7 +1130,7 @@ const Flight = {
   whereText(v, alt) {
     if (v.body !== EARTH || !EARTH.mapped || alt > 60000) return '';
     if (this.whereAt && performance.now() - this.whereAt < 900) return this.whereTxt;
-    const r = Math.hypot(v.x, v.y, v.z), D = Terrain.DEG, lon = Terrain.earthLon(Math.atan2(v.y, v.x)) * D, lat = Terrain.NORTH * Math.asin(v.z / r) * D;
+    const r = Math.hypot(v.x, v.y, v.z), D = Terrain.DEG, g = Terrain.toGeo(Math.atan2(v.y, v.x), Math.asin(v.z / r)), lon = g.lon * D, lat = g.lat * D;
     const reg = Terrain.regionAt(lon, lat), sea = v.splashed || Terrain.earthH(Math.atan2(v.y, v.x), Math.asin(v.z / r) * EARTH.radius) < 0;
     const place = sea ? reg.sea || reg.country : reg.country || reg.sea;
     const near = Terrain.citiesNear(lon, lat, 1.5)[0];
@@ -1146,12 +1169,15 @@ const Flight = {
     const stalling = aoa && !v.wheelsDown && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
     if (aoa) set('t-aoa', stalling ? `STALL ${(v.aoa * 180 / Math.PI).toFixed(0)}°` : `${(v.aoa * 180 / Math.PI).toFixed(1)}°`);
     $('#row-aoa').classList.toggle('danger', !!stalling);
+    const hdg = !rocket && v.body === EARTH;
+    $('#row-hdg').hidden = !hdg;
+    if (hdg) { const c = this.compass(v); set('t-hdg', `${String(Math.round(c) % 360).padStart(3, '0')}° ${COMPASS[Math.round(c / 22.5) % 16]}`); }
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
     const st = this.structAlert(v);
     if (gload) {
       const gr = v.gRating();
-      set('t-g', gr ? `${v.nz.toFixed(1)} g / ${gr.toFixed(gr < 10 ? 1 : 0)}` : `${v.gForce.toFixed(1)} g`);
+      set('t-g', gr ? `${v.nz.toFixed(1)} / ${gr.toFixed(gr < 10 ? 1 : 0)} g` : `${v.gForce.toFixed(1)} g`);
       $('#row-g').classList.toggle('danger', !!(st && st.kind === 'g'));
     }
     // over-g or overspeed: a flashing banner while the wings are at risk
