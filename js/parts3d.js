@@ -34,15 +34,21 @@ const Parts3D = (() => {
     intake: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     dish: { color: PAL.steelLight, roughness: 0.3, metalness: 0.6, double: true },
     glass: { color: '#1d3a5c', roughness: 0.05, metalness: 0.2, opacity: 0.75, env: 1 },
+    goldglass: { color: '#a5803a', roughness: 0.06, metalness: 0.75, opacity: 0.88, env: 1.2 },
+    darkgrey: { color: '#3f464e', roughness: 0.55, metalness: 0.4 },
+    cluster: { color: '#8d949c', roughness: 0.55, metalness: 0.3 },
+    guided: { color: '#9aa38c', roughness: 0.6, metalness: 0.2 },
+    electric: { color: '#3b7dd8', roughness: 0.35, metalness: 0.3 },
     lamp: { basic: '#fff4d6' },
     tail: { basic: '#ff3b2f' },
   };
   const LATHE = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-    'jetnose', 'airnose', 'float', 'droptank']);
+    'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep' };
   const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
     wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
-    gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store' };
+    gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
+    turret: 'turret', dronecore: 'drone' };
   const FLAT_DEPTH = { fin: 0.12 };
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -207,7 +213,7 @@ const Parts3D = (() => {
   // revolve into upswept shapes. Between outline vertices the extent is linear, so rings go at vertex heights.
   // UVs project the 2D drawing from the front: seen head-on, the part shows exactly its 2D artwork.
   function latheGeo(polys, d, o) {
-    const w = d.w, h = d.h, seg = w >= 1.5 ? 44 : 32, ys = [];
+    const w = d.w, h = d.h, seg = o.seg || (w >= 1.5 ? 44 : 32), ys = [];
     let lo = Infinity, hi = -Infinity;
     for (const P of polys) for (let i = 1; i < P.length; i += 2) { ys.push(P[i]); lo = Math.min(lo, P[i]); hi = Math.max(hi, P[i]); }
     if (o.y0 != null) lo = Math.max(lo, o.y0);
@@ -399,14 +405,29 @@ const Parts3D = (() => {
 
   // Wing: the airfoil cross-section extruded over the whole span (z), tapering and sweeping towards the
   // tips, white with a darker leading edge and orange tip bands.
-  function wingGeo(d) {
+  // o: thick (section thickness, else the part's width), sweep (instead of the wing's), half (+1 or -1: that
+  // half only, for a swing wing). An explicit dihedral tilts the halves up (-x); an elliptical planform
+  // curves the chord to the tips; winglets turn up at the tips.
+  function wingGeo(d, o = {}) {
     const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, white = lin('#eef1f4'), lead = lin('#9aa3ad'), tip = lin(PAL.orange), st = [];
-    const taper = wd.taper != null ? wd.taper : 0.45, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
+    const sw = o.sweep != null ? o.sweep : wd.sweep, th = o.thick || w;
+    const taper = wd.taper != null ? wd.taper : 0.45, back = sw ? Math.tan(sw) * half : 0.08 * half;
+    const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
+    const chord = (s) => wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - s * s * 0.96)) : h * (1 - taper * s);
     for (const [a, col] of [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]]) {
-      const s = Math.abs(a), c = h * (1 - taper * s), qc = h / 4 - back * s;
-      st.push({ o: [0, qc + c / 4, a * half], A: [0, -1, 0], B: [1, 0, 0], c, t: (w / 2) * (1 - 0.4 * s), col, lead });
+      if (o.half && a * o.half < 0) continue;
+      const s = Math.abs(a), c = chord(s), qc = h / 4 - back * s, sg = Math.sign(a);
+      st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead });
     }
-    return sweep(st, 'foil');
+    const g = sweep(st, 'foil');
+    if (!wd.winglets) return g;
+    const fins = [g];
+    for (const a of o.half ? [o.half] : [-1, 1]) { // an upturned fin at each tip, swept back
+      const c = chord(1), qc = h / 4 - back, x0 = -half * sd, z = a * half * cd, hw = h * 0.55;
+      fins.push(sweep([{ o: [x0, qc + c / 4, z], A: [0, -1, 0], B: [0, 0, 1], c, t: th * 0.15, col: white, lead },
+        { o: [x0 - hw, qc + c / 4 - hw * 0.6, z], A: [0, -1, 0], B: [0, 0, 1], c: c * 0.45, t: th * 0.08, col: tip, lead: tip }], 'foil'));
+    }
+    return merge(fins);
   }
 
   // Propeller or rotor blade along +x from r0 to r1, twisted from pitch p0 to p1, in the rotor plane
@@ -460,6 +481,13 @@ const Parts3D = (() => {
     // a gun along the part's axis: receiver box, barrel, muzzle
     gun(d) {
       const w = d.w, h = d.h, b = -h / 2, t = h / 2, big = (d.calibre || 0) > 20, r = w * (big ? 0.17 : 0.14);
+      if (d.barrels > 1) { // drum and motor, and a ring of barrels that spins (sub-node) as it fires
+        const bt = b + h * 0.36, R = w * 0.18, n = d.barrels, bl = [];
+        for (let i = 0; i < n; i++) { const a = (i / n) * TAU; bl.push(rod([R * Math.cos(a), bt, R * Math.sin(a)], [R * Math.cos(a), t, R * Math.sin(a)], w * 0.045, 8)); }
+        for (const y of [bt + (t - bt) * 0.35, t - h * 0.04]) bl.push(new THREE.CylinderGeometry(R + w * 0.07, R + w * 0.07, h * 0.04, 20).translate(0, y, 0));
+        return node([[new THREE.CylinderGeometry(w * 0.42, w * 0.42, h * 0.36, 24).translate(0, b + h * 0.18, 0), 'mil'], [box(w * 0.3, h * 0.2, w * 0.3, w * 0.4, b + h * 0.12, 0), 'gunmetal']],
+          [{ role: 'spin', axis: 'y', pieces: [[merge(bl), 'gunmetal']], subs: [] }]);
+      }
       return node([[box(w, h * 0.42, w * 0.9, 0, b + h * 0.21, 0), 'mil'], [rod([0, b + h * 0.42, 0], [0, t - h * 0.06, 0], r, 12), 'gunmetal'],
         [rod([0, t - h * 0.08, 0], [0, t, 0], r * 1.6, 12), 'gunmetal']]);
     },
@@ -480,15 +508,29 @@ const Parts3D = (() => {
         const z = (k - (n - 1) / 2) * w * 0.9, s = [];
         if (sh === 'missile') {
           const rw = w * 0.42, body = d.agm ? 'sand' : 'missile';
+          if (d.style === 'cruise') { // a fat missile with folding wings and a little jet intake underneath
+            s.push([lathe(rw, [[0.6, b + h * 0.02], [1, b + h * 0.1], [1, t - h * 0.18], [0.65, t - h * 0.06], [0, t]]), 'sand'],
+              [box(0.04, h * 0.1, w * 2.4, cx, b + h * 0.48, 0), 'sand'], [box(rw * 0.5, h * 0.1, rw * 0.5, cx + rw * 0.5, b + h * 0.12, 0), 'gunmetal']);
+            for (let f = 0; f < 4; f++) s.push([box(rw * 1.3, h * 0.1, 0.02, cx, b + h * 0.08, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
+            subs.push(node(s, null, { role: 'store', pos: [0, 0, z] }));
+            continue;
+          }
           s.push([lathe(rw, [[0, b + h * 0.02], [1, b + h * 0.04], [1, t - h * 0.18], [0.7, t - h * 0.07], [0, t]]), body]);
           for (let f = 0; f < 4; f++) s.push([box(rw * 1.5, h * 0.16, 0.02, cx, b + h * 0.12, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
           for (let f = 0; f < 4; f++) s.push([box(rw * 0.9, h * 0.07, 0.015, cx, t - h * 0.28, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
-          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.04, 16).translate(cx, 0, 0), d.agm ? 'olive' : 'hazard']);
+          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.04, 16).translate(cx, 0, 0), d.agm ? 'olive' : d.style === 'harm' ? 'tail' : 'hazard']);
+        } else if (d.style === 'torpedo') { // long and slim, with a ring of fins and a propeller at the tail
+          const rw = w * 0.5;
+          s.push([lathe(rw, [[0.2, b + h * 0.04], [0.8, b + h * 0.12], [1, b + h * 0.25], [1, t - h * 0.1], [0.6, t - h * 0.02], [0, t]]), 'darkgrey']);
+          for (let f = 0; f < 4; f++) s.push([box(rw * 1.1, h * 0.06, 0.02, cx, b + h * 0.08, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2).translate(cx, 0, 0), 'steel']);
+          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.025, 16).translate(cx, t - h * 0.2, 0), 'orange']);
         } else { // bomb
-          const rw = w * 0.62;
-          s.push([lathe(rw, [[0.3, b + h * 0.12], [0.8, b + h * 0.3], [1, y0(h, 0.55)], [0.85, t - h * 0.12], [0, t]]), 'olive']);
-          for (let f = 0; f < 4; f++) s.push([box(rw * 1.2, h * 0.14, 0.02, cx, b + h * 0.07, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2).translate(cx, 0, 0), 'olive']);
-          s.push([new THREE.CylinderGeometry(rw * 0.43, rw * 0.43, h * 0.04, 16).translate(cx, t - h * 0.2, 0), 'hazard']);
+          const rw = w * 0.62, kind = { cluster: 'cluster', guided: 'guided' }[d.style] || 'olive';
+          s.push([lathe(rw, [[0.3, b + h * 0.12], [0.8, b + h * 0.3], [1, y0(h, 0.55)], [0.85, t - h * 0.12], [0, t]]), kind]);
+          const fin = d.style === 'guided' ? 1.7 : 1.2;
+          for (let f = 0; f < 4; f++) s.push([box(rw * fin, h * 0.14, 0.02, cx, b + h * 0.07, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2).translate(cx, 0, 0), kind]);
+          if (d.style === 'guided') for (let f = 0; f < 4; f++) s.push([box(rw * 1.1, h * 0.05, 0.02, cx, t - h * 0.3, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
+          for (const f of d.style === 'cluster' ? [0.35, 0.55, 0.75] : [0.8]) s.push([new THREE.CylinderGeometry(rw * 0.43, rw * 0.43, h * 0.04, 16).translate(cx, b + h * f, 0), 'hazard']);
         }
         subs.push(node(s, null, { role: 'store', pos: [0, 0, z] }));
       }
@@ -496,7 +538,12 @@ const Parts3D = (() => {
     },
     lathe(d, flip) {
       const sh = d.shape, w = d.w, h = d.h, b = -h / 2, t = h / 2, nz = sh === 'engine' || sh === 'srb' || sh === 'jet';
-      const list = [[latheGeo(outline(d, flip), d, { holeBot: nz ? 0.9 : 0, holeTop: sh === 'jet' ? 0.84 : 0 }), LATHE_KIND[sh] || 'hull']];
+      // glazed parts: the hull below the cut, glass above it
+      const glassCut = sh === 'glassnose' ? b + h * 0.6 : sh === 'bubble' ? b + h * 0.26 : null;
+      let hull = latheGeo(outline(d, flip), d, { holeBot: nz ? 0.9 : 0, holeTop: sh === 'jet' ? 0.84 : 0, seg: d.facets, y1: glassCut != null ? glassCut : undefined });
+      if (d.facets) { hull = hull.toNonIndexed().rotateY(Math.PI / d.facets); hull.computeVertexNormals(); } // flat faces, a chine down each side
+      const list = [[hull, LATHE_KIND[sh] || 'hull']];
+      if (glassCut != null) list.push([latheGeo(outline(d, flip), d, { y0: glassCut }), 'glass']);
       if (sh === 'engine' || sh === 'srb') {
         const depth = sh === 'srb' ? Math.min(0.7, h * 0.12) * 1.6 : h * (1 - d.mount) * 0.7;
         list.push([nozzleGeo(nozzleOf(d).half * 0.9, b, depth), 'nozzle']);
@@ -511,9 +558,20 @@ const Parts3D = (() => {
         const R = w * 0.14, y0 = b + h * 0.75, x0 = w / 2 - w * 0.2, pts = [];
         for (let i = 0; i <= 8; i++) { const k = i / 8; pts.push(v2(R * k, y0 + 0.03 + h * 0.11 * k * k)); }
         list.push([new THREE.LatheGeometry(pts, 24).translate(x0, 0, 0), 'dish'], [rod([x0, y0, 0], [x0, y0 + h * 0.22, 0], 0.014, 6), 'steelDark']);
-      } else if (sh === 'jetnose') { // long bubble canopy and the pilot
-        list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.21 * w, 0.24 * h, 0.24 * w).translate(-0.4 * w, b + 0.3 * h, 0), 'glass'],
-          [new THREE.SphereGeometry(0.08 * w, 16, 12).translate(-0.46 * w, b + 0.28 * h, 0), 'white']);
+      } else if (sh === 'jetnose') { // long bubble canopy and the pilot (or two, one behind the other)
+        const cp = d.canopy || {}, at = cp.at || 0.3, cl = cp.len || 0.2, n = cp.seats || 1;
+        list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.21 * w, (0.24 / 0.2) * cl * h, 0.24 * w).translate(-0.4 * w, b + at * h, 0), cp.gold ? 'goldglass' : 'glass']);
+        for (let i = 0; i < n; i++) list.push([new THREE.SphereGeometry(0.08 * w, 16, 12).translate(-0.46 * w, b + (at - 0.02 + (n > 1 ? (i - 0.5) * cl : 0)) * h, 0), 'white']);
+      } else if (sh === 'cabin') { // a bubble canopy over the cylinder, and the pilot
+        list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.22 * w, 0.34 * h, 0.27 * w).translate(-0.42 * w, 0.05 * h, 0), 'glass'],
+          [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.48 * w, 0.02 * h, 0), 'white']);
+      } else if (sh === 'bubble') { // seats and the pilot inside the glass
+        list.push([box(w * 0.3, h * 0.22, w * 0.6, w * 0.05, b + h * 0.36, 0), 'ink'], [new THREE.SphereGeometry(0.11 * w, 16, 12).translate(-0.08 * w, b + h * 0.52, 0.18 * w), 'white']);
+      } else if (sh === 'fuselage' && d.style === 'intake') { // an intake on each cheek, open at the front
+        for (const z of [-1, 1]) {
+          list.push([box(w * 0.5, h * 0.72, w * 0.26, -w * 0.02, b + h * 0.36, z * w * 0.5), 'steelDark'],
+            [box(w * 0.44, 0.03, w * 0.2, -w * 0.02, b + h * 0.72 + 0.005, z * w * 0.52), 'intake']);
+        }
       } else if (sh === 'airnose') { // flight-deck windows wrapping round the top of the nose
         for (const z of [-1, 1]) list.push([box(0.04, h * 0.12, w * 0.3, -0.32 * w, b + h * 0.66, z * w * 0.17).rotateY(z * 0.5), 'glass']);
         list.push([box(0.04, h * 0.12, w * 0.22, -0.4 * w, b + h * 0.64, 0), 'glass']);
@@ -603,9 +661,72 @@ const Parts3D = (() => {
     },
 
     wing(d) { // elevators turn about their quarter chord
+      if (d.wing && d.wing.swing) { // a swing wing: each half pivots at its root (built spread, turned back as it sweeps)
+        const s0 = d.wing.swing[0], half = (sg) => ({ role: sg > 0 ? 'swingP' : 'swingN', pos: [0, d.h / 4, 0], pieces: [[wingGeo(d, { sweep: s0, half: sg }).translate(0, -d.h / 4, 0), 'vc']], subs: [] });
+        return node([[box(d.w * 1.6, d.h * 0.5, 0.9, 0, d.h * 0.2, 0), 'steelDark']], [half(1), half(-1)]);
+      }
       const g = wingGeo(d);
       if (!(d.wing && d.wing.control)) return node([[g, 'vc']]);
       return node([], [{ role: 'pivot', pos: [0, d.h / 4, 0], pieces: [[g.translate(0, -d.h / 4, 0), 'vc']], subs: [] }]);
+    },
+
+    biplane(d) { // two wings, interplane struts out on the span, cabane struts by the fuselage and bracing wires
+      const wd = d.wing, g = wd.gap / 2, half = wd.span / 2, sd = Math.sin(wd.dihedral || 0), list = [];
+      list.push([merge([wingGeo(d, { thick: wd.thick }).translate(-g, 0, 0), wingGeo(d, { thick: wd.thick }).translate(g, 0, 0)]), 'vc']);
+      const st = [];
+      for (const z of [-0.62 * half, 0.62 * half, -0.5, 0.5]) {
+        const lift = -Math.abs(z) * sd;
+        for (const yy of [d.h * 0.12, -d.h * 0.22]) st.push(beam([-g + lift, yy, z], [g + lift, yy, z], 0.06));
+      }
+      const wires = [];
+      for (const z of [-0.62 * half, 0.62 * half]) {
+        const lift = -Math.abs(z) * sd;
+        wires.push(rod([-g + lift, d.h * 0.12, z], [g, d.h * 0.12, Math.sign(z) * 0.6], 0.012, 4), rod([g + lift, d.h * 0.12, z], [-g, d.h * 0.12, Math.sign(z) * 0.6], 0.012, 4));
+      }
+      list.push([merge(st), 'steelDark'], [merge(wires), 'steel']);
+      return node(list);
+    },
+
+    rotodome(d) { // pylon from the mounting (+x) edge, and the disc spinning about the plane's vertical
+      const w = d.w, h = d.h, dw = w * 0.32, xd = -w / 2 + dw / 2, R = h / 2;
+      const disc = [[new THREE.CylinderGeometry(R, R, dw, 48).rotateZ(Math.PI / 2), 'white'], [new THREE.CylinderGeometry(R * 0.2, R * 0.2, dw * 1.04, 20).rotateZ(Math.PI / 2), 'orange']];
+      for (const y of [-R * 0.55, R * 0.55]) disc.push([box(dw * 1.02, R * 0.55, R * 1.2, 0, y, 0), 'ink']);
+      return node([[box(w * 0.7, 1.2, 0.35, -w / 2 + w * 0.3 + w * 0.35, 0, 0), 'steelDark']],
+        [node(disc, null, { role: 'spin', axis: 'x', pos: [xd, 0, 0] })], { anim: { rate: 1.3, always: true } });
+    },
+
+    skid(d) { // one skid (the twin holder makes the pair): a tube with an upturned toe, and two struts
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, x = w / 2 - 0.12, list = [];
+      list.push([rod([x, b + 0.1, 0], [x, t - 0.4, 0], 0.08, 12), 'steelLight'], [rod([x, t - 0.4, 0], [x - 0.3, t - 0.12, 0], 0.08, 12), 'steelLight']);
+      for (const y of [h * 0.25, -h * 0.25]) list.push([rod([x, y, 0], [-w / 2, y, 0], 0.06, 10), 'steelDark']);
+      return node(list);
+    },
+
+    ecm(d) { // a capsule on a pylon with antenna blades and emitter windows
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, cx = w * 0.12, rw = w * 0.66;
+      const pod = new THREE.LatheGeometry([[0, b + h * 0.04], [0.7, b + h * 0.1], [1, b + h * 0.2], [1, t - h * 0.2], [0.7, t - h * 0.1], [0, t - h * 0.04]].map(([r, y]) => v2((r * rw) / 2, y)), 20).translate(cx, 0, 0);
+      const list = [[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark'], [pod, 'mil'],
+        [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, t - h * 0.24, 0), 'ink'], [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, b + h * 0.24, 0), 'ink']];
+      for (const y of [-h * 0.15, h * 0.1]) list.push([box(0.2, 0.16, 0.03, cx + rw / 2 + 0.09, y, 0), 'steelDark']);
+      return node(list);
+    },
+
+    turret(d) { // base on the mounting (+x) side; the dome turns (yaw, about x) and the guns elevate (pitch)
+      const w = d.w, h = d.h, b = -h / 2, xc = -w * 0.04, R = Math.min(w * 0.36, h * 0.34);
+      const guns = [];
+      for (const z of [-0.06, 0.06]) guns.push(rod([0, 0, z], [0, h / 2 + 0.1, z], 0.035, 8));
+      const pitch = { role: 'pitch', pieces: [[merge(guns), 'gunmetal']], subs: [] };
+      const yaw = node([[new THREE.SphereGeometry(R, 24, 14, 0, TAU, 0, Math.PI / 2).rotateZ(Math.PI / 2), 'mil'],
+        [new THREE.SphereGeometry(R * 0.45, 16, 10).translate(-R * 0.55, R * 0.35, 0), 'glass']], [pitch], { role: 'yaw', pos: [xc, 0, 0] });
+      return node([[new THREE.CylinderGeometry(R * 1.05, R * 1.15, w * 0.4, 24).rotateZ(Math.PI / 2).translate(w * 0.3, 0, 0), 'steelDark'],
+        [box(w * 0.4, h * 0.7, R * 1.6, w * 0.3, b + h * 0.5, 0), 'steelDark']], [yaw]);
+    },
+
+    drone(d) { // a box with the 2D artwork on its sides, the satellite dome and a whip aerial
+      const w = d.w, h = d.h, bh = h * 0.78, b = -h / 2, depth = d.depth || 1.2;
+      return node([[projUV(extrudeGeo([rectPoly(w, bh)], depth, 0.04), d, true).translate(0, -(h - bh) / 2, 0), 'hull'],
+        [new THREE.SphereGeometry(w * 0.34, 24, 12, 0, TAU, 0, Math.PI / 2).scale(1, (h - bh) / (w * 0.34), 1).translate(0, b + bh, 0), 'white'],
+        [rod([-w * 0.3, b + bh, depth * 0.3], [-w * 0.3, b + h + 0.5, depth * 0.3], 0.015, 6), 'ink']]);
     },
 
     vtail(d, flip) { // swept fin with an airfoil section: root chord on the inner edge, short tip chord at the rear
@@ -614,15 +735,25 @@ const Parts3D = (() => {
       return node([[projUV(sweep(st, 'foil'), d, true), 'hull']]);
     },
 
-    prop(d) {
-      const w = d.w, h = d.h, b = -h / 2, t = h / 2, R = w / 2, y = b + h * 0.42, nose = [], blades = [], nb = d.blades || 3, ch = R > 1.5 ? 0.34 : 0.26;
+    prop(d) { // contra: a second row of blades ahead, turning the other way; duct: a ring round the fan
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, R = propRadius(d), y = b + h * (d.contra ? 0.38 : 0.42), y2 = b + h * 0.56, nose = [], nb = d.blades || 3, ch = R > 1.5 ? 0.34 : 0.26;
       for (let i = 0; i <= 10; i++) { const k = i / 10; nose.push(v2(0.3 * Math.pow(1 - k ** 1.7, 0.6), lerp(b + h * 0.3, t, k))); }
-      for (let i = 0; i < nb; i++) blades.push(bladeGeo(0.22, R, ch, ch * 0.5, 0.03, 0.8, 0.22, 'xz', lin('#2b3036'), lin(PAL.hazard), 0.14).rotateY((i * TAU) / nb));
-      const extra = [];
+      const row = (mirror) => {
+        const bl = [];
+        for (let i = 0; i < nb; i++) bl.push(bladeGeo(0.22, R, ch, ch * 0.5, 0.03, mirror ? -0.8 : 0.8, mirror ? -0.22 : 0.22, 'xz', lin('#2b3036'), lin(PAL.hazard), 0.14).rotateY((i * TAU) / nb));
+        return merge(bl);
+      };
+      const extra = [], subs = [{ role: 'spin', axis: 'y', pos: [0, y, 0], pieces: [[row(false), 'vc']], subs: [] }];
       if (d.twinZ) extra.push([new THREE.LatheGeometry([v2(0.12, b - 2.4), v2(0.38, b - 1.6), v2(0.46, b - 0.6), v2(0.4, b)], 24), 'white']); // nacelle back over the wing
+      if (d.contra) { subs.push({ role: 'spinRev', pos: [0, y2, 0], pieces: [[row(true), 'vc']], subs: [] }); extra.push([new THREE.CircleGeometry(R, 48).rotateX(-Math.PI / 2).translate(0, y2, 0), 'disc']); }
+      if (d.duct) {
+        const ring = [[R + 0.04, y - 0.4], [R + 0.16, y - 0.3], [R + 0.2, y + 0.05], [R + 0.13, y + 0.38], [R + 0.03, y + 0.42], [R + 0.02, y]];
+        extra.push([new THREE.LatheGeometry([...ring, ring[0]].map(([r, yy]) => v2(r, yy)), 48), 'white']);
+        for (let i = 0; i < 4; i++) extra.push([box(R + 0.05, 0.06, 0.05, (R + 0.05) / 2, y - 0.3, 0).rotateY((i * Math.PI) / 2 + Math.PI / 4), 'steelDark']);
+      }
       return node([[projUV(new THREE.LatheGeometry([v2(0, b), v2(0.33, b), v2(0.36, b + 0.04), v2(0.36, b + h * 0.26), v2(0.3, b + h * 0.3)], 28), d), 'hull'],
-        [projUV(new THREE.LatheGeometry(nose, 28), d), 'hull'], [new THREE.CircleGeometry(R, 48).rotateX(-Math.PI / 2).translate(0, y, 0), 'disc'], ...extra],
-      [{ role: 'spin', axis: 'y', pos: [0, y, 0], pieces: [[merge(blades), 'vc']], subs: [] }], { anim: { rate: 45, disc: [12, 35, 0.22] } });
+        [projUV(new THREE.LatheGeometry(nose, 28), d), d.style === 'electric' ? 'electric' : 'hull'], [new THREE.CircleGeometry(R, 48).rotateX(-Math.PI / 2).translate(0, y, 0), 'disc'], ...extra],
+      subs, { anim: { rate: 45, disc: [12, 35, 0.22] } });
     },
 
     rotor(d) { // mast from the bottom of the part, hub near the top, four drooping blades
@@ -657,7 +788,13 @@ const Parts3D = (() => {
     },
 
     gear(d, flip) { // sideways strut from the inner edge, splaying to a pair of wheels at the outer end
-      const s = flip ? -1 : 1, g = wheelGeom(dummy(d, flip)), r = g.r, W = clamp(r * 0.6, 0.18, 0.35), tr = ((d.wheel && d.wheel.track) || 0) / 2;
+      const s = flip ? -1 : 1, g = wheelGeom(dummy(d, flip)), r = g.r, W = d.wheel.fat ? r * 0.9 : clamp(r * 0.6, 0.18, 0.35), tr = ((d.wheel && d.wheel.track) || 0) / 2;
+      if (d.wheel.bogie) { // a beam along the strut's foot with two axles of wheels
+        const i = -s * d.w / 2, by = r * 1.06, list = [[box(0.1, 0.42, 0.42, i + s * 0.05, g.y, 0), 'steelDark'], [rod([i + s * 0.1, g.y, 0], [g.x, g.y, 0], 0.09, 12), 'steel'],
+          [rod([g.x, g.y - by, 0], [g.x, g.y + by, 0], 0.08, 10), 'steelLight']];
+        for (const yy of [g.y - by, g.y + by]) list.push([rod([g.x, yy, -tr], [g.x, yy, tr], r * 0.12, 10), 'steel']);
+        return node(list, [...wheelPair(g.x, g.y - by, tr, r, W), ...wheelPair(g.x, g.y + by, tr, r, W)]);
+      }
       const i = -s * d.w / 2, knee = [lerp(i, g.x, 0.5), g.y, 0], hz = Math.max(0, tr - W * 0.5 - 0.05);
       const list = [[box(0.1, 0.42, 0.42, i + s * 0.05, g.y, 0), 'steelDark'], [rod([i + s * 0.1, g.y, 0], knee, 0.075, 12), 'steel'],
         [new THREE.SphereGeometry(0.09, 12, 8).translate(knee[0], knee[1], 0), 'steelDark']];
@@ -874,7 +1011,7 @@ void main() {
       const g = new THREE.Group();
       if (s.pos) g.position.fromArray(s.pos);
       if (s.rot) g.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
-      if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'droop') rig.droops.push(g);
+      if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'spinRev') (rig.revs = rig.revs || []).push(g); else if (s.role === 'droop') rig.droops.push(g);
       else if (s.role === 'store') (rig.stores = rig.stores || []).push(g); // missiles and bombs, hidden as they're fired
       else if (s.role) rig[s.role] = g;
       obj.add(g);
@@ -934,7 +1071,7 @@ void main() {
   function pylonsFor(rig, parts, group) {
     dropPylons(rig);
     const p = rig.part, d = p.def;
-    if (!d.twinZ || d.float) return; // floats carry their own struts
+    if (!d.twinZ || d.float || d.shape === 'skid') return; // floats and skids carry their own struts
     // a wing holds the pod if, out at the pod's station, its chord (tapered and swept as wingGeo draws it)
     // runs under the pod
     const pr0 = partRect(p);
@@ -1094,17 +1231,20 @@ void main() {
       if (rig.spins.length) {
         let s = p.spin;
         if (typeof s !== 'number' || !isFinite(s)) { // no spin bookkeeping: turn props and rotors with the throttle
-          rig.fspin += (A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
+          rig.fspin += (A.always ? 1 : A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
           s = rig.fspin;
         }
         const ds = rig.last == null ? 0 : Math.abs(s - rig.last);
         rig.last = s;
         if (dt > 0) rig.rate += ((ds < 40 ? ds : 0) / dt - rig.rate) * Math.min(1, dt * 5);
         for (let i = 0; i < rig.spins.length; i++) rig.spins[i].rotation[rig.axis] = s;
+        if (rig.revs) for (const g of rig.revs) g.rotation[rig.axis] = -s;
         if (rig.disc) rig.disc.opacity = A.disc ? smoothstep(A.disc[0], A.disc[1], rig.rate) * A.disc[2] : 0;
         if (rig.droops.length) { const k = -lerp(0.06, -0.025, smoothstep(3, 20, rig.rate)); for (const g of rig.droops) g.rotation.z = k; }
       }
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
+      if (rig.swingP) { const k = (p.sweep != null ? p.sweep : d.wing.swing[0]) - d.wing.swing[0]; rig.swingP.rotation.x = k; rig.swingN.rotation.x = -k; }
+      if (rig.yaw) { rig.yaw.rotation.x = p.aimYaw || 0; if (rig.pitch) rig.pitch.rotation.z = p.aimEl || 0; }
       if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: left and right in turn
         rig.shown = p.ammo;
         const twin = d.twinZ ? 2 : 1, k = rig.stores.length / twin, n = p.ammo == null ? Infinity : p.ammo;

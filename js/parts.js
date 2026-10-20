@@ -10,6 +10,7 @@ const PART_CATEGORIES = [
   { id: 'aero', name: 'Aero' },
   { id: 'utility', name: 'Utility' },
   { id: 'structure', name: 'Structure' },
+  { id: 'cabins', name: 'Cockpits' },
   { id: 'air', name: 'Fuselage' },
   { id: 'wings', name: 'Wings' },
   { id: 'airEng', name: 'Aero engines' },
@@ -124,14 +125,28 @@ const PARTS = {
   // starts), load (strength, 1 = about 9 g for a light plane), dihedral (rad), flaps.
 
   // fuselage
-  cockpitS: { cat: 'air', name: 'Bush Cockpit', w: 1.5, h: 2, mass: 0.45, control: 3, torque: 1500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 11,
+  cockpitS: { cat: 'cabins', name: 'Bush Cockpit', w: 1.5, h: 2, mass: 0.45, control: 3, torque: 1500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 11,
     tier: 0, cost: 2500, desc: 'Small cockpit for light planes and gliders.' },
-  cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
+  cockpit: { cat: 'cabins', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
-  cockpitJet: { cat: 'air', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radar: 12000, shape: 'jetnose', aero: true, sharp: true,
+  cockpitJet: { cat: 'cabins', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radar: 12000, shape: 'jetnose', aero: true, sharp: true,
     breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag.' },
-  cockpitAir: { cat: 'air', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
+  cockpitAir: { cat: 'cabins', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6500, desc: 'Flight deck for a wide fuselage.' },
+  cockpitTandem: { cat: 'cabins', name: 'Tandem Cockpit', w: 1.7, h: 5.2, mass: 1.0, control: 3, torque: 2800, crew: 2, radar: 10000, shape: 'jetnose',
+    canopy: { at: 0.36, len: 0.3, seats: 2 }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 8000,
+    desc: 'Two seats in a row under one long canopy, like a jet trainer. Pointed for speed.' },
+  cockpitStealth: { cat: 'cabins', name: 'Stealth Nose', w: 2, h: 4.6, mass: 0.9, control: 3, torque: 2600, crew: 1, radar: 14000, stealth: 0.6, shape: 'jetnose',
+    style: 'stealth', facets: 6, canopy: { at: 0.32, len: 0.2, gold: true }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
+    desc: 'Faceted nose with a gold-tinted canopy. Radar glances off it: build the whole plane stealthy and enemy radars, SAMs and fighters find you much later.' },
+  cockpitBomber: { cat: 'cabins', name: 'Glazed Bomber Nose', w: 3, h: 3.6, mass: 1.3, control: 3, torque: 4000, crew: 3, shape: 'glassnose', aero: true, breakSpeed: 12,
+    tier: 1, cost: 6000, desc: 'A greenhouse nose for the bomb aimer, with the flight deck behind. Fits a wide fuselage.' },
+  cockpitWarbird: { cat: 'cabins', name: 'Warbird Cockpit', w: 2, h: 2.6, mass: 0.7, control: 3, torque: 2200, crew: 1, shape: 'cabin', breakSpeed: 12,
+    tier: 1, cost: 4000, desc: 'A fuselage section with a bubble canopy. Put the engine and propeller in front of it, like a WWII fighter.' },
+  cockpitHeli: { cat: 'cabins', name: 'Helicopter Bubble', w: 2.4, h: 2.4, mass: 0.5, control: 3, torque: 5000, crew: 2, shape: 'bubble', aero: true, breakSpeed: 10,
+    tier: 1, cost: 3500, desc: 'An all-glass cabin with a view all round. Main rotor on top, a tail boom behind and skids underneath.' },
+  droneCore: { cat: 'cabins', name: 'Drone Core', w: 1.2, h: 1.4, mass: 0.15, control: 2, torque: 1200, crew: 0, radar: 6000, shape: 'dronecore', depth: 1.2, breakSpeed: 12,
+    tier: 2, cost: 3000, desc: 'Remote-control brain with a satellite link: no pilot, no canopy, light and cheap. Put it in a fuselage stack.' },
   radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600, radar: 16000,
     desc: 'Pointed nose cone for a fuselage. Lower drag, especially near Mach 1.' },
   fuselageS: { cat: 'air', name: 'Short Fuselage', w: 2, h: 2, fuel: 1, mass: 0.18, shape: 'fuselage', tier: 0, cost: 1000,
@@ -154,6 +169,22 @@ const PARTS = {
     desc: 'Longer tail: the tail surfaces get more leverage.' },
   tailconeW: { cat: 'air', name: 'Wide Tail Cone', w: 3, h: 4.5, botW: 0.9, mass: 0.35, shape: 'tailcone', aero: true, tier: 1, cost: 800,
     desc: 'Tail cone for a wide fuselage.' },
+  fuselageCargo: { cat: 'air', name: 'Cargo Fuselage', w: 3, h: 7, fuel: 3, mass: 1.5, shape: 'fuselage', style: 'cargo', tier: 1, cost: 4000,
+    desc: 'Big-bellied freighter hull with a loading ramp at the back. Fits the other 3 m parts.' },
+  fuselageTank: { cat: 'air', name: 'Tank Fuselage', w: 2, h: 4, fuel: 3.2, mass: 0.4, shape: 'fuselage', style: 'tank', tier: 0, cost: 1600,
+    desc: 'No windows, just fuel: half as much again as a plain fuselage.' },
+  fuselageArmor: { cat: 'air', name: 'Armoured Fuselage', w: 2, h: 4, fuel: 1.5, mass: 1.4, armor: 0.6, shape: 'fuselage', style: 'armor', breakSpeed: 16, tier: 2, cost: 5000,
+    desc: 'A titanium tub: shrugs off 60% of gunfire and blast damage, and takes hard landings well. Heavy.' },
+  fuselageStealth: { cat: 'air', name: 'Stealth Fuselage', w: 2, h: 5, fuel: 2.5, mass: 0.5, stealth: 0.6, facets: 6, shape: 'fuselage', style: 'stealth', tier: 4, cost: 9000,
+    desc: 'Faceted, radar-absorbing body. The more of the plane is stealthy, the later enemies find you; bombs and missiles hung outside spoil it.' },
+  fuselageIntake: { cat: 'air', name: 'Intake Fuselage', w: 2, h: 3.5, fuel: 1.6, mass: 0.4, shape: 'fuselage', style: 'intake', tier: 2, cost: 2500,
+    desc: 'A fuselage with an air intake on each cheek: the classic jet look. Put it ahead of the jet engine.' },
+  tailBoom: { cat: 'air', name: 'Tail Boom', w: 0.7, h: 5, mass: 0.12, shape: 'fuselage', style: 'boom', tier: 0, cost: 500,
+    desc: 'A slim tube to carry a tail: for helicopters (tail rotor at the end) and twin-boom planes.' },
+  fuselageAdS: { cat: 'air', name: 'Slim Adapter', w: 2, h: 1, topW: 1.5, mass: 0.06, shape: 'adapter', tier: 0, cost: 300,
+    desc: 'Narrows a 2 m fuselage to a slim 1.5 m one. Rotate it to narrow the other way.' },
+  rotodome: { cat: 'air', name: 'Radar Rotodome', w: 1.7, h: 5, mass: 0.9, radar: 45000, shape: 'rotodome', tier: 3, cost: 12000,
+    desc: 'Spinning early-warning radar on a pylon. Mount it on top of the fuselage: radar missiles reach their full range and the HUD shows targets three times further away.' },
 
   // wings and tails
   wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true, vne: 120 }, breakSpeed: 14, tier: 0, cost: 700,
@@ -187,6 +218,31 @@ const PARTS = {
     desc: 'A pair of fins, one each side, like a fighter jet.' },
   airbrake: { cat: 'wings', name: 'Air Brake', w: 0.25, h: 1.4, mass: 0.06, shape: 'airbrake', airbrake: 3.5, tier: 1, cost: 700,
     desc: 'Panel on top of the fuselage. Hold B in the air to pop it up and slow down.' },
+  wingSwing: { cat: 'wings', name: 'Swing Wing', w: 0.45, h: 3.4, mass: 1.0, shape: 'wing',
+    wing: { area: 38, span: 13, swing: [0.25, 1.05], taper: 0.5, mcrit: 0.8, load: 1.5, flaps: true, vne: 420 }, breakSpeed: 14, tier: 3, cost: 8000,
+    desc: 'Variable sweep: spread wide for slow flight and landing, folding back by itself as you go faster. The best of both, at a price.' },
+  wingForward: { cat: 'wings', name: 'Forward-Swept Wing', w: 0.45, h: 3.6, mass: 0.75, shape: 'wing',
+    wing: { area: 30, span: 11, sweep: -0.5, taper: 0.5, stall: 0.38, mcrit: 0.88, load: 1.6, flaps: true, vne: 400 }, breakSpeed: 14, tier: 3, cost: 7000,
+    desc: 'Swept forwards: the tips keep flying after the root stalls, so it stays controllable at crazy angles. Its lift sits well ahead of the part: mount it further back.' },
+  wingElliptical: { cat: 'wings', name: 'Elliptical Wing', w: 0.4, h: 2.8, mass: 0.45, shape: 'wing',
+    wing: { area: 27, span: 11.8, planform: 'ellipse', oswald: 0.97, flaps: true, load: 1.3, vne: 190, dihedral: 0.07 }, breakSpeed: 14, tier: 1, cost: 3000,
+    desc: 'The famous curved wing of a WWII fighter: the least drag for its lift, and a lovely shape.' },
+  wingBiplane: { cat: 'wings', name: 'Biplane Wings', w: 2.2, h: 1.7, mass: 0.6, shape: 'biplane',
+    wing: { area: 40, span: 10, ar: 5, gap: 1.7, thick: 0.22, stall: 0.32, oswald: 0.62, cd0: 0.03, load: 2.2, vne: 85, dihedral: 0.05 }, breakSpeed: 14, tier: 0, cost: 2200,
+    desc: 'Two wings braced with struts and wires: lots of lift and very strong, but draggy. Slow and stately, or loopy and aerobatic.' },
+  wingStraightL: { cat: 'wings', name: 'Long Straight Wing', w: 0.6, h: 3.4, mass: 0.9, fuel: 1.5, shape: 'wing',
+    wing: { area: 55, span: 30, taper: 0.4, flaps: true, load: 1.2, vne: 150, dihedral: 0.05 }, breakSpeed: 14, tier: 1, cost: 3200,
+    desc: 'Long, slender wing for transports and turboprops: lifts a lot at low speed and sips fuel.' },
+  wingWinglet: { cat: 'wings', name: 'Winglet Wing', w: 0.8, h: 5, mass: 1.7, fuel: 3, shape: 'wing',
+    wing: { area: 75, span: 29, sweep: 0.45, taper: 0.65, mcrit: 0.84, load: 1.1, oswald: 0.92, winglets: true, flaps: true, vne: 210 }, breakSpeed: 14, tier: 2, cost: 6000,
+    desc: 'Modern airliner wing with upturned winglets at the tips: less drag, longer range.' },
+  wingStrake: { cat: 'wings', name: 'Strakes', w: 0.18, h: 3, mass: 0.06, shape: 'wing',
+    wing: { area: 5, span: 4, sweep: 1.3, taper: 0.95, slope: 1.6, stall: 0.9, mcrit: 0.95, wave: 0.4, load: 2, vne: 600 }, breakSpeed: 14, tier: 3, cost: 2500,
+    desc: 'Knife-thin extensions ahead of the wing root. They keep lifting long after the wing stalls: for wild high-angle flying.' },
+  stabilizerL: { cat: 'wings', name: 'Large Tailplane', w: 0.35, h: 2.4, mass: 0.25, shape: 'wing', wing: { area: 13, span: 10, vne: 600 }, breakSpeed: 14, tier: 1, cost: 900,
+    desc: 'Big fixed tail for heavy planes.' },
+  vtailV: { cat: 'wings', name: 'V-Tail', w: 0.3, h: 1.7, mass: 0.18, shape: 'elevator', wing: { area: 9, span: 6, control: 0.35, dihedral: 0.62 }, breakSpeed: 14, tier: 2, cost: 1600,
+    desc: 'Two tail surfaces in a V: they pitch and yaw the plane at once, so it needs no separate fin or elevator. Less drag, more style.' },
 
   // aero engines
   propS: { cat: 'airEng', name: 'Small Propeller', w: 1.9, h: 0.7, mass: 0.15, thrust: 14, ispSL: 3400, ispVac: 3400, gimbal: 0, air: { kind: 'prop', v0: 40 }, blades: 2,
@@ -224,6 +280,31 @@ const PARTS = {
     shape: 'jet', plume: 'jet', maxTemp: 2600, tier: 3, cost: 15000, desc: 'No moving parts and huge thrust, but only above about 950 km/h. Get there on another engine first.' },
   jato: { cat: 'airEng', name: 'JATO Booster', w: 0.6, h: 2, mass: 0.08, fuel: 0.22, thrust: 45, ispSL: 200, ispVac: 210, gimbal: 0, shape: 'srb', plume: 'solid', solid: true,
     tier: 0, cost: 900, maxTemp: 2000, desc: 'Strap-on rocket for a short take-off or a glider launch. Burns for about ten seconds.' },
+  propContra: { cat: 'airEng', name: 'Contra-Rotating Prop', w: 3.4, h: 1.8, mass: 1.0, thrust: 85, ispSL: 3000, ispVac: 3000, gimbal: 0, air: { kind: 'prop', v0: 80 }, blades: 3,
+    contra: true, shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1600, tier: 3, cost: 12000,
+    desc: 'Two propellers spinning opposite ways: huge power with no torque roll at all.' },
+  propV12: { cat: 'airEng', name: 'V12 Inline Engine', w: 3, h: 1.6, mass: 0.6, thrust: 50, ispSL: 3100, ispVac: 3100, gimbal: 0, air: { kind: 'prop', v0: 75 }, blades: 3,
+    spinner: 'long', shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 1, cost: 6000,
+    desc: 'A sleek liquid-cooled V12 behind a pointed spinner, as in the fastest piston fighters. Pairs well with the Warbird Cockpit.' },
+  ductedFan: { cat: 'airEng', name: 'Ducted Fan', w: 2.2, h: 1.6, mass: 0.45, thrust: 40, ispSL: 3600, ispVac: 3600, gimbal: 0, air: { kind: 'prop', v0: 85 }, blades: 7,
+    duct: true, shape: 'prop', plume: 'none', aero: true, breakSpeed: 10, maxTemp: 1500, tier: 2, cost: 7000,
+    desc: 'A many-bladed fan inside a ring: quieter, and better at speed than an open propeller.' },
+  electric: { cat: 'airEng', name: 'Electric Motor', w: 2.2, h: 1.1, mass: 0.2, fuel: 0.06, battery: true, thrust: 24, ispSL: 60000, ispVac: 60000, gimbal: 0,
+    air: { kind: 'prop', v0: 45 }, blades: 2, style: 'electric', shape: 'prop', plume: 'none', aero: true, breakSpeed: 9, maxTemp: 1400, tier: 2, cost: 5000,
+    desc: 'A silent motor with its own battery, good for about 20 minutes at full power. Needs no fuel tank.' },
+  turbofanHB: { cat: 'airEng', name: 'Geared Turbofan', w: 3.2, h: 4.2, mass: 2.8, thrust: 290, ispSL: 11000, ispVac: 11000, gimbal: 0, air: { kind: 'fan', vmax: 285 },
+    shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 3, cost: 26000, desc: 'The biggest, most frugal fan: for long-haul airliners and heavy lifters.' },
+  fanPodsL: { cat: 'airEng', name: 'Twin Geared Turbofan Pods', w: 3, h: 4.4, mass: 5, thrust: 540, ispSL: 10500, ispVac: 10500, gimbal: 0, air: { kind: 'fan', vmax: 285 },
+    twinZ: 7, pod: true, shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 3, cost: 48000,
+    desc: 'A pair of giant turbofans for the wings of a big airliner. Drop them onto a wing.' },
+  scramjet: { cat: 'airEng', name: 'Scramjet', w: 1.4, h: 5, mass: 0.9, thrust: 240, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'ram', vmin: 900, vmax: 2300 },
+    shape: 'jet', style: 'scram', plume: 'jet', maxTemp: 3400, tier: 4, cost: 40000,
+    desc: 'Supersonic-combustion ramjet: dead below Mach 2.7, then it pushes on towards Mach 7. Get up to speed on a ramjet or rocket first, and watch the heat.' },
+  pulsejet: { cat: 'airEng', name: 'Pulsejet', w: 0.7, h: 3.4, mass: 0.16, thrust: 28, ispSL: 1500, ispVac: 1500, gimbal: 0, air: { kind: 'jet', vmax: 230 },
+    shape: 'jet', style: 'pulse', plume: 'jet', maxTemp: 1900, tier: 0, cost: 1500, desc: 'A loud, cheap stovepipe with no moving parts. Thirsty, but it works from a standstill.' },
+  rocketPlane: { cat: 'airEng', name: 'Rocket Motor', w: 1.3, h: 2, mass: 0.35, thrust: 70, ispSL: 255, ispVac: 310, gimbal: 0.04, shape: 'engine', plume: 'kero',
+    mount: 0.35, bellTop: 0.4, bellBot: 0.85, tier: 3, cost: 9000, maxTemp: 2400,
+    desc: 'A liquid rocket for X-planes: needs no air, so it goes all the way to space. Drinks fuel at an astonishing rate.' },
   rotor: { cat: 'airEng', name: 'Main Rotor', w: 10, h: 1.2, mass: 0.7, thrust: 80, ispSL: 2600, ispVac: 2600, gimbal: 0, air: { kind: 'rotor', v0: 25, torque: 14000 },
     shape: 'rotor', plume: 'none', breakSpeed: 8, maxTemp: 1500, tier: 1, cost: 9000,
     desc: 'Helicopter rotor and turboshaft. Throttle sets the lift; the stick tilts the craft. Mount it on top of the cabin.' },
@@ -239,6 +320,16 @@ const PARTS = {
     desc: 'Big wheels for heavy planes.' },
   gearR: { cat: 'airGear', name: 'Retractable Gear', w: 1.4, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 1.8, retract: true }, breakSpeed: 7,
     tier: 1, cost: 1800, desc: 'Folds away in flight (G) to cut drag. Remember to put it down before landing!' },
+  gearSR: { cat: 'airGear', name: 'Small Retractable Gear', w: 1, h: 0.7, mass: 0.09, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 1.4, retract: true }, breakSpeed: 6,
+    tier: 1, cost: 900, desc: 'Light gear that folds away (G): for small, fast planes.' },
+  gearRL: { cat: 'airGear', name: 'Heavy Retractable Gear', w: 2, h: 1.4, mass: 0.6, shape: 'gear', wheel: { r: 0.6, drive: false, brake: true, track: 2.8, retract: true }, breakSpeed: 9,
+    tier: 2, cost: 2600, desc: 'Big wheels that fold away in flight.' },
+  gearBogie: { cat: 'airGear', name: 'Airliner Bogie', w: 2.2, h: 2.4, mass: 1.0, shape: 'gear', wheel: { r: 0.55, drive: false, brake: true, track: 3, retract: true, bogie: true },
+    breakSpeed: 11, tier: 2, cost: 4000, desc: 'Four-wheel main gear for heavy jets: strong, and it folds away (G).' },
+  gearTundra: { cat: 'airGear', name: 'Tundra Tyres', w: 1.6, h: 1.3, mass: 0.25, shape: 'gear', wheel: { r: 0.58, drive: false, brake: true, track: 2.2, fat: true }, breakSpeed: 11,
+    tier: 1, cost: 1400, desc: 'Big squashy balloon tyres: they soak up hard landings and rough fields.' },
+  skids: { cat: 'airGear', name: 'Landing Skids', w: 1.2, h: 3.2, mass: 0.08, shape: 'skid', twinZ: 1.1, depth: 0.15, breakSpeed: 8, tier: 0, cost: 400,
+    desc: 'A pair of tube skids for helicopters: put them under the cabin. They slide rather than roll.' },
   tailWheel: { cat: 'airGear', name: 'Tail Wheel', w: 0.6, h: 0.5, mass: 0.03, shape: 'gear', wheel: { r: 0.2, drive: false, track: 0, caster: true }, breakSpeed: 6, tier: 0, cost: 300,
     desc: 'Little swivelling wheel under the tail, for a taildragger.' },
   floats: { cat: 'airGear', name: 'Floats', w: 1, h: 5, mass: 0.3, shape: 'float', float: true, twinZ: 1.6, aero: true, breakSpeed: 10, tier: 1, cost: 1500,
@@ -283,6 +374,32 @@ const PARTS = {
   flares: { cat: 'weapons', name: 'Flares', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', tier: 2, cost: 1200,
     weapon: { kind: 'flare', ammo: 30, each: 1 },
     desc: 'Hot decoys that pull heat-seeking missiles off you. They fire on their own when a missile closes in.' },
+  gatling: { cat: 'weapons', name: 'Rotary Cannon', w: 0.8, h: 3.2, mass: 0.9, shape: 'gun', barrels: 7, calibre: 30, tier: 3, cost: 12000,
+    weapon: { kind: 'gun', ammo: 1100, rate: 60, speed: 1050, dmg: 24, spread: 0.006, each: 0.3 },
+    desc: 'Seven spinning barrels: a 30 mm buzz saw for busting tanks. Mount it along the nose.' },
+  turret: { cat: 'weapons', name: 'Gun Turret', w: 1, h: 1.4, mass: 0.35, shape: 'turret', tier: 2, cost: 6000,
+    weapon: { kind: 'turret', ammo: 800, rate: 12, speed: 900, dmg: 8, spread: 0.006, range: 1100, each: 0.05 },
+    desc: 'A defensive turret that aims and fires on its own at enemy fighters and drones within a kilometre. Put it on top of (or under) a bomber.' },
+  bombBay: { cat: 'weapons', name: 'Internal Bomb Bay', w: 2, h: 4, mass: 0.55, shape: 'fuselage', style: 'bay', bay: true, stealth: 0.5, tier: 3, cost: 7000,
+    weapon: { kind: 'bomb', ammo: 4, dmg: 1200, blast: 30, each: 250 },
+    desc: 'A fuselage section with four 250 kg bombs inside: no drag, and a stealth plane stays stealthy.' },
+  clusterBombs: { cat: 'weapons', name: 'Cluster Bombs', w: 0.75, h: 2.6, mass: 0.04, shape: 'bomb', style: 'cluster', twinZ: 2.7, pod: true, aero: true, tier: 2, cost: 5000,
+    weapon: { kind: 'bomb', cluster: 24, ammo: 2, dmg: 220, blast: 10, each: 300 },
+    desc: 'Each one bursts 150 m up and scatters 24 bomblets over a football pitch. For convoys and SAM sites.' },
+  glideBombs: { cat: 'weapons', name: 'Guided Glide Bombs', w: 0.7, h: 2.8, mass: 0.04, shape: 'bomb', style: 'guided', twinZ: 2.9, pod: true, aero: true, tier: 3, cost: 11000,
+    weapon: { kind: 'missile', seek: 'ground', glide: true, label: 'GBU', ammo: 2, range: 12000, cone: 0.45, accel: 0, burn: 0, vmax: 420, turn: 5, dmg: 1300, blast: 28, each: 250, life: 90 },
+    desc: 'Bombs with fins and a seeker: lock a ground target up to 12 km away and let it glide in. Release high and fast.' },
+  torpedo: { cat: 'weapons', name: 'Torpedoes', w: 0.7, h: 3.6, mass: 0.04, shape: 'bomb', style: 'torpedo', twinZ: 2.6, pod: true, aero: true, tier: 2, cost: 8000,
+    weapon: { kind: 'bomb', torpedo: true, ammo: 2, dmg: 2200, blast: 16, each: 700 },
+    desc: 'Drop them low and slow over the sea (under 400 km/h when they hit the water): they swim to the nearest boat or ship.' },
+  harm: { cat: 'weapons', name: 'Anti-Radar Missiles', w: 0.5, h: 3.8, mass: 0.05, shape: 'missile', style: 'harm', twinZ: 2.6, pod: true, aero: true, tier: 3, cost: 15000,
+    weapon: { kind: 'missile', seek: 'radar', label: 'ARM', ammo: 2, range: 22000, cone: 0.8, accel: 260, burn: 5, vmax: 1400, turn: 20, dmg: 700, blast: 18, each: 360 },
+    desc: 'They home on enemy radars (radar stations, SAM sites, AA guns and frigates) from 22 km away.' },
+  cruiseMissile: { cat: 'weapons', name: 'Cruise Missile', w: 0.9, h: 5, mass: 0.08, shape: 'missile', style: 'cruise', agm: true, aero: true, tier: 4, cost: 30000,
+    weapon: { kind: 'missile', seek: 'ground', label: 'CRUISE', ammo: 1, range: 30000, cone: 0.6, accel: 45, burn: 140, vmax: 270, turn: 10, dmg: 2600, blast: 40, each: 1100, life: 150 },
+    desc: 'A one-tonne missile with its own jet engine: lock any ground target up to 30 km away and it flies there by itself. Hang it under the fuselage.' },
+  ecm: { cat: 'weapons', name: 'ECM Jammer Pod', w: 0.55, h: 2.6, mass: 0.25, shape: 'ecm', ecm: true, aero: true, tier: 3, cost: 9000,
+    desc: 'Jams enemy radars: incoming SAMs often lose you, and AA gunners aim badly. Hang it under the fuselage or a wing.' },
 
   // ---- ground
   cab: { cat: 'ground', name: 'Driver Cab', w: 2.4, h: 1.5, mass: 0.6, control: 2, torque: 4000, crew: 2, shape: 'cab', depth: 2, aero: true, breakSpeed: 11, tier: 0, cost: 2500,
@@ -584,7 +701,8 @@ function fuelGroups(parts, adj) {
   for (const p of parts) {
     if (seen.has(p.id) || p.def.separator) continue;
     if (p.def.solid) { seen.add(p.id); groups.push({ tanks: [p], engines: [p], solid: true }); continue; }
-    const comp = componentOf(p.id, adj, (n) => !ids.has(n) || byId.get(n).def.separator || byId.get(n).def.solid);
+    if (p.def.battery) { seen.add(p.id); groups.push({ tanks: [p], engines: [p] }); continue; } // an electric motor runs on its own battery
+    const comp = componentOf(p.id, adj, (n) => !ids.has(n) || byId.get(n).def.separator || byId.get(n).def.solid || byId.get(n).def.battery);
     const g = { tanks: [], engines: [] };
     for (const id of comp) {
       seen.add(id);
@@ -608,6 +726,29 @@ const PAL = {
 // With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
 // where real lighting does the shading).
 const PartPaint = { flat: false };
+function darkGradient(ctx, l, r) { // stealth grey
+  if (PartPaint.flat) return '#4b5058';
+  const g = ctx.createLinearGradient(l, 0, r, 0);
+  g.addColorStop(0, '#2d3036'); g.addColorStop(0.45, '#5a5f68'); g.addColorStop(1, '#33373d');
+  return g;
+}
+function tintGradient(ctx, l, r, c) { // hull shading in another colour
+  if (PartPaint.flat) return c;
+  const k = ctx.createLinearGradient(l, 0, r, 0);
+  k.addColorStop(0, shade(c, -0.35)); k.addColorStop(0.4, shade(c, 0.12)); k.addColorStop(1, shade(c, -0.25));
+  return k;
+}
+function shade(hex, k) { // lighten (k > 0) or darken a #rrggbb colour
+  const n = parseInt(hex.slice(1), 16), f = (v) => Math.round(clamp(k > 0 ? v + (255 - v) * k : v * (1 + k), 0, 255));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+// Sawtooth panel line across a stealth part.
+function sawtooth(ctx, l, r, y, k) {
+  ctx.beginPath(); ctx.moveTo(l, y);
+  const n = 4, dx = (r - l) / n;
+  for (let i = 0; i < n; i++) { ctx.lineTo(l + dx * (i + 0.5), y + k); ctx.lineTo(l + dx * (i + 1), y); }
+  ctx.stroke();
+}
 function hullGradient(ctx, l, r) {
   if (PartPaint.flat) return '#e3e7eb';
   const g = ctx.createLinearGradient(l, 0, r, 0);
@@ -631,10 +772,11 @@ function goldGradient(ctx, l, r) {
 function foilHalf(f) { return (0.2969 * Math.sqrt(f) - 0.126 * f - 0.3516 * f * f + 0.2843 * f ** 3 - 0.1036 * f ** 4) / 0.1; }
 
 // Wing cross-section: leading edge at +y, turned about the quarter chord by p.deflect.
-function foilPath(ctx, p) {
-  const d = p.def, x = p.x, h = d.h, t = p.y + h / 2, py = p.y + h / 4, a = p.deflect || 0;
+// ox, th: offset across the part and thickness, for one of a biplane's two wings.
+function foilPath(ctx, p, ox = 0, th = p.def.w) {
+  const d = p.def, x = p.x + ox, h = d.h, t = p.y + h / 2, py = p.y + h / 4, a = p.deflect || 0;
   const c = Math.cos(a), s = Math.sin(a), N = 18, pts = [];
-  for (let i = 0; i <= N; i++) { const f = Math.pow(i / N, 1.6); pts.push([foilHalf(f) * d.w / 2, t - f * h]); }
+  for (let i = 0; i <= N; i++) { const f = Math.pow(i / N, 1.6); pts.push([foilHalf(f) * th / 2, t - f * h]); }
   const put = (dx, yy, first) => {
     const dy = yy - py, X = x + c * dx - s * dy, Y = py + s * dx + c * dy;
     if (first) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
@@ -682,6 +824,20 @@ const HULLS = {
     ctx.moveTo(x - w / 2, b); ctx.lineTo(x + w / 2, b);
     ctx.bezierCurveTo(x + w / 2, b + h * 0.55, x + w * 0.3, t, x + w * 0.05, t);
     ctx.bezierCurveTo(x - w * 0.3, t, x - w / 2, b + h * 0.7, x - w / 2, b + h * 0.35);
+    ctx.closePath();
+  },
+  glassnose(ctx, x, y, w, h) { // round bomber nose: a bullet, glazed towards the tip
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w / 2, b); ctx.lineTo(x + w / 2, b);
+    ctx.bezierCurveTo(x + w / 2, b + h * 0.5, x + w * 0.32, t, x, t);
+    ctx.bezierCurveTo(x - w * 0.32, t, x - w / 2, b + h * 0.5, x - w / 2, b);
+    ctx.closePath();
+  },
+  bubble(ctx, x, y, w, h) { // helicopter cabin: a glass egg on a flat floor
+    const b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x - w * 0.36, b); ctx.lineTo(x + w * 0.36, b);
+    ctx.bezierCurveTo(x + w * 0.5, b + h * 0.12, x + w * 0.5, t, x, t);
+    ctx.bezierCurveTo(x - w * 0.5, t, x - w * 0.5, b + h * 0.12, x - w * 0.36, b);
     ctx.closePath();
   },
   float(ctx, x, y, w, h) { // pontoon on the +x side with a stepped bottom; struts drawn separately
@@ -780,8 +936,33 @@ function partPath0(ctx, p) {
       ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
       break;
     }
-    case 'cockpit': case 'tailcone': case 'jet': case 'cab': case 'jetnose': case 'airnose': case 'float': case 'droptank':
+    case 'cockpit': case 'tailcone': case 'jet': case 'cab': case 'jetnose': case 'airnose': case 'float': case 'droptank': case 'glassnose': case 'bubble':
       HULLS[d.shape](ctx, x, y, w, h, d);
+      break;
+    case 'biplane': { // two wings stacked across the part
+      const g = d.wing.gap / 2, th = d.wing.thick;
+      foilPath(ctx, p, -g, th); foilPath(ctx, p, g, th);
+      break;
+    }
+    case 'rotodome': // the dish (on the -x side, the top of a plane) and its pylon
+      ctx.rect(l, b, w * 0.32, h);
+      ctx.rect(l + w * 0.3, y - 0.6, w * 0.7, 1.2);
+      break;
+    case 'skid': // a tube along the bottom (+x) and two struts up to the cabin
+      ctx.rect(r - 0.24, b + 0.1, 0.24, h - 0.2);
+      ctx.rect(l, y + h * 0.25 - 0.07, w - 0.2, 0.14);
+      ctx.rect(l, y - h * 0.25 - 0.07, w - 0.2, 0.14);
+      break;
+    case 'ecm': { // a pod on a pylon, hanging on the +x side
+      const cx = x + w * 0.12, rw = w * 0.66;
+      ctx.rect(l, y - h * 0.18, cx - l, h * 0.36);
+      ctx.rect(cx - rw / 2, b + h * 0.06, rw, h * 0.88);
+      break;
+    }
+    case 'turret': // base on the +x (mounting) side, dome and twin barrels pointing along +y
+      ctx.rect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7);
+      ctx.moveTo(x + w * 0.12, y); ctx.ellipse(x - w * 0.04, y, w * 0.36, h * 0.34, 0, 0, TAU);
+      ctx.rect(x - w * 0.16, y, w * 0.14, h / 2);
       break;
     case 'airbrake':
       ctx.rect(l, b, w, h);
@@ -1071,16 +1252,94 @@ function drawPart0(ctx, p, lw) {
       ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * 0.5, w * 0.06, h * 0.12, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
       break;
     }
-    case 'jetnose': {
+    case 'jetnose': { // canopy: where along the nose (at) and how long (len), as fractions of its length
+      const cp = d.canopy || {}, at = cp.at || 0.3, cl = cp.len || 0.2, stealth = d.style === 'stealth';
+      partPath(ctx, p); ctx.fillStyle = stealth ? darkGradient(ctx, l, r) : hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip();
+      if (stealth) { // dark chines along both edges and sawtooth panel lines
+        ctx.fillStyle = '#2b2e34'; ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
+        ctx.strokeStyle = 'rgba(15,17,20,0.7)'; ctx.lineWidth = lw; sawtooth(ctx, l, r, b + h * 0.12, h * 0.05); sawtooth(ctx, l, r, b + h * 0.62, h * 0.05);
+      } else {
+        ctx.fillStyle = '#3a4048'; ctx.fillRect(l, t - h * 0.2, w, h * 0.2); // radome tip
+        ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.1, h * 0.6);
+      }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+      partPath(ctx, p); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.42, b + h * at, w * 0.2, h * cl, 0, 0, TAU);
+      ctx.fillStyle = cp.gold ? '#c9a24a' : PAL.glass; ctx.fill(); ctx.stroke();
+      if ((cp.seats || 1) > 1) { ctx.beginPath(); ctx.moveTo(x - w * 0.62, b + h * at); ctx.lineTo(x - w * 0.22, b + h * at); ctx.stroke(); } // the frame between the seats
+      ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * (at + cl * 0.3), w * 0.05, h * cl * 0.35, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+      break;
+    }
+    case 'glassnose': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
-      ctx.fillStyle = '#3a4048'; ctx.fillRect(l, t - h * 0.2, w, h * 0.2); // radome tip
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.1, h * 0.6);
+      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.1, b, w * 0.05, h * 0.6);
+      ctx.fillStyle = PAL.glass; ctx.fillRect(l, b + h * 0.6, w, h * 0.4); // the glazed tip, framed
+      ctx.strokeStyle = 'rgba(40,48,58,0.85)'; ctx.lineWidth = lw * 1.3;
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) { const yy = b + h * (0.6 + i * 0.1); ctx.moveTo(l, yy); ctx.lineTo(r, yy); }
+      for (let i = 1; i < 5; i++) { const xx = l + (w * i) / 5; ctx.moveTo(xx, b + h * 0.6); ctx.lineTo(xx, t); }
+      ctx.stroke();
       ctx.restore();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
       partPath(ctx, p); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(x - w * 0.42, b + h * 0.3, w * 0.2, h * 0.2, 0, 0, TAU);
+      ctx.fillStyle = PAL.ink; // flight deck windows on top, behind the glazing
+      for (let i = 0; i < 3; i++) ctx.fillRect(x - w * 0.47 + i * w * 0.07, b + h * 0.38 - i * h * 0.02, w * 0.05, h * 0.1);
+      break;
+    }
+    case 'cabin': { // a fuselage section with a bubble canopy on top (-x)
+      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.06); ctx.fillRect(l, t - 0.06, w, 0.06);
+      ctx.strokeRect(l, b, w, h);
+      ctx.beginPath(); ctx.ellipse(x - w * 0.42, y + h * 0.05, w * 0.22, h * 0.34, 0, 0, TAU);
       ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(x - w * 0.5, b + h * 0.36, w * 0.05, h * 0.07, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x - w * 0.64, y - h * 0.05); ctx.lineTo(x - w * 0.2, y - h * 0.05); ctx.stroke(); // canopy frame
+      ctx.beginPath(); ctx.ellipse(x - w * 0.52, y + h * 0.14, w * 0.05, h * 0.1, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+      break;
+    }
+    case 'bubble': {
+      partPath(ctx, p); ctx.fillStyle = PAL.glass; ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h * 0.24); // floor and doors' sills
+      ctx.fillStyle = PAL.orange; ctx.fillRect(l, b + h * 0.24, w, h * 0.04);
+      ctx.fillStyle = '#3a4048'; ctx.beginPath(); ctx.arc(x - w * 0.08, b + h * 0.5, w * 0.11, 0, TAU); ctx.fill(); // the pilot
+      ctx.strokeStyle = 'rgba(40,48,58,0.8)'; ctx.lineWidth = lw * 1.3;
+      ctx.beginPath(); ctx.moveTo(x + w * 0.12, b + h * 0.28); ctx.lineTo(x + w * 0.04, t); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(x + w * 0.25, b + h * 0.66, w * 0.06, h * 0.14, -0.3, 0, TAU); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+      partPath(ctx, p); ctx.stroke();
+      break;
+    }
+    case 'dronecore': {
+      const bh = h * 0.78;
+      ctx.fillStyle = PartPaint.flat ? '#6b737c' : metalGradient(ctx, l, r); ctx.fillRect(l, b, w, bh); ctx.strokeRect(l, b, w, bh);
+      ctx.beginPath(); ctx.ellipse(x, b + bh, w * 0.34, h - bh, 0, 0, Math.PI); ctx.fillStyle = '#e9ecef'; ctx.fill(); ctx.stroke(); // satellite dome
+      ctx.fillStyle = PAL.ink; for (let i = 0; i < 3; i++) ctx.fillRect(l + w * 0.15, b + h * (0.12 + i * 0.12), w * 0.7, 0.05); // vents
+      ctx.fillStyle = '#7dffb0'; ctx.fillRect(l + w * 0.12, b + h * 0.58, w * 0.12, w * 0.12); // status light
+      ctx.fillStyle = PAL.orange; ctx.fillRect(r - w * 0.22, b + h * 0.58, w * 0.1, w * 0.12);
+      break;
+    }
+    case 'rotodome': {
+      const dw = w * 0.32;
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(l + w * 0.3, y - 0.6, w * 0.7, 1.2); ctx.strokeRect(l + w * 0.3, y - 0.6, w * 0.7, 1.2);
+      ctx.fillStyle = PartPaint.flat ? '#eef1f4' : hullGradient(ctx, l, l + dw); ctx.fillRect(l, b, dw, h);
+      ctx.fillStyle = '#2b3036'; ctx.fillRect(l, b + h * 0.06, dw, h * 0.3); ctx.fillRect(l, t - h * 0.36, dw, h * 0.3); // the radar arrays
+      ctx.fillStyle = PAL.orange; ctx.fillRect(l + dw * 0.3, y - 0.2, dw * 0.4, 0.4);
+      ctx.strokeRect(l, b, dw, h);
+      break;
+    }
+    case 'skid': {
+      ctx.fillStyle = PAL.steelDark;
+      for (const yy of [y + h * 0.25, y - h * 0.25]) { ctx.fillRect(l, yy - 0.07, w - 0.2, 0.14); ctx.strokeRect(l, yy - 0.07, w - 0.2, 0.14); }
+      ctx.beginPath(); ctx.moveTo(r - 0.24, b + 0.1); ctx.lineTo(r, b + 0.1); ctx.lineTo(r, t - 0.35); ctx.quadraticCurveTo(r, t - 0.05, r - 0.4, t - 0.1);
+      ctx.lineTo(r - 0.4, t - 0.24); ctx.quadraticCurveTo(r - 0.24, t - 0.26, r - 0.24, t - 0.4); ctx.closePath();
+      ctx.fillStyle = PAL.steelLight; ctx.fill(); ctx.stroke();
       break;
     }
     case 'airnose': {
@@ -1123,6 +1382,7 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'fuselage': {
+      if (d.style) { drawFuselageStyle(ctx, p, lw); break; }
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
       ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
       ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h); // cheatline
@@ -1144,6 +1404,15 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.stroke();
       break;
     }
+    case 'biplane': { // struts and bracing wires between the two wings, then the wings as any other
+      const g = d.wing.gap / 2;
+      ctx.fillStyle = PAL.steelDark;
+      for (const yy of [y + h * 0.12, y - h * 0.22]) ctx.fillRect(x - g, yy - 0.05, 2 * g, 0.1);
+      ctx.strokeStyle = 'rgba(40,46,54,0.8)'; ctx.lineWidth = 0.025;
+      ctx.beginPath(); ctx.moveTo(x - g, y + h * 0.12); ctx.lineTo(x + g, y - h * 0.22); ctx.moveTo(x - g, y - h * 0.22); ctx.lineTo(x + g, y + h * 0.12); ctx.stroke();
+      ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+    }
+    // falls through
     case 'wing': case 'elevator': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
@@ -1165,27 +1434,45 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'prop': {
-      const yb = b + h * 0.42, R = w / 2;
+      const R = propRadius(d), rows = d.contra ? [b + h * 0.38, b + h * 0.56] : [b + h * 0.42];
       ctx.fillStyle = metalGradient(ctx, x - 0.36, x + 0.36); ctx.fillRect(x - 0.36, b, 0.72, h * 0.3); ctx.strokeRect(x - 0.36, b, 0.72, h * 0.3);
-      if (p.firing > 0.3) { // blur of the spinning disc, seen edge-on
-        ctx.fillStyle = `rgba(150,160,175,${0.25 * p.firing})`;
-        ctx.beginPath(); ctx.ellipse(x, yb, R, 0.08, 0, 0, TAU); ctx.fill();
-      }
-      ctx.fillStyle = '#2b3036';
-      const nb = d.blades || 3;
-      for (let i = 0; i < nb; i++) {
-        const k = Math.cos((p.spin || 0) + (i * TAU) / nb) * R;
-        ctx.fillRect(Math.min(x, x + k), yb - 0.06, Math.abs(k), 0.12);
-        ctx.fillStyle = PAL.hazard; ctx.fillRect(x + k - Math.sign(k) * 0.14 - 0.07, yb - 0.06, 0.14, 0.12); ctx.fillStyle = '#2b3036';
+      rows.forEach((yb, row) => {
+        if (p.firing > 0.3) { // blur of the spinning disc, seen edge-on
+          ctx.fillStyle = `rgba(150,160,175,${0.25 * p.firing})`;
+          ctx.beginPath(); ctx.ellipse(x, yb, R, 0.08, 0, 0, TAU); ctx.fill();
+        }
+        ctx.fillStyle = '#2b3036';
+        const nb = d.blades || 3, sp = (row ? -1 : 1) * (p.spin || 0) + row * 0.5;
+        for (let i = 0; i < nb; i++) {
+          const k = Math.cos(sp + (i * TAU) / nb) * R;
+          ctx.fillRect(Math.min(x, x + k), yb - 0.06, Math.abs(k), 0.12);
+          ctx.fillStyle = PAL.hazard; ctx.fillRect(x + k - Math.sign(k) * 0.14 - 0.07, yb - 0.06, 0.14, 0.12); ctx.fillStyle = '#2b3036';
+        }
+      });
+      if (d.duct) { // the ring round the fan, seen from the side
+        const yb = rows[0];
+        ctx.fillStyle = hullGradient(ctx, l, r);
+        for (const s2 of [-1, 1]) { const xx = x + s2 * (R + 0.08); ctx.fillRect(xx - 0.08, yb - 0.42, 0.16, 0.84); ctx.strokeRect(xx - 0.08, yb - 0.42, 0.16, 0.84); }
       }
       ctx.beginPath(); ctx.moveTo(x - 0.3, b + h * 0.3); ctx.quadraticCurveTo(x - 0.3, t, x, t); ctx.quadraticCurveTo(x + 0.3, t, x + 0.3, b + h * 0.3); ctx.closePath();
-      ctx.fillStyle = hullGradient(ctx, x - 0.3, x + 0.3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = d.style === 'electric' ? tintGradient(ctx, x - 0.3, x + 0.3, '#3b7dd8') : hullGradient(ctx, x - 0.3, x + 0.3); ctx.fill(); ctx.stroke();
       ctx.fillStyle = PAL.orange; ctx.beginPath(); ctx.arc(x, t - 0.1, 0.07, 0, TAU); ctx.fill();
       break;
     }
     case 'jet': {
-      partPath(ctx, p); ctx.fillStyle = metalGradient(ctx, l, r); ctx.fill();
+      const scram = d.style === 'scram', pulse = d.style === 'pulse';
+      partPath(ctx, p); ctx.fillStyle = scram ? darkGradient(ctx, l, r) : pulse ? tintGradient(ctx, l, r, '#8a6f55') : metalGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
+      if (scram) { // heat tiles, and the wedge of the intake ramp
+        ctx.strokeStyle = 'rgba(10,12,14,0.5)'; ctx.lineWidth = lw;
+        ctx.beginPath(); for (let yy = b + 0.3; yy < t; yy += 0.4) { ctx.moveTo(l, yy); ctx.lineTo(r, yy); } ctx.stroke();
+        ctx.fillStyle = '#1b1d21'; ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(x, t - h * 0.3); ctx.lineTo(r, t); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = PAL.orange; ctx.fillRect(l, b + h * 0.08, w, h * 0.03);
+      } else if (pulse) { // a valve box at the front, rings down the pipe
+        ctx.fillStyle = '#5d4a3a'; ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
+        ctx.fillStyle = 'rgba(30,22,16,0.5)'; for (let i = 1; i < 6; i++) ctx.fillRect(l, b + h * 0.13 * i, w, 0.05);
+      }
+      if (scram || pulse) { ctx.restore(); partPath(ctx, p); ctx.stroke(); ctx.fillStyle = '#15181c'; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.08); if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.4 * p.firing})`; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.12); } break; }
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, t - h * 0.55, w, h * 0.55); // cowling
       ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.58, w, h * 0.04);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.06, w, h * 0.06); // intake lip
@@ -1237,14 +1524,18 @@ function drawPart0(ctx, p, lw) {
       ctx.strokeStyle = PAL.steelLight; ctx.lineWidth = 0.12; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(i + s * 0.1, g.y); ctx.lineTo(g.x, g.y); ctx.stroke();
       ctx.lineCap = 'butt'; ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
-      ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.6, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
-      ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = g.r * 0.12;
-      ctx.beginPath();
-      for (let k = 0; k < 5; k++) { const a = (p.spin || 0) + (k * TAU) / 5; ctx.moveTo(g.x, g.y); ctx.lineTo(g.x + Math.cos(a) * g.r * 0.58, g.y + Math.sin(a) * g.r * 0.58); }
-      ctx.stroke();
-      ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
-      ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.18, 0, TAU); ctx.fillStyle = PAL.orange; ctx.fill();
+      const bog = d.wheel.bogie ? g.r * 1.06 : 0;
+      if (bog) { ctx.fillStyle = PAL.steel; ctx.fillRect(g.x - 0.08, g.y - bog, 0.16, bog * 2); ctx.strokeRect(g.x - 0.08, g.y - bog, 0.16, bog * 2); }
+      for (const wy of bog ? [g.y - bog, g.y + bog] : [g.y]) {
+        ctx.beginPath(); ctx.arc(g.x, wy, g.r, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(g.x, wy, g.r * 0.6, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
+        ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = g.r * 0.12;
+        ctx.beginPath();
+        for (let k = 0; k < 5; k++) { const a = (p.spin || 0) + (k * TAU) / 5; ctx.moveTo(g.x, wy); ctx.lineTo(g.x + Math.cos(a) * g.r * 0.58, wy + Math.sin(a) * g.r * 0.58); }
+        ctx.stroke();
+        ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+        ctx.beginPath(); ctx.arc(g.x, wy, g.r * 0.18, 0, TAU); ctx.fillStyle = PAL.orange; ctx.fill();
+      }
       break;
     }
     case 'cab': {
@@ -1274,6 +1565,15 @@ function drawPart0(ctx, p, lw) {
     }
     // ---- weapons: stores hang on the +x side (below a wing or the fuselage), the pylon reaches to -x
     case 'gun': {
+      if (d.barrels > 1) { // a rotary cannon: drum, motor and a cluster of barrels that turns as it fires
+        const bw = w * 0.56, bt = b + h * 0.36;
+        ctx.fillStyle = '#5d6670'; ctx.fillRect(l, b, w, h * 0.36); ctx.strokeRect(l, b, w, h * 0.36);
+        ctx.fillStyle = '#2b3036'; ctx.fillRect(x - bw / 2, bt, bw, t - bt); ctx.strokeRect(x - bw / 2, bt, bw, t - bt);
+        ctx.fillStyle = '#4a525b';
+        for (let i = 0; i < 3; i++) { const k = Math.sin((p.spin || 0) + (i * TAU) / 3) * bw * 0.32; ctx.fillRect(x + k - bw * 0.07, bt, bw * 0.14, t - bt); }
+        for (const yy of [bt + (t - bt) * 0.35, t - h * 0.06]) { ctx.fillStyle = '#1b1f24'; ctx.fillRect(x - bw * 0.62, yy, bw * 1.24, h * 0.05); }
+        break;
+      }
       const big = (d.calibre || 0) > 20, bw = w * (big ? 0.34 : 0.3);
       ctx.fillStyle = '#5d6670'; ctx.fillRect(l, b, w, h * 0.42); ctx.strokeRect(l, b, w, h * 0.42); // receiver
       ctx.fillStyle = '#2b3036'; ctx.fillRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); ctx.strokeRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); // barrel
@@ -1295,8 +1595,8 @@ function drawPart0(ctx, p, lw) {
       } else {
         ctx.moveTo(bl, b + h * 0.05); ctx.lineTo(bl, bt - h * 0.08); ctx.quadraticCurveTo(cx, bt + h * 0.02, br, bt - h * 0.08); ctx.lineTo(br, b + h * 0.05); ctx.closePath();
       }
-      const body = d.shape === 'missile' ? (d.agm ? '#c9c2a6' : '#eef1f4') : d.shape === 'bomb' ? '#5f6b52' : '#7d8790';
-      ctx.fillStyle = PartPaint.flat ? body : body; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = storeColour(d); ctx.fill(); ctx.stroke();
+      if (d.style) { drawStoreStyle(ctx, d, cx, rw, b, t, h); break; }
       if (d.shape === 'missile') { // fins, seeker and a band
         ctx.fillStyle = '#4d545d';
         ctx.beginPath(); ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl - rw * 0.7, b); ctx.lineTo(bl, b + h * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -1312,6 +1612,27 @@ function drawPart0(ctx, p, lw) {
       } else { // gun pod barrel
         ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw * 0.1, bt - h * 0.06, rw * 0.2, h * 0.18);
       }
+      break;
+    }
+    case 'ecm': {
+      const cx = x + w * 0.12, rw = w * 0.66;
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, y - h * 0.18, cx - l, h * 0.36);
+      ctx.beginPath(); ctx.moveTo(cx - rw / 2, b + h * 0.12); ctx.lineTo(cx - rw / 2, t - h * 0.12); ctx.quadraticCurveTo(cx, t + h * 0.02, cx + rw / 2, t - h * 0.12);
+      ctx.lineTo(cx + rw / 2, b + h * 0.12); ctx.quadraticCurveTo(cx, b - h * 0.02, cx - rw / 2, b + h * 0.12); ctx.closePath();
+      ctx.fillStyle = '#7d8790'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw / 2, t - h * 0.2, rw, h * 0.08); ctx.fillRect(cx - rw / 2, b + h * 0.12, rw, h * 0.08); // emitter windows
+      ctx.fillStyle = '#4d545d';
+      for (const yy of [y - h * 0.15, y + h * 0.1]) { ctx.beginPath(); ctx.moveTo(cx + rw / 2, yy); ctx.lineTo(cx + rw / 2 + 0.18, yy - 0.05); ctx.lineTo(cx + rw / 2 + 0.18, yy + 0.12); ctx.lineTo(cx + rw / 2, yy + 0.16); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = '#7dffb0'; ctx.fillRect(cx - rw * 0.1, y - 0.05, rw * 0.2, 0.1);
+      break;
+    }
+    case 'turret': {
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7); ctx.strokeRect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7);
+      ctx.fillStyle = '#2b3036';
+      for (const dx of [-0.05, 0.05]) { ctx.fillRect(x - w * 0.09 + dx - 0.035, y, 0.07, h / 2); }
+      ctx.beginPath(); ctx.ellipse(x - w * 0.04, y, w * 0.36, h * 0.34, 0, 0, TAU);
+      ctx.fillStyle = PartPaint.flat ? '#7d8790' : metalGradient(ctx, x - w * 0.4, x + w * 0.32); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x - w * 0.16, y + h * 0.08, w * 0.14, h * 0.13, 0, 0, TAU); ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
       break;
     }
     case 'flares': {
@@ -1345,6 +1666,89 @@ function drawPart0(ctx, p, lw) {
     ctx.fillStyle = `rgba(255,${Math.round(110 - 60 * Math.min(1, hot))},30,${Math.min(0.85, hot * 0.9)})`;
     ctx.fillRect(l - 0.5, b - 0.5, w + 1, h + 1);
     ctx.restore();
+  }
+}
+
+// Blade radius of a propeller (a ducted fan's blades stop short of its ring).
+function propRadius(d) { return d.duct ? d.w / 2 - 0.2 : d.w / 2; }
+
+// Fuselage sections with their own paint: cargo, tank, armour, stealth, intakes, tail boom, bomb bay.
+function drawFuselageStyle(ctx, p, lw) {
+  const d = p.def, st = d.style, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+  const base = { cargo: '#8f978c', armor: '#8b939c', bay: '#a9b0b8', tank: null, intake: null, boom: null }[st];
+  ctx.fillStyle = st === 'stealth' ? darkGradient(ctx, l, r) : base ? tintGradient(ctx, l, r, base) : hullGradient(ctx, l, r);
+  ctx.fillRect(l, b, w, h);
+  if (st === 'stealth') {
+    ctx.fillStyle = '#2b2e34'; ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
+    ctx.strokeStyle = 'rgba(15,17,20,0.7)'; ctx.lineWidth = lw; sawtooth(ctx, l, r, b + h * 0.1, 0.25); sawtooth(ctx, l, r, t - h * 0.14, 0.25);
+  } else if (st === 'cargo') {
+    ctx.fillStyle = shade('#8f978c', -0.25); ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
+    ctx.strokeStyle = 'rgba(20,24,28,0.75)'; ctx.lineWidth = lw * 1.2;
+    ctx.strokeRect(x + w * 0.05, b + 0.15, w * 0.4, h * 0.22); // the loading ramp at the back
+    ctx.strokeRect(x - w * 0.1, t - h * 0.28, w * 0.35, h * 0.16); // crew door
+    ctx.fillStyle = PAL.glass; for (let yy = b + h * 0.45; yy < t - h * 0.35; yy += 0.9) { ctx.beginPath(); ctx.arc(x - w * 0.2, yy, 0.13, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = '#2f6fb7'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.12, 0, TAU); ctx.fill(); ctx.fillStyle = '#eef1f4'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.07, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d23a2f'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.03, 0, TAU); ctx.fill();
+  } else if (st === 'tank') {
+    ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+    ctx.fillStyle = PAL.hazard; for (const yy of [b + h * 0.2, y, t - h * 0.2]) ctx.fillRect(l, yy - 0.08, w, 0.16);
+    if (p.fuelFrac != null) { ctx.fillStyle = 'rgba(10,14,20,0.18)'; ctx.fillRect(x - w * 0.42, b + 0.1, w * 0.06, (h - 0.2) * (1 - p.fuelFrac)); }
+  } else if (st === 'armor') {
+    ctx.strokeStyle = 'rgba(30,34,40,0.6)'; ctx.lineWidth = lw;
+    ctx.beginPath(); for (let yy = b + h / 4; yy < t - 0.01; yy += h / 4) { ctx.moveTo(l, yy); ctx.lineTo(r, yy); } ctx.moveTo(x, b); ctx.lineTo(x, t); ctx.stroke();
+    ctx.fillStyle = 'rgba(30,34,40,0.55)';
+    for (let yy = b + 0.15; yy < t; yy += h / 4) for (const xx of [l + 0.12, x - 0.12, x + 0.12, r - 0.12]) { ctx.beginPath(); ctx.arc(xx, yy, 0.04, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+  } else if (st === 'intake') {
+    ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+    ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w * 0.3, b, w * 0.55, h * 0.7); // the intake duct along the cheek
+    ctx.fillStyle = '#15181c'; ctx.fillRect(x - w * 0.26, t - h * 0.32, w * 0.47, h * 0.06); // its mouth
+    ctx.fillStyle = PAL.hazard; ctx.fillRect(x - w * 0.3, t - h * 0.26, w * 0.55, 0.06);
+  } else if (st === 'boom') {
+    ctx.fillStyle = PAL.orange; ctx.fillRect(l, b, w, 0.25); ctx.fillRect(l, t - 0.25, w, 0.25);
+    ctx.fillStyle = PAL.ink; ctx.fillRect(l, y - 0.04, w, 0.08);
+  } else if (st === 'bay') {
+    ctx.strokeStyle = 'rgba(20,24,28,0.8)'; ctx.lineWidth = lw * 1.2; // the bomb-bay doors on the belly
+    ctx.strokeRect(x + w * 0.2, b + h * 0.08, w * 0.28, h * 0.84);
+    ctx.beginPath(); ctx.moveTo(x + w * 0.34, b + h * 0.08); ctx.lineTo(x + w * 0.34, t - h * 0.08); ctx.stroke();
+    ctx.fillStyle = PAL.hazard; ctx.fillRect(x + w * 0.2, b + h * 0.08, w * 0.28, 0.08);
+    ctx.fillStyle = '#d23a2f'; for (let i = 0; i < (p.ammo == null ? 4 : p.ammo); i++) ctx.fillRect(x - w * 0.3 + i * 0.18, y - 0.06, 0.12, 0.12); // bombs left
+  }
+  ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.06); ctx.fillRect(l, t - 0.06, w, 0.06);
+  ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+  ctx.strokeRect(l, b, w, h);
+}
+// Missiles and bombs: their body colour, and the extra paint for the special ones.
+function storeColour(d) {
+  if (d.shape === 'missile') return { harm: '#e6e9ec', cruise: '#c9c2a6' }[d.style] || (d.agm ? '#c9c2a6' : '#eef1f4');
+  if (d.shape === 'bomb') return { cluster: '#8d949c', guided: '#9aa38c', torpedo: '#3f464e' }[d.style] || '#5f6b52';
+  return '#7d8790';
+}
+function drawStoreStyle(ctx, d, cx, rw, b, t, h) {
+  const bl = cx - rw / 2, br = cx + rw / 2;
+  switch (d.style) {
+    case 'cluster': // yellow bands and a split line down the casing
+      ctx.fillStyle = PAL.hazard; for (const f of [0.35, 0.55, 0.75]) ctx.fillRect(cx - rw * 0.42, b + h * f, rw * 0.84, h * 0.04);
+      ctx.fillStyle = '#5d646c'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12);
+      break;
+    case 'guided': // canards at the nose, big tail fins and a seeker window
+      ctx.fillStyle = '#5d646c'; ctx.fillRect(cx - rw * 0.7, b, rw * 1.4, h * 0.14);
+      ctx.fillRect(cx - rw * 0.62, t - h * 0.32, rw * 1.24, h * 0.06);
+      ctx.fillStyle = '#2c3a48'; ctx.fillRect(cx - rw * 0.2, t - h * 0.1, rw * 0.4, h * 0.06);
+      break;
+    case 'torpedo': // contra-props and a cross of fins at the tail
+      ctx.fillStyle = '#9aa3ad'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.05); ctx.fillRect(cx - rw * 0.4, b + h * 0.06, rw * 0.8, h * 0.03);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(cx - rw * 0.42, t - h * 0.2, rw * 0.84, h * 0.03);
+      break;
+    case 'harm': case 'cruise': { // fins, a band and (cruise) little wings mid-body
+      const big = d.style === 'cruise';
+      ctx.fillStyle = '#4d545d';
+      ctx.beginPath(); ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl - rw * 0.6, b); ctx.lineTo(bl, b + h * 0.2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(br, b + h * 0.06); ctx.lineTo(br + rw * 0.6, b); ctx.lineTo(br, b + h * 0.2); ctx.closePath(); ctx.fill();
+      if (big) { ctx.fillStyle = '#9a9478'; ctx.fillRect(bl - rw * 0.35, b + h * 0.42, rw * 1.7, h * 0.08); ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw * 0.25, b + h * 0.08, rw * 0.5, h * 0.06); }
+      else { ctx.fillStyle = '#4d545d'; ctx.fillRect(bl, b + h * 0.5, rw, h * 0.1); ctx.fillStyle = '#e8483a'; ctx.fillRect(bl, t - h * 0.3, rw, h * 0.04); }
+      break;
+    }
   }
 }
 

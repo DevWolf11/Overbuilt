@@ -1271,7 +1271,7 @@ const Flight = {
     $('#weapon-box').hidden = !ws || this.destroyed;
     if (ws) {
       set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
-      set('w-ammo', `${ws.ammo}${ws.flares ? ` · ✦${ws.flares}` : ''}${ws.kills ? ` · ${ws.kills} ✕` : ''}`);
+      set('w-ammo', `${ws.ammo}${ws.flares ? ` · ✦${ws.flares}` : ''}${ws.stealth > 0.05 ? ` · ◈${Math.round(ws.stealth * 100)}%` : ''}${ws.kills ? ` · ${ws.kills} ✕` : ''}`);
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }
     $('#btn-flaps').hidden = !v.hasFlaps;

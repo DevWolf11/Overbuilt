@@ -24,15 +24,26 @@ const WING_AERO = new Map();
 function wingAero(d) {
   let a = WING_AERO.get(d);
   if (a) return a;
-  const w = d.wing, AR = (w.span * w.span) / w.area, sw = w.sweep || 0;
+  const w = d.wing, AR = w.ar || (w.span * w.span) / w.area, sw = w.swing ? w.swing[0] : w.sweep || 0; // (ar: a biplane's is each wing's own)
   a = {
     AR, slope: w.slope || (TAU * AR * Math.cos(sw)) / (2 + Math.sqrt(4 + AR * AR)), stall: w.stall || 0.3,
-    kInd: 1 / (Math.PI * 0.8 * AR), mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
+    kInd: 1 / (Math.PI * (w.oswald || 0.8) * AR), cd0: w.cd0 || 0.012, mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
     back: Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord
     dihedral: w.dihedral != null ? w.dihedral : w.control ? 0 : 0.06, load: (w.load || 1) * (w.control ? 70000 : 14000),
     vne: w.control ? 0 : w.vne || 110, // never-exceed speed (equivalent airspeed, m/s): above it the wing flutters
   };
   WING_AERO.set(d, a);
+  return a;
+}
+// A swing wing's aerodynamics for its sweep now: spread below Mach 0.55 (or with the flaps out), fully back
+// by Mach 0.92; as it folds its lift moves a little aft. The sweep is kept on the part for the 3D model.
+function swingAero(p, M, flaps) {
+  const d = p.def, w = d.wing, base = wingAero(d), k = flaps > 0 ? 0 : smoothstep(0.55, 0.92, M), sw = lerp(w.swing[0], w.swing[1], k);
+  const a = p._aero || (p._aero = Object.assign({}, base));
+  a.slope = (TAU * base.AR * Math.cos(sw)) / (2 + Math.sqrt(4 + base.AR * base.AR));
+  a.back = base.back + (Math.sin(sw) - Math.sin(w.swing[0])) * (w.span / 4) * 0.6; // only the outer panels pivot (the glove stays put)
+  a.mcrit = lerp(base.mcrit, 0.95, k); a.wave = lerp(base.wave, 0.55, k); a.stall = lerp(base.stall, base.stall + 0.06, k);
+  p.sweep = sw;
   return a;
 }
 // Extra drag coefficient near and past Mach 1 (shock waves), from the Mach number where it starts.
@@ -376,7 +387,7 @@ class Vessel {
         e.firing = Math.min(1, (f * scale) / (e.def.thrust * 1000));
         if (e.def.air && e.def.air.torque) rotorTorque += e.def.air.torque * Math.min(1, e.firing * 1.5);
         // a single propeller twists the plane the other way (a twin pair turns in opposite directions)
-        if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2); T.x += a.x * tq; T.y += a.y * tq; }
+        if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ && !e.def.contra) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2); T.x += a.x * tq; T.y += a.y * tq; }
       }
       changed = true;
     }
@@ -683,7 +694,7 @@ class Vessel {
           // flaps add lift (and drag) at any angle, and make the wing stall a little sooner
           const a = Math.atan2(un, uc), ae = a + defl, x = Math.abs(ae);
           const cl = (liftCoef(ae, slope, stall) + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge * (p.hp != null && hasCombat() ? Combat.liftK(p) : 1); // a shot-up wing lifts less
-          const cdw = 0.012 + (W ? W.kInd : 0.1) * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(stall, stall + 0.22, x)
+          const cdw = (W ? W.cd0 : 0.012) + (W ? W.kInd : 0.1) * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(stall, stall + 0.22, x)
             + 0.06 * flap + (W ? 0.03 * W.wave : 0.03) * waveDrag(M, W ? W.mcrit : 0.85);
           Fn = qS * (-cl * uc - cdw * un) / V; // lift along (-uc, un)/V, drag against the flow
           Fc = qS * (cl * un - cdw * uc) / V;
@@ -706,7 +717,7 @@ class Vessel {
         return defl;
       };
       for (const p of this.wings) {
-        const wd = p.def.wing, W = wingAero(p.def), ch = partAxis(p), s = wd.span / 4;
+        const wd = p.def.wing, W = wd.swing ? swingAero(p, M, this.flaps) : wingAero(p.def), ch = partAxis(p), s = wd.span / 4;
         const kd = wd.control || 0.12; // plain wings carry ailerons
         const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span);
         // dihedral: each half's lift leans in towards the middle, so a sideslip rolls the plane level

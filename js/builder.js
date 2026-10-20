@@ -86,10 +86,32 @@ const TEMPLATES = {
       ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6]],
   },
   bomber: {
-    name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly and a pair of 250 kg bombs under the wings.',
+    name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly, a pair of 250 kg bombs under the wings, and a turret on top that guards it by itself.',
     parts: [['tailconeW', 0, 2.25], ['fuselageW', 0, 7.5], ['fuselageW', 0, 13.5], ['cockpitAir', 0, 18.2],
       ['wingL', 0.9, 11.6], ['fanPods', 1.8, 12.4], ['elevatorL', -0.9, 1.6], ['vtailL', -2.4, 1.9],
-      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2], ['bombL', 2.05, 6], ['bombs', 1.4, 9.2]],
+      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2], ['bombL', 2.05, 6], ['bombs', 1.4, 9.2], ['turret', -2, 13.5]],
+  },
+  mustang: {
+    name: 'Mustang', kind: 'plane', tier: 1, military: true, blurb: 'A WWII-style fighter: a V12 behind a pointed spinner, an elliptical wing, a gun on the cowling and pods on the wings. A taildragger: raise the tail, then lift off.',
+    parts: [['tailcone', 0, 1.25], ['fuselage', 0, 4.5], ['cockpitWarbird', 0, 7.8], ['propV12', 0, 9.9],
+      ['wingElliptical', 0.6, 5.0], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.0], ['gearR', 1.7, 6.3], ['tailWheel', 1.3, 0.3],
+      ['gunPods', 0.95, 5.1]],
+  },
+  camel: {
+    name: 'Camel', kind: 'plane', tier: 0, military: true, blurb: 'A WWI-style biplane with a gun firing through the propeller. Slow, light and astonishingly nimble: it loops in its own length.',
+    parts: [['tailcone', 0, 1.25], ['cockpitWarbird', 0, 3.8], ['fuselageS', 0, 6.1], ['propeller', 0, 7.55],
+      ['wingBiplane', -0.3, 4.6], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.1], ['gearS', 1.5, 5.6], ['tailWheel', 1.3, 0.3], ['gun', -1.175, 6.35]],
+  },
+  kestrel: {
+    name: 'Kestrel', kind: 'plane', tier: 3, military: true, blurb: 'A swing-wing interceptor: the wings spread for take-off and landing and fold back by themselves as it speeds up. Tandem cockpit, cannon and radar missiles.',
+    parts: [['jetF', 0, 2.2], ['fuselageIntake', 0, 5.75], ['fuselage', 0, 9.5], ['cockpitTandem', 0, 14.1], ['wingSwing', 0.2, 7.5],
+      ['elevator', 0.25, 1.2], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 6.2], ['gearR', 1.55, 12.8],
+      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3]],
+  },
+  spectre: {
+    name: 'Spectre', kind: 'plane', tier: 4, military: true, blurb: 'A stealth striker: faceted nose and body, a V-tail and four bombs in an internal bay. Hostile radars and fighters spot it far later (watch ◈ on the weapon box).',
+    parts: [['jetF', 0, 2.2], ['bombBay', 0, 6], ['fuselageStealth', 0, 10.5], ['cockpitStealth', 0, 15.3], ['wingDelta', 0.4, 9.6],
+      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6]],
   },
   jumbo: {
     name: 'Jumbo', kind: 'plane', tier: 2, blurb: 'A wide-body airliner on two turbofans. Long take-off roll: use half flaps (F) and rotate gently.',
@@ -115,6 +137,10 @@ const TEMPLATES = {
     name: 'Dragonfly', kind: 'heli', tier: 1, blurb: 'A light helicopter. Raise the throttle until it lifts, then tilt to fly.',
     parts: [['cab', 0, 1.75], ['tankS', 0, 3], ['rotor', -0.7, 4.1], ['chassis', -3.2, 2.05], ['tailRotor', -4.6, 1],
       ['carWheel', 0.9, 0.4], ['carWheel', -0.9, 0.4]],
+  },
+  hummingbird: {
+    name: 'Hummingbird', kind: 'heli', tier: 1, blurb: 'A bubble-canopy helicopter on skids, with a slim tail boom. Lift gently: skids slide rather than roll.',
+    parts: [['cockpitHeli', 0, 1.7], ['tankS', 0, 3.4], ['rotor', -0.4, 4.5], ['tailBoom', -3.7, 1.2, 1], ['tailRotor', -5.6, 2.35], ['skids', 0, -0.1, 3]],
   },
 };
 
@@ -160,7 +186,7 @@ const Builder = {
     this.kindSymmetry(kind);
     const turned = kind !== this.kind;
     this.kind = kind;
-    if (turned) this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    if (turned) this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
     this.renderKind();
     this.linkMirrors();
     this.selected = null;
@@ -671,7 +697,7 @@ const Builder = {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
     if (this.kindSymmetry(kind)) UI.toast('Symmetry off: planes are drawn from the side');
     this.kind = kind;
-    this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
     this.buildPalette();
     this.renderKind();
     this.changed();
@@ -730,7 +756,7 @@ const Builder = {
         if (!ahead || !behind) warn.push('Put landing gear both ahead of and behind the centre of mass, or it will tip onto its nose or tail.');
       }
       if (!has((p) => p.def.wing && p.def.wing.control)) warn.push('An elevator at the tail makes it much easier to steer.');
-      if (!has((p) => p.def.shape === 'vtail')) warn.push('Add a tail fin, or it will yaw and spin.');
+      if (!has((p) => p.def.shape === 'vtail' || (p.def.wing && p.def.wing.dihedral > 0.3))) warn.push('Add a tail fin, or it will yaw and spin.');
       if (com && col) {
         const m = (com.y - col.y) / L; // how far the lift sits behind the weight, in plane lengths
         if (m < -0.01) warn.push('The centre of lift (blue) is ahead of the centre of mass: it will flip over. Move the wing back or the weight forward.');
