@@ -82,6 +82,21 @@ EARTH.flats = [
   { name: 'runway', east: 1700, half: 1100, blend: 700, height: 40 },
 ];
 for (const f of EARTH.flats) f.ang = EARTH.padAngle - f.east / EARTH.radius;
+// Airfields away from the space centre (multiplayer battles spawn there): a strip centred at (e, z), metres along
+// and across the track, pointing along `yaw` as placeOnSurface turns a craft (the nose goes (cos yaw, -sin yaw)
+// in e, z: 0 is east, 90° game north). The ground is flattened to `h` over hl x hw, blending out over `blend`.
+EARTH.airfields = {
+  shetland: { name: 'Shetland', e: 18600, z: -1650, yaw: Math.PI / 2, hl: 750, hw: 30, blend: 260, h: 40 },
+  scotland: { name: 'Scotland', e: 18900, z: 12500, yaw: Math.PI / 3, hl: 1100, hw: 30, blend: 300, h: 20 },
+};
+// Aircraft carriers riding at anchor: a flight deck `deck` m above the sea, 2 hl long and 2 hw wide, bow towards
+// `yaw`; `cat` is the length of the bow catapults.
+EARTH.carriers = {
+  west: { name: 'Carrier West', e: -7000, z: 2500, yaw: 0, hl: 130, hw: 18, deck: 18, cat: 95 },
+  east: { name: 'Carrier East', e: 24000, z: 1500, yaw: Math.PI, hl: 130, hw: 18, deck: 18, cat: 95 },
+  south: { name: 'Carrier South', e: 22500, z: 13500, yaw: Math.PI * 0.72, hl: 130, hw: 18, deck: 18, cat: 95 },
+};
+for (const f of [...Object.values(EARTH.airfields), ...Object.values(EARTH.carriers)]) { f.c = Math.cos(f.yaw); f.s = -Math.sin(f.yaw); }
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
 

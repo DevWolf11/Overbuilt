@@ -16,8 +16,10 @@ const App = {
     this.init3D();
     this.homeTime = 0;
     this.bindHome();
-    $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !(App.scene === 'flight' && Flight.ended)) UI.closeModal(); });
-    addEventListener('keydown', (e) => { if (e.code === 'Escape' && UI.modalOpen && !(App.scene === 'flight' && Flight.ended)) { e.preventDefault(); e.stopImmediatePropagation(); UI.closeModal(); } }, true);
+    // a dialog closes on a tap outside it or Escape (not the end-of-flight or end-of-battle ones)
+    const locked = () => (App.scene === 'flight' && Flight.ended) || MP.modalLocked;
+    $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !locked()) UI.closeModal(); });
+    addEventListener('keydown', (e) => { if (e.code === 'Escape' && UI.modalOpen && !locked()) { e.preventDefault(); e.stopImmediatePropagation(); UI.closeModal(); } }, true);
     document.addEventListener('gesturestart', (e) => e.preventDefault());
     // phones kill background tabs without warning: save the flight whenever the page is hidden
     const stash = () => { if (this.scene === 'flight') Flight.save(); };
@@ -61,6 +63,7 @@ const App = {
           this.clear2D();
           World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
           Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+          if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
         } else Flight.render(this.ctx, this.W, this.H, this.dpr);
       } else this.renderHome(dt);
       if (!in3d && Render3D.ready) Render3D.setVisible(false);
@@ -126,7 +129,14 @@ const App = {
     $('#home').hidden = name !== 'home';
     $('#build-ui').hidden = name !== 'build';
     $('#flight-ui').hidden = name !== 'flight';
+    $('#mp-ui').hidden = name !== 'mp';
     if (name === 'build') Builder.layout();
+    MPUI.renderBar();
+  },
+  // the multiplayer room: connect, lobby, settings and chat
+  showMP() {
+    if (this.scene === 'flight' && Flight.running) { if (Flight.mp) MP.leaveFlight(); else { Flight.save(); Flight.stop(); } }
+    this.showScene('mp');
   },
 
   // ---------------------------------------------------------------- home
@@ -137,7 +147,8 @@ const App = {
     $('#home-help').addEventListener('click', () => this.showHelp());
     $('#home-dv').addEventListener('click', () => this.showDeltaV());
     $('#home-mode').addEventListener('click', () => this.chooseMode());
-    $('#btn-home').addEventListener('click', () => this.toHome());
+    $('#btn-home').addEventListener('click', () => { if (MP.active) MPUI.leave(); else this.toHome(); });
+    $('#home-mp').addEventListener('click', () => MPUI.open());
     document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
       Career.setMode(b.dataset.mode);
       this.toHome();
@@ -148,6 +159,7 @@ const App = {
 
   toHome() {
     if (this.scene === 'flight') { Flight.save(); Flight.stop(); }
+    if (MP.active) { MP.end(); return; } // (MP.end comes back here once the room is closed)
     this.showScene('home');
     const first = !Career.mode;
     $('#home-modes').hidden = !first;
@@ -180,7 +192,7 @@ const App = {
 
   // ---------------------------------------------------------------- scenes
   toBuild() {
-    if (this.scene === 'flight') { Flight.save(); Flight.stop(); }
+    if (this.scene === 'flight') { if (Flight.mp) MP.leaveFlight(); else { Flight.save(); Flight.stop(); } }
     this.showScene('build');
     Builder.buildPalette();
     Builder.changed(true);
@@ -189,6 +201,7 @@ const App = {
 
   launch() {
     if (!Builder.ctrl) { UI.toast('Add a Command Pod or Probe Core first'); return; }
+    if (MP.live) { MP.launch(); return; } // in a room: fly into the shared world (or, in a battle, mark ready)
     const s = Builder.statsData;
     if (s.locked.length) { UI.toast('This rocket uses parts you haven’t unlocked yet'); return; }
     if (!Career.canAfford(s.cost)) { UI.toast(`Not enough funds: this rocket costs ${money(s.cost)}`); return; }
@@ -387,7 +400,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.RS
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController) return;
-    if (App.scene === 'flight') UI.toast('A new version is ready. It loads next time you open the game.');
+    if (App.scene === 'flight' || MP.active) UI.toast('A new version is ready. It loads next time you open the game.');
     else location.reload();
   });
 }

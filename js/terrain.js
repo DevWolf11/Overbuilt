@@ -530,11 +530,45 @@ function builtW(c, G, i, j) {
   if (c.b === EARTH && B < 1 && G.ea[i] > 0 && G.ea[i] < 2000) B = Math.max(B, apronW(G.ea[i], z));
   return B;
 }
+// Airfields off the track (EARTH.airfields): how much a point is on one (1 on the strip, fading over its
+// blend) and the height it is flattened to. Strip frame: u along the runway, v across.
+const FQ = { w: 0, h: 0, f: null };
+function fieldAt(e, z, o = FQ) {
+  o.w = 0; o.f = null;
+  const F = EARTH.airfields;
+  if (!F) return o;
+  for (const k in F) {
+    const f = F[k], de = e - f.e, dz = z - f.z;
+    if (Math.abs(de) > f.hl + f.blend + f.hw || Math.abs(dz) > f.hl + f.blend + f.hw) continue;
+    const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+    const w = 1 - smoothstep(0, f.blend, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
+    if (w > o.w) { o.w = w; o.h = f.h; o.f = f; }
+  }
+  return o;
+}
+// The flight deck of a carrier at (e, z), or NaN: decks stand above the sea (physics only; Render3D draws the ship).
+// `m` widens the deck by that many metres all round (for "is a deck near?").
+function deckAt(b, a, z, m = 0) {
+  const C = EARTH.carriers;
+  if (b !== EARTH || !C) return NaN;
+  const e = -wrapAngle(a - EARTH.padAngle) * b.radius;
+  for (const k in C) {
+    const d = C[k], de = e - d.e, dz = z - d.z;
+    if (Math.abs(de) > d.hl + d.hw + m || Math.abs(dz) > d.hl + d.hw + m) continue;
+    const u = de * d.c + dz * d.s, v = -de * d.s + dz * d.c;
+    if (Math.abs(u) <= d.hl + m && Math.abs(v) <= d.hw + m) return d.deck;
+  }
+  return NaN;
+}
 function height(c, G, i, j, cont) {
   EW.pres = EW.road = EW.river = EW.lake = 0;
   const B = builtW(c, G, i, j);
   if (B >= 1) { crDark = 0; return G.th[i]; }
-  const hn = natural(c, G, i, j, cont);
+  let hn = natural(c, G, i, j, cont);
+  if (c.b === EARTH && fieldAt(G.ea[i], G.z[j]).w > 0) { // an airfield: level ground, no rivers or roads across it
+    hn = lerp(hn, FQ.h, FQ.w);
+    if (FQ.w > 0.5) { EW.pres = EW.road = EW.river = EW.lake = 0; crDark = 0; }
+  }
   return B > 0 ? lerp(hn, G.th[i], B) : hn;
 }
 // Exact 3D terrain at one point (slow path: camera clamp away from the patch).
@@ -579,12 +613,15 @@ function heightAt(b, a, z) {
   return lerp(h0, h1, tz);
 }
 function surfaceAt(b, a, z) {
+  const dk = deckAt(b, a, z);
+  if (dk === dk) return dk;
   const h = heightAt(b, a, z);
   if (b.ocean && h < 0) return 0;
   if (b.mapped) { const w = inlandAt(b, a, z); if (w > h) return w; }
   return h;
 }
 function waterAt3(b, a, z) {
+  if (deckAt(b, a, z) === deckAt(b, a, z)) return false;
   const h = heightAt(b, a, z);
   if (b.ocean && h < 0) return true;
   return b.mapped && inlandAt(b, a, z) > h;
@@ -611,6 +648,6 @@ return {
   loadEarth, earthRaw, earthColor, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
   water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
-  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt,
+  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt,
 };
 })();

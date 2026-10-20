@@ -295,9 +295,10 @@ const GlobeView = {
     // other craft
     for (const o of F.vessels) {
       if (o === v || o.body !== b || !o.control) continue;
+      const col = o.remote ? MP.mapColor(o) : o.ai ? '#ff5d5d' : '#62d0ff'; // enemy fighters in red; other players by team
+      if (!col) continue; // (enemy players stay off the map in a battle)
       proj(...toGround(o.x, o.y, o.z));
       if (!onScreen()) continue;
-      const col = o.ai ? '#ff5d5d' : '#62d0ff'; // enemy fighters in red
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(P.x, P.y, 3.5 * dpr, 0, TAU); ctx.fill();
       text(o.name, P.x + 7 * dpr, P.y + 4 * dpr, col, font(500, 10, '"IBM Plex Mono", ui-monospace, monospace'));
     }

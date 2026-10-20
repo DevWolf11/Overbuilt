@@ -43,6 +43,7 @@
     <div id="home-main" class="home-main" hidden>
       <button id="home-resume" class="home-btn resume" hidden><span class="hb-name">Resume flight</span><span id="home-resume-sub" class="hb-sub"></span></button>
       <button id="home-build" class="home-btn primary"><span class="hb-name">Enter the hangar</span><span class="hb-sub">Build and launch a rocket, plane, car or helicopter</span></button>
+      <button id="home-mp" class="home-btn mp-btn"><span class="hb-name">Multiplayer</span><span class="hb-sub">Fly with friends: a shared sandbox, or build-and-fight battles</span></button>
       <button id="home-mode" class="home-btn"><span id="home-mode-label" class="hb-name">Career</span><span id="home-mode-sub" class="hb-sub"></span></button>
       <div class="home-row">
         <button id="home-dv" class="btn">Δv map</button>
@@ -50,6 +51,64 @@
         <button id="home-settings" class="btn">Settings</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ============================== MULTIPLAYER ============================== -->
+<div id="mp-ui" class="ui mp" hidden>
+  <div class="mp-inner">
+    <header class="mp-head">
+      <button id="mp-back" class="btn icon-only" data-icon="home" aria-label="Leave multiplayer" title="Leave"></button>
+      <div class="mp-title"><span id="mp-kicker" class="home-kicker">Multiplayer</span><h2 id="mp-heading">Play together</h2></div>
+      <div id="mp-code-box" class="mp-code-box" hidden>
+        <span class="mp-code-label">Room code</span>
+        <button id="mp-code" class="mp-code" title="Copy the room code">·····</button>
+      </div>
+    </header>
+
+    <section id="mp-connect" class="mp-connect">
+      <div class="mp-field">
+        <label for="mp-name">Your name</label>
+        <input id="mp-name" class="mp-input" maxlength="18" autocomplete="nickname" spellcheck="false">
+      </div>
+      <div class="mp-field">
+        <span>Connect</span>
+        <div id="mp-transport" class="kind-select mp-seg" role="radiogroup" aria-label="How to connect">
+          <button class="kind-btn" role="radio" data-tr="p2p" title="Over the internet, browser to browser"><span>Online</span></button>
+          <button class="kind-btn" role="radio" data-tr="local" title="Other tabs of this browser, on this device"><span>This device</span></button>
+        </div>
+      </div>
+      <div class="mp-create">
+        <button id="mp-create-sandbox" class="home-btn"><span class="hb-name">Create sandbox</span><span class="hb-sub">Free play on the islands with up to four friends. Every part, no rules, no limits.</span></button>
+        <button id="mp-create-pvp" class="home-btn primary"><span class="hb-name">Create battle</span><span class="hb-sub">1v1, 2v2, 3v3 or free-for-all. Limited money, a timed build, then one life each: last team flying wins.</span></button>
+      </div>
+      <div class="mp-field">
+        <label for="mp-join-code">Join a room</label>
+        <div class="mp-join">
+          <input id="mp-join-code" class="mp-input mp-code-input" maxlength="8" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="mp-join" class="btn primary">Join</button>
+        </div>
+      </div>
+      <p id="mp-status" class="mp-status" role="status"></p>
+    </section>
+
+    <section id="mp-lobby" class="mp-lobby" hidden>
+      <div class="mp-grid">
+        <div class="panel mp-card"><h3 class="summary-h">Players</h3><div id="mp-teams" class="mp-teams"></div></div>
+        <div class="panel mp-card"><h3 class="summary-h" id="mp-settings-h">Match</h3><div id="mp-settings" class="mp-settings"></div></div>
+        <div class="panel mp-card mp-chat">
+          <h3 class="summary-h">Chat</h3>
+          <div id="mp-chat-log" class="mp-chat-log" aria-live="polite"></div>
+          <form id="mp-chat-form" class="mp-chat-form"><input id="mp-chat-input" class="mp-input" maxlength="140" placeholder="Say something…" autocomplete="off"><button class="btn small">Send</button></form>
+        </div>
+      </div>
+      <footer class="mp-foot">
+        <span id="mp-foot-note" class="muted small"></span>
+        <button id="mp-ready" class="btn">Ready</button>
+        <button id="mp-start" class="btn primary">Start battle</button>
+        <button id="mp-hangar" class="btn primary">Enter the hangar</button>
+      </footer>
+    </section>
   </div>
 </div>
 
@@ -205,9 +264,11 @@
     </div>
   </div>
 
+  <button id="btn-catapult" class="round catapult" hidden title="Catapult launch (L)">Launch</button>
   <div id="weapon-box" class="weapon-box" hidden>
     <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
     <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)">Fire</button>
+    <button id="btn-cm" class="round cm" aria-label="Countermeasures (K)" title="Flares and chaff (K)" hidden>CM</button>
   </div>
 
   <div class="stage-box">
@@ -217,6 +278,35 @@
     </div>
     <div class="stage-info"><span id="stage-num" class="stage-num"></span><span id="stage-next" class="stage-next"></span></div>
     <button id="btn-stage" class="stage-btn">Stage</button>
+  </div>
+</div>
+
+<!-- ============================== MULTIPLAYER OVERLAYS ============================== -->
+<div id="mp-bar" class="mp-bar panel" hidden>
+  <div class="mp-bar-main"><span id="mp-phase" class="mp-phase">Build</span><span id="mp-timer" class="mp-timer">0:00</span></div>
+  <div class="mp-bar-track"><div id="mp-timer-fill" class="mp-bar-fill"></div></div>
+  <div class="mp-bar-row">
+    <span id="mp-bar-info" class="mp-bar-info"></span>
+    <button id="mp-spawn-btn" class="btn small" hidden>Spawn</button>
+    <button id="mp-score-btn" class="btn small" title="Scoreboard (hold `)">Score</button>
+    <button id="mp-ready-btn" class="btn small primary" hidden>Ready</button>
+  </div>
+</div>
+<div id="mp-feed" class="mp-feed" aria-live="polite"></div>
+<div id="mp-score" class="mp-score panel" hidden></div>
+<div id="mp-hud-chat" class="mp-hud-chat" hidden>
+  <div id="mp-hud-log" class="mp-hud-log"></div>
+  <input id="mp-hud-input" class="mp-input" maxlength="140" placeholder="Say something · Enter to send, Esc to cancel" autocomplete="off" hidden>
+</div>
+<div id="spawn-map" class="modal spawn-modal" hidden>
+  <div class="modal-card spawn-card" role="dialog" aria-modal="true" aria-labelledby="spawn-title">
+    <div class="modal-kicker" id="spawn-kicker">Choose where you start</div>
+    <h2 class="modal-title" id="spawn-title">Spawn point</h2>
+    <div class="spawn-body">
+      <div class="spawn-wrap"><canvas id="spawn-canvas" aria-label="Map of the battle area"></canvas></div>
+      <div id="spawn-list" class="spawn-list" role="radiogroup" aria-label="Spawn points"></div>
+    </div>
+    <div class="modal-actions"><button id="spawn-done" class="btn primary">Done</button></div>
   </div>
 </div>
 
@@ -239,6 +329,10 @@
 <script src="js/combat.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
+<script src="js/vendor/peer.min.js"></script>
+<script src="js/net.js"></script>
+<script src="js/mp.js"></script>
+<script src="js/mpui.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

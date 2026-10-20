@@ -809,7 +809,8 @@ class Vessel {
     const b = this.body, R = b.radius, r = this.radius();
     const clear = () => { this.landed = false; this.splashed = false; this.wheelsDown = false; this.contactTime = 0; };
     if (r - this.reach > R + b.terrainMax + 5) return clear();
-    const L0 = this.surfaceSpot(), h0 = Terrain.surfaceAt(b, L0.a, L0.z), lim0 = R + h0 + 2 + this.reach * 0.3;
+    const L0 = this.surfaceSpot(), dk = Terrain.deckAt(b, L0.a, L0.z, this.reach + 2); // part of the craft may be over a carrier's deck
+    const h0 = Math.max(Terrain.surfaceAt(b, L0.a, L0.z), dk === dk ? dk : -Infinity), lim0 = R + h0 + 2 + this.reach * 0.3;
     if (r - this.reach > lim0) return clear();
     const contacts = [], loc = {};
     const probe = (k, rad, wheel) => {
@@ -821,7 +822,9 @@ class Vessel {
       if (pen <= 0) return;
       const n = Terrain.normalAt(b, loc.a, loc.z);
       if (rad) { o.x -= n.x * rad; o.y -= n.y * rad; o.z -= n.z * rad; }
-      contacts.push({ p: k.p, k, r: o, pen, n, wheel, float: !!k.p.def.float, water: Terrain.waterAt(b, loc.a, loc.z) });
+      // deep under a deck's edge: that's the ship's side, not the deck (a crash, not a lift onto it)
+      const side = pen > 4 && Terrain.deckAt(b, loc.a, loc.z) === Terrain.deckAt(b, loc.a, loc.z);
+      contacts.push({ p: k.p, k, r: o, pen, n, wheel, side, float: !!k.p.def.float, water: Terrain.waterAt(b, loc.a, loc.z) });
     };
     for (const k of this.hull) probe(k, 0, false);
     for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
@@ -832,13 +835,13 @@ class Vessel {
     for (const k of contacts) {
       this.pointVel(k.r, vp);
       const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : 1), s = -dot3(vp, k.n);
-      if (s > lim * (hasCombat() ? 1.6 : 1)) broken.add(k.p);
+      if (k.side || s > lim * (hasCombat() ? 1.6 : 1)) broken.add(k.p);
       else if (hasCombat() && s > lim * 0.75) dents.set(k.p, Math.max(dents.get(k.p) || 0, s / lim));
       // a spinning propeller or rotor that touches the ground shatters
       const air = k.p.def.air;
       if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water) broken.add(k.p);
     }
-    if (broken.size && !Silly.on('bouncy')) { sim.breakParts(this, [...broken], 'impact'); return; }
+    if (broken.size && (!Silly.on('bouncy') || contacts.some((k) => k.side))) { sim.breakParts(this, [...broken], 'impact'); return; }
     if (dents.size && sim.vessels && !Silly.on('bouncy')) for (const [p, ratio] of dents) Combat.impact(this, p, ratio, sim);
     if (this.dead || !this.parts.length) return;
     const bounce = Silly.on('bouncy') ? 0.75 : 0;
