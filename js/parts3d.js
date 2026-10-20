@@ -876,8 +876,69 @@ void main() {
     if (rig.nozzle && rig.fire > 0) { rig.nozzle.emissive.setRGB(1, 0.42, 0.1); rig.nozzle.emissiveIntensity = Math.max(I, 2.2 * rig.fire); }
   }
 
+  // Twin pods hang off a wing. Without one under them (or a wing too short to reach), each pod gets a
+  // streamlined pylon to the nearest hull part, so nothing floats. Built in the vessel's frame.
+  function dropPylons(rig) {
+    if (!rig.pylons) return;
+    rig.pylons.removeFromParent();
+    rig.pylons.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    rig.pylons = null;
+  }
+  function pylonsFor(rig, parts, group) {
+    dropPylons(rig);
+    const p = rig.part, d = p.def;
+    if (!d.twinZ || d.float) return; // floats carry their own struts
+    // a wing holds the pod if, out at the pod's station, its chord (tapered and swept as wingGeo draws it)
+    // runs under the pod
+    const pr0 = partRect(p);
+    const holds = (q) => {
+      const wd = q.def.wing;
+      if (!wd || q.def.twinZ || !(isSurface(d) ? partsOverlap(p, q) : partsMounted(p, q))) return false;
+      const half = (wd.span || 5) / 2, s = d.twinZ / half;
+      if (s > 1.08) return false;
+      if ((q.rot || 0) & 1) return true; // a wing turned on its side: trust the side view
+      const h = q.def.h, taper = wd.taper != null ? wd.taper : 0.45, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
+      const c = h * (1 - taper * Math.min(s, 1)), le = q.y + h / 4 - back * Math.min(s, 1) + c / 4, te = le - c;
+      return Math.min(le, pr0.t) - Math.max(te, pr0.b) > 0.15 * Math.min(c, pr0.t - pr0.b);
+    };
+    if (parts.some((q) => q !== p && holds(q))) return;
+    // the nearest hull part, and the point on it closest to the pod
+    let best = null, bd = Infinity;
+    for (const q of parts) {
+      if (q === p || q.def.twinZ || isSurface(q.def) || q.def.wheel) continue;
+      const r = partRect(q), cx = clamp(p.x, r.l, r.r), cy = clamp(p.y, r.b, r.t), dd = Math.hypot(cx - p.x, cy - p.y);
+      if (dd < bd) { bd = dd; best = { r, cx, cy }; }
+    }
+    if (!best || bd > 4) return;
+    const { r, cx, cy } = best, ins = 0.3; // end a little inside the hull
+    const tx = clamp(cx, r.l + (r.r - r.l) * ins, r.r - (r.r - r.l) * ins), ty = clamp(cy, r.b + (r.t - r.b) * ins, r.t - (r.t - r.b) * ins);
+    const pr = partRect(p), chord = clamp((pr.t - pr.b) * 0.45, 0.4, 1.8), thick = 0.16;
+    const mat = rig.mats.white || rig.matList[0];
+    if (!mat) return;
+    const g = new THREE.Group(), _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _px = new THREE.Vector3(), _py = new THREE.Vector3(), _pz = new THREE.Vector3(), _pm = new THREE.Matrix4();
+    for (const s of [-1, 1]) {
+      _pa.set(p.x, p.y, s * d.twinZ); _pb.set(tx, ty, 0);
+      const len = _pa.distanceTo(_pb);
+      if (len < 0.3) continue;
+      // long axis along the strut, the chord fore and aft (+y), the thin side across
+      _px.subVectors(_pb, _pa).normalize();
+      _py.set(0, 1, 0).addScaledVector(_px, -_px.y);
+      if (_py.lengthSq() < 1e-4) _py.set(1, 0, 0).addScaledVector(_px, -_px.x);
+      _py.normalize(); _pz.crossVectors(_px, _py);
+      _pm.makeBasis(_px, _py, _pz).setPosition(_pa.add(_pb).multiplyScalar(0.5));
+      const m = new THREE.Mesh(new THREE.BoxGeometry(len, chord, thick), mat);
+      m.applyMatrix4(_pm);
+      m.castShadow = m.receiveShadow = true;
+      m.userData.part = p;
+      g.add(m);
+    }
+    rig.pylons = g;
+    group.add(g);
+  }
+
   function freeRig(rig) {
     rig.root.removeFromParent();
+    dropPylons(rig);
     if (rig.twin) rig.twin.removeFromParent();
     for (const m of rig.matList) m.dispose();
     if (rig.disc) rig.disc.dispose();
@@ -903,6 +964,16 @@ void main() {
       this.stamp = 0;
       this.env = api.envMap;
       for (const p of parts) this.add(p);
+      this.pylons(parts);
+    }
+
+    // (Re)build pylons when the layout changes: parts added, lost or moved.
+    pylons(parts) {
+      let sig = parts.length;
+      for (const p of parts) sig += p.x * 7.13 + p.y * 3.31 + (p.rot || 0) * 1.7 + (p.flip ? 0.5 : 0);
+      if (sig === this.pylonSig) return;
+      this.pylonSig = sig;
+      for (const rig of this.list) if (rig.part.def.twinZ) pylonsFor(rig, parts, this.group);
     }
 
     add(p) {
@@ -938,6 +1009,7 @@ void main() {
         if (p.def.air && p.def.air.kind === 'rotor' && p.firing > rotor) rotor = p.firing;
       }
       if (this.list.length > parts.length) this.prune(stamp);
+      this.pylons(parts);
       if (api.envMap !== this.env) {
         this.env = api.envMap;
         for (const r of this.list) for (const m of r.matList) if (m.isMeshStandardMaterial) m.envMap = this.env;

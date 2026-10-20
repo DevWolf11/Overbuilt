@@ -5,6 +5,7 @@ const App = {
   scene: 'home',
 
   init() {
+    Terrain.loadEarth(EARTH_MAP_FILES); // the real Earth's heights and colours
     this.canvas = $('#view');
     this.ctx = this.canvas.getContext('2d');
     this.resize();
@@ -175,14 +176,14 @@ const App = {
     const s = Builder.statsData;
     if (s.locked.length) { UI.toast('This rocket uses parts you haven’t unlocked yet'); return; }
     if (!Career.canAfford(s.cost)) { UI.toast(`Not enough funds: this rocket costs ${money(s.cost)}`); return; }
-    const go = () => {
+    const go = () => this.afterEarth(() => {
       if (s.loose) UI.toast(`${s.loose} loose part(s) left in the hangar`);
       store.set('rss.flight', null);
       this.showScene('flight');
       Flight.start(Builder.serialize());
       const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor' }[Builder.kind];
       if (Settings.get('hints') && tip) UI.toast(tip);
-    };
+    });
     const saved = store.get('rss.flight', null);
     if (saved && saved.vessels && saved.vessels.length) {
       UI.modal({
@@ -197,8 +198,17 @@ const App = {
   resumeFlight() {
     const saved = store.get('rss.flight', null);
     if (!saved) return;
-    this.showScene('flight');
-    try { Flight.restore(saved); } catch (e) { console.error(e); UI.toast('That saved flight could not be loaded'); store.set('rss.flight', null); this.toBuild(); }
+    this.afterEarth(() => {
+      this.showScene('flight');
+      try { Flight.restore(saved); } catch (e) { console.error(e); UI.toast('That saved flight could not be loaded'); store.set('rss.flight', null); this.toBuild(); }
+    });
+  },
+  // Flights need the Earth map's terrain (or the knowledge that it can't load): it usually arrives long before launch.
+  afterEarth(fn) {
+    const em = Terrain.earthMap;
+    if (em.state !== 'loading') { fn(); return; }
+    UI.toast('Loading Earth…');
+    em.promise.then(fn);
   },
 
   // ---------------------------------------------------------------- menus
@@ -342,6 +352,9 @@ const App = {
     return box;
   },
 };
+
+// the real Earth map, baked by tools/bake-earth.py (the single-file build swaps in data: URLs)
+const EARTH_MAP_FILES = { height: 'assets/earth-height.png', color: 'assets/earth-color.jpg' };
 
 addEventListener('DOMContentLoaded', () => App.init());
 
