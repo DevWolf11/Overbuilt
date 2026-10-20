@@ -59,7 +59,8 @@ function trackHalf(e) {
   let h = 25;
   h = lerp(h, 260, 1 - smoothstep(300, 520, Math.abs(e)));
   h = lerp(h, 45, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
-  return lerp(h, 14, 1 - smoothstep(4700, 5000, Math.abs(e - 8000)));
+  const cw = EARTH.causeway, half = (cw.to - cw.from) / 2;
+  return lerp(h, 14, 1 - smoothstep(half, half + 300, Math.abs(e - (cw.from + cw.to) / 2)));
 }
 function trackBlend(e) {
   let b = 150;
@@ -69,20 +70,80 @@ function trackBlend(e) {
 
 // ------------------------------------------------------------------ the real Earth
 // Heights and colours baked from Natural Earth and NASA's Blue Marble (tools/bake-earth.py), at the game's
-// 1/20 scale. The space centre sits in the Gulf of Guinea at 7.1°E on the equator, so the causeway runs
-// to the coast of Gabon. East is decreasing angle and north is -z. The space centre gets an island of its
-// own; elsewhere the 2D profile's shorter waves only add hills to high ground.
+// 1/20 scale. The space centre's runway is filled out into the real islands; elsewhere the 2D profile's
+// shorter waves only add hills to high ground.
 const EM = {
-  state: 'none', promise: null, lon0: (7.1 * Math.PI) / 180,
+  state: 'none', promise: null,
   W: 0, H: 0, h: null,                   // heights (bytes, decoded through HLUT)
   CW: 0, CH: 0, rgb: null,               // Blue Marble colour
   FW: 0, FH: 0, night: null, lakeC: null, lakeL: null, urban: null, // city lights, lakes, built-up land
   RW: 0, RH: 0, country: null, sea: null, regions: [], nCountries: 0,
   cities: [], lines: null,
 };
-const ISLE = { e: 900, a: 2600, b: 1500, h: 44 }; // an oval around the pad and runway: centre (m east), half-axes, height
-const NORTH = -1; // real latitude = NORTH * z / R
+const ISLE = { e: 1500, a: 2000, b: 650, h: 44 }; // land under the pad and runway: centre (m east), half-axes, height
 const DEG = 180 / Math.PI;
+
+// ---- where the game sits on the real Earth
+// The game keeps its pad on its own equator, where orbits and the 2D profile stay simple, and turns the real
+// globe to fit: the pad lands on the west coast of the Faroe Islands and the game's east (decreasing angle)
+// heads ESE over the islands and out to sea, reaching Shetland 18 km on. Game north (-z) points 29° east of
+// real north at the pad. An orbit along the game's equator is inclined 62° to the real one.
+const SITE = { lat: 62.16, lon: -7.33, head: 119 }; // degrees; head: the bearing of the game's east at the pad
+// real = GM · v, with v the point in the pad's frame: x up at the pad, y the game's east there, z game north
+const GM = (() => {
+  const f = SITE.lat / DEG, l = SITE.lon / DEG, t = (90 - SITE.head) / DEG;
+  const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+  const Rz = [[Math.cos(l), -Math.sin(l), 0], [Math.sin(l), Math.cos(l), 0], [0, 0, 1]];
+  const Ry = [[Math.cos(f), 0, -Math.sin(f)], [0, 1, 0], [Math.sin(f), 0, Math.cos(f)]];
+  const Rx = [[1, 0, 0], [0, Math.cos(t), -Math.sin(t)], [0, Math.sin(t), Math.cos(t)]];
+  return Float64Array.from(mul(Rz, mul(Ry, Rx)).flat());
+})();
+// The real longitude and latitude (radians) of a point given as sim angle and latitude (phi = z / R): the
+// result is left in GEO, so the hot paths make no garbage. The last point is remembered (callers often ask twice).
+const GEO = { lon: 0, lat: 0, a: NaN, phi: NaN };
+function toGeo(a, phi) {
+  if (a === GEO.a && phi === GEO.phi) return GEO;
+  const d = a - EARTH.padAngle, cp = Math.cos(phi), x = cp * Math.cos(d), y = -cp * Math.sin(d), z = -Math.sin(phi), M = GM;
+  GEO.lon = Math.atan2(M[3] * x + M[4] * y + M[5] * z, M[0] * x + M[1] * y + M[2] * z);
+  GEO.lat = Math.asin(clamp(M[6] * x + M[7] * y + M[8] * z, -1, 1));
+  GEO.a = a; GEO.phi = phi;
+  return GEO;
+}
+// ... and back: real longitude and latitude (radians) to sim angle and latitude
+function toSim(lon, lat, o = {}) {
+  const cl = Math.cos(lat), X = cl * Math.cos(lon), Y = cl * Math.sin(lon), Z = Math.sin(lat), M = GM;
+  const x = M[0] * X + M[3] * Y + M[6] * Z, y = M[1] * X + M[4] * Y + M[7] * Z, z = M[2] * X + M[5] * Y + M[8] * Z;
+  o.a = EARTH.padAngle + Math.atan2(-y, x); o.phi = -Math.asin(clamp(z, -1, 1));
+  return o;
+}
+// The Faroes and Shetland (lat0, lat1, lon0, lon1, degrees): treeless, and ringed with sea cliffs where the
+// map's coarse coast would only make a gentle beach. cliffW is 1 inside, fading out over 0.2-0.3°.
+const CLIFFS = [[61.25, 62.5, -7.9, -6.0], [59.8, 60.95, -1.9, -0.7]];
+function cliffW(lon, lat) {
+  let w = 0;
+  for (const [la0, la1, lo0, lo1] of CLIFFS) {
+    if (lat < la0 - 0.2 || lat > la1 + 0.2 || lon < lo0 - 0.3 || lon > lo1 + 0.3) continue;
+    w = Math.max(w, Math.min(smoothstep(la0 - 0.2, la0, lat), 1 - smoothstep(la1, la1 + 0.2, lat), smoothstep(lo0 - 0.3, lo0, lon), 1 - smoothstep(lo1, lo1 + 0.3, lon)));
+  }
+  return w;
+}
+// Low land jumps up from the sea (about 45° on the map's 240 m cells) and settles back by 80 m. Where the
+// causeway comes ashore on Shetland there is a harbour instead (e, z: metres along and across the track).
+function cliffs(h, w, e, z) {
+  if (w <= 0 || h < -3) return h;
+  w *= smoothstep(300, 900, Math.hypot(e - EARTH.causeway.shore, z));
+  return h + 26 * w * smoothstep(-3, 5, h) * (1 - smoothstep(25, 80, h));
+}
+const cliffAt = (a, z) => { const g = toGeo(a, z / EARTH.radius); return cliffW(g.lon * DEG, g.lat * DEG); };
+const treelessAt = (a, z) => cliffAt(a, z) > 0.4;
+// Real compass bearing (degrees) of a direction given in the sim's local east (-a) and north (-z) at (a, phi).
+function bearingAt(a, phi, east, north) {
+  const g = toGeo(a, phi), lon = g.lon, lat = g.lat, d = 1e-5;
+  const n = toGeo(a, phi - d), dl = wrapAngle(n.lon - lon) * Math.cos(lat), dp = n.lat - lat; // game north, seen on the real map
+  const rot = Math.atan2(dl, dp); // game north's real bearing
+  toGeo(a, phi);
+  return ((((Math.atan2(east, north) + rot) * DEG) % 360) + 360) % 360;
+}
 const HLUT = new Float32Array(256);
 for (let v = 0; v < 256; v++) { const u = v - 128; HLUT[v] = v >= 128 ? 0.5 * u + 0.09 * u * u : -(0.5 + 0.5 * (127 - v) + 0.052 * (127 - v) ** 2); }
 
@@ -137,7 +198,6 @@ function loadEarth(urls) {
     .catch((e) => { EM.state = 'failed'; console.warn('Earth map unavailable; using generated terrain', e); });
   return EM.promise;
 }
-const earthLon = (a) => EM.lon0 - wrapAngle(a - EARTH.padAngle);
 // bilinear sample of a w x h raster (equirectangular) at lon, lat (radians)
 function samp(arr, w, h, lon, lat) {
   let x = (lon / TAU + 0.5) * w - 0.5;
@@ -156,8 +216,8 @@ function mapH(lon, lat) {
 }
 // Blue Marble colour (sRGB 0..255) at a point given as sim angle and depth.
 function earthColor(a, z, out) {
-  const W = EM.CW, H = EM.CH, c = EM.rgb, lat = (NORTH * z) / EARTH.radius;
-  let x = (earthLon(a) / TAU + 0.5) * W - 0.5;
+  const W = EM.CW, H = EM.CH, c = EM.rgb, g = toGeo(a, z / EARTH.radius), lat = g.lat;
+  let x = (g.lon / TAU + 0.5) * W - 0.5;
   x -= Math.floor(x / W) * W;
   const y = clamp((0.5 - lat / Math.PI) * H - 0.5, 0, H - 1.0001);
   const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, x1 = ix + 1 === W ? 0 : ix + 1;
@@ -166,9 +226,10 @@ function earthColor(a, z, out) {
   return out;
 }
 // city lights and built-up land, 0..1, at a sim angle and depth
-const nightAt = (a, z) => (EM.night ? samp(EM.night, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
-const lakeAt = (a, z) => (EM.lakeC ? samp(EM.lakeC, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
-const urbanAt = (a, z) => (EM.urban ? samp(EM.urban, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
+const sampAt = (arr, a, z) => { const g = toGeo(a, z / EARTH.radius); return samp(arr, EM.FW, EM.FH, g.lon, g.lat) / 255; };
+const nightAt = (a, z) => (EM.night ? sampAt(EM.night, a, z) : 0);
+const lakeAt = (a, z) => (EM.lakeC ? sampAt(EM.lakeC, a, z) : 0);
+const urbanAt = (a, z) => (EM.urban ? sampAt(EM.urban, a, z) : 0);
 
 // ---- rivers and roads: polylines (degrees) in a 0.2° grid of segments
 const LG = 0.2, LNX = 1800, LNY = 900;
@@ -310,18 +371,17 @@ function citiesNear(lon, lat, r) {
 // A city's built-up radius in game metres (the real city shrunk with the planet, buildings full size).
 const cityRadius = (pop) => clamp(22 * Math.sqrt(pop / 1000), 90, 4200);
 // map height at a point given as sim angle and depth
-const earthH = (a, z) => mapH(earthLon(a), (NORTH * z) / EARTH.radius);
+const earthH = (a, z) => { const g = toGeo(a, z / EARTH.radius); return mapH(g.lon, g.lat); };
 // The island rises out of the real sea, with low hills and a ragged shore. hs: the profile's short waves.
 function island(c, e, z, al, real, hs) {
   const dn = (e - ISLE.e) / ISLE.a, zn = z / ISLE.b;
   let d = Math.hypot(dn, zn);
-  if (d > 2.6) return real;
-  real = Math.min(real, lerp(-40, real, smoothstep(1.5, 2.6, d))); // the island drops into blue water
   if (d > 1.25) return real;
   const n = c.coast[0];
   d += 0.09 * (vnoise2(al / n[0], z / n[0], n[1], c.seed + 31) * 2 - 1);
   const w = 1 - smoothstep(0.72, 1.0, d);
-  return w > 0 ? lerp(real, ISLE.h + 0.35 * hs * (1 - smoothstep(0.3, 0.8, d)), w) : real;
+  // only ever adds land: the real islands' hills stand where they are
+  return w > 0 ? Math.max(real, lerp(real, ISLE.h + 0.35 * hs * (1 - smoothstep(0.3, 0.8, d)), w)) : real;
 }
 // the profile's shorter octaves make hills, more of them on high ground
 const hillW = (M) => 0.6 * smoothstep(4, 80, M) * (1 + M / 700);
@@ -337,11 +397,12 @@ function earthRaw(a) {
   const c = cfgOf(EARTH), R = c.R, e = -wrapAngle(a - EARTH.padAngle) * R;
   let Ps = 0;
   for (let o = c.short; o < c.k.length; o++) Ps += c.amp[o] * Math.sin(c.k[o] * a + c.ph[o]);
-  const M = mapH(earthLon(a), 0);
+  const g = toGeo(a, 0), lon = g.lon, lat = g.lat, M = mapH(lon, lat);
   let al = (a % TAU) * R;
   if (al < 0) al += TAU * R;
-  const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, earthLon(a), 0)) : 1;
-  return features(island(c, e, 0, al, M + hillW(M) * Ps * lake + coastN(c, al, 0, M), Ps), earthLon(a) * DEG, 0, 1);
+  const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, lon, lat)) : 1;
+  const hm = island(c, e, 0, al, M + hillW(M) * Ps * lake + coastN(c, al, 0, M), Ps);
+  return features(cliffs(hm, cliffW(lon * DEG, lat * DEG), e, 0), lon * DEG, lat * DEG, 1);
 }
 
 const cfgs = new Map();
@@ -401,7 +462,7 @@ function setRow(c, G, j, z, dz) {
   for (let o = 0; o < no; o++) { const q = c.kc[o] * phi; G.rs[j * no + o] = Math.sin(q); G.rc[j * no + o] = Math.cos(q); }
 }
 function contAt(c, a, phi) {
-  if (c.mapped) return mapH(earthLon(a), NORTH * phi);
+  if (c.mapped) { const g = toGeo(a, phi); return mapH(g.lon, g.lat); }
   if (!c.cont) return 0;
   const cp = Math.cos(phi), f = c.cf;
   return c.cont * fbm3(cp * Math.cos(a) * f + 11.3, cp * Math.sin(a) * f - 4.1, Math.sin(phi) * f + 2.7, 4, c.seed) + c.bias;
@@ -447,9 +508,11 @@ function natural(c, G, i, j, cont) {
     if (wb > 0) det += amp * wd * wb * (vnoise2(G.al[i] / cs, z / cs, n, c.seed) * 2 - 1);
   }
   if (c.mapped) { // cont is the map's height here; no hills on lake beds
-    const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, earthLon(G.ang[i]), NORTH * G.phi[j])) : 1;
-    const hm = island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs * lake + coastN(c, G.al[i], z, cont), hs) + det;
-    return features(hm, earthLon(G.ang[i]) * DEG, NORTH * G.phi[j] * DEG, 1 - smoothstep(150, 400, cell), cell);
+    const g = toGeo(G.ang[i], G.phi[j]), lon = g.lon, lat = g.lat;
+    const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, lon, lat)) : 1;
+    let hm = island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs * lake + coastN(c, G.al[i], z, cont), hs) + det;
+    hm = cliffs(hm, cliffW(lon * DEG, lat * DEG), G.ea[i], z);
+    return features(hm, lon * DEG, lat * DEG, 1 - smoothstep(150, 400, cell), cell);
   }
   return h + det + cont * smoothstep(c.c0, c.c1, az);
 }
@@ -545,8 +608,8 @@ function normalAt(b, a, z, o = v3()) {
 }
 
 return {
-  loadEarth, earthRaw, earthColor, earthLon, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
-  water: EW, inlandAt, regionAt, citiesNear, cityRadius, NORTH, DEG,
+  loadEarth, earthRaw, earthColor, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
+  water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
   dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt,
 };

@@ -29,11 +29,26 @@ function wingAero(d) {
     kInd: 1 / (Math.PI * 0.8 * AR), mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
     back: Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord
     dihedral: w.dihedral != null ? w.dihedral : w.control ? 0 : 0.06, load: (w.load || 1) * (w.control ? 70000 : 14000),
+    vne: w.control ? 0 : w.vne || 110, // never-exceed speed (equivalent airspeed, m/s): above it the wing flutters
   };
   WING_AERO.set(d, a);
   return a;
 }
 // Extra drag coefficient near and past Mach 1 (shock waves), from the Mach number where it starts.
+// A plane's structure: the load its main wings carry before they start to give (N; over the weight, the g
+// it is good for) and the never-exceed speed of the weakest (equivalent airspeed, m/s; 0: no wings).
+const FIN_LOAD = 45000; // tail fins (N/m²): as tough as the moving surfaces, so a sideslip doesn't snap them
+function wingStrength(parts) {
+  let S = 0, vne = 0;
+  for (const p of parts) {
+    const d = p.def;
+    if (!d.wing || d.wing.control) continue;
+    const W = wingAero(d);
+    S += W.load * d.wing.area;
+    vne = vne ? Math.min(vne, W.vne) : W.vne;
+  }
+  return { S, vne };
+}
 function waveDrag(M, mcrit) { return smoothstep(mcrit, mcrit + 0.2, M) * (1 - 0.45 * smoothstep(1.2, 2.3, M)); }
 
 // Thrust factor of an air-breathing engine for the air density and the airspeed along its axis.
@@ -175,6 +190,8 @@ class Vessel {
     this.aircraft = this.wings.length > 0;
     this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
     this.stallAoA = this.mainWing ? wingAero(this.mainWing.def).stall : 0.3;
+    const ws = wingStrength(this.parts);
+    this.wingS = ws.S; this.vne = ws.vne;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
     this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
     this.recompute(false);
@@ -518,12 +535,18 @@ class Vessel {
     }
     if (want.pitch != null) {
       if (this.wheelsDown) want.pitch *= 0.4; // rotate gently on the runway
-      want.pitch = clamp(want.pitch, (-3 * G0) / V, (8 * G0) / V);
+      // stay within what the wings are good for (85% of the plane's rating, 8 g at most), and ease off
+      // when the structure complains anyway (a gust of speed, a snap roll)
+      const gr = this.gRating() || 9, up = clamp(gr * 0.85, 2, 8), dn = Math.min(3, up * 0.4);
+      want.pitch = clamp(want.pitch, (-dn * G0) / V, (up * G0) / V);
+      if (this.strain > 0.85) { const k = (this.strain - 0.85) * 3; want.pitch = this.nz >= 0 ? Math.min(want.pitch, -k) : Math.max(want.pitch, k); }
       const a = this.aoa, st = this.stallAoA - 0.03 * this.flaps;
       if (a != null && a > st * 0.85 && !this.wheelsDown) want.pitch = Math.min(want.pitch, -2 * (a - st * 0.85));
     }
     return want;
   }
+  // How many g the main wings carry at this weight before they start to give (0: no wings).
+  gRating() { return this.wingS ? this.wingS / (this.mass * G0) : 0; }
   // Heading of the flight path (radians; east is 90°, turning right adds), or of the nose when slow.
   // The surface frame's "north" (+z at the pad) lies to the right of east, so this counts from -north.
   heading() {
@@ -638,7 +661,10 @@ class Vessel {
       // Wings (in two halves, so rolling damps itself, ailerons work and one half can stall before the
       // other) and tail fins: lift and drag at each surface's centre of lift, from the air flowing past it.
       // W: the wing's aerodynamics (null for a fin); ge: ground effect, more lift within a span of the ground.
-      const M = this.mach, rip = this.rip;
+      const M = this.mach, rip = this.rip, noodle = Silly.on('noodle');
+      let strain = 0; // the most loaded surface's load over its limit
+      for (const p of this.wings) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
+      for (const p of this.vtails) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
       const surf = (p, area, nrm, ch, rz, kd, main, W, ge) => {
         const back = W ? W.back : 0;
         const rx = p.x + ch.x * (p.def.h / 4 - back) - this.com.x, ry = p.y + ch.y * (p.def.h / 4 - back) - this.com.y;
@@ -668,8 +694,14 @@ class Vessel {
           const sn = un / V;
           Fn = -qS * (1.2 * sn * Math.abs(sn) + 0.02 * sn); Fc = -qS * 0.02 * uc / V;
         }
-        // pull too hard and the structure gives way
-        if (Math.abs(Fn) > (W ? W.load : 21000) * area * (Silly.on('noodle') ? 0.25 : 1) && !rip.includes(p)) rip.push(p);
+        // pull too hard and the structure gives way. A moment over its load is survivable (stress builds up,
+        // and fades again below it); far over (or noodle wings over at all) is not.
+        const rr = Math.abs(Fn) / ((W ? W.load : FIN_LOAD) * area * (noodle ? 0.25 : 1));
+        if (rr > strain) strain = rr;
+        if (rr > 1) {
+          p.stress = (p.stress || 0) + (rr - 1) * 2 * dt;
+          if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p)) { rip.push(p); this.ripWhy = 'g'; }
+        }
         const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
         T.x += ry * fz - rz * fy; T.y += rz * fx - rx * fz; T.z += rx * fy - ry * fx;
@@ -690,7 +722,20 @@ class Vessel {
         p.deflect = surf(p, ar, v3(0, 0, 1), partAxis(p), 0, 0.3, false, null, 1);
       }
       this.slip = Math.asin(clamp(hz, -1, 1));
-    } else for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
+      this.strain = strain;
+      this.nz = (Fb.x * P.U.x + Fb.y * P.U.y + Fb.z * P.U.z) / (this.mass * G0); // load factor through the floor
+      // past the never-exceed speed the wings flutter, and tear off: soon a little over it, at once far over
+      const eas = Math.sqrt(this.dynP / 0.6125); // equivalent airspeed, sqrt(2q / 1.225)
+      this.overspeed = this.vne ? eas / this.vne : 0;
+      if (this.overspeed > 1 && this.mainWing && !noodle) {
+        const w = this.mainWing;
+        w.stress = (w.stress || 0) + (this.overspeed - 1) * 3 * dt + 0.12 * dt;
+        if ((this.overspeed > 1.3 || w.stress >= 1) && !rip.includes(w)) { rip.push(w); this.ripWhy = 'speed'; }
+      }
+    } else {
+      for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
+      this.strain = 0; this.overspeed = 0; this.nz = 0;
+    }
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
 
     // integrate: forces into sim axes, then Euler's equations for the spin
