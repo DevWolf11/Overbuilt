@@ -1086,6 +1086,23 @@ const Flight = {
     return '';
   },
 
+  // Where on the real Earth: the country or sea below, and the nearest town (refreshed every second or so).
+  whereText(v, alt) {
+    if (v.body !== EARTH || !EARTH.mapped || alt > 60000) return '';
+    if (this.whereAt && performance.now() - this.whereAt < 900) return this.whereTxt;
+    const r = Math.hypot(v.x, v.y, v.z), D = Terrain.DEG, lon = Terrain.earthLon(Math.atan2(v.y, v.x)) * D, lat = Terrain.NORTH * Math.asin(v.z / r) * D;
+    const reg = Terrain.regionAt(lon, lat), sea = v.splashed || Terrain.earthH(Math.atan2(v.y, v.x), Math.asin(v.z / r) * EARTH.radius) < 0;
+    const place = sea ? reg.sea || reg.country : reg.country || reg.sea;
+    const near = Terrain.citiesNear(lon, lat, 1.5)[0];
+    let txt = place ? (sea ? place : 'Over ' + place) : '';
+    if (near) {
+      const d = near[1], rc = Terrain.cityRadius(near[0][2]);
+      txt += (txt ? ' · ' : '') + (d < rc ? near[0][0] : `${near[0][0]} ${fmt.dist(d)}`);
+    }
+    this.whereAt = performance.now(); this.whereTxt = txt;
+    return txt;
+  },
+
   updateHUD(force) {
     const v = this.active;
     if (!v || !v.parts.length) return;
@@ -1096,6 +1113,9 @@ const Flight = {
     const set = (id, txt) => { const e = document.getElementById(id); if (e.textContent !== txt) e.textContent = txt; };
     set('t-body', b.name + (v.splashed ? ' · splashed' : v.landed ? ' · landed' : ''));
     set('t-vessel', v.name);
+    const where = this.whereText(v, alt), we = $('#t-where');
+    we.hidden = !where;
+    if (where) set('t-where', where);
     set('t-alt', fmt.dist(alt));
     $('#row-ground').hidden = !(ground < 5000);
     set('t-ground', fmt.dist(Math.max(0, ground)));

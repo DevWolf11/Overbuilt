@@ -354,7 +354,10 @@ const App = {
 };
 
 // the real Earth map, baked by tools/bake-earth.py (the single-file build swaps in data: URLs)
-const EARTH_MAP_FILES = { height: 'assets/earth-height.png', color: 'assets/earth-color.jpg' };
+const EARTH_MAP_FILES = {
+  height: 'assets/earth-height.png', color: 'assets/earth-color.jpg', night: 'assets/earth-night.jpg', lakes: 'assets/earth-lakes.png',
+  urban: 'assets/earth-urban.png', regions: 'assets/earth-regions.png', places: 'assets/earth-places.json', lines: 'assets/earth-lines.bin',
+};
 
 addEventListener('DOMContentLoaded', () => App.init());
 
