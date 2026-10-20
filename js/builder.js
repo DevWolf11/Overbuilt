@@ -47,7 +47,6 @@ const TEMPLATES = {
       ['sideSep', -1.75, 5], ['thunder', -2.75, 4], ['noseS', -2.75, 8.5]],
   },
   // Planes are built nose-right: the stack runs along +y and the landing gear sits on the +x side.
-  // Planes are built nose-right: the stack runs along +y and the landing gear sits on the +x side.
   // Wings and tail surfaces go through the fuselage; pods and drop tanks hang from a wing.
   skylark: {
     name: 'Skylark', kind: 'plane', tier: 0, blurb: 'A forgiving high-wing trainer. Full throttle, then pull back gently at about 130 km/h.',
@@ -130,7 +129,7 @@ const Builder = {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
     if (d.name) this.name = d.name;
     const kind = VEHICLE_KINDS[d.kind] ? d.kind : 'rocket';
-    if (kind === 'plane' && this.kind !== 'plane' && this.symmetry) { this.symmetry = false; $('#btn-sym').setAttribute('aria-pressed', 'false'); }
+    this.kindSymmetry(kind);
     const turned = kind !== this.kind;
     this.kind = kind;
     if (turned) this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
@@ -202,12 +201,14 @@ const Builder = {
     this.syncUndo();
   },
   undo() {
+    if (this.drag) this.cancelDrag(); // the drag holds parts that are about to be replaced
     if (this.history.length < 2) return;
     this.future.push(this.history.pop());
     this.loadDesign(JSON.parse(this.history[this.history.length - 1]), true);
     this.save();
   },
   redo() {
+    if (this.drag) this.cancelDrag();
     if (!this.future.length) return;
     const s = this.future.pop();
     this.history.push(s);
@@ -230,15 +231,27 @@ const Builder = {
     return { x: this.cam.x + (sx - r.left - r.width / 2) / this.cam.scale, y: this.cam.y - (sy - r.top - r.height / 2) / this.cam.scale };
   },
   screenToWorld(sx, sy) { const d = this.screenToDisp(sx, sy); return this.toPart(d.x, d.y); },
+  in3D() { return App.preview3D(); },
+  // The blueprint point under the pointer (part space) and the metres per pixel there, in either view;
+  // null when the 3D view sees the blueprint edge-on.
+  pointerToPart(sx, sy) {
+    if (this.in3D()) return Render3D.designPoint(sx, sy);
+    const w = this.screenToWorld(sx, sy);
+    return { x: w.x, y: w.y, mpp: 1 / this.cam.scale };
+  },
+  // The part under a blueprint point: the one drawn on top (pods, then wings and tail surfaces, then the
+  // hull, then legs, fins and wheels), so a wing through the fuselage can be picked where they cross.
   hitPart(w) {
+    const pad = isTouch ? 0.2 : 0.05, layer = (d) => (d.pod ? 3 : isSurface(d) ? 2 : d.leg || d.fin || d.wheel ? 0 : 1);
+    let best = null;
     for (let i = this.parts.length - 1; i >= 0; i--) {
-      const r = partRect(this.parts[i]);
-      const pad = isTouch ? 0.2 : 0.05;
-      if (w.x >= r.l - pad && w.x <= r.r + pad && w.y >= r.b - pad && w.y <= r.t + pad) return this.parts[i];
+      const p = this.parts[i], r = partRect(p);
+      if (w.x >= r.l - pad && w.x <= r.r + pad && w.y >= r.b - pad && w.y <= r.t + pad && (!best || layer(p.def) > layer(best.def))) best = p;
     }
-    return null;
+    return best;
   },
   fitView() {
+    if (this.in3D()) Render3D.resetCamera(true);
     if (!this.parts.length) { this.cam = { x: 0, y: 6, scale: 26 }; return; }
     let l = Infinity, r = -Infinity, b = Infinity, t = -Infinity;
     for (const p of this.parts) {
@@ -256,20 +269,24 @@ const Builder = {
   },
   viewArea() {
     const top = $('#build-top').getBoundingClientRect().bottom + (innerWidth <= 760 ? $('#stats').getBoundingClientRect().height + 8 : 0);
-    const bottom = $('#palette').getBoundingClientRect().top;
+    let bottom = $('#palette').getBoundingClientRect().top;
+    const info = $('#part-info');
+    if (innerWidth <= 760 && !info.hidden) bottom = Math.min(bottom, info.getBoundingClientRect().top); // phones: above the part panel
+    bottom = Math.max(bottom, top + 80);
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
     return { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
   },
 
   // Find a good spot for a part of `type`, turned by `rot` quarter turns, near the desired centre.
-  snap(type, want, ignore, rot = 0) {
+  // radius: how far from `want` an attachment may be (default: ~26 px on screen, at least 1.4 m).
+  snap(type, want, ignore, rot = 0, radius) {
     const def = PARTS[type];
     const { w, h } = partDims({ def, rot });
     const others = this.parts.filter((p) => !ignore.includes(p));
     const probe = (x, y) => ({ def, type, x, y, rot });
     const free = (x, y) => !others.some((o) => partsClash(probe(x, y), o));
-    const radius = Math.max(1.4, 26 / this.cam.scale);
+    if (radius == null) radius = Math.max(1.4, 26 * (this.mpp || 1 / this.cam.scale));
     let best = null, bestD = radius;
     const consider = (x, y) => {
       const d = Math.hypot(x - want.x, y - want.y);
@@ -324,6 +341,7 @@ const Builder = {
   deleteSelected() {
     const p = this.selected;
     if (!p) return;
+    if (this.drag && this.drag.part) this.cancelDrag();
     this.parts = this.parts.filter((q) => q !== p && q !== p.mirror);
     this.selected = null;
     this.changed();
@@ -358,6 +376,18 @@ const Builder = {
     this.renderInfo();
   },
 
+  // Arrow keys: move the selected part (and its twin) by a step in screen directions, if there is room.
+  nudge(dx, dy) {
+    const p = this.selected, m = p.mirror, d = this.toPart(dx, dy), x = p.x + d.x, y = p.y + d.y, rot = p.rot || 0;
+    const probe = { def: p.def, type: p.type, x, y, rot }, ignore = [p, m].filter(Boolean);
+    if (this.parts.some((o) => !ignore.includes(o) && partsClash(probe, o))) { UI.toast('No room to move it there'); return; }
+    const twin = m && this.mirrorOk(p.type, x, y, ignore, rot);
+    p.x = +x.toFixed(3); p.y = +y.toFixed(3); p.flip = p.x < 0;
+    if (twin) { m.x = -p.x; m.y = p.y; m.flip = m.x < 0; } else if (m) { p.mirror = null; m.mirror = null; }
+    this.changed();
+    this.renderInfo();
+  },
+
   // ---------------------------------------------------------------- palette & panels
   buildPalette() {
     const tabs = $('#palette-tabs');
@@ -383,6 +413,7 @@ const Builder = {
       this.bindPaletteItem(item, type, locked);
       items.append(item);
     }
+    this.layout();
   },
 
   specLine(def) {
@@ -401,8 +432,9 @@ const Builder = {
       if (!start.drag && ((dy < -8 && Math.abs(dy) > Math.abs(dx) * 0.8) || (!isTouch && Math.hypot(dx, dy) > 6))) {
         start.drag = true;
         item.setPointerCapture(e.pointerId);
-        this.drag = { type, fromPalette: true, offset: { x: 0, y: 0 } };
+        this.drag = { type, fromPalette: true, offset: { x: 0, y: 0 }, rot: 0 };
         this.selected = null; this.renderInfo();
+        if (this.in3D()) Render3D.editView(true);
       }
       if (start.drag) this.dragTo(e.clientX, e.clientY);
     });
@@ -410,10 +442,10 @@ const Builder = {
       if (!start || start.id !== e.pointerId) return;
       const wasDrag = start.drag;
       start = null;
-      if (e.type === 'pointercancel') { this.drag = null; return; }
+      if (e.type === 'pointercancel') { this.cancelDrag(); return; }
       if (locked) { this.showLocked(type); return; }
-      if (wasDrag && !App.preview3D()) this.dropDrag(e.clientY);
-      else { this.drag = null; this.quickAdd(type); }
+      if (wasDrag) this.dropDrag(e.clientY);
+      else { this.cancelDrag(); this.quickAdd(type); }
     };
     item.addEventListener('pointerup', end);
     item.addEventListener('pointercancel', end);
@@ -431,7 +463,7 @@ const Builder = {
   // Tap on a palette item: attach it somewhere sensible.
   quickAdd(type) {
     const area = this.viewArea();
-    const centre = this.screenToWorld(area.cx, area.cy);
+    const centre = this.pointerToPart(area.cx, area.cy) || this.com || { x: 0, y: 0 };
     const def = PARTS[type];
     let spot = null;
     const ok = (t) => {
@@ -466,24 +498,31 @@ const Builder = {
       for (const t of tries.filter(Boolean)) if (ok(t)) { spot = t; break; }
     }
     if (!spot) { const s = this.snap(type, centre, []); spot = s.ok ? s : null; }
+    // else the free attachment nearest the middle of the view, wherever it is on the craft
+    if (!spot && this.parts.length) { const s = this.snap(type, centre, [], 0, Infinity); spot = s.ok && s.attached ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
     this.addPart(type, spot.x, spot.y);
   },
 
   setKind(kind) {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
+    if (this.kindSymmetry(kind)) UI.toast('Symmetry off: planes are drawn from the side');
     this.kind = kind;
     this.category = { rocket: 'command', plane: 'air', car: 'ground', heli: 'airEng' }[kind] || this.category;
     this.buildPalette();
-    if (kind === 'plane' && this.symmetry) {
-      this.symmetry = false;
-      $('#btn-sym').setAttribute('aria-pressed', 'false');
-      UI.toast('Symmetry off: planes are drawn from the side');
-    }
     this.renderKind();
     this.changed();
     this.fitView();
     Sound.click();
+  },
+  // Planes are drawn from the side, where mirroring top and bottom makes no sense: symmetry goes off for
+  // them and comes back as the player left it for everything else. True if it was just switched off.
+  kindSymmetry(kind) {
+    const want = kind === 'plane' ? false : store.get('rss.symmetry', true);
+    if (want === this.symmetry) return false;
+    this.symmetry = want;
+    $('#btn-sym').setAttribute('aria-pressed', String(want));
+    return !want;
   },
   renderKind() {
     document.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.kind === this.kind)));
@@ -566,7 +605,8 @@ const Builder = {
   renderInfo() {
     const p = this.selected;
     const box = $('#part-info');
-    if (!p) { box.hidden = true; return; }
+    $('#build-ui').classList.toggle('has-info', !!p); // phones: the 3D hint gives way to it
+    if (!p) { box.hidden = true; this.layout(); return; }
     box.hidden = false;
     const d = p.def;
     $('#pi-name').textContent = d.name + (p.mirror ? ' ×2' : '');
@@ -578,6 +618,20 @@ const Builder = {
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
     if (!Career.sandbox) specs.push(money(d.cost));
     $('#pi-specs').textContent = specs.join(' · ');
+    this.layout();
+  },
+
+  // Panels and buttons sit above the tray, whatever its height (it changes with the screen and the font),
+  // and on phones the Fit button stays clear of the part panel.
+  layout() {
+    const ui = $('#build-ui');
+    if (!ui || ui.hidden) return;
+    ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
+    const fit = $('#btn-fit'), info = $('#part-info');
+    fit.style.bottom = '';
+    if (info.hidden) return;
+    const i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
+    if (f.bottom > i.top - 6 && f.top < i.bottom && f.right > i.left && f.left < i.right) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
   },
 
   // ---------------------------------------------------------------- modals
@@ -596,6 +650,11 @@ const Builder = {
       UI.closeModal(); UI.toast(`Saved “${name}”`);
     });
     wrap.append(el('div', { class: 'hangar-save' }, nameIn, saveBtn));
+    // (phones have no room for a Clear button on the top bar)
+    const clear = el('button', { class: 'btn small danger hangar-clear', text: 'Clear the blueprint' });
+    clear.prepend(icon('trash'));
+    clear.addEventListener('click', () => { UI.closeModal(); this.confirmClear(); });
+    wrap.append(clear);
     if (saves.length) {
       wrap.append(el('h3', { class: 'summary-h', text: 'Your designs' }));
       const list = el('div', { class: 'template-list' });
@@ -650,16 +709,11 @@ const Builder = {
         this.orbit = null;
         return;
       }
-      // 3D preview: drag to orbit, tap a part to select it
-      if (App.preview3D()) { this.orbit = { pointerId: e.pointerId, moved: false }; return; }
+      if (this.in3D()) { this.down3D(e); return; }
       const w = this.screenToWorld(e.clientX, e.clientY);
       const hit = this.hitPart(w);
-      if (hit && e.button !== 2 && e.button !== 1) {
-        this.drag = { part: hit, type: hit.type, offset: { x: w.x - hit.x, y: w.y - hit.y }, orig: { x: hit.x, y: hit.y }, moved: false, pointerId: e.pointerId };
-        if (hit.mirror) this.drag.mirrorOrig = { x: hit.mirror.x, y: hit.mirror.y };
-        this.selected = hit;
-        this.renderInfo();
-      } else {
+      if (hit && e.button !== 2 && e.button !== 1) this.grab(hit, w, e.pointerId);
+      else {
         this.pan = { pointerId: e.pointerId };
         this.panMoved = false;
       }
@@ -667,27 +721,31 @@ const Builder = {
     c.addEventListener('pointermove', (e) => {
       if (App.scene !== 'build') return;
       const p = this.pointers.get(e.pointerId);
-      if (!p) {
-        if (!isTouch) { const h = !App.preview3D() && this.hitPart(this.screenToWorld(e.clientX, e.clientY)); c.style.cursor = h ? 'grab' : 'default'; }
-        return;
-      }
+      if (!p) { if (e.pointerType === 'mouse') this.hover(e.clientX, e.clientY); return; }
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       p.x = e.clientX; p.y = e.clientY;
       if (this.pointers.size === 2 && this.pinch) {
         const now = this.pinchInfo();
-        this.zoomAt(now.d / this.pinch.d, now.cx, now.cy);
-        this.cam.x -= (now.cx - this.pinch.cx) / this.cam.scale;
-        this.cam.y += (now.cy - this.pinch.cy) / this.cam.scale;
+        if (this.in3D()) { // pinch zooms, two fingers moving together slide the view
+          this.cam.scale = clamp(this.cam.scale * (now.d / this.pinch.d), 3, 90);
+          Render3D.panBy(now.cx - this.pinch.cx, now.cy - this.pinch.cy);
+        } else {
+          this.zoomAt(now.d / this.pinch.d, now.cx, now.cy);
+          this.cam.x -= (now.cx - this.pinch.cx) / this.cam.scale;
+          this.cam.y += (now.cy - this.pinch.cy) / this.cam.scale;
+        }
         this.pinch = now;
         return;
       }
       if (this.orbit && this.orbit.pointerId === e.pointerId) {
         if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 6) this.orbit.moved = true;
-        Render3D.orbitBy(dx, dy);
+        if (this.orbit.moved) Render3D.orbitBy(dx, dy);
         return;
       }
+      if (this.pan3d && this.pan3d.pointerId === e.pointerId) { Render3D.panBy(dx, dy); return; }
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
         if (!this.drag.moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 6) return;
+        if (!this.drag.moved && this.in3D()) Render3D.editView(true);
         this.drag.moved = true;
         this.dragTo(e.clientX, e.clientY);
       } else if (this.pan && this.pan.pointerId === e.pointerId) {
@@ -700,19 +758,17 @@ const Builder = {
       if (App.scene !== 'build') return;
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = null;
+      if (this.pan3d && this.pan3d.pointerId === e.pointerId) { this.pan3d = null; return; }
       if (this.orbit && this.orbit.pointerId === e.pointerId) {
-        if (!this.orbit.moved && e.type !== 'pointercancel') {
-          const hit = Render3D.pickPart(e.clientX, e.clientY);
-          this.selected = hit && hit.part ? hit.part : null;
-          this.renderInfo();
-        }
+        // a tap selects the part under it (or clears the selection)
+        if (!this.orbit.moved && e.type !== 'pointercancel') { this.selected = this.orbit.part || null; this.renderInfo(); }
         this.orbit = null;
         return;
       }
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
         if (e.type === 'pointercancel') this.cancelDrag();
         else if (this.drag.moved) this.dropDrag(e.clientY);
-        else this.drag = null;
+        else this.endDrag();
       }
       if (this.pan && this.pan.pointerId === e.pointerId) {
         if (!this.panMoved && e.type !== 'pointercancel') { this.selected = null; this.renderInfo(); }
@@ -721,10 +777,13 @@ const Builder = {
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
+    c.addEventListener('pointerleave', () => { this.hover3d = null; });
     c.addEventListener('wheel', (e) => {
       if (App.scene !== 'build') return;
       e.preventDefault();
-      this.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+      const f = Math.exp(-e.deltaY * 0.0015);
+      if (this.in3D()) this.cam.scale = clamp(this.cam.scale * f, 3, 90);
+      else this.zoomAt(f, e.clientX, e.clientY);
     }, { passive: false });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -739,6 +798,12 @@ const Builder = {
       else if (e.code === 'KeyF') this.fitView();
       else if (e.code === 'KeyR' && !mod) this.rotateSelected();
       else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
+      else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); } }
+      else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
+        e.preventDefault();
+        const k = e.shiftKey ? 1 : 0.25, dir = { ArrowLeft: [-k, 0], ArrowRight: [k, 0], ArrowUp: [0, k], ArrowDown: [0, -k] }[e.code];
+        if (dir) this.nudge(dir[0], dir[1]);
+      }
     });
 
     $('#btn-launch').addEventListener('click', () => App.launch());
@@ -752,19 +817,32 @@ const Builder = {
     sym.setAttribute('aria-pressed', String(this.symmetry));
     sym.addEventListener('click', () => {
       this.symmetry = !this.symmetry;
-      store.set('rss.symmetry', this.symmetry);
+      if (this.kind !== 'plane') store.set('rss.symmetry', this.symmetry); // planes keep their own (off) default
       sym.setAttribute('aria-pressed', String(this.symmetry));
+      UI.toast(this.symmetry ? 'Symmetry on: parts are mirrored across the centre line' : 'Symmetry off');
     });
-    $('#btn-clear').addEventListener('click', () => {
-      UI.modal({
-        title: 'Clear the rocket?', body: 'Every part on the blueprint will be removed. You can undo this.',
-        actions: [{ label: 'Cancel' }, { label: 'Clear', danger: true, primary: true, onClick: () => { this.parts = []; this.selected = null; this.changed(); this.renderInfo(); } }],
-      });
-    });
+    $('#btn-clear').addEventListener('click', () => this.confirmClear());
+    // the stats panel folds down to its name and numbers (on by default on short phone screens)
+    const stats = $('#stats'), tog = $('#btn-stats');
+    const fold = (on) => {
+      stats.classList.toggle('collapsed', on);
+      this.layout();
+      tog.setAttribute('aria-expanded', String(!on));
+      tog.setAttribute('aria-label', on ? 'Show more' : 'Show less'); tog.title = tog.getAttribute('aria-label');
+    };
+    fold(store.get('rss.statsFolded', innerHeight < 520 || (innerHeight < 700 && innerWidth <= 760)));
+    tog.addEventListener('click', () => { const on = !stats.classList.contains('collapsed'); fold(on); store.set('rss.statsFolded', on); });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
     document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.setKind(b.dataset.kind)));
     $('#btn-rd').addEventListener('click', () => App.showResearch());
     $('#btn-missions').addEventListener('click', () => App.showMissions());
+  },
+
+  confirmClear() {
+    UI.modal({
+      title: 'Clear the blueprint?', body: 'Every part on the blueprint will be removed. You can undo this.',
+      actions: [{ label: 'Cancel' }, { label: 'Clear', danger: true, primary: true, onClick: () => { this.parts = []; this.selected = null; this.changed(); this.renderInfo(); } }],
+    });
   },
 
   pinchInfo() {
@@ -779,15 +857,63 @@ const Builder = {
     this.cam.y += before.y - after.y;
   },
 
+  // Start moving a part from where the pointer took hold of it (w: that point in part space).
+  grab(part, w, pointerId) {
+    this.drag = { part, type: part.type, offset: { x: w.x - part.x, y: w.y - part.y }, orig: { x: part.x, y: part.y }, moved: false, pointerId };
+    if (part.mirror) this.drag.mirrorOrig = { x: part.mirror.x, y: part.mirror.y };
+    this.selected = part;
+    this.renderInfo();
+  },
+  // 3D: a mouse drags any part; a finger drags the part already selected (tap it first), so a finger on
+  // the craft can still turn the view. Anything else orbits; the right or middle button slides the view.
+  down3D(e) {
+    if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) { this.pan3d = { pointerId: e.pointerId }; return; }
+    const hit = Render3D.pickPart(e.clientX, e.clientY), part = hit && hit.part;
+    const sel = this.selected, mine = part && (part === sel || (sel && part === sel.mirror));
+    if (part && (e.pointerType === 'mouse' || mine)) {
+      // hold it where the pointer took it; if the blueprint is side-on just now (the view turns to face it
+      // once the part moves), the part comes to the pointer instead
+      const at = this.pointerToPart(e.clientX, e.clientY), r = partRect(part);
+      const near = at && at.x > r.l - 1 && at.x < r.r + 1 && at.y > r.b - 1 && at.y < r.t + 1;
+      this.grab(part, near ? at : part, e.pointerId);
+      return;
+    }
+    this.orbit = { pointerId: e.pointerId, moved: false, part };
+  },
+  // Mouse hover: show which part a click would take.
+  hover(cx, cy) {
+    const c = this.canvas;
+    if (this.in3D()) {
+      const hit = Render3D.pickPart(cx, cy);
+      this.hover3d = hit && hit.part ? hit.part : null;
+      c.style.cursor = this.hover3d ? 'grab' : 'default';
+    } else c.style.cursor = this.hitPart(this.screenToWorld(cx, cy)) ? 'grab' : 'default';
+  },
+  // What the 3D view draws as the part being placed: the part and, with symmetry, its mirror twin.
+  ghosts() {
+    const d = this.drag;
+    if (!d || !d.fromPalette || !d.ghost) return [];
+    const g = d.ghost, rot = d.rot || 0, list = [{ type: d.type, x: g.x, y: g.y, rot, flip: g.x < 0, ok: g.ok }];
+    if (g.ok && this.symmetry && this.mirrorOk(d.type, g.x, g.y, [], rot)) list.push({ type: d.type, x: -g.x, y: g.y, rot: mirrorRot(rot), flip: -g.x < 0, ok: true });
+    return list;
+  },
+  markers3d() { return !this.drag; },
+
   dragTo(cx, cy) {
     const d = this.drag;
     d.last = { x: cx, y: cy };
-    const w = this.screenToWorld(cx, cy);
+    const lift = d.fromPalette && isTouch ? 44 : 0; // keep a part from the tray visible above the finger
+    const w = this.pointerToPart(cx, cy - lift);
+    if (!w) return; // the 3D view sees the blueprint edge-on: keep the last spot
+    this.mpp = w.mpp;
     const want = { x: w.x - d.offset.x, y: w.y - d.offset.y };
-    if (d.fromPalette && isTouch) { const up = this.toPart(0, 40 / this.cam.scale); want.x += up.x; want.y += up.y; } // keep it visible above the finger
+    const pal = $('#palette'), overPalette = cy > pal.getBoundingClientRect().top;
+    pal.classList.toggle('drop-remove', !d.fromPalette);
+    pal.classList.toggle('drop-hot', overPalette);
     const ignore = d.part ? [d.part, d.part.mirror].filter(Boolean) : [];
     const rot = d.part ? d.part.rot || 0 : d.rot || 0;
     const s = this.snap(d.type, want, ignore, rot);
+    if (isTouch && s.attached && s.ok && !(d.ghost && d.ghost.attached && d.ghost.ok) && navigator.vibrate) navigator.vibrate(8); // a tick as it snaps on
     d.ghost = s;
     if (d.part) {
       d.part.x = s.x; d.part.y = s.y;
@@ -795,9 +921,18 @@ const Builder = {
     }
   },
 
+  // The drag is over: let the 3D view move again and the tray stop offering to take the part back.
+  endDrag() {
+    this.drag = null;
+    this.mpp = null;
+    if (Render3D.ready) Render3D.editView(false);
+    const pal = $('#palette');
+    pal.classList.remove('drop-remove', 'drop-hot');
+  },
+
   dropDrag(clientY) {
     const d = this.drag;
-    this.drag = null;
+    this.endDrag();
     if (!d || !d.ghost) return;
     const overPalette = clientY > $('#palette').getBoundingClientRect().top;
     if (d.fromPalette) {
@@ -806,6 +941,7 @@ const Builder = {
       return;
     }
     const p = d.part;
+    if (!this.parts.includes(p)) return; // gone while it was being dragged
     if (overPalette) { this.selected = p; this.deleteSelected(); return; }
     if (!d.ghost.ok) { this.cancelDrag(d); this.changed(); return; }
     p.flip = p.x < 0;
@@ -827,7 +963,7 @@ const Builder = {
       d.part.x = d.orig.x; d.part.y = d.orig.y;
       if (d.part.mirror && d.mirrorOrig) { d.part.mirror.x = d.mirrorOrig.x; d.part.mirror.y = d.mirrorOrig.y; }
     }
-    this.drag = null;
+    this.endDrag();
   },
 
   // ---------------------------------------------------------------- render

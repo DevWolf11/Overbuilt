@@ -91,7 +91,7 @@ html, body {
 .stats {
   position: absolute; left: var(--gut-l); top: calc(64px + var(--safe-t)); width: 236px;
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
-  max-height: calc(100% - 64px - 170px - var(--safe-t) - var(--safe-b)); overflow: auto;
+  max-height: calc(100% - 64px - var(--pal-h, 170px) - 14px - var(--safe-t)); overflow: auto;
 }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; }
 .stat-grid dt, .t-grid dt {
@@ -123,7 +123,8 @@ html, body {
 .pi-head h3 { margin: 0; font-size: 15px; letter-spacing: 0.04em; }
 .pi-specs { margin: 8px 0 4px; font: 500 12px/1.4 var(--mono); color: var(--amber); }
 .pi-desc { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
-.fit { position: absolute; right: var(--gut-r); bottom: calc(172px + var(--safe-b)); }
+/* --pal-h: the tray's measured height (Builder.layout), so nothing sits on it at any size */
+.fit { position: absolute; right: var(--gut-r); bottom: calc(var(--pal-h, 160px) + 12px); }
 
 .palette {
   position: absolute; left: 0; right: 0; bottom: 0;
@@ -310,9 +311,8 @@ kbd {
   .stat-grid dd { font-size: 13px; }
   .stage-details { display: none; }
   .warn { flex: 1 1 100%; font-size: 11px; }
-  .part-info { top: auto; bottom: calc(150px + var(--safe-b)); left: var(--gut-l); right: var(--gut-r); width: auto; padding: 10px; }
+  .part-info { top: auto; bottom: calc(var(--pal-h, 140px) + 10px); left: var(--gut-l); right: var(--gut-r); width: auto; padding: 10px; }
   .pi-desc { display: none; }
-  .fit { bottom: calc(172px + var(--safe-b)); }
   .topbar { gap: 8px; }
   .topbar-actions { gap: 5px; }
   .long { display: none; }
@@ -339,7 +339,6 @@ kbd {
   .palette .tab { padding: 8px 10px 6px; }
   .part-item { width: 84px; }
   .part-item canvas { width: 44px; height: 44px; }
-  .fit { bottom: calc(132px + var(--safe-b)); }
   .stage-box { gap: 5px; width: 190px; }
   .fuel-label { margin-top: 2px; }
   .throttle-box { top: auto; transform: none; bottom: calc(14px + var(--safe-b)); right: calc(var(--gut-r) + 202px); flex-direction: row; align-items: flex-end; }
@@ -347,7 +346,6 @@ kbd {
   .throttle-box #btn-tmax { order: 3; }
   .throttle-box .throttle-label { order: 1; }
   .throttle-box #btn-tcut { order: 0; }
-  .stats { max-height: calc(100% - 64px - 130px - var(--safe-t) - var(--safe-b)); }
   .throttle-track { height: clamp(90px, 34vh, 200px); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -515,7 +513,7 @@ kbd {
 .kind-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 .view3d-toggle { font-weight: 700; letter-spacing: 0.06em; min-width: 46px; justify-content: center; }
 .chip-hint {
-  position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(176px + var(--safe-b));
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--pal-h, 160px) + 16px);
   padding: 6px 12px; border-radius: 999px; font-size: 12px; color: var(--muted); white-space: nowrap;
   background: var(--panel); border: 1px solid var(--line); pointer-events: none;
 }
@@ -526,12 +524,11 @@ kbd {
   /* no room for a third round button: the brake sits beside the autopilot grid instead */
   .left-controls .rot-controls { position: relative; }
   .round.brake { position: absolute; left: 146px; bottom: calc(100% + 18px); width: 56px; height: 56px; font-size: 11px; }
-  .chip-hint { bottom: calc(176px + var(--safe-b)); white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 32px); }
+  .chip-hint { white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 32px); }
 }
 @media (max-height: 500px) {
   .kind-btn { flex-direction: row; justify-content: center; gap: 4px; padding: 3px 0; }
   .kind-btn .icon { width: 16px; height: 16px; }
-  .chip-hint { bottom: calc(136px + var(--safe-b)); }
 }
 
 /* ---- 3D flight: stick, roll buttons, Mach */
@@ -594,3 +591,57 @@ kbd {
 .silly-row small { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .silly .btn { align-self: flex-start; }
 .modal-title { -webkit-user-select: none; user-select: none; }
+
+/* ---- building: stats header, drop-to-remove tray, 3D hint, phones */
+.s-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.s-head .s-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stats-toggle {
+  flex: none; width: 28px; height: 22px; border-radius: 5px; border: 1px solid var(--line); background: none;
+  color: var(--muted); cursor: pointer; touch-action: manipulation; font: 600 11px var(--mono);
+}
+.stats-toggle::before { content: '▴'; }
+.stats.collapsed .stats-toggle::before { content: '▾'; }
+.stats-toggle:hover { color: var(--amber); border-color: var(--amber); }
+.stats.collapsed .kind-select, .stats.collapsed .career-row, .stats.collapsed .stage-details, .stats.collapsed .air-info { display: none !important; }
+#btn-sym .icon { display: none; }
+.palette.drop-remove { transition: background 0.15s, border-color 0.15s; }
+.palette.drop-remove::after {
+  content: 'Drop here to remove'; position: absolute; inset: 0; display: grid; place-items: center;
+  font: 600 13px var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--danger);
+  background: rgba(40, 8, 10, 0.55); border-top: 2px dashed rgba(255, 93, 93, 0.5); pointer-events: none;
+}
+.palette.drop-remove.drop-hot::after { background: rgba(90, 14, 18, 0.8); color: #ffd0d0; border-top-color: var(--danger); }
+@media (max-width: 760px) {
+  .s-head { flex: 1 1 100%; }
+  /* the hint sits left of the Fit button instead of on it */
+  .chip-hint { left: var(--gut-l); transform: none; max-width: calc(100% - var(--gut-l) - var(--gut-r) - 78px); text-align: left; }
+}
+@media (max-width: 480px) {
+  .topbar { gap: 4px; }
+  .topbar-actions { gap: 4px; }
+  #btn-templates, .view3d-toggle, #btn-sym { width: 34px; min-width: 34px; padding: 0; }
+  #btn-sym .icon { display: inline-flex; }
+  #btn-sym .sym-text { display: none; }
+  #btn-clear { display: none; }
+  .btn.launch { padding: 0 11px; font-size: 13px; letter-spacing: 0.04em; }
+}
+@media (max-width: 350px) {
+  .btn { height: 32px; }
+  .btn.icon-only, #btn-templates, .view3d-toggle, #btn-sym { width: 31px; min-width: 31px; }
+  #btn-home { width: 31px; min-width: 31px; }
+  .btn.launch { padding: 0 9px; font-size: 12px; }
+}
+.hangar-clear { margin: -4px 0 14px; }
+.chip-hint { transition: opacity 0.6s; }
+.chip-hint.faded { opacity: 0; }
+@media (max-width: 760px) {
+  .has-info .chip-hint { display: none; }
+}
+/* phones on their side: a slimmer tray (one-line names, no specs) leaves room for the craft */
+@media (max-height: 500px) {
+  .items { padding-top: 5px; }
+  .part-item { width: 92px; padding: 4px 4px 6px; gap: 2px; }
+  .part-item canvas { width: 34px; height: 34px; }
+  .part-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 11px; }
+  .part-item .part-spec { display: none; }
+}

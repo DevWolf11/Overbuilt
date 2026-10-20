@@ -74,6 +74,7 @@ const ICONS = {
   plane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h15l4-4h1l-1 6H4z"/><path d="M8 14l3-5h2l-1 5M10 14l2 4h2l-1-4"/></svg>',
   car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16v-4l2-4h8l4 4h4v4"/><circle cx="7" cy="16" r="2"/><circle cx="17" cy="16" r="2"/></svg>',
   heli: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M12 5v3"/><path d="M8 8h6l3 4-3 3H9a3.5 3.5 0 0 1-1-7zM3 11h5M2 9v4M9 19h7M11 15v4M14 15v4"/></svg>',
+  sym: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 7L3 17h6zM15 7l6 10h-6z"/></svg>',
   center: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
 };
 function icon(name) { const s = el('span', { class: 'icon' }); s.innerHTML = ICONS[name]; return s; }

@@ -35,6 +35,7 @@ const App = {
     this.canvas.width = Math.round(this.W * dpr);
     this.canvas.height = Math.round(this.H * dpr);
     if (Render3D.ready) Render3D.resize(this.W, this.H, this.dpr);
+    if (typeof Builder !== 'undefined' && Builder.canvas) Builder.layout();
   },
 
   frame(t) {
@@ -103,7 +104,15 @@ const App = {
       b.title = on ? 'Back to the 2D blueprint (V)' : '3D preview (V)';
       b.setAttribute('aria-label', b.title);
     });
-    $('#build-3d-hint').hidden = !on;
+    // the 3D hint shows when the 3D view comes on, then fades after a while
+    const hint = $('#build-3d-hint');
+    hint.hidden = !on;
+    hint.classList.remove('faded');
+    clearTimeout(this.hintTimer);
+    if (on) this.hintTimer = setTimeout(() => hint.classList.add('faded'), 9000);
+    hint.textContent = isTouch
+      ? '3D · drag to turn · tap a part, then drag it to move · pinch to zoom · drag parts up from the tray'
+      : '3D · drag parts to move them · drag empty space to turn · right-drag to pan · wheel to zoom';
   },
 
   showScene(name) {
@@ -111,6 +120,7 @@ const App = {
     $('#home').hidden = name !== 'home';
     $('#build-ui').hidden = name !== 'build';
     $('#flight-ui').hidden = name !== 'flight';
+    if (name === 'build') Builder.layout();
   },
 
   // ---------------------------------------------------------------- home
