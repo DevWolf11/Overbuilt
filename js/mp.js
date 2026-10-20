@@ -632,7 +632,7 @@ const MP = {
     }
     // a battle: watch the others until it's over
     Flight.ended = false;
-    setTimeout(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(by ? `Shot down by ${this.nameOf(by)}. Spectating ([ ] to switch)` : 'You crashed. Spectating ([ ] to switch)', 'warn'); } }, 1800);
+    setTimeout(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${isTouch ? 'tap' : '[ ]'} to switch)`, 'warn'); } }, 1800);
     return true;
   },
   // host: book-keeping for a craft lost

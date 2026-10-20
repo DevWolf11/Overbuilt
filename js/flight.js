@@ -1119,7 +1119,7 @@ const Flight = {
       if (b !== v.body) this.setTarget(b);
       return;
     }
-    if (this.destroyed) return;
+    if (this.destroyed) { if (this.mp && !this.mp.solo && MP.pvp) MPUI.spectate(1); return; } // (shot down: a tap watches the next player)
     if (App.use3D()) {
       const hit = Render3D.pickPart(cx, cy);
       if (!hit || !hit.part) return;

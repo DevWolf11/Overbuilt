@@ -502,7 +502,7 @@ const MPUI = {
     this.drawRadar(ctx, W, H, F, me);
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
-      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · [ ] to switch`, W / 2, H - 40);
+      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${isTouch ? 'tap' : '[ ]'} to switch`, W / 2, H - 40);
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },
