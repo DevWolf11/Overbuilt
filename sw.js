@@ -1,11 +1,12 @@
 // Offline support: always try the network first so updates show up on the next load, and fall back to
 // the cached copy when offline.
-const CACHE = 'rocket-science-sim-v6';
+const CACHE = 'rocket-science-sim-v8';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
   'js/util.js', 'js/space.js', 'js/terrain.js', 'js/parts.js', 'js/vessel.js', 'js/ui.js', 'js/audio.js',
   'js/world.js', 'js/parts3d.js', 'js/render3d.js', 'js/vendor/three.min.js',
   'js/career.js', 'js/map.js', 'js/builder.js', 'js/flight.js', 'js/main.js',
+  'assets/earth-height.png', 'assets/earth-color.jpg',
 ];
 self.addEventListener('install', (e) => {
   // bypass the browser's HTTP cache so a new version never caches old files

@@ -67,6 +67,103 @@ function trackBlend(e) {
   return lerp(b, 230, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
 }
 
+// ------------------------------------------------------------------ the real Earth
+// Heights and colours baked from Natural Earth and NASA's Blue Marble (tools/bake-earth.py), at the game's
+// 1/20 scale. The space centre sits in the Gulf of Guinea at 7.1°E on the equator, so the causeway runs
+// to the coast of Gabon. East is decreasing angle and north is -z. The space centre gets an island of its
+// own; elsewhere the 2D profile's shorter waves only add hills to high ground.
+const EM = { state: 'none', promise: null, W: 0, H: 0, h: null, CW: 0, CH: 0, rgb: null, lon0: (7.1 * Math.PI) / 180 };
+const ISLE = { e: 900, a: 2600, b: 1500, h: 44 }; // an oval around the pad and runway: centre (m east), half-axes, height
+const NORTH = -1; // real latitude = NORTH * z / R
+function mapDecode(v) {
+  if (v >= 128) { const u = v - 128; return 0.5 * u + 0.09 * u * u; }
+  const u = 127 - v;
+  return -(0.5 + 0.5 * u + 0.04 * u * u);
+}
+// bytes: decoded image data (step bytes per pixel)
+function mapSet(hb, W, H, hstep, cb, CW, CH, cstep) {
+  EM.h = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) EM.h[i] = mapDecode(hb[i * hstep]);
+  EM.rgb = new Uint8Array(CW * CH * 3);
+  for (let i = 0; i < CW * CH; i++) { EM.rgb[i * 3] = cb[i * cstep]; EM.rgb[i * 3 + 1] = cb[i * cstep + 1]; EM.rgb[i * 3 + 2] = cb[i * cstep + 2]; }
+  Object.assign(EM, { W, H, CW, CH, state: 'ready' });
+  cfgs.delete(EARTH); hc.clear(); hcBody = null;
+  EARTH.terrainMax = 1700;
+  EARTH.mapped = true;
+}
+function loadEarth(urls) {
+  if (EM.promise) return EM.promise;
+  EM.state = 'loading';
+  // decode without colour management, so the bytes come back exactly as stored
+  const bitmap = (src) => fetch(src).then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+    .then((bl) => createImageBitmap(bl, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }));
+  const image = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  const pixels = (im) => {
+    const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height;
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    g.drawImage(im, 0, 0);
+    return g.getImageData(0, 0, im.width, im.height).data;
+  };
+  const get = (src) => (typeof createImageBitmap === 'function' ? bitmap(src).catch(() => image(src)) : image(src));
+  EM.promise = Promise.all([get(urls.height), get(urls.color)])
+    .then(([hi, ci]) => mapSet(pixels(hi), hi.width, hi.height, 4, pixels(ci), ci.width, ci.height, 4))
+    .catch((e) => { EM.state = 'failed'; console.warn('Earth map unavailable; using generated terrain', e); });
+  return EM.promise;
+}
+const earthLon = (a) => EM.lon0 - wrapAngle(a - EARTH.padAngle);
+function mapH(lon, lat) {
+  const W = EM.W, H = EM.H, h = EM.h;
+  let x = (lon / TAU + 0.5) * W - 0.5;
+  x -= Math.floor(x / W) * W;
+  const y = clamp((0.5 - lat / Math.PI) * H - 0.5, 0, H - 1.0001);
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, x1 = ix + 1 === W ? 0 : ix + 1, r0 = iy * W, r1 = r0 + W;
+  return (h[r0 + ix] * (1 - fx) + h[r0 + x1] * fx) * (1 - fy) + (h[r1 + ix] * (1 - fx) + h[r1 + x1] * fx) * fy;
+}
+// Blue Marble colour (sRGB 0..255) at a point given as sim angle and depth.
+function earthColor(a, z, out) {
+  const W = EM.CW, H = EM.CH, c = EM.rgb, lat = (NORTH * z) / EARTH.radius;
+  let x = (earthLon(a) / TAU + 0.5) * W - 0.5;
+  x -= Math.floor(x / W) * W;
+  const y = clamp((0.5 - lat / Math.PI) * H - 0.5, 0, H - 1.0001);
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, x1 = ix + 1 === W ? 0 : ix + 1;
+  const p00 = (iy * W + ix) * 3, p01 = (iy * W + x1) * 3, p10 = p00 + W * 3, p11 = p01 + W * 3;
+  for (let k = 0; k < 3; k++) out[k] = (c[p00 + k] * (1 - fx) + c[p01 + k] * fx) * (1 - fy) + (c[p10 + k] * (1 - fx) + c[p11 + k] * fx) * fy;
+  return out;
+}
+// map height at a point given as sim angle and depth
+const earthH = (a, z) => mapH(earthLon(a), (NORTH * z) / EARTH.radius);
+// The island rises out of the real sea, with low hills and a ragged shore. hs: the profile's short waves.
+function island(c, e, z, al, real, hs) {
+  const dn = (e - ISLE.e) / ISLE.a, zn = z / ISLE.b;
+  let d = Math.hypot(dn, zn);
+  if (d > 2.6) return real;
+  real = Math.min(real, lerp(-40, real, smoothstep(1.5, 2.6, d))); // the island drops into blue water
+  if (d > 1.25) return real;
+  const n = c.coast[0];
+  d += 0.09 * (vnoise2(al / n[0], z / n[0], n[1], c.seed + 31) * 2 - 1);
+  const w = 1 - smoothstep(0.72, 1.0, d);
+  return w > 0 ? lerp(real, ISLE.h + 0.35 * hs * (1 - smoothstep(0.3, 0.8, d)), w) : real;
+}
+// the profile's shorter octaves make hills, more of them on high ground
+const hillW = (M) => 0.6 * smoothstep(4, 80, M) * (1 + M / 700);
+// coasts get a ragged edge finer than the map (3D noise on the sphere: no grid lines, no seam)
+function coastN(c, al, z, M) {
+  const k = 1 - smoothstep(12, 40, Math.abs(M));
+  if (k <= 0) return 0;
+  const R = c.R, a = al / R, ph = z / R, cp = Math.cos(ph), x = R * cp * Math.cos(a), y = R * cp * Math.sin(a), w = R * Math.sin(ph);
+  return 6 * k * ((vnoise3(x / 700, y / 700, w / 700, c.seed + 21) * 2 - 1) * 0.7 + (vnoise3(x / 230, y / 230, w / 230, c.seed + 22) * 2 - 1) * 0.3);
+}
+// Earth along the equator (the 2D profile's job when there is no map).
+function earthRaw(a) {
+  const c = cfgOf(EARTH), R = c.R, e = -wrapAngle(a - EARTH.padAngle) * R;
+  let Ps = 0;
+  for (let o = c.short; o < c.k.length; o++) Ps += c.amp[o] * Math.sin(c.k[o] * a + c.ph[o]);
+  const M = mapH(earthLon(a), 0);
+  let al = (a % TAU) * R;
+  if (al < 0) al += TAU * R;
+  return island(c, e, 0, al, M + hillW(M) * Ps + coastN(c, al, 0, M), Ps);
+}
+
 const cfgs = new Map();
 function cfgOf(b) {
   let c = cfgs.get(b);
@@ -89,6 +186,8 @@ function cfgOf(b) {
   };
   b.terrain.forEach(([k, amp, ph], i) => { c.k.push(k); c.amp.push(amp); c.ph.push(ph); c.kc.push(k * DIRS[i % DIRS.length]); });
   c.hmax = b.terrainMax + c.cont * 0.6 + 50;
+  c.mapped = b === EARTH && EM.state === 'ready';
+  c.short = 2; c.coast = [per(300)];
   c.G1 = grid(1, 1, c.k.length);
   cfgs.set(b, c);
   return c;
@@ -122,6 +221,7 @@ function setRow(c, G, j, z, dz) {
   for (let o = 0; o < no; o++) { const q = c.kc[o] * phi; G.rs[j * no + o] = Math.sin(q); G.rc[j * no + o] = Math.cos(q); }
 }
 function contAt(c, a, phi) {
+  if (c.mapped) return mapH(earthLon(a), NORTH * phi);
   if (!c.cont) return 0;
   const cp = Math.cos(phi), f = c.cf;
   return c.cont * fbm3(cp * Math.cos(a) * f + 11.3, cp * Math.sin(a) * f - 4.1, Math.sin(phi) * f + 2.7, 4, c.seed) + c.bias;
@@ -148,8 +248,12 @@ function craters(c, al, z, cell) {
 }
 function natural(c, G, i, j, cont) {
   const no = c.k.length, z = G.z[j], az = Math.abs(z), cell = Math.max(G.dx[i], G.dz[j]);
-  let h = c.base;
-  for (let o = 0, ci = i * no, rj = j * no; o < no; o++) h += c.amp[o] * (G.cs[ci + o] * G.rc[rj + o] + G.cc[ci + o] * G.rs[rj + o]);
+  let h = c.base, hs = 0;
+  for (let o = 0, ci = i * no, rj = j * no; o < no; o++) {
+    const t = c.amp[o] * (G.cs[ci + o] * G.rc[rj + o] + G.cc[ci + o] * G.rs[rj + o]);
+    h += t;
+    if (o >= c.short) hs += t;
+  }
   crDark = 0;
   if (c.ck) {
     const kp = c.ck * G.phi[j], d2 = G.ch[i] * G.ch[i] + kp * kp;
@@ -157,11 +261,14 @@ function natural(c, G, i, j, cont) {
   }
   if (c.cr.length && az > 100) h += craters(c, G.al[i], z, cell);
   const wd = smoothstep(30, 400, az);
+  let det = 0;
   if (wd > 0) for (const [cs, n, amp] of c.det) {
     const wb = 1 - smoothstep(0.3 * cs, 0.6 * cs, cell);
-    if (wb > 0) h += amp * wd * wb * (vnoise2(G.al[i] / cs, z / cs, n, c.seed) * 2 - 1);
+    if (wb > 0) det += amp * wd * wb * (vnoise2(G.al[i] / cs, z / cs, n, c.seed) * 2 - 1);
   }
-  return h + cont * smoothstep(c.c0, c.c1, az);
+  if (c.mapped) // cont is the map's height here
+    return island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs + coastN(c, G.al[i], z, cont), hs) + det;
+  return h + det + cont * smoothstep(c.c0, c.c1, az);
 }
 function apronW(e, z) {
   let B = 0;
@@ -233,6 +340,7 @@ function normalAt(b, a, z, o = v3()) {
 }
 
 return {
+  loadEarth, earthRaw, earthColor, earthLon, earthH, mapH, earthMap: EM, setEarthMap: mapSet,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
   dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt,
 };

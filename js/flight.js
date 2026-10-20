@@ -87,6 +87,8 @@ const Flight = {
     $('#btn-center').hidden = true;
     this.syncSas();
     this.requestWakeLock();
+    const silly = Silly.list.filter(([k]) => Silly.on(k)).map(([, name]) => name);
+    if (silly.length) this.toast(`Silly settings on: ${silly.join(', ')}`);
   },
 
   stop() {
@@ -303,6 +305,7 @@ const Flight = {
     FX.puff(v.body, wp, vel, 12, '#e8edf2');
     FX.sparks(v.body, wp, vel, 10);
     Sound.separate();
+    if (Silly.on('hollywood')) { FX.explosion(v.body, wp, vel, 1.5, airDensity(v.body, v.altitude()) > 0.01); Sound.explode(); }
     if (pieces.length) this.toast(`Separated ${fmt.mass(mBefore - v.mass)}`);
   },
 
@@ -354,7 +357,7 @@ const Flight = {
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
       UI.modal({ kicker: 'Mission update', title: 'Vessel destroyed', body: this.summaryHTML(), actions: acts });
-    }, 1600);
+    }, Silly.on('ghostCam') ? 5000 : 1600); // leave time to enjoy the view
   },
 
   canRecover() {
@@ -509,6 +512,12 @@ const Flight = {
     v.ctl.v = clamp(key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown') + st.v, -1, 1);
     v.ctl.h = clamp(key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft') + st.h, -1, 1);
     v.ctl.r = clamp(key('KeyE') - key('KeyQ') + st.r, -1, 1);
+    if (Silly.on('drunk')) { // the stick wanders off on its own, in waves
+      const t = this.time, w = Math.max(0, Math.sin(t * 0.23)) * 0.6;
+      v.ctl.v = clamp(v.ctl.v + w * Math.sin(t * 1.1), -1, 1);
+      v.ctl.h = clamp(v.ctl.h + w * Math.sin(t * 0.7 + 2), -1, 1);
+      v.ctl.r = clamp(v.ctl.r + w * 0.6 * Math.sin(t * 0.9 + 4), -1, 1);
+    }
     const dT = key('ShiftLeft', 'ShiftRight', 'PageUp') - key('ControlLeft', 'ControlRight', 'PageDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
     v.brake = k.has('KeyB') || this.touchBrake;
@@ -516,7 +525,7 @@ const Flight = {
 
   // Breaking the sound barrier: a boom when the craft first passes Mach 1 in thick enough air.
   soundBarrier(v) {
-    const m = v.mach || 0, air = airDensity(v.body, v.altitude());
+    const m = effectMach(v), air = airDensity(v.body, v.altitude());
     if (m >= 1 && this.machWas < 1 && air > 0.05 && this.warpIdx <= PHYS_WARP_MAX) {
       Sound.boom(clamp(air / 1.2, 0.3, 1));
       haptic([30, 20, 50]);
@@ -525,8 +534,8 @@ const Flight = {
       const pos = { x: v.x, y: v.y, z: v.z }, vel = { x: v.vx * 0.9, y: v.vy * 0.9, z: v.vz * 0.9 }, L = Math.max(v.width, v.bounds.maxY - v.bounds.minY, 3);
       FX.add({ kind: 'ring', b: v.body, ...pos, vx: vel.x, vy: vel.y, vz: vel.z, max: 0.7, size: L * 0.6, grow: L * 7, color: '#eef6ff', alpha: 0.9 });
       FX.puff(v.body, pos, vel, 22, '#f4f8ff');
-      if (!this.flags.machOne) this.toast('Sound barrier broken!', 'achievement');
-      this.flags.machOne = true;
+      if (v.mach < 1) { if (!this.flags.fakeBoom) this.toast('Sound barrier broken! Allegedly.'); this.flags.fakeBoom = true; }
+      else { if (!this.flags.machOne) this.toast('Sound barrier broken!', 'achievement'); this.flags.machOne = true; }
     }
     if (m < 0.97 || m >= 1) this.machWas = m;
   },
@@ -1183,6 +1192,12 @@ const Flight = {
   // wreck instead of being left behind in space while the planet moves on along its orbit.
   updateCamera() {
     const v = this.active, c = this.camRel;
+    if (this.destroyed && Silly.on('ghostCam')) { // the classic crash bug: the camera stays behind while the planet flies on
+      if (!this.ghostAt) this.ghostAt = { ...this.camAbs };
+      this.camAbs = this.ghostAt;
+      return;
+    }
+    this.ghostAt = null;
     if (v && v.parts.length && !v.dead) { c.b = v.body; c.x = v.x; c.y = v.y; c.z = v.z; }
     const bp = bodyPos(c.b, this.time);
     this.camAbs = { x: bp.x + c.x, y: bp.y + c.y, z: c.z };

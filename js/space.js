@@ -157,6 +157,7 @@ function bodyVel(b, t) {
 
 // Natural terrain, before the space centre's flattened ground.
 function terrainRaw(b, ang) {
+  if (b.mapped) return Terrain.earthRaw(ang); // the real map (terrain.js)
   let h = b.terrainBase || 0;
   for (const [k, amp, ph] of b.terrain) h += amp * Math.sin(k * ang + ph);
   if (b.craters) h -= b.craters[1] * Math.pow(Math.abs(Math.sin(b.craters[0] * ang + 0.7)), 6);

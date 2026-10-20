@@ -127,6 +127,27 @@ const store = {
   },
 };
 
+// Secret silly settings (unlocked by tapping the Options title): all off unless the player turns them on.
+const Silly = {
+  list: [
+    ['ghostCam', 'Crash cam classic', 'The original crash bug: after a crash the camera stays put in space and the planet zooms away.'],
+    ['retro2d', 'Retro 2D flight', 'Fly in the original flat 2D view.'],
+    ['ogAutopilot', 'Vintage autopilot', 'The first plane autopilot, from before it learned not to porpoise.'],
+    ['noodle', 'Noodle wings', 'Wings and tails tear off at a quarter of the load.'],
+    ['bouncy', 'Bouncy castle', 'Nothing breaks when it hits the ground. Everything bounces.'],
+    ['drunk', 'Wobbly pilot', 'The stick drifts around on its own, in waves.'],
+    ['hollywood', 'Hollywood', 'Explosions three times the size, and stage separations explode too.'],
+    ['boomy', 'Sonic boom at 90 km/h', 'The vapour cone and the boom think the speed of sound is 25 m/s.'],
+  ],
+  flags: store.get('rss.silly', {}),
+  on(k) { return !!this.flags[k]; },
+  set(k, v) { this.flags[k] = !!v; store.set('rss.silly', this.flags); },
+  get unlocked() { return !!store.get('rss.sillyUnlocked', false); },
+  unlock() { store.set('rss.sillyUnlocked', true); },
+};
+// The Mach number the sound-barrier effects use (only effects: missions read v.mach).
+function effectMach(v) { return Silly.on('boomy') ? (v.airspeed || 0) / 25 : v.mach || 0; }
+
 // Tiny DOM helpers
 const $ = (sel) => document.querySelector(sel);
 function el(tag, attrs, ...children) {

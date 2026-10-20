@@ -52,6 +52,7 @@ const FX = {
     }
   },
   explosion(body, p, v, size, air) {
+    if (Silly.on('hollywood')) size *= 3;
     const at = { b: body, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z };
     this.add({ kind: 'flash', ...at, max: 0.35, size: size * 4, grow: size * 8, color: '#fff3c4', alpha: 1 });
     this.add({ kind: 'ring', ...at, max: 0.7, size: size, grow: size * 14, color: '#ffe2a8', alpha: 0.7 });
@@ -140,6 +141,27 @@ const FX = {
 // ---------------------------------------------------------------------------
 // Planet discs (shared by the flight view when zoomed out and the map view)
 
+// The real Earth seen from above the orbital plane (+z, which is the south pole's side), as on the map.
+// Canvas x, y are the sim's x, y; built once the map has loaded.
+let earthDiscCv = null;
+function earthDisc() {
+  if (earthDiscCv || !EARTH.mapped) return earthDiscCv;
+  const N = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = N;
+  const g = cv.getContext('2d'), im = g.createImageData(N, N), c = [0, 0, 0], deep = hexToRgb('#0d3566'), shal = hexToRgb('#2a7ab3');
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = ((i + 0.5) / N) * 2 - 1, y = ((j + 0.5) / N) * 2 - 1, r2 = x * x + y * y, k = (j * N + i) * 4;
+    if (r2 > 1) continue;
+    const a = Math.atan2(y, x), z = Math.asin(Math.sqrt(1 - r2)) * EARTH.radius, h = Terrain.earthH(a, z);
+    Terrain.earthColor(a, z, c);
+    if (h < 0) { const t = smoothstep(-300, -10, h); for (let q = 0; q < 3; q++) c[q] = lerp(lerp(deep[q], shal[q], t), c[q], 0.2); }
+    else for (let q = 0; q < 3; q++) c[q] = Math.min(255, 255 * Math.pow(c[q] / 255, 0.8) * 1.1);
+    im.data[k] = c[0]; im.data[k + 1] = c[1]; im.data[k + 2] = c[2]; im.data[k + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  return (earthDiscCv = cv);
+}
+
 function paintBodyDisc(ctx, b, cx, cy, R, sx, sy, flipY) {
   // sx, sy: unit vector towards the Sun in the same coordinate space as cx, cy
   if (b.star) {
@@ -157,7 +179,14 @@ function paintBodyDisc(ctx, b, cx, cy, R, sx, sy, flipY) {
   const lit = ctx.createRadialGradient(cx + sx * R * 0.35, cy + sy * R * 0.35, R * 0.1, cx, cy, R * 1.1);
   lit.addColorStop(0, mixColor(b.colors.map, '#ffffff', 0.18)); lit.addColorStop(1, b.colors.map);
   ctx.fillStyle = lit; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-  if (b.ocean) {
+  const disc = b === EARTH && earthDisc();
+  if (disc) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (flipY) ctx.scale(1, -1);
+    ctx.drawImage(disc, -R, -R, R * 2, R * 2);
+    ctx.restore();
+  } else if (b.ocean) {
     // land profile along the rim, read straight from the terrain
     ctx.fillStyle = b.colors.land;
     const N = 180;
