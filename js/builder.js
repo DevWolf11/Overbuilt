@@ -178,7 +178,7 @@ const Builder = {
   serialize() {
     return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip, rot: p.rot || 0 })) };
   },
-  save() { store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); },
+  save() { if (typeof MP !== 'undefined' && MP.savedCareer) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
   loadDesign(d, keepHistory) {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
     if (d.name) this.name = d.name;

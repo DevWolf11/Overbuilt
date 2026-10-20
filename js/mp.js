@@ -26,6 +26,10 @@ const MP_SPAWNS = [
   { id: 'carrierC', name: 'Carrier South', kind: 'carrier', team: -1, carrier: 'south', desc: 'Catapult launch off the coast of Scotland.' },
 ];
 
+// Checks for what other players send (a broken or hostile peer must not be able to break our game).
+const mpNums = (a, n) => Array.isArray(a) && a.length === n && a.every(Number.isFinite);
+const mpBody = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(BODY_BY_ID, id) && BODY_BY_ID[id]) || null;
+
 const MP = {
   active: false,
   state: null,
@@ -119,7 +123,12 @@ const MP = {
     Career.data = s.data; Career.save = s.save;
     this.savedCareer = null;
     store.set('rss.design', s.design);
-    if (s.design && s.design.parts && s.design.parts.length) Builder.loadDesign(s.design); else Builder.loadTemplate('hopper');
+    Builder.savedAs = null;
+    if (s.design && s.design.parts && s.design.parts.length) {
+      Builder.loadDesign(s.design);
+      const e = s.design.savedAs && Builder.designs().find((x) => x.name === s.design.savedAs);
+      if (e) Builder.markSaved(e);
+    } else Builder.loadTemplate('hopper');
     Builder.buildPalette();
   },
   setMoney(budget) {
@@ -177,6 +186,7 @@ const MP = {
     this.state.players = this.state.players.filter((q) => q.pid !== pid);
     if (p) this.feed(`${p.name} left`);
     if (this.state.phase === 'battle') this.checkWin();
+    if (this.state.phase === 'build' || this.state.phase === 'polish') this.maybeAllReady();
     this.push();
   },
   // a change to one player's own row (team, ready, spawn) or a host setting
@@ -232,6 +242,8 @@ const MP = {
     this.state = Net.isHost ? s : JSON.parse(JSON.stringify(s));
     const me = this.me;
     if (!me) { if (!Net.isHost && this.active && prev) this.end('You were removed from the room'); return; }
+    const ids = new Set(this.state.players.map((p) => p.pid));
+    for (const pid of [...this.peers.keys()]) if (!ids.has(pid)) { this.dropGhost(pid, true); this.peers.delete(pid); this.rwr.delete(pid); }
     // kill feed and chat-like notices
     for (const f of this.state.feed) if (f.n > (this.feedSeen || 0)) { this.feedSeen = f.n; MPUI.notice(f.text); }
     if (this.state.phase !== prevPhase || this.state.round !== prevRound) {
@@ -262,6 +274,7 @@ const MP = {
         this.startFlight(true);
         break;
       case 'polish':
+        UI.closeModal();
         this.leaveFlight();
         this.enterBuild(false);
         UI.toast('Test flight over: polish your design');
@@ -292,15 +305,16 @@ const MP = {
     s.endsLen = seconds || 0;
     s.allReadyAt = 0;
     if (phase === 'build' || phase === 'polish') for (const p of s.players) p.ready = false;
-    if (phase === 'battle') { for (const p of s.players) { p.alive = true; p.flying = false; } s.battleAt = Net.hostNow(); s.tod = this.timeOfDay(s.settings.tod); }
+    if (phase === 'battle') { for (const p of s.players) { p.alive = true; p.flying = false; } s.battleAt = Net.hostNow(); s.tod = this.timeOfDay(s.settings.tod); s.sides = [...new Set(s.players.map((p) => p.team))]; }
     if (phase === 'test') s.tod = this.timeOfDay(s.settings.tod);
     this.push();
   },
   // everyone ready: the phase ends 3 seconds later
   maybeAllReady() {
-    const s = this.state;
-    if (!s.players.length || !s.players.every((p) => p.ready) || s.allReadyAt) return;
-    s.allReadyAt = Net.hostNow();
+    const s = this.state, all = s.players.length && s.players.every((p) => p.ready);
+    if (!all && s.allReadyAt) { s.allReadyAt = 0; s.ends = s.endsFull || s.ends; return; } // someone changed their mind
+    if (!all || s.allReadyAt) return;
+    s.allReadyAt = Net.hostNow(); s.endsFull = s.ends;
     s.ends = Math.min(s.ends || Infinity, Net.hostNow() + 3000);
   },
   // host clock tick (wall clock: keeps going in a background tab)
@@ -334,7 +348,7 @@ const MP = {
     const s = this.state;
     if (!Net.isHost || !s || s.phase !== 'battle' || this.finishing) return;
     const teams = new Set(s.players.filter((p) => p.alive).map((p) => p.team));
-    const started = new Set(s.players.map((p) => p.team));
+    const started = new Set(s.sides || s.players.map((p) => p.team));
     if (teams.size > 1 || (started.size <= 1 && teams.size === 1)) return;
     this.finishing = true;
     setTimeout(() => { this.finishing = false; this.finish(teams.size ? [...teams][0] : null, 'last'); }, 3500);
@@ -416,8 +430,8 @@ const MP = {
     const d = this.myDesign || Builder.serialize();
     const parts = (d.parts || []).filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: q.rot || 0 }));
     const ctrl = findControlPart(parts);
-    const cost = designCost(parts);
-    if (ctrl && !this.designProblems({ cost }, parts, d.kind).length) return d;
+    const keep = ctrl ? componentOf(ctrl.id, buildAdjacency(parts)) : new Set(), used = parts.filter((p) => keep.has(p.id)); // (loose parts stay behind)
+    if (ctrl && !this.designProblems({ cost: designCost(used) }, used, d.kind).length) return d;
     const stock = ['mustang', 'camel', 'skylark'].map((k) => TEMPLATES[k]).find((t) => {
       const ps = t.parts.map(([type, x, y, rot]) => makePart(type, x, y, { flip: x < 0, rot: rot || 0 }));
       return !this.designProblems({ cost: designCost(ps) }, ps, t.kind).length;
@@ -467,6 +481,7 @@ const MP = {
   enterBuild(first) {
     const s = this.state;
     Builder.mp = { budget: this.budgetFor(this.spawnId), limits: this.limitsFor(this.spawnId), kinds: MP_KINDS_PVP };
+    Builder.renderKind();
     this.setMoney(Builder.mp.budget);
     if (App.scene !== 'build') App.toBuild();
     if (first && !MP_KINDS_PVP.includes(Builder.kind)) Builder.setKind && Builder.setKind('plane');
@@ -510,7 +525,7 @@ const MP = {
   sandboxTime() { return this.state && this.state.t0 != null ? this.state.t0 + (Net.hostNow() - this.state.t0At) / 1000 : 0; },
   leaveFlight() {
     if (App.scene !== 'flight' && !Flight.running) return;
-    if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' });
+    if (Flight.running && Flight.mp && !Flight.mp.solo) { Net.send({ t: 'despawn' }); if (!this.pvp) this.setMine('flying', false); }
     Flight.stop();
     this.dropAllGhosts();
     Combat.reset(Flight);
@@ -597,7 +612,7 @@ const MP = {
       setTimeout(() => {
         if (!this.live || this.phase !== 'test' || App.scene !== 'flight' || !Flight.destroyed) return;
         UI.modal({ kicker: 'Test flight', title: 'Craft lost', body: '<p>Only a test: nothing is lost. Try again, or wait for the polish phase to fix what broke.</p>',
-          actions: [{ label: 'Fly again', primary: true, onClick: () => this.startFlight(true) }] });
+          actions: [{ label: 'Fly again', primary: true, onClick: () => { if (this.phase === 'test') this.startFlight(true); } }] });
       }, 1400);
       return true;
     }
@@ -640,6 +655,9 @@ const MP = {
     return P;
   },
   onSpawn(m) {
+    if (!Array.isArray(m.parts) || m.parts.length > 600) return;
+    m.parts = m.parts.filter((r) => Array.isArray(r) && Number.isFinite(r[0]) && typeof r[1] === 'string' && Object.prototype.hasOwnProperty.call(PARTS, r[1]) && Number.isFinite(r[2]) && Number.isFinite(r[3]));
+    m.kind = String(m.kind || 'plane');
     const P = this.peer(m.f);
     this.dropGhost(m.f, false);
     P.design = m;
@@ -652,8 +670,7 @@ const MP = {
     if (!P || !P.design || P.ghost) return;
     const parts = [];
     for (const [id, type, x, y, rot, flip] of P.design.parts) {
-      if (!PARTS[type]) continue;
-      const p = makePart(type, x, y, { flip: !!flip, rot: rot || 0 });
+      const p = makePart(type, x, y, { flip: !!flip, rot: (rot | 0) & 3 });
       p.id = id;
       parts.push(p);
     }
@@ -677,7 +694,7 @@ const MP = {
       if (boom && Flight.running) { const g = P.ghost; FX.explosion(g.body, g.toWorld(g.com.x, g.com.y), { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, 4, true); }
       P.ghost.dead = true;
       if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => v !== P.ghost);
-      if (Flight.spectate === P.ghost) Flight.spectate = null;
+      if (Flight.spectate === P.ghost) { Flight.spectate = null; setTimeout(() => { if (this.live && Flight.destroyed && !Flight.spectate) MPUI.spectate(1); }, 1500); }
       P.ghost = null;
     }
     P.gun = {};
@@ -687,6 +704,8 @@ const MP = {
     if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => !v.remote);
   },
   onSnap(m) {
+    if (!mpNums(m.P, 3) || !mpNums(m.V, 3) || !mpNums(m.Q, 4) || !mpNums(m.W, 3) || !mpNums(m.C, 2) || !Number.isFinite(m.th) || !mpBody(m.b)) return;
+    if (!(Math.hypot(...m.Q) > 0.5)) return;
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
     if (!P.design && this.shared && P.recv - (P.asked || 0) > 3000) { P.asked = P.recv; Net.send({ t: 'want' }, m.f); }
@@ -696,7 +715,7 @@ const MP = {
   poseGhost(P, dt, snap) {
     const g = P.ghost, S = P.snap;
     if (!g || !S) return;
-    if (S.b !== g.body.id) g.body = BODY_BY_ID[S.b] || g.body;
+    if (S.b !== g.body.id) g.body = mpBody(S.b) || g.body;
     const age = clamp((Net.hostNow() - S.th) / 1000, 0, 0.75);
     const tx = S.P[0] + S.V[0] * age, ty = S.P[1] + S.V[1] * age, tz = S.P[2] + S.V[2] * age;
     const W = S.W, wl = Math.hypot(W[0], W[1], W[2]);
@@ -720,21 +739,25 @@ const MP = {
     if (!this.shared) return;
     const list = Flight.vessels;
     for (const [pid, P] of this.peers) {
-      if (!P.ghost && P.design && P.snap) this.buildGhost(pid);
-      const g = P.ghost;
-      if (!g) continue;
-      if (performance.now() - (P.recv || 0) > 6000) continue; // silent: leave it where it was
-      this.poseGhost(P, dt, false);
-      if (!g.dead && g.parts.length && !list.includes(g)) list.push(g);
+      try {
+        if (!P.ghost && P.design && P.snap) this.buildGhost(pid);
+        const g = P.ghost;
+        if (!g) continue;
+        if (performance.now() - (P.recv || 0) > 6000) { g.vx = g.vy = g.vz = 0; continue; } // silent: it stays where it was
+        this.poseGhost(P, dt, false);
+        if (!g.dead && g.parts.length && !list.includes(g)) list.push(g);
+      } catch (e) { console.error(e); this.dropGhost(pid, false); P.design = null; P.snap = null; }
     }
     // radar locks time out
     for (const [pid, t] of this.rwr) if (performance.now() - t > 2500) this.rwr.delete(pid);
   },
   onPartVis(m) {
     const P = this.peers.get(m.f), g = P && P.ghost;
-    if (!g) return;
+    if (!g || !Array.isArray(m.list)) return;
     const by = new Map(g.parts.map((p) => [p.id, p]));
-    for (const [id, defl, fire, ab, ret, sweep, ay, ae, ammo, dep, used, gun] of m.list) {
+    for (const row of m.list) {
+      if (!Array.isArray(row)) continue;
+      const [id, defl, fire, ab, ret, sweep, ay, ae, ammo, dep, used, gun] = row.map((x) => (x == null || Number.isFinite(x) ? x : 0));
       const p = by.get(id);
       if (!p) continue;
       p.deflect = defl; p.firing = fire; p.ab = ab; p.retracted = !!ret;
@@ -747,7 +770,7 @@ const MP = {
   },
   onParts(m) {
     const P = this.peers.get(m.f), g = P && P.ghost;
-    if (!g) return;
+    if (!g || !Array.isArray(m.ids)) return;
     const keep = new Set(m.ids);
     const gone = g.parts.filter((p) => !keep.has(p.id));
     if (!gone.length) return;
@@ -760,9 +783,9 @@ const MP = {
   },
   onHp(m) {
     const P = this.peers.get(m.f), g = P && P.ghost;
-    if (!g) return;
+    if (!g || !Array.isArray(m.list)) return;
     const by = new Map(g.parts.map((p) => [p.id, p]));
-    for (const [id, pct] of m.list) { const p = by.get(id); if (p) p.hp = (pct / 100) * Combat.maxHp(p.def); }
+    for (const row of m.list) { if (!Array.isArray(row)) continue; const p = by.get(row[0]); if (p && Number.isFinite(row[1])) p.hp = (clamp(row[1], 0, 100) / 100) * Combat.maxHp(p.def); }
   },
   onDown(m) {
     const P = this.peers.get(m.f);
@@ -794,12 +817,14 @@ const MP = {
     const v = Flight.active, P = this.peers.get(m.f);
     if (!v || Flight.destroyed || !this.hostile(m.f, Net.me)) return;
     const by = (P && P.ghost) || { remote: m.f, name: this.nameOf(m.f) };
-    const list = m.list || [[m.part, m.dmg]];
+    const list = Array.isArray(m.list) ? m.list.slice(0, 64) : [[m.part, m.dmg]];
     // a part may have broken off into a piece of debris since: look in every craft of ours
     const mine = Flight.vessels.filter((x) => !x.remote && !x.ai);
     v.lastHitBy = by; v.lastHitAt = Flight.time; // first: the hit may be the one that brings us down
     let first = true;
-    for (const [id, dmg] of list) {
+    for (const row of list) {
+      if (!Array.isArray(row)) continue;
+      const [id, dmg] = row;
       let part = null, owner = null;
       for (const x of mine) { part = x.parts.find((p) => p.id === id); if (part) { owner = x; break; } }
       if (!part || !(dmg > 0)) continue;
@@ -814,7 +839,8 @@ const MP = {
   },
   onBoom(m) {
     if (!this.shared || !Flight.running) return;
-    Combat.netBoom(BODY_BY_ID[m.b] || EARTH, { x: m.P[0], y: m.P[1], z: m.P[2] }, m.r);
+    if (!mpNums(m.P, 3)) return;
+    Combat.netBoom(mpBody(m.b) || EARTH, { x: m.P[0], y: m.P[1], z: m.P[2] }, clamp(+m.r || 5, 1, 60));
   },
   addDamage(pid, dmg) { const p = this.player(pid); if (p) p.dmg = Math.round((p.dmg || 0) + dmg); },
   // missiles: we fly ours and tell the others where they are

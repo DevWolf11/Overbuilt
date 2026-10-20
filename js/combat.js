@@ -585,7 +585,7 @@ const Combat = (() => {
   function airframe(w) {
     if (w.seek !== 'air') return {};
     const radar = !!w.radar;
-    return { air: true, sarh: radar, drag: w.drag || (radar ? 1.1e-4 : 1.6e-4), bleed: w.bleed || 0.012, gimbal: w.gimbal || (radar ? 1.0 : 0.6),
+    return { air: true, sarh: radar, drag: w.drag || (radar ? 1.1e-4 : 1.6e-4), bleed: w.bleed || 0.012, gimbal: w.gimbal || (radar ? 1.1 : 0.6),
       track: w.track || (radar ? 1.0 : 0.7), arm: w.arm != null ? w.arm : 0.6, irccm: w.irccm || 0, nav: 4, cm: new WeakSet(), lostT: 0, notchT: 0, trackT: 0 };
   }
   // How bright a craft is to a heat seeker looking from `from` (1: a fighter jet at full dry power seen from
@@ -700,13 +700,13 @@ const Combat = (() => {
   // ---------------------------------------------------------------- the other players' fire (multiplayer)
   // Copies of their rockets, bombs and missiles fly here for show only (dmg 0, no hit tests): their owners
   // say what they hit. Their flares work on our missiles, which fly here.
-  const bodyOf = (id) => (typeof BODY_BY_ID !== 'undefined' && BODY_BY_ID[id]) || EARTH;
+  const bodyOf = (id) => (typeof BODY_BY_ID !== 'undefined' && typeof id === 'string' && Object.prototype.hasOwnProperty.call(BODY_BY_ID, id) && BODY_BY_ID[id]) || EARTH;
   const vec = (a) => (Array.isArray(a) && a.length === 3 && a.every(Number.isFinite) ? a : null);
   function netShot(g, m) {
     const P = vec(m.P), V = vec(m.V), D = vec(m.D) || [0, 0, 0], bomb = m.k === 'bomb';
     if (!g || !P || !V) return;
     S.shots.push({ k: bomb ? 'bomb' : 'rocket', b: bodyOf(m.b), x: P[0], y: P[1], z: P[2], vx: V[0], vy: V[1], vz: V[2], dx: D[0], dy: D[1], dz: D[2],
-      t: 0, life: bomb ? 90 : 9, burn: +m.burn || 0, accel: +m.accel || 0, dmg: 0, blast: bomb ? 30 : 9, small: !!m.small, torpedo: !!m.torpedo, owner: g, net: g.remote });
+      t: 0, life: bomb ? 90 : 9, burn: clamp(+m.burn || 0, 0, 150), accel: clamp(+m.accel || 0, 0, 400), dmg: 0, blast: bomb ? 30 : 9, small: !!m.small, torpedo: !!m.torpedo, owner: g, net: g.remote });
   }
   // a missile of theirs: dead-reckoned between their updates; aimed at us (target), it sets off our warning
   function netMissile(g, m, target) {
@@ -849,7 +849,11 @@ const Combat = (() => {
   }
   function samFire(t, F) {
     const v = F.active, c = targetCentre(t), up = { x: c.x / R(), y: c.y / R(), z: c.z / R() };
-    S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: up.x * 40, vy: up.y * 40, vz: up.z * 40, dx: up.x, dy: up.y, dz: up.z, t: 0.35, life: 26,
+    // off the rail towards the target, a little above the line of sight (its seeker has to see it from the start)
+    let lx = v.x - c.x, ly = v.y - c.y, lz = v.z - c.z;
+    const ll = len(lx, ly, lz) || 1; lx = lx / ll + up.x * 0.25; ly = ly / ll + up.y * 0.25; lz = lz / ll + up.z * 0.25;
+    const l2 = len(lx, ly, lz) || 1, d = { x: lx / l2, y: ly / l2, z: lz / l2 };
+    S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 26,
       burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true, ...airframe({ seek: 'air', drag: 1.2e-4, arm: 0.4 }) });
     if (len(v.x - c.x, v.y - c.y, v.z - c.z) < 12000) F.toast('SAM launch!', 'warn');
   }

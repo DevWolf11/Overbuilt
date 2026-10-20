@@ -20,6 +20,8 @@ const Net = (() => {
     hostOffset: 0,        // host clock minus ours (ms)
     bytesIn: 0, bytesOut: 0,
   };
+  const HOST_ONLY = new Set(['hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
+  let joinGen = 0;
   let peer = null, chan = null, link = null, cid = '', nextPid = 2, pingTimer = 0, watchTimer = 0, lastHeard = 0;
   const links = new Map(); // host: pid -> { send, close, heard }
   const offsets = [];
@@ -64,6 +66,7 @@ const Net = (() => {
   // ---------------------------------------------------------------- host
   N.host = ({ transport = 'p2p', name = 'Pilot', maxPlayers = 6 } = {}) => new Promise((resolve, reject) => {
     N.leave();
+    joinGen++; // (any join still pending is stale now)
     Object.assign(N, { transport, name, maxPlayers, isHost: true, me: 1, locked: false, hostOffset: 0, bytesIn: 0, bytesOut: 0 });
     N.names = new Map([[1, name]]); N.pings = new Map([[1, 0]]);
     nextPid = 2;
@@ -122,6 +125,7 @@ const Net = (() => {
     msg.f = pid; // never trust the sender's own claim
     if (msg.t === 'pong') { N.pings.set(pid, Math.round(performance.now() - msg.ts)); return; }
     if (msg.t === 'bye') { dropPlayer(pid, 'left'); return; }
+    if (HOST_ONLY.has(msg.t)) return; // (a client can't close the room, add or remove players, or set the clock)
     route(msg, pid);
   }
   function dropPlayer(pid, why) {
@@ -168,7 +172,8 @@ const Net = (() => {
     Object.assign(N, { transport, name, isHost: false, me: 0, code, hostOffset: 0, bytesIn: 0, bytesOut: 0 });
     N.names = new Map();
     let done = false;
-    const fail = (text) => { if (done) return; done = true; N.leave(); reject(new Error(text)); };
+    const gen = ++joinGen; // (a later join or host makes this attempt stale: it must not tear that one down)
+    const fail = (text) => { if (done) return; done = true; if (gen === joinGen) N.leave(); reject(new Error(text)); };
     const timer = setTimeout(() => fail(transport === 'local' ? 'No room with that code is open in another tab' : 'Couldn’t reach the room: check the code and that the host is still in the lobby'), 15000);
     const onMsg = (msg) => {
       if (!msg || typeof msg.t !== 'string') return;
@@ -183,6 +188,7 @@ const Net = (() => {
         resolve(msg.pid);
         return;
       }
+      if (HOST_ONLY.has(msg.t) && msg.f !== 1) return; // (only the host closes the room or sets the clock)
       if (msg.t === 'ping') {
         link.send({ t: 'pong', ts: msg.ts });
         if (msg.rtt > 0) { // host clock now = ts + about half a round trip
@@ -209,7 +215,8 @@ const Net = (() => {
     peer = new Peer({ debug: 0 });
     peer.on('error', (e) => {
       if (!done) { clearTimeout(timer); fail(e.type === 'peer-unavailable' ? 'No room with that code: check it, or ask the host to create the room again' : netError(e)); return; }
-      if (e.type === 'peer-unavailable' || e.type === 'network') closeAll('Lost the connection to the host');
+      if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
+      else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
     });
     peer.on('open', () => {
       const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });

@@ -28,18 +28,25 @@ const MPUI = {
       const st = $('#mp-status'); st.textContent = text || ''; st.classList.toggle('err', !!err);
     };
     const go = async (fn, wait) => {
+      if (this.connecting) return; // (one attempt at a time)
       store.set('rss.mp.name', name.value.trim().slice(0, 18));
       if (!name.value.trim()) { name.value = MP.myName(); }
+      const tok = this.connecting = {};
       busy(true, wait);
-      try { await fn(); busy(false, ''); this.refresh(); Sound.chime(); }
-      catch (e) { busy(false, e.message || String(e), true); MP.active && MP.end(); }
+      try {
+        await fn();
+        if (this.connecting !== tok) { MP.active && MP.end(); return; } // abandoned (left the screen meanwhile)
+        busy(false, ''); this.refresh(); Sound.chime();
+      } catch (e) { if (this.connecting === tok) busy(false, e.message || String(e), true); MP.active && MP.end(); }
+      finally { if (this.connecting === tok) this.connecting = null; }
     };
+    this.abandon = () => { if (this.connecting) { this.connecting = null; busy(false, ''); Net.leave(true); } };
     const transport = () => store.get('rss.mp.tr', 'p2p');
     $('#mp-create-sandbox').addEventListener('click', () => go(() => MP.host('sandbox', transport()), 'Opening a room…'));
     $('#mp-create-pvp').addEventListener('click', () => go(() => MP.host('pvp', transport()), 'Opening a room…'));
     const join = () => go(() => MP.join($('#mp-join-code').value, transport()), 'Joining…');
     $('#mp-join').addEventListener('click', join);
-    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) join(); });
     $('#mp-back').addEventListener('click', () => this.leave());
     $('#mp-code').addEventListener('click', () => {
       const code = Net.code;
@@ -63,7 +70,6 @@ const MPUI = {
       if (e.key === 'Enter') { this.say(hi.value); hi.value = ''; this.chatInput(false); }
       else if (e.key === 'Escape') { hi.value = ''; this.chatInput(false); }
     });
-    hi.addEventListener('keyup', (e) => e.stopPropagation());
     addEventListener('keydown', (e) => {
       if (!MP.live || e.repeat) return;
       const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT');
@@ -81,7 +87,7 @@ const MPUI = {
     this.chat(Net.me, text);
   },
   async leave() {
-    if (!MP.active) { App.toHome(); return; }
+    if (!MP.active) { if (this.abandon) this.abandon(); App.toHome(); return; }
     UI.modal({
       kicker: Net.isHost ? 'You are the host' : `Room ${Net.code}`, title: 'Leave the room?',
       body: Net.isHost ? 'The room closes for everyone when the host leaves.' : 'You can join again with the same code.',
@@ -214,7 +220,8 @@ const MPUI = {
     const show = MP.live && (App.scene === 'build' || App.scene === 'flight') && (s.mode === 'pvp' ? s.phase !== 'lobby' : true);
     bar.hidden = !show;
     if (App.scene === 'build' && Builder.canvas) Builder.renderLaunch();
-    if (!show) return;
+    if (App.scene !== 'flight' && !$('#mp-hud-chat').hidden) { $('#mp-hud-input').hidden = true; $('#mp-hud-input').blur(); $('#mp-hud-chat').hidden = true; }
+    if (!show) { this.scoreSticky = false; $('#mp-score').hidden = true; return; }
     bar.classList.toggle('flight', App.scene === 'flight');
     const label = s.mode === 'sandbox' ? 'Sandbox' : { build: 'Build', test: 'Test flight', polish: 'Final touches', battle: 'Battle', results: 'Results' }[s.phase] || s.phase;
     $('#mp-phase').textContent = label;
@@ -224,6 +231,7 @@ const MPUI = {
     $('#mp-ready-btn').textContent = MP.me && MP.me.ready ? 'Ready ✓' : 'Ready';
     $('#mp-spawn-btn').hidden = !building || App.scene !== 'build';
     $('#mp-score-btn').hidden = s.mode !== 'pvp' && App.scene !== 'flight';
+    if ($('#mp-score-btn').hidden && !$('#mp-score').hidden) { this.scoreSticky = false; $('#mp-score').hidden = true; }
     this.tick();
   },
   tick() {
@@ -398,7 +406,7 @@ const MPUI = {
     const box = $('#mp-hud-chat'), i = $('#mp-hud-input');
     box.hidden = !on && !$('#mp-hud-log').children.length;
     i.hidden = !on;
-    if (on) { box.hidden = false; setTimeout(() => i.focus(), 0); } else i.blur();
+    if (on) { box.hidden = false; Flight.keys.clear(); Flight.touchFire = false; setTimeout(() => i.focus(), 0); } else i.blur();
   },
 
   // ------------------------------------------------------------------ scoreboard and results
@@ -417,9 +425,9 @@ const MPUI = {
     const ffa = MP.ffa();
     for (const p of [...players].sort((a, b) => (a.team - b.team) || (b.kills - a.kills))) {
       const tr = el('tr', { class: (p.alive === false && MP.phase === 'battle' ? 'dead' : '') + (p.pid === Net.me ? ' me' : '') });
-      const team = MP.pvp ? (ffa ? '—' : MP_TEAM_NAMES[p.team]) : '—';
-      tr.innerHTML = `<td></td><td class="${MP.pvp && !ffa ? 't' + p.team : ''}">${team}</td><td>${p.kills || 0}</td><td>${p.deaths || 0}</td><td>${Math.round(p.dmg || 0)}</td><td>${p.pid === 1 ? '—' : (p.ping || 0) + ' ms'}</td>`;
-      tr.firstChild.textContent = p.name;
+      const team = MP.pvp ? (ffa ? '—' : MP_TEAM_NAMES[p.team === 1 ? 1 : 0]) : '—', n = (x) => String(Math.round(+x || 0));
+      tr.append(el('td', { text: String(p.name) }), el('td', { class: MP.pvp && !ffa ? `t${p.team === 1 ? 1 : 0}` : '', text: team }), el('td', { text: n(p.kills) }),
+        el('td', { text: n(p.deaths) }), el('td', { text: n(p.dmg) }), el('td', { text: p.pid === 1 ? '—' : `${n(p.ping)} ms` }));
       tb.append(tr);
     }
     t.append(tb);
