@@ -178,7 +178,7 @@ const Builder = {
   serialize() {
     return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip, rot: p.rot || 0 })) };
   },
-  save() { store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); },
+  save() { if (typeof MP !== 'undefined' && MP.savedCareer) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
   loadDesign(d, keepHistory) {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
     if (d.name) this.name = d.name;
@@ -714,7 +714,17 @@ const Builder = {
     return !want;
   },
   renderKind() {
-    document.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.kind === this.kind)));
+    document.querySelectorAll('[data-kind]').forEach((b) => {
+      b.setAttribute('aria-checked', String(b.dataset.kind === this.kind));
+      b.disabled = !!this.mp && !this.mp.kinds.includes(b.dataset.kind); // battles: planes, helicopters and cars
+    });
+  },
+  // The launch button: Launch, or in a multiplayer room Fly (sandbox) and Ready (battle).
+  renderLaunch() {
+    const b = $('#btn-launch'), live = typeof MP !== 'undefined' && MP.live, ready = live && MP.pvp && MP.me && MP.me.ready;
+    const t = !live ? 'Launch' : MP.pvp ? (ready ? 'Ready ✓' : 'Ready') : 'Fly';
+    if (b.textContent !== t) b.textContent = t;
+    b.classList.toggle('on', !!ready);
   },
 
   // Nose-to-tail length of a design (along part y).
@@ -743,6 +753,8 @@ const Builder = {
       set('#s-cost', money(s.cost));
       set('#s-funds', money(Career.data.funds));
       $('#s-cost').className = s.cost > Career.data.funds ? 'bad' : '';
+      $('#career-row').querySelectorAll('.cr-label')[1].textContent = this.mp ? 'Budget' : 'Funds';
+      const btns = $('#career-row .cr-btns'); if (btns) btns.hidden = !!this.mp; // (no research or missions in a battle)
     }
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
     if (!this.ctrl) warn.push(kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
@@ -771,7 +783,8 @@ const Builder = {
     } else if (!s.thrust) warn.push('No engine fires in stage 1.');
     else if (s.twr < 1) warn.push('Too heavy to lift off: TWR below 1.');
     if (s.loose) warn.push(`${s.loose} part${s.loose > 1 ? 's' : ''} not attached. They stay behind.`);
-    if (s.locked.length) warn.push(`Uses ${s.locked.length} locked part${s.locked.length > 1 ? 's' : ''}. Unlock them in R&D.`);
+    if (this.mp) warn.push(...MP.designProblems(s, ps, kind)); // the battle's budget, and the carrier's size limits
+    else if (s.locked.length) warn.push(`Uses ${s.locked.length} locked part${s.locked.length > 1 ? 's' : ''}. Unlock them in R&D.`);
     else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
@@ -792,6 +805,7 @@ const Builder = {
         el('span', { class: 'stage-dv', text: dv > 0.5 ? `${Math.round(dv)} m/s${twr ? ` · ${twr.toFixed(1)}` : ''}` : '' })));
     });
     $('#btn-launch').disabled = !this.ctrl;
+    this.renderLaunch();
   },
 
   renderInfo() {

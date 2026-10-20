@@ -530,11 +530,57 @@ function builtW(c, G, i, j) {
   if (c.b === EARTH && B < 1 && G.ea[i] > 0 && G.ea[i] < 2000) B = Math.max(B, apronW(G.ea[i], z));
   return B;
 }
+// Airfields off the track (EARTH.airfields): how much a point is on one (1 on the strip, fading over its
+// blend) and the height it is flattened to. Strip frame: u along the runway, v across.
+const FQ = { w: 0, h: 0, f: null };
+function fieldAt(e, z, o = FQ) {
+  o.w = 0; o.f = null;
+  const F = EARTH.airfields;
+  if (!F) return o;
+  for (const k in F) {
+    const f = F[k], de = e - f.e, dz = z - f.z;
+    if (Math.abs(de) > f.hl + f.blend + f.hw || Math.abs(dz) > f.hl + f.blend + f.hw) continue;
+    const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+    const w = 1 - smoothstep(0, f.blend, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
+    if (w > o.w) { o.w = w; o.h = f.h; o.f = f; }
+  }
+  return o;
+}
+// The flight deck of a carrier at (e, z), or NaN: decks stand above the sea (physics only; Render3D draws the ship).
+// Its outline (metres along u, across v to starboard, for a 260 x 36 m deck) takes in the angled deck's overhang
+// to port and the island's sponson to starboard, as drawn. `m` widens it by that many metres (for "a deck near?").
+const DECK_PLAN = [[-131, -18], [-50, -18], [-20, -22], [52, -27.5], [74, -18], [131, -18], [133.5, -15], [133.5, 15], [131, 18], [20, 18], [16, 29.5],
+  [-82, 29.5], [-86, 18], [-131, 18], [-133, 15], [-133, -15]];
+function inDeckPlan(x, y) {
+  let ins = false;
+  for (let i = 0, j = DECK_PLAN.length - 1; i < DECK_PLAN.length; j = i++) {
+    const [xi, yi] = DECK_PLAN[i], [xj, yj] = DECK_PLAN[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins;
+  }
+  return ins;
+}
+function deckAt(b, a, z, m = 0) {
+  const C = EARTH.carriers;
+  if (b !== EARTH || !C) return NaN;
+  const e = -wrapAngle(a - EARTH.padAngle) * b.radius;
+  for (const k in C) {
+    const d = C[k], de = e - d.e, dz = z - d.z;
+    if (Math.abs(de) > d.hl + 40 + m || Math.abs(dz) > d.hl + 40 + m) continue;
+    const u = de * d.c + dz * d.s, v = -de * d.s + dz * d.c, kx = d.hl / 130, kz = d.hw / 18;
+    if (m > 0) { if (Math.abs(u) <= 134 * kx + m && v >= -28 * kz - m && v <= 30 * kz + m) return d.deck; continue; }
+    if (inDeckPlan(u / kx, v / kz)) return d.deck;
+  }
+  return NaN;
+}
 function height(c, G, i, j, cont) {
   EW.pres = EW.road = EW.river = EW.lake = 0;
   const B = builtW(c, G, i, j);
   if (B >= 1) { crDark = 0; return G.th[i]; }
-  const hn = natural(c, G, i, j, cont);
+  let hn = natural(c, G, i, j, cont);
+  if (c.b === EARTH && fieldAt(G.ea[i], G.z[j]).w > 0) { // an airfield: level ground, no rivers or roads across it
+    hn = lerp(hn, FQ.h, FQ.w);
+    if (FQ.w > 0.5) { EW.pres = EW.road = EW.river = EW.lake = 0; crDark = 0; }
+  }
   return B > 0 ? lerp(hn, G.th[i], B) : hn;
 }
 // Exact 3D terrain at one point (slow path: camera clamp away from the patch).
@@ -579,12 +625,15 @@ function heightAt(b, a, z) {
   return lerp(h0, h1, tz);
 }
 function surfaceAt(b, a, z) {
+  const dk = deckAt(b, a, z);
+  if (dk === dk) return dk;
   const h = heightAt(b, a, z);
   if (b.ocean && h < 0) return 0;
   if (b.mapped) { const w = inlandAt(b, a, z); if (w > h) return w; }
   return h;
 }
 function waterAt3(b, a, z) {
+  if (deckAt(b, a, z) === deckAt(b, a, z)) return false;
   const h = heightAt(b, a, z);
   if (b.ocean && h < 0) return true;
   return b.mapped && inlandAt(b, a, z) > h;
@@ -598,6 +647,7 @@ function locate(b, rx, ry, rz, o = {}) {
 // Outward ground normal (sim axes) at (a, z), from the slopes east and north.
 function normalAt(b, a, z, o = v3()) {
   const R = b.radius, lat = z / R, cl = Math.max(0.05, Math.cos(lat)), sl = Math.sin(lat), ca = Math.cos(a), sa = Math.sin(a), d = 1.5;
+  if (deckAt(b, a, z) === deckAt(b, a, z)) { o.x = cl * ca; o.y = cl * sa; o.z = sl; return norm3(o); } // a deck is flat to its edge
   const da = d / (R * cl);
   const se = (surfaceAt(b, a - da, z) - surfaceAt(b, a + da, z)) / (2 * d); // east is towards decreasing a
   const sn = (surfaceAt(b, a, z + d) - surfaceAt(b, a, z - d)) / (2 * d);
@@ -611,6 +661,6 @@ return {
   loadEarth, earthRaw, earthColor, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
   water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
-  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt,
+  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt,
 };
 })();

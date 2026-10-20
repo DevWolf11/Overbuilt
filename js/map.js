@@ -52,7 +52,7 @@ const MapView = {
     const X = (x) => innerWidth / 2 + (x - c.x) * S, Y = (y) => innerHeight / 2 - (y - c.y) * S;
     let best = null, bd = 22;
     for (const v of F.vessels) {
-      if (!v.control || v === F.active) continue;
+      if (!v.control || v === F.active || v.remote) continue;
       const p = F.absPos(v);
       const d = Math.hypot(X(p.x) - sx, Y(p.y) - sy);
       if (d < bd) { bd = d; best = { vessel: v }; }
@@ -190,10 +190,12 @@ const MapView = {
     // other vessels
     for (const d of F.vessels) {
       if (d === v) continue;
+      const mc = d.remote ? MP.mapColor(d) : '#62d0ff';
+      if (!mc) continue; // an enemy player in a battle: not on the map
       const p = F.absPos(d);
       const sx = X(p.x), sy = Y(p.y);
       if (d.control) {
-        ctx.fillStyle = '#62d0ff';
+        ctx.fillStyle = mc;
         ctx.beginPath(); ctx.moveTo(sx, sy - 6 * dpr); ctx.lineTo(sx + 5 * dpr, sy + 4 * dpr); ctx.lineTo(sx - 5 * dpr, sy + 4 * dpr); ctx.closePath(); ctx.fill();
         ctx.font = `500 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textAlign = 'left';
         ctx.fillText(d.name, sx + 8 * dpr, sy + 4 * dpr);

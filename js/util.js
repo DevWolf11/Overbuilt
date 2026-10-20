@@ -140,7 +140,7 @@ const Silly = {
     ['boomy', 'Sonic boom at 90 km/h', 'The vapour cone and the boom think the speed of sound is 25 m/s.'],
   ],
   flags: store.get('rss.silly', {}),
-  on(k) { return !!this.flags[k]; },
+  on(k) { return !!this.flags[k] && !(typeof MP !== 'undefined' && MP.pvp); }, // (none in a battle: they'd be cheats)
   set(k, v) { this.flags[k] = !!v; store.set('rss.silly', this.flags); },
   get unlocked() { return !!store.get('rss.sillyUnlocked', false); },
   unlock() { store.set('rss.sillyUnlocked', true); },
