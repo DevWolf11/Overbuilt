@@ -235,7 +235,7 @@ const Combat = (() => {
     const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0), down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 };
     const s = { k: 'missile', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + down.x * 4, vy: v.vy + down.y * 4, vz: v.vz + down.z * 4,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: w.life || 24, burn: w.burn, accel: w.accel, vmax: w.vmax, turn: w.turn, dmg: w.dmg, blast: w.blast,
-      seek: w.seek, heat: !w.radar && w.seek === 'air', glide: !!w.glide, target, owner: v, launcher: v, enemy: !!v.ai };
+      seek: w.seek, heat: !w.radar && w.seek === 'air', glide: !!w.glide, target, owner: v, launcher: v, enemy: !!v.ai, ...airframe(w) };
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) { if (w.glide) Sound.separate(); else Sound.missile(); }
@@ -267,10 +267,8 @@ const Combat = (() => {
       p.ammo--;
       if (p.ammo <= 0) break;
     }
-    const last = out[out.length - 1];
     if (chaff) out.push({ b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.5, vy: v.vy * 0.5, vz: v.vz * 0.5, t: 0, life: 5, chaff: true });
-    for (const f of out) { S.flares.push(f); if (typeof MP !== 'undefined') MP.sendFlares(v, f); }
-    for (const m of S.shots) if (m.k === 'missile' && m.heat && !m.net && m.target === v && Math.random() < 0.55) m.target = last; // (a copy of someone else's missile follows its owner's word)
+    for (const f of out) { S.flares.push(f); if (typeof MP !== 'undefined') MP.sendFlares(v, f); } // (heat seekers weigh each flare against the craft: decoyed)
     if (v === sim.active) Sound.burst(0.2, 2400, 0.3, 'highpass');
     return true;
   }
@@ -336,16 +334,22 @@ const Combat = (() => {
     const w = cur.w;
     // missiles lock on to whatever sits nearest the nose, inside the seeker's cone and range
     if (w.kind === 'missile') {
-      const range = rangeOf(v, w), fwd = noseDir(v);
+      // heat seekers see a hot target further (and a cold one, or one seen from the front, much closer);
+      // radar needs to see the target (not notching) and keeps its lock anywhere within its field
+      const range = rangeOf(v, w), fwd = noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
+      const cands = candidates(v, w.seek, F);
       let best = null, ba = w.cone;
-      for (const c of candidates(v, w.seek, F)) {
+      if (sarh && S.lock && cands.some((c) => c.ref === S.lock) && radarSees(v, S.lock, refPos(S.lock)) === true && !chaffBreaks(v, S.lock)) best = S.lock;
+      else for (const c of cands) {
         const dx = c.x - v.x, dy = c.y - v.y, dz = c.z - v.z, d = len(dx, dy, dz);
-        if (d > range || d < 150) continue;
+        if (d > range || d < (air ? 350 : 150)) continue;
+        if (heat && d > range * clamp(Math.sqrt(irSig(c.ref, v)), 0.2, 1)) continue;
+        if (sarh && radarSees(v, c.ref, refPos(c.ref)) !== true) continue;
         const ang = Math.acos(clamp((dx * fwd.x + dy * fwd.y + dz * fwd.z) / d, -1, 1));
         if (ang < ba) { ba = ang; best = c.ref; }
       }
       if (best && best === S.cand) S.lockT += dt; else { S.cand = best; S.lockT = 0; }
-      S.lock = best && S.lockT > (w.radar ? 1.4 : 0.9) ? best : null;
+      S.lock = best && S.lockT > (w.radar ? 1.4 * (best.parts && jams(best) ? 2 : 1) : 0.9) ? best : null; // (a jammer slows a radar lock)
       S.lockR = !!w.radar; // (a radar lock warns its target; a heat seeker is passive)
       S.toneT -= dt;
       if (S.cand && S.toneT <= 0) { Sound.tone(S.lock ? 1250 : 820, S.lock ? 0.09 : 0.06, S.lock ? 0.06 : 0.035); S.toneT = S.lock ? 0.1 : 0.32; }
@@ -357,6 +361,19 @@ const Combat = (() => {
     else if (w.kind === 'bomb') dropBomb(v, ready[0], F);
   }
   const noseDir = (v) => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); };
+  // chaff near a radar-locked target can break the lock (each cloud once): about 1 in 7, 3 in 5 if it's crossing the beam
+  const chaffSeen = new WeakSet();
+  function chaffBreaks(v, t) {
+    const tp = refPos(t);
+    if (!tp) return false;
+    for (const f of S.flares) {
+      if (!f.chaff || chaffSeen.has(f) || len(f.x - tp.x, f.y - tp.y, f.z - tp.z) > 250) continue;
+      chaffSeen.add(f);
+      const d = len(tp.x - v.x, tp.y - v.y, tp.z - v.z) || 1, vr = Math.abs((tp.vx * (tp.x - v.x) + tp.vy * (tp.y - v.y) + tp.vz * (tp.z - v.z)) / d);
+      if (Math.random() < (vr < 80 ? 0.6 : 0.15)) { S.cand = null; S.lockT = 0; return true; }
+    }
+    return false;
+  }
   // what a seeker can lock on to: planes in the air (bandits, drones), or things on the ground and at sea
   // (and the other players' craft, enemies only: in the air for air seekers, on the ground or cars for the rest)
   function candidates(v, seek, F) {
@@ -431,17 +448,22 @@ const Combat = (() => {
     if (s.t > s.life) { if (s.k === 'missile' && !s.net) explode(b, s, s.blast * 0.4, 0, s.owner, F, true); return false; }
     const rho = airDensity(b, r0 - b.radius);
     let spd = len(s.vx, s.vy, s.vz);
+    let pulled = 0;
     if (s.k === 'missile' || s.k === 'rocket') {
       const motor = s.t > (s.k === 'missile' ? 0.35 : 0) && s.t < (s.k === 'missile' ? 0.35 : 0) + s.burn;
-      if (s.k === 'missile' && s.t > 0.35) guide(s, h, spd);
+      if (s.k === 'missile' && s.t > 0.35) { if (s.air) pulled = guideAir(s, h, spd, rho); else guide(s, h, spd); }
       if (motor) { s.vx += s.dx * s.accel * h; s.vy += s.dy * s.accel * h; s.vz += s.dz * s.accel * h; }
       spd = len(s.vx, s.vy, s.vz);
-      if (s.vmax && spd > s.vmax) { const k = s.vmax / spd; s.vx *= k; s.vy *= k; s.vz *= k; spd = s.vmax; }
+      if (s.air) { // past its top speed the drag climbs steeply; turning hard costs speed, more so in thin air
+        let loss = spd > s.vmax ? (spd - s.vmax) * 1.5 * h : 0;
+        if (pulled > 0.5) { const q = 0.5 * rho * spd * spd; loss += s.bleed * pulled * pulled * 9.81 * clamp(QREF / Math.max(q, 1), 0.5, 3) * h; }
+        if (loss > 0) { const k = Math.max(0, spd - loss) / (spd || 1); s.vx *= k; s.vy *= k; s.vz *= k; spd *= k; }
+      } else if (s.vmax && spd > s.vmax) { const k = s.vmax / spd; s.vx *= k; s.vy *= k; s.vz *= k; spd = s.vmax; }
       if (!s.glide && Math.random() < h * (motor ? 60 : 8) && F.warpIdx <= 1) FX.add({ kind: 'smoke', b, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, max: motor ? 2.2 : 1, size: 0.5, grow: 3.5, color: '#d8dce2', alpha: 0.55 });
       if (motor && Math.random() < h * 40) FX.add({ kind: 'fire', b, x: s.x, y: s.y, z: s.z, vx: -s.dx * 20, vy: -s.dy * 20, vz: -s.dz * 20, max: 0.12, size: 0.5, grow: 0.6, color: '#ffd27a', alpha: 1 });
     }
     // drag (rounds lose speed slowly; bombs are slippery) and gravity
-    const kd = (s.k === 'bullet' ? 0.00012 : s.k === 'bomb' ? 0.00003 : 0.00006) * rho * spd * h;
+    const kd = (s.air ? s.drag : s.k === 'bullet' ? 0.00012 : s.k === 'bomb' ? 0.00003 : 0.00006) * rho * spd * h;
     s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
     if (s.k !== 'missile' && s.k !== 'rocket') { const l = len(s.vx, s.vy, s.vz) || 1; s.dx = s.vx / l; s.dy = s.vy / l; s.dz = s.vz / l; }
     const a = { x: s.x, y: s.y, z: s.z }, e = { x: s.x + s.vx * h, y: s.y + s.vy * h, z: s.z + s.vz * h };
@@ -459,8 +481,15 @@ const Combat = (() => {
       const c = targetCentre(t), [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, c.x, c.y, c.z);
       if (d < t.def.r && ft < ht2) { ht2 = ft; he = t; }
     }
+    const armed = !s.arm || s.t >= s.arm;
+    if (!armed && hit) { // too close to have armed: a dud that only knocks
+      if (!hv.remote) damage(hv, hit, s.dmg * 0.1, 'shot', F, s.owner);
+      else if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg * 0.1, 'shot');
+      FX.sparks(b, a, { x: hv.vx, y: hv.vy, z: hv.vz }, 6);
+      return false;
+    }
     // missiles burst when they pass close: the proximity fuse
-    if (s.k === 'missile' && s.target && !hit && !he) {
+    if (s.k === 'missile' && s.target && !hit && !he && armed) {
       const tp = refPos(s.target);
       if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.blast * 0.45) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F); return false; } }
     }
@@ -546,6 +575,111 @@ const Combat = (() => {
   }
   // Lead pursuit: steer for where the target will be when the missile gets there, as hard as the airframe
   // allows; a heat seeker that loses sight of its target flies on blind.
+  // ---------------------------------------------------------------- air-to-air seekers (and SAMs)
+  // Inspired by War Thunder: the motor burns for a few seconds and then the missile coasts, losing speed to drag
+  // and to every turn; the fins only pull their full g with enough air flowing past; the seeker sees only so far
+  // off the nose and can only swing so fast; heat seekers can be decoyed by flares (more easily when the target
+  // throttles back), and radar missiles need the launcher's radar on the target all the way: turn away, fly low
+  // across its beam ("notching") or drop chaff, and they go dumb. They arm a moment after launch.
+  const QREF = 0.5 * 1.225 * 400 * 400; // the dynamic pressure at which the fins give their full g
+  function airframe(w) {
+    if (w.seek !== 'air') return {};
+    const radar = !!w.radar;
+    return { air: true, sarh: radar, drag: w.drag || (radar ? 1.1e-4 : 1.6e-4), bleed: w.bleed || 0.012, gimbal: w.gimbal || (radar ? 1.0 : 0.6),
+      track: w.track || (radar ? 1.0 : 0.7), arm: w.arm != null ? w.arm : 0.6, irccm: w.irccm || 0, nav: 4, cm: new WeakSet(), lostT: 0, notchT: 0, trackT: 0 };
+  }
+  // How bright a craft is to a heat seeker looking from `from` (1: a fighter jet at full dry power seen from
+  // behind): its engines by thrust and afterburner (propellers and rotors run cooler) plus the warm airframe;
+  // from the side about a third of that, head-on a tenth (unless the afterburner is lit).
+  function irSig(o, from) {
+    if (!o || !o.parts) return 1; // a target drone
+    let e = 0, ab = 0;
+    for (const p of o.parts) if (p.def.thrust && p.firing > 0) {
+      const air = p.def.air;
+      e += p.firing * p.def.thrust * (1 + 1.5 * (p.ab || 0)) * (air && (air.kind === 'prop' || air.kind === 'rotor') ? 0.5 : 1);
+      ab = Math.max(ab, p.ab || 0);
+    }
+    let sig = e / 120 + 0.08;
+    if (from) {
+      const dx = o.x - from.x, dy = o.y - from.y, dz = o.z - from.z, d = len(dx, dy, dz) || 1, f = noseDir(o);
+      const c = (dx * f.x + dy * f.y + dz * f.z) / d, head = 0.1 + 0.2 * ab; // c = 1: we see its tail
+      sig *= c >= 0 ? 0.35 + 0.65 * c : 0.35 + (0.35 - head) * c;
+    }
+    return sig;
+  }
+  // Can L's radar see t (at tp) right now? Within 60° of its nose and the radar's reach (shorter for a stealthy
+  // target, and for a jamming one beyond 5 km), and not lost in the ground clutter: a target low down (below L,
+  // or under 300 m) moving across the beam (under 40 m/s over the ground along it) is notching. True, 'notch' or false.
+  function radarSees(L, t, tp) {
+    if (!L || L.dead || !L.parts || !L.parts.length || !tp || !tp.alive) return false;
+    const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = len(dx, dy, dz) || 1;
+    let reach = (radarOf(L) || 5000) * (1 - (t.parts ? stealthOf(t) : 0));
+    if (t.parts && jams(t) && d > 5000) reach = Math.max(5000, reach * 0.7);
+    if (d > reach) return false;
+    const f = noseDir(L);
+    if ((dx * f.x + dy * f.y + dz * f.z) / d < 0.5) return false;
+    if (t.parts) {
+      const vr = (tp.vx * dx + tp.vy * dy + tp.vz * dz) / d; // (its speed along the beam over the ground: the clutter's doppler is zero)
+      const low = len(tp.x, tp.y, tp.z) < len(L.x, L.y, L.z) - 50 || (t.groundAltitude ? t.groundAltitude() < 300 : false);
+      if (low && Math.abs(vr) < 40) return 'notch';
+    }
+    return true;
+  }
+  // Countermeasures the seeker sees around the target, each weighed once: a flare against the craft's heat,
+  // a chaff cloud (radar missiles) about 1 in 7, or 3 in 5 if the target is crossing the beam.
+  function decoyed(s, t, tp, rx, ry, rz, d) {
+    for (const f of S.flares) {
+      if (s.cm.has(f) || (s.heat ? !f.flare : !f.chaff)) continue;
+      const fx = f.x - s.x, fy = f.y - s.y, fz = f.z - s.z, fd = len(fx, fy, fz) || 1;
+      if (fd > d + 800 || (fx * rx + fy * ry + fz * rz) / fd < Math.cos(s.heat ? 0.3 : 0.15)) continue;
+      s.cm.add(f);
+      if (s.heat) {
+        const K = 0.3 * clamp(1 - f.t / 3, 0, 1); // a flare burns out in 3 s
+        if (Math.random() < Math.min(0.85, K / (K + irSig(t, s))) * (1 - s.irccm)) { s.target = f; return true; }
+      } else if (len(f.x - tp.x, f.y - tp.y, f.z - tp.z) < 250) {
+        const vr = Math.abs(tp.vx * rx + tp.vy * ry + tp.vz * rz);
+        if (Math.random() < (vr < 80 ? 0.6 : 0.15)) { s.target = null; return true; }
+      }
+    }
+    return false;
+  }
+  // Steer by proportional navigation; returns the g pulled (turning costs speed: moveShot).
+  function guideAir(s, h, spd, rho) {
+    const t = s.target;
+    if (!t) return 0;
+    const tp = refPos(t);
+    if (!tp || !tp.alive) { s.target = null; return 0; }
+    if (s.sarh && !t.flare) { // the launcher's radar must hold the target: notching gets 0.4 s of grace, a lost lock 1 s of memory
+      const r = radarSees(s.launcher, t, tp);
+      s.notchT = r === 'notch' ? s.notchT + h : 0;
+      s.lostT = r === true || (r === 'notch' && s.notchT < 0.4) ? 0 : s.lostT + h;
+      if (s.lostT > 1) { s.target = null; return 0; }
+    }
+    if (s.t > 0.35 + s.burn && spd < 150) { s.target = null; return 0; } // too slow to steer any more
+    let rx = tp.x - s.x, ry = tp.y - s.y, rz = tp.z - s.z;
+    const d = len(rx, ry, rz) || 1;
+    rx /= d; ry /= d; rz /= d;
+    if (rx * s.dx + ry * s.dy + rz * s.dz < Math.cos(s.gimbal)) { s.target = null; return 0; } // off the edge of the seeker's view
+    if (!t.flare && decoyed(s, t, tp, rx, ry, rz, d)) return 0;
+    // the line of sight swinging faster than the seeker can follow breaks the lock
+    const vrx = tp.vx - s.vx, vry = tp.vy - s.vy, vrz = tp.vz - s.vz;
+    const wx = (ry * vrz - rz * vry) / d, wy = (rz * vrx - rx * vrz) / d, wz = (rx * vry - ry * vrx) / d, wl = len(wx, wy, wz);
+    s.trackT = wl > s.track ? s.trackT + h : 0;
+    if (s.trackT > 0.25 && d > 60) { s.target = null; return 0; }
+    // a = N · closing speed · (LOS rate × LOS), across the nose, up to what the fins can pull here
+    const vc = Math.max(60, -(rx * vrx + ry * vry + rz * vrz));
+    let ax = s.nav * vc * (wy * rz - wz * ry), ay = s.nav * vc * (wz * rx - wx * rz), az = s.nav * vc * (wx * ry - wy * rx);
+    const ad = ax * s.dx + ay * s.dy + az * s.dz;
+    ax -= s.dx * ad; ay -= s.dy * ad; az -= s.dz * ad;
+    const gmax = s.turn * 9.81 * Math.min(1, (0.5 * rho * spd * spd) / QREF);
+    let al = len(ax, ay, az);
+    if (al > gmax) { const k = gmax / al; ax *= k; ay *= k; az *= k; al = gmax; }
+    const sp = Math.max(spd, 50);
+    const nx = s.dx + (ax / sp) * h, ny = s.dy + (ay / sp) * h, nz = s.dz + (az / sp) * h, nl = len(nx, ny, nz) || 1;
+    s.dx = nx / nl; s.dy = ny / nl; s.dz = nz / nl;
+    s.vx = s.dx * spd; s.vy = s.dy * spd; s.vz = s.dz * spd;
+    return al / 9.81;
+  }
   function guide(s, h, spd) {
     const tp = refPos(s.target);
     if (!tp || !tp.alive) { s.target = null; return; }
@@ -614,8 +748,7 @@ const Combat = (() => {
     if (!g || !P || !V) return;
     const f = { b: g.body, x: P[0], y: P[1], z: P[2], vx: V[0], vy: V[1], vz: V[2], t: 0, life: m.chaff ? 5 : 4, remote: g.remote };
     if (m.chaff) f.chaff = true; else f.flare = true;
-    S.flares.push(f);
-    if (f.flare) for (const s of S.shots) if (s.k === 'missile' && s.heat && !s.net && s.target === g && Math.random() < 0.33) s.target = f;
+    S.flares.push(f); // (our heat seekers chasing that craft may go for it: decoyed)
   }
   const netBoom = (b, at, blast) => { if (at && Number.isFinite(at.x)) boomFX(b || EARTH, at, +blast || 5, false, typeof Flight !== 'undefined' ? Flight : null); };
 
@@ -717,7 +850,7 @@ const Combat = (() => {
   function samFire(t, F) {
     const v = F.active, c = targetCentre(t), up = { x: c.x / R(), y: c.y / R(), z: c.z / R() };
     S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: up.x * 40, vy: up.y * 40, vz: up.z * 40, dx: up.x, dy: up.y, dz: up.z, t: 0.35, life: 26,
-      burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true });
+      burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true, ...airframe({ seek: 'air', drag: 1.2e-4, arm: 0.4 }) });
     if (len(v.x - c.x, v.y - c.y, v.z - c.z) < 12000) F.toast('SAM launch!', 'warn');
   }
 
@@ -839,7 +972,13 @@ const Combat = (() => {
     // heat seekers on the player's tail: warning tone, and flares go out by themselves (not in multiplayer: K there)
     S.warn = false;
     const auto = !mpOn();
-    for (const s of S.shots) if (s.k === 'missile' && s.target === v && s.enemy) { S.warn = true; if (auto && len(s.x - v.x, s.y - v.y, s.z - v.z) < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && flares(v, F)) S.flareT = 0.6; }
+    for (const s of S.shots) if (s.k === 'missile' && s.target === v && s.enemy) {
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
+      // a radar missile lights up the warner; in multiplayer a heat seeker is silent unless a jammer pod
+      // (doubling as a missile warner) sees it within 2 km
+      if (auto || s.radar || s.sarh || (jams(v) && d < 2000)) S.warn = true;
+      if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && flares(v, F)) S.flareT = 0.6;
+    }
     if (S.warn) { S.warnT -= dt; if (S.warnT <= 0) { Sound.beep(1500); S.warnT = 0.22; } }
     for (const f of S.flares) {
       if (f.chaff) { if (Math.random() < 0.3) FX.add({ kind: 'smoke', b: f.b, x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, max: 1.5, size: 1.5, grow: 4, color: '#c9ced6', alpha: 0.35 }); } // a glinting cloud
