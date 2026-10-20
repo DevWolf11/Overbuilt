@@ -72,22 +72,47 @@ function trackBlend(e) {
 // 1/20 scale. The space centre sits in the Gulf of Guinea at 7.1°E on the equator, so the causeway runs
 // to the coast of Gabon. East is decreasing angle and north is -z. The space centre gets an island of its
 // own; elsewhere the 2D profile's shorter waves only add hills to high ground.
-const EM = { state: 'none', promise: null, W: 0, H: 0, h: null, CW: 0, CH: 0, rgb: null, lon0: (7.1 * Math.PI) / 180 };
+const EM = {
+  state: 'none', promise: null, lon0: (7.1 * Math.PI) / 180,
+  W: 0, H: 0, h: null,                   // heights (bytes, decoded through HLUT)
+  CW: 0, CH: 0, rgb: null,               // Blue Marble colour
+  FW: 0, FH: 0, night: null, lakeC: null, lakeL: null, urban: null, // city lights, lakes, built-up land
+  RW: 0, RH: 0, country: null, sea: null, regions: [], nCountries: 0,
+  cities: [], lines: null,
+};
 const ISLE = { e: 900, a: 2600, b: 1500, h: 44 }; // an oval around the pad and runway: centre (m east), half-axes, height
 const NORTH = -1; // real latitude = NORTH * z / R
-function mapDecode(v) {
-  if (v >= 128) { const u = v - 128; return 0.5 * u + 0.09 * u * u; }
-  const u = 127 - v;
-  return -(0.5 + 0.5 * u + 0.04 * u * u);
-}
-// bytes: decoded image data (step bytes per pixel)
-function mapSet(hb, W, H, hstep, cb, CW, CH, cstep) {
-  EM.h = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) EM.h[i] = mapDecode(hb[i * hstep]);
-  EM.rgb = new Uint8Array(CW * CH * 3);
-  for (let i = 0; i < CW * CH; i++) { EM.rgb[i * 3] = cb[i * cstep]; EM.rgb[i * 3 + 1] = cb[i * cstep + 1]; EM.rgb[i * 3 + 2] = cb[i * cstep + 2]; }
-  Object.assign(EM, { W, H, CW, CH, state: 'ready' });
-  cfgs.delete(EARTH); hc.clear(); hcBody = null;
+const DEG = 180 / Math.PI;
+const HLUT = new Float32Array(256);
+for (let v = 0; v < 256; v++) { const u = v - 128; HLUT[v] = v >= 128 ? 0.5 * u + 0.09 * u * u : -(0.5 + 0.5 * (127 - v) + 0.052 * (127 - v) ** 2); }
+
+// d: { height, color, night, lakes, urban, regions: {data, w, h, step}, places: json, lines: ArrayBuffer }
+// (only height and color are required)
+function setEarthData(d) {
+  const chan = (im, k = 0) => { const n = im.w * im.h, o = new Uint8Array(n); for (let i = 0; i < n; i++) o[i] = im.data[i * im.step + k]; return o; };
+  Object.assign(EM, { W: d.height.w, H: d.height.h, h: chan(d.height), CW: d.color.w, CH: d.color.h });
+  EM.rgb = new Uint8Array(EM.CW * EM.CH * 3);
+  for (let i = 0, n = EM.CW * EM.CH, s = d.color.step; i < n; i++) { EM.rgb[i * 3] = d.color.data[i * s]; EM.rgb[i * 3 + 1] = d.color.data[i * s + 1]; EM.rgb[i * 3 + 2] = d.color.data[i * s + 2]; }
+  const f = d.lakes || d.urban || d.night;
+  if (f) { EM.FW = f.w; EM.FH = f.h; }
+  if (d.night) EM.night = chan(d.night);
+  if (d.urban) EM.urban = chan(d.urban);
+  if (d.lakes) {
+    EM.lakeC = chan(d.lakes, 0);
+    const g = chan(d.lakes, 1), b = chan(d.lakes, 2);
+    EM.lakeL = new Float32Array(g.length);
+    for (let i = 0; i < g.length; i++) EM.lakeL[i] = (g[i] * 256 + b[i]) / 20 - 1000;
+  }
+  if (d.regions) {
+    const r = chan(d.regions, 0), g = chan(d.regions, 1);
+    EM.RW = d.regions.w; EM.RH = d.regions.h; EM.sea = chan(d.regions, 2);
+    EM.country = new Uint16Array(r.length);
+    for (let i = 0; i < r.length; i++) EM.country[i] = r[i] * 256 + g[i];
+  }
+  if (d.places) { EM.regions = d.places.regions; EM.nCountries = d.places.nCountries; EM.cities = d.places.cities; indexCities(); }
+  if (d.lines) indexLines(d.lines);
+  EM.state = 'ready';
+  cfgs.delete(EARTH); hc.clear(); hwc.clear(); hcBody = null;
   EARTH.terrainMax = 1700;
   EARTH.mapped = true;
 }
@@ -102,22 +127,32 @@ function loadEarth(urls) {
     const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height;
     const g = cv.getContext('2d', { willReadFrequently: true });
     g.drawImage(im, 0, 0);
-    return g.getImageData(0, 0, im.width, im.height).data;
+    return { data: g.getImageData(0, 0, im.width, im.height).data, w: im.width, h: im.height, step: 4 };
   };
-  const get = (src) => (typeof createImageBitmap === 'function' ? bitmap(src).catch(() => image(src)) : image(src));
-  EM.promise = Promise.all([get(urls.height), get(urls.color)])
-    .then(([hi, ci]) => mapSet(pixels(hi), hi.width, hi.height, 4, pixels(ci), ci.width, ci.height, 4))
+  const img = (src) => (typeof createImageBitmap === 'function' ? bitmap(src).catch(() => image(src)) : image(src)).then(pixels);
+  const opt = (p) => p.catch((e) => { console.warn('Earth map: a layer is missing', e); return null; });
+  EM.promise = Promise.all([img(urls.height), img(urls.color), opt(img(urls.night)), opt(img(urls.lakes)), opt(img(urls.urban)), opt(img(urls.regions)),
+    opt(fetch(urls.places).then((r) => r.json())), opt(fetch(urls.lines).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }))])
+    .then(([height, color, night, lakes, urban, regions, places, lines]) => setEarthData({ height, color, night, lakes, urban, regions, places, lines }))
     .catch((e) => { EM.state = 'failed'; console.warn('Earth map unavailable; using generated terrain', e); });
   return EM.promise;
 }
 const earthLon = (a) => EM.lon0 - wrapAngle(a - EARTH.padAngle);
+// bilinear sample of a w x h raster (equirectangular) at lon, lat (radians)
+function samp(arr, w, h, lon, lat) {
+  let x = (lon / TAU + 0.5) * w - 0.5;
+  x -= Math.floor(x / w) * w;
+  const y = clamp((0.5 - lat / Math.PI) * h - 0.5, 0, h - 1.0001);
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, x1 = ix + 1 === w ? 0 : ix + 1, r0 = iy * w, r1 = r0 + w;
+  return (arr[r0 + ix] * (1 - fx) + arr[r0 + x1] * fx) * (1 - fy) + (arr[r1 + ix] * (1 - fx) + arr[r1 + x1] * fx) * fy;
+}
 function mapH(lon, lat) {
   const W = EM.W, H = EM.H, h = EM.h;
   let x = (lon / TAU + 0.5) * W - 0.5;
   x -= Math.floor(x / W) * W;
   const y = clamp((0.5 - lat / Math.PI) * H - 0.5, 0, H - 1.0001);
   const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, x1 = ix + 1 === W ? 0 : ix + 1, r0 = iy * W, r1 = r0 + W;
-  return (h[r0 + ix] * (1 - fx) + h[r0 + x1] * fx) * (1 - fy) + (h[r1 + ix] * (1 - fx) + h[r1 + x1] * fx) * fy;
+  return (HLUT[h[r0 + ix]] * (1 - fx) + HLUT[h[r0 + x1]] * fx) * (1 - fy) + (HLUT[h[r1 + ix]] * (1 - fx) + HLUT[h[r1 + x1]] * fx) * fy;
 }
 // Blue Marble colour (sRGB 0..255) at a point given as sim angle and depth.
 function earthColor(a, z, out) {
@@ -130,6 +165,150 @@ function earthColor(a, z, out) {
   for (let k = 0; k < 3; k++) out[k] = (c[p00 + k] * (1 - fx) + c[p01 + k] * fx) * (1 - fy) + (c[p10 + k] * (1 - fx) + c[p11 + k] * fx) * fy;
   return out;
 }
+// city lights and built-up land, 0..1, at a sim angle and depth
+const nightAt = (a, z) => (EM.night ? samp(EM.night, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
+const lakeAt = (a, z) => (EM.lakeC ? samp(EM.lakeC, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
+const urbanAt = (a, z) => (EM.urban ? samp(EM.urban, EM.FW, EM.FH, earthLon(a), (NORTH * z) / EARTH.radius) / 255 : 0);
+
+// ---- rivers and roads: polylines (degrees) in a 0.2° grid of segments
+const LG = 0.2, LNX = 1800, LNY = 900;
+const RIVER_W = [160, 110, 75, 50, 32], ROAD_W = [14, 11, 9, 7];
+function indexLines(buf) {
+  const dv = new DataView(buf);
+  if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'RL02') throw new Error('bad lines file');
+  const count = dv.getUint32(4, true), X = [], Y = [], seg = [], kinds = [];
+  let o = 8;
+  for (let l = 0; l < count; l++) {
+    const kind = dv.getUint8(o), cls = dv.getUint8(o + 1), n = dv.getUint16(o + 2, true);
+    let x = dv.getInt32(o + 4, true), y = dv.getInt32(o + 8, true);
+    o += 12;
+    X.push(x / 1000); Y.push(y / 1000);
+    for (let i = 1; i < n; i++) {
+      const s = dv.getInt8(o);
+      if (s === -128) { x += dv.getInt16(o + 1, true); y += dv.getInt16(o + 3, true); o += 5; } else { x += s; y += dv.getInt8(o + 1); o += 2; }
+      seg.push(X.length - 1); kinds.push(kind * 8 + cls);
+      X.push(x / 1000); Y.push(y / 1000);
+    }
+  }
+  const L = { X: Float32Array.from(X), Y: Float32Array.from(Y), seg: Int32Array.from(seg), kind: Uint8Array.from(kinds) };
+  // cells each segment's box touches, padded by the widest river's reach (~0.06°)
+  const cells = (s, fn) => {
+    const p = L.seg[s], m = 0.06;
+    const x0 = Math.min(L.X[p], L.X[p + 1]) - m, x1 = Math.max(L.X[p], L.X[p + 1]) + m, y0 = Math.min(L.Y[p], L.Y[p + 1]) - m, y1 = Math.max(L.Y[p], L.Y[p + 1]) + m;
+    const i0 = Math.floor((x0 + 180) / LG), i1 = Math.floor((x1 + 180) / LG), j0 = Math.max(0, Math.floor((90 - y1) / LG)), j1 = Math.min(LNY - 1, Math.floor((90 - y0) / LG));
+    if (i1 - i0 > 40) return; // a jump across the date line
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(j * LNX + ((i % LNX) + LNX) % LNX);
+  };
+  const off = new Uint32Array(LNX * LNY + 1);
+  for (let s = 0; s < L.seg.length; s++) cells(s, (c) => off[c + 1]++);
+  for (let c = 0; c < LNX * LNY; c++) off[c + 1] += off[c];
+  const fill = off.slice(0, LNX * LNY), ent = new Int32Array(off[LNX * LNY]);
+  for (let s = 0; s < L.seg.length; s++) cells(s, (c) => { ent[fill[c]++] = s; });
+  L.off = off; L.ent = ent;
+  EM.lines = L;
+}
+// Nearest river and road to a point (degrees): distances in game metres, widths, the nearest points.
+const LQ = { rd: Infinity, rw: 0, rx: 0, ry: 0, wd: Infinity, ww: 0, wx: 0, wy: 0 };
+function lineQuery(lon, lat) {
+  LQ.rd = LQ.wd = Infinity;
+  const L = EM.lines;
+  if (!L) return LQ;
+  lon = ((lon + 180) % 360 + 360) % 360 - 180;
+  const i = Math.floor((lon + 180) / LG) % LNX, j = clamp(Math.floor((90 - lat) / LG), 0, LNY - 1), c = j * LNX + i;
+  const km = EARTH.radius / DEG, kx = km * Math.max(0.05, Math.cos(lat / DEG)), X = L.X, Y = L.Y;
+  let er = Infinity, ew = Infinity;
+  const reach = 320; // nothing further than this matters (the widest river's valley)
+  for (let q = L.off[c], e = L.off[c + 1]; q < e; q++) {
+    const s = L.ent[q], p = L.seg[s];
+    const ax = (X[p] - lon) * kx, bx = (X[p + 1] - lon) * kx;
+    if ((ax > reach && bx > reach) || (ax < -reach && bx < -reach)) continue;
+    const ay = (Y[p] - lat) * km, by = (Y[p + 1] - lat) * km;
+    if ((ay > reach && by > reach) || (ay < -reach && by < -reach)) continue;
+    const dx = bx - ax, dy = by - ay;
+    const L2 = dx * dx + dy * dy, t = L2 > 0 ? clamp(-(ax * dx + ay * dy) / L2, 0, 1) : 0, px = ax + t * dx, py = ay + t * dy, d = Math.hypot(px, py);
+    const kc = L.kind[s];
+    if (kc < 8) { // a river: the one whose bank is nearest wins
+      const w = RIVER_W[kc], edge = d - w / 2;
+      if (edge < er) { er = edge; LQ.rd = d; LQ.rw = w; LQ.rx = lon + px / kx; LQ.ry = lat + py / km; }
+    } else {
+      const w = ROAD_W[kc - 8], edge = d - w / 2;
+      if (edge < ew) { ew = edge; LQ.wd = d; LQ.ww = w; LQ.wx = lon + px / kx; LQ.wy = lat + py / km; }
+    }
+  }
+  return LQ;
+}
+// Rivers carve their valleys and roads cut a level way through the hills. EW keeps what was found here:
+// the inland water surface (lakes and rivers) and how much road or river is under the point.
+const EW = { level: 0, pres: 0, road: 0, river: 0, urban: 0, lake: 0 }; // lake: the water here is a lake's (one flat level)
+function features(h, lon, lat, fade, cell = 0) { // lon, lat in degrees; fade 0..1 (coarse cells skip rivers and roads); cell: vertex spacing (m)
+  EW.pres = EW.road = EW.river = EW.lake = 0;
+  if (EM.lakeC) {
+    const lc = samp(EM.lakeC, EM.FW, EM.FH, lon / DEG, lat / DEG);
+    if (lc > 8) { EW.pres = EW.lake = smoothstep(80, 150, lc); EW.level = samp(EM.lakeL, EM.FW, EM.FH, lon / DEG, lat / DEG); }
+  }
+  if (fade <= 0 || !EM.lines) return h;
+  const q = lineQuery(lon, lat);
+  let level = -1e9;
+  if (q.rd < q.rw / 2 + 220) {
+    const hw = q.rw / 2;
+    level = mapH(q.rx / DEG, q.ry / DEG) - 0.6; // the water surface: the map's height on the river's centre line
+    const target = q.rd < hw ? level - (1.5 + q.rw * 0.03) * (1 - (q.rd / hw) ** 2) : level + 0.8 + (q.rd - hw) * 0.22;
+    const k = (1 - smoothstep(hw + 20, hw + 220, q.rd)) * fade;
+    h = Math.min(h, h + (target - h) * k);
+    const pres = (1 - smoothstep(hw - 3, hw + 4, q.rd)) * fade;
+    if (pres > EW.pres) { EW.pres = pres; EW.level = level; EW.lake = 0; }
+    EW.river = (1 - smoothstep(hw, hw + 14, q.rd)) * fade;
+  }
+  if (q.wd < q.ww / 2 + 70) {
+    const hw = q.ww / 2, inRiver = q.rd < Infinity ? 1 - smoothstep(q.rw / 2, q.rw / 2 + 30, q.rd) : 0;
+    let rh = Math.max(mapH(lon / DEG, lat / DEG) + 0.3, 0.8); // the map's own (smooth) height here: no steps where roads meet
+    if (inRiver > 0) rh = Math.max(rh, level + 4); // a raised deck where the road crosses a river
+    // over the river only the roadway itself is filled, so a road along the bank leaves the river alone
+    const k = lerp(1 - smoothstep(hw + 2, hw + 70, q.wd), 1 - smoothstep(hw + 0.5, hw + 4, q.wd), inRiver);
+    h = lerp(h, rh, k * fade);
+    // painted as coverage: on a cell wider than the road, a faint band one cell wide rather than a cell-wide smear
+    const cw = Math.max(hw, cell * 0.5);
+    EW.road = (1 - smoothstep(cw - 0.5, cw + 1.5, q.wd)) * Math.min(1, (hw + 1) / cw) * fade;
+  }
+  return h;
+}
+
+// ---- places: countries and seas, cities
+function regionAt(lon, lat) { // degrees -> { country, sea } names (or null)
+  if (!EM.country) return { country: null, sea: null };
+  const x = Math.floor(((((lon + 180) % 360) + 360) % 360) / 360 * EM.RW), y = clamp(Math.floor((90 - lat) / 180 * EM.RH), 0, EM.RH - 1), i = y * EM.RW + Math.min(x, EM.RW - 1);
+  const c = EM.country[i], s = EM.sea[i];
+  return { country: c ? EM.regions[c - 1] : null, sea: s ? EM.regions[EM.nCountries + s - 1] : null };
+}
+let cityGrid = null; // 1° cells -> city indices
+function indexCities() {
+  cityGrid = new Map();
+  EM.cities.forEach((c, i) => {
+    const k = Math.floor(c[3] + 180) * 1000 + Math.floor(c[4] + 90);
+    if (!cityGrid.has(k)) cityGrid.set(k, []);
+    cityGrid.get(k).push(i);
+  });
+}
+// Cities within r degrees of a point (degrees), nearest first, as [city, distance in game metres].
+function citiesNear(lon, lat, r) {
+  const out = [];
+  if (!cityGrid) return out;
+  const km = EARTH.radius / DEG, kx = km * Math.max(0.05, Math.cos(lat / DEG)), n = Math.ceil(r) + 1;
+  for (let i = Math.floor(lon + 180) - n; i <= Math.floor(lon + 180) + n; i++) for (let j = Math.floor(lat + 90) - n; j <= Math.floor(lat + 90) + n; j++) {
+    const list = cityGrid.get((((i % 360) + 360) % 360) * 1000 + j);
+    if (!list) continue;
+    for (const ci of list) {
+      const c = EM.cities[ci];
+      let dl = c[3] - lon;
+      dl -= Math.round(dl / 360) * 360;
+      const d = Math.hypot(dl * kx, (c[4] - lat) * km);
+      if (d <= r * km) out.push([c, d]);
+    }
+  }
+  return out.sort((a, b) => a[1] - b[1]);
+}
+// A city's built-up radius in game metres (the real city shrunk with the planet, buildings full size).
+const cityRadius = (pop) => clamp(22 * Math.sqrt(pop / 1000), 90, 4200);
 // map height at a point given as sim angle and depth
 const earthH = (a, z) => mapH(earthLon(a), (NORTH * z) / EARTH.radius);
 // The island rises out of the real sea, with low hills and a ragged shore. hs: the profile's short waves.
@@ -161,7 +340,8 @@ function earthRaw(a) {
   const M = mapH(earthLon(a), 0);
   let al = (a % TAU) * R;
   if (al < 0) al += TAU * R;
-  return island(c, e, 0, al, M + hillW(M) * Ps + coastN(c, al, 0, M), Ps);
+  const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, earthLon(a), 0)) : 1;
+  return features(island(c, e, 0, al, M + hillW(M) * Ps * lake + coastN(c, al, 0, M), Ps), earthLon(a) * DEG, 0, 1);
 }
 
 const cfgs = new Map();
@@ -266,8 +446,11 @@ function natural(c, G, i, j, cont) {
     const wb = 1 - smoothstep(0.3 * cs, 0.6 * cs, cell);
     if (wb > 0) det += amp * wd * wb * (vnoise2(G.al[i] / cs, z / cs, n, c.seed) * 2 - 1);
   }
-  if (c.mapped) // cont is the map's height here
-    return island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs + coastN(c, G.al[i], z, cont), hs) + det;
+  if (c.mapped) { // cont is the map's height here; no hills on lake beds
+    const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, earthLon(G.ang[i]), NORTH * G.phi[j])) : 1;
+    const hm = island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs * lake + coastN(c, G.al[i], z, cont), hs) + det;
+    return features(hm, earthLon(G.ang[i]) * DEG, NORTH * G.phi[j] * DEG, 1 - smoothstep(150, 400, cell), cell);
+  }
   return h + det + cont * smoothstep(c.c0, c.c1, az);
 }
 function apronW(e, z) {
@@ -285,6 +468,7 @@ function builtW(c, G, i, j) {
   return B;
 }
 function height(c, G, i, j, cont) {
+  EW.pres = EW.road = EW.river = EW.lake = 0;
   const B = builtW(c, G, i, j);
   if (B >= 1) { crDark = 0; return G.th[i]; }
   const hn = natural(c, G, i, j, cont);
@@ -298,20 +482,32 @@ function h3dAt(c, a, z) {
 // ------------------------------------------------------------------ physics API
 // Heights are cached on a 2 m lattice and interpolated; on the track (where craft drive, land and launch)
 // the ground is exactly the 2D profile, so the pad, runway and road keep their crisp edges.
-const GS = 2, hc = new Map();
+const GS = 2, hc = new Map(), hwc = new Map(); // heights, and inland water surfaces (NaN: none)
 let hcBody = null;
 function cell(c, n, ia, iz) {
   ia = ((ia % n) + n) % n;
   const k = iz * n + ia;
   let h = hc.get(k);
-  if (h === undefined) { h = h3dAt(c, (ia * TAU) / n, iz * GS); hc.set(k, h); }
+  if (h === undefined) { h = h3dAt(c, (ia * TAU) / n, iz * GS); hc.set(k, h); hwc.set(k, EW.pres > 0.5 ? EW.level : NaN); }
   return h;
+}
+// Inland water (lakes, rivers) at a point: its surface, or NaN. Earth with the map only.
+function inlandAt(b, a, z) {
+  if (!b.mapped) return NaN;
+  const c = cfgOf(b), half = trackHalf(-wrapAngle(a - EARTH.padAngle) * c.R);
+  if (Math.abs(z) <= half) return NaN;
+  const n = Math.max(8, Math.round((TAU * c.R) / GS));
+  let fa = ((a % TAU) / TAU) * n;
+  if (fa < 0) fa += n;
+  const ia = Math.round(fa), iz = Math.round(z / GS);
+  cell(c, n, ia, iz);
+  return hwc.get(iz * n + (((ia % n) + n) % n));
 }
 function heightAt(b, a, z) {
   const c = cfgOf(b), R = c.R;
   const half = b === EARTH ? trackHalf(-wrapAngle(a - EARTH.padAngle) * R) : 25;
   if (Math.abs(z) <= half) return terrainHeight(b, a);
-  if (hcBody !== b || hc.size > 80000) { hc.clear(); hcBody = b; }
+  if (hcBody !== b || hc.size > 80000) { hc.clear(); hwc.clear(); hcBody = b; }
   const n = Math.max(8, Math.round((TAU * R) / GS));
   let fa = ((a % TAU) / TAU) * n;
   if (fa < 0) fa += n;
@@ -319,8 +515,17 @@ function heightAt(b, a, z) {
   const h0 = lerp(cell(c, n, ia, iz), cell(c, n, ia + 1, iz), tx), h1 = lerp(cell(c, n, ia, iz + 1), cell(c, n, ia + 1, iz + 1), tx);
   return lerp(h0, h1, tz);
 }
-function surfaceAt(b, a, z) { const h = heightAt(b, a, z); return b.ocean && h < 0 ? 0 : h; }
-function waterAt3(b, a, z) { return !!b.ocean && heightAt(b, a, z) < 0; }
+function surfaceAt(b, a, z) {
+  const h = heightAt(b, a, z);
+  if (b.ocean && h < 0) return 0;
+  if (b.mapped) { const w = inlandAt(b, a, z); if (w > h) return w; }
+  return h;
+}
+function waterAt3(b, a, z) {
+  const h = heightAt(b, a, z);
+  if (b.ocean && h < 0) return true;
+  return b.mapped && inlandAt(b, a, z) > h;
+}
 // Where a body-relative point sits: angle, depth along the surface, distance from the centre.
 function locate(b, rx, ry, rz, o = {}) {
   const r = Math.hypot(rx, ry, rz) || 1;
@@ -340,7 +545,8 @@ function normalAt(b, a, z, o = v3()) {
 }
 
 return {
-  loadEarth, earthRaw, earthColor, earthLon, earthH, mapH, earthMap: EM, setEarthMap: mapSet,
+  loadEarth, earthRaw, earthColor, earthLon, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
+  water: EW, inlandAt, regionAt, citiesNear, cityRadius, NORTH, DEG,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
   dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt,
 };

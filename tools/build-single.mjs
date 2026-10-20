@@ -15,8 +15,9 @@ html = html.replace(/<link rel="stylesheet" href="css\/style.css">/, () => `<sty
 html = html.replace('<script src="js/parts3d.js"></script>', '<script src="js/vendor/three.min.js"></script>\n<script src="js/parts3d.js"></script>');
 html = html.replace(/<script src="(js\/[\w/.-]+\.js)"><\/script>/g, (_, src) => `<script>\n${readFileSync(join(root, src), 'utf8').replace(/<\/script/gi, '<\\/script')}</script>`);
 // the Earth map files become data: URLs
-for (const [file, type] of [['assets/earth-height.png', 'image/png'], ['assets/earth-color.jpg', 'image/jpeg']])
-  html = html.replace(`'${file}'`, () => `'data:${type};base64,${readFileSync(join(root, file)).toString('base64')}'`);
+const TYPES = { png: 'image/png', jpg: 'image/jpeg', json: 'application/json', bin: 'application/octet-stream' };
+for (const file of ['earth-height.png', 'earth-color.jpg', 'earth-night.jpg', 'earth-lakes.png', 'earth-urban.png', 'earth-regions.png', 'earth-places.json', 'earth-lines.bin'].map((f) => 'assets/' + f))
+  html = html.replace(`'${file}'`, () => `'data:${TYPES[file.split('.').pop()]};base64,${readFileSync(join(root, file)).toString('base64')}'`);
 // a single file has no service worker, manifest or icon files next to it
 html = html.replace(/<link rel="(manifest|icon|apple-touch-icon)"[^>]*>\n/g, '');
 html = html.replace('<script>\n\'use strict\';\n// Shared helpers', '<script>window.RSS_NO_SW = true;</script>\n<script>\n\'use strict\';\n// Shared helpers');

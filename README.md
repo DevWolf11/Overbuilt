@@ -40,7 +40,7 @@ Builder: pick Rocket, Plane, Car or Helicopter above the stats, drag parts from 
 
 ## What's in it
 
-- **The real Earth:** continents, coastlines, mountains and colours from Natural Earth and NASA's Blue Marble, on the 3D globe, the ground you fly over and the map. The space centre has an island of its own in the Gulf of Guinea, at 7°E on the equator, with a lighthouse, wind turbines, a tank farm and a seaplane pier; the causeway runs 13 km east to a port town on the coast of Gabon. Villages dot the land and fishing boats and freighters the sea.
+- **The real Earth:** real mountains, sea floors, coastlines and colours on the 3D globe, the ground you fly over and the map, from about 5 km per height sample. The real rivers carve their valleys (the Nile through Cairo, the Amazon past Manaus, the Seine through Paris) and the big lakes sit at their real levels (Lake Victoria, the Great Lakes, Lake Geneva); seaplanes can land on them and roads cross them on bridges. Real motorways and roads cross the land, levelled into the hills. About 6,500 real towns and cities stand where they are, as full-size streets of houses and blocks of flats with a downtown of towers in the big ones, farmland makes a patchwork of fields around them, forests grow where the satellite photo is green and snow lies where it is white. At night the cities light up, on the ground and seen from orbit. The HUD says where you are ("Over France · Paris"). The space centre has an island of its own in the Gulf of Guinea, at 7°E on the equator, with a lighthouse, wind turbines, a tank farm and a seaplane pier; the causeway runs 13 km east to a port town on the coast of Gabon. Villages dot the land and fishing boats and freighters the sea.
 - **A 3D world:** craft move and turn in all three dimensions: orbits can be inclined, planes bank and turn anywhere over the island, cars drive off across the countryside. You see textured planets from space, terrain with oceans, beaches, trees and clouds near the ground, the space centre with its runway, helipad and causeway, shadows, engine plumes and smoke. The camera follows behind planes, cars and helicopters and beside rockets. Building stays on a 2D blueprint.
 - **Vehicles:** rockets launch from the pad, planes take off from the runway, cars drive from it (a causeway road leads 13 km east to the mainland), and helicopters lift off from the helipad. Wings make lift from the airflow and stall at high angles; ailerons roll, elevators pitch and the tail fin's rudder yaws and keeps a plane pointing into the wind, so banked turns are coordinated. Propellers and jets need air, rotors give lift and the stick tilts a helicopter (it levels itself when you let go), car wheels drive and the front ones steer, landing gear rolls freely and everything brakes. Planes hold their pitch and bank when you let go, or the autopilot can level them out or hold a heading.
 - **The sound barrier:** past Mach 1 in thick air a vapour cone wraps the craft, a shock ring bursts outwards and a sonic boom cracks; the HUD shows the Mach number.
@@ -83,14 +83,14 @@ js/flight.js          flight loop, time warp, HUD, controls, saving, missions
 js/ui.js, audio.js    dialogs, toasts, icons and procedural sound
 js/main.js            app shell, home screen, menus and the main loop
 sw.js, manifest.webmanifest, icons/   offline support and install icons
-assets/earth-*.png/jpg the real Earth's heights and colours, baked by tools/bake-earth.py
+assets/earth-*         the real Earth (heights, colours, night lights, lakes, towns, regions, rivers and roads), baked by tools/bake-earth.py
 tools/build-single.mjs bundles everything into dist/rocket-science-simulator.html
 .github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
 ```
 
 Scripts are plain (non-module) JavaScript so the game also works when opened straight from disk.
 
-The Earth map is baked from public-domain data: [Natural Earth](https://www.naturalearthdata.com/) 1:50m land for the coastlines, NASA's land elevation and Blue Marble imagery for relief and colour. `python3 tools/bake-earth.py <folder>` rebuilds `assets/` from them; the script lists where to get each file.
+The Earth map is baked from open data: elevation and sea-floor depth from the [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen terrarium, built from SRTM, GMTED and ETOPO1), land, lakes, rivers, roads, urban areas, towns, countries and seas from [Natural Earth](https://www.naturalearthdata.com/) 1:10m, and NASA's Blue Marble (colour) and Black Marble (night lights). `python3 tools/bake-earth.py <folder>` rebuilds `assets/` from them in about a minute; the script lists where to get each file. The baked map is about 4.5 MB (the game caches it for offline play).
 
 This repository used to hold Cam-Strike, a 5v5 FPS. Its full history is still in git: the last version is commit `30e7bc8`.
 
