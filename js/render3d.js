@@ -38,6 +38,7 @@ const Render3D = (() => {
   };
   const T1 = [0, 0, 0], T2 = [0, 0, 0], BIO = [0, 0, 0], BIOL = [0, 0, 0];
   const FOAM = [238, 246, 250], ASPHALT = [74, 77, 82], URBAN = [132, 126, 116], HEDGE = [70, 96, 52], LAKE_S = [52, 128, 150], LAKE_D = [22, 70, 104];
+  const AIRGRASS = [96, 132, 66], FQP = { w: 0, h: 0, f: null }; // an airfield's mown grass
   const FIELDS = [[196, 176, 104], [118, 158, 72], [140, 112, 76], [160, 186, 104], [96, 132, 64], [184, 160, 92]];
   const FIELD_AVG = [0, 1, 2].map((q) => FIELDS.reduce((s, f) => s + f[q], 0) / FIELDS.length);
   let SHORE = 1e9; // estimated distance to the waterline (m): height over the local slope
@@ -955,6 +956,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const k = j * nc + i;
         hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark();
         if (c.mapped) { wl[k] = EW.level; wp[k] = EW.pres; lk[k] = EW.lake; rdw[k] = EW.road; rvw[k] = EW.river; }
+        if (b === EARTH && Terrain.fieldAt && Terrain.fieldAt(G.ea[i], G.z[j], FQP).w > 0) hs[k] = fieldGround(FQP, G.ea[i], G.z[j], Math.max(G.dx[i], G.dz[j]), hs[k]);
       }
       yield;
     }
@@ -997,10 +999,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       CLIFF = 0;
       nightA[k] = 0;
       if (c.mapped && hs[k] >= 0) {
-        const cell = Math.max(G.dx[i], G.dz[j]), X = G.al[i], Z = G.z[j], u = Terrain.urbanAt(G.ang[i], Z);
+        // airfields (EARTH.airfields): kept grass, no fields or streets painted across them
+        const fw = b === EARTH && Terrain.fieldAt ? Terrain.fieldAt(G.ea[i], G.z[j], FQP).w : 0;
+        const cell = Math.max(G.dx[i], G.dz[j]), X = G.al[i], Z = G.z[j], u = Terrain.urbanAt(G.ang[i], Z) * (1 - fw);
         // farmland: a patchwork of fields on gentle, green-to-dry lowland, in some regions and not others
         const bl = lum(BIOL), farm = BIOW * smoothstep(0.17, 0.24, bl) * (1 - smoothstep(0.42, 0.52, bl)) * (1 - smoothstep(0.08, 0.2, slope)) * smoothstep(3, 8, hs[k]) * (1 - smoothstep(350, 650, hs[k]))
-          * smoothstep(0.42, 0.6, vnoise2(X / 2600, Z / 2600, 0, c.seed + 90)) * (1 - FAR) * (1 - smoothstep(0.15, 0.4, u));
+          * smoothstep(0.42, 0.6, vnoise2(X / 2600, Z / 2600, 0, c.seed + 90)) * (1 - FAR) * (1 - smoothstep(0.15, 0.4, u)) * (1 - fw);
         if (farm > 0.01) {
           const th = 0.5 + 1.2 * vnoise2(X / 9000, Z / 9000, 0, c.seed + 91), ct = Math.cos(th), st = Math.sin(th), fx = X * ct - Z * st, fz = X * st + Z * ct;
           const cx = Math.floor(fx / 150), cz = Math.floor(fz / 95), hsh = hashI(cx, cz, 92), edge = Math.min(fx - cx * 150, (cx + 1) * 150 - fx, fz - cz * 95, (cz + 1) * 95 - fz);
@@ -1022,6 +1026,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (rvw[k] > 0) mixC(out, P.wet, rvw[k] * 0.5, out);          // river banks
         if (wp[k] > 0.05 && cell > 90) mixC(out, LAKE_D, wp[k] * smoothstep(90, 160, cell) * smoothstep(0, 2, wl[k] - hs[k]), out); // far water, painted on
         if (rdw[k] > 0) mixC(out, ASPHALT, rdw[k], out);              // roads
+        if (fw > 0) mixC(out, AIRGRASS, fw * 0.45, out);
         nightA[k] = clamp(Math.max(0, Terrain.nightAt(G.ang[i], Z) - 0.08) * 1.2 + u * 0.1 + rdw[k] * 0.1, 0, 1) * (0.15 + 0.85 * smoothstep(30, 400, cell));
       }
       if (b === EARTH && hs[k] > 6 && G.ea[i] > 560 && G.ea[i] < EARTH.causeway.shore - 1000) { // concrete shoulders along the runway and causeway
@@ -1085,6 +1090,20 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     patch.inland.visible = inland;
     Object.assign(patch, { b, a0, z0, kl, span, at: clock, ready: true });
+  }
+  // The rendered ground round an airfield's paving stays under it (render only; q: Terrain.fieldAt's answer here).
+  // Within a mesh cell or so of the runway it never rises over the strip's level: a coarse cell reaching in from
+  // higher ground beyond the levelled strip would tilt up across it. Near the apron and taxiways, which follow the
+  // ground, it sinks by as much as the detail coarse cells leave out can raise it (terrain.js: Earth's 40 m and
+  // 160 m waves, 1.2 and 4 m high, dropped from cells of 12-24 and 48-96 m; damped by the levelling, 1 - w).
+  function fieldGround(q, e, z, cell, h) {
+    const f = q.f, de = e - f.e, dz = z - f.z, u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c, reach = cell * 1.5 + 2;
+    if (Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - 22.5, 0)) < reach) h = Math.min(h, f.h);
+    const L = fieldLayout(f);
+    if (L) for (const [u0, u1, v0, v1] of L.pads) {
+      if (Math.hypot(Math.max(u0 - u, 0, u - u1), Math.max(v0 - v, 0, v - v1)) < reach) return h - (1 - q.w) * (1.2 * smoothstep(12, 24, cell) + 4 * smoothstep(48, 96, cell));
+    }
+    return h;
   }
   // Swap the freshly built patch in (the scenery is placed on the patch on show, so it follows).
   function swapPatch() {
@@ -1180,6 +1199,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (h0 > forest * 0.9 - 0.05) continue;
         if (offTrack(b, a, z) < 8 || (builtAt(b, a, z) > 0.3 && clearZone(b, a))) continue;
         if (c.mapped && Terrain.treelessAt(a, z)) continue; // the Faroes and Shetland: grass, no trees
+        if (b === EARTH && keepClear(-wrapAngle(a - EARTH.padAngle) * R, z)) continue; // nor on the airfields
         const h = meshHeight(b, a, z);
         if (h == null || h < 4 || h > (c.mapped ? 950 : 420)) continue;
         if (c.mapped && offFeature(a, z, 5)) continue;
@@ -1224,7 +1244,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           if (H(102) > 0.2 + 0.7 * dens) continue;
           const a = ca + X / (R * kl), z = cz + Z;
           if (Math.hypot(wrapAngle(a - a0) * R * kl, z - z0) > rad) continue;
-          if (offTrack(b, a, z) < 60 || Terrain.apronW(-wrapAngle(a - EARTH.padAngle) * R, z) > 0) continue; // (Tórshavn is by the runway)
+          if (offTrack(b, a, z) < 60 || Terrain.apronW(-wrapAngle(a - EARTH.padAngle) * R, z) > 0 || keepClear(-wrapAngle(a - EARTH.padAngle) * R, z)) continue; // (Tórshavn is by the runway)
           const h = meshHeight(b, a, z);
           if (h == null || h < 1.5 || offFeature(a, z, 7, true)) continue;
           const core = Math.pow(dens, 3), cbd = 1 - smoothstep(rc * 0.03, rc * 0.14, dc), tall = big && H(103) < (mega ? 0.22 : 0.12) * cbd; // towers only in a downtown
@@ -1263,7 +1283,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           const H = (s) => hashI(ix * 31 + k, q, s);
           const r = spread * Math.sqrt(H(66)), t = H(67) * TAU, hz = cz + r * Math.sin(t), ha = a + (r * Math.cos(t)) / (R * kl);
           const h = meshHeight(b, ha, hz);
-          if (h == null || h < 2.5 || offTrack(b, ha, hz) < 15 || (c.mapped && offFeature(ha, hz, 6))) continue;
+          if (h == null || h < 2.5 || offTrack(b, ha, hz) < 15 || keepClear(-wrapAngle(ha - EARTH.padAngle) * R, hz) || (c.mapped && offFeature(ha, hz, 6))) continue;
           if (nw >= set.walls.instanceMatrix.count || nh >= set.roofs.instanceMatrix.count) break;
           const w = 6 + 5 * H(68), d = 5 + 3 * H(69), hh = H(70) < 0.18 ? 6.5 : 3.6, yaw = yaw0 + Math.round(H(71) * 3) * (Math.PI / 2) + (H(72) - 0.5) * 0.4;
           place(set.walls, nw, ha, hz, h - 0.3, w, hh + 0.3, yaw, wallC[Math.floor(H(73) * wallC.length)], d);
@@ -1280,7 +1300,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const ba = (ix + hashI(ix, q, 82)) * cellB, bz = (q + hashI(ix, q, 83)) * cellB;
         if (Math.hypot((ba - a0 * R) * kl, bz - z0) > rad + 500) continue;
         const a = ba / R, h = meshHeight(b, a, bz);
-        if (h == null || h > -6) continue;
+        if (h == null || h > -6 || keepClear(-wrapAngle(a - EARTH.padAngle) * R, bz, true)) continue; // (well away from the carriers)
         const big = hashI(ix, q, 84) < 0.15, s = big ? 3.6 : 0.9 + 0.3 * hashI(ix, q, 85);
         tmpC.setRGB(1, 1, 1);
         if (big) tmpC.setRGB(0.62, 0.2, 0.16); else if (hashI(ix, q, 86) < 0.3) tmpC.setRGB(0.95, 0.85, 0.5);
@@ -1298,7 +1318,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const along = (ix + hashI(ix, q, 52)) * cell, z = (q + hashI(ix, q, 53)) * cell;
         if (Math.hypot((along - a0 * R) * kl, z - z0) > rr) continue;
         const a = along / R;
-        if (offTrack(b, a, z) < 4) continue;
+        if (offTrack(b, a, z) < 4 || (b === EARTH && keepClear(-wrapAngle(a - EARTH.padAngle) * R, z))) continue;
         const h = meshHeight(b, a, z);
         if (h == null || (b.ocean && h < 2)) continue;
         const s = 0.4 + 3.6 * Math.pow(hashI(ix, q, 54), 4), g = 0.75 + 0.4 * hashI(ix, q, 55);
@@ -1550,13 +1570,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const rh = (e) => EARTH.padHeight + 0.04 + (terrainHeight(EARTH, siteAngle(EARTH, e)) - EARTH.padHeight);
     const rw = EARTH.runway;
     strip(rw.from + 60, rw.to - 60, 20, -22.5, 22.5, rh, 60, stdMat({ map: rwTex, roughness: 0.9 }));
-    const endTex = (num, flip) => canvasTex(512, 384, (cx) => { // 60 m long end section with piano keys and the number
+    // (turn: the number's turn; the airfields pass -PI/2, which reads the right way up on the approach)
+    const endTex = (num, flip, turn = Math.PI / 2) => canvasTex(512, 384, (cx) => { // 60 m long end section with piano keys and the number
       asphalt(cx, 512, 384);
       cx.save();
       if (flip) { cx.translate(512, 384); cx.rotate(Math.PI); }
       cx.fillStyle = '#e9ebe6'; cx.fillRect(0, 12, 512, 7); cx.fillRect(0, 365, 512, 7);
       for (let k = 0; k < 8; k++) { cx.fillRect(14, 40 + k * 18, 200, 10); cx.fillRect(14, 216 + k * 18, 200, 10); }
-      cx.save(); cx.translate(330, 192); cx.rotate(Math.PI / 2); cx.font = 'bold 120px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(num, 0, 0); cx.restore();
+      cx.save(); cx.translate(330, 192); cx.rotate(turn); cx.font = 'bold 120px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(num, 0, 0); cx.restore();
       cx.fillRect(440, 186, 72, 12);
       cx.restore();
     });
@@ -1618,14 +1639,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const p = surf(e, h, z, tmpV()); bp.push(p.x, p.y, p.z); bc.push(1, 0.25, 0.2); bs.push(2.2);
     }
     glowPts(bp, bc, bs, S.blinkU);
-    S.scKit = [g, place, stdMat, lit, glowPts]; // the landmarks need the Earth map's ground: built once it has loaded
-    S.rotors = [];
+    // the landmarks need the Earth map's ground: built once it has loaded (with what the airfields reuse)
+    S.scKit = [g, place, stdMat, lit, glowPts, { rwTex, endTex, asphalt, concrete, facade, winRows, hangar, tower }];
+    S.rotors = []; S.radars = [];
   }
 
   // Around the space centre: a lighthouse on the west coast, wind turbines on the hills, a tank farm by the
   // pad, a pier in the seaplane bay and a port town where the causeway comes ashore on Shetland.
-  function initLandmarks([g, place, stdMat, lit, glowPts]) {
+  function initLandmarks([g, place, stdMat, lit, glowPts, X]) {
     const ground = (e, z) => Terrain.heightAt(EARTH, siteAngle(EARTH, e), z);
+    // the multiplayer airfields and carriers (a bad entry in EARTH.airfields / carriers mustn't cost the rest)
+    try { initAirfields(g, stdMat, lit, glowPts, X); } catch (err) { console.error('airfields', err); }
+    try { initCarriers(g, stdMat, lit, glowPts); } catch (err) { console.error('carriers', err); }
     const vcol = stdMat({ vertexColors: true });
     // ---- lighthouse: banded tower, gallery, lantern, and a beam that sweeps round at night
     let le = -300, lz = 220;
@@ -1697,7 +1722,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       // packed along the road where it comes ashore, thinning out away from it
       const e = EARTH.causeway.shore + 100 + hashI(i, 1, 71) * 1300, side = hashI(i, 2, 71) < 0.5 ? -1 : 1, z = side * (24 + 520 * Math.pow(hashI(i, 12, 71), 1.6));
       const h = ground(e, z);
-      if (h < 2.5 || h > 120) continue;
+      if (h < 2.5 || h > 120 || keepClear(e, z)) continue; // (not on the Shetland airfield)
       const w = 6 + 5 * hashI(i, 3, 71), d = 5 + 3 * hashI(i, 4, 71), hh = hashI(i, 5, 71) < 0.2 ? 6.5 : 3.6, yaw = Math.round(hashI(i, 6, 71) * 4) * (Math.PI / 2) + (hashI(i, 7, 71) - 0.5) * 0.3;
       const put = (geo, y, sx, sy, sz, c) => {
         surf(e, h + y, z, pv);
@@ -1729,6 +1754,447 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     b.box(0, 0.4, 0, 7, 1.6, 2.9, hull).geo(bow, 4.8, 0.55, 0, hull).box(0, -0.25, 0, 7.02, 0.3, 2.92, stripe);
     b.box(-1.2, 1.9, 0, 2.6, 1.6, 2.2, cab).box(-1.2, 2.35, 0, 2.62, 0.45, 2.22, dark).box(1.6, 3.2, 0, 0.14, 5, 0.14, dark);
     return (boatGeoCache = b.build());
+  }
+
+  // ------------------------------------------------------------------ airfields and aircraft carriers
+  // EARTH.airfields and EARTH.carriers (multiplayer spawns) each have a frame of their own: u along its yaw (the way
+  // a craft placed there points: (c, s) in e, z), v to its right, so e = E + u c - v s and z = Z + u s + v c.
+  const siteE = (f, u, v) => f.e + u * f.c - v * f.s, siteZ = (f, u, v) => f.z + u * f.s + v * f.c;
+  // The matrix that stands an object at (e, h, z) in the space centre's frame with its x along yaw, y up and z to
+  // its right, anywhere on the curved ground (place() turns things for e alone, which is only right on the track).
+  function siteMatrix(e, h, z, yaw, out) {
+    const R = EARTH.radius, d = e / R, p = z / R, cd = Math.cos(d), sd = Math.sin(d), cp = Math.cos(p), sp = Math.sin(p);
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    // the ground's east (cd, -sd, 0), up (cp sd, cp cd, sp) and +z (-sp sd, -sp cd, cp) there, turned by yaw about up
+    const xx = cy * cd + sy * sp * sd, xy = -cy * sd + sy * sp * cd, xz = -sy * cp;
+    const zx = sy * cd - cy * sp * sd, zy = -sy * sd - cy * sp * cd, zz = cy * cp;
+    const o = surf(e, h, z, tmpV());
+    return out.set(xx, cp * sd, zx, o.x, xy, cp * cd, zy, o.y, xz, sp, zz, o.z, 0, 0, 0, 1);
+  }
+  function placeSite(g, obj, e, h, z, yaw) {
+    siteMatrix(e, h, z, yaw, new THREE.Matrix4()).decompose(obj.position, obj.quaternion, obj.scale);
+    g.add(obj);
+    return obj;
+  }
+  // A surface over u0..u1 x v0..v1 of a site's frame (nu x nv cells) on the curved ground, at hAt(e, z). Its texture
+  // repeats every uS metres along u and spans v0..v1 across (or repeats every vS metres); alongV: the texture's
+  // length runs along v (repeating every vS metres) and spans u0..u1.
+  function siteSurface(g, f, u0, u1, v0, v1, nu, nv, hAt, uS, vS, mat, alongV) {
+    const pos = [], uv = [], idx = [], p = tmpV();
+    for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) {
+      const u = u0 + ((u1 - u0) * i) / nu, v = v0 + ((v1 - v0) * j) / nv, e = siteE(f, u, v), z = siteZ(f, u, v);
+      surf(e, hAt(e, z), z, p); pos.push(p.x, p.y, p.z);
+      if (alongV) uv.push((v - v0) / vS, i / nu); else uv.push((u - u0) / uS, vS ? (v - v0) / vS : j / nv);
+    }
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) { const k = i * (nv + 1) + j; idx.push(k, k + 1, k + nv + 1, k + 1, k + nv + 2, k + nv + 1); } // wound to face up
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat);
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  }
+  // Pulls a surface towards the camera in depth only, by a fraction k of its distance (the logarithmic depth buffer
+  // ignores polygon offset), so paving stays on top of the coarser terrain mesh under it when seen from afar.
+  function depthBias(m, k = 3e-4) {
+    const s = (1 - k).toFixed(7);
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>\ngl_Position = projectionMatrix * vec4(mvPosition.xyz * ${s}, 1.0);`);
+    };
+    m.customProgramCacheKey = () => 'bias' + s;
+    return m;
+  }
+  // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included)
+  // and, at sea (sea: true), the water round the carriers.
+  const KQ = { w: 0, h: 0, f: null };
+  function keepClear(e, z, sea) {
+    if (Terrain.fieldAt && Terrain.fieldAt(e, z, KQ).w > 0.02) return true;
+    if (sea && EARTH.carriers) for (const k in EARTH.carriers) { const d = EARTH.carriers[k]; if (Math.hypot(e - d.e, z - d.z) < 600) return true; }
+    return false;
+  }
+  // The top of a carrier at (a, z): its flight deck, sponsons and overhangs, or its island; -Infinity
+  // off the ships (the follow camera stays out of them).
+  function shipTop(a, z) {
+    const C = EARTH.carriers;
+    if (!C) return -Infinity;
+    const e = -wrapAngle(a - EARTH.padAngle) * EARTH.radius;
+    let top = -Infinity;
+    for (const k in C) {
+      const d = C[k], de = e - d.e, dz = z - d.z;
+      if (Math.abs(de) > d.hl + 40 || Math.abs(dz) > d.hl + 40) continue;
+      const u = de * d.c + dz * d.s, v = -de * d.s + dz * d.c, kx = d.hl / 130, kz = d.hw / 18;
+      if (Math.abs(u) > d.hl + 4 || v < -28 * kz || v > 30 * kz) continue;
+      const island = u > -56 * kx && u < -24 * kx && v > 20 * kz;
+      top = Math.max(top, d.deck + (island ? 22 : 0)); // (the island's superstructure; the thin mast is let through)
+    }
+    return top;
+  }
+
+  // An airfield's layout off the runway, worked out once from the ground (so the terrain patch can keep under the
+  // paving too): the apron goes on the flatter, drier side, sg (+1 or -1 along v), u uA0..uA1 and v' (metres out on
+  // that side) vA0..vA1, with taxiways at u = taxis; pads: those as u0, u1, v0, v1 in the airfield's frame.
+  const LAY = new WeakMap();
+  function fieldLayout(f) {
+    let L = LAY.get(f);
+    if (L || Terrain.earthMap.state === 'loading') return L || null;
+    const at = (u, v) => Terrain.heightAt(EARTH, siteAngle(EARTH, siteE(f, u, v)), siteZ(f, u, v));
+    let sg = 1, best = Infinity;
+    for (const s of [1, -1]) {
+      let cost = 0;
+      for (let u = -220; u <= 120; u += 40) for (let v = 60; v <= 200; v += 35) { const h = at(u, s * v); cost += Math.abs(h - f.h) + (h < 2 ? 60 : 0); }
+      if (cost < best) { best = cost; sg = s; }
+    }
+    const uA0 = -215, uA1 = 95, vA0 = 70, vA1 = 150, taxis = [uA0 + 24, uA1 - 24], out = (a, b) => (sg > 0 ? [a, b] : [-b, -a]);
+    const pads = [[uA0, uA1, ...out(vA0, vA1)], ...taxis.map((uc) => [uc - 10, uc + 10, ...out(22.5, vA0)])];
+    LAY.set(f, (L = { sg, uA0, uA1, vA0, vA1, taxis, out, pads }));
+    return L;
+  }
+
+  // Airfields: a 45 m runway numbered for its real heading down the levelled strip, edge and approach lights, and
+  // on its flatter side an apron with taxiways, two hangars, an operations building, a tower, fuel tanks and a
+  // couple of parked jets; a windsock across the runway. X: textures and buildings shared with the space centre.
+  function initAirfields(g, stdMat, lit, glowPts, X) {
+    const F = EARTH.airfields;
+    if (!F || !X) return;
+    const R = EARTH.radius, ground = (e, z) => Terrain.heightAt(EARTH, siteAngle(EARTH, e), z);
+    const rwMat = depthBias(stdMat({ map: X.rwTex, roughness: 0.9 }));
+    const apronMat = depthBias(stdMat({ map: X.concrete, color: '#d6d6d2', roughness: 0.92 }));
+    const twTex = canvasTex(256, 256, (cx) => { // 24 m along a taxiway, 20 m across: yellow centre line, white edges
+      X.asphalt(cx, 256, 256);
+      cx.fillStyle = '#ffc93c'; cx.fillRect(0, 124, 256, 8);
+      cx.fillStyle = '#d9dbd6'; cx.fillRect(0, 8, 256, 4); cx.fillRect(0, 244, 256, 4);
+    }, true, true);
+    const twMat = depthBias(stdMat({ map: twTex, roughness: 0.9 }));
+    const vcol = stdMat({ vertexColors: true, roughness: 0.7, metalness: 0.15 });
+    // operations building: two floors of windows, a blue band and a door facing the runway
+    const of = X.facade(24, 8, 10, (Rr, glow) => {
+      if (!glow) { Rr(0, 0, 24, 8, '#d8d5ce'); Rr(0, 6.9, 24, 1.1, '#2f5f9a'); Rr(10.5, 0, 3, 2.6, '#4b525b'); }
+      X.winRows(Rr, glow, 1.5, 9, 2.5, 1.1, 6, 3, 1.6, 1.5); X.winRows(Rr, glow, 15, 23, 2.5, 1.1, 6, 3, 1.6, 1.5);
+    });
+    const os = X.facade(12, 8, 10, (Rr, glow) => { if (!glow) { Rr(0, 0, 12, 8, '#d0cdc6'); Rr(0, 6.9, 12, 1.1, '#2f5f9a'); } X.winRows(Rr, glow, 1.5, 11, 3, 1.1, 6, 3, 1.4, 1.5); });
+    const opsGeo = new THREE.BoxGeometry(24, 8, 12); opsGeo.translate(0, 4, 0);
+    const opsMats = [lit(os), lit(os), stdMat({ color: '#8d939b' }), stdMat({ color: '#8d939b' }), lit(of), lit(of)];
+    const white = col('#e8ebef'), grey = col('#8a929c'), dark = col('#3b4048'), slab = col('#9a9c9c'), orange = col('#ff7a1a');
+    const L = [[], [], []], B = [[], [], []];
+    const put = (A, e, h, z, c, s) => { const p = surf(e, h, z, tmpV()); A[0].push(p.x, p.y, p.z); A[1].push(c[0], c[1], c[2]); A[2].push(s); };
+    for (const key in F) {
+      const f = F[key], hl = f.hl, E = (u, v) => siteE(f, u, v), Z = (u, v) => siteZ(f, u, v), at = (u, v) => ground(E(u, v), Z(u, v));
+      const { sg, uA0, uA1, vA0, vA1, taxis, out } = fieldLayout(f);
+      const flat = () => f.h + 0.05, drape = (e, z) => ground(e, z) + 0.12;
+      // the runway, numbered at each end for the way it heads there (the real bearing, as at the space centre)
+      const brg = Terrain.bearingAt ? Terrain.bearingAt(siteAngle(EARTH, f.e), f.z / R, f.c, -f.s) : 90 - (f.yaw * 180) / Math.PI;
+      const n1 = Math.round(brg / 10) % 36 || 36, n2 = ((n1 + 17) % 36) + 1, num = (n) => String(n).padStart(2, '0');
+      siteSurface(g, f, -hl + 60, hl - 60, -22.5, 22.5, Math.ceil((2 * hl - 120) / 20), 1, flat, 60, 0, rwMat);
+      siteSurface(g, f, -hl, -hl + 60, -22.5, 22.5, 6, 1, flat, 60, 0, depthBias(stdMat({ map: X.endTex(num(n1), false, -Math.PI / 2), roughness: 0.9 })));
+      siteSurface(g, f, hl - 60, hl, -22.5, 22.5, 6, 1, flat, 60, 0, depthBias(stdMat({ map: X.endTex(num(n2), true, -Math.PI / 2), roughness: 0.9 })));
+      // apron and two taxiways out to it (v' metres out from the centre line on the apron's side)
+      const [av0, av1] = out(vA0, vA1), [tv0, tv1] = out(22.5, vA0);
+      siteSurface(g, f, uA0, uA1, av0, av1, 31, 8, drape, 10, 10, apronMat);
+      for (const uc of taxis) siteSurface(g, f, uc - 10, uc + 10, tv0, tv1, 2, 6, drape, 20, 24, twMat, true);
+      // buildings face the runway from behind the apron, each on a plinth over the ground's ups and downs
+      const byaw = f.yaw + (sg > 0 ? Math.PI : 0), b = new THREE.Matrix4(), M = siteMatrix(f.e, f.h, f.z, f.yaw, new THREE.Matrix4()), Mi = M.clone().invert();
+      const bat = new Batch(), loc = (u, h, v) => surf(E(u, v), h, Z(u, v), tmpV()).applyMatrix4(Mi);
+      const footing = (u, v, hu, hv) => {
+        let hi = -Infinity, lo = Infinity;
+        for (const p of [-1, 0, 1]) for (const q of [-1, 0, 1]) { const h = at(u + p * hu, v + q * hv); hi = Math.max(hi, h); lo = Math.min(lo, h); }
+        return [hi, lo];
+      };
+      const plinth = (u, v, w, d, hi, lo) => { const l = loc(u, (hi + lo) / 2 - 0.25, v); bat.box(l.x, l.y, l.z, w, hi - lo + 0.6, d, slab); };
+      for (const u of [-172, -120]) {
+        const v = sg * 167, [hi, lo] = footing(u, v, 21, 17);
+        const hg = placeSite(g, X.hangar.clone(), E(u, v), hi, Z(u, v), byaw);
+        hg.traverse((o) => { o.castShadow = o.receiveShadow = true; });
+        plinth(u, v, 44, 35, hi, lo);
+      }
+      {
+        const u = -55, v = sg * 163, [hi, lo] = footing(u, v, 13, 7);
+        const m = placeSite(g, new THREE.Mesh(opsGeo, opsMats), E(u, v), hi, Z(u, v), byaw);
+        m.castShadow = m.receiveShadow = true;
+        plinth(u, v, 26, 14, hi, lo);
+      }
+      {
+        const u = 10, v = sg * 168, [hi, lo] = footing(u, v, 6, 6);
+        placeSite(g, X.tower.clone(), E(u, v), hi, Z(u, v), byaw).castShadow = true;
+        plinth(u, v, 13, 13, hi, lo);
+        put(B, E(u, v), hi + 33, Z(u, v), [1, 0.25, 0.2], 2.2);
+      }
+      for (const u of [52, 68]) { // fuel tanks
+        const v = sg * 174, [hi, lo] = footing(u, v, 5, 5), l = loc(u, hi, v);
+        plinth(u, v, 11, 11, hi, lo);
+        bat.geo(new THREE.CylinderGeometry(4.2, 4.2, 6, 24), l.x, l.y + 3, l.z, white).geo(new THREE.CylinderGeometry(4.25, 4.25, 0.6, 24), l.x, l.y + 4.6, l.z, orange);
+      }
+      // floodlight masts at the apron's corners and a couple of jets parked nose to the runway
+      for (const u of [uA0 + 4, uA1 - 4]) for (const v of [vA0 + 3, vA1 - 3]) {
+        const h = at(u, sg * v), l = loc(u, h, sg * v);
+        bat.geo(new THREE.CylinderGeometry(0.16, 0.24, 16, 8), l.x, l.y + 8, l.z, grey).box(l.x, l.y + 16.2, l.z, 1.6, 0.5, 1.6, dark);
+        put(L, E(u, sg * v), h + 16.6, Z(u, sg * v), [1, 0.85, 0.6], 2.8);
+      }
+      for (const u of [-12, 24]) {
+        const v = sg * 104, l = loc(u, at(u, v) + 0.1, v);
+        addJet(bat, b.compose(l, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), (sg * Math.PI) / 2), new THREE.Vector3(1, 1, 1)), false, col('#7f8a80'));
+      }
+      { // windsock across the runway (lit at night)
+        const u = -hl + 170, v = -sg * 62, h = at(u, v), l = loc(u, h, v);
+        bat.geo(new THREE.CylinderGeometry(0.07, 0.11, 6.2, 8), l.x, l.y + 3.1, l.z, grey);
+        for (let s = 0; s < 4; s++) bat.geo(new THREE.CylinderGeometry(0.44 - s * 0.07, 0.37 - s * 0.07, 0.96, 12, 1, true), l.x + 0.5 + s * 0.97, l.y + 5.8, l.z, s % 2 ? white : orange, 0, 0, Math.PI / 2);
+        put(L, E(u, v), h + 6.6, Z(u, v), [1, 0.9, 0.7], 0.8);
+      }
+      const bm = new THREE.Mesh(bat.build(), vcol);
+      bm.castShadow = bm.receiveShadow = true;
+      M.decompose(bm.position, bm.quaternion, bm.scale);
+      g.add(bm);
+      // lights: white edges every 60 m, green at the threshold, red at the far end, approach lights over land, blue
+      // along the taxiways
+      for (let u = -hl; u <= hl + 0.1; u += 60) for (const v of [-24, 24]) put(L, E(u, v), f.h + 0.4, Z(u, v), [1, 0.9, 0.7], 0.9);
+      for (let v = -20; v <= 20; v += 5) { put(L, E(-hl - 3, v), f.h + 0.4, Z(-hl - 3, v), [0.3, 1, 0.45], 1); put(L, E(hl + 3, v), f.h + 0.4, Z(hl + 3, v), [1, 0.25, 0.2], 1); }
+      for (const s of [-1, 1]) for (let i = 1; i <= 8; i++) {
+        const u = s * (hl + 30 * i), h = at(u, 0);
+        if (h > 1) for (const v of i % 2 ? [0] : [-4, 0, 4]) put(L, E(u, v), h + 1.2, Z(u, v), [1, 0.95, 0.85], 1.1);
+      }
+      for (const uc of taxis) for (let v = 30; v < vA0; v += 9) for (const du of [-10.5, 10.5]) put(L, E(uc + du, sg * v), at(uc + du, sg * v) + 0.4, Z(uc + du, sg * v), [0.3, 0.5, 1], 0.6);
+    }
+    glowPts(L[0], L[1], L[2], S.glowU);
+    glowPts(B[0], B[1], B[2], S.blinkU);
+  }
+
+  // A parked fighter (nose +x, wheels at y = 0, ~17 m long), added part by part to a Batch under the matrix m;
+  // folded: the outer wing panels stand up, as on a carrier.
+  function addJet(b, m, folded, body = col('#8e979f')) {
+    const dark = col('#262c33'), glass = col('#1d2833'), M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    const part = (geo, x, y, z, c, rx = 0, ry = 0, rz = 0) => { M.compose(p.set(x, y, z), q.setFromEuler(e.set(rx, ry, rz)), one); b.add(geo, M.premultiply(m), c); };
+    const box = (w, h, d, x, y, z, c, rx, ry, rz) => part(new THREE.BoxGeometry(w, h, d), x, y, z, c, rx, ry, rz);
+    box(11, 1.5, 1.7, 0, 2.1, 0, body);
+    part(new THREE.ConeGeometry(0.82, 4.2, 10), 7.6, 2.1, 0, body, 0, 0, -Math.PI / 2);
+    box(2.8, 0.7, 0.9, 3.9, 3.05, 0, glass);
+    box(5.5, 0.9, 3.2, 1.2, 1.95, 0, body);
+    for (const s of [-1, 1]) {
+      if (folded) { box(4.4, 0.22, 2.6, -1.6, 2.05, s * 2.1, body, 0, -s * 0.3); box(3.4, 2.8, 0.2, -2, 3.4, s * 3.45, body); }
+      else box(4.4, 0.22, 5.6, -1.7, 2.05, s * 3.4, body, 0, -s * 0.32);
+      box(2.8, 3, 0.18, -4.6, 3.55, s * 1.15, body, s * 0.4);
+      box(2.6, 0.16, 2.8, -5.7, 2.05, s * 2.2, body);
+      part(new THREE.CylinderGeometry(0.45, 0.45, 0.9, 10), -5.9, 2.05, s * 0.48, dark, 0, 0, Math.PI / 2);
+      box(0.2, 1.4, 0.2, -1.2, 0.7, s * 1.3, dark); box(0.7, 0.7, 0.35, -1.2, 0.35, s * 1.3, dark);
+    }
+    box(0.2, 1.4, 0.2, 4.8, 0.7, 0, dark); box(0.5, 0.5, 0.25, 4.8, 0.25, 0, dark);
+  }
+
+  // Aircraft carriers: a lofted hull (navy grey, black boot topping at the waterline, red below), the flight deck
+  // with its markings, the island on a sponson to starboard (outside the physics deck, with lit windows and a
+  // turning radar), parked jets beside it, deck lights and an optical landing aid. One set of geometry per size.
+  function initCarriers(g, stdMat, lit, glowPts) {
+    const C = EARTH.carriers;
+    if (!C) return;
+    const hullMat = stdMat({ vertexColors: true, roughness: 0.72, metalness: 0.2 });
+    const winMat = lit({ color: '#1b2631', emissive: 0xffcf86, roughness: 0.25, metalness: 0.3 });
+    const L = [[], [], []], B = [[], [], []], cache = new Map(), P3 = tmpV();
+    let i = 0;
+    for (const key in C) {
+      const d = C[key], sk = `${d.hl},${d.hw},${d.deck},${d.cat}`;
+      let G = cache.get(sk);
+      if (!G) cache.set(sk, (G = carrierGeo(d, stdMat)));
+      const ship = new THREE.Group();
+      const hull = new THREE.Mesh(G.hull, hullMat), deck = new THREE.Mesh(G.deck, G.deckMat), win = new THREE.Mesh(G.win, winMat), radar = new THREE.Mesh(G.radar, hullMat);
+      hull.castShadow = hull.receiveShadow = true; deck.receiveShadow = true; radar.castShadow = true;
+      radar.position.copy(G.radarAt); radar.userData.phase = i * 2.1; S.radars.push(radar);
+      const n = 70 + i, tag = new THREE.Mesh(G.tags, depthBias(stdMat({ map: numberTex(n), alphaTest: 0.5, roughness: 0.8 }), 2e-4));
+      ship.add(hull, deck, win, radar, tag);
+      placeSite(g, ship, d.e, d.deck, d.z, d.yaw);
+      ship.updateMatrix();
+      for (const [A, list] of [[L, G.lights], [B, G.beacons]]) for (const [x, y, z, c, s] of list) {
+        P3.set(x, y, z).applyMatrix4(ship.matrix);
+        A[0].push(P3.x, P3.y, P3.z); A[1].push(c[0], c[1], c[2]); A[2].push(s);
+      }
+      i++;
+    }
+    glowPts(L[0], L[1], L[2], S.glowU);
+    glowPts(B[0], B[1], B[2], S.blinkU);
+  }
+  // White numbers with a dark edge on a clear ground (deck and island)
+  function numberTex(n) {
+    return canvasTex(256, 128, (cx) => {
+      cx.clearRect(0, 0, 256, 128);
+      cx.font = 'bold 116px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.lineWidth = 7; cx.strokeStyle = 'rgba(28,32,36,0.9)'; cx.strokeText(String(n), 128, 70);
+      cx.fillStyle = '#f1f2ee'; cx.fillText(String(n), 128, 70);
+    });
+  }
+  // The ship in its own frame: x forward (bow at +hl), y up from the flight deck (y = 0, the physics deck's height),
+  // z to starboard. Laid out for a 260 x 36 m physics deck and scaled to the one given (heights are not scaled).
+  function carrierGeo(d, stdMat) {
+    const kx = d.hl / 130, kz = d.hw / 18, wl = -d.deck, T = 1.6; // waterline; flight deck slab thickness
+    const X = (x) => x * kx, Zs = (z) => z * kz, ID = new THREE.Matrix4();
+    const grey = col('#59616a'), boot = col('#17191c'), red = col('#6e2c27'), side = col('#4c535b'), haze = col('#6b747d'), dk = col('#25292e'), white = col('#e6e9ec');
+    const hb = new Batch(), wb = new Batch();
+    const geoOf = (pos, idx) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      if (idx) geo.setIndex(idx);
+      geo.computeVertexNormals();
+      return geo;
+    };
+    // ---- hull: sections at six levels from under the deck to the keel, lofted from the transom to the raked stem
+    const lv = [-T, wl + 9, wl + 1.2, wl - 1.2, wl - 6, wl - 8];
+    const W = [17, 16.6, 15.6, 15.2, 13.5, 11].map(Zs), WS = [16.4, 15.8, 14.2, 13.2, 10.5, 7].map(Zs); // half beam amidships, at the transom
+    const XB = [131, 129, 125, 123.5, 119, 115].map(X), XS = [62, 52, 36, 32, 24, 14].map(X), PW = [2.4, 2.1, 1.7, 1.7, 1.5, 1.5];
+    const YT = [0, 0, 0, wl - 1.0, wl - 1.4, wl - 1.7], xT = X(-132), xA = X(-78);
+    const pt = (k, x) => {
+      const px = Math.min(x, XB[k]);
+      let w = W[k], y = lv[k];
+      if (px > XS[k]) w *= Math.pow(Math.max(0, 1 - Math.pow((px - XS[k]) / (XB[k] - XS[k]), PW[k])), 0.6);
+      if (px < xA) { const t = smoothstep(xA, xT, px); w = lerp(w, WS[k], t); if (k >= 3) y = lerp(y, YT[k], t); }
+      return [px, y, w];
+    };
+    const xs = [];
+    for (let x = xT; x < XB[0]; x += 4 * kx) xs.push(x);
+    for (let x = XS[2]; x <= XB[0]; x += 1.5 * kx) xs.push(x);
+    xs.push(XB[0]);
+    xs.sort((a, b) => a - b);
+    const cols = [grey, grey, boot, red, red];
+    for (let k = 0; k < 5; k++) for (const s of [1, -1]) {
+      const pos = [], idx = [];
+      xs.forEach((x, n) => {
+        const a = pt(k, x), b = pt(k + 1, x);
+        pos.push(a[0], a[1], s * a[2], b[0], b[1], s * b[2]);
+        if (n) { const q = (n - 1) * 2; idx.push(...(s > 0 ? [q, q + 1, q + 2, q + 1, q + 3, q + 2] : [q, q + 2, q + 1, q + 1, q + 2, q + 3])); }
+      });
+      hb.add(geoOf(pos, idx), ID, cols[k]);
+    }
+    { // flat bottom and the transom
+      const pos = [], idx = [];
+      xs.forEach((x, n) => {
+        const a = pt(5, x);
+        pos.push(a[0], a[1], a[2], a[0], a[1], -a[2]);
+        if (n) { const q = (n - 1) * 2; idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2); } // facing down
+      });
+      hb.add(geoOf(pos, idx), ID, red);
+      const ring = [];
+      for (let k = 0; k <= 5; k++) { const a = pt(k, xT); ring.push([a[1], a[2]]); }
+      for (let k = 5; k >= 0; k--) { const a = pt(k, xT); ring.push([a[1], -a[2]]); }
+      const tp = [], cy = ring.reduce((s, r) => s + r[0], 0) / ring.length;
+      for (let n = 0; n < ring.length; n++) { const r0 = ring[n], r1 = ring[(n + 1) % ring.length]; tp.push(xT, cy, 0, xT, r1[0], r1[1], xT, r0[0], r0[1]); }
+      hb.add(geoOf(tp), ID, grey);
+    }
+    // ---- flight deck: a slab over the hull, its outline squared at bow and stern, the angled deck's overhang to
+    // port and the island's sponson to starboard; the physics deck (|x| <= hl, |z| <= hw) lies inside it
+    const plan = [[-131, -18], [-50, -18], [-20, -22], [52, -27.5], [74, -18], [131, -18], [133.5, -15], [133.5, 15], [131, 18], [20, 18], [16, 29.5],
+      [-82, 29.5], [-86, 18], [-131, 18], [-133, 15], [-133, -15]].map(([x, z]) => [X(x), Zs(z)]);
+    let area = 0;
+    for (let n = 0; n < plan.length; n++) { const [x0, z0] = plan[n], [x1, z1] = plan[(n + 1) % plan.length]; area += x0 * z1 - x1 * z0; }
+    const tris = THREE.ShapeUtils.triangulateShape(plan.map(([x, z]) => new THREE.Vector2(x, z)), []);
+    const top = [], uv = [], bot = [], sides = [], DX0 = -134, DX1 = 134, DZ0 = -28.5, DZ1 = 30.5;
+    for (const t of tris) {
+      const [a, b, c] = t.map((n) => plan[n]);
+      const up = (b[1] - a[1]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[1] - a[1]) > 0; // (b - a) x (c - a) points up
+      for (const p of up ? [a, b, c] : [a, c, b]) { top.push(p[0], 0, p[1]); uv.push((p[0] / kx - DX0) / (DX1 - DX0), (DZ1 - p[1] / kz) / (DZ1 - DZ0)); }
+      for (const p of up ? [a, c, b] : [a, b, c]) bot.push(p[0], -T, p[1]);
+    }
+    for (let n = 0; n < plan.length; n++) {
+      let [x0, z0] = plan[n], [x1, z1] = plan[(n + 1) % plan.length];
+      if (area < 0) [x0, z0, x1, z1] = [x1, z1, x0, z0]; // walk it anticlockwise (x right, z up): the outside is on the right
+      sides.push(x0, 0, z0, x1, -T, z1, x0, -T, z0, x0, 0, z0, x1, 0, z1, x1, -T, z1);
+    }
+    hb.add(geoOf(bot), ID, side).add(geoOf(sides), ID, side);
+    const deck = geoOf(top);
+    deck.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // ---- under the deck: catwalks along the straight edges, struts under the overhangs, hangar openings, gun mounts
+    for (const [x0, x1, z] of [[20, 131, 18.7], [-131, -86, 18.7], [-131, -50, -18.7], [74, 131, -18.7]]) hb.box(X((x0 + x1) / 2), -2.3, Zs(z), X(x1 - x0), 0.25, 1.4, dk);
+    const strut = (x, z0, z1) => hb.beam(new THREE.Vector3(X(x), wl + 10, Zs(z0)), new THREE.Vector3(X(x), -T - 0.1, Zs(z1)), 0.6, grey);
+    const portEdge = (x) => (x < -20 ? -18 - ((x + 50) / 30) * 4 : x < 52 ? -22 - ((x + 20) / 72) * 5.5 : -27.5 + ((x - 52) / 22) * 9.5);
+    for (let x = -40; x <= 62; x += 17) strut(x, -16.2, portEdge(x) + 1.2);
+    for (let x = -78; x <= 12; x += 15) strut(x, 16.2, 28.5);
+    for (const x of [-71, 4]) hb.box(X(x), -5.2, Zs(16.75), X(15), 5.8, 0.5, dk);
+    for (const [x, z] of [[-124, 17.6], [-124, -17.6], [104, 17.3], [104, -17.3]]) {
+      hb.box(X(x), -4.4, Zs(z), 3.6, 0.4, 3.6, side);
+      hb.geo(new THREE.CylinderGeometry(0.85, 0.95, 1.6, 12), X(x), -3.4, Zs(z), white).geo(new THREE.SphereGeometry(0.85, 12, 8, 0, TAU, 0, Math.PI / 2), X(x), -2.6, Zs(z), white);
+    }
+    // ---- the island: three decks of superstructure, the bridge and flight control with window bands, a mast with
+    // a yard and radomes; the air-search radar turns on a platform behind the mast
+    const IX = (x) => X(x), IZ = (z) => Zs(z);
+    hb.box(IX(-40), 4.5, IZ(24.25), X(30), 9, 7.5, haze).box(IX(-41), 11, IZ(24.3), X(24), 4, 7.2, haze).box(IX(-38), 14.6, IZ(24.3), X(17), 3.2, 8.2, haze);
+    hb.box(IX(-44.5), 17.8, IZ(24.3), X(8), 3.2, 7.4, haze).box(IX(-37), 16.6, IZ(24.3), X(11), 0.8, 6, haze);
+    hb.geo(new THREE.CylinderGeometry(0.32, 0.7, 18, 8), IX(-35.5), 26, IZ(24.3), haze).box(IX(-35.5), 29, IZ(24.3), 0.35, 0.35, 8, haze);
+    hb.box(IX(-39.5), 30.2, IZ(24.3), 3, 0.3, 3, haze).beam(new THREE.Vector3(IX(-35.5), 30.2, IZ(24.3)), new THREE.Vector3(IX(-39.5), 30.2, IZ(24.3)), 0.3, haze);
+    hb.geo(new THREE.SphereGeometry(1.45, 16, 10), IX(-47.5), 20.9, IZ(24.3), white).geo(new THREE.SphereGeometry(0.95, 14, 8), IX(-30.5), 17.9, IZ(26.2), white);
+    hb.geo(new THREE.CylinderGeometry(0.05, 0.05, 6, 5), IX(-33), 20, IZ(22), haze).geo(new THREE.CylinderGeometry(0.05, 0.05, 5, 5), IX(-42), 21.6, IZ(27), haze);
+    wb.box(IX(-38), 15.1, IZ(24.3), X(17) + 0.1, 1.15, 8.3, white).box(IX(-44.5), 18.3, IZ(24.3), X(8) + 0.1, 1.2, 7.5, white);
+    for (let x = -51.5; x < -30; x += 3) if (hashI(Math.round(x * 3), 2, 77) < 0.7) wb.box(IX(x), 11.6, IZ(20.68), 1.3, 0.9, 0.12, white);
+    for (let x = -53; x < -26; x += 3.4) if (hashI(Math.round(x * 3), 3, 77) < 0.55) wb.box(IX(x), 6.6, IZ(20.48), 1.2, 0.85, 0.12, white);
+    const rb = new Batch();
+    rb.box(0.25, 0.5, 0, 0.35, 2.6, 5.6, col('#8b939b')).box(-0.35, -0.55, 0, 0.7, 0.35, 5, haze).geo(new THREE.CylinderGeometry(0.22, 0.3, 1.2, 8), 0, -0.9, 0, haze);
+    // parked jets on the sponson, either side of the island, wings folded
+    const jm = new THREE.Matrix4();
+    for (const x of [-72, -13, 5.5]) addJet(hb, jm.makeTranslation(X(x), 0, Zs(24)), true);
+    // ---- the deck's paint, on one canvas over x -134..134, z -28.5..30.5 (design metres)
+    const ang = 0.105, ca = Math.cos(ang), sa = Math.sin(ang), A0 = [-131, 3], xc0 = (d.hl - d.cat) / kx, zc = (0.17 * 2 * d.hw) / kz;
+    const ax = (s, o) => [A0[0] + s * ca + o * sa, A0[1] - s * sa + o * ca]; // along the angled deck's centre line, o to starboard
+    const sEnd = (45 - A0[0]) / ca; // where the landing area ends (x = 45)
+    const tex = canvasTex(2048, 512, (cx, w, h) => {
+      cx.fillStyle = '#45484d'; cx.fillRect(0, 0, w, h);
+      for (let n = 0; n < 12000; n++) { cx.fillStyle = `rgba(${hashI(n, 7, 3) > 0.5 ? '255,255,255' : '0,0,0'},0.05)`; cx.fillRect(hashI(n, 8, 3) * w, hashI(n, 9, 3) * h, 2 + 4 * hashI(n, 10, 3), 2); }
+      const sx = w / (DX1 - DX0), sz = h / (DZ1 - DZ0);
+      cx.setTransform(sx, 0, 0, sz, -DX0 * sx, -DZ0 * sz); // design metres: x along the canvas, z (starboard) down it
+      const line = (pts, wd, c, dash, off) => {
+        cx.beginPath(); cx.moveTo(pts[0][0], pts[0][1]);
+        for (let n = 1; n < pts.length; n++) cx.lineTo(pts[n][0], pts[n][1]);
+        cx.lineWidth = wd; cx.strokeStyle = c; cx.setLineDash(dash || []); cx.lineDashOffset = off || 0; cx.stroke();
+      };
+      const rect = (x0, z0, x1, z1, c) => { cx.fillStyle = c; cx.fillRect(x0, z0, x1 - x0, z1 - z0); };
+      // rubber and exhaust stains: the touchdown zone and the catapults
+      for (let n = 0; n < 60; n++) { const s = 25 + 95 * hashI(n, 1, 5), o = (hashI(n, 2, 5) - 0.5) * 7; line([ax(s, o), ax(s + 6 + 18 * hashI(n, 3, 5), o + (hashI(n, 4, 5) - 0.5))], 0.35 + 0.6 * hashI(n, 5, 5), 'rgba(15,15,17,0.16)'); }
+      for (let n = 0; n < 40; n++) { const z = (n & 1 ? 1 : -1) * zc + (hashI(n, 6, 5) - 0.5) * 6, x = xc0 - 14 - 22 * hashI(n, 7, 5); line([[x, z], [x - 4 - 8 * hashI(n, 8, 5), z + (hashI(n, 9, 5) - 0.5)]], 0.5 + hashI(n, 10, 5), 'rgba(18,18,20,0.09)'); }
+      // deck edge and the outline of the overhangs
+      cx.save(); cx.beginPath(); plan.forEach(([x, z], n) => (n ? cx.lineTo(x / kx, z / kz) : cx.moveTo(x / kx, z / kz))); cx.closePath(); cx.clip();
+      cx.lineWidth = 0.9; cx.strokeStyle = '#e9ebe6'; cx.setLineDash([]); cx.stroke(); cx.restore();
+      // the physics deck's edge: white along the hull, a red and white foul line on the angled deck, yellow and black by the island
+      line([[-131, -17.6], [-50, -17.6]], 0.45, '#e9ebe6'); line([[74, -17.6], [131, -17.6]], 0.45, '#e9ebe6');
+      line([[-131, 17.6], [-86, 17.6]], 0.45, '#e9ebe6'); line([[20, 17.6], [131, 17.6]], 0.45, '#e9ebe6');
+      line([[-50, -17.75], [74, -17.75]], 0.5, '#e9ebe6'); line([[-50, -17.75], [74, -17.75]], 0.5, '#c8372d', [3, 3]);
+      line([[-86, 17.75], [20, 17.75]], 0.5, '#ffc93c'); line([[-86, 17.75], [20, 17.75]], 0.5, '#1a1d22', [2, 2]);
+      // the angled deck: landing area edges, a white and yellow centre line, four arresting wires
+      for (const o of [-10.5, 10.5]) line([ax(0, o), ax(sEnd, o)], 0.5, '#e9ebe6');
+      line([ax(0, 0), ax(sEnd, 0)], 0.55, '#ffc93c', [4, 4]); line([ax(0, 0), ax(sEnd, 0)], 0.55, '#f2f2ee', [4, 4], 4);
+      for (const s of [44, 56, 68, 80]) { line([ax(s, -10.2), ax(s, 10.2)], 0.28, '#b9bdc1'); for (const o of [-10.6, 10.6]) { const p = ax(s, o); rect(p[0] - 0.6, p[1] - 0.45, p[0] + 0.6, p[1] + 0.45, '#22262a'); } }
+      line([[-131.6, -15], [-131.6, 15]], 0.4, '#e9ebe6', [2, 2]);
+      // bow catapults: steel track and slot, yellow lane lines, the shuttle, and a jet blast deflector (lowered) behind
+      for (const s of [-1, 1]) {
+        const z = s * zc;
+        line([[xc0, z], [131, z]], 0.9, '#6f7478'); line([[xc0, z], [131, z]], 0.16, '#101214');
+        for (const o of [-2.6, 2.6]) line([[xc0 - 2, z + o], [131, z + o]], 0.22, '#ffc93c', [2, 2]);
+        rect(xc0 + 0.5, z - 0.35, xc0 + 1.7, z + 0.35, '#1c1f23');
+        const j0 = xc0 - 13, j1 = xc0 - 7, z0 = z - 5.4, z1 = z + 5.4;
+        rect(j0, z0, j1, z1, '#55595e');
+        for (let q = z0 + 1.35; q < z1; q += 1.35) line([[j0, q], [j1, q]], 0.12, '#33373b');
+        line([[j0, z0], [j0, z1]], 0.45, '#ffc93c'); line([[j0, z0], [j0, z1]], 0.45, '#1a1d22', [0.9, 0.9]);
+      }
+      // taxi lines from the landing area to the catapults; elevators on the sponson; a helicopter spot aft
+      for (const s of [-1, 1]) { cx.beginPath(); cx.moveTo(-30, -2); cx.quadraticCurveTo(xc0 - 30, s * zc * 0.4, xc0 - 15, s * zc); cx.lineWidth = 0.25; cx.strokeStyle = '#ffc93c'; cx.setLineDash([]); cx.stroke(); }
+      for (const [x0, x1] of [[-80, -64], [-3, 13]]) { cx.lineWidth = 0.3; cx.strokeStyle = '#25292d'; cx.strokeRect(x0, 18.6, x1 - x0, 10.3); line([[x0, 18.6], [x1, 18.6]], 0.45, '#ffc93c'); line([[x0, 18.6], [x1, 18.6]], 0.45, '#1a1d22', [1, 1]); }
+      cx.beginPath(); cx.arc(-112, 11, 4, 0, TAU); cx.lineWidth = 0.35; cx.strokeStyle = '#e9ebe6'; cx.setLineDash([]); cx.stroke();
+      line([[-116.5, 11], [-107.5, 11]], 0.35, '#e9ebe6');
+    });
+    const deckMat = stdMat({ map: tex, roughness: 0.82, metalness: 0.05 });
+    // ---- numbers: on the deck at the bow (read from aft) and on both sides of the island
+    const tb = new Batch(), tm = new THREE.Matrix4(), tq = new THREE.Quaternion(), tE = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
+    const plate = (w, h, x, y, z, rx, ry) => { tm.compose(new THREE.Vector3(x, y, z), tq.setFromEuler(tE.set(rx, ry, 0, 'YXZ')), one); tb.add(new THREE.PlaneGeometry(w, h), tm, white); };
+    plate(22, 11, X(108), 0.06, 0, -Math.PI / 2, -Math.PI / 2);
+    plate(6.4, 3.2, IX(-40), 4.6, IZ(28) + 0.05, 0, 0);
+    plate(6.4, 3.2, IX(-40), 4.6, IZ(20.5) - 0.05, 0, Math.PI);
+    // ---- lights (ship frame): landing area edges and centre line, the deck's edges, drop lights under the stern,
+    // the optical landing aid (amber ball, green datum bars), side lights and the mast's; a red beacon on top
+    const lights = [], beacons = [], lp = (p, y, c, s) => lights.push([X(p[0]), y, Zs(p[1]), c, s]);
+    for (let s = 0; s <= sEnd + 0.1; s += sEnd / 14) { for (const o of [-10.8, 10.8]) lp(ax(s, o), 0.2, [1, 0.95, 0.85], 0.55); lp(ax(s, 0), 0.12, [1, 1, 0.95], 0.4); }
+    for (let x = -126; x <= 128; x += 14) for (const z of [-18.2, 18.2]) if (!(z < 0 && x > -50 && x < 74) && !(z > 0 && x > -86 && x < 20)) lp([x, z], 0.15, [0.45, 0.65, 1], 0.5);
+    for (let y = -1.6; y >= -9; y -= 1.5) lp([-133.3, 3], y, [1, 0.45, 0.15], 0.6);
+    hb.box(IX(-28), 1.1, IZ(-20.4), 1.2, 2.2, 2.2, dk);
+    lp([-28.8, -20.4], 1.9, [1, 0.62, 0.12], 1.1);
+    for (const o of [1.6, 2.3, 3.0, 3.7]) for (const s of [-1, 1]) lp([-28.8, -20.4 + s * o], 1.9, [0.3, 1, 0.45], 0.55);
+    lp([-40, 28.3], 10, [0.3, 1, 0.45], 0.9); lp([30, -26.6], 0.4, [1, 0.25, 0.2], 0.9); lp([-133.5, 0], -4, [1, 0.95, 0.85], 0.9);
+    lp([-35.5, 30], 33.5, [1, 0.95, 0.85], 1); lp([-33, 20.5], 12.5, [1, 0.9, 0.7], 1.6); lp([-48, 20.5], 12.5, [1, 0.9, 0.7], 1.6);
+    beacons.push([IX(-35.5), 35.3, IZ(24.3), [1, 0.25, 0.2], 2]);
+    return { hull: hb.build(), deck, deckMat, win: wb.build(), radar: rb.build(), radarAt: new THREE.Vector3(IX(-39.5), 31.6, IZ(24.3)), tags: tb.build(), lights, beacons };
   }
 
   // ------------------------------------------------------------------ particles (FX.list)
@@ -1879,7 +2345,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     clock += dt; frameNo++;
     applyQuality();
     adaptResolution(dt);
-    const v = F.active, b = v.body, t = F.time, bp = bodyPos(b, t), R = b.radius, hi = Settings.high;
+    const v = F.viewVessel || F.active, b = v.body, t = F.time, bp = bodyPos(b, t), R = b.radius, hi = Settings.high; // (multiplayer: the player we watch)
     camAbs.x = F.camAbs.x; camAbs.y = F.camAbs.y; camAbs.z = F.camAbs.z || 0;
     const fq = F.viewQ || quat();
     viewQ.w = fq.w; viewQ.x = fq.x; viewQ.y = fq.y; viewQ.z = fq.z;
@@ -1900,7 +2366,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
     if (!b.star) {
       const ca = Math.atan2(ry, rx), gz = Math.asin(clamp(rz / r3, -1, 1)) * R;
-      const need = R + groundAt(b, ca, gz) + 2;
+      const need = R + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + 2; // (and out of the carriers)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
@@ -2163,13 +2629,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const on = Math.hypot(ox, oy, camAbs.z) < 60000 + dist;
     S.sc.visible = on;
     if (!on) return;
-    if (S.scKit && Terrain.earthMap.state !== 'loading') { initLandmarks(S.scKit); S.scKit = null; }
+    if (S.scKit && Terrain.earthMap.state !== 'loading') { const kit = S.scKit; S.scKit = null; initLandmarks(kit); } // (once, even if it fails)
     S.sc.position.set(ox, oy, -camAbs.z);
     S.sc.rotation.z = pa - Math.PI / 2;
     for (const m of S.nightMats) m.emissiveIntensity = env.night * 1.4;
     S.glowU.uAlpha.value = 0.08 + env.night * 1.2;
     S.blinkU.uAlpha.value = (Math.sin(clock * 5.2) > 0 ? 1 : 0.12) * (0.1 + env.night); // a glint by day, a beacon at night
     for (const r of S.rotors) r.rotation.x = clock * 1.15 + r.userData.phase;
+    for (const r of S.radars) r.rotation.y = clock * 1.6 + r.userData.phase; // the carriers' air-search radars
     if (S.beam) {
       S.beam.rotation.y = clock * 0.9;
       S.beam.visible = env.night > 0.05;
@@ -2432,6 +2899,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   buildPatchNow = timed('patchNow', buildPatchNow); buildSceneryNow = timed('sceneryNow', buildSceneryNow);
+  initLandmarks = timed('landmarks', initLandmarks); // (once: the landmarks, airfields and carriers)
   // ------------------------------------------------------------------ combat: tracers, missiles, bombs and targets
   const CB = { ready: false };
   function initCombat() {
