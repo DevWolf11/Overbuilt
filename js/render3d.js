@@ -2495,12 +2495,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         n++;
         continue;
       }
-      const pool = CB.pool[s.k];
-      let o = pool[used[s.k]];
-      if (!o) { o = CB.kinds[s.k](); pool.push(o); localWorld.add(o); }
-      used[s.k]++;
+      const kk = s.k === 'torp' ? 'bomb' : s.k, pool = CB.pool[kk]; // a torpedo in the water looks like the bomb it was
+      let o = pool[used[kk]];
+      if (!o) { o = CB.kinds[kk](); pool.push(o); localWorld.add(o); }
+      used[kk]++;
       o.visible = true;
       o.position.set(x, y, z);
+      o.scale.setScalar(s.small ? 0.35 : 1); // cluster bomblets
       V1.set(s.dx || 0, s.dy || 1, s.dz || 0).normalize();
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }
