@@ -535,11 +535,7 @@ class Vessel {
     }
     if (want.pitch != null) {
       if (this.wheelsDown) want.pitch *= 0.4; // rotate gently on the runway
-      // stay within what the wings are good for (85% of the plane's rating, 8 g at most), and ease off
-      // when the structure complains anyway (a gust of speed, a snap roll)
-      const gr = this.gRating() || 9, up = clamp(gr * 0.85, 2, 8), dn = Math.min(3, up * 0.4);
-      want.pitch = clamp(want.pitch, (-dn * G0) / V, (up * G0) / V);
-      if (this.strain > 0.85) { const k = (this.strain - 0.85) * 3; want.pitch = this.nz >= 0 ? Math.min(want.pitch, -k) : Math.max(want.pitch, k); }
+      want.pitch = clamp(want.pitch, (-3 * G0) / V, (8 * G0) / V);
       const a = this.aoa, st = this.stallAoA - 0.03 * this.flaps;
       if (a != null && a > st * 0.85 && !this.wheelsDown) want.pitch = Math.min(want.pitch, -2 * (a - st * 0.85));
     }
