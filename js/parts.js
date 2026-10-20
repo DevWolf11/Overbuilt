@@ -14,6 +14,7 @@ const PART_CATEGORIES = [
   { id: 'wings', name: 'Wings' },
   { id: 'airEng', name: 'Aero engines' },
   { id: 'airGear', name: 'Gear' },
+  { id: 'weapons', name: 'Weapons' },
   { id: 'ground', name: 'Ground' },
 ];
 
@@ -127,11 +128,11 @@ const PARTS = {
     tier: 0, cost: 2500, desc: 'Small cockpit for light planes and gliders.' },
   cockpit: { cat: 'air', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
-  cockpitJet: { cat: 'air', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, shape: 'jetnose', aero: true, sharp: true,
+  cockpitJet: { cat: 'air', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radar: 12000, shape: 'jetnose', aero: true, sharp: true,
     breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag.' },
   cockpitAir: { cat: 'air', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6500, desc: 'Flight deck for a wide fuselage.' },
-  radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600,
+  radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600, radar: 16000,
     desc: 'Pointed nose cone for a fuselage. Lower drag, especially near Mach 1.' },
   fuselageS: { cat: 'air', name: 'Short Fuselage', w: 2, h: 2, fuel: 1, mass: 0.18, shape: 'fuselage', tier: 0, cost: 1000,
     desc: 'Short plane body with a fuel tank.' },
@@ -215,6 +216,10 @@ const PARTS = {
     shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 2, cost: 14000, desc: 'Big quiet airliner engine: very frugal and strong at take-off, but it runs out of puff near Mach 1.' },
   fanPods: { cat: 'airEng', name: 'Twin Turbofan Pods', w: 2.2, h: 3.4, mass: 2.6, thrust: 230, ispSL: 8500, ispVac: 8500, gimbal: 0, air: { kind: 'fan', vmax: 290 },
     twinZ: 5.5, pod: true, shape: 'jet', plume: 'jet', fan: true, maxTemp: 1900, tier: 2, cost: 24000, desc: 'A pair of turbofans hanging under the wings. Drop them onto a wing.' },
+  jetF: { cat: 'airEng', name: 'Fighter Turbofan', w: 1.6, h: 3.6, mass: 1.3, thrust: 125, ispSL: 5200, ispVac: 5200, gimbal: 0.02, air: { kind: 'jet', vmax: 900, ab: 1.6 },
+    shape: 'jet', plume: 'jet', maxTemp: 2200, tier: 3, cost: 20000, desc: 'Modern fighter engine: frugal at cruise, afterburner above 90% throttle. Mach 1.8 with ease.' },
+  jetTV: { cat: 'airEng', name: 'Thrust-Vectoring Jet', w: 1.7, h: 3.8, mass: 1.5, thrust: 130, ispSL: 4800, ispVac: 4800, gimbal: 0.3, vector: true, air: { kind: 'jet', vmax: 950, ab: 1.6 },
+    shape: 'jet', plume: 'jet', maxTemp: 2200, tier: 4, cost: 30000, desc: 'Its nozzle swivels with the stick, so the plane turns even when the wings have stalled. Afterburner above 90%.' },
   ramjet: { cat: 'airEng', name: 'Ramjet', w: 1.3, h: 4.4, mass: 0.6, thrust: 180, ispSL: 3500, ispVac: 3500, gimbal: 0, air: { kind: 'ram', vmin: 260, vmax: 1100 },
     shape: 'jet', plume: 'jet', maxTemp: 2600, tier: 3, cost: 15000, desc: 'No moving parts and huge thrust, but only above about 950 km/h. Get there on another engine first.' },
   jato: { cat: 'airEng', name: 'JATO Booster', w: 0.6, h: 2, mass: 0.08, fuel: 0.22, thrust: 45, ispSL: 200, ispVac: 210, gimbal: 0, shape: 'srb', plume: 'solid', solid: true,
@@ -242,6 +247,42 @@ const PARTS = {
     desc: 'Extra fuel in a pair of tanks under the wings. Drop them onto a wing.' },
   brakeChute: { cat: 'airGear', name: 'Brake Chute', w: 0.7, h: 0.5, mass: 0.05, chute: true, brakeChute: true, chuteArea: 0.35, shape: 'chute', tier: 1, cost: 600,
     desc: 'Drag chute for short landings: open it (STAGE or tap) after touchdown, below 400 km/h.' },
+
+  smoke: { cat: 'airGear', name: 'Smoke Generator', w: 0.4, h: 1, mass: 0.04, shape: 'smokegen', smoke: true, tier: 0, cost: 300,
+    desc: 'Air-show smoke. Tap it in flight to switch the trail on and off.' },
+
+  // ---- weapons. Twin pods drop onto a wing like drop tanks; guns and the heavy bomb go on the fuselage.
+  // weapon.ammo counts both pods; each: kg released per round (bombs and missiles get lighter as they go).
+  gun: { cat: 'weapons', name: 'Machine Gun', w: 0.35, h: 1.5, mass: 0.07, shape: 'gun', tier: 1, cost: 1500,
+    weapon: { kind: 'gun', ammo: 600, rate: 16, speed: 880, dmg: 9, spread: 0.004, each: 0.05 },
+    desc: 'Fast-firing gun. Mount it on the fuselage pointing forward. Hold V (or FIRE) to shoot.' },
+  cannon: { cat: 'weapons', name: 'Autocannon', w: 0.5, h: 2.4, mass: 0.22, shape: 'gun', calibre: 30, tier: 2, cost: 4500,
+    weapon: { kind: 'gun', ammo: 180, rate: 8, speed: 1000, dmg: 34, blast: 3, spread: 0.003, each: 0.4 },
+    desc: 'Heavy 30 mm cannon: slower, but every shell explodes. Tears tanks and boats apart.' },
+  gunPods: { cat: 'weapons', name: 'Gun Pods', w: 0.55, h: 2.4, mass: 0.2, shape: 'gunpod', twinZ: 2.4, pod: true, aero: true, tier: 1, cost: 3000,
+    weapon: { kind: 'gun', ammo: 800, rate: 24, speed: 900, dmg: 9, spread: 0.006, each: 0.05 },
+    desc: 'A pair of gun pods for the wings. Drop them onto a wing.' },
+  rocketPods: { cat: 'weapons', name: 'Rocket Pods', w: 0.75, h: 2.1, mass: 0.16, shape: 'rocketpod', twinZ: 3.1, pod: true, aero: true, tier: 2, cost: 4000,
+    weapon: { kind: 'rocket', ammo: 14, rate: 6, speed: 60, accel: 700, burn: 1.1, dmg: 110, blast: 9, each: 15 },
+    desc: 'Fourteen unguided rockets in two pods. Point the nose at the target and ripple them off.' },
+  aam: { cat: 'weapons', name: 'Heat-Seeking Missiles', w: 0.45, h: 2.9, mass: 0.04, shape: 'missile', twinZ: 3.6, pod: true, aero: true, tier: 2, cost: 9000,
+    weapon: { kind: 'missile', seek: 'air', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90 },
+    desc: 'Short-range missiles that home on a plane\'s engines. Get one in front of you until the tone locks, then fire.' },
+  radarMissiles: { cat: 'weapons', name: 'Radar Missiles', w: 0.5, h: 3.6, mass: 0.05, shape: 'missile', twinZ: 2.4, pod: true, aero: true, tier: 3, cost: 16000,
+    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 2, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150 },
+    desc: 'Long-range missiles guided by the nose radar (a Radome). Without one they reach no further than heat seekers.' },
+  agm: { cat: 'weapons', name: 'Attack Missiles', w: 0.5, h: 2.8, mass: 0.05, shape: 'missile', agm: true, twinZ: 2.9, pod: true, aero: true, tier: 2, cost: 12000,
+    weapon: { kind: 'missile', seek: 'ground', ammo: 2, range: 8000, cone: 0.5, accel: 200, burn: 4, vmax: 700, turn: 18, dmg: 900, blast: 20, each: 200 },
+    desc: 'Guided missiles for tanks, boats and buildings. Point at a ground target until it locks.' },
+  bombs: { cat: 'weapons', name: 'Bombs', w: 0.75, h: 2.4, mass: 0.04, shape: 'bomb', twinZ: 2.7, pod: true, aero: true, tier: 1, cost: 2500,
+    weapon: { kind: 'bomb', ammo: 2, dmg: 1200, blast: 30, each: 250 },
+    desc: 'A pair of 250 kg bombs. The bombsight on the HUD shows where they will land.' },
+  bombL: { cat: 'weapons', name: 'Heavy Bomb', w: 1.1, h: 3.8, mass: 0.08, shape: 'bomb', aero: true, tier: 3, cost: 6000,
+    weapon: { kind: 'bomb', ammo: 1, dmg: 4000, blast: 55, each: 1000 },
+    desc: 'One 1-tonne bomb. Hang it under the fuselage.' },
+  flares: { cat: 'weapons', name: 'Flares', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', tier: 2, cost: 1200,
+    weapon: { kind: 'flare', ammo: 30, each: 1 },
+    desc: 'Hot decoys that pull heat-seeking missiles off you. They fire on their own when a missile closes in.' },
 
   // ---- ground
   cab: { cat: 'ground', name: 'Driver Cab', w: 2.4, h: 1.5, mass: 0.6, control: 2, torque: 4000, crew: 2, shape: 'cab', depth: 2, aero: true, breakSpeed: 11, tier: 0, cost: 2500,
@@ -271,11 +312,14 @@ const TIERS = [
 
 function partDryKg(def) { return def.mass * 1000; }
 function partFuelKg(def) { return (def.fuel || 0) * 1000; }
+function partStoreKg(def) { const w = def.weapon; return w ? w.ammo * (w.each || 0) : 0; } // bombs, missiles and rounds on board
+function partKg(p) { return p.def.mass * 1000 + p.fuel + (p.store || 0); }
 
 let _partSeq = 1;
 function makePart(type, x, y, extra) {
   const def = PARTS[type];
   const p = { id: _partSeq++, type, def, x, y, flip: x < 0, fuel: partFuelKg(def), active: false, deployed: 0, temp: AMBIENT_T };
+  if (def.weapon) { p.ammo = def.weapon.ammo; p.store = partStoreKg(def); }
   if (extra) Object.assign(p, extra);
   return p;
 }
@@ -506,7 +550,7 @@ function estimateDeltaV(parts, adj, controlId, stages, useSeaLevel) {
       }
       if (!burning.length) break;
       const tBurn = Math.min(...burning.map((b) => b.fuel / b.gm));
-      const m0 = [...attached].reduce((s, i) => s + byId.get(i).def.mass * 1000 + byId.get(i).fuel, 0);
+      const m0 = [...attached].reduce((s, i) => s + partKg(byId.get(i)), 0);
       if (!firstTwr) firstTwr = F / (m0 * EARTH.surfaceG);
       const m1 = m0 - mdot * tBurn;
       dv += (F / mdot) * Math.log(m0 / m1);
@@ -1226,6 +1270,60 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
       for (let xx = l + 0.5; xx < r - 0.3; xx += 0.75) { ctx.beginPath(); ctx.arc(xx, y, 0.06, 0, TAU); ctx.fill(); }
       ctx.strokeRect(l, b, w, h);
+      break;
+    }
+    // ---- weapons: stores hang on the +x side (below a wing or the fuselage), the pylon reaches to -x
+    case 'gun': {
+      const big = (d.calibre || 0) > 20, bw = w * (big ? 0.34 : 0.3);
+      ctx.fillStyle = '#5d6670'; ctx.fillRect(l, b, w, h * 0.42); ctx.strokeRect(l, b, w, h * 0.42); // receiver
+      ctx.fillStyle = '#2b3036'; ctx.fillRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); ctx.strokeRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); // barrel
+      ctx.fillStyle = '#1b1f24'; ctx.fillRect(x - bw * 0.8, t - h * 0.08, bw * 1.6, h * 0.08); // muzzle
+      if (big) { ctx.fillStyle = '#3d444c'; ctx.fillRect(l + w * 0.1, b + h * 0.08, w * 0.8, h * 0.06); }
+      break;
+    }
+    case 'gunpod': case 'rocketpod': case 'missile': case 'bomb': {
+      const pod = d.shape === 'gunpod' || d.shape === 'rocketpod', cx = x + w * 0.12, rw = w * (d.shape === 'missile' ? 0.42 : d.shape === 'bomb' ? 0.62 : 0.66);
+      ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, y - h * 0.18, cx - l, h * 0.36); // pylon
+      if ((p.ammo === 0) && !pod) break; // all fired: just the pylon
+      const bl = cx - rw / 2, br = cx + rw / 2, bt = t - (d.shape === 'gunpod' ? h * 0.12 : 0);
+      ctx.beginPath();
+      if (d.shape === 'missile') {
+        ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl, t - h * 0.16); ctx.quadraticCurveTo(cx, t + h * 0.02, br, t - h * 0.16); ctx.lineTo(br, b + h * 0.06); ctx.closePath();
+      } else if (d.shape === 'bomb') {
+        ctx.moveTo(cx - rw * 0.2, b + h * 0.12); ctx.bezierCurveTo(bl, b + h * 0.3, bl, t - h * 0.12, cx, t);
+        ctx.bezierCurveTo(br, t - h * 0.12, br, b + h * 0.3, cx + rw * 0.2, b + h * 0.12); ctx.closePath();
+      } else {
+        ctx.moveTo(bl, b + h * 0.05); ctx.lineTo(bl, bt - h * 0.08); ctx.quadraticCurveTo(cx, bt + h * 0.02, br, bt - h * 0.08); ctx.lineTo(br, b + h * 0.05); ctx.closePath();
+      }
+      const body = d.shape === 'missile' ? (d.agm ? '#c9c2a6' : '#eef1f4') : d.shape === 'bomb' ? '#5f6b52' : '#7d8790';
+      ctx.fillStyle = PartPaint.flat ? body : body; ctx.fill(); ctx.stroke();
+      if (d.shape === 'missile') { // fins, seeker and a band
+        ctx.fillStyle = '#4d545d';
+        ctx.beginPath(); ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl - rw * 0.7, b); ctx.lineTo(bl, b + h * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(br, b + h * 0.06); ctx.lineTo(br + rw * 0.7, b); ctx.lineTo(br, b + h * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = d.weapon.radar ? '#e8e2d0' : '#2c3a48'; ctx.fillRect(bl, t - h * 0.2, rw, h * 0.05);
+        ctx.fillStyle = d.agm ? '#3f6b3a' : '#ffb547'; ctx.fillRect(bl, y - h * 0.02, rw, h * 0.04);
+      } else if (d.shape === 'bomb') { // tail fins and yellow nose band
+        ctx.fillStyle = '#4b5541'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12); ctx.strokeRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12);
+        ctx.fillStyle = PAL.hazard; ctx.fillRect(cx - rw * 0.42, t - h * 0.22, rw * 0.84, h * 0.04);
+      } else if (d.shape === 'rocketpod') { // tube mouths
+        ctx.fillStyle = '#1b1f24';
+        for (let i = 0; i < 3; i++) ctx.fillRect(bl + rw * (0.12 + i * 0.28), bt - h * 0.06, rw * 0.18, h * 0.05);
+      } else { // gun pod barrel
+        ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw * 0.1, bt - h * 0.06, rw * 0.2, h * 0.18);
+      }
+      break;
+    }
+    case 'flares': {
+      ctx.fillStyle = '#4d545d'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = '#ffb547';
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(l + w * (0.3 + j * 0.4), b + h * (0.2 + i * 0.3), w * 0.12, 0, TAU); ctx.fill(); }
+      break;
+    }
+    case 'smokegen': {
+      ctx.fillStyle = '#d7dbe0'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = '#e8483a'; ctx.fillRect(l, b + h * 0.25, w, h * 0.12);
+      ctx.fillStyle = '#2b3036'; ctx.fillRect(x - w * 0.25, b - h * 0.02, w * 0.5, h * 0.1);
       break;
     }
     default: // shapes without a dedicated drawing

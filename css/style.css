@@ -124,7 +124,9 @@ html, body {
 .pi-specs { margin: 8px 0 4px; font: 500 12px/1.4 var(--mono); color: var(--amber); }
 .pi-desc { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
 /* --pal-h: the tray's measured height (Builder.layout), so nothing sits on it at any size */
-.fit { position: absolute; right: var(--gut-r); bottom: calc(var(--pal-h, 160px) + 12px); }
+.fit-col { position: absolute; right: var(--gut-r); bottom: calc(var(--pal-h, 160px) + 12px); display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.sel-box { position: fixed; z-index: 5; pointer-events: none; border: 1.5px dashed var(--amber); background: rgba(255, 181, 71, 0.08); border-radius: 2px; }
+#btn-select[aria-pressed="true"] { background: var(--amber); color: #1a1205; border-color: var(--amber); }
 
 .palette {
   position: absolute; left: 0; right: 0; bottom: 0;
@@ -697,3 +699,19 @@ kbd {
     left: var(--gut-l); transform: none; top: calc(232px + var(--safe-t)); bottom: auto; max-width: calc(100vw - var(--gut-l) - 104px); font-size: 10.5px; }
   .map-legend.globe .legend-globe.muted { display: none; }
 }
+
+/* ---- weapons */
+.weapon-box { position: absolute; right: calc(var(--gut-r) + 62px); bottom: calc(176px + var(--safe-b)); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.weapon-chip {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 76px; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line-strong); color: var(--text); font: 600 12px var(--mono); touch-action: manipulation;
+}
+.weapon-chip #w-name { color: var(--amber); letter-spacing: 0.08em; }
+.weapon-chip #w-ammo { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.weapon-chip.lock { border-color: #7dffb0; }
+.weapon-chip.lock #w-name { color: #7dffb0; }
+.round.fire { width: 72px; height: 72px; font: 700 13px var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: #ffd0d0; border-color: rgba(255, 93, 93, 0.7); background: rgba(80, 14, 18, 0.55); }
+.round.fire.held, .round.fire:active { background: rgba(255, 93, 93, 0.45); color: #fff; }
+@media (pointer: fine) { .round.fire { width: 58px; height: 58px; font-size: 11px; } }
+@media (max-width: 760px) { .weapon-box { right: calc(var(--gut-r) + 54px); bottom: calc(168px + var(--safe-b)); } }
+.toast.kill { border-color: #ff5d5d; color: #ffd0d0; font-weight: 700; }

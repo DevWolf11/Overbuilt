@@ -5,6 +5,7 @@
 // velocity in sim axes. Positions and velocities are relative to the body's centre.
 
 const DEFAULT_BREAK_SPEED = 9;
+const hasCombat = () => typeof Combat !== 'undefined'; // (the physics also runs without weapons, in tests)
 const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit', 'rotor', 'prop',
   'jetnose', 'airnose', 'float', 'droptank']);
 const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
@@ -134,7 +135,7 @@ class Vessel {
   recompute(initial) {
     let m = 0, cx = 0, cy = 0;
     for (const p of this.parts) {
-      const pm = p.def.mass * 1000 + p.fuel;
+      const pm = partKg(p);
       m += pm; cx += pm * p.x; cy += pm * p.y;
     }
     cx /= m; cy /= m;
@@ -148,7 +149,7 @@ class Vessel {
     // inertia tensor about the centre of mass: parts are boxes, all centred on z = 0 but wheel pairs
     let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, D = 0;
     for (const p of this.parts) {
-      const pm = p.def.mass * 1000 + p.fuel, { w, h } = partDims(p), d = partDepth(p);
+      const pm = partKg(p), { w, h } = partDims(p), d = partDepth(p);
       const tz = p.def.twinZ || (p.def.wheel ? (p.def.wheel.track || 0) / 2 : 0), dx = p.x - cx, dy = p.y - cy, dz2 = tz * tz;
       Ixx += pm * ((h * h + d * d) / 12 + dy * dy + dz2);
       Iyy += pm * ((w * w + d * d) / 12 + dx * dx + dz2);
@@ -358,6 +359,7 @@ class Vessel {
           }
           e.noAir = false;
           f *= k;
+          if (e.hp != null && hasCombat()) f *= Combat.engineK(e); // a damaged engine gives less
           // the afterburner lights above 90% throttle
           if (e.def.air.ab && this.throttle > 0.9) { abK = (this.throttle - 0.9) / 0.1; f *= 1 + (e.def.air.ab - 1) * abK; e.ab = abK; }
         }
@@ -680,7 +682,7 @@ class Vessel {
           const flap = W && p.def.wing.flaps ? this.flaps : 0, stall = (W ? W.stall : 0.3) - 0.03 * flap;
           // flaps add lift (and drag) at any angle, and make the wing stall a little sooner
           const a = Math.atan2(un, uc), ae = a + defl, x = Math.abs(ae);
-          const cl = (liftCoef(ae, slope, stall) + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge;
+          const cl = (liftCoef(ae, slope, stall) + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge * (p.hp != null && hasCombat() ? Combat.liftK(p) : 1); // a shot-up wing lifts less
           const cdw = 0.012 + (W ? W.kInd : 0.1) * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(stall, stall + 0.22, x)
             + 0.06 * flap + (W ? 0.03 * W.wave : 0.03) * waveDrag(M, W ? W.mcrit : 0.85);
           Fn = qS * (-cl * uc - cdw * un) / V; // lift along (-uc, un)/V, drag against the flow
@@ -814,17 +816,20 @@ class Vessel {
     for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
     if (!contacts.length) return clear();
 
-    // crash check
-    const broken = new Set(), vp = v3();
+    // crash check: far past a part's limit it breaks at once; a bit past it (or near it), it's dented
+    const broken = new Set(), dents = new Map(), vp = v3();
     for (const k of contacts) {
       this.pointVel(k.r, vp);
-      const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : 1);
-      if (-dot3(vp, k.n) > lim) broken.add(k.p);
+      const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : 1), s = -dot3(vp, k.n);
+      if (s > lim * (hasCombat() ? 1.6 : 1)) broken.add(k.p);
+      else if (hasCombat() && s > lim * 0.75) dents.set(k.p, Math.max(dents.get(k.p) || 0, s / lim));
       // a spinning propeller or rotor that touches the ground shatters
       const air = k.p.def.air;
       if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water) broken.add(k.p);
     }
     if (broken.size && !Silly.on('bouncy')) { sim.breakParts(this, [...broken], 'impact'); return; }
+    if (dents.size && sim.vessels && !Silly.on('bouncy')) for (const [p, ratio] of dents) Combat.impact(this, p, ratio, sim);
+    if (this.dead || !this.parts.length) return;
     const bounce = Silly.on('bouncy') ? 0.75 : 0;
 
     const wheelContacts = contacts.filter((k) => k.wheel);
@@ -1028,7 +1033,7 @@ class Vessel {
       throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind, flaps: this.flaps, gearUp: this.gearUp,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
       parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
-        deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout })),
+        deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store })),
       adj: [...this.adj].map(([k, v]) => [k, [...v]]),
     };
   }

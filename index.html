@@ -99,7 +99,8 @@
       <h3 id="pi-name"></h3>
       <div class="pi-btns">
         <button id="btn-rotate" class="btn small icon-only" data-icon="rotR" aria-label="Rotate a quarter turn (R)" title="Rotate (R)"></button>
-        <button id="btn-dup" class="btn small icon-only" data-icon="copy" aria-label="Duplicate" title="Duplicate (Ctrl+D)"></button>
+        <button id="btn-dup" class="btn small icon-only" data-icon="dup" aria-label="Duplicate" title="Duplicate (Ctrl+D)"></button>
+        <button id="btn-copy" class="btn small icon-only" data-icon="copy" aria-label="Copy" title="Copy, to paste here or in another design (Ctrl+C)"></button>
         <button id="btn-delete" class="btn danger small icon-only" data-icon="trash" aria-label="Remove (Delete)" title="Remove (Delete) · or drag the part onto the tray"></button>
       </div>
     </div>
@@ -107,7 +108,12 @@
     <p id="pi-desc" class="pi-desc"></p>
   </section>
 
-  <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
+  <div class="fit-col">
+    <button id="btn-paste" class="btn small" data-icon="paste" title="Paste the copied parts (Ctrl+V)" hidden>Paste</button>
+    <button id="btn-select" class="btn small toggle" data-icon="select" aria-pressed="false" title="Select several parts: click or tap them, or drag a box (or hold Shift)">Select</button>
+    <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
+  </div>
+  <div id="sel-box" class="sel-box" hidden></div>
   <div id="build-3d-hint" class="chip-hint" hidden></div>
 
   <footer id="palette" class="palette">
@@ -130,6 +136,7 @@
       <div id="row-mach" class="t-mach" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
       <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
       <div id="row-hdg" hidden><dt>Heading</dt><dd id="t-hdg">0°</dd></div>
+      <div id="row-dmg" hidden><dt>Damage</dt><dd id="t-dmg">0%</dd></div>
       <div id="row-g" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
       <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
@@ -198,6 +205,11 @@
     </div>
   </div>
 
+  <div id="weapon-box" class="weapon-box" hidden>
+    <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
+    <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)">Fire</button>
+  </div>
+
   <div class="stage-box">
     <div class="fuel">
       <div class="fuel-bar"><div id="fuel-fill" class="fuel-fill"></div></div>
@@ -224,6 +236,7 @@
 <script src="js/career.js"></script>
 <script src="js/map.js"></script>
 <script src="js/globe.js"></script>
+<script src="js/combat.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/main.js"></script>

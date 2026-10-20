@@ -73,6 +73,24 @@ const TEMPLATES = {
     parts: [['jetAB', 0, 2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
       ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3]],
   },
+  falcon: {
+    name: 'Falcon', kind: 'plane', tier: 3, military: true, blurb: 'Air-superiority fighter: cannon, heat seekers and radar missiles, a fighter turbofan with afterburner. Hold V to fire, Tab to change weapon.',
+    parts: [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
+      ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3],
+      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3]],
+  },
+  striker: {
+    name: 'Striker', kind: 'plane', tier: 2, military: true, blurb: 'Ground-attack jet with a cannon, rocket pods and bombs. The bombsight shows where the bombs will fall.',
+    parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpitJet', 0, 9.1], ['wingSwept', 0.2, 5.3], ['elevator', 0.25, 1.2],
+      ['vtail', -1.45, 1.6], ['gearR', 1.7, 4.4], ['gearR', 1.5, 8.6], ['airbrake', -1.125, 5.6],
+      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6]],
+  },
+  bomber: {
+    name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly and a pair of 250 kg bombs under the wings.',
+    parts: [['tailconeW', 0, 2.25], ['fuselageW', 0, 7.5], ['fuselageW', 0, 13.5], ['cockpitAir', 0, 18.2],
+      ['wingL', 0.9, 11.6], ['fanPods', 1.8, 12.4], ['elevatorL', -0.9, 1.6], ['vtailL', -2.4, 1.9],
+      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2], ['bombL', 2.05, 6], ['bombs', 1.4, 9.2]],
+  },
   jumbo: {
     name: 'Jumbo', kind: 'plane', tier: 2, blurb: 'A wide-body airliner on two turbofans. Long take-off roll: use half flaps (F) and rotate gently.',
     parts: [['tailconeW', 0, 2.25], ['fuselageW', 0, 7.5], ['fuselageW', 0, 13.5], ['cockpitAir', 0, 18.2],
@@ -101,10 +119,16 @@ const TEMPLATES = {
 };
 
 const Builder = {
+  // The selection: `selected` is the part the panel describes; `sel` holds every selected part (several when
+  // shift-clicking, box-selecting or pasting). Setting `selected` selects just that part.
+  get selected() { return this._primary || null; },
+  set selected(p) { this._primary = p || null; this.sel = new Set(p ? [p] : []); },
+  get multi() { return this.sel.size > 1; },
   init(canvas) {
     this.canvas = canvas;
     this.parts = [];
     this.selected = null;
+    this.clip = store.get('rss.clip', null); // copied parts, kept between designs
     this.cam = { x: 0, y: 8, scale: 26 };
     this.pointers = new Map();
     this.symmetry = store.get('rss.symmetry', true);
@@ -173,7 +197,7 @@ const Builder = {
     this.stages.forEach((st, i) => st.forEach((id) => this.stageOf.set(id, i + 1)));
     const dv = this.ctrl ? estimateDeltaV(ps, adj, this.ctrl.id, this.stages, false) : { total: 0, perStage: [], twr: [] };
     let mass = 0, thrust = 0, tx = 0, ty = 0, cx = 0, cy = 0;
-    for (const p of ps) { const m = p.def.mass * 1000 + p.fuel; mass += m; cx += m * p.x; cy += m * p.y; }
+    for (const p of ps) { const m = partKg(p); mass += m; cx += m * p.x; cy += m * p.y; }
     const first = new Set(this.stages[0] || []);
     for (const p of ps) if (first.has(p.id) && p.def.thrust) { const n = partPt(p, 0, -p.def.h / 2); thrust += p.def.thrust * 1000; tx += p.def.thrust * n.x; ty += p.def.thrust * n.y; }
     this.com = mass ? { x: cx / mass, y: cy / mass } : null;
@@ -356,6 +380,7 @@ const Builder = {
   },
 
   duplicateSelected() {
+    if (this.multi) { this.paste({ parts: [...this.sel].map((q) => ({ type: q.type, x: q.x, y: q.y, rot: q.rot || 0 })) }); return; }
     const p = this.selected;
     if (!p) return;
     const s = this.snap(p.type, { x: p.x, y: partRect(p).t + partDims(p).h / 2 }, [], p.rot || 0);
@@ -393,6 +418,137 @@ const Builder = {
     if (twin) { m.x = -p.x; m.y = p.y; m.flip = m.x < 0; } else if (m) { p.mirror = null; m.mirror = null; }
     this.changed();
     this.renderInfo();
+  },
+
+  // ---------------------------------------------------------------- several parts at once
+  // Add or remove a part from the selection (shift-click, or a tap in Select mode).
+  toggleSel(p) {
+    if (!p) return;
+    const s = new Set(this.sel);
+    if (s.has(p)) s.delete(p); else s.add(p);
+    this._primary = s.has(p) ? p : [...s].pop() || null;
+    this.sel = s;
+    this.renderInfo();
+  },
+  selectAll() { this.setSel(this.parts); },
+  setSel(list) {
+    const arr = [...new Set(list)];
+    this._primary = arr[arr.length - 1] || null;
+    this.sel = new Set(arr);
+    this.renderInfo();
+  },
+  // Where a part's centre is on screen (CSS pixels), in either view; null if it can't be seen.
+  partScreen(p) {
+    if (this.in3D()) return Render3D.designToScreen(p.x, p.y);
+    const r = this.canvas.getBoundingClientRect(), d = this.toDisp(p.x, p.y);
+    return { x: r.left + r.width / 2 + (d.x - this.cam.x) * this.cam.scale, y: r.top + r.height / 2 - (d.y - this.cam.y) * this.cam.scale };
+  },
+  // A box dragged across the blueprint: everything whose centre falls inside joins the selection.
+  boxSelect(x0, y0, x1, y1, add) {
+    const l = Math.min(x0, x1), r = Math.max(x0, x1), t = Math.min(y0, y1), b = Math.max(y0, y1);
+    const hit = this.parts.filter((p) => { const s = this.partScreen(p); return s && s.x >= l && s.x <= r && s.y >= t && s.y <= b; });
+    this.setSel(add ? [...this.sel, ...hit] : hit);
+    if (hit.length) Sound.click();
+  },
+  showBox(b) {
+    const el = $('#sel-box');
+    if (!b) { el.hidden = true; return; }
+    el.hidden = false;
+    Object.assign(el.style, { left: `${Math.min(b.sx, b.x)}px`, top: `${Math.min(b.sy, b.y)}px`, width: `${Math.abs(b.x - b.sx)}px`, height: `${Math.abs(b.y - b.sy)}px` });
+  },
+  setSelectMode(on) {
+    this.selectMode = !!on;
+    const b = $('#btn-select');
+    b.setAttribute('aria-pressed', String(this.selectMode));
+    if (on) UI.toast(isTouch ? 'Select mode: tap parts to pick several, or drag a box round them' : 'Select mode: click parts to pick several, or drag a box round them');
+  },
+  // Does a set of parts (already where they would go) clear everything else?
+  groupFits(group, also = []) {
+    const skip = new Set([...group, ...also]);
+    return !group.some((p) => this.parts.some((o) => !skip.has(o) && partsClash(p, o)));
+  },
+  // Twins of selected parts that aren't selected themselves follow mirrored (if they fit); then every
+  // mirrored pair is found again, so a group moved off the centre line simply loses its symmetry.
+  followTwins(group, dx, dy, origs) {
+    const inG = new Set(group);
+    for (const p of group) {
+      const m = p.mirror;
+      if (!m || inG.has(m)) continue;
+      const o = origs.get(m);
+      const nx = -p.x, ny = p.y;
+      m.x = nx; m.y = ny;
+      if (this.parts.some((q) => q !== m && q !== p && partsClash(m, q))) { m.x = o.x; m.y = o.y; } // no room: it stays
+    }
+  },
+  copySel(cut) {
+    const list = [...this.sel];
+    if (!list.length) { UI.toast('Select parts to copy them'); return; }
+    // a single part brings its mirror twin along, as the single-part buttons do
+    const parts = list.length === 1 && list[0].mirror ? [list[0], list[0].mirror] : list;
+    this.clip = { kind: this.kind, parts: parts.map((p) => ({ type: p.type, x: p.x, y: p.y, rot: p.rot || 0 })) };
+    store.set('rss.clip', this.clip);
+    $('#btn-paste').hidden = false;
+    if (cut) { this.deleteSel(); UI.toast(`Cut ${parts.length} part${parts.length > 1 ? 's' : ''}`); } else UI.toast(`Copied ${parts.length} part${parts.length > 1 ? 's' : ''} · Ctrl+V or Paste to place`);
+  },
+  // Paste the copied parts at the nearest free spot above (or beside) where they came from, selected so
+  // they can be dragged into place.
+  paste(clip = this.clip) {
+    if (!clip || !clip.parts || !clip.parts.length) { UI.toast('Nothing copied yet'); return; }
+    const src = clip.parts.filter((q) => PARTS[q.type] && Career.unlocked(PARTS[q.type]));
+    if (!src.length) { UI.toast('Those parts aren’t unlocked yet'); return; }
+    let b = -Infinity, t = Infinity;
+    for (const q of src) { const r = partRect({ def: PARTS[q.type], x: q.x, y: q.y, rot: q.rot }); b = Math.max(b, r.t); t = Math.min(t, r.b); }
+    const h = b - t, made = src.map((q) => makePart(q.type, q.x, q.y, { flip: q.x < 0, rot: q.rot & 3 }));
+    const place = (dx, dy) => { made.forEach((p, i) => { p.x = +(src[i].x + dx).toFixed(3); p.y = +(src[i].y + dy).toFixed(3); p.flip = p.x < 0; }); return this.groupFits(made); };
+    let ok = false;
+    for (let k = 0; k < 120 && !ok; k++) { // up first, then out to the sides, a quarter metre at a time
+      const ring = Math.floor(k / 3), side = k % 3, dy = h + 0.25 + ring * 0.5, dx = side === 0 ? 0 : (side === 1 ? 1 : -1) * (ring + 1) * 0.75;
+      ok = place(dx, side === 0 ? dy : (ring + 1) * 0.5);
+    }
+    if (!ok) { UI.toast('No room to paste here'); return; }
+    this.parts.push(...made);
+    if (this.symmetry) for (const p of made) { // with symmetry on, one-sided parts get their twin
+      if (Math.abs(p.x) < 0.01 || made.some((q) => q !== p && q.type === p.type && Math.abs(q.x + p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01)) continue;
+      if (this.mirrorOk(p.type, p.x, p.y, [], p.rot)) { const m = makePart(p.type, -p.x, p.y, { flip: -p.x < 0, rot: mirrorRot(p.rot) }); this.parts.push(m); made.push(m); }
+    }
+    this.linkMirrors();
+    this.setSel(made);
+    this.changed();
+    const r = this.canvas.getBoundingClientRect();
+    if (made.some((q) => { const c = this.partScreen(q); return !c || c.x < r.left || c.x > r.right || c.y < r.top || c.y > r.bottom; })) this.fitView(); // keep them in sight
+    Sound.click();
+    UI.toast(`Pasted ${made.length} part${made.length > 1 ? 's' : ''}: drag any of them to move them together`);
+  },
+  deleteSel() {
+    if (!this.multi) { this.deleteSelected(); return; }
+    if (this.drag && this.drag.part) this.cancelDrag();
+    const gone = new Set();
+    for (const p of this.sel) { gone.add(p); if (p.mirror) gone.add(p.mirror); }
+    this.parts = this.parts.filter((q) => !gone.has(q));
+    this.selected = null;
+    this.linkMirrors();
+    this.changed();
+    this.renderInfo();
+  },
+  // A quarter turn of the whole selection about its middle.
+  rotateSel() {
+    if (!this.multi) { this.rotateSelected(); return; }
+    const g = [...this.sel], old = g.map((p) => ({ x: p.x, y: p.y, rot: p.rot || 0 }));
+    const cx = Math.round((g.reduce((s, p) => s + p.x, 0) / g.length) * 4) / 4, cy = Math.round((g.reduce((s, p) => s + p.y, 0) / g.length) * 4) / 4;
+    for (const p of g) { const dx = p.x - cx, dy = p.y - cy; p.x = +(cx - dy).toFixed(3); p.y = +(cy + dx).toFixed(3); p.rot = ((p.rot || 0) + 1) & 3; p.flip = p.x < 0; }
+    if (!this.groupFits(g)) { g.forEach((p, i) => { p.x = old[i].x; p.y = old[i].y; p.rot = old[i].rot; p.flip = p.x < 0; }); UI.toast('No room to turn them here'); return; }
+    this.linkMirrors();
+    Sound.click();
+    this.changed();
+  },
+  nudgeSel(dx, dy) {
+    if (!this.multi) { this.nudge(dx, dy); return; }
+    const g = [...this.sel], d = this.toPart(dx, dy);
+    for (const p of g) { p.x = +(p.x + d.x).toFixed(3); p.y = +(p.y + d.y).toFixed(3); }
+    if (!this.groupFits(g)) { for (const p of g) { p.x = +(p.x - d.x).toFixed(3); p.y = +(p.y - d.y).toFixed(3); } UI.toast('No room to move them there'); return; }
+    for (const p of g) p.flip = p.x < 0;
+    this.linkMirrors();
+    this.changed();
   },
 
   // ---------------------------------------------------------------- palette & panels
@@ -618,6 +774,15 @@ const Builder = {
     $('#build-ui').classList.toggle('has-info', !!p); // phones: the 3D hint gives way to it
     if (!p) { box.hidden = true; this.layout(); return; }
     box.hidden = false;
+    if (this.multi) {
+      const g = [...this.sel], mass = g.reduce((s, q) => s + q.def.mass, 0), cost = g.reduce((s, q) => s + (q.def.cost || 0), 0);
+      $('#pi-name').textContent = `${g.length} parts selected`;
+      $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Career.sandbox ? '' : ` · ${money(cost)}`);
+      $('#pi-desc').textContent = isTouch ? 'Drag any of them to move them together. Copy to paste them again (here or in another design).'
+        : 'Drag any of them to move them together · Ctrl+C / Ctrl+V copy and paste (also into another design) · R turns them · Delete removes them.';
+      this.layout();
+      return;
+    }
     const d = p.def;
     $('#pi-name').textContent = d.name + (p.mirror ? ' ×2' : '');
     $('#pi-desc').textContent = d.desc || '';
@@ -637,7 +802,7 @@ const Builder = {
     const ui = $('#build-ui');
     if (!ui || ui.hidden) return;
     ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
-    const fit = $('#btn-fit'), info = $('#part-info');
+    const fit = $('.fit-col'), info = $('#part-info');
     fit.style.bottom = '';
     if (info.hidden) return;
     const i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
@@ -821,9 +986,9 @@ const Builder = {
       }
       wrap.append(list);
     }
-    const groups = { rocket: 'Example rockets', plane: 'Planes', car: 'Cars', heli: 'Helicopters' };
+    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', heli: 'Helicopters' };
     for (const kind in groups) {
-      const keys = Object.keys(TEMPLATES).filter((k) => (TEMPLATES[k].kind || 'rocket') === kind);
+      const keys = Object.keys(TEMPLATES).filter((k) => (TEMPLATES[k].military ? 'military' : TEMPLATES[k].kind || 'rocket') === kind);
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
       const tl = el('div', { class: 'template-list' });
@@ -869,8 +1034,10 @@ const Builder = {
       }
       if (this.in3D()) { this.down3D(e); return; }
       const w = this.screenToWorld(e.clientX, e.clientY);
-      const hit = this.hitPart(w);
-      if (hit && e.button !== 2 && e.button !== 1) this.grab(hit, w, e.pointerId);
+      const hit = this.hitPart(w), add = e.shiftKey || e.ctrlKey || e.metaKey, pick = add || this.selectMode;
+      if (hit && e.button === 0 && pick && (add || !this.sel.has(hit))) this.toggleSel(hit); // pick several
+      else if (hit && e.button !== 2 && e.button !== 1) this.grab(hit, w, e.pointerId);
+      else if (pick && e.button === 0) this.box = { pointerId: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, add };
       else {
         this.pan = { pointerId: e.pointerId };
         this.panMoved = false;
@@ -901,6 +1068,7 @@ const Builder = {
         return;
       }
       if (this.pan3d && this.pan3d.pointerId === e.pointerId) { Render3D.panBy(dx, dy); return; }
+      if (this.box && this.box.pointerId === e.pointerId) { this.box.x = e.clientX; this.box.y = e.clientY; this.showBox(this.box); return; }
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
         if (!this.drag.moved && Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < 6) return;
         if (!this.drag.moved && this.in3D()) Render3D.editView(true);
@@ -917,6 +1085,14 @@ const Builder = {
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = null;
       if (this.pan3d && this.pan3d.pointerId === e.pointerId) { this.pan3d = null; return; }
+      if (this.box && this.box.pointerId === e.pointerId) {
+        const b = this.box;
+        this.box = null; this.showBox(null);
+        if (e.type === 'pointercancel') return;
+        if (Math.hypot(b.x - b.sx, b.y - b.sy) > 6) this.boxSelect(b.sx, b.sy, b.x, b.y, b.add);
+        else if (!b.add) { this.selected = null; this.renderInfo(); } // a tap on empty blueprint clears it
+        return;
+      }
       if (this.orbit && this.orbit.pointerId === e.pointerId) {
         // a tap selects the part under it (or clears the selection)
         if (!this.orbit.moved && e.type !== 'pointercancel') { this.selected = this.orbit.part || null; this.renderInfo(); }
@@ -926,7 +1102,7 @@ const Builder = {
       if (this.drag && !this.drag.fromPalette && this.drag.pointerId === e.pointerId) {
         if (e.type === 'pointercancel') this.cancelDrag();
         else if (this.drag.moved) this.dropDrag(e.clientY);
-        else this.endDrag();
+        else { const d = this.drag; this.endDrag(); if (this.selectMode && d.group) this.toggleSel(d.part); } // Select mode: a tap drops it from the group
       }
       if (this.pan && this.pan.pointerId === e.pointerId) {
         if (!this.panMoved && e.type !== 'pointercancel') { this.selected = null; this.renderInfo(); }
@@ -949,26 +1125,34 @@ const Builder = {
       if (App.scene !== 'build' || UI.modalOpen || e.target.tagName === 'INPUT') return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.code === 'KeyS') { e.preventDefault(); if (e.shiftKey) this.saveAs(); else this.quickSave(); return; }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) { e.preventDefault(); this.deleteSelected(); }
+      if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) { e.preventDefault(); this.deleteSel(); }
+      else if (mod && e.code === 'KeyA') { e.preventDefault(); this.selectAll(); }
+      else if (mod && e.code === 'KeyC') { e.preventDefault(); this.copySel(); }
+      else if (mod && e.code === 'KeyX') { e.preventDefault(); this.copySel(true); }
+      else if (mod && e.code === 'KeyV') { e.preventDefault(); this.paste(); }
       else if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
       else if (mod && e.code === 'KeyY') { e.preventDefault(); this.redo(); }
       else if (mod && e.code === 'KeyD') { e.preventDefault(); this.duplicateSelected(); }
       else if (e.code === 'Enter' && this.ctrl) App.launch();
       else if (e.code === 'KeyF') this.fitView();
-      else if (e.code === 'KeyR' && !mod) this.rotateSelected();
+      else if (e.code === 'KeyR' && !mod) this.rotateSel();
       else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
-      else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); } }
+      else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); if (this.selectMode) this.setSelectMode(false); } }
       else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
         e.preventDefault();
         const k = e.shiftKey ? 1 : 0.25, dir = { ArrowLeft: [-k, 0], ArrowRight: [k, 0], ArrowUp: [0, k], ArrowDown: [0, -k] }[e.code];
-        if (dir) this.nudge(dir[0], dir[1]);
+        if (dir) this.nudgeSel(dir[0], dir[1]);
       }
     });
 
     $('#btn-launch').addEventListener('click', () => App.launch());
-    $('#btn-delete').addEventListener('click', () => this.deleteSelected());
+    $('#btn-delete').addEventListener('click', () => this.deleteSel());
     $('#btn-dup').addEventListener('click', () => this.duplicateSelected());
-    $('#btn-rotate').addEventListener('click', () => this.rotateSelected());
+    $('#btn-copy').addEventListener('click', () => this.copySel());
+    $('#btn-rotate').addEventListener('click', () => this.rotateSel());
+    $('#btn-select').addEventListener('click', () => this.setSelectMode(!this.selectMode));
+    $('#btn-paste').addEventListener('click', () => this.paste());
+    $('#btn-paste').hidden = !this.clip;
     $('#btn-fit').addEventListener('click', () => this.fitView());
     $('#btn-undo').addEventListener('click', () => this.undo());
     $('#btn-redo').addEventListener('click', () => this.redo());
@@ -1021,6 +1205,14 @@ const Builder = {
   // Start moving a part from where the pointer took hold of it (w: that point in part space).
   grab(part, w, pointerId) {
     this.drag = { part, type: part.type, offset: { x: w.x - part.x, y: w.y - part.y }, orig: { x: part.x, y: part.y }, moved: false, pointerId };
+    if (this.multi && this.sel.has(part)) { // the whole selection moves with it
+      const group = [...this.sel], origs = new Map();
+      for (const p of group) for (const q of [p, p.mirror]) if (q) origs.set(q, { x: q.x, y: q.y });
+      Object.assign(this.drag, { group, origs });
+      this._primary = part;
+      this.renderInfo();
+      return;
+    }
     if (part.mirror) this.drag.mirrorOrig = { x: part.mirror.x, y: part.mirror.y };
     this.selected = part;
     this.renderInfo();
@@ -1030,7 +1222,10 @@ const Builder = {
   down3D(e) {
     if (e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)) { this.pan3d = { pointerId: e.pointerId }; return; }
     const hit = Render3D.pickPart(e.clientX, e.clientY), part = hit && hit.part;
-    const sel = this.selected, mine = part && (part === sel || (sel && part === sel.mirror));
+    const add = e.shiftKey || e.ctrlKey || e.metaKey, pick = add || this.selectMode;
+    if (pick && part && (add || !this.sel.has(part))) { this.toggleSel(part); return; }
+    if (pick && !part) { this.box = { pointerId: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, add }; return; }
+    const sel = this.selected, mine = part && (this.sel.has(part) || (sel && part === sel.mirror));
     if (part && (e.pointerType === 'mouse' || mine)) {
       // hold it where the pointer took it; if the blueprint is side-on just now (the view turns to face it
       // once the part moves), the part comes to the pointer instead
@@ -1071,6 +1266,15 @@ const Builder = {
     const pal = $('#palette'), overPalette = cy > pal.getBoundingClientRect().top;
     pal.classList.toggle('drop-remove', !d.fromPalette);
     pal.classList.toggle('drop-hot', overPalette);
+    if (d.group) { // the grabbed part snaps; the rest keep their places around it
+      const s = this.snap(d.type, want, [...d.origs.keys()], d.part.rot || 0), dx = s.x - d.orig.x, dy = s.y - d.orig.y;
+      for (const [q, o] of d.origs) { q.x = o.x; q.y = o.y; }
+      for (const q of d.group) { const o = d.origs.get(q); q.x = +(o.x + dx).toFixed(3); q.y = +(o.y + dy).toFixed(3); }
+      this.followTwins(d.group, dx, dy, d.origs);
+      const outside = [...d.origs.keys()].filter((q) => !d.group.includes(q));
+      d.ghost = { ...s, ok: this.groupFits(d.group, outside) };
+      return;
+    }
     const ignore = d.part ? [d.part, d.part.mirror].filter(Boolean) : [];
     const rot = d.part ? d.part.rot || 0 : d.rot || 0;
     const s = this.snap(d.type, want, ignore, rot);
@@ -1103,6 +1307,15 @@ const Builder = {
     }
     const p = d.part;
     if (!this.parts.includes(p)) return; // gone while it was being dragged
+    if (d.group) {
+      if (overPalette) { this.deleteSel(); return; }
+      if (!d.ghost.ok) { this.cancelDrag(d); this.changed(); return; }
+      for (const q of d.origs.keys()) q.flip = q.x < 0;
+      this.linkMirrors();
+      this.changed();
+      this.renderInfo();
+      return;
+    }
     if (overPalette) { this.selected = p; this.deleteSelected(); return; }
     if (!d.ghost.ok) { this.cancelDrag(d); this.changed(); return; }
     p.flip = p.x < 0;
@@ -1120,7 +1333,8 @@ const Builder = {
 
   cancelDrag(dd) {
     const d = dd || this.drag;
-    if (d && d.part) {
+    if (d && d.origs) for (const [q, o] of d.origs) { q.x = o.x; q.y = o.y; }
+    else if (d && d.part) {
       d.part.x = d.orig.x; d.part.y = d.orig.y;
       if (d.part.mirror && d.mirrorOrig) { d.part.mirror.x = d.mirrorOrig.x; d.part.mirror.y = d.mirrorOrig.y; }
     }
@@ -1183,7 +1397,7 @@ const Builder = {
     drawList((p) => p.def.pod);
     ctx.globalAlpha = 1;
     if (this.selected) {
-      for (const p of [this.selected, this.selected.mirror]) {
+      for (const p of this.multi ? this.sel : [this.selected, this.selected.mirror]) {
         if (!p) continue;
         const r = partRect(p);
         ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 2 / this.cam.scale;
@@ -1200,7 +1414,10 @@ const Builder = {
       if (this.symmetry && this.mirrorOk(d.type, gp.x, gp.y, [], gp.rot)) { ctx.globalAlpha = 0.35; drawPart(ctx, { ...gp, x: -gp.x, flip: !gp.flip, rot: mirrorRot(gp.rot) }, lw); }
       ctx.globalAlpha = 1;
     }
-    if (d && d.ghost && !d.ghost.ok) {
+    if (d && d.group && d.ghost && !d.ghost.ok) {
+      ctx.fillStyle = 'rgba(255,93,93,0.35)';
+      for (const q of d.group) { const r = partRect(q); ctx.fillRect(r.l, r.b, r.r - r.l, r.t - r.b); }
+    } else if (d && d.ghost && !d.ghost.ok) {
       const r = partRect({ def: PARTS[d.type], x: d.ghost.x, y: d.ghost.y, rot: d.part ? d.part.rot || 0 : d.rot || 0 });
       ctx.fillStyle = 'rgba(255,93,93,0.35)';
       ctx.fillRect(r.l, r.b, r.r - r.l, r.t - r.b);

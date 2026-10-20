@@ -63,6 +63,18 @@ const Sound = {
   separate() { this.burst(0.25, 900, 0.9, 'bandpass'); },
   explode() { this.burst(1.6, 260, 1.6); this.burst(0.5, 1200, 0.5); },
   click() { this.burst(0.06, 2400, 0.25, 'highpass'); },
+  // weapons: a gun's crack (deeper for a cannon), a missile's whoosh, the tick of a hit on metal
+  gun(big) { this.burst(big ? 0.12 : 0.06, big ? 700 : 1400, big ? 0.55 : 0.32, 'bandpass'); },
+  missile() { this.burst(1.1, 900, 0.6, 'bandpass'); this.burst(0.3, 300, 0.5); },
+  hit() { this.burst(0.05, 3200, 0.3, 'highpass'); },
+  // the seeker's growl and lock tone: a sine, not the square beep
+  tone(f = 1000, dur = 0.12, vol = 0.05) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.02);
+  },
   beep(f = 880) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();

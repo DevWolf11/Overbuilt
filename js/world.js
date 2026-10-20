@@ -3,7 +3,7 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false }, store.get('rss.settings', {})),
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice' }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },

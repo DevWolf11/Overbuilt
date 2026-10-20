@@ -297,8 +297,9 @@ const GlobeView = {
       if (o === v || o.body !== b || !o.control) continue;
       proj(...toGround(o.x, o.y, o.z));
       if (!onScreen()) continue;
-      ctx.fillStyle = '#62d0ff'; ctx.beginPath(); ctx.arc(P.x, P.y, 3.5 * dpr, 0, TAU); ctx.fill();
-      text(o.name, P.x + 7 * dpr, P.y + 4 * dpr, '#62d0ff', font(500, 10, '"IBM Plex Mono", ui-monospace, monospace'));
+      const col = o.ai ? '#ff5d5d' : '#62d0ff'; // enemy fighters in red
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(P.x, P.y, 3.5 * dpr, 0, TAU); ctx.fill();
+      text(o.name, P.x + 7 * dpr, P.y + 4 * dpr, col, font(500, 10, '"IBM Plex Mono", ui-monospace, monospace'));
     }
     // ---- scale bar
     const mpp = (this.alt * 2 * T) / Hd, raw = mpp * 110 * dpr, pow = 10 ** Math.floor(Math.log10(raw)), nice = [1, 2, 5, 10].map((q) => q * pow).filter((q) => q <= raw).pop() || pow, bw = nice / mpp;

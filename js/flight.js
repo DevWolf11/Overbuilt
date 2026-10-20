@@ -81,6 +81,8 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
+    this.firing = false;
+    Combat.reset(this);
     this.running = true;
     MapView.focusVessel();
     $('#btn-map').classList.remove('on');
@@ -112,7 +114,7 @@ const Flight = {
 
   // ------------------------------------------------------------------ save / resume
   serialize() {
-    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && v.parts.length);
+    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && v.parts.length);
     return {
       v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
       active: keep.indexOf(this.active), flags: this.flags, stats: this.stats,
@@ -218,8 +220,8 @@ const Flight = {
     this.toast(v.gearUp ? 'Gear up' : 'Gear down');
     this.updateHUD(true);
   },
-  // Over-stressed wings tear off and tumble away as debris.
-  ripParts(v, parts) {
+  // Over-stressed wings tear off and tumble away as debris (as do parts shot or knocked off).
+  ripParts(v, parts, cause = 'g') {
     const ctrl = v.control;
     for (const p of parts) {
       for (const n of [...(v.adj.get(p.id) || [])]) { v.adj.get(p.id).delete(n); v.adj.get(n) && v.adj.get(n).delete(p.id); }
@@ -228,7 +230,7 @@ const Flight = {
       FX.puff(v.body, wp, vel, 8, '#cfd5dc');
     }
     if (v === this.active) {
-      this.toast(`${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
+      this.toast(cause === 'g' ? `${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!` : `${parts[0].def.name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
       Sound.explode(); haptic([60, 40, 80]);
     }
     const pieces = v.splitComponents();
@@ -246,7 +248,7 @@ const Flight = {
   },
 
   switchTo(v) {
-    if (!v || v === this.active || !v.control) return;
+    if (!v || v === this.active || !v.control || v.ai) return;
     this.active = v;
     this.destroyed = false;
     this.prediction = null;
@@ -467,6 +469,7 @@ const Flight = {
           const used = this.railsAdvance(v, total, false, t0);
           if (used < total - 1e-6 && !v.control) v.dead = true; // fell into an atmosphere out of sight
         }
+        Combat.frame(this, dt * warp);
         this.emitParticles(dt * warp);
         FX.update(dt * warp, this);
       } else {
@@ -530,6 +533,7 @@ const Flight = {
     const dT = key('ShiftLeft', 'ShiftRight', 'PageUp') - key('ControlLeft', 'ControlRight', 'PageDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
     v.brake = k.has('KeyB') || this.touchBrake;
+    this.firing = k.has('KeyV') || !!this.touchFire;
   },
 
   // Breaking the sound barrier: a boom when the craft first passes Mach 1 in thick enough air.
@@ -562,6 +566,7 @@ const Flight = {
       v.physicsStep(h, this);
       this.checkSOI(v, this.time);
     }
+    Combat.step(h, this);
     this.time += h;
   },
 
@@ -848,6 +853,7 @@ const Flight = {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
+      if (e.code === 'KeyV') this.fireTap = true;
       const sasKeys = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
       if (sasKeys[e.code]) { this.setSas(sasKeys[e.code]); return; }
       switch (e.code) {
@@ -859,6 +865,7 @@ const Flight = {
         case 'KeyZ': this.setThrottle(1); break;
         case 'KeyX': this.setThrottle(0); break;
         case 'BracketLeft': case 'BracketRight': this.cycleVessel(e.code === 'BracketRight' ? 1 : -1); break;
+        case 'Tab': Combat.cycle(this, e.shiftKey ? -1 : 1); this.updateHUD(true); break;
         case 'Escape': case 'KeyP': this.openMenu(); break;
         case 'KeyR': if (this.canRecover()) this.recover(); break;
         case 'KeyC': if (App.use3D()) Render3D.resetCamera(); break;
@@ -867,7 +874,7 @@ const Flight = {
       }
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; });
+    addEventListener('blur', () => { this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; this.touchFire = false; });
 
     c.addEventListener('wheel', (e) => {
       if (App.scene !== 'flight') return;
@@ -941,6 +948,13 @@ const Flight = {
     brake.addEventListener('pointerdown', (e) => { e.preventDefault(); brake.setPointerCapture && brake.setPointerCapture(e.pointerId); this.touchBrake = true; brake.classList.add('held'); });
     for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) brake.addEventListener(ev, brakeOff);
     brake.addEventListener('contextmenu', (e) => e.preventDefault());
+    // weapons: hold FIRE, tap the chip to change weapon
+    const fire = $('#btn-fire');
+    const fireOff = () => { this.touchFire = false; fire.classList.remove('held'); };
+    fire.addEventListener('pointerdown', (e) => { e.preventDefault(); fire.setPointerCapture && fire.setPointerCapture(e.pointerId); this.touchFire = true; this.fireTap = true; fire.classList.add('held'); haptic(10); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) fire.addEventListener(ev, fireOff);
+    fire.addEventListener('contextmenu', (e) => e.preventDefault());
+    $('#btn-weapon').addEventListener('click', () => { Combat.cycle(this); this.updateHUD(true); });
     $('#btn-stage').addEventListener('click', () => this.stage());
     $('#btn-flaps').addEventListener('click', () => this.cycleFlaps());
     $('#btn-gear').addEventListener('click', () => this.toggleGear());
@@ -964,7 +978,7 @@ const Flight = {
   },
 
   cycleVessel(dir) {
-    const list = this.vessels.filter((v) => v.control && !v.dead);
+    const list = this.vessels.filter((v) => v.control && !v.dead && !v.ai);
     if (list.length < 2) { this.toast('No other vessels to switch to'); return; }
     const i = list.indexOf(this.active);
     this.switchTo(list[(i + dir + list.length) % list.length]);
@@ -1094,6 +1108,9 @@ const Flight = {
       if (v.aoa != null && !v.wheelsDown && v.aoa > v.stallAoA * 0.9) return 'Stalling! Push the nose down and add power.';
       if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return 'Raise the gear (G) to cut drag.';
       if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : 'Bank with A/D to turn, pitch with W/S. Press 2 for level flight (holds altitude), 3 to hold a heading.';
+      if (!v.wheelsDown && ga > 150 && Combat.status(v) && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
+        return Settings.get('targets') === 'off' ? (isTouch ? 'Hold FIRE to shoot; tap the weapon chip to change weapon. Turn on targets in Settings.' : 'Hold V to fire, Tab changes weapon. Turn on targets in Settings for something to shoot.')
+          : (isTouch ? 'Targets wait around the islands (the brackets). Hold FIRE to shoot; tap the weapon chip to change weapon.' : 'Targets wait around the islands (the brackets). Hold V to fire, Tab changes weapon.');
       if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
       if (v.wheelsDown && sp > 2) return 'Hold B (Brake) to stop.';
       return '';
@@ -1172,6 +1189,9 @@ const Flight = {
     const hdg = !rocket && v.body === EARTH;
     $('#row-hdg').hidden = !hdg;
     if (hdg) { const c = this.compass(v); set('t-hdg', `${String(Math.round(c) % 360).padStart(3, '0')}° ${COMPASS[Math.round(c / 22.5) % 16]}`); }
+    const integ = Combat.integrity(v); // the share of the craft's health that's gone
+    $('#row-dmg').hidden = integ > 0.995;
+    if (integ <= 0.995) { set('t-dmg', `${Math.max(1, Math.round((1 - integ) * 100))}%`); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
     const st = this.structAlert(v);
@@ -1247,6 +1267,13 @@ const Flight = {
     set('stage-num', v.stageIdx < v.stages.length ? `Stage ${v.stageIdx + 1}/${v.stages.length}` : 'Staging done');
     set('stage-next', next ? describeStage(next, v.byId) : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? 'Drive with W/S, steer A/D · hold B to brake' : 'Tap parts to use them');
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length;
+    const ws = Combat.status(v);
+    $('#weapon-box').hidden = !ws || this.destroyed;
+    if (ws) {
+      set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
+      set('w-ammo', `${ws.ammo}${ws.flares ? ` · ✦${ws.flares}` : ''}${ws.kills ? ` · ${ws.kills} ✕` : ''}`);
+      $('#btn-weapon').classList.toggle('lock', ws.lock);
+    }
     $('#btn-flaps').hidden = !v.hasFlaps;
     set('btn-flaps', v.flaps ? `Flaps ${Math.round(v.flaps * 100)}%` : 'Flaps');
     $('#btn-flaps').classList.toggle('on', v.flaps > 0);
