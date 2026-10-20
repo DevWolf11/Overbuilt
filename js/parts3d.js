@@ -18,6 +18,12 @@ const Parts3D = (() => {
     sep: { map: true, roughness: 0.55, metalness: 0.3 },
     vc: { vertexColors: true, roughness: 0.42, metalness: 0.2 },
     steel: { color: PAL.steel, roughness: 0.4, metalness: 0.7 },
+    gunmetal: { color: '#2e3338', roughness: 0.45, metalness: 0.75 },
+    mil: { color: '#7d8790', roughness: 0.6, metalness: 0.3 },
+    olive: { color: '#5f6b52', roughness: 0.75, metalness: 0.1 },
+    missile: { color: '#eef1f4', roughness: 0.42, metalness: 0.15 },
+    sand: { color: '#c9c2a6', roughness: 0.6, metalness: 0.1 },
+    hazard: { color: PAL.hazard, roughness: 0.5, metalness: 0.1 },
     steelLight: { color: PAL.steelLight, roughness: 0.32, metalness: 0.7 },
     steelDark: { color: PAL.steelDark, roughness: 0.5, metalness: 0.55 },
     ink: { color: PAL.ink, roughness: 0.7, metalness: 0.2 },
@@ -35,7 +41,8 @@ const Parts3D = (() => {
     'jetnose', 'airnose', 'float', 'droptank']);
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep' };
   const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
-    wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake' };
+    wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
+    gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store' };
   const FLAT_DEPTH = { fin: 0.12 };
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -448,7 +455,45 @@ const Parts3D = (() => {
   }
 
   // ------------------------------------------------------------------ models by recipe
+  const y0 = (h, f) => -h / 2 + h * f; // a height up a part, as a fraction
   const BUILD = {
+    // a gun along the part's axis: receiver box, barrel, muzzle
+    gun(d) {
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, big = (d.calibre || 0) > 20, r = w * (big ? 0.17 : 0.14);
+      return node([[box(w, h * 0.42, w * 0.9, 0, b + h * 0.21, 0), 'mil'], [rod([0, b + h * 0.42, 0], [0, t - h * 0.06, 0], r, 12), 'gunmetal'],
+        [rod([0, t - h * 0.08, 0], [0, t, 0], r * 1.6, 12), 'gunmetal']]);
+    },
+    // a pylon and what hangs from it: a gun or rocket pod, or missiles and bombs (sub-nodes, so they can go)
+    store(d) {
+      const w = d.w, h = d.h, b = -h / 2, t = h / 2, sh = d.shape, cx = w * 0.12;
+      const list = [[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark']];
+      const lathe = (rw, pts) => new THREE.LatheGeometry(pts.map(([r, y]) => v2(r * rw / 2, y)), 20).translate(cx, 0, 0);
+      if (sh === 'gunpod' || sh === 'rocketpod') {
+        const rw = w * 0.66, top = sh === 'gunpod' ? t - h * 0.12 : t;
+        list.push([lathe(rw, [[0.2, b], [0.85, b + h * 0.05], [1, b + h * 0.2], [1, top - h * 0.12], [0.75, top - h * 0.02], [0, top]]), 'mil']);
+        if (sh === 'gunpod') list.push([rod([cx, top - h * 0.05, 0], [cx, t, 0], rw * 0.09, 10), 'gunmetal']);
+        else for (let i = 0; i < 7; i++) { const a = (i / 6) * TAU, rr = i === 6 ? 0 : rw * 0.28; list.push([new THREE.CylinderGeometry(rw * 0.09, rw * 0.09, 0.02, 10).translate(cx + rr * Math.cos(a), top + 0.005, rr * Math.sin(a)), 'gunmetal']); }
+        return node(list);
+      }
+      const subs = [], n = d.twinZ ? Math.max(1, Math.round(d.weapon.ammo / 2)) : d.weapon.ammo;
+      for (let k = 0; k < n; k++) { // several per pylon sit side by side
+        const z = (k - (n - 1) / 2) * w * 0.9, s = [];
+        if (sh === 'missile') {
+          const rw = w * 0.42, body = d.agm ? 'sand' : 'missile';
+          s.push([lathe(rw, [[0, b + h * 0.02], [1, b + h * 0.04], [1, t - h * 0.18], [0.7, t - h * 0.07], [0, t]]), body]);
+          for (let f = 0; f < 4; f++) s.push([box(rw * 1.5, h * 0.16, 0.02, cx, b + h * 0.12, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
+          for (let f = 0; f < 4; f++) s.push([box(rw * 0.9, h * 0.07, 0.015, cx, t - h * 0.28, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
+          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.04, 16).translate(cx, 0, 0), d.agm ? 'olive' : 'hazard']);
+        } else { // bomb
+          const rw = w * 0.62;
+          s.push([lathe(rw, [[0.3, b + h * 0.12], [0.8, b + h * 0.3], [1, y0(h, 0.55)], [0.85, t - h * 0.12], [0, t]]), 'olive']);
+          for (let f = 0; f < 4; f++) s.push([box(rw * 1.2, h * 0.14, 0.02, cx, b + h * 0.07, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2).translate(cx, 0, 0), 'olive']);
+          s.push([new THREE.CylinderGeometry(rw * 0.43, rw * 0.43, h * 0.04, 16).translate(cx, t - h * 0.2, 0), 'hazard']);
+        }
+        subs.push(node(s, null, { role: 'store', pos: [0, 0, z] }));
+      }
+      return node(list, subs);
+    },
     lathe(d, flip) {
       const sh = d.shape, w = d.w, h = d.h, b = -h / 2, t = h / 2, nz = sh === 'engine' || sh === 'srb' || sh === 'jet';
       const list = [[latheGeo(outline(d, flip), d, { holeBot: nz ? 0.9 : 0, holeTop: sh === 'jet' ? 0.84 : 0 }), LATHE_KIND[sh] || 'hull']];
@@ -829,7 +874,9 @@ void main() {
       const g = new THREE.Group();
       if (s.pos) g.position.fromArray(s.pos);
       if (s.rot) g.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
-      if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'droop') rig.droops.push(g); else if (s.role) rig[s.role] = g;
+      if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'droop') rig.droops.push(g);
+      else if (s.role === 'store') (rig.stores = rig.stores || []).push(g); // missiles and bombs, hidden as they're fired
+      else if (s.role) rig[s.role] = g;
       obj.add(g);
       instance(s, g, rig);
     }
@@ -1058,6 +1105,11 @@ void main() {
         if (rig.droops.length) { const k = -lerp(0.06, -0.025, smoothstep(3, 20, rig.rate)); for (const g of rig.droops) g.rotation.z = k; }
       }
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
+      if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: left and right in turn
+        rig.shown = p.ammo;
+        const twin = d.twinZ ? 2 : 1, k = rig.stores.length / twin, n = p.ammo == null ? Infinity : p.ammo;
+        rig.stores.forEach((g, i) => { g.visible = (i % k) * twin + Math.floor(i / k) < n; });
+      }
       if (rig.lid) rig.lid.visible = !(p.deployed > 0 || p.used);
       if (rig.canopy) {
         const k = p.deployed || 0, c = rig.canopy.g;

@@ -1976,6 +1976,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     syncVessels(F, dt, dist);
     vaporCone(F, dt);
     updateParticles(F, envV);
+    syncCombat(F);
 
     // ---- shadows fitted around the active craft
     if (S.sun.castShadow) {
@@ -2316,8 +2317,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (bd.vm) {
       const want = new Map(), d = B.drag, sel = B.selected;
       if (B.hover3d) want.set(B.hover3d, [1, 0.72, 0.3, 0.18]);
-      if (sel) for (const p of [sel, sel.mirror]) if (p) want.set(p, [1, 0.62, 0.15, 0.42]);
-      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
+      if (sel) for (const p of B.multi ? B.sel : [sel, sel.mirror]) if (p) want.set(p, [1, 0.62, 0.15, 0.42]);
+      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of d.group || [d.part, d.part.mirror]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
       for (const p of bv.tinted) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
       bv.tinted = new Set(want.keys());
@@ -2431,6 +2432,109 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   buildPatchNow = timed('patchNow', buildPatchNow); buildSceneryNow = timed('sceneryNow', buildSceneryNow);
+  // ------------------------------------------------------------------ combat: tracers, missiles, bombs and targets
+  const CB = { ready: false };
+  function initCombat() {
+    CB.ready = true;
+    const N = 700;
+    CB.lineGeo = new THREE.BufferGeometry();
+    CB.lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    CB.lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    CB.lines = new THREE.LineSegments(CB.lineGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    CB.lines.frustumCulled = false; CB.lines.renderOrder = 7; CB.N = N;
+    CB.headGeo = new THREE.BufferGeometry();
+    CB.headGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    CB.headGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    CB.heads = new THREE.Points(CB.headGeo, new THREE.PointsMaterial({ size: 1.1, sizeAttenuation: true, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    CB.heads.frustumCulled = false; CB.heads.renderOrder = 7;
+    localWorld.add(CB.lines, CB.heads);
+    const m = (c, r = 0.5, me = 0.3) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: me });
+    CB.mat = { olive: m('#56603f', 0.8, 0.1), dark: m('#2e3338', 0.5, 0.6), grey: m('#7d8790', 0.6, 0.3), concrete: m('#8c8a84', 0.95, 0), white: m('#e9ecef', 0.4, 0.1),
+      navy: m('#5b6670', 0.6, 0.35), orange: m('#ff7a1a', 0.5, 0.1), wreck: m('#1d1b19', 0.95, 0), tyre: m('#1b1e22', 0.9, 0), sand: m('#b9a77c', 0.8, 0.05) };
+    // stores in flight, pointing along +y
+    const store = (r, l, mat, finR) => { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.CylinderGeometry(r, r, l, 10), mat)); const nose = new THREE.Mesh(new THREE.ConeGeometry(r, r * 3, 10), mat); nose.position.y = l / 2 + r * 1.5; g.add(nose);
+      for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.BoxGeometry(finR, l * 0.18, 0.02), CB.mat.dark); f.position.y = -l * 0.4; f.rotation.y = (i * Math.PI) / 2 + Math.PI / 4; f.translateX(finR / 2); g.add(f); } return g; };
+    CB.kinds = { missile: () => store(0.1, 2.7, CB.mat.white, 0.35), rocket: () => store(0.05, 1.5, CB.mat.grey, 0.15), bomb: () => store(0.19, 1.8, CB.mat.olive, 0.4) };
+    CB.pool = { missile: [], rocket: [], bomb: [] };
+    CB.tg = new Map(); // target -> model
+  }
+  // Target models (x forward, y up, metres)
+  function targetModel(kind) {
+    const M = CB.mat, g = new THREE.Group(), B = (w, h, d, x, y, z, mat) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; g.add(o); return o; };
+    const C = (r, h, x, y, z, mat, rx = 0, rz = 0) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), mat); o.position.set(x, y, z); o.rotation.set(rx, 0, rz); o.castShadow = true; g.add(o); return o; };
+    switch (kind) {
+      case 'tank': B(6.6, 1.4, 3.4, 0, 0.9, 0, M.olive); B(6.8, 0.8, 0.6, 0, 0.5, 1.5, M.tyre); B(6.8, 0.8, 0.6, 0, 0.5, -1.5, M.tyre); B(3, 0.9, 2.4, -0.3, 2.05, 0, M.olive); C(0.13, 4, 2.9, 2.1, 0, M.dark, 0, Math.PI / 2); break;
+      case 'truck': B(2, 2.1, 2.3, 2.6, 1.6, 0, M.olive); B(4.6, 2.5, 2.4, -0.9, 1.8, 0, M.sand); for (const x of [2.5, -0.5, -2.4]) for (const z of [-1.1, 1.1]) C(0.5, 0.35, x, 0.5, z, M.tyre, Math.PI / 2); break;
+      case 'radar': B(3, 2, 3, 0, 1, 0, M.grey); C(0.25, 4, 0, 4, 0, M.dark); CB.dish = B(0.3, 2.6, 4.4, 0, 6.2, 0, M.white); g.userData.spin = CB.dish; break;
+      case 'bunker': B(10, 3.4, 8, 0, 1.7, 0, M.concrete); B(10.2, 0.4, 0.6, 0, 2.4, 3.95, M.dark); break;
+      case 'aa': C(1.7, 1, 0, 0.5, 0, M.olive); { const t = new THREE.Group(); t.position.y = 1.4; g.add(t); const b1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.4, 8), M.dark), b2 = b1.clone(); b1.position.set(1.4, 0.9, 0.3); b2.position.set(1.4, 0.9, -0.3); b1.rotation.z = b2.rotation.z = -1; t.add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 1.4), M.olive), b1, b2); g.userData.turret = t; } break;
+      case 'sam': B(4, 1.2, 2.6, 0, 0.6, 0, M.olive); { const t = new THREE.Group(); t.position.set(0, 1.6, 0); t.rotation.z = 0.6; g.add(t); for (const z of [-0.7, -0.25, 0.25, 0.7]) { const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 4, 10), M.grey); tube.rotation.z = Math.PI / 2; tube.position.set(0, 0, z); t.add(tube); } } break;
+      case 'boat': B(14, 2.2, 4, 0, 0.6, 0, M.navy); B(4, 2, 3, -1, 2.6, 0, M.white); C(0.08, 3, -1, 4.8, 0, M.dark); break;
+      case 'ship': B(42, 4, 9, 0, 1.5, 0, M.navy); B(14, 5, 7, -4, 6, 0, M.grey); B(4, 3, 4, 10, 4.6, 0, M.grey); C(0.3, 9, -4, 12, 0, M.dark); C(0.15, 5, 14, 5, 0, M.dark, 0, Math.PI / 2); break;
+      case 'drone': C(0.35, 4.2, 0, 0, 0, M.orange, 0, Math.PI / 2); B(1, 0.1, 5, 0.2, 0, 0, M.orange); B(0.6, 0.9, 0.08, -1.9, 0.45, 0, M.orange); B(0.5, 0.08, 1.8, -1.9, 0, 0, M.orange); break;
+    }
+    return g;
+  }
+  const CF = { up: null, f: null, r: null, m: null };
+  function syncCombat(F) {
+    if (typeof Combat === 'undefined') return;
+    if (!CB.ready) initCombat();
+    const t = F.time;
+    // tracers: a streak behind each tracer round, with a bright head
+    const shots = Combat.shots, pa = CB.lineGeo.attributes.position.array, ca = CB.lineGeo.attributes.color.array, ha = CB.headGeo.attributes.position.array, hc = CB.headGeo.attributes.color.array;
+    let n = 0;
+    const used = { missile: 0, rocket: 0, bomb: 0 };
+    for (const s of shots) {
+      const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
+      if (s.k === 'bullet') {
+        if (!s.tracer || n >= CB.N) continue;
+        const k = 0.028, c = s.enemy ? [1, 0.35, 0.2] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
+        pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
+        ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);
+        ha.set([x, y, z], n * 3); hc.set(c, n * 3);
+        n++;
+        continue;
+      }
+      const pool = CB.pool[s.k];
+      let o = pool[used[s.k]];
+      if (!o) { o = CB.kinds[s.k](); pool.push(o); localWorld.add(o); }
+      used[s.k]++;
+      o.visible = true;
+      o.position.set(x, y, z);
+      V1.set(s.dx || 0, s.dy || 1, s.dz || 0).normalize();
+      o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
+    }
+    for (const k in CB.pool) for (let i = used[k]; i < CB.pool[k].length; i++) CB.pool[k][i].visible = false;
+    CB.lineGeo.setDrawRange(0, n * 2); CB.headGeo.setDrawRange(0, n);
+    for (const g of [CB.lineGeo, CB.headGeo]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
+    CB.lines.visible = CB.heads.visible = n > 0;
+    // targets: placed on the ground, sea or sky, facing the way they go; wrecks when destroyed
+    const seen = new Set();
+    for (const e of Combat.targets) {
+      if (!e.pos) continue;
+      const bp = bodyPos(EARTH, t), x = bp.x + e.pos.x - camAbs.x, y = bp.y + e.pos.y - camAbs.y, z = e.pos.z - camAbs.z;
+      if (Math.hypot(x, y, z) > 30000) continue;
+      let o = CB.tg.get(e);
+      if (!o || o.userData.kind !== e.kind) { if (o) localWorld.remove(o); o = targetModel(e.kind); o.userData.kind = e.kind; CB.tg.set(e, o); localWorld.add(o); }
+      seen.add(e);
+      o.visible = true;
+      o.position.set(x, y, z);
+      const fr = surfaceFrame(e.pos.x, e.pos.y, e.pos.z);
+      let fx, fy, fz;
+      if (e.vel && Math.hypot(e.vel.x, e.vel.y, e.vel.z) > 0.5) { fx = e.vel.x; fy = e.vel.y; fz = e.vel.z; } else { const c = Math.cos(e.heading || 0), s = Math.sin(e.heading || 0); fx = c * fr.east.x - s * fr.north.x; fy = c * fr.east.y - s * fr.north.y; fz = c * fr.east.z - s * fr.north.z; }
+      const k = fx * fr.up.x + fy * fr.up.y + fz * fr.up.z, up = fr.up;
+      if (!e.def.air) { fx -= up.x * k; fy -= up.y * k; fz -= up.z * k; }
+      const f = V1.set(fx, fy, fz).normalize(), u = V2.set(up.x, up.y, up.z), r = new THREE.Vector3().crossVectors(f, u).normalize();
+      u.crossVectors(r, f);
+      M1.makeBasis(f, u, r); o.quaternion.setFromRotationMatrix(M1);
+      if (!e.alive && !o.userData.dead) { o.userData.dead = true; o.traverse((m) => { if (m.isMesh) m.material = CB.mat.wreck; }); o.scale.set(1, 0.55, 1); if (e.def.air) o.visible = false; }
+      if (e.alive && o.userData.dead) { localWorld.remove(o); CB.tg.delete(e); } // a fresh one takes its place next frame
+      if (e.alive && o.userData.spin) o.userData.spin.rotation.y = t * 1.4;
+      if (e.alive && o.userData.turret && e.firing) o.userData.turret.rotation.y = Math.sin(t * 3) * 0.3;
+    }
+    for (const [e, o] of CB.tg) if (!seen.has(e)) { localWorld.remove(o); CB.tg.delete(e); }
+  }
+
   // ------------------------------------------------------------------ the globe (map view)
   // The planet as a lit globe, seen from a camera GlobeView aims (body-relative sim coordinates, north up).
   // Its texture is the space view's; up close a sharper tile of the real map is painted for the region in view.
@@ -2621,6 +2725,16 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // ---- building in 3D
     // The point on the blueprint under the pointer, in part space, and the metres per pixel there; null
     // when the blueprint is seen edge-on (or behind the camera).
+    // A blueprint point (part space) on screen, in CSS pixels; null if behind the camera.
+    designToScreen(x, y) {
+      if (!api.ready || mode !== 'builder') return null;
+      V1.set(x, y, 0); S.design.localToWorld(V1);
+      V2.copy(V1).applyMatrix4(bcam.matrixWorldInverse);
+      if (V2.z > 0) return null;
+      V1.project(bcam);
+      const r = canvas.getBoundingClientRect();
+      return { x: r.left + (V1.x * 0.5 + 0.5) * r.width, y: r.top + (-V1.y * 0.5 + 0.5) * r.height };
+    },
     designPoint(cx, cy) {
       if (!api.ready || mode !== 'builder') return null;
       const r = canvas.getBoundingClientRect();

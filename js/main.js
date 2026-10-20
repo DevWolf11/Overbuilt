@@ -60,6 +60,7 @@ const App = {
           Render3D.renderFlight(Flight, dt);
           this.clear2D();
           World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
+          Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
         } else Flight.render(this.ctx, this.W, this.H, this.dpr);
       } else this.renderHome(dt);
       if (!in3d && Render3D.ready) Render3D.setVisible(false);
@@ -317,7 +318,11 @@ const App = {
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
     const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
     marks.addEventListener('change', () => Settings.set('markers', marks.checked));
-    wrap.append(row('Volume', vol), row('Graphics', q), row('Flight hints', hints), row('Prograde markers', marks));
+    const tg = el('select', { id: 'set-targets' });
+    tg.innerHTML = '<option value="practice">Practice: targets don’t fight back</option><option value="hostile">Hostile: AA, SAMs and enemy fighters</option><option value="off">Off: no targets</option>';
+    tg.value = Settings.get('targets');
+    tg.addEventListener('change', () => Settings.set('targets', tg.value));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {
