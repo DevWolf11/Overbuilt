@@ -300,6 +300,72 @@ void main() {
   gl_FragColor = vec4(vCol * a * a * uAlpha, 1.0);
   ${OUT}
 }`;
+  const CLOUD_MAX = 6000;
+  // Cumulus puffs: camera-facing quads with a soft lumpy texture whose baked normals are lit by the Sun,
+  // so a cluster of them reads as a lit, billowing volume: bright tops, grey-blue bases.
+  // aC: the quad's turn, its cell in the 2x2 atlas, how high it sits in its cloud (0 base .. 1 top), opacity.
+  const CLOUD_VS = `${LOGV}attribute vec4 aC;
+uniform vec3 uSunV; uniform float uFogD;
+varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
+void main() {
+  vec4 c = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  float s = length(instanceMatrix[0].xyz), cr = cos(aC.x), sr = sin(aC.x);
+  vec4 mv = c + vec4(vec2(cr * position.x - sr * position.y, sr * position.x + cr * position.y) * s, 0.0, 0.0);
+  gl_Position = projectionMatrix * mv;
+  vV = normalize(mv.xyz);
+  vUv = vec2(mod(aC.y, 2.0), floor(aC.y / 2.0)) * 0.5 + uv * 0.5;
+  vL = normalize(vec3(cr * uSunV.x + sr * uSunV.y, -sr * uSunV.x + cr * uSunV.y, uSunV.z)); // the Sun in the quad's turned frame
+  vShade = aC.z;
+  float d = -c.z;
+  vA = aC.w * smoothstep(s * 0.3, s * 1.2, d); // right up close a puff would fill the screen: it thins out
+  vFog = 1.0 - exp(-uFogD * uFogD * d * d);
+  #include <logdepthbuf_vertex>
+}`;
+  const CLOUD_FS = `${LOGF}uniform sampler2D uMap; uniform vec3 uLit, uShadow, uFogC, uSunV;
+varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
+void main() {
+  #include <logdepthbuf_fragment>
+  vec4 t = texture2D(uMap, vUv);
+  float a = t.a * vA;
+  if (a < 0.008) discard;
+  vec3 n = normalize(t.rgb * 2.0 - 1.0);
+  float l = clamp(dot(n, vL) * 0.6 + 0.4, 0.0, 1.0) * mix(0.3, 1.0, vShade); // the lit side, and less light low in the cloud
+  vec3 col = mix(uShadow, uLit, l);
+  // looking towards the Sun the whole cloud glows a little (light scattered forwards through it)
+  col += uLit * pow(max(dot(vV, uSunV), 0.0), 5.0) * 0.4;
+  col = mix(col, uFogC, vFog);
+  gl_FragColor = vec4(col, a);
+  ${OUT}
+}`;
+  // Four lumpy puffs in a 2x2 atlas: alpha is the density, RGB the normal of that density seen as a height.
+  function cloudAtlas() {
+    const N = 128, cv = document.createElement('canvas');
+    cv.width = cv.height = 2 * N;
+    const g = cv.getContext('2d'), im = g.createImageData(2 * N, 2 * N), d = im.data, h = new Float32Array(N * N);
+    for (let cell = 0; cell < 4; cell++) {
+      const ox = (cell & 1) * N, oy = (cell >> 1) * N, lumps = [];
+      for (let k = 0; k < 7; k++) lumps.push([0.5 + (hashI(cell, k, 1) - 0.5) * 0.44, 0.52 + (hashI(cell, k, 2) - 0.5) * 0.34, 0.16 + 0.13 * hashI(cell, k, 3)]);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const u = (x + 0.5) / N, v = (y + 0.5) / N;
+        let m = 0;
+        for (const [lx, ly, lr] of lumps) { const r = Math.hypot(u - lx, v - ly) / lr; if (r < 1) m = Math.max(m, Math.sqrt(1 - r * r) * lr * 4); }
+        const n = vnoise2(u * 7, v * 7, 0, cell * 7 + 1) * 0.6 + vnoise2(u * 19, v * 19, 0, cell * 7 + 2) * 0.4;
+        const wisp = vnoise2(u * 41, v * 41, 0, cell * 7 + 3); // fine noise eats into the edges
+        h[y * N + x] = Math.max(0, m * (0.7 + 0.6 * n) - 0.08 - 0.22 * wisp * (1 - smoothstep(0.1, 0.6, m))) * (1 - smoothstep(0.38, 0.5, Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5))));
+      }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const H = (xx, yy) => h[clamp(yy, 0, N - 1) * N + clamp(xx, 0, N - 1)];
+        const dx = (H(x + 1, y) - H(x - 1, y)) * 9, dy = (H(x, y + 1) - H(x, y - 1)) * 9; // canvas rows run down, v up
+        const l = Math.hypot(dx, dy, 1), o = ((oy + y) * 2 * N + ox + x) * 4;
+        d[o] = ((-dx / l) * 0.5 + 0.5) * 255; d[o + 1] = ((dy / l) * 0.5 + 0.5) * 255; d[o + 2] = ((1 / l) * 0.5 + 0.5) * 255;
+        d[o + 3] = 255 * Math.pow(smoothstep(0.0, 0.55, h[y * N + x]), 1.3);
+      }
+    }
+    g.putImageData(im, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = THREE.NoColorSpace; // normals, not colours
+    return t;
+  }
   const SUN_VS = `${LOGV}varying vec3 vN, vV; varying vec2 vUv;
 void main() {
   vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0);
@@ -713,25 +779,27 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.blinkU = { uScale: S.glowU.uScale, uMin: { value: 2 }, uAlpha: { value: 0 } };
   }
 
-  const patch = {};
+  // The terrain patch on show, and a second one built behind it a few milliseconds a frame (patchJob) and
+  // swapped in when it is ready, so moving fast never stalls a frame for a whole rebuild. terr: what they share.
+  const terr = {};
+  let patch = {}, patchB = {}, pjob = null, pjobMs = 0, pjobSlice = 0;
   function initTerrain() {
     const det = noiseMaps(256, 24, 4, 208, 255, 6, 3);
     const rip = noiseMaps(256, 16, 3, 255, 255, 3.5, 9);
     rip.nrm.repeat.set(1, 1);
     S.waterN = rip.nrm;
-    patch.mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: det.map, normalMap: det.nrm, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, metalness: 0 });
+    terr.mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: det.map, normalMap: det.nrm, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, metalness: 0 });
     // cities glow at night: aNight (per vertex) times uNight (how dark it is)
-    patch.nightU = { value: 0 };
-    patch.mat.onBeforeCompile = (sh) => {
-      sh.uniforms.uNight = patch.nightU;
+    terr.nightU = { value: 0 };
+    terr.mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uNight = terr.nightU;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aNight;\nvarying float vNight;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvNight = aNight;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vNight;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.66, 0.32) * vNight * uNight;');
     };
-    patch.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.25, 0.25), envMapIntensity: 1.2 });
-    patch.frame = new THREE.Group();
-    localWorld.add(patch.frame);
+    terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.25, 0.25), envMapIntensity: 1.2 });
+    for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
     // scenery: trees (Earth) and rocks, placed per grid cell around the craft
     const tr = new Batch(), trunk = col('#5a4130'), leaf = col('#ffffff');
@@ -752,43 +820,59 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const trF = new Batch().geo(new THREE.ConeGeometry(2.1, 7.6, 6), 0, 4.6, 0, leaf);
     const brF = new Batch().geo(new THREE.IcosahedronGeometry(2.7, 0), 0, 5, 0, leaf, 0, 0, 0, 1, 0.9, 1);
     const inst = (g) => { const m = new THREE.InstancedMesh(g, smat2, 7000); m.count = 0; m.frustumCulled = false; return m; };
-    S.trees = [tr.build(), br.build()].map(inst);
-    S.treesFar = [trF.build(), brF.build()].map(inst);
-    S.rocks = new THREE.InstancedMesh(rock, new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true }), 5000);
-    S.rocks.count = 0; S.rocks.frustumCulled = false; S.rocks.receiveShadow = true;
-    S.sceneryFrame = new THREE.Group();
+    const gTrees = [tr.build(), br.build()], gFar = [trF.build(), brF.build()];
+    const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true });
     // villages (walls and roofs) and boats at sea, on Earth
     const unit = new THREE.BoxGeometry(1, 1, 1); unit.translate(0, 0.5, 0);
     const pyr = new THREE.ConeGeometry(0.75, 1, 4); pyr.rotateY(Math.PI / 4); pyr.translate(0, 0.5, 0);
     // half the sky light: shaded walls lit by the blue sky alone turned whole cities blue
     const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5 });
-    S.walls = new THREE.InstancedMesh(unit, hmat, 7000); S.roofs = new THREE.InstancedMesh(pyr, new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6 }), 7000);
-    S.boats = new THREE.InstancedMesh(boatGeo(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0 }), 200);
-    for (const m of [S.walls, S.roofs, S.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = m.receiveShadow = true; }
-    // city lights: a glowing point on many buildings at night
-    const cg = new THREE.BufferGeometry(), CL = 7000;
-    cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    cg.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    cg.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(CL), 1).setUsage(THREE.DynamicDrawUsage));
-    cg.setDrawRange(0, 0);
+    const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6 });
+    const boatG = boatGeo(), boatMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0 });
     S.cityU = { uScale: { value: 1 }, uMin: { value: 1.6 }, uAlpha: { value: 0 } };
-    S.cityLights = new THREE.Points(cg, smat({ uniforms: S.cityU, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    S.cityLights.frustumCulled = false;
-    S.sceneryFrame.add(S.trees[0], S.trees[1], S.treesFar[0], S.treesFar[1], S.rocks, S.walls, S.roofs, S.boats, S.cityLights);
-    localWorld.add(S.sceneryFrame);
-    S.scenery = { b: null, a0: 0, rad: 0, dirty: true };
+    const lightMat = smat({ uniforms: S.cityU, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+    // two sets, like the terrain: the scenery on show and the next one, filled a slice a frame (sceneryJob)
+    const mkSet = () => {
+      const set = { trees: gTrees.map(inst), treesFar: gFar.map(inst), frame: new THREE.Group(), b: null, a0: 0, z0: 0, rad: 0 };
+      set.rocks = new THREE.InstancedMesh(rock, rockMat, 5000);
+      set.rocks.count = 0; set.rocks.frustumCulled = false; set.rocks.receiveShadow = true;
+      set.walls = new THREE.InstancedMesh(unit, hmat, 7000); set.roofs = new THREE.InstancedMesh(pyr, roofMat, 7000);
+      set.boats = new THREE.InstancedMesh(boatG, boatMat, 200);
+      for (const m of [set.walls, set.roofs, set.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = m.receiveShadow = true; }
+      // city lights: a glowing point on many buildings at night
+      const cg = new THREE.BufferGeometry(), CL = 7000;
+      cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      cg.setAttribute('aCol', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      cg.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(CL), 1).setUsage(THREE.DynamicDrawUsage));
+      cg.setDrawRange(0, 0);
+      set.cityLights = new THREE.Points(cg, lightMat);
+      set.cityLights.frustumCulled = false;
+      set.frame.add(set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats, set.cityLights);
+      set.frame.visible = false;
+      localWorld.add(set.frame);
+      return set;
+    };
+    S.scen = [mkSet(), mkSet()];
+    S.scenery = { dirty: true, job: null, ms: 0, slice: 0 };
     // cumulus puffs
-    S.puffs = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 11, 7), new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.2 }), 6000);
-    S.puffs.count = 0; S.puffs.frustumCulled = false;
-    // clouds beyond a few km: fewer, coarser puffs (same material)
-    S.puffsFar = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 5), S.puffs.material, 6000);
-    S.puffsFar.count = 0; S.puffsFar.frustumCulled = false;
+    S.cloudU = { uMap: { value: cloudAtlas() }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uLit: { value: new THREE.Color() }, uShadow: { value: new THREE.Color() },
+      uFogC: { value: new THREE.Color() }, uFogD: { value: 0 } };
+    S.puffs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smat({ uniforms: S.cloudU, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS, transparent: true, depthWrite: false }), CLOUD_MAX);
+    S.puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    S.puffAttr = new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    S.puffs.geometry.setAttribute('aC', S.puffAttr);
+    S.puffs.count = 0; S.puffs.frustumCulled = false; S.puffs.renderOrder = 3;
     S.cloudFrame = new THREE.Group();
-    S.cloudFrame.add(S.puffs, S.puffsFar);
+    S.cloudFrame.add(S.puffs);
     localWorld.add(S.cloudFrame);
-    S.clouds = { a0: null, b: null };
+    S.cloudFogC = new THREE.Color();
+    S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0 };
   }
   function allocPatch() {
+    pjob = null;
+    allocSlot(patch); allocSlot(patchB);
+  }
+  function allocSlot(patch) {
     const n = Settings.high ? 96 : 64, m = Settings.high ? 56 : 36, nc = 2 * n + 1, nr = 2 * m + 1, N = nc * nr;
     if (patch.nc === nc && patch.nr === nr) return;
     if (patch.mesh) { patch.frame.remove(patch.mesh, patch.ocean, patch.inland); patch.mesh.geometry.dispose(); patch.ocean.geometry.dispose(); patch.inland.geometry.dispose(); }
@@ -815,20 +899,30 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const tg = mk(3);
     tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(N * 2), 2).setUsage(THREE.DynamicDrawUsage));
     tg.setAttribute('aNight', new THREE.BufferAttribute(new Float32Array(N), 1).setUsage(THREE.DynamicDrawUsage)); // city lights
-    patch.mesh = new THREE.Mesh(tg, patch.mat);
+    patch.mesh = new THREE.Mesh(tg, terr.mat);
     patch.mesh.receiveShadow = true;
-    patch.ocean = new THREE.Mesh(mk(4), patch.oceanMat);
+    patch.ocean = new THREE.Mesh(mk(4), terr.oceanMat);
     patch.ocean.receiveShadow = false; // shadows fall on the sea floor, seen through the water
     patch.ocean.renderOrder = 1;
     // lakes and rivers: their own water surface, at their own level
-    patch.inland = new THREE.Mesh(mk(4), patch.oceanMat);
+    patch.inland = new THREE.Mesh(mk(4), terr.oceanMat);
     patch.inland.renderOrder = 1;
     patch.inland.visible = false;
     patch.frame.add(patch.mesh, patch.ocean, patch.inland);
     patch.frame.visible = false;
   }
   const cellOf = (a, i) => (a[Math.min(i + 1, a.length - 1)] - a[Math.max(i - 1, 0)]) / 2;
-  function buildPatch(b, a0, z0, span) {
+  // What the heavy rebuilds cost (ms: last, worst, count), for Render3D.info().
+  const costs = {};
+  const note = (name, dt) => { const c = costs[name] || (costs[name] = { last: 0, max: 0, n: 0 }); c.last = +dt.toFixed(1); c.max = Math.max(c.max, c.last); c.n++; };
+  const timed = (name, fn) => function (...args) {
+    const t0 = performance.now(), r = fn.apply(this, args);
+    note(name, performance.now() - t0);
+    return r;
+  };
+  // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame).
+  function* patchJob(patch, b, a0, z0, span) {
+    patch.ready = false;
     const c = cfgOf(b), R = c.R, no = c.k.length, { nc, nr, n, m, sx, sz } = patch, kl = latK(z0, R);
     if (!patch.G || patch.G.no !== no) { patch.G = grid(nc, nr, no); patch.G.no = no; }
     const G = patch.G, hs = patch.h, dk = patch.dk, cn = patch.cont;
@@ -843,7 +937,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let j = 0; j < nr; j += ST) cj.push(j);
     if (cj[cj.length - 1] !== nr - 1) cj.push(nr - 1);
     const sub = new Float32Array(ci.length * cj.length);
-    for (let q = 0; q < cj.length; q++) for (let p = 0; p < ci.length; p++) sub[q * ci.length + p] = contAt(c, G.ang[ci[p]], G.phi[cj[q]]);
+    for (let q = 0; q < cj.length; q++) {
+      for (let p = 0; p < ci.length; p++) sub[q * ci.length + p] = contAt(c, G.ang[ci[p]], G.phi[cj[q]]);
+      if ((q & 7) === 7) yield;
+    }
     for (let q = 0; q < cj.length - 1; q++) for (let j = cj[q]; j <= cj[q + 1]; j++) {
       const ty = (j - cj[q]) / (cj[q + 1] - cj[q]);
       for (let p = 0; p < ci.length - 1; p++) for (let i = ci[p]; i <= ci[p + 1]; i++) {
@@ -852,10 +949,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
     }
     const EW = Terrain.water, wl = patch.wl, wp = patch.wp, lk = patch.lk, rdw = patch.road, rvw = patch.river;
-    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
-      const k = j * nc + i;
-      hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark();
-      if (c.mapped) { wl[k] = EW.level; wp[k] = EW.pres; lk[k] = EW.lake; rdw[k] = EW.road; rvw[k] = EW.river; }
+    for (let j = 0; j < nr; j++) {
+      for (let i = 0; i < nc; i++) {
+        const k = j * nc + i;
+        hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark();
+        if (c.mapped) { wl[k] = EW.level; wp[k] = EW.pres; lk[k] = EW.lake; rdw[k] = EW.road; rvw[k] = EW.river; }
+      }
+      yield;
     }
     // positions in the frame at a0 (origin on the sea-level sphere, x east, y up, z depth)
     const pos = patch.mesh.geometry.attributes.position.array, nor = patch.mesh.geometry.attributes.normal.array;
@@ -874,7 +974,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
     }
     const out = [0, 0, 0], tn = patch.tn, nightA = patch.mesh.geometry.attributes.aNight.array;
-    for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
+    for (let jk = 0; jk < nr * nc; jk++) {
+      const j = (jk / nc) | 0, i = jk - j * nc;
       const k = j * nc + i, i0 = i > 0 ? k - 1 : k, i1 = i < nc - 1 ? k + 1 : k, j0 = j > 0 ? k - nc : k, j1 = j < nr - 1 ? k + nc : k;
       const ax = pos[i1 * 3] - pos[i0 * 3], ay = pos[i1 * 3 + 1] - pos[i0 * 3 + 1], az = pos[i1 * 3 + 2] - pos[i0 * 3 + 2];
       const bx = pos[j1 * 3] - pos[j0 * 3], by = pos[j1 * 3 + 1] - pos[j0 * 3 + 1], bz = pos[j1 * 3 + 2] - pos[j0 * 3 + 2];
@@ -926,6 +1027,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         mixC(out, P.concrete, (1 - smoothstep(w - 4, w + 3, Math.abs(G.z[j]))) * 0.85 * (1 - smoothstep(30, 120, Math.max(G.dx[i], G.dz[j]))), out);
       }
       colr[k * 3] = lin(out[0]); colr[k * 3 + 1] = lin(out[1]); colr[k * 3 + 2] = lin(out[2]);
+      if (i === nc - 1) yield;
     }
     const tg = patch.mesh.geometry;
     for (const a of ['position', 'normal', 'uv', 'color', 'aNight']) tg.attributes[a].needsUpdate = true;
@@ -950,6 +1052,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           if (foam > 0) mixC(out, FOAM, foam, out);
           oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = Math.max(0.6 + 0.34 * t, foam);
         }
+        if ((j & 7) === 7) yield;
       }
       for (const a of ['position', 'normal', 'color']) og.attributes[a].needsUpdate = true;
       og.boundingSphere.radius = span * 1.6;
@@ -973,13 +1076,27 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           mixC(LAKE_S, LAKE_D, t, out);
           ic[k * 4] = lin(out[0]); ic[k * 4 + 1] = lin(out[1]); ic[k * 4 + 2] = lin(out[2]); ic[k * 4 + 3] = on ? wp[k] * (0.55 + 0.37 * t) * smoothstep(0.1, 1.2, wl[k] - hs[k]) : 0;
         }
+        if ((j & 7) === 7) yield;
       }
       for (const a of ['position', 'normal', 'color']) ig.attributes[a].needsUpdate = true;
       ig.boundingSphere.radius = span * 1.6 + c.hmax;
     }
     patch.inland.visible = inland;
-    Object.assign(patch, { b, a0, z0, kl, span, at: clock });
+    Object.assign(patch, { b, a0, z0, kl, span, at: clock, ready: true });
+  }
+  // Swap the freshly built patch in (the scenery is placed on the patch on show, so it follows).
+  function swapPatch() {
+    const old = patch;
+    patch = patchB; patchB = old;
+    old.frame.visible = false;
     S.scenery.dirty = true;
+  }
+  // A whole patch at once, when there is nothing usable on show (another body, a jump across the map).
+  function buildPatchNow(b, a0, z0, span) {
+    pjob = null;
+    const job = patchJob(patchB, b, a0, z0, span);
+    while (!job.next().done);
+    swapPatch();
   }
   // Height of the rendered terrain mesh (what the eye sees), or null outside it.
   function bsearch(a, v) {
@@ -1024,9 +1141,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     return s;
   }
   // Trees and rocks within a few hundred metres to a few km, seated on the rendered terrain.
-  function buildScenery(b, a0, z0, rad) {
-    const R = b.radius, c = cfgOf(b), hi = Settings.high, sc = S.scenery, nearR = hi ? 380 : 260;
-    let nt = [0, 0], nf = [0, 0], nr = 0;
+  // Fills a scenery set, yielding every couple of hundred plots (sceneryJob runs it a slice a frame).
+  function* sceneryJob(set, b, a0, z0, rad) {
+    const R = b.radius, c = cfgOf(b), hi = Settings.high, nearR = hi ? 380 : 260;
+    let nt = [0, 0], nf = [0, 0], nr = 0, work = 0;
     const place = (mesh, idx, a, z, h, sXZ, sY, yaw, color, sZ = sXZ) => {
       const d = (a - a0), cp = Math.cos(z / R), sp = Math.sin(z / R), r = R + h;
       V1.set(-r * cp * Math.sin(d), r * cp * Math.cos(d) - R, r * sp);
@@ -1050,6 +1168,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const cell = hi ? 22 : 34, max = hi ? 7000 : 2400, n = Math.ceil(rad / cell);
       const ia = Math.floor((a0 * R) / cell), iq = Math.floor(z0 / cell), kl = latK(z0, R);
       for (let q = iq - n; q <= iq + n && nt[0] + nt[1] + nf[0] + nf[1] < max * 2; q++) for (let p = -n; p <= n; p++) {
+        if ((++work & 255) === 0) yield;
         const ix = ia + p, h0 = hashI(ix, q, 41);
         if (h0 > 0.6) continue;
         const along = (ix + 0.2 + 0.6 * hashI(ix, q, 42)) * cell, z = (q + 0.2 + 0.6 * hashI(ix, q, 43)) * cell;
@@ -1065,12 +1184,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (i >= max) continue;
         const s = 0.7 + 0.7 * hashI(ix, q, 46), g = hashI(ix, q, 47);
         tmpC.setRGB(lin(lerp(58, 92, g)) * 1.15, lin(lerp(96, 130, g)), lin(lerp(52, 64, g)));
-        place((far ? S.treesFar : S.trees)[kind], i, a, z, h - 0.4, s, s * (0.85 + 0.3 * hashI(ix, q, 48)), hashI(ix, q, 49) * TAU, tmpC);
+        place((far ? set.treesFar : set.trees)[kind], i, a, z, h - 0.4, s, s * (0.85 + 0.3 * hashI(ix, q, 48)), hashI(ix, q, 49) * TAU, tmpC);
         cnt[kind]++;
       }
     }
     let nh = 0, nb = 0, nw = 0, nl = 0;
-    const lp = S.cityLights.geometry.attributes.position.array, lc = S.cityLights.geometry.attributes.aCol.array, ls = S.cityLights.geometry.attributes.aSize.array;
+    const lp = set.cityLights.geometry.attributes.position.array, lc = set.cityLights.geometry.attributes.aCol.array, ls = set.cityLights.geometry.attributes.aSize.array;
     const light = (a, z, h, s, warm) => {
       if (nl >= ls.length) return;
       framePos(a, z, h, V1); lp[nl * 3] = V1.x; lp[nl * 3 + 1] = V1.y; lp[nl * 3 + 2] = V1.z;
@@ -1093,6 +1212,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const pc = Math.round(vgx / cellB - 0.5), qc = Math.round(vgz / cellB - 0.5);
         for (const [dp, dq] of spiral(Math.ceil(Math.min(rad, rc * 2) / cellB))) {
           if (nw >= maxB) break;
+          if ((++work & 255) === 0) yield;
           const p = pc + dp, q = qc + dq, H = (s) => hashI(p + seed, q, s);
           const gx = (p + 0.5) * cellB, gz = (q + 0.5) * cellB, X = gx * cy - gz * sy, Z = gx * sy + gz * cy, dc = Math.hypot(X, Z);
           if (dc > rc) continue;
@@ -1106,11 +1226,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           const hb = tall ? 25 + (mega ? 110 : 50) * core * (0.3 + 0.7 * H(104)) : 4 + (big ? 13 : 8) * H(104) * (0.4 + dens);
           const w = tall ? 14 + 12 * H(105) : 9 + 14 * H(105), d = tall ? 14 + 12 * H(106) : 8 + 12 * H(106), yaw = yaw0 + (H(107) - 0.5) * 0.12;
           const pal = tall ? glass : walls;
-          place(S.walls, nw, a, z, h - 0.5, w, hb + 0.5, yaw, pal[Math.floor(H(108) * pal.length)], d);
+          place(set.walls, nw, a, z, h - 0.5, w, hb + 0.5, yaw, pal[Math.floor(H(108) * pal.length)], d);
           nw++;
-          if (!tall && nh < S.roofs.instanceMatrix.count) { // pitched roofs on houses, low grey mansards on blocks of flats
-            if (hb < 12) place(S.roofs, nh, a, z, h + hb, w * 1.02, 2 + w * 0.12, yaw, roofs[Math.floor(H(109) * roofs.length)], d * 1.02);
-            else place(S.roofs, nh, a, z, h + hb, w * 1.06, 3, yaw, zinc, d * 1.06);
+          if (!tall && nh < set.roofs.instanceMatrix.count) { // pitched roofs on houses, low grey mansards on blocks of flats
+            if (hb < 12) place(set.roofs, nh, a, z, h + hb, w * 1.02, 2 + w * 0.12, yaw, roofs[Math.floor(H(109) * roofs.length)], d * 1.02);
+            else place(set.roofs, nh, a, z, h + hb, w * 1.06, 3, yaw, zinc, d * 1.06);
             nh++;
           }
           if (H(110) < 0.65) light(a, z, h + hb + 1, tall ? 5 + 3 * H(111) : 3 + 2 * H(111), H(112) < 0.75);
@@ -1122,6 +1242,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const cellV = 1400, nV = Math.ceil(rad / cellV) + 1, iaV = Math.floor((a0 * R) / cellV), iqV = Math.floor(z0 / cellV), kl = latK(z0, R);
       const hMax = hi ? 1600 : 600, wallC = ['#efe6d2', '#f4f1ea', '#e3c79a', '#e8b8a6', '#cfdde6', '#d9d2c0'].map(col), roofC = ['#b5523b', '#8e4a33', '#5d6268', '#c2643f', '#9b3b2e'].map(col);
       for (let q = iqV - nV; q <= iqV + nV; q++) for (let p = -nV; p <= nV; p++) {
+        if ((++work & 15) === 0) yield; // (each village is a few dozen houses)
         const ix = iaV + p;
         if (hashI(ix, q, 61) > 0.24) continue;
         const ca = (ix + 0.25 + 0.5 * hashI(ix, q, 62)) * cellV, cz = (q + 0.25 + 0.5 * hashI(ix, q, 63)) * cellV;
@@ -1138,10 +1259,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           const r = spread * Math.sqrt(H(66)), t = H(67) * TAU, hz = cz + r * Math.sin(t), ha = a + (r * Math.cos(t)) / (R * kl);
           const h = meshHeight(b, ha, hz);
           if (h == null || h < 2.5 || offTrack(b, ha, hz) < 15 || (c.mapped && offFeature(ha, hz, 6))) continue;
-          if (nw >= S.walls.instanceMatrix.count || nh >= S.roofs.instanceMatrix.count) break;
+          if (nw >= set.walls.instanceMatrix.count || nh >= set.roofs.instanceMatrix.count) break;
           const w = 6 + 5 * H(68), d = 5 + 3 * H(69), hh = H(70) < 0.18 ? 6.5 : 3.6, yaw = yaw0 + Math.round(H(71) * 3) * (Math.PI / 2) + (H(72) - 0.5) * 0.4;
-          place(S.walls, nw, ha, hz, h - 0.3, w, hh + 0.3, yaw, wallC[Math.floor(H(73) * wallC.length)], d);
-          place(S.roofs, nh, ha, hz, h + hh, w * 1.02, 2.2, yaw, roofC[Math.floor(H(74) * roofC.length)], d * 1.02);
+          place(set.walls, nw, ha, hz, h - 0.3, w, hh + 0.3, yaw, wallC[Math.floor(H(73) * wallC.length)], d);
+          place(set.roofs, nh, ha, hz, h + hh, w * 1.02, 2.2, yaw, roofC[Math.floor(H(74) * roofC.length)], d * 1.02);
           if (H(75) < 0.6) light(ha, hz, h + hh + 2.6, 3 + 2 * H(76), true);
           nw++; nh++;
         }
@@ -1158,7 +1279,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const big = hashI(ix, q, 84) < 0.15, s = big ? 3.6 : 0.9 + 0.3 * hashI(ix, q, 85);
         tmpC.setRGB(1, 1, 1);
         if (big) tmpC.setRGB(0.62, 0.2, 0.16); else if (hashI(ix, q, 86) < 0.3) tmpC.setRGB(0.95, 0.85, 0.5);
-        place(S.boats, nb, a, bz, 0, s, s, hashI(ix, q, 87) * TAU, tmpC);
+        place(set.boats, nb, a, bz, 0, s, s, hashI(ix, q, 87) * TAU, tmpC);
         nb++;
       }
     }
@@ -1166,6 +1287,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const cell = hi ? 9 : 14, max = hi ? 5000 : 1800, rr = Math.min(rad, hi ? 650 : 400), n = Math.ceil(rr / cell);
       const ia = Math.floor((a0 * R) / cell), iq = Math.floor(z0 / cell), kl = latK(z0, R);
       for (let q = iq - n; q <= iq + n && nr < max; q++) for (let p = -n; p <= n && nr < max; p++) {
+        if ((++work & 255) === 0) yield;
         const ix = ia + p, h0 = hashI(ix, q, 51);
         if (h0 > 0.22) continue;
         const along = (ix + hashI(ix, q, 52)) * cell, z = (q + hashI(ix, q, 53)) * cell;
@@ -1176,55 +1298,87 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (h == null || (b.ocean && h < 2)) continue;
         const s = 0.4 + 3.6 * Math.pow(hashI(ix, q, 54), 4), g = 0.75 + 0.4 * hashI(ix, q, 55);
         tmpC.setRGB(lin(rockC[0]) * g, lin(rockC[1]) * g, lin(rockC[2]) * g);
-        place(S.rocks, nr, a, z, h - s * 0.25, s, s * (0.6 + 0.5 * hashI(ix, q, 56)), hashI(ix, q, 57) * TAU, tmpC);
+        place(set.rocks, nr, a, z, h - s * 0.25, s, s * (0.6 + 0.5 * hashI(ix, q, 56)), hashI(ix, q, 57) * TAU, tmpC);
         nr++;
       }
     }
-    S.trees[0].count = nt[0]; S.trees[1].count = nt[1]; S.treesFar[0].count = nf[0]; S.treesFar[1].count = nf[1]; S.rocks.count = nr;
-    S.walls.count = nw; S.roofs.count = nh; S.boats.count = nb;
-    const lgeo = S.cityLights.geometry;
+    set.trees[0].count = nt[0]; set.trees[1].count = nt[1]; set.treesFar[0].count = nf[0]; set.treesFar[1].count = nf[1]; set.rocks.count = nr;
+    set.walls.count = nw; set.roofs.count = nh; set.boats.count = nb;
+    const lgeo = set.cityLights.geometry;
     lgeo.setDrawRange(0, nl);
     for (const k of ['position', 'aCol', 'aSize']) lgeo.attributes[k].needsUpdate = true;
-    for (const m of [S.trees[0], S.trees[1], S.treesFar[0], S.treesFar[1], S.rocks, S.walls, S.roofs, S.boats]) {
+    for (const m of [set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
-    Object.assign(sc, { b, a0, z0, rad, dirty: false });
+    Object.assign(set, { b, a0, z0, rad });
+  }
+  // The new scenery set goes on show; the old one becomes the next to fill.
+  function swapScenery() {
+    const [front, back] = S.scen;
+    S.scen = [back, front];
+    front.frame.visible = false;
+  }
+  function buildSceneryNow(b, a0, z0, rad) {
+    S.scenery.job = null;
+    const job = sceneryJob(S.scen[1], b, a0, z0, rad);
+    while (!job.next().done);
+    swapScenery();
   }
 
-  // Cumulus on a hashed 750 m grid; the row through the flight plane uses the 2D view's clouds.
-  function buildClouds(b, a0, z0) {
-    const R = b.radius, step = 750, hi = Settings.high, n = Math.ceil((hi ? 15000 : 9000) / step), puffs = hi ? 5 : 3, nearN = 5000 / step;
-    const ia = Math.floor((a0 * R) / step), iq = Math.round(z0 / step);
-    const meshes = [S.puffs, S.puffsFar], cnt = [0, 0];
-    const tmpC = new THREE.Color();
+  // Cumulus on a hashed 750 m grid (the row through the flight plane uses the 2D view's clouds): flat,
+  // darker bases 1.4–3.6 km up with puffs heaped above them; fewer, bigger puffs far off. Built a slice a
+  // frame into a list (x, y, z, size, turn, atlas cell, height in the cloud, opacity per puff) that
+  // sortPuffs copies into the quads, far ones first.
+  function* cumulusJob(b, a0, z0) {
+    const R = b.radius, step = 750, hi = Settings.high, n = Math.ceil((hi ? 15000 : 9000) / step), nearN = 5000 / step;
+    const ia = Math.floor((a0 * R) / step), iq = Math.round(z0 / step), list = new Float32Array(CLOUD_MAX * 8), vols = [];
+    let k = 0, work = 0;
     for (let qq = -n; qq <= n; qq++) for (let p = -n; p <= n; p++) {
+      if ((++work & 63) === 0) yield;
       const q = iq + qq, i = ia + p, row0 = q === 0;
       const hh = (s) => (row0 ? hash1(i, s) : hashI(i, q, s * 7 + 3));
       if (hh(21) > 0.62) continue;
       const dc = Math.hypot(p, qq);
       if (dc > n) continue;
-      const far = dc > nearN ? 1 : 0, mesh = meshes[far], np = far ? Math.max(2, puffs - 2) : puffs;
-      const alt = 2200 + hh(22) * 4500, wdt = 260 + hh(23) * 700, ang = (i * step) / R, zc = row0 ? 0 : (q + (hh(27) - 0.5) * 0.6) * step;
-      for (let j = 0; j < np && cnt[far] < mesh.instanceMatrix.count; j++) {
+      const far = dc > nearN, np = far ? (hi ? 4 : 3) : hi ? 14 : 8;
+      const base = 1400 + hh(22) * 2200, wdt = 300 + hh(23) * 750, ht = wdt * (0.35 + 0.35 * hh(30));
+      const ang = (i * step) / R, zc = row0 ? 0 : (q + (hh(27) - 0.5) * 0.6) * step;
+      const rc = R + base + ht * 0.45, d0 = ang - a0, c0 = Math.cos(zc / R);
+      vols.push([-rc * c0 * Math.sin(d0), rc * c0 * Math.cos(d0) - R, rc * Math.sin(zc / R), wdt * 0.5, ht * 0.6]); // to fly through
+      for (let j = 0; j < np && k < CLOUD_MAX; j++) {
         const g = (s) => (row0 ? hash1(i * 7 + j, s) : hashI(i * 7 + j, q, s));
-        const grow = far ? 1.25 : 1; // fewer puffs out there, so each is a little bigger
-        const ox = (g(24) - 0.5) * wdt * 0.8, oy = g(25) * wdt * 0.12, rx = wdt * (0.22 + 0.15 * g(26)) * grow, oz = (g(28) - 0.5) * wdt * 0.5;
-        const a = ang - ox / R, z = zc + oz, d = a - a0, r = R + alt + oy, cz = Math.cos(z / R);
-        V1.set(-r * cz * Math.sin(d), r * cz * Math.cos(d) - R, r * Math.sin(z / R));
-        M1.makeRotationZ(-d); M1.scale(V2.set(rx, wdt * 0.11 * (1.1 + 0.6 * g(29)) * grow, rx * (0.6 + 0.4 * g(30)))); M1.setPosition(V1);
-        mesh.setMatrixAt(cnt[far], M1);
-        const sh = 0.86 + 0.14 * g(31);
-        mesh.setColorAt(cnt[far], tmpC.setRGB(sh, sh, sh * 1.02));
-        cnt[far]++;
+        const t = Math.pow(g(25), 1.6), y = t * ht * 0.85; // more puffs low down, a narrowing heap above
+        const rr = (1 - 0.65 * t) * wdt * 0.5 * Math.sqrt(g(24)), th = g(28) * TAU, ox = rr * Math.cos(th), oz = rr * Math.sin(th) * 0.8;
+        const s = wdt * (0.42 + 0.3 * g(26)) * (1 - 0.35 * t) * (far ? 1.5 : 1);
+        const a = ang - ox / R, z = zc + oz, d = a - a0, r = R + base + y + s * 0.18, cz = Math.cos(z / R), o = k * 8;
+        list[o] = -r * cz * Math.sin(d); list[o + 1] = r * cz * Math.cos(d) - R; list[o + 2] = r * Math.sin(z / R); list[o + 3] = s;
+        list[o + 4] = g(29) * TAU; list[o + 5] = Math.floor(g(31) * 4); list[o + 6] = clamp(t * 1.15 + (g(32) - 0.5) * 0.2, 0, 1); list[o + 7] = 0.75 + 0.25 * g(33);
+        k++;
       }
     }
-    for (let m = 0; m < 2; m++) {
-      meshes[m].count = cnt[m];
-      meshes[m].instanceMatrix.needsUpdate = true;
-      if (meshes[m].instanceColor) meshes[m].instanceColor.needsUpdate = true;
+    Object.assign(S.clouds, { b, a0, z0, list, n: k, vols, sortAt: -9 });
+  }
+  // The puffs are see-through, so they are drawn far to near: re-sorted a few times a second.
+  const puffKey = new Float32Array(CLOUD_MAX), puffIdx = new Uint32Array(CLOUD_MAX);
+  function sortPuffs(cam) {
+    const C0 = S.clouds, L = C0.list, n = C0.n;
+    if (!L) { S.puffs.count = 0; return; }
+    for (let k = 0; k < n; k++) {
+      const o = k * 8, dx = L[o] - cam.x, dy = L[o + 1] - cam.y, dz = L[o + 2] - cam.z;
+      puffKey[k] = dx * dx + dy * dy + dz * dz; puffIdx[k] = k;
     }
-    Object.assign(S.clouds, { b, a0, z0 });
+    const idx = puffIdx.subarray(0, n).sort((p, q) => puffKey[q] - puffKey[p]);
+    const m = S.puffs.instanceMatrix.array, at = S.puffAttr.array;
+    for (let j = 0; j < n; j++) {
+      const o = idx[j] * 8, s = L[o + 3], w = j * 16, v = j * 4;
+      m[w] = s; m[w + 1] = 0; m[w + 2] = 0; m[w + 3] = 0; m[w + 4] = 0; m[w + 5] = s; m[w + 6] = 0; m[w + 7] = 0;
+      m[w + 8] = 0; m[w + 9] = 0; m[w + 10] = s; m[w + 11] = 0; m[w + 12] = L[o]; m[w + 13] = L[o + 1]; m[w + 14] = L[o + 2]; m[w + 15] = 1;
+      at[v] = L[o + 4]; at[v + 1] = L[o + 5]; at[v + 2] = L[o + 6]; at[v + 3] = L[o + 7];
+    }
+    S.puffs.count = n;
+    S.puffs.instanceMatrix.needsUpdate = true;
+    S.puffAttr.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------ space centre (Earth)
@@ -1783,7 +1937,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // ---- local light: sun, sky, engine glow, fog
     const day = envV.day, atm = envV.atmo, hz = b.haze ? smoothstep(0, 1, Math.sqrt(airDensity(b, Math.max(envV.alt, 0)) / b.rho0)) : 0;
     const warm = envV.sunset;
-    patch.nightU.value = envV.night * 0.8; // city glow on the ground (the buildings carry their own lights)
+    terr.nightU.value = envV.night * 0.8; // city glow on the ground (the buildings carry their own lights)
     S.cityU.uAlpha.value = envV.night * 1.3;
     S.sun.intensity = 3.1 * day * (1 - 0.55 * hz) * (b.star ? 1.6 : 1);
     S.sun.color.setRGB(1, lerp(0.97, 0.72, warm), lerp(0.92, 0.5, warm));
@@ -1797,6 +1951,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     setCol3(localScene.fog.color, fogC);
     const rhoF = b.atmoHeight ? airDensity(b, Math.max(0, camAlt * 0.5)) : 0;
     localScene.fog.density = rhoF > 0 ? (b.haze ? 3.2e-4 : b === MARS ? 6e-5 : 2.4e-5) * Math.sqrt(rhoF / b.rho0) : 0;
+    const inCloud = S.clouds.inside; // flying through a cloud: thick, bright murk
+    if (inCloud > 0.002) {
+      localScene.fog.density = lerp(localScene.fog.density, 0.004, inCloud);
+      localScene.fog.color.lerp(S.cloudFogC.setRGB(0.72, 0.75, 0.8).multiplyScalar(0.2 + 0.9 * day), inCloud);
+    }
     const eS = new THREE.Color(), eG = new THREE.Color();
     setCol3(eS, zen); setCol3(eG, grd, 0.4 * day);
     updateEnv(U.uHor.value, U.uHor.value.clone().lerp(eS, 0.5), eG, sunDir, day * (1 - hz), null);
@@ -1826,9 +1985,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     runJobs(hi ? 4 : 2.5);
     renderer.setRenderTarget(null);
     renderer.clear();
-    renderer.render(spaceScene, camera);
+    if (!api.skipDraw) renderer.render(spaceScene, camera);
     renderer.clearDepth();
-    renderer.render(localScene, camera);
+    if (!api.skipDraw) renderer.render(localScene, camera);
   }
 
   function updateBodies(F, cur, env, dist) {
@@ -1896,10 +2055,25 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const span = Math.min(R * 1.2, Math.sqrt(2 * R * camAlt + camAlt * camAlt) + Math.sqrt(2 * R * Math.max(c.hmax, 50)) + dist * 1.5);
     const moved = Math.hypot(wrapAngle(a - patch.a0) * R * latK(z, R), z - (patch.z0 || 0));
     const stale = patch.b !== b || moved > patch.span * 0.012 || span > patch.span * 1.6 || span < patch.span / 1.6;
-    if (stale) {
+    // nothing usable on show: another body, or the craft (rails warp, a teleport) far off the patch
+    const lost = patch.b !== b || !patch.ready || moved > patch.span * 0.25 || span > patch.span * 3 || span < patch.span / 3;
+    if (lost) {
       // rails warp can move the craft by thousands of km per frame: rebuild at most a few times a second
-      if (clock - patch.at > 0.12 || patch.b !== b || !patch.active) buildPatch(b, a, z, span);
-      else if (moved > patch.span * 0.3) { patch.active = false; patch.frame.visible = false; return; }
+      if (clock - patch.at > 0.12 || patch.b !== b || !patch.ready) buildPatchNow(b, a, z, span);
+      else { patch.active = false; patch.frame.visible = false; return; }
+    } else if (stale && !pjob) { pjob = patchJob(patchB, b, a, z, span); pjobMs = 0; pjobSlice = 0; }
+    if (pjob) {
+      // a few milliseconds a frame; more as the craft nears the edge of what is on show
+      const t0 = performance.now(), budget = (Settings.high ? 4 : 3) + 16 * smoothstep(0.05, 0.2, moved / patch.span);
+      let done = false;
+      while (!done && performance.now() - t0 < budget) done = pjob.next().done;
+      const dt = performance.now() - t0;
+      pjobMs += dt; pjobSlice = Math.max(pjobSlice, dt);
+      if (done) {
+        pjob = null;
+        note('patch', pjobMs); note('patchSlice', pjobSlice);
+        swapPatch();
+      }
     }
     patch.active = true;
     patch.frame.visible = true;
@@ -1911,29 +2085,68 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     obj.rotation.z = a0 - Math.PI / 2;
   }
 
+  // Trees, rocks and buildings: rebuilt in the background as the craft moves (or the terrain under them is
+  // replaced), all at once only when what is on show is unusable (another body, far from here).
   function updateScenery(F, b, near, dist) {
-    const fr = S.sceneryFrame, sc = S.scenery;
+    const sc = S.scenery, cur = S.scen[0], fr = cur.frame;
     const on = near && patch.active && (b.trees || b.rocks) && dist < 9000;
     fr.visible = !!on;
-    if (!on) return;
+    if (!on) { sc.job = null; return; }
     const R = b.radius, L = focusSpot(F, b), a = L.a, z = L.z;
-    const rad = clamp(dist * 3 + 600, 800, 2400);
-    if (sc.dirty || sc.b !== b || Math.hypot(wrapAngle(a - sc.a0) * R * latK(z, R), z - sc.z0) > sc.rad * 0.25 || rad > sc.rad * 1.5 || rad < sc.rad / 1.5) {
-      if (sc.b === b && clock - (sc.at || 0) < 0.3 && !sc.dirty) { /* throttle */ } else { buildScenery(b, a, z, rad); sc.at = clock; }
+    const rad = clamp(dist * 3 + 600, 800, 2400), moved = cur.b === b ? Math.hypot(wrapAngle(a - cur.a0) * R * latK(z, R), z - cur.z0) : Infinity;
+    const stale = sc.dirty || moved > cur.rad * 0.25 || rad > cur.rad * 1.5 || rad < cur.rad / 1.5;
+    if (cur.b !== b || moved > cur.rad * 0.8) {
+      if (cur.b !== b || clock - (sc.at || 0) > 0.3) { buildSceneryNow(b, a, z, rad); sc.at = clock; sc.dirty = false; }
+    } else if (stale && !sc.job) { sc.job = sceneryJob(S.scen[1], b, a, z, rad); sc.dirty = false; sc.ms = 0; sc.slice = 0; }
+    if (sc.job) {
+      const t0 = performance.now(), budget = (Settings.high ? 3 : 2) + 30 * smoothstep(0.35, 0.7, moved / cur.rad);
+      let done = false;
+      while (!done && performance.now() - t0 < budget) done = sc.job.next().done;
+      const dt = performance.now() - t0;
+      sc.ms += dt; sc.slice = Math.max(sc.slice, dt);
+      if (done) { sc.job = null; note('scenery', sc.ms); note('scenerySlice', sc.slice); swapScenery(); sc.at = clock; }
     }
-    placeFrame(fr, b, sc.a0, F.time);
+    const show = S.scen[0];
+    show.frame.visible = true;
+    placeFrame(show.frame, b, show.a0, F.time);
   }
 
   function updateClouds(F, b, camAlt) {
-    const on = b === EARTH && camAlt < 12000 && patch.active;
+    const C0 = S.clouds, on = b === EARTH && camAlt < 12000 && patch.active;
     S.cloudFrame.visible = on;
-    if (!on) return;
+    if (!on) { C0.job = null; C0.inside = 0; return; }
     const R = b.radius, drift = F.time * 0.000002, L = focusSpot(F, b), a = L.a - drift, z = L.z;
-    if (S.clouds.b !== b || Math.abs(wrapAngle(a - S.clouds.a0)) * R > 1500 || Math.abs(z - S.clouds.z0) > 1500) buildClouds(b, a, z);
-    placeFrame(S.cloudFrame, b, S.clouds.a0 + drift, F.time);
-    const e = envV, sh = 0.35 + 0.65 * e.day;
-    S.puffs.material.color.setRGB(sh, sh, sh * 1.02);
-    S.puffs.material.emissive.setRGB(0.55 * sh, 0.6 * sh, 0.7 * sh);
+    const moved = C0.b === b ? Math.hypot(wrapAngle(a - C0.a0) * R, z - C0.z0) : Infinity;
+    if (moved > 6000) { // a new body or a jump: all at once
+      C0.job = null;
+      const j = cumulusJob(b, a, z), t0 = performance.now();
+      while (!j.next().done);
+      note('clouds', performance.now() - t0);
+    } else if (moved > 1500 && !C0.job) C0.job = cumulusJob(b, a, z);
+    if (C0.job) {
+      const t0 = performance.now();
+      let done = false;
+      while (!done && performance.now() - t0 < (Settings.high ? 2 : 1.5)) done = C0.job.next().done;
+      if (done) C0.job = null;
+    }
+    placeFrame(S.cloudFrame, b, C0.a0 + drift, F.time);
+    S.cloudFrame.updateMatrixWorld();
+    camera.getWorldPosition(V1);
+    S.cloudFrame.worldToLocal(V1);
+    if (clock - C0.sortAt > 0.2) { C0.sortAt = clock; sortPuffs(V1); }
+    // inside a cloud the world turns to white murk (the fog, next frame)
+    let inside = 0;
+    for (const v of C0.vols) {
+      const dx = (V1.x - v[0]) / v[3], dy = (V1.y - v[1]) / v[4], dz = (V1.z - v[2]) / v[3], d = dx * dx + dy * dy + dz * dz;
+      if (d < 1) inside = Math.max(inside, 1 - d);
+    }
+    C0.inside += (Math.min(1, inside * 2.5) - C0.inside) * 0.15;
+    // sunlit tops, sky-tinted shadows, warmer at sunset, dark at night
+    const e = envV, U = S.cloudU, day = e.day, warm = e.sunset;
+    U.uLit.value.setRGB(1, lerp(0.97, 0.66, warm), lerp(0.94, 0.42, warm)).multiplyScalar(0.1 + 1.55 * day + 0.6 * warm);
+    U.uShadow.value.copy(S.hemi.color).multiplyScalar(0.18 + 0.6 * day);
+    U.uSunV.value.copy(S.sun.position).normalize().transformDirection(camera.matrixWorldInverse);
+    U.uFogC.value.copy(localScene.fog.color); U.uFogD.value = localScene.fog.density;
   }
 
   function updateSpaceCentre(F, b, env, dist) {
@@ -2192,7 +2405,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     high = hi;
     S.sun.castShadow = hi; S.key.castShadow = hi;
     allocPatch();
-    patch.b = null;
+    patch.b = patchB.b = null; patch.ready = patchB.ready = false;
     S.scenery.dirty = true; S.clouds.b = null;
     resize(W, H, DPR);
   }
@@ -2211,9 +2424,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     return out.set(T3.x, T3.y, T3.z);
   }
 
+  buildPatchNow = timed('patchNow', buildPatchNow); buildSceneryNow = timed('sceneryNow', buildSceneryNow);
   Object.assign(api, {
     // draw calls and triangles in the last frame (for tuning)
-    info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio() } : null; },
+    info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
+    skipDraw: false, // tests: run every frame's work but draw nothing
     get supported() {
       if (supported == null) {
         try {

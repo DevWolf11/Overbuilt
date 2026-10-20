@@ -123,7 +123,7 @@ const store = {
     } catch (e) { return fallback; }
   },
   set(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage unavailable */ }
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; /* storage unavailable or full */ }
   },
 };
 

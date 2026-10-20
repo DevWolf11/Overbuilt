@@ -110,13 +110,17 @@ const Builder = {
     this.symmetry = store.get('rss.symmetry', true);
     this.category = 'command';
     this.name = 'Rocket';
+    this.savedAs = null; // which hangar design the blueprint is, if any
     this.kind = 'rocket';
     this.history = [];
     this.future = [];
     this.bindDom();
     const saved = store.get('rss.design', null);
-    if (saved && saved.parts && saved.parts.length) this.loadDesign(saved);
-    else this.loadTemplate('hopper');
+    if (saved && saved.parts && saved.parts.length) {
+      this.loadDesign(saved);
+      const entry = saved.savedAs && this.designs().find((x) => x.name === saved.savedAs);
+      if (entry) this.markSaved(entry);
+    } else this.loadTemplate('hopper');
     this.buildPalette();
   },
 
@@ -124,7 +128,7 @@ const Builder = {
   serialize() {
     return { name: this.name, kind: this.kind, parts: this.parts.map((p) => ({ type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip, rot: p.rot || 0 })) };
   },
-  save() { store.set('rss.design', this.serialize()); },
+  save() { store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); },
   loadDesign(d, keepHistory) {
     this.parts = d.parts.filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
     if (d.name) this.name = d.name;
@@ -138,12 +142,14 @@ const Builder = {
     this.selected = null;
     if (!keepHistory) { this.history = []; this.future = []; }
     this.changed(!!keepHistory);
+    if (!keepHistory) this.baseSnap = this.snapOf(this.serialize());
     this.renderInfo();
     if (turned && $('#palette-items').childElementCount) this.buildPalette();
     if (!keepHistory || turned) this.fitView();
   },
   loadTemplate(key) {
     const t = TEMPLATES[key];
+    this.savedAs = null;
     this.loadDesign({ name: t.name, kind: t.kind, parts: t.parts.map(([type, x, y, rot]) => ({ type, x, y, flip: x < 0, rot: rot || 0 })) });
   },
   linkMirrors() {
@@ -186,7 +192,7 @@ const Builder = {
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
       loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
-      air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps) },
+      air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne }; })() },
     };
     this.renderStats();
     if (!fromHistory) {
@@ -198,6 +204,7 @@ const Builder = {
       }
       this.save();
     }
+    this.renderSaveState();
     this.syncUndo();
   },
   undo() {
@@ -588,7 +595,10 @@ const Builder = {
     $('#s-warn').hidden = !warn.length;
     const a = s.air, airLine = kind === 'plane' && a.stall > 0;
     $('#s-air').hidden = !airLine;
-    if (airLine) $('#s-air').textContent = `Stalls at ${Math.round(a.stall * 3.6)} km/h (${Math.round(a.stallFlaps * 3.6)} with flaps) · lifts off near ${Math.round(a.stallFlaps * 1.2 * 3.6)} km/h · wing ${Math.round(a.wingArea)} m²`;
+    if (airLine) {
+      $('#s-air').textContent = `Stalls at ${Math.round(a.stall * 3.6)} km/h (${Math.round(a.stallFlaps * 3.6)} with flaps) · lifts off near ${Math.round(a.stallFlaps * 1.2 * 3.6)} km/h · wing ${Math.round(a.wingArea)} m²`
+        + ` · strong to ${a.g.toFixed(a.g < 10 ? 1 : 0)} g · never exceed ${Math.round(a.vne * 3.6)} km/h${a.vne < 300 ? '' : ' (more up high)'}`;
+    }
     const list = $('#s-stage-list');
     list.innerHTML = '';
     const byId = new Map(this.parts.map((p) => [p.id, p]));
@@ -635,42 +645,178 @@ const Builder = {
   },
 
   // ---------------------------------------------------------------- modals
+  // ---------------------------------------------------------------- saved designs
+  // The hangar keeps up to 100 designs in this browser. The blueprint remembers which one it is (savedAs),
+  // so Save overwrites it in place and the button shows when there are changes that aren't saved yet.
+  designs() { return store.get('rss.hangar', []).filter((x) => x && x.name && Array.isArray(x.parts)); },
+  snapOf(d) { return JSON.stringify([d.kind || 'rocket', d.parts]); },
+  markSaved(d) { this.savedAs = d.name; this.savedSnap = this.snapOf(d); this.save(); this.renderSaveState(); },
+  isDirty() { return !this.savedAs || this.snapOf(this.serialize()) !== this.savedSnap; },
+  // work that would be lost by loading something else: changes since the last save, or since a template was loaded
+  unsavedWork() { return this.parts.length > 0 && (this.savedAs ? this.isDirty() : this.snapOf(this.serialize()) !== this.baseSnap); },
+  renderSaveState() {
+    const b = $('#btn-save');
+    if (!b) return;
+    const dirty = this.isDirty();
+    b.classList.toggle('unsaved', !!this.savedAs && dirty);
+    b.classList.toggle('saved', !dirty);
+    b.querySelector('.save-text').textContent = dirty ? 'Save' : 'Saved';
+    b.title = !this.savedAs ? 'Save this design to the hangar (Ctrl+S)' : dirty ? `Save the changes to “${this.savedAs}” (Ctrl+S)` : `“${this.savedAs}” is saved in the hangar`;
+  },
+  storeDesign(name) {
+    name = (name || '').trim().slice(0, 40) || (VEHICLE_KINDS[this.kind] ? VEHICLE_KINDS[this.kind].name : 'Rocket');
+    this.name = name;
+    const d = { ...this.serialize(), name, savedAt: Date.now() };
+    const list = this.designs().filter((x) => x.name !== name);
+    list.unshift(d);
+    if (!store.set('rss.hangar', list.slice(0, 100))) { UI.toast('Could not save: this browser is not letting the game store anything', 'warn'); return false; }
+    this.markSaved(d);
+    this.renderStats();
+    UI.toast(list.length > 100 ? `Saved “${name}” (the oldest design made room)` : `Saved “${name}”`);
+    return true;
+  },
+  // Save button: straight into the design it already is, otherwise ask for a name.
+  quickSave() {
+    if (!this.parts.length) { UI.toast('Nothing to save yet: add some parts first'); return; }
+    if (this.savedAs && this.designs().some((x) => x.name === this.savedAs)) { if (this.isDirty()) this.storeDesign(this.savedAs); else UI.toast(`“${this.savedAs}” is already saved`); return; }
+    this.saveAs();
+  },
+  // A name box that warns before it replaces a different design with the same name.
+  nameField(onSubmit) {
+    const input = el('input', { type: 'text', maxlength: '40', value: this.name, 'aria-label': 'Design name', autocomplete: 'off', spellcheck: 'false' });
+    const note = el('p', { class: 'hangar-note' });
+    const check = () => {
+      const n = input.value.trim();
+      const clash = n && n !== this.savedAs && this.designs().some((x) => x.name === n);
+      note.textContent = clash ? `You already have a design called “${n}”. Saving replaces it.` : '';
+      note.hidden = !clash;
+      return clash;
+    };
+    input.addEventListener('input', check);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); onSubmit(); } });
+    check();
+    return { input, note, check };
+  },
+  saveAs(after) {
+    if (!this.parts.length) { UI.toast('Nothing to save yet: add some parts first'); return; }
+    const wrap = el('div', { class: 'hangar' });
+    const done = () => { if (this.storeDesign(f.input.value)) { UI.closeModal(); if (after) after(); } };
+    const f = this.nameField(done);
+    wrap.append(el('div', { class: 'hangar-save' }, f.input), f.note,
+      el('p', { class: 'hangar-hint', text: 'Saved designs live in the Hangar, ready to load again or to copy as a code and share.' }));
+    UI.modal({ kicker: 'Hangar', title: 'Save design', body: wrap, actions: [{ label: 'Cancel' }, { label: 'Save', primary: true, keepOpen: true, onClick: done }] });
+    f.input.focus(); f.input.select();
+  },
+
+  // Designs travel as a short text code: "RSS1." + base64url of compact JSON.
+  designCode(d) {
+    const j = JSON.stringify({ n: d.name, k: d.kind || 'rocket', p: d.parts.map((q) => [q.type, q.x, q.y, q.flip ? 1 : 0, q.rot || 0]) });
+    const bin = String.fromCharCode(...new TextEncoder().encode(j));
+    return 'RSS1.' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
+  parseCode(text) {
+    const m = /RSS1\.([A-Za-z0-9_-]+)/.exec(text || '');
+    if (!m) return null;
+    try {
+      const b = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
+      const o = JSON.parse(new TextDecoder().decode(Uint8Array.from(b, (ch) => ch.charCodeAt(0))));
+      const parts = (o.p || []).filter((q) => Array.isArray(q) && PARTS[q[0]] && isFinite(q[1]) && isFinite(q[2]))
+        .map(([type, x, y, flip, rot]) => ({ type, x: +x, y: +y, flip: !!flip, rot: (rot | 0) & 3 }));
+      if (!parts.length) return null;
+      return { name: String(o.n || 'Imported').slice(0, 40), kind: VEHICLE_KINDS[o.k] ? o.k : 'rocket', parts, dropped: (o.p || []).length - parts.length };
+    } catch (e) { return null; }
+  },
+  copyCode(d) {
+    const code = this.designCode(d);
+    const fallback = () => {
+      const ta = el('textarea', { class: 'code-box', readonly: '', rows: '4', 'aria-label': 'Design code' });
+      ta.value = code;
+      UI.modal({ kicker: 'Hangar', title: `Code for “${d.name}”`, body: el('div', null, el('p', { class: 'hangar-hint', text: 'Copy this code. Paste it into “Paste a code” in any copy of the game to get the design back.' }), ta), actions: [{ label: 'Done', primary: true }] });
+      ta.focus(); ta.select();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(() => UI.toast(`Copied the code for “${d.name}”`), fallback);
+    else fallback();
+  },
+  pasteCode() {
+    const ta = el('textarea', { class: 'code-box', rows: '4', placeholder: 'RSS1.…', 'aria-label': 'Design code', spellcheck: 'false' });
+    const note = el('p', { class: 'hangar-note', hidden: '' });
+    const go = (keep) => {
+      const d = this.parseCode(ta.value);
+      if (!d) { note.textContent = 'That is not a design code. Codes start with RSS1.'; note.hidden = false; return; }
+      UI.closeModal();
+      this.savedAs = null;
+      this.loadDesign(d);
+      this.baseSnap = null; // pasted in: counts as unsaved work until it is saved
+      if (keep) { // never quietly replace one of your own designs that happens to share the name
+        const taken = new Set(this.designs().map((x) => x.name));
+        let n = d.name, i = 2;
+        while (taken.has(n)) n = `${d.name.slice(0, 35)} (${i++})`;
+        this.storeDesign(n);
+      }
+      if (d.dropped) UI.toast(`${d.dropped} part${d.dropped > 1 ? 's' : ''} from a newer version were left out`, 'warn');
+      else if (!keep) UI.toast(`Loaded “${d.name}”`);
+    };
+    UI.modal({
+      kicker: 'Hangar', title: 'Paste a design code',
+      body: el('div', null, el('p', { class: 'hangar-hint', text: 'Paste a code someone copied from their hangar.' }), ta, note),
+      actions: [{ label: 'Cancel' }, { label: 'Load', keepOpen: true, onClick: () => go(false) }, { label: 'Load and save', primary: true, keepOpen: true, onClick: () => go(true) }],
+    });
+    ta.focus();
+  },
+
   openHangar() {
     const wrap = el('div', { class: 'hangar' });
-    const saves = store.get('rss.hangar', []);
-    const nameIn = el('input', { id: 'hangar-name', type: 'text', maxlength: '40', value: this.name, 'aria-label': 'Design name' });
+    const saves = this.designs();
+    const save = () => { if (this.storeDesign(f.input.value)) UI.closeModal(); };
+    const f = this.nameField(save);
+    f.input.id = 'hangar-name';
     const saveBtn = el('button', { class: 'btn primary small', text: 'Save' });
-    saveBtn.addEventListener('click', () => {
-      const name = nameIn.value.trim() || 'Rocket';
-      this.name = name;
-      const list = store.get('rss.hangar', []).filter((x) => x.name !== name);
-      list.unshift({ ...this.serialize(), name, savedAt: Date.now() });
-      store.set('rss.hangar', list.slice(0, 40));
-      this.save(); this.renderStats();
-      UI.closeModal(); UI.toast(`Saved “${name}”`);
-    });
-    wrap.append(el('div', { class: 'hangar-save' }, nameIn, saveBtn));
+    saveBtn.addEventListener('click', save);
+    wrap.append(el('div', { class: 'hangar-save' }, f.input, saveBtn), f.note);
+    const tools = el('div', { class: 'hangar-tools' });
+    const paste = el('button', { class: 'btn small', text: 'Paste a code' });
+    paste.prepend(icon('copy'));
+    paste.addEventListener('click', () => this.pasteCode());
     // (phones have no room for a Clear button on the top bar)
-    const clear = el('button', { class: 'btn small danger hangar-clear', text: 'Clear the blueprint' });
+    const clear = el('button', { class: 'btn small danger', text: 'Clear the blueprint' });
     clear.prepend(icon('trash'));
     clear.addEventListener('click', () => { UI.closeModal(); this.confirmClear(); });
-    wrap.append(clear);
-    if (saves.length) {
-      wrap.append(el('h3', { class: 'summary-h', text: 'Your designs' }));
-      const list = el('div', { class: 'template-list' });
+    tools.append(paste, clear);
+    wrap.append(tools);
+    wrap.append(el('h3', { class: 'summary-h', text: saves.length ? `Your designs · ${saves.length}` : 'Your designs' }));
+    if (!saves.length) wrap.append(el('p', { class: 'hangar-hint', text: 'Nothing saved yet. Name the blueprint above and press Save, or use the Save button next to its name.' }));
+    else {
+      const list = el('div', { class: 'design-list' });
+      const dpr = Math.min(devicePixelRatio || 1, 2);
       for (const s of saves) {
-        const cost = designCost(s.parts.filter((q) => PARTS[q.type]));
-        const row = el('div', { class: 'template row' },
-          el('button', { class: 'template-main' }, el('span', { class: 'template-name', text: s.name }),
-            el('span', { class: 'template-blurb', text: `${VEHICLE_KINDS[s.kind] ? VEHICLE_KINDS[s.kind].name : 'Rocket'} · ${s.parts.length} parts${Career.sandbox ? '' : ' · ' + money(cost)}` })));
-        const del = el('button', { class: 'btn icon-only small danger', 'aria-label': `Delete ${s.name}` });
+        const known = s.parts.filter((q) => PARTS[q.type]);
+        const kind = VEHICLE_KINDS[s.kind] ? VEHICLE_KINDS[s.kind].name : 'Rocket';
+        const when = s.savedAt ? new Date(s.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+        const current = s.name === this.savedAs;
+        const main = el('button', { class: 'design-main', title: `Load “${s.name}”` },
+          renderDesignThumb(s, 64, 64, dpr, (VEHICLE_KINDS[s.kind] || VEHICLE_KINDS.rocket).launchRot),
+          el('span', { class: 'design-text' },
+            el('span', { class: 'template-name', text: s.name }),
+            el('span', { class: 'template-blurb', text: `${kind} · ${known.length} parts${Career.sandbox ? '' : ' · ' + money(designCost(known))}${when ? ' · ' + when : ''}${current ? ' · on the blueprint' : ''}` })));
+        const code = el('button', { class: 'btn icon-only small', 'aria-label': `Copy a code for ${s.name}`, title: 'Copy as a code to share' });
+        code.append(icon('copy'));
+        const del = el('button', { class: 'btn icon-only small danger', 'aria-label': `Delete ${s.name}`, title: 'Delete' });
         del.append(icon('trash'));
-        row.querySelector('.template-main').addEventListener('click', () => { UI.closeModal(); this.loadDesign(s); });
-        del.addEventListener('click', () => {
-          store.set('rss.hangar', store.get('rss.hangar', []).filter((x) => x.name !== s.name));
-          row.remove();
+        const row = el('div', { class: 'design' + (current ? ' current' : '') }, main, code, del);
+        main.addEventListener('click', () => {
+          const go = () => { UI.closeModal(); this.loadDesign(s); this.markSaved(s); UI.toast(`Loaded “${s.name}”`); };
+          if (s.name !== this.savedAs && this.unsavedWork()) this.confirmLeave(go);
+          else go();
         });
-        row.append(del);
+        code.addEventListener('click', () => this.copyCode(s));
+        // two taps to delete: the first one asks
+        del.addEventListener('click', () => {
+          if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'Delete?'; setTimeout(() => { if (del.isConnected && del.classList.contains('armed')) { del.classList.remove('armed'); del.textContent = ''; del.append(icon('trash')); } }, 2500); return; }
+          store.set('rss.hangar', this.designs().filter((x) => x.name !== s.name));
+          if (s.name === this.savedAs) { this.savedAs = null; this.save(); this.renderSaveState(); }
+          row.remove();
+          UI.toast(`Deleted “${s.name}”`);
+        });
         list.append(row);
       }
       wrap.append(list);
@@ -687,12 +833,24 @@ const Builder = {
         const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
           el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
           el('span', { class: 'template-blurb', text: t.blurb }));
-        b.addEventListener('click', () => { UI.closeModal(); this.loadTemplate(key); });
+        b.addEventListener('click', () => {
+          const go = () => { UI.closeModal(); this.loadTemplate(key); };
+          if (this.unsavedWork()) this.confirmLeave(go); else go();
+        });
         tl.append(b);
       }
       wrap.append(tl);
     }
     UI.modal({ kicker: 'Hangar', title: 'Vehicles', body: wrap, actions: [{ label: 'Close' }] });
+    $('#modal-card').scrollTop = 0; // focusing Close would otherwise open the list scrolled to the bottom
+    if (!isTouch) f.input.focus({ preventScroll: true });
+  },
+  // Loading over a saved design with unsaved changes: offer to keep them first.
+  confirmLeave(go) {
+    UI.modal({
+      title: this.savedAs ? `Save the changes to “${this.savedAs}”?` : 'Save this design first?', body: 'Loading another design replaces the blueprint.',
+      actions: [{ label: 'Cancel' }, { label: 'Discard', danger: true, onClick: go }, { label: 'Save first', primary: true, onClick: () => { if (!this.savedAs) this.saveAs(go); else if (this.storeDesign(this.savedAs)) go(); } }],
+    });
   },
 
   // ---------------------------------------------------------------- input
@@ -790,6 +948,7 @@ const Builder = {
     addEventListener('keydown', (e) => {
       if (App.scene !== 'build' || UI.modalOpen || e.target.tagName === 'INPUT') return;
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.code === 'KeyS') { e.preventDefault(); if (e.shiftKey) this.saveAs(); else this.quickSave(); return; }
       if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) { e.preventDefault(); this.deleteSelected(); }
       else if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
       else if (mod && e.code === 'KeyY') { e.preventDefault(); this.redo(); }
@@ -822,6 +981,8 @@ const Builder = {
       UI.toast(this.symmetry ? 'Symmetry on: parts are mirrored across the centre line' : 'Symmetry off');
     });
     $('#btn-clear').addEventListener('click', () => this.confirmClear());
+    $('#btn-save').addEventListener('click', () => this.quickSave());
+    $('#s-name').addEventListener('click', () => this.saveAs()); // tap the name to rename or save a copy
     // the stats panel folds down to its name and numbers (on by default on short phone screens)
     const stats = $('#stats'), tog = $('#btn-stats');
     const fold = (on) => {
@@ -841,7 +1002,7 @@ const Builder = {
   confirmClear() {
     UI.modal({
       title: 'Clear the blueprint?', body: 'Every part on the blueprint will be removed. You can undo this.',
-      actions: [{ label: 'Cancel' }, { label: 'Clear', danger: true, primary: true, onClick: () => { this.parts = []; this.selected = null; this.changed(); this.renderInfo(); } }],
+      actions: [{ label: 'Cancel' }, { label: 'Clear', danger: true, primary: true, onClick: () => { this.parts = []; this.selected = null; this.savedAs = null; this.changed(); this.renderInfo(); } }],
     });
   },
 

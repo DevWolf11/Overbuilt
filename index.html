@@ -69,7 +69,7 @@
   </header>
 
   <section id="stats" class="panel stats" aria-label="Rocket stats">
-    <div class="s-head"><div id="s-name" class="s-name">Rocket</div><button id="btn-stats" class="stats-toggle" aria-expanded="true" aria-controls="stats" aria-label="Show less" title="Show less"></button></div>
+    <div class="s-head"><button id="s-name" class="s-name" title="Rename or save a copy">Rocket</button><button id="btn-save" class="btn small save-btn" data-icon="save"><span class="save-text">Save</span></button><button id="btn-stats" class="stats-toggle" aria-expanded="true" aria-controls="stats" aria-label="Show less" title="Show less"></button></div>
     <div id="kind-select" class="kind-select" role="radiogroup" aria-label="Vehicle type">
       <button class="kind-btn" role="radio" data-kind="rocket" data-icon="rocket" title="Rocket: launches from the pad"><span>Rocket</span></button>
       <button class="kind-btn" role="radio" data-kind="plane" data-icon="plane" title="Plane: built nose-right, takes off from the runway"><span>Plane</span></button>
@@ -118,6 +118,7 @@
 
 <!-- ============================== FLIGHT ============================== -->
 <div id="flight-ui" class="ui" hidden>
+  <div id="flight-alert" class="flight-alert" role="alert" hidden></div>
   <section class="panel telemetry" aria-label="Telemetry">
     <div class="t-head"><span id="t-body" class="t-body">Earth</span><span id="t-time" class="t-time">00:00:00</span></div>
     <div id="t-vessel" class="t-vessel"></div>

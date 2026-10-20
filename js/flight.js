@@ -227,7 +227,7 @@ const Flight = {
       FX.puff(v.body, wp, vel, 8, '#cfd5dc');
     }
     if (v === this.active) {
-      this.toast(`${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
+      this.toast(v.ripWhy === 'speed' ? `Flutter tore the ${parts[0].def.name.toLowerCase()} off at ${Math.round(v.speed() * 3.6)} km/h!` : `${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!`, 'warn');
       Sound.explode(); haptic([60, 40, 80]);
     }
     const pieces = v.splitComponents();
@@ -491,6 +491,14 @@ const Flight = {
       const stall = v.aircraft && v.aoa != null && !v.wheelsDown && v.airspeed > 10 && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
       this.stallBeep = stall ? (this.stallBeep || 0) - rdt : 0;
       if (stall && this.stallBeep <= 0) { Sound.beep(880); this.stallBeep = 0.35; }
+      // structure: a fast high pip for too many g, a low rattle for too fast, quicker the closer to breaking
+      const st = this.structAlert(v);
+      this.structBeep = st ? (this.structBeep || 0) - rdt : 0;
+      if (st && this.structBeep <= 0) {
+        Sound.beep(st.kind === 'g' ? 1320 : 520);
+        this.structBeep = st.level > 1 ? 0.12 : 0.3;
+        if (st.level > 1) haptic(25);
+      }
     } else { Sound.engine(0, 0); Sound.wind(0); }
 
     this.predTimer -= rdt;
@@ -1087,6 +1095,15 @@ const Flight = {
   },
 
   // Where on the real Earth: the country or sea below, and the nearest town (refreshed every second or so).
+  // Is a plane's structure at risk? { kind: 'g' or 'speed', level: 1 near the limit, 2 over it (breaking) }.
+  structAlert(v) {
+    if (!v || v.kind !== 'plane' || v.landed || !(v.airspeed > 20)) return null;
+    const stress = v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0);
+    if (v.strain > 0.85) return { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };
+    if (v.overspeed > 0.9) return { kind: 'speed', level: v.overspeed > 1 ? 2 : 1 };
+    return null;
+  },
+
   whereText(v, alt) {
     if (v.body !== EARTH || !EARTH.mapped || alt > 60000) return '';
     if (this.whereAt && performance.now() - this.whereAt < 900) return this.whereTxt;
@@ -1131,7 +1148,19 @@ const Flight = {
     $('#row-aoa').classList.toggle('danger', !!stalling);
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
-    if (gload) { set('t-g', `${v.gForce.toFixed(1)} g`); $('#row-g').classList.toggle('danger', v.gForce > 7); }
+    const st = this.structAlert(v);
+    if (gload) {
+      const gr = v.gRating();
+      set('t-g', gr ? `${v.nz.toFixed(1)} g / ${gr.toFixed(gr < 10 ? 1 : 0)}` : `${v.gForce.toFixed(1)} g`);
+      $('#row-g').classList.toggle('danger', !!(st && st.kind === 'g'));
+    }
+    // over-g or overspeed: a flashing banner while the wings are at risk
+    const al = $('#flight-alert');
+    al.hidden = !st;
+    if (st) {
+      set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${Math.round(v.speed() * 3.6)} km/h · slow down`);
+      al.classList.toggle('critical', st.level > 1);
+    }
     // orbital readouts mean little for a car or a plane low in the air
     const orbital = rocket || !b.atmoHeight || alt > b.atmoHeight * 0.7;
     if (this._orbital !== orbital) { this._orbital = orbital; document.querySelectorAll('.orbit-row').forEach((e) => { e.hidden = !orbital; }); }

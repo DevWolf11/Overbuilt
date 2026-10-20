@@ -155,20 +155,20 @@ const PARTS = {
     desc: 'Tail cone for a wide fuselage.' },
 
   // wings and tails
-  wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true }, breakSpeed: 14, tier: 0, cost: 700,
+  wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true, vne: 120 }, breakSpeed: 14, tier: 0, cost: 700,
     desc: 'Short wing with ailerons and flaps, for small planes or a canard.' },
-  wing: { cat: 'wings', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 30, span: 13, flaps: true }, breakSpeed: 14, tier: 0, cost: 1500,
+  wing: { cat: 'wings', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 30, span: 13, flaps: true, vne: 125 }, breakSpeed: 14, tier: 0, cost: 1500,
     desc: 'Main wing with ailerons and flaps (one part is the whole span). Put it through the fuselage near the centre of mass, high, low or in the middle. It stalls if the nose is pulled too high.' },
-  wingL: { cat: 'wings', name: 'Large Wing', w: 0.8, h: 5, mass: 1.6, fuel: 3, shape: 'wing', wing: { area: 75, span: 28, flaps: true, sweep: 0.42, taper: 0.62, mcrit: 0.82, load: 1.1 },
+  wingL: { cat: 'wings', name: 'Large Wing', w: 0.8, h: 5, mass: 1.6, fuel: 3, shape: 'wing', wing: { area: 75, span: 28, flaps: true, sweep: 0.42, taper: 0.62, mcrit: 0.82, load: 1.1, vne: 200 },
     breakSpeed: 14, tier: 1, cost: 4500, desc: 'Long, gently swept airliner wing with flaps and fuel tanks inside.' },
-  wingSwept: { cat: 'wings', name: 'Swept Wing', w: 0.45, h: 4, mass: 0.6, shape: 'wing', wing: { area: 32, span: 11, sweep: 0.6, taper: 0.55, mcrit: 0.9, load: 1.4, flaps: true },
+  wingSwept: { cat: 'wings', name: 'Swept Wing', w: 0.45, h: 4, mass: 0.6, shape: 'wing', wing: { area: 32, span: 11, sweep: 0.6, taper: 0.55, mcrit: 0.9, load: 1.4, flaps: true, vne: 390 },
     breakSpeed: 14, tier: 2, cost: 3500, desc: 'Swept back for fast jets: less drag near Mach 1, but it needs more speed to lift.' },
   wingDelta: { cat: 'wings', name: 'Delta Wing', w: 0.5, h: 7, mass: 1.1, fuel: 1.5, shape: 'wing',
-    wing: { area: 48, span: 9.5, sweep: 1, taper: 0.92, slope: 2.6, stall: 0.55, mcrit: 0.95, wave: 0.5, load: 1.8, dihedral: 0 },
+    wing: { area: 48, span: 9.5, sweep: 1, taper: 0.92, slope: 2.6, stall: 0.55, mcrit: 0.95, wave: 0.5, load: 1.8, dihedral: 0, vne: 520 },
     breakSpeed: 14, tier: 2, cost: 5000, desc: 'Big triangle for supersonic fighters. Hard to stall, little wave drag, but sluggish at low speed.' },
-  wingGlider: { cat: 'wings', name: 'Glider Wing', w: 0.25, h: 1.4, mass: 0.25, shape: 'wing', wing: { area: 21, span: 19, taper: 0.5, load: 0.6, dihedral: 0.09 },
+  wingGlider: { cat: 'wings', name: 'Glider Wing', w: 0.25, h: 1.4, mass: 0.25, shape: 'wing', wing: { area: 21, span: 19, taper: 0.5, load: 0.6, dihedral: 0.09, vne: 72 },
     breakSpeed: 12, tier: 0, cost: 1800, desc: 'Very long, thin wing: hardly any drag, so it glides for miles. Fragile at high speed.' },
-  stabilizer: { cat: 'wings', name: 'Tailplane', w: 0.3, h: 1.8, mass: 0.12, shape: 'wing', wing: { area: 6, span: 6 }, breakSpeed: 14, tier: 0, cost: 500,
+  stabilizer: { cat: 'wings', name: 'Tailplane', w: 0.3, h: 1.8, mass: 0.12, shape: 'wing', wing: { area: 6, span: 6, vne: 600 }, breakSpeed: 14, tier: 0, cost: 500,
     desc: 'Fixed horizontal tail: keeps the nose steady. Pair it with an elevator to pitch.' },
   elevator: { cat: 'wings', name: 'Elevator', w: 0.3, h: 1.5, mass: 0.12, shape: 'elevator', wing: { area: 5, span: 5, control: 0.35 }, breakSpeed: 14, tier: 0, cost: 900,
     desc: 'Moving tail surface. The stick (W/S) and the autopilot pitch the plane with it, and it helps roll too. Put it far behind the centre of mass.' },
@@ -1274,6 +1274,30 @@ function drawCanopy(ctx, p, lw) {
     ctx.fill();
   }
   ctx.beginPath(); ctx.ellipse(x, top - ch * 0.12, cw / 2, ch * 0.42, 0, Math.PI, TAU); ctx.strokeStyle = 'rgba(8,11,16,0.6)'; ctx.stroke();
+}
+
+// Render a whole saved design onto a small canvas (the hangar's thumbnails).
+function renderDesignThumb(d, w, h, dpr, rot = 0) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  const ps = (d.parts || []).filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
+  if (!ps.length) return c;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  const cr = Math.cos(rot), sr = Math.sin(rot), ac = Math.abs(cr), as = Math.abs(sr);
+  for (const p of ps) { // bounds in display space (planes are shown nose-right, as on the blueprint)
+    const { w: pw, h: ph } = partDims(p), cx = cr * p.x - sr * p.y, cy = sr * p.x + cr * p.y;
+    const hw = (ac * pw + as * ph) / 2, hh = (as * pw + ac * ph) / 2;
+    x0 = Math.min(x0, cx - hw); x1 = Math.max(x1, cx + hw);
+    y0 = Math.min(y0, cy - hh); y1 = Math.max(y1, cy + hh);
+  }
+  const s = Math.min((c.width * 0.86) / Math.max(x1 - x0, 0.5), (c.height * 0.86) / Math.max(y1 - y0, 0.5));
+  const ctx = c.getContext('2d');
+  ctx.setTransform(s, 0, 0, -s, c.width / 2 - (s * (x0 + x1)) / 2, c.height / 2 + (s * (y0 + y1)) / 2);
+  ctx.rotate(rot);
+  const lw = Math.min(0.08, dpr / s);
+  for (const p of ps) if (!p.def.wing) drawPart(ctx, p, lw);
+  for (const p of ps) if (p.def.wing) drawPart(ctx, p, lw); // wings pass over the hull, as in the builder
+  return c;
 }
 
 // Render a part onto a small canvas for the palette.
