@@ -1099,7 +1099,7 @@ const Builder = {
     $('#s-air').hidden = !airLine;
     if (airLine) {
       $('#s-air').textContent = `Stalls at ${Math.round(a.stall * 3.6)} km/h (${Math.round(a.stallFlaps * 3.6)} with flaps) · lifts off near ${Math.round(a.stallFlaps * 1.2 * 3.6)} km/h · wing ${Math.round(a.wingArea)} m²`
-        + ` · strong to ${a.g.toFixed(a.g < 10 ? 1 : 0)} g · wings break above ${Math.round(a.vne * 3.6)} km/h${a.mmax ? ` or Mach ${a.mmax}` : ' (more up high)'}`;
+        + ` · strong to ${a.g.toFixed(a.g < 10 ? 1 : 0)} g · wings break above ${Math.round(a.vne * 0.36) * 10} km/h${a.mmax ? ` or Mach ${a.mmax}` : ' (more up high)'}`;
     }
     const list = $('#s-stage-list');
     list.innerHTML = '';
@@ -1139,7 +1139,7 @@ const Builder = {
     if (d.fuel) specs.push(`${d.fuel} t ${d.solid ? 'solid fuel' : 'fuel'}`);
     if (d.thrust) specs.push(`${d.thrust} kN`, `Isp ${d.ispSL}–${d.ispVac} s`);
     if (d.torque) specs.push(`${d.torque / 1000} kN·m`);
-    if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 3.6)} km/h${W.mmax ? ` or Mach ${W.mmax}` : ''}`); }
+    if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h${W.mmax ? ` or Mach ${W.mmax}` : ' (more up high)'}`); } // (to 10 km/h)
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
     if (!Career.sandbox) specs.push(money(d.cost));
     $('#pi-specs').textContent = specs.join(' · ');

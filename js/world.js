@@ -255,10 +255,10 @@ function paintBodyDisc(ctx, b, cx, cy, R, sx, sy, flipY) {
 
 // ---------------------------------------------------------------------------
 
-// Flutter: past a wing's speed limit the view shakes, the harder the further over (null: steady). The 2D
-// view and the 3D one both shake with it; t is real time in seconds.
-function flutterShake(v, t) {
-  const k = v && !v.landed ? smoothstep(0.97, 1.3, v.overspeed || 0) : 0;
+// Flutter: past a wing's speed limit the view shakes, the harder the further over (null: steady; not while
+// paused or once the craft is lost). The 2D view and the 3D one both shake with it; t is real time in seconds.
+function flutterShake(F, v, t) {
+  const k = v && !v.landed && !v.dead && v.parts.length && !F.paused && !F.destroyed ? smoothstep(0.97, 1.3, v.overspeed || 0) : 0;
   if (!k) return null;
   return { x: k * (Math.sin(t * 61) * 0.6 + Math.sin(t * 37.3) * 0.4), y: k * (Math.sin(t * 53.7) * 0.6 + Math.cos(t * 29.1) * 0.4) };
 }
@@ -307,7 +307,7 @@ const World = {
     const Wd = W * dpr, Hd = H * dpr;
     const cos = Math.cos(F.viewRot), sin = Math.sin(F.viewRot);
     const base = [S * cos, -S * sin, -S * sin, -S * cos, Wd / 2, Hd / 2];
-    const sh = flutterShake(v, performance.now() / 1000);
+    const sh = flutterShake(F, v, performance.now() / 1000);
     if (sh) { base[4] += sh.x * 4 * dpr; base[5] += sh.y * 4 * dpr; }
     const cam = F.camAbs;
     const env = this.environment(F);

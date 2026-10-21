@@ -532,7 +532,7 @@ const Flight = {
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       Sound.engine(maxT ? (v.thrust || 0) / maxT : 0, air);
-      Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1) + 0.5 * smoothstep(0.97, 1.3, v.overspeed || 0)); // (and a fluttering wing's roar)
+      Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1) + (this.destroyed ? 0 : 0.5 * smoothstep(0.97, 1.3, v.overspeed || 0))); // (and a fluttering wing's roar)
       this.soundBarrier(v);
       // stall warning horn
       const stall = v.aircraft && v.aoa != null && !v.wheelsDown && v.airspeed > 10 && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
@@ -1240,15 +1240,17 @@ const Flight = {
     if (v.body !== EARTH || !EARTH.mapped) return (((h * 180) / Math.PI) % 360 + 360) % 360;
     return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
   },
-  // (The speed warning is for anything with wings: a winged rocket's can flutter off on the way up too.)
+  // The speed warning is for anything with wings (a winged rocket's can flutter off on the way up too), and
+  // a fluttering wing's comes first unless the load is past its limit too: easing off the stick won't save it.
   structAlert(v) {
-    if (!v || v.landed || !(v.airspeed > 20)) return null;
-    if (v.kind === 'plane') {
-      const stress = v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0);
-      if (v.strain > 0.85) return { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };
+    if (!v || v.landed || this.destroyed || !(v.airspeed > 20)) return null;
+    const sp = v.overspeed > 0.9 ? { kind: 'speed', level: v.overspeed > 1 ? 2 : 1 } : null;
+    if (v.kind === 'plane' && v.strain > 0.85) {
+      const stress = v.overspeed > 1 ? 0 : v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0); // (stress from flutter is the speed's doing)
+      const g = { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };
+      if (!sp || g.level > sp.level || (g.level === sp.level && (sp.level < 2 || v.strain > 1))) return g;
     }
-    if (v.overspeed > 0.9) return { kind: 'speed', level: v.overspeed > 1 ? 2 : 1 };
-    return null;
+    return sp;
   },
 
   whereText(v, alt) {
@@ -1311,7 +1313,7 @@ const Flight = {
     const al = $('#flight-alert');
     al.hidden = !st;
     if (st) {
-      const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : `${Math.round(v.speed() * 3.6)} km/h`;
+      const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
       set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`);
       al.classList.toggle('critical', st.level > 1);
     }

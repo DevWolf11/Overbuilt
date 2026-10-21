@@ -124,7 +124,8 @@ const PARTS = {
   // Wing fields: sweep (rad), taper (tip chord lost, 0..1), stall (rad), mcrit (Mach where wave drag
   // starts), load (strength, 1 = about 9 g for a light plane), dihedral (rad), flaps, vne (equivalent airspeed
   // in m/s, the HUD speed at sea level, where it starts to flutter apart: faster up high, in thinner air), mmax
-  // (the Mach number where it does, at any height; none for the supersonic ones).
+  // (the Mach number where it does, up to where the air gets very thin; none for the delta, tails and strakes).
+  // A subsonic wing's Mach limit keeps its breaking speed about the same at every height.
 
   // fuselage
   cockpitS: { cat: 'cabins', name: 'Bush Cockpit', w: 1.5, h: 2, mass: 0.45, control: 3, torque: 1500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 11,
@@ -189,9 +190,9 @@ const PARTS = {
     desc: 'Spinning early-warning radar on a pylon. Mount it on top of the fuselage: radar missiles reach their full range and the HUD shows targets three times further away.' },
 
   // wings and tails
-  wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true, vne: 250, mmax: 0.85 }, breakSpeed: 14, tier: 0, cost: 700,
-    desc: 'Short wing with ailerons and flaps, for small planes or a canard.' },
-  wing: { cat: 'wings', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 30, span: 13, flaps: true, vne: 236, mmax: 0.85 }, breakSpeed: 14, tier: 0, cost: 1500,
+  wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true, vne: 250, mmax: 0.74 }, breakSpeed: 14, tier: 0, cost: 700,
+    desc: 'Short wing with ailerons and flaps, for small planes or a slow plane\'s canard (on a fast jet, use the Canard).' },
+  wing: { cat: 'wings', name: 'Wing', w: 0.5, h: 3, mass: 0.4, shape: 'wing', wing: { area: 30, span: 13, flaps: true, vne: 236, mmax: 0.74 }, breakSpeed: 14, tier: 0, cost: 1500,
     desc: 'Main wing with ailerons and flaps (one part is the whole span). Put it through the fuselage near the centre of mass, high, low or in the middle. It stalls if the nose is pulled too high.' },
   wingL: { cat: 'wings', name: 'Large Wing', w: 0.8, h: 5, mass: 1.6, fuel: 3, shape: 'wing', wing: { area: 75, span: 28, flaps: true, sweep: 0.42, taper: 0.62, mcrit: 0.82, load: 1.1, vne: 264, mmax: 0.95 },
     breakSpeed: 14, tier: 1, cost: 4500, desc: 'Long, gently swept airliner wing with flaps and fuel tanks inside.' },
@@ -200,7 +201,7 @@ const PARTS = {
   wingDelta: { cat: 'wings', name: 'Delta Wing', w: 0.5, h: 7, mass: 1.1, fuel: 1.5, shape: 'wing',
     wing: { area: 48, span: 9.5, sweep: 1, taper: 0.92, slope: 2.6, stall: 0.55, mcrit: 0.95, wave: 0.5, load: 1.8, dihedral: 0, vne: 444 },
     breakSpeed: 14, tier: 2, cost: 5000, desc: 'Big triangle for supersonic fighters. Hard to stall, little wave drag, but sluggish at low speed.' },
-  wingGlider: { cat: 'wings', name: 'Glider Wing', w: 0.25, h: 1.4, mass: 0.25, shape: 'wing', wing: { area: 21, span: 19, taper: 0.5, load: 0.6, dihedral: 0.09, vne: 139, mmax: 0.7 },
+  wingGlider: { cat: 'wings', name: 'Glider Wing', w: 0.25, h: 1.4, mass: 0.25, shape: 'wing', wing: { area: 21, span: 19, taper: 0.5, load: 0.6, dihedral: 0.09, vne: 139, mmax: 0.5 },
     breakSpeed: 12, tier: 0, cost: 1800, desc: 'Very long, thin wing: hardly any drag, so it glides for miles. Fragile at high speed.' },
   stabilizer: { cat: 'wings', name: 'Tailplane', w: 0.3, h: 1.8, mass: 0.12, shape: 'wing', wing: { area: 6, span: 6, vne: 556 }, breakSpeed: 14, tier: 0, cost: 500,
     desc: 'Fixed horizontal tail: keeps the nose steady. Pair it with an elevator to pitch.' },
@@ -227,13 +228,13 @@ const PARTS = {
     wing: { area: 30, span: 11, sweep: -0.5, taper: 0.5, stall: 0.38, mcrit: 0.88, load: 1.6, flaps: true, vne: 389, mmax: 1.8 }, breakSpeed: 14, tier: 3, cost: 7000,
     desc: 'Swept forwards: the tips keep flying after the root stalls, so it stays controllable at crazy angles. Its lift sits well ahead of the part: mount it further back.' },
   wingElliptical: { cat: 'wings', name: 'Elliptical Wing', w: 0.4, h: 2.8, mass: 0.45, shape: 'wing',
-    wing: { area: 27, span: 11.8, planform: 'ellipse', oswald: 0.97, flaps: true, load: 1.3, vne: 236, mmax: 0.85, dihedral: 0.07 }, breakSpeed: 14, tier: 1, cost: 3000,
+    wing: { area: 27, span: 11.8, planform: 'ellipse', oswald: 0.97, flaps: true, load: 1.3, vne: 236, mmax: 0.74, dihedral: 0.07 }, breakSpeed: 14, tier: 1, cost: 3000,
     desc: 'The famous curved wing of a WWII fighter: the least drag for its lift, and a lovely shape.' },
   wingBiplane: { cat: 'wings', name: 'Biplane Wings', w: 2.2, h: 1.7, mass: 0.6, shape: 'biplane',
-    wing: { area: 40, span: 10, ar: 5, gap: 1.7, thick: 0.22, stall: 0.32, oswald: 0.62, cd0: 0.03, load: 2.2, vne: 156, mmax: 0.75, dihedral: 0.05 }, breakSpeed: 14, tier: 0, cost: 2200,
+    wing: { area: 40, span: 10, ar: 5, gap: 1.7, thick: 0.22, stall: 0.32, oswald: 0.62, cd0: 0.03, load: 2.2, vne: 156, mmax: 0.48, dihedral: 0.05 }, breakSpeed: 14, tier: 0, cost: 2200,
     desc: 'Two wings braced with struts and wires: lots of lift and very strong, but draggy. Slow and stately, or loopy and aerobatic.' },
   wingStraightL: { cat: 'wings', name: 'Long Straight Wing', w: 0.6, h: 3.4, mass: 0.9, fuel: 1.5, shape: 'wing',
-    wing: { area: 55, span: 30, taper: 0.4, flaps: true, load: 1.2, vne: 208, mmax: 0.8, dihedral: 0.05 }, breakSpeed: 14, tier: 1, cost: 3200,
+    wing: { area: 55, span: 30, taper: 0.4, flaps: true, load: 1.2, vne: 208, mmax: 0.66, dihedral: 0.05 }, breakSpeed: 14, tier: 1, cost: 3200,
     desc: 'Long, slender wing for transports and turboprops: lifts a lot at low speed and sips fuel.' },
   wingWinglet: { cat: 'wings', name: 'Winglet Wing', w: 0.8, h: 5, mass: 1.7, fuel: 3, shape: 'wing',
     wing: { area: 75, span: 29, sweep: 0.45, taper: 0.65, mcrit: 0.84, load: 1.1, oswald: 0.92, winglets: true, flaps: true, vne: 264, mmax: 0.97 }, breakSpeed: 14, tier: 2, cost: 6000,

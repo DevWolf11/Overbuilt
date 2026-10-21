@@ -771,7 +771,7 @@ class Vessel {
         if (rr > strain) strain = rr;
         if (rr > 1) {
           p.stress = (p.stress || 0) + (rr - 1) * 2 * dt;
-          if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p)) rip.push(p);
+          if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p) && !this.isDebris) rip.push(p); // (a torn-off piece tumbling on doesn't tear again)
         }
         const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
@@ -806,11 +806,11 @@ class Vessel {
       this.nz = (Fb.x * P.U.x + Fb.y * P.U.y + Fb.z * P.U.z) / (this.mass * G0); // load factor through the floor
       // too fast: past its own limit (equivalent airspeed, or a Mach number where it has one) a wing flutters.
       // Stress builds, the quicker the further over, and it tears off; far over (1.3 times), at once. Noodle
-      // wings give at half the speed, a shot-up wing a little sooner. The Mach limit fades out in air too thin
-      // to shake a wing apart. Only a craft someone flies: a torn-off wing tumbling on doesn't tear again.
+      // wings give at half the speed, a shot-up wing a little sooner. The Mach limit fades out in thin air (on
+      // Earth from about 15 to 21 km, so a space plane coming home keeps its wings). Only a craft someone flies.
       // overspeed is the worst wing's speed over its limit (the warning shows from 0.9); overMach, that Mach
       // was what it hit.
-      const eas = Math.sqrt(this.dynP / 0.6), thin = smoothstep(500, 2000, this.dynP), live = !!this.control && !this.isDebris; // (eas: sqrt(2q / 1.2), the HUD speed at sea level)
+      const eas = Math.sqrt(this.dynP / 0.6), thin = smoothstep(0.02, 0.06, (rho * 1.2) / b.rho0), live = !!this.control && !this.isDebris; // (eas: sqrt(2q / 1.2), the HUD speed at sea level; thin: by the air's share of its sea-level density)
       let over = 0, overM = false;
       for (const p of this.wings) {
         const W = wingAero(p.def);
