@@ -24,29 +24,32 @@ const MPUI = {
     seg.addEventListener('click', (e) => { const b = e.target.closest('.kind-btn'); if (b) { setTr(b.dataset.tr); Sound.click(); } });
     setTr(tr);
     const busy = (on, text, err) => {
-      for (const id of ['#mp-create-sandbox', '#mp-create-pvp', '#mp-join']) $(id).disabled = on;
+      for (const id of ['#mp-create-sandbox', '#mp-create-pvp']) $(id).disabled = on;
+      const jb = $('#mp-join'), joining = on && this.connecting && this.connecting.join; // (a join can wait a minute on a host: let the player call it off)
+      jb.textContent = joining ? 'Cancel' : 'Join'; jb.classList.toggle('primary', !joining); jb.disabled = on && !joining;
       const st = $('#mp-status'); st.textContent = text || ''; st.classList.toggle('err', !!err);
     };
-    const go = async (fn, wait) => {
+    const go = async (fn, wait, isJoin) => {
       if (this.connecting) return; // (one attempt at a time)
       store.set('rss.mp.name', name.value.trim().slice(0, 18));
       if (!name.value.trim()) { name.value = MP.myName(); }
-      const tok = this.connecting = {};
+      const tok = this.connecting = { join: !!isJoin };
       busy(true, wait);
       try {
-        await fn();
+        await fn((text) => { if (this.connecting === tok) busy(true, text); }); // (how a join is going)
         if (this.connecting !== tok) { MP.active && MP.end(); return; } // abandoned (left the screen meanwhile)
         busy(false, ''); this.refresh(); Sound.chime();
-      } catch (e) { if (this.connecting === tok) busy(false, e.message || String(e), true); MP.active && MP.end(); }
+      } catch (e) { if (this.connecting === tok) { busy(false, e.message || String(e), true); MP.active && MP.end(); } } // (an abandoned attempt leaves any newer session alone)
       finally { if (this.connecting === tok) this.connecting = null; }
     };
     this.abandon = () => { if (this.connecting) { this.connecting = null; busy(false, ''); Net.leave(true); } };
     const transport = () => store.get('rss.mp.tr', 'p2p');
     $('#mp-create-sandbox').addEventListener('click', () => go(() => MP.host('sandbox', transport()), 'Opening a room…'));
     $('#mp-create-pvp').addEventListener('click', () => go(() => MP.host('pvp', transport()), 'Opening a room…'));
-    const join = () => go(() => MP.join($('#mp-join-code').value, transport()), 'Joining…');
-    $('#mp-join').addEventListener('click', join);
-    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) join(); });
+    const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…', true);
+    const stoppable = () => this.connecting && this.connecting.join && !MP.active; // (still looking for the host, not yet in)
+    $('#mp-join').addEventListener('click', () => { if (!this.connecting) join(); else if (stoppable()) this.abandon(); });
+    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) { e.target.blur(); if (stoppable()) this.abandon(); join(); } }); // (a corrected code starts over; the keyboard goes away)
     $('#mp-back').addEventListener('click', () => this.leave());
     $('#mp-code').addEventListener('click', () => {
       const code = Net.code;
@@ -168,6 +171,7 @@ const MPUI = {
     if (s.mode === 'sandbox') {
       box.append(el('p', { class: 'mp-explain', text: 'Everyone builds and flies whatever they like, from the usual pad, runway and helipad. You see each other’s craft, and guns and missiles hurt. Crash or get shot down and you can fly again straight away. No time warp in a shared world.' }),
         el('p', { class: 'mp-explain', text: `Share the code ${Net.code} with up to four friends. ${Net.transport === 'local' ? 'This room is on this device: open the game in another tab to join it.' : 'They join from anywhere over the internet.'}` }));
+      this.stayHint(box);
       return;
     }
     const seg = (key, opts, val) => {
@@ -199,6 +203,12 @@ const MPUI = {
     set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod));
     set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit));
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
+    else if (s.phase === 'lobby') this.stayHint(box);
+  },
+  // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
+  // in front (as when sending the code in a chat app), so say so, first thing in the card.
+  stayHint(box) {
+    if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
   },
   renderFoot() {
     const s = MP.state, me = MP.me, pvp = s.mode === 'pvp';

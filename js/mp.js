@@ -93,8 +93,8 @@ const MP = {
     this.push();
     return Net.code;
   },
-  async join(code, transport) {
-    await Net.join(code, { transport, name: this.myName() });
+  async join(code, transport, status) {
+    await Net.join(code, { transport, name: this.myName(), status });
     this.begin();
     // the host's `state` follows the welcome
     return new Promise((resolve) => {
@@ -105,6 +105,7 @@ const MP = {
   },
   begin() {
     this.active = true;
+    this.awake(true);
     this.state = null;
     this.peers.clear(); this.rwr.clear(); this.missiles.clear();
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null;
@@ -117,6 +118,7 @@ const MP = {
   end(reason) {
     if (!this.active) return;
     this.active = false;
+    this.awake(false);
     clearInterval(this.tickTimer);
     Net.leave();
     this.dropAllGhosts();
@@ -156,8 +158,21 @@ const MP = {
       : { mode: 'career', funds: budget, tier: TIERS.length - 1, done: {}, flights: 0 };
   },
 
+  // Keep the screen on while in a room: a sleeping phone can't let friends in, and drops out of the room.
+  // (The browser lets go of the lock when the game goes out of sight; it's taken again on the way back.)
+  awake(on) {
+    this.wantAwake = on;
+    if (!on) { if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; } return; }
+    if (this.wakeLock || !navigator.wakeLock || document.hidden) return;
+    navigator.wakeLock.request('screen').then((l) => {
+      if (!this.wantAwake || this.wakeLock) { l.release().catch(() => {}); return; }
+      this.wakeLock = l;
+      l.addEventListener('release', () => { if (this.wakeLock === l) this.wakeLock = null; });
+    }).catch(() => {});
+  },
   bind() {
     this.bound = true;
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.wantAwake) this.awake(true); });
     Net.on('state', (m) => { if (!Net.isHost && m.f === 1) this.applyState(m.s); });
     Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); } });
     Net.on('leave', (m) => this.onLeave(m.pid));

@@ -1323,10 +1323,12 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 ### 2. net.js: transport
 
 - **Constants:**
-  - `NET_VERSION = 2` (net.js:9). Version 2 added part depth, paint and host (`att`) to spawn rows. The host rejects a `hello` with any other `ver` (net.js:110).
+  - `NET_VERSION = 3` (net.js:9). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below). The host rejects a `hello` with any other `ver` (net.js:110).
   - `NET_MAX_BYTES = 256 KB` (net.js:10): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:127). The host's own sends and clients' sends are not size-checked.
   - Room codes are 5 characters from `ROOM_CHARS` (net.js:11; no I, O, 0 or 1). `cleanCode` accepts 4–8 characters.
   - `PEER_PREFIX = 'rss-room-'` (net.js:12).
+  - `NET_ICE`: the ICE servers both Peers use. Google and Cloudflare STUN, plus `NET_TURN`, the relays (TURN) for players with no direct path between them (strict NAT, carrier NAT on mobile data, Wi-Fi isolation, VPNs). PeerJS's own default relays (`eu-0`/`us-0.turn.peerjs.com`) no longer exist, so without an entry in `NET_TURN` such players can't connect at all. An entry is `{urls: ['turn:host:80', 'turns:host:443?transport=tcp'], username, credential}` from a TURN provider.
+  - `NET_PIECE = 4000`: PeerJS's `json` channel refuses a message of 16300 bytes or more (`message-too-big`, nothing sent). `wire(conn)` sends a message whose JSON is longer than 4000 characters as pieces `{t:'~', k, i, n, s}`, and `unwire()` reassembles them per connection (at most `NET_MAX_BYTES` in all, 8 messages open at once; bad pieces are dropped). Every p2p send and receive goes through them; `N._t` exposes both for the tests. A `message-too-big` error no longer drops a player or closes the room.
 - **Transports** (`N.transport`):
   - `'p2p'`: PeerJS on the public PeerJS cloud. The host registers peer id `rss-room-CODE` and retries with a new code up to 3 times on `unavailable-id`. It reconnects to the signalling server 1.5 s after a disconnect. Connections are `{reliable: true, serialization: 'json'}`.
   - `'local'`: a `BroadcastChannel('rss-room-'+CODE)` carrying envelopes `{to:'H'|cid, from:cid, msg}`. Clients pick a random `cid`.
@@ -1339,7 +1341,14 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
   1. Client sends `hello {name, ver}`.
   2. Host replies `welcome {pid, code, names}` or `reject {reason}`: wrong version, room locked (`N.lock`, set during PvP phases), or full.
   3. The host emits a local `join`.
-- **Limits:** `maxPlayers` is 5 for sandbox and 6 for PvP (mp.js:85). The client gives up after 15 s; `MP.join` then waits up to 8 s for the first `state`.
+- **Limits:** `maxPlayers` is 5 for sandbox and 6 for PvP (mp.js:85). `MP.join` waits up to 8 s for the first `state` after the welcome.
+- **Joining online, by stage** (`N.join`; `status(text)` reports each stage to `#mp-status` through `MP.join` and `MPUI`'s `go`):
+  1. The Peer opens on the matchmaking server: 15 s, else "Couldn't reach the matchmaking server".
+  2. `peer.connect` sends the OFFER. A wrong code (or a destroyed host) answers `peer-unavailable` within about a second: "No room with that code". Otherwise the room exists, and the client waits **up to 60 s** for the host's answer (ICE leaving `new`, seen through the connection's `iceStateChanged`), saying after 8 s that the host's game isn't answering. A phone host's page doesn't run while its screen is off or another app is open, but the server keeps its id for about 100 s and holds the OFFER in its socket, so this is the common case: the join goes through as soon as the host comes back.
+  3. ICE: up to 20 s from the first state change, or until ICE `failed`: "Found the host, but couldn't connect to their device" (no direct path and no relay).
+  4. The connection opens and `hello` goes out: 15 s for the `welcome` or `reject`.
+  Before the welcome, a connection `close` fails the join at once. `N.leave` cancels a join under way (`pendingJoin`), so Back on the connect screen leaves nothing armed; `MPUI`'s `go` ends a session only for the attempt that is still current.
+- **Staying reachable:** `MP.awake` holds a screen Wake Lock while in a room (taken again when the game comes back on screen), and the host's lobby says to keep the game on screen while friends join. When the page becomes visible with the Peer disconnected from the server, net.js reconnects at once rather than waiting for the 1.5 s timer.
 - **Pings and clock:**
   - Every 2 s the host sends `ping {ts, rtt}` to each link. The client replies `pong {ts}`, and the host stores `N.pings.set(pid, rtt)`.
   - The client estimates `hostOffset` as the median of the last 7 samples of `ts + rtt/2 − now`.

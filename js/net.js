@@ -2,14 +2,22 @@
 // Multiplayer networking: rooms joined by a short code. The game has no server, so the host's browser is the
 // room: everyone connects to the host and the host passes messages on (a star). Two ways to connect:
 //  - 'p2p': WebRTC data channels through PeerJS (js/vendor/peer.min.js). Its free cloud server only
-//    introduces the browsers to each other; STUN, and TURN relays for strict networks, come with it.
+//    introduces the browsers to each other. STUN finds a direct path between them; when there is none (some
+//    routers, mobile networks, VPNs) a TURN relay carries the link. PeerJS's own relays are gone (their names
+//    no longer resolve), so the game lists its own servers in NET_ICE.
 //  - 'local': tabs of the same browser on this device, through a BroadcastChannel (offline, and handy for testing).
 // Messages are small plain objects { t: type, ... }. Net stamps the sender's player id on them as `f`.
 
-const NET_VERSION = 2; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft)
+const NET_VERSION = 3; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft); 3: big messages travel in pieces
 const NET_MAX_BYTES = 256 * 1024; // the biggest message the host passes on
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'rss-room-';
+// Relays (TURN) for when two devices can't reach each other directly: add an account's servers here, e.g.
+// { urls: ['turn:relay.example.com:80', 'turns:relay.example.com:443?transport=tcp'], username: '…', credential: '…' }
+// (a TCP/TLS one on port 443 gets through strict networks). Without one, such players can't connect.
+const NET_TURN = [];
+const NET_ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, ...NET_TURN] };
+const NET_PIECE = 4000; // characters of JSON per piece: PeerJS's JSON channel refuses a message of 16300 bytes or more
 
 const Net = (() => {
   const handlers = new Map();
@@ -21,7 +29,7 @@ const Net = (() => {
     hostOffset: 0,        // host clock minus ours (ms)
     bytesIn: 0, bytesOut: 0,
   };
-  const HOST_ONLY = new Set(['hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
+  const HOST_ONLY = new Set(['~', 'hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
   let joinGen = 0;
   let peer = null, chan = null, link = null, cid = '', nextPid = 2, pingTimer = 0, watchTimer = 0, lastHeard = 0;
   const links = new Map(); // host: pid -> { send, close, heard }
@@ -42,6 +50,35 @@ const Net = (() => {
   const cleanCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   const size = (m) => { try { return JSON.stringify(m).length; } catch (e) { return 0; } };
   N.players = () => [...N.names.keys()].sort((a, b) => a - b);
+  // A PeerJS connection's send, splitting a big message into pieces ({ t: '~' }), and the matching
+  // reassembly (which returns the whole message, or null while pieces are still to come or they're bad).
+  function wire(conn) {
+    let seq = 0;
+    return (m) => {
+      let s;
+      try { s = JSON.stringify(m); } catch (e) { return; }
+      try {
+        if (s.length <= NET_PIECE) { conn.send(m); return; }
+        const k = ++seq, n = Math.ceil(s.length / NET_PIECE);
+        for (let i = 0; i < n; i++) conn.send({ t: '~', k, i, n, s: s.slice(i * NET_PIECE, (i + 1) * NET_PIECE) });
+      } catch (e) { /* closing */ }
+    };
+  }
+  function unwire() {
+    const open = new Map();
+    return (m) => {
+      if (!m || m.t !== '~') return m;
+      const { k, i, n, s } = m;
+      if (!(Number.isInteger(n) && n > 1 && n <= Math.ceil(NET_MAX_BYTES / NET_PIECE) && Number.isInteger(i) && i >= 0 && i < n && typeof s === 'string' && s.length <= NET_PIECE)) return null;
+      let p = open.get(k);
+      if (!p) { open.clear(); p = { n, got: 0, s: [] }; open.set(k, p); } // (one message at a time: an ordered channel never interleaves them)
+      if (p.n !== n || p.s[i] != null) return null;
+      p.s[i] = s;
+      if (++p.got < n) return null;
+      open.delete(k);
+      try { const w = JSON.parse(p.s.join('')); return w && w.t === '~' ? null : w; } catch (e) { return null; } // (never a piece in pieces)
+    };
+  }
 
   // ---------------------------------------------------------------- sending
   // to: a player id, or nothing for everyone else. Clients send through the host, which passes it on.
@@ -82,7 +119,7 @@ const Net = (() => {
         return;
       }
       if (typeof Peer === 'undefined') { reject(new Error('Online play isn’t available (the networking library didn’t load)')); return; }
-      peer = new Peer(PEER_PREFIX + code, { debug: 0 });
+      peer = new Peer(PEER_PREFIX + code, { debug: 0, config: NET_ICE });
       peer.on('open', () => { start(); resolve(code); });
       peer.on('connection', (conn) => hostConn(conn));
       peer.on('error', (e) => {
@@ -146,12 +183,16 @@ const Net = (() => {
   };
   function hostConn(conn) {
     let pid = 0;
-    conn.on('data', (msg) => {
-      if (!pid) { if (msg && msg.t === 'hello') pid = accept(msg, (m) => conn.send(m), () => conn.close()); if (!pid) setTimeout(() => conn.close(), 500); return; }
+    const send = wire(conn), whole = unwire();
+    conn.on('data', (raw) => {
+      if (!pid && raw && raw.t === '~') { conn.close(); return; } // (hello never comes in pieces)
+      const msg = whole(raw);
+      if (!msg) return;
+      if (!pid) { if (msg.t === 'hello') pid = accept(msg, send, () => conn.close()); if (!pid) setTimeout(() => conn.close(), 500); return; }
       fromClient(pid, msg);
     });
     conn.on('close', () => { if (pid) dropPlayer(pid, 'left'); });
-    conn.on('error', () => { if (pid) dropPlayer(pid, 'connection error'); });
+    conn.on('error', (e) => { if (pid && !(e && e.type === 'message-too-big')) dropPlayer(pid, 'connection error'); }); // (a refused message isn't a lost link)
   }
   const localPids = new Map(); // client channel id -> pid
   function hostLocal(env) {
@@ -168,24 +209,33 @@ const Net = (() => {
   }
 
   // ---------------------------------------------------------------- client
-  N.join = (code, { transport = 'p2p', name = 'Pilot' } = {}) => new Promise((resolve, reject) => {
+  // Joining online goes through stages, each with its own patience and its own message: reaching the
+  // matchmaking server; the room's host answering (a phone host can't while its screen is off or another app
+  // is in front, so wait up to a minute and say so); the direct link (or relay) between the two devices; and
+  // the host letting us in. status(text) hears how it's going.
+  let pendingJoin = null; // the join under way: its fail(), so leaving can cancel it
+  N.join = (code, { transport = 'p2p', name = 'Pilot', status = () => {} } = {}) => new Promise((resolve, reject) => {
     N.leave();
     code = cleanCode(code);
     if (code.length < 4) { reject(new Error('Enter the room code')); return; }
     Object.assign(N, { transport, name, isHost: false, me: 0, code, hostOffset: 0, bytesIn: 0, bytesOut: 0 });
     N.names = new Map();
-    let done = false;
+    let done = false, timer = 0, tick = 0;
     const gen = ++joinGen; // (a later join or host makes this attempt stale: it must not tear that one down)
-    const fail = (text) => { if (done) return; done = true; if (gen === joinGen) N.leave(); reject(new Error(text)); };
-    const timer = setTimeout(() => fail(transport === 'local' ? 'No room with that code is open in another tab' : 'Couldn’t reach the room: check the code and that the host is still in the lobby'), 15000);
-    const onMsg = (msg) => {
+    const stop = () => { done = true; clearTimeout(timer); clearInterval(tick); if (pendingJoin === fail) pendingJoin = null; };
+    function fail(text, quiet) { if (done) return; stop(); if (!quiet && gen === joinGen) N.leave(); reject(new Error(text)); }
+    pendingJoin = fail;
+    if (transport === 'local') timer = setTimeout(() => fail('No room with that code is open in another tab'), 15000);
+    const whole = unwire();
+    const onMsg = (raw) => {
+      const msg = whole(raw);
       if (!msg || typeof msg.t !== 'string') return;
       N.bytesIn += size(msg);
       lastHeard = performance.now();
       if (!done) {
-        if (msg.t === 'reject') { clearTimeout(timer); fail(msg.reason || 'The host turned the request down'); return; }
+        if (msg.t === 'reject') { fail(msg.reason || 'The host turned the request down'); return; }
         if (msg.t !== 'welcome') return;
-        done = true; clearTimeout(timer);
+        stop();
         N.me = msg.pid; N.names = new Map(msg.names); N.active = true;
         watch();
         resolve(msg.pid);
@@ -214,20 +264,49 @@ const Net = (() => {
       link.send(hello);
       return;
     }
-    if (typeof Peer === 'undefined') { clearTimeout(timer); fail('Online play isn’t available (the networking library didn’t load)'); return; }
-    peer = new Peer({ debug: 0 });
+    if (typeof Peer === 'undefined') { fail('Online play isn’t available (the networking library didn’t load)'); return; }
+    peer = new Peer({ debug: 0, config: NET_ICE });
+    const t0 = performance.now(), NO_LINK = 'Found the host, but couldn’t connect to their device. Some routers, mobile networks and VPNs block direct links: try another network (Wi-Fi or mobile data), or turn off a VPN';
+    let tOpen = 0, tIce = 0, tLink = 0, ice = 'new', said = '';
+    const say = (text) => { if (text !== said) { said = text; try { status(text); } catch (e) { /* the screen's gone */ } } };
+    tick = setInterval(() => {
+      const now = performance.now();
+      if (!tOpen) { if (now - t0 > 15000) fail('Couldn’t reach the matchmaking server: check the internet connection'); return; }
+      if (!tIce && !tLink) { // the room exists (no 'No room' within a few seconds), but its host hasn't answered yet
+        if (now - tOpen > 8000) say('Found the room, but the host’s game isn’t answering yet. It can’t while their screen is off or another app is in front: ask them to come back to the game');
+        else if (now - tOpen > 3000) say('Found the room. Waiting for the host’s game to answer…');
+        if (now - tOpen > 60000) fail('The host’s game didn’t answer. Ask them to keep the game open on screen while you join, then try again');
+        return;
+      }
+      if (!tLink) { // the host answered: now the two devices find a path to each other
+        say('Connecting to the host…');
+        if (ice === 'failed' || now - tIce > 20000) fail(NO_LINK);
+        return;
+      }
+      if (now - tLink > 15000) fail('Connected, but the host’s game didn’t let you in. Check the room is still open, then try again');
+    }, 250);
     peer.on('error', (e) => {
-      if (!done) { clearTimeout(timer); fail(e.type === 'peer-unavailable' ? 'No room with that code: check it, or ask the host to create the room again' : netError(e)); return; }
+      if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code right now. Check the code; if it’s right, the host’s game may have been in the background a while (screen off or another app open): ask them to come back to it and try again, as the same code still works' : netError(e)); return; }
       if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
       else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
     });
     peer.on('open', () => {
+      if (done) return;
+      tOpen = performance.now();
       const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
-      link = { send: (m) => { try { conn.send(m); } catch (e) { /* closing */ } }, close: () => conn.close() };
-      conn.on('open', () => conn.send(hello));
+      const send = wire(conn);
+      link = { send, close: () => conn.close() };
+      conn.on('iceStateChanged', (s) => { ice = s; if (!tIce && s !== 'new') tIce = performance.now(); });
+      const pc = conn.peerConnection; // (the host's answer is the host answering, even when ICE never gets as far as checking)
+      if (pc) pc.addEventListener('signalingstatechange', () => { if (!tIce && pc.signalingState === 'stable') tIce = performance.now(); });
+      conn.on('open', () => { tLink = performance.now(); if (!tIce) tIce = tLink; say('Connected. Waiting for the host to let you in…'); send(hello); });
       conn.on('data', onMsg);
-      conn.on('close', () => { if (done) closeAll('The host left the room'); });
-      conn.on('error', () => { if (done) closeAll('Lost the connection to the host'); });
+      conn.on('close', () => { if (done) closeAll('The host left the room'); else fail(ice === 'failed' ? NO_LINK : 'The host’s device closed the connection: try again'); });
+      conn.on('error', (e) => {
+        if (e && e.type === 'message-too-big') return; // (a refused message isn't a lost link)
+        if (done) closeAll('Lost the connection to the host');
+        else if (e && e.type === 'negotiation-failed') ice = 'failed';
+      });
     });
   });
   // the host has gone quiet for too long: give up
@@ -244,6 +323,7 @@ const Net = (() => {
 
   // ---------------------------------------------------------------- leaving
   N.leave = (quiet) => {
+    if (pendingJoin) { const f = pendingJoin; pendingJoin = null; f('Cancelled', true); } // (a join still under way stops here)
     const was = N.active;
     if (was && !quiet) {
       if (N.isHost) for (const [, l] of links) { try { l.send({ t: 'closed', f: 1, reason: 'The host closed the room' }); } catch (e) { /* gone */ } }
@@ -272,6 +352,12 @@ const Net = (() => {
       default: return (e && e.message) || 'Connection failed';
     }
   }
+  N._t = { wire, unwire, HOST_ONLY }; // (for the tests)
   addEventListener('pagehide', () => { if (N.active) N.leave(); });
+  // back on screen after a phone put the game to sleep: get back onto the matchmaking server at once, so
+  // friends waiting to join get through (the delayed reconnect on 'disconnected' still covers the rest)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && N.active && peer && peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch (e) { /* gone */ } }
+  });
   return N;
 })();

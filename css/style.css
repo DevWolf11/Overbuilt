@@ -408,6 +408,7 @@ kbd {
 .home-btn:hover, .mode-card:hover { border-color: var(--amber); }
 .home-btn:focus-visible, .mode-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .home-btn.primary { background: var(--amber); color: #1a1205; border-color: var(--amber); }
+.home-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .home-btn.primary .hb-sub { color: rgba(26, 18, 5, 0.75); }
 .home-btn.resume { border-color: var(--cyan); }
 .hb-name, .mode-name { font-weight: 700; font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -797,6 +798,7 @@ kbd {
 .mp-set input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--amber); }
 .mp-set .val { font: 500 13px var(--mono); color: var(--text); }
 .mp-explain { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.mp-explain.mp-stay { color: var(--amber); }
 .mp-chat { align-self: stretch; }
 .mp-chat-log { flex: 1; min-height: 160px; max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.35; -webkit-user-select: text; user-select: text; }
 .mp-chat-log .sys { color: var(--muted); font-style: italic; }
