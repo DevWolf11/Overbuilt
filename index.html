@@ -164,12 +164,28 @@
       </div>
     </div>
     <p id="pi-specs" class="pi-specs"></p>
+    <div id="pi-depth" class="pi-block" hidden>
+      <div class="pi-row"><span id="pi-z-label" class="pi-label">Depth</span><output id="pi-z-val" class="pi-val" for="pi-z"></output></div>
+      <div class="pi-row">
+        <button id="btn-z-in" class="btn small icon-only pi-step" aria-label="In ([)" title="In ([)">−</button>
+        <input id="pi-z" type="range" min="-4" max="4" step="0.05" value="0" aria-label="Depth across the craft">
+        <button id="btn-z-out" class="btn small icon-only pi-step" aria-label="Out (])" title="Out (])">+</button>
+      </div>
+    </div>
+    <div id="pi-paint" class="pi-block" hidden>
+      <div class="pi-row"><span class="pi-label">Paint</span><span class="pi-fill"></span>
+        <button id="btn-match" class="btn small" title="Paint it like the part it hangs on (M)">Match</button>
+        <button id="btn-paint-all" class="btn small" title="Paint the whole craft like this part">All</button>
+      </div>
+      <div id="pi-skins" class="pi-skins" role="radiogroup" aria-label="Paint"></div>
+    </div>
     <p id="pi-desc" class="pi-desc"></p>
   </section>
 
   <div class="fit-col">
     <button id="btn-paste" class="btn small" data-icon="paste" title="Paste the copied parts (Ctrl+V)" hidden>Paste</button>
     <button id="btn-select" class="btn small toggle" data-icon="select" aria-pressed="false" title="Select several parts: click or tap them, or drag a box (or hold Shift)">Select</button>
+    <button id="btn-grid" class="btn small toggle" data-icon="grid" aria-pressed="false" title="Grid: snap parts to a quarter-metre grid (G)">Grid</button>
     <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
   </div>
   <div id="sel-box" class="sel-box" hidden></div>

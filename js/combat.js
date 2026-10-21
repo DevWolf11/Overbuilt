@@ -53,14 +53,16 @@ const Combat = (() => {
     if (p.hp <= 0) destroyPart(v, p, cause, sim);
   }
   // A part at zero health: engines, tanks, loaded weapons and cockpits blow up; the rest break off.
+  // A pair goes up where each one hangs, its fuel shared between them.
   function destroyPart(v, p, cause, sim) {
-    const at = v.toWorld(p.x, p.y, 0), b = v.body;
+    const b = v.body, zs = partZs(p), n = zs.length, at = (z) => v.toWorld(p.x, p.y, z);
     const wk = p.def.weapon && p.def.weapon.kind, fuel = p.fuel || 0, stores = wk === 'rocket' || wk === 'missile' || wk === 'bomb' ? p.ammo || 0 : 0;
     const boom = p.def.thrust || fuel > 50 || stores > 0 || p.def.control;
+    const fat = zs.map(at), sat = (stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
     if (boom) sim.breakParts(v, [p], cause);
     else sim.ripParts(v, [p], cause);
-    if (fuel > 500) explode(b, at, 4 + Math.sqrt(fuel) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
-    if (stores) explode(b, at, p.def.weapon.blast * 0.6, p.def.weapon.dmg * 0.5, null, sim, true);
+    if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / n) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
+    if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, p.def.weapon.dmg * 0.5, null, sim, true);
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
   }
   // Hitting the ground a bit too hard dents a part (once per bump) instead of breaking it outright.
@@ -73,12 +75,11 @@ const Combat = (() => {
   }
 
   // ---------------------------------------------------------------- hit tests
-  // A part's box in part space: its rectangle, and across (z) its depth, wing span or twin pods.
+  // A part's boxes in part space: its rectangle, and across (z) its depth, wing span or wheel track around
+  // where it sits; a pair, one box at each side (a thin pod a little fatter, to be hittable).
   function boxesOf(p) {
-    const r = partRect(p), d = p.def;
-    if (d.twinZ) { const hw = Math.max(d.w, 0.6) / 2; return [[r.l, r.r, r.b, r.t, d.twinZ - hw, d.twinZ + hw], [r.l, r.r, r.b, r.t, -d.twinZ - hw, -d.twinZ + hw]]; }
-    const hz = d.wheel ? (d.wheel.track || 0) / 2 + 0.3 : partDepth(p) / 2;
-    return [[r.l, r.r, r.b, r.t, -hz, hz]];
+    const r = partRect(p), d = p.def, hz = d.twinZ ? Math.max(d.w, 0.6) / 2 : d.wheel ? (d.wheel.track || 0) / 2 + 0.3 : partDepth(p) / 2;
+    return partZs(p).map((z) => [r.l, r.r, r.b, r.t, z - hz, z + hz]);
   }
   function segBox(o, e, B) { // segment o->e against an axis-aligned box: entry fraction, or -1
     let t0 = 0, t1 = 1;
@@ -134,7 +135,7 @@ const Combat = (() => {
       for (const p of v.parts.slice()) {
         if (!v.parts.includes(p)) continue;
         let d = Infinity;
-        for (const s of p.def.twinZ ? [-1, 1] : [0]) { const w = v.toWorld(p.x, p.y, s * (p.def.twinZ || 0)); d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z)); }
+        for (const z of partZs(p)) { const w = v.toWorld(p.x, p.y, z); d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z)); }
         d -= Math.max(p.def.w, p.def.h) / 2;
         if (d >= blast) continue;
         const k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
@@ -169,6 +170,7 @@ const Combat = (() => {
   const radarOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
   function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.range; }
   // How hard a craft is to see on radar (0..0.75): the stealthy share of its hull, less for each thing hung outside.
+  // (Paint never counts: a part's skin is for looks only.)
   function stealthOf(v) {
     let a = 0, s = 0, ext = 0;
     for (const p of v.parts) {
@@ -180,16 +182,33 @@ const Combat = (() => {
     return a ? clamp(s / a - 0.12 * ext, 0, 0.75) : 0;
   }
   const jams = (v) => !!v && !!v.parts && v.parts.some((p) => p.def.ecm);
+  // where a part sits across (part z): a pair's copy on one side (side ±1), else the part itself
+  const zAt = (p, side) => (p.def.twinZ ? side * partZ(p) : partZ(p));
   // where on the part a round leaves: the muzzle, the pod's mouth, the store on the pylon (part space)
   function muzzle(p, side) {
-    const d = p.def, z = d.twinZ ? side * d.twinZ : 0;
-    if (d.bay) { const q = partPt(p, d.w * 0.6, ((p.ammo || 0) % 2 ? 0.6 : -0.6)); return { x: q.x, y: q.y, z: 0 }; } // out of the belly
+    const d = p.def, z = zAt(p, side);
+    if (d.bay) { const q = partPt(p, d.w * 0.6, ((p.ammo || 0) % 2 ? 0.6 : -0.6)); return { x: q.x, y: q.y, z }; } // out of the belly
     const store = d.shape === 'missile' || d.shape === 'bomb', pod = d.shape === 'gunpod' || d.shape === 'rocketpod';
     const off = pod || store ? d.w * 0.12 : 0, ly = store ? 0 : d.h / 2;
     const q = partPt(p, off, ly);
     return { x: q.x, y: q.y, z };
   }
+  // the side a part fires from next (+1 the right, -1 the left, 0 the middle): a pair of rocket pods alternates,
+  // a pair's missiles and bombs leave as the 3D model lets them go (right, then left); one part, where it sits
+  const sideOf = (z) => (z > 0.05 ? 1 : z < -0.05 ? -1 : 0);
+  const nextSide = (p) => (!p.def.twinZ ? sideOf(partZ(p)) : p.def.weapon.kind === 'rocket' ? -(p.side || 1) : (p.ammo || 0) % 2 ? -1 : 1);
+  // Racks and pods take turns: the next round leaves from the other side to the last one, from the rack that has
+  // waited longest (p.relN: when it last let one go), so stores and pods all along both wings empty together.
+  let relSeq = 0;
+  function nextStore(sys) {
+    const ready = sys.parts.filter((p) => (p.ammo || 0) > 0), far = ready.filter((p) => !sys.last || nextSide(p) !== sys.last);
+    let best = null;
+    for (const p of far.length ? far : ready) if (!best || (p.relN || 0) < (best.relN || 0)) best = p;
+    if (best) sys.last = nextSide(best);
+    return best;
+  }
   function release(v, p) { // one store gone: lighter (and the pylon shows it)
+    p.relN = ++relSeq;
     p.ammo = Math.max(0, (p.ammo || 0) - 1);
     const each = p.def.weapon.each || 0;
     p.store = p.ammo * each;
@@ -202,7 +221,8 @@ const Combat = (() => {
     while (p.cool <= 0 && (p.ammo || 0) > 0) {
       p.cool += 1 / w.rate;
       p.side = twin ? -(p.side || 1) : 0;
-      const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0);
+      // guns out along the wings are toed in to meet at the pipper, 600 m ahead (axis() only turns: unit in, unit out)
+      const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), cz = Math.abs(m.z) > 0.3 ? -m.z / 600 : 0, cl = Math.hypot(1, cz), dir = v.axis(ax.x / cl, ax.y / cl, cz / cl);
       const s = w.spread || 0.004, jx = (Math.random() - 0.5) * 2 * s, jy = (Math.random() - 0.5) * 2 * s, jz = (Math.random() - 0.5) * 2 * s;
       const dx = dir.x + jx, dy = dir.y + jy, dz = dir.z + jz, dl = len(dx, dy, dz);
       p.shots = (p.shots || 0) + 1;
@@ -219,7 +239,7 @@ const Combat = (() => {
   }
   function fireRocket(v, p, enemy, sim) {
     const w = p.def.weapon;
-    p.side = -(p.side || 1);
+    p.side = nextSide(p);
     const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0);
     const s = { k: 'rocket', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + dir.x * w.speed, vy: v.vy + dir.y * w.speed, vz: v.vz + dir.z * w.speed,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: 9, burn: w.burn, accel: w.accel, dmg: w.dmg, blast: w.blast, owner: v, enemy };
@@ -231,7 +251,7 @@ const Combat = (() => {
   }
   function launchMissile(v, p, target, sim) {
     const w = p.def.weapon;
-    p.side = -(p.side || 1);
+    p.side = nextSide(p);
     const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0), down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 };
     const s = { k: 'missile', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + down.x * 4, vy: v.vy + down.y * 4, vz: v.vz + down.z * 4,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: w.life || 24, burn: w.burn, accel: w.accel, vmax: w.vmax, turn: w.turn, dmg: w.dmg, blast: w.blast,
@@ -244,7 +264,7 @@ const Combat = (() => {
   }
   function dropBomb(v, p, sim) {
     const w = p.def.weapon;
-    p.side = -(p.side || 1);
+    p.side = nextSide(p);
     const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 };
     const ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0);
     const s = { k: 'bomb', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + down.x * 2, vy: v.vy + down.y * 2, vz: v.vz + down.z * 2,
@@ -260,10 +280,10 @@ const Combat = (() => {
   function flares(v, sim, chaff) {
     const p = v.parts.find((q) => q.def.weapon && q.def.weapon.kind === 'flare' && q.ammo > 0);
     if (!p) return false;
-    const wp = v.toWorld(p.x, p.y, 0), out = [];
+    const wp = v.toWorld(p.x, p.y, partZc(p)), out = [];
     for (const s of [-1, 1]) {
-      const side = v.axis(0, 0, s), down = v.kind === 'plane' ? v.axis(1, 0, 0) : side;
-      out.push({ b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.7 + side.x * 25 + down.x * 15, vy: v.vy * 0.7 + side.y * 25 + down.y * 15, vz: v.vz * 0.7 + side.z * 25 + down.z * 15, t: 0, life: 4, flare: true });
+      const side = v.axis(0, 0, s), down = v.kind === 'plane' ? v.axis(1, 0, 0) : side, fp = p.def.twinZ ? v.toWorld(p.x, p.y, zAt(p, s)) : wp; // (a pair: each from its own side)
+      out.push({ b: v.body, x: fp.x, y: fp.y, z: fp.z, vx: v.vx * 0.7 + side.x * 25 + down.x * 15, vy: v.vy * 0.7 + side.y * 25 + down.y * 15, vz: v.vz * 0.7 + side.z * 25 + down.z * 15, t: 0, life: 4, flare: true });
       p.ammo--;
       if (p.ammo <= 0) break;
     }
@@ -290,7 +310,7 @@ const Combat = (() => {
     const want = { yaw: p.aimYaw || 0, el: p.aimEl || 0 };
     let on = false;
     if (best) {
-      const tp = refPos(best), tof = bd / w.speed, at = v.toWorld(p.x, p.y, 0);
+      const tp = refPos(best), tof = bd / w.speed, at = v.toWorld(p.x, p.y, partZc(p));
       const ax = tp.x + (tp.vx - v.vx) * tof - at.x, ay = tp.y + (tp.vy - v.vy) * tof - at.y, az = tp.z + (tp.vz - v.vz) * tof - at.z;
       const o = v.toLocal(v.x, v.y, v.z), q = v.toLocal(v.x + ax, v.y + ay, v.z + az);
       let lx = q.x - o.x, ly = q.y - o.y; const lz = q.z - o.z;
@@ -314,7 +334,8 @@ const Combat = (() => {
     const ce = Math.cos(p.aimEl || 0), gx0 = -Math.sin(p.aimEl || 0), gy0 = ce * Math.cos(p.aimYaw || 0), gz = ce * Math.sin(p.aimYaw || 0);
     let gx = gx0, gy = gy0;
     for (let i = 0; i < k; i++) { const t2 = gx; gx = -gy; gy = t2; }
-    const dir = v.axis(gx, gy, gz), wp = v.toWorld(p.x, p.y, 0), s = w.spread;
+    if (p.def.twinZ) p.side = -(p.side || 1); // (a pair: each side in turn)
+    const dir = v.axis(gx, gy, gz), wp = v.toWorld(p.x, p.y, zAt(p, p.side)), s = w.spread;
     const dx = dir.x + (Math.random() - 0.5) * s, dyy = dir.y + (Math.random() - 0.5) * s, dz = dir.z + (Math.random() - 0.5) * s;
     p.shots = (p.shots || 0) + 1;
     S.shots.push({ k: 'bullet', b: v.body, x: wp.x + dir.x * 1.5, y: wp.y + dir.y * 1.5, z: wp.z + dir.z * 1.5, vx: v.vx + dx * w.speed, vy: v.vy + dyy * w.speed, vz: v.vz + dz * w.speed,
@@ -355,10 +376,9 @@ const Combat = (() => {
       if (S.cand && S.toneT <= 0) { Sound.tone(S.lock ? 1250 : 820, S.lock ? 0.09 : 0.06, S.lock ? 0.06 : 0.035); S.toneT = S.lock ? 0.1 : 0.32; }
     } else { S.lock = S.cand = null; S.lockT = 0; }
     if (!edge) return;
-    const ready = cur.parts.filter((p) => (p.ammo || 0) > 0);
-    if (!ready.length) { F.toast(`${cur.def.name}: empty`); return; }
-    if (w.kind === 'missile') launchMissile(v, ready[0], S.lock, F);
-    else if (w.kind === 'bomb') dropBomb(v, ready[0], F);
+    if (!cur.parts.some((p) => (p.ammo || 0) > 0)) { F.toast(`${cur.def.name}: empty`); return; }
+    if (w.kind === 'missile') launchMissile(v, nextStore(cur), S.lock, F);
+    else if (w.kind === 'bomb') dropBomb(v, nextStore(cur), F);
   }
   const noseDir = (v) => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); };
   // chaff near a radar-locked target can break the lock (each cloud once): about 1 in 7, 3 in 5 if it's crossing the beam
@@ -403,7 +423,7 @@ const Combat = (() => {
     if (cur && cur.w.kind === 'gun') for (const p of cur.parts) fireGun(v, p, h, false, F);
     else if (cur && cur.w.kind === 'rocket') {
       S.rocketT = (S.rocketT || 0) - h;
-      if (S.rocketT <= 0) { const p = cur.parts.find((q) => q.ammo > 0); if (p) { fireRocket(v, p, false, F); S.rocketT = 1 / cur.w.rate; } }
+      if (S.rocketT <= 0) { const p = nextStore(cur); if (p) { fireRocket(v, p, false, F); S.rocketT = 1 / cur.w.rate; } } // (the pods ripple in turn)
     }
     if (typeof MP !== 'undefined' && MP.shared) {
       // the others fire our gun for show: tell them when it starts and stops (and switches, and when we go down)
@@ -995,14 +1015,14 @@ const Combat = (() => {
     // damaged parts smoke, badly damaged ones burn; leaking tanks lose fuel
     S.smokeT -= dt;
     if (S.smokeT <= 0) {
-      S.smokeT = 0.07;
+      S.smokeT = 0.07; S.smokeN = (S.smokeN || 0) + 1;
       for (const o of F.vessels) {
         if (o.dead || o.body !== v.body || len(o.x - v.x, o.y - v.y, o.z - v.z) > 5000) continue;
         for (const p of o.parts) {
           if (p.hp == null) continue;
           const f = hpFrac(p);
           if (f > 0.6) continue;
-          const wp = o.toWorld(p.x, p.y, 0);
+          const zs = partZs(p), wp = o.toWorld(p.x, p.y, zs[S.smokeN % zs.length]); // (a pair: each side in turn)
           FX.add({ kind: 'smoke', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.85, vy: o.vy * 0.85, vz: o.vz * 0.85, max: 2.5, size: 0.8, grow: 4, color: f < 0.3 ? '#2b2d31' : '#5d6168', alpha: 0.65 });
           if (f < 0.3) FX.add({ kind: 'fire', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.9, vy: o.vy * 0.9, vz: o.vz * 0.9, max: 0.35, size: 0.8, grow: 1.2, color: '#ff9a3c', alpha: 1 });
           if (f < 0.5 && p.fuel > 0) p.fuel = Math.max(0, p.fuel - (0.5 - f) * 40 * 0.07);
