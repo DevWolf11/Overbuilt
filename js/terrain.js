@@ -173,7 +173,7 @@ function setEarthData(d) {
   if (d.places) { EM.regions = d.places.regions; EM.nCountries = d.places.nCountries; EM.cities = d.places.cities; indexCities(); }
   if (d.lines) indexLines(d.lines);
   EM.state = 'ready';
-  cfgs.delete(EARTH); hc.clear(); hwc.clear(); hcBody = null;
+  cfgs.delete(EARTH); hc.clear(); hwc.clear(); hcBody = null; rawA.fill(NaN);
   EARTH.terrainMax = 1700;
   EARTH.mapped = true;
 }
@@ -392,8 +392,18 @@ function coastN(c, al, z, M) {
   const R = c.R, a = al / R, ph = z / R, cp = Math.cos(ph), x = R * cp * Math.cos(a), y = R * cp * Math.sin(a), w = R * Math.sin(ph);
   return 6 * k * ((vnoise3(x / 700, y / 700, w / 700, c.seed + 21) * 2 - 1) * 0.7 + (vnoise3(x / 230, y / 230, w / 230, c.seed + 22) * 2 - 1) * 0.3);
 }
-// Earth along the equator (the 2D profile's job when there is no map).
+// Earth along the equator (the 2D profile's job when there is no map). It depends on nothing but a (until the
+// map comes in), and ground contact asks again at the same angle a few calls later (under a point, then its
+// slope north and south, then whether it's water), so the last four answers are kept.
+const rawA = new Float64Array(4).fill(NaN), rawH = new Float64Array(4);
+let rawI = 0;
 function earthRaw(a) {
+  for (let i = 0; i < 4; i++) if (rawA[i] === a) return rawH[i];
+  const h = earthRaw0(a);
+  rawA[rawI] = a; rawH[rawI] = h; rawI = (rawI + 1) & 3;
+  return h;
+}
+function earthRaw0(a) {
   const c = cfgOf(EARTH), R = c.R, e = -wrapAngle(a - EARTH.padAngle) * R;
   let Ps = 0;
   for (let o = c.short; o < c.k.length; o++) Ps += c.amp[o] * Math.sin(c.k[o] * a + c.ph[o]);
@@ -442,13 +452,14 @@ function grid(nc, nr, no) {
     z: F(nr), phi: F(nr), dz: F(nr), rs: F(nr * no), rc: F(nr * no),
   };
 }
-function setCol(c, G, i, a, dx) {
+// lazy: leave the track's own height (th) to height(), which works it out only where the track's ground shows
+function setCol(c, G, i, a, dx, lazy) {
   const no = c.k.length, R = c.R;
   G.ang[i] = a; G.dx[i] = dx;
   let al = (a % TAU) * R;
   if (al < 0) al += TAU * R;
   G.al[i] = al;
-  G.th[i] = terrainHeight(c.b, a);
+  G.th[i] = lazy ? NaN : terrainHeight(c.b, a);
   for (let o = 0; o < no; o++) { const q = c.k[o] * a + c.ph[o]; G.cs[i * no + o] = Math.sin(q); G.cc[i * no + o] = Math.cos(q); }
   if (c.ck) { const u = c.ck * a + 0.7 - Math.PI / 2; G.ch[i] = u - Math.PI * Math.round(u / Math.PI); }
   if (c.b === EARTH) {
@@ -573,8 +584,9 @@ function deckAt(b, a, z, m = 0) {
   return NaN;
 }
 function height(c, G, i, j, cont) {
-  EW.pres = EW.road = EW.river = EW.lake = 0;
   const B = builtW(c, G, i, j);
+  if (B > 0 && G.th[i] !== G.th[i]) G.th[i] = terrainHeight(c.b, G.ang[i]); // (a lazy column's: see setCol)
+  EW.pres = EW.road = EW.river = EW.lake = 0;
   if (B >= 1) { crDark = 0; return G.th[i]; }
   let hn = natural(c, G, i, j, cont);
   if (c.b === EARTH && fieldAt(G.ea[i], G.z[j]).w > 0) { // an airfield: level ground, no rivers or roads across it
@@ -585,7 +597,7 @@ function height(c, G, i, j, cont) {
 }
 // Exact 3D terrain at one point (slow path: camera clamp away from the patch).
 function h3dAt(c, a, z) {
-  setCol(c, c.G1, 0, a, 0); setRow(c, c.G1, 0, z, 0);
+  setCol(c, c.G1, 0, a, 0, true); setRow(c, c.G1, 0, z, 0);
   return height(c, c.G1, 0, 0, contAt(c, a, z / c.R));
 }
 // ------------------------------------------------------------------ physics API
@@ -600,22 +612,11 @@ function cell(c, n, ia, iz) {
   if (h === undefined) { h = h3dAt(c, (ia * TAU) / n, iz * GS); hc.set(k, h); hwc.set(k, EW.pres > 0.5 ? EW.level : NaN); }
   return h;
 }
-// Inland water (lakes, rivers) at a point: its surface, or NaN. Earth with the map only.
-function inlandAt(b, a, z) {
-  if (!b.mapped) return NaN;
-  const c = cfgOf(b), half = trackHalf(-wrapAngle(a - EARTH.padAngle) * c.R);
-  if (Math.abs(z) <= half) return NaN;
-  const n = Math.max(8, Math.round((TAU * c.R) / GS));
-  let fa = ((a % TAU) / TAU) * n;
-  if (fa < 0) fa += n;
-  const ia = Math.round(fa), iz = Math.round(z / GS);
-  cell(c, n, ia, iz);
-  return hwc.get(iz * n + (((ia % n) + n) % n));
-}
-function heightAt(b, a, z) {
-  const c = cfgOf(b), R = c.R;
-  const half = b === EARTH ? trackHalf(-wrapAngle(a - EARTH.padAngle) * R) : 25;
-  if (Math.abs(z) <= half) return terrainHeight(b, a);
+// On the track (|z| within its half-width here) the ground is the 2D profile, and no lakes or rivers lie.
+const onTrack = (b, c, a, z) => Math.abs(z) <= (b === EARTH ? trackHalf(-wrapAngle(a - EARTH.padAngle) * c.R) : 25);
+// Off the track: the ground on the lattice, and its inland water (lakes, rivers: the surface, or NaN; the map only)
+function latticeAt(b, c, a, z) {
+  const R = c.R;
   if (hcBody !== b || hc.size > 80000) { hc.clear(); hwc.clear(); hcBody = b; }
   const n = Math.max(8, Math.round((TAU * R) / GS));
   let fa = ((a % TAU) / TAU) * n;
@@ -624,19 +625,39 @@ function heightAt(b, a, z) {
   const h0 = lerp(cell(c, n, ia, iz), cell(c, n, ia + 1, iz), tx), h1 = lerp(cell(c, n, ia, iz + 1), cell(c, n, ia + 1, iz + 1), tx);
   return lerp(h0, h1, tz);
 }
+function inlandOff(c, a, z) {
+  const n = Math.max(8, Math.round((TAU * c.R) / GS));
+  let fa = ((a % TAU) / TAU) * n;
+  if (fa < 0) fa += n;
+  const ia = Math.round(fa), iz = Math.round(z / GS);
+  cell(c, n, ia, iz);
+  return hwc.get(iz * n + (((ia % n) + n) % n));
+}
+// Inland water at a point: its surface, or NaN. Earth with the map only.
+function inlandAt(b, a, z) {
+  if (!b.mapped) return NaN;
+  const c = cfgOf(b);
+  return onTrack(b, c, a, z) ? NaN : inlandOff(c, a, z);
+}
+function heightAt(b, a, z) {
+  const c = cfgOf(b);
+  return onTrack(b, c, a, z) ? terrainHeight(b, a) : latticeAt(b, c, a, z);
+}
+// What a craft stands on: a deck, the sea's surface, a lake's or river's, or the ground.
 function surfaceAt(b, a, z) {
   const dk = deckAt(b, a, z);
   if (dk === dk) return dk;
-  const h = heightAt(b, a, z);
+  const c = cfgOf(b), on = onTrack(b, c, a, z), h = on ? terrainHeight(b, a) : latticeAt(b, c, a, z);
   if (b.ocean && h < 0) return 0;
-  if (b.mapped) { const w = inlandAt(b, a, z); if (w > h) return w; }
+  if (b.mapped && !on) { const w = inlandOff(c, a, z); if (w > h) return w; }
   return h;
 }
 function waterAt3(b, a, z) {
-  if (deckAt(b, a, z) === deckAt(b, a, z)) return false;
-  const h = heightAt(b, a, z);
+  const dk = deckAt(b, a, z);
+  if (dk === dk) return false;
+  const c = cfgOf(b), on = onTrack(b, c, a, z), h = on ? terrainHeight(b, a) : latticeAt(b, c, a, z);
   if (b.ocean && h < 0) return true;
-  return b.mapped && inlandAt(b, a, z) > h;
+  return b.mapped && !on && inlandOff(c, a, z) > h;
 }
 // Where a body-relative point sits: angle, depth along the surface, distance from the centre.
 function locate(b, rx, ry, rz, o = {}) {
@@ -647,7 +668,8 @@ function locate(b, rx, ry, rz, o = {}) {
 // Outward ground normal (sim axes) at (a, z), from the slopes east and north.
 function normalAt(b, a, z, o = v3()) {
   const R = b.radius, lat = z / R, cl = Math.max(0.05, Math.cos(lat)), sl = Math.sin(lat), ca = Math.cos(a), sa = Math.sin(a), d = 1.5;
-  if (deckAt(b, a, z) === deckAt(b, a, z)) { o.x = cl * ca; o.y = cl * sa; o.z = sl; return norm3(o); } // a deck is flat to its edge
+  const dk = deckAt(b, a, z);
+  if (dk === dk) { o.x = cl * ca; o.y = cl * sa; o.z = sl; return norm3(o); } // a deck is flat to its edge
   const da = d / (R * cl);
   const se = (surfaceAt(b, a - da, z) - surfaceAt(b, a + da, z)) / (2 * d); // east is towards decreasing a
   const sn = (surfaceAt(b, a, z + d) - surfaceAt(b, a, z - d)) / (2 * d);

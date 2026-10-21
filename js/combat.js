@@ -852,9 +852,12 @@ const Combat = (() => {
       const s = def.speed * dt, ne = t.e + Math.cos(t.heading) * s, nz = t.z - Math.sin(t.heading) * s;
       if (def.land ? landOk(ne, nz) : seaOk(ne, nz)) { t.e = ne; t.z = nz; } else t.heading += Math.PI * (0.6 + rnd() * 0.8);
     }
+    // one that never moves (a radar, a bunker, AA, a SAM site) stays where it was found: no ground to look up
+    // (the map is in before any target is placed)
+    if (!def.speed && t.pos && t.e === t.posE && t.z === t.posZ) return;
     const g = def.sea ? 0 : groundAt(t.e, t.z), p0 = t.pos, p = at(t.e, t.z, g);
     t.vel = t.alive && def.speed && p0 && dt > 0 ? { x: (p.x - p0.x) / dt, y: (p.y - p0.y) / dt, z: (p.z - p0.z) / dt } : null;
-    t.pos = p; t.h = g;
+    t.pos = p; t.h = g; t.posE = t.e; t.posZ = t.z;
   }
   // hostile AA: bursts of tracers aimed ahead of the player, while in range
   function aaFire(t, h, F) {

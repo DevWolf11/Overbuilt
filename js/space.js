@@ -182,12 +182,16 @@ function terrainRaw(b, ang) {
   return h;
 }
 function terrainHeight(b, ang) {
-  let h = terrainRaw(b, ang);
-  if (b.flats) {
-    for (const f of b.flats) {
-      const d = Math.abs(wrapAngle(ang - f.ang)) * b.radius;
-      if (d < f.half + f.blend) h = lerp(f.height, h, smoothstep(f.half, f.half + f.blend, d));
-    }
+  const F = b.flats;
+  if (!F) return terrainRaw(b, ang);
+  // on a flat's own level ground its blend is exactly 0 (lerp gives its height whatever came before), so the
+  // natural ground under the pad, runway or causeway (the real map's is slow to work out) is never needed there
+  let k = F.length;
+  while (--k >= 0 && !(Math.abs(wrapAngle(ang - F[k].ang)) * b.radius <= F[k].half));
+  let h = k >= 0 ? F[k].height : terrainRaw(b, ang);
+  for (let i = k + 1; i < F.length; i++) {
+    const f = F[i], d = Math.abs(wrapAngle(ang - f.ang)) * b.radius;
+    if (d < f.half + f.blend) h = lerp(f.height, h, smoothstep(f.half, f.half + f.blend, d));
   }
   return h;
 }

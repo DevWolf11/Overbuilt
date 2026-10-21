@@ -3,8 +3,10 @@
 
 const Sound = {
   ctx: null,
+  live: false, // a flight is under way: the engine and wind loops are wanted
+  quietAt: 0,  // performance.now() once the last one-off sound (a click in the hangar) has played, and a little after
   unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) { this.settle(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -30,28 +32,60 @@ const Sound = {
       const e = loop('lowpass', 300); this.engFilter = e.f; this.engGain = e.g;
       const w = loop('bandpass', 700); this.windFilter = w.f; this.windGain = w.g;
       this.windFilter.Q.value = 0.6;
+      this.settle();
     } catch (err) { this.ctx = null; }
+  },
+  // The context only runs while something needs it: a flight under way, or a one-off sound for as long as it
+  // plays. Otherwise, and whenever the game is out of sight, it is suspended, so a phone's audio can sleep.
+  setLive(on) { this.live = !!on; this.settle(); },
+  oneOff(dur) { this.quietAt = Math.max(this.quietAt, performance.now() + dur * 1000 + 3000); this.settle(); },
+  settle() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    clearTimeout(this.napT);
+    const now = performance.now(), on = !document.hidden && (this.live || now < this.quietAt);
+    if (on) {
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+      if (!this.live) this.napT = setTimeout(() => this.settle(), this.quietAt - now + 20);
+    } else if (ctx.state === 'running') { // (once the engine and wind have faded out; at once when hidden)
+      this.napT = setTimeout(() => {
+        if (document.hidden || !(this.live || performance.now() < this.quietAt)) ctx.suspend().catch(() => {});
+      }, document.hidden ? 100 : 1000);
+    }
+  },
+  // out of sight: fade out and sleep (the frames stop, so nothing else would turn the engine down); back: fade in
+  onVisibility() {
+    if (!this.ctx) return;
+    if (document.hidden) this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02); else this.applyVolume();
+    this.settle();
   },
   applyVolume() {
     if (!this.master) return;
     this.master.gain.setTargetAtTime(Settings.get('volume'), this.ctx.currentTime, 0.05);
   },
+  // Glide a loop's parameter towards v, but only once v has moved more than eps from where it was last sent
+  // (engine and wind are set every frame, mostly to what they already were)
+  glide(k, param, v, tau, eps) {
+    const A = this.aims || (this.aims = {});
+    if (Math.abs(v - A[k]) <= eps) return;
+    A[k] = v;
+    param.setTargetAtTime(v, this.ctx.currentTime, tau);
+  },
   engine(level, air) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime;
     const g = clamp(level, 0, 1) * (0.25 + 0.75 * clamp(air, 0, 1)) * 0.9;
-    this.engGain.gain.setTargetAtTime(g, t, 0.08);
-    this.engFilter.frequency.setTargetAtTime(180 + 520 * clamp(level, 0, 1) * (0.4 + 0.6 * air), t, 0.1);
+    this.glide('eg', this.engGain.gain, g, 0.08, 1e-3);
+    this.glide('ef', this.engFilter.frequency, 180 + 520 * clamp(level, 0, 1) * (0.4 + 0.6 * air), 0.1, 0.5);
   },
   wind(k) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime;
     k = clamp(k, 0, 1.5);
-    this.windGain.gain.setTargetAtTime(k * 0.35, t, 0.15);
-    this.windFilter.frequency.setTargetAtTime(400 + k * 900, t, 0.2);
+    this.glide('wg', this.windGain.gain, k * 0.35, 0.15, 1e-3);
+    this.glide('wf', this.windFilter.frequency, 400 + k * 900, 0.2, 0.5);
   },
   burst(dur, freq, vol, type = 'lowpass') {
     if (!this.ctx) return;
+    this.oneOff(dur);
     const ctx = this.ctx, t = ctx.currentTime;
     const src = ctx.createBufferSource(); src.buffer = this.noise;
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
@@ -70,6 +104,7 @@ const Sound = {
   // the seeker's growl and lock tone: a sine, not the square beep
   tone(f = 1000, dur = 0.12, vol = 0.05) {
     if (!this.ctx) return;
+    this.oneOff(dur);
     const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'sine'; o.frequency.value = f;
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
@@ -77,6 +112,7 @@ const Sound = {
   },
   beep(f = 880) {
     if (!this.ctx) return;
+    this.oneOff(0.18);
     const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'square'; o.frequency.value = f;
     g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
@@ -85,6 +121,7 @@ const Sound = {
   // Sonic boom: the double crack of an N-wave (bow and tail shocks), then a rolling rumble.
   boom(k = 1) {
     if (!this.ctx) return;
+    this.oneOff(1.8);
     const ctx = this.ctx, t = ctx.currentTime, sr = ctx.sampleRate;
     if (!this.nwave) {
       const len = Math.round(sr * 0.32), buf = ctx.createBuffer(1, len, sr), d = buf.getChannelData(0), n = Math.round(sr * 0.045);
@@ -101,6 +138,7 @@ const Sound = {
   },
   chime() {
     if (!this.ctx) return;
+    this.oneOff(0.9);
     const ctx = this.ctx, t = ctx.currentTime;
     [660, 880, 1320].forEach((f, i) => {
       const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
@@ -111,3 +149,4 @@ const Sound = {
   },
 };
 for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => Sound.unlock(), { passive: true });
+document.addEventListener('visibilitychange', () => Sound.onVisibility());
