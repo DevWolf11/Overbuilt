@@ -1,4 +1,4 @@
-/* Rocket Science Simulator — mission-control HUD over a canvas.
+/* Overbuilt — mission-control HUD over a canvas.
    Layout: full-bleed canvas; HUD panels pinned to the edges, clear of the safe-area insets. */
 :root {
   --space: #05070d;

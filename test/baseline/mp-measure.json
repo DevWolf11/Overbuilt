@@ -1,0 +1,152 @@
+{
+ "hopper": {
+  "span": 2,
+  "length": 7,
+  "height": 2,
+  "mass": 5224
+ },
+ "pathfinder": {
+  "span": 2,
+  "length": 17,
+  "height": 3.5,
+  "mass": 16502
+ },
+ "orbiter": {
+  "span": 2,
+  "length": 16.5,
+  "height": 3.5,
+  "mass": 15652
+ },
+ "probe": {
+  "span": 2,
+  "length": 16.5,
+  "height": 2,
+  "mass": 13639
+ },
+ "lunar": {
+  "span": 2,
+  "length": 23.5,
+  "height": 7,
+  "mass": 34469
+ },
+ "rover": {
+  "span": 3,
+  "length": 26.25,
+  "height": 4.5,
+  "mass": 37709
+ },
+ "ares": {
+  "span": 3,
+  "length": 31.75,
+  "height": 7,
+  "mass": 56097
+ },
+ "skylark": {
+  "span": 13,
+  "length": 8,
+  "height": 4.800000000000001,
+  "mass": 3500
+ },
+ "bushhopper": {
+  "span": 13,
+  "length": 9.2,
+  "height": 3.5,
+  "mass": 2780
+ },
+ "barnstormer": {
+  "span": 13,
+  "length": 8.3,
+  "height": 4.4,
+  "mass": 4140
+ },
+ "hornet": {
+  "span": 11,
+  "length": 11.2,
+  "height": 4.65,
+  "mass": 5570
+ },
+ "viper": {
+  "span": 9.5,
+  "length": 14.2,
+  "height": 4.75,
+  "mass": 9250
+ },
+ "falcon": {
+  "span": 9.5,
+  "length": 13.799999999999999,
+  "height": 4.75,
+  "mass": 9872
+ },
+ "striker": {
+  "span": 11,
+  "length": 11.2,
+  "height": 4.65,
+  "mass": 6772
+ },
+ "bomber": {
+  "span": 28,
+  "length": 19.9,
+  "height": 7.1,
+  "mass": 28310
+ },
+ "mustang": {
+  "span": 11.8,
+  "length": 10.8,
+  "height": 4.800000000000001,
+  "mass": 4960
+ },
+ "camel": {
+  "span": 10,
+  "length": 8,
+  "height": 4.4,
+  "mass": 3390
+ },
+ "kestrel": {
+  "span": 13,
+  "length": 16.3,
+  "height": 4.75,
+  "mass": 9112
+ },
+ "spectre": {
+  "span": 9.5,
+  "length": 17.200000000000003,
+  "height": 3.4,
+  "mass": 9970
+ },
+ "jumbo": {
+  "span": 28,
+  "length": 19.9,
+  "height": 7.1,
+  "mass": 26300
+ },
+ "albatross": {
+  "span": 19,
+  "length": 8.65,
+  "height": 4,
+  "mass": 2830
+ },
+ "seagull": {
+  "span": 13,
+  "length": 8,
+  "height": 4.4,
+  "mass": 3500
+ },
+ "buggy": {
+  "span": 2.2,
+  "length": 3.2,
+  "height": 4,
+  "mass": 1260
+ },
+ "dragonfly": {
+  "span": 10,
+  "length": 4.8999999999999995,
+  "height": 10,
+  "mass": 3232
+ },
+ "hummingbird": {
+  "span": 10,
+  "length": 5.8,
+  "height": 11,
+  "mass": 2672
+ }
+}

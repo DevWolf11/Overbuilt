@@ -1,4 +1,4 @@
-// Bundle the game into one self-contained HTML file: dist/rocket-science-simulator.html
+// Bundle the game into one self-contained HTML file: dist/overbuilt.html
 // Usage: node tools/build-single.mjs [--fragment]
 //   --fragment  omit <!doctype>/<html>/<head>/<body> wrappers (for hosts that add their own skeleton)
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -30,6 +30,6 @@ if (fragment) {
   html = head.trim() + '\n' + body.trim() + '\n';
 }
 mkdirSync(join(root, 'dist'), { recursive: true });
-const out = join(root, 'dist', fragment ? 'rocket-science-simulator.fragment.html' : 'rocket-science-simulator.html');
+const out = join(root, 'dist', fragment ? 'overbuilt.fragment.html' : 'overbuilt.html');
 writeFileSync(out, html);
 console.log(`wrote ${out} (${(html.length / 1024).toFixed(1)} KB)`);

@@ -1,7 +1,7 @@
 {
-  "name": "Rocket Science Simulator",
-  "short_name": "Rocket Sim",
-  "description": "Build rockets, reach orbit and land on the Moon.",
+  "name": "Overbuilt",
+  "short_name": "Overbuilt",
+  "description": "Build any vehicle from parts, then fly, drive and fight anywhere: the real Earth, orbit, the planets, or other players.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

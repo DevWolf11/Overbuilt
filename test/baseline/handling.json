@@ -1,0 +1,17 @@
+{
+ "skylark": "skylark       75 | 0 0 0 0 -230           | 1 4 0.27 15 0.0 ok         | 61 ok 0.0      | ok 0.0 0",
+ "bushhopper": "bushhopper    67 | 0 0 0 0 -197           | 1 5 0.27 15 0.0 ok         | 51 ok 0.0      | ok 0.0 0",
+ "barnstormer": "barnstormer   58 | 0 0 0 0 -166           | 1 3 0.21 10 0.0 ok         | 83 ok 0.0      | ok 0.0 179",
+ "hornet": "hornet       109 | 0 0 0 0 -488           | 0 3 0.18 12 0.0 ok         | 160 ok 0.0     | ok 0.0 0",
+ "viper": "viper         93 | 0 0 0 0 -556           | 0 3 0.24 9 0.0 ok          | 131 ok 0.0     | ok 0.0 0",
+ "falcon": "falcon        96 | 0 0 0 0 -705           | 0 3 0.22 9 0.0 ok          | 130 ok 0.0     | ok 0.0 0",
+ "striker": "striker      120 | 0 0 0 0 -725           | 0 3 0.19 11 0.0 ok         | 161 ok 0.0     | ok 0.0 0",
+ "bomber": "bomber       130 | 0 0 0 0 -483           | 0 5 0.25 15 0.0 ok         | 113 ok 0.0     | ok 0.0 0",
+ "mustang": "mustang       95 | 0 0 0 0 -269           | 1 3 0.24 16 0.0 ok         | 82 ok 0.0      | ok 0.0 0",
+ "camel": "camel         63 | 0 0 0 0 -166           | 1 3 0.26 16 0.0 ok         | 53 ok 0.0      | ok 0.0 0",
+ "kestrel": "kestrel      114 | 0 0 0 0 -485           | 1 2 0.17 15 0.0 ok         | 149 ok 0.0     | ok 0.0 0",
+ "spectre": "spectre       96 | 0 0 0 0 -688           | 0 5 0.28 14 0.0 ok         | 130 ok 0.0     | ok 0.0 0",
+ "jumbo": "jumbo        126 | 0 0 0 0 -493           | 0 5 0.24 15 0.0 ok         | 112 ok 0.0     | ok 0.0 0",
+ "albatross": "albatross     72 | 0 0 0 0 15             | 2 5 0.14 15 0.0 ok         | 51 ok 0.0      | ok 0.0 180",
+ "seagull": "seagull       75 | 0 0 0 0 -211           | 1 4 0.26 15 0.0 ok         | 62 ok 0.0      | ok 0.0 0"
+}
