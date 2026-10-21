@@ -3,8 +3,8 @@
 // room: everyone connects to the host and the host passes messages on (a star). Two ways to connect:
 //  - 'p2p': WebRTC data channels through PeerJS (js/vendor/peer.min.js). Its free cloud server only
 //    introduces the browsers to each other. STUN finds a direct path between them; when there is none (some
-//    routers, mobile networks, VPNs) a TURN relay carries the link. PeerJS's own relays are gone (their names
-//    no longer resolve), so the game lists its own servers in NET_ICE.
+//    routers, mobile networks, VPNs, school networks) a TURN relay carries the link, over port 443 if need be.
+//    PeerJS's own relays are gone (their names no longer resolve), so the game brings its own (N.ice).
 //  - 'local': tabs of the same browser on this device, through a BroadcastChannel (offline, and handy for testing).
 // Messages are small plain objects { t: type, ... }. Net stamps the sender's player id on them as `f`.
 
@@ -12,11 +12,15 @@ const NET_VERSION = 3; // 2: parts have a depth, paint and a host in spawns (an 
 const NET_MAX_BYTES = 256 * 1024; // the biggest message the host passes on
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'rss-room-';
-// Relays (TURN) for when two devices can't reach each other directly: add an account's servers here, e.g.
-// { urls: ['turn:relay.example.com:80', 'turns:relay.example.com:443?transport=tcp'], username: '…', credential: '…' }
-// (a TCP/TLS one on port 443 gets through strict networks). Without one, such players can't connect.
+// Relays (TURN) for when two devices can't reach each other directly (a school network that blocks UDP, say).
+// Either list a relay account's servers in NET_TURN, e.g.
+//   { urls: ['turn:relay.example.com:80', 'turns:relay.example.com:443?transport=tcp'], username: '…', credential: '…' }
+// (the TCP/TLS one on port 443 is what gets through strict networks), or set NET_TURN_URL to the account's
+// credentials address, which answers with such a list (Metered: https://APP.metered.live/api/v1/turn/credentials?apiKey=KEY).
+// Without a relay, players with no direct path between them can't connect.
 const NET_TURN = [];
-const NET_ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, ...NET_TURN] };
+const NET_TURN_URL = '';
+const NET_STUN = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
 const NET_PIECE = 4000; // characters of JSON per piece: PeerJS's JSON channel refuses a message of 16300 bytes or more
 
 const Net = (() => {
@@ -50,6 +54,21 @@ const Net = (() => {
   const cleanCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   const size = (m) => { try { return JSON.stringify(m).length; } catch (e) { return 0; } };
   N.players = () => [...N.names.keys()].sort((a, b) => a - b);
+  // The ICE servers for a connection: STUN, then the relays (NET_TURN, and those fetched from NET_TURN_URL once
+  // a session; a fetch that fails or takes over 4 s is tried again next time, and play goes on without it).
+  const iceOk = (x) => x && typeof x === 'object' && [].concat(x.urls).every((u) => typeof u === 'string' && /^(stuns?|turns?):/.test(u))
+    && (x.username == null || typeof x.username === 'string') && (x.credential == null || typeof x.credential === 'string');
+  let relays = null;
+  N.ice = () => {
+    if (!relays) {
+      relays = !NET_TURN_URL || typeof fetch !== 'function' ? Promise.resolve([]) : Promise.race([
+        fetch(NET_TURN_URL, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : [])).then((a) => (Array.isArray(a) ? a.filter(iceOk).slice(0, 12) : [])),
+        new Promise((res) => setTimeout(() => res([]), 4000)),
+      ]).catch(() => []);
+      relays.then((a) => { if (!a.length && NET_TURN_URL) relays = null; });
+    }
+    return relays.then((fetched) => ({ iceServers: [...NET_STUN, ...NET_TURN, ...fetched] }));
+  };
   // A PeerJS connection's send, splitting a big message into pieces ({ t: '~' }), and the matching
   // reassembly (which returns the whole message, or null while pieces are still to come or they're bad).
   function wire(conn) {
@@ -108,7 +127,8 @@ const Net = (() => {
     Object.assign(N, { transport, name, maxPlayers, isHost: true, me: 1, locked: false, hostOffset: 0, bytesIn: 0, bytesOut: 0 });
     N.names = new Map([[1, name]]); N.pings = new Map([[1, 0]]);
     nextPid = 2;
-    let tries = 0;
+    let tries = 0, config = null;
+    const gen = joinGen;
     const open = (code) => {
       N.code = code;
       if (transport === 'local') {
@@ -119,7 +139,7 @@ const Net = (() => {
         return;
       }
       if (typeof Peer === 'undefined') { reject(new Error('Online play isn’t available (the networking library didn’t load)')); return; }
-      peer = new Peer(PEER_PREFIX + code, { debug: 0, config: NET_ICE });
+      peer = new Peer(PEER_PREFIX + code, { debug: 0, config });
       peer.on('open', () => { start(); resolve(code); });
       peer.on('connection', (conn) => hostConn(conn));
       peer.on('error', (e) => {
@@ -129,7 +149,8 @@ const Net = (() => {
       });
       peer.on('disconnected', () => { if (N.active && peer && !peer.destroyed) setTimeout(() => { try { peer.reconnect(); } catch (err) { /* gone */ } }, 1500); });
     };
-    open(N.makeCode());
+    if (transport === 'local') { open(N.makeCode()); return; }
+    N.ice().then((c) => { if (gen !== joinGen) { reject(new Error('Cancelled')); return; } config = c; open(N.makeCode()); }); // (unless something else started meanwhile)
   });
   function start() {
     N.active = true;
@@ -265,7 +286,6 @@ const Net = (() => {
       return;
     }
     if (typeof Peer === 'undefined') { fail('Online play isn’t available (the networking library didn’t load)'); return; }
-    peer = new Peer({ debug: 0, config: NET_ICE });
     const t0 = performance.now(), NO_LINK = 'Found the host, but couldn’t connect to their device. Some routers, mobile networks and VPNs block direct links: try another network (Wi-Fi or mobile data), or turn off a VPN';
     let tOpen = 0, tIce = 0, tLink = 0, ice = 'new', said = '';
     const say = (text) => { if (text !== said) { said = text; try { status(text); } catch (e) { /* the screen's gone */ } } };
@@ -285,29 +305,33 @@ const Net = (() => {
       }
       if (now - tLink > 15000) fail('Connected, but the host’s game didn’t let you in. Check the room is still open, then try again');
     }, 250);
-    peer.on('error', (e) => {
-      if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code right now. Check the code; if it’s right, the host’s game may have been in the background a while (screen off or another app open): ask them to come back to it and try again, as the same code still works' : netError(e)); return; }
-      if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
-      else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
-    });
-    peer.on('open', () => {
-      if (done) return;
-      tOpen = performance.now();
-      const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
-      const send = wire(conn);
-      link = { send, close: () => conn.close() };
-      conn.on('iceStateChanged', (s) => { ice = s; if (!tIce && s !== 'new') tIce = performance.now(); });
-      const pc = conn.peerConnection; // (the host's answer is the host answering, even when ICE never gets as far as checking)
-      if (pc) pc.addEventListener('signalingstatechange', () => { if (!tIce && pc.signalingState === 'stable') tIce = performance.now(); });
-      conn.on('open', () => { tLink = performance.now(); if (!tIce) tIce = tLink; say('Connected. Waiting for the host to let you in…'); send(hello); });
-      conn.on('data', onMsg);
-      conn.on('close', () => { if (done) closeAll('The host left the room'); else fail(ice === 'failed' ? NO_LINK : 'The host’s device closed the connection: try again'); });
-      conn.on('error', (e) => {
-        if (e && e.type === 'message-too-big') return; // (a refused message isn't a lost link)
-        if (done) closeAll('Lost the connection to the host');
-        else if (e && e.type === 'negotiation-failed') ice = 'failed';
+    N.ice().then((config) => { if (!done) connect(config); });
+    function connect(config) { // (with the relays to hand)
+      peer = new Peer({ debug: 0, config });
+      peer.on('error', (e) => {
+        if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code right now. Check the code; if it’s right, the host’s game may have been in the background a while (screen off or another app open): ask them to come back to it and try again, as the same code still works' : netError(e)); return; }
+        if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
+        else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
       });
-    });
+      peer.on('open', () => {
+        if (done) return;
+        tOpen = performance.now();
+        const conn = peer.connect(PEER_PREFIX + code, { reliable: true, serialization: 'json' });
+        const send = wire(conn);
+        link = { send, close: () => conn.close() };
+        conn.on('iceStateChanged', (s) => { ice = s; if (!tIce && s !== 'new') tIce = performance.now(); });
+        const pc = conn.peerConnection; // (the host's answer is the host answering, even when ICE never gets as far as checking)
+        if (pc) pc.addEventListener('signalingstatechange', () => { if (!tIce && pc.signalingState === 'stable') tIce = performance.now(); });
+        conn.on('open', () => { tLink = performance.now(); if (!tIce) tIce = tLink; say('Connected. Waiting for the host to let you in…'); send(hello); });
+        conn.on('data', onMsg);
+        conn.on('close', () => { if (done) closeAll('The host left the room'); else fail(ice === 'failed' ? NO_LINK : 'The host’s device closed the connection: try again'); });
+        conn.on('error', (e) => {
+          if (e && e.type === 'message-too-big') return; // (a refused message isn't a lost link)
+          if (done) closeAll('Lost the connection to the host');
+          else if (e && e.type === 'negotiation-failed') ice = 'failed';
+        });
+      });
+    }
   });
   // the host has gone quiet for too long: give up
   function watch() {
@@ -323,7 +347,8 @@ const Net = (() => {
 
   // ---------------------------------------------------------------- leaving
   N.leave = (quiet) => {
-    if (pendingJoin) { const f = pendingJoin; pendingJoin = null; f('Cancelled', true); } // (a join still under way stops here)
+    if (pendingJoin) { const f = pendingJoin; pendingJoin = null; f('Cancelled', true); } // (a join still under way stops here,
+    joinGen++; //  and a room still waiting for its relays doesn't open after all)
     const was = N.active;
     if (was && !quiet) {
       if (N.isHost) for (const [, l] of links) { try { l.send({ t: 'closed', f: 1, reason: 'The host closed the room' }); } catch (e) { /* gone */ } }
@@ -352,6 +377,40 @@ const Net = (() => {
       default: return (e && e.message) || 'Connection failed';
     }
   }
+  // A look at this network for online play (about 10 s at most): can it reach the matchmaking server, does a
+  // STUN server answer over UDP (direct links can work), and does a relay get through, and how (relay: the
+  // protocols the relay candidates came over, 'udp', 'tcp' or 'tls'; relaySetUp: is there one to try)?
+  N.probe = async () => {
+    const config = await N.ice();
+    const res = { server: false, direct: false, relay: [], relaySetUp: config.iceServers.some((x) => [].concat(x.urls).some((u) => /^turns?:/.test(u))) };
+    const server = new Promise((done) => {
+      let p = null, t = 0;
+      const end = (ok) => { clearTimeout(t); try { if (p) p.destroy(); } catch (e) { /* gone */ } done(ok); };
+      if (typeof Peer === 'undefined') { end(false); return; }
+      try { p = new Peer({ debug: 0, config }); } catch (e) { end(false); return; }
+      t = setTimeout(() => end(false), 9000);
+      p.on('open', () => end(true)); p.on('error', () => end(false));
+    });
+    const found = new Promise((done) => {
+      const out = [];
+      let pc = null, t = 0;
+      const end = () => { clearTimeout(t); try { if (pc) pc.close(); } catch (e) { /* gone */ } done(out); };
+      if (typeof RTCPeerConnection === 'undefined') { end(); return; }
+      try { pc = new RTCPeerConnection(config); } catch (e) { end(); return; }
+      t = setTimeout(end, 9000);
+      pc.onicecandidate = (e) => { if (e.candidate) out.push(e.candidate); else end(); };
+      pc.createDataChannel('probe');
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(end);
+    });
+    const [ok, cands] = await Promise.all([server, found]);
+    res.server = ok;
+    for (const c of cands) {
+      const type = c.type || (/ typ (\w+)/.exec(c.candidate || '') || [])[1];
+      if (type === 'srflx') res.direct = true;
+      if (type === 'relay') { const p = c.relayProtocol || 'udp'; if (!res.relay.includes(p)) res.relay.push(p); }
+    }
+    return res;
+  };
   N._t = { wire, unwire, HOST_ONLY }; // (for the tests)
   addEventListener('pagehide', () => { if (N.active) N.leave(); });
   // back on screen after a phone put the game to sleep: get back onto the matchmaking server at once, so

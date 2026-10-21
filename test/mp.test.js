@@ -140,4 +140,21 @@ t('battleDesign with 601 loose-free parts swaps in stock (no ctrl or too many)',
   u2({ t: '~', k: 3, i: 0, n: 2, s: inner.slice(0, 20) });
   t('pieces that rebuild a piece are dropped, and the host never passes a player\'s piece on', u2({ t: '~', k: 3, i: 1, n: 2, s: inner.slice(20) }) === null && C.Net._t.HOST_ONLY.has('~'));
 }
-t.done();
+
+// ---- relays: the ICE servers from NET_TURN_URL (a provider's credentials address), checked, and tried again when it fails
+(async () => {
+  const vm = require('vm'), fs = require('fs'), path = require('path');
+  let answer = null, calls = 0;
+  const C = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} },
+    fetch: async () => { calls++; if (!answer) throw new Error('blocked'); return { ok: true, json: async () => answer }; } });
+  const src = fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8').replace("const NET_TURN_URL = '';", "const NET_TURN_URL = 'https://relay.example/creds';");
+  vm.runInContext(src + '\nthis.Net = Net;', C);
+  const urls = (cfg) => cfg.iceServers.flatMap((x) => [].concat(x.urls));
+  const c1 = await C.Net.ice();
+  t('relay address unreachable: STUN only, and play goes on', urls(c1).every((u) => u.startsWith('stun:')) && calls === 1, urls(c1).join(' '));
+  answer = [{ urls: 'turns:relay.example:443?transport=tcp', username: 'u', credential: 'p' }, { urls: 'javascript:alert(1)' }, { urls: ['turn:relay.example:80'], username: 5 }, 'x', null];
+  const c2 = await C.Net.ice(), c3 = await C.Net.ice();
+  t('tried again next time; only proper STUN/TURN entries are taken; then kept for the session',
+    urls(c2).includes('turns:relay.example:443?transport=tcp') && !urls(c2).some((u) => u.startsWith('javascript')) && urls(c2).length === urls(c1).length + 1 && calls === 2 && urls(c3).length === urls(c2).length, `${calls} fetches: ${urls(c2).join(' ')}`);
+  t.done();
+})();
