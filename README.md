@@ -1,13 +1,18 @@
 # Rocket Science Simulator
 
-A rocket-building and spaceflight game inspired by *Spaceflight Simulator*. Attach parts together on a blueprint, in 2D or in 3D, then fly in a full 3D world: launch from the pad, reach orbit, and explore a small solar system: land on the Moon, drive a rover, parachute onto Mars, dive past the Sun, and bring the crew home through a fiery reentry. Earth is the real one, shrunk to 1/20 scale, and the space centre sits on the Faroe Islands. You can also build planes that bank and turn over the island and break the sound barrier, cars that drive the causeway across the sea to Shetland, and helicopters.
+Build any machine from parts, then take it anywhere and do anything with it. The game mixes the rocketry of *Spaceflight Simulator* and *Kerbal Space Program*, the free-form aircraft building of *SimplePlanes*, and the combat of *War Thunder*. It is free, and it runs in a browser on a PC, a phone or a tablet, with nothing to install.
 
-It runs in any modern browser on desktop and mobile. There is no build step: open `index.html` and play. The 3D world uses three.js, which ships in the repo; on a device without WebGL the game falls back to a flat 2D side view.
+You attach parts together on a blueprint, in 2D or in 3D: rockets, planes, helicopters and cars, with engines, wings, weapons and paint wherever you want them. Then you fly in a full 3D world. Earth is the real one, shrunk to 1/20 scale, and the space centre sits on the Faroe Islands. From there you can:
+- launch from the pad, reach orbit and explore a small solar system: land on the Moon, drive a rover, parachute onto Mars, dive past the Sun, and bring the crew home through a fiery reentry;
+- fly planes that bank and turn over the islands and break the sound barrier, drive the causeway across the sea to Shetland, or hover a helicopter;
+- fight AI targets and fighters, or other players online, in a free-for-all sandbox or in battles where everyone builds on a budget and then fights.
+
+It runs in any modern browser on desktop and mobile. There is no build step: open `index.html` and play. The 3D world uses three.js, which ships in the repo. On a device without WebGL the game falls back to a flat 2D side view.
 
 ## Play
 
 - **Online:** https://devwolf11.github.io/Rocket-Science-Simulator/ (deployed from `main` by `.github/workflows/pages.yml`). On a phone, use "Add to Home Screen" to install it and play offline.
-- **Locally:** serve the folder (`npx serve .`), which also gives you the offline/installable PWA. Double-clicking `index.html` works too, but browsers don't let a page opened from disk read the Earth map, so Earth falls back to generated terrain.
+- **Locally:** serve the folder (`npx serve .`). Offline play and installing need the HTTPS site above, because the service worker only registers over `https:`. Double-clicking `index.html` works too, but browsers don't let a page opened from disk read the Earth map, so Earth falls back to generated terrain.
 - **Single file:** `node tools/build-single.mjs` writes `dist/rocket-science-simulator.html`, the whole game in one HTML file you can send to someone.
 
 ## Modes
@@ -122,6 +127,9 @@ sw.js, manifest.webmanifest, icons/   offline support and install icons
 assets/earth-*         the real Earth (heights, colours, night lights, lakes, towns, regions, rivers and roads), baked by tools/bake-earth.py
 tools/build-single.mjs bundles everything into dist/rocket-science-simulator.html
 .github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
+test/                  headless and browser test suites with baselines (node test/run.mjs; see test/README.md)
+docs/HANDBOOK.md       how every subsystem works, for anyone changing the code
+CLAUDE.md              working notes for Claude Code sessions on this repo
 ```
 
 Scripts are plain (non-module) JavaScript so the game also works when opened straight from disk.

@@ -1892,7 +1892,6 @@ Convention: **every user-visible feature, control or part change gets documented
 - keep three places in sync for controls: README, `App.showHelp` (main.js:248-259) and `Flight.controlsHelp` (flight.js:456-480)
 
 Known drift:
-- README:10 says `npx serve .` gives the offline PWA, but the worker registers only on `https:` (main.js:399), so http://localhost never gets it.
 - The Project layout line for world.js doesn't mention that it holds `Settings`.
 
 ### 9. Gotchas
@@ -1936,7 +1935,6 @@ Found while writing this handbook or in earlier reviews, and not fixed yet. All 
 | Where | What | Notes |
 |---|---|---|
 | `sw.js:3` | `CACHE` is still `rocket-science-sim-v15`, but js and css have changed since (#28 and #29) | Fetching is network-first, so online players get fresh files anyway. Bump to v16 with the next game change. |
-| `README.md:10` | Says `npx serve .` gives the offline, installable PWA, but the service worker registers only on `https:` (`main.js:399`) | A doc fix |
 | `manifest.webmanifest` | The description still reads "Build rockets, reach orbit and land on the Moon." | Undersells the game |
 | `mp.js:819` (`onDown`) | Reads `m.P` without validating it. A malformed `down` throws inside the handler; it is caught, but the ghost drop and `recordDown` are skipped. | Validate with `mpNums` like the other handlers |
 | multiplayer trust | Hit amounts (capped), kill credit (named by the victim), the self-reported damage score, and each player's budget and design checks all rest on trust | By design for a host-relayed P2P game; worth knowing before "anti-cheat" work |
