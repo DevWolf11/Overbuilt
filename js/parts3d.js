@@ -25,6 +25,7 @@ const Parts3D = (() => {
     sand: { color: '#c9c2a6', roughness: 0.6, metalness: 0.1 },
     hazard: { color: PAL.hazard, roughness: 0.5, metalness: 0.1 },
     steelLight: { color: PAL.steelLight, roughness: 0.32, metalness: 0.7 },
+    skidTube: { color: PAL.steelLight, roughness: 0.32, metalness: 0.7 }, // (a skid's tube takes paint; struts don't)
     steelDark: { color: PAL.steelDark, roughness: 0.5, metalness: 0.55 },
     ink: { color: PAL.ink, roughness: 0.7, metalness: 0.2 },
     orange: { color: PAL.orange, roughness: 0.45, metalness: 0.1 },
@@ -54,7 +55,7 @@ const Parts3D = (() => {
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
-  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric']);
+  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube']);
   const SKIN_GEO = new Set(['wing', 'biplane']);
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
@@ -724,7 +725,7 @@ const Parts3D = (() => {
 
     skid(d) { // one skid (the twin holder makes the pair): a tube with an upturned toe, and two struts
       const w = d.w, h = d.h, b = -h / 2, t = h / 2, x = w / 2 - 0.12, list = [];
-      list.push([rod([x, b + 0.1, 0], [x, t - 0.4, 0], 0.08, 12), 'steelLight'], [rod([x, t - 0.4, 0], [x - 0.3, t - 0.12, 0], 0.08, 12), 'steelLight']);
+      list.push([rod([x, b + 0.1, 0], [x, t - 0.4, 0], 0.08, 12), 'skidTube'], [rod([x, t - 0.4, 0], [x - 0.3, t - 0.12, 0], 0.08, 12), 'skidTube']);
       for (const y of [h * 0.25, -h * 0.25]) list.push([rod([x, y, 0], [-w / 2, y, 0], 0.06, 10), 'steelDark']);
       return node(list);
     },
