@@ -22,9 +22,9 @@ Section references like "§3" inside a chapter mean that chapter's own subsectio
 **Files:** `js/parts.js` (catalogue, geometry, connectivity, staging/Δv, persistence helpers, 2D drawing) and `js/builder.js` (`TEMPLATES`, `templateRows`, the `Builder` singleton). Both are plain globals with no modules. Script order matters (`index.html:332-352`):
 - `util.js` comes first and provides `clamp`, `TAU`, `G0`, `store`, `el`, `isTouch`.
 - `parts.js` loads before `vessel.js`, `parts3d.js`, `render3d.js`, `career.js` and `builder.js`.
-- `builder.js` calls `wingAero`/`wingStrength` (vessel.js:32,61), `Career.unlocked` (career.js:47), `Parts3D.wingAt` (guarded with `typeof Parts3D`), `Render3D.*`, `App.*`, `UI.*` and `Sound.*`.
+- `builder.js` calls `wingAero`/`wingStrength` (vessel.js:32,64), `Career.unlocked` (career.js:47), `Parts3D.wingAt` (guarded with `typeof Parts3D`), `Render3D.*`, `App.*`, `UI.*` and `Sound.*`.
 
-Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in defs are tonnes. On instances, `p.fuel` is **kg** (`partFuelKg`, parts.js:431) and `partKg(p)` = dry + fuel + stores in kg (parts.js:433).
+Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in defs are tonnes. On instances, `p.fuel` is **kg** (`partFuelKg`, parts.js:434) and `partKg(p)` = dry + fuel + stores in kg (parts.js:436).
 
 ### 1. Coordinates
 
@@ -33,45 +33,45 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 | Rocket / heli / car (`launchRot` 0) | horizontal on the blueprint | up | towards the viewer |
 | Plane (`launchRot` −π/2) | **down** (gear hangs on +x) | **nose** | **right wing** |
 
-- The 2D blueprint is a side view looking along z from +z. For planes that means you see the right-hand side (parts.js:479-483).
+- The 2D blueprint is a side view looking along z from +z. For planes that means you see the right-hand side (parts.js:482-486).
 - Part space is what is stored. The builder shows display space = R(`viewRot`)·part: `Builder.viewRot` = `VEHICLE_KINDS[kind].launchRot` (builder.js:318), with `toDisp`/`toPart` at builder.js:319-320. So planes appear nose-right, and arrow-key nudges are converted with `toPart`.
-- Cars drive towards +x (`HULLS.cab`, parts.js:1045). Helicopters put the rotor on +y and the tail boom on −x (template `hummingbird`).
-- **Rotation:** `p.rot` is 0..3 quarter turns anticlockwise about the part centre (parts.js:448).
-  - `partDims` swaps w/h for odd rot (:449). `partPt` maps a local offset to part space (:451). `partAxis` gives the part's own "up", the thrust and flight direction (:459-461).
-  - `mirrorRot` gives the turn of a mirror copy (:463). `partRect` returns the side-view box `{l,r,b,t}` (:464).
-  - A pusher prop is drawn and modelled with 2 extra quarter turns (`turned`, :1056; parts3d.js `place`, :1230).
-- `p.flip` = "this part is on the −x side, draw it facing out" (fins, legs, gear wheel end via `wheelGeom` :514, vtail, rcs). `makePart` defaults it to `x < 0` unless `extra` gives one (parts.js:440); loading (`partsFromDesign`, `Vessel.restore`, `buildGhost`) keeps the saved flip, and `Builder.setPose` resets it to `x < 0` on every move (builder.js:243). It is saved per row, and the 3D model cache is keyed by it.
+- Cars drive towards +x (`HULLS.cab`, parts.js:1048). Helicopters put the rotor on +y and the tail boom on −x (template `hummingbird`).
+- **Rotation:** `p.rot` is 0..3 quarter turns anticlockwise about the part centre (parts.js:451).
+  - `partDims` swaps w/h for odd rot (:452). `partPt` maps a local offset to part space (:454). `partAxis` gives the part's own "up", the thrust and flight direction (:462-464).
+  - `mirrorRot` gives the turn of a mirror copy (:466). `partRect` returns the side-view box `{l,r,b,t}` (:467).
+  - A pusher prop is drawn and modelled with 2 extra quarter turns (`turned`, :1059; parts3d.js `place`, :1230).
+- `p.flip` = "this part is on the −x side, draw it facing out" (fins, legs, gear wheel end via `wheelGeom` :517, vtail, rcs). `makePart` defaults it to `x < 0` unless `extra` gives one (parts.js:443); loading (`partsFromDesign`, `Vessel.restore`, `buildGhost`) keeps the saved flip, and `Builder.setPose` resets it to `x < 0` on every move (builder.js:243). It is saved per row, and the 3D model cache is keyed by it.
 
-### 2. The PARTS catalogue (parts.js:39-413)
+### 2. The PARTS catalogue (parts.js:39-416)
 
 - `PARTS[key]` is the def. The key is the **type string written into saves**.
-- A loop afterwards sets `d.type = key`, defaults `maxTemp` to 2000 and gives solids a default cost (:414-419).
+- A loop afterwards sets `d.type = key`, defaults `maxTemp` to 2000 and gives solids a default cost (:417-422).
 - `tank(name,w,h,tier,desc)` (:34) derives fuel = `w*h*FUEL_PER_M2` (0.55 t/m², :31), mass = fuel/9 and cost.
 - Palette order within a category is object key order.
 
 **Categories and kinds**
 - `PART_CATEGORIES` (:5) holds the palette tabs; `def.cat` must be one of their ids or the part never shows.
 - `VEHICLE_KINDS` (:24) has `rocket|plane|car|heli`, each `{site: pad|runway|helipad, launchRot}`.
-- `TIERS` (:422) has 5 career tiers. `def.tier` indexes it and `Career.unlocked(def)` = `sandbox || def.tier <= data.tier`.
+- `TIERS` (:425) has 5 career tiers. `def.tier` indexes it and `Career.unlocked(def)` = `sandbox || def.tier <= data.tier`.
 
 | Group | Fields (meaning) |
 |---|---|
 | Identity / economy | `cat`, `name`, `desc`, `tier` (0-4, required: used in toasts as `TIERS[def.tier].name`), `cost` (required: `designCost` sums it), `crew` (informational only, never read outside parts.js) |
 | Geometry | `w`,`h`: unrotated side-view box in m, centred on (x,y). `depth`: explicit thickness across z. `topW` (adapter top width), `botW` (tail-cone tip). `mount`/`bellTop`/`bellBot`: engine block and bell fractions, **required for `shape:'engine'`/`'spike'`**. `shape`: selects the 2D drawing, the 3D recipe and many behaviours. `style`: a variant within a shape (fuselage: cargo/tank/armor/stealth/intake/boom/bay; engine nuclear; jet scram/pulse; prop electric; stores cluster/guided/torpedo/harm/cruise; jetnose stealth). Cosmetic extras: `canopy{at,len,seats,gold}`, `facets`, `blades`, `spinner`, `duct`, `contra`, `calibre`, `barrels`, `body3d` (forces a parts3d BUILD recipe) |
-| Mass | `mass` (t dry), `fuel` (t), `maxTemp` (K), `breakSpeed` (impact m/s, vessel.js:905) |
-| Command | `control` (rank: `findControlPart` picks the highest), `torque` (reaction wheel, summed at vessel.js:638), `radar` (m), `stealth` (0-1), `armor` (0-1, combat.js) |
-| Propulsion | `thrust` kN, `ispSL`/`ispVac` s, `gimbal` rad, `vector`. `plume` is a PLUMES key in parts3d.js:65 or `'none'`. `solid` and `battery` give the part its own fuel group (`fuelGroups` :825). `air{kind:'prop'\|'jet'\|'fan'\|'ram'\|'rotor', v0, vmax, vmin, ab, torque}` marks air-breathing engines, which are excluded from Δv. `pusher`, `fan` |
-| Aero | `aero` (cuts drag when leading, vessel.js:218), `sharp` (vessel.js:226). `wing{area, span, flaps, vne, sweep, taper, stall, mcrit, load, dihedral, slope, wave, swing, planform, oswald, ar, gap, thick, cd0, winglets, control}`: field meanings are in the comment at parts.js:119-125; `control` makes it an elevator. `fin` (rocket fin), `airbrake` (area), `heatShield` |
-| Utility | `chute`/`chuteArea`/`brakeChute`, `leg`, `wheel{r, drive, speed, accel, track, brake, retract, bogie, fat, caster}`, `float`, `smoke`, `separator`, `side` (radial separator), `weapon{kind, ammo, each, ...}` (comment at :345-346), `agm`, `bay`, `ecm` |
-| Depth / attachment | `twinZ`: the part is a **pair**, one copy at ±z, and twinZ is the default spread. `pod`: hangs from a wing (placement, draw layer, host guessing). **zLocked** is derived, not a field: `zLocked(d)` = `wing \|\| leg \|\| fin` (:486). Such parts always sit at z=0 because wings span both sides and rocket legs/fins stand in fours |
+| Mass | `mass` (t dry), `fuel` (t), `maxTemp` (K), `breakSpeed` (impact m/s, vessel.js:934) |
+| Command | `control` (rank: `findControlPart` picks the highest), `torque` (reaction wheel, summed at vessel.js:643), `radar` (m), `stealth` (0-1), `armor` (0-1, combat.js) |
+| Propulsion | `thrust` kN, `ispSL`/`ispVac` s, `gimbal` rad, `vector`. `plume` is a PLUMES key in parts3d.js:65 or `'none'`. `solid` and `battery` give the part its own fuel group (`fuelGroups` :828). `air{kind:'prop'\|'jet'\|'fan'\|'ram'\|'rotor', v0, vmax, vmin, ab, torque}` marks air-breathing engines, which are excluded from Δv. `pusher`, `fan` |
+| Aero | `aero` (cuts drag when leading, vessel.js:223), `sharp` (vessel.js:231). `wing{area, span, flaps, vne, mmax, sweep, taper, stall, mcrit, load, dihedral, slope, wave, swing, planform, oswald, ar, gap, thick, cd0, winglets, control}`: field meanings are in the comment at parts.js:119-128; `control` makes it an elevator. `fin` (rocket fin), `airbrake` (area), `heatShield` |
+| Utility | `chute`/`chuteArea`/`brakeChute`, `leg`, `wheel{r, drive, speed, accel, track, brake, retract, bogie, fat, caster}`, `float`, `smoke`, `separator`, `side` (radial separator), `weapon{kind, ammo, each, ...}` (comment at :348-349), `agm`, `bay`, `ecm` |
+| Depth / attachment | `twinZ`: the part is a **pair**, one copy at ±z, and twinZ is the default spread. `pod`: hangs from a wing (placement, draw layer, host guessing). **zLocked** is derived, not a field: `zLocked(d)` = `wing \|\| leg \|\| fin` (:489). Such parts always sit at z=0 because wings span both sides and rocket legs/fins stand in fours |
 
 **Adding a part end to end**
 1. **Def.** Add an entry to `PARTS` with a unique key, an existing `cat`, `tier`, `cost`, `mass`, `w`, `h`, `shape` and `desc`. Reusing an existing `shape` (plus a `style`) gets drawing and 3D for free.
 2. **2D drawing**, for a new shape:
-   - Add a case to `partPath0` (outline, :1081). It is used for highlights, heat glow, clipping **and as the 3D silhouette**.
-   - Add a case to `drawPart0` (artwork, :1209). Fill the body with the skin-aware helpers (§5). Plain colour literals stay unpainted.
-   - If the shape should not take paint, add it to `NO_SKIN` (:877).
-   - For engines, check `nozzleOf` (:666). The draw layer comes from `sideLayer` (:1069).
+   - Add a case to `partPath0` (outline, :1084). It is used for highlights, heat glow, clipping **and as the 3D silhouette**.
+   - Add a case to `drawPart0` (artwork, :1212). Fill the body with the skin-aware helpers (§5). Plain colour literals stay unpainted.
+   - If the shape should not take paint, add it to `NO_SKIN` (:880).
+   - For engines, check `nozzleOf` (:669). The draw layer comes from `sideLayer` (:1072).
    - The `default:` case draws a hull-gradient rectangle.
 3. **3D** (js/parts3d.js):
    - `LATHE` (:48) revolves the outline; `LATHE_KIND` (:50) sets its material.
@@ -89,68 +89,68 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 
 ### 3. Part instances
 
-`makePart(type, x, y, extra)` (parts.js:438) creates `{id, type, def, x, y, z, att, skin, flip, fuel, active:false, deployed:0, temp:AMBIENT_T}`, plus `ammo` and `store` for weapons. `extra` is merged in, then `z` is re-defaulted when it is not finite, and `att`/`skin` when they are undefined. `rot` may be absent; code reads it as `p.rot || 0` or `& 3`.
+`makePart(type, x, y, extra)` (parts.js:441) creates `{id, type, def, x, y, z, att, skin, flip, fuel, active:false, deployed:0, temp:AMBIENT_T}`, plus `ammo` and `store` for weapons. `extra` is merged in, then `z` is re-defaulted when it is not finite, and `att`/`skin` when they are undefined. `rot` may be absent; code reads it as `p.rot || 0` or `& 3`.
 
-- **`id`**: from the global counter `_partSeq` (:435). It is unique per page load. Design rows (`rss.design`, the hangar, design codes) use indices instead; flight saves (`rss.flight`) do keep ids, with `att`, `adj` and `stages` by id (and `Flight.restore` moves `_partSeq` past them); peers use their own ids.
-- **`att`**: the id of the part this one *hangs on*, or null. It is a structural joint: `buildAdjacency` links it even when the geometry no longer touches (:588).
+- **`id`**: from the global counter `_partSeq` (:438). It is unique per page load. Design rows (`rss.design`, the hangar, design codes) use indices instead; flight saves (`rss.flight`) do keep ids, with `att`, `adj` and `stages` by id (and `Flight.restore` moves `_partSeq` past them); peers use their own ids.
+- **`att`**: the id of the part this one *hangs on*, or null. It is a structural joint: `buildAdjacency` links it even when the geometry no longer touches (:591).
 - **`skin`**: a `SKINS` id or null (null = the part's own look).
 - **Runtime fields** set by flight, combat and the builder: `fuel` (kg), `firing`, `spin`, `deflect`, `retracted`, `used`, `fuelFrac`, `ammo`, `store`, `side`, `relN`, and `mirror` (builder only: a direct object reference to the symmetry twin). Parts are cyclic and hold `def`, so **only `designRows` serialises them**.
-- Draw code must cope with stand-in parts that lack runtime fields: `renderPartIcon` (:2018) and Parts3D `dummy` (parts3d.js:87).
+- Draw code must cope with stand-in parts that lack runtime fields: `renderPartIcon` (:2021) and Parts3D `dummy` (parts3d.js:87).
 
-**Depth helpers (:484-510)**
+**Depth helpers (:487-513)**
 - `PART_Z_MAX`=20.
 - `partDefaultZ` = 0 if zLocked, else `twinZ || 0`.
 - `twinMinZ` = half the depth + 0.05 (any closer and the two halves would overlap).
-- `cleanZ(z,d)` (:489) returns 0 when zLocked, the default when z is non-finite, `clamp(|z|, twinMinZ, 20)` for pairs, else `clamp(z, ±20)`.
+- `cleanZ(z,d)` (:492) returns 0 when zLocked, the default when z is non-finite, `clamp(|z|, twinMinZ, 20)` for pairs, else `clamp(z, ±20)`.
 - `partZ(p)` is the signed centre for a single part, or the spread (≥0) for a pair. `partZc` is where the mass sits across (0 for pairs). `partZs` lists each copy's z (`[-z, z]` for pairs). `partBoxes` gives `[l,r,b,t,near,far]` per copy.
-- `partDepth` (:469) uses `def.depth`, else `wing.span`, else 0.15 for fin/vtail/tailrotor, 0.4 for wheels, else `w`.
+- `partDepth` (:472) uses `def.depth`, else `wing.span`, else 0.15 for fin/vtail/tailrotor, 0.4 for wheels, else `w`.
 
-**Legacy twins.** `legacyTwin(p)` (:538) = twin && `att === null` && `|partZ − twinZ| < 5e-4`. It identifies pairs saved before parts had depth or attachment. In the side view those overlap the hull they hang beside and only join "as their pylons show". To make old designs build, connect and fly **exactly as before**, the following special cases exist:
-- `partsClash` never reports a clash between a legacy twin and a non-twin (:561).
-- `partsTouch` skips the "side by side across z" join for legacy twins (:532).
-- `pylonLink` (:572) joins any twin with no att (at any spread) to whatever it touches or mounts on in the 2D side view. This is how twin tails on a jet pipe and floats under a fuselage connect.
+**Legacy twins.** `legacyTwin(p)` (:541) = twin && `att === null` && `|partZ − twinZ| < 5e-4`. It identifies pairs saved before parts had depth or attachment. In the side view those overlap the hull they hang beside and only join "as their pylons show". To make old designs build, connect and fly **exactly as before**, the following special cases exist:
+- `partsClash` never reports a clash between a legacy twin and a non-twin (:564).
+- `partsTouch` skips the "side by side across z" join for legacy twins (:535).
+- `pylonLink` (:575) joins any twin with no att (at any spread) to whatever it touches or mounts on in the 2D side view. This is how twin tails on a jet pipe and floats under a fuselage connect.
 - parts3d `pylonsFor`/`oldStruts` (parts3d.js:1185,1117) draw struts the old way.
 - combat.js:61 puts a legacy pair's explosion in the middle.
-- vessel.js:851 measures a pair's heating offset from its default spread.
+- vessel.js:880 measures a pair's heating offset from its default spread.
 
 ### 4. Connectivity, staging and Δv (parts.js)
 
 | Function | Meaning |
 |---|---|
-| `spanOverlap(a0,a1,b0,b1)` :521 | overlap length (negative = gap) |
-| `partsTouch(a,b)` :523 | share a face: flush within 0.02 on one axis, overlapping >0.1 on the other, and overlapping in z by >min(0.1, half-depths). Or overlapping in the side view and flush in z (side by side across; not for legacy twins) |
-| `partsTouch2D` :540 | the same, side view only |
-| `partsOverlap(a,b,m=.02,mz=m)` :546 | 3D boxes interpenetrate (any copy pair) |
-| `isSurface`/`surfaceKind` :557-558 | wing (`def.wing`) or fin (`shape:'vtail'`) |
-| `partsMix` :559 | exactly one side is a surface, or one wing and one fin; such pairs may overlap |
-| `partsClash` :560 | overlap between two parts that don't mix: illegal placement |
-| `partsMounted` :564 / `partsMounted2D` :565 | a surface through a hull (overlap >0.04; across z >0 / ignoring z): this counts as attached |
-| `pylonLink` :572 | old twin (no att) joined by side-view touch or mount |
-| `buildAdjacency(parts)` :579 | O(n²) pairs `touch \|\| mounted \|\| pylonLink`, plus every valid `att` link. Returns `Map<id, Set<id>>` |
-| `componentOf(id, adj, skip)` :647 | flood fill; `skip(id)` blocks traversal |
-| `findControlPart` :657 | highest `def.control` (first on ties) |
-| `attachedTo(parts, roots)` :639 | transitive att-children (flight.js:242: what breaks off with a part) |
-| `cleanAtt(parts)` :625 | null self and missing links; break att cycles by nulling the closing link |
-| `computeStages(parts, adj, ctrlId)` :683 | segments = components without separators; BFS from the control segment. Stage 1 lights every *exposed* engine (a non-side separator below an engine, `sp.y < e.y`, blocks it until fired). Then the deepest separators fire, the subtree drops and newly exposed engines light. Chutes form the last stage |
-| `estimateDeltaV(..., useSeaLevel)` :762 | replays the stages on copies: `cutSeparator` (:816) keeps the separator with the falling piece; fuel groups burn in parallel; air-breathers are ignored. Returns `{total, perStage, twr}` |
-| `describeStage` :751 | the stage list text |
-| `sideOrder(parts)` :1070 | draw order back to front: `round(partZ*20)`, then `sideLayer` (leg/fin/wheel 0 < hull 1 < surfaces 2 < pods 3), then index. Picking uses the reverse (`Builder.hitParts`, builder.js:338) |
+| `spanOverlap(a0,a1,b0,b1)` :524 | overlap length (negative = gap) |
+| `partsTouch(a,b)` :526 | share a face: flush within 0.02 on one axis, overlapping >0.1 on the other, and overlapping in z by >min(0.1, half-depths). Or overlapping in the side view and flush in z (side by side across; not for legacy twins) |
+| `partsTouch2D` :543 | the same, side view only |
+| `partsOverlap(a,b,m=.02,mz=m)` :549 | 3D boxes interpenetrate (any copy pair) |
+| `isSurface`/`surfaceKind` :560-561 | wing (`def.wing`) or fin (`shape:'vtail'`) |
+| `partsMix` :562 | exactly one side is a surface, or one wing and one fin; such pairs may overlap |
+| `partsClash` :563 | overlap between two parts that don't mix: illegal placement |
+| `partsMounted` :567 / `partsMounted2D` :568 | a surface through a hull (overlap >0.04; across z >0 / ignoring z): this counts as attached |
+| `pylonLink` :575 | old twin (no att) joined by side-view touch or mount |
+| `buildAdjacency(parts)` :582 | O(n²) pairs `touch \|\| mounted \|\| pylonLink`, plus every valid `att` link. Returns `Map<id, Set<id>>` |
+| `componentOf(id, adj, skip)` :650 | flood fill; `skip(id)` blocks traversal |
+| `findControlPart` :660 | highest `def.control` (first on ties) |
+| `attachedTo(parts, roots)` :642 | transitive att-children (flight.js:243: what breaks off with a part) |
+| `cleanAtt(parts)` :628 | null self and missing links; break att cycles by nulling the closing link |
+| `computeStages(parts, adj, ctrlId)` :686 | segments = components without separators; BFS from the control segment. Stage 1 lights every *exposed* engine (a non-side separator below an engine, `sp.y < e.y`, blocks it until fired). Then the deepest separators fire, the subtree drops and newly exposed engines light. Chutes form the last stage |
+| `estimateDeltaV(..., useSeaLevel)` :765 | replays the stages on copies: `cutSeparator` (:819) keeps the separator with the falling piece; fuel groups burn in parallel; air-breathers are ignored. Returns `{total, perStage, twr}` |
+| `describeStage` :754 | the stage list text |
+| `sideOrder(parts)` :1073 | draw order back to front: `round(partZ*20)`, then `sideLayer` (leg/fin/wheel 0 < hull 1 < surfaces 2 < pods 3), then index. Picking uses the reverse (`Builder.hitParts`, builder.js:338) |
 
 ### 5. Designs, codes, hangar, thumbnails
 
-**Rows.** `designRows(parts)` (:596) produces `{type, x, y (3 dp), flip, rot}`. It adds `z` **only if it differs from `partDefaultZ` by >5e-4**, `att` **as an index into the same list** (only if valid and not self) and `skin` if set. Old designs therefore read back identically.
+**Rows.** `designRows(parts)` (:599) produces `{type, x, y (3 dp), flip, rot}`. It adds `z` **only if it differs from `partDefaultZ` by >5e-4**, `att` **as an index into the same list** (only if valid and not self) and `skin` if set. Old designs therefore read back identically.
 
-**Back to parts.** `partsFromDesign(rows)` (:608) works in two passes.
-- First, each row either becomes a part or becomes `null` **kept in place** so att indices still match. A row is rejected for an unknown type (checked with `hasOwn(PARTS, ...)`, :485, not `in`, to avoid prototype keys) or for non-finite x/y.
+**Back to parts.** `partsFromDesign(rows)` (:611) works in two passes.
+- First, each row either becomes a part or becomes `null` **kept in place** so att indices still match. A row is rejected for an unknown type (checked with `hasOwn(PARTS, ...)`, :488, not `in`, to avoid prototype keys) or for non-finite x/y.
 - Kept rows have x and y clamped to ±500, `rot` taken as `(q.rot|0)&3`, z passed through `cleanZ` and the skin through `cleanSkin`.
 - Second, att indices are resolved to ids, nulls are filtered out and `cleanAtt` runs.
 - Callers include flight.js:32, mp.js:451, renderDesignThumb, paste and loadDesign.
 
-**Templates.** `TEMPLATES` is at builder.js:5-149. Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:152) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / heli (:1389). mp.js:455 relies on keys `mustang`, `camel` and `skylark`. Most plane templates use legacy twins (no att/z).
+**Templates.** `TEMPLATES` is at builder.js:5-149. Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:152) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / heli (:1390). mp.js:455 relies on keys `mustang`, `camel` and `skylark`. Most plane templates use legacy twins (no att/z).
 
-**Design codes.** `designCode` (builder.js:1264) produces `"RSS1."` + base64url(UTF-8 JSON `{n, k, p:[[type, x, y, flip0/1, rot]]}`).
+**Design codes.** `designCode` (builder.js:1265) produces `"RSS1."` + base64url(UTF-8 JSON `{n, k, p:[[type, x, y, flip0/1, rot]]}`).
 - The prefix becomes `"RSS2."` when any row carries extra fields `[z, att, skin]`; trailing nulls are trimmed. Older versions cannot read RSS2.
-- `parseCode` (:1277) finds `/RSS[12]\.…/` anywhere in pasted text and keeps at most **20000 rows** (reports `cut`).
+- `parseCode` (:1278) finds `/RSS[12]\.…/` anywhere in pasted text and keeps at most **20000 rows** (reports `cut`).
 - Unknown rows become null in place (reports `dropped`). The name is cut to 40 characters and an unknown kind falls back to rocket.
 
 **localStorage keys.** All go through `store` (util.js:116), which uses JSON, try/catch and a fallback read of the legacy `orbitforge.` prefix.
@@ -158,7 +158,7 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 | Key | Content |
 |---|---|
 | `rss.design` | current blueprint `{name, kind, parts, savedAs}`, written by `save()` on every committed edit (skipped while `MP.savedCareer`) |
-| `rss.hangar` | up to 100 `{name, kind, parts, savedAt}`, newest first, unique by name (`storeDesign` :1216) |
+| `rss.hangar` | up to 100 `{name, kind, parts, savedAt}`, newest first, unique by name (`storeDesign` :1217) |
 | `rss.clip` | clipboard `{kind, parts}` (survives switching designs) |
 | `rss.grid` | grid mode |
 | `rss.symmetry` / `rss.symmetryPlane` | symmetry for rocket/car/heli vs planes (`symKey` :1009); default true |
@@ -166,33 +166,33 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 | `rss.settings` | holds `build3d` (3D preview), via `Settings` (world.js:6) |
 
 **Save state**
-- `markSaved` (:1203) normalises the stored design through `designRows(partsFromDesign(...))`, so a design saved by an older version is not taken for changed.
+- `markSaved` (:1204) normalises the stored design through `designRows(partsFromDesign(...))`, so a design saved by an older version is not taken for changed.
 - `isDirty` and `unsavedWork` compare `snapOf` = JSON of `[kind, parts]`. `baseSnap` is the template as loaded; it is set to null after pasting a code.
 
 **Thumbnails**
-- `renderDesignThumb(d, w, h, dpr, rot)` (parts.js:1987) parses with `partsFromDesign`, fits the rotated bounds at 86%, flips y and draws `sideOrder`.
-- `renderPartIcon(type, size, dpr, rot, skin)` (:2010) is used by the palette at 56 px, rotated by `viewRot`.
+- `renderDesignThumb(d, w, h, dpr, rot)` (parts.js:1990) parses with `partsFromDesign`, fits the rotated bounds at 86%, flips y and draws `sideOrder`.
+- `renderPartIcon(type, size, dpr, rot, skin)` (:2013) is used by the palette at 56 px, rotated by `viewRot`.
 
-### 6. Skins and paint (parts.js:855-959)
+### 6. Skins and paint (parts.js:858-962)
 
-`SKINS` (:860) has 13 entries `{name, base:#rrggbb, paint?:'hull'|'dark'|'metal', accent?:'keep'|null, rough?, metal?}`. `accent` controls livery stripes: `'keep'` leaves them as drawn, `null` hides them, unset uses a tone of `base`. `rough`/`metal` are the 3D finish.
+`SKINS` (:863) has 13 entries `{name, base:#rrggbb, paint?:'hull'|'dark'|'metal', accent?:'keep'|null, rough?, metal?}`. `accent` controls livery stripes: `'keep'` leaves them as drawn, `null` hides them, unset uses a tone of `base`. `rough`/`metal` are the 3D finish.
 
-- `NO_SKIN` (:877) lists shapes that cannot be painted: sep, shield, chute, leg, wheel, gear, girder, rotor, tailrotor.
-- `skinnable` (:878); `cleanSkin(id, d)` (:879) returns null when invalid or unpaintable.
-- `ownSkin(d)` (:881) returns `'stealth'` for `style:'stealth'`. `skinOf(p)` = `p.skin || ownSkin`.
+- `NO_SKIN` (:880) lists shapes that cannot be painted: sep, shield, chute, leg, wheel, gear, girder, rotor, tailrotor.
+- `skinnable` (:881); `cleanSkin(id, d)` (:882) returns null when invalid or unpaintable.
+- `ownSkin(d)` (:884) returns `'stealth'` for `style:'stealth'`. `skinOf(p)` = `p.skin || ownSkin`.
 - Paint is **purely cosmetic**: stealth comes from `def.stealth`.
 
 **How 2D painting works**
-- `drawPart` (:1075) is the **only** place that sets `PartPaint.skin` (in try/finally) around `drawPart0`.
+- `drawPart` (:1078) is the **only** place that sets `PartPaint.skin` (in try/finally) around `drawPart0`.
 - Inside `drawPart0`, body fills must use the skin-aware helpers. Each one falls back to the part's own look when there is no skin:
   - `hullGradient`, `darkGradient`, `tintGradient`, `goldGradient`
   - `bodyMetal` (a metal body; `metalGradient` stays bare metal for nozzles and bells)
   - `bodyGrad(ctx, l, r, own)` (custom own fill)
   - `bodyFlat(hex)`, `bodyTone(hex, k)` (a tone of the skin base)
   - `accent(css)` (stripes)
-- `skinFill` (:902) picks the painter.
+- `skinFill` (:905) picks the painter.
 - `PartPaint.flat=true` makes gradients return flat colours. parts3d `paint()` (parts3d.js:853) uses it to bake 2D art into textures cached per type|flip|skin.
-- The cargo roundel hides when `accent === null` (:1893).
+- The cargo roundel hides when `accent === null` (:1896).
 
 ### 7. The Builder (builder.js:162)
 
@@ -220,7 +220,7 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 
 | | 2D | 3D |
 |---|---|---|
-| Pointer down | `hitParts` (side-order reversed; pad 0.2 touch / 0.05 mouse) → `grab`, else box (select mode / shift) or pan | `down3D` (:1641): a mouse drags any part, a finger only an already-selected one; otherwise orbit; right/middle button pans |
+| Pointer down | `hitParts` (side-order reversed; pad 0.2 touch / 0.05 mouse) → `grab`, else box (select mode / shift) or pan | `down3D` (:1642): a mouse drags any part, a finger only an already-selected one; otherwise orbit; right/middle button pans |
 | Placement | `snap()` near `pointerToPart` | `Render3D.surfaceHit` → `attach()`. Falls back to `snap()` on the plane at the part's depth (`Render3D.designPoint`) for zLocked parts or a miss |
 | View | `cam` pan, `zoomAt` (scale 3-90), pinch | orbit, pinch/wheel zoom, `panBy`; `Render3D.editView(true)` freezes the turntable while dragging |
 
@@ -249,12 +249,12 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 - `near()` restricts candidates to `this.adj`.
 - `kidsOf(roots, H)` (:440) gives transitive children. Children follow their host in `grab`/`moveDragged`, `shift`, `turnGroups`, `removeParts` (which deletes them too, with a toast), `copySel` and `rotateSelected`.
 - `holds(h,q)` (:401) = touch, mount, or for a wing `wingHolds`: `Parts3D.wingAt` gives the swept, tapered section at q's depth, and q must sit within `s ≤ 1.05`.
-- `letGo` (:671) clears `att` for parts that moved away from an unmoved host that no longer holds them. `dropDrag` (:1736) does the same and re-hosts a moved twin on its host's mirror.
+- `letGo` (:671) clears `att` for parts that moved away from an unmoved host that no longer holds them. `dropDrag` (:1737) does the same and re-hosts a moved twin on its host's mirror.
 - `zStep(q, dz, roots, H)` (:418): when a part hangs on the left copy of a pair, or a pair hangs on a part at −z, it moves by −dz so it stays on its host.
 
 **Moving and editing**
-- `grab` (:1629) takes the selection, their kids and their mirror twins (with the twins' kids) and records `origs`. The host map is computed **once per drag** (`drag.H`).
-- `dragTo` (:1681) moves the group via `moveDragged` (:1707). Touch drags from the palette lift the part 44 px above the finger and vibrate when it snaps on.
+- `grab` (:1630) takes the selection, their kids and their mirror twins (with the twins' kids) and records `origs`. The host map is computed **once per drag** (`drag.H`).
+- `dragTo` (:1682) moves the group via `moveDragged` (:1708). Touch drags from the palette lift the part 44 px above the finger and vibrate when it snaps on.
 - `dropDrag`: dropping over the tray deletes; an invalid spot reverts (`cancelDrag`); a single part dropped off the line gets a twin when symmetry is on.
 - Rotation: `rotateSelected` (:605) / `rotateSel` (:860). A part with kids goes through `turnGroups` (:632), all or nothing; a non-plane twin turns the opposite way.
 - `shift(list, dx, dy, dz)` (:649) does move/nudge/depth with rollback: if the group doesn't fit, or a part would clash with its own mirror, everything reverts. A mirror that cannot follow is unlinked.
@@ -270,14 +270,14 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 `linkMirrors` (:229) rebuilds `p.mirror` from poses with a 0.01 tolerance; mirror links are never saved. `mirrorOk` (:541) checks the twin's spot is free.
 
 **Depth (`#pi-depth`).**
-- `renderDepth` (:1148) hides the row for no selection, multi-select or zLocked parts. The label `#pi-z-label` reads "Spread" for pairs, else "Depth".
+- `renderDepth` (:1149) hides the row for no selection, multi-select or zLocked parts. The label `#pi-z-label` reads "Spread" for pairs, else "Depth".
 - `#pi-z` range: min `twinMinZ` for pairs or −lim; lim = min(20, ceil(max(4, |z|+1, wing half-spans+1))); step 0.25 (grid) or 0.05.
-- `#pi-z-val` shows `zText` (:1159): `±a m`, `centre`, `left/right a m` for planes, or `+/−a m`.
+- `#pi-z-val` shows `zText` (:1160): `±a m`, `centre`, `left/right a m` for planes, or `+/−a m`.
 - The slider `input` event calls `setDepth(v, true)` (:698). It restores the `zGesture` snapshot (poses, mirrors, att and H at gesture start) and re-applies `shift`. The `change` event commits one undo step.
 - `[`/`]` and `#btn-z-in`/`#btn-z-out` call `nudgeZ` (:686): 0.1 m, 0.25 in grid mode, 1 with Shift. If both of a pair are selected, only the right one moves and its mirror follows.
 
 **Paint (`#pi-paint`).**
-- `renderPaint` (:1166) builds the `.skin-sw` radio swatches in `#pi-skins` once (`data-skin=''` = own colours, styled `.own`).
+- `renderPaint` (:1167) builds the `.skin-sw` radio swatches in `#pi-skins` once (`data-skin=''` = own colours, styled `.own`).
 - `paintSel` (:719) applies to the selection plus twins, skinnable parts only.
 - **Match** (`M`, `#btn-match`, `matchPaint` :728) takes the skin of `hostOf` (the host, else the biggest skinnable neighbour). The button is disabled when nothing has a host.
 - **All** (`#btn-paint-all`, `paintAll` :740) gives the whole craft the selected part's `skinOf`.
@@ -288,7 +288,7 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 - `rotateSel` pivot rounding;
 - the blueprint drawing to minor grid lines (otherwise faint 2 m lines are drawn).
 
-**Keyboard** (handler at :1530). Ignored in modals, text inputs and textareas; a focused range slider keeps its arrow keys.
+**Keyboard** (handler at :1531). Ignored in modals, text inputs and textareas; a focused range slider keeps its arrow keys.
 
 | Keys | Action |
 |---|---|
@@ -302,7 +302,7 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 | Enter | launch (needs a control part) |
 | Esc | cancel drag, else clear selection and leave select mode |
 
-**2D render** (`render`, :1782):
+**2D render** (`render`, :1783):
 - Parts are drawn in `sideOrder`. Loose parts are at alpha 0.4, single parts at z<−0.05 get a dark wash, locked parts a red wash.
 - The selection gets dashed amber boxes; the palette ghost and its twin are drawn semi-transparent.
 - Markers: COM yellow, centre of lift blue (planes), COT purple arrow, stage badges.
@@ -312,16 +312,16 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 - `buildAdjacency` is O(n²). It runs only in `changed()`, never per drag frame.
 - Drags reuse `drag.H`; `moveDragged` checks only `groupFits`/`partsClash`.
 - `hosts()` is not cached, so compute it once and pass `H` down, as the existing code does.
-- render3d rebuilds meshes only when the (count, kind, id/type/flip/skin) snapshot changes (render3d.js:2776); Parts3D caches models and textures by type|flip|skin.
+- render3d rebuilds meshes only when the (count, kind, id/type/flip/skin) snapshot changes (render3d.js:2778); Parts3D caches models and textures by type|flip|skin.
 - Code imports are capped at 20000 rows; peer craft at `MP_MAX_PARTS`=600 (mp.js:18).
 
 ### 8. Invariants and gotchas
 
 1. **Never change `w`/`h`, `twinZ`, zLocked status or the key of an existing part.** Saves store absolute centres with 0.02 m flush tolerances, omit z at the default spread and identify parts by key. Changing any of these silently detaches, clashes or drops parts in old designs and templates. Add a new part instead.
 2. **Keep the legacy-twin rules** (`legacyTwin`, `pylonLink`, the clash exemption, `guessHost`, `oldStruts`). Templates and old saves depend on them, and flight builds physics from the same `buildAdjacency` (flight.js:33).
-3. The 5e-4 "at default spread" test is shared by parts.js:538 (`legacyTwin`) and :600 (`designRows`), parts3d.js:1191 and combat.js:61 (spread only, att not checked). Keep them in sync. `pylonLink`, `guessHost` and `oldStruts` treat any twin with no att the old way, at any spread; heating (vessel.js:851) uses the continuous distance from the default spread, with no tolerance.
+3. The 5e-4 "at default spread" test is shared by parts.js:541 (`legacyTwin`) and :603 (`designRows`), parts3d.js:1191 and combat.js:61 (spread only, att not checked). Keep them in sync. `pylonLink`, `guessHost` and `oldStruts` treat any twin with no att the old way, at any spread; heating (vessel.js:880) uses the continuous distance from the default spread, with no tolerance.
 4. `att` is an **index** in saved rows, an **id** in memory, and a peer **id** in MP spawn rows (`mpSpawnRows`, mp.js:35, with its own sanitising). Unknown rows must stay as null placeholders until links are resolved, and `cleanAtt` must run after loading.
-5. Always sanitise through `cleanZ`, `cleanSkin` and `hasOwn(PARTS, ...)`: the same rules are reused by vessel.js:1122 (`Vessel.restore`) and mp.js.
+5. Always sanitise through `cleanZ`, `cleanSkin` and `hasOwn(PARTS, ...)`: the same rules are reused by vessel.js:1152 (`Vessel.restore`) and mp.js.
 6. After any mutation call `changed()`, or `changed(true)` for a live preview. Call `linkMirrors()` after operations that may break or create twins.
 7. `loadDesign` replaces every part object. Never hold part references across undo/redo or load.
 8. Draw code goes through `drawPart`, never `drawPart0`, or paint is lost. Use the body helpers for paintable surfaces, honour `PartPaint.flat`, and read position from the `q` passed in by `turned()`.
@@ -340,7 +340,7 @@ All five files are plain globals, loaded in this order by `index.html:332-352`: 
 
 | Body | R | g | orbits at | atmo (height, rho0, scaleH) |
 |---|---|---|---|---|
-| Sun `:32` | 6.0e6 m | 28 | — | star: parts melt below 0.35R altitude (`vessel.js:623`) |
+| Sun `:32` | 6.0e6 m | 28 | — | star: parts melt below 0.35R altitude (`vessel.js:628`) |
 | Mercury `:38` | 100 km | 3.7 | 0.8e8 | — |
 | Venus `:46` | 290 km | 8.9 | 1.4e8 | 55 km, 9, 7500 |
 | Earth `:55` | **315 km** | 9.8 | 2.0e8 (~6.5 d) | 30 km, 1.2, 5200; `ocean`, `terrainBase 40`, `padAngle π/2` |
@@ -421,7 +421,7 @@ Other helpers:
   - `citiesNear(lon, lat, r°)` (`:354`) uses a 1° grid and returns `[city, dist_m]` sorted by distance.
   - `cityRadius(pop)` (`:372`).
   - `locate(b, rx, ry, rz)` (`:642`) gives `{a, lat, z, r}`.
-  - The HUD's "Over France · Paris" comes from `Flight.whereText` (`flight.js:1248`).
+  - The HUD's "Over France · Paris" comes from `Flight.whereText` (`flight.js:1257`).
 
 **Height model**:
 - `cfgOf(b)` (`:409`) builds the per-body config, using `LOOK` (`:46`) and `DIRS`. It is cached in `cfgs`.
@@ -442,41 +442,41 @@ Other helpers:
 
 **Time-sliced patches** live in render3d.js:
 - `patchJob` (`render3d.js:926`) is a generator that fills a double-buffered patch with `setCol`/`setRow`/`contAt`/`height`, yielding every 8 rows.
-- `updatePatch` (`render3d.js:2525`) runs it for 3–4 ms a frame, plus up to 16 ms as the craft nears the patch edge. It calls `buildPatchNow` when nothing usable is on show.
+- `updatePatch` (`render3d.js:2527`) runs it for 3–4 ms a frame, plus up to 16 ms as the craft nears the patch edge. It calls `buildPatchNow` when nothing usable is on show.
 - `bodyJob` (`render3d.js:645`) paints planet maps a few rows per frame the same way.
 
 ### 3. vessel.js: the rigid body
 
-**Part space and frames.** Part space is the builder's: +y runs up the stack, x is across, and z is depth, out of the blueprint (a plane's right wing). `q` rotates part space about the centre of mass into sim axes; `av` is the angular velocity in sim axes; positions are relative to the body centre. Placement is done by `placeOnSurface(body, ang, rot, z0, yaw)` (`:1014`): `q = basis(east, up, north) · yaw(about part y) · rot(about part z)`. `rot` comes from `VEHICLE_KINDS[kind].launchRot` (`parts.js:24`). `surfaceFrame().north` (`util.js`) is **+z**, which is to the *right* of east (game south). That is why `heading()` (`:612`) measures from `-north`.
+**Part space and frames.** Part space is the builder's: +y runs up the stack, x is across, and z is depth, out of the blueprint (a plane's right wing). `q` rotates part space about the centre of mass into sim axes; `av` is the angular velocity in sim axes; positions are relative to the body centre. Placement is done by `placeOnSurface(body, ang, rot, z0, yaw)` (`:1043`): `q = basis(east, up, north) · yaw(about part y) · rot(about part z)`. `rot` comes from `VEHICLE_KINDS[kind].launchRot` (`parts.js:24`). `surfaceFrame().north` (`util.js`) is **+z**, which is to the *right* of east (game south). That is why `heading()` (`:617`) measures from `-north`.
 
-| kind | launchRot | `PILOT` (F nose, U up; R = F×U) `:95` | stick map [W/S, A/D, Q/E], rate rad/s | `DRIVE` `:102` |
+| kind | launchRot | `PILOT` (F nose, U up; R = F×U) `:99` | stick map [W/S, A/D, Q/E], rate rad/s | `DRIVE` `:106` |
 |---|---|---|---|---|
 | rocket | 0 (y up, x east) | F +y, U +z, R +x | pitch, yaw, roll; 1.1/1.1/1.5 | F +x, U +y |
 | plane | −π/2 (nose +y east, belly +x down) | F +y, U −x, R +z | pitch, roll, yaw; 0.9/1.9/0.45 | F +y, U −x |
 | heli | 0 | F +x, U +y, R +z | pitch, roll, yaw; 0.9/1.0/1.4 | F +x, U +y |
 | car | 0 | F +x, U +y | pitch, roll, yaw; 0.9/1.2/1.2 | F +x, U +y |
 
-**Depth and mass** (helpers in `parts.js:469-519`):
+**Depth and mass** (helpers in `parts.js:472-522`):
 - `partZ(p)` gives a single part's depth, or how far out each copy of a twin pair (`def.twinZ`) sits.
 - `partZs` gives the depth of each copy, ±z for a pair.
 - `partZc` is 0 for pairs, so a pair never moves the COM across.
 - `massZs` (`vessel.js:17`) also splits an axle wheel (`wheel.track`) into its two wheels.
 - Wings, legs and fins are z-locked at 0.
 
-`recompute(initial)` (`:154`):
+`recompute(initial)` (`:159`):
 - Computes mass and `com {x, y, z}`. When not `initial`, it shifts `x/y/z` so the **parts stay fixed in space** as the COM moves; this is called after every burn.
 - Builds the **full 3×3 inertia** from box parts, with each copy's z offset (`zz` mean square, `zm` mean), and inverts it by blocks: the x–y block, then the Schur complement `s ≥ 1e-3`. With nothing off the centreline the result is *exactly* the old 2×2 inverse and `1/Izz`.
 - Sets `bounds`, `width` (x extent), `depth` (z extent) and **`across = max(width, 2·max(|partZ| + partDepth/2) over non-twin parts)`**. A rocket is round about its stack.
 - `mulI`, `mulInvI`, `invIWorld` and `bodyAV` are helpers.
 
-`rebuildGroups()` (`:213`) **must run after any change to parts or adj**. It rebuilds:
+`rebuildGroups()` (`:218`) **must run after any change to parts or adj**. It rebuilds:
 - `groups` (from `fuelGroups`) and `byId`.
 - The nose `top`, which gives `noseAero` and `noseSharp`.
 - `wheels`, `fins` (rocket fins), `wings`, `vtails` (shape `vtail`), `airbrakes`, `hasFlaps`, `hasRetract` and `aircraft = wings.length > 0`.
-- `mainWing` (largest non-control wing), `stallAoA`, `clS`, `wingS`/`vne`, `rotors` and `tailRotors`.
+- `mainWing` (largest non-control wing), `stallAoA`, `clS`, `wingS`/`vne`/`mmax` (the design's weakest limits, for the builder; physics uses each wing's own), `rotors` and `tailRotors`.
 - It then calls `recompute(false)`, `computeAreas` and `computeHull`.
 
-`computeAreas` (`:243`) gives the projected areas per axis and the gear drag. `computeHull` (`:270`):
+`computeAreas` (`:248`) gives the projected areas per axis and the gear drag. `computeHull` (`:275`):
 - Hull points are box corners at each copy's depth; a `ROUND3D` shape gets a diamond at each end.
 - **Rocket** legs and fins also get a copy turned 90° about the stack.
 - Wheel points come from `wheelGeom`, for each `massZs` copy.
@@ -484,63 +484,63 @@ Other helpers:
 
 `kind` must be set **before** `rebuildGroups`, because the hull's radial copies and the wheelbase depend on it.
 
-**Step** `physicsStep(dt, sim)` (`:619`), in part axes:
-1. **Gravity.** The star check is `:623`.
-2. **Engines.** `applyEngines` (`:355`) works per fuel group.
+**Step** `physicsStep(dt, sim)` (`:624`), in part axes:
+1. **Gravity.** The star check is `:628`.
+2. **Engines.** `applyEngines` (`:360`) works per fuel group.
    - Solids burn their own fuel at full thrust. Liquids use `thrust·throttle` and draw fuel in proportion to what each tank holds, scaled down if the fuel runs short.
    - Isp is `lerp(ispVac, ispSL, rho/1.2)`.
-   - Air-breathers use `airThrust` (`:75`; nothing below `MIN_AIR = 0.03`; jet/fan/ram/prop curves). The afterburner lights above 0.9 throttle (more thrust; Isp `/ (1+1.6·abK)`).
+   - Air-breathers use `airThrust` (`:79`; nothing below `MIN_AIR = 0.03`; jet/fan/ram/prop curves). The afterburner lights above 0.9 throttle (more thrust; Isp `/ (1+1.6·abK)`).
    - Thrust lies along `partAxis` (in the x–y plane only). Its torque is `r×F` with `rz = partZc - com.z`, so an engine out on one wing yaws the craft.
    - Gimbal authority is `f·sin(gimbal)·|lever|`. A single prop rolls the craft (`-0.035·f·w/2`); twins and contra-props don't.
-   - `spinRotors` (`:432`) winds rpm up and down.
-3. **Control** (`:637-657`).
+   - `spinRotors` (`:437`) winds rpm up and down.
+3. **Control** (`:642-662`).
    - Authority `A` is the reaction wheels (`def.torque`) + gimbal + rotor torque. On y it is `0.6·rotorTorque` with a tail rotor, 0.15 without. It is halved on wheels; `righting` adds `14·m·width`.
-   - `turnTarget` (`:482`) returns the wanted body rates. Then `need = I·(wt−wb)·0.35/dt`: torque goes in up to `A`, and the control-surface command is `need/(surfAuth+A)`.
+   - `turnTarget` (`:487`) returns the wanted body rates. Then `need = I·(wt−wb)·0.35/dt`: torque goes in up to `A`, and the control-surface command is `need/(surfAuth+A)`.
    - `cmd` slews at 10/s on aircraft.
-4. **Aero** (`:669-808`): `dynP`, `airspeed`, `mach` (`soundSpeed`, `:89`).
-   - **Rocket drag** (`:675`, "keep as is"): `cd` is 0.32 (aero nose) or 0.62 nose-first, 0.75 tail-first, 1.0 sideways. `area = across·(across·|along| + L·(1−|along|))·0.8`.
-   - **Other kinds**: per-axis areas with `cdF`/`cdO`, the car's `cdO` being 0.5. A plane's cross-flow terms are squared. Wave drag (`waveDrag`, `:72`), gear drag and air brakes are added.
+4. **Aero** (`:674-833`): `dynP`, `airspeed`, `mach` (`soundSpeed`, `:93`).
+   - **Rocket drag** (`:680`, "keep as is"): `cd` is 0.32 (aero nose) or 0.62 nose-first, 0.75 tail-first, 1.0 sideways. `area = across·(across·|along| + L·(1−|along|))·0.8`.
+   - **Other kinds**: per-axis areas with `cdF`/`cdO`, the car's `cdO` being 0.5. A plane's cross-flow terms are squared. Wave drag (`waveDrag`, `:76`), gear drag and air brakes are added.
    - Parachutes, then weathervaning: `0.04·area·min(L,6)` plus rocket fins below the COM.
-5. **Wings in halves.** The local `surf()` (`:734`) handles one surface. Each half has half the area, sits at `±span/4 − com.z`, and its normal leans by the dihedral. Its centre of lift is a quarter chord ahead, less `back` for sweep.
+5. **Wings in halves.** The local `surf()` (`:739`) handles one surface. Each half has half the area, sits at `±span/4 − com.z`, and its normal leans by the dihedral. Its centre of lift is a quarter chord ahead, less `back` for sweep.
    - Lift is `liftCoef` (`:24`, linear to the stall, then towards `1.1·sin2α`) plus deflection, flaps (+0.8 CL; stall −0.03), ground effect (`1+0.3·e^(−3h/span)`) and `Combat.liftK`.
    - Drag is `cd0 + kInd·CL²` + post-stall + wave terms. Reversed flow is treated as a flat plate.
    - Deflection is `kd·min(1, 26000/q)` toward the commanded torque. Plain wings carry ailerons, `kd = 0.12`.
-   - `wingAero` (`:32`): Helmbold lift slope from aspect ratio and sweep, `kInd = 1/(π·0.8·AR)`, stall 0.3, dihedral 0.06, `load = 14000` (70000 for control surfaces) × `w.load` N/m², `vne` 110, `mmax` 0 (no Mach limit; both 0 for control surfaces). The result is cached per def. `swingAero` (`:48`) sweeps the wing with Mach (writes `p.sweep`).
+   - `wingAero` (`:32`): Helmbold lift slope from aspect ratio and sweep, `kInd = 1/(π·0.8·AR)`, stall 0.3, dihedral 0.06, `load = 14000` (70000 for control surfaces) × `w.load` N/m², `vne` 110, `mmax` 0 (no Mach limit; both 0 for control surfaces). The result is cached per def. `swingAero` (`:50`) sweeps the wing with Mach (writes `p.sweep`).
    - Each `vtail` is one surface, a pair counting as twice the area. Then `slip = asin(hz)`.
-   - Planes get extra fuselage+fin yaw damping (`:794`).
+   - Planes get extra fuselage+fin yaw damping (`:799`).
 6. **Structure.** `rr = |Fn|/(load·area)`; fins use `FIN_LOAD = 45000`, and noodle wings ×0.25.
    - Above 1, `stress` builds at `(rr−1)·2·dt` and decays at 0.12/s.
    - The surface is **ripped** when `rr > 1.8`, or `stress ≥ 1`, or noodle wings are over the limit at all. This is reported through `sim.ripParts` at the end of the step.
    - `strain` is the max `rr`; `nz` is the load through the floor.
-   - **Flutter** (owner's request, after PR #23 had made overspeed a warning only): for each wing with a `vne`, `r = max(EAS/vne, M/mmax · smoothstep(500, 2000, q))`, with `EAS = √(q/0.6)` (the HUD speed at sea level) and both limits ×0.5 for noodle wings and ×√`liftK` for a damaged wing. Above 1, on a craft with its control part that isn't debris, `stress` builds at `((r−1)·3 + 0.12)·dt` (the same stress as the load uses); it rips at `r > 1.3` or `stress ≥ 1`, with `ripWhy = 'speed'` passed to `ripParts`. `overspeed` is the worst wing's `r`, `overMach` whether Mach set it.
-   - Limits (`vne` as km/h EAS / `mmax`): biplane 560/0.75, glider 500/0.7, long straight 750/0.8, wing and elliptical 850/0.85, small wing 900/0.85, airliner wings 950/0.95–0.97, swept 1350/1.6, forward-swept 1400/1.8, swing 1550/2.4, delta 1600/none, tailplanes and strakes 2000/none. Moving surfaces, vertical tails and rocket fins have none. The Mach fade keeps a straight wing safe in near-vacuum; heating caps the delta at high Mach.
-   - `gRating() = wingS/(m·g)` (`:609`).
-7. **Heat.** `updateHeat` (`:842`): `flux = ρv³·smoothstep(500, 1400, v)`.
+   - **Flutter** (owner's request, after PR #23 had made overspeed a warning only): for each wing with a `vne`, `r = max(EAS/vne, M/mmax · smoothstep(0.02, 0.06, ρ·1.2/ρ0))`, with `EAS = √(q/0.6)` (the HUD speed at sea level); the Mach limit fades out between about 15.6 and 21.3 km on Earth, so a space plane coming home keeps its wings and both limits ×0.5 for noodle wings and ×√`liftK` for a damaged wing. Above 1, on a craft with its control part that isn't debris (debris doesn't tear from load either), `stress` builds at `((r−1)·3 + 0.12)·dt` (the same stress as the load uses); it rips at `r > 1.3` or `stress ≥ 1`, with `ripWhy = 'speed'` passed to `ripParts`. `overspeed` is the worst wing's `r`. `overWarn` is the same for the warning but, on the way down (`vSpeed < 0`) in the fade, counts the full Mach limit, so a craft coming home too fast is warned high up; `overMach`, whether Mach set the warning.
+   - Limits (`vne` as km/h EAS / `mmax`): biplane 560/0.48, glider 500/0.5, long straight 750/0.66, wing and elliptical 850/0.74, small wing 900/0.74, airliner wings 950/1.02–1.05 (the subsonic wings' Mach limits keep their HUD breaking speed about level from sea level to 12 km), swept 1350/1.7, forward-swept 1400/1.8, swing 1550/2.5, delta 1600/none, tailplanes and strakes 2000/none. Moving surfaces, vertical tails and rocket fins have none. Heating caps the delta at high Mach. `structAlert` shows the speed warning before the g one while a wing flutters, unless the load is past its limit too, and counts no flutter stress towards the g level.
+   - `gRating() = wingS/(m·g)` (`:614`).
+7. **Heat.** `updateHeat` (`:871`): `flux = ρv³·smoothstep(500, 1400, v)`.
    - Above 2e6, each part's `_lead` is its forward extent along the flow, plus the **twin "across" rule**: a single part adds `partZ·sz`; a pair adds `(partZ − twinZ)·|sz|`. A pair at its catalogue spread therefore counts as on the centreline, so stock designs heat exactly as before.
    - Parts within 0.3 m of the front get full flux (`temp += flux·2.8e-6`); the rest get 0.12. Everything cools at `0.08·(T−290)`.
-   - Over `def.maxTemp` (default 2000 K, `parts.js:417`), the part breaks via `sim.breakParts(..., 'heat')` and the step returns early.
+   - Over `def.maxTemp` (default 2000 K, `parts.js:420`), the part breaks via `sim.breakParts(..., 'heat')` and the step returns early.
    - A heat shield is just a part with `maxTemp 4200` placed on the leading face. Pods have 2400–2600.
-8. **Integrate** (`:811`): semi-implicit Euler for velocity then position. Euler's equations in body axes include the gyro term `ω×Iω`, body rates are clamped to `MAX_SPIN = 6` rad/s, and `integrateSpin` (`:833`) does a first-order quaternion update with `qnorm` every step. Then `ground()`, then rips.
+8. **Integrate** (`:836`): semi-implicit Euler for velocity then position. Euler's equations in body axes include the gyro term `ω×Iω`, body rates are clamped to `MAX_SPIN = 6` rad/s, and `integrateSpin` (`:862`) does a first-order quaternion update with `qnorm` every step. Then `ground()`, then rips.
 
 **Autopilot** (`turnTarget`):
 - A heli without wings: the stick sets a target lean (`±0.42` rad) and levels on release; Q/E yaw.
 - Stick input is ignored for rotation while on driving wheels.
 - Rovers and cars (`sas==='hold'`, no input) level to `normalAt`, with "righting" when on their side.
-- `sas` 'off' gives the stick only. `sasHeading` (`:449`; prograde, retrograde, radialOut, radialIn, target) steers the stack axis (+y) with no roll.
+- `sas` 'off' gives the stick only. `sasHeading` (`:454`; prograde, retrograde, radialOut, radialIn, target) steers the stack axis (+y) with no roll.
 - An open chute gives the stick only.
 - Wingless non-heli craft hold zero rate: rocket "hold" is rate damping.
-- Aircraft go through **`planeTarget`** (`:549`):
+- Aircraft go through **`planeTarget`** (`:554`):
   - `hold` keeps the pitch and bank captured at release.
   - `level`/`heading` hold altitude with an attitude loop (`pitchHold` integrator; `ogAutopilot` silly variant). `heading` turns `hdgHold` with A/D at 0.3 rad/s and banks up to 0.45.
   - Always: a **coordinated rudder** (`yaw = g/V·sin(bank)·cos(pitch) + 2.5·slip`; held rudder is limited to about 12° slip), aileron roll scaled down when slow or slipping, low-speed nose-down below `1.35·Vstall` while climbing, a pitch-rate clamp to `[−3g/V, 8g/V]`, ×0.4 on wheels, and AoA protection at 0.85 of the stall.
 
-**Parachutes** (`:694-718`; deploy gate in `Flight.deployChute`, `flight.js:335`: needs air, below 0.85 atmoHeight, refused if `v>250 && q>12000`):
+**Parachutes** (`:699-723`; deploy gate in `Flight.deployChute`, `flight.js:338`: needs air, below 0.85 atmoHeight, refused if `v>250 && q>12000`):
 - A drogue opens to 0.3, and the main to 1 below 1500 m above the ground. `cdA += (18+520k²)·chuteArea`.
 - The canopy hauls the top of the craft round to trail behind it, and its rate damping is `1.5·I·ω`.
 - It is torn off when `q > 25000` and it is more than half open.
 - `brakeChute`: tears at `q > 9500` and collapses when stopped.
 
-**Ground and water** `ground(dt, sim)` (`:876`):
+**Ground and water** `ground(dt, sim)` (`:905`):
 - Broad phase uses `reach`, `terrainMax` and the deck.
 - Probes hull points (radius 0) and wheel rims, skipping retracted gear. A point deep under a deck edge counts as hitting the ship's `side`.
 - **Crash**: the normal closing speed is compared with `breakSpeed` (default `DEFAULT_BREAK_SPEED = 9`; ×1.8 on water) **×1.6 whenever `Combat` is loaded** (always in game). Between 0.75 and 1.6 of the limit, `Combat.impact` dents the part instead. A prop or rotor touching ground with rpm > 8 shatters. Broken parts go to `sim.breakParts(...,'impact')`; the `bouncy` silly setting skips this.
@@ -550,65 +550,65 @@ Other helpers:
 - In water without floats, velocity damps by `e^(−0.6dt)`.
 - `landed` = contact for more than 0.2 s and speed < 1.5. Resting for 0.5 s zeroes the velocity. Flight skips sleeping non-active vessels.
 
-**Splitting** `splitComponents` (`:1065`): keeps the component holding the control part. Each other component becomes a new `Vessel` with the parent's `q`/`av`, `pointVel` velocity, `kind`, `gearUp` and the remaining stages filtered to its parts; `isDebris = !control`. Stages up to the current `stageIdx` are never touched. `serialize`/`restore` (`:1111`, `:1123`): `restore` turns pre-3D saves (`rot`, `w`) into `q`/`av` and puts back `x..vz` after `rebuildGroups`.
+**Splitting** `splitComponents` (`:1094`): keeps the component holding the control part. Each other component becomes a new `Vessel` with the parent's `q`/`av`, `pointVel` velocity, `kind`, `gearUp` and the remaining stages filtered to its parts; `isDebris = !control`. Stages up to the current `stageIdx` are never touched. `serialize`/`restore` (`:1140`, `:1152`): `restore` turns pre-3D saves (`rot`, `w`) into `q`/`av` and puts back `x..vz` after `rebuildGroups`.
 
 ### 4. flight.js: the flight scene (`Flight` object)
 
 **From design to vessel**: `Flight.start(design, opts)` (`:28`). The design is `{name, kind, parts: rows}` from `Builder.serialize` / `designRows`.
-1. `partsFromDesign` (`parts.js:608`) → `buildAdjacency` → keep `componentOf(findControlPart)` (a control part is required) → drop `att` links whose host was left behind.
+1. `partsFromDesign` (`parts.js:611`) → `buildAdjacency` → keep `componentOf(findControlPart)` (a control part is required) → drop `att` links whose host was left behind.
 2. `new Vessel` (on `EARTH`), set `kind`, `computeStages`, `rebuildGroups`.
 3. `placeOnSurface` at `opts.place` (multiplayer spawn: `e, z, yaw, catapult`) or at `EARTH.sites[K.site]`. A plane on floats with no wheels starts in the bay facing π.
 4. A heli starts with throttle 0 (the default is 1).
 5. Outside multiplayer: `Career.spend`, then `resetState`, the 2D `scale`, and `save()`.
 
-**Loop** `update(rdt)` (`:480`), called from `App.frame` (`main.js:44`; real dt capped at 0.1 there and 0.05 here):
+**Loop** `update(rdt)` (`:484`), called from `App.frame` (`main.js:44`; real dt capped at 0.1 there and 0.05 here):
 - `WARPS` (`:4`): indices 0..3 (1–8×) are **physics warp**. There are `ceil(total/PHYS_DT)` substeps with `PHYS_DT = 1/120`, or 1/60 at 4× and up. They step the active vessel and vessels within `NEAR_DIST = 6000` m, or controllable craft that are flying below `warpAlt`.
   - Far vessels advance on rails. Uncontrolled ones that would go "low" are deleted.
-- Index > 3 is **rails**: `railsTick` → `railsAdvance` (`:651`). This is chunked Kepler propagation with events `low` (`r < R + warpAlt`), `out` and `in` (40-step bisection), and `gravityStep` for radial orbits.
+- Index > 3 is **rails**: `railsTick` → `railsAdvance` (`:655`). This is chunked Kepler propagation with events `low` (`r < R + warpAlt`), `out` and `in` (40-step bisection), and `gravityStep` for radial orbits.
   - `canRails` (`:173`) refuses when engines are burning, or the craft is in the atmosphere or near the surface.
   - Entering rails zeroes `av`.
   - Warp drops automatically if a frame costs more than 14 ms.
-- `physicsTick` (`:602`) does `physicsStep`, `checkSOI` (`:617`; re-bases x/y and vx/vy only), the catapult and arrestor wires, `Combat.step`, and `time += h`. Then come `cleanup` (debris further than 150 km goes), `checkMilestones` and audio warnings. Prediction updates every 0.3 s (0.12 s on the map), Δv every 0.5 s, the HUD every 0.08 s, and an autosave every 10 s.
+- `physicsTick` (`:606`) does `physicsStep`, `checkSOI` (`:621`; re-bases x/y and vx/vy only), the catapult and arrestor wires, `Combat.step`, and `time += h`. Then come `cleanup` (debris further than 150 km goes), `checkMilestones` and audio warnings. Prediction updates every 0.3 s (0.12 s on the map), Δv every 0.5 s, the HUD every 0.08 s, and an autosave every 10 s.
 
 **Controls**:
-- Keys are read by `e.code` in `bindDom` (`:935`):
-  - `readControls` (`:559`) fills `v.ctl {v, h, r}` from W/S, A/D, Q/E and the arrows, plus the touch stick (`#joy`, 0.12 dead zone) and the `#rot-left/right` buttons. Shift and Ctrl change throttle at 0.9/s; Z and X go to full and cut.
+- Keys are read by `e.code` in `bindDom` (`:939`):
+  - `readControls` (`:563`) fills `v.ctl {v, h, r}` from W/S, A/D, Q/E and the arrows, plus the touch stick (`#joy`, 0.12 dead zone) and the `#rot-left/right` buttons. Shift and Ctrl change throttle at 0.9/s; Z and X go to full and cut.
   - Space stages. 1–6 is rocket SAS; 1–4 for planes is hold/level/heading/off (`PLANE_SAS_KEYS`).
   - M toggles the map and N switches the map view. `,` and `.` change warp. `[` and `]` switch vessel.
   - B brakes, F cycles flaps (0/0.5/1), G toggles gear, C resets the camera.
   - V, Tab and K are weapons and countermeasures, L launches the catapult, R recovers, Esc and P open the menu.
-- Pointer: drag orbits the 3D camera (`Render3D.orbitBy`), pinch or the mouse wheel zooms, and a tap calls `tapAt` (`:1115`). In 3D that is `Render3D.pickPart`; in 2D it is `hitTest`. `usePart` toggles an engine, fires a separator or opens a chute.
+- Pointer: drag orbits the 3D camera (`Render3D.orbitBy`), pinch or the mouse wheel zooms, and a tap calls `tapAt` (`:1119`). In 3D that is `Render3D.pickPart`; in 2D it is `hitTest`. `usePart` toggles an engine, fires a separator or opens a chute.
 - **There is no gamepad support.**
 
 **Staging and breakage**:
-- `stage()` (`:284`): separators first, then engines (if fuelled), then chutes. A chute-only stage that fails to deploy is kept.
-- `fireSeparator` (`:308`): `cutSeparator` keeps the separator with the piece that falls away, then the two pieces get a 2.2 m/s relative push and a little tumble.
-- `breakParts` (`:349`): removes the parts, splits the rest and calls `onDestroyed` if control is lost.
-- **`ripParts(v, parts, cause)`** (`:238`; cause `'g'`, `'speed'`, `'impact'` or a hit, for the toast): takes along each part's `att` chain unless that chain holds the control part, cuts adjacency, then splits.
+- `stage()` (`:287`): separators first, then engines (if fuelled), then chutes. A chute-only stage that fails to deploy is kept.
+- `fireSeparator` (`:311`): `cutSeparator` keeps the separator with the piece that falls away, then the two pieces get a 2.2 m/s relative push and a little tumble.
+- `breakParts` (`:352`): removes the parts, splits the rest and calls `onDestroyed` if control is lost.
+- **`ripParts(v, parts, cause)`** (`:239`; cause `'g'`, `'speed'`, `'impact'` or a hit, for the toast): takes along each part's `att` chain unless that chain holds the control part, cuts adjacency, then splits.
 
-**HUD** `updateHUD` (`:1264`):
-- Altitude, ground (below 5 km), speed (km/h for non-rockets), Mach, AoA/STALL, compass (`compass` via `bearingAt`), damage, g (`nz/gRating`), the `#flight-alert` from `structAlert` (`:1240`: g at strain > 0.85 for planes, speed at overspeed > 0.9 for anything with wings). While a wing flutters (`overspeed` > 0.97) `flutterShake` (world.js) shakes the 2D view and the 3D camera, and the wind sound roars.
+**HUD** `updateHUD` (`:1273`):
+- Altitude, ground (below 5 km), speed (km/h for non-rockets), Mach, AoA/STALL, compass (`compass` via `bearingAt`), damage, g (`nz/gRating`), the `#flight-alert` from `structAlert` (`:1246`: g at strain > 0.85 for planes, speed for anything with wings: amber at max(`overspeed`, `overWarn`) > 0.9, red at `overspeed` > 1; nothing once the craft is lost). While a wing flutters (`smoothstep(0.97, 1.15, overspeed)`, not paused, not lost) `flutterShake` (world.js) shakes the 2D view and the 3D camera, and the wind sound roars.
 - Orbit rows are hidden for low aircraft. Also Ap/Pe with times, Δv (`estimateDeltaV`), heat bar, target/window, encounter/escape/impact, stage fuel and stage text.
 - Hints come from `hint`/`vehicleHint`.
 
-**Camera**: `updateCamera` (`:1400`) follows the view vessel's *body-relative* position (`camRel`), so a wreck stays in view (the `ghostCam` silly setting reverts this). `viewQ` slerps to the local surface frame, and `viewRot` is used for 2D.
+**Camera**: `updateCamera` (`:1410`) follows the view vessel's *body-relative* position (`camRel`), so a wreck stays in view (the `ghostCam` silly setting reverts this). `viewQ` slerps to the local surface frame, and `viewRot` is used for 2D.
 
-**2D fallback**: `App.use3D()` (`main.js:81`) is false without WebGL, or with the `retro2d` silly setting. `Flight.render` then calls `World.render` (`world.js:296`), which uses `F.scale`, `viewRot`, `camAbs`, `v.rot` (the planar projection of `q`, `vessel.js:149`) and `com.x/y`. The physics is the same 3D simulation either way.
+**2D fallback**: `App.use3D()` (`main.js:81`) is false without WebGL, or with the `retro2d` silly setting. `Flight.render` then calls `World.render` (`world.js:304`), which uses `F.scale`, `viewRot`, `camAbs`, `v.rot` (the planar projection of `q`, `vessel.js:154`) and `com.x/y`. The physics is the same 3D simulation either way.
 
 **Saving**:
 - `serialize` (`:126`) writes `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels}` to `store['rss.flight']`. It skips AI craft, dead craft and uncontrolled debris.
 - It saves every 10 s, on Save & exit, and on `visibilitychange`/`pagehide`. Nothing is saved in multiplayer.
 - It is cleared on revert, recover, a new launch, or destruction with no other controllable craft left.
 - `restore` (`:140`) bumps `_partSeq` past the restored ids.
-- Recover (`:392`): landed or splashed on Earth, speed < 1.2. It refunds 90% of `value()`.
+- Recover (`:396`): landed or splashed on Earth, speed < 1.2. It refunds 90% of `value()`.
 
-**Missions hook**: `checkMilestones` (`:780`) raises flags: `liftoff`, `alt1k`, `space`, `soi:/orbit:/land:<id>` (an orbit needs `rp > R+warpAlt` and `ra < soi`), `sunDive`, `escapeSun`, `takeoff`, `flyHigh`, `runwayLanding`, `supersonic`, `mach2`, `seaplane`, `hover`, `drive1k`. Recover adds `recoveredSpace`, `home:<id>` and `splashdown`. `award` (`:769`) → `Career.onFlag` (not in multiplayer).
+**Missions hook**: `checkMilestones` (`:784`) raises flags: `liftoff`, `alt1k`, `space`, `soi:/orbit:/land:<id>` (an orbit needs `rp > R+warpAlt` and `ra < soi`), `sunDive`, `escapeSun`, `takeoff`, `flyHigh`, `runwayLanding`, `supersonic`, `mach2`, `seaplane`, `hover`, `drive1k`. Recover adds `recoveredSpace`, `home:<id>` and `splashdown`. `award` (`:773`) → `Career.onFlag` (not in multiplayer).
 
 ### 5. career.js
 
 `MISSIONS` (`career.js:4`) has 41 entries: 13 fixed missions, plus flyby/orbit/landing/return for each body (scaled by its tier; no landing or return on Jupiter), plus `escapeSun` and `sunDive`. Each is matched by `flag`.
 
-`Career.data` (`'rss.career'`) holds `mode` (`null` | `'sandbox'` | `'career'`), `funds` (starts at 50000), `tier`, `done` and `flights`. `sandbox` means `mode !== 'career'`: spending, earning and unlocks are no-ops there. `onFlag` marks missions done in both modes, but pays only in career. `buyTier` uses `TIERS` (`parts.js:422`). A launch costs `designCost` of the kept parts, and revert refunds it.
+`Career.data` (`'rss.career'`) holds `mode` (`null` | `'sandbox'` | `'career'`), `funds` (starts at 50000), `tier`, `done` and `flights`. `sandbox` means `mode !== 'career'`: spending, earning and unlocks are no-ops there. `onFlag` marks missions done in both modes, but pays only in career. `buyTier` uses `TIERS` (`parts.js:425`). A launch costs `designCost` of the kept parts, and revert refunds it.
 
 ### 6. Invariants and gotchas
 
@@ -622,7 +622,7 @@ Other helpers:
 - **Keep in sync with parts.js and the renderers.**
   - `ROUND3D` must list the round shapes.
   - `PILOT`/`DRIVE` frames assume `VEHICLE_KINDS.launchRot`. If you add a kind, add both.
-  - Physics writes per-part fields that render3d/parts3d/world.js read: `firing`, `ab`, `rpm`, `spin`, `deflect`, `aileron`, `sweep`, `retracted`, `temp`, `deployed`, `used`, `stress`. It also writes vessel fields: `steer`, `brakeOut`, `heatFlux`, `maxHeat`, `aoa`, `nz`, `strain`, `overspeed`, `overMach`.
+  - Physics writes per-part fields that render3d/parts3d/world.js read: `firing`, `ab`, `rpm`, `spin`, `deflect`, `aileron`, `sweep`, `retracted`, `temp`, `deployed`, `used`, `stress`. It also writes vessel fields: `steer`, `brakeOut`, `heatFlux`, `maxHeat`, `aoa`, `nz`, `strain`, `overspeed`, `overWarn`, `overMach`.
   - A new JS file needs a `<script>` tag in `index.html`, a `sw.js` `SHELL` entry (and a `CACHE` bump) and a README layout line; build-single inlines it by itself. A new Earth asset: see §5.9 #3.
 - **Shared mutable return values.**
   - In terrain.js: `Terrain.toGeo` (`GEO`), `Terrain.water` (`EW`), `Terrain.dark()`, `lineQuery` (`LQ`), `fieldAt` (`FQ`).
@@ -647,9 +647,9 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 
 | Global | File | Role | Entry points |
 |---|---|---|---|
-| `Render3D` | render3d.js:7 | three.js renderer, flight scene, hangar studio, globe | `load()` 3134, `renderFlight` 2341, `renderBuilder` 2767, `renderGlobe` 3080, `project` 3157, `pickPart` 3169, `designPoint` 3213, `surfaceHit` 3230 |
+| `Render3D` | render3d.js:7 | three.js renderer, flight scene, hangar studio, globe | `load()` 3136, `renderFlight` 2341, `renderBuilder` 2769, `renderGlobe` 3082, `project` 3159, `pickPart` 3171, `designPoint` 3215, `surfaceHit` 3232 |
 | `Parts3D` | parts3d.js:6 | Part → mesh: models, materials, plumes, chutes, pylons | `VesselMesh` 1254, `ghost` 1242, `place` 1227, `tint` 1235, `wingAt` 453 |
-| `Settings`, `FX`, `World` | world.js:5/31/258 | Settings, particles, 2D fallback flight view, 3D markers overlay | `World.render` 296, `World.drawOverlay3D` 796 |
+| `Settings`, `FX`, `World` | world.js:5/31/266 | Settings, particles, 2D fallback flight view, 3D markers overlay | `World.render` 304, `World.drawOverlay3D` 806 |
 | `GlobeView` | globe.js:7 | Globe map state and its 2D overlay | `open` 18, `render` 90 |
 | `MapView`, `PATCH_COLORS` | map.js:4/6 | 2D solar-system map (also the home screen backdrop, main.js:191) | `render` 133, `drawSystem` 83 |
 
@@ -693,14 +693,14 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 - **Surface "a0 frames"** (used by terrain patches, scenery sets and the cloud frame):
   - Content is built around the point at angle `a0` on the body's equator.
   - Local coordinates: x = `−r·cosφ·sin(a−a0)` (east), y = `r·cosφ·cos(a−a0) − R` (up), z = `r·sinφ` (φ = z/R).
-  - `placeFrame(obj, b, a0, t)` (2555) positions the frame and sets `rotation.z = a0 − π/2`.
-  - Surface positions are `(a, z)` = sim angle and along-surface depth, from `Terrain.locate` via `focusSpot` (2523).
+  - `placeFrame(obj, b, a0, t)` (2557) positions the frame and sets `rotation.z = a0 − π/2`.
+  - Surface positions are `(a, z)` = sim angle and along-surface depth, from `Terrain.locate` via `focusSpot` (2525).
   - East is *decreasing* angle: `siteAngle(b, east) = padAngle − east/R` (space.js:101).
-  - `latK(z, R)` (2524) is the metres-per-radian shrink away from the equator.
-- **Space-centre frame:** `surf(e, h, z)` (1412) maps metres east along the curved ground, height and depth into the `S.sc` group at the pad. `updateSpaceCentre` (2625) places that group.
+  - `latK(z, R)` (2526) is the metres-per-radian shrink away from the equator.
+- **Space-centre frame:** `surf(e, h, z)` (1412) maps metres east along the curved ground, height and depth into the `S.sc` group at the pad. `updateSpaceCentre` (2627) places that group.
 - **Airfield and carrier frames:** u runs along `yaw` and v to the right; `siteE/siteZ` (1762). `siteMatrix` (1765) stands an object on curved ground at any (e, z); `placeSite` (1774) applies it.
 - **Part space:** x and y are the 2D blueprint axes, and z runs across the blueprint (+z faces the 2D viewer; +z is the right wing on planes).
-  - Flight: `VesselMesh.group` is offset by `−v.com`, and the root takes `v.q` (2670-2671).
+  - Flight: `VesselMesh.group` is offset by `−v.com`, and the root takes `v.q` (2672-2673).
   - Hangar: `S.design` is part space, turned about z by `VEHICLE_KINDS[kind].launchRot` and lifted onto the floor.
 
 #### 1.3 Draw order per flight frame
@@ -732,12 +732,12 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - Zenith/horizon mix, with a horizon dip `uDip` that grows with altitude.
   - Sunset tint by azimuth, glare lobes around the Sun.
 - **`S.haze`:** the same shader as a translucent dome (renderOrder 50) that veils planets while you are inside an atmosphere.
-- **Sky colours:** `envAt` (2298) and `skyColors` (2314) duplicate the 2D `World.environment` (world.js:271) and its sky mix.
+- **Sky colours:** `envAt` (2298) and `skyColors` (2314) duplicate the 2D `World.environment` (world.js:279) and its sky mix.
 - **Stars:** 3000 points at 1e5 m (a third of them in a band), plus the `BAND_FS` sphere. Alpha = `1 − lum(zenith)·3.2`.
 - **Sun:** `SUN_FS` with limb darkening on a procedural `sunTexture` (628), plus an additive glow sprite.
 - **Lights:**
   - The far layer has `S.sunS` and `S.ambS`.
-  - The near layer has `S.sun` (casts shadows when `Settings.high`), `S.hemi`, and `S.engine`, a point light at the active craft's weighted exhaust (`engineGlow` 2680).
+  - The near layer has `S.sun` (casts shadows when `Settings.high`), `S.hemi`, and `S.engine`, a point light at the active craft's weighted exhaust (`engineGlow` 2682).
   - The sun direction leans out of the ecliptic by `TILT = 0.26` (11).
 
 #### 1.5 Planets (far layer, `initBodies` 566)
@@ -752,7 +752,7 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 - **Cloud deck** (`e.deck`):
   - Earth: an fbm texture from `cloudJob` (725) at 5 km altitude. It fades in only above 8-14 km camera altitude, where cumulus puffs stop.
   - Hazy worlds: the planet map at 0.75·atmoHeight.
-- **Re-parenting:** deck and atmosphere move into `localWorld` while their body is current and the patch is active (2501-2507), so they depth-sort with the terrain.
+- **Re-parenting:** deck and atmosphere move into `localWorld` while their body is current and the patch is active (2503-2509), so they depth-sort with the terrain.
 - **Distant bodies:** below about 2 px a body becomes a dot (`S.dots`, `GLOW_FS`), and below 0.6 px its mesh is hidden.
 
 #### 1.6 Terrain streaming
@@ -768,7 +768,7 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - Noise octaves fade to their mean once cells outgrow them (anti-aliasing).
   - UVs are offset by `a0, z0 mod TILE` so the detail texture does not swim when the patch is rebuilt.
   - Custom bounding spheres are centred on the middle vertex (1043), which fixes culling at high latitude.
-- **`updatePatch`** (2525) decides when to rebuild:
+- **`updatePatch`** (2527) decides when to rebuild:
   - `span ≈ horizon + sqrt(2R·hmax) + 1.5·dist`.
   - *Stale* (moved > 1.2 % of span, or span off by ×1.6): start a background `patchJob` with a budget of 3-4 ms, plus up to 16 ms more as the craft nears the edge.
   - *Lost* (other body, moved > 25 %, or span off by ×3): `buildPatchNow` (1116) runs synchronously, at most every 0.12 s; otherwise the patch is hidden.
@@ -792,7 +792,7 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - **City lights:** `Points` with `GLOW_FS`.
 - **Seating:** everything sits on `meshHeight`.
 - **Capacities:** 7000 per tree mesh / walls / roofs / lights, rocks 5000, boats 200. The loops stop silently at their caps.
-- **`updateScenery`** (2563): shown only near the ground, when `dist < 9 km`. The radius is `clamp(3·dist + 600, 800, 2400)`.
+- **`updateScenery`** (2565): shown only near the ground, when `dist < 9 km`. The radius is `clamp(3·dist + 600, 800, 2400)`.
   - Background rebuild budget: 2-3 ms, plus up to 30 ms.
   - Synchronous rebuild on another body or when moved > 80 % of the radius (at most every 0.3 s).
 - Farmland, roads and urban grey are terrain vertex colours, not geometry.
@@ -803,7 +803,7 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - The layout also produces flythrough ellipsoids (`vols`).
 - **Puffs:** one `InstancedMesh` of camera-facing quads (`CLOUD_MAX` 6000), using `CLOUD_VS/FS` (309/326) and a 2×2 atlas (`cloudAtlas` 343) whose RGB is a baked normal and whose alpha is density. They are lit by the Sun, with darker bases, forward scattering and fog.
 - **Sorting:** `sortPuffs` (1389) re-sorts far-to-near every 0.2 s.
-- **`updateClouds`** (2587): Earth only, camera altitude < 12 km.
+- **`updateClouds`** (2589): Earth only, camera altitude < 12 km.
   - Rebuild synchronously beyond 6 km of movement, in the background beyond 1.5 km.
   - Drift is `F.time·2e-6` rad, matching the 2D clouds and the deck.
   - Inside a volume, `S.clouds.inside` thickens the fog to white murk.
@@ -811,7 +811,7 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 #### 1.10 Space centre, landmarks, airfields, carriers
 - **`initSpaceCentre`** (1416) builds the pad, lattice tower, VAB and mission control (facade canvases with emissive window maps in `S.nightMats`), dish, water tower, flag, slabs, helipad, runway and causeway strips (`strip`, which follows the curved ground), and the hangar and tower.
   - Glow points (`glowPts`, `S.glowU`) and blinking beacons (`S.blinkU`).
-  - Building positions mirror `World.drawSpaceCenter` (world.js:559).
+  - Building positions mirror `World.drawSpaceCenter` (world.js:569).
 - **`initLandmarks`** (1649) is deferred until the Earth map loads; `S.scKit` is cleared first, so it runs once even if it throws. It builds:
   - `initAirfields` (1859): runway numbered by real bearing, apron side chosen by `fieldLayout` (1840, cached in a WeakMap), hangars, ops, tower, tanks, parked jets (`addJet` 1965), windsock, lights.
   - `initCarriers` (1987): `carrierGeo` (2026) is cached per size: lofted hull, a 2048×512 painted deck, island, turning radar (`S.radars`), numbers.
@@ -821,29 +821,29 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 - **`shipTop`** (1820) keeps the camera out of the carriers.
 
 #### 1.11 Vessels, plasma, vapour cone, particles, combat
-- **`syncVessels`** (2648): a `Map` from Vessel to `{vm: Parts3D.VesselMesh, root}`.
+- **`syncVessels`** (2650): a `Map` from Vessel to `{vm: Parts3D.VesselMesh, root}`.
   - Rockets get `radial: true`.
   - Hidden when farther than 50 km *and* under 1 px.
   - **Disposed the first frame a vessel is not iterated** (dead, or no parts).
-- **`sheath`** (2711): reentry plasma when `heatFlux > 3e7`. This duplicates the 2D sheath in `World.drawVessel`.
-- **`vaporCone`** (2691): a lathe bell along the velocity vector. It grows with `effectMach` from 0.85 to 1, flashes as the craft crosses Mach 1, and fades out by Mach 1.2. It is scaled by air density/0.5, and `S.vaporK` eases (rising rate 9, falling rate 3).
+- **`sheath`** (2713): reentry plasma when `heatFlux > 3e7`. This duplicates the 2D sheath in `World.drawVessel`.
+- **`vaporCone`** (2693): a lathe bell along the velocity vector. It grows with `effectMach` from 0.85 to 1, flashes as the craft crosses Mach 1, and fades out by Mach 1.2. It is scaled by air density/0.5, and `S.vaporK` eases (rising rate 9, falling rate 3).
 - **Particles** (`initParticles` 2201, `updateParticles` 2226): `FX.list` from world.js drawn as two instanced quad meshes of 1100 each, smoke (normal blending, fogged) and fire (additive).
   - `'ring'` uses the shader's ring mode.
   - `'fire'` turns to smoke after 45 % of its life.
   - A random depth jitter `p.jz` is added lazily.
-- **Combat** (`syncCombat` 2952): tracer `LineSegments` plus head points (700), pooled missile/rocket/bomb models, and target models within 30 km (they become wrecks when destroyed).
+- **Combat** (`syncCombat` 2954): tracer `LineSegments` plus head points (700), pooled missile/rocket/bomb models, and target models within 30 km (they become wrecks when destroyed).
 
 #### 1.12 Cameras
 - **Flight follow camera:** `fc` (2292).
   - Default offsets by kind come from `CAM0` (2325): beside rockets (looking along part +z, so the side the blueprint faces), behind planes, cars and helis.
   - `followCam` (2326) eases the heading at a rate of 2.2/s.
 - **Hangar turntable:** `bc`.
-- **Shared controls:** `orbitBy` (3186) clamps pitch to −1.25..1.45. `resetCamera` (3193) returns the short way round. Spectating is just `F.viewVessel`.
+- **Shared controls:** `orbitBy` (3188) clamps pitch to −1.25..1.45. `resetCamera` (3195) returns the short way round. Spectating is just `F.viewVessel`.
 - There is no cockpit or free camera.
 
 #### 1.13 Quality and adaptive resolution
-- **`adaptResolution`** (2871): when the frame-time EMA exceeds 1/42 s, the pixel ratio scale drops by 0.08, down to 0.55. Below 1/57 s it rises by 0.04. It changes at most every 0.6 s. The base ratio is `min(DPR, 1.75)` on high and 1 on low.
-- **`applyQuality`** (2881) reacts to a `Settings.high` flip: shadows, a fresh `allocPatch`, invalidated scenery and clouds, and a resize.
+- **`adaptResolution`** (2873): when the frame-time EMA exceeds 1/42 s, the pixel ratio scale drops by 0.08, down to 0.55. Below 1/57 s it rises by 0.04. It changes at most every 0.6 s. The base ratio is `min(DPR, 1.75)` on high and 1 on low.
+- **`applyQuality`** (2883) reacts to a `Settings.high` flip: shadows, a fresh `allocPatch`, invalidated scenery and clouds, and a resize.
 
 What `Settings.high` (world.js:9) changes:
 
@@ -858,15 +858,15 @@ What `Settings.high` (world.js:9) changes:
 | `FX.max` particles | 900 | 350 |
 | Plume shock diamonds | yes | no |
 
-`Render3D.info()` (3121) returns draw stats plus `t`, the rebuild costs from `note`/`timed` (917-924, 2906).
+`Render3D.info()` (3123) returns draw stats plus `t`, the rebuild costs from `note`/`timed` (917-924, 2908).
 
 ---
 
-### 2. Hangar 3D building view (render3d.js:2725-2865, API 3199-3255)
-- **`renderBuilder`** (2767) uses the `studio` scene (gradient background, fog, 5 m-grid floor, hemisphere/key/rim lights).
-  - **The `VesselMesh` is rebuilt only when `snap` changes:** part count, kind, and per part `id,type,flip,skin` (2776). It also rebuilds when the parts array itself is replaced (undo, redo, load: `bd.parts !== B.parts`, 2777). Moving, depth changes and turns are cheap, because `place()` runs every `sync`.
+### 2. Hangar 3D building view (render3d.js:2727-2867, API 3201-3257)
+- **`renderBuilder`** (2769) uses the `studio` scene (gradient background, fog, 5 m-grid floor, hemisphere/key/rim lights).
+  - **The `VesselMesh` is rebuilt only when `snap` changes:** part count, kind, and per part `id,type,flip,skin` (2778). It also rebuilds when the parts array itself is replaced (undo, redo, load: `bd.parts !== B.parts`, 2779). Moving, depth changes and turns are cheap, because `place()` runs every `sync`.
   - Parts not attached to the control part get `setOpacity(p, 0.4)`.
-- **Tints** (2788-2797) go into the material's emissive channel:
+- **Tints** (2790-2799) go into the material's emissive channel:
 
   | State | Colour, k |
   |---|---|
@@ -875,22 +875,22 @@ What `Settings.high` (world.js:9) changes:
   | **Host glow** (`B.drag.host`, the part a drag will attach to) | cyan [0.3, 0.85, 1], 0.3 |
   | Invalid drop (incl. mirror and group) | red, 1.1 |
 
-- **Ghosts:** `syncGhosts` (2747) takes `B.ghosts()` and builds `Parts3D.ghost(p, radial)` rigs: 60 % opacity, no shadows, plus the radial twin.
+- **Ghosts:** `syncGhosts` (2749) takes `B.ghosts()` and builds `Parts3D.ghost(p, radial)` rigs: 60 % opacity, no shadows, plus the radial twin.
   - A ghost is rebuilt only when `type,rot,flip,radial,skin` changes; otherwise it is moved with `Parts3D.place`.
   - Tinted blue when `ok`, red otherwise.
-- **`builderLayout`** (2730) applies `launchRot`, lifts the lowest point to the floor, and computes size and centre. These are eased, then **frozen during a drag** (`editView(true)`, 3241).
+- **`builderLayout`** (2732) applies `launchRot`, lifts the lowest point to the floor, and computes size and centre. These are eased, then **frozen during a drag** (`editView(true)`, 3243).
 - **Camera:**
   - Auto-spins at 0.25 rad/s until grabbed.
   - In edit mode the yaw is clamped within ±0.8 rad of facing the blueprint.
   - Distance comes from `B.cam.scale` (default 26 px/m).
   - `setViewOffset` centres the craft in `B.viewArea()`.
-  - `panBy` (3247) moves the target.
-- **Markers:** `builderMarkers` (2843) draws CoM and, for planes, CoL at a fixed ~7 px, with `depthTest: false`.
+  - `panBy` (3249) moves the target.
+- **Markers:** `builderMarkers` (2845) draws CoM and, for planes, CoL at a fixed ~7 px, with `depthTest: false`.
 - **Screen ↔ part-space helpers:**
-  - `designToScreen(x, y, z)` (3201): part space → CSS px, or null if behind the camera.
-  - `designPoint(cx, cy, z0)` (3213): ray onto the plane z = z0 (S.design only turns about z, so its z is world z) → `{x, y, z, mpp}`. Returns null when edge-on (`|dir.z| < 0.1`) or behind.
-  - `surfaceHit(cx, cy, skip)` (3230): `vm.pickHit` → `{part, x, y, z, nx, ny, nz, mpp, side}`, in part space with the normal facing the ray. `side` is ±1 for the copy of a twin pair. Radial copies are ignored. builder.js:1690 feeds it to `Builder.attach` (518).
-  - `pickPart` (3169): in the hangar, `vm.pick` (radial copies count). In flight it raycasts vessels, active craft first.
+  - `designToScreen(x, y, z)` (3203): part space → CSS px, or null if behind the camera.
+  - `designPoint(cx, cy, z0)` (3215): ray onto the plane z = z0 (S.design only turns about z, so its z is world z) → `{x, y, z, mpp}`. Returns null when edge-on (`|dir.z| < 0.1`) or behind.
+  - `surfaceHit(cx, cy, skip)` (3232): `vm.pickHit` → `{part, x, y, z, nx, ny, nz, mpp, side}`, in part space with the normal facing the ray. `side` is ±1 for the copy of a twin pair. Radial copies are ignored. builder.js:1691 feeds it to `Builder.attach` (521).
+  - `pickPart` (3171): in the hangar, `vm.pick` (radial copies count). In flight it raycasts vessels, active craft first.
 
 ---
 
@@ -929,7 +929,7 @@ What `Settings.high` (world.js:9) changes:
 - `vc` = vertex colours. `disc` = shared blur texture (opacity animated). `lamp`/`tail` = `MeshBasicMaterial`. `glass`/`goldglass` are transparent with `userData.glass`.
 - `userData.c0` stores the base colour that heat glow returns to.
 
-**Paint (skins) in 3D.** `cleanSkin` (parts.js:879) drops skins on `NO_SKIN` shapes.
+**Paint (skins) in 3D.** `cleanSkin` (parts.js:882) drops skins on `NO_SKIN` shapes.
 - Textured kinds get the skin painted into their texture, and the skin's `rough`/`metal` (else hull finish, so a painted engine is no longer polished metal).
 - `BODY_KINDS` (58), the solid body colours, become `S.base`.
 - Wings and biplanes bake the skin into their geometry (model per skin). `skinTip` (92) mirrors the 2D `accent()`.
@@ -951,7 +951,7 @@ What `Settings.high` (world.js:9) changes:
 
 **Plumes and chutes.**
 - `makePlume` (999) uses a shared grid geometry shaped *in the vertex shader* (`PLUME_VS` 919: a quadratic Bezier profile `uP0..uP2`, `frustumCulled = false`). It has outer and core layers, a glow sprite, and 4 shock diamonds (kero, solid or spike plumes, or an afterburner), all additive and not tone-mapped.
-- Length, spread, the vacuum widening and the colour table `PLUMES` (65) **duplicate `World.drawFlame`** (world.js:727).
+- Length, spread, the vacuum widening and the colour table `PLUMES` (65) **duplicate `World.drawFlame`** (world.js:737).
 - `makeCanopy` (1026) builds a dome (scale.y 0.42) with gores and 12 lines, scaled by `p.deployed`.
 
 **Animations** (`update` 1327). Sub-node roles from `instance()` (1052):
@@ -985,10 +985,10 @@ What `Settings.high` (world.js:9) changes:
   - Body-relative `{b, x, y, z, vx...}`. `FX.update` (77) applies drag, plus gravity for `heavy` particles and sparks.
   - Emitters: `puff`, `sparks`, `explosion`, `splash`.
   - The list is capped at `FX.max()` by dropping the oldest particles.
-- **3D markers:** `World.drawOverlay3D` (796) projects prograde/retrograde/target glyphs on a sphere around the craft with `Render3D.project` and `metresPerPixelAt`. `markersFor` (816) is shared with the 2D view.
-- **2D fallback flight view:** `World.render` (296) draws:
+- **3D markers:** `World.drawOverlay3D` (806) projects prograde/retrograde/target glyphs on a sphere around the craft with `Render3D.project` and `metresPerPixelAt`. `markersFor` (826) is shared with the 2D view.
+- **2D fallback flight view:** `World.render` (304) draws:
   - sky gradient, stars and sun glare;
-  - `drawBody` (386): a disc via `paintBodyDisc` (165) when small, else a 360/720-sample terrain profile with strata, beaches, ocean and the night gradient;
+  - `drawBody` (396): a disc via `paintBodyDisc` (165) when small, else a 360/720-sample terrain profile with strata, beaches, ocean and the night gradient;
   - `drawScenery` and `drawClouds`;
   - `drawSpaceCenter` / `drawAirfield`;
   - particles;
@@ -1010,9 +1010,9 @@ What `Settings.high` (world.js:9) changes:
     - space-centre marker, countries and seas (`regionCentres` 328), cities with label de-overlap;
     - other craft;
     - scale bar and the `#globe-info` strip.
-- **`renderGlobe`** (render3d.js:3080): a lit sphere reusing the planet's map.
-  - Near the mapped Earth (alt < 0.45R), `tileJob` (3031) paints a sharp hill-shaded `DataTexture` tile with faded edges on a curved 40×40 patch lifted R·1e-4. Its budget is 10 ms per frame, and it rebuilds when the view leaves the tile.
-  - Returns false if 3D isn't ready. Without 3D the map is forced to `'system'` (flight.js:1108).
+- **`renderGlobe`** (render3d.js:3082): a lit sphere reusing the planet's map.
+  - Near the mapped Earth (alt < 0.45R), `tileJob` (3033) paints a sharp hill-shaded `DataTexture` tile with faded edges on a curved 40×40 patch lifted R·1e-4. Its budget is 10 ms per frame, and it rebuilds when the view leaves the tile.
+  - Returns false if 3D isn't ready. Without 3D the map is forced to `'system'` (flight.js:1112).
 - **`MapView`** (map.js) is a pure 2D canvas: `scale` (px/m), `offset`, `focus`.
   - `fit`/`focusBody`/`zoom` (zoom about the cursor), `pan`, `hit`.
   - `drawSystem` draws orbits, dashed SOI circles, discs and labels.
@@ -1049,7 +1049,7 @@ What `Settings.high` (world.js:9) changes:
    - `Batch.add` **disposes the geometry passed in**, so never feed it a cached geometry.
    - Parts3D `models` and `textures` are shared and must never be disposed per part. `freeRig` (1216) disposes only per-part materials, plume materials and pylons.
    - Combat target models are removed without disposing (a small leak).
-7. **Cache keys must cover what geometry depends on.** A model depends only on def, flip and (for wings) skin. If a new per-part property changes the geometry, add it to the `model()`/`textureFor()` keys, to the builder `snap` (2776), to the ghost key (2750) and to the pylon signature (1276).
+7. **Cache keys must cover what geometry depends on.** A model depends only on def, flip and (for wings) skin. If a new per-part property changes the geometry, add it to the `model()`/`textureFor()` keys, to the builder `snap` (2778), to the ghost key (2752) and to the pylon signature (1276).
 8. **2D and 3D must agree.** Change both sides together:
 
    | 3D | 2D |
@@ -1091,17 +1091,17 @@ Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`),
 
 | Call | From | When |
 |---|---|---|
-| `Combat.step(h, F)` | flight.js:613 (`physicsTick`) | Every physics substep: firing, projectiles, flares |
-| `Combat.frame(F, dt)` | flight.js:511 | Every frame: targets, AI, warnings, locks, smoke |
+| `Combat.step(h, F)` | flight.js:617 (`physicsTick`) | Every physics substep: firing, projectiles, flares |
+| `Combat.frame(F, dt)` | flight.js:515 | Every frame: targets, AI, warnings, locks, smoke |
 | `Combat.drawHUD` / `MPUI.drawHUD` | main.js:65-66 | 2D overlay canvas |
 | `Combat.reset(F)` | flight.js:94 (`resetState`), mp.js:553 | New flight; module state is a singleton |
-| `Combat.impact` | vessel.js:913 | Hard-landing dents |
-| `Combat.engineK` / `liftK` | vessel.js:405, vessel.js:753 | Damaged engines and wings |
-| `MP.beforeUpdate(dt)` | flight.js:484 | Pose the ghosts before physics |
-| `MP.afterUpdate()`, `MP.syncMissiles()` | flight.js:525 | Send snapshots after physics |
-| `MP.onLocalDestroyed()` | flight.js:373 (`onDestroyed`) | The local craft is lost |
+| `Combat.impact` | vessel.js:942 | Hard-landing dents |
+| `Combat.engineK` / `liftK` | vessel.js:410, vessel.js:758 | Damaged engines and wings |
+| `MP.beforeUpdate(dt)` | flight.js:488 | Pose the ghosts before physics |
+| `MP.afterUpdate()`, `MP.syncMissiles()` | flight.js:529 | Send snapshots after physics |
+| `MP.onLocalDestroyed()` | flight.js:377 (`onDestroyed`) | The local craft is lost |
 
-Remote craft are skipped by physics (flight.js:498). They only coast along their velocity on each substep (flight.js:610).
+Remote craft are skipped by physics (flight.js:502). They only coast along their velocity on each substep (flight.js:614).
 
 ---
 
@@ -1109,30 +1109,30 @@ Remote craft are skipped by physics (flight.js:498). They only coast along their
 
 **Mode.** `mode()` (combat.js:27) reads `Settings.get('targets')`, which is `practice`, `hostile` or `off`. It is forced to `'off'` whenever `MP.active` (combat.js:26), so a multiplayer room never has range targets, SAMs or AI fighters. Any new AI or target code must check `mpOn()` too.
 
-#### 1.1 Weapon parts (parts.js:344-402)
+#### 1.1 Weapon parts (parts.js:347-405)
 
 `weapon.ammo` counts **both copies** of a twin pair. `each` is the kg released per round: `p.store = ammo*each`, and the mass is recomputed when `each >= 10`.
 
 | Type (line) | Kind | twinZ | Stats |
 |---|---|---|---|
-| `gun` 347 | gun | – | 600 rds, 16/s, 880 m/s, dmg 9, spread .004 |
-| `cannon` 350 | gun | – | 180, 8/s, 1000 m/s, dmg 34, **blast 3** (every shell explodes) |
-| `gunPods` 353 | gun | 2.4 | 800, 24/s, 900 m/s, dmg 9 |
-| `gatling` 377 | gun | – | 1100, 60/s, 1050 m/s, dmg 24, `barrels: 7` (spins) |
-| `turret` 380 | turret | – | 800, 12/s, 900 m/s, dmg 8, range 1100; fires on its own |
-| `rocketPods` 356 | rocket | 3.1 | 14 rockets, 6/s ripple, 60 m/s + 700 m/s² for 1.1 s, dmg 110, blast 9 |
-| `aam` 359 | missile `seek:'air'` (IR) | 3.6 | range 5 km, cone .35, accel 260, burn 3, vmax 900, 30 g, dmg 400, blast 15, life 18 |
-| `radarMissiles` 362 | missile air `radar:true` (SARH) | 2.4 | 15 km, cone .6, burn 5, vmax 1300, 25 g, dmg 450, blast 16, life 30 |
-| `agm` 365 | missile `seek:'ground'` | 2.9 | 8 km, burn 4, vmax 700, 18 g, dmg 900, blast 20 |
-| `glideBombs` 389 | missile ground `glide`, label GBU | 2.9 | 12 km, no motor, vmax 420, 5 g, dmg 1300, blast 28, life 90 |
-| `harm` 395 | missile `seek:'radar'`, label ARM | 2.6 | 22 km, cone .8; locks only `emitter` targets |
-| `cruiseMissile` 398 | missile ground, label CRUISE | – | 30 km, accel 45 for 140 s, vmax 270, dmg 2600, blast 40, life 150 |
-| `bombs` 368 / `bombL` 371 | bomb | 2.7 / – | 1200 dmg, 30 m blast / 4000 dmg, 55 m blast |
-| `bombBay` 383 | bomb, `bay:true`, stealth .5 | – | 4×250 kg released from the belly |
-| `clusterBombs` 386 | bomb `cluster:24` | 2.7 | bursts 150 m up into 24 bomblets (dmg 220, blast 10 each) |
-| `torpedo` 392 | bomb `torpedo` | 2.6 | dmg 2200, blast 16 |
-| `flares` 374 | flare | – | 30 |
-| `ecm` 401 | (no `weapon`) `ecm:true` | – | Jammer and missile warner |
+| `gun` 350 | gun | – | 600 rds, 16/s, 880 m/s, dmg 9, spread .004 |
+| `cannon` 353 | gun | – | 180, 8/s, 1000 m/s, dmg 34, **blast 3** (every shell explodes) |
+| `gunPods` 356 | gun | 2.4 | 800, 24/s, 900 m/s, dmg 9 |
+| `gatling` 380 | gun | – | 1100, 60/s, 1050 m/s, dmg 24, `barrels: 7` (spins) |
+| `turret` 383 | turret | – | 800, 12/s, 900 m/s, dmg 8, range 1100; fires on its own |
+| `rocketPods` 359 | rocket | 3.1 | 14 rockets, 6/s ripple, 60 m/s + 700 m/s² for 1.1 s, dmg 110, blast 9 |
+| `aam` 362 | missile `seek:'air'` (IR) | 3.6 | range 5 km, cone .35, accel 260, burn 3, vmax 900, 30 g, dmg 400, blast 15, life 18 |
+| `radarMissiles` 365 | missile air `radar:true` (SARH) | 2.4 | 15 km, cone .6, burn 5, vmax 1300, 25 g, dmg 450, blast 16, life 30 |
+| `agm` 368 | missile `seek:'ground'` | 2.9 | 8 km, burn 4, vmax 700, 18 g, dmg 900, blast 20 |
+| `glideBombs` 392 | missile ground `glide`, label GBU | 2.9 | 12 km, no motor, vmax 420, 5 g, dmg 1300, blast 28, life 90 |
+| `harm` 398 | missile `seek:'radar'`, label ARM | 2.6 | 22 km, cone .8; locks only `emitter` targets |
+| `cruiseMissile` 401 | missile ground, label CRUISE | – | 30 km, accel 45 for 140 s, vmax 270, dmg 2600, blast 40, life 150 |
+| `bombs` 371 / `bombL` 374 | bomb | 2.7 / – | 1200 dmg, 30 m blast / 4000 dmg, 55 m blast |
+| `bombBay` 386 | bomb, `bay:true`, stealth .5 | – | 4×250 kg released from the belly |
+| `clusterBombs` 389 | bomb `cluster:24` | 2.7 | bursts 150 m up into 24 bomblets (dmg 220, blast 10 each) |
+| `torpedo` 395 | bomb `torpedo` | 2.6 | dmg 2200, blast 16 |
+| `flares` 377 | flare | – | 30 |
+| `ecm` 404 | (no `weapon`) `ecm:true` | – | Jammer and missile warner |
 
 Related defs:
 - `radar` reach in metres: cockpitJet 12000, cockpitTandem 10000, cockpitStealth 14000, droneCore 6000, radome 16000, rotodome 45000.
@@ -1142,12 +1142,12 @@ Related defs:
 
 #### 1.2 Weapon systems and firing
 
-- **`systems(v)`** (combat.js:157) groups weapon parts by `p.type`, so all guns of one type fire together. Flares and turrets are excluded. The result is cached on `v._ws`, keyed by `parts.length`. `v.wsel` is the selected index, and `cycle()` (combat.js:1148) changes it (Tab).
+- **`systems(v)`** (combat.js:157) groups weapon parts by `p.type`, so all guns of one type fire together. Flares and turrets are excluded. The result is cached on `v._ws`, keyed by `parts.length`. `v.wsel` is the selected index, and `cycle()` (combat.js:1149) changes it (Tab).
 - **Trigger** (`step` combat.js:420, `playerFrame` combat.js:349):
   - Guns fire while the trigger is held. Each part keeps its own `p.cool`.
   - Rockets ripple one per `1/rate` through `nextStore`.
   - Missiles and bombs release once per trigger press (rising edge, or `F.fireTap`).
-- **`zAt(p, side)`** (combat.js:187): a twin copy sits at `side * partZ(p)`; a single part sits at `partZ(p)`. Twin `p.z` is the spread, always ≥ 0 (parts.js:496-505).
+- **`zAt(p, side)`** (combat.js:187): a twin copy sits at `side * partZ(p)`; a single part sits at `partZ(p)`. Twin `p.z` is the spread, always ≥ 0 (parts.js:499-508).
 - **`muzzle(p, side)`** (combat.js:189) gives the release point in part space:
   - bay: below the belly at `w*0.6`, alternating ±0.6 by ammo parity;
   - stores and pods: offset `w*0.12`;
@@ -1159,7 +1159,7 @@ Related defs:
 - **`nextStore(sys)`** (combat.js:204) chooses among parts with ammo. It prefers a part whose next side differs from `sys.last`, then the smallest `relN` (the rack that has waited longest). `release()` (combat.js:211) decrements ammo and updates `p.store`.
 - **`fireGun`** (combat.js:219):
   - Twin guns alternate `p.side` every round.
-  - **Convergence:** a muzzle with `|z| > 0.3` is toed in by `cz = -m.z/600`, so the rounds meet 600 m ahead. That is where the HUD pipper sits (combat.js:1094).
+  - **Convergence:** a muzzle with `|z| > 0.3` is toed in by `cz = -m.z/600`, so the rounds meet 600 m ahead. That is where the HUD pipper sits (combat.js:1095).
   - Random spread on each axis; rounds live 3 s; a tracer every 3rd round (every round for exploding shells).
   - With `net=true` it fires show rounds: `dmg: 0`, and `s.net` set so they skip hit tests.
 - **`fireRocket`** (combat.js:241): starts at `w.speed`, motor from t=0. **`launchMissile`** (combat.js:253): dropped at +4 m/s "down" (a plane's part +x), no motor and no guidance for the first 0.35 s. **`dropBomb`** (combat.js:266): +2 m/s down. In multiplayer, rockets and bombs call `MP.sendShot` and missiles call `MP.sendMissile`.
@@ -1241,10 +1241,10 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
   - in multiplayer it acts as a heat-seeker warner within 2 km.
 - **Stealth** (`stealthOf` combat.js:175): area-weighted `def.stealth` over the hull, minus 0.12 per external store, pod or ECM pod still carrying ammo, clamped to 0..0.75. Paint never counts.
 
-**Warnings** (combat.js:997-1007):
+**Warnings** (combat.js:998-1008):
 - Solo: any enemy missile targeting you warns, and flares fire automatically under 2.2 km (every 0.6 s).
 - Multiplayer: no auto flares, so press `K` (`countermeasures` combat.js:297, limited to one use per 0.6 s). Radar missiles warn; heat seekers are silent unless you carry ECM and they are within 2 km.
-- A radar lock on another player calls `MP.sendLock` (combat.js:1014-1015), re-sent every 1 s, and drives their RWR.
+- A radar lock on another player calls `MP.sendLock` (combat.js:1015-1016), re-sent every 1 s, and drives their RWR.
 
 **Ground seekers:** `guide()` (combat.js:704) is lead pursuit with `tgo ≤ 12 s`, turn rate `turn·g/v`, and `vmax` as a hard cap.
 
@@ -1259,7 +1259,7 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
   - toasts at 60% and 30% for the player;
   - calls `destroyPart` at 0 hp.
 - **`destroyPart`** (combat.js:57):
-  - Parts with thrust, more than 50 kg of fuel, rocket/missile/bomb ammo, or `control` go through `sim.breakParts` (an explosion). Everything else goes through `sim.ripParts` (torn off as debris; flight.js:238, 349).
+  - Parts with thrust, more than 50 kg of fuel, rocket/missile/bomb ammo, or `control` go through `sim.breakParts` (an explosion). Everything else goes through `sim.ripParts` (torn off as debris; flight.js:239, 352).
   - Fuel over 500 kg adds a blast of radius `4+√(fuel/n)·0.08`, dmg 45.
   - Remaining stores blast at radius `blast·0.6`, dmg `dmg·0.5/count`.
   - **A legacy twin pair** (spread equal to `def.twinZ` within 5e-4) **blasts once**, at the centre (z = 0).
@@ -1269,12 +1269,12 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
   - Falloff `dmg·(1 − d/blast)^1.5`, where d is the distance to the nearest copy of the part minus `max(w,h)/2`.
   - If `by` is the local player's craft: blasts of 8 m or more go out as `MP.sendBoom`, and remote craft in range collect `[part, dmg]` lists, sent as one `MP.sendHits(..., 'blast')` per craft.
   - Range targets are skipped in multiplayer.
-- **Crash damage** happens in `Vessel.ground` (vessel.js:876-913):
+- **Crash damage** happens in `Vessel.ground` (vessel.js:905-942):
   - the limit is `breakSpeed` (default 9, vessel.js:9), ×1.8 on water;
   - with combat loaded, a part breaks above 1.6× the limit and dents above 0.75× (`Combat.impact` combat.js:70: `maxHp·(ratio−0.75)·1.6`, at most once per 0.4 s per part);
   - a spinning prop or rotor touching the ground shatters;
   - the silly flag `bouncy` disables dents.
-- **Smoke and leaks** (combat.js:1016-1032), for craft within 5 km, ghosts included: smoke below 60% health, fire below 30%, fuel leaks below 50%. `integrity(v)` (combat.js:1167) feeds the HUD.
+- **Smoke and leaks** (combat.js:1017-1033), for craft within 5 km, ghosts included: smoke below 60% health, fire below 30%, fuel leaks below 50%. `integrity(v)` (combat.js:1168) feeds the HUD.
 
 #### 1.6 Target range, SAMs and AI fighters (single-player only)
 
@@ -1292,7 +1292,7 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
 | ship (Frigate) | 3200 | aa, emitter |
 | drone | 140 | air, 75 m/s orbits |
 
-- **Layout and spawning:** counts come from `TARGET_LAYOUT` (combat.js:19). Targets spawn when the player is on Earth within 60 km of `at(8000,0,0)` and the terrain map is ready (combat.js:963-967).
+- **Layout and spawning:** counts come from `TARGET_LAYOUT` (combat.js:19). Targets spawn when the player is on Earth within 60 km of `at(8000,0,0)` and the terrain map is ready (combat.js:964-968).
 - **Placement** (`place` combat.js:811) uses a seeded RNG:
   - land: 45% on Shetland, else the Faroes; height 2–220 m, off the runway and space centre, gentle slope;
   - sea: depth below −12 m;
@@ -1316,7 +1316,7 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
   - Losing its control part calls `aiDown`. Fighters are removed when the mode is not hostile or the player leaves the range.
 - **Kills:** `S.kills` counts kills where `by === F.active`.
 
-The HUD (`drawHUD` combat.js:1045) draws target brackets, Bandit diamonds, the seeker circle and LOCK, a 600 m gun pipper and LEAD marker, the bombsight (`bombImpact` combat.js:1132), and the MISSILE warning.
+The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the seeker circle and LOCK, a 600 m gun pipper and LEAD marker, the bombsight (`bombImpact` combat.js:1133), and the MISSILE warning.
 
 ---
 
@@ -1384,7 +1384,7 @@ The HUD (`drawHUD` combat.js:1045) draws target brackets, Bandit diamonds, the s
 - When everyone is ready in `build` or `polish`, `ends` is set to 3 s from now; it is restored if someone un-readies (`maybeAllReady` mp.js:332).
 - **Win** (`checkWin` mp.js:366): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:375), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
 - `hostile(a, b)` (mp.js:74) decides who can hurt whom: enemies, or teammates with friendly fire on. `enemy(a, b)` (mp.js:79) decides what can be locked and tagged; teammates are never enemies.
-- Silly flags are off throughout a PvP room, in every phase (`Silly.on` checks `MP.pvp`, util.js:143); sandbox rooms keep them. Time warp is disabled in every room (flight.js:183, flight.js:486), and the flight menu does not pause (`openMpMenu` flight.js:444).
+- Silly flags are off throughout a PvP room, in every phase (`Silly.on` checks `MP.pvp`, util.js:143); sandbox rooms keep them. Time warp is disabled in every room (flight.js:183, flight.js:490), and the flight menu does not pause (`openMpMenu` flight.js:448).
 
 **Budgets and limits:**
 - `budgetFor` = `settings.budget`, ×1.3 at a carrier spawn (mp.js:413).
@@ -1437,7 +1437,7 @@ The HUD (`drawHUD` combat.js:1045) draws target brackets, Bandit diamonds, the s
   - if no design is known yet, it asks the owner with `want`, at most every 3 s; the owner answers through `resendSpawn`.
 - **`poseGhost`** (mp.js:738) dead-reckons to `age = clamp(hostNow − th, 0, 0.75 s)` along `V` and `W`:
   - it snaps on the first snapshot or when more than 60 m off, otherwise eases (`dt·10`, slerp `dt·14`);
-  - **`C` is accepted only within `reach + 1` of `com0`**, the centre of mass when the ghost was built. A forged centre of mass would otherwise move the hit boxes away from the craft (`toWorld` subtracts `com`, vessel.js:306).
+  - **`C` is accepted only within `reach + 1` of `com0`**, the centre of mass when the ghost was built. A forged centre of mass would otherwise move the hit boxes away from the craft (`toWorld` subtracts `com`, vessel.js:311).
 - A ghost silent for more than 6 s freezes in place (`beforeUpdate` mp.js:762).
 - The radar warner (`rwr`) entries expire after 2.5 s.
 
@@ -1527,7 +1527,7 @@ Clients trust the host completely.
   - `spotted` (mpui.js:512): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
   - RWR ring with a "RADAR LOCK" label;
   - heading-up 8 km scope (`drawRadar` mpui.js:524), only when the screen is at least 761 px wide.
-- **Spectating** after being shot down in battle: `spectate` (mpui.js:454) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1129). The camera uses `Flight.viewVessel` (flight.js:1399).
+- **Spectating** after being shot down in battle: `spectate` (mpui.js:454) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1133). The camera uses `Flight.viewVessel` (flight.js:1409).
 - On the map and globe, enemies are hidden in PvP (`mapColor` mp.js:915).
 
 ---
@@ -1552,7 +1552,7 @@ Clients trust the host completely.
   - part geometry or ids in parts.js (`w`, `h`, `twinZ`, `depth`, `partZ`/`partZs`/`partRect`, `cleanZ`);
   - the meaning of message fields.
 - **Validate everything from peers.** Use `mpNums`, `mpBody`, `vec`, `hasOwn(PARTS, …)`, clamps and slices, and look up ids through Maps. Never put a peer string into `innerHTML` (`UI.modal` renders a string `body` as HTML; toasts and `el({text})` are safe).
-  - Keep `mpSpawnRows` in step with `partsFromDesign`, `cleanAtt` and `cleanSkin` (parts.js:608-636, parts.js:879).
+  - Keep `mpSpawnRows` in step with `partsFromDesign`, `cleanAtt` and `cleanSkin` (parts.js:611-639, parts.js:882).
   - Known gap: `onDown` reads `m.P` unchecked (mp.js:819). A malformed message throws inside the handler (caught), which skips the ghost drop and `recordDown`.
 - **New host-only message types** go in `HOST_ONLY`, and their handler should also check `m.f === 1`.
 - **Damage authority:**
@@ -1567,7 +1567,7 @@ Clients trust the host completely.
 
 ## 5. App shell, UI, settings, packaging and deployment
 
-Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `js/audio.js`, `sw.js`, `manifest.webmanifest`, `tools/build-single.mjs`, `tools/bake-earth.py`, `.github/workflows/pages.yml`, `README.md`, `.gitignore`. The git remote is `DevWolf11/Overbuilt` (renamed from `Cam-Strike`, then `Rocket-Science-Simulator`). A local folder may still be called `Cam-Strike` because the repo used to hold a 5v5 FPS, and that history is still in git (README.md:131, last FPS commit `30e7bc8`). Work goes onto branches and reaches `main` through PRs; merging deploys.
+Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `js/audio.js`, `sw.js`, `manifest.webmanifest`, `tools/build-single.mjs`, `tools/bake-earth.py`, `.github/workflows/pages.yml`, `README.md`, `.gitignore`. The git remote is `DevWolf11/Overbuilt` (renamed from `Cam-Strike`, then `Rocket-Science-Simulator`). A local folder may still be called `Cam-Strike` because the repo used to hold a 5v5 FPS, and that history is still in git (README.md:141, last FPS commit `30e7bc8`). Work goes onto branches and reaches `main` through PRs; merging deploys.
 
 ### 1. Page structure, script order, global namespace
 
@@ -1600,7 +1600,7 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
 | 18-20 | net, mp, mpui | `Net`, `MP` + `MP_*` constants, `MPUI` |
 | 21 | main.js | `App EARTH_MAP_FILES`; `DOMContentLoaded → App.init()` (:397); service-worker registration (:399-408) |
 
-**three.js is not in index.html.** `Render3D.load()` injects `<script src="js/vendor/three.min.js">` on demand (render3d.js:3134-3148). If `window.THREE` already exists it skips the injection, and the single-file build relies on that.
+**three.js is not in index.html.** `Render3D.load()` injects `<script src="js/vendor/three.min.js">` on demand (render3d.js:3136-3150). If `window.THREE` already exists it skips the injection, and the single-file build relies on that.
 
 **Conventions:**
 - Every file starts with `'use strict';` and a header comment.
@@ -1611,7 +1611,7 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
   - `typeof Builder` in `App.resize` (main.js:40)
 - Code that runs at load time: `Silly.flags` (util.js:142), `Settings.data` (world.js:6), `Career.load()`, `isTouch` (util.js:165), the audio-unlock listeners (audio.js:113).
 
-**Why plain scripts:** the game must run when `index.html` is opened from disk (README.md:127). From `file://`:
+**Why plain scripts:** the game must run when `index.html` is opened from disk (README.md:137). From `file://`:
 - `type="module"` scripts and `fetch()` of local files are blocked.
 - Plain and injected `<script src>` tags still work, so three.js loads.
 - Only the Earth map fails. `Terrain.loadEarth` (terrain.js:180-199) catches the error, sets `earthMap.state = 'failed'` and uses generated terrain. `App.afterEarth` (main.js:237-242) waits only while the state is `'loading'`.
@@ -1627,9 +1627,9 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
 6. Calls `Flight.save()` on `visibilitychange`→hidden and on `pagehide` (:24-27), because phones kill background tabs without warning.
 7. Starts the rAF loop and calls `toHome()`.
 
-**`resize()`** (:33-41): caps DPR at 2 and sets the 2D canvas's backing size. Render3D keeps its own pixel ratio (render3d.js:2880).
+**`resize()`** (:33-41): caps DPR at 2 and sets the 2D canvas's backing size. Render3D keeps its own pixel ratio (render3d.js:2882).
 
-**Scenes:** `App.scene ∈ 'home' | 'build' | 'flight' | 'mp'`. `showScene(name)` (:128-136) toggles `hidden` on the four containers and calls `MPUI.renderBar()`. The map is **not** a scene: it is `Flight.mapMode` (`toggleMap`, flight.js:1093; key M). Inside it, `GlobeView` (3D globe, needs WebGL) and `MapView` (flat solar system) swap via `#btn-mapview` or N (flight.js:1104-1115). The pause menu is `Flight.openMenu` (flight.js:426), and in multiplayer `openMpMenu`.
+**Scenes:** `App.scene ∈ 'home' | 'build' | 'flight' | 'mp'`. `showScene(name)` (:128-136) toggles `hidden` on the four containers and calls `MPUI.renderBar()`. The map is **not** a scene: it is `Flight.mapMode` (`toggleMap`, flight.js:1097; key M). Inside it, `GlobeView` (3D globe, needs WebGL) and `MapView` (flat solar system) swap via `#btn-mapview` or N (flight.js:1108-1119). The pause menu is `Flight.openMenu` (flight.js:430), and in multiplayer `openMpMenu`.
 
 | Transition | Code | Notes |
 |---|---|---|
@@ -1655,14 +1655,14 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 **3D/2D:**
 - `use3D()` (:81-88) is false when WebGL is unsupported, three failed, or `Render3D` isn't ready. In flight the Silly `retro2d` flag also forces it false. The first failure in flight toasts once.
 - The hangar is 2D by default. `preview3D()` = `Settings.build3d && use3D()`.
-- The `.view3d-toggle` button (`#btn-3d-build`, hidden without WebGL) and V in the builder (builder.js:1546) call `setPreview3D`.
+- The `.view3d-toggle` button (`#btn-3d-build`, hidden without WebGL) and V in the builder (builder.js:1547) call `setPreview3D`.
 - `sync3D()` (:109-126) updates aria/title, shows `#build-3d-hint`, which fades after 9 s (text differs for touch), and hides the 2D-only Grid button.
 
 **Menus (all `UI.modal`):**
 
 | Menu | Location | Contents |
 |---|---|---|
-| `showHelp()` | :245-262 | Static `<ol class="howto">` plus `Flight.controlsHelp()` (flight.js:456, also the pause-menu body). Opens automatically once after the first mode pick (`rss.seenHelp`, :157). |
+| `showHelp()` | :245-262 | Static `<ol class="howto">` plus `Flight.controlsHelp()` (flight.js:460, also the pause-menu body). Opens automatically once after the first mode pick (`rss.seenHelp`, :157). |
 | `showResearch()` | :264-285 | Tiers; the buy button calls `Career.buyTier()` |
 | `showMissions()` | :287-301 | Missions grouped by body |
 | `showDeltaV()` | :303-321 | Table from `deltaVChart()` |
@@ -1673,10 +1673,10 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 | Control (main.js) | Key | Consumers |
 |---|---|---|
 | Volume range 0-1 step 0.05 (:326) | `volume` | `Sound.applyVolume` (audio.js:35) |
-| Graphics select (:328) | `quality` | `Settings.high` throughout render3d/world/flight. Render3D's `applyQuality()` (render3d.js:2881) re-applies it live (shadows, patches, scenery, pixel ratio). |
+| Graphics select (:328) | `quality` | `Settings.high` throughout render3d/world/flight. Render3D's `applyQuality()` (render3d.js:2883) re-applies it live (shadows, patches, scenery, pixel ratio). |
 | Targets select (:336) | `targets` `practice`/`hostile`/`off` | combat.js:27 (forced `off` in multiplayer) |
-| Flight hints checkbox (:332) | `hints` | `Flight.hint()` (flight.js:1170), launch tip (main.js:215) |
-| Prograde markers checkbox (:334) | `markers` | world.js:778, :798 |
+| Flight hints checkbox (:332) | `hints` | `Flight.hint()` (flight.js:1174), launch tip (main.js:215) |
+| Prograde markers checkbox (:334) | `markers` | world.js:788, :808 |
 | (3D button / V, not in the dialog) | `build3d` | `App.preview3D` |
 | Toggle fullscreen (:341) | none | Fullscreen API; toasts if unavailable |
 | Reset career progress (:348) | none | Two taps (`dataset.armed`). Then `Career.reset()` (keeps the mode), clears `rss.flight`, rebuilds the palette, `toHome()` |
@@ -1691,13 +1691,13 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 
 | Flag | Label | Effect, where |
 |---|---|---|
-| `ghostCam` | Crash cam classic (the old camera bug) | After a crash the camera freezes in space while the planet flies on (flight.js:1402). The crash dialog waits 5 s instead of 1.6 s (flight.js:384). |
+| `ghostCam` | Crash cam classic (the old camera bug) | After a crash the camera freezes in space while the planet flies on (flight.js:1412). The crash dialog waits 5 s instead of 1.6 s (flight.js:388). |
 | `retro2d` | Retro 2D flight | `use3D()` is false in flight (main.js:82) |
-| `ogAutopilot` | Vintage autopilot | Old porpoising plane autopilot (vessel.js:566) |
-| `noodle` | Noodle wings | Wings tear off at ¼ load and half their speed limit (vessel.js:730) |
-| `bouncy` | Bouncy castle | No ground breakage, restitution 0.75 (vessel.js:912-915) |
-| `drunk` | Wobbly pilot | The stick drifts in waves (flight.js:567) |
-| `hollywood` | Hollywood | Explosions ×3 (world.js:55); stage separations explode (flight.js:331) |
+| `ogAutopilot` | Vintage autopilot | Old porpoising plane autopilot (vessel.js:571) |
+| `noodle` | Noodle wings | Wings tear off at ¼ load and half their speed limit (vessel.js:735) |
+| `bouncy` | Bouncy castle | No ground breakage, restitution 0.75 (vessel.js:941-944) |
+| `drunk` | Wobbly pilot | The stick drifts in waves (flight.js:571) |
+| `hollywood` | Hollywood | Explosions ×3 (world.js:55); stage separations explode (flight.js:334) |
 | `boomy` | Sonic boom at 90 km/h | `effectMach()` uses speed/25 m/s (util.js:149), for effects only; missions still read `v.mach` |
 
 **Service-worker hook** (main.js:399-408):
@@ -1721,7 +1721,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
   - Kinds used: `'achievement'` (amber, "Milestone ·" prefix, style.css:274), `'kill'` (red, :733), `'warn'`.
   - `'warn'` has **no own rule**: it picks up the generic `.warn` (style.css:117: amber left border, 12px).
   - `Flight.toast` wraps it (flight.js:171).
-- `ICONS` (:50-85): 24×24 stroke SVGs drawn in `currentColor`. `icon(name)` returns `<span class="icon">`. Markup gets icons through `data-icon="name"` (prepended once in `App.init`). Elements created later call `icon()` themselves (e.g. builder.js:1343).
+- `ICONS` (:50-85): 24×24 stroke SVGs drawn in `currentColor`. `icon(name)` returns `<span class="icon">`. Markup gets icons through `data-icon="name"` (prepended once in `App.init`). Elements created later call `icon()` themselves (e.g. builder.js:1344).
 
 **util.js:**
 - Math: `clamp lerp smoothstep wrapAngle`.
@@ -1729,7 +1729,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 - `fmt` (:85-114): `dist` (m/km/Gm), `speed`, `clock` (`[Nd ]hh:mm:ss`), `duration`, `mass` (t), all en-US. `money()` lives in career.js:79.
 - `store` (:116-128): JSON in localStorage inside try/catch.
   - `get(key, fallback)` also reads the legacy `orbitforge.<rest>` key for `rss.*` keys (from before the rename).
-  - `set` returns `false` when storage is full or unavailable; builder.js:1222 checks this.
+  - `set` returns `false` when storage is full or unavailable; builder.js:1223 checks this.
 - `$` (:152) is `document.querySelector` and returns **one element**; there is no `$$`, use `document.querySelectorAll`.
 - `el(tag, attrs, ...kids)` (:153-163): `class` sets className, `text` sets textContent, `on*` adds a listener, anything else goes through `setAttribute`. So set `.checked`/`.disabled` as properties after creating the element. Null children are skipped.
 - `isTouch = matchMedia('(pointer: coarse)')`, evaluated once at load.
@@ -1788,8 +1788,8 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 
 **Builder panel on phones:**
 - The tray `.items` is `touch-action:pan-x` (:158): a sideways swipe scrolls it, an upward drag picks up a part (builder.js:914).
-- `Builder.layout()` (builder.js:1184-1193) writes `--pal-h` (the tray's measured height). It drives `.stats` max-height, `.fit-col`, `.chip-hint` and the docked `.part-info`. It also lifts `.fit-col` above `.part-info` when they overlap.
-- The stats panel folds (`.stats.collapsed`, :632). It starts folded when the window is short (`innerHeight<520`, or `<700` with `innerWidth≤760`, builder.js:1599); the choice is stored in `rss.statsFolded`.
+- `Builder.layout()` (builder.js:1185-1194) writes `--pal-h` (the tray's measured height). It drives `.stats` max-height, `.fit-col`, `.chip-hint` and the docked `.part-info`. It also lifts `.fit-col` above `.part-info` when they overlap.
+- The stats panel folds (`.stats.collapsed`, :632). It starts folded when the window is short (`innerHeight<520`, or `<700` with `innerWidth≤760`, builder.js:1600); the choice is stored in `rss.statsFolded`.
 - `#build-ui.has-info` hides the 3D hint chip on phones (:665).
 - Dragging a part over the tray shows `.palette.drop-remove`, "Drop here to remove" (:634).
 - Some rules use `:has()` (:597, :889-892); old browsers ignore them.
@@ -1803,12 +1803,12 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | `rss.settings` | world.js:6-8 | Settings object (§2) |
 | `rss.career` | career.js:38, 41 | `{mode: null/'career'/'sandbox', funds, tier, done:{missionId: timestamp}, flights}`. In a match `MP.pushCareer` swaps in a throwaway copy with `save` as a no-op (mp.js:133-150). |
 | `rss.design` | builder.js:184, 195; mp.js:135, 144 | Current blueprint `{name, kind, parts, savedAs}`. Not written while a match borrows the builder. |
-| `rss.hangar` | builder.js:1199, 1222, 1380 | Up to 100 named designs `{name, kind, parts, savedAt}`, newest first |
+| `rss.hangar` | builder.js:1200, 1223, 1381 | Up to 100 named designs `{name, kind, parts, savedAt}`, newest first |
 | `rss.clip` | builder.js:172, 814 | Copy/paste clipboard `{kind, parts}` |
-| `rss.symmetry` / `rss.symmetryPlane` | builder.js:175, 1009-1011, 1584 | Symmetry toggle for non-planes / planes |
+| `rss.symmetry` / `rss.symmetryPlane` | builder.js:175, 1009-1011, 1585 | Symmetry toggle for non-planes / planes |
 | `rss.grid` | builder.js:176, 791 | 2D quarter-metre grid snap |
-| `rss.statsFolded` | builder.js:1599-1600 | Stats panel collapsed |
-| `rss.flight` | flight.js:115, 138, 377, 402; main.js:168-233, 351 | Saved flight `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels:[…]}`, or null. Cleared on launch, revert, recovery, total loss and career reset. |
+| `rss.statsFolded` | builder.js:1600-1601 | Stats panel collapsed |
+| `rss.flight` | flight.js:115, 138, 381, 406; main.js:168-233, 351 | Saved flight `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels:[…]}`, or null. Cleared on launch, revert, recovery, total loss and career reset. |
 | `rss.seenHelp` | main.js:157 | The first-run help has been shown |
 | `rss.silly`, `rss.sillyUnlocked` | util.js:142-146 | Silly flags; secret unlocked |
 | `rss.mp.name`, `rss.mp.tr` | mp.js:82; mpui.js:19-44 | MP name (≤18 chars); transport `'p2p'`/`'local'` |
@@ -1816,7 +1816,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 ### 6. Offline / PWA
 
 **sw.js** (31 lines):
-- `CACHE = 'overbuilt-v16'` (:3).
+- `CACHE = 'overbuilt-v18'` (:3).
 - `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.
@@ -1879,17 +1879,17 @@ Sections:
 - **Modes** (:18-22)
 - **Multiplayer** (:24-35)
 - **Controls** table plus a long Builder paragraph (:37-61)
-- **What's in it** (:63-94): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, damage, structure, parts by category, flight model, builder, physics, solar system, navigation, graphics, saving, settings)
-- **Scale** (:96-98)
-- **Project layout** (:100-133): one line per file or folder, including `test/`, `docs/HANDBOOK.md` and `CLAUDE.md`
-- the file:// note (:135), data credits (:137), the name history and Cam-Strike (:139)
-- **Ideas for later** (:141-143)
+- **What's in it** (:63-96): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, damage, structure, parts by category, flight model, builder, physics, solar system, navigation, graphics, saving, settings)
+- **Scale** (:98-100)
+- **Project layout** (:102-135): one line per file or folder, including `test/`, `docs/HANDBOOK.md` and `CLAUDE.md`
+- the file:// note (:137), data credits (:139), the name history and Cam-Strike (:141)
+- **Ideas for later** (:143-145)
 
 Convention: **every user-visible feature, control or part change gets documented in README in the same commit.** Recent feature commits all touch README. When you change something:
 - edit the matching "What's in it" bullet and the Controls table
 - add new files to Project layout
 - keep the counts in prose correct ("157 parts", "41 missions", "twenty-five examples")
-- keep three places in sync for controls: README, `App.showHelp` (main.js:248-259) and `Flight.controlsHelp` (flight.js:456-480)
+- keep three places in sync for controls: README, `App.showHelp` (main.js:248-259) and `Flight.controlsHelp` (flight.js:460-484)
 
 Known drift:
 - The Project layout line for world.js doesn't mention that it holds `Settings`.
@@ -1910,7 +1910,7 @@ Known drift:
 8. **`UI.modal` replaces any open modal and drops its `onClose`.**
    - Don't open a dialog over the paused flight menu, or `Flight.paused` never resets.
    - String bodies are innerHTML: build anything containing peer-supplied text (MP names, chat) with `el(…, {text})`.
-9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1532 and mpui.js:76 do.
+9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1533 and mpui.js:76 do.
 10. **A thrown error inside `frame()` doesn't stop the game**: watch the console, since it repeats every frame.
 11. **Silly flags must stay cosmetic or opt-in**: `Silly.on` is false in PvP, and missions must read real values (e.g. `v.mach`, not `effectMach`).
 12. **Changing a save format**: `rss.flight` carries `v:2`, and `store.get` also reads `orbitforge.*` keys. Keep restores tolerant: `resumeFlight` drops a save that fails to load. A thrown error in `Career`/`Builder` load code breaks startup.
