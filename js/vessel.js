@@ -38,7 +38,9 @@ function wingAero(d) {
     kInd: 1 / (Math.PI * (w.oswald || 0.8) * AR), cd0: w.cd0 || 0.012, mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
     back: Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord
     dihedral: w.dihedral != null ? w.dihedral : w.control ? 0 : 0.06, load: (w.load || 1) * (w.control ? 70000 : 14000),
-    vne: w.control ? 0 : w.vne || 110, // never-exceed speed (equivalent airspeed, m/s): above it the wing flutters
+    // the speeds it breaks at: past vne (equivalent airspeed, m/s, so it goes faster up high) or past Mach mmax
+    // (0: none) the wing flutters and tears off. Moving surfaces have neither.
+    vne: w.control ? 0 : w.vne || 110, mmax: w.control ? 0 : w.mmax || 0,
   };
   WING_AERO.set(d, a);
   return a;
@@ -56,18 +58,20 @@ function swingAero(p, M, flaps) {
 }
 // Extra drag coefficient near and past Mach 1 (shock waves), from the Mach number where it starts.
 // A plane's structure: the load its main wings carry before they start to give (N; over the weight, the g
-// it is good for) and the never-exceed speed of the weakest (equivalent airspeed, m/s; 0: no wings).
+// it is good for), the never-exceed speed of the weakest (equivalent airspeed, m/s; 0: no wings) and the
+// lowest Mach limit of any of them (0: none).
 const FIN_LOAD = 45000; // tail fins (N/m²): as tough as the moving surfaces, so a sideslip doesn't snap them
 function wingStrength(parts) {
-  let S = 0, vne = 0;
+  let S = 0, vne = 0, mmax = 0;
   for (const p of parts) {
     const d = p.def;
     if (!d.wing || d.wing.control) continue;
     const W = wingAero(d);
     S += W.load * d.wing.area;
     vne = vne ? Math.min(vne, W.vne) : W.vne;
+    if (W.mmax) mmax = mmax ? Math.min(mmax, W.mmax) : W.mmax;
   }
-  return { S, vne };
+  return { S, vne, mmax };
 }
 function waveDrag(M, mcrit) { return smoothstep(mcrit, mcrit + 0.2, M) * (1 - 0.45 * smoothstep(1.2, 2.3, M)); }
 
@@ -137,6 +141,7 @@ class Vessel {
     this.gearUp = false;  // retractable gear folded away
     this.brakeOut = 0;    // air brakes, 0..1
     this.rip = [];        // wings overstressed this step
+    this.ripWhy = null;   // 'speed' when flutter tore one of them (else the load did)
     this.com = { x: 0, y: 0, z: 0 };
     this._loc = {};
     this.recompute(true);
@@ -230,7 +235,7 @@ class Vessel {
     this.clS = 0; // area x lift coefficient at the stall, all the (non-control) wings together
     for (const p of this.wings) if (!p.def.wing.control) { const W = wingAero(p.def); this.clS += p.def.wing.area * W.slope * W.stall; }
     const ws = wingStrength(this.parts);
-    this.wingS = ws.S; this.vne = ws.vne;
+    this.wingS = ws.S; this.vne = ws.vne; this.mmax = ws.mmax;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
     this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
     this.recompute(false);
@@ -799,12 +804,29 @@ class Vessel {
       }
       this.strain = strain;
       this.nz = (Fb.x * P.U.x + Fb.y * P.U.y + Fb.z * P.U.z) / (this.mass * G0); // load factor through the floor
-      // how close to the never-exceed speed (a warning only: going faster breaks nothing)
-      const eas = Math.sqrt(this.dynP / 0.6125); // equivalent airspeed, sqrt(2q / 1.225)
-      this.overspeed = this.vne ? eas / this.vne : 0;
+      // too fast: past its own limit (equivalent airspeed, or a Mach number where it has one) a wing flutters.
+      // Stress builds, the quicker the further over, and it tears off; far over (1.3 times), at once. Noodle
+      // wings give at half the speed, a shot-up wing a little sooner. The Mach limit fades out in air too thin
+      // to shake a wing apart. Only a craft someone flies: a torn-off wing tumbling on doesn't tear again.
+      // overspeed is the worst wing's speed over its limit (the warning shows from 0.9); overMach, that Mach
+      // was what it hit.
+      const eas = Math.sqrt(this.dynP / 0.6), thin = smoothstep(500, 2000, this.dynP), live = !!this.control && !this.isDebris; // (eas: sqrt(2q / 1.2), the HUD speed at sea level)
+      let over = 0, overM = false;
+      for (const p of this.wings) {
+        const W = wingAero(p.def);
+        if (!W.vne) continue;
+        const k = (noodle ? 0.5 : 1) * (p.hp != null && hasCombat() ? Math.sqrt(Combat.liftK(p)) : 1);
+        const re = eas / (W.vne * k), rm = W.mmax ? (M / (W.mmax * k)) * thin : 0, r = Math.max(re, rm);
+        if (r > over) { over = r; overM = rm > re; }
+        if (r > 1 && live) {
+          p.stress = (p.stress || 0) + ((r - 1) * 3 + 0.12) * dt;
+          if ((r > 1.3 || p.stress >= 1) && !rip.includes(p)) { rip.push(p); this.ripWhy = 'speed'; }
+        }
+      }
+      this.overspeed = over; this.overMach = overM;
     } else {
       for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
-      this.strain = 0; this.overspeed = 0; this.nz = 0;
+      this.strain = 0; this.overspeed = 0; this.overMach = false; this.nz = 0;
     }
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
 
@@ -827,7 +849,11 @@ class Vessel {
     this.accel = eng.total / m0;
     this.gForce = Math.hypot(ax - gk * this.x, ay - gk * this.y, az - gk * this.z) / G0;
     this.ground(dt, sim);
-    if (this.rip.length) { const r = this.rip.filter((p) => this.byId.has(p.id)); this.rip = []; if (r.length && sim.ripParts) sim.ripParts(this, r); }
+    if (this.rip.length) {
+      const r = this.rip.filter((p) => this.byId.has(p.id)), why = this.ripWhy || 'g';
+      this.rip = []; this.ripWhy = null;
+      if (r.length && sim.ripParts) sim.ripParts(this, r, why);
+    }
   }
 
   integrateSpin(dt) {

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const NODE = ['fingerprint.js', 'core.test.js', 'physics.test.js', 'flight.test.js', 'combat.test.js', 'mp.test.js', 'traces.js', 'handling.js'];
+const NODE = ['fingerprint.js', 'core.test.js', 'physics.test.js', 'flight.test.js', 'combat.test.js', 'mp.test.js', 'flutter.test.js', 'traces.js', 'handling.js'];
 const BROWSER = ['browser/builder2d.mjs', 'browser/builder3d.mjs', 'browser/mp-two-tabs.mjs'];
 const args = process.argv.slice(2), verbose = args.includes('-v'), pass = args.includes('--update') ? ['--update'] : [];
 const named = args.filter((a) => !a.startsWith('-'));

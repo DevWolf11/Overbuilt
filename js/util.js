@@ -133,7 +133,7 @@ const Silly = {
     ['ghostCam', 'Crash cam classic', 'The original crash bug: after a crash the camera stays put in space and the planet zooms away.'],
     ['retro2d', 'Retro 2D flight', 'Fly in the original flat 2D view.'],
     ['ogAutopilot', 'Vintage autopilot', 'The first plane autopilot, from before it learned not to porpoise.'],
-    ['noodle', 'Noodle wings', 'Wings and tails tear off at a quarter of the load.'],
+    ['noodle', 'Noodle wings', 'Wings and tails tear off at a quarter of the load, and wings at half their speed.'],
     ['bouncy', 'Bouncy castle', 'Nothing breaks when it hits the ground. Everything bounces.'],
     ['drunk', 'Wobbly pilot', 'The stick drifts around on its own, in waves.'],
     ['hollywood', 'Hollywood', 'Explosions three times the size, and stage separations explode too.'],

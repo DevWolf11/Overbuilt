@@ -505,14 +505,15 @@ Other helpers:
    - Lift is `liftCoef` (`:24`, linear to the stall, then towards `1.1·sin2α`) plus deflection, flaps (+0.8 CL; stall −0.03), ground effect (`1+0.3·e^(−3h/span)`) and `Combat.liftK`.
    - Drag is `cd0 + kInd·CL²` + post-stall + wave terms. Reversed flow is treated as a flat plate.
    - Deflection is `kd·min(1, 26000/q)` toward the commanded torque. Plain wings carry ailerons, `kd = 0.12`.
-   - `wingAero` (`:32`): Helmbold lift slope from aspect ratio and sweep, `kInd = 1/(π·0.8·AR)`, stall 0.3, dihedral 0.06, `load = 14000` (70000 for control surfaces) × `w.load` N/m², `vne` 110. The result is cached per def. `swingAero` (`:48`) sweeps the wing with Mach (writes `p.sweep`).
+   - `wingAero` (`:32`): Helmbold lift slope from aspect ratio and sweep, `kInd = 1/(π·0.8·AR)`, stall 0.3, dihedral 0.06, `load = 14000` (70000 for control surfaces) × `w.load` N/m², `vne` 110, `mmax` 0 (no Mach limit; both 0 for control surfaces). The result is cached per def. `swingAero` (`:48`) sweeps the wing with Mach (writes `p.sweep`).
    - Each `vtail` is one surface, a pair counting as twice the area. Then `slip = asin(hz)`.
    - Planes get extra fuselage+fin yaw damping (`:794`).
 6. **Structure.** `rr = |Fn|/(load·area)`; fins use `FIN_LOAD = 45000`, and noodle wings ×0.25.
    - Above 1, `stress` builds at `(rr−1)·2·dt` and decays at 0.12/s.
    - The surface is **ripped** when `rr > 1.8`, or `stress ≥ 1`, or noodle wings are over the limit at all. This is reported through `sim.ripParts` at the end of the step.
    - `strain` is the max `rr`; `nz` is the load through the floor.
-   - `overspeed = EAS/vne` (`EAS = √(q/0.6125)`) is a **warning only**.
+   - **Flutter** (owner's request, after PR #23 had made overspeed a warning only): for each wing with a `vne`, `r = max(EAS/vne, M/mmax · smoothstep(500, 2000, q))`, with `EAS = √(q/0.6)` (the HUD speed at sea level) and both limits ×0.5 for noodle wings and ×√`liftK` for a damaged wing. Above 1, on a craft with its control part that isn't debris, `stress` builds at `((r−1)·3 + 0.12)·dt` (the same stress as the load uses); it rips at `r > 1.3` or `stress ≥ 1`, with `ripWhy = 'speed'` passed to `ripParts`. `overspeed` is the worst wing's `r`, `overMach` whether Mach set it.
+   - Limits (`vne` as km/h EAS / `mmax`): biplane 560/0.75, glider 500/0.7, long straight 750/0.8, wing and elliptical 850/0.85, small wing 900/0.85, airliner wings 950/0.95–0.97, swept 1350/1.6, forward-swept 1400/1.8, swing 1550/2.4, delta 1600/none, tailplanes and strakes 2000/none. Moving surfaces, vertical tails and rocket fins have none. The Mach fade keeps a straight wing safe in near-vacuum; heating caps the delta at high Mach.
    - `gRating() = wingS/(m·g)` (`:609`).
 7. **Heat.** `updateHeat` (`:842`): `flux = ρv³·smoothstep(500, 1400, v)`.
    - Above 2e6, each part's `_lead` is its forward extent along the flow, plus the **twin "across" rule**: a single part adds `partZ·sz`; a pair adds `(partZ − twinZ)·|sz|`. A pair at its catalogue spread therefore counts as on the centreline, so stock designs heat exactly as before.
@@ -583,10 +584,10 @@ Other helpers:
 - `stage()` (`:284`): separators first, then engines (if fuelled), then chutes. A chute-only stage that fails to deploy is kept.
 - `fireSeparator` (`:308`): `cutSeparator` keeps the separator with the piece that falls away, then the two pieces get a 2.2 m/s relative push and a little tumble.
 - `breakParts` (`:349`): removes the parts, splits the rest and calls `onDestroyed` if control is lost.
-- **`ripParts(v, parts, cause)`** (`:238`): takes along each part's `att` chain unless that chain holds the control part, cuts adjacency, then splits.
+- **`ripParts(v, parts, cause)`** (`:238`; cause `'g'`, `'speed'`, `'impact'` or a hit, for the toast): takes along each part's `att` chain unless that chain holds the control part, cuts adjacency, then splits.
 
 **HUD** `updateHUD` (`:1264`):
-- Altitude, ground (below 5 km), speed (km/h for non-rockets), Mach, AoA/STALL, compass (`compass` via `bearingAt`), damage, g (`nz/gRating`), the `#flight-alert` from `structAlert` (`:1240`: g at strain > 0.85, speed at overspeed > 0.9).
+- Altitude, ground (below 5 km), speed (km/h for non-rockets), Mach, AoA/STALL, compass (`compass` via `bearingAt`), damage, g (`nz/gRating`), the `#flight-alert` from `structAlert` (`:1240`: g at strain > 0.85 for planes, speed at overspeed > 0.9 for anything with wings). While a wing flutters (`overspeed` > 0.97) `flutterShake` (world.js) shakes the 2D view and the 3D camera, and the wind sound roars.
 - Orbit rows are hidden for low aircraft. Also Ap/Pe with times, Δv (`estimateDeltaV`), heat bar, target/window, encounter/escape/impact, stage fuel and stage text.
 - Hints come from `hint`/`vehicleHint`.
 
@@ -621,7 +622,7 @@ Other helpers:
 - **Keep in sync with parts.js and the renderers.**
   - `ROUND3D` must list the round shapes.
   - `PILOT`/`DRIVE` frames assume `VEHICLE_KINDS.launchRot`. If you add a kind, add both.
-  - Physics writes per-part fields that render3d/parts3d/world.js read: `firing`, `ab`, `rpm`, `spin`, `deflect`, `aileron`, `sweep`, `retracted`, `temp`, `deployed`, `used`, `stress`. It also writes vessel fields: `steer`, `brakeOut`, `heatFlux`, `maxHeat`, `aoa`, `nz`, `strain`, `overspeed`.
+  - Physics writes per-part fields that render3d/parts3d/world.js read: `firing`, `ab`, `rpm`, `spin`, `deflect`, `aileron`, `sweep`, `retracted`, `temp`, `deployed`, `used`, `stress`. It also writes vessel fields: `steer`, `brakeOut`, `heatFlux`, `maxHeat`, `aoa`, `nz`, `strain`, `overspeed`, `overMach`.
   - A new JS file needs a `<script>` tag in `index.html`, a `sw.js` `SHELL` entry (and a `CACHE` bump) and a README layout line; build-single inlines it by itself. A new Earth asset: see §5.9 #3.
 - **Shared mutable return values.**
   - In terrain.js: `Terrain.toGeo` (`GEO`), `Terrain.water` (`EW`), `Terrain.dark()`, `lineQuery` (`LQ`), `fieldAt` (`FQ`).
@@ -1693,7 +1694,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 | `ghostCam` | Crash cam classic (the old camera bug) | After a crash the camera freezes in space while the planet flies on (flight.js:1402). The crash dialog waits 5 s instead of 1.6 s (flight.js:384). |
 | `retro2d` | Retro 2D flight | `use3D()` is false in flight (main.js:82) |
 | `ogAutopilot` | Vintage autopilot | Old porpoising plane autopilot (vessel.js:566) |
-| `noodle` | Noodle wings | Wings tear off at ¼ load (vessel.js:730) |
+| `noodle` | Noodle wings | Wings tear off at ¼ load and half their speed limit (vessel.js:730) |
 | `bouncy` | Bouncy castle | No ground breakage, restitution 0.75 (vessel.js:912-915) |
 | `drunk` | Wobbly pilot | The stick drifts in waves (flight.js:567) |
 | `hollywood` | Hollywood | Explosions ×3 (world.js:55); stage separations explode (flight.js:331) |

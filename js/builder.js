@@ -277,7 +277,7 @@ const Builder = {
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
       loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
-      air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne }; })() },
+      air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne, mmax: w.mmax }; })() },
     };
     this.renderStats();
     if (!fromHistory) {
@@ -1099,7 +1099,7 @@ const Builder = {
     $('#s-air').hidden = !airLine;
     if (airLine) {
       $('#s-air').textContent = `Stalls at ${Math.round(a.stall * 3.6)} km/h (${Math.round(a.stallFlaps * 3.6)} with flaps) · lifts off near ${Math.round(a.stallFlaps * 1.2 * 3.6)} km/h · wing ${Math.round(a.wingArea)} m²`
-        + ` · strong to ${a.g.toFixed(a.g < 10 ? 1 : 0)} g · never exceed ${Math.round(a.vne * 3.6)} km/h${a.vne < 300 ? '' : ' (more up high)'}`;
+        + ` · strong to ${a.g.toFixed(a.g < 10 ? 1 : 0)} g · wings break above ${Math.round(a.vne * 3.6)} km/h${a.mmax ? ` or Mach ${a.mmax}` : ' (more up high)'}`;
     }
     const list = $('#s-stage-list');
     list.innerHTML = '';
@@ -1139,6 +1139,7 @@ const Builder = {
     if (d.fuel) specs.push(`${d.fuel} t ${d.solid ? 'solid fuel' : 'fuel'}`);
     if (d.thrust) specs.push(`${d.thrust} kN`, `Isp ${d.ispSL}–${d.ispVac} s`);
     if (d.torque) specs.push(`${d.torque / 1000} kN·m`);
+    if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 3.6)} km/h${W.mmax ? ` or Mach ${W.mmax}` : ''}`); }
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
     if (!Career.sandbox) specs.push(money(d.cost));
     $('#pi-specs').textContent = specs.join(' · ');
