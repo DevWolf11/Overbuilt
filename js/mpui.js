@@ -34,17 +34,17 @@ const MPUI = {
       const tok = this.connecting = {};
       busy(true, wait);
       try {
-        await fn();
+        await fn((text) => { if (this.connecting === tok) busy(true, text); }); // (how a join is going)
         if (this.connecting !== tok) { MP.active && MP.end(); return; } // abandoned (left the screen meanwhile)
         busy(false, ''); this.refresh(); Sound.chime();
-      } catch (e) { if (this.connecting === tok) busy(false, e.message || String(e), true); MP.active && MP.end(); }
+      } catch (e) { if (this.connecting === tok) { busy(false, e.message || String(e), true); MP.active && MP.end(); } } // (an abandoned attempt leaves any newer session alone)
       finally { if (this.connecting === tok) this.connecting = null; }
     };
     this.abandon = () => { if (this.connecting) { this.connecting = null; busy(false, ''); Net.leave(true); } };
     const transport = () => store.get('rss.mp.tr', 'p2p');
     $('#mp-create-sandbox').addEventListener('click', () => go(() => MP.host('sandbox', transport()), 'Opening a room…'));
     $('#mp-create-pvp').addEventListener('click', () => go(() => MP.host('pvp', transport()), 'Opening a room…'));
-    const join = () => go(() => MP.join($('#mp-join-code').value, transport()), 'Joining…');
+    const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…');
     $('#mp-join').addEventListener('click', join);
     $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) join(); });
     $('#mp-back').addEventListener('click', () => this.leave());
@@ -168,6 +168,7 @@ const MPUI = {
     if (s.mode === 'sandbox') {
       box.append(el('p', { class: 'mp-explain', text: 'Everyone builds and flies whatever they like, from the usual pad, runway and helipad. You see each other’s craft, and guns and missiles hurt. Crash or get shot down and you can fly again straight away. No time warp in a shared world.' }),
         el('p', { class: 'mp-explain', text: `Share the code ${Net.code} with up to four friends. ${Net.transport === 'local' ? 'This room is on this device: open the game in another tab to join it.' : 'They join from anywhere over the internet.'}` }));
+      this.stayHint(box);
       return;
     }
     const seg = (key, opts, val) => {
@@ -199,6 +200,12 @@ const MPUI = {
     set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod));
     set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit));
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
+    else if (s.phase === 'lobby') this.stayHint(box);
+  },
+  // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
+  // in front (as when sending the code in a chat app), so say so.
+  stayHint(box) {
+    if (Net.isHost && Net.transport !== 'local') box.append(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your device lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
   },
   renderFoot() {
     const s = MP.state, me = MP.me, pvp = s.mode === 'pvp';

@@ -110,4 +110,29 @@ R(`MP.state.settings.budget = 20000; UI.toasts = []; var bd = MP.battleDesign();
 t('battleDesign over budget falls back to a stock template rows', R(`bd.parts.length === TEMPLATES[bd.name.toLowerCase()].parts.length && UI.toasts.length === 1`), R('[bd.name, UI.toasts]'));
 R(`MP.state.settings.budget = 1e9; MP.myDesign = { kind: 'plane', parts: Array.from({ length: 601 }, (_, i) => ({ type: 'gun', x: 0, y: i })) }; UI.toasts = []; var bd2 = MP.battleDesign();`);
 t('battleDesign with 601 loose-free parts swaps in stock (no ctrl or too many)', R('bd2 !== MP.myDesign'));
+
+// ---- big messages in pieces (net.js wire/unwire): PeerJS's json channel refuses 16300 bytes or more
+{
+  const vm = require('vm'), fs = require('fs'), path = require('path');
+  const C = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
+  vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net;', C);
+  const { wire, unwire } = C.Net._t;
+  const sent = [], conn = { send: (m) => sent.push(JSON.parse(JSON.stringify(m))) }; // (as PeerJS's json serializer would)
+  const big = { t: 'spawn', rows: Array.from({ length: 700 }, (_, i) => [i, 'fuselageW', i * 0.5, -i, 0, 0, 0.25, i - 1, 'é"\\ü✈']) };
+  wire(conn)(big);
+  const bytes = sent.map((m) => Buffer.byteLength(JSON.stringify(m)));
+  t('a 700-part spawn goes in pieces, each well under 16300 bytes', sent.length > 1 && sent.every((m) => m.t === '~') && Math.max(...bytes) < 16300, `${sent.length} pieces, largest ${Math.max(...bytes)} bytes`);
+  const back = unwire();
+  let out = null;
+  for (const m of [...sent].reverse()) out = back(m) || out; // (any order)
+  t('the pieces put back together give the same message', JSON.stringify(out) === JSON.stringify(big));
+  sent.length = 0; wire(conn)({ t: 'chat', text: 'hi' });
+  t('a small message goes whole', sent.length === 1 && sent[0].t === 'chat');
+  const u = unwire(), bad = [
+    { t: '~', k: 1, i: 0, n: 1, s: '{}' }, { t: '~', k: 1, i: 0, n: 1e6, s: 'x' }, { t: '~', k: 1, i: -1, n: 2, s: 'x' }, { t: '~', k: 1, i: 0.5, n: 2, s: 'x' },
+    { t: '~', k: 1, i: 0, n: 2, s: 'x'.repeat(5000) }, { t: '~', k: 1, i: 0, n: 2, s: 5 }, { t: '~', k: 2, i: 0, n: 2, s: '{"t":' }, { t: '~', k: 2, i: 0, n: 2, s: 'zz' },
+  ];
+  t('forged pieces are dropped (too many, out of range, too long, not text, repeated)', bad.every((m) => u(m) === null));
+  t('a piece set that is not JSON gives nothing', u({ t: '~', k: 2, i: 1, n: 2, s: '}' }) === null);
+}
 t.done();
