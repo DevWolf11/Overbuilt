@@ -948,6 +948,7 @@ const Combat = (() => {
     v.ctl.v = clamp(-Math.atan2(wu, Math.max(wf, 0.05)) * 3 * pullK * strainEase, -1, 0.35);
     v.ctl.r = clamp(-wr * 0.8, -0.5, 0.5);
     v.throttle = engage && d > 6000 ? 1 : 0.86; // afterburner only to close a long way
+    if (v.overspeed > 0.85) v.throttle = v.overspeed > 0.95 ? 0 : 0.5; // and back off near the wings' speed limit
     // shoot when the aim is good and the player is close
     v.aiFire = engage && hostile() && d < 1100 && off < 0.05;
     // flares against a missile on its tail

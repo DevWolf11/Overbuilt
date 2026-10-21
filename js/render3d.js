@@ -2373,6 +2373,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
     camera.lookAt(0, 0, 0);
+    const sh = flutterShake(F, v, clock); // (a fluttering wing shakes the view)
+    if (sh) { camera.rotateX(sh.y * 0.012); camera.rotateY(sh.x * 0.012); }
     camera.updateMatrixWorld();
     const cax = camAbs.x + rx - vx, cay = camAbs.y + ry - vy;
 
