@@ -2282,7 +2282,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.rim = new THREE.DirectionalLight(0x8fb8ff, 1.6);
     S.design = new THREE.Group();
     studio.add(floor, S.studioHemi, S.key, S.key.target, S.rim, S.design);
-    S.bd = { vm: null, parts: null, snap: '', att: '' };
+    S.bd = { vm: null, parts: null, kind: '', key: [], att: [], anim: false };
+    S.studioEnv = [new THREE.Color(0.32, 0.4, 0.55), new THREE.Color(0.08, 0.12, 0.2), new THREE.Color(0.02, 0.04, 0.08)]; // (its sky, for reflections)
   }
 
   // ------------------------------------------------------------------ per frame: flight
@@ -2338,13 +2339,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     fc.follow += wrapAngle(want - fc.follow) * (snap ? 1 : (1 - Math.exp(-dt * 2.2)) * Math.min(1, (h - 0.25) * 4));
   }
 
-  function renderFlight(F, dt) {
+  // calm: paused or under a dialog, drawn a few times a second (App.frame), which isn't a slow frame
+  function renderFlight(F, dt, calm) {
     if (!api.ready || !shown || !F || !F.active) return;
     mode = 'flight';
     dt = clamp(dt || 0, 0, 0.1);
     clock += dt; frameNo++;
     applyQuality();
-    adaptResolution(dt);
+    if (!calm) adaptResolution(dt);
     const v = F.viewVessel || F.active, b = v.body, t = F.time, bp = bodyPos(b, t), R = b.radius, hi = Settings.high; // (multiplayer: the player we watch)
     camAbs.x = F.camAbs.x; camAbs.y = F.camAbs.y; camAbs.z = F.camAbs.z || 0;
     const fq = F.viewQ || quat();
@@ -2728,21 +2730,30 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // Building in 3D: the blueprint is the plane z = 0 of S.design (part space), seen in perspective. While
   // a part is being dragged the craft's place, the camera's target and its turn are held still (they
   // otherwise follow the craft's size), so the plane doesn't slide under the pointer.
-  const bv = { edit: false, frozen: null, last: null, pan: { x: 0, y: 0, z: 0 }, ghosts: [], tinted: new Set(), tgt: null };
-  function builderLayout(B) {
+  // It is drawn only while something moves (the turntable, the camera or the craft easing into place, a part
+  // being dragged, a rotodome turning) or when asked to: otherwise no GL call at all, and the canvas keeps
+  // the last picture. (drawn: that picture is on the canvas; moving: still easing after the last one.)
+  const bv = { edit: false, frozen: null, last: null, pan: { x: 0, y: 0, z: 0 }, ghosts: [], tinted: new Map(), want: new Map(), tgt: null, drawn: false, moving: false,
+    sv: { parts: null }, so: { dt: 0, time: 0, rho: 0, quality: 'high' } };
+  const LAYOUT = { rot: 0, lift: 0, size: 0, tx: 0, ty: 0 }, LKEYS = ['lift', 'tx', 'ty', 'size'], NO_GHOSTS = [];
+  const TINT_HOVER = [1, 0.72, 0.3, 0.18], TINT_SEL = [1, 0.62, 0.15, 0.42], TINT_HOST = [0.3, 0.85, 1, 0.3], TINT_BAD = [1, 0.12, 0.08, 1.1];
+  function builderLayout(B, out) {
     const kind = (typeof VEHICLE_KINDS !== 'undefined' && VEHICLE_KINDS[B.kind || 'rocket']) || { launchRot: 0 };
     const rot = kind.launchRot || 0, c = Math.cos(rot), s = Math.sin(rot);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = 0, z1 = 0;
     for (const p of B.parts) {
       const r = partRect(p), hd = partDepth(p) / 2;
-      for (const [px, py] of [[r.l, r.b], [r.r, r.b], [r.l, r.t], [r.r, r.t]]) {
-        const X = c * px - s * py, Y = s * px + c * py;
+      for (let i = 0; i < 4; i++) { // the corners
+        const px = i & 1 ? r.r : r.l, py = i & 2 ? r.t : r.b, X = c * px - s * py, Y = s * px + c * py;
         x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
       }
-      for (const z of partZs(p)) { z0 = Math.min(z0, z - hd); z1 = Math.max(z1, z + hd); } // across (the spin turns it into view)
+      const z = partZ(p); // across, both copies of a pair (the spin turns it into view)
+      z0 = Math.min(z0, z - hd); z1 = Math.max(z1, z + hd);
+      if (p.def.twinZ) { z0 = Math.min(z0, -z - hd); z1 = Math.max(z1, -z + hd); }
     }
     if (!B.parts.length) { x0 = -1; x1 = 1; y0 = 0; y1 = 4; }
-    return { rot, lift: -y0 + 0.01, size: Math.max(x1 - x0, y1 - y0, z1 - z0, 2), tx: (x0 + x1) / 2, ty: (y1 - y0) / 2 };
+    out.rot = rot; out.lift = -y0 + 0.01; out.size = Math.max(x1 - x0, y1 - y0, z1 - z0, 2); out.tx = (x0 + x1) / 2; out.ty = (y1 - y0) / 2;
+    return out;
   }
   // The part being placed (and its mirror twin), in the paint it will take: see-through, blue where it
   // fits, red where it can't go. Its depth goes with the pointer (place()); a new paint is a new ghost.
@@ -2766,42 +2777,59 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     bv.ghosts.length = list.length;
   }
-  function renderBuilder(B, dt) {
-    if (!api.ready || !shown || !B) return;
+  // force: draw even if nothing moves (something changed, or the player just did something). True if it drew.
+  function renderBuilder(B, dt, force) {
+    if (!api.ready || !shown || !B) return false;
+    const fresh = mode !== 'builder', bd = S.bd;
     mode = 'builder';
-    dt = clamp(dt || 0, 0, 0.1);
+    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim) return false;    dt = clamp(dt || 0, 0, 0.1);
     clock += dt;
     applyQuality();
-    const bd = S.bd, have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket';
+    const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket', parts = B.parts, n = parts.length;
     // rebuild the meshes only when parts come, go, flip, change paint or kind; moving (in depth too) and
-    // turning them is cheap
-    let snap = String(B.parts.length) + (B.kind || '');
-    for (const p of B.parts) snap += `|${p.id},${p.type},${p.flip ? 1 : 0},${p.skin || ''}`;
-    if (snap !== bd.snap || bd.parts !== B.parts) {
-      if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
-      if (have && B.parts.length) { bd.vm = new Parts3D.VesselMesh(B.parts, { builder: true, radial }); S.design.add(bd.vm.group); }
-      bd.snap = snap; bd.parts = B.parts; bd.att = ''; bv.tinted.clear();
+    // turning them is cheap (key: id, type, flip and paint of each part)
+    let same = bd.parts === parts && bd.kind === (B.kind || '') && bd.key.length === n * 4;
+    for (let i = 0; same && i < n; i++) {
+      const p = parts[i], k = i * 4;
+      same = bd.key[k] === p.id && bd.key[k + 1] === p.type && bd.key[k + 2] === !!p.flip && bd.key[k + 3] === (p.skin || '');
     }
-    const att = B.parts.map((p) => (B.attached && B.attached.has(p.id) ? 1 : 0)).join('');
-    if (bd.vm && att !== bd.att) { for (const p of B.parts) bd.vm.setOpacity(p, B.attached && B.attached.has(p.id) ? 1 : 0.4); bd.att = att; }
-    if (bd.vm) bd.vm.sync({ parts: B.parts }, { dt, time: clock, rho: 0, quality: Settings.high ? 'high' : 'low' });
+    if (!same) {
+      if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
+      if (have && n) { bd.vm = new Parts3D.VesselMesh(parts, { builder: true, radial }); S.design.add(bd.vm.group); }
+      bd.key.length = 0;
+      for (const p of parts) bd.key.push(p.id, p.type, !!p.flip, p.skin || '');
+      bd.kind = B.kind || ''; bd.parts = parts; bd.att.length = 0; bv.tinted.clear();
+      bd.anim = !!bd.vm && bd.vm.list.some((r) => r.spins.length && r.anim && r.anim.always); // (a rotodome turns all the time)
+    }
+    // loose parts (not joined to the craft) are see-through
+    let att = bd.att.length === n;
+    for (let i = 0; i < n; i++) { const a = B.attached && B.attached.has(parts[i].id) ? 1 : 0; if (bd.att[i] !== a) { bd.att[i] = a; att = false; } }
+    if (!att) { bd.att.length = n; if (bd.vm) for (let i = 0; i < n; i++) bd.vm.setOpacity(parts[i], bd.att[i] ? 1 : 0.4); }
+    if (bd.vm) {
+      const sv = bv.sv, so = bv.so;
+      sv.parts = parts; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      bd.vm.sync(sv, so);
+    }
     // selection (amber), hover (faint), what a dragged part will attach to (cyan) and a dragged part, with
     // what goes with it, that can't go where it is (red)
     if (bd.vm) {
-      const want = new Map(), d = B.drag, sel = B.selected;
-      if (B.hover3d) want.set(B.hover3d, [1, 0.72, 0.3, 0.18]);
-      if (sel) for (const p of B.multi ? B.sel : [sel, sel.mirror]) if (p) want.set(p, [1, 0.62, 0.15, 0.42]);
-      if (d && d.host) want.set(d.host, [0.3, 0.85, 1, 0.3]);
-      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
-      for (const p of bv.tinted) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
+      const want = bv.want, d = B.drag, sel = B.selected;
+      want.clear();
+      if (B.hover3d) want.set(B.hover3d, TINT_HOVER);
+      if (sel && B.multi) for (const p of B.sel) want.set(p, TINT_SEL);
+      else if (sel) { want.set(sel, TINT_SEL); if (sel.mirror) want.set(sel.mirror, TINT_SEL); }
+      if (d && d.host) want.set(d.host, TINT_HOST);
+      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, TINT_BAD);
+      for (const p of bv.tinted.keys()) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
-      bv.tinted = new Set(want.keys());
+      bv.want = bv.tinted; bv.tinted = want;
     }
-    syncGhosts(have && B.ghosts ? B.ghosts() : [], radial);
+    syncGhosts(have && B.ghosts && B.drag ? B.ghosts() : NO_GHOSTS, radial);
     // rotate by the kind's launch attitude and rest the lowest point on the floor
-    const L = bv.frozen || (bv.last = builderLayout(B));
-    if (!bv.tgt || bv.frozen) bv.tgt = { lift: L.lift, tx: L.tx, ty: L.ty, size: L.size };
-    else { const k = 1 - Math.exp(-dt * 10); for (const q of ['lift', 'tx', 'ty', 'size']) bv.tgt[q] += (L[q] - bv.tgt[q]) * k; }
+    const L = bv.frozen || (bv.last = builderLayout(B, LAYOUT));
+    if (!bv.tgt) bv.tgt = { lift: L.lift, tx: L.tx, ty: L.ty, size: L.size };
+    else if (bv.frozen) { bv.tgt.lift = L.lift; bv.tgt.tx = L.tx; bv.tgt.ty = L.ty; bv.tgt.size = L.size; }
+    else { const k = 1 - Math.exp(-dt * 10); for (const q of LKEYS) bv.tgt[q] += (L[q] - bv.tgt[q]) * k; }
     const T = bv.tgt;
     S.design.rotation.z = L.rot;
     S.design.position.set(0, T.lift, 0);
@@ -2823,6 +2851,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     try { const a = B.viewArea(); ox = a.cx - W / 2; oy = a.cy - H / 2; } catch (err) { ox = oy = 0; }
     if (!bv.off) bv.off = { x: ox, y: oy };
     else if (!bv.frozen) { const kk = 1 - Math.exp(-dt * 10); bv.off.x += (ox - bv.off.x) * kk; bv.off.y += (oy - bv.off.y) * kk; }
+    // still easing? (below these the picture moves by less than a hundredth of a pixel)
+    bv.moving = Math.abs(bc.ty - bc.yaw) > 1e-5 || Math.abs(bc.tp - bc.pitch) > 1e-5 || Math.abs(ox - bv.off.x) + Math.abs(oy - bv.off.y) > 0.01 ||
+      Math.abs(L.lift - T.lift) + Math.abs(L.tx - T.tx) + Math.abs(L.ty - T.ty) + Math.abs(L.size - T.size) > 1e-4;
     bcam.setViewOffset(W, H, -bv.off.x, -bv.off.y, W, H);
     bcam.updateProjectionMatrix();
     bcam.updateMatrixWorld();
@@ -2835,10 +2866,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (sc.right !== half) { sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.1; sc.far = size * 8 + 20; sc.updateProjectionMatrix(); }
     S.rim.position.set(tx - size, ty + size, -size * 2);
     studio.fog.near = dist * 1.4 + size; studio.fog.far = dist * 3.5 + size * 4 + 60;
-    updateEnv(new THREE.Color(0.32, 0.4, 0.55), new THREE.Color(0.08, 0.12, 0.2), new THREE.Color(0.02, 0.04, 0.08), V1.set(0.4, 0.8, 0.45).normalize(), 2.5, 'studio');
+    const E = S.studioEnv;
+    updateEnv(E[0], E[1], E[2], V1.set(0.4, 0.8, 0.45).normalize(), 2.5, 'studio');
     renderer.setRenderTarget(null);
     renderer.clear();
     renderer.render(studio, bcam);
+    bv.drawn = true;
+    return true;
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.
@@ -2892,6 +2926,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   function resize(w, h, dpr) {
     W = Math.max(1, w); H = Math.max(1, h); DPR = dpr || 1;
+    bv.drawn = false; // (a new size wipes the canvas)
     if (!renderer) return;
     renderer.setPixelRatio(basePixelRatio() * perf.scale);
     renderer.setSize(W, H, true);
@@ -3149,6 +3184,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       return loading;
     },
     setVisible(on) {
+      if (on && !shown) bv.drawn = false;
       shown = !!on;
       if (canvas) canvas.style.display = shown ? 'block' : 'none';
     },
@@ -3242,7 +3278,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // While a part is dragged: hold the craft and camera still and keep the blueprint facing the camera.
     editView(on) {
       bv.edit = !!on;
-      bv.frozen = on ? bv.last : null;
+      bv.frozen = on && bv.last ? { ...bv.last } : null;
       if (on) bc.auto = false;
     },
     // Slide the 3D view's target across the screen (two fingers, or the right mouse button).

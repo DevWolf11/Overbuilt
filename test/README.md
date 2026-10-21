@@ -29,6 +29,7 @@ You need Node 18 or newer, plus Playwright and a Chromium: the browser suites ne
 | `mp.test.js` | The multiplayer spawn-row sanitiser on forged input; ghosts built from it; owner→ghost round trip; snapshots with `com.z`; the carrier size check; the 600-part cap; `battleDesign` | `baseline/mp-measure.json` |
 | `browser/builder2d.mjs` | The 2D builder: depth keys and slider, pods on wings, parts following their host, paint (Match, All, inherited), design codes, old saves, grid mode, rocket boosters | — |
 | `browser/builder3d.mjs` | The 3D builder: the pointer finds a wing at depth, a jet dropped under it hangs there with a twin, paint, and the craft flies with depth and paint | — |
+| `browser/redraw.mjs` | Redraw on demand: every kind of edit, by hand and from code, shows at once in the 2D and 3D hangar, and the idle hangar draws nothing (with the half-second safety-net redraw turned off, so a missed `Builder.redraw()` fails). On synthetic frame times: the frame cap gives a 90-144 Hz screen 60 frames' work a second; the home backdrop draws 30 times a second, and a paused flight or anything under a dialog 10 | — |
 | `browser/mp-two-tabs.mjs` | Two tabs in a local room: the ghost matches the owner's craft exactly, oversized messages are dropped, a forged spawn is rebuilt clean | — |
 
 ## Baselines

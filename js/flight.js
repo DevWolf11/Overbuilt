@@ -1370,7 +1370,7 @@ const Flight = {
 
     const sf = v.stageFuel();
     const frac = sf.cap ? sf.fuel / sf.cap : 0;
-    $('#fuel-fill').style.width = `${frac * 100}%`;
+    $('#fuel-fill').style.transform = `scaleX(${frac})`;
     $('#fuel-fill').classList.toggle('low', frac < 0.15);
     set('fuel-label', sf.cap ? `Stage fuel ${fmt.mass(sf.fuel)}` : 'No engines running');
 

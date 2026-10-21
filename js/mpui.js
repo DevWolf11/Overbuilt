@@ -274,9 +274,9 @@ const MPUI = {
     if (s.ends) {
       const left = Math.max(0, (s.ends - Net.hostNow()) / 1000);
       timer.textContent = fmtClock(left);
-      fill.style.width = `${clamp(left / (s.endsLen || 1), 0, 1) * 100}%`;
+      fill.style.transform = `scaleX(${clamp(left / (s.endsLen || 1), 0, 1)})`;
       $('#mp-bar').classList.toggle('urgent', left < 15 && s.phase !== 'battle');
-    } else { timer.textContent = s.mode === 'sandbox' ? Net.code : ''; fill.style.width = '100%'; $('#mp-bar').classList.remove('urgent'); }
+    } else { timer.textContent = s.mode === 'sandbox' ? Net.code : ''; fill.style.transform = ''; $('#mp-bar').classList.remove('urgent'); }
     // the line under the timer
     const info = $('#mp-bar-info');
     if (s.mode === 'sandbox') info.textContent = `${s.players.length} in the room · ${s.players.filter((p) => p.flying).length} flying`;
