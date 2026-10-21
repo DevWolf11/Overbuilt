@@ -49,8 +49,9 @@ const MPUI = {
     const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…', true);
     const stoppable = () => this.connecting && this.connecting.join && !MP.active; // (still looking for the host, not yet in)
     $('#mp-join').addEventListener('click', () => { if (!this.connecting) join(); else if (stoppable()) this.abandon(); });
-    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) { e.target.blur(); if (stoppable()) this.abandon(); join(); } }); // (a corrected code starts over; the keyboard goes away)
+    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) { if (isTouch) e.target.blur(); if (stoppable()) this.abandon(); join(); } }); // (a corrected code starts over; the keyboard goes away)
     $('#mp-back').addEventListener('click', () => this.leave());
+    $('#mp-test').addEventListener('click', () => this.testNetwork());
     $('#mp-code').addEventListener('click', () => {
       const code = Net.code;
       try { navigator.clipboard.writeText(code).then(() => UI.toast('Room code copied'), () => UI.toast(`Room code: ${code}`)); } catch (e) { UI.toast(`Room code: ${code}`); }
@@ -82,6 +83,28 @@ const MPUI = {
       if (App.scene === 'flight' && Flight.destroyed && (e.code === 'BracketLeft' || e.code === 'BracketRight')) this.spectate(e.code === 'BracketLeft' ? -1 : 1);
     }, true);
     addEventListener('keyup', (e) => { if (e.code === 'Backquote' && !this.scoreSticky) this.showScore(false); });
+  },
+  // Can online play get through this network? Matchmaking server, direct links, relay: a verdict in plain words.
+  async testNetwork() {
+    const b = $('#mp-test');
+    if (b.disabled) return;
+    b.disabled = true; b.textContent = 'Testing… (10 s)';
+    let r;
+    try { r = await Net.probe(); } catch (e) { r = null; }
+    b.disabled = false; b.textContent = 'Test this network';
+    if (!r) { UI.toast('The test couldn’t run in this browser', 'warn'); return; }
+    const relay = r.relay.length ? `gets through (${r.relay.map((p) => ({ udp: 'UDP', tcp: 'TCP', tls: 'TLS, port 443' })[p] || p).join(', ')})` : r.relaySetUp ? 'blocked' : 'none set up in the game yet';
+    const verdict = !r.server ? 'This network blocks the matchmaking server (peerjs.com), so online rooms can’t open or be joined from here. “This device” still works.'
+      : r.relay.length ? (r.direct ? 'Online play should work here: direct links get out, and the relay covers friends on stricter networks.' : 'This network blocks direct links, but the relay gets through, so online play works here through the relay.')
+      : r.direct ? 'Direct links get out of this network, so online play should work, unless your friend’s network is a strict one (a relay would cover that).'
+      : r.relaySetUp ? 'This network blocks direct links, and the relay too, so online play can’t get out of here.'
+      : 'This network blocks direct links (it blocks UDP, as many school and office networks do). Online play needs a relay server to get out of here, and the game doesn’t have one set up yet.';
+    const row = (ok, name, text) => el('div', { class: 'mp-test-row' + (ok ? ' ok' : '') }, el('span', { text: ok ? '✓' : '✗' }), el('b', { text: name }), el('span', { text }));
+    UI.modal({ kicker: 'Online play', title: 'This network', body: el('div', { class: 'mp-test-out' },
+      row(r.server, 'Matchmaking server', r.server ? 'reachable' : 'blocked'),
+      row(r.direct, 'Direct links (UDP)', r.direct ? 'get out' : 'blocked'),
+      row(r.relay.length > 0, 'Relay server', relay),
+      el('p', { text: verdict })), actions: [{ label: 'OK', primary: true }] });
   },
   say(text) {
     text = String(text || '').trim().slice(0, 140);
@@ -208,7 +231,7 @@ const MPUI = {
   // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
   // in front (as when sending the code in a chat app), so say so, first thing in the card.
   stayHint(box) {
-    if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
+    if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone or tablet lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
   },
   renderFoot() {
     const s = MP.state, me = MP.me, pvp = s.mode === 'pvp';

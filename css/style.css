@@ -408,7 +408,7 @@ kbd {
 .home-btn:hover, .mode-card:hover { border-color: var(--amber); }
 .home-btn:focus-visible, .mode-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .home-btn.primary { background: var(--amber); color: #1a1205; border-color: var(--amber); }
-.home-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.home-btn:disabled { cursor: not-allowed; filter: grayscale(0.85) brightness(0.5); } /* (dimmed, not see-through: the map is behind) */
 .home-btn.primary .hb-sub { color: rgba(26, 18, 5, 0.75); }
 .home-btn.resume { border-color: var(--cyan); }
 .hb-name, .mode-name { font-weight: 700; font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -764,6 +764,7 @@ kbd {
 .mp-input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 .mp-code-input { font: 600 18px var(--mono); letter-spacing: 0.2em; text-transform: uppercase; width: 150px; }
 .mp-seg { max-width: 320px; }
+.mp-test { align-self: flex-start; }
 .mp-create { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mp-join { display: flex; gap: 8px; }
 .mp-status { margin: 0; min-height: 20px; font-size: 13px; color: var(--muted); }
@@ -799,6 +800,12 @@ kbd {
 .mp-set .val { font: 500 13px var(--mono); color: var(--text); }
 .mp-explain { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .mp-explain.mp-stay { color: var(--amber); }
+.mp-test-out { display: flex; flex-direction: column; gap: 6px; }
+.mp-test-row { display: grid; grid-template-columns: 16px auto 1fr; gap: 8px; align-items: baseline; color: var(--danger); }
+.mp-test-row.ok { color: var(--text, inherit); }
+.mp-test-row.ok > span:first-child { color: var(--good, #6fd08c); }
+.mp-test-row > span:last-child { color: var(--muted); }
+.mp-test-out p { margin: 6px 0 0; }
 .mp-chat { align-self: stretch; }
 .mp-chat-log { flex: 1; min-height: 160px; max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.35; -webkit-user-select: text; user-select: text; }
 .mp-chat-log .sys { color: var(--muted); font-style: italic; }
