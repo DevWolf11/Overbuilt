@@ -29,7 +29,7 @@ const Net = (() => {
     hostOffset: 0,        // host clock minus ours (ms)
     bytesIn: 0, bytesOut: 0,
   };
-  const HOST_ONLY = new Set(['hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
+  const HOST_ONLY = new Set(['~', 'hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
   let joinGen = 0;
   let peer = null, chan = null, link = null, cid = '', nextPid = 2, pingTimer = 0, watchTimer = 0, lastHeard = 0;
   const links = new Map(); // host: pid -> { send, close, heard }
@@ -71,12 +71,12 @@ const Net = (() => {
       const { k, i, n, s } = m;
       if (!(Number.isInteger(n) && n > 1 && n <= Math.ceil(NET_MAX_BYTES / NET_PIECE) && Number.isInteger(i) && i >= 0 && i < n && typeof s === 'string' && s.length <= NET_PIECE)) return null;
       let p = open.get(k);
-      if (!p) { if (open.size >= 8) open.clear(); p = { n, got: 0, s: [] }; open.set(k, p); }
+      if (!p) { open.clear(); p = { n, got: 0, s: [] }; open.set(k, p); } // (one message at a time: an ordered channel never interleaves them)
       if (p.n !== n || p.s[i] != null) return null;
       p.s[i] = s;
       if (++p.got < n) return null;
       open.delete(k);
-      try { return JSON.parse(p.s.join('')); } catch (e) { return null; }
+      try { const w = JSON.parse(p.s.join('')); return w && w.t === '~' ? null : w; } catch (e) { return null; } // (never a piece in pieces)
     };
   }
 
@@ -185,6 +185,7 @@ const Net = (() => {
     let pid = 0;
     const send = wire(conn), whole = unwire();
     conn.on('data', (raw) => {
+      if (!pid && raw && raw.t === '~') { conn.close(); return; } // (hello never comes in pieces)
       const msg = whole(raw);
       if (!msg) return;
       if (!pid) { if (msg.t === 'hello') pid = accept(msg, send, () => conn.close()); if (!pid) setTimeout(() => conn.close(), 500); return; }
@@ -285,7 +286,7 @@ const Net = (() => {
       if (now - tLink > 15000) fail('Connected, but the host’s game didn’t let you in. Check the room is still open, then try again');
     }, 250);
     peer.on('error', (e) => {
-      if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code: check it, or ask the host to create the room again' : netError(e)); return; }
+      if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code right now. Check the code; if it’s right, the host’s game may have been in the background a while (screen off or another app open): ask them to come back to it and try again, as the same code still works' : netError(e)); return; }
       if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
       else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
     });
@@ -296,6 +297,8 @@ const Net = (() => {
       const send = wire(conn);
       link = { send, close: () => conn.close() };
       conn.on('iceStateChanged', (s) => { ice = s; if (!tIce && s !== 'new') tIce = performance.now(); });
+      const pc = conn.peerConnection; // (the host's answer is the host answering, even when ICE never gets as far as checking)
+      if (pc) pc.addEventListener('signalingstatechange', () => { if (!tIce && pc.signalingState === 'stable') tIce = performance.now(); });
       conn.on('open', () => { tLink = performance.now(); if (!tIce) tIce = tLink; say('Connected. Waiting for the host to let you in…'); send(hello); });
       conn.on('data', onMsg);
       conn.on('close', () => { if (done) closeAll('The host left the room'); else fail(ice === 'failed' ? NO_LINK : 'The host’s device closed the connection: try again'); });
@@ -349,7 +352,7 @@ const Net = (() => {
       default: return (e && e.message) || 'Connection failed';
     }
   }
-  N._t = { wire, unwire }; // (for the tests)
+  N._t = { wire, unwire, HOST_ONLY }; // (for the tests)
   addEventListener('pagehide', () => { if (N.active) N.leave(); });
   // back on screen after a phone put the game to sleep: get back onto the matchmaking server at once, so
   // friends waiting to join get through (the delayed reconnect on 'disconnected' still covers the rest)

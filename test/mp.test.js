@@ -134,5 +134,10 @@ t('battleDesign with 601 loose-free parts swaps in stock (no ctrl or too many)',
   ];
   t('forged pieces are dropped (too many, out of range, too long, not text, repeated)', bad.every((m) => u(m) === null));
   t('a piece set that is not JSON gives nothing', u({ t: '~', k: 2, i: 1, n: 2, s: '}' }) === null);
+  // a player must not get a piece past the host to the others: rebuilt by them as part of the host's own stream,
+  // it could fake any message from the host (close their room, rewrite the match)
+  const inner = JSON.stringify({ t: '~', k: 9, i: 0, n: 2, s: '{"t":"closed","f":1}' }), u2 = unwire();
+  u2({ t: '~', k: 3, i: 0, n: 2, s: inner.slice(0, 20) });
+  t('pieces that rebuild a piece are dropped, and the host never passes a player\'s piece on', u2({ t: '~', k: 3, i: 1, n: 2, s: inner.slice(20) }) === null && C.Net._t.HOST_ONLY.has('~'));
 }
 t.done();
