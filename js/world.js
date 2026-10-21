@@ -701,8 +701,7 @@ const World = {
     }
     for (const p of v.parts) p.fuelFrac = p.def.fuel ? p.fuel / (p.def.fuel * 1000) : null;
     for (const p of v.parts) if (p.def.chute) drawCanopy(ctx, p, lw);
-    for (const p of v.parts) if (p.def.leg || p.def.fin || p.def.wheel) drawPart(ctx, p, lw);
-    for (const p of v.parts) if (!p.def.leg && !p.def.fin && !p.def.wheel) drawPart(ctx, p, lw);
+    for (const p of sideOrder(v.parts)) drawPart(ctx, p, lw); // the far side first
     if (F.flash && v === F.active) {
       const age = (performance.now() - F.flash.t) / 500;
       const p = v.byId.get(F.flash.id);

@@ -1,6 +1,8 @@
 'use strict';
 // A vessel is a rigid assembly of parts flying around one body (patched conics), in full 3D.
-// Part space is the builder's: +y runs up the stack, x across it, z is depth (out of the blueprint).
+// Part space is the builder's: +y runs up the stack, x across it, z is depth (out of the blueprint; a plane's
+// right wing). Each part sits at its own depth (partZ): a twin pair one each side, so only a single part off
+// the centreline moves the centre of mass across (com.z).
 // The quaternion q turns part space (about the centre of mass) into the sim's axes; av is the angular
 // velocity in sim axes. Positions and velocities are relative to the body's centre.
 
@@ -10,6 +12,12 @@ const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 's
   'jetnose', 'airnose', 'float', 'droptank']);
 const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
 const MAX_SPIN = 6;   // rad/s
+// Where a part's mass sits across (z), one entry per copy: each side of a twin pair, or an axle's two wheels
+// (track apart, either side of the part's depth).
+function massZs(p) {
+  const tr = p.def.wheel ? (p.def.wheel.track || 0) / 2 : 0, z = partZ(p);
+  return tr ? [z - tr, z + tr] : partZs(p);
+}
 
 // Lift coefficient of a wing at angle of attack a (forward flow): linear (slope per radian) up to the
 // stall, then it sinks towards a flat plate's.
@@ -129,7 +137,7 @@ class Vessel {
     this.gearUp = false;  // retractable gear folded away
     this.brakeOut = 0;    // air brakes, 0..1
     this.rip = [];        // wings overstressed this step
-    this.com = { x: 0, y: 0 };
+    this.com = { x: 0, y: 0, z: 0 };
     this._loc = {};
     this.recompute(true);
   }
@@ -144,43 +152,56 @@ class Vessel {
   set w(v) { this.av = v3(0, 0, v); }
 
   recompute(initial) {
-    let m = 0, cx = 0, cy = 0;
+    let m = 0, cx = 0, cy = 0, cz = 0;
     for (const p of this.parts) {
       const pm = partKg(p);
-      m += pm; cx += pm * p.x; cy += pm * p.y;
+      m += pm; cx += pm * p.x; cy += pm * p.y; cz += pm * partZc(p);
     }
-    cx /= m; cy /= m;
+    cx /= m; cy /= m; cz /= m;
     if (!initial) {
       // keep parts fixed in space when the centre of mass moves
-      const d = qrot(this.q, cx - this.com.x, cy - this.com.y, 0, _t1);
+      const d = qrot(this.q, cx - this.com.x, cy - this.com.y, cz - (this.com.z || 0), _t1);
       this.x += d.x; this.y += d.y; this.z += d.z;
     }
     this.mass = m;
-    this.com = { x: cx, y: cy };
-    // inertia tensor about the centre of mass: parts are boxes, all centred on z = 0 but wheel pairs
-    let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, D = 0;
+    this.com = { x: cx, y: cy, z: cz };
+    // inertia tensor about the centre of mass: parts are boxes, their mass shared between their copies across
+    // (zz: the copies' mean square offset from the centre of mass across, zm: their mean offset)
+    let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Ixz = 0, Iyz = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const p of this.parts) {
-      const pm = partKg(p), { w, h } = partDims(p), d = partDepth(p);
-      const tz = p.def.twinZ || (p.def.wheel ? (p.def.wheel.track || 0) / 2 : 0), dx = p.x - cx, dy = p.y - cy, dz2 = tz * tz;
-      Ixx += pm * ((h * h + d * d) / 12 + dy * dy + dz2);
-      Iyy += pm * ((w * w + d * d) / 12 + dx * dx + dz2);
+      const pm = partKg(p), { w, h } = partDims(p), d = partDepth(p), zs = massZs(p), dx = p.x - cx, dy = p.y - cy;
+      let zz = 0, zm = 0;
+      for (const z of zs) { zz += (z - cz) * (z - cz); zm += z - cz; }
+      zz /= zs.length; zm /= zs.length;
+      for (const z of partZs(p)) { minZ = Math.min(minZ, z - d / 2); maxZ = Math.max(maxZ, z + d / 2); } // (its partBoxes)
+      Ixx += pm * ((h * h + d * d) / 12 + dy * dy + zz);
+      Iyy += pm * ((w * w + d * d) / 12 + dx * dx + zz);
       Izz += pm * ((w * w + h * h) / 12 + dx * dx + dy * dy);
-      Ixy -= pm * dx * dy;
+      Ixy -= pm * dx * dy; Ixz -= pm * dx * zm; Iyz -= pm * dy * zm;
       const r = partRect(p);
       minX = Math.min(minX, r.l); maxX = Math.max(maxX, r.r); minY = Math.min(minY, r.b); maxY = Math.max(maxY, r.t);
-      D = Math.max(D, d);
     }
     Ixx = Math.max(Ixx, 1); Iyy = Math.max(Iyy, 1); Izz = Math.max(Izz, 1);
-    const det = Ixx * Iyy - Ixy * Ixy || 1;
-    this.I = { xx: Ixx, yy: Iyy, zz: Izz, xy: Ixy, ixx: Iyy / det, iyy: Ixx / det, ixy: -Ixy / det, izz: 1 / Izz };
+    // the inverse by blocks: the x-y block's own, then z through its Schur complement s (so with nothing off
+    // the centreline, xz = yz = 0, it is exactly the x-y block's inverse and 1/Izz)
+    const det = Ixx * Iyy - Ixy * Ixy || 1, axx = Iyy / det, ayy = Ixx / det, axy = -Ixy / det;
+    const ux = axx * Ixz + axy * Iyz, uy = axy * Ixz + ayy * Iyz, s = Math.max(Izz - (Ixz * ux + Iyz * uy), 1e-3);
+    this.I = { xx: Ixx, yy: Iyy, zz: Izz, xy: Ixy, xz: Ixz, yz: Iyz,
+      ixx: axx + (ux * ux) / s, iyy: ayy + (uy * uy) / s, ixy: axy + (ux * uy) / s, izz: 1 / s, ixz: -ux / s, iyz: -uy / s };
     this.inertia = Math.max(Ixx, Iyy, Izz);
-    this.bounds = { minX, maxX, minY, maxY };
+    this.bounds = { minX, maxX, minY, maxY, minZ, maxZ };
     this.width = maxX - minX;
-    this.depth = D;
+    this.depth = maxZ - minZ;
   }
-  // I·v and I⁻¹·v in part axes
-  mulI(v, o = v3()) { const I = this.I, x = I.xx * v.x + I.xy * v.y, y = I.xy * v.x + I.yy * v.y; o.x = x; o.y = y; o.z = I.zz * v.z; return o; }
-  mulInvI(v, o = v3()) { const I = this.I, x = I.ixx * v.x + I.ixy * v.y, y = I.ixy * v.x + I.iyy * v.y; o.x = x; o.y = y; o.z = I.izz * v.z; return o; }
+  // I·v and I⁻¹·v in part axes (o may be v)
+  mulI(v, o = v3()) {
+    const I = this.I, x = I.xx * v.x + I.xy * v.y + I.xz * v.z, y = I.xy * v.x + I.yy * v.y + I.yz * v.z, z = I.xz * v.x + I.yz * v.y + I.zz * v.z;
+    o.x = x; o.y = y; o.z = z; return o;
+  }
+  mulInvI(v, o = v3()) {
+    const I = this.I, x = I.ixx * v.x + I.ixy * v.y + I.ixz * v.z, y = I.ixy * v.x + I.iyy * v.y + I.iyz * v.z, z = I.ixz * v.x + I.iyz * v.y + I.izz * v.z;
+    o.x = x; o.y = y; o.z = z; return o;
+  }
   // I⁻¹·v for a vector in sim axes
   invIWorld(v, o = v3()) { qunrot(this.q, v.x, v.y, v.z, o); this.mulInvI(o, o); return qrot(this.q, o.x, o.y, o.z, o); }
   bodyAV(o = v3()) { return qunrot(this.q, this.av.x, this.av.y, this.av.z, o); }
@@ -188,8 +209,8 @@ class Vessel {
   rebuildGroups() {
     this.groups = fuelGroups(this.parts, this.adj);
     this.byId = new Map(this.parts.map((p) => [p.id, p]));
-    let top = null;
-    for (const p of this.parts) if (!top || partRect(p).t > partRect(top).t) top = p;
+    let top = null; // the nose: the part furthest up the centreline (not a pod or a store out on a wing)
+    for (const p of this.parts) if (partZs(p).length === 1 && Math.abs(partZc(p)) < partDepth(p) / 2 && (!top || partRect(p).t > partRect(top).t)) top = p;
     this.noseAero = !!(top && (top.def.aero || top.def.chute));
     this.wheels = this.parts.filter((p) => p.def.wheel);
     this.fins = this.parts.filter((p) => p.def.fin);
@@ -217,13 +238,13 @@ class Vessel {
   // wings carry their own drag.
   computeAreas() {
     const D = this.parts.filter((p) => !p.def.wing && !p.def.wheel)
-      .map((p) => ({ p, d: partDims(p), z: p.def.wheel ? 0.25 : partDepth(p), round: ROUND3D.has(p.def.shape) }));
+      .map((p) => ({ p, d: partDims(p), dep: p.def.wheel ? 0.25 : partDepth(p), round: ROUND3D.has(p.def.shape) }));
     let ax = 0, ay = 0, az = 0;
     for (const s of D) {
       let fx = 0, fy = 0;
       for (const o of D) {
-        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.z * (o.round ? 0.785 : 1);
-        if (Math.abs(o.p.x - s.p.x) < o.d.w / 2) fx += o.d.h * o.z;
+        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.dep * (o.round ? 0.785 : 1);
+        if (Math.abs(o.p.x - s.p.x) < o.d.w / 2) fx += o.d.h * o.dep;
       }
       ax = Math.max(ax, fx); ay = Math.max(ay, fy);
       az += s.d.w * s.d.h * (s.p.def.fin || s.p.def.shape === 'vtail' ? 0.5 : 0.85);
@@ -233,30 +254,28 @@ class Vessel {
     // landing gear hanging in the wind (folded retractable gear doesn't count)
     this.gearDrag = 0; this.gearDragFixed = 0;
     for (const p of this.wheels) {
-      const r = wheelGeom(p).r, k = 0.5 * r * (p.def.wheel.track ? 2 : 1);
+      const r = wheelGeom(p).r, k = 0.5 * r * massZs(p).length;
       this.gearDrag += k; if (!p.def.wheel.retract) this.gearDragFixed += k;
     }
   }
 
   // Points the ground can touch, in part space: the corners of each part's box (a diamond around a round
-  // part's ends) and every wheel's centre and radius. Rocket legs and fins stand in fours around the stack:
-  // each also gets a copy turned 90° about the stack's axis.
+  // part's ends) and every wheel's centre and radius, at the depth of each copy of the part (both sides of a
+  // pair, both wheels of an axle). Rocket legs and fins stand in fours around the stack: each also gets a copy
+  // turned 90° about the stack's axis.
   computeHull() {
     const pts = [], wheels = [], radial = this.kind === 'rocket';
-    let reach = 0;
     const add = (p, x, y, z) => {
-      const tz = p.def.twinZ;
-      for (const zz of tz ? [z - tz, z + tz] : [z]) {
+      for (const o of partZs(p)) {
+        const zz = z + o;
         pts.push({ p, x, y, z: zz });
         if (radial && (p.def.leg || p.def.fin)) pts.push({ p, x: zz, y, z: -x });
-        reach = Math.max(reach, Math.hypot(x - this.com.x, y - this.com.y, zz), radial ? Math.hypot(x, y - this.com.y) : 0);
       }
     };
     for (const p of this.parts) {
       if (p.def.wheel) {
-        const g = wheelGeom(p), tr = (p.def.wheel.track || 0) / 2;
-        for (const z of tr ? [-tr, tr] : [0]) wheels.push({ p, x: g.x, y: g.y, z, r: g.r, retract: !!p.def.wheel.retract });
-        reach = Math.max(reach, Math.hypot(g.x - this.com.x, g.y - this.com.y, tr) + g.r);
+        const g = wheelGeom(p);
+        for (const z of massZs(p)) wheels.push({ p, x: g.x, y: g.y, z, r: g.r, retract: !!p.def.wheel.retract });
         continue;
       }
       const ax = partAxis(p), px = ax.y, py = -ax.x, hl = p.def.h / 2, hw = p.def.w / 2, hd = partDepth(p) / 2;
@@ -271,18 +290,23 @@ class Vessel {
     this.wheelPts = wheels;
     const D = this.drive, along = wheels.map((k) => k.x * D.F.x + k.y * D.F.y);
     this.wheelbase = wheels.length ? Math.max(1, Math.max(...along) - Math.min(...along)) : 1;
+    // how far the craft reaches from its centre of mass
+    const c = this.com, cz = c.z || 0;
+    let reach = 0;
+    for (const k of pts) reach = Math.max(reach, Math.hypot(k.x - c.x, k.y - c.y, k.z - cz));
+    for (const k of wheels) reach = Math.max(reach, Math.hypot(k.x - c.x, k.y - c.y, k.z - cz) + k.r);
     this.reach = reach + 0.5;
   }
 
   // Local (part space) -> position relative to body centre.
   toWorld(lx, ly, lz = 0) {
-    const d = qrot(this.q, lx - this.com.x, ly - this.com.y, lz);
+    const d = qrot(this.q, lx - this.com.x, ly - this.com.y, lz - (this.com.z || 0));
     d.x += this.x; d.y += this.y; d.z += this.z;
     return d;
   }
   toLocal(wx, wy, wz = 0) {
     const d = qunrot(this.q, wx - this.x, wy - this.y, wz - this.z);
-    d.x += this.com.x; d.y += this.com.y;
+    d.x += this.com.x; d.y += this.com.y; d.z += this.com.z || 0;
     return d;
   }
   // A part-space direction in sim axes.
@@ -303,15 +327,15 @@ class Vessel {
   groundHeight() { const L = this.surfaceSpot(); return Terrain.surfaceAt(this.body, L.a, L.z); }
   // Height of the craft's lowest point above the ground below it.
   groundAltitude() {
-    const r = this.radius(), ux = this.x / r, uy = this.y / r, uz = this.z / r;
+    const r = this.radius(), ux = this.x / r, uy = this.y / r, uz = this.z / r, cz = this.com.z || 0;
     let low = 0;
     for (const k of this.hull) {
-      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1);
+      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz, _t1);
       low = Math.min(low, o.x * ux + o.y * uy + o.z * uz);
     }
     for (const k of this.wheelPts) {
       if (k.retract && this.gearUp) continue;
-      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1);
+      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz, _t1);
       low = Math.min(low, o.x * ux + o.y * uy + o.z * uz - k.r);
     }
     return r + low - this.body.radius - this.groundHeight();
@@ -329,10 +353,12 @@ class Vessel {
     let gimbal = 0, rotorTorque = 0, total = 0;
     const pressure = clamp(rho / EARTH.rho0, 0, 1);
     let changed = false;
+    // thrust along the part's axis (in the blueprint plane) from where it sits, r × F: an engine out on one
+    // wing also yaws the nose away from it
     const fire = (e, f) => {
-      const a = partAxis(e), rx = e.x - this.com.x, ry = e.y - this.com.y;
+      const a = partAxis(e), rx = e.x - this.com.x, ry = e.y - this.com.y, rz = partZc(e) - (this.com.z || 0);
       F.x += a.x * f; F.y += a.y * f; total += f;
-      T.z += (rx * a.y - ry * a.x) * f;
+      T.x -= rz * a.y * f; T.y += rz * a.x * f; T.z += (rx * a.y - ry * a.x) * f;
       const n = partPt(e, 0, -e.def.h / 2);
       gimbal += f * Math.sin(e.def.gimbal || 0) * Math.abs((this.com.x - n.x) * a.x + (this.com.y - n.y) * a.y);
     };
@@ -388,8 +414,9 @@ class Vessel {
         fire(e, f * scale);
         e.firing = Math.min(1, (f * scale) / (e.def.thrust * 1000));
         if (e.def.air && e.def.air.torque) rotorTorque += e.def.air.torque * Math.min(1, e.firing * 1.5);
-        // a single propeller twists the plane the other way (a twin pair turns in opposite directions)
-        if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ && !e.def.contra) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2); T.x += a.x * tq; T.y += a.y * tq; }
+        // a single propeller twists the plane the other way (a twin pair turns in opposite directions, and so
+        // does one on the left wing, so a mirrored pair cancels out)
+        if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ && !e.def.contra) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2) * (partZ(e) < -0.01 ? -1 : 1); T.x += a.x * tq; T.y += a.y * tq; }
       }
       changed = true;
     }
@@ -676,9 +703,10 @@ class Vessel {
         const k = p.deployed;
         const ca = (18 + 520 * k * k) * (p.def.chuteArea || 1);
         cdA += ca;
-        // the canopy hauls the top of the stack round to trail behind
-        const pull = this.dynP * ca * (p.y + 3 - this.com.y) * 0.08;
+        // the canopy hauls the top of the stack round to trail behind (and one off the centreline twists it too)
+        const pull = this.dynP * ca * (p.y + 3 - this.com.y) * 0.08, twist = this.dynP * ca * (partZc(p) - (this.com.z || 0)) * 0.08;
         T.x -= hz * pull; T.z -= (-hx + (hy > 0.9 ? 0.3 : 0)) * pull;
+        T.x += hy * twist; T.y -= hx * twist;
         const damp = this.mulI(wb);
         T.x -= damp.x * 1.5; T.y -= damp.y * 1.5; T.z -= damp.z * 1.5;
         this.chuteOpen = true;
@@ -695,7 +723,7 @@ class Vessel {
       // Wings (in two halves, so rolling damps itself, ailerons work and one half can stall before the
       // other) and tail fins: lift and drag at each surface's centre of lift, from the air flowing past it.
       // W: the wing's aerodynamics (null for a fin); ge: ground effect, more lift within a span of the ground.
-      const M = this.mach, rip = this.rip, noodle = Silly.on('noodle');
+      const M = this.mach, rip = this.rip, noodle = Silly.on('noodle'), cz = this.com.z || 0;
       let strain = 0; // the most loaded surface's load over its limit
       for (const p of this.wings) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
       for (const p of this.vtails) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
@@ -747,20 +775,21 @@ class Vessel {
         const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span);
         // dihedral: each half's lift leans in towards the middle, so a sideslip rolls the plane level
         const cg = Math.cos(W.dihedral), sg = Math.sin(W.dihedral);
-        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s, kd, p === this.mainWing, W, ge);
-        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s, kd, false, W, ge);
+        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge);
+        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, false, W, ge);
         p.deflect = (d0 + d1) / 2; p.aileron = (d0 - d1) / 2;
       }
+      // a fin works from where it stands; a twin pair as one fin of twice the area on the centreline
       for (const p of this.vtails) {
-        const ar = p.def.w * p.def.h * 0.7 * (p.def.twinZ ? 2 : 1);
-        p.deflect = surf(p, ar, v3(0, 0, 1), partAxis(p), 0, 0.4, false, null, 1);
+        const ar = p.def.w * p.def.h * 0.7 * partZs(p).length;
+        p.deflect = surf(p, ar, v3(0, 0, 1), partAxis(p), partZc(p) - cz, 0.4, false, null, 1);
       }
       this.slip = Math.asin(clamp(hz, -1, 1));
       // the fuselage and fin together resist yawing more than the fin alone works out to here: this damps
       // the nose's swing back and forth after a sideslip (the fishtail)
       if (this.kind === 'plane' && this.vtails.length) {
         let c = 0;
-        for (const p of this.vtails) { const arm = p.y - this.com.y; c += p.def.w * p.def.h * (p.def.twinZ ? 2 : 1) * arm * arm; }
+        for (const p of this.vtails) { const arm = p.y - this.com.y; c += p.def.w * p.def.h * partZs(p).length * arm * arm; }
         const wu = wb.x * P.U.x + wb.y * P.U.y + wb.z * P.U.z, k = 0.5 * rho * v * 3.5 * c * 4 * wu;
         T.x -= P.U.x * k; T.y -= P.U.y * k; T.z -= P.U.z * k;
       }
@@ -811,10 +840,12 @@ class Vessel {
     const flux = rho > 0 ? rho * v * v * v * smoothstep(500, 1400, v) : 0;
     let front = -Infinity;
     if (flux > 2e6) {
-      const lx = vb.x / v, ly = vb.y / v, lz = Math.abs(vb.z / v);
+      const lx = vb.x / v, ly = vb.y / v, sz = vb.z / v, lz = Math.abs(sz);
       for (const p of this.parts) {
         const d = partDims(p);
-        p._lead = p.x * lx + p.y * ly + Math.abs((d.w / 2) * lx) + Math.abs((d.h / 2) * ly) + (partDepth(p) / 2) * lz;
+        let across = -Infinity; // where it sits across: of a pair, the one on the windward side leads
+        for (const z of partZs(p)) across = Math.max(across, z * sz);
+        p._lead = p.x * lx + p.y * ly + Math.abs((d.w / 2) * lx) + Math.abs((d.h / 2) * ly) + (partDepth(p) / 2) * lz + across;
         if (p._lead > front) front = p._lead;
       }
     }
@@ -845,9 +876,9 @@ class Vessel {
     const L0 = this.surfaceSpot(), dk = Terrain.deckAt(b, L0.a, L0.z, this.reach + 2); // part of the craft may be over a carrier's deck
     const h0 = Math.max(Terrain.surfaceAt(b, L0.a, L0.z), dk === dk ? dk : -Infinity), lim0 = R + h0 + 2 + this.reach * 0.3;
     if (r - this.reach > lim0) return clear();
-    const contacts = [], loc = {};
+    const contacts = [], loc = {}, cz = this.com.z || 0;
     const probe = (k, rad, wheel) => {
-      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z);
+      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz);
       const px = this.x + o.x, py = this.y + o.y, pz = this.z + o.z, pr = Math.hypot(px, py, pz);
       if (pr - rad > lim0) return;
       Terrain.locate(b, px, py, pz, loc);
@@ -981,10 +1012,10 @@ class Vessel {
     const lat = z0 / body.radius, cl = Math.cos(lat);
     const F = surfaceFrame(cl * Math.cos(ang), cl * Math.sin(ang), Math.sin(lat));
     this.q = qmul(qbasis(F.east, F.up, F.north), qmul(qaxis(0, 1, 0, yaw), qaxis(0, 0, 1, rot)));
-    const u = F.up;
+    const u = F.up, cz = this.com.z || 0;
     let low = Infinity;
-    for (const k of this.hull) low = Math.min(low, dot3(qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1), u));
-    for (const k of this.wheelPts) low = Math.min(low, dot3(qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z, _t1), u) - k.r);
+    for (const k of this.hull) low = Math.min(low, dot3(qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz, _t1), u));
+    for (const k of this.wheelPts) low = Math.min(low, dot3(qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz, _t1), u) - k.r);
     const r = body.radius + Terrain.surfaceAt(body, ang, z0) - low + 0.02;
     this.x = u.x * r; this.y = u.y * r; this.z = u.z * r;
     this.vx = 0; this.vy = 0; this.vz = 0; this.av = v3();
@@ -1051,7 +1082,7 @@ class Vessel {
       const adj = new Map();
       for (const p of pp) adj.set(p.id, new Set([...this.adj.get(p.id)].filter((id) => ids.has(id))));
       const v = new Vessel(pp, adj, this.body);
-      const rel = qrot(this.q, v.com.x - this.com.x, v.com.y - this.com.y, 0);
+      const rel = qrot(this.q, v.com.x - this.com.x, v.com.y - this.com.y, (v.com.z || 0) - (this.com.z || 0));
       v.x = this.x + rel.x; v.y = this.y + rel.y; v.z = this.z + rel.z;
       const pv = this.pointVel(rel);
       v.vx = pv.x; v.vy = pv.y; v.vz = pv.z;
@@ -1079,18 +1110,20 @@ class Vessel {
       q: [this.q.w, this.q.x, this.q.y, this.q.z], av: [this.av.x, this.av.y, this.av.z],
       throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind, flaps: this.flaps, gearUp: this.gearUp,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
-      parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
+      parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, att: p.att, skin: p.skin, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
         deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store })),
       adj: [...this.adj].map(([k, v]) => [k, [...v]]),
     };
   }
 
   static restore(d) {
-    const parts = d.parts.filter((q) => PARTS[q.type]).map((q) => {
-      const p = makePart(q.type, q.x, q.y);
-      Object.assign(p, q, { def: PARTS[q.type] });
+    // (ids are kept, so att still names the host; one that went with another piece, or none, is dropped)
+    const parts = d.parts.filter((q) => q && hasOwn(PARTS, q.type)).map((q) => {
+      const def = PARTS[q.type], p = makePart(q.type, q.x, q.y);
+      Object.assign(p, q, { def, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
       return p;
     });
+    cleanAtt(parts);
     const ids = new Set(parts.map((p) => p.id));
     const adj = new Map(d.adj.filter(([k]) => ids.has(k)).map(([k, v]) => [k, new Set(v.filter((id) => ids.has(id)))]));
     for (const p of parts) if (!adj.has(p.id)) adj.set(p.id, new Set());
