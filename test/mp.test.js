@@ -151,7 +151,7 @@ t('battleDesign with 601 loose-free parts swaps in stock (no ctrl or too many)',
   vm.runInContext(src + '\nthis.Net = Net;', C);
   const urls = (cfg) => cfg.iceServers.flatMap((x) => [].concat(x.urls));
   const c1 = await C.Net.ice();
-  t('relay address unreachable: STUN only, and play goes on', urls(c1).every((u) => u.startsWith('stun:')) && calls === 1, urls(c1).join(' '));
+  t('relay address unreachable: only the built-in servers, and play goes on', !urls(c1).some((u) => u.includes('relay.example')) && urls(c1).some((u) => u.startsWith('stun:')) && calls === 1, urls(c1).join(' '));
   answer = [{ urls: 'turns:relay.example:443?transport=tcp', username: 'u', credential: 'p' }, { urls: 'javascript:alert(1)' }, { urls: ['turn:relay.example:80'], username: 5 }, 'x', null];
   const c2 = await C.Net.ice(), c3 = await C.Net.ice();
   t('tried again next time; only proper STUN/TURN entries are taken; then kept for the session',

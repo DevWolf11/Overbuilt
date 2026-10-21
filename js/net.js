@@ -18,9 +18,12 @@ const PEER_PREFIX = 'rss-room-';
 // (the TCP/TLS one on port 443 is what gets through strict networks), or set NET_TURN_URL to the account's
 // credentials address, which answers with such a list (Metered: https://APP.metered.live/api/v1/turn/credentials?apiKey=KEY).
 // Without a relay, players with no direct path between them can't connect.
-const NET_TURN = [];
+const NET_TURN = (() => { // the game's relay account (Metered's Open Relay, free; the same login for every player)
+  const username = '35614e9005a5bf26c6277e22', credential = '188QlNBD9NJVXeBC';
+  return [{ urls: ['turn:global.relay.metered.ca:80', 'turn:global.relay.metered.ca:80?transport=tcp', 'turn:global.relay.metered.ca:443', 'turns:global.relay.metered.ca:443?transport=tcp'], username, credential }];
+})();
 const NET_TURN_URL = '';
-const NET_STUN = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }];
+const NET_STUN = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.relay.metered.ca:80'] }];
 const NET_PIECE = 4000; // characters of JSON per piece: PeerJS's JSON channel refuses a message of 16300 bytes or more
 
 const Net = (() => {
