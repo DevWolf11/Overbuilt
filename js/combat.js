@@ -58,11 +58,12 @@ const Combat = (() => {
     const b = v.body, zs = partZs(p), n = zs.length, at = (z) => v.toWorld(p.x, p.y, z);
     const wk = p.def.weapon && p.def.weapon.kind, fuel = p.fuel || 0, stores = wk === 'rocket' || wk === 'missile' || wk === 'bomb' ? p.ammo || 0 : 0;
     const boom = p.def.thrust || fuel > 50 || stores > 0 || p.def.control;
-    const fat = zs.map(at), sat = (stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
+    const legacy = n > 1 && Math.abs(partZ(p) - p.def.twinZ) < 5e-4; // (at its usual spread: one blast in the middle, as ever)
+    const fat = (legacy ? [0] : zs).map(at), sat = (legacy ? [0] : stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
     if (boom) sim.breakParts(v, [p], cause);
     else sim.ripParts(v, [p], cause);
-    if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / n) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
-    if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, p.def.weapon.dmg * 0.5, null, sim, true);
+    if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / fat.length) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
+    if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, (p.def.weapon.dmg * 0.5) / sat.length, null, sim, true);
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
   }
   // Hitting the ground a bit too hard dents a part (once per bump) instead of breaking it outright.

@@ -468,7 +468,7 @@ const MPUI = {
     const myTeam = MP.teamOf(Net.me);
     for (const g of MP.ghosts()) {
       if (g === F.spectate) continue;
-      const bp = bodyPos(g.body, F.time), c = g.toWorld(g.com.x, g.com.y), d = Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z);
+      const bp = bodyPos(g.body, F.time), c = g.toWorld(g.com.x, g.com.y, g.com.z || 0), d = Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z);
       const friend = MP.pvp && !MP.ffa() && MP.teamOf(g.remote) === myTeam;
       if (!this.spotted(g, me, F)) continue;
       const s = Render3D.project(bp.x + c.x, bp.y + c.y, c.z);

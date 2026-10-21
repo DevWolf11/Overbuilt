@@ -15,6 +15,7 @@ const MP_DEFAULTS = { format: '1v1', build: 180, test: true, polish: 120, budget
 const MP_CARRIER = { bonus: 1.3, span: 13, length: 16, mass: 12000 }; // more money, but the craft has to fit the deck and the catapult
 const MP_KINDS_PVP = ['plane', 'heli', 'car'];
 const MP_SNAP_MS = 1000 / 15, MP_PV_MS = 200, MP_HP_MS = 500;
+const MP_MAX_PARTS = 600; // the most parts a craft in the shared world may have (bigger spawns are ignored)
 const MP_TEAM_NAMES = ['Faroes', 'Shetland'];
 // Where players start. Bases use EARTH.airfields (and the space centre's own runway); carriers EARTH.carriers.
 const MP_SPAWNS = [
@@ -28,7 +29,25 @@ const MP_SPAWNS = [
 
 // Checks for what other players send (a broken or hostile peer must not be able to break our game).
 const mpNums = (a, n) => Array.isArray(a) && a.length === n && a.every(Number.isFinite);
-const mpBody = (id) => (typeof id === 'string' && Object.prototype.hasOwnProperty.call(BODY_BY_ID, id) && BODY_BY_ID[id]) || null;
+const mpBody = (id) => (typeof id === 'string' && hasOwn(BODY_BY_ID, id) && BODY_BY_ID[id]) || null;
+// A peer's spawn rows rebuilt clean, [id, type, x, y, rot, flip, z, att, skin]: unique ids, known parts, depth and
+// paint as the builder allows them, att another id of the same craft (0: none) and never in a loop, skin 0 for
+// the part's own look. Anything else in a row is dropped. null: not a craft we take.
+function mpSpawnRows(list) {
+  if (!Array.isArray(list) || list.length > MP_MAX_PARTS) return null;
+  const rows = [], links = [], seen = new Set();
+  for (const r of list) {
+    if (!Array.isArray(r) || !Number.isSafeInteger(r[0]) || r[0] <= 0 || seen.has(r[0]) || typeof r[1] !== 'string' || !hasOwn(PARTS, r[1]) || !Number.isFinite(r[2]) || !Number.isFinite(r[3])) continue;
+    const def = PARTS[r[1]];
+    seen.add(r[0]);
+    rows.push([r[0], r[1], clamp(r[2], -500, 500), clamp(r[3], -500, 500), (r[4] | 0) & 3, r[5] ? 1 : 0, cleanZ(r[6], def), 0, cleanSkin(r[8], def) || 0]);
+    links.push(r[7]);
+  }
+  const ps = rows.map((q, i) => ({ id: q[0], att: Number.isSafeInteger(links[i]) && seen.has(links[i]) ? links[i] : null }));
+  cleanAtt(ps); // (self links and loops)
+  ps.forEach((p, i) => { rows[i][7] = p.att || 0; });
+  return rows;
+}
 
 const MP = {
   active: false,
@@ -397,20 +416,21 @@ const MP = {
     return Math.round(s.settings.budget * (this.spawnDef(spawnId).kind === 'carrier' ? MP_CARRIER.bonus : 1));
   },
   limitsFor(spawnId) { return this.pvp && this.spawnDef(spawnId).kind === 'carrier' ? MP_CARRIER : null; },
-  // The size of a design: span across (wings, twin pods), length along, mass.
+  // The size of a design: span across (wings, pods wherever they hang), length along, mass.
   measure(parts) {
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, span = 0, mass = 0;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity, mass = 0;
     for (const p of parts) {
-      const r = partRect(p), d = p.def;
+      const r = partRect(p), d = p.def, half = d.twinZ ? Math.max(d.w, 0.6) / 2 : partDepth(p) / 2; // (each of a pair, pylon and all)
       x0 = Math.min(x0, r.l); x1 = Math.max(x1, r.r); y0 = Math.min(y0, r.b); y1 = Math.max(y1, r.t);
-      span = Math.max(span, partDepth(p), d.twinZ ? 2 * d.twinZ + Math.max(d.w, 0.6) : 0);
+      for (const z of partZs(p)) { z0 = Math.min(z0, z - half); z1 = Math.max(z1, z + half); }
       mass += partKg(p);
     }
-    return { span, length: Math.max(y1 - y0, 0), height: Math.max(x1 - x0, 0), mass };
+    return { span: z1 > z0 ? z1 - z0 : 0, length: Math.max(y1 - y0, 0), height: Math.max(x1 - x0, 0), mass };
   },
   // problems with a design for the current match (shown in the builder's stats, and checked before flying)
   designProblems(stats, parts, kind) {
     const out = [];
+    if (parts.length > MP_MAX_PARTS) out.push(`Too many parts for the shared world: ${parts.length}, the most is ${MP_MAX_PARTS}.`);
     if (!this.pvp) return out;
     const budget = this.budgetFor(this.spawnId);
     if (stats.cost > budget) out.push(`Over budget by ${money(stats.cost - budget)}: remove parts or pick cheaper ones.`);
@@ -428,16 +448,16 @@ const MP = {
   // a design that flies in this match: the player's, if it passes, or a stock one that fits the budget
   battleDesign() {
     const d = this.myDesign || Builder.serialize();
-    const parts = (d.parts || []).filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: q.rot || 0 }));
+    const parts = partsFromDesign(d.parts); // (as Flight.start will build it: depth, paint and attachments)
     const ctrl = findControlPart(parts);
     const keep = ctrl ? componentOf(ctrl.id, buildAdjacency(parts)) : new Set(), used = parts.filter((p) => keep.has(p.id)); // (loose parts stay behind)
     if (ctrl && !this.designProblems({ cost: designCost(used) }, used, d.kind).length) return d;
     const stock = ['mustang', 'camel', 'skylark'].map((k) => TEMPLATES[k]).find((t) => {
-      const ps = t.parts.map(([type, x, y, rot]) => makePart(type, x, y, { flip: x < 0, rot: rot || 0 }));
+      const ps = partsFromDesign(templateRows(t));
       return !this.designProblems({ cost: designCost(ps) }, ps, t.kind).length;
     }) || TEMPLATES.camel;
     UI.toast(`Your design can’t fly in this battle: you get a ${stock.name} instead`, 'warn');
-    return { name: stock.name, kind: stock.kind, parts: stock.parts.map(([type, x, y, rot]) => ({ type, x, y, flip: x < 0, rot: rot || 0 })) };
+    return { name: stock.name, kind: stock.kind, parts: templateRows(stock) };
   },
   // A time of day for the match: the sun's height over the islands (degrees) for day, dusk and night.
   timeOfDay(tod) {
@@ -463,6 +483,8 @@ const MP = {
       if (this.phase === 'build' || this.phase === 'polish') { this.toggleReady(); return true; }
       UI.toast('Wait for the next phase'); return true;
     }
+    const probs = this.designProblems(Builder.statsData, Builder.parts.filter((p) => Builder.attached.has(p.id)), Builder.kind);
+    if (probs.length) { UI.toast(probs[0], 'warn'); return true; } // (too big for the others to see)
     this.myDesign = Builder.serialize();
     this.startFlight(false);
     return true;
@@ -499,7 +521,7 @@ const MP = {
       design = this.battleDesign();
       this.myDesign = design;
     } else design = this.myDesign || Builder.serialize();
-    const kind = VEHICLE_KINDS[design.kind] ? design.kind : 'plane';
+    const kind = hasOwn(VEHICLE_KINDS, design.kind) ? design.kind : 'plane';
     const place = this.placement(this.pvp ? this.spawnId || this.defaultSpawn() : null, kind);
     const time = this.pvp ? (s.tod || 0) + Math.max(0, (Net.hostNow() - (s.battleAt || Net.hostNow())) / 1000) : this.sandboxTime();
     App.afterEarth(() => {
@@ -556,7 +578,9 @@ const MP = {
     if (!v) return;
     this.lastParts = v.parts.length;
     this.sent = { s: 0, pv: 0, hp: 0, hpSig: '' };
-    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: v.parts.map((p) => [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0]) };
+    const ids = new Set(v.parts.map((p) => p.id)); // att: the host's id (ghosts keep ours), 0 for none or a host gone
+    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: v.parts.map((p) => [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0,
+      +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0]) };
     Net.send(this.spawnMsg);
   },
   resendSpawn(pid) {
@@ -577,7 +601,7 @@ const MP = {
       S.s = now;
       const r2 = (x) => Math.round(x * 100) / 100, r4 = (x) => Math.round(x * 1e4) / 1e4;
       Net.send({ t: 's', th: Math.round(Net.hostNow()), b: v.body.id, P: [r2(v.x), r2(v.y), r2(v.z)], V: [r2(v.vx), r2(v.vy), r2(v.vz)],
-        Q: [r4(v.q.w), r4(v.q.x), r4(v.q.y), r4(v.q.z)], W: [r4(v.av.x), r4(v.av.y), r4(v.av.z)], C: [r4(v.com.x), r4(v.com.y)],
+        Q: [r4(v.q.w), r4(v.q.x), r4(v.q.y), r4(v.q.z)], W: [r4(v.av.x), r4(v.av.y), r4(v.av.z)], C: [r4(v.com.x), r4(v.com.y), r4(v.com.z || 0)],
         g: v.gearUp ? 1 : 0, l: v.landed ? 1 : 0 });
     }
     if (now - S.pv >= MP_PV_MS) { // moving parts: only those that changed (all of them every 2 s)
@@ -619,7 +643,7 @@ const MP = {
     if (!this.shared) return false;
     const v = Flight.active, s = this.state;
     const by = v.lastHitBy && v.lastHitBy.remote && Flight.time - (v.lastHitAt || -99) < 20 ? v.lastHitBy.remote : 0;
-    const P = v.toWorld(v.com.x, v.com.y, 0);
+    const P = v.toWorld(v.com.x, v.com.y, v.com.z || 0);
     Net.send({ t: 'down', by, P: [P.x, P.y, P.z] });
     if (Net.isHost) this.recordDown(Net.me, by);
     if (!this.pvp) { // sandbox: back to the hangar or fly again
@@ -655,12 +679,11 @@ const MP = {
     return P;
   },
   onSpawn(m) {
-    if (!Array.isArray(m.parts) || m.parts.length > 600) return;
-    m.parts = m.parts.filter((r) => Array.isArray(r) && Number.isFinite(r[0]) && typeof r[1] === 'string' && Object.prototype.hasOwnProperty.call(PARTS, r[1]) && Number.isFinite(r[2]) && Number.isFinite(r[3]));
-    m.kind = String(m.kind || 'plane');
+    const parts = mpSpawnRows(m.parts);
+    if (!parts) return;
     const P = this.peer(m.f);
     this.dropGhost(m.f, false);
-    P.design = m;
+    P.design = { kind: typeof m.kind === 'string' && hasOwn(VEHICLE_KINDS, m.kind) ? m.kind : 'plane', parts }; // (never the raw message)
     P.snap = null;
     if (Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
     if (Net.isHost && this.state) { const p = this.player(m.f); if (p && !p.flying) { p.flying = true; this.push(); } }
@@ -669,14 +692,14 @@ const MP = {
     const P = this.peers.get(pid);
     if (!P || !P.design || P.ghost) return;
     const parts = [];
-    for (const [id, type, x, y, rot, flip] of P.design.parts) {
-      const p = makePart(type, x, y, { flip: !!flip, rot: (rot | 0) & 3 });
-      p.id = id;
+    for (const [id, type, x, y, rot, flip, z, att, skin] of P.design.parts) { // (clean: see mpSpawnRows)
+      const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
+      p.id = id; p.att = att || null;
       parts.push(p);
     }
     if (!parts.length) return;
-    const v = new Vessel(parts, buildAdjacency(parts), EARTH);
-    v.kind = VEHICLE_KINDS[P.design.kind] ? P.design.kind : 'plane';
+    const v = new Vessel(parts, buildAdjacency(parts), EARTH); // (in depth, and along att: the owner's own joints)
+    v.kind = hasOwn(VEHICLE_KINDS, P.design.kind) ? P.design.kind : 'plane';
     v.name = this.nameOf(pid);
     v.remote = pid;
     v.rebuildGroups();
@@ -691,7 +714,7 @@ const MP = {
     const P = this.peers.get(pid);
     if (!P) return;
     if (P.ghost) {
-      if (boom && Flight.running) { const g = P.ghost; FX.explosion(g.body, g.toWorld(g.com.x, g.com.y), { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, 4, true); }
+      if (boom && Flight.running) { const g = P.ghost; FX.explosion(g.body, g.toWorld(g.com.x, g.com.y, g.com.z || 0), { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, 4, true); }
       P.ghost.dead = true;
       if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => v !== P.ghost);
       if (Flight.spectate === P.ghost) { Flight.spectate = null; setTimeout(() => { if (this.live && Flight.destroyed && !Flight.spectate) MPUI.spectate(1); }, 1500); }
@@ -704,7 +727,7 @@ const MP = {
     if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => !v.remote);
   },
   onSnap(m) {
-    if (!mpNums(m.P, 3) || !mpNums(m.V, 3) || !mpNums(m.Q, 4) || !mpNums(m.W, 3) || !mpNums(m.C, 2) || !Number.isFinite(m.th) || !mpBody(m.b)) return;
+    if (!mpNums(m.P, 3) || !mpNums(m.V, 3) || !mpNums(m.Q, 4) || !mpNums(m.W, 3) || !(mpNums(m.C, 3) || mpNums(m.C, 2)) || !Number.isFinite(m.th) || !mpBody(m.b)) return;
     if (!(Math.hypot(...m.Q) > 0.5)) return;
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
@@ -730,7 +753,8 @@ const MP = {
     }
     g.vx = S.V[0]; g.vy = S.V[1]; g.vz = S.V[2];
     g.av = v3(W[0], W[1], W[2]);
-    g.com = { x: S.C[0], y: S.C[1] };
+    const c0 = g.com0 || (g.com0 = { ...g.com }), C = S.C; // (fuel moves it, but never off the craft: a forged one would move the hit boxes away)
+    if (Math.hypot(C[0] - c0.x, C[1] - c0.y, (C[2] || 0) - (c0.z || 0)) <= (g.reach || 30) + 1) g.com = { x: C[0], y: C[1], z: C[2] || 0 };
     g.gearUp = !!S.g; g.landed = !!S.l;
     g.lastSeen = P.recv;
   },
@@ -775,10 +799,11 @@ const MP = {
     const gone = g.parts.filter((p) => !keep.has(p.id));
     if (!gone.length) return;
     for (const p of gone) {
-      const wp = g.toWorld(p.x, p.y), vel = { x: g.vx, y: g.vy, z: g.vz };
-      FX.sparks(g.body, wp, vel, 12); FX.puff(g.body, wp, vel, 6, '#cfd5dc');
+      const zs = partZs(p), vel = { x: g.vx, y: g.vy, z: g.vz }; // (each of a pair)
+      for (const z of zs) { const wp = g.toWorld(p.x, p.y, z); FX.sparks(g.body, wp, vel, 12 / zs.length); FX.puff(g.body, wp, vel, 6 / zs.length, '#cfd5dc'); }
     }
     g.parts = g.parts.filter((p) => keep.has(p.id));
+    for (const p of g.parts) if (p.att != null && !keep.has(p.att)) p.att = null; // (its host broke off)
     for (const id of [...g.adj.keys()]) if (!keep.has(id)) g.adj.delete(id);
   },
   onHp(m) {
@@ -828,7 +853,7 @@ const MP = {
       let part = null, owner = null;
       for (const x of mine) { part = x.parts.find((p) => p.id === id); if (part) { owner = x; break; } }
       if (!part || !(dmg > 0)) continue;
-      if (first) { first = false; FX.sparks(owner.body, owner.toWorld(part.x, part.y), { x: owner.vx, y: owner.vy, z: owner.vz }, 4); Sound.hit(); }
+      if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
       Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by);
     }
   },

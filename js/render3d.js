@@ -2668,7 +2668,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (!vis) continue;
       e.root.position.set(x, y, z);
       e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
-      e.vm.group.position.set(-v.com.x, -v.com.y, 0);
+      e.vm.group.position.set(-v.com.x, -v.com.y, -(v.com.z || 0));
       q.rho = airDensity(v.body, v.altitude());
       e.vm.sync(v, q);
       if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
@@ -2678,10 +2678,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     sheath(F);
   }
   function engineGlow(v, vm, x, y, z) {
-    let ex = 0, ey = 0, ek = 0;
-    for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ek += e.k; }
+    let ex = 0, ey = 0, ez = 0, ek = 0;
+    for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ez += (e.z || 0) * e.k; ek += e.k; }
     if (ek <= 0) return 0;
-    const o = qrot(v.q, ex / ek - v.com.x, ey / ek - v.com.y - 2, 0, T3);
+    const o = qrot(v.q, ex / ek - v.com.x, ey / ek - v.com.y - 2, ez / ek - (v.com.z || 0), T3);
     S.engine.position.set(x + o.x, y + o.y, z + o.z);
     S.engine.intensity = 1400 * Math.min(ek, 4) * (0.9 + Math.random() * 0.2);
     S.engine.distance = 70 + 25 * Math.sqrt(ek);
@@ -2730,33 +2730,35 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function builderLayout(B) {
     const kind = (typeof VEHICLE_KINDS !== 'undefined' && VEHICLE_KINDS[B.kind || 'rocket']) || { launchRot: 0 };
     const rot = kind.launchRot || 0, c = Math.cos(rot), s = Math.sin(rot);
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = 0, z1 = 0;
     for (const p of B.parts) {
-      const r = partRect(p);
+      const r = partRect(p), hd = partDepth(p) / 2;
       for (const [px, py] of [[r.l, r.b], [r.r, r.b], [r.l, r.t], [r.r, r.t]]) {
         const X = c * px - s * py, Y = s * px + c * py;
         x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
       }
+      for (const z of partZs(p)) { z0 = Math.min(z0, z - hd); z1 = Math.max(z1, z + hd); } // across (the spin turns it into view)
     }
     if (!B.parts.length) { x0 = -1; x1 = 1; y0 = 0; y1 = 4; }
-    return { rot, lift: -y0 + 0.01, size: Math.max(x1 - x0, y1 - y0, 2), tx: (x0 + x1) / 2, ty: (y1 - y0) / 2 };
+    return { rot, lift: -y0 + 0.01, size: Math.max(x1 - x0, y1 - y0, z1 - z0, 2), tx: (x0 + x1) / 2, ty: (y1 - y0) / 2 };
   }
-  // The part being placed (and its mirror twin): see-through, blue where it fits, red where it can't go.
+  // The part being placed (and its mirror twin), in the paint it will take: see-through, blue where it
+  // fits, red where it can't go. Its depth goes with the pointer (place()); a new paint is a new ghost.
   function syncGhosts(list, radial) {
     for (let i = 0; i < Math.max(list.length, bv.ghosts.length); i++) {
       const want = list[i], g = bv.ghosts[i];
-      const key = want ? `${want.type},${want.rot || 0},${want.flip ? 1 : 0},${radial ? 1 : 0}` : '';
+      const key = want ? `${want.type},${want.rot || 0},${want.flip ? 1 : 0},${radial ? 1 : 0},${want.skin || ''}` : '';
       if (g && g.key !== key) { Parts3D.freeGhost(g.rig); bv.ghosts[i] = null; }
       if (!want) continue;
       let G = bv.ghosts[i];
       if (!G) {
-        const p = { def: PARTS[want.type], type: want.type, x: want.x, y: want.y, rot: want.rot || 0, flip: !!want.flip, deployed: 0 };
+        const p = { def: PARTS[want.type], type: want.type, x: want.x, y: want.y, z: want.z, att: null, skin: want.skin || null, rot: want.rot || 0, flip: !!want.flip, deployed: 0 };
         const rig = Parts3D.ghost(p, radial);
         S.design.add(rig.root); if (rig.twin) S.design.add(rig.twin);
         G = bv.ghosts[i] = { key, rig };
       }
       const p = G.rig.part;
-      p.x = want.x; p.y = want.y;
+      p.x = want.x; p.y = want.y; p.z = want.z;
       Parts3D.place(G.rig);
       if (want.ok) Parts3D.tint(G.rig, 0.25, 0.6, 1, 0.45); else Parts3D.tint(G.rig, 1, 0.12, 0.08, 1.1);
     }
@@ -2769,9 +2771,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     clock += dt;
     applyQuality();
     const bd = S.bd, have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket';
-    // rebuild the meshes only when parts come, go, flip or change kind; moving and turning them is cheap
+    // rebuild the meshes only when parts come, go, flip, change paint or kind; moving (in depth too) and
+    // turning them is cheap
     let snap = String(B.parts.length) + (B.kind || '');
-    for (const p of B.parts) snap += `|${p.id},${p.type},${p.flip ? 1 : 0}`;
+    for (const p of B.parts) snap += `|${p.id},${p.type},${p.flip ? 1 : 0},${p.skin || ''}`;
     if (snap !== bd.snap || bd.parts !== B.parts) {
       if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
       if (have && B.parts.length) { bd.vm = new Parts3D.VesselMesh(B.parts, { builder: true, radial }); S.design.add(bd.vm.group); }
@@ -2780,12 +2783,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const att = B.parts.map((p) => (B.attached && B.attached.has(p.id) ? 1 : 0)).join('');
     if (bd.vm && att !== bd.att) { for (const p of B.parts) bd.vm.setOpacity(p, B.attached && B.attached.has(p.id) ? 1 : 0.4); bd.att = att; }
     if (bd.vm) bd.vm.sync({ parts: B.parts }, { dt, time: clock, rho: 0, quality: Settings.high ? 'high' : 'low' });
-    // selection (amber), hover (faint) and a dragged part that can't go where it is (red)
+    // selection (amber), hover (faint), what a dragged part will attach to (cyan) and a dragged part, with
+    // what goes with it, that can't go where it is (red)
     if (bd.vm) {
       const want = new Map(), d = B.drag, sel = B.selected;
       if (B.hover3d) want.set(B.hover3d, [1, 0.72, 0.3, 0.18]);
       if (sel) for (const p of B.multi ? B.sel : [sel, sel.mirror]) if (p) want.set(p, [1, 0.62, 0.15, 0.42]);
-      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of d.group || [d.part, d.part.mirror]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
+      if (d && d.host) want.set(d.host, [0.3, 0.85, 1, 0.3]);
+      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
       for (const p of bv.tinted) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
       bv.tinted = new Set(want.keys());
@@ -2851,7 +2856,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const put = (m, at, on) => {
       m.visible = !!(on && at);
       if (!m.visible) return;
-      m.position.set(at.x, at.y, 0); m.scale.setScalar(r);
+      m.position.set(at.x, at.y, at.z || 0); m.scale.setScalar(r);
       m.quaternion.copy(bcam.quaternion).premultiply(Q1.copy(S.design.quaternion).invert()); // face the camera
     };
     const show = !!(B.markers3d && B.markers3d());
@@ -3192,31 +3197,45 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (mode === 'builder') { bc.auto = !still; bv.pan.x = bv.pan.y = bv.pan.z = 0; }
     },
     // ---- building in 3D
-    // The point on the blueprint under the pointer, in part space, and the metres per pixel there; null
-    // when the blueprint is seen edge-on (or behind the camera).
-    // A blueprint point (part space) on screen, in CSS pixels; null if behind the camera.
-    designToScreen(x, y) {
+    // A point in part space (z: across the blueprint) on screen, in CSS pixels; null if behind the camera.
+    designToScreen(x, y, z = 0) {
       if (!api.ready || mode !== 'builder') return null;
-      V1.set(x, y, 0); S.design.localToWorld(V1);
+      V1.set(x, y, z); S.design.localToWorld(V1);
       V2.copy(V1).applyMatrix4(bcam.matrixWorldInverse);
       if (V2.z > 0) return null;
       V1.project(bcam);
       const r = canvas.getBoundingClientRect();
       return { x: r.left + (V1.x * 0.5 + 0.5) * r.width, y: r.top + (-V1.y * 0.5 + 0.5) * r.height };
     },
-    designPoint(cx, cy) {
+    // The point under the pointer on the blueprint, or on the plane parallel to it at depth z0, in part
+    // space, and the metres per pixel there; null when it is seen edge-on (or behind the camera). (S.design
+    // only turns about z and lifts, so its z is the world's.)
+    designPoint(cx, cy, z0 = 0) {
       if (!api.ready || mode !== 'builder') return null;
       const r = canvas.getBoundingClientRect();
       NDC.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
       RAY.setFromCamera(NDC, bcam);
       const o = RAY.ray.origin, d = RAY.ray.direction;
       if (Math.abs(d.z) < 0.1) return null;
-      const t = -o.z / d.z;
+      const t = ((z0 || 0) - o.z) / d.z;
       if (!(t > 0)) return null;
       V1.copy(d).multiplyScalar(t).add(o);
       const fwd = V2.set(0, 0, -1).transformDirection(bcam.matrixWorld).dot(d) * t; // depth along the view
       S.design.worldToLocal(V1);
-      return { x: V1.x, y: V1.y, mpp: (2 * fwd * TANH) / H };
+      return { x: V1.x, y: V1.y, z: z0 || 0, mpp: (2 * fwd * TANH) / H };
+    },
+    // The part surface under the pointer, to attach to (skip: a Set of the parts being moved, which the ray
+    // passes through), in part space: the point, the outward normal, metres per pixel there and which of a
+    // pair was hit (side ±1, else 0); null over empty space.
+    surfaceHit(cx, cy, skip) {
+      if (!api.ready || mode !== 'builder' || !S.bd || !S.bd.vm) return null;
+      const r = canvas.getBoundingClientRect();
+      NDC.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+      RAY.setFromCamera(NDC, bcam);
+      const h = S.bd.vm.pickHit(RAY, skip instanceof Set ? skip : skip ? new Set(skip) : null);
+      if (!h) return null;
+      const P = h.point, N = h.normal, fwd = h.distance * V2.set(0, 0, -1).transformDirection(bcam.matrixWorld).dot(RAY.ray.direction);
+      return { part: h.part, x: P.x, y: P.y, z: P.z, nx: N.x, ny: N.y, nz: N.z, mpp: (2 * fwd * TANH) / H, side: h.side };
     },
     // While a part is dragged: hold the craft and camera still and keep the blueprint facing the camera.
     editView(on) {

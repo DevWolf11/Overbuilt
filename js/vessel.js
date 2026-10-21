@@ -191,6 +191,10 @@ class Vessel {
     this.inertia = Math.max(Ixx, Iyy, Izz);
     this.bounds = { minX, maxX, minY, maxY, minZ, maxZ };
     this.width = maxX - minX;
+    // a rocket is round about its stack: parts out across the blueprint widen it as much as ones beside it
+    let r = 0;
+    for (const p of this.parts) if (!p.def.twinZ && partZ(p) !== 0) r = Math.max(r, Math.abs(partZ(p)) + partDepth(p) / 2);
+    this.across = Math.max(this.width, 2 * r);
     this.depth = maxZ - minZ;
   }
   // I·v and I⁻¹·v in part axes (o may be v)
@@ -670,7 +674,7 @@ class Vessel {
       let cdA, area;
       if (this.kind === 'rocket') { // tuned for ascents and reentries; keep as is
         const cd = along > 0.85 ? (this.noseAero ? 0.32 : 0.62) : along < -0.85 ? 0.75 : 1.0;
-        area = this.width * (this.width * side + L * (1 - side)) * 0.8;
+        area = this.across * (this.across * side + L * (1 - side)) * 0.8;
         cdA = cd * area;
       } else {
         const cdF = along > 0.85 ? (this.noseAero ? 0.3 : 0.55) : along < -0.85 ? 0.7 : 0.8, cdO = this.kind === 'car' ? 0.5 : 0.9;
@@ -843,8 +847,8 @@ class Vessel {
       const lx = vb.x / v, ly = vb.y / v, sz = vb.z / v, lz = Math.abs(sz);
       for (const p of this.parts) {
         const d = partDims(p);
-        let across = -Infinity; // where it sits across: of a pair, the one on the windward side leads
-        for (const z of partZs(p)) across = Math.max(across, z * sz);
+        // where it sits across: a part off the centre line, or a pair moved out from its usual spread
+        const across = p.def.twinZ ? (partZ(p) - p.def.twinZ) * Math.abs(sz) : partZ(p) * sz;
         p._lead = p.x * lx + p.y * ly + Math.abs((d.w / 2) * lx) + Math.abs((d.h / 2) * ly) + (partDepth(p) / 2) * lz + across;
         if (p._lead > front) front = p._lead;
       }
