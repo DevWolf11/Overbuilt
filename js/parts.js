@@ -529,10 +529,13 @@ function partsTouch(a, b) {
   for (const za of partZs(a)) for (const zb of partZs(b)) {
     const oz = spanOverlap(za - ha, za + ha, zb - hb, zb + hb);
     if ((ty || tx) && oz > mz) return true;
-    if (ox > m && oy > m && Math.abs(oz) < eps) return true; // side by side across the blueprint
+    if (ox > m && oy > m && Math.abs(oz) < eps && !legacyTwin(a) && !legacyTwin(b)) return true; // side by side across the blueprint
   }
   return false;
 }
+// A pair placed before parts had a depth (no att, at its catalogue spread): it keeps the side-view rules
+// it was built with, overlapping the hull it hangs beside and joined only as its pylons show.
+function legacyTwin(p) { return !!p.def.twinZ && p.att === null && Math.abs(partZ(p) - p.def.twinZ) < 5e-4; }
 // The same in the side view alone, as parts joined before they had a depth.
 function partsTouch2D(a, b) {
   const A = partRect(a), B = partRect(b), eps = 0.02, m = 0.1;
@@ -554,7 +557,10 @@ function partsOverlap(a, b, m = 0.02, mz = m) {
 function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
 function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
 function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
-function partsClash(a, b) { return !partsMix(a, b) && partsOverlap(a, b); }
+function partsClash(a, b) {
+  if (!!a.def.twinZ !== !!b.def.twinZ && (legacyTwin(a) || legacyTwin(b))) return false;
+  return !partsMix(a, b) && partsOverlap(a, b);
+}
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
 function partsMounted2D(a, b) {
   if (!partsMix(a, b)) return false;

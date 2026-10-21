@@ -1173,7 +1173,9 @@ void main() {
   // materials, so glow, see-through and heat reach it.
   function pylonMat(rig) {
     if (rig.mats.pylon) return rig.mats.pylon;
-    const p = rig.part, m0 = rig.matList[0], k0 = m0 && !m0.map && Object.keys(rig.mats).find((k) => rig.mats[k] === m0);
+    const p = rig.part, m0 = rig.matList[0];
+    if (!skinFor(p.skin, p.def) && (rig.mats.white || m0)) return (rig.mats.pylon = rig.mats.white || m0); // unpainted: as it always was
+    const k0 = m0 && !m0.map && Object.keys(rig.mats).find((k) => rig.mats[k] === m0);
     const m = rig.mats.pylon = makeMat(rig.mats.white || !k0 || skinFor(p.skin, p.def) ? 'white' : k0, p.def, p.flip, p.skin);
     if (m0 && m0.isMeshStandardMaterial) { m.emissive.copy(m0.emissive); m.emissiveIntensity = m0.emissiveIntensity; }
     if (rig.opacity < 1) { m.transparent = true; m.opacity = (m.userData.op || 1) * rig.opacity; m.depthWrite = false; }

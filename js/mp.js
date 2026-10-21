@@ -753,7 +753,8 @@ const MP = {
     }
     g.vx = S.V[0]; g.vy = S.V[1]; g.vz = S.V[2];
     g.av = v3(W[0], W[1], W[2]);
-    g.com = { x: S.C[0], y: S.C[1], z: S.C[2] || 0 };
+    const c0 = g.com0 || (g.com0 = { ...g.com }), C = S.C; // (fuel moves it, but never off the craft: a forged one would move the hit boxes away)
+    if (Math.hypot(C[0] - c0.x, C[1] - c0.y, (C[2] || 0) - (c0.z || 0)) <= (g.reach || 30) + 1) g.com = { x: C[0], y: C[1], z: C[2] || 0 };
     g.gearUp = !!S.g; g.landed = !!S.l;
     g.lastSeen = P.recv;
   },

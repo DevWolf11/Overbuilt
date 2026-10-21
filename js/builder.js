@@ -375,7 +375,7 @@ const Builder = {
   // end hangs on nothing: the stack holds it.
   hosts() {
     const byId = new Map(this.parts.map((p) => [p.id, p])), m = new Map(), eps = 0.02;
-    for (const p of this.parts) { const h = p.att != null ? byId.get(p.att) : this.guessHost(p); if (h && h !== p) m.set(p, h); }
+    for (const p of this.parts) { const h = p.att != null ? byId.get(p.att) : this.guessHost(p, byId); if (h && h !== p) m.set(p, h); }
     // and a part stacked on the end of an off-centre part that hangs on something (a radial booster's
     // engine and nose cone) hangs on that part
     const off = this.parts.filter((p) => !m.has(p) && p.att == null && !this.onLine(p));
@@ -383,11 +383,16 @@ const Builder = {
       more = false;
       for (const p of off) {
         if (m.has(p)) continue;
-        const R = partRect(p), h = this.parts.find((q) => q !== p && m.has(q) && !this.onLine(q) && partsTouch(p, q) && (() => { const S = partRect(q); return Math.abs(R.t - S.b) < eps || Math.abs(S.t - R.b) < eps; })());
+        const R = partRect(p), h = this.near(p, byId).find((q) => m.has(q) && !this.onLine(q) && partsTouch(p, q) && (() => { const S = partRect(q); return Math.abs(R.t - S.b) < eps || Math.abs(S.t - R.b) < eps; })());
         if (h) { m.set(p, h); more = true; }
       }
     }
     return m;
+  },
+  // The parts joined to p (all of them, if the joints haven't been worked out for these parts yet).
+  near(p, byId) {
+    const n = this.adj && this.adj.get(p.id);
+    return n ? [...n].map((id) => byId.get(id)).filter(Boolean) : this.parts.filter((q) => q !== p);
   },
   // On the craft's centre line (a pair never is: one copy each side).
   onLine(q) { return !q.def.twinZ && Math.abs(q.x) < 0.01 && Math.abs(partZc(q)) < 0.01; },
@@ -419,8 +424,8 @@ const Builder = {
     if (!r.def.twinZ && q.def.twinZ) return partZ(r) < 0 ? -dz : dz;
     return dz;
   },
-  guessHost(p) {
-    const d = p.def, R = partRect(p), others = this.parts.filter((q) => q !== p), off = (q) => Math.abs(q.x) + Math.abs(partZc(q));
+  guessHost(p, byId = new Map(this.parts.map((q) => [q.id, q]))) {
+    const d = p.def, R = partRect(p), others = this.near(p, byId), off = (q) => Math.abs(q.x) + Math.abs(partZc(q));
     const area = (q) => { const S = partRect(q); return Math.max(0, spanOverlap(R.l, R.r, S.l, S.r)) * Math.max(0, spanOverlap(R.b, R.t, S.b, S.t)); };
     const most = (list) => list.sort((a, b) => area(b) - area(a))[0] || null;
     if (d.pod || d.twinZ) return most(others.filter((q) => isSurface(q.def) && !q.def.twinZ && partsMounted2D(p, q))) || most(others.filter((q) => !q.def.twinZ && (partsTouch2D(p, q) || partsMounted2D(p, q))));
@@ -432,9 +437,9 @@ const Builder = {
     return side.sort((a, b) => off(a) - off(b))[0] || null;
   },
   // Everything hanging on these parts, and on what hangs on them, and so on (not the parts themselves).
-  kidsOf(roots) {
+  kidsOf(roots, H = this.hosts()) {
     const kids = new Map();
-    for (const [p, h] of this.hosts()) { if (!kids.has(h)) kids.set(h, []); kids.get(h).push(p); }
+    for (const [p, h] of H) { if (!kids.has(h)) kids.set(h, []); kids.get(h).push(p); }
     const seen = new Set(roots), out = [], stack = [...roots];
     while (stack.length) for (const k of kids.get(stack.pop()) || []) if (!seen.has(k)) { seen.add(k); out.push(k); stack.push(k); }
     return out;
@@ -603,8 +608,9 @@ const Builder = {
     const p = this.selected;
     if (!p) { UI.toast('Select a part to rotate it (R)'); return; }
     const m = p.mirror;
-    if (this.kidsOf([p, m].filter(Boolean)).length) { // with what hangs on it (and its twin, turned the mirrored way)
-      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' ? 1 : -1]] : [[p, 1]]);
+    const H = this.hosts();
+    if (this.kidsOf([p, m].filter(Boolean), H).length) { // with what hangs on it (and its twin, turned the mirrored way)
+      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' ? 1 : -1]] : [[p, 1]], H);
       return;
     }
     const k = ((p.rot || 0) + 1) & 3, ignore = [p, m].filter(Boolean);
@@ -623,8 +629,8 @@ const Builder = {
   turnGroup(list, cx, cy) { return this.turnGroups([[list, 1, cx, cy]]); },
   // Several such turns at once, each [parts or a part, dir (1 anticlockwise, -1 clockwise), about x, y
   // (default: the part's middle)], all or none.
-  turnGroups(specs) {
-    const sets = specs.map(([r, dir, cx, cy]) => { const list = Array.isArray(r) ? r : [r]; return { g: [...new Set([...list, ...this.kidsOf(list)])], dir, cx: cx ?? list[0].x, cy: cy ?? list[0].y }; });
+  turnGroups(specs, H = this.hosts()) {
+    const sets = specs.map(([r, dir, cx, cy]) => { const list = Array.isArray(r) ? r : [r]; return { g: [...new Set([...list, ...this.kidsOf(list, H)])], dir, cx: cx ?? list[0].x, cy: cy ?? list[0].y }; });
     const g = [...new Set(sets.flatMap((t) => t.g))], old = g.map((p) => this.pose(p));
     for (const t of sets) for (const p of t.g) {
       const dx = p.x - t.cx, dy = p.y - t.cy;
@@ -640,9 +646,9 @@ const Builder = {
 
   // Move parts (with everything attached to them) by a step, across the blueprint too (dz); their mirror
   // twins follow mirrored where they fit, else they stay and stop being twins. False if there's no room.
-  shift(list, dx, dy, dz = 0) {
-    const H = this.hosts(), g = [...new Set([...list, ...this.kidsOf(list)])], inG = new Set(g), old = new Map(g.map((p) => [p, this.pose(p)]));
-    const tk = new Map(list.map((p) => [p, p.mirror && !inG.has(p.mirror) ? this.kidsOf([p.mirror]).filter((q) => !inG.has(q)) : []])); // (found before anything moves)
+  shift(list, dx, dy, dz = 0, H = this.hosts()) {
+    const g = [...new Set([...list, ...this.kidsOf(list, H)])], inG = new Set(g), old = new Map(g.map((p) => [p, this.pose(p)]));
+    const tk = new Map(list.map((p) => [p, p.mirror && !inG.has(p.mirror) ? this.kidsOf([p.mirror], H).filter((q) => !inG.has(q)) : []])); // (found before anything moves)
     for (const p of g) this.setPose(p, { x: p.x + dx, y: p.y + dy, z: p.z + this.zStep(p, dz, list, H) });
     if (!this.groupFits(g) || list.some((p) => p.mirror && inG.has(p.mirror) && partsClash(p, p.mirror))) { for (const [p, o] of old) this.setPose(p, o); return false; }
     const moved = new Set(g);
@@ -693,10 +699,10 @@ const Builder = {
     const p = this.selected;
     if (!p || zLocked(p.def)) return;
     let G = this.zGesture;
-    if (!G || G.part !== p) G = this.zGesture = { part: p, z0: partZ(p), was: this.parts.map((q) => [q, this.pose(q), q.mirror, q.att]) };
+    if (!G || G.part !== p) G = this.zGesture = { part: p, z0: partZ(p), was: this.parts.map((q) => [q, this.pose(q), q.mirror, q.att]), H: this.hosts() };
     for (const [q, o, m, a] of G.was) { this.setPose(q, o); q.mirror = m; q.att = a; }
     const dz = cleanZ(z, p.def) - G.z0;
-    if (Math.abs(dz) > 1e-4 && !this.shift([p], 0, 0, dz) && !live) UI.toast('No room there');
+    if (Math.abs(dz) > 1e-4 && !this.shift([p], 0, 0, dz, G.H) && !live) UI.toast('No room there');
     this.linkMirrors();
     this.changed(!!live);
     this.renderDepth(live);
@@ -1274,14 +1280,14 @@ const Builder = {
     try {
       const b = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
       const o = JSON.parse(new TextDecoder().decode(Uint8Array.from(b, (ch) => ch.charCodeAt(0))));
-      const raw = Array.isArray(o.p) ? o.p.slice(0, 1000) : [];
+      const raw = Array.isArray(o.p) ? o.p.slice(0, 20000) : [];
       // (rows stay in place, unknown ones as null, so the att indices still point right)
       const parts = raw.map((q) => (Array.isArray(q) && typeof q[0] === 'string' && hasOwn(PARTS, q[0]) && isFinite(q[1]) && isFinite(q[2])
         ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined }
         : null));
       const n = parts.filter(Boolean).length;
       if (!n) return null;
-      return { name: String(o.n || 'Imported').slice(0, 40), kind: hasOwn(VEHICLE_KINDS, o.k) ? o.k : 'rocket', parts, dropped: (Array.isArray(o.p) ? o.p.length : 0) - n };
+      return { name: String(o.n || 'Imported').slice(0, 40), kind: hasOwn(VEHICLE_KINDS, o.k) ? o.k : 'rocket', parts, dropped: raw.length - n, cut: (Array.isArray(o.p) ? o.p.length : 0) - raw.length };
     } catch (e) { return null; }
   },
   copyCode(d) {
@@ -1311,7 +1317,8 @@ const Builder = {
         while (taken.has(n)) n = `${d.name.slice(0, 35)} (${i++})`;
         this.storeDesign(n);
       }
-      if (d.dropped) UI.toast(`${d.dropped} part${d.dropped > 1 ? 's' : ''} from a newer version were left out`, 'warn');
+      if (d.cut) UI.toast(`That design is too big: ${d.cut} parts past the 20,000th were left out`, 'warn');
+      else if (d.dropped) UI.toast(`${d.dropped} part${d.dropped > 1 ? 's' : ''} from a newer version were left out`, 'warn');
       else if (!keep) UI.toast(`Loaded “${d.name}”`);
     };
     UI.modal({
@@ -1620,12 +1627,12 @@ const Builder = {
   // along the rest of the selection (if it's in it) and everything attached to them; the mirror twins of
   // the parts taken follow mirrored, with whatever is attached to them.
   grab(part, w, pointerId) {
-    const list = this.multi && this.sel.has(part) ? [...this.sel] : [part];
-    const group = [...new Set([...list, ...this.kidsOf(list)])], inG = new Set(group);
+    const list = this.multi && this.sel.has(part) ? [...this.sel] : [part], H = this.hosts();
+    const group = [...new Set([...list, ...this.kidsOf(list, H)])], inG = new Set(group);
     const twins = [...new Set(list.map((p) => p.mirror).filter((m) => m && !inG.has(m)))];
-    const twinKids = new Map(twins.map((m) => [m, this.kidsOf([m]).filter((q) => !inG.has(q))]));
+    const twinKids = new Map(twins.map((m) => [m, this.kidsOf([m], H).filter((q) => !inG.has(q))]));
     const origs = new Map([...group, ...twins, ...[...twinKids.values()].flat()].map((q) => [q, this.pose(q)]));
-    this.drag = { part, type: part.type, offset: { x: w.x - part.x, y: w.y - part.y }, orig: this.pose(part), moved: false, pointerId, list, group, twins, twinKids, origs, H: this.hosts() };
+    this.drag = { part, type: part.type, offset: { x: w.x - part.x, y: w.y - part.y }, orig: this.pose(part), moved: false, pointerId, list, group, twins, twinKids, origs, H };
     if (list.length > 1) this._primary = part; else this.selected = part;
     this.renderInfo();
   },
