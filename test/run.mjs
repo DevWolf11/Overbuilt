@@ -1,8 +1,9 @@
 // Run the test suites and print a summary.
-//   node test/run.mjs              the headless suites (Node only, about a minute)
+//   node test/run.mjs              the headless suites (about 40 s; the Earth map cache needs Chromium once)
 //   node test/run.mjs --browser    the browser suites too (Playwright + Chromium, a few minutes)
 //   node test/run.mjs -v           print every suite's full output, not just failures
-//   node test/run.mjs fingerprint traces    only the named suites
+//   node test/run.mjs fingerprint traces    only suites whose file names contain these words (browser ones too)
+//   node test/run.mjs --update     rewrite the baselines of the suites run (name some to limit it)
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const NODE = ['fingerprint.js', 'core.test.js', 'physics.test.js', 'flight.test.js', 'combat.test.js', 'mp.test.js', 'traces.js', 'handling.js'];
 const BROWSER = ['browser/builder2d.mjs', 'browser/builder3d.mjs', 'browser/mp-two-tabs.mjs'];
-const args = process.argv.slice(2), verbose = args.includes('-v');
+const args = process.argv.slice(2), verbose = args.includes('-v'), pass = args.includes('--update') ? ['--update'] : [];
 const named = args.filter((a) => !a.startsWith('-'));
 let suites = [...NODE, ...(args.includes('--browser') ? BROWSER : [])];
 if (named.length) suites = [...NODE, ...BROWSER].filter((s) => named.some((n) => s.includes(n)));
 
-const run = (file, argv = [path.join(DIR, file)]) => new Promise((ok) => {
+const run = (file, argv = [path.join(DIR, file), ...pass]) => new Promise((ok) => {
   const t0 = Date.now(), p = spawn(process.execPath, argv, { cwd: path.join(DIR, '..') });
   let out = '';
   p.stdout.on('data', (d) => (out += d)); p.stderr.on('data', (d) => (out += d));

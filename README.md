@@ -1,4 +1,4 @@
-# Rocket Science Simulator
+# Overbuilt
 
 Build any machine from parts, then take it anywhere and do anything with it. The game mixes the rocketry of *Spaceflight Simulator* and *Kerbal Space Program*, the free-form aircraft building of *SimplePlanes*, and the combat of *War Thunder*. It is free, and it runs in a browser on a PC, a phone or a tablet, with nothing to install.
 
@@ -11,9 +11,9 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 
 ## Play
 
-- **Online:** https://devwolf11.github.io/Rocket-Science-Simulator/ (deployed from `main` by `.github/workflows/pages.yml`). On a phone, use "Add to Home Screen" to install it and play offline.
+- **Online:** https://devwolf11.github.io/Overbuilt/ (deployed from `main` by `.github/workflows/pages.yml`). On a phone, use "Add to Home Screen" to install it and play offline.
 - **Locally:** serve the folder (`npx serve .`). Offline play and installing need the HTTPS site above, because the service worker only registers over `https:`. Double-clicking `index.html` works too, but browsers don't let a page opened from disk read the Earth map, so Earth falls back to generated terrain.
-- **Single file:** `node tools/build-single.mjs` writes `dist/rocket-science-simulator.html`, the whole game in one HTML file you can send to someone.
+- **Single file:** `node tools/build-single.mjs` writes `dist/overbuilt.html`, the whole game in one HTML file you can send to someone.
 
 ## Modes
 
@@ -125,7 +125,7 @@ js/ui.js, audio.js    dialogs, toasts, icons and procedural sound
 js/main.js            app shell, home screen, menus and the main loop
 sw.js, manifest.webmanifest, icons/   offline support and install icons
 assets/earth-*         the real Earth (heights, colours, night lights, lakes, towns, regions, rivers and roads), baked by tools/bake-earth.py
-tools/build-single.mjs bundles everything into dist/rocket-science-simulator.html
+tools/build-single.mjs bundles everything into dist/overbuilt.html
 .github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
 test/                  headless and browser test suites with baselines (node test/run.mjs; see test/README.md)
 docs/HANDBOOK.md       how every subsystem works, for anyone changing the code
@@ -136,7 +136,7 @@ Scripts are plain (non-module) JavaScript so the game also works when opened str
 
 The Earth map is baked from open data: elevation and sea-floor depth from the [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen terrarium, built from SRTM, GMTED and ETOPO1), land, lakes, rivers, roads, urban areas, towns, countries and seas from [Natural Earth](https://www.naturalearthdata.com/) 1:10m, and NASA's Blue Marble (colour) and Black Marble (night lights). `python3 tools/bake-earth.py <folder>` rebuilds `assets/` from them in about a minute; the script lists where to get each file. The baked map is about 4.5 MB (the game caches it for offline play).
 
-This repository used to hold Cam-Strike, a 5v5 FPS. Its full history is still in git: the last version is commit `30e7bc8`.
+The game started as Orbit Forge, a 2D rocket game, and was then called Rocket Science Simulator. It was renamed Overbuilt once it had grown well beyond rockets: the old name survives only in internal identifiers such as the `rss.` save keys and the `RSS1.`/`RSS2.` design codes, which stay so that saves and shared codes keep working. Before that, this repository held Cam-Strike, a 5v5 FPS. Its full history is still in git: the last version is commit `30e7bc8`.
 
 ## Ideas for later
 

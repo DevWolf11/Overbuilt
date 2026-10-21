@@ -1,4 +1,4 @@
-# Rocket Science Simulator: developer handbook
+# Overbuilt: developer handbook
 
 A reference for anyone changing the code, human or AI. Start with `CLAUDE.md` at the repo root: the owner, the workflow and the rules that matter most. This handbook is the deep end: how each subsystem works, its data and its invariants, with `file:line` pointers.
 
@@ -40,7 +40,7 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
   - `partDims` swaps w/h for odd rot (:449). `partPt` maps a local offset to part space (:451). `partAxis` gives the part's own "up", the thrust and flight direction (:459-461).
   - `mirrorRot` gives the turn of a mirror copy (:463). `partRect` returns the side-view box `{l,r,b,t}` (:464).
   - A pusher prop is drawn and modelled with 2 extra quarter turns (`turned`, :1056; parts3d.js `place`, :1230).
-- `p.flip` = "this part is on the −x side, draw it facing out" (fins, legs, gear wheel end via `wheelGeom` :514, vtail, rcs). `makePart` and `Builder.setPose` always reset it to `x < 0` (parts.js:440, builder.js:243). It is still saved per row, and the 3D model cache is keyed by it.
+- `p.flip` = "this part is on the −x side, draw it facing out" (fins, legs, gear wheel end via `wheelGeom` :514, vtail, rcs). `makePart` defaults it to `x < 0` unless `extra` gives one (parts.js:440); loading (`partsFromDesign`, `Vessel.restore`, `buildGhost`) keeps the saved flip, and `Builder.setPose` resets it to `x < 0` on every move (builder.js:243). It is saved per row, and the 3D model cache is keyed by it.
 
 ### 2. The PARTS catalogue (parts.js:39-413)
 
@@ -89,9 +89,9 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 
 ### 3. Part instances
 
-`makePart(type, x, y, extra)` (parts.js:438) creates `{id, type, def, x, y, z, att, skin, flip, fuel, active:false, deployed:0, temp:AMBIENT_T}`, plus `ammo` and `store` for weapons. `extra` is merged in, then `z`/`att`/`skin` are re-defaulted if they are invalid or undefined. `rot` may be absent; code reads it as `p.rot || 0` or `& 3`.
+`makePart(type, x, y, extra)` (parts.js:438) creates `{id, type, def, x, y, z, att, skin, flip, fuel, active:false, deployed:0, temp:AMBIENT_T}`, plus `ammo` and `store` for weapons. `extra` is merged in, then `z` is re-defaulted when it is not finite, and `att`/`skin` when they are undefined. `rot` may be absent; code reads it as `p.rot || 0` or `& 3`.
 
-- **`id`**: from the global counter `_partSeq` (:435). It is unique per page load only and **never persisted**: saves use indices, peers use their own ids.
+- **`id`**: from the global counter `_partSeq` (:435). It is unique per page load. Design rows (`rss.design`, the hangar, design codes) use indices instead; flight saves (`rss.flight`) do keep ids, with `att`, `adj` and `stages` by id (and `Flight.restore` moves `_partSeq` past them); peers use their own ids.
 - **`att`**: the id of the part this one *hangs on*, or null. It is a structural joint: `buildAdjacency` links it even when the geometry no longer touches (:588).
 - **`skin`**: a `SKINS` id or null (null = the part's own look).
 - **Runtime fields** set by flight, combat and the builder: `fuel` (kg), `firing`, `spin`, `deflect`, `retracted`, `used`, `fuelFrac`, `ammo`, `store`, `side`, `relN`, and `mirror` (builder only: a direct object reference to the symmetry twin). Parts are cyclic and hold `def`, so **only `designRows` serialises them**.
@@ -319,13 +319,13 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 
 1. **Never change `w`/`h`, `twinZ`, zLocked status or the key of an existing part.** Saves store absolute centres with 0.02 m flush tolerances, omit z at the default spread and identify parts by key. Changing any of these silently detaches, clashes or drops parts in old designs and templates. Add a new part instead.
 2. **Keep the legacy-twin rules** (`legacyTwin`, `pylonLink`, the clash exemption, `guessHost`, `oldStruts`). Templates and old saves depend on them, and flight builds physics from the same `buildAdjacency` (flight.js:33).
-3. The 5e-4 "at default spread" tolerance is shared by parts.js:538 and :600, parts3d.js:1190, combat.js:61 and vessel.js:851. Keep them in sync.
+3. The 5e-4 "at default spread" test is shared by parts.js:538 (`legacyTwin`) and :600 (`designRows`), parts3d.js:1191 and combat.js:61 (spread only, att not checked). Keep them in sync. `pylonLink`, `guessHost` and `oldStruts` treat any twin with no att the old way, at any spread; heating (vessel.js:851) uses the continuous distance from the default spread, with no tolerance.
 4. `att` is an **index** in saved rows, an **id** in memory, and a peer **id** in MP spawn rows (`mpSpawnRows`, mp.js:35, with its own sanitising). Unknown rows must stay as null placeholders until links are resolved, and `cleanAtt` must run after loading.
 5. Always sanitise through `cleanZ`, `cleanSkin` and `hasOwn(PARTS, ...)`: the same rules are reused by vessel.js:1122 (`Vessel.restore`) and mp.js.
 6. After any mutation call `changed()`, or `changed(true)` for a live preview. Call `linkMirrors()` after operations that may break or create twins.
 7. `loadDesign` replaces every part object. Never hold part references across undo/redo or load.
 8. Draw code goes through `drawPart`, never `drawPart0`, or paint is lost. Use the body helpers for paintable surfaces, honour `PartPaint.flat`, and read position from the `q` passed in by `turned()`.
-9. Outline changes in `partPath0`/`HULLS` also change 3D geometry, unless the shape has a parts3d `PROFILE` entry.
+9. For shapes built by parts3d's lathe or extrude recipes (and the chute and cab), outline changes in `partPath0`/`HULLS` also change the 3D geometry, unless the shape has a parts3d `PROFILE` entry. Other recipes (wings, gear, guns, stores, props...) build from the def and use the 2D art only as a texture.
 10. The rocket stage logic assumes +y is up (`sp.y < e.y`). Plane parts must keep +y = nose and +x = down so the gear, canopy (−x side) and stores (+x side) drawings stay right.
 11. Builder-only state (`mirror`, `selected`, `_primary`, `zGesture`) is not saved. Symmetry is recomputed from geometry.
 12. `save()` is skipped while a battle borrows the builder (`MP.savedCareer`). `Builder.mp` changes the stats warnings and the allowed kinds.
@@ -442,8 +442,8 @@ Other helpers:
 
 **Time-sliced patches** live in render3d.js:
 - `patchJob` (`render3d.js:926`) is a generator that fills a double-buffered patch with `setCol`/`setRow`/`contAt`/`height`, yielding every 8 rows.
-- `updatePatch` (`render3d.js:2533`) runs it for 3–4 ms a frame, plus up to 16 ms as the craft nears the patch edge. It calls `buildPatchNow` when nothing usable is on show.
-- `bodyJob` (`:653`) paints planet maps a few rows per frame the same way.
+- `updatePatch` (`render3d.js:2525`) runs it for 3–4 ms a frame, plus up to 16 ms as the craft nears the patch edge. It calls `buildPatchNow` when nothing usable is on show.
+- `bodyJob` (`render3d.js:645`) paints planet maps a few rows per frame the same way.
 
 ### 3. vessel.js: the rigid body
 
@@ -466,7 +466,7 @@ Other helpers:
 `recompute(initial)` (`:154`):
 - Computes mass and `com {x, y, z}`. When not `initial`, it shifts `x/y/z` so the **parts stay fixed in space** as the COM moves; this is called after every burn.
 - Builds the **full 3×3 inertia** from box parts, with each copy's z offset (`zz` mean square, `zm` mean), and inverts it by blocks: the x–y block, then the Schur complement `s ≥ 1e-3`. With nothing off the centreline the result is *exactly* the old 2×2 inverse and `1/Izz`.
-- Sets `bounds`, `width` (x extent), `depth` (z extent) and **`across = max(width, 2·max|partZ|+depth/2 over non-twin off-centre parts)`**. A rocket is round about its stack.
+- Sets `bounds`, `width` (x extent), `depth` (z extent) and **`across = max(width, 2·max(|partZ| + partDepth/2) over non-twin parts)`**. A rocket is round about its stack.
 - `mulI`, `mulInvI`, `invIWorld` and `bodyAV` are helpers.
 
 `rebuildGroups()` (`:213`) **must run after any change to parts or adj**. It rebuilds:
@@ -622,7 +622,7 @@ Other helpers:
   - `ROUND3D` must list the round shapes.
   - `PILOT`/`DRIVE` frames assume `VEHICLE_KINDS.launchRot`. If you add a kind, add both.
   - Physics writes per-part fields that render3d/parts3d/world.js read: `firing`, `ab`, `rpm`, `spin`, `deflect`, `aileron`, `sweep`, `retracted`, `temp`, `deployed`, `used`, `stress`. It also writes vessel fields: `steer`, `brakeOut`, `heatFlux`, `maxHeat`, `aoa`, `nz`, `strain`, `overspeed`.
-  - Adding a JS or asset file means updating `index.html`, `sw.js` `SHELL` (and bumping `CACHE`) and `tools/build-single.mjs`.
+  - A new JS file needs a `<script>` tag in `index.html`, a `sw.js` `SHELL` entry (and a `CACHE` bump) and a README layout line; build-single inlines it by itself. A new Earth asset: see §5.9 #3.
 - **Shared mutable return values.**
   - In terrain.js: `Terrain.toGeo` (`GEO`), `Terrain.water` (`EW`), `Terrain.dark()`, `lineQuery` (`LQ`), `fieldAt` (`FQ`).
   - In space.js: `bodyPos`/`bodyVel` caches.
@@ -863,7 +863,7 @@ What `Settings.high` (world.js:9) changes:
 
 ### 2. Hangar 3D building view (render3d.js:2725-2865, API 3199-3255)
 - **`renderBuilder`** (2767) uses the `studio` scene (gradient background, fog, 5 m-grid floor, hemisphere/key/rim lights).
-  - **The `VesselMesh` is rebuilt only when `snap` changes:** part count, kind, and per part `id,type,flip,skin` (2776). Moving, depth changes and turns are cheap, because `place()` runs every `sync`.
+  - **The `VesselMesh` is rebuilt only when `snap` changes:** part count, kind, and per part `id,type,flip,skin` (2776). It also rebuilds when the parts array itself is replaced (undo, redo, load: `bd.parts !== B.parts`, 2777). Moving, depth changes and turns are cheap, because `place()` runs every `sync`.
   - Parts not attached to the control part get `setOpacity(p, 0.4)`.
 - **Tints** (2788-2797) go into the material's emissive channel:
 
@@ -1084,7 +1084,7 @@ What `Settings.high` (world.js:9) changes:
 
 ## 4. Combat and multiplayer
 
-Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:345-351) puts combat.js after globe.js and before builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js`, which caches `rocket-science-sim-v15`.
+Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:345-351) puts combat.js after globe.js and before builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js` and bump its `CACHE` name.
 
 ### Where the game calls in
 
@@ -1376,14 +1376,14 @@ The HUD (`drawHUD` combat.js:1045) draws target brackets, Bandit diamonds, the s
 - `pvp` runs these phases, with timers set by `setPhase` (mp.js:320) and advanced from `tick()` (250 ms `setInterval`, so it keeps going in background tabs):
   1. `lobby` → `startMatch` (mp.js:311)
   2. `build` (`settings.build` s)
-  3. `test` (60 s, solo flight, only if `settings.test`)
-  4. `polish` (`settings.polish` s)
+  3. `test` (60 s, solo flight, only if `settings.test`; with test off, build goes straight to battle)
+  4. `polish` (`settings.polish` s, only after a test phase)
   5. `battle` (`settings.limit` s)
   6. `results` → `backToLobby` (mp.js:387)
 - When everyone is ready in `build` or `polish`, `ends` is set to 3 s from now; it is restored if someone un-readies (`maybeAllReady` mp.js:332).
 - **Win** (`checkWin` mp.js:366): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:375), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
 - `hostile(a, b)` (mp.js:74) decides who can hurt whom: enemies, or teammates with friendly fire on. `enemy(a, b)` (mp.js:79) decides what can be locked and tagged; teammates are never enemies.
-- In battle, silly flags are disabled (util.js:143). Time warp is disabled in every room (flight.js:183, flight.js:486), and the flight menu does not pause (`openMpMenu` flight.js:444).
+- Silly flags are off throughout a PvP room, in every phase (`Silly.on` checks `MP.pvp`, util.js:143); sandbox rooms keep them. Time warp is disabled in every room (flight.js:183, flight.js:486), and the flight menu does not pause (`openMpMenu` flight.js:444).
 
 **Budgets and limits:**
 - `budgetFor` = `settings.budget`, ×1.3 at a carrier spawn (mp.js:413).
@@ -1566,7 +1566,7 @@ Clients trust the host completely.
 
 ## 5. App shell, UI, settings, packaging and deployment
 
-Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `js/audio.js`, `sw.js`, `manifest.webmanifest`, `tools/build-single.mjs`, `tools/bake-earth.py`, `.github/workflows/pages.yml`, `README.md`, `.gitignore`. The git remote is `DevWolf11/Rocket-Science-Simulator`. The local folder is still called `Cam-Strike` because the repo used to hold a 5v5 FPS, and that history is still in git (README.md:131, last FPS commit `30e7bc8`). Work goes onto branches and reaches `main` through PRs; merging deploys.
+Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `js/audio.js`, `sw.js`, `manifest.webmanifest`, `tools/build-single.mjs`, `tools/bake-earth.py`, `.github/workflows/pages.yml`, `README.md`, `.gitignore`. The git remote is `DevWolf11/Overbuilt` (renamed from `Cam-Strike`, then `Rocket-Science-Simulator`). A local folder may still be called `Cam-Strike` because the repo used to hold a 5v5 FPS, and that history is still in git (README.md:131, last FPS commit `30e7bc8`). Work goes onto branches and reaches `main` through PRs; merging deploys.
 
 ### 1. Page structure, script order, global namespace
 
@@ -1685,7 +1685,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 - `.modal-title` is `user-select:none` (style.css:620) so the taps don't select text.
 - Once unlocked, Settings always shows the `sillySettings()` box (:372-388): one checkbox per entry plus "All off".
 - Flags are stored in `rss.silly` as `{key: bool}`.
-- `Silly.on(k)` is always false in a PvP battle (`MP.pvp`).
+- `Silly.on(k)` is always false in a PvP room, in every phase from lobby to results (`MP.pvp`); sandbox rooms keep the flags.
 - `Flight.start` toasts the list of active flags (flight.js:102-103).
 
 | Flag | Label | Effect, where |
@@ -1815,7 +1815,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 ### 6. Offline / PWA
 
 **sw.js** (31 lines):
-- `CACHE = 'rocket-science-sim-v15'` (:3).
+- `CACHE = 'overbuilt-v16'` (:3).
 - `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.
@@ -1824,12 +1824,11 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 
 **When to bump `CACHE`:** on every change to any cached file (all js, css, html, assets, manifest). Changing sw.js's bytes is the only thing that makes browsers install a new worker. That install pre-caches the whole new set (so offline play is complete), removes the old cache, and fires `controllerchange`, which auto-reloads the page (main.js:403-407).
 - Online visitors already get fresh files without a bump, because fetching is network-first.
-- The history shows `camstrike-v*` → `orbit-forge-v1` → `rocket-science-sim-v2`…`v15`, bumped in feature commits.
-- The last bump was e819477. Later commits (cba33d6, 4f26904, facf08f, d0e6bbe) changed js without a bump, so **the next change should bump to v16**.
+- The history shows `camstrike-v*` → `orbit-forge-v1` → `rocket-science-sim-v2`…`v15` → `overbuilt-v16` (the rename), bumped in feature commits. Any name works, because activate deletes every other cache.
 - A new script or asset must also be **added to `SHELL`**, and every `SHELL` entry must exist: one 404 makes `addAll` reject, the install fails, and the update is silently stuck.
 
 **manifest.webmanifest:**
-- `name` "Rocket Science Simulator", `short_name` "Rocket Sim"
+- `name` and `short_name` "Overbuilt"
 - `start_url`/`scope` `./`, `display: fullscreen`, `orientation: any`, colours `#05070d`
 - icons: `icon.svg` (any), `icon-192.png`, `icon-512.png`. The PNGs are not in `SHELL`; they get cached at runtime.
 - The `description` is outdated ("…land on the Moon").
@@ -1838,7 +1837,7 @@ index.html:8-14 also sets `theme-color`, the Apple web-app metas, the SVG favico
 
 ### 7. Tools and deployment
 
-**`node tools/build-single.mjs [--fragment]`** writes `dist/rocket-science-simulator.html` (≈7.9 MB, mostly base64 Earth data) or `…fragment.html` (no doctype/html/head/body wrappers; charset and viewport metas dropped, :25-31). `dist/` is gitignored. It works on index.html as text, with **string replaces that silently do nothing when they don't match**:
+**`node tools/build-single.mjs [--fragment]`** writes `dist/overbuilt.html` (≈7.9 MB, mostly base64 Earth data) or `…fragment.html` (no doctype/html/head/body wrappers; charset and viewport metas dropped, :25-31). `dist/` is gitignored. It works on index.html as text, with **string replaces that silently do nothing when they don't match**:
 1. Inlines `css/style.css` (:13).
 2. Inserts `js/vendor/three.min.js` before `parts3d.js` (:15), so `Render3D.load` finds `window.THREE`.
 3. Inlines every `<script src="js/….js"></script>` in order, escaping `</script` (:16).
@@ -1864,26 +1863,26 @@ The single file still loads Google Fonts from the network. Its Earth works even 
 **GitHub Pages** (.github/workflows/pages.yml):
 - Runs on push to `main` and on `workflow_dispatch` (:5-8).
 - checkout → configure-pages → `upload-pages-artifact` with **`path: .`** (:28-30) → `deploy-pages`.
-- There is no build step: every tracked file in the repo root is published as-is (dist/ isn't, since it's gitignored).
+- There is no build step: the whole checkout is published as-is, `test/` and `docs/` included (dist/ and test/.cache aren't, since they're gitignored).
 - Concurrency group `pages`, cancel-in-progress.
 - One-time setup: repo Settings → Pages → Source "GitHub Actions" (:4).
-- Live URL: **https://devwolf11.github.io/Rocket-Science-Simulator/** (README.md:9).
+- Live URL: **https://devwolf11.github.io/Overbuilt/** (README.md:14). Renaming the repo changes it, and GitHub Pages doesn't redirect the old path; saves survive because localStorage belongs to the origin `devwolf11.github.io`, not the path.
 
-`.gitignore`: `dist/`, `node_modules/`, `.DS_Store`.
+`.gitignore`: `dist/`, `node_modules/`, `.DS_Store`, `test/.cache/`.
 
 ### 8. README.md
 
 Sections:
-- Title and pitch (:1-5)
-- **Play** (:7-11): online URL, local serving, single file
-- **Modes** (:13-17)
-- **Multiplayer** (:19-30)
-- **Controls** table plus a long Builder paragraph (:32-56)
-- **What's in it** (:58-89): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, damage, structure, parts by category, flight model, builder, physics, solar system, navigation, graphics, saving, settings)
-- **Scale** (:91-93)
-- **Project layout** (:95-125): one line per file
-- the file:// note (:127), data credits (:129), Cam-Strike history (:131)
-- **Ideas for later** (:133-135)
+- Title and pitch (:1-10)
+- **Play** (:12-16): online URL, local serving, single file
+- **Modes** (:18-22)
+- **Multiplayer** (:24-35)
+- **Controls** table plus a long Builder paragraph (:37-61)
+- **What's in it** (:63-94): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, damage, structure, parts by category, flight model, builder, physics, solar system, navigation, graphics, saving, settings)
+- **Scale** (:96-98)
+- **Project layout** (:100-133): one line per file or folder, including `test/`, `docs/HANDBOOK.md` and `CLAUDE.md`
+- the file:// note (:135), data credits (:137), the name history and Cam-Strike (:139)
+- **Ideas for later** (:141-143)
 
 Convention: **every user-visible feature, control or part change gets documented in README in the same commit.** Recent feature commits all touch README. When you change something:
 - edit the matching "What's in it" bullet and the Controls table
@@ -1902,7 +1901,7 @@ Known drift:
    - an entry in `SHELL`, plus a `CACHE` bump
    - a README Project layout line
    - the path must match `js/[\w/.-]+\.js`, or build-single won't inline it
-3. **A new Earth asset** must be added in five places: `EARTH_MAP_FILES` (single-quoted), `Terrain.loadEarth`, `SHELL`, the build-single file list (:19), and bake-earth.py.
+3. **A new Earth asset** must be added in seven places: `EARTH_MAP_FILES` (single-quoted), `Terrain.loadEarth`, `SHELL`, the build-single file list (:19), bake-earth.py, and the test harness's `FILES` (test/lib/earth.js) and `LAYERS` (test/lib/dump-earth.mjs).
 4. **Don't change util.js's first two lines**: build-single uses them to find where to inject `RSS_NO_SW`.
 5. **No `import`/`export`, no `type="module"`, and no required `fetch` of local files**: anything except the Earth map must work from `file://`.
 6. **Don't use `Settings` (world.js) or `Sound` (audio.js) at load time** in files that load earlier; only call them from functions.
@@ -1934,7 +1933,6 @@ Found while writing this handbook or in earlier reviews, and not fixed yet. All 
 
 | Where | What | Notes |
 |---|---|---|
-| `sw.js:3` | `CACHE` is still `rocket-science-sim-v15`, but js and css have changed since (#28 and #29) | Fetching is network-first, so online players get fresh files anyway. Bump to v16 with the next game change. |
 | `manifest.webmanifest` | The description still reads "Build rockets, reach orbit and land on the Moon." | Undersells the game |
 | `mp.js:819` (`onDown`) | Reads `m.P` without validating it. A malformed `down` throws inside the handler; it is caught, but the ghost drop and `recordDown` are skipped. | Validate with `mpNums` like the other handlers |
 | multiplayer trust | Hit amounts (capped), kill credit (named by the victim), the self-reported damage score, and each player's budget and design checks all rest on trust | By design for a host-relayed P2P game; worth knowing before "anti-cheat" work |
