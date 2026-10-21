@@ -408,7 +408,7 @@ kbd {
 .home-btn:hover, .mode-card:hover { border-color: var(--amber); }
 .home-btn:focus-visible, .mode-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .home-btn.primary { background: var(--amber); color: #1a1205; border-color: var(--amber); }
-.home-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.home-btn:disabled { cursor: not-allowed; filter: grayscale(0.85) brightness(0.5); } /* (dimmed, not see-through: the map is behind) */
 .home-btn.primary .hb-sub { color: rgba(26, 18, 5, 0.75); }
 .home-btn.resume { border-color: var(--cyan); }
 .hb-name, .mode-name { font-weight: 700; font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; }

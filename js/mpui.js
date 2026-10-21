@@ -49,7 +49,7 @@ const MPUI = {
     const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…', true);
     const stoppable = () => this.connecting && this.connecting.join && !MP.active; // (still looking for the host, not yet in)
     $('#mp-join').addEventListener('click', () => { if (!this.connecting) join(); else if (stoppable()) this.abandon(); });
-    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) { e.target.blur(); if (stoppable()) this.abandon(); join(); } }); // (a corrected code starts over; the keyboard goes away)
+    $('#mp-join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.repeat) { if (isTouch) e.target.blur(); if (stoppable()) this.abandon(); join(); } }); // (a corrected code starts over; the keyboard goes away)
     $('#mp-back').addEventListener('click', () => this.leave());
     $('#mp-test').addEventListener('click', () => this.testNetwork());
     $('#mp-code').addEventListener('click', () => {
@@ -231,7 +231,7 @@ const MPUI = {
   // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
   // in front (as when sending the code in a chat app), so say so, first thing in the card.
   stayHint(box) {
-    if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
+    if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone or tablet lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
   },
   renderFoot() {
     const s = MP.state, me = MP.me, pvp = s.mode === 'pvp';

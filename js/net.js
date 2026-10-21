@@ -203,7 +203,7 @@ const Net = (() => {
     dropPlayer(pid, 'kicked');
   };
   function hostConn(conn) {
-    let pid = 0;
+    let pid = 0; setTimeout(() => { if (!pid) conn.close(); }, 15000); // (a connection that never says hello goes)
     const send = wire(conn), whole = unwire();
     conn.on('data', (raw) => {
       if (!pid && raw && raw.t === '~') { conn.close(); return; } // (hello never comes in pieces)
