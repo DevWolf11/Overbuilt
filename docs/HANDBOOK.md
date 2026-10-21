@@ -19,7 +19,7 @@ Section references like "§3" inside a chapter mean that chapter's own subsectio
 
 ## 1. The part model and the builder
 
-**Files:** `js/parts.js` (catalogue, geometry, connectivity, staging/Δv, persistence helpers, 2D drawing) and `js/builder.js` (`TEMPLATES`, `templateRows`, the `Builder` singleton). Both are plain globals with no modules. Script order matters (`index.html:332-352`):
+**Files:** `js/parts.js` (catalogue, geometry, connectivity, staging/Δv, persistence helpers, 2D drawing) and `js/builder.js` (`TEMPLATES`, `templateRows`, the `Builder` singleton). Both are plain globals with no modules. Script order matters (`index.html:333-353`):
 - `util.js` comes first and provides `clamp`, `TAU`, `G0`, `store`, `el`, `isTouch`.
 - `parts.js` loads before `vessel.js`, `parts3d.js`, `render3d.js`, `career.js` and `builder.js`.
 - `builder.js` calls `wingAero`/`wingStrength` (vessel.js:32,64), `Career.unlocked` (career.js:47), `Parts3D.wingAt` (guarded with `typeof Parts3D`), `Render3D.*`, `App.*`, `UI.*` and `Sound.*`.
@@ -332,7 +332,7 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 
 ## 2. Simulation and flight
 
-All five files are plain globals, loaded in this order by `index.html:332-352`: util, space, terrain, parts, vessel, … career, …, flight, …, main. Everything is in SI units: metres, seconds, kg, N, kelvin and radians. Part *definitions* use tonnes (`def.mass`, `def.fuel`) and kN (`def.thrust`); the runtime converts them with `*1000`, and `p.fuel` is in kg. `G0 = 9.80665` (`util.js:5`) is used for Isp and g-loads. Gravity uses each body's own `mu = surfaceG·R²`.
+All five files are plain globals, loaded in this order by `index.html:333-353`: util, space, terrain, parts, vessel, … career, …, flight, …, main. Everything is in SI units: metres, seconds, kg, N, kelvin and radians. Part *definitions* use tonnes (`def.mass`, `def.fuel`) and kN (`def.thrust`); the runtime converts them with `*1000`, and `p.fuel` is in kg. `G0 = 9.80665` (`util.js:5`) is used for Isp and g-loads. Gravity uses each body's own `mu = surfaceG·R²`.
 
 ### 1. space.js: bodies, orbits, prediction
 
@@ -1085,7 +1085,7 @@ What `Settings.high` (world.js:9) changes:
 
 ## 4. Combat and multiplayer
 
-Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:345-351) puts combat.js after globe.js and before builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js` and bump its `CACHE` name.
+Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:346-352) puts combat.js after globe.js and before builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js` and bump its `CACHE` name.
 
 ### Where the game calls in
 
@@ -1323,8 +1323,8 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 ### 2. net.js: transport
 
 - **Constants:**
-  - `NET_VERSION = 3` (net.js:11). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below). The host rejects a `hello` with any other `ver` (net.js:147).
-  - `NET_MAX_BYTES = 256 KB` (net.js:12): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:164). The host's own sends and clients' sends are not size-checked.
+  - `NET_VERSION = 3` (net.js:11). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below). The host rejects a `hello` with any other `ver` (net.js:168).
+  - `NET_MAX_BYTES = 256 KB` (net.js:12): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:185). The host's own sends and clients' sends are not size-checked.
   - Room codes are 5 characters from `ROOM_CHARS` (net.js:13; no I, O, 0 or 1). `cleanCode` accepts 4–8 characters.
   - `PEER_PREFIX = 'rss-room-'` (net.js:14).
   - **ICE servers** (`N.ice()`, a promise of `{iceServers}` that both Peers and the network test use): `NET_STUN` (Google and Cloudflare STUN), then the relays (TURN) for players with no direct path between them (strict NAT, carrier NAT on mobile data, Wi-Fi isolation, VPNs, school networks that block UDP). PeerJS's own default relays (`eu-0`/`us-0.turn.peerjs.com`) no longer exist, so without a relay such players can't connect at all. Relays come from `NET_TURN`, entries like `{urls: ['turn:host:80', 'turns:host:443?transport=tcp'], username, credential}`, and from `NET_TURN_URL`, a provider's credentials address answering with such a list (Metered: `https://APP.metered.live/api/v1/turn/credentials?apiKey=KEY`). That one is fetched once a session; each entry is checked (`stun:`/`turn:` URLs, string username and credential; at most 12), and a failed or empty fetch (4 s limit) is tried again on the next call while play goes on with STUN alone. The TCP/TLS entry on port 443 is what gets out of a network that blocks UDP. `N.host` and `N.join` wait for `N.ice()` before creating their Peer; `N.leave` bumps `joinGen`, so a room still waiting for its relays doesn't open after Back.
@@ -1334,10 +1334,10 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
   - `'p2p'`: PeerJS on the public PeerJS cloud. The host registers peer id `rss-room-CODE` and retries with a new code up to 3 times on `unavailable-id`. It reconnects to the signalling server 1.5 s after a disconnect. Connections are `{reliable: true, serialization: 'json'}`.
   - `'local'`: a `BroadcastChannel('rss-room-'+CODE)` carrying envelopes `{to:'H'|cid, from:cid, msg}`. Clients pick a random `cid`.
 - **Star topology:**
-  - The host is pid 1; clients get pid 2, 3, … from `accept()` (net.js:146).
-  - `N.send(msg, to?)` (net.js:85) stamps `msg.f = N.me`. Clients send only to the host. The host's `route()` (net.js:93) forwards to `to`, or to everyone except the sender, and emits locally.
-  - **The host overwrites `msg.f` with the real sender's pid** (net.js:165).
-  - The host never relays client messages whose type is in `HOST_ONLY` = `{~, hello, welcome, reject, ping, closed, join, leave, warn, state, result}` (net.js:32). `~` (a piece) is there because a player's piece relayed whole would be taken by the others as part of the host's own stream, and so could fake anything from the host. Clients ignore those types unless `f === 1` (net.js:244). `result` is listed but never sent.
+  - The host is pid 1; clients get pid 2, 3, … from `accept()` (net.js:167).
+  - `N.send(msg, to?)` (net.js:104) stamps `msg.f = N.me`. Clients send only to the host. The host's `route()` (net.js:112) forwards to `to`, or to everyone except the sender, and emits locally.
+  - **The host overwrites `msg.f` with the real sender's pid** (net.js:186).
+  - The host never relays client messages whose type is in `HOST_ONLY` = `{~, hello, welcome, reject, ping, closed, join, leave, warn, state, result}` (net.js:36). `~` (a piece) is there because a player's piece relayed whole would be taken by the others as part of the host's own stream, and so could fake anything from the host. Clients ignore those types unless `f === 1` (net.js:265). `result` is listed but never sent.
 - **Handshake:**
   1. Client sends `hello {name, ver}`.
   2. Host replies `welcome {pid, code, names}` or `reject {reason}`: wrong version, room locked (`N.lock`, set during PvP phases), or full.
@@ -1356,9 +1356,9 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
   - `N.hostNow()` = `performance.now() + hostOffset`. Use it for every shared deadline (`s.ends`, `th`, `battleAt`).
 - **Timeouts:**
   - The host drops a link silent for 20 s.
-  - A client closes after 25 s without hearing from the host (`watch` net.js:313).
+  - A client closes after 25 s without hearing from the host (`watch` net.js:337).
   - `pagehide` calls `N.leave()`. Leaving sends `bye` (client) or `closed` to everyone (host), then destroys the connection after 300 ms.
-- **Events:** `N.on(type, fn)` (net.js:39). Each handler runs inside try/catch (net.js:44), so a throwing handler only logs. `join`, `leave` and `warn` are emitted locally only.
+- **Events:** `N.on(type, fn)` (net.js:43). Each handler runs inside try/catch (net.js:48), so a throwing handler only logs. `join`, `leave` and `warn` are emitted locally only.
 
 ---
 
@@ -1517,28 +1517,28 @@ Clients trust the host completely.
   - transport toggle `#mp-transport` (`data-tr="p2p"` / `"local"`), stored in `rss.mp.tr`;
   - Create sandbox / Create battle / Join; only one attempt at a time (`this.connecting` token);
   - **Test this network** `#mp-test` → `testNetwork` (`Net.probe`): matchmaking server, direct links, relay, and a verdict.
-- **Lobby** (`refresh` mpui.js:122):
-  - `renderPlayers` (mpui.js:133): team columns with Join buttons and open slots, ping, host tag;
-  - `renderSettings` (mpui.js:167): editable by the host in the lobby only — format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min;
-  - `start` (mpui.js:100): asks before starting alone or with uneven teams; refuses if a team is empty.
-- **Phase bar** `#mp-bar` (`renderBar` mpui.js:228, `tick` mpui.js:247):
+- **Lobby** (`refresh` mpui.js:145):
+  - `renderPlayers` (mpui.js:156): team columns with Join buttons and open slots, ping, host tag;
+  - `renderSettings` (mpui.js:190): editable by the host in the lobby only — format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min;
+  - `start` (mpui.js:123): asks before starting alone or with uneven teams; refuses if a team is empty.
+- **Phase bar** `#mp-bar` (`renderBar` mpui.js:251, `tick` mpui.js:270):
   - phase name, timer from `s.ends − Net.hostNow()`, "urgent" under 15 s;
   - an info line: cost against budget, spawn and ready count while building; teams alive in battle;
   - Ready, Spawn and Score buttons.
-- **Spawn map** `#spawn-map` (mpui.js:273-387):
+- **Spawn map** `#spawn-map` (mpui.js:296-410):
   - `MAP` bounds e −9000..31000, z −9000..21000;
   - `bakeMap` colours the map from Terrain;
-  - `pickSpawn` (mpui.js:364) updates `Builder.mp` budget, limits and money.
+  - `pickSpawn` (mpui.js:387) updates `Builder.mp` budget, limits and money.
 - **Chat:** lobby log, plus in flight `T`/`Enter` → `#mp-hud-input`. Text is inserted with `createTextNode`. Sends are capped at 140 characters.
-- **Kill feed:** `notice` (mpui.js:399) → `#mp-feed`, 5 lines, fading after 5 s.
-- **Scoreboard:** hold `` ` `` or press Score (`showScore` mpui.js:424).
+- **Kill feed:** `notice` (mpui.js:422) → `#mp-feed`, 5 lines, fading after 5 s.
+- **Scoreboard:** hold `` ` `` or press Score (`showScore` mpui.js:447).
 - **Results:** a locked modal (`MP.modalLocked`, main.js:20). The host gets "Back to the lobby".
-- **In flight** (`drawHUD` mpui.js:472):
+- **In flight** (`drawHUD` mpui.js:495):
   - name tags: gold in the sandbox, blue (filled) for friends, red (outlined) for enemies;
-  - `spotted` (mpui.js:522): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
+  - `spotted` (mpui.js:545): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
   - RWR ring with a "RADAR LOCK" label;
-  - heading-up 8 km scope (`drawRadar` mpui.js:534), only when the screen is at least 761 px wide.
-- **Spectating** after being shot down in battle: `spectate` (mpui.js:464) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1133). The camera uses `Flight.viewVessel` (flight.js:1409).
+  - heading-up 8 km scope (`drawRadar` mpui.js:557), only when the screen is at least 761 px wide.
+- **Spectating** after being shot down in battle: `spectate` (mpui.js:487) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1133). The camera uses `Flight.viewVessel` (flight.js:1409).
 - On the map and globe, enemies are hidden in PvP (`mapColor` mp.js:930).
 
 ---
@@ -1586,13 +1586,13 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
 - Two full-screen canvases: `#view3d` (WebGL/three.js, :21) sits under `#view` (2D, :22). DOM order sets the stacking; there is no z-index.
   - `#view` draws the whole game in 2D fallback mode and the hangar blueprint.
   - In 3D it is cleared every frame and carries only the HUD overlays.
-- Four screen containers, all `class="ui"`: `#home` (:25), `#mp-ui` (:58), `#build-ui` (:116), `#flight-ui` (:201).
-- Multiplayer overlays sit at body level (:300-327) so they survive scene switches: `#mp-bar`, `#mp-feed`, `#mp-score`, `#mp-hud-chat`, `#spawn-map`.
-- `#toasts` (:329) is the toast host.
-- `#modal > #modal-card` (:330) is the one and only dialog.
+- Four screen containers, all `class="ui"`: `#home` (:25), `#mp-ui` (:58), `#build-ui` (:117), `#flight-ui` (:202).
+- Multiplayer overlays sit at body level (:301-328) so they survive scene switches: `#mp-bar`, `#mp-feed`, `#mp-score`, `#mp-hud-chat`, `#spawn-map`.
+- `#toasts` (:330) is the toast host.
+- `#modal > #modal-card` (:331) is the one and only dialog.
 - Fonts: Chakra Petch and IBM Plex Mono from Google Fonts (:15-17). The viewport meta sets `user-scalable=no, viewport-fit=cover` (:5).
 
-**Load order** (classic synchronous `<script src>` at the end of `<body>`, index.html:332-352). Each file may use only earlier files at load time.
+**Load order** (classic synchronous `<script src>` at the end of `<body>`, index.html:333-353). Each file may use only earlier files at load time.
 
 | # | File | Globals it creates (top-level `const`/`function`) |
 |---|---|---|
@@ -1783,11 +1783,11 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 
 | Query | Main effects |
 |---|---|
-| `max-width:760px`, the phone breakpoint, repeated per section (:326, 511, 550, 583, 642, 665, 713, 733, 883) | Builder `.stats` becomes a wrapping strip across the top (4-column stat grid, stage list hidden). `.part-info` docks above the tray (`bottom: var(--pal-h)+10px`) without its description. `.long` button labels hidden. Telemetry 176 px; time warp moves under the top-right buttons; autopilot grid 3 columns; flight hint moves top-right; the brake button floats beside the autopilot grid (:550-555); home content bottom-aligned; MP bar and feed pushed down, with `body:has(#mp-bar…)` moving stats, hint and feed (:891-894) |
+| `max-width:760px`, the phone breakpoint, repeated per section (:326, 511, 550, 583, 642, 665, 713, 733, 890) | Builder `.stats` becomes a wrapping strip across the top (4-column stat grid, stage list hidden). `.part-info` docks above the tray (`bottom: var(--pal-h)+10px`) without its description. `.long` button labels hidden. Telemetry 176 px; time warp moves under the top-right buttons; autopilot grid 3 columns; flight hint moves top-right; the brake button floats beside the autopilot grid (:550-555); home content bottom-aligned; MP bar and feed pushed down, with `body:has(#mp-bar…)` moving stats, hint and feed (:898-901) |
 | `max-width:480px` / `420px` / `350px` (:647, 323, 656) | Hangar, 3D and Sym become icon-only; Clear hidden; smaller Launch and buttons |
 | `max-height:500px`, phones in landscape (:358, 523, 557, 587, 669) | Compact telemetry; smaller joystick (92 px) and round buttons; the throttle box turns horizontal at the bottom, left of the stage box; slimmer tray (34 px icons, no specs); hint at top centre |
-| `max-width:860px` (:876) | MP lobby grid in one column; spawn map stacked |
-| `max-width:1000px` (:320); `761-1000px` (:896) | Brand name hidden; MP build bar moved right of the stats panel |
+| `max-width:860px` (:883) | MP lobby grid in one column; spawn map stacked |
+| `max-width:1000px` (:320); `761-1000px` (:903) | Brand name hidden; MP build bar moved right of the stats panel |
 | `pointer:fine` (:732) · `prefers-reduced-motion` (:378) | Smaller FIRE button for a mouse · no toast or fuel-bar animation |
 
 **Touch controls** are always rendered, on desktop too:
@@ -1803,7 +1803,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 - The stats panel folds (`.stats.collapsed`, :633). It starts folded when the window is short (`innerHeight<520`, or `<700` with `innerWidth≤760`, builder.js:1600); the choice is stored in `rss.statsFolded`.
 - `#build-ui.has-info` hides the 3D hint chip on phones (:666).
 - Dragging a part over the tray shows `.palette.drop-remove`, "Drop here to remove" (:635).
-- Some rules use `:has()` (:598, :891-894); old browsers ignore them.
+- Some rules use `:has()` (:598, :898-901); old browsers ignore them.
 
 ### 5. localStorage keys (every key used in js/)
 
@@ -1921,7 +1921,7 @@ Known drift:
 8. **`UI.modal` replaces any open modal and drops its `onClose`.**
    - Don't open a dialog over the paused flight menu, or `Flight.paused` never resets.
    - String bodies are innerHTML: build anything containing peer-supplied text (MP names, chat) with `el(…, {text})`.
-9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1533 and mpui.js:79 do.
+9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1533 and mpui.js:80 do.
 10. **A thrown error inside `frame()` doesn't stop the game**: watch the console, since it repeats every frame.
 11. **Silly flags must stay cosmetic or opt-in**: `Silly.on` is false in PvP, and missions must read real values (e.g. `v.mach`, not `effectMach`).
 12. **Changing a save format**: `rss.flight` carries `v:2`, and `store.get` also reads `orbitforge.*` keys. Keep restores tolerant: `resumeFlight` drops a save that fails to load. A thrown error in `Career`/`Builder` load code breaks startup.
