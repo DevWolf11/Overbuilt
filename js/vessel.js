@@ -807,26 +807,29 @@ class Vessel {
       // too fast: past its own limit (equivalent airspeed, or a Mach number where it has one) a wing flutters.
       // Stress builds, the quicker the further over, and it tears off; far over (1.3 times), at once. Noodle
       // wings give at half the speed, a shot-up wing a little sooner. The Mach limit fades out in thin air (on
-      // Earth from about 15 to 21 km, so a space plane coming home keeps its wings). Only a craft someone flies.
-      // overspeed is the worst wing's speed over its limit (the warning shows from 0.9); overMach, that Mach
-      // was what it hit.
+      // Earth from about 21 down to 15 km), so it can't shake a wing apart high up. Only a craft someone flies.
+      // overspeed is the worst wing's speed over its limit (past 1 it flutters). overWarn is the same for the
+      // warning (from 0.9), which also counts the full Mach limit in thin air on the way down, so a craft
+      // coming home too fast hears about it before the air thickens; overMach, the warning is about Mach.
       const eas = Math.sqrt(this.dynP / 0.6), thin = smoothstep(0.02, 0.06, (rho * 1.2) / b.rho0), live = !!this.control && !this.isDebris; // (eas: sqrt(2q / 1.2), the HUD speed at sea level; thin: by the air's share of its sea-level density)
-      let over = 0, overM = false;
+      const sink = thin < 1 && this.vSpeed() < 0;
+      let over = 0, warn = 0, overM = false;
       for (const p of this.wings) {
         const W = wingAero(p.def);
         if (!W.vne) continue;
         const k = (noodle ? 0.5 : 1) * (p.hp != null && hasCombat() ? Math.sqrt(Combat.liftK(p)) : 1);
-        const re = eas / (W.vne * k), rm = W.mmax ? (M / (W.mmax * k)) * thin : 0, r = Math.max(re, rm);
-        if (r > over) { over = r; overM = rm > re; }
+        const re = eas / (W.vne * k), m = W.mmax ? M / (W.mmax * k) : 0, rm = m * thin, r = Math.max(re, rm), w = Math.max(re, sink ? m : rm);
+        if (r > over) over = r;
+        if (w > warn) { warn = w; overM = w > re; }
         if (r > 1 && live) {
           p.stress = (p.stress || 0) + ((r - 1) * 3 + 0.12) * dt;
           if ((r > 1.3 || p.stress >= 1) && !rip.includes(p)) { rip.push(p); this.ripWhy = 'speed'; }
         }
       }
-      this.overspeed = over; this.overMach = overM;
+      this.overspeed = over; this.overWarn = warn; this.overMach = overM;
     } else {
       for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
-      this.strain = 0; this.overspeed = 0; this.overMach = false; this.nz = 0;
+      this.strain = 0; this.overspeed = 0; this.overWarn = 0; this.overMach = false; this.nz = 0;
     }
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
 

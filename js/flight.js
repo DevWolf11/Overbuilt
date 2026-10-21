@@ -371,6 +371,7 @@ const Flight = {
   onDestroyed() {
     if (this.destroyed) return;
     this.destroyed = true;
+    $('#flight-alert').hidden = true; // (the HUD stops updating once nothing is left)
     this.warpIdx = 0;
     if (this.catapult) this.catapult.state = 'done';
     if (this.mp && MP.onLocalDestroyed()) { this.updateHUD(true); return; }
@@ -532,7 +533,7 @@ const Flight = {
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       Sound.engine(maxT ? (v.thrust || 0) / maxT : 0, air);
-      Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1) + (this.destroyed ? 0 : 0.5 * smoothstep(0.97, 1.3, v.overspeed || 0))); // (and a fluttering wing's roar)
+      Sound.wind(clamp((v.dynP || 0) / 30000, 0, 1) + clamp((v.heatFlux || 0) / 2e8, 0, 1) + (this.destroyed ? 0 : 0.5 * smoothstep(0.97, 1.15, v.overspeed || 0))); // (and a fluttering wing's roar)
       this.soundBarrier(v);
       // stall warning horn
       const stall = v.aircraft && v.aoa != null && !v.wheelsDown && v.airspeed > 10 && v.aoa > (v.stallAoA - 0.03 * v.flaps) * 0.9;
@@ -1244,7 +1245,7 @@ const Flight = {
   // a fluttering wing's comes first unless the load is past its limit too: easing off the stick won't save it.
   structAlert(v) {
     if (!v || v.landed || this.destroyed || !(v.airspeed > 20)) return null;
-    const sp = v.overspeed > 0.9 ? { kind: 'speed', level: v.overspeed > 1 ? 2 : 1 } : null;
+    const sp = v.overspeed > 1 ? { kind: 'speed', level: 2 } : Math.max(v.overspeed || 0, v.overWarn || 0) > 0.9 ? { kind: 'speed', level: 1 } : null;
     if (v.kind === 'plane' && v.strain > 0.85) {
       const stress = v.overspeed > 1 ? 0 : v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0); // (stress from flutter is the speed's doing)
       const g = { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };

@@ -12,8 +12,8 @@ const dt = 1 / 120;
 // each wing's limit, as asked for (km/h at sea level, Mach): an independent table, not the code's own numbers
 const WANT = {
   wingBiplane: [560, 0.48], wingGlider: [500, 0.5], wingStraightL: [750, 0.66], wing: [850, 0.74], wingElliptical: [850, 0.74],
-  wingS: [900, 0.74], wingL: [950, 0.95], wingWinglet: [950, 0.97], wingSwept: [1350, 1.6], wingForward: [1400, 1.8],
-  wingSwing: [1550, 2.4], wingDelta: [1600, 0], stabilizer: [2000, 0], stabilizerL: [2000, 0], wingStrake: [2000, 0],
+  wingS: [900, 0.74], wingL: [950, 1.02], wingWinglet: [950, 1.05], wingSwept: [1350, 1.7], wingForward: [1400, 1.8],
+  wingSwing: [1550, 2.5], wingDelta: [1600, 0], stabilizer: [2000, 0], stabilizerL: [2000, 0], wingStrake: [2000, 0],
 };
 const wings = Object.keys(ctx.PARTS).filter((k) => ctx.PARTS[k].wing && !ctx.PARTS[k].wing.control);
 t('every fixed wing has a limit in the table', wings.every((k) => WANT[k]), wings.filter((k) => !WANT[k]).join(','));
@@ -53,7 +53,7 @@ function hold(key, kmh, alt, secs, opt = {}) {
   let tore = null, over = 0, alert = false, mach = false;
   const alerts = new Set();
   for (let i = 0; i < secs / dt; i++) {
-    v.x = r; v.y = 0; v.z = 0; v.vx = N.x * V; v.vy = N.y * V; v.vz = 0; // (held: speed and height fixed)
+    v.x = r; v.y = 0; v.z = 0; v.vx = -(opt.sink || 0); v.vy = N.y * V; v.vz = 0; // (held: speed and height fixed; sink: a descent rate)
     if (opt.each) opt.each(v);
     v.physicsStep(dt, s); s.time += dt;
     for (const d of s.vessels) if (d.parts.length) d.physicsStep(dt, s);
@@ -87,6 +87,9 @@ t('at 9 km: fine at 720 km/h (Mach 0.67), torn off at 900 (Mach 0.84)', skHi[0].
 // in thin air the Mach limit fades: a space plane coming home at Mach 5 keeps its wings
 const vac = [hold('skylark', 1500, 29000, 3), hold('hornet', 6000, 28000, 3), hold('kestrel', 6000, 28000, 3), hold('jumbo', 5000, 27000, 3)];
 t('at 27-29 km, Mach 1.5-6 in thin air: plain, swept, swing and airliner wings stay on', vac.every((x) => x.tore == null), vac.map(show).join(' '));
+const home = [hold('hornet', 4000, 26000, 2, { sink: 60 }), hold('hornet', 4000, 26000, 2)];
+t('coming down that fast, the warning shows early (amber, high up, before the air thickens); not on the way up', home[0].tore == null && home[0].alerts.has('speed1') && !home[0].alerts.has('speed2') && !home[1].alerts.size,
+  home.map((x) => [...x.alerts].join(',') || '-').join(' / '));
 
 // biplane and supersonic wings
 const ca = [hold('camel', 500, 300, 8), hold('camel', 620, 300, 8), hold('camel', 620, 5000, 8)];
@@ -95,7 +98,7 @@ const vi = [hold('viper', 1450, 300, 6), hold('viper', 2400, 12000, 6), hold('vi
 t('Viper (delta): fine at 1450 km/h low down and Mach 2.2 at 12 km; torn off at 1900 km/h low down',
   vi[0].tore == null && vi[1].tore == null && vi[2].tore != null, vi.map(show).join(' '));
 const ho = [hold('hornet', 1250, 300, 6), hold('hornet', 1700, 300, 3), hold('hornet', 2000, 11000, 6)];
-t('Hornet (swept): Mach 1 low down is fine; 1700 km/h low down tears it; Mach 1.8 at 11 km tears it (Mach 1.6 limit)',
+t('Hornet (swept): Mach 1 low down is fine; 1700 km/h low down tears it; Mach 1.88 at 11 km tears it (Mach 1.7 limit)',
   ho[0].tore == null && ho[1].tore != null && ho[2].tore != null, ho.map(show).join(' '));
 
 // a wing torn off and still going far too fast doesn't tear again every step (the pieces fly on here)
