@@ -29,11 +29,12 @@ const Flight = {
     this.design = design;
     this.mp = (opts && opts.mp) || null;
     this.spawnOpts = opts || null;
-    const parts = design.parts.map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: q.rot || 0 }));
+    const parts = partsFromDesign(design.parts); // (with their depth, paint and what each is attached to)
     const adjAll = buildAdjacency(parts);
     const ctrl = findControlPart(parts);
     const keep = componentOf(ctrl.id, adjAll);
     const ps = parts.filter((p) => keep.has(p.id));
+    for (const p of ps) if (p.att != null && !keep.has(p.att)) p.att = null; // its host was left behind
     const adj = new Map();
     for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
     const v = new Vessel(ps, adj, EARTH);
@@ -232,14 +233,20 @@ const Flight = {
     this.toast(v.gearUp ? 'Gear up' : 'Gear down');
     this.updateHUD(true);
   },
-  // Over-stressed wings tear off and tumble away as debris (as do parts shot or knocked off).
+  // Over-stressed wings tear off and tumble away as debris (as do parts shot or knocked off), taking what's
+  // attached to them along (the engines and stores on a wing), unless the craft itself hangs off them.
   ripParts(v, parts, cause = 'g') {
     const ctrl = v.control;
     for (const p of parts) {
-      for (const n of [...(v.adj.get(p.id) || [])]) { v.adj.get(p.id).delete(n); v.adj.get(n) && v.adj.get(n).delete(p.id); }
-      const wp = v.toWorld(p.x, p.y), vel = { x: v.vx, y: v.vy, z: v.vz };
-      FX.sparks(v.body, wp, vel, 14);
-      FX.puff(v.body, wp, vel, 8, '#cfd5dc');
+      const go = new Set([p.id]);
+      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(ctrl)) for (const q of br) go.add(q.id); }
+      for (const id of go) for (const n of [...(v.adj.get(id) || [])]) if (!go.has(n)) { v.adj.get(id).delete(n); v.adj.get(n) && v.adj.get(n).delete(id); }
+      const zs = partZs(p), vel = { x: v.vx, y: v.vy, z: v.vz };
+      for (const z of zs) {
+        const wp = v.toWorld(p.x, p.y, z);
+        FX.sparks(v.body, wp, vel, 14 / zs.length);
+        FX.puff(v.body, wp, vel, 8 / zs.length, '#cfd5dc');
+      }
     }
     if (v === this.active) {
       this.toast(cause === 'g' ? `${parts[0].def.name} torn off at ${v.gForce.toFixed(1)} g!` : `${parts[0].def.name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
@@ -317,7 +324,7 @@ const Flight = {
       piece.av.x += tw.x * 0.08; piece.av.y += tw.y * 0.08; piece.av.z += tw.z * 0.08;
       this.vessels.push(piece);
     }
-    const wp = v.toWorld(sep.x, sep.y), vel = { x: v.vx, y: v.vy, z: v.vz };
+    const wp = v.toWorld(sep.x, sep.y, partZc(sep)), vel = { x: v.vx, y: v.vy, z: v.vz };
     FX.puff(v.body, wp, vel, 12, '#e8edf2');
     FX.sparks(v.body, wp, vel, 10);
     Sound.separate();
@@ -343,8 +350,7 @@ const Flight = {
     const air = airDensity(v.body, v.altitude()) > 0.01;
     const kv = cause === 'heat' ? 0.9 : 0.2;
     for (const p of parts) {
-      const wp = v.toWorld(p.x, p.y);
-      FX.explosion(v.body, wp, { x: v.vx * kv, y: v.vy * kv, z: v.vz * kv }, Math.max(p.def.w, p.def.h), air);
+      for (const z of partZs(p)) FX.explosion(v.body, v.toWorld(p.x, p.y, z), { x: v.vx * kv, y: v.vy * kv, z: v.vz * kv }, Math.max(p.def.w, p.def.h), air); // (each of a pair)
       v.parts = v.parts.filter((q) => q !== p);
       for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id);
       v.adj.delete(p.id);
@@ -852,9 +858,10 @@ const Flight = {
         if (rho > 0.01 || e.def.solid) {
           const smoky = e.def.solid ? 2.2 : e.def.plume === 'hydro' || e.def.plume === 'ion' || e.def.plume === 'nuclear' ? 0.35 : 1;
           e._emit = (e._emit || 0) + 22 * e.firing * Math.max(e.def.w, 1) * smoky * Math.min(1, rho * 2 + (e.def.solid ? 0.3 : 0)) * rate * dt;
+          const zs = partZs(e); // (from the engine's own depth; a pair takes turns)
           while (e._emit >= 1) {
             e._emit -= 1;
-            const np = partPt(e, 0, nz.y - e.def.w * 0.6), wp = v.toWorld(np.x, np.y);
+            const np = partPt(e, 0, nz.y - e.def.w * 0.6), wp = v.toWorld(np.x, np.y, zs[(e._puff ^= 1) % zs.length]);
             const sp = 25 + Math.random() * 25, j = randDir(), js = Math.random() * 5;
             FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z,
               vx: v.vx - dir.x * sp + j.x * js, vy: v.vy - dir.y * sp + j.y * js, vz: v.vz - dir.z * sp + j.z * js,
@@ -875,7 +882,7 @@ const Flight = {
         const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
         for (const s of [-1, 1]) {
           if (Math.random() > 0.35 + 0.6 * k) continue;
-          const wp = v.toWorld(v.mainWing.x, v.mainWing.y, s * half * 0.97);
+          const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
           FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
             max: 0.5 + 0.6 * k, size: 0.25, grow: 0.9, color: '#f4f8ff', alpha: 0.5 + 0.35 * k });
         }

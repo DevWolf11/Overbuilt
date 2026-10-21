@@ -433,11 +433,16 @@ function partStoreKg(def) { const w = def.weapon; return w ? w.ammo * (w.each ||
 function partKg(p) { return p.def.mass * 1000 + p.fuel + (p.store || 0); }
 
 let _partSeq = 1;
+// z: where the part sits across the blueprint (see partZ); att: the id of the part it is attached to;
+// skin: its paint (SKINS), null for its own look.
 function makePart(type, x, y, extra) {
   const def = PARTS[type];
-  const p = { id: _partSeq++, type, def, x, y, flip: x < 0, fuel: partFuelKg(def), active: false, deployed: 0, temp: AMBIENT_T };
+  const p = { id: _partSeq++, type, def, x, y, z: partDefaultZ(def), att: null, skin: null, flip: x < 0, fuel: partFuelKg(def), active: false, deployed: 0, temp: AMBIENT_T };
   if (def.weapon) { p.ammo = def.weapon.ammo; p.store = partStoreKg(def); }
   if (extra) Object.assign(p, extra);
+  if (!Number.isFinite(p.z)) p.z = partDefaultZ(def);
+  if (p.att === undefined) p.att = null;
+  if (p.skin === undefined) p.skin = null;
   return p;
 }
 // Parts turn in 90° steps about their centre: p.rot = 0..3, counterclockwise in part space.
@@ -470,6 +475,40 @@ function partDepth(p) {
   return d.w;
 }
 
+// ---------------------------------------------------------------------------
+// Depth: the third axis, across the blueprint (z). The 2D blueprint looks along it from +z; for planes
+// +z is the right wing. A part's p.z is where it sits along it. Twin parts (def.twinZ: engine pods,
+// stores, floats, twin tails) are a pair, one each side, and their p.z is how far out each one sits.
+// Wings span both sides through the centre and rocket legs and fins stand in fours around the stack,
+// so those always sit at z = 0.
+const PART_Z_MAX = 20;
+function hasOwn(o, k) { return o != null && Object.prototype.hasOwnProperty.call(o, k); }
+function zLocked(d) { return !!(d.wing || d.leg || d.fin); }
+function partDefaultZ(d) { return zLocked(d) ? 0 : d.twinZ || 0; }
+function twinMinZ(d) { return partDepth({ def: d }) / 2 + 0.05; } // closer in, the two halves would overlap
+function cleanZ(z, d) {
+  if (zLocked(d)) return 0;
+  if (!Number.isFinite(z)) return partDefaultZ(d);
+  if (d.twinZ) return clamp(Math.abs(z), twinMinZ(d), PART_Z_MAX);
+  return clamp(z, -PART_Z_MAX, PART_Z_MAX);
+}
+// The part's depth: the centre for one part, how far out each one sits for a twin pair (>= 0).
+function partZ(p) {
+  const d = p.def;
+  if (zLocked(d)) return 0;
+  const z = Number.isFinite(p.z) ? p.z : partDefaultZ(d);
+  return d.twinZ ? Math.abs(z) : z;
+}
+// Where its mass sits across: a pair balances out at 0.
+function partZc(p) { return p.def.twinZ ? 0 : partZ(p); }
+// The depth of each copy: both sides of a pair, else the part itself.
+function partZs(p) { const z = partZ(p); return p.def.twinZ ? [-z, z] : [z]; }
+// Its boxes in 3D, [l, r, b, t, near, far]: the side-view rectangle at each copy's depth.
+function partBoxes(p) {
+  const R = partRect(p), hd = partDepth(p) / 2;
+  return partZs(p).map((z) => [R.l, R.r, R.b, R.t, z - hd, z + hd]);
+}
+
 // Wheel centre and radius in part space. Most wheels hang below an upright strut; landing gear
 // struts run sideways, with the wheel at the outer end (away from the fuselage).
 function wheelGeom(p) {
@@ -478,41 +517,125 @@ function wheelGeom(p) {
   return { x: c.x, y: c.y, r };
 }
 
-// Two parts are attached if they share an edge segment.
+// How far two ranges overlap (negative: the gap between them).
+function spanOverlap(a0, a1, b0, b1) { return Math.min(a1, b1) - Math.max(a0, b0); }
+// Two parts are attached if they share a face: flush in one axis, overlapping in the other two.
 function partsTouch(a, b) {
-  const A = partRect(a), B = partRect(b), eps = 0.02, minOverlap = 0.1;
-  const ox = Math.min(A.r, B.r) - Math.max(A.l, B.l);
-  const oy = Math.min(A.t, B.t) - Math.max(A.b, B.b);
-  if (ox > minOverlap && (Math.abs(A.t - B.b) < eps || Math.abs(B.t - A.b) < eps)) return true;
-  if (oy > minOverlap && (Math.abs(A.r - B.l) < eps || Math.abs(B.r - A.l) < eps)) return true;
+  const A = partRect(a), B = partRect(b), eps = 0.02, m = 0.1;
+  const ox = spanOverlap(A.l, A.r, B.l, B.r), oy = spanOverlap(A.b, A.t, B.b, B.t);
+  const ty = ox > m && (Math.abs(A.t - B.b) < eps || Math.abs(B.t - A.b) < eps), tx = oy > m && (Math.abs(A.r - B.l) < eps || Math.abs(B.r - A.l) < eps);
+  if (!ty && !tx && !(ox > m && oy > m)) return false;
+  const ha = partDepth(a) / 2, hb = partDepth(b) / 2, mz = Math.min(m, ha, hb);
+  for (const za of partZs(a)) for (const zb of partZs(b)) {
+    const oz = spanOverlap(za - ha, za + ha, zb - hb, zb + hb);
+    if ((ty || tx) && oz > mz) return true;
+    if (ox > m && oy > m && Math.abs(oz) < eps) return true; // side by side across the blueprint
+  }
   return false;
 }
-function partsOverlap(a, b) {
+// The same in the side view alone, as parts joined before they had a depth.
+function partsTouch2D(a, b) {
+  const A = partRect(a), B = partRect(b), eps = 0.02, m = 0.1;
+  const ox = spanOverlap(A.l, A.r, B.l, B.r), oy = spanOverlap(A.b, A.t, B.b, B.t);
+  return (ox > m && (Math.abs(A.t - B.b) < eps || Math.abs(B.t - A.b) < eps)) || (oy > m && (Math.abs(A.r - B.l) < eps || Math.abs(B.r - A.l) < eps));
+}
+// Do the parts' boxes overlap by more than m (side view) and mz (across)?
+function partsOverlap(a, b, m = 0.02, mz = m) {
   const A = partRect(a), B = partRect(b);
-  return Math.min(A.r, B.r) - Math.max(A.l, B.l) > 0.02 && Math.min(A.t, B.t) - Math.max(A.b, B.b) > 0.02;
+  if (spanOverlap(A.l, A.r, B.l, B.r) <= m || spanOverlap(A.b, A.t, B.b, B.t) <= m) return false;
+  const ha = partDepth(a) / 2, hb = partDepth(b) / 2;
+  for (const za of partZs(a)) for (const zb of partZs(b)) if (spanOverlap(za - ha, za + ha, zb - hb, zb + hb) > mz) return true;
+  return false;
 }
 // Wings and tail surfaces are thin plates that may pass through the hull they are mounted on (a mid or
 // low wing, a fin on the tail cone), and engine pods and drop tanks hang off wings. So a surface and a
-// non-surface may overlap, and overlapping is how they attach; two parts of the same sort may not.
+// non-surface may overlap, and overlapping is how they attach; two parts of the same sort may not. A
+// wing and a fin are plates at right angles, so a fin may stand through a tailplane too.
 function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
-// Twin parts sit out to the sides (twinZ), so in the side view they may also overlap the centreline hull.
-function partsClash(a, b) {
-  if (!!a.def.twinZ !== !!b.def.twinZ) return false;
-  return isSurface(a.def) === isSurface(b.def) && partsOverlap(a, b);
-}
-function partsMounted(a, b) {
-  if (isSurface(a.def) === isSurface(b.def)) return false;
+function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
+function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
+function partsClash(a, b) { return !partsMix(a, b) && partsOverlap(a, b); }
+function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
+function partsMounted2D(a, b) {
+  if (!partsMix(a, b)) return false;
   const A = partRect(a), B = partRect(b);
-  return Math.min(A.r, B.r) - Math.max(A.l, B.l) > 0.04 && Math.min(A.t, B.t) - Math.max(A.b, B.b) > 0.04;
+  return spanOverlap(A.l, A.r, B.l, B.r) > 0.04 && spanOverlap(A.b, A.t, B.b, B.t) > 0.04;
+}
+// Twin parts placed before parts had a depth (no att) still join whatever they meet in the side view,
+// as the pylons drawn for them show: twin tails on the jet pipe, floats under the fuselage.
+function pylonLink(a, b) {
+  const old = (p) => p.def.twinZ && p.att == null;
+  return (old(a) || old(b)) && (partsTouch2D(a, b) || partsMounted2D(a, b));
 }
 
+// Which parts hold together: shared faces, surfaces through what they're mounted on, and every part
+// attached to another (att), wherever exactly it ended up.
 function buildAdjacency(parts) {
-  const adj = new Map();
-  for (const p of parts) adj.set(p.id, new Set());
+  const adj = new Map(), byId = new Map();
+  for (const p of parts) { adj.set(p.id, new Set()); byId.set(p.id, p); }
+  const link = (a, b) => { adj.get(a.id).add(b.id); adj.get(b.id).add(a.id); };
   for (let i = 0; i < parts.length; i++)
-    for (let j = i + 1; j < parts.length; j++)
-      if (partsTouch(parts[i], parts[j]) || partsMounted(parts[i], parts[j])) { adj.get(parts[i].id).add(parts[j].id); adj.get(parts[j].id).add(parts[i].id); }
+    for (let j = i + 1; j < parts.length; j++) {
+      const a = parts[i], b = parts[j];
+      if (partsTouch(a, b) || partsMounted(a, b) || pylonLink(a, b)) link(a, b);
+    }
+  for (const p of parts) if (p.att != null && p.att !== p.id && byId.has(p.att)) link(p, byId.get(p.att));
   return adj;
+}
+
+// ---------------------------------------------------------------------------
+// Designs as saved: [{type, x, y, flip, rot, z?, att?, skin?}], where att is the index of the part it is
+// attached to in the same list. Only what differs from the defaults is written, so designs saved before
+// parts had a depth or paint read back the same.
+function designRows(parts) {
+  const at = new Map(parts.map((p, i) => [p.id, i]));
+  return parts.map((p) => {
+    const q = { type: p.type, x: +p.x.toFixed(3), y: +p.y.toFixed(3), flip: p.flip, rot: p.rot || 0 }, z = partZ(p);
+    if (Math.abs(z - partDefaultZ(p.def)) > 5e-4) q.z = +z.toFixed(3);
+    if (p.att != null && at.has(p.att) && p.att !== p.id) q.att = at.get(p.att);
+    if (p.skin) q.skin = p.skin;
+    return q;
+  });
+}
+// ...and back. Rows of unknown parts are dropped only after the links are read, so indices still match;
+// anything malformed (from an old version, a pasted code or a peer) falls back to a default.
+function partsFromDesign(rows) {
+  if (!Array.isArray(rows)) return [];
+  const made = rows.map((q) => {
+    if (!q || typeof q.type !== 'string' || !hasOwn(PARTS, q.type) || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return null;
+    const def = PARTS[q.type];
+    return makePart(q.type, clamp(q.x, -500, 500), clamp(q.y, -500, 500), { flip: !!q.flip, rot: (q.rot | 0) & 3, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
+  });
+  made.forEach((p, i) => {
+    if (!p) return;
+    const a = rows[i].att, h = Number.isInteger(a) && a !== i ? made[a] : null;
+    p.att = h ? h.id : null;
+  });
+  const parts = made.filter(Boolean);
+  cleanAtt(parts);
+  return parts;
+}
+// Drop links to parts that aren't there and break any loop (a part attached, through others, to itself).
+function cleanAtt(parts) {
+  const byId = new Map(parts.map((p) => [p.id, p])), done = new Set();
+  for (const p of parts) if (p.att != null && (p.att === p.id || !byId.has(p.att))) p.att = null;
+  for (const p of parts) {
+    const path = new Set();
+    for (let q = p; q && q.att != null && !done.has(q.id); q = byId.get(q.att)) {
+      path.add(q.id);
+      if (path.has(q.att)) { q.att = null; break; }
+    }
+    for (const id of path) done.add(id);
+  }
+  return parts;
+}
+// Everything attached to these parts, and to what's attached to them, and so on (not the parts themselves).
+function attachedTo(parts, roots) {
+  const kids = new Map();
+  for (const p of parts) if (p.att != null) { if (!kids.has(p.att)) kids.set(p.att, []); kids.get(p.att).push(p); }
+  const seen = new Set(roots), out = [], stack = [...roots];
+  while (stack.length) for (const k of kids.get(stack.pop().id) || []) if (!seen.has(k)) { seen.add(k); out.push(k); stack.push(k); }
+  return out;
 }
 
 function componentOf(startId, adj, skip) {
@@ -723,21 +846,82 @@ const PAL = {
   orange: '#ff7a1a', glass: '#7fd8ff', gold: '#d9a441', goldDark: '#a7782a', hazard: '#ffc93c', chuteA: '#ff7a1a', chuteB: '#f3f1ea',
   shield: '#3a2f2a', shieldLight: '#5a4a40', nuclear: '#7dffb0', ion: '#7fb8ff',
 };
+// Paint. A skin repaints a part's body; markings that mean something (glass, hazard stripes, nozzles,
+// tyres, struts) keep their colours. Purely cosmetic: nothing but the drawing reads it, so a stealth-grey
+// wing is no stealthier. base: the body colour (#rrggbb); paint: reuse one of the tuned painters;
+// accent: what happens to livery stripes ('keep' them, null to hide them, unset: a tone of the base);
+// rough/metal: the finish in 3D.
+const SKINS = {
+  white: { name: 'Gloss white', base: '#e3e7eb', paint: 'hull', accent: 'keep' },
+  light: { name: 'Light grey', base: '#b9c0c7', accent: 'keep' },
+  grey: { name: 'Air-superiority grey', base: '#8e98a3' },
+  stealth: { name: 'Stealth grey', base: '#4b5058', paint: 'dark', accent: null, rough: 0.85, metal: 0.05 },
+  black: { name: 'Night black', base: '#26292e', accent: null, rough: 0.8, metal: 0.1 },
+  navy: { name: 'Navy blue', base: '#24344d' },
+  blue: { name: 'Blue', base: '#2f6fb7' },
+  olive: { name: 'Olive drab', base: '#5f6b52', rough: 0.8, metal: 0.05 },
+  tan: { name: 'Desert tan', base: '#c2ad84', rough: 0.75, metal: 0.05 },
+  red: { name: 'Racing red', base: '#c8322b' },
+  orange: { name: 'Safety orange', base: '#ff7a1a' },
+  yellow: { name: 'Trainer yellow', base: '#f2c230' },
+  metal: { name: 'Bare metal', base: '#8d96a0', paint: 'metal', accent: 'keep', rough: 0.35, metal: 0.75 },
+};
+const SKIN_IDS = Object.keys(SKINS);
+// Shapes that are all structure, rubber or cloth: nothing to paint.
+const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
+function skinnable(d) { return !NO_SKIN.has(d.shape); }
+function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
+// The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey).
+function ownSkin(d) { return d.style === 'stealth' ? 'stealth' : null; }
+// What a part looks painted in: its skin, else its own look.
+function skinOf(p) { return p.skin || ownSkin(p.def); }
+
 // With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
-// where real lighting does the shading).
-const PartPaint = { flat: false };
-function darkGradient(ctx, l, r) { // stealth grey
+// where real lighting does the shading). skin: the SKINS entry of the part being drawn, if any
+// (set by drawPart only).
+const PartPaint = { flat: false, skin: null };
+function darkGradient0(ctx, l, r) { // stealth grey
   if (PartPaint.flat) return '#4b5058';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#2d3036'); g.addColorStop(0.45, '#5a5f68'); g.addColorStop(1, '#33373d');
   return g;
 }
-function tintGradient(ctx, l, r, c) { // hull shading in another colour
+function tintGradient0(ctx, l, r, c) { // hull shading in another colour
   if (PartPaint.flat) return c;
   const k = ctx.createLinearGradient(l, 0, r, 0);
   k.addColorStop(0, shade(c, -0.35)); k.addColorStop(0.4, shade(c, 0.12)); k.addColorStop(1, shade(c, -0.25));
   return k;
 }
+// The painted body: the skin's own painter or its colour with hull shading.
+function skinFill(ctx, l, r) {
+  const s = PartPaint.skin;
+  switch (s.paint) {
+    case 'hull': return hullGradient0(ctx, l, r);
+    case 'dark': return darkGradient0(ctx, l, r);
+    case 'metal': return metalGradient(ctx, l, r);
+    default: return tintGradient0(ctx, l, r, s.base);
+  }
+}
+// Body painters: the part's own look unless it wears a skin.
+function darkGradient(ctx, l, r) { return PartPaint.skin ? skinFill(ctx, l, r) : darkGradient0(ctx, l, r); }
+function tintGradient(ctx, l, r, c) { return PartPaint.skin ? skinFill(ctx, l, r) : tintGradient0(ctx, l, r, c); }
+function hullGradient(ctx, l, r) { return PartPaint.skin ? skinFill(ctx, l, r) : hullGradient0(ctx, l, r); }
+function goldGradient(ctx, l, r) { return PartPaint.skin ? skinFill(ctx, l, r) : goldGradient0(ctx, l, r); }
+// metalGradient stays bare metal (nozzle bells, ramps); bodies made of metal use bodyMetal.
+function bodyMetal(ctx, l, r) { return PartPaint.skin ? skinFill(ctx, l, r) : metalGradient(ctx, l, r); }
+// A body painted some other way: own() gives its unskinned fill.
+function bodyGrad(ctx, l, r, own) { return PartPaint.skin ? skinFill(ctx, l, r) : own(); }
+// A flat body colour, and a darker or lighter tone of the body (belly, chines, ribs).
+function bodyFlat(hex) { return PartPaint.skin ? PartPaint.skin.base : hex; }
+function bodyTone(hex, k) { return PartPaint.skin ? shade(PartPaint.skin.base, k) : hex; }
+// A livery stripe or tip: as drawn, hidden, or a tone of the skin.
+function accent(css) {
+  const s = PartPaint.skin;
+  if (!s || s.accent === 'keep') return css;
+  if (s.accent === null) return 'rgba(0,0,0,0)';
+  return s.accent || shade(s.base, skinLum(s.base) < 0.35 ? 0.22 : -0.25);
+}
+function skinLum(hex) { const n = parseInt(hex.slice(1), 16); return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255; }
 function shade(hex, k) { // lighten (k > 0) or darken a #rrggbb colour
   const n = parseInt(hex.slice(1), 16), f = (v) => Math.round(clamp(k > 0 ? v + (255 - v) * k : v * (1 + k), 0, 255));
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
@@ -749,7 +933,7 @@ function sawtooth(ctx, l, r, y, k) {
   for (let i = 0; i < n; i++) { ctx.lineTo(l + dx * (i + 0.5), y + k); ctx.lineTo(l + dx * (i + 1), y); }
   ctx.stroke();
 }
-function hullGradient(ctx, l, r) {
+function hullGradient0(ctx, l, r) {
   if (PartPaint.flat) return '#e3e7eb';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#9da6b0'); g.addColorStop(0.3, '#f5f7f9'); g.addColorStop(0.55, '#e6e9ed'); g.addColorStop(1, '#8e97a1');
@@ -761,7 +945,7 @@ function metalGradient(ctx, l, r) {
   g.addColorStop(0, '#3f454d'); g.addColorStop(0.35, '#b8c0c9'); g.addColorStop(0.6, '#8a939d'); g.addColorStop(1, '#353a41');
   return g;
 }
-function goldGradient(ctx, l, r) {
+function goldGradient0(ctx, l, r) {
   if (PartPaint.flat) return '#d6a243';
   const g = ctx.createLinearGradient(l, 0, r, 0);
   g.addColorStop(0, '#8c6420'); g.addColorStop(0.35, '#f0c35c'); g.addColorStop(0.65, '#d9a441'); g.addColorStop(1, '#7c5718');
@@ -873,7 +1057,20 @@ function turned(ctx, p, draw) {
   ctx.restore();
 }
 function partPath(ctx, p) { turned(ctx, p, (q) => partPath0(ctx, q)); }
-function drawPart(ctx, p, lw) { turned(ctx, p, (q) => drawPart0(ctx, q, lw)); }
+// The order to draw parts in the side view, back to front: by depth (the view looks from +z, so the far
+// side first), then legs, fins and wheels, the hull, the wings and tail surfaces through it, and the pods
+// hanging off them. Picking goes the other way.
+function sideLayer(d) { return d.pod ? 3 : isSurface(d) ? 2 : d.leg || d.fin || d.wheel ? 0 : 1; }
+function sideOrder(parts) {
+  return parts.map((p, i) => [p, Math.round(partZ(p) * 20), sideLayer(p.def), i])
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2] || a[3] - b[3]).map((e) => e[0]);
+}
+// Draw a part in its paint (the one place a skin is switched on).
+function drawPart(ctx, p, lw) {
+  const prev = PartPaint.skin;
+  PartPaint.skin = p.skin && hasOwn(SKINS, p.skin) && skinnable(p.def) ? SKINS[p.skin] : null;
+  try { turned(ctx, p, (q) => drawPart0(ctx, q, lw)); } finally { PartPaint.skin = prev; }
+}
 
 function partPath0(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
@@ -1014,7 +1211,7 @@ function drawPart0(ctx, p, lw) {
       const tw = w * 0.42;
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.fillStyle = '#4a3a30'; ctx.fillRect(l, b, w, h * 0.09);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x - tw / 2, t - h * 0.08, tw, h * 0.08);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x - tw / 2, t - h * 0.08, tw, h * 0.08);
       // panel line
       ctx.strokeStyle = 'rgba(20,26,34,0.25)';
       ctx.beginPath(); ctx.moveTo(l + w * 0.08, b + h * 0.45); ctx.lineTo(r - w * 0.08, b + h * 0.45); ctx.stroke();
@@ -1038,7 +1235,7 @@ function drawPart0(ctx, p, lw) {
     case 'probeL': {
       ctx.fillStyle = goldGradient(ctx, l, r);
       ctx.fillRect(l, b, w, h * 0.75); ctx.strokeRect(l, b, w, h * 0.75);
-      ctx.fillStyle = PAL.goldDark;
+      ctx.fillStyle = bodyTone(PAL.goldDark, -0.3);
       for (let i = 1; i < 4; i++) ctx.fillRect(l + (w * i) / 4 - 0.02, b, 0.04, h * 0.75);
       ctx.fillStyle = PAL.ink; ctx.fillRect(x - w * 0.18, b + h * 0.18, w * 0.36, h * 0.38);
       ctx.fillStyle = PAL.glass; ctx.fillRect(x - w * 0.06, b + h * 0.28, w * 0.12, h * 0.16);
@@ -1052,7 +1249,7 @@ function drawPart0(ctx, p, lw) {
       const band = Math.min(0.16, h * 0.12);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, band); ctx.fillRect(l, t - band, w, band);
       if (h >= 2) {
-        ctx.fillStyle = 'rgba(255,122,26,0.95)';
+        ctx.fillStyle = accent('rgba(255,122,26,0.95)');
         ctx.fillRect(l + w * 0.14, b + band, Math.min(0.18, w * 0.09), h - band * 2);
       }
       if (h >= 3) {
@@ -1072,7 +1269,7 @@ function drawPart0(ctx, p, lw) {
     case 'engine': {
       const mh = h * d.mount;
       if (d.style === 'nuclear') {
-        ctx.fillStyle = '#2b3138'; ctx.fillRect(l + w * 0.1, t - mh, w * 0.8, mh); ctx.strokeRect(l + w * 0.1, t - mh, w * 0.8, mh);
+        ctx.fillStyle = bodyFlat('#2b3138'); ctx.fillRect(l + w * 0.1, t - mh, w * 0.8, mh); ctx.strokeRect(l + w * 0.1, t - mh, w * 0.8, mh);
         ctx.fillStyle = PAL.nuclear;
         for (let i = 0; i < 3; i++) ctx.fillRect(l + w * 0.1, t - mh * (0.25 + i * 0.25), w * 0.8, mh * 0.05);
         ctx.fillStyle = '#ffd23f';
@@ -1081,7 +1278,7 @@ function drawPart0(ctx, p, lw) {
         ctx.fillStyle = '#5a636d';
         ctx.fillRect(l, t - mh * 0.85, w * 0.1, mh * 0.6); ctx.fillRect(r - w * 0.1, t - mh * 0.85, w * 0.1, mh * 0.6);
       } else {
-        ctx.fillStyle = metalGradient(ctx, l + w * 0.12, r - w * 0.12);
+        ctx.fillStyle = bodyMetal(ctx, l + w * 0.12, r - w * 0.12);
         ctx.fillRect(l + w * 0.12, t - mh, w * 0.76, mh);
         ctx.strokeRect(l + w * 0.12, t - mh, w * 0.76, mh);
         ctx.fillStyle = PAL.ink; ctx.fillRect(l + w * 0.12, t - mh * 0.35, w * 0.76, mh * 0.12);
@@ -1106,7 +1303,7 @@ function drawPart0(ctx, p, lw) {
     }
     case 'spike': {
       const mh = h * d.mount;
-      ctx.fillStyle = metalGradient(ctx, l, r); ctx.fillRect(l + w * 0.05, t - mh, w * 0.9, mh); ctx.strokeRect(l + w * 0.05, t - mh, w * 0.9, mh);
+      ctx.fillStyle = bodyMetal(ctx, l, r); ctx.fillRect(l + w * 0.05, t - mh, w * 0.9, mh); ctx.strokeRect(l + w * 0.05, t - mh, w * 0.9, mh);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l + w * 0.05, t - mh * 0.4, w * 0.9, mh * 0.15);
       ctx.beginPath(); ctx.moveTo(l + w * 0.08, t - mh); ctx.lineTo(r - w * 0.08, t - mh); ctx.lineTo(x + w * 0.14, b); ctx.lineTo(x - w * 0.14, b); ctx.closePath();
       ctx.fillStyle = metalGradient(ctx, l, r); ctx.fill(); ctx.stroke();
@@ -1116,7 +1313,7 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'ion': {
-      ctx.fillStyle = metalGradient(ctx, l, r); ctx.fillRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7); ctx.strokeRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7);
+      ctx.fillStyle = bodyMetal(ctx, l, r); ctx.fillRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7); ctx.strokeRect(l + w * 0.1, b + h * 0.3, w * 0.8, h * 0.7);
       ctx.fillStyle = '#20262e'; ctx.beginPath(); ctx.ellipse(x, b + h * 0.3, w * 0.4, h * 0.3, 0, Math.PI, TAU); ctx.fill(); ctx.stroke();
       ctx.strokeStyle = 'rgba(127,184,255,0.7)';
       for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(x + i * w * 0.08, b + h * 0.3); ctx.lineTo(x + i * w * 0.08, b + h * 0.06); ctx.stroke(); }
@@ -1130,7 +1327,7 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = PAL.ink;
       const seg = (h - nh) / 4;
       for (let i = 1; i < 4; i++) ctx.fillRect(l, b + nh + seg * i - 0.05, w, 0.1);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - 0.35, w, 0.35);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, t - 0.35, w, 0.35);
       ctx.fillStyle = '#2b3138'; ctx.fillRect(l, b + nh, w, 0.14);
       ctx.strokeRect(l, b + nh, w, h - nh);
       ctx.beginPath(); ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
@@ -1157,7 +1354,7 @@ function drawPart0(ctx, p, lw) {
     }
     case 'nose': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
-      ctx.save(); ctx.clip(); ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
+      ctx.save(); ctx.clip(); ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, Math.min(0.1, h * 0.08)); ctx.restore();
       partPath(ctx, p); ctx.stroke();
       break;
@@ -1166,7 +1363,7 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       const s = p.flip ? -1 : 1;
-      ctx.fillStyle = PAL.orange; ctx.fillRect(Math.min(x + s * w * 0.25, x + s * w / 2), b, w * 0.25, h);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(Math.min(x + s * w * 0.25, x + s * w / 2), b, w * 0.25, h);
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
       break;
@@ -1222,7 +1419,7 @@ function drawPart0(ctx, p, lw) {
     }
     case 'rcs': {
       const s = p.flip ? -1 : 1, out = x + s * w / 2;
-      ctx.fillStyle = '#d7dce1'; ctx.fillRect(l, y - h * 0.3, w, h * 0.6); ctx.strokeRect(l, y - h * 0.3, w, h * 0.6);
+      ctx.fillStyle = bodyFlat('#d7dce1'); ctx.fillRect(l, y - h * 0.3, w, h * 0.6); ctx.strokeRect(l, y - h * 0.3, w, h * 0.6);
       ctx.fillStyle = PAL.steelDark;
       ctx.fillRect(x - w * 0.12, t - h * 0.2, w * 0.24, h * 0.2);
       ctx.fillRect(x - w * 0.12, b, w * 0.24, h * 0.2);
@@ -1243,7 +1440,7 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.1, w, h * 0.1); // nose cap
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.12, h * 0.75); // stripe along the belly side
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.05, b, w * 0.12, h * 0.75); // stripe along the belly side
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
       // bubble canopy on the -x side (the top of a plane)
@@ -1257,11 +1454,11 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = stealth ? darkGradient(ctx, l, r) : hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       if (stealth) { // dark chines along both edges and sawtooth panel lines
-        ctx.fillStyle = '#2b2e34'; ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
+        ctx.fillStyle = bodyTone('#2b2e34', -0.42); ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
         ctx.strokeStyle = 'rgba(15,17,20,0.7)'; ctx.lineWidth = lw; sawtooth(ctx, l, r, b + h * 0.12, h * 0.05); sawtooth(ctx, l, r, b + h * 0.62, h * 0.05);
       } else {
         ctx.fillStyle = '#3a4048'; ctx.fillRect(l, t - h * 0.2, w, h * 0.2); // radome tip
-        ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.05, b, w * 0.1, h * 0.6);
+        ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.05, b, w * 0.1, h * 0.6);
       }
       ctx.restore();
       ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
@@ -1275,8 +1472,8 @@ function drawPart0(ctx, p, lw) {
     case 'glassnose': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
-      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.1, b, w * 0.05, h * 0.6);
+      ctx.fillStyle = bodyTone('#c9ced4', -0.11); ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.1, b, w * 0.05, h * 0.6);
       ctx.fillStyle = PAL.glass; ctx.fillRect(l, b + h * 0.6, w, h * 0.4); // the glazed tip, framed
       ctx.strokeStyle = 'rgba(40,48,58,0.85)'; ctx.lineWidth = lw * 1.3;
       ctx.beginPath();
@@ -1292,8 +1489,8 @@ function drawPart0(ctx, p, lw) {
     }
     case 'cabin': { // a fuselage section with a bubble canopy on top (-x)
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
-      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.06); ctx.fillRect(l, t - 0.06, w, 0.06);
       ctx.strokeRect(l, b, w, h);
       ctx.beginPath(); ctx.ellipse(x - w * 0.42, y + h * 0.05, w * 0.22, h * 0.34, 0, 0, TAU);
@@ -1306,7 +1503,7 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = PAL.glass; ctx.fill();
       ctx.save(); ctx.clip();
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h * 0.24); // floor and doors' sills
-      ctx.fillStyle = PAL.orange; ctx.fillRect(l, b + h * 0.24, w, h * 0.04);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, b + h * 0.24, w, h * 0.04);
       ctx.fillStyle = '#3a4048'; ctx.beginPath(); ctx.arc(x - w * 0.08, b + h * 0.5, w * 0.11, 0, TAU); ctx.fill(); // the pilot
       ctx.strokeStyle = 'rgba(40,48,58,0.8)'; ctx.lineWidth = lw * 1.3;
       ctx.beginPath(); ctx.moveTo(x + w * 0.12, b + h * 0.28); ctx.lineTo(x + w * 0.04, t); ctx.stroke();
@@ -1318,19 +1515,19 @@ function drawPart0(ctx, p, lw) {
     }
     case 'dronecore': {
       const bh = h * 0.78;
-      ctx.fillStyle = PartPaint.flat ? '#6b737c' : metalGradient(ctx, l, r); ctx.fillRect(l, b, w, bh); ctx.strokeRect(l, b, w, bh);
+      ctx.fillStyle = bodyGrad(ctx, l, r, () => (PartPaint.flat ? '#6b737c' : metalGradient(ctx, l, r))); ctx.fillRect(l, b, w, bh); ctx.strokeRect(l, b, w, bh);
       ctx.beginPath(); ctx.ellipse(x, b + bh, w * 0.34, h - bh, 0, 0, Math.PI); ctx.fillStyle = '#e9ecef'; ctx.fill(); ctx.stroke(); // satellite dome
       ctx.fillStyle = PAL.ink; for (let i = 0; i < 3; i++) ctx.fillRect(l + w * 0.15, b + h * (0.12 + i * 0.12), w * 0.7, 0.05); // vents
       ctx.fillStyle = '#7dffb0'; ctx.fillRect(l + w * 0.12, b + h * 0.58, w * 0.12, w * 0.12); // status light
-      ctx.fillStyle = PAL.orange; ctx.fillRect(r - w * 0.22, b + h * 0.58, w * 0.1, w * 0.12);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(r - w * 0.22, b + h * 0.58, w * 0.1, w * 0.12);
       break;
     }
     case 'rotodome': {
       const dw = w * 0.32;
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(l + w * 0.3, y - 0.6, w * 0.7, 1.2); ctx.strokeRect(l + w * 0.3, y - 0.6, w * 0.7, 1.2);
-      ctx.fillStyle = PartPaint.flat ? '#eef1f4' : hullGradient(ctx, l, l + dw); ctx.fillRect(l, b, dw, h);
+      ctx.fillStyle = bodyGrad(ctx, l, l + dw, () => (PartPaint.flat ? '#eef1f4' : hullGradient0(ctx, l, l + dw))); ctx.fillRect(l, b, dw, h);
       ctx.fillStyle = '#2b3036'; ctx.fillRect(l, b + h * 0.06, dw, h * 0.3); ctx.fillRect(l, t - h * 0.36, dw, h * 0.3); // the radar arrays
-      ctx.fillStyle = PAL.orange; ctx.fillRect(l + dw * 0.3, y - 0.2, dw * 0.4, 0.4);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l + dw * 0.3, y - 0.2, dw * 0.4, 0.4);
       ctx.strokeRect(l, b, dw, h);
       break;
     }
@@ -1339,15 +1536,15 @@ function drawPart0(ctx, p, lw) {
       for (const yy of [y + h * 0.25, y - h * 0.25]) { ctx.fillRect(l, yy - 0.07, w - 0.2, 0.14); ctx.strokeRect(l, yy - 0.07, w - 0.2, 0.14); }
       ctx.beginPath(); ctx.moveTo(r - 0.24, b + 0.1); ctx.lineTo(r, b + 0.1); ctx.lineTo(r, t - 0.35); ctx.quadraticCurveTo(r, t - 0.05, r - 0.4, t - 0.1);
       ctx.lineTo(r - 0.4, t - 0.24); ctx.quadraticCurveTo(r - 0.24, t - 0.26, r - 0.24, t - 0.4); ctx.closePath();
-      ctx.fillStyle = PAL.steelLight; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = bodyFlat(PAL.steelLight); ctx.fill(); ctx.stroke();
       break;
     }
     case 'airnose': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
-      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
-      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h * 0.8);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h * 0.7);
+      ctx.fillStyle = bodyTone('#c9ced4', -0.11); ctx.fillRect(x + w * 0.22, b, w * 0.3, h); // belly
+      ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h * 0.8);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.14, b, w * 0.04, h * 0.7);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.05, w, h * 0.05);
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
@@ -1361,7 +1558,7 @@ function drawPart0(ctx, p, lw) {
       const s = 0.09, xa = x - w / 2, xb = x - w * 0.1;
       ctx.fillStyle = PAL.steelDark; // struts up to the fuselage
       for (const yy of [y + h * 0.18, y - h * 0.22]) ctx.fillRect(xa, yy - s / 2, xb - xa, s);
-      partPath(ctx, p); ctx.fillStyle = PartPaint.flat ? '#e8b23a' : (() => { const g = ctx.createLinearGradient(xb, 0, x + w / 2, 0); g.addColorStop(0, '#ffd36a'); g.addColorStop(1, '#c98f1c'); return g; })();
+      partPath(ctx, p); ctx.fillStyle = bodyGrad(ctx, xb, x + w / 2, () => { if (PartPaint.flat) return '#e8b23a'; const g = ctx.createLinearGradient(xb, 0, x + w / 2, 0); g.addColorStop(0, '#ffd36a'); g.addColorStop(1, '#c98f1c'); return g; });
       ctx.fill();
       ctx.save(); ctx.clip(); ctx.fillStyle = PAL.ink; ctx.fillRect(x + w * 0.3, b, w * 0.2, h); ctx.restore();
       partPath(ctx, p); ctx.stroke();
@@ -1370,12 +1567,12 @@ function drawPart0(ctx, p, lw) {
     case 'droptank': {
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w / 2, y - h * 0.15, w * 0.5, h * 0.3); // pylon
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, x - w * 0.05, r); ctx.fill();
-      ctx.save(); ctx.clip(); ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.14, w, h * 0.06); ctx.fillRect(l, b + h * 0.08, w, h * 0.06); ctx.restore();
+      ctx.save(); ctx.clip(); ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, t - h * 0.14, w, h * 0.06); ctx.fillRect(l, b + h * 0.08, w, h * 0.06); ctx.restore();
       partPath(ctx, p); ctx.stroke();
       break;
     }
     case 'airbrake': {
-      ctx.fillStyle = PAL.steelLight; ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = bodyFlat(PAL.steelLight); ctx.fillRect(l, b, w, h);
       ctx.fillStyle = PAL.hazard;
       for (let yy = b; yy < t - 0.01; yy += 0.3) ctx.fillRect(l, yy, w, 0.15);
       ctx.strokeRect(l, b, w, h);
@@ -1384,9 +1581,9 @@ function drawPart0(ctx, p, lw) {
     case 'fuselage': {
       if (d.style) { drawFuselageStyle(ctx, p, lw); break; }
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, b, w, h);
-      ctx.fillStyle = '#c9ced4'; ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
-      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h); // cheatline
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = bodyTone('#c9ced4', -0.11); ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
+      ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h); // cheatline
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
       ctx.fillStyle = PAL.glass;
       for (let yy = b + 0.35; yy < t - 0.3; yy += 0.55) ctx.fillRect(x - w * 0.2, yy, w * 0.13, 0.28);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.06); ctx.fillRect(l, t - 0.06, w, 0.06);
@@ -1397,8 +1594,8 @@ function drawPart0(ctx, p, lw) {
     case 'tailcone': {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
-      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+      ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, 0.12);
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
@@ -1417,7 +1614,7 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       ctx.fillStyle = PAL.steel; ctx.fillRect(l - 1, t - h * 0.08, w + 2, h * 0.08); // leading edge
-      ctx.fillStyle = d.shape === 'elevator' ? PAL.orange : 'rgba(255,122,26,0.85)';
+      ctx.fillStyle = accent(d.shape === 'elevator' ? PAL.orange : 'rgba(255,122,26,0.85)'); // control surfaces
       ctx.fillRect(l - 1, b - 1, w + 2, h * (d.shape === 'elevator' ? 0.35 : 0.18) + 1);
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
@@ -1427,15 +1624,15 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       const s = p.flip ? -1 : 1, out = x + s * w / 2;
-      ctx.fillStyle = PAL.orange; ctx.fillRect(Math.min(out, out - s * w * 0.3), b, w * 0.3, h);
-      ctx.fillStyle = '#2f6fb7'; ctx.fillRect(l, b, w, h * 0.12);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(Math.min(out, out - s * w * 0.3), b, w * 0.3, h);
+      ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(l, b, w, h * 0.12);
       ctx.restore();
       partPath(ctx, p); ctx.stroke();
       break;
     }
     case 'prop': {
       const R = propRadius(d), rows = d.contra ? [b + h * 0.38, b + h * 0.56] : [b + h * 0.42];
-      ctx.fillStyle = metalGradient(ctx, x - 0.36, x + 0.36); ctx.fillRect(x - 0.36, b, 0.72, h * 0.3); ctx.strokeRect(x - 0.36, b, 0.72, h * 0.3);
+      ctx.fillStyle = bodyMetal(ctx, x - 0.36, x + 0.36); ctx.fillRect(x - 0.36, b, 0.72, h * 0.3); ctx.strokeRect(x - 0.36, b, 0.72, h * 0.3);
       rows.forEach((yb, row) => {
         if (p.firing > 0.3) { // blur of the spinning disc, seen edge-on
           ctx.fillStyle = `rgba(150,160,175,${0.25 * p.firing})`;
@@ -1461,20 +1658,20 @@ function drawPart0(ctx, p, lw) {
     }
     case 'jet': {
       const scram = d.style === 'scram', pulse = d.style === 'pulse';
-      partPath(ctx, p); ctx.fillStyle = scram ? darkGradient(ctx, l, r) : pulse ? tintGradient(ctx, l, r, '#8a6f55') : metalGradient(ctx, l, r); ctx.fill();
+      partPath(ctx, p); ctx.fillStyle = scram ? darkGradient(ctx, l, r) : pulse ? tintGradient(ctx, l, r, '#8a6f55') : bodyMetal(ctx, l, r); ctx.fill();
       ctx.save(); ctx.clip();
       if (scram) { // heat tiles, and the wedge of the intake ramp
         ctx.strokeStyle = 'rgba(10,12,14,0.5)'; ctx.lineWidth = lw;
         ctx.beginPath(); for (let yy = b + 0.3; yy < t; yy += 0.4) { ctx.moveTo(l, yy); ctx.lineTo(r, yy); } ctx.stroke();
         ctx.fillStyle = '#1b1d21'; ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(x, t - h * 0.3); ctx.lineTo(r, t); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = PAL.orange; ctx.fillRect(l, b + h * 0.08, w, h * 0.03);
+        ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, b + h * 0.08, w, h * 0.03);
       } else if (pulse) { // a valve box at the front, rings down the pipe
-        ctx.fillStyle = '#5d4a3a'; ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
+        ctx.fillStyle = bodyTone('#5d4a3a', -0.3); ctx.fillRect(l, t - h * 0.22, w, h * 0.22);
         ctx.fillStyle = 'rgba(30,22,16,0.5)'; for (let i = 1; i < 6; i++) ctx.fillRect(l, b + h * 0.13 * i, w, 0.05);
       }
       if (scram || pulse) { ctx.restore(); partPath(ctx, p); ctx.stroke(); ctx.fillStyle = '#15181c'; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.08); if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.4 * p.firing})`; ctx.fillRect(x - w * 0.24, b, w * 0.48, 0.12); } break; }
       ctx.fillStyle = hullGradient(ctx, l, r); ctx.fillRect(l, t - h * 0.55, w, h * 0.55); // cowling
-      ctx.fillStyle = PAL.orange; ctx.fillRect(l, t - h * 0.58, w, h * 0.04);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, t - h * 0.58, w, h * 0.04);
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, t - h * 0.06, w, h * 0.06); // intake lip
       ctx.fillStyle = 'rgba(20,24,30,0.45)'; for (let i = 1; i < 4; i++) ctx.fillRect(l, b + h * 0.1 * i, w, 0.04);
       ctx.restore();
@@ -1539,11 +1736,11 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'cab': {
-      partPath(ctx, p); ctx.fillStyle = PartPaint.flat ? '#e2642e' : (() => { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, '#b8481d'); g.addColorStop(0.5, '#ef7a3c'); g.addColorStop(1, '#d4602a'); return g; })();
+      partPath(ctx, p); ctx.fillStyle = bodyGrad(ctx, l, r, () => { if (PartPaint.flat) return '#e2642e'; const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, '#b8481d'); g.addColorStop(0.5, '#ef7a3c'); g.addColorStop(1, '#d4602a'); return g; });
       ctx.fill();
       ctx.save(); ctx.clip();
       ctx.fillStyle = PAL.ink; ctx.fillRect(l, b, w, h * 0.12);
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(l, b + h * 0.3, w, h * 0.06);
+      ctx.fillStyle = accent('rgba(255,255,255,0.75)'); ctx.fillRect(l, b + h * 0.3, w, h * 0.06);
       ctx.restore();
       // side windows: one behind the windscreen, one at the back
       ctx.fillStyle = PAL.glass;
@@ -1555,7 +1752,7 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'chassis': {
-      ctx.fillStyle = '#3a4048'; ctx.fillRect(l, b, w, h);
+      ctx.fillStyle = bodyFlat('#3a4048'); ctx.fillRect(l, b, w, h);
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, b + h * 0.35, w, h * 0.3);
       ctx.fillStyle = PAL.hazard; ctx.fillRect(l, t - h * 0.18, 0.4, h * 0.18); ctx.fillRect(r - 0.4, t - h * 0.18, 0.4, h * 0.18);
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
@@ -1567,7 +1764,7 @@ function drawPart0(ctx, p, lw) {
     case 'gun': {
       if (d.barrels > 1) { // a rotary cannon: drum, motor and a cluster of barrels that turns as it fires
         const bw = w * 0.56, bt = b + h * 0.36;
-        ctx.fillStyle = '#5d6670'; ctx.fillRect(l, b, w, h * 0.36); ctx.strokeRect(l, b, w, h * 0.36);
+        ctx.fillStyle = bodyFlat('#5d6670'); ctx.fillRect(l, b, w, h * 0.36); ctx.strokeRect(l, b, w, h * 0.36);
         ctx.fillStyle = '#2b3036'; ctx.fillRect(x - bw / 2, bt, bw, t - bt); ctx.strokeRect(x - bw / 2, bt, bw, t - bt);
         ctx.fillStyle = '#4a525b';
         for (let i = 0; i < 3; i++) { const k = Math.sin((p.spin || 0) + (i * TAU) / 3) * bw * 0.32; ctx.fillRect(x + k - bw * 0.07, bt, bw * 0.14, t - bt); }
@@ -1575,7 +1772,7 @@ function drawPart0(ctx, p, lw) {
         break;
       }
       const big = (d.calibre || 0) > 20, bw = w * (big ? 0.34 : 0.3);
-      ctx.fillStyle = '#5d6670'; ctx.fillRect(l, b, w, h * 0.42); ctx.strokeRect(l, b, w, h * 0.42); // receiver
+      ctx.fillStyle = bodyFlat('#5d6670'); ctx.fillRect(l, b, w, h * 0.42); ctx.strokeRect(l, b, w, h * 0.42); // receiver
       ctx.fillStyle = '#2b3036'; ctx.fillRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); ctx.strokeRect(x - bw / 2, b + h * 0.42, bw, h * 0.58); // barrel
       ctx.fillStyle = '#1b1f24'; ctx.fillRect(x - bw * 0.8, t - h * 0.08, bw * 1.6, h * 0.08); // muzzle
       if (big) { ctx.fillStyle = '#3d444c'; ctx.fillRect(l + w * 0.1, b + h * 0.08, w * 0.8, h * 0.06); }
@@ -1595,7 +1792,7 @@ function drawPart0(ctx, p, lw) {
       } else {
         ctx.moveTo(bl, b + h * 0.05); ctx.lineTo(bl, bt - h * 0.08); ctx.quadraticCurveTo(cx, bt + h * 0.02, br, bt - h * 0.08); ctx.lineTo(br, b + h * 0.05); ctx.closePath();
       }
-      ctx.fillStyle = storeColour(d); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = bodyFlat(storeColour(d)); ctx.fill(); ctx.stroke();
       if (d.style) { drawStoreStyle(ctx, d, cx, rw, b, t, h); break; }
       if (d.shape === 'missile') { // fins, seeker and a band
         ctx.fillStyle = '#4d545d';
@@ -1604,7 +1801,7 @@ function drawPart0(ctx, p, lw) {
         ctx.fillStyle = d.weapon.radar ? '#e8e2d0' : '#2c3a48'; ctx.fillRect(bl, t - h * 0.2, rw, h * 0.05);
         ctx.fillStyle = d.agm ? '#3f6b3a' : '#ffb547'; ctx.fillRect(bl, y - h * 0.02, rw, h * 0.04);
       } else if (d.shape === 'bomb') { // tail fins and yellow nose band
-        ctx.fillStyle = '#4b5541'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12); ctx.strokeRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12);
+        ctx.fillStyle = bodyTone('#4b5541', -0.2); ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12); ctx.strokeRect(cx - rw * 0.55, b, rw * 1.1, h * 0.12);
         ctx.fillStyle = PAL.hazard; ctx.fillRect(cx - rw * 0.42, t - h * 0.22, rw * 0.84, h * 0.04);
       } else if (d.shape === 'rocketpod') { // tube mouths
         ctx.fillStyle = '#1b1f24';
@@ -1619,7 +1816,7 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(l, y - h * 0.18, cx - l, h * 0.36);
       ctx.beginPath(); ctx.moveTo(cx - rw / 2, b + h * 0.12); ctx.lineTo(cx - rw / 2, t - h * 0.12); ctx.quadraticCurveTo(cx, t + h * 0.02, cx + rw / 2, t - h * 0.12);
       ctx.lineTo(cx + rw / 2, b + h * 0.12); ctx.quadraticCurveTo(cx, b - h * 0.02, cx - rw / 2, b + h * 0.12); ctx.closePath();
-      ctx.fillStyle = '#7d8790'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = bodyFlat('#7d8790'); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw / 2, t - h * 0.2, rw, h * 0.08); ctx.fillRect(cx - rw / 2, b + h * 0.12, rw, h * 0.08); // emitter windows
       ctx.fillStyle = '#4d545d';
       for (const yy of [y - h * 0.15, y + h * 0.1]) { ctx.beginPath(); ctx.moveTo(cx + rw / 2, yy); ctx.lineTo(cx + rw / 2 + 0.18, yy - 0.05); ctx.lineTo(cx + rw / 2 + 0.18, yy + 0.12); ctx.lineTo(cx + rw / 2, yy + 0.16); ctx.closePath(); ctx.fill(); }
@@ -1631,19 +1828,19 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = '#2b3036';
       for (const dx of [-0.05, 0.05]) { ctx.fillRect(x - w * 0.09 + dx - 0.035, y, 0.07, h / 2); }
       ctx.beginPath(); ctx.ellipse(x - w * 0.04, y, w * 0.36, h * 0.34, 0, 0, TAU);
-      ctx.fillStyle = PartPaint.flat ? '#7d8790' : metalGradient(ctx, x - w * 0.4, x + w * 0.32); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = bodyGrad(ctx, x - w * 0.4, x + w * 0.32, () => (PartPaint.flat ? '#7d8790' : metalGradient(ctx, x - w * 0.4, x + w * 0.32))); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(x - w * 0.16, y + h * 0.08, w * 0.14, h * 0.13, 0, 0, TAU); ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
       break;
     }
     case 'flares': {
-      ctx.fillStyle = '#4d545d'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = bodyFlat('#4d545d'); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
       ctx.fillStyle = '#ffb547';
       for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(l + w * (0.3 + j * 0.4), b + h * (0.2 + i * 0.3), w * 0.12, 0, TAU); ctx.fill(); }
       break;
     }
     case 'smokegen': {
-      ctx.fillStyle = '#d7dbe0'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
-      ctx.fillStyle = '#e8483a'; ctx.fillRect(l, b + h * 0.25, w, h * 0.12);
+      ctx.fillStyle = bodyFlat('#d7dbe0'); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = accent('#e8483a'); ctx.fillRect(l, b + h * 0.25, w, h * 0.12);
       ctx.fillStyle = '#2b3036'; ctx.fillRect(x - w * 0.25, b - h * 0.02, w * 0.5, h * 0.1);
       break;
     }
@@ -1679,18 +1876,20 @@ function drawFuselageStyle(ctx, p, lw) {
   ctx.fillStyle = st === 'stealth' ? darkGradient(ctx, l, r) : base ? tintGradient(ctx, l, r, base) : hullGradient(ctx, l, r);
   ctx.fillRect(l, b, w, h);
   if (st === 'stealth') {
-    ctx.fillStyle = '#2b2e34'; ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
+    ctx.fillStyle = bodyTone('#2b2e34', -0.42); ctx.fillRect(l, b, w * 0.14, h); ctx.fillRect(r - w * 0.14, b, w * 0.14, h);
     ctx.strokeStyle = 'rgba(15,17,20,0.7)'; ctx.lineWidth = lw; sawtooth(ctx, l, r, b + h * 0.1, 0.25); sawtooth(ctx, l, r, t - h * 0.14, 0.25);
   } else if (st === 'cargo') {
-    ctx.fillStyle = shade('#8f978c', -0.25); ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
+    ctx.fillStyle = bodyTone(shade('#8f978c', -0.25), -0.25); ctx.fillRect(x + w * 0.22, b, w * 0.28, h); // belly
     ctx.strokeStyle = 'rgba(20,24,28,0.75)'; ctx.lineWidth = lw * 1.2;
     ctx.strokeRect(x + w * 0.05, b + 0.15, w * 0.4, h * 0.22); // the loading ramp at the back
     ctx.strokeRect(x - w * 0.1, t - h * 0.28, w * 0.35, h * 0.16); // crew door
     ctx.fillStyle = PAL.glass; for (let yy = b + h * 0.45; yy < t - h * 0.35; yy += 0.9) { ctx.beginPath(); ctx.arc(x - w * 0.2, yy, 0.13, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = '#2f6fb7'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.12, 0, TAU); ctx.fill(); ctx.fillStyle = '#eef1f4'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.07, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#d23a2f'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.03, 0, TAU); ctx.fill();
+    if (!PartPaint.skin || PartPaint.skin.accent !== null) { // the roundel, unless the paint is low-visibility
+      ctx.fillStyle = '#2f6fb7'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.12, 0, TAU); ctx.fill(); ctx.fillStyle = '#eef1f4'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.07, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#d23a2f'; ctx.beginPath(); ctx.arc(x - w * 0.12, y, w * 0.03, 0, TAU); ctx.fill();
+    }
   } else if (st === 'tank') {
-    ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+    ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
     ctx.fillStyle = PAL.hazard; for (const yy of [b + h * 0.2, y, t - h * 0.2]) ctx.fillRect(l, yy - 0.08, w, 0.16);
     if (p.fuelFrac != null) { ctx.fillStyle = 'rgba(10,14,20,0.18)'; ctx.fillRect(x - w * 0.42, b + 0.1, w * 0.06, (h - 0.2) * (1 - p.fuelFrac)); }
   } else if (st === 'armor') {
@@ -1698,14 +1897,14 @@ function drawFuselageStyle(ctx, p, lw) {
     ctx.beginPath(); for (let yy = b + h / 4; yy < t - 0.01; yy += h / 4) { ctx.moveTo(l, yy); ctx.lineTo(r, yy); } ctx.moveTo(x, b); ctx.lineTo(x, t); ctx.stroke();
     ctx.fillStyle = 'rgba(30,34,40,0.55)';
     for (let yy = b + 0.15; yy < t; yy += h / 4) for (const xx of [l + 0.12, x - 0.12, x + 0.12, r - 0.12]) { ctx.beginPath(); ctx.arc(xx, yy, 0.04, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = PAL.orange; ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
+    ctx.fillStyle = accent(PAL.orange); ctx.fillRect(x + w * 0.14, b, w * 0.04, h);
   } else if (st === 'intake') {
-    ctx.fillStyle = '#2f6fb7'; ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
+    ctx.fillStyle = accent('#2f6fb7'); ctx.fillRect(x + w * 0.04, b, w * 0.1, h);
     ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w * 0.3, b, w * 0.55, h * 0.7); // the intake duct along the cheek
     ctx.fillStyle = '#15181c'; ctx.fillRect(x - w * 0.26, t - h * 0.32, w * 0.47, h * 0.06); // its mouth
     ctx.fillStyle = PAL.hazard; ctx.fillRect(x - w * 0.3, t - h * 0.26, w * 0.55, 0.06);
   } else if (st === 'boom') {
-    ctx.fillStyle = PAL.orange; ctx.fillRect(l, b, w, 0.25); ctx.fillRect(l, t - 0.25, w, 0.25);
+    ctx.fillStyle = accent(PAL.orange); ctx.fillRect(l, b, w, 0.25); ctx.fillRect(l, t - 0.25, w, 0.25);
     ctx.fillStyle = PAL.ink; ctx.fillRect(l, y - 0.04, w, 0.08);
   } else if (st === 'bay') {
     ctx.strokeStyle = 'rgba(20,24,28,0.8)'; ctx.lineWidth = lw * 1.2; // the bomb-bay doors on the belly
@@ -1738,14 +1937,14 @@ function drawStoreStyle(ctx, d, cx, rw, b, t, h) {
       break;
     case 'torpedo': // contra-props and a cross of fins at the tail
       ctx.fillStyle = '#9aa3ad'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.05); ctx.fillRect(cx - rw * 0.4, b + h * 0.06, rw * 0.8, h * 0.03);
-      ctx.fillStyle = PAL.orange; ctx.fillRect(cx - rw * 0.42, t - h * 0.2, rw * 0.84, h * 0.03);
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(cx - rw * 0.42, t - h * 0.2, rw * 0.84, h * 0.03);
       break;
     case 'harm': case 'cruise': { // fins, a band and (cruise) little wings mid-body
       const big = d.style === 'cruise';
       ctx.fillStyle = '#4d545d';
       ctx.beginPath(); ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl - rw * 0.6, b); ctx.lineTo(bl, b + h * 0.2); ctx.closePath(); ctx.fill();
       ctx.beginPath(); ctx.moveTo(br, b + h * 0.06); ctx.lineTo(br + rw * 0.6, b); ctx.lineTo(br, b + h * 0.2); ctx.closePath(); ctx.fill();
-      if (big) { ctx.fillStyle = '#9a9478'; ctx.fillRect(bl - rw * 0.35, b + h * 0.42, rw * 1.7, h * 0.08); ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw * 0.25, b + h * 0.08, rw * 0.5, h * 0.06); }
+      if (big) { ctx.fillStyle = bodyTone('#9a9478', -0.24); ctx.fillRect(bl - rw * 0.35, b + h * 0.42, rw * 1.7, h * 0.08); ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw * 0.25, b + h * 0.08, rw * 0.5, h * 0.06); }
       else { ctx.fillStyle = '#4d545d'; ctx.fillRect(bl, b + h * 0.5, rw, h * 0.1); ctx.fillStyle = '#e8483a'; ctx.fillRect(bl, t - h * 0.3, rw, h * 0.04); }
       break;
     }
@@ -1782,7 +1981,7 @@ function drawCanopy(ctx, p, lw) {
 function renderDesignThumb(d, w, h, dpr, rot = 0) {
   const c = document.createElement('canvas');
   c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
-  const ps = (d.parts || []).filter((q) => PARTS[q.type]).map((q) => makePart(q.type, q.x, q.y, { flip: !!q.flip, rot: (q.rot || 0) & 3 }));
+  const ps = partsFromDesign(d.parts); // with their depth and paint
   if (!ps.length) return c;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   const cr = Math.cos(rot), sr = Math.sin(rot), ac = Math.abs(cr), as = Math.abs(sr);
@@ -1797,13 +1996,12 @@ function renderDesignThumb(d, w, h, dpr, rot = 0) {
   ctx.setTransform(s, 0, 0, -s, c.width / 2 - (s * (x0 + x1)) / 2, c.height / 2 + (s * (y0 + y1)) / 2);
   ctx.rotate(rot);
   const lw = Math.min(0.08, dpr / s);
-  for (const p of ps) if (!p.def.wing) drawPart(ctx, p, lw);
-  for (const p of ps) if (p.def.wing) drawPart(ctx, p, lw); // wings pass over the hull, as in the builder
+  for (const p of sideOrder(ps)) drawPart(ctx, p, lw); // back to front, as in the builder
   return c;
 }
 
-// Render a part onto a small canvas for the palette.
-function renderPartIcon(type, size, dpr, rot = 0) {
+// Render a part onto a small canvas for the palette, in a paint (a SKINS id) if given.
+function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   const c = document.createElement('canvas');
   c.width = c.height = Math.round(size * dpr);
   const ctx = c.getContext('2d');
@@ -1811,7 +2009,7 @@ function renderPartIcon(type, size, dpr, rot = 0) {
   const s = (size * dpr * 0.8) / Math.max(def.w, def.h, 1.2);
   ctx.setTransform(s, 0, 0, -s, c.width / 2, c.height / 2);
   ctx.rotate(rot);
-  const p = { def, type, x: 0, y: 0, flip: false, deployed: 0 };
+  const p = { def, type, x: 0, y: 0, flip: false, deployed: 0, skin };
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
 }

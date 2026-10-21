@@ -123,6 +123,19 @@ html, body {
 .pi-head h3 { margin: 0; font-size: 15px; letter-spacing: 0.04em; }
 .pi-specs { margin: 8px 0 4px; font: 500 12px/1.4 var(--mono); color: var(--amber); }
 .pi-desc { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
+.pi-block { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 5px; }
+.pi-block[hidden] { display: none; }
+.pi-row { display: flex; align-items: center; gap: 6px; }
+.pi-fill { flex: 1; }
+.pi-label { font: 600 10px var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.pi-val { margin-left: auto; font: 500 12px var(--mono); color: var(--amber); white-space: nowrap; }
+#pi-z { flex: 1; min-width: 0; accent-color: var(--amber); }
+.pi-step { font: 600 15px var(--mono); }
+.pi-skins { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px; }
+.skin-sw { flex: none; width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 1px solid var(--line-strong); cursor: pointer; }
+.skin-sw.own { background: linear-gradient(135deg, #e3e7eb 50%, #ff7a1a 50%); }
+.skin-sw[aria-checked="true"] { outline: 2px solid var(--amber); outline-offset: 1px; }
+#btn-grid[aria-pressed="true"] { background: var(--amber); color: #1a1205; border-color: var(--amber); }
 /* --pal-h: the tray's measured height (Builder.layout), so nothing sits on it at any size */
 .fit-col { position: absolute; right: var(--gut-r); bottom: calc(var(--pal-h, 160px) + 12px); display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .sel-box { position: fixed; z-index: 5; pointer-events: none; border: 1.5px dashed var(--amber); background: rgba(255, 181, 71, 0.08); border-radius: 2px; }
@@ -324,6 +337,9 @@ kbd {
   .warn { flex: 1 1 100%; font-size: 11px; }
   .part-info { top: auto; bottom: calc(var(--pal-h, 140px) + 10px); left: var(--gut-l); right: var(--gut-r); width: auto; padding: 10px; }
   .pi-desc { display: none; }
+  .pi-block { margin: 6px 0 2px; }
+  .pi-skins { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .skin-sw { width: 26px; height: 26px; }
   .topbar { gap: 8px; }
   .topbar-actions { gap: 5px; }
   .long { display: none; }

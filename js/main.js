@@ -120,8 +120,9 @@ const App = {
     clearTimeout(this.hintTimer);
     if (on) this.hintTimer = setTimeout(() => hint.classList.add('faded'), 9000);
     hint.textContent = isTouch
-      ? '3D · drag to turn · tap a part, then drag it to move · pinch to zoom · drag parts up from the tray'
-      : '3D · drag parts to move them · drag empty space to turn · right-drag to pan · wheel to zoom';
+      ? '3D · drop parts onto any wing or body: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom'
+      : '3D · drop parts onto any wing or body: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out';
+    const grid = $('#btn-grid'); if (grid) grid.hidden = on; // the grid is a 2D mode
   },
 
   showScene(name) {
@@ -245,7 +246,8 @@ const App = {
     UI.modal({
       kicker: 'Flight manual', title: 'How to fly',
       body: `<ol class="howto">
-        <li><b>Build.</b> Drag parts from the tray onto the blueprint; edges snap together. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. Press R (or the turn button) to rotate the selected part a quarter turn. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
+        <li><b>Build.</b> Drag parts from the tray onto the craft: they attach to whatever you drop them on, right where you drop them, and things attached to a part move with it. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. Press R (or the turn button) to rotate the selected part a quarter turn. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
+        <li><b>Depth and paint.</b> The blueprint is a side view; in 3D, drop engines, pods and missiles anywhere along a wing, as many as fit. In 2D, [ and ] (or the Depth slider) move the selected part in and out across the craft. With symmetry on, a plane's parts come in left and right pairs. Paint any part, Match it to what it hangs on, or paint the whole craft (All). G switches on a grid in 2D.</li>
         <li><b>Stage.</b> Orange numbers show the firing order. Separators split the rocket, and fuel can't flow through them. Solid boosters can't be shut down.</li>
         <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean east (D) a little at a time. W/S lean the rocket towards or away from you and Q/E roll it: the world is fully 3D, so you can fly in any direction.</li>
         <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
