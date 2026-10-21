@@ -1,9 +1,73 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#05070d"/>
-  <ellipse cx="256" cy="300" rx="196" ry="78" fill="none" stroke="#62d0ff" stroke-width="14" opacity="0.55" transform="rotate(-24 256 300)"/>
-  <path d="M256 70c52 52 70 122 70 192l-70 52-70-52c0-70 18-140 70-192z" fill="#eef0f2"/>
-  <path d="M256 70c26 26 42 58 52 92h-104c10-34 26-66 52-92z" fill="#ff7a1a"/>
-  <circle cx="256" cy="210" r="26" fill="#62d0ff" stroke="#1a1f27" stroke-width="8"/>
-  <path d="M186 262l-46 66h58zM326 262l46 66h-58z" fill="#ffb547"/>
-  <path d="M222 330l34 82 34-82z" fill="#ffb547"/>
+  <!-- Overbuilt: a hex nut, the most basic part there is, with far too much bolted on -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="70%">
+      <stop offset="0" stop-color="#132036"/>
+      <stop offset="1" stop-color="#05070d"/>
+    </radialGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f6f8"/>
+      <stop offset="1" stop-color="#aeb8c5"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="40%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#c8f1ff"/>
+      <stop offset="0.45" stop-color="#62d0ff"/>
+      <stop offset="1" stop-color="#1d6fa8"/>
+    </radialGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2c9"/>
+      <stop offset="0.35" stop-color="#ffb547"/>
+      <stop offset="1" stop-color="#ff5a1a" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="hex"><path d="M368 214 312 117H200l-56 97 56 97h112z"/></clipPath>
+    <clipPath id="card"><rect width="512" height="512" rx="96"/></clipPath>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff8a2a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ff8a2a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- blueprint grid -->
+  <g clip-path="url(#card)" stroke="#62d0ff" stroke-opacity="0.07" stroke-width="2">
+    <path d="M64 0v512M128 0v512M192 0v512M256 0v512M320 0v512M384 0v512M448 0v512M0 64h512M0 128h512M0 192h512M0 256h512M0 320h512M0 384h512M0 448h512"/>
+  </g>
+  <ellipse cx="256" cy="420" rx="190" ry="80" fill="url(#glow)"/>
+  <g transform="translate(0 14)">
+  <!-- flames: three main engines and the two wing pods -->
+  <g fill="url(#flame)">
+    <path d="M238 344h36l-4 50-14 58-14-58z"/>
+    <path d="M190 336h32l-4 40-12 46-12-46z"/>
+    <path d="M290 336h32l-4 40-12 46-12-46z"/>
+    <path d="M88 318h28l-3 30-11 34-11-34z"/>
+    <path d="M396 318h28l-3 30-11 34-11-34z"/>
+  </g>
+  <g stroke="#10151d" stroke-width="8" stroke-linejoin="round">
+    <!-- antenna and beacon -->
+    <path d="M256 117V64" fill="none"/>
+    <circle cx="256" cy="58" r="11" fill="#ff5a4d"/>
+    <!-- wings -->
+    <path d="M152 196 58 284l-2 26 146-12z" fill="#ffb547"/>
+    <path d="M360 196l94 88 2 26-146-12z" fill="#ffb547"/>
+    <!-- wing pods -->
+    <rect x="86" y="262" width="32" height="58" rx="14" fill="url(#steel)"/>
+    <rect x="394" y="262" width="32" height="58" rx="14" fill="url(#steel)"/>
+    <!-- main nozzles -->
+    <path d="M196 311h20l6 27h-32z" fill="#7d8796"/>
+    <path d="M244 311h24l8 35h-40z" fill="#7d8796"/>
+    <path d="M296 311h20l6 27h-32z" fill="#7d8796"/>
+    <!-- the nut: hex body, chamfered face, threaded hole as the cockpit window -->
+    <path d="M368 214 312 117H200l-56 97 56 97h112z" fill="#9aa5b3"/>
+    <circle cx="256" cy="214" r="98" fill="url(#steel)" clip-path="url(#hex)" stroke="none"/>
+    <path d="M368 214 312 117H200l-56 97 56 97h112z" fill="none"/>
+    <circle cx="256" cy="214" r="60" fill="#8a94a2"/>
+    <circle cx="256" cy="214" r="53" fill="none" stroke="#5f6976" stroke-width="5" stroke-dasharray="9 7"/>
+    <circle cx="256" cy="214" r="44" fill="url(#glass)"/>
+  </g>
+  <!-- glass glint, rivets -->
+  <path d="M234 197a26 26 0 0 1 20-19" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="8" stroke-linecap="round"/>
+  <g fill="#10151d">
+    <circle cx="128" cy="270" r="5"/><circle cx="152" cy="250" r="5"/>
+    <circle cx="384" cy="270" r="5"/><circle cx="360" cy="250" r="5"/>
+  </g>
+  </g>
 </svg>
