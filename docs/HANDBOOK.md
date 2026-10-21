@@ -144,9 +144,9 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 - First, each row either becomes a part or becomes `null` **kept in place** so att indices still match. A row is rejected for an unknown type (checked with `hasOwn(PARTS, ...)`, :488, not `in`, to avoid prototype keys) or for non-finite x/y.
 - Kept rows have x and y clamped to ±500, `rot` taken as `(q.rot|0)&3`, z passed through `cleanZ` and the skin through `cleanSkin`.
 - Second, att indices are resolved to ids, nulls are filtered out and `cleanAtt` runs.
-- Callers include flight.js:32, mp.js:451, renderDesignThumb, paste and loadDesign.
+- Callers include flight.js:32, mp.js:466, renderDesignThumb, paste and loadDesign.
 
-**Templates.** `TEMPLATES` is at builder.js:5-149. Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:152) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / heli (:1390). mp.js:455 relies on keys `mustang`, `camel` and `skylark`. Most plane templates use legacy twins (no att/z).
+**Templates.** `TEMPLATES` is at builder.js:5-149. Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:152) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / heli (:1390). mp.js:470 relies on keys `mustang`, `camel` and `skylark`. Most plane templates use legacy twins (no att/z).
 
 **Design codes.** `designCode` (builder.js:1265) produces `"RSS1."` + base64url(UTF-8 JSON `{n, k, p:[[type, x, y, flip0/1, rot]]}`).
 - The prefix becomes `"RSS2."` when any row carries extra fields `[z, att, skin]`; trailing nulls are trimmed. Older versions cannot read RSS2.
@@ -1094,7 +1094,7 @@ Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`),
 | `Combat.step(h, F)` | flight.js:617 (`physicsTick`) | Every physics substep: firing, projectiles, flares |
 | `Combat.frame(F, dt)` | flight.js:515 | Every frame: targets, AI, warnings, locks, smoke |
 | `Combat.drawHUD` / `MPUI.drawHUD` | main.js:65-66 | 2D overlay canvas |
-| `Combat.reset(F)` | flight.js:94 (`resetState`), mp.js:553 | New flight; module state is a singleton |
+| `Combat.reset(F)` | flight.js:94 (`resetState`), mp.js:568 | New flight; module state is a singleton |
 | `Combat.impact` | vessel.js:942 | Hard-landing dents |
 | `Combat.engineK` / `liftK` | vessel.js:410, vessel.js:758 | Damaged engines and wings |
 | `MP.beforeUpdate(dt)` | flight.js:488 | Pose the ghosts before physics |
@@ -1323,20 +1323,21 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 ### 2. net.js: transport
 
 - **Constants:**
-  - `NET_VERSION = 3` (net.js:9). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below). The host rejects a `hello` with any other `ver` (net.js:110).
-  - `NET_MAX_BYTES = 256 KB` (net.js:10): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:127). The host's own sends and clients' sends are not size-checked.
-  - Room codes are 5 characters from `ROOM_CHARS` (net.js:11; no I, O, 0 or 1). `cleanCode` accepts 4–8 characters.
-  - `PEER_PREFIX = 'rss-room-'` (net.js:12).
-  - `NET_ICE`: the ICE servers both Peers use. Google and Cloudflare STUN, plus `NET_TURN`, the relays (TURN) for players with no direct path between them (strict NAT, carrier NAT on mobile data, Wi-Fi isolation, VPNs). PeerJS's own default relays (`eu-0`/`us-0.turn.peerjs.com`) no longer exist, so without an entry in `NET_TURN` such players can't connect at all. An entry is `{urls: ['turn:host:80', 'turns:host:443?transport=tcp'], username, credential}` from a TURN provider.
-  - `NET_PIECE = 4000`: PeerJS's `json` channel refuses a message of 16300 bytes or more (`message-too-big`, nothing sent). `wire(conn)` sends a message whose JSON is longer than 4000 characters as pieces `{t:'~', k, i, n, s}`, and `unwire()` reassembles them per connection (at most `NET_MAX_BYTES` in all, 8 messages open at once; bad pieces are dropped). Every p2p send and receive goes through them; `N._t` exposes both for the tests. A `message-too-big` error no longer drops a player or closes the room.
+  - `NET_VERSION = 3` (net.js:11). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below). The host rejects a `hello` with any other `ver` (net.js:147).
+  - `NET_MAX_BYTES = 256 KB` (net.js:12): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:164). The host's own sends and clients' sends are not size-checked.
+  - Room codes are 5 characters from `ROOM_CHARS` (net.js:13; no I, O, 0 or 1). `cleanCode` accepts 4–8 characters.
+  - `PEER_PREFIX = 'rss-room-'` (net.js:14).
+  - **ICE servers** (`N.ice()`, a promise of `{iceServers}` that both Peers and the network test use): `NET_STUN` (Google and Cloudflare STUN), then the relays (TURN) for players with no direct path between them (strict NAT, carrier NAT on mobile data, Wi-Fi isolation, VPNs, school networks that block UDP). PeerJS's own default relays (`eu-0`/`us-0.turn.peerjs.com`) no longer exist, so without a relay such players can't connect at all. Relays come from `NET_TURN`, entries like `{urls: ['turn:host:80', 'turns:host:443?transport=tcp'], username, credential}`, and from `NET_TURN_URL`, a provider's credentials address answering with such a list (Metered: `https://APP.metered.live/api/v1/turn/credentials?apiKey=KEY`). That one is fetched once a session; each entry is checked (`stun:`/`turn:` URLs, string username and credential; at most 12), and a failed or empty fetch (4 s limit) is tried again on the next call while play goes on with STUN alone. The TCP/TLS entry on port 443 is what gets out of a network that blocks UDP. `N.host` and `N.join` wait for `N.ice()` before creating their Peer; `N.leave` bumps `joinGen`, so a room still waiting for its relays doesn't open after Back.
+  - **`N.probe()`** (about 10 s): opens a throwaway Peer on the matchmaking server, and gathers ICE candidates from an `RTCPeerConnection` with the same servers. It returns `{server, direct, relay, relaySetUp}`: whether the server answered, whether a `srflx` candidate came (a STUN server answered over UDP), the protocols of the `relay` candidates (`relayProtocol`: udp, tcp or tls) and whether any relay is configured. `MPUI.testNetwork` (the **Test this network** button) turns it into three ✓/✗ rows and a verdict in a modal.
+  - `NET_PIECE = 4000`: PeerJS's `json` channel refuses a message of 16300 bytes or more (`message-too-big`, nothing sent). `wire(conn)` sends a message whose JSON is longer than 4000 characters as pieces `{t:'~', k, i, n, s}`, and `unwire()` reassembles them per connection (at most `NET_MAX_BYTES` in all, 8 messages open at once; bad pieces are dropped). Every p2p send and receive goes through them; `N._t` exposes them (and `HOST_ONLY`) for the tests. One message is open per connection at a time (pieces never interleave on the ordered channel), so a link holds at most `NET_MAX_BYTES` of pieces; pieces that rebuild a piece are dropped, and the host closes a connection that sends pieces before its `hello`. A `message-too-big` error no longer drops a player or closes the room.
 - **Transports** (`N.transport`):
   - `'p2p'`: PeerJS on the public PeerJS cloud. The host registers peer id `rss-room-CODE` and retries with a new code up to 3 times on `unavailable-id`. It reconnects to the signalling server 1.5 s after a disconnect. Connections are `{reliable: true, serialization: 'json'}`.
   - `'local'`: a `BroadcastChannel('rss-room-'+CODE)` carrying envelopes `{to:'H'|cid, from:cid, msg}`. Clients pick a random `cid`.
 - **Star topology:**
-  - The host is pid 1; clients get pid 2, 3, … from `accept()` (net.js:109).
-  - `N.send(msg, to?)` (net.js:48) stamps `msg.f = N.me`. Clients send only to the host. The host's `route()` (net.js:56) forwards to `to`, or to everyone except the sender, and emits locally.
-  - **The host overwrites `msg.f` with the real sender's pid** (net.js:128).
-  - The host never relays client messages whose type is in `HOST_ONLY` = `{hello, welcome, reject, ping, closed, join, leave, warn, state, result}` (net.js:24). Clients ignore those types unless `f === 1` (net.js:194). `result` is listed but never sent.
+  - The host is pid 1; clients get pid 2, 3, … from `accept()` (net.js:146).
+  - `N.send(msg, to?)` (net.js:85) stamps `msg.f = N.me`. Clients send only to the host. The host's `route()` (net.js:93) forwards to `to`, or to everyone except the sender, and emits locally.
+  - **The host overwrites `msg.f` with the real sender's pid** (net.js:165).
+  - The host never relays client messages whose type is in `HOST_ONLY` = `{~, hello, welcome, reject, ping, closed, join, leave, warn, state, result}` (net.js:32). `~` (a piece) is there because a player's piece relayed whole would be taken by the others as part of the host's own stream, and so could fake anything from the host. Clients ignore those types unless `f === 1` (net.js:244). `result` is listed but never sent.
 - **Handshake:**
   1. Client sends `hello {name, ver}`.
   2. Host replies `welcome {pid, code, names}` or `reject {reason}`: wrong version, room locked (`N.lock`, set during PvP phases), or full.
@@ -1344,20 +1345,20 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 - **Limits:** `maxPlayers` is 5 for sandbox and 6 for PvP (mp.js:85). `MP.join` waits up to 8 s for the first `state` after the welcome.
 - **Joining online, by stage** (`N.join`; `status(text)` reports each stage to `#mp-status` through `MP.join` and `MPUI`'s `go`):
   1. The Peer opens on the matchmaking server: 15 s, else "Couldn't reach the matchmaking server".
-  2. `peer.connect` sends the OFFER. A wrong code (or a destroyed host) answers `peer-unavailable` within about a second: "No room with that code". Otherwise the room exists, and the client waits **up to 60 s** for the host's answer (ICE leaving `new`, seen through the connection's `iceStateChanged`), saying after 8 s that the host's game isn't answering. A phone host's page doesn't run while its screen is off or another app is open, but the server keeps its id for about 100 s and holds the OFFER in its socket, so this is the common case: the join goes through as soon as the host comes back.
-  3. ICE: up to 20 s from the first state change, or until ICE `failed`: "Found the host, but couldn't connect to their device" (no direct path and no relay).
+  2. `peer.connect` sends the OFFER. A wrong code, a destroyed host, or a host whose page hasn't run for over about 100 s (the server dropped its id; it takes it back within a couple of seconds of returning) answers `peer-unavailable` within about a second: "No room with that code right now…", which says the same code works once the host is back. Otherwise the room exists, and the client waits **up to 60 s** for the host's answer (the connection's signalling state reaching `stable`, or ICE leaving `new` through `iceStateChanged`), saying after 8 s that the host's game isn't answering. A phone host's page doesn't run while its screen is off or another app is open, but the server keeps its id for about 100 s and holds the OFFER in its socket, so this is the common case: the join goes through as soon as the host comes back.
+  3. ICE: up to 20 s from the host's answer, or until ICE `failed`: "Found the host, but couldn't connect to their device" (no direct path and no relay). ICE can stay `new` for good when there's no usable candidate at all, which is why the answer, not ICE, starts this stage.
   4. The connection opens and `hello` goes out: 15 s for the `welcome` or `reject`.
-  Before the welcome, a connection `close` fails the join at once. `N.leave` cancels a join under way (`pendingJoin`), so Back on the connect screen leaves nothing armed; `MPUI`'s `go` ends a session only for the attempt that is still current.
-- **Staying reachable:** `MP.awake` holds a screen Wake Lock while in a room (taken again when the game comes back on screen), and the host's lobby says to keep the game on screen while friends join. When the page becomes visible with the Peer disconnected from the server, net.js reconnects at once rather than waiting for the 1.5 s timer.
+  Before the welcome, a connection `close` fails the join at once. `N.leave` cancels a join under way (`pendingJoin`), so Back on the connect screen leaves nothing armed; `MPUI`'s `go` ends a session only for the attempt that is still current. While a join is looking for the host, the Join button reads **Cancel**, and Enter with a corrected code starts over.
+- **Staying reachable:** `MP.awake` holds a screen Wake Lock while in a room (taken again when the game comes back on screen), and on a touch device the online host's lobby says, first thing in its card, to keep the game on screen while friends join (`MPUI.stayHint`). When the page becomes visible with the Peer disconnected from the server, net.js reconnects at once rather than waiting for the 1.5 s timer.
 - **Pings and clock:**
   - Every 2 s the host sends `ping {ts, rtt}` to each link. The client replies `pong {ts}`, and the host stores `N.pings.set(pid, rtt)`.
   - The client estimates `hostOffset` as the median of the last 7 samples of `ts + rtt/2 − now`.
   - `N.hostNow()` = `performance.now() + hostOffset`. Use it for every shared deadline (`s.ends`, `th`, `battleAt`).
 - **Timeouts:**
   - The host drops a link silent for 20 s.
-  - A client closes after 25 s without hearing from the host (`watch` net.js:234).
+  - A client closes after 25 s without hearing from the host (`watch` net.js:313).
   - `pagehide` calls `N.leave()`. Leaving sends `bye` (client) or `closed` to everyone (host), then destroys the connection after 300 ms.
-- **Events:** `N.on(type, fn)` (net.js:31). Each handler runs inside try/catch (net.js:36), so a throwing handler only logs. `join`, `leave` and `warn` are emitted locally only.
+- **Events:** `N.on(type, fn)` (net.js:39). Each handler runs inside try/catch (net.js:44), so a throwing handler only logs. `join`, `leave` and `warn` are emitted locally only.
 
 ---
 
@@ -1373,37 +1374,37 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 - Team names: Faroes / Shetland.
 
 **Session model:**
-- The host's `MP.state` is the truth. `push()` (mp.js:243) sends the whole object as `state` and applies it locally. Clients deep-copy it in `applyState` (mp.js:259) and accept it only from `f===1` (mp.js:161).
+- The host's `MP.state` is the truth. `push()` (mp.js:258) sends the whole object as `state` and applies it locally. Clients deep-copy it in `applyState` (mp.js:274) and accept it only from `f===1` (mp.js:176).
 - State shape:
   - `{mode, phase, ends, endsLen, round, result, settings, players[], feed[], t0, t0At, tod, battleAt, sides, format}`
   - each player: `{pid, name, team, ready, spawn, alive, kills, deaths, dmg, ping, kind, flying}`
-- Clients change only their own row through `set {k, v}`, validated per key in `applySet` (mp.js:212). The allowed keys are `ready`, `spawn` (must be in `spawnsFor`), `kind`, `flying`, `team` (lobby only), `name` (≤18 characters) and `dmg` (clamped to 0..20000 per report).
-- Only the host changes settings (`setSetting` mp.js:231, lobby only). Switching format re-deals teams: in FFA, `team = pid`.
-- While in a room, `pushCareer`/`popCareer` (mp.js:133-152) swap out the player's career and saved blueprint, and `Builder.save` is suppressed (builder.js:195). `setMoney` turns the budget into career funds.
+- Clients change only their own row through `set {k, v}`, validated per key in `applySet` (mp.js:227). The allowed keys are `ready`, `spawn` (must be in `spawnsFor`), `kind`, `flying`, `team` (lobby only), `name` (≤18 characters) and `dmg` (clamped to 0..20000 per report).
+- Only the host changes settings (`setSetting` mp.js:246, lobby only). Switching format re-deals teams: in FFA, `team = pid`.
+- While in a room, `pushCareer`/`popCareer` (mp.js:135-154) swap out the player's career and saved blueprint, and `Builder.save` is suppressed (builder.js:195). `setMoney` turns the budget into career funds.
 
 **Modes and phases:**
-- `sandbox`: phase `free` for the whole session. Anyone can hurt anyone. Respawn is allowed (`respawn` mp.js:541). Everyone shares a clock: `sandboxTime()` = `t0 + elapsed host time`.
-- `pvp` runs these phases, with timers set by `setPhase` (mp.js:320) and advanced from `tick()` (250 ms `setInterval`, so it keeps going in background tabs):
-  1. `lobby` → `startMatch` (mp.js:311)
+- `sandbox`: phase `free` for the whole session. Anyone can hurt anyone. Respawn is allowed (`respawn` mp.js:556). Everyone shares a clock: `sandboxTime()` = `t0 + elapsed host time`.
+- `pvp` runs these phases, with timers set by `setPhase` (mp.js:335) and advanced from `tick()` (250 ms `setInterval`, so it keeps going in background tabs):
+  1. `lobby` → `startMatch` (mp.js:326)
   2. `build` (`settings.build` s)
   3. `test` (60 s, solo flight, only if `settings.test`; with test off, build goes straight to battle)
   4. `polish` (`settings.polish` s, only after a test phase)
   5. `battle` (`settings.limit` s)
-  6. `results` → `backToLobby` (mp.js:387)
-- When everyone is ready in `build` or `polish`, `ends` is set to 3 s from now; it is restored if someone un-readies (`maybeAllReady` mp.js:332).
-- **Win** (`checkWin` mp.js:366): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:375), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
+  6. `results` → `backToLobby` (mp.js:402)
+- When everyone is ready in `build` or `polish`, `ends` is set to 3 s from now; it is restored if someone un-readies (`maybeAllReady` mp.js:347).
+- **Win** (`checkWin` mp.js:381): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:390), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
 - `hostile(a, b)` (mp.js:74) decides who can hurt whom: enemies, or teammates with friendly fire on. `enemy(a, b)` (mp.js:79) decides what can be locked and tagged; teammates are never enemies.
 - Silly flags are off throughout a PvP room, in every phase (`Silly.on` checks `MP.pvp`, util.js:143); sandbox rooms keep them. Time warp is disabled in every room (flight.js:183, flight.js:490), and the flight menu does not pause (`openMpMenu` flight.js:448).
 
 **Budgets and limits:**
-- `budgetFor` = `settings.budget`, ×1.3 at a carrier spawn (mp.js:413).
-- `designProblems` (mp.js:431) reports:
+- `budgetFor` = `settings.budget`, ×1.3 at a carrier spawn (mp.js:428).
+- `designProblems` (mp.js:446) reports:
   - more than 600 parts (any mode);
   - over budget;
   - a kind other than plane, heli or car;
   - for carriers: not a plane or heli, span over 13 m, length over 16 m, or mass over 12 t.
-- `measure` (mp.js:420): span is the extent of `partZs` ± half-depth (twins ±`max(w,.6)/2`); length is the y extent; mass is the sum of `partKg`.
-- `battleDesign` (mp.js:449) swaps a failing design for the first stock template (`mustang`, `camel`, `skylark`) that passes.
+- `measure` (mp.js:435): span is the extent of `partZs` ± half-depth (twins ±`max(w,.6)/2`); length is the y extent; mass is the sum of `partKg`.
+- `battleDesign` (mp.js:464) swaps a failing design for the first stock template (`mustang`, `camel`, `skylark`) that passes.
 - These checks run **only on the owner's machine**. Peers never re-check budgets.
 
 **Spawns:**
@@ -1416,13 +1417,13 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
   - `carrierC` (south): FFA only
   - carriers appear only if `settings.carriers`.
 - Airfield and carrier data: space.js:88-97.
-- `spawnsFor` and `defaultSpawn` (mp.js:396-411): in FFA, the default is the base fewest players picked.
-- `placement` (mp.js:556): the slot is the player's index among teammates at the same spawn, sorted by pid.
+- `spawnsFor` and `defaultSpawn` (mp.js:411-426): in FFA, the default is the base fewest players picked.
+- `placement` (mp.js:571): the slot is the player's index among teammates at the same spawn, sorted by pid.
   - Sandbox: offset 220 m along the runway, or ±35 m steps at the helipad.
-  - `airfieldPlacement` (mp.js:926): planes at the threshold, 230 m apart.
-  - `carrierPlacement` (mp.js:933): two bow catapults at ±6 m, queue 40 m back; helis on the aft deck. `catapult: {length, speed: 78}` is armed for planes only (flight.js:56); press L to launch.
+  - `airfieldPlacement` (mp.js:941): planes at the threshold, 230 m apart.
+  - `carrierPlacement` (mp.js:948): two bow catapults at ±6 m, queue 40 m back; helis on the aft deck. `catapult: {length, speed: 78}` is armed for planes only (flight.js:56); press L to launch.
 
-**Our craft → the others** (`sendSpawn` mp.js:576, `afterUpdate` mp.js:594):
+**Our craft → the others** (`sendSpawn` mp.js:591, `afterUpdate` mp.js:609):
 - **Spawn rows** `[id, type, x, y, rot, flip, z, att, skin]`:
   - x, y and z are rounded to 3 decimals; z is `partZ(p)`, which is the positive spread for twins;
   - `att` is the host part's id, or 0;
@@ -1440,40 +1441,40 @@ The HUD (`drawHUD` combat.js:1046) draws target brackets, Bandit diamonds, the s
 - Only clean rows are stored: `onSpawn` keeps `P.design = {kind, parts}` and never the raw message.
 
 **Ghosts:**
-- **`buildGhost`** (mp.js:691) creates parts with `makePart`, then **overwrites `p.id` with the owner's id**, so hits name the owner's parts. It builds a `Vessel` with `buildAdjacency` and sets `v.remote = pid`, `sas = 'off'`, full ammo and `hiddenUntilSnap`.
-- **`onSnap`** (mp.js:729):
+- **`buildGhost`** (mp.js:706) creates parts with `makePart`, then **overwrites `p.id` with the owner's id**, so hits name the owner's parts. It builds a `Vessel` with `buildAdjacency` and sets `v.remote = pid`, `sas = 'off'`, full ammo and `hiddenUntilSnap`.
+- **`onSnap`** (mp.js:744):
   - validates the message with `mpNums` (`C` may have 3 or 2 values) and `mpBody`, and requires `|Q| > 0.5`;
   - if no design is known yet, it asks the owner with `want`, at most every 3 s; the owner answers through `resendSpawn`.
-- **`poseGhost`** (mp.js:738) dead-reckons to `age = clamp(hostNow − th, 0, 0.75 s)` along `V` and `W`:
+- **`poseGhost`** (mp.js:753) dead-reckons to `age = clamp(hostNow − th, 0, 0.75 s)` along `V` and `W`:
   - it snaps on the first snapshot or when more than 60 m off, otherwise eases (`dt·10`, slerp `dt·14`);
   - **`C` is accepted only within `reach + 1` of `com0`**, the centre of mass when the ghost was built. A forged centre of mass would otherwise move the hit boxes away from the craft (`toWorld` subtracts `com`, vessel.js:311).
-- A ghost silent for more than 6 s freezes in place (`beforeUpdate` mp.js:762).
+- A ghost silent for more than 6 s freezes in place (`beforeUpdate` mp.js:777).
 - The radar warner (`rwr`) entries expire after 2.5 s.
 
 **Hits and kills:**
 - **The shooter is authoritative for hits**, judged against its own copy of the target ghost.
-  - A projectile or blast reaching a remote craft calls `MP.sendHit`/`sendHits` (mp.js:830) → `hit {to, list: [[partId, dmg]], k}`, sent to that player only and only if the pair is `hostile`.
+  - A projectile or blast reaching a remote craft calls `MP.sendHit`/`sendHits` (mp.js:845) → `hit {to, list: [[partId, dmg]], k}`, sent to that player only and only if the pair is `hostile`.
   - The shooter counts the damage toward its score: the host adds it directly; clients batch it as `set dmg` about once a second.
-- **The victim applies the damage** (`onHit` mp.js:840):
+- **The victim applies the damage** (`onHit` mp.js:855):
   - requires `m.to === me` and a hostile sender;
   - at most 64 rows, each capped at 5000;
   - looks up part ids in **every** local non-AI vessel, because the part may have broken off into debris;
   - sets `lastHitBy` before applying damage.
-- **The victim reports its own death** (`onLocalDestroyed` mp.js:634): `down {by, P}`, where `by` is the last hitter if the hit was within 20 s.
-- The host's `recordDown` (mp.js:663) books deaths, kills and the kill feed (`feed`, 12 entries), then runs `checkWin`.
+- **The victim reports its own death** (`onLocalDestroyed` mp.js:649): `down {by, P}`, where `by` is the last hitter if the hit was within 20 s.
+- The host's `recordDown` (mp.js:678) books deaths, kills and the kill feed (`feed`, 12 entries), then runs `checkWin`.
 - Booms (`sendBoom`, blast ≥ 8) are for visuals only.
 
 **Missiles and other fire:**
-- The shooter flies the real missile with full guidance against the ghost. It announces it with `msl {id, b, P, V, D, tg, radar, glide, agm}`, then streams `mp` at 10 Hz and sends `mx` when it is gone (`syncMissiles` mp.js:885).
+- The shooter flies the real missile with full guidance against the ghost. It announces it with `msl {id, b, P, V, D, tg, radar, glide, agm}`, then streams `mp` at 10 Hz and sends `mx` when it is gone (`syncMissiles` mp.js:900).
 - Receivers fly a replica (`netMissile` combat.js:733): dmg 0, eased toward each update over 0.15 s (it jumps if more than 400 m off), and dropped 3 s after the last update. If `tg === me` and the shooter is hostile, the replica targets our craft, which drives our warning.
 - Our flares travel as `cm {P, V, chaff}`. On the shooter's machine they enter `S.flares`, where its missile may be decoyed. That is how flares work across the network.
 - Guns send only `gun {k: partType, on}`; receivers fire show rounds from the ghost (`netGuns` combat.js:451). Turrets use `gunOn` from `pv`.
 - Rockets and bombs send `shot`, and receivers fly a dmg-0 copy (`netShot` combat.js:726). Copies have fixed blast sizes and do not burst into cluster bomblets.
 
 **Leavers:**
-- Net `leave` → `onLeave` (mp.js:199): explode and drop the ghost, delete the peer and its RWR entry. On the host it also removes the player row, adds a feed line, runs `checkWin` in battle or `maybeAllReady` in build/polish, and pushes.
-- Peers missing from a new `state` are also dropped (mp.js:265).
-- If the host leaves, the room closes (`closed`), and `MP.end` (mp.js:117) returns everyone home.
+- Net `leave` → `onLeave` (mp.js:214): explode and drop the ghost, delete the peer and its RWR entry. On the host it also removes the player row, adds a feed line, runs `checkWin` in battle or `maybeAllReady` in build/polish, and pushes.
+- Peers missing from a new `state` are also dropped (mp.js:280).
+- If the host leaves, the room closes (`closed`), and `MP.end` (mp.js:118) returns everyone home.
 
 **Trust model:** peers are untrusted (mp.js:30). These are protected:
 - the sender's identity, stamped by the host;
@@ -1491,7 +1492,7 @@ These rest on trust:
 
 Clients trust the host completely.
 
-**Game messages** (handlers bound in `bind` mp.js:159-186):
+**Game messages** (handlers bound in `bind` mp.js:173-201):
 
 | Type | Sender → receivers | Handler |
 |---|---|---|
@@ -1500,7 +1501,7 @@ Clients trust the host completely.
 | `chat` | → all | `MPUI.chat` |
 | `spawn` / `despawn` / `want` | owner ↔ | `onSpawn`, drop ghost, `resendSpawn` |
 | `s` / `pv` / `parts` / `hp` | owner → all | `onSnap`, `onPartVis`, `onParts`, `onHp` |
-| `down` | victim → all | `onDown` (mp.js:815) |
+| `down` | victim → all | `onDown` (mp.js:830) |
 | `hit` | shooter → victim | `onHit` |
 | `boom` | shooter → all | `onBoom` → `Combat.netBoom` |
 | `gun` / `shot` / `cm` | owner → all | `P.gun`, `Combat.netShot`, `Combat.netFlares` |
@@ -1514,30 +1515,31 @@ Clients trust the host completely.
 - **Connect** (`#mp-connect`; `open` mpui.js:9, `bind` mpui.js:15):
   - name is stored in `rss.mp.name` (18 characters max);
   - transport toggle `#mp-transport` (`data-tr="p2p"` / `"local"`), stored in `rss.mp.tr`;
-  - Create sandbox / Create battle / Join; only one attempt at a time (`this.connecting` token).
-- **Lobby** (`refresh` mpui.js:119):
-  - `renderPlayers` (mpui.js:130): team columns with Join buttons and open slots, ping, host tag;
-  - `renderSettings` (mpui.js:164): editable by the host in the lobby only — format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min;
-  - `start` (mpui.js:97): asks before starting alone or with uneven teams; refuses if a team is empty.
-- **Phase bar** `#mp-bar` (`renderBar` mpui.js:218, `tick` mpui.js:237):
+  - Create sandbox / Create battle / Join; only one attempt at a time (`this.connecting` token);
+  - **Test this network** `#mp-test` → `testNetwork` (`Net.probe`): matchmaking server, direct links, relay, and a verdict.
+- **Lobby** (`refresh` mpui.js:122):
+  - `renderPlayers` (mpui.js:133): team columns with Join buttons and open slots, ping, host tag;
+  - `renderSettings` (mpui.js:167): editable by the host in the lobby only — format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min;
+  - `start` (mpui.js:100): asks before starting alone or with uneven teams; refuses if a team is empty.
+- **Phase bar** `#mp-bar` (`renderBar` mpui.js:228, `tick` mpui.js:247):
   - phase name, timer from `s.ends − Net.hostNow()`, "urgent" under 15 s;
   - an info line: cost against budget, spawn and ready count while building; teams alive in battle;
   - Ready, Spawn and Score buttons.
-- **Spawn map** `#spawn-map` (mpui.js:263-377):
+- **Spawn map** `#spawn-map` (mpui.js:273-387):
   - `MAP` bounds e −9000..31000, z −9000..21000;
   - `bakeMap` colours the map from Terrain;
-  - `pickSpawn` (mpui.js:354) updates `Builder.mp` budget, limits and money.
+  - `pickSpawn` (mpui.js:364) updates `Builder.mp` budget, limits and money.
 - **Chat:** lobby log, plus in flight `T`/`Enter` → `#mp-hud-input`. Text is inserted with `createTextNode`. Sends are capped at 140 characters.
-- **Kill feed:** `notice` (mpui.js:389) → `#mp-feed`, 5 lines, fading after 5 s.
-- **Scoreboard:** hold `` ` `` or press Score (`showScore` mpui.js:414).
+- **Kill feed:** `notice` (mpui.js:399) → `#mp-feed`, 5 lines, fading after 5 s.
+- **Scoreboard:** hold `` ` `` or press Score (`showScore` mpui.js:424).
 - **Results:** a locked modal (`MP.modalLocked`, main.js:20). The host gets "Back to the lobby".
-- **In flight** (`drawHUD` mpui.js:462):
+- **In flight** (`drawHUD` mpui.js:472):
   - name tags: gold in the sandbox, blue (filled) for friends, red (outlined) for enemies;
-  - `spotted` (mpui.js:512): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
+  - `spotted` (mpui.js:522): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
   - RWR ring with a "RADAR LOCK" label;
-  - heading-up 8 km scope (`drawRadar` mpui.js:524), only when the screen is at least 761 px wide.
-- **Spectating** after being shot down in battle: `spectate` (mpui.js:454) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1133). The camera uses `Flight.viewVessel` (flight.js:1409).
-- On the map and globe, enemies are hidden in PvP (`mapColor` mp.js:915).
+  - heading-up 8 km scope (`drawRadar` mpui.js:534), only when the screen is at least 761 px wide.
+- **Spectating** after being shot down in battle: `spectate` (mpui.js:464) cycles ghosts, teammates first, with `[`/`]`, or with a tap on touch (flight.js:1133). The camera uses `Flight.viewVessel` (flight.js:1409).
+- On the map and globe, enemies are hidden in PvP (`mapColor` mp.js:930).
 
 ---
 
@@ -1562,7 +1564,7 @@ Clients trust the host completely.
   - the meaning of message fields.
 - **Validate everything from peers.** Use `mpNums`, `mpBody`, `vec`, `hasOwn(PARTS, …)`, clamps and slices, and look up ids through Maps. Never put a peer string into `innerHTML` (`UI.modal` renders a string `body` as HTML; toasts and `el({text})` are safe).
   - Keep `mpSpawnRows` in step with `partsFromDesign`, `cleanAtt` and `cleanSkin` (parts.js:611-639, parts.js:882).
-  - Known gap: `onDown` reads `m.P` unchecked (mp.js:819). A malformed message throws inside the handler (caught), which skips the ghost drop and `recordDown`.
+  - Known gap: `onDown` reads `m.P` unchecked (mp.js:834). A malformed message throws inside the handler (caught), which skips the ghost drop and `recordDown`.
 - **New host-only message types** go in `HOST_ONLY`, and their handler should also check `m.f === 1`.
 - **Damage authority:**
   - `Combat.damage` must stay a no-op for `v.remote`.
@@ -1692,7 +1694,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 
 **Secret "silly" settings** (`Silly`, util.js:130-149):
 - **Unlock:** tap the Options dialog title **7 times** (main.js:357-369). Counting toasts appear from the third tap. The unlock sets `rss.sillyUnlocked=true`, plays `Sound.boom(0.6)` and toasts.
-- `.modal-title` is `user-select:none` (style.css:620) so the taps don't select text.
+- `.modal-title` is `user-select:none` (style.css:621) so the taps don't select text.
 - Once unlocked, Settings always shows the `sillySettings()` box (:372-388): one checkbox per entry plus "All off".
 - Flags are stored in `rss.silly` as `{key: bool}`.
 - `Silly.on(k)` is always false in a PvP room, in every phase from lobby to results (`MP.pvp`); sandbox rooms keep the flags.
@@ -1727,7 +1729,7 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 - `UI.toast(text, kind)` (:36-46):
   - Removes an identical toast, keeps at most 4.
   - Fades at 2.6 s and is removed at 3.1 s; `'achievement'` toasts last 3.8 s / 4.3 s.
-  - Kinds used: `'achievement'` (amber, "Milestone ·" prefix, style.css:274), `'kill'` (red, :733), `'warn'`.
+  - Kinds used: `'achievement'` (amber, "Milestone ·" prefix, style.css:274), `'kill'` (red, :734), `'warn'`.
   - `'warn'` has **no own rule**: it picks up the generic `.warn` (style.css:117: amber left border, 12px).
   - `Flight.toast` wraps it (flight.js:171).
 - `ICONS` (:50-85): 24×24 stroke SVGs drawn in `currentColor`. `icon(name)` returns `<span class="icon">`. Markup gets icons through `data-icon="name"` (prepended once in `App.init`). Elements created later call `icon()` themselves (e.g. builder.js:1344).
@@ -1775,21 +1777,21 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
   - `.ui` is `pointer-events:none` and `.ui > *` gets `auto` (:41-42). Only **direct children** of a screen take input; everything else passes through to the canvas.
   - `[hidden]{display:none !important}` (:36): show elements by removing the attribute, never with CSS.
 - z-index: sel-box 5, mp-feed/hud-chat 18, flight-alert/mp-bar 19, toasts 20, mp-score 25, modal 30.
-- The file is **append-only by feature**: base sections (:44-382), then "v2 additions" (:383), then per-feature blocks (home, builder, settings, flight, 3D stick, planes, silly :611-620, saved designs, globe, weapons, multiplayer :735). Each block carries its own `@media` overrides, and later rules win. Put new feature CSS in a new section at the end with its own breakpoints.
+- The file is **append-only by feature**: base sections (:44-382), then "v2 additions" (:383), then per-feature blocks (home, builder, settings, flight, 3D stick, planes, silly :612-621, saved designs, globe, weapons, multiplayer :736). Each block carries its own `@media` overrides, and later rules win. Put new feature CSS in a new section at the end with its own breakpoints.
 
 **Breakpoints:**
 
 | Query | Main effects |
 |---|---|
-| `max-width:760px`, the phone breakpoint, repeated per section (:326, 510, 549, 582, 641, 664, 712, 732, 881) | Builder `.stats` becomes a wrapping strip across the top (4-column stat grid, stage list hidden). `.part-info` docks above the tray (`bottom: var(--pal-h)+10px`) without its description. `.long` button labels hidden. Telemetry 176 px; time warp moves under the top-right buttons; autopilot grid 3 columns; flight hint moves top-right; the brake button floats beside the autopilot grid (:549-554); home content bottom-aligned; MP bar and feed pushed down, with `body:has(#mp-bar…)` moving stats, hint and feed (:889-892) |
-| `max-width:480px` / `420px` / `350px` (:646, 323, 655) | Hangar, 3D and Sym become icon-only; Clear hidden; smaller Launch and buttons |
-| `max-height:500px`, phones in landscape (:358, 522, 556, 586, 668) | Compact telemetry; smaller joystick (92 px) and round buttons; the throttle box turns horizontal at the bottom, left of the stage box; slimmer tray (34 px icons, no specs); hint at top centre |
-| `max-width:860px` (:874) | MP lobby grid in one column; spawn map stacked |
-| `max-width:1000px` (:320); `761-1000px` (:894) | Brand name hidden; MP build bar moved right of the stats panel |
-| `pointer:fine` (:731) · `prefers-reduced-motion` (:378) | Smaller FIRE button for a mouse · no toast or fuel-bar animation |
+| `max-width:760px`, the phone breakpoint, repeated per section (:326, 511, 550, 583, 642, 665, 713, 733, 883) | Builder `.stats` becomes a wrapping strip across the top (4-column stat grid, stage list hidden). `.part-info` docks above the tray (`bottom: var(--pal-h)+10px`) without its description. `.long` button labels hidden. Telemetry 176 px; time warp moves under the top-right buttons; autopilot grid 3 columns; flight hint moves top-right; the brake button floats beside the autopilot grid (:550-555); home content bottom-aligned; MP bar and feed pushed down, with `body:has(#mp-bar…)` moving stats, hint and feed (:891-894) |
+| `max-width:480px` / `420px` / `350px` (:647, 323, 656) | Hangar, 3D and Sym become icon-only; Clear hidden; smaller Launch and buttons |
+| `max-height:500px`, phones in landscape (:358, 523, 557, 587, 669) | Compact telemetry; smaller joystick (92 px) and round buttons; the throttle box turns horizontal at the bottom, left of the stage box; slimmer tray (34 px icons, no specs); hint at top centre |
+| `max-width:860px` (:876) | MP lobby grid in one column; spawn map stacked |
+| `max-width:1000px` (:320); `761-1000px` (:896) | Brand name hidden; MP build bar moved right of the stats panel |
+| `pointer:fine` (:732) · `prefers-reduced-motion` (:378) | Smaller FIRE button for a mouse · no toast or fuel-bar animation |
 
 **Touch controls** are always rendered, on desktop too:
-- joystick `#joy` (:562, 116/104/92 px), roll ⟲⟳ `.small-round`, Brake
+- joystick `#joy` (:563, 116/104/92 px), roll ⟲⟳ `.small-round`, Brake
 - autopilot `.sas` (6 columns; `.sas.plane` 4)
 - vertical throttle `.throttle-track` (role=slider)
 - stage box, weapon box (FIRE, CM), catapult
@@ -1798,10 +1800,10 @@ The **home background** (`renderHome`, :184-192) is the 2D solar-system map runn
 **Builder panel on phones:**
 - The tray `.items` is `touch-action:pan-x` (:158): a sideways swipe scrolls it, an upward drag picks up a part (builder.js:914).
 - `Builder.layout()` (builder.js:1185-1194) writes `--pal-h` (the tray's measured height). It drives `.stats` max-height, `.fit-col`, `.chip-hint` and the docked `.part-info`. It also lifts `.fit-col` above `.part-info` when they overlap.
-- The stats panel folds (`.stats.collapsed`, :632). It starts folded when the window is short (`innerHeight<520`, or `<700` with `innerWidth≤760`, builder.js:1600); the choice is stored in `rss.statsFolded`.
-- `#build-ui.has-info` hides the 3D hint chip on phones (:665).
-- Dragging a part over the tray shows `.palette.drop-remove`, "Drop here to remove" (:634).
-- Some rules use `:has()` (:597, :889-892); old browsers ignore them.
+- The stats panel folds (`.stats.collapsed`, :633). It starts folded when the window is short (`innerHeight<520`, or `<700` with `innerWidth≤760`, builder.js:1600); the choice is stored in `rss.statsFolded`.
+- `#build-ui.has-info` hides the 3D hint chip on phones (:666).
+- Dragging a part over the tray shows `.palette.drop-remove`, "Drop here to remove" (:635).
+- Some rules use `:has()` (:598, :891-894); old browsers ignore them.
 
 ### 5. localStorage keys (every key used in js/)
 
@@ -1810,8 +1812,8 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | Key | Read/written in | Contents |
 |---|---|---|
 | `rss.settings` | world.js:6-8 | Settings object (§2) |
-| `rss.career` | career.js:38, 41 | `{mode: null/'career'/'sandbox', funds, tier, done:{missionId: timestamp}, flights}`. In a match `MP.pushCareer` swaps in a throwaway copy with `save` as a no-op (mp.js:133-150). |
-| `rss.design` | builder.js:184, 195; mp.js:135, 144 | Current blueprint `{name, kind, parts, savedAs}`. Not written while a match borrows the builder. |
+| `rss.career` | career.js:38, 41 | `{mode: null/'career'/'sandbox', funds, tier, done:{missionId: timestamp}, flights}`. In a match `MP.pushCareer` swaps in a throwaway copy with `save` as a no-op (mp.js:135-152). |
+| `rss.design` | builder.js:184, 195; mp.js:137, 146 | Current blueprint `{name, kind, parts, savedAs}`. Not written while a match borrows the builder. |
 | `rss.hangar` | builder.js:1200, 1223, 1381 | Up to 100 named designs `{name, kind, parts, savedAt}`, newest first |
 | `rss.clip` | builder.js:172, 814 | Copy/paste clipboard `{kind, parts}` |
 | `rss.symmetry` / `rss.symmetryPlane` | builder.js:175, 1009-1011, 1585 | Symmetry toggle for non-planes / planes |
@@ -1820,12 +1822,12 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | `rss.flight` | flight.js:115, 138, 381, 406; main.js:168-233, 351 | Saved flight `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels:[…]}`, or null. Cleared on launch, revert, recovery, total loss and career reset. |
 | `rss.seenHelp` | main.js:157 | The first-run help has been shown |
 | `rss.silly`, `rss.sillyUnlocked` | util.js:142-146 | Silly flags; secret unlocked |
-| `rss.mp.name`, `rss.mp.tr` | mp.js:82; mpui.js:19-44 | MP name (≤18 chars); transport `'p2p'`/`'local'` |
+| `rss.mp.name`, `rss.mp.tr` | mp.js:82; mpui.js:19-46 | MP name (≤18 chars); transport `'p2p'`/`'local'` |
 
 ### 6. Offline / PWA
 
 **sw.js** (31 lines):
-- `CACHE = 'overbuilt-v18'` (:3).
+- `CACHE = 'overbuilt-v20'` (:3).
 - `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.
@@ -1919,7 +1921,7 @@ Known drift:
 8. **`UI.modal` replaces any open modal and drops its `onClose`.**
    - Don't open a dialog over the paused flight menu, or `Flight.paused` never resets.
    - String bodies are innerHTML: build anything containing peer-supplied text (MP names, chat) with `el(…, {text})`.
-9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1533 and mpui.js:76 do.
+9. **Escape is swallowed while a modal is open** (capture listener, main.js:22). Game key handlers must also skip input while `UI.modalOpen` or while focus is in an `INPUT`/`TEXTAREA`/`SELECT`, as builder.js:1533 and mpui.js:79 do.
 10. **A thrown error inside `frame()` doesn't stop the game**: watch the console, since it repeats every frame.
 11. **Silly flags must stay cosmetic or opt-in**: `Silly.on` is false in PvP, and missions must read real values (e.g. `v.mach`, not `effectMach`).
 12. **Changing a save format**: `rss.flight` carries `v:2`, and `store.get` also reads `orbitforge.*` keys. Keep restores tolerant: `resumeFlight` drops a save that fails to load. A thrown error in `Career`/`Builder` load code breaks startup.
@@ -1944,7 +1946,7 @@ Found while writing this handbook or in earlier reviews, and not fixed yet. All 
 | Where | What | Notes |
 |---|---|---|
 | `manifest.webmanifest` | The description still reads "Build rockets, reach orbit and land on the Moon." | Undersells the game |
-| `mp.js:819` (`onDown`) | Reads `m.P` without validating it. A malformed `down` throws inside the handler; it is caught, but the ghost drop and `recordDown` are skipped. | Validate with `mpNums` like the other handlers |
+| `mp.js:834` (`onDown`) | Reads `m.P` without validating it. A malformed `down` throws inside the handler; it is caught, but the ghost drop and `recordDown` are skipped. | Validate with `mpNums` like the other handlers |
 | multiplayer trust | Hit amounts (capped), kill credit (named by the victim), the self-reported damage score, and each player's budget and design checks all rest on trust | By design for a host-relayed P2P game; worth knowing before "anti-cheat" work |
 | `space.js:483` (`transferWindow`) | Returns a bare `Infinity`, not an object, when the two orbit rates match | The HUD copes by accident |
 | `render3d.js` water | The ocean and inland water geometries have no `uv` attribute, so the ripple normal map probably shows nothing | Add UVs before tuning ripples |
