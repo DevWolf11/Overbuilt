@@ -6,7 +6,8 @@
 //  - 'local': tabs of the same browser on this device, through a BroadcastChannel (offline, and handy for testing).
 // Messages are small plain objects { t: type, ... }. Net stamps the sender's player id on them as `f`.
 
-const NET_VERSION = 1;
+const NET_VERSION = 2; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft)
+const NET_MAX_BYTES = 256 * 1024; // the biggest message the host passes on
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'rss-room-';
 
@@ -121,7 +122,9 @@ const Net = (() => {
     const l = links.get(pid);
     if (!l || !msg || typeof msg.t !== 'string') return;
     l.heard = performance.now();
-    N.bytesIn += size(msg);
+    const n = size(msg);
+    N.bytesIn += n;
+    if (n > NET_MAX_BYTES) return; // (a padded message is not fanned out to everyone)
     msg.f = pid; // never trust the sender's own claim
     if (msg.t === 'pong') { N.pings.set(pid, Math.round(performance.now() - msg.ts)); return; }
     if (msg.t === 'bye') { dropPlayer(pid, 'left'); return; }

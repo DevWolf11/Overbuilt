@@ -29,6 +29,8 @@ const Parts3D = (() => {
     ink: { color: PAL.ink, roughness: 0.7, metalness: 0.2 },
     orange: { color: PAL.orange, roughness: 0.45, metalness: 0.1 },
     white: { color: '#eef1f4', roughness: 0.4, metalness: 0.1 },
+    helmet: { color: '#eef1f4', roughness: 0.4, metalness: 0.1 }, // pilots stay in white, whatever the paint
+    band: { color: '#5f6b52', roughness: 0.75, metalness: 0.1 }, // an attack missile's band
     tyre: { color: '#1b1e22', roughness: 0.92, metalness: 0, env: 0.3 },
     nozzle: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     intake: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
@@ -49,6 +51,15 @@ const Parts3D = (() => {
     wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
     gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
     turret: 'turret', dronecore: 'drone' };
+  // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
+  // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
+  // geometry, so theirs is made per skin.
+  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric']);
+  const SKIN_GEO = new Set(['wing', 'biplane']);
+  // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
+  // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
+  // turns the other way, as in the physics.
+  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear']);
   const FLAT_DEPTH = { fin: 0.12 };
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -72,8 +83,12 @@ const Parts3D = (() => {
   const noop = () => {};
   const pow2 = (v) => Math.min(512, Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, v)))));
   const texSize = (d) => [pow2(d.w * PX_PER_M), pow2(d.h * PX_PER_M)];
-  const dummy = (d, flip) => ({ def: d, type: d.type, x: 0, y: 0, flip: !!flip, deployed: 0, used: false, firing: 0, temp: AMBIENT_T, spin: 0, deflect: 0 });
+  const dummy = (d, flip, skin) => ({ def: d, type: d.type, x: 0, y: 0, flip: !!flip, skin: skin || null, deployed: 0, used: false, firing: 0, temp: AMBIENT_T, spin: 0, deflect: 0 });
   const lin = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+  // A skin by id for this part (null: its own look, also for an id we don't know); its tip stripes as the 2D
+  // accent() paints them (kept, hidden in the body colour, or a tone of it).
+  const skinFor = (id, d) => { const s = cleanSkin(id, d); return s ? SKINS[s] : null; };
+  const skinTip = (S) => (S.accent === 'keep' ? PAL.orange : S.accent === null ? S.base : S.accent || shade(S.base, skinLum(S.base) < 0.35 ? 0.22 : -0.25));
   const dist = (a, c) => Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
   const rectPoly = (w, h) => [-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2, h / 2];
   const v2 = (x, y) => new THREE.Vector2(x, y);
@@ -406,10 +421,12 @@ const Parts3D = (() => {
   // Wing: the airfoil cross-section extruded over the whole span (z), tapering and sweeping towards the
   // tips, white with a darker leading edge and orange tip bands.
   // o: thick (section thickness, else the part's width), sweep (instead of the wing's), half (+1 or -1: that
-  // half only, for a swing wing). An explicit dihedral tilts the halves up (-x); an elliptical planform
-  // curves the chord to the tips; winglets turn up at the tips.
+  // half only, for a swing wing), skin (painted: its colour, a darker leading edge, its tips). An explicit
+  // dihedral tilts the halves up (-x); an elliptical planform curves the chord to the tips; winglets turn
+  // up at the tips.
   function wingGeo(d, o = {}) {
-    const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, white = lin('#eef1f4'), lead = lin('#9aa3ad'), tip = lin(PAL.orange), st = [];
+    const S = o.skin ? SKINS[o.skin] : null, white = lin(S ? S.base : '#eef1f4'), lead = lin(S ? shade(S.base, -0.25) : '#9aa3ad'), tip = lin(S ? skinTip(S) : PAL.orange);
+    const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, st = [];
     const sw = o.sweep != null ? o.sweep : wd.sweep, th = o.thick || w;
     const taper = wd.taper != null ? wd.taper : 0.45, back = sw ? Math.tan(sw) * half : 0.08 * half;
     const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
@@ -428,6 +445,16 @@ const Parts3D = (() => {
         { o: [x0 - hw, qc + c / 4 - hw * 0.6, z], A: [0, -1, 0], B: [0, 0, 1], c: c * 0.45, t: th * 0.08, col: tip, lead: tip }], 'foil'));
     }
     return merge(fins);
+  }
+  // A wing's section za out along the span, as wingGeo builds it, in the wing's unturned frame: leading and
+  // trailing edge (y), the chord line's height (x: a dihedral lifts it towards -x), half thickness, and
+  // where the tip is (s > 1: past it).
+  function wingAt(d, za) {
+    const h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
+    const taper = wd.taper != null ? wd.taper : 0.45, dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, tip = half * Math.cos(dih);
+    const s = Math.abs(za) / tip, k = Math.min(1, s), c = wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - k * k * 0.96)) : h * (1 - taper * k);
+    const le = h / 4 - back * k + c / 4;
+    return { s, le, te: le - c, c, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip };
   }
 
   // Propeller or rotor blade along +x from r0 to r1, twisted from pitch p0 to p1, in the rotor plane
@@ -518,7 +545,7 @@ const Parts3D = (() => {
           s.push([lathe(rw, [[0, b + h * 0.02], [1, b + h * 0.04], [1, t - h * 0.18], [0.7, t - h * 0.07], [0, t]]), body]);
           for (let f = 0; f < 4; f++) s.push([box(rw * 1.5, h * 0.16, 0.02, cx, b + h * 0.12, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
           for (let f = 0; f < 4; f++) s.push([box(rw * 0.9, h * 0.07, 0.015, cx, t - h * 0.28, 0).translate(-cx, 0, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(cx, 0, 0), 'steelDark']);
-          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.04, 16).translate(cx, 0, 0), d.agm ? 'olive' : d.style === 'harm' ? 'tail' : 'hazard']);
+          s.push([new THREE.CylinderGeometry(rw * 0.5, rw * 0.5, h * 0.04, 16).translate(cx, 0, 0), d.agm ? 'band' : d.style === 'harm' ? 'tail' : 'hazard']);
         } else if (d.style === 'torpedo') { // long and slim, with a ring of fins and a propeller at the tail
           const rw = w * 0.5;
           s.push([lathe(rw, [[0.2, b + h * 0.04], [0.8, b + h * 0.12], [1, b + h * 0.25], [1, t - h * 0.1], [0.6, t - h * 0.02], [0, t]]), 'darkgrey']);
@@ -561,12 +588,12 @@ const Parts3D = (() => {
       } else if (sh === 'jetnose') { // long bubble canopy and the pilot (or two, one behind the other)
         const cp = d.canopy || {}, at = cp.at || 0.3, cl = cp.len || 0.2, n = cp.seats || 1;
         list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.21 * w, (0.24 / 0.2) * cl * h, 0.24 * w).translate(-0.4 * w, b + at * h, 0), cp.gold ? 'goldglass' : 'glass']);
-        for (let i = 0; i < n; i++) list.push([new THREE.SphereGeometry(0.08 * w, 16, 12).translate(-0.46 * w, b + (at - 0.02 + (n > 1 ? (i - 0.5) * cl : 0)) * h, 0), 'white']);
+        for (let i = 0; i < n; i++) list.push([new THREE.SphereGeometry(0.08 * w, 16, 12).translate(-0.46 * w, b + (at - 0.02 + (n > 1 ? (i - 0.5) * cl : 0)) * h, 0), 'helmet']);
       } else if (sh === 'cabin') { // a bubble canopy over the cylinder, and the pilot
         list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.22 * w, 0.34 * h, 0.27 * w).translate(-0.42 * w, 0.05 * h, 0), 'glass'],
-          [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.48 * w, 0.02 * h, 0), 'white']);
+          [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.48 * w, 0.02 * h, 0), 'helmet']);
       } else if (sh === 'bubble') { // seats and the pilot inside the glass
-        list.push([box(w * 0.3, h * 0.22, w * 0.6, w * 0.05, b + h * 0.36, 0), 'ink'], [new THREE.SphereGeometry(0.11 * w, 16, 12).translate(-0.08 * w, b + h * 0.52, 0.18 * w), 'white']);
+        list.push([box(w * 0.3, h * 0.22, w * 0.6, w * 0.05, b + h * 0.36, 0), 'ink'], [new THREE.SphereGeometry(0.11 * w, 16, 12).translate(-0.08 * w, b + h * 0.52, 0.18 * w), 'helmet']);
       } else if (sh === 'fuselage' && d.style === 'intake') { // an intake on each cheek, open at the front
         for (const z of [-1, 1]) {
           list.push([box(w * 0.5, h * 0.72, w * 0.26, -w * 0.02, b + h * 0.36, z * w * 0.5), 'steelDark'],
@@ -581,7 +608,7 @@ const Parts3D = (() => {
         list.push([box(w * 0.5, h * 0.3, 0.08, -w * 0.25, 0, 0), 'steelDark']);
       } else if (sh === 'cockpit') {
         list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.22 * w, 0.3 * h, 0.27 * w).translate(-0.42 * w, b + 0.42 * h, 0), 'glass'],
-          [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.47 * w, b + 0.4 * h, 0), 'white']); // the pilot's helmet
+          [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.47 * w, b + 0.4 * h, 0), 'helmet']); // the pilot's helmet
       } else if (sh === 'jet') {
         const ri = w * 0.36, y = t - 0.42;
         list.push([new THREE.CylinderGeometry(ri, ri, t - y, 32, 1, true).translate(0, (t + y) / 2, 0), 'intake'],
@@ -660,19 +687,19 @@ const Parts3D = (() => {
       return node(list);
     },
 
-    wing(d) { // elevators turn about their quarter chord
+    wing(d, flip, skin) { // elevators turn about their quarter chord
       if (d.wing && d.wing.swing) { // a swing wing: each half pivots at its root (built spread, turned back as it sweeps)
-        const s0 = d.wing.swing[0], half = (sg) => ({ role: sg > 0 ? 'swingP' : 'swingN', pos: [0, d.h / 4, 0], pieces: [[wingGeo(d, { sweep: s0, half: sg }).translate(0, -d.h / 4, 0), 'vc']], subs: [] });
+        const s0 = d.wing.swing[0], half = (sg) => ({ role: sg > 0 ? 'swingP' : 'swingN', pos: [0, d.h / 4, 0], pieces: [[wingGeo(d, { sweep: s0, half: sg, skin }).translate(0, -d.h / 4, 0), 'vc']], subs: [] });
         return node([[box(d.w * 1.6, d.h * 0.5, 0.9, 0, d.h * 0.2, 0), 'steelDark']], [half(1), half(-1)]);
       }
-      const g = wingGeo(d);
+      const g = wingGeo(d, { skin });
       if (!(d.wing && d.wing.control)) return node([[g, 'vc']]);
       return node([], [{ role: 'pivot', pos: [0, d.h / 4, 0], pieces: [[g.translate(0, -d.h / 4, 0), 'vc']], subs: [] }]);
     },
 
-    biplane(d) { // two wings, interplane struts out on the span, cabane struts by the fuselage and bracing wires
+    biplane(d, flip, skin) { // two wings, interplane struts out on the span, cabane struts by the fuselage and bracing wires
       const wd = d.wing, g = wd.gap / 2, half = wd.span / 2, sd = Math.sin(wd.dihedral || 0), list = [];
-      list.push([merge([wingGeo(d, { thick: wd.thick }).translate(-g, 0, 0), wingGeo(d, { thick: wd.thick }).translate(g, 0, 0)]), 'vc']);
+      list.push([merge([wingGeo(d, { thick: wd.thick, skin }).translate(-g, 0, 0), wingGeo(d, { thick: wd.thick, skin }).translate(g, 0, 0)]), 'vc']);
       const st = [];
       for (const z of [-0.62 * half, 0.62 * half, -0.5, 0.5]) {
         const lift = -Math.abs(z) * sd;
@@ -810,20 +837,22 @@ const Parts3D = (() => {
     return RECIPE[d.shape] || (LATHE.has(d.shape) ? 'lathe' : 'extrude');
   }
 
-  function model(d, flip) {
-    const key = d.type + (flip ? '|f' : '');
+  // skin: only wings take it into their geometry; everything else is painted by its materials.
+  function model(d, flip, skin) {
+    const r = recipe(d), s = SKIN_GEO.has(r) ? cleanSkin(skin, d) : null, key = d.type + (flip ? '|f' : '') + (s ? '|s:' + s : '');
     let m = models.get(key);
-    if (!m) { m = BUILD[recipe(d)](d, flip); m.anim = m.anim || {}; models.set(key, m); }
+    if (!m) { m = BUILD[r](d, flip, s); m.anim = m.anim || {}; models.set(key, m); }
     return m;
   }
 
   // ------------------------------------------------------------------ textures and materials
-  // The 2D drawing in flat paint (real lighting does the shading). Offset copies drawn underneath
-  // bleed the edge colours outwards so texture filtering at the silhouette never reaches empty texels.
-  function paint(d, flip) {
-    const [W, H] = texSize(d), cv = document.createElement('canvas');
+  // The 2D drawing in flat paint (real lighting does the shading), in the part's skin (drawPart puts it on).
+  // Offset copies drawn underneath bleed the edge colours outwards so texture filtering at the silhouette
+  // never reaches empty texels.
+  function paint(d, flip, skin) {
+    const [W, H] = texSize(d), cv = document.createElement('canvas'), S = skinFor(skin, d);
     cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip), flat = PartPaint.flat;
+    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat;
     PartPaint.flat = true;
     try {
       for (let i = 0; i < 8; i++) {
@@ -836,7 +865,7 @@ const Parts3D = (() => {
     } finally { PartPaint.flat = flat; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-over';
-    ctx.fillStyle = '#a7b0ba'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = S ? S.base : '#a7b0ba'; ctx.fillRect(0, 0, W, H);
     return cv;
   }
 
@@ -849,12 +878,12 @@ const Parts3D = (() => {
     return t;
   }
 
-  function textureFor(def, flip) {
+  function textureFor(def, flip, skin) {
     need();
-    const key = def.type + (flip ? '|f' : '');
+    const s = cleanSkin(skin, def), key = def.type + (flip ? '|f' : '') + (s ? '|s:' + s : '');
     let t = textures.get(key);
     if (!t) {
-      t = new THREE.CanvasTexture(paint(def, flip));
+      t = new THREE.CanvasTexture(paint(def, flip, s));
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = Math.min(8, aniso);
       textures.set(key, t);
@@ -862,12 +891,20 @@ const Parts3D = (() => {
     return t;
   }
 
-  function makeMat(kind, d, flip) {
+  // skin: the body kinds take its colour and the painted textures its finish (a painted engine is no longer
+  // polished metal), before c0 is kept for the heat glow to come back to.
+  function makeMat(kind, d, flip, skin) {
     if (kind === 'disc') return new THREE.MeshBasicMaterial({ map: shared.disc, color: 0xdfe5ec, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-    const k = KINDS[kind] || KINDS.hull;
+    const k = KINDS[kind] || KINDS.hull, S = skinFor(skin, d);
     if (k.basic) return new THREE.MeshBasicMaterial({ color: k.basic });
     const m = new THREE.MeshStandardMaterial({ color: k.color || 0xffffff, roughness: k.roughness, metalness: k.metalness, envMapIntensity: k.env || 0.8 });
-    if (k.map) m.map = textureFor(d, flip);
+    if (k.map) m.map = textureFor(d, flip, S ? skin : null);
+    if (S && (k.map || BODY_KINDS.has(kind))) {
+      if (!k.map) m.color.set(S.base);
+      const own = k.map ? KINDS.hull : k;
+      m.roughness = S.rough != null ? S.rough : own.roughness;
+      m.metalness = S.metal != null ? S.metal : own.metalness;
+    }
     if (k.vertexColors) m.vertexColors = true;
     if (k.double) m.side = THREE.DoubleSide;
     if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; }
@@ -1001,7 +1038,7 @@ void main() {
   function instance(n, obj, rig) {
     for (const [g, kind] of n.pieces) {
       let m = rig.mats[kind];
-      if (!m) { m = rig.mats[kind] = makeMat(kind, rig.part.def, rig.part.flip); if (kind === 'disc') rig.disc = m; else rig.matList.push(m); }
+      if (!m) { m = rig.mats[kind] = makeMat(kind, rig.part.def, rig.part.flip, rig.part.skin); if (kind === 'disc') rig.disc = m; else rig.matList.push(m); }
       const mesh = new THREE.Mesh(g, m);
       if (kind === 'disc') mesh.raycast = noop;
       else { mesh.castShadow = mesh.receiveShadow = true; mesh.userData.part = rig.part; rig.meshes.push(mesh); }
@@ -1020,31 +1057,32 @@ void main() {
   }
 
   // Object3D for one part, origin at the part centre. Its materials belong to it (VesselMesh disposes them).
+  // A twin part is a pair: the model twice, in holders at either side (userData.side -1, then +1). place()
+  // puts it where it is now, so moving it, in depth too, needs no rebuild.
   // radial: a rocket's legs and fins stand in fours around the stack, so each gets a twin turned 90° about
   // the stack's axis (the physics adds the same copies to the hull).
   function buildPart(p, builder, radial) {
     need(); ensureShared();
-    const d = p.def, m = model(d, !!p.flip), root = new THREE.Group();
+    const d = p.def, m = model(d, !!p.flip, p.skin), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
-      nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '' };
-    // twin parts are a pair, one each side
-    const holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.position.z = s * d.twinZ; root.add(g); return g; }) : [root];
+      nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '',
+      holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble' };
+    const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.userData.side = s; root.add(g); return g; }) : [root];
     for (const h of holders) instance(m, h, rig);
     rig.nozzle = rig.mats.nozzle || null;
     if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.map((h) => makePlume(p, h));
     rig.plume = rig.plumes[0] || null;
     if (!builder && d.chute) { rig.canopy = makeCanopy(p, root); rig.meshes.push(rig.canopy.dome); }
-    root.position.set(p.x, p.y, 0);
-    root.rotation.z = (((p.rot || 0) + (d.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
     root.userData.part = p;
     root.userData.rig = rig;
     if (radial && (d.leg || d.fin)) {
       const tw = rig.twin = new THREE.Group();
       instance(m, tw, rig);
-      tw.position.set(0, p.y, -p.x);
-      tw.rotation.set(0, Math.PI / 2, root.rotation.z);
       tw.userData.part = p;
+      tw.userData.radial = true;
+      tw.traverse((o) => { if (o.isMesh) o.userData.radial = true; }); // for show: nothing attaches to them
     }
+    place(rig);
     return root;
   }
 
@@ -1060,7 +1098,7 @@ void main() {
     if (rig.nozzle && rig.fire > 0) { rig.nozzle.emissive.setRGB(1, 0.42, 0.1); rig.nozzle.emissiveIntensity = Math.max(I, 2.2 * rig.fire); }
   }
 
-  // Twin pods hang off a wing. Without one under them (or a wing too short to reach), each pod gets a
+  // Pods hang off a wing. Without one under them (or a wing too short to reach), each pod gets a
   // streamlined pylon to the nearest hull part, so nothing floats. Built in the vessel's frame.
   function dropPylons(rig) {
     if (!rig.pylons) return;
@@ -1068,40 +1106,92 @@ void main() {
     rig.pylons.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     rig.pylons = null;
   }
-  function pylonsFor(rig, parts, group) {
-    dropPylons(rig);
-    const p = rig.part, d = p.def;
-    if (!d.twinZ || d.float || d.shape === 'skid') return; // floats and skids carry their own struts
-    // a wing holds the pod if, out at the pod's station, its chord (tapered and swept as wingGeo draws it)
-    // runs under the pod
-    const pr0 = partRect(p);
+  const over2D = (a, b, m) => { const A = partRect(a), B = partRect(b); return spanOverlap(A.l, A.r, B.l, B.r) > m && spanOverlap(A.b, A.t, B.b, B.t) > m; };
+  // How far apart two boxes [l, r, b, t, near, far] are (0: touching, or one into the other).
+  const boxGap = (A, B) => Math.hypot(Math.max(0, -spanOverlap(A[0], A[1], B[0], B[1])), Math.max(0, -spanOverlap(A[2], A[3], B[2], B[3])), Math.max(0, -spanOverlap(A[4], A[5], B[4], B[5])));
+  // Twin pods placed before parts had a depth (no att) go by the side view, as the physics joins them. A
+  // wing holds them if, out at their station, its chord (tapered and swept as wingGeo draws it) runs under
+  // them; else each one gets a strut to the nearest hull part (one on the far side counts as further).
+  // Struts: [x, y, z from, x, y, z to].
+  function oldStruts(p, parts) {
+    const d = p.def, pr = partRect(p), tz = partZ(p), out = [];
     const holds = (q) => {
       const wd = q.def.wing;
-      if (!wd || q.def.twinZ || !(isSurface(d) ? partsOverlap(p, q) : partsMounted(p, q))) return false;
-      const half = (wd.span || 5) / 2, s = d.twinZ / half;
+      if (!wd || q.def.twinZ || !(isSurface(d) ? over2D(p, q, 0.02) : partsMounted2D(p, q))) return false;
+      const half = (wd.span || 5) / 2, s = tz / half;
       if (s > 1.08) return false;
       if ((q.rot || 0) & 1) return true; // a wing turned on its side: trust the side view
       const h = q.def.h, taper = wd.taper != null ? wd.taper : 0.45, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
       const c = h * (1 - taper * Math.min(s, 1)), le = q.y + h / 4 - back * Math.min(s, 1) + c / 4, te = le - c;
-      return Math.min(le, pr0.t) - Math.max(te, pr0.b) > 0.15 * Math.min(c, pr0.t - pr0.b);
+      return Math.min(le, pr.t) - Math.max(te, pr.b) > 0.15 * Math.min(c, pr.t - pr.b);
     };
-    if (parts.some((q) => q !== p && holds(q))) return;
-    // the nearest hull part, and the point on it closest to the pod
-    let best = null, bd = Infinity;
-    for (const q of parts) {
-      if (q === p || q.def.twinZ || isSurface(q.def) || q.def.wheel) continue;
-      const r = partRect(q), cx = clamp(p.x, r.l, r.r), cy = clamp(p.y, r.b, r.t), dd = Math.hypot(cx - p.x, cy - p.y);
-      if (dd < bd) { bd = dd; best = { r, cx, cy }; }
+    if (parts.some((q) => q !== p && holds(q))) return out;
+    for (const z of [-tz, tz]) {
+      let best = null, bd = Infinity;
+      for (const q of parts) {
+        if (q === p || q.def.twinZ || isSurface(q.def) || q.def.wheel) continue;
+        const r = partRect(q), zq = partZc(q), dd = Math.hypot(clamp(p.x, r.l, r.r) - p.x, clamp(p.y, r.b, r.t) - p.y) + Math.max(0, Math.abs(z - zq) - Math.abs(z));
+        if (dd < bd) { bd = dd; best = { r, zq }; }
+      }
+      if (!best || bd > 4) continue;
+      const { r, zq } = best, ins = 0.3; // end a little inside the hull
+      out.push([p.x, p.y, z, clamp(p.x, r.l + (r.r - r.l) * ins, r.r - (r.r - r.l) * ins), clamp(p.y, r.b + (r.t - r.b) * ins, r.t - (r.t - r.b) * ins), zq]);
     }
-    if (!best || bd > 4) return;
-    const { r, cx, cy } = best, ins = 0.3; // end a little inside the hull
-    const tx = clamp(cx, r.l + (r.r - r.l) * ins, r.r - (r.r - r.l) * ins), ty = clamp(cy, r.b + (r.t - r.b) * ins, r.t - (r.t - r.b) * ins);
-    const pr = partRect(p), chord = clamp((pr.t - pr.b) * 0.45, 0.4, 1.8), thick = 0.16;
-    const mat = rig.mats.white || rig.matList[0];
-    if (!mat) return;
+    return out;
+  }
+  const clampIn = (v, a, b) => clamp(v, a + (b - a) * 0.3, b - (b - a) * 0.3); // a little inside a part
+  // A part attached to another (att), or a single pod: for each copy, a strut to the host (the att host, else
+  // the nearest part in 3D) unless it already touches it, or a wing holds it there.
+  function attStruts(p, parts, on) {
+    const pr = partRect(p), hd = partDepth(p) / 2, host = on || (p.att != null ? parts.find((q) => q.id === p.att && q !== p) : null), out = [];
+    for (const z of partZs(p)) {
+      const box = [pr.l, pr.r, pr.b, pr.t, z - hd, z + hd];
+      let q = null, B = null, gap = Infinity;
+      for (const o of host ? [host] : parts) {
+        if (!host && (o === p || o.def.wheel || surfaceKind(o.def) === 'fin')) continue;
+        for (const b of partBoxes(o)) { const g = boxGap(box, b); if (g < gap) { gap = g; B = b; q = o; } }
+      }
+      if (!q || gap > 4) continue;
+      const to = q.def.wing ? wingStrut(p, q, z) : gap < 0.05 ? null : [clampIn(p.x, B[0], B[1]), clampIn(p.y, B[2], B[3]), clampIn(z, B[4], B[5])];
+      if (to) out.push([p.x, p.y, z, ...to]);
+    }
+    return out;
+  }
+  // From a pod at depth z to a wing: none if it hangs there (the chord runs over it, its edge at the skin),
+  // else to the chord line out at its station (the tip, past it).
+  function wingStrut(p, q, z) {
+    if ((q.rot || 0) & 1) return null; // a wing turned on its side: trust the side view
+    const pr = partRect(p), s = q.rot & 2 ? -1 : 1, at = (W) => ({ x: q.x + s * W.x, y0: s > 0 ? q.y + W.te : q.y - W.le });
+    let W = wingAt(q.def, z), A = at(W);
+    if (W.s <= 1.08 && spanOverlap(pr.b, pr.t, A.y0, A.y0 + W.c) > 0.15 * Math.min(W.c, pr.t - pr.b) && spanOverlap(pr.l, pr.r, A.x - W.t, A.x + W.t) > -0.15) return null;
+    const zt = Math.sign(z) * Math.min(Math.abs(z), W.tip * 0.97);
+    W = wingAt(q.def, zt); A = at(W);
+    return [A.x, clampIn(p.y, A.y0, A.y0 + W.c), zt];
+  }
+  // The pylons' paint: the pod's skin, else the colour the old ones borrowed from the pod. Kept with its
+  // materials, so glow, see-through and heat reach it.
+  function pylonMat(rig) {
+    if (rig.mats.pylon) return rig.mats.pylon;
+    const p = rig.part, m0 = rig.matList[0], k0 = m0 && !m0.map && Object.keys(rig.mats).find((k) => rig.mats[k] === m0);
+    const m = rig.mats.pylon = makeMat(rig.mats.white || !k0 || skinFor(p.skin, p.def) ? 'white' : k0, p.def, p.flip, p.skin);
+    if (m0 && m0.isMeshStandardMaterial) { m.emissive.copy(m0.emissive); m.emissiveIntensity = m0.emissiveIntensity; }
+    if (rig.opacity < 1) { m.transparent = true; m.opacity = (m.userData.op || 1) * rig.opacity; m.depthWrite = false; }
+    rig.matList.push(m);
+    return m;
+  }
+  function pylonsFor(rig, parts, group) {
+    dropPylons(rig);
+    const p = rig.part, d = p.def;
+    if (d.float || d.shape === 'skid' || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return; // floats and skids carry their own struts
+    // (an old pair moved in or out along a wing it is mounted on in the side view hangs on that wing)
+    const old = d.twinZ && p.att == null, area = (q) => { const A = partRect(p), B = partRect(q); return spanOverlap(A.l, A.r, B.l, B.r) * spanOverlap(A.b, A.t, B.b, B.t); };
+    const wing = old && Math.abs(partZ(p) - d.twinZ) > 5e-4 && parts.filter((q) => q.def.wing && !q.def.twinZ && partsMounted2D(p, q)).sort((a, b) => area(b) - area(a))[0];
+    const struts = old && !wing ? oldStruts(p, parts) : attStruts(p, parts, wing);
+    if (!struts.length) return;
+    const pr = partRect(p), chord = clamp((pr.t - pr.b) * 0.45, 0.4, 1.8), thick = 0.16, mat = pylonMat(rig);
     const g = new THREE.Group(), _pa = new THREE.Vector3(), _pb = new THREE.Vector3(), _px = new THREE.Vector3(), _py = new THREE.Vector3(), _pz = new THREE.Vector3(), _pm = new THREE.Matrix4();
-    for (const s of [-1, 1]) {
-      _pa.set(p.x, p.y, s * d.twinZ); _pb.set(tx, ty, 0);
+    for (const [ax, ay, az, bx, by, bz] of struts) {
+      _pa.set(ax, ay, az); _pb.set(bx, by, bz);
       const len = _pa.distanceTo(_pb);
       if (len < 0.3) continue;
       // long axis along the strut, the chord fore and aft (+y), the thin side across
@@ -1129,12 +1219,15 @@ void main() {
     for (const P of rig.plumes) for (const m of P.mats) m.dispose();
   }
 
-  // A part's place and quarter turn (they change as it is dragged around the blueprint).
+  // A part's place, depth and quarter turn (they change as it is dragged around): a single part at its
+  // depth (the mirror image on the left, for the lopsided ones), a pair's copies either side of the centre.
   function place(rig) {
-    const p = rig.part;
-    rig.root.position.set(p.x, p.y, 0);
-    rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2;
-    if (rig.twin) { rig.twin.position.set(0, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }
+    const p = rig.part, z = partZ(p), H = rig.holders;
+    rig.root.position.set(p.x, p.y, H.length > 1 ? 0 : z);
+    rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
+    rig.root.scale.z = rig.zm && H.length === 1 && z < -0.01 ? -1 : 1;
+    if (H.length > 1) for (const h of H) h.position.z = h.userData.side * z;
+    if (rig.twin) { rig.twin.position.set(z, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }
   }
   function tint(rig, r, g, b, k) {
     const key = k > 0 ? `${r},${g},${b},${k}` : '';
@@ -1172,13 +1265,18 @@ void main() {
       this.pylons(parts);
     }
 
-    // (Re)build pylons when the layout changes: parts added, lost or moved.
+    // (Re)build pylons when the layout changes: parts added, lost, moved (in depth too), attached elsewhere
+    // or painted.
     pylons(parts) {
       let sig = parts.length;
-      for (const p of parts) sig += p.x * 7.13 + p.y * 3.31 + (p.rot || 0) * 1.7 + (p.flip ? 0.5 : 0);
+      for (const p of parts) {
+        sig += p.x * 7.13 + p.y * 3.31 + (p.rot || 0) * 1.7 + (p.flip ? 0.5 : 0) + partZ(p) * 5.17;
+        if (p.att != null) sig += 0.29 + (p.att % 9973) * 0.0137;
+        if (p.skin) sig += 0.61 + SKIN_IDS.indexOf(p.skin) * 0.037;
+      }
       if (sig === this.pylonSig) return;
       this.pylonSig = sig;
-      for (const rig of this.list) if (rig.part.def.twinZ) pylonsFor(rig, parts, this.group);
+      for (const rig of this.list) pylonsFor(rig, parts, this.group);
     }
 
     add(p) {
@@ -1245,9 +1343,9 @@ void main() {
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
       if (rig.swingP) { const k = (p.sweep != null ? p.sweep : d.wing.swing[0]) - d.wing.swing[0]; rig.swingP.rotation.x = k; rig.swingN.rotation.x = -k; }
       if (rig.yaw) { rig.yaw.rotation.x = p.aimYaw || 0; if (rig.pitch) rig.pitch.rotation.z = p.aimEl || 0; }
-      if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: left and right in turn
+      if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: right and left in turn, as combat lets them go
         rig.shown = p.ammo;
-        const twin = d.twinZ ? 2 : 1, k = rig.stores.length / twin, n = p.ammo == null ? Infinity : p.ammo;
+        const twin = rig.holders.length, k = rig.stores.length / twin, n = p.ammo == null ? Infinity : p.ammo;
         rig.stores.forEach((g, i) => { g.visible = (i % k) * twin + Math.floor(i / k) < n; });
       }
       if (rig.lid) rig.lid.visible = !(p.deployed > 0 || p.used);
@@ -1285,17 +1383,34 @@ void main() {
           if (shock) { m.position.y = -len * (0.14 + 0.13 * i); m.scale.setScalar(bw * (0.42 - 0.07 * i)); }
         }
         if (n) continue;
-        const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, k: 0, color: 0 });
+        const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, z: 0, k: 0, color: 0 });
         const np = partPt(p, 0, P.nz.y);
-        e.x = np.x; e.y = np.y; e.k = k * rig.plumes.length; e.color = P.hex;
+        e.x = np.x; e.y = np.y; e.z = rig.holders.length > 1 ? 0 : partZ(p); e.k = k * rig.plumes.length; e.color = P.hex; // (a pair: between the two)
         this.exhaust.push(e);
       }
     }
 
-    pick(raycaster) {
-      const hits = raycaster.intersectObjects(this.pickables, false);
-      for (const h of hits) if (shown(h.object)) return h.object.userData.part;
+    // The first part under a ray that isn't in skip (a Set: the parts being moved), with the point hit and
+    // the surface's normal there, facing the ray, both in part space (this group's frame), and which of a
+    // pair it was (side ±1, else 0). A rocket's radial copies of its legs and fins are only for show, so
+    // they don't count unless `radial`.
+    pickHit(raycaster, skip, radial) {
+      const hits = raycaster.intersectObjects(this.pickables, false), dir = raycaster.ray.direction;
+      for (const h of hits) {
+        const o = h.object, part = o.userData.part;
+        if (!part || (skip && skip.has(part)) || (!radial && o.userData.radial) || !shown(o)) continue;
+        let side = 0;
+        for (let a = o; a && a !== this.group; a = a.parent) if (a.userData.side) { side = a.userData.side; break; }
+        const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
+        const n = h.face ? h.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(o.matrixWorld)) : dir.clone().negate();
+        if (n.dot(dir) > 0) n.negate(); // (the inside of an open or two-sided shape)
+        return { part, point: h.point.clone().applyMatrix4(inv), normal: n.transformDirection(inv), side, distance: h.distance };
+      }
       return null;
+    }
+    pick(raycaster, skip) {
+      const h = this.pickHit(raycaster, skip, true);
+      return h ? h.part : null;
     }
 
     // Builder: a glow over a part's paint (selection, hover, a spot it can't go), or none (k = 0).
@@ -1335,6 +1450,7 @@ void main() {
       if (renderer && renderer.capabilities) aniso = renderer.capabilities.getMaxAnisotropy();
     },
     textureFor,
+    wingAt,
     buildPart: (p) => buildPart(p, false),
     VesselMesh,
     ghost,

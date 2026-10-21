@@ -477,7 +477,10 @@ const Builder = {
     const ax = Math.abs(hit.nx), ay = Math.abs(hit.ny), az = Math.abs(hit.nz), q = (v) => Math.round(v * 100) / 100;
     let x = hit.x, y = hit.y, z = hit.z, stack = false;
     if (ay >= ax && ay >= az && !surf) { x = host.x; z = hz; y = hit.ny > 0 ? R.t + h / 2 : R.b - h / 2; stack = true; } // its end: stack on it
-    else if (ax >= az) x = surf ? hit.x + Math.sign(hit.nx) * w / 2 : hit.nx > 0 ? R.r + w / 2 : R.l - w / 2; // under or over it
+    else if (ax >= az) { // under or over it (pods and stores always hang underneath, off their pylons)
+      if (surf && def.pod && hit.nx < 0) x = hit.x + (R.r - R.l) + w / 2;
+      else x = surf ? hit.x + Math.sign(hit.nx) * w / 2 : hit.nx > 0 ? R.r + w / 2 : R.l - w / 2;
+    }
     else z = surf ? hit.z + Math.sign(hit.nz) * hd : hz + Math.sign(hit.nz) * (hhd + hd); // on its flank
     x = q(x); y = q(y); z = q(z);
     if (!def.twinZ && Math.abs(z) < 0.08) z = 0; // onto the centre line
