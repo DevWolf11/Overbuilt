@@ -122,7 +122,7 @@ const TEMPLATES = {
   albatross: {
     name: 'Albatross', kind: 'plane', tier: 0, blurb: 'A glider with a JATO rocket to get it up. Once the rocket burns out, ride the long slow glide home.',
     parts: [['tailconeS', 0, 1.25], ['fuselageSlim', 0, 4.5], ['cockpitS', 0, 7.5], ['wingGlider', -0.5, 4.4],
-      ['elevator', -0.3, 0.75], ['vtailS', -1.2, 0.75], ['jato', 1.05, 4.1], ['gearS', 1.25, 6.6], ['tailWheel', 1.05, 0.3]],
+      ['elevator', -0.3, 0.75], ['vtail', -1.45, 0.95], ['jato', 1.05, 4.1], ['gearS', 1.25, 6.6], ['tailWheel', 1.05, 0.3]],
   },
   seagull: {
     name: 'Seagull', kind: 'plane', tier: 1, blurb: 'A floatplane. It starts on the water in the bay west of the island: full throttle and lift off the waves.',
