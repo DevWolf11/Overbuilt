@@ -148,5 +148,65 @@
   "length": 5.8,
   "height": 11,
   "mass": 2672
+ },
+ "myg21": {
+  "span": 7.15,
+  "length": 14.5,
+  "height": 4.15,
+  "mass": 8682
+ },
+ "fs4": {
+  "span": 11.7,
+  "length": 19.2,
+  "height": 5.18,
+  "mass": 20544
+ },
+ "fs16": {
+  "span": 10.299999999999999,
+  "length": 15.5,
+  "height": 5.2,
+  "mass": 12861.5
+ },
+ "myg29": {
+  "span": 11.36,
+  "length": 16.9,
+  "height": 4.79,
+  "mass": 14796
+ },
+ "fs15": {
+  "span": 13.05,
+  "length": 19.4,
+  "height": 5.800000000000001,
+  "mass": 21071.5
+ },
+ "sugoi27": {
+  "span": 14.7,
+  "length": 21.9,
+  "height": 6.07,
+  "mass": 22916
+ },
+ "sugoi35": {
+  "span": 14.7,
+  "length": 21.9,
+  "height": 6.07,
+  "mass": 23466
+ },
+ "fs22": {
+  "span": 13.56,
+  "length": 19.040000000000003,
+  "height": 4.72,
+  "mass": 27654.8
+ },
+ "fs35": {
+  "span": 10.7,
+  "length": 15.7,
+  "height": 4.32,
+  "mass": 20824.8
+ },
+ "sugoi57": {
+  "span": 14.1,
+  "length": 20.1,
+  "height": 4.89,
+  "mass": 25596
  }
 }
