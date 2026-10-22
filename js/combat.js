@@ -13,7 +13,7 @@ const TARGET_KINDS = {
   aa: { name: 'AA gun', hp: 380, r: 3.2, h: 3, land: true, aa: true, emitter: true },
   sam: { name: 'SAM site', hp: 420, r: 4, h: 4, land: true, sam: true, emitter: true },
   boat: { name: 'Patrol boat', hp: 520, r: 7, h: 3.5, speed: 7, sea: true },
-  ship: { name: 'Frigate', hp: 3200, r: 20, h: 9, speed: 3, sea: true, aa: true, emitter: true },
+  ship: { name: 'Frigate', hp: 3200, r: 20, h: 9, speed: 3, sea: true, aa: true, emitter: true, rsam: true, radar: 13000 }, // (its own radar guides its SAMs)
   drone: { name: 'Target drone', hp: 140, r: 3.2, h: 1.2, speed: 75, air: true },
 };
 const TARGET_LAYOUT = { tank: 3, truck: 3, radar: 2, bunker: 2, aa: 3, sam: 2, boat: 4, ship: 1, drone: 4 };
@@ -22,7 +22,7 @@ const RAIDER = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['coc
   ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3], ['cannon', -1.25, 8.6], ['flares', -1.2, 4.3]];
 
 const Combat = (() => {
-  const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0 };
+  const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0 };
   const mpOn = () => typeof MP !== 'undefined' && MP.active; // in a multiplayer room (no AI targets, SAMs or fighters there)
   const mode = () => (mpOn() ? 'off' : Settings.get('targets') || 'practice');
   const hostile = () => mode() === 'hostile';
@@ -159,7 +159,7 @@ const Combat = (() => {
     const map = new Map();
     for (const p of v.parts) {
       const w = p.def.weapon;
-      if (!w || w.kind === 'flare' || w.kind === 'turret') continue; // flares and turrets work by themselves
+      if (!w || w.kind === 'flare' || w.kind === 'chaff' || w.kind === 'turret') continue; // flares, chaff and turrets work by themselves
       if (!map.has(p.type)) map.set(p.type, { key: p.type, def: p.def, w, parts: [] });
       map.get(p.type).parts.push(p);
     }
@@ -176,7 +176,7 @@ const Combat = (() => {
     let a = 0, s = 0, ext = 0;
     for (const p of v.parts) {
       const d = p.def;
-      if (d.wing || d.wheel) continue;
+      if (d.wing || d.wheel || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser sits flush in the skin)
       if (d.pod || d.shape === 'missile' || d.shape === 'bomb' || d.shape === 'ecm') { if (p.ammo !== 0) ext++; continue; }
       const ar = d.w * d.h; a += ar; s += ar * (d.stealth || 0);
     }
@@ -293,12 +293,35 @@ const Combat = (() => {
     if (v === sim.active) Sound.burst(0.2, 2400, 0.3, 'highpass');
     return true;
   }
-  // Countermeasures by hand (key K, or the button): flares and chaff, at most every 0.6 s.
+  // Chaff from a dispenser: one bundle a press, bursting into a cloud that radar missiles may take for the craft
+  // (str 2: wider and likelier than the cloud that comes with flares, and weighed only once the missile is close: decoyed).
+  const dispenser = (v) => v.parts.find((q) => q.def.weapon && q.def.weapon.kind === 'chaff' && q.ammo > 0);
+  function chaff(v, sim, p = dispenser(v)) {
+    if (!p) return false;
+    const wp = v.toWorld(p.x, p.y, partZc(p)), down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 };
+    const f = { b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.5 + down.x * 6, vy: v.vy * 0.5 + down.y * 6, vz: v.vz * 0.5 + down.z * 6, t: 0, life: 5, chaff: true, str: 2 };
+    release(v, p); // (a bundle lighter)
+    S.flares.push(f);
+    if (typeof MP !== 'undefined') MP.sendFlares(v, f);
+    if (v === sim.active) Sound.burst(0.15, 1100, 0.3, 'bandpass');
+    return true;
+  }
+  // Countermeasures by hand (key K, or the button), at most every 0.6 s: flares, and a bundle from a chaff dispenser
+  // (without one, or once it is empty, the flares bring their own cloud, as they always did).
   function countermeasures(v, sim) {
     const now = sim.time || 0;
-    if (!v || v.dead || v.remote || !v.parts.length || (now >= S.cmAt && now - S.cmAt < 0.6) || !flares(v, sim, true)) return false;
+    if (!v || v.dead || v.remote || !v.parts.length || (now >= S.cmAt && now - S.cmAt < 0.6)) return false;
+    const p = dispenser(v), fl = flares(v, sim, !p), ch = !!p && chaff(v, sim, p);
+    if (!fl && !ch) return false;
     S.cmAt = now;
     return true;
+  }
+  // What a craft drops by itself against missile m (the AI, and flying solo): chaff against a radar missile (a
+  // dispenser's bundle, else flares with their cloud), flares against a heat seeker.
+  function autoCM(v, sim, m) {
+    if (!(m.sarh || m.radar)) return flares(v, sim);
+    const p = dispenser(v);
+    return p ? chaff(v, sim, p) : flares(v, sim, true);
   }
 
   // A defensive turret: swings round to the nearest enemy plane or drone in its half of the sky (leading it)
@@ -382,16 +405,22 @@ const Combat = (() => {
     else if (w.kind === 'bomb') dropBomb(v, nextStore(cur), F);
   }
   const noseDir = (v) => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); };
-  // chaff near a radar-locked target can break the lock (each cloud once): about 1 in 7, 3 in 5 if it's crossing the beam
+  // A chaff cloud's reach around the target and its odds of fooling a radar (vr: the target's speed along the beam;
+  // under 80 m/s it is crossing it): the cloud that comes with flares 250 m, about 1 in 7 (3 in 5 crossing the beam);
+  // a dispenser's bundle (str 2) 400 m, also about 1 in 7 (3 in 4 crossing); its edge is the reach and that it waits for
+  // the missile (decoyed).
+  const chaffR = (f) => (f.str > 1 ? 400 : 250);
+  const chaffOdds = (f, vr) => (f.str > 1 ? (vr < 80 ? 0.75 : 0.15) : vr < 80 ? 0.6 : 0.15); // (a bundle's edge: reach, waiting for the missile, and crossing)
+  // chaff near a radar-locked target can break the lock (each cloud once)
   const chaffSeen = new WeakSet();
   function chaffBreaks(v, t) {
     const tp = refPos(t);
     if (!tp) return false;
     for (const f of S.flares) {
-      if (!f.chaff || chaffSeen.has(f) || len(f.x - tp.x, f.y - tp.y, f.z - tp.z) > 250) continue;
+      if (!f.chaff || chaffSeen.has(f) || len(f.x - tp.x, f.y - tp.y, f.z - tp.z) > chaffR(f)) continue;
       chaffSeen.add(f);
       const d = len(tp.x - v.x, tp.y - v.y, tp.z - v.z) || 1, vr = Math.abs((tp.vx * (tp.x - v.x) + tp.vy * (tp.y - v.y) + tp.vz * (tp.z - v.z)) / d);
-      if (Math.random() < (vr < 80 ? 0.6 : 0.15)) { S.cand = null; S.lockT = 0; return true; }
+      if (Math.random() < chaffOdds(f, vr)) { S.cand = null; S.lockT = 0; return true; }
     }
     return false;
   }
@@ -480,7 +509,10 @@ const Combat = (() => {
         if (pulled > 0.5) { const q = 0.5 * rho * spd * spd; loss += s.bleed * pulled * pulled * 9.81 * clamp(QREF / Math.max(q, 1), 0.5, 3) * h; }
         if (loss > 0) { const k = Math.max(0, spd - loss) / (spd || 1); s.vx *= k; s.vy *= k; s.vz *= k; spd *= k; }
       } else if (s.vmax && spd > s.vmax) { const k = s.vmax / spd; s.vx *= k; s.vy *= k; s.vz *= k; spd = s.vmax; }
-      if (!s.glide && Math.random() < h * (motor ? 60 : 8) && F.warpIdx <= 1) FX.add({ kind: 'smoke', b, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, max: motor ? 2.2 : 1, size: 0.5, grow: 3.5, color: '#d8dce2', alpha: 0.55 });
+      if (!s.glide && Math.random() < h * (motor ? 60 : 8) && F.warpIdx <= 1) {
+        if (s.big) FX.add({ kind: 'smoke', b, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, max: motor ? 5 : 1.6, size: 0.9, grow: 6, color: '#eef1f4', alpha: 0.7 }); // (the frigate's SAM: a thick white trail)
+        else FX.add({ kind: 'smoke', b, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, max: motor ? 2.2 : 1, size: 0.5, grow: 3.5, color: '#d8dce2', alpha: 0.55 });
+      }
       if (motor && Math.random() < h * 40) FX.add({ kind: 'fire', b, x: s.x, y: s.y, z: s.z, vx: -s.dx * 20, vy: -s.dy * 20, vz: -s.dz * 20, max: 0.12, size: 0.5, grow: 0.6, color: '#ffd27a', alpha: 1 });
     }
     // drag (rounds lose speed slowly; bombs are slippery) and gravity
@@ -634,32 +666,71 @@ const Combat = (() => {
   function radarSees(L, t, tp) {
     if (!L || L.dead || !L.parts || !L.parts.length || !tp || !tp.alive) return false;
     const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = len(dx, dy, dz) || 1;
-    let reach = (radarOf(L) || 5000) * (1 - (t.parts ? stealthOf(t) : 0));
-    if (t.parts && jams(t) && d > 5000) reach = Math.max(5000, reach * 0.7);
-    if (d > reach) return false;
+    if (d > radarReach(radarOf(L) || 5000, t, d)) return false;
     const f = noseDir(L);
     if ((dx * f.x + dy * f.y + dz * f.z) / d < 0.5) return false;
+    return clutter(L, t, tp, dx, dy, dz, d);
+  }
+  // how far a radar of range R sees t, d away: less for a stealthy craft, and for a jamming one beyond 5 km
+  function radarReach(R, t, d) {
+    let r = R * (1 - (t.parts ? stealthOf(t) : 0));
+    if (t.parts && jams(t) && d > 5000) r = Math.max(5000, r * 0.7);
+    return r;
+  }
+  // a craft low down (below the radar at o, or under 300 m) moving across the beam is lost in the ground clutter
+  function clutter(o, t, tp, dx, dy, dz, d) {
     if (t.parts) {
       const vr = (tp.vx * dx + tp.vy * dy + tp.vz * dz) / d; // (its speed along the beam over the ground: the clutter's doppler is zero)
-      const low = len(tp.x, tp.y, tp.z) < len(L.x, L.y, L.z) - 50 || (t.groundAltitude ? t.groundAltitude() < 300 : false);
+      const low = len(tp.x, tp.y, tp.z) < len(o.x, o.y, o.z) - 50 || (t.groundAltitude ? t.groundAltitude() < 300 : false);
       if (low && Math.abs(vr) < 40) return 'notch';
     }
     return true;
   }
-  // Countermeasures the seeker sees around the target, each weighed once: a flare against the craft's heat,
-  // a chaff cloud (radar missiles) about 1 in 7, or 3 in 5 if the target is crossing the beam.
+  // A ship's radar (it guides the frigate's SAMs): all round from its mast, out to def.radar (less for a stealthy or
+  // jamming craft, as above), never through the ground, and lost in the clutter like any radar. memo (the missile it
+  // guides) keeps the line of sight over the ground for a quarter of a second. True, 'notch' or false.
+  function siteSees(e, t, tp, memo) {
+    if (!e || !e.alive || !e.def.radar || !tp || !tp.alive) return false;
+    const o = mastOf(e), dx = tp.x - o.x, dy = tp.y - o.y, dz = tp.z - o.z, d = len(dx, dy, dz) || 1;
+    if (d > radarReach(e.def.radar, t, d)) return false;
+    let clear;
+    if (memo && memo.losAt != null && memo.t - memo.losAt < 0.25) clear = memo.los;
+    else { clear = clearLine(o, tp, d); if (memo) { memo.losAt = memo.t; memo.los = clear; } }
+    return clear ? clutter(o, t, tp, dx, dy, dz, d) : false;
+  }
+  function mastOf(e) { const u = 1 / (len(e.pos.x, e.pos.y, e.pos.z) || 1), k = e.def.h + 12; return { x: e.pos.x * (1 + k * u), y: e.pos.y * (1 + k * u), z: e.pos.z * (1 + k * u) }; }
+  // nothing in the way between o and p, d apart (on Earth): the ground (or the sea) sampled every 150 m or so
+  const LOC = {};
+  function clearLine(o, p, d) {
+    const n = clamp(Math.ceil(d / 150), 4, 120);
+    for (let i = 1; i < n; i++) {
+      const k = i / n, L = Terrain.locate(EARTH, o.x + (p.x - o.x) * k, o.y + (p.y - o.y) * k, o.z + (p.z - o.z) * k, LOC);
+      if (L.r < EARTH.radius + Math.max(0, Terrain.surfaceAt(EARTH, L.a, L.z)) + 4) return false;
+    }
+    return true;
+  }
+  // Countermeasures the seeker sees around the target, each weighed once: a flare against the craft's heat, a chaff
+  // cloud (radar missiles) by chaffOdds. The cloud that comes with flares is weighed the moment the seeker sees it (and
+  // wasted if it is too far from the target then); a dispenser's bundle waits until the missile is within 4 km and
+  // the cloud near the target, so one dropped early isn't lost.
   function decoyed(s, t, tp, rx, ry, rz, d) {
     for (const f of S.flares) {
       if (s.cm.has(f) || (s.heat ? !f.flare : !f.chaff)) continue;
       const fx = f.x - s.x, fy = f.y - s.y, fz = f.z - s.z, fd = len(fx, fy, fz) || 1;
       if (fd > d + 800 || (fx * rx + fy * ry + fz * rz) / fd < Math.cos(s.heat ? 0.3 : 0.15)) continue;
+      if (f.str > 1) {
+        if (d > 4000 || len(f.x - tp.x, f.y - tp.y, f.z - tp.z) > chaffR(f)) continue;
+        s.cm.add(f);
+        if (Math.random() < chaffOdds(f, Math.abs(tp.vx * rx + tp.vy * ry + tp.vz * rz))) { s.target = null; return true; }
+        continue;
+      }
       s.cm.add(f);
       if (s.heat) {
         const K = 0.3 * clamp(1 - f.t / 3, 0, 1); // a flare burns out in 3 s
         if (Math.random() < Math.min(0.85, K / (K + irSig(t, s))) * (1 - s.irccm)) { s.target = f; return true; }
       } else if (len(f.x - tp.x, f.y - tp.y, f.z - tp.z) < 250) {
         const vr = Math.abs(tp.vx * rx + tp.vy * ry + tp.vz * rz);
-        if (Math.random() < (vr < 80 ? 0.6 : 0.15)) { s.target = null; return true; }
+        if (Math.random() < chaffOdds(f, vr)) { s.target = null; return true; }
       }
     }
     return false;
@@ -670,8 +741,8 @@ const Combat = (() => {
     if (!t) return 0;
     const tp = refPos(t);
     if (!tp || !tp.alive) { s.target = null; return 0; }
-    if (s.sarh && !t.flare) { // the launcher's radar must hold the target: notching gets 0.4 s of grace, a lost lock 1 s of memory
-      const r = radarSees(s.launcher, t, tp);
+    if (s.sarh && !t.flare) { // the launcher's radar (a craft's, or a ship's) must hold the target: notching gets 0.4 s of grace, a lost lock 1 s of memory
+      const r = s.launcher && s.launcher.def ? siteSees(s.launcher, t, tp, s) : radarSees(s.launcher, t, tp);
       s.notchT = r === 'notch' ? s.notchT + h : 0;
       s.lostT = r === true || (r === 'notch' && s.notchT < 0.4) ? 0 : s.lostT + h;
       if (s.lostT > 1) { s.target = null; return 0; }
@@ -762,14 +833,16 @@ const Combat = (() => {
     if (!s.glide && Math.random() < h * 30 && F.warpIdx <= 1) FX.add({ kind: 'smoke', b: s.b, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, max: 1.6, size: 0.5, grow: 3.5, color: '#d8dce2', alpha: 0.55 });
     return true;
   }
-  // their flares and chaff: for show, and our heat seekers after that craft may go for a flare
-  // (each flare of a pair comes on its own: about the same odds per pair as ours)
+  // their flares and chaff: for show, and our missiles after that craft may go for them
+  // (each flare of a pair comes on its own: about the same odds per pair as ours). chaff: 0 a flare, 1 the cloud
+  // that comes with flares, 2 a dispenser's bundle (anything else is taken as the nearest of those).
   function netFlares(g, m) {
     const P = vec(m.P), V = vec(m.V);
     if (!g || !P || !V) return;
-    const f = { b: g.body, x: P[0], y: P[1], z: P[2], vx: V[0], vy: V[1], vz: V[2], t: 0, life: m.chaff ? 5 : 4, remote: g.remote };
-    if (m.chaff) f.chaff = true; else f.flare = true;
-    S.flares.push(f); // (our heat seekers chasing that craft may go for it: decoyed)
+    const c = clamp(Math.round(+m.chaff) || 0, 0, 2);
+    const f = { b: g.body, x: P[0], y: P[1], z: P[2], vx: V[0], vy: V[1], vz: V[2], t: 0, life: c ? 5 : 4, remote: g.remote };
+    if (c) { f.chaff = true; if (c > 1) f.str = 2; } else f.flare = true;
+    S.flares.push(f); // (our missiles chasing that craft may go for it: decoyed)
   }
   const netBoom = (b, at, blast) => { if (at && Number.isFinite(at.x)) boomFX(b || EARTH, at, +blast || 5, false, typeof Flight !== 'undefined' ? Flight : null); };
 
@@ -852,9 +925,12 @@ const Combat = (() => {
       const s = def.speed * dt, ne = t.e + Math.cos(t.heading) * s, nz = t.z - Math.sin(t.heading) * s;
       if (def.land ? landOk(ne, nz) : seaOk(ne, nz)) { t.e = ne; t.z = nz; } else t.heading += Math.PI * (0.6 + rnd() * 0.8);
     }
+    // one that never moves (a radar, a bunker, AA, a SAM site) stays where it was found: no ground to look up
+    // (the map is in before any target is placed)
+    if (!def.speed && t.pos && t.e === t.posE && t.z === t.posZ) return;
     const g = def.sea ? 0 : groundAt(t.e, t.z), p0 = t.pos, p = at(t.e, t.z, g);
     t.vel = t.alive && def.speed && p0 && dt > 0 ? { x: (p.x - p0.x) / dt, y: (p.y - p0.y) / dt, z: (p.z - p0.z) / dt } : null;
-    t.pos = p; t.h = g;
+    t.pos = p; t.h = g; t.posE = t.e; t.posZ = t.z;
   }
   // hostile AA: bursts of tracers aimed ahead of the player, while in range
   function aaFire(t, h, F) {
@@ -877,6 +953,20 @@ const Combat = (() => {
     S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 26,
       burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true, ...airframe({ seek: 'air', drag: 1.2e-4, arm: 0.4 }) });
     if (len(v.x - c.x, v.y - c.y, v.z - c.z) < 12000) F.toast('SAM launch!', 'warn');
+  }
+  // The frigate's SAM: radar-guided, like a naval one. It climbs steeply off the deck trailing thick white smoke,
+  // and rides the ship's radar all the way (siteSees): notching, chaff and the ground can all break it, as they
+  // would a radar missile of the player's.
+  function shipSamFire(t, F) {
+    const v = F.active, c = mastOf(t), up = { x: c.x / len(c.x, c.y, c.z), y: c.y / len(c.x, c.y, c.z), z: c.z / len(c.x, c.y, c.z) };
+    let lx = v.x - c.x, ly = v.y - c.y, lz = v.z - c.z;
+    const ll = len(lx, ly, lz) || 1; lx = lx / ll + up.x * 0.6; ly = ly / ll + up.y * 0.6; lz = lz / ll + up.z * 0.6;
+    const l2 = len(lx, ly, lz) || 1, d = { x: lx / l2, y: ly / l2, z: lz / l2 };
+    S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 30,
+      burn: 6, accel: 210, vmax: 1100, turn: 22, dmg: 300, blast: 14, seek: 'air', heat: false, radar: true, big: true, target: v, owner: t, launcher: t, enemy: true,
+      ...airframe({ seek: 'air', radar: true, drag: 1e-4, arm: 0.4 }) });
+    const cm = v && v.parts.some((q) => q.def.weapon && (q.def.weapon.kind === 'chaff' || q.def.weapon.kind === 'flare') && q.ammo > 0);
+    F.toast(cm ? 'Radar SAM launch! Drop chaff, or fly low across it' : 'Radar SAM launch! Fly low across it, or put an island between you', 'warn');
   }
 
   // ---------------------------------------------------------------- enemy fighters
@@ -951,9 +1041,42 @@ const Combat = (() => {
     if (v.overspeed > 0.85) v.throttle = v.overspeed > 0.95 ? 0 : 0.5; // and back off near the wings' speed limit
     // shoot when the aim is good and the player is close
     v.aiFire = engage && hostile() && d < 1100 && off < 0.05;
-    // flares against a missile on its tail
+    // flares against a missile on its tail (chaff if it is a radar missile)
     if ((ai.flareT = (ai.flareT || 0) - dt) <= 0) {
-      for (const m of S.shots) if (m.k === 'missile' && m.target === v && len(m.x - v.x, m.y - v.y, m.z - v.z) < 1800) { if (flares(v, F)) ai.flareT = 0.7; break; }
+      for (const m of S.shots) if (m.k === 'missile' && m.target === v && len(m.x - v.x, m.y - v.y, m.z - v.z) < 1800) { if (autoCM(v, F, m)) ai.flareT = 0.7; break; }
+    }
+  }
+
+  // ---------------------------------------------------------------- countermeasures you can see
+  // A flare trails fire, 54 sparks a second however fast the screen runs; a chaff cloud bursts once, as it opens,
+  // into glinting foil (FX.twinkle) and a few big soft puffs (a dispenser's bundle more and bigger). Only within 3 km
+  // of the camera: further off they would be too small to see.
+  const rdir = () => { const z = Math.random() * 2 - 1, a = Math.random() * TAU, s = Math.sqrt(1 - z * z); return { x: s * Math.cos(a), y: s * Math.sin(a), z }; };
+  function cmFX(F, dt) {
+    const v = F.active, cam = F.camAbs, bp = cam ? bodyPos(v.body, F.time) : null;
+    const cx = cam ? cam.x - bp.x : v.x, cy = cam ? cam.y - bp.y : v.y, cz = cam ? cam.z || 0 : v.z;
+    for (const f of S.flares) {
+      const near = f.b === v.body && len(f.x - cx, f.y - cy, f.z - cz) < 3000;
+      if (f.chaff) { if (!f.shown) { f.shown = true; if (near) chaffBurst(f); } continue; }
+      if (!near) continue;
+      f.fxN = Math.min(6, (f.fxN ?? 1) + dt * 54);
+      for (let i = 0, n = Math.floor(f.fxN); i < n; i++, f.fxN--) { // (spread back along this frame's path, so a slow frame doesn't clump them)
+        const k = n > 1 ? (i / n) * dt : 0;
+        FX.add({ kind: 'fire', b: f.b, x: f.x - f.vx * k, y: f.y - f.vy * k, z: f.z - f.vz * k, vx: 0, vy: 0, vz: 0, max: 0.6, size: 1.2, grow: 1.5, color: '#fff2c4', alpha: 1 });
+      }
+    }
+  }
+  function chaffBurst(f) {
+    const big = f.str > 1;
+    for (let i = 0, n = big ? 12 : 8; i < n; i++) {
+      const d = rdir(), s = 2 + Math.random() * (big ? 9 : 6);
+      FX.add({ kind: 'glint', b: f.b, x: f.x, y: f.y, z: f.z, vx: f.vx + d.x * s, vy: f.vy + d.y * s, vz: f.vz + d.z * s, max: 3 + Math.random() * 2,
+        size: 0.6, grow: 0.4, color: '#eef3fa', alpha: 1, tw: Math.random() * TAU, tf: 7 + Math.random() * 8 });
+    }
+    for (let i = 0, n = big ? 3 : 2; i < n; i++) {
+      const d = rdir(), s = 1 + Math.random() * 3;
+      FX.add({ kind: 'smoke', b: f.b, x: f.x, y: f.y, z: f.z, vx: f.vx + d.x * s, vy: f.vy + d.y * s, vz: f.vz + d.z * s, max: 3.5 + Math.random(),
+        size: 2, grow: big ? 12 : 8, color: '#c9ced6', alpha: big ? 0.4 : 0.3 });
     }
   }
 
@@ -982,6 +1105,15 @@ const Combat = (() => {
           t.samT = (t.samT == null ? 4 : t.samT) - dt;
           if (t.samT <= 0 && !S.shots.some((s) => s.owner === t)) { samFire(t, F); t.samT = 22; }
         }
+        // the frigate's radar SAM, one at a time: once the craft is in its radar's reach and over 150 m (as for the SAM
+        // sites, so a take-off isn't met by one), after a first long look (20 s), and only when the radar sees it clearly
+        // (not notching, nothing in the way); a look every second until it does
+        if (t.def.rsam && d < t.def.radar && v.altitude() > 150) {
+          t.rsamT = (t.rsamT == null ? 20 : t.rsamT) - dt;
+          if (t.rsamT <= 0 && !S.shots.some((s) => s.k === 'missile' && s.owner === t)) {
+            if (siteSees(t, v, refPos(v)) === true) { shipSamFire(t, F); t.rsamT = 13; } else t.rsamT = 1;
+          }
+        }
       }
       // enemy fighters in hostile mode: two at a time
       if (hostile() && !F.destroyed) {
@@ -995,21 +1127,19 @@ const Combat = (() => {
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;
     }
-    // heat seekers on the player's tail: warning tone, and flares go out by themselves (not in multiplayer: K there)
-    S.warn = false;
+    // missiles on the player's tail: warning tone, and countermeasures go out by themselves (not in multiplayer: K
+    // there): flares against a heat seeker, chaff against a radar missile
+    S.warn = S.warnR = false;
     const auto = !mpOn();
     for (const s of S.shots) if (s.k === 'missile' && s.target === v && s.enemy) {
-      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z), radar = !!(s.radar || s.sarh);
       // a radar missile lights up the warner; in multiplayer a heat seeker is silent unless a jammer pod
       // (doubling as a missile warner) sees it within 2 km
-      if (auto || s.radar || s.sarh || (jams(v) && d < 2000)) S.warn = true;
-      if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && flares(v, F)) S.flareT = 0.6;
+      if (auto || radar || (jams(v) && d < 2000)) { S.warn = true; if (radar) S.warnR = true; }
+      if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && autoCM(v, F, s)) S.flareT = 0.6;
     }
     if (S.warn) { S.warnT -= dt; if (S.warnT <= 0) { Sound.beep(1500); S.warnT = 0.22; } }
-    for (const f of S.flares) {
-      if (f.chaff) { if (Math.random() < 0.3) FX.add({ kind: 'smoke', b: f.b, x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, max: 1.5, size: 1.5, grow: 4, color: '#c9ced6', alpha: 0.35 }); } // a glinting cloud
-      else if (Math.random() < 0.9) FX.add({ kind: 'fire', b: f.b, x: f.x, y: f.y, z: f.z, vx: 0, vy: 0, vz: 0, max: 0.6, size: 1.2, grow: 1.5, color: '#fff2c4', alpha: 1 });
-    }
+    cmFX(F, dt);
     playerFrame(F, dt);
     // a radar lock on another player's craft lights up their warner (sent again every second while it holds)
     const lk = S.lock && S.lock.remote && S.lockR ? S.lock.remote : 0;
@@ -1037,7 +1167,7 @@ const Combat = (() => {
     for (const o of F.vessels) if (o.ai) o.dead = true;
   }
   function reset(F) {
-    S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = false; S.fighterT = 20; S.wasFiring = false;
+    S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
     void F;
   }
@@ -1125,7 +1255,7 @@ const Combat = (() => {
     // a missile on your tail
     if (S.warn && Math.floor(performance.now() / 250) % 2 === 0) {
       ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-      ctx.fillText('MISSILE', W / 2, H * 0.3);
+      ctx.fillText(S.warnR ? 'RADAR MISSILE' : 'MISSILE', W / 2, H * 0.3); // (radar: chaff or notch it; heat: flares)
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
@@ -1153,16 +1283,21 @@ const Combat = (() => {
     S.lock = S.cand = null; S.lockT = 0;
     Sound.click();
   }
+  // What the weapon box shows: the weapon chosen, its rounds, flares and chaff left (and the CM button). A craft with
+  // only a turret shows its rounds; one with only flares or chaff, those (cmOnly: no FIRE button).
   function status(v) {
     const sys = v ? systems(v) : [];
+    const has = (k) => v.parts.some((p) => p.def.weapon && p.def.weapon.kind === k);
     const sum = (k) => v.parts.filter((p) => p.def.weapon && p.def.weapon.kind === k).reduce((s, p) => s + (p.ammo || 0), 0);
-    if (!sys.length) { // only a turret: show its rounds
-      if (!v || !v.parts.some((p) => p.def.weapon && p.def.weapon.kind === 'turret')) return null;
-      return { name: 'TURRET', ammo: sum('turret'), n: 0, lock: false, kills: S.kills, flares: sum('flare'), stealth: v.stealth || 0 };
+    if (!sys.length) {
+      if (!v) return null;
+      const tur = has('turret');
+      if (!tur && !has('flare') && !has('chaff')) return null;
+      return { name: tur ? 'TURRET' : !has('chaff') ? 'FLARES' : !has('flare') ? 'CHAFF' : 'CM', ammo: tur ? sum('turret') : null, n: 0, lock: false, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0, cmOnly: !tur, fl: has('flare'), ch: has('chaff') }; // (fl/ch: so an emptied one still shows its 0)
     }
     const cur = sys[v.wsel], w = cur.w;
     return { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
-      lock: !!S.lock, kills: S.kills, flares: sum('flare'), stealth: v.stealth || 0 };
+      lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
   }
   const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'AMRAAM', agm: 'AGM', bomb: 'BOMB' };
   function integrity(v) { // the whole craft's health, 0..1
@@ -1172,7 +1307,7 @@ const Combat = (() => {
   }
 
   return {
-    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, cycle, status, systems, integrity, flares, stealthOf,
+    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, cycle, status, systems, integrity, flares, chaff, stealthOf,
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },
   };

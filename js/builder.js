@@ -80,13 +80,13 @@ const TEMPLATES = {
     name: 'Falcon', kind: 'plane', tier: 3, military: true, blurb: 'Air-superiority fighter: cannon, heat seekers and radar missiles, a fighter turbofan with afterburner. Hold V to fire, Tab to change weapon.',
     parts: [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
       ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3],
-      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3]],
+      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3], ['chaff', -1.2, 5.3]],
   },
   striker: {
     name: 'Striker', kind: 'plane', tier: 2, military: true, blurb: 'Ground-attack jet with a cannon, rocket pods and bombs. The bombsight shows where the bombs will fall.',
     parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpitJet', 0, 9.1], ['wingSwept', 0.2, 5.3], ['elevator', 0.25, 1.2],
       ['vtail', -1.45, 1.6], ['gearR', 1.7, 4.4], ['gearR', 1.5, 8.6], ['airbrake', -1.125, 5.6],
-      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6]],
+      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6], ['chaff', -1.2, 3.8]],
   },
   bomber: {
     name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly, a pair of 250 kg bombs under the wings, and a turret on top that guards it by itself.',
@@ -109,12 +109,12 @@ const TEMPLATES = {
     name: 'Kestrel', kind: 'plane', tier: 3, military: true, blurb: 'A swing-wing interceptor: the wings spread for take-off and landing and fold back by themselves as it speeds up. Tandem cockpit, cannon and radar missiles.',
     parts: [['jetF', 0, 2.2], ['fuselageIntake', 0, 5.75], ['fuselage', 0, 9.5], ['cockpitTandem', 0, 14.1], ['wingSwing', 0.2, 7.5],
       ['elevator', 0.25, 1.2], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 6.2], ['gearR', 1.55, 12.8],
-      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3]],
+      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3], ['chaff', -1.2, 6.3]],
   },
   spectre: {
     name: 'Spectre', kind: 'plane', tier: 4, military: true, blurb: 'A stealth striker: faceted nose and body, a V-tail and four bombs in an internal bay. Hostile radars and fighters spot it far later (watch ◈ on the weapon box).',
     parts: [['jetF', 0, 2.2], ['bombBay', 0, 6], ['fuselageStealth', 0, 10.5], ['cockpitStealth', 0, 15.3], ['wingDelta', 0.4, 9.6],
-      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6]],
+      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6], ['chaff', 1.0, 3.0]],
     paint: { wingDelta: 'stealth', vtailV: 'stealth', jetF: 'stealth' },
   },
   jumbo: {
@@ -163,7 +163,7 @@ const Builder = {
   // The selection: `selected` is the part the panel describes; `sel` holds every selected part (several when
   // shift-clicking, box-selecting or pasting). Setting `selected` selects just that part.
   get selected() { return this._primary || null; },
-  set selected(p) { this._primary = p || null; this.sel = new Set(p ? [p] : []); },
+  set selected(p) { this._primary = p || null; this.sel = new Set(p ? [p] : []); this.dirty = true; },
   get multi() { return this.sel.size > 1; },
   init(canvas) {
     this.canvas = canvas;
@@ -181,6 +181,12 @@ const Builder = {
     this.history = [];
     this.future = [];
     this.bindDom();
+    // the panels round the view: when one changes size, so does the part of the screen the craft shows in
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(() => { this.area = null; this.redraw(); });
+      for (const sel of ['#build-top', '#stats', '#palette', '#part-info']) ro.observe($(sel));
+      this.keepArea = true;
+    }
     const saved = store.get('rss.design', null);
     if (saved && saved.parts && saved.parts.length) {
       this.loadDesign(saved);
@@ -244,7 +250,11 @@ const Builder = {
   },
   pose(p) { return { x: p.x, y: p.y, z: p.z, rot: p.rot || 0 }; },
 
+  // The blueprint (2D or 3D) is drawn only when something changed: App.frame draws it on the next frame.
+  // Every edit, pick, pan and zoom asks for it (input of any kind does too).
+  redraw() { this.dirty = true; },
   changed(fromHistory) {
+    this.redraw();
     if (!fromHistory) this.zGesture = null; // (a slider drag ends with the edit it makes)
     cleanAtt(this.parts); // (nothing attached to a part that has gone)
     this.adj = buildAdjacency(this.parts);
@@ -341,6 +351,7 @@ const Builder = {
   },
   hitPart(w) { return this.hitParts(w)[0] || null; },
   fitView() {
+    this.redraw();
     if (this.in3D()) Render3D.resetCamera(true);
     if (!this.parts.length) { this.cam = { x: 0, y: 6, scale: 26 }; return; }
     let l = Infinity, r = -Infinity, b = Infinity, t = -Infinity;
@@ -357,7 +368,9 @@ const Builder = {
     this.cam.x = (l + r) / 2 - (area.cx - innerWidth / 2) / this.cam.scale;
     this.cam.y = (b + t) / 2 + (area.cy - innerHeight / 2) / this.cam.scale;
   },
+  // (kept until a panel or the window changes size, or the part panel comes or goes: the 3D view asks every frame)
   viewArea() {
+    if (this.area) return this.area;
     const top = $('#build-top').getBoundingClientRect().bottom + (innerWidth <= 760 ? $('#stats').getBoundingClientRect().height + 8 : 0);
     let bottom = $('#palette').getBoundingClientRect().top;
     const info = $('#part-info');
@@ -365,7 +378,9 @@ const Builder = {
     bottom = Math.max(bottom, top + 80);
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
-    return { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
+    const a = { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
+    if (this.keepArea && !$('#build-ui').hidden) this.area = a;
+    return a;
   },
 
   // ---------------------------------------------------------------- what hangs on what
@@ -788,6 +803,7 @@ const Builder = {
   setGrid(on) {
     if (this.in3D()) { UI.toast('The grid is for the 2D blueprint: in 3D parts attach right where you drop them'); return; }
     this.grid = !!on;
+    this.redraw();
     store.set('rss.grid', this.grid);
     $('#btn-grid').setAttribute('aria-pressed', String(this.grid));
     UI.toast(this.grid ? 'Grid on: parts snap to a quarter-metre grid' : 'Grid off: parts attach right where you drop them');
@@ -1116,6 +1132,7 @@ const Builder = {
   },
 
   renderInfo() {
+    this.redraw();
     const p = this.selected;
     const box = $('#part-info');
     $('#build-ui').classList.toggle('has-info', !!p); // phones: the 3D hint gives way to it
@@ -1183,6 +1200,8 @@ const Builder = {
   // Panels and buttons sit above the tray, whatever its height (it changes with the screen and the font),
   // and on phones the Fit button stays clear of the part panel.
   layout() {
+    this.area = null;
+    this.redraw();
     const ui = $('#build-ui');
     if (!ui || ui.hidden) return;
     ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
@@ -1518,7 +1537,7 @@ const Builder = {
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
-    c.addEventListener('pointerleave', () => { this.hover3d = null; });
+    c.addEventListener('pointerleave', () => { if (this.hover3d) this.redraw(); this.hover3d = null; });
     c.addEventListener('wheel', (e) => {
       if (App.scene !== 'build') return;
       e.preventDefault();
@@ -1582,6 +1601,7 @@ const Builder = {
     sym.setAttribute('aria-pressed', String(this.symmetry));
     sym.addEventListener('click', () => {
       this.symmetry = !this.symmetry;
+      this.redraw();
       store.set(this.symKey(this.kind), this.symmetry);
       sym.setAttribute('aria-pressed', String(this.symmetry));
       UI.toast(!this.symmetry ? 'Symmetry off' : this.kind === 'plane' ? 'Symmetry on: whatever goes out on one wing gets a twin on the other' : 'Symmetry on: parts are mirrored across the centre line');
@@ -1617,6 +1637,7 @@ const Builder = {
     return { d: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
   },
   zoomAt(f, sx, sy) {
+    this.redraw();
     const before = this.screenToDisp(sx, sy);
     this.cam.scale = clamp(this.cam.scale * f, 3, 90);
     const after = this.screenToDisp(sx, sy);
@@ -1660,8 +1681,9 @@ const Builder = {
   hover(cx, cy) {
     const c = this.canvas;
     if (this.in3D()) {
-      const hit = Render3D.pickPart(cx, cy);
+      const hit = Render3D.pickPart(cx, cy), was = this.hover3d;
       this.hover3d = hit && hit.part ? hit.part : null;
+      if (this.hover3d !== was) this.redraw(); // (the highlight moves)
       c.style.cursor = this.hover3d ? 'grab' : 'default';
     } else c.style.cursor = this.hitPart(this.screenToWorld(cx, cy)) ? 'grab' : 'default';
   },
@@ -1681,6 +1703,7 @@ const Builder = {
   // and move the part there, with everything that goes with it.
   dragTo(cx, cy) {
     const d = this.drag;
+    this.redraw();
     d.last = { x: cx, y: cy };
     const lift = d.fromPalette && isTouch ? 44 : 0; // keep a part from the tray visible above the finger
     const pal = $('#palette'), overPalette = cy > pal.getBoundingClientRect().top;
@@ -1707,6 +1730,7 @@ const Builder = {
   // twins where they mirror it (or back where they were, if they don't fit there).
   moveDragged(s) {
     const d = this.drag, o = d.orig, dx = s.x - o.x, dy = s.y - o.y, dz = s.z - o.z;
+    this.redraw();
     for (const [q, p] of d.origs) this.setPose(q, p);
     for (const q of d.group) { const p = d.origs.get(q); this.setPose(q, { x: p.x + dx, y: p.y + dy, z: p.z + this.zStep(q, dz, d.list, d.H) }); }
     this.setPose(d.part, s);
@@ -1729,6 +1753,7 @@ const Builder = {
   endDrag() {
     this.drag = null;
     this.mpp = null;
+    this.redraw();
     if (Render3D.ready) Render3D.editView(false);
     const pal = $('#palette');
     pal.classList.remove('drop-remove', 'drop-hot');

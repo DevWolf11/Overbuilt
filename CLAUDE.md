@@ -45,7 +45,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 | `util.js` | maths (vectors, quaternions), `fmt`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags |
 | `space.js` | bodies, Kepler orbits, patched conics, sites (pad, runway, airfields, carriers), the 2D terrain profile |
 | `terrain.js` | `Terrain`: the 3D ground (real Earth map or generated), shared by physics and renderer |
-| `parts.js` | `PARTS` catalogue (157 parts), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
+| `parts.js` | `PARTS` catalogue (158 parts), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
 | `vessel.js` | `Vessel`: the rigid-body simulation (engines, wings in halves, aero, heat, chutes, wheels, ground and water, splitting, autopilot) |
 | `ui.js`, `world.js` | dialogs, toasts and icons; `Settings`, `FX` particles, the 2D fallback flight view |
 | `parts3d.js`, `render3d.js` | 3D part models; the three.js renderer for flight, hangar and globe (three.js is lazy-loaded) |
@@ -101,6 +101,8 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 - **Test multiplayer locally:** two windows of one browser profile, transport "This device" (BroadcastChannel). Keep both visible, because a hidden tab stops sending.
 - **Shared return values.** `Terrain.toGeo`, `Terrain.water`, `bodyPos`/`bodyVel` and render3d temporaries return shared objects; copy them before the next call.
 - **`Vessel` call order.** Set `kind` before `rebuildGroups()`, and call `rebuildGroups()` after any change to `parts` or `adj`.
+- **Drawing is on demand (PR #35).** `App.frame` only redraws a still view when it is stale (`App.stale`/`App.drew`, a 500 ms safety heartbeat). Code that changes what the hangar shows without player input must call `Builder.redraw()` (or go through `changed()`/`renderInfo()`); `test/browser/redraw.mjs` guards this. Physics must stay frame-rate independent: the 60 fps cap (`Settings.fps`) only skips frames.
+- **Battery matters to the owner** (phones and tablets heat up). Don't add work that doesn't change what the player sees; measure CPU and GPU before and after (headless Chromium with the CDP profiler and WebGL call counts), and keep pictures byte-identical where possible.
 - **Known loose ends:** handbook §7.
 
 ## History (what has been built, PR by PR)
@@ -123,3 +125,5 @@ PRs #1-#10 were Cam-Strike, a 5v5 bomb-defusal FPS that the repo used to hold (i
 | #30 | This test suite (`test/`) and the handbook (`docs/HANDBOOK.md`); the game renamed to **Overbuilt**, because it had outgrown rockets |
 | #31 | A new icon for Overbuilt |
 | #32 | Wings flutter apart past their own speed limits (equivalent airspeed, and Mach for subsonic wings), after a warning; the view shakes; AI fighters throttle back |
+| #33-#34 | Online joining that survives a phone host looking away and says which step failed; big messages in pieces; a relay (TURN) account for school networks and a Test this network button |
+| #35 | Battery: redraw only what changes (still screens, menus, pause), a 60 fps cap on touch devices, the same 3D picture with far less hidden pixel work, cheaper ground contact, sound and screen sleep when paused. Chaff Dispenser part, frigate radar SAM |

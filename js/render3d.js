@@ -246,12 +246,17 @@ const Render3D = (() => {
   const smat = (o) => new THREE.ShaderMaterial(Object.assign({ extensions: { fragDepth: true } }, o));
   const SKY_VS = `varying vec3 vDir;
 void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+  // uNadir, uKeep: only directions whose cosine from straight down lies in uKeep are drawn (groundCut: the rest is
+  // under the ground, or plain sky, where the haze would add nothing)
   const SKY_FS = `#include <common>
-uniform vec3 uZen, uHor, uSunset, uGlow, uUp, uSun;
+uniform vec3 uZen, uHor, uSunset, uGlow, uUp, uSun, uNadir;
 uniform float uDip, uSunsetK, uGlare, uAlpha;
+uniform vec2 uKeep;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
+  float cn = dot(d, uNadir);
+  if (cn < uKeep.x || cn > uKeep.y) discard;
   float e = dot(d, uUp), el = asin(clamp(e, -1.0, 1.0)) + uDip;
   vec3 c = mix(uHor, uZen, pow(clamp(el / 1.25, 0.0, 1.0), 0.55));
   vec3 hd = d - uUp * e, hs = uSun - uUp * dot(uSun, uUp);
@@ -270,7 +275,7 @@ void main() { vCol = aCol; gl_Position = projectionMatrix * modelViewMatrix * ve
   const STAR_FS = `uniform float uAlpha;
 varying vec3 vCol;
 void main() { vec2 q = gl_PointCoord * 2.0 - 1.0; float a = max(0.0, 1.0 - dot(q, q)); gl_FragColor = vec4(vCol * a * a * uAlpha, 1.0); }`;
-  const BAND_FS = `uniform float uAlpha; uniform vec3 uN;
+  const BAND_FS = `uniform float uAlpha, uCut; uniform vec3 uN, uNadir;
 varying vec3 vDir;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float n3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -278,6 +283,7 @@ float n3(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z); }
 void main() {
   vec3 d = normalize(vDir);
+  if (dot(d, uNadir) > uCut) discard; // (under the ground: groundCut)
   float b = exp(-pow(dot(d, uN), 2.0) / 0.018);
   float n = n3(d * 6.0) * 0.6 + n3(d * 15.0) * 0.3 + n3(d * 40.0) * 0.1;
   gl_FragColor = vec4(vec3(0.55, 0.6, 0.75) * b * smoothstep(0.35, 0.9, n) * uAlpha * 0.16, 1.0);
@@ -453,7 +459,7 @@ void main() {
   // ------------------------------------------------------------------ setup
   const S = {}; // scene objects
   const tmpV = () => new THREE.Vector3();
-  let V1, V2, Q1, M1, RAY, NDC, envCube, envCam, envScene, envUni, envKey = '', envTime = -9;
+  let V1, V2, Q1, M1, M2, RAY, NDC, FRU, PV, SPH, envCube, envCam, envScene, envUni, envKey = '', envTime = -9;
 
   function init() {
     THREE = window.THREE;
@@ -471,9 +477,11 @@ void main() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.autoClear = false;
+    renderer.localClippingEnabled = true; // (the planets: groundCut)
     maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); api.ready = false; api.failed = true; });
-    V1 = tmpV(); V2 = tmpV(); Q1 = new THREE.Quaternion(); M1 = new THREE.Matrix4(); RAY = new THREE.Raycaster(); NDC = new THREE.Vector2();
+    V1 = tmpV(); V2 = tmpV(); Q1 = new THREE.Quaternion(); M1 = new THREE.Matrix4(); M2 = new THREE.Matrix4(); RAY = new THREE.Raycaster(); NDC = new THREE.Vector2();
+    FRU = new THREE.Frustum(); PV = new THREE.Matrix4(); SPH = new THREE.Sphere();
     camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 5e12);
     bcam = new THREE.PerspectiveCamera(FOV, 1, 0.05, 2e4);
     spaceScene = new THREE.Scene(); spaceWorld = new THREE.Group(); spaceScene.add(spaceWorld);
@@ -499,6 +507,7 @@ void main() {
     envCam = new THREE.CubeCamera(0.1, 100, envCube);
     envScene = new THREE.Scene();
     envUni = { uZen: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uGround: { value: new THREE.Color() }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunK: { value: 0 } };
+    S.envS = new THREE.Color(); S.envG = new THREE.Color(); S.envH = new THREE.Color(); // (the flight's, every frame)
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, uniforms: envUni, vertexShader: SKY_VS,
       fragmentShader: `uniform vec3 uZen, uHor, uGround, uSun; uniform float uSunK; varying vec3 vDir;
@@ -511,8 +520,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   function updateEnv(zen, hor, ground, sun, sunK, key) {
     // only when the sky changed noticeably, and at most every 0.4 s
-    const k = key || [zen, hor, ground].map((c) => c.getHexString()).join('') + Math.round(sunK * 4) + Math.round(sun.x * 3) + Math.round(sun.y * 3);
-    if (k === envKey || (clock - envTime < 0.4 && !key)) return;
+    if (!key && clock - envTime < 0.4) return;
+    const k = key || zen.getHexString() + hor.getHexString() + ground.getHexString() + Math.round(sunK * 4) + Math.round(sun.x * 3) + Math.round(sun.y * 3);
+    if (k === envKey) return;
     envKey = k; envTime = clock;
     envUni.uZen.value.copy(zen); envUni.uHor.value.copy(hor); envUni.uGround.value.copy(ground); envUni.uSun.value.copy(sun); envUni.uSunK.value = sunK;
     envCam.update(renderer, envScene);
@@ -522,11 +532,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const U = S.skyU = {
       uZen: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uSunset: { value: new THREE.Color('#ff8a4a') }, uGlow: { value: new THREE.Color(1, 0.93, 0.8) },
       uUp: { value: new THREE.Vector3(0, 1, 0) }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uDip: { value: 0 }, uSunsetK: { value: 0 }, uGlare: { value: 0 }, uAlpha: { value: 1 },
+      uNadir: { value: new THREE.Vector3(0, -1, 0) }, uKeep: { value: new THREE.Vector2(-2, 2) },
     };
     const dome = new THREE.SphereGeometry(1000, 48, 24);
     S.sky = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: U, vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthTest: false, depthWrite: false }));
     S.sky.renderOrder = -10; S.sky.frustumCulled = false;
-    S.haze = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: Object.assign({}, U, { uAlpha: { value: 0 } }), vertexShader: SKY_VS, fragmentShader: SKY_FS,
+    S.haze = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: Object.assign({}, U, { uAlpha: { value: 0 }, uKeep: { value: new THREE.Vector2(-2, 2) } }), vertexShader: SKY_VS, fragmentShader: SKY_FS,
       side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true }));
     S.haze.renderOrder = 50; S.haze.frustumCulled = false;
     spaceScene.add(S.sky, S.haze);
@@ -550,7 +561,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.starU = { uAlpha: { value: 1 }, uPx: { value: 1 } };
     S.stars = new THREE.Points(sg, new THREE.ShaderMaterial({ uniforms: S.starU, vertexShader: STAR_VS, fragmentShader: STAR_FS, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false }));
     S.stars.renderOrder = -9; S.stars.frustumCulled = false;
-    S.bandU = { uAlpha: { value: 1 }, uN: { value: bn } };
+    S.bandU = { uAlpha: { value: 1 }, uN: { value: bn }, uNadir: { value: new THREE.Vector3(0, 0, -1) }, uCut: { value: 2 } }; // (uNadir: in the far layer's frame)
     S.band = new THREE.Mesh(new THREE.SphereGeometry(9e4, 48, 24), new THREE.ShaderMaterial({ uniforms: S.bandU, vertexShader: SKY_VS, fragmentShader: BAND_FS,
       side: THREE.BackSide, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false }));
     S.band.renderOrder = -9.5; S.band.frustumCulled = false;
@@ -562,7 +573,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // ------------------------------------------------------------------ planets
-  const bodies = [], jobs = [];
+  // jobs: the maps being painted, a slice a frame. Earth's go first; another body's join the queue once it is
+  // drawn bigger than a dot (updateBodies), so the worlds most players never get near cost nothing.
+  const bodies = [], jobs = [], WAIT = {};
   function initBodies() {
     const geo = sphereGeo(160, 80);
     S.sphere = geo;
@@ -585,9 +598,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const ph = canvasTex(2, 1, (g) => { g.fillStyle = b.colors.map; g.fillRect(0, 0, 2, 1); });
         e.mat = new THREE.MeshStandardMaterial({ map: ph, normalMap: flatN, roughness: 1, metalness: 0 });
         if (b.ocean) e.mat.roughnessMap = canvasTex(2, 1, (g) => { g.fillStyle = '#fff'; g.fillRect(0, 0, 2, 1); }, false);
+        e.clip = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e30); // (groundCut: what the ground hides of it, when we're on it)
+        e.mat.clippingPlanes = [e.clip];
         e.mesh = new THREE.Mesh(geo, e.mat);
         e.job = bodyJob(e);
-        jobs.push(e.job);
+        if (b === EARTH) { jobs.push(e.job); e.queued = true; }
       }
       e.mesh.scale.setScalar(b.radius);
       e.mesh.matrixAutoUpdate = true;
@@ -643,7 +658,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   // Planet maps are painted from the same terrain field as the near-surface mesh, a few rows per frame.
   function* bodyJob(e) {
-    while (e.b === EARTH && Terrain.earthMap.state === 'loading') yield; // paint the real Earth once it has loaded
+    while (e.b === EARTH && Terrain.earthMap.state === 'loading') yield WAIT; // paint the real Earth once it has loaded
     const b = e.b, c = cfgOf(b);
     const TW = (c.mapped ? 2048 : b.radius >= 50000 ? 1024 : 512) >> (Settings.high ? 0 : 1), TH = TW / 2, no = c.k.length;
     const G = grid(TW, 1, no), hs = new Float32Array(TW * TH), dk = new Float32Array(TW * TH), ns = new Float32Array(TW * TH), cs = new Float32Array(TW * TH);
@@ -742,15 +757,20 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     e.deckMat.map = t;
     old.dispose();
   }
+  // (a job waiting for something, Earth's for its map, goes to the back of the queue)
   function runJobs(ms) {
+    if (!jobs.length) { const e = bodies.find((q) => !q.ready && !q.queued && q.job); if (e) { jobs.push(e.job); e.queued = true; } } // idle: the other worlds, one at a time, after Earth's
     const t0 = performance.now();
-    while (jobs.length && performance.now() - t0 < ms) if (jobs[0].next().done) jobs.shift();
+    for (let idle = 0; jobs.length && idle < jobs.length && performance.now() - t0 < ms;) {
+      const r = jobs[0].next();
+      if (r.done) { jobs.shift(); idle = 0; } else if (r.value === WAIT) { jobs.push(jobs.shift()); idle++; } else idle = 0;
+    }
   }
+  // all at once (queued or not), unless it has to wait
   function finishJob(j) {
+    for (let r = j.next(); !r.done; r = j.next()) if (r.value === WAIT) return;
     const i = jobs.indexOf(j);
-    if (i < 0) return;
-    while (!j.next().done);
-    jobs.splice(i, 1);
+    if (i >= 0) jobs.splice(i, 1);
   }
 
   // ------------------------------------------------------------------ the local layer: lights, terrain, scenery
@@ -881,6 +901,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     Object.assign(patch, {
       n, m, nc, nr, sx: new Float64Array(nc), sz: new Float64Array(nr), h: new Float32Array(N), dk: new Float32Array(N), cont: new Float32Array(N), tn: new Float32Array(N),
       wl: new Float32Array(N), wp: new Float32Array(N), lk: new Float32Array(N), road: new Float32Array(N), river: new Float32Array(N), // inland water, roads, rivers (the real Earth)
+      hide: new Uint8Array(N), // water vertices out of sight (cullWater)
       G: null, b: null, a0: 0, span: 0, at: -9, active: false,
     });
     const idx = new Uint16Array((nc - 1) * (nr - 1) * 6);
@@ -889,16 +910,17 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const a = j * nc + i, b = a + 1, c = a + nc, d = c + 1;
       idx[k++] = a; idx[k++] = b; idx[k++] = c; idx[k++] = b; idx[k++] = d; idx[k++] = c;
     }
-    const mk = (cols) => {
+    // the water sheets get their own copy of the index, cut down to what can show with each patch (cullWater)
+    const mk = (cols, ix) => {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
       g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
       g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * cols), cols).setUsage(THREE.DynamicDrawUsage));
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
+      g.setIndex(new THREE.BufferAttribute(ix || idx.slice(), 1).setUsage(ix ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage));
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
       return g;
     };
-    const tg = mk(3);
+    const tg = mk(3, idx);
     tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(N * 2), 2).setUsage(THREE.DynamicDrawUsage));
     tg.setAttribute('aNight', new THREE.BufferAttribute(new Float32Array(N), 1).setUsage(THREE.DynamicDrawUsage)); // city lights
     patch.mesh = new THREE.Mesh(tg, terr.mat);
@@ -922,8 +944,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     note(name, performance.now() - t0);
     return r;
   };
-  // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame).
-  function* patchJob(patch, b, a0, z0, span) {
+  // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame);
+  // camAlt: the camera's height, for how far out the sea can be cut down to what shows (cullWater).
+  function* patchJob(patch, b, a0, z0, span, camAlt) {
     patch.ready = false;
     const c = cfgOf(b), R = c.R, no = c.k.length, { nc, nr, n, m, sx, sz } = patch, kl = latK(z0, R);
     if (!patch.G || patch.G.no !== no) { patch.G = grid(nc, nr, no); patch.G.no = no; }
@@ -1063,6 +1086,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
       for (const a of ['position', 'normal', 'color']) og.attributes[a].needsUpdate = true;
       og.boundingSphere.radius = span * 1.6;
+      // the sea runs on under the land, out of sight wherever a triangle's corners all stand well above it: those are
+      // left out, within half the horizon. "Well above": 1.5 m, and more far off, where a pixel spans more ground (the
+      // depth a pixel's edge samples get is worked out at its centre, so near-level surfaces far away can swap)
+      const lim = 0.5 * Math.sqrt(2 * R * camAlt + camAlt * camAlt), hide = patch.hide;
+      for (let j = 0; j < nr; j++) for (let i = 0; i < nc; i++) {
+        const k = j * nc + i;
+        hide[k] = Math.abs(sx[i]) <= lim && Math.abs(sz[j]) <= lim && hs[k] >= Math.max(1.5, Math.hypot(sx[i], sz[j], camAlt) / 200) ? 1 : 0;
+      }
+      cullWater(patch, og);
     }
     // lakes and rivers: a water surface at their own level where there is water, tucked under the ground elsewhere
     let inland = false;
@@ -1077,6 +1109,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
           if (!on) for (const q of [k - 1, k + 1, k - nc, k + nc]) if (q >= 0 && q < wp.length && wp[q] > 0.01 && (fine || lk[q] > 0.5) && !(wl[q] <= lv)) lv = wl[q];
           const r = R + (lv === lv ? lv : hs[k] - 6);
           if (on) inland = true;
+          patch.hide[k] = lv === lv ? 0 : 1; // (tucked under the ground)
           ip[k * 3] = r * ux; ip[k * 3 + 1] = r * uy - R; ip[k * 3 + 2] = r * sp;
           inr[k * 3] = ux; inr[k * 3 + 1] = uy; inr[k * 3 + 2] = sp;
           const t = smoothstep(0, 14, (lv === lv ? lv : 0) - hs[k]);
@@ -1087,9 +1120,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
       for (const a of ['position', 'normal', 'color']) ig.attributes[a].needsUpdate = true;
       ig.boundingSphere.radius = span * 1.6 + c.hmax;
+      cullWater(patch, ig);
     }
     patch.inland.visible = inland;
-    Object.assign(patch, { b, a0, z0, kl, span, at: clock, ready: true });
+    // how far below sea level the ground goes (its lowest point, and how far the flat outer cells sag below the
+    // surface through their corners), for groundCut
+    let minH = 0;
+    for (let k = 0; k < hs.length; k++) if (hs[k] < minH) minH = hs[k];
+    const cell = Math.max(sx[nc - 1] - sx[nc - 2], sz[nr - 1] - sz[nr - 2]);
+    Object.assign(patch, { b, a0, z0, kl, span, minH, sag: (cell * cell) / (8 * R), at: clock, ready: true });
+  }
+  // Cut a water sheet's index down to the triangles with a corner in sight (patch.hide: 1 where a vertex is not),
+  // in the same order (triangles under the ground never passed the depth test, so the picture is the same).
+  function cullWater(patch, g) {
+    const { nc, nr, hide } = patch, ix = g.index, a = ix.array;
+    let n = 0;
+    for (let j = 0; j < nr - 1; j++) for (let i = 0; i < nc - 1; i++) {
+      const p = j * nc + i, q = p + 1, r = p + nc, s = r + 1;
+      if (!(hide[p] && hide[q] && hide[r])) { a[n++] = p; a[n++] = q; a[n++] = r; }
+      if (!(hide[q] && hide[s] && hide[r])) { a[n++] = q; a[n++] = s; a[n++] = r; }
+    }
+    g.setDrawRange(0, n);
+    ix.clearUpdateRanges(); ix.addUpdateRange(0, Math.max(n, 1)); ix.needsUpdate = true;
   }
   // The rendered ground round an airfield's paving stays under it (render only; q: Terrain.fieldAt's answer here).
   // Within a mesh cell or so of the runway it never rises over the strip's level: a coarse cell reaching in from
@@ -1113,9 +1165,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.scenery.dirty = true;
   }
   // A whole patch at once, when there is nothing usable on show (another body, a jump across the map).
-  function buildPatchNow(b, a0, z0, span) {
+  function buildPatchNow(b, a0, z0, span, camAlt) {
     pjob = null;
-    const job = patchJob(patchB, b, a0, z0, span);
+    const job = patchJob(patchB, b, a0, z0, span, camAlt);
     while (!job.next().done);
     swapPatch();
   }
@@ -1171,7 +1223,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       V1.set(-r * cp * Math.sin(d), r * cp * Math.cos(d) - R, r * sp);
       V2.set(-cp * Math.sin(d), cp * Math.cos(d), sp);
       Q1.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, V2);
-      M1.makeRotationY(yaw); M1.premultiply(new THREE.Matrix4().makeRotationFromQuaternion(Q1));
+      M1.makeRotationY(yaw); M1.premultiply(M2.makeRotationFromQuaternion(Q1));
       M1.scale(V2.set(sXZ, sY, sZ)); M1.setPosition(V1);
       mesh.setMatrixAt(idx, M1);
       if (color) mesh.setColorAt(idx, color);
@@ -1382,7 +1434,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         k++;
       }
     }
-    Object.assign(S.clouds, { b, a0, z0, list, n: k, vols, sortAt: -9 });
+    Object.assign(S.clouds, { b, a0, z0, list, n: k, vols, sortAt: -9, sortP: null });
   }
   // The puffs are see-through, so they are drawn far to near: re-sorted a few times a second.
   const puffKey = new Float32Array(CLOUD_MAX), puffIdx = new Uint32Array(CLOUD_MAX);
@@ -2237,6 +2289,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         case 'flash': c = FLASH; a = 0.9 * (1 - k); break;
         case 'ring': c = fxColor(p.color); kind = 1; break;
         case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
+        case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
         default: c = fxColor(p.color);
       }
       const A = add ? pf : ps, i = add ? nf++ : ns++;
@@ -2282,7 +2335,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.rim = new THREE.DirectionalLight(0x8fb8ff, 1.6);
     S.design = new THREE.Group();
     studio.add(floor, S.studioHemi, S.key, S.key.target, S.rim, S.design);
-    S.bd = { vm: null, parts: null, snap: '', att: '' };
+    S.bd = { vm: null, parts: null, kind: '', key: [], att: [], anim: false };
+    S.studioEnv = [new THREE.Color(0.32, 0.4, 0.55), new THREE.Color(0.08, 0.12, 0.2), new THREE.Color(0.02, 0.04, 0.08)]; // (its sky, for reflections)
   }
 
   // ------------------------------------------------------------------ per frame: flight
@@ -2311,6 +2365,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     out.sunset = out.atmo * clamp(1 - Math.abs(elev - 0.03) / 0.28, 0, 1);
     return out;
   }
+  const fogCs = new Map(); // a hazy world's fog colour (sRGB 0..255)
+  const fogOf = (b) => { let c = fogCs.get(b); if (!c) fogCs.set(b, (c = b.colors.fog.split(',').map((q) => +q))); return c; };
   function skyColors(e) {
     const b = e.b, a = e.atmo;
     mixC(ZEN0, C(b.colors.sky || '#03050b'), Math.pow(a, 0.7) * (0.1 + 0.9 * e.day), zen);
@@ -2320,7 +2376,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // turn between the sim's axes and the view's (local up = +Y)
   const toView = (x, y, z, out) => qrot(viewQ, x, y, z, out);
   const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
-  const T3 = v3(), LOC = {};
+  const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
   const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22] };
   function followCam(v, dt, snap) {
@@ -2338,13 +2394,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     fc.follow += wrapAngle(want - fc.follow) * (snap ? 1 : (1 - Math.exp(-dt * 2.2)) * Math.min(1, (h - 0.25) * 4));
   }
 
-  function renderFlight(F, dt) {
+  // calm: paused or under a dialog, drawn a few times a second (App.frame), which isn't a slow frame
+  function renderFlight(F, dt, calm) {
     if (!api.ready || !shown || !F || !F.active) return;
     mode = 'flight';
     dt = clamp(dt || 0, 0, 0.1);
     clock += dt; frameNo++;
     applyQuality();
-    adaptResolution(dt);
+    if (!calm) adaptResolution(dt);
     const v = F.viewVessel || F.active, b = v.body, t = F.time, bp = bodyPos(b, t), R = b.radius, hi = Settings.high; // (multiplayer: the player we watch)
     camAbs.x = F.camAbs.x; camAbs.y = F.camAbs.y; camAbs.z = F.camAbs.z || 0;
     const fq = F.viewQ || quat();
@@ -2405,8 +2462,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.sunS.position.copy(sunDir); S.sunS.target.position.set(0, 0, 0);
     S.ambS.intensity = 0.03 + 0.05 * envC.atmo;
 
-    // ---- planets, Sun, far layer
-    updateBodies(F, b, envC, dist);
+    // ---- planets, Sun, far layer; the haze dome only where it can show: over stars or anything else out there (never
+    // under the ground), or over just our planet's rim between the ground and the sky
+    const far = updateBodies(F, b, envC, dist), cut = S.cut, hk = S.haze.material.uniforms.uKeep.value;
+    if (S.stars.visible || far === 2) hk.set(-2, cut ? cut.cosC : 2);
+    else if (far === 1) hk.set(cut ? cut.cosH : -2, cut ? cut.cosC : 2);
+    else S.haze.visible = false;
 
     // ---- local light: sun, sky, engine glow, fog
     const day = envV.day, atm = envV.atmo, hz = b.haze ? smoothstep(0, 1, Math.sqrt(airDensity(b, Math.max(envV.alt, 0)) / b.rho0)) : 0;
@@ -2421,7 +2482,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     setCol3(S.hemi.color, mixC(skyAvg, [200, 210, 225], atm > 0 ? 0.25 : 0.6, T2));
     setCol3(S.hemi.groundColor, grd, 0.25 + 0.75 * day);
     S.hemi.intensity = amb * 1.6;
-    const fogC = mixC(hor, b.colors.fog ? b.colors.fog.split(',').map((q) => +q) : hor, b.haze ? 0.6 : 0, T1);
+    const fogC = mixC(hor, b.colors.fog ? fogOf(b) : hor, b.haze ? 0.6 : 0, T1);
     setCol3(localScene.fog.color, fogC);
     const rhoF = b.atmoHeight ? airDensity(b, Math.max(0, camAlt * 0.5)) : 0;
     localScene.fog.density = rhoF > 0 ? (b.haze ? 3.2e-4 : b === MARS ? 6e-5 : 2.4e-5) * Math.sqrt(rhoF / b.rho0) : 0;
@@ -2430,9 +2491,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       localScene.fog.density = lerp(localScene.fog.density, 0.004, inCloud);
       localScene.fog.color.lerp(S.cloudFogC.setRGB(0.72, 0.75, 0.8).multiplyScalar(0.2 + 0.9 * day), inCloud);
     }
-    const eS = new THREE.Color(), eG = new THREE.Color();
+    const eS = S.envS, eG = S.envG;
     setCol3(eS, zen); setCol3(eG, grd, 0.4 * day);
-    updateEnv(U.uHor.value, U.uHor.value.clone().lerp(eS, 0.5), eG, sunDir, day * (1 - hz), null);
+    updateEnv(U.uHor.value, S.envH.copy(U.uHor.value).lerp(eS, 0.5), eG, sunDir, day * (1 - hz), null);
     envUni.uZen.value.copy(eS);
 
     // ---- surface things
@@ -2462,19 +2523,39 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.clear();
     if (!api.skipDraw) renderer.render(spaceScene, camera);
     renderer.clearDepth();
+    // at night and in eclipse the Sun lights nothing, so its shadow map would be drawn for nothing: the last one stays
+    renderer.shadowMap.autoUpdate = S.sun.intensity > 0 || !S.sun.shadow.map;
     if (!api.skipDraw) renderer.render(localScene, camera);
+    renderer.shadowMap.autoUpdate = true; // (the hangar's)
   }
 
+  // Returns what of the far layer besides the sky is in view (within a margin): 2 another body, a glow, an atmosphere,
+  // a cloud deck or a dot; 1 only the planet we're at; 0 nothing. (Elsewhere the haze dome is drawn over sky of its own
+  // colour, which leaves the picture as it was.) S.cut: what of our planet the ground hides (groundCut).
   function updateBodies(F, cur, env, dist) {
     camera.updateMatrixWorld();
-    const t = F.time, pxPerRad = H / (2 * TANH), dots = S.dots.geometry.attributes;
-    const sunAbs = bodyPos(SUN, t), camSim = toSim(camera.position.x, camera.position.y, camera.position.z, v3());
-    bodies.forEach((e, k) => {
-      const b = e.b, p = bodyPos(b, t), x = p.x - camAbs.x, y = p.y - camAbs.y, z = -camAbs.z;
+    const t = F.time, pxPerRad = H / (2 * TANH), dots = S.dots.geometry.attributes, mpp = 8 / pxPerRad; // (an 8 px margin)
+    const sunAbs = bodyPos(SUN, t), camSim = toSim(camera.position.x, camera.position.y, camera.position.z, CAM_B);
+    FRU.setFromProjectionMatrix(PV.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    let seen = 0;
+    for (let k = 0; k < bodies.length; k++) {
+      const e = bodies[k], b = e.b, p = bodyPos(b, t), x = p.x - camAbs.x, y = p.y - camAbs.y, z = -camAbs.z;
       const cx = x - camSim.x, cy = y - camSim.y, cz = z - camSim.z, d = Math.hypot(cx, cy, cz);
       const pr = (b.radius / Math.max(d, 1)) * pxPerRad;
       e.mesh.position.set(x, y, z);
       e.mesh.visible = pr > 0.6;
+      if (b === cur) { // the planet under us: none of it is drawn where the ground is sure to cover it
+        const cut = S.cut = e.mesh.visible ? groundCut(b, -cx, -cy, -cz, d, 3 / pxPerRad) : null;
+        if (cut) {
+          const c = V1.set(x, y, z).applyQuaternion(spaceWorld.quaternion), nd = S.skyU.uNadir.value.subVectors(c, camera.position).normalize();
+          e.clip.normal.copy(nd); e.clip.constant = b.radius * cut.cosTh - nd.dot(c);
+        }
+        S.skyU.uKeep.value.set(-2, cut ? cut.cosC : 2);
+        S.bandU.uCut.value = cut ? cut.cosC : 2;
+        if (cut) { const n = S.skyU.uNadir.value; toSim(n.x, n.y, n.z, T3); S.bandU.uNadir.value.set(T3.x, T3.y, T3.z); }
+      }
+      if (e.clip && (b !== cur || !S.cut)) { e.clip.normal.set(0, 0, 1); e.clip.constant = 1e30; }
+      if (!e.ready && !e.queued && pr > 2) { jobs.push(e.job); e.queued = true; } // its maps, once it is more than a dot
       if (e.sunV) e.sunV.copy(S.sunS.position).normalize().transformDirection(camera.matrixWorldInverse);
       if (e.glow) {
         e.glow.position.set(x, y, z);
@@ -2512,13 +2593,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const m = C(b.colors.map), vis = (1 - smoothstep(0.8, 2, pr)) * (b.star ? 3 : 0.9);
       dots.aCol.array[k * 3] = lin(m[0]) * vis; dots.aCol.array[k * 3 + 1] = lin(m[1]) * vis; dots.aCol.array[k * 3 + 2] = lin(m[2]) * vis;
       dots.aSize.array[k] = 0;
-    });
+      const mg = d * mpp;
+      if (b === cur && e.mesh.visible && seen < 1 && inView(x, y, z, b.radius + mg)) seen = 1;
+      if (seen < 2 && ((b !== cur && e.mesh.visible && inView(x, y, z, b.radius + mg)) || (e.glow && inView(x, y, z, e.glow.scale.x * 0.71 + mg)) || (vis > 0 && inView(x, y, z, mg))
+        || (e.atm && e.atm.visible && e.atm.parent === spaceWorld && inView(x, y, z, e.atmR + mg))
+        || (e.deck && e.deck.visible && e.deck.parent === spaceWorld && inView(x, y, z, b.radius + e.deckAlt + mg)))) seen = 2;
+    }
     S.dotU.uMin.value = 3 * Math.min(DPR, 2);
     dots.position.needsUpdate = dots.aCol.needsUpdate = dots.aSize.needsUpdate = true;
     const sun = bodies[0];
     // inside an atmosphere the Sun takes the sunset's colour
     sun.sunU.uK.value = 7 * (1 - 0.35 * env.sunset);
     sun.glow.material.color.setRGB(2.2, 1.9 - 0.6 * env.sunset, 1.5 - 0.8 * env.sunset);
+    return seen;
+  }
+  function inView(x, y, z, r) { // a sphere in the far layer's frame, against the camera's frustum
+    SPH.center.set(x, y, z).applyQuaternion(spaceWorld.quaternion); SPH.radius = r;
+    return FRU.intersectsSphere(SPH);
   }
 
   // where the focus is over its body: angle around it and depth along the surface
@@ -2534,9 +2625,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const lost = patch.b !== b || !patch.ready || moved > patch.span * 0.25 || span > patch.span * 3 || span < patch.span / 3;
     if (lost) {
       // rails warp can move the craft by thousands of km per frame: rebuild at most a few times a second
-      if (clock - patch.at > 0.12 || patch.b !== b || !patch.ready) buildPatchNow(b, a, z, span);
+      if (clock - patch.at > 0.12 || patch.b !== b || !patch.ready) buildPatchNow(b, a, z, span, camAlt);
       else { patch.active = false; patch.frame.visible = false; return; }
-    } else if (stale && !pjob) { pjob = patchJob(patchB, b, a, z, span); pjobMs = 0; pjobSlice = 0; }
+    } else if (stale && !pjob) { pjob = patchJob(patchB, b, a, z, span, camAlt); pjobMs = 0; pjobSlice = 0; }
     if (pjob) {
       // a few milliseconds a frame; more as the craft nears the edge of what is on show
       const t0 = performance.now(), budget = (Settings.high ? 4 : 3) + 16 * smoothstep(0.05, 0.2, moved / patch.span);
@@ -2553,6 +2644,35 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     patch.active = true;
     patch.frame.visible = true;
     placeFrame(patch.frame, b, patch.a0, F.time);
+  }
+  // How much of the planet the terrain patch on show is sure to hide, seen from (x, y, z) relative to its centre (r
+  // from it): a ray from the camera within bc of straight down gets deeper than the patch's ground goes anywhere (its
+  // lowest point, sag of its flat cells included) while still over the patch, so it meets that ground. The patch must
+  // reach 1.2x as far as such a ray can go before it gets that deep. Beyond bh a ray misses the planet. Returns the
+  // cosines of bc and bh, and of the angle from the point under the camera to where the ray at bc meets sea level;
+  // null when the patch doesn't reach that far every way. m: a margin (radians: a few pixels).
+  const CUT = { cosC: 0, cosH: 0, cosTh: 0 };
+  function groundCut(b, x, y, z, r, m) {
+    if (!patch.active || !patch.ready || patch.b !== b) return null;
+    const R = b.radius, Rd = R - Math.max(0, -patch.minH) - patch.sag - 5;
+    if (!(r > R + 1) || !patchCovers(b, x, y, z, r, 1.2 * R * Math.acos(Rd / r))) return null;
+    const bc = Math.asin(Rd / r) - m, sc = Math.sin(bc), cc = Math.cos(bc);
+    const t = r * cc - Math.sqrt(Math.max(0, R * R - r * r * sc * sc));
+    CUT.cosC = cc; CUT.cosH = Math.cos(Math.asin(R / r) + m); CUT.cosTh = (r - t * cc) / R;
+    return CUT;
+  }
+  // Does the patch reach `reach` (m along the ground) from the point under (x, y, z) every way? (Checked at 16
+  // bearings: its sides run along its frame's meridians and parallels.)
+  function patchCovers(b, x, y, z, r, reach) {
+    const R = b.radius, D = reach / R;
+    if (D > 1.2) return false;
+    const la0 = Math.asin(clamp(z / r, -1, 1)), lo0 = Math.atan2(y, x), sl = Math.sin(la0), cl = Math.cos(la0), cd = Math.cos(D), sd = Math.sin(D);
+    for (let k = 0; k < 16; k++) {
+      const th = (k / 16) * TAU, sla = clamp(sl * cd + cl * sd * Math.cos(th), -1, 1);
+      const lo = lo0 + Math.atan2(Math.sin(th) * sd * cl, cd - sl * sla);
+      if (Math.abs(wrapAngle(lo - patch.a0)) * R * patch.kl > patch.span || Math.abs(Math.asin(sla) * R - patch.z0) > patch.span) return false;
+    }
+    return true;
   }
   function placeFrame(obj, b, a0, t, h = 0) {
     const bp = bodyPos(b, t), r = b.radius + h;
@@ -2608,7 +2728,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.cloudFrame.updateMatrixWorld();
     camera.getWorldPosition(V1);
     S.cloudFrame.worldToLocal(V1);
-    if (clock - C0.sortAt > 0.2) { C0.sortAt = clock; sortPuffs(V1); }
+    // (re-sorted only once the camera has moved a metre among them: a new list has no sortP)
+    if (clock - C0.sortAt > 0.2 && !(C0.sortP && V1.distanceToSquared(C0.sortP) < 1)) { C0.sortAt = clock; sortPuffs(V1); (C0.sortP || (C0.sortP = tmpV())).copy(V1); }
     // inside a cloud the world turns to white murk (the fog, next frame)
     let inside = 0;
     for (const v of C0.vols) {
@@ -2647,11 +2768,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (S.townU) S.townU.uAlpha.value = env.night * 1.4;
   }
 
+  const SYNC_Q = { dt: 0, time: 0, rho: 0, quality: 'high' };
   function syncVessels(F, dt, dist) {
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh;
-    const q = { dt, time: F.time, rho: 0, quality: Settings.high ? 'high' : 'low' };
+    const q = SYNC_Q;
+    q.dt = dt; q.time = F.time; q.rho = 0; q.quality = Settings.high ? 'high' : 'low';
     let glowK = 0;
-    const camSim = toSim(camera.position.x, camera.position.y, camera.position.z, v3());
+    const camSim = toSim(camera.position.x, camera.position.y, camera.position.z, CAM_A);
     for (const v of F.vessels) {
       if (!have || !v.parts.length || v.dead) continue;
       let e = vessels.get(v);
@@ -2728,21 +2851,30 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // Building in 3D: the blueprint is the plane z = 0 of S.design (part space), seen in perspective. While
   // a part is being dragged the craft's place, the camera's target and its turn are held still (they
   // otherwise follow the craft's size), so the plane doesn't slide under the pointer.
-  const bv = { edit: false, frozen: null, last: null, pan: { x: 0, y: 0, z: 0 }, ghosts: [], tinted: new Set(), tgt: null };
-  function builderLayout(B) {
+  // It is drawn only while something moves (the turntable, the camera or the craft easing into place, a part
+  // being dragged, a rotodome turning) or when asked to: otherwise no GL call at all, and the canvas keeps
+  // the last picture. (drawn: that picture is on the canvas; moving: still easing after the last one.)
+  const bv = { edit: false, frozen: null, last: null, pan: { x: 0, y: 0, z: 0 }, ghosts: [], tinted: new Map(), want: new Map(), tgt: null, drawn: false, moving: false,
+    sv: { parts: null }, so: { dt: 0, time: 0, rho: 0, quality: 'high' } };
+  const LAYOUT = { rot: 0, lift: 0, size: 0, tx: 0, ty: 0 }, LKEYS = ['lift', 'tx', 'ty', 'size'], NO_GHOSTS = [];
+  const TINT_HOVER = [1, 0.72, 0.3, 0.18], TINT_SEL = [1, 0.62, 0.15, 0.42], TINT_HOST = [0.3, 0.85, 1, 0.3], TINT_BAD = [1, 0.12, 0.08, 1.1];
+  function builderLayout(B, out) {
     const kind = (typeof VEHICLE_KINDS !== 'undefined' && VEHICLE_KINDS[B.kind || 'rocket']) || { launchRot: 0 };
     const rot = kind.launchRot || 0, c = Math.cos(rot), s = Math.sin(rot);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = 0, z1 = 0;
     for (const p of B.parts) {
       const r = partRect(p), hd = partDepth(p) / 2;
-      for (const [px, py] of [[r.l, r.b], [r.r, r.b], [r.l, r.t], [r.r, r.t]]) {
-        const X = c * px - s * py, Y = s * px + c * py;
+      for (let i = 0; i < 4; i++) { // the corners
+        const px = i & 1 ? r.r : r.l, py = i & 2 ? r.t : r.b, X = c * px - s * py, Y = s * px + c * py;
         x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
       }
-      for (const z of partZs(p)) { z0 = Math.min(z0, z - hd); z1 = Math.max(z1, z + hd); } // across (the spin turns it into view)
+      const z = partZ(p); // across, both copies of a pair (the spin turns it into view)
+      z0 = Math.min(z0, z - hd); z1 = Math.max(z1, z + hd);
+      if (p.def.twinZ) { z0 = Math.min(z0, -z - hd); z1 = Math.max(z1, -z + hd); }
     }
     if (!B.parts.length) { x0 = -1; x1 = 1; y0 = 0; y1 = 4; }
-    return { rot, lift: -y0 + 0.01, size: Math.max(x1 - x0, y1 - y0, z1 - z0, 2), tx: (x0 + x1) / 2, ty: (y1 - y0) / 2 };
+    out.rot = rot; out.lift = -y0 + 0.01; out.size = Math.max(x1 - x0, y1 - y0, z1 - z0, 2); out.tx = (x0 + x1) / 2; out.ty = (y1 - y0) / 2;
+    return out;
   }
   // The part being placed (and its mirror twin), in the paint it will take: see-through, blue where it
   // fits, red where it can't go. Its depth goes with the pointer (place()); a new paint is a new ghost.
@@ -2766,42 +2898,59 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     bv.ghosts.length = list.length;
   }
-  function renderBuilder(B, dt) {
-    if (!api.ready || !shown || !B) return;
+  // force: draw even if nothing moves (something changed, or the player just did something). True if it drew.
+  function renderBuilder(B, dt, force) {
+    if (!api.ready || !shown || !B) return false;
+    const fresh = mode !== 'builder', bd = S.bd;
     mode = 'builder';
-    dt = clamp(dt || 0, 0, 0.1);
+    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim) return false;    dt = clamp(dt || 0, 0, 0.1);
     clock += dt;
     applyQuality();
-    const bd = S.bd, have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket';
+    const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket', parts = B.parts, n = parts.length;
     // rebuild the meshes only when parts come, go, flip, change paint or kind; moving (in depth too) and
-    // turning them is cheap
-    let snap = String(B.parts.length) + (B.kind || '');
-    for (const p of B.parts) snap += `|${p.id},${p.type},${p.flip ? 1 : 0},${p.skin || ''}`;
-    if (snap !== bd.snap || bd.parts !== B.parts) {
-      if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
-      if (have && B.parts.length) { bd.vm = new Parts3D.VesselMesh(B.parts, { builder: true, radial }); S.design.add(bd.vm.group); }
-      bd.snap = snap; bd.parts = B.parts; bd.att = ''; bv.tinted.clear();
+    // turning them is cheap (key: id, type, flip and paint of each part)
+    let same = bd.parts === parts && bd.kind === (B.kind || '') && bd.key.length === n * 4;
+    for (let i = 0; same && i < n; i++) {
+      const p = parts[i], k = i * 4;
+      same = bd.key[k] === p.id && bd.key[k + 1] === p.type && bd.key[k + 2] === !!p.flip && bd.key[k + 3] === (p.skin || '');
     }
-    const att = B.parts.map((p) => (B.attached && B.attached.has(p.id) ? 1 : 0)).join('');
-    if (bd.vm && att !== bd.att) { for (const p of B.parts) bd.vm.setOpacity(p, B.attached && B.attached.has(p.id) ? 1 : 0.4); bd.att = att; }
-    if (bd.vm) bd.vm.sync({ parts: B.parts }, { dt, time: clock, rho: 0, quality: Settings.high ? 'high' : 'low' });
+    if (!same) {
+      if (bd.vm) { S.design.remove(bd.vm.group); bd.vm.dispose(); bd.vm = null; }
+      if (have && n) { bd.vm = new Parts3D.VesselMesh(parts, { builder: true, radial }); S.design.add(bd.vm.group); }
+      bd.key.length = 0;
+      for (const p of parts) bd.key.push(p.id, p.type, !!p.flip, p.skin || '');
+      bd.kind = B.kind || ''; bd.parts = parts; bd.att.length = 0; bv.tinted.clear();
+      bd.anim = !!bd.vm && bd.vm.list.some((r) => r.spins.length && r.anim && r.anim.always); // (a rotodome turns all the time)
+    }
+    // loose parts (not joined to the craft) are see-through
+    let att = bd.att.length === n;
+    for (let i = 0; i < n; i++) { const a = B.attached && B.attached.has(parts[i].id) ? 1 : 0; if (bd.att[i] !== a) { bd.att[i] = a; att = false; } }
+    if (!att) { bd.att.length = n; if (bd.vm) for (let i = 0; i < n; i++) bd.vm.setOpacity(parts[i], bd.att[i] ? 1 : 0.4); }
+    if (bd.vm) {
+      const sv = bv.sv, so = bv.so;
+      sv.parts = parts; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      bd.vm.sync(sv, so);
+    }
     // selection (amber), hover (faint), what a dragged part will attach to (cyan) and a dragged part, with
     // what goes with it, that can't go where it is (red)
     if (bd.vm) {
-      const want = new Map(), d = B.drag, sel = B.selected;
-      if (B.hover3d) want.set(B.hover3d, [1, 0.72, 0.3, 0.18]);
-      if (sel) for (const p of B.multi ? B.sel : [sel, sel.mirror]) if (p) want.set(p, [1, 0.62, 0.15, 0.42]);
-      if (d && d.host) want.set(d.host, [0.3, 0.85, 1, 0.3]);
-      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, [1, 0.12, 0.08, 1.1]);
-      for (const p of bv.tinted) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
+      const want = bv.want, d = B.drag, sel = B.selected;
+      want.clear();
+      if (B.hover3d) want.set(B.hover3d, TINT_HOVER);
+      if (sel && B.multi) for (const p of B.sel) want.set(p, TINT_SEL);
+      else if (sel) { want.set(sel, TINT_SEL); if (sel.mirror) want.set(sel.mirror, TINT_SEL); }
+      if (d && d.host) want.set(d.host, TINT_HOST);
+      if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, TINT_BAD);
+      for (const p of bv.tinted.keys()) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
-      bv.tinted = new Set(want.keys());
+      bv.want = bv.tinted; bv.tinted = want;
     }
-    syncGhosts(have && B.ghosts ? B.ghosts() : [], radial);
+    syncGhosts(have && B.ghosts && B.drag ? B.ghosts() : NO_GHOSTS, radial);
     // rotate by the kind's launch attitude and rest the lowest point on the floor
-    const L = bv.frozen || (bv.last = builderLayout(B));
-    if (!bv.tgt || bv.frozen) bv.tgt = { lift: L.lift, tx: L.tx, ty: L.ty, size: L.size };
-    else { const k = 1 - Math.exp(-dt * 10); for (const q of ['lift', 'tx', 'ty', 'size']) bv.tgt[q] += (L[q] - bv.tgt[q]) * k; }
+    const L = bv.frozen || (bv.last = builderLayout(B, LAYOUT));
+    if (!bv.tgt) bv.tgt = { lift: L.lift, tx: L.tx, ty: L.ty, size: L.size };
+    else if (bv.frozen) { bv.tgt.lift = L.lift; bv.tgt.tx = L.tx; bv.tgt.ty = L.ty; bv.tgt.size = L.size; }
+    else { const k = 1 - Math.exp(-dt * 10); for (const q of LKEYS) bv.tgt[q] += (L[q] - bv.tgt[q]) * k; }
     const T = bv.tgt;
     S.design.rotation.z = L.rot;
     S.design.position.set(0, T.lift, 0);
@@ -2823,6 +2972,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     try { const a = B.viewArea(); ox = a.cx - W / 2; oy = a.cy - H / 2; } catch (err) { ox = oy = 0; }
     if (!bv.off) bv.off = { x: ox, y: oy };
     else if (!bv.frozen) { const kk = 1 - Math.exp(-dt * 10); bv.off.x += (ox - bv.off.x) * kk; bv.off.y += (oy - bv.off.y) * kk; }
+    // still easing? (below these the picture moves by less than a hundredth of a pixel)
+    bv.moving = Math.abs(bc.ty - bc.yaw) > 1e-5 || Math.abs(bc.tp - bc.pitch) > 1e-5 || Math.abs(ox - bv.off.x) + Math.abs(oy - bv.off.y) > 0.01 ||
+      Math.abs(L.lift - T.lift) + Math.abs(L.tx - T.tx) + Math.abs(L.ty - T.ty) + Math.abs(L.size - T.size) > 1e-4;
     bcam.setViewOffset(W, H, -bv.off.x, -bv.off.y, W, H);
     bcam.updateProjectionMatrix();
     bcam.updateMatrixWorld();
@@ -2835,10 +2987,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (sc.right !== half) { sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.1; sc.far = size * 8 + 20; sc.updateProjectionMatrix(); }
     S.rim.position.set(tx - size, ty + size, -size * 2);
     studio.fog.near = dist * 1.4 + size; studio.fog.far = dist * 3.5 + size * 4 + 60;
-    updateEnv(new THREE.Color(0.32, 0.4, 0.55), new THREE.Color(0.08, 0.12, 0.2), new THREE.Color(0.02, 0.04, 0.08), V1.set(0.4, 0.8, 0.45).normalize(), 2.5, 'studio');
+    const E = S.studioEnv;
+    updateEnv(E[0], E[1], E[2], V1.set(0.4, 0.8, 0.45).normalize(), 2.5, 'studio');
     renderer.setRenderTarget(null);
     renderer.clear();
     renderer.render(studio, bcam);
+    bv.drawn = true;
+    return true;
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.
@@ -2892,6 +3047,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   function resize(w, h, dpr) {
     W = Math.max(1, w); H = Math.max(1, h); DPR = dpr || 1;
+    bv.drawn = false; // (a new size wipes the canvas)
     if (!renderer) return;
     renderer.setPixelRatio(basePixelRatio() * perf.scale);
     renderer.setSize(W, H, true);
@@ -2976,7 +3132,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       used[kk]++;
       o.visible = true;
       o.position.set(x, y, z);
-      o.scale.setScalar(s.small ? 0.35 : 1); // cluster bomblets
+      o.scale.setScalar(s.small ? 0.35 : s.big ? 1.5 : 1); // cluster bomblets; the frigate's big SAM
       V1.set(s.dx || 0, s.dy || 1, s.dz || 0).normalize();
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }
@@ -3085,6 +3241,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     mode = 'globe';
     clock += dt || 0;
     const b = v.body, R = b.radius, e = bodies.find((q) => q.b === b);
+    if (e && !e.ready && !e.queued && e.job) { jobs.unshift(e.job); e.queued = true; } // (its maps first)
+    runJobs(Settings.high ? 4 : 2.5); // (the flight view, which usually runs them, isn't drawn while the map is open)
     if (e && e.mat && GL.mat.map !== e.mat.map) { GL.mat.map = e.mat.map; GL.mat.normalMap = e.mat.normalMap !== S.flatN ? e.mat.normalMap : null; GL.mat.needsUpdate = true; }
     if (e && !e.mat && e.sunU) { GL.mat.map = e.sunU.uMap.value; GL.mat.emissiveMap = GL.mat.map; GL.mat.emissive.setRGB(1, 1, 1); GL.mat.needsUpdate = true; }
     GL.mesh.scale.setScalar(R);
@@ -3149,6 +3307,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       return loading;
     },
     setVisible(on) {
+      if (on && !shown) bv.drawn = false;
       shown = !!on;
       if (canvas) canvas.style.display = shown ? 'block' : 'none';
     },
@@ -3242,7 +3401,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // While a part is dragged: hold the craft and camera still and keep the blueprint facing the camera.
     editView(on) {
       bv.edit = !!on;
-      bv.frozen = on ? bv.last : null;
+      bv.frozen = on && bv.last ? { ...bv.last } : null;
       if (on) bc.auto = false;
     },
     // Slide the 3D view's target across the screen (two fingers, or the right mouse button).

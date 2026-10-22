@@ -377,6 +377,10 @@ const PARTS = {
   flares: { cat: 'weapons', name: 'Flares', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', tier: 2, cost: 1200,
     weapon: { kind: 'flare', ammo: 30, each: 1 },
     desc: 'Hot decoys that pull heat-seeking missiles off you, with a chaff cloud for radar missiles: press K (or CM). Flying solo they also fire on their own when a missile closes in.' },
+  // (one press of K: flares, if fitted, and a bundle from here; with no dispenser the flares bring their own weaker cloud)
+  chaff: { cat: 'weapons', name: 'Chaff Dispenser', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', style: 'chaff', tier: 2, cost: 1500,
+    weapon: { kind: 'chaff', ammo: 24, each: 1 },
+    desc: 'Bundles of foil that burst into a glittering cloud and pull radar missiles off you, far better than the cloud that comes with flares: press K (or CM). Best once the missile is a few km out, flying across its path. Flying solo it also fires on its own against radar missiles.' },
   gatling: { cat: 'weapons', name: 'Rotary Cannon', w: 0.8, h: 3.2, mass: 0.9, shape: 'gun', barrels: 7, calibre: 30, tier: 3, cost: 12000,
     weapon: { kind: 'gun', ammo: 1100, rate: 60, speed: 1050, dmg: 24, spread: 0.006, each: 0.3 },
     desc: 'Seven spinning barrels: a 30 mm buzz saw for busting tanks. Mount it along the nose.' },
@@ -1843,6 +1847,15 @@ function drawPart0(ctx, p, lw) {
     }
     case 'flares': {
       ctx.fillStyle = bodyFlat('#4d545d'); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      if (d.style === 'chaff') { // chaff: four wrapped bundles of silver foil
+        for (let i = 0; i < 4; i++) {
+          const yy = b + h * (0.08 + i * 0.225), bh = h * 0.17;
+          ctx.fillStyle = '#c3cbd4'; ctx.fillRect(l + w * 0.14, yy, w * 0.72, bh);
+          ctx.fillStyle = '#eef3f8'; ctx.fillRect(l + w * 0.2, yy + bh * 0.6, w * 0.36, bh * 0.22);
+          ctx.fillStyle = '#7d8790'; ctx.fillRect(x - w * 0.05, yy, w * 0.1, bh);
+        }
+        break;
+      }
       ctx.fillStyle = '#ffb547';
       for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(l + w * (0.3 + j * 0.4), b + h * (0.2 + i * 0.3), w * 0.12, 0, TAU); ctx.fill(); }
       break;

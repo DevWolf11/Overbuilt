@@ -156,11 +156,25 @@ class Vessel {
   get w() { return this.av.z; }
   set w(v) { this.av = v3(0, 0, v); }
 
+  // What recompute needs of a part that only its type, place, turn and depth decide (not its fuel or stores),
+  // kept from step to step: a burning engine has recompute run every step. Redone when the part moves.
+  partGeo(p, i) {
+    const G = this._geo || (this._geo = []);
+    let g = G[i];
+    if (g && g.p === p && g.def === p.def && g.x === p.x && g.y === p.y && g.z === p.z && g.rot === p.rot) return g;
+    const { w, h } = partDims(p), d = partDepth(p), r = partRect(p), Z = partZ(p);
+    g = G[i] = { p, def: p.def, x: p.x, y: p.y, z: p.z, rot: p.rot, zc: partZc(p), zs: massZs(p), copies: partZs(p), d,
+      kx: (h * h + d * d) / 12, ky: (w * w + d * d) / 12, kz: (w * w + h * h) / 12, l: r.l, r: r.r, b: r.b, t: r.t,
+      off: !p.def.twinZ && Z !== 0, across: Math.abs(Z) + d / 2 }; // (off the centre line, and how far out across it reaches)
+    return g;
+  }
   recompute(initial) {
+    const parts = this.parts, n = parts.length;
+    if (this._geo && this._geo.length > n) this._geo.length = n;
     let m = 0, cx = 0, cy = 0, cz = 0;
-    for (const p of this.parts) {
-      const pm = partKg(p);
-      m += pm; cx += pm * p.x; cy += pm * p.y; cz += pm * partZc(p);
+    for (let i = 0; i < n; i++) {
+      const p = parts[i], pm = partKg(p);
+      m += pm; cx += pm * p.x; cy += pm * p.y; cz += pm * this.partGeo(p, i).zc;
     }
     cx /= m; cy /= m; cz /= m;
     if (!initial) {
@@ -173,18 +187,17 @@ class Vessel {
     // inertia tensor about the centre of mass: parts are boxes, their mass shared between their copies across
     // (zz: the copies' mean square offset from the centre of mass across, zm: their mean offset)
     let Ixx = 0, Iyy = 0, Izz = 0, Ixy = 0, Ixz = 0, Iyz = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const p of this.parts) {
-      const pm = partKg(p), { w, h } = partDims(p), d = partDepth(p), zs = massZs(p), dx = p.x - cx, dy = p.y - cy;
+    for (let i = 0; i < n; i++) {
+      const p = parts[i], g = this._geo[i], pm = partKg(p), d = g.d, zs = g.zs, dx = p.x - cx, dy = p.y - cy;
       let zz = 0, zm = 0;
       for (const z of zs) { zz += (z - cz) * (z - cz); zm += z - cz; }
       zz /= zs.length; zm /= zs.length;
-      for (const z of partZs(p)) { minZ = Math.min(minZ, z - d / 2); maxZ = Math.max(maxZ, z + d / 2); } // (its partBoxes)
-      Ixx += pm * ((h * h + d * d) / 12 + dy * dy + zz);
-      Iyy += pm * ((w * w + d * d) / 12 + dx * dx + zz);
-      Izz += pm * ((w * w + h * h) / 12 + dx * dx + dy * dy);
+      for (const z of g.copies) { minZ = Math.min(minZ, z - d / 2); maxZ = Math.max(maxZ, z + d / 2); } // (its partBoxes)
+      Ixx += pm * (g.kx + dy * dy + zz);
+      Iyy += pm * (g.ky + dx * dx + zz);
+      Izz += pm * (g.kz + dx * dx + dy * dy);
       Ixy -= pm * dx * dy; Ixz -= pm * dx * zm; Iyz -= pm * dy * zm;
-      const r = partRect(p);
-      minX = Math.min(minX, r.l); maxX = Math.max(maxX, r.r); minY = Math.min(minY, r.b); maxY = Math.max(maxY, r.t);
+      minX = Math.min(minX, g.l); maxX = Math.max(maxX, g.r); minY = Math.min(minY, g.b); maxY = Math.max(maxY, g.t);
     }
     Ixx = Math.max(Ixx, 1); Iyy = Math.max(Iyy, 1); Izz = Math.max(Izz, 1);
     // the inverse by blocks: the x-y block's own, then z through its Schur complement s (so with nothing off
@@ -198,7 +211,7 @@ class Vessel {
     this.width = maxX - minX;
     // a rocket is round about its stack: parts out across the blueprint widen it as much as ones beside it
     let r = 0;
-    for (const p of this.parts) if (!p.def.twinZ && partZ(p) !== 0) r = Math.max(r, Math.abs(partZ(p)) + partDepth(p) / 2);
+    for (let i = 0; i < n; i++) if (this._geo[i].off) r = Math.max(r, this._geo[i].across);
     this.across = Math.max(this.width, 2 * r);
     this.depth = maxZ - minZ;
   }

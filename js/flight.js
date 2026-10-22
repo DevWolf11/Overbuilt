@@ -94,11 +94,11 @@ const Flight = {
     Combat.reset(this);
     this.running = true;
     MapView.focusVessel();
-    $('#btn-map').classList.remove('on');
+    $('#btn-map').classList.remove('on'); document.body.classList.remove('mapping');
     $('#map-legend').hidden = true;
     $('#btn-center').hidden = true;
     this.syncSas();
-    this.requestWakeLock();
+    this.syncAwake();
     const silly = Silly.list.filter(([k]) => Silly.on(k)).map(([, name]) => name);
     if (silly.length) this.toast(`Silly settings on: ${silly.join(', ')}`);
   },
@@ -106,7 +106,7 @@ const Flight = {
   stop() {
     this.running = false;
     Sound.engine(0, 0); Sound.wind(0);
-    if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
+    this.syncAwake();
   },
 
   revert() {
@@ -116,10 +116,29 @@ const Flight = {
     this.start(this.design);
   },
 
-  requestWakeLock() {
+  // What a flight under way holds on to: the screen kept on, and the sound running. Paused or over, both are
+  // let go, and the screen too once the craft is lost; out of sight the browser drops the lock (and Sound
+  // sleeps), so it's taken again on the way back. (Multiplayer keeps the screen on for the room: MP.awake.)
+  syncAwake() {
+    Sound.setLive(this.running && !this.paused && !this.ended);
+    const want = this.running && !this.paused && !this.ended && !this.destroyed && !document.hidden, L = this.wakeLock;
+    if (!want) { if (L) { this.wakeLock = null; L.release().catch(() => {}); } return; }
+    if (L || this.lockAsked || !navigator.wakeLock) return;
     try {
-      if (navigator.wakeLock && !this.wakeLock) navigator.wakeLock.request('screen').then((l) => { this.wakeLock = l; }).catch(() => {});
-    } catch (e) { /* not available */ }
+      this.lockAsked = true;
+      navigator.wakeLock.request('screen').then((l) => {
+        this.lockAsked = false; this.wakeLock = l;
+        l.addEventListener('release', () => { if (this.wakeLock === l) this.wakeLock = null; });
+        this.syncAwake(); // (let go at once if the flight paused or ended meanwhile)
+      }).catch(() => { this.lockAsked = false; });
+    } catch (e) { this.lockAsked = false; /* not available */ }
+  },
+  // Pausing (the menu, a recovered craft): the HUD is brought up to date once, then left alone until the flight
+  // carries on.
+  setPaused(on) {
+    this.paused = on;
+    if (on) { this.updatePrediction(); this.updateDvEstimate(); this.updateHUD(true); }
+    this.syncAwake();
   },
 
   // ------------------------------------------------------------------ save / resume
@@ -274,6 +293,7 @@ const Flight = {
     if (this.mp && this.mp.mode === 'pvp') return; // one craft, one life
     this.active = v;
     this.destroyed = false;
+    this.syncAwake();
     this.prediction = null;
     MapView.focusVessel();
     this.syncSas();
@@ -371,6 +391,7 @@ const Flight = {
   onDestroyed() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.syncAwake();
     $('#flight-alert').hidden = true; // (the HUD stops updating once nothing is left)
     this.warpIdx = 0;
     if (this.catapult) this.catapult.state = 'done';
@@ -378,7 +399,7 @@ const Flight = {
     setTimeout(() => {
       if (!this.running || this.ended || !this.destroyed) return;
       const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
-      if (!others.length) { this.ended = true; store.set('rss.flight', null); }
+      if (!others.length) { this.ended = true; store.set('rss.flight', null); this.syncAwake(); }
       const acts = [
         { label: 'Back to hangar', onClick: () => App.toBuild() },
         { label: 'Revert to launch', primary: !others.length, onClick: () => this.revert() },
@@ -402,7 +423,7 @@ const Flight = {
     if (v.splashed) this.award('splashdown');
     Career.earn(refund);
     this.ended = true;
-    this.paused = true;
+    this.setPaused(true);
     store.set('rss.flight', null);
     UI.modal({
       kicker: 'Recovered', title: Object.keys(this.flags).some((k) => k.startsWith('home:')) ? 'Welcome home' : 'Mission complete',
@@ -430,7 +451,7 @@ const Flight = {
   openMenu() {
     if (this.ended) return;
     if (this.mp) { this.openMpMenu(); return; }
-    this.paused = true;
+    this.setPaused(true);
     const acts = [
       { label: 'Save & exit', onClick: () => { this.save(); App.toBuild(); } },
       { label: 'Revert to launch', onClick: () => this.revert() },
@@ -441,7 +462,7 @@ const Flight = {
       kicker: `T+ ${fmt.clock(this.time)} · ${this.active.name}`, title: 'Paused',
       body: Flight.controlsHelp(),
       actions: acts,
-      onClose: () => { if (!this.ended) this.paused = false; },
+      onClose: () => { if (!this.ended) this.setPaused(false); },
     });
   },
 
@@ -483,6 +504,7 @@ const Flight = {
   // ------------------------------------------------------------------ simulation
   update(rdt) {
     if (!this.running) return;
+    this.frameN = (this.frameN || 0) + 1;
     const dt = Math.min(rdt, 0.05);
     this.readControls(dt);
     if (this.mp) MP.beforeUpdate(dt); // pose the other players' craft
@@ -505,7 +527,8 @@ const Flight = {
           if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
           else if (!v.landed) far.push(v);
         }
-        const n = Math.max(1, Math.ceil(total / (warp >= 4 ? PHYS_DT * 2 : PHYS_DT) - 1e-6));
+        // (frame times come in a hair over 1/60 s, 16.7 or 16.8 ms: a step may run up to 5% long rather than add a third)
+        const n = Math.max(1, Math.ceil(total / (warp >= 4 ? PHYS_DT * 2 : PHYS_DT) - 0.05));
         const h = total / n;
         for (let i = 0; i < n; i++) this.physicsTick(h, near);
         for (const v of far) {
@@ -549,12 +572,14 @@ const Flight = {
       }
     } else { Sound.engine(0, 0); Sound.wind(0); }
 
-    this.predTimer -= rdt;
-    if (this.predTimer <= 0) { this.predTimer = this.mapMode ? 0.12 : 0.3; this.updatePrediction(); }
-    this.dvTimer -= rdt;
-    if (this.dvTimer <= 0) { this.dvTimer = 0.5; this.updateDvEstimate(); }
-    this.hudTimer -= rdt;
-    if (this.hudTimer <= 0) { this.hudTimer = 0.08; this.updateHUD(); }
+    if (!this.paused) { // (nothing changes while paused: setPaused brought these up to date)
+      this.predTimer -= rdt;
+      if (this.predTimer <= 0) { this.predTimer = this.mapMode ? 0.12 : 0.3; this.updatePrediction(); }
+      this.dvTimer -= rdt;
+      if (this.dvTimer <= 0) { this.dvTimer = 0.5; this.updateDvEstimate(); }
+      this.hudTimer -= rdt;
+      if (this.hudTimer <= 0) { this.hudTimer = 0.08; this.updateHUD(); }
+    }
     this.saveTimer -= rdt;
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
@@ -781,6 +806,20 @@ const Flight = {
     if (!done.length && FLAG_NAMES[flag]) this.toast(FLAG_NAMES[flag], 'achievement');
   },
 
+  // A craft's height over the ground below, worked out once a frame: the milestones, engine dust, rotor wash,
+  // the HUD and its hints all ask. (Moving or turning the craft, changing its shape or working its gear asks
+  // the ground again.)
+  groundAlt(v) {
+    const m = v._gAlt || (v._gAlt = {}), q = v.q;
+    if (m.n !== this.frameN || m.x !== v.x || m.y !== v.y || m.z !== v.z || m.qw !== q.w || m.qx !== q.x || m.qy !== q.y || m.qz !== q.z
+      || m.com !== v.com || m.hull !== v.hull || m.wheels !== v.wheelPts || m.gear !== v.gearUp || m.body !== v.body) {
+      m.n = this.frameN; m.x = v.x; m.y = v.y; m.z = v.z; m.qw = q.w; m.qx = q.x; m.qy = q.y; m.qz = q.z;
+      m.com = v.com; m.hull = v.hull; m.wheels = v.wheelPts; m.gear = v.gearUp; m.body = v.body;
+      m.h = v.groundAltitude();
+    }
+    return m.h;
+  },
+
   checkMilestones() {
     const v = this.active;
     if (!v || !v.parts.length || this.destroyed) return;
@@ -801,7 +840,7 @@ const Flight = {
     const dtm = Math.max(0, this.time - (this.lastCheck ?? this.time));
     this.lastCheck = this.time;
     if (b === EARTH && v.control) {
-      const ga = v.groundAltitude(), vs = v.vSpeed();
+      const ga = this.groundAlt(v), vs = v.vSpeed();
       if (v.kind === 'plane') {
         if (!v.wheelsDown && !v.onFloats && ga > 10 && sp > 30) this.award('takeoff');
         if (alt > 8000 && v.lift > 0.3 * v.mass * G0) this.award('flyHigh');
@@ -874,7 +913,7 @@ const Flight = {
         }
         // ground interaction: dust or spray kicked up near the surface
         if (v === this.active && Settings.high) {
-          const ga = v.groundAltitude();
+          const ga = this.groundAlt(v);
           if (ga < 40 && ga > -5 && e.firing > 0.2) {
             e._dust = (e._dust || 0) + 30 * e.firing * (1 - ga / 40) * dt;
             e._dust = this.groundDust(v, e._dust, 8, 18, 3, 1, 0.45);
@@ -929,7 +968,7 @@ const Flight = {
   // Downwash from a helicopter rotor near the ground kicks up dust or spray.
   rotorWash(v, e, dt) {
     if (!Settings.high) return;
-    const ga = v.groundAltitude();
+    const ga = this.groundAlt(v);
     if (ga > 15 || ga < -2 || e.firing < 0.2) return;
     e._dust = (e._dust || 0) + 26 * e.firing * (1 - ga / 15) * dt;
     e._dust = this.groundDust(v, e._dust, 6, 12, 1.5, 0.8, 0.4);
@@ -968,6 +1007,7 @@ const Flight = {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => { this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; this.touchFire = false; });
+    document.addEventListener('visibilitychange', () => { if (this.running) this.syncAwake(); });
 
     c.addEventListener('wheel', (e) => {
       if (App.scene !== 'flight') return;
@@ -1098,6 +1138,7 @@ const Flight = {
     this.mapMode = !this.mapMode;
     if (this.mapMode) { this.updatePrediction(); MapView.fit(this); GlobeView.open(this); }
     $('#btn-map').classList.toggle('on', this.mapMode);
+    document.body.classList.toggle('mapping', this.mapMode); // (the map keeps the HUD's blur: style.css)
     $('#map-legend').hidden = !this.mapMode;
     $('#btn-center').hidden = !this.mapMode;
     this.syncMapView();
@@ -1200,7 +1241,7 @@ const Flight = {
   },
 
   vehicleHint(v) {
-    const sp = v.speed(), ga = v.groundAltitude(), started = v.parts.some((p) => p.def.thrust && p.active);
+    const sp = v.speed(), ga = this.groundAlt(v), started = v.parts.some((p) => p.def.thrust && p.active);
     if (this.canRecover() && this.stats.maxSpeed > 8) return 'Safely stopped. Tap Recover to finish, or carry on.';
     if (v.kind === 'plane' && this.catapult && this.catapult.state === 'hold') {
       if (!started) return 'On the catapult: tap STAGE (Space) to start the engine.';
@@ -1213,7 +1254,7 @@ const Flight = {
       if (v.aoa != null && !v.wheelsDown && v.aoa > v.stallAoA * 0.9) return 'Stalling! Push the nose down and add power.';
       if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return 'Raise the gear (G) to cut drag.';
       if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : 'Bank with A/D to turn, pitch with W/S. Press 2 for level flight (holds altitude), 3 to hold a heading.';
-      if (!v.wheelsDown && ga > 150 && !this.mp && Combat.status(v) && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
+      if (!v.wheelsDown && ga > 150 && !this.mp && Combat.systems(v).length && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
         return Settings.get('targets') === 'off' ? (isTouch ? 'Hold FIRE to shoot; tap the weapon chip to change weapon. Turn on targets in Settings.' : 'Hold V to fire, Tab changes weapon. Turn on targets in Settings for something to shoot.')
           : (isTouch ? 'Targets wait around the islands (the brackets). Hold FIRE to shoot; tap the weapon chip to change weapon.' : 'Targets wait around the islands (the brackets). Hold V to fire, Tab changes weapon.');
       if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
@@ -1275,7 +1316,7 @@ const Flight = {
     if (!v || !v.parts.length) return;
     const b = v.body;
     const alt = v.altitude();
-    const ground = v.groundAltitude();
+    const ground = this.groundAlt(v);
     const vs = v.vSpeed();
     const set = (id, txt) => { const e = document.getElementById(id); if (e.textContent !== txt) e.textContent = txt; };
     set('t-body', b.name + (v.splashed ? ' · splashed' : v.landed ? ' · landed' : ''));
@@ -1370,7 +1411,7 @@ const Flight = {
 
     const sf = v.stageFuel();
     const frac = sf.cap ? sf.fuel / sf.cap : 0;
-    $('#fuel-fill').style.width = `${frac * 100}%`;
+    $('#fuel-fill').style.transform = `scaleX(${frac})`;
     $('#fuel-fill').classList.toggle('low', frac < 0.15);
     set('fuel-label', sf.cap ? `Stage fuel ${fmt.mass(sf.fuel)}` : 'No engines running');
 
@@ -1380,11 +1421,14 @@ const Flight = {
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length;
     const ws = Combat.status(v);
     $('#weapon-box').hidden = !ws || this.destroyed;
-    $('#btn-cm').hidden = !(ws && ws.flares > 0) || this.destroyed;
+    $('#btn-cm').hidden = !(ws && (ws.flares > 0 || ws.chaff > 0)) || this.destroyed;
+    $('#btn-fire').hidden = !!(ws && ws.cmOnly); // (only flares or chaff on board: nothing to fire)
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
       set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
-      set('w-ammo', `${ws.ammo}${ws.flares ? ` · ✦${ws.flares}` : ''}${ws.stealth > 0.05 ? ` · ◈${Math.round(ws.stealth * 100)}%` : ''}${ws.kills ? ` · ${ws.kills} ✕` : ''}`);
+      const fl = ws.flares || (ws.cmOnly && ws.fl) ? `✦${ws.flares}` : '', ch = ws.chaff || (ws.cmOnly && ws.ch) ? `≋${ws.chaff}` : '';
+      const cm = fl && ch ? `${fl} ${ch}` : fl || ch; // flares and chaff left (0 shown when they are all a craft has)
+      set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }
     $('#btn-flaps').hidden = !v.hasFlaps;
