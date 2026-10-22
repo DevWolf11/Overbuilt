@@ -99,7 +99,7 @@ t('onParts: survivors lose att to a lost host', R(`gh.parts.filter((p) => p.type
 const measured = {};
 for (const k of Object.keys(N.TEMPLATES)) measured[k] = R(`MP.measure(partsFromDesign(templateRows(TEMPLATES.${k})))`);
 check('mp-measure', measured);
-t('measure: legacy template rows (makePart, no att) measure the same as through partsFromDesign', Object.keys(N.TEMPLATES).every((k) =>
+t('measure: legacy template rows (makePart, no att) measure the same as through partsFromDesign', Object.keys(N.TEMPLATES).filter((k) => N.TEMPLATES[k].parts.every((r) => !r[4])).every((k) => // (templates whose rows carry z/att aren't legacy rows)
   JSON.stringify(R(`(() => { const ps = TEMPLATES.${k}.parts.map(([type, x, y, rot]) => makePart(type, x, y, { flip: x < 0, rot: rot || 0 })); return MP.measure(ps); })()`)) === JSON.stringify(measured[k])));
 t('measure: jumbo pods at z 9 stay inside the 28 m wing; at z 15 they widen the span to 2*15+w', R(`(() => { const a = MP.measure(partsFromDesign(templateRows(TEMPLATES.jumbo))).span, b = MP.measure(own).span;
   const w = td.map((q) => q.type === 'fanPods' ? { ...q, z: 15 } : q), c = MP.measure(partsFromDesign(w)).span; return a === 28 && b === 28 && c === 2 * 15 + Math.max(PARTS.fanPods.w, 0.6); })()`), R(`[MP.measure(own).span, MP.measure(partsFromDesign(td.map((q) => q.type === 'fanPods' ? { ...q, z: 15 } : q))).span]`));

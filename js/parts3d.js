@@ -43,6 +43,7 @@ const Parts3D = (() => {
     cluster: { color: '#8d949c', roughness: 0.55, metalness: 0.3 },
     guided: { color: '#9aa38c', roughness: 0.6, metalness: 0.2 },
     electric: { color: '#3b7dd8', roughness: 0.35, metalness: 0.3 },
+    us4frame: { color: '#b9c1c9', roughness: 0.55, metalness: 0.25 }, // canopy bows and splitter plates on the US look-alikes (takes the paint)
     lamp: { basic: '#fff4d6' },
     tail: { basic: '#ff3b2f' },
     skin: { skin: true, roughness: 0.5, metalness: 0.25 }, // a body panel in its paint, camouflage laid on in metres (5th-gen parts)
@@ -56,11 +57,11 @@ const Parts3D = (() => {
   const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
     wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
     gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
-    turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft' };
+    turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body' };
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
-  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube']);
+  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame']);
   const SKIN_GEO = new Set(['wing', 'biplane']);
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
@@ -440,19 +441,28 @@ const Parts3D = (() => {
     const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
     if (wd.plan) return camoUV(planGeo(wd.plan, half, th, cd, sd, white, lead, tip), camo);
     const chord = (s) => wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - s * s * 0.96)) : h * (1 - taper * s);
+    const ck = wd.crank; // a cranked wing: outer panels from span fraction ck.at at their own dihedral, with a dog-tooth (see wingAt)
     const A = [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]];
+    if (ck) { // the crank: each side gets the inner panel's last section and the outer panel's first, in the same place
+      const i = A.findIndex((q) => q[0] >= -ck.at);
+      A.splice(i, 0, [-ck.at, white, 1], [-ck.at, white]);
+      const j = A.findIndex((q) => q[0] > ck.at);
+      A.splice(j, 0, [ck.at, white], [ck.at, white, 1]);
+    }
     // root: a tailplane on booms beside the engines shows only outboard of them, each half its own loft
     const s0 = wd.root ? Math.min(0.8, wd.root / half) : 0, halves = s0 ? [-1, 1] : [o.half || 0];
     const parts = halves.map((hs) => {
-      const st = [], put = (a, col) => {
+      const st = [], put = (a, col, out) => {
         const s = Math.abs(a), c = chord(s), qc = h / 4 - back * s, sg = Math.sign(a);
-        st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead });
+        if (!ck) { st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead }); return; }
+        const P = crankAt(wd, half, s, out || s > ck.at), e = P.ext * c;
+        st.push({ o: [P.x, qc + c / 4 + e, sg * P.z], A: [0, -1, 0], B: [Math.cos(P.d), 0, sg * Math.sin(P.d)], c: c + e, t: (th / 2) * (1 - 0.4 * s), col, lead });
       };
       if (s0 && hs > 0) put(s0, white); // (the right half starts at its root)
-      for (const [a, col] of A) {
+      for (const [a, col, out] of A) {
         if (hs && a * hs < 0) continue;
         if (s0 && Math.abs(a) <= s0) continue;
-        put(a, col);
+        put(a, col, out);
       }
       if (s0 && hs < 0) put(-s0, white); // (the left half ends at its root)
       return st;
@@ -565,11 +575,118 @@ const Parts3D = (() => {
   function wingAt(d, za) {
     const h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
     const taper = wd.taper != null ? wd.taper : 0.45, dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, tip = half * Math.cos(dih);
+    if (wd.crank) { // a cranked wing: inner panel to span fraction at, outer panel at its own dihedral, its chord reaching further forward
+      const ck = wd.crank, d0 = ck.d0 || 0, z0 = ck.at * half * Math.cos(d0), az = Math.abs(za), T = z0 + (1 - ck.at) * half * Math.cos(ck.d1 || 0);
+      const s = az <= z0 ? az / (half * Math.cos(d0)) : ck.at + (az - z0) / (half * Math.cos(ck.d1 || 0)), k = Math.min(1, s), P = crankAt(wd, half, k, k > ck.at);
+      const c0 = h * (1 - taper * k), c = c0 * (1 + P.ext), le = h / 4 - back * k + c0 / 4 + P.ext * c0;
+      return { s, le, te: le - c, c, x: P.x, t: (d.w / 2) * (1 - 0.4 * k), tip: T };
+    }
     const s = Math.abs(za) / tip, k = Math.min(1, s);
     if (wd.plan) { const [le, te, open] = planAt(wd.plan, k); return { s: open ? 9 : s, le, te, c: open ? 0 : le - te, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip }; } // (open: no wing there)
     const c = wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - k * k * 0.96)) : h * (1 - taper * k);
     const le = h / 4 - back * k + c / 4;
     return { s, le, te: le - c, c, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip };
+  }
+  // A cranked wing's chord line at span fraction s (along the panels): its height x (up is -x), how far across z, the
+  // panel's dihedral d and how much longer the chord is there (ext, a fraction: the outer panel's dog-tooth).
+  function crankAt(wd, half, s, outer) {
+    const ck = wd.crank, d0 = ck.d0 || 0, d1 = ck.d1 || 0, s0 = Math.min(s, ck.at), s1 = Math.max(0, s - ck.at);
+    return { x: -(s0 * Math.sin(d0) + s1 * Math.sin(d1)) * half, z: (s0 * Math.cos(d0) + s1 * Math.cos(d1)) * half, d: outer ? d1 : d0, ext: outer ? ck.tooth || 0 : 0 };
+  }
+
+  // ------------------------------------------------------------------ lofted bodies (the US look-alikes, parts.js us4Rows)
+  // A small mesh under construction: add() vertices, tri() triangles turned to face `want`.
+  function mesh0() {
+    const m = { pos: [], nor: [], uv: [], idx: [] };
+    m.add = (P, N, U) => {
+      const L = Math.hypot(N[0], N[1], N[2]) || 1;
+      m.pos.push(P[0], P[1], P[2]); m.nor.push(N[0] / L, N[1] / L, N[2] / L); m.uv.push(U ? U[0] : 0, U ? U[1] : 0);
+      return m.pos.length / 3 - 1;
+    };
+    m.tri = (a, b, c, want) => {
+      const p = m.pos, ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2];
+      const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * nx + ny * ny + nz * nz < 1e-14) return; // (a sliver where a tube comes to a point)
+      if (nx * want[0] + ny * want[1] + nz * want[2] < 0) m.idx.push(a, c, b); else m.idx.push(a, b, c);
+    };
+    m.geo = () => (m.idx.length ? geo(m.pos, m.nor, m.uv, m.idx) : null);
+    return m;
+  }
+  // One tube of a lofted body, copy at z0, into H (its paint) and I (a dark intake mouth). Each section is four arcs (a
+  // side, the top, the other side, the bottom), so the sides take the 2D art projected from the side and the top and
+  // bottom the paint seen from above (the right half of the texture: paint()); a step between two stretches gets a flat
+  // ring, and the ends a cap, an open end or a mouth.
+  function loftTube(T, d, z0, H, I) {
+    const R = us4Rows(T), n = R.length, yf = R[n - 1].y, w = d.w, h = d.h, D = d.depth || w, K = 8, Q = Math.PI / 4;
+    const ARCS = [[-Q, Q, 0], [Q, Math.PI - Q, 1], [Math.PI - Q, Math.PI + Q, 0], [Math.PI + Q, TAU - Q, 1]];
+    const raw = (r, a) => { const q = us4Pt(r, a); return [q.x, r.y, z0 + q.z]; };
+    const cut = (r, P) => { if (T.rake) P[1] = Math.min(P[1], us4Lip(T, yf, clamp((P[0] - r.xt) / Math.max(1e-6, r.xb - r.xt), 0, 1))); return P; };
+    const uvOf = (P, top) => [top ? clamp(0.75 + (0.5 * P[2]) / D, 0.51, 0.99) : clamp(0.25 + (0.5 * P[0]) / w, 0.01, 0.49), clamp(P[1] / h + 0.5, 0.004, 0.996)];
+    const sub = (A, B) => [A[0] - B[0], A[1] - B[1], A[2] - B[2]];
+    const unit = (v) => { const L = Math.hypot(v[0], v[1], v[2]); return L > 1e-9 ? [v[0] / L, v[1] / L, v[2] / L] : null; };
+    const normal = (i, a) => { // across the section, and along the tube within its stretch
+      const r = R[i], i0 = i > 0 && R[i - 1].run === r.run ? i - 1 : i, i1 = i < n - 1 && R[i + 1].run === r.run ? i + 1 : i;
+      const Ta = sub(raw(r, a + 1e-3), raw(r, a - 1e-3)), Ty = i0 === i1 ? [0, 1, 0] : sub(raw(R[i1], a), raw(R[i0], a));
+      let N = unit([Ty[1] * Ta[2] - Ty[2] * Ta[1], Ty[2] * Ta[0] - Ty[0] * Ta[2], Ty[0] * Ta[1] - Ty[1] * Ta[0]]);
+      const P = raw(r, a), out = [P[0] - r.xw, 0, P[2] - z0];
+      if (!N) N = unit(out) || [0, i === n - 1 ? 1 : -1, 0];
+      else if (N[0] * out[0] + N[2] * out[2] < 0) N = [-N[0], -N[1], -N[2]];
+      return N;
+    };
+    const ring = (i) => { const pts = []; for (const [a0, a1] of ARCS) for (let k = 0; k < K; k++) pts.push(cut(R[i], raw(R[i], a0 + ((a1 - a0) * k) / K))); return pts; };
+    for (const [a0, a1, top] of ARCS) { // the skin, arc by arc, stretch by stretch
+      let prev = null;
+      for (let i = 0; i < n; i++) {
+        const row = [];
+        for (let k = 0; k <= K; k++) { const a = a0 + ((a1 - a0) * k) / K, P = cut(R[i], raw(R[i], a)); row.push([H.add(P, normal(i, a), uvOf(P, top)), normal(i, a)]); }
+        if (prev && R[i - 1].run === R[i].run) for (let k = 0; k < K; k++) {
+          const want = row[k][1];
+          H.tri(prev[k][0], prev[k + 1][0], row[k + 1][0], want); H.tri(prev[k][0], row[k + 1][0], row[k][0], want);
+        }
+        prev = row;
+      }
+    }
+    const flat = (pts, Nf) => pts.map((P) => H.add(P, Nf, uvOf(P, false)));
+    const fan = (pts, Nf, M = H) => { // a flat end: a fan round the section's middle
+      const c = [0, 0, 0];
+      for (const P of pts) { c[0] += P[0] / pts.length; c[1] += P[1] / pts.length; c[2] += P[2] / pts.length; }
+      const ci = M.add(c, Nf, uvOf(c, false)), ix = pts.map((P) => M.add(P, Nf, uvOf(P, false)));
+      for (let k = 0; k < ix.length; k++) M.tri(ci, ix[k], ix[(k + 1) % ix.length], Nf);
+    };
+    for (let i = 0; i + 1 < n; i++) if (R[i].run !== R[i + 1].run) { // a step: the wider stretch shows a flat ring
+      const A = ring(i), B = ring(i + 1), big = R[i].xb - R[i].xt + 2 * R[i].hw > R[i + 1].xb - R[i + 1].xt + 2 * R[i + 1].hw, Nf = [0, big ? 1 : -1, 0];
+      const a = flat(A, Nf), b = flat(B, Nf);
+      for (let k = 0; k < a.length; k++) { const k1 = (k + 1) % a.length; H.tri(a[k], a[k1], b[k1], Nf); H.tri(a[k], b[k1], b[k], Nf); }
+    }
+    const size = (r) => r.hw > 1e-3 && r.xb - r.xt > 1e-3;
+    if ((T.back || 'cap') === 'cap' && size(R[0])) fan(ring(0), [0, -1, 0]);
+    const front = T.front || 'cap', F = ring(n - 1);
+    if (front !== 'open' && size(R[n - 1])) {
+      // the front face's own normal (it leans back when the mouth is raked)
+      const up = sub(F[2 * K], F[0]), across = sub(F[K], F[3 * K]), Nf = unit([across[1] * up[2] - across[2] * up[1], across[2] * up[0] - across[0] * up[2], across[0] * up[1] - across[1] * up[0]]) || [0, 1, 0];
+      if (Nf[1] < 0) { Nf[0] = -Nf[0]; Nf[1] = -Nf[1]; Nf[2] = -Nf[2]; }
+      if (front === 'cap') fan(F, Nf);
+      else { // a mouth: a thin lip, then a dark duct going in, closed off out of sight
+        let c = [0, 0, 0];
+        for (const P of F) { c[0] += P[0] / F.length; c[1] += P[1] / F.length; c[2] += P[2] / F.length; }
+        const inn = F.map((P) => [c[0] + (P[0] - c[0]) * 0.86, P[1] - 0.02, c[2] + (P[2] - c[2]) * 0.86]), deep = inn.map((P) => [P[0], P[1] - 1.2, P[2]]);
+        const a = flat(F, Nf), b = flat(inn, Nf);
+        for (let k = 0; k < a.length; k++) { const k1 = (k + 1) % a.length; H.tri(a[k], a[k1], b[k1], Nf); H.tri(a[k], b[k1], b[k], Nf); }
+        const ia = inn.map((P) => I.add(P, [c[0] - P[0], 0, c[2] - P[2]])), ib = deep.map((P) => I.add(P, [c[0] - P[0], 0, c[2] - P[2]]));
+        for (let k = 0; k < ia.length; k++) { const k1 = (k + 1) % ia.length, m = [c[0] - inn[k][0], 0, c[2] - inn[k][2]]; I.tri(ia[k], ia[k1], ib[k1], m); I.tri(ia[k], ib[k1], ib[k], m); }
+        fan(deep, [0, 1, 0], I);
+      }
+    }
+  }
+  // An interpolated section of a tube at y (for canopy bows).
+  function tubeRowAt(T, y) {
+    const R = us4Rows(T);
+    let i = 0;
+    while (i < R.length - 2 && R[i + 1].y < y) i++;
+    const a = R[i], b = R[i + 1] || a, k = b.y > a.y ? clamp((y - a.y) / (b.y - a.y), 0, 1) : 0, o = { y, run: a.run };
+    for (const f of ['xt', 'xw', 'xb', 'hw', 'nt', 'nb']) o[f] = lerp(a[f], b[f], k);
+    return o;
   }
 
   // Propeller or rotor blade along +x from r0 to r1, twisted from pitch p0 to p1, in the rotor plane
@@ -865,6 +982,35 @@ const Parts3D = (() => {
         [box(w * 0.4, h * 0.7, R * 1.6, w * 0.3, b + h * 0.5, 0), 'steelDark']], [yaw]);
     },
 
+    // the US look-alikes' bodies, lofted through their stations (parts.js), with nozzles, plates, canopy bows and pilots
+    us4body(d) {
+      const B = d.body, list = [], H = mesh0(), I = mesh0(), G = mesh0();
+      for (const T of B.tubes) for (const z of T.z || [0]) loftTube(T, d, z, T.kind === 'glass' ? G : H, I);
+      for (const [M, kind] of [[H, 'hull'], [G, 'glass'], [I, 'intake']]) { const g = M.geo(); if (g) list.push([g, kind]); }
+      for (const N of B.noz || []) for (const z of N.z || [0]) { // petals round the outside, a dark throat inside (it glows when lit)
+        const x = N.x || 0, L = N.y0 - N.y1;
+        list.push([new THREE.LatheGeometry([v2(N.r1, N.y1), v2(N.r0, N.y0)], 32).translate(x, 0, z), 'steel'],
+          [new THREE.LatheGeometry([v2(N.r0 * 0.96, N.y0), v2(N.r1 * 0.96, N.y1)], 32).translate(x, 0, z), 'nozzle'],
+          [nozzleGeo(N.r1 * 0.95, N.y1 + L * 0.6, Math.min(1, L)).translate(x, 0, z), 'nozzle']);
+        for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU, c = Math.cos(a), s = Math.sin(a); list.push([rod([x + c * N.r1 * 1.01, N.y1 + 0.01, z + s * N.r1 * 1.01], [x + c * N.r0 * 1.01, N.y0, z + s * N.r0 * 1.01], 0.018, 4), 'steelDark']); }
+      }
+      for (const [x0, x1, y0, y1, z, t] of B.plates || []) list.push([box(x1 - x0, y1 - y0, t, (x0 + x1) / 2, (y0 + y1) / 2, z), 'us4frame']);
+      const glass = B.tubes.find((T) => T.kind === 'glass');
+      if (glass) for (const y of B.frames || []) { // a bow over the canopy: its section a little proud of the glass
+        const r = tubeRowAt(glass, y), F = mesh0(), rows = [];
+        for (const dy of [-0.035, 0.035]) {
+          const row = [];
+          for (let k = 0; k <= 16; k++) { const a = (k / 16) * Math.PI, q = us4Pt(r, a), P = [r.xw + (q.x - r.xw) * 1.03, y + dy, q.z * 1.04]; row.push(F.add(P, [P[0] - r.xw, 0, P[2]])); }
+          rows.push(row);
+        }
+        for (let k = 0; k < 16; k++) { const m = [-Math.sin(((k + 0.5) / 16) * Math.PI), 0, Math.cos(((k + 0.5) / 16) * Math.PI)]; F.tri(rows[0][k], rows[0][k + 1], rows[1][k + 1], m); F.tri(rows[0][k], rows[1][k + 1], rows[1][k], m); }
+        const g = F.geo(); if (g) list.push([g, 'us4frame']);
+      }
+      for (const [x, y] of B.seats || []) list.push([new THREE.SphereGeometry(0.13, 16, 12).translate(x, y, 0), 'helmet'], [box(0.5, 0.12, 0.42, x + 0.12, y - 0.24, 0), 'ink']);
+      if (B.probe) { const [x, y0, y1, r] = B.probe; list.push([rod([x, y0 - 0.05, 0], [x, y1, 0], r, 8), 'steel']); }
+      return node(list);
+    },
+
     drone(d) { // a box with the 2D artwork on its sides, the satellite dome and a whip aerial
       const w = d.w, h = d.h, bh = h * 0.78, b = -h / 2, depth = d.depth || 1.2;
       return node([[projUV(extrudeGeo([rectPoly(w, bh)], depth, 0.04), d, true).translate(0, -(h - bh) / 2, 0), 'hull'],
@@ -873,9 +1019,15 @@ const Parts3D = (() => {
     },
 
     vtail(d, flip) { // swept fin with an airfoil section: root chord on the inner edge, short tip chord at the rear
-      const w = d.w, h = d.h, s = flip ? -1 : 1, th = (d.depth || 0.15) / 2, white = lin('#eef1f4'), st = [];
-      for (const k of [0, 1]) st.push({ o: [-s * w / 2 + s * w * k, h / 2 - 0.6 * h * k, 0], A: [0, -1, 0], B: [0, 0, 1], c: h * (1 - 0.6 * k), t: th * (1 - 0.4 * k), col: white });
-      return node([[projUV(sweep(st, 'foil'), d, true), 'hull']]);
+      const w = d.w, h = d.h, s = flip ? -1 : 1, th = (d.depth || 0.15) / 2, white = lin('#eef1f4'), st = [], v = d.vtail;
+      if (!v) for (const k of [0, 1]) st.push({ o: [-s * w / 2 + s * w * k, h / 2 - 0.6 * h * k, 0], A: [0, -1, 0], B: [0, 0, 1], c: h * (1 - 0.6 * k), t: th * (1 - 0.4 * k), col: white });
+      else for (const k of [0, 1]) { // def.vtail: the root's trailing edge and the tip's edges as fractions up the chord (as partPath0 draws it)
+        const le = k ? -h / 2 + h * (v.tle != null ? v.tle : 0.4) : h / 2, te = -h / 2 + h * (k ? v.tte || 0 : v.rte || 0);
+        st.push({ o: [-s * w / 2 + s * w * k, le, 0], A: [0, -1, 0], B: [0, 0, 1], c: le - te, t: th * (1 - 0.4 * k), col: white });
+      }
+      const g = projUV(sweep(st, 'foil'), d, true);
+      if (v && v.cant) g.translate(s * w / 2, 0, 0).rotateY(-s * v.cant).translate(-s * w / 2, 0, 0); // leaning out from its root (a pair's left one is the mirror image)
+      return node([[g, 'hull']]);
     },
 
     prop(d) { // contra: a second row of blades ahead, turning the other way; duct: a ring round the fan
@@ -1196,8 +1348,8 @@ const Parts3D = (() => {
   // Offset copies drawn underneath bleed the edge colours outwards so texture filtering at the silhouette
   // never reaches empty texels.
   function paint(d, flip, skin) {
-    const [W, H] = texSize(d), cv = document.createElement('canvas'), S = skinFor(skin, d);
-    cv.width = W; cv.height = H;
+    const [W, H] = texSize(d), cv = document.createElement('canvas'), S = skinFor(skin, d), top = d.shape === 'us4body'; // (a lofted body's texture also has its plan view, on the right)
+    cv.width = top ? W * 2 : W; cv.height = H;
     const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat;
     PartPaint.flat = true;
     try {
@@ -1208,10 +1360,11 @@ const Parts3D = (() => {
       }
       ctx.setTransform(kx, 0, 0, -ky, W / 2, H / 2);
       drawPart(ctx, p, 0.9 / Math.min(kx, ky));
+      if (top) { ctx.setTransform(W / (d.depth || d.w), 0, 0, -ky, W * 1.5, H / 2); drawPartTop(ctx, p); }
     } finally { PartPaint.flat = flat; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-over';
-    ctx.fillStyle = S ? S.base : '#a7b0ba'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = S ? S.base : '#a7b0ba'; ctx.fillRect(0, 0, cv.width, H);
     return cv;
   }
 
@@ -1356,7 +1509,7 @@ void main() {
     };
   }
 
-  function makePlume(p, root) {
+  function makePlume(p, root, z = 0) {
     const d = p.def, type = PLUMES[d.plume] ? d.plume : 'kero', rgb = PLUMES[type], nz = nozzleOf(d);
     const C = rgb.map((c) => new THREE.Color().setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace));
     const shader = (core) => new THREE.ShaderMaterial({
@@ -1377,6 +1530,8 @@ void main() {
       dia.push(m); g.add(m);
     }
     g.position.y = nz.y;
+    if (nz.x) g.position.x = nz.x; // (a nozzle off the part's centre line, or one of a pair)
+    if (z) g.position.z = z;
     g.visible = false;
     root.add(g);
     return { g, type, nz, glow, dia, outer: outer.material.uniforms, core: core.material.uniforms,
@@ -1429,17 +1584,17 @@ void main() {
     const d = p.def, m = model(d, !!p.flip, p.skin), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
       nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '',
-      holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble', pm: !!d.pairMirror };
+      holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble' };
     const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => {
       const g = new THREE.Group();
       g.userData.side = s;
-      if (s < 0 && d.ruMirror) g.scale.z = -1; // (a lopsided pair, as a canted fin: the left one is the mirror image)
+      if (s < 0 && d.twinMirror) g.scale.z = -1; // (a lopsided pair, as a canted fin or a gear leg: the left one is the mirror image)
       root.add(g);
       return g;
     }) : [root];
     for (const h of holders) instance(m, h, rig);
     rig.nozzle = rig.mats.nozzle || null;
-    if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.map((h) => makePlume(p, h));
+    if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.flatMap((h) => (d.body && d.body.noz ? d.body.noz[0].z || [0] : [0]).map((z) => makePlume(p, h, z))); // (twin nozzles: a flame each)
     rig.plume = rig.plumes[0] || null;
     if (!builder && d.chute) { rig.canopy = makeCanopy(p, root); rig.meshes.push(rig.canopy.dome); }
     root.userData.part = p;
@@ -1598,7 +1753,7 @@ void main() {
     rig.root.position.set(p.x, p.y, H.length > 1 ? 0 : z);
     rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
     rig.root.scale.z = rig.zm && H.length === 1 && z < -0.01 ? -1 : 1;
-    if (H.length > 1) for (const h of H) { h.position.z = h.userData.side * z; if (rig.pm) h.scale.z = h.userData.side; } // (pairMirror: the left one is the mirror image)
+    if (H.length > 1) for (const h of H) h.position.z = h.userData.side * z;
     if (rig.twin) { rig.twin.position.set(z, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }
   }
   function tint(rig, r, g, b, k) {
@@ -1715,7 +1870,7 @@ void main() {
       }
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
       if (rig.ruMove) for (const g of rig.ruMove) { // an all-moving fin turns with its rudder; a vectoring nozzle swings with the stick
-        if (g.userData.move === 'rudder') g.quaternion.setFromAxisAngle(g.userData.axis, (p.deflect || 0) * (d.ruMirror && g.userData.side < 0 ? -1 : 1)); // (a mirrored copy turns back the same way)
+        if (g.userData.move === 'rudder') g.quaternion.setFromAxisAngle(g.userData.axis, (p.deflect || 0) * (d.twinMirror && g.userData.side < 0 ? -1 : 1)); // (a mirrored copy turns back the same way)
         else { const c = this.cmd, k = 0.26; g.rotation.set(c ? -c.x * k : 0, 0, c ? -(c.z + 0.6 * g.userData.side * c.y) * k : 0); } // (exits swing up for nose up; apart to roll)
       }
       if (rig.swingP) { const k = (p.sweep != null ? p.sweep : d.wing.swing[0]) - d.wing.swing[0]; rig.swingP.rotation.x = k; rig.swingN.rotation.x = -k; }
