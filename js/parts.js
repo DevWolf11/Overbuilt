@@ -686,13 +686,13 @@ const PARTS = {
 
   // ---- US 3rd- and 4th-generation look-alikes (FS-4, FS-16, FS-15): lofted bodies, see us4Rows at the end of this file
   // shared by the FS look-alikes: single-wheel gear legs and the 20 mm cannon
-  us4LegS: { cat: 'airGear', name: 'Short Gear Leg', w: 0.75, h: 0.7, mass: 0.1, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 700,
+  us4LegS: { flush: true, cat: 'airGear', name: 'Short Gear Leg', w: 0.75, h: 0.7, mass: 0.1, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 700,
     desc: 'A single small wheel on a short leg that folds away (G): the nose gear of a low-slung fighter.' },
-  us4LegM: { cat: 'airGear', name: 'Gear Leg', w: 1.3, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 900,
+  us4LegM: { flush: true, cat: 'airGear', name: 'Gear Leg', w: 1.3, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 900,
     desc: 'A single wheel on a leg that folds away (G). Use a pair, one each side, for a fighter\'s main gear.' },
-  us4LegL: { cat: 'airGear', name: 'Long Gear Leg', w: 1.75, h: 0.9, mass: 0.28, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 1100,
+  us4LegL: { flush: true, cat: 'airGear', name: 'Long Gear Leg', w: 1.75, h: 0.9, mass: 0.28, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 1100,
     desc: 'A single wheel on a long leg that folds away (G): a tall fighter\'s nose gear, or one under each wing for a wide stance.' },
-  us4Vulcan: { cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 7000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
+  us4Vulcan: { flush: true, cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 7000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
     desc: 'Six spinning 20 mm barrels: a short, savage burst for dogfights. Tuck it inside the fuselage with just the muzzle at a gun port.' },
   // FS-4 (3rd generation, after the F-4 Phantom II)
   us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radar: 14000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6000, shape: 'us4body',
@@ -728,7 +728,7 @@ const PARTS = {
     desc: 'An all-moving tailplane that droops 23° (anhedral), so it stays out of the wing\'s wake at high angles: the Phantom look. Mount it on the tail boom.' },
   us4f4Fin: { cat: 'wings', name: 'FS-4 Tail Fin', w: 2.17, h: 5.05, mass: 0.3, shape: 'vtail', vtail: { tle: 0.29, tte: 0.08 }, tier: 2, cost: 900,
     desc: 'A long, steeply swept fin with a rudder, running from the spine to the end of the tail boom.' },
-  us4f4Gun: { cat: 'weapons', name: 'FS-4 Chin Gun', w: 0.64, h: 3.25, depth: 0.44, fill: 0.66, mass: 0.25, tier: 2, cost: 4500, weapon: { kind: 'gun', ammo: 640, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 }, shape: 'us4body',
+  us4f4Gun: { flush: true, cat: 'weapons', name: 'FS-4 Chin Gun', w: 0.64, h: 3.25, depth: 0.44, fill: 0.66, mass: 0.25, tier: 2, cost: 4500, weapon: { kind: 'gun', ammo: 640, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 }, shape: 'us4body',
     body: { tubes: [
       { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
     desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
@@ -949,8 +949,11 @@ function partsOverlap(a, b, m = 0.02, mz = m) {
 function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
 function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
 function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
+// A flush part (def.flush: an internal gun, a chin-gun fairing, a gear leg whose top sits in its well) is set into
+// the bodies around it, so it may overlap them.
 function partsClash(a, b) {
   if (!!a.def.twinZ !== !!b.def.twinZ && (legacyTwin(a) || legacyTwin(b))) return false;
+  if (a.def.flush || b.def.flush) return false;
   return !partsMix(a, b) && partsOverlap(a, b);
 }
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }

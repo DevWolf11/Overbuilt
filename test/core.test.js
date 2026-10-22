@@ -24,9 +24,9 @@ t('att cycles are broken', R(`(() => { const r = rows.map((q) => ({ ...q })); r[
 t('bad skins and z are cleaned', R(`(() => { const b = partsFromDesign([{type:'fuselage',x:0,y:0,z:1e9,skin:'__proto__'},{type:'wingL',x:0,y:0,z:5,skin:'stealth'},{type:'aam',x:0,y:0,z:-0.01}]); return b[0].z === 20 && b[0].skin === null && b[1].z === 0 && b[1].skin === 'stealth' && b[2].z > 0.2; })()`));
 t('a skin on a wheel is refused', R(`partsFromDesign([{type:'wheel',x:0,y:0,skin:'red'}])[0].skin === null`));
 t('attachedTo walks the tree', R(`(() => { const a = mk('fuselage',0,0), b = mk('wingL',0,0,{att:a.id}), c = mk('jet',0,0,{att:b.id}), d = mk('aam',0,0,{att:c.id}); return attachedTo([a,b,c,d],[b]).length === 2; })()`));
-// the Russian look-alike jets: their templates can be edited (no clashes) and fly whole; the lofted hulls stay in their
+// the look-alike jets: their templates can be edited (no clashes) and fly whole; the Russian ones' lofted hulls stay in their
 // parts' boxes (the canopies may stand above, as other cockpits' do); wing plans run from the root out to the tip
-t('the look-alike jets\' templates: no parts clash, every part is joined', R(`Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].parts.some((r) => r[0].startsWith('ru'))).every((k) => {
+t('the look-alike jets\' templates: no parts clash, every part is joined', R(`Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].parts.some((r) => /^(ru|us4|us5)/.test(r[0]))).every((k) => {
   const ps = partsFromDesign(templateRows(TEMPLATES[k]));
   for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) return false;
   return componentOf(findControlPart(ps).id, buildAdjacency(ps)).size === ps.length; })`));
