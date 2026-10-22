@@ -569,7 +569,7 @@ const Builder = {
   onLine(q) { return !q.def.twinZ && Math.abs(q.x) < 0.01 && Math.abs(partZc(q)) < 0.01; },
   // Does h still hold q: touching it, mounted through it, or for a wing, hanging on (or sitting on) its real
   // section out at q's depth, swept back, tapered and lifted as the 3D wing is.
-  holds(h, q) { return partsTouch(q, h) || partsMounted(q, h) || (!!h.def.wing && this.wingHolds(h, q)); },
+  holds(h, q) { return partsTouch(q, h) || partsMounted(q, h) || (!!h.def.wing && this.wingHolds(h, q)) || (!partsMix(q, h) && partsOverlap(q, h, 0, 0) && shapesClash(q, h, -0.12)); }, // (or within 12 cm of its shape: set against a curved hull, then nudged along it)
   wingHolds(w, q) {
     const A = typeof Parts3D !== 'undefined' && Parts3D.wingAt;
     if (!A || (w.rot || 0) !== 0 || w.def.shape === 'biplane') return partsMounted2D(q, w);
@@ -648,7 +648,9 @@ const Builder = {
   // of the hull's box: 5 cm steps, so it never jumps through something into a gap beyond, then halving to the
   // centimetre. At most max metres; null when it can't go in at all.
   snug(pr, axis, dir, max, others) {
-    const at = (s) => ({ ...pr, [axis]: +(pr[axis] + dir * s).toFixed(3) }), free = (q) => !others.some((o) => partsClash(q, o));
+    // (stricter than partsClash: no allowance for old pairs or flush parts, nor the 2 cm it lets parts overlap, so a
+    // part stops where it meets any shape, flush against a straight hull)
+    const at = (s) => ({ ...pr, [axis]: +(pr[axis] + dir * s).toFixed(3) }), free = (q) => !others.some((o) => !partsMix(q, o) && partsOverlap(q, o, 0.002, 0.002) && shapesClash(q, o, 0.002));
     let ok = 0, s = 0.05;
     for (; s <= max + 1e-9 && free(at(s)); s += 0.05) ok = s;
     if (s <= max + 1e-9) { let lo = ok, hi = s; for (let i = 0; i < 5; i++) { const m = (lo + hi) / 2; if (free(at(m))) lo = m; else hi = m; } ok = lo; }

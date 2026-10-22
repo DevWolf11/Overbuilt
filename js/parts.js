@@ -1082,28 +1082,64 @@ function outlineDummy(d, flip) { return { def: d, type: d.type, x: 0, y: 0, flip
 // as deep as its model; a lofted jet body is its side outline, as deep as its box. Parts built some other way
 // (gear, props, guns, wings, rocket fins) keep their box. A round part's 2D path counts as well as its 3D
 // profile, so a canopy drawn in 2D still takes room. Cached per type and side.
+// The model's fittings that stand out of its outline (canopies, nozzle lips, intake frames): how far, in metres
+// (CLASH_PAD: the shape grows by that much all round), or so far that the part keeps its box (CLASH_BOXED: canopies
+// of the tandem, stealth and look-alike noses, float struts, drop-tank pylons, radiator fins, tail booms).
+// Measured from the 3D models; test/browser/builder-shapes.mjs checks every model still fits inside its shape.
+const CLASH_PAD = { cockpit: 0.11, cockpitS: 0.09, cockpitJet: 0.22, cockpitAir: 0.21, cockpitWarbird: 0.11, heatShield: 0.07, heatShieldL: 0.1,
+  us4f4Nose: 0.04, us4f4Intakes: 0.08, us4f4Gun: 0.05, us4f16Nose: 0.03, us4f16Intake: 0.16, us4f15Nose: 0.04, us4f15Intakes: 0.05,
+  ruIRST: 0.13, ruAL41F1: 0.12, ruAL41: 0.12, ruAL31: 0.11, ruR25: 0.1, ruRD33: 0.1, ruNacelle27: 0.03, ruNacelle29: 0.03, ruNacelle57: 0.03,
+  us5Eng22: 0.11, us5Eng35: 0.11, us5Gun: 0.13, us5Bay22: 0.04 };
+const CLASH_BOXED = new Set(['prometheus', 'hawk', 'floats', 'dropTanks', 'cockpitTandem', 'cockpitStealth', 'us5Nose22', 'us5Nose35', 'us5Aft35', 'ruNose21',
+  'us4f4Engines', 'us4f16Engine', 'us4f15Engines']);
+const CLASH_STEP = 0.01; // (the outline's extent is looked up every centimetre up the part)
 const CLASH_SHAPES = new Map();
 function clashShape(d, flip) {
   const key = d.type + (flip ? '|f' : '');
   let S = CLASH_SHAPES.get(key);
   if (S) return S;
   const r = d.body3d || (d.shape === 'sep' && d.side ? 'box' : PART_RECIPE[d.shape] || (LATHE_SHAPES.has(d.shape) ? 'lathe' : 'extrude'));
-  const round = r === 'lathe', flat = r === 'extrude' && !d.fin && !d.leg, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body') && !d.wheel && !isSurface(d);
+  const keep = CLASH_BOXED.has(d.type), round = r === 'lathe' && !keep, flat = r === 'extrude' && !d.fin && !d.leg && !keep, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body') && !d.wheel && !isSurface(d) && !keep;
   let polys = round || flat || loft ? partOutline(d, flip) : [];
   if (round && PART_PROFILE[d.shape]) { const c = pathRecorder(); partPath(c, outlineDummy(d, flip)); polys = polys.concat(c.polys.filter((q) => q.length >= 6)); }
-  if (!polys.length) S = { box: true, round: false, polys: [[-d.w / 2, -d.h / 2, d.w / 2, -d.h / 2, d.w / 2, d.h / 2, -d.w / 2, d.h / 2]], ys: [-d.h / 2, d.h / 2], depth: 0 };
-  else S = { box: false, round, polys, ys: [...new Set(polys.flatMap((P) => P.filter((v, i) => i & 1)))].sort((a, b) => a - b), depth: flat ? d.depth || PART_FLAT_DEPTH[d.shape] || Math.min(d.w, 1) : 0 };
+  if (!polys.length) S = { box: true, round: false, polys: [[-d.w / 2, -d.h / 2, d.w / 2, -d.h / 2, d.w / 2, d.h / 2, -d.w / 2, d.h / 2]], ys: [-d.h / 2, d.h / 2], depth: 0, pad: 0 };
+  else {
+    S = { box: false, round, polys, ys: [...new Set(polys.flatMap((P) => P.filter((v, i) => i & 1)))].sort((a, b) => a - b), depth: flat ? d.depth || PART_FLAT_DEPTH[d.shape] || Math.min(d.w, 1) : 0, pad: CLASH_PAD[d.type] || 0, w: d.w, h: d.h };
+    const n = Math.ceil(d.h / CLASH_STEP) + 1; // (NaN: no outline at that height)
+    S.lo = new Float32Array(n); S.hi = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const sp = outlineSpan(polys, Math.min(d.h / 2, -d.h / 2 + i * CLASH_STEP)); S.lo[i] = sp ? sp[0] : NaN; S.hi[i] = sp ? sp[1] : NaN; }
+  }
   CLASH_SHAPES.set(key, S);
   return S;
 }
+// The shape's extent across at local height ly: [lo, hi, solid]. Past the ends of its outline, but still inside its
+// box, it is the box (solid: fittings drawn beyond the outline, such as nozzles); null in a gap of the outline.
+function clashSpan(S, ly) {
+  if (S.box || ly < S.ys[0] - 1e-6 || ly > S.ys[S.ys.length - 1] + 1e-6) return [-S.w / 2 || 0, S.w / 2 || 0, true];
+  const f = (ly + S.h / 2) / CLASH_STEP, i = Math.max(0, Math.min(S.lo.length - 2, Math.floor(f))), t = f - i;
+  const a0 = S.lo[i], a1 = S.lo[i + 1], b0 = S.hi[i], b1 = S.hi[i + 1];
+  if (a0 !== a0) return a1 !== a1 ? null : [a1, b1, false];
+  if (a1 !== a1) return [a0, b0, false];
+  return [a0 + (a1 - a0) * t, b0 + (b1 - b0) * t, false];
+}
 // A part's turn: 0 to 3 quarters. Along its own axis (y, or x when turned a quarter) a local height ly sits at u.
 function clashU(p, k, ly) { return k === 0 ? p.y + ly : k === 1 ? p.x - ly : k === 2 ? p.y - ly : p.x + ly; }
-// Where the shape is across that axis at u, in part space: [v0, v1], or null where it has no outline.
+// Where the shape is across that axis at u, in part space: [v0, v1, solid], or null where it has no outline.
 function clashSection(p, S, k, u) {
-  const s = outlineSpan(S.polys, k === 0 ? u - p.y : k === 1 ? p.x - u : k === 2 ? p.y - u : u - p.x);
+  const s = S.box ? [-p.def.w / 2, p.def.w / 2, true] : clashSpan(S, k === 0 ? u - p.y : k === 1 ? p.x - u : k === 2 ? p.y - u : u - p.x);
   if (!s) return null;
-  const c = k & 1 ? p.y : p.x;
-  return k < 2 ? [c + s[0], c + s[1]] : [c - s[1], c - s[0]];
+  const c = k & 1 ? p.y : p.x, e = s[2] ? 0 : S.pad;
+  return k < 2 ? [c + s[0] - e, c + s[1] + e, s[2]] : [c - s[1] - e, c - s[0] + e, s[2]];
+}
+// How far two parts' sections at u cut into each other, the deepest of their copies (-Infinity: nothing there).
+function sectionsCutAt(a, A, ka, b, B, kb, u) {
+  const sa = clashSection(a, A, ka, u), sb = sa && clashSection(b, B, kb, u);
+  if (!sb) return -Infinity;
+  // a solid section is the part's box; a padded flat one is deeper by the padding both sides
+  const ra = A.round && !sa[2], rb = B.round && !sb[2], da = sa[2] ? partDepth(a) : (A.depth || partDepth(a)) + 2 * A.pad, db = sb[2] ? partDepth(b) : (B.depth || partDepth(b)) + 2 * B.pad;
+  let deep = -Infinity;
+  for (const za of partZs(a)) for (const zb of partZs(b)) deep = Math.max(deep, sectionsCut(sa, za, ra, da, sb, zb, rb, db));
+  return deep;
 }
 // How far two sections cut into each other (positive: they overlap), each a disc (round) or a rectangle d deep,
 // at depth z.
@@ -1129,13 +1165,7 @@ function shapesClash(a, b, m) {
   us.sort((x, y) => x - y);
   const H = [];
   for (const u of us) if (u >= lo && u <= hi && !(H.length && u - H[H.length - 1] <= e)) H.push(u);
-  const da = A.depth || partDepth(a), db = B.depth || partDepth(b), zsa = partZs(a), zsb = partZs(b);
-  const cuts = (u) => {
-    const sa = clashSection(a, A, ka, u), sb = sa && clashSection(b, B, kb, u);
-    if (!sb) return false;
-    for (const za of zsa) for (const zb of zsb) if (sectionsCut(sa, za, A.round, da, sb, zb, B.round, db) > m) return true;
-    return false;
-  };
+  const cuts = (u) => sectionsCutAt(a, A, ka, b, B, kb, u) > m;
   for (let i = 0; i < H.length; i++) {
     if (cuts(H[i])) return true;
     if (i + 1 < H.length) for (const f of [0.25, 0.5, 0.75]) if (cuts(H[i] + (H[i + 1] - H[i]) * f)) return true;

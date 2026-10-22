@@ -62,10 +62,74 @@ r = await ev(() => {
   const f = Builder.parts[0], rad = PARTS.fuselage.w / 2, a = Math.PI / 4;
   const hit = { part: f, x: f.x + rad * Math.cos(a), y: 0, z: rad * Math.sin(a), nx: Math.cos(a), ny: 0, nz: Math.sin(a) * 0.999 };
   const s = Builder.attach('podSmall', 0, hit, Builder.parts), R = partRect(f), w = PARTS.podSmall.w;
-  const at = { def: PARTS.podSmall, type: 'podSmall', x: s.x, y: s.y, z: s.z, rot: 0 }, deeper = { ...at, x: at.x - 0.03 };
+  const at = { def: PARTS.podSmall, type: 'podSmall', x: s.x, y: s.y, z: s.z, rot: 0 }, deeper = { ...at, x: at.x - 0.03 * Math.cos(a), z: at.z - 0.03 * Math.sin(a) };
   return { boxX: R.r + w / 2, x: s.x, z: s.z, ok: s.ok, att: s.att && s.att.type, free: !partsClash(at, f), deeperClash: partsClash(deeper, f) };
 });
 ok('3D: dropped on the lower curve of a fuselage, a pod hangs on the curve, not below the box', r.ok && r.x < r.boxX - 0.15 && r.free && r.deeperClash && r.att === 'fuselage', JSON.stringify(r));
+
+// 3b. a part slid beside an old twin pair (no attachment, at its catalogue spread: they keep the side-view rules) stops at
+// the pod's surface, not inside it; and one slid onto a curved hull stays on it when nudged along or moved out a little
+r = await ev(() => {
+  Builder.loadTemplate('jumbo');
+  const pod = Builder.parts.find((p) => p.type === 'fanPods'), R = partRect(pod), w = PARTS.podSmall.w;
+  const s = Builder.snap('podSmall', { x: R.r + w / 2, y: pod.y, z: partZ(pod) }, []);
+  return { podX: pod.x, boxX: R.r + w / 2, x: s.x };
+});
+ok('beside an old pod pair a part stops at the pod\'s surface', r.x > r.podX + 0.9 && r.x <= r.boxX, JSON.stringify(r));
+r = await ev(() => {
+  Builder.loadDesign({ name: 't', kind: 'plane', parts: [{ type: 'cockpitJet', x: 0, y: (PARTS.fuselage.h + PARTS.cockpitJet.h) / 2 }, { type: 'fuselage', x: 0, y: 0 }] });
+  const f = Builder.parts[1], rad = PARTS.fuselage.w / 2, a = Math.PI / 4;
+  const hit = { part: f, x: f.x + rad * Math.cos(a), y: 0, z: rad * Math.sin(a), nx: Math.cos(a), ny: 0, nz: Math.sin(a) * 0.999 };
+  const s = Builder.attach('podSmall', 0, hit, Builder.parts);
+  Builder.symmetry = false; Builder.addPart('podSmall', s.x, s.y, 0, { z: s.z, att: f, host: f });
+  const p = Builder.selected, out = { slid: s.x, placed: { att: !!p.att, loose: Builder.statsData.loose } };
+  Builder.nudge(0, 0.25); out.afterNudge = { att: !!p.att, loose: Builder.statsData.loose };
+  p.z += 0.08; Builder.changed(); Builder.letGo(new Set([p])); out.afterDepth = { att: !!p.att, loose: Builder.statsData.loose };
+  return out;
+});
+ok('a part slid onto a fuselage\'s curve stays on it when nudged along or moved out a little', r.placed.att && !r.placed.loose && r.afterNudge.att && !r.afterNudge.loose && r.afterDepth.att && !r.afterDepth.loose, JSON.stringify(r));
+
+// 3c. every part's 3D model fits inside its clash shape (within 1.5 cm), so nothing can be put into a canopy, a nozzle
+// or a fitting (a part whose fittings stand out has a padding, CLASH_PAD, or keeps its box, CLASH_BOXED)
+await ev(() => App.setPreview3D(true));
+await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 60000 });
+r = await ev(() => {
+  const out = [], inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  for (const type in PARTS) {
+    const d = PARTS[type];
+    if (isSurface(d)) continue;
+    for (const flip of [false, true]) {
+      const S = clashShape(d, flip);
+      if (S.box) continue;
+      const p = makePart(type, 0, 0, { z: d.twinZ || 0 }); p.flip = flip;
+      const root = Parts3D.buildPart(p, true); root.updateMatrixWorld(true);
+      const hd = partDepth(p) / 2, dep = S.depth || partDepth(p);
+      let worst = 0;
+      for (const H of root.userData.rig.holders) {
+        inv.copy(H.matrixWorld).invert();
+        H.traverse((o) => {
+          if (!o.isMesh || !o.geometry) return;
+          for (let q = o; q; q = q.parent) if (!q.visible) return;
+          m.multiplyMatrices(inv, o.matrixWorld);
+          const pos = o.geometry.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i).applyMatrix4(m);
+            if (Math.abs(v.x) > d.w / 2 + 1e-6 || Math.abs(v.y) > d.h / 2 + 1e-6 || Math.abs(v.z) > hd + 1e-6) continue;
+            let s = clashSpan(S, v.y);
+            if (!s) { const a = clashSpan(S, v.y - 0.003), c = clashSpan(S, v.y + 0.003); s = a && c ? [Math.min(a[0], c[0]), Math.max(a[1], c[1]), a[2] || c[2]] : a || c; }
+            if (!s) { worst = 9; continue; }
+            const e = s[2] ? 0 : S.pad, lo = s[0] - e, hi = s[1] + e;
+            worst = Math.max(worst, S.round && !s[2] ? Math.hypot(v.x - (lo + hi) / 2, v.z) - (hi - lo) / 2 : Math.max(lo - v.x, v.x - hi, Math.abs(v.z) - (s[2] ? hd : dep / 2 + e)));
+          }
+        });
+      }
+      if (worst > 0.015) out.push(`${type}${flip ? '|f' : ''} ${worst.toFixed(3)}`);
+    }
+  }
+  return out;
+});
+ok('every part\'s 3D model fits inside its clash shape', !r.length, r.join(' '));
+await ev(() => App.setPreview3D(false));
 
 // 4. cheap enough to run on every pointer move: snap against a whole jet
 r = await ev(() => {
@@ -75,6 +139,23 @@ r = await ev(() => {
   return (performance.now() - t0) / 40;
 });
 ok(`snap against a 20-part jet takes ${r.toFixed(1)} ms`, r < 25, r);
+r = await ev(() => { // dragging the jet's own nose about it: every move checks it against every part
+  Builder.loadTemplate('sugoi27');
+  const n = Builder.parts.find((p) => p.type === 'ruNose27'), others = Builder.parts.filter((p) => p !== n), t0 = performance.now();
+  for (let i = 0; i < 60; i++) Builder.snap('ruNose27', { x: -2 + (i % 10) * 0.4, y: 6 + i * 0.2 }, [n]);
+  return (performance.now() - t0) / 60;
+});
+ok(`dragging a big lofted part about its own jet: ${r.toFixed(2)} ms a move`, r < 8, r);
+
+// 5. on a phone in portrait the More tab stays in sight at the end of the tab strip
+{
+  const ph = await (await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 })).newPage();
+  watch(ph, errs);
+  await openGame(ph, srv.url, { build3d: false });
+  await ph.evaluate(() => App.toBuild());
+  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
+  ok('phone portrait: More is in sight for every kind of craft', r.every(Boolean), JSON.stringify(r));
+}
 
 ok('no page errors', !errs.length, errs.join('\n'));
 await b.close(); srv.close();

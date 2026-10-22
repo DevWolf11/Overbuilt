@@ -58,12 +58,8 @@ const pick = (a) => a[Math.floor(rnd() * a.length)];
       if ((A.box && B.box) || (ka & 1) !== (kb & 1)) return null;
       const RA = partRect(a), RB = partRect(b), odd = ka & 1;
       const lo = Math.max(odd ? RA.l : RA.b, odd ? RB.l : RB.b) + 1e-4, hi = Math.min(odd ? RA.r : RA.t, odd ? RB.r : RB.t) - 1e-4;
-      const da = A.depth || partDepth(a), db = B.depth || partDepth(b);
       let deep = -Infinity;
-      for (let u = lo; u <= hi; u += 0.002) {
-        const sa = clashSection(a, A, ka, u), sb = clashSection(b, B, kb, u);
-        if (sa && sb) for (const za of partZs(a)) for (const zb of partZs(b)) deep = Math.max(deep, sectionsCut(sa, za, A.round, da, sb, zb, B.round, db));
-      }
+      for (let u = lo; u <= hi; u += 0.002) deep = Math.max(deep, sectionsCutAt(a, A, ka, b, B, kb, u));
       return { deep, says: shapesClash(a, b, ${M}) };
     })()`);
     if (!res || Math.abs(res.deep - M) < 0.004) continue;

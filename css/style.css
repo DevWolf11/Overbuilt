@@ -156,7 +156,7 @@ html, body {
 }
 .tab[aria-selected="true"] { color: var(--amber); border-bottom-color: var(--amber); }
 .tab.extra { opacity: 0.75; } /* another kind of craft's parts (More) */
-.tab.more { margin-left: 4px; border-left: 1px solid var(--line); }
+.tab.more { position: sticky; right: 0; margin-left: 4px; border-left: 1px solid var(--line); background: rgb(5, 9, 18); } /* always in sight, at the strip's end */
 .items { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; touch-action: pan-x; scrollbar-width: thin; }
 /* the label before each look-alike jet's parts in the tray */
 .tray-group { flex: 0 0 auto; align-self: stretch; display: flex; align-items: center; writing-mode: vertical-rl; transform: rotate(180deg); padding: 0 3px; border-right: 1px solid var(--line); color: var(--muted); font: 600 10px/1 var(--display); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
