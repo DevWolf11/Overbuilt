@@ -965,7 +965,8 @@ const Combat = (() => {
     S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 30,
       burn: 6, accel: 210, vmax: 1100, turn: 22, dmg: 300, blast: 14, seek: 'air', heat: false, radar: true, big: true, target: v, owner: t, launcher: t, enemy: true,
       ...airframe({ seek: 'air', radar: true, drag: 1e-4, arm: 0.4 }) });
-    F.toast('Radar SAM launch! Drop chaff, or fly low across it', 'warn');
+    const cm = v && v.parts.some((q) => q.def.weapon && (q.def.weapon.kind === 'chaff' || q.def.weapon.kind === 'flare') && q.ammo > 0);
+    F.toast(cm ? 'Radar SAM launch! Drop chaff, or fly low across it' : 'Radar SAM launch! Fly low across it, or put an island between you', 'warn');
   }
 
   // ---------------------------------------------------------------- enemy fighters
