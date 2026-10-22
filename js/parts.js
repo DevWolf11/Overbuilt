@@ -532,13 +532,13 @@ const PARTS = {
   ruVentral27: { cat: 'wings', name: 'Sugoi-27 Ventral Fins', w: 0.9, h: 1.8, depth: 0.12, twinZ: 2.25, mass: 0.1, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
     ruFin: { rte: 0.11, tle: 0.39, tte: 0, cant: 0.3 }, tier: 3, cost: 400, desc: 'Little fins under the tail booms, splayed outwards: steadier at high angles of attack.' },
   ruWing27: { cat: 'wings', name: 'Sugoi-27 Wing', w: 0.45, h: 9.55, mass: 2.8, fuel: 1.5, shape: 'wing',
-    wing: { area: 62, span: 14.7, sweep: 0.733, taper: 0.76, slope: 3, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 2.43, dihedral: 0, flaps: true, vne: 472, mmax: 2.8,
+    wing: { area: 62, span: 14.7, sweep: 0.733, taper: 0.76, slope: 3, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 2.72, dihedral: 0, flaps: true, vne: 472, mmax: 2.8,
       plan: [[0, 4.775, -4.775], [0.109, 4.775, -4.775], [0.129, 4.175, -4.79], [0.17, 3.225, -4.865], [0.231, 2.025, -4.945], [0.299, 0.925, -5.045], [0.361, 0.075, -5.125],
         [0.422, -0.595, -5.215], [1, -4.425, -6.025]] },
     breakSpeed: 14, tier: 3, cost: 5500,
     desc: 'A Sugoi-27’s wing in one piece: the big curved root extension (LERX) blending into a 42° swept wing with flaps, 14.7 m across. It keeps lifting at wild angles of attack.' },
   ruTail27: { cat: 'wings', name: 'Sugoi-27 Tailerons', w: 0.18, h: 3, mass: 0.5, shape: 'elevator',
-    wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
+    wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.22, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
     desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
   ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radar: 26000, shape: 'ruLoft', ru: 'nose',
     ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 10500,
@@ -548,7 +548,7 @@ const PARTS = {
     glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
       [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
     desc: 'An upgraded Sugoi nose: a bigger, longer-reaching radar under a fatter radome. Put an IRST ball ahead of the canopy, a little to the right.' },
-  ruAL41: { cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
+  ruAL41: { cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.1, vector: true,
     air: { kind: 'jet', vmax: 760, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.4, exit: 0.45 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 26000,
     loft: ruG(0.95, 1.1, { s: [[2.5, 0.36, 1.54, 0.59], [3.6, 0.33, 1.57, 0.63]], mat: 'metal' }, { s: [[1.1, 0.47, 1.43, 0.48], [2.5, 0.37, 1.53, 0.58]], mat: 'steelDark', vec: 1.4 }),
     desc: 'A pair of uprated afterburning turbofans whose nozzles swivel in every direction with the stick: the plane still turns when its wings have stalled. Afterburner above 90%.' },
@@ -622,11 +622,11 @@ const PARTS = {
     air: { kind: 'jet', vmax: 770, ab: 1.58 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.5, exit: 0.4 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 33500,
     loft: ruG(0.85, 0.8, { s: [[2.3, 0.32, 1.38, 0.53], [3.5, 0.275, 1.425, 0.575]], mat: 'metal' }, { s: [[0.8, 0.4, 1.3, 0.43], [2.3, 0.33, 1.37, 0.52]], mat: 'steelDark', vec: 1.5 }),
     desc: 'The newest pair of afterburning turbofans: strong enough to cruise past Mach 1, with nozzles that swivel with the stick. Afterburner above 90%.' },
-  ruBay57: { cat: 'weapons', name: 'Internal Radar Missiles', w: 0.45, h: 6, depth: 2.1, mass: 0.6, stealth: 0.6, bay: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 21000,
+  ruBay57: { cat: 'weapons', name: 'Internal Radar Missiles', w: 0.45, h: 6, depth: 2.1, mass: 0.6, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 21000,
     weapon: { kind: 'missile', seek: 'air', radar: true, label: 'RV-77', ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
     loft: ruG(0.475, 5.0, { s: [[5.0, 0.25, 0.4, 0.9, 0.3, 4, 4], [5.6, 0.25, 0.65, 1.04, 0.4, 5, 5], [10.4, 0.25, 0.68, 1.04, 0.4, 5, 5], [11.0, 0.25, 0.45, 0.95, 0.3, 4, 4]] }),
     desc: 'Two long bays between the engines with four radar missiles inside: no drag, and a stealth plane stays stealthy. They ride your nose radar like the outside ones.' },
-  ruBayS57: { cat: 'weapons', name: 'Internal Heat Seekers', w: 0.36, h: 3, depth: 0.5, twinZ: 2.6, mass: 0.1, stealth: 0.6, bay: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 8000,
+  ruBayS57: { cat: 'weapons', name: 'Internal Heat Seekers', w: 0.36, h: 3, depth: 0.5, twinZ: 2.6, mass: 0.1, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 8000,
     weapon: { kind: 'missile', seek: 'air', label: 'RV-74', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
     loft: ruG(0.43, 9.0, { s: [[9.0, 0.25, 0.32, 0.12, 0.27, 3, 3], [9.5, 0.25, 0.58, 0.24, 0.35, 4, 4], [11.4, 0.25, 0.6, 0.24, 0.36, 4, 4], [12.0, 0.25, 0.36, 0.16, 0.28, 3, 3]] }),
     desc: 'A pair of little bays in the wing roots, outside the intakes, each with a heat seeker inside.' },
@@ -725,7 +725,7 @@ const PARTS = {
   us4f4Wing: { cat: 'wings', name: 'FS-4 Dog-Tooth Wing', w: 0.4, h: 6.6, mass: 2.6, fuel: 0.6, shape: 'wing', wing: { area: 49.2, span: 11.7, sweep: 0.773, taper: 0.77, flaps: true, stall: 0.36, mcrit: 0.85, wave: 0.5, cd0: 0.01, load: 2.15, dihedral: 0.08, vne: 444, mmax: 2.6, crank: { at: 0.64, d0: 0, d1: 0.21, tooth: 0.12 } }, breakSpeed: 14, tier: 2, cost: 4000,
     desc: 'A swept wing whose outer panels tilt up 12° beyond a dog-tooth notch in the leading edge: the FS-4\'s trademark, added to cure a wobble. Mount it low through the fuselage.' },
   us4f4Stab: { cat: 'wings', name: 'Anhedral Stabilator', w: 0.2, h: 2.6, mass: 0.4, shape: 'elevator', wing: { area: 9.3, span: 5.4, sweep: 0.666, taper: 0.615, dihedral: -0.4, control: 0.35 }, breakSpeed: 14, tier: 2, cost: 1200,
-    desc: 'An all-moving tailplane that droops 23° (anhedral), so it stays out of the wing\'s wake at high angles: the Phantom look. Mount it on the tail boom.' },
+    desc: 'An all-moving tailplane that droops 23° (anhedral), so it stays out of the wing\'s wake at high angles. Mount it on the tail boom.' },
   us4f4Fin: { cat: 'wings', name: 'FS-4 Tail Fin', w: 2.17, h: 5.05, mass: 0.3, shape: 'vtail', vtail: { tle: 0.29, tte: 0.08 }, tier: 2, cost: 900,
     desc: 'A long, steeply swept fin with a rudder, running from the spine to the end of the tail boom.' },
   us4f4Gun: { flush: true, cat: 'weapons', name: 'FS-4 Chin Gun', w: 0.64, h: 3.25, depth: 0.44, fill: 0.66, mass: 0.25, tier: 2, cost: 4500, weapon: { kind: 'gun', ammo: 640, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 }, shape: 'us4body',
@@ -950,10 +950,10 @@ function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
 function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
 function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
 // A flush part (def.flush: an internal gun, a chin-gun fairing, a gear leg whose top sits in its well) is set into
-// the bodies around it, so it may overlap them.
+// the bodies around it, so it may overlap them (but not another flush part).
 function partsClash(a, b) {
   if (!!a.def.twinZ !== !!b.def.twinZ && (legacyTwin(a) || legacyTwin(b))) return false;
-  if (a.def.flush || b.def.flush) return false;
+  if (!a.def.flush !== !b.def.flush) return false;
   return !partsMix(a, b) && partsOverlap(a, b);
 }
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
@@ -2796,7 +2796,7 @@ const US5_ART = {
         ctx.fillStyle = '#16191d'; ctx.fill();
         const tip = us5Swing(R, D, k)[0], a = D[2] * k, x = hx + (B.at[0] - hx) * Math.cos(a) + (B.at[1] - h[2]) * Math.sin(a);
         us5Poly(ctx, [[hx, B.y0], [tip, B.y0 - 0.12], [tip, B.y1 + 0.12], [hx, B.y1]]); ctx.fillStyle = skinFill(ctx, hx, tip); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.stroke();
-        if ((p.ammo == null ? 2 : p.ammo) > 0) us5Missile(ctx, x, (B.y0 + B.y1) / 2, 2.7, 'aim9', lw);
+        if ((p.ammo == null ? 2 : p.ammo) >= 2) us5Missile(ctx, x, (B.y0 + B.y1) / 2, 2.7, 'aim9', lw); // (the near bay's: the first heat seeker leaves from the near side)
       } else { ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.stroke(); }
       us5Seam(ctx, [[-2.2, ...US5_MID22], [2.2, ...US5_MID22]], -2.1, 0.1, lw);
     });

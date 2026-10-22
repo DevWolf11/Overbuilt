@@ -667,6 +667,9 @@ const Builder = {
     }
     if (best) return { x: best.x, y: best.y, z: best.z, host: best.host, att: this.attFor(best.host, best.stack), attached: true, ok: true };
     const z = this.zFit(type, gx, gy, rot, z0, others);
+    // a flush part (an internal gun, a gear leg) dropped into a body is set into it, so it hangs on that body
+    const into = def.flush && z != null && others.find((o) => !isSurface(o.def) && partsOverlap({ def, type, x: gx, y: gy, z, rot }, o));
+    if (into) return { x: gx, y: gy, z, host: into, att: into, attached: true, ok: true };
     return { x: gx, y: gy, z: z == null ? cleanZ(z0, def) : z, host: null, att: null, attached: false, ok: z != null };
   },
 

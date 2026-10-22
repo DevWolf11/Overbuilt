@@ -1320,7 +1320,7 @@ const Combat = (() => {
     return { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
       lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
   }
-  const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'AMRAAM', agm: 'AGM', bomb: 'BOMB' };
+  const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'RADAR', agm: 'AGM', bomb: 'BOMB' };
   function integrity(v) { // the whole craft's health, 0..1
     let a = 0, b = 0;
     for (const p of v.parts) { const m = maxHp(p.def); a += m * hpFrac(p); b += m; }

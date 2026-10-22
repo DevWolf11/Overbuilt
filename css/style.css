@@ -165,7 +165,7 @@ html, body {
 }
 .part-item:hover { border-color: var(--amber); }
 .part-item canvas { width: 56px; height: 56px; pointer-events: none; }
-.part-name { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.1; }
+.part-name { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; } /* (two lines at most: a long name doesn't make the tray taller) */
 .part-spec { font: 500 10px var(--mono); color: var(--muted); }
 
 /* ------------------------------------------------------------------ flight screen */
@@ -678,7 +678,7 @@ kbd {
   .items { padding-top: 5px; }
   .part-item { width: 92px; padding: 4px 4px 6px; gap: 2px; }
   .part-item canvas { width: 34px; height: 34px; }
-  .part-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 11px; }
+  .part-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 11px; }
   .part-item .part-spec { display: none; }
 }
 
