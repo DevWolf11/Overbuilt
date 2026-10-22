@@ -194,9 +194,9 @@ const FALCON = ctx.TEMPLATES.falcon.parts, HORNET = ctx.TEMPLATES.hornet.parts;
   let r = look(3000, at(-200, 0, 2), 0, 250, 0.7);
   u('bundle 200 m off, target crossing the beam: 0.7 < 3 in 4 fools it', r.hit && r.seen);
   r = look(3000, at(-200, 0, 2), 250, 0, 0.3);
-  u('bundle, target flying along the beam: 0.3 > 1 in 4 does not', !r.hit && r.seen);
-  r = look(3000, at(-200, 0, 2), 250, 0, 0.2);
-  u('... 0.2 < 1 in 4 does', r.hit);
+  u('bundle, target flying along the beam: 0.3 > about 1 in 7 does not', !r.hit && r.seen);
+  r = look(3000, at(-200, 0, 2), 250, 0, 0.1);
+  u('... 0.1 < about 1 in 7 does', r.hit);
   r = look(3000, at(-200, 0), 0, 250, 0.7);
   u('the free cloud crossing: 0.7 > 3 in 5 (as before)', !r.hit && r.seen);
   r = look(3000, at(-200, 0), 0, 250, 0.5);
@@ -220,8 +220,8 @@ const FALCON = ctx.TEMPLATES.falcon.parts, HORNET = ctx.TEMPLATES.hornet.parts;
   ctx.Math.random = () => 0;
   u('lock: the free cloud 350 m off is out of its reach', !T.chaffBreaks(L, v));
   C.S.flares = [Object.assign({ b: G.EARTH, t: 0, life: 5, chaff: true }, at(0, 350, 2))];
-  ctx.Math.random = () => 0.2;
-  u('lock: a bundle 350 m off can break it (1 in 4 head on)', T.chaffBreaks(L, v));
+  ctx.Math.random = () => 0.1;
+  u('lock: a bundle 350 m off can break it (about 1 in 7 head on)', T.chaffBreaks(L, v));
   ctx.Math.random = () => 0.5;
 }
 {
@@ -297,7 +297,7 @@ const FALCON = ctx.TEMPLATES.falcon.parts, HORNET = ctx.TEMPLATES.hornet.parts;
   const rate = (n, ...args) => { let h = 0; for (let i = 0; i < n; i++) if (fly(...args)) h++; return h / n; };
   const N = 24, rows = [
     ['no countermeasures, head on', rate(N, FALCON, 0.7, 8000, 3000, 'head', false), 0.9, 1],
-    ['one bundle at 3 km, flying away from the ship (1 in 4 fools it)', rate(N, FALCON, 0.7, 5000, 3000, 'tail', true), 0.55, 0.95],
+    ['one bundle at 3 km, flying away from the ship (about 1 in 7 fools it)', rate(N, FALCON, 0.7, 5000, 3000, 'tail', true), 0.6, 1],
     ['one bundle at 3 km, crossing (3 in 4)', rate(N, FALCON, 0.7, 8000, 3000, 'beam', true), 0.05, 0.45],
     ['flares only: their free cloud at 3 km, crossing (3 in 5)', rate(N, without(FALCON, 'chaff'), 0.7, 8000, 3000, 'beam', true), 0.15, 0.65],
     ['notching: 150 m up, crossing', rate(N, FALCON, 0.7, 7000, 150, 'beam', false), 0, 0.05],
@@ -329,8 +329,18 @@ const FALCON = ctx.TEMPLATES.falcon.parts, HORNET = ctx.TEMPLATES.hornet.parts;
     v.x = p.x * k; v.y = p.y * k; v.z = p.z * k; // (it hovers there)
   }
   const gaps = launches.slice(1).map((x, i) => x - launches[i]);
-  u('the frigate launches radar SAMs at a craft in reach: first after ~5 s, then 13 s or more apart, one at a time', launches.length >= 2 && launches[0] >= 4.5 && launches[0] < 6 && gaps.every((g) => g >= 12.9) && most === 1, JSON.stringify(launches));
+  u('the frigate launches radar SAMs at a craft in reach and over 150 m: first after ~20 s, then 13 s or more apart, one at a time', launches.length >= 2 && launches[0] >= 19.5 && launches[0] < 21 && gaps.every((g) => g >= 12.9) && most === 1, JSON.stringify(launches));
   u('the warning says RADAR MISSILE while one is after the craft', warnedR);
+  // just off the runway (100 m up, the ship in reach and in view): no radar SAM, as for the SAM sites
+  const k2 = (G.EARTH.radius + 100) / Math.hypot(p.x, p.y, p.z);
+  C.reset(F); C.S.targets = [ship]; ship.rsamT = null; C.S.spawned = true; C.S.fighterT = 1e9;
+  let low = 0;
+  for (let t = 0; t < 40; t += 1 / 30) {
+    Object.assign(v, { x: p.x * k2, y: p.y * k2, z: p.z * k2, vx: 0, vy: 0, vz: 0, landed: false });
+    C.frame(F, 1 / 30);
+    low += C.S.shots.filter((s) => s.k === 'missile' && s.owner === ship).length;
+  }
+  u('no radar SAM at a craft under 150 m (a take-off)', low === 0, low);
 }
 ctx.Math.random = () => 0.5;
 u.done();

@@ -10,7 +10,7 @@
  "mustang": "mustang       95 | 0 0 0 0 -269           | 1 3 0.24 16 0.0 ok         | 82 ok 0.0      | ok 0.0 0",
  "camel": "camel         63 | 0 0 0 0 -166           | 1 3 0.26 16 0.0 ok         | 53 ok 0.0      | ok 0.0 0",
  "kestrel": "kestrel      114 | 0 0 0 0 -478           | 1 2 0.17 15 0.0 ok         | 148 ok 0.0     | ok 0.0 0",
- "spectre": "spectre       97 | 0 0 0 0 -693           | 0 5 0.28 14 0.0 ok         | 130 ok 0.0     | ok 0.0 0",
+ "spectre": "spectre       97 | 0 0 0 0 -676           | 0 5 0.28 14 0.0 ok         | 130 ok 0.0     | ok 0.0 0",
  "jumbo": "jumbo        126 | 0 0 0 0 -493           | 0 5 0.24 15 0.0 ok         | 112 ok 0.0     | ok 0.0 0",
  "albatross": "albatross     72 | 0 0 0 0 15             | 2 5 0.14 15 0.0 ok         | 51 ok 0.0      | ok 0.0 180",
  "seagull": "seagull       75 | 0 0 0 0 -211           | 1 4 0.26 15 0.0 ok         | 62 ok 0.0      | ok 0.0 0"

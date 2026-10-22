@@ -407,9 +407,10 @@ const Combat = (() => {
   const noseDir = (v) => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); };
   // A chaff cloud's reach around the target and its odds of fooling a radar (vr: the target's speed along the beam;
   // under 80 m/s it is crossing it): the cloud that comes with flares 250 m, about 1 in 7 (3 in 5 crossing the beam);
-  // a dispenser's bundle (str 2) 400 m, 1 in 4 (3 in 4 crossing).
+  // a dispenser's bundle (str 2) 400 m, also about 1 in 7 (3 in 4 crossing); its edge is the reach and that it waits for
+  // the missile (decoyed).
   const chaffR = (f) => (f.str > 1 ? 400 : 250);
-  const chaffOdds = (f, vr) => (f.str > 1 ? (vr < 80 ? 0.75 : 0.25) : vr < 80 ? 0.6 : 0.15);
+  const chaffOdds = (f, vr) => (f.str > 1 ? (vr < 80 ? 0.75 : 0.15) : vr < 80 ? 0.6 : 0.15); // (a bundle's edge: reach, waiting for the missile, and crossing)
   // chaff near a radar-locked target can break the lock (each cloud once)
   const chaffSeen = new WeakSet();
   function chaffBreaks(v, t) {
@@ -1103,10 +1104,11 @@ const Combat = (() => {
           t.samT = (t.samT == null ? 4 : t.samT) - dt;
           if (t.samT <= 0 && !S.shots.some((s) => s.owner === t)) { samFire(t, F); t.samT = 22; }
         }
-        // the frigate's radar SAM, one at a time: once the craft is in its radar's reach, and the radar sees it clearly
+        // the frigate's radar SAM, one at a time: once the craft is in its radar's reach and over 150 m (as for the SAM
+        // sites, so a take-off isn't met by one), after a first long look (20 s), and only when the radar sees it clearly
         // (not notching, nothing in the way); a look every second until it does
-        if (t.def.rsam && d < t.def.radar) {
-          t.rsamT = (t.rsamT == null ? 5 : t.rsamT) - dt;
+        if (t.def.rsam && d < t.def.radar && v.altitude() > 150) {
+          t.rsamT = (t.rsamT == null ? 20 : t.rsamT) - dt;
           if (t.rsamT <= 0 && !S.shots.some((s) => s.k === 'missile' && s.owner === t)) {
             if (siteSees(t, v, refPos(v)) === true) { shipSamFire(t, F); t.rsamT = 13; } else t.rsamT = 1;
           }
@@ -1290,7 +1292,7 @@ const Combat = (() => {
       if (!v) return null;
       const tur = has('turret');
       if (!tur && !has('flare') && !has('chaff')) return null;
-      return { name: tur ? 'TURRET' : !has('chaff') ? 'FLARES' : !has('flare') ? 'CHAFF' : 'CM', ammo: tur ? sum('turret') : null, n: 0, lock: false, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0, cmOnly: !tur };
+      return { name: tur ? 'TURRET' : !has('chaff') ? 'FLARES' : !has('flare') ? 'CHAFF' : 'CM', ammo: tur ? sum('turret') : null, n: 0, lock: false, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0, cmOnly: !tur, fl: has('flare'), ch: has('chaff') }; // (fl/ch: so an emptied one still shows its 0)
     }
     const cur = sys[v.wsel], w = cur.w;
     return { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,

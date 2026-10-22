@@ -94,7 +94,7 @@ const Flight = {
     Combat.reset(this);
     this.running = true;
     MapView.focusVessel();
-    $('#btn-map').classList.remove('on');
+    $('#btn-map').classList.remove('on'); document.body.classList.remove('mapping');
     $('#map-legend').hidden = true;
     $('#btn-center').hidden = true;
     this.syncSas();
@@ -1138,6 +1138,7 @@ const Flight = {
     this.mapMode = !this.mapMode;
     if (this.mapMode) { this.updatePrediction(); MapView.fit(this); GlobeView.open(this); }
     $('#btn-map').classList.toggle('on', this.mapMode);
+    document.body.classList.toggle('mapping', this.mapMode); // (the map keeps the HUD's blur: style.css)
     $('#map-legend').hidden = !this.mapMode;
     $('#btn-center').hidden = !this.mapMode;
     this.syncMapView();
@@ -1425,7 +1426,8 @@ const Flight = {
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
       set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
-      const cm = `${ws.flares ? `✦${ws.flares}` : ''}${ws.flares && ws.chaff ? ' ' : ''}${ws.chaff ? `≋${ws.chaff}` : ''}`; // flares and chaff left
+      const fl = ws.flares || (ws.cmOnly && ws.fl) ? `✦${ws.flares}` : '', ch = ws.chaff || (ws.cmOnly && ws.ch) ? `≋${ws.chaff}` : '';
+      const cm = fl && ch ? `${fl} ${ch}` : fl || ch; // flares and chaff left (0 shown when they are all a craft has)
       set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }

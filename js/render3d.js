@@ -759,6 +759,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   // (a job waiting for something, Earth's for its map, goes to the back of the queue)
   function runJobs(ms) {
+    if (!jobs.length) { const e = bodies.find((q) => !q.ready && !q.queued && q.job); if (e) { jobs.push(e.job); e.queued = true; } } // idle: the other worlds, one at a time, after Earth's
     const t0 = performance.now();
     for (let idle = 0; jobs.length && idle < jobs.length && performance.now() - t0 < ms;) {
       const r = jobs[0].next();
@@ -3240,7 +3241,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     mode = 'globe';
     clock += dt || 0;
     const b = v.body, R = b.radius, e = bodies.find((q) => q.b === b);
-    if (e && !e.ready && !e.queued && e.job) { jobs.push(e.job); e.queued = true; } // (its maps, next time jobs run)
+    if (e && !e.ready && !e.queued && e.job) { jobs.unshift(e.job); e.queued = true; } // (its maps first)
+    runJobs(Settings.high ? 4 : 2.5); // (the flight view, which usually runs them, isn't drawn while the map is open)
     if (e && e.mat && GL.mat.map !== e.mat.map) { GL.mat.map = e.mat.map; GL.mat.normalMap = e.mat.normalMap !== S.flatN ? e.mat.normalMap : null; GL.mat.needsUpdate = true; }
     if (e && !e.mat && e.sunU) { GL.mat.map = e.sunU.uMap.value; GL.mat.emissiveMap = GL.mat.map; GL.mat.emissive.setRGB(1, 1, 1); GL.mat.needsUpdate = true; }
     GL.mesh.scale.setScalar(R);

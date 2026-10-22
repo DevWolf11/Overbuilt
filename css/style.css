@@ -253,8 +253,8 @@ html, body {
 /* In flight the HUD sits over a 3D view that changes every frame, so a backdrop blur would be worked out again
    every frame (a big share of a phone's GPU time). There the panels go a touch more opaque instead (0.85 for 0.82),
    so the sharp view behind them shows a little fainter; side by side it looks the same. Screens that hold still
-   (home, hangar, dialogs) keep the blur. */
-body.flying :is(.btn, .panel, .round, .stage-box, .sas, .joy, .pill) {
+   (home, hangar, dialogs, and the map, whose fine labels the blur hides) keep the blur. */
+body.flying:not(.mapping) :is(.btn, .panel, .round, .stage-box, .sas, .joy, .pill) {
   --panel: rgba(8, 13, 24, 0.85);
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
