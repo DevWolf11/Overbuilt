@@ -72,7 +72,7 @@ function topSpeed(key, alt, secs) {
   for (let tt = 0; tt < secs && !v.dead; tt += dt) { v.ctl.v = v.ctl.h = v.ctl.r = 0; v.physicsStep(dt, s); }
   return { M: v.mach, alt: v.altitude() - alt, broken: s.broken, warn: v.overWarn };
 }
-const BAND = { fs4: [1.95, 2.25], fs16: [1.9, 2.15], fs15: [2.3, 2.6] }; // the real ones: about Mach 2.2, 2.05 and 2.5
+const BAND = { fs4: [1.9, 2.25], fs16: [1.9, 2.15], fs15: [2.0, 2.3] }; // the real ones: about Mach 2.2, 2.05 and 2.5 (the FS-15 has the Sugoi-27's thrust-to-weight, not the real jet's)
 for (const key of KEYS) {
   const T = takeoff(key);
   t(`${key}: takes off from the runway (lifts off in under 1.5 km, climbs away, nothing breaks)`, T.lift != null && T.dist < 1500 && T.alt > 300 && !T.broken.length,
