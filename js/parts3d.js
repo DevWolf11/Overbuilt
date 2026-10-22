@@ -895,7 +895,7 @@ const Parts3D = (() => {
   // skin: the body kinds take its colour and the painted textures its finish (a painted engine is no longer
   // polished metal), before c0 is kept for the heat glow to come back to.
   function makeMat(kind, d, flip, skin) {
-    if (kind === 'disc') return new THREE.MeshBasicMaterial({ map: shared.disc, color: 0xdfe5ec, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+    if (kind === 'disc') return new THREE.MeshBasicMaterial({ map: shared.disc, color: 0xdfe5ec, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, visible: false });
     const k = KINDS[kind] || KINDS.hull, S = skinFor(skin, d);
     if (k.basic) return new THREE.MeshBasicMaterial({ color: k.basic });
     const m = new THREE.MeshStandardMaterial({ color: k.color || 0xffffff, roughness: k.roughness, metalness: k.metalness, envMapIntensity: k.env || 0.8 });
@@ -1340,7 +1340,7 @@ void main() {
         if (dt > 0) rig.rate += ((ds < 40 ? ds : 0) / dt - rig.rate) * Math.min(1, dt * 5);
         for (let i = 0; i < rig.spins.length; i++) rig.spins[i].rotation[rig.axis] = s;
         if (rig.revs) for (const g of rig.revs) g.rotation[rig.axis] = -s;
-        if (rig.disc) rig.disc.opacity = A.disc ? smoothstep(A.disc[0], A.disc[1], rig.rate) * A.disc[2] : 0;
+        if (rig.disc) { rig.disc.opacity = A.disc ? smoothstep(A.disc[0], A.disc[1], rig.rate) * A.disc[2] : 0; rig.disc.visible = rig.disc.opacity > 0; } // (not drawn while clear)
         if (rig.droops.length) { const k = -lerp(0.06, -0.025, smoothstep(3, 20, rig.rate)); for (const g of rig.droops) g.rotation.z = k; }
       }
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
