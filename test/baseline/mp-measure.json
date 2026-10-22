@@ -75,13 +75,13 @@
   "span": 9.5,
   "length": 13.799999999999999,
   "height": 4.75,
-  "mass": 9872
+  "mass": 9926
  },
  "striker": {
   "span": 11,
   "length": 11.2,
   "height": 4.65,
-  "mass": 6772
+  "mass": 6826
  },
  "bomber": {
   "span": 28,
@@ -105,13 +105,13 @@
   "span": 13,
   "length": 16.3,
   "height": 4.75,
-  "mass": 9112
+  "mass": 9166
  },
  "spectre": {
   "span": 9.5,
   "length": 17.200000000000003,
   "height": 3.4,
-  "mass": 9970
+  "mass": 10024
  },
  "jumbo": {
   "span": 28,

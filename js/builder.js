@@ -80,13 +80,13 @@ const TEMPLATES = {
     name: 'Falcon', kind: 'plane', tier: 3, military: true, blurb: 'Air-superiority fighter: cannon, heat seekers and radar missiles, a fighter turbofan with afterburner. Hold V to fire, Tab to change weapon.',
     parts: [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
       ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3],
-      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3]],
+      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3], ['chaff', -1.2, 5.3]],
   },
   striker: {
     name: 'Striker', kind: 'plane', tier: 2, military: true, blurb: 'Ground-attack jet with a cannon, rocket pods and bombs. The bombsight shows where the bombs will fall.',
     parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpitJet', 0, 9.1], ['wingSwept', 0.2, 5.3], ['elevator', 0.25, 1.2],
       ['vtail', -1.45, 1.6], ['gearR', 1.7, 4.4], ['gearR', 1.5, 8.6], ['airbrake', -1.125, 5.6],
-      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6]],
+      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6], ['chaff', -1.2, 3.8]],
   },
   bomber: {
     name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly, a pair of 250 kg bombs under the wings, and a turret on top that guards it by itself.',
@@ -109,12 +109,12 @@ const TEMPLATES = {
     name: 'Kestrel', kind: 'plane', tier: 3, military: true, blurb: 'A swing-wing interceptor: the wings spread for take-off and landing and fold back by themselves as it speeds up. Tandem cockpit, cannon and radar missiles.',
     parts: [['jetF', 0, 2.2], ['fuselageIntake', 0, 5.75], ['fuselage', 0, 9.5], ['cockpitTandem', 0, 14.1], ['wingSwing', 0.2, 7.5],
       ['elevator', 0.25, 1.2], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 6.2], ['gearR', 1.55, 12.8],
-      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3]],
+      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3], ['chaff', -1.2, 6.3]],
   },
   spectre: {
     name: 'Spectre', kind: 'plane', tier: 4, military: true, blurb: 'A stealth striker: faceted nose and body, a V-tail and four bombs in an internal bay. Hostile radars and fighters spot it far later (watch ◈ on the weapon box).',
     parts: [['jetF', 0, 2.2], ['bombBay', 0, 6], ['fuselageStealth', 0, 10.5], ['cockpitStealth', 0, 15.3], ['wingDelta', 0.4, 9.6],
-      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6]],
+      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6], ['chaff', 1.2, 9]],
     paint: { wingDelta: 'stealth', vtailV: 'stealth', jetF: 'stealth' },
   },
   jumbo: {

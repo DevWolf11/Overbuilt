@@ -124,6 +124,217 @@ const base = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockp
 }
 t.done();
 
+// ---- countermeasures: the Chaff Dispenser, the cloud that comes with flares, the HUD status, what the screen shows,
+// and the frigate's radar SAM (a small Monte Carlo with the real missile code)
+const u = Gm.checks('combat: countermeasures and the frigate radar SAM');
+const kinds = () => C.S.flares.map((f) => (f.flare ? 'flare' : f.str > 1 ? 'bundle' : 'cloud')).join(',');
+const without = (rows, type) => rows.filter((r) => r[0] !== type);
+const FALCON = ctx.TEMPLATES.falcon.parts, HORNET = ctx.TEMPLATES.hornet.parts;
+{
+  const { v } = craft(ctx, FALCON), F = sim(ctx, v), disp = v.parts.find((p) => p.type === 'chaff'), fl = v.parts.find((p) => p.type === 'flares');
+  C.reset(F);
+  u('the Falcon carries a Chaff Dispenser: 24 bundles, 24 kg', disp && disp.ammo === 24 && disp.store === 24, disp && [disp.ammo, disp.store]);
+  u('chaff is not a weapon to choose (Tab)', !T.systems(v).some((s) => s.key === 'chaff' || s.key === 'flares'), T.systems(v).map((s) => s.key));
+  const ok1 = C.countermeasures(v, F);
+  u('K with a dispenser: two flares and a bundle, no free cloud', ok1 && kinds() === 'flare,flare,bundle', kinds());
+  u('a bundle costs one round and a kilo of store', disp.ammo === 23 && disp.store === 23 && fl.ammo === 28, [disp.ammo, disp.store, fl.ammo]);
+  F.time = 0.3;
+  u('not again within 0.6 s', !C.countermeasures(v, F) && C.S.flares.length === 3);
+  F.time = 0.7;
+  u('again after 0.6 s', C.countermeasures(v, F) && disp.ammo === 22);
+  disp.ammo = 0; C.S.flares = []; F.time = 2;
+  u('an empty dispenser: the flares bring their cloud again', C.countermeasures(v, F) && kinds() === 'flare,flare,cloud', kinds());
+}
+{
+  // a craft with flares and no dispenser: K is exactly what it always was (flares(v, sim, true))
+  const a = craft(ctx, without(FALCON, 'chaff')).v, b = craft(ctx, without(FALCON, 'chaff')).v, F = sim(ctx, a);
+  C.reset(F); C.countermeasures(a, F);
+  const k = JSON.stringify(C.S.flares.map((f) => [f.x, f.y, f.z, f.vx, f.vy, f.vz, f.life, !!f.flare, !!f.chaff, f.str]));
+  C.S.flares = []; C.flares(b, F, true);
+  const want = JSON.stringify(C.S.flares.map((f) => [f.x, f.y, f.z, f.vx, f.vy, f.vz, f.life, !!f.flare, !!f.chaff, f.str]));
+  u('flares only: K drops two flares and the free cloud, as before', kinds() === 'flare,flare,cloud' && k === want, kinds());
+}
+{
+  const { v } = craft(ctx, HORNET.concat([['chaff', -1.2, 3.8]])), F = sim(ctx, v);
+  C.reset(F);
+  u('a chaff-only craft: K drops one bundle', C.countermeasures(v, F) && kinds() === 'bundle', kinds());
+  // the HUD: a craft whose only weapons are flares or chaff still gets the weapon box and the CM button
+  const st = (rows) => C.status(craft(ctx, rows, 'plane', true).v);
+  const sF = st(HORNET.concat([['flares', -1.2, 3.8]])), sC = st(HORNET.concat([['chaff', -1.2, 3.8]])), sB = st(FALCON);
+  u('status(): flares-only plane has one (FLARES, cmOnly, ✦30)', !!sF && sF.name === 'FLARES' && sF.cmOnly && sF.flares === 30 && sF.chaff === 0, sF);
+  u('status(): chaff-only plane has one (CHAFF, ≋24)', !!sC && sC.name === 'CHAFF' && sC.cmOnly && sC.chaff === 24, sC);
+  u('status(): a plain Hornet has none', st(HORNET) === null);
+  u('status(): Falcon shows its gun, ✦30 and ≋24', sB && !sB.cmOnly && sB.name === 'GUN' && sB.flares === 30 && sB.chaff === 24, sB);
+  u('stealth: a dispenser sits flush (Spectre unchanged)', C.stealthOf(craft(ctx, ctx.TEMPLATES.spectre.parts).v) === C.stealthOf(craft(ctx, without(ctx.TEMPLATES.spectre.parts, 'chaff')).v));
+}
+{
+  // another player's 'cm': the chaff strength is clamped to the kinds there are
+  const g = { body: G.EARTH, remote: 7 }, P = [G.EARTH.radius + 3000, 0, 0], V = [0, 200, 0];
+  C.S.flares = [];
+  const ins = [0, 1, 2, '2', 5, -3, NaN, 'x', true, null, undefined, 1.4, 1.6, {}, [2]];
+  for (const c of ins) C.netFlares(g, { P, V, chaff: c });
+  u('netFlares: chaff values sanitised', kinds() === 'flare,cloud,bundle,bundle,bundle,flare,flare,flare,cloud,flare,flare,cloud,bundle,flare,bundle', kinds());
+  u('netFlares: a bundle lasts 5 s, a flare 4', C.S.flares[2].life === 5 && C.S.flares[0].life === 4);
+  C.netFlares(g, { P: [1, 2], V, chaff: 2 }); C.netFlares(g, { P, V: [0, NaN, 0], chaff: 2 });
+  u('netFlares: bad positions are still dropped', C.S.flares.length === ins.length);
+}
+{
+  // the seeker's view: a dispenser's bundle is wider and likelier, and waits until the missile is within 4 km
+  const { v } = craft(ctx, FALCON), F = sim(ctx, v);
+  C.reset(F);
+  const tp = (vy, vz) => ({ x: v.x, y: v.y, z: v.z, vx: 0, vy, vz, alive: true });
+  const look = (dist, f, vy, vz, rnd) => { // a radar missile dist behind the target (along -y), one cloud
+    ctx.Math.random = () => rnd;
+    C.S.flares = [Object.assign({ b: G.EARTH, t: 0, life: 5, chaff: true }, f)];
+    const s = { x: v.x, y: v.y - dist, z: v.z, heat: false, cm: new WeakSet(), target: v };
+    const hit = T.decoyed(s, v, tp(vy, vz), 0, 1, 0, dist);
+    return { hit, seen: s.cm.has(C.S.flares[0]) };
+  };
+  const at = (dy, dz, str) => ({ x: v.x, y: v.y + dy, z: v.z + dz, str });
+  let r = look(3000, at(-200, 0, 2), 0, 250, 0.7);
+  u('bundle 200 m off, target crossing the beam: 0.7 < 3 in 4 fools it', r.hit && r.seen);
+  r = look(3000, at(-200, 0, 2), 250, 0, 0.3);
+  u('bundle, target flying along the beam: 0.3 > 1 in 4 does not', !r.hit && r.seen);
+  r = look(3000, at(-200, 0, 2), 250, 0, 0.2);
+  u('... 0.2 < 1 in 4 does', r.hit);
+  r = look(3000, at(-200, 0), 0, 250, 0.7);
+  u('the free cloud crossing: 0.7 > 3 in 5 (as before)', !r.hit && r.seen);
+  r = look(3000, at(-200, 0), 0, 250, 0.5);
+  u('... 0.5 < 3 in 5 (as before)', r.hit);
+  r = look(3000, at(0, 300), 0, 250, 0);
+  u('free cloud 300 m off: seen and wasted (as before)', !r.hit && r.seen);
+  r = look(3000, at(0, 300, 2), 0, 250, 0);
+  u('bundle 300 m off: inside its 400 m', r.hit);
+  r = look(3000, at(0, 450, 2), 0, 250, 0);
+  u('bundle 450 m off: not weighed, and kept for later', !r.hit && !r.seen);
+  r = look(6000, at(-100, 0, 2), 0, 250, 0);
+  u('bundle with the missile 6 km out: waits (not seen yet)', !r.hit && !r.seen);
+  r = look(3900, at(-100, 0, 2), 0, 250, 0);
+  u('... and is weighed once it is within 4 km', r.hit && r.seen);
+  ctx.Math.random = () => 0;
+  C.S.flares = [Object.assign({ b: G.EARTH, t: 0, life: 5, chaff: true }, at(-200, 0, 2))];
+  u('a heat seeker ignores chaff bundles', !T.decoyed({ x: v.x, y: v.y - 3000, z: v.z, heat: true, irccm: 0, cm: new WeakSet() }, v, tp(0, 250), 0, 1, 0, 3000));
+  // lock breaking follows the same strength: a launcher 5 km behind, the cloud 350 m from the target
+  const L = craft(ctx, FALCON).v; L.y -= 5000;
+  C.S.flares = [Object.assign({ b: G.EARTH, t: 0, life: 5, chaff: true }, at(0, 350))];
+  ctx.Math.random = () => 0;
+  u('lock: the free cloud 350 m off is out of its reach', !T.chaffBreaks(L, v));
+  C.S.flares = [Object.assign({ b: G.EARTH, t: 0, life: 5, chaff: true }, at(0, 350, 2))];
+  ctx.Math.random = () => 0.2;
+  u('lock: a bundle 350 m off can break it (1 in 4 head on)', T.chaffBreaks(L, v));
+  ctx.Math.random = () => 0.5;
+}
+{
+  // what the screen shows: flare sparks so many a second (the same at 60 and 120 frames a second), one burst per
+  // chaff cloud, nothing more than 3 km from the camera
+  const count = (rows, fps, far) => {
+    const { v } = craft(ctx, rows), F = sim(ctx, v), n = {};
+    C.reset(F); v.vy = 250;
+    const cam = () => { if (far) { const bp = Gm.run(ctx, `bodyPos(EARTH, ${F.time})`); F.camAbs = { x: bp.x + v.x + 5000, y: bp.y + v.y, z: v.z }; } };
+    const add0 = ctx.FX.add;
+    ctx.FX.add = (p) => { n[p.kind] = (n[p.kind] || 0) + 1; };
+    C.countermeasures(v, F);
+    const dt = 1 / fps;
+    for (let i = 0; i < 5 * fps; i++) { F.time += dt; v.y += v.vy * dt; C.step(dt, F); cam(); T.cmFX(F, dt); }
+    ctx.FX.add = add0;
+    return n;
+  };
+  const a = count(FALCON, 60), b = count(FALCON, 120), c = count(without(FALCON, 'chaff'), 60), d = count(without(FALCON, 'chaff'), 144), e = count(FALCON, 120, true);
+  console.log('     particles (falcon 60/120, flares only 60/144, camera 5 km off)', JSON.stringify([a, b, c, d, e]));
+  u('flare sparks per second, not per frame (60 vs 120 fps)', a.fire > 400 && Math.abs(a.fire - b.fire) <= 2 && Math.abs(c.fire - d.fire) <= 2, [a.fire, b.fire, c.fire, d.fire]);
+  u('a bundle bursts once: 12 glints and 3 puffs, at any frame rate', a.glint === 12 && a.smoke === 3 && b.glint === 12 && b.smoke === 3);
+  u('the free cloud: 8 glints and 2 puffs', c.glint === 8 && c.smoke === 2 && d.glint === 8 && d.smoke === 2);
+  u('nothing more than 3 km from the camera', Object.keys(e).length === 0, e);
+}
+{
+  // the frigate's radar SAM: guided by the ship's own radar (reach, stealth, ECM, notching, the ground in the way)
+  let seed = 11;
+  ctx.Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let x = seed; x = Math.imul(x ^ (x >>> 15), x | 1); x ^= x + Math.imul(x ^ (x >>> 7), x | 61); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+  const ship = T.makeTarget('ship');
+  const c = ship.pos, r0 = Math.hypot(c.x, c.y, c.z), up = { x: c.x / r0, y: c.y / r0, z: c.z / r0 }, fr = Gm.run(ctx, `surfaceFrame(${c.x}, ${c.y}, ${c.z})`);
+  const bearing = (a) => ({ x: fr.east.x * Math.cos(a) + fr.north.x * Math.sin(a), y: fr.east.y * Math.cos(a) + fr.north.y * Math.sin(a), z: fr.east.z * Math.cos(a) + fr.north.z * Math.sin(a) });
+  const spot = (a, dist, alt) => { const dir = bearing(a), p = { x: c.x + dir.x * dist, y: c.y + dir.y * dist, z: c.z + dir.z * dist }, k = (G.EARTH.radius + alt) / Math.hypot(p.x, p.y, p.z); return { x: p.x * k, y: p.y * k, z: p.z * k, dir }; };
+  // a plane dist from the ship on bearing a, alt up, flying at 250 m/s: away (tail), across (beam) or towards it (head)
+  const place = (rows, a, dist, alt, aspect) => {
+    const v = Gm.craft(ctx, rows, 'plane', 'air'), s = spot(a, dist, alt), dir = s.dir;
+    v.gForce = 1; v.x = s.x; v.y = s.y; v.z = s.z;
+    const side = { x: up.y * dir.z - up.z * dir.y, y: up.z * dir.x - up.x * dir.z, z: up.x * dir.y - up.y * dir.x };
+    const vd = aspect === 'tail' ? dir : aspect === 'head' ? { x: -dir.x, y: -dir.y, z: -dir.z } : side;
+    v.vx = vd.x * 250; v.vy = vd.y * 250; v.vz = vd.z * 250;
+    return v;
+  };
+  const sees = (v) => T.siteSees(ship, v, { x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz, alive: true });
+  u('the frigate sees a Falcon 8 km out, 3 km up', sees(place(FALCON, 0.7, 8000, 3000, 'head')) === true);
+  u('... not at 13.5 km (out of its radar\'s reach)', sees(place(FALCON, 0.7, 13500, 3000, 'head')) === false);
+  u('... nor a Spectre at 8 km (stealth)', sees(place(ctx.TEMPLATES.spectre.parts, 0.7, 8000, 3000, 'head')) === false);
+  u('... nor a jamming Falcon at 11 km', sees(place(FALCON.concat([['ecm', 1.275, 7.4]]), 0.7, 11000, 3000, 'head')) === false);
+  u('a Falcon 150 m up flying across the beam notches', sees(place(FALCON, 0.7, 7000, 150, 'beam')) === 'notch');
+  u('... flying at it, it does not', sees(place(FALCON, 0.7, 7000, 150, 'head')) === true);
+  // the ground in the way: some bearing has an island between the ship and a plane 100 m up 10 km out (well inside
+  // the radar horizon), and the same spot 3 km up is in plain view
+  const mast = { x: c.x * (1 + (ship.def.h + 12) / r0), y: c.y * (1 + (ship.def.h + 12) / r0), z: c.z * (1 + (ship.def.h + 12) / r0) };
+  let hid = -1;
+  for (let a = 0; a < 6.28 && hid < 0; a += 0.05) { const p = spot(a, 10000, 100); if (!T.clearLine(mast, p, 10000)) hid = a; }
+  u('an island hides a low plane from the ship\'s radar (some bearing)', hid >= 0 && T.clearLine(mast, spot(hid, 10000, 3000), 10000), hid.toFixed(2));
+  // the Monte Carlo: the plane flies straight; K pressed once at 3 km (or never). (Head on, a missile the chaff
+  // fooled still flies on into a plane that holds its course: chaff wants a turn with it, so that case isn't here.)
+  const fly = (rows, a, dist, alt, aspect, press) => {
+    const v = place(rows, a, dist, alt, aspect), F = Gm.sim();
+    Object.assign(F, { running: true, active: v, vessels: [v], warpIdx: 0, destroyed: false, firing: false, camAbs: null });
+    C.reset(F); C.S.targets = [ship];
+    T.shipSamFire(ship, F);
+    const m = C.S.shots[C.S.shots.length - 1], H = 1 / 120;
+    let pressed = false;
+    for (let t = 0; t < 30; t += H) {
+      F.time = t;
+      const r = Math.hypot(v.x, v.y, v.z); v.x += v.vx * H; v.y += v.vy * H; v.z += v.vz * H; const k = r / Math.hypot(v.x, v.y, v.z); v.x *= k; v.y *= k; v.z *= k; // (level over the curved sea)
+      if (press && !pressed && Math.hypot(m.x - v.x, m.y - v.y, m.z - v.z) < 3000) pressed = C.countermeasures(v, F);
+      C.step(H, F);
+      if (!C.S.shots.includes(m)) break;
+    }
+    return v.parts.some((p) => p.hp != null);
+  };
+  const rate = (n, ...args) => { let h = 0; for (let i = 0; i < n; i++) if (fly(...args)) h++; return h / n; };
+  const N = 24, rows = [
+    ['no countermeasures, head on', rate(N, FALCON, 0.7, 8000, 3000, 'head', false), 0.9, 1],
+    ['one bundle at 3 km, flying away from the ship (1 in 4 fools it)', rate(N, FALCON, 0.7, 5000, 3000, 'tail', true), 0.55, 0.95],
+    ['one bundle at 3 km, crossing (3 in 4)', rate(N, FALCON, 0.7, 8000, 3000, 'beam', true), 0.05, 0.45],
+    ['flares only: their free cloud at 3 km, crossing (3 in 5)', rate(N, without(FALCON, 'chaff'), 0.7, 8000, 3000, 'beam', true), 0.15, 0.65],
+    ['notching: 150 m up, crossing', rate(N, FALCON, 0.7, 7000, 150, 'beam', false), 0, 0.05],
+  ];
+  for (const [what, hit, lo, hi] of rows) u(`radar SAM hits ${Math.round(hit * 100)}%: ${what} (want ${Math.round(lo * 100)}-${Math.round(hi * 100)}%)`, hit >= lo && hit <= hi);
+  ctx.Math.random = () => 0.5;
+}
+{
+  // the frigate fires on its own in Hostile mode: once its radar holds the craft, one at a time, at most every 13 s
+  const ship = T.makeTarget('ship');
+  const v = Gm.craft(ctx, FALCON, 'plane', 'air'), F = Gm.sim();
+  const c = ship.pos, fr = Gm.run(ctx, `surfaceFrame(${c.x}, ${c.y}, ${c.z})`);
+  const p = { x: c.x + fr.east.x * 7000, y: c.y + fr.east.y * 7000, z: c.z + fr.east.z * 7000 }, k = (G.EARTH.radius + 3000) / Math.hypot(p.x, p.y, p.z);
+  Object.assign(v, { x: p.x * k, y: p.y * k, z: p.z * k, vx: 0, vy: 0, vz: 0, gForce: 1 });
+  for (const q of v.parts) q.hp = 1e9; // (it takes the hits and flies on)
+  Object.assign(F, { running: true, active: v, vessels: [v], warpIdx: 0, destroyed: false, firing: false, camAbs: null });
+  C.reset(F); C.S.targets = [ship]; C.S.spawned = true; C.S.fighterT = 1e9;
+  const launches = [];
+  let most = 0, warnedR = false;
+  for (let t = 0; t < 60; t += 1 / 30) {
+    F.time = t;
+    const n = C.S.shots.filter((s) => s.k === 'missile' && s.owner === ship).length;
+    C.frame(F, 1 / 30);
+    for (let i = 0; i < 4; i++) C.step(1 / 120, F);
+    const n2 = C.S.shots.filter((s) => s.k === 'missile' && s.owner === ship);
+    if (n2.length > n) launches.push(+t.toFixed(2));
+    if (C.S.warnR) warnedR = true;
+    most = Math.max(most, n2.length);
+    v.x = p.x * k; v.y = p.y * k; v.z = p.z * k; // (it hovers there)
+  }
+  const gaps = launches.slice(1).map((x, i) => x - launches[i]);
+  u('the frigate launches radar SAMs at a craft in reach: first after ~5 s, then 13 s or more apart, one at a time', launches.length >= 2 && launches[0] >= 4.5 && launches[0] < 6 && gaps.every((g) => g >= 12.9) && most === 1, JSON.stringify(launches));
+  u('the warning says RADAR MISSILE while one is after the craft', warnedR);
+}
+ctx.Math.random = () => 0.5;
+u.done();
+
 // ---- the stock fingerprint
 const r = (x) => +(+x).toPrecision(10);
 function finger() {
@@ -153,6 +364,8 @@ function finger() {
     }
     // flares
     if (v.parts.some((p) => p.def.weapon && p.def.weapon.kind === 'flare')) { C.S.flares = []; C.flares(v, F, true); for (const f of C.S.flares) { const l = v.toLocal(f.x, f.y, f.z); o.flares.push(`${r(l.x)},${r(l.y)},${r(l.z)}`); } }
+    // a chaff dispenser's bundle
+    if (v.parts.some((p) => p.def.weapon && p.def.weapon.kind === 'chaff')) { C.S.flares = []; C.chaff(v, F); for (const f of C.S.flares) { const l = v.toLocal(f.x, f.y, f.z); o.flares.push(`chaff ${r(l.x)},${r(l.y)},${r(l.z)}`); } }
     // turret rounds
     for (const p of v.parts) if (p.def.weapon && p.def.weapon.kind === 'turret') { C.S.shots = []; p.cool = 0; T.turretFire(v, p, 0.01, F, false, false); const s = C.S.shots[0], l = v.toLocal(s.x, s.y, s.z); o.flares.push(`turret ${r(l.x)},${r(l.y)},${r(l.z)}`); }
   }

@@ -913,7 +913,7 @@ const MP = {
     Net.send({ t: 'shot', k: s.k, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx || 0, s.dy || 0, s.dz || 0], burn: s.burn || 0, accel: s.accel || 0, small: s.small ? 1 : 0, torpedo: s.torpedo ? 1 : 0 });
   },
   sendGun(key, on) { if (this.shared) Net.send({ t: 'gun', k: key, on: on ? 1 : 0 }); },
-  sendFlares(v, f) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? 1 : 0 }); },
+  sendFlares(v, f) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }); }, // (chaff 2: a dispenser's bundle)
   sendLock(target, on) {
     if (!this.shared) return;
     if (this.lockSent && (!on || this.lockSent !== target)) { Net.send({ t: 'lock', on: 0 }, this.lockSent); this.lockSent = 0; }
