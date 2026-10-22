@@ -1253,7 +1253,7 @@ const Flight = {
       if (v.aoa != null && !v.wheelsDown && v.aoa > v.stallAoA * 0.9) return 'Stalling! Push the nose down and add power.';
       if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return 'Raise the gear (G) to cut drag.';
       if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : 'Bank with A/D to turn, pitch with W/S. Press 2 for level flight (holds altitude), 3 to hold a heading.';
-      if (!v.wheelsDown && ga > 150 && !this.mp && Combat.status(v) && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
+      if (!v.wheelsDown && ga > 150 && !this.mp && Combat.systems(v).length && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
         return Settings.get('targets') === 'off' ? (isTouch ? 'Hold FIRE to shoot; tap the weapon chip to change weapon. Turn on targets in Settings.' : 'Hold V to fire, Tab changes weapon. Turn on targets in Settings for something to shoot.')
           : (isTouch ? 'Targets wait around the islands (the brackets). Hold FIRE to shoot; tap the weapon chip to change weapon.' : 'Targets wait around the islands (the brackets). Hold V to fire, Tab changes weapon.');
       if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
@@ -1420,11 +1420,13 @@ const Flight = {
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length;
     const ws = Combat.status(v);
     $('#weapon-box').hidden = !ws || this.destroyed;
-    $('#btn-cm').hidden = !(ws && ws.flares > 0) || this.destroyed;
+    $('#btn-cm').hidden = !(ws && (ws.flares > 0 || ws.chaff > 0)) || this.destroyed;
+    $('#btn-fire').hidden = !!(ws && ws.cmOnly); // (only flares or chaff on board: nothing to fire)
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
       set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
-      set('w-ammo', `${ws.ammo}${ws.flares ? ` · ✦${ws.flares}` : ''}${ws.stealth > 0.05 ? ` · ◈${Math.round(ws.stealth * 100)}%` : ''}${ws.kills ? ` · ${ws.kills} ✕` : ''}`);
+      const cm = `${ws.flares ? `✦${ws.flares}` : ''}${ws.flares && ws.chaff ? ' ' : ''}${ws.chaff ? `≋${ws.chaff}` : ''}`; // flares and chaff left
+      set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }
     $('#btn-flaps').hidden = !v.hasFlaps;

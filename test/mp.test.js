@@ -85,6 +85,10 @@ R(`var s2 = JSON.parse(JSON.stringify(snap)); s2.f = 3; s2.C = s2.C.slice(0, 2);
 t('2-number snapshot accepted, com.z = 0', R('MP.peers.get(3).snap === s2 && gh.com.z === 0'));
 R(`var s4 = JSON.parse(JSON.stringify(snap)); s4.f = 3; s4.C = [0, 0, NaN]; MP.onSnap(s4); var s5 = JSON.parse(JSON.stringify(snap)); s5.f = 3; s5.C = [0, 0, 0, 0]; MP.onSnap(s5);`);
 t('NaN or 4-number C rejected', R('MP.peers.get(3).snap === s2'));
+// countermeasures: the chaff strength rides in 'cm' (the receiver clamps it: combat.test), the dispenser in spawn rows
+R(`Net.out = []; Flight.active = ov; for (const f of [{ chaff: true, str: 2 }, { chaff: true }, { flare: true }]) MP.sendFlares(ov, Object.assign({ x: 1, y: 2, z: 3, vx: 0, vy: 0, vz: 0 }, f));`);
+t("'cm' says chaff 2 for a dispenser's bundle, 1 for the cloud with flares, 0 for a flare", R(`JSON.stringify(Net.out.filter(([m]) => m.t === 'cm').map(([m]) => m.chaff)) === '[2,1,0]'`), R(`Net.out.map(([m]) => m.chaff)`));
+t('a Chaff Dispenser survives the spawn-row sanitiser', R(`(() => { const r = mpSpawnRows([[1, 'fuselage', 0, 6], [2, 'chaff', -1.2, 5.3]]); return r.length === 2 && r[1][1] === 'chaff'; })()`));
 delete N.MP.shared;
 // onParts clears att to a host that broke off
 R(`MP.onParts({ f: 3, ids: gh.parts.filter((p) => p.type !== 'wingL').map((p) => p.id) });`);

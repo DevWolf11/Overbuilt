@@ -2288,6 +2288,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         case 'flash': c = FLASH; a = 0.9 * (1 - k); break;
         case 'ring': c = fxColor(p.color); kind = 1; break;
         case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
+        case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
         default: c = fxColor(p.color);
       }
       const A = add ? pf : ps, i = add ? nf++ : ns++;
@@ -3130,7 +3131,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       used[kk]++;
       o.visible = true;
       o.position.set(x, y, z);
-      o.scale.setScalar(s.small ? 0.35 : 1); // cluster bomblets
+      o.scale.setScalar(s.small ? 0.35 : s.big ? 1.5 : 1); // cluster bomblets; the frigate's big SAM
       V1.set(s.dx || 0, s.dy || 1, s.dz || 0).normalize();
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }

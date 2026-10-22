@@ -39,6 +39,8 @@ const FX = {
     if (this.list.length > this.max()) this.list.splice(0, this.list.length - this.max());
   },
   clear() { this.list.length = 0; },
+  // a chaff cloud's foil ('glint'): each strip flashes as it turns in the light, by its own age (the same at any frame rate)
+  twinkle(p) { const s = Math.sin(p.tw + p.life * p.tf); return 0.15 + 0.85 * s * s * s * s; },
   // p and v are {x, y, z} relative to the body; bursts fly out in every direction.
   puff(body, p, v, n, color) {
     for (let i = 0; i < n; i++) {
@@ -98,7 +100,7 @@ const FX = {
       const x = bp.x + p.x - cam.x, y = bp.y + p.y - cam.y;
       const k = p.life / p.max;
       const size = p.size + p.grow * k;
-      if (size * S < 0.35 && p.kind !== 'spark') continue;
+      if (size * S < 0.35 && p.kind !== 'spark' && p.kind !== 'glint') continue;
       switch (p.kind) {
         case 'spark': {
           ctx.globalAlpha = 1 - k;
@@ -118,6 +120,14 @@ const FX = {
           ctx.globalAlpha = p.alpha * (1 - k);
           ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(0.2, 2 / S) * (1 - k) + 0.05;
           ctx.beginPath(); ctx.arc(x, y, size, 0, TAU); ctx.stroke();
+          break;
+        }
+        case 'glint': { // chaff: a twinkling speck, a pixel at least
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = p.alpha * (1 - k) * FX.twinkle(p) * dim;
+          ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.arc(x, y, Math.max(size, 0.8 / S), 0, TAU); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
           break;
         }
         case 'plasma': {
