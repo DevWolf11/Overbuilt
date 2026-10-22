@@ -169,7 +169,9 @@ const Combat = (() => {
   }
   const ammoOf = (sys) => sys.parts.reduce((s, p) => s + (p.ammo || 0), 0);
   const radarOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
-  function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.range; }
+  // an IRST ball (def.irst, the look-alike jets) sees engine heat: heat seekers lock on that share further away
+  const irstOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.irst || 0), 0);
+  function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.seek === 'air' ? w.range * (1 + irstOf(v)) : w.range; }
   // How hard a craft is to see on radar (0..0.75): the stealthy share of its hull, less for each thing hung outside.
   // (Paint never counts: a part's skin is for looks only.)
   function stealthOf(v) {

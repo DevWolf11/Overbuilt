@@ -417,6 +417,206 @@ const PARTS = {
     desc: 'Longer frame for trucks and big rovers.' },
   carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
     desc: 'Driven road wheel. Mount it under a chassis. W/S drive, A/D steer the front wheels; hold B to brake.' },
+  // ---- Russian look-alike jets: the MyG-21, MyG-29, Sugoi-27, Sugoi-35 and Sugoi-57, at the real aircraft's size
+  // (their templates are in builder.js). The hulls are lofted from cross-sections (`loft`, `glass`: see ruSample at
+  // the end of this file), drawn by RU_ART (`ru`) and lofted again in 3D by parts3d.js. A wing with a `plan` is
+  // drawn in 3D to that planform, LERX and all: [[s, leading edge, trailing edge], ...], s out along the half-span
+  // (0..1), the edges in metres from the part's centre (fore +). Engines: thrust in proportion to the stock ones
+  // (the Fighter Turbofan stands for a 76 kN class engine), times two for a pair.
+  ruIRST: { cat: 'air', name: 'IRST Ball', w: 0.36, h: 0.8, depth: 0.42, mass: 0.12, irst: 0.3, shape: 'ruLoft', ru: 'irst', ruBall: [-0.02, 0.58, 0.17],
+    loft: ruG(0, 0, { s: [[0, 0.16, 0.18, 0.05], [0.15, 0.05, 0.18, 0.15], [0.42, -0.06, 0.18, 0.19], [0.6, -0.07, 0.18, 0.19], [0.8, 0, 0.18, 0.1]], n: 2, nb: 6 }),
+    tier: 3, cost: 4000,
+    desc: 'Infrared search-and-track: a glass ball ahead of the canopy that sees engine heat. Heat-seeking missiles lock on from 30% further away. Mount it on top of the nose.' },
+  ruGearNoseL: { cat: 'airGear', name: 'Tall Nose Gear', w: 2.55, h: 0.9, mass: 0.25, shape: 'gear', wheel: { r: 0.34, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9,
+    tier: 3, cost: 1500, desc: 'A long single-wheel nose leg for big fighters that sit high. Folds away (G).' },
+  ruGearMainL: { cat: 'airGear', name: 'Heavy Fighter Main Gear', w: 1.6, h: 1.1, mass: 0.9, twinZ: 1.9, shape: 'gear', wheel: { r: 0.52, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 10, tier: 3, cost: 3500, desc: 'A pair of long main legs with big single wheels, one under each engine nacelle. Folds away (G).' },
+
+  // the Sugoi-27 (after the Su-27 Flanker), also the Sugoi-35's airframe
+  ruNose27: { cat: 'cabins', name: 'Sugoi-27 Nose', w: 1.7, h: 8.3, depth: 1.64, mass: 2.2, control: 3, torque: 4000, crew: 1, radar: 20000, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.9, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 14000,
+    loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.82, -0.3], [14.3, -0.95, 0.5, 0.82, -0.25], [15.1, -0.95, 0.7, 0.82, -0.18], [16.0, -0.95, 0.75, 0.82, -0.15],
+      [17.0, -0.95, 0.75, 0.8, -0.15], [17.8, -0.95, 0.72, 0.76, -0.15], [18.6, -0.83, 0.66, 0.7, -0.12], [19.5, -0.66, 0.55, 0.6, -0.08], [20.5, -0.47, 0.38, 0.44, -0.05],
+      [21.3, -0.25, 0.17, 0.24, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
+      [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
+    desc: 'The long, drooping nose of a big air-superiority fighter: a powerful radar under the radome and a bubble canopy with a view all round. Put an IRST ball ahead of the canopy.' },
+  ruBody27: { cat: 'air', name: 'Sugoi-27 Centre Fuselage', w: 1.3, h: 10, depth: 2.6, mass: 3.2, fuel: 3, shape: 'ruLoft', ru: 'body', ruLines: [1.6, 3.4, 5.4, 7.6], ruBrake: [7.9, 9.4], tier: 3, cost: 7000,
+    loft: ruG(-0.3, 3.6, { s: [[3.6, 0.15, 0.35, 0.38, 0.3, 2, 2], [4.2, -0.1, 0.35, 0.5, 0.28, 1.9, 3], [5.0, -0.4, 0.35, 0.72, 0.25, 1.8, 3], [6.0, -0.62, 0.35, 0.98, 0.22, 1.7, 3],
+      [7.0, -0.78, 0.35, 1.18, 0.2, 1.6, 3], [8.5, -0.88, 0.35, 1.3, 0.2, 1.6, 3], [10.0, -0.93, 0.35, 1.3, 0.18, 1.6, 3], [11.5, -0.95, 0.35, 1.22, 0.1, 1.7, 3],
+      [12.6, -0.95, 0.35, 1.02, -0.1, 1.9, 2.6], [13.6, -0.95, 0.36, 0.82, -0.3, 2.2, 2.3]] }),
+    desc: 'The flat lifting body of a Flanker, with a big airbrake on its spine and fuel inside. The nacelles hang under it; it narrows into the tail stinger.' },
+  ruNacelle27: { cat: 'air', name: 'Sugoi-27 Intake Nacelles', w: 1.35, h: 10, depth: 1.4, twinZ: 1.3, mass: 2.8, fuel: 1, shape: 'ruLoft', ru: 'nacelle', ruIntake: [9.3, 10],
+    loft: ruG(1.025, 3.6, { s: [[3.6, 0.33, 1.57, 0.62, 0.95, 2, 2], [5.5, 0.34, 1.58, 0.64, 0.96, 2.4, 2.4], [8.0, 0.35, 1.63, 0.68, 0.99, 3, 3], [11.0, 0.35, 1.68, 0.7, 1.0, 4.5, 4],
+      [12.9, 0.35, 1.7, 0.7, 1.0, 6, 5], [13.25, 0.95, 1.7, 0.7, 1.3, 6, 5], [13.6, 1.55, 1.7, 0.68, 1.62, 6, 5]] }),
+    tier: 3, cost: 6000, desc: 'A pair of engine nacelles with raked intakes, far apart with a tunnel between them. Hang them under the centre fuselage.' },
+  ruAL31: { cat: 'airEng', name: 'AL-31F Twin Engines', w: 1.24, h: 2.3, depth: 1.24, twinZ: 1.3, mass: 1.8, thrust: 244, ispSL: 5200, ispVac: 5200, gimbal: 0.02,
+    air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.1, exit: 0.44 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 34000,
+    loft: ruG(0.95, 1.3, { s: [[2.4, 0.37, 1.53, 0.58], [3.6, 0.33, 1.57, 0.62]], mat: 'metal' }, { s: [[1.3, 0.48, 1.42, 0.47], [2.4, 0.38, 1.52, 0.57]], mat: 'steelDark' }),
+    desc: 'Two big afterburning turbofans, nozzles and all, for the back of a pair of nacelles: a Flanker’s heart. Afterburner above 90% throttle, Mach 2 and more up high.' },
+  ruStinger27: { cat: 'air', name: 'Sugoi-27 Tail Stinger', w: 0.75, h: 3.6, depth: 0.76, mass: 0.3, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1500,
+    loft: ruG(0.525, 0, { s: [[0, 0.47, 0.58, 0.06, 0.52], [0.25, 0.3, 0.74, 0.2, 0.52], [0.9, 0.2, 0.86, 0.32, 0.52], [2.2, 0.16, 0.9, 0.37, 0.5], [3.0, 0.15, 0.75, 0.38, 0.4],
+      [3.6, 0.15, 0.42, 0.38, 0.3]] }),
+    desc: 'The long boom between the engines that ends the tail: room for the brake chute and the flares, with the tail radar-warning aerial at its tip.' },
+  ruBoom27: { cat: 'air', name: 'Sugoi-27 Tail Booms', w: 0.35, h: 6, depth: 0.5, twinZ: 2.25, mass: 0.5, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1800,
+    loft: ruG(0.505, 0.9, { s: [[0.9, 0.47, 0.56, 0.04], [1.3, 0.38, 0.64, 0.18], [2.0, 0.33, 0.68, 0.25], [5.8, 0.33, 0.68, 0.25], [6.9, 0.36, 0.62, 0.2]], n: 3 }),
+    desc: 'A pair of flat beams beside the engines that carry the fins and the tailerons.' },
+  ruFins27: { cat: 'wings', name: 'Sugoi-27 Twin Fins', w: 3.17, h: 4.6, depth: 0.2, twinZ: 2.25, mass: 0.4, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.174, tle: 0.37, tte: 0, cant: 0, star: 0.12 }, tier: 3, cost: 2000, desc: 'Two tall fins with rudders, one on each tail boom.' },
+  ruVentral27: { cat: 'wings', name: 'Sugoi-27 Ventral Fins', w: 0.9, h: 1.8, depth: 0.12, twinZ: 2.25, mass: 0.1, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.11, tle: 0.39, tte: 0, cant: 0.3 }, tier: 3, cost: 600, desc: 'Little fins under the tail booms, splayed outwards: steadier at high angles of attack.' },
+  ruWing27: { cat: 'wings', name: 'Sugoi-27 Wing', w: 0.45, h: 9.55, mass: 2.8, fuel: 1.5, shape: 'wing',
+    wing: { area: 62, span: 14.7, sweep: 0.733, taper: 0.76, slope: 3, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 1.8, dihedral: 0, flaps: true, vne: 472, mmax: 2.8,
+      plan: [[0, 4.775, -4.775], [0.109, 4.775, -4.775], [0.129, 4.175, -4.79], [0.17, 3.225, -4.865], [0.231, 2.025, -4.945], [0.299, 0.925, -5.045], [0.361, 0.075, -5.125],
+        [0.422, -0.595, -5.215], [1, -4.425, -6.025]] },
+    breakSpeed: 14, tier: 3, cost: 9000,
+    desc: 'A Flanker’s wing in one piece: the big curved root extension (LERX) blending into a 42° swept wing with flaps, 14.7 m across. It keeps lifting at wild angles of attack.' },
+  ruTail27: { cat: 'wings', name: 'Sugoi-27 Tailerons', w: 0.18, h: 3, mass: 0.5, shape: 'elevator',
+    wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 2800,
+    desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
+  ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radar: 26000, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 18000,
+    loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.83, -0.3], [14.3, -0.95, 0.5, 0.83, -0.25], [15.1, -0.95, 0.7, 0.83, -0.18], [16.0, -0.95, 0.75, 0.83, -0.15],
+      [17.0, -0.95, 0.75, 0.81, -0.15], [17.8, -0.95, 0.73, 0.78, -0.15], [18.6, -0.86, 0.69, 0.73, -0.12], [19.5, -0.72, 0.6, 0.65, -0.08], [20.5, -0.52, 0.43, 0.49, -0.05],
+      [21.35, -0.27, 0.2, 0.26, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
+      [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
+    desc: 'An upgraded Flanker nose: a bigger, longer-reaching radar under a fatter radome. Put an IRST ball ahead of the canopy, a little to the right.' },
+  ruAL41: { cat: 'airEng', name: '117S Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
+    air: { kind: 'jet', vmax: 760, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.4, exit: 0.45 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 52000,
+    loft: ruG(0.95, 1.1, { s: [[2.5, 0.36, 1.54, 0.59], [3.6, 0.33, 1.57, 0.63]], mat: 'metal' }, { s: [[1.1, 0.47, 1.43, 0.48], [2.5, 0.37, 1.53, 0.58]], mat: 'steelDark', vec: 1.4 }),
+    desc: 'A pair of uprated afterburning turbofans whose nozzles swivel in every direction with the stick: the plane still turns when its wings have stalled. Afterburner above 90%.' },
+  ruStinger35: { cat: 'air', name: 'Sugoi-35 Tail Stinger', w: 0.8, h: 3.6, depth: 0.86, mass: 0.35, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1800,
+    loft: ruG(0.53, 0, { s: [[0.35, 0.36, 0.7, 0.14, 0.53], [0.7, 0.2, 0.86, 0.33, 0.53], [1.6, 0.14, 0.93, 0.42, 0.52], [3.0, 0.13, 0.78, 0.43, 0.4], [3.6, 0.15, 0.42, 0.39, 0.3]] }),
+    desc: 'A shorter, fatter stinger between the engines, packed with radar-warning gear and flares.' },
+
+  // the MyG-29 (after the MiG-29 Fulcrum)
+  ruGearNose2: { cat: 'airGear', name: 'Twin Nose Gear', w: 2.0, h: 0.9, mass: 0.18, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0.52, retract: true }, breakSpeed: 9,
+    tier: 3, cost: 1600, desc: 'A long nose leg with two wheels side by side, for fighters that sit high. Folds away (G).' },
+  ruGearMain: { cat: 'airGear', name: 'Fighter Main Gear', w: 1.2, h: 0.9, mass: 0.45, twinZ: 1.4, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 9, tier: 2, cost: 2400, desc: 'A pair of main legs with single wheels, one each side under the wing roots or nacelles. Folds away (G).' },
+  ruNose29: { cat: 'cabins', name: 'MyG-29 Nose', w: 1.5, h: 6.5, depth: 1.44, mass: 1.6, control: 3, torque: 3000, crew: 1, radar: 16000, shape: 'ruLoft', ru: 'nose', ruRadome: 3.9,
+    aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 11000,
+    loft: ruG(-0.1, 10.4, { s: [[10.4, -0.85, 0.32, 0.72, -0.26], [11.0, -0.85, 0.45, 0.72, -0.22], [11.8, -0.85, 0.6, 0.72, -0.15], [12.6, -0.85, 0.65, 0.7, -0.12],
+      [13.9, -0.84, 0.64, 0.64, -0.08], [14.6, -0.7, 0.58, 0.55, -0.04], [15.3, -0.5, 0.47, 0.44, 0], [15.9, -0.3, 0.35, 0.31, 0.04], [16.5, -0.1, 0.22, 0.16, 0.07],
+      [16.9, 0.07, 0.11, 0, 0.09]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 10.4, { s: [[10.55, -0.86, -0.74, 0.1, -0.8], [11.0, -1.05, -0.7, 0.3, -0.75], [11.7, -1.2, -0.66, 0.42, -0.72], [12.4, -1.18, -0.68, 0.42, -0.73],
+      [12.95, -1.0, -0.74, 0.34, -0.78], [13.25, -0.86, -0.8, 0.18, -0.83]], n: 2, nb: 6, frames: [0.7] }),
+    desc: 'A light fighter’s drooping nose with its radar and a bubble canopy. Put an IRST ball just ahead of the windscreen.' },
+  ruBody29: { cat: 'air', name: 'MyG-29 Centre Fuselage', w: 1.15, h: 7.4, depth: 2.2, mass: 2.2, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [1.0, 2.6, 4.2, 5.8], tier: 3, cost: 5500,
+    loft: ruG(-0.275, 3.0, { s: [[3.0, 0.08, 0.3, 0.36, 0.25, 2, 2], [3.6, -0.15, 0.3, 0.45, 0.22, 1.9, 3], [4.6, -0.42, 0.3, 0.7, 0.18, 1.8, 3], [6.0, -0.62, 0.3, 0.98, 0.15, 1.7, 3],
+      [7.5, -0.76, 0.3, 1.1, 0.12, 1.6, 3], [9.0, -0.84, 0.3, 1.0, 0, 1.8, 2.8], [10.4, -0.85, 0.32, 0.72, -0.26, 2.2, 2.3]] }),
+    desc: 'The flat lifting fuselage of a Fulcrum, its hump behind the canopy full of fuel. The intake nacelles hang under it.' },
+  ruNacelle29: { cat: 'air', name: 'MyG-29 Intake Nacelles', w: 1.15, h: 7.2, depth: 1.2, twinZ: 1.2, mass: 1.8, fuel: 0.6, shape: 'ruLoft', ru: 'nacelle', ruIntake: [6.2, 7.2],
+    loft: ruG(0.875, 2.8, { s: [[2.8, 0.355, 1.395, 0.52, 0.875, 2, 2], [4.5, 0.33, 1.42, 0.56, 0.88, 2.5, 2.5], [6.5, 0.3, 1.45, 0.6, 0.9, 3.5, 3.5], [9.0, 0.3, 1.45, 0.6, 0.9, 6, 5],
+      [9.4, 0.75, 1.45, 0.6, 1.1, 6, 5], [10.0, 1.32, 1.45, 0.58, 1.38, 6, 5]] }),
+    tier: 3, cost: 4500, desc: 'Two widely spaced engine nacelles with ramp intakes under the wing-root extensions, and a lifting tunnel between them.' },
+  ruRD33: { cat: 'airEng', name: 'RD-33 Twin Engines', w: 1.04, h: 2.2, depth: 1.04, twinZ: 1.2, mass: 1.4, thrust: 162, ispSL: 5000, ispVac: 5000, gimbal: 0.02,
+    air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.36 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 26000,
+    loft: ruG(0.875, 0.6, { s: [[1.6, 0.4, 1.35, 0.47], [2.8, 0.355, 1.395, 0.52]], mat: 'metal' }, { s: [[0.6, 0.48, 1.27, 0.38], [1.6, 0.41, 1.34, 0.46]], mat: 'steelDark' }),
+    desc: 'Two light afterburning turbofans for a pair of nacelles: a nimble fighter’s engines. Afterburner above 90% throttle.' },
+  ruBeaver29: { cat: 'air', name: 'MyG-29 Beavertail', w: 0.3, h: 3, depth: 1.1, mass: 0.15, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 900,
+    loft: ruG(0.27, 0, { s: [[0, 0.22, 0.32, 0.3, 0.27], [0.6, 0.15, 0.38, 0.52, 0.27], [2.4, 0.12, 0.42, 0.55, 0.27], [3.0, 0.12, 0.3, 0.4, 0.22, 2.5, 2.5]], n: 3 }),
+    desc: 'The flat tail between the engines, with the brake chute and the airbrakes.' },
+  ruBoom29: { cat: 'air', name: 'MyG-29 Tail Booms', w: 0.3, h: 4.7, depth: 0.45, twinZ: 2.025, mass: 0.3, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1400,
+    loft: ruG(0.45, 0.7, { s: [[0.7, 0.4, 0.5, 0.04], [1.0, 0.33, 0.57, 0.15], [1.6, 0.3, 0.6, 0.22], [4.6, 0.3, 0.6, 0.22], [5.4, 0.33, 0.56, 0.18]], n: 3 }),
+    desc: 'A pair of flat beams outside the engines for the fins and tailerons.' },
+  ruFins29: { cat: 'wings', name: 'MyG-29 Twin Fins', w: 2.5, h: 3.8, depth: 0.18, twinZ: 2.025, mass: 0.3, shape: 'vtail', body3d: 'ruFin', ru: 'fin', ruMirror: true,
+    ruFin: { rte: 0.105, tle: 0.295, tte: 0, cant: 0.105, star: 0.13 }, tier: 3, cost: 1600, desc: 'Two fins with rudders, leaning slightly outwards, one on each tail boom.' },
+  ruTail29: { cat: 'wings', name: 'MyG-29 Tailerons', w: 0.15, h: 2.4, mass: 0.3, shape: 'elevator',
+    wing: { area: 7.05, span: 7.78, sweep: 0.873, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.578, 1.2, -1.2], [1, -0.75, -1.6]] }, breakSpeed: 14, tier: 3, cost: 2200,
+    desc: 'All-moving swept tailplanes on the tail booms (open in the middle for the engines).' },
+  ruWing29: { cat: 'wings', name: 'MyG-29 Wing', w: 0.36, h: 9.05, mass: 1.6, fuel: 0.6, shape: 'wing',
+    wing: { area: 38, span: 11.36, sweep: 0.85, taper: 0.8, slope: 2.9, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 1.8, dihedral: 0, flaps: true, vne: 472, mmax: 2.6,
+      plan: [[0, 4.525, -4.525], [0.127, 4.525, -4.475], [0.167, 3.725, -4.455], [0.229, 2.525, -4.415], [0.29, 1.375, -4.375], [0.343, 0.375, -4.345], [1, -2.985, -4.175]] },
+    breakSpeed: 14, tier: 3, cost: 7000,
+    desc: 'A Fulcrum’s wing in one piece: sharp 73° root extensions running into a 42° swept wing with flaps, 11.4 m across.' },
+
+  // the Sugoi-57 (after the Su-57): stealthy, chined, its weapons inside
+  ruGearNose2L: { cat: 'airGear', name: 'Tall Twin Nose Gear', w: 2.45, h: 0.9, mass: 0.24, shape: 'gear', wheel: { r: 0.32, drive: false, brake: true, track: 0.55, retract: true },
+    breakSpeed: 9, tier: 4, cost: 1800, desc: 'A tall nose leg with two wheels side by side, for a big fighter. Folds away (G).' },
+  ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radar: 28000, stealth: 0.6, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 22000,
+    loft: ruG(-0.09, 12.6, { s: [[12.6, -0.78, 0.25, 0.92, 0.1], [13.4, -0.78, 0.4, 0.88, 0.12], [14.4, -0.78, 0.53, 0.82, 0.14], [15.4, -0.78, 0.58, 0.76, 0.15],
+      [16.4, -0.78, 0.57, 0.68, 0.15], [17.2, -0.76, 0.52, 0.58, 0.15], [18.0, -0.56, 0.42, 0.46, 0.14], [18.8, -0.34, 0.31, 0.33, 0.12], [19.5, -0.15, 0.2, 0.19, 0.1],
+      [20.1, 0.06, 0.09, 0, 0.08]], n: 2, nb: 2.6, chine: true }),
+    glass: ruG(-0.09, 12.6, { s: [[13.0, -0.79, -0.7, 0.1, -0.74], [13.5, -0.98, -0.62, 0.36, -0.66], [14.3, -1.17, -0.56, 0.5, -0.6], [15.2, -1.2, -0.56, 0.52, -0.6],
+      [15.9, -1.1, -0.58, 0.48, -0.63], [16.3, -0.92, -0.64, 0.36, -0.7], [16.6, -0.79, -0.72, 0.16, -0.76]], n: 2, nb: 6, gold: true }),
+    desc: 'A chined stealth nose with a long frameless, gold-tinted canopy and a powerful radar. Radar glances off it.' },
+  ruBody57: { cat: 'air', name: 'Sugoi-57 Centre Fuselage', w: 1.03, h: 9.1, depth: 3.5, mass: 4.0, fuel: 4, stealth: 0.6, shape: 'ruLoft', ru: 'body', ruLines: [1.4, 3.2, 5.4, 7.6],
+    loft: ruG(-0.265, 3.5, { s: [[3.5, 0, 0.25, 0.5, 0.18, 1.6, 3], [4.5, -0.35, 0.25, 1.0, 0.15, 1.4, 4], [6.0, -0.58, 0.25, 1.55, 0.12, 1.3, 4], [8.0, -0.72, 0.25, 1.75, 0.1, 1.3, 4],
+      [10.0, -0.78, 0.25, 1.62, 0.1, 1.4, 4], [11.5, -0.78, 0.25, 1.25, 0.1, 1.7, 3], [12.6, -0.78, 0.25, 0.92, 0.1, 2, 2.6]], chine: true }),
+    tier: 4, cost: 12000, desc: 'A wide, flat, chined stealth body with fuel inside. The engines hang far apart under it, with the weapons bay between them.' },
+  ruNacelle57: { cat: 'air', name: 'Sugoi-57 Intake Nacelles', w: 1.2, h: 9.7, depth: 1.3, twinZ: 1.7, mass: 3.2, fuel: 1.0, stealth: 0.6, shape: 'ruLoft', ru: 'nacelle',
+    ruIntake: [8.9, 9.7, 'bot'],
+    loft: ruG(0.85, 3.5, { s: [[3.5, 0.275, 1.425, 0.575, 0.85, 2, 2], [5.5, 0.26, 1.44, 0.6, 0.86, 3, 3], [8.0, 0.25, 1.45, 0.64, 0.85, 4, 4], [11.5, 0.25, 1.45, 0.65, 0.85, 5, 5],
+      [12.4, 0.25, 1.45, 0.65, 0.85, 6, 6], [12.8, 0.25, 1.05, 0.65, 0.65, 6, 6], [13.2, 0.25, 0.62, 0.62, 0.44, 6, 6]] }),
+    tier: 4, cost: 9000, desc: 'Two engine nacelles set far apart, with raked stealthy intakes.' },
+  ruAL41F1: { cat: 'airEng', name: 'AL-41F1 Vectoring Engines', w: 1.15, h: 2.7, depth: 1.15, twinZ: 1.7, mass: 2.2, thrust: 304, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
+    air: { kind: 'jet', vmax: 770, ab: 1.58 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.5, exit: 0.4 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 60000,
+    loft: ruG(0.85, 0.8, { s: [[2.3, 0.32, 1.38, 0.53], [3.5, 0.275, 1.425, 0.575]], mat: 'metal' }, { s: [[0.8, 0.4, 1.3, 0.43], [2.3, 0.33, 1.37, 0.52]], mat: 'steelDark', vec: 1.5 }),
+    desc: 'The newest pair of afterburning turbofans: strong enough to cruise past Mach 1, with nozzles that swivel with the stick. Afterburner above 90%.' },
+  ruBay57: { cat: 'weapons', name: 'Internal Radar Missiles', w: 0.45, h: 6, depth: 2.1, mass: 0.6, stealth: 0.6, bay: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 30000,
+    weapon: { kind: 'missile', seek: 'air', radar: true, label: 'R-77', ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    loft: ruG(0.475, 5.0, { s: [[5.0, 0.25, 0.4, 0.9, 0.3, 4, 4], [5.6, 0.25, 0.65, 1.04, 0.4, 5, 5], [10.4, 0.25, 0.68, 1.04, 0.4, 5, 5], [11.0, 0.25, 0.45, 0.95, 0.3, 4, 4]] }),
+    desc: 'Two long bays between the engines with four radar missiles inside: no drag, and a stealth plane stays stealthy. They ride your nose radar like the outside ones.' },
+  ruBayS57: { cat: 'weapons', name: 'Internal Heat Seekers', w: 0.36, h: 3, depth: 0.5, twinZ: 2.6, mass: 0.1, stealth: 0.6, bay: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 14000,
+    weapon: { kind: 'missile', seek: 'air', label: 'R-74', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
+    loft: ruG(0.43, 9.0, { s: [[9.0, 0.25, 0.32, 0.12, 0.27, 3, 3], [9.5, 0.25, 0.58, 0.24, 0.35, 4, 4], [11.4, 0.25, 0.6, 0.24, 0.36, 4, 4], [12.0, 0.25, 0.36, 0.16, 0.28, 3, 3]] }),
+    desc: 'A pair of little bays in the wing roots, outside the intakes, each with a heat seeker inside.' },
+  ruStinger57: { cat: 'air', name: 'Sugoi-57 Tail Cone', w: 0.5, h: 3.5, depth: 1.0, mass: 0.25, stealth: 0.6, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1500,
+    loft: ruG(0.25, 0, { s: [[0, 0.18, 0.32, 0.1, 0.25, 1.6, 2], [0.6, 0.06, 0.45, 0.35, 0.25, 1.6, 2.5], [2.8, 0, 0.5, 0.48, 0.22, 1.6, 3], [3.5, 0, 0.25, 0.5, 0.18, 1.6, 3]], chine: true }),
+    desc: 'A short flat tail cone between the engines.' },
+  ruBoom57: { cat: 'air', name: 'Sugoi-57 Tail Booms', w: 0.3, h: 4.5, depth: 0.5, twinZ: 2.6, mass: 0.5, stealth: 0.6, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1800,
+    loft: ruG(0.4, 0.8, { s: [[0.8, 0.36, 0.44, 0.04], [1.1, 0.28, 0.52, 0.16], [1.6, 0.25, 0.55, 0.25], [4.6, 0.25, 0.55, 0.25], [5.3, 0.28, 0.52, 0.2]], n: 3 }),
+    desc: 'A pair of flat beams outside the engines for the fins and tailerons.' },
+  ruFins57: { cat: 'wings', name: 'Sugoi-57 All-Moving Fins', w: 2.16, h: 3.6, depth: 0.16, twinZ: 2.6, mass: 0.35, stealth: 0.6, shape: 'vtail', body3d: 'ruFin', ru: 'fin', ruMirror: true,
+    ruFin: { rte: 0.167, tle: 0.333, tte: 0, cant: 0.454, all: true, star: 0.13 }, tier: 4, cost: 3000,
+    desc: 'Two small fins canted outwards (stealthy), each turning all in one piece as a rudder.' },
+  ruTail57: { cat: 'wings', name: 'Sugoi-57 Tailerons', w: 0.14, h: 2.8, mass: 0.5, shape: 'elevator',
+    wing: { area: 10, span: 10, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.57, 1.4, -1.4], [1, -0.75, -1.75]] }, breakSpeed: 14, tier: 4, cost: 2800,
+    desc: 'All-moving tailplanes on the tail booms (open in the middle for the engines).' },
+  ruLevcon57: { cat: 'wings', name: 'Sugoi-57 LEVCONs', w: 0.12, h: 2.7, mass: 0.25, shape: 'elevator',
+    wing: { area: 5, span: 5.3, sweep: 1.1, mcrit: 0.95, wave: 0.5, control: 0.25, plan: [[0.377, 1.35, -1.35], [1, -1.9, -2.2]] }, breakSpeed: 14, tier: 4, cost: 3500,
+    desc: 'Leading-edge vortex controllers: moving root extensions ahead of the wing that pitch the nose like canards and keep it flying at wild angles.' },
+  ruWing57: { cat: 'wings', name: 'Sugoi-57 Wing', w: 0.36, h: 7.4, mass: 3.0, fuel: 1.0, shape: 'wing',
+    wing: { area: 74, span: 14.1, sweep: 0.6, taper: 0.8, slope: 3.0, stall: 0.45, mcrit: 0.95, wave: 0.5, load: 1.8, dihedral: 0, flaps: true, vne: 472, mmax: 2.6,
+      plan: [[0, 3.7, -3.7], [0.17, 3.7, -3.55], [0.369, 3.5, -3.35], [1, -1.44, -2.74]] },
+    breakSpeed: 14, tier: 4, cost: 11000, desc: 'A big 48° swept stealth wing with flaps, 14.1 m across. Put the LEVCONs ahead of its roots.' },
+
+  // the MyG-21 (after the MiG-21 Fishbed)
+  ruGearNose: { cat: 'airGear', name: 'Short Nose Gear', w: 0.78, h: 0.8, mass: 0.1, shape: 'gear', wheel: { r: 0.27, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8,
+    tier: 2, cost: 900, desc: 'A short single-wheel nose leg for a small fighter. Folds away (G).' },
+  ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radar: 8000, shape: 'ruLoft', ru: 'nose21',
+    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 8000,
+    loft: ruG(-0.165, 9.4, { s: [[9.4, -0.62, 0.62, 0.62, 0], [11.0, -0.62, 0.62, 0.62, 0], [12.6, -0.59, 0.59, 0.59, 0], [13.6, -0.53, 0.53, 0.53, 0], [14.1, -0.48, 0.48, 0.48, 0]], open: true },
+      { s: [[13.8, -0.31, 0.31, 0.31, 0], [14.15, -0.25, 0.25, 0.25, 0], [14.5, -0.01, 0.01, 0, 0]] },
+      { s: [[9.4, -0.92, -0.3, 0.28, -0.55], [9.95, -0.93, -0.3, 0.3, -0.55]] }),
+    glass: ruG(-0.165, 9.4, { s: [[9.95, -0.93, -0.55, 0.3, -0.6], [10.4, -0.99, -0.52, 0.36, -0.57], [11.0, -1.0, -0.5, 0.37, -0.55], [11.5, -0.92, -0.52, 0.33, -0.57],
+      [11.85, -0.72, -0.56, 0.2, -0.6], [12.0, -0.63, -0.59, 0.05, -0.61]], n: 2, nb: 6, frames: [0.62] }),
+    desc: 'A round nose that is all intake, with the radar in the shock cone in its mouth and a small bubble canopy behind. A long pitot boom on top.' },
+  ruBody21: { cat: 'air', name: 'MyG-21 Fuselage', w: 1.57, h: 6.2, depth: 1.24, mass: 1.6, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [0.8, 2.4, 4.0, 5.4], tier: 2, cost: 3500,
+    loft: ruG(-0.165, 3.2, { s: [[3.2, -0.6, 0.6, 0.6, 0], [5.0, -0.61, 0.62, 0.62, 0.005], [9.4, -0.62, 0.62, 0.62, 0]] },
+      { s: [[4.4, -0.6, -0.3, 0.1, -0.45], [5.4, -0.8, -0.3, 0.2, -0.5], [8.0, -0.9, -0.3, 0.26, -0.55], [9.4, -0.92, -0.3, 0.28, -0.55]] }),
+    desc: 'A slim round fuselage full of fuel, with the dorsal spine running back from the canopy to the fin.' },
+  ruR25: { cat: 'airEng', name: 'R-25 Afterburning Turbojet', w: 1.2, h: 3.2, depth: 1.2, mass: 1.25, thrust: 103, ispSL: 4000, ispVac: 4000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.73 },
+    shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.4, paint: true }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 16000,
+    loft: ruG(0, 0, { s: [[1.0, -0.52, 0.52, 0.52], [3.2, -0.6, 0.6, 0.6]] }, { s: [[0, -0.45, 0.45, 0.45], [1.0, -0.5, 0.5, 0.5]], mat: 'steelDark' }),
+    desc: 'The rear fuselage of a small fighter with its afterburning turbojet and nozzle: thirsty, loud and fast. Afterburner above 90% throttle.' },
+  ruWing21: { cat: 'wings', name: 'MyG-21 Delta Wing', w: 0.25, h: 6.1, mass: 0.9, fuel: 0.3, shape: 'wing',
+    wing: { area: 23, span: 7.15, sweep: 0.8, taper: 0.9, slope: 2.6, stall: 0.5, mcrit: 0.95, wave: 0.45, load: 1.8, dihedral: 0, flaps: true, vne: 472,
+      plan: [[0, 3.05, -3.05], [0.173, 2.1, -3.05], [1, -2.45, -3.05]] },
+    breakSpeed: 14, tier: 2, cost: 4000, desc: 'A small, thin 57° delta with clipped tips, 7.2 m across: little drag at Mach 2, but it needs speed to lift.' },
+  ruTail21: { cat: 'wings', name: 'MyG-21 Stabilator', w: 0.12, h: 1.9, mass: 0.12, shape: 'elevator',
+    wing: { area: 4.5, span: 3.6, sweep: 0.96, taper: 0.6, mcrit: 0.95, wave: 0.5, control: 0.35 }, breakSpeed: 14, tier: 2, cost: 1000,
+    desc: 'A small swept all-moving tailplane, low on the tail behind a delta.' },
+  ruFin21: { cat: 'wings', name: 'MyG-21 Fin', w: 2.2, h: 4.1, depth: 0.16, mass: 0.15, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.024, tle: 0.27, tte: 0, cant: 0, star: 0.12 }, tier: 2, cost: 600, desc: 'A big fin swept back at 60°, with a rudder. Stand it on the spine at the tail.' },
+  ruAAM21: { cat: 'weapons', name: 'Early Heat Seekers', w: 0.4, h: 2.8, mass: 0.04, shape: 'missile', twinZ: 2.3, pod: true, aero: true, tier: 2, cost: 6000,
+    weapon: { kind: 'missile', seek: 'air', label: 'R-13', ammo: 2, range: 4000, cone: 0.3, accel: 230, burn: 2.5, vmax: 800, turn: 24, dmg: 380, blast: 14, each: 75, life: 16 },
+    desc: 'A pair of first-generation heat seekers for a small wing: they lock on to a hot engine from 4 km, best from behind, and turn less hard than the newer ones. Flares fool them easily.' },
+  ruVentral21: { cat: 'wings', name: 'MyG-21 Ventral Fin', w: 0.3, h: 1.7, depth: 0.1, mass: 0.03, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.1, tle: 0.45, tte: 0, cant: 0 }, tier: 2, cost: 300, desc: 'A little fin under the tail, for steadiness at Mach 2.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -878,6 +1078,12 @@ const SKINS = {
   orange: { name: 'Safety orange', base: '#ff7a1a' },
   yellow: { name: 'Trainer yellow', base: '#f2c230' },
   metal: { name: 'Bare metal', base: '#8d96a0', paint: 'metal', accent: 'keep', rough: 0.35, metal: 0.75 },
+  // camouflage for the Russian look-alike jets (camo: the pattern over the base, drawn by camoCanvas at the end of this file)
+  ruFlanker: { name: 'Flanker blue', base: '#b7c4ce', camo: { k: 'blotch', c: ['#8fa2b2', '#61788c'], seed: 27, n: 10 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruSplinter: { name: 'Grey splinter', base: '#98a3ac', camo: { k: 'splinter', c: ['#6c7883', '#47525d'], seed: 35 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruFulcrum: { name: 'Fulcrum grey-green', base: '#b9c0b9', camo: { k: 'blotch', c: ['#8e9b8f', '#6d7c70'], seed: 29 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruPixel: { name: 'Digital splinter', base: '#a9b6bf', camo: { k: 'digital', c: ['#7e8d99', '#5b6976', '#c7d1d8'], seed: 57, n: 16, r: 0.7, px: 0.125 }, accent: null, rough: 0.75, metal: 0.08 },
+  ruFrontline: { name: 'Frontline camo', base: '#a69c74', camo: { k: 'blotch', c: ['#5c6a40', '#7d5e3f', '#4f5a36'], seed: 21, n: 13, r: 0.75 }, accent: null, rough: 0.75, metal: 0.05 },
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint.
@@ -908,6 +1114,7 @@ function tintGradient0(ctx, l, r, c) { // hull shading in another colour
 // The painted body: the skin's own painter or its colour with hull shading.
 function skinFill(ctx, l, r) {
   const s = PartPaint.skin;
+  if (s.camo) return camoFill(ctx, s); // (a camouflage pattern: camoFill, at the end of this file)
   switch (s.paint) {
     case 'hull': return hullGradient0(ctx, l, r);
     case 'dark': return darkGradient0(ctx, l, r);
@@ -1089,7 +1296,7 @@ function partPath0(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
   const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
   ctx.beginPath();
-  switch (d.shape) {
+  switch (d.ru ? 'ru' : d.shape) { // (d.ru: a look-alike jet's lofted hull, case 'ru' at the end)
     case 'pod': {
       const tw = w * 0.42;
       ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath();
@@ -1208,6 +1415,9 @@ function partPath0(ctx, p) {
       ctx.rect(l + w * 0.1, b, w * 0.8, h * 0.4);
       ctx.moveTo(l + w * 0.1, b + h * 0.4); ctx.quadraticCurveTo(x, t + h * 0.4, r - w * 0.1, b + h * 0.4); ctx.closePath();
       break;
+    case 'ru': // the Russian look-alike jets (MyG and Sugoi): lofted hulls and fins, RU_ART at the end of this file
+      ruPath(ctx, p);
+      break;
     default:
       ctx.rect(l, b, w, h);
   }
@@ -1219,7 +1429,7 @@ function drawPart0(ctx, p, lw) {
   ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(8,11,16,0.9)';
-  switch (d.shape) {
+  switch (d.ru ? 'ru' : d.shape) {
     case 'pod': {
       const tw = w * 0.42;
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
@@ -1875,6 +2085,9 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.stroke();
       break;
     }
+    case 'ru': // the Russian look-alike jets (MyG and Sugoi): RU_ART at the end of this file
+      ruDraw(ctx, p, lw);
+      break;
   }
   // heat glow
   const hot = p.temp ? (p.temp - 900) / (d.maxTemp - 900) : 0;
@@ -2034,4 +2247,326 @@ function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0, skin };
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
+}
+
+// ===========================================================================
+// Russian look-alike jets (the MyG and Sugoi parts): camouflage paint, lofted hulls and their 2D art.
+
+// Camouflage (a skin with `camo`: { k: 'blotch' | 'splinter' | 'digital', c: [colours over the base], seed, n: patches of the
+// first colour (two fewer of each next one), r: their size, px: a digital pattern's pixel in metres }): a
+// seamless pattern in metres (16 m to a tile, 32 px to the metre), the same on every part, so in the side view the
+// patches run on across the joins. The 3D wings take the same canvas as a texture. Without a page (tests) it is the
+// base colour.
+const CAMO_PX = 32, CAMO_TILE = 512, CAMO = new Map();
+function camoCanvas(s) {
+  if (!s || !s.camo || typeof document === 'undefined') return null;
+  let cv = CAMO.get(s);
+  if (cv) return cv;
+  cv = document.createElement('canvas');
+  cv.width = cv.height = CAMO_TILE;
+  const ctx = cv.getContext('2d'), C = s.camo, T = CAMO_TILE;
+  let seed = (C.seed || 7) >>> 0;
+  const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  // pixel art: the digital pattern is drawn on a coarse grid (a quarter metre a pixel), then blown up unsmoothed
+  const px = C.k === 'digital' ? Math.max(1, Math.round((C.px || 0.25) * CAMO_PX)) : 1, g = px > 1 ? document.createElement('canvas') : cv, c = px > 1 ? g.getContext('2d') : ctx, S = T / px;
+  if (px > 1) g.width = g.height = S;
+  c.fillStyle = s.base; c.fillRect(0, 0, S, S);
+  const shape = (pts, smooth) => { // a closed patch, drawn nine times over so it wraps round the tile's edges
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+      c.beginPath();
+      if (smooth) {
+        const n = pts.length, mx = (i) => (pts[i % n][0] + pts[(i + 1) % n][0]) / 2 + ox, my = (i) => (pts[i % n][1] + pts[(i + 1) % n][1]) / 2 + oy;
+        c.moveTo(mx(0), my(0));
+        for (let i = 1; i <= n; i++) c.quadraticCurveTo(pts[i % n][0] + ox, pts[i % n][1] + oy, mx(i), my(i));
+      } else pts.forEach(([x, y], i) => (i ? c.lineTo(x + ox, y + oy) : c.moveTo(x + ox, y + oy)));
+      c.closePath(); c.fill();
+    }
+  };
+  C.c.forEach((col, k) => {
+    c.fillStyle = col;
+    const n = (C.n || (C.k === 'blotch' ? 9 : 12)) - k * (C.k === 'blotch' ? 2 : 3);
+    for (let i = 0; i < n; i++) {
+      const cx = rnd() * S, cy = rnd() * S, R = ((C.k === 'blotch' ? 1.4 + rnd() * 2.2 : 1.2 + rnd() * 2.4) * (C.r || 1) * CAMO_PX) / px, a0 = rnd() * TAU, stretch = 1.3 + rnd() * 1.4;
+      const m = C.k === 'blotch' ? 8 : 4 + Math.floor(rnd() * 3), pts = [];
+      for (let j = 0; j < m; j++) {
+        const a = (j / m) * TAU + (rnd() - 0.5) * 0.6, rr = R * (0.55 + rnd() * 0.65);
+        const u = Math.cos(a) * rr * stretch, v = Math.sin(a) * rr; // long patches, laid at a slant
+        pts.push([cx + u * Math.cos(a0) - v * Math.sin(a0), cy + u * Math.sin(a0) + v * Math.cos(a0)]);
+      }
+      shape(pts, C.k === 'blotch');
+    }
+  });
+  if (px > 1) { ctx.imageSmoothingEnabled = false; ctx.drawImage(g, 0, 0, T, T); }
+  CAMO.set(s, cv);
+  return cv;
+}
+function camoFill(ctx, s) {
+  const cv = camoCanvas(s), pat = cv && ctx.createPattern ? ctx.createPattern(cv, 'repeat') : null;
+  if (!pat) return s.base;
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1 / CAMO_PX, 0, 0, 1 / CAMO_PX, 0, 0])); // pixels to metres
+  return pat;
+}
+
+// A lofted hull: cross-sections along the part. def.loft (and def.glass, its canopies) are lists of
+//   { s: [[y, top, bot, hw, mid, nt, nb], ...], n, nb, z, chine, mat }
+// y: metres up the part from its tail end (0) to its nose (h); top, bot: the section's top and bottom (x, metres
+// from the part's centre; -x is up on a plane); hw: its half-width across; mid: the height of its widest line
+// (default halfway); nt, nb: how its upper and lower halves round off (superellipse exponents: 2 round, more is
+// boxier, less comes to a ridge), default n and nb. Two rows at the same y make a step; between rows the values
+// follow a smooth curve that never overshoots. z: the section's centre across; chine: a crease along the widest
+// line; mat: its 3D material. A canopy shows above its widest line only. parts3d.js lofts the same sections.
+function ruMono(xs, vs) {
+  const n = xs.length;
+  if (n < 2) return () => vs[0];
+  const dl = [], m = [];
+  for (let i = 0; i < n - 1; i++) dl.push((vs[i + 1] - vs[i]) / (xs[i + 1] - xs[i]));
+  m[0] = dl[0]; m[n - 1] = dl[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = dl[i - 1] * dl[i] <= 0 ? 0 : (dl[i - 1] + dl[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (dl[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / dl[i], b = m[i + 1] / dl[i], q = a * a + b * b;
+    if (q > 9) { const k = 3 / Math.sqrt(q); m[i] = k * a * dl[i]; m[i + 1] = k * b * dl[i]; }
+  }
+  return (x) => {
+    let i = 0;
+    while (i < n - 2 && x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = clamp((x - xs[i]) / h, 0, 1), t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * vs[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * vs[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+// Loft rows written in the aircraft's own frame (y from its tail, x down from its datum), moved to the part's: x from
+// the part's centre xc, y from its tail end y0.
+function ruG(xc, y0, ...lofts) {
+  return lofts.map((L) => Object.assign({}, L, { s: L.s.map((r) => r.map((v, i) => (v == null ? undefined : i === 0 ? +(v - y0).toFixed(4) : i <= 2 || i === 4 ? +(v - xc).toFixed(4) : v))) }));
+}
+// The sections, sampled densely along the part (y now from the part's centre); cached per part type.
+const RU_SAMPLED = new WeakMap();
+function ruSample(L, h) {
+  const n0 = L.n || 2, nb0 = L.nb || n0, runs = [];
+  let run = [];
+  for (const r of L.s) { if (run.length && Math.abs(r[0] - run[run.length - 1][0]) < 1e-6) { runs.push(run); run = []; } run.push(r); }
+  runs.push(run);
+  const step = clamp(h / 40, 0.05, 0.3), st = [];
+  runs.forEach((R, j) => {
+    const ys = R.map((r) => r[0]), col = (i, f) => ruMono(ys, R.map((r) => (r[i] != null ? r[i] : f(r))));
+    const top = col(1), bot = col(2), hw = col(3), mid = col(4, (r) => (r[1] + r[2]) / 2), nt = col(5, () => n0), nb = col(6, () => nb0), at = [];
+    for (let i = 0; i < ys.length; i++) {
+      at.push(ys[i]);
+      if (i + 1 < ys.length) { const k = Math.ceil((ys[i + 1] - ys[i]) / step - 1e-9); for (let q = 1; q < k; q++) at.push(ys[i] + ((ys[i + 1] - ys[i]) * q) / k); }
+    }
+    at.forEach((y, i) => st.push({ y: y - h / 2, top: top(y), bot: bot(y), hw: Math.max(0, hw(y)), mid: mid(y), nt: Math.max(0.6, nt(y)), nb: Math.max(0.6, nb(y)), step: j > 0 && i === 0 }));
+  });
+  return Object.assign({}, L, { st });
+}
+function ruLofts(d) {
+  let o = RU_SAMPLED.get(d);
+  if (!o) RU_SAMPLED.set(d, (o = { hull: (d.loft || []).map((L) => ruSample(L, d.h)), glass: (d.glass || []).map((L) => ruSample(L, d.h)) }));
+  return o;
+}
+// A section's outline at angle a (0: the +z side, π/2: its top, π: -z, 3π/2: its bottom), as [x, z].
+function ruPt(s, a, zc) {
+  const c = Math.cos(a), sn = Math.sin(a), up = sn >= 0, e = 2 / (up ? s.nt : s.nb);
+  return [up ? s.mid - (s.mid - s.top) * Math.pow(Math.abs(sn), e) : s.mid + (s.bot - s.mid) * Math.pow(Math.abs(sn), e), (zc || 0) + s.hw * Math.sign(c) * Math.pow(Math.abs(c), e)];
+}
+// The section of hull loft k at y (from the part's tail end), interpolated.
+function ruAt(d, y, k = 0) {
+  const st = ruLofts(d).hull[k].st, yy = y - d.h / 2;
+  if (yy <= st[0].y) return st[0];
+  for (let i = 1; i < st.length; i++) if (st[i].y >= yy) {
+    const a = st[i - 1], b = st[i], t = b.y > a.y ? (yy - a.y) / (b.y - a.y) : 1, L = (k2) => lerp(a[k2], b[k2], t);
+    return { y: yy, top: L('top'), bot: L('bot'), hw: L('hw'), mid: L('mid'), nt: L('nt'), nb: L('nb') };
+  }
+  return st[st.length - 1];
+}
+// A fin's side view: root chord on the inner edge (from rte up to the top), tip chord on the outer (tte to tle).
+function ruFinPath(ctx, p) {
+  const d = p.def, F = d.ruFin, s = p.flip ? -1 : 1, b = p.y - d.h / 2, h = d.h, inn = p.x - (s * d.w) / 2, out = p.x + (s * d.w) / 2;
+  ctx.moveTo(inn, b + h); ctx.lineTo(out, b + h * F.tle); ctx.lineTo(out, b + h * F.tte); ctx.lineTo(inn, b + h * F.rte); ctx.closePath();
+}
+// The side view of the hull (each loft's top edge from the tail to the nose and its bottom edge back), or the fin.
+function ruPath(ctx, p) {
+  const d = p.def;
+  if (d.ruFin) { ruFinPath(ctx, p); return; }
+  for (const L of ruLofts(d).hull) {
+    const st = L.st;
+    st.forEach((s, i) => (i ? ctx.lineTo(p.x + s.top, p.y + s.y) : ctx.moveTo(p.x + s.top, p.y + s.y)));
+    for (let i = st.length - 1; i >= 0; i--) ctx.lineTo(p.x + st[i].bot, p.y + st[i].y);
+    ctx.closePath();
+  }
+}
+const RU_INK = 'rgba(8,11,16,0.9)', RU_PANEL = 'rgba(24,30,38,0.38)';
+// The 2D art: the hull in its paint, a paler belly, then the part's own details (RU_ART) and its canopy.
+function ruDraw(ctx, p, lw) {
+  const d = p.def, A = RU_ART[d.ru] || {}, w = d.w, h = d.h, x = p.x, b = p.y - h / 2, l = x - w / 2, r = x + w / 2;
+  const G = { p, d, x, b, l, r, w, h, lw, X: (v) => x + v, Y: (v) => b + v, at: (y, k) => ruAt(d, y, k), s: p.flip ? -1 : 1 };
+  ctx.beginPath(); ruPath(ctx, p);
+  ctx.fillStyle = A.fill ? A.fill(ctx, G) : hullGradient(ctx, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  if (!d.ruFin && A.belly !== false) { // the underside a shade paler (on paint: of the paint; low-visibility paint stays even)
+    const S = PartPaint.skin;
+    ctx.fillStyle = S ? shade(S.base, S.camo ? 0.22 : S.accent === null ? 0.06 : 0.25) : '#ccd2d8';
+    for (const L of ruLofts(d).hull) {
+      ctx.beginPath();
+      L.st.forEach((s, i) => { const yy = p.y + s.y, xx = x + s.bot - (s.bot - s.top) * 0.14; if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); });
+      for (let i = L.st.length - 1; i >= 0; i--) ctx.lineTo(x + L.st[i].bot + 0.5, p.y + L.st[i].y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  if (A.body) { ctx.lineWidth = lw; ctx.strokeStyle = RU_PANEL; A.body(ctx, G); }
+  ctx.restore();
+  ctx.strokeStyle = RU_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); ruPath(ctx, p); ctx.stroke();
+  for (const L of ruLofts(d).glass) { // the canopy above its sill, with a glint and its frames
+    const st = L.st;
+    ctx.beginPath();
+    st.forEach((s, i) => (i ? ctx.lineTo(x + s.top, p.y + s.y) : ctx.moveTo(x + s.top, p.y + s.y)));
+    for (let i = st.length - 1; i >= 0; i--) ctx.lineTo(x + st[i].mid, p.y + st[i].y);
+    ctx.closePath();
+    ctx.fillStyle = L.gold ? '#c9a24a' : PAL.glass; ctx.fill(); ctx.stroke();
+    const k = Math.floor(st.length * 0.62), s = st[k];
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(x + s.top + (s.mid - s.top) * 0.35, p.y + s.y, (s.mid - s.top) * 0.16, (st[st.length - 1].y - st[0].y) * 0.16, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,48,58,0.85)'; ctx.lineWidth = lw * 1.4;
+    for (const f of L.frames || []) { const q = st[Math.round(f * (st.length - 1))]; ctx.beginPath(); ctx.moveTo(x + q.mid, p.y + q.y); ctx.lineTo(x + q.top, p.y + q.y); ctx.stroke(); }
+    ctx.strokeStyle = RU_INK; ctx.lineWidth = lw;
+  }
+  if (A.over) A.over(ctx, G);
+}
+// Details: a panel line across the hull at y (from the tail end), part of the way from the top (k0) to the bottom (k1);
+// a line along it, k of the way down from the top; a red star with a white rim.
+function ruCross(ctx, G, y, k0 = 0, k1 = 1) {
+  const s = G.at(y), t = s.top + (s.bot - s.top) * k0, u = s.top + (s.bot - s.top) * k1;
+  ctx.beginPath(); ctx.moveTo(G.X(t), G.Y(y)); ctx.lineTo(G.X(u), G.Y(y)); ctx.stroke();
+}
+function ruAlong(ctx, G, y0, y1, k) {
+  ctx.beginPath();
+  for (let i = 0; i <= 12; i++) { const y = lerp(y0, y1, i / 12), s = G.at(y), xx = G.X(s.top + (s.bot - s.top) * k); if (i) ctx.lineTo(xx, G.Y(y)); else ctx.moveTo(xx, G.Y(y)); }
+  ctx.stroke();
+}
+function ruStar(ctx, cx, cy, R, lw) {
+  if (PartPaint.skin && PartPaint.skin.accent === null && !PartPaint.skin.camo) return; // (low-visibility paint: no markings)
+  const pts = (rr) => { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = Math.PI / 2 + (i * Math.PI) / 5, q = i % 2 ? rr * 0.4 : rr; ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q); } ctx.closePath(); };
+  pts(R * 1.3); ctx.fillStyle = '#f2f4f6'; ctx.fill();
+  pts(R); ctx.fillStyle = '#c8322b'; ctx.fill();
+  ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(90,20,18,0.8)'; ctx.stroke();
+}
+// A darker tone of the paint (radomes, antennas, dielectric panels).
+const ruDark = (hex, k) => (PartPaint.skin ? shade(PartPaint.skin.base, k) : hex);
+
+const RU_ART = {
+  // a nose: the radome from ruRadome (metres up the part) to the tip, panel lines, the nose-gear doors and an
+  // angle-of-attack vane
+  nose: {
+    body(ctx, G) {
+      const R0 = G.d.ruRadome, chine = G.d.loft[0].chine;
+      ctx.fillStyle = ruDark('#b3bcc5', -0.16); ctx.fillRect(G.l - 1, G.Y(R0), G.w + 2, G.h - R0 + 1);
+      ctx.fillStyle = '#4b535c'; ctx.fillRect(G.l - 1, G.Y(G.h - 0.2), G.w + 2, 1); // the pitot tip
+      ruCross(ctx, G, R0); ruCross(ctx, G, R0 - 2.2, 0, 0.45); ruCross(ctx, G, 0.6);
+      ruAlong(ctx, G, 0.6, R0, chine ? 0.5 : 0.45);
+      if (chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); } // the chine
+      const g = G.at(1.4); ctx.strokeStyle = RU_PANEL; ctx.strokeRect(G.X(g.bot - 0.3), G.Y(0.9), 0.28, 1.3); // nose-gear doors
+      ctx.fillStyle = '#3f474f'; ctx.fillRect(G.X(G.at(R0 - 1.2).mid - 0.05), G.Y(R0 - 1.3), 0.12, 0.22); // the angle-of-attack vane
+    },
+  },
+  // the MyG-21's nose: the intake ring round the shock cone (a radome), the long pitot boom over it
+  nose21: {
+    body(ctx, G) {
+      const C = G.d.ruCone;
+      ctx.fillStyle = ruDark('#59626b', -0.38); ctx.fillRect(G.l - 1, G.Y(C), G.w + 2, G.h - C + 1); // the cone
+      for (const y of [0.5, 2.6, C - 1.1]) ruCross(ctx, G, y);
+      ruAlong(ctx, G, 0.3, C - 0.1, 0.45);
+      ctx.fillStyle = ruDark('#9aa3ac', -0.22); ctx.fillRect(G.X(G.at(C - 1.6).top + 0.1), G.Y(C - 1.9), 0.18, 0.6); // a dielectric panel
+    },
+    over(ctx, G) {
+      const lip = G.d.ruLip, s = G.at(lip - 0.02);
+      ctx.fillStyle = '#15181c'; ctx.fillRect(G.X(s.top + 0.04), G.Y(lip - 0.05), s.bot - s.top - 0.08, 0.07); // the intake's mouth
+      ctx.strokeStyle = '#3f474f'; ctx.lineWidth = Math.max(G.lw * 2, 0.05); // the pitot boom
+      ctx.beginPath(); ctx.moveTo(G.X(s.top + 0.12), G.Y(lip - 0.3)); ctx.lineTo(G.X(s.top + 0.12), G.Y(G.h + 1.1)); ctx.stroke();
+      ctx.lineWidth = G.lw; ctx.strokeStyle = RU_INK;
+    },
+  },
+  // a centre fuselage: frames (ruLines, metres up the part), a seam along it, an airbrake on the spine (ruBrake)
+  body: {
+    body(ctx, G) {
+      for (const y of G.d.ruLines || []) ruCross(ctx, G, y);
+      ruAlong(ctx, G, 0.4, G.h - 0.3, G.d.loft[0].chine ? 0.55 : 0.3);
+      if (G.d.loft[0].chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); }
+      const B = G.d.ruBrake;
+      if (B) { const s = G.at((B[0] + B[1]) / 2); ctx.strokeStyle = RU_PANEL; ctx.strokeRect(G.X(s.top + 0.02), G.Y(B[0]), 0.2, B[1] - B[0]); }
+    },
+  },
+  // engine nacelles: frames, a seam, the intake's dark mouth on its raked face (ruIntake: from, to, and 'bot' when the
+  // face is on the underside) and the ramp-bleed louvres behind it
+  nacelle: {
+    body(ctx, G) {
+      const I = G.d.ruIntake;
+      for (const k of [0.12, 0.36, 0.62, 0.84]) ruCross(ctx, G, I[0] * k);
+      ruAlong(ctx, G, 0, I[0] - 0.2, 0.5);
+      ctx.fillStyle = ruDark('#9aa3ac', -0.2);
+      for (let i = 0; i < 4; i++) { const y = I[0] - 1.6 + i * 0.22, s = G.at(y); ctx.fillRect(G.X(I[2] === 'bot' ? s.bot - 0.42 : s.top + 0.12), G.Y(y), 0.3, 0.1); }
+    },
+    over(ctx, G) {
+      const I = G.d.ruIntake, bot = I[2] === 'bot', a = G.at(I[0] + 0.02), c = G.at(I[1] - 0.04);
+      ctx.strokeStyle = '#15181c'; ctx.lineWidth = Math.max(G.lw * 3, 0.07);
+      ctx.beginPath(); ctx.moveTo(G.X(bot ? a.bot - 0.05 : a.top + 0.05), G.Y(I[0] + 0.02)); ctx.lineTo(G.X(bot ? c.bot - 0.02 : c.top + 0.02), G.Y(I[1] - 0.04)); ctx.stroke();
+      ctx.lineWidth = G.lw; ctx.strokeStyle = RU_INK;
+    },
+  },
+  // a tail stinger or boom: frames and a dark aerial at the tip
+  tail: {
+    body(ctx, G) {
+      ruCross(ctx, G, G.h * 0.25); ruCross(ctx, G, G.h * 0.62);
+      if (G.d.loft[0].chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); }
+      ctx.fillStyle = '#4b535c'; ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, 1 + Math.min(0.3, G.h * 0.06));
+    },
+  },
+  // an engine's aft casing (bare titanium, or painted like the fuselage: ruJet.paint) and its nozzle petals
+  jet: {
+    belly: false,
+    fill: (ctx, G) => (G.d.ruJet.paint ? hullGradient(ctx, G.l, G.r) : bodyGrad(ctx, G.l, G.r, () => (PartPaint.flat ? '#8a8378' : tintGradient0(ctx, G.l, G.r, '#8a8378')))),
+    body(ctx, G) {
+      const y1 = G.d.ruJet.petal; // petals from the tail end up to y1
+      ctx.fillStyle = PartPaint.flat ? '#3a3e44' : metalGradient(ctx, G.l, G.r); ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, y1 + 1);
+      ctx.fillStyle = 'rgba(160,110,60,0.35)'; ctx.fillRect(G.l - 1, G.Y(y1), G.w + 2, Math.min(0.6, (G.h - y1) * 0.45)); // heat tint
+      ctx.strokeStyle = 'rgba(12,14,18,0.6)';
+      for (let i = 1; i < 7; i++) { const k = i / 7, s0 = G.at(0.02), s1 = G.at(y1 - 0.02); ctx.beginPath(); ctx.moveTo(G.X(lerp(s0.top, s0.bot, k)), G.Y(0)); ctx.lineTo(G.X(lerp(s1.top, s1.bot, k)), G.Y(y1)); ctx.stroke(); }
+      ctx.strokeStyle = RU_PANEL; ruCross(ctx, G, y1); ruCross(ctx, G, (y1 + G.h) / 2);
+      if (G.p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.45 * G.p.firing})`; ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, 1.12); }
+    },
+  },
+  // a fin: the rudder's hinge (none on an all-moving fin), a red star and a dark tip
+  fin: {
+    body(ctx, G) {
+      const F = G.d.ruFin, s = G.s, inn = G.x - (s * G.w) / 2, out = G.x + (s * G.w) / 2, b = G.b, h = G.h;
+      if (!F.all) { ctx.beginPath(); ctx.moveTo(lerp(inn, out, 0.08), b + h * (F.rte + 0.1)); ctx.lineTo(lerp(inn, out, 0.92), b + h * (F.tte + 0.08)); ctx.stroke(); }
+      ctx.fillStyle = '#3f474f'; ctx.fillRect(Math.min(out, out - s * 0.18), b, 0.18, h);
+      if (F.star) ruStar(ctx, lerp(inn, out, 0.48), b + h * lerp((F.rte + F.tte) / 2, (1 + F.tle) / 2, 0.5), Math.min(G.w, h) * F.star, G.lw);
+    },
+  },
+  // the sensor ball's fairing; the ball itself is drawn over it
+  irst: {
+    body(ctx, G) { ruCross(ctx, G, G.h * 0.3); },
+    over(ctx, G) {
+      const B = G.d.ruBall, cx = G.X(B[0]), cy = G.Y(B[1]);
+      ctx.beginPath(); ctx.arc(cx, cy, B[2], 0, TAU); ctx.fillStyle = PartPaint.flat ? '#b48a3c' : '#c79a46'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx - B[2] * 0.3, cy + B[2] * 0.25, B[2] * 0.3, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+    },
+  },
+  // the internal weapons bay: two doors along the belly, and the missiles still inside
+  bay: {
+    body(ctx, G) {
+      ctx.strokeStyle = 'rgba(20,24,28,0.75)'; ctx.lineWidth = G.lw * 1.2;
+      const a = G.at(G.h / 2);
+      ctx.strokeRect(G.X(a.bot - 0.14), G.Y(0.7), 0.12, G.h - 1.4);
+      ctx.beginPath(); ctx.moveTo(G.X(a.bot - 0.14), G.Y(G.h / 2)); ctx.lineTo(G.X(a.bot - 0.02), G.Y(G.h / 2)); ctx.stroke();
+      ctx.fillStyle = '#d23a2f';
+      for (let i = 0; i < (G.p.ammo == null ? G.d.weapon.ammo : G.p.ammo); i++) ctx.fillRect(G.X(a.top + 0.06), G.Y(1 + i * 0.5), 0.1, 0.32); // missiles left
+    },
+  },
+};
+// A line along the widest part of the hull (a chine), from y0 to y1.
+function ruMid(ctx, G, y0, y1) {
+  ctx.beginPath();
+  for (let i = 0; i <= 16; i++) { const y = lerp(y0, y1, i / 16), s = G.at(y); if (i) ctx.lineTo(G.X(s.mid), G.Y(y)); else ctx.moveTo(G.X(s.mid), G.Y(y)); }
+  ctx.stroke();
 }
