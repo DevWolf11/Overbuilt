@@ -417,6 +417,71 @@ const PARTS = {
     desc: 'Longer frame for trucks and big rovers.' },
   carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
     desc: 'Driven road wheel. Mount it under a chassis. W/S drive, A/D steer the front wheels; hold B to brake.' },
+
+  // ---- 5th generation: the FS-22 (after the F-22) and FS-35 (after the F-35), at full scale. Their bodies are
+  // lofted from cross-sections (us5Lofts, at the end of this file) for both the 2D art and the 3D model (body3d 'us5').
+  // look: the camouflage they come in; fill: how much of the side-view box's front the body really fills (drag);
+  // doors: bay or gun doors that open only to fire (stealthOf counts them while open); bayRack: where each store
+  // leaves the bay, by store; vec2d: a flat nozzle that vectors in pitch only; irK: the exhaust's heat, as seen by
+  // heat seekers; pairMirror: the left one of a pair is the mirror image (canted fins, gear legs).
+  us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radar: 18000, stealth: 0.7,
+    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
+    desc: 'The FS-22’s chined nose: a sharp-edged radome, a long radar and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it.' },
+  us5Intake22: { cat: 'air', name: 'FS-22 Caret-Intake Fuselage', w: 2.2, h: 4.4, depth: 4.66, mass: 3.3, fuel: 2.6, stealth: 0.7, shape: 'us5body', us5: 'intake22',
+    body3d: 'us5', look: 'raptor', fill: 0.45, bay: true, doors: true, bayRack: [[0.38, -0.78, -2.67], [0.38, -0.78, 2.67]], tier: 4, cost: 11000,
+    weapon: { kind: 'missile', seek: 'air', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
+    desc: 'The FS-22’s middle: raked caret intakes on both cheeks, and a heat-seeking missile in a side bay behind each one. The doors swing out only to fire, so it stays stealthy until then.' },
+  us5Bay22: { cat: 'weapons', name: 'Internal Missile Bay', w: 2.2, h: 3.8, depth: 4.66, mass: 3.0, fuel: 1.4, stealth: 0.7, shape: 'us5body', us5: 'bay22', body3d: 'us5',
+    look: 'raptor', fill: 0.57, bay: true, doors: true, tier: 4, cost: 13000,
+    bayRack: [[1.05, 0, -0.16], [1.05, 0, 0.16], [1.05, 0, -0.47], [1.05, 0, 0.47], [1.05, 0, -0.78], [1.05, 0, 0.78]],
+    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 6, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'The FS-22’s belly bay: six radar missiles inside, out of the wind and out of sight. The doors snap open for each launch and shut again, and only while they are open do enemy radars see you sooner (watch ◈).' },
+  us5Aft22: { cat: 'air', name: 'FS-22 Aft Fuselage', w: 2.2, h: 2.0, depth: 4.5, mass: 1.9, fuel: 0.6, stealth: 0.7, shape: 'us5body', us5: 'aft22', body3d: 'us5', look: 'raptor',
+    fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-22’s tail end, with the booms that carry its tailplanes. Two Flat Vectoring Nozzle Engines go behind it, the Canted Twin Tails on top.' },
+  us5Eng22: { cat: 'airEng', name: 'Flat Vectoring Nozzle Engine', w: 1.2, h: 3.1, depth: 1.48, mass: 1.8, thrust: 186, ispSL: 5400, ispVac: 5400, gimbal: 0.35, vec2d: true, irK: 0.7,
+    stealth: 0.6, air: { kind: 'jet', vmax: 580, ab: 1.3 }, shape: 'jet', us5: 'eng22', body3d: 'us5', look: 'raptor', plume: 'jet', maxTemp: 2300, tier: 4, cost: 24000,
+    desc: 'The FS-22’s engine: strong enough to cruise past Mach 1.5 without the afterburner, and its flat nozzle swings up and down with the stick to pitch the plane, even stalled. It also hides the hot exhaust from heat seekers. Fit them in pairs.' },
+  us5Wing22: { cat: 'wings', name: 'FS-22 Wing', w: 0.45, h: 9.84, mass: 3.0, fuel: 2.2, shape: 'wing', us5: 'wing', look: 'raptor', breakSpeed: 14, tier: 4, cost: 8000,
+    wing: { area: 78, span: 13.56, sweep: 0.539, taper: 0.83, stall: 0.48, mcrit: 0.92, wave: 0.5, load: 2.6, dihedral: -0.05, flaps: true, vne: 486, mmax: 2.5 },
+    desc: 'The FS-22’s big clipped-diamond wing, with fuel inside: swept 42° at the front and forwards at the back. Lifts at high angles, slips through the sound barrier. Put its root on the chines of the bay section.' },
+  us5Tail22: { cat: 'wings', name: 'FS-22 Stabilators', w: 0.3, h: 5.6, mass: 0.65, shape: 'elevator', us5: 'wing', look: 'raptor', breakSpeed: 14, tier: 4, cost: 3000,
+    wing: { area: 20, span: 8.84, sweep: 0.57, taper: 0.82, control: 0.35, root: 1.95 },
+    desc: 'All-moving tailplanes in the same diamond shape as the wing, on booms beside the engines. They pitch the plane and help it roll.' },
+  us5Fins22: { cat: 'wings', name: 'FS-22 Canted Twin Tails', w: 2.6, h: 4, mass: 0.55, twinZ: 2.0, stealth: 0.7, cant: 0.49, tipC: 1.5, tipLE: 1.25, shape: 'vtail', us5: 'fin',
+    body3d: 'us5', look: 'raptor', pairMirror: true, tier: 4, cost: 2500,
+    desc: 'A pair of big fins leaning outwards (28°), so radar waves glance off them, with rudders. Mount them on top of the aft fuselage.' },
+  us5Gun: { cat: 'weapons', name: 'Internal Rotary Cannon', w: 0.35, h: 1.8, depth: 0.45, mass: 0.3, stealth: 0.7, shape: 'gun', us5: 'gun', body3d: 'us5', look: 'raptor', barrels: 6, calibre: 20,
+    doors: true, tier: 3, cost: 8000, weapon: { kind: 'gun', ammo: 480, rate: 50, speed: 1050, dmg: 14, spread: 0.004, each: 0.26 },
+    desc: 'A 20 mm six-barrel cannon buried in the skin, behind a door that snaps open as you fire: a stealth fighter’s gun. Mount it beside the fuselage at a wing root.' },
+  us5GearN: { cat: 'airGear', name: 'Stealth Nose Gear', w: 0.9, h: 0.8, mass: 0.25, shape: 'gear', us5: 'gear', body3d: 'us5', wheel: { r: 0.33, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 8, tier: 3, cost: 1500, desc: 'One steerable wheel on a tall leg that folds away (G), behind doors. For the nose of a big fighter.' },
+  us5GearM: { cat: 'airGear', name: 'Stealth Main Gear', w: 0.9, h: 1.0, mass: 0.7, shape: 'gear', us5: 'gear', body3d: 'us5', twinZ: 1.6, pairMirror: true,
+    wheel: { r: 0.45, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9, tier: 3, cost: 2600,
+    desc: 'A pair of single-wheel legs that fold into the fuselage sides (G). For heavy fighters.' },
+  us5Nose35: { cat: 'cabins', name: 'FS-35 Stealth Nose', w: 2.4, h: 4.5, depth: 2.44, mass: 1.8, control: 3, torque: 3000, crew: 1, radar: 16000, stealth: 0.65,
+    shape: 'us5body', us5: 'nose35', body3d: 'us5', look: 'lightning', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 15000,
+    desc: 'The FS-35’s nose: a chined radome, the faceted window of its targeting camera under the chin and a tall bulged canopy for a good view. Put the Bump-Intake Fuselage behind it.' },
+  us5Intake35: { cat: 'air', name: 'FS-35 Bump-Intake Fuselage', w: 2.4, h: 2.6, depth: 3.9, mass: 2.5, fuel: 1.8, stealth: 0.65, shape: 'us5body', us5: 'intake35', body3d: 'us5',
+    look: 'lightning', fill: 0.45, tier: 4, cost: 8000,
+    desc: 'The FS-35’s intakes: a smooth bump on each side sweeps the slow air away, so the inlets need no splitter plate, and the raked lips hide the engine face from radar.' },
+  us5Bay35: { cat: 'weapons', name: 'FS-35 Missile Bays', w: 2.4, h: 3.8, depth: 3.84, mass: 2.3, fuel: 1.7, stealth: 0.65, shape: 'us5body', us5: 'bay35', body3d: 'us5',
+    look: 'lightning', fill: 0.58, bay: true, doors: true, tier: 4, cost: 12000, bayRack: [[1.16, 0, -0.33], [1.16, 0, 0.33], [1.16, 0, -0.7], [1.16, 0, 0.7]],
+    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'Two bays in the FS-35’s belly, left and right, with two radar missiles each. Their doors open only for a launch, so the plane keeps its stealth until it shoots.' },
+  us5Aft35: { cat: 'air', name: 'FS-35 Aft Fuselage', w: 2.4, h: 2.4, depth: 3.6, mass: 1.5, fuel: 0.9, stealth: 0.65, shape: 'us5body', us5: 'aft35', body3d: 'us5', look: 'lightning',
+    fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-35’s tail end around its single big engine, with booms for the tailplanes. The FS-35 Stealth Turbofan goes behind it.' },
+  us5Eng35: { cat: 'airEng', name: 'FS-35 Stealth Turbofan', w: 1.5, h: 2.4, depth: 1.52, mass: 1.75, thrust: 196, ispSL: 5300, ispVac: 5300, gimbal: 0.02, irK: 0.85, stealth: 0.6,
+    air: { kind: 'jet', vmax: 450, ab: 1.47 }, shape: 'jet', us5: 'eng35', body3d: 'us5', look: 'lightning', plume: 'jet', maxTemp: 2300, tier: 4, cost: 32000,
+    desc: 'One huge fighter engine, the most powerful ever fitted to a fighter, with a sawtooth-edged round nozzle that scatters radar. Afterburner above 90%. Runs out of puff past about Mach 1.6.' },
+  us5Wing35: { cat: 'wings', name: 'FS-35 Wing', w: 0.45, h: 6.46, mass: 2.0, fuel: 1.8, shape: 'wing', us5: 'wing', look: 'lightning', breakSpeed: 14, tier: 4, cost: 7000,
+    wing: { area: 42.7, span: 10.7, sweep: 0.418, taper: 0.765, stall: 0.52, mcrit: 0.88, wave: 0.6, load: 3.3, dihedral: 0.02, flaps: true, vne: 458, mmax: 2.0 },
+    desc: 'The FS-35’s trapezoid wing, swept 34°, with fuel inside: big for the plane, so it is agile at low speed.' },
+  us5Tail35: { cat: 'wings', name: 'FS-35 Stabilators', w: 0.25, h: 4.4, mass: 0.45, shape: 'elevator', us5: 'wing', look: 'lightning', breakSpeed: 14, tier: 4, cost: 2500,
+    wing: { area: 12, span: 6.7, sweep: 0.5, taper: 0.8, control: 0.35, root: 1.5 },
+    desc: 'All-moving tailplanes for the FS-35, on the booms beside its engine.' },
+  us5Fins35: { cat: 'wings', name: 'FS-35 Canted Twin Tails', w: 2.1, h: 2.8, mass: 0.35, twinZ: 1.45, stealth: 0.65, cant: 0.35, tipC: 1.05, tipLE: 1.35, shape: 'vtail', us5: 'fin',
+    body3d: 'us5', look: 'lightning', pairMirror: true, tier: 4, cost: 2000,
+    desc: 'The FS-35’s fins, leaning out 20°, with rudders. Mount them on top of the aft fuselage.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -878,14 +943,19 @@ const SKINS = {
   orange: { name: 'Safety orange', base: '#ff7a1a' },
   yellow: { name: 'Trainer yellow', base: '#f2c230' },
   metal: { name: 'Bare metal', base: '#8d96a0', paint: 'metal', accent: 'keep', rough: 0.35, metal: 0.75 },
+  // 5th-generation camouflage (camo: a second tone laid over the base in soft blotches; pat: which pattern, us5CamoAt)
+  raptor: { name: 'FS-22 two-tone stealth grey', base: '#8a9199', camo: '#6a7179', pat: 0, accent: null, rough: 0.6, metal: 0.22 },
+  lightning: { name: 'FS-35 radar-absorbent grey', base: '#5c6269', camo: '#50565d', pat: 1, accent: null, rough: 0.5, metal: 0.25 },
+  splinter: { name: 'Aggressor splinter', base: '#97a3ad', camo: '#46505a', pat: 2, accent: null, rough: 0.6, metal: 0.12 },
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint.
 const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
-// The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey).
-function ownSkin(d) { return d.style === 'stealth' ? 'stealth' : null; }
+// The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part
+// that comes in a camouflage of its own, the 5th-generation ones).
+function ownSkin(d) { return d.look || (d.style === 'stealth' ? 'stealth' : null); }
 // What a part looks painted in: its skin, else its own look.
 function skinOf(p) { return p.skin || ownSkin(p.def); }
 
@@ -908,6 +978,7 @@ function tintGradient0(ctx, l, r, c) { // hull shading in another colour
 // The painted body: the skin's own painter or its colour with hull shading.
 function skinFill(ctx, l, r) {
   const s = PartPaint.skin;
+  if (s.camo) return us5CamoFill(ctx, s); // (a two-tone camouflage: its pattern, in metres)
   switch (s.paint) {
     case 'hull': return hullGradient0(ctx, l, r);
     case 'dark': return darkGradient0(ctx, l, r);
@@ -1089,6 +1160,7 @@ function partPath0(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
   const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
   ctx.beginPath();
+  if (d.us5) { us5Path(ctx, p); return; } // (the 5th-generation look-alikes: at the end of this file)
   switch (d.shape) {
     case 'pod': {
       const tw = w * 0.42;
@@ -1219,7 +1291,8 @@ function drawPart0(ctx, p, lw) {
   ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(8,11,16,0.9)';
-  switch (d.shape) {
+  if (d.us5) us5Draw(ctx, p, lw); // (the 5th-generation look-alikes draw themselves, at the end of this file; the heat glow follows)
+  else switch (d.shape) {
     case 'pod': {
       const tw = w * 0.42;
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
@@ -2035,3 +2108,450 @@ function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
 }
+
+// ===========================================================================
+// 5th-generation look-alikes: the FS-22 (after the F-22 Raptor) and the FS-35 (after the F-35 Lightning II). Their
+// shapes, camouflage and 2D art. A body is lofted through cross-sections, `rings` of points [x, y, z] in the part's own
+// frame (+x down, +y towards the nose, +z the right wing); the same lofts make the 2D outline and art here and the 3D
+// model (parts3d.js, BUILD.us5), so the two agree. A loft is { rings, kind: 'body' (in its paint) or a material
+// ('goldglass', 'intake'...), smooth (rounded, not faceted), open (an arch such as a canopy: nothing from its last
+// point back to its first), caps: 'front' | 'back' | 'both' (else none) and capKind, skip: [[i, k]] faces left out
+// (between rings i and i+1 and points k and k+1) where a door fills the hole, sil: false to leave it out of the outline }.
+
+// A table of sections [y, ...] (y ascending), at y (clamped to its ends).
+function us5Lerp(rows, y) {
+  if (y <= rows[0][0]) return rows[0].slice(1);
+  for (let i = 1; i < rows.length; i++) if (y <= rows[i][0]) {
+    const a = rows[i - 1], b = rows[i], k = (y - a[0]) / (b[0] - a[0]);
+    return a.slice(1).map((v, j) => v + (b[j + 1] - v) * k);
+  }
+  return rows[rows.length - 1].slice(1);
+}
+// A stealth section r = [top, bot, cw, cx, tw, bw]: a flat spine (x = top) sloping out to sharp chines cw out at
+// height cx, and a belly (x = bot) with flat sides bw out. keels: points on the belly at these half widths
+// (descending), where bay doors hinge.
+function us5Hex(y, r, keels) {
+  const [top, bot, cw, cx, tw, bw] = r, sh = top + (cx - top) * 0.18, lo = bot - (bot - cx) * 0.22;
+  const K = (keels || []).map((z) => [bot + (lo - bot) * (z / bw), y, z]);
+  return [[top, y, 0], [sh, y, tw], [cx, y, cw], [lo, y, bw], ...K, [bot, y, 0], ...K.slice().reverse().map((q) => [q[0], y, -q[2]]), [lo, y, -bw], [cx, y, -cw], [sh, y, -tw]];
+}
+// The upper half of a section, closed by a flat underside at the chines (a shelf over the intakes).
+function us5Lid(y, r) { const [top, , cw, cx, tw] = r, sh = top + (cx - top) * 0.18; return [[cx, y, cw], [sh, y, tw], [top, y, 0], [sh, y, -tw], [cx, y, -cw]]; }
+// The lower middle of a body b = [bot, cw, cx, bw, lo]: from the chines (cw out at height cx) down to a belly.
+function us5Belly(y, b) { const [bot, cw, cx, bw, lo] = b; return [[cx, y, -cw], [lo, y, -bw], [bot, y, 0], [lo, y, bw], [cx, y, cw]]; }
+// The spine's height at z across a section: where a canopy sits.
+function us5Top(r, z) {
+  const [top, , cw, cx, tw] = r, sh = top + (cx - top) * 0.18, a = Math.abs(z);
+  return a <= tw ? top + ((sh - top) * a) / (tw || 1) : a <= cw ? sh + ((cx - sh) * (a - tw)) / (cw - tw || 1) : cx;
+}
+// An arch from the left sill over the top to the right one: a canopy's section (hgt above the sill, hw out).
+function us5Arch(y, sill, hgt, hw, n = 12) {
+  const R = [];
+  for (let i = 0; i <= n; i++) { const a = Math.PI * (1 - i / n); R.push([sill - hgt * Math.pow(Math.sin(a), 0.7), y, hw * Math.cos(a)]); }
+  return R;
+}
+// An ellipse round (xc, zc), rz across and rx up and down (n points, starting at the top).
+function us5Oval(y, xc, zc, rz, rx, n = 16, rot = 0) {
+  const R = [];
+  for (let i = 0; i < n; i++) { const a = rot + (i / n) * TAU; R.push([xc - rx * Math.cos(a), y, zc + rz * Math.sin(a)]); }
+  return R;
+}
+// A canopy on a table of sections, from its stations [y, height, half width].
+function us5Canopy(rows, C, kind = 'goldglass') {
+  return { rings: C.map(([y, hg, hw]) => us5Arch(y, us5Top(us5Lerp(rows, y), hw) + 0.015, hg, hw)), kind, smooth: true, open: true, canopy: true };
+}
+const us5Mirror = (R) => R.map((q) => [q[0], q[1], -q[2]]);
+
+// The bays, shared by the art and the 3D model: the doors' extent along the part (y0..y1); each door [the ring point
+// it hinges on, the point it reaches to (fractional: between two points), how far it swings open (radians about the
+// long axis)] on the rings of the bay's loft (the right duct, for side bays); where the stores sit (mx: their height
+// inside; at: [x, z] of a side bay's missile, shut) and the cavity's roof.
+const US5_BAYS = {
+  intake22: { y0: 0.6, y1: -2.15, side: true, doors: [[1, 2, -1.3]], msl: 'aim9', at: [0.42, 2.0] },
+  bay22: { y0: 1.8, y1: -1.8, doors: [[4, 5, -1.75], [6, 5, 1.75]], msl: 'aim120', mx: 0.6, roof: 0.3 },
+  bay35: { y0: 1.75, y1: -1.75, doors: [[4, 4.5, -1.7], [5, 4.5, 1.7], [7, 7.5, -1.7], [8, 7.5, 1.7]], msl: 'aim120', mx: 0.68, roof: 0.42 },
+};
+// A ring point by a fractional index (between two points).
+function us5At(R, f) { const i = Math.floor(f), k = f - i, a = R[i], b = R[Math.min(R.length - 1, i + 1)]; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
+// Where a door's free edge is ([x, z]) when open by k (0 shut .. 1 open), turned about its hinge as rotation.y turns it in 3D.
+function us5Swing(R, door, k) {
+  const h = R[door[0]], f = us5At(R, door[1]), a = door[2] * k, dx = f[0] - h[0], dz = f[2] - h[2];
+  return [h[0] + dx * Math.cos(a) + dz * Math.sin(a), h[2] - dx * Math.sin(a) + dz * Math.cos(a)];
+}
+
+const US5_N22 = [[-2.8, -0.85, 0.88, 1.18, 0.07, 0.46, 0.64], [-2.0, -0.80, 0.84, 1.10, 0.07, 0.44, 0.60], [-1.0, -0.70, 0.76, 0.98, 0.08, 0.40, 0.52],
+  [0, -0.58, 0.66, 0.80, 0.09, 0.33, 0.40], [0.8, -0.44, 0.55, 0.62, 0.10, 0.26, 0.30], [1.6, -0.28, 0.43, 0.41, 0.11, 0.17, 0.19],
+  [2.3, -0.11, 0.28, 0.20, 0.12, 0.07, 0.09], [2.8, 0.12, 0.12, 0, 0.12, 0, 0]];
+const US5_N35 = [[-2.25, -0.95, 1.0, 1.22, 0.08, 0.46, 0.7], [-1.2, -0.84, 0.94, 1.07, 0.10, 0.41, 0.6], [-0.1, -0.65, 0.80, 0.85, 0.12, 0.32, 0.44],
+  [0.95, -0.42, 0.59, 0.57, 0.14, 0.21, 0.27], [1.75, -0.16, 0.37, 0.26, 0.15, 0.08, 0.1], [2.25, 0.17, 0.17, 0, 0.17, 0, 0]];
+// the FS-22's body behind its intakes, wide over the ducts (front and back of the bay section), and the FS-35's
+const US5_MID22 = [-0.88, 0.92, 2.33, -0.05, 0.55, 2.0], US5_MID22B = [-0.86, 0.90, 2.27, -0.05, 0.58, 1.95];
+const US5_MID35 = [-1.15, 1.05, 1.92, -0.02, 0.6, 1.62], US5_MID35B = [-1.06, 1.03, 1.88, -0.02, 0.62, 1.58];
+// a duct beside the body: [inner top, outer top, outer bottom, inner bottom] at y, each [x, z] (z on the right)
+const us5Duct = (y, it, ot, ob, ib) => [[it[0], y, it[1]], [ot[0], y, ot[1]], [ob[0], y, ob[1]], [ib[0], y, ib[1]]];
+// a pair of lofts, the right one and its mirror image
+const us5Pair = (L) => [L, { ...L, rings: L.rings.map(us5Mirror), left: true }];
+// a tail boom beside the engines at (xc, zc), tapering off behind y1
+const us5Boom = (y0, y1, xc, zc, hw, hx) => ({ rings: [us5Oval(y0, xc, zc, hw, hx, 6), us5Oval((y0 + y1) / 2, xc, zc, hw, hx, 6), us5Oval(y1 + 0.5, xc, zc, hw * 0.6, hx * 0.7, 6), us5Oval(y1, xc + hx * 0.2, zc, 0.02, 0.02, 6)] });
+
+const US5_SHAPES = {
+  nose22() {
+    return [{ rings: US5_N22.map((r) => us5Hex(r[0], r.slice(1))), caps: 'back', chine: true },
+      us5Canopy(US5_N22, [[0.6, 0, 0.06], [0.3, 0.3, 0.3], [-0.25, 0.52, 0.43], [-0.85, 0.66, 0.48], [-1.5, 0.7, 0.49], [-2.2, 0.62, 0.47], [-2.9, 0.45, 0.42], [-3.4, 0.24, 0.32], [-3.75, 0.03, 0.16]])];
+  },
+  intake22() {
+    const LID = [[-2.2, ...US5_MID22], [0.9, -0.87, 0, 2.31, -0.04, 0.52, 0], [1.4, -0.865, 0, 2.06, -0.01, 0.5, 0], [1.8, -0.86, 0, 1.62, 0.03, 0.48, 0], [2.2, ...US5_N22[0].slice(1)]];
+    const BELLY = [[-2.2, 0.92, 1.24, -0.05, 1.24, 0.80], [0.6, 0.91, 1.24, -0.04, 1.22, 0.79], [1.6, 0.9, 1.22, 0.0, 0.95, 0.75], [2.2, 0.88, 1.18, 0.07, 0.64, 0.702]];
+    const duct = { rings: [[[0.02, 1.15, 1.26], [-0.04, 0.75, 2.30], [0.76, 1.65, 2.06], [0.84, 2.2, 1.27]],
+      us5Duct(0.6, [0.0, 1.26], [-0.05, 2.31], [0.75, 2.04], [0.81, 1.27]), us5Duct(-2.15, [-0.02, 1.25], [-0.05, 2.33], [0.73, 2.0], [0.8, 1.25]),
+      us5Duct(-2.2, [-0.02, 1.25], [-0.05, 2.33], [0.73, 2.0], [0.8, 1.25])], caps: 'front', capKind: 'intake', inset: 0.06, skip: [[1, 1]], duct: true };
+    return [{ rings: [-2.2, 0.9, 1.4, 1.8, 2.2].map((y) => us5Lid(y, us5Lerp(LID, y))), chine: true },
+      { rings: [-2.2, 0.6, 1.6, 2.2].map((y) => us5Belly(y, us5Lerp(BELLY, y))) }, ...us5Pair(duct)];
+  },
+  bay22() { // (the bay's floor is flat between the keels, where its doors hinge)
+    const B = [[-1.9, ...US5_MID22B], [1.9, ...US5_MID22]], R = [-1.9, -1.8, 1.8, 1.9].map((y) => us5Hex(y, us5Lerp(B, y), [0.95]));
+    for (const r of [R[1], R[2]]) r[5][0] = r[4][0];
+    return [{ rings: R, skip: [[1, 4], [1, 5]], chine: true }];
+  },
+  aft22() {
+    const A = [[-1.0, -0.70, 0.66, 1.72, -0.02, 0.85, 1.35], [0.2, -0.82, 0.84, 2.12, -0.04, 0.68, 1.8], [1.0, ...US5_MID22B]];
+    // and between the engines, a flat tail fairing (the "beaver tail") running back between the nozzles
+    const dia = (y, top, bot, hw) => [[top, y, 0], [(top + bot) / 2, y, hw], [bot, y, 0], [(top + bot) / 2, y, -hw]];
+    const tail = { rings: [dia(-0.9, -0.42, 0.34, 0.24), dia(-2.0, -0.24, 0.2, 0.16), dia(-3.0, -0.05, 0.05, 0.02)] };
+    return [{ rings: [-1.0, -0.4, 0.2, 0.6, 1.0].map((y) => us5Hex(y, us5Lerp(A, y))), caps: 'back', chine: true }, ...us5Pair(us5Boom(0.4, -3.4, 0.2, 1.98, 0.21, 0.32)), tail];
+  },
+  nose35() {
+    return [{ rings: US5_N35.map((r) => us5Hex(r[0], r.slice(1))), caps: 'back', chine: true },
+      us5Canopy(US5_N35, [[0.3, 0, 0.07], [0.0, 0.38, 0.36], [-0.45, 0.62, 0.5], [-1.0, 0.75, 0.56], [-1.65, 0.75, 0.56], [-2.25, 0.63, 0.53], [-2.75, 0.43, 0.46], [-3.05, 0.2, 0.33], [-3.2, 0.03, 0.18]])];
+  },
+  intake35() {
+    const LID = [[-1.3, ...US5_MID35], [0.15, -1.14, 0, 1.9, -0.01, 0.57, 0], [0.75, -1.06, 0, 1.6, 0.04, 0.5, 0], [1.3, ...US5_N35[0].slice(1)]];
+    const BELLY = [[-1.3, 1.05, 1.27, -0.02, 1.27, 0.87], [0.3, 1.04, 1.27, 0.0, 1.25, 0.86], [1.3, 1.0, 1.22, 0.08, 0.7, 0.81]];
+    const duct = { rings: [[[0.02, 1.0, 1.28], [-0.03, 0.88, 1.93], [0.8, 0.32, 1.66], [0.88, 0.48, 1.29]],
+      us5Duct(0.2, [0.0, 1.28], [-0.02, 1.93], [0.8, 1.65], [0.87, 1.28]), us5Duct(-1.3, [-0.02, 1.27], [-0.02, 1.92], [0.815, 1.62], [0.87, 1.27])],
+    caps: 'front', capKind: 'intake', inset: 0.06, duct: true };
+    // the bump: a smooth bulge on the body's side just ahead of each inlet (it pushes the slow air aside)
+    const bump = { rings: [1.45, 1.25, 1.0, 0.75, 0.5].map((y, i) => us5Oval(y, 0.42, 1.2, [0.03, 0.12, 0.17, 0.18, 0.16][i], [0.12, 0.33, 0.41, 0.42, 0.4][i], 12)), smooth: true, sil: false };
+    return [{ rings: [-1.3, 0.15, 0.75, 1.3].map((y) => us5Lid(y, us5Lerp(LID, y))), chine: true },
+      { rings: [-1.3, 0.3, 1.3].map((y) => us5Belly(y, us5Lerp(BELLY, y))) }, ...us5Pair(duct), ...us5Pair(bump)];
+  },
+  bay35() { // (two flat-floored bays, a keel between them)
+    const B = [[-1.9, ...US5_MID35B], [1.9, ...US5_MID35]], R = [-1.9, -1.75, 1.75, 1.9].map((y) => us5Hex(y, us5Lerp(B, y), [0.9, 0.12]));
+    for (const r of [R[1], R[2]]) { r[5][0] = r[4][0]; r[7][0] = r[8][0]; }
+    return [{ rings: R, skip: [[1, 4], [1, 7]], chine: true }];
+  },
+  aft35() {
+    const A = [[-1.2, -0.82, 0.8, 1.22, 0.0, 0.5, 0.78], [-0.2, -0.96, 0.95, 1.62, -0.01, 0.56, 1.25], [1.2, ...US5_MID35B]];
+    return [{ rings: [-1.2, -0.7, -0.2, 0.5, 1.2].map((y) => us5Hex(y, us5Lerp(A, y))), caps: 'back', chine: true }, ...us5Pair(us5Boom(0.0, -2.4, 0.2, 1.55, 0.2, 0.3))];
+  },
+  eng22() { // the nacelle back to the nozzle's throat (the nozzle itself is drawn on its own: it swivels)
+    const box = (y, hw, hh, c) => [[-hh, y, -hw + c], [-hh, y, hw - c], [-hh + c, y, hw], [hh - c, y, hw], [hh, y, hw - c], [hh, y, -hw + c], [hh - c, y, -hw], [-hh + c, y, -hw]];
+    return [{ rings: [box(-0.45, 0.6, 0.47, 0.12), box(0.5, 0.71, 0.56, 0.18), box(1.55, 0.74, 0.6, 0.2)], caps: 'front' }];
+  },
+  eng35() {
+    return [{ rings: [us5Oval(0.15, 0, 0, 0.73, 0.73, 24), us5Oval(0.6, 0, 0, 0.75, 0.75, 24), us5Oval(1.2, 0, 0, 0.75, 0.75, 24)], smooth: true, caps: 'front' }];
+  },
+};
+// The lofts of a part type (worked out once, kept on its def out of sight).
+function us5Lofts(d) {
+  if (!d._us5) Object.defineProperty(d, '_us5', { value: US5_SHAPES[d.us5] ? US5_SHAPES[d.us5]().map((L) => ({ kind: 'body', ...L })) : [], enumerable: false });
+  return d._us5;
+}
+// A loft seen from the side (+z): along its top edge from the back to the front, then back along its bottom.
+function us5Side(L) {
+  const top = [], bot = [];
+  for (const R of L.rings) {
+    let a = R[0], b = R[0];
+    for (const q of R) { if (q[0] < a[0]) a = q; if (q[0] > b[0]) b = q; }
+    top.push([a[0], a[1]]); bot.push([b[0], b[1]]);
+  }
+  return [...top, ...bot.reverse()];
+}
+// Its chine: the point furthest out on the right, ring by ring.
+function us5Chine(L) { return L.rings.map((R) => R.reduce((m, q) => (q[2] > m[2] ? q : m), R[0])).map((q) => [q[0], q[1]]); }
+
+// Flat parts in the part's frame: a canted fin seen from the side (its root on the inner edge, its tip on the outer;
+// flip: standing up from the top of the plane), the flat nozzle (its flaps swivel about the hinge; the sidewall
+// stays), the round one.
+function us5FinPoly(d, flip) {
+  const s = flip ? -1 : 1, xi = -s * d.w / 2, xo = s * d.w / 2, t = d.h / 2;
+  return [[xi, t], [xo, t - d.tipLE], [xo, t - d.tipLE - d.tipC], [xi, -t]];
+}
+const US5_NOZ22 = { hinge: -0.45, len: 1.1, x0: 0.44, x1: 0.17, hw: 0.55, side: [[-0.48, -0.45], [0.48, -0.45], [0.48, -1.42], [-0.48, -1.12]] };
+const US5_NOZ35 = { y0: 0.15, y1: -1.2, r0: 0.7, r1: 0.55, teeth: 14 };
+// The gun's fairing seen from the side: a low hump on its base (the side it mounts by), the port at the front.
+function us5GunPoly(d, flip) {
+  const b = flip ? 1 : -1, t = d.h / 2, base = b * d.w / 2, H = d.w * 0.55;
+  return [[base, -t], [base, t - 0.05], [base - b * H * 0.6, t], [base - b * H, t - 0.4], [base - b * H * 0.85, -t + 0.6], [base - b * 0.01, -t]];
+}
+
+// ---- camouflage: soft blotches of a second tone (the skin's camo) over its base, repeating every 16 m; u, v in metres
+const US5_CAMO_TILE = 16;
+function us5CamoAt(pat, u, v) {
+  const k = TAU / US5_CAMO_TILE, s = Math.sin;
+  if (pat === 1) { // fine, faint patches: the quilted look of a radar-absorbent coat
+    const n = s(4 * k * u + 0.9 * s(3 * k * v)) * s(4 * k * v + 0.8 * s(2 * k * u + 1.3)) + 0.3 * s(7 * k * u - 5 * k * v);
+    return smoothstep(0.15, 0.45, n);
+  }
+  if (pat === 2) { // hard-edged splinters
+    const n = s(3 * k * u + 2 * k * v + 1.1) + 0.8 * s(5 * k * u - 3 * k * v + 0.4) + 0.6 * s(k * u + 4 * k * v);
+    return smoothstep(0.22, 0.34, n);
+  }
+  const n = s(2 * k * u + 1.6 * s(k * v + 0.7)) * s(2 * k * v + 1.4 * s(3 * k * u + 1.9)) + 0.35 * s(k * u - 3 * k * v + 1.2 * s(2 * k * v));
+  return smoothstep(0.08, 0.32, n);
+}
+const US5_CAMO = {};
+// The pattern as a tile (a canvas, 16 px a metre), per skin.
+function us5CamoTile(S) {
+  if (US5_CAMO[S.name]) return US5_CAMO[S.name];
+  const N = 256, c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d'), img = g.createImageData(N, N), A = parseInt(S.base.slice(1), 16), B = parseInt(S.camo.slice(1), 16);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const t = us5CamoAt(S.pat, ((i + 0.5) / N) * US5_CAMO_TILE, ((j + 0.5) / N) * US5_CAMO_TILE), o = (j * N + i) * 4;
+    for (let ch = 0; ch < 3; ch++) { const sh = 16 - ch * 8, a = (A >> sh) & 255, b = (B >> sh) & 255; img.data[o + ch] = Math.round(a + (b - a) * t); }
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return (US5_CAMO[S.name] = c);
+}
+// The fill of a camouflaged skin: its tile as a pattern in metres (in the coordinates of whatever is being drawn).
+function us5CamoFill(ctx, S) {
+  if (typeof document === 'undefined' || !ctx.createPattern) return S.base;
+  const pat = ctx.createPattern(us5CamoTile(S), 'repeat');
+  if (!pat) return S.base;
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix().scale(US5_CAMO_TILE / 256));
+  return pat;
+}
+
+// ---- 2D: the outline (each loft from the side, and the flat parts' shapes) and the art.
+function us5Path(ctx, p) {
+  const d = p.def, poly = (P) => { P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
+  if (d.us5 === 'wing') { foilPath(ctx, p); return; }
+  if (d.us5 === 'gear') {
+    const g = wheelGeom(p), s = p.flip ? -1 : 1, i = p.x - s * d.w / 2;
+    ctx.rect(Math.min(i, g.x) - 0.08, g.y - 0.09, Math.abs(g.x - i) + 0.16, 0.18); ctx.moveTo(g.x + g.r, g.y); ctx.arc(g.x, g.y, g.r, 0, TAU);
+    return;
+  }
+  ctx.save(); ctx.translate(p.x, p.y);
+  if (d.us5 === 'fin') poly(us5FinPoly(d, p.flip));
+  else if (d.us5 === 'gun') poly(us5GunPoly(d, p.flip));
+  else if (d.us5 === 'eng22') { const N = US5_NOZ22; poly(N.side); poly([[-N.x0, N.hinge], [N.x0, N.hinge], [N.x1, N.hinge - N.len], [-N.x1, N.hinge - N.len]]); }
+  else if (d.us5 === 'eng35') { const N = US5_NOZ35; poly([[-N.r0, N.y0], [N.r0, N.y0], [N.r1, N.y1], [-N.r1, N.y1]]); }
+  for (const L of us5Lofts(d)) if (L.kind === 'body' && L.sil !== false) poly(us5Side(L));
+  ctx.restore();
+}
+
+function us5Draw(ctx, p, lw) {
+  const d = p.def, prev = PartPaint.skin, own = !prev && d.look && hasOwn(SKINS, d.look);
+  if (own) PartPaint.skin = SKINS[d.look]; // (their own look: a camouflage, as if painted)
+  try { (US5_ART[d.us5] || US5_ART.body)(ctx, p, lw, d); } finally { PartPaint.skin = prev; }
+}
+// Draw in the part's frame (x and y relative to its centre).
+function us5Local(ctx, p, f) { ctx.save(); ctx.translate(p.x, p.y); try { f(); } finally { ctx.restore(); } }
+const us5Poly = (ctx, P) => { ctx.beginPath(); P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
+const US5_INK = 'rgba(8,11,16,0.9)', US5_LINE = 'rgba(18,22,27,0.42)';
+// The body: every loft in its paint, on the blueprint with a soft light from above, and its chines as creases.
+function us5Body(ctx, p, lw, d) {
+  const L = us5Lofts(d).filter((q) => q.kind === 'body' && q.sil !== false), w = d.w;
+  partPath(ctx, p); ctx.fillStyle = skinFill(ctx, p.x - w / 2, p.x + w / 2); ctx.fill();
+  if (!PartPaint.flat) {
+    ctx.save(); partPath(ctx, p); ctx.clip();
+    const g = ctx.createLinearGradient(p.x - w / 2, 0, p.x + w / 2, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0.16)'); g.addColorStop(0.42, 'rgba(255,255,255,0)'); g.addColorStop(0.58, 'rgba(0,0,0,0.04)'); g.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = g; ctx.fillRect(p.x - w, p.y - d.h, w * 2, d.h * 2);
+    ctx.restore();
+  }
+  us5Local(ctx, p, () => {
+    ctx.strokeStyle = 'rgba(12,15,19,0.5)'; ctx.lineWidth = lw * 1.1;
+    for (const q of L) if (q.chine) { ctx.beginPath(); us5Chine(q).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+  });
+}
+function us5Outline(ctx, p, lw) { ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; partPath(ctx, p); ctx.stroke(); }
+// A panel line across a body at y, from its spine to its belly, sawtooth-edged as on a stealth plane.
+function us5Seam(ctx, rows, y, k, lw) {
+  const r = us5Lerp(rows, y), n = 5, dx = (r[1] - r[0] - 0.08) / n;
+  ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(r[0] + 0.04, y);
+  for (let i = 0; i < n; i++) { ctx.lineTo(r[0] + 0.04 + dx * (i + 0.5), y + k); ctx.lineTo(r[0] + 0.04 + dx * (i + 1), y); }
+  ctx.stroke();
+}
+// A missile seen from the side, nose forward, centred on (x, y): white, with fins (aim9: slim, with canards).
+function us5Missile(ctx, x, y, len, kind, lw) {
+  const r = kind === 'aim9' ? 0.065 : 0.09, t = y + len / 2, b = y - len / 2, f = kind === 'aim9' ? 0.16 : 0.2;
+  ctx.fillStyle = '#e6e9ec'; ctx.strokeStyle = US5_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x - r, b); ctx.lineTo(x - r, t - r * 3); ctx.quadraticCurveTo(x, t + 0.02, x + r, t - r * 3); ctx.lineTo(x + r, b); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#9aa3ad';
+  for (const yy of [b, kind === 'aim9' ? t - len * 0.22 : y]) { ctx.beginPath(); ctx.moveTo(x - r - f, yy); ctx.lineTo(x + r + f, yy); ctx.lineTo(x + r, yy + f * 1.4); ctx.lineTo(x - r, yy + f * 1.4); ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle = kind === 'aim9' ? '#3b4652' : '#c9cfd6'; ctx.fillRect(x - r, t - r * 3.2, r * 2, r * 1.2);
+}
+// A canopy: gold-tinted glass from its sill up, with a long reflection; frame: a bow across it at that y.
+function us5Glass(ctx, p, lw, d, frame) {
+  const C = us5Lofts(d).find((q) => q.canopy);
+  us5Local(ctx, p, () => {
+    const P = us5Side(C), top = Math.min(...P.map((q) => q[0])), sill = Math.max(...P.map((q) => q[0]));
+    us5Poly(ctx, P);
+    let g = '#c3974a';
+    if (!PartPaint.flat) { g = ctx.createLinearGradient(top, 0, sill, 0); g.addColorStop(0, '#f0d38a'); g.addColorStop(0.5, '#c79a45'); g.addColorStop(1, '#7c5a22'); }
+    ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+    const n = Math.floor(P.length / 2), a = P[Math.floor(n * 0.3)], b = P[Math.floor(n * 0.75)];
+    ctx.strokeStyle = 'rgba(255,248,225,0.55)'; ctx.lineWidth = lw * 2.2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(a[0] + 0.1, a[1]); ctx.lineTo(b[0] + 0.08, b[1]); ctx.stroke(); ctx.lineCap = 'butt';
+    if (frame != null) {
+      const q = P.slice(0, n).reduce((m, v) => (Math.abs(v[1] - frame) < Math.abs(m[1] - frame) ? v : m), P[0]);
+      ctx.strokeStyle = US5_INK; ctx.lineWidth = lw * 2.4; ctx.beginPath(); ctx.moveTo(q[0], frame); ctx.lineTo(sill - 0.02, frame); ctx.stroke();
+    }
+  });
+}
+// Bay doors on a belly, seen edge-on from the side: a seam when shut; open, they hang below the belly.
+function us5BellyDoors(ctx, p, lw, d, B) {
+  const k = clamp(p.deployed || 0, 0, 1), R = us5Lofts(d)[0].rings, bot = (i) => Math.max(...R[i].map((q) => q[0]));
+  us5Local(ctx, p, () => {
+    ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(bot(2) - 0.02, B.y0 + 0.05); ctx.lineTo(bot(2) - 0.12, B.y0 - 0.1); ctx.lineTo(bot(1) - 0.12, B.y1 + 0.1); ctx.lineTo(bot(1) - 0.02, B.y1 - 0.05); ctx.stroke();
+    if (k <= 0) return;
+    const drop = Math.max(...B.doors.map((D) => us5Swing(R[1], D, k)[0])) - bot(1);
+    ctx.fillStyle = bodyTone('#5a6068', -0.35); ctx.strokeStyle = US5_INK;
+    us5Poly(ctx, [[bot(2) - 0.05, B.y0 - 0.05], [bot(2) + drop, B.y0 - 0.25], [bot(1) + drop, B.y1 + 0.05], [bot(1) - 0.05, B.y1 + 0.05]]); ctx.fill(); ctx.stroke();
+  });
+}
+
+const US5_ART = {
+  body(ctx, p, lw, d) { us5Body(ctx, p, lw, d); us5Outline(ctx, p, lw); },
+  nose22(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => { us5Seam(ctx, US5_N22, 1.0, 0.12, lw); us5Seam(ctx, US5_N22, -2.7, -0.1, lw); });
+    us5Outline(ctx, p, lw);
+    us5Glass(ctx, p, lw, d, null);
+  },
+  nose35(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      us5Seam(ctx, US5_N35, 0.9, 0.12, lw);
+      const r = us5Lerp(US5_N35, 0.45)[1]; // the targeting camera's faceted window under the chin
+      us5Poly(ctx, [[r - 0.03, 0.85], [r + 0.13, 0.62], [r + 0.13, 0.2], [r - 0.03, 0.05]]); ctx.fillStyle = '#2a3a52'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.strokeStyle = 'rgba(160,200,255,0.5)'; ctx.beginPath(); ctx.moveTo(r + 0.05, 0.7); ctx.lineTo(r + 0.05, 0.3); ctx.stroke();
+    });
+    us5Outline(ctx, p, lw);
+    us5Glass(ctx, p, lw, d, -2.3);
+  },
+  intake22(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    const B = US5_BAYS.intake22, D = B.doors[0], k = clamp(p.deployed || 0, 0, 1), duct = us5Lofts(d).find((q) => q.duct);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, duct.rings[0].map((q) => [q[0], q[1]])); ctx.fillStyle = '#121519'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke(); // the inlet
+      // the side bay's door on the duct, sawtooth at both ends; open, the bay is dark and the missile swings out on its arm
+      const R = duct.rings[1], h = R[D[0]], hx = h[0], fx = us5At(R, D[1])[0], door = [[hx + 0.03, B.y0], [fx - 0.03, B.y0 - 0.12], [fx - 0.03, B.y1 + 0.12], [hx + 0.03, B.y1]];
+      us5Poly(ctx, door);
+      if (k > 0) {
+        ctx.fillStyle = '#16191d'; ctx.fill();
+        const tip = us5Swing(R, D, k)[0], a = D[2] * k, x = hx + (B.at[0] - hx) * Math.cos(a) + (B.at[1] - h[2]) * Math.sin(a);
+        us5Poly(ctx, [[hx, B.y0], [tip, B.y0 - 0.12], [tip, B.y1 + 0.12], [hx, B.y1]]); ctx.fillStyle = skinFill(ctx, hx, tip); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.stroke();
+        if ((p.ammo == null ? 2 : p.ammo) > 0) us5Missile(ctx, x, (B.y0 + B.y1) / 2, 2.7, 'aim9', lw);
+      } else { ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.stroke(); }
+      us5Seam(ctx, [[-2.2, ...US5_MID22], [2.2, ...US5_MID22]], -2.1, 0.1, lw);
+    });
+    us5Outline(ctx, p, lw);
+  },
+  intake35(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      const m = us5Lofts(d).find((q) => q.duct).rings[0];
+      ctx.beginPath(); ctx.ellipse(0.42, 1.0, 0.36, 0.42, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fill(); // the bump, catching the light
+      ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.stroke();
+      us5Poly(ctx, m.map((q) => [q[0], q[1]])); ctx.fillStyle = '#121519'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.stroke(); // the inlet
+      us5Seam(ctx, [[-1.3, ...US5_MID35], [1.3, ...US5_MID35]], -1.2, 0.1, lw);
+    });
+    us5Outline(ctx, p, lw);
+  },
+  bay22(ctx, p, lw, d) {
+    const rows = [[-1.9, ...US5_MID22B], [1.9, ...US5_MID22]];
+    us5Body(ctx, p, lw, d);
+    us5BellyDoors(ctx, p, lw, d, US5_BAYS.bay22);
+    us5Local(ctx, p, () => us5Seam(ctx, rows, -1.75, 0.1, lw));
+    us5Outline(ctx, p, lw);
+  },
+  bay35(ctx, p, lw, d) {
+    const rows = [[-1.9, ...US5_MID35B], [1.9, ...US5_MID35]];
+    us5Body(ctx, p, lw, d);
+    us5BellyDoors(ctx, p, lw, d, US5_BAYS.bay35);
+    us5Local(ctx, p, () => us5Seam(ctx, rows, 1.8, -0.1, lw));
+    us5Outline(ctx, p, lw);
+  },
+  eng22(ctx, p, lw, d) {
+    const N = US5_NOZ22;
+    us5Local(ctx, p, () => { // the flaps (swivelling about the throat with the stick), behind the fixed sidewall
+      ctx.save(); ctx.translate(0, N.hinge); ctx.rotate(p.deflect || 0);
+      us5Poly(ctx, [[-N.x0, 0], [N.x0, 0], [N.x1, -N.len], [-N.x1, -N.len]]); ctx.fillStyle = bodyMetal(ctx, -N.x0, N.x0); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.fillStyle = p.firing > 0 ? `rgba(255,150,80,${0.25 + 0.5 * p.firing})` : '#15181c'; ctx.fillRect(-N.x1 + 0.05, -N.len, (N.x1 - 0.05) * 2, 0.12);
+      ctx.restore();
+    });
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, N.side); ctx.fillStyle = skinFill(ctx, -0.5, 0.5); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.strokeStyle = US5_LINE; ctx.beginPath(); ctx.moveTo(-0.45, 0.9); ctx.lineTo(0.45, 0.9); ctx.stroke();
+    });
+    us5Outline(ctx, p, lw);
+  },
+  eng35(ctx, p, lw, d) {
+    const N = US5_NOZ35;
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => { // the round nozzle, its trailing edge in teeth
+      us5Poly(ctx, [[-N.r0, N.y0], [N.r0, N.y0], [N.r1, N.y1 + 0.12], [-N.r1, N.y1 + 0.12]]); ctx.fillStyle = bodyGrad(ctx, -N.r0, N.r0, () => (PartPaint.flat ? '#4a4f56' : tintGradient0(ctx, -N.r0, N.r0, '#4a4f56'))); ctx.fill();
+      ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.fillStyle = '#3d4248'; ctx.beginPath();
+      const n = 7;
+      ctx.moveTo(-N.r1, N.y1 + 0.12);
+      for (let i = 0; i < n; i++) { const x = -N.r1 + (2 * N.r1 * i) / n; ctx.lineTo(x + N.r1 / n, N.y1); ctx.lineTo(x + (2 * N.r1) / n, N.y1 + 0.12); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = US5_LINE;
+      for (const yy of [-0.3, -0.75]) { const k = (N.y0 - yy) / (N.y0 - N.y1), rr = N.r0 + (N.r1 - N.r0) * k; ctx.beginPath(); ctx.moveTo(-rr, yy); ctx.lineTo(rr, yy); ctx.stroke(); }
+      if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.4 * p.firing})`; ctx.fillRect(-N.r1, N.y1, N.r1 * 2, 0.12); }
+    });
+    us5Outline(ctx, p, lw);
+  },
+  wing(ctx, p, lw, d) { // in its paint: a darker leading edge, and the flaperons (or the moving tail's hinge) as a seam
+    const { x, y } = p, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, t = y + h / 2, b = y - h / 2;
+    partPath(ctx, p); ctx.fillStyle = skinFill(ctx, l, r); ctx.fill();
+    ctx.save(); partPath(ctx, p); ctx.clip();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(l - 1, t - h * 0.06, w + 2, h * 0.06);
+    ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(l - 1, b + h * (d.wing.control ? 0.5 : 0.2)); ctx.lineTo(r + 1, b + h * (d.wing.control ? 0.5 : 0.2)); ctx.stroke();
+    ctx.restore();
+    us5Outline(ctx, p, lw);
+  },
+  fin(ctx, p, lw, d) { // a canted fin from the side, with its rudder
+    const P = us5FinPoly(d, p.flip);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, P); ctx.fillStyle = skinFill(ctx, -d.w / 2, d.w / 2); ctx.fill();
+      if (!PartPaint.flat) { ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.fill(); }
+      const k = 0.3, a = [P[3][0] + (P[0][0] - P[3][0]) * 0.1, P[3][1] + d.h * k * 0.95], c = [P[2][0], P[2][1] + d.tipC * k];
+      ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0] - (c[0] - a[0]) * 0.06, c[1]); ctx.stroke();
+      us5Poly(ctx, P); ctx.strokeStyle = US5_INK; ctx.stroke();
+    });
+  },
+  gun(ctx, p, lw, d) { // a low fairing with the gun's port at the front; firing, the door on top lifts and the barrels show
+    const P = us5GunPoly(d, p.flip), b = p.flip ? 1 : -1, k = clamp(p.deployed || 0, 0, 1), t = d.h / 2, base = b * d.w / 2, H = d.w * 0.55;
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, P); ctx.fillStyle = skinFill(ctx, -d.w / 2, d.w / 2); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      const xa = base - b * H * 0.7, xb = base - b * H * 0.15;
+      ctx.fillStyle = '#121519'; ctx.fillRect(Math.min(xa, xb), t - 0.28, Math.abs(xb - xa), 0.26); // the port
+      if (k > 0) { ctx.fillStyle = '#4a5058'; ctx.fillRect(Math.min(xa, xb) + 0.02, t - 0.26, Math.abs(xb - xa) - 0.04, 0.05); }
+      ctx.save(); ctx.translate(base - b * (H + 0.01), t - 0.42); ctx.rotate(b * k);
+      ctx.strokeStyle = k > 0 ? US5_INK : US5_LINE; ctx.lineWidth = lw * (k > 0 ? 2 : 1); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 0.42); ctx.stroke();
+      ctx.restore();
+    });
+  },
+  gear(ctx, p, lw, d) { // a tall leg down to one wheel, a door beside it; folded away, nothing shows
+    if (p.retracted) return;
+    const g = wheelGeom(p), s = p.flip ? -1 : 1, i = p.x - s * d.w / 2;
+    ctx.fillStyle = PAL.steelLight; ctx.fillRect(Math.min(i, g.x), g.y - 0.07, Math.abs(g.x - i), 0.14);
+    ctx.fillStyle = PAL.steelDark; ctx.fillRect(Math.min(i, i + s * 0.35), g.y - 0.11, 0.35, 0.22);
+    ctx.fillStyle = '#4f555c'; ctx.fillRect(Math.min(i, i + s * d.w * 0.6), g.y + 0.16, d.w * 0.6, 0.05); // the gear door, edge-on
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.58, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
+    ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = g.r * 0.12; ctx.beginPath();
+    for (let k = 0; k < 5; k++) { const a = (p.spin || 0) + (k * TAU) / 5; ctx.moveTo(g.x, g.y); ctx.lineTo(g.x + Math.cos(a) * g.r * 0.55, g.y + Math.sin(a) * g.r * 0.55); }
+    ctx.stroke(); ctx.lineWidth = lw;
+  },
+};

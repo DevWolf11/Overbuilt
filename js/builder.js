@@ -146,6 +146,23 @@ const TEMPLATES = {
     name: 'Hummingbird', kind: 'heli', tier: 1, blurb: 'A bubble-canopy helicopter on skids, with a slim tail boom. Lift gently: skids slide rather than roll.',
     parts: [['cockpitHeli', 0, 1.7], ['tankS', 0, 3.4], ['rotor', -0.4, 4.5], ['tailBoom', -3.7, 1.2, 1], ['tailRotor', -5.6, 2.35], ['skids', 0, -0.1, 3]],
   },
+  // 5th generation, at full scale (the indices in att count from 0 down each list)
+  fs22: {
+    name: 'FS-22', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-generation air-superiority fighter: stealthy, it cruises past Mach 1.5 without the afterburner and pitches on flat vectoring nozzles. Six radar missiles and two heat seekers hide in its bays; the doors open only to fire.',
+    parts: [['us5Nose22', 0, 16.1], ['us5Intake22', 0, 11.1], ['us5Bay22', 0, 7.0], ['us5Aft22', 0, 4.1],
+      ['us5Eng22', 0, 1.55, 0, { z: 0.86, att: 3 }], ['us5Eng22', 0, 1.55, 0, { z: -0.86, att: 3 }],
+      ['us5Wing22', -0.05, 7.68], ['us5Tail22', 0.35, 2.66], ['us5Fins22', -1.42, 4.3, 0, { att: 3 }],
+      ['us5GearN', 1.55, 13.7, 0, { att: 0 }], ['us5GearM', 1.55, 7.4, 0, { att: 2 }], ['us5Gun', -0.25, 9.6, 0, { z: 2.555, att: 1 }]],
+  },
+  fs35: {
+    name: 'FS-35', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-generation stealth multirole fighter: one huge engine, bump intakes and a bulged canopy, four radar missiles in its belly bays and a hidden cannon. Mach 1.6, and very hard to see coming.',
+    parts: [['us5Nose35', 0, 13.45], ['us5Intake35', 0, 9.9], ['us5Bay35', 0, 6.7], ['us5Aft35', 0, 3.6], ['us5Eng35', 0, 1.2, 0, { att: 3 }],
+      ['us5Wing35', -0.02, 6.77], ['us5Tail35', 0.35, 2.45], ['us5Fins35', -1.17, 3.5, 0, { att: 3 }],
+      ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }]],
+    paint: { us5Gun: 'lightning' },
+  },
 };
 
 // A template's parts as design rows.
@@ -1188,7 +1205,7 @@ const Builder = {
     const box = $('#pi-skins');
     if (!box.childElementCount) for (const id of ['', ...SKIN_IDS]) {
       const sk = SKINS[id], b = el('button', { class: 'skin-sw' + (id ? '' : ' own'), role: 'radio', 'data-skin': id, title: sk ? sk.name : 'Its own colours', 'aria-label': sk ? sk.name : 'Its own colours' });
-      if (sk) b.style.background = sk.base;
+      if (sk) b.style.background = sk.camo ? `linear-gradient(135deg, ${sk.base} 0 45%, ${sk.camo} 45% 70%, ${sk.base} 70%)` : sk.base; // (a camouflage: both its tones)
       box.append(b);
     }
     const cur = new Set(list.map((q) => q.skin || ''));
