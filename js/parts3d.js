@@ -17,6 +17,7 @@ const Parts3D = (() => {
     shield: { map: true, roughness: 0.85, metalness: 0.05 },
     sep: { map: true, roughness: 0.55, metalness: 0.3 },
     vc: { vertexColors: true, roughness: 0.42, metalness: 0.2 },
+    vcCamo: { vertexColors: true, roughness: 0.42, metalness: 0.2, camo: true }, // (a wing in camouflage: its colours times the pattern)
     steel: { color: PAL.steel, roughness: 0.4, metalness: 0.7 },
     gunmetal: { color: '#2e3338', roughness: 0.45, metalness: 0.75 },
     mil: { color: '#7d8790', roughness: 0.6, metalness: 0.3 },
@@ -55,7 +56,7 @@ const Parts3D = (() => {
   const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
     wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
     gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
-    turret: 'turret', dronecore: 'drone' };
+    turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft' };
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
@@ -430,14 +431,16 @@ const Parts3D = (() => {
   // dihedral tilts the halves up (-x); an elliptical planform curves the chord to the tips; winglets turn
   // up at the tips.
   function wingGeo(d, o = {}) {
-    const S = o.skin ? SKINS[o.skin] : (d.look && SKINS[d.look]) || null, white = lin(S ? S.base : '#eef1f4'), lead = lin(S ? shade(S.base, -0.25) : '#9aa3ad'), tip = lin(S ? skinTip(S) : PAL.orange);
+    // (camouflage: the colours stay white, a darker leading edge, and the pattern comes from the material's texture, vcCamo)
+    const S = o.skin ? SKINS[o.skin] : (d.look && SKINS[d.look]) || null, camo = !!(S && S.camo);
+    const white = camo ? [1, 1, 1] : lin(S ? S.base : '#eef1f4'), lead = camo ? [0.62, 0.62, 0.62] : lin(S ? shade(S.base, -0.25) : '#9aa3ad'), tip = camo ? white : lin(S ? skinTip(S) : PAL.orange);
     const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2;
     const sw = o.sweep != null ? o.sweep : wd.sweep, th = o.thick || w;
     const taper = wd.taper != null ? wd.taper : 0.45, back = sw ? Math.tan(sw) * half : 0.08 * half;
     const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
+    if (wd.plan) return camoUV(planGeo(wd.plan, half, th, cd, sd, white, lead, tip), camo);
     const chord = (s) => wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - s * s * 0.96)) : h * (1 - taper * s);
-    let A = [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]];
-    if (S && S.camo) { A = [[-1, tip], [-0.86, tip]]; for (let j = 0; j <= 30; j++) A.push([-0.86 + (1.72 * j) / 30, white]); A.push([0.86, tip], [1, tip]); } // (finer, for the pattern)
+    const A = [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]];
     // root: a tailplane on booms beside the engines shows only outboard of them, each half its own loft
     const s0 = wd.root ? Math.min(0.8, wd.root / half) : 0, halves = s0 ? [-1, 1] : [o.half || 0];
     const parts = halves.map((hs) => {
@@ -454,30 +457,117 @@ const Parts3D = (() => {
       if (s0 && hs < 0) put(-s0, white); // (the left half ends at its root)
       return st;
     });
-    let g = parts.length > 1 ? merge(parts.map((st) => sweep(st, 'foil'))) : sweep(parts[0], 'foil');
-    if (S && S.camo) { // the camouflage's blotches over the body colour, by where each point is on the wing (the planform: y, z)
-      const P = g.attributes.position, C = g.attributes.color, cam = lin(S.camo), wr = Math.fround(white[0]), wg = Math.fround(white[1]), wb = Math.fround(white[2]);
-      for (let i = 0; i < P.count; i++) if (C.getX(i) === wr && C.getY(i) === wg && C.getZ(i) === wb) {
-        const t = us5CamoAt(S.pat, P.getZ(i), P.getY(i));
-        C.setXYZ(i, white[0] + (cam[0] - white[0]) * t, white[1] + (cam[1] - white[1]) * t, white[2] + (cam[2] - white[2]) * t);
-      }
-    }
-    if (!wd.winglets) return g;
+    const g = parts.length > 1 ? merge(parts.map((st) => sweep(st, 'foil'))) : sweep(parts[0], 'foil');
+    if (!wd.winglets) return camoUV(g, camo);
     const fins = [g];
     for (const a of o.half ? [o.half] : [-1, 1]) { // an upturned fin at each tip, swept back
       const c = chord(1), qc = h / 4 - back, x0 = -half * sd, z = a * half * cd, hw = h * 0.55;
       fins.push(sweep([{ o: [x0, qc + c / 4, z], A: [0, -1, 0], B: [0, 0, 1], c, t: th * 0.15, col: white, lead },
         { o: [x0 - hw, qc + c / 4 - hw * 0.6, z], A: [0, -1, 0], B: [0, 0, 1], c: c * 0.45, t: th * 0.08, col: tip, lead: tip }], 'foil'));
     }
-    return merge(fins);
+    return camoUV(merge(fins), camo);
   }
+  // A plan's leading and trailing edges at s (straight between its stations), and whether s is in its open middle.
+  function planAt(P, s) {
+    if (s < P[0][0]) return [P[0][1], P[0][2], true];
+    for (let i = 1; i < P.length; i++) if (P[i][0] >= s) { const a = P[i - 1], b = P[i], k = (s - a[0]) / (b[0] - a[0] || 1); return [lerp(a[1], b[1], k), lerp(a[2], b[2], k), false]; }
+    const e = P[P.length - 1];
+    return [e[1], e[2], false];
+  }
+  // A wing drawn to its planform (def.wing.plan, the Russian look-alike jets): a station at each corner of the plan,
+  // tip bands from 86% of the half-span, tip to tip in one piece, or each half on its own when the plan leaves the
+  // middle open (tailerons beside the engines).
+  function planGeo(P, half, th, cd, sd, white, lead, tip) {
+    const ss = [];
+    for (const r of P) if (r[0] < 0.86) ss.push([r[0], white]);
+    ss.push([0.86, white], [0.86, tip]);
+    for (const r of P) if (r[0] > 0.86) ss.push([r[0], tip]);
+    const half1 = (sg) => ss.map(([s, col]) => {
+      const [le, te] = planAt(P, s);
+      return { o: [-s * half * sd, le, sg * s * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c: Math.max(0.02, le - te), t: (th / 2) * (1 - 0.4 * s), col, lead };
+    });
+    if (P[0][0] > 0.001) return merge([sweep(half1(-1), 'foil'), sweep(half1(1), 'foil')]);
+    return sweep(half1(-1).reverse().concat(half1(1).slice(1)), 'foil');
+  }
+  // A camouflaged wing takes the pattern as seen from above: u and v from where a point is across and along it.
+  function camoUV(g, on) {
+    if (!on) return g;
+    const P = g.attributes.position, uv = new Float32Array(P.count * 2), T = CAMO_TILE / CAMO_PX;
+    for (let i = 0; i < P.count; i++) { uv[i * 2] = P.getZ(i) / T; uv[i * 2 + 1] = P.getY(i) / T; }
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    return g;
+  }
+  // A loft's surface (parts.js ruSample: the Russian look-alike jets): a ring of the section's outline at each
+  // station, quads between them and a flat face at each end of a run (so a step shows its ring); with a chine, the
+  // upper and lower halves keep their own edge. UVs project the 2D art from the side, a little inside the outline
+  // as latheGeo's do.
+  function loftGeo(lf, d, withUV) {
+    const K = 14, zc = lf.z || 0, [tw] = texSize(d), iu = (2.5 * d.w) / tw, out = [], ang = [];
+    if (lf.chine) for (const a0 of [0, Math.PI]) for (let i = 0; i <= K; i++) ang.push(a0 + (i / K) * Math.PI);
+    else for (let i = 0; i < 2 * K; i++) ang.push((i / (2 * K)) * TAU);
+    const M = ang.length, strips = lf.chine ? [[0, K, false], [K + 1, 2 * K + 1, false]] : [[0, M - 1, true]];
+    const uvOf = (s, x) => { const c = (s.top + s.bot) / 2, hh = Math.max(1e-6, (s.bot - s.top) / 2), k = Math.max(0, hh - iu) / hh; return [(c + (x - c) * k) / d.w + 0.5, s.y / d.h + 0.5]; };
+    const runs = [];
+    let run = [];
+    for (const s of lf.st) { if (s.step && run.length) { runs.push(run); run = []; } run.push(s); }
+    runs.push(run);
+    for (const R of runs) {
+      const pos = [], uv = [], idx = [];
+      for (const s of R) for (const a of ang) { const [x, z] = ruPt(s, a, zc); pos.push(x, s.y, z); if (withUV) uv.push(...uvOf(s, x)); }
+      for (let j = 0; j + 1 < R.length; j++) for (const [a0, a1, wrap] of strips) for (let i = a0; i < (wrap ? a1 + 1 : a1); i++) {
+        const i1 = wrap && i === a1 ? a0 : i + 1, A = j * M + i, B = j * M + i1, C = (j + 1) * M + i1, D = (j + 1) * M + i;
+        idx.push(A, C, B, A, D, C);
+      }
+      if (R.length > 1) out.push(geo(pos, null, withUV ? uv : null, idx));
+      for (const [s, fy] of [[R[0], -1], [R[R.length - 1], 1]]) { // its flat ends
+        if (lf.open || s.hw < 1e-3 || s.bot - s.top < 1e-3) continue;
+        const cx = (s.top + s.bot) / 2, cp = [cx, s.y, zc], cn = [0, fy, 0], cu = withUV ? uvOf(s, cx) : [], ci = [];
+        for (const a of ang) { const [x, z] = ruPt(s, a, zc); cp.push(x, s.y, z); cn.push(0, fy, 0); if (withUV) cu.push(...uvOf(s, x)); }
+        for (let i = 1; i <= M; i++) { const i1 = i === M ? 1 : i + 1; if (fy > 0) ci.push(0, i1, i); else ci.push(0, i, i1); }
+        out.push(geo(cp, cn, withUV ? cu : null, ci));
+      }
+    }
+    return out.length > 1 ? merge(out) : out[0];
+  }
+  // A raked intake's dark mouth: a sheet just outside the hull's top face (or its underside: 'bot') between
+  // def.ruIntake's two heights.
+  function ruIntake(d, list) {
+    const [y0, y1, side] = d.ruIntake, bot = side === 'bot', n = 10, m = 8, pos = [], idx = [];
+    for (let i = 0; i <= n; i++) {
+      const y = lerp(y0, y1, i / n), s = ruAt(d, y), e = bot ? s.nb : s.nt;
+      for (let j = 0; j <= m; j++) {
+        const z = ((j / m) * 2 - 1) * s.hw * 0.86, k = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(z) / Math.max(s.hw, 1e-6), e)), 1 / e);
+        pos.push(bot ? s.mid + (s.bot - s.mid) * k + 0.02 : s.mid - (s.mid - s.top) * k - 0.02, y - d.h / 2, z);
+      }
+    }
+    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) { const a = i * (m + 1) + j; idx.push(a, a + 1, a + m + 2, a, a + m + 2, a + m + 1); }
+    list.push([geo(pos, null, null, idx), 'intake']);
+  }
+  // The Russian look-alike jets' own fittings, by def.ru: list.push([geometry, material kind]).
+  const RU3D = {
+    // a nozzle's dark throat inside its exit ring (dy: where the part's tail end is, from the model's origin)
+    exit(d, list, dy = 0) {
+      const r = d.ruJet.exit, y = -d.h / 2 + dy;
+      list.push([new THREE.LatheGeometry([v2(r, y), v2(r * 0.86, y + 0.25), v2(r * 0.5, y + 0.6), v2(0.001, y + 0.72)], 28), 'nozzle']);
+    },
+    jet(d, flip, list) { if (!d.loft.some((L) => L.vec != null)) RU3D.exit(d, list); },
+    nacelle: (d, flip, list) => ruIntake(d, list),
+    nose21(d, flip, list) { // the dark intake round the shock cone, and the pitot boom over the lip
+      const lip = d.ruLip - d.h / 2, r = ruAt(d, d.ruLip - 0.02), cone = ruAt(d, d.ruLip - 0.05, 1), c = (r.top + r.bot) / 2;
+      list.push([new THREE.RingGeometry((cone.bot - cone.top) / 2, (r.bot - r.top) / 2 - 0.01, 32).rotateX(Math.PI / 2).translate(c, lip - 0.06, 0), 'intake'],
+        [rod([r.top + 0.12, lip - 0.3, 0], [r.top + 0.12, d.h / 2 + 1.1, 0], 0.025, 8), 'steelDark']);
+    },
+    irst(d, flip, list) { const B = d.ruBall; list.push([new THREE.SphereGeometry(B[2], 24, 16).translate(B[0], B[1] - d.h / 2, 0), 'goldglass']); },
+  };
   // A wing's section za out along the span, as wingGeo builds it, in the wing's unturned frame: leading and
   // trailing edge (y), the chord line's height (x: a dihedral lifts it towards -x), half thickness, and
   // where the tip is (s > 1: past it).
   function wingAt(d, za) {
     const h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
     const taper = wd.taper != null ? wd.taper : 0.45, dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, tip = half * Math.cos(dih);
-    const s = Math.abs(za) / tip, k = Math.min(1, s), c = wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - k * k * 0.96)) : h * (1 - taper * k);
+    const s = Math.abs(za) / tip, k = Math.min(1, s);
+    if (wd.plan) { const [le, te, open] = planAt(wd.plan, k); return { s: open ? 9 : s, le, te, c: open ? 0 : le - te, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip }; } // (open: no wing there)
+    const c = wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - k * k * 0.96)) : h * (1 - taper * k);
     const le = h / 4 - back * k + c / 4;
     return { s, le, te: le - c, c, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip };
   }
@@ -713,18 +803,19 @@ const Parts3D = (() => {
     },
 
     wing(d, flip, skin) { // elevators turn about their quarter chord
+      const sk = skinFor(skin, d), vc = sk && sk.camo ? 'vcCamo' : 'vc'; // (look: a part that comes in a camouflage of its own)
       if (d.wing && d.wing.swing) { // a swing wing: each half pivots at its root (built spread, turned back as it sweeps)
-        const s0 = d.wing.swing[0], half = (sg) => ({ role: sg > 0 ? 'swingP' : 'swingN', pos: [0, d.h / 4, 0], pieces: [[wingGeo(d, { sweep: s0, half: sg, skin }).translate(0, -d.h / 4, 0), 'vc']], subs: [] });
+        const s0 = d.wing.swing[0], half = (sg) => ({ role: sg > 0 ? 'swingP' : 'swingN', pos: [0, d.h / 4, 0], pieces: [[wingGeo(d, { sweep: s0, half: sg, skin }).translate(0, -d.h / 4, 0), vc]], subs: [] });
         return node([[box(d.w * 1.6, d.h * 0.5, 0.9, 0, d.h * 0.2, 0), 'steelDark']], [half(1), half(-1)]);
       }
       const g = wingGeo(d, { skin });
-      if (!(d.wing && d.wing.control)) return node([[g, 'vc']]);
-      return node([], [{ role: 'pivot', pos: [0, d.h / 4, 0], pieces: [[g.translate(0, -d.h / 4, 0), 'vc']], subs: [] }]);
+      if (!(d.wing && d.wing.control)) return node([[g, vc]]);
+      return node([], [{ role: 'pivot', pos: [0, d.h / 4, 0], pieces: [[g.translate(0, -d.h / 4, 0), vc]], subs: [] }]);
     },
 
     biplane(d, flip, skin) { // two wings, interplane struts out on the span, cabane struts by the fuselage and bracing wires
       const wd = d.wing, g = wd.gap / 2, half = wd.span / 2, sd = Math.sin(wd.dihedral || 0), list = [];
-      list.push([merge([wingGeo(d, { thick: wd.thick, skin }).translate(-g, 0, 0), wingGeo(d, { thick: wd.thick, skin }).translate(g, 0, 0)]), 'vc']);
+      list.push([merge([wingGeo(d, { thick: wd.thick, skin }).translate(-g, 0, 0), wingGeo(d, { thick: wd.thick, skin }).translate(g, 0, 0)]), skin && SKINS[skin] && SKINS[skin].camo ? 'vcCamo' : 'vc']);
       const st = [];
       for (const z of [-0.62 * half, 0.62 * half, -0.5, 0.5]) {
         const lift = -Math.abs(z) * sd;
@@ -858,10 +949,43 @@ const Parts3D = (() => {
     // the 5th-generation look-alikes (FS-22, FS-35): bodies lofted from parts.js's us5Lofts, and their fittings
     us5(d, flip) {
       const list = [], subs = [];
-      for (const L of us5Lofts(d)) list.push(...loftGeo(L, d));
+      for (const L of us5Lofts(d)) list.push(...us5LoftGeo(L, d));
       if (US5_FIT[d.us5]) US5_FIT[d.us5](d, flip, list, subs);
       us5SkinUV(list); us5SkinUV(subs);
       return node(list, subs);
+    },
+    // ---- the Russian look-alike jets (MyG and Sugoi)
+    // A lofted hull: each loft of the part in its material (the hull ones painted with the 2D art, seen from the side
+    // as on a lathe part), its canopies in glass and the part's own fittings (RU3D). A loft with `vec` is a vectoring
+    // nozzle: it swings about its throat with the stick (role ruMove).
+    ruLoft(d, flip) {
+      const L = ruLofts(d), list = [], subs = [];
+      for (const lf of L.hull) {
+        if (lf.vec == null) { list.push([loftGeo(lf, d, true), lf.mat || 'hull']); continue; }
+        const piv = lf.vec - d.h / 2, g = loftGeo(lf, d, true).translate(0, -piv, 0), fit = [];
+        RU3D.exit(d, fit, -piv);
+        subs.push(node([[g, lf.mat || 'hull'], ...fit], null, { role: 'ruMove', move: 'vec', pos: [lf.x || 0, piv, lf.z || 0] }));
+      }
+      for (const lf of L.glass) list.push([loftGeo(lf, d, false), lf.gold ? 'goldglass' : 'glass']);
+      if (L.glass.length) { // the pilot, under the highest point of the canopy
+        const st = L.glass[0].st, s = st.reduce((m, q) => (q.top < m.top ? q : m), st[0]);
+        list.push([new THREE.SphereGeometry(0.13, 16, 12).translate(s.top + 0.3, s.y - 0.12, L.glass[0].z || 0), 'helmet']);
+      }
+      if (RU3D[d.ru]) RU3D[d.ru](d, flip, list);
+      return node(list, subs);
+    },
+    // A fin (shape vtail): an airfoil from the root chord on its inner edge to the tip chord on its outer edge,
+    // leaning out across by its cant (the left one of a pair is its mirror image). An all-moving fin turns about a
+    // hinge along its span (role ruMove), with the rudder's deflection.
+    ruFin(d, flip) {
+      const F = d.ruFin, w = d.w, h = d.h, s = flip ? -1 : 1, b = -h / 2, th = (d.depth || 0.15) / 2, white = lin('#eef1f4');
+      const inn = (-s * w) / 2, out = (s * w) / 2, zt = w * Math.tan(F.cant || 0), cr = h * (1 - F.rte), ct = h * (F.tle - F.tte);
+      const g = projUV(sweep([{ o: [inn, b + h, 0], A: [0, -1, 0], B: [0, 0, 1], c: cr, t: th, col: white },
+        { o: [out, b + h * F.tle, zt], A: [0, -1, 0], B: [0, 0, 1], c: ct, t: th * 0.55, col: white }], 'foil'), d, true);
+      if (!F.all) return node([[g, 'hull']]);
+      const r0 = [inn, b + h - cr * 0.5, 0], r1 = [out, b + h * F.tle - ct * 0.5, zt], ax = [r1[0] - r0[0], r1[1] - r0[1], r1[2] - r0[2]], n = Math.hypot(...ax);
+      return node([[box(0.3, 0.5, 0.3, inn + s * 0.1, r0[1], 0), 'steelDark']],
+        [{ role: 'ruMove', move: 'rudder', axis: ax.map((v) => v / n), pos: r0, pieces: [[g.translate(-r0[0], -r0[1], 0), 'hull']], subs: [] }]);
     },
   };
 
@@ -872,7 +996,7 @@ const Parts3D = (() => {
   // camouflage laid on in metres); caps close its ends (a duct's front is its dark inlet, a little inside the lip).
   const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], crs3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const unit3 = (n) => { const l = Math.hypot(n[0], n[1], n[2]) || 1; return [n[0] / l, n[1] / l, n[2] / l]; };
-  function loftGeo(L, d) {
+  function us5LoftGeo(L, d) {
     const R = L.rings, nR = R.length, M = R[0].length, E = L.open ? M - 1 : M, body = L.kind === 'body', T = US5_CAMO_TILE;
     const skip = new Set((L.skip || []).map(([i, k]) => i * 1000 + k)), [tw, th] = texSize(d), ku = 1 - 10 / tw, kv = 1 - 10 / th;
     const mid = (r) => { const c = [0, 0, 0]; for (const q of r) { c[0] += q[0] / M; c[1] += q[1] / M; c[2] += q[2] / M; } return c; };
@@ -976,10 +1100,10 @@ const Parts3D = (() => {
       // the canopy's frame: a dark bow across it towards the back, just proud of the glass
       const C = us5Lofts(d).find((q) => q.canopy).rings, R = C.reduce((m, r) => (Math.abs(r[0][1] + 2.3) < Math.abs(m[0][1] + 2.3) ? r : m), C[0]);
       const bow = (y) => R.map((q) => [q[0] + (q[0] - R[0][0]) * 0.05, y, q[2] * 1.05]);
-      for (const [g, kind] of loftGeo({ rings: [bow(-2.42), bow(-2.28)], kind: 'ink', open: true, smooth: true }, d)) list.push([g, kind]);
+      for (const [g, kind] of us5LoftGeo({ rings: [bow(-2.42), bow(-2.28)], kind: 'ink', open: true, smooth: true }, d)) list.push([g, kind]);
       // the targeting camera's faceted window under the chin
       const bot = (y) => us5Lerp(US5_N35, y)[1], dia = (y, k) => [[bot(y) - 0.02, y, 0], [bot(y) + 0.06 * k, y, 0.13 * k], [bot(y) + 0.13 * k, y, 0], [bot(y) + 0.06 * k, y, -0.13 * k]];
-      for (const [g, kind] of loftGeo({ rings: [dia(0.05, 0), dia(0.2, 1), dia(0.62, 1), dia(0.85, 0)], kind: 'glass' }, d)) list.push([g, kind]);
+      for (const [g, kind] of us5LoftGeo({ rings: [dia(0.05, 0), dia(0.2, 1), dia(0.62, 1), dia(0.85, 0)], kind: 'glass' }, d)) list.push([g, kind]);
     },
     intake22(d, flip, list, subs) { // a side bay in each duct: the door swings out and up, the missile out on its arm
       const B = US5_BAYS.intake22, D = B.doors[0], duct = us5Lofts(d).find((q) => q.duct), R1 = duct.rings[1], R2 = duct.rings[2];
@@ -987,7 +1111,7 @@ const Parts3D = (() => {
       for (const s of [-1, 1]) { // left, then right: the stores' order (combat fires the last one first)
         // the bay: a dark pocket behind the door's hole in the duct wall (open towards the hole)
         const ring = (y, R) => [R[D[0]], [R[D[0]][0] + 0.04, y, R[D[0]][2] - 0.42], [R[D[1]][0] - 0.03, y, R[D[1]][2] - 0.3], R[D[1]]].map((q) => [q[0], y, s * q[2]]);
-        for (const [g, kind] of loftGeo({ rings: [ring(B.y1, R2), ring(B.y0, R1)], kind: 'intake', open: true, caps: 'both' }, d)) list.push([g, kind]);
+        for (const [g, kind] of us5LoftGeo({ rings: [ring(B.y1, R2), ring(B.y0, R1)], kind: 'intake', open: true, caps: 'both' }, d)) list.push([g, kind]);
         subs.push({ role: 'hinge', axis: 'y', open: s * D[2], pos: [hi[0], 0, s * hi[1]],
           pieces: [[us5Slab([0, 0], [fo[0] - hi[0], s * (fo[1] - hi[1])], B.y0, B.y1), 'skin']],
           subs: [node(us5Missile('aim9', 2.7), null, { role: 'store', pos: [B.at[0] - hi[0], yc, s * (B.at[1] - hi[1])] })] });
@@ -1028,7 +1152,7 @@ const Parts3D = (() => {
       const b = flip ? 1 : -1, w = d.w, t = d.h / 2, base = b * w / 2;
       const arch = (y, hg, z0, z1) => { const R = []; for (let i = 0; i <= 10; i++) { const a = Math.PI * (1 - i / 10); R.push([base - b * hg * Math.pow(Math.sin(a), 0.5), y, (z0 + z1) / 2 + ((z1 - z0) / 2) * Math.cos(a)]); } return R; };
       const H = w * 0.55; // (a low hump, most of the part's height is down in the wing root)
-      for (const [g, kind] of loftGeo({ rings: [arch(-t, 0.01, -0.5, 0.0), arch(-t + 0.6, H * 0.85, -0.6, 0.2), arch(t - 0.4, H, -0.6, 0.22), arch(t, H * 0.6, -0.45, 0.14)], kind: 'body', open: true, smooth: true }, d)) list.push([g, kind]);
+      for (const [g, kind] of us5LoftGeo({ rings: [arch(-t, 0.01, -0.5, 0.0), arch(-t + 0.6, H * 0.85, -0.6, 0.2), arch(t - 0.4, H, -0.6, 0.22), arch(t, H * 0.6, -0.45, 0.14)], kind: 'body', open: true, smooth: true }, d)) list.push([g, kind]);
       list.push([box(H * 0.55, 0.05, 0.2, base - b * H * 0.42, t - 0.02, -0.02), 'intake']); // the port
       for (const o of [-0.06, 0.02]) list.push([rod([base - b * H * 0.42, t - 0.6, o], [base - b * H * 0.42, t - 0.06, o], 0.025, 8), 'gunmetal']);
       subs.push({ role: 'hinge', axis: 'z', open: b * 1.0, pos: [base - b * (H + 0.012), t - 0.42, -0.08], pieces: [[box(0.025, 0.42, 0.28, 0, 0.21, 0), 'skin']], subs: [] }); // (a door on top, ahead of the port's hump, lifts as it fires)
@@ -1100,14 +1224,15 @@ const Parts3D = (() => {
     return t;
   }
 
-  // A camouflage's tile (us5CamoTile, parts.js) as a repeating texture, per skin (uv in metres / US5_CAMO_TILE).
+  // A camouflage's 16 m tile as a repeating texture, one per skin, never disposed (uv: metres / 16, as camoUV and
+  // us5SkinUV lay it on): a two-tone one (camo a colour) from parts.js us5CamoTile, a patterned one from camoCanvas.
   const camoTex = new Map();
   function camoTexture(S) {
-    let t = camoTex.get(S.name);
+    let t = camoTex.get(S);
     if (!t) {
-      t = new THREE.CanvasTexture(us5CamoTile(S));
+      t = new THREE.CanvasTexture(typeof S.camo === 'string' ? us5CamoTile(S) : camoCanvas(S));
       t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, aniso);
-      camoTex.set(S.name, t);
+      camoTex.set(S, t);
     }
     return t;
   }
@@ -1140,6 +1265,7 @@ const Parts3D = (() => {
       m.roughness = S.rough != null ? S.rough : own.roughness;
       m.metalness = S.metal != null ? S.metal : own.metalness;
     }
+    if (k.camo && S && S.camo) { m.map = camoTexture(S); m.roughness = S.rough != null ? S.rough : k.roughness; m.metalness = S.metal != null ? S.metal : k.metalness; }
     if (k.vertexColors) m.vertexColors = true;
     if (k.double) m.side = THREE.DoubleSide;
     if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; }
@@ -1286,6 +1412,7 @@ void main() {
       if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'spinRev') (rig.revs = rig.revs || []).push(g); else if (s.role === 'droop') rig.droops.push(g);
       else if (s.role === 'store') (rig.stores = rig.stores || []).push(g); // missiles and bombs, hidden as they're fired
       else if (s.role === 'hinge') { (rig.hinges = rig.hinges || []).push(g); g.userData.hinge = [s.axis || 'y', s.open || 0]; } // a door: opens with p.deployed
+      else if (s.role === 'ruMove') { g.userData.move = s.move; g.userData.side = obj.userData.side || 0; if (s.axis) g.userData.axis = new THREE.Vector3(...s.axis); (rig.ruMove = rig.ruMove || []).push(g); }
       else if (s.role) rig[s.role] = g;
       obj.add(g);
       instance(s, g, rig);
@@ -1303,7 +1430,13 @@ void main() {
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
       nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '',
       holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble', pm: !!d.pairMirror };
-    const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.userData.side = s; root.add(g); return g; }) : [root];
+    const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => {
+      const g = new THREE.Group();
+      g.userData.side = s;
+      if (s < 0 && d.ruMirror) g.scale.z = -1; // (a lopsided pair, as a canted fin: the left one is the mirror image)
+      root.add(g);
+      return g;
+    }) : [root];
     for (const h of holders) instance(m, h, rig);
     rig.nozzle = rig.mats.nozzle || null;
     if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.map((h) => makePlume(p, h));
@@ -1357,6 +1490,7 @@ void main() {
       const half = (wd.span || 5) / 2, s = tz / half;
       if (s > 1.08) return false;
       if ((q.rot || 0) & 1) return true; // a wing turned on its side: trust the side view
+      if (wd.plan) { const W = wingAt(q.def, tz); return W.c > 0 && Math.min(q.y + W.le, pr.t) - Math.max(q.y + W.te, pr.b) > 0.15 * Math.min(W.c, pr.t - pr.b); }
       const h = q.def.h, taper = wd.taper != null ? wd.taper : 0.45, back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half;
       const c = h * (1 - taper * Math.min(s, 1)), le = q.y + h / 4 - back * Math.min(s, 1) + c / 4, te = le - c;
       return Math.min(le, pr.t) - Math.max(te, pr.b) > 0.15 * Math.min(c, pr.t - pr.b);
@@ -1543,6 +1677,7 @@ void main() {
       o = o || {};
       const parts = v.parts, dt = o.dt > 0 ? Math.min(o.dt, 0.25) : 0, time = o.time || 0, rho = o.rho > 0 ? o.rho : 0, high = o.quality !== 'low' && o.quality !== false;
       const stamp = ++this.stamp;
+      this.cmd = v.cmd || null; // (the controls, for vectoring nozzles: none in the builder)
       let rotor = 0;
       for (let i = 0; i < parts.length; i++) {
         const p = parts[i];
@@ -1579,6 +1714,10 @@ void main() {
         if (rig.droops.length) { const k = -lerp(0.06, -0.025, smoothstep(3, 20, rig.rate)); for (const g of rig.droops) g.rotation.z = k; }
       }
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
+      if (rig.ruMove) for (const g of rig.ruMove) { // an all-moving fin turns with its rudder; a vectoring nozzle swings with the stick
+        if (g.userData.move === 'rudder') g.quaternion.setFromAxisAngle(g.userData.axis, (p.deflect || 0) * (d.ruMirror && g.userData.side < 0 ? -1 : 1)); // (a mirrored copy turns back the same way)
+        else { const c = this.cmd, k = 0.26; g.rotation.set(c ? -c.x * k : 0, 0, c ? -(c.z + 0.6 * g.userData.side * c.y) * k : 0); } // (exits swing up for nose up; apart to roll)
+      }
       if (rig.swingP) { const k = (p.sweep != null ? p.sweep : d.wing.swing[0]) - d.wing.swing[0]; rig.swingP.rotation.x = k; rig.swingN.rotation.x = -k; }
       if (rig.yaw) { rig.yaw.rotation.x = p.aimYaw || 0; if (rig.pitch) rig.pitch.rotation.z = p.aimEl || 0; }
       if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: right and left in turn, as combat lets them go

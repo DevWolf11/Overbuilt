@@ -122,6 +122,14 @@ const base = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockp
   for (const p of v.parts) p.skin = 'stealth';
   ok(C.stealthOf(v) === s0, `stealthOf unchanged with every part painted (${s0})`);
 }
+// an IRST ball (the look-alike jets): heat seekers lock on 30% further away; radar and ground missiles as before
+{
+  const { v } = craft(ctx, ctx.TEMPLATES.falcon.parts, 'plane'), W = ['aam', 'radarMissiles', 'agm'].map((k) => ctx.PARTS[k].weapon);
+  const before = W.map((w) => T.rangeOf(v, w));
+  v.parts.push(G.makePart('ruIRST', -1.2, 12));
+  const after = W.map((w) => T.rangeOf(v, w));
+  ok(Math.abs(after[0] - before[0] * 1.3) < 1e-9 && after[1] === before[1] && after[2] === before[2], `IRST: heat seekers lock from 30% further, radar and attack missiles unchanged (${before} -> ${after})`);
+}
 t.done();
 
 // ---- countermeasures: the Chaff Dispenser, the cloud that comes with flares, the HUD status, what the screen shows,

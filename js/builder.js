@@ -163,6 +163,63 @@ const TEMPLATES = {
       ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }]],
     paint: { us5Gun: 'lightning' },
   },
+  // The Russian look-alike jets, at the real aircraft's size and weight (lightly loaded). They are built with the attach
+  // system: [type, x, y, rot, {z, att}], att the index of the part it hangs on (a stack along the centre line needs none).
+  myg21: {
+    name: 'MyG-21', kind: 'plane', tier: 2, military: true,
+    blurb: '3rd-gen interceptor after the MiG-21 Fishbed: a tailed delta with a shock cone in its nose, one thirsty afterburning turbojet, a cannon and two heat seekers. Mach 2 up high; half flaps (F) for take-off.',
+    parts: [['ruNose21', -0.165, 11.95], ['ruBody21', -0.165, 6.3], ['ruR25', 0, 1.6], ['ruWing21', 0.12, 6.45, 0, { att: 1 }], ['ruTail21', 0.18, 1.6, 0, { att: 2 }],
+      ['ruFin21', -1.65, 2.95, 0, { att: 1 }], ['ruVentral21', 0.7, 2.15, 0, { att: 2 }], ['ruGearNose', 1.01, 11.3, 0, { att: 0 }], ['ruGearMain', 0.8, 6.15, 0, { z: 1.35, att: 3 }],
+      ['cannon', 0.87, 7.6, 0, { att: 1 }], ['ruAAM21', 0.39, 4.9, 0, { att: 3 }]],
+    paint: { ruNose21: 'ruFrontline', ruBody21: 'ruFrontline', ruR25: 'ruFrontline', ruWing21: 'ruFrontline', ruTail21: 'ruFrontline', ruFin21: 'ruFrontline', ruVentral21: 'ruFrontline' },
+  },
+  myg29: {
+    name: 'MyG-29', kind: 'plane', tier: 3, military: true,
+    blurb: '4th-gen light fighter after the MiG-29 Fulcrum: twin engines far apart with a lifting tunnel between them, an IRST ball, cannon, heat seekers and radar missiles. Nimble, and Mach 2 up high.',
+    parts: [['ruNose29', -0.1, 13.65], ['ruIRST', -1.03, 13.6, 0, { z: 0.22, att: 0 }], ['ruBody29', -0.275, 6.7], ['ruNacelle29', 0.875, 6.4, 0, { att: 2 }],
+      ['ruRD33', 0.875, 1.7, 0, { att: 3 }], ['ruBeaver29', 0.27, 1.5], ['ruBoom29', 0.45, 3.05, 0, { att: 3 }], ['ruFins29', -0.89, 2.9, 0, { att: 6 }],
+      ['ruWing29', 0.15, 8.075, 0, { att: 2 }], ['ruTail29', 0.45, 2.2, 0, { att: 6 }], ['ruGearNose2', 1.65, 13.0, 0, { att: 0 }], ['ruGearMain', 2.05, 6.45, 0, { z: 1.45, att: 3 }],
+      ['cannon', 0.05, 10.2, 0, { z: -1.35, att: 2 }], ['radarMissiles', 0.546, 5.8, 0, { z: 2.7, att: 8 }], ['aam', 0.508, 5.4, 0, { z: 3.7, att: 8 }],
+      ['aam', 0.495, 5.0, 0, { z: 4.6, att: 8 }], ['flares', 0.62, 1.95, 0, { att: 5 }], ['chaff', 0.62, 1.0, 0, { att: 5 }]],
+    paint: { ruNose29: 'ruFulcrum', ruIRST: 'ruFulcrum', ruBody29: 'ruFulcrum', ruNacelle29: 'ruFulcrum', ruBeaver29: 'ruFulcrum', ruBoom29: 'ruFulcrum', ruFins29: 'ruFulcrum',
+      ruWing29: 'ruFulcrum', ruTail29: 'ruFulcrum' },
+  },
+  sugoi27: {
+    name: 'Sugoi-27', kind: 'plane', tier: 3, military: true,
+    blurb: '4th-gen heavy air-superiority fighter after the Su-27 Flanker: a huge curved LERX, twin engines with a tunnel between them, a tail stinger and eight missiles. Mach 2 up high.',
+    parts: [['ruNose27', -0.1, 17.75], ['ruIRST', -1.13, 17.7, 0, { z: 0.25, att: 0 }], ['ruBody27', -0.3, 8.6], ['ruNacelle27', 1.025, 8.6, 0, { att: 2 }],
+      ['ruAL31', 0.95, 2.45, 0, { att: 3 }], ['ruStinger27', 0.525, 1.8], ['ruBoom27', 0.505, 3.9, 0, { att: 3 }], ['ruFins27', -1.185, 3.6, 0, { att: 6 }],
+      ['ruVentral27', 1.05, 4.0, 0, { att: 6 }], ['ruWing27', 0.2, 11.025, 0, { att: 2 }], ['ruTail27', 0.505, 2.5, 0, { att: 6 }],
+      ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
+      ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], ['radarMissiles', 0.63, 7.8, 0, { z: 4.0, att: 9 }],
+      ['aam', 0.58, 6.9, 0, { z: 5.6, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }], ['flares', 1.1, 1.95, 0, { att: 5 }], ['chaff', 1.1, 1.0, 0, { att: 5 }]],
+    paint: { ruNose27: 'ruFlanker', ruIRST: 'ruFlanker', ruBody27: 'ruFlanker', ruNacelle27: 'ruFlanker', ruStinger27: 'ruFlanker', ruBoom27: 'ruFlanker', ruFins27: 'ruFlanker',
+      ruVentral27: 'ruFlanker', ruWing27: 'ruFlanker', ruTail27: 'ruFlanker' },
+  },
+  sugoi35: {
+    name: 'Sugoi-35', kind: 'plane', tier: 4, military: true,
+    blurb: '4.5-gen super-manoeuvrable fighter after the Su-35: the Flanker airframe, a bigger radar and engines whose nozzles swivel with the stick, so it turns even when the wings have stalled. Ten missiles.',
+    parts: [['ruNose35', -0.1, 17.75], ['ruIRST', -1.13, 17.7, 0, { z: 0.3, att: 0 }], ['ruBody27', -0.3, 8.6], ['ruNacelle27', 1.025, 8.6, 0, { att: 2 }],
+      ['ruAL41', 0.95, 2.35, 0, { att: 3 }], ['ruStinger35', 0.53, 1.8], ['ruBoom27', 0.505, 3.9, 0, { att: 3 }], ['ruFins27', -1.185, 3.6, 0, { att: 6 }],
+      ['ruVentral27', 1.05, 4.0, 0, { att: 6 }], ['ruWing27', 0.2, 11.025, 0, { att: 2 }], ['ruTail27', 0.505, 2.5, 0, { att: 6 }],
+      ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
+      ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], ['radarMissiles', 0.635, 8.0, 0, { z: 3.3, att: 9 }],
+      ['radarMissiles', 0.617, 7.25, 0, { z: 4.7, att: 9 }], ['aam', 0.58, 6.6, 0, { z: 5.9, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }],
+      ['flares', 1.13, 1.95, 0, { att: 5 }], ['chaff', 1.13, 1.0, 0, { att: 5 }]],
+    paint: { ruNose35: 'ruSplinter', ruIRST: 'ruSplinter', ruBody27: 'ruSplinter', ruNacelle27: 'ruSplinter', ruStinger35: 'ruSplinter', ruBoom27: 'ruSplinter', ruFins27: 'ruSplinter',
+      ruVentral27: 'ruSplinter', ruWing27: 'ruSplinter', ruTail27: 'ruSplinter' },
+  },
+  sugoi57: {
+    name: 'Sugoi-57', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-gen stealth fighter after the Su-57: a flat chined body, engines far apart with the missiles inside between them, LEVCONs, canted all-moving fins and vectoring nozzles. Radars find it late (watch ◈).',
+    parts: [['ruNose57', -0.09, 16.35], ['ruIRST', -0.96, 17.0, 0, { z: 0.22, att: 0 }], ['ruBody57', -0.265, 8.05], ['ruNacelle57', 0.85, 8.35, 0, { att: 2 }],
+      ['ruAL41F1', 0.85, 2.15, 0, { att: 3 }], ['ruBay57', 0.475, 8.0, 0, { att: 2 }], ['ruStinger57', 0.25, 1.75], ['ruBoom57', 0.4, 3.05, 0, { att: 3 }],
+      ['ruFins57', -0.76, 2.8, 0, { att: 7 }], ['ruWing57', 0.2, 7.5, 0, { att: 2 }], ['ruLevcon57', 0.18, 13.15, 0, { att: 2 }], ['ruTail57', 0.4, 2.2, 0, { att: 7 }],
+      ['ruGearNose2L', 1.825, 16.0, 0, { att: 0 }], ['ruGearMainL', 2.25, 7.6, 0, { z: 1.9, att: 3 }], ['cannon', 0.5, 13.2, 0, { z: 2.6, att: 3 }],
+      ['ruBayS57', 0.43, 10.5, 0, { att: 3 }], ['flares', 0.7, 2.2, 0, { att: 6 }], ['chaff', 0.7, 1.25, 0, { att: 6 }]],
+    paint: { ruNose57: 'ruPixel', ruIRST: 'ruPixel', ruBody57: 'ruPixel', ruNacelle57: 'ruPixel', ruAL41F1: 'ruPixel', ruBay57: 'ruPixel', ruStinger57: 'ruPixel', ruBoom57: 'ruPixel',
+      ruFins57: 'ruPixel', ruWing57: 'ruPixel', ruLevcon57: 'ruPixel', ruTail57: 'ruPixel', ruBayS57: 'ruPixel' },
+  },
 };
 
 // A template's parts as design rows.
@@ -1205,7 +1262,8 @@ const Builder = {
     const box = $('#pi-skins');
     if (!box.childElementCount) for (const id of ['', ...SKIN_IDS]) {
       const sk = SKINS[id], b = el('button', { class: 'skin-sw' + (id ? '' : ' own'), role: 'radio', 'data-skin': id, title: sk ? sk.name : 'Its own colours', 'aria-label': sk ? sk.name : 'Its own colours' });
-      if (sk) b.style.background = sk.camo ? `linear-gradient(135deg, ${sk.base} 0 45%, ${sk.camo} 45% 70%, ${sk.base} 70%)` : sk.base; // (a camouflage: both its tones)
+      const tones = sk && sk.camo ? (typeof sk.camo === 'string' ? [sk.camo] : sk.camo.c) : null; // (a camouflage: a band of each of its tones)
+      if (sk) b.style.background = tones ? `linear-gradient(135deg, ${sk.base} 0 45%, ${tones.map((c, i) => `${c} ${45 + (25 * i) / tones.length}% ${45 + (25 * (i + 1)) / tones.length}%`).join(', ')}, ${sk.base} 70%)` : sk.base;
       box.append(b);
     }
     const cur = new Set(list.map((q) => q.skin || ''));
