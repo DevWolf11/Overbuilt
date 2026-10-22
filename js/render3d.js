@@ -2803,12 +2803,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     sheath(F);
   }
   function engineGlow(v, vm, x, y, z) {
-    let ex = 0, ey = 0, ez = 0, ek = 0;
-    for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ez += (e.z || 0) * e.k; ek += e.k; }
+    let ex = 0, ey = 0, ez = 0, ek = 0, ea = 0, eg = 0;
+    for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ez += (e.z || 0) * e.k; ek += e.k; ea += e.aft * e.k; eg += e.glow * e.k; }
     if (ek <= 0) return 0;
-    const o = qrot(v.q, ex / ek - v.com.x, ey / ek - v.com.y - 2, ez / ek - (v.com.z || 0), T3);
+    // the light sits behind the nozzles: 2 m, or further for engines whose tails crowd round them (def.glowAft),
+    // and some engines light their surroundings less (def.glowK)
+    const o = qrot(v.q, ex / ek - v.com.x, ey / ek - v.com.y - ea / ek, ez / ek - (v.com.z || 0), T3);
     S.engine.position.set(x + o.x, y + o.y, z + o.z);
-    S.engine.intensity = 1400 * Math.min(ek, 4) * (0.9 + Math.random() * 0.2);
+    S.engine.intensity = 1400 * Math.min(eg, 4) * (0.9 + Math.random() * 0.2);
     S.engine.distance = 70 + 25 * Math.sqrt(ek);
     return ek;
   }

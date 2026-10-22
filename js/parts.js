@@ -438,7 +438,7 @@ const PARTS = {
     desc: 'The FS-22’s belly bay: six radar missiles inside, out of the wind and out of sight. The doors snap open for each launch and shut again, and only while they are open do enemy radars see you sooner (watch ◈).' },
   us5Aft22: { cat: 'air', name: 'FS-22 Aft Fuselage', w: 2.2, h: 2.0, depth: 4.5, mass: 1.9, fuel: 0.6, stealth: 0.7, shape: 'us5body', us5: 'aft22', body3d: 'us5', look: 'raptor',
     fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-22’s tail end, with the booms that carry its tailplanes. Two Flat Vectoring Nozzle Engines go behind it, the Canted Twin Tails on top.' },
-  us5Eng22: { cat: 'airEng', name: 'Flat Vectoring Nozzle Engine', w: 1.2, h: 3.1, depth: 1.48, mass: 1.8, thrust: 186, ispSL: 5400, ispVac: 5400, gimbal: 0.35, vec2d: true, irK: 0.7,
+  us5Eng22: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Flat Vectoring Nozzle Engine', w: 1.2, h: 3.1, depth: 1.48, mass: 1.8, thrust: 186, ispSL: 5400, ispVac: 5400, gimbal: 0.35, vec2d: true, irK: 0.7,
     stealth: 0.6, air: { kind: 'jet', vmax: 580, ab: 1.3 }, shape: 'jet', us5: 'eng22', body3d: 'us5', look: 'raptor', plume: 'jet', maxTemp: 2300, tier: 4, cost: 24000,
     desc: 'The FS-22’s engine: strong enough to cruise past Mach 1.5 without the afterburner, and its flat nozzle swings up and down with the stick to pitch the plane, even stalled. It also hides the hot exhaust from heat seekers. Fit them in pairs.' },
   us5Wing22: { cat: 'wings', name: 'FS-22 Wing', w: 0.45, h: 9.84, mass: 3.0, fuel: 2.2, shape: 'wing', us5: 'wing', look: 'raptor', breakSpeed: 14, tier: 4, cost: 8000,
@@ -470,7 +470,7 @@ const PARTS = {
     desc: 'Two bays in the FS-35’s belly, left and right, with two radar missiles each. Their doors open only for a launch, so the plane keeps its stealth until it shoots.' },
   us5Aft35: { cat: 'air', name: 'FS-35 Aft Fuselage', w: 2.4, h: 2.4, depth: 3.6, mass: 1.5, fuel: 0.9, stealth: 0.65, shape: 'us5body', us5: 'aft35', body3d: 'us5', look: 'lightning',
     fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-35’s tail end around its single big engine, with booms for the tailplanes. The FS-35 Stealth Turbofan goes behind it.' },
-  us5Eng35: { cat: 'airEng', name: 'FS-35 Stealth Turbofan', w: 1.5, h: 2.4, depth: 1.52, mass: 1.75, thrust: 196, ispSL: 5300, ispVac: 5300, gimbal: 0.02, irK: 0.85, stealth: 0.6,
+  us5Eng35: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-35 Stealth Turbofan', w: 1.5, h: 2.4, depth: 1.52, mass: 1.75, thrust: 196, ispSL: 5300, ispVac: 5300, gimbal: 0.02, irK: 0.85, stealth: 0.6,
     air: { kind: 'jet', vmax: 450, ab: 1.47 }, shape: 'jet', us5: 'eng35', body3d: 'us5', look: 'lightning', plume: 'jet', maxTemp: 2300, tier: 4, cost: 32000,
     desc: 'One huge fighter engine, the most powerful ever fitted to a fighter, with a sawtooth-edged round nozzle that scatters radar. Afterburner above 90%. Runs out of puff past about Mach 1.6.' },
   us5Wing35: { cat: 'wings', name: 'FS-35 Wing', w: 0.45, h: 6.46, mass: 2.0, fuel: 1.8, shape: 'wing', us5: 'wing', look: 'lightning', breakSpeed: 14, tier: 4, cost: 7000,
@@ -516,7 +516,7 @@ const PARTS = {
     loft: ruG(1.025, 3.6, { s: [[3.6, 0.33, 1.57, 0.62, 0.95, 2, 2], [5.5, 0.34, 1.58, 0.64, 0.96, 2.4, 2.4], [8.0, 0.35, 1.63, 0.68, 0.99, 3, 3], [11.0, 0.35, 1.68, 0.7, 1.0, 4.5, 4],
       [12.9, 0.35, 1.7, 0.7, 1.0, 6, 5], [13.25, 0.95, 1.7, 0.7, 1.3, 6, 5], [13.6, 1.55, 1.7, 0.68, 1.62, 6, 5]] }),
     tier: 3, cost: 3500, desc: 'A pair of engine nacelles with raked intakes, far apart with a tunnel between them. Hang them under the centre fuselage.' },
-  ruAL31: { cat: 'airEng', name: 'Sugoi-27 Twin Engines', w: 1.24, h: 2.3, depth: 1.24, twinZ: 1.3, mass: 1.8, thrust: 270, ispSL: 5200, ispVac: 5200, gimbal: 0.02,
+  ruAL31: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-27 Twin Engines', w: 1.24, h: 2.3, depth: 1.24, twinZ: 1.3, mass: 1.8, thrust: 270, ispSL: 5200, ispVac: 5200, gimbal: 0.02,
     air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.1, exit: 0.44 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 20000,
     loft: ruG(0.95, 1.3, { s: [[2.4, 0.37, 1.53, 0.58], [3.6, 0.33, 1.57, 0.62]], mat: 'metal' }, { s: [[1.3, 0.48, 1.42, 0.47], [2.4, 0.38, 1.52, 0.57]], mat: 'steelDark' }),
     desc: 'Two big afterburning turbofans, nozzles and all, for the back of a pair of nacelles: a Sugoi’s heart. Afterburner above 90% throttle, Mach 2 and more up high.' },
@@ -548,7 +548,7 @@ const PARTS = {
     glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
       [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
     desc: 'An upgraded Sugoi nose: a bigger, longer-reaching radar under a fatter radome. Put an IRST ball ahead of the canopy, a little to the right.' },
-  ruAL41: { cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.1, vector: true,
+  ruAL41: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.1, vector: true,
     air: { kind: 'jet', vmax: 760, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.4, exit: 0.45 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 26000,
     loft: ruG(0.95, 1.1, { s: [[2.5, 0.36, 1.54, 0.59], [3.6, 0.33, 1.57, 0.63]], mat: 'metal' }, { s: [[1.1, 0.47, 1.43, 0.48], [2.5, 0.37, 1.53, 0.58]], mat: 'steelDark', vec: 1.4 }),
     desc: 'A pair of uprated afterburning turbofans whose nozzles swivel in every direction with the stick: the plane still turns when its wings have stalled. Afterburner above 90%.' },
@@ -577,7 +577,7 @@ const PARTS = {
     loft: ruG(0.875, 2.8, { s: [[2.8, 0.355, 1.395, 0.52, 0.875, 2, 2], [4.5, 0.33, 1.42, 0.56, 0.88, 2.5, 2.5], [6.5, 0.3, 1.45, 0.6, 0.9, 3.5, 3.5], [9.0, 0.3, 1.45, 0.6, 0.9, 6, 5],
       [9.4, 0.75, 1.45, 0.6, 1.1, 6, 5], [10.0, 1.32, 1.45, 0.58, 1.38, 6, 5]] }),
     tier: 3, cost: 3000, desc: 'Two widely spaced engine nacelles with ramp intakes under the wing-root extensions, and a lifting tunnel between them.' },
-  ruRD33: { cat: 'airEng', name: 'MyG-29 Twin Engines', w: 1.04, h: 2.2, depth: 1.04, twinZ: 1.2, mass: 1.4, thrust: 162, ispSL: 5000, ispVac: 5000, gimbal: 0.02,
+  ruRD33: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'MyG-29 Twin Engines', w: 1.04, h: 2.2, depth: 1.04, twinZ: 1.2, mass: 1.4, thrust: 162, ispSL: 5000, ispVac: 5000, gimbal: 0.02,
     air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.36 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 18000,
     loft: ruG(0.875, 0.6, { s: [[1.6, 0.4, 1.35, 0.47], [2.8, 0.355, 1.395, 0.52]], mat: 'metal' }, { s: [[0.6, 0.48, 1.27, 0.38], [1.6, 0.41, 1.34, 0.46]], mat: 'steelDark' }),
     desc: 'Two light afterburning turbofans for a pair of nacelles: a nimble fighter’s engines. Afterburner above 90% throttle.' },
@@ -618,7 +618,7 @@ const PARTS = {
     loft: ruG(0.85, 3.5, { s: [[3.5, 0.275, 1.425, 0.575, 0.85, 2, 2], [5.5, 0.26, 1.44, 0.6, 0.86, 3, 3], [8.0, 0.25, 1.45, 0.64, 0.85, 4, 4], [11.5, 0.25, 1.45, 0.65, 0.85, 5, 5],
       [12.4, 0.25, 1.45, 0.65, 0.85, 6, 6], [12.8, 0.25, 1.05, 0.65, 0.65, 6, 6], [13.2, 0.25, 0.62, 0.62, 0.44, 6, 6]] }),
     tier: 4, cost: 5500, desc: 'Two engine nacelles set far apart, with raked stealthy intakes.' },
-  ruAL41F1: { cat: 'airEng', name: 'Sugoi-57 Vectoring Engines', w: 1.15, h: 2.7, depth: 1.15, twinZ: 1.7, mass: 2.2, thrust: 304, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
+  ruAL41F1: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-57 Vectoring Engines', w: 1.15, h: 2.7, depth: 1.15, twinZ: 1.7, mass: 2.2, thrust: 304, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
     air: { kind: 'jet', vmax: 770, ab: 1.58 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.5, exit: 0.4 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 33500,
     loft: ruG(0.85, 0.8, { s: [[2.3, 0.32, 1.38, 0.53], [3.5, 0.275, 1.425, 0.575]], mat: 'metal' }, { s: [[0.8, 0.4, 1.3, 0.43], [2.3, 0.33, 1.37, 0.52]], mat: 'steelDark', vec: 1.5 }),
     desc: 'The newest pair of afterburning turbofans: strong enough to cruise past Mach 1, with nozzles that swivel with the stick. Afterburner above 90%.' },
@@ -665,7 +665,7 @@ const PARTS = {
     loft: ruG(-0.165, 3.2, { s: [[3.2, -0.6, 0.6, 0.6, 0], [5.0, -0.61, 0.62, 0.62, 0.005], [9.4, -0.62, 0.62, 0.62, 0]] },
       { s: [[4.4, -0.6, -0.3, 0.1, -0.45], [5.4, -0.8, -0.3, 0.2, -0.5], [8.0, -0.9, -0.3, 0.26, -0.55], [9.4, -0.92, -0.3, 0.28, -0.55]] }),
     desc: 'A slim round fuselage full of fuel, with the dorsal spine running back from the canopy to the fin.' },
-  ruR25: { cat: 'airEng', name: 'MyG-21 Afterburning Turbojet', w: 1.2, h: 3.2, depth: 1.2, mass: 1.25, thrust: 103, ispSL: 4000, ispVac: 4000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.73 },
+  ruR25: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'MyG-21 Afterburning Turbojet', w: 1.2, h: 3.2, depth: 1.2, mass: 1.25, thrust: 103, ispSL: 4000, ispVac: 4000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.73 },
     shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.4, paint: true }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 14500,
     loft: ruG(0, 0, { s: [[1.0, -0.52, 0.52, 0.52], [3.2, -0.6, 0.6, 0.6]] }, { s: [[0, -0.45, 0.45, 0.45], [1.0, -0.5, 0.5, 0.5]], mat: 'steelDark' }),
     desc: 'The rear fuselage of a small fighter with its afterburning turbojet and nozzle: thirsty, loud and fast. Afterburner above 90% throttle.' },
@@ -715,7 +715,7 @@ const PARTS = {
       plates: [[-0.66, 0.84, 2.3, 3.9, -0.4, 0.05]],
       deco: [['line', -0.6, 2.2, 0.8, 2.2], ['line', -0.8, -1.8, 0.86, -1.8]] },
     desc: 'A pair of tall intakes with splitter plates standing off the fuselage ahead of them, and the ducts behind. Put them either side of the centre fuselage, flush.' },
-  us4f4Engines: { cat: 'airEng', name: 'FS-4 Twin Turbojets', w: 1.76, h: 5.5, depth: 3, fill: 0.91, mass: 4.5, thrust: 211, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.6 }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 17000, shape: 'us4body',
+  us4f4Engines: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-4 Twin Turbojets', w: 1.76, h: 5.5, depth: 3, fill: 0.91, mass: 4.5, thrust: 211, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.6 }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 17000, shape: 'us4body',
     body: { tubes: [
       { st: [[0.25, -0.21, 0.25, 0.71, 0.46, 2], [1.45, -0.42, 0.18, 0.8, 0.56, 2.4], [2.75, -0.62, 0.1, 0.88, 0.62, 3]], z: [-0.62, 0.62], back: 'open', hide: true },
       { st: [[-2.75, -0.5, -0.36, -0.24, 0.1, 2], [-1.95, -0.6, -0.4, -0.16, 0.3, 2.5], [-0.75, -0.7, -0.36, -0.04, 0.46, 3], [0.45, -0.78, -0.24, 0.24, 0.66, 3], [1.65, -0.84, -0.04, 0.62, 1.1, 3.4], [2.75, -0.88, 0.1, 0.88, 1.5, 3.6]] }],
@@ -751,7 +751,7 @@ const PARTS = {
     body: { tubes: [
       { st: [[-2.1, -0.47, -0.37, -0.3, 0.66, 3], [-1.6, -0.47, -0.24, -0.02, 0.62, 3], [-0.9, -0.5, -0.14, 0.18, 0.58, 3], [-0.1, -0.52, -0.09, 0.28, 0.54, 3, 3.2], [0.9, -0.54, -0.08, 0.32, 0.51, 3, 3.2], [1.7, -0.54, -0.08, 0.32, 0.49, 3], [2.1, -0.54, -0.08, 0.3, 0.47, 3]], front: 'intake', rake: -0.25 }] },
     desc: 'The single gaping intake that hangs under the cockpit and feeds the engine. Put it under the nose and the fuselage; the nose gear folds into it.' },
-  us4f16Engine: { cat: 'airEng', name: 'FS-16 Afterburning Turbofan', w: 1.34, h: 3.4, depth: 2.04, fill: 0.66, mass: 2.3, thrust: 128, ispSL: 5200, ispVac: 5200, gimbal: 0.02, air: { kind: 'jet', vmax: 750, ab: 1.7 }, plume: 'jet', maxTemp: 2200, tier: 3, cost: 17500, shape: 'us4body',
+  us4f16Engine: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-16 Afterburning Turbofan', w: 1.34, h: 3.4, depth: 2.04, fill: 0.66, mass: 2.3, thrust: 128, ispSL: 5200, ispVac: 5200, gimbal: 0.02, air: { kind: 'jet', vmax: 750, ab: 1.7 }, plume: 'jet', maxTemp: 2200, tier: 3, cost: 17500, shape: 'us4body',
     body: { tubes: [
       { st: [[-0.6, -0.51, 0.07, 0.65, 0.58, 2, 2], [0.1, -0.57, 0.09, 0.67, 0.66, 2.2, 2.6], [0.9, -0.63, 0.11, 0.67, 0.74, 2.3, 2.8], [1.7, -0.67, 0.13, 0.67, 0.78, 2.4, 3]] },
       { st: [[-1.45, 0.02, 0.12, 0.21, 0.12, 2.5], [-1.1, -0.03, 0.12, 0.27, 0.22, 3], [-0.1, -0.05, 0.12, 0.31, 0.3, 3], [0.9, -0.03, 0.12, 0.31, 0.28, 3], [1.6, 0.02, 0.12, 0.25, 0.1, 3]], z: [-0.72, 0.72], hide: true }],
@@ -788,7 +788,7 @@ const PARTS = {
       { st: [[-4.9, -0.9, 0.02, 0.82, 0.55, 3.5, 3.5], [-2.9, -0.9, 0.02, 0.87, 0.55, 4, 4], [-0.9, -0.88, 0.02, 0.9, 0.55, 5, 5], [1.1, -0.73, 0.07, 0.9, 0.55, 6, 6], [3.1, -0.53, 0.17, 0.9, 0.55, 6, 6], [4.9, -0.43, 0.22, 0.9, 0.55, 6, 6]], front: 'intake', rake: 0.45 }],
       deco: [['line', -0.48, 3.7, 0.9, 3.3], ['line', -0.88, -1.9, 0.9, -1.9]] },
     desc: 'A pair of big square intakes with raked mouths, standing just clear of the cockpit, and the ducts behind them. Put them either side of the centre fuselage, flush.' },
-  us4f15Engines: { cat: 'airEng', name: 'FS-15 Twin Turbofans', w: 1.77, h: 4, depth: 3.7, fill: 0.95, mass: 4, thrust: 255, ispSL: 5000, ispVac: 5000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.7 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 25000, shape: 'us4body',
+  us4f15Engines: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-15 Twin Turbofans', w: 1.77, h: 4, depth: 3.7, fill: 0.95, mass: 4, thrust: 255, ispSL: 5000, ispVac: 5000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.7 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 25000, shape: 'us4body',
     body: { tubes: [
       { st: [[-1.1, -0.585, 0.035, 0.655, 0.62, 2], [0, -0.665, 0.035, 0.755, 0.66, 2.2], [1, -0.765, 0.055, 0.835, 0.68, 2.6], [2, -0.885, 0.085, 0.885, 0.71, 3]], z: [-0.66, 0.66], back: 'open' },
       { st: [[-1.7, -0.585, -0.405, -0.205, 0.16, 3], [-0.8, -0.665, -0.385, -0.045, 0.24, 3.5], [0.5, -0.765, -0.325, 0.335, 0.3, 4], [2, -0.885, 0.035, 0.835, 0.3, 4]], z: [-1.55, 1.55], hide: true },
@@ -1298,7 +1298,7 @@ function skinOf(p) { return p.skin || ownSkin(p.def); }
 // With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
 // where real lighting does the shading). skin: the SKINS entry of the part being drawn, if any
 // (set by drawPart only).
-const PartPaint = { flat: false, skin: null };
+const PartPaint = { flat: false, skin: null, camoAt: null }; // camoAt: [x, y], where a part drawn at the origin really is (a 3D texture), so its camouflage lines up with its neighbours'
 function darkGradient0(ctx, l, r) { // stealth grey
   if (PartPaint.flat) return '#4b5058';
   const g = ctx.createLinearGradient(l, 0, r, 0);
@@ -2669,7 +2669,8 @@ function us5CamoFill(ctx, S) {
   if (typeof document === 'undefined' || !ctx.createPattern) return S.base;
   const pat = ctx.createPattern(us5CamoTile(S), 'repeat');
   if (!pat) return S.base;
-  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix().scale(US5_CAMO_TILE / 256));
+  const o = PartPaint.camoAt || [0, 0];
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix().translate(-o[0], -o[1]).scale(US5_CAMO_TILE / 256)); // (in metres, from the blueprint's origin)
   return pat;
 }
 
@@ -2910,21 +2911,22 @@ const US5_ART = {
 
 // Camouflage (a skin with `camo`: { k: 'blotch' | 'splinter' | 'digital', c: [colours over the base], seed, n: patches of the
 // first colour (two fewer of each next one), r: their size, px: a digital pattern's pixel in metres }): a
-// seamless pattern in metres (16 m to a tile, 32 px to the metre), the same on every part, so in the side view the
+// seamless pattern in metres (16 m to a tile; 16 px to the metre on screen, 32 in 3D textures), the same on every part, so in the side view the
 // patches run on across the joins. The 3D wings take the same canvas as a texture. Without a page (tests) it is the
 // base colour.
-const CAMO_PX = 32, CAMO_TILE = 512, CAMO = new Map();
-function camoCanvas(s) {
+const CAMO_M = 16, CAMO_PX = 16, CAMO = new Map(); // (the screen's resolution: a fine tile costs the 2D blueprint dear)
+function camoCanvas(s, ppm = CAMO_PX) {
   if (!s || !s.camo || typeof document === 'undefined') return null;
-  let cv = CAMO.get(s);
+  const key = s.name + '|' + ppm;
+  let cv = CAMO.get(key);
   if (cv) return cv;
   cv = document.createElement('canvas');
-  cv.width = cv.height = CAMO_TILE;
-  const ctx = cv.getContext('2d'), C = s.camo, T = CAMO_TILE;
+  cv.width = cv.height = CAMO_M * ppm;
+  const ctx = cv.getContext('2d'), C = s.camo, T = CAMO_M * ppm;
   let seed = (C.seed || 7) >>> 0;
   const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   // pixel art: the digital pattern is drawn on a coarse grid (a quarter metre a pixel), then blown up unsmoothed
-  const px = C.k === 'digital' ? Math.max(1, Math.round((C.px || 0.25) * CAMO_PX)) : 1, g = px > 1 ? document.createElement('canvas') : cv, c = px > 1 ? g.getContext('2d') : ctx, S = T / px;
+  const px = C.k === 'digital' ? Math.max(1, Math.round((C.px || 0.25) * ppm)) : 1, g = px > 1 ? document.createElement('canvas') : cv, c = px > 1 ? g.getContext('2d') : ctx, S = T / px;
   if (px > 1) g.width = g.height = S;
   c.fillStyle = s.base; c.fillRect(0, 0, S, S);
   const shape = (pts, smooth) => { // a closed patch, drawn nine times over so it wraps round the tile's edges
@@ -2942,7 +2944,7 @@ function camoCanvas(s) {
     c.fillStyle = col;
     const n = (C.n || (C.k === 'blotch' ? 9 : 12)) - k * (C.k === 'blotch' ? 2 : 3);
     for (let i = 0; i < n; i++) {
-      const cx = rnd() * S, cy = rnd() * S, R = ((C.k === 'blotch' ? 1.4 + rnd() * 2.2 : 1.2 + rnd() * 2.4) * (C.r || 1) * CAMO_PX) / px, a0 = rnd() * TAU, stretch = 1.3 + rnd() * 1.4;
+      const cx = rnd() * S, cy = rnd() * S, R = ((C.k === 'blotch' ? 1.4 + rnd() * 2.2 : 1.2 + rnd() * 2.4) * (C.r || 1) * ppm) / px, a0 = rnd() * TAU, stretch = 1.3 + rnd() * 1.4;
       const m = C.k === 'blotch' ? 8 : 4 + Math.floor(rnd() * 3), pts = [];
       for (let j = 0; j < m; j++) {
         const a = (j / m) * TAU + (rnd() - 0.5) * 0.6, rr = R * (0.55 + rnd() * 0.65);
@@ -2953,13 +2955,14 @@ function camoCanvas(s) {
     }
   });
   if (px > 1) { ctx.imageSmoothingEnabled = false; ctx.drawImage(g, 0, 0, T, T); }
-  CAMO.set(s, cv);
+  CAMO.set(key, cv);
   return cv;
 }
 function camoFill(ctx, s) {
-  const cv = camoCanvas(s), pat = cv && ctx.createPattern ? ctx.createPattern(cv, 'repeat') : null;
+  const ppm = PartPaint.flat ? 32 : CAMO_PX, cv = camoCanvas(s, ppm), pat = cv && ctx.createPattern ? ctx.createPattern(cv, 'repeat') : null;
   if (!pat) return s.base;
-  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1 / CAMO_PX, 0, 0, 1 / CAMO_PX, 0, 0])); // pixels to metres
+  const o = PartPaint.camoAt || [0, 0];
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1 / ppm, 0, 0, 1 / ppm, -o[0], -o[1]])); // pixels to metres, from the blueprint's origin
   return pat;
 }
 

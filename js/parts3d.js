@@ -456,7 +456,7 @@ const Parts3D = (() => {
         const s = Math.abs(a), c = chord(s), qc = h / 4 - back * s, sg = Math.sign(a);
         if (!ck) { st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead }); return; }
         const P = crankAt(wd, half, s, out || s > ck.at), e = P.ext * c;
-        st.push({ o: [P.x, qc + c / 4 + e, sg * P.z], A: [0, -1, 0], B: [Math.cos(P.d), 0, sg * Math.sin(P.d)], c: c + e, t: (th / 2) * (1 - 0.4 * s), col, lead });
+        st.push({ o: [P.x, qc + c / 4 + e, sg * P.z], A: [0, -1, 0], B: [Math.cos(P.d), 0, sg * Math.sin(P.d)], c: c + e, t: (th / 2) * (1 - 0.4 * s), col, lead, s });
       };
       if (s0 && hs > 0) put(s0, white); // (the right half starts at its root)
       for (const [a, col, out] of A) {
@@ -467,7 +467,9 @@ const Parts3D = (() => {
       if (s0 && hs < 0) put(-s0, white); // (the left half ends at its root)
       return st;
     });
-    const g = parts.length > 1 ? merge(parts.map((st) => sweep(st, 'foil'))) : sweep(parts[0], 'foil');
+    // a cranked wing: each panel its own loft with its own ends, so the dog-tooth's step is a flat face
+    const runs = ck ? parts.flatMap((st) => st.reduce((R, q, i) => { if (i && q.s === ck.at && st[i - 1].s === ck.at) R.push([]); R[R.length - 1].push(q); return R; }, [[]])) : parts;
+    const g = runs.length > 1 ? merge(runs.map((st) => sweep(st, 'foil'))) : sweep(runs[0], 'foil');
     if (!wd.winglets) return camoUV(g, camo);
     const fins = [g];
     for (const a of o.half ? [o.half] : [-1, 1]) { // an upturned fin at each tip, swept back
@@ -502,7 +504,7 @@ const Parts3D = (() => {
   // A camouflaged wing takes the pattern as seen from above: u and v from where a point is across and along it.
   function camoUV(g, on) {
     if (!on) return g;
-    const P = g.attributes.position, uv = new Float32Array(P.count * 2), T = CAMO_TILE / CAMO_PX;
+    const P = g.attributes.position, uv = new Float32Array(P.count * 2), T = CAMO_M;
     for (let i = 0; i < P.count; i++) { uv[i * 2] = P.getZ(i) / T; uv[i * 2 + 1] = P.getY(i) / T; }
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     return g;
@@ -1347,11 +1349,11 @@ const Parts3D = (() => {
   // The 2D drawing in flat paint (real lighting does the shading), in the part's skin (drawPart puts it on).
   // Offset copies drawn underneath bleed the edge colours outwards so texture filtering at the silhouette
   // never reaches empty texels.
-  function paint(d, flip, skin) {
+  function paint(d, flip, skin, at) {
     const [W, H] = texSize(d), cv = document.createElement('canvas'), S = skinFor(skin, d), top = d.shape === 'us4body'; // (a lofted body's texture also has its plan view, on the right)
     cv.width = top ? W * 2 : W; cv.height = H;
-    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat;
-    PartPaint.flat = true;
+    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat, ca = PartPaint.camoAt;
+    PartPaint.flat = true; PartPaint.camoAt = at || null;
     try {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * TAU;
@@ -1361,7 +1363,7 @@ const Parts3D = (() => {
       ctx.setTransform(kx, 0, 0, -ky, W / 2, H / 2);
       drawPart(ctx, p, 0.9 / Math.min(kx, ky));
       if (top) { ctx.setTransform(W / (d.depth || d.w), 0, 0, -ky, W * 1.5, H / 2); drawPartTop(ctx, p); }
-    } finally { PartPaint.flat = flat; }
+    } finally { PartPaint.flat = flat; PartPaint.camoAt = ca; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-over';
     ctx.fillStyle = S ? S.base : '#a7b0ba'; ctx.fillRect(0, 0, cv.width, H);
@@ -1383,42 +1385,60 @@ const Parts3D = (() => {
   function camoTexture(S) {
     let t = camoTex.get(S);
     if (!t) {
-      t = new THREE.CanvasTexture(typeof S.camo === 'string' ? us5CamoTile(S) : camoCanvas(S));
+      t = new THREE.CanvasTexture(typeof S.camo === 'string' ? us5CamoTile(S) : camoCanvas(S, 32));
       t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, aniso);
       camoTex.set(S, t);
     }
     return t;
   }
 
-  function textureFor(def, flip, skin) {
+  // at: where a camouflaged part is (camoAt), so its pattern runs on from its neighbours'. Those textures go by
+  // place too; the oldest of them are let go past 64 (one still in use is simply uploaded again).
+  const placed = [];
+  function textureFor(def, flip, skin, at) {
     need();
-    const s = cleanSkin(skin, def), key = def.type + (flip ? '|f' : '') + (s ? '|s:' + s : '');
+    const s = cleanSkin(skin, def), key = def.type + (flip ? '|f' : '') + (s ? '|s:' + s : '') + (at ? '|@' + at[0] + ',' + at[1] : '');
     let t = textures.get(key);
     if (!t) {
-      t = new THREE.CanvasTexture(paint(def, flip, s));
+      t = new THREE.CanvasTexture(paint(def, flip, s, at));
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = Math.min(8, aniso);
       textures.set(key, t);
+      if (at && placed.push(key) > 64) { const old = placed.shift(), o = textures.get(old); if (o) { o.dispose(); textures.delete(old); } }
     }
     return t;
+  }
+  // Where a camouflaged part's pattern starts: its place to the quarter metre, within the 16 m the pattern repeats
+  // over. null without camouflage, or for a part turned a quarter (its pattern turns with it from its centre, as in 2D).
+  const camoAt = (p, S) => (S && S.camo && p && !((p.rot || 0) & 3) && Number.isFinite(p.x) && Number.isFinite(p.y) ? [p.x, p.y].map((v) => (((Math.round(v * 4) / 4) % 16) + 16) % 16) : null);
+  // A camouflage laid on in metres (UVs: across, along the part), moved along by where the part is.
+  const camoMaps = new Map();
+  function camoMap(S, at) {
+    const t = camoTexture(S);
+    if (!at || !at[1]) return t;
+    let m = camoMaps.get(S);
+    if (!m) camoMaps.set(S, (m = new Map()));
+    let c = m.get(at[1]);
+    if (!c) { c = t.clone(); c.offset.set(0, at[1] / 16); m.set(at[1], c); }
+    return c;
   }
 
   // skin: the body kinds take its colour and the painted textures its finish (a painted engine is no longer
   // polished metal), before c0 is kept for the heat glow to come back to.
-  function makeMat(kind, d, flip, skin) {
+  function makeMat(kind, d, flip, skin, at) { // at: the part, for where its camouflage starts
     if (kind === 'disc') return new THREE.MeshBasicMaterial({ map: shared.disc, color: 0xdfe5ec, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, visible: false });
     const k = KINDS[kind] || KINDS.hull, S = skinFor(skin, d);
     if (k.basic) return new THREE.MeshBasicMaterial({ color: k.basic });
     const m = new THREE.MeshStandardMaterial({ color: k.color || 0xffffff, roughness: k.roughness, metalness: k.metalness, envMapIntensity: k.env || 0.8 });
-    if (k.map) m.map = textureFor(d, flip, S ? skin : null);
-    if (k.skin) { if (S && S.camo) m.map = camoTexture(S); else m.color.set(S ? S.base : '#a7b0ba'); } // (a panel in its paint, its camouflage laid on in metres)
+    if (k.map) m.map = textureFor(d, flip, S ? skin : null, camoAt(at, S));
+    if (k.skin) { if (S && S.camo) m.map = camoMap(S, camoAt(at, S)); else m.color.set(S ? S.base : '#a7b0ba'); } // (a panel in its paint, its camouflage laid on in metres)
     if (S && (k.map || k.skin || BODY_KINDS.has(kind))) {
       if (!k.map && !k.skin) m.color.set(S.base);
       const own = k.map ? KINDS.hull : k;
       m.roughness = S.rough != null ? S.rough : own.roughness;
       m.metalness = S.metal != null ? S.metal : own.metalness;
     }
-    if (k.camo && S && S.camo) { m.map = camoTexture(S); m.roughness = S.rough != null ? S.rough : k.roughness; m.metalness = S.metal != null ? S.metal : k.metalness; }
+    if (k.camo && S && S.camo) { m.map = camoMap(S, camoAt(at, S)); m.roughness = S.rough != null ? S.rough : k.roughness; m.metalness = S.metal != null ? S.metal : k.metalness; }
     if (k.vertexColors) m.vertexColors = true;
     if (k.double) m.side = THREE.DoubleSide;
     if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; }
@@ -1554,7 +1574,7 @@ void main() {
   function instance(n, obj, rig) {
     for (const [g, kind] of n.pieces) {
       let m = rig.mats[kind];
-      if (!m) { m = rig.mats[kind] = makeMat(kind, rig.part.def, rig.part.flip, rig.part.skin); if (kind === 'disc') rig.disc = m; else rig.matList.push(m); }
+      if (!m) { m = rig.mats[kind] = makeMat(kind, rig.part.def, rig.part.flip, rig.part.skin, rig.part); if (kind === 'disc') rig.disc = m; else rig.matList.push(m); }
       const mesh = new THREE.Mesh(g, m);
       if (kind === 'disc') mesh.raycast = noop;
       else { mesh.castShadow = mesh.receiveShadow = true; mesh.userData.part = rig.part; rig.meshes.push(mesh); }
@@ -1700,7 +1720,7 @@ void main() {
     const p = rig.part, m0 = rig.matList[0];
     if (!skinFor(p.skin, p.def) && (rig.mats.white || m0)) return (rig.mats.pylon = rig.mats.white || m0); // unpainted: as it always was
     const k0 = m0 && !m0.map && Object.keys(rig.mats).find((k) => rig.mats[k] === m0);
-    const m = rig.mats.pylon = makeMat(rig.mats.white || !k0 || skinFor(p.skin, p.def) ? 'white' : k0, p.def, p.flip, p.skin);
+    const m = rig.mats.pylon = makeMat(rig.mats.white || !k0 || skinFor(p.skin, p.def) ? 'white' : k0, p.def, p.flip, p.skin, p);
     if (m0 && m0.isMeshStandardMaterial) { m.emissive.copy(m0.emissive); m.emissiveIntensity = m0.emissiveIntensity; }
     if (rig.opacity < 1) { m.transparent = true; m.opacity = (m.userData.op || 1) * rig.opacity; m.depthWrite = false; }
     rig.matList.push(m);
@@ -1871,7 +1891,7 @@ void main() {
       if (rig.pivot) rig.pivot.rotation.z = p.deflect || 0;
       if (rig.ruMove) for (const g of rig.ruMove) { // an all-moving fin turns with its rudder; a vectoring nozzle swings with the stick
         if (g.userData.move === 'rudder') g.quaternion.setFromAxisAngle(g.userData.axis, (p.deflect || 0) * (d.twinMirror && g.userData.side < 0 ? -1 : 1)); // (a mirrored copy turns back the same way)
-        else { const c = this.cmd, k = 0.26; g.rotation.set(c ? -c.x * k : 0, 0, c ? -(c.z + 0.6 * g.userData.side * c.y) * k : 0); } // (exits swing up for nose up; apart to roll)
+        else { const c = this.cmd, k = d.gimbal || 0; g.rotation.set(c ? -c.x * k : 0, 0, c ? -(c.z + 0.6 * g.userData.side * c.y) * k : 0); } // (exits swing up for nose up; apart to roll; as far as the engine's gimbal)
       }
       if (rig.swingP) { const k = (p.sweep != null ? p.sweep : d.wing.swing[0]) - d.wing.swing[0]; rig.swingP.rotation.x = k; rig.swingN.rotation.x = -k; }
       if (rig.yaw) { rig.yaw.rotation.x = p.aimYaw || 0; if (rig.pitch) rig.pitch.rotation.z = p.aimEl || 0; }
@@ -1897,6 +1917,8 @@ void main() {
         P.g.visible = k > 0;
         if (k <= 0) continue;
         if (d.vec2d && rig.pivot) { const a = p.deflect || 0, hy = rig.pivot.position.y, L = hy - P.nz.y; P.g.position.set(L * Math.sin(a), hy - L * Math.cos(a), 0); P.g.rotation.z = a; } // (a flat nozzle swivels the flame)
+        if (P.vec === undefined) { P.vec = (rig.ruMove || []).find((g) => g.userData.move === 'vec' && g.parent === P.g.parent) || null; if (P.vec) P.rest = P.g.position.clone(); }
+        if (P.vec) { const g = P.vec; P.g.position.copy(P.rest).sub(g.position).applyQuaternion(g.quaternion).add(g.position); P.g.quaternion.copy(g.quaternion); } // (a swivelling nozzle takes its flame with it, about its throat)
         // length and spread as in World.drawFlame, with a smooth flicker instead of a random one; an
         // afterburner stretches the flame and lights shock diamonds in it
         const type = P.type, vac = 1 - clamp(rho / 0.4, 0, 1), bw = P.nz.half;
@@ -1919,7 +1941,7 @@ void main() {
         if (n) continue;
         const e = this.pool[this.exhaust.length] || (this.pool[this.exhaust.length] = { x: 0, y: 0, z: 0, k: 0, color: 0 });
         const np = partPt(p, 0, P.nz.y);
-        e.x = np.x; e.y = np.y; e.z = rig.holders.length > 1 ? 0 : partZ(p); e.k = k * rig.plumes.length; e.color = P.hex; // (a pair: between the two)
+        e.x = np.x; e.y = np.y; e.z = rig.holders.length > 1 ? 0 : partZ(p); e.k = k * rig.plumes.length; e.color = P.hex; e.aft = d.glowAft || 2; e.glow = d.glowK || 1; // (a pair: between the two)
         this.exhaust.push(e);
       }
     }

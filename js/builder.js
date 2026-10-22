@@ -265,14 +265,16 @@ const TEMPLATES = {
     parts: [['us5Nose22', 0, 16.1], ['us5Intake22', 0, 11.1], ['us5Bay22', 0, 7.0], ['us5Aft22', 0, 4.1],
       ['us5Eng22', 0, 1.55, 0, { z: 0.86, att: 3 }], ['us5Eng22', 0, 1.55, 0, { z: -0.86, att: 3 }],
       ['us5Wing22', -0.05, 7.68], ['us5Tail22', 0.35, 2.66], ['us5Fins22', -1.42, 4.3, 0, { att: 3 }],
-      ['us5GearN', 1.55, 13.7, 0, { att: 0 }], ['us5GearM', 1.55, 7.4, 0, { att: 2 }], ['us5Gun', -0.25, 9.6, 0, { z: 2.555, att: 1 }]],
+      ['us5GearN', 1.55, 13.7, 0, { att: 0 }], ['us5GearM', 1.55, 7.4, 0, { att: 2 }], ['us5Gun', -0.25, 9.6, 0, { z: 2.555, att: 1 }],
+      ['flares', -1.3, 4.6, 0, { att: 3 }], ['chaff', -1.3, 3.6, 0, { att: 3 }]],
   },
   fs35: {
     name: 'FS-35', kind: 'plane', tier: 4, military: true,
     blurb: '5th-generation stealth multirole fighter: one huge engine, bump intakes and a bulged canopy, four radar missiles in its belly bays and a hidden cannon. Mach 1.6, and very hard to see coming.',
     parts: [['us5Nose35', 0, 13.45], ['us5Intake35', 0, 9.9], ['us5Bay35', 0, 6.7], ['us5Aft35', 0, 3.6], ['us5Eng35', 0, 1.2, 0, { att: 3 }],
       ['us5Wing35', -0.02, 6.77], ['us5Tail35', 0.35, 2.45], ['us5Fins35', -1.17, 3.5, 0, { att: 3 }],
-      ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }]],
+      ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }],
+      ['flares', -1.4, 4.3, 0, { att: 3 }], ['chaff', -1.4, 3.0, 0, { att: 3 }]],
     paint: { us5Gun: 'lightning' },
   },
   sugoi57: {
