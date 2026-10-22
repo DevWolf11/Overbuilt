@@ -301,6 +301,20 @@ function templateRows(t) {
   });
 }
 
+// The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
+// generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
+// jet that carries it (the IRST ball to the MyG-29). Worked out once.
+let PART_FAMILIES = null;
+function partFamilies() {
+  if (PART_FAMILIES) return PART_FAMILIES;
+  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
+  for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
+  for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
+  const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS);
+  const order = keys.map((k, i) => [k, i]).sort((a, b) => (rank.get(of.get(a[0])) || 0) - (rank.get(of.get(b[0])) || 0) || a[1] - b[1]).map((e) => e[0]);
+  return (PART_FAMILIES = { of, order });
+}
+
 const Builder = {
   // The selection: `selected` is the part the panel describes; `sel` holds every selected part (several when
   // shift-clicking, box-selecting or pasting). Setting `selected` selects just that part.
@@ -629,6 +643,19 @@ const Builder = {
   // What a part put against host hangs on: the host, unless it just stacks on the centre line.
   attFor(host, stack) { return host && !(stack && this.onLine(host)) ? host : null; },
 
+  // A part put against the box of what it goes by (pr, free there) slides in towards it along x or z (dir ±1)
+  // until it meets a shape, so on a round or tapering hull it sits on the surface rather than out at the corner
+  // of the hull's box: 5 cm steps, so it never jumps through something into a gap beyond, then halving to the
+  // centimetre. At most max metres; null when it can't go in at all.
+  snug(pr, axis, dir, max, others) {
+    const at = (s) => ({ ...pr, [axis]: +(pr[axis] + dir * s).toFixed(3) }), free = (q) => !others.some((o) => partsClash(q, o));
+    let ok = 0, s = 0.05;
+    for (; s <= max + 1e-9 && free(at(s)); s += 0.05) ok = s;
+    if (s <= max + 1e-9) { let lo = ok, hi = s; for (let i = 0; i < 5; i++) { const m = (lo + hi) / 2; if (free(at(m))) lo = m; else hi = m; } ok = lo; }
+    const q = at(Math.floor(ok * 100) / 100);
+    return free(q) ? q : ok ? at(Math.floor(ok * 20) / 20) : null;
+  },
+
   // 2D: a good spot for a part of `type` turned by `rot` near want {x, y, z?} (z: the depth it would
   // like; default its own). radius: how far an attachment may be (default ~26 px, at least 1.4 m).
   snap(type, want, ignore, rot = 0, radius) {
@@ -646,6 +673,14 @@ const Builder = {
       if (others.some((q) => partsClash(pr, q))) return;
       if (def.twinZ && !o.def.twinZ && !partsTouch(pr, o) && !partsMounted(pr, o)) return; // (a pair out to the sides doesn't hang on what it only meets in the side view)
       best = { x, y, z: pr.z, host: o, stack }; bestD = d;
+    };
+    // beside a part (not stacked on its end) it then slides in until it meets its shape
+    const snugged = (b) => {
+      if (b.stack || isSurface(b.host.def) || isSurface(def) || this.gridOn()) return b;
+      const R = partRect(b.host), dir = b.x > R.r - 1e-6 ? -1 : b.x < R.l + 1e-6 ? 1 : 0;
+      if (!dir) return b;
+      const q = this.snug({ def, type, x: b.x, y: b.y, z: b.z, rot }, 'x', dir, (w + R.r - R.l) / 2 - 0.05, others);
+      return q ? { ...b, x: q.x } : b;
     };
     const gx = g(want.x), gy = g(want.y), flat = { def, type, x: gx, y: gy, z: z0, rot };
     // wings and tail surfaces sit right where they are dropped, through the part they mount on; pods,
@@ -667,7 +702,10 @@ const Builder = {
       // on top of or under `o`, wherever along it the pointer is, as long as the two still overlap
       if (Math.abs(g(want.x) - o.x) < (w + R.r - R.l) / 2 - 0.1) { consider(g(want.x), R.t + h / 2, o, true); consider(g(want.x), R.b - h / 2, o, true); }
     }
-    if (best) return { x: best.x, y: best.y, z: best.z, host: best.host, att: this.attFor(best.host, best.stack), attached: true, ok: true };
+    if (best) {
+      best = snugged(best);
+      return { x: best.x, y: best.y, z: best.z, host: best.host, att: this.attFor(best.host, best.stack), attached: true, ok: true };
+    }
     const z = this.zFit(type, gx, gy, rot, z0, others);
     // a flush part (an internal gun, a gear leg) dropped into a body is set into it, so it hangs on that body
     const into = def.flush && z != null && others.find((o) => !isSurface(o.def) && partsOverlap({ def, type, x: gx, y: gy, z, rot }, o));
@@ -684,18 +722,26 @@ const Builder = {
     const { w, h } = partDims({ def, rot }), hd = partDepth({ def }) / 2, R = partRect(host), surf = isSurface(host.def), hhd = partDepth(host) / 2;
     const hz = host.def.twinZ ? (hit.z < 0 ? -1 : 1) * partZ(host) : partZ(host); // the copy of a pair that was hit
     const ax = Math.abs(hit.nx), ay = Math.abs(hit.ny), az = Math.abs(hit.nz), q = (v) => Math.round(v * 100) / 100;
-    let x = hit.x, y = hit.y, z = hit.z, stack = false;
+    let x = hit.x, y = hit.y, z = hit.z, stack = false, slide = null;
     if (ay >= ax && ay >= az && !surf) { x = host.x; z = hz; y = hit.ny > 0 ? R.t + h / 2 : R.b - h / 2; stack = true; } // its end: stack on it
     else if (ax >= az) { // under or over it (pods and stores always hang underneath, off their pylons)
       if (surf && def.pod && hit.nx < 0) x = this.underside(host, hit.z) + w / 2;
-      else x = surf ? hit.x + Math.sign(hit.nx) * w / 2 : hit.nx > 0 ? R.r + w / 2 : R.l - w / 2;
+      else if (surf) x = hit.x + Math.sign(hit.nx) * w / 2;
+      else { x = hit.nx > 0 ? R.r + w / 2 : R.l - w / 2; slide = ['x', hit.nx > 0 ? -1 : 1, (w + R.r - R.l) / 2 - 0.05]; }
     }
-    else z = surf ? hit.z + Math.sign(hit.nz) * hd : hz + Math.sign(hit.nz) * (hhd + hd); // on its flank
+    else { // on its flank
+      z = surf ? hit.z + Math.sign(hit.nz) * hd : hz + Math.sign(hit.nz) * (hhd + hd);
+      if (!surf && (!def.twinZ || !hz)) slide = ['z', def.twinZ ? -1 : -Math.sign(hit.nz), hhd + hd - 0.05];
+    }
     x = q(x); y = q(y); z = q(z);
     if (!def.twinZ && Math.abs(z) < 0.08) z = 0; // onto the centre line
     z = cleanZ(z, def);
-    const pr = { def, type, x, y, z, rot }, ok = !others.some((o) => partsClash(pr, o));
-    return { x, y, z, host, att: this.attFor(host, stack), attached: true, ok };
+    let pr = { def, type, x, y, z, rot }, ok = !others.some((o) => partsClash(pr, o));
+    if (ok && slide) { // in until it meets the hull's shape, not its box
+      const sq = this.snug(pr, slide[0], slide[1], slide[2], others);
+      if (sq && (slide[0] !== 'z' || cleanZ(sq.z, def) === sq.z)) pr = sq;
+    }
+    return { x: pr.x, y: pr.y, z: pr.z, host, att: this.attFor(host, stack), attached: true, ok };
   },
 
   mirrorOk(type, x, y, ignore, rot = 0, z) {
@@ -1032,20 +1078,31 @@ const Builder = {
   },
 
   // ---------------------------------------------------------------- palette & panels
+  // The tabs: the parts for the kind of craft being built first (a plane gets cockpits, fuselage, wings, aero
+  // engines, gear and weapons), then More for everything else, since any part still goes on any craft.
   buildPalette() {
-    const tabs = $('#palette-tabs');
+    const tabs = $('#palette-tabs'), own = (VEHICLE_KINDS[this.kind] || VEHICLE_KINDS.rocket).cats;
+    if (!this.moreCats && !own.includes(this.category)) this.category = own[0];
     tabs.innerHTML = '';
-    for (const c of PART_CATEGORIES) {
-      const b = el('button', { class: 'tab', role: 'tab', 'aria-selected': String(c.id === this.category), text: c.name });
+    const tab = (c, extra) => {
+      const b = el('button', { class: 'tab' + (extra ? ' extra' : ''), role: 'tab', 'aria-selected': String(c.id === this.category), text: c.name });
       b.addEventListener('click', () => { this.category = c.id; this.buildPalette(); });
       tabs.append(b);
-    }
+    };
+    for (const id of own) tab(PART_CATEGORIES.find((c) => c.id === id));
+    if (this.moreCats) for (const c of PART_CATEGORIES) if (!own.includes(c.id)) tab(c, true);
+    const more = el('button', { class: 'tab more', 'aria-expanded': String(!!this.moreCats), title: this.moreCats ? 'Only the parts for this kind of craft' : 'Parts for other kinds of craft too', text: this.moreCats ? 'Fewer' : 'More…' });
+    more.addEventListener('click', () => { this.moreCats = !this.moreCats; this.buildPalette(); Sound.click(); });
+    tabs.append(more);
     const items = $('#palette-items');
     items.innerHTML = '';
-    const dpr = Math.min(devicePixelRatio || 1, 2);
-    for (const type in PARTS) {
+    const dpr = Math.min(devicePixelRatio || 1, 2), fam = partFamilies();
+    let group = null;
+    for (const type of fam.order) {
       const def = PARTS[type];
       if (def.cat !== this.category) continue;
+      const g = fam.of.get(type) || null;
+      if (g !== group) { group = g; if (g) items.append(el('div', { class: 'tray-group', text: g })); } // (each look-alike jet's parts together)
       const locked = !Career.unlocked(def);
       const item = el('button', { class: 'part-item' + (locked ? ' locked' : ''), title: def.desc || def.name });
       item.append(renderPartIcon(type, 56, dpr, this.viewRot)); // drawn the way the blueprint shows it

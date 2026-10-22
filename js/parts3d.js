@@ -51,13 +51,9 @@ const Parts3D = (() => {
     tile: { color: '#6f6a64', roughness: 0.62, metalness: 0.4 }, // a stealth nozzle's heat tiles
     gearDoor: { color: '#737a82', roughness: 0.6, metalness: 0.25 }, // (gear takes no paint: a grey that suits any fighter)
   };
-  const LATHE = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-    'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
+  const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep' };
-  const RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
-    wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
-    gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
-    turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body' };
+  const RECIPE = PART_RECIPE;
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
@@ -67,7 +63,7 @@ const Parts3D = (() => {
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
   const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5']);
-  const FLAT_DEPTH = { fin: 0.12 };
+  const FLAT_DEPTH = PART_FLAT_DEPTH;
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
     solid: [[255, 240, 190], [255, 180, 70], [255, 110, 40]],
@@ -106,117 +102,7 @@ const Parts3D = (() => {
   }
 
   // ------------------------------------------------------------------ outlines
-  // A stand-in canvas context that records the path calls partPath() makes as polygons
-  // [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
-  function recorder() {
-    const polys = [], stack = [];
-    let cur = null, has = false, sx = 0, sy = 0, cx = 0, cy = 0, m = [1, 0, 0, 1, 0, 0];
-    const pt = (x, y) => { cur.push(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]); cx = x; cy = y; };
-    const ensure = (x, y) => { if (!cur) c.moveTo(has ? cx : x, has ? cy : y); };
-    const c = {
-      polys,
-      beginPath() { polys.length = 0; cur = null; has = false; },
-      moveTo(x, y) { cur = []; polys.push(cur); pt(x, y); sx = x; sy = y; has = true; },
-      lineTo(x, y) { if (!cur && !has) c.moveTo(x, y); else { ensure(x, y); pt(x, y); } },
-      closePath() { if (cur) { cur = null; cx = sx; cy = sy; } },
-      bezierCurveTo(x1, y1, x2, y2, x, y) {
-        ensure(x1, y1);
-        const x0 = cx, y0 = cy;
-        for (let i = 1; i <= 16; i++) {
-          const t = i / 16, u = 1 - t;
-          pt(u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y);
-        }
-      },
-      quadraticCurveTo(x1, y1, x, y) {
-        ensure(x1, y1);
-        const x0 = cx, y0 = cy;
-        for (let i = 1; i <= 12; i++) { const t = i / 12, u = 1 - t; pt(u * u * x0 + 2 * u * t * x1 + t * t * x, u * u * y0 + 2 * u * t * y1 + t * t * y); }
-      },
-      arc(x, y, r, a0, a1, ccw) { c.ellipse(x, y, r, r, 0, a0, a1, ccw); },
-      ellipse(x, y, rx, ry, rot, a0, a1, ccw) {
-        let s = a1 - a0;
-        if (!ccw) s = s >= TAU ? TAU : ((s % TAU) + TAU) % TAU;
-        else s = -s >= TAU ? -TAU : -((((a0 - a1) % TAU) + TAU) % TAU);
-        const n = Math.max(2, Math.ceil(Math.abs(s) / (TAU / 48))), cr = Math.cos(rot), sr = Math.sin(rot);
-        for (let i = 0; i <= n; i++) {
-          const a = a0 + (s * i) / n, ex = rx * Math.cos(a), ey = ry * Math.sin(a);
-          c.lineTo(x + ex * cr - ey * sr, y + ex * sr + ey * cr);
-        }
-      },
-      rect(x, y, w, h) { c.moveTo(x, y); pt(x + w, y); pt(x + w, y + h); pt(x, y + h); c.closePath(); },
-      roundRect(x, y, w, h) { c.rect(x, y, w, h); },
-      save() { stack.push(m.slice()); },
-      restore() { if (stack.length) m = stack.pop(); },
-      translate(x, y) { m[4] += m[0] * x + m[2] * y; m[5] += m[1] * x + m[3] * y; },
-      rotate(a) {
-        const co = Math.cos(a), si = Math.sin(a), [a0, b0, c0, d0] = m;
-        m[0] = a0 * co + c0 * si; m[1] = b0 * co + d0 * si; m[2] = c0 * co - a0 * si; m[3] = d0 * co - b0 * si;
-      },
-      scale(x, y) { m[0] *= x; m[1] *= x; m[2] *= y; m[3] *= y; },
-    };
-    return new Proxy(c, { get: (o, k) => (k in o ? o[k] : noop) });
-  }
-
-  // 3D silhouettes for the aircraft and ground shapes follow the spec geometry rather than partPath, so a
-  // canopy bubble in a 2D outline never gets revolved into the hull. Coordinates are relative to the centre.
-  const PROFILE = {
-    probeL(c, w, h) { c.rect(-w / 2, -h / 2, w, h * 0.75); },
-    ion(c, w, h) {
-      const y = -h / 2 + h * 0.3;
-      c.rect(-w * 0.4, y, w * 0.8, h * 0.7);
-      c.moveTo(-w * 0.4, y); c.ellipse(0, y, w * 0.4, h * 0.3, 0, Math.PI, TAU); c.closePath();
-    },
-    cockpit(c, w, h) { // nose at +y, canopy (added separately) on the -x side
-      const b = -h / 2, t = h / 2;
-      c.moveTo(-w / 2, b); c.lineTo(w / 2, b); c.lineTo(w / 2, b + h * 0.28);
-      c.bezierCurveTo(w / 2, b + h * 0.72, w * 0.26, t, w * 0.12, t);
-      c.lineTo(0, t);
-      c.bezierCurveTo(-w * 0.3, t, -w / 2, b + h * 0.88, -w / 2, b + h * 0.6);
-      c.closePath();
-    },
-    tailcone(c, w, h, d) { // the -x edge stays straight; the +x edge sweeps up to it
-      const b = -h / 2, t = h / 2, bw = d.botW || w * 0.35;
-      c.moveTo(-w / 2, b); c.lineTo(-w / 2 + bw, b);
-      c.bezierCurveTo(-w / 2 + bw + w * 0.12, b + h * 0.4, w / 2, t - h * 0.5, w / 2, t);
-      c.lineTo(-w / 2, t); c.closePath();
-    },
-    jet(c, w, h) {
-      const b = -h / 2, t = h / 2;
-      c.moveTo(-w * 0.3, b); c.lineTo(w * 0.3, b);
-      c.bezierCurveTo(w * 0.4, b + h * 0.22, w / 2, b + h * 0.4, w / 2, b + h * 0.62);
-      c.bezierCurveTo(w / 2, t - h * 0.1, w * 0.47, t, w * 0.43, t);
-      c.lineTo(-w * 0.43, t);
-      c.bezierCurveTo(-w * 0.47, t, -w / 2, t - h * 0.1, -w / 2, b + h * 0.62);
-      c.bezierCurveTo(-w / 2, b + h * 0.4, -w * 0.4, b + h * 0.22, -w * 0.3, b);
-      c.closePath();
-    },
-    jetnose(c, w, h, d) { HULLS.jetnose(c, 0, 0, w, h, d); },
-    airnose(c, w, h, d) { HULLS.airnose(c, 0, 0, w, h, d); },
-    float(c, w, h, d) { HULLS.float(c, 0, 0, w, h, d); },
-    droptank(c, w, h, d) { HULLS.droptank(c, 0, 0, w, h, d); },
-    cab(c, w, h) { // side view, driving towards +x
-      const l = -w / 2, r = w / 2, b = -h / 2, t = h / 2;
-      c.moveTo(l, b); c.lineTo(r, b); c.lineTo(r, b + h * 0.45); c.lineTo(r - w * 0.05, b + h * 0.53);
-      c.lineTo(r - w * 0.3, b + h * 0.56); c.lineTo(r - w * 0.46, t); c.lineTo(l + w * 0.06, t); c.lineTo(l, t - h * 0.08);
-      c.closePath();
-    },
-  };
-
-  function outline(d, flip) {
-    const c = recorder(), P = PROFILE[d.shape];
-    if (P) P(c, d.w, d.h, d); else partPath(c, dummy(d, flip));
-    return c.polys.filter((q) => q.length >= 6);
-  }
-
-  // Horizontal extent of the outline at height y.
-  function span(polys, y) {
-    let lo = Infinity, hi = -Infinity;
-    for (const P of polys) for (let i = 0, n = P.length; i < n; i += 2) {
-      const j = (i + 2) % n, y1 = P[i + 1], y2 = P[j + 1];
-      if ((y1 <= y) !== (y2 <= y)) { const x = P[i] + ((y - y1) * (P[j] - P[i])) / (y2 - y1); if (x < lo) lo = x; if (x > hi) hi = x; }
-    }
-    return lo <= hi ? [lo, hi] : null;
-  }
+  const recorder = pathRecorder, outline = partOutline, span = outlineSpan; // (parts.js, where the builder's clash test uses them too)
 
   // ------------------------------------------------------------------ geometry helpers
   function geo(pos, nor, uv, idx, col) {

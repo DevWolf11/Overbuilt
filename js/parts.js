@@ -20,12 +20,13 @@ const PART_CATEGORIES = [
 ];
 
 // Vehicle kinds decide where a design launches and how the builder shows it. launchRot is the
-// craft's rotation at launch: planes are built and launched nose-right (local +y points east).
+// craft's rotation at launch: planes are built and launched nose-right (local +y points east). cats: the
+// part tabs the builder shows for it, in order (More shows the rest: any part still goes on any craft).
 const VEHICLE_KINDS = {
-  rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0 },
-  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2 },
-  car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0 },
-  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0 },
+  rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0, cats: ['command', 'fuel', 'engine', 'coupling', 'aero', 'utility', 'structure'] },
+  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2, cats: ['cabins', 'air', 'wings', 'airEng', 'airGear', 'weapons'] },
+  car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0, cats: ['ground', 'utility', 'structure', 'weapons'] },
+  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons'] },
 };
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
@@ -949,12 +950,205 @@ function partsOverlap(a, b, m = 0.02, mz = m) {
 function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
 function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
 function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
+// ---------------------------------------------------------------------------
+// Outlines. A part's 3D model (parts3d.js) is built from its outline: revolved for the round shapes
+// (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
+// (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
+const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
+const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
+  wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
+  gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
+  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body' };
+
+// A stand-in canvas context that records the path calls partPath() makes as polygons
+// [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
+function pathRecorder() {
+  const polys = [], stack = [];
+  let cur = null, has = false, sx = 0, sy = 0, cx = 0, cy = 0, m = [1, 0, 0, 1, 0, 0];
+  const pt = (x, y) => { cur.push(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]); cx = x; cy = y; };
+  const ensure = (x, y) => { if (!cur) c.moveTo(has ? cx : x, has ? cy : y); };
+  const c = {
+    polys,
+    beginPath() { polys.length = 0; cur = null; has = false; },
+    moveTo(x, y) { cur = []; polys.push(cur); pt(x, y); sx = x; sy = y; has = true; },
+    lineTo(x, y) { if (!cur && !has) c.moveTo(x, y); else { ensure(x, y); pt(x, y); } },
+    closePath() { if (cur) { cur = null; cx = sx; cy = sy; } },
+    bezierCurveTo(x1, y1, x2, y2, x, y) {
+      ensure(x1, y1);
+      const x0 = cx, y0 = cy;
+      for (let i = 1; i <= 16; i++) {
+        const t = i / 16, u = 1 - t;
+        pt(u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y);
+      }
+    },
+    quadraticCurveTo(x1, y1, x, y) {
+      ensure(x1, y1);
+      const x0 = cx, y0 = cy;
+      for (let i = 1; i <= 12; i++) { const t = i / 12, u = 1 - t; pt(u * u * x0 + 2 * u * t * x1 + t * t * x, u * u * y0 + 2 * u * t * y1 + t * t * y); }
+    },
+    arc(x, y, r, a0, a1, ccw) { c.ellipse(x, y, r, r, 0, a0, a1, ccw); },
+    ellipse(x, y, rx, ry, rot, a0, a1, ccw) {
+      let s = a1 - a0;
+      if (!ccw) s = s >= TAU ? TAU : ((s % TAU) + TAU) % TAU;
+      else s = -s >= TAU ? -TAU : -((((a0 - a1) % TAU) + TAU) % TAU);
+      const n = Math.max(2, Math.ceil(Math.abs(s) / (TAU / 48))), cr = Math.cos(rot), sr = Math.sin(rot);
+      for (let i = 0; i <= n; i++) {
+        const a = a0 + (s * i) / n, ex = rx * Math.cos(a), ey = ry * Math.sin(a);
+        c.lineTo(x + ex * cr - ey * sr, y + ex * sr + ey * cr);
+      }
+    },
+    rect(x, y, w, h) { c.moveTo(x, y); pt(x + w, y); pt(x + w, y + h); pt(x, y + h); c.closePath(); },
+    roundRect(x, y, w, h) { c.rect(x, y, w, h); },
+    save() { stack.push(m.slice()); },
+    restore() { if (stack.length) m = stack.pop(); },
+    translate(x, y) { m[4] += m[0] * x + m[2] * y; m[5] += m[1] * x + m[3] * y; },
+    rotate(a) {
+      const co = Math.cos(a), si = Math.sin(a), [a0, b0, c0, d0] = m;
+      m[0] = a0 * co + c0 * si; m[1] = b0 * co + d0 * si; m[2] = c0 * co - a0 * si; m[3] = d0 * co - b0 * si;
+    },
+    scale(x, y) { m[0] *= x; m[1] *= x; m[2] *= y; m[3] *= y; },
+  };
+  return new Proxy(c, { get: (o, k) => (k in o ? o[k] : NOOP) });
+}
+
+// 3D silhouettes for the aircraft and ground shapes follow the spec geometry rather than partPath, so a
+// canopy bubble in a 2D outline never gets revolved into the hull. Coordinates are relative to the centre.
+const PART_PROFILE = {
+  probeL(c, w, h) { c.rect(-w / 2, -h / 2, w, h * 0.75); },
+  ion(c, w, h) {
+    const y = -h / 2 + h * 0.3;
+    c.rect(-w * 0.4, y, w * 0.8, h * 0.7);
+    c.moveTo(-w * 0.4, y); c.ellipse(0, y, w * 0.4, h * 0.3, 0, Math.PI, TAU); c.closePath();
+  },
+  cockpit(c, w, h) { // nose at +y, canopy (added separately) on the -x side
+    const b = -h / 2, t = h / 2;
+    c.moveTo(-w / 2, b); c.lineTo(w / 2, b); c.lineTo(w / 2, b + h * 0.28);
+    c.bezierCurveTo(w / 2, b + h * 0.72, w * 0.26, t, w * 0.12, t);
+    c.lineTo(0, t);
+    c.bezierCurveTo(-w * 0.3, t, -w / 2, b + h * 0.88, -w / 2, b + h * 0.6);
+    c.closePath();
+  },
+  tailcone(c, w, h, d) { // the -x edge stays straight; the +x edge sweeps up to it
+    const b = -h / 2, t = h / 2, bw = d.botW || w * 0.35;
+    c.moveTo(-w / 2, b); c.lineTo(-w / 2 + bw, b);
+    c.bezierCurveTo(-w / 2 + bw + w * 0.12, b + h * 0.4, w / 2, t - h * 0.5, w / 2, t);
+    c.lineTo(-w / 2, t); c.closePath();
+  },
+  jet(c, w, h) {
+    const b = -h / 2, t = h / 2;
+    c.moveTo(-w * 0.3, b); c.lineTo(w * 0.3, b);
+    c.bezierCurveTo(w * 0.4, b + h * 0.22, w / 2, b + h * 0.4, w / 2, b + h * 0.62);
+    c.bezierCurveTo(w / 2, t - h * 0.1, w * 0.47, t, w * 0.43, t);
+    c.lineTo(-w * 0.43, t);
+    c.bezierCurveTo(-w * 0.47, t, -w / 2, t - h * 0.1, -w / 2, b + h * 0.62);
+    c.bezierCurveTo(-w / 2, b + h * 0.4, -w * 0.4, b + h * 0.22, -w * 0.3, b);
+    c.closePath();
+  },
+  jetnose(c, w, h, d) { HULLS.jetnose(c, 0, 0, w, h, d); },
+  airnose(c, w, h, d) { HULLS.airnose(c, 0, 0, w, h, d); },
+  float(c, w, h, d) { HULLS.float(c, 0, 0, w, h, d); },
+  droptank(c, w, h, d) { HULLS.droptank(c, 0, 0, w, h, d); },
+  cab(c, w, h) { // side view, driving towards +x
+    const l = -w / 2, r = w / 2, b = -h / 2, t = h / 2;
+    c.moveTo(l, b); c.lineTo(r, b); c.lineTo(r, b + h * 0.45); c.lineTo(r - w * 0.05, b + h * 0.53);
+    c.lineTo(r - w * 0.3, b + h * 0.56); c.lineTo(r - w * 0.46, t); c.lineTo(l + w * 0.06, t); c.lineTo(l, t - h * 0.08);
+    c.closePath();
+  },
+};
+
+function partOutline(d, flip) {
+  const c = pathRecorder(), P = PART_PROFILE[d.shape];
+  if (P) P(c, d.w, d.h, d); else partPath(c, outlineDummy(d, flip));
+  return c.polys.filter((q) => q.length >= 6);
+}
+
+// Horizontal extent of the outline at height y.
+function outlineSpan(polys, y) {
+  let lo = Infinity, hi = -Infinity;
+  for (const P of polys) for (let i = 0, n = P.length; i < n; i += 2) {
+    const j = (i + 2) % n, y1 = P[i + 1], y2 = P[j + 1];
+    if ((y1 <= y) !== (y2 <= y)) { const x = P[i] + ((y - y1) * (P[j] - P[i])) / (y2 - y1); if (x < lo) lo = x; if (x > hi) hi = x; }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+const PART_FLAT_DEPTH = { fin: 0.12 };
+const NOOP = () => {};
+// A part to draw an outline from: at the origin, unturned.
+function outlineDummy(d, flip) { return { def: d, type: d.type, x: 0, y: 0, flip: !!flip, skin: null, deployed: 0, used: false, firing: 0, temp: AMBIENT_T, spin: 0, deflect: 0 }; }
+
+// The builder's clash test reads the parts' 3D shapes, height by height along the axis they run on: a round part
+// (revolved in 3D) is a disc at each height, as wide as its outline there; a flat one (extruded) is its outline,
+// as deep as its model; a lofted jet body is its side outline, as deep as its box. Parts built some other way
+// (gear, props, guns, wings, rocket fins) keep their box. A round part's 2D path counts as well as its 3D
+// profile, so a canopy drawn in 2D still takes room. Cached per type and side.
+const CLASH_SHAPES = new Map();
+function clashShape(d, flip) {
+  const key = d.type + (flip ? '|f' : '');
+  let S = CLASH_SHAPES.get(key);
+  if (S) return S;
+  const r = d.body3d || (d.shape === 'sep' && d.side ? 'box' : PART_RECIPE[d.shape] || (LATHE_SHAPES.has(d.shape) ? 'lathe' : 'extrude'));
+  const round = r === 'lathe', flat = r === 'extrude' && !d.fin && !d.leg, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body') && !d.wheel && !isSurface(d);
+  let polys = round || flat || loft ? partOutline(d, flip) : [];
+  if (round && PART_PROFILE[d.shape]) { const c = pathRecorder(); partPath(c, outlineDummy(d, flip)); polys = polys.concat(c.polys.filter((q) => q.length >= 6)); }
+  if (!polys.length) S = { box: true, round: false, polys: [[-d.w / 2, -d.h / 2, d.w / 2, -d.h / 2, d.w / 2, d.h / 2, -d.w / 2, d.h / 2]], ys: [-d.h / 2, d.h / 2], depth: 0 };
+  else S = { box: false, round, polys, ys: [...new Set(polys.flatMap((P) => P.filter((v, i) => i & 1)))].sort((a, b) => a - b), depth: flat ? d.depth || PART_FLAT_DEPTH[d.shape] || Math.min(d.w, 1) : 0 };
+  CLASH_SHAPES.set(key, S);
+  return S;
+}
+// A part's turn: 0 to 3 quarters. Along its own axis (y, or x when turned a quarter) a local height ly sits at u.
+function clashU(p, k, ly) { return k === 0 ? p.y + ly : k === 1 ? p.x - ly : k === 2 ? p.y - ly : p.x + ly; }
+// Where the shape is across that axis at u, in part space: [v0, v1], or null where it has no outline.
+function clashSection(p, S, k, u) {
+  const s = outlineSpan(S.polys, k === 0 ? u - p.y : k === 1 ? p.x - u : k === 2 ? p.y - u : u - p.x);
+  if (!s) return null;
+  const c = k & 1 ? p.y : p.x;
+  return k < 2 ? [c + s[0], c + s[1]] : [c - s[1], c - s[0]];
+}
+// How far two sections cut into each other (positive: they overlap), each a disc (round) or a rectangle d deep,
+// at depth z.
+function sectionsCut(sa, za, ra, da, sb, zb, rb, db) {
+  if (ra && rb) return (sa[1] - sa[0]) / 2 + (sb[1] - sb[0]) / 2 - Math.hypot((sa[0] + sa[1]) / 2 - (sb[0] + sb[1]) / 2, za - zb);
+  if (!ra && !rb) return Math.min(spanOverlap(sa[0], sa[1], sb[0], sb[1]), spanOverlap(za - da / 2, za + da / 2, zb - db / 2, zb + db / 2));
+  const [D, zd, R, zr, dr] = ra ? [sa, za, sb, zb, db] : [sb, zb, sa, za, da]; // a disc and a rectangle
+  const cv = (D[0] + D[1]) / 2, dv = Math.max(R[0] - cv, 0, cv - R[1]), dz = Math.max(zr - dr / 2 - zd, 0, zd - zr - dr / 2);
+  return (D[1] - D[0]) / 2 - Math.hypot(dv, dz);
+}
+// Do two parts whose boxes overlap also overlap in shape, by more than m? Parts lying across each other (one
+// turned a quarter) are left to their boxes. Sampled at every height where either outline turns and at quarters
+// in between (between them each edge runs straight, so how far they cut in rises and falls only once).
+function shapesClash(a, b, m) {
+  const A = clashShape(a.def, a.flip), B = clashShape(b.def, b.flip), ka = (a.rot || 0) & 3, kb = (b.rot || 0) & 3;
+  if ((A.box && B.box) || (ka & 1) !== (kb & 1)) return true;
+  const RA = partRect(a), RB = partRect(b), odd = ka & 1, e = 1e-4;
+  const lo = Math.max(odd ? RA.l : RA.b, odd ? RB.l : RB.b) + e, hi = Math.min(odd ? RA.r : RA.t, odd ? RB.r : RB.t) - e;
+  if (hi <= lo) return false;
+  const us = [lo, hi];
+  for (const ly of A.ys) us.push(clashU(a, ka, ly));
+  for (const ly of B.ys) us.push(clashU(b, kb, ly));
+  us.sort((x, y) => x - y);
+  const H = [];
+  for (const u of us) if (u >= lo && u <= hi && !(H.length && u - H[H.length - 1] <= e)) H.push(u);
+  const da = A.depth || partDepth(a), db = B.depth || partDepth(b), zsa = partZs(a), zsb = partZs(b);
+  const cuts = (u) => {
+    const sa = clashSection(a, A, ka, u), sb = sa && clashSection(b, B, kb, u);
+    if (!sb) return false;
+    for (const za of zsa) for (const zb of zsb) if (sectionsCut(sa, za, A.round, da, sb, zb, B.round, db) > m) return true;
+    return false;
+  };
+  for (let i = 0; i < H.length; i++) {
+    if (cuts(H[i])) return true;
+    if (i + 1 < H.length) for (const f of [0.25, 0.5, 0.75]) if (cuts(H[i] + (H[i + 1] - H[i]) * f)) return true;
+  }
+  return false;
+}
+
 // A flush part (def.flush: an internal gun, a chin-gun fairing, a gear leg whose top sits in its well) is set into
 // the bodies around it, so it may overlap them (but not another flush part).
 function partsClash(a, b) {
   if (!!a.def.twinZ !== !!b.def.twinZ && (legacyTwin(a) || legacyTwin(b))) return false;
   if (!a.def.flush !== !b.def.flush) return false;
-  return !partsMix(a, b) && partsOverlap(a, b);
+  return !partsMix(a, b) && partsOverlap(a, b) && shapesClash(a, b, 0.02);
 }
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
 function partsMounted2D(a, b) {
