@@ -44,6 +44,10 @@ const Parts3D = (() => {
     electric: { color: '#3b7dd8', roughness: 0.35, metalness: 0.3 },
     lamp: { basic: '#fff4d6' },
     tail: { basic: '#ff3b2f' },
+    skin: { skin: true, roughness: 0.5, metalness: 0.25 }, // a body panel in its paint, camouflage laid on in metres (5th-gen parts)
+    store: { color: '#e4e7ea', roughness: 0.42, metalness: 0.15 }, // missiles inside a bay (never painted)
+    tile: { color: '#6f6a64', roughness: 0.62, metalness: 0.4 }, // a stealth nozzle's heat tiles
+    gearDoor: { color: '#737a82', roughness: 0.6, metalness: 0.25 }, // (gear takes no paint: a grey that suits any fighter)
   };
   const LATHE = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
     'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
@@ -60,7 +64,7 @@ const Parts3D = (() => {
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
-  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear']);
+  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5']);
   const FLAT_DEPTH = { fin: 0.12 };
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -88,7 +92,7 @@ const Parts3D = (() => {
   const lin = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
   // A skin by id for this part (null: its own look, also for an id we don't know); its tip stripes as the 2D
   // accent() paints them (kept, hidden in the body colour, or a tone of it).
-  const skinFor = (id, d) => { const s = cleanSkin(id, d); return s ? SKINS[s] : null; };
+  const skinFor = (id, d) => { const s = cleanSkin(id, d) || (d.look && hasOwn(SKINS, d.look) ? d.look : null); return s ? SKINS[s] : null; }; // (look: a part that comes in a camouflage of its own)
   const skinTip = (S) => (S.accent === 'keep' ? PAL.orange : S.accent === null ? S.base : S.accent || shade(S.base, skinLum(S.base) < 0.35 ? 0.22 : -0.25));
   const dist = (a, c) => Math.hypot(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
   const rectPoly = (w, h) => [-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2, h / 2];
@@ -426,18 +430,38 @@ const Parts3D = (() => {
   // dihedral tilts the halves up (-x); an elliptical planform curves the chord to the tips; winglets turn
   // up at the tips.
   function wingGeo(d, o = {}) {
-    const S = o.skin ? SKINS[o.skin] : null, white = lin(S ? S.base : '#eef1f4'), lead = lin(S ? shade(S.base, -0.25) : '#9aa3ad'), tip = lin(S ? skinTip(S) : PAL.orange);
-    const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2, st = [];
+    const S = o.skin ? SKINS[o.skin] : (d.look && SKINS[d.look]) || null, white = lin(S ? S.base : '#eef1f4'), lead = lin(S ? shade(S.base, -0.25) : '#9aa3ad'), tip = lin(S ? skinTip(S) : PAL.orange);
+    const w = d.w, h = d.h, wd = d.wing || {}, half = (wd.span || 5) / 2;
     const sw = o.sweep != null ? o.sweep : wd.sweep, th = o.thick || w;
     const taper = wd.taper != null ? wd.taper : 0.45, back = sw ? Math.tan(sw) * half : 0.08 * half;
     const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
     const chord = (s) => wd.planform === 'ellipse' ? h * Math.max(0.2, Math.sqrt(1 - s * s * 0.96)) : h * (1 - taper * s);
-    for (const [a, col] of [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]]) {
-      if (o.half && a * o.half < 0) continue;
-      const s = Math.abs(a), c = chord(s), qc = h / 4 - back * s, sg = Math.sign(a);
-      st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead });
+    let A = [[-1, tip], [-0.86, tip], [-0.86, white], [-0.4, white], [0, white], [0.4, white], [0.86, white], [0.86, tip], [1, tip]];
+    if (S && S.camo) { A = [[-1, tip], [-0.86, tip]]; for (let j = 0; j <= 30; j++) A.push([-0.86 + (1.72 * j) / 30, white]); A.push([0.86, tip], [1, tip]); } // (finer, for the pattern)
+    // root: a tailplane on booms beside the engines shows only outboard of them, each half its own loft
+    const s0 = wd.root ? Math.min(0.8, wd.root / half) : 0, halves = s0 ? [-1, 1] : [o.half || 0];
+    const parts = halves.map((hs) => {
+      const st = [], put = (a, col) => {
+        const s = Math.abs(a), c = chord(s), qc = h / 4 - back * s, sg = Math.sign(a);
+        st.push({ o: [-s * half * sd, qc + c / 4, a * half * cd], A: [0, -1, 0], B: [cd, 0, sg * sd], c, t: (th / 2) * (1 - 0.4 * s), col, lead });
+      };
+      if (s0 && hs > 0) put(s0, white); // (the right half starts at its root)
+      for (const [a, col] of A) {
+        if (hs && a * hs < 0) continue;
+        if (s0 && Math.abs(a) <= s0) continue;
+        put(a, col);
+      }
+      if (s0 && hs < 0) put(-s0, white); // (the left half ends at its root)
+      return st;
+    });
+    let g = parts.length > 1 ? merge(parts.map((st) => sweep(st, 'foil'))) : sweep(parts[0], 'foil');
+    if (S && S.camo) { // the camouflage's blotches over the body colour, by where each point is on the wing (the planform: y, z)
+      const P = g.attributes.position, C = g.attributes.color, cam = lin(S.camo), wr = Math.fround(white[0]), wg = Math.fround(white[1]), wb = Math.fround(white[2]);
+      for (let i = 0; i < P.count; i++) if (C.getX(i) === wr && C.getY(i) === wg && C.getZ(i) === wb) {
+        const t = us5CamoAt(S.pat, P.getZ(i), P.getY(i));
+        C.setXYZ(i, white[0] + (cam[0] - white[0]) * t, white[1] + (cam[1] - white[1]) * t, white[2] + (cam[2] - white[2]) * t);
+      }
     }
-    const g = sweep(st, 'foil');
     if (!wd.winglets) return g;
     const fins = [g];
     for (const a of o.half ? [o.half] : [-1, 1]) { // an upturned fin at each tip, swept back
@@ -830,7 +854,204 @@ const Parts3D = (() => {
       else list.push([rod(knee, [g.x, g.y, 0], 0.05, 10), 'steelLight']);
       return node(list, wheelPair(g.x, g.y, tr, r, W));
     },
+
+    // the 5th-generation look-alikes (FS-22, FS-35): bodies lofted from parts.js's us5Lofts, and their fittings
+    us5(d, flip) {
+      const list = [], subs = [];
+      for (const L of us5Lofts(d)) list.push(...loftGeo(L, d));
+      if (US5_FIT[d.us5]) US5_FIT[d.us5](d, flip, list, subs);
+      us5SkinUV(list); us5SkinUV(subs);
+      return node(list, subs);
+    },
   };
+
+  // ------------------------------------------------------------------ 5th-generation look-alikes
+  // A loft (us5Lofts) as pieces [geometry, kind]: quads between its rings, faceted across (each face keeps its own
+  // normal, so the chines stay crisp) and smooth along; a smooth loft is rounded across too. Body faces that look
+  // sideways take the 2D art (hull, projected from the side as the lathe's are), the others the paint (skin: its
+  // camouflage laid on in metres); caps close its ends (a duct's front is its dark inlet, a little inside the lip).
+  const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], crs3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit3 = (n) => { const l = Math.hypot(n[0], n[1], n[2]) || 1; return [n[0] / l, n[1] / l, n[2] / l]; };
+  function loftGeo(L, d) {
+    const R = L.rings, nR = R.length, M = R[0].length, E = L.open ? M - 1 : M, body = L.kind === 'body', T = US5_CAMO_TILE;
+    const skip = new Set((L.skip || []).map(([i, k]) => i * 1000 + k)), [tw, th] = texSize(d), ku = 1 - 10 / tw, kv = 1 - 10 / th;
+    const mid = (r) => { const c = [0, 0, 0]; for (const q of r) { c[0] += q[0] / M; c[1] += q[1] / M; c[2] += q[2] / M; } return c; };
+    const cen = R.map(mid);
+    const FN = []; // each quad's outward normal (from its diagonals, so a quad closing to a point has one too)
+    for (let i = 0; i + 1 < nR; i++) {
+      const row = [];
+      for (let k = 0; k < E; k++) {
+        const k1 = (k + 1) % M, A = R[i][k], B = R[i][k1], C = R[i + 1][k1], D = R[i + 1][k];
+        let n = unit3(crs3(sub3(C, A), sub3(D, B)));
+        const ox = (A[0] + B[0] + C[0] + D[0]) / 4 - (cen[i][0] + cen[i + 1][0]) / 2, oz = (A[2] + B[2] + C[2] + D[2]) / 4 - (cen[i][2] + cen[i + 1][2]) / 2;
+        if (n[0] * ox + n[2] * oz < 0) n = [-n[0], -n[1], -n[2]];
+        row.push(n);
+      }
+      FN.push(row);
+    }
+    const fn = (i, k) => (i < 0 || i >= nR - 1 || (L.open && (k < 0 || k >= E)) ? null : FN[i][((k % M) + M) % M]);
+    const vn = (i, kq, kp) => { // the normal at ring i, point kp, for the quad on edge kq
+      const s = [0, 0, 0], add = (n) => { if (n) { s[0] += n[0]; s[1] += n[1]; s[2] += n[2]; } };
+      if (L.smooth) { for (const ii of [i - 1, i]) for (const kk of [kp - 1, kp]) add(fn(ii, kk)); } else { add(fn(i - 1, kq)); add(fn(i, kq)); }
+      return unit3(s);
+    };
+    const G = { hull: [[], [], [], []], skin: [[], [], [], []], other: [[], [], [], []] }; // positions, normals, uvs, indices
+    const put = (g, P, N, side) => {
+      g[0].push(P[0], P[1], P[2]); g[1].push(N[0], N[1], N[2]);
+      if (side) { const ins = Math.abs(N[2]) < 0.7; g[2].push((P[0] * (ins ? ku : 1)) / d.w + 0.5, (P[1] * (ins ? kv : 1)) / d.h + 0.5); } else g[2].push(P[2] / T, P[1] / T);
+      return g[0].length / 3 - 1;
+    };
+    const same = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 1e-6;
+    const tri = (g, n, a, b, c) => { // wound to face along n
+      const P = g[0], pa = [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]], w = crs3(sub3([P[b * 3], P[b * 3 + 1], P[b * 3 + 2]], pa), sub3([P[c * 3], P[c * 3 + 1], P[c * 3 + 2]], pa));
+      if (w[0] * n[0] + w[1] * n[1] + w[2] * n[2] >= 0) g[3].push(a, b, c); else g[3].push(a, c, b);
+    };
+    for (let i = 0; i + 1 < nR; i++) for (let k = 0; k < E; k++) {
+      if (skip.has(i * 1000 + k)) continue;
+      const k1 = (k + 1) % M, n = FN[i][k], side = body && Math.abs(n[2]) >= 0.45, g = body ? (side ? G.hull : G.skin) : G.other;
+      const V = [[i, k], [i, k1], [i + 1, k1], [i + 1, k]].map(([ii, kp]) => put(g, R[ii][kp], vn(ii, k, kp), side));
+      if (!same(R[i][k], R[i][k1])) tri(g, n, V[0], V[1], V[2]);
+      if (!same(R[i + 1][k], R[i + 1][k1])) tri(g, n, V[0], V[2], V[3]);
+    }
+    const out = [];
+    for (const [key, kind] of [['hull', 'hull'], ['skin', 'skin'], ['other', L.kind]]) if (G[key][3].length) out.push([geo(...G[key]), kind]);
+    // caps: a fan from the middle of the end ring, facing away from the loft
+    const caps = L.caps === 'both' ? [0, nR - 1] : L.caps === 'front' ? [nR - 1] : L.caps === 'back' ? [0] : [];
+    for (const i of caps) {
+      const r = R[i], C = cen[i], nb = cen[i === 0 ? 1 : nR - 2], dir = unit3(sub3(C, nb)), kind = L.capKind || (body ? 'skin' : L.kind), ins = L.inset || 0;
+      if (r.every((q) => same(q, r[0]))) continue; // (it ends in a point)
+      const g = [[], [], [], []], at = (q) => [q[0] - dir[0] * ins, q[1] - dir[1] * ins, q[2] - dir[2] * ins];
+      const c0 = put(g, at(C), dir, false), ids = r.map((q) => put(g, at(q), dir, false));
+      for (let k = 0; k < M; k++) tri(g, dir, c0, ids[k], ids[(k + 1) % M]);
+      out.push([geo(...g), kind]);
+    }
+    return out;
+  }
+  // Painted fittings (skin pieces that aren't lofts: doors, nozzle sidewalls) get their camouflage in metres, each face
+  // mapped on the two axes it lies along (the lofts' skin faces already are). Walks plain sub-nodes too.
+  function us5SkinUV(items) {
+    for (const it of items) {
+      if (Array.isArray(it)) {
+        const [g, kind] = it;
+        if (kind !== 'skin' || g.userData.us5uv) continue;
+        g.userData.us5uv = true;
+        const P = g.attributes.position, N = g.attributes.normal, uv = new Float32Array(P.count * 2), T = US5_CAMO_TILE;
+        for (let i = 0; i < P.count; i++) {
+          const ax = Math.abs(N.getX(i)), ay = Math.abs(N.getY(i)), az = Math.abs(N.getZ(i));
+          const [u, v] = az >= ax && az >= ay ? [P.getX(i), P.getY(i)] : ax >= ay ? [P.getZ(i), P.getY(i)] : [P.getX(i), P.getZ(i)];
+          uv[i * 2] = u / T; uv[i * 2 + 1] = v / T;
+        }
+        g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      } else if (it && it.pieces) { us5SkinUV(it.pieces); us5SkinUV(it.subs || []); }
+    }
+  }
+  // A thin plate (a door) from edge a to edge b (points [x, z]) over y0..y1, its middle at the origin's offset (in the
+  // frame of whatever holds it).
+  function us5Slab(a, b, y0, y1, t = 0.03) {
+    const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 0.01;
+    return new THREE.BoxGeometry(L, Math.abs(y0 - y1), t).rotateY(Math.atan2(-dz, dx)).translate((a[0] + b[0]) / 2, (y0 + y1) / 2, (a[1] + b[1]) / 2);
+  }
+  // A box with one face left open (faces: +x, -x, +y, -y, +z, -z), the inside of a bay.
+  function us5OpenBox(x0, x1, y0, y1, z0, z1, open) {
+    const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), idx = g.index.array, keep = [];
+    for (let f = 0; f < 6; f++) if (f !== open) for (let i = f * 6; i < f * 6 + 6; i++) keep.push(idx[i]);
+    g.setIndex(keep); g.clearGroups();
+    return g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  }
+  // A missile along y, centred on 0: a white body, its seeker and two sets of fins (aim9: slim, canards at the front).
+  function us5Missile(kind, len) {
+    const r = kind === 'aim9' ? 0.065 : 0.09, b = -len / 2, t = len / 2, list = [];
+    list.push([new THREE.LatheGeometry([v2(0, b), v2(r * 0.9, b + 0.01), v2(r, b + 0.05), v2(r, t - r * 3.4), v2(r * 0.6, t - r * 1.2), v2(0, t)], 14), 'store'],
+      [new THREE.SphereGeometry(r * 0.62, 10, 8).translate(0, t - r * 1.15, 0), kind === 'aim9' ? 'gunmetal' : 'steelLight']);
+    const fins = (y, span, ch) => { for (let f = 0; f < 2; f++) list.push([box(2 * (r + span), ch, 0.014, 0, y, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4), 'steelDark']); };
+    fins(b + 0.13, kind === 'aim9' ? 0.15 : 0.16, 0.24);
+    fins(kind === 'aim9' ? t - len * 0.2 : 0.05, kind === 'aim9' ? 0.08 : 0.13, kind === 'aim9' ? 0.13 : 0.3);
+    return list;
+  }
+  // The fittings that aren't lofts: canopy and pilot, the bays' doors and stores, the nozzles, the fins, the gear, the gun.
+  const US5_FIT = {
+    nose22(d, flip, list) { list.push([new THREE.SphereGeometry(0.13, 16, 12).translate(-0.98, -1.35, 0), 'helmet'], [box(0.2, 0.12, 0.42, -0.86, -1.72, 0), 'ink']); },
+    nose35(d, flip, list) {
+      list.push([new THREE.SphereGeometry(0.13, 16, 12).translate(-1.06, -1.25, 0), 'helmet'], [box(0.2, 0.12, 0.42, -0.93, -1.62, 0), 'ink']);
+      // the canopy's frame: a dark bow across it towards the back, just proud of the glass
+      const C = us5Lofts(d).find((q) => q.canopy).rings, R = C.reduce((m, r) => (Math.abs(r[0][1] + 2.3) < Math.abs(m[0][1] + 2.3) ? r : m), C[0]);
+      const bow = (y) => R.map((q) => [q[0] + (q[0] - R[0][0]) * 0.05, y, q[2] * 1.05]);
+      for (const [g, kind] of loftGeo({ rings: [bow(-2.42), bow(-2.28)], kind: 'ink', open: true, smooth: true }, d)) list.push([g, kind]);
+      // the targeting camera's faceted window under the chin
+      const bot = (y) => us5Lerp(US5_N35, y)[1], dia = (y, k) => [[bot(y) - 0.02, y, 0], [bot(y) + 0.06 * k, y, 0.13 * k], [bot(y) + 0.13 * k, y, 0], [bot(y) + 0.06 * k, y, -0.13 * k]];
+      for (const [g, kind] of loftGeo({ rings: [dia(0.05, 0), dia(0.2, 1), dia(0.62, 1), dia(0.85, 0)], kind: 'glass' }, d)) list.push([g, kind]);
+    },
+    intake22(d, flip, list, subs) { // a side bay in each duct: the door swings out and up, the missile out on its arm
+      const B = US5_BAYS.intake22, D = B.doors[0], duct = us5Lofts(d).find((q) => q.duct), R1 = duct.rings[1], R2 = duct.rings[2];
+      const avg = (i) => [(R1[i][0] + R2[i][0]) / 2, (R1[i][2] + R2[i][2]) / 2], hi = avg(D[0]), fo = avg(D[1]), yc = (B.y0 + B.y1) / 2;
+      for (const s of [-1, 1]) { // left, then right: the stores' order (combat fires the last one first)
+        // the bay: a dark pocket behind the door's hole in the duct wall (open towards the hole)
+        const ring = (y, R) => [R[D[0]], [R[D[0]][0] + 0.04, y, R[D[0]][2] - 0.42], [R[D[1]][0] - 0.03, y, R[D[1]][2] - 0.3], R[D[1]]].map((q) => [q[0], y, s * q[2]]);
+        for (const [g, kind] of loftGeo({ rings: [ring(B.y1, R2), ring(B.y0, R1)], kind: 'intake', open: true, caps: 'both' }, d)) list.push([g, kind]);
+        subs.push({ role: 'hinge', axis: 'y', open: s * D[2], pos: [hi[0], 0, s * hi[1]],
+          pieces: [[us5Slab([0, 0], [fo[0] - hi[0], s * (fo[1] - hi[1])], B.y0, B.y1), 'skin']],
+          subs: [node(us5Missile('aim9', 2.7), null, { role: 'store', pos: [B.at[0] - hi[0], yc, s * (B.at[1] - hi[1])] })] });
+      }
+    },
+    bay22(d, flip, list, subs) { us5BellyBay(d, list, subs, US5_BAYS.bay22, [[-0.95, 0.95]]); },
+    bay35(d, flip, list, subs) { us5BellyBay(d, list, subs, US5_BAYS.bay35, [[0.12, 0.9], [-0.9, -0.12]]); },
+    eng22(d, flip, list, subs) { // fixed sidewalls; the flaps and the exit swivel (pivot) about the throat with the stick
+      const N = US5_NOZ22, sh = new THREE.Shape();
+      N.side.forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+      for (const z of [-N.hw - 0.04, N.hw]) list.push([new THREE.ExtrudeGeometry(sh, { depth: 0.04, bevelEnabled: false }).translate(0, 0, z), 'skin']);
+      const fl = (s) => orient(new THREE.BoxGeometry(0.05, Math.hypot(N.x0 - N.x1, N.len), 2 * N.hw), [s * N.x0, 0, 0], [s * N.x1, -N.len, 0]);
+      subs.push({ role: 'pivot', pos: [0, N.hinge, 0], pieces: [[merge([fl(-1), fl(1)]), 'steelDark'],
+        [new THREE.PlaneGeometry(2 * N.x1 - 0.06, 2 * N.hw - 0.02).rotateX(Math.PI / 2).translate(0, -N.len + 0.08, 0), 'nozzle'],
+        [new THREE.PlaneGeometry(2 * N.x0 - 0.06, 2 * N.hw - 0.02).rotateX(Math.PI / 2).translate(0, -0.06, 0), 'nozzle']], subs: [] });
+    },
+    eng35(d, flip, list) { // a long round nozzle, its trailing edge cut in teeth, glowing inside
+      const N = US5_NOZ35, n = N.teeth, P = [], I = [];
+      list.push([new THREE.LatheGeometry([v2(N.r0, N.y0), v2((N.r0 + N.r1) / 2 + 0.02, (N.y0 + N.y1) / 2), v2(N.r1, N.y1)], 32), 'tile'],
+        [new THREE.LatheGeometry([v2(N.r1 - 0.04, N.y1), v2(N.r0 - 0.08, N.y0 + 0.1)], 32), 'nozzle'],
+        [new THREE.CircleGeometry(N.r1 * 0.8, 24).rotateX(Math.PI / 2).translate(0, N.y0 - 0.25, 0), 'nozzle']);
+      for (let i = 0; i < n; i++) { // the teeth, each a thin triangle (both faces: its own corners for each)
+        const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU, am = (a0 + a1) / 2, o = P.length / 3;
+        const tri = [N.r1 * Math.cos(a0), N.y1, N.r1 * Math.sin(a0), N.r1 * Math.cos(a1), N.y1, N.r1 * Math.sin(a1), (N.r1 - 0.025) * Math.cos(am), N.y1 - 0.15, (N.r1 - 0.025) * Math.sin(am)];
+        P.push(...tri, ...tri);
+        I.push(o, o + 1, o + 2, o + 3, o + 5, o + 4);
+      }
+      list.push([geo(P, null, null, I), 'tile']);
+    },
+    fin(d, flip, list) { // the fin flat in its own plane, then leaned out by its cant about its root; painted with its 2D art
+      const s = flip ? -1 : 1, xi = -s * d.w / 2, Ls = d.w / Math.cos(d.cant), t = d.h / 2, white = lin('#eef1f4');
+      const g = sweep([{ o: [xi, t, 0], A: [0, -1, 0], B: [0, 0, 1], c: d.h, t: 0.075, col: white }, { o: [xi + s * Ls, t - d.tipLE, 0], A: [0, -1, 0], B: [0, 0, 1], c: d.tipC, t: 0.035, col: white }], 'foil');
+      g.translate(-xi, 0, 0).rotateY(-s * d.cant).translate(xi, 0, 0);
+      g.computeVertexNormals();
+      list.push([projUV(g, d, true), 'hull']);
+    },
+    gun(d, flip, list, subs) { // a low fairing (blending in towards the body, -z) with the port at the front; the door opens to fire
+      const b = flip ? 1 : -1, w = d.w, t = d.h / 2, base = b * w / 2;
+      const arch = (y, hg, z0, z1) => { const R = []; for (let i = 0; i <= 10; i++) { const a = Math.PI * (1 - i / 10); R.push([base - b * hg * Math.pow(Math.sin(a), 0.5), y, (z0 + z1) / 2 + ((z1 - z0) / 2) * Math.cos(a)]); } return R; };
+      const H = w * 0.55; // (a low hump, most of the part's height is down in the wing root)
+      for (const [g, kind] of loftGeo({ rings: [arch(-t, 0.01, -0.5, 0.0), arch(-t + 0.6, H * 0.85, -0.6, 0.2), arch(t - 0.4, H, -0.6, 0.22), arch(t, H * 0.6, -0.45, 0.14)], kind: 'body', open: true, smooth: true }, d)) list.push([g, kind]);
+      list.push([box(H * 0.55, 0.05, 0.2, base - b * H * 0.42, t - 0.02, -0.02), 'intake']); // the port
+      for (const o of [-0.06, 0.02]) list.push([rod([base - b * H * 0.42, t - 0.6, o], [base - b * H * 0.42, t - 0.06, o], 0.025, 8), 'gunmetal']);
+      subs.push({ role: 'hinge', axis: 'z', open: b * 1.0, pos: [base - b * (H + 0.012), t - 0.42, -0.08], pieces: [[box(0.025, 0.42, 0.28, 0, 0.21, 0), 'skin']], subs: [] }); // (a door on top, ahead of the port's hump, lifts as it fires)
+    },
+    gear(d, flip, list, subs) { // a tall leg (its top inside the body) to one wheel beside it, and the gear door
+      const g = wheelGeom(dummy(d, flip)), s = flip ? -1 : 1, r = g.r, W = clamp(r * 0.62, 0.18, 0.3), top = -s * (d.w / 2 + 0.35), zl = -(W / 2 + 0.07);
+      list.push([rod([top, 0, zl], [g.x - s * r * 0.55, 0, zl], 0.075, 12), 'steelLight'], [rod([g.x - s * r * 0.6, 0, zl], [g.x, g.y, zl], 0.055, 10), 'steel'],
+        [rod([g.x, g.y, zl], [g.x, g.y, 0], 0.045, 8), 'steel'], [box(0.06, 0.3, 0.05, (top + g.x) / 2, 0.12, zl), 'steelDark']);
+      for (const z of d.twinZ ? [0.3] : [0.22, -0.22]) list.push([box(0.42, d.h, 0.025, top + s * 0.26, 0, z), 'gearDoor']); // the gear doors, hanging open beside the leg
+      subs.push(...wheelPair(g.x, g.y, 0, r, W));
+    },
+  };
+  // A belly bay: the cavity (open below), the doors on hinges, the missiles inside in the order they go.
+  function us5BellyBay(d, list, subs, B, spans) {
+    const R1 = us5Lofts(d)[0].rings[1], R2 = us5Lofts(d)[0].rings[2], half = (f) => { const a = us5At(R1, f), b = us5At(R2, f); return [(a[0] + b[0]) / 2, (a[2] + b[2]) / 2]; };
+    const floor = Math.min(...B.doors.map((D) => half(D[0])[0])); // (the bay's floor is flat: its doors' plane)
+    for (const [z0, z1] of spans) list.push([us5OpenBox(B.roof, floor, B.y1, B.y0, z0 + 0.01, z1 - 0.01, 0), 'intake']);
+    for (const D of B.doors) {
+      const h = half(D[0]), f = half(D[1]);
+      subs.push({ role: 'hinge', axis: 'y', open: D[2], pos: [h[0], 0, h[1]], pieces: [[us5Slab([0, 0], [f[0] - h[0], f[1] - h[1]], B.y0, B.y1), 'skin']], subs: [] });
+    }
+    for (const q of d.bayRack) subs.push(node(us5Missile(B.msl, Math.min(3.4, B.y0 - B.y1 - 0.15)), null, { role: 'store', pos: [B.mx, q[1], q[2]] }));
+  }
 
   function recipe(d) {
     if (d.body3d && BUILD[d.body3d]) return d.body3d;
@@ -879,6 +1100,18 @@ const Parts3D = (() => {
     return t;
   }
 
+  // A camouflage's tile (us5CamoTile, parts.js) as a repeating texture, per skin (uv in metres / US5_CAMO_TILE).
+  const camoTex = new Map();
+  function camoTexture(S) {
+    let t = camoTex.get(S.name);
+    if (!t) {
+      t = new THREE.CanvasTexture(us5CamoTile(S));
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, aniso);
+      camoTex.set(S.name, t);
+    }
+    return t;
+  }
+
   function textureFor(def, flip, skin) {
     need();
     const s = cleanSkin(skin, def), key = def.type + (flip ? '|f' : '') + (s ? '|s:' + s : '');
@@ -900,8 +1133,9 @@ const Parts3D = (() => {
     if (k.basic) return new THREE.MeshBasicMaterial({ color: k.basic });
     const m = new THREE.MeshStandardMaterial({ color: k.color || 0xffffff, roughness: k.roughness, metalness: k.metalness, envMapIntensity: k.env || 0.8 });
     if (k.map) m.map = textureFor(d, flip, S ? skin : null);
-    if (S && (k.map || BODY_KINDS.has(kind))) {
-      if (!k.map) m.color.set(S.base);
+    if (k.skin) { if (S && S.camo) m.map = camoTexture(S); else m.color.set(S ? S.base : '#a7b0ba'); } // (a panel in its paint, its camouflage laid on in metres)
+    if (S && (k.map || k.skin || BODY_KINDS.has(kind))) {
+      if (!k.map && !k.skin) m.color.set(S.base);
       const own = k.map ? KINDS.hull : k;
       m.roughness = S.rough != null ? S.rough : own.roughness;
       m.metalness = S.metal != null ? S.metal : own.metalness;
@@ -1051,6 +1285,7 @@ void main() {
       if (s.rot) g.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
       if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'spinRev') (rig.revs = rig.revs || []).push(g); else if (s.role === 'droop') rig.droops.push(g);
       else if (s.role === 'store') (rig.stores = rig.stores || []).push(g); // missiles and bombs, hidden as they're fired
+      else if (s.role === 'hinge') { (rig.hinges = rig.hinges || []).push(g); g.userData.hinge = [s.axis || 'y', s.open || 0]; } // a door: opens with p.deployed
       else if (s.role) rig[s.role] = g;
       obj.add(g);
       instance(s, g, rig);
@@ -1067,7 +1302,7 @@ void main() {
     const d = p.def, m = model(d, !!p.flip, p.skin), root = new THREE.Group();
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
       nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '',
-      holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble' };
+      holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble', pm: !!d.pairMirror };
     const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => { const g = new THREE.Group(); g.userData.side = s; root.add(g); return g; }) : [root];
     for (const h of holders) instance(m, h, rig);
     rig.nozzle = rig.mats.nozzle || null;
@@ -1229,7 +1464,7 @@ void main() {
     rig.root.position.set(p.x, p.y, H.length > 1 ? 0 : z);
     rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
     rig.root.scale.z = rig.zm && H.length === 1 && z < -0.01 ? -1 : 1;
-    if (H.length > 1) for (const h of H) h.position.z = h.userData.side * z;
+    if (H.length > 1) for (const h of H) { h.position.z = h.userData.side * z; if (rig.pm) h.scale.z = h.userData.side; } // (pairMirror: the left one is the mirror image)
     if (rig.twin) { rig.twin.position.set(z, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }
   }
   function tint(rig, r, g, b, k) {
@@ -1352,6 +1587,7 @@ void main() {
         rig.stores.forEach((g, i) => { g.visible = (i % k) * twin + Math.floor(i / k) < n; });
       }
       if (rig.lid) rig.lid.visible = !(p.deployed > 0 || p.used);
+      if (rig.hinges) { const k = clamp(p.deployed || 0, 0, 1); for (const g of rig.hinges) g.rotation[g.userData.hinge[0]] = g.userData.hinge[1] * k; }
       if (rig.canopy) {
         const k = p.deployed || 0, c = rig.canopy.g;
         c.visible = k > 0 && !p.used;
@@ -1366,6 +1602,7 @@ void main() {
         const P = rig.plumes[n], k = p.firing > 0 ? Math.min(1, p.firing) : 0, ab = p.ab || 0;
         P.g.visible = k > 0;
         if (k <= 0) continue;
+        if (d.vec2d && rig.pivot) { const a = p.deflect || 0, hy = rig.pivot.position.y, L = hy - P.nz.y; P.g.position.set(L * Math.sin(a), hy - L * Math.cos(a), 0); P.g.rotation.z = a; } // (a flat nozzle swivels the flame)
         // length and spread as in World.drawFlame, with a smooth flicker instead of a random one; an
         // afterburner stretches the flame and lights shock diamonds in it
         const type = P.type, vac = 1 - clamp(rho / 0.4, 0, 1), bw = P.nz.half;

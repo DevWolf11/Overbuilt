@@ -14,6 +14,7 @@ const WANT = {
   wingBiplane: [560, 0.48], wingGlider: [500, 0.5], wingStraightL: [750, 0.66], wing: [850, 0.74], wingElliptical: [850, 0.74],
   wingS: [900, 0.74], wingL: [950, 1.02], wingWinglet: [950, 1.05], wingSwept: [1350, 1.7], wingForward: [1400, 1.8],
   wingSwing: [1550, 2.5], wingDelta: [1600, 0], stabilizer: [2000, 0], stabilizerL: [2000, 0], wingStrake: [2000, 0],
+  us5Wing22: [1750, 2.5], us5Wing35: [1649, 2.0], // 5th generation: strong enough for their own full-afterburner dash on the deck
 };
 const wings = Object.keys(ctx.PARTS).filter((k) => ctx.PARTS[k].wing && !ctx.PARTS[k].wing.control);
 t('every fixed wing has a limit in the table', wings.every((k) => WANT[k]), wings.filter((k) => !WANT[k]).join(','));

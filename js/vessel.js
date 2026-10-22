@@ -239,6 +239,7 @@ class Vessel {
     this.wings = this.parts.filter((p) => p.def.wing);
     this.vtails = this.parts.filter((p) => p.def.shape === 'vtail');
     this.airbrakes = this.parts.filter((p) => p.def.airbrake);
+    this.vecs = this.parts.filter((p) => p.def.vec2d); // flat vectoring nozzles
     this.hasFlaps = this.wings.some((p) => p.def.wing.flaps);
     this.hasRetract = this.wheels.some((p) => p.def.wheel.retract);
     this.noseSharp = !!(top && top.def.sharp);
@@ -265,7 +266,7 @@ class Vessel {
     for (const s of D) {
       let fx = 0, fy = 0;
       for (const o of D) {
-        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.dep * (o.round ? 0.785 : 1);
+        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.dep * (o.round ? 0.785 : o.p.def.fill || 1); // (fill: how much of its box a faceted body fills)
         if (Math.abs(o.p.x - s.p.x) < o.d.w / 2) fx += o.d.h * o.dep;
       }
       ax = Math.max(ax, fx); ay = Math.max(ay, fy);
@@ -372,7 +373,7 @@ class Vessel {
   // Thrust (part axes) and its torque this step; also burns propellant. vb is the velocity in part axes.
   applyEngines(dt, rho, vb, sim) {
     const F = v3(), T = v3();
-    let gimbal = 0, rotorTorque = 0, total = 0;
+    let gimbal = 0, gimbalZ = 0, rotorTorque = 0, total = 0;
     const pressure = clamp(rho / EARTH.rho0, 0, 1);
     let changed = false;
     // thrust along the part's axis (in the blueprint plane) from where it sits, r × F: an engine out on one
@@ -382,7 +383,9 @@ class Vessel {
       F.x += a.x * f; F.y += a.y * f; total += f;
       T.x -= rz * a.y * f; T.y += rz * a.x * f; T.z += (rx * a.y - ry * a.x) * f;
       const n = partPt(e, 0, -e.def.h / 2);
-      gimbal += f * Math.sin(e.def.gimbal || 0) * Math.abs((this.com.x - n.x) * a.x + (this.com.y - n.y) * a.y);
+      // (vec2d: a flat nozzle swivels only in the blueprint plane, so it turns the craft about z alone: a plane's pitch)
+      if (e.def.vec2d) gimbalZ += f * Math.sin(e.def.gimbal || 0) * Math.abs((this.com.x - n.x) * a.x + (this.com.y - n.y) * a.y);
+      else gimbal += f * Math.sin(e.def.gimbal || 0) * Math.abs((this.com.x - n.x) * a.x + (this.com.y - n.y) * a.y);
     };
     for (const g of this.groups) {
       if (g.solid) {
@@ -443,7 +446,7 @@ class Vessel {
       changed = true;
     }
     if (changed) this.recompute(false);
-    return { F, T, total, gimbal, rotorTorque };
+    return { F, T, total, gimbal, gimbalZ, rotorTorque };
   }
 
   // Props, rotors and tail rotors wind up and down; wheels spin from their ground speed in ground().
@@ -654,11 +657,12 @@ class Vessel {
     // surfaces get a command too; the wings below turn it into lift this same step.
     let rw = 0;
     for (const p of this.parts) if (p.def.torque) rw += p.def.torque;
-    const A = v3(rw + eng.gimbal + eng.rotorTorque, rw + (this.tailRotors.length ? 0.6 : 0.15) * eng.rotorTorque, rw + eng.gimbal + eng.rotorTorque);
+    const A = v3(rw + eng.gimbal + eng.rotorTorque, rw + (this.tailRotors.length ? 0.6 : 0.15) * eng.rotorTorque, rw + eng.gimbal + eng.gimbalZ + eng.rotorTorque);
     if (this.wheelsDown) { A.x *= 0.5; A.y *= 0.5; A.z *= 0.5; }
     if (this.righting) { const g = this.mass * 14 * Math.max(1, this.width); A.x += g; A.y += g; A.z += g; }
     const want = this.cmdW || (this.cmdW = v3());
     want.x = 0; want.y = 0; want.z = 0;
+    let tz = 0; // (the share of the pitch authority in use: a flat nozzle shows it)
     if (!this.isDebris) {
       const wt = this.turnTarget(sim, eng.total, dt);
       if (wt) {
@@ -667,7 +671,15 @@ class Vessel {
           if (this.surfAuth[a] > 0) want[a] = clamp(need[a] / Math.max(1, this.surfAuth[a] + A[a]), -1, 1);
           if (A[a] > 0) T[a] += clamp(need[a], -A[a], A[a]);
         }
+        if (eng.gimbalZ > 0) tz = clamp(need.z / A.z, -1, 1);
       }
+    }
+    // a flat nozzle's flaps swing with the pitch it gives (for the eye only, in 2D and 3D and for the other players):
+    // up to make the tail push down (nose up) when the engine is behind the centre of mass
+    for (const p of this.vecs || []) {
+      const a = partAxis(p), n = partPt(p, 0, -p.def.h / 2), lever = (this.com.x - n.x) * a.x + (this.com.y - n.y) * a.y;
+      const aim = p.firing > 0 ? -tz * (p.def.gimbal || 0) * (lever < 0 ? -1 : 1) : 0;
+      p.deflect = (p.deflect || 0) + (aim - (p.deflect || 0)) * Math.min(1, dt * 14);
     }
     // control surfaces swing at a finite rate (full throw in about a tenth of a second), so they don't flap
     // from stop to stop between steps
