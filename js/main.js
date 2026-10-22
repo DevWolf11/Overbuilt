@@ -25,8 +25,10 @@ const App = {
     const stash = () => { if (this.scene === 'flight') Flight.save(); };
     document.addEventListener('visibilitychange', () => { if (document.hidden) stash(); });
     addEventListener('pagehide', stash);
+    this.watchInput();
     this.last = performance.now();
-    requestAnimationFrame((t) => this.frame(t));
+    this.loop = (t) => this.frame(t);
+    requestAnimationFrame(this.loop);
     this.toHome();
   },
 
@@ -38,42 +40,105 @@ const App = {
     this.canvas.height = Math.round(this.H * dpr);
     if (Render3D.ready) Render3D.resize(this.W, this.H, this.dpr);
     if (typeof Builder !== 'undefined' && Builder.canvas) Builder.layout();
+    this.ink = false; this.dirty = true; // (resizing a canvas wipes it)
   },
 
+  // ---------------------------------------------------------------- main loop
+  // Battery first: a frame does only the work that can change what is on screen. The frame cap (Settings)
+  // lets a 90-144 Hz screen do at most 60 frames' work a second. A picture that can't have changed (the
+  // idle hangar, 2D or 3D) isn't drawn again: the canvases keep the last one until something changes, with
+  // a redraw every half second as a safety net. Slow backdrops draw less often: the home and multiplayer
+  // screens 30 times a second, anything under a dialog (a paused flight too) 10 times.
   frame(t) {
+    requestAnimationFrame(this.loop);
+    const fps = Settings.get('fps'), cap = fps > 0 ? 1000 / fps : 0;
+    if (cap) { // too soon after the last frame: skip this one (on average no more than fps frames a second)
+      if (t < this.due - 2) return;
+      this.due = t + cap - clamp(t - this.due, 0, cap);
+    }
     const dt = Math.min(0.1, (t - this.last) / 1000);
     this.last = t;
+    if (this.poked) { this.poked = false; this.dirty = true; this.busyUntil = t + 1000; }
     try {
       let in3d = false;
+      const modal = !this.modals[0].hidden || !this.modals[1].hidden;
       if (this.scene === 'build') {
         in3d = this.preview3D();
-        if (in3d) { Render3D.setVisible(true); Render3D.renderBuilder(Builder, dt); this.clear2D(); } else Builder.render(this.ctx, this.W, this.H, this.dpr);
+        const view = in3d ? 'build3d' : 'build2d', force = this.stale(view, t) || Builder.dirty;
+        if (!in3d) {
+          if (force) { Builder.render(this.ctx, this.W, this.H, this.dpr); this.ink = true; this.drew(t); }
+        } else {
+          Render3D.setVisible(true);
+          this.lag += dt;
+          // the 3D view draws while anything in it moves (Render3D knows), for a second after the player
+          // does anything, and when asked to; the turntable turns 10 frames a second under a dialog
+          if (!modal || force || t >= this.next - 2) {
+            if (Render3D.renderBuilder(Builder, this.lag, force || t < this.busyUntil)) this.drew(t, 100);
+            this.lag = 0;
+          }
+          this.clear2D();
+        }
       } else if (this.scene === 'flight') {
         Flight.update(dt);
         const globe = Flight.running && Flight.mapMode && GlobeView.active && this.use3D();
         in3d = (this.use3D() && !Flight.mapMode && Flight.running) || globe;
-        if (globe) {
-          Flight.updateCamera();
-          Render3D.setVisible(true);
-          GlobeView.render(this.ctx, this.W, this.H, this.dpr, Flight, dt);
-        } else if (in3d) {
-          Flight.updateCamera();
-          Render3D.setVisible(true);
-          Render3D.renderFlight(Flight, dt);
-          this.clear2D();
-          World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
-          Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
-          if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
-        } else Flight.render(this.ctx, this.W, this.H, this.dpr);
-      } else this.renderHome(dt);
+        if (in3d) Render3D.setVisible(true);
+        // paused, or a dialog over the flight: the world stands still (or goes on, dimmed and blurred behind
+        // the dialog), so 10 frames a second show it, beacons still blinking
+        const calm = !!Flight.paused || modal, force = this.stale(globe ? 'globe' : in3d ? 'flight3d' : 'flight2d', t);
+        this.lag += dt;
+        if (!calm || force || t >= this.next - 2) {
+          const d = this.lag;
+          this.lag = 0;
+          if (globe) {
+            Flight.updateCamera();
+            GlobeView.render(this.ctx, this.W, this.H, this.dpr, Flight, d);
+          } else if (in3d) {
+            Flight.updateCamera();
+            Render3D.renderFlight(Flight, d, calm || d !== dt); // (several frames' time in one isn't a slow frame)
+            this.clear2D();
+            World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
+            Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+          } else Flight.render(this.ctx, this.W, this.H, this.dpr);
+          this.ink = true;
+          this.drew(t, 100);
+        }
+      } else { // home and the multiplayer screens: the solar system turns slowly behind the menus
+        const force = this.stale('home', t);
+        this.lag += dt;
+        if (force || t >= this.next - 2) { this.renderHome(this.lag); this.lag = 0; this.ink = true; this.drew(t, modal ? 100 : 1000 / 30); }
+      }
       if (!in3d && Render3D.ready) Render3D.setVisible(false);
     } catch (err) {
       console.error(err);
     }
-    requestAnimationFrame((tt) => this.frame(tt));
+  },
+  // Is the view's picture out of date: a redraw asked for, another view than the last one drawn, or none
+  // drawn for a while (a safety net for a change nobody asked to redraw for)
+  stale(view, t) {
+    if (view !== this.view) { this.view = view; this.dirty = true; this.lag = 0; }
+    return this.dirty || t - this.drawnAt > this.heartbeat;
+  },
+  // (gap: a slow view's next frame is due that long after this one, on average, whatever the screen's rate)
+  drew(t, gap = 0) { this.dirty = false; Builder.dirty = false; this.drawnAt = t; this.next = t + gap - clamp(t - this.next, 0, gap); },
+  redraw() { this.dirty = true; },
+  heartbeat: 500, // ms
+  lag: 0, drawnAt: -1e9, next: 0, due: 0, busyUntil: 0, ink: true,
+  // Anything the player does may change a still picture: draw it again, and keep the 3D hangar drawing for a
+  // second while it eases into place. (A mouse only passing over changes nothing; the 3D hangar's hover
+  // highlight asks for its own redraw.)
+  watchInput() {
+    const poke = (e) => { if (e.type !== 'pointermove' || e.buttons || e.pointerType !== 'mouse') this.poked = true; };
+    for (const k of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'wheel', 'keydown', 'keyup', 'touchstart', 'touchend', 'input', 'change', 'click'])
+      addEventListener(k, poke, { capture: true, passive: true });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) this.redraw(); });
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => this.redraw()); // (the blueprint's labels)
+    this.modals = [$('#modal'), $('#spawn-map')];
   },
 
-  clear2D() { this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); },
+  // the 2D canvas over the 3D view: cleared only when something was drawn on it
+  clear2D() { if (!this.ink) return; this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); this.ink = false; },
 
   // ---------------------------------------------------------------- 3D view
   // Flight is always drawn in 3D; the flat 2D renderer is only a fallback for devices without WebGL.
@@ -131,8 +196,10 @@ const App = {
     $('#build-ui').hidden = name !== 'build';
     $('#flight-ui').hidden = name !== 'flight';
     $('#mp-ui').hidden = name !== 'mp';
+    document.body.classList.toggle('flying', name === 'flight'); // (the HUD's panels lose their blur: style.css)
     if (name === 'build') Builder.layout();
     MPUI.renderBar();
+    this.redraw();
   },
   // the multiplayer room: connect, lobby, settings and chat
   showMP() {
@@ -329,6 +396,10 @@ const App = {
     q.innerHTML = '<option value="high">High: clouds, trees, shadows, effects</option><option value="low">Low: faster on older phones</option>';
     q.value = Settings.get('quality');
     q.addEventListener('change', () => Settings.set('quality', q.value));
+    const fps = el('select', { id: 'set-fps' });
+    fps.innerHTML = '<option value="60">60 fps: saves battery, runs cooler</option><option value="0">Unlimited: as fast as the screen refreshes</option>';
+    fps.value = Settings.get('fps') > 0 ? '60' : '0';
+    fps.addEventListener('change', () => Settings.set('fps', +fps.value));
     const hints = el('input', { id: 'set-hints', type: 'checkbox' }); hints.checked = Settings.get('hints');
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
     const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
@@ -337,7 +408,7 @@ const App = {
     tg.innerHTML = '<option value="practice">Practice: targets don’t fight back</option><option value="hostile">Hostile: AA, SAMs and enemy fighters</option><option value="off">Off: no targets</option>';
     tg.value = Settings.get('targets');
     tg.addEventListener('change', () => Settings.set('targets', tg.value));
-    wrap.append(row('Volume', vol), row('Graphics', q), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

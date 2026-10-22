@@ -3,7 +3,8 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice' }, store.get('rss.settings', {})),
+  // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0 }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
@@ -270,7 +271,9 @@ const World = {
       // a faint Milky Way band: bias some stars towards a diagonal
       let x = rnd(), y = rnd();
       if (i % 3 === 0) { const t = rnd(); x = t; y = clamp(0.25 + t * 0.5 + (rnd() - 0.5) * 0.12, 0, 1); }
-      out.push({ x, y, m: rnd() * rnd(), tw: rnd() * TAU });
+      const m = rnd() * rnd();
+      // (and what drawStars needs of each, worked out once)
+      out.push({ x, y, m, tw: rnd() * TAU, a: 0.25 + 0.75 * m, sz: 0.6 + m * 1.7, k: m > 0.6 ? 1 : 0, c: m > 0.7 ? '#ffe9c4' : m < 0.2 ? '#c9d8ff' : '#dfe8ff' });
     }
     return out;
   })(),
@@ -381,13 +384,15 @@ const World = {
   drawStars(ctx, W, H, alpha, rot, time) {
     const off = (rot / TAU) * W * 0.6;
     const big = W > 2000 ? 1.6 : 1;
+    const t0 = time * 0.001, now = performance.now() * 0.002; // (the brighter stars twinkle in real time)
+    let fill = null; // (a colour is set only when it changes from the star before)
     for (const s of this.stars) {
       let x = (s.x * W + off) % W; if (x < 0) x += W;
       const y = s.y * H;
-      const tw = 0.75 + 0.25 * Math.sin(time * 0.001 + s.tw + performance.now() * 0.002 * (s.m > 0.6 ? 1 : 0));
-      ctx.globalAlpha = alpha * (0.25 + 0.75 * s.m) * tw;
-      ctx.fillStyle = s.m > 0.7 ? '#ffe9c4' : s.m < 0.2 ? '#c9d8ff' : '#dfe8ff';
-      const sz = (0.6 + s.m * 1.7) * big;
+      const tw = 0.75 + 0.25 * Math.sin(t0 + s.tw + now * s.k);
+      ctx.globalAlpha = alpha * s.a * tw;
+      if (s.c !== fill) { ctx.fillStyle = fill = s.c; }
+      const sz = s.sz * big;
       ctx.fillRect(x, y, sz, sz);
     }
     ctx.globalAlpha = 1;
