@@ -14,6 +14,9 @@ const WANT = {
   wingBiplane: [560, 0.48], wingGlider: [500, 0.5], wingStraightL: [750, 0.66], wing: [850, 0.74], wingElliptical: [850, 0.74],
   wingS: [900, 0.74], wingL: [950, 1.02], wingWinglet: [950, 1.05], wingSwept: [1350, 1.7], wingForward: [1400, 1.8],
   wingSwing: [1550, 2.5], wingDelta: [1600, 0], stabilizer: [2000, 0], stabilizerL: [2000, 0], wingStrake: [2000, 0],
+  // the US 3rd/4th-generation look-alikes: full afterburner level low down warns without tearing, and the Mach limit sits
+  // a little past each jet's top speed up high (FS-4 about 2.2, FS-16 2.05, FS-15 2.5)
+  us4f4Wing: [1510, 2.6], us4f16Wing: [1620, 2.4], us4f16Lerx: [2000, 0], us4f15Wing: [1620, 2.85],
 };
 const wings = Object.keys(ctx.PARTS).filter((k) => ctx.PARTS[k].wing && !ctx.PARTS[k].wing.control);
 t('every fixed wing has a limit in the table', wings.every((k) => WANT[k]), wings.filter((k) => !WANT[k]).join(','));

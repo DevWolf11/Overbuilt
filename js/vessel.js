@@ -257,7 +257,8 @@ class Vessel {
   }
 
   // Projected areas seen along each part axis. Each slice through the craft sums the parts it cuts;
-  // wings carry their own drag.
+  // wings carry their own drag. A round part fills 0.785 of its box seen head-on; def.fill says how much
+  // of it a shaped body fills (the lofted look-alikes work it out from their sections).
   computeAreas() {
     const D = this.parts.filter((p) => !p.def.wing && !p.def.wheel)
       .map((p) => ({ p, d: partDims(p), dep: p.def.wheel ? 0.25 : partDepth(p), round: ROUND3D.has(p.def.shape) }));
@@ -265,7 +266,7 @@ class Vessel {
     for (const s of D) {
       let fx = 0, fy = 0;
       for (const o of D) {
-        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.dep * (o.round ? 0.785 : 1);
+        if (Math.abs(o.p.y - s.p.y) < o.d.h / 2) fy += o.d.w * o.dep * (o.p.def.fill || (o.round ? 0.785 : 1));
         if (Math.abs(o.p.x - s.p.x) < o.d.w / 2) fx += o.d.h * o.dep;
       }
       ax = Math.max(ax, fx); ay = Math.max(ay, fy);

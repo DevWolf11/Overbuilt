@@ -146,6 +146,73 @@ const TEMPLATES = {
     name: 'Hummingbird', kind: 'heli', tier: 1, blurb: 'A bubble-canopy helicopter on skids, with a slim tail boom. Lift gently: skids slide rather than roll.',
     parts: [['cockpitHeli', 0, 1.7], ['tankS', 0, 3.4], ['rotor', -0.4, 4.5], ['tailBoom', -3.7, 1.2, 1], ['tailRotor', -5.6, 2.35], ['skids', 0, -0.1, 3]],
   },
+  // US 3rd- and 4th-generation look-alikes: the FS-4 (after the F-4 Phantom II), FS-16 (F-16) and FS-15 (F-15)
+  us4fs4: {
+    name: 'FS-4', kind: 'plane', tier: 3, military: true, blurb: '3rd-generation heavy fighter: two big turbojets, a tandem cockpit, splitter-plate intakes, dog-tooth wings with upturned tips and a drooping tailplane. Radar missiles, heat seekers, a pair of bombs, a chin gun. Mach 2 up high.',
+    parts: [
+      ['us4f4Engines', 0, 2.75],
+      ['us4f4Body', -0.11, 8.05],
+      ['us4f4Nose', -0.27, 14.9],
+      ['us4f4Intakes', 0, 9.4, 0, { att: 1 }],
+      ['us4f4Wing', 0.35, 8.95],
+      ['us4f4Fin', -1.665, 3.075],
+      ['us4f4Stab', -0.42, 1.87],
+      ['us4LegL', 1.555, 14.3, 0, { att: 2 }],
+      ['us4LegL', 1.385, 7.3, 0, { z: -2.73, att: 4 }],
+      ['us4LegL', 1.385, 7.3, 0, { z: 2.73, att: 4 }],
+      ['us4f4Gun', 0.6, 16.475, 0, { att: 2 }],
+      ['radarMissiles', 1.01, 10.6, 0, { z: 0.95, att: 1 }],
+      ['radarMissiles', 1.01, 5.9, 0, { z: 0.95, att: 1 }],
+      ['aam', 0.745, 9.4, 0, { z: 2.2, att: 4 }],
+      ['aam', 0.735, 9.4, 0, { z: 2.7, att: 4 }],
+      ['bombs', 0.745, 6, 0, { z: 4.3, att: 4 }],
+      ['flares', 0.72, 6, 0, { att: 1 }],
+      ['chaff', 0.72, 7, 0, { att: 1 }]],
+    paint: { us4f4Engines: 'us4sea', us4f4Body: 'us4sea', us4f4Nose: 'us4sea', us4f4Intakes: 'us4sea', us4f4Wing: 'us4sea', us4f4Stab: 'us4sea', us4f4Fin: 'us4sea', us4f4Gun: 'us4sea' },
+  },
+  us4fs16: {
+    name: 'FS-16', kind: 'plane', tier: 3, military: true, blurb: '4th-generation multirole fighter: blended body, chin intake, bubble canopy, one big afterburning turbofan. A 20 mm cannon, heat seekers on the wingtips, radar missiles, flares and chaff. Mach 2 up high.',
+    parts: [
+      ['us4f16Engine', -0.07, 1.7],
+      ['us4f16Body', -0.215, 6.2],
+      ['us4f16Nose', -0.43, 12.25],
+      ['us4f16Intake', 0.92, 8.5, 0, { att: 1 }],
+      ['us4f16Wing', 0.05, 6.16],
+      ['us4f16Lerx', 0.05, 11.48],
+      ['us4f16Fin', -1.9, 3.35],
+      ['us4f16Stab', 0.04, 1.72],
+      ['us4f16Ventral', 0.8, 2.2, 0, { att: 0 }],
+      ['us4LegS', 1.615, 9.6, 0, { att: 3 }],
+      ['gearR', 1.3, 5.3, 0, { att: 1 }],
+      ['us4Vulcan', -0.25, 9.8, 0, { z: -0.42, att: 2 }],
+      ['aam', 0, 4.6, 0, { z: 4.85, att: 4 }],
+      ['radarMissiles', 0.38, 4.9, 0, { z: 3.55, att: 4 }],
+      ['flares', 0.42, 3, 0, { att: 1 }],
+      ['chaff', 0.42, 4.1, 0, { att: 1 }]],
+    paint: { us4f16Engine: 'us4viper', us4f16Body: 'us4viper', us4f16Nose: 'us4viper', us4f16Intake: 'us4viper', us4f16Wing: 'us4viper', us4f16Lerx: 'us4viper', us4f16Fin: 'us4viper', us4f16Stab: 'us4viper', us4f16Ventral: 'us4viper' },
+  },
+  us4fs15: {
+    name: 'FS-15', kind: 'plane', tier: 4, military: true, blurb: '4th-generation air-superiority fighter: a wide twin-engine body with box intakes, a big wing, twin tails. A 20 mm cannon, four radar missiles, four heat seekers, flares and chaff. Mach 2.5 up high and it climbs like a rocket.',
+    parts: [
+      ['us4f15Engines', -0.035, 2],
+      ['us4f15Body', -0.135, 7.8],
+      ['us4f15Nose', -0.35, 15.5],
+      ['us4f15Intakes', -0.02, 8.9, 0, { att: 1 }],
+      ['us4f15Wing', -0.72, 7.95],
+      ['us4f15Tails', -2.17, 3.55, 0, { att: 0 }],
+      ['us4f15Stab', -0.4, 3.09],
+      ['us4LegL', 1.305, 15.3, 0, { att: 2 }],
+      ['us4LegM', 1.53, 7, 0, { z: -1.1, att: 3 }],
+      ['us4LegM', 1.53, 7, 0, { z: 1.1, att: 3 }],
+      ['us4Vulcan', -0.55, 9.4, 0, { z: 1.15, att: 3 }],
+      ['radarMissiles', 1.13, 11.4, 0, { z: 1.55, att: 3 }],
+      ['radarMissiles', 1.13, 6.6, 0, { z: 1.55, att: 3 }],
+      ['aam', -0.34, 6.9, 0, { z: 3, att: 4 }],
+      ['aam', -0.34, 6.75, 0, { z: 3.55, att: 4 }],
+      ['flares', 0.67, 4.6, 0, { att: 1 }],
+      ['chaff', 0.67, 5.6, 0, { att: 1 }]],
+    paint: { us4f15Engines: 'us4eagle', us4f15Body: 'us4eagle', us4f15Nose: 'us4eagle', us4f15Intakes: 'us4eagle', us4f15Wing: 'us4eagle', us4f15Tails: 'us4eagle', us4f15Stab: 'us4eagle' },
+  },
 };
 
 // A template's parts as design rows.
@@ -1188,7 +1255,7 @@ const Builder = {
     const box = $('#pi-skins');
     if (!box.childElementCount) for (const id of ['', ...SKIN_IDS]) {
       const sk = SKINS[id], b = el('button', { class: 'skin-sw' + (id ? '' : ' own'), role: 'radio', 'data-skin': id, title: sk ? sk.name : 'Its own colours', 'aria-label': sk ? sk.name : 'Its own colours' });
-      if (sk) b.style.background = sk.base;
+      if (sk) b.style.background = sk.blotch ? `linear-gradient(135deg, ${sk.blotch.map((c, i) => `${c} ${Math.round((i / sk.blotch.length) * 100)}% ${Math.round(((i + 1) / sk.blotch.length) * 100)}%`).join(', ')})` : sk.base; // (camouflage: its colours in bands)
       box.append(b);
     }
     const cur = new Set(list.map((q) => q.skin || ''));

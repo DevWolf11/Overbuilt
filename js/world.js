@@ -750,7 +750,7 @@ const World = {
   },
 
   drawFlame(ctx, e, k, rho) {
-    const d = e.def, nz = nozzleOf(d);
+    const d = e.def, nz = nozzleOf(d), ex = e.x + (nz.x || 0); // (a nozzle may sit off the part's centre line)
     const type = d.plume || 'kero';
     const vac = 1 - clamp(rho / 0.4, 0, 1);
     const ny = e.y + nz.y, bw = nz.half;
@@ -768,33 +768,33 @@ const World = {
     const len = Math.max(d.w, 1) * (1.4 + lenK * k) * (1 + (type === 'spike' ? 0 : vac * 0.9)) * flick;
     const spread = bw * (type === 'spike' ? 1 : 1 + vac * (type === 'ion' ? 0.4 : 1.8));
     // nozzle glow
-    let g = ctx.createRadialGradient(e.x, ny, 0, e.x, ny, bw * 2.4);
+    let g = ctx.createRadialGradient(ex, ny, 0, ex, ny, bw * 2.4);
     g.addColorStop(0, `rgba(${C[0]},${0.55 * k})`); g.addColorStop(1, `rgba(${C[1]},0)`);
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(e.x, ny, bw * 2.4, 0, TAU); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex, ny, bw * 2.4, 0, TAU); ctx.fill();
     // outer plume
     g = ctx.createLinearGradient(0, ny, 0, ny - len);
     g.addColorStop(0, `rgba(${C[0]},0.95)`); g.addColorStop(0.3, `rgba(${C[1]},0.7)`); g.addColorStop(1, `rgba(${C[2]},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(e.x - bw * 0.92, ny);
-    ctx.quadraticCurveTo(e.x - spread, ny - len * 0.35, e.x, ny - len);
-    ctx.quadraticCurveTo(e.x + spread, ny - len * 0.35, e.x + bw * 0.92, ny);
+    ctx.moveTo(ex - bw * 0.92, ny);
+    ctx.quadraticCurveTo(ex - spread, ny - len * 0.35, ex, ny - len);
+    ctx.quadraticCurveTo(ex + spread, ny - len * 0.35, ex + bw * 0.92, ny);
     ctx.closePath(); ctx.fill();
     // core
     g = ctx.createLinearGradient(0, ny, 0, ny - len * 0.5);
     g.addColorStop(0, 'rgba(255,255,245,0.95)'); g.addColorStop(1, `rgba(${C[0]},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(e.x - bw * 0.55, ny);
-    ctx.quadraticCurveTo(e.x - bw * 0.5, ny - len * 0.2, e.x, ny - len * 0.5);
-    ctx.quadraticCurveTo(e.x + bw * 0.5, ny - len * 0.2, e.x + bw * 0.55, ny);
+    ctx.moveTo(ex - bw * 0.55, ny);
+    ctx.quadraticCurveTo(ex - bw * 0.5, ny - len * 0.2, ex, ny - len * 0.5);
+    ctx.quadraticCurveTo(ex + bw * 0.5, ny - len * 0.2, ex + bw * 0.55, ny);
     ctx.closePath(); ctx.fill();
     // shock diamonds in thick air
     if ((type === 'kero' || type === 'solid' || type === 'spike') && rho > 0.25 && Settings.high) {
       for (let i = 0; i < 4; i++) {
         const yy = ny - len * (0.14 + i * 0.13), sz = bw * (0.42 - i * 0.07);
         ctx.fillStyle = `rgba(255,250,230,${0.55 - i * 0.11})`;
-        ctx.beginPath(); ctx.moveTo(e.x, yy + sz); ctx.lineTo(e.x + sz * 0.7, yy); ctx.lineTo(e.x, yy - sz); ctx.lineTo(e.x - sz * 0.7, yy); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(ex, yy + sz); ctx.lineTo(ex + sz * 0.7, yy); ctx.lineTo(ex, yy - sz); ctx.lineTo(ex - sz * 0.7, yy); ctx.closePath(); ctx.fill();
       }
     }
   },

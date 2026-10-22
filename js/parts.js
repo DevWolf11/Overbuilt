@@ -417,6 +417,124 @@ const PARTS = {
     desc: 'Longer frame for trucks and big rovers.' },
   carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
     desc: 'Driven road wheel. Mount it under a chassis. W/S drive, A/D steer the front wheels; hold B to brake.' },
+  // ---- US 3rd- and 4th-generation look-alikes (FS-4, FS-16, FS-15): lofted bodies, see us4Rows at the end of this file
+  // shared by the FS look-alikes: single-wheel gear legs and the 20 mm cannon
+  us4LegS: { cat: 'airGear', name: 'Short Gear Leg', w: 0.75, h: 0.7, mass: 0.1, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 900,
+    desc: 'A single small wheel on a short leg that folds away (G): the nose gear of a low-slung fighter.' },
+  us4LegM: { cat: 'airGear', name: 'Gear Leg', w: 1.3, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 1200,
+    desc: 'A single wheel on a leg that folds away (G). Use a pair, one each side, for a fighter\'s main gear.' },
+  us4LegL: { cat: 'airGear', name: 'Long Gear Leg', w: 1.75, h: 0.9, mass: 0.28, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 1500,
+    desc: 'A single wheel on a long leg that folds away (G): a tall fighter\'s nose gear, or one under each wing for a wide stance.' },
+  us4Vulcan: { cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 9000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
+    desc: 'Six spinning 20 mm barrels: a short, savage burst for dogfights. Tuck it inside the fuselage with just the muzzle at a gun port.' },
+  // FS-4 (3rd generation, after the F-4 Phantom II)
+  us4f4Nose: { cat: 'cabins', name: 'FS-4 Phantom Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radar: 14000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 9000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-4.3, -0.71, 0.37, 1.09, 0.73, 2.6, 3.2], [-3.3, -0.63, 0.35, 1.07, 0.7, 2.6, 3], [-2.1, -0.53, 0.33, 1.03, 0.68, 2.5, 2.8], [-0.9, -0.47, 0.32, 0.97, 0.66, 2.4, 2.6], [0.1, -0.43, 0.31, 0.91, 0.63, 2.3, 2.4], [1.3, -0.35, 0.31, 0.82, 0.57, 2.2, 2.2], [2.3, -0.25, 0.32, 0.73, 0.48, 2, 2], [3.4, -0.07, 0.33, 0.59, 0.31, 2, 2], [4.3, 0.31, 0.33, 0.35, 0, 2, 2]] },
+      { st: [[-4.3, -0.83, -0.71, -0.55, 0.3, 2], [-3.7, -0.99, -0.73, -0.47, 0.4, 2], [-2.9, -1.09, -0.75, -0.47, 0.46, 2], [-2.1, -1.09, -0.75, -0.47, 0.47, 2], [-1.3, -1.03, -0.73, -0.47, 0.46, 2], [-0.6, -0.95, -0.68, -0.47, 0.42, 2], [-0.1, -0.65, -0.53, -0.45, 0.28, 2], [0.2, -0.43, -0.43, -0.41, 0.05, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.85, -0.95], [-0.91, -2.6]],
+      frames: [-0.18, -1.6, -1.8, -3.65],
+      deco: [['tone', 2.3, '#2c3034'], ['line', -0.47, -0.9, 0.97, -0.9], ['line', -0.63, -3.3, 1.07, -3.3]] },
+    desc: 'A long drooping radome and two seats in a row under a framed canopy, pilot in front and radar operator behind. The Side Intakes go either side of its back end.' },
+  us4f4Body: { cat: 'air', name: 'FS-4 Centre Fuselage', w: 1.98, h: 5.1, depth: 1.48, fill: 0.82, mass: 2.2, fuel: 3.2, tier: 2, cost: 4000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.55, -0.77, 0.21, 0.99, 0.74, 3, 3.5], [-1.05, -0.79, 0.21, 0.99, 0.74, 3, 3.5], [0.45, -0.81, 0.21, 0.97, 0.74, 3, 3.4], [2.55, -0.87, 0.21, 0.93, 0.73, 2.6, 3.2]] },
+      { st: [[-2.25, -0.77, -0.75, -0.64, 0.04, 2], [-0.55, -0.87, -0.77, -0.64, 0.26, 2], [1.15, -0.94, -0.81, -0.64, 0.3, 2], [2.55, -0.99, -0.86, -0.69, 0.3, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.79, -0.05, 0.99, -0.05], ['line', -0.84, 1.75, 0.95, 1.75]] },
+    desc: 'The middle of a heavy twin-jet fighter: the spine behind the canopy, a big fuel tank and wells for radar missiles underneath. The wing goes through it, low.' },
+  us4f4Intakes: { cat: 'air', name: 'FS-4 Side Intakes', w: 1.76, h: 7.8, depth: 0.85, fill: 0.81, mass: 1.4, twinZ: 1.12, twinMirror: true, tier: 2, cost: 3000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.9, -0.88, 0.1, 0.88, 0.38, 3.5], [-1.9, -0.8, 0.1, 0.86, 0.38, 4], [0.1, -0.7, 0.08, 0.84, 0.38, 4.5], [1.6, -0.62, 0.06, 0.8, 0.38, 5], [2.8, -0.58, 0.06, 0.78, 0.38, 5]], front: 'intake' }],
+      plates: [[-0.66, 0.84, 2.3, 3.9, -0.4, 0.05]],
+      deco: [['line', -0.6, 2.2, 0.8, 2.2], ['line', -0.8, -1.8, 0.86, -1.8]] },
+    desc: 'A pair of tall intakes with splitter plates standing off the fuselage ahead of them, and the ducts behind. Put them either side of the centre fuselage, flush.' },
+  us4f4Engines: { cat: 'airEng', name: 'FS-4 Twin Turbojets', w: 1.76, h: 5.5, depth: 3, fill: 0.91, mass: 4.5, thrust: 240, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 630, ab: 1.6 }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 30000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[0.25, -0.21, 0.25, 0.71, 0.46, 2], [1.45, -0.42, 0.18, 0.8, 0.56, 2.4], [2.75, -0.62, 0.1, 0.88, 0.62, 3]], z: [-0.62, 0.62], back: 'open', hide: true },
+      { st: [[-2.75, -0.5, -0.36, -0.24, 0.1, 2], [-1.95, -0.6, -0.4, -0.16, 0.3, 2.5], [-0.75, -0.7, -0.36, -0.04, 0.46, 3], [0.45, -0.78, -0.24, 0.24, 0.66, 3], [1.65, -0.84, -0.04, 0.62, 1.1, 3.4], [2.75, -0.88, 0.1, 0.88, 1.5, 3.6]] }],
+      noz: [{ x: 0.25, y0: 0.65, y1: 0.1, r0: 0.52, r1: 0.44, z: [-0.62, 0.62] }],
+      deco: [['line', -0.8, 1.25, 0.7, 1.25]] },
+    desc: 'The back of a 1960s twin-jet fighter: two thirsty afterburning turbojets low down, their nozzles tucked under the tail boom that carries the fin and stabilator. Mach 2 and more up high.' },
+  us4f4Wing: { cat: 'wings', name: 'FS-4 Dog-Tooth Wing', w: 0.4, h: 6.6, mass: 2.6, fuel: 0.6, shape: 'wing', wing: { area: 49.2, span: 11.7, sweep: 0.773, taper: 0.77, flaps: true, stall: 0.36, mcrit: 0.85, wave: 0.5, cd0: 0.01, load: 2, dihedral: 0.08, vne: 420, mmax: 2.6, crank: { at: 0.64, d0: 0, d1: 0.21, tooth: 0.12 } }, breakSpeed: 14, tier: 2, cost: 6000,
+    desc: 'A swept wing whose outer panels tilt up 12° beyond a dog-tooth notch in the leading edge: the Phantom\'s trademark, added to cure a wobble. Mount it low through the fuselage.' },
+  us4f4Stab: { cat: 'wings', name: 'Anhedral Stabilator', w: 0.2, h: 2.6, mass: 0.4, shape: 'elevator', wing: { area: 9.3, span: 5.4, sweep: 0.666, taper: 0.615, dihedral: -0.4, control: 0.35 }, breakSpeed: 14, tier: 2, cost: 1800,
+    desc: 'An all-moving tailplane that droops 23° (anhedral), so it stays out of the wing\'s wake at high angles: the Phantom look. Mount it on the tail boom.' },
+  us4f4Fin: { cat: 'wings', name: 'FS-4 Tail Fin', w: 2.17, h: 5.05, mass: 0.3, shape: 'vtail', vtail: { tle: 0.29, tte: 0.08 }, tier: 2, cost: 1200,
+    desc: 'A long, steeply swept fin with a rudder, running from the spine to the end of the tail boom.' },
+  us4f4Gun: { cat: 'weapons', name: 'FS-4 Chin Gun', w: 0.64, h: 3.25, depth: 0.44, fill: 0.66, mass: 0.25, tier: 2, cost: 8000, weapon: { kind: 'gun', ammo: 640, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 }, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
+    desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
+  // FS-16 (4th generation, after the F-16)
+  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radar: 15000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 9000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.25, -0.27, 0.48, 0.93, 0.68, 2.6, 3.6], [-2.25, -0.23, 0.46, 0.93, 0.64, 2.6, 3.4], [-1.25, -0.2, 0.45, 0.93, 0.61, 2.6, 3.2], [-0.25, -0.19, 0.43, 0.93, 0.57, 2.6, 3], [0.35, -0.17, 0.41, 0.9, 0.53, 2.4, 2.8], [1.05, -0.1, 0.37, 0.81, 0.45, 2.2, 2.4], [1.75, 0.02, 0.33, 0.65, 0.31, 2, 2], [2.35, 0.17, 0.31, 0.47, 0.16, 2, 2], [2.75, 0.3, 0.3, 0.3, 0, 2, 2]] },
+      { st: [[-3.25, -0.61, -0.43, -0.12, 0.3, 2], [-2.85, -0.75, -0.43, -0.09, 0.37, 2], [-2.35, -0.87, -0.43, -0.09, 0.41, 2], [-1.75, -0.93, -0.44, -0.09, 0.43, 2], [-1.15, -0.9, -0.43, -0.09, 0.42, 2], [-0.55, -0.74, -0.37, -0.09, 0.38, 2], [-0.05, -0.45, -0.25, -0.09, 0.28, 2], [0.3, -0.19, -0.17, -0.12, 0.06, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.59, -1.65]],
+      probe: [0.3, 2.75, 3.25, 0.03],
+      deco: [['tone', 1.05, -0.1], ['line', -0.17, 0.35, 0.9, 0.35], ['line', -0.27, -2.65, 0.93, -2.65]] },
+    desc: 'Pointed radome, chined nose and a frameless bubble canopy: the pilot sits high with a view all round. Hang the Chin Intake under it.' },
+  us4f16Body: { cat: 'air', name: 'FS-16 Blended Fuselage', w: 1.63, h: 5.6, depth: 1.64, fill: 0.74, mass: 2.3, fuel: 2.6, tier: 3, cost: 4000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.8, -0.525, 0.275, 0.815, 0.78, 2.4, 3], [-2.2, -0.545, 0.295, 0.815, 0.8, 2.4, 3], [-1.2, -0.565, 0.315, 0.815, 0.82, 2.4, 3.2], [-0.2, -0.585, 0.315, 0.795, 0.82, 2.4, 3.4], [0.8, -0.585, 0.315, 0.765, 0.8, 2.4, 3.6], [1.8, -0.545, 0.295, 0.735, 0.75, 2.5, 3.6], [2.8, -0.485, 0.265, 0.715, 0.68, 2.6, 3.6]] },
+      { st: [[-2.6, -0.525, -0.505, -0.385, 0.02, 2], [-2, -0.585, -0.485, -0.335, 0.16, 2], [-1.2, -0.625, -0.485, -0.335, 0.2, 2], [0.3, -0.685, -0.525, -0.335, 0.24, 2], [1.8, -0.755, -0.585, -0.335, 0.28, 2], [2.8, -0.815, -0.625, -0.335, 0.3, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.685, 0.3, 0.795, 0.3], ['line', -0.585, -1.8, 0.815, -1.8]] },
+    desc: 'The wide, flat middle of a blended-body fighter, with the dorsal spine on top and fuel inside. The wing goes through it.' },
+  us4f16Intake: { cat: 'air', name: 'FS-16 Chin Intake', w: 0.64, h: 4.2, depth: 1.32, fill: 0.73, mass: 0.4, tier: 3, cost: 1500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.1, -0.47, -0.37, -0.3, 0.66, 3], [-1.6, -0.47, -0.24, -0.02, 0.62, 3], [-0.9, -0.5, -0.14, 0.18, 0.58, 3], [-0.1, -0.52, -0.09, 0.28, 0.54, 3, 3.2], [0.9, -0.54, -0.08, 0.32, 0.51, 3, 3.2], [1.7, -0.54, -0.08, 0.32, 0.49, 3], [2.1, -0.54, -0.08, 0.3, 0.47, 3]], front: 'intake', rake: -0.25 }] },
+    desc: 'The single gaping intake that hangs under the cockpit and feeds the engine. Put it under the nose and the fuselage; the nose gear folds into it.' },
+  us4f16Engine: { cat: 'airEng', name: 'FS-16 Afterburning Turbofan', w: 1.34, h: 3.4, depth: 2.04, fill: 0.66, mass: 2.3, thrust: 140, ispSL: 5200, ispVac: 5200, gimbal: 0.02, air: { kind: 'jet', vmax: 575, ab: 1.7 }, plume: 'jet', maxTemp: 2200, tier: 3, cost: 22000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-0.6, -0.51, 0.07, 0.65, 0.58, 2, 2], [0.1, -0.57, 0.09, 0.67, 0.66, 2.2, 2.6], [0.9, -0.63, 0.11, 0.67, 0.74, 2.3, 2.8], [1.7, -0.67, 0.13, 0.67, 0.78, 2.4, 3]] },
+      { st: [[-1.45, 0.02, 0.12, 0.21, 0.12, 2.5], [-1.1, -0.03, 0.12, 0.27, 0.22, 3], [-0.1, -0.05, 0.12, 0.31, 0.3, 3], [0.9, -0.03, 0.12, 0.31, 0.28, 3], [1.6, 0.02, 0.12, 0.25, 0.1, 3]], z: [-0.72, 0.72], hide: true }],
+      noz: [{ x: 0.07, y0: -0.55, y1: -1.7, r0: 0.59, r1: 0.47 }],
+      deco: [['line', -0.63, 0.9, 0.67, 0.9]] },
+    desc: 'The tail of a single-engine fighter: one big afterburning turbofan, the petal nozzle and the fairings the tailplanes hinge on. Afterburner above 90% throttle: Mach 2 up high.' },
+  us4f16Wing: { cat: 'wings', name: 'FS-16 Cropped Delta Wing', w: 0.22, h: 4.8, mass: 1.3, fuel: 0.6, shape: 'wing', wing: { area: 27.9, span: 9.45, sweep: 0.532, taper: 0.773, flaps: true, stall: 0.4, mcrit: 0.9, wave: 0.6, load: 2.6, dihedral: 0, vne: 450, mmax: 2.4 }, breakSpeed: 14, tier: 3, cost: 5000,
+    desc: 'A small, thin cropped delta with flaperons and a straight trailing edge: agile and quick, good for 9 g. Put it through the fuselage at the waist.' },
+  us4f16Lerx: { cat: 'wings', name: 'FS-16 Strakes (LERX)', w: 0.1, h: 5.84, mass: 0.12, shape: 'wing', wing: { area: 2.6, span: 2.3, sweep: 1.355, taper: 0.993, slope: 1.6, stall: 0.9, mcrit: 0.95, wave: 0.4, load: 2, vne: 556 }, breakSpeed: 14, tier: 3, cost: 1500,
+    desc: 'The long blended strakes from the cockpit to the wing root: they keep the wing flying at angles that would stall it. Line their tips up with the wing\'s leading edge.' },
+  us4f16Fin: { cat: 'wings', name: 'FS-16 Tail Fin', w: 2.6, h: 3.9, mass: 0.2, shape: 'vtail', vtail: { tle: 0.32, tte: 0.03 }, tier: 3, cost: 1200,
+    desc: 'A single tall, swept fin with a rudder. Mount it on the spine over the engine.' },
+  us4f16Stab: { cat: 'wings', name: 'FS-16 Stabilators', w: 0.16, h: 2.64, mass: 0.25, shape: 'elevator', wing: { area: 5.9, span: 5.6, sweep: 0.596, taper: 0.68, dihedral: -0.175, control: 0.35 }, breakSpeed: 14, tier: 3, cost: 1800,
+    desc: 'All-moving swept tailplanes, drooping a little (anhedral). They pitch the plane and help it roll. Mount them on the tail fairings.' },
+  us4f16Ventral: { cat: 'wings', name: 'Ventral Fins', w: 0.6, h: 1.4, mass: 0.04, shape: 'vtail', twinZ: 0.62, twinMirror: true, vtail: { tle: 0.45, tte: 0, cant: 0.26 }, tier: 3, cost: 500,
+    desc: 'A pair of small fins under the tail, splayed outwards: they keep the nose straight at high angles of attack.' },
+  // FS-15 (4th generation, after the F-15)
+  us4f15Nose: { cat: 'cabins', name: 'FS-15 Eagle Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radar: 18000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 11000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.9, -0.57, 0.45, 1.15, 0.71, 2.6, 3], [-3.1, -0.53, 0.43, 1.11, 0.7, 2.6, 3], [-2.1, -0.45, 0.4, 1.05, 0.68, 2.6, 2.8], [-0.9, -0.39, 0.37, 1.01, 0.67, 2.5, 2.6], [0.3, -0.37, 0.35, 0.99, 0.66, 2.4, 2.4], [1.3, -0.32, 0.33, 0.93, 0.62, 2.2, 2.2], [2.3, -0.19, 0.31, 0.79, 0.49, 2, 2], [3.2, 0.02, 0.29, 0.57, 0.28, 2, 2], [3.9, 0.27, 0.27, 0.27, 0, 2, 2]] },
+      { st: [[-3.9, -0.77, -0.6, -0.37, 0.38, 2], [-3.3, -0.95, -0.63, -0.33, 0.46, 2], [-2.5, -1.1, -0.65, -0.31, 0.5, 2], [-1.7, -1.15, -0.65, -0.31, 0.5, 2], [-0.9, -1.07, -0.63, -0.31, 0.47, 2], [-0.2, -0.77, -0.53, -0.31, 0.38, 2], [0.4, -0.39, -0.37, -0.31, 0.08, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.85, -1.5]],
+      frames: [-0.35],
+      deco: [['tone', 1.3, -0.1], ['line', -0.32, 1.3, 0.93, 1.3], ['line', -0.5, -3.2, 1.11, -3.2]] },
+    desc: 'A big radome and a tall bubble canopy, the pilot sitting high above the box intakes. Put the FS-15 Box Intakes either side of its back end.' },
+  us4f15Body: { cat: 'air', name: 'FS-15 Centre Fuselage', w: 1.97, h: 7.6, depth: 1.42, fill: 0.82, mass: 2.6, fuel: 4.4, tier: 3, cost: 5000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [-1.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [0.2, -0.795, 0.255, 0.985, 0.71, 3, 3.5], [2.2, -0.795, 0.245, 0.965, 0.71, 2.8, 3.2], [3.8, -0.785, 0.235, 0.935, 0.71, 2.6, 3]] },
+      { st: [[-0.4, -0.785, -0.765, -0.665, 0.04, 2], [1.2, -0.865, -0.785, -0.665, 0.3, 2], [2.7, -0.935, -0.815, -0.665, 0.36, 2], [3.8, -0.985, -0.815, -0.665, 0.38, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.795, 0.2, 0.985, 0.2], ['line', -0.785, -2.2, 0.985, -2.2]] },
+    desc: 'The middle of a twin-engine fighter: a flat deck between the intake ducts, a big fuel tank, the dorsal spine behind the canopy. The wing goes through it.' },
+  us4f15Intakes: { cat: 'air', name: 'FS-15 Box Intakes', w: 1.8, h: 9.8, depth: 1.1, fill: 0.94, mass: 1.6, twinZ: 1.27, tier: 3, cost: 3500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-4.9, -0.9, 0.02, 0.82, 0.55, 3.5, 3.5], [-2.9, -0.9, 0.02, 0.87, 0.55, 4, 4], [-0.9, -0.88, 0.02, 0.9, 0.55, 5, 5], [1.1, -0.73, 0.07, 0.9, 0.55, 6, 6], [3.1, -0.53, 0.17, 0.9, 0.55, 6, 6], [4.9, -0.43, 0.22, 0.9, 0.55, 6, 6]], front: 'intake', rake: 0.45 }],
+      deco: [['line', -0.48, 3.7, 0.9, 3.3], ['line', -0.88, -1.9, 0.9, -1.9]] },
+    desc: 'A pair of big square intakes with raked mouths, standing just clear of the cockpit, and the ducts behind them. Put them either side of the centre fuselage, flush.' },
+  us4f15Engines: { cat: 'airEng', name: 'FS-15 Twin Turbofans', w: 1.77, h: 4, depth: 3.7, fill: 0.95, mass: 4, thrust: 300, ispSL: 5000, ispVac: 5000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.7 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 42000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-1.1, -0.585, 0.035, 0.655, 0.62, 2], [0, -0.665, 0.035, 0.755, 0.66, 2.2], [1, -0.765, 0.055, 0.835, 0.68, 2.6], [2, -0.885, 0.085, 0.885, 0.71, 3]], z: [-0.66, 0.66], back: 'open' },
+      { st: [[-1.7, -0.585, -0.405, -0.205, 0.16, 3], [-0.8, -0.665, -0.385, -0.045, 0.24, 3.5], [0.5, -0.765, -0.325, 0.335, 0.3, 4], [2, -0.885, 0.035, 0.835, 0.3, 4]], z: [-1.55, 1.55], hide: true },
+      { st: [[-0.4, -0.585, -0.415, -0.265, 0.15, 2.5], [0.8, -0.785, -0.265, 0.235, 0.5, 3], [2, -0.885, 0.155, 0.885, 0.71, 3, 3.5]], hide: true }],
+      noz: [{ x: 0.035, y0: -1.05, y1: -2, r0: 0.64, r1: 0.52, z: [-0.66, 0.66] }],
+      deco: [['line', -0.765, 0.6, 0.755, 0.6]] },
+    desc: 'The back end of a twin-engine fighter: two afterburning turbofans side by side and the tail booms that carry its fins and stabilators. Afterburner above 90% throttle: Mach 2.5 up high.' },
+  us4f15Wing: { cat: 'wings', name: 'FS-15 Wing', w: 0.38, h: 6.9, mass: 2.5, fuel: 0.8, shape: 'wing', wing: { area: 56.5, span: 13.05, sweep: 0.674, taper: 0.75, flaps: true, stall: 0.36, mcrit: 0.9, wave: 0.4, cd0: 0.009, load: 2.3, dihedral: 0, vne: 450, mmax: 2.85 }, breakSpeed: 14, tier: 3, cost: 7000,
+    desc: 'A big swept wing with cropped tips: huge area for its weight, so it turns hard and climbs like a rocket. Mount it high, through the top of the intake ducts.' },
+  us4f15Tails: { cat: 'wings', name: 'FS-15 Twin Tails', w: 2.9, h: 3.9, mass: 0.5, shape: 'vtail', twinZ: 1.55, vtail: { tle: 0.45, tte: 0 }, tier: 3, cost: 1600,
+    desc: 'A pair of tall upright fins with rudders, one on each tail boom.' },
+  us4f15Stab: { cat: 'wings', name: 'FS-15 Stabilators', w: 0.2, h: 4.03, mass: 0.45, shape: 'elevator', wing: { area: 10.4, span: 8.6, sweep: 0.793, taper: 0.752, control: 0.35 }, breakSpeed: 14, tier: 3, cost: 2400,
+    desc: 'Big all-moving swept tailplanes that reach out behind the nozzles. Mount them on the tail booms.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -676,6 +794,7 @@ function nozzleOf(def) {
     case 'ion': return { y: -def.h / 2, half: def.w * 0.32 };
     case 'spike': return { y: -def.h / 2, half: def.w * 0.42 };
     case 'jet': return { y: -def.h / 2, half: def.w * 0.28 };
+    case 'us4body': { const n = def.body.noz && def.body.noz[0]; return n ? { y: n.y1, half: n.r1, x: n.x } : { y: -def.h / 2, half: def.w * 0.28 }; } // (x: the nozzle's height)
     default: return { y: -def.h / 2, half: (def.w * (def.bellBot || 0.8)) / 2 };
   }
 }
@@ -878,6 +997,13 @@ const SKINS = {
   orange: { name: 'Safety orange', base: '#ff7a1a' },
   yellow: { name: 'Trainer yellow', base: '#f2c230' },
   metal: { name: 'Bare metal', base: '#8d96a0', paint: 'metal', accent: 'keep', rough: 0.35, metal: 0.75 },
+  // US 3rd/4th-generation schemes. blotch: blotches of the later colours over the first (us4CamoTile); base is the
+  // main colour, for the parts painted flat (missiles, guns, frames).
+  us4viper: { name: 'Viper two-tone grey', base: '#7f878e', blotch: ['#7f878e', '#5d646b'], accent: null, rough: 0.72, metal: 0.08 },
+  us4eagle: { name: 'Mod Eagle blue-grey', base: '#8a949d', blotch: ['#8a949d', '#5d6b7b'], accent: null, rough: 0.72, metal: 0.08 },
+  us4sea: { name: 'Vietnam SEA camouflage', base: '#69734f', blotch: ['#a78d63', '#69734f', '#3f4a34'], accent: null, rough: 0.8, metal: 0.05 },
+  us4gull: { name: 'Navy gull grey', base: '#a7aaa6', accent: null, rough: 0.7, metal: 0.1 },
+  us4gunship: { name: 'Gunship grey', base: '#50565d', accent: null, rough: 0.78, metal: 0.08 },
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint.
@@ -908,6 +1034,7 @@ function tintGradient0(ctx, l, r, c) { // hull shading in another colour
 // The painted body: the skin's own painter or its colour with hull shading.
 function skinFill(ctx, l, r) {
   const s = PartPaint.skin;
+  if (s.blotch) return us4CamoPattern(ctx, s); // camouflage: blotches that run on across the parts
   switch (s.paint) {
     case 'hull': return hullGradient0(ctx, l, r);
     case 'dark': return darkGradient0(ctx, l, r);
@@ -1082,7 +1209,7 @@ function sideOrder(parts) {
 function drawPart(ctx, p, lw) {
   const prev = PartPaint.skin;
   PartPaint.skin = p.skin && hasOwn(SKINS, p.skin) && skinnable(p.def) ? SKINS[p.skin] : null;
-  try { turned(ctx, p, (q) => drawPart0(ctx, q, lw)); } finally { PartPaint.skin = prev; }
+  try { turned(ctx, p, (q) => { drawPart0(ctx, q, lw); if (PartPaint.skin && PartPaint.skin.blotch && !PartPaint.flat) us4CamoShade(ctx, q); }); } finally { PartPaint.skin = prev; }
 }
 
 function partPath0(ctx, p) {
@@ -1180,11 +1307,14 @@ function partPath0(ctx, p) {
     case 'wing': case 'elevator':
       foilPath(ctx, p);
       break;
-    case 'vtail': {
-      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2;
-      ctx.moveTo(inn, b); ctx.lineTo(inn, t); ctx.lineTo(out, b + h * 0.4); ctx.lineTo(out, b); ctx.closePath();
+    case 'vtail': { // def.vtail (optional): where the root's trailing edge and the tip's edges sit, as fractions up the chord
+      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2, v = d.vtail || {};
+      ctx.moveTo(inn, b + h * (v.rte || 0)); ctx.lineTo(inn, t); ctx.lineTo(out, b + h * (v.tle != null ? v.tle : 0.4)); ctx.lineTo(out, b + h * (v.tte || 0)); ctx.closePath();
       break;
     }
+    case 'us4body':
+      us4Path(ctx, p);
+      break;
     case 'prop':
       ctx.rect(x - 0.36, b, 0.72, h * 0.3);
       ctx.moveTo(x - 0.3, b + h * 0.3); ctx.quadraticCurveTo(x - 0.3, t, x, t); ctx.quadraticCurveTo(x + 0.3, t, x + 0.3, b + h * 0.3); ctx.closePath();
@@ -1866,6 +1996,10 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = '#2b3036'; ctx.fillRect(x - w * 0.25, b - h * 0.02, w * 0.5, h * 0.1);
       break;
     }
+    // ---- US 3rd/4th-generation look-alikes: a lofted body with its canopy, intakes and nozzles (us4* helpers at the end)
+    case 'us4body':
+      drawUS4(ctx, p, lw);
+      break;
     default: // shapes without a dedicated drawing
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill(); ctx.stroke();
       break;
@@ -2034,4 +2168,221 @@ function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0, skin };
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
+}
+
+// ---------------------------------------------------------------------------
+// US 3rd- and 4th-generation look-alikes (FS-4, FS-16, FS-15): lofted bodies (shape 'us4body') and camouflage.
+//
+// def.body describes the body in the part's own coordinates (about its centre; x is down, y towards the nose):
+//   tubes: [{ st, z, kind, front, back, rake, hide }]: surfaces lofted through stations st = [[y, xt, xw, xb, hw, nt, nb], ...]
+//     in rising y. xt: the top (negative is up), xb: the bottom, xw: the waist, where it is widest (hw either side); nt and
+//     nb: how square the upper and lower halves are (2 round, 4 boxy; nb defaults to nt). Two stations at the same y make a
+//     step. In between it is a smooth monotone curve, so a few stations draw a smooth body. z: copies across (default [0]);
+//     kind: 'hull' (painted, default) or 'glass'; front/back: 'cap' (default), 'open' or 'intake' (a dark mouth); rake: how
+//     far the lower lip of the front end sits behind the upper one (negative: ahead of it); hide: no outline in 2D.
+//   noz: [{ x, y0, y1, r0, r1, z }]: nozzles from the base (y0, radius r0) to the exit (y1, r1); the first one is where
+//     the flame comes out (nozzleOf), at each z. plates: [[x0, x1, y0, y1, z, t]] splitter plates; seats: [[x, y]] pilots;
+//     frames: [y, ...] canopy bows; probe: [x, y0, y1, r] a pitot boom; colour: the unpainted body colour;
+//     deco: ['line', x0, y0, x1, y1] panel lines, ['tone', y0, k or '#colour'] a radome from y0 forwards, ['port', x, y, w, h].
+// The 2D art below and the 3D loft (parts3d.js) are both made from it, so the two views agree.
+
+// Monotone cubic through (X, V), rising X: no overshoot, and a flat run stays flat.
+function us4Pchip(X, V) {
+  const n = X.length, d = [], m = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d.push((V[i + 1] - V[i]) / (X[i + 1] - X[i]));
+  if (n === 2) m[0] = m[1] = d[0];
+  else if (n > 2) {
+    for (let i = 1; i < n - 1; i++) {
+      if (d[i - 1] * d[i] <= 0) continue;
+      const h0 = X[i] - X[i - 1], h1 = X[i + 1] - X[i], w1 = 2 * h1 + h0, w2 = h1 + 2 * h0;
+      m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
+    }
+    const end = (h0, h1, d0, d1) => {
+      let s = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(s) !== Math.sign(d0)) s = 0; else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(s) > Math.abs(3 * d0)) s = 3 * d0;
+      return s;
+    };
+    m[0] = end(X[1] - X[0], X[2] - X[1], d[0], d[1]);
+    m[n - 1] = end(X[n - 1] - X[n - 2], X[n - 2] - X[n - 3], d[n - 2], d[n - 3]);
+  }
+  return (x) => {
+    if (n === 1) return V[0];
+    let i = 0;
+    while (i < n - 2 && x > X[i + 1]) i++;
+    const h = X[i + 1] - X[i], t = (x - X[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * V[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * V[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+// A tube's sections, every 0.2 m or closer and at every station: { y, xt, xw, xb, hw, nt, nb, run } (run: which smooth
+// stretch it belongs to; a step starts a new one). Worked out once per tube.
+function us4Rows(T) {
+  if (T._rows) return T._rows;
+  const st = T.st, rows = [], runs = [[st[0]]];
+  for (let i = 1; i < st.length; i++) { if (st[i][0] - st[i - 1][0] < 1e-6) runs.push([]); runs[runs.length - 1].push(st[i]); }
+  runs.forEach((S, run) => {
+    const Y = S.map((s) => s[0]), F = [1, 2, 3, 4, 5, 6].map((k) => us4Pchip(Y, S.map((s) => (s[k] != null ? s[k] : s[5]))));
+    const at = (y) => { const v = F.map((f) => f(y)); return { y, xt: v[0], xw: v[1], xb: v[2], hw: Math.max(0, v[3]), nt: Math.max(1.2, v[4]), nb: Math.max(1.2, v[5]), run }; };
+    for (let j = 0; j < S.length - 1; j++) {
+      const ya = Y[j], yb = Y[j + 1], m = Math.max(1, Math.ceil((yb - ya) / 0.2 - 1e-9));
+      for (let q = 0; q < m; q++) rows.push(at(ya + ((yb - ya) * q) / m));
+    }
+    rows.push(at(Y[Y.length - 1]));
+  });
+  T._rows = rows;
+  return rows;
+}
+// A point round a section, at angle a (0: the right side, z+; pi/2: the top), relative to the tube's own centre line.
+function us4Pt(r, a) {
+  const c = Math.cos(a), s = Math.sin(a), up = s >= 0, e = 2 / (up ? r.nt : r.nb);
+  const z = r.hw * Math.sign(c) * Math.pow(Math.abs(c), e), k = Math.pow(Math.abs(s), e);
+  return { x: up ? r.xw - (r.xw - r.xt) * k : r.xw + (r.xb - r.xw) * k, z };
+}
+// Where the lip of a raked mouth cuts a point at fraction f down the front section (0 the top, 1 the bottom).
+function us4Lip(T, yf, f) { const k = T.rake || 0; return yf - (k > 0 ? k * f : -k * (1 - f)); }
+// The tube's outline seen from the side (+z), at the part's (x, y), kept within its box across (a tube may reach into
+// the part it hangs on; only its own box shows). A raked front end is cut on the slant.
+function us4Outline(ctx, T, x, y, w) {
+  const R = us4Rows(T), yf = R[R.length - 1].y, c = (v) => x + Math.max(-w / 2, Math.min(w / 2, v));
+  ctx.moveTo(c(R[0].xt), y + R[0].y);
+  for (const q of R) ctx.lineTo(c(q.xt), y + Math.min(q.y, us4Lip(T, yf, 0)));
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(c(R[i].xb), y + Math.min(R[i].y, us4Lip(T, yf, 1)));
+  ctx.closePath();
+}
+function us4Path(ctx, p) {
+  for (const T of p.def.body.tubes) us4Outline(ctx, T, p.x, p.y, p.def.w);
+}
+// The body's own paint (or its skin): a light air-superiority grey with hull shading.
+function us4Fill(ctx, p, l, r) { return tintGradient(ctx, l, r, p.def.body.colour || '#b9c1c9'); }
+// One nozzle seen from the side: petals tapering to the exit, a dark rim, and a glow while it fires.
+function us4Nozzle(ctx, p, N) {
+  const x = p.x + (N.x || 0), y0 = p.y + N.y0, y1 = p.y + N.y1;
+  ctx.beginPath(); ctx.moveTo(x - N.r0, y0); ctx.lineTo(x + N.r0, y0); ctx.lineTo(x + N.r1, y1); ctx.lineTo(x - N.r1, y1); ctx.closePath();
+  ctx.fillStyle = metalGradient(ctx, x - N.r0, x + N.r0); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,24,30,0.55)';
+  ctx.beginPath();
+  for (let i = 1; i < 6; i++) { const k = i / 6 - 0.5; ctx.moveTo(x + 2 * k * N.r0, y0); ctx.lineTo(x + 2 * k * N.r1, y1); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+  ctx.fillStyle = '#15181c'; ctx.fillRect(x - N.r1, y1, 2 * N.r1, 0.07);
+  if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.45 * p.firing})`; ctx.fillRect(x - N.r1, y1, 2 * N.r1, 0.12); }
+}
+// A radome or another patch of its own colour: a tone of the paint (k), or a colour of its own.
+function us4Tone(B, k) { return typeof k === 'string' ? k : bodyTone(shade(B.colour || '#b9c1c9', k), k); }
+function drawUS4(ctx, p, lw) {
+  const d = p.def, B = d.body, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2;
+  const hulls = B.tubes.filter((T) => (T.kind || 'hull') === 'hull'), glass = B.tubes.filter((T) => T.kind === 'glass');
+  ctx.save();
+  for (const N of B.noz || []) us4Nozzle(ctx, p, N);
+  for (const T of glass) { // the canopy (its lower half is hidden by the body): glass, a highlight, its bows and the pilots
+    const R = us4Rows(T);
+    let top = R[0];
+    for (const q of R) if (q.xt < top.xt) top = q;
+    ctx.beginPath(); us4Outline(ctx, T, x, y, w); ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = '#3a4048';
+    for (const [sx, sy] of B.seats || []) { ctx.beginPath(); ctx.arc(x + sx, y + sy, 0.13, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(x + top.xt * 0.55 + top.xw * 0.45, y + top.y + 0.2, 0.07, Math.min(0.9, (R[R.length - 1].y - R[0].y) * 0.22), 0, 0, TAU); ctx.fill();
+    ctx.lineWidth = lw * 1.6;
+    ctx.beginPath(); for (const fy of B.frames || []) { ctx.moveTo(x + top.xt - 1, y + fy); ctx.lineTo(x + top.xb + 1, y + fy); }
+    ctx.stroke();
+    ctx.lineWidth = lw;
+    ctx.restore();
+  }
+  ctx.beginPath(); for (const T of hulls) us4Outline(ctx, T, x, y, w);
+  ctx.fillStyle = us4Fill(ctx, p, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  for (const D of B.deco || []) {
+    if (D[0] === 'tone') { ctx.fillStyle = us4Tone(B, D[2]); ctx.fillRect(l, y + D[1], w, h); }
+    else if (D[0] === 'port') { ctx.fillStyle = '#1b1f24'; ctx.fillRect(x + D[1] - D[3] / 2, y + D[2] - D[4] / 2, D[3], D[4]); }
+  }
+  ctx.strokeStyle = 'rgba(20,26,34,0.32)'; ctx.lineWidth = lw * 0.8;
+  ctx.beginPath(); for (const D of B.deco || []) if (D[0] === 'line') { ctx.moveTo(x + D[1], y + D[2]); ctx.lineTo(x + D[3], y + D[4]); }
+  ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+  for (const T of hulls) if (!T.hide) { ctx.beginPath(); us4Outline(ctx, T, x, y, w); ctx.stroke(); }
+  for (const T of hulls) if (T.front === 'intake') { // the mouth: a dark slot behind the lip
+    const R = us4Rows(T), q = R[R.length - 1], yt = y + us4Lip(T, q.y, 0), yb = y + us4Lip(T, q.y, 1), k = 0.16;
+    ctx.beginPath(); ctx.moveTo(x + q.xt, yt); ctx.lineTo(x + q.xb, yb); ctx.lineTo(x + q.xb - 0.06, yb - k); ctx.lineTo(x + q.xt + 0.06, yt - k); ctx.closePath();
+    ctx.fillStyle = '#15181c'; ctx.fill();
+  }
+  for (const P of B.plates || []) { // splitter plates stand clear of the body, ahead of the mouth
+    ctx.fillStyle = us4Tone(B, -0.08); ctx.fillRect(x + P[0], y + P[2], P[1] - P[0], P[3] - P[2]);
+    ctx.strokeRect(x + P[0], y + P[2], P[1] - P[0], P[3] - P[2]);
+  }
+  if (B.probe) { const [px, y0, y1, pr] = B.probe; ctx.fillStyle = PAL.steelDark; ctx.fillRect(x + px - pr, y + y0, 2 * pr, y1 - y0); }
+  ctx.restore();
+}
+// The body seen from above, for the right half of its 3D texture (x here runs across the part, along z): its paint.
+// Like drawPart, the one other place that puts a skin on.
+function drawPartTop(ctx, p) {
+  const prev = PartPaint.skin;
+  PartPaint.skin = p.skin && hasOwn(SKINS, p.skin) && skinnable(p.def) ? SKINS[p.skin] : null;
+  try {
+    const d = p.def, B = d.body, D = d.depth || d.w;
+    ctx.fillStyle = us4Fill(ctx, p, -D / 2, D / 2); ctx.fillRect(-D / 2 - 0.1, -d.h / 2 - 0.1, D + 0.2, d.h + 0.2);
+    for (const E of B.deco || []) if (E[0] === 'tone') { ctx.fillStyle = us4Tone(B, E[2]); ctx.fillRect(-D / 2 - 0.1, E[1], D + 0.2, d.h); }
+  } finally { PartPaint.skin = prev; }
+}
+
+// Camouflage: a skin with blotch colours paints blotches of the others over the first, on a 32 m tile (16 px a metre)
+// that repeats. In 2D the pattern runs on across the parts; 3D textures and wings take the same tile.
+const US4_CAMO_PX = 16, US4_CAMO_M = 32, us4CamoTiles = new Map(), us4CamoPats = new WeakMap();
+function us4CamoTile(S) {
+  let c = us4CamoTiles.get(S);
+  if (c) return c;
+  const n = US4_CAMO_M * US4_CAMO_PX;
+  c = document.createElement('canvas'); c.width = c.height = n;
+  const g = c.getContext('2d');
+  g.fillStyle = S.blotch[0]; g.fillRect(0, 0, n, n);
+  let seed = 7;
+  for (const ch of S.name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const blob = (cx, cy, R) => { // a lumpy blob, drawn nine times so it wraps round the tile's edges
+    const k = 9, pts = [];
+    for (let i = 0; i < k; i++) { const a = (i / k) * TAU + rnd() * 0.5, rr = R * (0.55 + rnd() * 0.75); pts.push([Math.cos(a) * rr * 1.5, Math.sin(a) * rr]); }
+    for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) {
+      const m0 = [(pts[k - 1][0] + pts[0][0]) / 2, (pts[k - 1][1] + pts[0][1]) / 2];
+      g.beginPath(); g.moveTo(cx + ox + m0[0], cy + oy + m0[1]);
+      for (let i = 0; i < k; i++) { const p0 = pts[i], p1 = pts[(i + 1) % k]; g.quadraticCurveTo(cx + ox + p0[0], cy + oy + p0[1], cx + ox + (p0[0] + p1[0]) / 2, cy + oy + (p0[1] + p1[1]) / 2); }
+      g.fill();
+    }
+  };
+  for (let j = 1; j < S.blotch.length; j++) {
+    g.fillStyle = S.blotch[j];
+    for (let i = 0; i < (S.blotch.length > 2 ? 26 : 34); i++) blob(rnd() * n, rnd() * n, (1.1 + rnd() * 1.9) * US4_CAMO_PX);
+  }
+  us4CamoTiles.set(S, c);
+  return c;
+}
+// Where on the tile a part's own 3D paint starts (metres): a 3D texture is drawn about the part's centre, so without this
+// every part would show the same corner of the tile.
+function us4CamoAt(type) {
+  let h = 2166136261;
+  for (const ch of String(type)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return [(h % 997) / 997 * US4_CAMO_M, ((h >>> 10) % 991) / 991 * US4_CAMO_M];
+}
+// The pattern for a context (PartPaint.blotchAt: where the tile starts, for a part's 3D texture).
+function us4CamoPattern(ctx, S) {
+  let m = us4CamoPats.get(ctx);
+  if (!m) us4CamoPats.set(ctx, (m = new Map()));
+  let pat = m.get(S);
+  if (!pat) {
+    const o = PartPaint.blotchAt || [0, 0];
+    pat = ctx.createPattern(us4CamoTile(S), 'repeat');
+    if (pat.setTransform) pat.setTransform(new DOMMatrix([1 / US4_CAMO_PX, 0, 0, 1 / US4_CAMO_PX, o[0], o[1]]));
+    m.set(S, pat);
+  }
+  return pat;
+}
+// A pattern has no shading of its own: round it off with the hull's light and shade (2D only; in 3D the lights do it).
+function us4CamoShade(ctx, q) {
+  const w = q.def.w, l = q.x - w / 2, r = q.x + w / 2;
+  ctx.save();
+  ctx.beginPath(); partPath0(ctx, q); ctx.clip();
+  const g = ctx.createLinearGradient(l, 0, r, 0);
+  g.addColorStop(0, 'rgba(0,0,0,0.3)'); g.addColorStop(0.32, 'rgba(255,255,255,0.1)'); g.addColorStop(0.6, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.28)');
+  ctx.fillStyle = g; ctx.fillRect(l, q.y - q.def.h / 2, w, q.def.h);
+  ctx.restore();
 }
