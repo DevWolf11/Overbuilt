@@ -38,6 +38,10 @@ ok('the wings tab: the stock wings first, then each jet\'s, by generation', tray
 await ev(() => Builder.loadTemplate('pathfinder'));
 t = await tabs();
 ok('loading a rocket brings back the rocket tabs', t[0] === 'Command*' && t.length === 8, t.join('|'));
+await ev(() => Builder.loadTemplate('fs16'));
+await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Weapons').click());
+const weap = await ev(() => [...document.querySelectorAll('#palette-items .part-name')].map((e) => e.textContent));
+ok('the weapons tab offers both warning receivers and the manned turret, not the retired small one', weap.includes('Basic RWR') && weap.includes('Advanced RWR') && weap.includes('Gun Turret') && !weap.includes('Small Gun Turret'), weap.join(', '));
 
 // 2. 2D: a pod put beside a nose cone's slim tip sits on the cone, not out at the edge of its box
 let r = await ev(() => {

@@ -194,7 +194,7 @@ const MP = {
     Net.on('boom', (m) => this.onBoom(m));
     Net.on('shot', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && Flight.running) Combat.netShot(P.ghost, m); });
     Net.on('msl', (m) => this.onMissile(m));
-    Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m));
+    Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? Flight.active : null));
     Net.on('mx', (m) => Combat.netMissileEnd(m.f, m.id));
     Net.on('cm', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && Flight.running) Combat.netFlares(P.ghost, m); });
     Net.on('lock', (m) => { if (m.on) this.rwr.set(m.f, performance.now()); else this.rwr.delete(m.f); });

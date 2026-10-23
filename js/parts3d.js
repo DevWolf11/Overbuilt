@@ -622,6 +622,26 @@ const Parts3D = (() => {
     return Object.assign(n, extra);
   }
 
+  // The manned turret: a ring on the mount; turning on it, an armoured collar and a glazed dome (framed) with the
+  // gunner inside; out of the dome's front, twin heavy machine guns with cooling jackets, elevating about a trunnion.
+  function mannedTurret(d) {
+    const w = d.w, h = d.h, xr = w * 0.3, xc = w * 0.086, R = w * 0.47, D = w * 0.53, L = h / 2 - 0.15, guns = []; // (L: the guns' reach from their trunnion)
+    for (const z of [-0.2, 0.2]) {
+      guns.push([box(0.15, 0.5, 0.13, 0, 0.08, z), 'gunmetal'], [rod([0, 0.3, z], [0, L - 0.03, z], 0.03, 10), 'gunmetal'],
+        [rod([0, L * 0.38, z], [0, L * 0.66, z], 0.055, 12), 'steelDark'], [rod([0, L - 0.07, z], [0, L, z], 0.045, 10), 'ink']);
+    }
+    const frame = [], arc = (f) => { for (let k = 0; k < 10; k++) frame.push([rod(f((k / 10) * Math.PI), f(((k + 1) / 10) * Math.PI), 0.022, 6), 'steelDark']); };
+    arc((a) => [xc - D * Math.sin(a), R * Math.cos(a), 0]); arc((a) => [xc - D * Math.sin(a), 0, R * Math.cos(a)]);
+    const yaw = node([[new THREE.CylinderGeometry(R, R * 1.03, xr - xc, 32).rotateZ(Math.PI / 2).translate((xr + xc) / 2, 0, 0), 'mil'],
+      [new THREE.TorusGeometry(R, 0.03, 8, 48).rotateY(Math.PI / 2).translate(xc, 0, 0), 'steelDark'], ...frame,
+      [new THREE.SphereGeometry(1, 32, 16, 0, TAU, 0, Math.PI / 2).rotateZ(Math.PI / 2).scale(D, R, R).translate(xc, 0, 0), 'glass'],
+      [new THREE.SphereGeometry(0.14, 16, 12).translate(-0.3, 0.02, 0), 'helmet'], [box(0.36, 0.28, 0.42, -0.02, -0.06, 0), 'ink']],
+    [node(guns, null, { role: 'pitch', pos: [-0.04, 0.15, 0] })], { role: 'yaw' });
+    // (and a skirt below the ring, into whatever it stands on, so on a round hull its flanks don't stand off the curve)
+    return node([[new THREE.CylinderGeometry(R * 1.08, R * 1.1, w / 2 - xr, 32).rotateZ(Math.PI / 2).translate((w / 2 + xr) / 2, 0, 0), 'steelDark'],
+      [new THREE.CylinderGeometry(R * 1.04, R * 1.04, 0.2, 32, 1, true).rotateZ(Math.PI / 2).translate(w / 2 + 0.1, 0, 0), 'steelDark']], [yaw]);
+  }
+
   // ------------------------------------------------------------------ models by recipe
   const y0 = (h, f) => -h / 2 + h * f; // a height up a part, as a fraction
   const BUILD = {
@@ -860,6 +880,7 @@ const Parts3D = (() => {
     },
 
     turret(d) { // base on the mounting (+x) side; the dome turns (yaw, about x) and the guns elevate (pitch)
+      if (d.style === 'manned') return mannedTurret(d);
       const w = d.w, h = d.h, b = -h / 2, xc = -w * 0.04, R = Math.min(w * 0.36, h * 0.34);
       const guns = [];
       for (const z of [-0.06, 0.06]) guns.push(rod([0, 0, z], [0, h / 2 + 0.1, z], 0.035, 8));

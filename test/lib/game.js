@@ -41,7 +41,8 @@ function load(opts = {}) {
     if (!cs.includes(ret)) throw new Error("combat.js: its final 'return { S, step, ...' moved; update test/lib/game.js");
     const names = ['boxesOf', 'hitVessel', 'muzzle', 'explode', 'destroyPart', 'fireGun', 'fireRocket', 'launchMissile', 'dropBomb',
       'systems', 'playerFrame', 'spawnFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
-      'chaff', 'dispenser', 'autoCM', 'cmFX', 'decoyed', 'chaffBreaks', 'siteSees', 'clearLine', 'makeTarget', 'shipSamFire', 'samFire', 'at', 'rangeOf']
+      'chaff', 'dispenser', 'autoCM', 'cmFX', 'decoyed', 'chaffBreaks', 'siteSees', 'clearLine', 'makeTarget', 'shipSamFire', 'samFire', 'at', 'rangeOf',
+      'rwrOf', 'hostileMissile', 'lockers', 'rwrAdvice', 'turretStep', 'airframe']
       .filter((n) => new RegExp(`function ${n}\\b|const ${n} =`).test(cs));
     cs = cs.replace(ret, `  return {\n    _t: { ${names.join(', ')} }, S, step,`);
     run(cs + '\nthis.Combat = Combat;', 'combat.js');

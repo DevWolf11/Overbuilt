@@ -80,19 +80,19 @@ const TEMPLATES = {
     name: 'Falcon', kind: 'plane', tier: 3, military: true, blurb: 'Air-superiority fighter: cannon, heat seekers and radar missiles, a fighter turbofan with afterburner. Hold V to fire, Tab to change weapon.',
     parts: [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockpitJet', 0, 12.1], ['wingDelta', 0.4, 5.8],
       ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3],
-      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3], ['chaff', -1.2, 5.3]],
+      ['cannon', -1.25, 8.6], ['aam', 0.75, 4.6], ['radarMissiles', 0.75, 8.1], ['flares', -1.2, 4.3], ['chaff', -1.2, 5.3], ['rwr', -1.12, 6.5, 0, { att: 1 }]],
   },
   striker: {
     name: 'Striker', kind: 'plane', tier: 2, military: true, blurb: 'Ground-attack jet with a cannon, rocket pods and bombs. The bombsight shows where the bombs will fall.',
     parts: [['jet', 0, 1.5], ['fuselage', 0, 5], ['cockpitJet', 0, 9.1], ['wingSwept', 0.2, 5.3], ['elevator', 0.25, 1.2],
       ['vtail', -1.45, 1.6], ['gearR', 1.7, 4.4], ['gearR', 1.5, 8.6], ['airbrake', -1.125, 5.6],
-      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6], ['chaff', -1.2, 3.8]],
+      ['cannon', -1.25, 7.6], ['rocketPods', 0.75, 4.3], ['bombs', 0.75, 6.6], ['chaff', -1.2, 3.55], ['rwr', -1.12, 4.45, 0, { att: 1 }]],
   },
   bomber: {
     name: 'Stratobomber', kind: 'plane', tier: 3, military: true, blurb: 'A heavy jet bomber: a 1-tonne bomb under the belly, a pair of 250 kg bombs under the wings, and a turret on top that guards it by itself.',
     parts: [['tailconeW', 0, 2.25], ['fuselageW', 0, 7.5], ['fuselageW', 0, 13.5], ['cockpitAir', 0, 18.2],
       ['wingL', 0.9, 11.6], ['fanPods', 1.8, 12.4], ['elevatorL', -0.9, 1.6], ['vtailL', -2.4, 1.9],
-      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2], ['bombL', 2.05, 6], ['bombs', 1.4, 9.2], ['turret', -2, 13.5]],
+      ['gearL', 2.5, 9.6], ['gear', 2.2, 17.2], ['bombL', 2.05, 6], ['bombs', 1.4, 9.2], ['turretL', -2.2, 13.5, 0, { att: 2 }], ['rwr', -1.62, 9.0, 0, { att: 1 }]],
   },
   mustang: {
     name: 'Mustang', kind: 'plane', tier: 1, military: true, blurb: 'A WWII-style fighter: a V12 behind a pointed spinner, an elliptical wing, a gun on the cowling and pods on the wings. A taildragger: raise the tail, then lift off.',
@@ -109,12 +109,12 @@ const TEMPLATES = {
     name: 'Kestrel', kind: 'plane', tier: 3, military: true, blurb: 'A swing-wing interceptor: the wings spread for take-off and landing and fold back by themselves as it speeds up. Tandem cockpit, cannon and radar missiles.',
     parts: [['jetF', 0, 2.2], ['fuselageIntake', 0, 5.75], ['fuselage', 0, 9.5], ['cockpitTandem', 0, 14.1], ['wingSwing', 0.2, 7.5],
       ['elevator', 0.25, 1.2], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 6.2], ['gearR', 1.55, 12.8],
-      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3], ['chaff', -1.2, 6.3]],
+      ['cannon', -1.25, 9.5], ['radarMissiles', 0.45, 7.6], ['flares', -1.2, 5.3], ['chaff', -1.2, 6.3], ['rwr', -0.92, 2.65, 0, { att: 0 }]],
   },
   spectre: {
     name: 'Spectre', kind: 'plane', tier: 4, military: true, blurb: 'A stealth striker: faceted nose and body, a V-tail and four bombs in an internal bay. Hostile radars and fighters spot it far later (watch ◈ on the weapon box).',
     parts: [['jetF', 0, 2.2], ['bombBay', 0, 6], ['fuselageStealth', 0, 10.5], ['cockpitStealth', 0, 15.3], ['wingDelta', 0.4, 9.6],
-      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6], ['chaff', 1.0, 3.0]],
+      ['vtailV', -0.3, 1.5], ['gearR', 1.7, 6.4], ['gearR', 1.7, 13.6], ['chaff', 1.0, 3.0], ['rwr', -0.92, 2.9, 0, { att: 0, skin: 'stealth' }]],
     paint: { wingDelta: 'stealth', vtailV: 'stealth', jetF: 'stealth' },
   },
   jumbo: {
@@ -154,7 +154,7 @@ const TEMPLATES = {
     blurb: '3rd-gen interceptor: a tailed delta with a shock cone in its nose, one thirsty afterburning turbojet, a cannon and two heat seekers. Mach 2 up high; half flaps (F) for take-off.',
     parts: [['ruNose21', -0.165, 11.95], ['ruBody21', -0.165, 6.3], ['ruR25', 0, 1.6], ['ruWing21', 0.12, 6.45, 0, { att: 1 }], ['ruTail21', 0.18, 1.6, 0, { att: 2 }],
       ['ruFin21', -1.65, 2.95, 0, { att: 1 }], ['ruVentral21', 0.7, 2.15, 0, { att: 2 }], ['ruGearNose', 1.01, 11.3, 0, { att: 0 }], ['ruGearMain', 0.8, 6.15, 0, { z: 1.35, att: 3 }],
-      ['cannon', 0.87, 7.6, 0, { att: 1 }], ['ruAAM21', 0.39, 4.9, 0, { att: 3 }]],
+      ['cannon', 0.87, 7.6, 0, { att: 1 }], ['ruAAM21', 0.39, 4.9, 0, { att: 3 }], ['rwr', -1.01, 7.2, 0, { att: 1, skin: 'ruFrontline' }]],
     paint: { ruNose21: 'ruFrontline', ruBody21: 'ruFrontline', ruR25: 'ruFrontline', ruWing21: 'ruFrontline', ruTail21: 'ruFrontline', ruFin21: 'ruFrontline', ruVentral21: 'ruFrontline' },
   },
   fs4: {
@@ -177,7 +177,7 @@ const TEMPLATES = {
       ['aam', 0.735, 9.4, 0, { z: 2.7, att: 4 }],
       ['bombs', 0.745, 6, 0, { z: 4.3, att: 4 }],
       ['flares', 1.1, 6, 0, { att: 1 }],
-      ['chaff', 1.1, 7, 0, { att: 1 }]],
+      ['chaff', 1.1, 7, 0, { att: 1 }], ['rwr', -1.13, 8.0, 0, { att: 1, skin: 'us4sea' }]],
     paint: { us4f4Engines: 'us4sea', us4f4Body: 'us4sea', us4f4Nose: 'us4sea', us4f4Intakes: 'us4sea', us4f4Wing: 'us4sea', us4f4Stab: 'us4sea', us4f4Fin: 'us4sea', us4f4Gun: 'us4sea' },
   },
   fs16: {
@@ -198,7 +198,7 @@ const TEMPLATES = {
       ['aam', 0, 4.6, 0, { z: 4.85, att: 4 }],
       ['radarMissiles', 0.38, 4.9, 0, { z: 3.55, att: 4 }],
       ['flares', 0.82, 3, 0, { att: 1 }],
-      ['chaff', 0.82, 4.1, 0, { att: 1 }]],
+      ['chaff', 0.82, 4.1, 0, { att: 1 }], ['rwrPlus', -1.065, 6.55, 0, { att: 1, skin: 'us4viper' }]],
     paint: { us4f16Engine: 'us4viper', us4f16Body: 'us4viper', us4f16Nose: 'us4viper', us4f16Intake: 'us4viper', us4f16Wing: 'us4viper', us4f16Lerx: 'us4viper', us4f16Fin: 'us4viper', us4f16Stab: 'us4viper', us4f16Ventral: 'us4viper' },
   },
   myg29: {
@@ -208,7 +208,7 @@ const TEMPLATES = {
       ['ruRD33', 0.875, 1.7, 0, { att: 3 }], ['ruBeaver29', 0.27, 1.5], ['ruBoom29', 0.45, 3.05, 0, { att: 3 }], ['ruFins29', -0.89, 2.9, 0, { att: 6 }],
       ['ruWing29', 0.15, 8.075, 0, { att: 2 }], ['ruTail29', 0.45, 2.2, 0, { att: 6 }], ['ruGearNose2', 1.65, 13.0, 0, { att: 0 }], ['ruGearMain', 2.05, 6.45, 0, { z: 1.45, att: 3 }],
       ['cannon', 0.05, 10.2, 0, { z: -1.35, att: 2 }], ['radarMissiles', 0.546, 5.8, 0, { z: 2.7, att: 8 }], ['aam', 0.508, 5.4, 0, { z: 3.7, att: 8 }],
-      ['aam', 0.495, 5.0, 0, { z: 4.6, att: 8 }], ['flares', 0.62, 1.95, 0, { att: 5 }], ['chaff', 0.62, 1.0, 0, { att: 5 }]],
+      ['aam', 0.495, 5.0, 0, { z: 4.6, att: 8 }], ['flares', 0.62, 1.95, 0, { att: 5 }], ['chaff', 0.62, 1.0, 0, { att: 5 }], ['rwrPlus', -0.925, 7.4, 0, { att: 2, skin: 'ruFulcrum' }]],
     paint: { ruNose29: 'ruFulcrum', ruIRST: 'ruFulcrum', ruBody29: 'ruFulcrum', ruNacelle29: 'ruFulcrum', ruBeaver29: 'ruFulcrum', ruBoom29: 'ruFulcrum', ruFins29: 'ruFulcrum',
       ruWing29: 'ruFulcrum', ruTail29: 'ruFulcrum' },
   },
@@ -231,7 +231,7 @@ const TEMPLATES = {
       ['aam', -0.34, 6.9, 0, { z: 3, att: 4 }],
       ['aam', -0.34, 6.75, 0, { z: 3.55, att: 4 }],
       ['flares', 1.07, 4.6, 0, { att: 1 }],
-      ['chaff', 1.07, 5.6, 0, { att: 1 }]],
+      ['chaff', 1.07, 5.6, 0, { att: 1 }], ['rwrPlus', -1.07, 6.15, 0, { att: 1, skin: 'us4eagle' }]],
     paint: { us4f15Engines: 'us4eagle', us4f15Body: 'us4eagle', us4f15Nose: 'us4eagle', us4f15Intakes: 'us4eagle', us4f15Wing: 'us4eagle', us4f15Tails: 'us4eagle', us4f15Stab: 'us4eagle' },
   },
   sugoi27: {
@@ -242,7 +242,7 @@ const TEMPLATES = {
       ['ruVentral27', 1.05, 4.0, 0, { att: 6 }], ['ruWing27', 0.2, 11.025, 0, { att: 2 }], ['ruTail27', 0.505, 2.5, 0, { att: 6 }],
       ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
       ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], ['radarMissiles', 0.63, 7.8, 0, { z: 4.0, att: 9 }],
-      ['aam', 0.58, 6.9, 0, { z: 5.6, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }], ['flares', 1.1, 1.95, 0, { att: 5 }], ['chaff', 1.1, 1.0, 0, { att: 5 }]],
+      ['aam', 0.58, 6.9, 0, { z: 5.6, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }], ['flares', 1.1, 1.95, 0, { att: 5 }], ['chaff', 1.1, 1.0, 0, { att: 5 }], ['rwrPlus', -1.045, 8.5, 0, { att: 2, skin: 'ruFlanker' }]],
     paint: { ruNose27: 'ruFlanker', ruIRST: 'ruFlanker', ruBody27: 'ruFlanker', ruNacelle27: 'ruFlanker', ruStinger27: 'ruFlanker', ruBoom27: 'ruFlanker', ruFins27: 'ruFlanker',
       ruVentral27: 'ruFlanker', ruWing27: 'ruFlanker', ruTail27: 'ruFlanker' },
   },
@@ -255,7 +255,7 @@ const TEMPLATES = {
       ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
       ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], 
       ['radarMissiles', 0.617, 7.25, 0, { z: 4.7, att: 9 }], ['aam', 0.58, 6.6, 0, { z: 5.9, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }],
-      ['flares', 1.13, 1.95, 0, { att: 5 }], ['chaff', 1.13, 1.0, 0, { att: 5 }]],
+      ['flares', 1.13, 1.95, 0, { att: 5 }], ['chaff', 1.13, 1.0, 0, { att: 5 }], ['rwrPlus', -1.045, 8.5, 0, { att: 2, skin: 'ruSplinter' }]],
     paint: { ruNose35: 'ruSplinter', ruIRST: 'ruSplinter', ruBody27: 'ruSplinter', ruNacelle27: 'ruSplinter', ruStinger35: 'ruSplinter', ruBoom27: 'ruSplinter', ruFins27: 'ruSplinter',
       ruVentral27: 'ruSplinter', ruWing27: 'ruSplinter', ruTail27: 'ruSplinter' },
   },
@@ -266,7 +266,7 @@ const TEMPLATES = {
       ['us5Eng22', 0, 1.55, 0, { z: 0.86, att: 3 }], ['us5Eng22', 0, 1.55, 0, { z: -0.86, att: 3 }],
       ['us5Wing22', -0.05, 7.68], ['us5Tail22', 0.35, 2.66], ['us5Fins22', -1.42, 4.3, 0, { att: 3 }],
       ['us5GearN', 1.55, 13.7, 0, { att: 0 }], ['us5GearM', 1.55, 7.4, 0, { att: 2 }], ['us5Gun', -0.25, 9.6, 0, { z: 2.555, att: 1 }],
-      ['flares', -1.3, 4.6, 0, { att: 3 }], ['chaff', -1.3, 3.6, 0, { att: 3 }]],
+      ['flares', -1.059, 4.6, 0, { att: 3 }], ['chaff', -0.995, 3.6, 0, { att: 3 }], ['rwrPlus', -1.025, 10.5, 0, { att: 1, skin: 'raptor' }]],
   },
   fs35: {
     name: 'FS-35', kind: 'plane', tier: 4, military: true,
@@ -274,7 +274,7 @@ const TEMPLATES = {
     parts: [['us5Nose35', 0, 13.45], ['us5Intake35', 0, 9.9], ['us5Bay35', 0, 6.7], ['us5Aft35', 0, 3.6], ['us5Eng35', 0, 1.2, 0, { att: 3 }],
       ['us5Wing35', -0.02, 6.77], ['us5Tail35', 0.35, 2.45], ['us5Fins35', -1.17, 3.5, 0, { att: 3 }],
       ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }],
-      ['flares', -1.4, 4.3, 0, { att: 3 }], ['chaff', -1.4, 3.0, 0, { att: 3 }]],
+      ['flares', -1.306, 6.3, 0, { att: 2 }], ['chaff', -1.282, 5.3, 0, { att: 2 }], ['rwrPlus', -1.296, 9.6, 0, { att: 1, skin: 'lightning' }]],
     paint: { us5Gun: 'lightning' },
   },
   sugoi57: {
@@ -284,7 +284,7 @@ const TEMPLATES = {
       ['ruAL41F1', 0.85, 2.15, 0, { att: 3 }], ['ruBay57', 0.475, 8.0, 0, { att: 2 }], ['ruStinger57', 0.25, 1.75], ['ruBoom57', 0.4, 3.05, 0, { att: 3 }],
       ['ruFins57', -0.76, 2.8, 0, { att: 7 }], ['ruWing57', 0.2, 7.5, 0, { att: 2 }], ['ruLevcon57', 0.18, 13.15, 0, { att: 2 }], ['ruTail57', 0.4, 2.2, 0, { att: 7 }],
       ['ruGearNose2L', 1.825, 16.0, 0, { att: 0 }], ['ruGearMainL', 2.25, 7.6, 0, { z: 1.9, att: 3 }], ['cannon', 0.5, 13.2, 0, { z: 2.6, att: 3 }],
-      ['ruBayS57', 0.43, 10.5, 0, { att: 3 }], ['flares', 0.7, 2.2, 0, { att: 6 }], ['chaff', 0.7, 1.25, 0, { att: 6 }]],
+      ['ruBayS57', 0.43, 10.5, 0, { att: 3 }], ['flares', 0.7, 2.2, 0, { att: 6 }], ['chaff', 0.7, 1.25, 0, { att: 6 }], ['rwrPlus', -0.9, 8.4, 0, { att: 2, skin: 'ruPixel' }]],
     paint: { ruNose57: 'ruPixel', ruIRST: 'ruPixel', ruBody57: 'ruPixel', ruNacelle57: 'ruPixel', ruAL41F1: 'ruPixel', ruBay57: 'ruPixel', ruStinger57: 'ruPixel', ruBoom57: 'ruPixel',
       ruFins57: 'ruPixel', ruWing57: 'ruPixel', ruLevcon57: 'ruPixel', ruTail57: 'ruPixel', ruBayS57: 'ruPixel' },
   },
@@ -303,14 +303,15 @@ function templateRows(t) {
 
 // The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
 // generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
-// jet that carries it (the IRST ball to the MyG-29). Worked out once.
+// jet that carries it (the IRST ball to the MyG-29). A retired part (def.retired: the small turret) is left out: old
+// designs keep it, but the tray no longer offers it. Worked out once.
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
   const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
   for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
-  const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS);
+  const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
   const order = keys.map((k, i) => [k, i]).sort((a, b) => (rank.get(of.get(a[0])) || 0) - (rank.get(of.get(b[0])) || 0) || a[1] - b[1]).map((e) => e[0]);
   return (PART_FAMILIES = { of, order });
 }
