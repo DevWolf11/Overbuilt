@@ -977,7 +977,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let j = 0; j < nr; j++) {
       for (let i = 0; i < nc; i++) {
         const k = j * nc + i;
-        hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark();
+        hs[k] = height(c, G, i, j, cn[k], true); dk[k] = Terrain.dark(); // (not the arenas' berms: they have their own mesh)
         if (c.mapped) { wl[k] = EW.level; wp[k] = EW.pres; lk[k] = EW.lake; rdw[k] = EW.road; rvw[k] = EW.river; }
         if (b === EARTH && Terrain.fieldAt && Terrain.fieldAt(G.ea[i], G.z[j], FQP).w > 0) hs[k] = fieldGround(FQP, G.ea[i], G.z[j], Math.max(G.dx[i], G.dz[j]), hs[k]);
       }
@@ -1149,6 +1149,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // ground, it sinks by as much as the detail coarse cells leave out can raise it (terrain.js: Earth's 40 m and
   // 160 m waves, 1.2 and 4 m high, dropped from cells of 12-24 and 48-96 m; damped by the levelling, 1 - w).
   function fieldGround(q, e, z, cell, h) {
+    if (q.f.pad) return h; // (a Ground Battle pad: levelled, no paving to keep it under)
     const f = q.f, de = e - f.e, dz = z - f.z, u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c, reach = cell * 1.5 + 2;
     if (Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - 22.5, 0)) < reach) h = Math.min(h, f.h);
     const L = fieldLayout(f);
@@ -1859,11 +1860,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     m.customProgramCacheKey = () => 'bias' + s;
     return m;
   }
-  // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included)
-  // and, at sea (sea: true), the water round the carriers.
+  // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included),
+  // the Ground Battle arenas cleared for the fight (EARTH.arenas, clear: on the real map, a tree or a house there would
+  // hide a tank from the eye but not from a shell) and, at sea (sea: true), the water round the carriers.
   const KQ = { w: 0, h: 0, f: null };
   function keepClear(e, z, sea) {
     if (Terrain.fieldAt && Terrain.fieldAt(e, z, KQ).w > 0.02) return true;
+    if (EARTH.arenas && EARTH.mapped) for (const k in EARTH.arenas) { const a = EARTH.arenas[k], B = a.box; if (a.clear && B && e > B.e0 && e < B.e1 && z > B.z0 && z < B.z1) return true; }
     if (sea && EARTH.carriers) for (const k in EARTH.carriers) { const d = EARTH.carriers[k]; if (Math.hypot(e - d.e, z - d.z) < 600) return true; }
     return false;
   }
@@ -2378,7 +2381,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
   const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
-  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22] };
+  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18] };
   function followCam(v, dt, snap) {
     if (!v || !v.parts.length || v.dead) return;
     if (fc.vessel !== v) {
@@ -3317,6 +3320,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderFlight,
     renderBuilder,
     renderGlobe,
+    // The ground as the player sees it at (a, z) on body b: the terrain mesh (null off it). (The ground update fills
+    // in the arenas' berms, drawn by a mesh of their own.)
+    drawnGround(b, a, z) { return meshHeight(b, a, z); },
     project(ax, ay, az) {
       if (!api.ready) return { x: 0, y: 0, behind: true };
       const cam = activeCam(), p = scenePoint(ax, ay, az, V1);
