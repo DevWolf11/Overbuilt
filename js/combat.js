@@ -1157,15 +1157,15 @@ const Combat = (() => {
     const rwr = S.rwr = F.destroyed ? 0 : rwrOf(v), auto = !mpOn() && rwr > 0;
     S.warn = S.warnR = false; S.threats.length = 0;
     for (const s of S.shots) if (s.k === 'missile' && s.target === v && s.enemy) {
-      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
       if (!rwr) continue;
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
       S.warn = true; if (s.radar || s.sarh) S.warnR = true;
       S.threats.push(s);
       if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && (rwr > 1 ? autoCM(v, F, s) : countermeasures(v, F))) S.flareT = 0.6;
     }
     if (S.threats.length > 1) S.threats.sort((a, b) => len(a.x - v.x, a.y - v.y, a.z - v.z) - len(b.x - v.x, b.y - v.y, b.z - v.z));
     if (S.warn) { S.warnT -= dt; if (S.warnT <= 0) { Sound.beep(1500); S.warnT = 0.22; } }
-    else if (rwr && lockers(v).length && (S.lockToneT -= dt) <= 0) { Sound.tone(700, 0.2, 0.04); S.lockToneT = 1; } // (a radar lock: a slow tone)
+    else if (rwr && lockers().length && (S.lockToneT -= dt) <= 0) { Sound.tone(700, 0.2, 0.04); S.lockToneT = 1; } // (a radar lock: a slow tone)
     cmFX(F, dt);
     playerFrame(F, dt);
     // a radar lock on another player's craft lights up their warner (sent again every second while it holds)

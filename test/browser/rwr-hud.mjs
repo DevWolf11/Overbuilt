@@ -1,7 +1,7 @@
 // The warning receiver's display on every screen: a jet at 3 km with a heat seeker and a radar missile homing on it,
 // frozen, on a phone in portrait (two sizes), a phone on its side, a desktop and in a room on a phone on its side
 // (where the room's bar takes the top). The threat scope and the warning's lines must stay clear of the flight data,
-// the controls and the room's bar, and on the screen.
+// the controls, the room's bar and each other, and on the screen.
 //   node test/browser/rwr-hud.mjs
 import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
 const srv = await serve(), b = await launch(), errs = [];
@@ -32,6 +32,7 @@ const meets = (a, c) => !!a && !!c && a.l < c.r && a.r > c.l && a.t < c.b && a.b
 function judge(tag, L) {
   const clash = [];
   for (const [k, P] of Object.entries(L.panels)) { if (meets(L.scope, P)) clash.push('scope/' + k); if (k !== 'controls' && meets(L.text, P)) clash.push('text/' + k); }
+  if (meets(L.scope, L.text)) clash.push('scope/text');
   const on = L.scope && L.scope.l >= 0 && L.scope.t >= 0 && L.scope.r <= L.W && L.scope.b <= L.H;
   ok(`${tag} (${L.W}×${L.H}): the scope (R ${L.B && L.B.R}) and the lines clear of the panels, on the screen`, L.rwr === 2 && L.threats === 2 && on && !clash.length, JSON.stringify({ clash, scope: L.scope, ty: L.B && L.B.ty, panels: L.panels }));
 }
