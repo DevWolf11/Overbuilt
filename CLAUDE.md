@@ -46,7 +46,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 | `util.js` | maths (vectors, quaternions), `fmt`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags |
 | `space.js` | bodies, Kepler orbits, patched conics, sites (pad, runway, airfields, carriers), the 2D terrain profile |
 | `terrain.js` | `Terrain`: the 3D ground (real Earth map or generated), shared by physics and renderer |
-| `parts.js` | `PARTS` catalogue (254 parts), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
+| `parts.js` | `PARTS` catalogue (257 parts; `def.retired` ones load but leave the tray), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
 | `vessel.js` | `Vessel`: the rigid-body simulation (engines, wings in halves, aero, heat, chutes, wheels, ground and water, splitting, autopilot) |
 | `ui.js`, `world.js` | dialogs, toasts and icons; `Settings`, `FX` particles, the 2D fallback flight view |
 | `parts3d.js`, `render3d.js` | 3D part models; the three.js renderer for flight, hangar and globe (three.js is lazy-loaded) |
@@ -129,3 +129,4 @@ PRs #1-#10 were Cam-Strike, a 5v5 bomb-defusal FPS that the repo used to hold (i
 | #33-#34 | Online joining that survives a phone host looking away and says which step failed; big messages in pieces; a relay (TURN) account for school networks and a Test this network button |
 | #35 | Battery: redraw only what changes (still screens, menus, pause), a 60 fps cap on touch devices, the same 3D picture with far less hidden pixel work, cheaper ground contact, sound and screen sleep when paused. Chaff Dispenser part, frigate radar SAM |
 | #36 | Look-alike jets: ten fighters across four generations under altered names (MyG-21, FS-4, FS-16, MyG-29, FS-15, Sugoi-27, Sugoi-35, FS-22, FS-35, Sugoi-57), 96 parts with bodies lofted from cross-sections (2D = 3D), 13 paints (11 camouflage), internal missile bays with doors, flat and swivelling vectoring nozzles, an IRST ball; one price scale (all fit a $120k battle). The builder: part tabs by kind of craft (More for the rest), each jet's parts grouped, clashes on the 3D shapes (round, extruded, lofted) with parts sliding in onto curved hulls |
+| #37 | Missile warnings as parts: a Basic RWR (a missile is coming) and an Advanced RWR (a threat scope, the missile's kind, time to impact and what to do); without one, no warning and no automatic countermeasures, only red MSL markers over missiles in sight (4 km). Heat seekers heard in multiplayer too. Turrets hold their fire on the ground or water; a manned Gun Turret replaces the small one in the tray. Stock military planes carry RWRs within their budgets; FS-22/FS-35 flares seated on the skin |

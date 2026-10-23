@@ -22,7 +22,8 @@ const RAIDER = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['coc
   ['canard', 0, 10.4], ['vtailTwin', -1.55, 2.2], ['gearR', 1.7, 5.2], ['gearR', 1.5, 11.3], ['cannon', -1.25, 8.6], ['flares', -1.2, 4.3]];
 
 const Combat = (() => {
-  const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0 };
+  const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0,
+    rwr: 0, threats: [], lockToneT: 0 }; // (rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first)
   const mpOn = () => typeof MP !== 'undefined' && MP.active; // in a multiplayer room (no AI targets, SAMs or fighters there)
   const mode = () => (mpOn() ? 'off' : Settings.get('targets') || 'practice');
   const hostile = () => mode() === 'hostile';
@@ -171,6 +172,9 @@ const Combat = (() => {
   const radarOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
   // an IRST ball (def.irst, the look-alike jets) sees engine heat: heat seekers lock on that share further away
   const irstOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.irst || 0), 0);
+  // a radar warning receiver (def.rwr) on board: 0 none, 1 basic (a missile is coming), 2 with a threat display (what kind,
+  // from where and what to do)
+  const rwrOf = (v) => (v && v.parts ? v.parts.reduce((m, p) => Math.max(m, p.def.rwr || 0), 0) : 0);
   function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.seek === 'air' ? w.range * (1 + irstOf(v)) : w.range; }
   // How hard a craft is to see on radar (0..0.75): the stealthy share of its hull, less for each thing hung outside.
   // (Paint never counts: a part's skin is for looks only.)
@@ -346,12 +350,13 @@ const Combat = (() => {
 
   // A defensive turret: swings round to the nearest enemy plane or drone in its half of the sky (leading it)
   // and fires when its guns are on. Aim angles are kept on the part for the 3D model: yaw about the part's
-  // x axis, elevation away from its mount.
+  // x axis, elevation away from its mount. Only in the air: touching the ground or the water it parks its guns
+  // and holds its fire (a field of turrets round a parked plane, or on a car, shot down anything that came near).
   function turretStep(v, p, h, F) {
-    const w = p.def.weapon, k = p.rot & 3;
+    const w = p.def.weapon, k = p.rot & 3, grounded = v.contactTime > 0;
     let best = null, bd = w.range;
-    for (const c of candidates(v, 'air', F)) { const d = len(c.x - v.x, c.y - v.y, c.z - v.z); if (d < bd) { bd = d; best = c.ref; } }
-    const want = { yaw: p.aimYaw || 0, el: p.aimEl || 0 };
+    if (!grounded) for (const c of candidates(v, 'air', F)) { const d = len(c.x - v.x, c.y - v.y, c.z - v.z); if (d < bd) { bd = d; best = c.ref; } }
+    const want = grounded ? { yaw: 0, el: 0 } : { yaw: p.aimYaw || 0, el: p.aimEl || 0 };
     let on = false;
     if (best) {
       const tp = refPos(best), tof = bd / w.speed, at = v.toWorld(p.x, p.y, partZc(p));
@@ -830,7 +835,7 @@ const Combat = (() => {
       owner: g, launcher: g, enemy: true, net: m.f != null ? m.f : g.remote, netId: m.id });
   }
   const replica = (pid, id) => S.shots.find((q) => q.netId === id && q.net === pid);
-  function netMissileUpdate(pid, id, m) {
+  function netMissileUpdate(pid, id, m, target) {
     const s = replica(pid, id), P = vec(m.P), V = vec(m.V), D = vec(m.D);
     if (!s || !P) return;
     s.ex = P[0] - s.x; s.ey = P[1] - s.y; s.ez = P[2] - s.z; s.bt = 0.15; // eased in over 0.15 s
@@ -838,7 +843,7 @@ const Combat = (() => {
     if (V) { s.vx = V[0]; s.vy = V[1]; s.vz = V[2]; }
     if (D) { s.dx = D[0]; s.dy = D[1]; s.dz = D[2]; }
     s.seen = s.t;
-    if (m.tg !== (typeof Net !== 'undefined' ? Net.me : 0)) s.target = null; // no longer after us
+    s.target = target || null; // after us (now, or still: our craft may be a new one since), or no longer
   }
   function netMissileEnd(pid, id) {
     const s = replica(pid, id);
@@ -1148,18 +1153,22 @@ const Combat = (() => {
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;
     }
-    // missiles on the player's tail: warning tone, and countermeasures go out by themselves (not in multiplayer: K
-    // there): flares against a heat seeker, chaff against a radar missile
-    S.warn = S.warnR = false;
-    const auto = !mpOn();
+    // missiles homing on the player's craft: only a warning receiver hears them (without one, a missile's red marker,
+    // when it is in sight, is all there is). With one, a warning tone; and flying solo (not in multiplayer: K there) the
+    // countermeasures go out by themselves: the right decoy with a threat display (flares against a heat seeker, chaff
+    // against a radar missile), everything with the basic one, which can't tell them apart
+    const rwr = S.rwr = F.destroyed ? 0 : rwrOf(v), auto = !mpOn() && rwr > 0;
+    S.warn = S.warnR = false; S.threats.length = 0;
     for (const s of S.shots) if (s.k === 'missile' && s.target === v && s.enemy) {
-      const d = len(s.x - v.x, s.y - v.y, s.z - v.z), radar = !!(s.radar || s.sarh);
-      // a radar missile lights up the warner; in multiplayer a heat seeker is silent unless a jammer pod
-      // (doubling as a missile warner) sees it within 2 km
-      if (auto || radar || (jams(v) && d < 2000)) { S.warn = true; if (radar) S.warnR = true; }
-      if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && autoCM(v, F, s)) S.flareT = 0.6;
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
+      if (!rwr) continue;
+      S.warn = true; if (s.radar || s.sarh) S.warnR = true;
+      S.threats.push(s);
+      if (auto && d < 2200 && (S.flareT = (S.flareT || 0) - dt) <= 0 && (rwr > 1 ? autoCM(v, F, s) : countermeasures(v, F))) S.flareT = 0.6;
     }
+    if (S.threats.length > 1) S.threats.sort((a, b) => len(a.x - v.x, a.y - v.y, a.z - v.z) - len(b.x - v.x, b.y - v.y, b.z - v.z));
     if (S.warn) { S.warnT -= dt; if (S.warnT <= 0) { Sound.beep(1500); S.warnT = 0.22; } }
+    else if (rwr && lockers(v).length && (S.lockToneT -= dt) <= 0) { Sound.tone(700, 0.2, 0.04); S.lockToneT = 1; } // (a radar lock: a slow tone)
     cmFX(F, dt);
     playerFrame(F, dt);
     // a radar lock on another player's craft lights up their warner (sent again every second while it holds)
@@ -1188,7 +1197,7 @@ const Combat = (() => {
     for (const o of F.vessels) if (o.ai) o.dead = true;
   }
   function reset(F) {
-    S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.fighterT = 20; S.wasFiring = false;
+    S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
     void F;
   }
@@ -1273,12 +1282,120 @@ const Combat = (() => {
         }
       }
     }
-    // a missile on your tail
-    if (S.warn && Math.floor(performance.now() / 250) % 2 === 0) {
-      ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-      ctx.fillText(S.warnR ? 'RADAR MISSILE' : 'MISSILE', W / 2, H * 0.3); // (radar: chaff or notch it; heat: flares)
+    // missiles in sight: a small red marker over each hostile one within 4 km (the only way to see one coming without
+    // a warning receiver: look around for it)
+    ctx.font = '700 10px "Chakra Petch", system-ui, sans-serif';
+    for (const s of S.shots) {
+      if (!hostileMissile(s, v) || s.b !== v.body) continue;
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z);
+      if (d > SEE_MSL) continue;
+      const p = pr(s.x, s.y, s.z);
+      if (p.behind) continue;
+      ctx.globalAlpha = d < 2000 ? 1 : 0.8; ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(p.x - 5, p.y - 15); ctx.lineTo(p.x + 5, p.y - 15); ctx.lineTo(p.x, p.y - 8); ctx.closePath(); ctx.stroke();
+      ctx.fillStyle = '#ff5d5d'; ctx.fill();
+      hudText(ctx, 'MSL', p.x, p.y - 19, 2);
     }
+    ctx.globalAlpha = 1;
+    drawRWR(ctx, W, H, v);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  const SEE_MSL = 4000;
+  // text with a dark rim, so it reads over cloud as well as sea
+  function hudText(ctx, t, x, y, rim = 3) {
+    ctx.save(); ctx.lineWidth = rim; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(t, x, y); ctx.restore();
+    ctx.fillText(t, x, y);
+  }
+  // a missile the pilot would want to see: anyone's but their own side's (the AI's and the sites', and in a room an
+  // enemy player's)
+  function hostileMissile(s, v) {
+    if (s.k !== 'missile' || s.owner === v) return false;
+    if (s.net) return typeof MP === 'undefined' || typeof Net === 'undefined' || MP.enemy(Net.me, s.net);
+    return !!s.enemy;
+  }
+  // the other players whose radar holds us (multiplayer), from the locks they report
+  const NONE = [];
+  function lockers() {
+    if (typeof MP === 'undefined' || !MP.rwr || !MP.rwr.size) return NONE;
+    const out = [];
+    for (const pid of MP.rwr.keys()) { const P = MP.peers.get(pid); if (P && P.ghost && !P.ghost.dead) out.push(P.ghost); }
+    return out;
+  }
+  // What the threat display says to do about missile s, d metres out, with what the craft carries.
+  function rwrAdvice(v, s, d) {
+    const fl = v.parts.some((p) => p.def.weapon && p.def.weapon.kind === 'flare' && p.ammo > 0), ch = !!dispenser(v);
+    if (s.heat) return d > 2500 ? 'throttle back · flares at 2 km' : fl ? 'FLARES NOW · break turn' : 'break turn hard';
+    if (s.radar || s.sarh) return d > 4500 ? 'put it on your wing and dive (notch)' : ch ? 'CHAFF NOW · keep it on your wing' : fl ? 'FLARES (chaff cloud) · notch it' : 'notch it: on your wing, low';
+    return 'turn hard and get low';
+  }
+  // The warning receiver's display. Basic: MISSILE (or RADAR LOCK), flashing. With a threat display also the nearest
+  // missile's kind, distance, time to arrive and what to do, and a scope: each missile (by its kind) and radar lock round
+  // the craft, nose up, nearer the middle the closer it is.
+  function drawRWR(ctx, W, H, v) {
+    if (!S.rwr) return;
+    const locks = lockers(), blink = Math.floor(performance.now() / 250) % 2 === 0, m = S.threats[0];
+    ctx.textAlign = 'center';
+    if (m) {
+      const d = len(m.x - v.x, m.y - v.y, m.z - v.z);
+      if (blink) {
+        ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
+        hudText(ctx, S.rwr < 2 ? 'MISSILE' : m.heat ? 'HEAT SEEKER' : m.radar || m.sarh ? 'RADAR MISSILE' : 'MISSILE', W / 2, H * 0.3);
+      }
+      if (S.rwr > 1) { // (the nearest one: how far, how soon, what to do; and how many more)
+        const vc = -((m.x - v.x) * (m.vx - v.vx) + (m.y - v.y) * (m.vy - v.vy) + (m.z - v.z) * (m.vz - v.vz)) / (d || 1), n = S.threats.length;
+        ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#ffd0d0';
+        hudText(ctx, fmt.dist(d) + (vc > 30 ? ` · ${Math.max(1, Math.round(d / vc))} s` : '') + (n > 1 ? ` · +${n - 1} more` : ''), W / 2, H * 0.3 + 20);
+        ctx.font = '700 14px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ffd23f';
+        hudText(ctx, rwrAdvice(v, m, d), W / 2, H * 0.3 + 38);
+      }
+    } else if (locks.length && blink) {
+      ctx.font = '700 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
+      hudText(ctx, 'RADAR LOCK', W / 2, H * 0.3);
+    }
+    if (S.rwr < 2) return;
+    // the scope: heading up, in the local horizontal
+    const B = rwrPlace(W, H), R = B.R, cx = B.x, cy = B.y;
+    const up = norm3(v3(v.x, v.y, v.z)), f0 = noseDir(v), fu = dot3(f0, up);
+    let fw = v3(f0.x - up.x * fu, f0.y - up.y * fu, f0.z - up.z * fu);
+    if (len3(fw) < 1e-3) fw = v.axis(-1, 0, 0); // (straight up or down: the belly's way)
+    norm3(fw);
+    const rt = cross3(fw, up), at = (x, y, z, k) => { const dx = x - v.x, dy = y - v.y, dz = z - v.z, a = Math.atan2(dx * rt.x + dy * rt.y + dz * rt.z, dx * fw.x + dy * fw.y + dz * fw.z); return { a, x: cx + Math.sin(a) * R * k, y: cy - Math.cos(a) * R * k }; };
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 13, 24, 0.72)'; ctx.strokeStyle = S.warn || locks.length ? 'rgba(255, 93, 93, 0.6)' : 'rgba(150, 185, 230, 0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(150, 185, 230, 0.15)';
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.5, 0, TAU); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
+    ctx.fillStyle = '#e9edf1'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 4, cy + 4); ctx.lineTo(cx - 4, cy + 4); ctx.closePath(); ctx.fill(); // (us)
+    ctx.font = '700 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
+    for (const g of locks) { // a lock: a strobe on the rim towards its radar
+      const p = at(g.x, g.y, g.z, 0.9);
+      ctx.strokeStyle = '#ff5d5d'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.9, p.a - Math.PI / 2 - 0.16, p.a - Math.PI / 2 + 0.16); ctx.stroke();
+    }
+    for (const s of S.threats) { // a missile: a red triangle pointing in at us, with its kind
+      const d = len(s.x - v.x, s.y - v.y, s.z - v.z), p = at(s.x, s.y, s.z, 0.28 + 0.6 * clamp(d / 12000, 0, 1)), ux = (cx - p.x) / (R || 1), uy = (cy - p.y) / (R || 1), ul = Math.hypot(ux, uy) || 1;
+      const ix = ux / ul, iy = uy / ul;
+      ctx.fillStyle = '#ff5d5d';
+      ctx.beginPath(); ctx.moveTo(p.x + ix * 6, p.y + iy * 6); ctx.lineTo(p.x - ix * 4 - iy * 4.5, p.y - iy * 4 + ix * 4.5); ctx.lineTo(p.x - ix * 4 + iy * 4.5, p.y - iy * 4 - ix * 4.5); ctx.closePath(); ctx.fill();
+      ctx.fillText(s.heat ? 'IR' : s.radar || s.sarh ? 'R' : 'M', p.x - ix * 12, p.y - iy * 12);
+    }
+    ctx.restore();
+    ctx.font = '600 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = 'rgba(150, 185, 230, 0.7)';
+    ctx.fillText('RWR', cx, cy + R + 11);
+  }
+  // Where the scope fits (looked up once a second): under the flight data (and the multiplayer radar scope), else
+  // beside the flight data.
+  let rwrBox = null, rwrAt = 0;
+  function rwrPlace(W, H) {
+    const now = performance.now();
+    if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H) return rwrBox;
+    rwrAt = now;
+    const t = $('#flight-ui .telemetry'), lc = $('#flight-ui .left-controls'), T = t ? t.getBoundingClientRect() : { left: 12, right: 220, top: 12, bottom: 220 };
+    const bottom = lc ? lc.getBoundingClientRect().top : H - 260, R = W < 500 ? 40 : 46, mps = typeof MPUI !== 'undefined' && MP.live ? MPUI.scope : null;
+    const top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? H * 0.3 + 52 : 0); // (a narrow screen: below the warning's lines)
+    rwrBox = bottom - top >= 2 * R + 24 ? { x: T.left + R + 4, y: top + R, R } : { x: T.right + 14 + R, y: T.top + R, R };
+    rwrBox.W = W; rwrBox.H = H;
+    return rwrBox;
   }
   // The bomb's fall, stepped until it meets the ground (drag as in flight; good to a few metres).
   function bombImpact(v) {

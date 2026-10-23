@@ -515,23 +515,7 @@ const MPUI = {
       ctx.fillText(MP.nameOf(g.remote), s.x, s.y - 26);
       if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 38); ctx.globalAlpha = 1; }
     }
-    // radar warning receiver: who has a radar lock on us, and from where
-    if (MP.rwr.size && !F.destroyed) {
-      const v = F.active, fwd = (() => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); })(), up = v.axis(-1, 0, 0), right = v.axis(0, 0, 1);
-      const cx = W / 2, cy = H * 0.72, R = 34;
-      ctx.strokeStyle = 'rgba(255,93,93,0.5)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
-      for (const pid of MP.rwr.keys()) {
-        const P = MP.peers.get(pid);
-        if (!P || !P.ghost) continue;
-        const g = P.ghost, dx = g.x - v.x, dy = g.y - v.y, dz = g.z - v.z;
-        const a = Math.atan2(dx * right.x + dy * right.y + dz * right.z, dx * fwd.x + dy * fwd.y + dz * fwd.z);
-        ctx.fillStyle = '#ff5d5d';
-        ctx.beginPath(); ctx.arc(cx + Math.sin(a) * R, cy - Math.cos(a) * R, 4, 0, TAU); ctx.fill();
-        void up;
-      }
-      if (Math.floor(performance.now() / 300) % 2 === 0) { ctx.font = '700 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d'; ctx.fillText('RADAR LOCK', cx, cy + R + 16); }
-    }
+    // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
     this.drawRadar(ctx, W, H, F, me);
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
@@ -596,7 +580,7 @@ const MPUI = {
       const ex = Math.min(1, S.R / Math.max(1, Math.hypot(p.x - S.x, p.y - S.y))); // off the scope: pinned to its edge
       const x = p.in ? p.x : S.x + (p.x - S.x) * ex * 0.97, y = p.in ? p.y : S.y + (p.y - S.y) * ex * 0.97;
       ctx.fillStyle = !MP.pvp ? '#ffb547' : friend ? '#62d0ff' : '#ff5d5d';
-      ctx.beginPath(); ctx.arc(x, y, MP.rwr.has(g.remote) ? 4.5 : 3.2, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, MP.rwr.has(g.remote) && Combat.S.rwr > 1 ? 4.5 : 3.2, 0, TAU); ctx.fill(); // (bigger: its radar holds us, as the threat display tells)
     }
     ctx.restore();
     ctx.fillStyle = '#e9edf1'; ctx.beginPath(); ctx.moveTo(S.x, S.y - 6); ctx.lineTo(S.x + 4, S.y + 4); ctx.lineTo(S.x - 4, S.y + 4); ctx.closePath(); ctx.fill();

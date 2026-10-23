@@ -9,9 +9,11 @@ ctx.Math.random = () => 0.5; // no gun spread
 const r3 = (x) => +x.toFixed(3);
 const t = Gm.checks('combat: depth');
 const ok = (c, msg) => t(msg, c);
-// a vessel from rows [type, x, y, rot, extra], level at 3 km over the sea, identity attitude; whole: keep loose parts
+// a vessel from rows [type, x, y, rot, extra], level at 3 km over the sea, identity attitude; whole: keep loose parts.
+// (extra.att is an index into the rows, as the builder saves it: made into the part's id, as partsFromDesign does)
 function craft(ctx, rows, kind = 'plane', whole) {
-  const parts = rows.map(([type, x, y, rot, o]) => G.makePart(type, x, y, Object.assign({ flip: x < 0, rot: rot || 0 }, o || {})));
+  const parts = rows.map(([type, x, y, rot, o]) => G.makePart(type, x, y, Object.assign({ flip: x < 0, rot: rot || 0 }, o || {}, { att: null })));
+  rows.forEach((r, i) => { const a = r[4] && r[4].att; if (Number.isInteger(a) && a !== i && parts[a]) parts[i].att = parts[a].id; });
   const adjAll = G.buildAdjacency(parts), ctrl = G.findControlPart(parts), keep = whole ? new Set(parts.map((p) => p.id)) : G.componentOf(ctrl.id, adjAll);
   const ps = parts.filter((p) => keep.has(p.id)), adj = new Map();
   for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));

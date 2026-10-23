@@ -377,17 +377,27 @@ const PARTS = {
     desc: 'One 1-tonne bomb. Hang it under the fuselage.' },
   flares: { cat: 'weapons', name: 'Flares', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', tier: 2, cost: 1200,
     weapon: { kind: 'flare', ammo: 30, each: 1 },
-    desc: 'Hot decoys that pull heat-seeking missiles off you, with a chaff cloud for radar missiles: press K (or CM). Flying solo they also fire on their own when a missile closes in.' },
+    desc: 'Hot decoys that pull heat-seeking missiles off you, with a chaff cloud for radar missiles: press K (or CM). Flying solo, with a warning receiver (RWR) on board, they also fire on their own when a missile closes in.' },
   // (one press of K: flares, if fitted, and a bundle from here; with no dispenser the flares bring their own weaker cloud)
   chaff: { cat: 'weapons', name: 'Chaff Dispenser', w: 0.4, h: 0.9, mass: 0.03, shape: 'flares', style: 'chaff', tier: 2, cost: 1500,
     weapon: { kind: 'chaff', ammo: 24, each: 1 },
-    desc: 'Bundles of foil that burst into a glittering cloud and pull radar missiles off you, far better than the cloud that comes with flares: press K (or CM). Best once the missile is a few km out, flying across its path. Flying solo it also fires on its own against radar missiles.' },
+    desc: 'Bundles of foil that burst into a glittering cloud and pull radar missiles off you, far better than the cloud that comes with flares: press K (or CM). Best once the missile is a few km out, flying across its path. Flying solo, with a warning receiver (RWR) on board, it also fires on its own against radar missiles.' },
+  // Radar warning receivers (def.rwr: 1 basic, 2 with a threat display): without one a missile homing on you goes
+  // unannounced, and only its red marker (in sight, within 4 km) gives it away
+  rwr: { cat: 'weapons', name: 'Basic RWR', w: 0.24, h: 0.8, mass: 0.015, shape: 'rwr', rwr: 1, tier: 2, cost: 1000,
+    desc: 'A radar warning receiver: a warning and a tone when any missile is homing on you, and when another player\'s radar locks on, but not what kind of missile or where from. Flying solo it sets off your flares by itself. Without one, only your eyes tell you a missile is coming.' },
+  rwrPlus: { cat: 'weapons', name: 'Advanced RWR', w: 0.3, h: 1.1, mass: 0.03, shape: 'rwr', rwr: 2, tier: 3, cost: 3000,
+    desc: 'A warning receiver with a threat display: where each missile and radar lock is coming from, what kind of missile it is, how soon it arrives and what to do about it (flares against a heat seeker; notch and chaff against a radar missile). Flying solo it picks the right decoy by itself.' },
   gatling: { cat: 'weapons', name: 'Rotary Cannon', w: 0.8, h: 3.2, mass: 0.9, shape: 'gun', barrels: 7, calibre: 30, tier: 3, cost: 12000,
     weapon: { kind: 'gun', ammo: 1100, rate: 60, speed: 1050, dmg: 24, spread: 0.006, each: 0.3 },
     desc: 'Seven spinning barrels: a 30 mm buzz saw for busting tanks. Mount it along the nose.' },
-  turret: { cat: 'weapons', name: 'Gun Turret', w: 1, h: 1.4, mass: 0.35, shape: 'turret', tier: 2, cost: 6000,
+  // (the first turret, retired from the tray for the manned one: old designs keep it, and it flies and fights as before)
+  turret: { cat: 'weapons', name: 'Small Gun Turret', retired: true, w: 1, h: 1.4, mass: 0.35, shape: 'turret', tier: 2, cost: 6000,
     weapon: { kind: 'turret', ammo: 800, rate: 12, speed: 900, dmg: 8, spread: 0.006, range: 1100, each: 0.05 },
-    desc: 'A defensive turret that aims and fires on its own at enemy fighters and drones within a kilometre. Put it on top of (or under) a bomber.' },
+    desc: 'A defensive turret that aims and fires on its own at enemy fighters and drones within a kilometre, while the craft is in the air. Put it on top of (or under) a bomber.' },
+  turretL: { cat: 'weapons', name: 'Gun Turret', w: 1.4, h: 2.6, depth: 1.6, mass: 0.6, shape: 'turret', style: 'manned', tier: 2, cost: 7000,
+    weapon: { kind: 'turret', ammo: 800, rate: 12, speed: 900, dmg: 8, spread: 0.006, range: 1100, each: 0.05 },
+    desc: 'A manned turret, big enough for its gunner: twin heavy machine guns that aim and fire on their own at enemy fighters and drones within a kilometre, but only while the craft is in the air. Put it on top of (or under) a bomber.' },
   bombBay: { cat: 'weapons', name: 'Internal Bomb Bay', w: 2, h: 4, mass: 0.55, shape: 'fuselage', style: 'bay', bay: true, stealth: 0.5, tier: 3, cost: 7000,
     weapon: { kind: 'bomb', ammo: 4, dmg: 1200, blast: 30, each: 250 },
     desc: 'A fuselage section with four 250 kg bombs inside: no drag, and a stealth plane stays stealthy.' },
@@ -426,7 +436,7 @@ const PARTS = {
   // leaves the bay, by store; vec2d: a flat nozzle that vectors in pitch only; irK: the exhaust's heat, as seen by
   // heat seekers; twinMirror: the left one of a pair is the mirror image (canted fins, gear legs).
   us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radar: 18000, stealth: 0.7,
-    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
+    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11700,
     desc: 'The FS-22’s chined nose: a sharp-edged radome, a long radar and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it.' },
   us5Intake22: { cat: 'air', name: 'FS-22 Caret-Intake Fuselage', w: 2.2, h: 4.4, depth: 4.66, mass: 3.3, fuel: 2.6, stealth: 0.7, shape: 'us5body', us5: 'intake22',
     body3d: 'us5', look: 'raptor', fill: 0.45, bay: true, doors: true, bayRack: [[0.38, -0.78, -2.67], [0.38, -0.78, 2.67]], tier: 4, cost: 11000,
@@ -542,7 +552,7 @@ const PARTS = {
     wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.22, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
     desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
   ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radar: 26000, shape: 'ruLoft', ru: 'nose',
-    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 10500,
+    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 8500,
     loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.83, -0.3], [14.3, -0.95, 0.5, 0.83, -0.25], [15.1, -0.95, 0.7, 0.83, -0.18], [16.0, -0.95, 0.75, 0.83, -0.15],
       [17.0, -0.95, 0.75, 0.81, -0.15], [17.8, -0.95, 0.73, 0.78, -0.15], [18.6, -0.86, 0.69, 0.73, -0.12], [19.5, -0.72, 0.6, 0.65, -0.08], [20.5, -0.52, 0.43, 0.49, -0.05],
       [21.35, -0.27, 0.2, 0.26, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
@@ -603,7 +613,7 @@ const PARTS = {
   ruGearNose2L: { cat: 'airGear', name: 'Tall Twin Nose Gear', w: 2.45, h: 0.9, mass: 0.24, shape: 'gear', wheel: { r: 0.32, drive: false, brake: true, track: 0.55, retract: true },
     breakSpeed: 9, tier: 4, cost: 1300, desc: 'A tall nose leg with two wheels side by side, for a big fighter. Folds away (G).' },
   ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radar: 28000, stealth: 0.6, shape: 'ruLoft', ru: 'nose',
-    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 13000,
+    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11200,
     loft: ruG(-0.09, 12.6, { s: [[12.6, -0.78, 0.25, 0.92, 0.1], [13.4, -0.78, 0.4, 0.88, 0.12], [14.4, -0.78, 0.53, 0.82, 0.14], [15.4, -0.78, 0.58, 0.76, 0.15],
       [16.4, -0.78, 0.57, 0.68, 0.15], [17.2, -0.76, 0.52, 0.58, 0.15], [18.0, -0.56, 0.42, 0.46, 0.14], [18.8, -0.34, 0.31, 0.33, 0.12], [19.5, -0.15, 0.2, 0.19, 0.1],
       [20.1, 0.06, 0.09, 0, 0.08]], n: 2, nb: 2.6, chine: true }),
@@ -655,7 +665,7 @@ const PARTS = {
   ruGearNose: { cat: 'airGear', name: 'Short Nose Gear', w: 0.78, h: 0.8, mass: 0.1, shape: 'gear', wheel: { r: 0.27, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8,
     tier: 2, cost: 900, desc: 'A short single-wheel nose leg for a small fighter. Folds away (G).' },
   ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radar: 8000, shape: 'ruLoft', ru: 'nose21',
-    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7500,
+    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6900,
     loft: ruG(-0.165, 9.4, { s: [[9.4, -0.62, 0.62, 0.62, 0], [11.0, -0.62, 0.62, 0.62, 0], [12.6, -0.59, 0.59, 0.59, 0], [13.6, -0.53, 0.53, 0.53, 0], [14.1, -0.48, 0.48, 0.48, 0]], open: true },
       { s: [[13.8, -0.31, 0.31, 0.31, 0], [14.15, -0.25, 0.25, 0.25, 0], [14.5, -0.01, 0.01, 0, 0]] },
       { s: [[9.4, -0.92, -0.3, 0.28, -0.55], [9.95, -0.93, -0.3, 0.3, -0.55]] }),
@@ -734,7 +744,7 @@ const PARTS = {
       { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
     desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
   // FS-16 (4th generation, after the F-16)
-  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radar: 15000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 6500, shape: 'us4body',
+  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radar: 15000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4800, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.25, -0.27, 0.48, 0.93, 0.68, 2.6, 3.6], [-2.25, -0.23, 0.46, 0.93, 0.64, 2.6, 3.4], [-1.25, -0.2, 0.45, 0.93, 0.61, 2.6, 3.2], [-0.25, -0.19, 0.43, 0.93, 0.57, 2.6, 3], [0.35, -0.17, 0.41, 0.9, 0.53, 2.4, 2.8], [1.05, -0.1, 0.37, 0.81, 0.45, 2.2, 2.4], [1.75, 0.02, 0.33, 0.65, 0.31, 2, 2], [2.35, 0.17, 0.31, 0.47, 0.16, 2, 2], [2.75, 0.3, 0.3, 0.3, 0, 2, 2]] },
       { st: [[-3.25, -0.61, -0.43, -0.12, 0.3, 2], [-2.85, -0.75, -0.43, -0.09, 0.37, 2], [-2.35, -0.87, -0.43, -0.09, 0.41, 2], [-1.75, -0.93, -0.44, -0.09, 0.43, 2], [-1.15, -0.9, -0.43, -0.09, 0.42, 2], [-0.55, -0.74, -0.37, -0.09, 0.38, 2], [-0.05, -0.45, -0.25, -0.09, 0.28, 2], [0.3, -0.19, -0.17, -0.12, 0.06, 2]], kind: 'glass', front: 'open', back: 'open' }],
@@ -742,7 +752,7 @@ const PARTS = {
       probe: [0.3, 2.75, 3.25, 0.03],
       deco: [['tone', 1.05, -0.1], ['line', -0.17, 0.35, 0.9, 0.35], ['line', -0.27, -2.65, 0.93, -2.65]] },
     desc: 'Pointed radome, chined nose and a frameless bubble canopy: the pilot sits high with a view all round. Hang the Chin Intake under it.' },
-  us4f16Body: { cat: 'air', name: 'FS-16 Blended Fuselage', w: 1.63, h: 5.6, depth: 1.64, fill: 0.74, mass: 2.3, fuel: 2.6, tier: 3, cost: 3500, shape: 'us4body',
+  us4f16Body: { cat: 'air', name: 'FS-16 Blended Fuselage', w: 1.63, h: 5.6, depth: 1.64, fill: 0.74, mass: 2.3, fuel: 2.6, tier: 3, cost: 2700, shape: 'us4body',
     body: { tubes: [
       { st: [[-2.8, -0.525, 0.275, 0.815, 0.78, 2.4, 3], [-2.2, -0.545, 0.295, 0.815, 0.8, 2.4, 3], [-1.2, -0.565, 0.315, 0.815, 0.82, 2.4, 3.2], [-0.2, -0.585, 0.315, 0.795, 0.82, 2.4, 3.4], [0.8, -0.585, 0.315, 0.765, 0.8, 2.4, 3.6], [1.8, -0.545, 0.295, 0.735, 0.75, 2.5, 3.6], [2.8, -0.485, 0.265, 0.715, 0.68, 2.6, 3.6]] },
       { st: [[-2.6, -0.525, -0.505, -0.385, 0.02, 2], [-2, -0.585, -0.485, -0.335, 0.16, 2], [-1.2, -0.625, -0.485, -0.335, 0.2, 2], [0.3, -0.685, -0.525, -0.335, 0.24, 2], [1.8, -0.755, -0.585, -0.335, 0.28, 2], [2.8, -0.815, -0.625, -0.335, 0.3, 2]], back: 'open', hide: true }],
@@ -955,7 +965,7 @@ function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def)
 // (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
 // (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
 const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr']);
 const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
   wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
   gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
@@ -1049,6 +1059,7 @@ const PART_PROFILE = {
   airnose(c, w, h, d) { HULLS.airnose(c, 0, 0, w, h, d); },
   float(c, w, h, d) { HULLS.float(c, 0, 0, w, h, d); },
   droptank(c, w, h, d) { HULLS.droptank(c, 0, 0, w, h, d); },
+  rwr(c, w, h, d) { HULLS.rwr(c, 0, 0, w, h, d); },
   cab(c, w, h) { // side view, driving towards +x
     const l = -w / 2, r = w / 2, b = -h / 2, t = h / 2;
     c.moveTo(l, b); c.lineTo(r, b); c.lineTo(r, b + h * 0.45); c.lineTo(r - w * 0.05, b + h * 0.53);
@@ -1675,6 +1686,12 @@ const HULLS = {
     ctx.lineTo(r, b + h * 0.45); ctx.lineTo(r - w * 0.08, b + h * 0.42); ctx.lineTo(r - w * 0.08, b);
     ctx.lineTo(l + w * 0.1, b); ctx.closePath();
   },
+  rwr(ctx, x, y, w, h) { // a warning receiver's slim antenna fairing, round, blunt at the front (+y), tapered behind
+    const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+    ctx.moveTo(x, t); ctx.bezierCurveTo(x + w * 0.42, t, r, t - h * 0.1, r, t - h * 0.26); ctx.lineTo(r, b + h * 0.34);
+    ctx.bezierCurveTo(r, b + h * 0.14, x + w * 0.18, b, x, b); ctx.bezierCurveTo(x - w * 0.18, b, l, b + h * 0.14, l, b + h * 0.34);
+    ctx.lineTo(l, t - h * 0.26); ctx.bezierCurveTo(l, t - h * 0.1, x - w * 0.42, t, x, t); ctx.closePath();
+  },
   droptank(ctx, x, y, w, h) { // tank on the +x side, pointed at both ends; pylon drawn separately
     const l = x - w * 0.05, r = x + w / 2, c = (l + r) / 2, b = y - h / 2, t = y + h / 2;
     ctx.moveTo(c, t); ctx.bezierCurveTo(r, t - h * 0.2, r, b + h * 0.25, c, b);
@@ -1778,7 +1795,7 @@ function partPath0(ctx, p) {
       ctx.moveTo(x - w * 0.22, b + nh); ctx.lineTo(x + w * 0.22, b + nh); ctx.lineTo(x + w * 0.36, b); ctx.lineTo(x - w * 0.36, b); ctx.closePath();
       break;
     }
-    case 'cockpit': case 'tailcone': case 'jet': case 'cab': case 'jetnose': case 'airnose': case 'float': case 'droptank': case 'glassnose': case 'bubble':
+    case 'cockpit': case 'tailcone': case 'jet': case 'cab': case 'jetnose': case 'airnose': case 'float': case 'droptank': case 'glassnose': case 'bubble': case 'rwr':
       HULLS[d.shape](ctx, x, y, w, h, d);
       break;
     case 'biplane': { // two wings stacked across the part
@@ -1802,6 +1819,13 @@ function partPath0(ctx, p) {
       break;
     }
     case 'turret': // base on the +x (mounting) side, dome and twin barrels pointing along +y
+      if (d.style === 'manned') { // the ring, the collar, the glazed dome over the gunner and the guns out of its front
+        const x0 = x + w * 0.086, ry = w * 0.47;
+        ctx.rect(x + w * 0.3, y - w * 0.514, w * 0.2, w * 1.028); ctx.rect(x0, y - ry * 1.03, x + w * 0.3 - x0, ry * 2.06);
+        ctx.moveTo(x0, y + ry); ctx.ellipse(x0, y, w * 0.53, ry, 0, Math.PI / 2, Math.PI * 1.5); ctx.closePath();
+        ctx.rect(x - w * 0.075, y + 0.2, w * 0.1, h / 2 - 0.2);
+        break;
+      }
       ctx.rect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7);
       ctx.moveTo(x + w * 0.12, y); ctx.ellipse(x - w * 0.04, y, w * 0.36, h * 0.34, 0, 0, TAU);
       ctx.rect(x - w * 0.16, y, w * 0.14, h / 2);
@@ -1849,6 +1873,28 @@ function partPath0(ctx, p) {
     default:
       ctx.rect(l, b, w, h);
   }
+}
+
+// The manned turret's side view: its twin guns (a cooling jacket on each), the ring on the mount, the collar in the
+// craft's paint and the glazed dome, with the gunner's helmet and shoulders showing through it.
+function drawMannedTurret(ctx, d, x, y, w, h) {
+  const x0 = x + w * 0.086, rx = w * 0.53, ry = w * 0.47, gx = x - w * 0.025, L = h / 2 - 0.15; // (L: the guns' reach from their trunnion)
+  ctx.fillStyle = '#23272d'; ctx.fillRect(gx - w * 0.03, y + 0.3, w * 0.06, L - 0.18); // barrel
+  ctx.fillStyle = '#4c545e'; ctx.fillRect(gx - w * 0.05, y + 0.15 + L * 0.38, w * 0.1, L * 0.28); ctx.strokeRect(gx - w * 0.05, y + 0.15 + L * 0.38, w * 0.1, L * 0.28); // jacket
+  ctx.fillStyle = '#1b1e22'; for (let i = 0; i < 4; i++) ctx.fillRect(gx - w * 0.012, y + 0.15 + L * (0.41 + i * 0.065), w * 0.024, L * 0.03); // its holes
+  ctx.fillRect(gx - w * 0.045, y + 0.15 + L - 0.07, w * 0.09, 0.07); // muzzle
+  ctx.fillStyle = PAL.steelDark; ctx.fillRect(x + w * 0.3, y - w * 0.514, w * 0.2, w * 1.028); ctx.strokeRect(x + w * 0.3, y - w * 0.514, w * 0.2, w * 1.028);
+  ctx.fillStyle = bodyGrad(ctx, x0, x + w * 0.3, () => (PartPaint.flat ? '#7d8790' : metalGradient(ctx, x0, x + w * 0.3)));
+  ctx.fillRect(x0, y - ry * 1.03, x + w * 0.3 - x0, ry * 2.06); ctx.strokeRect(x0, y - ry * 1.03, x + w * 0.3 - x0, ry * 2.06);
+  ctx.beginPath(); ctx.moveTo(x0, y + ry); ctx.ellipse(x0, y, rx, ry, 0, Math.PI / 2, Math.PI * 1.5); ctx.closePath();
+  ctx.fillStyle = PAL.glass; ctx.fill();
+  ctx.save(); ctx.clip(); ctx.globalAlpha = 0.75; ctx.fillStyle = '#2c3138'; // the gunner
+  ctx.fillRect(x - w * 0.12, y - 0.22, w * 0.22, 0.44);
+  ctx.beginPath(); ctx.arc(x - w * 0.22, y + 0.02, w * 0.1, 0, TAU); ctx.fill();
+  ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(40,46,54,0.8)'; ctx.lineWidth *= 0.7; // the dome's frame
+  ctx.beginPath(); ctx.ellipse(x0, y, rx * 0.55, ry, 0, Math.PI / 2, Math.PI * 1.5); ctx.moveTo(x0 - rx, y); ctx.lineTo(x0, y); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(x0, y + ry); ctx.ellipse(x0, y, rx, ry, 0, Math.PI / 2, Math.PI * 1.5); ctx.closePath(); ctx.stroke();
 }
 
 function drawPart0(ctx, p, lw) {
@@ -2216,6 +2262,14 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.stroke();
       break;
     }
+    case 'rwr': { // in the craft's paint, with dark radomes at both ends (the advanced one: a third band of antennas)
+      partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = '#272c33';
+      ctx.fillRect(l, t - h * 0.2, w, h * 0.2); ctx.fillRect(l, b, w, h * 0.17);
+      if (d.rwr > 1) ctx.fillRect(l, y - h * 0.06, w, h * 0.12);
+      ctx.restore(); partPath(ctx, p); ctx.stroke();
+      break;
+    }
     case 'droptank': {
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(x - w / 2, y - h * 0.15, w * 0.5, h * 0.3); // pylon
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, x - w * 0.05, r); ctx.fill();
@@ -2476,6 +2530,7 @@ function drawPart0(ctx, p, lw) {
       break;
     }
     case 'turret': {
+      if (d.style === 'manned') { drawMannedTurret(ctx, d, x, y, w, h); break; }
       ctx.fillStyle = PAL.steelDark; ctx.fillRect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7); ctx.strokeRect(x + w * 0.1, b + h * 0.15, w * 0.4, h * 0.7);
       ctx.fillStyle = '#2b3036';
       for (const dx of [-0.05, 0.05]) { ctx.fillRect(x - w * 0.09 + dx - 0.035, y, 0.07, h / 2); }
