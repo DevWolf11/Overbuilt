@@ -290,16 +290,19 @@ const TEMPLATES = {
   },
 };
 
-// A template's parts as design rows.
+// A template's parts as design rows (extras: z, att, skin, mm).
 function templateRows(t) {
   return t.parts.map(([type, x, y, rot, o = {}]) => {
     const q = { type, x, y, flip: x < 0, rot: rot || 0 }, skin = o.skin || (t.paint && t.paint[type]);
     if (o.z != null) q.z = o.z;
     if (o.att != null) q.att = o.att;
     if (skin) q.skin = skin;
+    if (o.mm != null) q.mm = o.mm;
     return q;
   });
 }
+// The tab each kind of craft opens on.
+const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls' };
 
 // The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
 // generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
@@ -363,7 +366,7 @@ const Builder = {
     this.kindSymmetry(kind);
     const turned = kind !== this.kind;
     this.kind = kind;
-    if (turned) this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    if (turned) this.category = KIND_TAB[kind] || this.category;
     this.renderKind();
     this.linkMirrors();
     this.selected = null;
@@ -371,7 +374,7 @@ const Builder = {
     this.changed(!!keepHistory);
     if (!keepHistory) this.baseSnap = this.snapOf(this.serialize());
     this.renderInfo();
-    if (turned && $('#palette-items').childElementCount) this.buildPalette();
+    if (turned && $('#palette-tabs').childElementCount) this.buildPalette(); // (once it has been built: a tab may hold no parts yet)
     if (!keepHistory || turned) this.fitView();
   },
   loadTemplate(key) {
@@ -379,12 +382,12 @@ const Builder = {
     this.savedAs = null;
     this.loadDesign({ name: t.name, kind: t.kind, parts: templateRows(t) });
   },
-  // Symmetry. Planes mirror left and right (across the blueprint), rockets turn half round the stack, cars
-  // and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
+  // Symmetry. Planes and armour mirror left and right (across the blueprint), rockets turn half round the stack,
+  // cars and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
   // the mirror line (or is a pair or a wing already).
   mirrorOf(q) {
     const def = PARTS[q.type], rot = q.rot || 0, z = partZ({ def, z: q.z });
-    if (this.kind === 'plane') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
+    if (this.kind === 'plane' || this.kind === 'tank') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
     const zz = this.kind === 'rocket' && !def.twinZ ? -z : z;
     if (Math.abs(q.x) < 0.01 && Math.abs(zz - z) < 0.01) return null;
     return { x: -q.x, y: q.y, z: zz, rot: mirrorRot(rot) };
@@ -755,18 +758,20 @@ const Builder = {
     return !this.parts.some((o) => !ignore.includes(o) && partsClash(probe, o));
   },
 
-  // ex: {z, att (the part it hangs on), host (the part it was put against), skin}. A new part takes the
+  // ex: {z, att (the part it hangs on), host (the part it was put against), skin, mm}. A new part takes the
   // paint of what it is put on (a wing on a stealth fuselage comes in stealth grey).
   addPart(type, x, y, rot = 0, ex = {}) {
     const def = PARTS[type];
     if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
     const att = ex.att || null, host = ex.host || att;
     const skin = ex.skin !== undefined ? cleanSkin(ex.skin, def) : host ? cleanSkin(skinOf(host), def) : null;
-    const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin });
+    const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin }), mm = cleanMm(ex.mm, def);
+    if (mm != null) p.mm = mm;
     this.parts.push(p);
     if (this.symmetry && this.mirrorOk(type, x, y, [], rot, p.z)) {
       const s = this.mirrorOf(p), mh = att && (att.mirror || att);
       const m = makePart(type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, att: mh ? mh.id : null, skin });
+      if (mm != null) m.mm = mm;
       this.parts.push(m);
       p.mirror = m; m.mirror = p;
     }
@@ -801,11 +806,11 @@ const Builder = {
     const host = this.hosts().get(p);
     if (host && host.def.wing && !isSurface(p.def) && !zLocked(p.def)) {
       const z = this.zFit(p.type, p.x, p.y, p.rot || 0, partZ(p) + partDepth(p) + 0.2, this.parts);
-      if (z != null) { this.addPart(p.type, p.x, p.y, p.rot || 0, { z, att: host, skin: p.skin }); return; }
+      if (z != null) { this.addPart(p.type, p.x, p.y, p.rot || 0, { z, att: host, skin: p.skin, mm: p.mm }); return; }
     }
     const s = this.snap(p.type, { x: p.x, y: partRect(p).t + partDims(p).h / 2, z: p.z }, [], p.rot || 0);
     if (!s.ok) { UI.toast('No room to duplicate it there'); return; }
-    this.addPart(p.type, s.x, s.y, p.rot || 0, { z: s.z, att: s.att, host: s.host, skin: p.skin });
+    this.addPart(p.type, s.x, s.y, p.rot || 0, { z: s.z, att: s.att, host: s.host, skin: p.skin, mm: p.mm });
   },
 
   // Turn the selected part (and its mirror twin) a quarter turn; while dragging from the palette, turn the
@@ -819,7 +824,7 @@ const Builder = {
     const m = p.mirror;
     const H = this.hosts();
     if (this.kidsOf([p, m].filter(Boolean), H).length) { // with what hangs on it (and its twin, turned the mirrored way)
-      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' ? 1 : -1]] : [[p, 1]], H);
+      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' ? 1 : -1]] : [[p, 1]], H);
       return;
     }
     const k = ((p.rot || 0) + 1) & 3, ignore = [p, m].filter(Boolean);
@@ -1047,7 +1052,7 @@ const Builder = {
       const twins = [];
       for (const p of [...made]) {
         if (p.mirror || !this.mirrorOk(p.type, p.x, p.y, [], p.rot, p.z)) continue;
-        const s = this.mirrorOf(p), m = makePart(p.type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, skin: p.skin });
+        const s = this.mirrorOf(p), m = makePart(p.type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, skin: p.skin, mm: p.mm });
         this.parts.push(m); made.push(m); twins.push(m); p.mirror = m; m.mirror = p;
       }
       const byId = new Map(this.parts.map((q) => [q.id, q]));
@@ -1217,7 +1222,7 @@ const Builder = {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
     this.kindSymmetry(kind);
     this.kind = kind;
-    this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    this.category = KIND_TAB[kind] || this.category;
     this.linkMirrors();
     this.buildPalette();
     this.renderKind();
@@ -1225,12 +1230,13 @@ const Builder = {
     this.fitView();
     Sound.click();
   },
-  // Planes mirror left and right and keep their own symmetry setting (on unless switched off); the others
-  // share one. True if it just changed.
-  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : 'rss.symmetry'; },
+  // Planes and armour mirror left and right and keep their own symmetry settings (on unless switched off); the
+  // others share one. True if it just changed.
+  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : 'rss.symmetry'; },
   kindSymmetry(kind) {
     const want = store.get(this.symKey(kind), true), b = $('#btn-sym');
-    b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack' : 'Symmetry: parts get a twin front and back';
+    b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack'
+      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : 'Symmetry: parts get a twin front and back';
     if (want === this.symmetry) return false;
     this.symmetry = want;
     b.setAttribute('aria-pressed', String(want));
@@ -1239,7 +1245,7 @@ const Builder = {
   renderKind() {
     document.querySelectorAll('[data-kind]').forEach((b) => {
       b.setAttribute('aria-checked', String(b.dataset.kind === this.kind));
-      b.disabled = !!this.mp && !this.mp.kinds.includes(b.dataset.kind); // battles: planes, helicopters and cars
+      b.disabled = !!this.mp && !this.mp.kinds.includes(b.dataset.kind); // battles: the kinds that game allows
     });
   },
   // The launch button: Launch, or in a multiplayer room Fly (sandbox) and Ready (battle).
@@ -1383,7 +1389,7 @@ const Builder = {
     const z = partZ(p), a = Math.abs(z).toFixed(2);
     if (p.def.twinZ) return `±${a} m`;
     if (Math.abs(z) < 0.005) return 'centre';
-    return this.kind === 'plane' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
+    return this.kind === 'plane' || this.kind === 'tank' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
   },
   // The paint row: a swatch per skin (and the part's own look), lit for the paint the selection wears.
   renderPaint() {
@@ -1485,23 +1491,24 @@ const Builder = {
   },
 
   // Designs travel as a short text code: "RSS1." + base64url of compact JSON, rows [type, x, y, flip, rot];
-  // "RSS2." when parts also carry [..., z, att, skin] (depth, what they hang on, paint), which older
-  // versions can't read.
+  // "RSS2." when parts also carry [..., z, att, skin] (depth, what they hang on, paint), and "RSS3." when some
+  // also carry [..., mm] (armour dialled thicker or thinner), which older versions can't read.
   designCode(d) {
-    let ext = false;
+    let ext = false, mm = false;
     const rows = d.parts.map((q) => {
-      const r = [q.type, q.x, q.y, q.flip ? 1 : 0, q.rot || 0], more = [q.z ?? null, q.att ?? null, q.skin ?? null];
+      const r = [q.type, q.x, q.y, q.flip ? 1 : 0, q.rot || 0], more = [q.z ?? null, q.att ?? null, q.skin ?? null, q.mm ?? null];
       while (more.length && more[more.length - 1] == null) more.pop();
       if (more.length) { ext = true; r.push(...more); }
+      if (more.length > 3) mm = true;
       return r;
     });
     const bytes = new TextEncoder().encode(JSON.stringify({ n: d.name, k: d.kind || 'rocket', p: rows }));
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return (ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return (mm ? 'RSS3.' : ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   },
   parseCode(text) {
-    const m = /RSS[12]\.([A-Za-z0-9_-]+)/.exec(text || '');
+    const m = /RSS[123]\.([A-Za-z0-9_-]+)/.exec(text || '');
     if (!m) return null;
     try {
       const b = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
@@ -1509,7 +1516,7 @@ const Builder = {
       const raw = Array.isArray(o.p) ? o.p.slice(0, 20000) : [];
       // (rows stay in place, unknown ones as null, so the att indices still point right)
       const parts = raw.map((q) => (Array.isArray(q) && typeof q[0] === 'string' && hasOwn(PARTS, q[0]) && isFinite(q[1]) && isFinite(q[2])
-        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined }
+        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined, mm: q[8] == null ? undefined : +q[8] }
         : null));
       const n = parts.filter(Boolean).length;
       if (!n) return null;
@@ -1532,7 +1539,7 @@ const Builder = {
     const note = el('p', { class: 'hangar-note', hidden: '' });
     const go = (keep) => {
       const d = this.parseCode(ta.value);
-      if (!d) { note.textContent = 'That is not a design code. Codes start with RSS1. or RSS2.'; note.hidden = false; return; }
+      if (!d) { note.textContent = 'That is not a design code. Codes start with RSS1., RSS2. or RSS3.'; note.hidden = false; return; }
       UI.closeModal();
       this.savedAs = null;
       this.loadDesign(d);
@@ -1612,11 +1619,12 @@ const Builder = {
       }
       wrap.append(list);
     }
-    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', heli: 'Helicopters' };
+    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters' };
     for (const kind in groups) {
-      const keys = Object.keys(TEMPLATES).filter((k) => (TEMPLATES[k].military ? 'military' : TEMPLATES[k].kind || 'rocket') === kind);
+      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.military ? 'military' : t.kind || 'rocket') === kind; });
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
+      if (kind === 'tank') wrap.append(el('p', { class: 'hangar-hint', text: 'Open one, turn on X-ray, and see how it’s built.' }));
       const tl = el('div', { class: 'template-list' });
       for (const key of keys) {
         const t = TEMPLATES[key];
@@ -1810,7 +1818,8 @@ const Builder = {
       this.redraw();
       store.set(this.symKey(this.kind), this.symmetry);
       sym.setAttribute('aria-pressed', String(this.symmetry));
-      UI.toast(!this.symmetry ? 'Symmetry off' : this.kind === 'plane' ? 'Symmetry on: whatever goes out on one wing gets a twin on the other' : 'Symmetry on: parts are mirrored across the centre line');
+      UI.toast(!this.symmetry ? 'Symmetry off' : this.kind === 'plane' ? 'Symmetry on: whatever goes out on one wing gets a twin on the other'
+        : this.kind === 'tank' ? 'Symmetry on: whatever goes on one side gets a twin on the other' : 'Symmetry on: parts are mirrored across the centre line');
     });
     $('#btn-clear').addEventListener('click', () => this.confirmClear());
     $('#btn-save').addEventListener('click', () => this.quickSave());
@@ -1996,7 +2005,7 @@ const Builder = {
     }
     // a single part (with nothing on it) dropped off the centre line gets a twin, with symmetry on
     if (d.list.length === 1 && !p.mirror && d.group.length === 1 && this.symmetry && this.mirrorOk(p.type, p.x, p.y, [p], p.rot || 0, p.z)) {
-      const t = this.mirrorOf(p), h = byId.get(p.att), m = makePart(p.type, t.x, t.y, { flip: t.x < 0, rot: t.rot, z: t.z, att: h ? (h.mirror || h).id : null, skin: p.skin });
+      const t = this.mirrorOf(p), h = byId.get(p.att), m = makePart(p.type, t.x, t.y, { flip: t.x < 0, rot: t.rot, z: t.z, att: h ? (h.mirror || h).id : null, skin: p.skin, mm: p.mm });
       this.parts.push(m); p.mirror = m; m.mirror = p;
     }
     this.linkMirrors();

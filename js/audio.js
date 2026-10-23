@@ -101,6 +101,7 @@ const Sound = {
   gun(big) { this.burst(big ? 0.12 : 0.06, big ? 700 : 1400, big ? 0.55 : 0.32, 'bandpass'); },
   missile() { this.burst(1.1, 900, 0.6, 'bandpass'); this.burst(0.3, 300, 0.5); },
   hit() { this.burst(0.05, 3200, 0.3, 'highpass'); },
+  cannon(cal, dist) {}, // a tank gun's report, by calibre (mm) and distance (m): the ground update's (Phase 2C)
   // the seeker's growl and lock tone: a sine, not the square beep
   tone(f = 1000, dur = 0.12, vol = 0.05) {
     if (!this.ctx) return;

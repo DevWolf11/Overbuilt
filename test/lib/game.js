@@ -10,7 +10,8 @@ const ROOT = path.resolve(process.env.ROOT || path.join(__dirname, '..', '..'));
 const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 
 // opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t),
-// flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground (groundai.js; with combat)
+// flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground (gmode.js and groundai.js, which
+// combat, flight and mp also bring)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -45,13 +46,16 @@ function load(opts = {}) {
     const names = ['boxesOf', 'hitVessel', 'muzzle', 'explode', 'destroyPart', 'fireGun', 'fireRocket', 'launchMissile', 'dropBomb',
       'systems', 'playerFrame', 'spawnFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
       'chaff', 'dispenser', 'autoCM', 'cmFX', 'decoyed', 'chaffBreaks', 'siteSees', 'clearLine', 'makeTarget', 'shipSamFire', 'samFire', 'at', 'rangeOf',
-      'rwrOf', 'hostileMissile', 'lockers', 'rwrAdvice', 'turretStep', 'airframe']
+      'rwrOf', 'hostileMissile', 'lockers', 'rwrAdvice', 'turretStep', 'airframe',
+      'candidates', 'refPos', 'guide', 'guideAir', 'moveShot', 'netShot', 'netFlares', 'countermeasures', 'segPoint', 'damage', 'aiDown', 'targetCentre']
       .filter((n) => new RegExp(`function ${n}\\b|const ${n} =`).test(cs));
     cs = cs.replace(ret, `  return {\n    _t: { ${names.join(', ')} }, S, step,`);
     run(cs + '\nthis.Combat = Combat;', 'combat.js');
   }
-  if ((opts.combat || opts.mp || opts.ground) && has('gmode.js')) run(src(root, 'gmode.js'), 'gmode.js');
-  if (opts.ground && has('groundai.js')) run(src(root, 'groundai.js'), 'groundai.js');
+  // (combat.js, flight.js and mp.js call these, behind gates every old design keeps shut)
+  const gm = opts.combat || opts.mp || opts.ground || opts.flight;
+  if (gm && has('gmode.js')) run(src(root, 'gmode.js'), 'gmode.js');
+  if (gm && has('groundai.js')) run(src(root, 'groundai.js'), 'groundai.js');
   const b = src(root, 'builder.js');
   run(b.match(/const TEMPLATES = \{[\s\S]*?\n\};/)[0] + '\nthis.TEMPLATES = TEMPLATES;', 'builder.js (TEMPLATES)');
   const tr = b.match(/function templateRows\(t\) \{[\s\S]*?\n\}/);
