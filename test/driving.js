@@ -1,13 +1,15 @@
 // Ground driving traces at full precision (17 significant digits, every 0.25 s): the Dune Buggy driving, cornering,
 // braking, reversing, along the causeway and up a 10° slope on Shetland; the Dragonfly and the Lunar Rover rolling;
-// the take-off rolls of the Falcon, the Mustang and the FS-16. Each craft is driven as the game drives it: the stick
+// the take-off rolls of the Falcon, the Mustang and the FS-16; and the ground update's running gear (gear.js) on vehicles
+// built from the catalogue's parts (test/lib/tanks.js): pulling away and coasting, a pivot, a hill, braking, an 8×8
+// cornering, a tank on the arena's pad. Each craft is driven as the game drives it: the stick
 // is read once a frame at 60 fps, then two 1/120 s substeps run, each a physics step and Combat.step (the order of
 // Flight.physicsTick; combat.js is loaded, as in the page, so bumps dent and crashes break at the game's limits).
 // Any change to ground contact, driving, steering or a plane's ground roll shows up here. Every scenario runs twice
 // and must come out the same both times.
 //   node test/driving.js [--update]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
-const ctx = G.load({ combat: true }), R = (c) => G.run(ctx, c);
+const ctx = G.load({ combat: true }), R = (c) => G.run(ctx, c), TANKS = require('./lib/tanks.js');
 const FPS = 60, SUB = 2, h = 1 / 120; // a 1/60 s frame: n = ceil(total / PHYS_DT - 0.05) = 2 substeps of 1/120 s
 const D = 180 / Math.PI, TOP = ctx.PARTS.carWheel.wheel.speed; // the buggy's top speed: a stick at V/TOP holds V
 const fwd = (v) => v.wheelSpeed || 0; // speed along the ground, as the drive measures it
@@ -66,6 +68,13 @@ const SCENARIOS = {
   'falcon takeoff': { key: 'falcon', ...takeoff },
   'mustang takeoff': { key: 'mustang', ...takeoff },
   'fs16 takeoff': { key: 'fs16', ...takeoff },
+  // the running gear: tracks and armoured wheels on parts-built vehicles (rows: design rows; kind 'tank': the runway)
+  'tk34 forward': { rows: TANKS.tk34, secs: 14, script: (v, t) => { v.ctl.v = t < 10 ? 1 : 0; } }, // 10 s flat out down the runway, then 4 s coasting
+  'tk34 pivot': { rows: TANKS.tk34, secs: 6, script: (v, t) => { v.ctl.h = t >= 1 ? 1 : 0; } }, // settled, then 5 s of D alone (a neutral turn)
+  'tk34 slope': { rows: TANKS.tk34, secs: 10, place: onEarth(SLOPE.e, SLOPE.z, SLOPE.yaw), script: (v, t) => { v.ctl.v = t < 6 ? 1 : 0; } }, // 6 s up the 10° slope, then parked on it
+  'tygr brake': { rows: TANKS.tygr, secs: 14, script: (v, t) => { v.ctl.v = t < 10 ? 1 : 0; v.brake = t >= 10; } }, // flat out, then B held
+  'pumo corner': { rows: TANKS.pumo, secs: 12, script: (v, t) => { v.ctl.v = t < 6 ? 1 : 0.5; v.ctl.h = t >= 6 ? 1 : 0; } }, // to speed, then half throttle and full right
+  'ma1 pad': { rows: TANKS.ma1, secs: 8, place: onEarth(17680, 13800), script: (v, t) => { v.ctl.v = 1; v.ctl.h = t >= 4 ? -0.5 : 0; } }, // the arena's north pad: pulling away, then a half-left turn
 };
 
 const f17 = (x) => (typeof x === 'number' ? x.toPrecision(17) : x ? '1' : '0');
@@ -73,7 +82,7 @@ const f17 = (x) => (typeof x === 'number' ? x.toPrecision(17) : x ? '1' : '0');
 const sample = (v, p0) => [v.x - p0.x, v.y - p0.y, v.z - p0.z, v.vx, v.vy, v.vz, v.q.w, v.q.x, v.q.y, v.q.z, v.av.x, v.av.y, v.av.z, v.gForce || 0]
   .map(f17).join(' ') + ' ' + [v.landed, v.wheelsDown, v.splashed, v.canDrive].map(f17).join('');
 function run(sc) {
-  const T = ctx.TEMPLATES[sc.key], v = G.craft(ctx, G.templateRows(ctx, sc.key), T.kind || 'rocket'), s = G.sim(), st = {};
+  const v = sc.rows ? G.craft(ctx, sc.rows, 'tank') : G.craft(ctx, G.templateRows(ctx, sc.key), ctx.TEMPLATES[sc.key].kind || 'rocket'), s = G.sim(), st = {};
   Object.assign(s, { active: v, vessels: [v], firing: false, destroyed: false });
   if (sc.place) sc.place(v);
   if (sc.setup) sc.setup(v, st);
