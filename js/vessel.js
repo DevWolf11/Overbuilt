@@ -9,7 +9,7 @@
 const DEFAULT_BREAK_SPEED = 9;
 const hasCombat = () => typeof Combat !== 'undefined'; // (the physics also runs without weapons, in tests)
 const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit', 'rotor', 'prop',
-  'jetnose', 'airnose', 'float', 'droptank']);
+  'jetnose', 'airnose', 'float', 'droptank', 'tcast', 'tring']);
 const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
 const MAX_SPIN = 6;   // rad/s
 // Where a part's mass sits across (z), one entry per copy: each side of a twin pair, or an axle's two wheels
@@ -101,11 +101,32 @@ const PILOT = {
   plane: pilotFrame([0, 1, 0], [-1, 0, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.9, 0.45]),
   heli: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.0, 1.4]),
   car: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.2, 1.2]),
+  tank: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.25, 0.25, 0.25]), // (in the air only: running gear never lets the stick turn the hull)
 };
 // How wheeled craft sit on the ground: planes on their belly side (+x), everything else on -y.
 const DRIVE = { plane: pilotFrame([0, 1, 0], [-1, 0, 0]), other: pilotFrame([1, 0, 0], [0, 1, 0]) };
 
 const _t1 = v3(), _t2 = v3(), _t3 = v3(), _t4 = v3();
+const _ia = v3(), _ib = v3(), _ic = v3(); // (applyImpulse's)
+// What a ground-update part (def.gv) keeps in a saved flight, on top of every part's fields; read back sanitised.
+const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel'];
+function gvSave(p, o) {
+  if (p.def.gv) for (const k of GV_SAVE) if (p[k] != null) o[k] = p[k];
+  return o;
+}
+function gvLoad(p) {
+  const d = p.def, w = d.weapon, set = (k, v) => { if (v === undefined) delete p[k]; else p[k] = v; };
+  if (!d.gv) { for (const k of GV_SAVE) delete p[k]; return; } // (old parts never carry them)
+  set('aimYaw', Number.isFinite(p.aimYaw) ? (Math.abs(p.aimYaw) <= Math.PI ? p.aimYaw : wrapAngle(p.aimYaw)) : undefined);
+  set('aimEl', Number.isFinite(p.aimEl) ? clamp(p.aimEl, -Math.PI / 2, Math.PI / 2) : undefined);
+  set('mm', cleanMm(p.mm, d));
+  set('mods', Array.isArray(p.mods) && d.mods ? p.mods.slice(0, d.mods.length).map((x, i) => (Number.isFinite(x) ? clamp(x, 0, d.mods[i].hp || 1000) : null)) : undefined);
+  set('broken', p.broken ? true : undefined);
+  set('ko', p.ko ? true : undefined);
+  set('stow', Number.isFinite(p.stow) ? clamp(Math.round(p.stow), 0, 100000) : undefined);
+  const sh = w && w.shells, q = p.shellSel;
+  set('shellSel', sh && (typeof q === 'string' ? sh.includes(q) : Number.isInteger(q) && q >= 0 && q < sh.length) ? q : undefined);
+}
 
 class Vessel {
   constructor(parts, adj, body) {
@@ -144,6 +165,8 @@ class Vessel {
     this.ripWhy = null;   // 'speed' when flutter tore one of them (else the load did)
     this.com = { x: 0, y: 0, z: 0 };
     this._loc = {};
+    // the ground update's (rebuildGroups sets them; these defaults keep a vessel stepped before it safe)
+    this.gv = false; this.gear = this.aimed = NO_GEAR; this.tg = this.tgOf = null; this.plated = false;
     this.recompute(true);
   }
 
@@ -231,6 +254,11 @@ class Vessel {
   rebuildGroups() {
     this.groups = fuelGroups(this.parts, this.adj);
     this.byId = new Map(this.parts.map((p) => [p.id, p]));
+    // the ground update's parts: running gear (tracks, armoured wheels), turret groups and aimed parts, armour
+    this.gv = this.parts.some((p) => p.def.gv);
+    this.gear = this.gv ? this.parts.filter((p) => p.def.track || p.def.awheel) : NO_GEAR;
+    this.plated = this.gv;
+    if (this.gv) Aim.groups(this); else { this.aimed = NO_GEAR; this.tg = this.tgOf = null; }
     let top = null; // the nose: the part furthest up the centreline (not a pod or a store out on a wing)
     for (const p of this.parts) if (partZs(p).length === 1 && Math.abs(partZc(p)) < partDepth(p) / 2 && (!top || partRect(p).t > partRect(top).t)) top = p;
     this.noseAero = !!(top && (top.def.aero || top.def.chute));
@@ -243,7 +271,7 @@ class Vessel {
     this.hasFlaps = this.wings.some((p) => p.def.wing.flaps);
     this.hasRetract = this.wheels.some((p) => p.def.wheel.retract);
     this.noseSharp = !!(top && top.def.sharp);
-    this.aircraft = this.wings.length > 0;
+    this.aircraft = this.wings.length > 0 && this.kind !== 'tank';
     this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
     this.stallAoA = this.mainWing ? wingAero(this.mainWing.def).stall : 0.3;
     this.clS = 0; // area x lift coefficient at the stall, all the (non-control) wings together
@@ -286,7 +314,8 @@ class Vessel {
   // Points the ground can touch, in part space: the corners of each part's box (a diamond around a round
   // part's ends) and every wheel's centre and radius, at the depth of each copy of the part (both sides of a
   // pair, both wheels of an axle). Rocket legs and fins stand in fours around the stack: each also gets a copy
-  // turned 90° about the stack's axis.
+  // turned 90° about the stack's axis. Ground-update parts: tracks and armoured wheels add running-gear points
+  // (Gear.points) to the wheels', inner parts (inside a hull) none, and a part with an outline its corners.
   computeHull() {
     const pts = [], wheels = [], radial = this.kind === 'rocket';
     const add = (p, x, y, z) => {
@@ -301,6 +330,16 @@ class Vessel {
         const g = wheelGeom(p);
         for (const z of massZs(p)) wheels.push({ p, x: g.x, y: g.y, z, r: g.r, retract: !!p.def.wheel.retract });
         continue;
+      }
+      if (p.def.gv) {
+        const d = p.def;
+        if (d.track || d.awheel) { Gear.points(p, wheels, this.com.z || 0); continue; }
+        if (d.inner) continue;
+        if (d.outline) {
+          const hd = partDepth(p) / 2;
+          for (const [fx, fy] of d.outline) { const c = partPt(p, fx * d.w, fy * d.h); add(p, c.x, c.y, -hd); add(p, c.x, c.y, hd); }
+          continue;
+        }
       }
       const ax = partAxis(p), px = ax.y, py = -ax.x, hl = p.def.h / 2, hw = p.def.w / 2, hd = partDepth(p) / 2;
       const round = ROUND3D.has(p.def.shape);
@@ -502,6 +541,7 @@ class Vessel {
   // Angular velocity (part axes) the craft should turn at: pilot, autopilot, attitude hold or rover
   // levelling. null leaves it free.
   turnTarget(sim, engF, dt = 1 / 120) {
+    if (this.gear.length) return null; // (running gear rights the hull itself: Gear.ground)
     const P = this.pilot, c = this.ctl, wb = this.bodyAV();
     const onWheels = this.wheelsDown && this.canDrive;
     // pilot-frame rates: pitch (+ nose up), roll (+ right wing down), yaw (+ nose right); null = no input
@@ -708,7 +748,7 @@ class Vessel {
         area = this.across * (this.across * side + L * (1 - side)) * 0.8;
         cdA = cd * area;
       } else {
-        const cdF = along > 0.85 ? (this.noseAero ? 0.3 : 0.55) : along < -0.85 ? 0.7 : 0.8, cdO = this.kind === 'car' ? 0.5 : 0.9;
+        const cdF = along > 0.85 ? (this.noseAero ? 0.3 : 0.55) : along < -0.85 ? 0.7 : 0.8, cdO = isGround(this.kind) ? 0.5 : 0.9;
         // flow along an axis sees that axis's area; on a slender plane, cross-flow drag grows with the square of the angle
         const sq = this.kind === 'plane', ax = Math.abs(hx), ay = Math.abs(hy), az = Math.abs(hz);
         const ex = Math.abs(P.F.x) > 0.5 || !sq ? ax : ax * ax, ey = Math.abs(P.F.y) > 0.5 || !sq ? ay : ay * ay;
@@ -929,6 +969,7 @@ class Vessel {
 
   // Ground and water contact with impulses at the hull's corners and the wheels' rims.
   ground(dt, sim) {
+    if (this.gear.length) return Gear.ground(this, dt, sim); // tracks and armoured wheels: their own contact (gear.js)
     const b = this.body, R = b.radius, r = this.radius();
     const clear = () => { this.landed = false; this.splashed = false; this.wheelsDown = false; this.contactTime = 0; };
     if (r - this.reach > R + b.terrainMax + 5) return clear();
@@ -1064,6 +1105,15 @@ class Vessel {
     } else this.restTime = 0;
   }
 
+  // An impulse j (N·s) along dir (sim axes) at a part-space point P: the same arithmetic as ground()'s contacts
+  // (recoil, a heavy hit, a shove from another vehicle).
+  applyImpulse(P, dir, j) {
+    const r = qrot(this.q, P.x - this.com.x, P.y - this.com.y, (P.z || 0) - (this.com.z || 0), _ia), k = j / this.mass;
+    this.vx += dir.x * k; this.vy += dir.y * k; this.vz += dir.z * k;
+    const ir = this.invIWorld(cross3(r, dir, _ib), _ic);
+    this.av.x += ir.x * j; this.av.y += ir.y * j; this.av.z += ir.z * j;
+  }
+
   // Rest on the surface of `body` at angle `ang` and depth z0, turned by `rot` (about the depth axis)
   // from upright there (part x east, y up, z north), then by `yaw` about the vertical.
   placeOnSurface(body, ang, rot, z0 = 0, yaw = 0) {
@@ -1169,7 +1219,7 @@ class Vessel {
       q: [this.q.w, this.q.x, this.q.y, this.q.z], av: [this.av.x, this.av.y, this.av.z],
       throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind, flaps: this.flaps, gearUp: this.gearUp,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
-      parts: this.parts.map((p) => ({ id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, att: p.att, skin: p.skin, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
+      parts: this.parts.map((p) => gvSave(p, { id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, att: p.att, skin: p.skin, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
         deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store })),
       adj: [...this.adj].map(([k, v]) => [k, [...v]]),
     };
@@ -1180,6 +1230,7 @@ class Vessel {
     const parts = d.parts.filter((q) => q && hasOwn(PARTS, q.type)).map((q) => {
       const def = PARTS[q.type], p = makePart(q.type, q.x, q.y);
       Object.assign(p, q, { def, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
+      gvLoad(p);
       return p;
     });
     cleanAtt(parts);

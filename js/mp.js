@@ -30,9 +30,10 @@ const MP_SPAWNS = [
 // Checks for what other players send (a broken or hostile peer must not be able to break our game).
 const mpNums = (a, n) => Array.isArray(a) && a.length === n && a.every(Number.isFinite);
 const mpBody = (id) => (typeof id === 'string' && hasOwn(BODY_BY_ID, id) && BODY_BY_ID[id]) || null;
-// A peer's spawn rows rebuilt clean, [id, type, x, y, rot, flip, z, att, skin]: unique ids, known parts, depth and
+// A peer's spawn rows rebuilt clean, [id, type, x, y, rot, flip, z, att, skin, mm?]: unique ids, known parts, depth and
 // paint as the builder allows them, att another id of the same craft (0: none) and never in a loop, skin 0 for
-// the part's own look. Anything else in a row is dropped. null: not a craft we take.
+// the part's own look, mm an armoured part's thickness as the builder allows it (left off when it has none). Anything
+// else in a row is dropped. null: not a craft we take.
 function mpSpawnRows(list) {
   if (!Array.isArray(list) || list.length > MP_MAX_PARTS) return null;
   const rows = [], links = [], seen = new Set();
@@ -40,7 +41,9 @@ function mpSpawnRows(list) {
     if (!Array.isArray(r) || !Number.isSafeInteger(r[0]) || r[0] <= 0 || seen.has(r[0]) || typeof r[1] !== 'string' || !hasOwn(PARTS, r[1]) || !Number.isFinite(r[2]) || !Number.isFinite(r[3])) continue;
     const def = PARTS[r[1]];
     seen.add(r[0]);
-    rows.push([r[0], r[1], clamp(r[2], -500, 500), clamp(r[3], -500, 500), (r[4] | 0) & 3, r[5] ? 1 : 0, cleanZ(r[6], def), 0, cleanSkin(r[8], def) || 0]);
+    const row = [r[0], r[1], clamp(r[2], -500, 500), clamp(r[3], -500, 500), (r[4] | 0) & 3, r[5] ? 1 : 0, cleanZ(r[6], def), 0, cleanSkin(r[8], def) || 0], mm = cleanMm(r[9], def);
+    if (mm != null) row.push(mm);
+    rows.push(row);
     links.push(r[7]);
   }
   const ps = rows.map((q, i) => ({ id: q[0], att: Number.isSafeInteger(links[i]) && seen.has(links[i]) ? links[i] : null }));
@@ -80,13 +83,13 @@ const MP = {
 
   // ------------------------------------------------------------------ session
   myName() { return (store.get('rss.mp.name', '') || '').trim() || 'Pilot'; },
-  async host(mode, transport) {
+  async host(mode, transport, settings) { // (settings: over the defaults, e.g. { game: 'ground' })
     const name = this.myName();
     await Net.host({ transport, name, maxPlayers: mode === 'sandbox' ? 5 : 6 });
     this.begin();
     this.state = {
       mode, phase: mode === 'sandbox' ? 'free' : 'lobby', ends: 0, endsLen: 0, round: 0, result: null,
-      settings: { ...MP_DEFAULTS }, players: [], feed: [],
+      settings: { ...MP_DEFAULTS, ...settings }, players: [], feed: [],
       t0: this.timeOfDay('day'), t0At: Net.hostNow(), // the sandbox's shared clock (sun and clouds)
     };
     this.addPlayer(1, name);
@@ -594,8 +597,11 @@ const MP = {
     this.lastParts = v.parts.length;
     this.sent = { s: 0, pv: 0, hp: 0, hpSig: '' };
     const ids = new Set(v.parts.map((p) => p.id)); // att: the host's id (ghosts keep ours), 0 for none or a host gone
-    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: v.parts.map((p) => [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0,
-      +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0]) };
+    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: v.parts.map((p) => {
+      const r = [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0];
+      if (p.mm != null) r.push(p.mm); // (armour dialled thicker or thinner)
+      return r;
+    }) };
     Net.send(this.spawnMsg);
   },
   resendSpawn(pid) {
@@ -626,7 +632,7 @@ const MP = {
       if (!S.pvSig) S.pvSig = new Map();
       for (const p of v.parts) {
         const d = p.def;
-        if (!(d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract))) continue;
+        if (!(d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract) || d.ring || d.trackRadar)) continue; // (a turret ring's yaw rides in aimYaw)
         const row = [p.id, Math.round((p.deflect || 0) * 100) / 100, Math.round((p.firing || 0) * 100) / 100, Math.round((p.ab || 0) * 100) / 100,
           p.retracted ? 1 : 0, p.sweep != null ? Math.round(p.sweep * 100) / 100 : null, Math.round((p.aimYaw || 0) * 100) / 100, Math.round((p.aimEl || 0) * 100) / 100,
           p.ammo == null ? null : p.ammo, Math.round((p.deployed || 0) * 100) / 100, p.used ? 1 : 0, p.gunOn ? 1 : 0];
@@ -707,9 +713,10 @@ const MP = {
     const P = this.peers.get(pid);
     if (!P || !P.design || P.ghost) return;
     const parts = [];
-    for (const [id, type, x, y, rot, flip, z, att, skin] of P.design.parts) { // (clean: see mpSpawnRows)
+    for (const [id, type, x, y, rot, flip, z, att, skin, mm] of P.design.parts) { // (clean: see mpSpawnRows)
       const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
       p.id = id; p.att = att || null;
+      if (mm != null) p.mm = mm;
       parts.push(p);
     }
     if (!parts.length) return;
@@ -888,8 +895,10 @@ const MP = {
     if (!this.shared) return;
     const id = this.nextMissile++;
     this.missiles.set(s, { id, at: 0 });
-    const tgt = s.target && s.target.remote ? s.target.remote : 0;
-    Net.send({ t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: w.seek === 'ground' ? 1 : 0 });
+    // (an anti-tank missile goes as one against the ground, and a wire-guided or top-attack one tells nobody it's
+    // coming: it has no seeker a warning receiver would hear)
+    const gr = w.seek === 'ground' || w.seek === 'saclos' || w.seek === 'top', tgt = s.target && s.target.remote && !(gr && w.seek !== 'ground') ? s.target.remote : 0;
+    Net.send({ t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: gr ? 1 : 0 });
   },
   onMissile(m) {
     const P = this.peers.get(m.f);
@@ -908,11 +917,14 @@ const MP = {
       Net.send({ t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: s.target && s.target.remote ? s.target.remote : 0 });
     }
   },
-  sendShot(s) { // bombs and rockets: the others fly a copy for show
+  sendShot(s) { // bombs, rockets and shells: the others fly a copy for show
     if (!this.shared) return;
-    Net.send({ t: 'shot', k: s.k, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx || 0, s.dy || 0, s.dz || 0], burn: s.burn || 0, accel: s.accel || 0, small: s.small ? 1 : 0, torpedo: s.torpedo ? 1 : 0 });
+    const m = { t: 'shot', k: s.k, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx || 0, s.dy || 0, s.dz || 0], burn: s.burn || 0, accel: s.accel || 0, small: s.small ? 1 : 0, torpedo: s.torpedo ? 1 : 0 };
+    if (s.k === 'shell') m.sh = s.sh; // (which round: SHELLS)
+    Net.send(m);
   },
   sendGun(key, on) { if (this.shared) Net.send({ t: 'gun', k: key, on: on ? 1 : 0 }); },
+  sendSmoke(v, c) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', smoke: 1, P: [c.x, c.y, c.z], D: [c.dx || 0, c.dy || 0, c.dz || 0] }); }, // (a smoke grenade's cloud: Aim.netSmoke)
   sendFlares(v, f) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }); }, // (chaff 2: a dispenser's bundle)
   sendLock(target, on) {
     if (!this.shared) return;

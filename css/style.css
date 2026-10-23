@@ -915,3 +915,10 @@ kbd {
 @media (min-width: 761px) and (max-width: 1000px) {
   .mp-bar:not(.flight) { left: calc(var(--gut-l) + 250px); transform: none; width: min(420px, calc(100% - 262px - var(--gut-l) - var(--gut-r))); }
 }
+
+/* ---- Ground update: the Armour kind, a fifth button in the builder's kind strip (by id: .kind-select elsewhere stays at four) */
+#kind-select { grid-template-columns: repeat(5, 1fr); }
+#kind-select .kind-btn { font-size: 9px; letter-spacing: 0.04em; }
+@media (max-height: 500px) {
+  #kind-select .kind-btn { flex-direction: column; }
+}

@@ -17,6 +17,14 @@ const PART_CATEGORIES = [
   { id: 'airGear', name: 'Gear' },
   { id: 'weapons', name: 'Weapons' },
   { id: 'ground', name: 'Ground' },
+  // the ground update's parts (tanks and other armour): kinds of part, so any craft may carry them
+  { id: 'hulls', name: 'Hulls' },
+  { id: 'turrets', name: 'Turrets' },
+  { id: 'drive', name: 'Drive' },
+  { id: 'guns', name: 'Guns' },
+  { id: 'launchers', name: 'Launchers' },
+  { id: 'crew', name: 'Crew & ammo' },
+  { id: 'kit', name: 'Kit' },
 ];
 
 // Vehicle kinds decide where a design launches and how the builder shows it. launchRot is the
@@ -27,7 +35,13 @@ const VEHICLE_KINDS = {
   plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2, cats: ['cabins', 'air', 'wings', 'airEng', 'airGear', 'weapons'] },
   car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0, cats: ['ground', 'utility', 'structure', 'weapons'] },
   heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons'] },
+  tank: { id: 'tank', name: 'Armour', site: 'runway', launchRot: 0, cats: ['hulls', 'turrets', 'drive', 'guns', 'launchers', 'crew', 'kit'] },
 };
+// The kinds that drive on the ground (tracks, armour and aimed guns work on any of them; behaviour comes from parts).
+const GROUND_KINDS = new Set(['car', 'tank']);
+function isGround(kind) { return GROUND_KINDS.has(kind); }
+// A vessel's running gear (v.gear) when it has none: every old design.
+const NO_GEAR = Object.freeze([]);
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
 const AMBIENT_T = 290;
@@ -833,7 +847,43 @@ const TIERS = [
 function partDryKg(def) { return def.mass * 1000; }
 function partFuelKg(def) { return (def.fuel || 0) * 1000; }
 function partStoreKg(def) { const w = def.weapon; return w ? w.ammo * (w.each || 0) : 0; } // bombs, missiles and rounds on board
-function partKg(p) { return p.def.mass * 1000 + p.fuel + (p.store || 0); }
+function partKg(p) { return (p.mm == null ? p.def.mass : armourMassT(p.def, p.mm)) * 1000 + p.fuel + (p.store || 0); }
+// Armour thickness (def.armour; the ground update). A part's p.mm is the nominal thickness the player dialled (5 mm steps
+// within its range; none: the catalogue's). Each face is mm × its edge factor (outline edges i -> i+1, a box's
+// [bottom, front, top, rear]), both z faces mm × z, a round part's side by bearing and its roof (round: {f, s, r, t}).
+// Thicker plate weighs its steel (7.85 t/m³ per metre; composite 0.45 of that) and costs $400 a tonne ($900 composite).
+function cleanMm(v, def) {
+  const a = def && def.armour;
+  if (!a || a.min == null || a.max == null || !Number.isFinite(v)) return undefined;
+  return clamp(Math.round(v / 5) * 5, a.min, a.max);
+}
+const BOX_OUTLINE = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]];
+const MM_MASS = new Map(); // def -> t per mm (worked out once)
+function massPerMm(def) {
+  let k = MM_MASS.get(def);
+  if (k != null) return k;
+  const a = def.armour, w = def.w, h = def.h, d = partDepth({ def });
+  let A = 0;
+  if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
+  else {
+    const o = def.outline || BOX_OUTLINE, n = o.length, open = a.open || [];
+    let area = 0;
+    for (let i = 0; i < n; i++) {
+      const [x0, y0] = o[i], [x1, y1] = o[(i + 1) % n];
+      area += (x0 * y1 - x1 * y0) / 2;
+      if (!open.includes(i)) A += Math.hypot((x1 - x0) * w, (y1 - y0) * h) * d * (a.edge ? a.edge[i] ?? 1 : 1);
+    }
+    A += 2 * Math.abs(area) * w * h * (a.z ?? 1);
+  }
+  k = 7.85e-3 * (a.mat === 'composite' ? 0.45 : 1) * A;
+  MM_MASS.set(def, k);
+  return k;
+}
+function armourMassT(def, mm) { const a = def.armour; return a && Number.isFinite(mm) ? def.mass + massPerMm(def) * (mm - a.mm) : def.mass; }
+function armourCostDelta(def, mm) {
+  const m = cleanMm(mm, def);
+  return m == null ? 0 : Math.round((armourMassT(def, m) - def.mass) * (def.armour.mat === 'composite' ? 900 : 400));
+}
 
 let _partSeq = 1;
 // z: where the part sits across the blueprint (see partZ); att: the id of the part it is attached to;
@@ -1220,8 +1270,8 @@ function buildAdjacency(parts) {
 }
 
 // ---------------------------------------------------------------------------
-// Designs as saved: [{type, x, y, flip, rot, z?, att?, skin?}], where att is the index of the part it is
-// attached to in the same list. Only what differs from the defaults is written, so designs saved before
+// Designs as saved: [{type, x, y, flip, rot, z?, att?, skin?, mm?}], where att is the index of the part it is
+// attached to in the same list (mm: an armoured part's dialled thickness). Only what differs from the defaults is written, so designs saved before
 // parts had a depth or paint read back the same.
 function designRows(parts) {
   const at = new Map(parts.map((p, i) => [p.id, i]));
@@ -1230,6 +1280,7 @@ function designRows(parts) {
     if (Math.abs(z - partDefaultZ(p.def)) > 5e-4) q.z = +z.toFixed(3);
     if (p.att != null && at.has(p.att) && p.att !== p.id) q.att = at.get(p.att);
     if (p.skin) q.skin = p.skin;
+    if (p.mm != null && p.def.armour && Math.abs(p.mm - p.def.armour.mm) > 0.5) q.mm = p.mm;
     return q;
   });
 }
@@ -1239,8 +1290,10 @@ function partsFromDesign(rows) {
   if (!Array.isArray(rows)) return [];
   const made = rows.map((q) => {
     if (!q || typeof q.type !== 'string' || !hasOwn(PARTS, q.type) || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return null;
-    const def = PARTS[q.type];
-    return makePart(q.type, clamp(q.x, -500, 500), clamp(q.y, -500, 500), { flip: !!q.flip, rot: (q.rot | 0) & 3, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
+    const def = PARTS[q.type], mm = cleanMm(q.mm, def);
+    const p = makePart(q.type, clamp(q.x, -500, 500), clamp(q.y, -500, 500), { flip: !!q.flip, rot: (q.rot | 0) & 3, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
+    if (mm != null) p.mm = mm;
+    return p;
   });
   made.forEach((p, i) => {
     if (!p) return;
@@ -1286,11 +1339,11 @@ function componentOf(startId, adj, skip) {
 
 function findControlPart(parts) {
   let best = null;
-  for (const p of parts) if (p.def.control && (!best || p.def.control > best.def.control)) best = p;
+  for (const p of parts) if (p.def.control && !p.ko && (!best || p.def.control > best.def.control)) best = p; // (ko: a knocked-out crew)
   return best;
 }
 
-function designCost(parts) { return parts.reduce((s, p) => s + (p.def || PARTS[p.type]).cost, 0); }
+function designCost(parts) { return parts.reduce((s, p) => s + (p.def || PARTS[p.type]).cost + (p.mm != null ? armourCostDelta(p.def || PARTS[p.type], p.mm) : 0), 0); }
 
 // Exhaust exit of an engine, in part space relative to the part centre.
 function nozzleOf(def) {
@@ -1521,7 +1574,7 @@ const SKINS = {
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint.
-const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
+const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor', 'ttrack', 'twheel']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
 // The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part
