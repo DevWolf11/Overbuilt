@@ -24,5 +24,15 @@ t('att cycles are broken', R(`(() => { const r = rows.map((q) => ({ ...q })); r[
 t('bad skins and z are cleaned', R(`(() => { const b = partsFromDesign([{type:'fuselage',x:0,y:0,z:1e9,skin:'__proto__'},{type:'wingL',x:0,y:0,z:5,skin:'stealth'},{type:'aam',x:0,y:0,z:-0.01}]); return b[0].z === 20 && b[0].skin === null && b[1].z === 0 && b[1].skin === 'stealth' && b[2].z > 0.2; })()`));
 t('a skin on a wheel is refused', R(`partsFromDesign([{type:'wheel',x:0,y:0,skin:'red'}])[0].skin === null`));
 t('attachedTo walks the tree', R(`(() => { const a = mk('fuselage',0,0), b = mk('wingL',0,0,{att:a.id}), c = mk('jet',0,0,{att:b.id}), d = mk('aam',0,0,{att:c.id}); return attachedTo([a,b,c,d],[b]).length === 2; })()`));
+// the look-alike jets: their templates can be edited (no clashes) and fly whole; the Russian ones' lofted hulls stay in their
+// parts' boxes (the canopies may stand above, as other cockpits' do); wing plans run from the root out to the tip
+t('the look-alike jets\' templates: no parts clash, every part is joined', R(`Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].parts.some((r) => /^(ru|us4|us5)/.test(r[0]))).every((k) => {
+  const ps = partsFromDesign(templateRows(TEMPLATES[k]));
+  for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) return false;
+  return componentOf(findControlPart(ps).id, buildAdjacency(ps)).size === ps.length; })`));
+t('lofted hulls stay inside their part\'s box', R(`Object.values(PARTS).filter((d) => d.loft).every((d) => ruLofts(d).hull.every((L) => L.st.every((s) =>
+  s.top >= -d.w / 2 - 0.03 && s.bot <= d.w / 2 + 0.03 && s.top <= s.bot && Math.abs(s.y) <= d.h / 2 + 1e-6 && s.hw <= (d.depth || d.w) / 2 + 0.03)))`));
+t('wing plans run from the root out to the tip, leading edge ahead of the trailing edge', R(`Object.values(PARTS).filter((d) => d.wing && d.wing.plan).every((d) => {
+  const P = d.wing.plan; return P[P.length - 1][0] === 1 && P.every((r, i) => r[1] > r[2] && r[0] >= 0 && (i === 0 || r[0] > P[i - 1][0])); })`));
 t('sideOrder puts the far side first and pods last', R(`sideOrder([mk('jet',0,0,{z:3}), fus, mk('jet',0,0,{z:-3}), wing]).map((p) => p.type + ':' + partZ(p)).join(',') === 'jet:-3,fuselageW:0,wingL:0,jet:3'`));
 t.done();

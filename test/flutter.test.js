@@ -14,6 +14,12 @@ const WANT = {
   wingBiplane: [560, 0.48], wingGlider: [500, 0.5], wingStraightL: [750, 0.66], wing: [850, 0.74], wingElliptical: [850, 0.74],
   wingS: [900, 0.74], wingL: [950, 1.02], wingWinglet: [950, 1.05], wingSwept: [1350, 1.7], wingForward: [1400, 1.8],
   wingSwing: [1550, 2.5], wingDelta: [1600, 0], stabilizer: [2000, 0], stabilizerL: [2000, 0], wingStrake: [2000, 0],
+  us5Wing22: [1750, 2.5], us5Wing35: [1649, 2.0], // 5th generation: strong enough for their own full-afterburner dash on the deck
+  // the Russian look-alike jets: 1700 km/h, so full afterburner on the deck only just warns; Mach limits above their top speeds
+  ruWing21: [1700, 0], ruWing29: [1700, 2.6], ruWing27: [1700, 2.8], ruWing57: [1700, 2.6],
+  // the US 3rd/4th-generation look-alikes: full afterburner level low down warns without tearing, and the Mach limit sits
+  // a little past each jet's top speed up high (FS-4 about 2.2, FS-16 2.05, FS-15 2.5)
+  us4f4Wing: [1600, 2.6], us4f16Wing: [1620, 2.4], us4f16Lerx: [2000, 0], us4f15Wing: [1620, 2.85],
 };
 const wings = Object.keys(ctx.PARTS).filter((k) => ctx.PARTS[k].wing && !ctx.PARTS[k].wing.control);
 t('every fixed wing has a limit in the table', wings.every((k) => WANT[k]), wings.filter((k) => !WANT[k]).join(','));

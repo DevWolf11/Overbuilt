@@ -169,7 +169,9 @@ const Combat = (() => {
   }
   const ammoOf = (sys) => sys.parts.reduce((s, p) => s + (p.ammo || 0), 0);
   const radarOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
-  function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.range; }
+  // an IRST ball (def.irst, the look-alike jets) sees engine heat: heat seekers lock on that share further away
+  const irstOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.irst || 0), 0);
+  function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.seek === 'air' ? w.range * (1 + irstOf(v)) : w.range; }
   // How hard a craft is to see on radar (0..0.75): the stealthy share of its hull, less for each thing hung outside.
   // (Paint never counts: a part's skin is for looks only.)
   function stealthOf(v) {
@@ -178,6 +180,7 @@ const Combat = (() => {
       const d = p.def;
       if (d.wing || d.wheel || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser sits flush in the skin)
       if (d.pod || d.shape === 'missile' || d.shape === 'bomb' || d.shape === 'ecm') { if (p.ammo !== 0) ext++; continue; }
+      if (d.doors && p.deployed > 0.05) ext++; // (bay or gun doors open to fire: it shows up like a store hung outside)
       const ar = d.w * d.h; a += ar; s += ar * (d.stealth || 0);
     }
     return a ? clamp(s / a - 0.12 * ext, 0, 0.75) : 0;
@@ -188,6 +191,7 @@ const Combat = (() => {
   // where on the part a round leaves: the muzzle, the pod's mouth, the store on the pylon (part space)
   function muzzle(p, side) {
     const d = p.def, z = zAt(p, side);
+    if (d.bayRack) { const r = d.bayRack[clamp((p.ammo || 1) - 1, 0, d.bayRack.length - 1)], q = partPt(p, r[0], r[1]); return { x: q.x, y: q.y, z: z + r[2] }; } // (from its own place in the bay: the one the 3D model hides next)
     if (d.bay) { const q = partPt(p, d.w * 0.6, ((p.ammo || 0) % 2 ? 0.6 : -0.6)); return { x: q.x, y: q.y, z }; } // out of the belly
     const store = d.shape === 'missile' || d.shape === 'bomb', pod = d.shape === 'gunpod' || d.shape === 'rocketpod';
     const off = pod || store ? d.w * 0.12 : 0, ly = store ? 0 : d.h / 2;
@@ -208,7 +212,22 @@ const Combat = (() => {
     if (best) sys.last = nextSide(best);
     return best;
   }
+  // Doors (def.doors: a stealth plane's bays and gun): they snap open to fire and shut again a moment after the last
+  // shot. p.deployed is how far open (0..1): the 2D and 3D doors show it, the other players get it (part states), and
+  // while it is open stealthOf counts the part as a store hung outside. Stepped with the physics, for our own craft.
+  const DOOR_HOLD = { gun: 0.35, missile: 1.4, bomb: 1.8 };
+  function openDoors(p) { if (p.def.doors) p.doorT = DOOR_HOLD[p.def.weapon.kind] || 1; }
+  function doorStep(v, h) {
+    if (v._dsig !== v.parts.length) { v._dsig = v.parts.length; v._doors = v.parts.filter((p) => p.def.doors); }
+    for (const p of v._doors) {
+      if (!(p.doorT > 0) && !(p.deployed > 0)) continue;
+      const open = p.doorT > 0;
+      p.doorT = Math.max(0, (p.doorT || 0) - h);
+      p.deployed = open ? Math.min(1, (p.deployed || 0) + h * 5) : Math.max(0, (p.deployed || 0) - h * 2.5); // (open in 0.2 s, shut in 0.4 s)
+    }
+  }
   function release(v, p) { // one store gone: lighter (and the pylon shows it)
+    openDoors(p);
     p.relN = ++relSeq;
     p.ammo = Math.max(0, (p.ammo || 0) - 1);
     const each = p.def.weapon.each || 0;
@@ -231,6 +250,7 @@ const Combat = (() => {
       S.shots.push({ k: 'bullet', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + (dx / dl) * w.speed, vy: v.vy + (dy / dl) * w.speed, vz: v.vz + (dz / dl) * w.speed,
         t: 0, life: 3, dmg: net ? 0 : w.dmg, blast: w.blast || 0, owner: v, tracer: w.blast || p.shots % 3 === 0, enemy, net: net ? v.remote : 0 });
       p.ammo--;
+      if (!net) openDoors(p);
       if (p.shots % (w.blast ? 1 : 2) === 0 && len(wp.x - sim.active.x, wp.y - sim.active.y, wp.z - sim.active.z) < 3000) {
         FX.add({ kind: 'flash', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx, vy: v.vy, vz: v.vz, max: 0.05, size: 0.5, grow: 1.2, color: '#ffd27a', alpha: 1 });
         if (v === sim.active && (p.shots % (w.blast ? 1 : 3) === 0)) Sound.gun(!!w.blast);
@@ -448,6 +468,7 @@ const Combat = (() => {
   // ---------------------------------------------------------------- stepping projectiles (with the physics)
   function step(h, F) {
     const v = F.active;
+    if (v && !v.remote) doorStep(v, h);
     // guns and rocket pods fire while the trigger is held
     const cur = v && v.parts.length && !F.destroyed && F.firing ? systems(v)[v.wsel] : null;
     if (cur && cur.w.kind === 'gun') for (const p of cur.parts) fireGun(v, p, h, false, F);
@@ -649,7 +670,7 @@ const Combat = (() => {
     let e = 0, ab = 0;
     for (const p of o.parts) if (p.def.thrust && p.firing > 0) {
       const air = p.def.air;
-      e += p.firing * p.def.thrust * (1 + 1.5 * (p.ab || 0)) * (air && (air.kind === 'prop' || air.kind === 'rotor') ? 0.5 : 1);
+      e += p.firing * p.def.thrust * (1 + 1.5 * (p.ab || 0)) * (air && (air.kind === 'prop' || air.kind === 'rotor') ? 0.5 : 1) * (p.def.irK || 1); // (irK: a flat or serrated nozzle hides some heat)
       ab = Math.max(ab, p.ab || 0);
     }
     let sig = e / 120 + 0.08;
@@ -1299,7 +1320,7 @@ const Combat = (() => {
     return { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
       lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
   }
-  const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'AMRAAM', agm: 'AGM', bomb: 'BOMB' };
+  const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'RADAR', agm: 'AGM', bomb: 'BOMB' };
   function integrity(v) { // the whole craft's health, 0..1
     let a = 0, b = 0;
     for (const p of v.parts) { const m = maxHp(p.def); a += m * hpFrac(p); b += m; }

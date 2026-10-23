@@ -146,6 +146,148 @@ const TEMPLATES = {
     name: 'Hummingbird', kind: 'heli', tier: 1, blurb: 'A bubble-canopy helicopter on skids, with a slim tail boom. Lift gently: skids slide rather than roll.',
     parts: [['cockpitHeli', 0, 1.7], ['tankS', 0, 3.4], ['rotor', -0.4, 4.5], ['tailBoom', -3.7, 1.2, 1], ['tailRotor', -5.6, 2.35], ['skids', 0, -0.1, 3]],
   },
+  // The look-alike jets, by generation, at the real aircraft's size and weight (lightly loaded). They use the attach
+  // system: [type, x, y, rot, {z, att}], att the index of the part it hangs on, counted from 0 down the list (a stack
+  // along the centre line needs none).
+  myg21: {
+    name: 'MyG-21', kind: 'plane', tier: 2, military: true,
+    blurb: '3rd-gen interceptor: a tailed delta with a shock cone in its nose, one thirsty afterburning turbojet, a cannon and two heat seekers. Mach 2 up high; half flaps (F) for take-off.',
+    parts: [['ruNose21', -0.165, 11.95], ['ruBody21', -0.165, 6.3], ['ruR25', 0, 1.6], ['ruWing21', 0.12, 6.45, 0, { att: 1 }], ['ruTail21', 0.18, 1.6, 0, { att: 2 }],
+      ['ruFin21', -1.65, 2.95, 0, { att: 1 }], ['ruVentral21', 0.7, 2.15, 0, { att: 2 }], ['ruGearNose', 1.01, 11.3, 0, { att: 0 }], ['ruGearMain', 0.8, 6.15, 0, { z: 1.35, att: 3 }],
+      ['cannon', 0.87, 7.6, 0, { att: 1 }], ['ruAAM21', 0.39, 4.9, 0, { att: 3 }]],
+    paint: { ruNose21: 'ruFrontline', ruBody21: 'ruFrontline', ruR25: 'ruFrontline', ruWing21: 'ruFrontline', ruTail21: 'ruFrontline', ruFin21: 'ruFrontline', ruVentral21: 'ruFrontline' },
+  },
+  fs4: {
+    name: 'FS-4', kind: 'plane', tier: 3, military: true, blurb: '3rd-generation heavy fighter: two big turbojets, a tandem cockpit, splitter-plate intakes, dog-tooth wings with upturned tips and a drooping tailplane. Radar missiles, heat seekers, a pair of bombs, a chin gun. Mach 2 up high.',
+    parts: [
+      ['us4f4Engines', 0, 2.75],
+      ['us4f4Body', -0.11, 8.05],
+      ['us4f4Nose', -0.27, 14.9],
+      ['us4f4Intakes', 0, 9.4, 0, { z: 1.15, att: 1 }],
+      ['us4f4Wing', 0.35, 8.95],
+      ['us4f4Fin', -1.665, 3.075],
+      ['us4f4Stab', -0.42, 1.87],
+      ['us4LegL', 1.555, 14.3, 0, { att: 2 }],
+      ['us4LegL', 1.385, 7.3, 0, { z: -2.73, att: 4 }],
+      ['us4LegL', 1.385, 7.3, 0, { z: 2.73, att: 4 }],
+      ['us4f4Gun', 0.6, 16.475, 0, { att: 2 }],
+      ['radarMissiles', 1.15, 10.6, 0, { z: 0.95, att: 1 }],
+      ['radarMissiles', 1.15, 5.9, 0, { z: 0.95, att: 1 }],
+      ['aam', 0.745, 9.4, 0, { z: 2.2, att: 4 }],
+      ['aam', 0.735, 9.4, 0, { z: 2.7, att: 4 }],
+      ['bombs', 0.745, 6, 0, { z: 4.3, att: 4 }],
+      ['flares', 1.1, 6, 0, { att: 1 }],
+      ['chaff', 1.1, 7, 0, { att: 1 }]],
+    paint: { us4f4Engines: 'us4sea', us4f4Body: 'us4sea', us4f4Nose: 'us4sea', us4f4Intakes: 'us4sea', us4f4Wing: 'us4sea', us4f4Stab: 'us4sea', us4f4Fin: 'us4sea', us4f4Gun: 'us4sea' },
+  },
+  fs16: {
+    name: 'FS-16', kind: 'plane', tier: 3, military: true, blurb: '4th-generation multirole fighter: blended body, chin intake, bubble canopy, one big afterburning turbofan. A 20 mm cannon, heat seekers on the wingtips, radar missiles, flares and chaff. Mach 2 up high.',
+    parts: [
+      ['us4f16Engine', -0.07, 1.7],
+      ['us4f16Body', -0.215, 6.2],
+      ['us4f16Nose', -0.43, 12.25],
+      ['us4f16Intake', 0.92, 8.5, 0, { att: 1 }],
+      ['us4f16Wing', 0.05, 6.16],
+      ['us4f16Lerx', 0.05, 11.48],
+      ['us4f16Fin', -1.9, 3.35],
+      ['us4f16Stab', 0.04, 1.72],
+      ['us4f16Ventral', 0.8, 2.2, 0, { att: 0 }],
+      ['us4LegS', 1.615, 9.6, 0, { att: 3 }],
+      ['gearR', 1.3, 5.3, 0, { att: 1 }],
+      ['us4Vulcan', -0.25, 9.8, 0, { z: -0.42, att: 2 }],
+      ['aam', 0, 4.6, 0, { z: 4.85, att: 4 }],
+      ['radarMissiles', 0.38, 4.9, 0, { z: 3.55, att: 4 }],
+      ['flares', 0.82, 3, 0, { att: 1 }],
+      ['chaff', 0.82, 4.1, 0, { att: 1 }]],
+    paint: { us4f16Engine: 'us4viper', us4f16Body: 'us4viper', us4f16Nose: 'us4viper', us4f16Intake: 'us4viper', us4f16Wing: 'us4viper', us4f16Lerx: 'us4viper', us4f16Fin: 'us4viper', us4f16Stab: 'us4viper', us4f16Ventral: 'us4viper' },
+  },
+  myg29: {
+    name: 'MyG-29', kind: 'plane', tier: 3, military: true,
+    blurb: '4th-gen light fighter: twin engines far apart with a lifting tunnel between them, an IRST ball, cannon, heat seekers and radar missiles. Nimble, and Mach 2 up high.',
+    parts: [['ruNose29', -0.1, 13.65], ['ruIRST', -1.03, 13.6, 0, { z: 0.22, att: 0 }], ['ruBody29', -0.275, 6.7], ['ruNacelle29', 0.875, 6.4, 0, { att: 2 }],
+      ['ruRD33', 0.875, 1.7, 0, { att: 3 }], ['ruBeaver29', 0.27, 1.5], ['ruBoom29', 0.45, 3.05, 0, { att: 3 }], ['ruFins29', -0.89, 2.9, 0, { att: 6 }],
+      ['ruWing29', 0.15, 8.075, 0, { att: 2 }], ['ruTail29', 0.45, 2.2, 0, { att: 6 }], ['ruGearNose2', 1.65, 13.0, 0, { att: 0 }], ['ruGearMain', 2.05, 6.45, 0, { z: 1.45, att: 3 }],
+      ['cannon', 0.05, 10.2, 0, { z: -1.35, att: 2 }], ['radarMissiles', 0.546, 5.8, 0, { z: 2.7, att: 8 }], ['aam', 0.508, 5.4, 0, { z: 3.7, att: 8 }],
+      ['aam', 0.495, 5.0, 0, { z: 4.6, att: 8 }], ['flares', 0.62, 1.95, 0, { att: 5 }], ['chaff', 0.62, 1.0, 0, { att: 5 }]],
+    paint: { ruNose29: 'ruFulcrum', ruIRST: 'ruFulcrum', ruBody29: 'ruFulcrum', ruNacelle29: 'ruFulcrum', ruBeaver29: 'ruFulcrum', ruBoom29: 'ruFulcrum', ruFins29: 'ruFulcrum',
+      ruWing29: 'ruFulcrum', ruTail29: 'ruFulcrum' },
+  },
+  fs15: {
+    name: 'FS-15', kind: 'plane', tier: 4, military: true, blurb: '4th-generation air-superiority fighter: a wide twin-engine body with box intakes, a big wing, twin tails. A 20 mm cannon, four radar missiles, four heat seekers, flares and chaff. Mach 2.3 up high, and it climbs hard.',
+    parts: [
+      ['us4f15Engines', -0.035, 2],
+      ['us4f15Body', -0.135, 7.8],
+      ['us4f15Nose', -0.35, 15.5],
+      ['us4f15Intakes', -0.02, 8.9, 0, { att: 1 }],
+      ['us4f15Wing', -0.72, 7.95],
+      ['us4f15Tails', -2.17, 3.55, 0, { att: 0 }],
+      ['us4f15Stab', -0.4, 3.09],
+      ['us4LegL', 1.305, 15.3, 0, { att: 2 }],
+      ['us4LegM', 1.53, 7, 0, { z: -1.1, att: 3 }],
+      ['us4LegM', 1.53, 7, 0, { z: 1.1, att: 3 }],
+      ['us4Vulcan', -0.55, 9.4, 0, { z: 1.15, att: 3 }],
+      ['radarMissiles', 1.13, 11.4, 0, { z: 1.55, att: 3 }],
+      ['radarMissiles', 1.13, 6.6, 0, { z: 1.55, att: 3 }],
+      ['aam', -0.34, 6.9, 0, { z: 3, att: 4 }],
+      ['aam', -0.34, 6.75, 0, { z: 3.55, att: 4 }],
+      ['flares', 1.07, 4.6, 0, { att: 1 }],
+      ['chaff', 1.07, 5.6, 0, { att: 1 }]],
+    paint: { us4f15Engines: 'us4eagle', us4f15Body: 'us4eagle', us4f15Nose: 'us4eagle', us4f15Intakes: 'us4eagle', us4f15Wing: 'us4eagle', us4f15Tails: 'us4eagle', us4f15Stab: 'us4eagle' },
+  },
+  sugoi27: {
+    name: 'Sugoi-27', kind: 'plane', tier: 3, military: true,
+    blurb: '4th-gen heavy air-superiority fighter: a huge curved LERX, twin engines with a tunnel between them, a tail stinger and eight missiles. Mach 2 up high.',
+    parts: [['ruNose27', -0.1, 17.75], ['ruIRST', -1.13, 17.7, 0, { z: 0.25, att: 0 }], ['ruBody27', -0.3, 8.6], ['ruNacelle27', 1.025, 8.6, 0, { att: 2 }],
+      ['ruAL31', 0.95, 2.45, 0, { att: 3 }], ['ruStinger27', 0.525, 1.8], ['ruBoom27', 0.505, 3.9, 0, { att: 3 }], ['ruFins27', -1.185, 3.6, 0, { att: 6 }],
+      ['ruVentral27', 1.05, 4.0, 0, { att: 6 }], ['ruWing27', 0.2, 11.025, 0, { att: 2 }], ['ruTail27', 0.505, 2.5, 0, { att: 6 }],
+      ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
+      ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], ['radarMissiles', 0.63, 7.8, 0, { z: 4.0, att: 9 }],
+      ['aam', 0.58, 6.9, 0, { z: 5.6, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }], ['flares', 1.1, 1.95, 0, { att: 5 }], ['chaff', 1.1, 1.0, 0, { att: 5 }]],
+    paint: { ruNose27: 'ruFlanker', ruIRST: 'ruFlanker', ruBody27: 'ruFlanker', ruNacelle27: 'ruFlanker', ruStinger27: 'ruFlanker', ruBoom27: 'ruFlanker', ruFins27: 'ruFlanker',
+      ruVentral27: 'ruFlanker', ruWing27: 'ruFlanker', ruTail27: 'ruFlanker' },
+  },
+  sugoi35: {
+    name: 'Sugoi-35', kind: 'plane', tier: 4, military: true,
+    blurb: '4.5-gen super-manoeuvrable fighter: the Sugoi-27’s airframe, a bigger radar and engines whose nozzles swivel with the stick, so it turns even when the wings have stalled. A longer-ranged radar and eight missiles.',
+    parts: [['ruNose35', -0.1, 17.75], ['ruIRST', -1.13, 17.7, 0, { z: 0.3, att: 0 }], ['ruBody27', -0.3, 8.6], ['ruNacelle27', 1.025, 8.6, 0, { att: 2 }],
+      ['ruAL41', 0.95, 2.35, 0, { att: 3 }], ['ruStinger35', 0.53, 1.8], ['ruBoom27', 0.505, 3.9, 0, { att: 3 }], ['ruFins27', -1.185, 3.6, 0, { att: 6 }],
+      ['ruVentral27', 1.05, 4.0, 0, { att: 6 }], ['ruWing27', 0.2, 11.025, 0, { att: 2 }], ['ruTail27', 0.505, 2.5, 0, { att: 6 }],
+      ['ruGearNoseL', 2.025, 15.0, 0, { att: 0 }], ['ruGearMainL', 2.5, 9.0, 0, { att: 3 }],
+      ['cannon', 0.1, 13.0, 0, { z: 1.55, att: 2 }], ['radarMissiles', 1.95, 8.6, 0, { z: 1.3, att: 3 }], 
+      ['radarMissiles', 0.617, 7.25, 0, { z: 4.7, att: 9 }], ['aam', 0.58, 6.6, 0, { z: 5.9, att: 9 }], ['aam', 0.565, 6.2, 0, { z: 6.95, att: 9 }],
+      ['flares', 1.13, 1.95, 0, { att: 5 }], ['chaff', 1.13, 1.0, 0, { att: 5 }]],
+    paint: { ruNose35: 'ruSplinter', ruIRST: 'ruSplinter', ruBody27: 'ruSplinter', ruNacelle27: 'ruSplinter', ruStinger35: 'ruSplinter', ruBoom27: 'ruSplinter', ruFins27: 'ruSplinter',
+      ruVentral27: 'ruSplinter', ruWing27: 'ruSplinter', ruTail27: 'ruSplinter' },
+  },
+  fs22: {
+    name: 'FS-22', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-generation air-superiority fighter: stealthy, it cruises past Mach 1.5 without the afterburner and pitches on flat vectoring nozzles. Six radar missiles and two heat seekers hide in its bays; the doors open only to fire.',
+    parts: [['us5Nose22', 0, 16.1], ['us5Intake22', 0, 11.1], ['us5Bay22', 0, 7.0], ['us5Aft22', 0, 4.1],
+      ['us5Eng22', 0, 1.55, 0, { z: 0.86, att: 3 }], ['us5Eng22', 0, 1.55, 0, { z: -0.86, att: 3 }],
+      ['us5Wing22', -0.05, 7.68], ['us5Tail22', 0.35, 2.66], ['us5Fins22', -1.42, 4.3, 0, { att: 3 }],
+      ['us5GearN', 1.55, 13.7, 0, { att: 0 }], ['us5GearM', 1.55, 7.4, 0, { att: 2 }], ['us5Gun', -0.25, 9.6, 0, { z: 2.555, att: 1 }],
+      ['flares', -1.3, 4.6, 0, { att: 3 }], ['chaff', -1.3, 3.6, 0, { att: 3 }]],
+  },
+  fs35: {
+    name: 'FS-35', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-generation stealth multirole fighter: one huge engine, bump intakes and a bulged canopy, four radar missiles in its belly bays and a hidden cannon. Mach 1.6, and very hard to see coming.',
+    parts: [['us5Nose35', 0, 13.45], ['us5Intake35', 0, 9.9], ['us5Bay35', 0, 6.7], ['us5Aft35', 0, 3.6], ['us5Eng35', 0, 1.2, 0, { att: 3 }],
+      ['us5Wing35', -0.02, 6.77], ['us5Tail35', 0.35, 2.45], ['us5Fins35', -1.17, 3.5, 0, { att: 3 }],
+      ['us5GearN', 1.65, 11.0, 0, { att: 1 }], ['us5GearM', 1.65, 5.9, 0, { att: 2 }], ['us5Gun', -0.25, 9.0, 0, { z: -2.175, att: 1 }],
+      ['flares', -1.4, 4.3, 0, { att: 3 }], ['chaff', -1.4, 3.0, 0, { att: 3 }]],
+    paint: { us5Gun: 'lightning' },
+  },
+  sugoi57: {
+    name: 'Sugoi-57', kind: 'plane', tier: 4, military: true,
+    blurb: '5th-gen stealth fighter: a flat chined body, engines far apart with the missiles inside between them, LEVCONs, canted all-moving fins and vectoring nozzles. Radars find it late (watch ◈).',
+    parts: [['ruNose57', -0.09, 16.35], ['ruIRST', -0.96, 17.0, 0, { z: 0.22, att: 0 }], ['ruBody57', -0.265, 8.05], ['ruNacelle57', 0.85, 8.35, 0, { att: 2 }],
+      ['ruAL41F1', 0.85, 2.15, 0, { att: 3 }], ['ruBay57', 0.475, 8.0, 0, { att: 2 }], ['ruStinger57', 0.25, 1.75], ['ruBoom57', 0.4, 3.05, 0, { att: 3 }],
+      ['ruFins57', -0.76, 2.8, 0, { att: 7 }], ['ruWing57', 0.2, 7.5, 0, { att: 2 }], ['ruLevcon57', 0.18, 13.15, 0, { att: 2 }], ['ruTail57', 0.4, 2.2, 0, { att: 7 }],
+      ['ruGearNose2L', 1.825, 16.0, 0, { att: 0 }], ['ruGearMainL', 2.25, 7.6, 0, { z: 1.9, att: 3 }], ['cannon', 0.5, 13.2, 0, { z: 2.6, att: 3 }],
+      ['ruBayS57', 0.43, 10.5, 0, { att: 3 }], ['flares', 0.7, 2.2, 0, { att: 6 }], ['chaff', 0.7, 1.25, 0, { att: 6 }]],
+    paint: { ruNose57: 'ruPixel', ruIRST: 'ruPixel', ruBody57: 'ruPixel', ruNacelle57: 'ruPixel', ruAL41F1: 'ruPixel', ruBay57: 'ruPixel', ruStinger57: 'ruPixel', ruBoom57: 'ruPixel',
+      ruFins57: 'ruPixel', ruWing57: 'ruPixel', ruLevcon57: 'ruPixel', ruTail57: 'ruPixel', ruBayS57: 'ruPixel' },
+  },
 };
 
 // A template's parts as design rows.
@@ -157,6 +299,20 @@ function templateRows(t) {
     if (skin) q.skin = skin;
     return q;
   });
+}
+
+// The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
+// generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
+// jet that carries it (the IRST ball to the MyG-29). Worked out once.
+let PART_FAMILIES = null;
+function partFamilies() {
+  if (PART_FAMILIES) return PART_FAMILIES;
+  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
+  for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
+  for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
+  const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS);
+  const order = keys.map((k, i) => [k, i]).sort((a, b) => (rank.get(of.get(a[0])) || 0) - (rank.get(of.get(b[0])) || 0) || a[1] - b[1]).map((e) => e[0]);
+  return (PART_FAMILIES = { of, order });
 }
 
 const Builder = {
@@ -413,7 +569,7 @@ const Builder = {
   onLine(q) { return !q.def.twinZ && Math.abs(q.x) < 0.01 && Math.abs(partZc(q)) < 0.01; },
   // Does h still hold q: touching it, mounted through it, or for a wing, hanging on (or sitting on) its real
   // section out at q's depth, swept back, tapered and lifted as the 3D wing is.
-  holds(h, q) { return partsTouch(q, h) || partsMounted(q, h) || (!!h.def.wing && this.wingHolds(h, q)); },
+  holds(h, q) { return partsTouch(q, h) || partsMounted(q, h) || (!!h.def.wing && this.wingHolds(h, q)) || (!partsMix(q, h) && partsOverlap(q, h, 0, 0) && shapesClash(q, h, -0.12)); }, // (or within 12 cm of its shape: set against a curved hull, then nudged along it)
   wingHolds(w, q) {
     const A = typeof Parts3D !== 'undefined' && Parts3D.wingAt;
     if (!A || (w.rot || 0) !== 0 || w.def.shape === 'biplane') return partsMounted2D(q, w);
@@ -487,6 +643,21 @@ const Builder = {
   // What a part put against host hangs on: the host, unless it just stacks on the centre line.
   attFor(host, stack) { return host && !(stack && this.onLine(host)) ? host : null; },
 
+  // A part put against the box of what it goes by (pr, free there) slides in towards it along x or z (dir ±1)
+  // until it meets a shape, so on a round or tapering hull it sits on the surface rather than out at the corner
+  // of the hull's box: 5 cm steps, so it never jumps through something into a gap beyond, then halving to the
+  // centimetre. At most max metres; null when it can't go in at all.
+  snug(pr, axis, dir, max, others) {
+    // (stricter than partsClash: no allowance for old pairs or flush parts, nor the 2 cm it lets parts overlap, so a
+    // part stops where it meets any shape, flush against a straight hull)
+    const at = (s) => ({ ...pr, [axis]: +(pr[axis] + dir * s).toFixed(3) }), free = (q) => !others.some((o) => !partsMix(q, o) && partsOverlap(q, o, 0.002, 0.002) && shapesClash(q, o, 0.002));
+    let ok = 0, s = 0.05;
+    for (; s <= max + 1e-9 && free(at(s)); s += 0.05) ok = s;
+    if (s <= max + 1e-9) { let lo = ok, hi = s; for (let i = 0; i < 5; i++) { const m = (lo + hi) / 2; if (free(at(m))) lo = m; else hi = m; } ok = lo; }
+    const q = at(Math.floor(ok * 100) / 100);
+    return free(q) ? q : ok ? at(Math.floor(ok * 20) / 20) : null;
+  },
+
   // 2D: a good spot for a part of `type` turned by `rot` near want {x, y, z?} (z: the depth it would
   // like; default its own). radius: how far an attachment may be (default ~26 px, at least 1.4 m).
   snap(type, want, ignore, rot = 0, radius) {
@@ -504,6 +675,14 @@ const Builder = {
       if (others.some((q) => partsClash(pr, q))) return;
       if (def.twinZ && !o.def.twinZ && !partsTouch(pr, o) && !partsMounted(pr, o)) return; // (a pair out to the sides doesn't hang on what it only meets in the side view)
       best = { x, y, z: pr.z, host: o, stack }; bestD = d;
+    };
+    // beside a part (not stacked on its end) it then slides in until it meets its shape
+    const snugged = (b) => {
+      if (b.stack || isSurface(b.host.def) || isSurface(def) || this.gridOn()) return b;
+      const R = partRect(b.host), dir = b.x > R.r - 1e-6 ? -1 : b.x < R.l + 1e-6 ? 1 : 0;
+      if (!dir) return b;
+      const q = this.snug({ def, type, x: b.x, y: b.y, z: b.z, rot }, 'x', dir, (w + R.r - R.l) / 2 - 0.05, others);
+      return q ? { ...b, x: q.x } : b;
     };
     const gx = g(want.x), gy = g(want.y), flat = { def, type, x: gx, y: gy, z: z0, rot };
     // wings and tail surfaces sit right where they are dropped, through the part they mount on; pods,
@@ -525,8 +704,14 @@ const Builder = {
       // on top of or under `o`, wherever along it the pointer is, as long as the two still overlap
       if (Math.abs(g(want.x) - o.x) < (w + R.r - R.l) / 2 - 0.1) { consider(g(want.x), R.t + h / 2, o, true); consider(g(want.x), R.b - h / 2, o, true); }
     }
-    if (best) return { x: best.x, y: best.y, z: best.z, host: best.host, att: this.attFor(best.host, best.stack), attached: true, ok: true };
+    if (best) {
+      best = snugged(best);
+      return { x: best.x, y: best.y, z: best.z, host: best.host, att: this.attFor(best.host, best.stack), attached: true, ok: true };
+    }
     const z = this.zFit(type, gx, gy, rot, z0, others);
+    // a flush part (an internal gun, a gear leg) dropped into a body is set into it, so it hangs on that body
+    const into = def.flush && z != null && others.find((o) => !isSurface(o.def) && partsOverlap({ def, type, x: gx, y: gy, z, rot }, o));
+    if (into) return { x: gx, y: gy, z, host: into, att: into, attached: true, ok: true };
     return { x: gx, y: gy, z: z == null ? cleanZ(z0, def) : z, host: null, att: null, attached: false, ok: z != null };
   },
 
@@ -539,18 +724,26 @@ const Builder = {
     const { w, h } = partDims({ def, rot }), hd = partDepth({ def }) / 2, R = partRect(host), surf = isSurface(host.def), hhd = partDepth(host) / 2;
     const hz = host.def.twinZ ? (hit.z < 0 ? -1 : 1) * partZ(host) : partZ(host); // the copy of a pair that was hit
     const ax = Math.abs(hit.nx), ay = Math.abs(hit.ny), az = Math.abs(hit.nz), q = (v) => Math.round(v * 100) / 100;
-    let x = hit.x, y = hit.y, z = hit.z, stack = false;
+    let x = hit.x, y = hit.y, z = hit.z, stack = false, slide = null;
     if (ay >= ax && ay >= az && !surf) { x = host.x; z = hz; y = hit.ny > 0 ? R.t + h / 2 : R.b - h / 2; stack = true; } // its end: stack on it
     else if (ax >= az) { // under or over it (pods and stores always hang underneath, off their pylons)
       if (surf && def.pod && hit.nx < 0) x = this.underside(host, hit.z) + w / 2;
-      else x = surf ? hit.x + Math.sign(hit.nx) * w / 2 : hit.nx > 0 ? R.r + w / 2 : R.l - w / 2;
+      else if (surf) x = hit.x + Math.sign(hit.nx) * w / 2;
+      else { x = hit.nx > 0 ? R.r + w / 2 : R.l - w / 2; slide = ['x', hit.nx > 0 ? -1 : 1, (w + R.r - R.l) / 2 - 0.05]; }
     }
-    else z = surf ? hit.z + Math.sign(hit.nz) * hd : hz + Math.sign(hit.nz) * (hhd + hd); // on its flank
+    else { // on its flank
+      z = surf ? hit.z + Math.sign(hit.nz) * hd : hz + Math.sign(hit.nz) * (hhd + hd);
+      if (!surf && (!def.twinZ || !hz)) slide = ['z', def.twinZ ? -1 : -Math.sign(hit.nz), hhd + hd - 0.05];
+    }
     x = q(x); y = q(y); z = q(z);
     if (!def.twinZ && Math.abs(z) < 0.08) z = 0; // onto the centre line
     z = cleanZ(z, def);
-    const pr = { def, type, x, y, z, rot }, ok = !others.some((o) => partsClash(pr, o));
-    return { x, y, z, host, att: this.attFor(host, stack), attached: true, ok };
+    let pr = { def, type, x, y, z, rot }, ok = !others.some((o) => partsClash(pr, o));
+    if (ok && slide) { // in until it meets the hull's shape, not its box
+      const sq = this.snug(pr, slide[0], slide[1], slide[2], others);
+      if (sq && (slide[0] !== 'z' || cleanZ(sq.z, def) === sq.z)) pr = sq;
+    }
+    return { x: pr.x, y: pr.y, z: pr.z, host, att: this.attFor(host, stack), attached: true, ok };
   },
 
   mirrorOk(type, x, y, ignore, rot = 0, z) {
@@ -887,20 +1080,31 @@ const Builder = {
   },
 
   // ---------------------------------------------------------------- palette & panels
+  // The tabs: the parts for the kind of craft being built first (a plane gets cockpits, fuselage, wings, aero
+  // engines, gear and weapons), then More for everything else, since any part still goes on any craft.
   buildPalette() {
-    const tabs = $('#palette-tabs');
+    const tabs = $('#palette-tabs'), own = (VEHICLE_KINDS[this.kind] || VEHICLE_KINDS.rocket).cats;
+    if (!this.moreCats && !own.includes(this.category)) this.category = own[0];
     tabs.innerHTML = '';
-    for (const c of PART_CATEGORIES) {
-      const b = el('button', { class: 'tab', role: 'tab', 'aria-selected': String(c.id === this.category), text: c.name });
+    const tab = (c, extra) => {
+      const b = el('button', { class: 'tab' + (extra ? ' extra' : ''), role: 'tab', 'aria-selected': String(c.id === this.category), text: c.name });
       b.addEventListener('click', () => { this.category = c.id; this.buildPalette(); });
       tabs.append(b);
-    }
+    };
+    for (const id of own) tab(PART_CATEGORIES.find((c) => c.id === id));
+    if (this.moreCats) for (const c of PART_CATEGORIES) if (!own.includes(c.id)) tab(c, true);
+    const more = el('button', { class: 'tab more', 'aria-expanded': String(!!this.moreCats), title: this.moreCats ? 'Only the parts for this kind of craft' : 'Parts for other kinds of craft too', text: this.moreCats ? 'Fewer' : 'More…' });
+    more.addEventListener('click', () => { this.moreCats = !this.moreCats; this.buildPalette(); Sound.click(); });
+    tabs.append(more);
     const items = $('#palette-items');
     items.innerHTML = '';
-    const dpr = Math.min(devicePixelRatio || 1, 2);
-    for (const type in PARTS) {
+    const dpr = Math.min(devicePixelRatio || 1, 2), fam = partFamilies();
+    let group = null;
+    for (const type of fam.order) {
       const def = PARTS[type];
       if (def.cat !== this.category) continue;
+      const g = fam.of.get(type) || null;
+      if (g !== group) { group = g; if (g) items.append(el('div', { class: 'tray-group', text: g })); } // (each look-alike jet's parts together)
       const locked = !Career.unlocked(def);
       const item = el('button', { class: 'part-item' + (locked ? ' locked' : ''), title: def.desc || def.name });
       item.append(renderPartIcon(type, 56, dpr, this.viewRot)); // drawn the way the blueprint shows it
@@ -1188,7 +1392,8 @@ const Builder = {
     const box = $('#pi-skins');
     if (!box.childElementCount) for (const id of ['', ...SKIN_IDS]) {
       const sk = SKINS[id], b = el('button', { class: 'skin-sw' + (id ? '' : ' own'), role: 'radio', 'data-skin': id, title: sk ? sk.name : 'Its own colours', 'aria-label': sk ? sk.name : 'Its own colours' });
-      if (sk) b.style.background = sk.base;
+      const tones = sk && sk.camo ? (typeof sk.camo === 'string' ? [sk.camo] : sk.camo.c) : null; // (a camouflage: a band of each of its tones)
+      if (sk) b.style.background = tones ? `linear-gradient(135deg, ${sk.base} 0 45%, ${tones.map((c, i) => `${c} ${45 + (25 * i) / tones.length}% ${45 + (25 * (i + 1)) / tones.length}%`).join(', ')}, ${sk.base} 70%)` : sk.base;
       box.append(b);
     }
     const cur = new Set(list.map((q) => q.skin || ''));

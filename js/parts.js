@@ -20,12 +20,13 @@ const PART_CATEGORIES = [
 ];
 
 // Vehicle kinds decide where a design launches and how the builder shows it. launchRot is the
-// craft's rotation at launch: planes are built and launched nose-right (local +y points east).
+// craft's rotation at launch: planes are built and launched nose-right (local +y points east). cats: the
+// part tabs the builder shows for it, in order (More shows the rest: any part still goes on any craft).
 const VEHICLE_KINDS = {
-  rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0 },
-  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2 },
-  car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0 },
-  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0 },
+  rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0, cats: ['command', 'fuel', 'engine', 'coupling', 'aero', 'utility', 'structure'] },
+  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2, cats: ['cabins', 'air', 'wings', 'airEng', 'airGear', 'weapons'] },
+  car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0, cats: ['ground', 'utility', 'structure', 'weapons'] },
+  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons'] },
 };
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
@@ -417,6 +418,391 @@ const PARTS = {
     desc: 'Longer frame for trucks and big rovers.' },
   carWheel: { cat: 'ground', name: 'Car Wheel', w: 1.2, h: 1.2, mass: 0.08, shape: 'wheel', wheel: { r: 0.54, drive: true, speed: 38, accel: 5, track: 2 }, breakSpeed: 16, tier: 0, cost: 600,
     desc: 'Driven road wheel. Mount it under a chassis. W/S drive, A/D steer the front wheels; hold B to brake.' },
+
+  // ---- 5th generation: the FS-22 (after the F-22) and FS-35 (after the F-35), at full scale. Their bodies are
+  // lofted from cross-sections (us5Lofts, at the end of this file) for both the 2D art and the 3D model (body3d 'us5').
+  // look: the camouflage they come in; fill: how much of the side-view box's front the body really fills (drag);
+  // doors: bay or gun doors that open only to fire (stealthOf counts them while open); bayRack: where each store
+  // leaves the bay, by store; vec2d: a flat nozzle that vectors in pitch only; irK: the exhaust's heat, as seen by
+  // heat seekers; twinMirror: the left one of a pair is the mirror image (canted fins, gear legs).
+  us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radar: 18000, stealth: 0.7,
+    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
+    desc: 'The FS-22’s chined nose: a sharp-edged radome, a long radar and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it.' },
+  us5Intake22: { cat: 'air', name: 'FS-22 Caret-Intake Fuselage', w: 2.2, h: 4.4, depth: 4.66, mass: 3.3, fuel: 2.6, stealth: 0.7, shape: 'us5body', us5: 'intake22',
+    body3d: 'us5', look: 'raptor', fill: 0.45, bay: true, doors: true, bayRack: [[0.38, -0.78, -2.67], [0.38, -0.78, 2.67]], tier: 4, cost: 11000,
+    weapon: { kind: 'missile', seek: 'air', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
+    desc: 'The FS-22’s middle: raked caret intakes on both cheeks, and a heat-seeking missile in a side bay behind each one. The doors swing out only to fire, so it stays stealthy until then.' },
+  us5Bay22: { cat: 'weapons', name: 'Internal Missile Bay', w: 2.2, h: 3.8, depth: 4.66, mass: 3.0, fuel: 1.4, stealth: 0.7, shape: 'us5body', us5: 'bay22', body3d: 'us5',
+    look: 'raptor', fill: 0.57, bay: true, doors: true, tier: 4, cost: 13000,
+    bayRack: [[1.05, 0, -0.16], [1.05, 0, 0.16], [1.05, 0, -0.47], [1.05, 0, 0.47], [1.05, 0, -0.78], [1.05, 0, 0.78]],
+    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 6, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'The FS-22’s belly bay: six radar missiles inside, out of the wind and out of sight. The doors snap open for each launch and shut again, and only while they are open do enemy radars see you sooner (watch ◈).' },
+  us5Aft22: { cat: 'air', name: 'FS-22 Aft Fuselage', w: 2.2, h: 2.0, depth: 4.5, mass: 1.9, fuel: 0.6, stealth: 0.7, shape: 'us5body', us5: 'aft22', body3d: 'us5', look: 'raptor',
+    fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-22’s tail end, with the booms that carry its tailplanes. Two Flat Vectoring Nozzle Engines go behind it, the Canted Twin Tails on top.' },
+  us5Eng22: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Flat Vectoring Nozzle Engine', w: 1.2, h: 3.1, depth: 1.48, mass: 1.8, thrust: 186, ispSL: 5400, ispVac: 5400, gimbal: 0.35, vec2d: true, irK: 0.7,
+    stealth: 0.6, air: { kind: 'jet', vmax: 580, ab: 1.3 }, shape: 'jet', us5: 'eng22', body3d: 'us5', look: 'raptor', plume: 'jet', maxTemp: 2300, tier: 4, cost: 24000,
+    desc: 'The FS-22’s engine: strong enough to cruise past Mach 1.5 without the afterburner, and its flat nozzle swings up and down with the stick to pitch the plane, even stalled. It also hides the hot exhaust from heat seekers. Fit them in pairs.' },
+  us5Wing22: { cat: 'wings', name: 'FS-22 Wing', w: 0.45, h: 9.84, mass: 3.0, fuel: 2.2, shape: 'wing', us5: 'wing', look: 'raptor', breakSpeed: 14, tier: 4, cost: 8000,
+    wing: { area: 78, span: 13.56, sweep: 0.539, taper: 0.83, stall: 0.48, mcrit: 0.92, wave: 0.5, load: 2.6, dihedral: -0.05, flaps: true, vne: 486, mmax: 2.5 },
+    desc: 'The FS-22’s big clipped-diamond wing, with fuel inside: swept 42° at the front and forwards at the back. Lifts at high angles, slips through the sound barrier. Put its root on the chines of the bay section.' },
+  us5Tail22: { cat: 'wings', name: 'FS-22 Stabilators', w: 0.3, h: 5.6, mass: 0.65, shape: 'elevator', us5: 'wing', look: 'raptor', breakSpeed: 14, tier: 4, cost: 3000,
+    wing: { area: 20, span: 8.84, sweep: 0.57, taper: 0.82, control: 0.35, root: 1.95 },
+    desc: 'All-moving tailplanes in the same diamond shape as the wing, on booms beside the engines. They pitch the plane and help it roll.' },
+  us5Fins22: { cat: 'wings', name: 'FS-22 Canted Twin Tails', w: 2.6, h: 4, mass: 0.55, twinZ: 2.0, stealth: 0.7, cant: 0.49, tipC: 1.5, tipLE: 1.25, shape: 'vtail', us5: 'fin',
+    body3d: 'us5', look: 'raptor', twinMirror: true, tier: 4, cost: 2500,
+    desc: 'A pair of big fins leaning outwards (28°), so radar waves glance off them, with rudders. Mount them on top of the aft fuselage.' },
+  us5Gun: { cat: 'weapons', name: 'Internal Rotary Cannon', w: 0.35, h: 1.8, depth: 0.45, mass: 0.3, stealth: 0.7, shape: 'gun', us5: 'gun', body3d: 'us5', look: 'raptor', barrels: 6, calibre: 20,
+    doors: true, tier: 3, cost: 8000, weapon: { kind: 'gun', ammo: 480, rate: 50, speed: 1050, dmg: 14, spread: 0.004, each: 0.26 },
+    desc: 'A 20 mm six-barrel cannon buried in the skin, behind a door that snaps open as you fire: a stealth fighter’s gun. Mount it beside the fuselage at a wing root.' },
+  us5GearN: { cat: 'airGear', name: 'Stealth Nose Gear', w: 0.9, h: 0.8, mass: 0.25, shape: 'gear', us5: 'gear', body3d: 'us5', wheel: { r: 0.33, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 8, tier: 3, cost: 1500, desc: 'One steerable wheel on a tall leg that folds away (G), behind doors. For the nose of a big fighter.' },
+  us5GearM: { cat: 'airGear', name: 'Stealth Main Gear', w: 0.9, h: 1.0, mass: 0.7, shape: 'gear', us5: 'gear', body3d: 'us5', twinZ: 1.6, twinMirror: true,
+    wheel: { r: 0.45, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9, tier: 3, cost: 2600,
+    desc: 'A pair of single-wheel legs that fold into the fuselage sides (G). For heavy fighters.' },
+  us5Nose35: { cat: 'cabins', name: 'FS-35 Stealth Nose', w: 2.4, h: 4.5, depth: 2.44, mass: 1.8, control: 3, torque: 3000, crew: 1, radar: 16000, stealth: 0.65,
+    shape: 'us5body', us5: 'nose35', body3d: 'us5', look: 'lightning', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 15000,
+    desc: 'The FS-35’s nose: a chined radome, the faceted window of its targeting camera under the chin and a tall bulged canopy for a good view. Put the Bump-Intake Fuselage behind it.' },
+  us5Intake35: { cat: 'air', name: 'FS-35 Bump-Intake Fuselage', w: 2.4, h: 2.6, depth: 3.9, mass: 2.5, fuel: 1.8, stealth: 0.65, shape: 'us5body', us5: 'intake35', body3d: 'us5',
+    look: 'lightning', fill: 0.45, tier: 4, cost: 8000,
+    desc: 'The FS-35’s intakes: a smooth bump on each side sweeps the slow air away, so the inlets need no splitter plate, and the raked lips hide the engine face from radar.' },
+  us5Bay35: { cat: 'weapons', name: 'FS-35 Missile Bays', w: 2.4, h: 3.8, depth: 3.84, mass: 2.3, fuel: 1.7, stealth: 0.65, shape: 'us5body', us5: 'bay35', body3d: 'us5',
+    look: 'lightning', fill: 0.58, bay: true, doors: true, tier: 4, cost: 12000, bayRack: [[1.16, 0, -0.33], [1.16, 0, 0.33], [1.16, 0, -0.7], [1.16, 0, 0.7]],
+    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'Two bays in the FS-35’s belly, left and right, with two radar missiles each. Their doors open only for a launch, so the plane keeps its stealth until it shoots.' },
+  us5Aft35: { cat: 'air', name: 'FS-35 Aft Fuselage', w: 2.4, h: 2.4, depth: 3.6, mass: 1.5, fuel: 0.9, stealth: 0.65, shape: 'us5body', us5: 'aft35', body3d: 'us5', look: 'lightning',
+    fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-35’s tail end around its single big engine, with booms for the tailplanes. The FS-35 Stealth Turbofan goes behind it.' },
+  us5Eng35: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-35 Stealth Turbofan', w: 1.5, h: 2.4, depth: 1.52, mass: 1.75, thrust: 196, ispSL: 5300, ispVac: 5300, gimbal: 0.02, irK: 0.85, stealth: 0.6,
+    air: { kind: 'jet', vmax: 450, ab: 1.47 }, shape: 'jet', us5: 'eng35', body3d: 'us5', look: 'lightning', plume: 'jet', maxTemp: 2300, tier: 4, cost: 32000,
+    desc: 'One huge fighter engine, the most powerful ever fitted to a fighter, with a sawtooth-edged round nozzle that scatters radar. Afterburner above 90%. Runs out of puff past about Mach 1.6.' },
+  us5Wing35: { cat: 'wings', name: 'FS-35 Wing', w: 0.45, h: 6.46, mass: 2.0, fuel: 1.8, shape: 'wing', us5: 'wing', look: 'lightning', breakSpeed: 14, tier: 4, cost: 7000,
+    wing: { area: 42.7, span: 10.7, sweep: 0.418, taper: 0.765, stall: 0.52, mcrit: 0.88, wave: 0.6, load: 3.3, dihedral: 0.02, flaps: true, vne: 458, mmax: 2.0 },
+    desc: 'The FS-35’s trapezoid wing, swept 34°, with fuel inside: big for the plane, so it is agile at low speed.' },
+  us5Tail35: { cat: 'wings', name: 'FS-35 Stabilators', w: 0.25, h: 4.4, mass: 0.45, shape: 'elevator', us5: 'wing', look: 'lightning', breakSpeed: 14, tier: 4, cost: 2500,
+    wing: { area: 12, span: 6.7, sweep: 0.5, taper: 0.8, control: 0.35, root: 1.5 },
+    desc: 'All-moving tailplanes for the FS-35, on the booms beside its engine.' },
+  us5Fins35: { cat: 'wings', name: 'FS-35 Canted Twin Tails', w: 2.1, h: 2.8, mass: 0.35, twinZ: 1.45, stealth: 0.65, cant: 0.35, tipC: 1.05, tipLE: 1.35, shape: 'vtail', us5: 'fin',
+    body3d: 'us5', look: 'lightning', twinMirror: true, tier: 4, cost: 2000,
+    desc: 'The FS-35’s fins, leaning out 20°, with rudders. Mount them on top of the aft fuselage.' },
+
+  // ---- Russian look-alike jets: the MyG-21, MyG-29, Sugoi-27, Sugoi-35 and Sugoi-57, at the real aircraft's size
+  // (their templates are in builder.js). The hulls are lofted from cross-sections (`loft`, `glass`: see ruSample at
+  // the end of this file), drawn by RU_ART (`ru`) and lofted again in 3D by parts3d.js. A wing with a `plan` is
+  // drawn in 3D to that planform, LERX and all: [[s, leading edge, trailing edge], ...], s out along the half-span
+  // (0..1), the edges in metres from the part's centre (fore +). Engines: thrust in proportion to the stock ones
+  // (the Fighter Turbofan stands for a 76 kN class engine), times two for a pair.
+  ruIRST: { cat: 'air', name: 'IRST Ball', w: 0.36, h: 0.8, depth: 0.42, mass: 0.12, irst: 0.3, shape: 'ruLoft', ru: 'irst', ruBall: [-0.02, 0.58, 0.17],
+    loft: ruG(0, 0, { s: [[0, 0.16, 0.18, 0.05], [0.15, 0.05, 0.18, 0.15], [0.42, -0.06, 0.18, 0.19], [0.6, -0.07, 0.18, 0.19], [0.8, 0, 0.18, 0.1]], n: 2, nb: 6 }),
+    tier: 3, cost: 2500,
+    desc: 'Infrared search-and-track: a glass ball ahead of the canopy that sees engine heat. Heat-seeking missiles lock on from 30% further away. Mount it on top of the nose.' },
+  ruGearNoseL: { cat: 'airGear', name: 'Tall Nose Gear', w: 2.55, h: 0.9, mass: 0.25, shape: 'gear', wheel: { r: 0.34, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9,
+    tier: 3, cost: 1000, desc: 'A long single-wheel nose leg for big fighters that sit high. Folds away (G).' },
+  ruGearMainL: { cat: 'airGear', name: 'Heavy Fighter Main Gear', w: 1.6, h: 1.1, mass: 0.9, twinZ: 1.9, shape: 'gear', wheel: { r: 0.52, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 10, tier: 3, cost: 2200, desc: 'A pair of long main legs with big single wheels, one under each engine nacelle. Folds away (G).' },
+
+  // the Sugoi-27 (after the Su-27 Flanker), also the Sugoi-35's airframe
+  ruNose27: { cat: 'cabins', name: 'Sugoi-27 Nose', w: 1.7, h: 8.3, depth: 1.64, mass: 2.2, control: 3, torque: 4000, crew: 1, radar: 20000, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.9, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8500,
+    loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.82, -0.3], [14.3, -0.95, 0.5, 0.82, -0.25], [15.1, -0.95, 0.7, 0.82, -0.18], [16.0, -0.95, 0.75, 0.82, -0.15],
+      [17.0, -0.95, 0.75, 0.8, -0.15], [17.8, -0.95, 0.72, 0.76, -0.15], [18.6, -0.83, 0.66, 0.7, -0.12], [19.5, -0.66, 0.55, 0.6, -0.08], [20.5, -0.47, 0.38, 0.44, -0.05],
+      [21.3, -0.25, 0.17, 0.24, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
+      [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
+    desc: 'The long, drooping nose of a big air-superiority fighter: a powerful radar under the radome and a bubble canopy with a view all round. Put an IRST ball ahead of the canopy.' },
+  ruBody27: { cat: 'air', name: 'Sugoi-27 Centre Fuselage', w: 1.3, h: 10, depth: 2.6, mass: 3.2, fuel: 3, shape: 'ruLoft', ru: 'body', ruLines: [1.6, 3.4, 5.4, 7.6], ruBrake: [7.9, 9.4], tier: 3, cost: 4500,
+    loft: ruG(-0.3, 3.6, { s: [[3.6, 0.15, 0.35, 0.38, 0.3, 2, 2], [4.2, -0.1, 0.35, 0.5, 0.28, 1.9, 3], [5.0, -0.4, 0.35, 0.72, 0.25, 1.8, 3], [6.0, -0.62, 0.35, 0.98, 0.22, 1.7, 3],
+      [7.0, -0.78, 0.35, 1.18, 0.2, 1.6, 3], [8.5, -0.88, 0.35, 1.3, 0.2, 1.6, 3], [10.0, -0.93, 0.35, 1.3, 0.18, 1.6, 3], [11.5, -0.95, 0.35, 1.22, 0.1, 1.7, 3],
+      [12.6, -0.95, 0.35, 1.02, -0.1, 1.9, 2.6], [13.6, -0.95, 0.36, 0.82, -0.3, 2.2, 2.3]] }),
+    desc: 'The flat lifting body of a Sugoi-27, with a big airbrake on its spine and fuel inside. The nacelles hang under it; it narrows into the tail stinger.' },
+  ruNacelle27: { cat: 'air', name: 'Sugoi-27 Intake Nacelles', w: 1.35, h: 10, depth: 1.4, twinZ: 1.3, mass: 2.8, fuel: 1, shape: 'ruLoft', ru: 'nacelle', ruIntake: [9.3, 10],
+    loft: ruG(1.025, 3.6, { s: [[3.6, 0.33, 1.57, 0.62, 0.95, 2, 2], [5.5, 0.34, 1.58, 0.64, 0.96, 2.4, 2.4], [8.0, 0.35, 1.63, 0.68, 0.99, 3, 3], [11.0, 0.35, 1.68, 0.7, 1.0, 4.5, 4],
+      [12.9, 0.35, 1.7, 0.7, 1.0, 6, 5], [13.25, 0.95, 1.7, 0.7, 1.3, 6, 5], [13.6, 1.55, 1.7, 0.68, 1.62, 6, 5]] }),
+    tier: 3, cost: 3500, desc: 'A pair of engine nacelles with raked intakes, far apart with a tunnel between them. Hang them under the centre fuselage.' },
+  ruAL31: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-27 Twin Engines', w: 1.24, h: 2.3, depth: 1.24, twinZ: 1.3, mass: 1.8, thrust: 270, ispSL: 5200, ispVac: 5200, gimbal: 0.02,
+    air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.1, exit: 0.44 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 20000,
+    loft: ruG(0.95, 1.3, { s: [[2.4, 0.37, 1.53, 0.58], [3.6, 0.33, 1.57, 0.62]], mat: 'metal' }, { s: [[1.3, 0.48, 1.42, 0.47], [2.4, 0.38, 1.52, 0.57]], mat: 'steelDark' }),
+    desc: 'Two big afterburning turbofans, nozzles and all, for the back of a pair of nacelles: a Sugoi’s heart. Afterburner above 90% throttle, Mach 2 and more up high.' },
+  ruStinger27: { cat: 'air', name: 'Sugoi-27 Tail Stinger', w: 0.75, h: 3.6, depth: 0.76, mass: 0.3, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 900,
+    loft: ruG(0.525, 0, { s: [[0, 0.47, 0.58, 0.06, 0.52], [0.25, 0.3, 0.74, 0.2, 0.52], [0.9, 0.2, 0.86, 0.32, 0.52], [2.2, 0.16, 0.9, 0.37, 0.5], [3.0, 0.15, 0.75, 0.38, 0.4],
+      [3.6, 0.15, 0.42, 0.38, 0.3]] }),
+    desc: 'The long boom between the engines that ends the tail: room for the brake chute and the flares, with the tail radar-warning aerial at its tip.' },
+  ruBoom27: { cat: 'air', name: 'Sugoi-27 Tail Booms', w: 0.35, h: 6, depth: 0.5, twinZ: 2.25, mass: 0.5, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1100,
+    loft: ruG(0.505, 0.9, { s: [[0.9, 0.47, 0.56, 0.04], [1.3, 0.38, 0.64, 0.18], [2.0, 0.33, 0.68, 0.25], [5.8, 0.33, 0.68, 0.25], [6.9, 0.36, 0.62, 0.2]], n: 3 }),
+    desc: 'A pair of flat beams beside the engines that carry the fins and the tailerons.' },
+  ruFins27: { cat: 'wings', name: 'Sugoi-27 Twin Fins', w: 3.17, h: 4.6, depth: 0.2, twinZ: 2.25, mass: 0.4, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.174, tle: 0.37, tte: 0, cant: 0, star: 0.12 }, tier: 3, cost: 1300, desc: 'Two tall fins with rudders, one on each tail boom.' },
+  ruVentral27: { cat: 'wings', name: 'Sugoi-27 Ventral Fins', w: 0.9, h: 1.8, depth: 0.12, twinZ: 2.25, mass: 0.1, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.11, tle: 0.39, tte: 0, cant: 0.3 }, tier: 3, cost: 400, desc: 'Little fins under the tail booms, splayed outwards: steadier at high angles of attack.' },
+  ruWing27: { cat: 'wings', name: 'Sugoi-27 Wing', w: 0.45, h: 9.55, mass: 2.8, fuel: 1.5, shape: 'wing',
+    wing: { area: 62, span: 14.7, sweep: 0.733, taper: 0.76, slope: 3, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 2.72, dihedral: 0, flaps: true, vne: 472, mmax: 2.8,
+      plan: [[0, 4.775, -4.775], [0.109, 4.775, -4.775], [0.129, 4.175, -4.79], [0.17, 3.225, -4.865], [0.231, 2.025, -4.945], [0.299, 0.925, -5.045], [0.361, 0.075, -5.125],
+        [0.422, -0.595, -5.215], [1, -4.425, -6.025]] },
+    breakSpeed: 14, tier: 3, cost: 5500,
+    desc: 'A Sugoi-27’s wing in one piece: the big curved root extension (LERX) blending into a 42° swept wing with flaps, 14.7 m across. It keeps lifting at wild angles of attack.' },
+  ruTail27: { cat: 'wings', name: 'Sugoi-27 Tailerons', w: 0.18, h: 3, mass: 0.5, shape: 'elevator',
+    wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.22, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
+    desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
+  ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radar: 26000, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 10500,
+    loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.83, -0.3], [14.3, -0.95, 0.5, 0.83, -0.25], [15.1, -0.95, 0.7, 0.83, -0.18], [16.0, -0.95, 0.75, 0.83, -0.15],
+      [17.0, -0.95, 0.75, 0.81, -0.15], [17.8, -0.95, 0.73, 0.78, -0.15], [18.6, -0.86, 0.69, 0.73, -0.12], [19.5, -0.72, 0.6, 0.65, -0.08], [20.5, -0.52, 0.43, 0.49, -0.05],
+      [21.35, -0.27, 0.2, 0.26, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
+      [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
+    desc: 'An upgraded Sugoi nose: a bigger, longer-reaching radar under a fatter radome. Put an IRST ball ahead of the canopy, a little to the right.' },
+  ruAL41: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.1, vector: true,
+    air: { kind: 'jet', vmax: 760, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.4, exit: 0.45 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 26000,
+    loft: ruG(0.95, 1.1, { s: [[2.5, 0.36, 1.54, 0.59], [3.6, 0.33, 1.57, 0.63]], mat: 'metal' }, { s: [[1.1, 0.47, 1.43, 0.48], [2.5, 0.37, 1.53, 0.58]], mat: 'steelDark', vec: 1.4 }),
+    desc: 'A pair of uprated afterburning turbofans whose nozzles swivel in every direction with the stick: the plane still turns when its wings have stalled. Afterburner above 90%.' },
+  ruStinger35: { cat: 'air', name: 'Sugoi-35 Tail Stinger', w: 0.8, h: 3.6, depth: 0.86, mass: 0.35, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1100,
+    loft: ruG(0.53, 0, { s: [[0.35, 0.36, 0.7, 0.14, 0.53], [0.7, 0.2, 0.86, 0.33, 0.53], [1.6, 0.14, 0.93, 0.42, 0.52], [3.0, 0.13, 0.78, 0.43, 0.4], [3.6, 0.15, 0.42, 0.39, 0.3]] }),
+    desc: 'A shorter, fatter stinger between the engines, packed with radar-warning gear and flares.' },
+
+  // the MyG-29 (after the MiG-29 Fulcrum)
+  ruGearNose2: { cat: 'airGear', name: 'Twin Nose Gear', w: 2.0, h: 0.9, mass: 0.18, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0.52, retract: true }, breakSpeed: 9,
+    tier: 3, cost: 1200, desc: 'A long nose leg with two wheels side by side, for fighters that sit high. Folds away (G).' },
+  ruGearMain: { cat: 'airGear', name: 'Fighter Main Gear', w: 1.2, h: 0.9, mass: 0.45, twinZ: 1.4, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 0, retract: true },
+    breakSpeed: 9, tier: 2, cost: 2000, desc: 'A pair of main legs with single wheels, one each side under the wing roots or nacelles. Folds away (G).' },
+  ruNose29: { cat: 'cabins', name: 'MyG-29 Nose', w: 1.5, h: 6.5, depth: 1.44, mass: 1.6, control: 3, torque: 3000, crew: 1, radar: 16000, shape: 'ruLoft', ru: 'nose', ruRadome: 3.9,
+    aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 7500,
+    loft: ruG(-0.1, 10.4, { s: [[10.4, -0.85, 0.32, 0.72, -0.26], [11.0, -0.85, 0.45, 0.72, -0.22], [11.8, -0.85, 0.6, 0.72, -0.15], [12.6, -0.85, 0.65, 0.7, -0.12],
+      [13.9, -0.84, 0.64, 0.64, -0.08], [14.6, -0.7, 0.58, 0.55, -0.04], [15.3, -0.5, 0.47, 0.44, 0], [15.9, -0.3, 0.35, 0.31, 0.04], [16.5, -0.1, 0.22, 0.16, 0.07],
+      [16.9, 0.07, 0.11, 0, 0.09]], n: 2.2, nb: 2.3 }),
+    glass: ruG(-0.1, 10.4, { s: [[10.55, -0.86, -0.74, 0.1, -0.8], [11.0, -1.05, -0.7, 0.3, -0.75], [11.7, -1.2, -0.66, 0.42, -0.72], [12.4, -1.18, -0.68, 0.42, -0.73],
+      [12.95, -1.0, -0.74, 0.34, -0.78], [13.25, -0.86, -0.8, 0.18, -0.83]], n: 2, nb: 6, frames: [0.7] }),
+    desc: 'A light fighter’s drooping nose with its radar and a bubble canopy. Put an IRST ball just ahead of the windscreen.' },
+  ruBody29: { cat: 'air', name: 'MyG-29 Centre Fuselage', w: 1.15, h: 7.4, depth: 2.2, mass: 2.2, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [1.0, 2.6, 4.2, 5.8], tier: 3, cost: 4000,
+    loft: ruG(-0.275, 3.0, { s: [[3.0, 0.08, 0.3, 0.36, 0.25, 2, 2], [3.6, -0.15, 0.3, 0.45, 0.22, 1.9, 3], [4.6, -0.42, 0.3, 0.7, 0.18, 1.8, 3], [6.0, -0.62, 0.3, 0.98, 0.15, 1.7, 3],
+      [7.5, -0.76, 0.3, 1.1, 0.12, 1.6, 3], [9.0, -0.84, 0.3, 1.0, 0, 1.8, 2.8], [10.4, -0.85, 0.32, 0.72, -0.26, 2.2, 2.3]] }),
+    desc: 'The flat lifting fuselage of a MyG-29, its hump behind the canopy full of fuel. The intake nacelles hang under it.' },
+  ruNacelle29: { cat: 'air', name: 'MyG-29 Intake Nacelles', w: 1.15, h: 7.2, depth: 1.2, twinZ: 1.2, mass: 1.8, fuel: 0.6, shape: 'ruLoft', ru: 'nacelle', ruIntake: [6.2, 7.2],
+    loft: ruG(0.875, 2.8, { s: [[2.8, 0.355, 1.395, 0.52, 0.875, 2, 2], [4.5, 0.33, 1.42, 0.56, 0.88, 2.5, 2.5], [6.5, 0.3, 1.45, 0.6, 0.9, 3.5, 3.5], [9.0, 0.3, 1.45, 0.6, 0.9, 6, 5],
+      [9.4, 0.75, 1.45, 0.6, 1.1, 6, 5], [10.0, 1.32, 1.45, 0.58, 1.38, 6, 5]] }),
+    tier: 3, cost: 3000, desc: 'Two widely spaced engine nacelles with ramp intakes under the wing-root extensions, and a lifting tunnel between them.' },
+  ruRD33: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'MyG-29 Twin Engines', w: 1.04, h: 2.2, depth: 1.04, twinZ: 1.2, mass: 1.4, thrust: 162, ispSL: 5000, ispVac: 5000, gimbal: 0.02,
+    air: { kind: 'jet', vmax: 720, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.36 }, plume: 'jet', maxTemp: 2300, tier: 3, cost: 18000,
+    loft: ruG(0.875, 0.6, { s: [[1.6, 0.4, 1.35, 0.47], [2.8, 0.355, 1.395, 0.52]], mat: 'metal' }, { s: [[0.6, 0.48, 1.27, 0.38], [1.6, 0.41, 1.34, 0.46]], mat: 'steelDark' }),
+    desc: 'Two light afterburning turbofans for a pair of nacelles: a nimble fighter’s engines. Afterburner above 90% throttle.' },
+  ruBeaver29: { cat: 'air', name: 'MyG-29 Beavertail', w: 0.3, h: 3, depth: 1.1, mass: 0.15, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 600,
+    loft: ruG(0.27, 0, { s: [[0, 0.22, 0.32, 0.3, 0.27], [0.6, 0.15, 0.38, 0.52, 0.27], [2.4, 0.12, 0.42, 0.55, 0.27], [3.0, 0.12, 0.3, 0.4, 0.22, 2.5, 2.5]], n: 3 }),
+    desc: 'The flat tail between the engines, with the brake chute and the airbrakes.' },
+  ruBoom29: { cat: 'air', name: 'MyG-29 Tail Booms', w: 0.3, h: 4.7, depth: 0.45, twinZ: 2.025, mass: 0.3, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1000,
+    loft: ruG(0.45, 0.7, { s: [[0.7, 0.4, 0.5, 0.04], [1.0, 0.33, 0.57, 0.15], [1.6, 0.3, 0.6, 0.22], [4.6, 0.3, 0.6, 0.22], [5.4, 0.33, 0.56, 0.18]], n: 3 }),
+    desc: 'A pair of flat beams outside the engines for the fins and tailerons.' },
+  ruFins29: { cat: 'wings', name: 'MyG-29 Twin Fins', w: 2.5, h: 3.8, depth: 0.18, twinZ: 2.025, mass: 0.3, shape: 'vtail', body3d: 'ruFin', ru: 'fin', twinMirror: true,
+    ruFin: { rte: 0.105, tle: 0.295, tte: 0, cant: 0.105, star: 0.13 }, tier: 3, cost: 1200, desc: 'Two fins with rudders, leaning slightly outwards, one on each tail boom.' },
+  ruTail29: { cat: 'wings', name: 'MyG-29 Tailerons', w: 0.15, h: 2.4, mass: 0.3, shape: 'elevator',
+    wing: { area: 7.05, span: 7.78, sweep: 0.873, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.578, 1.2, -1.2], [1, -0.75, -1.6]] }, breakSpeed: 14, tier: 3, cost: 1600,
+    desc: 'All-moving swept tailplanes on the tail booms (open in the middle for the engines).' },
+  ruWing29: { cat: 'wings', name: 'MyG-29 Wing', w: 0.36, h: 9.05, mass: 1.6, fuel: 0.6, shape: 'wing',
+    wing: { area: 38, span: 11.36, sweep: 0.85, taper: 0.8, slope: 2.9, stall: 0.45, mcrit: 0.95, wave: 0.3, load: 2.45, dihedral: 0, flaps: true, vne: 472, mmax: 2.6,
+      plan: [[0, 4.525, -4.525], [0.127, 4.525, -4.475], [0.167, 3.725, -4.455], [0.229, 2.525, -4.415], [0.29, 1.375, -4.375], [0.343, 0.375, -4.345], [1, -2.985, -4.175]] },
+    breakSpeed: 14, tier: 3, cost: 5000,
+    desc: 'A MyG-29’s wing in one piece: sharp 73° root extensions running into a 42° swept wing with flaps, 11.4 m across.' },
+
+  // the Sugoi-57 (after the Su-57): stealthy, chined, its weapons inside
+  ruGearNose2L: { cat: 'airGear', name: 'Tall Twin Nose Gear', w: 2.45, h: 0.9, mass: 0.24, shape: 'gear', wheel: { r: 0.32, drive: false, brake: true, track: 0.55, retract: true },
+    breakSpeed: 9, tier: 4, cost: 1300, desc: 'A tall nose leg with two wheels side by side, for a big fighter. Folds away (G).' },
+  ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radar: 28000, stealth: 0.6, shape: 'ruLoft', ru: 'nose',
+    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 13000,
+    loft: ruG(-0.09, 12.6, { s: [[12.6, -0.78, 0.25, 0.92, 0.1], [13.4, -0.78, 0.4, 0.88, 0.12], [14.4, -0.78, 0.53, 0.82, 0.14], [15.4, -0.78, 0.58, 0.76, 0.15],
+      [16.4, -0.78, 0.57, 0.68, 0.15], [17.2, -0.76, 0.52, 0.58, 0.15], [18.0, -0.56, 0.42, 0.46, 0.14], [18.8, -0.34, 0.31, 0.33, 0.12], [19.5, -0.15, 0.2, 0.19, 0.1],
+      [20.1, 0.06, 0.09, 0, 0.08]], n: 2, nb: 2.6, chine: true }),
+    glass: ruG(-0.09, 12.6, { s: [[13.0, -0.79, -0.7, 0.1, -0.74], [13.5, -0.98, -0.62, 0.36, -0.66], [14.3, -1.17, -0.56, 0.5, -0.6], [15.2, -1.2, -0.56, 0.52, -0.6],
+      [15.9, -1.1, -0.58, 0.48, -0.63], [16.3, -0.92, -0.64, 0.36, -0.7], [16.6, -0.79, -0.72, 0.16, -0.76]], n: 2, nb: 6, gold: true }),
+    desc: 'A chined stealth nose with a long frameless, gold-tinted canopy and a powerful radar. Radar glances off it.' },
+  ruBody57: { cat: 'air', name: 'Sugoi-57 Centre Fuselage', w: 1.03, h: 9.1, depth: 3.5, mass: 4.0, fuel: 4, stealth: 0.6, shape: 'ruLoft', ru: 'body', ruLines: [1.4, 3.2, 5.4, 7.6],
+    loft: ruG(-0.265, 3.5, { s: [[3.5, 0, 0.25, 0.5, 0.18, 1.6, 3], [4.5, -0.35, 0.25, 1.0, 0.15, 1.4, 4], [6.0, -0.58, 0.25, 1.55, 0.12, 1.3, 4], [8.0, -0.72, 0.25, 1.75, 0.1, 1.3, 4],
+      [10.0, -0.78, 0.25, 1.62, 0.1, 1.4, 4], [11.5, -0.78, 0.25, 1.25, 0.1, 1.7, 3], [12.6, -0.78, 0.25, 0.92, 0.1, 2, 2.6]], chine: true }),
+    tier: 4, cost: 8000, desc: 'A wide, flat, chined stealth body with fuel inside. The engines hang far apart under it, with the weapons bay between them.' },
+  ruNacelle57: { cat: 'air', name: 'Sugoi-57 Intake Nacelles', w: 1.2, h: 9.7, depth: 1.3, twinZ: 1.7, mass: 3.2, fuel: 1.0, stealth: 0.6, shape: 'ruLoft', ru: 'nacelle',
+    ruIntake: [8.9, 9.7, 'bot'],
+    loft: ruG(0.85, 3.5, { s: [[3.5, 0.275, 1.425, 0.575, 0.85, 2, 2], [5.5, 0.26, 1.44, 0.6, 0.86, 3, 3], [8.0, 0.25, 1.45, 0.64, 0.85, 4, 4], [11.5, 0.25, 1.45, 0.65, 0.85, 5, 5],
+      [12.4, 0.25, 1.45, 0.65, 0.85, 6, 6], [12.8, 0.25, 1.05, 0.65, 0.65, 6, 6], [13.2, 0.25, 0.62, 0.62, 0.44, 6, 6]] }),
+    tier: 4, cost: 5500, desc: 'Two engine nacelles set far apart, with raked stealthy intakes.' },
+  ruAL41F1: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-57 Vectoring Engines', w: 1.15, h: 2.7, depth: 1.15, twinZ: 1.7, mass: 2.2, thrust: 304, ispSL: 5000, ispVac: 5000, gimbal: 0.3, vector: true,
+    air: { kind: 'jet', vmax: 770, ab: 1.58 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.5, exit: 0.4 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 33500,
+    loft: ruG(0.85, 0.8, { s: [[2.3, 0.32, 1.38, 0.53], [3.5, 0.275, 1.425, 0.575]], mat: 'metal' }, { s: [[0.8, 0.4, 1.3, 0.43], [2.3, 0.33, 1.37, 0.52]], mat: 'steelDark', vec: 1.5 }),
+    desc: 'The newest pair of afterburning turbofans: strong enough to cruise past Mach 1, with nozzles that swivel with the stick. Afterburner above 90%.' },
+  ruBay57: { cat: 'weapons', name: 'Internal Radar Missiles', w: 0.45, h: 6, depth: 2.1, mass: 0.6, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 21000,
+    weapon: { kind: 'missile', seek: 'air', radar: true, label: 'RV-77', ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    loft: ruG(0.475, 5.0, { s: [[5.0, 0.25, 0.4, 0.9, 0.3, 4, 4], [5.6, 0.25, 0.65, 1.04, 0.4, 5, 5], [10.4, 0.25, 0.68, 1.04, 0.4, 5, 5], [11.0, 0.25, 0.45, 0.95, 0.3, 4, 4]] }),
+    desc: 'Two long bays between the engines with four radar missiles inside: no drag, and a stealth plane stays stealthy. They ride your nose radar like the outside ones.' },
+  ruBayS57: { cat: 'weapons', name: 'Internal Heat Seekers', w: 0.36, h: 3, depth: 0.5, twinZ: 2.6, mass: 0.1, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 8000,
+    weapon: { kind: 'missile', seek: 'air', label: 'RV-74', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
+    loft: ruG(0.43, 9.0, { s: [[9.0, 0.25, 0.32, 0.12, 0.27, 3, 3], [9.5, 0.25, 0.58, 0.24, 0.35, 4, 4], [11.4, 0.25, 0.6, 0.24, 0.36, 4, 4], [12.0, 0.25, 0.36, 0.16, 0.28, 3, 3]] }),
+    desc: 'A pair of little bays in the wing roots, outside the intakes, each with a heat seeker inside.' },
+  ruStinger57: { cat: 'air', name: 'Sugoi-57 Tail Cone', w: 0.5, h: 3.5, depth: 1.0, mass: 0.25, stealth: 0.6, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1000,
+    loft: ruG(0.25, 0, { s: [[0, 0.18, 0.32, 0.1, 0.25, 1.6, 2], [0.6, 0.06, 0.45, 0.35, 0.25, 1.6, 2.5], [2.8, 0, 0.5, 0.48, 0.22, 1.6, 3], [3.5, 0, 0.25, 0.5, 0.18, 1.6, 3]], chine: true }),
+    desc: 'A short flat tail cone between the engines.' },
+  ruBoom57: { cat: 'air', name: 'Sugoi-57 Tail Booms', w: 0.3, h: 4.5, depth: 0.5, twinZ: 2.6, mass: 0.5, stealth: 0.6, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1200,
+    loft: ruG(0.4, 0.8, { s: [[0.8, 0.36, 0.44, 0.04], [1.1, 0.28, 0.52, 0.16], [1.6, 0.25, 0.55, 0.25], [4.6, 0.25, 0.55, 0.25], [5.3, 0.28, 0.52, 0.2]], n: 3 }),
+    desc: 'A pair of flat beams outside the engines for the fins and tailerons.' },
+  ruFins57: { cat: 'wings', name: 'Sugoi-57 All-Moving Fins', w: 2.16, h: 3.6, depth: 0.16, twinZ: 2.6, mass: 0.35, stealth: 0.6, shape: 'vtail', body3d: 'ruFin', ru: 'fin', twinMirror: true,
+    ruFin: { rte: 0.167, tle: 0.333, tte: 0, cant: 0.454, all: true, star: 0.13 }, tier: 4, cost: 2200,
+    desc: 'Two small fins canted outwards (stealthy), each turning all in one piece as a rudder.' },
+  ruTail57: { cat: 'wings', name: 'Sugoi-57 Tailerons', w: 0.14, h: 2.8, mass: 0.5, shape: 'elevator',
+    wing: { area: 10, span: 10, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.35, plan: [[0.57, 1.4, -1.4], [1, -0.75, -1.75]] }, breakSpeed: 14, tier: 4, cost: 2000,
+    desc: 'All-moving tailplanes on the tail booms (open in the middle for the engines).' },
+  ruLevcon57: { cat: 'wings', name: 'Sugoi-57 LEVCONs', w: 0.12, h: 2.7, mass: 0.25, shape: 'elevator',
+    wing: { area: 5, span: 5.3, sweep: 1.1, mcrit: 0.95, wave: 0.5, control: 0.25, plan: [[0.377, 1.35, -1.35], [1, -1.9, -2.2]] }, breakSpeed: 14, tier: 4, cost: 2500,
+    desc: 'Leading-edge vortex controllers: moving root extensions ahead of the wing that pitch the nose like canards and keep it flying at wild angles.' },
+  ruWing57: { cat: 'wings', name: 'Sugoi-57 Wing', w: 0.36, h: 7.4, mass: 3.0, fuel: 1.0, shape: 'wing',
+    wing: { area: 74, span: 14.1, sweep: 0.6, taper: 0.8, slope: 3.0, stall: 0.45, mcrit: 0.95, wave: 0.5, load: 2.3, dihedral: 0, flaps: true, vne: 472, mmax: 2.6,
+      plan: [[0, 3.7, -3.7], [0.17, 3.7, -3.55], [0.369, 3.5, -3.35], [1, -1.44, -2.74]] },
+    breakSpeed: 14, tier: 4, cost: 7500, desc: 'A big 48° swept stealth wing with flaps, 14.1 m across. Put the LEVCONs ahead of its roots.' },
+
+  // the MyG-21 (after the MiG-21 Fishbed)
+  ruGearNose: { cat: 'airGear', name: 'Short Nose Gear', w: 0.78, h: 0.8, mass: 0.1, shape: 'gear', wheel: { r: 0.27, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8,
+    tier: 2, cost: 900, desc: 'A short single-wheel nose leg for a small fighter. Folds away (G).' },
+  ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radar: 8000, shape: 'ruLoft', ru: 'nose21',
+    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7500,
+    loft: ruG(-0.165, 9.4, { s: [[9.4, -0.62, 0.62, 0.62, 0], [11.0, -0.62, 0.62, 0.62, 0], [12.6, -0.59, 0.59, 0.59, 0], [13.6, -0.53, 0.53, 0.53, 0], [14.1, -0.48, 0.48, 0.48, 0]], open: true },
+      { s: [[13.8, -0.31, 0.31, 0.31, 0], [14.15, -0.25, 0.25, 0.25, 0], [14.5, -0.01, 0.01, 0, 0]] },
+      { s: [[9.4, -0.92, -0.3, 0.28, -0.55], [9.95, -0.93, -0.3, 0.3, -0.55]] }),
+    glass: ruG(-0.165, 9.4, { s: [[9.95, -0.93, -0.55, 0.3, -0.6], [10.4, -0.99, -0.52, 0.36, -0.57], [11.0, -1.0, -0.5, 0.37, -0.55], [11.5, -0.92, -0.52, 0.33, -0.57],
+      [11.85, -0.72, -0.56, 0.2, -0.6], [12.0, -0.63, -0.59, 0.05, -0.61]], n: 2, nb: 6, frames: [0.62] }),
+    desc: 'A round nose that is all intake, with the radar in the shock cone in its mouth and a small bubble canopy behind. A long pitot boom on top.' },
+  ruBody21: { cat: 'air', name: 'MyG-21 Fuselage', w: 1.57, h: 6.2, depth: 1.24, mass: 1.6, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [0.8, 2.4, 4.0, 5.4], tier: 2, cost: 3500,
+    loft: ruG(-0.165, 3.2, { s: [[3.2, -0.6, 0.6, 0.6, 0], [5.0, -0.61, 0.62, 0.62, 0.005], [9.4, -0.62, 0.62, 0.62, 0]] },
+      { s: [[4.4, -0.6, -0.3, 0.1, -0.45], [5.4, -0.8, -0.3, 0.2, -0.5], [8.0, -0.9, -0.3, 0.26, -0.55], [9.4, -0.92, -0.3, 0.28, -0.55]] }),
+    desc: 'A slim round fuselage full of fuel, with the dorsal spine running back from the canopy to the fin.' },
+  ruR25: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'MyG-21 Afterburning Turbojet', w: 1.2, h: 3.2, depth: 1.2, mass: 1.25, thrust: 103, ispSL: 4000, ispVac: 4000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.73 },
+    shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.0, exit: 0.4, paint: true }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 14500,
+    loft: ruG(0, 0, { s: [[1.0, -0.52, 0.52, 0.52], [3.2, -0.6, 0.6, 0.6]] }, { s: [[0, -0.45, 0.45, 0.45], [1.0, -0.5, 0.5, 0.5]], mat: 'steelDark' }),
+    desc: 'The rear fuselage of a small fighter with its afterburning turbojet and nozzle: thirsty, loud and fast. Afterburner above 90% throttle.' },
+  ruWing21: { cat: 'wings', name: 'MyG-21 Delta Wing', w: 0.25, h: 6.1, mass: 0.9, fuel: 0.3, shape: 'wing',
+    wing: { area: 23, span: 7.15, sweep: 0.8, taper: 0.9, slope: 2.6, stall: 0.5, mcrit: 0.95, wave: 0.45, load: 2.25, dihedral: 0, flaps: true, vne: 472,
+      plan: [[0, 3.05, -3.05], [0.173, 2.1, -3.05], [1, -2.45, -3.05]] },
+    breakSpeed: 14, tier: 2, cost: 3800, desc: 'A small, thin 57° delta with clipped tips, 7.2 m across: little drag at Mach 2, but it needs speed to lift.' },
+  ruTail21: { cat: 'wings', name: 'MyG-21 Stabilator', w: 0.12, h: 1.9, mass: 0.12, shape: 'elevator',
+    wing: { area: 4.5, span: 3.6, sweep: 0.96, taper: 0.6, mcrit: 0.95, wave: 0.5, control: 0.35 }, breakSpeed: 14, tier: 2, cost: 1000,
+    desc: 'A small swept all-moving tailplane, low on the tail behind a delta.' },
+  ruFin21: { cat: 'wings', name: 'MyG-21 Fin', w: 2.2, h: 4.1, depth: 0.16, mass: 0.15, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.024, tle: 0.27, tte: 0, cant: 0, star: 0.12 }, tier: 2, cost: 600, desc: 'A big fin swept back at 60°, with a rudder. Stand it on the spine at the tail.' },
+  ruAAM21: { cat: 'weapons', name: 'Early Heat Seekers', w: 0.4, h: 2.8, mass: 0.04, shape: 'missile', twinZ: 2.3, pod: true, aero: true, tier: 2, cost: 6000,
+    weapon: { kind: 'missile', seek: 'air', label: 'RV-13', ammo: 2, range: 4000, cone: 0.3, accel: 230, burn: 2.5, vmax: 800, turn: 24, dmg: 380, blast: 14, each: 75, life: 16 },
+    desc: 'A pair of first-generation heat seekers for a small wing: they lock on to a hot engine from 4 km, best from behind, and turn less hard than the newer ones. Flares fool them easily.' },
+  ruVentral21: { cat: 'wings', name: 'MyG-21 Ventral Fin', w: 0.3, h: 1.7, depth: 0.1, mass: 0.03, shape: 'vtail', body3d: 'ruFin', ru: 'fin',
+    ruFin: { rte: 0.1, tle: 0.45, tte: 0, cant: 0 }, tier: 2, cost: 300, desc: 'A little fin under the tail, for steadiness at Mach 2.' },
+
+  // ---- US 3rd- and 4th-generation look-alikes (FS-4, FS-16, FS-15): lofted bodies, see us4Rows at the end of this file
+  // shared by the FS look-alikes: single-wheel gear legs and the 20 mm cannon
+  us4LegS: { flush: true, cat: 'airGear', name: 'Short Gear Leg', w: 0.75, h: 0.7, mass: 0.1, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 700,
+    desc: 'A single small wheel on a short leg that folds away (G): the nose gear of a low-slung fighter.' },
+  us4LegM: { flush: true, cat: 'airGear', name: 'Gear Leg', w: 1.3, h: 0.9, mass: 0.22, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 900,
+    desc: 'A single wheel on a leg that folds away (G). Use a pair, one each side, for a fighter\'s main gear.' },
+  us4LegL: { flush: true, cat: 'airGear', name: 'Long Gear Leg', w: 1.75, h: 0.9, mass: 0.28, shape: 'gear', wheel: { r: 0.42, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8, tier: 2, cost: 1100,
+    desc: 'A single wheel on a long leg that folds away (G): a tall fighter\'s nose gear, or one under each wing for a wide stance.' },
+  us4Vulcan: { flush: true, cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 7000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
+    desc: 'Six spinning 20 mm barrels: a short, savage burst for dogfights. Tuck it inside the fuselage with just the muzzle at a gun port.' },
+  // FS-4 (3rd generation, after the F-4 Phantom II)
+  us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radar: 14000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-4.3, -0.71, 0.37, 1.09, 0.73, 2.6, 3.2], [-3.3, -0.63, 0.35, 1.07, 0.7, 2.6, 3], [-2.1, -0.53, 0.33, 1.03, 0.68, 2.5, 2.8], [-0.9, -0.47, 0.32, 0.97, 0.66, 2.4, 2.6], [0.1, -0.43, 0.31, 0.91, 0.63, 2.3, 2.4], [1.3, -0.35, 0.31, 0.82, 0.57, 2.2, 2.2], [2.3, -0.25, 0.32, 0.73, 0.48, 2, 2], [3.4, -0.07, 0.33, 0.59, 0.31, 2, 2], [4.3, 0.31, 0.33, 0.35, 0, 2, 2]] },
+      { st: [[-4.3, -0.83, -0.71, -0.55, 0.3, 2], [-3.7, -0.99, -0.73, -0.47, 0.4, 2], [-2.9, -1.09, -0.75, -0.47, 0.46, 2], [-2.1, -1.09, -0.75, -0.47, 0.47, 2], [-1.3, -1.03, -0.73, -0.47, 0.46, 2], [-0.6, -0.95, -0.68, -0.47, 0.42, 2], [-0.1, -0.65, -0.53, -0.45, 0.28, 2], [0.2, -0.43, -0.43, -0.41, 0.05, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.85, -0.95], [-0.91, -2.6]],
+      frames: [-0.18, -1.6, -1.8, -3.65],
+      deco: [['tone', 2.3, '#2c3034'], ['line', -0.47, -0.9, 0.97, -0.9], ['line', -0.63, -3.3, 1.07, -3.3]] },
+    desc: 'A long drooping radome and two seats in a row under a framed canopy, pilot in front and radar operator behind. The Side Intakes go either side of its back end.' },
+  us4f4Body: { cat: 'air', name: 'FS-4 Centre Fuselage', w: 1.98, h: 5.1, depth: 1.48, fill: 0.82, mass: 2.2, fuel: 3.2, tier: 2, cost: 2800, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.55, -0.77, 0.21, 0.99, 0.74, 3, 3.5], [-1.05, -0.79, 0.21, 0.99, 0.74, 3, 3.5], [0.45, -0.81, 0.21, 0.97, 0.74, 3, 3.4], [2.55, -0.87, 0.21, 0.93, 0.73, 2.6, 3.2]] },
+      { st: [[-2.25, -0.77, -0.75, -0.64, 0.04, 2], [-0.55, -0.87, -0.77, -0.64, 0.26, 2], [1.15, -0.94, -0.81, -0.64, 0.3, 2], [2.55, -0.99, -0.86, -0.69, 0.3, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.79, -0.05, 0.99, -0.05], ['line', -0.84, 1.75, 0.95, 1.75]] },
+    desc: 'The middle of a heavy twin-jet fighter: the spine behind the canopy, a big fuel tank and wells for radar missiles underneath. The wing goes through it, low.' },
+  us4f4Intakes: { cat: 'air', name: 'FS-4 Side Intakes', w: 1.76, h: 7.8, depth: 0.85, fill: 0.81, mass: 1.4, twinZ: 1.12, twinMirror: true, tier: 2, cost: 2000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.9, -0.88, 0.1, 0.88, 0.38, 3.5], [-1.9, -0.8, 0.1, 0.86, 0.38, 4], [0.1, -0.7, 0.08, 0.84, 0.38, 4.5], [1.6, -0.62, 0.06, 0.8, 0.38, 5], [2.8, -0.58, 0.06, 0.78, 0.38, 5]], front: 'intake' }],
+      plates: [[-0.66, 0.84, 2.3, 3.9, -0.4, 0.05]],
+      deco: [['line', -0.6, 2.2, 0.8, 2.2], ['line', -0.8, -1.8, 0.86, -1.8]] },
+    desc: 'A pair of tall intakes with splitter plates standing off the fuselage ahead of them, and the ducts behind. Put them either side of the centre fuselage, flush.' },
+  us4f4Engines: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-4 Twin Turbojets', w: 1.76, h: 5.5, depth: 3, fill: 0.91, mass: 4.5, thrust: 211, ispSL: 4200, ispVac: 4200, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.6 }, plume: 'jet', maxTemp: 2300, tier: 2, cost: 17000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[0.25, -0.21, 0.25, 0.71, 0.46, 2], [1.45, -0.42, 0.18, 0.8, 0.56, 2.4], [2.75, -0.62, 0.1, 0.88, 0.62, 3]], z: [-0.62, 0.62], back: 'open', hide: true },
+      { st: [[-2.75, -0.5, -0.36, -0.24, 0.1, 2], [-1.95, -0.6, -0.4, -0.16, 0.3, 2.5], [-0.75, -0.7, -0.36, -0.04, 0.46, 3], [0.45, -0.78, -0.24, 0.24, 0.66, 3], [1.65, -0.84, -0.04, 0.62, 1.1, 3.4], [2.75, -0.88, 0.1, 0.88, 1.5, 3.6]] }],
+      noz: [{ x: 0.25, y0: 0.65, y1: 0.1, r0: 0.52, r1: 0.44, z: [-0.62, 0.62] }],
+      deco: [['line', -0.8, 1.25, 0.7, 1.25]] },
+    desc: 'The back of a 1960s twin-jet fighter: two thirsty afterburning turbojets low down, their nozzles tucked under the tail boom that carries the fin and stabilator. Mach 2 and more up high.' },
+  us4f4Wing: { cat: 'wings', name: 'FS-4 Dog-Tooth Wing', w: 0.4, h: 6.6, mass: 2.6, fuel: 0.6, shape: 'wing', wing: { area: 49.2, span: 11.7, sweep: 0.773, taper: 0.77, flaps: true, stall: 0.36, mcrit: 0.85, wave: 0.5, cd0: 0.01, load: 2.15, dihedral: 0.08, vne: 444, mmax: 2.6, crank: { at: 0.64, d0: 0, d1: 0.21, tooth: 0.12 } }, breakSpeed: 14, tier: 2, cost: 4000,
+    desc: 'A swept wing whose outer panels tilt up 12° beyond a dog-tooth notch in the leading edge: the FS-4\'s trademark, added to cure a wobble. Mount it low through the fuselage.' },
+  us4f4Stab: { cat: 'wings', name: 'Anhedral Stabilator', w: 0.2, h: 2.6, mass: 0.4, shape: 'elevator', wing: { area: 9.3, span: 5.4, sweep: 0.666, taper: 0.615, dihedral: -0.4, control: 0.35 }, breakSpeed: 14, tier: 2, cost: 1200,
+    desc: 'An all-moving tailplane that droops 23° (anhedral), so it stays out of the wing\'s wake at high angles. Mount it on the tail boom.' },
+  us4f4Fin: { cat: 'wings', name: 'FS-4 Tail Fin', w: 2.17, h: 5.05, mass: 0.3, shape: 'vtail', vtail: { tle: 0.29, tte: 0.08 }, tier: 2, cost: 900,
+    desc: 'A long, steeply swept fin with a rudder, running from the spine to the end of the tail boom.' },
+  us4f4Gun: { flush: true, cat: 'weapons', name: 'FS-4 Chin Gun', w: 0.64, h: 3.25, depth: 0.44, fill: 0.66, mass: 0.25, tier: 2, cost: 4500, weapon: { kind: 'gun', ammo: 640, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 }, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
+    desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
+  // FS-16 (4th generation, after the F-16)
+  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radar: 15000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 6500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.25, -0.27, 0.48, 0.93, 0.68, 2.6, 3.6], [-2.25, -0.23, 0.46, 0.93, 0.64, 2.6, 3.4], [-1.25, -0.2, 0.45, 0.93, 0.61, 2.6, 3.2], [-0.25, -0.19, 0.43, 0.93, 0.57, 2.6, 3], [0.35, -0.17, 0.41, 0.9, 0.53, 2.4, 2.8], [1.05, -0.1, 0.37, 0.81, 0.45, 2.2, 2.4], [1.75, 0.02, 0.33, 0.65, 0.31, 2, 2], [2.35, 0.17, 0.31, 0.47, 0.16, 2, 2], [2.75, 0.3, 0.3, 0.3, 0, 2, 2]] },
+      { st: [[-3.25, -0.61, -0.43, -0.12, 0.3, 2], [-2.85, -0.75, -0.43, -0.09, 0.37, 2], [-2.35, -0.87, -0.43, -0.09, 0.41, 2], [-1.75, -0.93, -0.44, -0.09, 0.43, 2], [-1.15, -0.9, -0.43, -0.09, 0.42, 2], [-0.55, -0.74, -0.37, -0.09, 0.38, 2], [-0.05, -0.45, -0.25, -0.09, 0.28, 2], [0.3, -0.19, -0.17, -0.12, 0.06, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.59, -1.65]],
+      probe: [0.3, 2.75, 3.25, 0.03],
+      deco: [['tone', 1.05, -0.1], ['line', -0.17, 0.35, 0.9, 0.35], ['line', -0.27, -2.65, 0.93, -2.65]] },
+    desc: 'Pointed radome, chined nose and a frameless bubble canopy: the pilot sits high with a view all round. Hang the Chin Intake under it.' },
+  us4f16Body: { cat: 'air', name: 'FS-16 Blended Fuselage', w: 1.63, h: 5.6, depth: 1.64, fill: 0.74, mass: 2.3, fuel: 2.6, tier: 3, cost: 3500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.8, -0.525, 0.275, 0.815, 0.78, 2.4, 3], [-2.2, -0.545, 0.295, 0.815, 0.8, 2.4, 3], [-1.2, -0.565, 0.315, 0.815, 0.82, 2.4, 3.2], [-0.2, -0.585, 0.315, 0.795, 0.82, 2.4, 3.4], [0.8, -0.585, 0.315, 0.765, 0.8, 2.4, 3.6], [1.8, -0.545, 0.295, 0.735, 0.75, 2.5, 3.6], [2.8, -0.485, 0.265, 0.715, 0.68, 2.6, 3.6]] },
+      { st: [[-2.6, -0.525, -0.505, -0.385, 0.02, 2], [-2, -0.585, -0.485, -0.335, 0.16, 2], [-1.2, -0.625, -0.485, -0.335, 0.2, 2], [0.3, -0.685, -0.525, -0.335, 0.24, 2], [1.8, -0.755, -0.585, -0.335, 0.28, 2], [2.8, -0.815, -0.625, -0.335, 0.3, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.685, 0.3, 0.795, 0.3], ['line', -0.585, -1.8, 0.815, -1.8]] },
+    desc: 'The wide, flat middle of a blended-body fighter, with the dorsal spine on top and fuel inside. The wing goes through it.' },
+  us4f16Intake: { cat: 'air', name: 'FS-16 Chin Intake', w: 0.64, h: 4.2, depth: 1.32, fill: 0.73, mass: 0.4, tier: 3, cost: 1200, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-2.1, -0.47, -0.37, -0.3, 0.66, 3], [-1.6, -0.47, -0.24, -0.02, 0.62, 3], [-0.9, -0.5, -0.14, 0.18, 0.58, 3], [-0.1, -0.52, -0.09, 0.28, 0.54, 3, 3.2], [0.9, -0.54, -0.08, 0.32, 0.51, 3, 3.2], [1.7, -0.54, -0.08, 0.32, 0.49, 3], [2.1, -0.54, -0.08, 0.3, 0.47, 3]], front: 'intake', rake: -0.25 }] },
+    desc: 'The single gaping intake that hangs under the cockpit and feeds the engine. Put it under the nose and the fuselage; the nose gear folds into it.' },
+  us4f16Engine: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-16 Afterburning Turbofan', w: 1.34, h: 3.4, depth: 2.04, fill: 0.66, mass: 2.3, thrust: 128, ispSL: 5200, ispVac: 5200, gimbal: 0.02, air: { kind: 'jet', vmax: 750, ab: 1.7 }, plume: 'jet', maxTemp: 2200, tier: 3, cost: 17500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-0.6, -0.51, 0.07, 0.65, 0.58, 2, 2], [0.1, -0.57, 0.09, 0.67, 0.66, 2.2, 2.6], [0.9, -0.63, 0.11, 0.67, 0.74, 2.3, 2.8], [1.7, -0.67, 0.13, 0.67, 0.78, 2.4, 3]] },
+      { st: [[-1.45, 0.02, 0.12, 0.21, 0.12, 2.5], [-1.1, -0.03, 0.12, 0.27, 0.22, 3], [-0.1, -0.05, 0.12, 0.31, 0.3, 3], [0.9, -0.03, 0.12, 0.31, 0.28, 3], [1.6, 0.02, 0.12, 0.25, 0.1, 3]], z: [-0.72, 0.72], hide: true }],
+      noz: [{ x: 0.07, y0: -0.55, y1: -1.7, r0: 0.59, r1: 0.47 }],
+      deco: [['line', -0.63, 0.9, 0.67, 0.9]] },
+    desc: 'The tail of a single-engine fighter: one big afterburning turbofan, the petal nozzle and the fairings the tailplanes hinge on. Afterburner above 90% throttle: Mach 2 up high.' },
+  us4f16Wing: { cat: 'wings', name: 'FS-16 Cropped Delta Wing', w: 0.22, h: 4.8, mass: 1.3, fuel: 0.6, shape: 'wing', wing: { area: 27.9, span: 9.45, sweep: 0.532, taper: 0.773, flaps: true, stall: 0.4, mcrit: 0.9, wave: 0.6, load: 2.72, dihedral: 0, vne: 450, mmax: 2.4 }, breakSpeed: 14, tier: 3, cost: 4500,
+    desc: 'A small, thin cropped delta with flaperons and a straight trailing edge: agile and quick, good for 9 g. Put it through the fuselage at the waist.' },
+  us4f16Lerx: { cat: 'wings', name: 'FS-16 Strakes (LERX)', w: 0.1, h: 5.84, mass: 0.12, shape: 'wing', wing: { area: 2.6, span: 2.3, sweep: 1.355, taper: 0.993, slope: 1.6, stall: 0.9, mcrit: 0.95, wave: 0.4, load: 2, vne: 556 }, breakSpeed: 14, tier: 3, cost: 1200,
+    desc: 'The long blended strakes from the cockpit to the wing root: they keep the wing flying at angles that would stall it. Line their tips up with the wing\'s leading edge.' },
+  us4f16Fin: { cat: 'wings', name: 'FS-16 Tail Fin', w: 2.6, h: 3.9, mass: 0.2, shape: 'vtail', vtail: { tle: 0.32, tte: 0.03 }, tier: 3, cost: 1000,
+    desc: 'A single tall, swept fin with a rudder. Mount it on the spine over the engine.' },
+  us4f16Stab: { cat: 'wings', name: 'FS-16 Stabilators', w: 0.16, h: 2.64, mass: 0.25, shape: 'elevator', wing: { area: 5.9, span: 5.6, sweep: 0.596, taper: 0.68, dihedral: -0.175, control: 0.35 }, breakSpeed: 14, tier: 3, cost: 1500,
+    desc: 'All-moving swept tailplanes, drooping a little (anhedral). They pitch the plane and help it roll. Mount them on the tail fairings.' },
+  us4f16Ventral: { cat: 'wings', name: 'Ventral Fins', w: 0.6, h: 1.4, mass: 0.04, shape: 'vtail', twinZ: 0.62, twinMirror: true, vtail: { tle: 0.45, tte: 0, cant: 0.26 }, tier: 3, cost: 400,
+    desc: 'A pair of small fins under the tail, splayed outwards: they keep the nose straight at high angles of attack.' },
+  // FS-15 (4th generation, after the F-15)
+  us4f15Nose: { cat: 'cabins', name: 'FS-15 Radar Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radar: 18000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.9, -0.57, 0.45, 1.15, 0.71, 2.6, 3], [-3.1, -0.53, 0.43, 1.11, 0.7, 2.6, 3], [-2.1, -0.45, 0.4, 1.05, 0.68, 2.6, 2.8], [-0.9, -0.39, 0.37, 1.01, 0.67, 2.5, 2.6], [0.3, -0.37, 0.35, 0.99, 0.66, 2.4, 2.4], [1.3, -0.32, 0.33, 0.93, 0.62, 2.2, 2.2], [2.3, -0.19, 0.31, 0.79, 0.49, 2, 2], [3.2, 0.02, 0.29, 0.57, 0.28, 2, 2], [3.9, 0.27, 0.27, 0.27, 0, 2, 2]] },
+      { st: [[-3.9, -0.77, -0.6, -0.37, 0.38, 2], [-3.3, -0.95, -0.63, -0.33, 0.46, 2], [-2.5, -1.1, -0.65, -0.31, 0.5, 2], [-1.7, -1.15, -0.65, -0.31, 0.5, 2], [-0.9, -1.07, -0.63, -0.31, 0.47, 2], [-0.2, -0.77, -0.53, -0.31, 0.38, 2], [0.4, -0.39, -0.37, -0.31, 0.08, 2]], kind: 'glass', front: 'open', back: 'open' }],
+      seats: [[-0.85, -1.5]],
+      frames: [-0.35],
+      deco: [['tone', 1.3, -0.1], ['line', -0.32, 1.3, 0.93, 1.3], ['line', -0.5, -3.2, 1.11, -3.2]] },
+    desc: 'A big radome and a tall bubble canopy, the pilot sitting high above the box intakes. Put the FS-15 Box Intakes either side of its back end.' },
+  us4f15Body: { cat: 'air', name: 'FS-15 Centre Fuselage', w: 1.97, h: 7.6, depth: 1.42, fill: 0.82, mass: 2.6, fuel: 4.4, tier: 3, cost: 4000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-3.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [-1.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [0.2, -0.795, 0.255, 0.985, 0.71, 3, 3.5], [2.2, -0.795, 0.245, 0.965, 0.71, 2.8, 3.2], [3.8, -0.785, 0.235, 0.935, 0.71, 2.6, 3]] },
+      { st: [[-0.4, -0.785, -0.765, -0.665, 0.04, 2], [1.2, -0.865, -0.785, -0.665, 0.3, 2], [2.7, -0.935, -0.815, -0.665, 0.36, 2], [3.8, -0.985, -0.815, -0.665, 0.38, 2]], back: 'open', hide: true }],
+      deco: [['line', -0.795, 0.2, 0.985, 0.2], ['line', -0.785, -2.2, 0.985, -2.2]] },
+    desc: 'The middle of a twin-engine fighter: a flat deck between the intake ducts, a big fuel tank, the dorsal spine behind the canopy. The wing goes through it.' },
+  us4f15Intakes: { cat: 'air', name: 'FS-15 Box Intakes', w: 1.8, h: 9.8, depth: 1.1, fill: 0.94, mass: 1.6, twinZ: 1.27, tier: 3, cost: 2500, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-4.9, -0.9, 0.02, 0.82, 0.55, 3.5, 3.5], [-2.9, -0.9, 0.02, 0.87, 0.55, 4, 4], [-0.9, -0.88, 0.02, 0.9, 0.55, 5, 5], [1.1, -0.73, 0.07, 0.9, 0.55, 6, 6], [3.1, -0.53, 0.17, 0.9, 0.55, 6, 6], [4.9, -0.43, 0.22, 0.9, 0.55, 6, 6]], front: 'intake', rake: 0.45 }],
+      deco: [['line', -0.48, 3.7, 0.9, 3.3], ['line', -0.88, -1.9, 0.9, -1.9]] },
+    desc: 'A pair of big square intakes with raked mouths, standing just clear of the cockpit, and the ducts behind them. Put them either side of the centre fuselage, flush.' },
+  us4f15Engines: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-15 Twin Turbofans', w: 1.77, h: 4, depth: 3.7, fill: 0.95, mass: 4, thrust: 255, ispSL: 5000, ispVac: 5000, gimbal: 0.02, air: { kind: 'jet', vmax: 800, ab: 1.7 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 25000, shape: 'us4body',
+    body: { tubes: [
+      { st: [[-1.1, -0.585, 0.035, 0.655, 0.62, 2], [0, -0.665, 0.035, 0.755, 0.66, 2.2], [1, -0.765, 0.055, 0.835, 0.68, 2.6], [2, -0.885, 0.085, 0.885, 0.71, 3]], z: [-0.66, 0.66], back: 'open' },
+      { st: [[-1.7, -0.585, -0.405, -0.205, 0.16, 3], [-0.8, -0.665, -0.385, -0.045, 0.24, 3.5], [0.5, -0.765, -0.325, 0.335, 0.3, 4], [2, -0.885, 0.035, 0.835, 0.3, 4]], z: [-1.55, 1.55], hide: true },
+      { st: [[-0.4, -0.585, -0.415, -0.265, 0.15, 2.5], [0.8, -0.785, -0.265, 0.235, 0.5, 3], [2, -0.885, 0.155, 0.885, 0.71, 3, 3.5]], hide: true }],
+      noz: [{ x: 0.035, y0: -1.05, y1: -2, r0: 0.64, r1: 0.52, z: [-0.66, 0.66] }],
+      deco: [['line', -0.765, 0.6, 0.755, 0.6]] },
+    desc: 'The back end of a twin-engine fighter: two afterburning turbofans side by side and the tail booms that carry its fins and stabilators. Afterburner above 90% throttle: Mach 2.5 up high.' },
+  us4f15Wing: { cat: 'wings', name: 'FS-15 Wing', w: 0.38, h: 6.9, mass: 2.5, fuel: 0.8, shape: 'wing', wing: { area: 56.5, span: 13.05, sweep: 0.674, taper: 0.75, flaps: true, stall: 0.36, mcrit: 0.9, wave: 0.4, cd0: 0.009, load: 2.36, dihedral: 0, vne: 450, mmax: 2.85 }, breakSpeed: 14, tier: 3, cost: 5500,
+    desc: 'A big swept wing with cropped tips: huge area for its weight, so it turns hard and climbs like a rocket. Mount it high, through the top of the intake ducts.' },
+  us4f15Tails: { cat: 'wings', name: 'FS-15 Twin Tails', w: 2.9, h: 3.9, mass: 0.5, shape: 'vtail', twinZ: 1.55, vtail: { tle: 0.45, tte: 0 }, tier: 3, cost: 1200,
+    desc: 'A pair of tall upright fins with rudders, one on each tail boom.' },
+  us4f15Stab: { cat: 'wings', name: 'FS-15 Stabilators', w: 0.2, h: 4.03, mass: 0.45, shape: 'elevator', wing: { area: 10.4, span: 8.6, sweep: 0.793, taper: 0.752, control: 0.35 }, breakSpeed: 14, tier: 3, cost: 1800,
+    desc: 'Big all-moving swept tailplanes that reach out behind the nozzles. Mount them on the tail booms.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -564,9 +950,235 @@ function partsOverlap(a, b, m = 0.02, mz = m) {
 function isSurface(d) { return !!(d.wing || d.shape === 'vtail'); }
 function surfaceKind(d) { return d.wing ? 'wing' : d.shape === 'vtail' ? 'fin' : null; }
 function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def); return sa !== sb && !!(sa || sb); }
+// ---------------------------------------------------------------------------
+// Outlines. A part's 3D model (parts3d.js) is built from its outline: revolved for the round shapes
+// (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
+// (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
+const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin']);
+const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
+  wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
+  gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
+  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body' };
+
+// A stand-in canvas context that records the path calls partPath() makes as polygons
+// [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
+function pathRecorder() {
+  const polys = [], stack = [];
+  let cur = null, has = false, sx = 0, sy = 0, cx = 0, cy = 0, m = [1, 0, 0, 1, 0, 0];
+  const pt = (x, y) => { cur.push(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]); cx = x; cy = y; };
+  const ensure = (x, y) => { if (!cur) c.moveTo(has ? cx : x, has ? cy : y); };
+  const c = {
+    polys,
+    beginPath() { polys.length = 0; cur = null; has = false; },
+    moveTo(x, y) { cur = []; polys.push(cur); pt(x, y); sx = x; sy = y; has = true; },
+    lineTo(x, y) { if (!cur && !has) c.moveTo(x, y); else { ensure(x, y); pt(x, y); } },
+    closePath() { if (cur) { cur = null; cx = sx; cy = sy; } },
+    bezierCurveTo(x1, y1, x2, y2, x, y) {
+      ensure(x1, y1);
+      const x0 = cx, y0 = cy;
+      for (let i = 1; i <= 16; i++) {
+        const t = i / 16, u = 1 - t;
+        pt(u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x, u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y);
+      }
+    },
+    quadraticCurveTo(x1, y1, x, y) {
+      ensure(x1, y1);
+      const x0 = cx, y0 = cy;
+      for (let i = 1; i <= 12; i++) { const t = i / 12, u = 1 - t; pt(u * u * x0 + 2 * u * t * x1 + t * t * x, u * u * y0 + 2 * u * t * y1 + t * t * y); }
+    },
+    arc(x, y, r, a0, a1, ccw) { c.ellipse(x, y, r, r, 0, a0, a1, ccw); },
+    ellipse(x, y, rx, ry, rot, a0, a1, ccw) {
+      let s = a1 - a0;
+      if (!ccw) s = s >= TAU ? TAU : ((s % TAU) + TAU) % TAU;
+      else s = -s >= TAU ? -TAU : -((((a0 - a1) % TAU) + TAU) % TAU);
+      const n = Math.max(2, Math.ceil(Math.abs(s) / (TAU / 48))), cr = Math.cos(rot), sr = Math.sin(rot);
+      for (let i = 0; i <= n; i++) {
+        const a = a0 + (s * i) / n, ex = rx * Math.cos(a), ey = ry * Math.sin(a);
+        c.lineTo(x + ex * cr - ey * sr, y + ex * sr + ey * cr);
+      }
+    },
+    rect(x, y, w, h) { c.moveTo(x, y); pt(x + w, y); pt(x + w, y + h); pt(x, y + h); c.closePath(); },
+    roundRect(x, y, w, h) { c.rect(x, y, w, h); },
+    save() { stack.push(m.slice()); },
+    restore() { if (stack.length) m = stack.pop(); },
+    translate(x, y) { m[4] += m[0] * x + m[2] * y; m[5] += m[1] * x + m[3] * y; },
+    rotate(a) {
+      const co = Math.cos(a), si = Math.sin(a), [a0, b0, c0, d0] = m;
+      m[0] = a0 * co + c0 * si; m[1] = b0 * co + d0 * si; m[2] = c0 * co - a0 * si; m[3] = d0 * co - b0 * si;
+    },
+    scale(x, y) { m[0] *= x; m[1] *= x; m[2] *= y; m[3] *= y; },
+  };
+  return new Proxy(c, { get: (o, k) => (k in o ? o[k] : NOOP) });
+}
+
+// 3D silhouettes for the aircraft and ground shapes follow the spec geometry rather than partPath, so a
+// canopy bubble in a 2D outline never gets revolved into the hull. Coordinates are relative to the centre.
+const PART_PROFILE = {
+  probeL(c, w, h) { c.rect(-w / 2, -h / 2, w, h * 0.75); },
+  ion(c, w, h) {
+    const y = -h / 2 + h * 0.3;
+    c.rect(-w * 0.4, y, w * 0.8, h * 0.7);
+    c.moveTo(-w * 0.4, y); c.ellipse(0, y, w * 0.4, h * 0.3, 0, Math.PI, TAU); c.closePath();
+  },
+  cockpit(c, w, h) { // nose at +y, canopy (added separately) on the -x side
+    const b = -h / 2, t = h / 2;
+    c.moveTo(-w / 2, b); c.lineTo(w / 2, b); c.lineTo(w / 2, b + h * 0.28);
+    c.bezierCurveTo(w / 2, b + h * 0.72, w * 0.26, t, w * 0.12, t);
+    c.lineTo(0, t);
+    c.bezierCurveTo(-w * 0.3, t, -w / 2, b + h * 0.88, -w / 2, b + h * 0.6);
+    c.closePath();
+  },
+  tailcone(c, w, h, d) { // the -x edge stays straight; the +x edge sweeps up to it
+    const b = -h / 2, t = h / 2, bw = d.botW || w * 0.35;
+    c.moveTo(-w / 2, b); c.lineTo(-w / 2 + bw, b);
+    c.bezierCurveTo(-w / 2 + bw + w * 0.12, b + h * 0.4, w / 2, t - h * 0.5, w / 2, t);
+    c.lineTo(-w / 2, t); c.closePath();
+  },
+  jet(c, w, h) {
+    const b = -h / 2, t = h / 2;
+    c.moveTo(-w * 0.3, b); c.lineTo(w * 0.3, b);
+    c.bezierCurveTo(w * 0.4, b + h * 0.22, w / 2, b + h * 0.4, w / 2, b + h * 0.62);
+    c.bezierCurveTo(w / 2, t - h * 0.1, w * 0.47, t, w * 0.43, t);
+    c.lineTo(-w * 0.43, t);
+    c.bezierCurveTo(-w * 0.47, t, -w / 2, t - h * 0.1, -w / 2, b + h * 0.62);
+    c.bezierCurveTo(-w / 2, b + h * 0.4, -w * 0.4, b + h * 0.22, -w * 0.3, b);
+    c.closePath();
+  },
+  jetnose(c, w, h, d) { HULLS.jetnose(c, 0, 0, w, h, d); },
+  airnose(c, w, h, d) { HULLS.airnose(c, 0, 0, w, h, d); },
+  float(c, w, h, d) { HULLS.float(c, 0, 0, w, h, d); },
+  droptank(c, w, h, d) { HULLS.droptank(c, 0, 0, w, h, d); },
+  cab(c, w, h) { // side view, driving towards +x
+    const l = -w / 2, r = w / 2, b = -h / 2, t = h / 2;
+    c.moveTo(l, b); c.lineTo(r, b); c.lineTo(r, b + h * 0.45); c.lineTo(r - w * 0.05, b + h * 0.53);
+    c.lineTo(r - w * 0.3, b + h * 0.56); c.lineTo(r - w * 0.46, t); c.lineTo(l + w * 0.06, t); c.lineTo(l, t - h * 0.08);
+    c.closePath();
+  },
+};
+
+function partOutline(d, flip) {
+  const c = pathRecorder(), P = PART_PROFILE[d.shape];
+  if (P) P(c, d.w, d.h, d); else partPath(c, outlineDummy(d, flip));
+  return c.polys.filter((q) => q.length >= 6);
+}
+
+// Horizontal extent of the outline at height y.
+function outlineSpan(polys, y) {
+  let lo = Infinity, hi = -Infinity;
+  for (const P of polys) for (let i = 0, n = P.length; i < n; i += 2) {
+    const j = (i + 2) % n, y1 = P[i + 1], y2 = P[j + 1];
+    if ((y1 <= y) !== (y2 <= y)) { const x = P[i] + ((y - y1) * (P[j] - P[i])) / (y2 - y1); if (x < lo) lo = x; if (x > hi) hi = x; }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+const PART_FLAT_DEPTH = { fin: 0.12 };
+const NOOP = () => {};
+// A part to draw an outline from: at the origin, unturned.
+function outlineDummy(d, flip) { return { def: d, type: d.type, x: 0, y: 0, flip: !!flip, skin: null, deployed: 0, used: false, firing: 0, temp: AMBIENT_T, spin: 0, deflect: 0 }; }
+
+// The builder's clash test reads the parts' 3D shapes, height by height along the axis they run on: a round part
+// (revolved in 3D) is a disc at each height, as wide as its outline there; a flat one (extruded) is its outline,
+// as deep as its model; a lofted jet body is its side outline, as deep as its box. Parts built some other way
+// (gear, props, guns, wings, rocket fins) keep their box. A round part's 2D path counts as well as its 3D
+// profile, so a canopy drawn in 2D still takes room. Cached per type and side.
+// The model's fittings that stand out of its outline (canopies, nozzle lips, intake frames): how far, in metres
+// (CLASH_PAD: the shape grows by that much all round), or so far that the part keeps its box (CLASH_BOXED: canopies
+// of the tandem, stealth and look-alike noses, float struts, drop-tank pylons, radiator fins, tail booms).
+// Measured from the 3D models; test/browser/builder-shapes.mjs checks every model still fits inside its shape.
+const CLASH_PAD = { cockpit: 0.11, cockpitS: 0.09, cockpitJet: 0.22, cockpitAir: 0.21, cockpitWarbird: 0.11, heatShield: 0.07, heatShieldL: 0.1,
+  us4f4Nose: 0.04, us4f4Intakes: 0.08, us4f4Gun: 0.05, us4f16Nose: 0.03, us4f16Intake: 0.16, us4f15Nose: 0.04, us4f15Intakes: 0.05,
+  ruIRST: 0.13, ruAL41F1: 0.12, ruAL41: 0.12, ruAL31: 0.11, ruR25: 0.1, ruRD33: 0.1, ruNacelle27: 0.03, ruNacelle29: 0.03, ruNacelle57: 0.03,
+  us5Eng22: 0.11, us5Eng35: 0.11, us5Gun: 0.13, us5Bay22: 0.04 };
+const CLASH_BOXED = new Set(['prometheus', 'hawk', 'floats', 'dropTanks', 'cockpitTandem', 'cockpitStealth', 'us5Nose22', 'us5Nose35', 'us5Aft35', 'ruNose21',
+  'us4f4Engines', 'us4f16Engine', 'us4f15Engines']);
+const CLASH_STEP = 0.01; // (the outline's extent is looked up every centimetre up the part)
+const CLASH_SHAPES = new Map();
+function clashShape(d, flip) {
+  const key = d.type + (flip ? '|f' : '');
+  let S = CLASH_SHAPES.get(key);
+  if (S) return S;
+  const r = d.body3d || (d.shape === 'sep' && d.side ? 'box' : PART_RECIPE[d.shape] || (LATHE_SHAPES.has(d.shape) ? 'lathe' : 'extrude'));
+  const keep = CLASH_BOXED.has(d.type), round = r === 'lathe' && !keep, flat = r === 'extrude' && !d.fin && !d.leg && !keep, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body') && !d.wheel && !isSurface(d) && !keep;
+  let polys = round || flat || loft ? partOutline(d, flip) : [];
+  if (round && PART_PROFILE[d.shape]) { const c = pathRecorder(); partPath(c, outlineDummy(d, flip)); polys = polys.concat(c.polys.filter((q) => q.length >= 6)); }
+  if (!polys.length) S = { box: true, round: false, polys: [[-d.w / 2, -d.h / 2, d.w / 2, -d.h / 2, d.w / 2, d.h / 2, -d.w / 2, d.h / 2]], ys: [-d.h / 2, d.h / 2], depth: 0, pad: 0 };
+  else {
+    S = { box: false, round, polys, ys: [...new Set(polys.flatMap((P) => P.filter((v, i) => i & 1)))].sort((a, b) => a - b), depth: flat ? d.depth || PART_FLAT_DEPTH[d.shape] || Math.min(d.w, 1) : 0, pad: CLASH_PAD[d.type] || 0, w: d.w, h: d.h };
+    const n = Math.ceil(d.h / CLASH_STEP) + 1; // (NaN: no outline at that height)
+    S.lo = new Float32Array(n); S.hi = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const sp = outlineSpan(polys, Math.min(d.h / 2, -d.h / 2 + i * CLASH_STEP)); S.lo[i] = sp ? sp[0] : NaN; S.hi[i] = sp ? sp[1] : NaN; }
+  }
+  CLASH_SHAPES.set(key, S);
+  return S;
+}
+// The shape's extent across at local height ly: [lo, hi, solid]. Past the ends of its outline, but still inside its
+// box, it is the box (solid: fittings drawn beyond the outline, such as nozzles); null in a gap of the outline.
+function clashSpan(S, ly) {
+  if (S.box || ly < S.ys[0] - 1e-6 || ly > S.ys[S.ys.length - 1] + 1e-6) return [-S.w / 2 || 0, S.w / 2 || 0, true];
+  const f = (ly + S.h / 2) / CLASH_STEP, i = Math.max(0, Math.min(S.lo.length - 2, Math.floor(f))), t = f - i;
+  const a0 = S.lo[i], a1 = S.lo[i + 1], b0 = S.hi[i], b1 = S.hi[i + 1];
+  if (a0 !== a0) return a1 !== a1 ? null : [a1, b1, false];
+  if (a1 !== a1) return [a0, b0, false];
+  return [a0 + (a1 - a0) * t, b0 + (b1 - b0) * t, false];
+}
+// A part's turn: 0 to 3 quarters. Along its own axis (y, or x when turned a quarter) a local height ly sits at u.
+function clashU(p, k, ly) { return k === 0 ? p.y + ly : k === 1 ? p.x - ly : k === 2 ? p.y - ly : p.x + ly; }
+// Where the shape is across that axis at u, in part space: [v0, v1, solid], or null where it has no outline.
+function clashSection(p, S, k, u) {
+  const s = S.box ? [-p.def.w / 2, p.def.w / 2, true] : clashSpan(S, k === 0 ? u - p.y : k === 1 ? p.x - u : k === 2 ? p.y - u : u - p.x);
+  if (!s) return null;
+  const c = k & 1 ? p.y : p.x, e = s[2] ? 0 : S.pad;
+  return k < 2 ? [c + s[0] - e, c + s[1] + e, s[2]] : [c - s[1] - e, c - s[0] + e, s[2]];
+}
+// How far two parts' sections at u cut into each other, the deepest of their copies (-Infinity: nothing there).
+function sectionsCutAt(a, A, ka, b, B, kb, u) {
+  const sa = clashSection(a, A, ka, u), sb = sa && clashSection(b, B, kb, u);
+  if (!sb) return -Infinity;
+  // a solid section is the part's box; a padded flat one is deeper by the padding both sides
+  const ra = A.round && !sa[2], rb = B.round && !sb[2], da = sa[2] ? partDepth(a) : (A.depth || partDepth(a)) + 2 * A.pad, db = sb[2] ? partDepth(b) : (B.depth || partDepth(b)) + 2 * B.pad;
+  let deep = -Infinity;
+  for (const za of partZs(a)) for (const zb of partZs(b)) deep = Math.max(deep, sectionsCut(sa, za, ra, da, sb, zb, rb, db));
+  return deep;
+}
+// How far two sections cut into each other (positive: they overlap), each a disc (round) or a rectangle d deep,
+// at depth z.
+function sectionsCut(sa, za, ra, da, sb, zb, rb, db) {
+  if (ra && rb) return (sa[1] - sa[0]) / 2 + (sb[1] - sb[0]) / 2 - Math.hypot((sa[0] + sa[1]) / 2 - (sb[0] + sb[1]) / 2, za - zb);
+  if (!ra && !rb) return Math.min(spanOverlap(sa[0], sa[1], sb[0], sb[1]), spanOverlap(za - da / 2, za + da / 2, zb - db / 2, zb + db / 2));
+  const [D, zd, R, zr, dr] = ra ? [sa, za, sb, zb, db] : [sb, zb, sa, za, da]; // a disc and a rectangle
+  const cv = (D[0] + D[1]) / 2, dv = Math.max(R[0] - cv, 0, cv - R[1]), dz = Math.max(zr - dr / 2 - zd, 0, zd - zr - dr / 2);
+  return (D[1] - D[0]) / 2 - Math.hypot(dv, dz);
+}
+// Do two parts whose boxes overlap also overlap in shape, by more than m? Parts lying across each other (one
+// turned a quarter) are left to their boxes. Sampled at every height where either outline turns and at quarters
+// in between (between them each edge runs straight, so how far they cut in rises and falls only once).
+function shapesClash(a, b, m) {
+  const A = clashShape(a.def, a.flip), B = clashShape(b.def, b.flip), ka = (a.rot || 0) & 3, kb = (b.rot || 0) & 3;
+  if ((A.box && B.box) || (ka & 1) !== (kb & 1)) return true;
+  const RA = partRect(a), RB = partRect(b), odd = ka & 1, e = 1e-4;
+  const lo = Math.max(odd ? RA.l : RA.b, odd ? RB.l : RB.b) + e, hi = Math.min(odd ? RA.r : RA.t, odd ? RB.r : RB.t) - e;
+  if (hi <= lo) return false;
+  const us = [lo, hi];
+  for (const ly of A.ys) us.push(clashU(a, ka, ly));
+  for (const ly of B.ys) us.push(clashU(b, kb, ly));
+  us.sort((x, y) => x - y);
+  const H = [];
+  for (const u of us) if (u >= lo && u <= hi && !(H.length && u - H[H.length - 1] <= e)) H.push(u);
+  const cuts = (u) => sectionsCutAt(a, A, ka, b, B, kb, u) > m;
+  for (let i = 0; i < H.length; i++) {
+    if (cuts(H[i])) return true;
+    if (i + 1 < H.length) for (const f of [0.25, 0.5, 0.75]) if (cuts(H[i] + (H[i + 1] - H[i]) * f)) return true;
+  }
+  return false;
+}
+
+// A flush part (def.flush: an internal gun, a chin-gun fairing, a gear leg whose top sits in its well) is set into
+// the bodies around it, so it may overlap them (but not another flush part).
 function partsClash(a, b) {
   if (!!a.def.twinZ !== !!b.def.twinZ && (legacyTwin(a) || legacyTwin(b))) return false;
-  return !partsMix(a, b) && partsOverlap(a, b);
+  if (!a.def.flush !== !b.def.flush) return false;
+  return !partsMix(a, b) && partsOverlap(a, b) && shapesClash(a, b, 0.02);
 }
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
 function partsMounted2D(a, b) {
@@ -676,6 +1288,7 @@ function nozzleOf(def) {
     case 'ion': return { y: -def.h / 2, half: def.w * 0.32 };
     case 'spike': return { y: -def.h / 2, half: def.w * 0.42 };
     case 'jet': return { y: -def.h / 2, half: def.w * 0.28 };
+    case 'us4body': { const n = def.body.noz && def.body.noz[0]; return n ? { y: n.y1, half: n.r1, x: n.x } : { y: -def.h / 2, half: def.w * 0.28 }; } // (x: the nozzle's height)
     default: return { y: -def.h / 2, half: (def.w * (def.bellBot || 0.8)) / 2 };
   }
 }
@@ -878,21 +1491,38 @@ const SKINS = {
   orange: { name: 'Safety orange', base: '#ff7a1a' },
   yellow: { name: 'Trainer yellow', base: '#f2c230' },
   metal: { name: 'Bare metal', base: '#8d96a0', paint: 'metal', accent: 'keep', rough: 0.35, metal: 0.75 },
+  // 5th-generation camouflage (camo: a second tone laid over the base in soft blotches; pat: which pattern, us5CamoAt)
+  raptor: { name: 'FS-22 two-tone stealth grey', base: '#8a9199', camo: '#6a7179', pat: 0, accent: null, rough: 0.6, metal: 0.22 },
+  lightning: { name: 'FS-35 radar-absorbent grey', base: '#5c6269', camo: '#50565d', pat: 1, accent: null, rough: 0.5, metal: 0.25 },
+  splinter: { name: 'Aggressor splinter', base: '#97a3ad', camo: '#46505a', pat: 2, accent: null, rough: 0.6, metal: 0.12 },
+  // camouflage for the Russian look-alike jets (camo: the pattern over the base, drawn by camoCanvas at the end of this file)
+  ruFlanker: { name: 'Sugoi blue', base: '#b7c4ce', camo: { k: 'blotch', c: ['#8fa2b2', '#61788c'], seed: 27, n: 10 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruSplinter: { name: 'Grey splinter', base: '#98a3ac', camo: { k: 'splinter', c: ['#6c7883', '#47525d'], seed: 35 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruFulcrum: { name: 'MyG grey-green', base: '#b9c0b9', camo: { k: 'blotch', c: ['#8e9b8f', '#6d7c70'], seed: 29 }, accent: null, rough: 0.7, metal: 0.1 },
+  ruPixel: { name: 'Digital splinter', base: '#a9b6bf', camo: { k: 'digital', c: ['#7e8d99', '#5b6976', '#c7d1d8'], seed: 57, n: 16, r: 0.7, px: 0.125 }, accent: null, rough: 0.75, metal: 0.08 },
+  ruFrontline: { name: 'Frontline camo', base: '#a69c74', camo: { k: 'blotch', c: ['#5c6a40', '#7d5e3f', '#4f5a36'], seed: 21, n: 13, r: 0.75 }, accent: null, rough: 0.75, metal: 0.05 },
+  // the US 3rd/4th-generation look-alikes' schemes (patterned as the Russian ones; gull and gunship grey are plain)
+  us4viper: { name: 'FS-16 two-tone grey', base: '#7f878e', camo: { k: 'blotch', c: ['#5d646b'], seed: 16, n: 9 }, accent: null, rough: 0.72, metal: 0.08 },
+  us4eagle: { name: 'FS-15 blue-grey', base: '#8a949d', camo: { k: 'blotch', c: ['#5d6b7b'], seed: 15, n: 9 }, accent: null, rough: 0.72, metal: 0.08 },
+  us4sea: { name: 'Vietnam SEA camouflage', base: '#69734f', camo: { k: 'blotch', c: ['#a78d63', '#3f4a34'], seed: 4, n: 11 }, accent: null, rough: 0.8, metal: 0.05 },
+  us4gull: { name: 'Navy gull grey', base: '#a7aaa6', accent: null, rough: 0.7, metal: 0.1 },
+  us4gunship: { name: 'Gunship grey', base: '#50565d', accent: null, rough: 0.78, metal: 0.08 },
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint.
 const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
-// The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey).
-function ownSkin(d) { return d.style === 'stealth' ? 'stealth' : null; }
+// The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part
+// that comes in a camouflage of its own, the 5th-generation ones).
+function ownSkin(d) { return d.look || (d.style === 'stealth' ? 'stealth' : null); }
 // What a part looks painted in: its skin, else its own look.
 function skinOf(p) { return p.skin || ownSkin(p.def); }
 
 // With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
 // where real lighting does the shading). skin: the SKINS entry of the part being drawn, if any
 // (set by drawPart only).
-const PartPaint = { flat: false, skin: null };
+const PartPaint = { flat: false, skin: null, camoAt: null }; // camoAt: [x, y], where a part drawn at the origin really is (a 3D texture), so its camouflage lines up with its neighbours'
 function darkGradient0(ctx, l, r) { // stealth grey
   if (PartPaint.flat) return '#4b5058';
   const g = ctx.createLinearGradient(l, 0, r, 0);
@@ -908,6 +1538,7 @@ function tintGradient0(ctx, l, r, c) { // hull shading in another colour
 // The painted body: the skin's own painter or its colour with hull shading.
 function skinFill(ctx, l, r) {
   const s = PartPaint.skin;
+  if (s.camo) return typeof s.camo === 'string' ? us5CamoFill(ctx, s) : camoFill(ctx, s); // (a camouflage: its pattern, in metres; a two-tone one is us5CamoFill's, a patterned one camoFill's, both at the end of this file)
   switch (s.paint) {
     case 'hull': return hullGradient0(ctx, l, r);
     case 'dark': return darkGradient0(ctx, l, r);
@@ -1089,7 +1720,8 @@ function partPath0(ctx, p) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h;
   const l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
   ctx.beginPath();
-  switch (d.shape) {
+  if (d.us5) { us5Path(ctx, p); return; } // (the 5th-generation look-alikes: at the end of this file)
+  switch (d.ru ? 'ru' : d.shape) { // (d.ru: a look-alike jet's lofted hull, case 'ru' at the end)
     case 'pod': {
       const tw = w * 0.42;
       ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(x + tw / 2, t); ctx.lineTo(x - tw / 2, t); ctx.closePath();
@@ -1180,11 +1812,14 @@ function partPath0(ctx, p) {
     case 'wing': case 'elevator':
       foilPath(ctx, p);
       break;
-    case 'vtail': {
-      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2;
-      ctx.moveTo(inn, b); ctx.lineTo(inn, t); ctx.lineTo(out, b + h * 0.4); ctx.lineTo(out, b); ctx.closePath();
+    case 'vtail': { // def.vtail (optional): where the root's trailing edge and the tip's edges sit, as fractions up the chord
+      const s = p.flip ? -1 : 1, inn = x - s * w / 2, out = x + s * w / 2, v = d.vtail || {};
+      ctx.moveTo(inn, b + h * (v.rte || 0)); ctx.lineTo(inn, t); ctx.lineTo(out, b + h * (v.tle != null ? v.tle : 0.4)); ctx.lineTo(out, b + h * (v.tte || 0)); ctx.closePath();
       break;
     }
+    case 'us4body':
+      us4Path(ctx, p);
+      break;
     case 'prop':
       ctx.rect(x - 0.36, b, 0.72, h * 0.3);
       ctx.moveTo(x - 0.3, b + h * 0.3); ctx.quadraticCurveTo(x - 0.3, t, x, t); ctx.quadraticCurveTo(x + 0.3, t, x + 0.3, b + h * 0.3); ctx.closePath();
@@ -1208,6 +1843,9 @@ function partPath0(ctx, p) {
       ctx.rect(l + w * 0.1, b, w * 0.8, h * 0.4);
       ctx.moveTo(l + w * 0.1, b + h * 0.4); ctx.quadraticCurveTo(x, t + h * 0.4, r - w * 0.1, b + h * 0.4); ctx.closePath();
       break;
+    case 'ru': // the Russian look-alike jets (MyG and Sugoi): lofted hulls and fins, RU_ART at the end of this file
+      ruPath(ctx, p);
+      break;
     default:
       ctx.rect(l, b, w, h);
   }
@@ -1219,7 +1857,8 @@ function drawPart0(ctx, p, lw) {
   ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(8,11,16,0.9)';
-  switch (d.shape) {
+  if (d.us5) us5Draw(ctx, p, lw); // (the 5th-generation look-alikes draw themselves, at the end of this file; the heat glow follows)
+  else switch (d.ru ? 'ru' : d.shape) {
     case 'pod': {
       const tw = w * 0.42;
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill();
@@ -1866,6 +2505,10 @@ function drawPart0(ctx, p, lw) {
       ctx.fillStyle = '#2b3036'; ctx.fillRect(x - w * 0.25, b - h * 0.02, w * 0.5, h * 0.1);
       break;
     }
+    // ---- US 3rd/4th-generation look-alikes: a lofted body with its canopy, intakes and nozzles (us4* helpers at the end)
+    case 'us4body':
+      drawUS4(ctx, p, lw);
+      break;
     default: // shapes without a dedicated drawing
       partPath(ctx, p); ctx.fillStyle = hullGradient(ctx, l, r); ctx.fill(); ctx.stroke();
       break;
@@ -1875,6 +2518,9 @@ function drawPart0(ctx, p, lw) {
       partPath(ctx, p); ctx.stroke();
       break;
     }
+    case 'ru': // the Russian look-alike jets (MyG and Sugoi): RU_ART at the end of this file
+      ruDraw(ctx, p, lw);
+      break;
   }
   // heat glow
   const hot = p.temp ? (p.temp - 900) / (d.maxTemp - 900) : 0;
@@ -2034,4 +2680,932 @@ function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0, skin };
   drawPart(ctx, p, (1.4 / s) * dpr);
   return c;
+}
+
+// ===========================================================================
+// 5th-generation look-alikes: the FS-22 (after the F-22 Raptor) and the FS-35 (after the F-35 Lightning II). Their
+// shapes, camouflage and 2D art. A body is lofted through cross-sections, `rings` of points [x, y, z] in the part's own
+// frame (+x down, +y towards the nose, +z the right wing); the same lofts make the 2D outline and art here and the 3D
+// model (parts3d.js, BUILD.us5), so the two agree. A loft is { rings, kind: 'body' (in its paint) or a material
+// ('goldglass', 'intake'...), smooth (rounded, not faceted), open (an arch such as a canopy: nothing from its last
+// point back to its first), caps: 'front' | 'back' | 'both' (else none) and capKind, skip: [[i, k]] faces left out
+// (between rings i and i+1 and points k and k+1) where a door fills the hole, sil: false to leave it out of the outline }.
+
+// A table of sections [y, ...] (y ascending), at y (clamped to its ends).
+function us5Lerp(rows, y) {
+  if (y <= rows[0][0]) return rows[0].slice(1);
+  for (let i = 1; i < rows.length; i++) if (y <= rows[i][0]) {
+    const a = rows[i - 1], b = rows[i], k = (y - a[0]) / (b[0] - a[0]);
+    return a.slice(1).map((v, j) => v + (b[j + 1] - v) * k);
+  }
+  return rows[rows.length - 1].slice(1);
+}
+// A stealth section r = [top, bot, cw, cx, tw, bw]: a flat spine (x = top) sloping out to sharp chines cw out at
+// height cx, and a belly (x = bot) with flat sides bw out. keels: points on the belly at these half widths
+// (descending), where bay doors hinge.
+function us5Hex(y, r, keels) {
+  const [top, bot, cw, cx, tw, bw] = r, sh = top + (cx - top) * 0.18, lo = bot - (bot - cx) * 0.22;
+  const K = (keels || []).map((z) => [bot + (lo - bot) * (z / bw), y, z]);
+  return [[top, y, 0], [sh, y, tw], [cx, y, cw], [lo, y, bw], ...K, [bot, y, 0], ...K.slice().reverse().map((q) => [q[0], y, -q[2]]), [lo, y, -bw], [cx, y, -cw], [sh, y, -tw]];
+}
+// The upper half of a section, closed by a flat underside at the chines (a shelf over the intakes).
+function us5Lid(y, r) { const [top, , cw, cx, tw] = r, sh = top + (cx - top) * 0.18; return [[cx, y, cw], [sh, y, tw], [top, y, 0], [sh, y, -tw], [cx, y, -cw]]; }
+// The lower middle of a body b = [bot, cw, cx, bw, lo]: from the chines (cw out at height cx) down to a belly.
+function us5Belly(y, b) { const [bot, cw, cx, bw, lo] = b; return [[cx, y, -cw], [lo, y, -bw], [bot, y, 0], [lo, y, bw], [cx, y, cw]]; }
+// The spine's height at z across a section: where a canopy sits.
+function us5Top(r, z) {
+  const [top, , cw, cx, tw] = r, sh = top + (cx - top) * 0.18, a = Math.abs(z);
+  return a <= tw ? top + ((sh - top) * a) / (tw || 1) : a <= cw ? sh + ((cx - sh) * (a - tw)) / (cw - tw || 1) : cx;
+}
+// An arch from the left sill over the top to the right one: a canopy's section (hgt above the sill, hw out).
+function us5Arch(y, sill, hgt, hw, n = 12) {
+  const R = [];
+  for (let i = 0; i <= n; i++) { const a = Math.PI * (1 - i / n); R.push([sill - hgt * Math.pow(Math.sin(a), 0.7), y, hw * Math.cos(a)]); }
+  return R;
+}
+// An ellipse round (xc, zc), rz across and rx up and down (n points, starting at the top).
+function us5Oval(y, xc, zc, rz, rx, n = 16, rot = 0) {
+  const R = [];
+  for (let i = 0; i < n; i++) { const a = rot + (i / n) * TAU; R.push([xc - rx * Math.cos(a), y, zc + rz * Math.sin(a)]); }
+  return R;
+}
+// A canopy on a table of sections, from its stations [y, height, half width].
+function us5Canopy(rows, C, kind = 'goldglass') {
+  return { rings: C.map(([y, hg, hw]) => us5Arch(y, us5Top(us5Lerp(rows, y), hw) + 0.015, hg, hw)), kind, smooth: true, open: true, canopy: true };
+}
+const us5Mirror = (R) => R.map((q) => [q[0], q[1], -q[2]]);
+
+// The bays, shared by the art and the 3D model: the doors' extent along the part (y0..y1); each door [the ring point
+// it hinges on, the point it reaches to (fractional: between two points), how far it swings open (radians about the
+// long axis)] on the rings of the bay's loft (the right duct, for side bays); where the stores sit (mx: their height
+// inside; at: [x, z] of a side bay's missile, shut) and the cavity's roof.
+const US5_BAYS = {
+  intake22: { y0: 0.6, y1: -2.15, side: true, doors: [[1, 2, -1.3]], msl: 'aim9', at: [0.42, 2.0] },
+  bay22: { y0: 1.8, y1: -1.8, doors: [[4, 5, -1.75], [6, 5, 1.75]], msl: 'aim120', mx: 0.6, roof: 0.3 },
+  bay35: { y0: 1.75, y1: -1.75, doors: [[4, 4.5, -1.7], [5, 4.5, 1.7], [7, 7.5, -1.7], [8, 7.5, 1.7]], msl: 'aim120', mx: 0.68, roof: 0.42 },
+};
+// A ring point by a fractional index (between two points).
+function us5At(R, f) { const i = Math.floor(f), k = f - i, a = R[i], b = R[Math.min(R.length - 1, i + 1)]; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
+// Where a door's free edge is ([x, z]) when open by k (0 shut .. 1 open), turned about its hinge as rotation.y turns it in 3D.
+function us5Swing(R, door, k) {
+  const h = R[door[0]], f = us5At(R, door[1]), a = door[2] * k, dx = f[0] - h[0], dz = f[2] - h[2];
+  return [h[0] + dx * Math.cos(a) + dz * Math.sin(a), h[2] - dx * Math.sin(a) + dz * Math.cos(a)];
+}
+
+const US5_N22 = [[-2.8, -0.85, 0.88, 1.18, 0.07, 0.46, 0.64], [-2.0, -0.80, 0.84, 1.10, 0.07, 0.44, 0.60], [-1.0, -0.70, 0.76, 0.98, 0.08, 0.40, 0.52],
+  [0, -0.58, 0.66, 0.80, 0.09, 0.33, 0.40], [0.8, -0.44, 0.55, 0.62, 0.10, 0.26, 0.30], [1.6, -0.28, 0.43, 0.41, 0.11, 0.17, 0.19],
+  [2.3, -0.11, 0.28, 0.20, 0.12, 0.07, 0.09], [2.8, 0.12, 0.12, 0, 0.12, 0, 0]];
+const US5_N35 = [[-2.25, -0.95, 1.0, 1.22, 0.08, 0.46, 0.7], [-1.2, -0.84, 0.94, 1.07, 0.10, 0.41, 0.6], [-0.1, -0.65, 0.80, 0.85, 0.12, 0.32, 0.44],
+  [0.95, -0.42, 0.59, 0.57, 0.14, 0.21, 0.27], [1.75, -0.16, 0.37, 0.26, 0.15, 0.08, 0.1], [2.25, 0.17, 0.17, 0, 0.17, 0, 0]];
+// the FS-22's body behind its intakes, wide over the ducts (front and back of the bay section), and the FS-35's
+const US5_MID22 = [-0.88, 0.92, 2.33, -0.05, 0.55, 2.0], US5_MID22B = [-0.86, 0.90, 2.27, -0.05, 0.58, 1.95];
+const US5_MID35 = [-1.15, 1.05, 1.92, -0.02, 0.6, 1.62], US5_MID35B = [-1.06, 1.03, 1.88, -0.02, 0.62, 1.58];
+// a duct beside the body: [inner top, outer top, outer bottom, inner bottom] at y, each [x, z] (z on the right)
+const us5Duct = (y, it, ot, ob, ib) => [[it[0], y, it[1]], [ot[0], y, ot[1]], [ob[0], y, ob[1]], [ib[0], y, ib[1]]];
+// a pair of lofts, the right one and its mirror image
+const us5Pair = (L) => [L, { ...L, rings: L.rings.map(us5Mirror), left: true }];
+// a tail boom beside the engines at (xc, zc), tapering off behind y1
+const us5Boom = (y0, y1, xc, zc, hw, hx) => ({ rings: [us5Oval(y0, xc, zc, hw, hx, 6), us5Oval((y0 + y1) / 2, xc, zc, hw, hx, 6), us5Oval(y1 + 0.5, xc, zc, hw * 0.6, hx * 0.7, 6), us5Oval(y1, xc + hx * 0.2, zc, 0.02, 0.02, 6)] });
+
+const US5_SHAPES = {
+  nose22() {
+    return [{ rings: US5_N22.map((r) => us5Hex(r[0], r.slice(1))), caps: 'back', chine: true },
+      us5Canopy(US5_N22, [[0.6, 0, 0.06], [0.3, 0.3, 0.3], [-0.25, 0.52, 0.43], [-0.85, 0.66, 0.48], [-1.5, 0.7, 0.49], [-2.2, 0.62, 0.47], [-2.9, 0.45, 0.42], [-3.4, 0.24, 0.32], [-3.75, 0.03, 0.16]])];
+  },
+  intake22() {
+    const LID = [[-2.2, ...US5_MID22], [0.9, -0.87, 0, 2.31, -0.04, 0.52, 0], [1.4, -0.865, 0, 2.06, -0.01, 0.5, 0], [1.8, -0.86, 0, 1.62, 0.03, 0.48, 0], [2.2, ...US5_N22[0].slice(1)]];
+    const BELLY = [[-2.2, 0.92, 1.24, -0.05, 1.24, 0.80], [0.6, 0.91, 1.24, -0.04, 1.22, 0.79], [1.6, 0.9, 1.22, 0.0, 0.95, 0.75], [2.2, 0.88, 1.18, 0.07, 0.64, 0.702]];
+    const duct = { rings: [[[0.02, 1.15, 1.26], [-0.04, 0.75, 2.30], [0.76, 1.65, 2.06], [0.84, 2.2, 1.27]],
+      us5Duct(0.6, [0.0, 1.26], [-0.05, 2.31], [0.75, 2.04], [0.81, 1.27]), us5Duct(-2.15, [-0.02, 1.25], [-0.05, 2.33], [0.73, 2.0], [0.8, 1.25]),
+      us5Duct(-2.2, [-0.02, 1.25], [-0.05, 2.33], [0.73, 2.0], [0.8, 1.25])], caps: 'front', capKind: 'intake', inset: 0.06, skip: [[1, 1]], duct: true };
+    return [{ rings: [-2.2, 0.9, 1.4, 1.8, 2.2].map((y) => us5Lid(y, us5Lerp(LID, y))), chine: true },
+      { rings: [-2.2, 0.6, 1.6, 2.2].map((y) => us5Belly(y, us5Lerp(BELLY, y))) }, ...us5Pair(duct)];
+  },
+  bay22() { // (the bay's floor is flat between the keels, where its doors hinge)
+    const B = [[-1.9, ...US5_MID22B], [1.9, ...US5_MID22]], R = [-1.9, -1.8, 1.8, 1.9].map((y) => us5Hex(y, us5Lerp(B, y), [0.95]));
+    for (const r of [R[1], R[2]]) r[5][0] = r[4][0];
+    return [{ rings: R, skip: [[1, 4], [1, 5]], chine: true }];
+  },
+  aft22() {
+    const A = [[-1.0, -0.70, 0.66, 1.72, -0.02, 0.85, 1.35], [0.2, -0.82, 0.84, 2.12, -0.04, 0.68, 1.8], [1.0, ...US5_MID22B]];
+    // and between the engines, a flat tail fairing (the "beaver tail") running back between the nozzles
+    const dia = (y, top, bot, hw) => [[top, y, 0], [(top + bot) / 2, y, hw], [bot, y, 0], [(top + bot) / 2, y, -hw]];
+    const tail = { rings: [dia(-0.9, -0.42, 0.34, 0.24), dia(-2.0, -0.24, 0.2, 0.16), dia(-3.0, -0.05, 0.05, 0.02)] };
+    return [{ rings: [-1.0, -0.4, 0.2, 0.6, 1.0].map((y) => us5Hex(y, us5Lerp(A, y))), caps: 'back', chine: true }, ...us5Pair(us5Boom(0.4, -3.4, 0.2, 1.98, 0.21, 0.32)), tail];
+  },
+  nose35() {
+    return [{ rings: US5_N35.map((r) => us5Hex(r[0], r.slice(1))), caps: 'back', chine: true },
+      us5Canopy(US5_N35, [[0.3, 0, 0.07], [0.0, 0.38, 0.36], [-0.45, 0.62, 0.5], [-1.0, 0.75, 0.56], [-1.65, 0.75, 0.56], [-2.25, 0.63, 0.53], [-2.75, 0.43, 0.46], [-3.05, 0.2, 0.33], [-3.2, 0.03, 0.18]])];
+  },
+  intake35() {
+    const LID = [[-1.3, ...US5_MID35], [0.15, -1.14, 0, 1.9, -0.01, 0.57, 0], [0.75, -1.06, 0, 1.6, 0.04, 0.5, 0], [1.3, ...US5_N35[0].slice(1)]];
+    const BELLY = [[-1.3, 1.05, 1.27, -0.02, 1.27, 0.87], [0.3, 1.04, 1.27, 0.0, 1.25, 0.86], [1.3, 1.0, 1.22, 0.08, 0.7, 0.81]];
+    const duct = { rings: [[[0.02, 1.0, 1.28], [-0.03, 0.88, 1.93], [0.8, 0.32, 1.66], [0.88, 0.48, 1.29]],
+      us5Duct(0.2, [0.0, 1.28], [-0.02, 1.93], [0.8, 1.65], [0.87, 1.28]), us5Duct(-1.3, [-0.02, 1.27], [-0.02, 1.92], [0.815, 1.62], [0.87, 1.27])],
+    caps: 'front', capKind: 'intake', inset: 0.06, duct: true };
+    // the bump: a smooth bulge on the body's side just ahead of each inlet (it pushes the slow air aside)
+    const bump = { rings: [1.45, 1.25, 1.0, 0.75, 0.5].map((y, i) => us5Oval(y, 0.42, 1.2, [0.03, 0.12, 0.17, 0.18, 0.16][i], [0.12, 0.33, 0.41, 0.42, 0.4][i], 12)), smooth: true, sil: false };
+    return [{ rings: [-1.3, 0.15, 0.75, 1.3].map((y) => us5Lid(y, us5Lerp(LID, y))), chine: true },
+      { rings: [-1.3, 0.3, 1.3].map((y) => us5Belly(y, us5Lerp(BELLY, y))) }, ...us5Pair(duct), ...us5Pair(bump)];
+  },
+  bay35() { // (two flat-floored bays, a keel between them)
+    const B = [[-1.9, ...US5_MID35B], [1.9, ...US5_MID35]], R = [-1.9, -1.75, 1.75, 1.9].map((y) => us5Hex(y, us5Lerp(B, y), [0.9, 0.12]));
+    for (const r of [R[1], R[2]]) { r[5][0] = r[4][0]; r[7][0] = r[8][0]; }
+    return [{ rings: R, skip: [[1, 4], [1, 7]], chine: true }];
+  },
+  aft35() {
+    const A = [[-1.2, -0.82, 0.8, 1.22, 0.0, 0.5, 0.78], [-0.2, -0.96, 0.95, 1.62, -0.01, 0.56, 1.25], [1.2, ...US5_MID35B]];
+    return [{ rings: [-1.2, -0.7, -0.2, 0.5, 1.2].map((y) => us5Hex(y, us5Lerp(A, y))), caps: 'back', chine: true }, ...us5Pair(us5Boom(0.0, -2.4, 0.2, 1.55, 0.2, 0.3))];
+  },
+  eng22() { // the nacelle back to the nozzle's throat (the nozzle itself is drawn on its own: it swivels)
+    const box = (y, hw, hh, c) => [[-hh, y, -hw + c], [-hh, y, hw - c], [-hh + c, y, hw], [hh - c, y, hw], [hh, y, hw - c], [hh, y, -hw + c], [hh - c, y, -hw], [-hh + c, y, -hw]];
+    return [{ rings: [box(-0.45, 0.6, 0.47, 0.12), box(0.5, 0.71, 0.56, 0.18), box(1.55, 0.74, 0.6, 0.2)], caps: 'front' }];
+  },
+  eng35() {
+    return [{ rings: [us5Oval(0.15, 0, 0, 0.73, 0.73, 24), us5Oval(0.6, 0, 0, 0.75, 0.75, 24), us5Oval(1.2, 0, 0, 0.75, 0.75, 24)], smooth: true, caps: 'front' }];
+  },
+};
+// The lofts of a part type (worked out once, kept on its def out of sight).
+function us5Lofts(d) {
+  if (!d._us5) Object.defineProperty(d, '_us5', { value: US5_SHAPES[d.us5] ? US5_SHAPES[d.us5]().map((L) => ({ kind: 'body', ...L })) : [], enumerable: false });
+  return d._us5;
+}
+// A loft seen from the side (+z): along its top edge from the back to the front, then back along its bottom.
+function us5Side(L) {
+  const top = [], bot = [];
+  for (const R of L.rings) {
+    let a = R[0], b = R[0];
+    for (const q of R) { if (q[0] < a[0]) a = q; if (q[0] > b[0]) b = q; }
+    top.push([a[0], a[1]]); bot.push([b[0], b[1]]);
+  }
+  return [...top, ...bot.reverse()];
+}
+// Its chine: the point furthest out on the right, ring by ring.
+function us5Chine(L) { return L.rings.map((R) => R.reduce((m, q) => (q[2] > m[2] ? q : m), R[0])).map((q) => [q[0], q[1]]); }
+
+// Flat parts in the part's frame: a canted fin seen from the side (its root on the inner edge, its tip on the outer;
+// flip: standing up from the top of the plane), the flat nozzle (its flaps swivel about the hinge; the sidewall
+// stays), the round one.
+function us5FinPoly(d, flip) {
+  const s = flip ? -1 : 1, xi = -s * d.w / 2, xo = s * d.w / 2, t = d.h / 2;
+  return [[xi, t], [xo, t - d.tipLE], [xo, t - d.tipLE - d.tipC], [xi, -t]];
+}
+const US5_NOZ22 = { hinge: -0.45, len: 1.1, x0: 0.44, x1: 0.17, hw: 0.55, side: [[-0.48, -0.45], [0.48, -0.45], [0.48, -1.42], [-0.48, -1.12]] };
+const US5_NOZ35 = { y0: 0.15, y1: -1.2, r0: 0.7, r1: 0.55, teeth: 14 };
+// The gun's fairing seen from the side: a low hump on its base (the side it mounts by), the port at the front.
+function us5GunPoly(d, flip) {
+  const b = flip ? 1 : -1, t = d.h / 2, base = b * d.w / 2, H = d.w * 0.55;
+  return [[base, -t], [base, t - 0.05], [base - b * H * 0.6, t], [base - b * H, t - 0.4], [base - b * H * 0.85, -t + 0.6], [base - b * 0.01, -t]];
+}
+
+// ---- camouflage: soft blotches of a second tone (the skin's camo) over its base, repeating every 16 m; u, v in metres
+const US5_CAMO_TILE = 16;
+function us5CamoAt(pat, u, v) {
+  const k = TAU / US5_CAMO_TILE, s = Math.sin;
+  if (pat === 1) { // fine, faint patches: the quilted look of a radar-absorbent coat
+    const n = s(4 * k * u + 0.9 * s(3 * k * v)) * s(4 * k * v + 0.8 * s(2 * k * u + 1.3)) + 0.3 * s(7 * k * u - 5 * k * v);
+    return smoothstep(0.15, 0.45, n);
+  }
+  if (pat === 2) { // hard-edged splinters
+    const n = s(3 * k * u + 2 * k * v + 1.1) + 0.8 * s(5 * k * u - 3 * k * v + 0.4) + 0.6 * s(k * u + 4 * k * v);
+    return smoothstep(0.22, 0.34, n);
+  }
+  const n = s(2 * k * u + 1.6 * s(k * v + 0.7)) * s(2 * k * v + 1.4 * s(3 * k * u + 1.9)) + 0.35 * s(k * u - 3 * k * v + 1.2 * s(2 * k * v));
+  return smoothstep(0.08, 0.32, n);
+}
+const US5_CAMO = {};
+// The pattern as a tile (a canvas, 16 px a metre), per skin.
+function us5CamoTile(S) {
+  if (US5_CAMO[S.name]) return US5_CAMO[S.name];
+  const N = 256, c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d'), img = g.createImageData(N, N), A = parseInt(S.base.slice(1), 16), B = parseInt(S.camo.slice(1), 16);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const t = us5CamoAt(S.pat, ((i + 0.5) / N) * US5_CAMO_TILE, ((j + 0.5) / N) * US5_CAMO_TILE), o = (j * N + i) * 4;
+    for (let ch = 0; ch < 3; ch++) { const sh = 16 - ch * 8, a = (A >> sh) & 255, b = (B >> sh) & 255; img.data[o + ch] = Math.round(a + (b - a) * t); }
+    img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return (US5_CAMO[S.name] = c);
+}
+// The fill of a camouflaged skin: its tile as a pattern in metres (in the coordinates of whatever is being drawn).
+function us5CamoFill(ctx, S) {
+  if (typeof document === 'undefined' || !ctx.createPattern) return S.base;
+  const pat = ctx.createPattern(us5CamoTile(S), 'repeat');
+  if (!pat) return S.base;
+  const o = PartPaint.camoAt || [0, 0];
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix().translate(-o[0], -o[1]).scale(US5_CAMO_TILE / 256)); // (in metres, from the blueprint's origin)
+  return pat;
+}
+
+// ---- 2D: the outline (each loft from the side, and the flat parts' shapes) and the art.
+function us5Path(ctx, p) {
+  const d = p.def, poly = (P) => { P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
+  if (d.us5 === 'wing') { foilPath(ctx, p); return; }
+  if (d.us5 === 'gear') {
+    const g = wheelGeom(p), s = p.flip ? -1 : 1, i = p.x - s * d.w / 2;
+    ctx.rect(Math.min(i, g.x) - 0.08, g.y - 0.09, Math.abs(g.x - i) + 0.16, 0.18); ctx.moveTo(g.x + g.r, g.y); ctx.arc(g.x, g.y, g.r, 0, TAU);
+    return;
+  }
+  ctx.save(); ctx.translate(p.x, p.y);
+  if (d.us5 === 'fin') poly(us5FinPoly(d, p.flip));
+  else if (d.us5 === 'gun') poly(us5GunPoly(d, p.flip));
+  else if (d.us5 === 'eng22') { const N = US5_NOZ22; poly(N.side); poly([[-N.x0, N.hinge], [N.x0, N.hinge], [N.x1, N.hinge - N.len], [-N.x1, N.hinge - N.len]]); }
+  else if (d.us5 === 'eng35') { const N = US5_NOZ35; poly([[-N.r0, N.y0], [N.r0, N.y0], [N.r1, N.y1], [-N.r1, N.y1]]); }
+  for (const L of us5Lofts(d)) if (L.kind === 'body' && L.sil !== false) poly(us5Side(L));
+  ctx.restore();
+}
+
+function us5Draw(ctx, p, lw) {
+  const d = p.def, prev = PartPaint.skin, own = !prev && d.look && hasOwn(SKINS, d.look);
+  if (own) PartPaint.skin = SKINS[d.look]; // (their own look: a camouflage, as if painted)
+  try { (US5_ART[d.us5] || US5_ART.body)(ctx, p, lw, d); } finally { PartPaint.skin = prev; }
+}
+// Draw in the part's frame (x and y relative to its centre).
+function us5Local(ctx, p, f) { ctx.save(); ctx.translate(p.x, p.y); try { f(); } finally { ctx.restore(); } }
+const us5Poly = (ctx, P) => { ctx.beginPath(); P.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); };
+const US5_INK = 'rgba(8,11,16,0.9)', US5_LINE = 'rgba(18,22,27,0.42)';
+// The body: every loft in its paint, on the blueprint with a soft light from above, and its chines as creases.
+function us5Body(ctx, p, lw, d) {
+  const L = us5Lofts(d).filter((q) => q.kind === 'body' && q.sil !== false), w = d.w;
+  partPath(ctx, p); ctx.fillStyle = skinFill(ctx, p.x - w / 2, p.x + w / 2); ctx.fill();
+  if (!PartPaint.flat) {
+    ctx.save(); partPath(ctx, p); ctx.clip();
+    const g = ctx.createLinearGradient(p.x - w / 2, 0, p.x + w / 2, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0.16)'); g.addColorStop(0.42, 'rgba(255,255,255,0)'); g.addColorStop(0.58, 'rgba(0,0,0,0.04)'); g.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = g; ctx.fillRect(p.x - w, p.y - d.h, w * 2, d.h * 2);
+    ctx.restore();
+  }
+  us5Local(ctx, p, () => {
+    ctx.strokeStyle = 'rgba(12,15,19,0.5)'; ctx.lineWidth = lw * 1.1;
+    for (const q of L) if (q.chine) { ctx.beginPath(); us5Chine(q).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+  });
+}
+function us5Outline(ctx, p, lw) { ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; partPath(ctx, p); ctx.stroke(); }
+// A panel line across a body at y, from its spine to its belly, sawtooth-edged as on a stealth plane.
+function us5Seam(ctx, rows, y, k, lw) {
+  const r = us5Lerp(rows, y), n = 5, dx = (r[1] - r[0] - 0.08) / n;
+  ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(r[0] + 0.04, y);
+  for (let i = 0; i < n; i++) { ctx.lineTo(r[0] + 0.04 + dx * (i + 0.5), y + k); ctx.lineTo(r[0] + 0.04 + dx * (i + 1), y); }
+  ctx.stroke();
+}
+// A missile seen from the side, nose forward, centred on (x, y): white, with fins (aim9: slim, with canards).
+function us5Missile(ctx, x, y, len, kind, lw) {
+  const r = kind === 'aim9' ? 0.065 : 0.09, t = y + len / 2, b = y - len / 2, f = kind === 'aim9' ? 0.16 : 0.2;
+  ctx.fillStyle = '#e6e9ec'; ctx.strokeStyle = US5_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x - r, b); ctx.lineTo(x - r, t - r * 3); ctx.quadraticCurveTo(x, t + 0.02, x + r, t - r * 3); ctx.lineTo(x + r, b); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#9aa3ad';
+  for (const yy of [b, kind === 'aim9' ? t - len * 0.22 : y]) { ctx.beginPath(); ctx.moveTo(x - r - f, yy); ctx.lineTo(x + r + f, yy); ctx.lineTo(x + r, yy + f * 1.4); ctx.lineTo(x - r, yy + f * 1.4); ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle = kind === 'aim9' ? '#3b4652' : '#c9cfd6'; ctx.fillRect(x - r, t - r * 3.2, r * 2, r * 1.2);
+}
+// A canopy: gold-tinted glass from its sill up, with a long reflection; frame: a bow across it at that y.
+function us5Glass(ctx, p, lw, d, frame) {
+  const C = us5Lofts(d).find((q) => q.canopy);
+  us5Local(ctx, p, () => {
+    const P = us5Side(C), top = Math.min(...P.map((q) => q[0])), sill = Math.max(...P.map((q) => q[0]));
+    us5Poly(ctx, P);
+    let g = '#c3974a';
+    if (!PartPaint.flat) { g = ctx.createLinearGradient(top, 0, sill, 0); g.addColorStop(0, '#f0d38a'); g.addColorStop(0.5, '#c79a45'); g.addColorStop(1, '#7c5a22'); }
+    ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+    const n = Math.floor(P.length / 2), a = P[Math.floor(n * 0.3)], b = P[Math.floor(n * 0.75)];
+    ctx.strokeStyle = 'rgba(255,248,225,0.55)'; ctx.lineWidth = lw * 2.2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(a[0] + 0.1, a[1]); ctx.lineTo(b[0] + 0.08, b[1]); ctx.stroke(); ctx.lineCap = 'butt';
+    if (frame != null) {
+      const q = P.slice(0, n).reduce((m, v) => (Math.abs(v[1] - frame) < Math.abs(m[1] - frame) ? v : m), P[0]);
+      ctx.strokeStyle = US5_INK; ctx.lineWidth = lw * 2.4; ctx.beginPath(); ctx.moveTo(q[0], frame); ctx.lineTo(sill - 0.02, frame); ctx.stroke();
+    }
+  });
+}
+// Bay doors on a belly, seen edge-on from the side: a seam when shut; open, they hang below the belly.
+function us5BellyDoors(ctx, p, lw, d, B) {
+  const k = clamp(p.deployed || 0, 0, 1), R = us5Lofts(d)[0].rings, bot = (i) => Math.max(...R[i].map((q) => q[0]));
+  us5Local(ctx, p, () => {
+    ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.moveTo(bot(2) - 0.02, B.y0 + 0.05); ctx.lineTo(bot(2) - 0.12, B.y0 - 0.1); ctx.lineTo(bot(1) - 0.12, B.y1 + 0.1); ctx.lineTo(bot(1) - 0.02, B.y1 - 0.05); ctx.stroke();
+    if (k <= 0) return;
+    const drop = Math.max(...B.doors.map((D) => us5Swing(R[1], D, k)[0])) - bot(1);
+    ctx.fillStyle = bodyTone('#5a6068', -0.35); ctx.strokeStyle = US5_INK;
+    us5Poly(ctx, [[bot(2) - 0.05, B.y0 - 0.05], [bot(2) + drop, B.y0 - 0.25], [bot(1) + drop, B.y1 + 0.05], [bot(1) - 0.05, B.y1 + 0.05]]); ctx.fill(); ctx.stroke();
+  });
+}
+
+const US5_ART = {
+  body(ctx, p, lw, d) { us5Body(ctx, p, lw, d); us5Outline(ctx, p, lw); },
+  nose22(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => { us5Seam(ctx, US5_N22, 1.0, 0.12, lw); us5Seam(ctx, US5_N22, -2.7, -0.1, lw); });
+    us5Outline(ctx, p, lw);
+    us5Glass(ctx, p, lw, d, null);
+  },
+  nose35(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      us5Seam(ctx, US5_N35, 0.9, 0.12, lw);
+      const r = us5Lerp(US5_N35, 0.45)[1]; // the targeting camera's faceted window under the chin
+      us5Poly(ctx, [[r - 0.03, 0.85], [r + 0.13, 0.62], [r + 0.13, 0.2], [r - 0.03, 0.05]]); ctx.fillStyle = '#2a3a52'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.strokeStyle = 'rgba(160,200,255,0.5)'; ctx.beginPath(); ctx.moveTo(r + 0.05, 0.7); ctx.lineTo(r + 0.05, 0.3); ctx.stroke();
+    });
+    us5Outline(ctx, p, lw);
+    us5Glass(ctx, p, lw, d, -2.3);
+  },
+  intake22(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    const B = US5_BAYS.intake22, D = B.doors[0], k = clamp(p.deployed || 0, 0, 1), duct = us5Lofts(d).find((q) => q.duct);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, duct.rings[0].map((q) => [q[0], q[1]])); ctx.fillStyle = '#121519'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke(); // the inlet
+      // the side bay's door on the duct, sawtooth at both ends; open, the bay is dark and the missile swings out on its arm
+      const R = duct.rings[1], h = R[D[0]], hx = h[0], fx = us5At(R, D[1])[0], door = [[hx + 0.03, B.y0], [fx - 0.03, B.y0 - 0.12], [fx - 0.03, B.y1 + 0.12], [hx + 0.03, B.y1]];
+      us5Poly(ctx, door);
+      if (k > 0) {
+        ctx.fillStyle = '#16191d'; ctx.fill();
+        const tip = us5Swing(R, D, k)[0], a = D[2] * k, x = hx + (B.at[0] - hx) * Math.cos(a) + (B.at[1] - h[2]) * Math.sin(a);
+        us5Poly(ctx, [[hx, B.y0], [tip, B.y0 - 0.12], [tip, B.y1 + 0.12], [hx, B.y1]]); ctx.fillStyle = skinFill(ctx, hx, tip); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.stroke();
+        if ((p.ammo == null ? 2 : p.ammo) >= 2) us5Missile(ctx, x, (B.y0 + B.y1) / 2, 2.7, 'aim9', lw); // (the near bay's: the first heat seeker leaves from the near side)
+      } else { ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.stroke(); }
+      us5Seam(ctx, [[-2.2, ...US5_MID22], [2.2, ...US5_MID22]], -2.1, 0.1, lw);
+    });
+    us5Outline(ctx, p, lw);
+  },
+  intake35(ctx, p, lw, d) {
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      const m = us5Lofts(d).find((q) => q.duct).rings[0];
+      ctx.beginPath(); ctx.ellipse(0.42, 1.0, 0.36, 0.42, 0, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fill(); // the bump, catching the light
+      ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.stroke();
+      us5Poly(ctx, m.map((q) => [q[0], q[1]])); ctx.fillStyle = '#121519'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.stroke(); // the inlet
+      us5Seam(ctx, [[-1.3, ...US5_MID35], [1.3, ...US5_MID35]], -1.2, 0.1, lw);
+    });
+    us5Outline(ctx, p, lw);
+  },
+  bay22(ctx, p, lw, d) {
+    const rows = [[-1.9, ...US5_MID22B], [1.9, ...US5_MID22]];
+    us5Body(ctx, p, lw, d);
+    us5BellyDoors(ctx, p, lw, d, US5_BAYS.bay22);
+    us5Local(ctx, p, () => us5Seam(ctx, rows, -1.75, 0.1, lw));
+    us5Outline(ctx, p, lw);
+  },
+  bay35(ctx, p, lw, d) {
+    const rows = [[-1.9, ...US5_MID35B], [1.9, ...US5_MID35]];
+    us5Body(ctx, p, lw, d);
+    us5BellyDoors(ctx, p, lw, d, US5_BAYS.bay35);
+    us5Local(ctx, p, () => us5Seam(ctx, rows, 1.8, -0.1, lw));
+    us5Outline(ctx, p, lw);
+  },
+  eng22(ctx, p, lw, d) {
+    const N = US5_NOZ22;
+    us5Local(ctx, p, () => { // the flaps (swivelling about the throat with the stick), behind the fixed sidewall
+      ctx.save(); ctx.translate(0, N.hinge); ctx.rotate(p.deflect || 0);
+      us5Poly(ctx, [[-N.x0, 0], [N.x0, 0], [N.x1, -N.len], [-N.x1, -N.len]]); ctx.fillStyle = bodyMetal(ctx, -N.x0, N.x0); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.fillStyle = p.firing > 0 ? `rgba(255,150,80,${0.25 + 0.5 * p.firing})` : '#15181c'; ctx.fillRect(-N.x1 + 0.05, -N.len, (N.x1 - 0.05) * 2, 0.12);
+      ctx.restore();
+    });
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, N.side); ctx.fillStyle = skinFill(ctx, -0.5, 0.5); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.strokeStyle = US5_LINE; ctx.beginPath(); ctx.moveTo(-0.45, 0.9); ctx.lineTo(0.45, 0.9); ctx.stroke();
+    });
+    us5Outline(ctx, p, lw);
+  },
+  eng35(ctx, p, lw, d) {
+    const N = US5_NOZ35;
+    us5Body(ctx, p, lw, d);
+    us5Local(ctx, p, () => { // the round nozzle, its trailing edge in teeth
+      us5Poly(ctx, [[-N.r0, N.y0], [N.r0, N.y0], [N.r1, N.y1 + 0.12], [-N.r1, N.y1 + 0.12]]); ctx.fillStyle = bodyGrad(ctx, -N.r0, N.r0, () => (PartPaint.flat ? '#4a4f56' : tintGradient0(ctx, -N.r0, N.r0, '#4a4f56'))); ctx.fill();
+      ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      ctx.fillStyle = '#3d4248'; ctx.beginPath();
+      const n = 7;
+      ctx.moveTo(-N.r1, N.y1 + 0.12);
+      for (let i = 0; i < n; i++) { const x = -N.r1 + (2 * N.r1 * i) / n; ctx.lineTo(x + N.r1 / n, N.y1); ctx.lineTo(x + (2 * N.r1) / n, N.y1 + 0.12); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = US5_LINE;
+      for (const yy of [-0.3, -0.75]) { const k = (N.y0 - yy) / (N.y0 - N.y1), rr = N.r0 + (N.r1 - N.r0) * k; ctx.beginPath(); ctx.moveTo(-rr, yy); ctx.lineTo(rr, yy); ctx.stroke(); }
+      if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.4 * p.firing})`; ctx.fillRect(-N.r1, N.y1, N.r1 * 2, 0.12); }
+    });
+    us5Outline(ctx, p, lw);
+  },
+  wing(ctx, p, lw, d) { // in its paint: a darker leading edge, and the flaperons (or the moving tail's hinge) as a seam
+    const { x, y } = p, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, t = y + h / 2, b = y - h / 2;
+    partPath(ctx, p); ctx.fillStyle = skinFill(ctx, l, r); ctx.fill();
+    ctx.save(); partPath(ctx, p); ctx.clip();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(l - 1, t - h * 0.06, w + 2, h * 0.06);
+    ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(l - 1, b + h * (d.wing.control ? 0.5 : 0.2)); ctx.lineTo(r + 1, b + h * (d.wing.control ? 0.5 : 0.2)); ctx.stroke();
+    ctx.restore();
+    us5Outline(ctx, p, lw);
+  },
+  fin(ctx, p, lw, d) { // a canted fin from the side, with its rudder
+    const P = us5FinPoly(d, p.flip);
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, P); ctx.fillStyle = skinFill(ctx, -d.w / 2, d.w / 2); ctx.fill();
+      if (!PartPaint.flat) { ctx.fillStyle = 'rgba(0,0,0,0.1)'; ctx.fill(); }
+      const k = 0.3, a = [P[3][0] + (P[0][0] - P[3][0]) * 0.1, P[3][1] + d.h * k * 0.95], c = [P[2][0], P[2][1] + d.tipC * k];
+      ctx.strokeStyle = US5_LINE; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0] - (c[0] - a[0]) * 0.06, c[1]); ctx.stroke();
+      us5Poly(ctx, P); ctx.strokeStyle = US5_INK; ctx.stroke();
+    });
+  },
+  gun(ctx, p, lw, d) { // a low fairing with the gun's port at the front; firing, the door on top lifts and the barrels show
+    const P = us5GunPoly(d, p.flip), b = p.flip ? 1 : -1, k = clamp(p.deployed || 0, 0, 1), t = d.h / 2, base = b * d.w / 2, H = d.w * 0.55;
+    us5Local(ctx, p, () => {
+      us5Poly(ctx, P); ctx.fillStyle = skinFill(ctx, -d.w / 2, d.w / 2); ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+      const xa = base - b * H * 0.7, xb = base - b * H * 0.15;
+      ctx.fillStyle = '#121519'; ctx.fillRect(Math.min(xa, xb), t - 0.28, Math.abs(xb - xa), 0.26); // the port
+      if (k > 0) { ctx.fillStyle = '#4a5058'; ctx.fillRect(Math.min(xa, xb) + 0.02, t - 0.26, Math.abs(xb - xa) - 0.04, 0.05); }
+      ctx.save(); ctx.translate(base - b * (H + 0.01), t - 0.42); ctx.rotate(b * k);
+      ctx.strokeStyle = k > 0 ? US5_INK : US5_LINE; ctx.lineWidth = lw * (k > 0 ? 2 : 1); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 0.42); ctx.stroke();
+      ctx.restore();
+    });
+  },
+  gear(ctx, p, lw, d) { // a tall leg down to one wheel, a door beside it; folded away, nothing shows
+    if (p.retracted) return;
+    const g = wheelGeom(p), s = p.flip ? -1 : 1, i = p.x - s * d.w / 2;
+    ctx.fillStyle = PAL.steelLight; ctx.fillRect(Math.min(i, g.x), g.y - 0.07, Math.abs(g.x - i), 0.14);
+    ctx.fillStyle = PAL.steelDark; ctx.fillRect(Math.min(i, i + s * 0.35), g.y - 0.11, 0.35, 0.22);
+    ctx.fillStyle = '#4f555c'; ctx.fillRect(Math.min(i, i + s * d.w * 0.6), g.y + 0.16, d.w * 0.6, 0.05); // the gear door, edge-on
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r, 0, TAU); ctx.fillStyle = '#20242a'; ctx.fill(); ctx.strokeStyle = US5_INK; ctx.lineWidth = lw; ctx.stroke();
+    ctx.beginPath(); ctx.arc(g.x, g.y, g.r * 0.58, 0, TAU); ctx.fillStyle = PAL.steelLight; ctx.fill();
+    ctx.strokeStyle = PAL.steelDark; ctx.lineWidth = g.r * 0.12; ctx.beginPath();
+    for (let k = 0; k < 5; k++) { const a = (p.spin || 0) + (k * TAU) / 5; ctx.moveTo(g.x, g.y); ctx.lineTo(g.x + Math.cos(a) * g.r * 0.55, g.y + Math.sin(a) * g.r * 0.55); }
+    ctx.stroke(); ctx.lineWidth = lw;
+  },
+};
+
+// ===========================================================================
+// Russian look-alike jets (the MyG and Sugoi parts): camouflage paint, lofted hulls and their 2D art.
+
+// Camouflage (a skin with `camo`: { k: 'blotch' | 'splinter' | 'digital', c: [colours over the base], seed, n: patches of the
+// first colour (two fewer of each next one), r: their size, px: a digital pattern's pixel in metres }): a
+// seamless pattern in metres (16 m to a tile; 16 px to the metre on screen, 32 in 3D textures), the same on every part, so in the side view the
+// patches run on across the joins. The 3D wings take the same canvas as a texture. Without a page (tests) it is the
+// base colour.
+const CAMO_M = 16, CAMO_PX = 16, CAMO = new Map(); // (the screen's resolution: a fine tile costs the 2D blueprint dear)
+function camoCanvas(s, ppm = CAMO_PX) {
+  if (!s || !s.camo || typeof document === 'undefined') return null;
+  const key = s.name + '|' + ppm;
+  let cv = CAMO.get(key);
+  if (cv) return cv;
+  cv = document.createElement('canvas');
+  cv.width = cv.height = CAMO_M * ppm;
+  const ctx = cv.getContext('2d'), C = s.camo, T = CAMO_M * ppm;
+  let seed = (C.seed || 7) >>> 0;
+  const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  // pixel art: the digital pattern is drawn on a coarse grid (a quarter metre a pixel), then blown up unsmoothed
+  const px = C.k === 'digital' ? Math.max(1, Math.round((C.px || 0.25) * ppm)) : 1, g = px > 1 ? document.createElement('canvas') : cv, c = px > 1 ? g.getContext('2d') : ctx, S = T / px;
+  if (px > 1) g.width = g.height = S;
+  c.fillStyle = s.base; c.fillRect(0, 0, S, S);
+  const shape = (pts, smooth) => { // a closed patch, drawn nine times over so it wraps round the tile's edges
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {
+      c.beginPath();
+      if (smooth) {
+        const n = pts.length, mx = (i) => (pts[i % n][0] + pts[(i + 1) % n][0]) / 2 + ox, my = (i) => (pts[i % n][1] + pts[(i + 1) % n][1]) / 2 + oy;
+        c.moveTo(mx(0), my(0));
+        for (let i = 1; i <= n; i++) c.quadraticCurveTo(pts[i % n][0] + ox, pts[i % n][1] + oy, mx(i), my(i));
+      } else pts.forEach(([x, y], i) => (i ? c.lineTo(x + ox, y + oy) : c.moveTo(x + ox, y + oy)));
+      c.closePath(); c.fill();
+    }
+  };
+  C.c.forEach((col, k) => {
+    c.fillStyle = col;
+    const n = (C.n || (C.k === 'blotch' ? 9 : 12)) - k * (C.k === 'blotch' ? 2 : 3);
+    for (let i = 0; i < n; i++) {
+      const cx = rnd() * S, cy = rnd() * S, R = ((C.k === 'blotch' ? 1.4 + rnd() * 2.2 : 1.2 + rnd() * 2.4) * (C.r || 1) * ppm) / px, a0 = rnd() * TAU, stretch = 1.3 + rnd() * 1.4;
+      const m = C.k === 'blotch' ? 8 : 4 + Math.floor(rnd() * 3), pts = [];
+      for (let j = 0; j < m; j++) {
+        const a = (j / m) * TAU + (rnd() - 0.5) * 0.6, rr = R * (0.55 + rnd() * 0.65);
+        const u = Math.cos(a) * rr * stretch, v = Math.sin(a) * rr; // long patches, laid at a slant
+        pts.push([cx + u * Math.cos(a0) - v * Math.sin(a0), cy + u * Math.sin(a0) + v * Math.cos(a0)]);
+      }
+      shape(pts, C.k === 'blotch');
+    }
+  });
+  if (px > 1) { ctx.imageSmoothingEnabled = false; ctx.drawImage(g, 0, 0, T, T); }
+  CAMO.set(key, cv);
+  return cv;
+}
+function camoFill(ctx, s) {
+  const ppm = PartPaint.flat ? 32 : CAMO_PX, cv = camoCanvas(s, ppm), pat = cv && ctx.createPattern ? ctx.createPattern(cv, 'repeat') : null;
+  if (!pat) return s.base;
+  const o = PartPaint.camoAt || [0, 0];
+  if (pat.setTransform && typeof DOMMatrix !== 'undefined') pat.setTransform(new DOMMatrix([1 / ppm, 0, 0, 1 / ppm, -o[0], -o[1]])); // pixels to metres, from the blueprint's origin
+  return pat;
+}
+
+// A lofted hull: cross-sections along the part. def.loft (and def.glass, its canopies) are lists of
+//   { s: [[y, top, bot, hw, mid, nt, nb], ...], n, nb, z, chine, mat }
+// y: metres up the part from its tail end (0) to its nose (h); top, bot: the section's top and bottom (x, metres
+// from the part's centre; -x is up on a plane); hw: its half-width across; mid: the height of its widest line
+// (default halfway); nt, nb: how its upper and lower halves round off (superellipse exponents: 2 round, more is
+// boxier, less comes to a ridge), default n and nb. Two rows at the same y make a step; between rows the values
+// follow a smooth curve that never overshoots. z: the section's centre across; chine: a crease along the widest
+// line; mat: its 3D material. A canopy shows above its widest line only. parts3d.js lofts the same sections.
+function ruMono(xs, vs) {
+  const n = xs.length;
+  if (n < 2) return () => vs[0];
+  const dl = [], m = [];
+  for (let i = 0; i < n - 1; i++) dl.push((vs[i + 1] - vs[i]) / (xs[i + 1] - xs[i]));
+  m[0] = dl[0]; m[n - 1] = dl[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = dl[i - 1] * dl[i] <= 0 ? 0 : (dl[i - 1] + dl[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (dl[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / dl[i], b = m[i + 1] / dl[i], q = a * a + b * b;
+    if (q > 9) { const k = 3 / Math.sqrt(q); m[i] = k * a * dl[i]; m[i + 1] = k * b * dl[i]; }
+  }
+  return (x) => {
+    let i = 0;
+    while (i < n - 2 && x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = clamp((x - xs[i]) / h, 0, 1), t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * vs[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * vs[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+// Loft rows written in the aircraft's own frame (y from its tail, x down from its datum), moved to the part's: x from
+// the part's centre xc, y from its tail end y0.
+function ruG(xc, y0, ...lofts) {
+  return lofts.map((L) => Object.assign({}, L, { s: L.s.map((r) => r.map((v, i) => (v == null ? undefined : i === 0 ? +(v - y0).toFixed(4) : i <= 2 || i === 4 ? +(v - xc).toFixed(4) : v))) }));
+}
+// The sections, sampled densely along the part (y now from the part's centre); cached per part type.
+const RU_SAMPLED = new WeakMap();
+function ruSample(L, h) {
+  const n0 = L.n || 2, nb0 = L.nb || n0, runs = [];
+  let run = [];
+  for (const r of L.s) { if (run.length && Math.abs(r[0] - run[run.length - 1][0]) < 1e-6) { runs.push(run); run = []; } run.push(r); }
+  runs.push(run);
+  const step = clamp(h / 40, 0.05, 0.3), st = [];
+  runs.forEach((R, j) => {
+    const ys = R.map((r) => r[0]), col = (i, f) => ruMono(ys, R.map((r) => (r[i] != null ? r[i] : f(r))));
+    const top = col(1), bot = col(2), hw = col(3), mid = col(4, (r) => (r[1] + r[2]) / 2), nt = col(5, () => n0), nb = col(6, () => nb0), at = [];
+    for (let i = 0; i < ys.length; i++) {
+      at.push(ys[i]);
+      if (i + 1 < ys.length) { const k = Math.ceil((ys[i + 1] - ys[i]) / step - 1e-9); for (let q = 1; q < k; q++) at.push(ys[i] + ((ys[i + 1] - ys[i]) * q) / k); }
+    }
+    at.forEach((y, i) => st.push({ y: y - h / 2, top: top(y), bot: bot(y), hw: Math.max(0, hw(y)), mid: mid(y), nt: Math.max(0.6, nt(y)), nb: Math.max(0.6, nb(y)), step: j > 0 && i === 0 }));
+  });
+  return Object.assign({}, L, { st });
+}
+function ruLofts(d) {
+  let o = RU_SAMPLED.get(d);
+  if (!o) RU_SAMPLED.set(d, (o = { hull: (d.loft || []).map((L) => ruSample(L, d.h)), glass: (d.glass || []).map((L) => ruSample(L, d.h)) }));
+  return o;
+}
+// A section's outline at angle a (0: the +z side, π/2: its top, π: -z, 3π/2: its bottom), as [x, z].
+function ruPt(s, a, zc) {
+  const c = Math.cos(a), sn = Math.sin(a), up = sn >= 0, e = 2 / (up ? s.nt : s.nb);
+  return [up ? s.mid - (s.mid - s.top) * Math.pow(Math.abs(sn), e) : s.mid + (s.bot - s.mid) * Math.pow(Math.abs(sn), e), (zc || 0) + s.hw * Math.sign(c) * Math.pow(Math.abs(c), e)];
+}
+// The section of hull loft k at y (from the part's tail end), interpolated.
+function ruAt(d, y, k = 0) {
+  const st = ruLofts(d).hull[k].st, yy = y - d.h / 2;
+  if (yy <= st[0].y) return st[0];
+  for (let i = 1; i < st.length; i++) if (st[i].y >= yy) {
+    const a = st[i - 1], b = st[i], t = b.y > a.y ? (yy - a.y) / (b.y - a.y) : 1, L = (k2) => lerp(a[k2], b[k2], t);
+    return { y: yy, top: L('top'), bot: L('bot'), hw: L('hw'), mid: L('mid'), nt: L('nt'), nb: L('nb') };
+  }
+  return st[st.length - 1];
+}
+// A fin's side view: root chord on the inner edge (from rte up to the top), tip chord on the outer (tte to tle).
+function ruFinPath(ctx, p) {
+  const d = p.def, F = d.ruFin, s = p.flip ? -1 : 1, b = p.y - d.h / 2, h = d.h, inn = p.x - (s * d.w) / 2, out = p.x + (s * d.w) / 2;
+  ctx.moveTo(inn, b + h); ctx.lineTo(out, b + h * F.tle); ctx.lineTo(out, b + h * F.tte); ctx.lineTo(inn, b + h * F.rte); ctx.closePath();
+}
+// The side view of the hull (each loft's top edge from the tail to the nose and its bottom edge back), or the fin.
+function ruPath(ctx, p) {
+  const d = p.def;
+  if (d.ruFin) { ruFinPath(ctx, p); return; }
+  for (const L of ruLofts(d).hull) {
+    const st = L.st;
+    st.forEach((s, i) => (i ? ctx.lineTo(p.x + s.top, p.y + s.y) : ctx.moveTo(p.x + s.top, p.y + s.y)));
+    for (let i = st.length - 1; i >= 0; i--) ctx.lineTo(p.x + st[i].bot, p.y + st[i].y);
+    ctx.closePath();
+  }
+}
+const RU_INK = 'rgba(8,11,16,0.9)', RU_PANEL = 'rgba(24,30,38,0.38)';
+// The 2D art: the hull in its paint, a paler belly, then the part's own details (RU_ART) and its canopy.
+function ruDraw(ctx, p, lw) {
+  const d = p.def, A = RU_ART[d.ru] || {}, w = d.w, h = d.h, x = p.x, b = p.y - h / 2, l = x - w / 2, r = x + w / 2;
+  const G = { p, d, x, b, l, r, w, h, lw, X: (v) => x + v, Y: (v) => b + v, at: (y, k) => ruAt(d, y, k), s: p.flip ? -1 : 1 };
+  ctx.beginPath(); ruPath(ctx, p);
+  ctx.fillStyle = A.fill ? A.fill(ctx, G) : hullGradient(ctx, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  if (!d.ruFin && A.belly !== false) { // the underside a shade paler (on paint: of the paint; low-visibility paint stays even)
+    const S = PartPaint.skin;
+    ctx.fillStyle = S ? shade(S.base, S.camo ? 0.22 : S.accent === null ? 0.06 : 0.25) : '#ccd2d8';
+    for (const L of ruLofts(d).hull) {
+      ctx.beginPath();
+      L.st.forEach((s, i) => { const yy = p.y + s.y, xx = x + s.bot - (s.bot - s.top) * 0.14; if (i) ctx.lineTo(xx, yy); else ctx.moveTo(xx, yy); });
+      for (let i = L.st.length - 1; i >= 0; i--) ctx.lineTo(x + L.st[i].bot + 0.5, p.y + L.st[i].y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  if (A.body) { ctx.lineWidth = lw; ctx.strokeStyle = RU_PANEL; A.body(ctx, G); }
+  ctx.restore();
+  ctx.strokeStyle = RU_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); ruPath(ctx, p); ctx.stroke();
+  for (const L of ruLofts(d).glass) { // the canopy above its sill, with a glint and its frames
+    const st = L.st;
+    ctx.beginPath();
+    st.forEach((s, i) => (i ? ctx.lineTo(x + s.top, p.y + s.y) : ctx.moveTo(x + s.top, p.y + s.y)));
+    for (let i = st.length - 1; i >= 0; i--) ctx.lineTo(x + st[i].mid, p.y + st[i].y);
+    ctx.closePath();
+    ctx.fillStyle = L.gold ? '#c9a24a' : PAL.glass; ctx.fill(); ctx.stroke();
+    const k = Math.floor(st.length * 0.62), s = st[k];
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(x + s.top + (s.mid - s.top) * 0.35, p.y + s.y, (s.mid - s.top) * 0.16, (st[st.length - 1].y - st[0].y) * 0.16, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,48,58,0.85)'; ctx.lineWidth = lw * 1.4;
+    for (const f of L.frames || []) { const q = st[Math.round(f * (st.length - 1))]; ctx.beginPath(); ctx.moveTo(x + q.mid, p.y + q.y); ctx.lineTo(x + q.top, p.y + q.y); ctx.stroke(); }
+    ctx.strokeStyle = RU_INK; ctx.lineWidth = lw;
+  }
+  if (A.over) A.over(ctx, G);
+}
+// Details: a panel line across the hull at y (from the tail end), part of the way from the top (k0) to the bottom (k1);
+// a line along it, k of the way down from the top; a red star with a white rim.
+function ruCross(ctx, G, y, k0 = 0, k1 = 1) {
+  const s = G.at(y), t = s.top + (s.bot - s.top) * k0, u = s.top + (s.bot - s.top) * k1;
+  ctx.beginPath(); ctx.moveTo(G.X(t), G.Y(y)); ctx.lineTo(G.X(u), G.Y(y)); ctx.stroke();
+}
+function ruAlong(ctx, G, y0, y1, k) {
+  ctx.beginPath();
+  for (let i = 0; i <= 12; i++) { const y = lerp(y0, y1, i / 12), s = G.at(y), xx = G.X(s.top + (s.bot - s.top) * k); if (i) ctx.lineTo(xx, G.Y(y)); else ctx.moveTo(xx, G.Y(y)); }
+  ctx.stroke();
+}
+function ruStar(ctx, cx, cy, R, lw) {
+  if (PartPaint.skin && PartPaint.skin.accent === null && !PartPaint.skin.camo) return; // (low-visibility paint: no markings)
+  const pts = (rr) => { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = Math.PI / 2 + (i * Math.PI) / 5, q = i % 2 ? rr * 0.4 : rr; ctx.lineTo(cx + Math.cos(a) * q, cy + Math.sin(a) * q); } ctx.closePath(); };
+  pts(R * 1.3); ctx.fillStyle = '#f2f4f6'; ctx.fill();
+  pts(R); ctx.fillStyle = '#c8322b'; ctx.fill();
+  ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(90,20,18,0.8)'; ctx.stroke();
+}
+// A darker tone of the paint (radomes, antennas, dielectric panels).
+const ruDark = (hex, k) => (PartPaint.skin ? shade(PartPaint.skin.base, k) : hex);
+
+const RU_ART = {
+  // a nose: the radome from ruRadome (metres up the part) to the tip, panel lines, the nose-gear doors and an
+  // angle-of-attack vane
+  nose: {
+    body(ctx, G) {
+      const R0 = G.d.ruRadome, chine = G.d.loft[0].chine;
+      ctx.fillStyle = ruDark('#b3bcc5', -0.16); ctx.fillRect(G.l - 1, G.Y(R0), G.w + 2, G.h - R0 + 1);
+      ctx.fillStyle = '#4b535c'; ctx.fillRect(G.l - 1, G.Y(G.h - 0.2), G.w + 2, 1); // the pitot tip
+      ruCross(ctx, G, R0); ruCross(ctx, G, R0 - 2.2, 0, 0.45); ruCross(ctx, G, 0.6);
+      ruAlong(ctx, G, 0.6, R0, chine ? 0.5 : 0.45);
+      if (chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); } // the chine
+      const g = G.at(1.4); ctx.strokeStyle = RU_PANEL; ctx.strokeRect(G.X(g.bot - 0.3), G.Y(0.9), 0.28, 1.3); // nose-gear doors
+      ctx.fillStyle = '#3f474f'; ctx.fillRect(G.X(G.at(R0 - 1.2).mid - 0.05), G.Y(R0 - 1.3), 0.12, 0.22); // the angle-of-attack vane
+    },
+  },
+  // the MyG-21's nose: the intake ring round the shock cone (a radome), the long pitot boom over it
+  nose21: {
+    body(ctx, G) {
+      const C = G.d.ruCone;
+      ctx.fillStyle = ruDark('#59626b', -0.38); ctx.fillRect(G.l - 1, G.Y(C), G.w + 2, G.h - C + 1); // the cone
+      for (const y of [0.5, 2.6, C - 1.1]) ruCross(ctx, G, y);
+      ruAlong(ctx, G, 0.3, C - 0.1, 0.45);
+      ctx.fillStyle = ruDark('#9aa3ac', -0.22); ctx.fillRect(G.X(G.at(C - 1.6).top + 0.1), G.Y(C - 1.9), 0.18, 0.6); // a dielectric panel
+    },
+    over(ctx, G) {
+      const lip = G.d.ruLip, s = G.at(lip - 0.02);
+      ctx.fillStyle = '#15181c'; ctx.fillRect(G.X(s.top + 0.04), G.Y(lip - 0.05), s.bot - s.top - 0.08, 0.07); // the intake's mouth
+      ctx.strokeStyle = '#3f474f'; ctx.lineWidth = Math.max(G.lw * 2, 0.05); // the pitot boom
+      ctx.beginPath(); ctx.moveTo(G.X(s.top + 0.12), G.Y(lip - 0.3)); ctx.lineTo(G.X(s.top + 0.12), G.Y(G.h + 1.1)); ctx.stroke();
+      ctx.lineWidth = G.lw; ctx.strokeStyle = RU_INK;
+    },
+  },
+  // a centre fuselage: frames (ruLines, metres up the part), a seam along it, an airbrake on the spine (ruBrake)
+  body: {
+    body(ctx, G) {
+      for (const y of G.d.ruLines || []) ruCross(ctx, G, y);
+      ruAlong(ctx, G, 0.4, G.h - 0.3, G.d.loft[0].chine ? 0.55 : 0.3);
+      if (G.d.loft[0].chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); }
+      const B = G.d.ruBrake;
+      if (B) { const s = G.at((B[0] + B[1]) / 2); ctx.strokeStyle = RU_PANEL; ctx.strokeRect(G.X(s.top + 0.02), G.Y(B[0]), 0.2, B[1] - B[0]); }
+    },
+  },
+  // engine nacelles: frames, a seam, the intake's dark mouth on its raked face (ruIntake: from, to, and 'bot' when the
+  // face is on the underside) and the ramp-bleed louvres behind it
+  nacelle: {
+    body(ctx, G) {
+      const I = G.d.ruIntake;
+      for (const k of [0.12, 0.36, 0.62, 0.84]) ruCross(ctx, G, I[0] * k);
+      ruAlong(ctx, G, 0, I[0] - 0.2, 0.5);
+      ctx.fillStyle = ruDark('#9aa3ac', -0.2);
+      for (let i = 0; i < 4; i++) { const y = I[0] - 1.6 + i * 0.22, s = G.at(y); ctx.fillRect(G.X(I[2] === 'bot' ? s.bot - 0.42 : s.top + 0.12), G.Y(y), 0.3, 0.1); }
+    },
+    over(ctx, G) {
+      const I = G.d.ruIntake, bot = I[2] === 'bot', a = G.at(I[0] + 0.02), c = G.at(I[1] - 0.04);
+      ctx.strokeStyle = '#15181c'; ctx.lineWidth = Math.max(G.lw * 3, 0.07);
+      ctx.beginPath(); ctx.moveTo(G.X(bot ? a.bot - 0.05 : a.top + 0.05), G.Y(I[0] + 0.02)); ctx.lineTo(G.X(bot ? c.bot - 0.02 : c.top + 0.02), G.Y(I[1] - 0.04)); ctx.stroke();
+      ctx.lineWidth = G.lw; ctx.strokeStyle = RU_INK;
+    },
+  },
+  // a tail stinger or boom: frames and a dark aerial at the tip
+  tail: {
+    body(ctx, G) {
+      ruCross(ctx, G, G.h * 0.25); ruCross(ctx, G, G.h * 0.62);
+      if (G.d.loft[0].chine) { ctx.strokeStyle = 'rgba(24,30,38,0.55)'; ruMid(ctx, G, 0, G.h); }
+      ctx.fillStyle = '#4b535c'; ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, 1 + Math.min(0.3, G.h * 0.06));
+    },
+  },
+  // an engine's aft casing (bare titanium, or painted like the fuselage: ruJet.paint) and its nozzle petals
+  jet: {
+    belly: false,
+    fill: (ctx, G) => (G.d.ruJet.paint ? hullGradient(ctx, G.l, G.r) : bodyGrad(ctx, G.l, G.r, () => (PartPaint.flat ? '#8a8378' : tintGradient0(ctx, G.l, G.r, '#8a8378')))),
+    body(ctx, G) {
+      const y1 = G.d.ruJet.petal; // petals from the tail end up to y1
+      ctx.fillStyle = PartPaint.flat ? '#3a3e44' : metalGradient(ctx, G.l, G.r); ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, y1 + 1);
+      ctx.fillStyle = 'rgba(160,110,60,0.35)'; ctx.fillRect(G.l - 1, G.Y(y1), G.w + 2, Math.min(0.6, (G.h - y1) * 0.45)); // heat tint
+      ctx.strokeStyle = 'rgba(12,14,18,0.6)';
+      for (let i = 1; i < 7; i++) { const k = i / 7, s0 = G.at(0.02), s1 = G.at(y1 - 0.02); ctx.beginPath(); ctx.moveTo(G.X(lerp(s0.top, s0.bot, k)), G.Y(0)); ctx.lineTo(G.X(lerp(s1.top, s1.bot, k)), G.Y(y1)); ctx.stroke(); }
+      ctx.strokeStyle = RU_PANEL; ruCross(ctx, G, y1); ruCross(ctx, G, (y1 + G.h) / 2);
+      if (G.p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.45 * G.p.firing})`; ctx.fillRect(G.l - 1, G.Y(-1), G.w + 2, 1.12); }
+    },
+  },
+  // a fin: the rudder's hinge (none on an all-moving fin), a red star and a dark tip
+  fin: {
+    body(ctx, G) {
+      const F = G.d.ruFin, s = G.s, inn = G.x - (s * G.w) / 2, out = G.x + (s * G.w) / 2, b = G.b, h = G.h;
+      if (!F.all) { ctx.beginPath(); ctx.moveTo(lerp(inn, out, 0.08), b + h * (F.rte + 0.1)); ctx.lineTo(lerp(inn, out, 0.92), b + h * (F.tte + 0.08)); ctx.stroke(); }
+      ctx.fillStyle = '#3f474f'; ctx.fillRect(Math.min(out, out - s * 0.18), b, 0.18, h);
+      if (F.star) ruStar(ctx, lerp(inn, out, 0.48), b + h * lerp((F.rte + F.tte) / 2, (1 + F.tle) / 2, 0.5), Math.min(G.w, h) * F.star, G.lw);
+    },
+  },
+  // the sensor ball's fairing; the ball itself is drawn over it
+  irst: {
+    body(ctx, G) { ruCross(ctx, G, G.h * 0.3); },
+    over(ctx, G) {
+      const B = G.d.ruBall, cx = G.X(B[0]), cy = G.Y(B[1]);
+      ctx.beginPath(); ctx.arc(cx, cy, B[2], 0, TAU); ctx.fillStyle = PartPaint.flat ? '#b48a3c' : '#c79a46'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx - B[2] * 0.3, cy + B[2] * 0.25, B[2] * 0.3, 0, TAU); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+    },
+  },
+  // the internal weapons bay: two doors along the belly, and the missiles still inside
+  bay: {
+    body(ctx, G) {
+      ctx.strokeStyle = 'rgba(20,24,28,0.75)'; ctx.lineWidth = G.lw * 1.2;
+      const a = G.at(G.h / 2);
+      ctx.strokeRect(G.X(a.bot - 0.14), G.Y(0.7), 0.12, G.h - 1.4);
+      ctx.beginPath(); ctx.moveTo(G.X(a.bot - 0.14), G.Y(G.h / 2)); ctx.lineTo(G.X(a.bot - 0.02), G.Y(G.h / 2)); ctx.stroke();
+      ctx.fillStyle = '#d23a2f';
+      for (let i = 0; i < (G.p.ammo == null ? G.d.weapon.ammo : G.p.ammo); i++) ctx.fillRect(G.X(a.top + 0.06), G.Y(1 + i * 0.5), 0.1, 0.32); // missiles left
+    },
+  },
+};
+// A line along the widest part of the hull (a chine), from y0 to y1.
+function ruMid(ctx, G, y0, y1) {
+  ctx.beginPath();
+  for (let i = 0; i <= 16; i++) { const y = lerp(y0, y1, i / 16), s = G.at(y); if (i) ctx.lineTo(G.X(s.mid), G.Y(y)); else ctx.moveTo(G.X(s.mid), G.Y(y)); }
+  ctx.stroke();
+}
+
+// ===========================================================================
+// US 3rd- and 4th-generation look-alikes (FS-4, FS-16, FS-15): lofted bodies (shape 'us4body') and camouflage.
+//
+// def.body describes the body in the part's own coordinates (about its centre; x is down, y towards the nose):
+//   tubes: [{ st, z, kind, front, back, rake, hide }]: surfaces lofted through stations st = [[y, xt, xw, xb, hw, nt, nb], ...]
+//     in rising y. xt: the top (negative is up), xb: the bottom, xw: the waist, where it is widest (hw either side); nt and
+//     nb: how square the upper and lower halves are (2 round, 4 boxy; nb defaults to nt). Two stations at the same y make a
+//     step. In between it is a smooth monotone curve, so a few stations draw a smooth body. z: copies across (default [0]);
+//     kind: 'hull' (painted, default) or 'glass'; front/back: 'cap' (default), 'open' or 'intake' (a dark mouth); rake: how
+//     far the lower lip of the front end sits behind the upper one (negative: ahead of it); hide: no outline in 2D.
+//   noz: [{ x, y0, y1, r0, r1, z }]: nozzles from the base (y0, radius r0) to the exit (y1, r1); the first one is where
+//     the flame comes out (nozzleOf), at each z. plates: [[x0, x1, y0, y1, z, t]] splitter plates; seats: [[x, y]] pilots;
+//     frames: [y, ...] canopy bows; probe: [x, y0, y1, r] a pitot boom; colour: the unpainted body colour;
+//     deco: ['line', x0, y0, x1, y1] panel lines, ['tone', y0, k or '#colour'] a radome from y0 forwards, ['port', x, y, w, h].
+// The 2D art below and the 3D loft (parts3d.js) are both made from it, so the two views agree.
+
+// Monotone cubic through (X, V), rising X: no overshoot, and a flat run stays flat.
+function us4Pchip(X, V) {
+  const n = X.length, d = [], m = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d.push((V[i + 1] - V[i]) / (X[i + 1] - X[i]));
+  if (n === 2) m[0] = m[1] = d[0];
+  else if (n > 2) {
+    for (let i = 1; i < n - 1; i++) {
+      if (d[i - 1] * d[i] <= 0) continue;
+      const h0 = X[i] - X[i - 1], h1 = X[i + 1] - X[i], w1 = 2 * h1 + h0, w2 = h1 + 2 * h0;
+      m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
+    }
+    const end = (h0, h1, d0, d1) => {
+      let s = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(s) !== Math.sign(d0)) s = 0; else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(s) > Math.abs(3 * d0)) s = 3 * d0;
+      return s;
+    };
+    m[0] = end(X[1] - X[0], X[2] - X[1], d[0], d[1]);
+    m[n - 1] = end(X[n - 1] - X[n - 2], X[n - 2] - X[n - 3], d[n - 2], d[n - 3]);
+  }
+  return (x) => {
+    if (n === 1) return V[0];
+    let i = 0;
+    while (i < n - 2 && x > X[i + 1]) i++;
+    const h = X[i + 1] - X[i], t = (x - X[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * V[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * V[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+}
+// A tube's sections, every 0.2 m or closer and at every station: { y, xt, xw, xb, hw, nt, nb, run } (run: which smooth
+// stretch it belongs to; a step starts a new one). Worked out once per tube.
+function us4Rows(T) {
+  if (T._rows) return T._rows;
+  const st = T.st, rows = [], runs = [[st[0]]];
+  for (let i = 1; i < st.length; i++) { if (st[i][0] - st[i - 1][0] < 1e-6) runs.push([]); runs[runs.length - 1].push(st[i]); }
+  runs.forEach((S, run) => {
+    const Y = S.map((s) => s[0]), F = [1, 2, 3, 4, 5, 6].map((k) => us4Pchip(Y, S.map((s) => (s[k] != null ? s[k] : s[5]))));
+    const at = (y) => { const v = F.map((f) => f(y)); return { y, xt: v[0], xw: v[1], xb: v[2], hw: Math.max(0, v[3]), nt: Math.max(1.2, v[4]), nb: Math.max(1.2, v[5]), run }; };
+    for (let j = 0; j < S.length - 1; j++) {
+      const ya = Y[j], yb = Y[j + 1], m = Math.max(1, Math.ceil((yb - ya) / 0.2 - 1e-9));
+      for (let q = 0; q < m; q++) rows.push(at(ya + ((yb - ya) * q) / m));
+    }
+    rows.push(at(Y[Y.length - 1]));
+  });
+  T._rows = rows;
+  return rows;
+}
+// A point round a section, at angle a (0: the right side, z+; pi/2: the top), relative to the tube's own centre line.
+function us4Pt(r, a) {
+  const c = Math.cos(a), s = Math.sin(a), up = s >= 0, e = 2 / (up ? r.nt : r.nb);
+  const z = r.hw * Math.sign(c) * Math.pow(Math.abs(c), e), k = Math.pow(Math.abs(s), e);
+  return { x: up ? r.xw - (r.xw - r.xt) * k : r.xw + (r.xb - r.xw) * k, z };
+}
+// Where the lip of a raked mouth cuts a point at fraction f down the front section (0 the top, 1 the bottom).
+function us4Lip(T, yf, f) { const k = T.rake || 0; return yf - (k > 0 ? k * f : -k * (1 - f)); }
+// The tube's outline seen from the side (+z), at the part's (x, y), kept within its box across (a tube may reach into
+// the part it hangs on; only its own box shows). A raked front end is cut on the slant.
+function us4Outline(ctx, T, x, y, w) {
+  const R = us4Rows(T), yf = R[R.length - 1].y, c = (v) => x + Math.max(-w / 2, Math.min(w / 2, v));
+  ctx.moveTo(c(R[0].xt), y + R[0].y);
+  for (const q of R) ctx.lineTo(c(q.xt), y + Math.min(q.y, us4Lip(T, yf, 0)));
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(c(R[i].xb), y + Math.min(R[i].y, us4Lip(T, yf, 1)));
+  ctx.closePath();
+}
+function us4Path(ctx, p) {
+  for (const T of p.def.body.tubes) us4Outline(ctx, T, p.x, p.y, p.def.w);
+}
+// The body's own paint (or its skin): a light air-superiority grey with hull shading.
+function us4Fill(ctx, p, l, r) { return tintGradient(ctx, l, r, p.def.body.colour || '#b9c1c9'); }
+// One nozzle seen from the side: petals tapering to the exit, a dark rim, and a glow while it fires.
+function us4Nozzle(ctx, p, N) {
+  const x = p.x + (N.x || 0), y0 = p.y + N.y0, y1 = p.y + N.y1;
+  ctx.beginPath(); ctx.moveTo(x - N.r0, y0); ctx.lineTo(x + N.r0, y0); ctx.lineTo(x + N.r1, y1); ctx.lineTo(x - N.r1, y1); ctx.closePath();
+  ctx.fillStyle = metalGradient(ctx, x - N.r0, x + N.r0); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,24,30,0.55)';
+  ctx.beginPath();
+  for (let i = 1; i < 6; i++) { const k = i / 6 - 0.5; ctx.moveTo(x + 2 * k * N.r0, y0); ctx.lineTo(x + 2 * k * N.r1, y1); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+  ctx.fillStyle = '#15181c'; ctx.fillRect(x - N.r1, y1, 2 * N.r1, 0.07);
+  if (p.firing > 0) { ctx.fillStyle = `rgba(255,150,80,${0.45 * p.firing})`; ctx.fillRect(x - N.r1, y1, 2 * N.r1, 0.12); }
+}
+// A radome or another patch of its own colour: a tone of the paint (k), or a colour of its own.
+function us4Tone(B, k) { return typeof k === 'string' ? k : bodyTone(shade(B.colour || '#b9c1c9', k), k); }
+function drawUS4(ctx, p, lw) {
+  const d = p.def, B = d.body, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2;
+  const hulls = B.tubes.filter((T) => (T.kind || 'hull') === 'hull'), glass = B.tubes.filter((T) => T.kind === 'glass');
+  ctx.save();
+  for (const N of B.noz || []) us4Nozzle(ctx, p, N);
+  for (const T of glass) { // the canopy (its lower half is hidden by the body): glass, a highlight, its bows and the pilots
+    const R = us4Rows(T);
+    let top = R[0];
+    for (const q of R) if (q.xt < top.xt) top = q;
+    ctx.beginPath(); us4Outline(ctx, T, x, y, w); ctx.fillStyle = PAL.glass; ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = '#3a4048';
+    for (const [sx, sy] of B.seats || []) { ctx.beginPath(); ctx.arc(x + sx, y + sy, 0.13, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(x + top.xt * 0.55 + top.xw * 0.45, y + top.y + 0.2, 0.07, Math.min(0.9, (R[R.length - 1].y - R[0].y) * 0.22), 0, 0, TAU); ctx.fill();
+    ctx.lineWidth = lw * 1.6;
+    ctx.beginPath(); for (const fy of B.frames || []) { ctx.moveTo(x + top.xt - 1, y + fy); ctx.lineTo(x + top.xb + 1, y + fy); }
+    ctx.stroke();
+    ctx.lineWidth = lw;
+    ctx.restore();
+  }
+  ctx.beginPath(); for (const T of hulls) us4Outline(ctx, T, x, y, w);
+  ctx.fillStyle = us4Fill(ctx, p, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  for (const D of B.deco || []) {
+    if (D[0] === 'tone') { ctx.fillStyle = us4Tone(B, D[2]); ctx.fillRect(l, y + D[1], w, h); }
+    else if (D[0] === 'port') { ctx.fillStyle = '#1b1f24'; ctx.fillRect(x + D[1] - D[3] / 2, y + D[2] - D[4] / 2, D[3], D[4]); }
+  }
+  ctx.strokeStyle = 'rgba(20,26,34,0.32)'; ctx.lineWidth = lw * 0.8;
+  ctx.beginPath(); for (const D of B.deco || []) if (D[0] === 'line') { ctx.moveTo(x + D[1], y + D[2]); ctx.lineTo(x + D[3], y + D[4]); }
+  ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw;
+  for (const T of hulls) if (!T.hide) { ctx.beginPath(); us4Outline(ctx, T, x, y, w); ctx.stroke(); }
+  for (const T of hulls) if (T.front === 'intake') { // the mouth: a dark slot behind the lip
+    const R = us4Rows(T), q = R[R.length - 1], yt = y + us4Lip(T, q.y, 0), yb = y + us4Lip(T, q.y, 1), k = 0.16;
+    ctx.beginPath(); ctx.moveTo(x + q.xt, yt); ctx.lineTo(x + q.xb, yb); ctx.lineTo(x + q.xb - 0.06, yb - k); ctx.lineTo(x + q.xt + 0.06, yt - k); ctx.closePath();
+    ctx.fillStyle = '#15181c'; ctx.fill();
+  }
+  for (const P of B.plates || []) { // splitter plates stand clear of the body, ahead of the mouth
+    ctx.fillStyle = us4Tone(B, -0.08); ctx.fillRect(x + P[0], y + P[2], P[1] - P[0], P[3] - P[2]);
+    ctx.strokeRect(x + P[0], y + P[2], P[1] - P[0], P[3] - P[2]);
+  }
+  if (B.probe) { const [px, y0, y1, pr] = B.probe; ctx.fillStyle = PAL.steelDark; ctx.fillRect(x + px - pr, y + y0, 2 * pr, y1 - y0); }
+  ctx.restore();
+}
+// The body seen from above, for the right half of its 3D texture (x here runs across the part, along z): its paint.
+// Like drawPart, the one other place that puts a skin on.
+function drawPartTop(ctx, p) {
+  const prev = PartPaint.skin;
+  PartPaint.skin = p.skin && hasOwn(SKINS, p.skin) && skinnable(p.def) ? SKINS[p.skin] : null;
+  try {
+    const d = p.def, B = d.body, D = d.depth || d.w;
+    ctx.fillStyle = us4Fill(ctx, p, -D / 2, D / 2); ctx.fillRect(-D / 2 - 0.1, -d.h / 2 - 0.1, D + 0.2, d.h + 0.2);
+    for (const E of B.deco || []) if (E[0] === 'tone') { ctx.fillStyle = us4Tone(B, E[2]); ctx.fillRect(-D / 2 - 0.1, E[1], D + 0.2, d.h); }
+  } finally { PartPaint.skin = prev; }
 }

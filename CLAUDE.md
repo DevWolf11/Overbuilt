@@ -14,6 +14,7 @@ A free browser game: build any machine from parts, then take it anywhere. It mix
 - **Fun beats realism when the two conflict.** "Make them more realistically controllable but keep the unprofessional chaos." There is a secret settings menu of joke options (tap the Options title seven times), including the old camera bug, because "people thought it was funny". Don't sand the personality off.
 - **Control comes first.** When a safety system made planes harder to fly (a g-limiter), they asked for the old controls back with only the breakage fixed. Overspeed was a warning only until they asked for wings to break at speed again, at much higher limits (PR #32): it warns from 90% of the limit and tears a wing within seconds past it (at once past 1.3×). Prefer warnings over taking control away from the player.
 - **They test on a phone in portrait and on a desktop.** They send screenshots of bugs. The phone layout matters as much as the desktop one.
+- **Real aircraft get altered names.** Their rule: "as close as real ones but keep the names something different" (Sugoi for Sukhoi, MyG for MiG, FS-16 for F-16). Shapes and performance follow the real jet; player-visible text (part and paint names, blurbs, descriptions, HUD labels) never uses a real designation or nickname (no AL-31F, R-77, Raptor, Flanker). Comments in code may.
 - **Things they notice:** stutters and FPS, visual bugs (floating parts, wrong colours), handling (drift, loss of control), and anything that makes old designs behave differently.
 - **Merging:** they merge PRs themselves and say "merged" or "done". Never merge. After a merge, start follow-up work fresh from `main` on a new PR.
 - **Replies:** detailed, with opinions and some personality, in plain language about what the player will see and feel. No filler.
@@ -45,13 +46,13 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 | `util.js` | maths (vectors, quaternions), `fmt`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags |
 | `space.js` | bodies, Kepler orbits, patched conics, sites (pad, runway, airfields, carriers), the 2D terrain profile |
 | `terrain.js` | `Terrain`: the 3D ground (real Earth map or generated), shared by physics and renderer |
-| `parts.js` | `PARTS` catalogue (158 parts), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
+| `parts.js` | `PARTS` catalogue (254 parts), geometry, joints (`buildAdjacency`), staging, Δv, design rows, paint (`SKINS`), all 2D part drawing |
 | `vessel.js` | `Vessel`: the rigid-body simulation (engines, wings in halves, aero, heat, chutes, wheels, ground and water, splitting, autopilot) |
 | `ui.js`, `world.js` | dialogs, toasts and icons; `Settings`, `FX` particles, the 2D fallback flight view |
 | `parts3d.js`, `render3d.js` | 3D part models; the three.js renderer for flight, hangar and globe (three.js is lazy-loaded) |
 | `audio.js`, `career.js`, `map.js`, `globe.js` | procedural sound; career and missions; solar-system map; globe map |
 | `combat.js` | weapons, projectiles, missile guidance and countermeasures, damage, target range, AI fighters |
-| `builder.js` | `TEMPLATES` (25 example craft); `Builder`, the build screen (2D and 3D, attach system, symmetry, depth, paint, hangar, codes) |
+| `builder.js` | `TEMPLATES` (35 example craft); `Builder`, the build screen (2D and 3D, attach system, symmetry, depth, paint, hangar, codes) |
 | `flight.js` | `Flight`: flight loop, time warp and rails, controls, HUD, camera, saving, staging, breakage |
 | `net.js`, `mp.js`, `mpui.js` | multiplayer: transport (PeerJS or BroadcastChannel), host relay, sessions and battles, ghosts, hits; the screens |
 | `main.js` | `App`: screens, main loop, settings dialog, service worker |
@@ -127,3 +128,4 @@ PRs #1-#10 were Cam-Strike, a 5v5 bomb-defusal FPS that the repo used to hold (i
 | #32 | Wings flutter apart past their own speed limits (equivalent airspeed, and Mach for subsonic wings), after a warning; the view shakes; AI fighters throttle back |
 | #33-#34 | Online joining that survives a phone host looking away and says which step failed; big messages in pieces; a relay (TURN) account for school networks and a Test this network button |
 | #35 | Battery: redraw only what changes (still screens, menus, pause), a 60 fps cap on touch devices, the same 3D picture with far less hidden pixel work, cheaper ground contact, sound and screen sleep when paused. Chaff Dispenser part, frigate radar SAM |
+| #36 | Look-alike jets: ten fighters across four generations under altered names (MyG-21, FS-4, FS-16, MyG-29, FS-15, Sugoi-27, Sugoi-35, FS-22, FS-35, Sugoi-57), 96 parts with bodies lofted from cross-sections (2D = 3D), 13 paints (11 camouflage), internal missile bays with doors, flat and swivelling vectoring nozzles, an IRST ball; one price scale (all fit a $120k battle). The builder: part tabs by kind of craft (More for the rest), each jet's parts grouped, clashes on the 3D shapes (round, extruded, lofted) with parts sliding in onto curved hulls |

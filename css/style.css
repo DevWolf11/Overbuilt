@@ -155,7 +155,11 @@ html, body {
   padding: 12px 12px 9px; cursor: pointer; white-space: nowrap;
 }
 .tab[aria-selected="true"] { color: var(--amber); border-bottom-color: var(--amber); }
+.tab.extra { opacity: 0.75; } /* another kind of craft's parts (More) */
+.tab.more { position: sticky; right: 0; margin-left: 4px; border-left: 1px solid var(--line); background: rgb(5, 9, 18); } /* always in sight, at the strip's end */
 .items { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 2px; touch-action: pan-x; scrollbar-width: thin; }
+/* the label before each look-alike jet's parts in the tray */
+.tray-group { flex: 0 0 auto; align-self: stretch; display: flex; align-items: center; writing-mode: vertical-rl; transform: rotate(180deg); padding: 0 3px; border-right: 1px solid var(--line); color: var(--muted); font: 600 10px/1 var(--display); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
 .part-item {
   flex: 0 0 auto; width: 96px; padding: 6px 6px 8px;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -165,7 +169,7 @@ html, body {
 }
 .part-item:hover { border-color: var(--amber); }
 .part-item canvas { width: 56px; height: 56px; pointer-events: none; }
-.part-name { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.1; }
+.part-name { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; } /* (two lines at most: a long name doesn't make the tray taller) */
 .part-spec { font: 500 10px var(--mono); color: var(--muted); }
 
 /* ------------------------------------------------------------------ flight screen */
@@ -678,7 +682,7 @@ kbd {
   .items { padding-top: 5px; }
   .part-item { width: 92px; padding: 4px 4px 6px; gap: 2px; }
   .part-item canvas { width: 34px; height: 34px; }
-  .part-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 11px; }
+  .part-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-size: 11px; }
   .part-item .part-spec { display: none; }
 }
 
