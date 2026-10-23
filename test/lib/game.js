@@ -10,7 +10,7 @@ const ROOT = path.resolve(process.env.ROOT || path.join(__dirname, '..', '..'));
 const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 
 // opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t),
-// flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs)
+// flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground (groundai.js; with combat)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -25,6 +25,9 @@ function load(opts = {}) {
   }
   run(src(root, 'parts.js'), 'parts.js');
   run(src(root, 'vessel.js'), 'vessel.js');
+  // the ground update's systems (each only if present, so ROOT can point at a checkout from before it)
+  const has = (f) => fs.existsSync(path.join(root, 'js', f));
+  for (const f of ['gear.js', 'aim.js', 'armour.js']) if (has(f)) run(src(root, f), f);
   if (opts.flight && opts.mp) throw new Error('load(): flight and mp stub each other out; load them in separate contexts');
   run('var Sound = new Proxy({}, { get: () => () => {} });');
   if (opts.flight) { // world.js brings the real Settings and FX
@@ -47,6 +50,8 @@ function load(opts = {}) {
     cs = cs.replace(ret, `  return {\n    _t: { ${names.join(', ')} }, S, step,`);
     run(cs + '\nthis.Combat = Combat;', 'combat.js');
   }
+  if ((opts.combat || opts.mp || opts.ground) && has('gmode.js')) run(src(root, 'gmode.js'), 'gmode.js');
+  if (opts.ground && has('groundai.js')) run(src(root, 'groundai.js'), 'groundai.js');
   const b = src(root, 'builder.js');
   run(b.match(/const TEMPLATES = \{[\s\S]*?\n\};/)[0] + '\nthis.TEMPLATES = TEMPLATES;', 'builder.js (TEMPLATES)');
   const tr = b.match(/function templateRows\(t\) \{[\s\S]*?\n\}/);
@@ -63,7 +68,8 @@ function load(opts = {}) {
     run(src(root, 'mp.js') + '\nthis.MP = MP;', 'mp.js');
   }
   // top-level const/let/class bindings aren't properties of the context: copy the common ones over
-  for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain'])
+  for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain',
+    'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI'])
     run(`if (typeof ${k} !== 'undefined') this.${k} = ${k};`);
   return ctx;
 }
