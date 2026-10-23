@@ -375,9 +375,9 @@ t('Combat exports what the new systems call', R(`['candidates', 'refPos', 'clutt
 R(`var ra = air(), rF = simOf(ra), c0 = [cnt('Armour.hitFirst'), cnt('Armour.legacyHit')];
 var gone1 = fly(round(ra, { x: 0, y: 1.1 }, 1), rF), c1 = [cnt('Armour.hitFirst'), cnt('Armour.legacyHit')];
 var gun2 = ra.parts.find((p) => p.type === 'tstGun'), gone2 = fly(round(ra, { x: 4.5, y: 2.45 }, 1), rF);`);
-t('a round into a plated craft: Armour.hitFirst finds the part; on armour, Armour.legacyHit decides (and the round stops)', R(`c1[0] > c0[0] && c1[1] === c0[1] + 1 && gone1 > 0 && ra.parts[0].hp == null`), R('[c0, c1, gone1]'));
+t('a round into a plated craft: Armour.hitFirst finds the part; on armour, Armour.legacyHit decides (and the round stops: up through the 22.5 mm belly, the hull takes 10% of its damage)', R(`c1[0] > c0[0] && c1[1] === c0[1] + 1 && gone1 > 0 && Math.abs(ra.parts[0].hp - (1100 - 1)) < 1e-9`), R('[c0, c1, gone1, ra.parts[0].hp]'));
 t('...and a part without armour (the gun) takes the round as any part does (its own hp)', R(`gone2 > 0 && gun2.hp === 290 && cnt('Armour.legacyHit') === c1[1]`), R('[gone2, gun2.hp]'));
-t('Armour.hitFirst stands in with the old box test (Phase 1)', R(`(() => { const a = ra.toWorld(0, 1.1, -10), e = ra.toWorld(0, 1.1, 10), q = Armour.hitFirst(ra, a, e), o = Tt.hitVessel(ra, a, e); return !!q && q.p === o.p && q.t === o.t; })()`));
+t('Armour.hitFirst: through a plain box, the same first part and place as the old box test', R(`(() => { const a = ra.toWorld(0, 1.1, -10), e = ra.toWorld(0, 1.1, 10), q = Armour.hitFirst(ra, a, e), o = Tt.hitVessel(ra, a, e); return !!q && q.p === o.p && q.t === o.t; })()`));
 t('a shell flies in armour.js; a peer\'s shell copy and smoke go there too', R(`(() => { const k0 = [cnt('Armour.moveShell'), cnt('Armour.netShell'), cnt('Aim.netSmoke')];
   const keep = Tt.moveShot({ k: 'shell', sh: 'x', b: EARTH, x: ra.x + 50, y: 0, z: 0, vx: 0, vy: 900, vz: 0, t: 0, life: 6 }, 1 / 120, rF);
   const g = { body: EARTH, remote: 9, parts: [], x: ra.x, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }, n = Combat.S.shots.length, nf = Combat.S.flares.length;
@@ -386,8 +386,8 @@ t('a shell flies in armour.js; a peer\'s shell copy and smoke go there too', R(`
 t('a blast spares the craft named (a shell\'s own launcher at the muzzle), and only that one', R(`(() => { const v = air(), F = simOf(v), at = v.toWorld(0, 1.1, 1.8);
   Combat.explode(EARTH, at, 4, 150, null, F, true, undefined, v); const spared = v.parts.every((p) => p.hp == null);
   Combat.explode(EARTH, at, 4, 150, null, F, true); return spared && v.parts.some((p) => p.hp != null); })()`));
-t('a module part at 0 hp goes to Armour.moduleDown (Phase 1: ripped off, as any part)', R(`(() => { const v = air(), F = simOf(v), tr = v.parts[1], k = cnt('Armour.moduleDown');
-  Combat.damage(v, tr, 1e6, 'shot', F); return cnt('Armour.moduleDown') === k + 1 && !v.parts.includes(tr) && F.broken.join() === 'rip' && v.gear.length === 1; })()`));
+t('a module part at 0 hp goes to Armour.moduleDown: broken, not ripped off (it stays)', R(`(() => { const v = air(), F = simOf(v), tr = v.parts[1], k = cnt('Armour.moduleDown');
+  Combat.damage(v, tr, 1e6, 'shot', F); return cnt('Armour.moduleDown') === k + 1 && v.parts.includes(tr) && tr.broken && tr.hp === 0 && !F.broken.length && v.gear.length === 2; })()`));
 t('a ground launcher\'s missile lights its motor at its own coast time (old missiles: 0.35 s)', R(`(() => {
   const m = (o) => Object.assign({ k: 'missile', b: EARTH, x: EARTH.radius + 3000, y: 0, z: 0, vx: 0, vy: 50, vz: 0, dx: 0, dy: 1, dz: 0, t: 0, life: 10, accel: 100, burn: 2, blast: 3, dmg: 100, owner: null, target: null, enemy: false, net: 0 }, o);
   const a = m({}), b = m({ coast: 0.05, gt: 5 }), F = simOf(ra); F.vessels = [];

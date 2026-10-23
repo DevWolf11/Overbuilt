@@ -42,16 +42,19 @@ const Combat = (() => {
 
   function damage(v, p, amount, cause, sim, by) {
     if (!(amount > 0) || v.dead || v.remote || !v.parts.includes(p)) return; // (someone else's craft: only its owner hurts it, see MP.sendHit)
+    if (p.broken && p.def.module === 'crew') return; // (a crewman already dead)
+    if (v.spawnAt != null && (sim.time || 0) - v.spawnAt < 4) return; // (a battle's spawn protection: 4 s)
     if (p.hp == null) p.hp = maxHp(p.def);
     const before = hpFrac(p);
     p.hp -= amount * (1 - (p.def.armor || 0)); // armour plate turns most of it away
     if (by) { v.lastHitBy = by; v.lastHitAt = sim.time || 0; }
+    if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     const after = hpFrac(p);
-    if (v === sim.active && !v.ai) {
+    if (v === sim.active && !v.ai && !p.def.gv) { // (the ground update's parts say what broke themselves: armour.js)
       if (before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50)) sim.toast(`${p.def.name} on fire!`, 'warn');
       else if (before >= 0.6 && after < 0.6 && after > 0) sim.toast(`${p.def.name} damaged`, 'warn');
     }
-    if (p.hp <= 0) destroyPart(v, p, cause, sim);
+    if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
   }
   // A part at zero health: engines, tanks, loaded weapons and cockpits blow up; the rest break off.
   // A pair goes up where each one hangs, its fuel shared between them.
@@ -135,17 +138,25 @@ const Combat = (() => {
     for (const v of sim.vessels.slice()) {
       if (v.dead || v === spare || v.body !== b || (v.remote && !mine)) continue;
       if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
-      const hits = v.remote ? [] : null;
+      // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
+      const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
+      if (mods) Armour.hot = true; // (high explosive: ammunition it reaches cooks off more easily)
       for (const p of v.parts.slice()) {
         if (!v.parts.includes(p)) continue;
         let d = Infinity;
-        for (const z of partZs(p)) { const w = v.toWorld(p.x, p.y, z); d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z)); }
+        for (const z of partZs(p)) {
+          const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
+          d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+        }
         d -= Math.max(p.def.w, p.def.h) / 2;
         if (d >= blast) continue;
-        const k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
+        let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
+        if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; }
         if (hits) hits.push([p, k]); else damage(v, p, k, 'blast', sim, by);
       }
-      if (hits && hits.length) MP.sendHits(v, hits, 'blast');
+      if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
+      if (mods) Armour.hot = false;
+      if (hits && (hits.length || (mods && mods.length))) { if (mods) MP.sendHits(v, hits, 'blast', mods, null, true); else MP.sendHits(v, hits, 'blast'); }
     }
     if (mpOn()) return; // (no targets in multiplayer)
     for (const e of S.targets) {

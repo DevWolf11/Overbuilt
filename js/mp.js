@@ -850,13 +850,21 @@ const MP = {
   // ------------------------------------------------------------------ combat over the network
   // our round (or blast) hit someone else's craft: list = [[part, damage], ...] on that craft
   sendHit(ghost, part, dmg, kind) { this.sendHits(ghost, [[part, dmg]], kind); },
-  sendHits(ghost, list, kind) {
-    if (!this.shared || !ghost || !ghost.remote || !this.hostile(Net.me, ghost.remote)) return;
-    const out = [];
+  // (the ground update: kind 'pen' or 'np' as well; mods: [[host part, module index, damage], ...] for its built-in crew,
+  // ammunition and fuel, as m rows; dir: [x, y, z] toward us, for their hit arc; hot: a shaped charge, APHE or HE.
+  // A wreck takes nothing.)
+  sendHits(ghost, list, kind, mods, dir, hot) {
+    if (!this.shared || !ghost || !ghost.remote || ghost.wreck || !this.hostile(Net.me, ghost.remote)) return;
+    const out = [], m = [];
     let total = 0;
     for (const [p, d] of list) if (p && d > 0.05) { out.push([p.id, Math.round(d * 10) / 10]); total += d; }
-    if (!out.length) return;
-    Net.send({ t: 'hit', to: ghost.remote, list: out, k: kind || 'shot' }, ghost.remote);
+    if (mods) for (const [p, i, d] of mods) if (p && d > 0.05 && m.length < 32) { m.push([p.id, i, Math.round(d * 10) / 10]); total += d; }
+    if (!out.length && !m.length) return;
+    const msg = { t: 'hit', to: ghost.remote, list: out, k: kind || 'shot' };
+    if (m.length) msg.m = m;
+    if (dir && dir.length === 3 && dir.every(Number.isFinite)) msg.d = dir.map((x) => Math.round(x * 1000) / 1000);
+    if (hot) msg.h = 1;
+    Net.send(msg, ghost.remote);
     if (Net.isHost) this.addDamage(Net.me, total); else this.dmgOut = (this.dmgOut || 0) + total;
   },
   onHit(m) {
@@ -868,15 +876,29 @@ const MP = {
     // a part may have broken off into a piece of debris since: look in every craft of ours
     const mine = Flight.vessels.filter((x) => !x.remote && !x.ai);
     v.lastHitBy = by; v.lastHitAt = Flight.time; // first: the hit may be the one that brings us down
+    const find = (id) => { for (const x of mine) { const part = x.parts.find((p) => p.id === id); if (part) return [part, x]; } return [null, null]; };
+    if (m.h === 1) Armour.hot = true; // (a shaped charge, APHE or HE: our ammunition cooks off more easily)
     let first = true;
     for (const row of list) {
       if (!Array.isArray(row)) continue;
-      const [id, dmg] = row;
-      let part = null, owner = null;
-      for (const x of mine) { part = x.parts.find((p) => p.id === id); if (part) { owner = x; break; } }
+      const [id, dmg] = row, [part, owner] = find(id);
       if (!part || !(dmg > 0)) continue;
       if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
       Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by);
+    }
+    // (the ground update) built-in modules, as m rows [part id, module index, damage], each checked (we decide what
+    // follows: deaths, cook-offs, fires), and where it came from for the hit arc (d, else the shooter's bearing)
+    if (Array.isArray(m.m)) for (const row of m.m.slice(0, 32)) {
+      if (!Array.isArray(row)) continue;
+      const [id, i, dmg] = row, [part, owner] = find(id);
+      if (!part || !part.def.mods || !Number.isInteger(i) || i < 0 || i >= part.def.mods.length || !Number.isFinite(dmg) || !(dmg > 0)) continue;
+      Armour.modDamage(owner, part, i, Math.min(dmg, 2000), Flight, by, m.h === 1);
+    }
+    if (m.h === 1) Armour.hot = false;
+    if (v.gv && !v.dead) {
+      let d = Array.isArray(m.d) && m.d.length === 3 && m.d.every(Number.isFinite) ? { x: m.d[0], y: m.d[1], z: m.d[2] } : null, l = d ? Math.hypot(d.x, d.y, d.z) : 0;
+      if (!(l >= 0.1 && l <= 10) && by.parts) { d = { x: by.x - v.x, y: by.y - v.y, z: by.z - v.z }; l = Math.hypot(d.x, d.y, d.z); }
+      if (l > 0 && Number.isFinite(l)) Armour.hurt(v, { x: d.x / l, y: d.y / l, z: d.z / l }, m.k === 'pen' ? 'pen' : 'np', Flight);
     }
   },
   // our explosion, for everyone to see (what it hit was settled here and sent as hits)
