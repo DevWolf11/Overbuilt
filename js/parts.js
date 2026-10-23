@@ -1129,7 +1129,7 @@ const PARTS = {
     armour: { mm: 6, mat: 'steel' }, spaced: true,
     tier: 1, cost: 450, desc: 'A thin plate hung over the tracks: shaped charges go off on it, and lose much of their punch before they reach the hull.' },
   plateApp: { gv: true, family: 'WWII', place: 'face', cat: 'kit', name: 'Applique Plate', w: 1.5, h: 0.06, depth: 1.0, mass: 0.4, shape: 'tkit', style: 'plate', hp: 200,
-    armour: { mm: 30, min: 10, max: 80, edge: [0, 1, 1, 1], z: 1, mat: 'steel' }, // (its back lies on the plate it thickens)
+    armour: { mm: 30, min: 10, max: 80, edge: [1, 1, 1, 1], z: 1, mat: 'steel', slab: true }, // (one solid sheet: as thick whichever way round it lies)
     tier: 1, cost: 600, desc: 'An extra armour plate: lay it on a hull or turret face (turn it with R for a front) and its thickness adds to the plate behind.' },
   slatCage: { gv: true, family: 'Modern', place: 'skirt', cat: 'kit', name: 'Slat Cage', w: 2.0, h: 1.0, depth: 0.1, mass: 0.15, shape: 'tkit', style: 'slat', hp: 120,
     armour: { mm: 2, mat: 'steel' }, slat: 0.5,
@@ -1172,6 +1172,7 @@ function massPerMm(def) {
   const a = def.armour, w = def.w, h = def.h, d = partDepth({ def });
   let A = 0;
   if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
+  else if (a.slab) A = w * d; // (a solid plate, thin in h: one sheet, though each face is hit at its full thickness)
   else {
     const o = def.outline || BOX_OUTLINE, n = o.length, open = a.open || [];
     let area = 0;

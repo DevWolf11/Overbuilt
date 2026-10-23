@@ -565,7 +565,9 @@ function fieldIn(f, e, z, o) {
 // The Ground Battle arenas (EARTH.arenas, space.js) whose ground is made for the fight (clear), on the real map:
 // arenaW is how far a point is inside one, 1 in its box fading to 0 over 200 m round it. There the ground's fine detail
 // (Earth's 40 m and 160 m waves, which the drawn ground drops where its cells are coarse) fades out, so the ground seen
-// across the battlefield is the ground shells hit and tanks drive on.
+// across the battlefield is the ground shells hit and tanks drive on. Never on an airfield's ground, though: the fade
+// is 0 over its strip and blend and 3 m past it (the physics lattice's 2 m cells), coming back over the next 200 m
+// (Wick's south end and blend reach into Highland Ridge's box).
 const ARENA_FADE = 200;
 function arenaW(e, z) {
   const A = EARTH.arenas;
@@ -574,6 +576,13 @@ function arenaW(e, z) {
     const a = A[k], B = a.box;
     if (!a.clear || !B || e < B.e0 - ARENA_FADE || e > B.e1 + ARENA_FADE || z < B.z0 - ARENA_FADE || z > B.z1 + ARENA_FADE) continue;
     w = Math.max(w, 1 - smoothstep(0, ARENA_FADE, Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1))));
+  }
+  const F = EARTH.airfields;
+  if (w > 0 && F) for (const k in F) {
+    const f = F[k], de = e - f.e, dz = z - f.z, r = f.hl + f.hw + f.blend + 3 + ARENA_FADE;
+    if (Math.abs(de) > r || Math.abs(dz) > r) continue;
+    const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+    w *= smoothstep(f.blend + 3, f.blend + 3 + ARENA_FADE, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
   }
   return w;
 }

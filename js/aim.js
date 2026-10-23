@@ -10,7 +10,8 @@
 // build pose for mass, inertia and the hull; hits, blasts, aim and the 3D model pose the parts.
 // An aimed part (def.aim: guns, launchers, a tracking dish) keeps its own yaw and elevation (p.aimYaw, p.aimEl) as the
 // old turrets do: unturned, its barrel points along g = (-sin el, cos el cos yaw, cos el sin yaw), turned by its rot
-// (rot 3 on a ground vehicle: along +x, the base down), and it pivots on its trunnion, pivot·h up from its breech.
+// (rot 3 on a ground vehicle: along +x, the base down), and it pivots on its trunnion, pivot·h up from its breech, in
+// its own yaw as in elevation (a pintle, a ball mount: the 3D yaw node and the hit prism turn there too).
 
 // a part-space point o turned by angle a about group g's axis (in place)
 function aimTurn(g, o, a) {
@@ -52,8 +53,12 @@ const Aim = {
     for (const R of rings) {
       const top = partRect(R).t, above = (q) => q !== R && partRect(q).b >= top - 0.05, ids = new Set(), stack = [R];
       while (stack.length) for (const id of adj.get(stack.pop().id) || []) { const q = byId.get(id); if (q && !ids.has(id) && above(q)) { ids.add(id); stack.push(q); } }
-      for (const q of attachedTo(parts, parts.filter((q) => ids.has(q.id)))) ids.add(q.id); // (a breech below the ring's top, a bustle bin)
-      ids.delete(R.id);
+      // what the ring stands on, and what joins that below its top: never turned, whichever way the att links run (a
+      // turret built first records the ring as hanging on it, and the hull on the ring)
+      const base = new Set(), low = (q) => q !== R && !ids.has(q.id) && partRect(q).t <= top + 0.05;
+      stack.push(R);
+      while (stack.length) for (const id of adj.get(stack.pop().id) || []) { const q = byId.get(id); if (q && !base.has(id) && low(q)) { base.add(id); stack.push(q); } }
+      for (const q of attachedTo(parts.filter((q) => q !== R && !base.has(q.id)), parts.filter((q) => ids.has(q.id)))) ids.add(q.id); // (a breech below the ring's top, a bustle bin)
       // the innermost group so far that turns this ring: its parent (and a ring two deep doesn't turn)
       let parent = null;
       for (const g of out) if (g.ids.has(R.id) && (!parent || g.parent)) parent = g;

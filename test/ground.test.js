@@ -214,10 +214,11 @@ R(`var code = Codes.designCode({ name: 'T', kind: 'tank', parts: trows }), back 
 t('an RSS3 code only when some row has mm, and it reads back with the same mass', R(`code.startsWith('RSS3.') && back && back.kind === 'tank' && near(kg(partsFromDesign(back.parts)), tmass)
   && Codes.designCode({ name: 'T', kind: 'tank', parts: designRows(partsFromDesign(TANK)) }).startsWith('RSS2.')`), R('code.slice(0, 12)'));
 t('an older version\'s reader (RSS1/RSS2 only) refuses an RSS3 code cleanly', R(`!/RSS[12]\\.([A-Za-z0-9_-]+)/.exec(code)`));
-t('a code\'s mm goes through cleanMm (forged: clamped)', R(`(() => { const raw = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(code.slice(5).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))));
-  raw.p[0][8] = 1e9; raw.p[5][8] = 'x';
-  const forged = 'RSS3.' + btoa(JSON.stringify(raw)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, ''), ps = partsFromDesign(Codes.parseCode(forged).parts);
-  return ps[0].mm === 120 && ps[5].mm === undefined; })()`));
+t('a code\'s mm goes through cleanMm (forged: clamped; anything but a number is junk, as in spawn rows and saves: the nominal plate)', R(`(() => {
+  const raw = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(code.slice(5).replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))));
+  const read = (a, b) => { raw.p[0][8] = a; raw.p[5][8] = b; const forged = 'RSS3.' + btoa(JSON.stringify(raw)).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, ''); return partsFromDesign(Codes.parseCode(forged).parts); };
+  const ps = read(1e9, 'x');
+  return ps[0].mm === 120 && ps[5].mm === undefined && [['70', [150]], [false, ''], [true, []], [' 70 ', '0x46']].every(([a, b]) => { const q = read(a, b); return q[0].mm === undefined && q[5].mm === undefined; }); })()`));
 // spawn rows (a peer's copy) and its ghost
 G.run(mp, `${R(`'var TST = ' + JSON.stringify(TST, (k, v) => (k === 'type' || k === 'maxTemp' ? undefined : v))`)}; for (const [k, d] of Object.entries(TST)) { d.type = k; d.maxTemp = 2000; PARTS[k] = d; }`);
 mp.__trows = R('trows');
@@ -328,6 +329,12 @@ t('trunnion and muzzle: at rest the muzzle is the barrel\'s tip; turned and rais
   const b = near(Math.hypot(m.x - tr.x, m.y - tr.y, m.z - tr.z), L, 1e-9) && near((m.x - tr.x) / L, s.x, 1e-9) && near((m.y - tr.y) / L, s.y, 1e-9) && near((m.z - tr.z) / L, s.z, 1e-9);
   const pt = Aim.pose(tk, gun, { x: gun.x - gun.def.h / 2 + gun.def.aim.pivot * gun.def.h, y: gun.y, z: 0 }, v3()), pw = tk.toWorld(pt.x, pt.y, pt.z);
   ring.aimYaw = 0; gun.aimEl = 0; return a && b && Math.hypot(tr.x - pw.x, tr.y - pw.y, tr.z - pw.z) < 1e-9; })()`));
+t('an aimed part\'s own traverse turns it about its trunnion (the pintle, the ball mount): the trunnion stays put, the muzzle swings one barrel out (2D\'s yaw node and 2B\'s hit prism turn there too)', R(`(() => {
+  ring.aimYaw = 0.4; gun.aimEl = 0.1; gun.aimYaw = 0; Aim.trunnion(tk, gun, tr); const t0 = { x: tr.x, y: tr.y, z: tr.z };
+  let ok = true;
+  for (const yaw of [0.35, Math.PI / 2, Math.PI]) { gun.aimYaw = yaw; Aim.trunnion(tk, gun, tr); Aim.muzzle(tk, gun, m); Aim.dir(tk, gun, s);
+    ok = ok && Math.hypot(tr.x - t0.x, tr.y - t0.y, tr.z - t0.z) < 1e-9 && Math.hypot(m.x - tr.x - s.x * L, m.y - tr.y - s.y * L, m.z - tr.z - s.z * L) < 1e-9; }
+  ring.aimYaw = 0; gun.aimYaw = 0; gun.aimEl = 0; return ok; })()`));
 t('sightPoint: over the main gun\'s trunnion, turning with its turret', R(`(() => {
   const want = (yaw) => { ring.aimYaw = yaw; const q = Aim.pose(tk, gun, { x: gun.x - gun.def.h / 2 + gun.def.aim.pivot * gun.def.h, y: gun.y + 0.35, z: 0.3 }, v3()); return tk.toWorld(q.x, q.y, q.z); };
   let ok = true; for (const yaw of [0, 0.8, -2]) { const w = want(yaw); Aim.sightPoint(tk, s); ok = ok && Math.hypot(s.x - w.x, s.y - w.y, s.z - w.z) < 1e-9; }
@@ -445,6 +452,12 @@ t('real parts: the ring turns the turret, the gun and the coaxial MG (not the hu
   return tg.length === 1 && g.ring === rps[4] && typesOf(g) === 'turretCast,gun85,mgCoax' && !g.jam && [0, 1, 2, 3, 4].every((i) => !g.ids.has(rps[i].id)) && near(g.c.y, 1.95)
     && near(g.rate, 24 * Math.PI / 180 * clamp(Math.sqrt(12 / g.mass), 0.35, 1)) && rv.tg.length === 1 && rv.aimed.map((p) => p.type).join() === 'gun85,mgCoax'; })()`),
   R(`JSON.stringify(Aim.groupsOfParts(rps, radj).map((g) => [typesOf(g), g.jam, g.mass, g.rate]))`));
+t('real parts built turret-first: the same group whichever way the att links run, the hull never turning (hung on the turret itself, it jams the ring)', R(`(() => {
+  const sig = (rows, jam) => { const ps = partsFromDesign(rows), v = vesselOf(rows), tg = Aim.groupsOfParts(ps, buildAdjacency(ps));
+    return JSON.stringify([tg.map((g) => [typesOf(g), jam ? jam(g.jam, ps) : g.jam, g.mass, g.rate]), v.bodyBox, v.parts.filter((p) => v.tgOf.has(p.id)).map((p) => p.type)]); };
+  const up = REAL.map((q) => ({ ...q })); delete up[5].att; up[4].att = 5; up[0].att = 4; // (the ring on the turret, the hull on the ring)
+  const onTurret = REAL.map((q) => ({ ...q })); delete onTurret[5].att; onTurret[0].att = 5; // (the hull joined to the turret: welded past the ring)
+  return sig(up) === sig(REAL) && sig(onTurret, (j, ps) => (j && j[0] === ps[5].id && j[1] === ps[0].id ? null : 'no jam')) === sig(REAL); })()`));
 t('real parts: Gear.points gives each Medium Track three road-wheel contacts, one side each', R(`(() => { const g = rv.wheelPts.filter((k) => k.gear), t = PARTS.trackMed.track;
   return rv.gear.length === 2 && rv.gear.every((p) => p.type === 'trackMed') && g.length === 6 && g.filter((k) => k.side === -1).length === 3 && g.filter((k) => k.side === 1).length === 3
     && g.every((k) => near(k.r, t.r + 0.4 * t.travel) && near(k.y, 0.5 - 0.5 + t.r)); })()`));
@@ -471,12 +484,15 @@ const msgs = G.run(mp, `(() => {
   MP.sendShot(shot('rocket')); const r = last();
   MP.sendShot(shot('shell', { sh: 'ap37' })); const sh = last();
   MP.sendSmoke(Flight.active, { x: 1, y: 2, z: 3, dx: 0, dy: 0, dz: 1 }); const sm = last();
-  const tgt = { remote: 5 }, msl = (seek) => { MP.sendMissile(shot('missile', { target: tgt }), { seek }); const m = last(); return [m.agm, m.tg]; };
+  const tgt = { remote: 5 }, msl = (seek) => { // the launch message, then its first 10 Hz update (its tg too)
+    const s = shot('missile', { target: tgt }); MP.sendMissile(s, { seek }); const m = last();
+    globalThis.Combat = { shots: [s] }; MP.missiles.get(s).at = -1e9; MP.syncMissiles(); const u = last(); Combat.shots.length = 0; MP.syncMissiles(); delete globalThis.Combat;
+    return [m.agm, m.tg, u.t + u.tg]; };
   return { rocket: Object.keys(r).join(), shell: sh.sh, smoke: JSON.stringify(sm), msl: ['heat', undefined, 'ground', 'saclos', 'top', 'clos'].map(msl).join(' ') };
 })()`);
 t('a rocket\'s shot message keeps its fields; a shell\'s says which round', msgs.rocket === 't,k,b,P,V,D,burn,accel,small,torpedo' && msgs.shell === 'ap37', JSON.stringify(msgs));
 t('a smoke cloud goes as a cm message with smoke set (old peers drop it: no V)', msgs.smoke === '{"t":"cm","smoke":1,"P":[1,2,3],"D":[0,0,1]}', msgs.smoke);
-t('missiles: air seekers and the old anti-ground one as before; wire-guided and top-attack go as anti-ground with no target', msgs.msl === '0,5 0,5 1,5 1,0 1,0 0,5', msgs.msl);
+t('missiles: air seekers and the old anti-ground one as before; wire-guided and top-attack go as anti-ground with no target, in their updates too', msgs.msl === '0,5,mp5 0,5,mp5 1,5,mp5 1,0,mp0 1,0,mp0 0,5,mp5', msgs.msl);
 t('sending shots, smoke and missiles: no calls into the new systems', calls(mp) === '{}', calls(mp));
 t('the pv rows carry a turret ring (its yaw) and nothing new for old craft', G.run(mp, `(() => {
   const pv = (v) => { Flight.active = v; Flight.destroyed = false; MP.sent = { s: 1e12, pv: -1e9, hp: 1e12, hpSig: '' }; MP.lastParts = v.parts.length; Net.out = []; MP.afterUpdate(); const m = Net.out.find(([q]) => q.t === 'pv'); return m ? m[0].list : []; };

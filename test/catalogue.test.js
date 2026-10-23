@@ -74,6 +74,15 @@ t('the MBT hull: the upper glacis is the weak spot', eff('hullMBT', 2)[0] < eff(
 t('sides: Light 15, Medium 40, Heavy 80, MBT 70, Troop 20, Wheeled 12, Casemate 48 mm', [['hullLight', 15], ['hullMedium', 40], ['hullHeavy', 80], ['hullMBT', 70], ['hullIFV', 20], ['hullWheeled', 12], ['hullCasemate', 48]]
   .every(([k, mm]) => Math.abs(PARTS[k].armour.mm * PARTS[k].armour.z - mm) < 0.6));
 
+// the Applique Plate: a solid sheet, so it protects whichever way round it is laid (rot 0 on a roof, R for a front,
+// rot 3 for a rear: a thin box looks the same both ways), and it weighs one sheet per mm
+const turnN = (k, [x, y]) => { for (let i = 0; i < k; i++) [x, y] = [-y, x]; return [x, y]; }; // (partPt's rot)
+const outFace = (k, rot, want) => edges(PARTS[k].outline || [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]).findIndex(([a, b]) => { const n = turnN(rot, [b[1] - a[1], -(b[0] - a[0])]); return Math.abs(n[0] - want[0]) < 1e-9 && Math.abs(n[1] - want[1]) < 1e-9; });
+const plateOff = [0, 1, 2, 3].flatMap((rot) => [[0, 1], [1, 0], [-1, 0]].map((want) => { const a = PARTS.plateApp.armour; return a.mm * a.edge[outFace('plateApp', rot, want)]; })).filter((mm) => mm !== 30);
+t('the Applique Plate is 30 mm on whichever face looks out, in every pose', !plateOff.length, plateOff.join());
+t('...and weighs one sheet of steel per mm (w × depth)', Math.abs(R('massPerMm(PARTS.plateApp)') - 7.85e-3 * PARTS.plateApp.w * PARTS.plateApp.depth) < 1e-12, R('massPerMm(PARTS.plateApp)'));
+t('every dialled part still weighs something at its thinnest', !bad(ARM.filter((k) => PARTS[k].armour.min != null), (k) => R(`armourMassT(PARTS.${k}, PARTS.${k}.armour.min)`) > 0.05).length);
+
 // built-in modules: spheres inside their part (prism outlines in metres; round parts inside the cylinder)
 const inPoly = (o, x, y) => edges(o).every(([a, b]) => (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]) >= 0);
 const MODS = GV.filter((k) => PARTS[k].mods);
@@ -163,6 +172,19 @@ t('the Runway arena: pads at the runway\'s ends, three zones, no berms, ground a
   && A.runway.zones.every((z) => z.r === 45) && !A.runway.berms.length && !A.runway.clear && !Object.values(P).some((p) => Math.abs(p.e - 1700) < 3000 && Math.abs(p.z) < 3000));
 t('the detail fade: 1 in the box, fading over 200 m, nothing past it (and nothing round the runway)', T.arenaW(17750, 15000) === 1 && T.arenaW(16400, 13550) === 1 && T.arenaW(16300, 15000) > 0 && T.arenaW(16300, 15000) < 1
   && T.arenaW(16199, 15000) === 0 && T.arenaW(19301, 16651) === 0 && T.arenaW(1700, 0) === 0 && T.arenaW(1700, 200) === 0);
+{ // ...and never on an airfield's ground: Wick's south end and blend reach into Highland Ridge's box and its fade
+  const on = [], near = [];
+  for (const f of Object.values(EARTH.airfields)) {
+    const r = f.hl + f.hw + f.blend;
+    for (let e = f.e - r; e <= f.e + r; e += 10) for (let z = f.z - r; z <= f.z + r; z += 10) {
+      const q = T.fieldAt(e, z);
+      if (!(q.w > 0) || q.f.pad) continue;
+      if (e > 16200 && e < 19300 && z > 13350 && z < 16650) near.push(1); // (in the box or its 200 m fade)
+      if (T.arenaW(e, z) !== 0) on.push(`${f.name} (${e}, ${z}) ${T.arenaW(e, z).toFixed(3)}`);
+    }
+  }
+  t('the detail fade is 0 wherever an airfield levels the ground (its strip and blend), Wick\'s inside the fade included', !on.length && near.length > 1000, show(on) || near.length);
+}
 // the pads: level to ±5 cm over 160 x 70 m, dry, at their measured heights, and gone without the map
 const padOff = [];
 for (const [k, p] of Object.entries(P)) for (let u = -p.hl; u <= p.hl; u += 5) for (let v = -p.hw; v <= p.hw; v += 5) {
@@ -190,7 +212,7 @@ t('without the Earth map: no berms, no pads, no fade (the arena needs the map)',
 
 // ---------------------------------------------------------------- the ground everywhere else, as it was
 // ---- ground sample (the reference values below came from this code run on the checkout before the arena, 2e9884a)
-function groundSample(c) { // c: a loaded game; -> { map | nomap: ['heightAt:surfaceAt' hashes per 250 points], field: hash }
+function groundSample(c) { // c: a loaded game; -> { map | nomap: ['heightAt:surfaceAt' hashes per 250 points], field: hash, wick (map only) }
   const Tc = c.Terrain, Ec = c.EARTH, ang = (e) => c.siteAngle(Ec, e);
   const hash = (vals) => { const b = new Uint8Array(Float64Array.from(vals).buffer); let h = 0x811c9dc5; for (const x of b) { h ^= x; h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
   let s = 20261023; const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
@@ -201,18 +223,23 @@ function groundSample(c) { // c: a loaded game; -> { map | nomap: ['heightAt:sur
   for (const f of Object.values(Ec.airfields)) { const r = f.hl + f.blend + f.hw + 50; for (let i = 0; i <= 40; i++) for (let j = 0; j <= 40; j++) { const e = f.e - r + (i / 20) * r, z = f.z - r + (j / 20) * r; if (near(e, z)) continue; const q = Tc.fieldAt(e, z); field.push(q.w, q.w > 0 ? q.h : 0); } }
   for (const site of Object.values(Ec.sites)) for (let i = -10; i <= 10; i++) for (let j = -10; j <= 10; j++) { const q = Tc.fieldAt(site.east + i * 60, j * 60); field.push(q.w, q.w > 0 ? q.h : 0); }
   if (!Ec.mapped) return { nomap: blocks(pts([[500, -30000, 40000, -30000, 30000]], false)), field: hash(field) };
+  // the whole of the Scotland airfield's strip and blend (Wick: its south end reaches into the arena's box and fade), 20 m apart
+  const sc = Ec.airfields.scotland, rs = sc.hl + sc.hw + sc.blend, wick = [];
+  for (let e = sc.e - rs; e <= sc.e + rs; e += 20) for (let z = sc.z - rs; z <= sc.z + rs; z += 20) { const q = Tc.fieldAt(e, z); if (q.w > 0 && q.f === sc) wick.push([e, z]); }
   // round the arena (outside its fade), the Faroes and the runway, Shetland, the Scotland airfield, and anywhere
-  return { map: blocks(pts([[600, 14000, 22000, 10500, 19500], [400, -3000, 4000, -4000, 4000], [400, 16500, 21000, -3500, 3000], [300, 17500, 20500, 11000, 13340], [300, -40000, 60000, -40000, 40000]], true)), field: hash(field) };
+  return { map: blocks(pts([[600, 14000, 22000, 10500, 19500], [400, -3000, 4000, -4000, 4000], [400, 16500, 21000, -3500, 3000], [300, 17500, 20500, 11000, 13340], [300, -40000, 60000, -40000, 40000]], true)), field: hash(field),
+    wick: wick.length + ':' + hash(wick.map(([e, z]) => Tc.heightAt(Ec, ang(e), z))) + ':' + hash(wick.map(([e, z]) => Tc.surfaceAt(Ec, ang(e), z))) };
 }
 // ---- end ground sample
 const REF = { // (node test/catalogue.test.js --print, with ROOT at a checkout of 2e9884a)
   map: ['8b991bcd:61e2bffe', '9b8c3c29:5516ca67', 'cb065937:5a4ef780', 'bb9114a7:5dd9846b', '06ade9c5:30381140', '138b09cc:93640bf5', '294a33c6:117857d0', '7c7cfbbb:3d81be7c'],
   nomap: ['6adc1f5a:a262d8e0', '6f2b3f55:20bfe9f7'],
-  field: 'f0362d73', nomapField: 'f0362d73',
+  field: 'f0362d73', nomapField: 'f0362d73', wick: '4424:8e0213a7:8e0213a7',
 };
 const now = groundSample(G.load()), nowNo = groundSample(nomap);
 t('heightAt and surfaceAt are bit for bit as before at 2,000 points outside the arena (8 blocks of 250)', now.map.join() === REF.map.join(), now.map.filter((h, i) => h !== REF.map[i]).length + ' blocks differ');
 t('...and at 500 points anywhere without the Earth map, the arena included', nowNo.nomap.join() === REF.nomap.join());
 t('fieldAt is as before round every airfield and site (with and without the map)', now.field === REF.field && nowNo.field === REF.nomapField);
+t('...and the ground over the whole of the Scotland airfield\'s strip and blend (4,424 points), its end in the arena\'s fade included', now.wick === REF.wick, now.wick);
 
 t.done();

@@ -1516,7 +1516,7 @@ const Builder = {
       const raw = Array.isArray(o.p) ? o.p.slice(0, 20000) : [];
       // (rows stay in place, unknown ones as null, so the att indices still point right)
       const parts = raw.map((q) => (Array.isArray(q) && typeof q[0] === 'string' && hasOwn(PARTS, q[0]) && isFinite(q[1]) && isFinite(q[2])
-        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined, mm: q[8] == null ? undefined : +q[8] }
+        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined, mm: Number.isFinite(q[8]) ? q[8] : undefined }
         : null));
       const n = parts.filter(Boolean).length;
       if (!n) return null;

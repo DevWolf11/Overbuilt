@@ -893,11 +893,11 @@ const MP = {
   // missiles: we fly ours and tell the others where they are
   sendMissile(s, w) {
     if (!this.shared) return;
-    const id = this.nextMissile++;
-    this.missiles.set(s, { id, at: 0 });
     // (an anti-tank missile goes as one against the ground, and a wire-guided or top-attack one tells nobody it's
-    // coming: it has no seeker a warning receiver would hear)
-    const gr = w.seek === 'ground' || w.seek === 'saclos' || w.seek === 'top', tgt = s.target && s.target.remote && !(gr && w.seek !== 'ground') ? s.target.remote : 0;
+    // coming, now or in its updates: it has no seeker a warning receiver would hear)
+    const id = this.nextMissile++, gr = w.seek === 'ground' || w.seek === 'saclos' || w.seek === 'top', quiet = gr && w.seek !== 'ground';
+    this.missiles.set(s, { id, at: 0, quiet });
+    const tgt = s.target && s.target.remote && !quiet ? s.target.remote : 0;
     Net.send({ t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: gr ? 1 : 0 });
   },
   onMissile(m) {
@@ -914,7 +914,7 @@ const MP = {
       if (now - M.at < 100) continue;
       M.at = now;
       const r = (x) => Math.round(x * 10) / 10;
-      Net.send({ t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: s.target && s.target.remote ? s.target.remote : 0 });
+      Net.send({ t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: !M.quiet && s.target && s.target.remote ? s.target.remote : 0 });
     }
   },
   sendShot(s) { // bombs, rockets and shells: the others fly a copy for show
