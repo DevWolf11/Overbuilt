@@ -31,7 +31,7 @@ Press **Multiplayer** on the home screen, type a name, and either create a room 
   2. **Test flight** (optional, one minute): fly your design alone, with nobody to shoot you, then get **two minutes to polish it**.
   3. **Battle.** Everyone spawns at once. One life each: the last team (or pilot) flying wins, and when the time runs out the side with the most craft still up wins, then the most kills. Shot down? Watch your teammates (`[` / `]`). A design that is over budget or breaks the carrier limits when the battle starts is swapped for a stock plane that fits.
 - **Carriers:** catapult launches. Start the engine and go to full throttle, then hit **LAUNCH** (`L`): the catapult throws the plane off the bow at about 280 km/h. Land on a deck with the throttle back and the arrestor wires stop you. Helicopters start on the aft deck.
-- **Seeing the others:** names float over everyone's craft in team colours (blue friends, red enemies, gold in the sandbox). Enemies only show their tag within about 6 km, less if they are stealthy. A radar lock on you shows as a red ring on the HUD pointing at whoever has you.
+- **Seeing the others:** names float over everyone's craft in team colours (blue friends, red enemies, gold in the sandbox). Enemies only show their tag within about 6 km, less if they are stealthy. With a warning receiver (RWR) on board, a radar lock on you flashes RADAR LOCK, and the Advanced RWR's scope shows where it comes from.
 - **Chat and score:** `T` or `Enter` chats in flight, the lobby has a chat box, a kill feed runs down the side, and the scoreboard (hold `` ` ``, or the Score button) shows kills, deaths and damage.
 
 ## Controls

@@ -93,6 +93,18 @@ const FS16 = rows('fs16'), BARE = without(FS16, (d) => d.rwr), FALCON = rows('fa
   const { v } = scene(FS16), own = missile(v, 1000, 'heat', null, { owner: v, enemy: false }), ai = missile(v, 1000, 'heat', null), site = missile(v, 1000, 'radar', v);
   t('markers: the AI\'s and the sites\' missiles, not our own', T.hostileMissile(ai, v) && T.hostileMissile(site, v) && !T.hostileMissile(own, v) && !T.hostileMissile({ ...ai, k: 'rocket' }, v));
 }
+// 6b. a warning receiver's antennas sit flush: they don't make a stealthy craft easier to see
+{
+  const a = Gm.craft(ctx, rows('fs22'), 'plane', 'air'), b = Gm.craft(ctx, without(rows('fs22'), (d) => d.rwr), 'plane', 'air');
+  t('stealth: the FS-22 with its RWR is as stealthy as without', C.stealthOf(a) === C.stealthOf(b) && C.stealthOf(a) > 0.6, [C.stealthOf(a), C.stealthOf(b)]);
+}
+// 6c. the SAM sites and the frigate launch without a word: only a warning receiver tells
+{
+  const { v, F } = scene(BARE), ship = T.makeTarget('ship'), site = T.makeTarget('sam');
+  if (site) T.samFire(site, F);
+  T.shipSamFire(ship, F);
+  t('a SAM launch: no toast (a warning receiver, if fitted, says it)', F.toasts.length === 0 && C.S.shots.filter((q) => q.k === 'missile').length === (site ? 2 : 1), F.toasts);
+}
 // 7. turrets: in the air they guard the craft; on the ground or the water they park and hold their fire
 {
   const { v, F } = scene(rows('bomber')), tur = v.parts.find((p) => p.type === 'turretL');
@@ -108,6 +120,13 @@ const FS16 = rows('fs16'), BARE = without(FS16, (d) => d.rwr), FALCON = rows('fa
   C.S.shots.length = 0;
   t('touching the ground: not a round, and the guns park', fire(2, true) === 0 && !tur.gunOn && Math.abs(tur.aimEl) < 1e-6 && Math.abs(tur.aimYaw) < 1e-6, [tur.aimYaw, tur.aimEl]);
   t('up again: it fires again', fire(2, false) > 5);
+  F.catapult = { v, state: 'hold' }; C.S.shots.length = 0;
+  t('held on a carrier\'s catapult (lifted 2 cm off the deck, so not touching): not a round', fire(2, false) === 0 && !tur.gunOn);
+  F.catapult.state = 'shot';
+  t('... nor while the catapult throws it', fire(1, false) === 0);
+  F.catapult.state = 'done';
+  t('... and off the bow it guards the craft again', fire(2, false) > 5);
+  F.catapult = null;
   const old = scene([['fuselageW', 0, 0], ['cockpitAir', 0, 4.7], ['turret', -2, 0]]), ot = old.v.parts.find((p) => p.type === 'turret');
   old.F.vessels.push(b); old.v.contactTime = 0.5;
   for (let i = 0; i < 240; i++) T.turretStep(old.v, ot, 1 / 120, old.F);
@@ -141,7 +160,7 @@ const FS16 = rows('fs16'), BARE = without(FS16, (d) => d.rwr), FALCON = rows('fa
   C.netMissileUpdate(5, 2, { P: [v.x + 1300, v.y, v.z], V: [-600, 0, 0], D: [-1, 0, 0] }, null);
   frame(F);
   t('... and quiet again once it turns away', s.target === null && !C.S.warn);
-  t('markers in a room: an enemy player\'s missile, not a friend\'s', T.hostileMissile(s, v) && !T.hostileMissile({ ...s, net: 7 }, v));
+  t('markers in a room: an enemy player\'s missile, not a friend\'s, unless the friend\'s is homing on us (friendly fire)', T.hostileMissile(s, v) && !T.hostileMissile({ ...s, net: 7 }, v) && T.hostileMissile({ ...s, net: 7, target: v }, v));
   ctx.MP.peers.set(5, { ghost: g }); ctx.MP.rwr.set(5, 0);
   t('a radar lock is known (for the display) from the lock reports', T.lockers().length === 1 && T.lockers()[0] === g);
   const bare = scene(without(FALCON, (d) => d.rwr));

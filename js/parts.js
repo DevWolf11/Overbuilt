@@ -365,7 +365,7 @@ const PARTS = {
     desc: 'Short-range missiles that home on engine heat: a hot jet seen from behind locks from 5 km, a cold one or one coming at you much closer. The motor burns 3 s, then they coast, so long or low shots run out of energy. Flares fool them, more so if the target throttles back.' },
   radarMissiles: { cat: 'weapons', name: 'Radar Missiles', w: 0.5, h: 3.6, mass: 0.05, shape: 'missile', twinZ: 2.4, pod: true, aero: true, tier: 3, cost: 16000,
     weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 2, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
-    desc: 'Long-range missiles that ride your nose radar (a Radome reaches furthest): keep the target in front of you until they hit. A low target flying across your beam (notching), or chaff, can shake them. They set off the target\'s warning.' },
+    desc: 'Long-range missiles that ride your nose radar (a Radome reaches furthest): keep the target in front of you until they hit. A low target flying across your beam (notching), or chaff, can shake them. A target with a warning receiver (RWR) hears them coming.' },
   agm: { cat: 'weapons', name: 'Attack Missiles', w: 0.5, h: 2.8, mass: 0.05, shape: 'missile', agm: true, twinZ: 2.9, pod: true, aero: true, tier: 2, cost: 12000,
     weapon: { kind: 'missile', seek: 'ground', ammo: 2, range: 8000, cone: 0.5, accel: 200, burn: 4, vmax: 700, turn: 18, dmg: 900, blast: 20, each: 200 },
     desc: 'Guided missiles for tanks, boats and buildings. Point at a ground target until it locks.' },
@@ -534,7 +534,7 @@ const PARTS = {
   ruStinger27: { cat: 'air', name: 'Sugoi-27 Tail Stinger', w: 0.75, h: 3.6, depth: 0.76, mass: 0.3, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 900,
     loft: ruG(0.525, 0, { s: [[0, 0.47, 0.58, 0.06, 0.52], [0.25, 0.3, 0.74, 0.2, 0.52], [0.9, 0.2, 0.86, 0.32, 0.52], [2.2, 0.16, 0.9, 0.37, 0.5], [3.0, 0.15, 0.75, 0.38, 0.4],
       [3.6, 0.15, 0.42, 0.38, 0.3]] }),
-    desc: 'The long boom between the engines that ends the tail: room for the brake chute and the flares, with the tail radar-warning aerial at its tip.' },
+    desc: 'The long boom between the engines that ends the tail: room for the brake chute and the flares.' },
   ruBoom27: { cat: 'air', name: 'Sugoi-27 Tail Booms', w: 0.35, h: 6, depth: 0.5, twinZ: 2.25, mass: 0.5, shape: 'ruLoft', ru: 'tail', tier: 3, cost: 1100,
     loft: ruG(0.505, 0.9, { s: [[0.9, 0.47, 0.56, 0.04], [1.3, 0.38, 0.64, 0.18], [2.0, 0.33, 0.68, 0.25], [5.8, 0.33, 0.68, 0.25], [6.9, 0.36, 0.62, 0.2]], n: 3 }),
     desc: 'A pair of flat beams beside the engines that carry the fins and the tailerons.' },
@@ -565,7 +565,7 @@ const PARTS = {
     desc: 'A pair of uprated afterburning turbofans whose nozzles swivel in every direction with the stick: the plane still turns when its wings have stalled. Afterburner above 90%.' },
   ruStinger35: { cat: 'air', name: 'Sugoi-35 Tail Stinger', w: 0.8, h: 3.6, depth: 0.86, mass: 0.35, shape: 'ruLoft', ru: 'tail', tier: 4, cost: 1100,
     loft: ruG(0.53, 0, { s: [[0.35, 0.36, 0.7, 0.14, 0.53], [0.7, 0.2, 0.86, 0.33, 0.53], [1.6, 0.14, 0.93, 0.42, 0.52], [3.0, 0.13, 0.78, 0.43, 0.4], [3.6, 0.15, 0.42, 0.39, 0.3]] }),
-    desc: 'A shorter, fatter stinger between the engines, packed with radar-warning gear and flares.' },
+    desc: 'A shorter, fatter stinger between the engines, with room for the brake chute and the flares.' },
 
   // the MyG-29 (after the MiG-29 Fulcrum)
   ruGearNose2: { cat: 'airGear', name: 'Twin Nose Gear', w: 2.0, h: 0.9, mass: 0.18, shape: 'gear', wheel: { r: 0.3, drive: false, brake: true, track: 0.52, retract: true }, breakSpeed: 9,

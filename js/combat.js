@@ -182,7 +182,7 @@ const Combat = (() => {
     let a = 0, s = 0, ext = 0;
     for (const p of v.parts) {
       const d = p.def;
-      if (d.wing || d.wheel || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser sits flush in the skin)
+      if (d.wing || d.wheel || d.rwr || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser, and a warning receiver's antennas, sit flush in the skin)
       if (d.pod || d.shape === 'missile' || d.shape === 'bomb' || d.shape === 'ecm') { if (p.ammo !== 0) ext++; continue; }
       if (d.doors && p.deployed > 0.05) ext++; // (bay or gun doors open to fire: it shows up like a store hung outside)
       const ar = d.w * d.h; a += ar; s += ar * (d.stealth || 0);
@@ -353,7 +353,7 @@ const Combat = (() => {
   // x axis, elevation away from its mount. Only in the air: touching the ground or the water it parks its guns
   // and holds its fire (a field of turrets round a parked plane, or on a car, shot down anything that came near).
   function turretStep(v, p, h, F) {
-    const w = p.def.weapon, k = p.rot & 3, grounded = v.contactTime > 0;
+    const w = p.def.weapon, k = p.rot & 3, C = F.catapult, grounded = v.contactTime > 0 || (!!C && C.v === v && C.state !== 'done'); // (on a catapult: held on the deck)
     let best = null, bd = w.range;
     if (!grounded) for (const c of candidates(v, 'air', F)) { const d = len(c.x - v.x, c.y - v.y, c.z - v.z); if (d < bd) { bd = d; best = c.ref; } }
     const want = grounded ? { yaw: 0, el: 0 } : { yaw: p.aimYaw || 0, el: p.aimEl || 0 };
@@ -977,8 +977,7 @@ const Combat = (() => {
     const ll = len(lx, ly, lz) || 1; lx = lx / ll + up.x * 0.25; ly = ly / ll + up.y * 0.25; lz = lz / ll + up.z * 0.25;
     const l2 = len(lx, ly, lz) || 1, d = { x: lx / l2, y: ly / l2, z: lz / l2 };
     S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 26,
-      burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true, ...airframe({ seek: 'air', drag: 1.2e-4, arm: 0.4 }) });
-    if (len(v.x - c.x, v.y - c.y, v.z - c.z) < 12000) F.toast('SAM launch!', 'warn');
+      burn: 5, accel: 220, vmax: 950, turn: 22, dmg: 300, blast: 13, seek: 'air', heat: true, target: v, owner: t, enemy: true, ...airframe({ seek: 'air', drag: 1.2e-4, arm: 0.4 }) }); // (no toast: only a warning receiver tells)
   }
   // The frigate's SAM: radar-guided, like a naval one. It climbs steeply off the deck trailing thick white smoke,
   // and rides the ship's radar all the way (siteSees): notching, chaff and the ground can all break it, as they
@@ -990,9 +989,7 @@ const Combat = (() => {
     const l2 = len(lx, ly, lz) || 1, d = { x: lx / l2, y: ly / l2, z: lz / l2 };
     S.shots.push({ k: 'missile', b: EARTH, x: c.x, y: c.y, z: c.z, vx: d.x * 40, vy: d.y * 40, vz: d.z * 40, dx: d.x, dy: d.y, dz: d.z, t: 0.35, life: 30,
       burn: 6, accel: 210, vmax: 1100, turn: 22, dmg: 300, blast: 14, seek: 'air', heat: false, radar: true, big: true, target: v, owner: t, launcher: t, enemy: true,
-      ...airframe({ seek: 'air', radar: true, drag: 1e-4, arm: 0.4 }) });
-    const cm = v && v.parts.some((q) => q.def.weapon && (q.def.weapon.kind === 'chaff' || q.def.weapon.kind === 'flare') && q.ammo > 0);
-    F.toast(cm ? 'Radar SAM launch! Drop chaff, or fly low across it' : 'Radar SAM launch! Fly low across it, or put an island between you', 'warn');
+      ...airframe({ seek: 'air', radar: true, drag: 1e-4, arm: 0.4 }) }); // (no toast: a warning receiver, if fitted, says what it is and what to do)
   }
 
   // ---------------------------------------------------------------- enemy fighters
@@ -1307,9 +1304,10 @@ const Combat = (() => {
     ctx.fillText(t, x, y);
   }
   // a missile the pilot would want to see: anyone's but their own side's (the AI's and the sites', and in a room an
-  // enemy player's)
+  // enemy player's), and any homing on them
   function hostileMissile(s, v) {
     if (s.k !== 'missile' || s.owner === v) return false;
+    if (s.target === v) return true; // (anything homing on us: a team-mate's too, with friendly fire on)
     if (s.net) return typeof MP === 'undefined' || typeof Net === 'undefined' || MP.enemy(Net.me, s.net);
     return !!s.enemy;
   }
@@ -1333,28 +1331,28 @@ const Combat = (() => {
   // the craft, nose up, nearer the middle the closer it is.
   function drawRWR(ctx, W, H, v) {
     if (!S.rwr) return;
-    const locks = lockers(), blink = Math.floor(performance.now() / 250) % 2 === 0, m = S.threats[0];
+    const locks = lockers(), blink = Math.floor(performance.now() / 250) % 2 === 0, m = S.threats[0], B = rwrPlace(W, H), ty = B.ty;
     ctx.textAlign = 'center';
     if (m) {
       const d = len(m.x - v.x, m.y - v.y, m.z - v.z);
       if (blink) {
         ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-        hudText(ctx, S.rwr < 2 ? 'MISSILE' : m.heat ? 'HEAT SEEKER' : m.radar || m.sarh ? 'RADAR MISSILE' : 'MISSILE', W / 2, H * 0.3);
+        hudText(ctx, S.rwr < 2 ? 'MISSILE' : m.heat ? 'HEAT SEEKER' : m.radar || m.sarh ? 'RADAR MISSILE' : 'MISSILE', W / 2, ty);
       }
       if (S.rwr > 1) { // (the nearest one: how far, how soon, what to do; and how many more)
         const vc = -((m.x - v.x) * (m.vx - v.vx) + (m.y - v.y) * (m.vy - v.vy) + (m.z - v.z) * (m.vz - v.vz)) / (d || 1), n = S.threats.length;
         ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#ffd0d0';
-        hudText(ctx, fmt.dist(d) + (vc > 30 ? ` · ${Math.max(1, Math.round(d / vc))} s` : '') + (n > 1 ? ` · +${n - 1} more` : ''), W / 2, H * 0.3 + 20);
+        hudText(ctx, fmt.dist(d) + (vc > 30 ? ` · ${Math.max(1, Math.round(d / vc))} s` : '') + (n > 1 ? ` · +${n - 1} more` : ''), W / 2, ty + 20);
         ctx.font = '700 14px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ffd23f';
-        hudText(ctx, rwrAdvice(v, m, d), W / 2, H * 0.3 + 38);
+        hudText(ctx, rwrAdvice(v, m, d), W / 2, ty + 38);
       }
     } else if (locks.length && blink) {
       ctx.font = '700 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-      hudText(ctx, 'RADAR LOCK', W / 2, H * 0.3);
+      hudText(ctx, 'RADAR LOCK', W / 2, ty);
     }
     if (S.rwr < 2) return;
     // the scope: heading up, in the local horizontal
-    const B = rwrPlace(W, H), R = B.R, cx = B.x, cy = B.y;
+    const R = B.R, cx = B.x, cy = B.y;
     const up = norm3(v3(v.x, v.y, v.z)), f0 = noseDir(v), fu = dot3(f0, up);
     let fw = v3(f0.x - up.x * fu, f0.y - up.y * fu, f0.z - up.z * fu);
     if (len3(fw) < 1e-3) fw = v.axis(-1, 0, 0); // (straight up or down: the belly's way)
@@ -1383,18 +1381,32 @@ const Combat = (() => {
     ctx.font = '600 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = 'rgba(150, 185, 230, 0.7)';
     ctx.fillText('RWR', cx, cy + R + 11);
   }
-  // Where the scope fits (looked up once a second): under the flight data (and the multiplayer radar scope), else
-  // beside the flight data.
+  // Where the warning's lines and the scope go (looked up once a second, from where the panels are). The lines: a third
+  // of the way down, or just below the flight data or the room's bar where they would run under one. The scope: under
+  // the flight data (and the room's radar scope), else beside the room's radar scope, else beside the flight data, as
+  // long as it is clear of the room's bar and the lines; else smaller, under the flight data.
   let rwrBox = null, rwrAt = 0;
   function rwrPlace(W, H) {
     const now = performance.now();
     if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H) return rwrBox;
     rwrAt = now;
-    const t = $('#flight-ui .telemetry'), lc = $('#flight-ui .left-controls'), T = t ? t.getBoundingClientRect() : { left: 12, right: 220, top: 12, bottom: 220 };
-    const bottom = lc ? lc.getBoundingClientRect().top : H - 260, R = W < 500 ? 40 : 46, mps = typeof MPUI !== 'undefined' && MP.live ? MPUI.scope : null;
-    const top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? H * 0.3 + 52 : 0); // (a narrow screen: below the warning's lines)
-    rwrBox = bottom - top >= 2 * R + 24 ? { x: T.left + R + 4, y: top + R, R } : { x: T.right + 14 + R, y: T.top + R, R };
-    rwrBox.W = W; rwrBox.H = H;
+    const rect = (q) => { const e = $(q); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+    const T = rect('#flight-ui .telemetry') || { left: 12, right: 220, top: 12, bottom: 220 }, lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar');
+    const bottom = lc ? lc.top : H - 260, mps = typeof MPUI !== 'undefined' && MP.live && W >= 761 ? MPUI.scope : null; // (the room's scope is drawn on wide screens only)
+    const hit = (a, b) => !!b && a.l < b.right && a.r > b.left && a.t < b.bottom && a.b > b.top;
+    let ty = H * 0.3;
+    for (const o of [T, bar]) if (o && hit({ l: W / 2 - 150, r: W / 2 + 150, t: ty - 22, b: ty + 44 }, o)) ty = o.bottom + 26;
+    const text = { left: W / 2 - 150, right: W / 2 + 150, top: ty - 22, bottom: ty + 44 };
+    const free = (x, y, R, low) => { const a = { l: x - R, r: x + R, t: y - R, b: y + R + 14 }; return !hit(a, bar) && !hit(a, text) && !hit(a, T) && !hit(a, lc) && a.r < W && a.b < low; };
+    const R0 = W < 500 ? 40 : 46, top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? ty + 52 : 0); // (a narrow screen: below the warning's lines)
+    const tries = [[T.left + R0 + 4, top + R0, R0, bottom]];
+    if (mps) tries.push([mps.x + mps.R + 14 + R0, mps.y, R0, bottom]);
+    tries.push([T.right + 14 + R0, T.top + R0, R0, H]);
+    const Rs = Math.floor((bottom - top - 24) / 2);
+    if (Rs >= 28) tries.push([T.left + Rs + 4, top + Rs, Rs, bottom]);
+    if (lc) tries.push([lc.right + 14 + 40, lc.top + 40, 40, H]); // (a short screen, the room's bar over the flight data's side: beside the controls)
+    const at = tries.find(([x, y, R, low]) => free(x, y, R, low)) || tries[0];
+    rwrBox = S.rwrBox = { x: at[0], y: at[1], R: at[2], ty, W, H }; // (on S for the tests)
     return rwrBox;
   }
   // The bomb's fall, stepped until it meets the ground (drag as in flight; good to a few metres).

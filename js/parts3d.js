@@ -637,7 +637,9 @@ const Parts3D = (() => {
       [new THREE.SphereGeometry(1, 32, 16, 0, TAU, 0, Math.PI / 2).rotateZ(Math.PI / 2).scale(D, R, R).translate(xc, 0, 0), 'glass'],
       [new THREE.SphereGeometry(0.14, 16, 12).translate(-0.3, 0.02, 0), 'helmet'], [box(0.36, 0.28, 0.42, -0.02, -0.06, 0), 'ink']],
     [node(guns, null, { role: 'pitch', pos: [-0.04, 0.15, 0] })], { role: 'yaw' });
-    return node([[new THREE.CylinderGeometry(R * 1.08, R * 1.1, w / 2 - xr, 32).rotateZ(Math.PI / 2).translate((w / 2 + xr) / 2, 0, 0), 'steelDark']], [yaw]);
+    // (and a skirt below the ring, into whatever it stands on, so on a round hull its flanks don't stand off the curve)
+    return node([[new THREE.CylinderGeometry(R * 1.08, R * 1.1, w / 2 - xr, 32).rotateZ(Math.PI / 2).translate((w / 2 + xr) / 2, 0, 0), 'steelDark'],
+      [new THREE.CylinderGeometry(R * 1.04, R * 1.04, 0.2, 32, 1, true).rotateZ(Math.PI / 2).translate(w / 2 + 0.1, 0, 0), 'steelDark']], [yaw]);
   }
 
   // ------------------------------------------------------------------ models by recipe
