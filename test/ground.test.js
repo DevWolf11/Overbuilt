@@ -2,7 +2,8 @@
 // (counted), armour thickness rides the save path (rows, codes, spawn rows, saved flights) with the mass and price it
 // brings, turret rings turn what sits on them (groups, poses), each hook hands the new parts to the new systems, and
 // the new multiplayer messages leave the old ones as they were. The tests build small test parts of their own (keys
-// 'tst…'), shaped like the catalogue's, so they hold whatever the catalogue holds.
+// 'tst…'), shaped like the catalogue's, so they hold whatever the catalogue holds; one tank of the catalogue's own
+// parts then takes the same paths, where the parts meet the hooks.
 //   node test/ground.test.js
 const G = require('./lib/game.js'), fs = require('fs'), path = require('path');
 const ctx = G.load({ combat: true, ground: true });
@@ -412,6 +413,54 @@ var yaw = dot3(drv.av, up);`);
 t('a tank on the runway settles on its tracks and stays put', R(`Math.abs(settled) < 0.4 && still < 0.2 && !dF.broken.length && drv.wheelsDown && drv.landed`), R('[settled, still, dF.broken]'));
 t('W drives it forward; D turns it on the spot (right)', R(`vf > 2 && yaw < -0.05 && !dF.broken.length`), R('[vf, yaw]'));
 t('(and the counters do see the new code run for a ground-update craft)', R(`CALLS['Aim.groups'] > 0 && CALLS['Gear.ground'] > 0 && CALLS['Gear.points'] > 0 && CALLS['Aim.stepAll'] > 0`), calls());
+
+// ---------------------------------------------------------------- the catalogue's own parts meet the hooks (a TK-34-like tank)
+// hull (its plate dialled to 60 mm), two tracks, a diesel inside, a ring, a cast turret, the 85 mm gun and a coaxial MG
+R(`var REAL = [
+  { type: 'hullMedium', x: 0, y: 1.1, flip: false, rot: 0, mm: 60 },
+  { type: 'trackMed', x: 0, y: 0.5, flip: false, rot: 0, z: -1.35, att: 0 }, { type: 'trackMed', x: 0, y: 0.5, flip: false, rot: 0, z: 1.35, att: 0 },
+  { type: 'engDiesel', x: -1.8, y: 1.1, flip: true, rot: 0, att: 0 },
+  { type: 'ringM', x: 0, y: 1.85, flip: false, rot: 0, att: 0 }, { type: 'turretCast', x: 0, y: 2.425, flip: false, rot: 0, att: 4 },
+  { type: 'gun85', x: 2.622, y: 2.425, flip: false, rot: 3, att: 5 }, { type: 'mgCoax', x: 1.4, y: 2.425, flip: false, rot: 3, z: 0.6, att: 5 }];
+var rps = partsFromDesign(REAL), radj = buildAdjacency(rps), rmass = kg(rps), rmm = (ps) => ps.map((p) => p.mm ?? '-').join();
+var rcode = Codes.designCode({ name: 'TK', kind: 'tank', parts: designRows(rps) }), rback = partsFromDesign(Codes.parseCode(rcode).parts);
+var rv = vesselOf(REAL), rsaved = Vessel.restore(JSON.parse(JSON.stringify(rv.serialize())));`);
+t('real parts: joined, clash-free, the hull in control, the dialled plate the only mm', R(`(() => { let clash = 0; for (let i = 0; i < rps.length; i++) for (let j = i + 1; j < rps.length; j++) if (partsClash(rps[i], rps[j])) clash++;
+  return clash === 0 && componentOf(rps[0].id, radj).size === rps.length && findControlPart(rps) === rps[0] && rmm(rps) === '60,-,-,-,-,-,-,-'; })()`), R('rmm(rps)'));
+t('real parts: rows -> RSS3 code -> parts, the same mass and mm', R(`rcode.startsWith('RSS3.') && near(kg(rback), rmass) && rmm(rback) === rmm(rps) && rmass > kg(partsFromDesign(REAL.map((q) => ({ ...q, mm: undefined })))) + 3000`),
+  R('[rcode.slice(0, 5), kg(rback) - rmass, rmm(rback)]'));
+t('real parts: a saved flight, the same mass and mm', R(`near(rsaved.mass, rv.mass) && near(rv.mass, rmass) && rmm(rsaved.parts) === rmm(rps)`), R('[rsaved.mass - rv.mass, rv.mass - rmass, rmm(rsaved.parts)]'));
+mp.__rdesign = R('Codes.parseCode(rcode)'); // (the code read back, handed to the multiplayer copy of the game)
+const rsp = G.run(mp, `(() => {
+  const d = JSON.parse(JSON.stringify(__rdesign)), ps = partsFromDesign(d.parts), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = d.kind; v.rebuildGroups();
+  Flight.active = v; MP.sendSpawn();
+  const rows = JSON.parse(JSON.stringify(Net.out[Net.out.length - 1][0].parts)), clean = mpSpawnRows(rows);
+  MP.peers.set(9, { design: { kind: 'tank', parts: clean }, gun: {}, ghost: null }); MP.buildGhost(9);
+  const g = MP.peers.get(9).ghost, mm = (ps) => ps.map((p) => p.mm ?? '-').join(); MP.peers.delete(9);
+  return { kind: d.kind, cols: clean.map((r) => r.length).join(), dm: g.mass - v.mass, mass: v.mass, mm: mm(g.parts), vmm: mm(v.parts), groups: g.tg.length, members: g.tg[0] && g.tg[0].members.map((p) => p.type).join() };
+})()`);
+t('real parts: code -> spawn rows -> ghost, the same mass and mm, the turret turning', rsp.kind === 'tank' && rsp.cols === '10,9,9,9,9,9,9,9' && near(rsp.dm, 0, 1e-9) && near(rsp.mass, R('rmass'), 1e-6)
+  && rsp.mm === R('rmm(rps)') && rsp.vmm === rsp.mm && rsp.groups === 1 && rsp.members === 'turretCast,gun85,mgCoax', JSON.stringify(rsp));
+t('real parts: the ring turns the turret, the gun and the coaxial MG (not the hull, tracks or engine), unjammed', R(`(() => { const tg = Aim.groupsOfParts(rps, radj), g = tg[0];
+  return tg.length === 1 && g.ring === rps[4] && typesOf(g) === 'turretCast,gun85,mgCoax' && !g.jam && [0, 1, 2, 3, 4].every((i) => !g.ids.has(rps[i].id)) && near(g.c.y, 1.95)
+    && near(g.rate, 24 * Math.PI / 180 * clamp(Math.sqrt(12 / g.mass), 0.35, 1)) && rv.tg.length === 1 && rv.aimed.map((p) => p.type).join() === 'gun85,mgCoax'; })()`),
+  R(`JSON.stringify(Aim.groupsOfParts(rps, radj).map((g) => [typesOf(g), g.jam, g.mass, g.rate]))`));
+t('real parts: Gear.points gives each Medium Track three road-wheel contacts, one side each', R(`(() => { const g = rv.wheelPts.filter((k) => k.gear), t = PARTS.trackMed.track;
+  return rv.gear.length === 2 && rv.gear.every((p) => p.type === 'trackMed') && g.length === 6 && g.filter((k) => k.side === -1).length === 3 && g.filter((k) => k.side === 1).length === 3
+    && g.every((k) => near(k.r, t.r + 0.4 * t.travel) && near(k.y, 0.5 - 0.5 + t.r)); })()`));
+R(`var rdv = vesselOf(REAL); rdv.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), 0);
+var rdF = simOf(rdv), rlow = Infinity, rnan = false, rw = v3();
+var clearOf = (v) => { let m = Infinity; const L = {};
+  for (const [k, r] of [...v.hull.map((k) => [k, 0]), ...v.wheelPts.map((k) => [k, k.r])]) { const w = v.toWorld(k.x, k.y, k.z); Terrain.locate(EARTH, w.x, w.y, w.z, L); m = Math.min(m, Math.hypot(w.x, w.y, w.z) - r - EARTH.radius - Terrain.surfaceAt(EARTH, L.a, L.z)); }
+  return m; };
+for (let i = 0; i < 600; i++) {
+  rdv.ctl.v = i >= 240 && i < 480 ? 1 : 0; rdv.ctl.h = i >= 480 ? 1 : 0;
+  rdv.physicsStep(1 / 120, rdF); Combat.step(1 / 120, rdF); rdF.time += 1 / 120; if (i % 4 === 0) Combat.frame(rdF, 1 / 30);
+  rnan = rnan || ![rdv.x, rdv.y, rdv.z, rdv.vx, rdv.vy, rdv.vz, rdv.q.w, rdv.q.x, rdv.q.y, rdv.q.z, rdv.av.x, rdv.av.y, rdv.av.z].every(Number.isFinite);
+  if (i % 12 === 0) rlow = Math.min(rlow, clearOf(rdv));
+}`);
+t('real parts: on the runway for 5 s (settle, drive, turn) with Phase 1\'s Gear.ground: finite, on its tracks, never through the ground', R(`!rnan && rlow > -0.1 && rlow < 0.1 && rdv.wheelsDown && rdv.canDrive && !rdF.broken.length && rdv.parts.length === 8 && rdv.speed() > 2`),
+  R('[rnan, rlow, rdv.wheelsDown, rdv.canDrive, rdF.broken, rdv.speed()]'));
 
 // ---------------------------------------------------------------- multiplayer messages
 G.run(mp, `Net.out = []; Net.hostNow = () => 0; Flight.running = true; Flight.mp = { solo: false }; MP.active = true; MP.state = { players: [] };

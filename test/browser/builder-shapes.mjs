@@ -33,6 +33,9 @@ ok('Fewer goes back to the plane tabs (from Engines, to the first)', t[0] === 'C
 await ev(() => { Builder.moreCats = false; Builder.setKind('tank'); });
 t = await tabs();
 ok('armour shows hulls, turrets, drive, guns, launchers, crew and kit', t.join('|') === 'Hulls*|Turrets|Drive|Guns|Launchers|Crew & ammo|Kit|More…', t.join('|'));
+const per = await ev((names) => names.map((name) => { [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === name).click();
+  return name + ' ' + document.querySelectorAll('#palette-items .part-item').length; }).join(', '), t.slice(0, -1).map((n) => n.replace('*', '')));
+ok('each armour tab holds its parts (the catalogue\'s 71)', per === 'Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9', per);
 await ev(() => { Builder.loadTemplate('sugoi27'); });
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Wings').click());
 const tray = await ev(() => [...document.querySelectorAll('#palette-items > *')].map((e) => (e.classList.contains('tray-group') ? '#' + e.textContent : '.')));
