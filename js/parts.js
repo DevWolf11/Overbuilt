@@ -1323,11 +1323,13 @@ function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def)
 // (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
 // (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
 const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr']);
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr', 'tcast', 'tring']);
+// (the ground update's: hulls and plate turrets are extrusions of their outlines, cast turrets and rings lathes)
 const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
   wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
   gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
-  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body' };
+  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body',
+  ttrack: 'trackUnit', twheel: 'awheel', tgun: 'tankGun', tlaunch: 'launcher', tradar: 'radarAnt', tkit: 'kit' };
 
 // A stand-in canvas context that records the path calls partPath() makes as polygons
 // [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
@@ -1879,15 +1881,16 @@ const SKINS = {
   us4sea: { name: 'Vietnam SEA camouflage', base: '#69734f', camo: { k: 'blotch', c: ['#a78d63', '#3f4a34'], seed: 4, n: 11 }, accent: null, rough: 0.8, metal: 0.05 },
   us4gull: { name: 'Navy gull grey', base: '#a7aaa6', accent: null, rough: 0.7, metal: 0.1 },
   us4gunship: { name: 'Gunship grey', base: '#50565d', accent: null, rough: 0.78, metal: 0.08 },
-  // armour's: a plain green, two three-tone schemes and winter white over green
+  // armour's: a plain green, two three-tone schemes and winter white over green (patches sized for a tank, not a jet)
   steppe: { name: 'Steppe green', base: '#4d5a36', accent: null, rough: 0.82, metal: 0.05 },
-  ambush: { name: 'Ambush three-tone', base: '#b9a46e', camo: { k: 'blotch', c: ['#5b6a3d', '#7a5136'], seed: 41, n: 11 }, accent: null, rough: 0.82, metal: 0.05 },
-  woodland: { name: 'Woodland three-tone', base: '#55603e', camo: { k: 'blotch', c: ['#614b34', '#24261f'], seed: 53, n: 12, r: 0.85 }, accent: null, rough: 0.82, metal: 0.05 },
-  whitewash: { name: 'Winter whitewash', base: '#e2e4df', camo: { k: 'splinter', c: ['#5a623f', '#9a9e92'], seed: 61, n: 9 }, accent: null, rough: 0.86, metal: 0.03 },
+  ambush: { name: 'Ambush three-tone', base: '#b9a46e', camo: { k: 'blotch', c: ['#5b6a3d', '#7a5136'], seed: 41, n: 52, r: 0.34 }, accent: null, rough: 0.82, metal: 0.05 },
+  woodland: { name: 'Woodland three-tone', base: '#55603e', camo: { k: 'blotch', c: ['#614b34', '#24261f'], seed: 53, n: 56, r: 0.32 }, accent: null, rough: 0.82, metal: 0.05 },
+  whitewash: { name: 'Winter whitewash', base: '#e2e4df', camo: { k: 'splinter', c: ['#5a623f', '#9a9e92'], seed: 61, n: 26, r: 0.5 }, accent: null, rough: 0.86, metal: 0.03 },
 };
 const SKIN_IDS = Object.keys(SKINS);
-// Shapes that are all structure, rubber or cloth: nothing to paint.
-const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor', 'ttrack', 'twheel']);
+// Shapes that are all structure, rubber or cloth: nothing to paint. (A track's fender and road wheels, and an armoured
+// wheel's hub, are painted with the hull; their links and tyres keep their colours.)
+const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
 // The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part
@@ -1899,7 +1902,10 @@ function skinOf(p) { return p.skin || ownSkin(p.def); }
 // With flat = true, parts are painted without fake cylinder shading (used for 3D textures,
 // where real lighting does the shading). skin: the SKINS entry of the part being drawn, if any
 // (set by drawPart only).
-const PartPaint = { flat: false, skin: null, camoAt: null }; // camoAt: [x, y], where a part drawn at the origin really is (a 3D texture), so its camouflage lines up with its neighbours'
+const PartPaint = { flat: false, skin: null, camoAt: null, xray: null, armour: false }; // camoAt: [x, y], where a part drawn at the origin really is (a 3D texture), so its camouflage lines up with its neighbours'
+// xray: the builder's X-ray (the design's parts, or true): armour drawn as an outline over a faint fill, what is inside
+// (inner parts, built-in crew and stores) on top; armour: its armour view (plate edges coloured by thickness). The
+// builder sets both around its blueprint only (ground update parts: gvDraw at the end of this file).
 function darkGradient0(ctx, l, r) { // stealth grey
   if (PartPaint.flat) return '#4b5058';
   const g = ctx.createLinearGradient(l, 0, r, 0);
@@ -2087,9 +2093,10 @@ function partPath(ctx, p) { turned(ctx, p, (q) => partPath0(ctx, q)); }
 // The order to draw parts in the side view, back to front: by depth (the view looks from +z, so the far
 // side first), then legs, fins and wheels, the hull, the wings and tail surfaces through it, and the pods
 // hanging off them. Picking goes the other way.
-function sideLayer(d) { return d.pod ? 3 : isSurface(d) ? 2 : d.leg || d.fin || d.wheel ? 0 : 1; }
+// A part inside a hull or turret (def.inner) goes under everything, out of sight, or over everything in X-ray.
+function sideLayer(d) { return d.inner ? 4 : d.pod ? 3 : isSurface(d) ? 2 : d.leg || d.fin || d.wheel ? 0 : 1; }
 function sideOrder(parts) {
-  return parts.map((p, i) => [p, Math.round(partZ(p) * 20), sideLayer(p.def), i])
+  return parts.map((p, i) => [p, p.def.inner ? (PartPaint.xray ? 1e6 : -1e6) : Math.round(partZ(p) * 20), sideLayer(p.def), i])
     .sort((a, b) => a[1] - b[1] || a[2] - b[2] || a[3] - b[3]).map((e) => e[0]);
 }
 // Draw a part in its paint (the one place a skin is switched on).
@@ -2235,6 +2242,9 @@ function partPath0(ctx, p) {
       break;
     case 'ru': // the Russian look-alike jets (MyG and Sugoi): lofted hulls and fins, RU_ART at the end of this file
       ruPath(ctx, p);
+      break;
+    case 'thull': case 'tturret': case 'tcast': case 'tring': case 'ttrack': case 'twheel': case 'tgun': case 'tlaunch': case 'tradar': case 'tkit':
+      gvPath(ctx, p); // (the ground update's armour, at the end of this file)
       break;
     default:
       ctx.rect(l, b, w, h);
@@ -2941,6 +2951,9 @@ function drawPart0(ctx, p, lw) {
     }
     case 'ru': // the Russian look-alike jets (MyG and Sugoi): RU_ART at the end of this file
       ruDraw(ctx, p, lw);
+      break;
+    case 'thull': case 'tturret': case 'tcast': case 'tring': case 'ttrack': case 'twheel': case 'tgun': case 'tlaunch': case 'tradar': case 'tkit':
+      gvDraw(ctx, p, lw); // (the ground update's armour, at the end of this file)
       break;
   }
   // heat glow
@@ -4029,4 +4042,1109 @@ function drawPartTop(ctx, p) {
     ctx.fillStyle = us4Fill(ctx, p, -D / 2, D / 2); ctx.fillRect(-D / 2 - 0.1, -d.h / 2 - 0.1, D + 0.2, d.h + 0.2);
     for (const E of B.deco || []) if (E[0] === 'tone') { ctx.fillStyle = us4Tone(B, E[2]); ctx.fillRect(-D / 2 - 0.1, E[1], D + 0.2, d.h); }
   } finally { PartPaint.skin = prev; }
+}
+
+// ===========================================================================
+// The ground update's armour (def.gv): hulls (thull), turrets (tturret, and the round tcast), turret rings (tring),
+// tracks (ttrack), armoured wheels (twheel), guns (tgun), launchers (tlaunch), radars (tradar) and kit (tkit). Their
+// outlines (gvPath), side-view art (gvDraw), the plan and end views a plated part's 3D texture adds (gvPlan, gvEnd), the
+// builder's X-ray and armour views, and the layouts parts3d.js builds their models from (trackLayout, gunLayout,
+// launchLayout, radarLayout), so the 2D and 3D pictures agree. Coordinates are the part's own, unturned (x across the
+// side view, y along it, z across it); a tank's front is +x and its up +y, a gun or launcher fires along its own +y (it
+// goes on at rot 3: barrel forward, base down). Nothing here reads p.flip.
+const GV_BASE = '#646d50', GV_RUBBER = '#1c1f23', GV_GUN = '#30353a', GV_INK = 'rgba(8,11,16,0.9)'; // (GV_BASE: armour's own olive drab)
+const gvBase = () => (PartPaint.skin ? PartPaint.skin.base : GV_BASE);
+const gvTone = (k) => shade(gvBase(), k);
+function gvTrace(ctx, P) { for (let i = 0; i < P.length; i++) { if (i) ctx.lineTo(P[i][0], P[i][1]); else ctx.moveTo(P[i][0], P[i][1]); } ctx.closePath(); }
+function gvPoly(ctx, P) { ctx.beginPath(); gvTrace(ctx, P); }
+function gvPts(d, x, y) { return (d.outline || BOX_OUTLINE).map(([fx, fy]) => [x + fx * d.w, y + fy * d.h]); }
+// across a convex outline at height yy: [left, right]
+function gvSpan(P, yy) {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < P.length; i++) {
+    const [x0, y0] = P[i], [x1, y1] = P[(i + 1) % P.length];
+    if ((y0 <= yy) !== (y1 <= yy)) { const xx = x0 + ((yy - y0) * (x1 - x0)) / (y1 - y0); lo = Math.min(lo, xx); hi = Math.max(hi, xx); }
+  }
+  return lo <= hi ? [lo, hi] : [P[0][0], P[0][0]];
+}
+// Armour paint, lit from above in 2D; flat for a 3D texture. A camouflage (or a skin with a painter of its own) is laid on
+// as it is, and gvShade lights it.
+function gvFill(ctx, b, t, l, r) {
+  const s = PartPaint.skin;
+  if (s && (s.camo || s.paint)) return skinFill(ctx, l, r);
+  const c = s ? s.base : GV_BASE;
+  if (PartPaint.flat) return c;
+  const g = ctx.createLinearGradient(0, b, 0, t);
+  g.addColorStop(0, shade(c, -0.34)); g.addColorStop(0.55, shade(c, 0.02)); g.addColorStop(1, shade(c, 0.16));
+  return g;
+}
+function gvShade(ctx, l, r, b, t) {
+  const s = PartPaint.skin;
+  if (PartPaint.flat || !s || !(s.camo || s.paint)) return;
+  const g = ctx.createLinearGradient(0, b, 0, t);
+  g.addColorStop(0, 'rgba(0,0,0,0.32)'); g.addColorStop(0.6, 'rgba(0,0,0,0.04)'); g.addColorStop(1, 'rgba(255,255,255,0.1)');
+  ctx.fillStyle = g; ctx.fillRect(l, b, r - l, t - b);
+}
+// dust and mud low down (paint, so 3D textures keep it)
+function gvGrime(ctx, l, r, b, t, k = 0.36, f = 0.55) {
+  const g = ctx.createLinearGradient(0, b, 0, b + (t - b) * f);
+  g.addColorStop(0, `rgba(78,62,40,${k})`); g.addColorStop(1, 'rgba(78,62,40,0)');
+  ctx.fillStyle = g; ctx.fillRect(l, b, r - l, (t - b) * f);
+}
+function gvAlong(x0, y0, x1, y1, step, inset = 0) { // points every step along a line, its ends left out
+  const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round((L - 2 * inset) / step)), out = [];
+  for (let i = 0; i <= n; i++) { const k = (inset + ((L - 2 * inset) * i) / n) / (L || 1); out.push([x0 + (x1 - x0) * k, y0 + (y1 - y0) * k]); }
+  return out;
+}
+function gvRivets(ctx, pts, rr) { // rivet and bolt heads: a dark dot, lit on top
+  ctx.beginPath(); for (const [x, y] of pts) { ctx.moveTo(x + rr, y); ctx.arc(x, y, rr, 0, TAU); }
+  ctx.fillStyle = 'rgba(18,22,14,0.5)'; ctx.fill();
+  ctx.beginPath(); for (const [x, y] of pts) { ctx.moveTo(x + rr * 0.55, y + rr * 0.3); ctx.arc(x, y + rr * 0.3, rr * 0.55, 0, TAU); }
+  ctx.fillStyle = 'rgba(255,255,232,0.26)'; ctx.fill();
+}
+// a plate joint: a dark line with a lit edge under it (welded: a bead)
+function gvSeam(ctx, lw, pts, bead) {
+  ctx.lineWidth = lw * (bead ? 1.1 : 0.75); ctx.strokeStyle = 'rgba(14,18,10,0.55)';
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,230,0.17)'; ctx.lineWidth = lw * 0.6;
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y - lw * 0.9) : ctx.moveTo(x, y - lw * 0.9))); ctx.stroke();
+}
+function gvBox(ctx, lw, x, y, w, h, k = -0.08) { // a stowage box or bin: a lid line and a latch
+  ctx.fillStyle = gvTone(k); ctx.fillRect(x, y, w, h);
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = 'rgba(10,12,8,0.7)'; ctx.strokeRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(255,255,230,0.2)'; ctx.beginPath(); ctx.moveTo(x, y + h * 0.82); ctx.lineTo(x + w, y + h * 0.82); ctx.stroke();
+  ctx.fillStyle = 'rgba(20,22,18,0.75)'; ctx.fillRect(x + w / 2 - Math.min(0.04, w * 0.08), y + h * 0.55, Math.min(0.08, w * 0.16), h * 0.2);
+}
+function gvLamp(ctx, lw, x, y, r, face = 1) { // a headlight: its housing and the glass, facing +x (or -x)
+  ctx.fillStyle = '#2d3238'; ctx.fillRect(x - r, y - r * 0.8, r * 2, r * 1.6);
+  ctx.fillStyle = '#e9e2c4'; ctx.fillRect(face > 0 ? x + r * 0.55 : x - r, y - r * 0.6, r * 0.45, r * 1.2);
+  ctx.lineWidth = lw * 0.6; ctx.strokeStyle = 'rgba(8,10,12,0.8)'; ctx.strokeRect(x - r, y - r * 0.8, r * 2, r * 1.6);
+}
+function gvHook(ctx, lw, x, y, r) { // a tow hook or shackle
+  ctx.lineWidth = Math.max(lw, r * 0.45); ctx.strokeStyle = '#25292e';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+}
+function gvCable(ctx, lw, x0, x1, y) { // a tow cable along the side, its eyes at the ends
+  ctx.lineWidth = Math.max(lw * 1.4, 0.035); ctx.strokeStyle = '#3a3c36';
+  ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+  ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(200,200,180,0.35)'; ctx.setLineDash([0.03, 0.04]);
+  ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([]);
+  for (const xx of [x0, x1]) gvHook(ctx, lw, xx, y, 0.035);
+}
+function gvGrille(ctx, lw, x, y, w, h, n) { // louvres
+  ctx.fillStyle = '#23272b'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = gvTone(-0.18);
+  for (let i = 0; i < n; i++) ctx.fillRect(x + (w * (i + 0.2)) / n, y, (w * 0.5) / n, h);
+  ctx.lineWidth = lw * 0.6; ctx.strokeStyle = 'rgba(10,12,8,0.75)'; ctx.strokeRect(x, y, w, h);
+}
+function gvSlit(ctx, lw, x, y, w, h) { // a vision slit or block: a dark slot under a lip
+  ctx.fillStyle = gvTone(-0.25); ctx.fillRect(x - w * 0.12, y - h * 0.35, w * 1.24, h * 1.7);
+  ctx.fillStyle = '#12161a'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = 'rgba(127,216,255,0.35)'; ctx.fillRect(x + w * 0.1, y + h * 0.25, w * 0.8, h * 0.3);
+}
+function gvPort(ctx, lw, x, y, r) { // a pistol or firing port: a plug in a ring
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = gvTone(-0.2); ctx.fill();
+  ctx.lineWidth = lw * 0.6; ctx.strokeStyle = 'rgba(10,12,8,0.7)'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, r * 0.45, 0, TAU); ctx.fillStyle = '#1a1d20'; ctx.fill();
+}
+function gvDrum(ctx, lw, x, y, w, h) { // an external fuel drum lying along the side, round: lit along its top
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, gvTone(-0.38)); g.addColorStop(0.62, gvTone(0.04)); g.addColorStop(0.8, gvTone(0.12)); g.addColorStop(1, gvTone(-0.2));
+  ctx.fillStyle = g; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, h * 0.18); else ctx.rect(x, y, w, h); ctx.fill();
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = 'rgba(10,12,8,0.7)'; ctx.stroke();
+  ctx.strokeStyle = 'rgba(10,12,8,0.45)'; ctx.beginPath();
+  for (const f of [0.22, 0.78]) { ctx.moveTo(x + w * f, y); ctx.lineTo(x + w * f, y + h); }
+  ctx.stroke();
+  ctx.fillStyle = '#2a2d2a'; ctx.fillRect(x + w * 0.42, y - h * 0.08, w * 0.16, h * 0.08); // its strap
+}
+function gvTool(ctx, lw, x0, x1, y) { // a shovel or crowbar clamped to the side
+  ctx.lineWidth = Math.max(lw, 0.03); ctx.strokeStyle = '#5a4a36'; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1 - (x1 - x0) * 0.22, y); ctx.stroke();
+  ctx.fillStyle = '#3b4046'; ctx.fillRect(x1 - (x1 - x0) * 0.22, y - 0.06, (x1 - x0) * 0.22, 0.12);
+  ctx.fillStyle = '#2a2d30'; for (const f of [0.18, 0.62]) ctx.fillRect(x0 + (x1 - x0) * f, y - 0.05, 0.04, 0.1);
+}
+
+// ---- hulls (thull): side plates, seams, rivets or welds, lights, hooks, tools and stowage, by style and type. The
+// outline's points: bottom rear, bottom front, the nose (the lower plate's top), the glacis' top, the top rear.
+function gvHull(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, P = gvPts(d, x, y), st = d.style, ty = d.type;
+  gvPoly(ctx, P); ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  gvShade(ctx, l, r, b, t);
+  const five = P.length >= 5, N = five ? P[2] : [r, y], G = five ? P[3] : [r, t], ys = b + h * (ty === 'hullCasemate' ? 0.46 : 0.5);
+  const front = (yy) => gvSpan(P, yy)[1], k = Math.min(0.1, h * 0.07);
+  // plate edges: lit where they face up, in shadow below and behind
+  ctx.lineWidth = k; ctx.strokeStyle = 'rgba(255,255,236,0.17)';
+  ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(G[0], G[1]); ctx.lineTo(N[0], N[1]); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(l, t); ctx.lineTo(l, b); ctx.lineTo(P[1][0], b); ctx.stroke();
+  // the upper hull: its joint with the lower (and the engine bay's plate behind)
+  const xe = l + w * (st === 'composite' ? 0.27 : 0.31);
+  if (st === 'rivet') {
+    const rr = Math.min(0.026, h * 0.022), s = 0.2;
+    gvSeam(ctx, lw, [[l, ys], [front(ys), ys]]);
+    gvRivets(ctx, [...gvAlong(l, ys + 0.06, front(ys + 0.06) - 0.05, ys + 0.06, s, 0.08), ...gvAlong(l, t - 0.07, G[0] - 0.05, t - 0.07, s, 0.08),
+      ...gvAlong(G[0] - 0.07, G[1] - 0.07, N[0] - 0.07, N[1], s * 0.9, 0.06), ...gvAlong(l + 0.07, ys + 0.1, l + 0.07, t - 0.1, s, 0), ...gvAlong(xe + 0.06, ys + 0.12, xe + 0.06, t - 0.12, s, 0)], rr);
+    gvSeam(ctx, lw, [[xe, ys], [xe, t]]);
+  } else if (st === 'composite') {
+    gvSeam(ctx, lw, [[l, ys], [front(ys), ys]]);
+    for (const f of [0.27, 0.6]) gvSeam(ctx, lw, [[l + w * f, ys], [l + w * f, t]]);
+    // the thick front: layers of composite under the plates
+    ctx.lineWidth = lw * 0.55; ctx.strokeStyle = 'rgba(12,14,10,0.32)';
+    for (const e of [0.09, 0.18, 0.27]) { ctx.beginPath(); ctx.moveTo(P[1][0] - e * 1.2, b); ctx.lineTo(N[0] - e, N[1] - e * 0.2); ctx.lineTo(G[0] - e * 0.9, t); ctx.stroke(); }
+  } else {
+    gvSeam(ctx, lw, [[l, ys], [front(ys), ys]], true);
+    gvSeam(ctx, lw, [[xe, ys], [xe, t]], true);
+    gvSeam(ctx, lw, [[G[0] - k * 1.6, t - k * 0.6], [N[0] - k * 1.6, N[1]]], true);
+  }
+  // fittings, by type
+  const up = ys + (t - ys) * 0.5, hr = Math.min(0.09, h * 0.07);
+  if (ty === 'hullLight') {
+    gvGrille(ctx, lw, l + w * 0.05, ys + (t - ys) * 0.22, w * 0.2, (t - ys) * 0.55, 8);
+    gvCable(ctx, lw, l + w * 0.36, l + w * 0.78, up);
+  } else if (ty === 'hullMedium') {
+    for (const f of [0.04, 0.17]) gvDrum(ctx, lw, l + w * f, ys + (t - ys) * 0.14, w * 0.12, (t - ys) * 0.66);
+    gvCable(ctx, lw, l + w * 0.34, l + w * 0.7, up);
+    ctx.lineWidth = Math.max(lw, 0.025); ctx.strokeStyle = gvTone(-0.3); // a handrail for riding infantry
+    ctx.beginPath(); ctx.moveTo(l + w * 0.36, t - 0.1); ctx.lineTo(l + w * 0.66, t - 0.1);
+    for (const f of [0.38, 0.51, 0.64]) { ctx.moveTo(l + w * f, t - 0.1); ctx.lineTo(l + w * f, t); }
+    ctx.stroke();
+  } else if (ty === 'hullHeavy') {
+    gvTool(ctx, lw, l + w * 0.38, l + w * 0.72, ys + (t - ys) * 0.68);
+    gvCable(ctx, lw, l + w * 0.36, l + w * 0.86, ys + (t - ys) * 0.32);
+    gvBox(ctx, lw, l + w * 0.05, ys + (t - ys) * 0.15, w * 0.16, (t - ys) * 0.55);
+    ctx.lineWidth = lw * 0.7; ctx.strokeStyle = 'rgba(12,14,10,0.5)'; // the interlocked plates' joints at the front
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) { const yy = ys + ((t - ys) * (i + 0.5)) / 4, xx = front(yy) - 0.14; ctx.moveTo(xx, yy - 0.05); ctx.lineTo(xx + 0.07, yy - 0.05); ctx.lineTo(xx + 0.07, yy + 0.05); ctx.lineTo(xx, yy + 0.05); }
+    ctx.stroke();
+  } else if (ty === 'hullMBT') {
+    gvBox(ctx, lw, l + w * 0.03, ys + (t - ys) * 0.2, w * 0.2, (t - ys) * 0.62, -0.05);
+    gvGrille(ctx, lw, l + w * 0.005, b + h * 0.12, w * 0.025, h * 0.3, 2);
+    gvBox(ctx, lw, l + w * 0.62, ys + (t - ys) * 0.25, w * 0.09, (t - ys) * 0.5, -0.1);
+  } else if (ty === 'hullIFV') {
+    for (const f of [0.14, 0.27, 0.4]) gvPort(ctx, lw, l + w * f, ys + (t - ys) * 0.42, Math.min(0.07, h * 0.04));
+    gvSlit(ctx, lw, front(t - 0.16) - 0.36, t - 0.16, 0.18, 0.05);
+    ctx.lineWidth = lw * 0.9; ctx.strokeStyle = 'rgba(255,255,236,0.2)'; // the trim vane, folded on the glacis
+    ctx.beginPath(); ctx.moveTo(N[0] - 0.12, N[1] + 0.02); ctx.lineTo(G[0] - 0.12, G[1] - 0.02); ctx.stroke();
+    gvBox(ctx, lw, l + w * 0.5, ys + (t - ys) * 0.2, w * 0.12, (t - ys) * 0.5, -0.07);
+  } else if (ty === 'hullWheeled') {
+    const dx = x - w * 0.02, dw = w * 0.14; // a side door, its hinges and handle
+    ctx.lineWidth = lw * 0.8; ctx.strokeStyle = 'rgba(12,14,10,0.6)'; ctx.strokeRect(dx - dw / 2, ys - (t - ys) * 0.1, dw, (t - ys) * 0.88);
+    ctx.fillStyle = '#2a2e30'; for (const f of [0.2, 0.62]) ctx.fillRect(dx - dw / 2 - 0.02, ys + (t - ys) * f, 0.05, 0.08);
+    ctx.fillRect(dx + dw * 0.32, ys + (t - ys) * 0.42, 0.04, 0.12);
+    gvSlit(ctx, lw, front(t - 0.15) - 0.42, t - 0.15, 0.2, 0.05);
+    gvBox(ctx, lw, l + w * 0.04, ys + (t - ys) * 0.18, w * 0.13, (t - ys) * 0.55);
+    gvPort(ctx, lw, l + w * 0.3, ys + (t - ys) * 0.45, 0.05);
+  } else if (ty === 'hullCasemate') {
+    gvSlit(ctx, lw, front(t - 0.2) - 0.3, t - 0.2, 0.18, 0.05);
+    gvBox(ctx, lw, l + w * 0.06, ys + (t - ys) * 0.25, w * 0.16, (t - ys) * 0.45);
+    gvTool(ctx, lw, l + w * 0.36, l + w * 0.66, ys + (t - ys) * 0.3);
+    gvRivets(ctx, gvAlong(front(ys + 0.1) - 0.08, ys + 0.1, G[0] - 0.08, t - 0.08, 0.2, 0.05), 0.025); // the bolted-on front plate
+  }
+  if (five && st !== 'composite') gvLamp(ctx, lw, G[0] - hr * 1.6, t - hr * 1.3, hr);
+  else if (five) { ctx.fillStyle = '#22262a'; ctx.fillRect(G[0] - 0.22, t - 0.08, 0.14, 0.05); ctx.fillStyle = '#e9e2c4'; ctx.fillRect(G[0] - 0.1, t - 0.075, 0.03, 0.04); }
+  gvGrime(ctx, l, r, b, t);
+  ctx.restore();
+  if (five) { gvHook(ctx, lw, P[1][0] + (N[0] - P[1][0]) * 0.35, b + (N[1] - b) * 0.35, Math.min(0.06, h * 0.04)); gvHook(ctx, lw, l + 0.1, b + h * 0.12, Math.min(0.06, h * 0.04)); }
+  ctx.strokeStyle = GV_INK; ctx.lineWidth = lw;
+  gvPoly(ctx, P); ctx.stroke();
+}
+
+// ---- turrets (tturret): plate turrets by style (small, box, wedge, open, aa). The outline runs from the bottom rear
+// along the bottom, up the face (a wedge's in two), back along the roof to the top rear.
+function gvTurret(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, P = gvPts(d, x, y), st = d.style, n = P.length;
+  const front = (yy) => gvSpan(P, yy)[1], back = (yy) => gvSpan(P, yy)[0], rf = P[n - 2][0], k = Math.min(0.08, h * 0.08);
+  gvPoly(ctx, P); ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  gvShade(ctx, l, r, b, t);
+  ctx.lineWidth = k; ctx.strokeStyle = 'rgba(255,255,236,0.18)';
+  ctx.beginPath(); ctx.moveTo(P[n - 1][0], t); for (let i = n - 2; i >= 1; i--) ctx.lineTo(P[i][0], P[i][1]); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(P[n - 1][0], t); ctx.lineTo(P[0][0], b); ctx.lineTo(P[1][0], b); ctx.stroke();
+  const mid = y + h * 0.08;
+  if (st === 'small') {
+    gvRivets(ctx, [...gvAlong(back(b + 0.06), b + 0.06, front(b + 0.06) - 0.04, b + 0.06, 0.16, 0.06), ...gvAlong(back(t - 0.06) + 0.04, t - 0.06, front(t - 0.06) - 0.04, t - 0.06, 0.16, 0.06)], 0.018);
+    gvSlit(ctx, lw, front(mid) - 0.32, mid, 0.16, 0.04);
+    gvPort(ctx, lw, l + w * 0.24, y - h * 0.08, 0.045);
+  } else if (st === 'box') {
+    gvSeam(ctx, lw, [[front(t - 0.05) - 0.16, t - 0.02], [front(b + 0.05) - 0.16, b + 0.02]], true);
+    gvSeam(ctx, lw, [[l, t - 0.12], [rf - 0.1, t - 0.12]], true);
+    gvSlit(ctx, lw, front(mid) - 0.5, mid, 0.2, 0.05);
+    gvPort(ctx, lw, x - w * 0.02, y - h * 0.12, 0.06);
+    ctx.lineWidth = lw * 0.8; ctx.strokeStyle = 'rgba(12,14,10,0.5)'; ctx.beginPath(); ctx.arc(l + w * 0.22, y, h * 0.2, 0, TAU); ctx.stroke(); // the escape hatch
+    gvRivets(ctx, gvAlong(l + w * 0.22 - h * 0.15, y + h * 0.15, l + w * 0.22 + h * 0.15, y + h * 0.15, 0.1, 0), 0.016);
+  } else if (st === 'wedge') {
+    gvSeam(ctx, lw, [[back(b + h * 0.2), b + h * 0.2], [front(b + h * 0.2), b + h * 0.2]]);
+    gvSeam(ctx, lw, [[x + w * 0.1, b], [x + w * 0.02, t]]); // the cheek's composite block
+    ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(12,14,10,0.3)';
+    for (const e of [0.08, 0.16]) { ctx.beginPath(); ctx.moveTo(front(b) - e, b); ctx.lineTo(P[2][0] - e, P[2][1]); ctx.lineTo(P[3][0] - e * 0.7, t); ctx.stroke(); }
+    const x0 = l + w * 0.03, x1 = l + w * 0.3, y0 = b + h * 0.36, y1 = t - h * 0.08; // the bustle rack: rails, bars, and kit strapped in it
+    gvBox(ctx, lw, x0 + 0.06, y0 + 0.02, (x1 - x0) * 0.45, (y1 - y0) * 0.6, -0.14);
+    ctx.fillStyle = '#4c4a3a'; ctx.fillRect(x0 + (x1 - x0) * 0.55, y0 + 0.02, (x1 - x0) * 0.35, (y1 - y0) * 0.45);
+    ctx.lineWidth = Math.max(lw * 0.8, 0.022); ctx.strokeStyle = '#2b2e2c';
+    ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0);
+    for (let i = 0; i <= 6; i++) { const xx = x0 + ((x1 - x0) * i) / 6; ctx.moveTo(xx, y0); ctx.lineTo(xx, y1); }
+    ctx.stroke();
+    gvGrille(ctx, lw, x + w * 0.05, b + h * 0.3, w * 0.1, h * 0.12, 4);
+  } else if (st === 'open') {
+    ctx.fillStyle = gvTone(-0.42); ctx.fillRect(l, t - h * 0.1, w, h * 0.1); // the far wall's inside, over the open top
+    gvSeam(ctx, lw, [[l, t - h * 0.1], [rf, t - h * 0.1]]);
+    gvRivets(ctx, gvAlong(l + 0.08, b + 0.08, front(b + 0.08) - 0.06, b + 0.08, 0.2, 0.04), 0.02);
+    gvBox(ctx, lw, l + w * 0.04, b + h * 0.2, w * 0.2, h * 0.42, -0.1);
+  } else if (st === 'aa') {
+    for (let i = 0; i < 3; i++) gvSlit(ctx, lw, l + w * (0.38 + i * 0.13), t - h * 0.16, 0.14, 0.05);
+    ctx.lineWidth = lw * 0.8; ctx.strokeStyle = 'rgba(12,14,10,0.55)'; ctx.strokeRect(l + w * 0.12, b + h * 0.12, w * 0.2, h * 0.62); // a side door
+    ctx.fillStyle = '#2a2e30'; ctx.fillRect(l + w * 0.29, b + h * 0.4, 0.035, 0.1);
+    gvGrille(ctx, lw, l + w * 0.4, b + h * 0.12, w * 0.24, h * 0.18, 7);
+    gvSeam(ctx, lw, [[l, t - h * 0.3], [front(t - h * 0.3), t - h * 0.3]]);
+  }
+  gvGrime(ctx, l, r, b, t, 0.22, 0.5);
+  ctx.restore();
+  ctx.strokeStyle = GV_INK; ctx.lineWidth = lw;
+  gvPoly(ctx, P); ctx.stroke();
+  gvRoof(ctx, p, lw);
+}
+
+// What stands on a turret's roof, by type (2D and 3D, parts3d.js builds them in its paint): [kind, x as a share of w,
+// z as a share of depth, radius or half-size (m), height (m)]. On the roof (its base at h/2), so they stand out of the
+// part's box and its clash shape: low, and clear of the middle where kit goes.
+const GV_ROOF = {
+  turretSmall: [['hatch', -0.12, 0, 0.27, 0.05], ['scope', 0.22, 0.2, 0.07, 0.07]],
+  turretCast: [['cupola', -0.18, -0.2, 0.3, 0.17], ['hatch', -0.04, 0.21, 0.25, 0.04], ['vent', 0.17, 0.02, 0.11, 0.06], ['scope', 0.24, -0.2, 0.07, 0.07]],
+  turretAuto: [['cupola', -0.06, -0.19, 0.34, 0.14], ['hatch', -0.04, 0.2, 0.27, 0.04], ['sight', 0.2, -0.17, 0.13, 0.16]],
+  turretBox: [['cupola', -0.32, -0.22, 0.32, 0.2], ['hatch', -0.14, 0.22, 0.24, 0.04], ['vent', 0.24, 0, 0.1, 0.05]],
+  turretWedge: [['cupola', -0.14, 0.2, 0.3, 0.14], ['hatch', -0.18, -0.2, 0.26, 0.04], ['sight', -0.03, 0.22, 0.15, 0.17]],
+  turretAA: [['hatch', -0.28, -0.22, 0.25, 0.04], ['hatch', -0.28, 0.22, 0.25, 0.04]],
+};
+function gvRoof(ctx, p, lw) {
+  const F = GV_ROOF[p.def.type];
+  if (!F) return;
+  const d = p.def, t = p.y + d.h / 2;
+  for (const [k, fx, , s, hg] of F) {
+    const cx = p.x + fx * d.w;
+    ctx.lineWidth = lw * 0.8; ctx.strokeStyle = GV_INK;
+    if (k === 'cupola') {
+      ctx.fillStyle = gvTone(-0.06); ctx.fillRect(cx - s, t, s * 2, hg * 0.78); ctx.strokeRect(cx - s, t, s * 2, hg * 0.78);
+      ctx.fillStyle = '#14181b'; for (let i = 0; i < 4; i++) ctx.fillRect(cx - s * 0.8 + i * s * 0.44, t + hg * 0.3, s * 0.2, hg * 0.2); // its vision blocks
+      ctx.fillStyle = gvTone(0.04); ctx.fillRect(cx - s * 0.86, t + hg * 0.78, s * 1.72, hg * 0.22); ctx.strokeRect(cx - s * 0.86, t + hg * 0.78, s * 1.72, hg * 0.22);
+    } else if (k === 'hatch') {
+      ctx.fillStyle = gvTone(-0.04); ctx.fillRect(cx - s, t, s * 2, hg); ctx.strokeRect(cx - s, t, s * 2, hg);
+    } else if (k === 'vent') {
+      ctx.beginPath(); ctx.moveTo(cx - s, t); ctx.quadraticCurveTo(cx, t + hg * 2, cx + s, t); ctx.closePath(); ctx.fillStyle = gvTone(-0.1); ctx.fill(); ctx.stroke();
+    } else { // a periscope or a sight's armoured box, its window to the front
+      ctx.fillStyle = gvTone(-0.08); ctx.fillRect(cx - s, t, s * 2, hg); ctx.strokeRect(cx - s, t, s * 2, hg);
+      ctx.fillStyle = '#16303f'; ctx.fillRect(cx + s * 0.45, t + hg * 0.35, s * 0.55, hg * 0.45);
+    }
+  }
+}
+
+// ---- round turrets (tcast): a cast dome (cast) or a low autoloader turret (auto), revolved in 3D (the outline is the
+// lathe's profile and the round hit shape); the 2D art wraps round it, its middle on the sides.
+function gvCastShape(d) { return d.style === 'auto' ? [0.12, 0.5, 0.31] : [0.2, 0.6, 0.34]; } // (the side's foot, the shoulder's pull, the roof's radius)
+function gvCastPath(ctx, d, x, y) {
+  const w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, [s, k, top] = gvCastShape(d);
+  ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(r, b + h * s);
+  ctx.bezierCurveTo(r, b + h * k, x + w * (top + 0.08), t, x + w * top, t);
+  ctx.lineTo(x - w * top, t);
+  ctx.bezierCurveTo(x - w * (top + 0.08), t, l, b + h * k, l, b + h * s);
+  ctx.closePath();
+}
+function gvCast(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, auto = d.style === 'auto';
+  ctx.beginPath(); gvCastPath(ctx, d, x, y); ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fill();
+  ctx.save(); ctx.clip();
+  gvShade(ctx, l, r, b, t);
+  if (!auto) { // the casting's rough skin
+    ctx.fillStyle = 'rgba(20,24,14,0.12)';
+    ctx.beginPath(); for (let i = 0; i < 40; i++) { const hs = (k) => { const v = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return v - Math.floor(v); }, xx = l + w * hs(1), yy = b + h * hs(2), rr = 0.015 + hs(3) * 0.035; ctx.moveTo(xx + rr, yy); ctx.arc(xx, yy, rr, 0, TAU); }
+    ctx.fill();
+    gvSeam(ctx, lw, [[l, y + h * 0.05], [r, y + h * 0.05]]); // the casting's seam
+  }
+  ctx.fillStyle = gvTone(-0.22); ctx.fillRect(l, b, w, h * 0.1); // the ring guard round its foot
+  ctx.strokeStyle = 'rgba(255,255,236,0.16)'; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(l, b + h * 0.1); ctx.lineTo(r, b + h * 0.1); ctx.stroke();
+  if (auto) {
+    gvSeam(ctx, lw, [[l, y - h * 0.08], [r, y - h * 0.08]]);
+    for (const f of [0.08, 0.2]) gvBox(ctx, lw, l + w * f, b + h * 0.16, w * 0.1, h * 0.32, -0.1); // stowage boxes on its back
+    gvSlit(ctx, lw, x + w * 0.18, y + h * 0.12, 0.16, 0.04);
+  } else {
+    gvSlit(ctx, lw, x + w * 0.14, y - h * 0.02, 0.18, 0.045);
+    gvPort(ctx, lw, x - w * 0.12, y - h * 0.12, 0.05);
+    gvRivets(ctx, [[x - w * 0.24, t - h * 0.2], [x + w * 0.2, t - h * 0.2]], 0.03); // the lifting eyes' bosses
+    ctx.lineWidth = Math.max(lw, 0.025); ctx.strokeStyle = gvTone(-0.32); // a grab rail
+    ctx.beginPath(); ctx.moveTo(x - w * 0.34, y + h * 0.12); ctx.lineTo(x - w * 0.02, y + h * 0.12); ctx.stroke();
+  }
+  gvGrime(ctx, l, r, b, t, 0.18, 0.4);
+  ctx.restore();
+  ctx.strokeStyle = GV_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); gvCastPath(ctx, d, x, y); ctx.stroke();
+  gvRoof(ctx, p, lw);
+}
+
+// ---- turret rings (tring): a steel band with its bolt ring (revolved in 3D)
+function gvRingPath(ctx, d, x, y) {
+  const w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, c = Math.min(0.04, h * 0.25);
+  ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(r, t - c); ctx.lineTo(r - c, t); ctx.lineTo(l + c, t); ctx.lineTo(l, t - c); ctx.closePath();
+}
+function gvRing(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2;
+  ctx.beginPath(); gvRingPath(ctx, d, x, y); ctx.fillStyle = PartPaint.skin ? gvTone(-0.12) : PartPaint.flat ? '#5a614c' : gvFill(ctx, b, t, l, r); ctx.fill();
+  ctx.fillStyle = '#25292d'; ctx.fillRect(l, y + h * 0.12, w, h * 0.1); // the race between the fixed and the turning ring
+  gvRivets(ctx, gvAlong(l, y - h * 0.18, r, y - h * 0.18, Math.max(0.12, w / 18), 0.06), Math.min(0.022, h * 0.12));
+  ctx.strokeStyle = GV_INK; ctx.lineWidth = lw;
+  ctx.beginPath(); gvRingPath(ctx, d, x, y); ctx.stroke();
+}
+
+// ---- tracks (ttrack): road wheels, the drive sprocket (at the front or the back), the idler at the other end, return
+// rollers, the belt round them and the fender over it. TRACK_LOOK by style, in shares of h: n road wheels of radius rw,
+// the sprocket's and idler's radii (rs, ri) and how far above the road wheels' axles they sit (ls, li), return rollers,
+// the belt's thickness bt (m); inter: interleaved road wheels (a heavy tank's).
+const TRACK_LOOK = {
+  light: { n: 5, rw: 0.3, front: true, rs: 0.29, ls: 0.24, ri: 0.25, li: 0.06, rollers: 3, bt: 0.05 },
+  medium: { n: 5, rw: 0.39, front: false, rs: 0.33, ls: 0.05, ri: 0.3, li: 0.05, rollers: 0, bt: 0.07 },
+  heavy: { n: 8, rw: 0.36, front: true, rs: 0.33, ls: 0.07, ri: 0.28, li: 0.05, rollers: 0, bt: 0.09, inter: true },
+  modern: { n: 7, rw: 0.3, front: false, rs: 0.29, ls: 0.22, ri: 0.28, li: 0.18, rollers: 3, bt: 0.08 },
+};
+const TRACK_PITCH = 0.15, GV_LAYOUT = new Map(); // (a link, m; and the layouts below, worked out once per part type)
+// The wheels ({k: road|idler|sprocket|roller, x, y, r, in: an interleaved wheel's inner row}) and the belt's middle line
+// round them (the hull of their discs), clockwise seen from +z from the sprocket's far point: pts [x, y, nx, ny (out), s
+// (the length along it)], so a point on the belt at s moves on to s + p.belt as the tank drives forward. reps: the
+// texture's repeats round it (about two links each).
+function trackLayout(d) {
+  let L = GV_LAYOUT.get(d);
+  if (L) return L;
+  const k = TRACK_LOOK[d.style] || TRACK_LOOK.medium, w = d.w, h = d.h, bt = k.bt, rw = k.rw * h, yw = -h / 2 + bt + rw, fs = k.front ? 1 : -1;
+  const rs = k.rs * h, ri = k.ri * h, ys = yw + k.ls * h, yi = yw + k.li * h, xs = fs * (w / 2 - bt - rs), xi = -fs * (w / 2 - bt - ri);
+  const reach = (r, dy) => Math.sqrt(Math.max(0, (r + rw + 0.03) ** 2 - dy * dy)), a = xi + fs * reach(ri, yi - yw), e = xs - fs * reach(rs, ys - yw), wheels = [];
+  for (let i = 0; i < k.n; i++) wheels.push({ k: 'road', x: k.n > 1 ? a + ((e - a) * i) / (k.n - 1) : 0, y: yw, r: rw, in: !!k.inter && i % 2 === 1 });
+  wheels.push({ k: 'idler', x: xi, y: yi, r: ri }, { k: 'sprocket', x: xs, y: ys, r: rs });
+  const top = h / 2 - 0.05 - bt, rr = Math.max(0.05, h * 0.07);
+  for (let i = 0; i < k.rollers; i++) wheels.push({ k: 'roller', x: a + ((e - a) * (i + 1)) / (k.rollers + 1), y: top - rr, r: rr });
+  // the hull of the wheels' discs, out to the belt's middle (monotone chain, counter-clockwise), then turned round
+  const S = [];
+  for (const q of wheels) for (let i = 0; i < 40; i++) { const an = (i / 40) * TAU, R = q.r + bt / 2; S.push([q.x + R * Math.cos(an), q.y + R * Math.sin(an)]); }
+  S.sort((u, v) => u[0] - v[0] || u[1] - v[1]);
+  const cr = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0]), lo = [], hi = [];
+  for (const q of S) { while (lo.length > 1 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 1e-9) lo.pop(); lo.push(q); }
+  for (let i = S.length - 1; i >= 0; i--) { const q = S[i]; while (hi.length > 1 && cr(hi[hi.length - 2], hi[hi.length - 1], q) <= 1e-9) hi.pop(); hi.push(q); }
+  let H = lo.slice(0, -1).concat(hi.slice(0, -1)).reverse(); // (clockwise)
+  let i0 = 0; for (let i = 1; i < H.length; i++) if (fs * H[i][0] > fs * H[i0][0]) i0 = i;
+  H = H.slice(i0).concat(H.slice(0, i0));
+  const n = H.length, pts = [];
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const A = H[(i + n - 1) % n], B = H[i], C = H[(i + 1) % n];
+    let nx = -(C[1] - A[1]), ny = C[0] - A[0]; // (clockwise: out is the tangent turned left)
+    const m = Math.hypot(nx, ny) || 1;
+    if (i) s += Math.hypot(B[0] - A[0], B[1] - A[1]);
+    pts.push([B[0], B[1], nx / m, ny / m, s]);
+  }
+  const len = s + Math.hypot(H[0][0] - H[n - 1][0], H[0][1] - H[n - 1][1]);
+  L = { k, bt, rw, rs, front: fs, wheels, pts, len, reps: Math.max(1, Math.round(len / (2 * TRACK_PITCH))), fender: h / 2 - 0.045 };
+  GV_LAYOUT.set(d, L);
+  return L;
+}
+// the belt's edge (side +1 out, -1 in) as a path, from the layout's middle line
+function gvBeltTrace(ctx, L, x, y, side) {
+  const o = (side * L.bt) / 2;
+  L.pts.forEach((q, i) => (i ? ctx.lineTo(x + q[0] + q[2] * o, y + q[1] + q[3] * o) : ctx.moveTo(x + q[0] + q[2] * o, y + q[1] + q[3] * o)));
+  ctx.closePath();
+}
+function gvTrackPath(ctx, d, x, y) {
+  const L = trackLayout(d);
+  gvBeltTrace(ctx, L, x, y, 1);
+  ctx.rect(x - d.w / 2, y + L.fender, d.w, d.h / 2 - L.fender);
+}
+// A road wheel's (idler's, roller's) face, its paint, rubber and bolts, turned by a: the 2D art, and the texture all a
+// track's wheels share in 3D (parts3d.js), where it turns as the belt runs. The hub's middle is dark: the tyres and
+// arms the 3D model colours from that one texel.
+function gvWheelFace(ctx, x, y, r, a, style, kind) {
+  const rub = kind === 'idler' ? 0 : style === 'modern' ? 0.13 : 0.17, ca = Math.cos(a), sa = Math.sin(a);
+  const at = (rr, an, f) => { const c = Math.cos(an), s = Math.sin(an); f(x + rr * (c * ca - s * sa), y + rr * (s * ca + c * sa)); };
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = kind === 'idler' ? '#3a4046' : GV_RUBBER; ctx.fill();
+  const R = r * (1 - rub);
+  ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fillStyle = gvTone(kind === 'roller' ? -0.2 : -0.05); ctx.fill();
+  ctx.lineWidth = r * 0.04; ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.stroke();
+  if (kind === 'roller') { ctx.beginPath(); ctx.arc(x, y, r * 0.3, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill(); return; }
+  if (style === 'light' && kind === 'road') { // spoked
+    ctx.fillStyle = 'rgba(14,16,12,0.85)';
+    for (let i = 0; i < 6; i++) { const an = (i / 6) * TAU + 0.26; ctx.beginPath(); at(R * 0.62, an, (px, py) => ctx.arc(px, py, R * 0.2, 0, TAU)); ctx.fill(); }
+  } else if (style === 'medium' && kind === 'road') { // dished, with lightening holes
+    ctx.beginPath(); ctx.arc(x, y, R * 0.72, 0, TAU); ctx.strokeStyle = 'rgba(255,255,236,0.22)'; ctx.lineWidth = r * 0.05; ctx.stroke();
+    ctx.fillStyle = 'rgba(14,16,12,0.8)';
+    ctx.beginPath(); for (let i = 0; i < 8; i++) at(R * 0.5, (i / 8) * TAU, (px, py) => { ctx.moveTo(px + R * 0.1, py); ctx.arc(px, py, R * 0.1, 0, TAU); }); ctx.fill();
+  } else {
+    const nb = style === 'heavy' ? 12 : 10, rb = style === 'heavy' ? 0.78 : kind === 'idler' ? 0.6 : 0.4;
+    ctx.beginPath(); ctx.arc(x, y, R * (rb + 0.1), 0, TAU); ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = r * 0.04; ctx.stroke();
+    ctx.fillStyle = 'rgba(20,22,18,0.7)';
+    ctx.beginPath(); for (let i = 0; i < nb; i++) at(R * rb, (i / nb) * TAU, (px, py) => { ctx.moveTo(px + r * 0.035, py); ctx.arc(px, py, r * 0.035, 0, TAU); }); ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(x, y, r * 0.24, 0, TAU); ctx.fillStyle = gvTone(-0.18); ctx.fill(); // the hub and its cap
+  ctx.fillStyle = 'rgba(20,22,18,0.7)';
+  ctx.beginPath(); for (let i = 0; i < 6; i++) at(r * 0.16, (i / 6) * TAU, (px, py) => { ctx.moveTo(px + r * 0.025, py); ctx.arc(px, py, r * 0.025, 0, TAU); }); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, r * 0.09, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill();
+}
+// the drive sprocket: its teeth (n of them) and hub, turned by a
+function gvSprocket(ctx, lw, x, y, r, a) {
+  const n = Math.max(10, Math.round(r * 36)), ri = r * 0.84;
+  ctx.beginPath();
+  for (let i = 0; i < n * 2; i++) { const an = a + (i / (n * 2)) * TAU, rr = i % 2 ? ri : r; if (i) ctx.lineTo(x + rr * Math.cos(an), y + rr * Math.sin(an)); else ctx.moveTo(x + rr * Math.cos(an), y + rr * Math.sin(an)); }
+  ctx.closePath(); ctx.fillStyle = '#41474e'; ctx.fill(); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, ri * 0.92, 0, TAU); ctx.fillStyle = gvTone(-0.1); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(14,16,12,0.8)';
+  ctx.beginPath(); for (let i = 0; i < 6; i++) { const an = a + (i / 6) * TAU; ctx.moveTo(x + ri * 0.55 * Math.cos(an) + r * 0.09, y + ri * 0.55 * Math.sin(an)); ctx.arc(x + ri * 0.55 * Math.cos(an), y + ri * 0.55 * Math.sin(an), r * 0.09, 0, TAU); }
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, r * 0.22, 0, TAU); ctx.fillStyle = gvTone(-0.25); ctx.fill(); ctx.stroke();
+}
+function gvTrack(ctx, p, lw) {
+  const d = p.def, L = trackLayout(d), x = p.x, y = p.y, w = d.w, h = d.h, belt = p.belt || 0, st = d.style || 'medium', a = -belt / L.rw;
+  // in the loop, the dark under the hull
+  ctx.beginPath(); gvBeltTrace(ctx, L, x, y, -1); ctx.fillStyle = '#1a1d20'; ctx.fill();
+  // suspension arms from the hull to each road wheel's hub (sprung tracks), the wheels' rear row first
+  if (st === 'light' || st === 'modern') {
+    ctx.lineWidth = L.rw * 0.32; ctx.strokeStyle = '#353a40'; ctx.lineCap = 'round'; ctx.beginPath();
+    for (const q of L.wheels) if (q.k === 'road') { ctx.moveTo(x + q.x, y + q.y); ctx.lineTo(x + q.x - L.front * L.rw * 1.1, y + q.y + L.rw * 0.75); }
+    ctx.stroke(); ctx.lineCap = 'butt';
+  }
+  // the belt, its links moving round it: plates across it and the grousers on its outer face
+  ctx.beginPath(); gvBeltTrace(ctx, L, x, y, 1); gvBeltTrace(ctx, L, x, y, -1);
+  ctx.fillStyle = '#3b4045'; ctx.fill('evenodd');
+  const P = L.pts, n = P.length, step = L.len / Math.round(L.len / TRACK_PITCH), o = L.bt / 2;
+  let s = (((belt % step) + step) % step), j = 0;
+  ctx.lineWidth = Math.max(lw * 0.6, step * 0.18); ctx.strokeStyle = 'rgba(12,14,16,0.85)';
+  const grip = [];
+  ctx.beginPath();
+  for (; s < L.len; s += step) {
+    while (j < n - 1 && P[j + 1][4] <= s) j++;
+    const A = P[j], B = P[(j + 1) % n], sb = j + 1 < n ? B[4] : L.len, f = sb > A[4] ? (s - A[4]) / (sb - A[4]) : 0;
+    const px = A[0] + (B[0] - A[0]) * f, py = A[1] + (B[1] - A[1]) * f, nx = A[2] + (B[2] - A[2]) * f, ny = A[3] + (B[3] - A[3]) * f;
+    ctx.moveTo(x + px - nx * o, y + py - ny * o); ctx.lineTo(x + px + nx * o, y + py + ny * o);
+    grip.push(x + px + nx * o, y + py + ny * o, nx, ny);
+  }
+  ctx.stroke();
+  ctx.lineWidth = Math.max(lw, L.bt * 0.5); ctx.strokeStyle = st === 'modern' || st === 'light' ? '#16181b' : '#4a5056';
+  ctx.beginPath();
+  for (let i = 0; i < grip.length; i += 4) { const gx = grip[i], gy = grip[i + 1], tx = -grip[i + 3] * step * 0.28, ty = grip[i + 2] * step * 0.28; ctx.moveTo(gx - tx, gy - ty); ctx.lineTo(gx + tx, gy + ty); }
+  ctx.stroke();
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  ctx.beginPath(); gvBeltTrace(ctx, L, x, y, 1); ctx.stroke();
+  // the wheels: the inner row of an interleaved run, then the outer one, the idler and rollers, then the sprocket
+  for (const pass of [true, false]) for (const q of L.wheels) {
+    if (q.k === 'sprocket' || !!q.in !== pass) continue;
+    gvWheelFace(ctx, x + q.x, y + q.y, q.r, a * (L.rw / q.r), st, q.k);
+    if (pass) { ctx.beginPath(); ctx.arc(x + q.x, y + q.y, q.r, 0, TAU); ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(x + q.x, y + q.y, q.r, 0, TAU); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.stroke();
+  }
+  const sp = L.wheels.find((q) => q.k === 'sprocket');
+  gvSprocket(ctx, lw, x + sp.x, y + sp.y, sp.r, -belt / sp.r);
+  // the fender over it all, in the hull's paint, turned down at both ends
+  const l = x - w / 2, r = x + w / 2, ft = y + h / 2, fb = y + L.fender, dn = Math.min(0.22, h * 0.2);
+  ctx.beginPath(); ctx.moveTo(l, ft); ctx.lineTo(r, ft); ctx.lineTo(r, fb - dn * 0.4); ctx.lineTo(r - 0.12, fb - dn); ctx.lineTo(r - 0.18, fb - dn); ctx.lineTo(r - 0.08, fb);
+  ctx.lineTo(l + 0.08, fb); ctx.lineTo(l + 0.18, fb - dn); ctx.lineTo(l + 0.12, fb - dn); ctx.lineTo(l, fb - dn * 0.4); ctx.closePath();
+  ctx.fillStyle = gvFill(ctx, fb - dn, ft, l, r); ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = GV_INK; ctx.stroke();
+  gvRivets(ctx, gvAlong(l + 0.3, fb + (ft - fb) * 0.5, r - 0.3, fb + (ft - fb) * 0.5, 0.45, 0), Math.min(0.016, (ft - fb) * 0.3));
+}
+
+// ---- armoured wheels (twheel): a chunky tyre and an armoured hub, turned by p.spin (the hub takes the paint)
+function gvWheelR(d) { return (d.awheel && d.awheel.r) || Math.min(d.w, d.h) * 0.45; }
+function gvAWheel(ctx, p, lw) {
+  const d = p.def, R = gvWheelR(d), x = p.x, y = p.y, a = p.spin || 0;
+  ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fillStyle = GV_RUBBER; ctx.fill();
+  ctx.fillStyle = '#2c3035'; ctx.beginPath(); // the tread's blocks round the rim
+  for (let i = 0; i < 22; i++) {
+    const an = a + (i / 22) * TAU, c = Math.cos(an), s = Math.sin(an), u = -s * R * 0.09, v = c * R * 0.09;
+    ctx.moveTo(x + c * R * 0.88 - u, y + s * R * 0.88 - v); ctx.lineTo(x + c * R * 0.99 - u, y + s * R * 0.99 - v); ctx.lineTo(x + c * R * 0.99 + u, y + s * R * 0.99 + v); ctx.lineTo(x + c * R * 0.88 + u, y + s * R * 0.88 + v); ctx.closePath();
+  }
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, R * 0.8, 0, TAU); ctx.lineWidth = R * 0.03; ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, R * 0.58, 0, TAU); ctx.fillStyle = gvTone(-0.04); ctx.fill(); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, R * 0.44, 0, TAU); ctx.fillStyle = gvTone(-0.16); ctx.fill();
+  ctx.fillStyle = 'rgba(20,22,18,0.75)'; ctx.beginPath();
+  for (let i = 0; i < 8; i++) { const an = a + (i / 8) * TAU, bx = x + R * 0.34 * Math.cos(an), by = y + R * 0.34 * Math.sin(an); ctx.moveTo(bx + R * 0.035, by); ctx.arc(bx, by, R * 0.035, 0, TAU); }
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, R * 0.16, 0, TAU); ctx.fillStyle = gvTone(-0.3); ctx.fill(); ctx.stroke();
+  ctx.lineWidth = lw; ctx.strokeStyle = GV_INK; ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.stroke();
+}
+
+// ---- guns (tgun): the layout a gun's 2D art and 3D model (parts3d.js tankGun) share: the trunnion ty (its pivot, from
+// def.aim), the breech block behind it (inside the turret; it recoils with the barrel), a tank gun's mantlet round the
+// trunnion and out of the turret face, the barrel (radius rb at y0 to rm at the muzzle) and what is on it by style:
+// brake (a muzzle brake), evac (a bore evacuator and, from 120 mm, thermal sleeve bands), auto (an autocannon's housing
+// and flash hider), quad (four barrels in a cradle), mg (a coaxial MG's receiver), pintle (a heavy MG on its post, an
+// ammunition can beside it).
+function gunLayout(d) {
+  let G = GV_LAYOUT.get(d);
+  if (G) return G;
+  const w = d.w, h = d.h, D = d.depth || w, wp = d.weapon || {}, a = d.aim || {}, st = d.style || '', cal = (wp.cal || 30) / 1000;
+  const ty = -h / 2 + (a.pivot != null ? a.pivot : 0.18) * h, y1 = h / 2;
+  G = { ty, st, y1, barrels: [[0, 0]] };
+  if (st === 'mg' || st === 'pintle') {
+    const pin = st === 'pintle';
+    G.rb = G.rm = pin ? 0.024 : 0.016;
+    G.box = { y0: -h / 2 + (pin ? 0.1 : 0), y1: ty + (pin ? 0.3 : 0.16), hx: pin ? 0.075 : 0.045, hz: pin ? 0.065 : 0.06 };
+    G.y0 = G.box.y1; G.hider = { y0: y1 - (pin ? 0.14 : 0.07), r: G.rb * 1.7 };
+    if (pin) { G.post = { x1: w / 2, r: 0.035 }; G.can = { y0: ty - 0.05, y1: ty + 0.2, x0: -0.03, x1: 0.13, z: 0.13 }; G.grip = -h / 2 + 0.05; }
+  } else if (wp.kind !== 'tgun') { // autocannons and the quad mount
+    const quad = st === 'quad';
+    G.box = quad ? { y0: -h / 2, y1: ty + 0.42, hx: w * 0.36, hz: D * 0.46 } : { y0: -h / 2, y1: ty + 0.28 + cal * 3, hx: w * 0.44, hz: D * 0.42 };
+    G.rb = quad ? 0.03 : clamp(cal * 1.5, 0.02, w * 0.3); G.rm = G.rb * 0.85; G.y0 = G.box.y1;
+    if (quad) { G.barrels = [[-w * 0.17, -D * 0.24], [-w * 0.17, D * 0.24], [w * 0.17, -D * 0.24], [w * 0.17, D * 0.24]]; G.jacket = { y0: G.y0, y1: G.y0 + 0.45, r: 0.05 }; }
+    G.hider = { y0: y1 - Math.max(0.12, cal * 5), r: G.rm * 1.6 };
+  } else { // a tank gun
+    G.mant = { y0: ty - 0.14, y1: ty + 0.2 + cal * 2.4, hx: w * 0.47, hz: D * 0.43, round: st !== 'evac' };
+    G.rb = clamp(cal * 1.32, 0.03, w * 0.32); G.rm = clamp(cal * 0.92, 0.024, G.rb); G.y0 = G.mant.y1;
+    G.breech = { y0: -h / 2, y1: ty + 0.06, hx: Math.min(w * 0.42, G.rb * 2.1), hz: Math.min(D * 0.4, G.rb * 2.4) };
+    const L = y1 - G.y0;
+    if (st === 'brake') G.brake = { y0: y1 - clamp(cal * 3.2, 0.14, 0.55), r: G.rm * 1.75 };
+    else if (st === 'evac') {
+      G.evac = { y0: G.y0 + L * 0.5, y1: G.y0 + L * 0.5 + clamp(cal * 4, 0.3, 0.55), r: G.rm * 1.62 };
+      if (cal >= 0.12) G.sleeves = [0.18, 0.34, 0.74, 0.88].map((f) => G.y0 + L * f);
+      G.muzzle = { y0: y1 - 0.06, r: G.rm * 1.1 };
+    } else G.muzzle = { y0: y1 - 0.08, r: G.rm * 1.25 };
+  }
+  GV_LAYOUT.set(d, G);
+  return G;
+}
+// the barrel's radius at yy
+function gunR(G, yy) { return G.rb + (G.rm - G.rb) * clamp((yy - G.y0) / (G.y1 - G.y0 || 1), 0, 1); }
+function gvGunPath(ctx, d, x, y) {
+  const G = gunLayout(d), B = G.mant || G.box;
+  if (B) ctx.rect(x - B.hx, y + B.y0, B.hx * 2, B.y1 - B.y0);
+  for (const [bx] of G.barrels) { ctx.moveTo(x + bx - G.rb, y + G.y0); ctx.lineTo(x + bx - G.rm, y + G.y1); ctx.lineTo(x + bx + G.rm, y + G.y1); ctx.lineTo(x + bx + G.rb, y + G.y0); ctx.closePath(); }
+  if (G.post) ctx.rect(x, y + G.ty - G.post.r, G.post.x1, G.post.r * 2);
+}
+// a band round the barrel (a brake, an evacuator, a sleeve's clamp), from y0 to y1 at radius r
+function gvBand(ctx, lw, x, y0, y1, r, col) {
+  ctx.fillStyle = col; ctx.fillRect(x - r, y0, r * 2, y1 - y0);
+  ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.strokeRect(x - r, y0, r * 2, y1 - y0);
+}
+function gvGun(ctx, p, lw) {
+  const d = p.def, G = gunLayout(d), x = p.x, y = p.y;
+  if (G.post) { // the pintle's post down to the roof, and its foot
+    ctx.fillStyle = '#3a3f45'; ctx.fillRect(x, y + G.ty - G.post.r, G.post.x1 - 0.03, G.post.r * 2);
+    ctx.fillRect(x + G.post.x1 - 0.04, y + G.ty - 0.12, 0.04, 0.24);
+    ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.strokeRect(x, y + G.ty - G.post.r, G.post.x1 - 0.03, G.post.r * 2);
+  }
+  // the barrels, lit along one side
+  for (const [bx] of G.barrels) {
+    const X = x + bx;
+    ctx.beginPath(); ctx.moveTo(X - G.rb, y + G.y0); ctx.lineTo(X - G.rm, y + G.y1); ctx.lineTo(X + G.rm, y + G.y1); ctx.lineTo(X + G.rb, y + G.y0); ctx.closePath();
+    ctx.fillStyle = GV_GUN; ctx.fill(); ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    ctx.beginPath(); ctx.moveTo(X - G.rb * 0.7, y + G.y0); ctx.lineTo(X - G.rm * 0.7, y + G.y1); ctx.lineTo(X - G.rm * 0.25, y + G.y1); ctx.lineTo(X - G.rb * 0.25, y + G.y0); ctx.closePath(); ctx.fill();
+    if (G.jacket) gvBand(ctx, lw, X, y + G.jacket.y0, y + G.jacket.y1, G.jacket.r, '#3d4349');
+    if (G.hider) { gvBand(ctx, lw, X, y + G.hider.y0, y + G.y1, G.hider.r, '#26292d'); ctx.fillStyle = '#0e1012'; for (const f of [0.3, 0.62]) ctx.fillRect(X - G.hider.r * 0.3, y + G.hider.y0 + (G.y1 - G.hider.y0) * f, G.hider.r * 0.6, (G.y1 - G.hider.y0) * 0.16); }
+  }
+  if (G.sleeves) for (const yy of G.sleeves) gvBand(ctx, lw, x, y + yy - 0.03, y + yy + 0.03, gunR(G, yy) * 1.12, '#262a2e');
+  if (G.evac) { // the bore evacuator: a fat barrel section, tapered at both ends
+    const E = G.evac, r0 = gunR(G, E.y0);
+    ctx.beginPath(); ctx.moveTo(x - r0, y + E.y0); ctx.lineTo(x - E.r, y + E.y0 + 0.06); ctx.lineTo(x - E.r, y + E.y1 - 0.06); ctx.lineTo(x - r0 * 0.95, y + E.y1);
+    ctx.lineTo(x + r0 * 0.95, y + E.y1); ctx.lineTo(x + E.r, y + E.y1 - 0.06); ctx.lineTo(x + E.r, y + E.y0 + 0.06); ctx.lineTo(x + r0, y + E.y0); ctx.closePath();
+    ctx.fillStyle = '#353a40'; ctx.fill(); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.stroke();
+  }
+  if (G.brake) { // the muzzle brake: two baffles with their ports
+    const B = G.brake, L = G.y1 - B.y0;
+    gvBand(ctx, lw, x, y + B.y0, y + G.y1, B.r, '#2a2e33');
+    ctx.fillStyle = '#0c0e10'; for (const f of [0.2, 0.58]) ctx.fillRect(x - B.r * 1.01, y + B.y0 + L * f, B.r * 2.02, L * 0.22);
+  }
+  if (G.muzzle) gvBand(ctx, lw, x, y + G.muzzle.y0, y + G.y1, G.muzzle.r, '#2a2e33');
+  if (G.box) { // a receiver, housing or cradle
+    const B = G.box, quad = G.st === 'quad';
+    ctx.fillStyle = quad ? gvFill(ctx, y + B.y0, y + B.y1, x - B.hx, x + B.hx) : '#3c4248'; ctx.fillRect(x - B.hx, y + B.y0, B.hx * 2, B.y1 - B.y0);
+    ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK; ctx.strokeRect(x - B.hx, y + B.y0, B.hx * 2, B.y1 - B.y0);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(x - B.hx, y + B.y0, B.hx * 0.5, B.y1 - B.y0);
+    if (!G.post && G.st !== 'mg') { ctx.fillStyle = 'rgba(10,12,14,0.6)'; ctx.fillRect(x - B.hx * 0.6, y + B.y0 + (B.y1 - B.y0) * 0.55, B.hx * 1.2, (B.y1 - B.y0) * 0.08); }
+  }
+  if (G.can) { const C = G.can; ctx.fillStyle = '#4f5838'; ctx.fillRect(x + C.x0, y + C.y0, C.x1 - C.x0, C.y1 - C.y0); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.strokeRect(x + C.x0, y + C.y0, C.x1 - C.x0, C.y1 - C.y0); }
+  if (G.grip) { ctx.lineWidth = Math.max(lw, 0.025); ctx.strokeStyle = '#22262a'; ctx.beginPath(); ctx.moveTo(x - 0.07, y + G.grip + 0.07); ctx.lineTo(x - 0.07, y + G.grip); ctx.lineTo(x + 0.07, y + G.grip); ctx.lineTo(x + 0.07, y + G.grip + 0.07); ctx.stroke(); }
+  if (G.mant) { // the mantlet: cast and rounded, or a flat plate with chamfered corners; in the armour's paint
+    const M = G.mant, l = x - M.hx, r = x + M.hx, b = y + M.y0, t = y + M.y1, c = M.round ? M.hx * 0.55 : M.hx * 0.25;
+    ctx.beginPath(); ctx.moveTo(l, b); ctx.lineTo(r, b); ctx.lineTo(r, t - c);
+    if (M.round) ctx.quadraticCurveTo(r, t, r - c, t); else ctx.lineTo(r - c, t);
+    ctx.lineTo(l + c, t);
+    if (M.round) ctx.quadraticCurveTo(l, t, l, t - c); else ctx.lineTo(l, t - c);
+    ctx.closePath();
+    ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fill();
+    ctx.lineWidth = lw; ctx.strokeStyle = GV_INK; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,236,0.14)'; ctx.fillRect(l + M.hx * 0.15, b, M.hx * 0.25, M.y1 - M.y0);
+    gvRivets(ctx, [[l + M.hx * 0.3, t - c * 0.7], [r - M.hx * 0.3, t - c * 0.7], [l + M.hx * 0.3, b + 0.06], [r - M.hx * 0.3, b + 0.06]], Math.min(0.025, M.hx * 0.08));
+    if (M.round) { ctx.fillStyle = '#121518'; ctx.fillRect(r - M.hx * 0.42, t - 0.03, M.hx * 0.22, 0.03); } // the sight's port
+  }
+}
+
+// ---- launchers (tlaunch): the trunnion, the post under it (down to the base, +x), the frame that elevates and the rounds
+// (each a store: drawn while loaded; per: rounds in one store). kind: msl (a missile on a rail), can (a round canister),
+// box (a square one), tube (an artillery rocket in its tube), cap (a rocket pod's cell, its lid on).
+function launchLayout(d) {
+  let L = GV_LAYOUT.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h, D = d.depth || w, ty = -h / 2 + ((d.aim && d.aim.pivot) || 0.3) * h, y0 = -h / 2 + 0.05, y1 = h / 2 - 0.02, T = d.type, R = [];
+  L = { ty, rounds: R, post: { x1: w / 2, r: Math.min(0.06, w * 0.09) }, frame: null, per: 1 };
+  if (T === 'atgmWire') {
+    L.frame = [{ x0: 0.03, x1: 0.08, y0: y0 + 0.05, y1: y1 - 0.05, hz: 0.045 }];
+    R.push({ k: 'msl', x: -0.05, z: 0, r: 0.065, y0: y0 + 0.08, y1, fin: 0.12 });
+  } else if (T === 'atgmTube' || T === 'atgmTop') {
+    const top = T === 'atgmTop', r = top ? 0.085 : 0.13, z = top ? 0.13 : 0.21;
+    L.frame = [{ x0: -0.02, x1: 0.1, y0: ty - 0.22, y1: ty + 0.25, hz: D * 0.42 }];
+    if (top) L.frame.push({ x0: -0.25, x1: -0.02, y0: ty - 0.12, y1: ty + 0.14, hz: 0.08, z: 0, sight: true }); // its sight unit, between the tubes
+    for (const s of [-1, 1]) R.push({ k: 'can', x: -r - 0.04, z: s * z, r, y0, y1 });
+  } else if (T === 'samIR') {
+    L.frame = [{ x0: -0.04, x1: 0.06, y0: ty - 0.3, y1: ty + 0.3, hz: D * 0.47 }];
+    for (const a of [-1, 1]) for (const s of [-1, 1]) R.push({ k: 'box', x: -0.08 + a * 0.19, z: s * 0.24, hx: 0.15, hz: 0.16, y0, y1 });
+  } else if (T === 'samCmd') {
+    L.frame = [{ x0: 0.0, x1: 0.09, y0: y0 + 0.2, y1: y1 - 0.25, hz: D * 0.4 }];
+    for (const s of [-1, 1]) R.push({ k: 'msl', x: -0.13, z: s * 0.33, r: 0.1, y0: y0 + 0.05, y1, fin: 0.24 });
+  } else if (T === 'samLong') {
+    L.frame = [{ x0: -0.9, x1: 0.9, y0: ty - 0.35, y1: ty + 0.35, hz: D * 0.48 }];
+    for (const a of [-1, 1]) for (const s of [-1, 1]) R.push({ k: 'box', x: a * 0.45, z: s * 0.43, hx: 0.42, hz: 0.41, y0, y1 });
+  } else if (T === 'mlrsPod') {
+    L.frame = [{ x0: -0.88, x1: 0.88, y0: -h / 2 + 0.02, y1: y1 - 0.06, hz: D * 0.46, pod: true }];
+    for (const a of [-1, 1]) for (const z of [-0.52, 0, 0.52]) R.push({ k: 'cap', x: a * 0.42, z, r: 0.2, y0: y1 - 0.06, y1 });
+  } else { // rocket rails (mlrsLight) and anything else: a pack of tubes, a row of rockets to a store
+    const nr = 4, nc = Math.max(1, Math.round((d.weapon && d.weapon.ammo ? d.weapon.ammo : 16) / nr));
+    L.frame = [{ x0: -w * 0.42, x1: w * 0.42, y0: y0 + h * 0.1, y1: y0 + h * 0.2, hz: D * 0.46 }, { x0: -w * 0.42, x1: w * 0.42, y0: y1 - h * 0.25, y1: y1 - h * 0.17, hz: D * 0.46 }];
+    L.tubes = { r: Math.min(0.075, (w * 0.84) / nr / 2), y0, y1, xs: [], zs: [] };
+    for (let i = 0; i < nr; i++) L.tubes.xs.push(-w * 0.42 + ((w * 0.84) * (i + 0.5)) / nr);
+    for (let j = 0; j < nc; j++) L.tubes.zs.push(-D * 0.42 + ((D * 0.84) * (j + 0.5)) / nc);
+    L.per = nc;
+    for (const xx of L.tubes.xs) R.push({ k: 'tube', x: xx, zs: L.tubes.zs, r: L.tubes.r * 0.8, y0: y1 - 0.32, y1: y1 + 0.02 }); // (the rockets' noses in the tubes' mouths)
+  }
+  GV_LAYOUT.set(d, L);
+  return L;
+}
+function gvLaunchPath(ctx, d, x, y) {
+  const L = launchLayout(d);
+  for (const F of L.frame || []) ctx.rect(x + F.x0, y + F.y0, F.x1 - F.x0, F.y1 - F.y0);
+  for (const q of L.rounds) { const hx = q.hx || q.r; ctx.rect(x + q.x - hx, y + q.y0, hx * 2, q.y1 - q.y0); }
+  if (L.tubes) for (const xx of L.tubes.xs) ctx.rect(x + xx - L.tubes.r, y + L.tubes.y0, L.tubes.r * 2, L.tubes.y1 - L.tubes.y0);
+  ctx.rect(x, y + L.ty - L.post.r, L.post.x1, L.post.r * 2);
+}
+function gvLaunch(ctx, p, lw) {
+  const d = p.def, L = launchLayout(d), x = p.x, y = p.y, n = p.ammo == null ? Infinity : p.ammo, sam = d.style === 'sam';
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(x, y + L.ty - L.post.r, L.post.x1, L.post.r * 2); ctx.strokeRect(x, y + L.ty - L.post.r, L.post.x1, L.post.r * 2); // the post
+  if (L.tubes) { // the tube pack, the mouths dark
+    const T = L.tubes;
+    for (const xx of T.xs) {
+      ctx.fillStyle = gvTone(-0.12); ctx.fillRect(x + xx - T.r, y + T.y0, T.r * 2, T.y1 - T.y0); ctx.strokeRect(x + xx - T.r, y + T.y0, T.r * 2, T.y1 - T.y0);
+      ctx.fillStyle = 'rgba(255,255,236,0.12)'; ctx.fillRect(x + xx - T.r * 0.7, y + T.y0, T.r * 0.4, T.y1 - T.y0);
+    }
+  }
+  for (const F of L.frame || []) {
+    ctx.fillStyle = F.pod ? gvFill(ctx, y + F.y0, y + F.y1, x + F.x0, x + F.x1) : F.sight ? '#3a4046' : gvTone(-0.06);
+    ctx.fillRect(x + F.x0, y + F.y0, F.x1 - F.x0, F.y1 - F.y0); ctx.strokeRect(x + F.x0, y + F.y0, F.x1 - F.x0, F.y1 - F.y0);
+    if (F.sight) { ctx.fillStyle = '#16303f'; ctx.fillRect(x + F.x0 + 0.04, y + F.y1 - 0.06, F.x1 - F.x0 - 0.08, 0.05); }
+    if (F.pod) { ctx.fillStyle = 'rgba(12,14,10,0.45)'; for (const f of [0.25, 0.5, 0.75]) ctx.fillRect(x + F.x0, y + F.y0 + (F.y1 - F.y0) * f, F.x1 - F.x0, 0.03); }
+  }
+  L.rounds.forEach((q, i) => {
+    const on = i * L.per < n;
+    if (q.k === 'msl') {
+      if (!on) return;
+      const X = x + q.x, r = q.r, tip = y + q.y1, tail = y + q.y0; // a missile: body, nose, the cruciform fins at the tail and wings forward
+      ctx.fillStyle = sam ? '#e6e8e3' : '#56603f';
+      ctx.beginPath(); ctx.moveTo(X - r, tail); ctx.lineTo(X - r, tip - r * 3); ctx.quadraticCurveTo(X - r, tip, X, tip); ctx.quadraticCurveTo(X + r, tip, X + r, tip - r * 3); ctx.lineTo(X + r, tail); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = sam ? '#c9ccc4' : '#454d32';
+      for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(X + s * r, tail + 0.02); ctx.lineTo(X + s * (r + q.fin), tail); ctx.lineTo(X + s * (r + q.fin), tail + q.fin * 0.9); ctx.lineTo(X + s * r, tail + q.fin * 1.6); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      ctx.fillStyle = sam ? '#c23b2c' : '#d8c23a'; ctx.fillRect(X - r, tip - r * 4.2, r * 2, r * 0.5);
+    } else if (q.k === 'can' || q.k === 'box') {
+      const hx = q.hx || q.r, X = x + q.x;
+      ctx.fillStyle = on ? (sam ? '#8a9179' : gvTone(-0.04)) : '#1f2326';
+      ctx.fillRect(X - hx, y + q.y0, hx * 2, q.y1 - q.y0); ctx.strokeRect(X - hx, y + q.y0, hx * 2, q.y1 - q.y0);
+      ctx.fillStyle = 'rgba(12,14,10,0.55)'; for (const f of [0.08, 0.92]) ctx.fillRect(X - hx, y + q.y0 + (q.y1 - q.y0) * f - 0.025, hx * 2, 0.05); // the end rings
+      if (on) { ctx.fillStyle = 'rgba(255,255,236,0.14)'; ctx.fillRect(X - hx * 0.75, y + q.y0, hx * 0.35, q.y1 - q.y0); }
+    } else if (q.k === 'cap') {
+      ctx.fillStyle = on ? gvTone(0.06) : '#121416'; ctx.fillRect(x + q.x - q.r, y + q.y0, q.r * 2, q.y1 - q.y0); ctx.strokeRect(x + q.x - q.r, y + q.y0, q.r * 2, q.y1 - q.y0);
+    } else if (q.k === 'tube' && on) {
+      ctx.fillStyle = '#7b7f6a'; ctx.beginPath(); ctx.moveTo(x + q.x - q.r, y + q.y0); ctx.lineTo(x + q.x - q.r, y + q.y1 - q.r); ctx.lineTo(x + q.x, y + q.y1); ctx.lineTo(x + q.x + q.r, y + q.y1 - q.r); ctx.lineTo(x + q.x + q.r, y + q.y0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  });
+}
+
+// ---- radars (tradar): a search antenna turning on a mast (flight only, so the hangar stays still), or a tracking dish
+// that aims (yaw and pitch at its trunnion) on its pedestal.
+function radarLayout(d) {
+  let R = GV_LAYOUT.get(d);
+  if (R) return R;
+  const w = d.w, h = d.h, D = d.depth || w, track = d.style === 'track' || !!d.trackRadar;
+  if (track) {
+    const ty = -h / 2 + ((d.aim && d.aim.pivot) || 0.3) * h, dr = Math.min(w, D) * 0.42;
+    R = { track, ty, post: { x1: w / 2, r: 0.07 }, dish: { y: ty + 0.2, r: dr, deep: dr * 0.38 }, feed: ty + 0.2 + dr * 0.95 };
+  } else R = { track, mast: { y0: -h / 2, y1: h / 2 - 0.3, r: Math.min(0.07, D * 0.18) }, ant: { y: h / 2 - 0.2, hw: w / 2 - 0.02, hh: 0.17, deep: Math.min(0.14, D * 0.35) } };
+  GV_LAYOUT.set(d, R);
+  return R;
+}
+function gvRadarPath(ctx, d, x, y) {
+  const R = radarLayout(d);
+  if (R.track) { ctx.rect(x, y + R.ty - R.post.r, R.post.x1, R.post.r * 2); ctx.rect(x - R.dish.r, y + R.dish.y - 0.04, R.dish.r * 2, R.dish.deep + 0.08); return; }
+  ctx.rect(x - R.mast.r, y + R.mast.y0, R.mast.r * 2, R.mast.y1 - R.mast.y0); ctx.rect(x - R.ant.hw, y + R.ant.y - R.ant.hh, R.ant.hw * 2, R.ant.hh * 2);
+}
+function gvRadar(ctx, p, lw) {
+  const d = p.def, R = radarLayout(d), x = p.x, y = p.y;
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  if (R.track) { // pedestal, the yoke, the dish (its rim towards +y) and the feed on its struts
+    ctx.fillStyle = '#3a3f45'; ctx.fillRect(x, y + R.ty - R.post.r, R.post.x1, R.post.r * 2); ctx.strokeRect(x, y + R.ty - R.post.r, R.post.x1, R.post.r * 2);
+    ctx.fillRect(x + R.post.x1 - 0.05, y + R.ty - 0.18, 0.05, 0.36);
+    const S = R.dish, yd = y + S.y;
+    ctx.beginPath(); ctx.moveTo(x - S.r, yd + S.deep); ctx.quadraticCurveTo(x, yd - S.deep * 0.9, x + S.r, yd + S.deep); ctx.lineTo(x + S.r * 0.92, yd + S.deep * 1.1); ctx.quadraticCurveTo(x, yd - S.deep * 0.6, x - S.r * 0.92, yd + S.deep * 1.1); ctx.closePath();
+    ctx.fillStyle = '#c4cbd3'; ctx.fill(); ctx.stroke();
+    ctx.lineWidth = Math.max(lw * 0.6, 0.015); ctx.beginPath(); ctx.moveTo(x - S.r * 0.8, yd + S.deep); ctx.lineTo(x, y + R.feed); ctx.lineTo(x + S.r * 0.8, yd + S.deep); ctx.stroke();
+    ctx.fillStyle = '#2b2f34'; ctx.fillRect(x - 0.05, y + R.feed - 0.04, 0.1, 0.08);
+    ctx.fillStyle = gvTone(-0.1); ctx.fillRect(x - 0.12, y + R.ty - 0.08, 0.24, 0.16); ctx.strokeRect(x - 0.12, y + R.ty - 0.08, 0.24, 0.16);
+    return;
+  }
+  const M = R.mast, A = R.ant;
+  ctx.fillStyle = '#3a3f45'; ctx.fillRect(x - M.r, y + M.y0, M.r * 2, M.y1 - M.y0); ctx.strokeRect(x - M.r, y + M.y0, M.r * 2, M.y1 - M.y0);
+  ctx.fillStyle = gvTone(-0.1); ctx.fillRect(x - M.r * 2.4, y + M.y0, M.r * 4.8, 0.08); ctx.strokeRect(x - M.r * 2.4, y + M.y0, M.r * 4.8, 0.08);
+  ctx.fillRect(x - M.r * 1.6, y + M.y1 - 0.06, M.r * 3.2, A.y - A.hh - M.y1 + 0.08); // the turntable
+  ctx.beginPath(); ctx.moveTo(x - A.hw, y + A.y - A.hh); ctx.quadraticCurveTo(x, y + A.y - A.hh * 0.4, x + A.hw, y + A.y - A.hh); ctx.lineTo(x + A.hw, y + A.y + A.hh);
+  ctx.quadraticCurveTo(x, y + A.y + A.hh * 1.6, x - A.hw, y + A.y + A.hh); ctx.closePath();
+  ctx.fillStyle = '#b9c0c6'; ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,24,30,0.45)'; ctx.lineWidth = lw * 0.5; ctx.beginPath();
+  for (let i = 1; i < 8; i++) { const xx = x - A.hw + (A.hw * 2 * i) / 8; ctx.moveTo(xx, y + A.y - A.hh * 0.8); ctx.lineTo(xx, y + A.y + A.hh * 0.9); }
+  ctx.stroke();
+}
+
+// ---- kit (tkit), by style: engines, crew seats, racks, the autoloader, the troop bay and fuel cell (inner: inside a hull
+// or turret), sights, smoke dischargers, reactive bricks, skirts, plates and slat cages
+const GV_CREW = { driver: '#ffb547', gunner: '#ff7a5c', commander: '#62d0ff', loader: '#9cdc6a', radio: '#c8a6ff' };
+function gvKitPath(ctx, d, x, y) {
+  const w = d.w, h = d.h;
+  if (d.style === 'smoke') { ctx.rect(x - w / 2, y - h / 2, w, h * 0.3); for (const s of [-1, 0, 1]) ctx.rect(x + s * w * 0.28 - w * 0.12, y - h * 0.25, w * 0.24, h * 0.75); return; }
+  ctx.rect(x - w / 2, y - h / 2, w, h);
+}
+function gvFigure(ctx, x, y, s, col) { // a crewman from the side: helmet, shoulders, a coloured badge
+  ctx.fillStyle = '#3d4434'; ctx.fillRect(x - s * 0.24, y - s * 0.5, s * 0.48, s * 0.62);
+  ctx.fillStyle = col; ctx.fillRect(x - s * 0.2, y - s * 0.12, s * 0.16, s * 0.12);
+  ctx.beginPath(); ctx.arc(x, y + s * 0.3, s * 0.2, 0, TAU); ctx.fillStyle = '#2b2a26'; ctx.fill(); // the padded helmet
+  ctx.fillStyle = '#d8b48f'; ctx.fillRect(x + s * 0.06, y + s * 0.2, s * 0.12, s * 0.12);
+}
+function gvShell(ctx, x, y, r, len, tip) { // a round standing up: its brass case and coloured tip
+  ctx.fillStyle = '#c9a24a'; ctx.fillRect(x - r, y, r * 2, len * 0.62);
+  ctx.fillStyle = tip; ctx.beginPath(); ctx.moveTo(x - r * 0.85, y + len * 0.62); ctx.lineTo(x - r * 0.6, y + len * 0.92); ctx.lineTo(x, y + len); ctx.lineTo(x + r * 0.6, y + len * 0.92); ctx.lineTo(x + r * 0.85, y + len * 0.62); ctx.closePath(); ctx.fill();
+}
+function gvKit(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, st = d.style;
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  if (d.inner) { ctx.fillStyle = '#2b3035'; ctx.fillRect(l, b, w, h); } // (the compartment round it, so its 3D box is not bare)
+  switch (st) {
+    case 'engine': {
+      const turb = d.engine && d.engine.fuel === 'turbine';
+      ctx.fillStyle = '#4b5157'; ctx.fillRect(l, b, w, h * 0.6); ctx.strokeRect(l, b, w, h * 0.6); // the crankcase (a turbine: its gearbox)
+      if (turb) {
+        ctx.fillStyle = '#6d747b'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(l + w * 0.08, b + h * 0.35, w * 0.84, h * 0.5, h * 0.25); else ctx.rect(l + w * 0.08, b + h * 0.35, w * 0.84, h * 0.5); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#8a5a3a'; ctx.fillRect(l + w * 0.6, b + h * 0.38, w * 0.08, h * 0.44);
+      } else {
+        ctx.fillStyle = '#5d646b'; for (let i = 0; i < 6; i++) { const cx = l + w * (0.12 + i * 0.13); ctx.fillRect(cx, b + h * 0.6, w * 0.1, h * 0.26); ctx.strokeRect(cx, b + h * 0.6, w * 0.1, h * 0.26); } // its cylinders
+        ctx.lineWidth = Math.max(lw, h * 0.05); ctx.strokeStyle = '#8a5a3a'; ctx.beginPath(); ctx.moveTo(l + w * 0.1, b + h * 0.55); ctx.lineTo(r - w * 0.12, b + h * 0.55); ctx.stroke(); // the exhaust manifold
+      }
+      ctx.beginPath(); ctx.arc(l + w * 0.1, b + h * 0.3, h * 0.22, 0, TAU); ctx.fillStyle = '#2b3035'; ctx.fill(); ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK; ctx.stroke(); // the fan
+      ctx.fillStyle = '#3a3f45'; ctx.fillRect(r - w * 0.16, b, w * 0.16, h * 0.45); ctx.strokeRect(r - w * 0.16, b, w * 0.16, h * 0.45);
+      break;
+    }
+    case 'seat': {
+      ctx.fillStyle = '#353a33'; ctx.fillRect(l + w * 0.1, b, w * 0.8, h * 0.12); ctx.fillRect(l + w * 0.12, b + h * 0.12, w * 0.12, h * 0.55); // the seat's frame and back
+      ctx.fillStyle = '#4a5240'; ctx.fillRect(l + w * 0.12, b + h * 0.12, w * 0.55, h * 0.1);
+      gvFigure(ctx, x - w * 0.08, y + h * 0.02, h * 0.55, GV_CREW[d.seat] || '#ffb547');
+      ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(8,11,16,0.6)'; ctx.strokeRect(l, b, w, h);
+      break;
+    }
+    case 'rack': {
+      const wet = d.rack && d.rack.cook < 1;
+      ctx.fillStyle = wet ? '#4b5a66' : '#3b3f38'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      const n = Math.max(3, Math.round(w / 0.13));
+      for (let i = 0; i < n; i++) gvShell(ctx, l + (w * (i + 0.5)) / n, b + h * 0.08, w / n * 0.32, h * 0.82, i % 3 ? '#2b2f34' : '#c23b2c');
+      ctx.fillStyle = wet ? 'rgba(127,184,255,0.25)' : 'rgba(0,0,0,0.25)'; ctx.fillRect(l, b + h * 0.3, w, h * 0.08);
+      break;
+    }
+    case 'loader': { // the carousel under the turret floor: rounds lying in their cassettes
+      ctx.fillStyle = '#3b3f38'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      for (let i = 0; i < 8; i++) { const cx = l + w * (0.08 + i * 0.12); ctx.beginPath(); ctx.arc(cx, y, h * 0.2, 0, TAU); ctx.fillStyle = '#c9a24a'; ctx.fill(); ctx.beginPath(); ctx.arc(cx, y, h * 0.08, 0, TAU); ctx.fillStyle = '#5b4a2a'; ctx.fill(); }
+      ctx.fillStyle = '#5d646b'; ctx.fillRect(l, b, w, h * 0.12); ctx.fillRect(l, t - h * 0.12, w, h * 0.12);
+      break;
+    }
+    case 'troops': {
+      ctx.fillStyle = '#353a33'; ctx.fillRect(l, b, w, h * 0.12); ctx.fillRect(l, b + h * 0.12, w, h * 0.22); ctx.strokeRect(l, b, w, h);
+      for (const f of [0.18, 0.5, 0.82]) gvFigure(ctx, l + w * f, b + h * 0.58, h * 0.5, '#7ed46a');
+      break;
+    }
+    case 'cell': {
+      ctx.fillStyle = '#4c5a3a'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = 'rgba(255,255,236,0.12)'; ctx.fillRect(l, b + h * 0.75, w, h * 0.12);
+      ctx.fillStyle = '#2c3036'; ctx.fillRect(r - w * 0.3, t - h * 0.08, w * 0.18, h * 0.08);
+      ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(x, y + h * 0.2); ctx.quadraticCurveTo(x + w * 0.16, y - h * 0.05, x, y - h * 0.15); ctx.quadraticCurveTo(x - w * 0.16, y - h * 0.05, x, y + h * 0.2); ctx.fill();
+      break;
+    }
+    case 'sight': { // an armoured box with its window to the front (+x)
+      ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fillRect(l, b, w, h * 0.85); ctx.strokeRect(l, b, w, h * 0.85);
+      ctx.fillStyle = gvTone(-0.15); ctx.fillRect(l - w * 0.02, b + h * 0.85, w * 1.04, h * 0.15); ctx.strokeRect(l - w * 0.02, b + h * 0.85, w * 1.04, h * 0.15);
+      const thermal = !!d.thermal;
+      ctx.fillStyle = thermal ? '#0f1416' : '#16303f'; ctx.fillRect(r - w * 0.2, b + h * 0.25, w * 0.2, h * (thermal ? 0.45 : 0.35));
+      ctx.fillStyle = thermal ? 'rgba(255,90,60,0.5)' : 'rgba(127,216,255,0.5)'; ctx.fillRect(r - w * 0.12, b + h * 0.32, w * 0.08, h * 0.12);
+      break;
+    }
+    case 'smoke': { // dischargers on a bracket, angled up and forward
+      ctx.fillStyle = gvTone(-0.12); ctx.fillRect(l, b, w, h * 0.3); ctx.strokeRect(l, b, w, h * 0.3);
+      for (const s of [-1, 0, 1]) {
+        const cx = x + s * w * 0.28;
+        ctx.save(); ctx.translate(cx, b + h * 0.25); ctx.rotate(-0.45);
+        ctx.fillStyle = gvTone(-0.04); ctx.fillRect(-w * 0.1, 0, w * 0.2, h * 0.68); ctx.strokeRect(-w * 0.1, 0, w * 0.2, h * 0.68);
+        ctx.fillStyle = '#121416'; ctx.fillRect(-w * 0.07, h * 0.6, w * 0.14, h * 0.08);
+        ctx.restore();
+      }
+      break;
+    }
+    case 'era': { // reactive bricks, bolted down
+      ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      ctx.strokeStyle = 'rgba(10,12,8,0.6)'; ctx.beginPath(); for (let i = 1; i < 4; i++) { ctx.moveTo(l + (w * i) / 4, b); ctx.lineTo(l + (w * i) / 4, t); } ctx.moveTo(l, y); ctx.lineTo(r, y); ctx.stroke();
+      gvRivets(ctx, Array.from({ length: 4 }, (_, i) => [l + (w * (i + 0.5)) / 4, t - h * 0.2]), Math.min(0.025, h * 0.08));
+      break;
+    }
+    case 'skirt': { // panels hung on the fender, bolted along the top, a rubber edge at the foot
+      ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fillRect(l, b, w, h);
+      gvShade(ctx, l, r, b, t);
+      const n = Math.max(1, Math.round(w / 1.1));
+      ctx.strokeStyle = 'rgba(10,12,8,0.6)'; ctx.beginPath(); for (let i = 1; i < n; i++) { ctx.moveTo(l + (w * i) / n, b + h * 0.1); ctx.lineTo(l + (w * i) / n, t); } ctx.stroke();
+      ctx.fillStyle = '#25282b'; ctx.fillRect(l, b, w, h * 0.1);
+      gvRivets(ctx, gvAlong(l, t - h * 0.1, r, t - h * 0.1, 0.28, 0.1), Math.min(0.024, h * 0.04));
+      gvGrime(ctx, l, r, b, t, 0.45, 0.6);
+      ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK; ctx.strokeRect(l, b, w, h);
+      break;
+    }
+    case 'plate': {
+      ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+      gvRivets(ctx, gvAlong(l, y, r, y, 0.25, 0.08), Math.min(0.022, h * 0.4));
+      break;
+    }
+    case 'slat': { // a cage of bars on posts
+      ctx.lineWidth = Math.max(lw, 0.035); ctx.strokeStyle = gvTone(-0.18); ctx.beginPath();
+      for (let i = 0; i <= 7; i++) { const yy = b + 0.03 + ((h - 0.06) * i) / 7; ctx.moveTo(l, yy); ctx.lineTo(r, yy); }
+      ctx.stroke();
+      ctx.lineWidth = Math.max(lw, 0.06); ctx.strokeStyle = gvTone(-0.3); ctx.beginPath();
+      for (let i = 0; i <= 4; i++) { const xx = l + 0.03 + ((w - 0.06) * i) / 4; ctx.moveTo(xx, b); ctx.lineTo(xx, t); }
+      ctx.stroke();
+      break;
+    }
+    default:
+      ctx.fillStyle = gvFill(ctx, b, t, l, r); ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h);
+  }
+}
+
+// ---- the builder's X-ray and armour views
+const GV_MOD = { crew: '#ffb547', ammo: '#ff5d5d', engine: '#9fb3c8', fuel: '#ffd23f', troops: '#7ed46a' };
+function gvModKind(d) { return d.seat ? 'crew' : d.rack || d.autoload ? 'ammo' : d.engine ? 'engine' : d.troops ? 'troops' : d.module === 'fuel' ? 'fuel' : 'engine'; }
+// an icon in a box of size s at (x, y): a helmet (crew), a shell (ammo), a piston (engine), a drop (fuel), two soldiers (troops)
+function gvIcon(ctx, k, x, y, s) {
+  ctx.fillStyle = 'rgba(12,14,18,0.85)'; ctx.strokeStyle = 'rgba(12,14,18,0.85)'; ctx.lineWidth = s * 0.08;
+  ctx.beginPath();
+  if (k === 'crew') { ctx.arc(x, y - s * 0.05, s * 0.3, 0, Math.PI); ctx.closePath(); ctx.fill(); ctx.fillRect(x - s * 0.4, y - s * 0.1, s * 0.8, s * 0.1); }
+  else if (k === 'ammo') { ctx.rect(x - s * 0.12, y - s * 0.38, s * 0.24, s * 0.45); ctx.moveTo(x - s * 0.12, y + s * 0.07); ctx.lineTo(x, y + s * 0.38); ctx.lineTo(x + s * 0.12, y + s * 0.07); ctx.fill(); }
+  else if (k === 'fuel') { ctx.moveTo(x, y + s * 0.38); ctx.quadraticCurveTo(x + s * 0.3, y - s * 0.05, x, y - s * 0.3); ctx.quadraticCurveTo(x - s * 0.3, y - s * 0.05, x, y + s * 0.38); ctx.fill(); }
+  else if (k === 'troops') { for (const dx of [-0.17, 0.17]) { ctx.moveTo(x + dx * s + s * 0.1, y + s * 0.2); ctx.arc(x + dx * s, y + s * 0.2, s * 0.1, 0, TAU); ctx.rect(x + dx * s - s * 0.12, y - s * 0.35, s * 0.24, s * 0.42); } ctx.fill(); }
+  else { ctx.rect(x - s * 0.22, y + s * 0.05, s * 0.44, s * 0.3); ctx.fill(); ctx.beginPath(); ctx.moveTo(x, y + s * 0.05); ctx.lineTo(x, y - s * 0.2); ctx.stroke(); ctx.beginPath(); ctx.arc(x, y - s * 0.26, s * 0.12, 0, TAU); ctx.stroke(); }
+}
+function gvBadge(ctx, lw, x, y, w, h, k, on) { // a rounded box in its kind's colour (dashed and empty: built in, replaced by placed parts)
+  const c = Math.min(w, h) * 0.22;
+  ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - w / 2, y - h / 2, w, h, c); else ctx.rect(x - w / 2, y - h / 2, w, h);
+  if (on) { ctx.globalAlpha *= 0.85; ctx.fillStyle = GV_MOD[k]; ctx.fill(); ctx.globalAlpha /= 0.85; }
+  ctx.lineWidth = lw; ctx.strokeStyle = GV_MOD[k]; if (!on) ctx.setLineDash([lw * 3, lw * 2.5]);
+  ctx.stroke(); ctx.setLineDash([]);
+  if (on) gvIcon(ctx, k, x, y, Math.min(w, h) * 0.8);
+}
+function gvInner(ctx, p, lw) { gvBadge(ctx, lw, p.x, p.y, p.def.w * 0.92, p.def.h * 0.92, gvModKind(p.def), true); }
+// built-in crew, stores, fuel and troops at their places (a host's crew is replaced by any seat placed on it, its stores by
+// a rack or autoloader: those draw dashed)
+function gvMods(ctx, p, lw, parts) {
+  const d = p.def, id = p.id, on = { crew: true, ammo: true };
+  if (Array.isArray(parts)) for (const q of parts) if (q.att === id && q.def) { if (q.def.seat) on.crew = false; if (q.def.rack || q.def.autoload) on.ammo = false; }
+  for (const m of d.mods) {
+    const s = Math.max(0.25, m.r * 1.7), k = GV_MOD[m.k] ? m.k : 'crew';
+    gvBadge(ctx, lw, p.x + m.at[0] * d.w, p.y + m.at[1] * d.h, s, s, k, on[m.k] !== false);
+  }
+}
+// a part's quarter turns, seen from inside turned()'s unturned copy of it
+function gvRot(q) { const o = Object.getPrototypeOf(q); return (o && o !== Object.prototype && Object.prototype.hasOwnProperty.call(q, 'rot') ? o.rot : q.rot) & 3; }
+// armour thickness as a colour: red under 30 mm, yellow at 100, green at 250, blue past 450
+function gvMmColour(mm) {
+  const S = [[30, 255, 59, 48], [100, 255, 210, 63], [250, 76, 217, 100], [450, 59, 130, 246]];
+  if (mm <= S[0][0]) return 'rgb(255,59,48)';
+  for (let i = 1; i < S.length; i++) if (mm <= S[i][0]) { const a = S[i - 1], c = S[i], k = (mm - a[0]) / (c[0] - a[0]); return `rgb(${Math.round(a[1] + (c[1] - a[1]) * k)},${Math.round(a[2] + (c[2] - a[2]) * k)},${Math.round(a[3] + (c[3] - a[3]) * k)})`; }
+  return 'rgb(59,130,246)';
+}
+// The armour view: each plate edge 3 px thick in the colour of its thickness against a level shot from the front, back or
+// side (a face looking up or down: from above or below), the sides (z faces) as a fill.
+function gvArmour(ctx, p, lw) {
+  const d = p.def, A = d.armour, mm = p.mm != null ? p.mm : A.mm, k = gvRot(p), x = p.x, y = p.y;
+  const eff = (nx, ny, t) => { for (let i = 0; i < k; i++) { const u = nx; nx = -ny; ny = u; } const c = Math.abs(nx) > 0.2 ? Math.abs(nx) : Math.max(Math.abs(ny), 0.2); return t / c; };
+  ctx.save();
+  if (A.round || d.round) {
+    const R = A.round || { f: 1, s: 1, r: 1, t: 1 }, sl = Math.cos((((d.round && d.round.slope) || 0) * Math.PI) / 180) || 1;
+    ctx.beginPath(); gvPath(ctx, p); ctx.globalAlpha *= 0.35; ctx.fillStyle = gvMmColour(mm * R.s); ctx.fill(); ctx.globalAlpha /= 0.35;
+    ctx.lineWidth = lw * 2.5;
+    for (const [s, f] of [[1, R.f], [-1, R.r]]) {
+      ctx.save(); ctx.beginPath(); ctx.rect(s > 0 ? x : x - d.w, y - d.h, d.w, d.h * 1.96); ctx.clip();
+      ctx.beginPath(); gvPath(ctx, p); ctx.strokeStyle = gvMmColour(mm * f / sl); ctx.stroke(); ctx.restore();
+    }
+    ctx.beginPath(); ctx.moveTo(x - d.w * 0.3, y + d.h / 2); ctx.lineTo(x + d.w * 0.3, y + d.h / 2); ctx.strokeStyle = gvMmColour(mm * R.t); ctx.stroke();
+  } else {
+    const P = gvPts(d, x, y), E = A.edge || [1, 1, 1, 1];
+    gvPoly(ctx, P); ctx.globalAlpha *= 0.35; ctx.fillStyle = gvMmColour(mm * (A.z != null ? A.z : 1)); ctx.fill(); ctx.globalAlpha /= 0.35;
+    ctx.lineWidth = lw * 2.5; ctx.lineCap = 'round';
+    for (let i = 0; i < P.length; i++) {
+      const [x0, y0] = P[i], [x1, y1] = P[(i + 1) % P.length], L = Math.hypot(x1 - x0, y1 - y0) || 1, open = A.open && A.open.includes(i);
+      if (open) continue;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.strokeStyle = gvMmColour(eff((y1 - y0) / L, -(x1 - x0) / L, mm * (E[i] != null ? E[i] : 1))); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+// ---- the dispatch from partPath0 and drawPart0
+function gvPath(ctx, p) {
+  const d = p.def, x = p.x, y = p.y;
+  switch (d.shape) {
+    case 'thull': case 'tturret': gvTrace(ctx, gvPts(d, x, y)); break;
+    case 'tcast': gvCastPath(ctx, d, x, y); break;
+    case 'tring': gvRingPath(ctx, d, x, y); break;
+    case 'ttrack': gvTrackPath(ctx, d, x, y); break;
+    case 'twheel': { const R = gvWheelR(d); ctx.moveTo(x + R, y); ctx.arc(x, y, R, 0, TAU); break; }
+    case 'tgun': gvGunPath(ctx, d, x, y); break;
+    case 'tlaunch': gvLaunchPath(ctx, d, x, y); break;
+    case 'tradar': gvRadarPath(ctx, d, x, y); break;
+    default: gvKitPath(ctx, d, x, y);
+  }
+}
+const GV_ART = { thull: gvHull, tturret: gvTurret, tcast: gvCast, tring: gvRing, ttrack: gvTrack, twheel: gvAWheel, tgun: gvGun, tlaunch: gvLaunch, tradar: gvRadar, tkit: gvKit };
+// In X-ray (PartPaint.xray) the armour is a faint fill under its outline, and what is inside (inner parts, built-in crew
+// and stores, a gun's breech) is drawn over it; the armour view (PartPaint.armour) colours the plates by thickness.
+function gvDraw(ctx, p, lw) {
+  const d = p.def, X = PartPaint.xray, art = GV_ART[d.shape] || gvKit;
+  if (X && d.inner) { gvInner(ctx, p, lw); return; }
+  if (!X) { art(ctx, p, lw); if (PartPaint.armour && d.armour) gvArmour(ctx, p, lw); return; }
+  const a = ctx.globalAlpha;
+  ctx.globalAlpha = a * 0.25; art(ctx, p, lw); ctx.globalAlpha = a;
+  ctx.beginPath(); gvPath(ctx, p); ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(170,205,240,0.9)'; ctx.stroke();
+  if (PartPaint.armour && d.armour) gvArmour(ctx, p, lw);
+  if (d.shape === 'tgun') { const B = gunLayout(d).breech; if (B) gvBadge(ctx, lw, p.x, p.y + (B.y0 + B.y1) / 2, B.hx * 2, B.y1 - B.y0, 'engine', true); }
+  if (d.mods) gvMods(ctx, p, lw, X);
+}
+
+// ---- a plated part's other views, for its 3D texture (parts3d.js lays the side view, these and the plan into one
+// canvas): seen from above (gvPlan: x along, z across), from the front (gvEnd, end 1: across is -z, as the viewer in
+// front sees it) and from behind (end -1: across is +z). Faces of its extruded outline that look up take the plan, those
+// that look forward or back the ends, the sides the side view.
+function gvPlanned(d) { return d.shape === 'thull' || d.shape === 'tturret' || (d.shape === 'tkit' && d.style !== 'smoke' && d.style !== 'slat'); }
+function gvHatch(ctx, lw, x, z, r, k = -0.06) { // a round hatch with its hinge
+  ctx.beginPath(); ctx.arc(x, z, r, 0, TAU); ctx.fillStyle = gvTone(k); ctx.fill(); ctx.lineWidth = lw * 0.8; ctx.strokeStyle = 'rgba(10,12,8,0.7)'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, z, r * 0.78, 0, TAU); ctx.strokeStyle = 'rgba(255,255,236,0.18)'; ctx.stroke();
+  ctx.fillStyle = '#2a2d2f'; ctx.fillRect(x - r * 1.05, z - r * 0.25, r * 0.22, r * 0.5);
+}
+function gvPlan(ctx, p, lw) {
+  const d = p.def, w = d.w, D = d.depth || w, l = -w / 2, r = w / 2, n = -D / 2, f = D / 2, st = d.style, ty = d.type;
+  ctx.fillStyle = gvFill(ctx, n, f, l, r); ctx.fillRect(l - 0.2, n - 0.2, w + 0.4, D + 0.4);
+  ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(10,12,8,0.55)';
+  if (d.shape === 'tkit') {
+    if (st === 'era') { ctx.beginPath(); for (let i = 1; i < 4; i++) { ctx.moveTo(l + (w * i) / 4, n); ctx.lineTo(l + (w * i) / 4, f); } for (let j = 1; j < 3; j++) { ctx.moveTo(l, n + (D * j) / 3); ctx.lineTo(r, n + (D * j) / 3); } ctx.stroke(); gvRivets(ctx, [[l + w * 0.125, 0], [l + w * 0.375, 0], [l + w * 0.625, 0], [l + w * 0.875, 0]], 0.025); }
+    else if (st === 'plate' || st === 'skirt') { gvRivets(ctx, [...gvAlong(l, n + 0.1, r, n + 0.1, 0.3, 0.1), ...gvAlong(l, f - 0.1, r, f - 0.1, 0.3, 0.1)], 0.022); }
+    else if (st === 'rack') { const m = Math.max(3, Math.round(w / 0.13)), k = Math.max(2, Math.round(D / 0.15)); ctx.fillStyle = '#c9a24a'; ctx.beginPath(); for (let i = 0; i < m; i++) for (let j = 0; j < k; j++) { const cx = l + (w * (i + 0.5)) / m, cz = n + (D * (j + 0.5)) / k; ctx.moveTo(cx + 0.045, cz); ctx.arc(cx, cz, 0.045, 0, TAU); } ctx.fill(); }
+    else if (st === 'engine') { ctx.fillStyle = '#4b5157'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#5d646b'; for (let i = 0; i < 6; i++) for (const s of [-1, 1]) ctx.fillRect(l + w * (0.12 + i * 0.13), s * D * 0.18 - D * 0.08, w * 0.1, D * 0.16); }
+    else if (st === 'sight') { ctx.fillStyle = gvTone(-0.15); ctx.fillRect(l + w * 0.1, n + D * 0.1, w * 0.8, D * 0.8); ctx.strokeRect(l + w * 0.1, n + D * 0.1, w * 0.8, D * 0.8); }
+    else if (st === 'cell') { ctx.fillStyle = '#4c5a3a'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2c3036'; ctx.beginPath(); ctx.arc(r - w * 0.2, 0, Math.min(w, D) * 0.1, 0, TAU); ctx.fill(); }
+    else if (st === 'seat' || st === 'troops') { ctx.fillStyle = '#353a33'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2b2a26'; const k = st === 'troops' ? 3 : 1; for (let i = 0; i < k; i++) for (const s of k > 1 ? [-1, 1] : [0]) { ctx.beginPath(); ctx.arc(l + (w * (i + 0.5)) / k, s * D * 0.25, Math.min(0.12, w * 0.15), 0, TAU); ctx.fill(); } }
+    else if (st === 'loader') { ctx.fillStyle = '#3b3f38'; ctx.fillRect(l, n, w, D); ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.46, 0, TAU); ctx.fillStyle = '#5b4a2a'; ctx.fill(); ctx.fillStyle = '#c9a24a'; for (let i = 0; i < 22; i++) { const a = (i / 22) * TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * w * 0.36, Math.sin(a) * D * 0.36, 0.05, 0, TAU); ctx.fill(); } }
+    return;
+  }
+  const P = gvPts(d, 0, 0), m = P.length, xr = P[m - 1][0], xg = P[m - 2][0]; // the roof: from the top rear to its front edge
+  if (d.shape === 'thull') {
+    const xn = P[2][0], xf = Math.max(P[1][0], xn);
+    gvSeam(ctx, lw, [[xg, n], [xg, f]], true); if (xn !== xg) gvSeam(ctx, lw, [[xn, n], [xn, f]], true);
+    // the engine deck: grilles either side of an access plate
+    const e0 = xr + w * 0.03, e1 = xr + w * (st === 'composite' ? 0.26 : 0.3);
+    for (const s of [-1, 1]) gvGrille(ctx, lw, e0, s > 0 ? D * 0.06 : -D * 0.4, e1 - e0, D * 0.34, 9);
+    ctx.fillStyle = gvTone(-0.08); ctx.fillRect(e0, -D * 0.05, e1 - e0, D * 0.1); ctx.strokeRect(e0, -D * 0.05, e1 - e0, D * 0.1);
+    ctx.strokeRect(e1 + 0.05, -D * 0.38, w * 0.08, D * 0.76); // the engine bay's hatch plate
+    // the crew's hatches: the driver's (on the glacis of a sloped medium hull, in the middle of a modern one) and the
+    // radio operator's
+    const hr = Math.min(0.3, D * 0.12), xh = xg - hr * 1.6;
+    if (ty === 'hullMedium') { ctx.fillStyle = gvTone(-0.06); ctx.fillRect(xg + (xn - xg) * 0.2, -D * 0.33, (xn - xg) * 0.38, D * 0.22); ctx.strokeRect(xg + (xn - xg) * 0.2, -D * 0.33, (xn - xg) * 0.38, D * 0.22); gvHatch(ctx, lw, xh, D * 0.25, hr); }
+    else if (st === 'composite') gvHatch(ctx, lw, xh, 0, hr);
+    else if (ty === 'hullIFV') { gvHatch(ctx, lw, xh, -D * 0.27, hr); for (const s of [-1, 1]) for (const k of [0.36, 0.5]) { ctx.fillStyle = gvTone(-0.07); ctx.fillRect(xr + w * k, s > 0 ? D * 0.06 : -D * 0.4, w * 0.12, D * 0.34); ctx.strokeRect(xr + w * k, s > 0 ? D * 0.06 : -D * 0.4, w * 0.12, D * 0.34); } }
+    else if (ty !== 'hullCasemate') { gvHatch(ctx, lw, xh, -D * 0.25, hr); gvHatch(ctx, lw, xh, D * 0.25, hr); }
+    else { gvHatch(ctx, lw, xr + w * 0.42, -D * 0.25, hr); gvHatch(ctx, lw, xr + w * 0.42, D * 0.25, hr); ctx.fillStyle = '#16191c'; ctx.fillRect(xg + 0.05, -D * 0.12, Math.max(0.1, (xn - xg) * 0.25), D * 0.24); } // (the casemate's gun port)
+    if (st !== 'composite') { // headlights and spare track links on the glacis
+      for (const s of [-1, 1]) { ctx.fillStyle = '#2d3238'; ctx.fillRect(xn - 0.22, s * D * 0.4 - 0.08, 0.16, 0.16); ctx.fillStyle = '#e9e2c4'; ctx.fillRect(xn - 0.08, s * D * 0.4 - 0.06, 0.04, 0.12); }
+      if (ty === 'hullMedium' || ty === 'hullHeavy') { ctx.fillStyle = '#3b4045'; const xm = (xg + xn) / 2; for (let i = 0; i < 4; i++) { ctx.fillRect(xm - 0.08, D * (0.04 + i * 0.07), 0.16, D * 0.05); } }
+    }
+    gvRivets(ctx, [[xr + 0.15, n + 0.12], [xr + 0.15, f - 0.12], [xg - 0.15, n + 0.12], [xg - 0.15, f - 0.12]], 0.045); // lifting eyes
+    if (st === 'rivet') gvRivets(ctx, [...gvAlong(xr, n + 0.07, xf, n + 0.07, 0.22, 0.1), ...gvAlong(xr, f - 0.07, xf, f - 0.07, 0.22, 0.1)], 0.022);
+  } else { // a turret's roof: periscopes, vents, lifting eyes; a wedge's blow-out panels; an AA turret's mount for a radar
+    gvSeam(ctx, lw, [[xg, n], [xg, f]], true);
+    ctx.fillStyle = '#16191c';
+    for (const s of [-1, 1]) ctx.fillRect(xg - 0.32, s * D * 0.34 - 0.05, 0.12, 0.1);
+    gvRivets(ctx, [[xr + 0.12, n + 0.1], [xr + 0.12, f - 0.1], [xg - 0.12, n + 0.1], [xg - 0.12, f - 0.1]], 0.04);
+    if (st === 'wedge') for (const s of [-1, 1]) { ctx.fillStyle = gvTone(-0.1); ctx.fillRect(xr + 0.06, s > 0 ? D * 0.04 : -D * 0.36, w * 0.24, D * 0.32); ctx.strokeRect(xr + 0.06, s > 0 ? D * 0.04 : -D * 0.36, w * 0.24, D * 0.32); }
+    if (st === 'aa') { ctx.beginPath(); ctx.arc(xr + w * 0.2, 0, D * 0.2, 0, TAU); ctx.strokeStyle = 'rgba(10,12,8,0.6)'; ctx.stroke(); }
+    if (st === 'open') { ctx.fillStyle = gvTone(-0.45); ctx.fillRect(l + 0.06, n + 0.06, w - 0.12, D - 0.12); } // (the open top, seen into)
+  }
+}
+function gvEnd(ctx, p, lw, end) {
+  const d = p.def, w = d.w, h = d.h, D = d.depth || w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2, ty = d.type;
+  ctx.fillStyle = gvFill(ctx, b, t, n, f); ctx.fillRect(n - 0.2, b - 0.2, D + 0.4, h + 0.4);
+  gvShade(ctx, n, f, b, t);
+  ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(10,12,8,0.55)';
+  if (d.shape === 'thull') {
+    if (end > 0) { // tow hooks; a heavy hull's upright front plate: the driver's visor
+      for (const s of [-1, 1]) gvHook(ctx, lw, s * D * 0.33, b + h * 0.14, Math.min(0.07, h * 0.05));
+      if (ty === 'hullHeavy' || ty === 'hullCasemate') { gvSlit(ctx, lw, D * 0.12, t - h * 0.24, D * 0.18, h * 0.05); gvPort(ctx, lw, -D * 0.25, t - h * 0.3, Math.min(0.1, D * 0.04)); }
+      gvSeam(ctx, lw, [[n, b + h * 0.3], [f, b + h * 0.3]]);
+    } else { // exhausts, a hatch for the gearbox, tail lights and tow hooks
+      const ex = d.style === 'composite' ? 0 : 1;
+      if (ex) for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * D * 0.3, t - h * 0.32, Math.min(0.13, h * 0.1), 0, TAU); ctx.fillStyle = '#3a2f28'; ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(s * D * 0.3, t - h * 0.32, Math.min(0.07, h * 0.05), 0, TAU); ctx.fillStyle = '#121212'; ctx.fill(); }
+      else gvGrille(ctx, lw, -D * 0.38, t - h * 0.55, D * 0.76, h * 0.38, 14);
+      if (ty === 'hullMedium') gvHatch(ctx, lw, 0, t - h * 0.4, Math.min(0.32, h * 0.25));
+      else if (ty === 'hullIFV') for (const s of [-1, 1]) { ctx.strokeRect(s > 0 ? D * 0.04 : -D * 0.36, b + h * 0.15, D * 0.32, h * 0.7); ctx.fillStyle = '#2a2e30'; ctx.fillRect(s * D * 0.08 - 0.03, b + h * 0.45, 0.06, 0.12); } // the troop doors
+      for (const s of [-1, 1]) { ctx.fillStyle = '#c2302a'; ctx.fillRect(s * D * 0.44 - 0.04, t - h * 0.12, 0.08, 0.05); gvHook(ctx, lw, s * D * 0.36, b + h * 0.12, Math.min(0.07, h * 0.05)); }
+    }
+  } else if (d.shape === 'tturret') {
+    if (end > 0) { ctx.fillStyle = gvTone(-0.2); ctx.fillRect(-D * 0.22, b + h * 0.15, D * 0.44, h * 0.6); gvSlit(ctx, lw, -D * 0.38, t - h * 0.3, D * 0.1, h * 0.06); } // the gun's port (the mantlet covers it)
+    else if (d.style === 'box' || d.style === 'aa') { gvBox(ctx, lw, -D * 0.4, b + h * 0.15, D * 0.8, h * 0.55); }
+    else if (d.style === 'wedge') { ctx.fillStyle = '#3a3c34'; ctx.fillRect(-D * 0.45, b + h * 0.2, D * 0.9, h * 0.6); }
+    else gvPort(ctx, lw, 0, 0, Math.min(0.08, h * 0.08));
+  } else if (d.style === 'sight') { ctx.fillStyle = d.thermal ? '#0f1416' : '#16303f'; ctx.fillRect(-D * 0.3, b + h * 0.25, D * 0.6, h * 0.4); ctx.fillStyle = 'rgba(127,216,255,0.4)'; ctx.fillRect(-D * 0.18, b + h * 0.35, D * 0.14, h * 0.15); }
+  gvGrime(ctx, n, f, b, t, 0.3, 0.5);
+}
+// A plated part's plan, front and back views into the other quarters of its 3D texture (W x H each, in pixels: parts3d.js
+// paint() draws the side view in the first). Like drawPart, it puts the part's skin on.
+function drawPartViews(ctx, p, W, H) {
+  const prev = PartPaint.skin, d = p.def, D = d.depth || d.w, kx = W / d.w, kz = H / D, ke = W / D, ky = H / d.h, lw = 0.9 / Math.min(kx, ky, kz, ke);
+  PartPaint.skin = p.skin && hasOwn(SKINS, p.skin) && skinnable(d) ? SKINS[p.skin] : null;
+  const view = (x0, y0, a, b, e, f, draw) => { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath(); ctx.rect(x0, y0, W, H); ctx.clip(); ctx.setTransform(a, 0, 0, b, e, f); draw(); ctx.restore(); };
+  try {
+    view(W, 0, kx, -kz, W * 1.5, H / 2, () => gvPlan(ctx, p, lw));
+    view(0, H, ke, -ky, W / 2, H * 1.5, () => gvEnd(ctx, p, lw, 1));
+    view(W, H, ke, -ky, W * 1.5, H * 1.5, () => gvEnd(ctx, p, lw, -1));
+  } finally { PartPaint.skin = prev; }
+}
+
+// A track's belt, as its 3D texture (parts3d.js): one repeat (about two links) along u, its inner face in the top half
+// (the road wheels' paths and the guide horns between them) and its tread in the bottom half (grousers, or rubber pads).
+function drawBeltTex(ctx, style, W, H) {
+  const h2 = H / 2, link = W / 2;
+  ctx.fillStyle = '#2a2e32'; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 2; i++) {
+    const x0 = i * link;
+    // the tread (bottom half)
+    if (style === 'modern' || style === 'light') {
+      ctx.fillStyle = '#4a5056'; ctx.fillRect(x0, h2, link, h2);
+      ctx.fillStyle = '#17191c'; ctx.fillRect(x0 + link * 0.12, h2 + h2 * 0.08, link * 0.76, h2 * 0.38); ctx.fillRect(x0 + link * 0.12, h2 + h2 * 0.54, link * 0.76, h2 * 0.38); // the rubber pads
+      ctx.fillStyle = '#5e656c'; ctx.fillRect(x0, h2, link * 0.08, h2); ctx.fillRect(x0 + link * 0.92, h2, link * 0.08, h2); // the end connectors
+    } else {
+      ctx.fillStyle = '#41474d'; ctx.fillRect(x0 + 1, h2 + 1, link - 2, h2 - 2);
+      ctx.fillStyle = '#2b2f33'; ctx.fillRect(x0 + link * 0.38, h2, link * 0.24, h2); // the grouser across the plate
+      ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(x0 + link * 0.38, h2, link * 0.06, h2);
+      if (style === 'medium') { ctx.fillStyle = '#353a3f'; for (let k = 0; k < 4; k++) ctx.fillRect(x0 + link * 0.08, h2 + h2 * (0.06 + k * 0.24), link * 0.24, h2 * 0.14); } // the waffle
+      ctx.fillStyle = '#1c1f22'; ctx.fillRect(x0, h2, 2, h2);
+    }
+    // the inner face (top half): smooth paths where the wheels run, the guide horn between them
+    ctx.fillStyle = '#3a3f44'; ctx.fillRect(x0 + 1, 0, link - 2, h2);
+    ctx.fillStyle = '#80878e'; ctx.fillRect(x0, h2 * 0.08, link, h2 * 0.26); ctx.fillRect(x0, h2 * 0.66, link, h2 * 0.26);
+    if (style !== 'medium' || i === 0) { ctx.fillStyle = '#25282c'; ctx.fillRect(x0 + link * 0.3, h2 * 0.38, link * 0.4, h2 * 0.24); ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x0 + link * 0.3, h2 * 0.38, link * 0.4, h2 * 0.05); }
+    ctx.fillStyle = '#1c1f22'; ctx.fillRect(x0, 0, 2, h2);
+  }
 }
