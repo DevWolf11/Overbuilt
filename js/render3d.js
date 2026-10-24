@@ -2908,7 +2908,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (!api.ready || !shown || !B) return false;
     const fresh = mode !== 'builder', bd = S.bd;
     mode = 'builder';
-    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim) return false;    dt = clamp(dt || 0, 0, 0.1);
+    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim && !B.turretTest) return false;    dt = clamp(dt || 0, 0, 0.1);
     clock += dt;
     applyQuality();
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket', parts = B.parts, n = parts.length;
@@ -2931,9 +2931,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let att = bd.att.length === n;
     for (let i = 0; i < n; i++) { const a = B.attached && B.attached.has(parts[i].id) ? 1 : 0; if (bd.att[i] !== a) { bd.att[i] = a; att = false; } }
     if (!att) { bd.att.length = n; if (bd.vm) for (let i = 0; i < n; i++) bd.vm.setOpacity(parts[i], bd.att[i] ? 1 : 0.4); }
+    // armour: X-ray (the plates see-through, the crew and stores inside shown) and Test turret (its ring turned)
+    const tt = B.turretNow ? B.turretNow() : null, xr = !!(B.xrayShown && B.xrayShown());
+    if (have) Parts3D.xray = xr;
     if (bd.vm) {
       const sv = bv.sv, so = bv.so;
-      sv.parts = parts; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      sv.parts = parts; sv.tgOf = tt ? tt.tgOf : null; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      if (bd.vm.setXray) bd.vm.setXray(xr);
       bd.vm.sync(sv, so);
     }
     // selection (amber), hover (faint), what a dragged part will attach to (cyan) and a dragged part, with
@@ -2946,6 +2950,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       else if (sel) { want.set(sel, TINT_SEL); if (sel.mirror) want.set(sel.mirror, TINT_SEL); }
       if (d && d.host) want.set(d.host, TINT_HOST);
       if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, TINT_BAD);
+      if (tt && tt.hit) for (const p of tt.hit) want.set(p, TINT_BAD); // (what stops the turret, as it gets there)
       for (const p of bv.tinted.keys()) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
       bv.want = bv.tinted; bv.tinted = want;
@@ -2985,6 +2990,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     bcam.updateMatrixWorld();
     S.design.updateMatrixWorld();
     builderMarkers(B, dist);
+    builderArcs(B);
     // lights and shadow box sized to the craft
     S.key.position.set(tx + size * 1.2, ty + size * 2.2, size * 1.6);
     S.key.target.position.set(tx, ty * 0.5, 0);
@@ -2999,6 +3005,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.render(studio, bcam);
     bv.drawn = true;
     return true;
+  }
+  // Armour: the selected turret's traverse, a flat fan 3 m round on its ring's top, green where it turns freely and red
+  // where it is stopped (B.arcs3d); made again only when the selection or its arc changes.
+  function builderArcs(B) {
+    const A = B.arcs3d ? B.arcs3d() : null, key = A ? `${A.c.x},${A.c.y},${A.c.z},${A.lim}` : '';
+    if (key === S.arcKey) return;
+    S.arcKey = key;
+    if (S.arcs) { S.design.remove(S.arcs); for (const m of S.arcs.children) m.geometry.dispose(); S.arcs = null; }
+    if (!A) return;
+    if (!S.arcMat) S.arcMat = [0x4cd964, 0xff5d5d].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    const g = new THREE.Group(), lo = A.lim ? A.lim[0] : 0, hi = A.lim ? A.lim[1] : TAU;
+    const fan = (a0, a1, mat) => { const geo = new THREE.RingGeometry(0.25, 3, Math.max(2, Math.ceil(((a1 - a0) / TAU) * 64)), 1, a0, a1 - a0); geo.rotateX(Math.PI / 2); g.add(new THREE.Mesh(geo, mat)); };
+    if (hi - lo > 1e-3) fan(lo, hi, S.arcMat[0]);
+    if (A.lim && TAU - (hi - lo) > 1e-3) fan(hi, lo + TAU, S.arcMat[1]);
+    g.position.set(A.c.x, A.c.y + 0.03, A.c.z || 0);
+    S.design.add(g);
+    S.arcs = g;
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.
