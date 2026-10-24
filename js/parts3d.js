@@ -50,19 +50,26 @@ const Parts3D = (() => {
     store: { color: '#e4e7ea', roughness: 0.42, metalness: 0.15 }, // missiles inside a bay (never painted)
     tile: { color: '#6f6a64', roughness: 0.62, metalness: 0.4 }, // a stealth nozzle's heat tiles
     gearDoor: { color: '#737a82', roughness: 0.6, metalness: 0.25 }, // (gear takes no paint: a grey that suits any fighter)
+    // the ground update's: a track's belt (its links' texture, cloned per part to run round), its road wheels (one face
+    // texture for them all, cloned per part to turn), armour plate and fittings
+    track: { tex: 'belt', roughness: 0.72, metalness: 0.55 },
+    rwheel: { tex: 'wheel', roughness: 0.62, metalness: 0.3 },
+    plate: { map: true, roughness: 0.78, metalness: 0.14, env: 0.55, own: true }, // armour plate: its 2D art, matt (own: its finish, not the hull's)
+    plate2: { map: true, roughness: 0.78, metalness: 0.14, env: 0.55, own: true, double: true }, // (an open-topped one, seen inside too)
+    armour: { color: GV_BASE, roughness: 0.78, metalness: 0.14, env: 0.55 }, // fittings in the armour's paint
   };
   const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
-  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep' };
+  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate' };
   const RECIPE = PART_RECIPE;
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
-  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame']);
+  const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame', 'armour']);
   const SKIN_GEO = new Set(['wing', 'biplane']);
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
-  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5']);
+  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5', 'awheel']);
   const FLAT_DEPTH = PART_FLAT_DEPTH;
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -642,6 +649,80 @@ const Parts3D = (() => {
       [new THREE.CylinderGeometry(R * 1.04, R * 1.04, 0.2, 32, 1, true).rotateZ(Math.PI / 2).translate(w / 2 + 0.1, 0, 0), 'steelDark']], [yaw]);
   }
 
+
+  // ------------------------------------------------------------------ the ground update's plated parts
+  // A hull, plate turret or box of kit (parts.js gvPlanned): its outline (def.outline, else its box) through its depth,
+  // hard-edged and with no bevel, so the model is exactly its hit and clash prism. Each face takes its own view of the
+  // part's texture (paint(): the side view top left, the plan top right, the front bottom left, the back bottom right):
+  // the sides the side view, faces looking up the plan, forward or back the ends, a belly the grime at the side's foot.
+  // An open plate (def.armour.open: an open-topped turret) is left out.
+  function plated(d) {
+    const w = d.w, h = d.h, D = d.depth || Math.min(w, 1), zh = D / 2, P = (d.outline || BOX_OUTLINE).map(([fx, fy]) => [fx * w, fy * h]);
+    const open = (d.armour && d.armour.open) || [], pos = [], nor = [], uv = [], idx = [], e = 0.006;
+    const q4 = (u, lo) => lo + 0.5 * clamp(u + 0.5, e, 1 - e); // (a share across a view -> its quarter of the texture)
+    const V = {
+      side: (x, y) => [q4(x / w, 0), q4(y / h, 0.5)], plan: (x, y, z) => [q4(x / w, 0.5), q4(z / D, 0.5)],
+      front: (x, y, z) => [q4(-z / D, 0), q4(y / h, 0)], back: (x, y, z) => [q4(z / D, 0.5), q4(y / h, 0)], belly: (x) => [q4(x / w, 0), q4(-0.5 + 0.02, 0.5)],
+    };
+    for (const s of [1, -1]) { // the sides (a fan: the outlines are convex)
+      const i0 = pos.length / 3;
+      for (const [x, y] of P) { pos.push(x, y, s * zh); nor.push(0, 0, s); uv.push(...V.side(x, y)); }
+      for (let k = 1; k + 1 < P.length; k++) { if (s > 0) idx.push(i0, i0 + k, i0 + k + 1); else idx.push(i0, i0 + k + 1, i0 + k); }
+    }
+    for (let k = 0; k < P.length; k++) { // the walls, edge by edge
+      if (open.includes(k)) continue;
+      const [x0, y0] = P[k], [x1, y1] = P[(k + 1) % P.length], L = Math.hypot(x1 - x0, y1 - y0);
+      if (L < 1e-6) continue;
+      const nx = (y1 - y0) / L, ny = -(x1 - x0) / L, f = V[ny >= 0.5 ? 'plan' : nx >= 0.3 ? 'front' : nx <= -0.3 ? 'back' : 'belly'], i0 = pos.length / 3;
+      for (const [x, y, z] of [[x0, y0, zh], [x1, y1, zh], [x1, y1, -zh], [x0, y0, -zh]]) { pos.push(x, y, z); nor.push(nx, ny, 0); uv.push(...f(x, y, z)); }
+      idx.push(i0, i0 + 2, i0 + 1, i0, i0 + 3, i0 + 2);
+    }
+    return geo(pos, nor, uv, idx);
+  }
+  // What stands on a turret's roof (parts.js GV_ROOF, as gvRoof draws it): cupolas, hatches, vents, periscopes and sights
+  function roofFit(d, list) {
+    const F = GV_ROOF[d.type];
+    if (!F) return;
+    const D = d.depth || d.w, t = d.h / 2 + 0.002, out = [];
+    for (const [k, fx, fz, s, hg] of F) {
+      const x = fx * d.w, z = fz * D;
+      if (k === 'cupola') {
+        out.push(new THREE.CylinderGeometry(s, s * 1.04, hg * 0.78, 20).translate(x, t + hg * 0.39, z), new THREE.CylinderGeometry(s * 0.86, s * 0.86, hg * 0.22, 20).translate(x, t + hg * 0.89, z));
+        for (let i = 0; i < 6; i++) { const a = (i / 6) * TAU; out.push(box(0.07, hg * 0.22, 0.05, x + Math.cos(a) * s, t + hg * 0.42, z + Math.sin(a) * s)); } // its vision blocks
+      } else if (k === 'hatch') out.push(new THREE.CylinderGeometry(s, s, hg, 18).translate(x, t + hg / 2, z), box(0.08, hg * 0.8, s * 0.5, x - s, t + hg * 0.4, z));
+      else if (k === 'vent') out.push(new THREE.SphereGeometry(s, 12, 6, 0, TAU, 0, Math.PI / 2).scale(1, hg / s, 1).translate(x, t, z));
+      else out.push(box(s * 2, hg, s * 1.6, x, t + hg / 2, z));
+    }
+    list.push([merge(out), 'armour']);
+  }
+  // A hull's exhausts, behind its back plate
+  function exhaust(d, list) {
+    const D = d.depth || d.w, x = -d.w / 2 - 0.11, y = d.h / 2 - d.h * 0.32, out = [];
+    for (const s of [-1, 1]) out.push(new THREE.CylinderGeometry(0.1, 0.1, 0.4, 14).rotateX(Math.PI / 2).translate(x, y, s * D * 0.3), box(0.12, 0.06, 0.06, x + 0.05, y, s * D * 0.3 - 0.12), box(0.12, 0.06, 0.06, x + 0.05, y, s * D * 0.3 + 0.12));
+    list.push([merge(out), 'steelDark']);
+  }
+  // A track's belt and road-wheel faces: one texture per style (the wheels' also per paint), cloned for each part so its
+  // own can run round (offset) or turn (rotation); the clones share the picture, so it uploads once (freeRig lets them go).
+  const gvTexs = new Map();
+  function gvTex(k, d, S) {
+    const st = d.style || 'medium', key = k + '|' + st + '|' + (k === 'wheel' && S ? S.name : '');
+    let t = gvTexs.get(key);
+    if (!t) {
+      const cv = document.createElement('canvas'), c = cv.getContext('2d');
+      if (k === 'belt') { cv.width = 64; cv.height = 128; drawBeltTex(c, st, 64, 128); }
+      else {
+        cv.width = cv.height = 128;
+        const prev = PartPaint.skin, fl = PartPaint.flat;
+        PartPaint.skin = S; PartPaint.flat = true;
+        try { c.setTransform(61.44, 0, 0, -61.44, 64, 64); c.fillStyle = '#2b2f34'; c.fillRect(-1.1, -1.1, 2.2, 2.2); gvWheelFace(c, 0, 0, 1, 0, st, 'road'); } finally { PartPaint.skin = prev; PartPaint.flat = fl; }
+      }
+      t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = Math.min(8, aniso);
+      if (k === 'belt') t.wrapS = THREE.RepeatWrapping; else t.center.set(0.5, 0.5);
+      gvTexs.set(key, t);
+    }
+    return t;
+  }
+
   // ------------------------------------------------------------------ models by recipe
   const y0 = (h, f) => -h / 2 + h * f; // a height up a part, as a fraction
   const BUILD = {
@@ -749,7 +830,8 @@ const Parts3D = (() => {
       } else if (sh === 'cockpit') {
         list.push([new THREE.SphereGeometry(1, 32, 16).scale(0.22 * w, 0.3 * h, 0.27 * w).translate(-0.42 * w, b + 0.42 * h, 0), 'glass'],
           [new THREE.SphereGeometry(0.075 * w, 16, 12).translate(-0.47 * w, b + 0.4 * h, 0), 'helmet']); // the pilot's helmet
-      } else if (sh === 'jet') {
+      } else if (sh === 'tcast') roofFit(d, list); // (a cast turret's cupola, hatches and periscopes)
+      else if (sh === 'jet') {
         const ri = w * 0.36, y = t - 0.42;
         list.push([new THREE.CylinderGeometry(ri, ri, t - y, 32, 1, true).translate(0, (t + y) / 2, 0), 'intake'],
           [new THREE.CylinderGeometry(ri, ri, 0.03, 32).translate(0, y, 0), 'steelDark'],
@@ -766,6 +848,12 @@ const Parts3D = (() => {
     },
 
     extrude(d, flip) {
+      if (d.outline) { // a hull or plate turret (the ground update's): its outline's prism, its roof's fittings, a hull's exhausts
+        const list = [[plated(d), d.armour && d.armour.open ? 'plate2' : 'plate']];
+        roofFit(d, list);
+        if (d.shape === 'thull' && d.style !== 'composite') exhaust(d, list);
+        return node(list);
+      }
       const depth = d.depth || FLAT_DEPTH[d.shape] || Math.min(d.w, 1);
       return node([[projUV(extrudeGeo(outline(d, flip), depth, Math.min(0.03, depth * 0.2)), d, true), 'hull']]);
     },
@@ -1048,6 +1136,181 @@ const Parts3D = (() => {
       return node([[box(0.3, 0.5, 0.3, inn + s * 0.1, r0[1], 0), 'steelDark']],
         [{ role: 'ruMove', move: 'rudder', axis: ax.map((v) => v / n), pos: r0, pieces: [[g.translate(-r0[0], -r0[1], 0), 'hull']], subs: [] }]);
     },
+
+    // ---- the ground update's armour, from the layouts parts.js draws them by (gvDraw, trackLayout, gunLayout, ...)
+    // A track: the fender in the hull's paint over a sprung group (role susp: the suspension lifts it) holding the belt
+    // (its texture runs round as the belt moves), every road wheel, idler and roller in one mesh (their faces share one
+    // texture, turned as they roll) and the sprocket (role sprocket, turning).
+    trackUnit(d) {
+      const L = trackLayout(d), w = d.w, h = d.h, D = d.depth || 0.5, W = D - 0.02, hz = W / 2, P = L.pts, n = P.length, bt = L.bt, U = L.reps / L.len;
+      const pos = [], nor = [], uv = [], idx = [];
+      const strip = (off, nk, v0, v1) => { // along the loop, off out from its middle (in, negative), across the belt
+        const s0 = pos.length / 3;
+        for (let i = 0; i <= n; i++) {
+          const q = P[i % n], s = i < n ? q[4] : L.len, x = q[0] + q[2] * off, y = q[1] + q[3] * off;
+          pos.push(x, y, hz, x, y, -hz); nor.push(q[2] * nk, q[3] * nk, 0, q[2] * nk, q[3] * nk, 0); uv.push(s * U, v0, s * U, v1);
+        }
+        for (let i = 0; i < n; i++) { const a = s0 + i * 2; if (nk > 0) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      };
+      const edge = (z, sg, v) => { // the belt's edge at z, facing out
+        const s0 = pos.length / 3;
+        for (let i = 0; i <= n; i++) { const q = P[i % n], s = i < n ? q[4] : L.len; for (const o of [bt / 2, -bt / 2]) { pos.push(q[0] + q[2] * o, q[1] + q[3] * o, z); nor.push(0, 0, sg); uv.push(s * U, v); } }
+        for (let i = 0; i < n; i++) { const a = s0 + i * 2; if (sg > 0) idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); else idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      };
+      strip(bt / 2, 1, 0.02, 0.48); strip(-bt / 2, -1, 0.52, 0.98); edge(hz, 1, 0.01); edge(-hz, -1, 0.49);
+      // the wheels: each road wheel a pair either side of the guide horns (an interleaved run alternates inner and outer
+      // pairs), rollers single; tread bands and arms take the face texture's dark middle
+      const M = mesh0(), K = 20, mid = [0.5, 0.5];
+      const face = (cx, cy, z, r, nz) => {
+        const c = M.add([cx, cy, z], [0, 0, nz], mid), ring = [];
+        for (let k = 0; k < K; k++) { const a = (k / K) * TAU; ring.push(M.add([cx + r * Math.cos(a), cy + r * Math.sin(a), z], [0, 0, nz], [0.5 + 0.48 * Math.cos(a), 0.5 + 0.48 * Math.sin(a)])); }
+        for (let k = 0; k < K; k++) M.tri(c, ring[k], ring[(k + 1) % K], [0, 0, nz]);
+      };
+      const band = (cx, cy, z0, z1, r) => {
+        const A = [], B = [];
+        for (let k = 0; k < K; k++) { const a = (k / K) * TAU, c = Math.cos(a), s = Math.sin(a); A.push(M.add([cx + r * c, cy + r * s, z0], [c, s, 0], mid)); B.push(M.add([cx + r * c, cy + r * s, z1], [c, s, 0], mid)); }
+        for (let k = 0; k < K; k++) { const k1 = (k + 1) % K, a = ((k + 0.5) / K) * TAU, want = [Math.cos(a), Math.sin(a), 0]; M.tri(A[k], A[k1], B[k1], want); M.tri(A[k], B[k1], B[k], want); }
+      };
+      const wheel = (q, z, ww) => { band(q.x, q.y, z - ww / 2, z + ww / 2, q.r); face(q.x, q.y, z + ww / 2, q.r, 1); face(q.x, q.y, z - ww / 2, q.r, -1); };
+      const inter = !!L.k.inter, arms = [];
+      for (const q of L.wheels) {
+        if (q.k === 'sprocket') continue;
+        if (q.k === 'roller') { wheel(q, 0, W * 0.3); continue; }
+        const zp = q.in ? W * 0.14 : inter ? W * 0.33 : W * 0.26, ww = inter ? W * 0.18 : W * 0.34;
+        for (const s of [-1, 1]) wheel(q, s * zp, ww);
+        arms.push(new THREE.CylinderGeometry(q.r * 0.2, q.r * 0.2, zp * 2, 10).rotateX(Math.PI / 2).translate(q.x, q.y, 0)); // (its axle)
+        if (d.style === 'light' || d.style === 'modern') arms.push(beam([q.x, q.y, 0], [q.x - L.front * q.r * 1.1, q.y + q.r * 0.75, 0], q.r * 0.3));
+      }
+      for (const g of arms) { const a = g.attributes.uv; for (let i = 0; i < a.count; i++) a.setXY(i, 0.5, 0.5); }
+      const wheels = merge([M.geo(), ...arms]);
+      // the sprocket: two toothed rings either side of the horns, on a hub
+      const sp = L.wheels.find((q) => q.k === 'sprocket'), nt = Math.max(10, Math.round(sp.r * 36)), sh = new THREE.Shape();
+      for (let i = 0; i < nt * 2; i++) { const a = (i / (nt * 2)) * TAU, rr = i % 2 ? sp.r * 0.84 : sp.r; if (i) sh.lineTo(rr * Math.cos(a), rr * Math.sin(a)); else sh.moveTo(rr * Math.cos(a), rr * Math.sin(a)); }
+      const teeth = [new THREE.CylinderGeometry(sp.r * 0.3, sp.r * 0.3, W * 0.7, 16).rotateX(Math.PI / 2)];
+      for (const s of [-1, 1]) teeth.push(new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false, curveSegments: 1 }).translate(0, 0, s * W * 0.2 - 0.03), new THREE.CylinderGeometry(sp.r * 0.8, sp.r * 0.8, W * 0.12, 20).rotateX(Math.PI / 2).translate(0, 0, s * W * 0.33));
+      // the fender, turned down at both ends
+      const fb = L.fender, ft = h / 2, dn = Math.min(0.22, h * 0.2), fen = [box(w - 0.16, ft - fb, D, 0, (fb + ft) / 2, 0)];
+      for (const s of [-1, 1]) fen.push(beam([s * (w / 2 - 0.08), (fb + ft) / 2, 0], [s * (w / 2 - 0.02), fb - dn * 0.6, 0], ft - fb).scale(1, 1, D / (ft - fb)));
+      return node([[merge(fen), 'armour']], [node([[geo(pos, nor, uv, idx), 'track'], [wheels, 'rwheel']], [node([[merge(teeth), 'armour']], null, { role: 'sprocket', pos: [sp.x, sp.y, 0] })], { role: 'susp' })]);
+    },
+
+    // An armoured wheel on its spring (role susp), turning about z (spin): a chunky tyre, and its hub in the paint, bolted on
+    // the outside (the left side's is the mirror image).
+    awheel(d) {
+      const R = gvWheelR(d), W = (d.depth || 0.45) * 0.94, prof = [[0.6, -0.5], [0.86, -0.5], [0.97, -0.4], [1, -0.24], [1, 0.24], [0.97, 0.4], [0.86, 0.5], [0.6, 0.5]];
+      const tyre = [new THREE.LatheGeometry(prof.map(([a, b]) => v2(R * a, W * b)), 36).rotateX(Math.PI / 2)];
+      for (let i = 0; i < 22; i++) tyre.push(box(R * 0.07, R * 0.17, W * 0.66, R * 0.995, 0, (i % 2 ? 0.13 : -0.13) * W).rotateZ((i / 22) * TAU));
+      const hub = [new THREE.CylinderGeometry(R * 0.6, R * 0.6, W * 0.82, 28).rotateX(Math.PI / 2), new THREE.CylinderGeometry(R * 0.44, R * 0.52, 0.05, 24).rotateX(Math.PI / 2).translate(0, 0, W * 0.43),
+        new THREE.CylinderGeometry(R * 0.16, R * 0.16, 0.1, 16).rotateX(Math.PI / 2).translate(0, 0, W * 0.46)];
+      for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; hub.push(new THREE.CylinderGeometry(R * 0.035, R * 0.035, 0.07, 8).rotateX(Math.PI / 2).translate(R * 0.34 * Math.cos(a), R * 0.34 * Math.sin(a), W * 0.45)); }
+      return node([], [node([], [node([[merge(tyre), 'tyre'], [merge(hub), 'armour']], null, { role: 'spin', axis: 'z' })], { role: 'susp' })]);
+    },
+
+    // A gun: its own traverse (role yaw, about x: up when it goes on at rot 3) at the trunnion, the elevation (pitch, about z)
+    // there too; on the pitch node the mantlet or housing in the paint, and on a recoil node the barrel and breech.
+    tankGun(d) {
+      const G = gunLayout(d), ty = G.ty, bar = [], pit = [], root = [];
+      const barrel = (bx, bz) => { // a lathe up the barrel, its bands, brake or evacuator, the bore at the muzzle
+        const P = [[0.001, G.y0], [G.rb, G.y0]], feats = [];
+        if (G.evac) { const E = G.evac; feats.push([E.y0, [[gunR(G, E.y0), E.y0], [E.r, E.y0 + 0.06], [E.r, E.y1 - 0.06], [gunR(G, E.y1) * 0.97, E.y1]]]); }
+        for (const yy of G.sleeves || []) { const r = gunR(G, yy); feats.push([yy - 0.03, [[r, yy - 0.03], [r * 1.12, yy - 0.03], [r * 1.12, yy + 0.03], [r, yy + 0.03]]]); }
+        if (G.jacket) feats.push([G.jacket.y0, [[G.jacket.r, G.jacket.y0 + 0.001], [G.jacket.r, G.jacket.y1], [gunR(G, G.jacket.y1), G.jacket.y1]]]);
+        const E = G.brake || G.hider || G.muzzle;
+        feats.sort((a, c) => a[0] - c[0]);
+        for (const [, q] of feats) P.push(...q);
+        let rEnd = G.rm;
+        if (E) {
+          const r0 = gunR(G, E.y0), Lb = G.y1 - E.y0;
+          P.push([r0, E.y0]);
+          if (G.brake) { for (const [a, c, open] of [[0, 0.2, 0], [0.2, 0.42, 1], [0.42, 0.58, 0], [0.58, 0.8, 1], [0.8, 1, 0]]) { const r = open ? G.rm * 0.92 : E.r; P.push([r, E.y0 + Lb * a + 0.001], [r, E.y0 + Lb * c]); } rEnd = E.r; }
+          else if (G.hider) { for (const [a, c, open] of [[0, 0.3, 0], [0.3, 0.46, 1], [0.46, 0.62, 0], [0.62, 0.78, 1], [0.78, 1, 0]]) { const r = open ? G.rm : E.r; P.push([r, E.y0 + Lb * a + 0.001], [r, E.y0 + Lb * c]); } rEnd = E.r; }
+          else { P.push([E.r, E.y0 + 0.001], [E.r, G.y1]); rEnd = E.r; }
+        } else P.push([G.rm, G.y1]);
+        P.push([G.rm * 0.55, G.y1], [G.rm * 0.55, G.y1 - 0.2], [0.001, G.y1 - 0.2]);
+        return new THREE.LatheGeometry(P.map(([r, y]) => v2(Math.max(0.001, r), y - ty)), 18).translate(bx, 0, bz);
+      };
+      for (const [bx, bz] of G.barrels) bar.push(barrel(bx, bz));
+      const bx = (B, k = 0) => box(B.hx * 2, B.y1 - B.y0, B.hz * 2, k, (B.y0 + B.y1) / 2 - ty, 0);
+      if (G.breech) bar.push(bx(G.breech));
+      if (G.mant) { // the mantlet: its 2D outline (rounded, or a chamfered plate) through its depth
+        const M = G.mant, c = M.round ? M.hx * 0.55 : M.hx * 0.25, s = new THREE.Shape(), y0 = M.y0 - ty, y1 = M.y1 - ty;
+        s.moveTo(-M.hx, y0); s.lineTo(M.hx, y0); s.lineTo(M.hx, y1 - c);
+        if (M.round) s.quadraticCurveTo(M.hx, y1, M.hx - c, y1); else s.lineTo(M.hx - c, y1);
+        s.lineTo(-M.hx + c, y1);
+        if (M.round) s.quadraticCurveTo(-M.hx, y1, -M.hx, y1 - c); else s.lineTo(-M.hx, y1 - c);
+        pit.push(new THREE.ExtrudeGeometry(s, { depth: M.hz * 2, bevelEnabled: false, curveSegments: 6 }).translate(0, 0, -M.hz));
+      }
+      if (G.box) (G.st === 'mg' || G.post ? bar : pit).push(bx(G.box));
+      if (G.can) bar.push(box(G.can.x1 - G.can.x0, G.can.y1 - G.can.y0, 0.1, (G.can.x0 + G.can.x1) / 2, (G.can.y0 + G.can.y1) / 2 - ty, G.can.z));
+      if (G.grip != null) for (const gx of [-0.07, 0.07]) bar.push(box(0.03, 0.09, 0.03, gx, G.grip + 0.04 - ty, 0)); // (its spade grips)
+      if (G.post) root.push([box(G.post.x1, G.post.r * 2, G.post.r * 2, G.post.x1 / 2, ty, 0), 'steelDark'], [box(0.04, 0.24, 0.24, G.post.x1 - 0.02, ty, 0), 'steelDark']);
+      const recoil = node(bar.map((g) => [g, 'gunmetal']), null, { role: 'recoil' });
+      return node(root, [node([], [node(pit.map((g) => [g, 'armour']), [recoil], { role: 'pitch' })], { role: 'yaw', pos: [0, ty, 0] })]);
+    },
+
+    // A launcher: its post (down to the base, +x), and at the trunnion its traverse and elevation (yaw, pitch) carrying the
+    // frame in the paint and the rounds, each a store (per: rounds to a store) that goes as they are fired.
+    launcher(d) {
+      const L = launchLayout(d), ty = L.ty, sam = d.style === 'sam', frame = [], mouths = [], subs = [];
+      for (const F of L.frame || []) frame.push(box(F.x1 - F.x0, F.y1 - F.y0, F.hz * 2, (F.x0 + F.x1) / 2, (F.y0 + F.y1) / 2 - ty, F.z || 0));
+      if (L.tubes) for (const xx of L.tubes.xs) for (const zz of L.tubes.zs) frame.push(new THREE.CylinderGeometry(L.tubes.r, L.tubes.r, L.tubes.y1 - L.tubes.y0, 12, 1, true).translate(xx, (L.tubes.y0 + L.tubes.y1) / 2 - ty, zz));
+      for (const q of L.rounds) {
+        const s = [], y0 = q.y0 - ty, y1 = q.y1 - ty;
+        if (q.k === 'msl') { // body and nose, cruciform fins at the tail
+          s.push(new THREE.LatheGeometry([[0.001, y0], [q.r, y0], [q.r, y1 - q.r * 3], [q.r * 0.6, y1 - q.r * 0.8], [0.001, y1]].map(([r, y]) => v2(r, y)), 14).translate(q.x, 0, q.z));
+          for (let f = 0; f < 2; f++) s.push(box(q.r * 2 + q.fin * 2, q.fin * 1.4, 0.015, 0, y0 + q.fin * 0.7, 0).rotateY((f * Math.PI) / 2 + Math.PI / 4).translate(q.x, 0, q.z));
+        } else if (q.k === 'can') s.push(new THREE.CylinderGeometry(q.r, q.r, y1 - y0, 16).translate(q.x, (y0 + y1) / 2, q.z), new THREE.CylinderGeometry(q.r * 1.08, q.r * 1.08, 0.06, 16).translate(q.x, y1 - 0.08, q.z), new THREE.CylinderGeometry(q.r * 1.08, q.r * 1.08, 0.06, 16).translate(q.x, y0 + 0.08, q.z));
+        else if (q.k === 'box') s.push(box(q.hx * 2, y1 - y0, q.hz * 2, q.x, (y0 + y1) / 2, q.z));
+        else if (q.k === 'cap') { s.push(box(q.r * 2, y1 - y0, q.r * 2, q.x, (y0 + y1) / 2 + 0.01, q.z)); mouths.push(new THREE.CylinderGeometry(q.r * 0.85, q.r * 0.85, 0.02, 16).translate(q.x, y0 + 0.005, q.z)); }
+        else if (q.k === 'tube') for (const zz of q.zs) s.push(new THREE.LatheGeometry([[0.001, y0], [q.r, y0], [q.r, y1 - q.r * 2.2], [0.001, y1]].map(([r, y]) => v2(r, y)), 10).translate(q.x, 0, zz));
+        subs.push(node(s.map((g) => [g, q.k === 'msl' ? (sam ? 'missile' : 'olive') : q.k === 'tube' ? 'olive' : 'armour']), null, { role: 'store', per: L.per }));
+      }
+      const list = frame.length ? [[merge(frame), 'armour']] : [];
+      if (mouths.length) list.push([merge(mouths), 'gunmetal']);
+      return node([[box(L.post.x1, L.post.r * 2, L.post.r * 2, L.post.x1 / 2, ty, 0), 'steelDark']], [node([], [node(list, subs, { role: 'pitch' })], { role: 'yaw', pos: [0, ty, 0] })]);
+    },
+
+    // A radar: a tracking dish aiming on its pedestal (yaw, pitch at its trunnion), or a search antenna turning on its mast
+    // (role antenna: in flight only, so the hangar stays still).
+    radarAnt(d) {
+      const R = radarLayout(d);
+      if (R.track) {
+        const ty = R.ty, S = R.dish, pts = [];
+        for (let i = 0; i <= 10; i++) { const k = i / 10; pts.push(v2(Math.max(0.001, S.r * k), S.y - ty - S.deep * 0.45 + S.deep * 1.45 * k * k)); }
+        const feed = [rod([0, S.y - ty - S.deep * 0.4, 0], [0, R.feed - ty, 0], 0.012, 6), box(0.1, 0.1, 0.1, 0, R.feed - ty, 0), box(0.24, 0.16, 0.3, 0, 0, 0)];
+        for (let i = 0; i < 3; i++) { const a = (i / 3) * TAU + 0.5; feed.push(rod([S.r * 0.85 * Math.cos(a), S.y - ty + S.deep * 0.85, S.r * 0.85 * Math.sin(a)], [0, R.feed - ty, 0], 0.01, 5)); }
+        return node([[merge([box(R.post.x1, R.post.r * 2, R.post.r * 2, R.post.x1 / 2, ty, 0), box(0.05, 0.36, 0.36, R.post.x1 - 0.025, ty, 0)]), 'steelDark']],
+          [node([], [node([[new THREE.LatheGeometry(pts, 28), 'dish'], [merge(feed), 'dish']], null, { role: 'pitch' })], { role: 'yaw', pos: [0, ty, 0] })]);
+      }
+      const M = R.mast, A = R.ant, m = mesh0(), nx = 16, ny = 4;
+      for (const side of [1, -1]) { // the antenna: a curved panel, both faces (its back flat-shaded the same)
+        const at = (i, j) => { const u = -1 + (2 * i) / nx, v = -1 + (2 * j) / ny; return [u * A.hw, v * A.hh, -A.deep * u * u + (side > 0 ? 0 : -0.03)]; }, ix = [];
+        for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) { const q = at(i, j), u = -1 + (2 * i) / nx; ix.push(m.add(q, [2 * A.deep * u * side, 0, side])); }
+        for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) { const a = i * (ny + 1) + j, want = [0, 0, side]; m.tri(ix[a], ix[a + ny + 1], ix[a + ny + 2], want); m.tri(ix[a], ix[a + ny + 2], ix[a + 1], want); }
+      }
+      const ant = [m.geo(), rod([0, 0, -0.02], [0, 0, A.hw * 0.55], 0.02, 6), box(0.08, 0.08, 0.1, 0, 0, A.hw * 0.55)];
+      return node([[merge([rod([0, M.y0, 0], [0, M.y1, 0], M.r, 12), new THREE.CylinderGeometry(M.r * 2.4, M.r * 2.4, 0.08, 16).translate(0, M.y0 + 0.04, 0),
+        new THREE.CylinderGeometry(M.r * 1.6, M.r * 1.6, Math.max(0.02, A.y - A.hh - M.y1 + 0.08), 14).translate(0, (M.y1 + A.y - A.hh) / 2, 0)]), 'steelDark']],
+      [node([[merge(ant), 'dish']], null, { role: 'antenna', pos: [0, A.y, 0] })]);
+    },
+
+    // Kit: smoke dischargers and slat cages are built; the rest (engines, seats, racks, sights, bricks, skirts, plates)
+    // are plated boxes painted with their views.
+    kit(d) {
+      const w = d.w, h = d.h, D = d.depth || w, st = d.style, b = -h / 2;
+      if (st === 'smoke') {
+        const list = [box(w, h * 0.3, D, 0, b + h * 0.15, 0)];
+        for (const s of [-1, 0, 1]) list.push(new THREE.CylinderGeometry(w * 0.1, w * 0.1, h * 0.68, 12).translate(0, h * 0.34, 0).rotateZ(-0.45).translate(s * w * 0.28, b + h * 0.25, 0));
+        return node([[merge(list), 'armour']]);
+      }
+      if (st === 'slat') {
+        const list = [];
+        for (let i = 0; i <= 7; i++) list.push(box(w, 0.035, D * 0.5, 0, b + 0.03 + ((h - 0.06) * i) / 7, 0));
+        for (let i = 0; i <= 4; i++) list.push(box(0.06, h, D, -w / 2 + 0.03 + ((w - 0.06) * i) / 4, 0, 0));
+        return node([[merge(list), 'armour']]);
+      }
+      return node([[plated(d), 'plate']]);
+    },
   };
 
   // ------------------------------------------------------------------ 5th-generation look-alikes
@@ -1246,6 +1509,7 @@ const Parts3D = (() => {
 
   // skin: only wings take it into their geometry; everything else is painted by its materials.
   function model(d, flip, skin) {
+    if (d.gv) flip = false; // (the ground update's shapes are the same either way round)
     const r = recipe(d), s = SKIN_GEO.has(r) ? cleanSkin(skin, d) : null, key = d.type + (flip ? '|f' : '') + (s ? '|s:' + s : '');
     let m = models.get(key);
     if (!m) { m = BUILD[r](d, flip, s); m.anim = m.anim || {}; models.set(key, m); }
@@ -1258,9 +1522,10 @@ const Parts3D = (() => {
   // never reaches empty texels.
   function paint(d, flip, skin, at) {
     const [W, H] = texSize(d), cv = document.createElement('canvas'), S = skinFor(skin, d), top = d.shape === 'us4body'; // (a lofted body's texture also has its plan view, on the right)
-    cv.width = top ? W * 2 : W; cv.height = H;
-    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat, ca = PartPaint.camoAt;
-    PartPaint.flat = true; PartPaint.camoAt = at || null;
+    const plan = gvPlanned(d); // (a plated part's: its plan and end views below and beside its side view, see plated())
+    cv.width = top || plan ? W * 2 : W; cv.height = plan ? H * 2 : H;
+    const ctx = cv.getContext('2d'), kx = W / d.w, ky = H / d.h, p = dummy(d, flip, S ? skin : null), flat = PartPaint.flat, ca = PartPaint.camoAt, xr = PartPaint.xray, av = PartPaint.armour;
+    PartPaint.flat = true; PartPaint.camoAt = at || null; PartPaint.xray = null; PartPaint.armour = false;
     try {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * TAU;
@@ -1270,7 +1535,8 @@ const Parts3D = (() => {
       ctx.setTransform(kx, 0, 0, -ky, W / 2, H / 2);
       drawPart(ctx, p, 0.9 / Math.min(kx, ky));
       if (top) { ctx.setTransform(W / (d.depth || d.w), 0, 0, -ky, W * 1.5, H / 2); drawPartTop(ctx, p); }
-    } finally { PartPaint.flat = flat; PartPaint.camoAt = ca; }
+      if (plan) { ctx.setTransform(1, 0, 0, 1, 0, 0); drawPartViews(ctx, p, W, H); }
+    } finally { PartPaint.flat = flat; PartPaint.camoAt = ca; PartPaint.xray = xr; PartPaint.armour = av; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'destination-over';
     ctx.fillStyle = S ? S.base : '#a7b0ba'; ctx.fillRect(0, 0, cv.width, H);
@@ -1304,6 +1570,7 @@ const Parts3D = (() => {
   const placed = [];
   function textureFor(def, flip, skin, at) {
     need();
+    if (def.gv) flip = false;
     const s = cleanSkin(skin, def), key = def.type + (flip ? '|f' : '') + (s ? '|s:' + s : '') + (at ? '|@' + at[0] + ',' + at[1] : '');
     let t = textures.get(key);
     if (!t) {
@@ -1338,10 +1605,11 @@ const Parts3D = (() => {
     if (k.basic) return new THREE.MeshBasicMaterial({ color: k.basic });
     const m = new THREE.MeshStandardMaterial({ color: k.color || 0xffffff, roughness: k.roughness, metalness: k.metalness, envMapIntensity: k.env || 0.8 });
     if (k.map) m.map = textureFor(d, flip, S ? skin : null, camoAt(at, S));
+    if (k.tex) { m.map = gvTex(k.tex, d, S).clone(); m.userData.own = true; } // (its own copy, to run or turn: freeRig lets it go)
     if (k.skin) { if (S && S.camo) m.map = camoMap(S, camoAt(at, S)); else m.color.set(S ? S.base : '#a7b0ba'); } // (a panel in its paint, its camouflage laid on in metres)
     if (S && (k.map || k.skin || BODY_KINDS.has(kind))) {
       if (!k.map && !k.skin) m.color.set(S.base);
-      const own = k.map ? KINDS.hull : k;
+      const own = k.map && !k.own ? KINDS.hull : k;
       m.roughness = S.rough != null ? S.rough : own.roughness;
       m.metalness = S.metal != null ? S.metal : own.metalness;
     }
@@ -1484,7 +1752,7 @@ void main() {
       if (!m) { m = rig.mats[kind] = makeMat(kind, rig.part.def, rig.part.flip, rig.part.skin, rig.part); if (kind === 'disc') rig.disc = m; else rig.matList.push(m); }
       const mesh = new THREE.Mesh(g, m);
       if (kind === 'disc') mesh.raycast = noop;
-      else { mesh.castShadow = mesh.receiveShadow = true; mesh.userData.part = rig.part; rig.meshes.push(mesh); }
+      else { mesh.castShadow = !rig.small; mesh.receiveShadow = true; mesh.userData.part = rig.part; rig.meshes.push(mesh); } // (small fittings cast none)
       obj.add(mesh);
     }
     for (const s of n.subs) {
@@ -1492,7 +1760,7 @@ void main() {
       if (s.pos) g.position.fromArray(s.pos);
       if (s.rot) g.rotation.set(s.rot[0], s.rot[1], s.rot[2]);
       if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'spinRev') (rig.revs = rig.revs || []).push(g); else if (s.role === 'droop') rig.droops.push(g);
-      else if (s.role === 'store') (rig.stores = rig.stores || []).push(g); // missiles and bombs, hidden as they're fired
+      else if (s.role === 'store') { (rig.stores = rig.stores || []).push(g); if (s.per) rig.per = s.per; } // missiles and bombs, hidden as they're fired (per: rounds to a store)
       else if (s.role === 'hinge') { (rig.hinges = rig.hinges || []).push(g); g.userData.hinge = [s.axis || 'y', s.open || 0]; } // a door: opens with p.deployed
       else if (s.role === 'ruMove') { g.userData.move = s.move; g.userData.side = obj.userData.side || 0; if (s.axis) g.userData.axis = new THREE.Vector3(...s.axis); (rig.ruMove = rig.ruMove || []).push(g); }
       else if (s.role) rig[s.role] = g;
@@ -1512,6 +1780,7 @@ void main() {
     const rig = { part: p, root, anim: m.anim, mats: {}, matList: [], meshes: [], spins: [], droops: [], axis: 'y', disc: null, pivot: null, lid: null,
       nozzle: null, plume: null, plumes: [], canopy: null, heat: 0, fire: 0, rate: 0, last: null, fspin: 0, seen: 0, opacity: 1, tint: '',
       holders: null, zm: ZMIRROR.has(recipe(d)) || d.shape === 'bubble' };
+    if (d.gv) gvRig(rig, builder); // (the ground update's: what moves, and how)
     const holders = rig.holders = d.twinZ ? [-1, 1].map((s) => {
       const g = new THREE.Group();
       g.userData.side = s;
@@ -1519,7 +1788,7 @@ void main() {
       root.add(g);
       return g;
     }) : [root];
-    for (const h of holders) instance(m, h, rig);
+    if (!(d.inner && !builder)) for (const h of holders) instance(m, h, rig); // (inside a hull or turret: never seen in flight, so never built)
     rig.nozzle = rig.mats.nozzle || null;
     if (!builder && d.thrust && d.plume !== 'none') rig.plumes = holders.flatMap((h) => (d.body && d.body.noz ? d.body.noz[0].z || [0] : [0]).map((z) => makePlume(p, h, z))); // (twin nozzles: a flame each)
     rig.plume = rig.plumes[0] || null;
@@ -1636,7 +1905,7 @@ void main() {
   function pylonsFor(rig, parts, group) {
     dropPylons(rig);
     const p = rig.part, d = p.def;
-    if (d.float || d.shape === 'skid' || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return; // floats and skids carry their own struts
+    if (d.float || d.shape === 'skid' || d.gv || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return; // floats and skids carry their own struts (armour sits on what it is joined to)
     // (an old pair moved in or out along a wing it is mounted on in the side view hangs on that wing)
     const old = d.twinZ && p.att == null, area = (q) => { const A = partRect(p), B = partRect(q); return spanOverlap(A.l, A.r, B.l, B.r) * spanOverlap(A.b, A.t, B.b, B.t); };
     const wing = old && Math.abs(partZ(p) - d.twinZ) > 5e-4 && parts.filter((q) => q.def.wing && !q.def.twinZ && partsMounted2D(p, q)).sort((a, b) => area(b) - area(a))[0];
@@ -1668,7 +1937,8 @@ void main() {
     rig.root.removeFromParent();
     dropPylons(rig);
     if (rig.twin) rig.twin.removeFromParent();
-    for (const m of rig.matList) m.dispose();
+    for (const m of rig.matList) { if (m.userData.own && m.map) m.map.dispose(); m.dispose(); } // (a belt's or wheels' own copy of their texture)
+    if (rig.modsMat) rig.modsMat.dispose();
     if (rig.disc) rig.disc.dispose();
     for (const P of rig.plumes) for (const m of P.mats) m.dispose();
   }
@@ -1700,6 +1970,131 @@ void main() {
   function shown(o) {
     for (; o; o = o.parent) if (!o.visible) return false;
     return true;
+  }
+
+
+  // ------------------------------------------------------------------ the ground update's parts in motion
+  // A rig's ground-update fields: castShadow off for small fittings, a gun's kick (m), and where its belt, wheels,
+  // sprocket and antenna have got to.
+  function gvRig(rig, builder) {
+    const d = rig.part.def, wp = d.weapon;
+    rig.gv = true;
+    rig.small = d.w * d.h * (d.depth || d.w) < 0.45 && !d.ring;
+    rig.kick = !wp || !(wp.kind === 'tgun' || wp.kind === 'agun') ? 0 : wp.kind === 'tgun' ? 0.25 + 0.15 * clamp(((wp.cal || 75) - 37) / 115, 0, 1) : clamp((wp.cal || 20) * 0.0022, 0.012, 0.08);
+    rig.bu = 0; rig.wa = 0; rig.sa = 0; rig.gs = 0; rig.rx = 0; rig.belt0 = null;
+    if (!builder && d.inner) rig.root.visible = false;
+  }
+  // A part riding on turret rings (v.tgOf: its innermost group), turned with each, innermost first:
+  // position c + Ry(ψ)(pos - c), and the turn about +y (aim.js: Ry turns +x towards +z, which is -ψ about y here).
+  let _tq = null, _ty = null;
+  function turnRig(rig, g0) {
+    if (!_tq) { _tq = new THREE.Quaternion(); _ty = new THREE.Vector3(0, 1, 0); }
+    const P = rig.root.position;
+    for (let g = g0; g; g = g.parent) {
+      const a = g.ring.aimYaw || 0;
+      if (!a) continue;
+      const c = g.c, cs = Math.cos(a), sn = Math.sin(a), x = P.x - c.x, z = P.z - c.z;
+      P.x = c.x + x * cs - z * sn; P.z = c.z + x * sn + z * cs;
+      rig.root.quaternion.premultiply(_tq.setFromAxisAngle(_ty, -a));
+    }
+  }
+  // What a vessel tells its ground-update parts: its turret groups (the hangar's: Parts3D.tgOf), its suspension, and (a
+  // ghost or an AI vehicle, which no physics steps) its speed along the hull and its turn, for the belts and wheels.
+  const _gv = { x: 0, y: 0, z: 0 };
+  function gvState(vm, v, tgOf) {
+    vm.tgOf = v.tgOf || tgOf || null;
+    vm.susp = v.susp || null;
+    vm.cz = (v.com && v.com.z) || 0;
+    vm.ghost = !!(v.gv && (v.remote || v.kin) && !v.wreck && v.q && v.av);
+    if (vm.ghost) { qunrot(v.q, v.vx || 0, v.vy || 0, v.vz || 0, _gv); vm.gvF = _gv.x; qunrot(v.q, v.av.x, v.av.y, v.av.z, _gv); vm.gwy = _gv.y; }
+    const w = !!v.wreck;
+    if (w !== !!vm.wreck) { vm.wreck = w; for (const r of vm.list) if (r.gv) char(r, w); }
+  }
+  // a wreck's paint: charred (its colours a third as bright, hardly any shine), or back
+  function char(rig, on) {
+    if (!!rig.charred === on) return;
+    rig.charred = on;
+    for (const m of rig.matList) if (m.isMeshStandardMaterial) {
+      if (m.userData.env0 == null) m.userData.env0 = m.envMapIntensity;
+      m.userData.c0.multiplyScalar(on ? 0.35 : 1 / 0.35); m.color.copy(m.userData.c0);
+      m.envMapIntensity = on ? 0.2 : m.userData.env0;
+    }
+  }
+  // a gun's barrel back and home after a shot: back over 0.08 s, home over 0.6 s (k from 0 to 1)
+  const recoilK = (t) => (t < 0 ? 0 : t < 0.08 ? t / 0.08 : t < 0.68 ? 1 - smoothstep(0, 1, (t - 0.08) / 0.6) : 0);
+  // The moving bits: the belt run round (its texture), the road wheels and sprocket turned by it, a track or wheel
+  // lifted by its side's suspension (v.susp: the compression past the sag at rest; none in the hangar), a ghost's wheels
+  // from its speed, a barrel's recoil (p.shotAt), a search antenna turning (in flight only).
+  function gvAnim(vm, rig, dt, time) {
+    const p = rig.part, d = p.def;
+    if (rig.susp) { const S = vm.susp, tr = d.track || d.awheel; rig.susp.position.y = S && tr ? S[partZ(p) > vm.cz ? 1 : 0] - 0.4 * (tr.travel || 0) : 0; }
+    if (d.track) {
+      let db;
+      if (vm.ghost) db = (vm.gvF + vm.gwy * (partZ(p) - vm.cz)) * dt;
+      else { const b = p.belt || 0; db = rig.belt0 == null ? 0 : b - rig.belt0; rig.belt0 = b; if (db > 30) db -= 60; else if (db < -30) db += 60; } // (gear.js wraps p.belt at 60 m)
+      if (db) {
+        const L = trackLayout(d), B = rig.mats.track, W = rig.mats.rwheel;
+        rig.bu = (rig.bu - (db * L.reps) / L.len) % 1; rig.wa = (rig.wa - db / L.rw) % TAU; rig.sa = (rig.sa - db / L.rs) % TAU;
+        if (B && B.map) B.map.offset.x = rig.bu;
+        if (W && W.map) W.map.rotation = rig.wa; // (three turns a texture's picture by +rotation: the faces turn with the sprocket)
+        if (rig.sprocket) rig.sprocket.rotation.z = rig.sa;
+      }
+    } else if (d.awheel && vm.ghost) {
+      rig.gs = (rig.gs - ((vm.gvF + vm.gwy * (partZ(p) - vm.cz)) / d.awheel.r) * dt) % TAU;
+      for (const g of rig.spins) g.rotation.z = rig.gs;
+    }
+    if (rig.recoil) { const x = rig.kick * recoilK(p.shotAt != null ? time - p.shotAt : -1); if (x !== rig.rx) { rig.rx = x; rig.recoil.position.y = -x; } }
+    if (rig.antenna && !vm.builder && !p.broken) rig.antenna.rotation.y = (rig.antenna.rotation.y + ((((d.searchRadar && d.searchRadar.rpm) || 60) * TAU) / 60) * dt) % TAU;
+  }
+  // A rig's see-through: the builder's (loose parts) times X-ray's (armour at 0.3)
+  function fade(rig) {
+    const a = rig.opacity * (rig.xray && !rig.part.def.inner ? 0.3 : 1);
+    for (const m of rig.matList) {
+      const t = a < 1 || !!m.userData.glass;
+      if (m.transparent !== t) { m.transparent = t; m.needsUpdate = true; }
+      m.opacity = (m.userData.op || 1) * a;
+      m.depthWrite = a >= 1;
+    }
+    for (const mesh of rig.meshes) mesh.castShadow = a >= 1 && !rig.small;
+  }
+  function xrayRig(rig, on, parts) {
+    const d = rig.part.def;
+    if (!d.gv || !!rig.xray === on) return;
+    rig.xray = on;
+    if (d.inner) { const c = shared.color.set(GV_MOD[gvModKind(d)]); for (const m of rig.matList) if (m.isMeshStandardMaterial) m.color.copy(on ? c : m.userData.c0); }
+    fade(rig);
+    if (on && d.mods && parts) modsMesh(rig, parts);
+    if (rig.modsMesh) rig.modsMesh.visible = on;
+  }
+  // A hull's or turret's built-in crew, stores, fuel and troops, as balls in their colours (dim: replaced by placed parts,
+  // a seat or a rack attached to it), one mesh; its geometry cached by type and which are replaced.
+  function modsMesh(rig, parts) {
+    const p = rig.part, d = p.def;
+    let crew = true, ammo = true;
+    for (const q of parts) if (q.att === p.id && q.def) { if (q.def.seat) crew = false; if (q.def.rack || q.def.autoload) ammo = false; }
+    const mask = (crew ? 1 : 0) | (ammo ? 2 : 0);
+    if (rig.modsMesh && rig.modsMask === mask) return;
+    rig.modsMask = mask;
+    const key = 'mods|' + d.type + '|' + mask;
+    let g = models.get(key);
+    if (!g) {
+      const gs = [];
+      for (const m of d.mods) {
+        const on = m.k === 'crew' ? crew : m.k === 'ammo' ? ammo : true, c = new THREE.Color(GV_MOD[m.k] || GV_MOD.crew).multiplyScalar(on ? 1 : 0.22);
+        const s = new THREE.SphereGeometry(m.r * 0.8, 14, 10).translate(m.at[0] * d.w, m.at[1] * d.h, (m.at[2] || 0) * (d.depth || d.w)), n = s.attributes.position.count, col = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+        s.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        gs.push(s);
+      }
+      g = merge(gs);
+      models.set(key, g);
+    }
+    if (!rig.modsMesh) {
+      rig.modsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.1, emissive: 0x222222 });
+      rig.modsMesh = new THREE.Mesh(g, rig.modsMat);
+      rig.modsMesh.raycast = noop;
+      rig.root.add(rig.modsMesh);
+    } else rig.modsMesh.geometry = g;
   }
 
   class VesselMesh {
@@ -1735,6 +2130,8 @@ void main() {
 
     add(p) {
       const obj = buildPart(p, this.builder, this.radial), rig = obj.userData.rig;
+      if (this.xray) xrayRig(rig, true, null);
+      if (this.wreck && rig.gv) char(rig, true);
       this.items.set(p, rig);
       this.list.push(rig);
       this.group.add(obj);
@@ -1760,6 +2157,7 @@ void main() {
       const parts = v.parts, dt = o.dt > 0 ? Math.min(o.dt, 0.25) : 0, time = o.time || 0, rho = o.rho > 0 ? o.rho : 0, high = o.quality !== 'low' && o.quality !== false;
       const stamp = ++this.stamp;
       this.cmd = v.cmd || null; // (the controls, for vectoring nozzles: none in the builder)
+      gvState(this, v, this.builder ? api.tgOf : null);
       let rotor = 0;
       for (let i = 0; i < parts.length; i++) {
         const p = parts[i];
@@ -1768,6 +2166,8 @@ void main() {
       }
       if (this.list.length > parts.length) this.prune(stamp);
       this.pylons(parts);
+      if (this.builder && this.xray !== !!api.xray) this.setXray(api.xray);
+      if (this.xray) for (const r of this.list) if (r.part.def.mods) modsMesh(r, parts);
       if (api.envMap !== this.env) {
         this.env = api.envMap;
         for (const r of this.list) for (const m of r.matList) if (m.isMeshStandardMaterial) m.envMap = this.env;
@@ -1779,6 +2179,7 @@ void main() {
     update(rig, dt, time, rho, high, rotor) {
       const p = rig.part, d = p.def, A = rig.anim;
       place(rig);
+      if (this.tgOf) { const g = this.tgOf.get(p.id); if (g) turnRig(rig, g); } // (riding on turret rings)
       const hot = p.temp > 900 ? (p.temp - 900) / (d.maxTemp - 900) : 0, fire = rig.nozzle && p.firing > 0 ? Math.min(1, p.firing) : 0;
       if (Math.abs(hot - rig.heat) > 0.003 || (hot > 0) !== (rig.heat > 0) || fire !== rig.fire) { rig.heat = hot; rig.fire = fire; emissive(rig); }
       if (rig.spins.length) {
@@ -1805,7 +2206,7 @@ void main() {
       if (rig.stores && p.ammo !== rig.shown) { // fired stores leave the pylon: right and left in turn, as combat lets them go
         rig.shown = p.ammo;
         const twin = rig.holders.length, k = rig.stores.length / twin, n = p.ammo == null ? Infinity : p.ammo;
-        rig.stores.forEach((g, i) => { g.visible = (i % k) * twin + Math.floor(i / k) < n; });
+        rig.stores.forEach((g, i) => { g.visible = ((i % k) * twin + Math.floor(i / k)) * (rig.per || 1) < n; });
       }
       if (rig.lid) rig.lid.visible = !(p.deployed > 0 || p.used);
       if (rig.hinges) { const k = clamp(p.deployed || 0, 0, 1); for (const g of rig.hinges) g.rotation[g.userData.hinge[0]] = g.userData.hinge[1] * k; }
@@ -1819,6 +2220,7 @@ void main() {
         }
       }
       if (d.wheel && d.wheel.retract) rig.root.visible = !p.retracted;
+      if (rig.gv) gvAnim(this, rig, dt, time);
       for (let n = 0; n < rig.plumes.length; n++) {
         const P = rig.plumes[n], k = p.firing > 0 ? Math.min(1, p.firing) : 0, ab = p.ab || 0;
         P.g.visible = k > 0;
@@ -1887,13 +2289,18 @@ void main() {
       const rig = this.items.get(part);
       if (!rig || rig.opacity === a) return;
       rig.opacity = a;
-      for (const m of rig.matList) {
-        const t = a < 1 || !!m.userData.glass;
-        if (m.transparent !== t) { m.transparent = t; m.needsUpdate = true; }
-        m.opacity = (m.userData.op || 1) * a;
-        m.depthWrite = a >= 1;
-      }
-      for (const mesh of rig.meshes) mesh.castShadow = a >= 1;
+      fade(rig);
+    }
+
+    // Builder: X-ray. The ground update's armour goes see-through, what is inside it (inner parts, in their kind's colour;
+    // built-in crew, stores, fuel and troops, as balls) shows; other parts are as they were. Builder meshes follow
+    // Parts3D.xray by themselves (sync).
+    setXray(on) {
+      on = !!on;
+      if (this.xray === on) return;
+      this.xray = on;
+      const parts = this.list.map((r) => r.part);
+      for (const r of this.list) xrayRig(r, on, parts);
     }
 
     dispose() {
@@ -1908,6 +2315,8 @@ void main() {
 
   const api = {
     envMap: null,
+    xray: false, // (the builder's X-ray, for its hangar meshes: see VesselMesh.setXray)
+    tgOf: null, // (the builder's turret groups while it turns one to test it: part id -> group, as Vessel.tgOf)
     init(three, renderer) {
       THREE = three || window.THREE || null;
       if (renderer && renderer.capabilities) aniso = renderer.capabilities.getMaxAnisotropy();
