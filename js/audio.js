@@ -101,7 +101,26 @@ const Sound = {
   gun(big) { this.burst(big ? 0.12 : 0.06, big ? 700 : 1400, big ? 0.55 : 0.32, 'bandpass'); },
   missile() { this.burst(1.1, 900, 0.6, 'bandpass'); this.burst(0.3, 300, 0.5); },
   hit() { this.burst(0.05, 3200, 0.3, 'highpass'); },
-  cannon(cal, dist) {}, // a tank gun's report, by calibre (mm) and distance (m): the ground update's (Phase 2C)
+  // A tank gun's report: a blast of noise through a lowpass that closes, over a 60 Hz thump, deeper and longer the bigger
+  // the gun (cal, mm). Further off (dist, m) it is quieter, duller (only the low end carries) and later: sound takes its
+  // time, 340 m/s, so a far gun's flash comes first. Nothing past 2 km.
+  cannon(cal, dist = 0) {
+    const d = Math.max(0, +dist || 0);
+    if (!this.ctx || d > 2000) return;
+    const k = clamp((+cal || 75) / 100, 0.3, 1.6), fall = 1 / (1 + d / 150), late = d / 340, dur = 0.45 + 0.55 * k;
+    this.oneOff(dur + late);
+    const ctx = this.ctx, t = ctx.currentTime + late;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime((1500 - 450 * k) * (0.3 + 0.7 * fall), t); f.frequency.exponentialRampToValueAtTime(110, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05 + 1.5 * k * fall, t + 0.006); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t, Math.random()); src.stop(t + dur + 0.05);
+    const o = ctx.createOscillator(), og = ctx.createGain(); // (the thump)
+    o.type = 'sine'; o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.35 + 0.2 * k);
+    og.gain.setValueAtTime(0.0001, t); og.gain.linearRampToValueAtTime(0.9 * k * fall + 0.02, t + 0.01); og.gain.exponentialRampToValueAtTime(0.001, t + 0.4 + 0.25 * k);
+    o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.7 + 0.25 * k);
+  },
   // the seeker's growl and lock tone: a sine, not the square beep
   tone(f = 1000, dur = 0.12, vol = 0.05) {
     if (!this.ctx) return;
