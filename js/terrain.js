@@ -521,6 +521,8 @@ function natural(c, G, i, j, cont) {
   if (c.mapped) { // cont is the map's height here; no hills on lake beds
     const g = toGeo(G.ang[i], G.phi[j]), lon = g.lon, lat = g.lat;
     const lake = EM.lakeC ? 1 - smoothstep(10, 100, samp(EM.lakeC, EM.FW, EM.FH, lon, lat)) : 1;
+    const aw = arenaW(G.ea[i], z);
+    if (aw > 0) det *= 1 - aw; // (a battle arena: no detail finer than the drawn ground shows)
     let hm = island(c, G.ea[i], z, G.al[i], cont + hillW(cont) * hs * lake + coastN(c, G.al[i], z, cont), hs) + det;
     hm = cliffs(hm, cliffW(lon * DEG, lat * DEG), G.ea[i], z);
     return features(hm, lon * DEG, lat * DEG, 1 - smoothstep(150, 400, cell), cell);
@@ -543,19 +545,67 @@ function builtW(c, G, i, j) {
 }
 // Airfields off the track (EARTH.airfields): how much a point is on one (1 on the strip, fading over its
 // blend) and the height it is flattened to. Strip frame: u along the runway, v across.
+// The Ground Battle pads (EARTH.groundPads, f.pad) are levelled the same way, on the real map only (their heights are its).
 const FQ = { w: 0, h: 0, f: null };
 function fieldAt(e, z, o = FQ) {
   o.w = 0; o.f = null;
-  const F = EARTH.airfields;
+  const F = EARTH.airfields, P = EARTH.mapped && EARTH.groundPads;
   if (!F) return o;
-  for (const k in F) {
-    const f = F[k], de = e - f.e, dz = z - f.z;
-    if (Math.abs(de) > f.hl + f.blend + f.hw || Math.abs(dz) > f.hl + f.blend + f.hw) continue;
-    const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
-    const w = 1 - smoothstep(0, f.blend, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
-    if (w > o.w) { o.w = w; o.h = f.h; o.f = f; }
-  }
+  for (const k in F) fieldIn(F[k], e, z, o);
+  if (P) for (const k in P) fieldIn(P[k], e, z, o);
   return o;
+}
+function fieldIn(f, e, z, o) {
+  const de = e - f.e, dz = z - f.z;
+  if (Math.abs(de) > f.hl + f.blend + f.hw || Math.abs(dz) > f.hl + f.blend + f.hw) return;
+  const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+  const w = 1 - smoothstep(0, f.blend, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
+  if (w > o.w) { o.w = w; o.h = f.h; o.f = f; }
+}
+// The Ground Battle arenas (EARTH.arenas, space.js) whose ground is made for the fight (clear), on the real map:
+// arenaW is how far a point is inside one, 1 in its box fading to 0 over 200 m round it. There the ground's fine detail
+// (Earth's 40 m and 160 m waves, which the drawn ground drops where its cells are coarse) fades out, so the ground seen
+// across the battlefield is the ground shells hit and tanks drive on. Never on an airfield's ground, though: the fade
+// is 0 over its strip and blend and 3 m past it (the physics lattice's 2 m cells), coming back over the next 200 m
+// (Wick's south end and blend reach into Highland Ridge's box).
+const ARENA_FADE = 200;
+function arenaW(e, z) {
+  const A = EARTH.arenas;
+  let w = 0;
+  if (A) for (const k in A) {
+    const a = A[k], B = a.box;
+    if (!a.clear || !B || e < B.e0 - ARENA_FADE || e > B.e1 + ARENA_FADE || z < B.z0 - ARENA_FADE || z > B.z1 + ARENA_FADE) continue;
+    w = Math.max(w, 1 - smoothstep(0, ARENA_FADE, Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1))));
+  }
+  const F = EARTH.airfields;
+  if (w > 0 && F) for (const k in F) {
+    const f = F[k], de = e - f.e, dz = z - f.z, r = f.hl + f.hw + f.blend + 3 + ARENA_FADE;
+    if (Math.abs(de) > r || Math.abs(dz) > r) continue;
+    const u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+    w *= smoothstep(f.blend + 3, f.blend + 3 + ARENA_FADE, Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - f.hw, 0)));
+  }
+  return w;
+}
+// An arena's earth berms (EARTH.arenas[k].berms; the real map only), the height they add at (e, z): each is a bank
+// 2.4 m high, Gaussian across (σ 3.5 m, ending 12 m out) and 26 m long, tapering over its last 6 m, along its yaw.
+// Physics and line of sight have them through height(); the terrain patch leaves them out (noBerm) for a mesh of
+// their own, since no patch cell is fine enough to show a bank 10 m wide.
+const BERM = { h: 2.4, s: 3.5, half: 13, taper: 6, v: 12 }, BERM_E = Math.exp(-(BERM.v * BERM.v) / (2 * BERM.s * BERM.s));
+function bermAt(e, z) {
+  const A = EARTH.mapped && EARTH.arenas;
+  let h = 0;
+  if (A) for (const k in A) {
+    const a = A[k], B = a.box, L = a.berms;
+    if (!L || !L.length || !B || e < B.e0 || e > B.e1 || z < B.z0 || z > B.z1) continue;
+    for (const b of L) {
+      const de = e - b.e, dz = z - b.z;
+      if (de > 25 || de < -25 || dz > 25 || dz < -25) continue;
+      const u = Math.abs(de * b.c + dz * b.s), v = -de * b.s + dz * b.c;
+      if (u >= BERM.half || Math.abs(v) >= BERM.v) continue;
+      h += BERM.h * ((Math.exp(-(v * v) / (2 * BERM.s * BERM.s)) - BERM_E) / (1 - BERM_E)) * (1 - smoothstep(BERM.half - BERM.taper, BERM.half, u));
+    }
+  }
+  return h;
 }
 // The flight deck of a carrier at (e, z), or NaN: decks stand above the sea (physics only; Render3D draws the ship).
 // Its outline (metres along u, across v to starboard, for a 260 x 36 m deck) takes in the angled deck's overhang
@@ -583,7 +633,8 @@ function deckAt(b, a, z, m = 0) {
   }
   return NaN;
 }
-function height(c, G, i, j, cont) {
+// noBerm: leave out the arenas' berms (the terrain patch: they have a mesh of their own)
+function height(c, G, i, j, cont, noBerm) {
   const B = builtW(c, G, i, j);
   if (B > 0 && G.th[i] !== G.th[i]) G.th[i] = terrainHeight(c.b, G.ang[i]); // (a lazy column's: see setCol)
   EW.pres = EW.road = EW.river = EW.lake = 0;
@@ -593,6 +644,7 @@ function height(c, G, i, j, cont) {
     hn = lerp(hn, FQ.h, FQ.w);
     if (FQ.w > 0.5) { EW.pres = EW.road = EW.river = EW.lake = 0; crDark = 0; }
   }
+  if (c.mapped && !noBerm) { const bh = bermAt(G.ea[i], G.z[j]); if (bh > 0) hn += bh; }
   return B > 0 ? lerp(hn, G.th[i], B) : hn;
 }
 // Exact 3D terrain at one point (slow path: camera clamp away from the patch).
@@ -683,6 +735,6 @@ return {
   loadEarth, earthRaw, earthColor, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
   water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
-  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt,
+  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt, arenaW, bermAt,
 };
 })();

@@ -78,9 +78,12 @@ const ICONS = {
   sasTarget: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9z"/><circle cx="12" cy="12" r="1.5"/></svg>',
   plane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h15l4-4h1l-1 6H4z"/><path d="M8 14l3-5h2l-1 5M10 14l2 4h2l-1-4"/></svg>',
   car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16v-4l2-4h8l4 4h4v4"/><circle cx="7" cy="16" r="2"/><circle cx="17" cy="16" r="2"/></svg>',
+  tank: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="15" width="17" height="5" rx="2.5"/><path d="M4.5 15l1.5-3h11l1.5 3"/><path d="M8 12V9.5L9.5 8h4.5l1.5 1.5V12"/><path d="M15.5 10h6.5"/></svg>',
   heli: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M12 5v3"/><path d="M8 8h6l3 4-3 3H9a3.5 3.5 0 0 1-1-7zM3 11h5M2 9v4M9 19h7M11 15v4M14 15v4"/></svg>',
   sym: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 7L3 17h6zM15 7l6 10h-6z"/></svg>',
   center: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
   grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg>',
+  xray: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2" stroke-dasharray="3 2.2"/><circle cx="9" cy="11" r="2.2"/><path d="M6 15.5a3 3 0 0 1 6 0M15 9h3v6h-3z"/></svg>',
+  plates: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8 10h8M8 14h8"/></svg>',
 };
 function icon(name) { const s = el('span', { class: 'icon' }); s.innerHTML = ICONS[name]; return s; }

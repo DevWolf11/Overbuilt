@@ -80,6 +80,43 @@ await shows('the window resized', () => page.setViewportSize({ width: 1100, heig
 n = await idle('b2', 600);
 ok('...and then it is idle again', n === 0, `${n} draws`);
 
+// ---- the armour tools (the ground update): X-ray, the armour view, the arcs and the sweep's late answer each redraw
+// once, and leave the hangar idle again
+const TANK = ['hullMedium', 'trackMed', 'engDiesel', 'ringM', 'turretCast', 'gun85'];
+const tankUp = () => ev((six) => { Builder.loadDesign({ name: 'T', kind: 'tank', parts: [] }); for (const t of six) Builder.quickAdd(t); Builder.selected = null; Builder.renderInfo(); }, TANK);
+await tankUp();
+await frames(4); await page.waitForTimeout(500); // (its sweep has landed)
+n = await idle('b2', 600);
+ok('an idle armour blueprint is not drawn again', n === 0, `${n} draws`);
+const once = async (key, name, act) => { const n0 = await ev((k) => __n[k], key); await act(); await frames(4); const k = (await ev((k) => __n[k], key)) - n0; ok(`${key === 'b2' ? '2D' : '3D'}: ${name} redraws once`, k === 1, `${k} draws`); };
+await once('b2', 'X-ray off (X)', () => page.keyboard.press('KeyX'));
+await once('b2', 'X-ray on (button)', () => page.click('#btn-xray'));
+await ev(() => { Builder.selected = Builder.parts.find((p) => p.type === 'hullMedium'); Builder.renderInfo(); });
+await frames(4); await page.waitForTimeout(300);
+await once('b2', 'the armour view (button)', () => page.click('#btn-armour'));
+await once('b2', 'the armour view off', () => page.click('#btn-armour'));
+await shows('the arcs (a turret ring picked)', () => ev(() => { Builder.selected = Builder.parts.find((p) => p.type === 'ringM'); Builder.renderInfo(); }));
+await page.waitForTimeout(400);
+// the sweep's answer, 150 ms after an edit and with no input: a mast on the deck stops the turret
+await ev(() => new Promise((done) => {
+  const hull = Builder.parts.find((p) => p.type === 'hullMedium'), [a] = Builder.roofOf(hull);
+  const l0 = Builder.landSweep;
+  Builder.landSweep = function (...x) { const r = l0.apply(this, x); Builder.landSweep = l0; window.__landed = __n.b2; return r; };
+  window.__landed = null;
+  Builder.addPart('radarSearch', +(a + 0.35).toFixed(3), partRect(hull).t + 0.6, 0, { att: hull });
+  // (counted until the screen has been still for 0.7 s: under load software rendering may bring frames late)
+  let seen = 0, quiet = performance.now();
+  const t0 = performance.now(), wait = () => {
+    if (__n.b2 !== seen) { seen = __n.b2; quiet = performance.now(); }
+    if (window.__landed != null && ((__n.b2 > __landed && performance.now() - quiet > 700) || performance.now() - t0 > 6000)) done(true); else setTimeout(wait, 20);
+  };
+  wait();
+}));
+n = await ev(() => __n.b2 - __landed);
+ok('2D: the sweep landing redraws once', n === 1, `${n} draws`);
+n = await idle('b2', 600);
+ok('...and then the armour blueprint is idle again', n === 0, `${n} draws`);
+
 // ---- the 3D hangar
 await page.keyboard.press('KeyV');
 await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 30000 });
@@ -113,6 +150,23 @@ await page.screenshot({ path: SHOTS + 'redraw-3d.png' });
 await settle3d();
 f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
 ok('...and then it stops drawing again', f1 === f0, `${f1 - f0} renders in 1 s`);
+// the armour tools in 3D: X-ray redraws once, the traverse fan shows with the ring picked, Test turret draws while
+// it swings (3 s) and then the hangar stops again
+await tankUp();
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('the idle 3D armour hangar issues no draw calls', f1 === f0, `${f1 - f0} renders in 1 s`);
+// (from code: a key press would have the 3D view draw for the second after any input)
+await once('b3', 'X-ray off', () => ev(() => Builder.setXray(false)));
+await once('b3', 'X-ray on', () => ev(() => Builder.setXray(true)));
+await settle3d();
+await shows3('the traverse fan (a turret ring picked)', () => ev(() => { Builder.selected = Builder.parts.find((p) => p.type === 'ringM'); Builder.renderInfo(); }));
+await settle3d();
+const tt = await ev(() => new Promise((done) => { const n0 = __n.b3; Builder.testTurret(); const t0 = performance.now(), f = () => (Builder.turretTest ? requestAnimationFrame(f) : done({ draws: __n.b3 - n0, ms: performance.now() - t0, yaw: Builder.parts.find((p) => p.type === 'ringM').aimYaw })); requestAnimationFrame(f); }));
+ok('Test turret draws while the turret swings, for 3 s, and sets it back', tt.draws >= 3 && tt.ms >= 2900 && tt.ms < 8000 && tt.yaw === 0, JSON.stringify(tt));
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('...and then the 3D hangar stops drawing again', f1 === f0, `${f1 - f0} renders in 1 s`);
 await ev(() => Render3D.resetCamera()); // (the turntable spins again: it draws every frame)
 n = await over('b3', 8);
 ok('the spinning turntable draws every frame', n >= 7, `${n} draws in 8 frames`);

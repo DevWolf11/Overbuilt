@@ -97,6 +97,45 @@ EARTH.carriers = {
   south: { name: 'Carrier South', e: 22500, z: 13500, yaw: Math.PI * 0.72, hl: 130, hw: 18, deck: 18, cat: 95 },
 };
 for (const f of [...Object.values(EARTH.airfields), ...Object.values(EARTH.carriers)]) { f.c = Math.cos(f.yaw); f.s = -Math.sin(f.yaw); }
+// Ground Battle pads (the ground update), in the airfields' format: levelled to h (the ground's own height at the
+// centre) over 2 hl along their yaw (the way the vehicles face) by 2 hw across (where they line up abreast). On the
+// real Earth map only (terrain.js fieldAt), and no runway is painted on them.
+EARTH.groundPads = {
+  highlandN: { name: 'Highland Ridge north pad', e: 17750, z: 13800, yaw: -Math.PI / 2, hl: 35, hw: 80, blend: 80, h: 25.1, pad: true },
+  highlandS: { name: 'Highland Ridge south pad', e: 17750, z: 16200, yaw: Math.PI / 2, hl: 35, hw: 80, blend: 80, h: 51.3, pad: true },
+};
+// The Ground Battle arenas (gmode.js). Highland Ridge, in the rolling hills of North Scotland on the real map: the
+// teams' pads (team 0's on the Faroes side, to the north) face each other 2.4 km apart across three capture zones,
+// and the hilltop zone A overlooks the other two. box: the battle area (out of it is a warning only). clear: its
+// ground is made for the fight (terrain.js): no scenery, the fine detail faded inside the box (and over 200 m round
+// it) so the ground drawn far off is the ground shells hit, and earth berms to fight hull-down behind. zones: r in m
+// (rDuel: when it is the only zone, in 1v1). air: where aircraft join the battle, a kilometre up, flying in. berms:
+// ridges 2.4 m high and 26 m long along their yaw (as an airfield's), in pairs mirrored about z 15,000 and two
+// between the zones. Without the map, battles are fought on the space centre's own runway, as it is.
+EARTH.arenas = {
+  highland: {
+    name: 'Highland Ridge', map: true, clear: true, box: { e0: 16400, e1: 19100, z0: 13550, z1: 16450 },
+    pads: [EARTH.groundPads.highlandN, EARTH.groundPads.highlandS],
+    zones: [{ id: 'A', name: 'Hilltop', e: 17050, z: 15000, r: 55 }, { id: 'B', name: 'East', e: 18450, z: 15000, r: 55 },
+      { id: 'C', name: 'Slope', e: 17750, z: 15000, r: 55, rDuel: 70 }],
+    air: [{ e: 17750, z: 10800, yaw: -Math.PI / 2, air: { alt: 1000, speed: 140 } }, { e: 17750, z: 19200, yaw: Math.PI / 2, air: { alt: 1000, speed: 140 } }],
+    berms: [
+      { e: 17350, z: 14300, yaw: 0 }, { e: 17350, z: 15700, yaw: 0 }, // across the pads' way to the hilltop
+      { e: 18150, z: 14430, yaw: 0 }, { e: 18150, z: 15570, yaw: 0 }, // (130 m in from z 14,300 / 15,700: that hillside is 11°)
+      { e: 17750, z: 14550, yaw: 0 }, { e: 17750, z: 15450, yaw: 0 },
+      { e: 17000, z: 14780, yaw: Math.PI / 6 }, { e: 17000, z: 15220, yaw: -Math.PI / 6 }, // flanking the hilltop, facing the far pad
+      { e: 18500, z: 14780, yaw: -Math.PI / 6 }, { e: 18500, z: 15220, yaw: Math.PI / 6 },
+      { e: 17420, z: 15000, yaw: Math.PI / 2 }, { e: 18080, z: 15000, yaw: Math.PI / 2 }, // cover between the zones
+    ],
+  },
+  runway: { // (no map needed; aircraft start as ever)
+    name: 'Runway', box: { e0: 650, e1: 2750, z0: -250, z1: 250 },
+    pads: [{ name: 'Runway west end', e: 760, z: 0, yaw: 0, hl: 30, hw: 25 }, { name: 'Runway east end', e: 2640, z: 0, yaw: Math.PI, hl: 30, hw: 25 }],
+    zones: [{ id: 'A', name: 'West', e: 1250, z: 0, r: 45 }, { id: 'B', name: 'East', e: 2150, z: 0, r: 45 }, { id: 'C', name: 'Centre', e: 1700, z: 0, r: 45 }],
+    air: [], berms: [],
+  },
+};
+for (const a of Object.values(EARTH.arenas)) for (const f of [...a.pads, ...a.berms]) { f.c = Math.cos(f.yaw); f.s = -Math.sin(f.yaw); }
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
 

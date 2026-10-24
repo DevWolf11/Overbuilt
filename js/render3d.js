@@ -977,7 +977,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let j = 0; j < nr; j++) {
       for (let i = 0; i < nc; i++) {
         const k = j * nc + i;
-        hs[k] = height(c, G, i, j, cn[k]); dk[k] = Terrain.dark();
+        hs[k] = height(c, G, i, j, cn[k], true); dk[k] = Terrain.dark(); // (not the arenas' berms: they have their own mesh)
         if (c.mapped) { wl[k] = EW.level; wp[k] = EW.pres; lk[k] = EW.lake; rdw[k] = EW.road; rvw[k] = EW.river; }
         if (b === EARTH && Terrain.fieldAt && Terrain.fieldAt(G.ea[i], G.z[j], FQP).w > 0) hs[k] = fieldGround(FQP, G.ea[i], G.z[j], Math.max(G.dx[i], G.dz[j]), hs[k]);
       }
@@ -1149,6 +1149,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // ground, it sinks by as much as the detail coarse cells leave out can raise it (terrain.js: Earth's 40 m and
   // 160 m waves, 1.2 and 4 m high, dropped from cells of 12-24 and 48-96 m; damped by the levelling, 1 - w).
   function fieldGround(q, e, z, cell, h) {
+    if (q.f.pad) return h; // (a Ground Battle pad: levelled, no paving to keep it under)
     const f = q.f, de = e - f.e, dz = z - f.z, u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c, reach = cell * 1.5 + 2;
     if (Math.hypot(Math.max(Math.abs(u) - f.hl, 0), Math.max(Math.abs(v) - 22.5, 0)) < reach) h = Math.min(h, f.h);
     const L = fieldLayout(f);
@@ -1859,11 +1860,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     m.customProgramCacheKey = () => 'bias' + s;
     return m;
   }
-  // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included)
-  // and, at sea (sea: true), the water round the carriers.
+  // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included),
+  // the Ground Battle arenas cleared for the fight (EARTH.arenas, clear: on the real map, a tree or a house there would
+  // hide a tank from the eye but not from a shell) and, at sea (sea: true), the water round the carriers.
   const KQ = { w: 0, h: 0, f: null };
   function keepClear(e, z, sea) {
     if (Terrain.fieldAt && Terrain.fieldAt(e, z, KQ).w > 0.02) return true;
+    if (EARTH.arenas && EARTH.mapped) for (const k in EARTH.arenas) { const a = EARTH.arenas[k], B = a.box; if (a.clear && B && e > B.e0 && e < B.e1 && z > B.z0 && z < B.z1) return true; }
     if (sea && EARTH.carriers) for (const k in EARTH.carriers) { const d = EARTH.carriers[k]; if (Math.hypot(e - d.e, z - d.z) < 600) return true; }
     return false;
   }
@@ -2378,7 +2381,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
   const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
-  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22] };
+  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18] };
   function followCam(v, dt, snap) {
     if (!v || !v.parts.length || v.dead) return;
     if (fc.vessel !== v) {
@@ -2905,7 +2908,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (!api.ready || !shown || !B) return false;
     const fresh = mode !== 'builder', bd = S.bd;
     mode = 'builder';
-    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim) return false;    dt = clamp(dt || 0, 0, 0.1);
+    if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim && !B.turretTest) return false;    dt = clamp(dt || 0, 0, 0.1);
     clock += dt;
     applyQuality();
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh, radial = (B.kind || 'rocket') === 'rocket', parts = B.parts, n = parts.length;
@@ -2928,9 +2931,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let att = bd.att.length === n;
     for (let i = 0; i < n; i++) { const a = B.attached && B.attached.has(parts[i].id) ? 1 : 0; if (bd.att[i] !== a) { bd.att[i] = a; att = false; } }
     if (!att) { bd.att.length = n; if (bd.vm) for (let i = 0; i < n; i++) bd.vm.setOpacity(parts[i], bd.att[i] ? 1 : 0.4); }
+    // armour: X-ray (the plates see-through, the crew and stores inside shown) and Test turret (its ring turned)
+    const tt = B.turretNow ? B.turretNow() : null, xr = !!(B.xrayShown && B.xrayShown());
+    if (have) Parts3D.xray = xr;
     if (bd.vm) {
       const sv = bv.sv, so = bv.so;
-      sv.parts = parts; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      sv.parts = parts; sv.tgOf = tt ? tt.tgOf : null; so.dt = dt; so.time = clock; so.quality = Settings.high ? 'high' : 'low';
+      if (bd.vm.setXray) bd.vm.setXray(xr);
       bd.vm.sync(sv, so);
     }
     // selection (amber), hover (faint), what a dragged part will attach to (cyan) and a dragged part, with
@@ -2943,6 +2950,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       else if (sel) { want.set(sel, TINT_SEL); if (sel.mirror) want.set(sel.mirror, TINT_SEL); }
       if (d && d.host) want.set(d.host, TINT_HOST);
       if (d && d.part && d.ghost && !d.ghost.ok) for (const p of [d.part, d.part.mirror, ...(Array.isArray(d.group) ? d.group : [])]) if (p) want.set(p, TINT_BAD);
+      if (tt && tt.hit) for (const p of tt.hit) want.set(p, TINT_BAD); // (what stops the turret, as it gets there)
       for (const p of bv.tinted.keys()) if (!want.has(p)) bd.vm.setTint(p, 0, 0, 0, 0);
       for (const [p, t] of want) bd.vm.setTint(p, t[0], t[1], t[2], t[3]);
       bv.want = bv.tinted; bv.tinted = want;
@@ -2982,6 +2990,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     bcam.updateMatrixWorld();
     S.design.updateMatrixWorld();
     builderMarkers(B, dist);
+    builderArcs(B);
     // lights and shadow box sized to the craft
     S.key.position.set(tx + size * 1.2, ty + size * 2.2, size * 1.6);
     S.key.target.position.set(tx, ty * 0.5, 0);
@@ -2996,6 +3005,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.render(studio, bcam);
     bv.drawn = true;
     return true;
+  }
+  // Armour: the selected turret's traverse, a flat fan 3 m round on its ring's top, green where it turns freely and red
+  // where it is stopped (B.arcs3d); made again only when the selection or its arc changes.
+  function builderArcs(B) {
+    const A = B.arcs3d ? B.arcs3d() : null, key = A ? `${A.c.x},${A.c.y},${A.c.z},${A.lim}` : '';
+    if (key === S.arcKey) return;
+    S.arcKey = key;
+    if (S.arcs) { S.design.remove(S.arcs); for (const m of S.arcs.children) m.geometry.dispose(); S.arcs = null; }
+    if (!A) return;
+    if (!S.arcMat) S.arcMat = [0x4cd964, 0xff5d5d].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    const g = new THREE.Group(), lo = A.lim ? A.lim[0] : 0, hi = A.lim ? A.lim[1] : TAU;
+    const fan = (a0, a1, mat) => { const geo = new THREE.RingGeometry(0.25, 3, Math.max(2, Math.ceil(((a1 - a0) / TAU) * 64)), 1, a0, a1 - a0); geo.rotateX(Math.PI / 2); g.add(new THREE.Mesh(geo, mat)); };
+    if (hi - lo > 1e-3) fan(lo, hi, S.arcMat[0]);
+    if (A.lim && TAU - (hi - lo) > 1e-3) fan(hi, lo + TAU, S.arcMat[1]);
+    g.position.set(A.c.x, A.c.y + 0.03, A.c.z || 0);
+    S.design.add(g);
+    S.arcs = g;
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.
@@ -3119,9 +3145,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const used = { missile: 0, rocket: 0, bomb: 0 };
     for (const s of shots) {
       const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
-      if (s.k === 'bullet') {
+      if (s.k === 'bullet' || s.k === 'shell') { // (the ground update's shells: tracers too, a main gun's longer and whiter)
         if (!s.tracer || n >= CB.N) continue;
-        const k = 0.028, c = s.enemy ? [1, 0.35, 0.2] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
+        const big = s.k === 'shell' && !s.cheap, k = big ? 0.045 : 0.028, c = s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
         pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
         ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);
         ha.set([x, y, z], n * 3); hc.set(c, n * 3);
@@ -3129,6 +3155,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         continue;
       }
       const kk = s.k === 'torp' ? 'bomb' : s.k, pool = CB.pool[kk]; // a torpedo in the water looks like the bomb it was
+      if (!pool) continue; // (a kind with no model draws nothing, rather than throw every frame)
       let o = pool[used[kk]];
       if (!o) { o = CB.kinds[kk](); pool.push(o); localWorld.add(o); }
       used[kk]++;
@@ -3317,6 +3344,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderFlight,
     renderBuilder,
     renderGlobe,
+    // The ground as the player sees it at (a, z) on body b: the terrain mesh (null off it). (The ground update fills
+    // in the arenas' berms, drawn by a mesh of their own.)
+    drawnGround(b, a, z) { return meshHeight(b, a, z); },
     project(ax, ay, az) {
       if (!api.ready) return { x: 0, y: 0, behind: true };
       const cam = activeCam(), p = scenePoint(ax, ay, az, V1);

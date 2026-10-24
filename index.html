@@ -121,6 +121,7 @@
       <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
       <button id="btn-3d-build" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
       <button id="btn-sym" class="btn toggle" data-icon="sym" aria-pressed="true" aria-label="Symmetry" title="Mirror parts across the centre line"><span class="sym-text">Sym<span class="long">metry</span></span></button>
+      <button id="btn-xray" class="btn toggle" data-icon="xray" aria-pressed="false" aria-label="X-ray" title="X-ray: see the crew, ammunition and engine inside the armour (X)" hidden><span class="long">X-ray</span></button>
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
@@ -135,23 +136,28 @@
       <button class="kind-btn" role="radio" data-kind="plane" data-icon="plane" title="Plane: built nose-right, takes off from the runway"><span>Plane</span></button>
       <button class="kind-btn" role="radio" data-kind="car" data-icon="car" title="Car: drives from the runway"><span>Car</span></button>
       <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
+      <button class="kind-btn" role="radio" data-kind="tank" data-icon="tank" title="Armour: tanks and armoured vehicles, built nose-right"><span>Armour</span></button>
     </div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
-      <div><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
+      <div id="s-thrust-row"><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
       <div id="s-twr-row"><dt id="s-twr-label">TWR</dt><dd><span id="s-twr">—</span></dd></div>
-      <div><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
+      <div id="s-dv-row"><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
+      <div id="s-power-row" hidden><dt>Power</dt><dd id="s-power">—</dd></div>
+      <div id="s-top-row" hidden><dt>Top speed</dt><dd id="s-top">—</dd></div>
+      <div id="s-front-row" hidden><dt>Front</dt><dd id="s-front">—</dd></div>
     </dl>
     <div id="career-row" class="career-row">
       <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Funds</span><span id="s-funds">$0</span></div>
       <div class="cr-btns"><button id="btn-rd" class="btn small">R&amp;D</button><button id="btn-missions" class="btn small">Missions</button></div>
     </div>
-    <details class="stage-details" open>
+    <details id="s-stage-box" class="stage-details" open>
       <summary><span id="s-stages">0</span> stages</summary>
       <ol id="s-stage-list" class="stage-list"></ol>
     </details>
     <p id="s-warn" class="warn" hidden></p>
     <p id="s-air" class="air-info" hidden></p>
+    <p id="s-ground" class="ground-info" hidden></p>
   </section>
 
   <section id="part-info" class="panel part-info" hidden>
@@ -171,6 +177,22 @@
         <button id="btn-z-in" class="btn small icon-only pi-step" aria-label="In ([)" title="In ([)">−</button>
         <input id="pi-z" type="range" min="-4" max="4" step="0.05" value="0" aria-label="Depth across the craft">
         <button id="btn-z-out" class="btn small icon-only pi-step" aria-label="Out (])" title="Out (])">+</button>
+      </div>
+    </div>
+    <div id="pi-armour" class="pi-block" hidden>
+      <div class="pi-row pi-mm"><span class="pi-label">Armour</span>
+        <button id="btn-mm-down" class="btn small icon-only pi-step" aria-label="Thinner (5 mm)" title="Thinner (5 mm)">−</button>
+        <input id="pi-mm" type="range" min="10" max="120" step="5" value="45" aria-label="Armour thickness (mm)">
+        <button id="btn-mm-up" class="btn small icon-only pi-step" aria-label="Thicker (5 mm)" title="Thicker (5 mm)">+</button>
+        <span class="pi-break"></span>
+        <output id="pi-mm-val" class="pi-val" for="pi-mm"></output>
+        <button id="btn-armour" class="btn small icon-only toggle" data-icon="plates" aria-pressed="false" aria-label="Armour view" title="Armour view: every plate in the colour of its thickness against a level shot"></button>
+      </div>
+      <p id="pi-mm-faces" class="pi-faces"></p>
+    </div>
+    <div id="pi-turret" class="pi-block" hidden>
+      <div class="pi-row"><span class="pi-label">Aim</span><span id="pi-arc" class="pi-arc"></span>
+        <button id="btn-test-turret" class="btn small" title="Turn the turret through its arc and show what it would hit">Test turret</button>
       </div>
     </div>
     <div id="pi-paint" class="pi-block" hidden>
@@ -335,6 +357,9 @@
 <script src="js/terrain.js"></script>
 <script src="js/parts.js"></script>
 <script src="js/vessel.js"></script>
+<script src="js/gear.js"></script>
+<script src="js/aim.js"></script>
+<script src="js/armour.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/world.js"></script>
 <script src="js/parts3d.js"></script>
@@ -344,12 +369,15 @@
 <script src="js/map.js"></script>
 <script src="js/globe.js"></script>
 <script src="js/combat.js"></script>
+<script src="js/gmode.js"></script>
+<script src="js/groundai.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/vendor/peer.min.js"></script>
 <script src="js/net.js"></script>
 <script src="js/mp.js"></script>
 <script src="js/mpui.js"></script>
+<script src="js/ghud.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

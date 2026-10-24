@@ -23,7 +23,7 @@ const RAIDER = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['coc
 
 const Combat = (() => {
   const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0,
-    rwr: 0, threats: [], lockToneT: 0 }; // (rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first)
+    rwr: 0, threats: [], lockToneT: 0, smoke: [], gai: 0 }; // (rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first; smoke: smoke clouds; gai: ground AI on the go)
   const mpOn = () => typeof MP !== 'undefined' && MP.active; // in a multiplayer room (no AI targets, SAMs or fighters there)
   const mode = () => (mpOn() ? 'off' : Settings.get('targets') || 'practice');
   const hostile = () => mode() === 'hostile';
@@ -34,7 +34,7 @@ const Combat = (() => {
 
   // ---------------------------------------------------------------- health
   // Every part has health from its size; control parts (the pilot) are a little tougher.
-  function maxHp(d) { return Math.round((60 + 220 * Math.sqrt(d.mass + (d.fuel || 0) * 0.25)) * (d.control ? 1.4 : 1)); }
+  function maxHp(d) { return d.hp || Math.round((60 + 220 * Math.sqrt(d.mass + (d.fuel || 0) * 0.25)) * (d.control ? 1.4 : 1)); }
   function hpFrac(p) { return p.hp == null ? 1 : Math.max(0, p.hp) / maxHp(p.def); }
   // A damaged engine loses thrust; a damaged wing, lift.
   function engineK(p) { const f = hpFrac(p); return f >= 0.6 ? 1 : 0.3 + (0.7 * f) / 0.6; }
@@ -42,20 +42,24 @@ const Combat = (() => {
 
   function damage(v, p, amount, cause, sim, by) {
     if (!(amount > 0) || v.dead || v.remote || !v.parts.includes(p)) return; // (someone else's craft: only its owner hurts it, see MP.sendHit)
+    if (p.broken && p.def.module === 'crew') return; // (a crewman already dead)
+    if (v.spawnAt != null && (sim.time || 0) - v.spawnAt < 4) return; // (a battle's spawn protection: 4 s)
     if (p.hp == null) p.hp = maxHp(p.def);
     const before = hpFrac(p);
     p.hp -= amount * (1 - (p.def.armor || 0)); // armour plate turns most of it away
     if (by) { v.lastHitBy = by; v.lastHitAt = sim.time || 0; }
+    if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     const after = hpFrac(p);
-    if (v === sim.active && !v.ai) {
+    if (v === sim.active && !v.ai && !p.def.gv) { // (the ground update's parts say what broke themselves: armour.js)
       if (before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50)) sim.toast(`${p.def.name} on fire!`, 'warn');
       else if (before >= 0.6 && after < 0.6 && after > 0) sim.toast(`${p.def.name} damaged`, 'warn');
     }
-    if (p.hp <= 0) destroyPart(v, p, cause, sim);
+    if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
   }
   // A part at zero health: engines, tanks, loaded weapons and cockpits blow up; the rest break off.
   // A pair goes up where each one hangs, its fuel shared between them.
   function destroyPart(v, p, cause, sim) {
+    if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
     const b = v.body, zs = partZs(p), n = zs.length, at = (z) => v.toWorld(p.x, p.y, z);
     const wk = p.def.weapon && p.def.weapon.kind, fuel = p.fuel || 0, stores = wk === 'rocket' || wk === 'missile' || wk === 'bomb' ? p.ammo || 0 : 0;
     const boom = p.def.thrust || fuel > 50 || stores > 0 || p.def.control;
@@ -125,25 +129,34 @@ const Combat = (() => {
     FX.explosion(b, at, { x: 0, y: 0, z: 0 }, clamp(blast / 5, 0.6, 9), air);
     if ((!quiet || blast > 10) && sim && sim.camAbs) { const c = sim.camAbs, bp = bodyPos(b, sim.time); if (len(bp.x + at.x - c.x, bp.y + at.y - c.y, (at.z || 0) - (c.z || 0)) < 6000) Sound.explode(); }
   }
-  function explode(b, at, blast, dmg, by, sim, quiet) {
+  // (he: the blast's penetration against armour; spare: a craft it leaves alone, a shell's own just after firing)
+  function explode(b, at, blast, dmg, by, sim, quiet, he, spare) {
     boomFX(b, at, blast, quiet, sim);
     // our own fire reaching someone else's craft goes to its owner as hits, one message per craft
     const mine = typeof MP !== 'undefined' && ours(by);
     if (mine && blast >= 8) MP.sendBoom(b, at, blast); // (for everyone to see)
     for (const v of sim.vessels.slice()) {
-      if (v.dead || v.body !== b || (v.remote && !mine)) continue;
+      if (v.dead || v === spare || v.body !== b || (v.remote && !mine)) continue;
       if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
-      const hits = v.remote ? [] : null;
+      // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
+      const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
+      if (mods) Armour.hot = true; // (high explosive: ammunition it reaches cooks off more easily)
       for (const p of v.parts.slice()) {
         if (!v.parts.includes(p)) continue;
         let d = Infinity;
-        for (const z of partZs(p)) { const w = v.toWorld(p.x, p.y, z); d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z)); }
+        for (const z of partZs(p)) {
+          const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
+          d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+        }
         d -= Math.max(p.def.w, p.def.h) / 2;
         if (d >= blast) continue;
-        const k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
+        let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
+        if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; }
         if (hits) hits.push([p, k]); else damage(v, p, k, 'blast', sim, by);
       }
-      if (hits && hits.length) MP.sendHits(v, hits, 'blast');
+      if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
+      if (mods) Armour.hot = false;
+      if (hits && (hits.length || (mods && mods.length))) { if (mods) MP.sendHits(v, hits, 'blast', mods, null, true); else MP.sendHits(v, hits, 'blast'); }
     }
     if (mpOn()) return; // (no targets in multiplayer)
     for (const e of S.targets) {
@@ -160,7 +173,7 @@ const Combat = (() => {
     const map = new Map();
     for (const p of v.parts) {
       const w = p.def.weapon;
-      if (!w || w.kind === 'flare' || w.kind === 'chaff' || w.kind === 'turret') continue; // flares, chaff and turrets work by themselves
+      if (!w || w.kind === 'flare' || w.kind === 'chaff' || w.kind === 'turret' || w.kind === 'smoke') continue; // flares, chaff, turrets and smoke work by themselves
       if (!map.has(p.type)) map.set(p.type, { key: p.type, def: p.def, w, parts: [] });
       map.get(p.type).parts.push(p);
     }
@@ -263,11 +276,17 @@ const Combat = (() => {
     if (!(p.ammo > 0)) p.cool = 0;
   }
   function fireRocket(v, p, enemy, sim) {
-    const w = p.def.weapon;
+    const w = p.def.weapon, A = p.def.aim; // (A: the ground update's rocket rails, off their rails along their aim)
     p.side = nextSide(p);
-    const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0);
+    let wp, dir;
+    if (A) {
+      wp = Aim.muzzle(v, p, v3()); dir = Aim.dir(v, p, v3());
+      const k = w.spread || 0; // (a ripple spreads)
+      if (k) { dir.x += (Math.random() - 0.5) * 2 * k; dir.y += (Math.random() - 0.5) * 2 * k; dir.z += (Math.random() - 0.5) * 2 * k; norm3(dir); }
+    } else { const m = muzzle(p, p.side), ax = partAxis(p); wp = v.toWorld(m.x, m.y, m.z); dir = v.axis(ax.x, ax.y, 0); }
     const s = { k: 'rocket', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + dir.x * w.speed, vy: v.vy + dir.y * w.speed, vz: v.vz + dir.z * w.speed,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: 9, burn: w.burn, accel: w.accel, dmg: w.dmg, blast: w.blast, owner: v, enemy };
+    if (A) { s.life = w.life || 9; s.he = w.he; s.spare = v; if (w.coast != null) s.coast = w.coast; } // (its blast through armour; its own launcher spared at the muzzle)
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) Sound.burst(0.25, 1200, 0.4, 'bandpass');
@@ -275,12 +294,24 @@ const Combat = (() => {
     return s;
   }
   function launchMissile(v, p, target, sim) {
-    const w = p.def.weapon;
+    const w = p.def.weapon, A = p.def.aim; // (A: the ground update's launchers: out of the tube along their aim, boosted)
     p.side = nextSide(p);
-    const m = muzzle(p, p.side), wp = v.toWorld(m.x, m.y, m.z), ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0), down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 };
+    let wp, dir, down;
+    if (A) { wp = Aim.muzzle(v, p, v3()); dir = Aim.dir(v, p, v3()); down = { x: dir.x * ((w.boost || 0) / 4), y: dir.y * ((w.boost || 0) / 4), z: dir.z * ((w.boost || 0) / 4) }; }
+    else { const m = muzzle(p, p.side), ax = partAxis(p); wp = v.toWorld(m.x, m.y, m.z); dir = v.axis(ax.x, ax.y, 0); down = v.kind === 'plane' ? v.axis(1, 0, 0) : { x: 0, y: 0, z: 0 }; }
     const s = { k: 'missile', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + down.x * 4, vy: v.vy + down.y * 4, vz: v.vz + down.z * 4,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: w.life || 24, burn: w.burn, accel: w.accel, vmax: w.vmax, turn: w.turn, dmg: w.dmg, blast: w.blast,
       seek: w.seek, heat: !w.radar && w.seek === 'air', glide: !!w.glide, target, owner: v, launcher: v, enemy: !!v.ai, ...airframe(w) };
+    if (A) { // a hot launch (the motor at once, guidance a moment later: no nose-dive off the rail), a shaped charge, its guidance
+      s.coast = 0.05; s.gt = 0.2; s.spare = v; s.part = p; s.sim = sim; s.enemy = !!v.ai && !v.ai.ally;
+      if (w.heat) s.pen = w.heat;
+      if (w.tandem) s.tandem = true;
+      if (w.he) s.he = w.he;
+      if (w.seek === 'saclos') { s.saclos = true; s.target = null; } // (it rides the line of aim)
+      else if (w.seek === 'top') { s.top = true; s.tgt = target; s.target = null; s.loft = w.loft || 150; } // (its own lock: no proximity burst short of the roof)
+      else if (w.seek === 'clos') s.clos = true; // (the tracking radar steers it)
+      else if (w.radar && w.seek === 'air') s.gr = true; // (semi-active on the tracking radar)
+    }
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) { if (w.glide) Sound.separate(); else Sound.missile(); }
@@ -331,12 +362,14 @@ const Combat = (() => {
     return true;
   }
   // Countermeasures by hand (key K, or the button), at most every 0.6 s: flares, and a bundle from a chaff dispenser
-  // (without one, or once it is empty, the flares bring their own cloud, as they always did).
+  // (without one, or once it is empty, the flares bring their own cloud, as they always did). A ground vehicle's smoke
+  // launchers fire their salvo first (the ground update's SMOKE).
   function countermeasures(v, sim) {
     const now = sim.time || 0;
     if (!v || v.dead || v.remote || !v.parts.length || (now >= S.cmAt && now - S.cmAt < 0.6)) return false;
+    const sm = !!v.gv && Aim.smoke(v, sim);
     const p = dispenser(v), fl = flares(v, sim, !p), ch = !!p && chaff(v, sim, p);
-    if (!fl && !ch) return false;
+    if (!fl && !ch && !sm) return false;
     S.cmAt = now;
     return true;
   }
@@ -403,11 +436,13 @@ const Combat = (() => {
     if (!cur) { S.lock = S.cand = null; return; }
     const w = cur.w;
     // missiles lock on to whatever sits nearest the nose, inside the seeker's cone and range
-    if (w.kind === 'missile') {
+    if (w.kind === 'missile' && cur.def.aim && (w.seek === 'saclos' || w.radar)) { // (a wire-guided missile has no seeker; a ground radar SAM rides the tracking radar's lock)
+      S.cand = S.lock = w.radar ? Aim.lockTarget(v) : null; S.lockT = 0; S.lockR = false;
+    } else if (w.kind === 'missile') {
       // heat seekers see a hot target further (and a cold one, or one seen from the front, much closer);
       // radar needs to see the target (not notching) and keeps its lock anywhere within its field
-      const range = rangeOf(v, w), fwd = noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
-      const cands = candidates(v, w.seek, F);
+      const range = rangeOf(v, w), fwd = cur.def.aim ? Aim.aimDir(v, undefined, F) : noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
+      const cands = candidates(v, w.seek, F), ir = (heat || w.seek === 'top') && S.smoke.length > 0; // (smoke hides a target from an IR seeker)
       let best = null, ba = w.cone;
       if (sarh && S.lock && cands.some((c) => c.ref === S.lock) && radarSees(v, S.lock, refPos(S.lock)) === true && !chaffBreaks(v, S.lock)) best = S.lock;
       else for (const c of cands) {
@@ -415,16 +450,20 @@ const Combat = (() => {
         if (d > range || d < (air ? 350 : 150)) continue;
         if (heat && d > range * clamp(Math.sqrt(irSig(c.ref, v)), 0.2, 1)) continue;
         if (sarh && radarSees(v, c.ref, refPos(c.ref)) !== true) continue;
+        if (ir && Aim.smokeBlocks(v, c)) continue;
         const ang = Math.acos(clamp((dx * fwd.x + dy * fwd.y + dz * fwd.z) / d, -1, 1));
         if (ang < ba) { ba = ang; best = c.ref; }
       }
       if (best && best === S.cand) S.lockT += dt; else { S.cand = best; S.lockT = 0; }
-      S.lock = best && S.lockT > (w.radar ? 1.4 * (best.parts && jams(best) ? 2 : 1) : 0.9) ? best : null; // (a jammer slows a radar lock)
+      S.lock = best && S.lockT > (w.lockT || (w.radar ? 1.4 * (best.parts && jams(best) ? 2 : 1) : 0.9)) ? best : null; // (a jammer slows a radar lock)
       S.lockR = !!w.radar; // (a radar lock warns its target; a heat seeker is passive)
       S.toneT -= dt;
       if (S.cand && S.toneT <= 0) { Sound.tone(S.lock ? 1250 : 820, S.lock ? 0.09 : 0.06, S.lock ? 0.06 : 0.035); S.toneT = S.lock ? 0.1 : 0.32; }
     } else { S.lock = S.cand = null; S.lockT = 0; }
     if (!edge) return;
+    // (the ground update's main guns and launchers: one round if one is loaded, from rounds in the racks too, so no
+    // "empty" while it reloads; they say themselves why they can't)
+    if (cur.def.aim && (w.kind === 'tgun' || w.kind === 'missile')) { Aim.fire(v, cur, dt, F, S.lock); return; }
     if (!cur.parts.some((p) => (p.ammo || 0) > 0)) { F.toast(`${cur.def.name}: empty`); return; }
     if (w.kind === 'missile') launchMissile(v, nextStore(cur), S.lock, F);
     else if (w.kind === 'bomb') dropBomb(v, nextStore(cur), F);
@@ -451,18 +490,27 @@ const Combat = (() => {
   }
   // what a seeker can lock on to: planes in the air (bandits, drones), or things on the ground and at sea
   // (and the other players' craft, enemies only: in the air for air seekers, on the ground or cars for the rest)
+  // (the ground update: ground vehicles of any ground kind; the local ground AI's on the ground (not their wrecks, which
+  // are cold); and for anti-radar seekers, any vehicle whose search or tracking radar works: an emitter too)
   function candidates(v, seek, F) {
     const out = [], foes = typeof MP !== 'undefined' ? MP.enemyGhosts().filter((g) => !g.hiddenUntilSnap) : [];
     if (seek === 'air') {
-      for (const o of F.vessels) if (o !== v && !o.dead && o.ai && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o });
+      for (const o of F.vessels) if (o !== v && !o.dead && o.ai && !o.ai.ground && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o });
       for (const e of S.targets) if (e.alive && e.def.air) out.push({ ...e.pos, ref: e });
-      for (const g of foes) if (g !== v && !g.landed && g.kind !== 'car') out.push({ x: g.x, y: g.y, z: g.z, ref: g });
+      for (const g of foes) if (g !== v && !g.landed && !isGround(g.kind)) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
     } else {
       for (const e of S.targets) if (e.alive && !e.def.air && (seek !== 'radar' || e.def.emitter)) { const c = targetCentre(e); out.push({ ...c, ref: e }); }
-      if (seek !== 'radar') for (const g of foes) if (g !== v && (g.landed || g.kind === 'car')) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
+      if (seek !== 'radar') for (const g of foes) if (g !== v && !g.wreck && (g.landed || isGround(g.kind))) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
+      if (S.gai || seek === 'radar') for (const o of F.vessels) {
+        if (o === v || o.dead || o.wreck || !o.gv || (o.remote && !foes.includes(o))) continue;
+        const ground = !!(o.ai && o.ai.ground && !o.ai.ally && o.control && !o.ko); // (not our side's, in a practice battle)
+        if (seek === 'radar' ? (o.remote || ground) && emits(o) : ground) out.push({ x: o.x, y: o.y, z: o.z, ref: o });
+      }
     }
     return out;
   }
+  // a ground vehicle's radar, working: something an anti-radar missile can home on
+  const emits = (o) => o.parts.some((p) => (p.def.searchRadar || p.def.trackRadar) && !p.broken);
   function refPos(t) { // where a missile's target is, and how fast it moves
     if (!t) return null;
     if (t.flare) return { x: t.x, y: t.y, z: t.z, vx: t.vx, vy: t.vy, vz: t.vz, alive: t.t < t.life };
@@ -493,6 +541,9 @@ const Combat = (() => {
       for (const p of v.parts) if (p.def.weapon && p.def.weapon.kind === 'turret') { n++; turretStep(v, p, h, F); }
       if (!n) v.turrets = 0; // none on board: stop looking (a rebuilt craft is a new vessel)
     }
+    // the ground update's aimed guns and launchers (the player's and the ground AI's), and smoke clouds
+    if ((v && v.aimed && v.aimed.length) || S.gai) Aim.stepAll(F, h);
+    if (S.smoke.length) Aim.smokeStep(h);
     // a jammer: enemy missiles tracking the craft lose it now and then (not at the last moment)
     if (v && jams(v)) for (const m of S.shots) if (m.k === 'missile' && m.enemy && !m.net && m.target === v && len(m.x - v.x, m.y - v.y, m.z - v.z) > 1200 && Math.random() < 0.35 * h) m.target = null;
     for (const t of S.targets) if (t.firing) aaFire(t, h, F);
@@ -513,21 +564,25 @@ const Combat = (() => {
         if (!w || !(p.ammo > 0)) continue;
         if (w.kind === 'gun' && P.gun && P.gun[p.type]) fireGun(g, p, h, foe, F, true);
         else if (w.kind === 'turret' && p.gunOn) turretFire(g, p, h, F, foe, true);
+        else if (w.kind === 'agun' && p.gunOn) Aim.netFire(g, p, h, F, foe); // (an aimed automatic gun, along its aim as we see it)
       }
     }
   }
   function moveShot(s, h, F) {
+    if (s.k === 'shell') return Armour.moveShell(s, h, F); // (the ground update's shells: armour.js)
     if (s.k === 'torp') return swim(s, h, F);
     if (s.netId != null) return moveReplica(s, h, F);
     const b = s.b, r0 = len(s.x, s.y, s.z), g = b.mu / (r0 * r0);
     s.t += h;
-    if (s.t > s.life) { if (s.k === 'missile' && !s.net) explode(b, s, s.blast * 0.4, 0, s.owner, F, true); return false; }
+    const spare = s.t < 0.6 ? s.spare : undefined; // (a ground launcher's own blast doesn't hurt it at the muzzle)
+    if (s.t > s.life) { if (s.k === 'missile' && !s.net) explode(b, s, s.blast * 0.4, 0, s.owner, F, true, s.he, spare); return false; }
     const rho = airDensity(b, r0 - b.radius);
     let spd = len(s.vx, s.vy, s.vz);
     let pulled = 0;
     if (s.k === 'missile' || s.k === 'rocket') {
-      const motor = s.t > (s.k === 'missile' ? 0.35 : 0) && s.t < (s.k === 'missile' ? 0.35 : 0) + s.burn;
-      if (s.k === 'missile' && s.t > 0.35) { if (s.air) pulled = guideAir(s, h, spd, rho); else guide(s, h, spd); }
+      // the motor lights after tm and guidance starts at tg (0.35 s clear of the launcher; ground launchers sooner)
+      const tm = s.coast ?? (s.k === 'missile' ? 0.35 : 0), tg = s.gt ?? 0.35, motor = s.t > tm && s.t < tm + s.burn;
+      if (s.k === 'missile' && s.t > tg) { if (s.air) pulled = guideAir(s, h, spd, rho); else guide(s, h, spd); }
       if (motor) { s.vx += s.dx * s.accel * h; s.vy += s.dy * s.accel * h; s.vz += s.dz * s.accel * h; }
       spd = len(s.vx, s.vy, s.vz);
       if (s.air) { // past its top speed the drag climbs steeply; turning hard costs speed, more so in thin air
@@ -550,7 +605,7 @@ const Combat = (() => {
     let hit = null, ht = 2, hv = null;
     for (const o of s.net ? [] : F.vessels) {
       if (o.dead || o.body !== b || (o === s.owner && s.t < 1.5)) continue;
-      const q = hitVessel(o, a, e);
+      const q = o.plated ? Armour.hitFirst(o, a, e) : hitVessel(o, a, e);
       if (q && q.t < ht) { ht = q.t; hit = q.p; hv = o; }
     }
     // targets
@@ -570,18 +625,19 @@ const Combat = (() => {
     // missiles burst when they pass close: the proximity fuse
     if (s.k === 'missile' && s.target && !hit && !he && armed) {
       const tp = refPos(s.target);
-      if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.blast * 0.45) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F); return false; } }
+      if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.blast * 0.45) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F, undefined, s.he, spare); return false; } }
     }
     if (hit && ht <= ht2) {
       const at = lerp3(a, e, ht);
-      if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet');
+      if (hit.def.armour) return Armour.legacyHit(s, hv, hit, at, F); // (an armoured part: armour.js decides what gets through, and the blast)
+      if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
       else if (hv.remote) { FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg, 'shot'); } // (its owner takes the damage)
       else { damage(hv, hit, s.dmg, 'shot', F, s.owner); FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (hv === F.active) Sound.hit(); }
       return false;
     }
     if (he) {
       const at = lerp3(a, e, ht2);
-      if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet');
+      if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
       else { hitTarget(he, s.dmg, s.owner, F); FX.sparks(b, at, { x: 0, y: 0, z: 0 }, 3); }
       return false;
     }
@@ -599,7 +655,7 @@ const Combat = (() => {
         return true;
       }
       if (s.blast > 0 && s.net) { if (s.blast < 8) boomFX(b, e, s.blast, true, F); } // (a big one: its owner's boom shows it)
-      else if (s.blast > 0) explode(b, e, s.blast, s.dmg, s.owner, F, s.k === 'bullet');
+      else if (s.blast > 0) explode(b, e, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
       else if (Math.random() < 0.35) {
         const n = { x: e.x / L.r, y: e.y / L.r, z: e.z / L.r };
         if (water) FX.splash(b, e, n, 2); else FX.puff(b, e, { x: n.x * 3, y: n.y * 3, z: n.z * 3 }, 1, '#9a8f7c');
@@ -764,16 +820,16 @@ const Combat = (() => {
   // Steer by proportional navigation; returns the g pulled (turning costs speed: moveShot).
   function guideAir(s, h, spd, rho) {
     const t = s.target;
-    if (!t) return 0;
+    if (!t) { if (s.part) Aim.straight(s, spd); return 0; } // (a ground launcher's flies on straight)
     const tp = refPos(t);
     if (!tp || !tp.alive) { s.target = null; return 0; }
     if (s.sarh && !t.flare) { // the launcher's radar (a craft's, or a ship's) must hold the target: notching gets 0.4 s of grace, a lost lock 1 s of memory
-      const r = s.launcher && s.launcher.def ? siteSees(s.launcher, t, tp, s) : radarSees(s.launcher, t, tp);
+      const r = s.gr ? Aim.radarSees(s.launcher, t, tp, s) : s.launcher && s.launcher.def ? siteSees(s.launcher, t, tp, s) : radarSees(s.launcher, t, tp); // (gr: a ground launcher's tracking radar, all round)
       s.notchT = r === 'notch' ? s.notchT + h : 0;
       s.lostT = r === true || (r === 'notch' && s.notchT < 0.4) ? 0 : s.lostT + h;
       if (s.lostT > 1) { s.target = null; return 0; }
     }
-    if (s.t > 0.35 + s.burn && spd < 150) { s.target = null; return 0; } // too slow to steer any more
+    if (s.t > (s.coast ?? 0.35) + s.burn && spd < 150) { s.target = null; return 0; } // too slow to steer any more
     let rx = tp.x - s.x, ry = tp.y - s.y, rz = tp.z - s.z;
     const d = len(rx, ry, rz) || 1;
     rx /= d; ry /= d; rz /= d;
@@ -799,6 +855,9 @@ const Combat = (() => {
     return al / 9.81;
   }
   function guide(s, h, spd) {
+    if (s.saclos) return Aim.guideSaclos(s, h, spd); // (the ground update's: wire-guided, top attack, command guided)
+    if (s.top) return Aim.guideTop(s, h, spd);
+    if (s.clos) return Aim.guideClos(s, h, spd);
     const tp = refPos(s.target);
     if (!tp || !tp.alive) { s.target = null; return; }
     const dx = tp.x - s.x, dy = tp.y - s.y, dz = tp.z - s.z, d = len(dx, dy, dz);
@@ -821,6 +880,7 @@ const Combat = (() => {
   const bodyOf = (id) => (typeof BODY_BY_ID !== 'undefined' && typeof id === 'string' && Object.prototype.hasOwnProperty.call(BODY_BY_ID, id) && BODY_BY_ID[id]) || EARTH;
   const vec = (a) => (Array.isArray(a) && a.length === 3 && a.every(Number.isFinite) ? a : null);
   function netShot(g, m) {
+    if (m.k === 'shell') return Armour.netShell(g, m);
     const P = vec(m.P), V = vec(m.V), D = vec(m.D) || [0, 0, 0], bomb = m.k === 'bomb';
     if (!g || !P || !V) return;
     S.shots.push({ k: bomb ? 'bomb' : 'rocket', b: bodyOf(m.b), x: P[0], y: P[1], z: P[2], vx: V[0], vy: V[1], vz: V[2], dx: D[0], dy: D[1], dz: D[2],
@@ -863,6 +923,7 @@ const Combat = (() => {
   // (each flare of a pair comes on its own: about the same odds per pair as ours). chaff: 0 a flare, 1 the cloud
   // that comes with flares, 2 a dispenser's bundle (anything else is taken as the nearest of those).
   function netFlares(g, m) {
+    if (m.smoke) return Aim.netSmoke(g, m); // (smoke grenades)
     const P = vec(m.P), V = vec(m.V);
     if (!g || !P || !V) return;
     const c = clamp(Math.round(+m.chaff) || 0, 0, 2);
@@ -1150,6 +1211,11 @@ const Combat = (() => {
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;
     }
+    // the ground update: the Tank Range and the Practice Battle (groundai.js); repairs, fires and crews taking another's
+    // seat, and radars, for the player's ground vehicle and the ground AI's
+    if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle) GroundAI.frame(F, dt);
+    if (v.gv) { Armour.repairStep(v, dt, F); Aim.radarStep(v, F, dt); }
+    if (S.gai) for (const o of F.vessels) if (o !== v && o.gv && o.ai && o.ai.ground && !o.dead) { Armour.repairStep(o, dt, F); Aim.radarStep(o, F, dt); }
     // missiles homing on the player's craft: only a warning receiver hears them (without one, a missile's red marker,
     // when it is in sight, is all there is). With one, a warning tone; and flying solo (not in multiplayer: K there) the
     // countermeasures go out by themselves: the right decoy with a threat display (flares against a heat seeker, chaff
@@ -1169,15 +1235,19 @@ const Combat = (() => {
     cmFX(F, dt);
     playerFrame(F, dt);
     // a radar lock on another player's craft lights up their warner (sent again every second while it holds)
-    const lk = S.lock && S.lock.remote && S.lockR ? S.lock.remote : 0;
+    const lk = (S.lock && S.lock.remote && S.lockR ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
     if (typeof MP !== 'undefined' && (lk !== S.lockPid || (lk && performance.now() - S.lockAt > 1000))) { MP.sendLock(lk, !!lk); S.lockPid = lk; S.lockAt = performance.now(); }
     // damaged parts smoke, badly damaged ones burn; leaking tanks lose fuel
     S.smokeT -= dt;
     if (S.smokeT <= 0) {
       S.smokeT = 0.07; S.smokeN = (S.smokeN || 0) + 1;
+      let wk = null; // (knocked-out ground vehicles: only the three nearest wrecks smoke)
+      for (const o of F.vessels) if (o.wreck && !o.dead) (wk = wk || []).push(o);
+      if (wk && wk.length > 3) { const d = (o) => len(o.x - v.x, o.y - v.y, o.z - v.z); wk.sort((a, b) => d(a) - d(b)); wk.length = 3; }
       for (const o of F.vessels) {
-        if (o.dead || o.body !== v.body || len(o.x - v.x, o.y - v.y, o.z - v.z) > 5000) continue;
+        if (o.dead || o.body !== v.body || len(o.x - v.x, o.y - v.y, o.z - v.z) > 5000 || (o.wreck && !wk.includes(o))) continue;
         for (const p of o.parts) {
+          if (p.def.module) { Armour.partFX(o, p, S.smokeN); continue; } // (tracks, crews, engines: only what really burns does)
           if (p.hp == null) continue;
           const f = hpFrac(p);
           if (f > 0.6) continue;
@@ -1196,6 +1266,7 @@ const Combat = (() => {
   function reset(F) {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
+    S.smoke = []; S.gai = 0;
     void F;
   }
 
@@ -1247,9 +1318,11 @@ const Combat = (() => {
         if (S.lock) { ctx.fillStyle = '#7dffb0'; ctx.fillText('LOCK', s.x, s.y - 20); }
       }
     }
-    // guns: a pipper where the rounds will be 600 m out, and a lead marker on the nearest bandit or drone
-    if (cur && (cur.w.kind === 'gun' || cur.w.kind === 'rocket')) {
-      const spd = cur.w.kind === 'gun' ? cur.w.speed : 400, fwd = noseDir(v), tof = 600 / spd, up = norm3(v3(v.x, v.y, v.z)), g = 4.9 * tof * tof;
+    // guns: a pipper where the rounds will be 600 m out, and a lead marker on the nearest bandit or drone (aiming a
+    // ground vehicle's guns, the ground HUD draws its own; an aimed gun elsewhere fires its first shell)
+    const sh = cur && cur.def.aim && cur.w.shells && SHELLS[cur.w.shells[0]];
+    if (cur && !F.groundAim && (cur.w.kind === 'gun' || cur.w.kind === 'rocket' || sh)) {
+      const spd = sh ? sh.v0 : cur.w.kind === 'gun' ? cur.w.speed : 400, fwd = noseDir(v), tof = 600 / spd, up = norm3(v3(v.x, v.y, v.z)), g = 4.9 * tof * tof;
       const px = v.x + (v.vx + fwd.x * spd) * tof - up.x * g, py = v.y + (v.vy + fwd.y * spd) * tof - up.y * g, pz = v.z + (v.vz + fwd.z * spd) * tof - up.z * g;
       const s = pr(px, py, pz);
       if (!s.behind) {
@@ -1434,20 +1507,31 @@ const Combat = (() => {
     Sound.click();
   }
   // What the weapon box shows: the weapon chosen, its rounds, flares and chaff left (and the CM button). A craft with
-  // only a turret shows its rounds; one with only flares or chaff, those (cmOnly: no FIRE button).
+  // only a turret shows its rounds; one with only flares or chaff, those (cmOnly: no FIRE button). The ground update's:
+  // a gun by its calibre and loaded round with every round aboard (racks too) and its reload (0..1, ready); smoke
+  // grenades left (smoke: the SMOKE button, also on a vehicle whose only weapons they are).
   function status(v) {
     const sys = v ? systems(v) : [];
     const has = (k) => v.parts.some((p) => p.def.weapon && p.def.weapon.kind === k);
     const sum = (k) => v.parts.filter((p) => p.def.weapon && p.def.weapon.kind === k).reduce((s, p) => s + (p.ammo || 0), 0);
     if (!sys.length) {
       if (!v) return null;
-      const tur = has('turret');
-      if (!tur && !has('flare') && !has('chaff')) return null;
-      return { name: tur ? 'TURRET' : !has('chaff') ? 'FLARES' : !has('flare') ? 'CHAFF' : 'CM', ammo: tur ? sum('turret') : null, n: 0, lock: false, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0, cmOnly: !tur, fl: has('flare'), ch: has('chaff') }; // (fl/ch: so an emptied one still shows its 0)
+      const tur = has('turret'), sm = !!v.gv && has('smoke');
+      if (!tur && !has('flare') && !has('chaff') && !sm) return null;
+      const o = { name: tur ? 'TURRET' : sm && !has('flare') && !has('chaff') ? 'SMOKE' : !has('chaff') ? 'FLARES' : !has('flare') ? 'CHAFF' : 'CM', ammo: tur ? sum('turret') : null, n: 0, lock: false, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0, cmOnly: !tur, fl: has('flare'), ch: has('chaff') }; // (fl/ch: so an emptied one still shows its 0)
+      if (sm) o.smoke = sum('smoke');
+      return o;
     }
     const cur = sys[v.wsel], w = cur.w;
-    return { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
+    const o = { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
       lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
+    if ((w.kind === 'tgun' || w.kind === 'agun') && cur.def.aim) { // (an aimed gun: '85 mm APHE', every round it has, its reload)
+      const a = Aim.status(v), sh = a && a.shells[a.sel];
+      o.name = (w.cal < 15 ? 'MG' : `${w.cal} mm`) + (sh && w.shells.length > 1 ? ` ${sh.label}` : '');
+      if (a) { o.ammo = a.rounds; o.reload = a.reload; o.ready = a.ready; }
+    }
+    if (v.gv && has('smoke')) o.smoke = sum('smoke');
+    return o;
   }
   const SHORT = { gun: 'GUN', rocket: 'RKT', aam: 'AAM', radar: 'RADAR', agm: 'AGM', bomb: 'BOMB' };
   function integrity(v) { // the whole craft's health, 0..1
@@ -1459,6 +1543,9 @@ const Combat = (() => {
   return {
     S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, cycle, status, systems, integrity, flares, chaff, stealthOf,
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
+    // (for the ground update's systems: aim.js, armour.js, groundai.js)
+    candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
+    targetCentre, hitTarget, aiDown, jams, radarOf, boomFX,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },
   };
 })();

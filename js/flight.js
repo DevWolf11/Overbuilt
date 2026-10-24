@@ -13,6 +13,9 @@ const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
 
 const Flight = {
   running: false,
+  // the ground update's aim mode (ghud.js and the 3F controls keep these): aiming a ground vehicle's guns, the aim
+  // camera on, looking round freely (C held), the machine guns firing (Space, the MG button)
+  groundAim: false, aimCam: false, freeLook: false, mgFiring: false,
 
   init(canvas) {
     this.canvas = canvas;
@@ -24,7 +27,9 @@ const Flight = {
   },
 
   // ------------------------------------------------------------------ lifecycle
-  // opts (multiplayer): { place: { e, z, yaw, catapult }, time, mp: { mode, solo, phase } }
+  // opts (multiplayer): { place: { e, z, yaw, catapult }, time, mp: { mode, solo, phase } }; place.air { alt, speed }:
+  // start flying, that high over the spot at that speed with the gear up; keep: vessels to keep (other players' wrecks,
+  // the Practice Battle's AI), as they are
   start(design, opts) {
     this.design = design;
     this.mp = (opts && opts.mp) || null;
@@ -38,7 +43,7 @@ const Flight = {
     const adj = new Map();
     for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
     const v = new Vessel(ps, adj, EARTH);
-    v.name = design.name || 'Rocket';
+    v.name = design.name || (design.kind === 'tank' ? VEHICLE_KINDS.tank.name : 'Rocket');
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
@@ -49,10 +54,18 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
+    if (P && P.air) { // an air start: raised over the spot, flying along its nose, gear up
+      const r = v.radius(), up = +P.air.alt || 0, sp = +P.air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
+      v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
+      v.vx = f.x * sp; v.vy = f.y * sp; v.vz = f.z * sp;
+      v.landed = false;
+      if (v.hasRetract) { v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true; }
+    }
     if (v.kind === 'heli') v.throttle = 0;
     this.launchCost = designCost(ps);
     if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
-    this.resetState([v], v, opts && opts.time != null ? opts.time : 0);
+    const kept = opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [];
+    this.resetState([v, ...kept], v, opts && opts.time != null ? opts.time : 0);
     if (P && P.catapult && v.kind === 'plane') this.armCatapult(v, P);
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w; // planes lie on their side
@@ -88,7 +101,7 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
-    this.firing = false;
+    this.firing = false; this.mgFiring = false;
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
     Combat.reset(this);
@@ -113,7 +126,8 @@ const Flight = {
     if (this.mp) { MP.respawn(); return; }
     Career.earn(this.launchCost);
     store.set('rss.flight', null);
-    this.start(this.design);
+    const place = this.design.kind === 'tank' ? GroundMode.soloPlace(this.design.kind) : null; // (Armour starts on its range: back there)
+    this.start(this.design, place ? { place } : undefined);
   },
 
   // What a flight under way holds on to: the screen kept on, and the sound running. Paused or over, both are
@@ -143,7 +157,7 @@ const Flight = {
 
   // ------------------------------------------------------------------ save / resume
   serialize() {
-    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && v.parts.length);
+    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length);
     return {
       v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
       active: keep.indexOf(this.active), flags: this.flags, stats: this.stats,
@@ -396,6 +410,7 @@ const Flight = {
     this.warpIdx = 0;
     if (this.catapult) this.catapult.state = 'done';
     if (this.mp && MP.onLocalDestroyed()) { this.updateHUD(true); return; }
+    if (GroundAI.battle && GroundAI.onDestroyed(this)) return; // (the Practice Battle: its own respawn, keeping its AI)
     setTimeout(() => {
       if (!this.running || this.ended || !this.destroyed) return;
       const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
@@ -521,7 +536,7 @@ const Flight = {
         const near = [], far = [];
         const ap = this.absPos(this.active);
         for (const v of this.vessels) {
-          if (v.remote) continue; // other players' craft: their owners fly them
+          if (v.remote || v.kin || v.wreck) continue; // other players' craft: their owners fly them (ground AI moves itself; wrecks stay put)
           if (v === this.active) { near.push(v); continue; }
           const d = this.dist(this.absPos(v), ap);
           if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
@@ -636,7 +651,7 @@ const Flight = {
       this.checkSOI(v, this.time);
     }
     // other players' craft coast between snapshots, so rounds and missiles meet them where they are now
-    if (this.mp) for (const v of this.vessels) if (v.remote) { v.x += v.vx * h; v.y += v.vy * h; v.z += v.vz * h; }
+    if (this.mp) for (const v of this.vessels) if (v.remote && !v.wreck) { v.x += v.vx * h; v.y += v.vy * h; v.z += v.vz * h; }
     if (this.catapult) this.catapultStep(h);
     this.arrestStep(h);
     Combat.step(h, this);
@@ -669,7 +684,7 @@ const Flight = {
     const t0 = this.time;
     const used = this.railsAdvance(a, T, true, t0);
     for (const v of this.vessels) {
-      if (v === a || v.dead || v.remote) continue;
+      if (v === a || v.dead || v.remote || v.kin || v.wreck) continue; // (ground AI and wrecks stay where they are)
       const u = this.railsAdvance(v, used, false, t0);
       if (u < used - 1e-6 && !v.control) v.dead = true;
     }
@@ -854,7 +869,7 @@ const Flight = {
         if (this.hoverSince == null) this.hoverSince = this.time;
         if (this.time - this.hoverSince >= 10) this.award('hover');
       } else this.hoverSince = null;
-      if (v.kind === 'car' && v.wheelsDown && sp > 0.5) {
+      if (isGround(v.kind) && v.wheelsDown && sp > 0.5) {
         this.driven += sp * dtm;
         if (this.driven > 1000) this.award('drive1k');
       }

@@ -99,6 +99,7 @@ const App = {
             this.clear2D();
             World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
           } else Flight.render(this.ctx, this.W, this.H, this.dpr);
           this.ink = true;
