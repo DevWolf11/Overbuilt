@@ -345,6 +345,7 @@ const Aim = {
   // mgFire), and a computer's main gun and launchers on aimFire whenever they are ready (its target: v.aimT).
   stepAll(F, h) {
     const v = F.active;
+    if (aimTopQ.length) aimTopStep(4); // (an arena's highest ground, a few points a step)
     if (v && v.aimed.length && !v.remote && v.parts.length && !F.destroyed) {
       this.step(v, h, F, null);
       this.assist(v, h, F);
@@ -719,7 +720,7 @@ const Aim = {
   flash(v, m, u, cal) {
     const b = v.body, k = clamp(cal / 60, 0.5, 2), at = { b, x: m.x, y: m.y, z: m.z, vx: v.vx, vy: v.vy, vz: v.vz };
     FX.add({ kind: 'flash', ...at, x: m.x + u.x * 0.6 * k, y: m.y + u.y * 0.6 * k, z: m.z + u.z * 0.6 * k, max: 0.09, size: cal / 50, grow: cal / 18, color: '#ffd27a', alpha: 1 });
-    FX.add({ kind: 'ring', ...at, max: 0.35, size: 0.4 * k, grow: 8 * k, color: '#e8dcc0', alpha: 0.5 });
+    FX.add({ kind: 'ring', ...at, max: 0.35, size: 0.3 * k, grow: 2 * k, color: '#e8dcc0', alpha: 0.5 }); // (the blast: 2-4 m, 4.6 m for a 120 mm)
     for (let i = 0; i < 3; i++) {
       const s = 3 + i * 3;
       FX.add({ kind: 'smoke', ...at, x: m.x + u.x * i, y: m.y + u.y * i, z: m.z + u.z * i, vx: v.vx + u.x * s + (Math.random() - 0.5) * 2, vy: v.vy + u.y * s + (Math.random() - 0.5) * 2,
@@ -729,7 +730,7 @@ const Aim = {
     const up = aimLoc.r - b.radius - Terrain.surfaceAt(b, aimLoc.a, aimLoc.z);
     if (up < 3) {
       const f = 1 - up / aimLoc.r, g = { b, x: m.x * f, y: m.y * f, z: m.z * f, vx: v.vx, vy: v.vy, vz: v.vz };
-      FX.add({ kind: 'ring', ...g, max: 0.7, size: 1, grow: 9 * k, color: '#a89a80', alpha: 0.45 });
+      FX.add({ kind: 'ring', ...g, max: 0.7, size: 1, grow: 3.5 * k, color: '#a89a80', alpha: 0.45 }); // (dust, about 6 m)
       FX.puff(b, g, { x: v.vx, y: v.vy, z: v.vz }, 2, '#9a8f7c');
     }
   },
@@ -1225,9 +1226,10 @@ function aimAutoload(v) {
   return t;
 }
 // how high a shell can fly before it might meet the ground (Armour.moveShell skips the ground test above it): over an
-// arena (EARTH.arenas' boxes), 5 m over its highest ground, found once on an 80 m grid with room for its berms and what
-// the grid steps over; anywhere else no such height
-const aimTops = new Map();
+// arena (EARTH.arenas' boxes), 5 m over its highest ground, found on an 80 m grid with room for its berms and what
+// the grid steps over; anywhere else no such height. The grid (about 1,250 points) is read a few points a step
+// (aimTopStep, from Aim.stepAll) from the first shot on, so no shot waits for it: until it is done, none.
+const aimTops = new Map(), aimTopQ = [];
 function aimGTop(b, m) {
   const A = b === EARTH && EARTH.arenas;
   if (!A) return Infinity;
@@ -1237,15 +1239,19 @@ function aimGTop(b, m) {
     const B = A[k].box;
     if (!B || e < B.e0 || e > B.e1 || z < B.z0 || z > B.z1) continue;
     const key = k + (EARTH.mapped ? '+' : '-');
-    let top = aimTops.get(key);
-    if (top == null) {
-      top = -Infinity;
-      for (let x = B.e0; x <= B.e1 + 1; x += 80) for (let y = B.z0; y <= B.z1 + 1; y += 80) top = Math.max(top, Terrain.surfaceAt(EARTH, siteAngle(EARTH, x), y));
-      aimTops.set(key, (top += 8));
-    }
-    return top + 5;
+    let T = aimTops.get(key);
+    if (!T) { aimTops.set(key, (T = { B, x: B.e0, y: B.z0, top: -Infinity, done: false })); aimTopQ.push(T); }
+    return T.done ? T.top + 5 : Infinity;
   }
   return Infinity;
+}
+// n more points of the grid being read (the first unfinished one)
+function aimTopStep(n) {
+  const T = aimTopQ[0], B = T.B;
+  for (let i = 0; i < n && !T.done; i++) {
+    T.top = Math.max(T.top, Terrain.surfaceAt(EARTH, siteAngle(EARTH, T.x), T.y));
+    if ((T.y += 80) > B.z1 + 1) { T.y = B.z0; if ((T.x += 80) > B.e1 + 1) { T.done = true; T.top += 8; aimTopQ.shift(); } }
+  }
 }
 // nothing between o and p (d apart) but air: the ground (or the sea) sampled every 150 m, 4 m clear (Combat's clearLine)
 function aimClear(b, o, p, d) {

@@ -100,9 +100,13 @@ r = await ev(() => {
   const want = { x: T0.x + D.x * k, y: T0.y + D.y * k, z: T0.z + D.z * k };
   const tr = vm.items.get(v.parts.find((p) => p.type === 'turretCast')), c = Aim.groupsOfParts(v.parts, v.adj)[0].c;
   const off = Math.hypot(tr.root.position.x - c.x, tr.root.position.z - c.z);
+  // ...and the same frame after frame (the turn is put on afresh, not piled on the last frame's)
+  const q1 = tr.root.quaternion.clone(), g1 = rig.root.quaternion.clone();
+  for (let i = 0; i < 4; i++) vm.sync(v, { dt: 0.016, time: Flight.time, quality: 'high' });
+  const pile = Math.max(q1.angleTo(tr.root.quaternion), g1.angleTo(rig.root.quaternion));
   // belts, wheels and the suspension
   const tk = v.parts.find((p) => p.def.track), trig = vm.items.get(tk), o0 = trig.mats.track.map.offset.x, a0 = trig.mats.rwheel.map.rotation, s0 = trig.sprocket.rotation.z;
-  tk.belt = (tk.belt || 0) + 0.4; v.susp = [0.2, 0.2];
+  const susp0 = v.susp; tk.belt = (tk.belt || 0) + 0.4; v.susp = [0.2, 0.2]; // (gear.js's own array goes back after)
   vm.sync(v, { dt: 0.016, time: Flight.time, quality: 'high' });
   const belt = { offset: trig.mats.track.map.offset.x - o0, wheels: trig.mats.rwheel.map.rotation - a0, sprocket: trig.sprocket.rotation.z - s0, susp: trig.susp.position.y, own: trig.mats.track.map !== vm.items.get(v.parts.filter((p) => p.def.track)[1]).mats.track.map };
   // recoil: back at once, home within 0.7 s
@@ -114,12 +118,13 @@ r = await ev(() => {
   // a ghost (nobody steps it): its belts run with its speed
   v.remote = 7; v.vx = 0; v.vy = 0; v.vz = 0; const q = v.q; v.vx = 2 * (1 - 2 * (q.y * q.y + q.z * q.z)); v.vy = 2 * (2 * (q.x * q.y + q.w * q.z)); v.vz = 2 * (2 * (q.x * q.z - q.w * q.y));
   const g0 = trig.mats.track.map.offset.x; vm.sync(v, { dt: 0.1, time: Flight.time, quality: 'high' }); const ghost = trig.mats.track.map.offset.x - g0;
-  delete v.remote; v.vx = v.vy = v.vz = 0; v.susp = null; ring.aimYaw = 0; gun.aimEl = 0; gun.shotAt = undefined;
+  delete v.remote; v.vx = v.vy = v.vz = 0; v.susp = susp0; ring.aimYaw = 0; gun.aimEl = 0; gun.shotAt = undefined;
   vm.dispose();
-  return { tip: [tip.x, tip.y, tip.z], want, miss: Math.hypot(tip.x - want.x, tip.y - want.y, tip.z - want.z), off, belt, back, home, charred, env, back2, ghost };
+  return { tip: [tip.x, tip.y, tip.z], want, miss: Math.hypot(tip.x - want.x, tip.y - want.y, tip.z - want.z), off, pile, belt, back, home, charred, env, back2, ghost };
 });
 ok('a turned turret and raised gun: the 3D muzzle is where aim.js puts it (within 1 cm)', r.miss < 0.01, JSON.stringify({ tip: r.tip, want: r.want, miss: r.miss }));
 ok('the turret turns about its ring (its centre stays on the ring\'s axis)', r.off < 0.01, r.off);
+ok('...and stays turned that far frame after frame (the turn does not pile up)', r.pile < 1e-9, r.pile);
 ok('a belt that moves runs its own texture round, turns its wheels and sprocket the same way', r.belt.offset !== 0 && r.belt.wheels !== 0 && Math.sign(r.belt.wheels) === Math.sign(r.belt.sprocket) && r.belt.own, JSON.stringify(r.belt));
 ok('the suspension lifts the running gear by its compression past the sag at rest', Math.abs(r.belt.susp - (0.2 - 0.4 * 0.25)) < 1e-6, r.belt.susp);
 ok('a shot kicks the barrel back, and it comes home', r.back < -0.1 && r.home === 0, `${r.back} ${r.home}`);
@@ -141,6 +146,7 @@ await ev((rows) => { Flight.running = false; App.toBuild(); Builder.loadDesign({
 await ev(() => App.setPreview3D(true));
 await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 60000 });
 r = await ev((rows) => {
+  const xr0 = Parts3D.xray; Parts3D.xray = false; // (the builder shows an armour design in X-ray to begin with: from off here)
   const ps = partsFromDesign(rows), vm = new Parts3D.VesselMesh(ps, { builder: true }), sv = { parts: ps };
   vm.sync(sv, { dt: 0, time: 0, quality: 'high' });
   const hull = vm.items.get(ps[0]), eng = vm.items.get(ps.find((p) => p.type === 'engDiesel'));
@@ -149,7 +155,7 @@ r = await ev((rows) => {
   const on = { op: hull.matList[0].opacity, c: eng.matList[0].color.getHexString(), mods: !!hull.modsMesh && hull.modsMesh.visible };
   Parts3D.xray = false; vm.sync(sv, { dt: 0, time: 0, quality: 'high' });
   const off = { op: hull.matList[0].opacity, c: eng.matList[0].color.getHexString(), mods: !!hull.modsMesh && hull.modsMesh.visible };
-  vm.dispose();
+  vm.dispose(); Parts3D.xray = xr0;
   return { before, on, off };
 }, TK34);
 ok('X-ray: the armour goes see-through and inner parts take their colour; all back after', r.on.op < 0.35 && r.on.c !== r.before.c && r.on.mods && r.off.op === r.before.op && r.off.c === r.before.c && !r.off.mods, JSON.stringify(r));

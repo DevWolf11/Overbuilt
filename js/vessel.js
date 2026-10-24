@@ -109,7 +109,10 @@ const DRIVE = { plane: pilotFrame([0, 1, 0], [-1, 0, 0]), other: pilotFrame([1, 
 const _t1 = v3(), _t2 = v3(), _t3 = v3(), _t4 = v3();
 const _ia = v3(), _ib = v3(), _ic = v3(); // (applyImpulse's)
 // What a ground-update part (def.gv) keeps in a saved flight, on top of every part's fields; read back sanitised.
-const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel'];
+// (rounds: a rack's left, mrounds: a host's built-in stores'; roles: who sits in a host's crew seats now, role: a placed
+// seat's: armour.js's stores and seat swaps)
+const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel', 'rounds', 'mrounds', 'roles', 'role'];
+const GV_ROLES = new Set(['driver', 'gunner', 'commander', 'loader', 'radio']);
 function gvSave(p, o) {
   if (p.def.gv) for (const k of GV_SAVE) if (p[k] != null) o[k] = p[k];
   return o;
@@ -124,6 +127,10 @@ function gvLoad(p) {
   set('broken', p.broken ? true : undefined);
   set('ko', p.ko ? true : undefined);
   set('stow', Number.isFinite(p.stow) ? clamp(Math.round(p.stow), 0, 100000) : undefined);
+  set('rounds', d.rack && Number.isFinite(p.rounds) ? clamp(Math.round(p.rounds), 0, d.rack.rounds || 0) : undefined);
+  set('mrounds', Array.isArray(p.mrounds) && d.mods ? d.mods.map((m, i) => (m.k === 'ammo' && Number.isFinite(p.mrounds[i]) ? clamp(Math.round(p.mrounds[i]), 0, m.rounds || 0) : null)) : undefined);
+  set('roles', Array.isArray(p.roles) && d.mods ? d.mods.map((m, i) => (m.k === 'crew' && GV_ROLES.has(p.roles[i]) ? p.roles[i] : null)) : undefined);
+  set('role', d.seat && GV_ROLES.has(p.role) ? p.role : undefined);
   const sh = w && w.shells, q = p.shellSel;
   set('shellSel', sh && (typeof q === 'string' ? sh.includes(q) : Number.isInteger(q) && q >= 0 && q < sh.length) ? q : undefined);
 }
@@ -1223,6 +1230,7 @@ class Vessel {
       parts: this.parts.map((p) => gvSave(p, { id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, att: p.att, skin: p.skin, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
         deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store })),
       adj: [...this.adj].map(([k, v]) => [k, [...v]]),
+      ...(this.gv && this.swaps && this.swaps.length ? { swaps: this.swaps.map((q) => ({ role: q.role, t: q.t })) } : {}), // (a seat waiting for someone: armour.js)
     };
   }
 
@@ -1246,6 +1254,7 @@ class Vessel {
     v.av = d.av ? v3(...d.av) : v3(0, 0, d.w || 0);
     for (const p of parts) if (p.def.wheel && p.def.wheel.retract) p.retracted = v.gearUp;
     v.rebuildGroups();
+    if (v.gv && Array.isArray(d.swaps)) { const sw = d.swaps.filter((q) => q && (q.role === 'driver' || q.role === 'gunner') && Number.isFinite(q.t)).slice(0, 4).map((q) => ({ role: q.role, t: clamp(q.t, 0, 4) })); if (sw.length) v.swaps = sw; }
     // rebuildGroups shifts position for the COM; restore the saved values
     Object.assign(v, { x: d.x, y: d.y, z: d.z || 0, vx: d.vx, vy: d.vy, vz: d.vz || 0 });
     return v;

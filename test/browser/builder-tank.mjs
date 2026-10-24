@@ -20,16 +20,13 @@ const phone = async (w = 390, h = 844, settings = {}) => {
 };
 const ok = checks('builder: armour on a phone');
 const frames = (page, n) => page.evaluate((n) => new Promise((ok) => { let i = 0; const f = () => (++i >= n ? ok() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
-// Gear, Armour and Aim tell the builder a design's numbers; where one can't yet (its package still a stub that returns
-// null), a stand-in with the same shape answers, so the formatting is tested either way
-const standIns = (page) => page.evaluate(() => {
-  const D = Math.PI / 180, used = [];
-  if (Gear.stats([{ ...makePart('hullMedium', 0, 1), def: PARTS.hullMedium }]) == null) { used.push('Gear.stats'); Gear.stats = (ps) => (ps.some((p) => p.def.gv) ? { mass: ps.reduce((m, p) => m + partKg(p), 0) / 1000, kw: 450, hpt: 22, top: 50, top0: 50, rev: 15, pivot: 40, climb: 28, tip: 0.71, overload: 0, loadT: 70 } : null); }
-  if (Armour.summary([makePart('hullMedium', 0, 1)]) == null) { used.push('Armour.summary'); Armour.summary = (ps) => (ps.some((p) => p.def.armour) ? { front: 75, side: 40, turretFront: 99, crew: 5, rounds: 42 } : null); }
-  if (Aim.summary([makePart('gun85', 0, 1)]) == null) { used.push('Aim.summary'); Aim.summary = (ps) => (ps.some((p) => p.type === 'gun85') ? { gun: '85 mm Gun', pen1k: 124, reload: 7, trav: 24, el: [-5, 22], crew: 5, rounds: 42 } : null); }
-  // the sweep: a stand-in that finds a Search Radar on the rear deck in the way when the gun turns round
-  window.__sweepReal = true;
-  return used;
+// Gear, Armour and Aim tell the builder a design's numbers (Phase 2's real ones: none of them may answer null)
+const realNumbers = (page) => page.evaluate(() => {
+  const missing = [];
+  if (Gear.stats([{ ...makePart('hullMedium', 0, 1), def: PARTS.hullMedium }]) == null) missing.push('Gear.stats');
+  if (Armour.summary([makePart('hullMedium', 0, 1)]) == null) missing.push('Armour.summary');
+  if (Aim.summary([makePart('gun85', 0, 1)]) == null) missing.push('Aim.summary');
+  return missing;
 });
 const SIX = [['Hulls', 'Sloped Medium Hull'], ['Drive', 'Medium Track'], ['Drive', 'Tank Diesel'], ['Turrets', 'Turret Ring'], ['Turrets', 'Cast Turret'], ['Guns', '85 mm Gun']];
 const tapPart = async (page, tab, name) => {
@@ -78,8 +75,8 @@ ok('it can launch, with no warnings', tank.launch && !tank.warn, tank.warn);
 await page.screenshot({ path: SHOTS + '2e-phone-six-taps.png' });
 
 // ---- 2. its numbers
-const stand = await standIns(page);
-console.log(`(stand-ins for ${stand.length ? stand.join(', ') : 'nothing: the real numbers'})`);
+const missing = await realNumbers(page);
+ok('Gear.stats, Armour.summary and Aim.summary answer for a design', !missing.length, missing.join(', '));
 await ev(() => { Builder.changed(); Builder.selected = null; Builder.renderInfo(); });
 r = await ev(() => ({
   shown: ['#s-mass', '#s-power-row', '#s-top-row', '#s-front-row'].map((id) => !$(id).closest('[hidden]')),
@@ -136,7 +133,6 @@ ok('after a reload the blueprint and the hangar keep 60 mm', r.kind === 'tank' &
 const tankRows = await ev(() => designRows(Builder.parts)); // (the six-tap tank with its 60 mm hull)
 const hangar = await ev(() => { Builder.openHangar(); const t = [...document.querySelectorAll('.design .template-blurb')].map((e) => e.textContent); UI.closeModal(); return t; });
 ok('the hangar files it as Armour', hangar.some((t) => t.startsWith('Armour · 7 parts')), hangar.join(' | '));
-await standIns(page);
 
 // ---- 4. plates go flush on a face, pairs go both sides
 r = await ev(() => {
@@ -161,9 +157,8 @@ const sweep = await ev(() => new Promise((done) => {
   App.heartbeat = 1e9;
   const hull = Builder.parts.find((p) => p.type === 'hullMedium'), [a] = Builder.roofOf(hull), D = Math.PI / 180;
   const row = { type: 'radarSearch', x: +(a + 0.35).toFixed(3), y: partRect(hull).t + 0.6 };
-  // the real sweep, unless it is still the stub (it then finds nothing): a stand-in that finds the mast in the way
+  // the real sweep finds the mast in the way
   const g = Builder.tg[0], probe = Aim.sweep([...Builder.parts, makePart(row.type, row.x, row.y)], g), real = !!(probe && probe.yawLim);
-  if (!real) { const s0 = Aim.sweep; Aim.sweep = (ps, g) => (ps.some((p) => p.type === 'radarSearch') ? { yawLim: [-150 * D, 150 * D], dep: null } : s0.call(Aim, ps, g)); }
   // count the draws from the moment the answer lands (the edit's own draw may still be waiting: it is the same one then)
   // and what asks for a picture (Builder.redraw): the answer itself, once, and nothing after it
   let n = 0, at = null, last = 0, asks = 0;
@@ -184,7 +179,7 @@ const sweep = await ev(() => new Promise((done) => {
   wait();
 }));
 ok('a Search Radar on the rear deck, clear of the turret', sweep.clear);
-ok(`the sweep's answer asks for one picture when it lands, and is drawn (${sweep.real ? 'the real sweep' : 'a stand-in sweep'})`, sweep.asks === 1 && sweep.later === 0 && sweep.k >= 1, JSON.stringify({ asks: sweep.asks, later: sweep.later, draws: sweep.k }));
+ok('the sweep\'s answer asks for one picture when it lands, and is drawn', sweep.real && sweep.asks === 1 && sweep.later === 0 && sweep.k >= 1, JSON.stringify({ real: sweep.real, asks: sweep.asks, later: sweep.later, draws: sweep.k }));
 ok('...and then it is idle again', sweep.idle === 0, sweep.idle);
 ok('...with its warning: where the turret stops and what stops it', !sweep.w0.includes('The turret stops') && /The turret stops at [±−+]\d+°.*: beyond that the .+ hits the Search Radar\./.test(sweep.w1), sweep.w1);
 
@@ -233,7 +228,6 @@ const desk = await (await b.newContext({ viewport: { width: 1280, height: 720 } 
 watch(desk, errs, 'desktop ');
 await openGame(desk, srv.url, { build3d: false });
 await desk.evaluate(() => App.toBuild());
-await standIns(desk);
 await look(desk, 'desktop-2d');
 await desk.evaluate(() => App.setPreview3D(true));
 await desk.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 60000 });

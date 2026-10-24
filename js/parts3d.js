@@ -1948,7 +1948,7 @@ void main() {
   function place(rig) {
     const p = rig.part, z = partZ(p), H = rig.holders;
     rig.root.position.set(p.x, p.y, H.length > 1 ? 0 : z);
-    rig.root.rotation.z = (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2; // a pusher prop faces backwards
+    rig.root.rotation.set(0, 0, (((p.rot || 0) + (p.def.pusher ? 2 : 0)) & 3) * Math.PI / 2); // a pusher prop faces backwards (x and y too: a turret ring's turn, turnRig, goes on top afresh each frame)
     rig.root.scale.z = rig.zm && H.length === 1 && z < -0.01 ? -1 : 1;
     if (H.length > 1) for (const h of H) h.position.z = h.userData.side * z;
     if (rig.twin) { rig.twin.position.set(z, p.y, -p.x); rig.twin.rotation.set(0, Math.PI / 2, rig.root.rotation.z); }

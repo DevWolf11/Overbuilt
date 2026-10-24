@@ -41,24 +41,13 @@ var gunOf = (v, type) => partOf(v, type || 'gun85');
 var sysOf = (v, type) => Combat.systems(v).find((q) => q.key === (type || 'gun85'));
 var ringOf = (v) => v.tg[0].ring;
 var dirEl = (v, p) => { const d = Aim.dir(v, p, v3()), r = Math.hypot(v.x, v.y, v.z); return Math.asin((d.x * v.x + d.y * v.y + d.z * v.z) / r); }; // (the barrel above the level)
-var flat = (v, m) => { const T = Aim.trunnion(v, gunOf(v), v3()), S = surfaceFrame(v.x, v.y, v.z); return { x: T.x + S.east.x * m, y: T.y + S.east.y * m, z: T.z + S.east.z * m }; }; // (level with the gun, m ahead)
+var flat = (v, m, type) => { const T = Aim.trunnion(v, gunOf(v, type), v3()), S = surfaceFrame(v.x, v.y, v.z); return { x: T.x + S.east.x * m, y: T.y + S.east.y * m, z: T.z + S.east.z * m }; }; // (level with the gun, m ahead)
 // an enemy fighter (the range's raider), hot (its engine lit), alt m up at angle ang, still unless moved
 var bandit = (alt, ang) => {
   const ps = RAIDER.map(([ty, x, y, rot]) => makePart(ty, x, y, { flip: x < 0, rot: rot || 0 })), b = new Vessel(ps, buildAdjacency(ps), EARTH);
   b.kind = 'plane'; b.rebuildGroups(); level(b, alt, ang); b.ai = { t: 0, down: false };
   for (const p of b.parts) if (p.def.thrust) { p.active = true; p.firing = 1; }
   return b;
-};
-// shells fly by armour.js (Phase 2B); until that lands here, gravity and drag alone, as it will fly them
-var realShells = String(Armour.moveShell).length > 120;
-if (!realShells) Armour.moveShell = function (s, h, F) {
-  const SH = SHELLS[s.sh], b = s.b, r0 = Math.hypot(s.x, s.y, s.z), g = b.mu / (r0 * r0);
-  s.t += h;
-  if (s.t > (s.life || 6)) return false;
-  const rho = airDensity(b, r0 - b.radius), kd = SH.k * rho * Math.hypot(s.vx, s.vy, s.vz) * h;
-  s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
-  s.x += s.vx * h; s.y += s.vy * h; s.z += s.vz * h;
-  return true;
 };
 // direct hits on armour (old rounds and missiles go through Armour.legacyHit): who was hit, where
 var hits = [], LH = Armour.legacyHit;
@@ -116,11 +105,11 @@ t('the dip by direction: the 85 mm goes its full 5° down ahead and abeam, but o
 R(`var STAB = REAL.map((q) => q.type === 'gun85' ? Object.assign({}, q, { type: 'gun75', x: 1.922 }) : q);
 var pitchRun = (rows, type) => {
   const v = level(build(rows)), F = simOf(v), g = gunOf(v, type), q0 = { w: v.q.w, x: v.q.x, y: v.q.y, z: v.q.z };
-  Combat.reset(F); aimAt(F, v, flat(v, 1500)); run(F, 4);
+  Combat.reset(F); aimAt(F, v, flat(v, 1500, type)); run(F, 4);
   const e0 = dirEl(v, g); let e2 = 0, n = 0;
   run(F, 6, 1 / 120, (i, h) => { // (the hull pitching ±4° every 1.5 s: up to 17°/s)
+    if (i > 240) { const e = dirEl(v, g) - e0; e2 += e * e; n++; } // (where the last step left it, before this step's pitch)
     v.q = qmul(q0, qaxis(0, 0, 1, 4 * RAD * Math.sin((TAU * (i + 1) * h) / 1.5)));
-    if (i >= 240) { const e = dirEl(v, g) - e0; e2 += e * e; n++; }
   });
   return Math.sqrt(e2 / n);
 };
@@ -190,29 +179,31 @@ t('...its rockets fly their own life (60 s), carry their blast\'s penetration an
   R(`rk1.life === 60 && rk1.he === 25 && rk1.spare`), R('rk1'));
 
 // ---------------------------------------------------------------- firing, reloads, ammunition, shells
-R(`var rv = level(build(REAL)), RF = simOf(rv), rg = gunOf(rv), hasL = true, H0 = Armour.has, C0 = Armour.crewOf;
-Armour.has = (v, role) => (role === 'loader' ? hasL : true);
+R(`var rv = level(build(REAL)), RF = simOf(rv), rg = gunOf(rv), rt = partOf(rv, 'turretCast'), LDR = PARTS.turretCast.mods.findIndex((m) => m.role === 'loader');
 Combat.reset(RF); var f1 = Aim.fire(rv, sysOf(rv), 1 / 120, RF), re1 = rg.reload, f2 = Aim.fire(rv, sysOf(rv), 1 / 120, RF);
 run(RF, 6.9); var f3 = Aim.fire(rv, sysOf(rv), 1 / 120, RF); run(RF, 0.2); var f4 = Aim.fire(rv, sysOf(rv), 1 / 120, RF), ready5 = rg.ammo;
-var rl = Aim.reloadOf(rv, rg); hasL = false; var rn = Aim.reloadOf(rv, rg), rn120 = Aim.reloadOf(rv, { def: PARTS.gun120 });
-Armour.crewOf = () => ({ crew: [], stores: [{ host: rv.parts[0], i: -1, part: { def: PARTS.autoloader }, rounds: 22, cook: 1.4, autoload: 7 }] });
-var ra85 = Aim.reloadOf(rv, rg), ra120 = Aim.reloadOf(rv, { def: PARTS.gun120 });
-Armour.crewOf = C0; hasL = true;`);
+var rl = Aim.reloadOf(rv, rg); (rt.mods || (rt.mods = []))[LDR] = 0; // (armour.js's crew: the turret's loader killed)
+var rn = Aim.reloadOf(rv, rg), rn120 = Aim.reloadOf(rv, { def: PARTS.gun120 }), dead = !Armour.has(rv, 'loader');
+// an autoloader carousel in the turret (it takes over the turret's own rounds), its loader dead too
+var av0 = level(build(REAL.concat([{ type: 'autoloader', x: -0.3, y: 2.2, flip: false, rot: 0, att: 5 }]))); (partOf(av0, 'turretCast').mods = [])[LDR] = 0;
+var ra85 = Aim.reloadOf(av0, gunOf(av0)), ra120 = Aim.reloadOf(av0, { def: PARTS.gun120 });`);
 t('a main gun fires one round, then reloads (85 mm: 7 s): asked again sooner it waits, saying nothing',
   R(`f1 && near(re1, 7) && !f2 && !f3 && f4 && ready5 === 4 && !RF.toasts.some((m) => /empty/.test(m))`), R('[f1, re1, f2, f3, f4, ready5, RF.toasts]'));
 t('reload: half as long again with no loader alive; an autoloader\'s fixed 7 s for 100 mm guns and up (not for smaller ones)',
-  R(`near(rl, 7) && near(rn, 10.5) && near(rn120, 9) && near(ra85, 10.5) && near(ra120, 7)`), R('[rl, rn, rn120, ra85, ra120]'));
-R(`var A1 = { host: rv.parts[0], i: 2, rounds: 2, cook: 1 }, A2 = { host: rv.parts[0], i: -1, part: { def: PARTS.ammoRack }, rounds: 2, cook: 1 }, A3 = { host: rv.parts[0], i: -1, part: { def: PARTS.autoloader }, rounds: 2, cook: 1.4, autoload: 7 };
-Armour.crewOf = () => ({ crew: [], stores: [A3, A2, A1] });
+  R(`dead && near(rl, 7) && near(rn, 10.5) && near(rn120, 9) && near(ra85, 10.5) && near(ra120, 7)`), R('[dead, rl, rn, rn120, ra85, ra120]'));
+// the real stores (Armour.crewOf): the hull's own rounds, a rack in the turret (instead of the turret's own) and an
+// autoloader on the ring, two rounds each
+R(`var dv = level(build(REAL.concat([{ type: 'ammoRack', x: -0.6, y: 2.3, flip: false, rot: 0, att: 5 }, { type: 'autoloader', x: 0, y: 1.6, flip: false, rot: 0, att: 4 }]))), DF = simOf(dv), dg = gunOf(dv);
+var DS = Armour.crewOf(dv).stores, A1 = DS.find((e) => e.i >= 0), A2 = DS.find((e) => e.part && e.part.type === 'ammoRack'), A3 = DS.find((e) => e.part && e.part.type === 'autoloader');
+var nStores = DS.length; A1.rounds = A2.rounds = A3.rounds = 2; Combat.reset(DF);
 var order = [];
-for (let i = 0; i < 7; i++) { const b = [A1.rounds, A2.rounds, A3.rounds], ok = Aim.draw(rv); order.push(!ok ? '-' : A1.rounds < b[0] ? 'mod' : A2.rounds < b[1] ? 'rack' : A3.rounds < b[2] ? 'auto' : '?'); }
-A1.rounds = 1; rg.ammo = 1; rg.reload = 0; var fd = Aim.fire(rv, sysOf(rv), 1 / 120, RF), fdAmmo = rg.ammo, fdA1 = A1.rounds, fdRe = rg.reload;
-rg.ammo = 0; rg.reload = 0; A1.rounds = A2.rounds = A3.rounds = 0; RF.toasts.length = 0; RF.time += 9; var fe = Aim.fire(rv, sysOf(rv), 1 / 120, RF);
-Armour.crewOf = C0; Armour.has = H0;`);
+for (let i = 0; i < 7; i++) { const b = [A1.rounds, A2.rounds, A3.rounds], ok = Aim.draw(dv); order.push(!ok ? '-' : A1.rounds < b[0] ? 'mod' : A2.rounds < b[1] ? 'rack' : A3.rounds < b[2] ? 'auto' : '?'); }
+A1.rounds = 1; dg.ammo = 1; dg.reload = 0; var fd = Aim.fire(dv, sysOf(dv), 1 / 120, DF), fdAmmo = dg.ammo, fdA1 = A1.rounds, fdRe = dg.reload;
+dg.ammo = 0; dg.reload = 0; A1.rounds = A2.rounds = A3.rounds = 0; DF.toasts.length = 0; DF.time += 9; var fe = Aim.fire(dv, sysOf(dv), 1 / 120, DF);`);
 t('the next round comes from built-in ammunition first, then racks, then the autoloader',
-  R(`order.join() === 'mod,mod,rack,rack,auto,auto,-'`), R('order'));
+  R(`nStores === 3 && order.join() === 'mod,mod,rack,rack,auto,auto,-'`), R('[nStores, order]'));
 t('a gun out of ready rounds reloads one from the stores (it is reloading, not empty); with none anywhere it says empty',
-  R(`fd && fdAmmo === 1 && fdA1 === 0 && fdRe > 0 && !fe && RF.toasts.some((m) => /empty/.test(m))`), R('[fd, fdAmmo, fdA1, fdRe, fe, RF.toasts]'));
+  R(`fd && fdAmmo === 1 && fdA1 === 0 && fdRe > 0 && !fe && DF.toasts.some((m) => /empty/.test(m))`), R('[fd, fdAmmo, fdA1, fdRe, fe, DF.toasts]'));
 R(`var sv = level(build(REAL)), SF = simOf(sv), sg = gunOf(sv); Combat.reset(SF); SF.time = 10;
 Aim.select(sv, 1, SF); var st1 = Aim.status(sv), q1 = [st1.sel, st1.queued];
 Aim.fire(sv, sysOf(sv), 1 / 120, SF); var k1 = Combat.S.shots[Combat.S.shots.length - 1].sh;
@@ -222,10 +213,10 @@ t('shell select: 2 queues HE for the next reload, and the round already loaded g
   R(`q1[0] === 0 && q1[1] === 1 && k1 === 'aphe85' && k2sel === 'he85' && k2 === 'he85'`), R('[q1, k1, k2sel, k2]'));
 t('...the same key twice within a second takes the round out and loads that one now',
   R(`once[0] === 'he85' && once[1] === 'aphe85' && dbl[0] === 'aphe85' && dbl[1] == null && near(dbl[2], 7, 1e-9)`), R('[once, dbl]'));
-R(`var mgCount = (h) => { const v = level(build(REAL)), F = simOf(v), p = gunOf(v, 'mgCoax'), a0 = p.ammo; Combat.reset(F); F.groundAim = false; F.mgFiring = true; run(F, 2, h); return a0 - p.ammo; };
+R(`var mgCount = (h) => { const v = level(build(REAL)), F = simOf(v), p = gunOf(v, 'mgCoax'), a0 = p.ammo; Combat.reset(F); F.groundAim = false; F.mgFiring = true; run(F, 2.04, h); return a0 - p.ammo; }; // (2.04 s: off a round's boundary, where rounding would pick 24 or 25)
 var mg120 = mgCount(1 / 120), mg60 = mgCount(1 / 60), mg30 = mgCount(1 / 30);`);
-t('machine guns fire on their own key at their own rate, whatever the step (12 a second: 24 in 2 s)',
-  R(`mg120 === 24 && mg60 === 24 && mg30 === 24`), R('[mg120, mg60, mg30]'));
+t('machine guns fire on their own key at their own rate, whatever the step (the first at once, then 12 a second: 25 in 2.04 s)',
+  R(`mg120 === 25 && mg60 === 25 && mg30 === 25`), R('[mg120, mg60, mg30]'));
 R(`var kv = level(build(REAL)), KF = simOf(kv); Combat.reset(KF); var kd = Aim.dir(kv, gunOf(kv), v3()); Aim.fire(kv, sysOf(kv), 1 / 120, KF);
 var kick = { x: kv.vx, y: kv.vy, z: kv.vz }, kwant = (0.5 * SHELLS.aphe85.kg * SHELLS.aphe85.v0) / kv.mass, kshot = gunOf(kv).shotAt;`);
 t('the recoil: the hull is pushed back along the barrel by half the shell\'s momentum, and rocks; the gun knows when it fired',
@@ -326,7 +317,7 @@ t('a missile fired level off a ground vehicle with no lock no longer dives into 
 R(`var AAG = [{ type: 'hullLight', x: 0, y: 1.0, flip: false, rot: 0 }, { type: 'ac35', x: 0, y: 1.725, flip: false, rot: 3, att: 0 }];
 var av = level(build(AAG)), AF = simOf(av); Combat.reset(AF); Aim.fire(av, Combat.systems(av)[0], 1 / 120, AF); var vt = Combat.S.shots.find((s) => s.k === 'shell' && s.owner === av);`);
 t('AA shells carry their proximity fuze (35 mm HE-VT: 4 m), as cheap rounds', R(`!!vt && vt.sh === 'hevt35' && vt.prox === 4 && vt.cheap`), R('vt && [vt.sh, vt.prox, vt.cheap]'));
-if (R('realShells')) { // (armour.js flies them: the fuze itself)
+{ // (armour.js flies them: the fuze itself)
   R(`var booms = [], EX = Combat.explode; Combat.explode = function (b, at) { booms.push({ x: at.x, y: at.y, z: at.z }); return EX.apply(this, arguments); };
   var proxRun = (off) => {
     const v = level(build(AAG)), F = simOf(v), SH = SHELLS.hevt35, D = 700, P = { x: v.x, y: v.y, z: v.z }, Sf = surfaceFrame(v.x, v.y, v.z);

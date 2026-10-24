@@ -97,11 +97,9 @@ await once('b2', 'the armour view (button)', () => page.click('#btn-armour'));
 await once('b2', 'the armour view off', () => page.click('#btn-armour'));
 await shows('the arcs (a turret ring picked)', () => ev(() => { Builder.selected = Builder.parts.find((p) => p.type === 'ringM'); Builder.renderInfo(); }));
 await page.waitForTimeout(400);
-// the sweep's answer, 150 ms after an edit and with no input: a mast on the deck stops the turret (a stand-in sweep
-// finds it while Aim.sweep is still the stub)
+// the sweep's answer, 150 ms after an edit and with no input: a mast on the deck stops the turret
 await ev(() => new Promise((done) => {
-  const D = Math.PI / 180, hull = Builder.parts.find((p) => p.type === 'hullMedium'), [a] = Builder.roofOf(hull), s0 = Aim.sweep;
-  if (!(s0.call(Aim, [...Builder.parts, makePart('radarSearch', a + 0.35, partRect(hull).t + 0.6)], Builder.tg[0]) || {}).yawLim) Aim.sweep = (ps, g) => (ps.some((p) => p.type === 'radarSearch') ? { yawLim: [-150 * D, 150 * D], dep: null } : s0.call(Aim, ps, g));
+  const hull = Builder.parts.find((p) => p.type === 'hullMedium'), [a] = Builder.roofOf(hull);
   const l0 = Builder.landSweep;
   Builder.landSweep = function (...x) { const r = l0.apply(this, x); Builder.landSweep = l0; window.__landed = __n.b2; return r; };
   window.__landed = null;

@@ -3145,9 +3145,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const used = { missile: 0, rocket: 0, bomb: 0 };
     for (const s of shots) {
       const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
-      if (s.k === 'bullet') {
+      if (s.k === 'bullet' || s.k === 'shell') { // (the ground update's shells: tracers too, a main gun's longer and whiter)
         if (!s.tracer || n >= CB.N) continue;
-        const k = 0.028, c = s.enemy ? [1, 0.35, 0.2] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
+        const big = s.k === 'shell' && !s.cheap, k = big ? 0.045 : 0.028, c = s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
         pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
         ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);
         ha.set([x, y, z], n * 3); hc.set(c, n * 3);
@@ -3155,6 +3155,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         continue;
       }
       const kk = s.k === 'torp' ? 'bomb' : s.k, pool = CB.pool[kk]; // a torpedo in the water looks like the bomb it was
+      if (!pool) continue; // (a kind with no model draws nothing, rather than throw every frame)
       let o = pool[used[kk]];
       if (!o) { o = CB.kinds[kk](); pool.push(o); localWorld.add(o); }
       used[kk]++;
