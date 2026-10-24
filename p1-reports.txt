@@ -1,0 +1,280 @@
+===== ground/wp0
+SUMMARY: WP0, the Phase 0 safety nets. All of it is test code: nothing in js/, docs or other tests changed. The worktree started on cc0e666 (main), not the skeleton. It had no changes, so I ran `git reset --hard 2e9884a` to start from the skeleton as the brief asked.
+
+1. test/driving.js and test/baseline/driving.json (14 entries, 189 KB)
+- Craft are driven the way the game drives them. combat.js is loaded as in the page, so the crash limit is 1.6× breakSpeed and dents happen. The stick is set once per 1/60 s frame. Each frame then runs two 1/120 s substeps, each `v.physicsStep(h, s)` then `Combat.step(h, s)` then `s.time += h`: the order of Flight.physicsTick. The sim carries active, vessels, firing and destroyed.
+- Every 0.25 s it records, at toPrecision(17): position from the start, velocity, quaternion, angular velocity, gForce, and the flags landed, wheelsDown, splashed and canDrive. Each scenario also gets a 0.00 s sample, an `end` sample, `liftoff`, `broken` and the part count.
+- The baseline is keyed one field per sample, so every differing sample prints as its own DIFF line (check with show: Infinity). Every scenario runs twice in one process; any difference prints FAIL. Word arguments run a filtered set without comparing to the baseline.
+- Dune Buggy scenarios:
+  - forward: 10 s flat out on the runway, then 4 s coasting;
+  - cornering at 10, 20 and 30 m/s: full stick until wheelSpeed reaches V, then the stick at V/38 (the speed controller holds V) with full right steer for 5 s. At 10 m/s it rolls over and is righted;
+  - braking: to 20 m/s, then 4 s on the brake;
+  - reverse: 8 s, full left steer for the last 3 s;
+  - causeway: starts at e 3000 on the ramp and drives 20 s. A player-like lane keeper steers toward z = 0 and an easterly heading, because left alone it drifts off the 14 m road;
+  - Shetland slope: e 17720, z -620, yaw 0.0089 (found by searching the real map; the ground rises 9.85° over 60 m, 9.2-10.6° at 4 m baselines). 6 s uphill, then 4 s parked on it;
+  - sea: added beyond the brief, to cover water drag. It starts at the bay.
+- Dragonfly: on the helipad with throttle 0 (as Flight.start sets it), stick forward, steering after 3 s.
+- Lunar Rover: it is a Moon rover. Both separators are fired with cutSeparator and splitComponents, as Flight.fireSeparator does, minus the random tumble. The lander (2 Kolibri engines, 2 Rover Wheels, Wide Tank, Probe Core L) is set on the Moon's track at angle 0.2592 (under 0.3° over 80 m) and drives 6 s.
+- Falcon, Mustang and FS-16 take-off rolls: us4.test.js's take-off script (staged, throttle 1, attitude hold, full back stick above 1.15× the stall speed while pitch is under 10°), run until 4 s after lift-off. Lift-off times: 6.68 s, 7.88 s and 6.65 s.
+- Mutation checks (scratch copies run with ROOT=): the plane-wheel rolling friction (0.025 to 0.026), which no suite caught before, now moves all three take-offs. The steer limit, drive gain, coast-down, water drag, water side grip and righting torque ea
+DEVIATIONS:
+  * The worktree started on cc0e666 (main), not on the skeleton 2e9884a the brief named. It had no changes, so I ran `git reset --hard 2e9884a` before starting.
+  * driving.js loads combat.js (G.load({combat: true})) and calls Combat.step after every substep, unlike traces.js, so the crash and dent limits are the game's (×1.6, with dents). Combat.frame (range targets, AI) is not run.
+  * I added two things beyond the brief's list: 4 s of coasting after the buggy's 10 s forward run (so the coast-down is covered) and a 'buggy sea' scenario (water drag on old wheels: nothing else covered it).
+  * The causeway run uses a player-like lane keeper (steering toward z = 0 and an easterly heading). Driven hands-off, the buggy drifts off the 14 m road within about 13 s. It starts at EARTH.causeway.from - 300 = e 3000, on the ramp down from the runway's end.
+  * The Lunar Rover is placed as its lander stage on the Moon, after both separators fire through cutSeparator and splitComponents (without fireSeparator's random tumble), at angle 0.2592 on the Moon's track. There is no Moon site, so I picked the flattest stretch I found. The lander rests on its Kolibri engines as well as its wheels, so it creeps along at 1-2.5 m/s: that is how the template is built.
+  * The take-off stick is us4.test.js's take-off script (the only existing take-off script). The handling and traces suites have none for ground rolls. The Mustang swings right on its roll (prop torque, no rudder), to z 27 m by lift-off, still on the flat ground beside the runway.
+  * In the arena probe, the drawn-minus-physics method follows render3d's code rather than drawn.js. The real patch has 56 rows on high and 36 on low (drawn.js used 96 both ways), uses render3d's cellOf ((a[i+1]-a[i-1])/2) and float32 heights, and its span from updatePatch's formula at the arena's heights is 39.6-43.0 km, not 37 km. It also measures all five points, where drawn.js measured only N and C. My numbers are larger than the design's 'today' column, especially at 300 m and beyond.
+  * The berm slope test is a plane fitted to the bare ground (surfaceAt minus bermAt) over each berm's 26×14 m footprint, asserted at most 8°. It also prints the steepest 8 m stretch, which is not asserted. The berm data format isn't fixed anywhere, so the probe reads EARTH.arenas.highland.berms (objects or [e, z, yaw] arrays) and falls back to the design's table.
+  * The pad and zone positions are the design's fixed numbers, coded into the probe; it does not read EARTH.arenas or EARTH.groundPads for them. 'Max slope ±70×40 m' is measured over e ±70 by z ±40 for every point (the earlier survey used 40×40 for zones).
+  * The bench does not count draw calls (that needs a browser). It times physicsStep only (Combat.step is not timed) and counts Terrain calls made through the Terrain object, so normalAt's own internal surfaceAt calls are not counted.
+OPENISSUES:
+  * Phase 1 should expect its probe to fail. With the arena's detail fade emulated in a scratch copy (det scaled by smoothstep(0, 200, distance outside the box)), drawn minus physics on high is still over the 0.6 m budget: RMS 1.18 m for N at 600 m, 0.87 for S at 300, 0.64 and 1.49 for A at 300 and 600, 0.67 and 1.00 for C at 300 and 600; B passes. The budget in the design was measured with drawn.js's grid (96 rows, a 37 km span, N and C only). With that grid I get close to the design's numbers. The real patch has 56 rows (z cells about 110 m at 300 m out) and a 40-43 km span at the arena's height
+  * One berm from the design's table sits on 11.0° ground with the fade emulated: (18150, 14300). Its mirror at (18150, 15700) is on 5.2°. Within ±60 m along e or z, only (18090-18110, 14360) gets under 8° (7.8-7.9°), so this berm needs a new spot. Two others are close to the limit: (17750, 14550) at 7.6° and (18500, 14780) at 7.6°.
+  * The probe treats EARTH.arenas as the sign that the detail fade is in, and Terrain.bermAt plus EARTH.arenas as the sign that berms are in. It takes the berm list from EARTH.arenas.highland.berms. If Phase 1 uses another shape or name for the berm data, the probe falls back to the design's table: adjust the one line that reads it.
+  * driving.js loads combat.js and calls Combat.step after every substep. When Phase 1 or Phase 2 adds Aim.stepAll to Combat.step behind its gate (v.aimed.length or S.gai), nothing should move for these templates. If driving.json moves, that gate is leaking into old craft.
+  * The probe's drawn-ground model copies render3d internals: patchJob, allocSlot (n and m), cellOf, updatePatch's span, meshHeight, groundAt, fieldGround and fieldLayout. It already uses the noBerm argument and fieldGround's return for f.pad from hooks 48 and 49. If render3d's patch changes, update the probe to match.
+  * test/README.md's suite table and the handbook's testing section need entries for driving.js, the arena probe and the bench. Docs are outside this package, so the docs phase should add them.
+  * Mild run-time cost: driving.js takes about 16 s alone and about 20 s inside run.mjs. The headless total stayed at 43 s because the suites run in parallel.
+TESTS: node test/run.mjs: all 19 suites passed in 43.4 s; every existing baseline identical:
+- fingerprint: 36 entries
+- traces: 35 entries
+- handling: 25 entries
+- driving (new): 14 entries, 19.6 s under parallel load, about 15.8 s alone
+- check lists: combat 22, mp 47, physics 52, flutter 21, us4 16, rwr 34, shapes 11, core 19, flight 10
+- the six placeholder suites: 1 each
+
+node test/driving.js run twice: byte-identical output, ending in 'ok   driving: identical to the baseline (14 entries)'. The in-process determinism check (every scenario twice) passed.
+
+driving.js run with ROOT set to the js/ of cc0e666 (from before the skeleton): identical to the baseline.
+
+Mutation checks (scratch copy, ROOT=), which scenarios each one moved:
+- plane-wheel roll friction 0.025→0.026: falcon, mustang and fs
+===== ground/p1-core
+SUMMARY: P1-core is done. It is one commit (5e01e60) on top of the skeleton 2e9884a, with the earlier WIP commits squashed into it. I started from the WIP commit e355c7e, checked it row by row against §16.3 and the brief, fixed what was wrong or missing, then finished the tests.
+
+**parts.js** (outside the PARTS literal and SKINS)
+- PART_CATEGORIES 14 → 21 (hulls, turrets, drive, guns, launchers, crew 'Crew & ammo', kit).
+- VEHICLE_KINDS.tank exactly as §2.1.
+- New: GROUND_KINDS, isGround, NO_GEAR (frozen), cleanMm, massPerMm (cached per def; outline edges × depth × edge factor plus both z faces; round parts by bearing), armourMassT, armourCostDelta.
+- partKg has the mm branch; designRows and partsFromDesign carry mm through cleanMm.
+- findControlPart skips p.ko; designCost adds the armour price; NO_SKIN += ttrack, twheel.
+
+**vessel.js**
+- Constructor defaults are set before recompute(true).
+- rebuildGroups (row 1) sets gv, gear, plated and calls Aim.groups.
+- `aircraft` is false for kind tank; ROUND3D += tcast, tring; PILOT.tank as specified.
+- computeHull has gated branches: track and armoured-wheel parts call Gear.points into wheelPts, inner parts add no points, outline parts use outline corners × both z faces.
+- turnTarget and ground() have their first-line hooks; cdO uses isGround.
+- applyImpulse(P part-space, dirSim, j) is lifted from the closure, using preallocated temporaries.
+- serialize/restore carry aimYaw, aimEl, mm, mods, broken, ko, stow, shellSel for gv parts only, sanitised. Old parts have those keys deleted on restore; genuine old saves never contained them.
+
+**gear.js**
+- Gear.points is fully implemented per §4.2.
+- The Gear.ground stand-in reuses vessel.js's rigid contact arithmetic on hull and gear points. It skid-steers each side toward its belt speed, lets old Car Wheels roll free, and keeps contactTime, landed, restTime, splashed, wheelsDown, canDrive and wheelSpeed up to date.
+
+**aim.js** (pure functions, out parameters, no allocation)
+- groupsOfParts per §5.1: seeds above the ring top, the BFS, attachedTo chains, jam, two-level nesting, rings not at rot 0 ignored, and the rate cap formula.
+- groups(v) sets tg, tgOf (innermost group), aimed, bodyBox and clears crewCache.
+- pose, unpose, dir, muzzle, trunnion and sightPoint follow §5.2, using the old turret conventions and rot steps.
+
+**armour.js** (Armour region only)
+- hitFirst falls back to Combat.hitVessel.
+- moduleDown rips the part as today, then calls aiDown.
+- partFX runs today's loop body for that part.
+- legacyHit returns false; has returns true.
+
+**combat.js**
+- Rows 18, 20, 21 (signature and spare skip), 22, 25 (dispatch lines), 27 (all five explode calls in moveShot), 28, 29 (s.coast/s.gt, including guideAir's too-slow test), 30, 34, 35, 37.
+- Row 38: GroundAI.frame (gated), Armour.repairStep and Aim.radarStep for the active vessel and local ground AI with gv, and the lock line.
+- Row 39: the pipper guard (skipped while groundAim; an aimed weapon elsewhere uses its first
+DEVIATIONS:
+  * Gear.points takes an optional third argument cz (the vessel's com.z): side is sign(partZ − com.z) per §4.2, and the part alone doesn't know the vessel. The frozen two-argument call still works (cz defaults to 0).
+  * cleanMm returns undefined when def.armour has no min/max (for example a track's plain {mm: 20}): such armour can't be dialled, so it never saves an mm. The spec's formula assumes min and max always exist.
+  * Row 42: Flight.revert calls GroundMode.soloPlace only for kind tank, so old designs make zero calls into GroundMode (soloPlace itself also returns null for every other kind).
+  * Row 38: GroundAI.frame is gated on `v.gv || v.kind === 'tank' || S.gai || GroundAI.battle` rather than called every frame, to keep the zero-calls proof for old designs. Anything that has GroundAI state live is covered by S.gai or GroundAI.battle.
+  * Row 30 uses the spec's form `return Armour.legacyHit(...)`, and the stub returns false, so the shot ends as it does today until 2B decides.
+  * Row 70: I also wrote the 'only the 3 nearest wrecks smoke' cap in Combat.frame (the guard column of row 70). It is gated on v.wreck, which no old vessel has.
+  * Row 44: I also skip kin and wreck vessels in Flight.railsTick, not only in the near/far loop and the remote coasting, because railsAdvance would otherwise move ground AI and wrecks during time warp.
+  * builder.js loadDesign: the tab rebuild after a kind change now checks #palette-tabs rather than #palette-items. With the old check, a kind whose first tab is empty (Armour before the catalogue lands) kept stale tabs. This is what made builder-shapes.mjs fail; with it, the suite passes now, without the real defs. Old kinds behave the same, since none had an empty tab.
+  * Aim.groups' bodyBox uses partBoxes, so an old twin-pair part on a ground vessel counts on both sides.
+  * The flight default name stays 'Rocket' for every old kind; only an unnamed tank design gets 'Armour' (§2.1 says VEHICLE_KINDS[kind].name in general, which would rename unnamed old cars, planes and helicopters).
+  * In the counter-stub proof, GHUD is not counted because ghud.js isn't loaded headless. Its only P1 call site is gated on Flight.groundAim, which is false for old designs.
+OPENISSUES:
+  * My tests use their own 'tst…' test defs. When P1-data's 71 real defs land, the suite should be re-run, especially builder-shapes.mjs (it now passes even with empty tabs) and shapes.test.js (its seeded 400 random pairs will change).
+  * The Gear.ground stand-in allocates per step (as vessel.js's own ground() does), has no suspension, and accelerates slowly in the headless page (about 2 m/s after 2.5 s of W at the page's frame rate, against 14 m/s in Node at fixed steps). Package 2A replaces it.
+  * Armour.legacyHit is a no-op for now: old weapons do nothing to parts with def.armour until package 2B. Armour.moduleDown rips module parts as today (2B makes them break and stay).
+  * GroundMode.soloPlace calls GroundMode.placement('highland', …), which is still a stub returning null, so revert and launch stay on the runway until package 3G lands placement.
+  * The 'Ground forces' hangar intro line mentions X-ray, which package 2E builds.
+  * At desktop and landscape sizes 'ARMOUR' fits its button with no spare room (scrollWidth equals clientWidth, about 40 px), so that column is about 4 px wider than the others under repeat(5, 1fr). It doesn't overflow, but package 2E's builder-tank.mjs fit test should keep an eye on it.
+  * Row 58 items left to package 3G: onPartVis easing, onParts calling Aim.groups for plated ghosts, kindsFor. Builder.mp.kinds is still MP_KINDS_PVP, so the Armour button is disabled in rooms.
+  * README, handbook, controls lists and the NET_VERSION bump were not touched (Phase 4 and 3G). sw.js is still overbuilt-v24 from the skeleton; no new files were added.
+  * Not tested headless: Flight.start's place.air, opts.keep and the revert gate (Flight.start needs the DOM). The Armour launch in the page went through Flight.start without errors.
+OUTSIDESCOPE:
+  * test/lib/game.js: gmode.js and groundai.js now load whenever combat, flight, mp or ground is requested (previously groundai.js only with ground: true), so flight.js and combat.js can call GroundAI and GroundMode without `typeof` guards.
+  * js/gmode.js: the soloPlace and obj one-liners (listed in the brief's critic stubs, in package 3G's file).
+  * js/builder.js loadDesign: the tab-rebuild condition (#palette-tabs instead of #palette-items), inside the row 52 range (builder.js:362-376).
+TESTS: node test/run.mjs --browser: all 28 suites pass. Every baseline is identical: fingerprint (36 entries), traces (35) and handling (25) match their baselines, and mp-measure is checked inside mp.test.js, which passes (47/47). The other suites:
+- core 19/19
+- physics 52/52
+- flight 10/10
+- combat 22/22
+- flutter 21/21
+- us4 16/16
+- shapes 11/11
+- rwr 34/34
+- ground.test.js 80/80
+- the remaining placeholder suites (driving, catalogue, armour, aim, gmode, groundai) 1/1 each
+- browser: builder2d 20/20, builder3d 4/4, builder-shapes 19/19 (new tab counts: More shows 22, Armour shows 7 tabs plus More, tank included in the portrait 'More in sight' loop), rwr-hud 6/6, redraw 41/41, mp-two-tabs 6/6, plus the builder-tank, ground-hud and ground-battle placeholders.
+
+**ground.test.js §contract (80 chec
+===== ground/p1-data
+SUMMARY: P1-data, one commit on top of the skeleton 2e9884a. It touches js/parts.js, js/armour.js (SHELLS region), js/space.js, js/terrain.js, js/render3d.js and test/catalogue.test.js.
+
+PARTS (js/parts.js, appended after us4f15Stab: 257 -> 328 parts)
+- 71 gv defs, exactly per §3.5: keys, player names, sizes, masses, costs and tiers.
+  - 7 hulls, 4 rings, 7 turrets, 4 tracks, 2 armoured wheels, 4 engines, 16 guns, 8 launchers, 10 crew/ammo parts and 9 kit parts.
+- Each has the §3.1 fields: gv, family (WWII/Cold War/Modern/AA), place, cat (one of the 7 new ids), shape (thull/tturret/tcast/tring/ttrack/twheel/tgun/tlaunch/tradar/tkit) and style hints for the art package.
+- Outlines: only on thull and tturret parts. They are convex and counter-clockwise. Hull edges run bottom, lower front, upper front, top, rear, and the plate angles give the table's effective fronts:
+  - Light 46 at 57°, Medium 99 at 63°, Heavy 102 at 10°.
+  - MBT lower plate 528 at 58°, upper glacis 335 at 62°.
+  - IFV 60, Wheeled bow 40, Casemate 139.
+  - Small turret 33, Box turret 102, Cast turret 99.
+- The MBT hull's nose is at the bottom: a long strong plate, then the small weak glacis.
+- armour is {mm, min, max, edge[], z, mat, heat?, open?, round?}. Fixed armour (rings, tracks, wheels, skirts, slats) has no min/max, so cleanMm returns undefined and nothing is saved.
+- Round parts have def.round {slope} and armour.round {f, s, r, t}.
+- Also present where the table calls for them: hp, built-in mods (crew by role, ammo with rounds/cook/blowout/autoload, fuel, troops), module, inner+flush, seat+control, rack, autoload, troops, amph, track, awheel, engine (turbine ir 1.25), ring {rate, cap, stab}, aim {el, elRate, trav?, travRate?, pivot, disp, stab?, casemate?}, searchRadar, trackRadar, thermal, lrf, era, spaced, slat, depth and descs.
+- Weapons:
+  - tgun has cal, reload, ammo (the table's "ready N"), shells and each.
+  - agun has cal, rate, ammo, shells and each.
+  - smoke has ammo, salvo and each.
+  - Missiles carry every field launchMissile, rangeOf, playerFrame and status read (seek, label, accel, burn, vmax, turn, range, dmg, blast, life, each, cone where relevant), plus boost, coast 0, stow, reload, heat, tandem, loft and lockT.
+  - Rockets carry every fireRocket field (speed, accel, burn, dmg, blast, rate, each), plus he, spread, stow, reload and life.
+  - Old combat code handles them: the catalogue test checks that systems, status and integrity work on a vessel with all 25 weapon types.
+- No def uses twinZ, mount, crew, smoke, armor, radar, wheel or pod.
+- Unknown shapes already draw as hull-gradient rectangles in 2D (partPath0/drawPart0 default case) and as extruded boxes in 3D (recipe 'extrude'). No fallback code was needed. Checked in Chromium: all 71 parts draw in 2D at every rotation, plain and painted, and build in 3D with no page errors; screenshots were inspected.
+
+SHELLS (js/armour.js, SHELLS region only)
+- 37 shells per §3.6. k is written as N e-5 (for example 10e-5). 
+DEVIATIONS:
+  * Berm pair 2 moved 130 m, not at most 60 m: (18150, 14300/15700) became (18150, 14430/15570). Within 60 m along its line or across it the ground is 9.4-11.9°. The pair moved together to keep the mirror. The spec's §10.2 berm table needs this new row.
+  * Mirrored berm yaws: the slanted pairs are true mirror images (17000: +π/6 at z 14780 and -π/6 at 15220; 18500: -π/6 at 14780 and +π/6 at 15220). The spec's table, and WP0's probe list BERMS0, gave both members of a pair the same yaw. With the mirror, each team's berm faces the far pad the same way. EARTH.arenas.highland.berms is what the probe reads.
+  * Pads, berms and the scenery clearing are gated on the real map (EARTH.mapped): fieldAt skips the pads, bermAt returns 0 and keepClear doesn't clear the box. Without the map the arena is unused (Runway fallback), the pad heights are the map's, and the generated no-map world stays byte-identical, arena included. The detail fade is on the mapped branch by design.
+  * arenaW and keepClear apply only to arenas marked clear: true. The Runway arena has a box (for GroundMode's soft border) but no clear flag, so the ground and scenery round the runway are untouched.
+  * Pads are 160 m across their facing direction (hw 80, where vehicles line up abreast 22 m apart) and 70 m along it (hl 35, in the airfields' along-yaw convention). Blend is 80 m (the spec gave none).
+  * Every tank gun, and the autocannons and quad AA mount, has an aim.casemate arc. The spec listed one only for gun37 and gun75, but the StuQ III template needs gun76L at ±12°, and any gun in a turretless hull needs one. Arcs: 37 ±20@15, 50 ±15@12, 75 and 76 ±12@6, 85 and 88 ±10@5, 105 ±8@5, 120 and 125 ±6@5, 152 ±8@4, ac20 ±20@15, ac30 ±15@12, ac35 and aa23q ±10@10.
+  * Values the spec left out, which I chose:
+- hp for guns (50-350), launchers (80-400), lrf 60 and smokeL 60.
+- disp for the guns other than gun37 and ac20.
+- each (kg per round) for the autocannons and MGs: 0.025-1.6.
+- Missile fields: life, boost, turn, blast and each where the table abbreviated, plus SAM-L as samLong's label.
+- Rocket life 60 (fireRocket hard-codes 9; 2C's override can read it).
+- breakSpeed 15 for hulls and turret shells (default 9 would break a hull nosing into a ditch); wheels 18 like tracks.
+- Fixed armour: rings 30/35/45/40 mm (the spec gave only ringS's 30), wheels 10 mm
+  * Applique plate armour.edge is [0, 1, 1, 1] (back face 0, lying on the plate it thickens), so massPerMm counts the plate once. With 1 everywhere the top and bottom faces would double its mass per mm.
+  * Place: ac35 is 'flank' (a pair on an AA turret's sides, per §2.3's flank row) instead of the guns table's 'front'. atgmTube, atgmTop, samIR and samCmd are flank; atgmWire, samLong and the MLRS are front.
+  * Extra fields not in the frozen schema:
+- turretSmall's gunner mod has also: 'commander' (the 'also commands' note).
+- atgmTop has lockT 1.5 and loft 150.
+- engTurbine has engine.ir 1.25.
+- aa23q has def.barrels 4 (old fireGun only reads it for kind 'gun').
+- SHELL_TYPES has fuse (APHE 1.2 m) and blind (HESH 60°), plus he, hei and hevt types the §3.6 table lacked.
+- Every shell has a label.
+  * Hull outline variants: the MBT hull's nose sits at the bottom (lower plate 58°, then the upper glacis 62°) to match 528 and 335. The other hulls have their nose at the knee between a lower nose plate and the glacis. The Wheeled hull's bow (edge 1) is the 60° plate at factor 1, and the upper glacis is 70° at factor 0.7 (also about 40 mm effective).
+OPENISSUES:
+  * Drawn-ground budget: WP0's arena probe asserts an RMS under 0.6 m out to 600 m on high, and it still fails after the detail fade.
+- Failures: N 1.18 m at 600 m; S 0.87 at 300; A 0.64 at 300 and 1.49 at 600; C 0.67 at 300 and 1.00 at 600.
+- Experiments: also fading the coast noise changed nothing, and fading roads and rivers changed only the 1,000 m numbers.
+- Cause: the residual is the bilinear error of the Earth height raster itself (4096 x 2048, about 256 x 483 m cells here) seen through 60-95 m patch cells. The spec acknowledges this ('the reseat covers it').
+- Either 3F's reseat and drawnG
+  * The 12 berms are solid in physics and line of sight now, but the terrain patch leaves them out (noBerm), so they are invisible until 3F's earthworks mesh and drawnGround (meshHeight + bermAt) land. A vehicle crossing one will look as if it floats up to 2.4 m.
+  * P1-core: its ground.test.js passes against these defs (checked on a merged tree). On merge, PART_CATEGORIES, NO_SKIN (ttrack, twheel) and the tank kind come from P1-core; my test checks the 7 category ids literally.
+  * shapes.test.js's 'hits < n - 10' condition is close to its edge: 174 of 186 now, 180 of 191 on the base. When 2D replaces the box clash shapes with real outlines and lathes, its pair sample changes again.
+  * Pad heights 25.1 and 51.3 m and the arena positions depend on the map and on the fade. Any later change to natural(), mapH or the fade must re-measure them (WP0's probe) and re-record catalogue.test.js's reference hashes only if the change is meant to move ground outside the arena.
+  * Old-code side effects, before 2C:
+- A smokeL is still a weapon system in the old systems() until P1-core's exclusion is merged.
+- tgun and agun systems are selectable but do nothing on the trigger.
+- Missiles with seek 'saclos', 'top' or 'clos' fly straight when fired through the old launchMissile (target null).
+- Rocket artillery uses fireRocket's fixed 9 s life until 2C reads weapon.life.
+  * Spec drift to fix in the docs:
+- §10.2 berm table: pair 2 is now at z 14,430 / 15,570, and the slanted pairs' yaws are mirrored.
+- The §3.5 career line says the Cast Turret is tier 0; the parts table (followed here) says tier 1.
+- spec/catalogue.js has plateApp at 0.7 t; the table says 0.4, which is what the def uses (no template uses it).
+OUTSIDESCOPE:
+  * None. Every edit is inside the brief's regions: the PARTS tail and SKINS in parts.js, the SHELLS region of armour.js, space.js, terrain.js, the listed render3d.js spots and test/catalogue.test.js. No fallback drawing code was needed in parts.js or parts3d.js.
+TESTS: Headless, `node test/run.mjs` on the final tree: all 19 suites passed, every baseline identical.
+- fingerprint 36 entries, traces 35, handling 25, all identical.
+- core 19, physics 52, flight 10, combat 22, mp 47, flutter 21, us4 16, shapes 11, rwr 34.
+- catalogue.test.js 56/56 (about 5-10 s); the other ground placeholders 1/1.
+
+Browser, `node test/run.mjs --browser`: all 28 suites passed.
+- builder2d 20, builder3d 4, builder-shapes 18 (this one includes 'every part's 3D model fits inside its clash shape' for all 328 parts), rwr-hud 6, redraw 41, mp-two-tabs 6; the three ground placeholders 1 each.
+
+Other checks:
+- shapes.test.js with the new parts in its pool: 186 pairs, 174 clashing (base: 191 / 180). It still passes.
+- WP0's test/driving.js and baseline (from branch ground/wp0 a819c50),
+===== merge
+SUMMARY: Phase 0 and Phase 1 are merged into /home/user/Overbuilt on branch ccr-932b9082-m4kox7. Nothing was pushed.
+
+Commits on top of the skeleton 2e9884a:
+- 9f49b5a "Merge Phase 0: driving traces, the arena probe and the ground bench"
+- d3d0e85 "Merge Phase 1 data: 71 armour parts, their shells, four camouflage paints and the Highland Ridge battlefield"
+- c3be9db "Merge Phase 1 core: the Armour kind, dialled armour that saves and travels, turrets that turn what sits on them"
+- 5c624cc "Ground update Phase 1: the catalogue's own tank through every save path, and its parts in the Armour tabs"
+
+All four end with the two trailer lines. All three merges (`git merge --no-ff`, in the order asked) went through with no conflicts: the packages' files and regions really were separate.
+
+**The seam.** Where the 71 real parts meet P1-core's hooks, nothing broke, so no game code changed (js/ is exactly the three branches merged). I checked the defs against §3.1 field by field. Every field the hooks read is spelled as the contract says: track, awheel, ring, aim.pivot, weapon.cal, armour, outline, mods, module, inner and hp.
+
+Scratch scripts in /tmp/claude-0/-home-user-Overbuilt/0587f056-6c41-58cd-9f76-3deee688a95a/scratchpad/ground/scratch-merge/:
+- every.js: each of the 71 defs on a real tank, in the air, through systems, status, 30 steps of firing per system, launching every missile and rocket, a blast, serialize/restore with equal mass, then damage until it is shot off. 0 exceptions, 0 NaN.
+- mpall.js: each def, with mm set to its maximum where it can be dialled, through sendSpawn, mpSpawnRows and buildGhost. Masses, mm and groups are equal for all 71.
+- wheeled.js: an 8×8 of armoured wheels on the stand-in running gear: finite, drives.
+- hangar.mjs: in Chromium, saving to the hangar and pasting an RSS3 code both keep mm 60 and the cost.
+
+**New checks (the commit).**
+- test/ground.test.js §contract gains 7 checks, now 87. They build a tank from real parts: hullMedium at mm 60, two trackMed, engDiesel, ringM, turretCast, gun85 and mgCoax.
+  - It is joined, has no clashes, the hull is the control part, and mm 60 is its only mm.
+  - rows → RSS3 code → parts: same mass and mm.
+  - A saved flight: same mass and mm.
+  - Code → spawn rows (10 columns on the hull) → ghost: dm 0, same mm, one group.
+  - Aim.groupsOfParts: the ring turns turretCast, gun85 and mgCoax, and not the hull, tracks, engine or ring itself. No jam, centre y 1.95, rate within the cap formula.
+  - Gear.points: 3 contacts per Medium Track, 3 on each side, radius r + 0.4·travel.
+  - On the runway for 5 s (settle, drive, turn) with the stand-in Gear.ground: finite throughout, lowest contact −0.00008 m, on its tracks, can drive, nothing broken, 5.15 m/s at the end.
+  - Mutation runs (ROOT pointing at a scratch copy) each fail a real-parts check: spawn rows dropping mm, restore dropping mm, 2 contacts per track, and gear contacts ignored (the tank sinks 0.55 m).
+- test/catalogue.test.js now reads the seven 
+OPENISSUES:
+  * The arena probe exits 1. Drawn minus physics on high is over the 0.6 m RMS budget out to 600 m at six points: N 1.18 m at 600 m; S 0.87 at 300; A 0.64 at 300 and 1.49 at 600; C 0.67 at 300 and 1.00 at 600 (B passes). Both packages predicted this: the fade alone can't fix the bilinear error of the map's own relief seen through the patch's coarse rows. Package 3F's reseat or drawnGround needs to close it, or the budget needs relaxing; that is a design decision for later. I left the probe's budget as it was.
+  * The 12 berms are solid in physics and line of sight, but the terrain patch leaves them out (noBerm). Until 3F's earthworks mesh lands, a vehicle crossing one will look as if it floats up to 2.4 m.
+  * Headless Chromium at 1280×720 with software WebGL runs the sim at about 0.08× real time (rate.mjs: about 0.22 s of sim time in 3 s of wall time). That alone explains P1-core's note that tanks accelerate slowly in the page: about 8.8 m/s² of sim time, the same as in Node. Package 2A's and 3F's browser tests should measure Flight.time, not the wall clock.
+  * Phase 1 stand-in Gear.ground quirks, all for 2A to replace: it is rigid, so at rest a track's belt sits 0.4·travel (0.1 m on Medium Tracks) above the ground, because the contact radius includes a sag that no suspension takes up yet. An 8×8 of armoured wheels keeps accelerating past vmax while turning (33.6 m/s against vmax 30).
+  * Builder (2E): an Armour design shows the rocket stats (THRUST, T/W, FUEL, 0 STAGES) and the warning 'No engine fires in stage 1.'. The hangar has no 'Ground forces' group until 3I adds templates (an empty group is hidden), and its hint line names X-ray, which 2E builds.
+  * Flight HUD (3F): a tank shows the rocket/plane autopilot bar, the throttle, CUT and the STAGE panel ('No engines running'), and the FIRE button reads '85 mm Gun ▸ 6'.
+  * 2D art (package 2D): hulls and turrets draw as plain rectangles in 2D (partPath0 doesn't use outline yet) and as boxes in 3D. Inner parts such as the engine are drawn on top of the hull in the 2D side view.
+  * shapes.test.js's 'hits < n - 10' is still close to its edge with the real parts in its pool (P1-data measured 174 of 186). It will move again when 2D replaces the box clash shapes.
+  * Docs, still to do (Phase 4): test/README.md and handbook rows for driving.js, ground.test.js, catalogue.test.js, the arena probe and the bench. Spec drift to record: berm pair 2 moved to z 14,430 / 15,570, the slanted berm pairs have mirrored yaws, the Cast Turret is tier 1 (the part table's tier; the §3.5 career line says tier 0), and the Applique Plate is 0.4 t (spec/catalogue.js says 0.7). Also README counts and the three control lists. NET_VERSION 7 is 3G's. sw.js stays at overbuilt-v24 from the skeleton; this phase added no new files.
+SEAMFIXES:
+  * No code fix was needed at the seam. All three merges went through with no conflicts. In every.js, mpall.js, wheeled.js and the new real-parts checks, the 71 real defs ran through every P1-core hook with 0 errors, 0 NaN and equal masses. Every field the hooks read (track, awheel, ring, aim.pivot, weapon.cal, armour.edge/z/mat/round/open, outline, mods[].hp, module, inner, hp, weapon.kind tgun/agun/smoke) is spelled as §3.1 has it.
+  * test/catalogue.test.js: P1-data hard-coded the seven ground category ids because its tree had no Armour kind yet. Now that P1-core is merged, it reads them from VEHICLE_KINDS.tank.cats, checks each is in PART_CATEGORIES, and checks each tab holds at least one part.
+  * test/browser/builder-shapes.mjs: P1-core noted this suite passed even with empty tabs. A new check counts the parts each Armour tab shows (Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9), so the counts now reflect the real catalogue.
+  * test/ground.test.js: the cross-package real-parts round trip, groups, gear points and runway steps described in the summary (7 new checks, 87 in all), with mutation runs showing each check can fail.
+TESTS: node test/run.mjs --browser on the final tree (5c624cc): all 28 suites pass.
+
+Baselines, all identical:
+- fingerprint: 36 entries
+- traces: 35
+- handling: 25
+- driving: 14
+- mp-measure: checked inside mp.test.js, which passes 47/47
+- combat: combat.test.js passes 22/22
+
+Other suites:
+- core 19/19, physics 52/52, flight 10/10, flutter 21/21, us4 16/16, shapes 11/11, rwr 34/34
+- ground.test.js 87/87 (80 before, plus 7 real-parts checks)
+- catalogue.test.js 56/56
+- the armour, aim, gmode and groundai placeholders 1/1 each
+
+Browser:
+- builder2d 20/20, builder3d 4/4, rwr-hud 6/6, redraw 41/41, mp-two-tabs 6/6
+- builder-shapes 20/20, including the new per-tab count and "every part's 3D model fits inside its clash shape" for all 328 parts
+- the builder-tank, ground-hud and ground-battle placehold
