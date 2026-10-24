@@ -994,7 +994,8 @@ class Vessel {
     for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
     if (!contacts.length) return clear();
 
-    // crash check: far past a part's limit it breaks at once; a bit past it (or near it), it's dented
+    // crash check: far past a part's limit it breaks at once; a bit past it (or near it), it's dented (Gear.ground in
+    // gear.js keeps a copy of this, and of the landing and rest rules below, for running gear: change both)
     const broken = new Set(), dents = new Map(), vp = v3();
     for (const k of contacts) {
       this.pointVel(k.r, vp);

@@ -3,7 +3,9 @@
 // brings, turret rings turn what sits on them (groups, poses), each hook hands the new parts to the new systems, and
 // the new multiplayer messages leave the old ones as they were. The tests build small test parts of their own (keys
 // 'tst…'), shaped like the catalogue's, so they hold whatever the catalogue holds; one tank of the catalogue's own
-// parts then takes the same paths, where the parts meet the hooks.
+// parts then takes the same paths, where the parts meet the hooks. §physics (Phase 2A): the running gear (gear.js) on five
+// vehicles of the catalogue's parts (test/lib/tanks.js): spec §4.4's numbers, the probe budget, slopes, water, righting,
+// tipping, collisions, crashes, and what physics hands the renderer and the HUD.
 //   node test/ground.test.js
 const G = require('./lib/game.js'), fs = require('fs'), path = require('path');
 const ctx = G.load({ combat: true, ground: true });
@@ -407,17 +409,17 @@ t('module parts smoke through Armour.partFX; of five wrecks only the three neare
   R('[...fx].map((o) => o.y)'));
 t('GroundMode.obj: nothing live outside a room or a Practice Battle; soloPlace: none for the old kinds', R(`GroundMode.obj() === null && ['rocket', 'plane', 'car', 'heli'].every((k) => GroundMode.soloPlace(k) === null)`));
 
-// ---------------------------------------------------------------- Phase 1's stand-in for Gear.ground: placed, stepped, driven a little
+// ---------------------------------------------------------------- Gear.ground (Phase 1's stand-in, now 2A's): placed, stepped, driven a little
 R(`var drv = (() => { const v = vesselOf(TANK); const K = VEHICLE_KINDS.tank; v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[K.site].east), K.launchRot); return v; })();
 var dF = simOf(drv), r0 = drv.radius();
 oldRun(drv, dF, 2, () => {});
-var settled = drv.radius() - r0, still = drv.speed();
+var settled = drv.radius() - r0, still = drv.speed(), sat = drv.wheelsDown && drv.landed;
 oldRun(drv, dF, 4, (v) => { v.ctl.v = 1; });
 var fw = drv.axis(1, 0, 0), vf = drv.vx * fw.x + drv.vy * fw.y + drv.vz * fw.z;
 var up = norm3(v3(drv.x, drv.y, drv.z)), h0 = Math.atan2(dot3(fw, norm3(v3(-up.y, up.x, 0))), 1);
 oldRun(drv, dF, 2, (v) => { v.ctl.v = 0; v.ctl.h = 1; });
 var yaw = dot3(drv.av, up);`);
-t('a tank on the runway settles on its tracks and stays put', R(`Math.abs(settled) < 0.4 && still < 0.2 && !dF.broken.length && drv.wheelsDown && drv.landed`), R('[settled, still, dF.broken]'));
+t('a tank on the runway settles on its tracks and stays put', R(`Math.abs(settled) < 0.4 && still < 0.2 && !dF.broken.length && sat`), R('[settled, still, dF.broken, sat]'));
 t('W drives it forward; D turns it on the spot (right)', R(`vf > 2 && yaw < -0.05 && !dF.broken.length`), R('[vf, yaw]'));
 t('(and the counters do see the new code run for a ground-update craft)', R(`CALLS['Aim.groups'] > 0 && CALLS['Gear.ground'] > 0 && CALLS['Gear.points'] > 0 && CALLS['Aim.stepAll'] > 0`), calls());
 
@@ -472,7 +474,7 @@ for (let i = 0; i < 600; i++) {
   rnan = rnan || ![rdv.x, rdv.y, rdv.z, rdv.vx, rdv.vy, rdv.vz, rdv.q.w, rdv.q.x, rdv.q.y, rdv.q.z, rdv.av.x, rdv.av.y, rdv.av.z].every(Number.isFinite);
   if (i % 12 === 0) rlow = Math.min(rlow, clearOf(rdv));
 }`);
-t('real parts: on the runway for 5 s (settle, drive, turn) with Phase 1\'s Gear.ground: finite, on its tracks, never through the ground', R(`!rnan && rlow > -0.1 && rlow < 0.1 && rdv.wheelsDown && rdv.canDrive && !rdF.broken.length && rdv.parts.length === 8 && rdv.speed() > 2`),
+t('real parts: on the runway for 5 s (settle, drive, turn) with Gear.ground: finite, on its tracks, its road wheels sunk no deeper than their springs\' travel', R(`!rnan && rlow > -PARTS.trackMed.track.travel && rlow < 0.1 && rdv.wheelsDown && rdv.canDrive && !rdF.broken.length && rdv.parts.length === 8 && rdv.speed() > 2`),
   R('[rnan, rlow, rdv.wheelsDown, rdv.canDrive, rdF.broken, rdv.speed()]'));
 
 // ---------------------------------------------------------------- multiplayer messages
@@ -502,6 +504,262 @@ t('the pv rows carry a turret ring (its yaw) and nothing new for old craft', G.r
   const old = pv(b), want = b.parts.filter((p) => { const d = p.def; return d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract); }).map((p) => p.id).join();
   return !!ring && ring[6] === 0.5 && old.map((r) => r[0]).join() === want;
 })()`));
+
+// ================================================================ §physics (Phase 2A): the running gear (gear.js)
+// The five vehicles of spec §4.4, built from the catalogue's own parts (test/lib/tanks.js), on the real map (the arena's
+// pad and a 10° hillside) and on made-to-measure ground: a plane of any slope and side slope, with water to a shore.
+// They are stepped as the game steps them (two 1/120 s steps a 1/60 s frame, each a physics step and Combat.step).
+console.log('# ground: §physics (Phase 2A)');
+const P = G.load({ combat: true }), RP = (c) => G.run(P, c), TANKS = require('./lib/tanks.js');
+P.__tanks = TANKS;
+RP(`var A0 = siteAngle(EARTH, EARTH.sites.runway.east), PL = null, TORIG = {};
+for (const k of ['surfaceAt', 'heightAt', 'waterAt', 'deckAt', 'normalAt']) TORIG[k] = Terrain[k];
+var eOf = (a) => -(a - A0) * EARTH.radius;
+// made-to-measure ground east of the runway: up toward the east at te and toward +z at tz (tangents), water (depth m)
+// west of the shore
+var planeH = (a, z) => 50 + eOf(a) * PL.te + z * PL.tz, wet = (a) => !!PL.water && eOf(a) < PL.shore;
+function usePlane(o) {
+  for (const k in TORIG) Terrain[k] = TORIG[k];
+  if (!o) { PL = null; return; }
+  PL = Object.assign({ te: 0, tz: 0, water: false, depth: 1, shore: Infinity }, o);
+  Terrain.surfaceAt = (b, a, z) => planeH(a, z);
+  Terrain.heightAt = (b, a, z) => planeH(a, z) - (wet(a) ? PL.depth : 0);
+  Terrain.waterAt = (b, a) => wet(a);
+  Terrain.deckAt = () => NaN;
+  Terrain.normalAt = (b, a, z, o = v3()) => { // (terrain.js's own formula, on the plane)
+    const R = b.radius, lat = z / R, cl = Math.max(0.05, Math.cos(lat)), sl = Math.sin(lat), ca = Math.cos(a), sa = Math.sin(a), d = 1.5, da = d / (R * cl);
+    const se = (planeH(a - da, z) - planeH(a + da, z)) / (2 * d), sn = (planeH(a, z + d) - planeH(a, z - d)) / (2 * d);
+    o.x = cl * ca - se * sa + sn * ca * sl; o.y = cl * sa + se * ca + sn * sa * sl; o.z = sl - sn * cl; return norm3(o);
+  };
+}
+// a craft from rows, placed as a spawn at e (m east of the runway site, or on the real map with real: true), z, yaw;
+// tilted by pitch (nose up) and roll (about its nose), its lowest point 2 cm over the ground
+function tank(rows, o = {}) {
+  const ps = partsFromDesign(rows), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), kp = ps.filter((p) => keep.has(p.id)), adj = new Map();
+  for (const p of kp) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
+  const v = new Vessel(kp, adj, EARTH); v.kind = o.kind || 'tank'; v.stages = computeStages(kp, adj, ctrl.id); v.rebuildGroups(); v.of = ps.length;
+  v.placeOnSurface(EARTH, o.real ? siteAngle(EARTH, o.e) : A0 - (o.e || 0) / EARTH.radius, VEHICLE_KINDS[v.kind].launchRot, o.z || 0, o.yaw || 0);
+  if (o.pitch || o.roll) {
+    if (o.pitch) v.q = qmul(v.q, qaxis(0, 0, 1, o.pitch));
+    if (o.roll) v.q = qmul(v.q, qaxis(1, 0, 0, o.roll));
+    let need = -Infinity;
+    for (const [k, r] of [...v.wheelPts.map((k) => [k, k.r]), ...v.hull.map((k) => [k, 0])]) {
+      const w = v.toWorld(k.x, k.y, k.z), L = Terrain.locate(EARTH, w.x, w.y, w.z, {});
+      need = Math.max(need, EARTH.radius + Terrain.surfaceAt(EARTH, L.a, L.z) - (Math.hypot(w.x, w.y, w.z) - r));
+    }
+    const r = v.radius(), f = (r + need + 0.02) / r; v.x *= f; v.y *= f; v.z *= f;
+  }
+  return v;
+}
+var world = (...vs) => ({ time: 0, target: null, toasts: [], broken: [], vessels: vs, active: vs[0], firing: false, destroyed: false, camAbs: { x: 0, y: 0, z: 0 },
+  toast(t) { this.toasts.push(t); },
+  ripParts(v, parts) { this.broken.push('rip:' + parts.map((p) => p.type)); for (const p of parts) { for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.get(p.id).clear(); } v.splitComponents(); v.rebuildGroups(); },
+  breakParts(v, parts, cause) { this.broken.push(cause + ':' + parts.map((p) => p.type)); for (const p of parts) { v.parts = v.parts.filter((q) => q !== p); for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.delete(p.id); }
+    if (!v.parts.length) { v.dead = true; return; } v.splitComponents(); v.rebuildGroups(); } });
+// secs of frames: script(t) sets the sticks once a frame, then two 1/120 s steps (each vessel's physics, Combat.step)
+function go(F, secs, script, h = 1 / 120) {
+  const n = Math.round(1 / 60 / h);
+  for (let f = 0, N = Math.round(secs * 60); f < N; f++) {
+    if (script) script(F.time);
+    for (let i = 0; i < n; i++) { for (const v of F.vessels) if (!v.remote && !v.wreck && !v.dead && v.parts.length) v.physicsStep(h, F); Combat.step(h, F); F.time += h; }
+  }
+  return F;
+}
+var fwd = (v) => { const a = v.axis(1, 0, 0); return v.vx * a.x + v.vy * a.y + v.vz * a.z; };
+var upOf = (v) => { const r = v.radius(); return { x: v.x / r, y: v.y / r, z: v.z / r }; };
+var yawOf = (v) => dot3(v.av, upOf(v));
+var tilt = (v) => dot3(v.axis(0, 1, 0), upOf(v)); // (the hull's up against the vertical: 1 upright)
+var spot = (v) => { const L = Terrain.locate(EARTH, v.x, v.y, v.z, {}); return { e: eOf(L.a), z: L.z }; };
+var D2R = Math.PI / 180;`);
+
+// ---------------------------------------------------------------- the five vehicles
+RP(`var FIVE = { tk34: [27.3, 30600], ms4: [26.1, 27800], tygr: [50.5, 40000], ma1: [56.3, 79300], pumo: [12.3, 18800] }, built = {};
+for (const k in FIVE) { const ps = partsFromDesign(__tanks[k]), adj = buildAdjacency(ps); let clash = 0;
+  for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) clash++;
+  built[k] = { n: ps.length, joined: componentOf(ps[0].id, adj).size, ctrl: findControlPart(ps) === ps[0], clash, t: ps.reduce((s, p) => s + partKg(p), 0) / 1000, cost: designCost(ps),
+    ring: Aim.groupsOfParts(ps, adj).map((g) => !g.jam).join() }; }`);
+t('the five vehicles (§12 parts): joined to the hull, clash-free, the hull in control, the turret free to turn, priced and weighed as §12',
+  RP(`Object.keys(FIVE).every((k) => { const b = built[k]; return b.joined === b.n && b.ctrl && !b.clash && b.ring === 'true' && b.cost === FIVE[k][1] && Math.abs(b.t / FIVE[k][0] - 1) < 0.02; })`), RP('JSON.stringify(built)'));
+
+// ---------------------------------------------------------------- §4.4: acceleration, top speed, pivot, climb
+// 0-30 km/h and the top speed on the flat (W held 30 s; the Pumo's top is power-limited and still creeping up, so 60 s),
+// the pivot (D alone from a standstill: the mean yaw rate over its 3rd and 4th seconds), the climb at 2 m/s (it holds
+// 2 m/s up 0.75 of the table's slope and can't up 1.25 of it; the Pumo's is grip, mu 0.75)
+RP(`var TABLE = { tk34: [3.8, 50, 40, 28], ms4: [6.3, 50, 37, 16], tygr: [7.1, 43, 27, 14], ma1: [3.2, 68, 34, 34], pumo: [3.0, 108, 0, 36] }, meas = {};
+var climbs = (rows, deg) => { usePlane({ te: Math.tan(deg * D2R) }); const v = tank(rows, { pitch: deg * D2R }), F = world(v); go(F, 1); go(F, 9, () => { v.ctl.v = 1; }); usePlane(null); return fwd(v); };
+for (const k in TABLE) {
+  usePlane({});
+  let v = tank(__tanks[k]), F = world(v), t30 = null;
+  go(F, 1); const t0 = F.time;
+  go(F, k === 'pumo' ? 60 : 30, (tt) => { v.ctl.v = 1; if (t30 == null && fwd(v) >= 30 / 3.6) t30 = tt - t0; });
+  const top = fwd(v) * 3.6;
+  v = tank(__tanks[k]); F = world(v); go(F, 1);
+  let yaw = 0; go(F, 2, () => { v.ctl.h = 1; }); go(F, 2, () => { v.ctl.h = 1; yaw += yawOf(v) / 120; });
+  const pivot = -yaw / D2R, drift = v.speed();
+  usePlane(null);
+  const c = TABLE[k][3], up = climbs(__tanks[k], c * 0.75), stall = climbs(__tanks[k], c * 1.25);
+  meas[k] = { t30, top, pivot, drift, up, stall };
+}`);
+const meas = RP('meas'), TABLE = RP('TABLE'), within = (x, want, k = 0.25) => x != null && Math.abs(x / want - 1) <= k;
+for (const k of Object.keys(TABLE)) {
+  const m = meas[k], [t30, top, piv, climb] = TABLE[k], f = (x) => +x.toFixed(2);
+  t(`${k}: 0-30 km/h in ${t30} s and ${top} km/h top (±25%)`, within(m.t30, t30) && within(m.top, top), [f(m.t30), f(m.top)]);
+  if (piv) t(`${k}: pivots at ${piv}°/s, on the spot (±25%)`, within(m.pivot, piv) && m.drift < 0.3, [f(m.pivot), f(m.drift)]);
+  else t(`${k}: no pivot: A/D alone at a standstill drive it round a circle (wheels steer, the skid only helps)`, m.drift > 1 && m.drift / Math.abs(m.pivot * Math.PI / 180) > 2, [f(m.pivot), f(m.drift)]);
+  t(`${k}: climbs a ${climb}° slope at 2 m/s (holds 2 m/s up ${0.75 * climb}°, not up ${1.25 * climb}°)`, m.up >= 2 && m.stall < 2, [f(m.up), f(m.stall)]);
+}
+// what the builder shows (Gear.stats, pure): the same numbers from the same rules
+RP(`var STATS = {}; for (const k in TABLE) STATS[k] = Gear.stats(partsFromDesign(__tanks[k]));`);
+const STATS = RP('STATS');
+t('Gear.stats: hp per tonne, top speed, pivot and climb agree with the table (±25%), and the top speed with the drive (±12%: it leaves out the air)',
+  Object.keys(TABLE).every((k) => { const s = STATS[k], [, top, piv, climb] = TABLE[k]; return within(s.top, top) && within(s.climb, climb) && (piv ? within(s.pivot, piv) : s.pivot === 0) && within(s.top, meas[k].top, 0.12) && near(s.hpt, s.kw * 1.341 / s.mass, 1e-9); })
+  && near(STATS.tk34.hpt, 450 * 1.341 / STATS.tk34.mass, 1e-9) && near(STATS.tk34.mass, RP('built.tk34.t'), 1e-9) && STATS.tk34.kw === 450 && STATS.tk34.loadT === 70 && STATS.tk34.overload === 0,
+  JSON.stringify(Object.fromEntries(Object.entries(STATS).map(([k, s]) => [k, [s.hpt, s.top, s.pivot, s.climb, s.tip].map((x) => +x.toFixed(1))]))));
+t('Gear.stats: null for an old design; no engine: no speed; nothing to drive on: no tip, no speed', RP(`Gear.stats(partsFromDesign(templateRows(TEMPLATES.buggy))) === null
+  && (() => { const s = Gear.stats(partsFromDesign(__tanks.tk34.filter((q) => q.type !== 'engDiesel'))); return s.kw === 0 && s.top === 0 && s.climb === 0 && s.pivot === 0 && s.tip > 0.5; })()
+  && (() => { const s = Gear.stats(partsFromDesign(__tanks.tk34.filter((q) => q.type !== 'trackMed'))); return s.top === 0 && s.tip === 0 && s.loadT === 0 && s.overload > 20; })()`));
+// overloaded running gear: a Tygr on light tracks (36 t rated, 49 t on them) is slower, and says by how much
+RP(`var OVER = __tanks.tygr.map((q) => q.type === 'trackHeavy' ? { ...q, type: 'trackLight', y: 0.45, z: Math.sign(q.z) * 1.5 } : q), ostat = Gear.stats(partsFromDesign(OVER));
+usePlane({}); var ov = tank(OVER), oF = world(ov); go(oF, 1); go(oF, 25, () => { ov.ctl.v = 1; }); var otop = fwd(ov) * 3.6; usePlane(null);`);
+t('overloaded running gear: light tracks rated for 36 t under a 42 t Tygr: it tops out at 36/42 of their speed, as Gear.stats says (top < top0)', RP(`ostat.loadT === 36 && Math.abs(ostat.overload - (ostat.mass - 36)) < 1e-9 && ostat.overload > 5 && ostat.top < ostat.top0
+  && Math.abs(ostat.top / (15 * 3.6 * 36 / ostat.mass) - 1) < 0.01 && Math.abs(otop / ostat.top - 1) < 0.05`), RP('[ostat.top, ostat.top0, otop, ostat.overload]'));
+
+// ---------------------------------------------------------------- the probe budget: terrain calls a step (counted)
+// On the arena's pad (the real map; flat) and a dry 10° hillside of the arena: every terrain call a whole physics step
+// makes (surfaceAt, heightAt, waterAt, deckAt; a normalAt as its four surfaceAt), parked and driving.
+RP(`var NCALL = 0, CW = {};
+for (const k of ['surfaceAt', 'heightAt', 'waterAt', 'deckAt', 'normalAt']) { const f = Terrain[k], w = k === 'normalAt' ? 4 : 1; CW[k] = function (...a) { NCALL += w; return f.apply(this, a); }; }
+var counted = (v, F, secs, script) => { let most = 0, sum = 0, n = 0, gearMost = 0; const keep = {};
+  for (const k in CW) { keep[k] = Terrain[k]; Terrain[k] = CW[k]; }
+  for (let f = 0; f < secs * 60; f++) { if (script) script(); for (let i = 0; i < 2; i++) { NCALL = 0; v.physicsStep(1 / 120, F); most = Math.max(most, NCALL); gearMost = Math.max(gearMost, Gear.calls); sum += NCALL; n++; Combat.step(1 / 120, F); F.time += 1 / 120; } }
+  for (const k in keep) Terrain[k] = keep[k];
+  return { most, mean: +(sum / n).toFixed(2), gear: gearMost }; };
+var CALLS2 = {};
+for (const k in TABLE) {
+  const v = tank(__tanks[k], { real: true, e: 17680, z: 13800 }), F = world(v); go(F, 2);
+  CALLS2[k] = { parked: counted(v, F, 2), driving: counted(v, F, 3, () => { v.ctl.v = 1; }) };
+}
+var HILL = { e: 16475, z: 15450 };
+for (const yaw of [0.63, 0.63 + Math.PI / 2]) { const v = tank(__tanks.tk34, { real: true, ...HILL, yaw }), F = world(v); go(F, 2); CALLS2['tk34 hill ' + yaw.toFixed(2)] = { parked: counted(v, F, 2), driving: counted(v, F, 2, () => { v.ctl.v = 1; }) }; }`);
+const C2 = RP('CALLS2');
+t('on the arena\'s pad every vehicle\'s step makes at most 16 terrain calls, parked or driving (13 for a tank: 6 road wheels, 4 belly corners, the spot under it, its deck, its water; parked, the heights are kept)',
+  Object.keys(TABLE).every((k) => C2[k].driving.most <= 16 && C2[k].parked.most <= 16 && C2[k].parked.mean < 3), JSON.stringify(C2));
+t('on a 10° hillside of the arena, at most 24 (uphill and across)', Object.keys(C2).filter((k) => k.includes('hill')).every((k) => C2[k].driving.most <= 24 && C2[k].parked.most <= 24),
+  JSON.stringify(Object.fromEntries(Object.entries(C2).filter(([k]) => k.includes('hill')))));
+
+// ---------------------------------------------------------------- parked on a slope; the step size
+RP(`var DRIFT = {};
+for (const [name, o] of [['uphill', { te: Math.tan(15 * D2R) }, { pitch: 15 * D2R }], ['across', { tz: Math.tan(15 * D2R) }, { roll: -15 * D2R }]].map(([n, p, q]) => [n, [p, q]])) {
+  usePlane(o[0]); const v = tank(__tanks.tk34, o[1]), F = world(v); go(F, 2); const a = { x: v.x, y: v.y, z: v.z }; go(F, 10);
+  DRIFT[name] = Math.hypot(v.x - a.x, v.y - a.y, v.z - a.z);
+}
+usePlane({});
+var TOP = {}; for (const k of ['tk34', 'pumo']) TOP[k] = [1 / 120, 1 / 60].map((h) => { const v = tank(__tanks[k]), F = world(v); go(F, 1, null, h); go(F, 22, () => { v.ctl.v = 1; }, h); return fwd(v); });
+usePlane(null);`);
+t('parked on a 15° slope for 10 s (facing up it, and side-on) it drifts less than 0.1 m', RP('DRIFT.uphill < 0.1 && DRIFT.across < 0.1'), RP('JSON.stringify(DRIFT)'));
+t('the same top speed at h = 1/120 and 1/60 (within 2%)', RP('Object.values(TOP).every(([a, b]) => Math.abs(b / a - 1) < 0.02)'), RP('JSON.stringify(TOP)'));
+
+// ---------------------------------------------------------------- a broken track; turning; braking and coasting
+RP(`usePlane({});
+var dead = (script, secs) => { const v = tank(__tanks.tk34), F = world(v); go(F, 1); v.parts[1].broken = true; const h0 = v.heading(); go(F, secs, () => script(v)); return { v, turn: wrapAngle(v.heading() - h0), yaw: yawOf(v) }; };
+var BW = dead((v) => { v.ctl.v = 1; }, 4), BA = dead((v) => { v.ctl.h = -1; }, 3), BD = dead((v) => { v.ctl.h = 1; }, 3);
+var turnAt = (k, sticks, secs = 3) => { const v = tank(__tanks[k]), F = world(v); go(F, 1); go(F, 5, () => { v.ctl.v = 1; }); go(F, secs, () => Object.assign(v.ctl, sticks)); return { yaw: yawOf(v), v: fwd(v), steer: v.steer, susp: v.susp.slice() }; };
+var TURN = { wd: turnAt('tk34', { v: 1, h: 1 }), d: turnAt('tk34', { v: 0, h: 1 }), rev: (() => { const v = tank(__tanks.tk34), F = world(v); go(F, 1); go(F, 4, () => { v.ctl.v = -1; }); const r = fwd(v); go(F, 2, () => { v.ctl.v = -1; v.ctl.h = 1; }); return { rev: r, yaw: yawOf(v) }; })(),
+  pumo: turnAt('pumo', { v: 0.4, h: 1 }) };
+var stopIn = (brake) => { const v = tank(__tanks.tk34), F = world(v); go(F, 1); go(F, 8, () => { v.ctl.v = 1; }); const v0 = fwd(v); let tt = 0; while (fwd(v) > 0.3 && tt < 20) { go(F, 1 / 60, () => { v.ctl.v = 0; v.brake = brake; }); tt += 1 / 60; } return [v0, tt]; };
+var STOP = { brake: stopIn(true), coast: stopIn(false) };
+usePlane(null);`);
+t('a broken left track: W swings the tank round it (to the left) at no more than about its pivot rate, the right track still driving', RP(`BW.turn < -60 * D2R && BW.yaw > 0.3 && BW.yaw < 1.15 * 0.7 + 0.01 && BW.v.beltV[1] > 2`), RP('[BW.turn / D2R, BW.yaw, BW.v.beltV]'));
+t('...and it still pivots on the good one, both ways', RP(`BA.yaw > 0.3 && BD.yaw < -0.1`), RP('[BA.yaw, BD.yaw]'));
+t('turning at full throttle while still gathering speed: the inner side held back, the hull turns right (D) and leans out of the turn', RP(`TURN.wd.yaw < -0.25 && TURN.wd.susp[0] > TURN.wd.susp[1] + 0.03`), RP('JSON.stringify(TURN.wd)'));
+t('A/D alone at speed: it turns as it rolls to a stop (no slam of the brakes)', RP(`TURN.d.yaw < -0.3 && TURN.d.v > 2`), RP('JSON.stringify(TURN.d)'));
+t('reverse at its share of the top speed; D while reversing swings the nose left, as a car\'s does', RP(`Math.abs(TURN.rev.rev / -(14 * 0.35) - 1) < 0.05 && TURN.rev.yaw > 0.3`), RP('JSON.stringify(TURN.rev)'));
+t('armoured wheels steer like a car\'s: the Pumo turns round a circle of 20-40 m at 10 m/s, its front wheels turned', RP(`TURN.pumo.yaw < -0.2 && Math.abs(TURN.pumo.v / TURN.pumo.yaw) > 20 && Math.abs(TURN.pumo.v / TURN.pumo.yaw) < 40 && TURN.pumo.steer > 0.05`), RP('JSON.stringify(TURN.pumo)'));
+t('B stops it from 40 km/h in under 2 s; letting go, the engine brakes it to a stop in 5-12 s', RP(`STOP.brake[0] > 10 && STOP.brake[1] < 2 && STOP.coast[1] > 5 && STOP.coast[1] < 12`), RP('JSON.stringify(STOP)'));
+
+// ---------------------------------------------------------------- water
+RP(`var swim = (k, o, secs = 12) => { usePlane(o); const v = tank(__tanks[k]), F = world(v); go(F, 1); go(F, secs, () => { v.ctl.v = 1; }); usePlane(null); return { v: fwd(v), flooded: !!v.flooded, toasts: F.toasts.join() }; };
+var WADE = swim('tk34', { water: true, depth: 1 }), SWIM = swim('pumo', { water: true, depth: 5 });
+// flooding: from 3 m deep water 6 m short of a shore, W held
+usePlane({ water: true, depth: 3, shore: 8 });
+var fv = tank(__tanks.tk34, { e: -6 }), fF = world(fv), FL = [];
+for (let s = 0; s < 30; s++) { go(fF, 1, () => { fv.ctl.v = 1; }); FL.push([s + 1, +spot(fv).e.toFixed(1), +fwd(fv).toFixed(2), !!fv.flooded, Math.round(fv.drivePower / 1000), fv.splashed]); }
+usePlane(null);`);
+t('wading: a tank in shallow water crawls at about 2 m/s (±25%), its engine dry', RP('WADE.v > 1.5 && WADE.v < 2.5 && !WADE.flooded'), RP('JSON.stringify(WADE)'));
+t('swimming: the Pumo\'s boat hull swims at about 3.5 m/s (±25%) in deep water, never flooded', RP('SWIM.v > 2.6 && SWIM.v < 4.4 && !SWIM.flooded'), RP('JSON.stringify(SWIM)'));
+RP(`var fl = FL.map((r) => r[3]), first = fl.indexOf(true), outAt = FL.findIndex((r) => !r[5]), back = fl.lastIndexOf(true) + 1;`);
+t('flooding: in 3 m of water "Engine flooded!" and no power for 5 s; then a fifth of it, so it crawls ashore; it runs again 5 s out of the water ("Engine restarted")',
+  RP(`first === 0 && fF.toasts.join() === 'Engine flooded!,Engine restarted' && FL.slice(0, 5).every((r) => r[4] === 0) && FL[6][4] > 0 && FL[6][4] <= 90 && outAt > 5
+    && back >= outAt + 5 && back <= outAt + 7 && FL[FL.length - 1][4] > 200`), RP('JSON.stringify(FL)'));
+
+// ---------------------------------------------------------------- righting, tipping
+RP(`usePlane({});
+var RIGHT = {}; for (const [n, roll] of [['side', Math.PI / 2], ['roof', Math.PI * 0.97]]) { const v = tank(__tanks.tk34, { roll }), F = world(v); let upAt = null, seen = false;
+  for (let f = 0; f < 60 * 8; f++) { go(F, 1 / 60); seen = seen || !!v.righting; if (upAt == null && f > 30 && tilt(v) > Math.cos(20 * D2R)) upAt = F.time; }
+  RIGHT[n] = { upAt, seen, end: tilt(v), broken: F.broken.join() }; }
+var row = (type, x, y, o = {}) => ({ type, x, y, flip: false, rot: 0, ...o });
+var RIG = [row('hullLight', 0, 0.95), row('trackLight', 0, 0.45, { z: -1.1, att: 0 }), row('trackLight', 0, 0.45, { z: 1.1, att: 0 }), row('engPetrol', -1.4, 0.95, { att: 0 }),
+  row('hullHeavy', 0, 2.3, { att: 0 }), row('hullHeavy', 0, 3.9, { att: 4 })]; // (a light tank carrying 48 t up high)
+var rigTip = Gear.stats(partsFromDesign(RIG)).tip, TIP = {};
+for (const k of [0.8, 1.25]) { const ph = Math.atan(rigTip * k); usePlane({ tz: Math.tan(ph) }); const v = tank(RIG, { roll: -ph }), F = world(v); let low = 1;
+  for (let f = 0; f < 60 * 8; f++) { go(F, 1 / 60); low = Math.min(low, tilt(v)); }
+  TIP[k] = { slope: ph / D2R, lowest: low }; }
+usePlane(null);`);
+t('righting: rolled onto its side, or its roof, it is back on its tracks within 5 s, "Righting…" while it works', RP(`['side', 'roof'].every((n) => RIGHT[n].seen && RIGHT[n].upAt != null && RIGHT[n].upAt < 5 && RIGHT[n].end > 0.99 && !RIGHT[n].broken)`), RP('JSON.stringify(RIGHT)'));
+t('a top-heavy rig tips at its static threshold (Gear.stats tip, ±25%): it stands on a side slope at 0.8 of it and goes over at 1.25', RP(`rigTip > 0.2 && rigTip < 0.5 && TIP[0.8].lowest > 0.9 && TIP[1.25].lowest < 0.3`), RP('[rigTip, JSON.stringify(TIP)]'));
+
+// ---------------------------------------------------------------- collisions between vehicles (Gear.bump)
+RP(`usePlane({});
+var ram = (what) => { const a = tank(__tanks.tk34), w = tank(__tanks.tygr, { e: 25 }); if (what === 'wreck') w.wreck = true; if (what === 'ghost') w.remote = 7;
+  const F = world(a, w); go(F, 0.5); const w0 = spot(w), f = a.axis(1, 0, 0); a.vx += f.x * 15; a.vy += f.y * 15; a.vz += f.z * 15;
+  let gap = Infinity; for (let i = 0; i < 120; i++) { go(F, 1 / 60, () => { a.ctl.v = 1; }); gap = Math.min(gap, spot(w).e - spot(a).e); }
+  return { gap, moved: Math.hypot(spot(w).e - w0.e, spot(w).z - w0.z), hull: a.parts[0].hp, wv: w.speed() }; };
+var RAM = { wreck: ram('wreck'), ghost: ram('ghost'), local: ram('local') };
+var sa = tank(__tanks.ms4), sb = tank(__tanks.tygr, { z: 2.95 }), sF = world(sa, sb), sa0 = spot(sa), sb0 = spot(sb); go(sF, 3);
+var SPLIT = { a: spot(sa).z - sa0.z, b: spot(sb).z - sb0.z, ratio: sb.mass / sa.mass };
+var bt = tank(__tanks.tk34), bug = tank(templateRows(TEMPLATES.buggy), { e: 8, kind: 'car' }), bF = world(bt, bug), bug0 = spot(bug); go(bF, 0.5); go(bF, 4, () => { bt.ctl.v = 1; });
+var SHOVE = { moved: spot(bug).e - bug0.e, behind: spot(bt).e < spot(bug).e, broken: bF.broken.join() };
+var alone = (e, yaw) => { const c = tank(templateRows(TEMPLATES.buggy), { e, yaw, kind: 'car' }), F = world(c); go(F, 5, () => { c.ctl.v = 1; }); return [c.x, c.y, c.z, c.vx, c.vy, c.vz].join(); };
+var c1 = tank(templateRows(TEMPLATES.buggy), { kind: 'car' }), c2 = tank(templateRows(TEMPLATES.buggy), { e: 40, yaw: Math.PI, kind: 'car' }), cF = world(c1, c2); go(cF, 5, () => { c1.ctl.v = 1; c2.ctl.v = 1; });
+var THROUGH = [c1.x, c1.y, c1.z, c1.vx, c1.vy, c1.vz].join() === alone(0, 0) && [c2.x, c2.y, c2.z, c2.vx, c2.vy, c2.vz].join() === alone(40, Math.PI);
+usePlane(null);`);
+const RAM = RP('RAM');
+t('15 m/s into a wreck or another player\'s ghost: it stops against it (never through: the centres stay a hull and a half apart), and neither moves', ['wreck', 'ghost'].every((k) => RAM[k].gap > 5.7 && RAM[k].moved < 1e-9),
+  JSON.stringify(RAM));
+t('...ramming faster than 6 m/s dents the hull that hit (a local dent: never sent); a local tank it hits is shoved on', RAM.wreck.hull < 1100 && RAM.local.moved > 1 && RAM.local.wv > 1 && RAM.local.gap > 5.7, JSON.stringify(RAM.local));
+t('two local tanks overlapping split the push by mass (the 26 t one moves 1.9 times as far as the 51 t one)', RP('SPLIT.a < -0.1 && SPLIT.b > 0.05 && Math.abs(-SPLIT.a / SPLIT.b / SPLIT.ratio - 1) < 0.05'), RP('JSON.stringify(SPLIT)'));
+t('a tank shoves an old buggy out of its way (the buggy takes the impulse)', RP('SHOVE.moved > 3 && SHOVE.behind && !SHOVE.broken'), RP('JSON.stringify(SHOVE)'));
+t('two old cars still pass through each other exactly as if alone', RP('THROUGH'));
+
+// ---------------------------------------------------------------- a crash and a dent, old path and new
+RP(`usePlane({});
+var drop = (rows, kind, V) => { const v = tank(rows, { kind }), F = world(v), u = upOf(v); v.x += u.x * 0.3; v.y += u.y * 0.3; v.z += u.z * 0.3; v.vx = -u.x * V; v.vy = -u.y * V; v.vz = -u.z * V;
+  go(F, 1); return { broken: F.broken.join(), dented: v.parts.filter((p) => p.hp != null && p.hp < Combat.maxHp(p.def)).map((p) => p.type).join(), gear: v.gear.length }; };
+var DROP = { tank16: drop(__tanks.tk34, 'tank', 16), tank35: drop(__tanks.tk34, 'tank', 35), bug20: drop(templateRows(TEMPLATES.buggy), 'car', 20), bug30: drop(templateRows(TEMPLATES.buggy), 'car', 30) };
+usePlane(null);`);
+t('a crash and a dent on both paths: a tank landing at 16 m/s dents its tracks, at 35 m/s it breaks up; a buggy (vessel.js) dents at 20 and breaks at 30',
+  RP(`DROP.tank16.dented === 'trackMed,trackMed' && !DROP.tank16.broken && /impact:trackMed/.test(DROP.tank35.broken) && DROP.bug20.dented && !DROP.bug20.broken && /impact:/.test(DROP.bug30.broken)`), RP('JSON.stringify(DROP)'));
+
+// ---------------------------------------------------------------- an old Car Wheel on a tank: it carries weight and rolls free
+RP(`usePlane({});
+var cw = tank([...__tanks.tk34, { type: 'carWheel', x: 3.4, y: 0.6, flip: false, rot: 0, att: 0 }]), cwF = world(cw); go(cwF, 2);
+var cwLow = Math.min(...cw.wheelPts.filter((k) => !k.gear).map((k) => { const w = cw.toWorld(k.x, k.y, k.z), L = Terrain.locate(EARTH, w.x, w.y, w.z, {}); return Math.hypot(w.x, w.y, w.z) - k.r - EARTH.radius - Terrain.surfaceAt(EARTH, L.a, L.z); }));
+go(cwF, 20, () => { cw.ctl.v = 1; }); var CW = { low: cwLow, top: fwd(cw) * 3.6, n: cw.wheelPts.filter((k) => !k.gear).length, broken: cwF.broken.join() };
+usePlane(null);`);
+t('an old Car Wheel on a tank: it carries weight (never through the ground) and rolls free (the tank still makes its top speed)', RP(`CW.n === 2 && CW.low > -0.03 && CW.top > 0.95 * TABLE.tk34[1] && !CW.broken`), RP('JSON.stringify(CW)'));
+
+// ---------------------------------------------------------------- what physics writes for the renderer, the HUD and sound
+RP(`usePlane({});
+var ov2 = tank(__tanks.tk34), oF2 = world(ov2); go(oF2, 2); var OUT = { rest: { susp: ov2.susp.slice(), power: ov2.drivePower, landed: ov2.landed, wheels: ov2.wheelsDown, drive: ov2.canDrive } };
+var belt0 = ov2.parts[1].belt || 0; go(oF2, 3, () => { ov2.ctl.v = 1; });
+OUT.drive = { belt: (ov2.parts[1].belt || 0) - belt0, beltV: ov2.beltV.slice(), v: fwd(ov2), power: ov2.drivePower, wheelSpeed: ov2.wheelSpeed };
+var pw = tank(__tanks.pumo), pF = world(pw); go(pF, 1); go(pF, 2, () => { pw.ctl.v = 1; }); var spin0 = pw.parts[1].spin || 0; go(pF, 1 / 60, () => { pw.ctl.v = 1; });
+OUT.spin = [wrapAngle((pw.parts[1].spin || 0) - spin0), (-fwd(pw) / PARTS.wheelArmS.awheel.r) / 60];
+usePlane(null);`);
+const OUT = RP('OUT');
+t('at rest: each side\'s springs at their sag (0.4 of the travel), no power used, landed on its tracks, ready to drive', near(OUT.rest.susp[0], 0.1, 0.005) && near(OUT.rest.susp[1], 0.1, 0.005) && OUT.rest.power === 0 && OUT.rest.landed && OUT.rest.wheels && OUT.rest.drive, JSON.stringify(OUT.rest));
+t('driving: the belts run at the ground speed and travel with it, the engine at full power pulling away; the wheels turn', near(OUT.drive.beltV[0], OUT.drive.v, 0.05) && near(OUT.drive.beltV[1], OUT.drive.v, 0.05)
+  && OUT.drive.belt > 10 && near(OUT.drive.power, 450000, 1000) && near(OUT.drive.wheelSpeed, OUT.drive.v, 0.05) && near(OUT.spin[0], OUT.spin[1], 0.01) && OUT.spin[0] < -0.1, JSON.stringify(OUT));
 
 (async () => {
   // MP.host's settings: merged over the defaults (old calls: the defaults as before)
