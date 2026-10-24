@@ -922,3 +922,38 @@ kbd {
 @media (max-height: 500px) {
   #kind-select .kind-btn { flex-direction: column; }
 }
+
+/* ---- Builder: ground (armour stats, the armour control, X-ray, armour view, turret arcs) */
+.ground-info { margin: 0; font: 500 11px/1.4 var(--mono); color: #c3e6a3; border-left: 2px solid #79c04f; padding-left: 8px; }
+.stats.collapsed .ground-info { display: none !important; }
+#pi-mm { flex: 1; min-width: 0; accent-color: var(--amber); }
+/* the armour row: its label, thickness and the view toggle over the steppers; on a phone all in one line */
+.pi-mm { flex-wrap: wrap; }
+.pi-mm .pi-val { order: 1; }
+.pi-mm #btn-armour { order: 2; }
+.pi-mm .pi-break { order: 3; flex-basis: 100%; height: 0; }
+.pi-mm #btn-mm-down, .pi-mm #pi-mm, .pi-mm #btn-mm-up { order: 4; }
+.pi-faces { margin: 0; font: 500 11px/1.35 var(--mono); color: var(--muted); }
+.pi-arc { flex: 1; min-width: 0; font: 500 11px/1.3 var(--mono); color: var(--amber); }
+#btn-xray .icon, #btn-armour .icon { width: 18px; height: 18px; }
+/* the armour view is a 2D one; Test turret shows in 3D */
+#build-ui:has(.view3d-toggle[aria-pressed="true"]) #btn-armour { display: none; }
+#build-ui:not(:has(.view3d-toggle[aria-pressed="true"])) #btn-test-turret { display: none; }
+/* a part panel with armour on it can be tall: it scrolls rather than run under the tray */
+@media (min-width: 761px) {
+  .part-info { max-height: calc(100% - 64px - var(--safe-t) - var(--pal-h, 170px) - 14px); overflow-y: auto; }
+}
+@media (max-width: 760px) {
+  .ground-info { flex: 1 1 100%; font-size: 10px; }
+  .has-info .ground-info { display: none; } /* (a part picked: its panel needs the room) */
+  .pi-faces { font-size: 10px; }
+  .pi-mm { flex-wrap: nowrap; }
+  .pi-mm .pi-break { display: none; }
+  .pi-mm #btn-mm-down, .pi-mm #pi-mm, .pi-mm #btn-mm-up { order: 0; }
+}
+@media (max-width: 480px) {
+  #btn-xray { width: 34px; min-width: 34px; padding: 0; }
+}
+@media (max-width: 350px) {
+  #btn-xray { width: 31px; min-width: 31px; }
+}
