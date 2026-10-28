@@ -113,4 +113,18 @@ g('...and climbs a 15° slope (at over 1.5 m/s, 8 s from a standstill on it)', g
 g('on Highland Ridge\'s two pads, in all six spawn slots of each: it settles on its running gear, the hull clear of the ground, upright, still, whole',
   RW('EARTH.mapped') && gv.every((k) => W.pads[k].length === 12 && W.pads[k].every((s) => s.low > 0.3 && s.up > 0.999 && s.speed < 0.2 && s.parts && !s.broken)),
   Object.keys(GROUND).map((k) => `${k} ${Math.min(...W.pads[k].map((s) => s.low)).toFixed(2)} m`).join(', '));
+// ...and a whole pad at once, bumping each other: each money tier's stock vehicles (GroundMode.stock: three and the
+// technical) and the six biggest abreast, on both pads, settle where they were put, well clear of each other
+RW(`var lineups = [];
+for (const keys of [GroundMode.stock(45000), GroundMode.stock(75000), GroundMode.stock(120000), ['stuq3', 'ma1', 'ok8', 'tk72', 'gepardo', 'leapard1']]) for (const team of [0, 1]) {
+  const vs = keys.map((k, slot) => { const v = veh(k, GroundMode.placement('highland', team, slot, TEMPLATES[k].kind)); v.p0 = { x: v.x, y: v.y, z: v.z }; return v; }), F = world(vs[0]);
+  F.vessels = vs;
+  for (let i = 0; i < 360; i++) { for (const v of vs) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+  const aside = (v) => { const dx = v.x - v.p0.x, dy = v.y - v.p0.y, dz = v.z - v.p0.z, u = (dx * v.x + dy * v.y + dz * v.z) / v.radius(); return Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - u * u)); };
+  let gap = Infinity; // (between the spheres round their body boxes, as Gear.bump's first test)
+  for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) gap = Math.min(gap, Math.hypot(vs[i].x - vs[j].x, vs[i].y - vs[j].y, vs[i].z - vs[j].z) - gearBoxR(vs[i]) - gearBoxR(vs[j]));
+  lineups.push({ keys: keys.join('+'), team, gap, aside: Math.max(...vs.map(aside)), ok: !F.broken.length && vs.every((v) => low(v) > 0.3 && up(v) > 0.999 && v.speed() < 0.2 && v.parts.length === v.of) });
+}`);
+g('a whole pad at once: each money tier\'s stock vehicles, and the six biggest abreast, settle where they were put, well clear of each other',
+  W.lineups.length === 8 && W.lineups.every((l) => l.ok && l.gap > 5 && l.aside < 0.2), W.lineups.map((l) => `${l.keys} t${l.team}: ${l.gap.toFixed(1)} m apart, ${l.aside.toFixed(2)} m aside${l.ok ? '' : ' NOT SETTLED'}`).join('; '));
 g.done();

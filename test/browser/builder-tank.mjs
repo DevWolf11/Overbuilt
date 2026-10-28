@@ -244,6 +244,14 @@ await page.waitForFunction(() => App.scene === 'flight' && typeof Flight !== 'un
 await frames(page, 5);
 r = await ev(() => ({ kind: Flight.active.kind, parts: Flight.active.parts.length, gv: Flight.active.gv, mm: (Flight.active.parts.find((p) => p.type === 'hullMedium') || {}).mm }));
 ok('the six-tap tank launches as Armour, its 70 mm plate aboard', r.kind === 'tank' && r.parts === 7 && r.gv && r.mm === 70, JSON.stringify(r));
+// ...on Highland Ridge's north pad (the map is ready and the view 3D: GroundMode.soloPlace), and Revert puts it back there
+const padAt = () => ev(() => { const v = Flight.active, L = Terrain.locate(EARTH, v.x, v.y, v.z, {}); return { e: (EARTH.padAngle - L.a) * EARTH.radius, z: L.z, place: Flight.spawnOpts && Flight.spawnOpts.place, want: GroundMode.soloPlace('tank') }; });
+const onPad = (p) => !!p.want && JSON.stringify(p.place) === JSON.stringify(p.want) && Math.abs(p.e - p.want.e) < 2 && Math.abs(p.z - p.want.z) < 2;
+const launchedAt = await padAt();
+await ev(() => Flight.revert());
+await frames(page, 2);
+const revertedAt = await padAt();
+ok('...on Highland Ridge\'s north pad, and Revert to launch puts it back there', onPad(launchedAt) && onPad(revertedAt), JSON.stringify([launchedAt, revertedAt]));
 await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
