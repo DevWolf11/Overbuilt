@@ -5,7 +5,9 @@
 // focus (floating origin) inside groups turned into the local surface frame: y up, x east, z north.
 
 const Render3D = (() => {
-  const FOV = 50, TANH = Math.tan((FOV * Math.PI) / 360);
+  // the flight camera's field of view (50°; a ground vehicle's gunner sight narrows it: setFov) and the tangent of half of it,
+  // which project(), metresPerPixelAt, glow sizes and pixel culling all read
+  let FOV = 50, TANH = Math.tan((FOV * Math.PI) / 360);
   const PW = 2.2;     // terrain grid spacing exponent: dense under the craft, coarse at the horizon
   const TILE = 12;    // metres per repeat of the ground detail texture
   const TILT = 0.26;  // the light leans a little towards the camera so faces seen head-on get some sun
@@ -813,13 +815,25 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     terr.mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: det.map, normalMap: det.nrm, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, metalness: 0 });
     // cities glow at night: aNight (per vertex) times uNight (how dark it is)
     terr.nightU = { value: 0 };
-    terr.mat.onBeforeCompile = (sh) => {
+    terr.nightHook = (sh) => {
       sh.uniforms.uNight = terr.nightU;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aNight;\nvarying float vNight;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvNight = aNight;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uNight;\nvarying float vNight;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.66, 0.32) * vNight * uNight;');
     };
+    // ...and where an arena's own ground is drawn (arenaBand), the patch is cut away: a rectangle in its UVs (u0, v0, u1,
+    // v1; none while it is (1, 1, 0, 0))
+    terr.holeU = { value: new THREE.Vector4(1, 1, 0, 0) };
+    // (one hook for the patch and the arena's own ground, each with its own cut: the same shader, so one program)
+    terr.holeHook = (U) => (sh) => {
+      terr.nightHook(sh);
+      sh.uniforms.uHole = U;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vHole;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHole = uv;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uHole;\nvarying vec2 vHole;')
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;');
+    };
+    terr.mat.onBeforeCompile = terr.holeHook(terr.holeU);
     terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.25, 0.25), envMapIntensity: 1.2 });
     for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
@@ -944,10 +958,62 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     note(name, performance.now() - t0);
     return r;
   };
+  // A ground vertex's colour (into out, sRGB 0..255) as the terrain patch paints it, and its night glow (returned): the
+  // planet's own colour (paint), then on the real Earth its fields, towns, river banks, far water, roads, airfield grass,
+  // and the runway's and causeway's concrete shoulders. X: distance along the equator (the grid's al), zn: depth for the
+  // colour noise (the patch's row, from its centre), ang, Z, phi, ea, half: the grid's angle, depth, latitude, east and
+  // track half-width there; cell: the cell size (finer detail fades on coarse cells); h, cn, dk: height, continent and
+  // crater darkness; slope, tan: of the ground; wl, wp, rdw, rvw: water level and presence, road and river (Terrain.water).
+  // (The patch and the arenas' ground mesh both paint with it, so they look alike.)
+  function groundPaint(c, b, X, zn, ang, Z, phi, ea, half, cell, h, cn, dk, slope, tan, wl, wp, rdw, rvw, out) {
+    SHORE = Math.max(0, h) / tan;
+    // each octave fades to its mean once the cells outgrow it (aliased noise smears into blotches far off)
+    const f90 = 1 - smoothstep(35, 110, cell), f23 = 1 - smoothstep(9, 28, cell);
+    const nn = lerp(0.5, vnoise2(X / 90, zn / 90, 0, c.seed + 3), f90) * 0.7 + lerp(0.5, vnoise2(X / 23, zn / 23, 0, c.seed + 4), f23) * 0.3;
+    if (c.mapped) { bioAt(ang, Z); FAR = smoothstep(60, 400, cell); CLIFF = Terrain.cliffAt(ang, Z); }
+    paint(c, h, nn, cn, dk, slope * 3, phi, false, out);
+    CLIFF = 0;
+    let night = 0;
+    if (c.mapped && h >= 0) {
+      // airfields (EARTH.airfields): kept grass, no fields or streets painted across them
+      const fw = b === EARTH && Terrain.fieldAt ? Terrain.fieldAt(ea, Z, FQP).w : 0;
+      const u = Terrain.urbanAt(ang, Z) * (1 - fw);
+      // farmland: a patchwork of fields on gentle, green-to-dry lowland, in some regions and not others
+      const bl = lum(BIOL), farm = BIOW * smoothstep(0.17, 0.24, bl) * (1 - smoothstep(0.42, 0.52, bl)) * (1 - smoothstep(0.08, 0.2, slope)) * smoothstep(3, 8, h) * (1 - smoothstep(350, 650, h))
+        * smoothstep(0.42, 0.6, vnoise2(X / 2600, Z / 2600, 0, c.seed + 90)) * (1 - FAR) * (1 - smoothstep(0.15, 0.4, u)) * (1 - fw);
+      if (farm > 0.01) {
+        const th = 0.5 + 1.2 * vnoise2(X / 9000, Z / 9000, 0, c.seed + 91), ct = Math.cos(th), st = Math.sin(th), fx = X * ct - Z * st, fz = X * st + Z * ct;
+        const cx = Math.floor(fx / 150), cz = Math.floor(fz / 95), hsh = hashI(cx, cz, 92), edge = Math.min(fx - cx * 150, (cx + 1) * 150 - fx, fz - cz * 95, (cz + 1) * 95 - fz);
+        const fc = mixC(FIELDS[Math.floor(hsh * FIELDS.length)], FIELD_AVG, smoothstep(30, 100, cell), T1); // far off, the fields' average
+        const hedge = edge < 2.5 ? 1 - smoothstep(3, 10, cell) : 0; // hedges are thinner than a coarse cell: fade, don't alias
+        mixC(out, fc, farm * 0.6, out);
+        if (hedge > 0) mixC(out, HEDGE, farm * 0.75 * hedge, out);
+      }
+      // built-up land: blocks of grey with darker streets
+      if (u > 0.12) {
+        // on cells too coarse for 64 m blocks, their average: a vertex that happens to fall on a street would
+        // otherwise paint a whole row or column of the grid as asphalt (long dark streaks)
+        const bx = Math.floor(X / 64), bz = Math.floor(Z / 64), street = Math.min(X - bx * 64, (bx + 1) * 64 - X, Z - bz * 64, (bz + 1) * 64 - Z) < 6;
+        const fine = 1 - smoothstep(10, 28, cell), sh = 0.96 + (0.28 * hashI(bx, bz, 93) - 0.14) * fine, park = !street && hashI(bx, bz, 94) < 0.22 && fine > 0.5;
+        T2[0] = URBAN[0] * sh; T2[1] = URBAN[1] * sh; T2[2] = URBAN[2] * sh;
+        if (!park) mixC(T2, ASPHALT, fine * (street ? 1 : 0) + (1 - fine) * 0.17, T2);
+        if (!park) mixC(out, T2, smoothstep(0.12, 0.55, u) * 0.7, out);
+      }
+      if (rvw > 0) mixC(out, P.wet, rvw * 0.5, out);          // river banks
+      if (wp > 0.05 && cell > 90) mixC(out, LAKE_D, wp * smoothstep(90, 160, cell) * smoothstep(0, 2, wl - h), out); // far water, painted on
+      if (rdw > 0) mixC(out, ASPHALT, rdw, out);              // roads
+      if (fw > 0) mixC(out, AIRGRASS, fw * 0.45, out);
+      night = clamp(Math.max(0, Terrain.nightAt(ang, Z) - 0.08) * 1.2 + u * 0.1 + rdw * 0.1, 0, 1) * (0.15 + 0.85 * smoothstep(30, 400, cell));
+    }
+    if (b === EARTH && h > 6 && ea > 560 && ea < EARTH.causeway.shore - 1000) { // concrete shoulders along the runway and causeway
+      mixC(out, P.concrete, (1 - smoothstep(half - 4, half + 3, Math.abs(Z))) * 0.85 * (1 - smoothstep(30, 120, cell)), out);
+    }
+    return night;
+  }
   // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame);
   // camAlt: the camera's height, for how far out the sea can be cut down to what shows (cullWater).
   function* patchJob(patch, b, a0, z0, span, camAlt) {
-    patch.ready = false;
+    patch.ready = false; patch.ver = (patch.ver || 0) + 1; // (ver: an arena seam worked out against what it held is stale once it is rebuilt)
     const c = cfgOf(b), R = c.R, no = c.k.length, { nc, nr, n, m, sx, sz } = patch, kl = latK(z0, R);
     if (!patch.G || patch.G.no !== no) { patch.G = grid(nc, nr, no); patch.G.no = no; }
     const G = patch.G, hs = patch.h, dk = patch.dk, cn = patch.cont;
@@ -1013,49 +1079,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const cp = Math.cos(G.phi[j]), ux = -cp * sd[i], uy = cp * cd[i], uz = Math.sin(G.phi[j]);
       const cu = nx * ux + ny * uy + nz * uz, slope = 1 - cu, tan = Math.max(0.004, Math.sqrt(Math.max(0, 1 - cu * cu)) / Math.max(cu, 0.1));
       tn[k] = tan;
-      SHORE = Math.max(0, hs[k]) / tan;
-      // each octave fades to its mean once the cells outgrow it (aliased noise smears into blotches far off)
-      const cl = Math.max(G.dx[i], G.dz[j]), f90 = 1 - smoothstep(35, 110, cl), f23 = 1 - smoothstep(9, 28, cl);
-      const nn = lerp(0.5, vnoise2(G.al[i] / 90, sz[j] / 90, 0, c.seed + 3), f90) * 0.7 + lerp(0.5, vnoise2(G.al[i] / 23, sz[j] / 23, 0, c.seed + 4), f23) * 0.3;
-      if (c.mapped) { bioAt(G.ang[i], G.z[j]); FAR = smoothstep(60, 400, Math.max(G.dx[i], G.dz[j])); CLIFF = Terrain.cliffAt(G.ang[i], G.z[j]); }
-      paint(c, hs[k], nn, cn[k], dk[k], slope * 3, G.phi[j], false, out);
-      CLIFF = 0;
-      nightA[k] = 0;
-      if (c.mapped && hs[k] >= 0) {
-        // airfields (EARTH.airfields): kept grass, no fields or streets painted across them
-        const fw = b === EARTH && Terrain.fieldAt ? Terrain.fieldAt(G.ea[i], G.z[j], FQP).w : 0;
-        const cell = Math.max(G.dx[i], G.dz[j]), X = G.al[i], Z = G.z[j], u = Terrain.urbanAt(G.ang[i], Z) * (1 - fw);
-        // farmland: a patchwork of fields on gentle, green-to-dry lowland, in some regions and not others
-        const bl = lum(BIOL), farm = BIOW * smoothstep(0.17, 0.24, bl) * (1 - smoothstep(0.42, 0.52, bl)) * (1 - smoothstep(0.08, 0.2, slope)) * smoothstep(3, 8, hs[k]) * (1 - smoothstep(350, 650, hs[k]))
-          * smoothstep(0.42, 0.6, vnoise2(X / 2600, Z / 2600, 0, c.seed + 90)) * (1 - FAR) * (1 - smoothstep(0.15, 0.4, u)) * (1 - fw);
-        if (farm > 0.01) {
-          const th = 0.5 + 1.2 * vnoise2(X / 9000, Z / 9000, 0, c.seed + 91), ct = Math.cos(th), st = Math.sin(th), fx = X * ct - Z * st, fz = X * st + Z * ct;
-          const cx = Math.floor(fx / 150), cz = Math.floor(fz / 95), hsh = hashI(cx, cz, 92), edge = Math.min(fx - cx * 150, (cx + 1) * 150 - fx, fz - cz * 95, (cz + 1) * 95 - fz);
-          const fc = mixC(FIELDS[Math.floor(hsh * FIELDS.length)], FIELD_AVG, smoothstep(30, 100, cell), T1); // far off, the fields' average
-          const hedge = edge < 2.5 ? 1 - smoothstep(3, 10, cell) : 0; // hedges are thinner than a coarse cell: fade, don't alias
-          mixC(out, fc, farm * 0.6, out);
-          if (hedge > 0) mixC(out, HEDGE, farm * 0.75 * hedge, out);
-        }
-        // built-up land: blocks of grey with darker streets
-        if (u > 0.12) {
-          // on cells too coarse for 64 m blocks, their average: a vertex that happens to fall on a street would
-          // otherwise paint a whole row or column of the grid as asphalt (long dark streaks)
-          const bx = Math.floor(X / 64), bz = Math.floor(Z / 64), street = Math.min(X - bx * 64, (bx + 1) * 64 - X, Z - bz * 64, (bz + 1) * 64 - Z) < 6;
-          const fine = 1 - smoothstep(10, 28, cell), sh = 0.96 + (0.28 * hashI(bx, bz, 93) - 0.14) * fine, park = !street && hashI(bx, bz, 94) < 0.22 && fine > 0.5;
-          T2[0] = URBAN[0] * sh; T2[1] = URBAN[1] * sh; T2[2] = URBAN[2] * sh;
-          if (!park) mixC(T2, ASPHALT, fine * (street ? 1 : 0) + (1 - fine) * 0.17, T2);
-          if (!park) mixC(out, T2, smoothstep(0.12, 0.55, u) * 0.7, out);
-        }
-        if (rvw[k] > 0) mixC(out, P.wet, rvw[k] * 0.5, out);          // river banks
-        if (wp[k] > 0.05 && cell > 90) mixC(out, LAKE_D, wp[k] * smoothstep(90, 160, cell) * smoothstep(0, 2, wl[k] - hs[k]), out); // far water, painted on
-        if (rdw[k] > 0) mixC(out, ASPHALT, rdw[k], out);              // roads
-        if (fw > 0) mixC(out, AIRGRASS, fw * 0.45, out);
-        nightA[k] = clamp(Math.max(0, Terrain.nightAt(G.ang[i], Z) - 0.08) * 1.2 + u * 0.1 + rdw[k] * 0.1, 0, 1) * (0.15 + 0.85 * smoothstep(30, 400, cell));
-      }
-      if (b === EARTH && hs[k] > 6 && G.ea[i] > 560 && G.ea[i] < EARTH.causeway.shore - 1000) { // concrete shoulders along the runway and causeway
-        const w = G.half[i];
-        mixC(out, P.concrete, (1 - smoothstep(w - 4, w + 3, Math.abs(G.z[j]))) * 0.85 * (1 - smoothstep(30, 120, Math.max(G.dx[i], G.dz[j]))), out);
-      }
+      nightA[k] = groundPaint(c, b, G.al[i], sz[j], G.ang[i], G.z[j], G.phi[j], G.ea[i], G.half[i], Math.max(G.dx[i], G.dz[j]), hs[k], cn[k], dk[k], slope, tan, wl[k], wp[k], rdw[k], rvw[k], out);
       colr[k * 3] = lin(out[0]); colr[k * 3 + 1] = lin(out[1]); colr[k * 3 + 2] = lin(out[2]);
       if (i === nc - 1) yield;
     }
@@ -1164,10 +1188,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     patch = patchB; patchB = old;
     old.frame.visible = false;
     S.scenery.dirty = true;
+    patchGen++;
   }
   // A whole patch at once, when there is nothing usable on show (another body, a jump across the map).
   function buildPatchNow(b, a0, z0, span, camAlt) {
     pjob = null;
+    if (bandWait) { bandWait = false; AR.bjob = null; } // (the patch waiting for the arena's seam is overwritten)
     const job = patchJob(patchB, b, a0, z0, span, camAlt);
     while (!job.next().done);
     swapPatch();
@@ -1186,9 +1212,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const tx = (s - sx[i]) / (sx[i + 1] - sx[i]), tz = (z - sz[j]) / (sz[j + 1] - sz[j]), h = patch.h, k = j * nc + i;
     return lerp(lerp(h[k], h[k + 1], tx), lerp(h[k + nc], h[k + nc + 1], tx), tz);
   }
+  // The ground as drawn (not the sea over it): an arena's own mesh inside its footprint, else the patch with the arenas'
+  // berms added (the patch leaves them to the arena mesh); off the patch, the ground the physics has.
+  function drawnAt(b, a, z) {
+    if (b === EARTH) { const h = arenaAt(a, z); if (h != null) return h; }
+    const h = meshHeight(b, a, z);
+    if (h == null) return Terrain.heightAt(b, a, z);
+    return b === EARTH ? h + Terrain.bermAt(-wrapAngle(a - EARTH.padAngle) * b.radius, z) : h;
+  }
   function groundAt(b, a, z) {
     if (b.star) return 0;
-    let h = meshHeight(b, a, z);
+    let h = b === EARTH ? arenaAt(a, z) : null;
+    if (h == null) h = meshHeight(b, a, z);
     if (h == null) h = h3dAt(cfgOf(b), a, z);
     return b.ocean ? Math.max(h, 0) : h;
   }
@@ -1201,6 +1236,388 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let B = 1 - smoothstep(half, half + bl, Math.abs(z));
     if (b === EARTH && e > 0 && e < 2000) B = Math.max(B, apronW(e, z));
     return B;
+  }
+
+  // ------------------------------------------------------------------ the Ground Battle arenas' own ground
+  // What you see is what you hit. Inside an arena marked clear (Highland Ridge, on the real map) the terrain patch is cut
+  // away and the ground is drawn by a mesh of its own, built once from the very heights the physics stands on (the map's
+  // relief, the pads, the berms), so a shell bursts on the crest you see and a tank behind a rise is behind the rise you
+  // see. It is a quadtree on the height map's own texel grid (the map is bilinear: its creases fall on the mesh's lines):
+  // cells about 32 m across, split down to 2 m wherever the ground between their corners is more than tol off (looked at
+  // in the middle and halfway along each edge) and always over a berm. Outside the box it blends over ARENA.hole metres
+  // into the patch's own drawn ground, colours and normals (done again whenever the patch is swapped), and the patch is cut
+  // away (its shader discards) only that far out; beyond, to the rim, the mesh runs on 0.4 m under the patch, so the seam
+  // has neither a crack nor two surfaces fighting. Built a few milliseconds a frame once the camera is within 6 km, then
+  // kept for the session. Its colours are the patch's own, taken at each vertex from the patch on show (arenaBandJob), so it
+  // looks just as the patch would; its own (groundPaint at a fine cell) only where the patch doesn't reach.
+  const ARENA = { near: 6000, rim: 200, hole: 150, kx: 8, ky: 16, D: 16, tuck: 0.4, lit: [500, 1200] };
+  const AR = { A: null, hi: null, job: null, ms: 0, slice: 0, step: 0, nStep: 0, stepAt: '', geo: null, mesh: null, frame: null, on: false, gen: -1, a0: 0, k: 0, bjob: null, bP: null, bms: 0, bb: null };
+  let patchGen = 0, bandWait = false; // (counts patch swaps: the arena's seam follows the patch on show; a done patch waiting for its seam)
+  // The quadtree and its vertices (pure: no GPU), a few heights at a time. hi: the quality (tol 0.1 m, else 0.13).
+  function* arenaGeoJob(A, hi) {
+    const c = cfgOf(EARTH), R = EARTH.radius, EM = Terrain.earthMap, W = EM.W, HH = EM.H, B = A.box, tol = hi ? 0.1 : 0.13;
+    const { kx, ky, D } = ARENA, far = ARENA.rim + 50, Ef = (a) => -wrapAngle(a - EARTH.padAngle) * R;
+    // the box and its rim on the texel grid (X east along the map's rows, Y south down its columns)
+    let X0 = Infinity, X1 = -Infinity, Y0 = Infinity, Y1 = -Infinity;
+    for (const [e, z] of [[B.e0 - far, B.z0 - far], [B.e1 + far, B.z0 - far], [B.e0 - far, B.z1 + far], [B.e1 + far, B.z1 + far]]) {
+      const g = Terrain.toGeo(siteAngle(EARTH, e), z / R), X = (g.lon / TAU + 0.5) * W - 0.5, Y = (0.5 - g.lat / Math.PI) * HH - 0.5;
+      X0 = Math.min(X0, X); X1 = Math.max(X1, X); Y0 = Math.min(Y0, Y); Y1 = Math.max(Y1, Y);
+    }
+    X0 = Math.floor(X0); Y0 = Math.floor(Y0);
+    const NX = Math.ceil((X1 - X0) * kx), NY = Math.ceil((Y1 - Y0) * ky), fx = kx * D, fy = ky * D, K = NX * D + 1;
+    // points on the finest grid: where they are (cheap), and their heights when asked (h3dAt: the physics' own)
+    // (which point a grid spot is: an open-addressed table of its own, sized once, so it never stops a frame to grow as a
+    // Map does: about 2.7 slots a point; it doubles in the unlikely case it fills past half)
+    let HB = 18, hk = new Int32Array(1 << HB).fill(-1), hv = new Int32Array(1 << HB);
+    const slot = (k) => { const m = (1 << HB) - 1; let h = Math.imul(k, 0x9E3779B1) >>> (32 - HB); while (hk[h] !== -1 && hk[h] !== k) h = (h + 1) & m; return h; };
+    const find = (k) => { const h = slot(k); return hk[h] === k ? hv[h] : undefined; };
+    const pa = [], pz = [], pe = [], ph = [], pdk = [], prd = [], prv = [], pwl = [], pwp = [], o = {};
+    let evals = 0;
+    const pt = (ix, iy) => {
+      const k = iy * K + ix, h = slot(k);
+      if (hk[h] === k) return hv[h];
+      Terrain.toSim(((X0 + ix / fx + 0.5) / W - 0.5) * TAU, (0.5 - (Y0 + iy / fy + 0.5) / HH) * Math.PI, o);
+      const i = pa.length;
+      hk[h] = k; hv[h] = i;
+      pa.push(o.a); pz.push(o.phi * R); pe.push(Ef(o.a)); ph.push(NaN); pdk.push(0); prd.push(0); prv.push(0); pwl.push(0); pwp.push(0);
+      if (pa.length > 1 << (HB - 1)) { // (grow: every point again into a table twice the size)
+        const ok = hk, ov = hv;
+        HB++; hk = new Int32Array(1 << HB).fill(-1); hv = new Int32Array(1 << HB);
+        for (let q = 0; q < ok.length; q++) if (ok[q] !== -1) { const g = slot(ok[q]); hk[g] = ok[q]; hv[g] = ov[q]; }
+      }
+      return i;
+    };
+    const hOf = (i) => {
+      if (ph[i] === ph[i]) return ph[i];
+      const h = h3dAt(c, pa[i], pz[i]), EW = Terrain.water;
+      ph[i] = h; pdk[i] = Terrain.dark(); prd[i] = EW.road; prv[i] = EW.river; pwl[i] = EW.level; pwp[i] = EW.pres;
+      evals++;
+      return h;
+    };
+    const inside = (i, m) => pe[i] >= B.e0 - m && pe[i] <= B.e1 + m && pz[i] >= B.z0 - m && pz[i] <= B.z1 + m;
+    const berms = A.berms || [];
+    const TP = [0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 1];
+    yield;
+    const node = (X, Y, s) => ({ ix: X, iy: Y, s, k: null, v: [pt(X, Y), pt(X + s, Y), pt(X, Y + s), pt(X + s, Y + s)], c: -1, f: null });
+    const roots = new Array(NX * NY).fill(null), todo = [];
+    for (let j = 0, m = 0; j < NY; j++) {
+      for (let i = 0; i < NX; i++) {
+        if (++m % 24 === 0) yield; // (every step here and below about a millisecond: the frame's budget is 2-3)
+        const ix = i * D, iy = j * D, v = [pt(ix, iy), pt(ix + D, iy), pt(ix, iy + D), pt(ix + D, iy + D)];
+        if (!v.some((q) => inside(q, far))) continue; // (off the rim: no cell)
+        todo.push((roots[j * NX + i] = { ix, iy, s: D, k: null, v, c: -1, f: null }));
+      }
+    }
+    yield;
+    let steps = 0;
+    while (todo.length) {
+      const N = todo.pop(), v = N.v;
+      if (++steps % 6 === 0) yield; // (counted as they come: whole runs of cells outside the box cost little each)
+      let e0 = Infinity, e1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (const q of v) { e0 = Math.min(e0, pe[q]); e1 = Math.max(e1, pe[q]); z0 = Math.min(z0, pz[q]); z1 = Math.max(z1, pz[q]); }
+      for (const q of v) hOf(q);
+      if (N.s < 2 || e1 < B.e0 || e0 > B.e1 || z1 < B.z0 || z0 > B.z1) continue; // (the finest, or wholly outside the box: as it is)
+      let split = false;
+      for (const bm of berms) if (e1 > bm.e - 19 && e0 < bm.e + 19 && z1 > bm.z - 19 && z0 < bm.z + 19) { split = true; break; }
+      const h00 = ph[v[0]], h10 = ph[v[1]], h01 = ph[v[2]], h11 = ph[v[3]], s = N.s, hs = s / 2;
+      N.c = pt(N.ix + hs, N.iy + hs);
+      for (let t = 0; t < 10 && !split; t += 2) {
+        const x = TP[t], y = TP[t + 1], q = pt(N.ix + x * s, N.iy + y * s);
+        if (Math.abs(hOf(q) - ((h00 * (1 - x) + h10 * x) * (1 - y) + (h01 * (1 - x) + h11 * x) * y)) > tol) split = true;
+      }
+      if (split) {
+        const X = N.ix, Y = N.iy;
+        N.k = [node(X, Y, hs), node(X + hs, Y, hs), node(X, Y + hs, hs), node(X + hs, Y + hs, hs)];
+        todo.push(N.k[0], N.k[1], N.k[2], N.k[3]);
+      }
+    }
+    // the mesh's vertices: the leaves' corners, and the middles of leaves with a finer neighbour's corners on their edges
+    // (drawn as a fan round the middle, so no crack opens along a T-junction); those outside the box first (the seam's)
+    const leaves = [], corner = new Uint8Array(pa.length);
+    const walk = (N) => { if (N.k) for (const q of N.k) walk(q); else { leaves.push(N); for (const q of N.v) corner[q] = 1; } };
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) walk(roots[r]); if (r % 1500 === 1499) yield; }
+    yield;
+    for (const N of leaves) {
+      if (++steps % 300 === 0) yield;
+      if (N.s < 2) continue;
+      const s = N.s, f = [];
+      // the loop round its edge, counter-clockwise in (x, y): along y = 0, x = 1, y = 1, x = 0; u is how far round (0..4)
+      const edge = (side) => {
+        for (let t = 0; t < s; t++) {
+          const x = side === 0 ? t : side === 1 ? s : side === 2 ? s - t : 0, y = side === 0 ? 0 : side === 1 ? t : side === 2 ? s : s - t;
+          const q = find((N.iy + y) * K + N.ix + x);
+          if (q !== undefined && corner[q]) f.push(side + t / s, x / s, y / s, q);
+        }
+      };
+      for (let side = 0; side < 4; side++) edge(side);
+      if (f.length > 16) { N.f = f; if (N.c < 0) N.c = pt(N.ix + s / 2, N.iy + s / 2); hOf(N.c); } // (more than its 4 corners)
+    }
+    const use = new Int32Array(pa.length).fill(-1), list = [];
+    yield;
+    for (let l = 0; l < leaves.length; l++) { const N = leaves[l]; for (const q of N.v) use[q] = 0; if (N.f) use[N.c] = 0; if (l % 5000 === 4999) yield; }
+    yield;
+    const dOf = (i) => Math.hypot(Math.max(B.e0 - pe[i], 0, pe[i] - B.e1), Math.max(B.z0 - pz[i], 0, pz[i] - B.z1));
+    for (const pass of [0, 1]) for (let i = 0; i < pa.length; i++) { if (use[i] === 0 && (dOf(i) > 0) === !pass) { use[i] = 1; list.push(i); } if (i % 4000 === 3999) yield; }
+    const n = list.length, mv = new Int32Array(pa.length).fill(-1);
+    for (let k = 0; k < n; k++) mv[list[k]] = k;
+    let nb = 0;
+    while (nb < n && dOf(list[nb]) > 0) nb++;
+    yield;
+    const va = new Float64Array(n), vz = new Float64Array(n), ve = new Float64Array(n), vd = new Float32Array(n), hx = new Float64Array(n), H = new Float32Array(n);
+    const dk = new Float32Array(n), rd = new Float32Array(n), rv = new Float32Array(n), wl = new Float32Array(n), wp = new Float32Array(n);
+    for (let k = 0; k < n; k++) {
+      const q = list[k];
+      va[k] = pa[q]; vz[k] = pz[q]; ve[k] = pe[q]; vd[k] = dOf(q); hx[k] = H[k] = hOf(q);
+      dk[k] = pdk[q]; rd[k] = prd[q]; rv[k] = prv[q]; wl[k] = pwl[q]; wp[k] = pwp[q];
+      if (k % 2500 === 2499) yield;
+    }
+    yield;
+    // the triangles: two a leaf, or its fan
+    const tri = [];
+    for (let l = 0; l < leaves.length; l++) {
+      const N = leaves[l], v = N.v, m = [mv[v[0]], mv[v[1]], mv[v[2]], mv[v[3]]];
+      N.v = m;
+      if (l % 2000 === 1999) yield;
+      if (!N.f) { tri.push(m[0], m[1], m[2], m[1], m[3], m[2]); continue; }
+      const f = N.f, cm = mv[N.c], L = f.length / 4;
+      for (let k = 0; k < L; k++) { f[k * 4 + 3] = mv[f[k * 4 + 3]]; }
+      for (let k = 0; k < L; k++) tri.push(cm, f[k * 4 + 3], f[((k + 1) % L) * 4 + 3]);
+      N.c = cm;
+    }
+    yield;
+    return { A, W, HH, X0, Y0, NX, NY, fx, fy, roots, n, nb, va, vz, ve, vd, hx, H, dk, rd, rv, wl, wp, tri, leaves: leaves.length, evals, pts: pa.length };
+  }
+  // The ground on the mesh at (a, z): its own triangles' height (Hv: the heights to read, G.H as drawn), or null off it
+  function geoAt(G, a, z, Hv = G.H) {
+    const g = Terrain.toGeo(a, z / EARTH.radius), D = ARENA.D;
+    const fx = ((g.lon / TAU + 0.5) * G.W - 0.5 - G.X0) * G.fx, fy = ((0.5 - g.lat / Math.PI) * G.HH - 0.5 - G.Y0) * G.fy;
+    const i = Math.floor(fx / D), j = Math.floor(fy / D);
+    if (i < 0 || j < 0 || i >= G.NX || j >= G.NY) return null;
+    let N = G.roots[j * G.NX + i];
+    if (!N) return null;
+    while (N.k) { const h = N.s / 2; N = N.k[(fy - N.iy >= h ? 2 : 0) + (fx - N.ix >= h ? 1 : 0)]; }
+    const x = (fx - N.ix) / N.s, y = (fy - N.iy) / N.s, m = N.v;
+    if (!N.f) {
+      if (x + y <= 1) return Hv[m[0]] + (Hv[m[1]] - Hv[m[0]]) * x + (Hv[m[2]] - Hv[m[0]]) * y;
+      return Hv[m[3]] + (Hv[m[2]] - Hv[m[3]]) * (1 - x) + (Hv[m[1]] - Hv[m[3]]) * (1 - y);
+    }
+    // a fan: the edge segment the ray from the middle through the point meets, then that triangle's plane
+    const dx = x - 0.5, dy = y - 0.5, mx = Math.max(Math.abs(dx), Math.abs(dy));
+    if (mx < 1e-9) return Hv[N.c];
+    const ex = 0.5 + (dx * 0.5) / mx, ey = 0.5 + (dy * 0.5) / mx;
+    const u = -dy >= Math.abs(dx) ? ex : dx >= Math.abs(dy) ? 1 + ey : dy >= Math.abs(dx) ? 3 - ex : 4 - ey, f = N.f, L = f.length / 4;
+    let k = L - 1;
+    for (let q = 0; q < L - 1; q++) if (u >= f[q * 4] && u < f[(q + 1) * 4]) { k = q; break; }
+    const k1 = (k + 1) % L, ax = f[k * 4 + 1] - 0.5, ay = f[k * 4 + 2] - 0.5, bx = f[k1 * 4 + 1] - 0.5, by = f[k1 * 4 + 2] - 0.5, det = ax * by - ay * bx;
+    const s = (dx * by - dy * bx) / det, t = (ax * dy - ay * dx) / det, hc = Hv[N.c];
+    return hc + (Hv[f[k * 4 + 3]] - hc) * s + (Hv[f[k1 * 4 + 3]] - hc) * t;
+  }
+  // The ground as drawn on the arena on show at (a, z), within the patch's cut; null elsewhere
+  function arenaAt(a, z) {
+    if (!AR.on) return null;
+    const B = AR.A.box, h = ARENA.hole, e = -wrapAngle(a - EARTH.padAngle) * EARTH.radius;
+    if (e < B.e0 - h || e > B.e1 + h || z < B.z0 - h || z > B.z1 + h) return null;
+    return geoAt(AR.geo, a, z);
+  }
+  // The patch as drawn at (a, z): the height on its own triangle there, with its colour (linear), normal (its frame) and
+  // night glow (bilinear) into o; false off it
+  function patchAt(P, a, z, o) {
+    if (!P.b || !P.ready) return false;
+    const s = wrapAngle(a - P.a0) * P.b.radius * P.kl, zz = z - P.z0, sx = P.sx, sz = P.sz;
+    if (Math.abs(s) >= P.span * 0.999 || Math.abs(zz) >= P.span * 0.999) return false;
+    const i = bsearch(sx, s), j = bsearch(sz, zz), nc = P.nc, k = j * nc + i, h = P.h;
+    const tx = (s - sx[i]) / (sx[i + 1] - sx[i]), tz = (zz - sz[j]) / (sz[j + 1] - sz[j]);
+    o.h = tx + tz <= 1 ? h[k] + (h[k + 1] - h[k]) * tx + (h[k + nc] - h[k]) * tz : h[k + nc + 1] + (h[k + nc] - h[k + nc + 1]) * (1 - tx) + (h[k + 1] - h[k + nc + 1]) * (1 - tz);
+    const g = P.mesh.geometry.attributes, w00 = (1 - tx) * (1 - tz), w10 = tx * (1 - tz), w01 = (1 - tx) * tz, w11 = tx * tz;
+    const col = g.color.array, nor = g.normal.array, nt = g.aNight.array, k0 = k * 3, k1 = k0 + 3, k2 = (k + nc) * 3, k3 = k2 + 3;
+    for (let c = 0; c < 3; c++) {
+      o.c[c] = col[k0 + c] * w00 + col[k1 + c] * w10 + col[k2 + c] * w01 + col[k3 + c] * w11;
+      o.n[c] = nor[k0 + c] * w00 + nor[k1 + c] * w10 + nor[k2 + c] * w01 + nor[k3 + c] * w11;
+    }
+    o.night = nt[k] * w00 + nt[k + 1] * w10 + nt[k + nc] * w01 + nt[k + nc + 1] * w11;
+    return true;
+  }
+  const PQ = { h: 0, c: [0, 0, 0], n: [0, 0, 0], night: 0 };
+  // The GPU side, once the quadtree is done, a few hundred vertices a step: positions (in a frame at the arena's middle
+  // angle), normals, colours; then the mesh (not shown until its seam is ready: arenaBandJob)
+  function* arenaMeshJob() {
+    const G = AR.geo, n = G.n, R = EARTH.radius, a0 = (AR.a0 = siteAngle(EARTH, (G.A.box.e0 + G.A.box.e1) / 2)), c = cfgOf(EARTH), cell = AR.hi ? 20 : 25;
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2), night = new Float32Array(n);
+    G.pos = pos; G.nor = nor; G.col = col; G.uv = uv; G.night = night;
+    yield;
+    for (let k = 0; k < n; k += 1000) { arenaPos(G, k, Math.min(n, k + 1000), G.hx); yield; }
+    // normals from the triangles round each vertex (and flipped so every triangle faces up)
+    const T = G.tri, k0 = T[0], ph0 = G.vz[k0] / R, cp0 = Math.cos(ph0);
+    let flip = false;
+    for (let t = 0; t < T.length; t += 3) {
+      const A = T[t] * 3, B = T[t + 1] * 3, C = T[t + 2] * 3;
+      const ux = pos[B] - pos[A], uy = pos[B + 1] - pos[A + 1], uz = pos[B + 2] - pos[A + 2], wx = pos[C] - pos[A], wy = pos[C + 1] - pos[A + 1], wz = pos[C + 2] - pos[A + 2];
+      let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+      if (t === 0) flip = -nx * cp0 * Math.sin(G.va[k0] - a0) + ny * cp0 * Math.cos(G.va[k0] - a0) + nz * Math.sin(ph0) < 0;
+      if (flip) { nx = -nx; ny = -ny; nz = -nz; }
+      nor[A] += nx; nor[A + 1] += ny; nor[A + 2] += nz; nor[B] += nx; nor[B + 1] += ny; nor[B + 2] += nz; nor[C] += nx; nor[C + 1] += ny; nor[C + 2] += nz;
+      if (t % 12000 === 11997) yield;
+    }
+    if (flip) for (let t = 0; t < T.length; t += 3) { const q = T[t + 1]; T[t + 1] = T[t + 2]; T[t + 2] = q; }
+    yield;
+    const out = [0, 0, 0];
+    for (let k = 0; k < n; k++) {
+      const q = k * 3, l = Math.hypot(nor[q], nor[q + 1], nor[q + 2]) || 1;
+      nor[q] /= l; nor[q + 1] /= l; nor[q + 2] /= l;
+      const phi = G.vz[k] / R, cp = Math.cos(phi), d = G.va[k] - a0;
+      const cu = -nor[q] * cp * Math.sin(d) + nor[q + 1] * cp * Math.cos(d) + nor[q + 2] * Math.sin(phi), tan = Math.max(0.004, Math.sqrt(Math.max(0, 1 - cu * cu)) / Math.max(cu, 0.1));
+      let al = (G.va[k] % TAU) * R;
+      if (al < 0) al += TAU * R;
+      night[k] = groundPaint(c, EARTH, al, G.vz[k], G.va[k], G.vz[k], phi, G.ve[k], trackHalf(G.ve[k]), cell, G.hx[k], contAt(c, G.va[k], phi), G.dk[k], 1 - cu, tan, G.wl[k], G.wp[k], G.rd[k], G.rv[k], out);
+      col[q] = lin(out[0]); col[q + 1] = lin(out[1]); col[q + 2] = lin(out[2]);
+      if (k % 400 === 399) yield;
+    }
+    G.ocol = col.slice(); G.onor = nor.slice(); G.onight = night.slice(); // (its own, before the seam blends them into the patch's)
+    yield;
+    const geo = new THREE.BufferGeometry(), dyn = (a, k) => new THREE.BufferAttribute(a, k).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', dyn(pos, 3)); geo.setAttribute('normal', dyn(nor, 3)); geo.setAttribute('color', dyn(col, 3));
+    geo.setAttribute('uv', dyn(uv, 2)); geo.setAttribute('aNight', dyn(night, 1));
+    geo.setIndex(new THREE.BufferAttribute(n < 65536 ? new Uint16Array(T) : new Uint32Array(T), 1));
+    yield;
+    geo.computeBoundingSphere();
+    G.tri = null;
+    if (!terr.amat) { // the patch's material with a cut of its own that never cuts: the patch's compiled program, no stall
+      const m = terr.mat;
+      terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness });
+      terr.amat.onBeforeCompile = terr.holeHook({ value: new THREE.Vector4(1, 1, 0, 0) });
+    }
+    AR.mesh = new THREE.Mesh(geo, terr.amat);
+    AR.mesh.receiveShadow = true;
+    if (!AR.frame) { AR.frame = new THREE.Group(); localWorld.add(AR.frame); }
+    AR.frame.visible = false;
+    AR.frame.add(AR.mesh);
+    AR.gen = -1;
+    AR.bb = { H: new Float32Array(G.nb), col: new Float32Array(n * 3), nor: new Float32Array(n * 3), night: new Float32Array(n), uv: new Float32Array(n * 2), hole: [1, 1, 0, 0] };
+  }
+  // vertices k0..k1 placed at heights hs (by vertex), in the arena's frame
+  function arenaPos(G, k0, k1, hs) {
+    const R = EARTH.radius, a0 = AR.a0, pos = G.pos;
+    for (let k = k0; k < k1; k++) {
+      const ph = G.vz[k] / R, cp = Math.cos(ph), r = R + hs[k], d = G.va[k] - a0;
+      pos[k * 3] = -r * cp * Math.sin(d); pos[k * 3 + 1] = r * cp * Math.cos(d) - R; pos[k * 3 + 2] = r * Math.sin(ph);
+    }
+  }
+  // The seam, against patch P, a few hundred vertices a step into side buffers (bb): every vertex takes the patch's own
+  // colour and night glow there (so the ground looks just as the patch would draw it, its colours averaged far off as the
+  // patch's are, and the seam can't show), and its detail-texture UVs, so the texture runs on across; the vertices outside
+  // the box blend into the patch's drawn ground and normals over ARENA.hole m and then run tucked under it. Inside, the
+  // mesh keeps its own normals near the camera (the berms and the fine relief are lit) and takes the patch's far off
+  // (ARENA.lit: from 500 m to 1.2 km round the patch's middle), where the patch's own are smoothed over its wider cells, so
+  // it is lit as the patch is. And the patch's cut (its shader's hole, in its UVs) is set to the box and that blend.
+  // Worked out against the patch about to go up while it waits (bandWait), so the two swap together.
+  function* arenaBandJob(P, bb) {
+    const G = AR.geo, nb = G.nb, n = G.n, R = EARTH.radius, hole = ARENA.hole, H = bb.H, col = bb.col, nor = bb.nor, night = bb.night;
+    const dl = P.a0 - AR.a0, cs = Math.cos(dl), sn = Math.sin(dl), [l0, l1] = ARENA.lit;
+    for (let k = 0; k < n; k++) {
+      const d = G.vd[k], q = k * 3;
+      if (k % 300 === 299) yield;
+      if (!patchAt(P, G.va[k], G.vz[k], PQ)) { // (off the patch: its own colours, heights and normals)
+        for (let c = 0; c < 3; c++) { col[q + c] = G.ocol[q + c]; nor[q + c] = G.onor[q + c]; }
+        night[k] = G.onight[k];
+        if (k < nb) H[k] = G.hx[k];
+        continue;
+      }
+      for (let c = 0; c < 3; c++) col[q + c] = PQ.c[c];
+      night[k] = PQ.night;
+      const far = smoothstep(l0, l1, Math.hypot(wrapAngle(G.va[k] - P.a0) * R * P.kl, G.vz[k] - P.z0)); // (the patch's normals far off)
+      let w = far;
+      if (k < nb) { const wb = smoothstep(0, hole, d); H[k] = lerp(G.hx[k], PQ.h, wb) - ARENA.tuck * smoothstep(hole, hole + 12, d); w = Math.max(w, wb); }
+      if (w <= 0) { nor[q] = G.onor[q]; nor[q + 1] = G.onor[q + 1]; nor[q + 2] = G.onor[q + 2]; continue; }
+      const px = PQ.n[0] * cs - PQ.n[1] * sn, py = PQ.n[0] * sn + PQ.n[1] * cs, pz = PQ.n[2]; // (into the arena's frame)
+      const nx = lerp(G.onor[q], px, w), ny = lerp(G.onor[q + 1], py, w), nz = lerp(G.onor[q + 2], pz, w), l = Math.hypot(nx, ny, nz) || 1;
+      nor[q] = nx / l; nor[q + 1] = ny / l; nor[q + 2] = nz / l;
+    }
+    // the detail texture's UVs as the patch has them (metres along its rows and columns from its middle, offset by TILE)
+    let al0 = (P.a0 % TAU) * R * P.kl;
+    if (al0 < 0) al0 += TAU * R * P.kl;
+    const uo = al0 % TILE, vo = P.z0 % TILE, uv = bb.uv;
+    for (let k = 0; k < n; k++) { uv[k * 2] = (wrapAngle(G.va[k] - P.a0) * R * P.kl + uo) / TILE; uv[k * 2 + 1] = (G.vz[k] - P.z0 + vo) / TILE; if (k % 6000 === 5999) yield; }
+    // the patch's cut, in its UVs: east is decreasing angle, so the box's east side is the low end of its rows
+    const B = AR.A.box, sOf = (e) => wrapAngle(siteAngle(EARTH, e) - P.a0) * R * P.kl;
+    bb.hole[0] = (sOf(B.e1 + hole) + uo) / TILE; bb.hole[1] = (B.z0 - hole - P.z0 + vo) / TILE; bb.hole[2] = (sOf(B.e0 - hole) + uo) / TILE; bb.hole[3] = (B.z1 + hole - P.z0 + vo) / TILE;
+  }
+  // the seam worked out (bb) into the mesh and the patch's cut, at once
+  const BAND_ATTR = ['position'], ALL_ATTR = ['normal', 'color', 'aNight', 'uv'];
+  function arenaBandApply(bb) {
+    const G = AR.geo, nb = G.nb;
+    G.H.set(bb.H); G.col.set(bb.col); G.nor.set(bb.nor); G.night.set(bb.night); G.uv.set(bb.uv);
+    arenaPos(G, 0, nb, G.H);
+    const at = AR.mesh.geometry.attributes;
+    for (const a of BAND_ATTR) { const A = at[a], k = A.itemSize; A.clearUpdateRanges(); A.addUpdateRange(0, Math.max(1, nb * k)); A.needsUpdate = true; }
+    for (const a of ALL_ATTR) { const A = at[a]; A.clearUpdateRanges(); A.needsUpdate = true; }
+    terr.holeU.value.set(bb.hole[0], bb.hole[1], bb.hole[2], bb.hole[3]);
+  }
+  // The clear arena the camera is within 6 km of, on the real map (else null)
+  function arenaNear(F) {
+    if (!EARTH.mapped || !EARTH.arenas) return null;
+    const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z;
+    for (const k in EARTH.arenas) {
+      const A = EARTH.arenas[k], B = A.box;
+      if (A.clear && B && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near) return A;
+    }
+    return null;
+  }
+  // Every flight frame, after the patch: build the arena's ground (a slice a frame), work its seam out against the patch
+  // on show (or the one waiting to go up: then the two go up together), show it, or put it away (the patch whole again)
+  function updateArena(F, b) {
+    const A = !api.arenaOff && b === EARTH && patch.active && patch.ready && patch.b === b ? arenaNear(F) : null;
+    AR.on = false;
+    if (A && (AR.A !== A || AR.hi !== Settings.high)) arenaReset(A, F, b);
+    if (!A) { AR.bjob = null; if (bandWait) upNow(F, b); arenaHide(); return; }
+    const t0 = performance.now(), budget = Settings.high ? 3 : 2;
+    if (!AR.mesh) {
+      while (!AR.mesh && performance.now() - t0 < budget) {
+        if (!AR.job) AR.job = AR.geo ? arenaMeshJob() : arenaGeoJob(A, AR.hi);
+        const ts = performance.now(), r = AR.job.next(), dts = performance.now() - ts;
+        if (dts > AR.step) { AR.step = dts; AR.stepAt = (AR.geo ? 'mesh ' : 'tree ') + AR.nStep; }
+        AR.nStep++;
+        if (r.done) { AR.job = null; if (!AR.geo) AR.geo = r.value; AR.nStep = 0; }
+      }
+      const dt = performance.now() - t0;
+      AR.ms += dt; AR.slice = Math.max(AR.slice, dt);
+      if (!AR.mesh) { arenaHide(); return; }
+      note('arena', AR.ms); note('arenaSlice', AR.slice);
+    }
+    if (!AR.bjob && !bandWait && AR.gen !== patchGen) { AR.bjob = arenaBandJob(patch, AR.bb); AR.bP = patch; AR.bVer = patch.ver; AR.bms = 0; }
+    if (AR.bjob) {
+      const t1 = performance.now();
+      let done = false;
+      while (!done && performance.now() - t1 < budget) done = AR.bjob.next().done;
+      AR.bms += performance.now() - t1;
+      if (done) {
+        AR.bjob = null;
+        if (bandWait && AR.bP === patchB) upNow(F, b);
+        if (AR.bP === patch && AR.bVer === patch.ver) { arenaBandApply(AR.bb); AR.gen = patchGen; note('arenaBand', AR.bms); }
+      }
+    }
+    if (AR.gen !== patchGen) { arenaHide(); return; } // (its seam isn't ready for the patch on show: the patch whole meanwhile)
+    AR.on = true;
+    AR.frame.visible = true;
+    placeFrame(AR.frame, EARTH, AR.a0, F.time);
+  }
+  function arenaHide() { if (AR.frame) AR.frame.visible = false; if (terr.holeU) terr.holeU.value.set(1, 1, 0, 0); }
+  // A patch job done near an arena on show: the new patch waits for the arena's seam against it (true), else goes up now
+  function arenaWaits(P) {
+    if (!AR.on || !AR.mesh) return false;
+    AR.bjob = arenaBandJob(P, AR.bb); AR.bP = P; AR.bVer = P.ver; AR.bms = 0;
+    return (bandWait = true);
+  }
+  // the patch that waited goes up now, shown at once if the one it replaces was (no frame without ground)
+  function upNow(F, b) {
+    const was = patch.active;
+    bandWait = false; swapPatch();
+    if (was) { patch.active = true; patch.frame.visible = true; placeFrame(patch.frame, b, patch.a0, F.time); }
+  }
+  // A fresh start (another arena, or the quality changed): the old mesh goes
+  function arenaReset(A, F, b) {
+    if (AR.mesh) { AR.frame.remove(AR.mesh); AR.mesh.geometry.dispose(); AR.mesh = null; }
+    if (bandWait) upNow(F, b);
+    AR.A = A; AR.hi = Settings.high; AR.job = null; AR.bjob = null; AR.geo = null; AR.on = false; AR.gen = -1; AR.ms = AR.slice = AR.step = AR.nStep = 0;
   }
 
   // Grid offsets within n cells, nearest first (cached per n).
@@ -1866,7 +2283,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const KQ = { w: 0, h: 0, f: null };
   function keepClear(e, z, sea) {
     if (Terrain.fieldAt && Terrain.fieldAt(e, z, KQ).w > 0.02) return true;
-    if (EARTH.arenas && EARTH.mapped) for (const k in EARTH.arenas) { const a = EARTH.arenas[k], B = a.box; if (a.clear && B && e > B.e0 && e < B.e1 && z > B.z0 && z < B.z1) return true; }
+    if (EARTH.arenas && EARTH.mapped) for (const k in EARTH.arenas) { // (and as far out as the arena's own ground is drawn)
+      const a = EARTH.arenas[k], B = a.box, m = ARENA.hole;
+      if (a.clear && B && e > B.e0 - m && e < B.e1 + m && z > B.z0 - m && z < B.z1 + m) return true;
+    }
     if (sea && EARTH.carriers) for (const k in EARTH.carriers) { const d = EARTH.carriers[k]; if (Math.hypot(e - d.e, z - d.z) < 600) return true; }
     return false;
   }
@@ -2397,6 +2817,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     fc.follow += wrapAngle(want - fc.follow) * (snap ? 1 : (1 - Math.exp(-dt * 2.2)) * Math.min(1, (h - 0.25) * 4));
   }
 
+  // What the aim camera turns about (sim, from the body's centre): 1.4 m over the top of the main gun's turret ring (its
+  // outermost), else over the hull's top. Over and across it rides with the hull; up and down it doesn't pitch with it,
+  // so the view stays steady as the hull rocks on its springs.
+  const TANH50 = Math.tan((50 * Math.PI) / 360), PIV = v3(), RAYT = v3();
+  function aimPivot(v, out) {
+    let c = v._piv;
+    if (!c || v._pivTg !== v.tg) {
+      let best = null, g = null;
+      for (const p of v.aimed) { const w = p.def.weapon, k = (w && w.cal) || 0; if (!best || k > (((best.def.weapon && best.def.weapon.cal) || 0))) best = p; }
+      for (g = best && v.tgOf ? v.tgOf.get(best.id) : null; g && g.parent;) g = g.parent;
+      c = v._piv = g ? { x: g.c.x, y: g.c.y, z: g.c.z } : { x: v.com.x, y: v.bounds.maxY, z: v.com.z || 0 };
+      v._pivTg = v.tg;
+    }
+    const r = Math.hypot(v.x, v.y, v.z) || 1, k = c.y - v.com.y + 1.4, w = qrot(v.q, c.x - v.com.x, 0, c.z - (v.com.z || 0), PIV);
+    out.x = v.x + w.x + (v.x / r) * k; out.y = v.y + w.y + (v.y / r) * k; out.z = v.z + w.z + (v.z / r) * k;
+    return out;
+  }
   // calm: paused or under a dialog, drawn a few times a second (App.frame), which isn't a slow frame
   function renderFlight(F, dt, calm) {
     if (!api.ready || !shown || !F || !F.active) return;
@@ -2412,27 +2849,44 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     spaceWorld.quaternion.set(viewQ.x, viewQ.y, viewQ.z, viewQ.w); localWorld.quaternion.copy(spaceWorld.quaternion);
     const vx = camAbs.x - bp.x, vy = camAbs.y - bp.y, vz = camAbs.z; // the focus, relative to the body
 
-    // ---- camera: orbit around the craft, following its heading; never below the ground
-    followCam(v, dt, false);
-    const s = 1 - Math.exp(-dt * 14);
-    fc.yaw += (fc.ty - fc.yaw) * s; fc.pitch += (fc.tp - fc.pitch) * s;
-    const dist = (H / 2) / F.scale / TANH;
-    const cp = Math.cos(fc.pitch), yaw = fc.follow + fc.yaw;
-    toSim(dist * Math.sin(yaw) * cp, dist * Math.sin(fc.pitch), dist * Math.cos(yaw) * cp, T3);
-    let rx = vx + T3.x, ry = vy + T3.y, rz = vz + T3.z;
+    // ---- camera: orbit around the craft, following its heading; never below the ground. Aiming a ground vehicle's guns
+    // (F.aimCam): behind and over its turret looking along the aim, the crosshair in the middle (or at the gunner's sight)
+    const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
+    let dist, rx, ry, rz;
+    if (AC) {
+      dist = clamp((H / 2) / F.scale / TANH50, 7, 30);
+      const r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0;
+      if (S.sightOn) Aim.sightPoint(v, T3);
+      else {
+        aimPivot(v, T3);
+        T3.x += -D.x * dist + ux; T3.y += -D.y * dist + uy; T3.z += -D.z * dist + uz;
+      }
+      rx = T3.x; ry = T3.y; rz = T3.z;
+      fc.vessel = null; // (the follow camera starts afresh after aiming)
+    } else {
+      followCam(v, dt, false);
+      const s = 1 - Math.exp(-dt * 14);
+      fc.yaw += (fc.ty - fc.yaw) * s; fc.pitch += (fc.tp - fc.pitch) * s;
+      dist = (H / 2) / F.scale / TANH;
+      const cp = Math.cos(fc.pitch), yaw = fc.follow + fc.yaw;
+      toSim(dist * Math.sin(yaw) * cp, dist * Math.sin(fc.pitch), dist * Math.cos(yaw) * cp, T3);
+      rx = vx + T3.x; ry = vy + T3.y; rz = vz + T3.z;
+    }
     let r3 = Math.hypot(rx, ry, rz), camAlt = r3 - R;
     // near the surface: a terrain patch around the craft
     const near = !b.star && camAlt < Math.max(60000, 0.35 * R);
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
+    updateArena(F, b);
     if (!b.star) {
       const ca = Math.atan2(ry, rx), gz = Math.asin(clamp(rz / r3, -1, 1)) * R;
-      const need = R + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + 2; // (and out of the carriers)
+      const need = R + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + (AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
-    camera.lookAt(0, 0, 0);
+    if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else camera.lookAt(0, 0, 0);
     const sh = flutterShake(F, v, clock); // (a fluttering wing shakes the view)
     if (sh) { camera.rotateX(sh.y * 0.012); camera.rotateY(sh.x * 0.012); }
     camera.updateMatrixWorld();
@@ -2509,6 +2963,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     vaporCone(F, dt);
     updateParticles(F, envV);
     syncCombat(F);
+    updateRings(F);
 
     // ---- shadows fitted around the active craft
     if (S.sun.castShadow) {
@@ -2630,7 +3085,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       // rails warp can move the craft by thousands of km per frame: rebuild at most a few times a second
       if (clock - patch.at > 0.12 || patch.b !== b || !patch.ready) buildPatchNow(b, a, z, span, camAlt);
       else { patch.active = false; patch.frame.visible = false; return; }
-    } else if (stale && !pjob) { pjob = patchJob(patchB, b, a, z, span, camAlt); pjobMs = 0; pjobSlice = 0; }
+    } else if (stale && !pjob && !bandWait) { pjob = patchJob(patchB, b, a, z, span, camAlt); pjobMs = 0; pjobSlice = 0; }
     if (pjob) {
       // a few milliseconds a frame; more as the craft nears the edge of what is on show
       const t0 = performance.now(), budget = (Settings.high ? 4 : 3) + 16 * smoothstep(0.05, 0.2, moved / patch.span);
@@ -2641,7 +3096,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (done) {
         pjob = null;
         note('patch', pjobMs); note('patchSlice', pjobSlice);
-        swapPatch();
+        if (!arenaWaits(patchB)) swapPatch(); // (near an arena: up with its seam, a few frames on)
       }
     }
     patch.active = true;
@@ -2791,10 +3246,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const bp = bodyPos(v.body, F.time), x = bp.x + v.x - camAbs.x, y = bp.y + v.y - camAbs.y, z = v.z - camAbs.z;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1);
       const d = Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z);
-      const vis = d < 50000 || (ext / d) * (H / (2 * TANH)) > 1;
+      const vis = (d < 50000 || (ext / d) * (H / (2 * TANH)) > 1) && !(S.sightOn && v === F.active); // (in the gunner's sight we look out of it)
       e.root.visible = vis;
       if (!vis) continue;
       e.root.position.set(x, y, z);
+      if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
       e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
       e.vm.group.position.set(-v.com.x, -v.com.y, -(v.com.z || 0));
       q.rho = airDensity(v.body, v.altitude());
@@ -2804,6 +3260,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
+  }
+  // Other players' and the AI's ground vehicles, and wrecks, more than 150 m off: drawn raised or lowered by how far the
+  // ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch swap doesn't
+  // pop them) and never more than 3 m (it's only the picture). Coarse far terrain cells would float or sink them; on an
+  // arena's own ground mesh the two agree and nothing moves. The target is looked up 10 times a second.
+  const RSL = {};
+  function reseat(F, v, e, d, dt) {
+    if (!isGround(v.kind) || !(v.gear.length || v.gv)) return;
+    if (d < 150) { e.rsW = 0; } else if ((e.rsT = (e.rsT || 0) - dt) <= 0) {
+      e.rsT = 0.1;
+      const L = Terrain.locate(v.body, v.x, v.y, v.z, RSL);
+      e.rsW = clamp(drawnAt(v.body, L.a, L.z) - Terrain.surfaceAt(v.body, L.a, L.z), -3, 3) || 0;
+    }
+    e.rsO = (e.rsO || 0) + ((e.rsW || 0) - (e.rsO || 0)) * Math.min(1, dt / 0.3);
+    if (Math.abs(e.rsO) < 1e-3) return;
+    const r = Math.hypot(v.x, v.y, v.z) || 1;
+    e.root.position.x += (v.x / r) * e.rsO; e.root.position.y += (v.y / r) * e.rsO; e.root.position.z += (v.z / r) * e.rsO;
   }
   function engineGlow(v, vm, x, y, z) {
     let ex = 0, ey = 0, ez = 0, ek = 0, ea = 0, eg = 0;
@@ -2906,6 +3379,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // force: draw even if nothing moves (something changed, or the player just did something). True if it drew.
   function renderBuilder(B, dt, force) {
     if (!api.ready || !shown || !B) return false;
+    if (FOV !== 50) setFov(50); // (a gunner sight left open: the hangar is always 50°)
     const fresh = mode !== 'builder', bd = S.bd;
     mode = 'builder';
     if (!force && !fresh && bv.drawn && !bv.moving && !bc.auto && !bv.edit && !B.drag && !bd.anim && !B.turretTest) return false;    dt = clamp(dt || 0, 0, 0.1);
@@ -3082,6 +3556,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     camera.aspect = bcam.aspect = W / H;
     camera.updateProjectionMatrix(); bcam.updateProjectionMatrix();
   }
+  // The flight camera's field of view (degrees): the gunner sight's zoom. Every reader of TANH follows it; the hangar and
+  // the globe never see anything but 50° (the sight closes on the map, on stop and on destruction, and they check).
+  function setFov(deg) {
+    if (deg === FOV) return;
+    FOV = deg; TANH = Math.tan((FOV * Math.PI) / 360);
+    if (camera) { camera.fov = FOV; camera.updateProjectionMatrix(); }
+  }
   function activeCam() { return mode === 'builder' ? bcam : camera; }
   function scenePoint(ax, ay, az, out) {
     if (mode === 'builder') return out.set(ax, ay, az || 0).applyMatrix4(S.design.matrixWorld);
@@ -3091,6 +3572,52 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
   buildPatchNow = timed('patchNow', buildPatchNow); buildSceneryNow = timed('sceneryNow', buildSceneryNow);
   initLandmarks = timed('landmarks', initLandmarks); // (once: the landmarks, airfields and carriers)
+  // ------------------------------------------------------------------ capture rings (the ground update)
+  // Each zone of the objective on show (GroundMode.obj: a room's or the Practice Battle's) as a ring of 48 segments a
+  // little over the ground as drawn: our side's blue, the enemy's red, nobody's white, the share being taken in the taker's
+  // colour. All of them one draw; rebuilt only when an owner or a share changes, or the ground under them is redrawn.
+  const RG = { lines: null, frame: null, key: '', a0: 0 };
+  function updateRings(F) {
+    const O = typeof GroundMode !== 'undefined' && GroundMode.obj ? GroundMode.obj() : null, v = F.viewVessel || F.active;
+    const Z = O && Array.isArray(O.zones) ? O.zones : null;
+    if (!Z || !Z.length || !v || v.body !== EARTH || !patch.active) { if (RG.frame) RG.frame.visible = false; return; }
+    const N = 48, MAXZ = 8;
+    if (!RG.lines) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAXZ * N * 6), 3).setUsage(THREE.DynamicDrawUsage));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAXZ * N * 6), 3).setUsage(THREE.DynamicDrawUsage));
+      RG.lines = new THREE.LineSegments(g, depthBias(new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, fog: true }), 8e-4));
+      RG.lines.frustumCulled = false; RG.lines.renderOrder = 6;
+      RG.frame = new THREE.Group(); RG.frame.add(RG.lines); localWorld.add(RG.frame);
+    }
+    const me = typeof GHUD !== 'undefined' && GHUD.team ? GHUD.team() : 0;
+    let key = `${patchGen}|${AR.on}|${me}`;
+    for (const z of Z) key += `|${z.id},${z.e},${z.z},${z.r},${z.own},${Math.round((z.p || 0) * N)}`;
+    if (key !== RG.key) {
+      RG.key = key;
+      const R = EARTH.radius, a0 = (RG.a0 = siteAngle(EARTH, Z[0].e)), pos = RG.lines.geometry.attributes.position.array, col = RG.lines.geometry.attributes.color.array;
+      const tc = (t) => (t < 0 ? [0.85, 0.88, 0.92] : t === me ? [0.38, 0.82, 1] : [1, 0.36, 0.36]);
+      let n = 0;
+      for (const z of Z.slice(0, MAXZ)) {
+        const p = z.p || 0, taker = p < 0 ? 0 : 1, share = Math.round(Math.abs(p) * N);
+        const pt = (k, o) => {
+          const t = (k / N) * TAU, e = z.e + Math.cos(t) * z.r, zz = z.z + Math.sin(t) * z.r, a = siteAngle(EARTH, e), ph = zz / R, r = R + drawnAt(EARTH, a, zz) + 0.35, cp = Math.cos(ph);
+          pos[o] = -r * cp * Math.sin(a - a0); pos[o + 1] = r * cp * Math.cos(a - a0) - R; pos[o + 2] = r * Math.sin(ph);
+        };
+        for (let k = 0; k < N; k++) {
+          pt(k, n * 3); pt(k + 1, n * 3 + 3);
+          const c = Math.abs(p) > 0.001 && Math.abs(p) < 0.999 && k < share ? tc(taker) : tc(z.own);
+          col.set(c, n * 3); col.set(c, n * 3 + 3);
+          n += 2;
+        }
+      }
+      const g = RG.lines.geometry;
+      g.setDrawRange(0, n); g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
+    }
+    RG.frame.visible = true;
+    placeFrame(RG.frame, EARTH, RG.a0, F.time);
+  }
+
   // ------------------------------------------------------------------ combat: tracers, missiles, bombs and targets
   const CB = { ready: false };
   function initCombat() {
@@ -3161,7 +3688,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       used[kk]++;
       o.visible = true;
       o.position.set(x, y, z);
-      o.scale.setScalar(s.small ? 0.35 : s.big ? 1.5 : 1); // cluster bomblets; the frigate's big SAM
+      o.scale.setScalar(s.small ? 0.35 : s.big ? 1.5 : s.part && s.part.def.aim ? (s.saclos || s.top ? 0.45 : 0.8) : 1); // cluster bomblets; the frigate's big SAM; a ground launcher's anti-tank missile or SAM
       V1.set(s.dx || 0, s.dy || 1, s.dz || 0).normalize();
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }
@@ -3266,6 +3793,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // v: { body, cam: {x,y,z}, up: {x,y,z}, alt } (sim, body-relative). Returns false if it couldn't draw.
   function renderGlobe(v, dt) {
     if (!api.ready) return false;
+    if (FOV !== 50) setFov(50);
     if (!GL.scene) initGlobe();
     mode = 'globe';
     clock += dt || 0;
@@ -3309,6 +3837,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // draw calls and triangles in the last frame (for tuning)
     info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
     skipDraw: false, // tests: run every frame's work but draw nothing
+    arenaOff: false, // tests and measurements: the plain terrain patch even near an arena
     get supported() {
       if (supported == null) {
         try {
@@ -3344,15 +3873,47 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderFlight,
     renderBuilder,
     renderGlobe,
-    // The ground as the player sees it at (a, z) on body b: the terrain mesh (null off it). (The ground update fills
-    // in the arenas' berms, drawn by a mesh of their own.)
-    drawnGround(b, a, z) { return meshHeight(b, a, z); },
+    // The ground as the player sees it at (a, z) on body b: inside an arena's own ground mesh its height there (the same
+    // triangles), else the terrain patch's with the arenas' berms (and off the patch, the ground itself).
+    drawnGround(b, a, z) { return drawnAt(b, a, z); },
+    // A ground vehicle's gunner sight (on, zoom: 3-8): the flight camera narrows to 50/zoom degrees and sits at the sight,
+    // the vehicle's own model hidden; off, back to 50°.
+    setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : 50); },
+    // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
+    reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
+    // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
+    // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
+    arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },
+    arenaGeo(id, hi = true) { const job = arenaGeoJob(EARTH.arenas[id], hi); let r; while (!(r = job.next()).done); return r.value; },
+    arenaGeoAt: geoAt,
+    // The camera's line of sight through the middle of the screen, from the last flight frame: out.o where it starts and
+    // out.d its way (unit), body-relative sim coordinates. (null before a flight frame is drawn.)
+    aimRay(out) {
+      if (!api.ready || !camera || mode !== 'flight') return null;
+      const o = out || { o: v3(), d: v3() }, F = typeof Flight !== 'undefined' ? Flight : null, b = F && F.viewVessel ? F.viewVessel.body : null;
+      if (!b) return null;
+      const bp = bodyPos(b, F.time);
+      toSim(camera.position.x, camera.position.y, camera.position.z, RAYT);
+      o.o.x = camAbs.x - bp.x + RAYT.x; o.o.y = camAbs.y - bp.y + RAYT.y; o.o.z = camAbs.z + RAYT.z;
+      camera.getWorldDirection(V1);
+      toSim(V1.x, V1.y, V1.z, o.d);
+      return o;
+    },
     project(ax, ay, az) {
       if (!api.ready) return { x: 0, y: 0, behind: true };
       const cam = activeCam(), p = scenePoint(ax, ay, az, V1);
       const behind = V2.copy(p).applyMatrix4(cam.matrixWorldInverse).z > 0;
       p.project(cam);
       return { x: (p.x + 1) * 0.5 * W, y: (1 - p.y) * 0.5 * H, behind };
+    },
+    // project() into out ({ x, y, behind }), for the HUD's every-frame markers (no garbage)
+    projectTo(ax, ay, az, out) {
+      if (!api.ready) { out.x = out.y = 0; out.behind = true; return out; }
+      const cam = activeCam(), p = scenePoint(ax, ay, az, V1);
+      out.behind = V2.copy(p).applyMatrix4(cam.matrixWorldInverse).z > 0;
+      p.project(cam);
+      out.x = (p.x + 1) * 0.5 * W; out.y = (1 - p.y) * 0.5 * H;
+      return out;
     },
     metresPerPixelAt(ax, ay, az) {
       if (!api.ready) return 1;
@@ -3447,5 +4008,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       bc.auto = false;
     },
   });
+  Object.defineProperty(api, 'sightOn', { enumerable: true, get: () => !!S.sightOn }); // (whether the sight is up: a live getter, which Object.assign would have read once)
   return api;
 })();

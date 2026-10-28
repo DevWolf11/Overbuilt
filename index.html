@@ -224,21 +224,23 @@
 
 <!-- ============================== FLIGHT ============================== -->
 <div id="flight-ui" class="ui" hidden>
+  <div id="sight-vig" class="sight-vig" aria-hidden="true"></div>
   <div id="flight-alert" class="flight-alert" role="alert" hidden></div>
   <section class="panel telemetry" aria-label="Telemetry">
     <div class="t-head"><span id="t-body" class="t-body">Earth</span><span id="t-time" class="t-time">00:00:00</span></div>
     <div id="t-vessel" class="t-vessel"></div>
     <div id="t-where" class="t-where" hidden></div>
     <dl class="t-grid">
-      <div><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
-      <div id="row-ground"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
+      <div class="gh"><dt>Altitude</dt><dd id="t-alt">0 m</dd></div>
+      <div id="row-ground" class="gh"><dt>Ground</dt><dd id="t-ground">0 m</dd></div>
       <div><dt>Speed</dt><dd id="t-speed">0 m/s</dd></div>
-      <div id="row-mach" class="t-mach" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
-      <div id="row-aoa" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
+      <div id="row-mach" class="t-mach gh" hidden><dt>Mach</dt><dd id="t-mach">M 0.00</dd></div>
+      <div id="row-aoa" class="gh" hidden><dt>Attack</dt><dd id="t-aoa">0°</dd></div>
       <div id="row-hdg" hidden><dt>Heading</dt><dd id="t-hdg">0°</dd></div>
+      <div id="row-crew" hidden><dt>Crew</dt><dd id="t-crew">0/0</dd></div>
       <div id="row-dmg" hidden><dt>Damage</dt><dd id="t-dmg">0%</dd></div>
-      <div id="row-g" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
-      <div><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
+      <div id="row-g" class="gh" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
+      <div class="gh"><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
       <div class="orbit-row"><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
       <div class="orbit-row"><dt>Δv left</dt><dd id="t-dv">0 m/s</dd></div>
@@ -310,6 +312,18 @@
     <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
     <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)">Fire</button>
     <button id="btn-cm" class="round cm" aria-label="Countermeasures (K)" title="Flares and chaff (K)" hidden>CM</button>
+  </div>
+
+  <!-- the ground update: a ground vehicle's own controls (ghud.js places nothing here: style.css "Flight: ground" does) -->
+  <button id="btn-sight" class="round gbtn g-sight" hidden aria-label="Gunner's sight (Shift, or hold the right mouse button)" title="Gunner's sight (Shift / hold right mouse)" aria-pressed="false"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="15" r="4"/><circle cx="17" cy="15" r="4"/><path d="M11 15h2M5 11l2-6h2l1 6M19 11l-2-6h-2l-1 6"/></svg></span></button>
+  <button id="btn-mg" class="round gbtn g-mg" hidden aria-label="Machine guns (hold Space)" title="Machine guns (hold Space)">MG</button>
+  <button id="btn-lock" class="round gbtn g-lock" hidden aria-label="Radar lock (L)" title="Radar lock (L)" aria-pressed="false">Lock</button>
+  <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder)">Zero 800 m</button>
+  <div id="ammo-stack" class="ammo-stack" role="group" aria-label="Shells" hidden></div>
+  <canvas id="gmap" class="gmap" hidden aria-label="Minimap: tap for the tactical map"></canvas>
+  <div id="gtac" class="gtac" hidden>
+    <canvas id="gtac-canvas" class="gtac-canvas" aria-label="Tactical map"></canvas>
+    <div class="gtac-bar"><span id="gtac-info" class="gtac-info">Tap to ping for your team</span><button id="gtac-close" class="btn small">Close (M)</button></div>
   </div>
 
   <div class="stage-box">

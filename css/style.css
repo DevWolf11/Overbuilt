@@ -1024,3 +1024,111 @@ kbd {
   .mp-zone { width: 20px; }
   .mp-tk { min-width: 26px; }
 }
+
+/* ---- Flight: ground (a ground vehicle: body.ground; the gunner's sight: body.sighting). The rocket's and plane's
+   heavy right column goes, and the ground controls sit round the right thumb on FIRE; ghud.js places the canvas pieces
+   (the damage diagram, the radar scope) clear of all this, and writes --gmap-b, the minimap's bottom. */
+body.ground .throttle-box, body.ground #sas-bar, body.ground .roll-btns, body.ground .air-btns, body.ground #btn-catapult { display: none !important; }
+body.ground.g-thrust .throttle-box { display: flex !important; }
+body.ground .stage-box { display: none; }
+body.ground.g-stages .stage-box { display: flex; width: auto; padding: 0; background: none; border: 0; }
+body.ground.g-stages .stage-box > :not(.stage-btn) { display: none; }
+body.ground.g-stages .stage-btn { width: 88px; height: 48px; font-size: 14px; }
+/* the flight data: speed with its way, heading, crew, damage */
+body.ground .t-grid > .gh, body.ground .t-grid > .orbit-row, body.ground #row-heat, body.ground #row-target, body.ground #row-enc { display: none; }
+body.ground .telemetry { width: 168px; padding: 7px 10px; }
+body.ground .t-head { margin-bottom: 3px; }
+body.ground .t-body { font-size: 11px; letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#row-crew.danger dd { color: var(--amber); animation: none; }
+/* the weapon box comes apart: FIRE, the chip and SMOKE each go where the thumb finds them */
+body.ground #weapon-box { position: absolute; inset: 0; display: block; pointer-events: none; }
+body.ground #weapon-box > * { position: absolute; pointer-events: auto; }
+body.ground #weapon-box.g-one .weapon-chip { display: none; }
+body.ground #btn-fire { right: calc(var(--gut-r) + 6px); bottom: calc(26px + var(--safe-b)); width: 84px; height: 84px; font-size: 15px; }
+body.ground #btn-cm { right: calc(var(--gut-r) + 168px); bottom: calc(40px + var(--safe-b)); width: 46px; height: 46px; font-size: 11px; }
+body.ground #btn-weapon { right: calc(var(--gut-r) + 6px); bottom: calc(262px + var(--safe-b)); min-width: 84px; }
+.gbtn { position: absolute; font: 700 12px var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.gbtn .icon { width: 26px; height: 26px; }
+.g-sight { right: calc(var(--gut-r) + 102px); bottom: calc(40px + var(--safe-b)); width: 56px; height: 56px; }
+.g-sight[aria-pressed="true"] { background: rgba(255, 181, 71, 0.22); border-color: var(--amber); color: var(--amber); }
+.g-mg { right: calc(var(--gut-r) + 104px); bottom: calc(108px + var(--safe-b)); width: 52px; height: 52px; }
+.g-lock { right: calc(var(--gut-r) + 168px); bottom: calc(108px + var(--safe-b)); width: 46px; height: 46px; font-size: 10px; color: #b9ffd4; border-color: rgba(125, 255, 176, 0.5); }
+.g-lock[aria-pressed="true"] { background: rgba(125, 255, 176, 0.22); border-color: #7dffb0; color: #7dffb0; }
+.g-range { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(18px + var(--safe-b)); font-family: var(--mono); text-transform: none; letter-spacing: 0; }
+/* the shell chips: a column over FIRE (a row on a phone on its side) */
+.ammo-stack { position: absolute; right: calc(var(--gut-r) + 20px); bottom: calc(124px + var(--safe-b)); display: flex; flex-direction: column-reverse; gap: 6px; }
+.ammo-chip {
+  width: 56px; height: 40px; border-radius: 8px; cursor: pointer; touch-action: manipulation; padding: 0 4px;
+  font: 700 12px var(--mono); letter-spacing: 0.02em; color: var(--muted); background: var(--panel); border: 1px solid var(--line-strong);
+}
+.ammo-chip[aria-pressed="true"] { color: #1a1205; background: var(--amber); border-color: var(--amber); }
+.ammo-chip.queued { border-color: var(--amber); color: var(--amber); }
+/* the minimap (a tap opens the tactical map) */
+.gmap { position: absolute; right: var(--gut-r); top: calc(54px + var(--safe-t)); width: 160px; height: 160px; border-radius: 10px; border: 1px solid var(--line-strong); cursor: pointer; touch-action: manipulation; }
+/* the gunner's sight: the flight data and the hint make way; a vignette round the view, drawn once (no blur) */
+.sight-vig { position: absolute; inset: 0; pointer-events: none !important; display: none; background: radial-gradient(ellipse 72% 78% at 50% 50%, rgba(0, 0, 0, 0) 64%, rgba(0, 0, 0, 0.5) 86%, rgba(0, 0, 0, 0.88) 100%); }
+body.sighting .sight-vig { display: block; }
+body.sighting .telemetry, body.sighting #hint, body.sighting .gmap { visibility: hidden; }
+/* the tactical map, full screen */
+.gtac { position: fixed; inset: 0; z-index: 22; background: rgba(5, 9, 18, 0.94); display: flex; flex-direction: column; padding: calc(10px + var(--safe-t)) var(--gut-r) calc(10px + var(--safe-b)) var(--gut-l); }
+.gtac-canvas { flex: 1; width: 100%; min-height: 0; touch-action: none; cursor: crosshair; }
+.gtac-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
+.gtac-info { font: 500 12px var(--mono); color: var(--muted); }
+/* a room's kill feed goes under the minimap (beside it on a phone on its side) */
+body.ground .mp-feed, body.ground:has(#mp-bar.flight:not([hidden])) .mp-feed { top: var(--gmap-b, calc(230px + var(--safe-t))); }
+/* (no blur over the moving view: these new pieces too) */
+body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: rgba(8, 13, 24, 0.85); backdrop-filter: none; -webkit-backdrop-filter: none; }
+@media (pointer: fine) {
+  body.ground #btn-fire { width: 58px; height: 58px; right: calc(var(--gut-r) + 12px); bottom: calc(24px + var(--safe-b)); font-size: 11px; }
+  .g-sight { right: calc(var(--gut-r) + 82px); bottom: calc(29px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-mg { right: calc(var(--gut-r) + 82px); bottom: calc(89px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 17px); bottom: calc(94px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-lock { right: calc(var(--gut-r) + 17px); bottom: calc(150px + var(--safe-b)); width: 48px; height: 48px; }
+  .ammo-stack { right: calc(var(--gut-r) + 142px); bottom: calc(24px + var(--safe-b)); }
+  .ammo-chip { width: 70px; height: 32px; font-size: 11px; }
+  body.ground #btn-weapon { right: calc(var(--gut-r) + 142px); bottom: calc(176px + var(--safe-b)); min-width: 70px; }
+  .g-range { left: auto; transform: none; right: calc(var(--gut-r) + 142px); bottom: calc(226px + var(--safe-b)); } /* (the hint has the bottom middle) */
+}
+@media (max-width: 760px) {
+  body.ground .telemetry { width: 150px; padding: 6px 9px; }
+  body.ground .t-vessel, body.ground .t-where { display: none; }
+  body.ground .t-grid { gap: 1px; }
+  body.ground .t-grid dd { font-size: 11px; }
+  /* the brake sits over the stick (the autopilot grid it used to sit by is gone) */
+  body.ground .round.brake { left: 0; bottom: calc(100% + 12px); width: 54px; height: 54px; }
+  .gmap { width: 112px; height: 112px; top: calc(98px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .gmap { top: calc(140px + var(--safe-t)); }
+  body.ground .hint { top: var(--gmap-b, calc(220px + var(--safe-t))); }
+  body.ground #btn-weapon { bottom: calc(262px + var(--safe-b)); }
+  /* the sight's zero, left of the minimap (the thumbs' buttons fill the bottom) */
+  .g-range { left: auto; transform: none; bottom: auto; right: calc(var(--gut-r) + 122px); top: calc(98px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+}
+@media (max-width: 760px) and (max-height: 700px) {
+  body.ground #btn-fire { width: 76px; height: 76px; right: calc(var(--gut-r) + 2px); bottom: calc(18px + var(--safe-b)); }
+  .g-sight { right: calc(var(--gut-r) + 88px); bottom: calc(30px + var(--safe-b)); width: 52px; height: 52px; }
+  .g-mg { right: calc(var(--gut-r) + 90px); bottom: calc(90px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 148px); bottom: calc(30px + var(--safe-b)); width: 42px; height: 42px; }
+  .g-lock { right: calc(var(--gut-r) + 148px); bottom: calc(86px + var(--safe-b)); width: 42px; height: 42px; }
+  .ammo-stack { right: calc(var(--gut-r) + 14px); bottom: calc(108px + var(--safe-b)); }
+  .ammo-chip { width: 52px; height: 36px; font-size: 11px; }
+  body.ground #btn-weapon { bottom: calc(240px + var(--safe-b)); min-width: 76px; }
+  .gmap { width: 96px; height: 96px; }
+  .g-range { right: calc(var(--gut-r) + 106px); }
+}
+@media (max-height: 500px) {
+  body.ground .telemetry { width: 150px; padding: 4px 8px; }
+  body.ground .t-vessel, body.ground .t-where, body.ground #row-hdg { display: none; }
+  body.ground #btn-fire { width: 72px; height: 72px; right: calc(var(--gut-r) + 4px); bottom: calc(14px + var(--safe-b)); }
+  .g-sight { right: calc(var(--gut-r) + 86px); bottom: calc(26px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-mg { right: calc(var(--gut-r) + 86px); bottom: calc(84px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 16px); bottom: calc(96px + var(--safe-b)); width: 44px; height: 44px; }
+  .g-lock { right: calc(var(--gut-r) + 16px); bottom: calc(148px + var(--safe-b)); width: 44px; height: 44px; }
+  .ammo-stack { flex-direction: row-reverse; right: calc(var(--gut-r) + 144px); bottom: calc(20px + var(--safe-b)); }
+  .ammo-chip { width: 50px; height: 34px; font-size: 11px; }
+  body.ground #btn-weapon { right: calc(var(--gut-r) + 144px); bottom: calc(62px + var(--safe-b)); min-width: 76px; }
+  .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); }
+  body.ground .round.brake { position: static; }
+  body.ground .mp-feed, body.ground:has(#mp-bar.flight:not([hidden])) .mp-feed { top: calc(104px + var(--safe-t)); right: calc(var(--gut-r) + 106px); } /* (under the room's bar, left of the minimap) */
+  .g-range, body:has(#mp-bar.flight:not([hidden])) .g-range { left: auto; transform: none; top: auto; right: calc(var(--gut-r) + 144px); bottom: calc(112px + var(--safe-b)); }
+}
