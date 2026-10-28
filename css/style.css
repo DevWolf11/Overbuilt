@@ -957,3 +957,70 @@ kbd {
 @media (max-width: 350px) {
   #btn-xray { width: 31px; min-width: 31px; }
 }
+
+/* ---- MP: ground (ground battles: the connect buttons, the lobby's money by era and arena, the bar's tickets, zones and
+   capture bar, the lineup chips, the Respawn panel) */
+.home-btn.ground { border-color: rgba(121, 192, 79, 0.6); }
+.home-btn.ground .hb-name { color: #b9e08f; }
+.home-btn.primary.ground { background: #79c04f; border-color: #79c04f; color: #0e1a06; }
+.home-btn.primary.ground .hb-name { color: #0e1a06; }
+.home-btn.primary.ground .hb-sub { color: rgba(14, 26, 6, 0.75); }
+.mp-set .mp-money { grid-template-columns: repeat(3, 1fr); }
+.mp-money .kind-btn { flex-direction: column; gap: 0; line-height: 1.15; }
+.mp-money .kind-btn small { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }
+.mp-money .kind-btn[aria-checked="true"] small { color: var(--amber); }
+.mp-arena { font-size: 13px; }
+.mp-arena b { letter-spacing: 0.04em; }
+/* tickets round the zones, in the bar's row: ours blue on the left, theirs red */
+.mp-ground { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font: 600 13px var(--mono); font-variant-numeric: tabular-nums; }
+.mp-ground[hidden] { display: none; }
+.mp-tk { min-width: 30px; }
+.mp-tk.us { color: var(--cyan); text-align: right; }
+.mp-tk.them { color: var(--danger); }
+.mp-zones { display: flex; gap: 3px; }
+.mp-zone { position: relative; width: 22px; height: 20px; border-radius: 4px; overflow: hidden; display: grid; place-items: center; background: rgba(150, 185, 230, 0.12); border: 1px solid var(--line-strong); }
+.mp-zone.us { border-color: var(--cyan); }
+.mp-zone.them { border-color: var(--danger); }
+.mp-zone b { position: relative; font: 700 11px var(--display); color: var(--text); }
+.mp-zone i, .mp-cap-track i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: 0 50%; transform: scaleX(0); transition: transform 0.25s linear; }
+.mp-zone i.us, .mp-cap-track i.us { background: rgba(98, 208, 255, 0.45); }
+.mp-zone i.them, .mp-cap-track i.them { background: rgba(255, 93, 93, 0.45); }
+.mp-cap { display: flex; flex-direction: column; gap: 3px; font: 600 11px var(--mono); color: var(--text); }
+.mp-cap[hidden] { display: none; }
+.mp-cap-track { position: relative; height: 6px; border-radius: 3px; overflow: hidden; background: rgba(150, 185, 230, 0.14); }
+/* the lineup (Lineup of 3) while building */
+.mp-lineup { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.mp-lineup[hidden] { display: none; }
+.mp-slot { display: flex; align-items: center; gap: 5px; min-width: 0; height: 30px; padding: 0 6px; border-radius: 6px; cursor: pointer; font: 600 11px var(--display); color: var(--text);
+  background: rgba(20, 32, 54, 0.7); border: 1px solid var(--line-strong); }
+.mp-slot small { font: 700 10px var(--mono); color: var(--amber); }
+.mp-slot span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-slot.built { cursor: default; border-style: dashed; }
+/* the Respawn panel (and the lineup's and the practice battle's pickers): big buttons for thumbs */
+.rsp { display: flex; flex-direction: column; gap: 10px; }
+.rsp-wait { margin: 0; font: 600 14px var(--mono); color: var(--amber); }
+.rsp-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; }
+.rsp-opt { text-align: left; min-height: 56px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-family: var(--display); color: var(--text);
+  background: rgba(20, 32, 54, 0.7); border: 1px solid var(--line-strong); display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.rsp-opt:hover:not(:disabled) { border-color: var(--amber); }
+.rsp-opt b { font-size: 14px; letter-spacing: 0.04em; }
+.rsp-opt span { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.rsp-opt.menu { border-style: dashed; }
+.rsp-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+/* the ground scoreboard: seven columns; on a phone tighter, without the ping, and scrolling sideways if need be */
+.mp-twrap { max-width: 100%; overflow-x: auto; }
+/* two- and three-way choices in a ground battle's lobby: as wide as they need */
+.mp-set .kind-select.n2 { grid-template-columns: repeat(2, 1fr); }
+.mp-set .kind-select.n3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 520px) {
+  .rsp-list { grid-template-columns: 1fr; }
+  .mp-gtable th, .mp-gtable td { padding-left: 4px; padding-right: 4px; }
+  .mp-gtable th { letter-spacing: 0.04em; }
+  .mp-gtable th:last-child, .mp-gtable td:last-child { display: none; }
+}
+@media (max-width: 760px) {
+  body:has(#mp-bar:not([hidden]):not(.flight) #mp-lineup:not([hidden])) .stats { top: calc(168px + var(--safe-t)); } /* (the lineup's row makes the bar taller) */
+  .mp-ground { font-size: 12px; gap: 4px; }
+  .mp-zone { width: 20px; }
+  .mp-tk { min-width: 26px; }
+}

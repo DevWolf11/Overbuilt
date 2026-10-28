@@ -1,0 +1,3735 @@
+{
+ "01 host": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1"
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\"}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "02 three join": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Dot joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 3
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":3}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "03 settings": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Dot joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "04 a client cannot set settings": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Dot joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3
+  },
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "05 rows": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": true,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Dot joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Dot joined\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "06 start": {
+  "state": {
+   "mode": "pvp",
+   "phase": "build",
+   "ends": 301000,
+   "endsLen": 300,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [
+   400
+  ],
+  "builderMp": {
+   "budget": 120000,
+   "limits": null,
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": null,
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "07 build": {
+  "state": {
+   "mode": "pvp",
+   "phase": "build",
+   "ends": 301000,
+   "endsLen": 300,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0
+  },
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": {
+   "budget": 120000,
+   "limits": null,
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": null,
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "build:numbers": [
+  [
+   "faroes",
+   "carrierA"
+  ],
+  [
+   "shetland",
+   "carrierB"
+  ],
+  "faroes",
+  156000,
+  120000,
+  {
+   "bonus": 1.3,
+   "span": 13,
+   "length": 16,
+   "mass": 12000
+  },
+  null
+ ],
+ "build:problems": {
+  "mustang/plane/faroes": [],
+  "jumbo/plane/faroes": [],
+  "jumbo/plane/carrierA": [
+   "Too wide for the carrier: 28.0 m across, the deck takes 13 m.",
+   "Too long for the carrier: 19.9 m, the deck takes 16 m.",
+   "Too heavy for the catapult: 26.3 t, it takes 12.0 t."
+  ],
+  "buggy/car/carrierA": [
+   "Only planes and helicopters fly from a carrier."
+  ],
+  "buggy/car/faroes": [],
+  "hopper/rocket/faroes": [
+   "Battles are for planes, helicopters and cars: switch the vehicle type."
+  ],
+  "dragonfly/heli/carrierA": [],
+  "fs15/plane/carrierA": [
+   "Too wide for the carrier: 13.1 m across, the deck takes 13 m.",
+   "Too long for the carrier: 19.4 m, the deck takes 16 m.",
+   "Too heavy for the catapult: 21.1 t, it takes 12.0 t."
+  ],
+  "mustang/tank/faroes": [
+   "Battles are for planes, helicopters and cars: switch the vehicle type."
+  ]
+ },
+ "08 spawn picks": {
+  "state": {
+   "mode": "pvp",
+   "phase": "build",
+   "ends": 301000,
+   "endsLen": 300,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":301000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": {
+   "budget": 120000,
+   "limits": null,
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": null,
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "09 everyone ready": {
+  "state": {
+   "mode": "pvp",
+   "phase": "build",
+   "ends": 4000,
+   "endsLen": 300,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": true,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": true,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": true,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": true,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 1000,
+   "endsFull": 301000
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":4000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":true,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":true,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":1000,\"endsFull\":301000}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":4000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":true,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":true,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":1000,\"endsFull\":301000}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":4000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":true,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":true,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":1000,\"endsFull\":301000}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":4000,\"endsLen\":300,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":true,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":true,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":1000,\"endsFull\":301000}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": {
+   "budget": 120000,
+   "limits": null,
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Bird",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "10 to test": {
+  "state": {
+   "mode": "pvp",
+   "phase": "test",
+   "ends": 460000,
+   "endsLen": 60,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": true,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": true,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": true,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": true,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"test\",\"ends\":460000,\"endsLen\":60,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":true,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":true,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":true,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":true,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166}},null]"
+  ],
+  "toasts": [
+   "Test flight: one minute, nobody can hurt you"
+  ],
+  "modals": [],
+  "flights": [
+   {
+    "design": {
+     "name": "Bird",
+     "kind": "plane",
+     "n": 10
+    },
+    "opts": {
+     "place": {
+      "e": -6969,
+      "z": 2494,
+      "yaw": 0,
+      "carrier": "Carrier West",
+      "catapult": {
+       "length": 96,
+       "speed": 78
+      }
+     },
+     "time": 133718.20751777166,
+     "mp": {
+      "mode": "pvp",
+      "solo": true,
+      "phase": "test"
+     }
+    }
+   }
+  ],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Bird",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "11 test flight down": {
+  "state": {
+   "mode": "pvp",
+   "phase": "test",
+   "ends": 460000,
+   "endsLen": 60,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": true,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": true,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": true,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": true,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166
+  },
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [
+   1400
+  ],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Bird",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "12 to polish": {
+  "state": {
+   "mode": "pvp",
+   "phase": "polish",
+   "ends": 620000,
+   "endsLen": 120,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"polish\",\"ends\":620000,\"endsLen\":120,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166}},null]"
+  ],
+  "toasts": [
+   "Test flight over: polish your design"
+  ],
+  "modals": [
+   "Craft lost"
+  ],
+  "flights": [],
+  "timers": [],
+  "builderMp": {
+   "budget": 156000,
+   "limits": {
+    "bonus": 1.3,
+    "span": 13,
+    "length": 16,
+    "mass": 12000
+   },
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Bird",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "13 my design too big for the carrier": {
+  "state": {
+   "mode": "pvp",
+   "phase": "polish",
+   "ends": 620000,
+   "endsLen": 120,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"polish\",\"ends\":620000,\"endsLen\":120,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"polish\",\"ends\":620000,\"endsLen\":120,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": {
+   "budget": 156000,
+   "limits": {
+    "bonus": 1.3,
+    "span": 13,
+    "length": 16,
+    "mass": 12000
+   },
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "14 to battle": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1200000,
+   "endsLen": 600,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [
+   "Your design can’t fly in this battle: you get a Mustang instead",
+   "Throttle up, then hit LAUNCH (L) for the catapult"
+  ],
+  "modals": [],
+  "flights": [
+   {
+    "design": {
+     "name": "Mustang",
+     "kind": "plane",
+     "n": 10
+    },
+    "opts": {
+     "place": {
+      "e": -6969,
+      "z": 2494,
+      "yaw": 0,
+      "carrier": "Carrier West",
+      "catapult": {
+       "length": 96,
+       "speed": 78
+      }
+     },
+     "time": 133718.20751777166,
+     "mp": {
+      "mode": "pvp",
+      "solo": false,
+      "phase": "battle"
+     }
+    }
+   }
+  ],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "15 peers spawn": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1200000,
+   "endsLen": 600,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": true
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":true},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":true}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":true},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":true}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":true},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":true}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":3,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "16 placements": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1200000,
+   "endsLen": 600,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": true
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 3,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "battle:placements": {
+  "faroes/plane": {
+   "e": 760,
+   "z": 0,
+   "yaw": 0
+  },
+  "faroes/heli": {
+   "e": 160,
+   "z": 0,
+   "yaw": 0
+  },
+  "faroes/car": {
+   "e": 760,
+   "z": 0,
+   "yaw": 0
+  },
+  "shetland/plane": {
+   "e": 18600,
+   "z": -990,
+   "yaw": 1.5707963267948966
+  },
+  "shetland/heli": {
+   "e": 18675,
+   "z": -1275,
+   "yaw": 1.5707963267948966
+  },
+  "shetland/car": {
+   "e": 18600,
+   "z": -990,
+   "yaw": 1.5707963267948966
+  },
+  "scotland/plane": {
+   "e": 18395,
+   "z": 13374.685657822283,
+   "yaw": 1.0471975511965976
+  },
+  "scotland/heli": {
+   "e": 18689.951905283833,
+   "z": 13013.813972081442,
+   "yaw": 1.0471975511965976
+  },
+  "scotland/car": {
+   "e": 18395,
+   "z": 13374.685657822283,
+   "yaw": 1.0471975511965976
+  },
+  "carrierA/plane": {
+   "e": -6969,
+   "z": 2494,
+   "yaw": 0,
+   "carrier": "Carrier West",
+   "catapult": {
+    "length": 96,
+    "speed": 78
+   }
+  },
+  "carrierA/heli": {
+   "e": -7102,
+   "z": 2500,
+   "yaw": 0,
+   "carrier": "Carrier West",
+   "catapult": null
+  },
+  "carrierA/car": {
+   "e": -6969,
+   "z": 2494,
+   "yaw": 0,
+   "carrier": "Carrier West",
+   "catapult": {
+    "length": 96,
+    "speed": 78
+   }
+  },
+  "carrierB/plane": {
+   "e": 23969,
+   "z": 1506,
+   "yaw": 3.141592653589793,
+   "carrier": "Carrier East",
+   "catapult": {
+    "length": 96,
+    "speed": 78
+   }
+  },
+  "carrierB/heli": {
+   "e": 24102,
+   "z": 1500,
+   "yaw": 3.141592653589793,
+   "carrier": "Carrier East",
+   "catapult": null
+  },
+  "carrierB/car": {
+   "e": 23969,
+   "z": 1506,
+   "yaw": 3.141592653589793,
+   "carrier": "Carrier East",
+   "catapult": {
+    "length": 96,
+    "speed": 78
+   }
+  }
+ },
+ "17 a hit, a kill": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1200000,
+   "endsLen": 600,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 1,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": true
+    }
+   ],
+   "feed": [
+    {
+     "n": 4,
+     "text": "Hosty ⟶ Bea the Bold"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 4,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":1,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":true}],\"feed\":[{\"n\":4,\"text\":\"Hosty ⟶ Bea the Bold\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":4,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [
+   "Bea the Bold shot down!"
+  ],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "18 a crash": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1200000,
+   "endsLen": 600,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 1,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 4,
+     "text": "Hosty ⟶ Bea the Bold"
+    },
+    {
+     "n": 5,
+     "text": "Dot crashed"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 5,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1200000,\"endsLen\":600,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":1,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":4,\"text\":\"Hosty ⟶ Bea the Bold\"},{\"n\":5,\"text\":\"Dot crashed\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [
+   3500
+  ],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "19 results": {
+  "state": {
+   "mode": "pvp",
+   "phase": "results",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 1,
+   "result": {
+    "winner": 0,
+    "why": "last",
+    "ffa": false,
+    "players": [
+     {
+      "pid": 1,
+      "name": "Hosty",
+      "team": 0,
+      "ready": false,
+      "spawn": "carrierA",
+      "alive": true,
+      "kills": 1,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 0,
+      "kind": "plane",
+      "flying": true
+     },
+     {
+      "pid": 2,
+      "name": "Bea the Bold",
+      "team": 1,
+      "ready": false,
+      "spawn": "carrierB",
+      "alive": false,
+      "kills": 0,
+      "deaths": 1,
+      "dmg": 0,
+      "ping": 40,
+      "kind": "plane",
+      "flying": false
+     },
+     {
+      "pid": 3,
+      "name": "Cid",
+      "team": 0,
+      "ready": false,
+      "spawn": "faroes",
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 55,
+      "kind": "plane",
+      "flying": true
+     },
+     {
+      "pid": 4,
+      "name": "Dot",
+      "team": 1,
+      "ready": false,
+      "spawn": null,
+      "alive": false,
+      "kills": 0,
+      "deaths": 1,
+      "dmg": 0,
+      "ping": 120,
+      "kind": "helicopt",
+      "flying": false
+     }
+    ]
+   },
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": true,
+     "kills": 1,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 4,
+     "text": "Hosty ⟶ Bea the Bold"
+    },
+    {
+     "n": 5,
+     "text": "Dot crashed"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 5,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"results\",\"ends\":0,\"endsLen\":0,\"round\":1,\"result\":{\"winner\":0,\"why\":\"last\",\"ffa\":false,\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":1,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}]},\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":true,\"kills\":1,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":true},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":4,\"text\":\"Hosty ⟶ Bea the Bold\"},{\"n\":5,\"text\":\"Dot crashed\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": [
+   "Mustang",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "20 back to the lobby": {
+  "state": {
+   "mode": "pvp",
+   "phase": "lobby",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 1,
+   "result": null,
+   "settings": {
+    "format": "2v2",
+    "build": 300,
+    "test": true,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "carrierA",
+     "alive": false,
+     "kills": 1,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": "carrierB",
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 4,
+     "text": "Hosty ⟶ Bea the Bold"
+    },
+    {
+     "n": 5,
+     "text": "Dot crashed"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "2v2",
+   "feedN": 5,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"lobby\",\"ends\":0,\"endsLen\":0,\"round\":1,\"result\":null,\"settings\":{\"format\":\"2v2\",\"build\":300,\"test\":true,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"carrierA\",\"alive\":false,\"kills\":1,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":\"carrierB\",\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":4,\"text\":\"Hosty ⟶ Bea the Bold\"},{\"n\":5,\"text\":\"Dot crashed\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"2v2\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"despawn\"},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "carrierA",
+  "myDesign": null,
+  "career": [
+   "career",
+   156000
+  ]
+ },
+ "21 second match, no test flight": {
+  "state": {
+   "mode": "pvp",
+   "phase": "build",
+   "ends": 900000,
+   "endsLen": 300,
+   "round": 2,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 300,
+    "test": false,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 5,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 600000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":900000,\"endsLen\":300,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":900000,\"endsLen\":300,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":900000,\"endsLen\":300,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"build\",\"ends\":900000,\"endsLen\":300,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":600000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [
+   400
+  ],
+  "builderMp": {
+   "budget": 120000,
+   "limits": null,
+   "kinds": [
+    "plane",
+    "heli",
+    "car"
+   ]
+  },
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": null,
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "22 battle again": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1500000,
+   "endsLen": 600,
+   "round": 2,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 300,
+    "test": false,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 5,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 900000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1500000,\"endsLen\":600,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":900000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1500000,\"endsLen\":600,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":900000,\"sides\":[0,1]}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1500000,\"endsLen\":600,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":5,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":900000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [
+   "Battle! Last team flying wins"
+  ],
+  "modals": [],
+  "flights": [
+   {
+    "design": {
+     "name": "Big",
+     "kind": "plane",
+     "n": 10
+    },
+    "opts": {
+     "place": {
+      "e": 760,
+      "z": 0,
+      "yaw": 0
+     },
+     "time": 133718.20751777166,
+     "mp": {
+      "mode": "pvp",
+      "solo": false,
+      "phase": "battle"
+     }
+    }
+   }
+  ],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "23 a leaver": {
+  "state": {
+   "mode": "pvp",
+   "phase": "battle",
+   "ends": 1500000,
+   "endsLen": 600,
+   "round": 2,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 300,
+    "test": false,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 6,
+     "text": "Cid left"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 6,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 900000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"battle\",\"ends\":1500000,\"endsLen\":600,\"round\":2,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":6,\"text\":\"Cid left\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":6,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":900000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "24 out of time": {
+  "state": {
+   "mode": "pvp",
+   "phase": "results",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 2,
+   "result": {
+    "winner": 1,
+    "why": "time",
+    "ffa": false,
+    "players": [
+     {
+      "pid": 1,
+      "name": "Hosty",
+      "team": 0,
+      "ready": false,
+      "spawn": "faroes",
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 0,
+      "kind": "plane",
+      "flying": true
+     },
+     {
+      "pid": 2,
+      "name": "Bea the Bold",
+      "team": 1,
+      "ready": false,
+      "spawn": null,
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 40,
+      "kind": "plane",
+      "flying": false
+     },
+     {
+      "pid": 4,
+      "name": "Dot",
+      "team": 1,
+      "ready": false,
+      "spawn": null,
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 120,
+      "kind": "helicopt",
+      "flying": false
+     }
+    ]
+   },
+   "settings": {
+    "format": "1v1",
+    "build": 300,
+    "test": false,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 6,
+     "text": "Cid left"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 6,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 900000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"pvp\",\"phase\":\"results\",\"ends\":0,\"endsLen\":0,\"round\":2,\"result\":{\"winner\":1,\"why\":\"time\",\"ffa\":false,\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}]},\"settings\":{\"format\":\"1v1\",\"build\":300,\"test\":false,\"polish\":120,\"budget\":120000,\"carriers\":true,\"ff\":false,\"tod\":\"dusk\",\"limit\":600},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":\"faroes\",\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea the Bold\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":4,\"name\":\"Dot\",\"team\":1,\"ready\":false,\"spawn\":null,\"alive\":true,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":120,\"kind\":\"helicopt\",\"flying\":false}],\"feed\":[{\"n\":6,\"text\":\"Cid left\"}],\"t0\":482007.49221522344,\"t0At\":1000,\"format\":\"1v1\",\"feedN\":6,\"allReadyAt\":0,\"endsFull\":301000,\"tod\":133718.20751777166,\"battleAt\":900000,\"sides\":[0,1]}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "25 finish": {
+  "state": {
+   "mode": "pvp",
+   "phase": "results",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 2,
+   "result": {
+    "winner": 1,
+    "why": "time",
+    "ffa": false,
+    "players": [
+     {
+      "pid": 1,
+      "name": "Hosty",
+      "team": 0,
+      "ready": false,
+      "spawn": "faroes",
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 0,
+      "kind": "plane",
+      "flying": true
+     },
+     {
+      "pid": 2,
+      "name": "Bea the Bold",
+      "team": 1,
+      "ready": false,
+      "spawn": null,
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 40,
+      "kind": "plane",
+      "flying": false
+     },
+     {
+      "pid": 4,
+      "name": "Dot",
+      "team": 1,
+      "ready": false,
+      "spawn": null,
+      "alive": true,
+      "kills": 0,
+      "deaths": 0,
+      "dmg": 0,
+      "ping": 120,
+      "kind": "helicopt",
+      "flying": false
+     }
+    ]
+   },
+   "settings": {
+    "format": "1v1",
+    "build": 300,
+    "test": false,
+    "polish": 120,
+    "budget": 120000,
+    "carriers": true,
+    "ff": false,
+    "tod": "dusk",
+    "limit": 600
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": "faroes",
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea the Bold",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 4,
+     "name": "Dot",
+     "team": 1,
+     "ready": false,
+     "spawn": null,
+     "alive": true,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 120,
+     "kind": "helicopt",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 6,
+     "text": "Cid left"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 1000,
+   "format": "1v1",
+   "feedN": 6,
+   "allReadyAt": 0,
+   "endsFull": 301000,
+   "tod": 133718.20751777166,
+   "battleAt": 900000,
+   "sides": [
+    0,
+    1
+   ]
+  },
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   120000
+  ]
+ },
+ "26 end": {
+  "state": null,
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": "faroes",
+  "myDesign": [
+   "Big",
+   "plane",
+   10
+  ],
+  "career": [
+   "career",
+   123
+  ]
+ },
+ "27 sandbox host": {
+  "state": {
+   "mode": "sandbox",
+   "phase": "free",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [],
+   "t0": 482007.49221522344,
+   "t0At": 2000000,
+   "format": "1v1"
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false}],\"feed\":[],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\"}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "28 sandbox joins": {
+  "state": {
+   "mode": "sandbox",
+   "phase": "free",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 2000000,
+   "format": "1v1",
+   "feedN": 2
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"}],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\",\"feedN\":2}},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"}],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\",\"feedN\":2}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": null,
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "sandbox:placements": {
+  "1/rocket": null,
+  "1/plane": null,
+  "1/heli": null,
+  "1/car": null,
+  "2/rocket": null,
+  "2/plane": {
+   "e": 980,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  },
+  "2/heli": {
+   "e": 195,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  },
+  "2/car": {
+   "e": 980,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  },
+  "3/rocket": null,
+  "3/plane": {
+   "e": 1200,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  },
+  "3/heli": {
+   "e": 125,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  },
+  "3/car": {
+   "e": 1200,
+   "z": 0,
+   "yaw": 0,
+   "soft": true
+  }
+ },
+ "29 sandbox fly": {
+  "state": {
+   "mode": "sandbox",
+   "phase": "free",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 2000000,
+   "format": "1v1",
+   "feedN": 2
+  },
+  "out": [
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"}],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\",\"feedN\":2}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [
+   {
+    "design": {
+     "name": "Buggy",
+     "kind": "car",
+     "n": 4
+    },
+    "opts": {
+     "place": null,
+     "time": 482007.49221522344,
+     "mp": {
+      "mode": "sandbox",
+      "solo": false,
+      "phase": "free"
+     }
+    }
+   }
+  ],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": [
+   "Buggy",
+   "car",
+   4
+  ],
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "30 sandbox crash": {
+  "state": {
+   "mode": "sandbox",
+   "phase": "free",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Hosty crashed"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 2000000,
+   "format": "1v1",
+   "feedN": 3
+  },
+  "out": [
+   "[{\"t\":\"down\",\"by\":0,\"P\":[1,2,3]},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":false},{\"pid\":2,\"name\":\"Bea\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Hosty crashed\"}],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\",\"feedN\":3}},null]"
+  ],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [
+   1600
+  ],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": [
+   "Buggy",
+   "car",
+   4
+  ],
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "31 sandbox respawn": {
+  "state": {
+   "mode": "sandbox",
+   "phase": "free",
+   "ends": 0,
+   "endsLen": 0,
+   "round": 0,
+   "result": null,
+   "settings": {
+    "format": "1v1",
+    "build": 180,
+    "test": true,
+    "polish": 120,
+    "budget": 75000,
+    "carriers": true,
+    "ff": false,
+    "tod": "day",
+    "limit": 900
+   },
+   "players": [
+    {
+     "pid": 1,
+     "name": "Hosty",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 1,
+     "dmg": 0,
+     "ping": 0,
+     "kind": "plane",
+     "flying": true
+    },
+    {
+     "pid": 2,
+     "name": "Bea",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 40,
+     "kind": "plane",
+     "flying": false
+    },
+    {
+     "pid": 3,
+     "name": "Cid",
+     "team": 0,
+     "ready": false,
+     "spawn": null,
+     "alive": false,
+     "kills": 0,
+     "deaths": 0,
+     "dmg": 0,
+     "ping": 55,
+     "kind": "plane",
+     "flying": false
+    }
+   ],
+   "feed": [
+    {
+     "n": 1,
+     "text": "Bea joined"
+    },
+    {
+     "n": 2,
+     "text": "Cid joined"
+    },
+    {
+     "n": 3,
+     "text": "Hosty crashed"
+    }
+   ],
+   "t0": 482007.49221522344,
+   "t0At": 2000000,
+   "format": "1v1",
+   "feedN": 3
+  },
+  "out": [
+   "[{\"t\":\"despawn\"},null]",
+   "[{\"t\":\"despawn\"},null]",
+   "[{\"t\":\"state\",\"s\":{\"mode\":\"sandbox\",\"phase\":\"free\",\"ends\":0,\"endsLen\":0,\"round\":0,\"result\":null,\"settings\":{\"format\":\"1v1\",\"build\":180,\"test\":true,\"polish\":120,\"budget\":75000,\"carriers\":true,\"ff\":false,\"tod\":\"day\",\"limit\":900},\"players\":[{\"pid\":1,\"name\":\"Hosty\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":1,\"dmg\":0,\"ping\":0,\"kind\":\"plane\",\"flying\":true},{\"pid\":2,\"name\":\"Bea\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":40,\"kind\":\"plane\",\"flying\":false},{\"pid\":3,\"name\":\"Cid\",\"team\":0,\"ready\":false,\"spawn\":null,\"alive\":false,\"kills\":0,\"deaths\":0,\"dmg\":0,\"ping\":55,\"kind\":\"plane\",\"flying\":false}],\"feed\":[{\"n\":1,\"text\":\"Bea joined\"},{\"n\":2,\"text\":\"Cid joined\"},{\"n\":3,\"text\":\"Hosty crashed\"}],\"t0\":482007.49221522344,\"t0At\":2000000,\"format\":\"1v1\",\"feedN\":3}},null]"
+  ],
+  "toasts": [],
+  "modals": [
+   "Craft lost"
+  ],
+  "flights": [
+   {
+    "design": {
+     "name": "Buggy",
+     "kind": "car",
+     "n": 4
+    },
+    "opts": {
+     "place": null,
+     "time": 482007.49221522344,
+     "mp": {
+      "mode": "sandbox",
+      "solo": false,
+      "phase": "free"
+     }
+    }
+   }
+  ],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": [
+   "Buggy",
+   "car",
+   4
+  ],
+  "career": [
+   "sandbox",
+   0
+  ]
+ },
+ "32 sandbox end": {
+  "state": null,
+  "out": [],
+  "toasts": [],
+  "modals": [],
+  "flights": [],
+  "timers": [],
+  "builderMp": null,
+  "kind": "plane",
+  "spawnId": null,
+  "myDesign": [
+   "Buggy",
+   "car",
+   4
+  ],
+  "career": [
+   "career",
+   123
+  ]
+ }
+}
