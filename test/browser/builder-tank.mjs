@@ -110,27 +110,28 @@ await ev((rows) => Builder.loadDesign({ name: 'Six taps', kind: 'tank', parts: r
 
 // ---- 3. the armour stepper: thicker plate costs mass and money, and is kept
 r = await ev(() => { const h = Builder.parts.find((p) => p.type === 'hullMedium'); Builder.selected = h; Builder.renderInfo(); return { mass: Builder.statsData.mass, cost: Builder.statsData.cost, shown: !$('#pi-armour').hidden, val: $('#pi-mm-val').textContent, faces: $('#pi-mm-faces').textContent }; });
-ok('a hull\'s panel shows its armour, 45 mm, and the faces it makes', r.shown && r.val === '45 mm' && /^Glacis 45 mm at 6\d° → \d+ mm · lower 45 mm at 5\d° → \d+ mm · sides 40 mm · roof 20 mm · rear 41 mm$/.test(r.faces), `${r.val} | ${r.faces}`);
+// (3I's balance: the Sloped Medium Hull is 55 mm, its lower plate 61 under the glacis; three taps make it 70)
+ok('a hull\'s panel shows its armour, 55 mm, and the faces it makes', r.shown && r.val === '55 mm' && /^Glacis 55 mm at 6\d° → \d+ mm · lower 61 mm at 5\d° → \d+ mm · sides 40 mm · roof 20 mm · rear 41 mm$/.test(r.faces), `${r.val} | ${r.faces}`);
 for (let i = 0; i < 3; i++) await page.locator('#btn-mm-up').tap();
-const up = await ev(() => { const h = Builder.parts.find((p) => p.type === 'hullMedium'); return { mm: h.mm, mass: Builder.statsData.mass, cost: Builder.statsData.cost, val: $('#pi-mm-val').textContent, want: (armourMassT(h.def, 60) - h.def.mass) * 1000, wantCost: armourCostDelta(h.def, 60), hist: Builder.history.length, faces: $('#pi-mm-faces').textContent }; });
-ok('three taps on + : 60 mm', up.mm === 60 && up.val === '60 mm', JSON.stringify(up));
+const up = await ev(() => { const h = Builder.parts.find((p) => p.type === 'hullMedium'); return { mm: h.mm, mass: Builder.statsData.mass, cost: Builder.statsData.cost, val: $('#pi-mm-val').textContent, want: (armourMassT(h.def, 70) - h.def.mass) * 1000, wantCost: armourCostDelta(h.def, 70), hist: Builder.history.length, faces: $('#pi-mm-faces').textContent }; });
+ok('three taps on + : 70 mm', up.mm === 70 && up.val === '70 mm', JSON.stringify(up));
 ok('...heavier by its steel and dearer', Math.abs(up.mass - r.mass - up.want) < 1 && up.want > 2000 && up.cost - r.cost === up.wantCost && up.wantCost > 0, `${(up.mass - r.mass).toFixed(0)} kg (want ${up.want.toFixed(0)}), $${up.cost - r.cost}`);
-ok('...and the glacis line follows', up.faces.startsWith('Glacis 60 mm at'), up.faces);
+ok('...and the glacis line follows', up.faces.startsWith('Glacis 70 mm at'), up.faces);
 // the slider: live while it moves, one undo step when it is let go
 r = await ev(() => { const s = $('#pi-mm'), h0 = Builder.history.length; s.value = '100'; s.dispatchEvent(new Event('input')); const mid = Builder.history.length; s.value = '110'; s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); const h = Builder.parts.find((p) => p.type === 'hullMedium'); return { h0, mid, h1: Builder.history.length, mm: h.mm }; });
 ok('the slider dials it live, one undo step when it is let go', r.mm === 110 && r.mid === r.h0 && r.h1 === r.h0 + 1, JSON.stringify(r));
 await ev(() => Builder.undo());
 r = await ev(() => Builder.parts.find((p) => p.type === 'hullMedium').mm);
-ok('...and undo puts the 60 mm back', r === 60, r);
+ok('...and undo puts the 70 mm back', r === 70, r);
 // saved, as a code, and after a reload
 r = await ev(() => { const code = Builder.designCode(Builder.serialize()), d = Builder.parseCode(code); return { code: code.slice(0, 5), mm: d.parts.find((q) => q.type === 'hullMedium').mm }; });
-ok('the design code carries it (RSS3)', r.code === 'RSS3.' && r.mm === 60, JSON.stringify(r));
+ok('the design code carries it (RSS3)', r.code === 'RSS3.' && r.mm === 70, JSON.stringify(r));
 await ev(() => Builder.storeDesign('Six taps'));
 await page.reload(); await page.waitForTimeout(500);
 await ev(() => App.toBuild()); await page.waitForTimeout(300);
 r = await ev(() => ({ kind: Builder.kind, mm: (Builder.parts.find((p) => p.type === 'hullMedium') || {}).mm, saved: Builder.designs().find((x) => x.name === 'Six taps'), n: Builder.parts.length }));
-ok('after a reload the blueprint and the hangar keep 60 mm', r.kind === 'tank' && r.mm === 60 && r.n === 7 && r.saved && r.saved.parts.find((q) => q.type === 'hullMedium').mm === 60, JSON.stringify({ ...r, saved: !!r.saved }));
-const tankRows = await ev(() => designRows(Builder.parts)); // (the six-tap tank with its 60 mm hull)
+ok('after a reload the blueprint and the hangar keep 70 mm', r.kind === 'tank' && r.mm === 70 && r.n === 7 && r.saved && r.saved.parts.find((q) => q.type === 'hullMedium').mm === 70, JSON.stringify({ ...r, saved: !!r.saved }));
+const tankRows = await ev(() => designRows(Builder.parts)); // (the six-tap tank with its 70 mm hull)
 const hangar = await ev(() => { Builder.openHangar(); const t = [...document.querySelectorAll('.design .template-blurb')].map((e) => e.textContent); UI.closeModal(); return t; });
 ok('the hangar files it as Armour', hangar.some((t) => t.startsWith('Armour · 7 parts')), hangar.join(' | '));
 
@@ -242,7 +243,7 @@ await ev(() => { Render3D.skipDraw = true; Builder.selected = null; App.launch()
 await page.waitForFunction(() => App.scene === 'flight' && typeof Flight !== 'undefined' && Flight.running, null, { timeout: 60000 });
 await frames(page, 5);
 r = await ev(() => ({ kind: Flight.active.kind, parts: Flight.active.parts.length, gv: Flight.active.gv, mm: (Flight.active.parts.find((p) => p.type === 'hullMedium') || {}).mm }));
-ok('the six-tap tank launches as Armour, its 60 mm plate aboard', r.kind === 'tank' && r.parts === 7 && r.gv && r.mm === 60, JSON.stringify(r));
+ok('the six-tap tank launches as Armour, its 70 mm plate aboard', r.kind === 'tank' && r.parts === 7 && r.gv && r.mm === 70, JSON.stringify(r));
 await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
 
 ok('no page errors', errs.length === 0, errs.join('\n'));

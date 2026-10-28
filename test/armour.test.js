@@ -159,8 +159,9 @@ t('the same shot on the same vessel does the same thing (rows, modules, fragment
 R(`var fuelled = air([{ type: 'tstBlock', x: 0, y: 0, rot: 0 }, { type: 'fuelCell', x: 0.55, y: 0, rot: 0, att: 0 }]), bare = air([{ type: 'tstBlock', x: 0, y: 0, rot: 0 }]);
 var hcrew = (v) => { let k = 0; for (let i = 0; i < 40; i++) { const r = res(v, 'hesh105', { x: 1, y: 0, z: 0 }, intoX); k += r.mods.filter(([h, j]) => h.def.mods[j].k === 'crew').reduce((s, q) => s + q[2], 0); } return k; };`);
 t('fragments: a squash head throws them off the inside of the plate; a fuel cell in their way stops them all', R(`hcrew(bare) > 0 && hcrew(fuelled) === 0`), R('[hcrew(bare), hcrew(fuelled)]'));
-t('the APHE burst: 1.2 m past the plate, burst·(1 - d/r)^1.2 to a module in reach (here 0.6 m off it: 248)', R(`(() => { const v = air([{ type: 'tstBlock2', x: 0, y: 0, rot: 0 }]), r = res(v, 'aphe85', { x: 1, y: 0, z: 0 }, intoX, { pen: 145, v0: SHELLS.aphe85.v0 });
-  const k1 = (r.mods.find(([, i]) => i === 1) || [0, 0, 0])[2]; return r.r === 'pen' && near(k1, 380 * Math.pow(1 - 0.6 / 2, 1.2), 1e-6) && r.mods.find(([, i]) => i === 0)[2] > 380; })()`),
+// (3I's balance: the 85 mm's burst is 320 in 1.6 m, so a frontal hit doesn't set off every rack: SHELLS' own numbers here)
+t('the APHE burst: 1.2 m past the plate, burst·(1 - d/r)^1.2 to a module in reach (here 0.6 m off it: 182)', R(`(() => { const v = air([{ type: 'tstBlock2', x: 0, y: 0, rot: 0 }]), r = res(v, 'aphe85', { x: 1, y: 0, z: 0 }, intoX, { pen: 145, v0: SHELLS.aphe85.v0 });
+  const S = SHELLS.aphe85, k1 = (r.mods.find(([, i]) => i === 1) || [0, 0, 0])[2]; return r.r === 'pen' && near(k1, S.burst * Math.pow(1 - 0.6 / S.r, 1.2), 1e-6) && r.mods.find(([, i]) => i === 0)[2] > S.burst; })()`),
   R(`(() => { const v = air([{ type: 'tstBlock2', x: 0, y: 0, rot: 0 }]), r = res(v, 'aphe85', { x: 1, y: 0, z: 0 }, intoX); return r.mods.map((q) => [q[1], q[2]]); })()`));
 // (the path alone: an old 20 mm cannon round, 30 mm and no fragments, through a 20 mm plate: 3× its damage along 1.5 m)
 R(`var lres = (v, LG, P, d) => { const w = v.toWorld(P.x, P.y, P.z || 0), s = { legacy: LG, vx: d.x * 900, vy: d.y * 900, vz: d.z * 900, n: ++serial, pen: LG.pen, v0: 900, ric: false, t: 9 };
@@ -191,12 +192,12 @@ t('a machine-gun bullet through an open roof hits what it meets in the next metr
   return a.roof === 0 && a.r === 'pen' && b.r === 'pen' && near(a.k, 9 * (1 - 0.5 * a.s / 1.0), 1e-9) && near(b.k, 16 * (1 - 0.5 * b.s / 1.0), 1e-9) && a.s > 0 && a.s < 1; })()`), R(`[dropOn('ball8'), dropOn('ball13')]`));
 t('no fragments through an open face (there is no plate): a 20 mm AP round down through the open roof hurts the gunner by its path alone; a squash head not at all', R(`(() => { const a = dropOn('ap20'), h = dropOn('hesh105');
   return a.r === 'pen' && near(a.k, 40 * (1 - 0.5 * a.s / 3.0), 1e-9) && h.k === 0 && h.mods === 0; })()`), R(`[dropOn('ap20'), dropOn('hesh105')]`));
-// an 85 mm APHE round through the TK-34's side, past its two fuel tanks: it bursts 1.2 m in, both within its 2 m
+// an 85 mm APHE round through the TK-34's side, past its two fuel tanks: it bursts 1.2 m in, both within its reach (1.6 m)
 R(`var apheFuel = () => { const v = air(), hull = v.parts[0], D = hull.def, d = { x: 0, y: 0, z: -1 }, r = res(v, 'aphe85', { x: 0.34, y: 1.1, z: 1.1 }, d, { pen: 300 });
   const B = { x: r.at.x + d.x * 1.2, y: r.at.y + d.y * 1.2, z: r.at.z + d.z * 1.2 };
   return D.mods.map((M, i) => { if (M.k !== 'fuel') return null; const w = v.toWorld(hull.x + M.at[0] * D.w, hull.y + M.at[1] * D.h, M.at[2] * partDepth(hull)), dist = Math.hypot(w.x - B.x, w.y - B.y, w.z - B.z) - M.r;
-    return [i, +dist.toFixed(3), 380 * Math.pow(1 - dist / 2, 1.2), (r.mods.find(([h, j]) => h === hull && j === i) || [0, 0, 0])[2]]; }).filter(Boolean); };`);
-t('an APHE burst reaches fuel too: both hull tanks within its 2 m take burst·(1 - d/r)^1.2 (and may burn)', R(`(() => { const f = apheFuel(); return f.length === 2 && f.every(([, dist, want, got]) => dist < 2 && got >= want - 1e-9 && want > 50); })()`), R('apheFuel()'));
+    return [i, +dist.toFixed(3), SHELLS.aphe85.burst * Math.pow(1 - dist / SHELLS.aphe85.r, 1.2), (r.mods.find(([h, j]) => h === hull && j === i) || [0, 0, 0])[2]]; }).filter(Boolean); };`);
+t('an APHE burst reaches fuel too: both hull tanks within its reach take burst·(1 - d/r)^1.2 (and may burn)', R(`(() => { const f = apheFuel(); return f.length === 2 && f.every(([, dist, want, got]) => dist < SHELLS.aphe85.r && got >= want - 1e-9 && want > 50); })()`), R('apheFuel()'));
 
 // ---------------------------------------------------------------- modules: crew, knock-out, seats changing hands, ammunition, fires, repairs
 R(`var crewOfV = (v) => Armour.crewOf(v).crew.map((e) => e.role + (e.alive ? '' : 'x')).join();
@@ -418,7 +419,8 @@ t('an HE round into an open-top turret: "a way in, 2 crew" (the burst killed the
 t('...on a TK-34\'s turret front: "a hit, gun" (the burst broke the coaxial MG; no one hurt)', R(`fbTK.broken.includes('mgCoax') && fbTK.dead === 0 && fbTK.fb.r === 'hit' && fbTK.fb.what.includes('GUN') && fbTK.fb.crew === 0`), R('fbTK'));
 
 // ---------------------------------------------------------------- the builder's numbers, and smoke from modules
-t('summary: the TK-34\'s front is its weakest forward plate (the 53° lower one, 75 mm), side 40, cast turret front 99, crew 5, 36 rounds', R(`JSON.stringify(Armour.summary(air().parts)) === JSON.stringify({ front: 75, side: 40, turretFront: 99, crew: 5, rounds: 36 })`), R('Armour.summary(air().parts)'));
+// (3I's balance: the medium hull's lower plate is 61 mm, 101 against a level shot, under a 55 mm glacis worth 121)
+t('summary: the TK-34\'s front is its weakest forward plate (the 53° lower one, 101 mm), side 40, cast turret front 99, crew 5, 36 rounds', R(`JSON.stringify(Armour.summary(air().parts)) === JSON.stringify({ front: 101, side: 40, turretFront: 99, crew: 5, rounds: 36 })`), R('Armour.summary(air().parts)'));
 t('summary: the MA-1\'s composite (upper glacis 335 against a level shot), wedge face; nothing for an old craft', R(`(() => { const s = Armour.summary(air(MA).parts); return Math.abs(s.front - 335) <= 1 && s.turretFront > 500 && s.crew === 4 && Armour.summary(partsFromDesign(templateRows(TEMPLATES.falcon))) === null; })()`), R('Armour.summary(air(MA).parts)'));
 t('smoke and fire: only what burns does (a burning engine), a broken module a thin wisp, a knocked-out hulk from its first module', R(`(() => { const v = air(), out = [], fa = FX.add; FX.add = (o) => out.push(o.kind + ':' + o.color);
   const eng = v.parts[3], tr = v.parts[1]; Armour.partFX(v, eng, 1); const a = out.length; eng.fire = 5; Armour.partFX(v, eng, 1); const b = out.length; tr.broken = true; Armour.partFX(v, tr, 3); const c = out.length; Armour.partFX(v, tr, 4); const d = out.length;

@@ -65,8 +65,11 @@ t('round parts (lathes) are hit as cylinders: a slope, and armour factors by bea
 
 // the front armour the catalogue promises: the effective thickness against a level shot (mm x factor / cos of the plate's lean)
 const eff = (k, i) => { const d = PARTS[k], [a, b] = edges(d.outline)[i], th = Math.atan2(Math.abs(b[0] - a[0]) * d.w, Math.abs(b[1] - a[1]) * d.h); return [d.armour.mm * d.armour.edge[i] / Math.cos(th), th * D]; };
-const FRONT = [['hullLight', 2, 46, 57], ['hullMedium', 2, 99, 63], ['hullHeavy', 2, 102, 10], ['hullMBT', 1, 528, 58], ['hullMBT', 2, 335, 62], ['hullIFV', 2, 60, 60],
-  ['hullWheeled', 1, 40, 60], ['hullCasemate', 2, 139, 55], ['turretSmall', 1, 33, 25], ['turretBox', 1, 102, 11]];
+// (3I's balance: the medium hull's glacis 55 mm, its lower plate 61, the casemate's nose 90 mm and the MBT hull's lower
+// plate 302: a 75 mm AP shell gets through the first two only inside about 500 m, a 120 mm dart through the third
+// only inside about 700 m, where the spec's first numbers let them through at any range)
+const FRONT = [['hullLight', 2, 46, 57], ['hullMedium', 2, 121, 63], ['hullMedium', 1, 101, 53], ['hullHeavy', 2, 102, 10], ['hullMBT', 1, 570, 58], ['hullMBT', 2, 335, 62],
+  ['hullIFV', 2, 60, 60], ['hullWheeled', 1, 40, 60], ['hullCasemate', 2, 139, 55], ['hullCasemate', 1, 95, 20], ['turretSmall', 1, 33, 25], ['turretBox', 1, 102, 11]];
 const offFront = FRONT.filter(([k, i, mm, deg]) => { const [e, a] = eff(k, i); return Math.abs(e - mm) > 1.5 || Math.abs(a - deg) > 0.3; }).map(([k, i]) => `${k}[${i}] ${eff(k, i).map((x) => x.toFixed(1)).join(' mm at ')}°`);
 t('the fronts: glacis angles and effective thickness as the parts table has them', !offFront.length, show(offFront) || FRONT.map(([k, i]) => `${k} ${eff(k, i)[0].toFixed(0)}`).join(', '));
 t('the cast turret: 90 mm at 25° is 99 mm', Math.abs(PARTS.turretCast.armour.mm / Math.cos(PARTS.turretCast.round.slope / D) - 99) < 1);
@@ -151,7 +154,7 @@ t('shell types: ricochet windows, normalisation, path, fragments', Object.values
 // penetration at range: v = v0·e^(-kρx), pen·(v/v0)^1.43 (ρ 1.2: the arena's air)
 const penAt = (k, x) => SHELLS[k].pen * Math.exp(-SHELLS[k].k * 1.2 * x * 1.43);
 t('85 mm APHE: 124 mm at 1 km, through a Tygr\'s 102 mm front', Math.abs(penAt('aphe85', 1000) - 124) < 1.5 && penAt('aphe85', 1000) > eff('hullHeavy', 2)[0], penAt('aphe85', 1000).toFixed(1));
-t('75 mm AP: 84 mm at 1 km and 95 at 300 m, short of the TK-34\'s 99 mm glacis', Math.abs(penAt('ap75', 1000) - 84) < 1 && Math.abs(penAt('ap75', 300) - 95) < 1 && penAt('ap75', 300) < eff('hullMedium', 2)[0]);
+t('75 mm AP: 84 mm at 1 km and 95 at 300 m, short of the TK-34\'s 121 mm glacis', Math.abs(penAt('ap75', 1000) - 84) < 1 && Math.abs(penAt('ap75', 300) - 95) < 1 && penAt('ap75', 300) < eff('hullMedium', 2)[0]);
 t('120 mm APFSDS at 1.5 km: through the TK-72\'s upper glacis, not its lower plate', Math.abs(penAt('apfsds120', 1500) - 517) < 3 && penAt('apfsds120', 1500) > eff('hullMBT', 2)[0] && penAt('apfsds120', 1500) < eff('hullMBT', 1)[0]);
 t('105 mm APDS: 277 mm at 1 km, short of the MA-1\'s turret front', Math.abs(penAt('apds105', 1000) - 277) < 1.5 && penAt('apds105', 1000) < PARTS.turretWedge.armour.mm);
 
