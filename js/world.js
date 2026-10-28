@@ -823,7 +823,7 @@ const World = {
   // The same markers over the 3D view: each one sits where its direction points, on a sphere around the craft.
   drawOverlay3D(ctx, W, H, dpr, F) {
     const v = F.active;
-    if (!v || !v.parts.length || !Settings.get('markers')) return;
+    if (!v || !v.parts.length || !Settings.get('markers') || F.groundAim) return; // (aiming a ground vehicle: its own HUD's marks)
     const bp = bodyPos(v.body, F.time), ax = bp.x + v.x, ay = bp.y + v.y, az = v.z;
     const c = Render3D.project(ax, ay, az);
     if (c.behind) return;

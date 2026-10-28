@@ -3875,7 +3875,16 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderGlobe,
     // The ground as the player sees it at (a, z) on body b: inside an arena's own ground mesh its height there (the same
     // triangles), else the terrain patch's with the arenas' berms (and off the patch, the ground itself).
-    drawnGround(b, a, z) { return drawnAt(b, a, z); },
+    // The ground as drawn, for the aim, sight lines, zone badges and strikes: drawnAt, except inside a clear arena whose own
+    // mesh isn't up yet (it builds over a few seconds after arriving; longer on a phone): the patch there is metres off the
+    // physics' ground, so until the mesh shows, they use the ground shells actually meet
+    drawnGround(b, a, z) {
+      if (b === EARTH && !AR.on && EARTH.mapped && EARTH.arenas) {
+        const e = -wrapAngle(a - EARTH.padAngle) * EARTH.radius, h = ARENA.hole;
+        for (const k in EARTH.arenas) { const A = EARTH.arenas[k], B = A.box; if (A.clear && B && e > B.e0 - h && e < B.e1 + h && z > B.z0 - h && z < B.z1 + h) return Terrain.surfaceAt(b, a, z); }
+      }
+      return drawnAt(b, a, z);
+    },
     // A ground vehicle's gunner sight (on, zoom: 3-8): the flight camera narrows to 50/zoom degrees and sits at the sight,
     // the vehicle's own model hidden; off, back to 50°.
     setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : 50); },

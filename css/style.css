@@ -746,7 +746,7 @@ kbd {
 .toast.kill { border-color: #ff5d5d; color: #ffd0d0; font-weight: 700; }
 
 /* ---- the ground AI (groundai.js): the Tank Range's score and the Practice Battle's tickets and zones, in the time
-   warp's place (as the room's bar is), and the battle's respawn panel */
+   warp's place (as the room's bar is); its respawn panel is the room's (.rsp, in "MP: ground") */
 .gai-bar {
   position: fixed; z-index: 19; left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-t)); pointer-events: none;
   min-width: 200px; max-width: min(380px, calc(100% - 420px)); padding: 6px 12px; display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -768,19 +768,12 @@ kbd {
   .gai-best { flex-basis: 100%; text-align: right; font: 500 11px var(--mono); color: var(--muted); }
   .gai-best i { display: none; }
 }
-/* the respawn panel: big buttons for thumbs (the same rules as the room's .rsp panel in the multiplayer section: one copy goes
-   when the two meet) */
-.rsp { display: flex; flex-direction: column; gap: 10px; }
-.rsp-wait { margin: 0; font: 600 14px var(--mono); color: var(--amber); }
-.rsp-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; }
-.rsp-opt { text-align: left; min-height: 56px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-family: var(--display); color: var(--text);
-  background: rgba(20, 32, 54, 0.7); border: 1px solid var(--line-strong); display: flex; flex-direction: column; justify-content: center; gap: 3px; }
-.rsp-opt:hover:not(:disabled) { border-color: var(--amber); }
-.rsp-opt b { font-size: 14px; letter-spacing: 0.04em; }
-.rsp-opt span { font-size: 12px; color: var(--muted); line-height: 1.3; }
-.rsp-opt.menu { border-style: dashed; }
-.rsp-opt:disabled { opacity: 0.45; cursor: not-allowed; }
-@media (max-width: 520px) { .rsp-list { grid-template-columns: 1fr; } }
+@media (max-height: 500px) { /* (a phone on its side: up top in the middle, as on a desktop, clear of the minimap) */
+  .gai-bar { top: calc(8px + var(--safe-t)); left: 50%; right: auto; transform: translateX(-50%); max-width: min(380px, calc(100% - 420px)); align-items: center; padding: 4px 10px; }
+  .gai-main { flex-wrap: nowrap; justify-content: center; }
+  .gai-best { flex-basis: auto; }
+  .gai-best i { display: inline; }
+}
 
 /* ================================================================== multiplayer */
 .home-btn.mp-btn { border-color: rgba(98, 208, 255, 0.55); }
@@ -1076,6 +1069,7 @@ body.ground .t-grid > .gh, body.ground .t-grid > .orbit-row, body.ground #row-he
 body.ground .telemetry { width: 168px; padding: 7px 10px; }
 body.ground .t-head { margin-bottom: 3px; }
 body.ground .t-body { font-size: 11px; letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+body.ground .t-time { white-space: nowrap; flex-shrink: 0; } /* (a room's clock, "5d 13:53:29", stays on one line: the body's name gives way) */
 #row-crew.danger dd { color: var(--amber); animation: none; }
 /* the weapon box comes apart: FIRE, the chip and SMOKE each go where the thumb finds them */
 body.ground #weapon-box { position: absolute; inset: 0; display: block; pointer-events: none; }
@@ -1134,12 +1128,12 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
   /* the brake sits over the stick (the autopilot grid it used to sit by is gone) */
   body.ground .round.brake { left: 0; bottom: calc(100% + 12px); width: 54px; height: 54px; }
   .gmap { width: 112px; height: 112px; top: calc(98px + var(--safe-t)); }
-  body:has(#mp-bar.flight:not([hidden])) .gmap { top: calc(140px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .gmap, body:has(#gai-bar:not([hidden])) .gmap { top: calc(140px + var(--safe-t)); } /* (under the room's bar, or the range's and the practice battle's) */
   body.ground .hint { top: var(--gmap-b, calc(220px + var(--safe-t))); }
   body.ground #btn-weapon { bottom: calc(262px + var(--safe-b)); }
   /* the sight's zero, left of the minimap (the thumbs' buttons fill the bottom) */
   .g-range { left: auto; transform: none; bottom: auto; right: calc(var(--gut-r) + 122px); top: calc(98px + var(--safe-t)); }
-  body:has(#mp-bar.flight:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .g-range, body:has(#gai-bar:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
 }
 @media (max-width: 760px) and (max-height: 700px) {
   body.ground #btn-fire { width: 76px; height: 76px; right: calc(var(--gut-r) + 2px); bottom: calc(18px + var(--safe-b)); }
@@ -1164,7 +1158,7 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
   .ammo-stack { flex-direction: row-reverse; right: calc(var(--gut-r) + 144px); bottom: calc(20px + var(--safe-b)); }
   .ammo-chip { width: 50px; height: 34px; font-size: 11px; }
   body.ground #btn-weapon { right: calc(var(--gut-r) + 144px); bottom: calc(62px + var(--safe-b)); min-width: 76px; }
-  .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); }
+  .gmap, body:has(#gai-bar:not([hidden])) .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); } /* (the range's bar is up top in the middle here) */
   body.ground .round.brake { position: static; }
   body.ground .mp-feed, body.ground:has(#mp-bar.flight:not([hidden])) .mp-feed { top: calc(104px + var(--safe-t)); right: calc(var(--gut-r) + 106px); } /* (under the room's bar, left of the minimap) */
   .g-range, body:has(#mp-bar.flight:not([hidden])) .g-range { left: auto; transform: none; top: auto; right: calc(var(--gut-r) + 144px); bottom: calc(112px + var(--safe-b)); }

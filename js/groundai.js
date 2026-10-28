@@ -101,7 +101,7 @@ const GroundAI = (() => {
       const dep = new Map();
       for (let i = 0; i < v.parts.length; i++) if (L.deps[i]) dep.set(v.parts[i].id, L.deps[i]);
       for (let i = 0; i < tg.length; i++) { tg[i].yawLim = L.g[i].yawLim; tg[i].dep = L.g[i].dep; }
-      v._dep = dep; v._limTg = v.tg;
+      v._dep = dep; v._limTg = v.tg; v._limN = v.parts.length;
       return;
     }
     const dep = Aim.limits(v);
@@ -777,46 +777,29 @@ const GroundAI = (() => {
     if (hide && !w.hidden) { w.hidden = true; S.warp = true; }
     else if (!hide && S.warp) { S.warp = false; if (!(typeof Flight !== 'undefined' && Flight.mp)) w.hidden = false; }
   }
-  // The Practice Battle's respawn panel (built with el(); the room's own is MPUI.respawnPanel): back in after 5 s in your
-  // vehicle, another of your designs or a stock one within the money; or leave
+  // The Practice Battle's respawn panel (the room's, MPUI.rsp): back in after 5 s in your vehicle, another of your designs
+  // or a stock one within the money; or leave
   function panel(F) {
     const B = S.b;
-    if (!B || typeof UI === 'undefined' || typeof document === 'undefined' || !F.destroyed || B.over) return;
-    const body = el('div', { class: 'rsp' }), wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [];
-    body.append(wait, list);
-    let shown = null, timer = 0;
-    const tick = () => {
-      if ($('#modal').hidden || !body.isConnected || S.b !== B || !F.destroyed) { clearInterval(timer); return; }
+    if (!B || typeof UI === 'undefined' || typeof MPUI === 'undefined' || typeof document === 'undefined' || !F.destroyed || B.over) return;
+    const state = () => {
+      if (S.b !== B || !F.destroyed) return null;
       const left = Math.ceil(B.respawnAt - (F.time || 0)), out = !(B.obj.tk[B.team] > 0);
-      const text = out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : 'Pick your vehicle';
-      if (text !== shown) { shown = text; wait.textContent = text; for (const b of gated) b.disabled = out || left > 0; }
+      return { text: out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : 'Pick your vehicle', wait: out || left > 0 };
     };
-    const opt = (title, sub, fn, gate = true) => {
-      const b = el('button', { class: 'rsp-opt' + (gate ? '' : ' menu') }, el('b', { text: title }), el('span', { text: sub }));
-      b.addEventListener('click', () => { if (typeof Sound !== 'undefined') Sound.click(); fn(); });
-      if (gate) gated.push(b);
-      list.append(b);
-    };
-    const fresh = () => { shown = null; tick(); };
     const go = (d) => { if (!GroundAI.respawn(F, d)) UI.toast('Not yet: wait for the timer', 'warn'); };
-    const main = () => {
-      list.textContent = ''; gated.length = 0;
+    const main = (R) => {
       const d = B.design;
-      opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money$(designCost(partsFromDesign(d.parts))), () => go(d));
-      opt('Change vehicle…', 'Another of your designs, or a stock one within the money', pick, false);
-      fresh();
+      R.opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money$(designCost(partsFromDesign(d.parts))), () => go(d));
+      R.opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => R.page(pick), true, true);
     };
-    const pick = () => {
-      list.textContent = ''; gated.length = 0;
-      opt('‹ Back', 'Your vehicle', main, false);
-      for (const c of choices(B.money)) opt(c.name, `${money$(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
-      fresh();
+    const pick = (R) => {
+      R.opt('‹ Back', 'Your vehicle', () => R.page(main), true, true);
+      for (const c of choices(B.money)) R.opt(c.name, `${money$(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
     };
     const by = F.active && F.active.lastHitBy, name = by && by.name ? String(by.name).slice(0, 40) : null;
-    UI.modal({ kicker: 'Practice battle', title: name ? `Knocked out by ${by.ai && by.ai.ally ? 'your ally’s ' : 'the enemy '}${name}` : 'Knocked out', body,
-      actions: [{ label: 'Leave the battle', onClick: () => { if (typeof App !== 'undefined') App.toBuild(); } }, { label: 'Watch', primary: false }], onClose: () => clearInterval(timer) });
-    main();
-    timer = setInterval(tick, 250);
+    MPUI.rsp({ kicker: 'Practice battle', title: name ? `Knocked out by ${by.ai && by.ai.ally ? 'your ally’s ' : 'the enemy '}${name}` : 'Knocked out', state, fill: main,
+      actions: [{ label: 'Leave the battle', onClick: () => { if (typeof App !== 'undefined') App.toBuild(); } }, { label: 'Watch', primary: false }] });
   }
   // what the player may come back in: their saved ground designs within the money, then the stock ones
   function choices(cash) {

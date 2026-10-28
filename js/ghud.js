@@ -41,7 +41,7 @@ const GHUD = (() => {
     if (F.freeLook) return; // (the turret holds on the point it had)
     if (F.strike) { // (the tactical map's strike: the launcher lays on it until the aim moves off)
       if ((F.strikeMove || 0) > 90) { F.strike = null; F.strikeMove = 0; F.toast('Strike cancelled'); }
-      else { A.P.x = F.strike.x; A.P.y = F.strike.y; A.P.z = F.strike.z; A.d = Math.hypot(A.P.x - A.o.x, A.P.y - A.o.y, A.P.z - A.o.z); A.indirect = true; A.src = 'ground'; return; }
+      else { A.P.x = F.strike.x; A.P.y = F.strike.y; A.P.z = F.strike.z; A.d = Math.hypot(A.P.x - A.o.x, A.P.y - A.o.y, A.P.z - A.o.z); A.indirect = true; A.src = 'ground'; A.blk = -1; return; }
     }
     A.indirect = false;
     const now = performance.now();
@@ -91,6 +91,31 @@ const GHUD = (() => {
     if (A.src === 'none') best = 1500;
     A.d = best;
     if (hitV) { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
+    blocked(v, A);
+  }
+  // On a vehicle, where the chosen gun's round meets the ground short of it: the barrel sits lower than the camera, so
+  // just over a crest the camera sees past, the shell may not (A.blk: metres along the barrel; -1 clear). Its path: the
+  // barrel's line, dropping as the round falls (the gun is already lifted for the range), against the physics' ground.
+  function blocked(v, A) {
+    A.blk = -1;
+    if (A.src !== 'vessel') return;
+    const st = Aim.status(v), p = st && st.part, w = p && p.def.weapon;
+    if (!w || !(w.kind === 'tgun' || w.kind === 'agun')) return;
+    const sh = st.shells[st.sel], S0 = sh && SHELLS[sh.key], v0 = (S0 && S0.v0) || 800, b = v.body, R = b.radius, sea = b.ocean ? 0 : -Infinity;
+    const M = Aim.muzzle(v, p, A1), u = Aim.dir(v, p, A2), r0 = Math.hypot(M.x, M.y, M.z) || 1, ux = M.x / r0, uy = M.y / r0, uz = M.z / r0;
+    const D = Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z) - 6;
+    const gap = (s) => {
+      const k = 4.905 * (s / v0) * (s / v0);
+      Terrain.locate(b, M.x + u.x * s - ux * k, M.y + u.y * s - uy * k, M.z + u.z * s - uz * k, LOC);
+      return LOC.r - R - Math.max(sea, Terrain.surfaceAt(b, LOC.a, LOC.z));
+    };
+    for (let s = 20, prev = 0; s < D; prev = s, s += 20) {
+      if (gap(s) >= 0) continue;
+      let lo = prev, hi = s;
+      for (let i = 0; i < 5; i++) { const m = (lo + hi) / 2; if (gap(m) < 0) hi = m; else lo = m; }
+      A.blk = hi;
+      return;
+    }
   }
 
   // ---------------------------------------------------------------- the canvas (§9.1), every frame in aim mode
@@ -134,7 +159,7 @@ const GHUD = (() => {
   function reticle(ctx, F, v, st, pr) {
     const p = st.part, w = p.def.weapon;
     if (!w || !(w.kind === 'tgun' || w.kind === 'agun' || w.kind === 'rocket' || w.kind === 'missile')) return;
-    const M = Aim.muzzle(v, p, MZ), u = Aim.dir(v, p, BD), A = F.aim, R = Math.max(30, Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z));
+    const M = Aim.muzzle(v, p, MZ), u = Aim.dir(v, p, BD), A = F.aim, blk = A.blk > 0 ? A.blk : -1, R = blk > 0 ? Math.max(10, blk) : Math.max(30, Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z));
     const r0 = Math.hypot(v.x, v.y, v.z) || 1;
     let drop = 0;
     const sh = st.shells[st.sel];
@@ -144,12 +169,13 @@ const GHUD = (() => {
     }
     const s = pr(M.x + u.x * R - (v.x / r0) * drop, M.y + u.y * R - (v.y / r0) * drop, M.z + u.z * R - (v.z / r0) * drop);
     if (s.behind) return;
-    const ok = !st.limited && st.err < 0.3 * DEG, x = s.x, y = s.y;
+    const ok = !st.limited && st.err < 0.3 * DEG && blk < 0, x = s.x, y = s.y;
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8, 11, 16, 0.5)';
     ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.stroke();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = st.limited ? COL.enemy : ok ? COL.ok : COL.hud;
+    ctx.lineWidth = 1.5; ctx.strokeStyle = st.limited ? COL.enemy : blk > 0 ? COL.amber : ok ? COL.ok : COL.hud;
     ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.stroke();
-    if (st.limited) { ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5); ctx.stroke(); }
+    if (st.limited || blk > 0) { ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5); ctx.stroke(); }
+    if (blk > 0 && !st.limited) { ctx.font = MONO; ctx.fillStyle = COL.amber; ctx.textAlign = 'left'; ctx.fillText('Blocked', x + 16, y + 4); ctx.textAlign = 'center'; } // (the round would hit the ground there: a crest the camera sees over)
     if (st.reload < 1) { // (the reload: a ring that fills)
       ctx.lineWidth = 2.5; ctx.strokeStyle = COL.amber;
       ctx.beginPath(); ctx.arc(x, y, 13, -Math.PI / 2, -Math.PI / 2 + TAU * st.reload); ctx.stroke();
@@ -327,12 +353,14 @@ const GHUD = (() => {
       const x = h * cp * Math.cos(a), y = h * cp * Math.sin(a), zz = h * Math.sin(ph), s = pr(x, y, zz);
       if (s.behind || s.x < -20 || s.x > S.W + 20 || s.y < -20 || s.y > S.H + 20) continue;
       const d = Math.hypot(x - v.x, y - v.y, zz - v.z), own = z.own, p = z.p || 0, r = 11;
+      ctx.globalAlpha = Math.hypot(s.x - S.W / 2, s.y - S.H / 2) < 44 ? 0.35 : 1; // (faded under the crosshair, so it stays clear to aim)
       ctx.lineWidth = 2; ctx.fillStyle = 'rgba(8, 13, 24, 0.72)'; ctx.strokeStyle = ZC(own);
       ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, TAU); ctx.fill(); ctx.stroke();
       if (Math.abs(p) > 0.02 && Math.abs(p) < 0.999) { ctx.strokeStyle = p < 0 ? (myTeam() === 0 ? COL.friend : COL.enemy) : myTeam() === 1 ? COL.friend : COL.enemy; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(s.x, s.y, r + 3, -Math.PI / 2, -Math.PI / 2 + TAU * Math.abs(p)); ctx.stroke(); }
       ctx.font = '700 12px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = ZC(own); ctx.fillText(z.id, s.x, s.y + 4);
       ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.fillStyle = COL.hud; ctx.fillText(fmt.dist(d), s.x, s.y + r + 13);
     }
+    ctx.globalAlpha = 1;
   }
 
   // ---------------------------------------------------------------- the damage diagram (a top view, cached)
@@ -475,7 +503,7 @@ const GHUD = (() => {
     const M = mp() && typeof MPUI !== 'undefined' && MPUI.scope, mk = M ? M.x + M.y * 1e4 : 0; // (a room's own scope, on wide screens: placed again as it comes)
     if (S.P && now - S.placeAt < 1000 && S.W === W && S.H === H && S.sight === !!F.sight && S.mk === mk) return S.P;
     S.placeAt = now; S.W = W; S.H = H; S.sight = !!F.sight; S.mk = mk;
-    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
+    const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
     const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + 14 } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), fire].filter(Boolean);
@@ -572,6 +600,15 @@ const GHUD = (() => {
     }
     return out;
   }
+  // the pings on show: ours (8 s) and, in a room, the team's (MP.pings: 10 s), counted for the pictures' keys
+  const PGS = { L: [null, null], n: 0, now: 0, ok: (p) => PGS.now - p.t < (p.by != null ? 10000 : 8000) };
+  function pings() {
+    const now = (PGS.now = performance.now()), T = mp() && Array.isArray(MP.pings) ? MP.pings : NO_GEAR;
+    let k = S.pings.length;
+    for (const p of T) if (now - p.t < 10000) k = (Math.imul(k, 31) + Math.round(p.e) * 7 + Math.round(p.z)) | 0;
+    PGS.L[0] = S.pings; PGS.L[1] = T; PGS.n = k;
+    return PGS;
+  }
   function drawMap(F, v) {
     const c = $('#gmap');
     if (!c || c.hidden || !c.width) return;
@@ -580,7 +617,8 @@ const GHUD = (() => {
     const fr = mapFrame(F, v), U = units(F, v), O = typeof GroundMode !== 'undefined' && GroundMode.obj ? GroundMode.obj() : null, st = Aim.status(v);
     const w = c.width, K = w / (2 * fr.half), X = (e) => w / 2 + (e - fr.e) * K, Y = (z) => c.height / 2 + (z - fr.z) * K; // (east right; game north, −z, up)
     const yaw = F.aimYaw, sweep = st && st.scope ? Math.round(st.sweep * 20) : -1;
-    let key = `${w}|${Math.round(fr.e)}|${Math.round(fr.z)}|${Math.round(yaw * 30)}|${sweep}|${S.pings.length}|${F.strike ? 1 : 0}`;
+    const PG = pings();
+    let key = `${w}|${Math.round(fr.e)}|${Math.round(fr.z)}|${Math.round(yaw * 30)}|${sweep}|${PG.n}|${F.strike ? 1 : 0}`;
     for (const u of U) key += `|${Math.round(X(u[0]))},${Math.round(Y(u[1]))},${u[2]}`;
     if (O && O.zones) for (const z of O.zones) key += `|${z.own},${Math.round((z.p || 0) * 50)}`;
     if (key === S.mapKey) return;
@@ -603,7 +641,7 @@ const GHUD = (() => {
       g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 3.2 : 2.6) * dpr, 0, TAU); g.fill();
     }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 1.5 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 5 * dpr, 0, TAU); g.stroke(); }
-    for (const p of S.pings) { g.strokeStyle = COL.warn; g.beginPath(); g.arc(X(p.e), Y(p.z), 4 * dpr, 0, TAU); g.stroke(); }
+    for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.beginPath(); g.arc(X(p.e), Y(p.z), 4 * dpr, 0, TAU); g.stroke(); }
     if (st && st.scope) { // (the radar's sweep, its blips round us)
       const R = st.scopeR * K, f = hullHeading(v);
       g.strokeStyle = 'rgba(125, 255, 176, 0.4)'; g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.lineTo(X(me.e) + Math.cos(f - st.sweep) * R, Y(me.z) - Math.sin(f - st.sweep) * R); g.stroke();
@@ -653,7 +691,8 @@ const GHUD = (() => {
     const U = units(F, v), O = typeof GroundMode !== 'undefined' && GroundMode.obj ? GroundMode.obj() : null;
     const size = Math.min(w, h - 50 * dpr) * 0.96, ox = (w - size) / 2, oy = (h - 50 * dpr - size) / 2, K = size / (2 * fr.half);
     const X = (e) => ox + size / 2 + (e - fr.e) * K, Y = (z) => oy + size / 2 + (z - fr.z) * K;
-    let key = `${w}x${h}|${H.img ? 1 : H.i}|${Math.round(F.aimYaw * 30)}|${F.strike ? 1 : 0}|${S.pings.length}`;
+    const PG = pings();
+    let key = `${w}x${h}|${H.img ? 1 : H.i}|${Math.round(F.aimYaw * 30)}|${F.strike ? 1 : 0}|${PG.n}`;
     for (const u of U) key += `|${Math.round(X(u[0]) / 2)},${Math.round(Y(u[1]) / 2)},${u[2]}`;
     if (O && O.zones) for (const z of O.zones) key += `|${z.own},${Math.round((z.p || 0) * 50)}`;
     if (key === S.tacKey) return;
@@ -674,7 +713,7 @@ const GHUD = (() => {
     g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.arc(X(me.e), Y(me.z), 60 * dpr, -F.aimYaw - 0.3, -F.aimYaw + 0.3); g.closePath(); g.fill();
     for (const u of U) { g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU); g.fill(); }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 10 * dpr, 0, TAU); g.moveTo(X(p.e) - 14 * dpr, Y(p.z)); g.lineTo(X(p.e) + 14 * dpr, Y(p.z)); g.moveTo(X(p.e), Y(p.z) - 14 * dpr); g.lineTo(X(p.e), Y(p.z) + 14 * dpr); g.stroke(); }
-    for (const p of S.pings) { g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 8 * dpr, 0, TAU); g.stroke(); }
+    for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 8 * dpr, 0, TAU); g.stroke(); }
     const mlrs = artillery(v);
     setTxt($('#gtac-info'), mlrs ? (F.strike ? 'Strike set: fire when the launcher is laid · tap again to move it' : 'Tap the map to set a rocket strike') : 'Tap the map to ping for your team');
   }
@@ -688,6 +727,15 @@ const GHUD = (() => {
       T.h[T.i++] = h != null ? h : Terrain.heightAt(EARTH, a, z);
     }
     if (T.i < (n + 1) * (n + 1)) return;
+    // (smoothed twice with a 1-2-1 kernel each way: the height map's 32 m cells are planes, and shaded raw they show as a quilt)
+    const m = n + 1, tmp = new Float32Array(m * m);
+    for (let pass = 0; pass < 4; pass++) {
+      const src = pass % 2 ? tmp : T.h, dst = pass % 2 ? T.h : tmp, dx = pass % 2 ? m : 1;
+      for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
+        const k = j * m + i, at = pass % 2 ? j : i, lo = at > 0 ? k - dx : k, hi = at < n ? k + dx : k;
+        dst[k] = (src[lo] + 2 * src[k] + src[hi]) / 4;
+      }
+    }
     const c = document.createElement('canvas'); c.width = c.height = n;
     const g = c.getContext('2d'), im = g.createImageData(n, n), cell = (2 * fr.half) / n;
     let lo = Infinity, hi = -Infinity;
@@ -716,7 +764,7 @@ const GHUD = (() => {
     S.pingAt = now;
     S.pings.push({ e, z, t: now });
     if (S.pings.length > 3) S.pings.shift();
-    if (mp() && typeof MP.sendSeen === 'function') MP.sendSeen([], false, [P.x, P.y, P.z]);
+    if (mp() && typeof MP.sendSeen === 'function') MP.sendSeen([], false, [e, z]); // (a ping is a place on the map: e, z)
     Sound.click(); F.toast('Ping for your team'); S.tacKey = ''; S.mapKey = '';
   }
 

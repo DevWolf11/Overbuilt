@@ -386,4 +386,18 @@ var pr = pidRun();`);
 t('a tracking radar\'s lock on another player goes out through Combat.frame\'s lock line (lighting their warner), and so does letting go',
   R(`pr.ghost && pr.locked === 7 && /(^| )7:true/.test(pr.sent) && / ?0:false$/.test(pr.sent)`), R('pr'));
 
+// ---------------------------------------------------------------- limits after a part is lost
+R(`var lostRun = () => {
+  const v = build(MAST), dep0 = Aim.limits(v), lim0 = v.tg[0].yawLim && [...v.tg[0].yawLim], SW = Aim.sweep; let sweeps = 0;
+  Aim.sweep = function () { sweeps++; return SW.apply(this, arguments); };
+  try {
+    const mg = partOf(v, 'mgCoax'); v.parts = v.parts.filter((p) => p !== mg); for (const n of v.adj.get(mg.id) || []) v.adj.get(n) && v.adj.get(n).delete(mg.id); v.adj.delete(mg.id); v.rebuildGroups();
+    const dep1 = Aim.limits(v), fresh = build(MAST), before = sweeps; Aim.limits(fresh);
+    return { sweeps: before, dep: dep1 === dep0, lim: JSON.stringify(v.tg[0].yawLim && [...v.tg[0].yawLim]) === JSON.stringify(lim0), newTg: v._limTg === v.tg, freshSweeps: sweeps - before, n: v._limN === v.parts.length };
+  } finally { Aim.sweep = SW; }
+};
+var lr = lostRun();`);
+t('a part shot off: the turret\'s limits carry over (what is left can only turn as far or further) with no new sweep, a 5-15 ms hitch mid-fight; a new craft still sweeps',
+  R(`lr.sweeps === 0 && lr.dep && lr.lim && lr.newTg && lr.n && lr.freshSweeps > 0`), R('lr'));
+
 t.done();

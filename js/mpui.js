@@ -705,59 +705,70 @@ const MPUI = {
   respawnPanel(by) {
     if (!MP.ground || !MP.live || MP.phase !== 'battle' || !Flight.destroyed || !MP.me) return;
     this.koBy = by || 0;
-    const st = MP.state.settings, lineup = st.respawn === 'lineup', body = el('div', { class: 'rsp' });
-    const wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [];
-    body.append(wait, list);
-    let shown = null, timer = 0;
-    // the countdown to the host's respawn time (the buttons that spawn wait for it), written only when it changes
-    const tick = () => {
+    const st = MP.state.settings, lineup = st.respawn === 'lineup';
+    // the countdown to the host's respawn time (the buttons that spawn wait for it)
+    const state = () => {
       const me = MP.me;
-      if ($('#modal').hidden || !body.isConnected || !me || MP.phase !== 'battle') { clearInterval(timer); return; }
+      if (!me || MP.phase !== 'battle') return null;
       const o = MP.state.obj, left = Math.ceil(((me.respawnAt || 0) - 300 - Net.hostNow()) / 1000), out = !o || !(o.tk[me.team] > 0);
-      const text = out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle';
-      if (text !== shown) { shown = text; wait.textContent = text; for (const b of gated) b.disabled = out || left > 0; }
+      return { text: out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle', wait: out || left > 0 };
     };
-    const opt = (title, sub, fn, ok = true, now = false) => { // (now: works before the timer, as a menu does)
-      const b = el('button', { class: 'rsp-opt' + (now ? ' menu' : '') }, el('b', { text: title }), el('span', { text: sub }));
-      b.addEventListener('click', () => { Sound.click(); fn(); });
-      b.disabled = !ok; if (ok && !now) gated.push(b);
-      list.append(b);
-      return b;
-    };
-    const fresh = () => { shown = null; if (body.isConnected) tick(); };
     const go = (d, slot) => { if (!MP.respawnWith(d, slot)) UI.toast('Not yet: wait for the timer', 'warn'); };
     const airOk = () => { const me = MP.me; return !!me && (me.sorties || 0) > 0 && Net.hostNow() - (me.sortieEnd || -1e9) >= 60000; };
     const airText = () => { const me = MP.me, n = (me && me.sorties) || 0, w = me ? Math.ceil((60000 - (Net.hostNow() - (me.sortieEnd || -1e9))) / 1000) : 0;
       return !n ? 'Knock-outs and captures earn sortie points' : w > 0 ? `${n} sortie point${n > 1 ? 's' : ''} · ready in ${w} s` : `${n} sortie point${n > 1 ? 's' : ''}: one a flight`; };
-    const main = () => {
-      list.textContent = ''; gated.length = 0;
+    const main = (R) => {
       const me = MP.me;
       if (lineup) {
         for (let i = 0; i < 3; i++) {
           const d = MP.lineup[i] || (i ? null : MP.groundDesign || MP.myDesign);
           if (!d || ((me.slots || 0) & (1 << i))) continue;
           const air = mpAir(d.kind);
-          opt(`Slot ${i + 1}: ${d.name || VEHICLE_KINDS[d.kind].name}`, air ? airText() : `${money(designCost(partsFromDesign(d.parts)))} · spawns once`, () => go(d, i), !air || airOk());
+          R.opt(`Slot ${i + 1}: ${d.name || VEHICLE_KINDS[d.kind].name}`, air ? airText() : `${money(designCost(partsFromDesign(d.parts)))} · spawns once`, () => go(d, i), !air || airOk());
         }
-        if (!list.childElementCount) list.append(el('p', { class: 'muted', text: 'Every slot is used: watch the rest of the battle.' }));
+        if (!R.list.childElementCount) R.list.append(el('p', { class: 'muted', text: 'Every slot is used: watch the rest of the battle.' }));
       } else {
         const d = MP.groundDesign || MP.myDesign;
-        if (d) opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
-        opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => pick(false), true, true);
-        if (st.air) opt('Aircraft…', airText(), () => pick(true), airOk(), true);
+        if (d) R.opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
+        R.opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => R.page(pick(false)), true, true);
+        if (st.air) R.opt('Aircraft…', airText(), () => R.page(pick(true)), airOk(), true);
       }
-      fresh();
     };
-    const pick = (air) => {
-      list.textContent = ''; gated.length = 0;
-      opt('‹ Back', air ? 'The ground vehicles' : 'Your vehicle', main, true, true);
+    const pick = (air) => (R) => {
+      R.opt('‹ Back', air ? 'The ground vehicles' : 'Your vehicle', () => R.page(main), true, true);
       const C = MP.choices(air);
-      for (const c of C) opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
-      if (!C.length) list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : 'No vehicle fits the money.' }));
-      fresh();
+      for (const c of C) R.opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
+      if (!C.length) R.list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : 'No vehicle fits the money.' }));
     };
-    UI.modal({ kicker: 'Respawn', title: by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', body, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }], onClose: () => clearInterval(timer) });
-    main();
+    this.rsp({ kicker: 'Respawn', title: by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
+  },
+  // The Respawn panel itself, a room's and the Practice Battle's (groundai.js): a line counting down to the respawn time
+  // and big buttons for thumbs, built with el() (names from peers stay text). o: { kicker, title, actions, state () ->
+  // { text, wait } (null: the panel is done with), fill (R) }: fill adds the buttons with R.opt(title, sub, fn, ok = true,
+  // now = false) (now: works before the timer, as a menu does; the others wait for it) and turns the page with R.page(fill).
+  // The line and the buttons are written only when the state changes.
+  rsp(o) {
+    const body = el('div', { class: 'rsp' }), wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [];
+    body.append(wait, list);
+    let shown = null, timer = 0;
+    const tick = () => {
+      const s = $('#modal').hidden || !body.isConnected ? null : o.state();
+      if (!s) { clearInterval(timer); return; }
+      if (s.text !== shown) { shown = s.text; wait.textContent = s.text; for (const b of gated) b.disabled = !!s.wait; }
+    };
+    const R = {
+      list,
+      opt(title, sub, fn, ok = true, now = false) {
+        const b = el('button', { class: 'rsp-opt' + (now ? ' menu' : '') }, el('b', { text: title }), el('span', { text: sub }));
+        b.addEventListener('click', () => { Sound.click(); fn(); });
+        b.disabled = !ok; if (ok && !now) gated.push(b);
+        list.append(b);
+        return b;
+      },
+      page(fill) { list.textContent = ''; gated.length = 0; fill(R); shown = null; if (body.isConnected) tick(); },
+    };
+    UI.modal({ kicker: o.kicker, title: o.title, body, actions: o.actions, onClose: () => clearInterval(timer) });
+    R.page(o.fill);
     timer = setInterval(tick, 250);
   },
   // The lineup in the build phase (Lineup of 3): slot 1 is what's on the blueprint, slots 2 and 3 a saved or stock design

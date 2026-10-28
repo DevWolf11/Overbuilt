@@ -1218,7 +1218,7 @@ const Flight = {
         if (e.button !== 0) return;
         if (c.requestPointerLock && !this.destroyed) { try { const r = c.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* not here */ } }
       }
-      c.setPointerCapture(e.pointerId);
+      try { c.setPointerCapture(e.pointerId); } catch (err) { /* (a pointer lock still letting go, just after aim mode ended) */ }
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() });
       if (this.pointers.size === 2) this.pinch = this.pinchInfo();
       if (this.groundAim) GHUD.press(this, e, this.pointers.size === 1); // (a long press on an enemy's tag spots it)

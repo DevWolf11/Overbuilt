@@ -314,13 +314,21 @@ const Aim = {
     return res;
   },
   // A craft's limits, worked out at its first aim step and again when its parts change: each group's yawLim and dep,
-  // and every aimed part's dip by direction (returned: Map id -> { a, own })
+  // and every aimed part's dip by direction (returned: Map id -> { a, own }). Parts lost (shot off, torn away) only take
+  // away what was in the way, so the limits it had still hold: they carry over ring by ring, with no new sweep (5-15 ms
+  // a vehicle, a hitch mid-fight otherwise).
   limits(v) {
     if (v._dep && v._limTg === v.tg) return v._dep;
+    const old = v._dep && v._limTg && v.tg && v.parts.length < (v._limN || 0) ? v._limTg : null;
+    if (old && v.tg.every((g) => old.some((o) => o.ring === g.ring))) {
+      for (const g of v.tg) { const o = old.find((x) => x.ring === g.ring); g.yawLim = o.yawLim; g.dep = o.dep; }
+      v._limTg = v.tg; v._limN = v.parts.length;
+      return v._dep;
+    }
     const dep = new Map();
     for (const g of v.tg || []) { const s = this.sweep(v.parts, g); g.yawLim = s.yawLim; g.dep = s.dep; for (const [id, d] of s.deps) dep.set(id, d); } // (outer first: a cupola's own wins)
     for (const p of v.aimed) if (!dep.has(p.id)) dep.set(p.id, aimDep(v.parts, p, null));
-    v._limTg = v.tg; v._dep = dep;
+    v._limTg = v.tg; v._dep = dep; v._limN = v.parts.length;
     return dep;
   },
   // someone aboard to lay the guns: a gunner, or the commander taking over (old craft always have). A design with no
