@@ -6,8 +6,9 @@
 // Last, drawn minus physics ground: the terrain patch render3d builds round a focus at each pad and zone (its own
 // vertex grid, cell-size detail and float32 heights, on high and low), sampled bilinearly as meshHeight does, against
 // Terrain.surfaceAt. With the arena's detail fade in (EARTH.arenas) it checks the RMS on high against BUDGET (out to
-// 600 m), and that the fade leaves every airfield's strip and blend alone.
-// A Node tool, not in run.mjs (about 5 s):   node test/tools/arena-probe.js
+// 600 m), and that the fade leaves every airfield's strip and blend alone. Then the arena's own ground mesh (render3d's
+// quadtree, built near an arena marked clear): on high and low, within 0.1 m RMS and 0.3 m of the physics in the box.
+// A Node tool, not in run.mjs (about 90 s, most of it the mesh check):   node test/tools/arena-probe.js
 const G = require('../lib/game.js');
 const ctx = G.load(), T = ctx.Terrain, EARTH = ctx.EARTH, R = EARTH.radius, D = 180 / Math.PI;
 const A = (e) => ctx.siteAngle(EARTH, e), E = (a) => -ctx.wrapAngle(a - EARTH.padAngle) * R;
@@ -195,5 +196,29 @@ for (const high of [true, false]) {
     console.log(`  ${k} (span ${(P.span / 1000).toFixed(1)} km)`.padEnd(26) + cols.join(''));
   }
 }
-if (faded) verdict(!fails, fails ? `arena probe: ${fails} problems` : `arena probe: berms dry and level, no line of sight opened, airfields untouched, drawn ground within budget on high (${Object.entries(BUDGET).map(([r, b]) => `${b} m at ${r} m`).join(', ')})`);
+// ---- the arena's own ground mesh (render3d's quadtree, built near an arena marked clear) against the physics, in the box
+let meshed = false;
+{
+  const fs = require('fs'), path = require('path'), vm = require('vm'), cr = G.load({ flight: true }); // (render3d.js reads Settings)
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../../js/render3d.js'), 'utf8') + '\nthis.Render3D = Render3D;', cr, { filename: 'render3d.js' });
+  const R3 = cr.Render3D, H = cr.EARTH.arenas && cr.EARTH.arenas.highland;
+  if (R3 && typeof R3.arenaGeo === 'function' && H && H.clear) {
+    meshed = true;
+    const Sr = (e, z) => cr.Terrain.surfaceAt(cr.EARTH, cr.siteAngle(cr.EARTH, e), z), B = H.box;
+    console.log('\nthe arena ground mesh minus physics ground in the box (3.1 × 2.9 m grid): RMS < 0.1 m and max < 0.3 m everywhere');
+    for (const high of [true, false]) {
+      const t0 = Date.now(), g = R3.arenaGeo('highland', high), ms = Date.now() - t0;
+      let s2 = 0, mx = 0, n = 0, off = 0, worst = '';
+      for (let e = B.e0 + 0.3; e <= B.e1; e += 3.1) for (let z = B.z0 + 0.2; z <= B.z1; z += 2.9) {
+        const h = R3.arenaGeoAt(g, cr.siteAngle(cr.EARTH, e), z);
+        if (h == null) { off++; continue; }
+        const d = h - Sr(e, z); s2 += d * d; n++;
+        if (Math.abs(d) > mx) { mx = Math.abs(d); worst = `(${e.toFixed(0)}, ${z.toFixed(0)})`; }
+      }
+      const rms = Math.sqrt(s2 / Math.max(n, 1));
+      verdict(rms < 0.1 && mx < 0.3 && !off, `${high ? 'high' : 'low '}: ${g.n} vertices, ${g.tri.length / 3} triangles (${ms} ms in Node): RMS ${rms.toFixed(3)} m, max ${mx.toFixed(3)} m at ${worst}${off ? `, ${off} points off the mesh` : ''}`);
+    }
+  }
+}
+if (faded) verdict(!fails, fails ? `arena probe: ${fails} problems` : `arena probe: berms dry and level, no line of sight opened, airfields untouched, drawn ground within budget on high (${Object.entries(BUDGET).map(([r, b]) => `${b} m at ${r} m`).join(', ')})${meshed ? ', the arena mesh within 0.1 m RMS and 0.3 m of the physics in the box' : ''}`);
 if (fails) process.exitCode = 1;

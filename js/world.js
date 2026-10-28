@@ -3,8 +3,11 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0 }, store.get('rss.settings', {})),
+  // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat. The ground
+  // update's aim: aimAssist (easing onto the lead point; on by default on touch), aimMode ('arcade': guns lifted for the
+  // measured range; 'realistic': for the sight's setting) when flying solo, aimSens (the mouse's speed, ×)
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0,
+    aimAssist: typeof isTouch !== 'undefined' && isTouch, aimMode: 'arcade', aimSens: 1 }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
