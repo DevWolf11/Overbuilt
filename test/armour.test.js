@@ -147,6 +147,9 @@ t('a reactive brick takes 100 mm off a dart and 400 off a shaped charge, and is 
   && res(era1, 'heat120', { x: 2, y: 0, z: 0 }, intoX).rows.some(([p, k]) => p.type === 'era' && k === Combat.maxHp(PARTS.era))`), R(`[eraAt(era1, 'apfsds120', 205), eraAt(era1, 'apfsds120', 195), eraAt(era1, 'heat120', 505), eraAt(era1, 'heat120', 495)]`));
 t('a tandem charge: its precursor sets off the first brick; a second one still counts', R(`eraAt(era1, 'heat120', 120, true) === 'pen' && eraAt(era2, 'heat120', 120, true) === 'nopen' && eraAt(era2, 'heat120', 505, true) === 'pen' && eraAt(era2, 'heat120', 505, false) === 'nopen'`),
   R(`[eraAt(era1, 'heat120', 120, true), eraAt(era2, 'heat120', 120, true), eraAt(era2, 'heat120', 505, true), eraAt(era2, 'heat120', 505, false)]`));
+R(`var chip = (sh) => { const r = res(era1, sh, { x: 2, y: 0, z: 0 }, intoX); return [r.r, (r.rows.find(([p]) => p.type === 'era') || [0, 0])[1], r.rows.length, r.what.includes('ERA')]; };`);
+t('a machine-gun bullet doesn\'t set a brick off: it chips it (its own damage) and stops there; from 20 mm up a round does', R(`(() => { const a = chip('ball8'), b = chip('ball13'), c = chip('ap20');
+  return a.join() === 'nopen,9,1,false' && b.join() === 'nopen,16,1,false' && c[1] === Combat.maxHp(PARTS.era) && c[3]; })()`), R(`[chip('ball8'), chip('ball13'), chip('ap20')]`));
 
 // ---------------------------------------------------------------- after penetration: path, fragments, APHE burst
 PARTS_BLOCK2 = R(`PARTS.tstBlock2 = { ...PARTS.tstBlock, type: 'tstBlock2', name: 'Test Block 2', mods: [{ k: 'crew', role: 'gunner', at: [0, 0, 0], r: 0.3, hp: 100 }, { k: 'crew', role: 'loader', at: [-0.1, 0, 0.4], r: 0.2, hp: 100 }] }; 1`);
@@ -176,6 +179,24 @@ t('unarmoured parts (an old plane) take the whole damage; a kinetic round goes o
   const v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'plane'; v.rebuildGroups(); v.x = EARTH.radius + 3000; v.q = quat();
   const c = ps.find((p) => p.def.control), d = { x: 0, y: -1, z: 0 }, k = res(v, 'ap20', { x: c.x, y: c.y + 0.1 }, d), h = res(v, 'hei20', { x: c.x, y: c.y + 0.1 }, d);
   return !v.plated && k.r === 'hit' && k.rows.every(([, x]) => x === 40) && k.rows.length >= 1 && (k.go || k.pen <= 0) && h.burst && !h.rows.length; })()`));
+// an open-top turret: rounds dropped straight down through its open roof onto the gunner's middle
+R(`var OT = [{ type: 'hullMedium', x: 0, y: 1.1, rot: 0 }, { type: 'trackMed', x: 0, y: 0.5, rot: 0, z: -1.35, att: 0 }, { type: 'trackMed', x: 0, y: 0.5, rot: 0, z: 1.35, att: 0 },
+  { type: 'engDiesel', x: -1.8, y: 1.1, rot: 0, att: 0 }, { type: 'ringM', x: 0, y: 1.85, rot: 0, att: 0 }, { type: 'turretOpen', x: 0, y: 2.375, rot: 0, att: 4 }];
+var dropOn = (sh) => { const v = air(OT), tu = v.parts[5], i = tu.def.mods.findIndex((m) => m.role === 'gunner'), M = tu.def.mods[i];
+  const P = { x: tu.x + M.at[0] * tu.def.w, y: tu.y + M.at[1] * tu.def.h, z: partZ(tu) + M.at[2] * partDepth(tu) }, r = res(v, sh, { x: P.x, y: P.y + 2, z: P.z }, { x: 0, y: -1, z: 0 });
+  const s = tu.y + tu.def.h / 2 - (P.y + M.r); // (from the open roof to the gunner, straight down)
+  const top = Armour.hitAll(v, v.toWorld(P.x, P.y + 2, P.z), v.toWorld(P.x, P.y - 3, P.z)).find((h) => h.p === tu);
+  return { r: r.r, k: r.mods.filter(([h, j]) => h === tu && j === i).reduce((a, q) => a + q[2], 0), s, mods: r.mods.length, roof: A.faceMm(tu, top.edge, top.u) }; };`);
+t('a machine-gun bullet through an open roof hits what it meets in the next metre (its own damage along the way, no fragments)', R(`(() => { const a = dropOn('ball8'), b = dropOn('ball13');
+  return a.roof === 0 && a.r === 'pen' && b.r === 'pen' && near(a.k, 9 * (1 - 0.5 * a.s / 1.0), 1e-9) && near(b.k, 16 * (1 - 0.5 * b.s / 1.0), 1e-9) && a.s > 0 && a.s < 1; })()`), R(`[dropOn('ball8'), dropOn('ball13')]`));
+t('no fragments through an open face (there is no plate): a 20 mm AP round down through the open roof hurts the gunner by its path alone; a squash head not at all', R(`(() => { const a = dropOn('ap20'), h = dropOn('hesh105');
+  return a.r === 'pen' && near(a.k, 40 * (1 - 0.5 * a.s / 3.0), 1e-9) && h.k === 0 && h.mods === 0; })()`), R(`[dropOn('ap20'), dropOn('hesh105')]`));
+// an 85 mm APHE round through the TK-34's side, past its two fuel tanks: it bursts 1.2 m in, both within its 2 m
+R(`var apheFuel = () => { const v = air(), hull = v.parts[0], D = hull.def, d = { x: 0, y: 0, z: -1 }, r = res(v, 'aphe85', { x: 0.34, y: 1.1, z: 1.1 }, d, { pen: 300 });
+  const B = { x: r.at.x + d.x * 1.2, y: r.at.y + d.y * 1.2, z: r.at.z + d.z * 1.2 };
+  return D.mods.map((M, i) => { if (M.k !== 'fuel') return null; const w = v.toWorld(hull.x + M.at[0] * D.w, hull.y + M.at[1] * D.h, M.at[2] * partDepth(hull)), dist = Math.hypot(w.x - B.x, w.y - B.y, w.z - B.z) - M.r;
+    return [i, +dist.toFixed(3), 380 * Math.pow(1 - dist / 2, 1.2), (r.mods.find(([h, j]) => h === hull && j === i) || [0, 0, 0])[2]]; }).filter(Boolean); };`);
+t('an APHE burst reaches fuel too: both hull tanks within its 2 m take burst·(1 - d/r)^1.2 (and may burn)', R(`(() => { const f = apheFuel(); return f.length === 2 && f.every(([, dist, want, got]) => dist < 2 && got >= want - 1e-9 && want > 50); })()`), R('apheFuel()'));
 
 // ---------------------------------------------------------------- modules: crew, knock-out, seats changing hands, ammunition, fires, repairs
 R(`var crewOfV = (v) => Armour.crewOf(v).crew.map((e) => e.role + (e.alive ? '' : 'x')).join();
@@ -215,6 +236,15 @@ t('a detonation throws the turret: cut from the ring, +9 m/s up and tumbling 1-3
   return tossV.ko.x && tossV.ko.why === 'ammo' && piece.parts.map((p) => p.type).sort().join() === 'gun85,mgCoax,turretCast' && near(vu, 9, 1e-6) && w >= 1 && w <= 3
     && tossV.parts.map((p) => p.type).sort().join() === 'engDiesel,hullMedium,ringM,trackMed,trackMed' && piece.isDebris && tossF.destroyed && tossF.toasts.includes('Ammo detonation!'); })()`),
   R(`[tossV.ko, piece && piece.parts.map((p) => p.type), piece && [piece.vx, piece.vy, piece.vz, piece.av], tossV.parts.map((p) => p.type)]`));
+// (a machine-gun cupola on its own ring on the rear deck, built before the main turret: the same deck, the same top)
+R(`var CUP = [{ type: 'hullMedium', x: 0, y: 1.1, rot: 0 }, { type: 'trackMed', x: 0, y: 0.5, rot: 0, z: -1.35, att: 0 }, { type: 'trackMed', x: 0, y: 0.5, rot: 0, z: 1.35, att: 0 },
+  { type: 'engDiesel', x: -1.8, y: 1.1, rot: 0, att: 0 }, { type: 'ringS', x: -2.0, y: 1.85, rot: 0, att: 0 }, { type: 'mgHeavy', x: -2.0, y: 2.75, rot: 3, att: 4 },
+  { type: 'ringM', x: 0.2, y: 1.85, rot: 0, att: 0 }, { type: 'turretCast', x: 0.2, y: 2.425, rot: 0, att: 6 }, { type: 'gun85', x: 2.822, y: 2.425, rot: 3, att: 7 }];
+var tossOf = (host) => { for (let j = 0; j < 200; j++) { const v = air(CUP), F = simOf(v), H = v.parts.find((p) => p.type === host), i = H.def.mods.findIndex((m) => m.k === 'ammo');
+  Armour.seed(j); Armour.modDamage(v, H, i, 1000, F, null, true); if (v.ko && v.ko.x) return [F.vessels.filter((q) => q.tossed).map((q) => q.parts.map((p) => p.type).sort().join()).join('|'), v.parts.map((p) => p.type).sort().join(), v.tg.length]; }
+  return null; };`);
+t('a detonation throws the turret whose store went up, not a cupola built before it; with the ammunition in the hull, the heaviest turret', R(`(() => { const a = tossOf('turretCast'), b = tossOf('hullMedium');
+  return a && b && a[0] === 'gun85,turretCast' && b[0] === 'gun85,turretCast' && a[1].includes('mgHeavy') && b[1].includes('mgHeavy') && a[1].includes('ringM'); })()`), R(`[tossOf('turretCast'), tossOf('hullMedium')]`));
 t('a bustle with blow-out panels vents instead: no knock-out, its rounds gone, the crew alive', R(`(() => { let vented = 0, ko = 0;
   for (let j = 0; j < 40; j++) { Armour.seed(j); const v = air(MA), F = simOf(v), tu = v.parts[5], st = Armour.crewOf(v).stores.find((s) => s.host === tu);
     killMod(v, F, tu, 3); if (v.vent) vented++; if (v.ko) ko++; if (st.rounds !== 0) return false; }
@@ -260,6 +290,21 @@ t('blastK: tracks and guns all of it from 20 mm of blast up (else 0.3); inside p
 t('a blast\'s distance to a turret part is from where it is turned to', R(`(() => { const v = air(), F = simOf(v), at = v.toWorld(0, 2.4, 4.2);
   Combat.explode(EARTH, at, 2.5, 100, null, F, true); const gun = v.parts[6], a = gun.hp;
   const w = air(), G = simOf(w); w.parts[4].aimYaw = Math.PI / 2; Combat.explode(EARTH, w.toWorld(0, 2.4, 4.2), 2.5, 100, null, G, true); return a == null && w.parts[6].hp != null; })()`));
+// one 120 mm HE shell on the front of an MA-1 wearing 16 reactive bricks (8 on the hull front, 8 on the turret's):
+// what it strips (bricks, skirts) goes in one ripParts call, so one split, one toast and one bang (warm, the median of 9)
+ctx.process = process;
+R(`var bricked = () => { const kit = []; for (let i = 0; i < 8; i++) kit.push({ type: 'era', x: 3.0, y: 1.0 + i * 0.1, rot: 1, z: -1.2 + i * 0.34, att: 0 }, { type: 'era', x: 1.6, y: 2.5, rot: 1, z: -1.4 + i * 0.4, att: 5 });
+  return air(__tanks.ma1.concat(kit)); };
+var heBricks = () => { const out = [];
+  for (let k = 0; k < 11; k++) { const v = bricked(), F = simOf(v); F.vessels = [v]; F.active = null; const n0 = v.parts.filter((p) => p.def.cat === 'kit').length, at = v.toWorld(3.3, 1.4, 0), S = SHELLS.he120;
+    const s = { k: 'shell', sh: 'he120', b: EARTH, x: at.x + 30, y: at.y, z: at.z, vx: -S.v0, vy: 0, vz: 0, t: 1, life: 6, owner: null, enemy: true, net: 0, cal: 120, pen: 0, v0: S.v0, prox: 0, ric: false, gTop: Infinity, n: 77 + k };
+    const t0 = process.hrtime.bigint(); fly(s, F, 10); const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (k >= 2) out.push({ ms, torn: n0 - v.parts.filter((p) => p.def.cat === 'kit').length, calls: F.broken.length }); }
+  out.sort((a, b) => a.ms - b.ms); return out; };`);
+ctx.__tanks = require('./lib/tanks.js');
+const heB = R('heBricks()');
+console.log(`     timing: one HE shell stripping an MA-1 of its bricks and skirts, ${heB[4].ms.toFixed(2)} ms (median of 9; ${heB.map((q) => q.ms.toFixed(2)).join(', ')})`);
+t('one HE shell on an MA-1 wearing 16 reactive bricks: all it strips (bricks and skirts) goes in one ripParts call, within 5 ms', heB.every((q) => q.calls === 1 && q.torn >= 16) && heB[4].ms <= 5, heB);
 
 // ---------------------------------------------------------------- old weapons against armour (§6.5): the legacy table
 R(`var Tt = Combat._t;
@@ -272,12 +317,28 @@ t('old bullets by their damage: rifle calibre (≤9) 10 mm, 20 mm cannon (10-19)
   const r = [oldHit('bullet', 8, 9), oldHit('bullet', 8, 11), oldHit('bullet', 15, 29), oldHit('bullet', 15, 31), oldHit('bullet', 25, 54), oldHit('bullet', 25, 56)];
   return near(r[0][0], 0.8) && near(r[1][0], 0.4) && near(r[2][0], 1.5) && near(r[3][0], 0.75) && near(r[4][0], 2.5) && near(r[5][0], 1.25) && r[0][1] && r[2][1] && r[4][1]; })()`),
   R(`[oldHit('bullet', 8, 9), oldHit('bullet', 8, 11), oldHit('bullet', 15, 29), oldHit('bullet', 15, 31), oldHit('bullet', 25, 54), oldHit('bullet', 25, 56)]`));
+// (short of a plate by under a fifth, a round has a 30% chance of two fragments inside (§6.3), by the shot's seed: so
+// these say through or not by what the plate takes, 10% or 5% of the damage, not by whether anyone inside was hurt)
 t('old rockets: a 120 mm shaped charge, then their blast', R(`(() => { const a = oldHit('rocket', 300, 115, { blast: 3 }), b = oldHit('rocket', 300, 125, { blast: 3 });
-  return a[1] && !b[1] && near(a[0], 30 + 45, 1e-6) && near(b[0], 15 + 45, 1e-6); })()`), R(`[oldHit('rocket', 300, 115, { blast: 3 }), oldHit('rocket', 300, 125, { blast: 3 })]`));
-t('old anti-ground missiles: 700 mm (a cruise missile, 2,000 damage and up: 900)', R(`(() => { const s = (dmg, mm) => oldHit('missile', dmg, mm)[1];
-  return s(600, 690) && !s(600, 710) && s(2000, 890) && !s(2000, 910); })()`));
+  return a[1] && near(a[0], 30 + 45, 1e-6) && near(b[0], 15 + 45, 1e-6); })()`), R(`[oldHit('rocket', 300, 115, { blast: 3 }), oldHit('rocket', 300, 125, { blast: 3 })]`));
+t('old anti-ground missiles: 700 mm (a cruise missile, 2,000 damage and up: 900)', R(`(() => { const a = oldHit('missile', 600, 690), b = oldHit('missile', 600, 710), c = oldHit('missile', 2000, 890), d = oldHit('missile', 2000, 910);
+  return a[1] && near(a[0], 60, 1e-6) && near(b[0], 30, 1e-6) && c[1] && near(c[0], 200, 1e-6) && near(d[0], 100, 1e-6); })()`), R(`[oldHit('missile', 600, 690), oldHit('missile', 600, 710), oldHit('missile', 2000, 890), oldHit('missile', 2000, 910)]`));
 t('bombs and air-to-air missiles: the blast alone (3 mm a metre of it: a 10 m bomb overmatches 25 mm, not 100; a 6 m missile 15 mm, not 25)', R(`(() => { const a = oldHit('bomb', 500, 100, { blast: 10 }), b = oldHit('bomb', 500, 25, { blast: 10 }), c = oldHit('missile', 300, 15, { blast: 6, seek: 'air' }), d = oldHit('missile', 300, 25, { blast: 6, seek: 'air' });
   return !a[1] && near(a[0], 75) && b[1] && near(b[0], 500) && c[1] && !d[1] && near(d[0], 45); })()`), R(`[oldHit('bomb', 500, 100, { blast: 10 }), oldHit('bomb', 500, 25, { blast: 10 }), oldHit('missile', 300, 15, { blast: 6, seek: 'air' }), oldHit('missile', 300, 25, { blast: 6, seek: 'air' })]`));
+t('the ground update\'s HE rockets (s.he) on a direct hit: their blast decides, no shaped charge (a 100 mm block takes 15%, the man inside nothing)', R(`(() => { const r = oldHit('rocket', 600, 100, { blast: 10, he: 25 }); return near(r[0], 90, 1e-6) && !r[1]; })()`), R(`oldHit('rocket', 600, 100, { blast: 10, he: 25 })`));
+t('...and rocket rails fire them so (their he, else 3 mm a metre of blast)', R(`(() => { PARTS.tstRails = { ...PARTS.mlrsLight, type: 'tstRails', weapon: { ...PARTS.mlrsLight.weapon, he: undefined } };
+  const fire = (type) => { const L = air([{ type: 'hullWheeled', x: 0, y: 1.2, rot: 0 }, { type, x: 0.3, y: 3.0, rot: 3, att: 0 }]), F = simOf(L); F.active = null; return Combat.fireRocket(L, L.parts[1], false, F); };
+  const a = fire('mlrsLight'), b = fire('tstRails'); delete PARTS.tstRails; return a.he === 25 && b.he === 3 * PARTS.mlrsLight.weapon.blast; })()`));
+// a tandem missile (the Twin ATGM Launcher's: 650 mm, tandem) flown into a TK-34's turret face 20 m off, the face bare
+// or with a reactive brick or a smoke launcher on it: parts without armour of their own, so not 'armour' to the old hook
+R(`var atgm = (kit) => { const v = air([...TK, ...(kit ? [{ type: kit, x: 1.33, y: 2.5, rot: kit === 'era' ? 1 : 0, z: 0.75, att: 5 }] : [])]), F = simOf(v); F.vessels = [v]; F.active = null;
+  const k = kit ? v.parts[v.parts.length - 1] : null, w = v.toWorld(k ? k.x : 1.0, k ? k.y : 2.5, 0.75);
+  const s = { k: 'missile', b: EARTH, x: w.x + 20, y: w.y, z: w.z, vx: -250, vy: 0, vz: 0, dx: -1, dy: 0, dz: 0, t: 0.2, gt: 99, coast: 0, life: 24, burn: 0, accel: 0,
+    seek: 'saclos', saclos: true, pen: 650, tandem: true, dmg: 700, blast: 3, owner: null, target: null };
+  let n = 0; while (n < 30 && Tt.moveShot(s, 1 / 120, F)) n++;
+  return [Armour.crewOf(v).crew.filter((e) => e.host === v.parts[5] && !e.alive).map((e) => e.role).join(), k ? !v.parts.includes(k) : null, n]; };`);
+t('a tandem missile on a turret face behind a reactive brick or a smoke launcher: the resolver still has it, and the jet kills the turret crew as on bare armour', R(`(() => {
+  const a = atgm(null), b = atgm('era'), c = atgm('smokeL'); return a[0] === 'gunner,commander' && b[0] === a[0] && c[0] === a[0] && b[1] === true && a[2] < 30; })()`), R(`[atgm(null), atgm('era'), atgm('smokeL')]`));
 
 // ---------------------------------------------------------------- shells in flight: the world around them
 t('a shell flies past its own vessel for 1.5 s (fired from inside the hull), then hits it like any other', R(`(() => { const v = air(), F = simOf(v); F.vessels = [v];
@@ -287,6 +348,20 @@ t('a wreck stops a shell with sparks and takes nothing; a copy of someone else\'
   const n = fly(shellAt(v, 'apfsds120', { x: 2.4, y: 1.4 }, { x: -1, y: 0, z: 0 }, 200), F); v.wreck = false;
   const m = fly(shellAt(v, 'apfsds120', { x: 2.4, y: 1.4 }, { x: -1, y: 0, z: 0 }, 200, { net: 9 }), F);
   return n > 0 && m > 0 && v.parts.every((p) => p.hp == null && !p.mods); })()`));
+t('...nor from old weapons: an old 30 mm cannon round (and its blast) sparks off it, an old bomb leaves it be, legacyHit does nothing', R(`(() => { const v = air(), F = simOf(v); F.vessels = [v]; F.active = null; v.wreck = true;
+  const w = v.toWorld(0, 1.2, 1.1 + 20), s = { k: 'bullet', b: EARTH, x: w.x, y: w.y, z: w.z, vx: 0, vy: 0, vz: -1000, dx: 0, dy: 0, dz: -1, t: 0.3, life: 3, dmg: 34, blast: 3, owner: null };
+  let n = 0; while (n < 20 && Tt.moveShot(s, 1 / 120, F)) n++;
+  Combat.explode(EARTH, v.toWorld(0, 4, 0), 12, 600, null, F, false); Armour.legacyHit({ ...s, k: 'missile', seek: 'ground', pen: 700, dmg: 600 }, v, v.parts[0], v.toWorld(0, 1.2, 1.1), F);
+  return n < 20 && v.parts.every((p) => p.hp == null && !p.mods) && !F.broken.length; })()`));
+// (level, through the cast turret's right side where the gunner and the commander sit, under the coaxial MG and
+// beside the gun: the muzzle 0.3 m inside the turret's wall, or 10 m out on the same line)
+R(`var pbLine = (v) => { const tu = v.parts[5], z = partZ(tu) + 0.25 * partDepth(tu); return { tu, x0: tu.x + Math.sqrt((tu.def.w / 2) ** 2 - z * z), y: tu.y - 0.12, z }; };
+var pointBlank = (back) => { const v = air(), F = simOf(v), L = pbLine(v), w = v.toWorld(L.x0 + back, L.y, L.z), S = SHELLS.apfsds120; F.vessels = [v]; F.active = null;
+  fly({ k: 'shell', sh: 'apfsds120', b: EARTH, x: w.x, y: w.y, z: w.z, vx: -S.v0, vy: 0, vz: 0, t: 0, life: 6, owner: null, enemy: true, net: 0, cal: 120, pen: S.pen, v0: S.v0, prox: 0, ric: false, gTop: Infinity, n: 4321 }, F, 30);
+  return [L.tu.hp ?? null, L.tu.mods ? L.tu.mods[0] : null, L.tu.mods ? L.tu.mods[1] : null]; }; // (the plate's share, the gunner, the commander: the fragments' dice differ by vessel)`);
+t('point blank: a shell from a muzzle pushed 0.3 m into a turret hits that turret by its face, as the same shot from 10 m off does (gunner and commander)', R(`(() => {
+  const out = pointBlank(10), inside = pointBlank(-0.3), v = air(), L = pbLine(v), first = Armour.hitAll(v, v.toWorld(L.x0 + 10, L.y, L.z), v.toWorld(L.x0 - 10, L.y, L.z))[0];
+  return first.p.type === 'turretCast' && inside.join() === out.join() && out[0] === 900 - 32 && out[1] === 0 && out[2] === 0; })()`), R(`[pointBlank(10), pointBlank(-0.3)]`));
 t('through an old plane a dart flies on (each part the whole damage), and doesn\'t come back for it', R(`(() => {
   const ps = TEMPLATES.falcon.parts.map(([type, x, y, rot, o]) => makePart(type, x, y, Object.assign({ flip: x < 0, rot: rot || 0 }, o || {}, { att: null })));
   const v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'plane'; v.rebuildGroups(); v.x = EARTH.radius + 3000; v.q = quat(); const F = simOf(v); F.vessels = [v];
@@ -334,6 +409,14 @@ t('...it stops on our vessel with sparks: its owner says what it did', R(`(() =>
   const w = v.toWorld(2.4, 1.4, 0); Combat.netShot(g, { k: 'shell', sh: 'apfsds120', b: 'earth', P: [w.x + 300, w.y, w.z], V: [-1650, 0, 0] }); const s = Combat.S.shots[0];
   const n = fly(s, F); return n > 0 && v.parts.every((p) => p.hp == null && !p.mods); })()`));
 
+// ---------------------------------------------------------------- the shooter's hit feedback (§6.8): what the shot did, its burst included
+R(`var me = air([{ type: 'hullLight', x: 0, y: 1.0, rot: 0 }]); me.x += 500;
+var heFb = (rows, P, d) => { const v = air(rows), F = simOf(me, v); Armour.fb.shot = null; fly(shellAt(v, 'he85', P, d, 30, { owner: me, enemy: false }), F, 20);
+  return { fb: Armour.fb.shot, dead: Armour.crewOf(v).crew.filter((e) => !e.alive).length, broken: v.parts.filter((p) => p.broken).map((p) => p.type) }; };
+var fbOT = heFb(OT, { x: 0, y: 2.8, z: 0 }, { x: 0, y: -1, z: 0 }), fbTK = heFb(TK, { x: 1.2, y: 2.6, z: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2, z: 0 });`);
+t('an HE round into an open-top turret: "a way in, 2 crew" (the burst killed them both)', R(`fbOT.dead === 2 && fbOT.fb.r === 'pen' && fbOT.fb.crew === 2 && fbOT.fb.what.includes('CREW')`), R('fbOT'));
+t('...on a TK-34\'s turret front: "a hit, gun" (the burst broke the coaxial MG; no one hurt)', R(`fbTK.broken.includes('mgCoax') && fbTK.dead === 0 && fbTK.fb.r === 'hit' && fbTK.fb.what.includes('GUN') && fbTK.fb.crew === 0`), R('fbTK'));
+
 // ---------------------------------------------------------------- the builder's numbers, and smoke from modules
 t('summary: the TK-34\'s front is its weakest forward plate (the 53° lower one, 75 mm), side 40, cast turret front 99, crew 5, 36 rounds', R(`JSON.stringify(Armour.summary(air().parts)) === JSON.stringify({ front: 75, side: 40, turretFront: 99, crew: 5, rounds: 36 })`), R('Armour.summary(air().parts)'));
 t('summary: the MA-1\'s composite (upper glacis 335 against a level shot), wedge face; nothing for an old craft', R(`(() => { const s = Armour.summary(air(MA).parts); return Math.abs(s.front - 335) <= 1 && s.turretFront > 500 && s.crew === 4 && Armour.summary(partsFromDesign(templateRows(TEMPLATES.falcon))) === null; })()`), R('Armour.summary(air(MA).parts)'));
@@ -364,7 +447,7 @@ t('combat.json: the combat fingerprint of every stock plane is byte-identical (c
 // ---------------------------------------------------------------- multiplayer: hits on ghosts out, and on us in (§6.7)
 const N = G.load({ mp: true, combat: true, ground: true, earth: false });
 const M = (c) => G.run(N, c);
-M(`var TK = ${JSON.stringify(R('TK'))};
+M(`var TK = ${JSON.stringify(R('TK'))}, OT = ${JSON.stringify(R('OT'))};
 var mk = (rows) => { const ps = partsFromDesign(rows.map((q) => ({ flip: false, ...q }))), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'tank'; v.rebuildGroups(); v.x = EARTH.radius + 2500; v.q = quat(); return v; };
 MP.active = true; MP.state = { mode: 'sandbox', phase: 'fly', players: [{ pid: 1, name: 'Me', team: 0 }, { pid: 9, name: 'Them', team: 1 }], settings: {} };
 Object.assign(Flight, { running: true, mp: { mode: 'sandbox' }, time: 50, destroyed: false, toast() {}, onDestroyed() { this.destroyed = true; } });
@@ -398,27 +481,47 @@ t('a shell fired by us at the ghost resolves here and goes to its owner as hits 
   const w = ghost.toWorld(0.5, 1.2, 1.2), S = SHELLS.aphe85, s = { k: 'shell', sh: 'aphe85', b: EARTH, x: w.x, y: w.y, z: w.z + 100, vx: 0, vy: 0, vz: -S.v0, t: 1, life: 6, owner: me, enemy: false, net: 0, cal: 85, pen: S.pen, v0: S.v0, gTop: Infinity, n: 4242 };
   for (let i = 0; i < 60 && Armour.moveShell(s, 1 / 120, Flight); i++); const msgs = sent().filter((m) => m.t === 'hit');
   return msgs.length >= 1 && msgs[0].to === 9 && msgs[0].k === 'pen' && msgs[0].list.length >= 1 && msgs[0].m && msgs[0].m.length >= 1 && msgs[0].d && Math.abs(msgs[0].d[2] - 1) < 1e-3 && ghost.parts.every((p) => p.hp == null); })()`));
+t('...an HE round into a ghost\'s open-top turret: our feedback counts the two crew its burst kills there (from full health, once each), and the owner gets the module rows', M(`(() => {
+  fresh(); Net.out = []; Combat.S.shots = []; Armour.fb.shot = null; const g = mk(OT); g.remote = 9; g.x = ghost.x; Flight.vessels = [me, g]; MP.peers.get(9).ghost = g;
+  const w = g.toWorld(0, 2.8, 0), S = SHELLS.he85, s = { k: 'shell', sh: 'he85', b: EARTH, x: w.x, y: w.y + 30, z: w.z, vx: 0, vy: -S.v0, vz: 0, t: 1, life: 6, owner: me, enemy: false, net: 0, cal: 85, pen: 0, v0: S.v0, gTop: Infinity, n: 4243 };
+  for (let i = 0; i < 20 && Armour.moveShell(s, 1 / 120, Flight); i++); const f = Armour.fb.shot, msgs = sent().filter((m) => m.t === 'hit'); MP.peers.get(9).ghost = ghost; Flight.vessels = [me, ghost];
+  return f && f.r === 'pen' && f.crew === 2 && msgs.some((m) => m.k === 'blast' && m.m && m.m.length >= 2) && g.parts.every((p) => p.hp == null && !p.mods); })()`));
 
 // ---------------------------------------------------------------- what it costs (§14)
 R(`var rays = [], ma = air(MA), mark = (k) => { const t0 = process.hrtime.bigint(); k(); return Number(process.hrtime.bigint() - t0) / 1e3; };`);
 ctx.process = process;
+// 1,000 random hits on the MA-1 (half APFSDS, half APHE): resolve alone; and each penetration again on a fresh MA-1,
+// resolved and applied (the damage, the modules, the crew, fires, what it strips), split by what followed: nothing
+// lasting (plain), a knock-out, a detonation (with the turret thrown), kit torn off. The last three end a tank's fight
+// or strip it once; plain penetrations are the ones a fight is made of.
 const timing = R(`(() => {
+  const us = (t0) => Number(process.hrtime.bigint() - t0) / 1e3;
   const once = () => {
     let seed = 12345; const rr = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-    const pens = []; let hits = 0;
+    const pens = [], all = [], by = { plain: [], ko: [], det: [], rip: [] }; let hits = 0;
     for (let i = 0; i < 1000; i++) {
       const az = rr() * TAU, el = (rr() - 0.3) * 0.8, d = { x: -Math.cos(az) * Math.cos(el), y: -Math.sin(el), z: -Math.sin(az) * Math.cos(el) }, P = { x: (rr() - 0.5) * 6, y: 0.6 + rr() * 2.4, z: (rr() - 0.5) * 3 };
       const sh = i % 2 ? 'apfsds120' : 'aphe85', w = ma.toWorld(P.x, P.y, P.z), s = shellAt(ma, sh, P, d, 15), e = { x: w.x + d.x * 15, y: w.y + d.y * 15, z: w.z + d.z * 15 };
-      const t0 = process.hrtime.bigint(), R0 = Armour.resolve(s, ma, Armour.hitAll(ma, { x: s.x, y: s.y, z: s.z }, e), {}), us = Number(process.hrtime.bigint() - t0) / 1e3;
-      hits++; if (R0.r === 'pen') pens.push(us);
+      const t0 = process.hrtime.bigint(), R0 = Armour.resolve(s, ma, Armour.hitAll(ma, { x: s.x, y: s.y, z: s.z }, e), {}), t = us(t0);
+      hits++; if (R0.r !== 'pen') continue;
+      pens.push(t);
+      const v = air(MA), F = simOf(me, v), n0 = v.parts.length, s2 = shellAt(v, sh, P, d, 15, { owner: me, enemy: false, n: s.n }), w2 = v.toWorld(P.x, P.y, P.z), e2 = { x: w2.x + d.x * 15, y: w2.y + d.y * 15, z: w2.z + d.z * 15 };
+      Armour.resolve(shellAt(v, sh, P, d, 15, { n: s.n }), v, Armour.hitAll(v, { x: s2.x, y: s2.y, z: s2.z }, e2), F); // (its hit records and crew list, built once in a tank's life)
+      const t1 = process.hrtime.bigint(), R1 = Armour.resolve(s2, v, Armour.hitAll(v, { x: s2.x, y: s2.y, z: s2.z }, e2), F);
+      Armour.apply(v, R1, F, me, s2); const t2 = us(t1);
+      all.push(t2); (v.ko && v.ko.x ? by.det : v.ko ? by.ko : F.vessels.length > 2 || v.parts.length !== n0 ? by.rip : by.plain).push(t2);
     }
-    pens.sort((a, b) => a - b);
-    return { pens: pens.length, mean: pens.reduce((a, b) => a + b, 0) / pens.length, p90: pens[Math.floor(pens.length * 0.9)], hits };
+    const st = (a) => { a.sort((x, y) => x - y); return { n: a.length, mean: a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0, p90: a.length ? a[Math.floor(a.length * 0.9)] : 0 }; };
+    return { hits, resolve: st(pens), plain: st(by.plain), all: st(all), ko: st(by.ko), det: st(by.det), rip: st(by.rip) };
   };
   once(); return once(); // (the second time round: warm)
 })()`);
-console.log(`     timing: ${timing.pens} penetrations of 1,000 random hits on the MA-1, ${timing.mean.toFixed(1)} µs mean (90%: ${timing.p90.toFixed(1)} µs)`);
-t('a penetration and all that follows costs at most 100 µs (mean, Node)', timing.pens > 50 && timing.mean <= 100, timing);
+const f1 = (q) => `${q.mean.toFixed(1)} µs mean (90%: ${q.p90.toFixed(1)} µs)`;
+console.log(`     timing: ${timing.resolve.n} penetrations of 1,000 random hits on the MA-1; resolve alone ${f1(timing.resolve)}`);
+console.log(`     timing: resolved and applied: ${timing.plain.n} plain ${f1(timing.plain)}; every penetration ${f1(timing.all)}`);
+console.log(`     timing: once in a tank's fight: ${timing.ko.n} knock-outs ${timing.ko.mean.toFixed(0)} µs, ${timing.det.n} detonations ${timing.det.mean.toFixed(0)} µs, ${timing.rip.n} with kit torn off ${timing.rip.mean.toFixed(0)} µs (means)`);
+t('a penetration and all that follows (resolve and apply) costs at most 100 µs (mean, Node); resolve alone too', timing.resolve.n > 50 && timing.plain.n > 50 && timing.resolve.mean <= 100 && timing.plain.mean <= 100, timing);
+t('...and what happens once in a tank\'s fight (a knock-out, a detonation and its thrown turret, kit torn off) at most 2 ms', [timing.ko, timing.det, timing.rip].every((q) => !q.n || q.mean <= 2000), timing);
 const life = R(`(() => { // main-gun shells over Highland Ridge: 1.5 km out, down onto the ground; and an autocannon's stream of 18 a second for 10 s
   const F = simOf(); F.vessels = []; const B = EARTH.arenas.highland;
   const shoot = (sh, e, z, h, el, ze) => { const P = Tt.at(e, z, Terrain.surfaceAt(EARTH, siteAngle(EARTH, e), z) + h), Q = Tt.at(e, z + 100 * Math.cos(ze), Terrain.surfaceAt(EARTH, siteAngle(EARTH, e), z) + h + 100 * Math.tan(el)), S = SHELLS[sh];

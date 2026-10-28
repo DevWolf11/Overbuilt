@@ -66,7 +66,7 @@ const SHELL_TYPES = {
   he: { ric: [80, 90], norm: 0, L: 0, n: 0, cone: 0 },
   hei: { ric: [80, 90], norm: 0, L: 0, n: 0, cone: 0 },
   hevt: { ric: [80, 90], norm: 0, L: 0, n: 0, cone: 0 },
-  ball: { ric: [55, 65], norm: 0, L: 0, n: 0, cone: 0 },
+  ball: { ric: [55, 65], norm: 0, L: 1.0, n: 0, cone: 0 }, // (a bullet through an open top or a thin side: what it meets in its next metre, no fragments)
 };
 // ==== end of SHELLS ====
 
@@ -466,6 +466,7 @@ const Armour = (() => {
       if (D.era) { // a reactive brick: it blows off what meets it (a tandem charge's first one is set off by its precursor)
         used.push(p);
         if (boom) { R.burst = { at, blast: SH.blast || 1, dmg, he: SH.he }; R.r = 'hit'; break; }
+        if (!heat && (SH.cal || 0) < 20 && pen < 30) { add(R.rows, p, dmg); R.r = 'nopen'; R.k = 'np'; break; } // (a machine-gun bullet doesn't set it off: it chips it, and stops)
         if (heat && tandem) tandem = false; else pen -= heat ? D.era.ce || 0 : D.era.ke || 0;
         add(R.rows, p, Combat.maxHp(D)); what(R, 'ERA');
         if (heat) jet = at3(hits, h.t1);
@@ -625,8 +626,9 @@ const Armour = (() => {
         if (res <= 0) { stop = s; break; }
       }
     }
-    // fragments off the inside of the plate, in a cone along its path: n × clamp(left/40 + 0.5, 0.5, 1.5)
-    const nf = hesh ? T.n : Math.round((T.n || 0) * clamp(res0 / 40 + 0.5, 0.5, 1.5));
+    // fragments off the inside of the plate, in a cone along its path: n × clamp(left/40 + 0.5, 0.5, 1.5); none through an
+    // open face (an open roof: no plate there to throw them)
+    const nf = faceMm(h.p, h.edge, h.u) <= 0 ? 0 : hesh ? T.n : Math.round((T.n || 0) * clamp(res0 / 40 + 0.5, 0.5, 1.5));
     spall(v, at, dx, dy, dz, nf, T.cone || 20, R);
     // an APHE shell bursts 1.2 m in (or where it stopped), every module in reach taking burst·(1 - d/r)^1.2 (a fuel cell
     // in between shields what lies behind it)
@@ -668,11 +670,11 @@ const Armour = (() => {
         if (i < 0) add(R.rows, p, k); else addMod(R.mods, p, i, k);
         what(R, i < 0 ? whatOf(d) : WHAT[d.mods[i].k]);
       };
-      if (f.part && d.module !== 'fuel') hit(len(lx, ly, lz) - 0.5 * Math.min(d.w, d.h), -1, 0, 0, 0);
+      if (f.part) hit(len(lx, ly, lz) - 0.5 * Math.min(d.w, d.h), -1, 0, 0, 0); // (fuel too: a fuel cell takes the burst, and still shields what lies behind it)
       if (d.mods) for (let i = 0; i < d.mods.length; i++) {
         if (f.off && f.off[i]) continue;
         const M = d.mods[i], tx = M.at[0] * d.w, ty = M.at[1] * d.h, tz = M.at[2] * partDepth(p);
-        if (M.k !== 'fuel') hit(len(lx - tx, ly - ty, lz - tz) - M.r, i, tx, ty, tz);
+        hit(len(lx - tx, ly - ty, lz - tz) - M.r, i, tx, ty, tz);
       }
     }
   }
@@ -697,9 +699,13 @@ const Armour = (() => {
   // ---------------------------------------------------------------- applying it
   // The result of resolve on v, by `by`: our own vessels take it here (modules first, then the parts), someone else's
   // craft goes to its owner as one hit message (with the module rows, and where it came from); then the burst, the
-  // ricochet, and what the HUD shows.
+  // ricochet, and what the HUD shows (the burst's work included). The kit it strips goes in one piece (Combat.holdRips).
   function apply(v, R, F, by, s) {
-    const b = v.body;
+    Combat.holdRips();
+    try { applyIn(v, R, F, by, s); } finally { Combat.flushRips(); }
+  }
+  function applyIn(v, R, F, by, s) {
+    const b = v.body, me = !!by && by === F.active;
     if (R.at) FX.sparks(b, R.at, { x: v.vx, y: v.vy, z: v.vz }, R.r === 'ric' ? 8 : R.r === 'pen' ? 10 : 4);
     if (R.r === 'pen' && R.at) FX.puff(b, R.at, { x: v.vx, y: v.vy, z: v.vz }, 3, '#8b8f96');
     const sp = s ? len(s.vx, s.vy, s.vz) || 1 : 1, back = s ? { x: -s.vx / sp, y: -s.vy / sp, z: -s.vz / sp } : null;
@@ -712,9 +718,42 @@ const Armour = (() => {
       if (v === F.active && back) hurt(v, back, R.r === 'pen' ? 'pen' : 'np', F);
       if (v === F.active) Sound.hit();
     }
-    if (R.burst) { const B = R.burst; Combat.explode(b, B.at, B.blast, B.dmg, by, F, !!(s && s.cheap), B.he, s && s.t < 0.6 ? s.spare : undefined); }
+    const T = me && R.burst ? (TAL.crew = 0, TAL.what.length = 0, TAL) : null;
+    if (R.burst) {
+      const B = R.burst;
+      tal = T; talV = v; talR = R;
+      try { Combat.explode(b, B.at, B.blast, B.dmg, by, F, B.quiet ?? !!(s && s.cheap), B.he, s && s.t < 0.6 ? s.spare : undefined); } finally { tal = talV = talR = null; }
+    }
     if (R.ric) Combat.S.shots.push(R.ric);
-    if (by && by === F.active && R.r !== 'miss') fb.shot = { r: R.r, what: R.what.slice(), crew: R.crew, t: simTime(F) };
+    if (me && R.r !== 'miss') {
+      // (what the HUD says: the burst's dead count as a way in, what it broke as a hit)
+      let r = R.r, crew = R.crew;
+      const w = R.what.slice();
+      if (T) { for (const x of T.what) if (!w.includes(x)) w.push(x); crew += T.crew; if (T.crew) { if (!w.includes('CREW')) w.push('CREW'); r = 'pen'; } else if (T.what.length && r === 'nopen') r = 'hit'; }
+      fb.shot = { r, what: w, crew, t: simTime(F) };
+    }
+  }
+  // What a burst does, told to the shooter's feedback (§6.8) as it goes off: while apply's burst runs (tal, on the
+  // vessel hit), explode hands each plated part and module it is about to hurt there to tally and tallyMods: what it
+  // breaks goes into what, the crew it kills into crew, judged as crewHit judges a shell's own rows (a ghost's from full
+  // health, less what the shell's own rows already took)
+  const TAL = { crew: 0, what: [] };
+  let tal = null, talV = null, talR = null;
+  function tally(v, p, k) {
+    if (!tal || v !== talV) return;
+    const d = p.def;
+    if (!d.module || p.broken || !(k >= (v.remote ? Combat.maxHp(d) : partHp(p)))) return;
+    if (v.remote && talR.rows.some((r) => r[0] === p && r[1] >= Combat.maxHp(d))) return;
+    if (d.module === 'crew') tal.crew++; else what(tal, WHAT[d.module]);
+  }
+  function tallyMods(v, mods) {
+    if (!tal || v !== talV) return;
+    for (const [h, i, k] of mods) {
+      const M = h.def.mods[i], off = offOf(v, h), hp = v.remote ? M.hp || 100 : modHp(h, i);
+      if ((off && off[i]) || !(hp > 0) || !(k >= hp)) continue;
+      if (v.remote && talR.mods.some((r) => r[0] === h && r[1] === i && r[2] >= hp)) continue;
+      if (M.k === 'crew') tal.crew++; else what(tal, WHAT[M.k]);
+    }
   }
   // we (the active vessel) were hit from direction d (sim, toward the shooter): the edge arc, and a buzz
   function hurt(v, d, k, F) {
@@ -738,11 +777,15 @@ const Armour = (() => {
     s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
     const ax = s.x, ay = s.y, az = s.z, ex = ax + s.vx * h, ey = ay + s.vy * h, ez = az + s.vz * h;
     TA.x = ax; TA.y = ay; TA.z = az; TE.x = ex; TE.y = ey; TE.z = ez;
-    // vessels (not its own for 1.5 s, nor one it already went through)
+    // vessels (not its own for 1.5 s, nor one it already went through). On its first step from the muzzle, a part it
+    // starts inside (point blank: a muzzle pushed into the turret in front of it; barrels aren't in the collision
+    // boxes) counts as met where the line goes into it (t0 < 0), so that plate is hit by its face. (Later, a shell
+    // inside a part is one going on through what it already hit: the pieces of an old craft, say.)
     let hv = null, ht = 2;
+    const muzzle = s.t <= h + 1e-9;
     for (const o of F.vessels) {
       if (o.dead || o.body !== b || (o === s.owner && s.t < 1.5) || o === s.skip || !o.parts.length) continue;
-      for (const H of hitAll(o, TA, TE, HV)) if (H.t0 >= -1e-9 && H.t0 < 1) { if (H.t0 < ht) { ht = H.t0; hv = o; } break; }
+      for (const H of hitAll(o, TA, TE, HV)) if (H.t0 < 1 && (H.t0 >= -1e-9 || (muzzle && H.t1 > 1e-9))) { if (H.t0 < ht) { ht = H.t0; hv = o; } break; }
     }
     // the range's targets (spheres)
     let tt = 2, tg = null;
@@ -954,14 +997,17 @@ const Armour = (() => {
     }
     return t === Infinity ? 0 : t;
   }
-  // An old weapon's direct hit on a part with armour: its penetration from what the round already is (no new fields).
-  // Bullets by their damage (rifle calibre 10 mm, 20 mm cannon 30, 30 mm 55), rockets a 120 mm shaped charge and then
-  // their blast, anti-ground missiles 700 (a cruise missile's 900); bombs, glide bombs and air-to-air missiles the blast
-  // alone. A penetration does the round's damage ×3 along a 1.5 m path, otherwise 5%. Returns false: the round is spent.
+  // An old weapon's direct hit on a plated vessel's new part (armour, or a gun, brick or sight with none): its
+  // penetration from what the round already is (no new fields). Bullets by their damage (rifle calibre 10 mm, 20 mm
+  // cannon 30, 30 mm 55), the old rocket pods a 120 mm shaped charge and then their blast, anti-ground missiles 700 (a
+  // cruise missile's 900); bombs, glide bombs, air-to-air missiles and the ground update's HE rockets (s.he) the blast
+  // alone. A penetration does the round's damage ×3 along a 1.5 m path, otherwise 5%. Returns false: the round is spent
+  // (on a wreck, with sparks and nothing more).
   const LG = { type: 'ball', pen: 0, cal: 0, dmg: 0, tandem: false }, LS = { legacy: LG, vx: 0, vy: 0, vz: 0, n: 0, pen: 0, v0: 0, ric: false, tandem: false, t: 9 };
   function legacyHit(s, v, p, at, F) {
+    if (v.wreck) { FX.sparks(v.body, at, { x: v.vx, y: v.vy, z: v.vz }, 3); return false; }
     const b = s.b, spare = s.t < 0.6 ? s.spare : undefined, gm = s.k === 'missile' && !s.glide && !s.air && (s.seek === 'ground' || s.saclos || s.top || s.seek === 'saclos' || s.seek === 'top');
-    if (s.k !== 'bullet' && s.k !== 'rocket' && !gm) { Combat.explode(b, at, s.blast || 1, s.dmg || 0, s.owner, F, false, s.he, spare); return false; }
+    if ((s.k !== 'bullet' && s.k !== 'rocket' && !gm) || (s.k === 'rocket' && s.he != null)) { Combat.explode(b, at, s.blast || 1, s.dmg || 0, s.owner, F, false, s.he, spare); return false; }
     if (s.k === 'bullet') { const d = s.dmg || 0; LG.type = d >= 20 ? 'ap' : 'ball'; LG.pen = d <= 9 ? 10 : d < 20 ? 30 : 55; LG.cal = d <= 9 ? 7.6 : d < 20 ? 20 : 30; }
     else { LG.type = 'heat'; LG.pen = s.pen || (s.k === 'rocket' ? 120 : (s.dmg || 0) >= 2000 ? 900 : 700); LG.cal = 70; }
     LG.dmg = s.dmg || 0; LG.tandem = !!s.tandem;
@@ -971,8 +1017,8 @@ const Armour = (() => {
     TA.x = at.x - s.vx * k * 0.05; TA.y = at.y - s.vy * k * 0.05; TA.z = at.z - s.vz * k * 0.05;
     TE.x = at.x + s.vx * k * R1; TE.y = at.y + s.vy * k * R1; TE.z = at.z + s.vz * k * R1;
     const R = resolve(LS, v, hitAll(v, TA, TE, HR), F);
+    if (s.blast) R.burst = { at, blast: s.blast, dmg: s.dmg, he: s.he, quiet: s.k === 'bullet' }; // (then its blast: apply's burst, so the HUD hears what it did)
     apply(v, R, F, s.owner, s);
-    if (s.blast) Combat.explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
     return false;
   }
 
@@ -1065,14 +1111,23 @@ const Armour = (() => {
     if (det) {
       const P = det.st.part ? outPart(v, Aim.pose(v, det.st.part, { x: det.st.part.x, y: det.st.part.y, z: partZ(det.st.part) }, v3()), v3()) : modAt(v, det.st.host, det.st.i, v3());
       if (sim.vessels) Combat.explode(v.body, P, 6 + det.rounds / 10, 1500, v, sim, false, undefined, v);
-      toss(v, sim);
+      toss(v, sim, det.st);
     }
     if (v === sim.active && sim.onDestroyed) sim.onDestroyed();
     if (v.ai && !v.ai.down) Combat.aiDown(v, sim);
   }
   const shooterOf = (v) => (v.lastHitBy && v.lastHitBy !== v ? v.lastHitBy : null);
-  function toss(v, sim) {
-    const g = v.tg && v.tg[0];
+  // The turret a detonation throws: the outermost group holding the store that went up (st: a rack, or a host's built-in
+  // store), else (ammunition in the hull) the heaviest turret riding on nothing else
+  function tossGroup(v, st) {
+    const of = v.tgOf, tg = v.tg || [];
+    let g = st && of ? of.get((st.part || st.host).id) : null;
+    while (g && g.parent) g = g.parent;
+    if (!g) for (const q of tg) if (!q.parent && (!g || q.mass > g.mass)) g = q;
+    return g || null;
+  }
+  function toss(v, sim, st) {
+    const g = tossGroup(v, st);
     if (!g) return [];
     for (const id of g.ids) for (const n of [...(v.adj.get(id) || [])]) if (!g.ids.has(n)) { v.adj.get(id).delete(n); if (v.adj.get(n)) v.adj.get(n).delete(id); }
     const i0 = v.parts.findIndex((p) => !g.ids.has(p.id)); // (the hulk keeps what isn't the turret)
@@ -1220,7 +1275,7 @@ const Armour = (() => {
   return {
     fb, hot: false,
     hitAll, hitFirst, moveShell, netShell, coarseH, resolve, apply, legacyHit, blastK, moduleDown, modDamage, knockOut, crewOf, has, repairStep, partFX, summary,
-    hurt, toss,
+    hurt, toss, tally, tallyMods,
     seed(n) { vs = mix(n | 0); }, // (the victim's dice: tests)
     _t: { faceMm, effOf, penAt, own, ownOut, crewList, thinnest, frontOf, simOwn, recOwn, recsOf, EZ, ESIDE, ETOP, EBOT }, // (for the tests)
   };

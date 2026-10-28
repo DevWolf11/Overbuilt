@@ -378,7 +378,7 @@ R(`var ra = air(), rF = simOf(ra), c0 = [cnt('Armour.hitFirst'), cnt('Armour.leg
 var gone1 = fly(round(ra, { x: 0, y: 1.1 }, 1), rF), c1 = [cnt('Armour.hitFirst'), cnt('Armour.legacyHit')];
 var gun2 = ra.parts.find((p) => p.type === 'tstGun'), gone2 = fly(round(ra, { x: 4.5, y: 2.45 }, 1), rF);`);
 t('a round into a plated craft: Armour.hitFirst finds the part; on armour, Armour.legacyHit decides (and the round stops: up through the 22.5 mm belly, the hull takes 10% of its damage)', R(`c1[0] > c0[0] && c1[1] === c0[1] + 1 && gone1 > 0 && Math.abs(ra.parts[0].hp - (1100 - 1)) < 1e-9`), R('[c0, c1, gone1, ra.parts[0].hp]'));
-t('...and a part without armour (the gun) takes the round as any part does (its own hp)', R(`gone2 > 0 && gun2.hp === 290 && cnt('Armour.legacyHit') === c1[1]`), R('[gone2, gun2.hp]'));
+t('...and a new part without armour (the gun) too: Armour.legacyHit gives it the round\'s whole damage, as any part takes it (its own hp)', R(`gone2 > 0 && gun2.hp === 290 && cnt('Armour.legacyHit') === c1[1] + 1`), R('[gone2, gun2.hp]'));
 t('Armour.hitFirst: through a plain box, the same first part and place as the old box test', R(`(() => { const a = ra.toWorld(0, 1.1, -10), e = ra.toWorld(0, 1.1, 10), q = Armour.hitFirst(ra, a, e), o = Tt.hitVessel(ra, a, e); return !!q && q.p === o.p && q.t === o.t; })()`));
 t('a shell flies in armour.js; a peer\'s shell copy and smoke go there too', R(`(() => { const k0 = [cnt('Armour.moveShell'), cnt('Armour.netShell'), cnt('Aim.netSmoke')];
   const keep = Tt.moveShot({ k: 'shell', sh: 'x', b: EARTH, x: ra.x + 50, y: 0, z: 0, vx: 0, vy: 900, vz: 0, t: 0, life: 6 }, 1 / 120, rF);

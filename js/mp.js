@@ -879,21 +879,24 @@ const MP = {
     const find = (id) => { for (const x of mine) { const part = x.parts.find((p) => p.id === id); if (part) return [part, x]; } return [null, null]; };
     if (m.h === 1) Armour.hot = true; // (a shaped charge, APHE or HE: our ammunition cooks off more easily)
     let first = true;
-    for (const row of list) {
-      if (!Array.isArray(row)) continue;
-      const [id, dmg] = row, [part, owner] = find(id);
-      if (!part || !(dmg > 0)) continue;
-      if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
-      Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by);
-    }
-    // (the ground update) built-in modules, as m rows [part id, module index, damage], each checked (we decide what
-    // follows: deaths, cook-offs, fires), and where it came from for the hit arc (d, else the shooter's bearing)
-    if (Array.isArray(m.m)) for (const row of m.m.slice(0, 32)) {
-      if (!Array.isArray(row)) continue;
-      const [id, i, dmg] = row, [part, owner] = find(id);
-      if (!part || !part.def.mods || !Number.isInteger(i) || i < 0 || i >= part.def.mods.length || !Number.isFinite(dmg) || !(dmg > 0)) continue;
-      Armour.modDamage(owner, part, i, Math.min(dmg, 2000), Flight, by, m.h === 1);
-    }
+    Combat.holdRips(); // (the ground update's kit it strips goes in one piece: Combat.flushRips)
+    try {
+      for (const row of list) {
+        if (!Array.isArray(row)) continue;
+        const [id, dmg] = row, [part, owner] = find(id);
+        if (!part || !(dmg > 0)) continue;
+        if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
+        Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by);
+      }
+      // (the ground update) built-in modules, as m rows [part id, module index, damage], each checked (we decide what
+      // follows: deaths, cook-offs, fires), and where it came from for the hit arc (d, else the shooter's bearing)
+      if (Array.isArray(m.m)) for (const row of m.m.slice(0, 32)) {
+        if (!Array.isArray(row)) continue;
+        const [id, i, dmg] = row, [part, owner] = find(id);
+        if (!part || !part.def.mods || !Number.isInteger(i) || i < 0 || i >= part.def.mods.length || !Number.isFinite(dmg) || !(dmg > 0)) continue;
+        Armour.modDamage(owner, part, i, Math.min(dmg, 2000), Flight, by, m.h === 1);
+      }
+    } finally { Combat.flushRips(); }
     if (m.h === 1) Armour.hot = false;
     if (v.gv && !v.dead) {
       let d = Array.isArray(m.d) && m.d.length === 3 && m.d.every(Number.isFinite) ? { x: m.d[0], y: m.d[1], z: m.d[2] } : null, l = d ? Math.hypot(d.x, d.y, d.z) : 0;

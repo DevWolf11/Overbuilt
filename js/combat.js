@@ -63,6 +63,7 @@ const Combat = (() => {
     const b = v.body, zs = partZs(p), n = zs.length, at = (z) => v.toWorld(p.x, p.y, z);
     const wk = p.def.weapon && p.def.weapon.kind, fuel = p.fuel || 0, stores = wk === 'rocket' || wk === 'missile' || wk === 'bomb' ? p.ammo || 0 : 0;
     const boom = p.def.thrust || fuel > 50 || stores > 0 || p.def.control;
+    if (RIP.n && p.def.gv && !boom) { let e = RIP.list.find((q) => q.v === v); if (!e) RIP.list.push((e = { v, sim, cause, parts: [] })); if (!e.parts.includes(p)) e.parts.push(p); return; } // (kit torn off by a hit: together, at its end)
     const legacy = n > 1 && Math.abs(partZ(p) - p.def.twinZ) < 5e-4; // (at its usual spread: one blast in the middle, as ever)
     const fat = (legacy ? [0] : zs).map(at), sat = (legacy ? [0] : stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
     if (boom) sim.breakParts(v, [p], cause);
@@ -70,6 +71,24 @@ const Combat = (() => {
     if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / fat.length) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
     if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, (p.def.weapon.dmg * 0.5) / sat.length, null, sim, true);
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
+  }
+  // (the ground update) While a hit or a blast lands (holdRips ... flushRips: Armour.apply, explode, a hit message), the
+  // ground update's parts it breaks off (reactive bricks, skirts, slat cages, plates: nothing that explodes) wait, and go
+  // at the end in one ripParts call per craft: one split, one toast, one bang, however many bricks one shell strips.
+  // Old parts break off as they always have.
+  const RIP = { n: 0, list: [] };
+  function holdRips() { RIP.n++; }
+  function flushRips() {
+    RIP.n = Math.max(0, RIP.n - 1);
+    if (RIP.n) return;
+    while (RIP.list.length) {
+      const { v, sim, cause, parts } = RIP.list.shift(), on = new Map();
+      for (const p of parts) { // (each from where it is now: a turret thrown meanwhile took its bricks with it)
+        const o = v.parts.includes(p) ? v : (sim.vessels || []).find((q) => q.parts.includes(p));
+        if (o && !o.dead) { if (!on.has(o)) on.set(o, []); on.get(o).push(p); }
+      }
+      for (const [o, ps] of on) { sim.ripParts(o, ps, cause); if (o.ai && !o.control && !o.ai.down) aiDown(o, sim); }
+    }
   }
   // Hitting the ground a bit too hard dents a part (once per bump) instead of breaking it outright.
   function impact(v, p, ratio, sim) {
@@ -135,29 +154,33 @@ const Combat = (() => {
     // our own fire reaching someone else's craft goes to its owner as hits, one message per craft
     const mine = typeof MP !== 'undefined' && ours(by);
     if (mine && blast >= 8) MP.sendBoom(b, at, blast); // (for everyone to see)
-    for (const v of sim.vessels.slice()) {
-      if (v.dead || v === spare || v.body !== b || (v.remote && !mine)) continue;
-      if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
-      // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
-      const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
-      if (mods) Armour.hot = true; // (high explosive: ammunition it reaches cooks off more easily)
-      for (const p of v.parts.slice()) {
-        if (!v.parts.includes(p)) continue;
-        let d = Infinity;
-        for (const z of partZs(p)) {
-          const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
-          d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+    holdRips(); // (a plated craft's kit it strips goes in one piece, at the end)
+    try {
+      for (const v of sim.vessels.slice()) {
+        if (v.dead || v === spare || v.body !== b || (v.remote && !mine) || v.wreck) continue; // (a wreck takes nothing more)
+        if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
+        // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
+        const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
+        if (mods) Armour.hot = true; // (high explosive: ammunition it reaches cooks off more easily)
+        for (const p of v.parts.slice()) {
+          if (!v.parts.includes(p)) continue;
+          let d = Infinity;
+          for (const z of partZs(p)) {
+            const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
+            d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+          }
+          d -= Math.max(p.def.w, p.def.h) / 2;
+          if (d >= blast) continue;
+          let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
+          if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; Armour.tally(v, p, k); } // (tally: what the shooter's HUD hears)
+          if (hits) hits.push([p, k]); else damage(v, p, k, 'blast', sim, by);
         }
-        d -= Math.max(p.def.w, p.def.h) / 2;
-        if (d >= blast) continue;
-        let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
-        if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; }
-        if (hits) hits.push([p, k]); else damage(v, p, k, 'blast', sim, by);
+        if (mods) Armour.tallyMods(v, mods);
+        if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
+        if (mods) Armour.hot = false;
+        if (hits && (hits.length || (mods && mods.length))) { if (mods) MP.sendHits(v, hits, 'blast', mods, null, true); else MP.sendHits(v, hits, 'blast'); }
       }
-      if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
-      if (mods) Armour.hot = false;
-      if (hits && (hits.length || (mods && mods.length))) { if (mods) MP.sendHits(v, hits, 'blast', mods, null, true); else MP.sendHits(v, hits, 'blast'); }
-    }
+    } finally { flushRips(); }
     if (mpOn()) return; // (no targets in multiplayer)
     for (const e of S.targets) {
       if (!e.alive) continue;
@@ -286,7 +309,7 @@ const Combat = (() => {
     } else { const m = muzzle(p, p.side), ax = partAxis(p); wp = v.toWorld(m.x, m.y, m.z); dir = v.axis(ax.x, ax.y, 0); }
     const s = { k: 'rocket', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + dir.x * w.speed, vy: v.vy + dir.y * w.speed, vz: v.vz + dir.z * w.speed,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: 9, burn: w.burn, accel: w.accel, dmg: w.dmg, blast: w.blast, owner: v, enemy };
-    if (A) { s.life = w.life || 9; s.he = w.he; s.spare = v; if (w.coast != null) s.coast = w.coast; } // (its blast through armour; its own launcher spared at the muzzle)
+    if (A) { s.life = w.life || 9; s.he = w.he ?? 3 * (w.blast || 1); s.spare = v; if (w.coast != null) s.coast = w.coast; } // (high explosive: its blast through armour, also on a direct hit; its own launcher spared at the muzzle)
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) Sound.burst(0.25, 1200, 0.4, 'bandpass');
@@ -615,6 +638,7 @@ const Combat = (() => {
       const c = targetCentre(t), [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, c.x, c.y, c.z);
       if (d < t.def.r && ft < ht2) { ht2 = ft; he = t; }
     }
+    if (hit && hv.wreck && ht <= ht2) { FX.sparks(b, lerp3(a, e, ht), { x: hv.vx, y: hv.vy, z: hv.vz }, 3); return false; } // (a wreck is solid, and takes nothing more)
     const armed = !s.arm || s.t >= s.arm;
     if (!armed && hit) { // too close to have armed: a dud that only knocks
       if (!hv.remote) damage(hv, hit, s.dmg * 0.1, 'shot', F, s.owner);
@@ -629,7 +653,7 @@ const Combat = (() => {
     }
     if (hit && ht <= ht2) {
       const at = lerp3(a, e, ht);
-      if (hit.def.armour) return Armour.legacyHit(s, hv, hit, at, F); // (an armoured part: armour.js decides what gets through, and the blast)
+      if (hv.plated && hit.def.gv) return Armour.legacyHit(s, hv, hit, at, F); // (a ground vehicle's new part, armoured or not (a brick, a gun, a sight): armour.js decides what gets through, and the blast)
       if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
       else if (hv.remote) { FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg, 'shot'); } // (its owner takes the damage)
       else { damage(hv, hit, s.dmg, 'shot', F, s.owner); FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (hv === F.active) Sound.hit(); }
@@ -1545,7 +1569,7 @@ const Combat = (() => {
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
-    targetCentre, hitTarget, aiDown, jams, radarOf, boomFX,
+    targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },
   };
 })();
