@@ -1,0 +1,730 @@
+{
+ "tk34": {
+  "body": "-2.8,2.8,0,1.95,-1.6,1.6",
+  "groups": [
+   "ringM:turretCast+gun85+mgCoax:0.4188790205"
+  ],
+  "muzzles": [
+   "gun85@0:4.922,2.425,0",
+   "mgCoax@0:1.9,2.425,0.6",
+   "mgCoax@0:2.53,1.35,0.55",
+   "gun85@90:-1.275467232e-11,2.425,4.922",
+   "mgCoax@90:-0.6,2.425,1.9",
+   "mgCoax@90:2.53,1.35,0.55"
+  ],
+  "launch": [
+   "gun85:aphe85:4.922,2.425,0>799.999982,-0.1697056237,2.081668171e-17",
+   "mgCoax:ball8:1.9,2.425,0.6>849.9986719,-1.502599562,1.838806885e-16",
+   "mgCoax:ball8:2.53,1.35,0.55>849.9986719,-1.502599562,1.838806885e-16"
+  ],
+  "rays": [
+   "hullMedium2@0.4350746497 engDiesel1@0.5266405905",
+   "trackMed1@0.421065353 hullMedium-1@0.4451461723 engDiesel1@0.5307619042 trackMed-1@0.5551461723",
+   "trackMed-1@0.4538963711 hullMedium-1@0.4683301278 trackMed-1@0.5318386574",
+   "trackMed-1@0.4600730861 hullMedium-1@0.4725730861 trackMed-1@0.5275730861",
+   "trackMed-1@0.4538963711 hullMedium-1@0.4683301278 trackMed-1@0.5318386574",
+   "trackMed-1@0.4201461723 hullMedium-1@0.4451461723 engDiesel-1@0.4601461723 trackMed-1@0.5551461723",
+   "hullMedium4@0.4283594095 engDiesel3@0.4333594095",
+   "trackMed-1@0.4198538277 hullMedium-1@0.4448538277 engDiesel-1@0.4598538277 trackMed-1@0.5548538277",
+   "trackMed-1@0.4537275859 hullMedium-1@0.4681613426 trackMed-1@0.5316698722",
+   "trackMed-1@0.4599269139 hullMedium-1@0.4724269139 trackMed-1@0.5274269139",
+   "trackMed-1@0.4537275859 hullMedium-1@0.4681613426 trackMed-1@0.5316698722",
+   "trackMed1@0.421065353 hullMedium-1@0.4448538277 engDiesel1@0.5307619042 trackMed-1@0.5548538277",
+   "gun852@0.3785905905 turretCast-2@0.4691406727",
+   "mgCoax-1@0.4651461723 turretCast-2@0.4689661535 gun85-1@0.4776461723",
+   "turretCast-2@0.4684130823 gun85-1@0.4870940116",
+   "turretCast-2@0.4676145208",
+   "turretCast-2@0.4667756899 gun850@0.512818819",
+   "turretCast-2@0.4661277635 gun850@0.5074009486",
+   "turretCast-2@0.4658594917 gun850@0.5064094095",
+   "turretCast-2@0.4660514812 gun850@0.5074009486 mgCoax-1@0.5248538277",
+   "turretCast-2@0.4666459029 gun850@0.512818819",
+   "turretCast-2@0.4674683485",
+   "turretCast-2@0.4682896915 gun85-1@0.4869252263",
+   "turretCast-2@0.4688962634 gun85-1@0.4773538277"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+AMMO+FUEL+RING+GUN|hullMedium=29 ringM=32.68491452 mgCoax=4.744626012 mgCoax=71.27884161|hullMedium.0=806.6633691 hullMedium.1=208.2870504 hullMedium.2=119.6410228 hullMedium.3=6.417368789 turretCast.0=24.71223557 turretCast.2=38.06469396",
+   "apfsds120:pen:1:CREW+ENGINE|hullMedium=32 engDiesel=198.4943043|hullMedium.0=1082.946054"
+  ]
+ },
+ "ms4": {
+  "body": "-2.8,2.8,0,1.95,-1.6,1.6",
+  "groups": [
+   "ringM:turretCast+gun75+mgCoax+mgHeavy:0.4188790205"
+  ],
+  "muzzles": [
+   "gun75@0:3.774,2.425,0",
+   "mgCoax@0:1.9,2.425,0.6",
+   "mgHeavy@0:0.844,3.32,-0.52",
+   "gun75@90:-2.05624788e-11,2.425,3.774",
+   "mgCoax@90:-0.6,2.425,1.9",
+   "mgHeavy@90:0.52,3.32,0.844"
+  ],
+  "launch": [
+   "gun75:ap75:3.774,2.425,0>619.9999861,-0.1315218583,1.615461237e-17",
+   "mgCoax:ball8:1.9,2.425,0.6>849.9986719,-1.502599562,1.839891087e-16",
+   "mgHeavy:ball13:0.844,3.32,-0.52>889.9979975,-1.887970858,2.312603234e-16"
+  ],
+  "rays": [
+   "hullMedium2@0.4342087603 engPetrol1@0.5282747011",
+   "trackMed1@0.4200655101 hullMedium-1@0.4449611606 engPetrol1@0.5326488126 trackMed-1@0.5549611606",
+   "trackMed-1@0.4537895545 hullMedium-1@0.4682233113 trackMed-1@0.5317318409",
+   "trackMed-1@0.4599805803 hullMedium-1@0.4724805803 trackMed-1@0.5274805803",
+   "trackMed-1@0.4537895545 hullMedium-1@0.4682233113 trackMed-1@0.5317318409",
+   "trackMed-1@0.4199611606 hullMedium-1@0.4449611606 engPetrol-1@0.4649611606 trackMed-1@0.5549611606",
+   "hullMedium4@0.4292252989 engPetrol3@0.4367252989",
+   "trackMed-1@0.4200388394 hullMedium-1@0.4450388394 engPetrol-1@0.4650388394 trackMed-1@0.5550388394",
+   "trackMed-1@0.4538344024 hullMedium-1@0.4682681591 trackMed-1@0.5317766887",
+   "trackMed-1@0.4600194197 hullMedium-1@0.4725194197 trackMed-1@0.5275194197",
+   "trackMed-1@0.4538344024 hullMedium-1@0.4682681591 trackMed-1@0.5317766887",
+   "trackMed1@0.4200655101 hullMedium-1@0.4450388394 engPetrol1@0.5326488126 trackMed-1@0.5550388394",
+   "gun752@0.4064247011 turretCast-2@0.4682747069",
+   "mgCoax-1@0.4649611606 turretCast-2@0.4681637142 gun75-1@0.4799611606",
+   "turretCast-2@0.4678776602",
+   "turretCast-2@0.4674898149",
+   "turretCast-2@0.4671025582",
+   "turretCast-2@0.4668214916 gun750@0.515675405",
+   "turretCast-2@0.4667253047 gun750@0.5135752989",
+   "turretCast-2@0.4668413122 gun750@0.515675405 mgCoax0@0.5250862143",
+   "turretCast-2@0.467136595",
+   "turretCast-2@0.4675286543",
+   "turretCast-2@0.4679108951",
+   "turretCast-2@0.468182733 gun75-1@0.4800388394"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+AMMO+FUEL+RING+GUN|hullMedium=29 ringM=32.68491452 gun75=20.71143124 mgCoax=4.744626012|hullMedium.0=806.6633691 hullMedium.1=208.2870504 hullMedium.2=119.6410228 hullMedium.3=6.41736879 turretCast.0=24.71223557 turretCast.2=38.06469396",
+   "apfsds120:pen:1:CREW+ENGINE|hullMedium=32 engPetrol=194.9387487|hullMedium.0=1082.946054"
+  ]
+ },
+ "tygr": {
+  "body": "-3.1,3.1,0,2.27,-2,2",
+  "groups": [
+   "ringL:turretBox+gun88+mgCoax+smokeL+smokeL:0.3141592654"
+  ],
+  "muzzles": [
+   "gun88@0:5.614,2.77,0",
+   "mgCoax@0:2,2.77,0.7",
+   "gun88@90:1.76481052e-11,2.77,5.614",
+   "mgCoax@90:-0.7,2.77,2"
+  ],
+  "launch": [
+   "gun88:aphe88:5.614,2.77,0>779.9999878,-0.1378858202,1.691355389e-17",
+   "mgCoax:ball8:2,2.77,0.7>849.9986719,-1.502599562,1.839891087e-16"
+  ],
+  "rays": [
+   "hullHeavy2@0.4269169627 engDiesel1@0.53136528",
+   "hullHeavy-1@0.4350483044 engDiesel1@0.5362175057",
+   "hullHeavy-1@0.4625001211",
+   "hullHeavy-1@0.4675241522",
+   "hullHeavy-1@0.4625001211",
+   "hullHeavy-1@0.4350483044 engDiesel-1@0.4600483044",
+   "hullHeavy4@0.42363472 engDiesel3@0.42863472",
+   "hullHeavy-1@0.4349516956 engDiesel-1@0.4599516956",
+   "hullHeavy-1@0.4624443439",
+   "hullHeavy-1@0.4674758478",
+   "hullHeavy-1@0.4624443439",
+   "hullHeavy-1@0.4349516956 engDiesel1@0.5362175057",
+   "gun882@0.36101528 turretBox1@0.46754403",
+   "mgCoax-1@0.4600483044 turretBox1@0.4625230739 gun88-1@0.4750483044",
+   "smokeL1@0.4602305599 turretBox-1@0.4653868724",
+   "turretBox-1@0.4700241522",
+   "turretBox-1@0.4653868724 smokeL-1@0.5346689047",
+   "turretBox3@0.456565616 gun880@0.5103746611",
+   "turretBox3@0.46238472 gun880@0.50898472",
+   "turretBox3@0.456565616 gun880@0.5103746611 mgCoax-1@0.5299516956",
+   "turretBox-1@0.4653310953 smokeL-1@0.5346131276",
+   "turretBox-1@0.4699758478",
+   "smokeL1@0.4602305599 turretBox-1@0.4653310953",
+   "turretBox1@0.4625230739 gun88-1@0.4749516956"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+AMMO|hullHeavy=29|hullHeavy.0=706.0519711 hullHeavy.1=210.136462 hullHeavy.2=66.56157244 hullHeavy.3=12.57848761",
+   "apfsds120:pen:1:CREW+ENGINE|hullHeavy=32 engDiesel=172.1731282|hullHeavy.0=855.8789148"
+  ]
+ },
+ "pumo": {
+  "body": "-3.1,3.1,-0.05,2.25,-1.65,1.65",
+  "groups": [
+   "ringS:turretSmall+gun50+mgCoax:0.5235987756"
+  ],
+  "muzzles": [
+   "gun50@0:3.178,2.55,0",
+   "mgCoax@0:1.7,2.55,0.4",
+   "gun50@90:-9.894453312e-12,2.55,3.178",
+   "mgCoax@90:-0.4,2.55,1.7"
+  ],
+  "launch": [
+   "gun50:ap50:3.178,2.55,0>834.9999812,-0.1771302447,2.168404345e-17",
+   "mgCoax:ball8:1.7,2.55,0.4>849.9986719,-1.502599562,1.838806885e-16"
+  ],
+  "rays": [
+   "hullWheeled1@0.427032616 engPetrol1@0.5316190975",
+   "hullWheeled-1@0.4376128122",
+   "hullWheeled-1@0.4639807404",
+   "hullWheeled-1@0.4688064061",
+   "hullWheeled-1@0.4639807404",
+   "hullWheeled-1@0.4376128122",
+   "hullWheeled4@0.4233809025 engPetrol3@0.4333809025",
+   "hullWheeled-1@0.4373871878",
+   "hullWheeled-1@0.463850476",
+   "hullWheeled-1@0.4686935939",
+   "hullWheeled-1@0.463850476",
+   "hullWheeled-1@0.4373871878",
+   "gun502@0.4196690975 turretSmall1@0.4801164975",
+   "mgCoax-1@0.4751128122 turretSmall1@0.477040509 gun50-1@0.4851128122",
+   "turretSmall-1@0.4769711214",
+   "turretSmall-1@0.4800564061",
+   "turretSmall-1@0.4769711214",
+   "turretSmall3@0.4750364165 gun500@0.5090423473",
+   "turretSmall3@0.4783809025 gun500@0.5078309025",
+   "turretSmall3@0.4750364165 gun500@0.5090423473 mgCoax0@0.521224438",
+   "turretSmall-1@0.4768408571",
+   "turretSmall-1@0.4799435939",
+   "turretSmall-1@0.4768408571",
+   "turretSmall1@0.477040509 gun50-1@0.4848871878"
+  ],
+  "shots": [
+   "aphe85:pen:1:CREW+GUN|hullWheeled=29 gun50=81.92475926 mgCoax=17.87999156|hullWheeled.0=478.8064628 hullWheeled.1=56.01257335",
+   "apfsds120:pen:1:CREW+FUEL+ENGINE|hullWheeled=32 engPetrol=170.8823273|hullWheeled.0=720.8165706 hullWheeled.2=180.7648143"
+  ]
+ },
+ "stuq3": {
+  "body": "-3,5.394,0,2.45,-1.81,1.81",
+  "groups": [],
+  "muzzles": [
+   "gun76L@0:5.394,1.75,0",
+   "gun76L@90:5.394,1.75,0"
+  ],
+  "launch": [
+   "gun76L:ap76:5.394,1.75,0>789.9999877,-0.1396535871,1.710263184e-17"
+  ],
+  "rays": [
+   "hullCasemate2@0.4335826695 engPetrol1@0.5348351695",
+   "hullCasemate-1@0.4375",
+   "skirts-1@0.4477498006 hullCasemate-1@0.4639156082 skirts-1@0.5505181486",
+   "skirts-1@0.45475 hullCasemate-1@0.46875 skirts-1@0.54375",
+   "skirts-1@0.4477498006 hullCasemate-1@0.4639156082 skirts-1@0.5505181486",
+   "hullCasemate-1@0.4375",
+   "hullCasemate4@0.4226648305 engPetrol3@0.4301648305",
+   "hullCasemate-1@0.4375",
+   "skirts-1@0.4477498006 hullCasemate-1@0.4639156082 skirts-1@0.5505181486",
+   "skirts-1@0.45475 hullCasemate-1@0.46875 skirts-1@0.54375",
+   "skirts-1@0.4477498006 hullCasemate-1@0.4639156082 skirts-1@0.5505181486",
+   "hullCasemate-1@0.4375",
+   "gun76L2@0.3674851695 hullCasemate2@0.4523251695",
+   "hullCasemate2@0.4449498475",
+   "hullCasemate-1@0.4639156082",
+   "hullCasemate-1@0.46875",
+   "hullCasemate-1@0.4639156082",
+   "hullCasemate-1@0.4375",
+   "hullCasemate4@0.4226648305 gun76L0@0.5275148305",
+   "hullCasemate-1@0.4375",
+   "hullCasemate-1@0.4639156082",
+   "hullCasemate-1@0.46875",
+   "hullCasemate-1@0.4639156082",
+   "hullCasemate2@0.4449498475"
+  ],
+  "shots": [
+   "aphe85:pen:3:CREW+GUN+AMMO|hullCasemate=29 gun76L=86.97220692|hullCasemate.2=175.3033479 hullCasemate.0=346.9018129 hullCasemate.1=128.9272263 hullCasemate.4=30.545921 hullCasemate.5=34.02039457",
+   "apfsds120:pen:2:CREW+ENGINE+GUN|hullCasemate=32 engPetrol=187.4204444 gun76L=482.0718302|hullCasemate.2=223.2336295 hullCasemate.0=166.7177689"
+  ]
+ },
+ "ms18": {
+  "body": "-2.2,2.2,0,1.75,-1.3,1.3",
+  "groups": [
+   "ringM:turretOpen+gun76L+mgHeavy:0.4188790205"
+  ],
+  "muzzles": [
+   "gun76L@0:4.324,2.175,0",
+   "mgHeavy@0:0.5,2.85,1",
+   "gun76L@90:-0.09999999999,2.175,4.424",
+   "mgHeavy@90:-1.1,2.85,0.6"
+  ],
+  "launch": [
+   "gun76L:ap76:4.324,2.175,0>789.9999877,-0.1396535871,1.734723476e-17",
+   "mgHeavy:ball13:0.5,2.85,1>889.9979975,-1.887970858,2.307182223e-16"
+  ],
+  "rays": [
+   "hullLight2@0.4497486179 engPetrol1@0.5182089256",
+   "trackLight1@0.4459703212 hullLight-1@0.4554958678 engPetrol1@0.5210258562 trackLight-1@0.5454958678",
+   "trackLight-1@0.4627585219 hullLight-1@0.4743055273 trackLight-1@0.5262670515",
+   "trackLight-1@0.4677479339 hullLight-1@0.4777479339 trackLight-1@0.5227479339",
+   "trackLight-1@0.4627585219 hullLight-1@0.4743055273 trackLight-1@0.5262670515",
+   "trackLight3@0.4385596249 hullLight-1@0.4554958678 engPetrol-1@0.4654958678 trackLight-1@0.5454958678",
+   "hullLight4@0.4417910744 engPetrol3@0.4467910744",
+   "trackLight3@0.4385596249 hullLight-1@0.4545041322 engPetrol-1@0.4645041322 trackLight-1@0.5445041322",
+   "trackLight-1@0.4621859431 hullLight-1@0.4737329485 trackLight-1@0.5256944727",
+   "trackLight-1@0.4672520661 hullLight-1@0.4772520661 trackLight-1@0.5222520661",
+   "trackLight-1@0.4621859431 hullLight-1@0.4737329485 trackLight-1@0.5256944727",
+   "trackLight1@0.4459703212 hullLight-1@0.4545041322 engPetrol1@0.5210258562 trackLight-1@0.5445041322",
+   "gun76L2@0.3951089256 turretOpen1@0.4806619256",
+   "turretOpen1@0.4776703151 gun76L-1@0.4804958678",
+   "turretOpen-1@0.4685320246 gun76L-1@0.488739284",
+   "turretOpen-1@0.4727479339 gun76L-1@0.4902479339",
+   "turretOpen-1@0.4685320246 gun76L0@0.4997821488",
+   "turretOpen3@0.4587668844 gun76L0@0.4998742235",
+   "turretOpen3@0.4642910744 gun76L0@0.4998910744",
+   "turretOpen3@0.4587668844 gun76L0@0.4998742235",
+   "turretOpen-1@0.4679594458 gun76L0@0.4997821488",
+   "turretOpen-1@0.4722520661 gun76L-1@0.4897520661",
+   "turretOpen-1@0.4679594458 gun76L-1@0.4881667052",
+   "turretOpen1@0.4776703151 gun76L-1@0.4795041322"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+FUEL+ENGINE+AMMO+RING|hullLight=29 engPetrol=166.9457128 ringM=97.00761666|hullLight.0=860.3768881 hullLight.3=212.9900456 hullLight.1=225.944407 hullLight.2=110.0605256 turretOpen.0=62.9955394 turretOpen.1=49.79494103",
+   "apfsds120:pen:1:CREW+FUEL+ENGINE|hullLight=32 engPetrol=229.477306|hullLight.0=1114.483652 hullLight.3=230.0632381"
+  ]
+ },
+ "leapard1": {
+  "body": "-3.4,3.4,0,1.97,-1.75,1.75",
+  "groups": [
+   "ringP:turretCast+gun105+mgCoax+smokeL+smokeL:0.6981317008"
+  ],
+  "muzzles": [
+   "gun105@0:6.08,2.445,0",
+   "mgCoax@0:1.9,2.445,0.6",
+   "gun105@90:-2.1447219e-11,2.445,6.08",
+   "mgCoax@90:-0.6,2.445,1.9"
+  ],
+  "launch": [
+   "gun105:apds105:6.08,2.445,0>1429.999978,-0.2527906703,3.100818213e-17",
+   "mgCoax:ball8:1.9,2.445,0.6>849.9986719,-1.502599562,1.840975289e-16"
+  ],
+  "rays": [
+   "hullMedium2@0.4364526723 engDieselL1@0.5225280332",
+   "trackMBT-1@0.4125622961 hullMedium-1@0.4450622961 engDieselL1@0.5260131321 trackMBT-1@0.5550622961",
+   "trackMBT-1@0.4495178181 hullMedium-1@0.4682817018 trackMBT-1@0.5317902314",
+   "trackMBT-1@0.456281148 hullMedium-1@0.472531148 trackMBT-1@0.527531148",
+   "trackMBT-1@0.4495178181 hullMedium-1@0.4682817018 trackMBT-1@0.5317902314",
+   "trackMBT-1@0.4125622961 hullMedium-1@0.4450622961 engDieselL-1@0.4550622961 trackMBT-1@0.5550622961",
+   "hullMedium4@0.4274719668 engDieselL3@0.4324719668",
+   "trackMBT-1@0.4124377039 hullMedium-1@0.4449377039 engDieselL-1@0.4549377039 trackMBT-1@0.5549377039",
+   "trackMBT-1@0.4494458848 hullMedium-1@0.4682097686 trackMBT-1@0.5317182982",
+   "trackMBT-1@0.456218852 hullMedium-1@0.472468852 trackMBT-1@0.527468852",
+   "trackMBT-1@0.4494458848 hullMedium-1@0.4682097686 trackMBT-1@0.5317182982",
+   "trackMBT-1@0.4124377039 hullMedium-1@0.4449377039 engDieselL1@0.5260131321 trackMBT-1@0.5549377039",
+   "gun1052@0.3505280332 turretCast-2@0.4700280482",
+   "mgCoax-1@0.4650622961 turretCast-2@0.4697284662 gun105-1@0.4750622961",
+   "turretCast-2@0.4688637694 gun105-1@0.4856022099",
+   "smokeL-1@0.457031148 turretCast-2@0.4676296195 gun105-1@0.487531148 smokeL-1@0.533031148",
+   "turretCast-2@0.4663378393 gun1050@0.4989439336",
+   "turretCast-2@0.4653518841 gun1050@0.4993902798",
+   "turretCast-2@0.4649719817 gun1050@0.4994719668",
+   "turretCast-2@0.4653186362 gun1050@0.4993902798 mgCoax-1@0.5249377039",
+   "turretCast-2@0.4662817862 gun1050@0.4989439336",
+   "smokeL-1@0.456968852 turretCast-2@0.4675673235 gun105-1@0.487468852 smokeL-1@0.532968852",
+   "turretCast-2@0.4688119225 gun105-1@0.4855302766",
+   "turretCast-2@0.469699418 gun105-1@0.4749377039"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+AMMO+FUEL+RING+GUN|hullMedium=29 ringP=33.48091707 mgCoax=2.859382913|hullMedium.0=806.6633691 hullMedium.1=208.2870504 hullMedium.2=119.6410228 hullMedium.3=6.41736879 turretCast.0=22.53155192 turretCast.2=35.60254166",
+   "apfsds120:pen:1:CREW+ENGINE|hullMedium=32 engDieselL=205.6054154|hullMedium.0=1082.946054"
+  ]
+ },
+ "tk72": {
+  "body": "-3.6,3.6,0,2.25,-1.9,1.9",
+  "groups": [
+   "ringP:turretAuto+gun125+mgCoax+mgHeavy+smokeL+smokeL+era:0.6981317008"
+  ],
+  "muzzles": [
+   "gun125@0:5.314,2.6,0",
+   "mgCoax@0:0.9,2.6,0.7",
+   "mgHeavy@0:0.132,3.28,-0.57",
+   "gun125@90:-1,2.6,6.314",
+   "mgCoax@90:-1.7,2.6,1.9",
+   "mgHeavy@90:-0.43,3.28,1.132"
+  ],
+  "launch": [
+   "gun125:apfsds125:5.314,2.6,0>1699.999973,-0.3005203773,3.680866376e-17",
+   "mgCoax:ball8:0.9,2.6,0.7>849.9986719,-1.502599562,1.840162137e-16",
+   "mgHeavy:ball13:0.132,3.28,-0.57>889.9979975,-1.887970858,2.312061133e-16"
+  ],
+  "rays": [
+   "hullMBT1@0.4323884391 engDieselL1@0.535385684",
+   "hullMBT-1@0.4375104547 engDieselL1@0.5408598684",
+   "hullMBT-1@0.4639216442",
+   "hullMBT-1@0.4687552273",
+   "hullMBT-1@0.4639216442",
+   "hullMBT-1@0.4375104547 engDieselL-1@0.4550104547",
+   "hullMBT4@0.414614316 engDieselL3@0.419614316",
+   "hullMBT-1@0.4374895453 engDieselL-1@0.4549895453",
+   "hullMBT-1@0.4639095722",
+   "hullMBT-1@0.4687447727",
+   "hullMBT-1@0.4639095722",
+   "hullMBT-1@0.4374895453 engDieselL1@0.5408598684",
+   "gun1252@0.362535684 turretAuto-2@0.4828856844",
+   "mgCoax2@0.4686910847 gun125-1@0.4725104547 turretAuto-2@0.4815676861",
+   "mgCoax-1@0.4769120252 turretAuto-2@0.4771117196 gun125-1@0.4841289036",
+   "turretAuto-2@0.4685302549 gun125-1@0.4862552273",
+   "turretAuto-2@0.4567288251 gun125-1@0.4841289036",
+   "turretAuto-2@0.446261203 gun1250@0.4797515363",
+   "turretAuto-2@0.4421143164 gun1250@0.482464316",
+   "turretAuto-2@0.4462534184 gun1250@0.4797515363 mgCoax-1@0.5299895453",
+   "turretAuto-2@0.4567169816 gun125-1@0.4841168316 mgCoax-1@0.5173144721",
+   "turretAuto-2@0.4685198003 gun125-1@0.4862447727",
+   "turretAuto-2@0.477105455 gun125-1@0.4841168316",
+   "gun125-1@0.4724895453 turretAuto-2@0.481565016"
+  ],
+  "shots": [
+   "aphe85:nopen:0:|hullMBT=8.7|",
+   "apfsds120:nopen:0:|hullMBT=9.6|"
+  ]
+ },
+ "ma1": {
+  "body": "-3.6,3.6,0,2.07,-1.96,1.96",
+  "groups": [
+   "ringP:turretWedge+gun120+mgCoax+mgHeavy+smokeL+smokeL+thermal+lrf:0.6981317008"
+  ],
+  "muzzles": [
+   "gun120@0:6.748,2.45,0",
+   "mgCoax@0:2.2,2.45,0.75",
+   "mgHeavy@0:-0.2,3.17,0.8",
+   "gun120@90:-0.3,2.45,7.048",
+   "mgCoax@90:-1.05,2.45,2.5",
+   "mgHeavy@90:-1.1,3.17,0.1"
+  ],
+  "launch": [
+   "gun120:apfsds120:6.748,2.45,0>1649.999983,-0.2333452355,2.862293735e-17",
+   "mgCoax:ball8:2.2,2.45,0.75>849.9986719,-1.502599562,1.840975289e-16",
+   "mgHeavy:ball13:-0.2,3.17,0.8>889.9979975,-1.887970858,2.311519032e-16"
+  ],
+  "rays": [
+   "hullMBT1@0.4348682639 engTurbine1@0.5414658761",
+   "trackMBT-1@0.405090708 hullMBT-1@0.437590708 trackMBT-1@0.562590708",
+   "skirts-1@0.4434720439 trackMBT-1@0.4452040947 hullMBT-1@0.4639679784 trackMBT-1@0.5361367621 skirts-1@0.5549006458",
+   "skirts-1@0.451045354 trackMBT-1@0.452545354 hullMBT-1@0.468795354 trackMBT-1@0.531295354 skirts-1@0.547545354",
+   "skirts-1@0.4434720439 trackMBT-1@0.4452040947 hullMBT-1@0.4639679784 trackMBT-1@0.5361367621 skirts-1@0.5549006458",
+   "trackMBT-1@0.405090708 hullMBT-1@0.437590708 trackMBT-1@0.562590708",
+   "hullMBT4@0.4085341239 engTurbine3@0.4185341239",
+   "trackMBT-1@0.404909292 hullMBT-1@0.437409292 trackMBT-1@0.562409292",
+   "skirts-1@0.4433673034 trackMBT-1@0.4450993542 hullMBT-1@0.4638632379 trackMBT-1@0.5360320216 skirts-1@0.5547959053",
+   "skirts-1@0.450954646 trackMBT-1@0.452454646 hullMBT-1@0.468704646 trackMBT-1@0.531204646 skirts-1@0.547454646",
+   "skirts-1@0.4433673034 trackMBT-1@0.4450993542 hullMBT-1@0.4638632379 trackMBT-1@0.5360320216 skirts-1@0.5547959053",
+   "trackMBT-1@0.404909292 hullMBT-1@0.437409292 trackMBT-1@0.562409292",
+   "gun1202@0.3327658761 turretWedge1@0.4640141114",
+   "mgCoax-1@0.457590708 turretWedge1@0.4584470751 gun120-1@0.472590708",
+   "turretWedge-1@0.4538643487 gun120-1@0.4841752379",
+   "turretWedge-1@0.460045354",
+   "turretWedge-1@0.4538643487 gun1200@0.5144682478",
+   "turretWedge4@0.4396512817 gun1200@0.5083532468",
+   "turretWedge4@0.4477364768 gun1200@0.5072341239",
+   "turretWedge4@0.4396512817 gun1200@0.5083532468 mgCoax0@0.5329483682",
+   "turretWedge-1@0.4537596082 gun1200@0.5144682478",
+   "turretWedge-1@0.459954646",
+   "turretWedge-1@0.4537596082 gun120-1@0.4840704973",
+   "turretWedge1@0.4584470751 gun120-1@0.472409292"
+  ],
+  "shots": [
+   "aphe85:nopen:0:|hullMBT=8.7|",
+   "apfsds120:nopen:0:|hullMBT=9.6|"
+  ]
+ },
+ "zsy23": {
+  "body": "-2.2,2.2,0,1.75,-1.3,1.3",
+  "groups": [
+   "ringM:turretAA+aa23q+radarTrack:0.4188790205"
+  ],
+  "muzzles": [
+   "aa23q@0:2.39,2.35,0",
+   "aa23q@90:-0.2,2.35,2.59"
+  ],
+  "launch": [
+   "aa23q:heit23:2.39,2.35,0>969.99903,-1.371785784,1.679953069e-16"
+  ],
+  "rays": [
+   "hullLight2@0.4461031719 engPetrol1@0.5145634796",
+   "trackLight1@0.4417609228 hullLight-1@0.455 engPetrol1@0.5168164578 trackLight-1@0.545",
+   "trackLight-1@0.4624722325 hullLight-1@0.4740192379 trackLight-1@0.5259807621",
+   "trackLight-1@0.4675 hullLight-1@0.4775 trackLight-1@0.5225",
+   "trackLight-1@0.4624722325 hullLight-1@0.4740192379 trackLight-1@0.5259807621",
+   "trackLight3@0.4427690234 hullLight-1@0.455 engPetrol-1@0.465 trackLight-1@0.545",
+   "hullLight4@0.4454365204 engPetrol3@0.4504365204",
+   "trackLight3@0.4427690234 hullLight-1@0.455 engPetrol-1@0.465 trackLight-1@0.545",
+   "trackLight-1@0.4624722325 hullLight-1@0.4740192379 trackLight-1@0.5259807621",
+   "trackLight-1@0.4675 hullLight-1@0.4775 trackLight-1@0.5225",
+   "trackLight-1@0.4624722325 hullLight-1@0.4740192379 trackLight-1@0.5259807621",
+   "trackLight1@0.4417609228 hullLight-1@0.455 engPetrol1@0.5168164578 trackLight-1@0.545",
+   "aa23q2@0.4398134796 turretAA1@0.4807247296",
+   "aa23q-1@0.475 turretAA1@0.4777428349",
+   "turretAA-1@0.4653589838",
+   "turretAA-1@0.47",
+   "turretAA-1@0.4653589838",
+   "turretAA3@0.4572027801 aa23q0@0.5117623806",
+   "turretAA3@0.4629365204 aa23q0@0.5101865204",
+   "turretAA3@0.4572027801 aa23q0@0.5117623806",
+   "turretAA-1@0.4653589838",
+   "turretAA-1@0.47",
+   "turretAA-1@0.4653589838",
+   "aa23q-1@0.475 turretAA1@0.4777428349"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+FUEL+ENGINE+AMMO+RING+GUN|hullLight=29 engPetrol=166.9457128 ringM=81.85608932 aa23q=83.91739835|hullLight.0=860.3768881 hullLight.3=212.9900456 hullLight.1=225.944407 hullLight.2=110.0605256 turretAA.0=37.94005096",
+   "apfsds120:pen:1:CREW+FUEL+ENGINE|hullLight=32 engPetrol=229.477306|hullLight.0=1114.483652 hullLight.3=230.0632381"
+  ]
+ },
+ "gepardo": {
+  "body": "-3.4,3.4,0,1.97,-1.75,1.75",
+  "groups": [
+   "ringP:turretAA+ac35+ac35+radarSearch+radarTrack+smokeL+smokeL:0.6981317008"
+  ],
+  "muzzles": [
+   "ac35@0:2.824,2.57,-1.45",
+   "ac35@0:2.824,2.57,1.45",
+   "ac35@90:1.25,2.57,3.024",
+   "ac35@90:-1.65,2.57,3.024"
+  ],
+  "launch": [
+   "ac35:hevt35:2.824,2.57,-1.45>1174.999706,-0.8308502602,1.017498112e-16",
+   "ac35:hevt35:2.824,2.57,1.45>1174.999706,-0.8308502602,1.017498112e-16"
+  ],
+  "rays": [
+   "hullMedium2@0.4310766207 engDieselL1@0.5171519817",
+   "trackMBT-1@0.4125 hullMedium-1@0.445 engDieselL1@0.5198054025 trackMBT-1@0.555",
+   "trackMBT-1@0.4494818514 hullMedium-1@0.4682457352 trackMBT-1@0.5317542648",
+   "trackMBT-1@0.45625 hullMedium-1@0.4725 trackMBT-1@0.5275",
+   "trackMBT-1@0.4494818514 hullMedium-1@0.4682457352 trackMBT-1@0.5317542648",
+   "trackMBT-1@0.4125 hullMedium-1@0.445 engDieselL-1@0.455 trackMBT-1@0.555",
+   "hullMedium4@0.4328480183 engDieselL3@0.4378480183",
+   "trackMBT-1@0.4125 hullMedium-1@0.445 engDieselL-1@0.455 trackMBT-1@0.555",
+   "trackMBT-1@0.4494818514 hullMedium-1@0.4682457352 trackMBT-1@0.5317542648",
+   "trackMBT-1@0.45625 hullMedium-1@0.4725 trackMBT-1@0.5275",
+   "trackMBT-1@0.4494818514 hullMedium-1@0.4682457352 trackMBT-1@0.5317542648",
+   "trackMBT-1@0.4125 hullMedium-1@0.445 engDieselL1@0.5198054025 trackMBT-1@0.555",
+   "turretAA1@0.4783132317",
+   "ac352@0.4151895337 turretAA1@0.474958277",
+   "ac35-1@0.4509252271 turretAA-1@0.4653589838",
+   "ac35-1@0.4575 turretAA-1@0.47 ac35-1@0.53",
+   "turretAA-1@0.4653589838 ac35-1@0.5346410162",
+   "turretAA3@0.4599873381 ac35-1@0.56",
+   "turretAA3@0.4653480183",
+   "turretAA3@0.4599873381 ac35-1@0.56",
+   "turretAA-1@0.4653589838 ac35-1@0.5346410162",
+   "ac35-1@0.4575 turretAA-1@0.47 ac35-1@0.53",
+   "ac35-1@0.4509252271 turretAA-1@0.4653589838",
+   "ac352@0.4151895337 turretAA1@0.474958277"
+  ],
+  "shots": [
+   "aphe85:pen:2:CREW+AMMO+FUEL+RING|hullMedium=29 ringP=8.004429398|hullMedium.0=806.6633691 hullMedium.1=208.2870504 hullMedium.2=119.6410228 hullMedium.3=6.417368785",
+   "apfsds120:pen:1:CREW+ENGINE|hullMedium=32 engDieselL=205.6054154|hullMedium.0=1082.946054"
+  ]
+ },
+ "bmk2": {
+  "body": "-3.2,3.2,0,2.35,-1.7,1.7",
+  "groups": [
+   "ringS:turretSmall+ac30+mgCoax+atgmTube+smokeL+smokeL:0.5235987756"
+  ],
+  "muzzles": [
+   "ac30@0:3.132,2.725,0",
+   "mgCoax@0:1.82,2.725,0.35",
+   "atgmTube@0:1,3.55,-0.42",
+   "ac30@90:0.3,2.725,2.832",
+   "mgCoax@90:-0.05000000003,2.725,1.52",
+   "atgmTube@90:0.72,3.55,0.7"
+  ],
+  "launch": [
+   "ac30:apds30:3.132,2.725,0>1099.999604,-0.9333806151,1.144917494e-16",
+   "mgCoax:ball8:1.82,2.725,0.35>849.9986719,-1.502599562,1.838806885e-16"
+  ],
+  "rays": [
+   "hullIFV2@0.4264077308 engDiesel1@0.4519594955",
+   "hullIFV-1@0.4413316024 engDiesel1@0.4445276036",
+   "hullIFV-1@0.4661277848 engDiesel-1@0.4661277848",
+   "hullIFV-1@0.4706658012",
+   "hullIFV-1@0.4661277848",
+   "hullIFV-1@0.4413316024 engDiesel3@0.5092843748",
+   "hullIFV4@0.4155405045 engDiesel3@0.5080405045",
+   "hullIFV-1@0.4386683976 engDiesel3@0.5092843748",
+   "hullIFV-1@0.4645901829 engDiesel3@0.5160810089",
+   "hullIFV-1@0.4693341988",
+   "hullIFV-1@0.4645901829",
+   "hullIFV-1@0.4386683976 engDiesel-1@0.4786683976",
+   "ac302@0.4261594955 turretSmall1@0.4788312455",
+   "turretSmall1@0.4755564278 mgCoax-1@0.4788316024",
+   "smokeL1@0.4714189911 turretSmall-1@0.4776747902",
+   "turretSmall-1@0.4806658012",
+   "turretSmall-1@0.4776747902 smokeL-1@0.5238628118",
+   "turretSmall3@0.47753011 ac300@0.5102081352",
+   "turretSmall3@0.4805405045 ac300@0.5088405045",
+   "turretSmall3@0.47753011 mgCoax0@0.5185219791",
+   "turretSmall-1@0.4761371882 smokeL-1@0.5223252098",
+   "turretSmall-1@0.4793341988",
+   "smokeL1@0.4714189911 turretSmall-1@0.4761371882",
+   "turretSmall1@0.4755564278 ac30-1@0.4886683976"
+  ],
+  "shots": [
+   "aphe85:pen:1:ENGINE+CREW+FUEL+GUN|hullIFV=29 engDiesel=596.1645789 ac30=40.92586659 mgCoax=4.640602519|hullIFV.0=620.202075 hullIFV.2=28.08654317",
+   "apfsds120:pen:1:ENGINE+CREW+TROOPS|hullIFV=32 engDiesel=777.0409506|hullIFV.0=616.5858543 hullIFV.1=186.1695946"
+  ]
+ },
+ "brdk2": {
+  "body": "-3.1,3.1,0,2.35,-1.7,1.7",
+  "groups": [
+   "ringS:atgmWire+atgmWire+atgmWire:0.5235987756"
+  ],
+  "muzzles": [
+   "atgmWire@0:0.24,2.55,-0.42",
+   "atgmWire@0:0.24,2.55,0",
+   "atgmWire@0:0.24,2.55,0.42",
+   "atgmWire@90:-0.18,2.55,0.84",
+   "atgmWire@90:-0.6,2.55,0.84",
+   "atgmWire@90:-1.02,2.55,0.84"
+  ],
+  "launch": [],
+  "rays": [
+   "hullWheeled1@0.4239734392 engPetrol1@0.5274772169",
+   "wheelArm1@0.4350217871 hullWheeled-1@0.4375 engPetrol1@0.5317279572",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "hullWheeled-1@0.46875",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082 wheelArm3@0.5475455661",
+   "hullWheeled-1@0.4375 engPetrol-1@0.465 wheelArm-1@0.5625",
+   "hullWheeled4@0.4275227831 engPetrol3@0.4375227831",
+   "hullWheeled-1@0.4375 engPetrol-1@0.465 wheelArm-1@0.5625",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082 wheelArm3@0.5475455661",
+   "hullWheeled-1@0.46875",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "wheelArm1@0.4350217871 hullWheeled-1@0.4375 engPetrol1@0.5317279572",
+   "atgmWire2@0.4889772169",
+   "atgmWire2@0.4872719865 atgmWire-1@0.49 atgmWire-1@0.511",
+   "atgmWire-1@0.4821021417 atgmWire-1@0.4942264973 atgmWire-1@0.506350853",
+   "atgmWire-1@0.4845 atgmWire-1@0.495 atgmWire-1@0.5055",
+   "atgmWire-1@0.4821021417 atgmWire-1@0.4942264973 atgmWire-1@0.506350853",
+   "atgmWire0@0.4780869974 atgmWire-1@0.49 atgmWire-1@0.511",
+   "atgmWire0@0.4810227831",
+   "atgmWire0@0.4780869974 atgmWire-1@0.49 atgmWire-1@0.511",
+   "atgmWire-1@0.4821021417 atgmWire-1@0.4942264973 atgmWire-1@0.506350853",
+   "atgmWire-1@0.4845 atgmWire-1@0.495 atgmWire-1@0.5055",
+   "atgmWire-1@0.4821021417 atgmWire-1@0.4942264973 atgmWire-1@0.506350853",
+   "atgmWire2@0.4872719865 atgmWire-1@0.49 atgmWire-1@0.511"
+  ],
+  "shots": [
+   "aphe85:pen:1:CREW|hullWheeled=29|hullWheeled.0=478.8064628 hullWheeled.1=56.01257335",
+   "apfsds120:pen:1:CREW+FUEL+ENGINE|hullWheeled=32 engPetrol=170.8823273|hullWheeled.0=720.8165706 hullWheeled.2=180.7648143"
+  ]
+ },
+ "bk21": {
+  "body": "-3.1,3.1,0,2.35,-1.7,1.7",
+  "groups": [
+   "ringM:mlrsLight:0.4188790205"
+  ],
+  "muzzles": [
+   "mlrsLight@0:-0.58,2.85,0",
+   "mlrsLight@90:-2.1,2.85,1.52"
+  ],
+  "launch": [],
+  "rays": [
+   "hullWheeled1@0.4212566724 engPetrol1@0.4422604502",
+   "wheelArm1@0.4174509783 hullWheeled-1@0.4375 engPetrol-1@0.465 wheelArm-1@0.5625",
+   "hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "wheelArm-1@0.4575 hullWheeled-1@0.46875 wheelArm-1@0.53125",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082",
+   "wheelArm3@0.4295512004 hullWheeled-1@0.4375 engPetrol3@0.5262573704 wheelArm-1@0.5625",
+   "hullWheeled4@0.4302395498 engPetrol3@0.5227395498",
+   "wheelArm3@0.4295512004 hullWheeled-1@0.4375 engPetrol3@0.5262573704 wheelArm-1@0.5625",
+   "wheelArm-1@0.4509252271 hullWheeled-1@0.4639156082",
+   "wheelArm-1@0.4575 hullWheeled-1@0.46875 wheelArm-1@0.53125",
+   "hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "wheelArm1@0.4174509783 hullWheeled-1@0.4375 engPetrol-1@0.465 wheelArm-1@0.5625",
+   "mlrsLight2@0.5067604502",
+   "mlrsLight2@0.5078062954",
+   "mlrsLight2@0.5135209003",
+   "",
+   "mlrsLight-1@0.4797927406",
+   "mlrsLight-1@0.465",
+   "mlrsLight0@0.4032395498",
+   "mlrsLight-1@0.465",
+   "mlrsLight-1@0.4797927406",
+   "",
+   "mlrsLight2@0.5135209003",
+   "mlrsLight2@0.5078062954"
+  ],
+  "shots": [
+   "aphe85:pen:1:ENGINE+CREW|hullWheeled=29 engPetrol=815.4177187|hullWheeled.0=433.8525648 hullWheeled.1=56.01257335",
+   "apfsds120:pen:1:ENGINE+CREW+FUEL|hullWheeled=32 engPetrol=1099.85181|hullWheeled.0=261.3457905 hullWheeled.2=180.7648143"
+  ]
+ },
+ "ok8": {
+  "body": "-3.1,3.1,0,2.37,-1.7,1.7",
+  "groups": [
+   "ringP:turretAA+samCmd+samCmd+radarSearch+radarTrack:0.6981317008"
+  ],
+  "muzzles": [
+   "samCmd@0:1.38,2.97,-1.8",
+   "samCmd@0:1.38,2.97,1.8",
+   "samCmd@90:1.8,2.97,1.38",
+   "samCmd@90:-1.8,2.97,1.38"
+  ],
+  "launch": [],
+  "rays": [
+   "hullWheeled1@0.4247318039 engDiesel1@0.5286686632",
+   "wheelArm1@0.421963794 hullWheeled-1@0.4375 engDiesel1@0.5331037208 wheelArm-1@0.5625",
+   "wheelArm1@0.4598373263 hullWheeled-1@0.4639156082",
+   "wheelArm-1@0.4575 hullWheeled-1@0.46875 wheelArm-1@0.53125",
+   "hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "wheelArm3@0.4308118874 hullWheeled-1@0.4375 engDiesel-1@0.46 wheelArm-1@0.5625",
+   "hullWheeled4@0.4263313368 engDiesel3@0.4313313368",
+   "wheelArm3@0.4308118874 hullWheeled-1@0.4375 engDiesel-1@0.46 wheelArm-1@0.5625",
+   "hullWheeled-1@0.4639156082 wheelArm-1@0.5360843918",
+   "wheelArm-1@0.4575 hullWheeled-1@0.46875 wheelArm-1@0.53125",
+   "wheelArm1@0.4598373263 hullWheeled-1@0.4639156082",
+   "wheelArm1@0.421963794 hullWheeled-1@0.4375 engDiesel1@0.5331037208 wheelArm-1@0.5625",
+   "turretAA1@0.4723299132",
+   "turretAA1@0.4680493358",
+   "samCmd-1@0.4307179677 turretAA-1@0.4653589838 samCmd-1@0.5346410162",
+   "samCmd-1@0.44 turretAA-1@0.47 samCmd-1@0.53",
+   "samCmd0@0.4566626737 turretAA-1@0.4653589838 samCmd-1@0.5346410162",
+   "turretAA3@0.4668962792",
+   "turretAA3@0.4713313368",
+   "turretAA3@0.4668962792",
+   "samCmd0@0.4566626737 turretAA-1@0.4653589838 samCmd-1@0.5346410162",
+   "samCmd-1@0.44 turretAA-1@0.47 samCmd-1@0.53",
+   "samCmd-1@0.4307179677 turretAA-1@0.4653589838 samCmd-1@0.5346410162",
+   "turretAA1@0.4680493358"
+  ],
+  "shots": [
+   "aphe85:pen:1:CREW|hullWheeled=29|hullWheeled.0=478.8064628 hullWheeled.1=56.01257335",
+   "apfsds120:pen:1:CREW+FUEL+ENGINE|hullWheeled=32 engDiesel=170.8823273|hullWheeled.0=720.8165706 hullWheeled.2=180.7648143"
+  ]
+ },
+ "technical": {
+  "body": "-2,2,-0.2,3.5,-1.1,1.1",
+  "groups": [],
+  "muzzles": [
+   "mgHeavy@0:1.55,3.25,0",
+   "mgHeavy@90:1.55,3.25,0"
+  ],
+  "launch": [
+   "mgHeavy:ball13:1.55,3.25,0>889.9979975,-1.887970858,2.312097468e-16"
+  ],
+  "rays": [
+   "cab-5@0.4631521739",
+   "cab-5@0.4574517954",
+   "cab-5@0.4711324865",
+   "cab-5@0.475",
+   "cab-5@0.4711324865",
+   "cab-5@0.4732661723",
+   "cab-5@0.4768478261",
+   "cab-5@0.4732661723",
+   "cab-5@0.4711324865",
+   "cab-5@0.475",
+   "cab-5@0.4711324865",
+   "cab-5@0.4574517954",
+   "mgHeavy2@0.4694021739",
+   "mgHeavy-1@0.4875",
+   "mgHeavy-1@0.4927831216",
+   "mgHeavy-1@0.49375",
+   "mgHeavy-1@0.4927831216",
+   "mgHeavy0@0.4891433047",
+   "mgHeavy0@0.4905978261",
+   "mgHeavy0@0.4891433047",
+   "mgHeavy-1@0.4927831216",
+   "mgHeavy-1@0.49375",
+   "mgHeavy-1@0.4927831216",
+   "mgHeavy-1@0.4875"
+  ],
+  "shots": [
+   "aphe85:hit:0:|chassis=290|",
+   "apfsds120:hit:0:|chassis=320|"
+  ]
+ }
+}

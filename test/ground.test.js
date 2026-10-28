@@ -44,8 +44,11 @@ var oldRun = (v, F, secs, script) => {
     if (v.dead || !v.parts.length) break;
   }
 };`);
+// (every old template: the ground update's own stock vehicles, which carry its parts, are left out of these proofs)
+const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv));
+ctx.__OLD = OLD;
 let traced = 0;
-for (const key of Object.keys(ctx.TEMPLATES)) {
+for (const key of OLD) {
   const T = ctx.TEMPLATES[key];
   ctx.__v = G.craft(ctx, T.parts, T.kind || 'rocket');
   R(`(() => {
@@ -111,16 +114,17 @@ var bugSaved = Vessel.restore(JSON.parse(JSON.stringify(bug.serialize())));`);
 t('a buggy drive (and its saved flight): no calls', calls() === '{}' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), calls());
 
 // 4. designs, codes and costs of every template
-R(`for (const k in TEMPLATES) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
-t('rows and costs of every template: no calls', calls() === '{}', calls());
+R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
+t('rows and costs of every old template: no calls', calls() === '{}', calls());
 t('old vessels carry the new fields\' defaults (no gear, no groups, not plated)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)`));
 
 // 5. multiplayer: an old craft's spawn rows out and back, and its ghost
 const mp = G.load({ mp: true, earth: false });
 wrap(mp);
+mp.__OLD = OLD;
 const spawnOld = G.run(mp, `(() => {
   const out = [];
-  for (const k in TEMPLATES) {
+  for (const k of __OLD) {
     const ps = partsFromDesign(templateRows(TEMPLATES[k])), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = TEMPLATES[k].kind || 'rocket'; v.rebuildGroups();
     Flight.active = v; MP.sendSpawn();
     const rows = Net.out[Net.out.length - 1][0].parts, clean = mpSpawnRows(rows);
@@ -131,7 +135,7 @@ const spawnOld = G.run(mp, `(() => {
   return out.every(Boolean);
 })()`);
 t('old spawn rows keep their nine columns, and ghosts weigh what the craft does', spawnOld);
-t('spawning and ghosting every template: no calls', calls(mp) === '{}', calls(mp));
+t('spawning and ghosting every old template: no calls', calls(mp) === '{}', calls(mp));
 
 // ---------------------------------------------------------------- the kinds
 t('isGround: cars and armour, nothing else', R(`isGround('car') && isGround('tank') && !isGround('plane') && !isGround('heli') && !isGround('rocket') && !isGround(undefined)`));
@@ -424,9 +428,10 @@ t('W drives it forward; D turns it on the spot (right)', R(`vf > 2 && yaw < -0.0
 t('(and the counters do see the new code run for a ground-update craft)', R(`CALLS['Aim.groups'] > 0 && CALLS['Gear.ground'] > 0 && CALLS['Gear.points'] > 0 && CALLS['Aim.stepAll'] > 0`), calls());
 
 // ---------------------------------------------------------------- the catalogue's own parts meet the hooks (a TK-34-like tank)
-// hull (its plate dialled to 60 mm), two tracks, a diesel inside, a ring, a cast turret, the 85 mm gun and a coaxial MG
+// hull (its plate dialled to 75 mm, 20 over its 55), two tracks, a diesel inside, a ring, a cast turret, the 85 mm gun
+// and a coaxial MG
 R(`var REAL = [
-  { type: 'hullMedium', x: 0, y: 1.1, flip: false, rot: 0, mm: 60 },
+  { type: 'hullMedium', x: 0, y: 1.1, flip: false, rot: 0, mm: 75 },
   { type: 'trackMed', x: 0, y: 0.5, flip: false, rot: 0, z: -1.35, att: 0 }, { type: 'trackMed', x: 0, y: 0.5, flip: false, rot: 0, z: 1.35, att: 0 },
   { type: 'engDiesel', x: -1.8, y: 1.1, flip: true, rot: 0, att: 0 },
   { type: 'ringM', x: 0, y: 1.85, flip: false, rot: 0, att: 0 }, { type: 'turretCast', x: 0, y: 2.425, flip: false, rot: 0, att: 4 },
@@ -435,7 +440,7 @@ var rps = partsFromDesign(REAL), radj = buildAdjacency(rps), rmass = kg(rps), rm
 var rcode = Codes.designCode({ name: 'TK', kind: 'tank', parts: designRows(rps) }), rback = partsFromDesign(Codes.parseCode(rcode).parts);
 var rv = vesselOf(REAL), rsaved = Vessel.restore(JSON.parse(JSON.stringify(rv.serialize())));`);
 t('real parts: joined, clash-free, the hull in control, the dialled plate the only mm', R(`(() => { let clash = 0; for (let i = 0; i < rps.length; i++) for (let j = i + 1; j < rps.length; j++) if (partsClash(rps[i], rps[j])) clash++;
-  return clash === 0 && componentOf(rps[0].id, radj).size === rps.length && findControlPart(rps) === rps[0] && rmm(rps) === '60,-,-,-,-,-,-,-'; })()`), R('rmm(rps)'));
+  return clash === 0 && componentOf(rps[0].id, radj).size === rps.length && findControlPart(rps) === rps[0] && rmm(rps) === '75,-,-,-,-,-,-,-'; })()`), R('rmm(rps)'));
 t('real parts: rows -> RSS3 code -> parts, the same mass and mm', R(`rcode.startsWith('RSS3.') && near(kg(rback), rmass) && rmm(rback) === rmm(rps) && rmass > kg(partsFromDesign(REAL.map((q) => ({ ...q, mm: undefined })))) + 3000`),
   R('[rcode.slice(0, 5), kg(rback) - rmass, rmm(rback)]'));
 t('real parts: a saved flight, the same mass and mm', R(`near(rsaved.mass, rv.mass) && near(rv.mass, rmass) && rmm(rsaved.parts) === rmm(rps)`), R('[rsaved.mass - rv.mass, rv.mass - rmass, rmm(rsaved.parts)]'));
