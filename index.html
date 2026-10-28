@@ -81,7 +81,9 @@
       </div>
       <div class="mp-create">
         <button id="mp-create-sandbox" class="home-btn"><span class="hb-name">Create sandbox</span><span class="hb-sub">Free play on the islands with up to four friends. Every part, no rules, no limits.</span></button>
-        <button id="mp-create-pvp" class="home-btn primary"><span class="hb-name">Create battle</span><span class="hb-sub">1v1, 2v2, 3v3 or free-for-all. Limited money, a timed build, then one life each: last team flying wins.</span></button>
+        <button id="mp-create-pvp" class="home-btn primary"><span class="hb-name">Create air battle</span><span class="hb-sub">1v1, 2v2, 3v3 or free-for-all. Limited money, a timed build, then one life each: last team flying wins.</span></button>
+        <button id="mp-create-ground" class="home-btn primary ground"><span class="hb-name">Create ground battle</span><span class="hb-sub">Tanks, SPAA and armoured cars, 1v1 to 3v3. Build a vehicle, then hold the zones on Highland Ridge: respawn while your team has tickets.</span></button>
+        <button id="mp-practice" class="home-btn ground"><span class="hb-name">Practice battle (vs AI)</span><span class="hb-sub">The ground battle on your own: you and two AI allies against three AI vehicles. No room needed.</span></button>
       </div>
       <div class="mp-field">
         <label for="mp-join-code">Join a room</label>
@@ -326,10 +328,13 @@
   <div class="mp-bar-track"><div id="mp-timer-fill" class="mp-bar-fill"></div></div>
   <div class="mp-bar-row">
     <span id="mp-bar-info" class="mp-bar-info"></span>
+    <span id="mp-ground" class="mp-ground" hidden><span id="mp-tk0" class="mp-tk us" title="Your team’s tickets">0</span><span id="mp-zones" class="mp-zones"></span><span id="mp-tk1" class="mp-tk them" title="The enemy’s tickets">0</span></span>
     <button id="mp-spawn-btn" class="btn small" hidden>Spawn</button>
     <button id="mp-score-btn" class="btn small" title="Scoreboard (hold `)">Score</button>
     <button id="mp-ready-btn" class="btn small primary" hidden>Ready</button>
   </div>
+  <div id="mp-cap" class="mp-cap" hidden><span id="mp-cap-text"></span><div class="mp-cap-track"><i id="mp-cap-fill"></i></div></div>
+  <div id="mp-lineup" class="mp-lineup" hidden></div>
 </div>
 <div id="mp-feed" class="mp-feed" aria-live="polite"></div>
 <div id="mp-score" class="mp-score panel" hidden></div>

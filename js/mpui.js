@@ -24,7 +24,7 @@ const MPUI = {
     seg.addEventListener('click', (e) => { const b = e.target.closest('.kind-btn'); if (b) { setTr(b.dataset.tr); Sound.click(); } });
     setTr(tr);
     const busy = (on, text, err) => {
-      for (const id of ['#mp-create-sandbox', '#mp-create-pvp']) $(id).disabled = on;
+      for (const id of ['#mp-create-sandbox', '#mp-create-pvp', '#mp-create-ground', '#mp-practice']) $(id).disabled = on;
       const jb = $('#mp-join'), joining = on && this.connecting && this.connecting.join; // (a join can wait a minute on a host: let the player call it off)
       jb.textContent = joining ? 'Cancel' : 'Join'; jb.classList.toggle('primary', !joining); jb.disabled = on && !joining;
       const st = $('#mp-status'); st.textContent = text || ''; st.classList.toggle('err', !!err);
@@ -46,6 +46,8 @@ const MPUI = {
     const transport = () => store.get('rss.mp.tr', 'p2p');
     $('#mp-create-sandbox').addEventListener('click', () => go(() => MP.host('sandbox', transport()), 'Opening a room…'));
     $('#mp-create-pvp').addEventListener('click', () => go(() => MP.host('pvp', transport()), 'Opening a room…'));
+    $('#mp-create-ground').addEventListener('click', () => go(() => MP.host('pvp', transport(), { game: 'ground' }), 'Opening a room…'));
+    $('#mp-practice').addEventListener('click', () => { if (!this.connecting && !MP.active) this.practice(); });
     const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…', true);
     const stoppable = () => this.connecting && this.connecting.join && !MP.active; // (still looking for the host, not yet in)
     $('#mp-join').addEventListener('click', () => { if (!this.connecting) join(); else if (stoppable()) this.abandon(); });
@@ -62,7 +64,8 @@ const MPUI = {
     $('#mp-hangar').addEventListener('click', () => { App.toBuild(); });
     // overlays
     $('#mp-ready-btn').addEventListener('click', () => { MP.toggleReady(); Sound.click(); });
-    $('#mp-spawn-btn').addEventListener('click', () => this.openSpawnMap());
+    $('#mp-spawn-btn').addEventListener('click', () => { if (MP.ground) this.respawnPanel(this.koBy || 0); else this.openSpawnMap(); }); // (a ground battle: Respawn)
+    $('#mp-lineup').addEventListener('click', (e) => { const b = e.target.closest('[data-slot]'); if (b && +b.dataset.slot > 0) this.lineupPick(+b.dataset.slot); });
     $('#mp-score-btn').addEventListener('click', () => this.toggleScore());
     $('#spawn-done').addEventListener('click', () => this.closeSpawnMap());
     $('#spawn-map').addEventListener('pointerdown', (e) => { if (e.target.id === 'spawn-map') this.closeSpawnMap(); });
@@ -148,7 +151,7 @@ const MPUI = {
     $('#mp-lobby').hidden = !live;
     $('#mp-code-box').hidden = !live;
     if (live) $('#mp-code').textContent = Net.code;
-    $('#mp-kicker').textContent = live ? (s.mode === 'pvp' ? `Battle · ${s.settings.format.toUpperCase()}` : 'Sandbox') + (Net.transport === 'local' ? ' · this device' : ' · online') : 'Multiplayer';
+    $('#mp-kicker').textContent = live ? (s.mode === 'pvp' ? `${MP.ground ? 'Ground battle' : 'Battle'} · ${s.settings.format.toUpperCase()}` : 'Sandbox') + (Net.transport === 'local' ? ' · this device' : ' · online') : 'Multiplayer';
     $('#mp-heading').textContent = live ? (s.mode === 'pvp' ? (s.phase === 'lobby' ? 'Battle lobby' : 'Battle in progress') : 'Shared sandbox') : 'Play together';
     if (live) { this.renderPlayers(); this.renderSettings(); this.renderFoot(); }
     this.renderBar();
@@ -197,8 +200,8 @@ const MPUI = {
       this.stayHint(box);
       return;
     }
-    const seg = (key, opts, val) => {
-      const g = el('div', { class: 'kind-select' });
+    const seg = (key, opts, val, fit) => { // (fit: as many columns as choices; the air battle's keep their four)
+      const g = el('div', { class: 'kind-select' + (fit ? ` n${opts.length}` : '') });
       for (const [v, label] of opts) {
         const b = el('button', { class: 'kind-btn', text: label });
         b.setAttribute('aria-checked', String(val === v));
@@ -209,6 +212,8 @@ const MPUI = {
       return g;
     };
     const set = (label, ctl) => box.append(el('div', { class: 'mp-set' }, el('span', { text: label }), ctl));
+    set('Game', seg('game', [['air', 'Air'], ['ground', 'Ground']], st.game === 'ground' ? 'ground' : 'air', true));
+    if (st.game === 'ground') { this.renderGround(box, st, host, seg, set); return; }
     set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3'], ['ffa', 'FFA']], st.format));
     set('Money', seg('budget', [[45000, '$45k'], [75000, '$75k'], [120000, '$120k']], st.budget));
     set('Build time', seg('build', [[120, '2 min'], [180, '3 min'], [300, '5 min']], st.build));
@@ -228,6 +233,38 @@ const MPUI = {
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
     else if (s.phase === 'lobby') this.stayHint(box);
   },
+  // A ground battle's settings: teams (no free-for-all), the money by era, tickets, respawns, air support, aim, then
+  // as an air battle's (no carriers); the arena is the host's map's
+  renderGround(box, st, host, seg, set) {
+    set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3']], st.format, true));
+    const era = el('div', { class: 'kind-select mp-money' });
+    for (const [v, m, e] of [[45000, '$45k', 'WWII'], [75000, '$75k', 'Cold War'], [120000, '$120k', 'Modern']]) {
+      const b = el('button', { class: 'kind-btn' }, el('b', { text: m }), el('small', { text: e }));
+      b.setAttribute('aria-checked', String(st.budget === v)); b.disabled = !host;
+      b.addEventListener('click', () => { MP.setSetting('budget', v); Sound.click(); });
+      era.append(b);
+    }
+    set('Money', era);
+    set('Tickets', seg('tickets', [[400, '400'], [600, '600'], [900, '900']], st.tickets, true));
+    set('Respawns', seg('respawn', [['free', 'Free'], ['lineup', 'Lineup of 3']], st.respawn, true));
+    set('Air support', seg('air', [[false, 'Off'], [true, 'On']], !!st.air, true));
+    set('Aim', seg('aim', [['arcade', 'Arcade'], ['realistic', 'Realistic']], st.aim, true));
+    set('Build time', seg('build', [[120, '2 min'], [180, '3 min'], [300, '5 min']], st.build, true));
+    const tf = el('input', { type: 'checkbox' }); tf.checked = !!st.test; tf.disabled = !host;
+    tf.addEventListener('change', () => MP.setSetting('test', tf.checked));
+    set('Test drive', el('label', { class: 'mp-set-inline' }, tf, el('span', { class: 'muted small', text: ' 1 min on your pad, then 2 min to polish' })));
+    const ff = el('input', { type: 'checkbox' }); ff.checked = !!st.ff; ff.disabled = !host;
+    ff.addEventListener('change', () => MP.setSetting('ff', ff.checked));
+    set('Friendly fire', ff);
+    set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod, true));
+    set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit, true));
+    const A = EARTH.arenas && EARTH.arenas[st.arena], hill = st.arena === 'highland';
+    set('Arena', el('div', { class: 'mp-arena' }, el('b', { text: A ? A.name : 'Runway' }),
+      el('span', { class: 'muted small', text: hill ? ' · three zones in the North Scotland hills' : ' · The real map didn’t load: the battle is on the runway' })));
+    box.append(el('p', { class: 'mp-explain', text: `Build Armour or a car, then hold the zones: each team starts with ${st.tickets} tickets, and every vehicle lost costs some (a dear one more). ${st.respawn === 'lineup' ? 'Three vehicles each, every one spawns once.' : 'Respawn as often as your team has tickets.'}${st.air ? ' Knock-outs and captures earn sortie points for aircraft.' : ''}` }));
+    if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
+    else if (MP.state.phase === 'lobby') this.stayHint(box);
+  },
   // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
   // in front (as when sending the code in a chat app), so say so, first thing in the card.
   stayHint(box) {
@@ -241,8 +278,8 @@ const MPUI = {
     $('#mp-start').hidden = !pvp || !Net.isHost || s.phase !== 'lobby';
     $('#mp-hangar').hidden = pvp;
     let note = '';
-    if (pvp && s.phase === 'lobby') note = Net.isHost ? 'Start when everyone’s in. Build, (test), then fight: one life each.' : 'Waiting for the host to start the battle.';
-    else if (pvp) note = `Battle running: ${{ build: 'building', test: 'test flights', polish: 'final touches', battle: 'fighting', results: 'results' }[s.phase] || s.phase}.`;
+    if (pvp && s.phase === 'lobby') note = Net.isHost ? (MP.ground ? 'Start when everyone’s in. Build, (test drive), then hold the zones.' : 'Start when everyone’s in. Build, (test), then fight: one life each.') : 'Waiting for the host to start the battle.';
+    else if (pvp) note = `Battle running: ${{ build: 'building', test: MP.ground ? 'test drives' : 'test flights', polish: 'final touches', battle: 'fighting', results: 'results' }[s.phase] || s.phase}.`;
     else note = 'Build anything, then fly it into the shared world.';
     $('#mp-foot-note').textContent = note;
   },
@@ -256,13 +293,18 @@ const MPUI = {
     if (App.scene !== 'flight' && !$('#mp-hud-chat').hidden) { $('#mp-hud-input').hidden = true; $('#mp-hud-input').blur(); $('#mp-hud-chat').hidden = true; }
     if (!show) { this.scoreSticky = false; $('#mp-score').hidden = true; return; }
     bar.classList.toggle('flight', App.scene === 'flight');
-    const label = s.mode === 'sandbox' ? 'Sandbox' : { build: 'Build', test: 'Test flight', polish: 'Final touches', battle: 'Battle', results: 'Results' }[s.phase] || s.phase;
+    const label = s.mode === 'sandbox' ? 'Sandbox' : { build: 'Build', test: MP.ground ? 'Test drive' : 'Test flight', polish: 'Final touches', battle: 'Battle', results: 'Results' }[s.phase] || s.phase;
     $('#mp-phase').textContent = label;
     const building = s.mode === 'pvp' && (s.phase === 'build' || s.phase === 'polish');
     $('#mp-ready-btn').hidden = !building || App.scene !== 'build';
     $('#mp-ready-btn').setAttribute('aria-pressed', String(!!(MP.me && MP.me.ready)));
     $('#mp-ready-btn').textContent = MP.me && MP.me.ready ? 'Ready ✓' : 'Ready';
-    $('#mp-spawn-btn').hidden = !building || App.scene !== 'build';
+    const sb = $('#mp-spawn-btn'), st = MP.ground ? 'Respawn' : 'Spawn';
+    if (sb.textContent !== st) sb.textContent = st;
+    if (!MP.ground) sb.hidden = !building || App.scene !== 'build'; // (a ground battle: no spawn map; Respawn once knocked out: tickGround)
+    this.renderLineup(building && App.scene === 'build' && MP.ground && s.settings.respawn === 'lineup');
+    bar.classList.toggle('ground', MP.ground);
+    if (!MP.ground) { if ($('#mp-bar-info').hidden) $('#mp-bar-info').hidden = false; if (!$('#mp-ground').hidden) $('#mp-ground').hidden = true; if (!$('#mp-cap').hidden) $('#mp-cap').hidden = true; } // (after a ground battle)
     $('#mp-score-btn').hidden = s.mode !== 'pvp' && App.scene !== 'flight';
     if ($('#mp-score-btn').hidden && !$('#mp-score').hidden) { this.scoreSticky = false; $('#mp-score').hidden = true; }
     this.tick();
@@ -279,6 +321,7 @@ const MPUI = {
     } else { timer.textContent = s.mode === 'sandbox' ? Net.code : ''; fill.style.transform = ''; $('#mp-bar').classList.remove('urgent'); }
     // the line under the timer
     const info = $('#mp-bar-info');
+    if (MP.ground) { this.tickGround(s, info); return; }
     if (s.mode === 'sandbox') info.textContent = `${s.players.length} in the room · ${s.players.filter((p) => p.flying).length} flying`;
     else if (App.scene === 'build' && Builder.statsData) {
       const cost = Builder.statsData.cost || 0, budget = MP.budgetFor(MP.spawnId);
@@ -291,11 +334,47 @@ const MPUI = {
     } else info.textContent = '';
   },
 
+  // A ground battle's bar, 4 times a second, writing only what changed: money and readiness while building; in the
+  // battle our tickets and theirs round the three zones (ours blue, theirs red, each filled as far as it's taken), a
+  // capture bar while we stand in a zone, and Respawn once we're knocked out.
+  tickGround(s, info) {
+    const o = s.obj, me = MP.me, battle = s.phase === 'battle' && !!o;
+    if (App.scene === 'build' && Builder.statsData && (s.phase === 'build' || s.phase === 'polish')) {
+      const cost = Builder.statsData.cost || 0, budget = MP.budgetFor(MP.spawnId), A = EARTH.arenas && EARTH.arenas[s.settings.arena];
+      const html = `<span class="${cost > budget ? 'over' : 'ok'}">${money(cost)}</span> / ${money(budget)} · ${A ? A.name : 'Runway'} · ${s.players.filter((p) => p.ready).length}/${s.players.length} ready`;
+      if (info._html !== html) { info._html = html; info.innerHTML = html; } // (numbers and our own arena names only)
+    } else if (info.textContent) { info._html = null; info.textContent = ''; }
+    const gl = $('#mp-ground'), cap = $('#mp-cap'), rb = $('#mp-spawn-btn');
+    mpSet(gl, 'hidden', !battle); mpSet(info, 'hidden', battle); // (in the battle the tickets and zones take the info line's place)
+    mpSet(rb, 'hidden', !(battle && App.scene === 'flight' && Flight.destroyed && me && me.alive));
+    if (!battle) { mpSet(cap, 'hidden', true); return; }
+    const mine = me && me.team === 1 ? 1 : 0, sg = mine ? 1 : -1;
+    mpSet($('#mp-tk0'), 'textContent', String(o.tk[mine])); mpSet($('#mp-tk1'), 'textContent', String(o.tk[1 - mine]));
+    const zs = $('#mp-zones');
+    if (zs.childElementCount !== o.zones.length) { zs.textContent = ''; for (const z of o.zones) zs.append(el('span', { class: 'mp-zone', 'data-z': z.id }, el('i'), el('b', { text: z.id }))); }
+    o.zones.forEach((z, i) => {
+      const c = zs.children[i], toUs = z.p * sg; // (how far it's ours: -1..1)
+      mpSet(c, 'className', 'mp-zone' + (z.own < 0 ? '' : z.own === mine ? ' us' : ' them'));
+      mpBar(c.firstElementChild, toUs);
+    });
+    // the zone we're in: capturing (it moves our way), losing it, holding it, or stuck (contested, or we don't count)
+    const v = Flight.active, q = this.capQ || (this.capQ = {});
+    let inZ = null;
+    if (v && !Flight.destroyed && v.body === EARTH && Flight.running) { mpEZ(v.x, v.y, v.z, q); inZ = o.zones.find((z) => GroundMode.inZone(q.e, q.z, z)) || null; }
+    mpSet(cap, 'hidden', !inZ);
+    if (!inZ) { this.capWas = null; return; }
+    const toUs = inZ.p * sg, was = this.capWas && this.capWas.id === inZ.id ? this.capWas.p : toUs;
+    this.capWas = { id: inZ.id, p: toUs };
+    const what = toUs > was + 1e-3 ? 'Capturing' : toUs < was - 1e-3 ? 'Losing' : inZ.own === mine && toUs >= 0.999 ? 'Holding' : 'Contested';
+    mpSet($('#mp-cap-text'), 'textContent', `${what} ${inZ.id} · ${Math.round(Math.abs(toUs) * 100)}%`);
+    mpBar($('#mp-cap-fill'), toUs);
+  },
+
   // ------------------------------------------------------------------ spawn map
   // The battle area in the game's own frame: east along the runway to the right, game north up.
   MAP: { e0: -9000, e1: 31000, z0: -9000, z1: 21000 },
   openSpawnMap() {
-    if (!MP.live || !MP.pvp) return;
+    if (!MP.live || !MP.pvp || MP.ground) return; // (a ground battle: each team its pad)
     $('#spawn-map').hidden = false;
     App.afterEarth(() => this.drawSpawnMap());
     this.renderSpawnList();
@@ -448,12 +527,14 @@ const MPUI = {
     const box = $('#mp-score');
     if (!on || !MP.live) { box.hidden = true; return; }
     box.innerHTML = '';
-    box.append(el('h3', { text: MP.pvp ? `Scoreboard · ${MP.state.settings.format.toUpperCase()}` : `Room ${Net.code}` }), this.scoreTable(MP.state.players));
+    const o = MP.ground && MP.state.obj, mine = MP.me && MP.me.team === 1 ? 1 : 0;
+    box.append(el('h3', { text: MP.pvp ? `Scoreboard · ${MP.state.settings.format.toUpperCase()}${o ? ` · tickets ${o.tk[mine]} – ${o.tk[1 - mine]}` : ''}` : `Room ${Net.code}` }), this.scoreTable(MP.state.players));
     box.hidden = false;
   },
-  scoreTable(players) {
+  scoreTable(players, ground) {
     const t = el('table', { class: 'dv-table' });
-    t.innerHTML = '<thead><tr><th>Pilot</th><th>Team</th><th>Kills</th><th>Lost</th><th>Damage</th><th>Ping</th></tr></thead>';
+    if (ground ?? MP.ground) return this.groundTable(t, players);
+    t.innerHTML = '<thead><tr><th>Player</th><th>Team</th><th>Kills</th><th>Lost</th><th>Damage</th><th>Ping</th></tr></thead>';
     const tb = el('tbody');
     const ffa = MP.ffa();
     for (const p of [...players].sort((a, b) => (a.team - b.team) || (b.kills - a.kills))) {
@@ -466,10 +547,37 @@ const MPUI = {
     t.append(tb);
     return t;
   },
+  // a ground battle's: Player · Team · Kills · Caps · Lost · Score · Ping, best score first in each team
+  groundTable(t, players) {
+    t.classList.add('mp-gtable');
+    t.innerHTML = '<thead><tr><th>Player</th><th>Team</th><th>Kills</th><th>Caps</th><th>Lost</th><th>Score</th><th>Ping</th></tr></thead>';
+    const tb = el('tbody'), n = (x) => String(Math.round(+x || 0));
+    for (const p of [...players].sort((a, b) => (a.team - b.team) || ((b.score || 0) - (a.score || 0)) || (b.kills - a.kills))) {
+      const tr = el('tr', { class: (p.alive === false && MP.phase === 'battle' ? 'dead' : '') + (p.pid === Net.me ? ' me' : '') }), tm = p.team === 1 ? 1 : 0;
+      tr.append(el('td', { text: String(p.name) }), el('td', { class: `t${tm}`, text: MP_TEAM_NAMES[tm] }), el('td', { text: n(p.kills) }), el('td', { text: n(p.caps) }),
+        el('td', { text: n(p.deaths) }), el('td', { text: n(p.score) }), el('td', { text: p.pid === 1 ? '—' : `${n(p.ping)} ms` }));
+      tb.append(tr);
+    }
+    t.append(tb);
+    return el('div', { class: 'mp-twrap' }, t); // (a phone scrolls it sideways rather than cut it off)
+  },
   results(r) {
     if (!r || !MP.live) return;
     const me = MP.me, ffa = r.ffa;
     let kicker, title;
+    if (r.ground) { // "Shetland win on tickets (212 – 0) · Highland Ridge"
+      const A = EARTH.arenas && EARTH.arenas[r.arena], where = A ? A.name : 'Runway', tk = Array.isArray(r.tk) ? r.tk.map((x) => Math.round(+x || 0)) : [0, 0];
+      if (r.winner !== 0 && r.winner !== 1) { kicker = `${r.why === 'time' || r.why === 'draw' ? 'Level on tickets' : 'Both teams out'} (${tk[0]} – ${tk[1]}) · ${where}`; title = 'Draw'; }
+      else { kicker = `${MP_TEAM_NAMES[r.winner]} win ${{ tickets: 'on tickets', wiped: 'with nobody left against them', time: 'on time' }[r.why] || ''} (${tk[r.winner]} – ${tk[1 - r.winner]}) · ${where}`; title = me && me.team === r.winner ? 'Victory!' : 'Defeat'; }
+      const body = el('div');
+      body.append(this.scoreTable(r.players, true));
+      const actions = Net.isHost ? [{ label: 'Leave', onClick: () => MP.end() }, { label: 'Back to the lobby', primary: true, onClick: () => MP.backToLobby() }]
+        : [{ label: 'Leave', onClick: () => MP.end() }, { label: 'Waiting for the host…', keepOpen: true }];
+      MP.modalLocked = true;
+      UI.modal({ kicker, title, body, actions, onClose: () => { MP.modalLocked = false; } });
+      if (title === 'Victory!') Sound.chime();
+      return;
+    }
     if (r.winner == null) { kicker = r.why === 'time' ? 'Time is up' : 'Everyone went down'; title = 'Draw'; }
     else if (ffa) { const w = r.players.find((p) => p.pid === r.winner || p.team === r.winner); kicker = 'Last one flying'; title = w && w.pid === Net.me ? 'Victory!' : `${w ? w.name : 'Someone'} wins`; }
     else { kicker = `${MP_TEAM_NAMES[r.winner]} win${r.why === 'time' ? ' on time' : ''}`; title = me && me.team === r.winner ? 'Victory!' : 'Defeat'; }
@@ -516,7 +624,7 @@ const MPUI = {
       if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 38); ctx.globalAlpha = 1; }
     }
     // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
-    this.drawRadar(ctx, W, H, F, me);
+    if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
       ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${isTouch ? 'tap' : '[ ]'} to switch`, W / 2, H - 40);
@@ -528,6 +636,7 @@ const MPUI = {
   // eye, or further on our own radar if it's ahead of us (stealth shrinks both).
   spotted(g, me, F) {
     if (!MP.pvp || (!MP.ffa() && MP.teamOf(g.remote) === MP.teamOf(Net.me))) return true;
+    if (MP.ground) return MP.spotted(g.remote, me); // (a ground battle: sight lines, spotting by the team, gun flashes)
     const dx = g.x - me.x, dy = g.y - me.y, dz = g.z - me.z, d = Math.hypot(dx, dy, dz), st = Combat.stealthOf(g);
     if (d < 6000 * (1 - 0.5 * st)) return true;
     const v = F.active;
@@ -589,10 +698,129 @@ const MPUI = {
     ctx.textAlign = 'center';
   },
 
+  // ------------------------------------------------------------------ ground battles: respawns, the lineup, practice
+  // Knocked out: back in once the host's respawn time comes. Free respawns: our vehicle again, another one (a saved
+  // design or a stock one within the money), or with air support and a sortie point an aircraft; a Lineup of 3: the
+  // slots not yet used. Big buttons for thumbs; built with el() (names from peers stay text).
+  respawnPanel(by) {
+    if (!MP.ground || !MP.live || MP.phase !== 'battle' || !Flight.destroyed || !MP.me) return;
+    this.koBy = by || 0;
+    const st = MP.state.settings, lineup = st.respawn === 'lineup', body = el('div', { class: 'rsp' });
+    const wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [];
+    body.append(wait, list);
+    let shown = null, timer = 0;
+    // the countdown to the host's respawn time (the buttons that spawn wait for it), written only when it changes
+    const tick = () => {
+      const me = MP.me;
+      if ($('#modal').hidden || !body.isConnected || !me || MP.phase !== 'battle') { clearInterval(timer); return; }
+      const o = MP.state.obj, left = Math.ceil(((me.respawnAt || 0) - 300 - Net.hostNow()) / 1000), out = !o || !(o.tk[me.team] > 0);
+      const text = out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle';
+      if (text !== shown) { shown = text; wait.textContent = text; for (const b of gated) b.disabled = out || left > 0; }
+    };
+    const opt = (title, sub, fn, ok = true, now = false) => { // (now: works before the timer, as a menu does)
+      const b = el('button', { class: 'rsp-opt' + (now ? ' menu' : '') }, el('b', { text: title }), el('span', { text: sub }));
+      b.addEventListener('click', () => { Sound.click(); fn(); });
+      b.disabled = !ok; if (ok && !now) gated.push(b);
+      list.append(b);
+      return b;
+    };
+    const fresh = () => { shown = null; if (body.isConnected) tick(); };
+    const go = (d, slot) => { if (!MP.respawnWith(d, slot)) UI.toast('Not yet: wait for the timer', 'warn'); };
+    const airOk = () => { const me = MP.me; return !!me && (me.sorties || 0) > 0 && Net.hostNow() - (me.sortieEnd || -1e9) >= 60000; };
+    const airText = () => { const me = MP.me, n = (me && me.sorties) || 0, w = me ? Math.ceil((60000 - (Net.hostNow() - (me.sortieEnd || -1e9))) / 1000) : 0;
+      return !n ? 'Knock-outs and captures earn sortie points' : w > 0 ? `${n} sortie point${n > 1 ? 's' : ''} · ready in ${w} s` : `${n} sortie point${n > 1 ? 's' : ''}: one a flight`; };
+    const main = () => {
+      list.textContent = ''; gated.length = 0;
+      const me = MP.me;
+      if (lineup) {
+        for (let i = 0; i < 3; i++) {
+          const d = MP.lineup[i] || (i ? null : MP.groundDesign || MP.myDesign);
+          if (!d || ((me.slots || 0) & (1 << i))) continue;
+          const air = mpAir(d.kind);
+          opt(`Slot ${i + 1}: ${d.name || VEHICLE_KINDS[d.kind].name}`, air ? airText() : `${money(designCost(partsFromDesign(d.parts)))} · spawns once`, () => go(d, i), !air || airOk());
+        }
+        if (!list.childElementCount) list.append(el('p', { class: 'muted', text: 'Every slot is used: watch the rest of the battle.' }));
+      } else {
+        const d = MP.groundDesign || MP.myDesign;
+        if (d) opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
+        opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => pick(false), true, true);
+        if (st.air) opt('Aircraft…', airText(), () => pick(true), airOk(), true);
+      }
+      fresh();
+    };
+    const pick = (air) => {
+      list.textContent = ''; gated.length = 0;
+      opt('‹ Back', air ? 'The ground vehicles' : 'Your vehicle', main, true, true);
+      const C = MP.choices(air);
+      for (const c of C) opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
+      if (!C.length) list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : 'No vehicle fits the money.' }));
+      fresh();
+    };
+    UI.modal({ kicker: 'Respawn', title: by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', body, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }], onClose: () => clearInterval(timer) });
+    main();
+    timer = setInterval(tick, 250);
+  },
+  // The lineup in the build phase (Lineup of 3): slot 1 is what's on the blueprint, slots 2 and 3 a saved or stock design
+  // each (tap to change)
+  renderLineup(on) {
+    const box = $('#mp-lineup');
+    if (box.hidden !== !on) box.hidden = !on;
+    if (!on) return;
+    const sig = MP.lineup.map((d) => (d ? d.name : '')).join('|');
+    if (box._sig === sig) return;
+    box._sig = sig;
+    box.textContent = '';
+    for (let i = 0; i < 3; i++) {
+      const d = MP.lineup[i];
+      box.append(el('button', { class: 'mp-slot' + (i ? '' : ' built'), 'data-slot': String(i), title: i ? 'Tap to pick another vehicle for this slot' : 'The vehicle on your blueprint' },
+        el('small', { text: String(i + 1) }), el('span', { text: i ? (d ? d.name : 'Pick…') : 'Your build' })));
+    }
+  },
+  lineupPick(i) {
+    if (!MP.ground || !MP.state || MP.state.settings.respawn !== 'lineup') return;
+    const body = el('div', { class: 'rsp' }), list = el('div', { class: 'rsp-list' });
+    body.append(list);
+    const add = (c) => {
+      const b = el('button', { class: 'rsp-opt' }, el('b', { text: c.name }), el('span', { text: `${money(c.cost)}${c.saved ? ' · your design' : ''}${mpAir(c.design.kind) ? ' · aircraft: needs a sortie point' : ''}` }));
+      b.addEventListener('click', () => { MP.lineup[i] = c.design; UI.closeModal(); Sound.click(); this.renderBar(); });
+      list.append(b);
+    };
+    for (const c of MP.choices(false)) add(c);
+    if (MP.state.settings.air) for (const c of MP.choices(true)) add(c);
+    UI.modal({ kicker: `Lineup · slot ${i + 1}`, title: 'Pick a vehicle', body, actions: [{ label: 'Cancel' }] });
+  },
+  // The Practice Battle (groundai.js): the ground battle's rules alone on this device, against the AI
+  practice() {
+    const body = el('div', { class: 'rsp' }), list = el('div', { class: 'rsp-list' });
+    body.append(el('p', { class: 'mp-explain', text: 'You and two AI allies against three AI vehicles, 300 tickets a side, on Highland Ridge (on the runway without the map). Pick the era: it sets the money and the stock vehicles.' }), list);
+    for (const [cash, name, sub] of [[45000, 'WWII · $45k', 'Medium tanks and armoured cars'], [75000, 'Cold War · $75k', 'Main battle tanks with stabilised guns'], [120000, 'Modern · $120k', 'Composite armour, thermal sights, missiles']]) {
+      const b = el('button', { class: 'rsp-opt' }, el('b', { text: name }), el('span', { text: sub }));
+      b.addEventListener('click', () => { UI.closeModal(); Sound.click(); GroundAI.startBattle(Flight, { money: cash }); });
+      list.append(b);
+    }
+    UI.modal({ kicker: 'Practice battle', title: 'Against the AI', body, actions: [{ label: 'Back' }] });
+  },
+  // A ground battle's ground must be the same for everyone: say so when our map isn't the host's
+  mapCheck() {
+    const s = MP.state;
+    if (!MP.ground || !s || Net.isHost) return;
+    const mine = MP.mapReady();
+    if (s.settings.arena === 'highland' && !mine) UI.toast('Your map didn’t load: the hills you see differ from the others’', 'warn');
+    else if (s.settings.arena === 'runway' && mine) UI.toast('The host’s map didn’t load, so the battle is on the runway: off it, your ground differs from theirs', 'warn');
+  },
+
   hide() {
     $('#mp-bar').hidden = true; $('#mp-score').hidden = true; $('#mp-hud-chat').hidden = true; $('#spawn-map').hidden = true;
     $('#mp-feed').innerHTML = ''; $('#mp-hud-log').innerHTML = ''; $('#mp-chat-log').innerHTML = '';
   },
 };
 
+// (DOM writes only on change, for what updates a few times a second)
+function mpSet(e, k, v) { if (e[k] !== v) e[k] = v; }
+// a bar filled to |f| (0..1), ours (f >= 0) or theirs
+function mpBar(e, f) {
+  const t = `scaleX(${Math.min(1, Math.abs(f)).toFixed(2)})`, c = f >= 0 ? 'us' : 'them';
+  if (e._tf !== t) { e._tf = t; e.style.transform = t; }
+  if (e.className !== c) e.className = c;
+}
 function fmtClock(s) { s = Math.ceil(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
