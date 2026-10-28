@@ -280,6 +280,7 @@ const App = {
       this.showScene('flight');
       const place = Builder.kind === 'tank' ? GroundMode.soloPlace(Builder.kind) : null; // (Armour: Highland Ridge's north pad, as Flight.revert)
       Flight.start(Builder.serialize(), place ? { place } : undefined);
+      if (Builder.kind === 'tank' && !place) UI.toast(this.use3D() ? 'The Earth map isn’t in: Armour starts on the runway, away from the Tank Range' : 'In the 2D view Armour starts on the runway: the Tank Range on Highland Ridge is in 3D', 'warn');
       const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor',
         tank: isTouch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : 'Drive with W/S, turn with A/D, aim with the mouse' }[Builder.kind];
       if (Settings.get('hints') && tip) UI.toast(tip);

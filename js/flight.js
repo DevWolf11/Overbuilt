@@ -131,6 +131,7 @@ const Flight = {
 
   revert() {
     if (this.mp) { MP.respawn(); return; }
+    if (GroundAI.battle && GroundAI.revert(this)) return; // (a Practice Battle: back on its pad, the AI kept)
     Career.earn(this.launchCost);
     store.set('rss.flight', null);
     const place = this.design.kind === 'tank' ? GroundMode.soloPlace(this.design.kind) : null; // (Armour starts on its range: back there)
@@ -434,7 +435,7 @@ const Flight = {
 
   canRecover() {
     const v = this.active;
-    return !this.mp && v && v.parts.length && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3;
+    return !this.mp && !GroundAI.battle && v && v.parts.length && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
   },
 
   recover() {

@@ -974,7 +974,16 @@ const Combat = (() => {
   }
   function aiDown(v, sim) {
     v.ai.down = true; v.aiFire = false;
-    if (v.lastHitBy === sim.active) { S.kills++; sim.toast('Bandit shot down!', 'kill'); }
+    if (v.lastHitBy === sim.active && !v.ai.ally) { S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill'); }
+    if (v.ai.ground) GroundAI.down(v, sim); // (its hulk stays; the range or the battle counts it, and brings another)
+  }
+  // Flying, as the hostile range's AA guns, SAM sites, frigate and fighters see it: off the ground and over 40 m up (a car
+  // on a high road counts, as it always has); Armour only once it has been in the air over a second and is more than
+  // 15 m over the ground (a tank cresting a hill is no aircraft: the ground AI is its threat)
+  function flyingFor(v, dt) {
+    if (v.kind !== 'tank') return !v.landed && v.altitude() > 40;
+    v._airT = v.contactTime > 0 || v.landed ? 0 : (v._airT || 0) + dt;
+    return v._airT > 1 && v.groundAltitude() > 15;
   }
   // positions on the planet in the space centre's terms: metres along the track (e) and across it (z)
   function at(e, z, h) {
@@ -1114,7 +1123,7 @@ const Combat = (() => {
     if (!v.control || ai.hold) { v.aiFire = false; return; }
     const up = norm3(v3(v.x, v.y, v.z)), fwd = noseDir(v), bodyUp = v.axis(-1, 0, 0), right = v.axis(0, 0, 1); // (a plane's part z points to its right)
     let want, engage = false;
-    const tgtOk = pl && pl !== v && pl.parts.length && !F.destroyed && pl.body === v.body && (!pl.landed || pl.speed() > 20);
+    const tgtOk = pl && pl !== v && pl.parts.length && !F.destroyed && pl.body === v.body && (!pl.landed || pl.speed() > 20 || !!v.gaiPlane); // (the Tank Range's attack plane goes for a tank standing still too)
     let d = Infinity;
     if (tgtOk) {
       const dx = pl.x - v.x, dy = pl.y - v.y, dz = pl.z - v.z;
@@ -1195,7 +1204,7 @@ const Combat = (() => {
     const onEarth = v.body === EARTH, near = onEarth && len(v.x - at(8000, 0, 0).x, v.y - at(8000, 0, 0).y, v.z - at(8000, 0, 0).z) < 60000;
     const m = mode();
     // the range: spawn once the player is near it (and on), keep it while they stay
-    if (m !== 'off' && near && !S.spawned && Terrain.earthMap.state === 'ready') spawnAll(F);
+    if (m !== 'off' && near && !S.spawned && Terrain.earthMap.state === 'ready' && !GroundAI.battle) spawnAll(F); // (none in a Practice Battle)
     if ((m === 'off' || !near) && S.spawned) clearTargets(F);
     if (S.spawned) {
       for (const t of S.targets) {
@@ -1203,7 +1212,7 @@ const Combat = (() => {
         else if (F.time - t.deadAt > 60) Object.assign(t, makeTarget(t.kind) || {}); // a new one, somewhere else
       }
       // hostile sites wake when the player is near and flying (and see a stealthy craft much later)
-      const flying = !v.landed && v.altitude() > 40, st = v.stealth = stealthOf(v);
+      const flying = flyingFor(v, dt), st = v.stealth = stealthOf(v);
       for (const t of S.targets) {
         t.firing = false;
         if (!t.alive || !hostile() || !flying || F.destroyed) continue;
@@ -1225,19 +1234,20 @@ const Combat = (() => {
       }
       // enemy fighters in hostile mode: two at a time
       if (hostile() && !F.destroyed) {
-        const alive = F.vessels.filter((o) => o.ai && !o.ai.down && o.control && !o.dead);
+        const alive = F.vessels.filter((o) => o.ai && !o.ai.ground && !o.ai.down && o.control && !o.dead);
         S.fighterT -= dt;
-        if (alive.length < 2 && S.fighterT <= 0 && !v.landed) { spawnFighter(F); S.fighterT = 45; }
+        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) { spawnFighter(F); S.fighterT = 45; }
       }
     }
     for (const o of F.vessels) if (o.ai && !o.dead) {
+      if (o.ai.ground) continue; // (the ground AI: groundai.js runs it, and says when it goes)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;
     }
     // the ground update: the Tank Range and the Practice Battle (groundai.js); repairs, fires and crews taking another's
     // seat, and radars, for the player's ground vehicle and the ground AI's
-    if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle) GroundAI.frame(F, dt);
+    if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle || GroundAI.shown) GroundAI.frame(F, dt); // (shown: its bar still up from a flight before)
     if (v.gv) { Armour.repairStep(v, dt, F); Aim.radarStep(v, F, dt); }
     if (S.gai) for (const o of F.vessels) if (o !== v && o.gv && o.ai && o.ai.ground && !o.dead) { Armour.repairStep(o, dt, F); Aim.radarStep(o, F, dt); }
     // missiles homing on the player's craft: only a warning receiver hears them (without one, a missile's red marker,
@@ -1324,7 +1334,7 @@ const Combat = (() => {
       ctx.globalAlpha = 1;
     }
     for (const o of F.vessels) {
-      if (!o.ai || o.dead || !o.control || o.ai.down) continue;
+      if (!o.ai || o.dead || !o.control || o.ai.down || o.ai.ground) continue; // (the ground AI is tagged by the ground HUD's spotting)
       const d = len(o.x - v.x, o.y - v.y, o.z - v.z), s = pr(o.x, o.y, o.z);
       if (s.behind) continue;
       ctx.strokeStyle = '#ff5d5d'; ctx.fillStyle = '#ff5d5d';
@@ -1569,7 +1579,7 @@ const Combat = (() => {
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
-    targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips,
+    targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips, spawnFighter,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },
   };
 })();
