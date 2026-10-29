@@ -201,6 +201,16 @@ t('rocket artillery: its range table rises to a longest shot of kilometres; laid
   R(`rt.length >= 15 && rmax > 3500 && [rk1, rk2].every((q) => q.d && Math.abs(q.d - q.D) / q.D < 0.03)`), R('[rt.length, Math.round(rmax), rk1, rk2]'));
 t('...its rockets fly their own life (60 s), carry their blast\'s penetration and spare their launcher at the muzzle',
   R(`rk1.life === 60 && rk1.he === 25 && rk1.spare`), R('rk1'));
+// (P3 review) the player's held FIRE goes through Aim.fire, as every other aimed weapon does
+R(`var heldFire = (how) => {
+  const v = level(build(MLRS), 50), F = simOf(v), p = partOf(v, 'mlrsLight'); Combat.reset(F); v.wsel = Combat.systems(v).findIndex((q) => q.key === 'mlrsLight');
+  if (how === 'broken') { p.broken = true; p.hp = 0; }
+  if (how === 'unmanned') for (const e of Armour.crewOf(v).crew) if (e.role !== 'driver') { if (e.i >= 0) (e.host.mods || (e.host.mods = []))[e.i] = 0; else e.part.broken = true; }
+  const a0 = p.ammo; aimAt(F, v, flat(v, 3000, 'mlrsLight')); F.firing = true; run(F, 2); F.firing = false;
+  return { gone: a0 - p.ammo, man: Aim.manned(v), toasts: [...new Set(F.toasts)].join() }; };
+var HF = { intact: heldFire(), broken: heldFire('broken'), unmanned: heldFire('unmanned') };`);
+t('held FIRE ripples rocket rails at their rate (4 a second); broken, or with no one to lay them, they fire nothing and say why',
+  R(`HF.intact.gone === 8 && HF.broken.gone === 0 && HF.broken.toasts === 'Rocket Rails broken' && !HF.unmanned.man && HF.unmanned.gone === 0 && HF.unmanned.toasts === 'No gunner to fire'`), R('JSON.stringify(HF)'));
 
 // ---------------------------------------------------------------- firing, reloads, ammunition, shells
 R(`var rv = level(build(REAL)), RF = simOf(rv), rg = gunOf(rv), rt = partOf(rv, 'turretCast'), LDR = PARTS.turretCast.mods.findIndex((m) => m.role === 'loader');
@@ -341,6 +351,24 @@ t('the command SAM rides its tracking radar\'s lock; dropping low across the bea
   R(`cn.locked && cn.guided && cn.lostAt >= 0.9 && cn.lostAt <= 1.4 && cn.dumbAt != null && cn.dumbAt - cn.lostAt >= 0.9 && cn.dumbAt - cn.lostAt <= 1.3`), R('cn'));
 t('...and chaff by the target breaks the lock at once, the missile going dumb a second later',
   R(`cc.locked && cc.guided && cc.lostAt != null && cc.lostAt <= 0.15 && cc.dumbAt != null && cc.dumbAt - cc.lostAt >= 0.9 && cc.dumbAt - cc.lostAt <= 1.3`), R('cc'));
+// (P3 review) a bandit crossing the beam: the missile matches the beam's sideways speed at its range, so it stays on it
+// to the end and bursts by its fuze (it used to drift 18-70 m off and miss)
+R(`var closCross = (D, sp, alt) => {
+  const v = level(build(SAMV), 200), b = bandit(alt, ahead(D, 200)), F = simOf(v), S = surfaceFrame(b.x, b.y, b.z); F.vessels = [v, b]; Combat.reset(F);
+  F.breakParts = F.ripParts = (w, ps) => { w.parts = w.parts.filter((q) => !ps.includes(q)); if (!w.parts.length) w.dead = true; }; // (what it hits comes off)
+  b.vx = S.north.x * sp; b.vy = S.north.y * sp; b.vz = S.north.z * sp;
+  const n0 = b.parts.length, fly = (h) => { b.x += b.vx * h; b.y += b.vy * h; b.z += b.vz * h; aimAt(F, v, { x: b.x, y: b.y, z: b.z }); };
+  const go = (secs, each) => run(F, secs, 1 / 120, (i, h) => { fly(h); if (i % 4 === 0) Aim.radarStep(v, F, 4 / 120); return each && each(); });
+  fly(0); Aim.lockKey(v); go(1.5);
+  const locked = Aim.lockTarget(v) === b;
+  Combat.launchMissile(v, partOf(v, 'samCmd'), Aim.lockTarget(v), F);
+  const s = Combat.S.shots[Combat.S.shots.length - 1];
+  let near = Infinity, endT = null;
+  go(15, () => { if (!Combat.S.shots.includes(s)) { endT = s.t; return false; } near = Math.min(near, Math.hypot(s.x - b.x, s.y - b.y, s.z - b.z)); });
+  return { locked, burst: endT != null, t: endT && Math.round(endT * 10) / 10, near: Math.round(near * 10) / 10, hit: b.parts.length < n0 || b.parts.some((p) => p.hp != null && p.hp < Combat.maxHp(p.def)) };
+};
+var CROSS = [closCross(2500, 150, 400), closCross(4000, 200, 600)];`);
+t('...and it rides the beam onto a bandit crossing it (150 m/s at 2.5 km, 200 m/s at 4 km), bursting by its fuze beside it', R(`CROSS.every((q) => q.locked && q.burst && q.hit)`), R('JSON.stringify(CROSS)'));
 R(`var SAMIR = [{ type: 'hullLight', x: 0, y: 1.0, flip: false, rot: 0 }, { type: 'samIR', x: 0, y: 2.05, flip: false, rot: 3, att: 0 }];
 var noDive = () => {
   const v = build(SAMIR); v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), 0);

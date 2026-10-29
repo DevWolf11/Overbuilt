@@ -1051,9 +1051,10 @@ const Aim = {
     const al = Math.hypot(ax, ay, az) || 1;
     this.turnTo(s, ax / al, ay / al, az / al, h, spd);
   },
-  // Command guidance (clos): the launcher's tracking radar holds the target and steers the missile along its beam, for
-  // the point 200 m past the missile (ahead of where that point is going), gain 3, at up to turn·g. A lock lost for over
-  // a second and it flies on straight (no target: no burst either).
+  // Command guidance (clos): the launcher's tracking radar holds the target and steers the missile along its beam. Its
+  // sideways speed is to be the beam's at its range (the target crossing, the launcher moving), taken a lag ahead (the
+  // range grows as the heading catches up, at gain 3), less 1.5 times its offset from the beam a second; along the beam,
+  // the rest of its speed; at up to turn·g. A lock lost for over a second and it flies on straight (no target: no burst).
   guideClos(s, h, spd) {
     const L = s.launcher, t = s.target, p = L && L.parts && this.kit(L).track;
     const held = !!t && !!p && !p.broken && !L.dead && !L.ko && !!L.trk && L.trk.lock === t;
@@ -1065,14 +1066,14 @@ const Aim = {
     let bx = tp.x - O.x, by = tp.y - O.y, bz = tp.z - O.z;
     const D = Math.hypot(bx, by, bz) || 1;
     bx /= D; by /= D; bz /= D;
-    const rm = Math.hypot(s.x - O.x, s.y - O.y, s.z - O.z), rr = rm + 200;
-    // the beam swinging (the target crossing it, the launcher moving) and the missile running out along it
-    const rx = tp.vx - (L.vx || 0), ry = tp.vy - (L.vy || 0), rz = tp.vz - (L.vz || 0), ru = rx * bx + ry * by + rz * bz, ru2 = spd * (s.dx * bx + s.dy * by + s.dz * bz);
-    const vx = (L.vx || 0) + ((rx - bx * ru) / D) * rr + bx * ru2, vy = (L.vy || 0) + ((ry - by * ru) / D) * rr + by * ru2, vz = (L.vz || 0) + ((rz - bz * ru) / D) * rr + bz * ru2;
-    const wx = O.x + bx * rr, wy = O.y + by * rr, wz = O.z + bz * rr, tau = Math.hypot(wx - s.x, wy - s.y, wz - s.z) / Math.max(spd, 50);
-    let ax = wx + vx * tau - s.x, ay = wy + vy * tau - s.y, az = wz + vz * tau - s.z;
-    const al = Math.hypot(ax, ay, az) || 1;
-    this.turnTo(s, ax / al, ay / al, az / al, h, spd, 3);
+    const mx = s.x - O.x, my = s.y - O.y, mz = s.z - O.z, rm = mx * bx + my * by + mz * bz; // (out along the beam; then off it)
+    const lx = L.vx || 0, ly = L.vy || 0, lz = L.vz || 0, lu = lx * bx + ly * by + lz * bz;
+    const rx = tp.vx - lx, ry = tp.vy - ly, rz = tp.vz - lz, ru = rx * bx + ry * by + rz * bz, f = Math.max(0, rm + (2 * spd) / 3) / D;
+    let tx = (rx - bx * ru) * f + lx - bx * lu - (mx - bx * rm) * 1.5, ty = (ry - by * ru) * f + ly - by * lu - (my - by * rm) * 1.5, tz = (rz - bz * ru) * f + lz - bz * lu - (mz - bz * rm) * 1.5;
+    const tl = Math.hypot(tx, ty, tz), cap = 0.8 * spd;
+    if (tl > cap) { tx *= cap / tl; ty *= cap / tl; tz *= cap / tl; }
+    const al = Math.sqrt(Math.max(0, spd * spd - Math.min(tl, cap) ** 2)), ax = tx + bx * al, ay = ty + by * al, az = tz + bz * al, n = Math.hypot(ax, ay, az) || 1;
+    this.turnTo(s, ax / n, ay / n, az / n, h, spd, 3);
   },
   // A ground launcher's missile with nothing to steer for flies on straight, its autopilot holding its heading (so one
   // fired level off a low launcher doesn't sink into the ground)

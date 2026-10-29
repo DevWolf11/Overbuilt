@@ -548,6 +548,7 @@ const Combat = (() => {
     // guns and rocket pods fire while the trigger is held
     const cur = v && v.parts.length && !F.destroyed && F.firing ? systems(v)[v.wsel] : null;
     if (cur && cur.w.kind === 'gun') for (const p of cur.parts) fireGun(v, p, h, false, F);
+    else if (cur && cur.w.kind === 'rocket' && cur.def.aim) Aim.fire(v, cur, h, F, null); // (rocket artillery: its crew lays and ripples it, broken or unmanned it fires nothing)
     else if (cur && cur.w.kind === 'rocket') {
       S.rocketT = (S.rocketT || 0) - h;
       if (S.rocketT <= 0) { const p = nextStore(cur); if (p) { fireRocket(v, p, false, F); S.rocketT = 1 / cur.w.rate; } } // (the pods ripple in turn)
