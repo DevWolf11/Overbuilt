@@ -175,6 +175,7 @@ const Flight = {
   },
   save() {
     if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length) return;
+    if (typeof GroundAI !== 'undefined' && GroundAI.battle) return; // (a Practice Battle's vehicle is lent, and the battle can't be saved: nothing to resume)
     if (this.destroyed && !this.vessels.some((v) => v.control && !v.dead && v !== this.active)) return;
     store.set('rss.flight', this.serialize());
   },
@@ -222,6 +223,7 @@ const Flight = {
 
   setWarp(i) {
     if (this.mp) { this.warpIdx = 0; this.updateHUD(true); return; } // everyone shares one clock
+    if (typeof GroundAI !== 'undefined' && (GroundAI.battle || GroundAI.range)) { this.warpIdx = 0; this.updateHUD(true); return; } // (the Tank Range's and the Practice Battle's bar takes the warp's place: their AI run on the sim's clock)
     i = clamp(i, 0, WARPS.length - 1);
     if (i > PHYS_WARP_MAX) {
       const ok = this.canRails();

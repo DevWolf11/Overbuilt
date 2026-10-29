@@ -385,6 +385,12 @@ R(`var TH = { type: 'thermal', x: -0.6, y: 2.9, flip: false, rot: 0, z: -0.8, at
 partOf(sbr, 'thermal').hp = 0; partOf(sbr, 'thermal').broken = true; Combat.reset({}); cloud(mid(sat, sbt, 1.5));
 var eye0 = Aim.eyes(sa), eye1 = Aim.eyes(sat), eye2 = Aim.eyes(sbr), seeT = Aim.sees(sat, sbt, eye1), seeN = Aim.sees(sat, sbt, eye0); Combat.reset({});`);
 t('a player\'s own eyes see through smoke with a working thermal sight (Aim.eyes), not without one or with it broken', R(`eye0 === undefined && eye1 && eye1.thermal === true && eye2 === undefined && seeT && !seeN`), R('[eye0, eye1, eye2, seeT, seeN]'));
+// a look shared both ways (opts.both: the AI's), and what is remembered (Aim.known: the AI's and the HUD's tags)
+R(`var sk1 = level(build(REAL)), sk2 = level(build(REAL), 300, ahead(800)), skr = Aim.sees(sk1, sk2, { t: 50, both: true });
+var kn = [Aim.known(sk1, sk2, false, 50.5, 1), Aim.known(sk2, sk1, false, 50.9, 1), Aim.known(sk2, sk1, true, 50.5, 1), Aim.known(sk2, sk1, false, 51.2, 1), Aim.known(sk2, sk1, false, 49, 1)];
+var sk3 = level(build(REAL), 300, ahead(400)); Aim.sees(sk1, sk3, { t: 50 }); kn.push(Aim.known(sk3, sk1, false, 50.1, 1));`);
+t('Aim.sees with both: the answer serves the other\'s look back for its second (same sight only; none without both); Aim.known answers from memory or null',
+  R(`skr === true && kn[0] === true && kn[1] === true && kn[2] === null && kn[3] === null && kn[4] === null && kn[5] === null`), R('[skr, kn]'));
 R(`var holdRun = (smoke) => {
   const v = level(build(ATGM)), F = simOf(v), S = surfaceFrame(v.x, v.y, v.z); Combat.reset(F);
   const far = (deg) => { const a = deg * RAD; return { x: v.x + (S.east.x * Math.cos(a) + S.north.x * Math.sin(a)) * 2000, y: v.y + (S.east.y * Math.cos(a) + S.north.y * Math.sin(a)) * 2000, z: v.z + (S.east.z * Math.cos(a) + S.north.z * Math.sin(a)) * 2000 }; };

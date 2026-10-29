@@ -760,6 +760,7 @@ kbd {
 .gai-zones b.foe { color: #1c0406; background: var(--danger); border-color: var(--danger); }
 .gai-zones b.taking { color: var(--amber); border-color: var(--amber); }
 .gai-sub { font: 500 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.gai-sub span { white-space: nowrap; }
 .gai-best i { font-style: normal; color: var(--muted); }
 .gai-bar .gai-btn { pointer-events: auto; margin-top: 2px; }
 @media (max-width: 760px) {
@@ -767,12 +768,14 @@ kbd {
   .gai-main { font-size: 13px; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .gai-best { flex-basis: 100%; text-align: right; font: 500 11px var(--mono); color: var(--muted); }
   .gai-best i { display: none; }
+  .gai-sub { white-space: normal; overflow: visible; text-align: right; } /* (on two lines rather than cut: "Knocked out ·" over "back in 5 s") */
 }
 @media (max-height: 500px) { /* (a phone on its side: up top in the middle, as on a desktop, clear of the minimap) */
   .gai-bar { top: calc(8px + var(--safe-t)); left: 50%; right: auto; transform: translateX(-50%); max-width: min(380px, calc(100% - 420px)); align-items: center; padding: 4px 10px; }
   .gai-main { flex-wrap: nowrap; justify-content: center; }
   .gai-best { flex-basis: auto; }
   .gai-best i { display: inline; }
+  .gai-sub { text-align: center; }
 }
 
 /* ================================================================== multiplayer */

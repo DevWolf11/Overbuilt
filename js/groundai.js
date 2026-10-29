@@ -9,10 +9,11 @@
 // none parked. Between moves the pose glides on (each frame), so they move as smoothly as anything else on screen.
 // They decide 4 times a second: whom to fight (the nearest enemy they can see, Aim.sees, within 1.5 km), where to go
 // (the nearest zone their side doesn't hold, a firing spot behind the nearest berm once they have someone to shoot,
-// round the target's side when three rounds have done it no harm, home to their pad below 40% crew), and when to shoot:
-// stopped, within 1.2 km, after a reaction of 0.6-1.2 s, aiming 0.5-1.5 mrad off (their skill; the first round at a new
-// target wider), the gun within 0.4° and loaded; AP at armour, HE at open tops and soft vehicles. Hit, they may pop
-// smoke and back off. They aim through Aim.step (v.aimP) and fire through Aim.stepAll (v.aimFire, v.mgFire). Nothing of
+// a few metres on when their gun can't reach from there, round the target's side when three rounds have done it no
+// harm, home to their pad below 40% crew or with no weapon working), and when to shoot: stopped, within 1.2 km, after
+// a reaction of 0.6-1.2 s, aiming 0.5-1.5 mrad off (their skill; the first round at a new target wider), the gun within
+// 0.4° and loaded, its round's path clear of the ground; AP at armour, HE at open tops and soft vehicles. Hit, they may
+// pop smoke and back off. They aim through Aim.step (v.aimP) and fire through Aim.stepAll (v.aimFire, v.mgFire). Nothing of
 // this runs in a room.
 //
 // The Tank Range (Highland Ridge, with a ground vehicle within 4 km of it): Practice, targets parked and on patrol that
@@ -26,7 +27,7 @@ const GroundAI = (() => {
   const AI = {
     kin: 1 / 30, fit: 0.1, think: 0.25, look: 0.5, ahead: 25, // s: a move, an attitude fit, a decision, a look ahead (m)
     engage: 1200, see: 1500, cover: 120, tol: 0.4 * RAD, tolAuto: 1.2 * RAD, slope: 22 * RAD, // m: shoot within, look for enemies, a firing spot within; on target; too steep
-    stuck: 3, back: 2.5, retreat: 0.4, react: [1.2, 0.6], err: [1.5, 0.5], lost: 3, // s stuck before backing off, and for; crew share to fall back; worst..best skill (s, mrad); s a lost target is still hunted
+    limit: 1.5, stuck: 3, back: 2.5, retreat: 0.4, react: [1.2, 0.6], err: [1.5, 0.5], lost: 3, // s a gun held at a limit before it moves; s stuck before backing off, and for; crew share to fall back; worst..best skill (s, mrad); s a lost target is still hunted
     sag: 0.45, crr: 0.035, eta: 0.6, acc: 2.5, brake: 5, // the suspension's settle (of its travel), rolling resistance, transmission; m/s² up and down
   };
   const RANGE = { r: 4000, back: 45, gap: 30, plane: 180, first: 12, near: 400 }; // m from the arena's middle; s to come back, between waves, between attack planes, to the first wave; m clear of the player
@@ -45,7 +46,7 @@ const GroundAI = (() => {
   const DRONES = { e: 17750, z: 12400, r: [600, 900], alt: [400, 600] }; // circling 1.5 km north of the pad
 
   const S = {
-    ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false,
+    ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false, fresh: 0,
     tpl: new Map(), rnd: Math.random, panelT: null,
   };
   const mpOn = () => typeof MP !== 'undefined' && MP.active;
@@ -109,11 +110,12 @@ const GroundAI = (() => {
   }
   // what a vehicle fights with: its main gun (the biggest), else its wire-guided missiles, else its biggest autocannon
   // (20 mm and up), of those it still has rounds for
+  const rankOf = (s) => { const w = s.w; return w.kind === 'tgun' ? 3000 + (w.cal || 0) : w.kind === 'missile' && w.seek === 'saclos' ? 2000 : w.kind === 'agun' && (w.cal || 0) >= 20 ? 1000 + (w.cal || 0) : -1; }; // (machine guns only at soft targets: v.mgFire)
   function mainOf(v) {
     const sys = Combat.systems(v);
     let best = -1, bs = -1;
     sys.forEach((s, i) => {
-      const w = s.w, aimed = !!s.def.aim && s.parts.some((p) => !p.broken && (p.ammo > 0 || p.stow > 0 || (p.stow == null && w.stow > 0))), sc = !aimed ? -1 : w.kind === 'tgun' ? 3000 + (w.cal || 0) : w.kind === 'missile' && w.seek === 'saclos' ? 2000 : w.kind === 'agun' && (w.cal || 0) >= 20 ? 1000 + (w.cal || 0) : -1; // (machine guns only at soft targets: v.mgFire)
+      const w = s.w, aimed = !!s.def.aim && s.parts.some((p) => !p.broken && (p.ammo > 0 || p.stow > 0 || (p.stow == null && w.stow > 0))), sc = aimed ? rankOf(s) : -1;
       if (sc > bs) { bs = sc; best = i; }
     });
     return best;
@@ -138,8 +140,8 @@ const GroundAI = (() => {
     v.ai = { ground: true, team, ally: !!S.b && team === S.b.team, role, skill: sk, state: role === 'fight' ? 'move' : role, key, cost: T.cost, down: false,
       want: 0, yawWant: yaw, thinkT: S.rnd() * AI.think, lookT: S.rnd() * AI.look, tgt: null, seen: false, tD: Infinity, lostAt: -9, reactAt: 0, cover: null, coverFor: null,
       react: AI.react[0] + (AI.react[1] - AI.react[0]) * sk, errK: (AI.err[0] + (AI.err[1] - AI.err[0]) * sk) * 1e-3, errAt: -9, shot: null, P: v3(),
-      sys: -1, gun: null, soft: false, clear: true, block: 0, blockDir: S.rnd() < 0.5 ? -1 : 1, revT: 0, progT: 0, progE: e, progZ: z, wp: 0, cruise: o.speed || 0, home: !!o.home,
-      zone: null, spot: null, k: null, wave: o.wave || 0, tof: 0, onN: 0, nShot: 0, ea: 0, eb: 0, tgtU: { e: 0, z: 0 }, turretless: false, thermal: v.parts.some((p) => p.def.thermal) };
+      sys: -1, gun: null, soft: false, clear: true, block: 0, blockDir: S.rnd() < 0.5 ? -1 : 1, revT: 0, progT: 0, progE: e, progZ: z, wp: 0, cruise: o.speed || 0, home: !!o.home, homeWhy: o.home ? 'crew' : null,
+      zone: null, spot: null, k: null, wave: o.wave || 0, tof: 0, onN: 0, nShot: 0, ea: 0, eb: 0, tgtU: { e: 0, z: 0 }, turretless: false, thermal: v.parts.some((p) => p.def.thermal), limT: 0, pathT: -9, pathOk: true, pathFor: null, pathBlk: 0, pathN: 0, badB: null, badFor: null };
     arm(v);
     place(v, T, e, z, yaw);
     F.vessels.push(v);
@@ -301,7 +303,14 @@ const GroundAI = (() => {
     const a = v.ai, k = a.k;
     if (a.role === 'parked' || a.role === 'idle') { a.want = 0; a.tgt = null; a.state = a.role; return; }
     if (a.role === 'patrol') { patrol(v); a.tgt = null; return; }
-    if (a.gun && (a.gun.broken || !(a.gun.ammo > 0 || a.gun.stow > 0 || a.gun.reload > 0))) { arm(v); if (!a.gun) a.home = true; } // (out of rounds, or broken: the next weapon; none left, home)
+    // its weapon: out of rounds or broken, the next one; none left, home. A crew mends a breech: then it takes that gun
+    // up again (and leaves for the fight, unless its crew is what sent it home), as it does its main gun once mended
+    const g0 = a.gun, sys = Combat.systems(v), cur = g0 ? sys.findIndex((s) => s.parts.includes(g0)) : -1;
+    if (cur < 0 || g0.broken || !(g0.ammo > 0 || g0.stow > 0 || g0.reload > 0)) arm(v);
+    else { a.sys = v.wsel = cur; const i = mainOf(v); if (i >= 0 && i !== cur && rankOf(sys[i]) > rankOf(sys[cur])) arm(v); }
+    if (!a.gun) { if (!a.home) { a.home = true; a.homeWhy = 'gun'; } }
+    else if (a.home && a.homeWhy === 'gun') { a.home = false; a.homeWhy = null; }
+    if (a.gun && a.gun !== g0 && a.tgt) pickRound(v, F);
     // hit: half the time it pops its smoke (once in 20 s) and backs off behind it for a few seconds
     if (v.hurtAt != null && v.hurtAt !== a.hurt) {
       a.hurt = v.hurtAt;
@@ -310,7 +319,7 @@ const GroundAI = (() => {
     if (a.revT > 0 && a.role === 'fight') { steer(v, F, null, 0); return; } // (backing off: steer's first line)
     target(v, F);
     const C = typeof Armour !== 'undefined' ? Armour.crewOf(v) : null, crew = C && C.crew.length ? C.crew.filter((e) => e.alive).length / C.crew.length : 1;
-    if (crew < AI.retreat && !a.home) { a.home = true; a.spot = null; }
+    if (crew < AI.retreat && a.homeWhy !== 'crew') { a.home = true; a.homeWhy = 'crew'; a.spot = null; }
     let goal = null, speed = k.top * 0.9;
     // falling back (its crew down to under 40%): home to its pad without stopping, and once there it fights from it
     const H = a.home ? homeOf(v) : null, home = !!H && Math.hypot(H.e - k.e, H.z - k.z) < 40;
@@ -328,6 +337,7 @@ const GroundAI = (() => {
         if (!wetAt(fe, fz)) { a.flank = { e: fe, z: fz, until: F.time + 25 }; a.cover = null; }
       }
       if (a.flank && (F.time > a.flank.until || Math.hypot(a.flank.e - k.e, a.flank.z - k.z) < 8)) a.flank = null;
+      if (a.cover && a.cover.until && F.time > a.cover.until) a.cover = null; // (a few metres on or back: 10 s at most)
       if (a.flank) { goal = a.flank; speed = k.top * 0.8; a.state = 'flank'; }
       else if (a.cover && Math.hypot(a.cover.e - k.e, a.cover.z - k.z) > 4) { goal = a.cover; speed = k.top * 0.6; a.state = 'cover'; }
       else {
@@ -335,7 +345,19 @@ const GroundAI = (() => {
         flight(v);
         // turn the hull to the target: a gun with no turret must, and a turret's tank shows it its front plate
         const t = a.tgtU, bear = Math.atan2(-(t.z - k.z), t.e - k.e), off = Math.abs(wrapAngle(bear - k.yaw));
-        a.yawWant = a.turretless || off > 25 * RAD ? bear : k.yaw;
+        // its gun held off the target by a limit for 1.5 s (the hull pitched on a slope, a turret at the end of its arc,
+        // the deck in the way): it turns its hull to the target, and once it faces it, moves 12 m to where its gun
+        // reaches (leaving that firing spot for good against this target). A round that would meet the ground well
+        // short of the target (aimFrame looks along its path): 10 m on, and the next time, round the target's side
+        a.limT = a.gun && a.gun._lim && F.time > a.reactAt ? a.limT + AI.think : 0;
+        const fix = a.limT > AI.limit;
+        a.yawWant = a.turretless || off > 25 * RAD || fix ? bear : k.yaw;
+        if (!guard && ((fix && off < 8 * RAD) || a.pathBlk)) {
+          const P = a.pathBlk ? (++a.pathN < 2 ? ahead(v, F, 10) : null) : shiftFor(v, F);
+          if (a.pathBlk && !P) a.flankReq = true;
+          if (a.cover && a.cover.b) { a.badB = a.cover.b; a.badFor = a.tgt; }
+          a.cover = P; a.limT = 0; a.pathBlk = 0;
+        } else if (k.wheeled && (a.turretless || fix) && Math.abs(wrapAngle(a.yawWant - k.yaw)) > 6 * RAD) a.want = 3; // (a wheeled one turns only as it rolls: on at a crawl)
         return;
       }
     } else {
@@ -345,6 +367,30 @@ const GroundAI = (() => {
       if (!guard && a.tgt && !a.seen && F.time - a.lostAt < AI.lost) { goal = a.tgtU; a.state = 'hunt'; } // (after it where it was last seen)
     }
     steer(v, F, goal, speed);
+  }
+  // A spot 12 m back, ahead or to either side of it (across the line to the target) its gun would reach the target
+  // from: its hull's pitch there along that line (the ground under its front and rear) against the gun's elevation
+  // limits, the target's height and the round's drop; the best of the four, dry and clear of the others. Back: in reverse.
+  const SHIFT = [[-12, 0], [12, 0], [0, 12], [0, -12]], TP = v3();
+  function shiftFor(v, F) {
+    const a = v.ai, k = a.k, M = a.gun, el = M && M.def.aim && M.def.aim.el, t = a.tgt;
+    if (!el || !t) return null;
+    const te = a.tgtU.e - k.e, tz = a.tgtU.z - k.z, D0 = Math.hypot(te, tz) || 1, ce = te / D0, cz = tz / D0;
+    const T = Aim.trunnion(v, M, TP), gh = Math.hypot(T.x, T.y, T.z) - EARTH.radius - groundAt(k.e, k.z), ht = Math.hypot(t.x, t.y, t.z) - EARTH.radius + 0.5;
+    let best = null, bm = -Infinity;
+    for (const [f, sd] of SHIFT) {
+      const e = k.e + ce * f - cz * sd, z = k.z + cz * f + ce * sd, D = Math.hypot(a.tgtU.e - e, a.tgtU.z - z) || 1;
+      if (S.obs.some((o) => o.v !== v && Math.hypot(o.e - e, o.z - z) < o.r + k.r + 1) || wetAt(e, z)) continue;
+      const h0 = groundAt(e - ce * k.L, z - cz * k.L), h1 = groundAt(e + ce * k.L, z + cz * k.L);
+      const need = Math.atan2(ht - (h0 + h1) / 2 - gh, D) + (GRAV / 2) * a.tof * a.tof / D - Math.atan2(h1 - h0, 2 * k.L), m = Math.min(need - el[0] * RAD, el[1] * RAD - need);
+      if (m > bm) { bm = m; best = { e, z, rev: f < 0, until: F.time + 10 }; }
+    }
+    return best;
+  }
+  // d m on toward the target (dry), or null
+  function ahead(v, F, d) {
+    const a = v.ai, k = a.k, te = a.tgtU.e - k.e, tz = a.tgtU.z - k.z, D = Math.hypot(te, tz) || 1, e = k.e + (te / D) * d, z = k.z + (tz / D) * d;
+    return wetAt(e, z) ? null : { e, z, until: F.time + 10 };
   }
   // the round's time of flight to the target (for the lead), worked out here, 4 times a second, not each frame
   function flight(v) {
@@ -376,6 +422,8 @@ const GroundAI = (() => {
     const de = goal.e - k.e, dz = goal.z - k.z, d = Math.hypot(de, dz);
     if (d < 3) { a.want = 0; a.progT = 0; return; }
     let yw = Math.atan2(-dz, de), slow = 1;
+    // (a few metres back from a firing spot: in reverse, its front kept to the target)
+    if (goal.rev && Math.abs(wrapAngle(yw - k.yaw)) > 2) { a.yawWant = wrapAngle(yw + Math.PI); a.want = -Math.min(3, k.rev) * Math.min(1, d / 8); a.progT = 0; return; }
     // others in the way (within 30 m ahead, inside a lane as wide as both of them and a gap): steer round, slow down
     for (const o of S.obs) {
       if (o.v === v) continue;
@@ -403,13 +451,16 @@ const GroundAI = (() => {
     if (a.progT <= 0) { a.progT = AI.stuck; a.progE = k.e; a.progZ = k.z; }
     else if ((a.progT -= AI.think) <= 0 && Math.hypot(k.e - a.progE, k.z - a.progZ) < 1.5) { a.revT = AI.back; a.blockDir = -a.blockDir; a.want = -Math.min(3, k.rev); }
   }
-  // Whom to fight: the nearest enemy it sees (Aim.sees, remembered half a second; a thermal sight sees through smoke),
-  // or one a teammate spotted, within 1.5 km; the one it has stays while it is still seen (and 200 m further). A new
-  // one: the reaction time starts, the aim's error is rolled again, and the round picked (AP at armour, HE at soft ones).
+  // Whom to fight: the nearest enemy it sees (Aim.sees; a thermal sight sees through smoke), or one a teammate spotted,
+  // within 1.5 km; the one it has stays while it is still seen (and 200 m further). A new one: the reaction time starts,
+  // the aim's error is rolled again, and the round picked (AP at armour, HE at soft ones). Sight is costly: a decision
+  // takes one fresh look at most (its target first, else the nearest other not looked at for a second); the rest is
+  // what it saw lately, or what the one it looks at saw of it (the line is the same both ways: Aim.sees' both)
   const CAND = [];
   function target(v, F) {
-    const a = v.ai, k = a.k, th = a.seeO || (a.seeO = { thermal: !!a.thermal, t: 0 });
+    const a = v.ai, k = a.k, th = a.seeO || (a.seeO = { thermal: !!a.thermal, t: 0, both: true });
     th.t = F.time || 0; // (who sees whom is remembered on the sim's clock)
+    S.fresh = 1;
     let n = 0;
     for (const u of S.units) {
       if (u.team === a.team || u.v === v) continue;
@@ -421,10 +472,10 @@ const GroundAI = (() => {
     if (n > 1) CAND.sort((x, y) => x.d - y.d);
     let best = null;
     const cur = a.tgt && CAND.find((u) => u.v === a.tgt);
-    if (cur && (spotted(cur.v, a, F) || Aim.sees(v, cur.v, th))) best = cur;
-    else for (let i = 0; i < Math.min(n, 3) && !best; i++) if (CAND[i].v !== a.tgt && (spotted(CAND[i].v, a, F) || Aim.sees(v, CAND[i].v, th))) best = CAND[i];
+    if (cur && sees(v, cur.v, th, F, 0.5)) best = cur;
+    else for (let i = 0; i < Math.min(n, 3) && !best; i++) if (CAND[i].v !== a.tgt && sees(v, CAND[i].v, th, F, 1)) best = CAND[i];
     if (best) {
-      if (best.v !== a.tgt) { a.tgt = best.v; a.reactAt = F.time + a.react; a.errAt = -9; a.onN = 0; a.nShot = 0; a.soft = softOf(best.v); pickRound(v, F); }
+      if (best.v !== a.tgt) { a.tgt = best.v; a.reactAt = F.time + a.react; a.errAt = -9; a.onN = 0; a.nShot = 0; a.limT = 0; a.pathBlk = 0; a.pathN = 0; a.soft = softOf(best.v); pickRound(v, F); }
       a.tgtU.e = best.e; a.tgtU.z = best.z;
       a.seen = true; a.tD = best.d; a.lostAt = F.time;
     } else {
@@ -440,6 +491,14 @@ const GroundAI = (() => {
     }
   }
   const spotted = (o, a, F) => a.team === (S.b ? S.b.team : 0) && o._gaiSpot > F.time;
+  // does v see o: spotted for it, else what it saw within ttl s, else a fresh look if this decision has one left
+  function sees(v, o, th, F, ttl) {
+    if (spotted(o, v.ai, F)) return true;
+    const r = Aim.known(v, o, th.thermal, th.t, ttl);
+    if (r != null || !S.fresh) return !!r;
+    S.fresh = 0;
+    return Aim.sees(v, o, th);
+  }
   // soft: something an HE round does more to than a solid one (no armour plate: a car; or an open-topped turret)
   const softOf = (o) => !o.plated || o.parts.some((p) => p.def.style === 'open');
   // the round for the target: the gun's best piercing one at armour, its high explosive at a soft target
@@ -461,10 +520,11 @@ const GroundAI = (() => {
     if (!u) return null;
     let best = null, bd = AI.cover;
     for (const b of (A && A.berms) || []) {
+      if (b === v.ai.badB && t === v.ai.badFor) continue; // (its gun couldn't reach this target from there)
       const px = -b.s, pz = b.c, side = (b.e - u.e) * px + (b.z - u.z) * pz > 0 ? 1 : -1;
       if (((k.e - b.e) * px + (k.z - b.z) * pz) * side < -2) continue; // (it would have to cross the berm to get there)
       const e = b.e + px * 7 * side, z = b.z + pz * 7 * side, d = Math.hypot(e - k.e, z - k.z);
-      if (d < bd && Math.hypot(u.e - e, u.z - z) <= AI.engage) { bd = d; best = { e, z }; }
+      if (d < bd && Math.hypot(u.e - e, u.z - z) <= AI.engage) { bd = d; best = { e, z, b }; }
     }
     return best;
   }
@@ -541,8 +601,63 @@ const GroundAI = (() => {
     let ready = !!w && M.ammo > 0 && !(w.kind === 'tgun' && M.reload > 0);
     if (w && w.kind === 'missile' && Aim.guiding(v) > 0) ready = false; // (one missile on the wire at a time)
     const go = a.seen && a.tD <= AI.engage && Math.abs(k.s) < 0.6 && a.clear && a.onN >= 2;
-    v.aimFire = go && ready;
+    // and the round's path clear of the ground till 10 m short of the target (the muzzle sits lower than the eye that
+    // sees over a crest): looked along once a second at most, and only when all else says fire
+    if (go && ready && w.kind !== 'missile' && (F.time - a.pathT >= 1 || F.time < a.pathT || a.pathFor !== t)) {
+      a.pathT = F.time; a.pathFor = t; a.pathOk = !pathBlocked(v, M, D - 10);
+      if (!a.pathOk) a.pathBlk = 1;
+    }
+    v.aimFire = go && ready && (w.kind === 'missile' || a.pathOk);
     v.mgFire = go && a.soft && a.tD < 600;
+  }
+
+  // Where gun M's round, fired now, meets the ground within D m of the muzzle (m along it), else 0: its barrel's line
+  // dropping as the round falls, against the physics' ground (what shells hit), every 2 m near the gun, out to every
+  // 20 m; every metre where the line runs within a metre of the ground, and every 0.75 m over a berm's top (as shells
+  // look: a line grazing a crest crosses it in a couple of metres)
+  const PM = v3(), PD = v3(), PL = {}, PEZ = { e: 0, z: 0 }, BS = [0, 0];
+  let pP = null, pU = null, pV0 = 800, pUx = 0, pUy = 0, pUz = 0;
+  function gapAt(s) {
+    const q = 4.905 * (s / pV0) * (s / pV0);
+    Terrain.locate(EARTH, pP.x + pU.x * s - pUx * q, pP.y + pU.y * s - pUy * q, pP.z + pU.z * s - pUz * q, PL);
+    S.calls++;
+    return PL.r - EARTH.radius - Terrain.surfaceAt(EARTH, PL.a, PL.z);
+  }
+  function pathBlocked(v, M, D) {
+    const w = M.def.weapon, L = w.shells, key = L ? (M.shellSel && L.includes(M.shellSel) ? M.shellSel : L[0]) : null;
+    pV0 = (key && SHELLS[key] && SHELLS[key].v0) || 800; pP = Aim.muzzle(v, M, PM); pU = Aim.dir(v, M, PD);
+    const r0 = Math.hypot(pP.x, pP.y, pP.z) || 1;
+    pUx = pP.x / r0; pUy = pP.y / r0; pUz = pP.z / r0;
+    eOf(pP.x, pP.y, pP.z, PEZ);
+    const e0 = PEZ.e, z0 = PEZ.z;
+    eOf(pP.x + pU.x * D, pP.y + pU.y * D, pP.z + pU.z * D, PEZ);
+    if (bermOn(e0, z0, PEZ.e, PEZ.z)) for (let s = BS[0] * D; s < BS[1] * D; s += 0.75) if (s > 1 && gapAt(s) < 0) return s;
+    for (let s = 2, prev = 0, cp = Infinity; s < D; prev = s, s += clamp(s * 0.25, 2, 20)) {
+      const c = gapAt(s);
+      if (c < 0) return s;
+      if (Math.min(c, cp) < 1) for (let q = prev + 1; q < s; q++) if (gapAt(q) < 0) return q;
+      cp = c;
+    }
+    return 0;
+  }
+  // the stretch of the line (e0, z0) -> (e1, z1) over the top of one of the arena's berms (within 8 m of its ridge, along
+  // its 26 m), as fractions into BS; false over none
+  let bT0 = 0, bT1 = 1;
+  function slab(p0, p1, m) { const dp = p1 - p0; if (Math.abs(dp) < 1e-9) { if (Math.abs(p0) >= m) bT1 = -1; return; } const ta = (-m - p0) / dp, tb = (m - p0) / dp; bT0 = Math.max(bT0, Math.min(ta, tb)); bT1 = Math.min(bT1, Math.max(ta, tb)); }
+  function bermOn(e0, z0, e1, z1) {
+    const A = EARTH.mapped && arenaOf(), Lb = A && A.berms, BM = Terrain.BERM;
+    if (!Lb || !Lb.length || !BM) return false;
+    let lo = 2, hi = -1;
+    for (const q of Lb) {
+      const de0 = e0 - q.e, dz0 = z0 - q.z, de1 = e1 - q.e, dz1 = z1 - q.z;
+      bT0 = 0; bT1 = 1;
+      slab(de0 * q.c + dz0 * q.s, de1 * q.c + dz1 * q.s, BM.half);
+      slab(-de0 * q.s + dz0 * q.c, -de1 * q.s + dz1 * q.c, 8);
+      if (bT0 < bT1) { lo = Math.min(lo, bT0); hi = Math.max(hi, bT1); }
+    }
+    if (hi < lo) return false;
+    BS[0] = lo; BS[1] = hi;
+    return true;
   }
 
   // ---------------------------------------------------------------- knocked out (Combat.aiDown) and back again
@@ -675,6 +790,7 @@ const GroundAI = (() => {
   function launch(F, design, place, fresh) {
     const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck));
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
+    if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
     if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
     Combat.S.gai = 1; // (Combat.reset cleared it)
     S.b.cost = designCost(F.active.parts); S.b.kind = F.active.kind; S.b.design = design;
@@ -767,15 +883,18 @@ const GroundAI = (() => {
       E.main.append(el('span', { text: a }));
       if (b) E.main.append(el('span', { class: 'gai-best' }, el('i', { text: ' · ' }), b));
     }
-    E.sub.textContent = sub;
+    E.sub.textContent = ''; // (its parts whole: a narrow bar breaks the line between them, never inside one, so the seconds show)
+    sub.split(' · ').forEach((q, i) => { if (i) E.sub.append(' · '); E.sub.append(el('span', { text: q })); });
     E.btn.hidden = !btn;
   }
   // the bar takes the time warp's place at the top (as the room's bar does)
   function warp(hide) {
     const w = typeof document !== 'undefined' && $('#warp');
     if (!w) return;
-    if (hide && !w.hidden) { w.hidden = true; S.warp = true; }
-    else if (!hide && S.warp) { S.warp = false; if (!(typeof Flight !== 'undefined' && Flight.mp)) w.hidden = false; }
+    if (hide) {
+      if (!w.hidden) { w.hidden = true; S.warp = true; }
+      if (typeof Flight !== 'undefined' && Flight.warpIdx && Flight.setWarp) Flight.setWarp(0); // (no time warp under it: none shows)
+    } else if (S.warp) { S.warp = false; if (!(typeof Flight !== 'undefined' && Flight.mp)) w.hidden = false; }
   }
   // The Practice Battle's respawn panel (the room's, MPUI.rsp): back in after 5 s in your vehicle, another of your designs
   // or a stock one within the money; or leave
@@ -952,9 +1071,9 @@ const GroundAI = (() => {
       if (typeof App !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'loading') { App.afterEarth(() => this.startBattle(F, opts)); return true; }
       const cash = [45000, 75000, 120000].includes(+(opts && opts.money)) ? +opts.money : 45000;
       const mine = opts && opts.design ? opts.design : typeof Builder !== 'undefined' && Builder.serialize ? Builder.serialize() : null, D = designFor(cash, mine);
-      const arena = GroundMode.pick(mapReady() && has3D());
       this.reset(F);
       if (typeof App !== 'undefined') { if (App.scene === 'flight' && F.running && !F.mp) F.stop(); store.set('rss.flight', null); App.showScene('flight'); }
+      const arena = GroundMode.pick(mapReady() && has3D()); // (in the flight scene, where App.use3D knows the Retro 2D view: the Runway then)
       S.rnd = typeof mulberry32 === 'function' ? mulberry32(777 + ((Date.now() / 1000) | 0)) : Math.random;
       if (opts && opts.seed != null && typeof mulberry32 === 'function') S.rnd = mulberry32(opts.seed);
       S.b = { obj: GroundMode.init(arena, { tickets: BATTLE.tickets, format: '3v3' }, [3, 3]), arena, money: cash, team: 0, t: 0, kos: 0, caps: 0, lost: 0, over: null, result: null,

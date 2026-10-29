@@ -122,6 +122,41 @@ R(`var Fw = world(); Fw.start(designOf('tk34'), { place: RUN }); go(Fw, 0.5); //
 var mover = GroundAI.spawn(Fw, 'tk34', 17750, 14250, -Math.PI / 2, 1, 'fight', { skill: 0.5 }), block = GroundAI.spawn(Fw, 'ms4', 17750, 14262, 0, 1, 'parked');
 var mv0 = eOf(mover), passed = false; go(Fw, 40, () => { const q = eOf(mover); if (q.z > 14300) passed = true; }); GroundAI.reset(Fw);`);
 t('...a tank parked in its way: it steers round it (backing off and turning when stuck) and gets on to its zone', R(`passed`), R('[mv0, eOf(mover), mover.ai.state, mover.ai.revT]'));
+// its gun knocked out: home unarmed; its crew mends the breech, and it takes the gun up again (it fired none before)
+R(`var Fg = world(); Fg.start(designOf('ma1'), { place: RUN }); go(Fg, 1); for (const p of Fg.active.parts) if (p.def.module === 'crew') p.hp = 1e9;
+var Pg = eOf(Fg.active), gai = GroundAI.spawn(Fg, 'tk34', Pg.e + 900, Pg.z, Math.PI, 1, 'guard', { skill: 0.5 }), gg = gai.ai.gun, cg = counter();
+go(Fg, 3); Armour.moduleDown(gai, gg, 'shot', Fg); gai.hurtAt = Fg.time; go(Fg, 1);
+var gDown = { gun: gai.ai.gun, home: gai.ai.home, why: gai.ai.homeWhy }, mended = null, nAt = 0;
+go(Fg, 60, (F) => { cg.tick(); if (mended == null && !gg.broken) { mended = F.time; nAt = cg.n; } });
+var gUp = { gun: gai.ai.gun === gg, home: gai.ai.home, fired: cg.n - nAt, mended }; GroundAI.reset(Fg);`);
+t('...its main gun knocked out, it goes home unarmed; its crew mends the breech and it takes the gun up again and fires (it stayed unarmed for good)',
+  R(`gDown.gun === null && gDown.home && gDown.why === 'gun' && gUp.mended != null && gUp.gun && !gUp.home && gUp.fired >= 1`), R('[gDown.home, gDown.why, gUp]'));
+// a firing spot where its gun can't reach: on the foot of berm 2, nose up, its gun at its depression limit 1.8° short
+R(`var bm2 = EARTH.arenas.highland.berms[2], bnx = -bm2.s, bnz = bm2.c, Fc = world();
+Fc.start(designOf('ma1'), { place: { e: bm2.e + bnx * 600, z: bm2.z + bnz * 600, yaw: Math.atan2(bnz, -bnx) } }); go(Fc, 0.5); for (const p of Fc.active.parts) p.hp = 1e9; Fc.active.spawnAt = 1e9;
+var cai = GroundAI.spawn(Fc, 'tk34', bm2.e - bnx * 60, bm2.z - bnz * 60, Math.atan2(-bnz, bnx), 1, 'fight', { skill: 0.5 }), cc = counter(), cEng = 0, cFirst = null;
+go(Fc, 60, (F) => { cc.tick(); if (cai.ai.state === 'engage') cEng++; if (cc.n && cFirst == null) cFirst = F.time; }); GroundAI.reset(Fc);`);
+t('...its firing spot behind a berm leaves its gun held at a limit (the hull nose up, the gun at -5°): it moves off it within seconds and fires (it sat there 45 s and fired none)',
+  R(`cc.n >= 2 && cFirst != null && cFirst < 35 && cEng > 600`), R('[cc.n, cFirst, cEng, cai.ai.state]'));
+// a wheeled one turns only as it rolls: held at a limit 90° off its target, it creeps round (it couldn't turn at all)
+R(`var Fw2 = world(); Fw2.start(designOf('ma1'), { place: RUN }); go(Fw2, 1); for (const p of Fw2.active.parts) p.hp = 1e9; Fw2.active.spawnAt = 1e9;
+var Pw = eOf(Fw2.active), wai = GroundAI.spawn(Fw2, 'pumo', Pw.e + 700, Pw.z, Math.PI / 2, 1, 'guard', { skill: 0.5 }), wg = wai.ai.gun;
+wg.def = Object.assign(Object.create(wg.def), { aim: { ...wg.def.aim, el: [8, 20] } }); // (a gun that can't come down to the level: always held at its limit)
+var w0 = { e: wai.ai.k.e, z: wai.ai.k.z }; go(Fw2, 20);
+var wOff = Math.abs(wrapAngle(Math.atan2(-(Pw.z - wai.ai.k.z), Pw.e - wai.ai.k.e) - wai.ai.k.yaw)) * 180 / Math.PI, wMoved = Math.hypot(wai.ai.k.e - w0.e, wai.ai.k.z - w0.z); GroundAI.reset(Fw2);`);
+t('...a wheeled one (Pumo) whose gun is held at a limit with its target 90° off its hull creeps on to turn and faces it, a few metres on',
+  R(`wOff < 10 && wMoved > 3 && wMoved < 30`), R('[wOff, wMoved]'));
+// its eye sees over a hump its muzzle, 0.8 m lower, doesn't clear: a guard holds its fire, a fighter moves up and hits
+R(`var hump = (role) => { const F = world(); F.start(designOf('ma1'), { place: { e: 17171.6, z: 15192.2, yaw: Math.atan2(-(14649 - 15192.2), 17741 - 17171.6) } }); go(F, 0.2);
+  for (const p of F.active.parts) p.hp = 1e9; F.active.spawnAt = 1e9;
+  const ai = GroundAI.spawn(F, 'pumo', 17741, 14649, -55.5 * Math.PI / 180, 1, role, { skill: 0.5 }), MS = Armour.moveShell, live = new Map(), ends = []; let seen = 0;
+  Armour.moveShell = function (s, h, F2) { if (!live.has(s) && s.owner === ai) live.set(s, { x: s.x, y: s.y, z: s.z }); const r = MS.apply(this, arguments);
+    if (!r && live.has(s)) { const L = live.get(s); live.delete(s); ends.push([Math.round(Math.hypot(s.x - L.x, s.y - L.y, s.z - L.z)), Math.round(Math.hypot(s.x - F2.active.x, s.y - F2.active.y, s.z - F2.active.z))]); } return r; };
+  try { go(F, 40, () => { if (ai.ai.seen) seen++; }); } finally { Armour.moveShell = MS; }
+  GroundAI.reset(F); return { ends, seen }; };
+var hG = hump('guard'), hF = hump('fight');`);
+t('...seen over a hump its gun\'s line doesn\'t clear (the eye 0.8 m above the muzzle): no round into the ground in front; it moves up and its rounds reach the target (7 into the ground 10-21 m out before)',
+  R(`hG.seen > 2000 && hG.ends.length === 0 && hF.ends.length >= 1 && hF.ends.every(([out]) => out > 100) && hF.ends.some(([, at]) => at < 10)`), R('[hG, hF]'));
 
 // ---------------------------------------------------------------- the Practice Battle
 R(`SET.targets = 'practice';
@@ -137,14 +172,16 @@ R(`var budget = { calls: 0, ai: 0 }, kinT = 0, kinN = 0, worst = 0, wet3 = 0, in
 // every look at the ground made inside GroundAI.frame by the moves and decisions (not by Aim.sees' line of sight, nor
 // placing a new vehicle), counted at Terrain itself
 var SA = Terrain.surfaceAt, WA = Terrain.waterAt, SEES = Aim.sees, POS = Vessel.prototype.placeOnSurface, FR = GroundAI.frame, KS = GroundAI.kinStep;
-Terrain.surfaceAt = function () { if (inFrame && !inSees && !inSpawn) budget.calls++; return SA.apply(this, arguments); };
+Terrain.surfaceAt = function () { if (inFrame && !inSees && !inSpawn) budget.calls++; if (inSees) seesHit++; return SA.apply(this, arguments); };
 Terrain.waterAt = function () { if (inFrame && !inSees && !inSpawn) budget.calls++; return WA.apply(this, arguments); };
-Aim.sees = function () { inSees++; try { return SEES.apply(this, arguments); } finally { inSees--; } };
+// (and the AI's own looks at who it can see: fresh ones, the memory missed, in 10 s windows)
+var seesHit = 0, seesFresh = 0, seesWin = [];
+Aim.sees = function () { inSees++; const h0 = seesHit; try { return SEES.apply(this, arguments); } finally { inSees--; if (inFrame && seesHit > h0) seesFresh++; } };
 Vessel.prototype.placeOnSurface = function () { inSpawn++; try { return POS.apply(this, arguments); } finally { inSpawn--; } };
 GroundAI.frame = function (F, dt) { inFrame++; try { budget.ai += GroundAI.ai.length * dt; return FR.call(this, F, dt); } finally { inFrame--; } };
 GroundAI.kinStep = function (v, dt) { const t0 = __now(); KS.call(this, v, dt); const d = __now() - t0; kinT += d; kinN++; };
 var c0 = GroundAI.calls;
-go(F3, 120, (F, f) => { if (f % 30) return; for (const v of GroundAI.ai) { const p = eOf(v); worst = Math.max(worst, Math.abs(p.h - v.ai.k.hoff)); if (p.wet) wet3++; } });
+go(F3, 120, (F, f) => { if (f && f % 600 === 0) { seesWin.push(seesFresh / 10); seesFresh = 0; } if (f % 30) return; for (const v of GroundAI.ai) { const p = eOf(v); worst = Math.max(worst, Math.abs(p.h - v.ai.k.hoff)); if (p.wet) wet3++; } });
 Terrain.surfaceAt = SA; Terrain.waterAt = WA; Aim.sees = SEES; Vessel.prototype.placeOnSurface = POS; GroundAI.frame = FR; GroundAI.kinStep = KS;
 var perAI = budget.calls / budget.ai, own = (GroundAI.calls - c0) / budget.ai, us = kinT / kinN * 1000;
 console.log('     (measured: ' + perAI.toFixed(1) + ' ground looks a second per AI at Terrain, ' + own.toFixed(1) + ' counted by GroundAI; a move ' + us.toFixed(1) + ' µs in Node; centre off its rest height by at most ' + worst.toFixed(2) + ' m)');`);
@@ -152,6 +189,8 @@ t('...over 120 s every AI stays on the ground (its centre within 0.6 m of its he
   R(`worst < 0.6 && wet3 === 0 && budget.ai > 300`), R('[worst, wet3, budget.ai]'));
 t('...each looks at the ground at most 60 times a second (counted at Terrain: moves, attitude fits, looks ahead), and a move takes well under 40 µs',
   R(`perAI <= 60 && perAI > 20 && Math.abs(perAI - own) < 1 && us < 40`), R('[perAI, own, us]'));
+t('...and the five of them take at most 10 fresh looks a second at who they can see (Aim.sees: the spotting budget), in every 10 s once the sides meet',
+  R(`seesWin.length === 11 && Math.max(...seesWin) <= 10 && seesWin.some((n) => n >= 1)`), R('seesWin'));
 R(`go(F3, 60);`);
 t('...the rules run: in 3 minutes zones are taken and tickets go (bleeding, knock-outs)', R(`B3.obj.zones.some((z) => z.own >= 0) && (B3.obj.tk[0] < 300 || B3.obj.tk[1] < 300)`), R('[B3.obj.zones.map((z) => z.id + z.own).join(), B3.obj.tk]'));
 // an AI knocked out: wreck, tickets, a new one 5 s later on its pad

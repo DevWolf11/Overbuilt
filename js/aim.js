@@ -1167,7 +1167,8 @@ const Aim = {
   // with the 3D view up, else Terrain.surfaceAt) every 20 m, and wherever the line comes within 3 m of it, the real ground
   // (3 looks, 0.3 m clear); wrecks in the way (0.7 of their reach) and smoke (not with opts.thermal) block it too.
   // Remembered for 0.5 s a pair; no more than 3 pairs looked at afresh a frame (the rest keep their last answer). It
-  // decides who is marked and what the AI sees, never what is hit.
+  // decides who is marked and what the AI sees, never what is hit. opts.both: the answer is b's of a too (the line is
+  // the same both ways; with the same sight).
   sees(a, b, opts) {
     if (!a || !b) return false;
     const o = opts || {}, F = typeof Flight !== 'undefined' ? Flight : null, now = o.t != null ? o.t : (F && F.time) || 0, th = !!o.thermal;
@@ -1192,7 +1193,18 @@ const Aim = {
       }
     }
     if (memo) { if (!M) memo.set(b, (M = {})); M.t = now; M.r = r; M.th = th; }
+    if (memo && o.both) {
+      let mb = this._sees.get(b), N;
+      if (!mb) this._sees.set(b, (mb = new WeakMap()));
+      if (!(N = mb.get(a))) mb.set(a, (N = {}));
+      N.t = now; N.r = r; N.th = th;
+    }
     return r;
+  },
+  // what a saw of b in the last ttl s (Aim.sees' memory, with a thermal sight or without): true, false, or null
+  known(a, b, thermal, now, ttl) {
+    const m = a && this._sees.get(a), M = m && m.get(b);
+    return M && M.th === !!thermal && now - M.t < ttl && now >= M.t ? M.r : null;
   },
   // what a player's own eyes take to Aim.sees: through smoke with a working thermal sight (looked for again every half
   // second of the sim), else nothing more

@@ -328,7 +328,10 @@ const GHUD = (() => {
     if (man != null && t - man < 15) return true;
     if (d < 2500) for (const p of o.aimed || NO_GEAR) if (p.shotAt != null && t - p.shotAt < 3 && t >= p.shotAt && p.def.weapon && p.def.weapon.kind === 'tgun') return true;
     const far = 1500 * (Armour.has(v, 'commander') ? 1.25 : 1);
-    return d < far && Aim.sees(v, o, Aim.eyes(v)); // (a thermal sight sees through smoke)
+    if (d >= far) return false;
+    // (a thermal sight sees through smoke; a look is good for a second, ours or theirs at us: the spotting budget)
+    const eyes = Aim.eyes(v), r = Aim.known(v, o, eyes && eyes.thermal, t, 1);
+    return r != null ? r : Aim.sees(v, o, eyes);
   }
   function tags(ctx, F, v, pr) {
     for (const o of F.vessels) {
