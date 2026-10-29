@@ -165,6 +165,21 @@ log('results on B', r.kicker, '/', r.title, '| A', ra2.title);
 ok('the battle ends on tickets: Faroes win, the results on both screens (Victory for A, Defeat for B), the ground scoreboard', r.res.ground && r.res.winner === 0 && r.res.why === 'tickets' && /Faroes win on tickets \(\d+ – 0\)/.test(r.kicker) && r.title === 'Defeat' && ra2.title === 'Victory!'
   && r.head.join() === 'Player,Team,Kills,Caps,Lost,Score,Ping', r);
 await shot(B, 'results');
+// on a narrow phone in portrait the Score column (the result's own number) fits without a sideways scroll: the Team
+// column goes, the names wear their team's colour
+const narrow = [];
+for (const [w, h] of [[360, 780], [375, 667]]) {
+  await B.setViewportSize({ width: w, height: h });
+  await B.waitForTimeout(200);
+  narrow.push(await B.evaluate(() => {
+    const wrap = $('#modal .mp-twrap').getBoundingClientRect(), rows = [...document.querySelectorAll('#modal .mp-gtable tr')];
+    const score = rows.map((tr) => [...tr.children].find((c, i) => rows[0].children[i].textContent === 'Score').getBoundingClientRect());
+    const col = (e) => getComputedStyle(e).color; // (a name in its team's colour, not the plain text's)
+    return { w: innerWidth, fits: score.every((r) => r.left >= wrap.left - 0.5 && r.right <= wrap.right + 0.5), team: getComputedStyle(rows[0].children[1]).display, coloured: rows.slice(1).every((tr) => col(tr.children[0]) !== col(tr.children[2])) };
+  }));
+}
+await B.setViewportSize({ width: 1280, height: 720 });
+ok('the results on a 360- and 375-wide phone: Score in full, no Team column, the names in their team\'s colour', narrow.every((n) => n.fits && n.team === 'none' && n.coloured), narrow);
 
 // ---- a second battle with a Lineup of 3: the build phase's bar shows the three slots; slot 2 changes from a list
 await A.evaluate(() => MP.backToLobby());

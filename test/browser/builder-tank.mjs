@@ -2,6 +2,7 @@
 // where it goes; the kind strip fits at every size; the stats and warnings speak tank; the armour stepper dials a
 // plate's thickness, which costs mass and money and survives saving, a design code and a reload; plates go flush on a
 // face; parts pair up across the hull; X-ray, the armour view, the arcs and the sweep's late answer redraw once.
+// From the build screen as a new player first meets it (the stock Hopper), Armour starts an empty design.
 //   node test/browser/builder-tank.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,6 +30,14 @@ const realNumbers = (page) => page.evaluate(() => {
   return missing;
 });
 const SIX = [['Hulls', 'Sloped Medium Hull'], ['Drive', 'Medium Track'], ['Drive', 'Tank Diesel'], ['Turrets', 'Turret Ring'], ['Turrets', 'Cast Turret'], ['Guns', '85 mm Gun']];
+// after a tray tap (its part's card up): how many of the design's parts are drawn on the bare blueprint (not under a
+// panel), and whether the Select / Grid / Fit buttons cover the stats panel
+const inSight = (page) => page.evaluate(() => {
+  let vis = 0;
+  for (const p of Builder.parts) { const s = Builder.partScreen(p), e = s && document.elementFromPoint(s.x, s.y); if (e && e.tagName === 'CANVAS') vis++; }
+  const f = $('.fit-col').getBoundingClientRect(), t = $('#stats').getBoundingClientRect();
+  return { n: Builder.parts.length, vis, card: !$('#part-info').hidden, fitOverStats: f.left < t.right && f.right > t.left && f.top < t.bottom && f.bottom > t.top };
+});
 const tapPart = async (page, tab, name) => {
   await page.locator('#palette-tabs .tab', { hasText: new RegExp(`^${tab}$`) }).tap();
   await page.locator('#palette-items .part-item', { has: page.locator('.part-name', { hasText: new RegExp(`^${name}$`) }) }).tap();
@@ -72,6 +81,8 @@ ok('the ring lies flat on the roof, the turret on the ring', tank.ring.onRoof &&
 ok('the gun points forward (rot 3) from the turret\'s front, its trunnion in the face and its breech inside', tank.gun.rot === 3 && tank.gun.att === 'turretCast' && Math.abs(tank.gun.face) < 0.01 && tank.gun.breechIn && tank.gun.forward, JSON.stringify(tank.gun));
 ok('the ring turns the turret and the gun', tank.group && tank.group[0] === 'ringM' && tank.group[1] === 'gun85,turretCast', JSON.stringify(tank.group));
 ok('it can launch, with no warnings', tank.launch && !tank.warn, tank.warn);
+r = await inSight(page);
+ok('the tank is seen taking shape: after the sixth tap, every part in sight above the gun\'s card', r.card && r.vis === r.n && !r.fitOverStats, r);
 await page.screenshot({ path: SHOTS + '2e-phone-six-taps.png' });
 
 // ---- 2. its numbers
@@ -253,6 +264,48 @@ await frames(page, 2);
 const revertedAt = await padAt();
 ok('...on Highland Ridge\'s north pad, and Revert to launch puts it back there', onPad(launchedAt) && onPad(revertedAt), JSON.stringify([launchedAt, revertedAt]));
 await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
+
+// ---- 10. the build screen as a new player first meets it (the stock Hopper on the blueprint): Armour starts a new,
+// empty design (Undo brings the Hopper back), and six taps make the same tank; the player's own work is asked about,
+// and kept on request, with a warning when the tracks don't reach the ground
+{
+  const pg = await phone(375, 667), e = (f, a) => pg.evaluate(f, a);
+  if (!(await pg.isVisible('#kind-select [data-kind="tank"]'))) await pg.locator('#btn-stats').tap(); // (a short phone: the stats start folded)
+  const st = () => e(() => ({ kind: Builder.kind, n: Builder.parts.length, name: Builder.name, modal: UI.modalOpen, warn: $('#s-warn').textContent, toast: [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent).join(' | ') }));
+  const s0 = await st();
+  await pg.locator('#kind-select [data-kind="tank"]').tap();
+  const s1 = await st();
+  ok('a fresh profile: the Hopper, then Armour gives an empty Armour design (no question asked), and says Undo brings the Hopper back', s0.kind === 'rocket' && s0.n === 5 && s0.name === 'Hopper' && s1.kind === 'tank' && s1.n === 0 && s1.name === 'Armour' && !s1.modal && /Undo brings back the Hopper/.test(s1.toast), JSON.stringify([s0, s1]));
+  await e(() => Builder.undo());
+  const s2 = await st();
+  await e(() => Builder.redo());
+  const s3 = await st();
+  ok('...Undo brings the Hopper back as a rocket; Redo the empty Armour design', s2.kind === 'rocket' && s2.n === 5 && s2.name === 'Hopper' && s3.kind === 'tank' && s3.n === 0, JSON.stringify([s2, s3]));
+  for (const t of SIX) await tapPart(pg, ...t);
+  const s4 = await st();
+  ok('...and six taps make the tank: seven parts, joined, launchable, no warnings', s4.n === 7 && !s4.warn && await e(() => Builder.attached.size === Builder.parts.length && !$('#btn-launch').disabled), JSON.stringify(s4));
+  const v4 = await inSight(pg);
+  ok('...seen taking shape on a small phone too (the gun\'s card up): every part in sight, the stats uncovered', v4.card && v4.vis === v4.n && !v4.fitOverStats, v4);
+  await pg.screenshot({ path: SHOTS + '2e-phone-375-six-taps.png' });
+  // the player's own work: asked; Keep these parts keeps them (and the tank, built on the rocket, is warned about)
+  await e(() => { Builder.loadTemplate('hopper'); const p = Builder.parts.find((q) => q.type === 'parachute') || Builder.parts[0]; Builder.setPose(p, { x: p.x + 0.25, y: p.y }); Builder.changed(); });
+  await pg.locator('#kind-select [data-kind="tank"]').tap();
+  const s5 = await st();
+  await pg.locator('#modal-card button', { hasText: 'Keep these parts' }).tap();
+  const s6 = await st();
+  ok('edited work: Armour asks first; Keep these parts switches the kind and keeps them', s5.modal && s5.kind === 'rocket' && s6.kind === 'tank' && s6.n === 5 && !s6.modal, JSON.stringify([s5, s6]));
+  for (const t of SIX) await tapPart(pg, ...t);
+  const s7 = await st();
+  ok('...a tank built on the rocket is warned about: its tracks don\'t reach the ground', s7.n === 12 && /The tracks don’t reach the ground: the .+ sits \d+\.\d m lower\./.test(s7.warn), s7.warn);
+  await e(() => Builder.loadTemplate('hopper'));
+  await pg.locator('#kind-select [data-kind="tank"]').tap();
+  const s8 = await st();
+  ok('a template as it was loaded: no question, a new Armour design', !s8.modal && s8.kind === 'tank' && s8.n === 0, JSON.stringify(s8));
+  // and no stock vehicle gets the new warning
+  const bad = await e(() => Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'tank' || TEMPLATES[k].kind === 'car').filter((k) => { Builder.loadTemplate(k); return /reach the ground/.test($('#s-warn').textContent); }));
+  ok('...and no stock Armour or car has its tracks or wheels off the ground', !bad.length, bad.join(', '));
+  await pg.close();
+}
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();

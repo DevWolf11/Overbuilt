@@ -767,7 +767,8 @@ const Aim = {
   // What the ground HUD shows of the chosen weapon (else the main gun), in one object per craft, refilled: name; shells
   // [{ key, label, n (its 1-4 key) }], sel (loaded) and queued (-1: none); reload 0..1 (1: loaded); ready; readyN (at the
   // gun) and rounds (aboard); err (rad off the point) and limited (a limit holds it off); the tracking radar's lock (and
-  // locking 0..1, lockOn: looking); guiding (a wire-guided missile's seconds to go); the search scope (blips { a: bearing
+  // locking 0..1, lockOn: looking); guiding (a wire-guided missile's seconds to go; guidePast: it has passed the aim
+  // point, still on its wire); the search scope (blips { a: bearing
   // off the hull's nose toward +z, d, alt, t: when seen }, sweep, scopeR); lead (the lead point); a rocket strike.
   status(v) {
     if (!v || !v.aimed || !v.aimed.length) return null;
@@ -790,19 +791,23 @@ const Aim = {
     S.err = p._err || 0; S.limited = !!p._lim;
     const T0 = v.trk;
     S.lock = (T0 && T0.lock) || null; S.lockOn = !!(T0 && T0.on); S.locking = T0 && !T0.lock && T0.cand ? clamp(T0.lockT / 0.8, 0, 1) : 0;
-    S.guiding = this.guiding(v);
+    S.guiding = this.guiding(v, S);
     S.scope = v.scope ? v.scope.blips : null; S.sweep = v.scope ? v.scope.a : 0; S.scopeR = v.scope ? v.scope.range : 0;
     S.lead = v.leadOk ? v.leadP : null;
     S.strike = w && w.kind === 'rocket' && v._strike ? v._strike : null;
     return S;
   },
-  // the newest wire-guided missile of v's still on its wire: its seconds to the aim point (0: none)
-  guiding(v) {
+  // the newest wire-guided missile of v's still on its wire: its seconds to the aim point (0: none; at least 0.1 while
+  // on the wire, and out.guidePast once it has flown past the aim point, where seconds to go mean nothing)
+  guiding(v, out) {
     let best = null;
     for (const s of Combat.S.shots) if (s.saclos && s.launcher === v && !s.cut && (!best || s.t < best.t)) best = s;
+    if (out) out.guidePast = false;
     if (!best) return 0;
     const F = typeof Flight !== 'undefined' ? Flight : null, d = F && F.active === v && F.aim && F.aim.d ? F.aim.d : v.aimP ? Math.hypot(v.aimP.x - v.x, v.aimP.y - v.y, v.aimP.z - v.z) : 0;
-    return Math.max(0.1, (d - (best.rm || 0)) / (Math.hypot(best.vx, best.vy, best.vz) || 1));
+    const t = (d - (best.rm || 0)) / (Math.hypot(best.vx, best.vy, best.vz) || 1);
+    if (out) out.guidePast = t <= 0;
+    return Math.max(0.1, t);
   },
   // The builder's numbers for the main weapon (pure): its name, best penetration at 1 km (mm: kinetic rounds slowed by
   // the air, shaped charges as they are), reload (s), traverse (°/s: its ring's for the turret's weight; its own arc's

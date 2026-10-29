@@ -217,7 +217,7 @@ const GHUD = (() => {
         }
       }
     } else if (st.lockOn) { ctx.font = MONO; ctx.fillStyle = COL.grey; ctx.fillText('RADAR · LOOKING', cx, cy - 44); }
-    if (st.guiding > 0) { ctx.font = BOLD; ctx.fillStyle = COL.warn; text(ctx, `GUIDING ${st.guiding.toFixed(1)} s`, cx, cy - 64); }
+    if (st.guiding > 0) { ctx.font = BOLD; ctx.fillStyle = COL.warn; text(ctx, st.guidePast ? 'GUIDING' : `GUIDING ${st.guiding.toFixed(1)} s`, cx, cy - 64); } // (past the aim point: no seconds to go)
     const sk = st.strike;
     if (sk && (F.aim.indirect || st.kind === 'rocket')) {
       const s = pr(F.aim.P.x, F.aim.P.y, F.aim.P.z);
@@ -494,9 +494,9 @@ const GHUD = (() => {
 
   // ---------------------------------------------------------------- where things go (§9.5), once a second
   // The canvas pieces (the damage diagram, the radar scope) take the first spot clear of the panels (the flight data,
-  // the room's bar, the controls, the buttons top right, the warning receiver's display, the minimap); FIRE is measured
-  // for its reload ring; the minimap's backing store follows its size, and its bottom goes to --gmap-b (the hint sits
-  // under it on a phone). Nothing is written unless it changed.
+  // the room's bar, the controls, the buttons top right, the warning receiver's display, the minimap, a Stage pill, a
+  // throttle); FIRE is measured for its reload ring; the minimap's backing store follows its size, and its bottom goes to
+  // --gmap-b (the hint sits under it on a phone). Nothing is written unless it changed.
   function rect(q) { const e = typeof q === 'string' ? document.querySelector(q) : q; if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; }
   function place(W, H, F) {
     const now = performance.now();
@@ -506,7 +506,7 @@ const GHUD = (() => {
     const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
     const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + 14 } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
-    const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), fire].filter(Boolean);
+    const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire].filter(Boolean);
     const hit = (a) => block.some((b) => a.x < b.right && a.x + a.w > b.left && a.y < b.bottom && a.y + a.h > b.top) || a.x < 4 || a.y < 4 || a.x + a.w > W - 4 || a.y + a.h > H - 4;
     const small = W < 380 || H < 700, land = H < 500, dw = small ? 104 : 120, dh = small ? 62 : 72, Tb = T ? T.bottom : 80, Tl = T ? T.left : 12, Tr = T ? T.right : 200;
     const tries = [[Tl, Tb + 8], ...(ms ? [[Tl, ms.bottom + 8]] : []), [Tr + 8, T ? T.top : 12], [Tl, Tb + 8 + 60], [lc ? lc.right + 10 : 140, lc ? lc.top : H - 200]];
@@ -754,7 +754,7 @@ const GHUD = (() => {
     const v = F.active, M = S.tacXY, c = $('#gtac-canvas');
     if (!v || !M || !c) return;
     const r = c.getBoundingClientRect(), dpr = App.dpr || 1, x = (cx - r.left) * dpr, y = (cy - r.top) * dpr;
-    if (x < M.ox || y < M.oy || x > M.ox + M.size || y > M.oy + M.size) return;
+    if (x < M.ox || y < M.oy || x > M.ox + M.size || y > M.oy + M.size) { tactical(false); return; } // (a tap off the map shuts it)
     const e = M.fr.e - M.fr.half + ((x - M.ox) / M.size) * 2 * M.fr.half, z = M.fr.z - M.fr.half + ((y - M.oy) / M.size) * 2 * M.fr.half;
     const a = siteAngle(EARTH, e), ph = z / EARTH.radius, h = EARTH.radius + (Render3D.drawnGround(EARTH, a, z) || 0) + 0.5, cp = Math.cos(ph);
     const P = { x: h * cp * Math.cos(a), y: h * cp * Math.sin(a), z: h * Math.sin(ph) };
@@ -845,29 +845,33 @@ const GHUD = (() => {
       if (!v) return;
       if (lrf(v)) zeroKey(F); else { F.zero = F.zero >= 3000 ? 200 : F.zero + 100; F.updateHUD(true); }
     });
-    // the shell chips: a tap loads that round next; held 0.5 s, it comes out of the breech and that one goes in now
+    // the shell chips: a tap loads that round next; held 0.5 s, it comes out of the breech and that one goes in now.
+    // Which it was is told on release by the events' own times (a frame that stalls between the finger going down and
+    // coming up must not make a tap a long press); the timer only buzzes to say it has been held long enough.
     const stack = $('#ammo-stack');
     stack.addEventListener('pointerdown', (e) => {
       const c = e.target.closest('.ammo-chip');
       if (!c) return;
       e.preventDefault();
-      const i = +c.dataset.i;
       clearTimeout(S.chipT);
-      S.chipHeld = false;
-      S.chipT = setTimeout(() => { const v = F.active; if (v && Aim.select(v, i, F) && Aim.select(v, i, F)) { S.chipHeld = true; haptic(20); F.toast('Loading it now'); F.updateHUD(true); } }, 500);
+      S.chipDown = { i: +c.dataset.i, t: e.timeStamp };
+      S.chipT = setTimeout(() => haptic(20), 500);
     });
     const chipUp = (e) => {
       clearTimeout(S.chipT);
-      const c = e.target.closest && e.target.closest('.ammo-chip');
-      if (!c || S.chipHeld || e.type !== 'pointerup') { S.chipHeld = false; return; }
-      const v = F.active;
-      if (v && Aim.select(v, +c.dataset.i, F)) { Sound.click(); F.updateHUD(true); }
+      const c = e.target.closest && e.target.closest('.ammo-chip'), d = S.chipDown, v = F.active;
+      S.chipDown = null;
+      if (!c || !d || e.type !== 'pointerup' || !v) return;
+      const i = +c.dataset.i;
+      if (e.timeStamp - d.t >= 500 && i === d.i) { if (Aim.select(v, i, F) && Aim.select(v, i, F)) { F.toast('Loading it now'); F.updateHUD(true); } }
+      else if (Aim.select(v, i, F)) { Sound.click(); F.updateHUD(true); }
     };
     stack.addEventListener('pointerup', chipUp);
     stack.addEventListener('pointercancel', chipUp);
     stack.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#gmap').addEventListener('click', () => tactical(true));
     $('#gtac-close').addEventListener('click', () => tactical(false));
+    if (isTouch) $('#gtac-close').textContent = 'Close'; // (M is a key: a phone has none)
     const tc = $('#gtac-canvas');
     let down = null;
     tc.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });

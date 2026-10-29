@@ -258,6 +258,22 @@ var sacl = (cross) => {
 var sc = sacl(8);`);
 t('wire guidance: the missile rides the line of aim and hits a target crossing at 8 m/s 2 km off',
   R(`sc.ok && sc.saclos && sc.hit`), R('sc'));
+R(`var gpast = (() => { // the crosshair on the sky 1.5 km out: seconds to go while short of it; past it, still on the wire, none
+  const v = level(build(ATGM)), F = simOf(v), P = at(v, 1500, 40, 0); Combat.reset(F); v.aimP = P; // (as an AI's: no Flight here)
+  aimAt(F, v, P); run(F, 2, 1 / 120, () => { aimAt(F, v, P); });
+  Aim.fire(v, Combat.systems(v)[0], 1 / 120, F);
+  const s = Combat.S.shots[Combat.S.shots.length - 1], seen = { short: null, past: null };
+  run(F, 20, 1 / 120, () => {
+    aimAt(F, v, P);
+    if (!Combat.S.shots.includes(s) || s.cut) return false;
+    const st = Aim.status(v), r = { rm: Math.round(s.rm || 0), g: st.guiding, past: st.guidePast };
+    if ((s.rm || 0) < 1300 && (s.rm || 0) > 300) seen.short = r;
+    else if ((s.rm || 0) > 1600 && !seen.past) seen.past = r;
+  });
+  return seen;
+})();`);
+t('wire guidance\'s readout: seconds to the aim point while short of it; past it (still on the wire) no seconds, only GUIDING',
+  R(`gpast.short && gpast.short.g > 0.5 && !gpast.short.past && gpast.past && gpast.past.g > 0 && gpast.past.past`), R('gpast'));
 R(`var TOP = [{ type: 'hullLight', x: 0, y: 1.0, flip: false, rot: 0 }, { type: 'atgmTop', x: 0, y: 1.8, flip: false, rot: 3, att: 0 }];
 var topRun = () => {
   const v = level(build(TOP)), tg = level(build(REAL), 300, ahead(1500)), F = simOf(v); F.vessels = [v, tg]; Combat.reset(F); hits.length = 0;

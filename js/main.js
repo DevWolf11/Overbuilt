@@ -424,7 +424,7 @@ const App = {
     const sens = el('input', { id: 'set-aim-sens', type: 'range', min: '0.3', max: '3', step: '0.1', value: String(Settings.get('aimSens') || 1) });
     sens.addEventListener('input', () => Settings.set('aimSens', +sens.value));
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
-      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row('Mouse aim speed', sens));
+      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), ...(isTouch ? [] : [row('Mouse aim speed', sens)])); // (no mouse on a phone)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

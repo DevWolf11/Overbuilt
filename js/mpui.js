@@ -547,14 +547,15 @@ const MPUI = {
     t.append(tb);
     return t;
   },
-  // a ground battle's: Player · Team · Kills · Caps · Lost · Score · Ping, best score first in each team
+  // a ground battle's: Player · Team · Kills · Caps · Lost · Score · Ping, best score first in each team (the name in its
+  // team's colour: a narrow phone drops the Team column)
   groundTable(t, players) {
     t.classList.add('mp-gtable');
     t.innerHTML = '<thead><tr><th>Player</th><th>Team</th><th>Kills</th><th>Caps</th><th>Lost</th><th>Score</th><th>Ping</th></tr></thead>';
     const tb = el('tbody'), n = (x) => String(Math.round(+x || 0));
     for (const p of [...players].sort((a, b) => (a.team - b.team) || ((b.score || 0) - (a.score || 0)) || (b.kills - a.kills))) {
       const tr = el('tr', { class: (p.alive === false && MP.phase === 'battle' ? 'dead' : '') + (p.pid === Net.me ? ' me' : '') }), tm = p.team === 1 ? 1 : 0;
-      tr.append(el('td', { text: String(p.name) }), el('td', { class: `t${tm}`, text: MP_TEAM_NAMES[tm] }), el('td', { text: n(p.kills) }), el('td', { text: n(p.caps) }),
+      tr.append(el('td', { class: `t${tm}`, text: String(p.name) }), el('td', { class: `t${tm}`, text: MP_TEAM_NAMES[tm] }), el('td', { text: n(p.kills) }), el('td', { text: n(p.caps) }),
         el('td', { text: n(p.deaths) }), el('td', { text: n(p.score) }), el('td', { text: p.pid === 1 ? '—' : `${n(p.ping)} ms` }));
       tb.append(tr);
     }

@@ -3,11 +3,14 @@
 //    side, the room's bar at the top), FIRE, SMOKE, the weapon chip, SIGHT, MG, LOCK, the zero pill, the shell chips, the
 //    minimap, the damage diagram, the radar scope and the warning receiver's display stay clear of each other, of the
 //    flight data, the controls, the room's bar, the buttons top right, the hint, the kill feed and Brake, and on screen.
+//    With a stage left and thrust aboard (a JATO Booster), the Stage pill and the throttle too, and a tap on FIRE's middle
+//    is FIRE's.
 //  - What shows: an unarmed Armour design still hides the autopilot (body.ground); Brake on a tracked tank; SMOKE with
 //    smoke launchers alone.
 //  - The controls: R doesn't set the sight's zero, Y does (Realistic aim, a rangefinder aboard); a click under pointer
 //    lock never uses a part; a slide on FIRE turns the turret; a drag on the view aims (a finger, and a mouse when the
-//    lock is refused); Esc under pointer lock opens the menu once, whichever comes first, the key or the lock let go.
+//    lock is refused); Esc under pointer lock opens the menu once, whichever comes first, the key or the lock let go; a
+//    quick tap on a shell chip queues the round even across a stalled frame, a long press loads it now.
 //  - The sight: the view narrows to 50/zoom degrees and back, project() and metresPerPixelAt agreeing all the while.
 //  - The HUD: the reload ring round FIRE; at most 120 2D-context calls a frame; none of its DOM written while nothing
 //    changes; no console errors (App.frame swallows them).
@@ -32,6 +35,8 @@ const row = (type, x, y, o = {}) => ({ type, x, y, flip: false, rot: 0, ...o });
 const KIT = [...T.ma1, row('atgmTube', -1.0, 2.7, { z: -1.35, att: 5 }), row('radarSearch', -1.6, 3.6, { att: 5 }), row('radarTrack', 0.3, 3.5, { z: 0.55, att: 5 })];
 const BARE = [row('hullMedium', 0, 1.1), row('trackMed', 0, 0.5, { z: -1.35, att: 0 }), row('trackMed', 0, 0.5, { z: 1.35, att: 0 }), row('engDiesel', -1.8, 1.1, { att: 0 })];
 const SMOKY = [...BARE, row('ringM', 0, 1.85, { att: 0 }), row('turretCast', 0, 2.425, { att: 4 }), row('smokeL', 0.6, 2.6, { z: -1.1, att: 5 }), row('smokeL', 0.6, 2.6, { z: 1.1, att: 5 })];
+// the kit with a JATO Booster on the hull: a stage left (the Stage pill) and thrust aboard (the throttle)
+const ROCKET = [...KIT, row('jato', -4.6, 1.3, { rot: 1, att: 0 })];
 
 // in the page: the HUD's 2D-context calls a frame, the arcs it draws, and what errors App.frame would swallow
 const instrument = () => {
@@ -72,7 +77,7 @@ const layout = () => {
   const P = GHUD._S.P || {}, box = (a) => a && { l: a.x, t: a.y, r: a.x + a.w, b: a.y + a.h }, B = Combat.S.rwrBox;
   const hud = {
     fire: rect('#btn-fire'), smoke: rect('#btn-cm'), chip: rect('#btn-weapon'), sight: rect('#btn-sight'), mg: rect('#btn-mg'), lock: rect('#btn-lock'), range: rect('#btn-range'),
-    shells: rect('#ammo-stack'), map: rect('#gmap'), diagram: box(P.diag), scope: P.scope && { l: P.scope.x - P.scope.R, t: P.scope.y - P.scope.R, r: P.scope.x + P.scope.R, b: P.scope.y + P.scope.R + 14 },
+    shells: rect('#ammo-stack'), map: rect('#gmap'), stage: rect('#btn-stage'), throttle: rect('#flight-ui .throttle-box'), diagram: box(P.diag), scope: P.scope && { l: P.scope.x - P.scope.R, t: P.scope.y - P.scope.R, r: P.scope.x + P.scope.R, b: P.scope.y + P.scope.R + 14 },
     rwr: B && Combat.S.rwr > 1 ? { l: B.x - B.R, t: B.y - B.R, r: B.x + B.R, b: B.y + B.R + 14 } : null,
     feed: document.querySelector('#mp-feed').children.length ? rect('#mp-feed') : null,
   };
@@ -83,7 +88,8 @@ const layout = () => {
     telemetry: rect('#flight-ui .telemetry'), controls: rect('#flight-ui .left-controls'), bar: rect('#mp-bar'), topRight: rect('#flight-ui .flight-top-right'),
     hint: ht ? rect(ht.textContent ? hint : null) : null, brake: rect('#btn-brake'), roomScope: M ? { l: M.x - M.R, t: M.y - M.R, r: M.x + M.R, b: M.y + M.R } : null,
   };
-  return { W: innerWidth, H: innerHeight, hud, panels, ground: document.body.classList.contains('ground'), aim: Flight.groundAim, sight: Flight.sight };
+  const f = hud.fire, mid = f && document.elementFromPoint((f.l + f.r) / 2, (f.t + f.b) / 2);
+  return { W: innerWidth, H: innerHeight, hud, panels, ground: document.body.classList.contains('ground'), aim: Flight.groundAim, sight: Flight.sight, fireMid: !!mid && mid.closest('button') === document.querySelector('#btn-fire') };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L, need) {
@@ -95,8 +101,8 @@ function judge(tag, L, need) {
     for (let j = i + 1; j < H.length; j++) if (meets(a, H[j][1])) clash.push(`${k}/${H[j][0]}`);
     for (const [p, c] of Object.entries(L.panels)) if (meets(a, c)) clash.push(`${k}/${p}`);
   }
-  ok(`${tag} (${L.W}×${L.H}): the ground HUD clear of itself and the panels, on the screen`, L.ground && L.aim && !clash.length && !off.length && !missing.length,
-    JSON.stringify({ clash, off, missing, hud: L.hud, panels: L.panels }));
+  ok(`${tag} (${L.W}×${L.H}): the ground HUD clear of itself and the panels, on the screen`, L.ground && L.aim && !clash.length && !off.length && !missing.length && L.fireMid,
+    JSON.stringify({ clash, off, missing, fireMid: L.fireMid, hud: L.hud, panels: L.panels }));
 }
 const NEED = ['fire', 'smoke', 'chip', 'sight', 'mg', 'lock', 'range', 'shells', 'map', 'diagram', 'scope'];
 
@@ -150,6 +156,12 @@ for (const [tag, vp] of SIZES) {
     await shot(page, 'sight-1280x720');
     await page.evaluate(() => Flight.setSight(false));
   }
+  // a stage left and thrust aboard: the Stage pill and the throttle find room too, and FIRE stays FIRE
+  await fly(page, 'Rocket Kit', ROCKET);
+  await page.waitForTimeout(1300);
+  const LR = await page.evaluate(layout);
+  judge(`${tag}, a stage left and thrust aboard`, LR, [...NEED, 'stage', 'throttle']);
+  await shot(page, `hud-stage-${vp[0]}x${vp[1]}`);
   await pageErrors(page, tag + ' ');
   await ctx.close();
 }
@@ -317,6 +329,36 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   await page.waitForTimeout(2500);
   const v4 = await page.evaluate(gun);
   ok('a slide on FIRE aims, and the turret turns after it', v3.yaw > v2.yaw + 0.15 && ang(v2.d, v4.d) > 5 && ang(v0.d, v2.d) > 5, { view: [v0.yaw, v2.yaw, ang(v0.d, v2.d)], fire: [v2.yaw, v3.yaw, v4.yaw, ang(v2.d, v4.d)] });
+  // the shell chips: a quick tap queues the round, even when a frame stalls 650 ms between the finger going down and
+  // coming up (the long press goes by the events' times, not by when the handlers run); held 0.7 s, it loads now
+  const chipAt = (i) => page.evaluate((i) => { const r = document.querySelectorAll('#ammo-stack .ammo-chip')[i].getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, i);
+  const shells = () => page.evaluate(() => { const s = Aim.status(Flight.active); return { sel: s.sel, queued: s.queued, ready: s.ready, toast: [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent).join(' | ') }; });
+  await page.waitForFunction(() => Aim.status(Flight.active).ready, null, { timeout: 60000 });
+  await page.evaluate(() => { window.__stall = 1; $('#ammo-stack').addEventListener('pointerdown', () => { if (window.__stall) { window.__stall = 0; requestAnimationFrame(() => { const t = performance.now(); while (performance.now() - t < 650); }); } }, true); });
+  const c1 = await chipAt(1), q0 = await shells();
+  await touch('touchStart', ...c1); await page.waitForTimeout(40); await touch('touchEnd');
+  await page.waitForTimeout(1000);
+  const q1 = await shells();
+  await touch('touchStart', ...c1); await page.waitForTimeout(700); await touch('touchEnd');
+  await page.waitForTimeout(300);
+  const q2 = await shells();
+  ok('a quick tap on a shell chip queues it, a frame stalling meanwhile or not; held 0.7 s, it loads now', q1.queued === 1 && q1.sel === q0.sel && q1.ready && q2.sel === 1 && !q2.ready && /Loading it now/.test(q2.toast), { q0, q1, q2 });
+  // a finger's targets and words: the chips and the tactical map's Close 40 px tall, Close without a key; a tap off the
+  // map shuts it; the menu's controls lead with the touch row; Settings has no mouse speed on a phone
+  await page.evaluate(() => GHUD.tactical(true));
+  await page.waitForTimeout(400);
+  const fz = await page.evaluate(() => { const h = (q) => Math.round(document.querySelector(q).getBoundingClientRect().height); return { chip: h('#ammo-stack .ammo-chip'), close: h('#gtac-close'), text: $('#gtac-close').textContent.trim(), open: GHUD.tacOpen }; });
+  await touch('touchStart', 195, 60); await page.waitForTimeout(40); await touch('touchEnd'); // (the dark margin above the map)
+  await page.waitForTimeout(300);
+  const shut = await page.evaluate(() => !GHUD.tacOpen);
+  const words = await page.evaluate(() => {
+    const d = el('div'); d.innerHTML = Flight.controlsHelp(); App.showSettings(); const s = $('#modal-card').textContent; UI.closeModal();
+    const L = el('div', { class: 'mp-set' }, el('div', { class: 'kind-select n2' }, el('button', { class: 'kind-btn', text: 'Ground' }))); document.body.append(L); // (a ground lobby's choice)
+    const lobby = Math.round(L.querySelector('button').getBoundingClientRect().height); L.remove();
+    return { first: d.querySelector('.help-grid > div').textContent.slice(0, 40), mouse: /Mouse aim speed/.test(s), aim: /Ground aim/.test(s), lobby };
+  });
+  ok('a finger\'s targets and words: chips, Close and the lobby\'s choices 40 px tall, "Close" with no key, a tap off the map shuts it, the touch row first, no mouse speed',
+    fz.open && fz.chip >= 40 && fz.close >= 40 && words.lobby >= 40 && fz.text === 'Close' && shut && /^Touch/.test(words.first) && !words.mouse && words.aim, { fz, shut, words });
   await page.evaluate(() => { Render3D.skipDraw = false; });
   await shot(page, 'aimed-390x844');
   await pageErrors(page, 'touch ');

@@ -366,14 +366,14 @@ const TEMPLATES = {
   },
   zsy23: { // (the ZSU-23-4 Shilka)
     name: 'ZSY-23 Shilko', kind: 'tank', tier: 2,
-    blurb: 'Four 23 mm barrels and a tracking radar: lock an aircraft with L and the guns lead it for you. Shreds helicopters; keep it away from tanks.',
+    blurb: 'Four 23 mm barrels and a tracking radar: lock an aircraft (LOCK, or L) and the guns lead it for you. Shreds helicopters; keep it away from tanks.',
     parts: [['hullLight', 0, 1.0], ['trackLight', 0, 0.45, 0, { z: -1.1, att: 0 }], ['trackLight', 0, 0.45, 0, { z: 1.1, att: 0 }], ['engPetrol', -1.3, 0.9, 0, { att: 0 }],
       ['ringM', -0.2, 1.65, 0, { att: 0 }], ['turretAA', -0.2, 2.35, 0, { att: 4 }], ['aa23q', 1.39, 2.35, 3, { att: 5 }], ['radarTrack', -0.05, 3.4, 0, { att: 5 }]],
     paint: { hullLight: 'steppe', trackLight: 'steppe', ringM: 'steppe', turretAA: 'steppe', aa23q: 'steppe' },
   },
   gepardo: { // (the Gepard)
     name: 'Gepardo', kind: 'tank', tier: 3,
-    blurb: 'Its search radar sees aircraft 10 km out. Lock one with L and the twin 35 mm guns throw shells that burst as they pass it: no direct hit needed.',
+    blurb: 'Its search radar sees aircraft 10 km out. Lock one (LOCK, or L) and the twin 35 mm guns throw shells that burst as they pass it: no direct hit needed.',
     parts: [['hullMedium', 0, 1.1], ['trackMBT', 0, 0.55, 0, { z: -1.425, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.425, att: 0 }], ['engDieselL', -1.7, 1.1, 0, { att: 0 }],
       ['ringP', -0.2, 1.86, 0, { att: 0 }], ['turretAA', -0.2, 2.57, 0, { att: 4 }], ['ac35', 1.224, 2.57, 3, { z: -1.45, att: 5 }], ['ac35', 1.224, 2.57, 3, { z: 1.45, att: 5 }],
       ['radarSearch', -1.1, 3.77, 0, { att: 5 }], ['radarTrack', 0.0, 3.62, 0, { att: 5 }], ['smokeL', -1.0, 2.9, 0, { z: -1.4, att: 5 }], ['smokeL', -1.0, 2.9, 0, { z: 1.4, att: 5 }]],
@@ -405,7 +405,7 @@ const TEMPLATES = {
   },
   ok8: { // (the 9K33 Osa)
     name: 'OK-8 Hive', kind: 'tank', tier: 3,
-    blurb: 'Radar-guided missiles: lock an aircraft with the tracking radar (L), fire, and hold the lock until they hit. Chaff and a dive to the treetops can break it.',
+    blurb: 'Radar-guided missiles: lock an aircraft with the tracking radar (LOCK, or L), fire, and hold the lock until they hit. Chaff and a dive to the treetops can break it.',
     parts: [['hullWheeled', 0, 1.4], ['wheelArm', -1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', -1.9, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 0, 0.65, 0, { z: -1.475, att: 0 }],
       ['wheelArm', 0, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: 1.475, att: 0 }],
       ['engDiesel', -2.1, 1.35, 0, { att: 0 }], ['ringP', 0, 2.26, 0, { att: 0 }], ['turretAA', 0, 2.97, 0, { att: 8 }],
@@ -1376,6 +1376,19 @@ const Builder = {
     if (!spot && this.parts.length) { const s = this.snap(type, centre, [], rot, Infinity); spot = s.ok && s.attached ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
     this.addPart(type, spot.x, spot.y, spot.rot ?? rot, { z: spot.z, att: spot.att, host: spot.host });
+    if (this.kind === 'tank' && !this.in3D()) this.keepInView(); // (the tank seen taking shape, not under the part's card)
+  },
+  // Fit the view if any part is outside the room the panels leave it (on a phone: above the part's card). 2D.
+  keepInView() {
+    this.area = null;
+    const a = this.viewArea(), x0 = a.cx - a.w / 2, y0 = a.cy - a.h / 2, c = this.canvas.getBoundingClientRect(), k = this.cam.scale;
+    for (const p of this.parts) {
+      const R = partRect(p);
+      for (const [x, y] of [[R.l, R.b], [R.r, R.b], [R.l, R.t], [R.r, R.t]]) {
+        const d = this.toDisp(x, y), sx = c.left + c.width / 2 + (d.x - this.cam.x) * k, sy = c.top + c.height / 2 - (d.y - this.cam.y) * k;
+        if (sx < x0 || sx > x0 + a.w || sy < y0 || sy > y0 + a.h) { this.fitView(); return; }
+      }
+    }
   },
 
   // ---------------------------------------------------------------- armour (the ground update)
@@ -1695,6 +1708,9 @@ const Builder = {
       else {
         const sides = new Set(runs.map((p) => Math.sign(partZ(p) - cz)));
         if (!sides.has(1) || !sides.has(-1)) warn.push(`${runs.some((p) => p.def.track) ? 'Tracks' : 'Wheels'} on one side only: it will drive in circles.`);
+        // (what stands on the ground is the lowest part: tracks over a rocket's engine never touch it)
+        const low = ps.reduce((m, p) => (partRect(p).b < partRect(m).b ? p : m)), dy = Math.min(...runs.map((p) => partRect(p).b)) - partRect(low).b;
+        if (dy > 0.3) warn.push(`The ${runs.some((p) => p.def.track) ? 'tracks don’t' : 'wheels don’t'} reach the ground: the ${low.def.name} sits ${dy.toFixed(1)} m lower.`);
       }
       if (!has((d) => d.engine)) warn.push('Add an engine inside the hull: without one it won’t move.');
     }
@@ -1907,6 +1923,22 @@ const Builder = {
     this.changed();
     this.fitView();
     Sound.click();
+  },
+  // A tap on a kind button. Armour from a blueprint with no armour on it (the stock Hopper a new player meets, a plane):
+  // a new, empty Armour design, the old one a tap of Undo away; the player's own unsaved work is asked about first.
+  pickKind(kind) {
+    if (kind !== 'tank' || this.kind === 'tank' || !this.parts.length || this.parts.some((p) => p.def.gv)) return this.setKind(kind);
+    const was = this.name, fresh = () => {
+      this.parts = []; this.selected = null; this.savedAs = null; this.name = VEHICLE_KINDS.tank.name;
+      this.setKind('tank'); this.renderInfo();
+      UI.toast(`A new Armour design: Undo brings back the ${was}`);
+    };
+    if (!this.unsavedWork()) return fresh();
+    UI.modal({
+      title: 'A new Armour design?',
+      body: el('p', { text: `The ${was} has no armour parts. A tank starts from a hull on an empty blueprint; Undo brings these parts back.` }),
+      actions: [{ label: 'Keep these parts', onClick: () => this.setKind('tank') }, { label: 'New Armour design', primary: true, onClick: fresh }],
+    });
   },
   // Planes and armour mirror left and right and keep their own symmetry settings (on unless switched off); the
   // others share one. True if it just changed.
@@ -2149,12 +2181,21 @@ const Builder = {
     if (!ui || ui.hidden) return;
     ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
     const fit = $('.fit-col'), info = $('#part-info');
-    fit.style.bottom = ''; fit.style.right = '';
+    fit.style.bottom = ''; fit.style.right = ''; fit.classList.remove('row'); info.style.maxHeight = ''; info.style.overflowY = '';
     if (info.hidden) return;
-    const i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
+    let i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
     if (!(f.bottom > i.top - 6 && f.top < i.bottom && f.right > i.left && f.left < i.right)) return;
-    // above the panel; a panel too tall for that on a wide screen (an armour part's): beside it
-    if (innerWidth <= 760 || i.top - 8 - f.height >= $('#build-top').getBoundingClientRect().bottom + 6) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
+    // above the panel; a panel too tall for that on a wide screen (an armour part's): beside it. On a phone building
+    // armour, with no room under the stats for the column (a small screen, a tall panel), a row of icons, and if even
+    // that won't go, the panel a little shorter (it scrolls): the stats and the kind buttons are never covered
+    if (innerWidth <= 760) {
+      const top = $('#stats').getBoundingClientRect().bottom + 8;
+      if (this.kind === 'tank' && i.top - 8 - f.height < top) {
+        fit.classList.add('row'); f = fit.getBoundingClientRect();
+        if (i.top - 8 - f.height < top) { info.style.maxHeight = `${Math.max(120, Math.floor(i.bottom - top - f.height - 8))}px`; info.style.overflowY = 'auto'; i = info.getBoundingClientRect(); }
+      }
+      fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
+    } else if (i.top - 8 - f.height >= $('#build-top').getBoundingClientRect().bottom + 6) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
     else fit.style.right = `${Math.round(innerWidth - i.left + 8)}px`;
   },
 
@@ -2579,7 +2620,7 @@ const Builder = {
     fold(store.get('rss.statsFolded', innerHeight < 520 || (innerHeight < 700 && innerWidth <= 760)));
     tog.addEventListener('click', () => { const on = !stats.classList.contains('collapsed'); fold(on); store.set('rss.statsFolded', on); });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
-    document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.setKind(b.dataset.kind)));
+    document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.pickKind(b.dataset.kind)));
     $('#btn-rd').addEventListener('click', () => App.showResearch());
     $('#btn-missions').addEventListener('click', () => App.showMissions());
   },

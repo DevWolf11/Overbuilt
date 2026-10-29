@@ -529,7 +529,8 @@ const Flight = {
 
   // Armour and armed cars (§8.4): the same list as README's "Armour and armed cars" block and the manual's
   groundHelp() {
-    return `<div class="help-grid">
+    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy\'s tag to spot it; tap the minimap for the tactical map; Realistic aim: tap Zero to set the sight</span></div>';
+    return `<div class="help-grid">${isTouch ? touch : ''}
       <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
       <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
       <div><kbd>B</kbd><span>Hold to brake</span></div>
@@ -549,7 +550,7 @@ const Flight = {
       <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range (without one: the wheel at the sight's right edge)</span></div>
       <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu (Esc also lets the mouse go)</span></div>
       ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
-      <div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy's tag to spot it; tap the minimap for the tactical map; Realistic aim: tap Zero to set the sight</span></div>
+      ${isTouch ? '' : touch}
     </div>`;
   },
 
