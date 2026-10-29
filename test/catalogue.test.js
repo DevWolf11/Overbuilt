@@ -212,6 +212,42 @@ const lift = H.berms.map((b) => S(b.e, b.z) - flat.Terrain.surfaceAt(flat.EARTH,
 t('vehicles and shells meet the berms: the ground stands 2.4 m higher on each crest', lift.every((d) => d > 2.15 && d < 2.45), lift.map((d) => d.toFixed(2)).join(' '));
 const nomap = G.load({ earth: false });
 t('without the Earth map: no berms, no pads, no fade (the arena needs the map)', H.berms.every((b) => nomap.Terrain.bermAt(b.e, b.z) === 0) && nomap.Terrain.fieldAt(17750, 13800).w === 0 && nomap.Terrain.fieldAt(17750, 16200).w === 0);
+// The arena's own ground mesh (render3d's quadtree, built a slice a frame near the arena in ground play), here in Node
+// on Low (Phase 4 performance review): built a step at a time with every frame's slice spent at once, so each step is
+// as small as a step can be, it is the very mesh built in one go, and no step works out more than one cell's heights
+// (its four corners and five more: six cells a step, as it was, came to 30, and its worst steps to 18-30 ms on a phone
+// with the CPU slowed 4x).
+{
+  const fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
+  const cr = G.load({ flight: true }), h0 = cr.Terrain.h3dAt; // (render3d.js reads Settings; it takes h3dAt as it loads)
+  let ev = 0;
+  cr.Terrain.h3dAt = function () { ev++; return h0.apply(this, arguments); };
+  vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js', 'render3d.js'), 'utf8') + '\nthis.Render3D = Render3D;', cr, { filename: 'render3d.js' });
+  const R3 = cr.Render3D;
+  const sum = (g) => { // the vertices, the triangles and the quadtree geoAt walks (packed in typed arrays: g.Q)
+    const h = crypto.createHash('md5'), bytes = (a) => h.update(Buffer.from(a.buffer, a.byteOffset, a.byteLength));
+    for (const k of ['va', 'vz', 've', 'vd', 'hx', 'H', 'dk', 'rd', 'rv', 'wl', 'wp', 'tri']) bytes(g[k]);
+    for (const k of ['ix', 'iy', 's', 'k', 'v', 'c', 'f0', 'fl', 'Fa', 'root']) bytes(g.Q[k]);
+    return h.digest('hex');
+  };
+  const whole = R3.arenaGeo('highland', false), one = sum(whole), evOne = ev;
+  let steps = 0, last = (ev = 0), most = 0;
+  const cut = R3.arenaGeo('highland', false, () => { steps++; most = Math.max(most, ev - last); last = ev; });
+  const info = { n: cut.n, triangles: cut.tri.length / 3, index: cut.tri.constructor.name, evals: ev, steps, mostPerStep: most };
+  t('the arena ground built a step at a time, every slice spent: the very mesh built in one go, its index already the 16-bit buffer it is drawn from', sum(cut) === one && ev === evOne && cut.n === whole.n && cut.n < 65536 && info.index === 'Uint16Array', info); // (the game's own realm: its Uint16Array)
+  t('...and no step works out more than one cell\'s heights (9; six cells a step came to 30)', most >= 4 && most <= 9 && steps > ev / 9, info);
+  // what the session keeps: the quadtree packed in typed arrays (as objects it was 3.6 MB of the heap, marked by every
+  // major collection), read where it is drawn: within 0.3 m of the physics' ground at 2,000 points in the box
+  const Bx = H.box, typed = Object.values(cut.Q).every((a) => ArrayBuffer.isView(a)), cells = cut.Q.s.length;
+  let s = 5, worst = 0, off = 0;
+  const rnd = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+  for (let i = 0; i < 2000; i++) {
+    const e = Bx.e0 + rnd() * (Bx.e1 - Bx.e0), z = Bx.z0 + rnd() * (Bx.z1 - Bx.z0), h = R3.arenaGeoAt(cut, cr.siteAngle(cr.EARTH, e), z);
+    if (h == null) { off++; continue; }
+    worst = Math.max(worst, Math.abs(h - cr.Terrain.surfaceAt(cr.EARTH, cr.siteAngle(cr.EARTH, e), z)));
+  }
+  t('the arena ground keeps its quadtree in typed arrays (no cell objects), and reads within 0.3 m of the physics\' ground in the box', typed && !('roots' in cut) && cells > 20000 && !off && worst < 0.3, { cells, worst: +worst.toFixed(3), off });
+}
 
 // ---------------------------------------------------------------- the ground everywhere else, as it was
 // ---- ground sample (the reference values below came from this code run on the checkout before the arena, 2e9884a)

@@ -1252,6 +1252,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // colours are the patch's own, taken at each vertex from the patch on show (arenaBandJob), so it looks just as the
   // patch would; its own (groundPaint at a fine cell) only where the patch doesn't reach.
   const ARENA = { near: 6000, rim: 200, hole: 150, kx: 8, ky: 16, D: 16, tuck: 0.4, lit: [500, 1200] };
+  // The arena's jobs (arenaGeoJob, arenaMeshJob, arenaBandJob) yield once the frame's slice is spent (arenaUntil: set by
+  // updateArena before each step, its budget's end), looked at every few units of work, so no step runs much past it
+  // however slow the device; their few big allocations each have a step of their own
+  let arenaUntil = Infinity;
+  const spent = () => performance.now() >= arenaUntil;
   const AR = { A: null, hi: null, job: null, ms: 0, slice: 0, step: 0, nStep: 0, stepAt: '', geo: null, mesh: null, frame: null, on: false, gen: -1, a0: 0, k: 0, bjob: null, bP: null, bms: 0, bb: null };
   let patchGen = 0, bandWait = false; // (counts patch swaps: the arena's seam follows the patch on show; a done patch waiting for its seam)
   // The quadtree and its vertices (pure: no GPU), a few heights at a time. hi: the quality (tol 0.1 m, else 0.13).
@@ -1269,22 +1274,31 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // points on the finest grid: where they are (cheap), and their heights when asked (h3dAt: the physics' own)
     // (which point a grid spot is: an open-addressed table of its own, sized once, so it never stops a frame to grow as a
     // Map does: about 2.7 slots a point; it doubles in the unlikely case it fills past half)
+    // Each point's angle, depth, east and height (NaN until asked), and its ground's darkness, road, river, water level
+    // and presence (float32, as the mesh keeps them): typed arrays the table's half long, doubled with it (plain arrays
+    // grow by half as they fill: nine copies in one step, tens of milliseconds on a phone).
     let HB = 18, hk = new Int32Array(1 << HB).fill(-1), hv = new Int32Array(1 << HB);
     const slot = (k) => { const m = (1 << HB) - 1; let h = Math.imul(k, 0x9E3779B1) >>> (32 - HB); while (hk[h] !== -1 && hk[h] !== k) h = (h + 1) & m; return h; };
     const find = (k) => { const h = slot(k); return hk[h] === k ? hv[h] : undefined; };
-    const pa = [], pz = [], pe = [], ph = [], pdk = [], prd = [], prv = [], pwl = [], pwp = [], o = {};
+    const PA = [Float64Array, Float64Array, Float64Array, Float64Array, Float32Array, Float32Array, Float32Array, Float32Array, Float32Array], P = [];
+    yield;
+    for (const T of PA) { P.push(new T(1 << (HB - 1))); yield; }
+    let [pa, pz, pe, ph, pdk, prd, prv, pwl, pwp] = P, np = 0;
+    const o = {};
     let evals = 0;
     const pt = (ix, iy) => {
       const k = iy * K + ix, h = slot(k);
       if (hk[h] === k) return hv[h];
       Terrain.toSim(((X0 + ix / fx + 0.5) / W - 0.5) * TAU, (0.5 - (Y0 + iy / fy + 0.5) / HH) * Math.PI, o);
-      const i = pa.length;
+      const i = np++;
       hk[h] = k; hv[h] = i;
-      pa.push(o.a); pz.push(o.phi * R); pe.push(Ef(o.a)); ph.push(NaN); pdk.push(0); prd.push(0); prv.push(0); pwl.push(0); pwp.push(0);
-      if (pa.length > 1 << (HB - 1)) { // (grow: every point again into a table twice the size)
+      pa[i] = o.a; pz[i] = o.phi * R; pe[i] = Ef(o.a); ph[i] = NaN;
+      if (np >= 1 << (HB - 1)) { // (grow: every point again into a table twice the size, and the points' arrays with it)
         const ok = hk, ov = hv;
         HB++; hk = new Int32Array(1 << HB).fill(-1); hv = new Int32Array(1 << HB);
         for (let q = 0; q < ok.length; q++) if (ok[q] !== -1) { const g = slot(ok[q]); hk[g] = ok[q]; hv[g] = ov[q]; }
+        const up = (a) => { const b = new a.constructor(1 << (HB - 1)); b.set(a); return b; };
+        [pa, pz, pe, ph, pdk, prd, prv, pwl, pwp] = [pa, pz, pe, ph, pdk, prd, prv, pwl, pwp].map(up);
       }
       return i;
     };
@@ -1303,7 +1317,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const roots = new Array(NX * NY).fill(null), todo = [];
     for (let j = 0, m = 0; j < NY; j++) {
       for (let i = 0; i < NX; i++) {
-        if (++m % 24 === 0) yield; // (every step here and below about a millisecond: the frame's budget is 2-3)
+        if ((++m & 7) === 0 && spent()) yield;
         const ix = i * D, iy = j * D, v = [pt(ix, iy), pt(ix + D, iy), pt(ix, iy + D), pt(ix + D, iy + D)];
         if (!v.some((q) => inside(q, far))) continue; // (off the rim: no cell)
         todo.push((roots[j * NX + i] = { ix, iy, s: D, k: null, v, c: -1, f: null }));
@@ -1313,7 +1327,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let steps = 0;
     while (todo.length) {
       const N = todo.pop(), v = N.v;
-      if (++steps % 6 === 0) yield; // (counted as they come: whole runs of cells outside the box cost little each)
+      if (spent()) yield; // (a cell is up to nine heights)
       let e0 = Infinity, e1 = -Infinity, z0 = Infinity, z1 = -Infinity;
       for (const q of v) { e0 = Math.min(e0, pe[q]); e1 = Math.max(e1, pe[q]); z0 = Math.min(z0, pz[q]); z1 = Math.max(z1, pz[q]); }
       for (const q of v) hOf(q);
@@ -1334,13 +1348,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     // the mesh's vertices: the leaves' corners, and the middles of leaves with a finer neighbour's corners on their edges
     // (drawn as a fan round the middle, so no crack opens along a T-junction); those outside the box first (the seam's)
-    const leaves = [], corner = new Uint8Array(pa.length);
+    const leaves = [], corner = new Uint8Array(np);
     const walk = (N) => { if (N.k) for (const q of N.k) walk(q); else { leaves.push(N); for (const q of N.v) corner[q] = 1; } };
-    for (let r = 0; r < roots.length; r++) { if (roots[r]) walk(roots[r]); if (r % 1500 === 1499) yield; }
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) walk(roots[r]); if ((r & 63) === 63 && spent()) yield; }
     yield;
+    let nt = 0; // (the triangles' corners: two triangles a leaf, or its fan's)
     for (const N of leaves) {
-      if (++steps % 300 === 0) yield;
-      if (N.s < 2) continue;
+      if ((++steps & 15) === 0 && spent()) yield;
+      if (N.s < 2) { nt += 6; continue; }
       const s = N.s, f = [];
       // the loop round its edge, counter-clockwise in (x, y): along y = 0, x = 1, y = 1, x = 0; u is how far round (0..4)
       const edge = (side) => {
@@ -1352,15 +1367,17 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       };
       for (let side = 0; side < 4; side++) edge(side);
       if (f.length > 16) { N.f = f; if (N.c < 0) N.c = pt(N.ix + s / 2, N.iy + s / 2); hOf(N.c); } // (more than its 4 corners)
+      nt += N.f ? (f.length / 4) * 3 : 6;
     }
-    const use = new Int32Array(pa.length).fill(-1), list = [];
+    const use = new Int32Array(np).fill(-1), list = [];
     yield;
-    for (let l = 0; l < leaves.length; l++) { const N = leaves[l]; for (const q of N.v) use[q] = 0; if (N.f) use[N.c] = 0; if (l % 5000 === 4999) yield; }
+    for (let l = 0; l < leaves.length; l++) { const N = leaves[l]; for (const q of N.v) use[q] = 0; if (N.f) use[N.c] = 0; if ((l & 255) === 255 && spent()) yield; }
     yield;
     const dOf = (i) => Math.hypot(Math.max(B.e0 - pe[i], 0, pe[i] - B.e1), Math.max(B.z0 - pz[i], 0, pz[i] - B.z1));
-    for (const pass of [0, 1]) for (let i = 0; i < pa.length; i++) { if (use[i] === 0 && (dOf(i) > 0) === !pass) { use[i] = 1; list.push(i); } if (i % 4000 === 3999) yield; }
-    const n = list.length, mv = new Int32Array(pa.length).fill(-1);
-    for (let k = 0; k < n; k++) mv[list[k]] = k;
+    for (const pass of [0, 1]) for (let i = 0; i < np; i++) { if (use[i] === 0 && (dOf(i) > 0) === !pass) { use[i] = 1; list.push(i); } if ((i & 511) === 511 && spent()) yield; }
+    const n = list.length, mv = new Int32Array(np).fill(-1);
+    yield;
+    for (let k = 0; k < n; k++) { mv[list[k]] = k; if ((k & 4095) === 4095 && spent()) yield; }
     let nb = 0;
     while (nb < n && dOf(list[nb]) > 0) nb++;
     yield;
@@ -1370,23 +1387,43 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const q = list[k];
       va[k] = pa[q]; vz[k] = pz[q]; ve[k] = pe[q]; vd[k] = dOf(q); hx[k] = H[k] = hOf(q);
       dk[k] = pdk[q]; rd[k] = prd[q]; rv[k] = prv[q]; wl[k] = pwl[q]; wp[k] = pwp[q];
-      if (k % 2500 === 2499) yield;
+      if ((k & 511) === 511 && spent()) yield;
     }
     yield;
-    // the triangles: two a leaf, or its fan
-    const tri = [];
-    for (let l = 0; l < leaves.length; l++) {
+    // the triangles: two a leaf, or its fan (straight into the index buffer the mesh draws)
+    const tri = n < 65536 ? new Uint16Array(nt) : new Uint32Array(nt);
+    yield;
+    for (let l = 0, w = 0; l < leaves.length; l++) {
       const N = leaves[l], v = N.v, m = [mv[v[0]], mv[v[1]], mv[v[2]], mv[v[3]]];
       N.v = m;
-      if (l % 2000 === 1999) yield;
-      if (!N.f) { tri.push(m[0], m[1], m[2], m[1], m[3], m[2]); continue; }
+      if ((l & 255) === 255 && spent()) yield;
+      if (!N.f) { tri[w++] = m[0]; tri[w++] = m[1]; tri[w++] = m[2]; tri[w++] = m[1]; tri[w++] = m[3]; tri[w++] = m[2]; continue; }
       const f = N.f, cm = mv[N.c], L = f.length / 4;
       for (let k = 0; k < L; k++) { f[k * 4 + 3] = mv[f[k * 4 + 3]]; }
-      for (let k = 0; k < L; k++) tri.push(cm, f[k * 4 + 3], f[((k + 1) % L) * 4 + 3]);
+      for (let k = 0; k < L; k++) { tri[w++] = cm; tri[w++] = f[k * 4 + 3]; tri[w++] = f[((k + 1) % L) * 4 + 3]; }
       N.c = cm;
     }
     yield;
-    return { A, W, HH, X0, Y0, NX, NY, fx, fy, roots, n, nb, va, vz, ve, vd, hx, H, dk, rd, rv, wl, wp, tri, leaves: leaves.length, evals, pts: pa.length };
+    // The quadtree, packed into typed arrays for the session (geoAt walks them): as objects (36k cells, their corner and
+    // child lists, the fans) it would be 3.6 MB of the heap that every major collection marks for as long as the game
+    // runs. Per cell: its corner (ix, iy) and size s, its first child (the four in a row; -1: a leaf), its four corners
+    // v (vertex indices), its middle c, and its fan's run in Fa (f0, -1: none; fl long). root: each root cell's, or -1.
+    let nn = 0, nf = 0;
+    const count = (N) => { nn++; if (N.f) nf += N.f.length; if (N.k) for (const q of N.k) count(q); };
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) count(roots[r]); if ((r & 63) === 63 && spent()) yield; }
+    const Q = { ix: new Int32Array(nn), iy: new Int32Array(nn), s: new Int32Array(nn), k: new Int32Array(nn), v: new Int32Array(nn * 4), c: new Int32Array(nn), f0: new Int32Array(nn), fl: new Int32Array(nn), Fa: new Float64Array(nf), root: new Int32Array(roots.length).fill(-1) };
+    yield;
+    let at = 0, fa = 0;
+    const pack = (N, q) => {
+      Q.ix[q] = N.ix; Q.iy[q] = N.iy; Q.s[q] = N.s; Q.c[q] = N.c; Q.v.set(N.v, q * 4);
+      if (N.f) { Q.f0[q] = fa; Q.fl[q] = N.f.length; Q.Fa.set(N.f, fa); fa += N.f.length; } else { Q.f0[q] = -1; Q.fl[q] = 0; }
+      if (!N.k) { Q.k[q] = -1; return; }
+      const k0 = (Q.k[q] = at); at += 4;
+      for (let i = 0; i < 4; i++) pack(N.k[i], k0 + i);
+    };
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) { const q = at++; Q.root[r] = q; pack(roots[r], q); } if ((r & 63) === 63 && spent()) yield; }
+    yield;
+    return { A, W, HH, X0, Y0, NX, NY, fx, fy, Q, n, nb, va, vz, ve, vd, hx, H, dk, rd, rv, wl, wp, tri, leaves: leaves.length, evals, pts: np };
   }
   // The ground on the mesh at (a, z): its own triangles' height (Hv: the heights to read, G.H as drawn), or null off it
   function geoAt(G, a, z, Hv = G.H) {
@@ -1394,24 +1431,25 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const fx = ((g.lon / TAU + 0.5) * G.W - 0.5 - G.X0) * G.fx, fy = ((0.5 - g.lat / Math.PI) * G.HH - 0.5 - G.Y0) * G.fy;
     const i = Math.floor(fx / D), j = Math.floor(fy / D);
     if (i < 0 || j < 0 || i >= G.NX || j >= G.NY) return null;
-    let N = G.roots[j * G.NX + i];
-    if (!N) return null;
-    while (N.k) { const h = N.s / 2; N = N.k[(fy - N.iy >= h ? 2 : 0) + (fx - N.ix >= h ? 1 : 0)]; }
-    const x = (fx - N.ix) / N.s, y = (fy - N.iy) / N.s, m = N.v;
-    if (!N.f) {
-      if (x + y <= 1) return Hv[m[0]] + (Hv[m[1]] - Hv[m[0]]) * x + (Hv[m[2]] - Hv[m[0]]) * y;
-      return Hv[m[3]] + (Hv[m[2]] - Hv[m[3]]) * (1 - x) + (Hv[m[1]] - Hv[m[3]]) * (1 - y);
+    const Q = G.Q;
+    let N = Q.root[j * G.NX + i];
+    if (N < 0) return null;
+    while (Q.k[N] >= 0) { const h = Q.s[N] / 2; N = Q.k[N] + (fy - Q.iy[N] >= h ? 2 : 0) + (fx - Q.ix[N] >= h ? 1 : 0); }
+    const x = (fx - Q.ix[N]) / Q.s[N], y = (fy - Q.iy[N]) / Q.s[N], m = N * 4, V = Q.v;
+    if (Q.f0[N] < 0) {
+      if (x + y <= 1) return Hv[V[m]] + (Hv[V[m + 1]] - Hv[V[m]]) * x + (Hv[V[m + 2]] - Hv[V[m]]) * y;
+      return Hv[V[m + 3]] + (Hv[V[m + 2]] - Hv[V[m + 3]]) * (1 - x) + (Hv[V[m + 1]] - Hv[V[m + 3]]) * (1 - y);
     }
     // a fan: the edge segment the ray from the middle through the point meets, then that triangle's plane
     const dx = x - 0.5, dy = y - 0.5, mx = Math.max(Math.abs(dx), Math.abs(dy));
-    if (mx < 1e-9) return Hv[N.c];
+    if (mx < 1e-9) return Hv[Q.c[N]];
     const ex = 0.5 + (dx * 0.5) / mx, ey = 0.5 + (dy * 0.5) / mx;
-    const u = -dy >= Math.abs(dx) ? ex : dx >= Math.abs(dy) ? 1 + ey : dy >= Math.abs(dx) ? 3 - ex : 4 - ey, f = N.f, L = f.length / 4;
+    const u = -dy >= Math.abs(dx) ? ex : dx >= Math.abs(dy) ? 1 + ey : dy >= Math.abs(dx) ? 3 - ex : 4 - ey, f = Q.Fa, o = Q.f0[N], L = Q.fl[N] / 4;
     let k = L - 1;
-    for (let q = 0; q < L - 1; q++) if (u >= f[q * 4] && u < f[(q + 1) * 4]) { k = q; break; }
-    const k1 = (k + 1) % L, ax = f[k * 4 + 1] - 0.5, ay = f[k * 4 + 2] - 0.5, bx = f[k1 * 4 + 1] - 0.5, by = f[k1 * 4 + 2] - 0.5, det = ax * by - ay * bx;
-    const s = (dx * by - dy * bx) / det, t = (ax * dy - ay * dx) / det, hc = Hv[N.c];
-    return hc + (Hv[f[k * 4 + 3]] - hc) * s + (Hv[f[k1 * 4 + 3]] - hc) * t;
+    for (let q = 0; q < L - 1; q++) if (u >= f[o + q * 4] && u < f[o + (q + 1) * 4]) { k = q; break; }
+    const k1 = (k + 1) % L, ax = f[o + k * 4 + 1] - 0.5, ay = f[o + k * 4 + 2] - 0.5, bx = f[o + k1 * 4 + 1] - 0.5, by = f[o + k1 * 4 + 2] - 0.5, det = ax * by - ay * bx;
+    const s = (dx * by - dy * bx) / det, t = (ax * dy - ay * dx) / det, hc = Hv[Q.c[N]];
+    return hc + (Hv[f[o + k * 4 + 3]] - hc) * s + (Hv[f[o + k1 * 4 + 3]] - hc) * t;
   }
   // The ground as drawn on the arena on show at (a, z), within the patch's cut; null elsewhere
   function arenaAt(a, z) {
@@ -1446,7 +1484,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2), night = new Float32Array(n);
     G.pos = pos; G.nor = nor; G.col = col; G.uv = uv; G.night = night;
     yield;
-    for (let k = 0; k < n; k += 1000) { arenaPos(G, k, Math.min(n, k + 1000), G.hx); yield; }
+    for (let k = 0; k < n; k += 500) { arenaPos(G, k, Math.min(n, k + 500), G.hx); if (spent()) yield; }
     // normals from the triangles round each vertex (and flipped so every triangle faces up)
     const T = G.tri, k0 = T[0], ph0 = G.vz[k0] / R, cp0 = Math.cos(ph0);
     let flip = false;
@@ -1457,9 +1495,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (t === 0) flip = -nx * cp0 * Math.sin(G.va[k0] - a0) + ny * cp0 * Math.cos(G.va[k0] - a0) + nz * Math.sin(ph0) < 0;
       if (flip) { nx = -nx; ny = -ny; nz = -nz; }
       nor[A] += nx; nor[A + 1] += ny; nor[A + 2] += nz; nor[B] += nx; nor[B + 1] += ny; nor[B + 2] += nz; nor[C] += nx; nor[C + 1] += ny; nor[C + 2] += nz;
-      if (t % 12000 === 11997) yield;
+      if (t % 1536 === 1533 && spent()) yield;
     }
-    if (flip) for (let t = 0; t < T.length; t += 3) { const q = T[t + 1]; T[t + 1] = T[t + 2]; T[t + 2] = q; }
+    if (flip) for (let t = 0; t < T.length; t += 3) { const q = T[t + 1]; T[t + 1] = T[t + 2]; T[t + 2] = q; if (t % 6144 === 6141 && spent()) yield; }
     yield;
     const out = [0, 0, 0];
     for (let k = 0; k < n; k++) {
@@ -1471,16 +1509,30 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (al < 0) al += TAU * R;
       night[k] = groundPaint(c, EARTH, al, G.vz[k], G.va[k], G.vz[k], phi, G.ve[k], trackHalf(G.ve[k]), cell, G.hx[k], contAt(c, G.va[k], phi), G.dk[k], 1 - cu, tan, G.wl[k], G.wp[k], G.rd[k], G.rv[k], out);
       col[q] = lin(out[0]); col[q + 1] = lin(out[1]); col[q + 2] = lin(out[2]);
-      if (k % 400 === 399) yield;
+      if ((k & 7) === 7 && spent()) yield; // (a vertex's paint is the dearest work here)
     }
-    G.ocol = col.slice(); G.onor = nor.slice(); G.onight = night.slice(); // (its own, before the seam blends them into the patch's)
+    G.ocol = col.slice(); yield; G.onor = nor.slice(); yield; G.onight = night.slice(); // (its own, before the seam blends them into the patch's)
     yield;
     const geo = new THREE.BufferGeometry(), dyn = (a, k) => new THREE.BufferAttribute(a, k).setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', dyn(pos, 3)); geo.setAttribute('normal', dyn(nor, 3)); geo.setAttribute('color', dyn(col, 3));
     geo.setAttribute('uv', dyn(uv, 2)); geo.setAttribute('aNight', dyn(night, 1));
-    geo.setIndex(new THREE.BufferAttribute(n < 65536 ? new Uint16Array(T) : new Uint32Array(T), 1));
+    geo.setIndex(new THREE.BufferAttribute(T, 1)); // (arenaGeoJob's own: 16 bits a corner under 65,536 vertices)
     yield;
-    geo.computeBoundingSphere();
+    // its bounding sphere, as geometry.computeBoundingSphere finds it (the box's middle, out to the farthest vertex), a
+    // slice at a time: one pass over 32k vertices is too much for one step on a phone
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, r2 = 0;
+    for (let k = 0; k < n; k++) {
+      const x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2];
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); z0 = Math.min(z0, z); x1 = Math.max(x1, x); y1 = Math.max(y1, y); z1 = Math.max(z1, z);
+      if ((k & 2047) === 2047 && spent()) yield;
+    }
+    const cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5, cz = (z0 + z1) * 0.5;
+    for (let k = 0; k < n; k++) {
+      const dx = cx - pos[k * 3], dy = cy - pos[k * 3 + 1], dz = cz - pos[k * 3 + 2];
+      r2 = Math.max(r2, dx * dx + dy * dy + dz * dz);
+      if ((k & 2047) === 2047 && spent()) yield;
+    }
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), Math.sqrt(r2));
     G.tri = null;
     if (!terr.amat) { // the patch's material with a cut of its own that never cuts: the patch's compiled program, no stall
       const m = terr.mat;
@@ -1516,7 +1568,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const dl = P.a0 - AR.a0, cs = Math.cos(dl), sn = Math.sin(dl), [l0, l1] = ARENA.lit;
     for (let k = 0; k < n; k++) {
       const d = G.vd[k], q = k * 3;
-      if (k % 300 === 299) yield;
+      if ((k & 15) === 15 && spent()) yield;
       if (!patchAt(P, G.va[k], G.vz[k], PQ)) { // (off the patch: its own colours, heights and normals)
         for (let c = 0; c < 3; c++) { col[q + c] = G.ocol[q + c]; nor[q + c] = G.onor[q + c]; }
         night[k] = G.onight[k];
@@ -1537,7 +1589,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let al0 = (P.a0 % TAU) * R * P.kl;
     if (al0 < 0) al0 += TAU * R * P.kl;
     const uo = al0 % TILE, vo = P.z0 % TILE, uv = bb.uv;
-    for (let k = 0; k < n; k++) { uv[k * 2] = (wrapAngle(G.va[k] - P.a0) * R * P.kl + uo) / TILE; uv[k * 2 + 1] = (G.vz[k] - P.z0 + vo) / TILE; if (k % 6000 === 5999) yield; }
+    for (let k = 0; k < n; k++) { uv[k * 2] = (wrapAngle(G.va[k] - P.a0) * R * P.kl + uo) / TILE; uv[k * 2 + 1] = (G.vz[k] - P.z0 + vo) / TILE; if ((k & 2047) === 2047 && spent()) yield; }
     // the patch's cut, in its UVs: east is decreasing angle, so the box's east side is the low end of its rows
     const B = AR.A.box, sOf = (e) => wrapAngle(siteAngle(EARTH, e) - P.a0) * R * P.kl;
     bb.hole[0] = (sOf(B.e1 + hole) + uo) / TILE; bb.hole[1] = (B.z0 - hole - P.z0 + vo) / TILE; bb.hole[2] = (sOf(B.e0 - hole) + uo) / TILE; bb.hole[3] = (B.z1 + hole - P.z0 + vo) / TILE;
@@ -1585,6 +1637,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (A && (AR.A !== A || AR.hi !== Settings.high)) arenaReset(A, F, b);
     if (!A) { AR.bjob = null; if (bandWait) upNow(F, b); arenaHide(); return; }
     const t0 = performance.now(), budget = Settings.high ? 3 : 2;
+    arenaUntil = t0 + budget;
     if (!AR.mesh) {
       while (!AR.mesh && performance.now() - t0 < budget) {
         if (!AR.job) AR.job = AR.geo ? arenaMeshJob() : arenaGeoJob(A, AR.hi);
@@ -1602,6 +1655,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (AR.bjob) {
       const t1 = performance.now();
       let done = false;
+      arenaUntil = t1 + budget;
       while (!done && performance.now() - t1 < budget) done = AR.bjob.next().done;
       AR.bms += performance.now() - t1;
       if (done) {
@@ -3910,7 +3964,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
     // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
     arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },
-    arenaGeo(id, hi = true) { const job = arenaGeoJob(EARTH.arenas[id], hi); let r; while (!(r = job.next()).done); return r.value; },
+    // (onStep: called after each step, every slice spent at once: each step as little as a step can be)
+    arenaGeo(id, hi = true, onStep) { const u = arenaUntil, job = arenaGeoJob(EARTH.arenas[id], hi); let r; arenaUntil = onStep ? -Infinity : Infinity; try { while (!(r = job.next()).done) if (onStep) onStep(); } finally { arenaUntil = u; } return r.value; },
     arenaGeoAt: geoAt,
     // The camera's line of sight through the middle of the screen, from the last flight frame: out.o where it starts and
     // out.d its way (unit), body-relative sim coordinates. (null before a flight frame is drawn.)
