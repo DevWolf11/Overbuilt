@@ -2111,7 +2111,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 
 **sw.js** (31 lines):
 - `CACHE = 'overbuilt-v24'` (:3; v21 was PR #35, v22 PR #36, the look-alike jets, v23 PR #37, the warning receivers, v24 PR #38, the ground update). PR #38 added six files to `SHELL`: gear.js, aim.js and armour.js after vessel.js, gmode.js and groundai.js after combat.js, ghud.js after mpui.js.
-- `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
+- `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg` and `icons/icon-tab.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.
 - **fetch** (:20-31): **network-first** for every GET. A good same-origin response is copied into `CACHE`. When the network fails it falls back to `caches.match(req, {ignoreSearch:true})`, then to `index.html`, for any request.
@@ -2125,7 +2125,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 **manifest.webmanifest:**
 - `name` and `short_name` "Overbuilt"
 - `start_url`/`scope` `./`, `display: fullscreen`, `orientation: any`, colours `#05070d`
-- icons: `icon.svg` (any), `icon-192.png`, `icon-512.png`. The PNGs are not in `SHELL`; they get cached at runtime.
+- icons: `icon.svg` (any), `icon-192.png`, `icon-512.png`, all "The Stack" (a tank, a car, a jet, a helicopter and a rocket piled into one wobbly tower: built too high). `icon-tab.svg` is the browser tab's favicon (index.html's `rel="icon"`), the same idea cut down to a tank, a car and a rocket so it reads at 16-32 px. The PNGs are rendered from `icon.svg` on the game's background (#05070d) and are not in `SHELL`; they get cached at runtime.
 - The `description` is outdated ("…land on the Moon").
 
 index.html:8-14 also sets `theme-color`, the Apple web-app metas, the SVG favicon and `apple-touch-icon` (192 png).

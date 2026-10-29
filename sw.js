@@ -2,7 +2,7 @@
 // the cached copy when offline.
 const CACHE = 'overbuilt-v24';
 const SHELL = [
-  './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
+  './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-tab.svg',
   'js/util.js', 'js/space.js', 'js/terrain.js', 'js/parts.js', 'js/vessel.js', 'js/gear.js', 'js/aim.js', 'js/armour.js', 'js/ui.js', 'js/audio.js',
   'js/world.js', 'js/parts3d.js', 'js/render3d.js', 'js/vendor/three.min.js',
   'js/career.js', 'js/map.js', 'js/globe.js', 'js/combat.js', 'js/gmode.js', 'js/groundai.js', 'js/builder.js', 'js/flight.js',
