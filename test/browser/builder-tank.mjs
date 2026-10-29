@@ -156,6 +156,20 @@ r = await ev(() => {
 });
 ok('an Applique Plate tapped by a hull\'s front stands up (rot 1) flush on it', r.type === 'plateApp' && r.rot === 1 && r.att === 'hullMedium' && r.gap >= -0.005 && r.gap < 0.03 && !r.clash && r.joined, JSON.stringify(r));
 await ev(() => Builder.undo());
+// (P4 review) on the MBT hull, whose nose reaches its box only at the bottom, a brick stood on the front goes low enough
+// to touch it (it stood in the air, half a metre ahead of the plate)
+r = await ev((rows) => {
+  Builder.loadTemplate('ma1'); Builder.symmetry = true;
+  const h = Builder.parts[0], R = partRect(h), a = Builder.viewArea(), c = Builder.screenToWorld(a.cx, a.cy);
+  Builder.cam.x += R.r + 0.5 - c.x; Builder.cam.y += h.y - c.y;
+  const n = Builder.parts.length; Builder.quickAdd('era');
+  const p = Builder.parts[n], P = p && partRect(p);
+  let gap = Infinity; if (p) for (let y = Math.max(P.b, R.b); y <= Math.min(P.t, R.t); y += 0.01) gap = Math.min(gap, P.l - Builder.frontAt(h, y));
+  const out = p && { rot: p.rot, att: (Builder.parts.find((q) => q.id === p.att) || {}).type, gap: +gap.toFixed(3), clash: Builder.parts.some((q) => q !== p && partsClash(p, q)), joined: Builder.attached.has(p.id) };
+  Builder.loadDesign({ name: 'Six taps', kind: 'tank', parts: rows });
+  return out;
+}, tankRows);
+ok('Reactive Bricks tapped by the MA-1\'s nose stand on it (rot 1), touching the plate, not in the air ahead of it', !!r && r.rot === 1 && r.att === 'hullMBT' && r.gap >= -0.005 && r.gap < 0.03 && !r.clash && r.joined, JSON.stringify(r));
 r = await ev(() => {
   Builder.quickAdd('smokeL');
   const p = Builder.selected, m = p.mirror;

@@ -1437,6 +1437,15 @@ const Builder = {
     const k = (H.rot || 0) & 3, s = k & 1 ? null : clashSection(H, clashShape(H.def, H.flip), k, y);
     return s ? s[1] : partRect(H).r;
   },
+  // Does an upright part (a brick or plate stood on a front) touch H's front face, within 3 cm at the nearest height
+  // they share? (Against a part at another turn the clash rules only know boxes, so the snug stops at H's box: in front
+  // of a nose that slopes back from the bottom, that is in the air.)
+  onFront(q, H) {
+    const P = partRect(q), R = partRect(H);
+    let gap = Infinity;
+    for (let y = Math.max(P.b, R.b); y <= Math.min(P.t, R.t) + 1e-9; y += 0.02) gap = Math.min(gap, P.l - this.frontAt(H, y));
+    return gap < 0.03;
+  },
   // Where a tapped part goes on a tank, by its def.place: {x, y, z, rot, host, att}, or null (the usual tap then). A hull
   // on an empty blueprint (else behind the last one); tracks and armoured wheels beside the biggest hull, symmetry
   // adding the other side; engines, crew, racks and fuel inside, the first free spot within the armour; a ring on the
@@ -1565,7 +1574,9 @@ const Builder = {
         if (P) for (let i = 0; i < P.length; i++) { const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length]; if ((by - ay) / (Math.hypot(bx - ax, by - ay) || 1) > 0.3) { y0 = Math.min(y0, ay, by); y1 = Math.max(y1, ay, by); } }
         const yf = y1 > y0 ? (y0 + y1) / 2 : H.y, [a, b] = this.roofOf(H);
         // up front: beside or above and below anything there (a casemate's gun); on the roof: along it and across
-        cands.push({ H, rot: 1, axis: 'x', max: R.r - R.l, at: [R.r, yf], ps: grid(steps(3, fr.h + 0.02).filter((o) => Math.abs(o) <= (y1 - y0) / 2 + 0.01), zs).map(([oy, oz]) => [R.r + fr.w / 2 + 0.02, yf + oy, hz + oz]) });
+        // (then 10 cm steps, for a nose that only reaches its box low down: the MBT's)
+        const oys = steps(3, fr.h + 0.02), fine = steps(7, 0.1).filter((o) => !oys.some((u) => Math.abs(u - o) < 1e-6));
+        cands.push({ H, rot: 1, axis: 'x', max: R.r - R.l, at: [R.r, yf], ps: grid([...oys, ...fine].filter((o) => Math.abs(o) <= (y1 - y0) / 2 + 0.01), zs).map(([oy, oz]) => [R.r + fr.w / 2 + 0.02, yf + oy, hz + oz]) });
         cands.push({ H, rot: 0, axis: 'y', max: R.t - R.b, at: [(a + b) / 2, R.t], ps: grid(steps(4, fl.w + 0.02).filter((o) => Math.abs(o) <= (b - a - fl.w) / 2 + 0.01), zs).map(([ox, oz]) => [(a + b) / 2 + ox, R.t + fl.h / 2 + 0.02, hz + oz]) });
       }
       cands.sort((p, q) => Math.hypot(p.at[0] - centre.x, p.at[1] - centre.y) - Math.hypot(q.at[0] - centre.x, q.at[1] - centre.y));
@@ -1573,7 +1584,7 @@ const Builder = {
         const q = pose(x, y, z, c.H, c.rot);
         if (!free(q)) continue;
         const sq = this.snug(q, c.axis, -1, c.max, parts); // (slid in until it meets the plate: then within 3 cm of it)
-        if (sq && free(sq) && partsOverlap(sq, c.H, -0.03, -0.03)) return { ...q, x: sq.x, y: sq.y };
+        if (sq && free(sq) && partsOverlap(sq, c.H, -0.03, -0.03) && (c.rot !== 1 || this.onFront(sq, c.H))) return { ...q, x: sq.x, y: sq.y };
       }
       return null;
     }
