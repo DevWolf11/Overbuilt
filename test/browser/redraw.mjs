@@ -89,7 +89,10 @@ await frames(4); await page.waitForTimeout(500); // (its sweep has landed)
 n = await idle('b2', 600);
 ok('an idle armour blueprint is not drawn again', n === 0, `${n} draws`);
 const once = async (key, name, act) => { const n0 = await ev((k) => __n[k], key); await act(); await frames(4); const k = (await ev((k) => __n[k], key)) - n0; ok(`${key === 'b2' ? '2D' : '3D'}: ${name} redraws once`, k === 1, `${k} draws`); };
-await once('b2', 'X-ray off (X)', () => page.keyboard.press('KeyX'));
+// (the key held while counting: its keyup is input too, and pokes a draw of its own, one frame later or in the same one
+// as the keydown's, as the two happen to land; let go once the count is in)
+await once('b2', 'X-ray off (X)', () => page.keyboard.down('KeyX'));
+await page.keyboard.up('KeyX'); await frames(4);
 await once('b2', 'X-ray on (button)', () => page.click('#btn-xray'));
 await ev(() => { Builder.selected = Builder.parts.find((p) => p.type === 'hullMedium'); Builder.renderInfo(); });
 await frames(4); await page.waitForTimeout(300);
