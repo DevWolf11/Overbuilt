@@ -338,6 +338,7 @@ const Aim = {
     const dep = new Map();
     for (const g of v.tg || []) { const s = this.sweep(v.parts, g); g.yawLim = s.yawLim; g.dep = s.dep; for (const [id, d] of s.deps) dep.set(id, d); } // (outer first: a cupola's own wins)
     for (const p of v.aimed) if (!dep.has(p.id)) dep.set(p.id, aimDep(v.parts, p, null));
+    for (const p of v.aimed) if (p.def.weapon && p.def.weapon.kind === 'rocket') this.rangeTable(p.def, v.body); // (worked out now too, not on the first frame it aims)
     v._limTg = v.tg; v._dep = dep; v._limN = v.parts.length;
     return dep;
   },
@@ -581,8 +582,10 @@ const Aim = {
     return { el: th + Math.atan2(o.drop, R), t: o.t, drop: o.drop, v: SH.v0 * Math.exp(-SH.k * rho * R) };
   },
   // A rocket launcher's range table (built once per part type and body): a rocket flown as moveShot flies it (its motor
-  // along the rail, drag, gravity toward the middle of the planet) from 5° to 55° in 2.5° steps, to the level it left:
-  // [{ el, d (m along the ground), t (s), fall (its dive at the end, rad) }]
+  // along the rail, drag, gravity toward the middle of the planet) at each elevation of AIM_RK_EL (from just under the
+  // level up, finer low down, where the short ranges are), each path's height over the launch level kept every AIM_RK_DX m along the
+  // ground with its time, until it is AIM_RK_FLOOR m below it, up to the first past its longest shot: [{ el, d (m along
+  // the ground to the level it left), t (s), fall (its dive there, rad), H, T (heights and times along the ground) }]
   rangeTable(def, body = EARTH) {
     const w = def.weapon;
     if (!w || w.kind !== 'rocket') return null;
@@ -590,36 +593,49 @@ const Aim = {
     if (!B) aimTables.set(def, (B = new Map()));
     if (B.has(body)) return B.get(body);
     const out = [], R0 = body.radius + 50, h = 1 / 120, tm = w.coast ?? 0, life = w.life || 9; // (the physics' own step)
-    for (let e = 5; e <= 55.01; e += 2.5) {
-      const c = Math.cos(e * AIM_RAD), s = Math.sin(e * AIM_RAD);
-      let x = 0, y = R0, vx = c * (w.speed || 0), vy = s * (w.speed || 0), t = 0;
+    for (const e of AIM_RK_EL) {
+      const c = Math.cos(e * AIM_RAD), s = Math.sin(e * AIM_RAD), H = [0], T = [0], row = { el: e * AIM_RAD, d: 0, t: 0, fall: 0, H: null, T: null };
+      let x = 0, y = R0, vx = c * (w.speed || 0), vy = s * (w.speed || 0), t = 0, d0 = 0, h0 = 0;
       while (t < life) {
         const r0 = Math.hypot(x, y), g = body.mu / (r0 * r0);
         t += h;
         if (t > tm && t < tm + (w.burn || 0)) { vx += c * (w.accel || 0) * h; vy += s * (w.accel || 0) * h; }
         const kd = 0.00006 * airDensity(body, r0 - body.radius) * Math.hypot(vx, vy) * h;
         vx -= vx * kd + (x / r0) * g * h; vy -= vy * kd + (y / r0) * g * h;
-        const px = x, py = y;
         x += vx * h; y += vy * h;
-        const r1 = Math.hypot(x, y);
-        if (r1 < R0 && t > 0.5) {
-          const f = (r0 - R0) / Math.max(1e-9, r0 - r1), ix = px + (x - px) * f, iy = py + (y - py) * f;
-          out.push({ el: e * AIM_RAD, d: R0 * Math.atan2(ix, iy), t: t - h * (1 - f), fall: Math.asin(clamp(-(vx * ix + vy * iy) / (R0 * (Math.hypot(vx, vy) || 1)), -1, 1)) });
-          break;
-        }
+        const d1 = R0 * Math.atan2(x, y), h1 = Math.hypot(x, y) - R0;
+        while (H.length * AIM_RK_DX <= d1) { const k = (H.length * AIM_RK_DX - d0) / (d1 - d0); H.push(h0 + (h1 - h0) * k); T.push(t - h * (1 - k)); }
+        if (h0 >= 0 && h1 < 0) { const k = h0 / (h0 - h1); row.d = d0 + (d1 - d0) * k; row.t = t - h * (1 - k); row.fall = Math.atan2(h0 - h1, d1 - d0); } // (down through the level it left: the last time)
+        d0 = d1; h0 = h1;
+        if (h1 < -AIM_RK_FLOOR) break;
       }
+      row.H = Float32Array.from(H); row.T = Float32Array.from(T);
+      out.push(row);
+      if (out.length > 2 && row.d < out[out.length - 2].d) break; // (past its longest shot: steeper ones come down nearer)
     }
     B.set(body, out);
     return out;
   },
-  // the elevation (rad above the level) for a rocket to come down D m off and dH up: the table's rising half, the height
-  // counted against its dive; out: beyond its reach (then its longest)
+  // The elevation (rad above the level) for a rocket to come down D m off and dH up (from the launcher's level plane):
+  // the flattest path of the table's rising half that passes at or over that point, between it and the one under it;
+  // out: none reaches it (then its longest). The time is the path's there.
   rocketEl(def, D, dH, body = EARTH, out = aimRk) {
     const T = this.rangeTable(def, body);
     if (!T || !T.length) return null;
-    aimRkAt(T, D, out);
-    aimRkAt(T, D + dH / Math.tan(Math.max(out.fall, 0.1)), out);
-    out.d = D;
+    const Rb = body.radius, Y = Rb + dH, x = (Rb * Math.atan2(D, Y)) / AIM_RK_DX, hA = Math.hypot(D, Y) - Rb; // (along the ground, and up from it)
+    let top = 0;
+    while (top + 1 < T.length && T[top + 1].d >= T[top].d) top++;
+    const at = (q, A) => { const k = Math.floor(x); if (k + 1 >= q.H.length) return -Infinity; const f = x - k; return A[k] + (A[k + 1] - A[k]) * f; };
+    let lo = -Infinity;
+    for (let i = 0; i <= top; i++) {
+      const q = T[i], hi = at(q, q.H);
+      if (hi < hA) { lo = hi; continue; }
+      if (i === 0 || lo === -Infinity) { out.el = q.el; out.t = at(q, q.T); }
+      else { const p = T[i - 1], f = (hA - lo) / (hi - lo); out.el = lerp(p.el, q.el, f); out.t = lerp(at(p, p.T), at(q, q.T), f); }
+      out.out = false; out.d = D;
+      return out;
+    }
+    out.el = T[top].el; out.t = T[top].t; out.out = true; out.d = D;
     return out;
   },
 
@@ -1223,21 +1239,12 @@ const Aim = {
 // (Phase 2C) the aim's other helpers
 const AIM_FLY = 0.8; // (a smoke grenade's flight, s)
 const AIM_KIN = { ap: 1, aphe: 1, apcr: 1, apds: 1, apfsds: 1, ball: 1 }; // (kinetic rounds: slowed, they go through less)
-const aimTables = new Map(), aimRk = { el: 0, t: 0, fall: 0, out: false, d: 0 }; // (rocket range tables, by part type and body)
-// the range table read at x m (its rising half; beyond its reach, its longest shot: out)
-function aimRkAt(T, x, o) {
-  let top = 0;
-  while (top + 1 < T.length && T[top + 1].d >= T[top].d) top++;
-  if (x <= T[0].d) { const f = clamp(x / T[0].d, 0, 1); o.el = T[0].el * f; o.t = T[0].t * f; o.fall = T[0].fall; o.out = false; return o; }
-  for (let i = 0; i < top; i++) {
-    if (x > T[i + 1].d) continue;
-    const f = (x - T[i].d) / (T[i + 1].d - T[i].d);
-    o.el = lerp(T[i].el, T[i + 1].el, f); o.t = lerp(T[i].t, T[i + 1].t, f); o.fall = lerp(T[i].fall, T[i + 1].fall, f); o.out = false;
-    return o;
-  }
-  o.el = T[top].el; o.t = T[top].t; o.fall = T[top].fall; o.out = true;
-  return o;
-}
+const aimTables = new Map(), aimRk = { el: 0, t: 0, out: false, d: 0 }; // (rocket range tables, by part type and body)
+// the range table's elevations (°): every half degree from 2° down (rails on a hull leaning forward reach under the
+// level) to 4°, every degree to 10°, then every 2.5° to 55°; its paths kept every 50 m along the ground, down to
+// 500 m below the launch level
+const AIM_RK_EL = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40, 42.5, 45, 47.5, 50, 52.5, 55];
+const AIM_RK_DX = 50, AIM_RK_FLOOR = 500;
 // an angle as a ring may hold it: within its free arc (the turn of it nearest where it is now; else the arc's nearer
 // end), or anywhere round without one
 function aimFit(a, cur, lim) {

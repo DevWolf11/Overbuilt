@@ -183,7 +183,8 @@ t('muzzle and barrel after the turret turns (ψ 0.7) and the gun rises (el 0.15)
 R(`var rt = Aim.rangeTable(PARTS.mlrsLight), rmax = Math.max.apply(null, rt.map((q) => q.d));
 var MLRS = [{ type: 'hullWheeled', x: 0, y: 1.2, flip: false, rot: 0 }, { type: 'mlrsLight', x: 0, y: 2.45, flip: false, rot: 3, att: 0 }];
 var rocketAt = (D) => {
-  const v = level(build(MLRS), 50), F = simOf(v), p = partOf(v, 'mlrsLight'), S0 = Aim.rocketEl(PARTS.mlrsLight, D, 0), el = S0.el;
+  const Rl = EARTH.radius + 50, th = D / Rl; // (the level D m off along the ground, as the aim gives it: from the launcher's level plane, the planet curving away under it)
+  const v = level(build(MLRS), 50), F = simOf(v), p = partOf(v, 'mlrsLight'), S0 = Aim.rocketEl(PARTS.mlrsLight, Rl * Math.sin(th), Rl * Math.cos(th) - Rl), el = S0.el;
   Combat.reset(F); p.aimEl = el;
   const mr = Math.random; Math.random = () => 0.5; Combat.fireRocket(v, p, false, F); Math.random = mr; // (no spread)
   const s = Combat.S.shots[Combat.S.shots.length - 1], O = { x: s.x, y: s.y, z: s.z }, R0 = Math.hypot(s.x, s.y, s.z);
@@ -201,6 +202,27 @@ t('rocket artillery: its range table rises to a longest shot of kilometres; laid
   R(`rt.length >= 15 && rmax > 3500 && [rk1, rk2].every((q) => q.d && Math.abs(q.d - q.D) / q.D < 0.03)`), R('[rt.length, Math.round(rmax), rk1, rk2]'));
 t('...its rockets fly their own life (60 s), carry their blast\'s penetration and spare their launcher at the muzzle',
   R(`rk1.life === 60 && rk1.he === 25 && rk1.spare`), R('rk1'));
+// (P3 review) short ranges and heights: the table starts under the level (it used to start at 5°, 3 km, and draw a straight
+// line below), and the height is flown, not guessed from the fall: laid by it, a rocket passes within 3 m of points
+// 500 m to 2 km off, level, up a hill or down one (on a path this flat, 3 m up or down is 50-100 m along the ground)
+R(`var rocketThrough = (D, dH) => {
+  const v = level(build(MLRS), 300), F = simOf(v), p = partOf(v, 'mlrsLight'), S0 = Aim.rocketEl(PARTS.mlrsLight, D, dH), el = S0.el, tS = S0.t;
+  Combat.reset(F); p.aimEl = el;
+  const mr = Math.random; Math.random = () => 0.5; Combat.fireRocket(v, p, false, F); Math.random = mr;
+  const s = Combat.S.shots[Combat.S.shots.length - 1], O = { x: s.x, y: s.y, z: s.z }, R0 = Math.hypot(s.x, s.y, s.z);
+  const X = (q) => { const r = Math.hypot(q.x, q.y, q.z); return { d: R0 * Math.acos(clamp((q.x * O.x + q.y * O.y + q.z * O.z) / (r * R0), -1, 1)), h: r - R0 }; };
+  const Rb = EARTH.radius, dA = Rb * Math.atan2(D, Rb + dH), hA = Math.hypot(D, Rb + dH) - Rb; // (the point along the ground and up from it)
+  let a = X(s), t0 = 0;
+  for (let i = 0; i < 120 * 40 && Combat.S.shots.includes(s); i++) {
+    t0 = s.t; Combat.step(1 / 120, F); F.time += 1 / 120; const b = X(s);
+    if (b.d >= dA) { const f = (dA - a.d) / (b.d - a.d); return { D, dH, el: Math.round(el / RAD * 100) / 100, miss: Math.round(a.h + (b.h - a.h) * f - hA), t: Math.round(t0 * 10) / 10, tS: Math.round(tS * 10) / 10 }; }
+    a = b;
+  }
+  return { D, dH, el, miss: null };
+};
+var THRU = [[500, 0], [1000, 0], [1000, 50], [1500, 60], [2000, -60], [2000, 38]].map(([D, dH]) => rocketThrough(D, dH));`);
+t('rocket artillery at short range and on hills: its table starts under the level; a rocket laid by it passes within 3 m of points 0.5-2 km off, level, 60 m up or down, when the HUD says',
+  R(`rt[0].el < 0 && rt.some((q) => q.el === 0) && rt.findIndex((q) => q.d > 900) <= 9 && THRU.every((q) => q.miss != null && Math.abs(q.miss) <= 3 && Math.abs(q.t - q.tS) <= 0.2)`), R('JSON.stringify(THRU)'));
 // (P3 review) the player's held FIRE goes through Aim.fire, as every other aimed weapon does
 R(`var heldFire = (how) => {
   const v = level(build(MLRS), 50), F = simOf(v), p = partOf(v, 'mlrsLight'); Combat.reset(F); v.wsel = Combat.systems(v).findIndex((q) => q.key === 'mlrsLight');
