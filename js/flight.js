@@ -748,8 +748,8 @@ const Flight = {
   },
   // a new flight, or the end of one: out of the sight, the mouse let go, the aim to start afresh
   aimReset() {
+    this.groundAim = this.aimCam = this.freeLook = this.mouseFire = this.sightHold = false; // (first: no aim to keep as the sight shuts)
     this.setSight(false); this.unlockPointer();
-    this.groundAim = this.aimCam = this.freeLook = this.mouseFire = this.sightHold = false;
     this._aimV = null; this._warn2d = false; this.strike = null; this.zoom = 3;
     if (this._bodyGround || this._gth || this._gst) { this._bodyGround = this._gth = this._gst = false; document.body.classList.remove('ground', 'g-thrust', 'g-stages'); }
     if (typeof GHUD !== 'undefined') GHUD.tactical(false);
@@ -775,10 +775,42 @@ const Flight = {
     on = !!on && this.groundAim && !this.mapMode && !this.destroyed;
     if (zoom) this.zoom = zoom;
     if (on === this.sight && (!on || !zoom)) return;
+    if (on !== this.sight) this.keepAimPoint(on); // (in or out, not a new zoom)
     this.sight = on;
     if (App.use3D() || !on) Render3D.setSight(on, this.zoom);
     document.body.classList.toggle('sighting', on);
     if (typeof GHUD !== 'undefined') GHUD.redrawDiagram = true;
+  },
+  // In or out of the sight, the crosshair stays on its point (as in War Thunder). The two views look along parallel
+  // lines 1.6-2.5 m apart (the sight from the turret's roof, the third-person camera through 1 m over the turret's
+  // pivot), so keeping the aim's way dropped the crosshair by that much at every range: a tank picked out in third
+  // person sat over the sight's crosshair, and a shot fired at once fell short. Once a toggle: what the crosshair is
+  // on now (a full look), and the aim turned so that the other view's line of sight runs through it. Looking round (C),
+  // the aim the guns come back to is turned instead, onto the point they hold; on the sky (a way, not a point) and
+  // with a rocket strike set on the tactical map, nothing changes.
+  keepAimPoint(sight) {
+    const v = this.active, A = this.aim;
+    if (!this.groundAim || this.destroyed || this.mapMode || !v || !A || !this.aimDir || this.strike || !App.use3D() || typeof GHUD === 'undefined' || (this.viewVessel && this.viewVessel !== v)) return;
+    if (!this.freeLook) GHUD.aimUpdate(this, true);
+    if (A.src !== 'vessel' && A.src !== 'ground') return;
+    const P = this._keepP || (this._keepP = v3()), W = this._keepW || (this._keepW = v3()), E = this._keepE || (this._keepE = v3());
+    P.x = A.P.x; P.y = A.P.y; P.z = A.P.z;
+    if (A.src === 'vessel' && A.v) { // (the point as drawn: a far vessel is drawn raised, and the views see it there)
+      const w = A.v, r = Math.hypot(w.x, w.y, w.z) || 1, off = Render3D.reseatOf(w);
+      P.x += (w.x / r) * off; P.y += (w.y / r) * off; P.z += (w.z / r) * off;
+    }
+    if (!Render3D.aimWay(v, sight, P, W, E)) return;
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy) || 1;
+    const ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux; // (groundTick's east, north and up)
+    const yaw = Math.atan2(-(W.x * nx + W.y * ny + W.z * nz), W.x * ex + W.y * ey), pitch = clamp(Math.asin(clamp(W.x * ux + W.y * uy + W.z * uz, -1, 1)), -0.35, this._elHi || 1.35);
+    if (this.freeLook) { this.freeYaw = yaw; this.freePitch = pitch; return; }
+    this.aimYaw = yaw; this.aimPitch = pitch;
+    // the way and the ray from the new eye at once (the point carried along it until the next look, 50 ms on, is the
+    // same point; until a frame is drawn from there, the ray starts there)
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), cy = Math.cos(yaw), sy = Math.sin(yaw), D = this.aimDir;
+    D.x = ex * cp * cy - nx * cp * sy + ux * sp; D.y = ey * cp * cy - ny * cp * sy + uy * sp; D.z = -nz * cp * sy + uz * sp;
+    A.o.x = E.x; A.o.y = E.y; A.o.z = E.z; A.dir.x = D.x; A.dir.y = D.y; A.dir.z = D.z; A.d = Math.hypot(P.x - E.x, P.y - E.y, P.z - E.z);
+    GHUD.holdEye(E);
   },
   // the mouse let go (the game's own doing: it doesn't open the menu)
   unlockPointer() {

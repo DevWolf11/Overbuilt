@@ -15,7 +15,8 @@
 //    range under the lock (PgUp / PgDn do); the aim camera's zoom has no dead notches; an unarmed design's menu lists
 //    its own keys; Blocked shows with the crosshair on the ground over a berm; a quick tap on a shell chip queues the
 //    round even across a stalled frame, a long press loads it now.
-//  - The sight: the view narrows to 50/zoom degrees and back, project() and metresPerPixelAt agreeing all the while.
+//  - The sight: the view narrows to 50/zoom degrees and back, project() and metresPerPixelAt agreeing all the while; it
+//    opens and closes on the crosshair's point (a TK-34 610 m out stays under it, from the Gepardo, the OK-8 and a TK-34).
 //  - The HUD: the reload ring round FIRE; at most 120 2D-context calls a frame; none of its DOM written while nothing
 //    changes, nor ever on an old plane's HUD ticks; no console errors (App.frame swallows them).
 // SHOTS=<dir> saves screenshots there (3f-*.png).
@@ -183,7 +184,40 @@ for (const [tag, vp] of SIZES) {
     // (P4 play-test) an SPAA's own radar mast clear of the crosshair: on the Tank Range's pad, the top of its highest turret
     // part sits well under the crosshair's ring (it was on it: 1 px under the middle of the screen for the Gepardo and the
     // OK-8; a TK-34's turret 44 px under, as before)
-    const mast = {};
+    // (final verification) opening the gunner's sight kept the aim's way, not its point: the sight looks out from the
+    // turret's roof and the third-person camera along a line through 1 m over its pivot, parallel and 1.6-2.5 m apart, so
+    // a tank picked out in third person sat over the sight's crosshair (the ray on the ground 25-50 m short of it). Here:
+    // a TK-34 set down where the Tank Range parks one (610 m out, side-on; the targets are off), held still; the
+    // crosshair put on it in third person, then in the sight, then out again: what the aim ray is on each time (in sim
+    // time: headless Chromium runs the sim slowly)
+    const keepPoint = async () => {
+      const v = Flight.active, T = TEMPLATES.tk34, ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
+      t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups();
+      t.placeOnSurface(EARTH, siteAngle(EARTH, 17580), 0, 14385, 0); t.kin = true;
+      Flight.vessels.push(t);
+      const frames = (n) => new Promise((res) => { const f = () => (--n <= 0 ? res() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+      const simWait = async (dt) => { const t0 = Flight.time, w0 = performance.now(); while (Flight.time < t0 + dt && performance.now() - w0 < 60000) await frames(1); };
+      const look = () => { GHUD._S.aimAt = -1e9; GHUD.aimUpdate(Flight); const A = Flight.aim; return { on: A.v === t ? 'target' : A.v ? A.v.name : A.src, P: [A.P.x, A.P.y, A.P.z] }; };
+      const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy);
+      const ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux, RAY = { o: v3(), d: v3() };
+      // the crosshair on the target's middle in third person (the camera's place hangs on the way it looks: a few frames)
+      for (let i = 0; i < 4; i++) {
+        const O = Render3D.aimRay(RAY).o, tr = Math.hypot(t.x, t.y, t.z), off = Render3D.reseatOf(t);
+        const dx = t.x + (t.x / tr) * off - O.x, dy = t.y + (t.y / tr) * off - O.y, dz = t.z + (t.z / tr) * off - O.z, d = Math.hypot(dx, dy, dz);
+        Flight.aimYaw = Math.atan2(-(dx * nx + dy * ny + dz * nz) / d, (dx * ex + dy * ey) / d); Flight.aimPitch = Math.asin((dx * ux + dy * uy + dz * uz) / d);
+        await simWait(i === 3 ? 1.5 : 0.05); // (and then the turret laid on it)
+      }
+      const a = look(), apart = (b) => +Math.hypot(b.P[0] - a.P[0], b.P[1] - a.P[1], b.P[2] - a.P[2]).toFixed(2);
+      Flight.setSight(true, 6); await simWait(0.3);
+      const b = look(), y0 = Flight.aimYaw, p0 = Flight.aimPitch;
+      Flight.setSight(true, 3); Flight.setSight(true, 6); // (a new zoom in the sight: the aim as it was)
+      const zoomKept = Flight.sight && Flight.aimYaw === y0 && Flight.aimPitch === p0;
+      Flight.setSight(false); await simWait(0.3);
+      const c = look();
+      Flight.vessels.splice(Flight.vessels.indexOf(t), 1);
+      return { range: Math.round(Math.hypot(t.x - v.x, t.y - v.y, t.z - v.z)), third: a.on, sight: b.on, back: c.on, moved: [apart(b), apart(c)], zoomKept };
+    };
+    const mast = {}, keep = {};
     for (const k of ['gepardo', 'ok8', 'tk34']) {
       await page.evaluate((k) => { App.toBuild(); Builder.loadTemplate(k); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize(), { place: GroundMode.placement('highland', 0, 0, 'tank') }); }, k);
       await page.waitForFunction((k) => Flight.running && Flight.active && Flight.active.name === TEMPLATES[k].name && Flight.time > 0.5, k, { timeout: 60000 });
@@ -192,8 +226,11 @@ for (const [tag, vp] of SIZES) {
         for (const p of v.parts) { if (!v.tgOf || !v.tgOf.get(p.id)) continue; const t = partRect(p).t; if (t > top) { top = t; best = p; } }
         const P = Aim.pose(v, best, { x: best.x, y: top, z: partZ(best) }, { x: 0, y: 0, z: 0 }), w = v.toWorld(P.x, P.y, P.z), bp = bodyPos(v.body, Flight.time), s = Render3D.project(bp.x + w.x, bp.y + w.y, w.z);
         return { part: best.type, below: Math.round(s.y - innerHeight / 2) }; });
+      keep[k] = await page.evaluate(keepPoint);
     }
     ok('the Gepardo\'s and the OK-8\'s radar masts sit clear under the crosshair (over 16 px below the middle; a TK-34\'s turret as before)', mast.gepardo.below > 16 && mast.ok8.below > 16 && mast.tk34.below > 30, mast);
+    ok('in and out of the gunner\'s sight the crosshair stays on its point: on a TK-34 610 m out on the Tank Range in third person, still on it in the sight and back out (the Gepardo, the OK-8, a TK-34); a new zoom in the sight leaves the aim be',
+      Object.values(keep).every((r) => r.third === 'target' && r.sight === 'target' && r.back === 'target' && r.zoomKept), keep);
     await shot(page, 'ok8-390x844');
     // (P4 play-test) from a ground vehicle the islands' far targets (the old range's, 14-32 km off with a radar aboard) no
     // longer pile up as brackets along the horizon: Combat's HUD looks only at ground targets within 5 km (drones as far as before)

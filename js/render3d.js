@@ -2889,7 +2889,22 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // What the aim camera turns about (sim, from the body's centre): 1.4 m over the top of the main gun's turret ring (its
   // outermost), else over the hull's top. Over and across it rides with the hull; up and down it doesn't pitch with it,
   // so the view stays steady as the hull rocks on its springs.
-  const TANH50 = Math.tan((50 * Math.PI) / 360), PIV = v3(), RAYT = v3();
+  const TANH50 = Math.tan((50 * Math.PI) / 360), PIV = v3(), RAYT = v3(), AWE = v3(), AW0 = { x: 0, y: 0, z: 0 };
+  // The aim camera's eye (sim, from the body's centre), before it is kept out of the ground: the gunner's sight (sight),
+  // else dist behind the pivot along D and 1 m up, so the third-person line of sight runs through 1 m over the pivot
+  function aimEye(v, sight, D, dist, out) {
+    if (sight) return Aim.sightPoint(v, out);
+    const r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0;
+    aimPivot(v, out);
+    out.x += -D.x * dist + ux; out.y += -D.y * dist + uy; out.z += -D.z * dist + uz;
+    return out;
+  }
+  const aimDist = (F) => clamp((H / 2) / F.scale / TANH50, 7, 30); // (how far behind the pivot: the aim camera's zoom)
+  // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
+  function camFloor(b, x, y, z, r3, lift) {
+    const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
+    return b.radius + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + lift;
+  }
   function aimPivot(v, out) {
     let c = v._piv;
     if (!c || v._pivTg !== v.tg) {
@@ -2927,13 +2942,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
     let dist, rx, ry, rz;
     if (AC) {
-      dist = clamp((H / 2) / F.scale / TANH50, 7, 30);
-      const r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0;
-      if (S.sightOn) Aim.sightPoint(v, T3);
-      else {
-        aimPivot(v, T3);
-        T3.x += -D.x * dist + ux; T3.y += -D.y * dist + uy; T3.z += -D.z * dist + uz;
-      }
+      dist = aimDist(F);
+      aimEye(v, S.sightOn, D, dist, T3);
       rx = T3.x; ry = T3.y; rz = T3.z;
       fc.vessel = null; // (the follow camera starts afresh after aiming)
     } else {
@@ -2951,8 +2961,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
     updateArena(F, b, v);
     if (!b.star) {
-      const ca = Math.atan2(ry, rx), gz = Math.asin(clamp(rz / r3, -1, 1)) * R;
-      const need = R + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + (AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
+      const need = camFloor(b, rx, ry, rz, r3, AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
@@ -3984,6 +3993,25 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       toSim(V1.x, V1.y, V1.z, o.d);
       return o;
     },
+    // The way (unit, into out) the aim camera of v must look for the middle of the view to be on P (body-relative sim):
+    // from the gunner's sight (sight), else from the third-person aim camera, each where renderFlight puts it, kept out
+    // of the ground (where that leaves the third-person eye hangs on the way: a few rounds); eye, if given, gets where
+    // it starts. For Flight.setSight, which keeps the crosshair's point. null without a flight frame, or P at the eye.
+    aimWay(v, sight, P, out, eye) {
+      if (!api.ready || !camera || mode !== 'flight' || !v || !v.aimed || !v.aimed.length) return null;
+      const b = v.body, dist = aimDist(Flight), E = eye || AWE;
+      aimEye(v, sight, AW0, 0, E); // (first along the line through the eye's pivot: 1 m over the turret's, or the sight)
+      for (let i = 0; i < 6; i++) {
+        const dx = P.x - E.x, dy = P.y - E.y, dz = P.z - E.z, L = Math.hypot(dx, dy, dz);
+        if (!(L > 0.5)) return null;
+        const nx = dx / L, ny = dy / L, nz = dz / L;
+        if (i && Math.abs(nx - out.x) + Math.abs(ny - out.y) + Math.abs(nz - out.z) < 1e-9) break;
+        out.x = nx; out.y = ny; out.z = nz;
+        aimEye(v, sight, out, dist, E);
+        if (!b.star) { const r3 = Math.hypot(E.x, E.y, E.z), need = camFloor(b, E.x, E.y, E.z, r3, sight ? 0.3 : 2); if (r3 < need) { const k = need / r3; E.x *= k; E.y *= k; E.z *= k; } }
+      }
+      return out;
+    },
     project(ax, ay, az) {
       if (!api.ready) return { x: 0, y: 0, behind: true };
       const cam = activeCam(), p = scenePoint(ax, ay, az, V1);
@@ -4094,5 +4122,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     },
   });
   Object.defineProperty(api, 'sightOn', { enumerable: true, get: () => !!S.sightOn }); // (whether the sight is up: a live getter, which Object.assign would have read once)
+  Object.defineProperty(api, 'frameNo', { enumerable: true, get: () => frameNo }); // (flight frames drawn: GHUD's held eye)
   return api;
 })();

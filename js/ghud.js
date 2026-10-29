@@ -13,7 +13,7 @@ const GHUD = (() => {
   // what the screen holds (place), the aim's last full look, the damage diagram's and the minimap's pictures, spots
   const S = { aimAt: -1e9, P: null, placeAt: -1e9, W: 0, H: 0, drop: 0, dropKey: '', dropR: 0, diag: null, diagKey: '', map: null, mapKey: '', mapAt: -1e9,
     tags: [], nTags: 0, spots: new Map(), pings: [], press: null, ops: 0, tac: null, fireW: 0, rangeKey: null, rangeTxt: '', wh: 0, whT: -1e9,
-    cmd: { on: null, v: null, d: 0, t: 0, e: 0 },
+    cmd: { on: null, v: null, d: 0, t: 0, e: 0 }, eye: { x: 0, y: 0, z: 0, f: -1 },
     blk: { p: null, v0: 0, D: 0, mx: 0, my: 0, mz: 0, ux: 0, uy: 0, uz: 0, blk: -1 }, rk: { key: '', at: -1e9, blk: -1 } };
 
   // ---------------------------------------------------------------- who is who
@@ -33,24 +33,28 @@ const GHUD = (() => {
   // ---------------------------------------------------------------- the aim (§8.2)
   // What the crosshair is on, into F.aim: a full look 20 times a second (the vessels as drawn, along the camera's ray, then
   // the ground as drawn, 25 m a step out to 3 km, the crossing found on the real ground), the point carried along the
-  // ray between. Held while looking round (C) and while a rocket strike is set on the tactical map.
-  function aimUpdate(F) {
+  // ray between. Held while looking round (C) and while a rocket strike is set on the tactical map. now: a full look at
+  // once. Just in or out of the sight (holdEye), the ray starts at the new view's eye until a frame is drawn from it.
+  function aimUpdate(F, now) {
     const v = F.active, A = F.aim, D = F.aimDir;
     if (!v || !A || !D) return;
     A.dir.x = D.x; A.dir.y = D.y; A.dir.z = D.z;
-    const r = Render3D.aimRay(RAY);
-    if (r) { A.o.x = r.o.x; A.o.y = r.o.y; A.o.z = r.o.z; } else { A.o.x = v.x; A.o.y = v.y; A.o.z = v.z; }
+    const r = Render3D.aimRay(RAY), E = S.eye;
+    if (E.f === Render3D.frameNo) { A.o.x = E.x; A.o.y = E.y; A.o.z = E.z; }
+    else if (r) { A.o.x = r.o.x; A.o.y = r.o.y; A.o.z = r.o.z; } else { A.o.x = v.x; A.o.y = v.y; A.o.z = v.z; }
     if (F.freeLook) return; // (the turret holds on the point it had)
     if (F.strike) { // (the tactical map's strike: the launcher lays on it until the aim moves off)
       if ((F.strikeMove || 0) > 90) { F.strike = null; F.strikeMove = 0; F.toast('Strike cancelled'); }
       else { A.P.x = F.strike.x; A.P.y = F.strike.y; A.P.z = F.strike.z; A.d = Math.hypot(A.P.x - A.o.x, A.P.y - A.o.y, A.P.z - A.o.z); A.indirect = true; A.src = 'ground'; A.blk = rocketBlk(v, A); return; }
     }
     A.indirect = false;
-    const now = performance.now();
-    if (now - S.aimAt < 50) { A.P.x = A.o.x + A.dir.x * A.d; A.P.y = A.o.y + A.dir.y * A.d; A.P.z = A.o.z + A.dir.z * A.d; return; }
-    S.aimAt = now;
+    const t = performance.now();
+    if (!now && t - S.aimAt < 50) { A.P.x = A.o.x + A.dir.x * A.d; A.P.y = A.o.y + A.dir.y * A.d; A.P.z = A.o.z + A.dir.z * A.d; return; }
+    S.aimAt = t;
     look(F, v, A);
   }
+  // (Flight.keepAimPoint) the view now looks out from E: the camera still where the last frame drew it
+  function holdEye(E) { const h = S.eye; h.x = E.x; h.y = E.y; h.z = E.z; h.f = Render3D.frameNo; }
   function look(F, v, A) {
     const o = A.o, d = A.dir, b = v.body, R = b.radius;
     let best = 3000, hitV = null, Px = 0, Py = 0, Pz = 0;
@@ -968,7 +972,7 @@ const GHUD = (() => {
   return {
     draw, frame,
     place: (W, H) => place(W, H, typeof Flight !== 'undefined' ? Flight : {}),
-    aimUpdate, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam,
+    aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam,
     get tacOpen() { return !!S.tacOpen; },
     set redrawDiagram(on) { if (on) S.diagKey = ''; },
     _S: S, // (the tests read where things went)
