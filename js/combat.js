@@ -23,7 +23,7 @@ const RAIDER = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['coc
 
 const Combat = (() => {
   const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0,
-    rwr: 0, threats: [], lockToneT: 0, smoke: [], gai: 0 }; // (rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first; smoke: smoke clouds; gai: ground AI on the go)
+    rwr: 0, threats: [], lockToneT: 0, smoke: [], gai: 0, rip: null }; // (rip: rocket artillery's tapped ripple; rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first; smoke: smoke clouds; gai: ground AI on the go)
   const mpOn = () => typeof MP !== 'undefined' && MP.active; // in a multiplayer room (no AI targets, SAMs or fighters there)
   const mode = () => (mpOn() ? 'off' : Settings.get('targets') || 'practice');
   const hostile = () => mode() === 'hostile';
@@ -454,10 +454,25 @@ const Combat = (() => {
     const v = F.active;
     if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; return; }
     const sys = systems(v), cur = sys[v.wsel];
-    const trig = !!F.firing, edge = (trig && !S.wasFiring) || F.fireTap; // (a tap shorter than a frame still counts)
+    const trig = !!F.firing, edge = (trig && !S.wasFiring) || F.fireTap, up = !trig && S.wasFiring; // (a tap shorter than a frame still counts)
     S.wasFiring = trig; F.fireTap = false;
-    if (!cur) { S.lock = S.cand = null; return; }
+    if (!cur) { S.lock = S.cand = null; S.rip = null; return; }
     const w = cur.w;
+    if (S.rip && (S.rip.key !== cur.key || v.ko)) S.rip = null;
+    if (w.kind === 'rocket' && cur.def.aim) { // rocket artillery (§7.6): a tap ripples what the rails hold (another tap stops it); held, it ripples until let go
+      const now = F.time || 0, R = S.rip;
+      if (edge) {
+        if (R && R.on) { R.on = false; R.mute = true; } // (the tap that stops it fires nothing while it is held)
+        else {
+          const n = cur.parts.reduce((a, p) => a + (!p.broken && p.ammo > 0 ? p.ammo : 0), 0);
+          S.rip = n ? { key: cur.key, on: true, at: now, mute: false, n } : null;
+        }
+      }
+      const tapped = S.rip && S.rip.on && !S.rip.said && (up || (edge && !trig)) && now - S.rip.at <= 0.4;
+      if (up && S.rip) { S.rip.mute = false; if (S.rip.on && now - S.rip.at > 0.4) S.rip.on = false; } // (held, not tapped: letting go stops it)
+      if (tapped && S.rip.n > 1) { S.rip.said = true; F.toast(`Ripple: ${S.rip.n} rockets · ${typeof isTouch !== 'undefined' && isTouch ? 'tap FIRE' : 'press V'} again to stop`); }
+      if (S.rip && !S.rip.on && !S.rip.mute) S.rip = null;
+    }
     // missiles lock on to whatever sits nearest the nose, inside the seeker's cone and range
     if (w.kind === 'missile' && cur.def.aim && (w.seek === 'saclos' || w.radar)) { // (a wire-guided missile has no seeker; a ground radar SAM rides the tracking radar's lock)
       S.cand = S.lock = w.radar ? Aim.lockTarget(v) : null; S.lockT = 0; S.lockR = false;
@@ -545,10 +560,15 @@ const Combat = (() => {
   function step(h, F) {
     const v = F.active;
     if (v && !v.remote) doorStep(v, h);
-    // guns and rocket pods fire while the trigger is held
-    const cur = v && v.parts.length && !F.destroyed && F.firing ? systems(v)[v.wsel] : null;
+    // guns and rocket pods fire while the trigger is held (rocket artillery also on its own once tapped: S.rip)
+    let cur = v && v.parts.length && !F.destroyed && (F.firing || S.rip) ? systems(v)[v.wsel] : null;
+    const rip = cur && S.rip && S.rip.key === cur.key ? S.rip : null;
+    if (cur && (rip ? (F.firing ? rip.mute : !rip.on) : !F.firing)) cur = null;
     if (cur && cur.w.kind === 'gun') for (const p of cur.parts) fireGun(v, p, h, false, F);
-    else if (cur && cur.w.kind === 'rocket' && cur.def.aim) Aim.fire(v, cur, h, F, null); // (rocket artillery: its crew lays and ripples it, broken or unmanned it fires nothing)
+    else if (cur && cur.w.kind === 'rocket' && cur.def.aim) { // (rocket artillery: its crew lays and ripples it, broken or unmanned it fires nothing)
+      Aim.fire(v, cur, h, F, null);
+      if (S.rip && !cur.parts.some((p) => !p.broken && p.ammo > 0)) S.rip = null; // (the rails are empty: the ripple is over)
+    }
     else if (cur && cur.w.kind === 'rocket') {
       S.rocketT = (S.rocketT || 0) - h;
       if (S.rocketT <= 0) { const p = nextStore(cur); if (p) { fireRocket(v, p, false, F); S.rocketT = 1 / cur.w.rate; } } // (the pods ripple in turn)
@@ -1308,7 +1328,8 @@ const Combat = (() => {
   function reset(F) {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
-    S.smoke = []; S.gai = 0;
+    S.smoke = []; S.gai = 0; S.rip = null;
+    if (typeof Armour !== 'undefined') { const fb = Armour.fb; fb.shot = fb.ko = null; fb.hurt.length = 0; } // (the last flight's hit and kill banners stay with it)
     void F;
   }
 
@@ -1326,7 +1347,7 @@ const Combat = (() => {
       for (const t of S.targets) {
         if (!t.alive) continue;
         const c = targetCentre(t), d = len(c.x - v.x, c.y - v.y, c.z - v.z);
-        if (d > seeR) continue;
+        if (d > seeR || (F.groundAim && !t.def.air && d > 5000)) continue; // (P4 play-test: from a ground vehicle, the islands' far targets piled up as brackets on the horizon)
         const s = pr(c.x, c.y, c.z);
         if (s.behind) continue;
         const armed = hostile() && (t.def.aa || t.def.sam), col = armed ? '#ff5d5d' : '#ffb547', k = 7;
@@ -1337,7 +1358,7 @@ const Combat = (() => {
         ctx.moveTo(s.x + k, s.y + k - 3); ctx.lineTo(s.x + k, s.y + k); ctx.lineTo(s.x + k - 3, s.y + k);
         ctx.moveTo(s.x - k + 3, s.y + k); ctx.lineTo(s.x - k, s.y + k); ctx.lineTo(s.x - k, s.y + k - 3);
         ctx.stroke();
-        if (d < 5000) { ctx.fillStyle = col; ctx.fillText(`${t.def.name} ${fmt.dist(d)}`, s.x, s.y + k + 13); }
+        if (d < 5000) { const tx = `${t.def.name} ${fmt.dist(d)}`, hw = tx.length * 3.4 + 4; ctx.fillStyle = col; ctx.fillText(tx, F.groundAim ? clamp(s.x, hw, W - hw) : s.x, s.y + k + 13); } // (a ground vehicle's: kept on the screen)
       }
       ctx.globalAlpha = 1;
     }

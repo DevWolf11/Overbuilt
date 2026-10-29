@@ -739,7 +739,7 @@ const MPUI = {
     const pick = (air) => (R) => {
       R.opt('‹ Back', air ? 'The ground vehicles' : 'Your vehicle', () => R.page(main), true, true);
       const C = MP.choices(air);
-      for (const c of C) R.opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}`, () => go(c.design));
+      for (const c of C) R.opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}${c.arms != null ? ` · ${c.arms || 'unarmed'}` : ''}`, () => go(c.design));
       if (!C.length) R.list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : 'No vehicle fits the money.' }));
     };
     this.rsp({ kicker: 'Respawn', title: by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
@@ -813,9 +813,10 @@ const MPUI = {
   // The Practice Battle (groundai.js): the ground battle's rules alone on this device, against the AI
   practice() {
     const body = el('div', { class: 'rsp' }), list = el('div', { class: 'rsp-list' });
-    body.append(el('p', { class: 'mp-explain', text: 'You and two AI allies against three AI vehicles, 300 tickets a side, on Highland Ridge (on the runway without the map). Pick the era: it sets the money and the stock vehicles.' }), list);
+    body.append(el('p', { class: 'mp-explain', text: 'You and two AI allies against three AI vehicles, 600 tickets a side, on Highland Ridge (on the runway without the map). Pick the era: it sets the money and the stock vehicles. You drive the design on your blueprint when it fits the money.' }), list);
     for (const [cash, name, sub] of [[45000, 'WWII · $45k', 'Medium tanks and armoured cars'], [75000, 'Cold War · $75k', 'Main battle tanks with stabilised guns'], [120000, 'Modern · $120k', 'Composite armour, thermal sights, missiles']]) {
-      const b = el('button', { class: 'rsp-opt' }, el('b', { text: name }), el('span', { text: sub }));
+      const me = GroundAI.practiceVehicle(cash); // (P4 play-test: which vehicle you'll be in, said before you pick)
+      const b = el('button', { class: 'rsp-opt' }, el('b', { text: name }), el('span', { text: sub }), el('span', { class: 'rsp-you', text: `You drive ${me.yours ? 'your' : 'the stock'} ${me.name} · ${money(me.cost)}` }));
       b.addEventListener('click', () => { UI.closeModal(); Sound.click(); GroundAI.startBattle(Flight, { money: cash }); });
       list.append(b);
     }

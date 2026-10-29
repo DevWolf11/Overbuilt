@@ -36,6 +36,11 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   await ev(() => App.toHome()); await page.waitForTimeout(300);
   await tap('#home-mp'); await page.waitForTimeout(300);
   await tap('#mp-practice');
+  // (P4 play-test) the era dialog says which vehicle you'll drive: the blueprint's design when it fits, else a stock one
+  await page.waitForSelector('#modal-card .rsp-you');
+  const you = await ev(() => ({ eras: [...document.querySelectorAll('#modal-card .rsp-opt .rsp-you')].map((e) => e.textContent), blue: Builder.serialize().kind }));
+  ok('Practice battle: each era says what you\'ll drive (no Armour on the blueprint: each era\'s stock vehicle, priced)', you.eras.length === 3 && you.blue !== 'tank' &&
+    you.eras.every((t) => /^You drive the stock .+ · \$[\d,]+$/.test(t)) && /TK-34/.test(you.eras[0]), you);
   await tap('#modal-card .rsp-opt >> text=/Modern/');
   await page.waitForFunction(inBattle, null, { timeout: 120000 });
   await ev(() => { Render3D.skipDraw = true; });
@@ -53,7 +58,12 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   // knocked out in a battle: "Knocked out · back in N s" whole at each width (the panel's Watch closes it)
   await ev((d) => GroundAI.startBattle(Flight, { money: 45000, design: d }), await ev(tk34));
   await page.waitForFunction(inBattle, null, { timeout: 120000 });
-  await ev(() => { Render3D.skipDraw = true; Armour.knockOut(Flight.active, Flight, 'crew'); });
+  // (P4 play-test) knocked out with its turret thrown off: the HUD counts the crew against the crew it set out with (it read
+  // 2/2 with the turret's men gone with it) and says Knocked out (not "Damage 8%")
+  const kc = await ev(() => { Render3D.skipDraw = true; const v = Flight.active; Flight.updateHUD(true); const n0 = Armour.crewOf(v).crew.length;
+    Armour.knockOut(v, Flight, 'crew'); const t = v.parts.find((p) => p.type === 'turretCast'); if (t) Flight.ripParts(v, [t]); Flight.updateHUD(true);
+    return { n0, left: Armour.crewOf(v).crew.length, crew: $('#t-crew').textContent, dmg: $('#row-dmg').hidden ? '' : $('#t-dmg').textContent }; });
+  ok('knocked out, its turret thrown: the crew counted against the crew it set out with, and Damage says Knocked out', kc.left < kc.n0 && kc.crew.endsWith(`/${kc.n0}`) && kc.dmg === 'Knocked out', kc);
   await page.waitForFunction(() => !$('#modal').hidden && document.querySelector('#modal .rsp'), null, { timeout: 60000 });
   await page.locator('#modal-card .btn >> text=/^Watch$/').first().tap();
   for (const [W, H] of [[390, 844], [375, 667], [360, 780]]) {
@@ -87,6 +97,12 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   await page.waitForFunction(() => App.scene === 'flight' && Flight.running && Flight.time > 4, null, { timeout: 120000 });
   const fa = await ev(() => Render3D.arenaInfo());
   ok('an old plane at the Scotland airfield facing Highland Ridge: the arena\'s own ground neither built nor shown (the plain patch, as before the arenas)', !fa.on && !fa.built && !fa.building, fa);
+  // (P4 play-test) air support: a plane respawned at a ground battle's air start (1 km up at 140 m/s) has its engines
+  // running, as STAGE would start them (it used to glide down with "No engines running · STAGE"), a prop and a jet
+  const airStart = (k) => ev((k) => { const t = TEMPLATES[k]; store.set('rss.flight', null); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: GroundMode.placement('highland', 0, 0, 'plane') });
+    const v = Flight.active, eng = v.parts.filter((p) => p.def.thrust && p.def.air); return { k, engines: eng.length, lit: eng.filter((p) => p.active).length, stage: v.stageIdx, throttle: v.throttle }; }, k);
+  const as = [await airStart('skylark'), await airStart('fs16')];
+  ok('air support: a plane started in the air (a ground battle\'s air start) has its engines lit, stage 1 used and the throttle open (a prop and a jet)', as.every((a) => a.engines > 0 && a.lit === a.engines && a.stage === 1 && a.throttle > 0.5), as);
   await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
   const d = await ev(tk34);
   await ev((x) => { Flight.start(x, { place: GroundMode.placement('highland', 0, 0, 'tank') }); App.showScene('flight'); }, d);
@@ -99,6 +115,12 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   await page.waitForFunction(() => Render3D.arenaInfo().on, null, { timeout: 120000 }).catch(() => {});
   const ta = await ev(() => { const i = Render3D.arenaInfo(); Render3D.skipDraw = false; return i; });
   ok('...and a tank on Highland Ridge\'s pad has the arena\'s own ground built and on show', ta.on && ta.built, ta);
+  // (P4 play-test) Recover on the Tank Range: its own end screen (the range's knock-outs, driven, km/h), not a rocket's
+  // ("Mission complete", Farthest, m/s)
+  await page.waitForFunction(() => Flight.canRecover(), null, { timeout: 120000 }).catch(() => {});
+  const rc = await ev(() => { Flight.recover(); const c = $('#modal-card'), o = { open: UI.modalOpen, text: c.textContent }; UI.closeModal(); return o; });
+  ok('Recover on the Tank Range: "Off the range", its knock-outs, the distance driven and the top speed in km/h (no "Mission complete", no "Farthest")',
+    rc.open && /Off the range/.test(rc.text) && /Knock-outs0/.test(rc.text.replace(/\s+/g, '')) && /Driven/.test(rc.text) && /km\/h/.test(rc.text) && !/Mission complete|Farthest/.test(rc.text), rc.text.slice(0, 300));
   await ev((x) => GroundAI.startBattle(Flight, { money: 45000, design: x }), d);
   await page.waitForFunction(inBattle, null, { timeout: 120000 });
   const k = await keys();

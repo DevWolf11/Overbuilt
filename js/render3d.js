@@ -2896,10 +2896,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       let best = null, g = null;
       for (const p of v.aimed) { const w = p.def.weapon, k = (w && w.cal) || 0; if (!best || k > (((best.def.weapon && best.def.weapon.cal) || 0))) best = p; }
       for (g = best && v.tgOf ? v.tgOf.get(best.id) : null; g && g.parent;) g = g.parent;
-      c = v._piv = g ? { x: g.c.x, y: g.c.y, z: g.c.z } : { x: v.com.x, y: v.bounds.maxY, z: v.com.z || 0 };
+      // (P4 play-test) over a tall mast on the turret (an SPAA's radar dish sat on the crosshair): the camera goes up to
+      // 0.8 m over the turret's highest part, never lower than 1.4 m over the ring as before
+      let top = -Infinity;
+      if (g) for (const q of g.members) top = Math.max(top, partRect(q).t);
+      c = v._piv = g ? { x: g.c.x, y: g.c.y, z: g.c.z, lift: Math.max(1.4, top - g.c.y - 0.2) } : { x: v.com.x, y: v.bounds.maxY, z: v.com.z || 0, lift: 1.4 };
       v._pivTg = v.tg;
     }
-    const r = Math.hypot(v.x, v.y, v.z) || 1, k = c.y - v.com.y + 1.4, w = qrot(v.q, c.x - v.com.x, 0, c.z - (v.com.z || 0), PIV);
+    const r = Math.hypot(v.x, v.y, v.z) || 1, k = c.y - v.com.y + c.lift, w = qrot(v.q, c.x - v.com.x, 0, c.z - (v.com.z || 0), PIV);
     out.x = v.x + w.x + (v.x / r) * k; out.y = v.y + w.y + (v.y / r) * k; out.z = v.z + w.z + (v.z / r) * k;
     return out;
   }

@@ -64,7 +64,7 @@ Press **Multiplayer** on the home screen, type a name, and either create a room 
 | Gunner's sight · zoom | Hold the right button, or `Shift` to toggle it (with jets or rockets aboard `Shift` stays the throttle) · wheel: 3×, 6×, 8× | Binoculars · pinch |
 | Shells · change weapon | `1`–`4` choose the next shell (twice: unload and load it now) · `Tab` (`Shift+Tab` back) | Tap a shell chip (hold it: load it now) · tap the weapon chip |
 | Smoke · radar lock | `K` (with flares or chaff aboard, those too) · `L` (with a tracking radar) | Smoke · LOCK |
-| Spot an enemy · tactical map | `J` (the one under the crosshair, for your team) · `M` (tap it to ping, or to set a rocket-artillery strike; `Esc` shuts it) | Hold its tag · tap the minimap |
+| Spot an enemy · tactical map | `J` (the one under the crosshair, for your team) · `M` (tap it to ping, or to set a rocket-artillery strike; `Esc` shuts it; its Globe button opens the old map) | Hold its tag · tap MAP or the minimap |
 | Look round · sight's range (Realistic aim) | Hold `C` (the turret holds; a tap aims straight ahead) · `Y` sets it from the rangefinder (or the commander's reading); `PgUp` / `PgDn` step it 100 m (or, with the mouse free, the wheel at the sight's right edge) | Tap Zero |
 | Menu · recover | `Esc` (it also lets the mouse go) or `P` · `R` when stopped | Menu button · Recover |
 

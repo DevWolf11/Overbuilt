@@ -119,6 +119,11 @@ for (const [tag, vp] of SIZES) {
   const L = await page.evaluate(layout);
   judge(tag, L, NEED);
   await shot(page, `hud-${vp[0]}x${vp[1]}`);
+  // (P4 play-test) the round buttons' words inside their circles: LOCK reading "Locked", SMOKE
+  const fit = await page.evaluate(() => ['#btn-lock', '#btn-cm'].map((q) => { const b = document.querySelector(q), t0 = b.textContent; if (q === '#btn-lock') b.textContent = 'Locked';
+    const r = b.getBoundingClientRect(), g = document.createRange(); g.selectNodeContents(b); const w = g.getBoundingClientRect(); b.textContent = t0;
+    return { q, txt: q === '#btn-lock' ? 'Locked' : t0, gap: [Math.round(w.left - r.left), Math.round(r.right - w.right)] }; }));
+  ok(`${tag}: the round LOCK ("Locked") and SMOKE buttons' words fit inside them`, fit.every((f) => f.gap[0] >= 1 && f.gap[1] >= 1), fit);
   if (tag === 'phone portrait') {
     // the HUD's 2D-context calls a frame (aiming on, the diagram, the radar scope, the range): at most 120
     await page.evaluate(() => { Render3D.skipDraw = true; window.__ops.length = 0; });
@@ -153,6 +158,65 @@ for (const [tag, vp] of SIZES) {
     ok('the tactical map opens (M, or a tap on the minimap) and shuts; alone, a tap marks a spot (no team to ping)', tac.open && tac.shown && tac.info === 'Tap the map to mark a spot', tac);
     await shot(page, 'tactical-390x844');
     await page.evaluate(() => GHUD.tactical(false));
+    // (P4 play-test) the driving tip goes once the trigger has been used (it stayed 30 s, over the kill banner's line)
+    const tip0 = await page.evaluate(() => ({ text: $('#hint').textContent, t: Flight.time }));
+    await page.keyboard.down('Space'); // (held until a frame has read it: a software-GL frame can take most of a second)
+    await page.waitForFunction(() => Flight.shotYet, null, { timeout: 60000 }).catch(() => {});
+    await page.keyboard.up('Space');
+    await page.waitForFunction((t) => Flight.time > t + 0.3, await page.evaluate(() => Flight.time), { timeout: 60000 }).catch(() => {}); // (the HUD's next look at the hint)
+    const tip1 = await page.evaluate(() => ({ text: $('#hint').hidden ? '' : $('#hint').textContent, shot: Flight.shotYet, t: Flight.time }));
+    ok('the ground tip shows at launch and goes with the first shot (here the MG), well before its 15 s are up', /Left thumb drives/.test(tip0.text) && tip0.t < 15 && tip1.shot && !tip1.text && tip1.t < 15, { tip0, tip1 });
+    // (P4 play-test) a casemate gun (the StuQ III's, 12° each way) aimed 34° off: its mark is off a portrait phone's screen,
+    // so a red arrow at the edge says "Turn the hull" (it used to show nothing)
+    await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('stuq3'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+    await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.stuq3.name && Flight.time > 0.5, null, { timeout: 60000 });
+    await page.evaluate(() => { Flight.aimYaw -= 0.6; });
+    await page.waitForFunction(() => Aim.status(Flight.active).limited, null, { timeout: 60000 }).catch(() => {});
+    const cm = await page.evaluate(() => {
+      const said = [], fT = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t, x, y, ...a) { said.push([String(t), Math.round(x), Math.round(y)]); return fT.call(this, t, x, y, ...a); };
+      try { GHUD.draw(App.ctx, App.W, App.H, App.dpr, Flight); } finally { CanvasRenderingContext2D.prototype.fillText = fT; }
+      const st = Aim.status(Flight.active); return { limited: st.limited, err: +(st.err * 57.3).toFixed(1), cue: said.filter(([t]) => t === 'Turn the hull'), W: App.W, H: App.H };
+    });
+    ok('a casemate gun held at its arc with its mark off a portrait phone\'s screen: "Turn the hull" by a red arrow at the edge, on screen', cm.limited && cm.err > 15 && cm.cue.length === 1 && cm.cue[0][1] > 0 && cm.cue[0][1] < cm.W && cm.cue[0][2] > 0 && cm.cue[0][2] < cm.H, cm);
+    await shot(page, 'casemate-390x844');
+    // (P4 play-test) an SPAA's own radar mast clear of the crosshair: on the Tank Range's pad, the top of its highest turret
+    // part sits well under the crosshair's ring (it was on it: 1 px under the middle of the screen for the Gepardo and the
+    // OK-8; a TK-34's turret 44 px under, as before)
+    const mast = {};
+    for (const k of ['gepardo', 'ok8', 'tk34']) {
+      await page.evaluate((k) => { App.toBuild(); Builder.loadTemplate(k); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize(), { place: GroundMode.placement('highland', 0, 0, 'tank') }); }, k);
+      await page.waitForFunction((k) => Flight.running && Flight.active && Flight.active.name === TEMPLATES[k].name && Flight.time > 0.5, k, { timeout: 60000 });
+      await page.evaluate(() => { Flight.aimPitch = -0.03; }); await page.waitForTimeout(1500);
+      mast[k] = await page.evaluate(() => { const v = Flight.active; let best = null, top = -Infinity;
+        for (const p of v.parts) { if (!v.tgOf || !v.tgOf.get(p.id)) continue; const t = partRect(p).t; if (t > top) { top = t; best = p; } }
+        const P = Aim.pose(v, best, { x: best.x, y: top, z: partZ(best) }, { x: 0, y: 0, z: 0 }), w = v.toWorld(P.x, P.y, P.z), bp = bodyPos(v.body, Flight.time), s = Render3D.project(bp.x + w.x, bp.y + w.y, w.z);
+        return { part: best.type, below: Math.round(s.y - innerHeight / 2) }; });
+    }
+    ok('the Gepardo\'s and the OK-8\'s radar masts sit clear under the crosshair (over 16 px below the middle; a TK-34\'s turret as before)', mast.gepardo.below > 16 && mast.ok8.below > 16 && mast.tk34.below > 30, mast);
+    await shot(page, 'ok8-390x844');
+    // (P4 play-test) from a ground vehicle the islands' far targets (the old range's, 14-32 km off with a radar aboard) no
+    // longer pile up as brackets along the horizon: Combat's HUD looks only at ground targets within 5 km (drones as far as before)
+    const far = await page.evaluate(() => {
+      const v = Flight.active, bp = bodyPos(v.body, Flight.time), seen = [], P = Render3D.project;
+      Render3D.project = function (x, y, z) { seen.push([x - bp.x, y - bp.y, z]); return P.apply(this, arguments); };
+      try { Combat.drawHUD(App.ctx, App.W, App.H, App.dpr, Flight); } finally { Render3D.project = P; }
+      const ts = Combat.S.targets.filter((t) => t.alive && t.pos), at = (t) => { const P = t.pos, u = 1 / Math.hypot(P.x, P.y, P.z), k = t.def.h / 2; return [P.x * (1 + k * u), P.y * (1 + k * u), P.z * (1 + k * u)]; };
+      const drawn = (t) => { const c = at(t); return seen.some((q) => Math.abs(q[0] - c[0]) + Math.abs(q[1] - c[1]) + Math.abs(q[2] - c[2]) < 0.01); };
+      const dist = (t) => { const c = at(t); return Math.hypot(c[0] - v.x, c[1] - v.y, c[2] - v.z); };
+      const farG = ts.filter((t) => !t.def.air && dist(t) > 5000);
+      return { spawned: Combat.S.spawned, aim: Flight.groundAim, far: farG.length, farDrawn: farG.filter(drawn).length, near: ts.filter((t) => dist(t) <= 5000).length };
+    });
+    ok('a ground vehicle\'s HUD brackets no ground target beyond 5 km (the islands\' range sat as a row of brackets on its horizon)', far.aim && (!far.spawned || far.far > 0) && far.farDrawn === 0, far);
+    // (P4 play-test) a crewless car's damage diagram has no "CREW 0/0" (the Desert Technical's did)
+    await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('technical'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+    await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.technical.name && Flight.time > 0.5, null, { timeout: 60000 });
+    await page.waitForTimeout(600);
+    const tech = await page.evaluate(() => { const said = [], fT = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t, ...a) { said.push(String(t)); return fT.call(this, t, ...a); };
+      try { GHUD._S.diagKey = ''; GHUD.draw(App.ctx, App.W, App.H, App.dpr, Flight); } finally { CanvasRenderingContext2D.prototype.fillText = fT; }
+      return { crew: said.filter((t) => /^CREW/.test(t)), diag: !!GHUD._S.P && !!GHUD._S.P.diag, n: Armour.crewOf(Flight.active).crew.length }; });
+    ok('the Desert Technical (no crew modules): its damage diagram has no "CREW 0/0" line', tech.n === 0 && !tech.crew.length, tech);
   }
   if (tag === 'desktop') { // (a mouse: the first click asks for the pointer)
     await page.evaluate(() => Flight.setSight(true, 6));
@@ -198,6 +262,12 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   const tacInfo = await A.evaluate(() => ({ open: GHUD.tacOpen, info: $('#gtac-info').textContent }));
   await A.evaluate(() => GHUD.tactical(false));
   ok(`${tag}: in a room the tactical map's tap pings the team`, tacInfo.open && tacInfo.info === 'Tap the map to ping for your team', tacInfo);
+  if (tag === 'in a room, upright') { // (P4 play-test) the room's bar grown a row (a ground battle's capture line): the minimap moves down under it
+    const g0 = await A.evaluate(() => { const d = el('div', { id: 'grow-test' }); d.style.height = '34px'; $('#mp-bar').append(d); return Math.round($('#gmap').getBoundingClientRect().top); });
+    await A.waitForTimeout(1600); // (the places are looked up once a second)
+    const g1 = await A.evaluate(() => { const b = $('#mp-bar').getBoundingClientRect(), m = $('#gmap').getBoundingClientRect(); $('#grow-test').remove(); return { bar: Math.round(b.bottom), map: Math.round(m.top) }; });
+    ok(`${tag}: the room's bar a row taller (a capture line), the minimap moves down clear of it`, g1.map >= g1.bar + 4 && g1.map > g0, { before: g0, ...g1 });
+  }
   await shot(A, `hud-room-${vp[0]}x${vp[1]}`);
   await pageErrors(A, tag + ' A ');
   await ctx.close();
@@ -397,6 +467,27 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
     return { src: F.aim.src, d: Math.round(F.aim.d), blk: Math.round(F.aim.blk * 10) / 10, err: Aim.status(v).err, ms: Math.round(ms * 1000) / 1000 };
   });
   ok('the crosshair on the ground beyond a berm right in front of the gun (the camera sees past its crest): the reticle says Blocked', bk.src === 'ground' && bk.d > 60 && bk.blk > 0 && bk.blk < 30, bk);
+  // (P4 play-test) rocket artillery's strike set on the tactical map behind a berm: its flat path meets the ground short of
+  // it, and the HUD says so (it used to promise "Strike: 1.1 km · 3 s" and ripple into the crest); one over open ground
+  // stays a strike. The BK-21 where a tank starts (Highland Ridge's pad, berms round it), a strike 1.1 km into the ridge
+  // and one 1.5 km east, over the flat
+  await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('bk21'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === 'BK-21 Grod' && Flight.time > 0.5, null, { timeout: 60000 });
+  const strikeAt = (de, dz) => page.evaluate(([de, dz]) => {
+    const F = Flight, v = F.active, L = {}; Render3D.skipDraw = true; Terrain.locate(EARTH, v.x, v.y, v.z, L);
+    const e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius + de, z = L.z + dz, a = siteAngle(EARTH, e), ph = z / EARTH.radius, h = EARTH.radius + Terrain.surfaceAt(EARTH, a, z) + 0.5;
+    F.strike = { x: h * Math.cos(ph) * Math.cos(a), y: h * Math.cos(ph) * Math.sin(a), z: h * Math.sin(ph) }; F.strikeMove = 0;
+    GHUD.aimUpdate(F); for (let i = 0; i < 1200; i++) Aim.step(v, 1 / 120, F); // (the rails laid on it)
+    GHUD._S.rk.at = -1e9; GHUD.aimUpdate(F);
+    const said = [], fT = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (t, ...a) { said.push(String(t)); return fT.call(this, t, ...a); };
+    try { GHUD.draw(App.ctx, App.W, App.H, App.dpr, F); } finally { CanvasRenderingContext2D.prototype.fillText = fT; }
+    return { blk: F.aim.blk, out: v._strike && v._strike.out, said: said.filter((t) => /Strike|Blocked/.test(t)) };
+  }, [de, dz]);
+  const rkB = await strikeAt(-720, -870), rkC = await strikeAt(1500, 0);
+  ok('rocket artillery: a strike behind a berm says "Blocked by the ground … out" (its rockets would meet the crest); one over open ground still reads "Strike: 1.5 km"',
+    rkB.blk > 50 && rkB.blk < 900 && rkB.said.some((t) => /^Blocked by the ground \d+ m out$/.test(t)) && rkC.blk === -1 && rkC.said.some((t) => /^Strike: 1\.5 km · \d+ s$/.test(t)), { rkB, rkC });
+  await page.evaluate(() => { Flight.strike = null; });
   await page.evaluate(() => { Render3D.skipDraw = false; });
   await pageErrors(page, 'mouse ');
   await ctx.close();
@@ -448,12 +539,19 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] });
   const drag = async (x, y, dx, dy, steps = 8) => { await touch('touchStart', x, y); for (let i = 1; i <= steps; i++) { await touch('touchMove', x + (dx * i) / steps, y + (dy * i) / steps); await page.waitForTimeout(16); } await touch('touchEnd'); };
   const gun = () => { const v = Flight.active, p = v.aimed.find((q) => q.def.weapon && q.def.weapon.kind === 'tgun'), d = Aim.dir(v, p, { x: 0, y: 0, z: 0 }); return { yaw: Flight.aimYaw, pitch: Flight.aimPitch, d: [d.x, d.y, d.z] }; };
+  const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const ang = (a, c) => (Math.acos(Math.max(-1, Math.min(1, a[0] * c[0] + a[1] * c[1] + a[2] * c[2]))) * 180) / Math.PI;
   const v0 = await page.evaluate(gun);
   await drag(195, 300, 60, 0);
   await page.waitForTimeout(100);
   const v1 = await page.evaluate(gun);
   ok('a drag on the view aims (right turns the aim right)', v1.yaw < v0.yaw - 0.2, { before: v0.yaw, after: v1.yaw });
+  // (P4 play-test) Settings' aim speed counts for a finger too: at 0.5 the same drag turns the aim half as far
+  await page.evaluate(() => Settings.set('aimSens', 0.5));
+  const h0 = await page.evaluate(gun); await drag(195, 300, 60, 0); await page.waitForTimeout(100); const h1 = await page.evaluate(gun);
+  await page.evaluate(() => Settings.set('aimSens', 1));
+  const full = wrapA(v1.yaw - v0.yaw), half = wrapA(h1.yaw - h0.yaw);
+  ok('...and Settings\' aim speed scales a finger\'s drag (0.5: half as far)', Math.abs(half / full - 0.5) < 0.06, { full, half });
   await page.waitForTimeout(2500); // (the turret follows the aim)
   const v2 = await page.evaluate(gun);
   const fire = await page.evaluate(() => { const r = document.querySelector('#btn-fire').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
@@ -489,10 +587,11 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
     const d = el('div'); d.innerHTML = Flight.controlsHelp(); App.showSettings(); const s = $('#modal-card').textContent; UI.closeModal();
     const L = el('div', { class: 'mp-set' }, el('div', { class: 'kind-select n2' }, el('button', { class: 'kind-btn', text: 'Ground' }))); document.body.append(L); // (a ground lobby's choice)
     const lobby = Math.round(L.querySelector('button').getBoundingClientRect().height); L.remove();
-    return { first: d.querySelector('.help-grid > div').textContent.slice(0, 40), mouse: /Mouse aim speed/.test(s), aim: /Ground aim/.test(s), lobby };
+    const keys = d.querySelector('details.help-keys'), loose = [...d.querySelectorAll('.help-grid kbd')].filter((k) => !k.closest('details')).length; // (P4 play-test: the keys folded away on a phone)
+    return { first: d.querySelector('.help-grid > div').textContent.slice(0, 40), mouse: /Mouse aim speed/.test(s), drag: /Aim speed \(drag\)/.test(s), aim: /Ground aim/.test(s), lobby, keysFolded: !!keys && !keys.open && keys.querySelectorAll('kbd').length > 10 && loose === 0 };
   });
-  ok('a finger\'s targets and words: chips, Close and the lobby\'s choices 40 px tall, "Close" with no key, a tap off the map shuts it, the touch row first, no mouse speed',
-    fz.open && fz.chip >= 40 && fz.close >= 40 && words.lobby >= 40 && fz.text === 'Close' && shut && /^Touch/.test(words.first) && !words.mouse && words.aim, { fz, shut, words });
+  ok('a finger\'s targets and words: chips, Close and the lobby\'s choices 40 px tall, "Close" with no key, a tap off the map shuts it, the touch row first and the keys folded away, an aim speed for the drag (not the mouse\'s)',
+    fz.open && fz.chip >= 40 && fz.close >= 40 && words.lobby >= 40 && fz.text === 'Close' && shut && /^Touch/.test(words.first) && !words.mouse && words.drag && words.aim && words.keysFolded, { fz, shut, words });
   await page.evaluate(() => { Render3D.skipDraw = false; });
   await shot(page, 'aimed-390x844');
   await pageErrors(page, 'touch ');

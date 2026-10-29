@@ -387,7 +387,7 @@ R(`var bermShots = (sh, dh) => { const B = EARTH.arenas.highland.berms[2], F = s
     const e = B.e + de, base = Terrain.surfaceAt(EARTH, siteAngle(EARTH, e), B.z) - Terrain.bermAt(e, B.z), crest = base + Terrain.bermAt(e, B.z), h = crest + dh;
     const P = Tt.at(e, B.z - 300, h), Q = Tt.at(e, B.z - 299, h), l = Math.hypot(Q.x - P.x, Q.y - P.y, Q.z - P.z), S = SHELLS[sh];
     const s = { k: 'shell', sh, b: EARTH, x: P.x, y: P.y, z: P.z, vx: (Q.x - P.x) / l * S.v0, vy: (Q.y - P.y) / l * S.v0, vz: (Q.z - P.z) / l * S.v0, t: 0, life: 6, owner: null, net: 0, cal: S.cal, pen: S.pen, v0: S.v0, gTop: Infinity, n: ++serial };
-    let hitAt = null; const pf = FX.puff; FX.puff = (b, at) => { hitAt = at; }; fly(s, F, 120); FX.puff = pf;
+    let hitAt = null; const pf = FX.puff, fa = FX.add; FX.puff = (b, at) => { hitAt = at; }; FX.add = (q) => { hitAt = hitAt || { x: q.x, y: q.y, z: q.z }; }; fly(s, F, 120); FX.puff = pf; FX.add = fa; // (dust, or a big gun's dirt kick)
     const L = hitAt ? Terrain.locate(EARTH, hitAt.x, hitAt.y, hitAt.z, {}) : null; out.push(L ? +(L.z - B.z).toFixed(1) : null);
   }
   return out; };`);
@@ -396,6 +396,17 @@ t('a berm stops level shots at its crest (0.5 and 1 m under the top) from 300 m:
 t('...and shots that only clip its top (0.1 and 0.2 m under the crest: a hull-down turret\'s base) stop there too, not hundreds of metres behind',
   R(`(() => { const all = [bermShots('apfsds120', -0.1), bermShots('apfsds120', -0.2), bermShots('aphe85', -0.1), bermShots('aphe85', -0.2), bermShots('ap75', -0.1)];
   return all.every((r) => r.every((z) => z !== null && Math.abs(z) < 14)); })()`), R(`[bermShots('apfsds120', -0.1), bermShots('apfsds120', -0.2), bermShots('aphe85', -0.1), bermShots('aphe85', -0.2), bermShots('ap75', -0.1)]`));
+// (P4 play-test) a miss you can see: a gun's round (37 mm and up) into the ground throws up a dirt kick, eight particles,
+// the dust a metre across and growing past 3 m (sized by calibre); a machine gun's round (cheap) still one small puff at most
+R(`var kickOf = (sh, cheap) => { const B = EARTH.arenas.highland.berms[2], F = simOf(); F.vessels = []; const S = SHELLS[sh], e = B.e, h = Terrain.surfaceAt(EARTH, siteAngle(EARTH, e), B.z) - 0.5; // (into the berm's face, as bermShots)
+  const P = Tt.at(e, B.z - 300, h), Q = Tt.at(e, B.z - 299, h), l = Math.hypot(Q.x - P.x, Q.y - P.y, Q.z - P.z);
+  const s = { k: 'shell', sh, b: EARTH, x: P.x, y: P.y, z: P.z, vx: (Q.x - P.x) / l * S.v0, vy: (Q.y - P.y) / l * S.v0, vz: (Q.z - P.z) / l * S.v0, t: 0, life: 6, owner: null, net: 0, cal: S.cal, pen: S.pen, v0: S.v0, gTop: Infinity, cheap, n: ++serial };
+  const got = [], pf = FX.puff, fa = FX.add, mr = Math.random; Math.random = () => 0.1; FX.puff = (b, at, v, n) => { for (let i = 0; i < n; i++) got.push({ size: 0.6, grow: 2.5 }); }; FX.add = (q) => got.push(q);
+  try { fly(s, F, 120); } finally { FX.puff = pf; FX.add = fa; Math.random = mr; }
+  return { n: got.length, dust: got.filter((q) => !q.heavy).length, big: Math.max(0, ...got.map((q) => q.size + q.grow * 0.9)) }; };
+var K85 = kickOf('aphe85'), K120 = kickOf('apfsds120'), K762 = kickOf('ball8', true);`);
+t('a gun\'s round into the ground throws up a dirt kick: 85 mm and 120 mm eight particles, the dust past 3 m (bigger for 120 mm); a machine gun\'s round one small puff at most',
+  R(`K85.n === 8 && K85.dust >= 4 && K85.big > 3 && K120.n === 8 && K120.big > K85.big && K762.n <= 1`), R('JSON.stringify([K85, K120, K762])'));
 t('...and shots 3 m over the crest fly on past it', R(`bermShots('apfsds120', 3).every((z) => z === null || z > 20)`), R(`bermShots('apfsds120', 3)`));
 t('the coarse ground (16 m, its own cache) for cheap rounds: never more than 3 m under the real ground on Highland Ridge', R(`(() => { const B = EARTH.arenas.highland.box; let worst = -Infinity;
   for (let i = 0; i < 400; i++) { const e = B.e0 + ((i * 7919) % 1000) / 1000 * (B.e1 - B.e0), z = B.z0 + ((i * 104729) % 997) / 997 * (B.z1 - B.z0), a = siteAngle(EARTH, e);
@@ -420,6 +431,9 @@ var heFb = (rows, P, d) => { const v = air(rows), F = simOf(me, v); Armour.fb.sh
 var fbOT = heFb(OT, { x: 0, y: 2.8, z: 0 }, { x: 0, y: -1, z: 0 }), fbTK = heFb(TK, { x: 1.2, y: 2.6, z: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2, z: 0 });`);
 t('an HE round into an open-top turret: "a way in, 2 crew" (the burst killed them both)', R(`fbOT.dead === 2 && fbOT.fb.r === 'pen' && fbOT.fb.crew === 2 && fbOT.fb.what.includes('CREW')`), R('fbOT'));
 t('...on a TK-34\'s turret front: "a hit, gun" (the burst broke the coaxial MG; no one hurt)', R(`fbTK.broken.includes('mgCoax') && fbTK.dead === 0 && fbTK.fb.r === 'hit' && fbTK.fb.what.includes('GUN') && fbTK.fb.crew === 0`), R('fbTK'));
+t('a new flight forgets the last one\'s hit and kill banners and hit arcs (Combat.reset: no "Ammo detonation!" replayed when the new clock passes the old time)', R(`(() => {
+  Armour.fb.ko = { text: 'Ammo detonation!', t: 3 }; Armour.fb.hurt.push({ d: { x: 1, y: 0, z: 0 }, t: 3 }); const had = !!Armour.fb.shot;
+  Combat.reset(simOf(me)); return had && Armour.fb.shot === null && Armour.fb.ko === null && Armour.fb.hurt.length === 0; })()`));
 
 // ---------------------------------------------------------------- the builder's numbers, and smoke from modules
 // (3I's balance: the medium hull's lower plate is 61 mm, 101 against a level shot, under a 55 mm glacis worth 121)

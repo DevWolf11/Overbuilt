@@ -145,6 +145,12 @@ ok('after a reload the blueprint and the hangar keep 70 mm', r.kind === 'tank' &
 const tankRows = await ev(() => designRows(Builder.parts)); // (the six-tap tank with its 70 mm hull)
 const hangar = await ev(() => { Builder.openHangar(); const t = [...document.querySelectorAll('.design .template-blurb')].map((e) => e.textContent); UI.closeModal(); return t; });
 ok('the hangar files it as Armour', hangar.some((t) => t.startsWith('Armour · 7 parts')), hangar.join(' | '));
+// (P4 play-test) building Armour, the hangar's stock vehicles come first, each with its class on its card
+r = await ev(() => { Builder.openHangar(); const hs = [...document.querySelectorAll('#modal-card h3.summary-h')].map((h) => h.textContent), cards = {};
+  for (const b of document.querySelectorAll('#modal-card .template')) cards[b.querySelector('.template-name').textContent] = b.querySelector('.template-blurb').textContent.split(' · ')[0];
+  UI.closeModal(); return { hs, cards }; });
+ok('the hangar, building Armour: Ground forces first after your designs, each card with its class (tank, tank destroyer, SPAA, SAM launcher, rocket artillery…)',
+  r.hs[1] === 'Ground forces' && r.cards['StuQ III'] === 'Tank destroyer' && r.cards['Gepardo'] === 'SPAA' && r.cards['OK-8 Hive'] === 'SAM launcher' && r.cards['BK-21 Grod'] === 'Rocket artillery' && r.cards['TK-34'] === 'Tank', JSON.stringify(r));
 
 // ---- 4. plates go flush on a face, pairs go both sides
 r = await ev(() => {
@@ -177,6 +183,18 @@ r = await ev(() => {
 });
 ok('smoke launchers go on the turret\'s sides as a mirrored pair (z symmetry)', r.two === 2 && r.z[0] === -r.z[1] && r.z[0] !== 0 && r.same && r.att.every((t) => t === 'turretCast'), JSON.stringify(r));
 await ev(() => Builder.undo());
+// (P4 play-test) a Wet Ammo Rack tapped in: it takes over its host's built-in rounds, and a toast says so (the rounds in
+// the line under the stats went 42 → 36 without a word); a second rack says nothing more
+r = await ev(() => {
+  for (const t of document.querySelectorAll('#toasts .toast')) t.remove();
+  Builder.quickAdd('wetRack'); const p = Builder.selected, host = (Builder.parts.find((q) => q.id === p.att) || {}).def;
+  const t1 = [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent).join(' | ');
+  for (const t of document.querySelectorAll('#toasts .toast')) t.remove();
+  Builder.quickAdd('wetRack'); const t2 = [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent).join(' | ');
+  Builder.undo(); Builder.undo();
+  return { host: host && host.name, t1, t2 };
+});
+ok('a Wet Ammo Rack tapped into the tank: "The … built-in rounds now live in your racks"; a second one says nothing more', /built-in rounds now live in your racks/.test(r.t1) && r.t1.includes(r.host) && !/built-in/.test(r.t2), JSON.stringify(r));
 // launchers by a tap (not set into the armour like a gun's breech): wire-guided rails on the turret's front beside the
 // gun, never through its barrel; the rocket rails and the big launchers on its roof; on a bare ring, where the stock
 // BRDK-2 and BK-21 carry theirs (two taps give the BRDK-2 back its three rails)
@@ -257,6 +275,16 @@ ok('...and is not offered on a plane with nothing inside', !r.shown && !r.on, JS
 // ---- 7. More stays in sight; the kind strip fits at every size
 r = await ev(() => { Builder.setKind('tank'); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; });
 ok('phone portrait: More is in sight for armour', r);
+// (P4 play-test) a small phone (375 × 667) opens the builder with the stats folded: the kind strip stays, one slim row,
+// Armour in sight and its label whole
+{
+  const pg = await phone(375, 667), k = await pg.evaluate(() => { const a = document.querySelector('#kind-select [data-kind="tank"]'), r = a.getBoundingClientRect(), s = $('#stats').getBoundingClientRect();
+    return { folded: $('#stats').classList.contains('collapsed'), shown: !!a.offsetParent && r.width > 30 && r.height > 12, fits: a.scrollWidth <= a.clientWidth, h: Math.round(r.height), statsH: Math.round(s.height),
+      home: [$('.home-tag').textContent, $('#home-build .hb-sub').textContent] }; });
+  ok('375 × 667, first open: the stats folded, the kind strip still there in one slim row, Armour in sight with its label whole', k.folded && k.shown && k.fits && k.h <= 26, JSON.stringify(k));
+  ok('the home screen names tanks: its line and the hangar button\'s', k.home.every((t) => /tank/.test(t)), JSON.stringify(k.home));
+  await pg.close();
+}
 const fits = async (pg) => pg.evaluate(() => { $('#stats').classList.remove('collapsed'); Builder.layout(); return [...document.querySelectorAll('#kind-select .kind-btn')].map((b) => [b.dataset.kind, b.scrollWidth, b.clientWidth]); });
 for (const [w, h] of [[390, 844], [375, 667], [844, 390], [1280, 720]]) {
   const pg = w === 390 ? page : await phone(w, h);
@@ -276,6 +304,13 @@ const look = async (pg, tag) => {
   await pg.screenshot({ path: `${SHOTS}2e-${tag}-ring.png` });
 };
 await ev((rows) => Builder.loadDesign({ name: 'Six taps', kind: 'tank', parts: rows }), tankRows);
+// (P4 play-test) Fit keeps the whole tank, gun and all, clear of the Select / Grid / Fit column on a phone (it centred the
+// tank on the whole canvas, its nose and gun under the column): every part's ends, in 2D, left of the column
+r = await ev(() => { Builder.selected = null; Builder.renderInfo(); Builder.layout(); Builder.fitView(); Builder.redraw();
+  const f = $('.fit-col').getBoundingClientRect(), c = Builder.canvas.getBoundingClientRect();
+  const xs = Builder.parts.flatMap((p) => { const R = partRect(p); return [Builder.partScreen({ x: R.l, y: (R.b + R.t) / 2, z: 0 }).x, Builder.partScreen({ x: R.r, y: (R.b + R.t) / 2, z: 0 }).x]; });
+  return { maxX: Math.round(Math.max(...xs)), minX: Math.round(Math.min(...xs)), col: Math.round(f.left), W: Math.round(c.width) }; });
+ok('phone portrait: Fit keeps the six-tap tank, gun and all, left of the Select / Grid / Fit column and on screen', r.maxX < r.col && r.minX > 0, JSON.stringify(r));
 await look(page, 'phone-2d');
 await ev(() => App.setPreview3D(true));
 await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 60000 });
@@ -293,6 +328,10 @@ await look(desk, 'desktop-3d');
 // the panels clear of each other on the desktop: the Fit column beside a tall part panel, not over the top bar
 r = await desk.evaluate(() => { const f = $('.fit-col').getBoundingClientRect(), t = $('#build-top').getBoundingClientRect(), i = $('#part-info').getBoundingClientRect(), o = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; return { top: o(f, t), info: o(f, i) }; });
 ok('desktop: the Fit column clears the top bar and the part panel', !r.top && !r.info, JSON.stringify(r));
+// (P4 play-test) the 3D hint: Armour's words (hull or turret, not wings), and clear of the Fit column beside the part panel
+r = await desk.evaluate(() => { const h = $('#build-3d-hint'), a = h.getBoundingClientRect(), f = $('.fit-col').getBoundingClientRect(), s = $('#stats').getBoundingClientRect();
+  return { shown: !h.hidden, text: h.textContent, over: a.left < f.right && a.right > f.left && a.top < f.bottom && a.bottom > f.top, stats: a.left < s.right && a.right > s.left && a.top < s.bottom && a.bottom > s.top }; });
+ok('desktop 3D: the hint speaks of the hull or a turret (not wings) and keeps clear of the Fit column and the stats', r.shown && /the hull or a turret/.test(r.text) && !/wing/.test(r.text) && !r.over && !r.stats, JSON.stringify(r));
 
 // ---- 9. and it launches
 await ev(() => { Render3D.skipDraw = true; Builder.selected = null; App.launch(); });

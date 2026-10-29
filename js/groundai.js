@@ -31,7 +31,7 @@ const GroundAI = (() => {
     sag: 0.45, crr: 0.035, eta: 0.6, acc: 2.5, brake: 5, // the suspension's settle (of its travel), rolling resistance, transmission; m/s² up and down
   };
   const RANGE = { r: 4000, back: 45, gap: 30, plane: 180, first: 12, near: 400 }; // m from the arena's middle; s to come back, between waves, between attack planes, to the first wave; m clear of the player
-  const BATTLE = { tickets: 300, limit: 900, respawn: 5, wrecks: 8, wreckT: 90, panel: 1.6 }; // a side's tickets, s; s to respawn; wrecks kept, s; s before the respawn panel
+  const BATTLE = { tickets: 600, limit: 900, respawn: 5, wrecks: 8, wreckT: 90, panel: 1.6 }; // a side's tickets, s; s to respawn; wrecks kept, s; s before the respawn panel
   // The Tank Range's Practice targets on Highland Ridge, ahead of the north pad (the player's spot, 17,750 / 13,800):
   // a TK-34 side-on 600 m out, an MS-4 hull-down behind the berm 760 m out, a ZSY-23 on the hilltop (zone A), and a
   // Pumo and a Leapard 1 patrolling a 1.2 km loop through zone B at 6 and 4 m/s, half a lap apart
@@ -1065,7 +1065,7 @@ const GroundAI = (() => {
       return true;
     },
     // The Practice Battle: the Ground Battle's rules alone on this device. opts: { money: 45000 | 75000 | 120000 }. You and
-    // two AI allies on the north pad against three AI on the south one, 300 tickets a side, on Highland Ridge (the
+    // two AI allies on the north pad against three AI on the south one, 600 tickets a side (as a room's; 300 was over in four minutes), on Highland Ridge (the
     // Runway without the map or the 3D view); your design if it fits the money, else its first stock vehicle.
     startBattle(F, opts) {
       F = F || (typeof Flight !== 'undefined' ? Flight : null);
@@ -1091,6 +1091,12 @@ const GroundAI = (() => {
       say(F, `Practice battle on ${GroundMode.arena(arena).name}: take the zones · ${BATTLE.tickets} tickets a side`, 'info');
       S.barKey = ''; bar(F);
       return true;
+    },
+    // What the player drives in a Practice Battle with this much money (the era dialog says so): the blueprint's design
+    // when it fits the money, else the era's first stock vehicle. { name, cost, yours }
+    practiceVehicle(money) {
+      const mine = typeof Builder !== 'undefined' && Builder.serialize ? Builder.serialize() : null, D = designFor(money, mine);
+      return { name: String(D.design.name || 'Your design').slice(0, 40), cost: designCost(partsFromDesign(D.design.parts)), yours: !D.why };
     },
     // The player knocked out in a Practice Battle (Flight.onDestroyed): their hulk stays as a wreck, the tickets go, and
     // the respawn panel opens (back in after 5 s, on the pad, the AI and the wrecks kept). True: handled.

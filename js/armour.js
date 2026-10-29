@@ -965,8 +965,19 @@ const Armour = (() => {
     Terrain.locate(b, at.x, at.y, at.z, LOC);
     const r = LOC.r || 1, n = { x: at.x / r, y: at.y / r, z: at.z / r }, k = s.cheap ? 1 : 3;
     if (b.ocean && Terrain.waterAt(b, LOC.a, LOC.z)) FX.splash(b, at, n, s.cheap ? 1.5 : 3);
+    else if (!s.cheap && (SH.cal || 0) >= 37) kick(b, at, n, SH.cal);
     else FX.puff(b, at, { x: n.x * 3, y: n.y * 3, z: n.z * 3 }, k, '#9a8f7c');
     return false;
+  }
+  // (P4 play-test) a gun's round into the ground (37 mm and up): a dirt kick a gunner sees at a kilometre and corrects by
+  // (it was three faint specks of dust): a column of dust and a spray of clods, sized by the calibre. Eight particles.
+  function kick(b, at, n, cal) {
+    const k = clamp(cal / 85, 0.6, 1.6);
+    for (let i = 0; i < 8; i++) {
+      const ph = Math.random() * 2 * Math.PI, cz = Math.random() * 2 - 1, sz = Math.sqrt(1 - cz * cz), d = { x: sz * Math.cos(ph), y: sz * Math.sin(ph), z: cz }, clod = i >= 5, up = (clod ? 10 + Math.random() * 6 : 3 + Math.random() * 6) * k, s = (clod ? 5 : 2) * Math.random() * k;
+      FX.add({ kind: 'smoke', b, x: at.x, y: at.y, z: at.z, vx: n.x * up + d.x * s, vy: n.y * up + d.y * s, vz: n.z * up + d.z * s, heavy: clod,
+        max: clod ? 1.1 + Math.random() * 0.4 : 1.6 + Math.random() * 0.8, size: (clod ? 0.45 : 1.0) * k, grow: (clod ? 0.4 : 3.2) * k, color: clod ? '#4d3f30' : '#a8916c', alpha: clod ? 0.95 : 0.8 });
+    }
   }
   // The ground on a 16 m lattice, its highest corner around (a, z) (body angle and depth, as Terrain.surfaceAt): its own
   // cache of 20k nodes, so streams of cheap rounds don't churn the physics' fine one

@@ -30,6 +30,7 @@ const MP_SPAWNS = [
 // carries none of these settings (no `game` means air), so it is exactly what it was. The arena isn't chosen: the
 // host's map decides it (GroundMode.pick). Each team starts on its pad (a spawn of kind 'pad': no money bonus, no
 // size limits); aircraft, with air support on, join at respawn.
+const MP_ARMS = { gun: 'guns', agun: 'guns', rocket: 'rockets', missile: 'missiles', bomb: 'bombs' }; // (an aircraft's weapons, as the respawn list says them)
 const MP_GROUND = { game: 'ground', tickets: 600, respawn: 'free', air: false, aim: 'arcade', arena: 'highland' };
 const MP_PADS = [
   { id: 'pad0', name: 'North pad', kind: 'pad', team: 0, desc: 'Your team’s start, at the north end of the battlefield.' },
@@ -680,10 +681,12 @@ const MP = {
   // battle, then the stock ones (TEMPLATES; worked out once per money and kind of craft). air: planes and helicopters.
   choices(air) {
     const kinds = air ? ['plane', 'heli'] : ['tank', 'car'], out = [], st = this.state.settings;
+    // (P4 play-test) aircraft are air support: what each carries (guns, rockets, missiles, bombs), the armed ones first
+    const arms = (rows) => { if (!air) return undefined; const k = new Set(); for (const p of partsFromDesign(rows)) { const w = p.def.weapon; if (w && MP_ARMS[w.kind]) k.add(MP_ARMS[w.kind]); } return [...k].join(', '); };
     for (const d of Builder.designs ? Builder.designs() : []) {
       if (!kinds.includes(d.kind)) continue;
       const des = { name: String(d.name).slice(0, 40), kind: d.kind, parts: d.parts };
-      if (this.fits(des, air)) out.push({ name: des.name, design: des, cost: designCost(partsFromDesign(d.parts)), saved: true });
+      if (this.fits(des, air)) out.push({ name: des.name, design: des, cost: designCost(partsFromDesign(d.parts)), saved: true, arms: arms(d.parts) });
     }
     const key = st.budget + (air ? 'a' : 'g') + (st.air ? '+' : '-');
     if (!this.stockMemo || this.stockMemo.key !== key) {
@@ -692,11 +695,12 @@ const MP = {
         const t = TEMPLATES[k];
         if (!kinds.includes(t.kind)) continue;
         const des = { name: t.name, kind: t.kind, key: k, parts: templateRows(t) };
-        if (this.fits(des, air)) list.push({ name: t.name, design: des, cost: designCost(partsFromDesign(des.parts)) });
+        if (this.fits(des, air)) list.push({ name: t.name, design: des, cost: designCost(partsFromDesign(des.parts)), arms: arms(des.parts) });
       }
-      list.sort((a, b) => (a.design.kind === 'car') - (b.design.kind === 'car')); // (Armour first, by era; then the cars)
+      list.sort((a, b) => (a.design.kind === 'car') - (b.design.kind === 'car') || (air ? !a.arms - !b.arms : 0)); // (Armour first, by era; then the cars. Aircraft: armed first)
       this.stockMemo = { key, list };
     }
+    if (air) out.sort((a, b) => !a.arms - !b.arms);
     return out.concat(this.stockMemo.list);
   },
   // A time of day for the match: the sun's height over the islands (degrees) for day, dusk and night.

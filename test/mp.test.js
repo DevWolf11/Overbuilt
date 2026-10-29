@@ -214,6 +214,12 @@ async function groundBattle() {
   t('ground: a tank and a car fit; a plane or a helicopter only at a respawn with air support on; a rocket never', X(`(() => {
     MP.spawnId = 'pad0'; MP.state.settings.air = true; const a = [probs('tk34').length, probs('technical').length, probs('mustang').length, probs('mustang', true).length, probs('dragonfly', true).length, probs('hopper', true).length];
     MP.state.settings.air = false; a.push(probs('mustang', true).length); return a.join(); })()`) === '0,0,1,0,0,1,1', X(`[probs('mustang'), probs('mustang', true)]`));
+  // (P4 play-test) air support's list: what each aircraft carries said, the armed ones first (it began with an unarmed trainer)
+  X(`MP.state.settings.air = true; MP.stockMemo = null; var airC = MP.choices(true); MP.state.settings.air = false; MP.stockMemo = null;`);
+  t('ground: the aircraft at a respawn list what each carries (guns, rockets, missiles, bombs), every armed one before any unarmed one',
+    X(`(() => { const first = airC.findIndex((c) => !c.arms), last = airC.map((c) => !!c.arms).lastIndexOf(true);
+      return airC.length > 4 && airC.every((c) => typeof c.arms === 'string') && !!airC[0].arms && (first < 0 || last < first) && airC.some((c) => /guns/.test(c.arms)); })()`),
+    X(`airC.map((c) => c.name + ': ' + (c.arms || 'unarmed')).join('; ')`));
   t('ground: a carrier spawn left from an air battle gives no money bonus and no carrier limits', X(`(() => { MP.spawnId = 'carrierA'; const b = MP.budgetFor('carrierA'), L = MP.limitsFor('carrierA'), p = probs('tk34');
     MP.spawnId = 'pad0'; return b === MP.state.settings.budget && L === null && !p.some((x) => /carrier|catapult/i.test(x)); })()`), X(`[MP.budgetFor('carrierA'), MP.limitsFor('carrierA')]`));
   t('ground: each team spawns from its own pad (no airfields, no carriers), and a forged spawn is refused', X(`(() => { const me = MP.me, b = MP.player(2); const a = MP.spawnsFor(me).map((s) => s.id).join(), c = MP.spawnsFor(b).map((s) => s.id).join();

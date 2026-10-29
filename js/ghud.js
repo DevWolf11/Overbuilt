@@ -14,7 +14,7 @@ const GHUD = (() => {
   const S = { aimAt: -1e9, P: null, placeAt: -1e9, W: 0, H: 0, drop: 0, dropKey: '', dropR: 0, diag: null, diagKey: '', map: null, mapKey: '', mapAt: -1e9,
     tags: [], nTags: 0, spots: new Map(), pings: [], press: null, ops: 0, tac: null, fireW: 0, rangeKey: null, rangeTxt: '', wh: 0, whT: -1e9,
     cmd: { on: null, v: null, d: 0, t: 0, e: 0 },
-    blk: { p: null, v0: 0, D: 0, mx: 0, my: 0, mz: 0, ux: 0, uy: 0, uz: 0, blk: -1 } };
+    blk: { p: null, v0: 0, D: 0, mx: 0, my: 0, mz: 0, ux: 0, uy: 0, uz: 0, blk: -1 }, rk: { key: '', at: -1e9, blk: -1 } };
 
   // ---------------------------------------------------------------- who is who
   const mp = () => typeof MP !== 'undefined' && MP.live;
@@ -43,7 +43,7 @@ const GHUD = (() => {
     if (F.freeLook) return; // (the turret holds on the point it had)
     if (F.strike) { // (the tactical map's strike: the launcher lays on it until the aim moves off)
       if ((F.strikeMove || 0) > 90) { F.strike = null; F.strikeMove = 0; F.toast('Strike cancelled'); }
-      else { A.P.x = F.strike.x; A.P.y = F.strike.y; A.P.z = F.strike.z; A.d = Math.hypot(A.P.x - A.o.x, A.P.y - A.o.y, A.P.z - A.o.z); A.indirect = true; A.src = 'ground'; A.blk = -1; return; }
+      else { A.P.x = F.strike.x; A.P.y = F.strike.y; A.P.z = F.strike.z; A.d = Math.hypot(A.P.x - A.o.x, A.P.y - A.o.y, A.P.z - A.o.z); A.indirect = true; A.src = 'ground'; A.blk = rocketBlk(v, A); return; }
     }
     A.indirect = false;
     const now = performance.now();
@@ -104,6 +104,7 @@ const GHUD = (() => {
   function blocked(v, A) {
     A.blk = -1;
     const st = Aim.status(v), p = st && st.part, w = p && p.def.weapon;
+    if (w && w.kind === 'rocket') { A.blk = A.src === 'ground' ? rocketBlk(v, A) : -1; return; }
     if (!w || !(w.kind === 'tgun' || w.kind === 'agun') || (A.src !== 'vessel' && !(st.err < 0.01))) return; // (on the ground: once the gun is laid, not while it swings round)
     const sh = st.shells[st.sel], S0 = sh && SHELLS[sh.key], v0 = (S0 && S0.v0) || 800, b = v.body, R = b.radius, sea = b.ocean ? 0 : -Infinity;
     const M = Aim.muzzle(v, p, A1), u = Aim.dir(v, p, A2), r0 = Math.hypot(M.x, M.y, M.z) || 1, ux = M.x / r0, uy = M.y / r0, uz = M.z / r0;
@@ -125,6 +126,27 @@ const GHUD = (() => {
     B.p = p; B.v0 = v0; B.D = D; B.mx = M.x; B.my = M.y; B.mz = M.z; B.ux = u.x; B.uy = u.y; B.uz = u.z; B.blk = A.blk;
   }
 
+  // Rocket artillery (P4 play-test): where its rockets, laid by the range table for the point (the crosshair's, or the
+  // tactical map's strike), come down on the ground short of it: a crest between (A.blk: metres out; -1 clear). Their
+  // path (Aim.rocketH) against the physics' ground every 25 m along the bearing, out to a tenth short of the point (30 m
+  // at least); five times a second at most, and only when the launcher, the point or the elevation moved.
+  function rocketBlk(v, A) {
+    const st = Aim.status(v), p = st && st.part, w = p && p.def.weapon, sk = v._strike;
+    if (!w || w.kind !== 'rocket' || !sk || sk.out) return -1;
+    const C = S.rk, now = performance.now(), T = Aim.trunnion(v, p, A1);
+    const key = `${p.id}|${Math.round(T.x)}|${Math.round(T.y)}|${Math.round(T.z)}|${Math.round(A.P.x)}|${Math.round(A.P.y)}|${Math.round(A.P.z)}|${Math.round(sk.el * 2000)}`;
+    if (key === C.key || now - C.at < 200) return C.blk;
+    C.key = key; C.at = now; C.blk = -1;
+    const b = v.body, R = b.radius, sea = b.ocean ? 0 : -Infinity;
+    Terrain.locate(b, T.x, T.y, T.z, LOC); const a0 = LOC.a, z0 = LOC.z, h0 = LOC.r - R;
+    Terrain.locate(b, A.P.x, A.P.y, A.P.z, LOC); const da = wrapAngle(LOC.a - a0), dz = LOC.z - z0, Dg = Math.hypot(R * da, dz);
+    for (let s = 25, end = Dg - Math.max(30, Dg * 0.1); s < end; s += 25) {
+      const f = s / Dg, g = Math.max(sea, Terrain.surfaceAt(b, a0 + da * f, z0 + dz * f)) - h0;
+      if (Aim.rocketH(p.def, sk.el, s, b) < g) { C.blk = s; break; }
+    }
+    return C.blk;
+  }
+
   // ---------------------------------------------------------------- the canvas (§9.1), every frame in aim mode
   function draw(ctx, W, H, dpr, F) {
     const v = F.active;
@@ -141,7 +163,7 @@ const GHUD = (() => {
     // the crosshair (or the gunner's sight's own marks)
     if (F.sight) sightMarks(ctx, W, H, F, v, st); else crosshair(ctx, cx, cy);
     // the gun's reticle: where its round goes now (the barrel as it points, its drop at the range), its reload round it
-    if (st) reticle(ctx, F, v, st, pr);
+    if (st) reticle(ctx, F, v, st, pr, W, H);
     // the range, under the crosshair
     rangeText(ctx, F, v, cx, cy);
     if (st) weaponMarks(ctx, F, v, st, pr, cx, cy);
@@ -163,7 +185,7 @@ const GHUD = (() => {
     ctx.strokeStyle = COL.hud; ctx.lineWidth = 1.6; ctx.stroke();
     ctx.fillStyle = COL.hud; ctx.fillRect(x - 1, y - 1, 2, 2);
   }
-  function reticle(ctx, F, v, st, pr) {
+  function reticle(ctx, F, v, st, pr, W, H) {
     const p = st.part, w = p.def.weapon;
     if (!w || !(w.kind === 'tgun' || w.kind === 'agun' || w.kind === 'rocket' || w.kind === 'missile')) return;
     const M = Aim.muzzle(v, p, MZ), u = Aim.dir(v, p, BD), A = F.aim, blk = A.blk > 0 ? A.blk : -1, R = blk > 0 ? Math.max(10, blk) : Math.max(30, Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z));
@@ -175,7 +197,16 @@ const GHUD = (() => {
       drop = S.drop;
     }
     const s = pr(M.x + u.x * R - (v.x / r0) * drop, M.y + u.y * R - (v.y / r0) * drop, M.z + u.z * R - (v.z / r0) * drop);
-    if (s.behind) return;
+    const hx = W / 2, hy = H / 2, m = 28, dx = (s.behind ? -1 : 1) * (s.x - hx), dy = (s.behind ? -1 : 1) * (s.y - hy);
+    if (s.behind || Math.abs(dx) > hx - m || Math.abs(dy) > hy - m) { // (off the screen)
+      if (!st.limited) return;
+      // (P4 play-test) held at its limit with its mark off the screen (a casemate gun past its arc on a narrow phone): a red
+      // arrow at the edge, toward where the gun points, and what to do
+      const k = Math.min((hx - m) / (Math.abs(dx) || 1e-6), (hy - m) / (Math.abs(dy) || 1e-6)), ex = hx + dx * k, ey = hy + dy * k, a = Math.atan2(dy, dx), c = Math.cos(a), n = Math.sin(a);
+      ctx.fillStyle = COL.enemy; ctx.beginPath(); ctx.moveTo(ex + c * 10, ey + n * 10); ctx.lineTo(ex - c * 6 - n * 8, ey - n * 6 + c * 8); ctx.lineTo(ex - c * 6 + n * 8, ey - n * 6 - c * 8); ctx.closePath(); ctx.fill();
+      ctx.font = MONO; text(ctx, 'Turn the hull', clamp(ex - c * 64, 50, W - 50), clamp(ey - n * 26 + 4, 20, H - 10)); // (beside the arrow, clear of it)
+      return;
+    }
     const ok = !st.limited && st.err < 0.3 * DEG && blk < 0, x = s.x, y = s.y;
     ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8, 11, 16, 0.5)';
     ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.stroke();
@@ -241,8 +272,9 @@ const GHUD = (() => {
     if (sk && (F.aim.indirect || st.kind === 'rocket')) {
       const s = pr(F.aim.P.x, F.aim.P.y, F.aim.P.z);
       if (!s.behind) { ctx.strokeStyle = sk.out ? COL.enemy : COL.warn; ctx.beginPath(); ctx.arc(s.x, s.y, 18, 0, TAU); ctx.stroke(); }
-      ctx.font = MONO; ctx.fillStyle = sk.out ? COL.enemy : COL.warn;
-      text(ctx, sk.out ? 'Out of range' : `Strike: ${(sk.d / 1000).toFixed(1)} km · ${Math.round(sk.t)} s`, cx, cy + (F.sight ? 64 : 50));
+      const blk = !sk.out && F.aim.blk > 0;
+      ctx.font = MONO; ctx.fillStyle = sk.out || blk ? COL.enemy : COL.warn;
+      text(ctx, sk.out ? 'Out of range' : blk ? `Blocked by the ground ${fmtR(F.aim.blk)} out` : `Strike: ${(sk.d / 1000).toFixed(1)} km · ${Math.round(sk.t)} s`, cx, cy + (F.sight ? 64 : 50));
     }
   }
   // the shooter's result (§6.8): a line 48 px over the crosshair for 1.4 s, four ticks on it; knocked out; when we are
@@ -474,9 +506,9 @@ const GHUD = (() => {
     }
     // what's wrong, in words
     g.textAlign = 'left'; g.font = `600 ${small ? 9 : 10}px "IBM Plex Mono", ui-monospace, monospace`; // (CREW 4/4 fits the small one)
-    const tx = areaW + 4;
-    g.fillStyle = alive < crew.length ? '#ffb547' : '#c9d3de';
-    g.fillText(`CREW ${alive}/${crew.length}`, tx, 15);
+    const tx = areaW + 4, all = Math.max(crew.length, v._crewN || 0); // (against the crew it set out with; none: no line, as on a technical)
+    g.fillStyle = alive < all ? '#ffb547' : '#c9d3de';
+    if (all) g.fillText(`CREW ${alive}/${all}`, tx, 15);
     let y = 28;
     const seen = new Set();
     for (const p of v.parts) {
@@ -551,6 +583,9 @@ const GHUD = (() => {
       if (map.width !== w || map.height !== h) { map.width = w; map.height = h; S.mapKey = ''; }
       const b = `${Math.round(gm.bottom + 8)}px`;
       if (S.gmapB !== b) { S.gmapB = b; document.body.style.setProperty('--gmap-b', b); }
+      // (P4 play-test) under the room's bar when it grows (its capture line, its lineup): the phone's minimap goes down with it
+      const t = bar && bar.left < gm.right && bar.right > gm.left ? `${Math.round(bar.bottom + 8)}px` : '0px';
+      if (S.gmapT !== t) { S.gmapT = t; document.body.style.setProperty('--gmap-t', t); }
     }
     return S.P;
   }
@@ -912,6 +947,7 @@ const GHUD = (() => {
     stack.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#gmap').addEventListener('click', () => tactical(true));
     $('#gtac-close').addEventListener('click', () => tactical(false));
+    $('#gtac-globe').addEventListener('click', () => { tactical(false); if (typeof Flight !== 'undefined' && Flight.running && !Flight.mapMode) Flight.toggleMap(); }); // (the old map: the globe)
     if (isTouch) $('#gtac-close').textContent = 'Close'; // (M is a key: a phone has none)
     const tc = $('#gtac-canvas');
     let down = null;

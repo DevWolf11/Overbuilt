@@ -421,6 +421,20 @@ const TEMPLATES = {
 };
 
 // A template's parts as design rows (extras: z, att, skin, mm).
+// What kind of ground vehicle a stock one is, for its hangar card (from its parts): a tank, a tank destroyer (a gun with no
+// turret), an armoured car, an SPAA, a SAM launcher, rocket artillery, an infantry vehicle, an ATGM carrier, a technical
+function groundClass(t) {
+  const P = t.parts.map((r) => PARTS[r[0]]).filter(Boolean), has = (f) => P.some(f), w = (d) => d.weapon || {};
+  if (t.kind === 'car') return 'Technical';
+  if (has((d) => w(d).kind === 'missile' && (w(d).seek === 'air' || w(d).seek === 'clos'))) return 'SAM launcher';
+  if (has((d) => w(d).kind === 'rocket' && d.aim)) return 'Rocket artillery';
+  if (has((d) => w(d).kind === 'agun' && (w(d).cal || 0) >= 20) && has((d) => d.trackRadar || d.searchRadar)) return 'SPAA';
+  const gun = has((d) => w(d).kind === 'tgun' && (w(d).cal || 0) >= 37);
+  if (has((d) => d.troops || (d.mods && d.mods.some((m) => m.k === 'troops')))) return 'Infantry vehicle';
+  if (!gun && has((d) => w(d).kind === 'missile')) return 'ATGM carrier';
+  if (gun && (!has((d) => d.ring) || has((d) => d.style === 'open'))) return 'Tank destroyer'; // (a casemate gun, or a big gun in an open-topped turret)
+  return gun && has((d) => d.awheel) ? 'Armoured car' : 'Tank';
+}
 function templateRows(t) {
   return t.parts.map(([type, x, y, rot, o = {}]) => {
     const q = { type, x, y, flip: x < 0, rot: rot || 0 }, skin = o.skin || (t.paint && t.paint[type]);
@@ -682,7 +696,12 @@ const Builder = {
     bottom = Math.max(bottom, top + 80);
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
-    const a = { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
+    let right = innerWidth;
+    if (this.kind === 'tank') { // (P4 play-test) Armour: clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
+      const f = $('.fit-col').getBoundingClientRect();
+      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) right = f.left - 6;
+    }
+    const a = { w: right - left, h: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
     if (this.keepArea && !$('#build-ui').hidden) this.area = a;
     return a;
   },
@@ -923,6 +942,14 @@ const Builder = {
     this.changed();
     this.renderInfo();
     Sound.click();
+    // (P4 play-test) the first rack (or seat) placed in a hull or turret takes over its built-in ammunition (or crew):
+    // say so, or the rounds the stats lose read as the rack taking them away
+    if (att && att.def.mods && (def.rack || def.seat)) {
+      const k = def.seat ? 'crew' : 'ammo', built = att.def.mods.filter((m) => m.k === k);
+      const first = !this.parts.some((q) => q !== p && q !== p.mirror && q.att === att.id && (k === 'crew' ? q.def.seat : q.def.rack));
+      if (first && built.length) UI.toast(k === 'ammo' ? `The ${att.def.name}'s ${built.reduce((n, m) => n + (m.rounds || 0), 0)} built-in rounds now live in your racks: the racks hold all it carries`
+        : `The ${att.def.name}'s ${built.length} built-in crew step out for your seats: give a seat to each job it needs`);
+    }
   },
 
   // Parts go with everything attached to them.
@@ -1960,6 +1987,7 @@ const Builder = {
     this.renderKind();
     this.changed();
     this.fitView();
+    if (typeof App !== 'undefined' && App.hint3D) { App.hint3D(); this.layout(); } // (the 3D hint's words are the kind's)
     Sound.click();
   },
   // A tap on a kind button. Armour from a blueprint with no armour on it (the stock Hopper a new player meets, a plane):
@@ -2220,6 +2248,7 @@ const Builder = {
     ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
     const fit = $('.fit-col'), info = $('#part-info');
     fit.style.bottom = ''; fit.style.right = ''; fit.classList.remove('row'); info.style.maxHeight = ''; info.style.overflowY = '';
+    const hint = $('#build-3d-hint'); if (hint) hint.style.left = hint.style.maxWidth = hint.style.transform = hint.style.whiteSpace = '';
     if (info.hidden) return;
     let i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
     if (!(f.bottom > i.top - 6 && f.top < i.bottom && f.right > i.left && f.left < i.right)) return;
@@ -2235,6 +2264,19 @@ const Builder = {
       fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
     } else if (i.top - 8 - f.height >= $('#build-top').getBoundingClientRect().bottom + 6) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
     else fit.style.right = `${Math.round(innerWidth - i.left + 8)}px`;
+    this.hintClear(fit);
+  },
+  // (P4 play-test) on a wide screen the 3D hint keeps clear of the Fit column when that moves in beside the part panel:
+  // between the stats and the column, wrapping
+  hintClear(fit) {
+    const hint = $('#build-3d-hint');
+    if (!hint || innerWidth <= 760) return;
+    hint.style.left = hint.style.maxWidth = hint.style.transform = hint.style.whiteSpace = '';
+    if (hint.hidden) return;
+    const h = hint.getBoundingClientRect(), f = fit.getBoundingClientRect();
+    if (!(h.right > f.left - 6 && h.left < f.right && h.bottom > f.top && h.top < f.bottom + 6)) return;
+    const L = $('#stats').getBoundingClientRect().right + 10;
+    hint.style.left = `${Math.round(L)}px`; hint.style.transform = 'none'; hint.style.whiteSpace = 'normal'; hint.style.maxWidth = `${Math.max(180, Math.round(f.left - 10 - L))}px`;
   },
 
   // ---------------------------------------------------------------- modals
@@ -2433,7 +2475,8 @@ const Builder = {
       wrap.append(list);
     }
     const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters' };
-    for (const kind in groups) {
+    const order = this.kind === 'tank' ? ['tank', ...Object.keys(groups).filter((k) => k !== 'tank')] : Object.keys(groups); // (P4 play-test: building Armour, its stock vehicles first, not five screens down)
+    for (const kind of order) {
       const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.military ? 'military' : t.kind || 'rocket') === kind; });
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
@@ -2441,10 +2484,10 @@ const Builder = {
       const tl = el('div', { class: 'template-list' });
       for (const key of keys) {
         const t = TEMPLATES[key];
-        const locked = !Career.sandbox && t.tier > Career.data.tier;
+        const locked = !Career.sandbox && t.tier > Career.data.tier, cls = kind === 'tank' ? groundClass(t) : null;
         const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
           el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
-          el('span', { class: 'template-blurb', text: t.blurb }));
+          el('span', { class: 'template-blurb', text: cls ? `${cls} · ${t.blurb}` : t.blurb }));
         b.addEventListener('click', () => {
           const go = () => { UI.closeModal(); this.loadTemplate(key); };
           if (this.unsavedWork()) this.confirmLeave(go); else go();

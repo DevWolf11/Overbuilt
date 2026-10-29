@@ -695,6 +695,14 @@ t('turning at full throttle while still gathering speed: the inner side held bac
 t('A/D alone at speed: it turns as it rolls to a stop (no slam of the brakes)', RP(`TURN.d.yaw < -0.3 && TURN.d.v > 2`), RP('JSON.stringify(TURN.d)'));
 t('reverse at its share of the top speed; D while reversing swings the nose left, as a car\'s does', RP(`Math.abs(TURN.rev.rev / -(14 * 0.35) - 1) < 0.05 && TURN.rev.yaw > 0.3`), RP('JSON.stringify(TURN.rev)'));
 t('armoured wheels steer like a car\'s: the Pumo turns round a circle of 20-40 m at 10 m/s, its front wheels turned', RP(`TURN.pumo.yaw < -0.2 && Math.abs(TURN.pumo.v / TURN.pumo.yaw) > 20 && Math.abs(TURN.pumo.v / TURN.pumo.yaw) < 40 && TURN.pumo.steer > 0.05`), RP('JSON.stringify(TURN.pumo)'));
+// (P4 play-test) from a standstill with the stick up and to the right, armoured wheels pull away as a car does, turning as
+// they go (the skid assist, for A/D alone, held them to 6 km/h whatever the throttle); A/D alone still swings them round
+RP(`usePlane({});
+var pull = (sticks) => { const v = tank(__tanks.pumo), F = world(v); go(F, 1); const h0 = v.heading(); go(F, 4, () => Object.assign(v.ctl, sticks)); return { kmh: fwd(v) * 3.6, turn: Math.abs(wrapAngle(v.heading() - h0)) / D2R }; };
+var PULL = { up: pull({ v: 1, h: 0 }), upRight: pull({ v: 0.87, h: 0.5 }), full: pull({ v: 1, h: 1 }), dOnly: pull({ v: 0, h: 1 }) };
+usePlane(null);`);
+t('armoured wheels from a standstill, the stick up and right (or full right): over 60% of the straight run\'s speed after 4 s, turning 30° or more; D alone still turns them round',
+  RP(`PULL.upRight.kmh > 0.6 * PULL.up.kmh && PULL.full.kmh > 0.6 * PULL.up.kmh && PULL.upRight.turn > 30 && PULL.full.turn > 45 && PULL.dOnly.turn > 20`), RP('JSON.stringify(PULL)'));
 t('B stops it from 40 km/h in under 2 s; letting go, the engine brakes it to a stop in 5-12 s', RP(`STOP.brake[0] > 10 && STOP.brake[1] < 2 && STOP.coast[1] > 5 && STOP.coast[1] < 12`), RP('JSON.stringify(STOP)'));
 
 // ---------------------------------------------------------------- water

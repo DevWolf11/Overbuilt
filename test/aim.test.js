@@ -233,6 +233,19 @@ R(`var heldFire = (how) => {
 var HF = { intact: heldFire(), broken: heldFire('broken'), unmanned: heldFire('unmanned') };`);
 t('held FIRE ripples rocket rails at their rate (4 a second); broken, or with no one to lay them, they fire nothing and say why',
   R(`HF.intact.gone === 8 && HF.broken.gone === 0 && HF.broken.toasts === 'Rocket Rails broken' && !HF.unmanned.man && HF.unmanned.gone === 0 && HF.unmanned.toasts === 'No gunner to fire'`), R('JSON.stringify(HF)'));
+// (P4 play-test) a tap on FIRE ripples what the rails hold (a phone's FIRE is tapped, as a tank gun's is): a second tap
+// stops it; held, it ripples until let go, as before. Frames of 1/60 s (Combat.playerFrame) with two substeps each.
+R(`var tapFire = (presses, secs) => {
+  const v = level(build(MLRS), 50), F = simOf(v), p = partOf(v, 'mlrsLight'); Combat.reset(F); v.wsel = Combat.systems(v).findIndex((q) => q.key === 'mlrsLight');
+  aimAt(F, v, flat(v, 3000, 'mlrsLight')); const a0 = p.ammo, at = [];
+  for (let f = 0; f < secs * 60; f++) {
+    const t = f / 60; F.firing = presses.some(([t0, t1]) => t >= t0 && t < t1);
+    Combat._t.playerFrame(F, 1 / 60); const n = p.ammo; run(F, 1 / 60); if (p.ammo < n) at.push(Math.round(F.time * 10) / 10);
+  }
+  return { gone: a0 - p.ammo, last: at[at.length - 1], toasts: [...new Set(F.toasts)].join(), rip: !!Combat.S.rip }; };
+var TF = { tap: tapFire([[0, 0.1]], 6), stop: tapFire([[0, 0.1], [1.5, 1.6]], 6), hold: tapFire([[0, 2]], 6), again: tapFire([[0, 0.1], [5, 5.1]], 7) };`);
+t('...a tap on FIRE ripples all sixteen and says how to stop; a second tap stops it; held 2 s and let go, it stops at 8 as before; a tap on empty rails fires nothing',
+  R(`TF.tap.gone === 16 && /^Ripple: 16 rockets/.test(TF.tap.toasts) && !TF.tap.rip && TF.stop.gone >= 6 && TF.stop.gone <= 8 && TF.stop.last <= 1.7 && TF.hold.gone === 8 && !TF.hold.toasts && TF.hold.last <= 2.05 && TF.again.gone === 16 && !TF.again.rip`), R('JSON.stringify(TF)'));
 
 // ---------------------------------------------------------------- firing, reloads, ammunition, shells
 R(`var rv = level(build(REAL)), RF = simOf(rv), rg = gunOf(rv), rt = partOf(rv, 'turretCast'), LDR = PARTS.turretCast.mods.findIndex((m) => m.role === 'loader');
@@ -404,6 +417,32 @@ R(`var closCross = (D, sp, alt) => {
 };
 var CROSS = [closCross(2500, 150, 400), closCross(4000, 200, 600)];`);
 t('...and it rides the beam onto a bandit crossing it (150 m/s at 2.5 km, 200 m/s at 4 km), bursting by its fuze beside it', R(`CROSS.every((q) => q.locked && q.burst && q.hit)`), R('JSON.stringify(CROSS)'));
+// (P4 play-test) a range drone (a 3.2 m target) circling overhead: the beam alone left the missile 5-17 m off it, outside
+// its 4 m fuze, so the Tank Range's drones never went down. In its last 1.2 s the radar steers it onto where the drone will
+// be. The OK-8's turret, launchers and radars; the drone moved and its speed taken once a frame (0.05 s), as on the range;
+// tight circles at 120 m/s, where the beam alone missed 9 times in 16
+R(`var OK8 = [['hullWheeled', 0, 1.4], ['wheelArm', -1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', -1.9, 0.65, 0, { z: 1.475, att: 0 }], ['engDiesel', -2.1, 1.35, 0, { att: 0 }],
+  ['ringP', 0, 2.26, 0, { att: 0 }], ['turretAA', 0, 2.97, 0, { att: 4 }], ['samCmd', 0.18, 2.97, 3, { z: -1.8, att: 5 }], ['samCmd', 0.18, 2.97, 3, { z: 1.8, att: 5 }],
+  ['radarSearch', -0.9, 4.17, 0, { att: 5 }], ['radarTrack', 0.2, 4.02, 0, { att: 5 }]].map(([type, x, y, rot, o]) => ({ type, x, y, flip: false, rot: rot || 0, ...(o || {}) }));
+var droneRun = (rad, dist, alt, ph, dir, sp) => {
+  const v = level(build(OK8), 30), F = simOf(v), S = surfaceFrame(v.x, v.y, v.z); Combat.reset(F);
+  const t = { kind: 'drone', def: TARGET_KINDS.drone, hp: TARGET_KINDS.drone.hp, alive: true, pos: v3(), vel: v3() }; Combat.S.targets.push(t);
+  const C = { x: v.x + S.north.x * dist + S.up.x * alt, y: v.y + S.north.y * dist + S.up.y * alt, z: v.z + S.north.z * dist + S.up.z * alt }, p0 = v3();
+  const place = () => { const c = Math.cos(ph), s = Math.sin(ph); t.pos.x = C.x + (S.east.x * c + S.north.x * s) * rad; t.pos.y = C.y + (S.east.y * c + S.north.y * s) * rad; t.pos.z = C.z + (S.east.z * c + S.north.z * s) * rad; };
+  let acc = 0, k = 0;
+  const frame = (h) => { acc += h; if (++k % 6) return; ph += (dir * sp * acc) / rad; p0.x = t.pos.x; p0.y = t.pos.y; p0.z = t.pos.z; place(); if (!t.alive) return;
+    t.vel.x = (t.pos.x - p0.x) / acc; t.vel.y = (t.pos.y - p0.y) / acc; t.vel.z = (t.pos.z - p0.z) / acc; aimAt(F, v, t.pos); Aim.radarStep(v, F, acc); acc = 0; };
+  const go = (secs, each) => run(F, secs, 1 / 120, (i, h) => { const r = each && each(); frame(h); return r; });
+  place(); aimAt(F, v, t.pos); go(4); Aim.lockKey(v); go(2);
+  const locked = Aim.lockTarget(v) === t;
+  Combat.launchMissile(v, partOf(v, 'samCmd'), Aim.lockTarget(v), F);
+  const s = Combat.S.shots[Combat.S.shots.length - 1];
+  let burst = false; go(15, () => { if (!Combat.S.shots.includes(s)) { burst = true; return false; } });
+  return { locked, burst, down: t.hp <= 0 };
+};
+var DR = []; for (const [rad, dist, alt] of [[400, 1200, 400], [500, 1500, 300]]) for (const ph of [0, 1.5, 3, 4.5]) DR.push(droneRun(rad, dist, alt, ph, ph > 2 ? -1 : 1, 120));`);
+t('...and onto a range drone circling tight overhead (120 m/s on 400-500 m circles, the drone seen once a frame): every locked launch bursts beside it and brings it down',
+  R(`DR.every((q) => q.locked && q.burst && q.down)`), R('JSON.stringify(DR)'));
 R(`var SAMIR = [{ type: 'hullLight', x: 0, y: 1.0, flip: false, rot: 0 }, { type: 'samIR', x: 0, y: 2.05, flip: false, rot: 3, att: 0 }];
 var noDive = () => {
   const v = build(SAMIR); v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), 0);

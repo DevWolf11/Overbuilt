@@ -185,10 +185,16 @@ const App = {
     hint.classList.remove('faded');
     clearTimeout(this.hintTimer);
     if (on) this.hintTimer = setTimeout(() => hint.classList.add('faded'), 9000);
-    hint.textContent = isTouch
-      ? '3D · drop parts onto any wing or body: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom'
-      : '3D · drop parts onto any wing or body: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out';
+    this.hint3D();
     const grid = $('#btn-grid'); if (grid) grid.hidden = on; // the grid is a 2D mode
+  },
+  // (its words for the kind being built: Armour's parts go on a hull or a turret, not a wing)
+  hint3D() {
+    const hint = $('#build-3d-hint'), on = typeof Builder !== 'undefined' && Builder.kind === 'tank' ? 'the hull or a turret' : 'any wing or body';
+    const t = isTouch
+      ? `3D · drop parts onto ${on}: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom`
+      : `3D · drop parts onto ${on}: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out`;
+    if (hint && hint.textContent !== t) hint.textContent = t;
   },
 
   showScene(name) {
@@ -424,7 +430,7 @@ const App = {
     const sens = el('input', { id: 'set-aim-sens', type: 'range', min: '0.3', max: '3', step: '0.1', value: String(Settings.get('aimSens') || 1) });
     sens.addEventListener('input', () => Settings.set('aimSens', +sens.value));
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
-      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), ...(isTouch ? [] : [row('Mouse aim speed', sens)])); // (no mouse on a phone)
+      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

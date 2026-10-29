@@ -369,11 +369,12 @@ const Gear = {
     // (A/D alone while moving: the belts' mean follows the hull's own speed, slowing as coasting would, so it turns as
     // it rolls to a stop rather than braking first and pivoting after. Tracks nearly still hold it at 0: a neutral turn
     // on the spot that the brakes hold on a slope, where following its own speed gravity would roll it back and the
-    // reversing rule flip the turn. Wheels have no pivot: their skid assist drives them round a circle.)
+    // reversing rule flip the turn. Wheels have no pivot: their skid assist drives them round a circle, with A/D alone;
+    // it fades out as the stick goes up (P4 play-test: with the throttle on as well it held an 8×8 to 6 km/h).)
     const roll = turn > 0 && gMath.abs(vF) < GEAR.pivotV ? 0 : gMath.max(0, gMath.abs(vF) - GEAR.coast * G0 * h) * gMath.sign(vF);
     const base = cv > 0 ? cv * Vmax : cv < 0 ? cv * Vrev : gClamp(roll, -Vrev, Vmax), str = ch * (base < -0.1 ? -1 : 1);
     const pk = gMath.min(1, gMath.sqrt(P / 1000 / mt / 12)), slow = 1 - 0.55 * gMath.min(1, gMath.abs(vF) / gMath.max(Vmax, 0.1));
-    const yawCap = 1.15 * turn * pk, om = str * turn * pk * slow, omW = gMath.abs(vF) < 3 ? 0.3 * str * GEAR.wheelTurn * pk * slow : 0, half = C.B / 2;
+    const yawCap = 1.15 * turn * pk, om = str * turn * pk * slow, omW = gMath.abs(vF) < 3 ? 0.3 * str * GEAR.wheelTurn * pk * slow * (1 - gMath.abs(cv)) : 0, half = C.B / 2;
     // (armoured wheels ahead steer as a car's do, less the faster it goes: a turn of about 0.45 g, within their grip)
     const delta = ch * gMath.min(0.5, (0.45 * G0 * C.L) / gMath.max(1, vF * vF)), cs = gMath.cos(delta), sn = gMath.sin(delta);
 

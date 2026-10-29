@@ -163,8 +163,8 @@ R(`SET.targets = 'practice';
 var F3 = world(); GroundAI.startBattle(F3, { money: 45000, design: designOf('tk34'), seed: 5 });
 var B3 = GroundAI.battle, teams3 = GroundAI.ai.map((v) => v.ai.team).sort().join(), obj3 = GroundMode.obj();
 var pad3 = GroundAI.ai.map((v) => { const p = eOf(v), f = EARTH.arenas.highland.pads[v.ai.team]; return Math.round(Math.hypot(p.e - f.e, p.z - f.z)); });`);
-t('Practice Battle: you and two AI allies on the north pad, three AI enemies on the south one, 300 tickets a side, its objective what GroundMode.obj() shows',
-  R(`!!B3 && teams3 === '0,0,1,1,1' && B3.obj.tk.join() === '300,300' && obj3 === B3.obj && B3.obj.zones.length === 3 && pad3.every((d) => d <= 23) && GroundAI.ai.filter((v) => v.ai.team === 0).every((v) => v.ai.ally)`),
+t('Practice Battle: you and two AI allies on the north pad, three AI enemies on the south one, 600 tickets a side (as a room\'s: 300 was over in four minutes), its objective what GroundMode.obj() shows',
+  R(`!!B3 && teams3 === '0,0,1,1,1' && B3.obj.tk.join() === '600,600' && obj3 === B3.obj && B3.obj.zones.length === 3 && pad3.every((d) => d <= 23) && GroundAI.ai.filter((v) => v.ai.team === 0).every((v) => v.ai.ally)`),
   R('[teams3, B3 && B3.obj.tk, pad3]'));
 t('...its vehicles are the money tier\'s stock ones (GROUND_STOCK), and the old range is not spawned', R(`GroundAI.ai.every((v) => GROUND_STOCK[45000].includes(v.ai.key)) && !Combat.S.spawned && Combat.S.targets.length === 0`),
   R('GroundAI.ai.map((v) => v.ai.key)'));
@@ -192,7 +192,7 @@ t('...each looks at the ground at most 60 times a second (counted at Terrain: mo
 t('...and the five of them take at most 10 fresh looks a second at who they can see (Aim.sees: the spotting budget), in every 10 s once the sides meet',
   R(`seesWin.length === 11 && Math.max(...seesWin) <= 10 && seesWin.some((n) => n >= 1)`), R('seesWin'));
 R(`go(F3, 60);`);
-t('...the rules run: in 3 minutes zones are taken and tickets go (bleeding, knock-outs)', R(`B3.obj.zones.some((z) => z.own >= 0) && (B3.obj.tk[0] < 300 || B3.obj.tk[1] < 300)`), R('[B3.obj.zones.map((z) => z.id + z.own).join(), B3.obj.tk]'));
+t('...the rules run: in 3 minutes zones are taken and tickets go (bleeding, knock-outs)', R(`B3.obj.zones.some((z) => z.own >= 0) && (B3.obj.tk[0] < 600 || B3.obj.tk[1] < 600)`), R('[B3.obj.zones.map((z) => z.id + z.own).join(), B3.obj.tk]'));
 // an AI knocked out: wreck, tickets, a new one 5 s later on its pad
 R(`var en3 = GroundAI.ai.find((v) => v.ai.team === 1), tk3 = B3.obj.tk[1], had3 = new Set(F3.vessels), kos3 = B3.kos;
 en3.lastHitBy = F3.active; Armour.knockOut(en3, F3, 'crew');

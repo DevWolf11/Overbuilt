@@ -638,6 +638,18 @@ const Aim = {
     out.el = T[top].el; out.t = T[top].t; out.out = true; out.d = D;
     return out;
   },
+  // A rocket's height over its launch level, laid at el (rad), s m along the ground: the range table's rows either side
+  // of el (-Infinity: it is down by then)
+  rocketH(def, el, s, body = EARTH) {
+    const T = this.rangeTable(def, body);
+    if (!T || T.length < 2) return -Infinity;
+    let i = 1;
+    while (i < T.length - 1 && T[i].el < el) i++;
+    const p = T[i - 1], q = T[i], f = clamp((el - p.el) / (q.el - p.el || 1), 0, 1), x = s / AIM_RK_DX, k = Math.floor(x);
+    if (!(k >= 0) || k + 1 >= p.H.length || k + 1 >= q.H.length) return -Infinity;
+    const a = p.H[k] + (p.H[k + 1] - p.H[k]) * (x - k), b = q.H[k] + (q.H[k + 1] - q.H[k]) * (x - k);
+    return a + (b - a) * f;
+  },
 
   // ---- firing (Phase 2C)
   // Fire system sys (a Combat.systems entry): a main gun's loaded round; a launcher's missile (target: its lock); an
@@ -1078,6 +1090,14 @@ const Aim = {
     if (s.lostT > 1 || !p) { s.target = null; this.straight(s, spd); return; }
     const tp = aimPos(t, aimTq);
     if (!tp) { s.target = null; this.straight(s, spd); return; }
+    // (P4 play-test) the end game: in its last 1.2 s, while the lock holds, the radar steers it onto where the target will
+    // be (the beam alone left it 5-17 m off a crossing range drone, outside its fuze)
+    const ex = tp.x - s.x, ey = tp.y - s.y, ez = tp.z - s.z, tgo = Math.hypot(ex, ey, ez) / Math.max(spd, 50);
+    if (held && tgo < 1.2) {
+      const px = ex + (tp.vx || 0) * tgo, py = ey + (tp.vy || 0) * tgo, pz = ez + (tp.vz || 0) * tgo, pn = Math.hypot(px, py, pz) || 1;
+      this.turnTo(s, px / pn, py / pn, pz / pn, h, spd, 8);
+      return;
+    }
     const O = this.trunnion(L, p, aimA);
     let bx = tp.x - O.x, by = tp.y - O.y, bz = tp.z - O.z;
     const D = Math.hypot(bx, by, bz) || 1;

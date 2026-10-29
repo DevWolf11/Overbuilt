@@ -72,6 +72,7 @@ const Flight = {
     const kept = opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [];
     this.resetState([v, ...kept], v, opts && opts.time != null ? opts.time : 0);
     if (P && P.catapult && v.kind === 'plane') this.armCatapult(v, P);
+    if (P && P.air && v.kind === 'plane' && (v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; })) this.stage(); // (an air start comes with its engines running: stage 1, as STAGE would)
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w; // planes lie on their side
     this.scale = clamp(Math.min((innerHeight * 0.42) / tall, (innerWidth * 0.5) / wide), 1.5, 40);
@@ -106,7 +107,7 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
-    this.firing = false; this.mgFiring = false;
+    this.firing = false; this.mgFiring = false; this.shotYet = false;
     this.aimReset(); // (a new flight: aimed afresh along the hull, out of the sight)
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
@@ -422,6 +423,7 @@ const Flight = {
     if (this.catapult) this.catapult.state = 'done';
     if (this.mp && MP.onLocalDestroyed()) { this.updateHUD(true); return; }
     if (GroundAI.battle && GroundAI.onDestroyed(this)) return; // (the Practice Battle: its own respawn, keeping its AI)
+    const ground = !!this._bodyGround; // (as it was: a knocked-out vehicle's HUD goes back to the flight's)
     setTimeout(() => {
       if (!this.running || this.ended || !this.destroyed) return;
       const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
@@ -431,7 +433,7 @@ const Flight = {
         { label: 'Revert to launch', primary: !others.length, onClick: () => this.revert() },
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
-      UI.modal({ kicker: 'Mission update', title: 'Vessel destroyed', body: this.summaryHTML(), actions: acts });
+      UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: ground ? 'Knocked out' : 'Vessel destroyed', body: this.summaryHTML('', ground), actions: acts });
     }, Silly.on('ghostCam') ? 5000 : 1600); // leave time to enjoy the view
   },
 
@@ -452,7 +454,7 @@ const Flight = {
     this.setPaused(true);
     store.set('rss.flight', null);
     UI.modal({
-      kicker: 'Recovered', title: Object.keys(this.flags).some((k) => k.startsWith('home:')) ? 'Welcome home' : 'Mission complete',
+      kicker: 'Recovered', title: Object.keys(this.flags).some((k) => k.startsWith('home:')) ? 'Welcome home' : this._bodyGround ? (GroundAI.range ? 'Off the range' : 'Back to the hangar') : 'Mission complete',
       body: this.summaryHTML(Career.sandbox ? '' : `<p class="refund">Recovered parts refunded: <b>${money(refund)}</b></p>`),
       actions: [
         { label: 'Fly again', onClick: () => this.revert() },
@@ -461,12 +463,20 @@ const Flight = {
     });
   },
 
-  summaryHTML(extra = '') {
+  summaryHTML(extra = '', ground = !!this._bodyGround) {
     const got = Object.keys(this.flags).map((f) => {
       const m = MISSIONS.find((x) => x.flag === f);
       return m ? m.title : FLAG_NAMES[f];
     }).filter(Boolean);
     const list = got.length ? got.map((a) => `<li>${a}</li>`).join('') : '<li class="muted">None this flight</li>';
+    if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
+      const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
+      return `<dl class="summary">
+      <div><dt>Time</dt><dd>${fmt.clock(this.time)}</dd></div>${kos}
+      <div><dt>Driven</dt><dd>${fmt.dist(this.driven || 0)}</dd></div>
+      <div><dt>Top speed</dt><dd>${Math.round(this.stats.maxSpeed * 3.6)} km/h</dd></div>
+    </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
+    }
     return `<dl class="summary">
       <div><dt>Flight time</dt><dd>${fmt.clock(this.time)}</dd></div>
       <div><dt>Farthest</dt><dd>${fmt.dist(this.stats.maxAlt)}</dd></div>
@@ -550,8 +560,9 @@ const Flight = {
   },
   // Armour and armed cars (§8.4): the same list as README's "Armour and armed cars" block and the manual's
   groundHelp() {
-    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy\'s tag to spot it; tap the minimap for the tactical map; Realistic aim: tap Zero to set the sight</span></div>';
-    return `<div class="help-grid">${isTouch ? touch : ''}
+    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy\'s tag to spot it; tap MAP or the minimap for the tactical map (its Globe button: the old map); Realistic aim: tap Zero to set the sight</span></div>';
+    // (P4 play-test) on a phone the touch line, and the keys folded away under "Keys" (they were a wall of twenty rows)
+    return `${isTouch ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
       <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
       <div><kbd>B</kbd><span>Hold to brake</span></div>
@@ -574,7 +585,7 @@ const Flight = {
       <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu (Esc also lets the mouse go)</span></div>
       ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
       ${isTouch ? '' : touch}
-    </div>`;
+    </div>${isTouch ? '</details>' : ''}`;
   },
 
   // ------------------------------------------------------------------ simulation
@@ -686,6 +697,7 @@ const Flight = {
     v.brake = k.has('KeyB') || this.touchBrake;
     this.firing = k.has('KeyV') || !!this.touchFire || (ga && this.mouseFire);
     this.mgFiring = ga && (k.has('Space') || !!this.touchMG);
+    if (this.firing || this.mgFiring || this.fireTap) this.shotYet = true; // (the ground tip goes once the trigger is found)
     if (ga) { // Q/E traverse the aim at 60°/s (a ground vehicle doesn't roll on them)
       const q = key('KeyE') - key('KeyQ');
       if (q) this.aimYaw = wrapAngle(this.aimYaw - q * 1.0472 * dt);
@@ -1273,7 +1285,7 @@ const Flight = {
         if (this.mapMode) this.mapPan(now.cx - this.pinch.cx, now.cy - this.pinch.cy);
         this.pinch = now;
       } else if (this.pointers.size === 1 && this.mapMode) this.mapPan(dx, dy);
-      else if (this.pointers.size === 1 && this.groundAim) { this.aimBy(dx, dy, e.pointerType === 'mouse' ? 0.0035 * (Settings.get('aimSens') || 1) : 0.006); GHUD.dragged(p, e); }
+      else if (this.pointers.size === 1 && this.groundAim) { this.aimBy(dx, dy, (e.pointerType === 'mouse' ? 0.0035 : 0.006) * (Settings.get('aimSens') || 1)); GHUD.dragged(p, e); }
       else if (this.pointers.size === 1 && App.use3D()) Render3D.orbitBy(dx, dy);
     });
     c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D() && !this.groundAim) Render3D.resetCamera(); });
@@ -1345,7 +1357,7 @@ const Flight = {
     $('#btn-stage').addEventListener('click', () => this.stage());
     $('#btn-flaps').addEventListener('click', () => this.cycleFlaps());
     $('#btn-gear').addEventListener('click', () => this.toggleGear());
-    $('#btn-map').addEventListener('click', () => this.toggleMap());
+    $('#btn-map').addEventListener('click', () => { if (this.groundAim && !this.mapMode) GHUD.tactical(!GHUD.tacOpen); else this.toggleMap(); }); // (a ground vehicle's MAP is the tactical map, as M is; the globe is a button on it)
     $('#btn-menu').addEventListener('click', () => this.openMenu());
     $('#btn-recover').addEventListener('click', () => this.recover());
     $('#warp-up').addEventListener('click', () => this.setWarp(this.warpIdx + 1));
@@ -1542,7 +1554,7 @@ const Flight = {
 
   vehicleHint(v) {
     if (this._bodyGround) { // (a ground vehicle with tracks, armoured wheels or the ground update's guns)
-      if (this.time > 30 || this.mp) return '';
+      if (this.time > 15 || this.mp || this.shotYet) return ''; // (P4 play-test: not for 30 s, over the kill banner and the targets' labels on a phone)
       if (this.groundAim) return isTouch ? 'Left thumb drives. Drag the view, or slide on FIRE, to aim. Binoculars: the gunner’s sight.'
         : 'W/S drive, A/D turn (tracks turn on the spot). Click the view: the mouse aims, left click fires, hold right for the sight.';
       return isTouch ? 'The stick drives: up goes, sideways turns (on the spot when stopped).' : 'W/S drive, A/D turn: tracks turn on the spot. Hold B to brake.';
@@ -1640,7 +1652,11 @@ const Flight = {
     const crew = gnd && v.gv ? Armour.crewOf(v) : null;
     const rc = $('#row-crew'), noCrew = !(crew && crew.crew.length);
     if (rc.hidden !== noCrew) rc.hidden = noCrew; // (only on a change: an old craft's HUD tick writes nothing new)
-    if (!noCrew) { let n = 0; for (const e of crew.crew) if (e.alive) n++; set('t-crew', `${n}/${crew.crew.length}`); rc.classList.toggle('danger', n < crew.crew.length); }
+    if (!noCrew) { // (against the crew it set out with: a turret thrown off takes its men with it, they still count)
+      let n = 0; for (const e of crew.crew) if (e.alive) n++;
+      const all = (v._crewN = Math.max(v._crewN || 0, crew.crew.length));
+      set('t-crew', `${n}/${all}`); rc.classList.toggle('danger', n < all);
+    }
     const mach = v.mach > 0.3 && !v.landed;
     $('#row-mach').hidden = !mach;
     if (mach) { set('t-mach', `M ${v.mach.toFixed(2)}`); $('#row-mach').classList.toggle('sonic', v.mach >= 0.95 && v.mach < 1.15); }
@@ -1653,8 +1669,9 @@ const Flight = {
     $('#row-hdg').hidden = !hdg;
     if (hdg) { const c = this.compass(v); set('t-hdg', `${String(Math.round(c) % 360).padStart(3, '0')}° ${COMPASS[Math.round(c / 22.5) % 16]}`); }
     const integ = Combat.integrity(v); // the share of the craft's health that's gone
-    $('#row-dmg').hidden = integ > 0.995;
-    if (integ <= 0.995) { set('t-dmg', `${Math.max(1, Math.round((1 - integ) * 100))}%`); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
+    $('#row-dmg').hidden = integ > 0.995 && !v.ko;
+    if (v.ko) { set('t-dmg', 'Knocked out'); $('#row-dmg').classList.add('danger'); } // (P4 play-test: not "8%" with its turret thrown)
+    else if (integ <= 0.995) { set('t-dmg', `${Math.max(1, Math.round((1 - integ) * 100))}%`); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
     const st = this.structAlert(v);
@@ -1687,7 +1704,7 @@ const Flight = {
     set('t-ap', ap); set('t-apt', apT);
     set('t-pe', pe); set('t-pet', peT);
     set('t-dv', `${Math.round(this.dvLeft).toLocaleString('en-US')} m/s`);
-    set('t-time', fmt.clock(this.time));
+    set('t-time', this.mp && MP.ground ? '' : fmt.clock(this.time)); // (a ground battle: its clock is the bar's, not the room's day count, "5d 13:53")
     // heat
     $('#row-heat').hidden = !(v.maxHeat > 0.3);
     $('#heat-fill').style.width = `${clamp(v.maxHeat, 0, 1) * 100}%`;
