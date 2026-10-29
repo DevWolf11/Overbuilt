@@ -3686,9 +3686,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let n = 0;
     const used = { missile: 0, rocket: 0, bomb: 0 };
     for (const s of shots) {
-      const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
+      const bp = bodyPos(s.b, t);
+      let x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
       if (s.k === 'bullet' || s.k === 'shell') { // (the ground update's shells: tracers too, a main gun's longer and whiter)
         if (!s.tracer || n >= CB.N) continue;
+        if (s.ha) { x += s.vx * s.ha; y += s.vy * s.ha; z += s.vz * s.ha; } // (a cheap round holding a substep: where it is by now)
         const big = s.k === 'shell' && !s.cheap, k = big ? 0.045 : 0.028, c = s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
         pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
         ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);

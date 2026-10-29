@@ -538,5 +538,54 @@ const life = R(`(() => { // main-gun shells over Highland Ridge: 1.5 km out, dow
   return { main: run(mains()) / 100, ac: run(stream()) / 180 }; })()`);
 console.log(`     timing: a main-gun shell over its life ${life.main.toFixed(3)} ms, an autocannon round ${life.ac.toFixed(3)} ms (Node)`);
 t('a main-gun shell over its life ≤ 3 ms; an autocannon round ≤ 0.3 ms (the coarse ground, the altitude skip)', life.main <= 3 && life.ac <= 0.3, life);
+// The same budget through the game's own path (Phase 4 performance review): the Gepardo's twin 35 mm (HE-VT, 37 rounds a
+// second) fired by Aim.fire from Highland Ridge's north pad for 6 s and flown out, Combat.step at 1/120 s with the
+// Gepardo itself in the scene: guns level (rounds skimming the ground: the coarse lattice, then exact lookups) and
+// raised 15° (AA fire: above the arena's ground, no lookups, each round its whole 6 s). The rounds' cost is the time
+// with them less the same steps without. Its work is counted too (the same every run): a cheap round moves once a
+// 1/60 s (two substeps, the second carrying both), and the level stream's exact ground lookups fell from 71 a round.
+// In a fresh copy of the game: the shells of every shape this file builds by hand would slow moveShell's property
+// lookups past what the game's own few shapes do.
+const fresh = G.load({ combat: true, ground: true });
+fresh.process = process;
+const acs = G.run(fresh, `(() => {
+  const PAD = { e: 17750 - 60, z: 13800 }, T = TEMPLATES.gepardo, clk = () => Number(process.hrtime.bigint()) / 1e6, D2R = Math.PI / 180;
+  const simOf = (v) => ({ time: 0, active: v, vessels: [v], toasts: [], firing: false, groundAim: true, aim: null, zero: 800, warpIdx: 0, running: true, destroyed: false, camAbs: { x: 0, y: 0, z: 0 },
+    toast() {}, breakParts() {}, ripParts() {}, onDestroyed() {} });
+  const mk = () => { const ps = partsFromDesign(templateRows(T).map((r) => Array.isArray(r) ? { type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) } : r)), v = new Vessel(ps, buildAdjacency(ps), EARTH);
+    v.kind = 'tank'; v.rebuildGroups(); Aim.limits(v); v.placeOnSurface(EARTH, siteAngle(EARTH, PAD.e), VEHICLE_KINDS.tank.launchRot, PAD.z, 0); v.landed = true; return v; };
+  const TR = { sa: Terrain.surfaceAt, lo: Terrain.locate }, MV = Armour.moveShell;
+  const run = (el, fire, count) => {
+    const v = mk(), F = simOf(v); Combat.reset(F);
+    const sys = Combat.systems(v).find((q) => q.key === 'ac35');
+    for (const p of v.parts) { if (p.def.aim && p.def.weapon) p.aimEl = el; if (p.def.ring) p.aimYaw = 0; }
+    for (const p of sys.parts) p.ammo = 1e6;
+    const n = { fired: 0, moves: 0, life: 0, sa: 0, lo: 0 };
+    if (count) {
+      Terrain.surfaceAt = function () { n.sa++; return TR.sa.apply(this, arguments); }; Terrain.locate = function () { n.lo++; return TR.lo.apply(this, arguments); };
+      Armour.moveShell = function (s) { const t0 = s.t, r = MV.apply(this, arguments); if (s.t !== t0) n.moves++; if (!r) n.life += s.t; return r; };
+    }
+    let ms = 0;
+    try {
+      for (let i = 0; i < 1440; i++) { // (6 s firing, 6 s more for the last to fly out)
+        if (fire && i < 720) Aim.fire(v, sys, 1 / 120, F);
+        const t0 = clk(); Combat.step(1 / 120, F); F.time += 1 / 120; ms += clk() - t0;
+      }
+    } finally { Terrain.surfaceAt = TR.sa; Terrain.locate = TR.lo; Armour.moveShell = MV; }
+    n.fired = sys.parts.reduce((a, p) => a + (1e6 - p.ammo), 0);
+    return { ms, ...n, left: Combat.S.shots.length };
+  };
+  const out = {};
+  for (const [k, el] of [['level', 0], ['raised', 15 * D2R]]) {
+    run(el, true, false); // (warm)
+    const c = run(el, true, true), base = [], fire = [];
+    for (let r = 0; r < 5; r++) { base.push(run(el, false, false).ms); fire.push(run(el, true, false).ms); }
+    out[k] = { rounds: c.fired, left: c.left, msPerRound: (Math.min(...fire) - Math.min(...base)) / c.fired, movesPerSecond: c.moves / c.life, surfaceAtPerRound: c.sa / c.fired, locatePerRound: c.lo / c.fired };
+  }
+  return out; })()`);
+console.log(`     timing: the Gepardo's 35 mm stream, a round over its life: ${acs.level.msPerRound.toFixed(3)} ms with the guns level, ${acs.raised.msPerRound.toFixed(3)} ms raised 15° (Node; budget 0.3)`);
+t('the Gepardo\'s twin 35 mm through Aim.fire (6 s, 37 a second): every round flies out, moving once a 1/60 s of its flight (two substeps a step; 120 before the review)', ['level', 'raised'].every((k) => acs[k].rounds > 200 && !acs[k].left && acs[k].movesPerSecond <= 60.5 && acs[k].movesPerSecond > 55), acs);
+t('...guns level: at most 45 exact ground lookups and 160 locates a round (71 and 266 before); raised 15°: none, above the arena\'s ground', acs.level.surfaceAtPerRound <= 45 && acs.level.locatePerRound <= 160 && acs.raised.surfaceAtPerRound === 0, acs);
+t('...a round over its life within §14\'s 0.3 ms either way (asserted at 1.5x, 0.45 ms, as other suites share the machine; 0.5-0.67 ms before)', acs.level.msPerRound <= 0.45 && acs.raised.msPerRound <= 0.45, acs);
 
 t.done();

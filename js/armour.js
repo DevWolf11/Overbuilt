@@ -765,15 +765,21 @@ const Armour = (() => {
 
   // ---------------------------------------------------------------- shells in flight (§6.1)
   const HV = [], HR = [], LOC = {}, TC = v3();
+  // Machine-gun and autocannon rounds (s.cheap) fly in steps of at least 1/60 s: a 1/120 s physics substep is held
+  // (s.ha) and the next one carries both, so a stream costs half (§14's round budget). The ground test of a step is
+  // over that step, so it still looks every 20 m or so; the renderer draws a round ahead by the time it holds.
+  const CHEAP_H = 1 / 60;
   function moveShell(s, h, F) {
     const SH = SHELLS[s.sh];
     if (!SH) return false;
     if (s.n == null) s.n = ++serial;
+    if (s.cheap && h < CHEAP_H - 1e-9) { const a = (s.ha || 0) + h; if (a < CHEAP_H - 1e-9) { s.ha = a; return true; } h = a; s.ha = 0; }
     const b = s.b, r0 = len(s.x, s.y, s.z), g = b.mu / (r0 * r0);
     s.t += h;
     if (s.t > (s.life ?? SH.life ?? 6)) { if (SH.prox && !s.net && !s.dud) Combat.explode(b, s, SH.blast || 1, SH.dmg, s.owner, F, true, SH.he); return false; } // (HE-VT bursts at the end of its time)
-    // gravity, and drag: k·ρ·v² (each shell its own k)
-    const rho = airDensity(b, r0 - b.radius), spd0 = len(s.vx, s.vy, s.vz), kd = SH.k * rho * spd0 * h;
+    // gravity, and drag: k·ρ·v² (each shell its own k; airDensity's own sum below its fade, a call saved a step)
+    const alt = r0 - b.radius, rho = b.atmoHeight && alt < 0.8 * b.atmoHeight ? b.rho0 * Math.exp(-Math.max(alt, 0) / b.scaleH) : airDensity(b, alt);
+    const spd0 = len(s.vx, s.vy, s.vz), kd = SH.k * rho * spd0 * h;
     s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
     const ax = s.x, ay = s.y, az = s.z, ex = ax + s.vx * h, ey = ay + s.vy * h, ez = az + s.vz * h;
     TA.x = ax; TA.y = ay; TA.z = az; TE.x = ex; TE.y = ey; TE.z = ez;
@@ -782,9 +788,11 @@ const Armour = (() => {
     // boxes) counts as met where the line goes into it (t0 < 0), so that plate is hit by its face. (Later, a shell
     // inside a part is one going on through what it already hit: the pieces of an old craft, say.)
     let hv = null, ht = 2;
-    const muzzle = s.t <= h + 1e-9;
+    const muzzle = s.t <= h + 1e-9, mx = (ax + ex) / 2, my = (ay + ey) / 2, mz = (az + ez) / 2, hL = len(ex - ax, ey - ay, ez - az) / 2 + 4;
     for (const o of F.vessels) {
       if (o.dead || o.body !== b || (o === s.owner && s.t < 1.5) || o === s.skip || !o.parts.length) continue;
+      const rr = (o.reach || 10) + hL, dx = o.x - mx, dy = o.y - my, dz = o.z - mz;
+      if (dx * dx + dy * dy + dz * dz > rr * rr) continue; // (nowhere near it: hitAll would say so, at more cost)
       for (const H of hitAll(o, TA, TE, HV)) if (H.t0 < 1 && (H.t0 >= -1e-9 || (muzzle && H.t1 > 1e-9))) { if (H.t0 < ht) { ht = H.t0; hv = o; } break; }
     }
     // the range's targets (spheres)
@@ -824,7 +832,7 @@ const Armour = (() => {
       if (!R.go) return false;
       const sp = len(s.vx, s.vy, s.vz) || 1; // (through an old craft: on it flies, with what it has left)
       if (R.r !== 'miss') { s.pen = R.pen; s.v0 = sp; }
-      s.skip = hv; s.x = ex; s.y = ey; s.z = ez; s.gk = 0;
+      s.skip = hv; s.x = ex; s.y = ey; s.z = ez; s.gk = 0; s.gcc = undefined;
       return true;
     }
     if (tg) {
@@ -833,12 +841,13 @@ const Armour = (() => {
       else { Combat.hitTarget(tg, SH.dmg, s.owner, F); FX.sparks(b, at, { x: 0, y: 0, z: 0 }, 3); }
       return false;
     }
-    // the ground: skipped above gTop (the arena's highest ground); else tested every 2nd step, over both steps
-    if (len(ex, ey, ez) - b.radius > (s.gTop ?? Infinity)) { s.gk = 0; s.gc = undefined; }
-    else if (!s.gk) { s.gk = 1; s.g0 = s.g0 || v3(); s.g0.x = ax; s.g0.y = ay; s.g0.z = az; }
+    // the ground: skipped above gTop (the arena's highest ground); else tested every 2nd step, over both steps (a
+    // cheap round's every step, already two substeps long)
+    if (len(ex, ey, ez) - b.radius > (s.gTop ?? Infinity)) { s.gk = 0; s.gc = s.gcc = undefined; }
+    else if (!s.gk && !s.cheap) { s.gk = 1; s.g0 = s.g0 || v3(); s.g0.x = ax; s.g0.y = ay; s.g0.z = az; }
     else {
+      const gt = groundT(s, b, s.gk ? s.g0 : TA, TE, !!s.cheap);
       s.gk = 0;
-      const gt = groundT(s, b, s.g0, TE, !!s.cheap);
       if (gt >= 0) return ground(s, b, gtAt, F, SH, spare);
     }
     s.x = ex; s.y = ey; s.z = ez;
@@ -867,23 +876,29 @@ const Armour = (() => {
   // How high a point is over the ground (or the sea): exact, or (cheap rounds) over the highest corner of a 16 m lattice
   function clearOf(b, x, y, z, coarse) {
     Terrain.locate(b, x, y, z, LOC);
+    return clearLoc(b, coarse);
+  }
+  function clearLoc(b, coarse) { // (the same, at the point LOC holds)
     const gh = coarse ? coarseH(LOC.a, LOC.z, b) : b.ocean ? Math.max(0, Terrain.surfaceAt(b, LOC.a, LOC.z)) : Terrain.surfaceAt(b, LOC.a, LOC.z);
     return LOC.r - b.radius - gh;
   }
   // Where the segment P0 -> P1 first goes under the ground (fraction, the point in gtAt), or -1. Its end is tested; near
   // the ground (either end within 6 m) every 5 m along it too, so a fast shell doesn't skip through a berm or a crest, and
   // every 0.75 m over a berm's top (a line through its top 10 cm crosses it in about 2 m); a hit is bisected three times.
-  // Cheap rounds look at the coarse lattice first, and test exactly only within 3 m of it.
+  // Cheap rounds look at the coarse lattice first (P0's from the test before, s.gcc, whose P1 it was), test exactly
+  // only within 3 m of it, and there every 10 m (a round skimming a crest's top by a few centimetres may graze through
+  // it; over a berm, every 0.75 m all the same).
   function groundT(s, b, P0, P1, cheap) {
     if (cheap) {
-      const c0 = clearOf(b, P0.x, P0.y, P0.z, true), c1 = clearOf(b, P1.x, P1.y, P1.z, true);
+      const c0 = s.gcc ?? clearOf(b, P0.x, P0.y, P0.z, true), c1 = clearOf(b, P1.x, P1.y, P1.z, true);
+      s.gcc = c1;
       if (c0 > 3 && c1 > 3) { s.gc = undefined; return -1; }
     }
-    const c1 = clearOf(b, P1.x, P1.y, P1.z, false), c0 = s.gc != null ? s.gc : clearOf(b, P0.x, P0.y, P0.z, false);
+    const c1 = cheap ? clearLoc(b, false) : clearOf(b, P1.x, P1.y, P1.z, false), a1 = LOC.a, z1 = LOC.z, c0 = s.gc != null ? s.gc : clearOf(b, P0.x, P0.y, P0.z, false);
     s.gc = c1;
     let lo = 0, hi = -1;
     if (Math.min(c0, c1) < 6) {
-      const L = len(P1.x - P0.x, P1.y - P0.y, P1.z - P0.z), n = Math.min(8, Math.floor(L / 5)), on = bermSpan(b, P0, P1), d = 0.75 / Math.max(L, 0.75);
+      const L = len(P1.x - P0.x, P1.y - P0.y, P1.z - P0.z), n = Math.min(8, Math.floor(L / (cheap ? 10 : 5))), on = bermSpan(b, P0, P1, a1, z1, L), d = 0.75 / Math.max(L, 0.75);
       for (let i = 1, prev = 0; i <= n + 1 && hi < 0; prev = i++ / (n + 1)) {
         const f = i / (n + 1);
         if (on && f > BSP[0] && prev < BSP[1]) for (let g = Math.max(prev, BSP[0]) + d, e = Math.min(f, BSP[1]); g < e && hi < 0; g += d) { if (underAt(b, P0, P1, g)) hi = g; else lo = g; }
@@ -907,13 +922,20 @@ const Armour = (() => {
     const ta = (-m - p0) / dp, tb = (m - p0) / dp;
     bsT0 = Math.max(bsT0, Math.min(ta, tb)); bsT1 = Math.min(bsT1, Math.max(ta, tb));
   }
-  function bermSpan(b, P0, P1) {
+  // (a1, z1: P1 located, as Terrain.locate puts it; L: the segment's length)
+  let bsA = null, bsAll = [];
+  function bermSpan(b, P0, P1, a1, z1, L) {
     const A = b === EARTH && b.mapped && b.arenas, BM = Terrain.BERM;
     if (!A || !BM) return false;
+    const e1 = -wrapAngle(a1 - b.padAngle) * b.radius;
+    // (P0 is within the segment's length of P1, a little more in e and z: with P1 that far from every berm, so is P0)
+    if (A !== bsA) { bsA = A; bsAll = []; for (const k in A) for (const q of A[k].berms || []) bsAll.push(q); }
+    const m = 27 + 1.1 * L;
+    let near = false;
+    for (const q of bsAll) if (Math.abs(e1 - q.e) < m && Math.abs(z1 - q.z) < m) { near = true; break; }
+    if (!near) return false;
     Terrain.locate(b, P0.x, P0.y, P0.z, BLOC);
     const e0 = -wrapAngle(BLOC.a - b.padAngle) * b.radius, z0 = BLOC.z;
-    Terrain.locate(b, P1.x, P1.y, P1.z, BLOC);
-    const e1 = -wrapAngle(BLOC.a - b.padAngle) * b.radius, z1 = BLOC.z;
     let lo = 2, hi = -1;
     for (const k in A) {
       const a = A[k], B = a.box, L = a.berms;

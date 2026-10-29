@@ -4,8 +4,9 @@
 // deterministic, so the counts belong to exactly the steps that were timed. Calls are counted through the Terrain
 // object, as vessel.js (and gear.js) make them; "counted" adds up surfaceAt, heightAt, waterAt and deckAt, the
 // calls a ground vehicle's step is budgeted in, and normalAt is listed apart (it makes four surfaceAt of its own).
+// Then collisions (Gear.bump) and rounds (§14's budgets for an autocannon round and a main-gun shell over their lives).
 // Not in run.mjs: timings depend on the machine, so compare runs made on one machine.
-//   node test/bench/ground-bench.mjs [name words] [--secs 5]
+//   node test/bench/ground-bench.mjs [name words] [--secs 5]     (e.g. 'rounds', 'collisions', 'MA-1')
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const G = require('../lib/game.js');
@@ -98,4 +99,49 @@ if (!words.length || words.some((x) => 'collisions'.includes(x.toLowerCase()))) 
     for (let r = 0; r < 4; r++) { const t0 = process.hrtime.bigint(); for (let i = 0; i < N; i++) ctx.Gear.bump(all[i % 12], s); best.push(Number(process.hrtime.bigint() - t0) / 1000 / N); }
     console.log(`collisions: Gear.bump among 12 TK-34s ${what}: ${Math.min(...best.slice(1)).toFixed(2)} µs a call (best of 3 after a warm-up)`);
   }
+}
+
+// Rounds (§14): the Gepardo's twin 35 mm fired by Aim.fire from Highland Ridge's north pad for 10 s (37 a second),
+// guns level and raised 15°, and 100 of the MA-1's 120 mm shells fired level at the ridge one at a time, each flown
+// out; Combat.step at 1/120 s with the shooter in the scene, timed with and without the rounds (the same steps). The
+// difference over the rounds fired is a round's cost over its life (budgets: 0.3 ms a cheap round, 3 ms a shell).
+if (!words.length || words.some((x) => 'rounds'.includes(x.toLowerCase()))) {
+  const T = ctx.Terrain, sa0 = T.surfaceAt, now = () => Number(process.hrtime.bigint()) / 1e6;
+  let nSa = 0;
+  ctx.__now = now;
+  G.run(ctx, `var __rb = (() => {
+    const PAD = { e: 17750 - 60, z: 13800 };
+    const mk = (key) => { const ps = partsFromDesign(templateRows(TEMPLATES[key]).map((r) => Array.isArray(r) ? { type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) } : r)), v = new Vessel(ps, buildAdjacency(ps), EARTH);
+      v.kind = 'tank'; v.rebuildGroups(); Aim.limits(v); v.placeOnSurface(EARTH, siteAngle(EARTH, PAD.e), VEHICLE_KINDS.tank.launchRot, PAD.z, 0); v.landed = true; return v; };
+    const simOf = (v) => ({ time: 0, active: v, vessels: [v], toasts: [], firing: false, groundAim: true, aim: null, zero: 800, warpIdx: 0, running: true, destroyed: false, camAbs: { x: 0, y: 0, z: 0 },
+      toast() {}, breakParts() {}, ripParts() {}, onDestroyed() {} });
+    // a stream (secs of fire, then 8 s to fly out) or one shell at a time (count, each flown 1.5 s)
+    return (key, sysKey, el, fire, secs, count) => {
+      const v = mk(key), F = simOf(v); Combat.reset(F);
+      const sys = Combat.systems(v).find((q) => q.key === sysKey);
+      for (const p of v.parts) { if (p.def.aim && p.def.weapon) p.aimEl = el; if (p.def.ring) p.aimYaw = 0; }
+      let ms = 0, fired = 0;
+      const step = () => { const t0 = __now(); Combat.step(1 / 120, F); F.time += 1 / 120; ms += __now() - t0; };
+      if (count) for (let k = 0; k < count; k++) {
+        if (fire) { for (const p of sys.parts) { p.ammo = 40; p.reload = 0; p.cool = 0; } const n0 = Combat.S.shots.length; Aim.fire(v, sys, 1 / 120, F); fired += Combat.S.shots.length - n0; }
+        for (let i = 0; i < 180; i++) step();
+      } else {
+        for (const p of sys.parts) p.ammo = 1e6;
+        for (let i = 0; i < (secs + 8) * 120; i++) { if (fire && i < secs * 120) Aim.fire(v, sys, 1 / 120, F); step(); }
+        fired = sys.parts.reduce((a, p) => a + (1e6 - p.ammo), 0);
+      }
+      return { ms, fired };
+    };
+  })();`);
+  const one = (args, counting) => { ctx.__a = args; if (counting) { nSa = 0; T.surfaceAt = function (...a) { nSa++; return sa0.apply(this, a); }; } try { return G.run(ctx, '__rb(...__a)'); } finally { T.surfaceAt = sa0; } };
+  const cost = (args) => {
+    one([...args.slice(0, 3), true, ...args.slice(3)]); // (warm)
+    const c = one([...args.slice(0, 3), true, ...args.slice(3)], true), sa = nSa, base = [], fire = [];
+    for (let r = 0; r < 5; r++) { base.push(one([...args.slice(0, 3), false, ...args.slice(3)]).ms); fire.push(one([...args.slice(0, 3), true, ...args.slice(3)]).ms); }
+    return { ms: (Math.min(...fire) - Math.min(...base)) / c.fired, rounds: c.fired, sa: sa / c.fired };
+  };
+  const lv = cost(['gepardo', 'ac35', 0, 10]), up = cost(['gepardo', 'ac35', 15 * Math.PI / 180, 10]), mg = cost(['ma1', 'gun120', 0, 0, 100]);
+  const ok = (x, b) => (x <= b ? 'within' : 'OVER');
+  console.log(`rounds: the Gepardo's 35 mm stream (${lv.rounds} rounds in 10 s), a round over its life: guns level ${lv.ms.toFixed(3)} ms (${lv.sa.toFixed(1)} surfaceAt a round), raised 15° ${up.ms.toFixed(3)} ms (${up.sa.toFixed(1)}): ${ok(Math.max(lv.ms, up.ms), 0.3)} the 0.3 ms budget`);
+  console.log(`rounds: the MA-1's 120 mm shell, level at the ridge (${mg.rounds}), over its life ${mg.ms.toFixed(3)} ms (${mg.sa.toFixed(1)} surfaceAt a shell): ${ok(mg.ms, 3)} the 3 ms budget (best of five runs each, with less without)`);
 }
