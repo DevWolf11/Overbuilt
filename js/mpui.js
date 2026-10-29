@@ -711,8 +711,8 @@ const MPUI = {
     const state = () => {
       const me = MP.me;
       if (!me || MP.phase !== 'battle') return null;
-      const o = MP.state.obj, left = Math.ceil(((me.respawnAt || 0) - 300 - Net.hostNow()) / 1000), out = !o || !(o.tk[me.team] > 0);
-      return { text: out ? 'Your team is out of tickets.' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle', wait: out || left > 0 };
+      const o = MP.state.obj, left = Math.ceil(((me.respawnAt || 0) - 300 - Net.hostNow()) / 1000), out = !o || !(o.tk[me.team] > 0), none = lineup && !me.alive && !me.flying; // (none: the host says no slot we can take is left)
+      return { text: out ? 'Your team is out of tickets.' : none ? 'No vehicle you can take: watching the rest of the battle' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle', wait: out || none || left > 0 };
     };
     const go = (d, slot) => { if (!MP.respawnWith(d, slot)) UI.toast('Not yet: wait for the timer', 'warn'); };
     const airOk = () => { const me = MP.me; return !!me && (me.sorties || 0) > 0 && Net.hostNow() - (me.sortieEnd || -1e9) >= 60000; };
@@ -725,14 +725,14 @@ const MPUI = {
           const d = MP.lineup[i] || (i ? null : MP.groundDesign || MP.myDesign);
           if (!d || ((me.slots || 0) & (1 << i))) continue;
           const air = mpAir(d.kind);
-          R.opt(`Slot ${i + 1}: ${d.name || VEHICLE_KINDS[d.kind].name}`, air ? airText() : `${money(designCost(partsFromDesign(d.parts)))} · spawns once`, () => go(d, i), !air || airOk());
+          R.opt(`Slot ${i + 1}: ${d.name || VEHICLE_KINDS[d.kind].name}`, air ? airText : `${money(designCost(partsFromDesign(d.parts)))} · spawns once`, () => go(d, i), air ? airOk : true);
         }
         if (!R.list.childElementCount) R.list.append(el('p', { class: 'muted', text: 'Every slot is used: watch the rest of the battle.' }));
       } else {
         const d = MP.groundDesign || MP.myDesign;
         if (d) R.opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
         R.opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => R.page(pick(false)), true, true);
-        if (st.air) R.opt('Aircraft…', airText(), () => R.page(pick(true)), airOk(), true);
+        if (st.air) R.opt('Aircraft…', airText, () => R.page(pick(true)), airOk, true);
       }
     };
     const pick = (air) => (R) => {
@@ -747,26 +747,34 @@ const MPUI = {
   // and big buttons for thumbs, built with el() (names from peers stay text). o: { kicker, title, actions, state () ->
   // { text, wait } (null: the panel is done with), fill (R) }: fill adds the buttons with R.opt(title, sub, fn, ok = true,
   // now = false) (now: works before the timer, as a menu does; the others wait for it) and turns the page with R.page(fill).
-  // The line and the buttons are written only when the state changes.
+  // sub and ok may be functions (an aircraft's sortie point and its minute's wait): read again with the line, four times a
+  // second. The line and the buttons are written only when they change.
   rsp(o) {
-    const body = el('div', { class: 'rsp' }), wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [];
+    const body = el('div', { class: 'rsp' }), wait = el('p', { class: 'rsp-wait' }), list = el('div', { class: 'rsp-list' }), gated = [], live = [];
     body.append(wait, list);
-    let shown = null, timer = 0;
+    let shown = null, timer = 0, held = true;
     const tick = () => {
       const s = $('#modal').hidden || !body.isConnected ? null : o.state();
       if (!s) { clearInterval(timer); return; }
-      if (s.text !== shown) { shown = s.text; wait.textContent = s.text; for (const b of gated) b.disabled = !!s.wait; }
+      if (s.text !== shown) { shown = s.text; wait.textContent = s.text; held = !!s.wait; for (const b of gated) b.disabled = held; }
+      for (const L of live) {
+        const t = L.sub(), off = !L.ok() || (!L.now && held);
+        if (L.span.textContent !== t) L.span.textContent = t;
+        if (L.b.disabled !== off) L.b.disabled = off;
+      }
     };
     const R = {
       list,
       opt(title, sub, fn, ok = true, now = false) {
-        const b = el('button', { class: 'rsp-opt' + (now ? ' menu' : '') }, el('b', { text: title }), el('span', { text: sub }));
+        const fs = typeof sub === 'function' ? sub : null, fo = typeof ok === 'function' ? ok : null, span = el('span', { text: fs ? fs() : sub });
+        const b = el('button', { class: 'rsp-opt' + (now ? ' menu' : '') }, el('b', { text: title }), span);
         b.addEventListener('click', () => { Sound.click(); fn(); });
-        b.disabled = !ok; if (ok && !now) gated.push(b);
+        if (fs || fo) { b.disabled = !(fo ? fo() : ok); live.push({ b, span, now, sub: fs || (() => sub), ok: fo || (() => ok) }); }
+        else { b.disabled = !ok; if (ok && !now) gated.push(b); }
         list.append(b);
         return b;
       },
-      page(fill) { list.textContent = ''; gated.length = 0; fill(R); shown = null; if (body.isConnected) tick(); },
+      page(fill) { list.textContent = ''; gated.length = 0; live.length = 0; fill(R); shown = null; if (body.isConnected) tick(); },
     };
     UI.modal({ kicker: o.kicker, title: o.title, body, actions: o.actions, onClose: () => clearInterval(timer) });
     R.page(o.fill);

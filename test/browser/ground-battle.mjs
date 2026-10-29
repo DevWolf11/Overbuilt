@@ -56,8 +56,8 @@ let r = await A.evaluate(() => ({ st: MP.state.settings, teams: MP.state.players
 log('lobby', JSON.stringify(r));
 ok('the lobby: a ground battle (Game: Ground), Highland Ridge on the real map, the ground settings shown, teams 0 and 1', r.st.game === 'ground' && r.st.arena === (mapState === 'ready' ? 'highland' : 'runway') && r.teams.join() === '0,1' && /Ground battle/.test(r.kicker)
   && ['Game', 'Format', 'Money', 'Tickets', 'Respawns', 'Air support', 'Aim', 'Arena'].every((k) => r.game.includes(k)) && !r.game.includes('Carriers'), r);
-await A.evaluate(() => MP.setSetting('test', false)); // (no test drive: straight from building to the battle)
-await B.waitForFunction(() => MP.state.settings.test === false);
+await A.evaluate(() => { MP.setSetting('test', false); MP.setSetting('air', true); }); // (no test drive: straight from building to the battle; air support on)
+await B.waitForFunction(() => MP.state.settings.test === false && MP.state.settings.air === true);
 await shot(B, 'lobby');
 
 // ---- build: A gets the money's stock tank on its blueprint; B builds a Pumo; the host skips to the battle
@@ -126,6 +126,17 @@ await B.evaluate(() => { Render3D.skipDraw = true; });
 r = await B.evaluate(() => ({ title: $('#modal-card .modal-title').textContent, opts: [...document.querySelectorAll('#modal .rsp-opt')].map((b) => [b.querySelector('b').textContent, b.disabled]), wait: $('#modal .rsp-wait').textContent }));
 log('B respawn panel', JSON.stringify(r));
 ok('the Respawn panel: who did it, the vehicle to come back in, another one, and a countdown', /Knocked out by Alice/.test(r.title) && r.opts.some(([t]) => /Your vehicle \(Pumo/.test(t)) && r.opts.some(([t]) => /Change vehicle/.test(t)), r);
+// the Aircraft button keeps up with the open panel: a sortie point comes (the host's word), the minute after the last
+// sortie counts down on it, and it comes on by itself
+const airBtn = () => B.evaluate(() => { const b = [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /^Aircraft/.test(x.textContent)); return b ? { text: b.querySelector('span').textContent, off: b.disabled } : null; });
+const air0 = await airBtn();
+await A.evaluate(() => { const p = MP.player(2); p.sorties = 1; p.sortieEnd = Net.hostNow() - 56500; MP.push(); });
+await B.waitForFunction(() => { const b = [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /^Aircraft/.test(x.textContent)); return b && b.disabled && /ready in \d s/.test(b.textContent); }, null, { timeout: 10000 });
+const air1 = await airBtn();
+await B.waitForFunction(() => { const b = [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /^Aircraft/.test(x.textContent)); return b && !b.disabled; }, null, { timeout: 15000 });
+const air2 = await airBtn();
+log('B\'s Aircraft button', JSON.stringify([air0, air1, air2]));
+ok('...its Aircraft button counts down the minute after a sortie and comes on by itself, the panel open all along', air0 && air0.off && /sortie points/.test(air0.text) && air1.off && /1 sortie point · ready in \d s/.test(air1.text) && !air2.off && /one a flight/.test(air2.text), [air0, air1, air2]);
 await B.waitForFunction(() => { const b = [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /Your vehicle/.test(x.textContent)); return b && !b.disabled; }, null, { timeout: 20000 });
 await B.evaluate(() => [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /Your vehicle/.test(x.textContent)).click());
 await B.waitForFunction(() => !Flight.destroyed && Flight.active && !Flight.active.ko && Flight.time > 0.3, null, { timeout: 30000 });

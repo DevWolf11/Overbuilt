@@ -1194,7 +1194,17 @@ const Aim = {
     if (memo) { if (!M) memo.set(b, (M = {})); M.t = now; M.r = r; M.th = th; }
     return r;
   },
-  _sees: new WeakMap(), _sbT: -1, _sbN: 0,
+  // what a player's own eyes take to Aim.sees: through smoke with a working thermal sight (looked for again every half
+  // second of the sim), else nothing more
+  eyes(v) {
+    if (!v || !v.parts) return undefined;
+    const now = (typeof Flight !== 'undefined' && Flight.time) || 0;
+    let T = this._th.get(v);
+    if (!T) this._th.set(v, (T = { t: -1, on: false }));
+    if (now - T.t >= 0.5 || now < T.t) { T.t = now; T.on = false; for (const p of v.parts) if (p.def.thermal && !p.broken && !(p.hp <= 0)) { T.on = true; break; } }
+    return T.on ? this._thO : undefined;
+  },
+  _sees: new WeakMap(), _sbT: -1, _sbN: 0, _th: new WeakMap(), _thO: { thermal: true },
 };
 
 // (Phase 2C) the aim's other helpers

@@ -380,6 +380,11 @@ var mid = (a, b, up) => { const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, z = (a
 var cloud = (P) => Combat.S.smoke.push({ b: EARTH, x: P.x, y: P.y, z: P.z, vx: 0, vy: 0, vz: 0, fly: 0.8, t: 5, r: 9, life: 25, fx: 0 });
 cloud(mid(sa, sb, 1.5)); var see1 = Aim.sees(sa, sb, { memo: false }), see2 = Aim.sees(sa, sb, { memo: false, thermal: true }); Combat.reset({});`);
 t('smoke hides one vehicle from another (Aim.sees), and a thermal sight still sees through it', R(`see0 && !see1 && see2`), R('[see0, see1, see2]'));
+// a player's own eyes (Aim.eyes: MP.sees, the Practice Battle's tags): through smoke only with a working thermal sight
+R(`var TH = { type: 'thermal', x: -0.6, y: 2.9, flip: false, rot: 0, z: -0.8, att: 5 }, sat = level(build(REAL.concat([TH]))), sbt = level(build(REAL), 300, ahead(800)), sbr = level(build(REAL.concat([TH])));
+partOf(sbr, 'thermal').hp = 0; partOf(sbr, 'thermal').broken = true; Combat.reset({}); cloud(mid(sat, sbt, 1.5));
+var eye0 = Aim.eyes(sa), eye1 = Aim.eyes(sat), eye2 = Aim.eyes(sbr), seeT = Aim.sees(sat, sbt, eye1), seeN = Aim.sees(sat, sbt, eye0); Combat.reset({});`);
+t('a player\'s own eyes see through smoke with a working thermal sight (Aim.eyes), not without one or with it broken', R(`eye0 === undefined && eye1 && eye1.thermal === true && eye2 === undefined && seeT && !seeN`), R('[eye0, eye1, eye2, seeT, seeN]'));
 R(`var holdRun = (smoke) => {
   const v = level(build(ATGM)), F = simOf(v), S = surfaceFrame(v.x, v.y, v.z); Combat.reset(F);
   const far = (deg) => { const a = deg * RAD; return { x: v.x + (S.east.x * Math.cos(a) + S.north.x * Math.sin(a)) * 2000, y: v.y + (S.east.y * Math.cos(a) + S.north.y * Math.sin(a)) * 2000, z: v.z + (S.east.z * Math.cos(a) + S.north.z * Math.sin(a)) * 2000 }; };

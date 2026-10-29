@@ -42,6 +42,7 @@ const MP_SET_OK = {
   game: ['air', 'ground'], tickets: [400, 600, 900], respawn: ['free', 'lineup'], air: [true, false], aim: ['arcade', 'realistic'],
 };
 const MP_WRECKS = 8, MP_WRECK_MS = 90000; // the most wrecks kept on the field, and for how long
+const MP_WRECK_AGL = 10; // (a knocked-out ground vehicle higher than this off the ground leaves no wreck: none hangs in the air)
 const mpAir = (kind) => kind === 'plane' || kind === 'heli';
 // living troops on board (a hull's built-in bay and placed troop bays, while they're whole), at most 12
 function mpTroops(v) {
@@ -97,6 +98,7 @@ const MP = {
   nextMissile: 1,
   // (ground battles)
   wrecks: [],          // knocked-out hulks left on the field: { v, pid, t (ms), bits (a tossed turret) }, the oldest first
+  hulk: null,          // ours, from its `down` until we respawn (then one of the wrecks): { v, t, bits }
   battleCost: new Map(), // host: pid -> what the craft they last spawned cost (priced here from its spawn rows)
   battleKind: new Map(), // host: pid -> its kind
   spots: new Map(),    // pid -> { t (ms), man } when a teammate (or we, by hand) last spotted that enemy
@@ -282,6 +284,8 @@ const MP = {
   applySet(pid, k, v) {
     const s = this.state, p = this.player(pid);
     if (!s || !p) return;
+    // (a ground battle under way: who is on the field is the host's to say, from spawns and downs, never a client's)
+    if (pid !== Net.me && this.ground && s.phase === 'battle' && (k === 'flying' || k === 'ready' || k === 'spawn')) return;
     if (k === 'ready') p.ready = !!v;
     else if (k === 'spawn') { if (this.spawnsFor(p).some((sp) => sp.id === v)) p.spawn = v; }
     else if (k === 'kind') p.kind = String(v).slice(0, 8);
@@ -294,6 +298,7 @@ const MP = {
       if (s.settings.respawn !== 'lineup' || !Number.isInteger(v) || v < 0 || v > 2 || ((p.slots || 0) & (1 << v)) || !o || !(o.tk[p.team] > 0) || Net.hostNow() < (p.respawnAt || 0) - 300) return;
       p.slot = v;
     } else if (k === 'troops' && this.ground) { if (!Number.isInteger(v) || v < 0 || v > 12 || p.troops === v) return; p.troops = v; } // (living troops aboard: captures)
+    else if (k === 'airSlots' && this.ground) { if (!Number.isInteger(v) || v < 0 || v > 7 || (p.airSlots || 0) === v) return; p.airSlots = v; } // (the lineup's aircraft, a bit a slot: they need a sortie point)
     else return;
     if (s.phase === 'build' || s.phase === 'polish') this.maybeAllReady();
     this.push();
@@ -407,7 +412,7 @@ const MP = {
     s.round++;
     for (const p of s.players) Object.assign(p, { ready: false, alive: false, kills: 0, deaths: 0, dmg: 0, spawn: null, flying: false });
     if (this.ground) { // (a ground battle's own score: captures, score, sortie points for aircraft, the lineup's slots used)
-      for (const p of s.players) Object.assign(p, { caps: 0, score: 0, sorties: 0, respawnAt: 0, slot: 0, slots: 0, troops: 0, cost: 0, sortieEnd: 0 });
+      for (const p of s.players) Object.assign(p, { caps: 0, score: 0, sorties: 0, respawnAt: 0, slot: 0, slots: 0, airSlots: 0, troops: 0, cost: 0, sortieEnd: 0 });
       s.settings.arena = GroundMode.pick(this.mapReady());
       delete s.obj;
       this.battleCost.clear(); this.battleKind.clear();
@@ -556,11 +561,12 @@ const MP = {
     }
     return { units, pids };
   },
-  // can this player spawn again (Free: while the team has tickets; Lineup: while a slot is unused, too)
+  // can this player spawn again (Free: while the team has tickets; Lineup: while a slot is unused, too, and an aircraft's
+  // only with a sortie point to fly it)
   canRespawn(p) {
     const s = this.state, o = s && s.obj;
     if (!o || !p || !(o.tk[p.team] > 0)) return false;
-    return s.settings.respawn !== 'lineup' || (p.slots & 7) !== 7;
+    return s.settings.respawn !== 'lineup' || !!(7 & ~(p.slots || 0) & ~((p.sorties || 0) > 0 ? 0 : p.airSlots || 0));
   },
   aliveByTeam() { const n = [0, 0]; for (const p of this.state.players) if ((p.team === 0 || p.team === 1) && (p.alive || p.flying)) n[p.team]++; return n; },
   // host: over? (a team out of tickets, or with nobody left; the result shows 3.5 s later)
@@ -755,9 +761,11 @@ const MP = {
   startFlight(solo) {
     const s = this.state, ground = this.ground && !solo && s.phase === 'battle';
     UI.closeModal(); MPUI.closeSpawnMap();
-    // a ground battle: our knocked-out hulk stays where it is, a wreck like the others'
-    const hulk = ground && Flight.running && Flight.destroyed && Flight.active && Flight.active.ko && !Flight.active.dead && Flight.active.parts.length ? Flight.active : null;
-    if (hulk) this.addWreck(hulk, Net.me);
+    // a ground battle: our knocked-out hulk stays where it stopped at the `down` (onLocalDestroyed), a wreck like the
+    // others', with its thrown turret
+    const H = this.hulk, hulk = ground && H && Flight.running && Flight.destroyed && Flight.active === H.v && !H.v.dead && H.v.parts.length ? H : null;
+    this.hulk = null;
+    if (hulk) { for (const q of hulk.bits || []) q.foreign = Net.me; this.addWreck(hulk.v, Net.me, hulk.bits, hulk.t); } // (the pieces carry the ids our new craft has: hits never look in them)
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
     let design;
     if (this.pvp) {
@@ -775,11 +783,15 @@ const MP = {
       if (!this.live) return;
       App.showScene('flight');
       const opts = { place, time, mp: { mode: s.mode, solo: !!solo, phase: s.phase } };
-      if (ground) opts.keep = this.wrecks.map((w) => w.v); // (the hulks on the field, ours too)
+      if (ground) opts.keep = this.wrecks.flatMap((w) => (w.bits ? [w.v, ...w.bits] : [w.v])); // (the hulks on the field, ours too, and their thrown turrets)
       Flight.start(design, opts);
       if (ground && Flight.active) Flight.active.spawnAt = Flight.time; // (4 s of spawn protection: Armour)
       Builder.mp = null;
       if (!solo) { this.sendSpawn(); this.setMine('flying', true); if (this.pvp) this.setMine('kind', kind); }
+      if (ground && s.settings.respawn === 'lineup') { // (which slots are aircraft, so the host knows when none we can take is left)
+        const a = this.lineup.reduce((n, d, i) => n | (d && mpAir(d.kind) ? 1 << i : 0), 0);
+        if (this.me && (this.me.airSlots || 0) !== a) this.setMine('airSlots', a);
+      }
       MPUI.refresh();
       const tip = place && place.carrier ? 'Throttle up, then hit LAUNCH (L) for the catapult' : null;
       if (solo) UI.toast(this.ground ? 'Test drive: one minute on your pad, nobody can hurt you' : 'Test flight: one minute, nobody can hurt you');
@@ -815,10 +827,10 @@ const MP = {
     return true;
   },
   // a knocked-out hulk kept on the field (ours at a respawn, the others' on their `down`): still, never stepped, solid
-  // to shells; the oldest goes past MP_WRECKS, each after MP_WRECK_MS
-  addWreck(v, pid, bits) {
+  // to shells; the oldest goes past MP_WRECKS, each after MP_WRECK_MS (from t: its `down`)
+  addWreck(v, pid, bits, t) {
     v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
-    this.wrecks.push({ v, pid, t: performance.now(), bits: bits || null });
+    this.wrecks.push({ v, pid, t: t || performance.now(), bits: bits && bits.length ? bits : null });
     while (this.wrecks.length > MP_WRECKS) this.dropWreck(this.wrecks[0]);
   },
   dropWreck(w) {
@@ -834,6 +846,7 @@ const MP = {
     if (Flight.running && Flight.mp && !Flight.mp.solo) { Net.send({ t: 'despawn' }); if (!this.pvp) this.setMine('flying', false); }
     Flight.stop();
     this.dropAllGhosts();
+    this.hulk = null;
     if (this.wrecks.length) this.clearWrecks();
     Combat.reset(Flight);
   },
@@ -978,7 +991,14 @@ const MP = {
     const P = v.toWorld(v.com.x, v.com.y, v.com.z || 0);
     if (this.ground && s.phase === 'battle') { // knocked out: the hulk stays (w), for everyone; then the Respawn panel
       const ko = v.ko, msg = { t: 'down', by, P: [P.x, P.y, P.z] };
-      if (ko && !v.dead && v.parts.length) { msg.w = 1; if (ko.x) msg.x = 1; }
+      this.hulk = null;
+      if (ko && !v.dead && v.parts.length && isGround(v.kind) && v.groundAltitude() < MP_WRECK_AGL) {
+        msg.w = 1; if (ko.x) msg.x = 1;
+        // it stops here, as it does on every other screen (a wreck is never stepped), with the turret it threw (not
+        // pieces of anyone else's); a wreck of ours from the respawn on (startFlight)
+        v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
+        this.hulk = { v, t: performance.now(), bits: ko.x ? Flight.vessels.filter((q) => q.tossed && !q.foreign && !q.dead && !q.remote) : null };
+      }
       msg.why = ko ? (ko.why === 'hull' ? 'parts' : ko.why) : 'parts';
       Net.send(msg);
       if (Net.isHost) this.recordDown(Net.me, by);
@@ -1140,8 +1160,9 @@ const MP = {
     if (this.wrecks.length) {
       const now = performance.now();
       for (const w of [...this.wrecks]) {
-        if (now - w.t > MP_WRECK_MS || w.v.dead) this.dropWreck(w);
-        else if (!list.includes(w.v)) list.push(w.v);
+        if (now - w.t > MP_WRECK_MS || w.v.dead) { this.dropWreck(w); continue; }
+        if (!list.includes(w.v)) list.push(w.v);
+        if (w.bits) for (const q of w.bits) if (!q.dead && q.parts.length && !list.includes(q)) list.push(q); // (its thrown turret)
       }
     }
   },
@@ -1204,9 +1225,10 @@ const MP = {
   onDown(m) {
     const P = this.peers.get(m.f), ground = this.ground, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null; // (a down with no place: no blast, the rest as ever)
     const g = P && P.ghost, kind = (P && P.design && P.design.kind) || (g && g.kind);
-    // a ground battle: a knocked-out vehicle (w) stays as a wreck, on every screen; an ammunition detonation (x) throws
-    // its turret here too
-    const hulk = ground && m.w === 1 && g && Flight.running && !g.dead && g.parts.length ? g : null;
+    // a ground battle: a knocked-out ground vehicle (w) stays as a wreck, on every screen; an ammunition detonation (x)
+    // throws its turret here too. (Never an aircraft's, nor one in the sky or never seen yet: that one goes, as a plane
+    // shot down does. Its owner sends w on the ground only: the margin is for the ghost's lag.)
+    const hulk = ground && m.w === 1 && g && isGround(kind) && Flight.running && !g.dead && g.parts.length && !g.hiddenUntilSnap && g.groundAltitude() < MP_WRECK_AGL * 3 ? g : null;
     if (g && Flight.running && at) {
       FX.explosion(g.body, at, { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01);
       if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
@@ -1216,6 +1238,9 @@ const MP = {
       if (Flight.spectate === g) { Flight.spectate = null; setTimeout(() => { if (this.live && Flight.destroyed && !Flight.spectate) MPUI.spectate(1); }, 1500); }
       let bits = null;
       if (m.x === 1) { try { bits = Armour.toss(g, Flight, null); for (const q of bits) q.foreign = m.f; } catch (e) { console.error(e); bits = null; } } // (its pieces carry its owner's part ids)
+      // where its owner's hulk stopped (P: its centre of mass, the turret gone), give or take 20 m: a forged P can't carry it off
+      const dx = at ? at.x - g.x : 0, dy = at ? at.y - g.y : 0, dz = at ? at.z - g.z : 0;
+      if (dx * dx + dy * dy + dz * dz < 400) for (const o of bits ? [g, ...bits] : [g]) { o.x += dx; o.y += dy; o.z += dz; }
       this.addWreck(g, m.f, bits);
     } else this.dropGhost(m.f, false);
     this.peer(m.f).design = null; // (a new craft comes with a new spawn)
@@ -1421,7 +1446,7 @@ const MP = {
     const airMe = mpAir(me.kind), airG = mpAir(g.kind);
     if (airMe && airG) return d < 6000 * (1 - 0.5 * Combat.stealthOf(g));
     const reach = airMe !== airG ? 3000 : me.gv && Armour.has(me, 'commander') ? 1875 : 1500;
-    return d < reach && Aim.sees(me, g);
+    return d < reach && Aim.sees(me, g, Aim.eyes(me)); // (a thermal sight sees through smoke)
   },
   // once a second in a ground battle: the enemies we see go to the host (for our team), and our living troops
   groundReports() {

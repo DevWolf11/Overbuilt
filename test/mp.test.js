@@ -185,6 +185,8 @@ async function groundBattle() {
       loadDesign() {}, loadTemplate(k) { __loaded.push(k); __design = { name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, parts: templateRows(TEMPLATES[k]) }; Builder.kind = TEMPLATES[k].kind; },
       designs: () => [], markSaved() {}, renderLaunch() {} });
     // a template as a peer's spawn rows ([id, type, x, y, rot, flip, z, att id, skin, mm])
+    // a ghost put on the ground at (e, z), as its first snapshot would
+    var poseOn = (g, e, z, yaw = 0) => { g.placeOnSurface(EARTH, siteAngle(EARTH, e), VEHICLE_KINDS.tank.launchRot, z, yaw); g.hiddenUntilSnap = false; };
     var rowsOf = (key, mm) => templateRows(TEMPLATES[key]).map((q, i) => { const r = [i + 1, q.type, q.x, q.y, q.rot, q.flip ? 1 : 0, q.z || 0, q.att != null ? q.att + 1 : 0, q.skin || 0]; if (mm && mm[q.type] != null) r.push(mm[q.type]); return r; });`);
 
   // -- settings: MP.host(mode, transport, settings), each key as the lobby allows it; forged values refused
@@ -259,7 +261,7 @@ async function groundBattle() {
   t('ground: off the ground (no contact for half a second) a vehicle doesn\'t capture', X('p1 === -0.5'), X('p1'));
   X(`MP.state.obj.zones[0].p = -1; MP.state.obj.zones[0].own = 0;`);
   // the peer's tank knocked out by us: tickets by its price, the killer's score, back in 5 s, a wreck on our screen
-  X(`var tk1 = MP.state.obj.tk[1], cost2 = MP.battleCost.get(2); MP.peers.get(2).snap = null; Combat.S.kills = 0; UI.toasts = [];
+  X(`var tk1 = MP.state.obj.tk[1], cost2 = MP.battleCost.get(2); MP.peers.get(2).snap = null; Combat.S.kills = 0; UI.toasts = []; poseOn(gh, 17750, 16200);
     emit({ t: 'down', f: 2, by: 1, P: [gh.x, gh.y, gh.z], w: 1, why: 'crew' });`);
   t('ground: a knock-out costs its team 30 + price/2,500 tickets (priced here), scores 3 and a sortie point for the killer, back in 5 s', X(`(() => { const p = MP.player(2), me = MP.me;
     return MP.state.obj.tk[1] === tk1 - (30 + Math.round(cost2 / 2500)) && p.deaths === 1 && p.alive === true && !p.flying && p.respawnAt === __T + 5000 && me.kills === 1 && me.score === 5 && me.sorties === 2; })()`), X(`[tk1, MP.state.obj.tk[1], cost2, MP.player(2)]`));
@@ -268,8 +270,10 @@ async function groundBattle() {
   X(`emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: rowsOf('pumo') }); var gh2 = MP.peers.get(2).ghost;`);
   t('ground: their new vehicle is a new ghost; the old one stays a wreck', X(`!!gh2 && gh2 !== gh && MP.wrecks[0].v === gh && Flight.vessels.includes(gh) && MP.battleCost.get(2) === designCost(partsFromDesign(templateRows(TEMPLATES.pumo)))`));
   // we are knocked out: down with w, why; the Respawn panel; our hulk and theirs both survive our respawn
-  X(`Net.out = []; __ui = []; Flight.active.ko = { why: 'hull', x: false, t: 1 }; Flight.destroyed = true; MP.onLocalDestroyed(); var down = sent('down')[0][0]; flush();`);
+  X(`Net.out = []; __ui = []; Flight.active.ko = { why: 'hull', x: false, t: 1 }; Flight.active.vx = 9; Flight.active.av = v3(0, 0.4, 0); var at1 = [Flight.active.x, Flight.active.y, Flight.active.z];
+    Flight.destroyed = true; MP.onLocalDestroyed(); var down = sent('down')[0][0]; flush();`);
   t('ground: knocked out, we tell everyone to keep our hulk (w: 1) and why; the Respawn panel opens', X(`down.w === 1 && down.why === 'parts' && down.x === undefined && __ui.some(([k]) => k === 'respawnPanel')`), X('[down, __ui]'));
+  t('ground: our hulk stops dead where it was knocked out, a wreck from then on, as it lies on every other screen (P: where)', X(`(() => { const v = Flight.active; return v.wreck && v.vx === 0 && v.av.y === 0 && down.P.join() === at1.join() && MP.hulk.v === v; })()`), X('[down.P, at1, Flight.active.vx, Flight.active.wreck]'));
   t('ground: no respawn before the host\'s time', X(`!MP.canSpawnNow() && !MP.respawnWith({ name: 'X', kind: 'tank', parts: templateRows(TEMPLATES.tk34) })`));
   X(`__T += 5000; var hulk = Flight.active; MP.respawnWith({ name: 'Second', kind: 'tank', parts: templateRows(TEMPLATES.ms4) });`);
   t('ground: our respawn keeps our own hulk and the other players\' wrecks on the field', X(`Flight.active !== hulk && Flight.active.name === 'Second' && hulk.wreck && Flight.vessels.includes(hulk) && Flight.vessels.includes(gh) && Flight.starts.at(-1).keep === 2 && MP.wrecks.length === 2`), X(`[Flight.starts.at(-1), MP.wrecks.length]`));
@@ -282,8 +286,25 @@ async function groundBattle() {
   X(`var d2 = MP.player(2).deaths; MP.player(2).flying = true; emit({ t: 'down', f: 2, by: 1, P: 'junk' }); emit({ t: 'down', f: 2, by: 1, P: [NaN, 0, 0] });`);
   t('ground: a down with a broken place (P) is booked without the blast (it used to throw)', X('MP.player(2).deaths === d2 + 1'));
   // wrecks: at most 8, each for 90 s; a detonation throws the ghost's turret here too
-  X(`emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: rowsOf('tk34') }); var gh3 = MP.peers.get(2).ghost, nv = Flight.vessels.length; MP.player(2).flying = true; emit({ t: 'down', f: 2, by: 1, P: [gh3.x, gh3.y, gh3.z], w: 1, x: 1, why: 'ammo' });`);
+  X(`emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: rowsOf('tk34') }); var gh3 = MP.peers.get(2).ghost, nv = Flight.vessels.length; MP.player(2).flying = true; poseOn(gh3, 17730, 16200); emit({ t: 'down', f: 2, by: 1, P: [gh3.x, gh3.y, gh3.z], w: 1, x: 1, why: 'ammo' });`);
   t('ground: an ammunition detonation (x) throws the wreck\'s turret here too; the pieces aren\'t ours', X(`(() => { const w = MP.wrecks.at(-1); return w.v === gh3 && w.bits && w.bits.length >= 1 && w.bits.every((q) => q.foreign === 2 && Flight.vessels.includes(q)) && !gh3.parts.some((p) => p.type === 'turretCast'); })()`), X(`MP.wrecks.at(-1).bits && MP.wrecks.at(-1).bits.map((q) => q.parts.map((p) => p.type))`));
+  // our own ammunition detonation: the turret it threw lies by our hulk and stays through our respawn, the others' too
+  X(`Net.out = []; __ui = []; var v6 = Flight.active; v6.ko = null; v6.lastHitBy = null; Armour.knockOut(v6, Flight, 'ammo', { st: Armour.crewOf(v6).stores.find((e) => e.rounds > 0), rounds: 40 });
+    Flight.destroyed = true; MP.onLocalDestroyed(); var down6 = sent('down')[0][0], bits6 = (MP.hulk && MP.hulk.bits) || [], bits3 = MP.wrecks.find((w) => w.v === gh3).bits; flush();
+    __T += 6000; MP.respawnWith({ name: 'Third', kind: 'tank', parts: templateRows(TEMPLATES.ms4) }); var w6 = MP.wrecks.find((w) => w.v === v6);`);
+  t('ground: our ammunition detonation (x): the turret it threw lies by our hulk through our respawn (pieces our hits never look in)', X(`down6.x === 1 && down6.w === 1 && bits6.length >= 1 && bits6.every((q) => q.tossed && q.foreign === Net.me && Flight.vessels.includes(q)) && !!w6 && w6.bits === bits6 && Flight.active.name === 'Third'`), X(`[down6, bits6.length, !!w6, Flight.active.name]`));
+  t('ground: ...and the turret another player\'s detonation threw stays too (our respawn keeps every wreck\'s pieces)', X(`bits3.length >= 1 && bits3.every((q) => Flight.vessels.includes(q)) && Flight.starts.at(-1).keep === MP.wrecks.length + bits3.length + bits6.length`), X('[Flight.starts.at(-1), MP.wrecks.length, bits3.length, bits6.length]'));
+  X(`Flight.vessels = Flight.vessels.filter((v) => !v.tossed); MP.beforeUpdate(0.016);`);
+  t('ground: ...and beforeUpdate puts thrown turrets back if anything rebuilt the list', X(`bits6.concat(bits3).every((q) => Flight.vessels.includes(q))`));
+  // a peer's wreck lies where its owner's hulk stopped (P, give or take 20 m); never an aircraft's, nor one in the sky
+  X(`var spawn2 = (key, kind, e) => { emit({ t: 'spawn', f: 2, name: 'Bea', kind, parts: rowsOf(key) }); const g = MP.peers.get(2).ghost; MP.player(2).flying = true; poseOn(g, e, 16200); return g; };
+    var g7 = spawn2('ms4', 'tank', 17700), a7 = [g7.x + 4, g7.y - 1, g7.z]; emit({ t: 'down', f: 2, by: 0, P: a7, w: 1, why: 'crew' }); var w7 = MP.wrecks.at(-1);
+    var g8 = spawn2('ms4', 'tank', 17680), x8 = g8.x; emit({ t: 'down', f: 2, by: 0, P: [g8.x + 40, g8.y, g8.z], w: 1, why: 'crew' }); var w8 = MP.wrecks.at(-1);
+    var n9 = MP.wrecks.length, g9 = spawn2('mustang', 'plane', 17660); emit({ t: 'down', f: 2, by: 0, P: [g9.x, g9.y, g9.z], w: 1, why: 'crew' }); var n9b = MP.wrecks.length, gone9 = !MP.peers.get(2).ghost && !Flight.vessels.includes(g9);
+    var g10 = spawn2('ms4', 'tank', 17640), r10 = Math.hypot(g10.x, g10.y, g10.z); for (const k of ['x', 'y', 'z']) g10[k] += (g10[k] / r10) * 200;
+    emit({ t: 'down', f: 2, by: 0, P: [g10.x, g10.y, g10.z], w: 1, why: 'crew' }); var n10 = MP.wrecks.length, gone10 = !Flight.vessels.includes(g10);`);
+  t('ground: a peer\'s wreck lies where its owner says its hulk stopped (P), not where its ghost had got to; a P 40 m off is ignored', X(`w7.v === g7 && g7.x === a7[0] && g7.y === a7[1] && g7.z === a7[2] && w8.v === g8 && g8.x === x8`), X('[[g7.x, g7.y, g7.z], a7, g8.x, x8]'));
+  t('ground: a down with w from an aircraft, or from a ground vehicle 200 m up, leaves no wreck in the sky (the ghost goes, as a plane shot down does)', X(`n9b === n9 && gone9 && n10 === n9 && gone10`), X('[n9, n9b, gone9, n10, gone10]'));
   X(`for (let i = 0; i < 8; i++) { const ps = [makePart('hullMedium', 0, 1)]; const w = new Vessel(ps, buildAdjacency(ps), EARTH); w.rebuildGroups(); w.remote = 5; MP.addWreck(w, 5); } var first = MP.wrecks[0].v;`);
   t('ground: at most 8 wrecks (the oldest go first)', X(`MP.wrecks.length === 8 && !MP.wrecks.some((w) => w.v === gh)`));
   X(`__P += 91000; MP.peers.forEach((P) => { P.recv = __P; }); MP.beforeUpdate(0.016);`);
@@ -301,6 +322,10 @@ async function groundBattle() {
     MP.peers.get(2).firedAt = __P; sp.push(MP.spotted(2)); at(2600); sp.push(MP.spotted(2)); __P += 3100; at(2000); sp.push(MP.spotted(2));
     sp.push(MP.spotted(3), MP.spotted(99));`);
   t('ground: spotted within 250 m; not at 2 km unless the team spotted it (3 s; by hand 15 s) or its main gun fired within 2.5 km in the last 3 s; friends always, nobody unknown', X(`sp.join() === 'true,false,true,false,true,false,true,false,false,true,false'`), X('sp'));
+  X(`var thv = (() => { const ps = partsFromDesign(templateRows(TEMPLATES.ma1)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'tank'; v.rebuildGroups(); v.x = me5.x; v.y = me5.y; v.z = me5.z; return v; })();
+    var S0 = Aim.sees, seen = []; Aim.sees = (a, b, o) => { seen.push(!!(o && o.thermal === true)); return true; }; at(600); MP.sees(thv, g4, 600); MP.sees(me5, g4, 600);
+    Flight.time += 1; thv.parts.find((p) => p.def.thermal).broken = true; MP.sees(thv, g4, 600); Aim.sees = S0;`);
+  t('ground: our own eyes look through smoke with a working thermal sight (MA-1), not without one or with it broken (MP.sees)', X(`seen.join() === 'true,false,false'`), X('seen'));
   // spotting: seen from a player is passed to their teammates only, and only for real enemies
   X(`Net.out = []; MP.spots.clear(); emit({ t: 'seen', f: 3, ids: [2], man: 1 }); var sp1 = MP.spots.get(2); Net.out = []; MP.spots.clear();
     emit({ t: 'seen', f: 3, ids: [1, 3, 99, 'x', 2.5] }); var sp2 = MP.spots.size; var out2 = Net.out.length;`);
@@ -334,6 +359,14 @@ async function groundBattle() {
   t('ground: lineup slots: refused before the respawn time, used ones and junk refused, a free one taken; the spawn uses it', X(`early === 0 && used === 0 && junk === 0 && ok === 2 && bits === 5`), X('[early, used, junk, ok, bits]'));
   X(`emit({ t: 'set', f: 2, k: 'troops', v: 6 }); var tr1 = MP.player(2).troops; for (const v of [13, -1, 'x', 2.5, null]) emit({ t: 'set', f: 2, k: 'troops', v }); var tr2 = MP.player(2).troops;`);
   t('ground: living troops: 0-12 whole numbers only', X('tr1 === 6 && tr2 === 6'));
+  X(`var q2 = MP.player(2), f0 = q2.flying, r0 = q2.ready; emit({ t: 'set', f: 2, k: 'flying', v: !f0 }); emit({ t: 'set', f: 2, k: 'ready', v: !r0 }); var f1 = q2.flying, r1 = q2.ready;
+    var h0 = MP.me.flying; MP.setMine('flying', !h0); var h1 = MP.me.flying; MP.setMine('flying', h0);`);
+  t('ground: in the battle a client can\'t say whether it is on the field (set flying) or ready: the host knows from spawns and downs (its own row still takes it)', X('f1 === f0 && r1 === r0 && h1 === !h0 && MP.me.flying === h0'), X('[f0, f1, r0, r1, h0, h1]'));
+  X(`for (const v of [8, -1, 1.5, '4', null]) emit({ t: 'set', f: 2, k: 'airSlots', v }); var as0 = q2.airSlots || 0; emit({ t: 'set', f: 2, k: 'airSlots', v: 4 }); var as1 = q2.airSlots;
+    var sv = { slots: q2.slots, sorties: q2.sorties, alive: q2.alive, flying: q2.flying }, cr = [];
+    q2.slots = 3; q2.sorties = 0; cr.push(MP.canRespawn(q2)); q2.sorties = 1; cr.push(MP.canRespawn(q2)); q2.sorties = 0; q2.airSlots = 2; cr.push(MP.canRespawn(q2)); q2.airSlots = 4;
+    MP.player(4).alive = true; q2.flying = true; emit({ t: 'down', f: 2, by: 0, P: 'x', why: 'crew' }); var out2 = q2.alive; Object.assign(q2, sv); MP.player(4).alive = false;`);
+  t('ground: a lineup\'s aircraft slots (airSlots, 0-7 only): one left with no sortie point is no respawn, so the host counts that player out', X(`as0 === 0 && as1 === 4 && cr.join() === 'false,true,true' && out2 === false`), X('[as0, as1, cr, out2]'));
   t('ground: an aircraft costs 1.5x the tickets', X(`(() => { const o = { tk: [600, 600] }; return GroundMode.death(o, 1, 50000, mpAir('plane')) === Math.round((30 + 20) * 1.5); })()`));
   // the end: out of tickets
   X(`MP.state.obj.tk[1] = 0; __T += 1000; MP.tick(); flush();`);
