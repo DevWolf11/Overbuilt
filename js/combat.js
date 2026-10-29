@@ -470,7 +470,7 @@ const Combat = (() => {
       if (sarh && S.lock && cands.some((c) => c.ref === S.lock) && radarSees(v, S.lock, refPos(S.lock)) === true && !chaffBreaks(v, S.lock)) best = S.lock;
       else for (const c of cands) {
         const dx = c.x - v.x, dy = c.y - v.y, dz = c.z - v.z, d = len(dx, dy, dz);
-        if (d > range || d < (air ? 350 : 150)) continue;
+        if (d > (w.seek === 'top' ? range * hotK(c.ref) : range) || d < (air ? 350 : 150)) continue; // (a turbine's exhaust is seen further off)
         if (heat && d > range * clamp(Math.sqrt(irSig(c.ref, v)), 0.2, 1)) continue;
         if (sarh && radarSees(v, c.ref, refPos(c.ref)) !== true) continue;
         if (ir && Aim.smokeBlocks(v, c)) continue;
@@ -747,6 +747,13 @@ const Combat = (() => {
     const radar = !!w.radar;
     return { air: true, sarh: radar, drag: w.drag || (radar ? 1.1e-4 : 1.6e-4), bleed: w.bleed || 0.012, gimbal: w.gimbal || (radar ? 1.1 : 0.6),
       track: w.track || (radar ? 1.0 : 0.7), arm: w.arm != null ? w.arm : 0.6, irccm: w.irccm || 0, nav: 4, cm: new WeakSet(), lostT: 0, notchT: 0, trackT: 0 };
+  }
+  // How much further a heat seeker locks on to a ground vehicle: its hottest running engine's def.engine.ir (a gas
+  // turbine's exhaust, 1.25), else 1.
+  function hotK(o) {
+    let k = 1;
+    if (o && o.parts) for (const p of o.parts) if (p.def.engine && p.def.engine.ir > k && !p.broken) k = p.def.engine.ir;
+    return k;
   }
   // How bright a craft is to a heat seeker looking from `from` (1: a fighter jet at full dry power seen from
   // behind): its engines by thrust and afterburner (propellers and rotors run cooler) plus the warm airframe;

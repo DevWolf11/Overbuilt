@@ -13,6 +13,7 @@ const GHUD = (() => {
   // what the screen holds (place), the aim's last full look, the damage diagram's and the minimap's pictures, spots
   const S = { aimAt: -1e9, P: null, placeAt: -1e9, W: 0, H: 0, drop: 0, dropKey: '', dropR: 0, diag: null, diagKey: '', map: null, mapKey: '', mapAt: -1e9,
     tags: [], nTags: 0, spots: new Map(), pings: [], press: null, ops: 0, tac: null, fireW: 0, rangeKey: null, rangeTxt: '', wh: 0, whT: -1e9,
+    cmd: { on: null, v: null, d: 0, t: 0, e: 0 },
     blk: { p: null, v0: 0, D: 0, mx: 0, my: 0, mz: 0, ux: 0, uy: 0, uz: 0, blk: -1 } };
 
   // ---------------------------------------------------------------- who is who
@@ -188,15 +189,27 @@ const GHUD = (() => {
     }
   }
   function rangeText(ctx, F, v, cx, cy) { // (its words made again only when the 10 m, the zero or the mode change)
-    const A = F.aim, d = Math.round(Math.hypot(A.P.x - v.x, A.P.y - v.y, A.P.z - v.z) / 10), real = Aim.realistic(), l = real && lrf(v);
-    const key = real ? (l ? 1e5 : 2e5) + d * 1e6 + F.zero : A.src === 'none' ? -1 : d;
+    const A = F.aim, D = Math.hypot(A.P.x - v.x, A.P.y - v.y, A.P.z - v.z), d = Math.round(D / 10), real = Aim.realistic(), l = real && lrf(v);
+    const c = real && !l ? cmdRange(F, v, D) : null, cd = c == null ? 0 : Math.round(c / 10);
+    const key = real ? (l ? 1e5 : c != null ? 3e5 : 2e5) + (c != null ? cd : d) * 1e6 + F.zero : A.src === 'none' ? -1 : d;
     if (key !== S.rangeKey) {
       S.rangeKey = key;
-      S.rangeTxt = real ? (l ? `Range ${fmtR(d * 10)} · Sight ${fmtR(F.zero)}` : `Sight ${fmtR(F.zero)}`) : A.src === 'none' ? '—' : fmtR(d * 10);
+      S.rangeTxt = real ? (l ? `Range ${fmtR(d * 10)} · Sight ${fmtR(F.zero)}` : c != null ? `Range ≈ ${fmtR(cd * 10)} · Sight ${fmtR(F.zero)}` : `Sight ${fmtR(F.zero)}`) : A.src === 'none' ? '—' : fmtR(d * 10);
     }
     ctx.font = MONO; ctx.fillStyle = COL.hud;
     text(ctx, S.rangeTxt, cx, cy + (F.sight ? 46 : 32));
   }
+  // (Realistic aim with no rangefinder working) a living commander's reading of the range (§8.5): once the crosshair has
+  // stayed 3 s on one vehicle, or on one spot (the range within 4% of where it began), the range within ±4%, the same
+  // error for as long as it stays there; else null
+  function cmdRange(F, v, D) {
+    const A = F.aim, C = S.cmd, on = A.src === 'vessel' && A.v ? A.v : A.src === 'ground' && !A.indirect ? 'ground' : null;
+    if (!on || !Armour.has(v, 'commander')) { C.on = C.v = null; return null; }
+    if (on !== C.on || C.v !== v || (on === 'ground' && Math.abs(D - C.d) > C.d * 0.04) || F.time < C.t) { C.on = on; C.v = v; C.d = D; C.t = F.time; C.e = (Math.random() * 2 - 1) * 0.04; }
+    return F.time - C.t >= 3 ? D * (1 + C.e) : null;
+  }
+  // the range the sight can be set to: the rangefinder's, else the commander's reading (null: none yet)
+  const readRange = (F, v) => { const P = F.aim.P, D = Math.hypot(P.x - v.x, P.y - v.y, P.z - v.z); return lrf(v) ? D : Aim.realistic() ? cmdRange(F, v, D) : null; };
   const fmtR = (d) => `${Math.round(d / 10) * 10 >= 1000 ? (Math.round(d / 10) * 10).toLocaleString('en-US') : Math.round(d / 10) * 10} m`;
   const lrf = (v) => { if (v._lrfN !== v.parts.length) { v._lrfN = v.parts.length; v._lrf = v.parts.find((p) => p.def.lrf) || null; } return !!v._lrf && !v._lrf.broken; };
   // text with a dark rim (Combat's hudText), counted as two calls
@@ -669,7 +682,7 @@ const GHUD = (() => {
   // Full screen, drawn only while open (4 times a second at most, when something on it moved): the ground's hillshade
   // (baked once a session from the arena's own ground, or the real ground a few hundred points a frame), the box, the
   // zones, who is where. A tap: with rocket artillery chosen, a strike there ("Strike: 4.2 km · 19 s"); else a ping for
-  // the team (at most one a second).
+  // the team (at most one a second; with no team, outside a room, a mark for yourself).
   function tactical(open) {
     open = !!open && typeof Flight !== 'undefined' && Flight.groundAim;
     const box = $('#gtac');
@@ -678,6 +691,7 @@ const GHUD = (() => {
     S.tacOpen = open;
     box.hidden = !open;
     S.tacKey = '';
+    if (open && Flight.active) tacInfo(Flight, Flight.active); // (right away, not at its first picture)
     if (open && Flight.unlockPointer) Flight.unlockPointer();
   }
   function tacFrame(F, v) {
@@ -723,8 +737,11 @@ const GHUD = (() => {
     for (const u of U) { g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU); g.fill(); }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 10 * dpr, 0, TAU); g.moveTo(X(p.e) - 14 * dpr, Y(p.z)); g.lineTo(X(p.e) + 14 * dpr, Y(p.z)); g.moveTo(X(p.e), Y(p.z) - 14 * dpr); g.lineTo(X(p.e), Y(p.z) + 14 * dpr); g.stroke(); }
     for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 8 * dpr, 0, TAU); g.stroke(); }
-    const mlrs = artillery(v);
-    setTxt($('#gtac-info'), mlrs ? (F.strike ? 'Strike set: fire when the launcher is laid · tap again to move it' : 'Tap the map to set a rocket strike') : 'Tap the map to ping for your team');
+    tacInfo(F, v);
+  }
+  // what a tap on the tactical map does (alone, or beside the AI, there's no team to ping: a mark for yourself)
+  function tacInfo(F, v) {
+    setTxt($('#gtac-info'), artillery(v) ? (F.strike ? 'Strike set: fire when the launcher is laid · tap again to move it' : 'Tap the map to set a rocket strike') : mp() ? 'Tap the map to ping for your team' : 'Tap the map to mark a spot');
   }
   // the hillshade: the ground at 81 × 81 points (the arena's own mesh where it is built: quick; else the real ground, a
   // few hundred points a frame), lit from the north-west
@@ -774,7 +791,7 @@ const GHUD = (() => {
     S.pings.push({ e, z, t: now });
     if (S.pings.length > 3) S.pings.shift();
     if (mp() && typeof MP.sendSeen === 'function') MP.sendSeen([], false, [e, z]); // (a ping is a place on the map: e, z)
-    Sound.click(); F.toast('Ping for your team'); S.tacKey = ''; S.mapKey = '';
+    Sound.click(); F.toast(mp() ? 'Ping for your team' : 'Spot marked'); S.tacKey = ''; S.mapKey = '';
   }
 
   // ---------------------------------------------------------------- spotting by hand (J, a long press on a tag)
@@ -824,9 +841,13 @@ const GHUD = (() => {
   // ---------------------------------------------------------------- the sight's setting, and the wheel
   function zeroKey(F) {
     const v = F.active;
-    if (!v || !Aim.realistic()) return;
-    if (!lrf(v)) { F.toast('No rangefinder aboard: set the sight with PgUp / PgDn, or the wheel on its range ladder (right)'); return; }
-    const d = Math.hypot(F.aim.P.x - v.x, F.aim.P.y - v.y, F.aim.P.z - v.z);
+    if (!v || !F.aim || !Aim.realistic()) return;
+    const d = readRange(F, v);
+    if (d == null) {
+      F.toast(Armour.has(v, 'commander') ? 'No rangefinder aboard: keep the crosshair on a target for 3 s for the commander\'s reading, or set the sight with PgUp / PgDn'
+        : 'No rangefinder aboard: set the sight with PgUp / PgDn, or the wheel on its range ladder (right)');
+      return;
+    }
     F.zero = clamp(Math.round(d / 50) * 50, 200, 3000);
     F.toast(`Sight set to ${F.zero} m`); Sound.click();
   }
@@ -861,7 +882,9 @@ const GHUD = (() => {
     $('#btn-range').addEventListener('click', () => {
       const v = F.active;
       if (!v) return;
-      if (lrf(v)) zeroKey(F); else { F.zero = F.zero >= 3000 ? 200 : F.zero + 100; F.updateHUD(true); }
+      // (the commander's reading the first tap, if the sight isn't on it already; after that, 100 m steps)
+      const c = !lrf(v) && F.aim ? readRange(F, v) : null;
+      if (lrf(v) || (c != null && clamp(Math.round(c / 50) * 50, 200, 3000) !== F.zero)) zeroKey(F); else { F.zero = F.zero >= 3000 ? 200 : F.zero + 100; F.updateHUD(true); }
     });
     // the shell chips: a tap loads that round next; held 0.5 s, it comes out of the breech and that one goes in now.
     // Which it was is told on release by the events' own times (a frame that stalls between the finger going down and

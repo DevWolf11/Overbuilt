@@ -345,6 +345,19 @@ var topRun = () => {
 var tr = topRun();`);
 t('top attack: it climbs well over the line, then comes down onto the target\'s roof (and no warning goes to it: no target set)',
   R(`tr.quiet && tr.hit && tr.roof && tr.top > 100 && tr.dive > 10`), R('tr'));
+// (P4 review) the Turbine Engine's hot exhaust: the player's top-attack lock (2.5 km) reaches a quarter further, until
+// the turbine is knocked out
+R(`var topLock = (eng, m, broken) => {
+  const v = level(build(TOP)), tg = level(build(REAL.map((q) => (q.type === 'engDiesel' ? { ...q, type: eng } : q))), 300, ahead(m)), F = simOf(v);
+  F.vessels = [v, tg]; tg.ai = { ground: true }; Combat.reset(F); Combat.S.gai = 1;
+  if (broken) partOf(tg, eng).broken = true;
+  aimAt(F, v, { x: tg.x, y: tg.y, z: tg.z });
+  for (let i = 0; i < 60; i++) { Combat._t.playerFrame(F, 1 / 30); F.time += 1 / 30; }
+  const r = Combat.S.lock === tg; Combat.S.gai = 0; Combat.reset(F); return r;
+};
+var TL = [topLock('engDiesel', 2400), topLock('engDiesel', 2900), topLock('engTurbine', 2900), topLock('engTurbine', 3050), topLock('engTurbine', 3300), topLock('engTurbine', 2900, true)];`);
+t('a top-attack lock reaches 2.5 km, a quarter further (3,125 m) on a Turbine Engine\'s hot exhaust, and not once the turbine is broken',
+  R(`TL.join() === 'true,false,true,true,false,false'`), R('TL'));
 R(`var SAMV = [{ type: 'hullWheeled', x: 0, y: 1.2, flip: false, rot: 0 }, { type: 'samCmd', x: 0.5, y: 2.55, flip: false, rot: 3, att: 0 }, { type: 'radarTrack', x: -1.5, y: 2.4, flip: false, rot: 0, att: 0 }];
 var closRun = (breakBy) => {
   const v = level(build(SAMV), 200), b = bandit(700, ahead(3000, 200)), F = simOf(v), S = surfaceFrame(v.x, v.y, v.z); F.vessels = [v, b]; Combat.reset(F);

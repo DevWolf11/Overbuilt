@@ -258,9 +258,10 @@ const MPUI = {
     set('Friendly fire', ff);
     set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod, true));
     set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit, true));
-    const A = EARTH.arenas && EARTH.arenas[st.arena], hill = st.arena === 'highland';
+    const A = EARTH.arenas && EARTH.arenas[st.arena], hill = st.arena === 'highland', flat = MP.no3D();
     set('Arena', el('div', { class: 'mp-arena' }, el('b', { text: A ? A.name : 'Runway' }),
-      el('span', { class: 'muted small', text: hill ? ' · three zones in the North Scotland hills' : ' · The real map didn’t load: the battle is on the runway' })));
+      el('span', { class: 'muted small', text: hill ? ' · three zones in the North Scotland hills' : ' · The real map didn’t load: the battle is on the runway' }),
+      ...(flat ? [el('span', { class: 'small mp-flat', text: ' · Ground battles need the 3D view: this device can’t show it' })] : [])));
     box.append(el('p', { class: 'mp-explain', text: `Build Armour or a car, then hold the zones: each team starts with ${st.tickets} tickets, and every vehicle lost costs some (a dear one more). ${st.respawn === 'lineup' ? 'Three vehicles each, every one spawns once.' : 'Respawn as often as your team has tickets.'}${st.air ? ' Knock-outs and captures earn sortie points for aircraft.' : ''}` }));
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
     else if (MP.state.phase === 'lobby') this.stayHint(box);

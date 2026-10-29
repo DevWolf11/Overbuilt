@@ -51,6 +51,19 @@ Flight.breakParts.call(Object.assign(F5, { dist: () => 1e9, absPos: () => ({}), 
 var fl = FX.list.filter((f) => f.kind === 'flash');`);
 t('breakParts: a pod pair blows up at both pods', R('fl.length === 2 && Math.hypot(fl[0].x - fl[1].x, fl[0].y - fl[1].y, fl[0].z - fl[1].z) > 10'), R('Math.hypot(fl[0].x - fl[1].x, fl[0].y - fl[1].y, fl[0].z - fl[1].z).toFixed(2)'));
 
+// (P4 review) "Righting…" (spec §4.6) while Gear rolls an upturned ground vehicle back onto its tracks, hints on or off;
+// an old car, which vessel.js's own levelling rights, says nothing new
+R(`var hintOf = (v, righting, hints) => {
+  const F = Object.create(Flight), g = Settings.get;
+  Object.assign(F, { active: v, destroyed: false, time: 100, mp: null, _bodyGround: !!v.gear.length, groundAim: false, prediction: null, flags: {} });
+  v.righting = righting; Settings.get = (k) => (k === 'hints' ? hints : g.call(Settings, k));
+  try { return F.hint(); } finally { Settings.get = g; }
+};
+var tk = craft(templateRows(TEMPLATES.tk34), 'tank'), bug = craft(rowsOf('buggy'), 'car');
+var RH = [hintOf(tk, true, true), hintOf(tk, true, false), hintOf(tk, false, true), hintOf(tk, false, false), hintOf(bug, true, false)];`);
+t('"Righting…" while the helping hand rolls a tank back (hints on or off), then nothing; an old car\'s levelling says nothing',
+  R(`RH.join('|') === 'Righting…|Righting…|||' && tk.gear.length > 0 && !bug.gear.length`), R('JSON.stringify(RH)'));
+
 // the 2D flight view: canopies first, then sideOrder
 R(`var drawn = []; var _dp = drawPart, _dc = drawCanopy; drawPart = (c, p) => drawn.push(p); drawCanopy = (c, p) => drawn.push('canopy');
 var any = new Proxy(function () {}, { get: (o, k) => k === Symbol.toPrimitive ? () => 0 : any, apply: () => any, set: () => true });

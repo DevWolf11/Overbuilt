@@ -149,8 +149,8 @@ for (const [tag, vp] of SIZES) {
     // the tactical map
     await page.evaluate(() => GHUD.tactical(true));
     await page.waitForTimeout(600);
-    const tac = await page.evaluate(() => ({ open: GHUD.tacOpen, shown: !document.querySelector('#gtac').hidden }));
-    ok('the tactical map opens (M, or a tap on the minimap) and shuts', tac.open && tac.shown, tac);
+    const tac = await page.evaluate(() => ({ open: GHUD.tacOpen, shown: !document.querySelector('#gtac').hidden, info: $('#gtac-info').textContent }));
+    ok('the tactical map opens (M, or a tap on the minimap) and shuts; alone, a tap marks a spot (no team to ping)', tac.open && tac.shown && tac.info === 'Tap the map to mark a spot', tac);
     await shot(page, 'tactical-390x844');
     await page.evaluate(() => GHUD.tactical(false));
   }
@@ -194,6 +194,10 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   const L = await A.evaluate(layout);
   judge(tag, L, [...NEED.filter((k) => k !== 'range'), 'feed']); // (the zero pill: Realistic aim is the room's setting, Arcade here)
   ok(`${tag}: the room's bar is up`, !!L.panels.bar, L.panels);
+  await A.evaluate(() => GHUD.tactical(true)); await A.waitForTimeout(600);
+  const tacInfo = await A.evaluate(() => ({ open: GHUD.tacOpen, info: $('#gtac-info').textContent }));
+  await A.evaluate(() => GHUD.tactical(false));
+  ok(`${tag}: in a room the tactical map's tap pings the team`, tacInfo.open && tacInfo.info === 'Tap the map to ping for your team', tacInfo);
   await shot(A, `hud-room-${vp[0]}x${vp[1]}`);
   await pageErrors(A, tag + ' A ');
   await ctx.close();
@@ -395,6 +399,44 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   ok('the crosshair on the ground beyond a berm right in front of the gun (the camera sees past its crest): the reticle says Blocked', bk.src === 'ground' && bk.d > 60 && bk.blk > 0 && bk.blk < 30, bk);
   await page.evaluate(() => { Render3D.skipDraw = false; });
   await pageErrors(page, 'mouse ');
+  await ctx.close();
+}
+
+// ---- 4b. (P4 review) the commander's reading: Realistic aim with no rangefinder (the TK-34), after 3 s on one spot the
+// range within 4%, which Y sets the sight to; with the commander dead, no reading, and Y says how to set it instead
+{
+  const { ctx, page } = await open([1280, 720, false], { aimMode: 'realistic' }, 'commander ');
+  await fly(page, 'TK', T.tk34);
+  await page.evaluate(() => {
+    Render3D.skipDraw = true; Flight.zero = 800; Flight.aimPitch = -0.02;
+    window.__toasts = []; const f = Flight.toast; Flight.toast = function (s, ...a) { window.__toasts.push(String(s)); return f.call(this, s, ...a); };
+  });
+  const read = () => page.evaluate(() => { const v = Flight.active, P = Flight.aim.P; return { txt: GHUD._S.rangeTxt, src: Flight.aim.src, d: Math.round(Math.hypot(P.x - v.x, P.y - v.y, P.z - v.z)), zero: Flight.zero, cmd: Armour.has(v, 'commander'), lrf: v.parts.some((p) => p.def.lrf), toasts: window.__toasts.splice(0) }; });
+  const simWait = async (dt) => { const t0 = await page.evaluate(() => Flight.time); await page.waitForFunction((t) => Flight.time >= t, t0 + dt, { timeout: 300000, polling: 100 }); };
+  await simWait(1);
+  const early = await read();
+  await simWait(3);
+  const late = await read();
+  const m = /^Range ≈ ([\d,]+) m · Sight 800 m$/.exec(late.txt), got = m ? +m[1].replace(/,/g, '') : null;
+  ok('Realistic aim, no rangefinder, the commander alive: "Sight 800 m" at first, then after 3 s on the spot the commander\'s reading, within 4%',
+    early.cmd && !early.lrf && early.src === 'ground' && early.txt === 'Sight 800 m' && late.src === 'ground' && got != null && Math.abs(got - late.d) <= late.d * 0.04 + 10, { early, late, got });
+  await page.keyboard.press('KeyY');
+  const z = await read();
+  ok('...and Y sets the sight to the reading', got != null && z.zero !== 800 && Math.abs(z.zero - got) <= 30 && z.toasts.some((s) => s === `Sight set to ${z.zero} m`), { got, z });
+  // the RANGE pill (touch): on the reading already, a tap steps 100 m; off it, the first tap sets it
+  const tapRange = async () => { await page.evaluate(() => document.querySelector('#btn-range').click()); return page.evaluate(() => Flight.zero); };
+  const rz1 = await tapRange();
+  await page.evaluate(() => { Flight.zero = 800; });
+  const rz2 = await tapRange(), rz3 = await tapRange();
+  ok('...the RANGE pill: on the reading, a tap steps 100 m; off it, the first tap sets the reading, the next steps', rz1 === Math.min(3000, z.zero + 100) && rz2 === z.zero && rz3 === Math.min(3000, z.zero + 100), { z: z.zero, rz1, rz2, rz3 });
+  await page.evaluate(() => { const t = Flight.active.parts.find((p) => p.type === 'turretCast'), i = t.def.mods.findIndex((q) => q.role === 'commander'); (t.mods || (t.mods = []))[i] = 0; Flight.zero = 800; });
+  await simWait(3.5);
+  const dead = await read();
+  await page.keyboard.press('KeyY');
+  const dz = await read();
+  ok('with the commander dead: no reading, and Y leaves the sight be and says how to set it', !dead.cmd && dead.txt === 'Sight 800 m' && dz.zero === 800 && dz.toasts.some((s) => /^No rangefinder aboard: set the sight with PgUp/.test(s)), { dead, dz });
+  await page.evaluate(() => { Render3D.skipDraw = false; });
+  await pageErrors(page, 'commander ');
   await ctx.close();
 }
 

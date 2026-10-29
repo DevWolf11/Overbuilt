@@ -163,6 +163,37 @@ r = await ev(() => {
 });
 ok('smoke launchers go on the turret\'s sides as a mirrored pair (z symmetry)', r.two === 2 && r.z[0] === -r.z[1] && r.z[0] !== 0 && r.same && r.att.every((t) => t === 'turretCast'), JSON.stringify(r));
 await ev(() => Builder.undo());
+// launchers by a tap (not set into the armour like a gun's breech): wire-guided rails on the turret's front beside the
+// gun, never through its barrel; the rocket rails and the big launchers on its roof; on a bare ring, where the stock
+// BRDK-2 and BK-21 carry theirs (two taps give the BRDK-2 back its three rails)
+r = await ev(() => {
+  const rows0 = designRows(Builder.parts), out = {};
+  const tap = (type) => { const n = Builder.parts.length; Builder.quickAdd(type); return Builder.parts.slice(n); };
+  const judge = (nw) => ({
+    n: nw.length, host: [...new Set(nw.map((p) => (Builder.parts.find((q) => q.id === p.att) || {}).type))].join(), rot: nw.every((p) => p.rot === 3),
+    z: nw.map((p) => +partZ(p).toFixed(2)), over: nw.map((p) => +(partRect(p).b - partRect(Builder.parts.find((q) => q.id === p.att)).t).toFixed(3)),
+    clear: nw.every((p) => !Builder.parts.some((q) => q !== p && (partsClash(p, q) || (q.def.flush && partsOverlap(p, q))))), joined: nw.every((p) => Builder.attached.has(p.id)),
+    turns: nw.every((p) => Builder.tg && Builder.tg.some((g) => g.ids.has(p.id))),
+  });
+  for (const type of ['atgmWire', 'mlrsLight', 'samLong', 'mlrsPod']) { Builder.loadDesign({ name: 'l', kind: 'tank', parts: rows0 }); out[type] = judge(tap(type)); }
+  const strip = (k, type) => {
+    const rows = templateRows(TEMPLATES[k]), keep = rows.map((q, i) => (q.type === type ? -1 : i)).filter((i) => i >= 0);
+    return keep.map((i) => { const q = { ...rows[i] }; if (q.att != null) q.att = keep.indexOf(q.att); return q; });
+  };
+  const key = (p) => [p.type, +p.x.toFixed(3), +p.y.toFixed(3), +(p.z || 0).toFixed(3), p.rot].join();
+  Builder.loadDesign({ name: 'b', kind: 'tank', parts: strip('brdk2', 'atgmWire') });
+  const rails = [...tap('atgmWire'), ...tap('atgmWire')];
+  out.brdk2 = { ...judge(rails), stock: rails.map((p) => key({ ...p, z: partZ(p) })).sort().join('|') === templateRows(TEMPLATES.brdk2).filter((q) => q.type === 'atgmWire').map(key).sort().join('|') };
+  Builder.loadDesign({ name: 'k', kind: 'tank', parts: strip('bk21', 'mlrsLight') });
+  out.bk21 = judge(tap('mlrsLight'));
+  Builder.loadDesign({ name: 'Six taps', kind: 'tank', parts: rows0 });
+  return out;
+});
+const good = (j, n, host) => j.n === n && j.host === host && j.rot && j.clear && j.joined && j.turns;
+ok('a Wire-Guided Missile Rail tapped: a pair on the turret\'s front beside the gun, clear of its barrel', good(r.atgmWire, 2, 'turretCast') && r.atgmWire.z[0] === -r.atgmWire.z[1] && Math.abs(r.atgmWire.z[0]) > 0.6, JSON.stringify(r.atgmWire));
+ok('Rocket Rails, the Long-Range SAM Launcher and the Rocket Artillery Pod tapped: on the turret\'s roof', ['mlrsLight', 'samLong', 'mlrsPod'].every((t) => good(r[t], 1, 'turretCast') && Math.abs(r[t].over[0]) < 0.01), JSON.stringify([r.mlrsLight, r.samLong, r.mlrsPod]));
+ok('the BRDK-2 without its rails: two taps put back its three, where it carries them, on the ring', good(r.brdk2, 3, 'ringS') && r.brdk2.stock, JSON.stringify(r.brdk2));
+ok('the BK-21 without its rockets: one tap puts the Rocket Rails on its ring', good(r.bk21, 1, 'ringM') && Math.abs(r.bk21.over[0]) < 0.01, JSON.stringify(r.bk21));
 
 // ---- 5. the sweep's answer lands 150 ms after an edit, outside any input: it redraws (once) and warns
 const sweep = await ev(() => new Promise((done) => {

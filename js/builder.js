@@ -357,7 +357,7 @@ const TEMPLATES = {
   },
   ma1: { // (the M1A1 Abrams)
     name: 'MA-1 Abrahm', kind: 'tank', tier: 3,
-    blurb: 'A turbine, a stabilised 120 mm and a composite front few shells get through. Its rounds sit in the bustle behind blow-out panels: hit there, the blast vents up and the crew lives.',
+    blurb: 'A turbine, a stabilised 120 mm and a composite front few shells get through. Most of its rounds sit in the bustle behind blow-out panels: hit there, the blast vents up and the crew lives.',
     parts: [['hullMBT', 0, 1.15], ['trackMBT', 0, 0.55, 0, { z: -1.575, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.575, att: 0 }], ['engTurbine', -2.4, 1.15, 0, { att: 0 }],
       ['ringP', -0.3, 1.96, 0, { att: 0 }], ['turretWedge', -0.3, 2.495, 0, { att: 4 }], ['gun120', 3.548, 2.45, 3, { att: 5 }], ['mgCoax', 1.7, 2.45, 3, { z: 0.75, att: 5 }],
       ['mgHeavy', -1.0, 3.17, 3, { z: 0.8, att: 5 }], ['smokeL', 0.6, 2.6, 0, { z: -1.8, att: 5 }], ['smokeL', 0.6, 2.6, 0, { z: 1.8, att: 5 }],
@@ -1440,10 +1440,11 @@ const Builder = {
   // Where a tapped part goes on a tank, by its def.place: {x, y, z, rot, host, att}, or null (the usual tap then). A hull
   // on an empty blueprint (else behind the last one); tracks and armoured wheels beside the biggest hull, symmetry
   // adding the other side; engines, crew, racks and fuel inside, the first free spot within the armour; a ring on the
-  // roof, a turret on the ring; guns and launchers in the turret's front face (with no turret, the hull's), the trunnion
-  // in the face, so the breech is inside, pointing forward; radars at the back of the roof, sights at the front, gun
-  // mounts in the middle; smoke and AA guns on the turret's sides; plates and bricks on the face nearest the middle of
-  // the view (a front upright, a roof flat); skirts and slats over the tracks' outer faces.
+  // roof, a turret on the ring; guns in the turret's front face (with no turret, the hull's), the trunnion in the face,
+  // so the breech is inside, pointing forward; launchers on a bare ring, else against the turret's face or on a roof;
+  // radars at the back of the roof, sights at the front, gun mounts in the middle; smoke and AA guns on the turret's
+  // sides; plates and bricks on the face nearest the middle of the view (a front upright, a roof flat); skirts and
+  // slats over the tracks' outer faces.
   tankSpot(type, centre) {
     const def = PARTS[type], place = def.place, parts = this.parts;
     if (!place) return null;
@@ -1501,13 +1502,39 @@ const Builder = {
       return null;
     }
     if (place === 'front') { // in the front face at mid-height, beside or over anything already there
-      for (const dy of steps(4, 0.1)) for (const dz of steps(Math.floor(md / 0.05), 0.05)) {
-        const y = main.y + dy, z = mz + dz;
-        if (y - h / 2 < M.b || y + h / 2 > M.t || Math.abs(dz) + dep / 2 > md) continue;
-        const q = pose(into(this.frontAt(main, y)), y, z, main);
-        if (free(q)) return q;
+      const face = () => {
+        for (const dy of steps(4, 0.1)) for (const dz of steps(Math.floor(md / 0.05), 0.05)) {
+          const y = main.y + dy, z = mz + dz;
+          if (y - h / 2 < M.b || y + h / 2 > M.t || Math.abs(dz) + dep / 2 > md) continue;
+          // (a launcher isn't set into the armour like a gun's breech: its back end against the face, where the face
+          // reaches furthest forward over its height)
+          const x = def.flush ? into(this.frontAt(main, y)) : Math.max(...[y - h / 2, y, y + h / 2].map((yy) => this.frontAt(main, yy))) + w / 2;
+          const q = pose(x, y, z, main);
+          if (clear(q)) return q;
+        }
+        return null;
+      };
+      // (and clear of the gun barrels and the kit set into the armour, which a part that isn't flush could pass through)
+      const clear = (q) => free(q) && (def.flush || !parts.some((o) => o.def.flush && partsOverlap(q, o)));
+      if (def.flush) return face();
+      // A launcher sits on top of a bare ring as the stock rocket and missile carriers have it (side by side across it,
+      // its trunnion over the middle); on a turret, against its front face; else on the roof; with no turret and no
+      // room up there, against the hull's front.
+      const mount = (H) => {
+        const [a, b] = this.roofOf(H), hz = partZ(H), hd = partDepth(H) / 2, y = partRect(H).t + h / 2, off = rot0 === 3 ? def.h / 2 - piv * def.h : 0;
+        for (const dz of steps(Math.floor(hd / (dep + 0.02)), dep + 0.02)) for (let k = 0; k <= 40; k++) for (const s of k ? [-1, 1] : [1]) {
+          const tx = (a + b) / 2 + s * k * 0.05;
+          if (tx < a || tx > b || Math.abs(dz) + dep / 2 > hd + 0.01) continue;
+          const q = pose(tx + off, y, hz + dz, H);
+          if (clear(q)) return q;
+        }
+        return null;
+      };
+      for (const g of parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id && o.def.place === 'ring')).sort((a, b) => partRect(b).t - partRect(a).t)) {
+        const q = mount(g);
+        if (q) return q;
       }
-      return null;
+      return (tur && face()) || mount(main) || (!tur && face()) || null;
     }
     if (place === 'top') { // on the roof: radars at the back, sights at the front, gun mounts with their pivot over the middle
       const [a, b] = this.roofOf(main), radar = !!(def.searchRadar || def.trackRadar), sight = def.module === 'sight';

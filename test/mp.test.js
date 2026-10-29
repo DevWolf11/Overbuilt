@@ -291,7 +291,11 @@ async function groundBattle() {
   // our own ammunition detonation: the turret it threw lies by our hulk and stays through our respawn, the others' too
   X(`Net.out = []; __ui = []; var v6 = Flight.active; v6.ko = null; v6.lastHitBy = null; Armour.knockOut(v6, Flight, 'ammo', { st: Armour.crewOf(v6).stores.find((e) => e.rounds > 0), rounds: 40 });
     Flight.destroyed = true; MP.onLocalDestroyed(); var down6 = sent('down')[0][0], bits6 = (MP.hulk && MP.hulk.bits) || [], bits3 = MP.wrecks.find((w) => w.v === gh3).bits; flush();
-    __T += 6000; MP.respawnWith({ name: 'Third', kind: 'tank', parts: templateRows(TEMPLATES.ms4) }); var w6 = MP.wrecks.find((w) => w.v === v6);`);
+    __T += 6000; globalThis.Render3D = { supported: false, failed: false }; var nT6 = UI.toasts.length; // (this client has no WebGL: the 2D view)
+    MP.respawnWith({ name: 'Third', kind: 'tank', parts: templateRows(TEMPLATES.ms4) }); var w6 = MP.wrecks.find((w) => w.v === v6), t6 = UI.toasts.slice(nT6), w2d6 = Flight._warn2d;
+    Render3D.supported = true; var no3d6 = MP.no3D(); delete globalThis.Render3D;`);
+  t('ground: a client with no 3D view is told on spawning that ground battles need it (in place of the flight\'s own warning); with 3D, or no renderer yet, not',
+    X(`t6.includes('Ground battles need the 3D view: this device can’t show it') && w2d6 === true && no3d6 === false && !MP.no3D() && !UI.toasts.slice(0, nT6).some((x) => /need the 3D view/.test(x))`), X('[t6, w2d6, no3d6]'));
   t('ground: our ammunition detonation (x): the turret it threw lies by our hulk through our respawn (pieces our hits never look in)', X(`down6.x === 1 && down6.w === 1 && bits6.length >= 1 && bits6.every((q) => q.tossed && q.foreign === Net.me && Flight.vessels.includes(q)) && !!w6 && w6.bits === bits6 && Flight.active.name === 'Third'`), X(`[down6, bits6.length, !!w6, Flight.active.name]`));
   t('ground: ...and the turret another player\'s detonation threw stays too (our respawn keeps every wreck\'s pieces)', X(`bits3.length >= 1 && bits3.every((q) => Flight.vessels.includes(q)) && Flight.starts.at(-1).keep === MP.wrecks.length + bits3.length + bits6.length`), X('[Flight.starts.at(-1), MP.wrecks.length, bits3.length, bits6.length]'));
   X(`Flight.vessels = Flight.vessels.filter((v) => !v.tossed); MP.beforeUpdate(0.016);`);

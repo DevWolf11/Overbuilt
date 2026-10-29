@@ -214,6 +214,13 @@ R(`var ai4 = GroundAI.ai.slice(), tk4 = B3.obj.tk[0], old4 = F3.active; F3.rever
 var kept4 = ai4.every((v) => F3.vessels.includes(v) && !v.dead), lost4 = tk4 - B3.obj.tk[0];`);
 t('...Revert to launch in a Practice Battle: back on the pad in a fresh vehicle, the AI kept (it costs the vehicle\'s tickets, as a knock-out would)',
   R(`kept4 && F3.active !== old4 && lost4 >= 30 && !!GroundAI.battle && Combat.S.gai === 1`), R('[kept4, lost4]'));
+// (P4 review) out of the battle area: a warning every 5 s while out, as in a room, none once back in
+R(`var OOB = 'Out of the battle area: the zones are behind you', bx3 = EARTH.arenas.highland.box, oob = () => F3.toasts.filter((m) => m === OOB).length;
+var o0 = oob(); go(F3, 3); var oIn = oob() - o0;
+F3.active.placeOnSurface(EARTH, siteAngle(EARTH, bx3.e0 - 150), 0, (bx3.z0 + bx3.z1) / 2, 0); go(F3, 12); var oOut = oob() - o0;
+F3.active.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e), 0, NPAD.z, NPAD.yaw || 0); go(F3, 8); var oBack = oob() - o0 - oOut;`);
+t('...out of the battle area (150 m west of Highland Ridge\'s box) the Practice Battle warns every 5 s, as a room does; in it, never',
+  R(`oIn === 0 && oOut === 3 && oBack === 0`), R('[oIn, oOut, oBack]'));
 R(`var ai5 = GroundAI.ai.slice(); F3.start(designOf('tk34'), { place: NPAD }); go(F3, 0.1);`);
 t('...a new flight (Combat.reset: a new launch, a saved flight resumed) ends it: its AI gone, GroundAI.battle null, its zones off the HUD (and a tank on the north pad gets the Tank Range instead)',
   R(`GroundAI.battle === null && GroundMode.obj() === null && ai5.every((v) => v.dead && !F3.vessels.includes(v)) && !!GroundAI.range && GroundAI.ai.every((v) => v.ai.role !== 'fight')`),

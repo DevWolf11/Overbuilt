@@ -54,6 +54,12 @@ g('51 templates; the sixteen ground ones last (after the jets), under their own 
   && gv.every((k) => W.TEMPLATES[k].name === GROUND[k][0]), gv.map((k) => W.TEMPLATES[k].name).join(', '));
 g('fifteen are Armour (kind tank), the Desert Technical a car; none of them military; each with a blurb', gv.filter((k) => W.TEMPLATES[k].kind === 'tank').length === 15 && W.TEMPLATES.technical.kind === 'car'
   && gv.every((k) => !W.TEMPLATES[k].military && W.TEMPLATES[k].blurb.length > 40));
+// (P4 review) a blurb says what the vehicle does: most of the MA-1's rounds (34 of 50) sit behind blow-out panels, not all
+// (16 are in the hull, spent first)
+g('the MA-1\'s blurb puts most of its rounds, not all, behind blow-out panels, as its stores have them', RW(`(() => {
+  const ps = partsFromDesign(templateRows(TEMPLATES.ma1)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'tank'; v.rebuildGroups();
+  const st = Armour.crewOf(v).stores, all = st.reduce((n, e) => n + e.cap, 0), bo = st.filter((e) => e.blowout).reduce((n, e) => n + e.cap, 0);
+  return /Most of its rounds sit in the bustle behind blow-out panels/.test(TEMPLATES.ma1.blurb) && bo > all / 2 && bo < all; })()`), RW('TEMPLATES.ma1.blurb'));
 g('career tier: the highest of its parts\'', gv.every((k) => W.TEMPLATES[k].tier === Math.max(...W.TEMPLATES[k].parts.map((r) => W.PARTS[r[0]].tier || 0))));
 g('paint: each paint names a part it carries and a skin those parts take', RW(`Object.keys(__G).every((k) => { const T = TEMPLATES[k]; return T.paint && Object.keys(T.paint).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); })`));
 RW(`var ground = {};

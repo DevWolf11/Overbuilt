@@ -803,6 +803,9 @@ const GroundAI = (() => {
       const v = u.v, me = v === A, k = v.ai && v.ai.k;
       if (me && v.contactTime > 0) B.gdAt = F.time;
       U.push({ team: u.team, e: u.e, z: u.z, kind: v.kind, speed: me ? v.speed() : Math.abs(k.s), gd: me ? (F.time - (B.gdAt ?? -9) < 0.5 ? 1 : 0) : 1, troops: troopsOf(v), v });
+      // out of the battle area: a warning only, every 5 s while out, as in a room (aircraft fly where they like)
+      const X = me && !(v.kind === 'plane' || v.kind === 'heli') && GroundMode.arena(B.arena), bx = X && X.box, since = F.time - (B.oobAt ?? -Infinity);
+      if (bx && (u.e < bx.e0 || u.e > bx.e1 || u.z < bx.z0 || u.z > bx.z1) && (since >= 5 || since < 0)) { B.oobAt = F.time; say(F, 'Out of the battle area: the zones are behind you', 'warn'); } // (since < 0: a new flight's clock)
     }
     for (const ev of GroundMode.tick(O, dt, U)) {
       const name = ev.zone;

@@ -568,7 +568,7 @@ const Flight = {
       <div><kbd>J</kbd><span>Spot the enemy under the crosshair for your team</span></div>
       <div><kbd>M</kbd><span>Tactical map (tap it to set a rocket-artillery strike, or to ping; Esc shuts it)</span></div>
       <div><kbd>C</kbd><span>Hold: look round, the turret holds · tap: aim straight ahead</span></div>
-      <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range · <kbd>PgUp</kbd><kbd>PgDn</kbd> step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
+      <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range (or the commander's reading) · <kbd>PgUp</kbd><kbd>PgDn</kbd> step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
       ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
       <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu (Esc also lets the mouse go)</span></div>
@@ -1389,7 +1389,7 @@ const Flight = {
       case 'KeyJ': GHUD.spot(this); return true;
       case 'KeyM': GHUD.tactical(!GHUD.tacOpen); return true;
       case 'Escape': if (!GHUD.tacOpen) return false; GHUD.tactical(false); return true; // (Esc shuts the tactical map first)
-      case 'KeyY': GHUD.zeroKey(this); return true; // (Realistic aim: the sight set to the rangefinder's range; R stays Recover)
+      case 'KeyY': GHUD.zeroKey(this); return true; // (Realistic aim: the sight set to the rangefinder's range, or the commander's reading; R stays Recover)
       case 'KeyC': this.freeLook = true; this.freeAt = performance.now(); this.freeYaw = this.aimYaw; this.freePitch = this.aimPitch; return true;
     }
     return false;
@@ -1510,9 +1510,11 @@ const Flight = {
   },
 
   hint() {
+    const v = this.active;
+    if (!v || this.destroyed) return '';
+    if (v.righting && v.gear && v.gear.length) return 'Righting…'; // (the helping hand rolling a ground vehicle back onto its tracks: said even with hints off)
     if (!Settings.get('hints')) return '';
-    const v = this.active, b = v.body;
-    if (this.destroyed) return '';
+    const b = v.body;
     const o = this.prediction && this.prediction[0] && this.prediction[0].o;
     const alt = v.altitude();
     if (v.kind !== 'rocket' && b === EARTH) return this.vehicleHint(v);

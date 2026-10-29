@@ -111,6 +111,9 @@ const MP = {
   get pvp() { return !!this.state && this.state.mode === 'pvp'; },
   // a ground battle (settings.game 'ground'); every new branch in an air battle's way checks this first
   get ground() { return !!this.state && this.state.mode === 'pvp' && this.state.settings.game === 'ground'; },
+  // Is this client stuck in the 2D view (no WebGL)? A ground battle can't be seen there: the 2D view is a side cut
+  // through the launch site, far from Highland Ridge. (Retro 2D flight, a silly setting, is off in any battle.)
+  no3D() { return typeof Render3D !== 'undefined' && (!Render3D.supported || !!Render3D.failed); },
   get phase() { return this.state ? this.state.phase : null; },
   // the local craft is in the shared world (sandbox flights, PvP battle)
   get shared() { return this.live && Flight.running && !!Flight.mp && !Flight.mp.solo; },
@@ -793,6 +796,7 @@ const MP = {
         if (this.me && (this.me.airSlots || 0) !== a) this.setMine('airSlots', a);
       }
       MPUI.refresh();
+      if (this.ground && this.no3D()) { Flight._warn2d = true; UI.toast('Ground battles need the 3D view: this device can’t show it', 'warn'); } // (in place of flight.js's 'Ground combat needs the 3D view')
       const tip = place && place.carrier ? 'Throttle up, then hit LAUNCH (L) for the catapult' : null;
       if (solo) UI.toast(this.ground ? 'Test drive: one minute on your pad, nobody can hurt you' : 'Test flight: one minute, nobody can hurt you');
       else if (ground) UI.toast(again ? `Back in the fight: ${design.name || VEHICLE_KINDS[kind].name}` : `Battle! Hold the zones: ${s.settings.tickets || 600} tickets each`);

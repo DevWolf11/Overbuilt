@@ -1013,6 +1013,7 @@ kbd {
 .mp-money .kind-btn[aria-checked="true"] small { color: var(--amber); }
 .mp-arena { font-size: 13px; }
 .mp-arena b { letter-spacing: 0.04em; }
+.mp-arena .mp-flat { color: var(--amber); }
 /* tickets round the zones, in the bar's row: ours blue on the left, theirs red */
 .mp-ground { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font: 600 13px var(--mono); font-variant-numeric: tabular-nums; }
 .mp-ground[hidden] { display: none; }
