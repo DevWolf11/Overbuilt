@@ -80,6 +80,16 @@ function aimDrop(SH, R, th, rho, g) {
   aimOut.drop = (g * Math.cos(th) * (Math.expm1(2 * a) - 2 * a)) / (4 * kr * kr * ve * ve);
   return aimOut;
 }
+// A gun's unit line o (R m to its point, climbing at sin s, cos c, with up u) lifted in the vertical plane for its loaded
+// shell's drop at the range (Arcade: the one measured; Realistic: a main gun's at the sight's zero)
+function aimLift(p, w, R, s, c, ux, uy, uz, rho, gr, real, zero, o) {
+  const SH = aimShell(p);
+  if (!SH) return o;
+  const Rz = real && w.kind === 'tgun' ? zero : R, d = aimDrop(SH, Rz, Math.asin(s), rho, gr), dl = Math.atan2(d.drop, Rz), cd = Math.cos(dl), sd = Math.sin(dl);
+  const lx = o.x, ly = o.y, lz = o.z;
+  o.x = lx * cd + ((ux - lx * s) / c) * sd; o.y = ly * cd + ((uy - ly * s) / c) * sd; o.z = lz * cd + ((uz - lz * s) / c) * sd;
+  return o;
+}
 // a shell's time over D m (straight out, no lift)
 const aimTof = (SH, D, rho) => { const kr = Math.max(SH.k * rho, 1e-12); return Math.expm1(kr * D) / (kr * SH.v0); };
 // sector (0..11, 30° each, 0 dead ahead) of a yaw
@@ -413,12 +423,13 @@ const Aim = {
       p.aimEl = clamp(Math.atan2(-aimS.x, Math.hypot(aimS.y, aimS.z)), a.el[0] * AIM_RAD, a.el[1] * AIM_RAD);
       if (a.stab >= 2 && (a.trav || (!g && a.casemate))) p.aimYaw = aimArc(p, g, Math.atan2(aimS.z, aimS.y));
     }
-    // 2. the rings
+    // 2. the rings: each to its main weapon's point, a gun's lifted for its drop (the lift is in the true vertical, so on
+    // a rolled hull it leans across the turret: aimed at the unlifted point, the barrel's rise would carry the round aside)
     aimA.x = Pg.x - v.x; aimA.y = Pg.y - v.y; aimA.z = Pg.z - v.z; aimToPart(v, aimA);
     aimA.x += v.com.x; aimA.y += v.com.y; aimA.z += v.com.z || 0;
     for (const g of v.tg) {
-      const R = g.ring, W = aimPrimary(g, cur), A = this.ringAim(g, W);
-      aimB.x = aimA.x; aimB.y = aimA.y; aimB.z = aimA.z;
+      const R = g.ring, W = aimPrimary(g, cur), A = this.ringAim(g, W), ww = W && W.def.weapon;
+      if (!(ww && (ww.kind === 'tgun' || ww.kind === 'agun') && this.liftPt(v, W, Pg, ux, uy, uz, rho, gr, real, zero, aimB))) { aimB.x = aimA.x; aimB.y = aimA.y; aimB.z = aimA.z; }
       if (g.parent) aimUnturn(g.parent, aimB);
       const dx = aimB.x - g.c.x, dz = aimB.z - g.c.z, rr = Math.hypot(dx, dz);
       if (rr < 0.3) continue;
@@ -451,13 +462,8 @@ const Aim = {
     lx /= R; ly /= R; lz /= R;
     const s = clamp(lx * ux + ly * uy + lz * uz, -1, 1), c = Math.sqrt(1 - s * s);
     aimW.x = lx; aimW.y = ly; aimW.z = lz;
-    if (w && (w.kind === 'tgun' || w.kind === 'agun') && c > 1e-4) {
-      const SH = aimShell(p);
-      if (SH) { // lifted, in the vertical plane, for the drop at the range (Arcade: the one measured; Realistic: the zero)
-        const Rz = real && w.kind === 'tgun' ? zero : R, o = aimDrop(SH, Rz, Math.asin(s), rho, gr), dl = Math.atan2(o.drop, Rz), cd = Math.cos(dl), sd = Math.sin(dl);
-        aimW.x = lx * cd + ((ux - lx * s) / c) * sd; aimW.y = ly * cd + ((uy - ly * s) / c) * sd; aimW.z = lz * cd + ((uz - lz * s) / c) * sd;
-      }
-    } else if (w && w.kind === 'rocket' && c > 1e-4) { // rocket artillery: elevated for the range, from its table
+    if (w && (w.kind === 'tgun' || w.kind === 'agun') && c > 1e-4) aimLift(p, w, R, s, c, ux, uy, uz, rho, gr, real, zero, aimW);
+    else if (w && w.kind === 'rocket' && c > 1e-4) { // rocket artillery: elevated for the range, from its table
       const S = this.rocketEl(d, R * c, R * s, v.body);
       if (S) {
         const ce = Math.cos(S.el), se = Math.sin(S.el);
@@ -481,6 +487,21 @@ const Aim = {
     // how far off it still is, and whether a limit (its own, or its ring's) keeps it off
     p._err = Math.hypot(eW - p.aimEl, (full ? wrapAngle(yW - p.aimYaw) : yW - p.aimYaw) * Math.cos(eW));
     p._lim = eW < eLo - 0.005 || eW > eHi + 0.005 || (yhi - ylo < 1e-6 ? !!(g && g.ring._lim) : !full && (yW < ylo - 0.005 || yW > yhi + 0.005));
+  },
+  // Where gun p's line from its trunnion to Q, lifted for its drop, passes at Q's range: in v's part space, into o (false
+  // when Q is at the muzzle). Its ring turns to it, so the lifted line lies in the plane the barrel rises in.
+  liftPt(v, p, Q, ux, uy, uz, rho, gr, real, zero, o) {
+    const T = this.trunnion(v, p, aimT);
+    let lx = Q.x - T.x, ly = Q.y - T.y, lz = Q.z - T.z;
+    const R = Math.hypot(lx, ly, lz);
+    if (R < 0.5) return false;
+    lx /= R; ly /= R; lz /= R;
+    const s = clamp(lx * ux + ly * uy + lz * uz, -1, 1), c = Math.sqrt(1 - s * s);
+    o.x = lx; o.y = ly; o.z = lz;
+    if (c > 1e-4) aimLift(p, p.def.weapon, R, s, c, ux, uy, uz, rho, gr, real, zero, o);
+    o.x = T.x + o.x * R - v.x; o.y = T.y + o.y * R - v.y; o.z = T.z + o.z * R - v.z; aimToPart(v, o);
+    o.x += v.com.x; o.y += v.com.y; o.z += v.com.z || 0;
+    return true;
   },
   // a ring's main weapon, as the ring sees it: its barrel's azimuth at the build pose, and how far its trunnion sits off
   // the line through the ring's centre that way (so the turret turns its gun, not its middle, onto the point)

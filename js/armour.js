@@ -871,8 +871,9 @@ const Armour = (() => {
     return LOC.r - b.radius - gh;
   }
   // Where the segment P0 -> P1 first goes under the ground (fraction, the point in gtAt), or -1. Its end is tested; near
-  // the ground (either end within 6 m) every 5 m along it too, so a fast shell doesn't skip through a berm or a crest; a
-  // hit is bisected three times. Cheap rounds look at the coarse lattice first, and test exactly only within 3 m of it.
+  // the ground (either end within 6 m) every 5 m along it too, so a fast shell doesn't skip through a berm or a crest, and
+  // every 0.75 m over a berm's top (a line through its top 10 cm crosses it in about 2 m); a hit is bisected three times.
+  // Cheap rounds look at the coarse lattice first, and test exactly only within 3 m of it.
   function groundT(s, b, P0, P1, cheap) {
     if (cheap) {
       const c0 = clearOf(b, P0.x, P0.y, P0.z, true), c1 = clearOf(b, P1.x, P1.y, P1.z, true);
@@ -882,14 +883,53 @@ const Armour = (() => {
     s.gc = c1;
     let lo = 0, hi = -1;
     if (Math.min(c0, c1) < 6) {
-      const L = len(P1.x - P0.x, P1.y - P0.y, P1.z - P0.z), n = Math.min(8, Math.floor(L / 5));
-      for (let i = 1; i <= n && hi < 0; i++) { const f = i / (n + 1); if (clearOf(b, P0.x + (P1.x - P0.x) * f, P0.y + (P1.y - P0.y) * f, P0.z + (P1.z - P0.z) * f, false) < 0) hi = f; else lo = f; }
+      const L = len(P1.x - P0.x, P1.y - P0.y, P1.z - P0.z), n = Math.min(8, Math.floor(L / 5)), on = bermSpan(b, P0, P1), d = 0.75 / Math.max(L, 0.75);
+      for (let i = 1, prev = 0; i <= n + 1 && hi < 0; prev = i++ / (n + 1)) {
+        const f = i / (n + 1);
+        if (on && f > BSP[0] && prev < BSP[1]) for (let g = Math.max(prev, BSP[0]) + d, e = Math.min(f, BSP[1]); g < e && hi < 0; g += d) { if (underAt(b, P0, P1, g)) hi = g; else lo = g; }
+        if (hi < 0 && i <= n) { if (underAt(b, P0, P1, f)) hi = f; else lo = f; }
+      }
     }
     if (hi < 0 && c1 < 0) hi = 1;
     if (hi < 0) return -1;
     for (let i = 0; i < 3; i++) { const f = (lo + hi) / 2; if (clearOf(b, P0.x + (P1.x - P0.x) * f, P0.y + (P1.y - P0.y) * f, P0.z + (P1.z - P0.z) * f, false) < 0) hi = f; else lo = f; }
     gtAt.x = P0.x + (P1.x - P0.x) * hi; gtAt.y = P0.y + (P1.y - P0.y) * hi; gtAt.z = P0.z + (P1.z - P0.z) * hi;
     return hi;
+  }
+  const underAt = (b, P0, P1, f) => clearOf(b, P0.x + (P1.x - P0.x) * f, P0.y + (P1.y - P0.y) * f, P0.z + (P1.z - P0.z) * f, false) < 0;
+  // The stretch of P0 -> P1 over the crest of an arena's berm (within 8 m of its ridge line, along its 26 m), as fractions
+  // into BSP; false when it passes none
+  const BSP = [0, 0], BLOC = {};
+  let bsT0 = 0, bsT1 = 1;
+  function slab(p0, p1, m) { // (keeps bsT0..bsT1 to where |p0 + (p1 - p0) t| < m)
+    const dp = p1 - p0;
+    if (Math.abs(dp) < 1e-9) { if (Math.abs(p0) >= m) bsT1 = -1; return; }
+    const ta = (-m - p0) / dp, tb = (m - p0) / dp;
+    bsT0 = Math.max(bsT0, Math.min(ta, tb)); bsT1 = Math.min(bsT1, Math.max(ta, tb));
+  }
+  function bermSpan(b, P0, P1) {
+    const A = b === EARTH && b.mapped && b.arenas, BM = Terrain.BERM;
+    if (!A || !BM) return false;
+    Terrain.locate(b, P0.x, P0.y, P0.z, BLOC);
+    const e0 = -wrapAngle(BLOC.a - b.padAngle) * b.radius, z0 = BLOC.z;
+    Terrain.locate(b, P1.x, P1.y, P1.z, BLOC);
+    const e1 = -wrapAngle(BLOC.a - b.padAngle) * b.radius, z1 = BLOC.z;
+    let lo = 2, hi = -1;
+    for (const k in A) {
+      const a = A[k], B = a.box, L = a.berms;
+      if (!L || !L.length || !B || Math.max(e0, e1) < B.e0 - 30 || Math.min(e0, e1) > B.e1 + 30 || Math.max(z0, z1) < B.z0 - 30 || Math.min(z0, z1) > B.z1 + 30) continue;
+      for (const q of L) {
+        const de0 = e0 - q.e, dz0 = z0 - q.z, de1 = e1 - q.e, dz1 = z1 - q.z;
+        if (Math.min(de0, de1) > 25 || Math.max(de0, de1) < -25 || Math.min(dz0, dz1) > 25 || Math.max(dz0, dz1) < -25) continue;
+        bsT0 = 0; bsT1 = 1;
+        slab(de0 * q.c + dz0 * q.s, de1 * q.c + dz1 * q.s, BM.half);
+        slab(-de0 * q.s + dz0 * q.c, -de1 * q.s + dz1 * q.c, 8);
+        if (bsT0 < bsT1) { lo = Math.min(lo, bsT0); hi = Math.max(hi, bsT1); }
+      }
+    }
+    if (hi < lo) return false;
+    BSP[0] = lo; BSP[1] = hi;
+    return true;
   }
   // into the ground: high explosive bursts (a copy only shows it), anything else puffs dust or splashes
   function ground(s, b, P, F, SH, spare) {

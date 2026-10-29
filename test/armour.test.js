@@ -393,6 +393,9 @@ R(`var bermShots = (sh, dh) => { const B = EARTH.arenas.highland.berms[2], F = s
   return out; };`);
 t('a berm stops level shots at its crest (0.5 and 1 m under the top) from 300 m: a 1,650 m/s dart and an 800 m/s shell (on it, or its foot)', R(`(() => { const all = [bermShots('apfsds120', -0.5), bermShots('apfsds120', -1), bermShots('aphe85', -0.5)];
   return all.every((r) => r.every((z) => z !== null && Math.abs(z) < 14)); })()`), R(`[bermShots('apfsds120', -0.5), bermShots('apfsds120', -1), bermShots('aphe85', -0.5)]`));
+t('...and shots that only clip its top (0.1 and 0.2 m under the crest: a hull-down turret\'s base) stop there too, not hundreds of metres behind',
+  R(`(() => { const all = [bermShots('apfsds120', -0.1), bermShots('apfsds120', -0.2), bermShots('aphe85', -0.1), bermShots('aphe85', -0.2), bermShots('ap75', -0.1)];
+  return all.every((r) => r.every((z) => z !== null && Math.abs(z) < 14)); })()`), R(`[bermShots('apfsds120', -0.1), bermShots('apfsds120', -0.2), bermShots('aphe85', -0.1), bermShots('aphe85', -0.2), bermShots('ap75', -0.1)]`));
 t('...and shots 3 m over the crest fly on past it', R(`bermShots('apfsds120', 3).every((z) => z === null || z > 20)`), R(`bermShots('apfsds120', 3)`));
 t('the coarse ground (16 m, its own cache) for cheap rounds: never more than 3 m under the real ground on Highland Ridge', R(`(() => { const B = EARTH.arenas.highland.box; let worst = -Infinity;
   for (let i = 0; i < 400; i++) { const e = B.e0 + ((i * 7919) % 1000) / 1000 * (B.e1 - B.e0), z = B.z0 + ((i * 104729) % 997) / 997 * (B.z1 - B.z0), a = siteAngle(EARTH, e);

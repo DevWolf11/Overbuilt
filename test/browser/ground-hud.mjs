@@ -9,8 +9,12 @@
 //    smoke launchers alone.
 //  - The controls: R doesn't set the sight's zero, Y does (Realistic aim, a rangefinder aboard); a click under pointer
 //    lock never uses a part; a slide on FIRE turns the turret; a drag on the view aims (a finger, and a mouse when the
-//    lock is refused); Esc under pointer lock opens the menu once, whichever comes first, the key or the lock let go; a
-//    quick tap on a shell chip queues the round even across a stalled frame, a long press loads it now.
+//    lock is refused, whichever button went down first); Esc under pointer lock opens the menu once, whichever comes
+//    first, the key or the lock let go; the capture click never fires, a click shorter than a frame does; Shift+Tab
+//    leaves the sight alone; alt-tab ends a look round; the sight's wheel counts a touchpad's travel and never moves the
+//    range under the lock (PgUp / PgDn do); the aim camera's zoom has no dead notches; an unarmed design's menu lists
+//    its own keys; Blocked shows with the crosshair on the ground over a berm; a quick tap on a shell chip queues the
+//    round even across a stalled frame, a long press loads it now.
 //  - The sight: the view narrows to 50/zoom degrees and back, project() and metresPerPixelAt agreeing all the while.
 //  - The HUD: the reload ring round FIRE; at most 120 2D-context calls a frame; none of its DOM written while nothing
 //    changes; no console errors (App.frame swallows them).
@@ -202,6 +206,10 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   const s = await page.evaluate(() => ({ ground: document.body.classList.contains('ground'), aim: Flight.groundAim, sas: getComputedStyle(document.querySelector('#sas-bar')).display, brake: !document.querySelector('#btn-brake').hidden && document.querySelector('#btn-brake').getBoundingClientRect().width > 0 }));
   ok('an unarmed Armour design: ground controls (no autopilot), no aiming', s.ground && !s.aim && s.sas === 'none', s);
   ok('Brake shows on a tracked vehicle', s.brake, s);
+  // its menu lists the keys it has (the old ones: M the map, C the camera), not the aiming ones it lacks
+  const hl = await page.evaluate(() => { const d = el('div'); d.innerHTML = Flight.controlsHelp(); return [...d.querySelectorAll('.help-grid > div')].map((q) => q.textContent.replace(/\s+/g, ' ').trim()); });
+  const says = (re) => hl.some((t) => re.test(t));
+  ok('an unarmed Armour design\'s menu lists its keys: drive, the map, the camera; no aiming, machine guns, tactical map or look round', says(/Drive forward/) && says(/^M ?Map view/) && says(/Reset the camera/) && !says(/capture the mouse|Machine guns|Tactical map|look round/), hl);
   await fly(page, 'Smoky', SMOKY);
   const m = await page.evaluate(() => { const c = document.querySelector('#btn-cm'), r = c.getBoundingClientRect(); return { shown: !c.hidden && r.width > 0 && !document.querySelector('#weapon-box').hidden, text: c.textContent.trim(), fire: !document.querySelector('#btn-fire').hidden }; });
   ok('SMOKE shows with smoke launchers alone', m.shown && /smoke/i.test(m.text), m);
@@ -273,6 +281,67 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   await page.mouse.move(mid[0], mid[1]); await page.mouse.down(); await page.mouse.move(mid[0] + 100, mid[1], { steps: 8 }); await page.mouse.up();
   const d1 = await page.evaluate(() => ({ yaw: Flight.aimYaw, locked: Flight._locked, used: window.__used }));
   ok('without pointer lock a mouse drag aims (and uses no part)', !d1.locked && d1.yaw < d0 - 0.15 && d1.used === 0, { before: d0, after: d1 });
+  // ...and holding the sight first (right), then dragging with the left (it comes chorded, as a move), aims as well
+  const wrapD = (a, c) => Math.atan2(Math.sin(a - c), Math.cos(a - c));
+  const c0 = await page.evaluate(() => Flight.aimYaw);
+  await page.mouse.move(mid[0], mid[1]); await page.mouse.down({ button: 'right' }); await page.mouse.down({ button: 'left' });
+  await page.mouse.move(mid[0] + 100, mid[1], { steps: 8 }); await page.mouse.up({ button: 'left' }); await page.mouse.up({ button: 'right' });
+  const c1 = await page.evaluate(() => ({ yaw: Flight.aimYaw, sight: Flight.sight, used: window.__used }));
+  ok('without pointer lock, the sight held (right) and then a left drag aims too', wrapD(c1.yaw, c0) < -0.05 && !c1.sight && c1.used === 0, { before: c0, after: c1 });
+
+  // the lock again: the click that asks for it doesn't fire, even when the lock comes while it is held and the hand moves
+  // a pixel; a click shorter than a frame under the lock (a touchpad's tap) fires once, as a V tap does
+  const gunShots = () => page.evaluate(() => Flight.active.aimed.filter((p) => p.def.weapon && p.def.weapon.kind === 'tgun').reduce((n, p) => n + (p.shots || 0), 0));
+  const load = () => page.evaluate(() => { const v = Flight.active; for (const p of v.aimed) if (p.def.weapon && p.def.weapon.kind === 'tgun') { p.reload = 0; if (!(p.ammo > 0)) p.ammo = 1; } v.wsel = Combat.systems(v).findIndex((q) => q.w.kind === 'tgun'); });
+  const frames = (n) => page.evaluate((n) => new Promise((done) => { let i = 0; const f = () => (++i >= n ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+  await page.evaluate(() => { window.__refuse = false; });
+  await load(); let g0 = await gunShots();
+  await page.mouse.move(mid[0], mid[1]); await page.mouse.down(); await page.waitForTimeout(80);
+  const capLocked = await page.evaluate(() => Flight._locked);
+  await page.mouse.move(mid[0] + 2, mid[1] + 1); await frames(4); await page.mouse.up(); await frames(3);
+  const capShots = (await gunShots()) - g0;
+  await load(); g0 = await gunShots();
+  await page.evaluate(() => { const c = Flight.canvas; c.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'mouse', button: 0, buttons: 1, bubbles: true, pointerId: 1 })); c.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'mouse', button: 0, buttons: 0, bubbles: true, pointerId: 1 })); });
+  await frames(4);
+  const tapShots = (await gunShots()) - g0;
+  ok('the click that captures the mouse never fires, though the hand moves while the lock comes; a click shorter than a frame under the lock fires once', capLocked && capShots === 0 && tapShots === 1, { capLocked, capShots, tapShots });
+
+  // Shift+Tab changes weapon back and leaves the sight alone; Shift on its own toggles it
+  const sb = await page.evaluate(() => ({ sight: Flight.sight, wsel: Flight.active.wsel }));
+  await page.keyboard.down('ShiftLeft'); await page.keyboard.press('Tab'); await page.keyboard.up('ShiftLeft');
+  const sa = await page.evaluate(() => ({ sight: Flight.sight, wsel: Flight.active.wsel }));
+  await page.keyboard.press('ShiftLeft'); const sOn = await page.evaluate(() => Flight.sight);
+  await page.keyboard.press('ShiftLeft'); const sOff = await page.evaluate(() => Flight.sight);
+  ok('Shift+Tab changes weapon back without opening the sight; Shift alone toggles it', !sb.sight && !sa.sight && sa.wsel !== sb.wsel && sOn && !sOff, { sb, sa, sOn, sOff });
+  // C held (looking round) when the window loses focus (alt-tab: its keyup goes elsewhere): free look ends
+  await page.keyboard.down('KeyC'); await page.waitForTimeout(100);
+  const fl = await page.evaluate(() => { const was = Flight.freeLook; dispatchEvent(new Event('blur')); return { was, after: Flight.freeLook }; });
+  await page.keyboard.up('KeyC');
+  ok('C held when the window loses focus: free look ends, the guns follow the aim again', fl.was && !fl.after, fl);
+
+  // the wheel in the sight: zoom steps, a touchpad's small and sideways events counted as travel; under the lock the
+  // pointer has no place, so it never moves the sight's range (PgUp / PgDn do, Realistic aim)
+  await page.mouse.click(mid[0], mid[1]); await page.waitForTimeout(100); // (the lock, if a test above let it go)
+  const wl = await page.evaluate(() => {
+    const w = (dx, dy, x, n = 1) => { for (let i = 0; i < n; i++) Flight.canvas.dispatchEvent(new WheelEvent('wheel', { deltaX: dx, deltaY: dy, deltaMode: 0, clientX: x, clientY: 300, bubbles: true, cancelable: true })); return { zoom: Flight.zoom, zero: Flight.zero }; };
+    Flight.zero = 800; Flight.setSight(true, 3);
+    const o = { locked: Flight._locked, pad: w(0, -4, 640, 12) };
+    Flight.setSight(true, 6); o.side = w(30, 0, 640);
+    Flight.setSight(true, 3); o.edge = w(0, -100, innerWidth - 10);
+    return o;
+  });
+  await page.keyboard.press('PageUp'); const zUp = await page.evaluate(() => Flight.zero);
+  await page.keyboard.press('PageDown'); await page.keyboard.press('PageDown'); const zDn = await page.evaluate(() => Flight.zero);
+  await page.evaluate(() => Flight.setSight(false));
+  ok('the sight\'s wheel: half a notch of touchpad one zoom step, a sideways swipe none; under the lock the right edge zooms; PgUp / PgDn step its range',
+    wl.locked && wl.pad.zoom === 6 && wl.side.zoom === 6 && wl.edge.zoom === 6 && wl.edge.zero === 800 && zUp === 900 && zDn === 700, { ...wl, zUp, zDn });
+  // the aim camera: scrolled out far past its farthest (30 m), the first notch back brings it in
+  const camD = () => page.evaluate(() => { const r = Render3D.aimRay({ o: v3(), d: v3() }), v = Flight.active; return Math.round(Math.hypot(r.o.x - v.x, r.o.y - v.y, r.o.z - v.z) * 100) / 100; });
+  for (let i = 0; i < 30; i++) await page.mouse.wheel(0, 100);
+  await page.waitForTimeout(400); const far = await camD();
+  await page.mouse.wheel(0, -100); await page.waitForTimeout(400); const near = await camD();
+  ok('the aim camera: scrolled out past its farthest, the first notch back brings it in', far > 25 && near < far - 0.5, { far, near });
+  await load(); // (the main gun chosen again, for the reload ring below)
 
   // the sight: 50° to 50/zoom and back, a point 5 m beside the aim 400 m out measured by project() and metresPerPixelAt
   const probe = () => {
@@ -302,6 +371,29 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   const ring = await page.evaluate(() => { const f = GHUD._S.P && GHUD._S.P.fire, st = Aim.status(Flight.active); return { f, reload: st && st.reload, paused: Flight.paused, modal: UI.modalOpen, t: Flight.time, ammo: st && st.part && st.part.ammo, arcs: window.__arcs.slice(), hit: !!f && window.__arcs.some(([x, y, r]) => Math.abs(x - f.x) < 1.5 && Math.abs(y - f.y) < 1.5 && r > f.r) }; });
   ok('the reload ring draws round FIRE while the gun reloads', ring.reload < 1 && ring.hit, { reload: ring.reload, paused: ring.paused, modal: ring.modal, t: ring.t, ammo: ring.ammo, fire: ring.f, arcs: ring.arcs.slice(0, 6) });
   await shot(page, 'reload-1280x720');
+
+  // Blocked when the crosshair is on the ground: a TK-34 14 m downhill of a berm's crest (Highland Ridge, the one between
+  // zones A and C), looking over it up the far slope: the camera sees the ground 120 m out, the gun's round would bury
+  // itself in the berm a few metres from the muzzle
+  await fly(page, 'TK-34', T.tk34);
+  await page.evaluate(() => { Flight.unlockPointer(); Render3D.skipDraw = true; const v = Flight.active; v.placeOnSurface(EARTH, siteAngle(EARTH, 17434), VEHICLE_KINDS.tank.launchRot, 15000, Math.PI); v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); Flight.aimAlong(v); });
+  const aimQ = () => page.evaluate(() => {
+    const F = Flight, v = F.active, R = EARTH.radius, a = siteAngle(EARTH, 17434 - 600), ph = 15000 / R, rr = R + Terrain.surfaceAt(EARTH, a, 15000) + 2.4;
+    const Q = { x: rr * Math.cos(ph) * Math.cos(a), y: rr * Math.cos(ph) * Math.sin(a), z: rr * Math.sin(ph) }, o = Render3D.aimRay({ o: v3(), d: v3() }).o;
+    let dx = Q.x - o.x, dy = Q.y - o.y, dz = Q.z - o.z; const d = Math.hypot(dx, dy, dz); dx /= d; dy /= d; dz /= d;
+    const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
+    F.aimYaw = Math.atan2(-(dx * nx + dy * ny + dz * nz), dx * ex + dy * ey); F.aimPitch = Math.asin(dx * ux + dy * uy + dz * uz);
+  });
+  for (let i = 0; i < 4; i++) { await page.waitForTimeout(300); await aimQ(); }
+  await page.waitForTimeout(300);
+  const bk = await page.evaluate(() => {
+    const F = Flight, v = F.active;
+    for (let i = 0; i < 2400; i++) { Aim.step(v, 1 / 120, F); if (i > 60 && Aim.status(v).err < 0.0002) break; } // (the turret round, the gun laid)
+    GHUD._S.aimAt = -1e9; const t0 = performance.now(); GHUD.aimUpdate(F); const ms = performance.now() - t0;
+    return { src: F.aim.src, d: Math.round(F.aim.d), blk: Math.round(F.aim.blk * 10) / 10, err: Aim.status(v).err, ms: Math.round(ms * 1000) / 1000 };
+  });
+  ok('the crosshair on the ground beyond a berm right in front of the gun (the camera sees past its crest): the reticle says Blocked', bk.src === 'ground' && bk.d > 60 && bk.blk > 0 && bk.blk < 30, bk);
+  await page.evaluate(() => { Render3D.skipDraw = false; });
   await pageErrors(page, 'mouse ');
   await ctx.close();
 }

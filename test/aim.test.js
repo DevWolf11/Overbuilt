@@ -149,6 +149,30 @@ R(`var e2e = (D) => {
 var e1 = e2e(1000), e2 = e2e(2000);`);
 t('aimed and fired by the tank itself (turret, lift, along the barrel): within 1 m of the point at 1 and 2 km',
   R(`e1[0] && e2[0] && e1[1] < 1 && e2[1] < 1`), R('[e1, e2]'));
+// on a side slope: the lift for the drop is in the true vertical, so it leans across a rolled turret; the ring brings the
+// barrel's plane round to the lifted line (aimed at the unlifted point, the round went aside by range × drop × sin roll)
+ctx.TK72 = require('./lib/tanks.js').all.tk72;
+R(`var rolled = (roll, D) => {
+  const v = level(build(TK72)), F = simOf(v), g = gunOf(v, 'gun125'), S = surfaceFrame(v.x, v.y, v.z);
+  v.q = qmul(v.q, qaxis(1, 0, 0, roll * RAD)); g.shellSel = 'heat125';
+  const T = Aim.trunnion(v, g, v3()), P = { x: T.x + S.east.x * D, y: T.y + S.east.y * D, z: T.z + S.east.z * D };
+  Combat.reset(F); aimAt(F, v, P); run(F, 10);
+  const err = g._err, sys = sysOf(v, 'gun125'); v.wsel = Combat.systems(v).indexOf(sys); g.reload = 0;
+  const mr = Math.random; Math.random = () => 0; const ok = Aim.fire(v, sys, 1 / 120, F); Math.random = mr; // (no dispersion)
+  const s = Combat.S.shots.find((q) => q.k === 'shell' && q.owner === v), on = (x, y, z) => (x - P.x) * S.east.x + (y - P.y) * S.east.y + (z - P.z) * S.east.z;
+  let px = s ? s.x : 0, py = s ? s.y : 0, pz = s ? s.z : 0, X = null;
+  for (let i = 0; s && i < 1200 && Combat.S.shots.includes(s) && !X; i++) {
+    Combat.step(1 / 120, F); F.time += 1 / 120;
+    const a0 = on(px, py, pz), a1 = on(s.x, s.y, s.z);
+    if (a0 < 0 && a1 >= 0) { const f = -a0 / (a1 - a0), x = px + (s.x - px) * f - P.x, y = py + (s.y - py) * f - P.y, z = pz + (s.z - pz) * f - P.z;
+      X = { aside: Math.round((x * S.north.x + y * S.north.y + z * S.north.z) * 100) / 100, high: Math.round((x * S.up.x + y * S.up.y + z * S.up.z) * 100) / 100 }; }
+    px = s.x; py = s.y; pz = s.z;
+  }
+  return { roll, ok, errMrad: Math.round(err * 1e5) / 100, X };
+};
+var rl = [rolled(0, 1400), rolled(10, 1400), rolled(-10, 1400)];`);
+t('on a side slope (the hull rolled 10° either way) the gun settles on the crosshair (under 0.3 mrad) and its 125 mm HEAT round crosses within 0.3 m of the point at 1,400 m, as on the level',
+  R(`rl.every((q) => q.ok && q.X && q.errMrad < 0.3 && Math.hypot(q.X.aside, q.X.high) < 0.3)`), R('rl'));
 R(`var mvv = level(build(REAL)), mg = gunOf(mvv); ringOf(mvv).aimYaw = 0.7; mg.aimEl = 0.15;
 var ex = (() => { const c = mvv.tg[0].c, psi = 0.7, el = 0.15, h = mg.def.h, T0 = { x: mg.x - h / 2 + 0.18 * h, y: mg.y, z: partZ(mg) }, x = T0.x - c.x, z = T0.z - c.z;
   const T = { x: c.x + x * Math.cos(psi) - z * Math.sin(psi), y: T0.y, z: c.z + x * Math.sin(psi) + z * Math.cos(psi) }, d = { x: Math.cos(el) * Math.cos(psi), y: Math.sin(el), z: Math.cos(el) * Math.sin(psi) }, L = h - 0.18 * h;

@@ -12,7 +12,8 @@ const GHUD = (() => {
   const DEG = Math.PI / 180;
   // what the screen holds (place), the aim's last full look, the damage diagram's and the minimap's pictures, spots
   const S = { aimAt: -1e9, P: null, placeAt: -1e9, W: 0, H: 0, drop: 0, dropKey: '', dropR: 0, diag: null, diagKey: '', map: null, mapKey: '', mapAt: -1e9,
-    tags: [], nTags: 0, spots: new Map(), pings: [], press: null, ops: 0, tac: null, fireW: 0, rangeKey: null, rangeTxt: '' };
+    tags: [], nTags: 0, spots: new Map(), pings: [], press: null, ops: 0, tac: null, fireW: 0, rangeKey: null, rangeTxt: '', wh: 0, whT: -1e9,
+    blk: { p: null, v0: 0, D: 0, mx: 0, my: 0, mz: 0, ux: 0, uy: 0, uz: 0, blk: -1 } };
 
   // ---------------------------------------------------------------- who is who
   const mp = () => typeof MP !== 'undefined' && MP.live;
@@ -93,29 +94,34 @@ const GHUD = (() => {
     if (hitV) { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
     blocked(v, A);
   }
-  // On a vehicle, where the chosen gun's round meets the ground short of it: the barrel sits lower than the camera, so
-  // just over a crest the camera sees past, the shell may not (A.blk: metres along the barrel; -1 clear). Its path: the
-  // barrel's line, dropping as the round falls (the gun is already lifted for the range), against the physics' ground.
+  // Where the chosen gun's round meets the ground short of the crosshair's point: the barrel sits lower than the camera,
+  // so just over a crest the camera sees past, the shell may not (A.blk: metres along the barrel; -1 clear). Its path:
+  // the barrel's line, dropping as the round falls (the gun is already lifted for the range), against the physics'
+  // ground, every 2 m near the gun, out to every 20 m. On a vessel, up to 6 m short of it; on the ground, to a tenth of
+  // the way (8 m at least) short (a round coming in low may land a little short of it), at the sky the first 300 m, and
+  // only once the gun is laid (swinging round, its line meets the ground anywhere: no false Blocked).
   function blocked(v, A) {
     A.blk = -1;
-    if (A.src !== 'vessel') return;
     const st = Aim.status(v), p = st && st.part, w = p && p.def.weapon;
-    if (!w || !(w.kind === 'tgun' || w.kind === 'agun')) return;
+    if (!w || !(w.kind === 'tgun' || w.kind === 'agun') || (A.src !== 'vessel' && !(st.err < 0.01))) return; // (on the ground: once the gun is laid, not while it swings round)
     const sh = st.shells[st.sel], S0 = sh && SHELLS[sh.key], v0 = (S0 && S0.v0) || 800, b = v.body, R = b.radius, sea = b.ocean ? 0 : -Infinity;
     const M = Aim.muzzle(v, p, A1), u = Aim.dir(v, p, A2), r0 = Math.hypot(M.x, M.y, M.z) || 1, ux = M.x / r0, uy = M.y / r0, uz = M.z / r0;
-    const D = Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z) - 6;
+    const d0 = Math.hypot(A.P.x - M.x, A.P.y - M.y, A.P.z - M.z), D = A.src === 'vessel' ? d0 - 6 : A.src === 'ground' ? d0 - Math.max(8, d0 * 0.1) : Math.min(300, d0);
+    const B = S.blk; // (the gun, its line and the point all where they were: the last answer stands)
+    if (B.p === p && B.v0 === v0 && Math.abs(B.D - D) < 0.5 && Math.abs(B.mx - M.x) + Math.abs(B.my - M.y) + Math.abs(B.mz - M.z) < 0.01 && Math.abs(B.ux - u.x) + Math.abs(B.uy - u.y) + Math.abs(B.uz - u.z) < 1e-5) { A.blk = B.blk; return; }
     const gap = (s) => {
       const k = 4.905 * (s / v0) * (s / v0);
       Terrain.locate(b, M.x + u.x * s - ux * k, M.y + u.y * s - uy * k, M.z + u.z * s - uz * k, LOC);
       return LOC.r - R - Math.max(sea, Terrain.surfaceAt(b, LOC.a, LOC.z));
     };
-    for (let s = 20, prev = 0; s < D; prev = s, s += 20) {
+    for (let s = 2, prev = 0; s < D; prev = s, s += clamp(s * 0.25, 2, 20)) { // (finely near the gun: a berm in front is 24 m across)
       if (gap(s) >= 0) continue;
       let lo = prev, hi = s;
       for (let i = 0; i < 5; i++) { const m = (lo + hi) / 2; if (gap(m) < 0) hi = m; else lo = m; }
       A.blk = hi;
-      return;
+      break;
     }
+    B.p = p; B.v0 = v0; B.D = D; B.mx = M.x; B.my = M.y; B.mz = M.z; B.ux = u.x; B.uy = u.y; B.uz = u.z; B.blk = A.blk;
   }
 
   // ---------------------------------------------------------------- the canvas (§9.1), every frame in aim mode
@@ -816,15 +822,24 @@ const GHUD = (() => {
   function zeroKey(F) {
     const v = F.active;
     if (!v || !Aim.realistic()) return;
-    if (!lrf(v)) { F.toast('No rangefinder aboard: set the sight with the wheel on its range ladder (right)'); return; }
+    if (!lrf(v)) { F.toast('No rangefinder aboard: set the sight with PgUp / PgDn, or the wheel on its range ladder (right)'); return; }
     const d = Math.hypot(F.aim.P.x - v.x, F.aim.P.y - v.y, F.aim.P.z - v.z);
     F.zero = clamp(Math.round(d / 50) * 50, 200, 3000);
     F.toast(`Sight set to ${F.zero} m`); Sound.click();
   }
+  // In the sight the wheel steps its zoom, or (Realistic aim, the pointer free at the right edge) the range ladder 100 m.
+  // Under the pointer lock clientX stands where the lock began, so it is never the ladder there (PgUp / PgDn are). A
+  // touchpad sends many small events, and sideways ones: a step per 40 px of travel (a mouse's notch is 100: one step).
   function wheel(F, e) {
     if (!F.sight) return false;
-    if (Aim.realistic() && e.clientX > innerWidth * 0.82) { F.zero = clamp(F.zero + (e.deltaY < 0 ? 100 : -100), 200, 3000); return true; } // (the range ladder)
-    const Z = [3, 6, 8], i = Z.indexOf(F.zoom), j = clamp((i < 0 ? 0 : i) + (e.deltaY < 0 ? 1 : -1), 0, 2);
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 600 : 1);
+    if (!dy) return true; // (sideways)
+    if (e.timeStamp - S.whT > 350 || (S.wh < 0) !== (dy < 0)) S.wh = 0;
+    S.whT = e.timeStamp; S.wh += dy;
+    if (Math.abs(S.wh) < 40) return true;
+    const up = S.wh < 0; S.wh = 0;
+    if (Aim.realistic() && !F._locked && e.clientX > innerWidth * 0.82) { F.zero = clamp(F.zero + (up ? 100 : -100), 200, 3000); F.updateHUD(true); return true; } // (the range ladder)
+    const Z = [3, 6, 8], i = Z.indexOf(F.zoom), j = clamp((i < 0 ? 0 : i) + (up ? 1 : -1), 0, 2);
     if (Z[j] !== F.zoom) F.setSight(true, Z[j]);
     return true;
   }

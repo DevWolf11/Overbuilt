@@ -735,6 +735,6 @@ return {
   loadEarth, earthRaw, earthColor, earthH, mapH, earthMap: EM, setEarthData, nightAt, urbanAt, lakeAt, lineQuery, features,
   water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
-  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt, arenaW, bermAt,
+  dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt, arenaW, bermAt, BERM,
 };
 })();

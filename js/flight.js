@@ -504,7 +504,8 @@ const Flight = {
   },
 
   controlsHelp() {
-    if (this.groundAim || (this.running && this._bodyGround)) return this.groundHelp(); // (a ground vehicle: its own list)
+    if (this.groundAim) return this.groundHelp(); // (aiming a ground vehicle: its own list)
+    if (this.running && this._bodyGround) return this.driveHelp(); // (one with nothing to aim, or in the 2D view: the keys it has)
     return `<div class="help-grid">
       <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Pitch: nose down / up (cars and Armour drive forward / back)</span></div>
       <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Rockets turn left / right; planes and helicopters roll; cars and Armour steer (tracks turn on the spot)</span></div>
@@ -527,6 +528,24 @@ const Flight = {
     </div>`;
   },
 
+  // a ground vehicle out of aim mode (no guns aboard, or the 2D view): driving, and the old keys that still work for it
+  driveHelp() {
+    return `<div class="help-grid">
+      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
+      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
+      <div><kbd>B</kbd><span>Hold to brake</span></div>
+      <div><kbd>Space</kbd><span>Activate next stage (a booster)</span></div>
+      <div><kbd>K</kbd><span>Smoke (and flares or chaff)</span></div>
+      <div><kbd>M</kbd><span>Map view</span></div>
+      ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
+      <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
+      <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
+      <div><kbd>C</kbd><span>Reset the camera (drag to look around)</span></div>
+      <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu</span></div>
+      ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
+      <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator</span></div>
+    </div>`;
+  },
   // Armour and armed cars (§8.4): the same list as README's "Armour and armed cars" block and the manual's
   groundHelp() {
     const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy\'s tag to spot it; tap the minimap for the tactical map; Realistic aim: tap Zero to set the sight</span></div>';
@@ -547,7 +566,9 @@ const Flight = {
       <div><kbd>J</kbd><span>Spot the enemy under the crosshair for your team</span></div>
       <div><kbd>M</kbd><span>Tactical map (tap it to set a rocket-artillery strike, or to ping; Esc shuts it)</span></div>
       <div><kbd>C</kbd><span>Hold: look round, the turret holds · tap: aim straight ahead</span></div>
-      <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range (without one: the wheel at the sight's right edge)</span></div>
+      <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range · <kbd>PgUp</kbd><kbd>PgDn</kbd> step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
+      ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
+      <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu (Esc also lets the mouse go)</span></div>
       ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
       ${isTouch ? '' : touch}
@@ -1154,6 +1175,7 @@ const Flight = {
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
+      if (e.code !== 'ShiftLeft' && e.code !== 'ShiftRight') this._shiftTap = false; // (Shift+Tab: a modifier, not the sight)
       if (e.code === 'KeyV') this.fireTap = true;
       if (this.groundAim && this.groundKey(e)) return; // (aiming a ground vehicle: its own keys first)
       const sasKeys = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
@@ -1180,10 +1202,13 @@ const Flight = {
     addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (e.code === 'KeyC' && this.freeLook) this.endFreeLook();
+      // Shift on its own toggles the gunner's sight, on its way up (with a key pressed meanwhile it was a modifier)
+      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && this._shiftTap) { this._shiftTap = false; if (App.scene === 'flight' && this.groundAim && !UI.modalOpen) this.setSight(!this.sight); }
     });
     addEventListener('blur', () => {
       this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; this.touchFire = false;
-      this.mouseFire = false; this.touchMG = false; if (this.sightHold) { this.sightHold = false; this.setSight(false); }
+      this.mouseFire = false; this.touchMG = false; this._shiftTap = this._capBtn = false; if (this.sightHold) { this.sightHold = false; this.setSight(false); }
+      if (this.freeLook) { this.freeLook = false; this.aimYaw = this.freeYaw; this.aimPitch = this.freePitch; } // (C let go in another window: back to the guns' aim)
     });
     document.addEventListener('visibilitychange', () => { if (this.running) this.syncAwake(); });
     // pointer lock (aim mode, a mouse): the game's own release says nothing; one the player makes (Esc) opens the menu
@@ -1217,7 +1242,7 @@ const Flight = {
         if (this._locked) { this.mouseButtons(e.buttons); return; }
         if (e.button === 2) { this.mouseButtons(2); return; }
         if (e.button !== 0) return;
-        if (c.requestPointerLock && !this.destroyed) { try { const r = c.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* not here */ } }
+        if (c.requestPointerLock && !this.destroyed) { this._capBtn = true; try { const r = c.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* not here */ } }
       }
       try { c.setPointerCapture(e.pointerId); } catch (err) { /* (a pointer lock still letting go, just after aim mode ended) */ }
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() });
@@ -1232,7 +1257,10 @@ const Flight = {
         this.aimBy(e.movementX || 0, e.movementY || 0, 0.0022 * (Settings.get('aimSens') || 1));
         return;
       }
-      if (this.groundAim && e.pointerType === 'mouse') this.mouseButtons(e.buttons); // (a second button comes as a move)
+      if (this.groundAim && e.pointerType === 'mouse') { // (a second button comes as a move: the left onto a held right starts a drag)
+        this.mouseButtons(e.buttons);
+        if (e.buttons & 1 && !this.pointers.has(e.pointerId) && !this.mapMode) { try { c.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() }); return; }
+      }
       const p = this.pointers.get(e.pointerId);
       if (!p) return;
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -1334,9 +1362,13 @@ const Flight = {
     track.addEventListener('pointercancel', () => { this.dragThrottle = false; });
     GHUD.bind(); // (the ground controls: sight, MG, lock, the ammo chips, aiming by sliding on FIRE)
   },
-  // the mouse's buttons in aim mode (e.buttons: 1 left, 2 right): captured, the left fires; the right holds the sight
+  // the mouse's buttons in aim mode (e.buttons: 1 left, 2 right): captured, the left fires (a press shorter than a frame,
+  // a touchpad's tap, still fires once: fireTap); the right holds the sight. The press that asked for the capture isn't a
+  // trigger, even when the capture comes while it is still held and the mouse moves.
   mouseButtons(b) {
-    if (this._locked) this.mouseFire = !!(b & 1);
+    if (this._capBtn) { if (b & 1) b &= ~1; else this._capBtn = false; }
+    if (b & 1) this._shiftTap = false; // (Shift held for a click: a modifier, not the sight)
+    if (this._locked) { const l = !!(b & 1); if (l && !this.mouseFire) this.fireTap = true; this.mouseFire = l; }
     const r = !!(b & 2);
     if (r && !this.sightHold && !this.sight) { this.sightHold = true; this.setSight(true); }
     else if (!r && this.sightHold) { this.sightHold = false; this.setSight(false); }
@@ -1349,7 +1381,8 @@ const Flight = {
     if (d) { if (Aim.select(v, +d[1] - 1, this)) { Sound.click(); this.updateHUD(true); } return true; } // shells (twice: unload, reload with it now)
     switch (k) {
       case 'Space': return true; // (held: the machine guns; the Stage button still stages)
-      case 'ShiftLeft': case 'ShiftRight': if (this.thrusty(v)) return false; this.setSight(!this.sight); return true;
+      case 'ShiftLeft': case 'ShiftRight': if (this.thrusty(v)) return false; this._shiftTap = true; return true; // (the sight: on the keyup)
+      case 'PageUp': case 'PageDown': if (!Aim.realistic()) return false; e.preventDefault(); this.zero = clamp((this.zero || 800) + (k === 'PageUp' ? 100 : -100), 200, 3000); this.updateHUD(true); return true; // (Realistic: the sight's range)
       case 'KeyL': { const on = Aim.lockKey(v); if (Aim.kit(v).track) { this.toast(on ? 'Radar: looking for a lock' : 'Radar lock off'); this.updateHUD(true); } return true; }
       case 'KeyJ': GHUD.spot(this); return true;
       case 'KeyM': GHUD.tactical(!GHUD.tacOpen); return true;
@@ -1390,7 +1423,10 @@ const Flight = {
       if (this._pz > 1.35 || this._pz < 0.74) { this.setSight(true, this._pz > 1 ? 6 : 3); this._pz = 1; }
       return;
     }
-    if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); } else this.scale = clamp(this.scale * f, 0.00005, 80);
+    if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
+    // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
+    const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
+    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, 80);
   },
 
   toggleMap() {
