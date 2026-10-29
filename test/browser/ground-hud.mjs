@@ -17,7 +17,7 @@
 //    round even across a stalled frame, a long press loads it now.
 //  - The sight: the view narrows to 50/zoom degrees and back, project() and metresPerPixelAt agreeing all the while.
 //  - The HUD: the reload ring round FIRE; at most 120 2D-context calls a frame; none of its DOM written while nothing
-//    changes; no console errors (App.frame swallows them).
+//    changes, nor ever on an old plane's HUD ticks; no console errors (App.frame swallows them).
 // SHOTS=<dir> saves screenshots there (3f-*.png).
 //   node test/browser/ground-hud.mjs
 import fs from 'node:fs';
@@ -454,6 +454,27 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   await page.evaluate(() => { Render3D.skipDraw = false; });
   await shot(page, 'aimed-390x844');
   await pageErrors(page, 'touch ');
+  await ctx.close();
+}
+
+// ---- an old plane: the ground HUD costs it nothing. The FS-16 parked on the runway: over 25 HUD ticks none of the ground
+// HUD's DOM is written (the crew row's hidden was set again on every tick, 12.5 times a second, a mutation each time)
+{
+  const { ctx, page } = await open([1280, 720, false], {}, 'old plane ');
+  await page.waitForFunction(() => Render3D.ready && Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(() => { Render3D.skipDraw = true; App.toBuild(); Builder.loadTemplate('fs16'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.time > 0.5, null, { timeout: 60000 });
+  const m = await page.evaluate(async () => {
+    const recs = [], o = new MutationObserver((l) => { for (const r of l) recs.push(`${r.target.id || r.target.className || r.target.nodeName} ${r.type} ${r.attributeName || ''}`); });
+    for (const q of ['#row-crew', '#ammo-stack', '#btn-sight', '#btn-mg', '#btn-lock', '#btn-range', '#gmap', '#gtac']) { const e = document.querySelector(q); if (e) o.observe(e, { attributes: true, childList: true, subtree: true, characterData: true }); }
+    let n = 0; const u = Flight.updateHUD; Flight.updateHUD = function (...a) { n++; return u.apply(this, a); };
+    const t0 = performance.now();
+    await new Promise((r) => { const w = () => (n >= 25 || performance.now() - t0 > 30000 ? r() : setTimeout(w, 100)); w(); });
+    Flight.updateHUD = u; o.disconnect();
+    return { kind: Flight.active.kind, ticks: n, recs: recs.slice(0, 8), n: recs.length, crewHidden: $('#row-crew').hidden };
+  });
+  ok('an old plane (the FS-16 on the runway): none of the ground HUD\'s DOM written over 25 HUD ticks, the crew row hidden', m.kind === 'plane' && m.ticks >= 25 && !m.n && m.crewHidden, m);
+  await pageErrors(page, 'old plane ');
   await ctx.close();
 }
 

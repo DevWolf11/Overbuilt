@@ -855,8 +855,9 @@ const MP = {
   placement(spawnId, kind, design) {
     if (!spawnId) { // sandbox: the usual pad, runway or helipad, a little apart so craft don't start inside each other
       const slot = Math.max(0, this.state.players.map((p) => p.pid).sort((a, b) => a - b).indexOf(Net.me));
-      // (Armour and armed cars: Highland Ridge's pads, the sides taken in turn, when the map is in and the view is 3D)
-      const armed = kind === 'car' && design && Array.isArray(design.parts) && design.parts.some((q) => q && hasOwn(PARTS, q.type) && PARTS[q.type].weapon);
+      // (Armour and cars armed by the ground update: Highland Ridge's pads, the sides taken in turn, when the map is in
+      // and the view is 3D. An old car's gun, flares or chaff keep it on the runway, as before.)
+      const armed = kind === 'car' && design && Array.isArray(design.parts) && design.parts.some((q) => { const d = q && hasOwn(PARTS, q.type) && PARTS[q.type]; return d && d.gv && d.weapon && d.weapon.kind !== 'smoke'; });
       if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D())) return this.padPlace('highland', slot % 2, Math.floor(slot / 2), 'tank');
       if (!slot) return null;
       if (kind === 'plane' || kind === 'car') return { e: EARTH.sites.runway.east + slot * 220, z: 0, yaw: 0, soft: true };

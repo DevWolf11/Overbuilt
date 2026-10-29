@@ -381,6 +381,11 @@ async function groundBattle() {
       const w = GroundMode.placement('highland', k % 2, Math.floor(k / 2), 'tank');
       out.push([a.e, a.z, b.e, b.z, c ? c.e : null, d ? d.e : null].join('/')); want.push([w.e, w.z, w.e, w.z, k ? EARTH.sites.runway.east + k * 220 : null, k ? EARTH.sites.runway.east + k * 220 : null].join('/')); }
     Net.me = 1; return out.join(' ') === want.join(' '); })()`));
+  // (an old car's gun, flares or chaff, or smoke alone, arm it with nothing new: it starts on the runway as ever)
+  t('ground: the sandbox keeps an old car with a gun, flares or chaff (or only smoke) on the runway', X(`(() => { const out = [];
+    for (const me of [1, 2, 3]) { Net.me = me; const k = me - 1, want = k ? EARTH.sites.runway.east + k * 220 : null;
+      for (const type of ['gun', 'cannon', 'rocketPods', 'flares', 'chaff', 'turretL', 'smokeL']) { const c = MP.placement(null, 'car', { parts: [...templateRows(TEMPLATES.buggy), { type, x: 0, y: 1.6 }] }); out.push((c ? c.e : null) === want && (!c || c.z === 0)); } }
+    Net.me = 1; return out.every(Boolean); })()`));
 }
 
 (async () => {

@@ -1636,8 +1636,9 @@ const Flight = {
     const fw = gnd ? v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z, this._fw || (this._fw = v3())) : null, sgn = fw && v.speed() > 0.3 ? (v.vx * fw.x + v.vy * fw.y + v.vz * fw.z < 0 ? ' ▼' : ' ▲') : '';
     set('t-speed', rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h${sgn}`);
     const crew = gnd && v.gv ? Armour.crewOf(v) : null;
-    $('#row-crew').hidden = !(crew && crew.crew.length);
-    if (crew && crew.crew.length) { let n = 0; for (const e of crew.crew) if (e.alive) n++; set('t-crew', `${n}/${crew.crew.length}`); $('#row-crew').classList.toggle('danger', n < crew.crew.length); }
+    const rc = $('#row-crew'), noCrew = !(crew && crew.crew.length);
+    if (rc.hidden !== noCrew) rc.hidden = noCrew; // (only on a change: an old craft's HUD tick writes nothing new)
+    if (!noCrew) { let n = 0; for (const e of crew.crew) if (e.alive) n++; set('t-crew', `${n}/${crew.crew.length}`); rc.classList.toggle('danger', n < crew.crew.length); }
     const mach = v.mach > 0.3 && !v.landed;
     $('#row-mach').hidden = !mach;
     if (mach) { set('t-mach', `M ${v.mach.toFixed(2)}`); $('#row-mach').classList.toggle('sonic', v.mach >= 0.95 && v.mach < 1.15); }

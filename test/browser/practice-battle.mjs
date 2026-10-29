@@ -6,6 +6,8 @@
 //  - The Retro 2D flight (a silly setting): the battle is fought on the Runway arena, as a launch goes to the runway
 //    (the 2D view can't show Highland Ridge).
 //  - Phones in portrait (390, 375 and 360 wide): knocked out, the bar's "Knocked out · back in 5 s" shows whole.
+//  - The arena's own ground: never built for an old plane at the Scotland airfield facing Highland Ridge (battery);
+//    built and shown for a tank on its pad.
 //  - No console errors.
 // SHOTS=<dir> saves screenshots there (pb-*.png).   node test/browser/practice-battle.mjs
 import fs from 'node:fs';
@@ -79,6 +81,13 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   await openGame(page, srv.url, { targets: 'practice' });
   const ev = (f, a) => page.evaluate(f, a);
   await page.waitForFunction(mapIn, null, { timeout: 180000 });
+  // the arena's own ground (battery): an old plane at the Scotland airfield (an air battle's spawn), its nose to Highland
+  // Ridge 1 km off, builds and draws none of it, as before the arenas (nothing drawn meanwhile: every frame's work but the GL)
+  await ev(() => { Render3D.skipDraw = true; const t = TEMPLATES.fs16; store.set('rss.flight', null); App.showScene('flight'); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: { e: 18600, z: 12900, yaw: -Math.PI / 2 } }); });
+  await page.waitForFunction(() => App.scene === 'flight' && Flight.running && Flight.time > 4, null, { timeout: 120000 });
+  const fa = await ev(() => Render3D.arenaInfo());
+  ok('an old plane at the Scotland airfield facing Highland Ridge: the arena\'s own ground neither built nor shown (the plain patch, as before the arenas)', !fa.on && !fa.built && !fa.building, fa);
+  await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
   const d = await ev(tk34);
   await ev((x) => { Flight.start(x, { place: GroundMode.placement('highland', 0, 0, 'tank') }); App.showScene('flight'); }, d);
   await page.waitForFunction(() => App.scene === 'flight' && Flight.running && Flight.time > 1 && GroundAI.range && $('#gai-bar') && !$('#gai-bar').hidden, null, { timeout: 180000 });
@@ -86,6 +95,10 @@ const tk34 = () => { const t = TEMPLATES.tk34; return { name: t.name, kind: t.ki
   const keys = async () => { for (let i = 0; i < 3; i++) { await page.keyboard.press('Period'); await page.waitForTimeout(80); } return ev(() => ({ warpIdx: Flight.warpIdx, warpHidden: $('#warp').hidden })); };
   const r = await keys();
   ok('Tank Range: its bar in the warp control\'s place, and . pressed three times leaves the warp at 1x', r.warpIdx === 0 && r.warpHidden, r);
+  await ev(() => { Render3D.skipDraw = true; });
+  await page.waitForFunction(() => Render3D.arenaInfo().on, null, { timeout: 120000 }).catch(() => {});
+  const ta = await ev(() => { const i = Render3D.arenaInfo(); Render3D.skipDraw = false; return i; });
+  ok('...and a tank on Highland Ridge\'s pad has the arena\'s own ground built and on show', ta.on && ta.built, ta);
   await ev((x) => GroundAI.startBattle(Flight, { money: 45000, design: x }), d);
   await page.waitForFunction(inBattle, null, { timeout: 120000 });
   const k = await keys();

@@ -1247,9 +1247,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // in the middle and halfway along each edge) and always over a berm. Outside the box it blends over ARENA.hole metres
   // into the patch's own drawn ground, colours and normals (done again whenever the patch is swapped), and the patch is cut
   // away (its shader discards) only that far out; beyond, to the rim, the mesh runs on 0.4 m under the patch, so the seam
-  // has neither a crack nor two surfaces fighting. Built a few milliseconds a frame once the camera is within 6 km, then
-  // kept for the session. Its colours are the patch's own, taken at each vertex from the patch on show (arenaBandJob), so it
-  // looks just as the patch would; its own (groundPaint at a fine cell) only where the patch doesn't reach.
+  // has neither a crack nor two surfaces fighting. Built a few milliseconds a frame once the camera is within 6 km in
+  // ground play (groundPlay: an old plane from a nearby airfield never pays for it), then kept for the session. Its
+  // colours are the patch's own, taken at each vertex from the patch on show (arenaBandJob), so it looks just as the
+  // patch would; its own (groundPaint at a fine cell) only where the patch doesn't reach.
   const ARENA = { near: 6000, rim: 200, hole: 150, kx: 8, ky: 16, D: 16, tuck: 0.4, lit: [500, 1200] };
   const AR = { A: null, hi: null, job: null, ms: 0, slice: 0, step: 0, nStep: 0, stepAt: '', geo: null, mesh: null, frame: null, on: false, gen: -1, a0: 0, k: 0, bjob: null, bP: null, bms: 0, bb: null };
   let patchGen = 0, bandWait = false; // (counts patch swaps: the arena's seam follows the patch on show; a done patch waiting for its seam)
@@ -1552,20 +1553,34 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (const a of ALL_ATTR) { const A = at[a]; A.clearUpdateRanges(); A.needsUpdate = true; }
     terr.holeU.value.set(bb.hole[0], bb.hole[1], bb.hole[2], bb.hole[3]);
   }
-  // The clear arena the camera is within 6 km of, on the real map (else null)
-  function arenaNear(F) {
+  // Ground play, where the arena's own ground is worth its cost: a ground battle, the Practice Battle or the Tank Range
+  // on, or a vehicle of the ground update flown, watched or about (a sandbox friend's tank). An old plane from Wick or
+  // Carrier South, over the ridge or near it, keeps the plain patch and the cost it had before the arenas.
+  const gvGround = (u) => !!u && (u.kind === 'tank' || (u.gv && isGround(u.kind)));
+  function groundPlay(F, v) {
+    if (gvGround(v) || gvGround(F.active) || (typeof MP !== 'undefined' && MP.live && MP.ground) || (typeof GroundAI !== 'undefined' && (GroundAI.battle || GroundAI.range))) return true;
+    if (F.vessels) for (const u of F.vessels) if (gvGround(u)) return true;
+    return false;
+  }
+  // The clear arena the camera is within 6 km of, on the real map, in ground play; else the one it is in, for a craft on
+  // the ground there or one whose arena ground is on show (an old car, a plane landed on the berms); else null
+  function arenaNear(F, v) {
     if (!EARTH.mapped || !EARTH.arenas) return null;
+    const play = groundPlay(F, v);
+    if (!play && !(AR.on || v.landed || isGround(v.kind))) return null;
     const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z;
     for (const k in EARTH.arenas) {
       const A = EARTH.arenas[k], B = A.box;
-      if (A.clear && B && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near) return A;
+      if (!A.clear || !B) continue;
+      const d = Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1));
+      if (play ? d < ARENA.near : d === 0) return A;
     }
     return null;
   }
   // Every flight frame, after the patch: build the arena's ground (a slice a frame), work its seam out against the patch
   // on show (or the one waiting to go up: then the two go up together), show it, or put it away (the patch whole again)
-  function updateArena(F, b) {
-    const A = !api.arenaOff && b === EARTH && patch.active && patch.ready && patch.b === b ? arenaNear(F) : null;
+  function updateArena(F, b, v) {
+    const A = !api.arenaOff && b === EARTH && patch.active && patch.ready && patch.b === b ? arenaNear(F, v) : null;
     AR.on = false;
     if (A && (AR.A !== A || AR.hi !== Settings.high)) arenaReset(A, F, b);
     if (!A) { AR.bjob = null; if (bandWait) upNow(F, b); arenaHide(); return; }
@@ -2876,7 +2891,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // near the surface: a terrain patch around the craft
     const near = !b.star && camAlt < Math.max(60000, 0.35 * R);
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
-    updateArena(F, b);
+    updateArena(F, b, v);
     if (!b.star) {
       const ca = Math.atan2(ry, rx), gz = Math.asin(clamp(rz / r3, -1, 1)) * R;
       const need = R + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + (AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
