@@ -2,7 +2,7 @@
 
 A reference for anyone changing the code, human or AI. Start with `CLAUDE.md` at the repo root: the owner, the workflow and the rules that matter most. This handbook is the deep end: how each subsystem works, its data and its invariants, with `file:line` pointers.
 
-The handbook was written against `main` at the merge of #29 (October 2026), by reading the code, and has been brought up to date with each PR since (last: #37, warning receivers as parts, missile markers and turrets that hold fire on the ground). Line numbers drift as the code changes, so search for the function name if a line has moved. If the code and this handbook disagree, the code wins: fix the handbook in the same commit.
+The handbook was written against `main` at the merge of #29 (October 2026), by reading the code, and has been brought up to date with each PR since (last: #38, the ground update: the Armour kind, tanks and their armour, Highland Ridge, the Tank Range, the Practice Battle and the Ground Battle, chapter 8). Line numbers drift as the code changes, so search for the function name if a line has moved. If the code and this handbook disagree, the code wins: fix the handbook in the same commit.
 
 ## Contents
 
@@ -13,13 +13,14 @@ The handbook was written against `main` at the merge of #29 (October 2026), by r
 5. [App shell, UI, settings, packaging and deployment](#5-app-shell-ui-settings-packaging-and-deployment): `index.html`, `main.js`, `ui.js`, `util.js`, `audio.js`, `css/style.css`, `sw.js`, `tools/`
 6. [Testing](#6-testing)
 7. [Known loose ends](#7-known-loose-ends)
+8. [Ground vehicles and ground combat](#8-ground-vehicles-and-ground-combat): `gear.js`, `aim.js`, `armour.js`, `gmode.js`, `groundai.js`, `ghud.js`, and the ground update's hooks in the other files
 
 Section references like "§3" inside a chapter mean that chapter's own subsections.
 
 
 ## 1. The part model and the builder
 
-**Files:** `js/parts.js` (catalogue, geometry, connectivity, staging/Δv, persistence helpers, 2D drawing) and `js/builder.js` (`TEMPLATES`, `templateRows`, the `Builder` singleton). Both are plain globals with no modules. Script order matters (`index.html:333-353`):
+**Files:** `js/parts.js` (catalogue, geometry, connectivity, staging/Δv, persistence helpers, 2D drawing) and `js/builder.js` (`TEMPLATES`, `templateRows`, the `Builder` singleton). Both are plain globals with no modules. Script order matters (`index.html:374-400`):
 - `util.js` comes first and provides `clamp`, `TAU`, `G0`, `store`, `el`, `isTouch`.
 - `parts.js` loads before `vessel.js`, `parts3d.js`, `render3d.js`, `career.js` and `builder.js`. Since PR #36 parts3d.js reads parts.js globals when it builds: the outline helpers it used to own (`pathRecorder`, `PART_PROFILE`, `partOutline`, `outlineSpan`, `LATHE_SHAPES`, `PART_RECIPE`, `PART_FLAT_DEPTH`, §4) and the look-alike jets' lofts and camouflage tiles (`us5Lofts`, `ruLofts`, `us4Rows`, `us5CamoTile`, `camoCanvas`, `drawPartTop`).
 - `builder.js` calls `wingAero`/`wingStrength` (vessel.js:32,64), `Career.unlocked` (career.js:47), `Parts3D.wingAt` (guarded with `typeof Parts3D`), `Render3D.*`, `App.*`, `UI.*` and `Sound.*`.
@@ -45,7 +46,8 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 ### 2. The PARTS catalogue (parts.js:40-816)
 
 - `PARTS[key]` is the def. The key is the **type string written into saves**.
-- There are **257 parts**, 256 of them in the tray (the retired small turret is not). README's prose counts them (§5.8). By tab: Command 4, Fuel 9, Engines 9, Coupling 4, Aero 6, Utility 5, Structure 3, Cockpits 20, Fuselage 44, Wings 56, Aero engines 37, Gear 25, Weapons 31 (30 in the tray), Ground 4 (so 182 aircraft parts in the five aircraft tabs, plus 31 weapons).
+- There are **328 parts**, 327 of them in the tray (the retired small turret is not), in 21 tabs. README's prose counts them (chapter 5 §8). By tab: Command 4, Fuel 9, Engines 9, Coupling 4, Aero 6, Utility 5, Structure 3, Cockpits 20, Fuselage 44, Wings 56, Aero engines 37, Gear 25, Weapons 31 (30 in the tray), Ground 4 (so 182 aircraft parts in the five aircraft tabs, plus 31 weapons), and the ground update's seven: Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9 (71 parts, all `def.gv`).
+  - PR #38 (the ground update) added the 71 armour parts at the end of `PARTS` (:830-1137, a comment on their fields at :830-846) and the Armour kind; their fields, thickness and saves are chapter 8 §1.
   - PR #35 added `chaff`, the Chaff Dispenser (parts.js:382).
   - PR #37 added the two warning receivers, `rwr` (Basic RWR, :387) and `rwrPlus` (Advanced RWR, :389), and `turretL`, the manned Gun Turret (:398), and retired `turret` (now "Small Gun Turret", :395). It also cut the price of five jet noses and the FS-16's body (`us5Nose22` $11,700, `ruNose35` $8,500, `ruNose57` $11,200, `ruNose21` $6,900, `us4f16Nose` $4,800, `us4f16Body` $2,700), so the jets still fit their budgets with a receiver on board (§5).
     - Shape `rwr` is a lathe shape (`LATHE_SHAPES`, :967), outlined by `HULLS.rwr` (:1689: a slim fairing, round and blunt at the front, +y, tapered behind) through `partPath0`'s HULLS cases (:1798) and `PART_PROFILE.rwr` (:1062). `drawPart0`'s `case 'rwr'` (:2265) fills it with `hullGradient`, so it takes paint, and lays dark (`#272c33`) radome bands over its top 20 % and bottom 17 %; the advanced one has a third band in the middle. They sit flush on the hull: `stealthOf` skips them (chapter 4 §1.4).
@@ -57,8 +59,8 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 - The tray's order within a tab is `partFamilies().order` (builder.js:309): the stock parts in object key order, then each look-alike jet's parts together, the jets in `TEMPLATES` order (§7, the tray).
 
 **Categories and kinds**
-- `PART_CATEGORIES` (:5) holds the palette tabs; `def.cat` must be one of their ids or the part never shows.
-- `VEHICLE_KINDS` (:25) has `rocket|plane|car|heli`, each `{site: pad|runway|helipad, launchRot, cats}`. `cats` (PR #36) lists the tabs the tray shows for that kind, in order: a rocket gets command, fuel, engine, coupling, aero, utility and structure; a plane cabins, air, wings, airEng, airGear and weapons; a car ground, utility, structure and weapons; a helicopter airEng, cabins, air, airGear, fuel, ground, wings and weapons. The other tabs sit behind More (§7). A new category must go into some kind's `cats`, or it only ever shows under More.
+- `PART_CATEGORIES` (:5) holds the palette tabs (21 since PR #38); `def.cat` must be one of their ids or the part never shows.
+- `VEHICLE_KINDS` (:33) has `rocket|plane|car|heli|tank`, each `{site: pad|runway|helipad, launchRot, cats}`. `cats` (PR #36) lists the tabs the tray shows for that kind, in order: a rocket gets command, fuel, engine, coupling, aero, utility and structure; a plane cabins, air, wings, airEng, airGear and weapons; a car ground, utility, structure and weapons; a helicopter airEng, cabins, air, airGear, fuel, ground, wings and weapons; Armour (`tank`, PR #38) hulls, turrets, drive, guns, launchers, crew and kit. `GROUND_KINDS` (:41, car and tank) and `isGround(kind)` say which kinds drive on running gear and take the ground HUD; `NO_GEAR` (:44) is the frozen empty `v.gear` of every old vessel. The other tabs sit behind More (§7). A new category must go into some kind's `cats`, or it only ever shows under More.
 - `TIERS` (:825) has 5 career tiers. `def.tier` indexes it and `Career.unlocked(def)` = `sandbox || def.tier <= data.tier`.
 
 | Group | Fields (meaning) |
@@ -70,6 +72,7 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
 | Propulsion | `thrust` kN, `ispSL`/`ispVac` s, `gimbal` rad, `vector`. `plume` is a PLUMES key in parts3d.js:67 or `'none'`. `solid` and `battery` give the part its own fuel group (`fuelGroups` :1456). `air{kind:'prop'\|'jet'\|'fan'\|'ram'\|'rotor', v0, vmax, vmin, ab, torque}` marks air-breathing engines, which are excluded from Δv. `pusher`, `fan` |
 | Aero | `aero` (cuts drag when leading, vessel.js:236), `sharp` (vessel.js:245). `wing{area, span, flaps, vne, mmax, sweep, taper, stall, mcrit, load, dihedral, slope, wave, swing, planform, oswald, ar, gap, thick, cd0, winglets, control}`: field meanings are in the comment at parts.js:120-129; `control` makes it an elevator. `fin` (rocket fin), `airbrake` (area), `heatShield` |
 | Utility | `chute`/`chuteArea`/`brakeChute`, `leg`, `wheel{r, drive, speed, accel, track, brake, retract, bogie, fat, caster}`, `float`, `smoke`, `separator`, `side` (radial separator), `weapon{kind, ammo, each, ...}` (comment at :349-350), `agm`, `bay`, `ecm`, `rwr` (1 basic, 2 advanced warning receiver, PR #37; combat.js `rwrOf`) |
+| Ground update (PR #38) | `gv` (every new path keys on it), `family`, `place`, `outline`, `round`, `armour`, `hp`, `mods`, `module`, `inner`, `track`, `awheel`, `engine`, `ring`, `aim`, `weapon.kind` `tgun`/`agun`/`smoke`, launchers' `boost`/`coast`/`stow`/`heat`/`tandem`/`he`/`seek`, `searchRadar`, `trackRadar`, `thermal`, `lrf`, `era`, `spaced`, `slat`, `seat`, `rack`, `autoload`, `troops`, `amph`: chapter 8 §1 |
 | Depth / attachment | `twinZ`: the part is a **pair**, one copy at ±z, and twinZ is the default spread. `pod`: hangs from a wing (placement, draw layer, host guessing). **zLocked** is derived, not a field: `zLocked(d)` = `wing \|\| leg \|\| fin` (:889). Such parts always sit at z=0 because wings span both sides and rocket legs/fins stand in fours. `flush` (PR #36): set into the bodies around it, so it may overlap them (§4) |
 
 **The look-alike jets' fields (PR #36).** All are opt-in: no part from before #36 has one, which is why old designs draw, build and fly as before.
@@ -105,6 +108,7 @@ Units are metres, tonnes, kN, seconds and kelvin (parts.js:3). `fuel`/`mass` in 
    - Builder stats warnings (builder.js:1283-1316) look at `wing`, `wing.control`, `thrust`, `wheel`, `float`, `air.kind==='rotor'`, `shape==='vtail'`.
    - `quickAdd` heuristics (builder.js:1167) key on `side`, `leg`, `fin`, shape `rcs`/`girder`, `control`, `chute`, `aero`, `pod`, and surfaces.
 5. Optionally add the part to a template and to the README part list.
+   - A ground-update part (`def.gv`) also needs its `place` (the tray tap, builder.js `tankSpot`), its art in `GV_ART` (parts.js) and its 3D recipe (chapter 8 §3 and §10); `catalogue.test.js` checks every gv def's fields.
 6. **To take a part out of the tray**, give it `retired: true` (as PR #37 did to the small turret) and keep its key and geometry: old designs, saves and other players' spawn rows still name it.
 
 ### 3. Part instances
@@ -178,7 +182,7 @@ It changes **placement only**: `partsClash` has no caller outside builder.js, an
 - Second, att indices are resolved to ids, nulls are filtered out and `cleanAtt` runs.
 - Callers include flight.js:32, mp.js:466, renderDesignThumb, paste and loadDesign.
 
-**Templates.** `TEMPLATES` is at builder.js:5-291 and holds 35 craft. Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:294) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / heli (:1615). mp.js:470 relies on keys `mustang`, `camel` and `skylark`. Most of the stock plane templates use legacy twins (no att/z). The Falcon, Striker, Kestrel and Spectre carry a Chaff Dispenser (builder.js:83, 89, 112, 117): on the spine (x = −1.2), 1 m ahead of the flares on the Falcon and Kestrel (the Striker's at y 3.55 since PR #37, 3.8 before, clear of its RWR), except on the Spectre, where it sits flush under the round `jetF` tail at (1.0, 3.0), so the Spectre keeps its stealth and its carrier height. PR #37 gave the Falcon, Striker, Stratobomber, Kestrel and Spectre a Basic RWR on the spine, the stock planes' first rows with an `att` (on the fuselage row, or the `jetF` on the Kestrel and Spectre; the Spectre's in `stealth` paint), and the Stratobomber the manned `turretL` on top of its second fuselage section, behind the cockpit (`att: 2`, x −2.2) in place of the small turret (which stood loose at x −2). The warbirds (Mustang, Camel) carry none.
+**Templates.** `TEMPLATES` is at builder.js:5-421 and holds 51 craft (since PR #38 also the Desert Technical car and fifteen Armour vehicles, chapter 8 §2). Format: `{name, kind, tier, blurb, military?, parts: [[type, x, y, rot?, {z, skin, att}?]], paint?: {type: skin}}`. `templateRows` (:294) converts them to rows with `flip = x<0`. The hangar groups them as rocket / plane / military / car / ground forces (`tank`) / heli (:2477), with the ground forces first while Armour is being built, each card with its class (`groundClass` :426). mp.js:470 relies on keys `mustang`, `camel` and `skylark`. Most of the stock plane templates use legacy twins (no att/z). The Falcon, Striker, Kestrel and Spectre carry a Chaff Dispenser (builder.js:83, 89, 112, 117): on the spine (x = −1.2), 1 m ahead of the flares on the Falcon and Kestrel (the Striker's at y 3.55 since PR #37, 3.8 before, clear of its RWR), except on the Spectre, where it sits flush under the round `jetF` tail at (1.0, 3.0), so the Spectre keeps its stealth and its carrier height. PR #37 gave the Falcon, Striker, Stratobomber, Kestrel and Spectre a Basic RWR on the spine, the stock planes' first rows with an `att` (on the fuselage row, or the `jetF` on the Kestrel and Spectre; the Spectre's in `stealth` paint), and the Stratobomber the manned `turretL` on top of its second fuselage section, behind the cockpit (`att: 2`, x −2.2) in place of the small turret (which stood loose at x −2). The warbirds (Mustang, Camel) carry none.
 
 **The ten look-alike jets** (PR #36; builder.js:149-290) come after the stock craft, by generation, all `military` planes. Unlike the stock planes they use the attach system: rows `[type, x, y, rot, {z, att}]`, `att` being the index of the row the part hangs on (a stack along the centre line needs none). Every part also joins geometrically, no two parts clash, so the builder can edit them (`core.test.js` checks both), and each carries its camouflage in `paint` (the FS-22 and FS-35 wear their parts' own `look`; the FS-35's `paint` only puts its cannon, an FS-22 part, in `lightning`). Prices are on one scale: every jet fits a $120k battle exactly as it comes, the MyG-21 a $45k one and the FS-16 a $75k one, price follows generation, and rivals are matched (FS-15 and Sugoi-27, FS-16 and MyG-29, FS-22 and Sugoi-57). Mass is with full fuel; "wing" is the builder's "strong to" rating (`gRating`, chapter 2 §3) with full fuel. The prices include each jet's warning receiver (PR #37, which also cut five noses and the FS-16's body to make room, §2).
 
@@ -199,7 +203,8 @@ Every jet but the MyG-21 carries flares and a Chaff Dispenser (the FS-22's and F
 
 **Design codes.** `designCode` (builder.js:1490) produces `"RSS1."` + base64url(UTF-8 JSON `{n, k, p:[[type, x, y, flip0/1, rot]]}`).
 - The prefix becomes `"RSS2."` when any row carries extra fields `[z, att, skin]`; trailing nulls are trimmed. Older versions cannot read RSS2.
-- `parseCode` (:1503) finds `/RSS[12]\.…/` anywhere in pasted text and keeps at most **20000 rows** (reports `cut`).
+- The prefix becomes `"RSS3."` (PR #38) when any part carries an armour thickness, `mm`, as a ninth column; only then. Older versions can't read RSS3 (chapter 8 §1).
+- `parseCode` (:2365) finds `/RSS[123]\.…/` anywhere in pasted text and keeps at most **20000 rows** (reports `cut`). The `mm` column is taken only when it is a finite number.
 - Unknown rows become null in place (reports `dropped`). The name is cut to 40 characters and an unknown kind falls back to rocket.
 
 **localStorage keys.** All go through `store` (util.js:116), which uses JSON, try/catch and a fallback read of the legacy `orbitforge.` prefix.
@@ -224,7 +229,7 @@ Every jet but the MyG-21 carries flares and a Chaff Dispenser (the FS-22's and F
 
 ### 6. Skins and paint (parts.js:1486-1608)
 
-`SKINS` (:1491) has 26 entries `{name, base:#rrggbb, paint?:'hull'|'dark'|'metal', accent?:'keep'|null, rough?, metal?, camo?, pat?}`. `accent` controls livery stripes: `'keep'` leaves them as drawn, `null` hides them, unset uses a tone of `base`. `rough`/`metal` are the 3D finish. The first 13 are the plain paints; PR #36 added the jets' 13 (:1505-1520), eleven of them camouflage and two plain (`us4gull`, Navy gull grey, and `us4gunship`, gunship grey). All the jets' paints have `accent: null`.
+`SKINS` (:1854) has 30 entries `{name, base:#rrggbb, paint?:'hull'|'dark'|'metal', accent?:'keep'|null, rough?, metal?, camo?, pat?}`. `accent` controls livery stripes: `'keep'` leaves them as drawn, `null` hides them, unset uses a tone of `base`. `rough`/`metal` are the 3D finish. The first 13 are the plain paints; PR #36 added the jets' 13, eleven of them camouflage and two plain (`us4gull`, Navy gull grey, and `us4gunship`, gunship grey). All the jets' paints have `accent: null`. PR #38 added four for armour (:1885-1888): `steppe` (Steppe green, plain), and the patterned `ambush` and `woodland` (three-tone blotches) and `whitewash` (splinters over white), their patches sized for a tank rather than a jet. Since PR #38 a track's fender and road wheels and an armoured wheel's hub take paint too.
 
 - `NO_SKIN` (:1524) lists shapes that cannot be painted: sep, shield, chute, leg, wheel, gear, girder, rotor, tailrotor.
 - `skinnable` (:1525); `cleanSkin(id, d)` (:1526) returns null when invalid or unpaintable.
@@ -268,7 +273,7 @@ Every jet but the MyG-21 carries flares and a Chaff Dispenser (the FS-22's and F
 Live previews (the depth slider) call `changed(true)`: no history and no save. `undo`/`redo` (:462) call `loadDesign(snapshot, true)`, which **recreates every part object**, so stale references must be dropped first (undo cancels any drag).
 
 **Kinds**
-- `setKind` (:1216) and `loadDesign` (:359, only when the kind changes) switch the default palette tab (rocket→command, plane→cabins, car→ground, heli→airEng) and load that kind's symmetry setting (`kindSymmetry`).
+- `setKind` (:1980) and `loadDesign` (:518, only when the kind changes) switch the default palette tab (rocket→command, plane→cabins, car→ground, heli→airEng, tank→hulls) and load that kind's symmetry setting (`kindSymmetry`; Armour mirrors across z and remembers its own). `pickKind` (:1995, PR #38): tapping Armour on a blueprint with no armour parts starts an empty Armour design (chapter 8 §2).
 - `renderKind` disables kinds that a battle disallows.
 
 **The tray (PR #36).** `buildPalette` (:1086) shows the tabs in the kind's `VEHICLE_KINDS[kind].cats` (§2), then a **More…** tab (`.tab.more`, sticky at the right end of the strip, so it stays in sight on a phone in portrait however the tabs are scrolled) that adds every other tab (`.tab.extra`, dimmed) and turns into **Fewer**; `moreCats` holds the choice, and with More off a tab that isn't the kind's falls back to its first. Any part still goes on any craft. Within a tab the items follow `partFamilies()` (:309): the stock parts in key order, then each look-alike jet's parts together behind a `.tray-group` label with the jet's name, the jets in `TEMPLATES` order, with `retired` parts left out (PR #37: the small turret). A part belongs to the jet its name gives (`/^(FS|MyG|Sugoi)-\d+/`, "FS-22 Wing"), else to the first template that carries it (the IRST Ball to the MyG-29); worked out once into `PART_FAMILIES` (:308). Part names wrap to two lines at most (`.part-name`, style.css:172), so a long jet part name doesn't make the tray taller. `test/browser/builder-shapes.mjs` checks the tabs per kind, More and Fewer, the jet groups, the Weapons tab (both RWRs and the manned turret, not the small one) and, on a phone in portrait, that More is in sight.
@@ -358,6 +363,7 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 | Ctrl+A / C / X / V / D | select all / copy / cut / paste / duplicate |
 | Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y | undo / redo / redo |
 | R, F, V, G, M | rotate, fit view, toggle 3D, grid, match paint |
+| X | X-ray (PR #38, while something sits inside armour; Ctrl+X is still cut) |
 | `[` `]` | depth −/+ |
 | Arrows | nudge in screen directions (0.1 / 0.25 grid / 1 with Shift) |
 | Enter | launch (needs a control part) |
@@ -396,10 +402,11 @@ Live previews (the depth slider) call `changed(true)`: no history and no save. `
 12. `save()` is skipped while a battle borrows the builder (`MP.savedCareer`). `Builder.mp` changes the stats warnings and the allowed kinds.
 13. **The clash test and `snug` change placement only** (PR #36). `partsClash` is called from builder.js alone; joins, physics, saves, multiplayer and the 3D models don't read it. Old designs therefore load, join and fly exactly as before; the most an old design notices is that a spot the builder used to refuse (a pod in the corner of a round hull's box) is now allowed. Keep it that way: never use `partsClash` or `shapesClash` to decide what joins.
 14. **A look-alike jet's fields are opt-in** (`us5`, `ru`, `loft`, `body`, `look`, `fill`, `doors`, `bayRack`, `vec2d`, `irK`, `irst`, `twinMirror`, `vtail`, `wing.plan`/`crank`/`root`, `flush`, `glowAft`/`glowK`): each reader falls back to the old behaviour when the field is absent (`fill || 1`, `glowAft || 2`, the `vtail` defaults `0, 0.4, 0`, and so on), and the baselines prove no stock part moved. A new reader must keep that fallback.
+15. **A ground-update part's fields are opt-in too** (PR #38): every new path keys on `def.gv`, the `tank` kind or a new field, and old parts keep rot 0, their panel numbers and their stats byte for byte (chapter 8 §13).
 
 ## 2. Simulation and flight
 
-All five files are plain globals, loaded in this order by `index.html:333-353`: util, space, terrain, parts, vessel, … career, …, flight, …, main. Everything is in SI units: metres, seconds, kg, N, kelvin and radians. Part *definitions* use tonnes (`def.mass`, `def.fuel`) and kN (`def.thrust`); the runtime converts them with `*1000`, and `p.fuel` is in kg. `G0 = 9.80665` (`util.js:5`) is used for Isp and g-loads. Gravity uses each body's own `mu = surfaceG·R²`.
+All five files are plain globals, loaded in this order by `index.html:374-400`: util, space, terrain, parts, vessel, … career, …, flight, …, main. Everything is in SI units: metres, seconds, kg, N, kelvin and radians. Part *definitions* use tonnes (`def.mass`, `def.fuel`) and kN (`def.thrust`); the runtime converts them with `*1000`, and `p.fuel` is in kg. `G0 = 9.80665` (`util.js:5`) is used for Isp and g-loads. Gravity uses each body's own `mu = surfaceG·R²`.
 
 ### 1. space.js: bodies, orbits, prediction
 
@@ -525,6 +532,7 @@ Other helpers:
 | plane | −π/2 (nose +y east, belly +x down) | F +y, U −x, R +z | pitch, roll, yaw; 0.9/1.9/0.45 | F +y, U −x |
 | heli | 0 | F +x, U +y, R +z | pitch, roll, yaw; 0.9/1.0/1.4 | F +x, U +y |
 | car | 0 | F +x, U +y | pitch, roll, yaw; 0.9/1.2/1.2 | F +x, U +y |
+| tank (PR #38) | 0 | F +x, U +y | pitch, roll, yaw; 0.25 each (in the air only: running gear never lets the stick turn the hull) | F +x, U +y |
 
 **Depth and mass** (helpers in `parts.js:872-921`):
 - `partZ(p)` gives a single part's depth, or how far out each copy of a twin pair (`def.twinZ`) sits.
@@ -545,12 +553,13 @@ Other helpers:
 - The nose `top`, which gives `noseAero` and `noseSharp`.
 - `wheels`, `fins` (rocket fins), `wings`, `vtails` (shape `vtail`), `airbrakes`, `vecs` (flat vectoring nozzles, `def.vec2d`, :242; PR #36), `hasFlaps`, `hasRetract` and `aircraft = wings.length > 0`.
 - `mainWing` (largest non-control wing), `stallAoA`, `clS`, `wingS`/`vne`/`mmax` (the design's weakest limits, for the builder; physics uses each wing's own), `rotors` and `tailRotors`.
+- The ground update's (PR #38, before the nose): `gv` (any part with `def.gv`), `plated` (= gv), `gear` (tracks and armoured wheels, only on a ground kind: on a plane, helicopter or rocket they are boxes on the hull, so the stick still flies it; `NO_GEAR` otherwise) and `Aim.groups(v)` (`tg`, `tgOf`, `aimed`, `bodyBox`; chapter 8 §4). `aircraft` is false for a tank whatever wings it carries.
 - It then calls `recompute(false)`, `computeAreas` and `computeHull`.
 
 `computeAreas` (`:263`) gives the projected areas per axis and the gear drag. Seen head-on a part fills its box (`w × depth`), a round (`ROUND3D`) one 0.785 of it, and since PR #36 a shaped body `def.fill` of it (:270): the FS jets' lofted bodies work it out from their sections (0.45 to 0.95; the MyG and Sugoi hulls have none). Without it a lofted fuselage counted as a full box and no jet could pass about Mach 1.9. Parts without `fill` count as before, so the baselines didn't move. `computeHull` (`:290`):
 - Hull points are box corners at each copy's depth; a `ROUND3D` shape gets a diamond at each end.
 - **Rocket** legs and fins also get a copy turned 90° about the stack.
-- Wheel points come from `wheelGeom`, for each `massZs` copy.
+- Wheel points come from `wheelGeom`, for each `massZs` copy. With running gear (PR #38), tracks and armoured wheels add `Gear.points` instead (each track's road wheels, an armoured wheel's centre, with the suspension's sag in the radius); a ground part that is `inner` (inside a hull) adds no points, and one with an `outline` adds its outline's corners at ± half its depth.
 - It also computes `wheelbase` along `drive.F` and `reach` (max distance from the COM, plus 0.5).
 
 `kind` must be set **before** `rebuildGroups`, because the hull's radial copies and the wheelbase depend on it.
@@ -617,7 +626,9 @@ Other helpers:
 - It is torn off when `q > 25000` and it is more than half open.
 - `brakeChute`: tears at `q > 9500` and collapses when stopped.
 
-**Ground and water** `ground(dt, sim)` (`:931`):
+**Running gear** (PR #38): a vessel with `v.gear` hands its whole contact step to `Gear.ground` as `ground()`'s first line (`:979`), and `turnTarget` returns null (`:551`: the gear rights the hull itself). Gear.ground keeps a copy of this function's crash, dent, landing and rest rules, line for line, each copy naming the other: change both (chapter 8 §8). `applyImpulse(P, dir, j)` (`:1118`) is an impulse at a part-space point with the same arithmetic as the contacts (recoil, a shove, a heavy hit).
+
+**Ground and water** `ground(dt, sim)` (`:978`):
 - Broad phase uses `reach`, `terrainMax` and the deck.
 - Probes hull points (radius 0) and wheel rims, skipping retracted gear. A point deep under a deck edge counts as hitting the ship's `side`.
 - **Crash**: the normal closing speed is compared with `breakSpeed` (default `DEFAULT_BREAK_SPEED = 9`; ×1.8 on water) **×1.6 whenever `Combat` is loaded** (always in game). Between 0.75 and 1.6 of the limit, `Combat.impact` dents the part instead. A prop or rotor touching ground with rpm > 8 shatters. Broken parts go to `sim.breakParts(...,'impact')`; the `bouncy` silly setting skips this.
@@ -627,14 +638,15 @@ Other helpers:
 - In water without floats, velocity damps by `e^(−0.6dt)`.
 - `landed` = contact for more than 0.2 s and speed < 1.5. Resting for 0.5 s zeroes the velocity. Flight skips sleeping non-active vessels.
 
-**Splitting** `splitComponents` (`:1120`): keeps the component holding the control part. Each other component becomes a new `Vessel` with the parent's `q`/`av`, `pointVel` velocity, `kind`, `gearUp` and the remaining stages filtered to its parts; `isDebris = !control`. Stages up to the current `stageIdx` are never touched. `serialize`/`restore` (`:1166`, `:1178`): `restore` turns pre-3D saves (`rot`, `w`) into `q`/`av` and puts back `x..vz` after `rebuildGroups`.
+**Splitting** `splitComponents` (`:1120`): keeps the component holding the control part. Each other component becomes a new `Vessel` with the parent's `q`/`av`, `pointVel` velocity, `kind`, `gearUp` and the remaining stages filtered to its parts; `isDebris = !control`. Stages up to the current `stageIdx` are never touched. `serialize`/`restore` (`:1224`, `:1237`): `restore` turns pre-3D saves (`rot`, `w`) into `q`/`av` and puts back `x..vz` after `rebuildGroups`. A ground-update part also saves `GV_SAVE` (`:114`: its turret and gun angles, `mm`, module health, broken, ko, stowed reloads, the selected shell, each store's rounds and who sits in its seats) through `gvSave`/`gvLoad` (`:116`, `:120`, which cleans every value), and a gv vessel with a seat swap waiting saves `swaps` (chapter 8 §1).
 
 ### 4. flight.js: the flight scene (`Flight` object)
 
 **From design to vessel**: `Flight.start(design, opts)` (`:28`). The design is `{name, kind, parts: rows}` from `Builder.serialize` / `designRows`.
 1. `partsFromDesign` (`parts.js:1238`) → `buildAdjacency` → keep `componentOf(findControlPart)` (a control part is required) → drop `att` links whose host was left behind.
 2. `new Vessel` (on `EARTH`), set `kind`, `computeStages`, `rebuildGroups`.
-3. `placeOnSurface` at `opts.place` (multiplayer spawn: `e, z, yaw, catapult`) or at `EARTH.sites[K.site]`. A plane on floats with no wheels starts in the bay facing π.
+3. `placeOnSurface` at `opts.place` (multiplayer spawn: `e, z, yaw, catapult`; since PR #38 also an arena's pad, and `place.air {alt, speed}`: start flying that high over the spot at that speed, gear up, with a plane's stage 1 fired so its engines run) or at `EARTH.sites[K.site]`. A plane on floats with no wheels starts in the bay facing π. `opts.keep` (PR #38) lists vessels to keep in the new flight as they are: a ground battle's wrecks and their thrown turrets, the Practice Battle's AI.
+   - A craft with aimed parts works out its turret limits now (`Aim.limits`, `:54`), not on the first frame it aims. An Armour launch comes with `GroundMode.soloPlace` (main.js `launch`, chapter 8 §9).
 4. A heli starts with throttle 0 (the default is 1).
 5. Outside multiplayer: `Career.spend`, then `resetState`, the 2D `scale`, and `save()`.
 
@@ -659,6 +671,7 @@ Other helpers:
 - Keys are read by `e.code` in `bindDom` (`:978`):
   - `readControls` (`:588`) fills `v.ctl {v, h, r}` from W/S, A/D, Q/E and the arrows, plus the touch stick (`#joy`, 0.12 dead zone) and the `#rot-left/right` buttons. Shift and Ctrl change throttle at 0.9/s; Z and X go to full and cut.
   - Space stages. 1–6 is rocket SAS; 1–4 for planes is hold/level/heading/off (`PLANE_SAS_KEYS`).
+  - Aiming a ground vehicle (PR #38, `groundAim`), `groundKey` (`:1391`) takes `1`–`4`, Space, Shift, PgUp/PgDn, L, J, M, Esc, Y and C first, and the mouse is captured for aiming; chapter 8 §5.
   - M toggles the map and N switches the map view. `,` and `.` change warp. `[` and `]` switch vessel.
   - B brakes, F cycles flaps (0/0.5/1), G toggles gear, C resets the camera.
   - V, Tab and K are weapons and countermeasures, L launches the catapult, R recovers, Esc and P open the menu.
@@ -676,23 +689,24 @@ Other helpers:
 - Orbit rows are hidden for low aircraft. Also Ap/Pe with times, Δv (`estimateDeltaV`), heat bar, target/window, encounter/escape/impact, stage fuel and stage text. The fuel bar moves by `transform: scaleX` (`:1414`), so it costs no layout.
 - The weapon box comes from `Combat.status` (chapter 4 §1.2; `:1422-1433`): shown whenever there is one, including for a craft whose only weapons are flares or chaff (`cmOnly`: no FIRE button, `:1425`; before PR #35 such a craft had no box and so no CM button on phones). `#btn-cm` shows while flares or chaff are left (`:1424`). The ammo line reads rounds · `✦` flares `≋` chaff · `◈` stealth · kills (`:1429-1431`); a `cmOnly` craft keeps showing `✦0`/`≋0` once it has used everything.
 - Hints come from `hint`/`vehicleHint`. The weapons hint asks `Combat.systems(v).length` (`:1257`), so it doesn't fire for flares or chaff alone.
+- A ground vehicle (PR #38; `F._bodyGround`, `body.ground`): the flight rows (`.gh`), the autopilot and the throttle give way, the Crew row shows (written only on a change, so an old craft's HUD tick writes nothing new), Damage reads "Knocked out", the speed carries ▲ or ▼, and `GHUD.sync` sets the ground controls. The hint line says "Righting…" while the helping hand works, even with hints off. Chapter 8 §11.
 
-**Camera**: `updateCamera` (`:1454`) follows the view vessel's *body-relative* position (`camRel`), so a wreck stays in view (the `ghostCam` silly setting reverts this). `viewQ` slerps to the local surface frame, and `viewRot` is used for 2D.
+**Camera**: `updateCamera` (`:1454`) follows the view vessel's *body-relative* position (`camRel`), so a wreck stays in view (the `ghostCam` silly setting reverts this). `viewQ` slerps to the local surface frame, and `viewRot` is used for 2D. Aiming a ground vehicle, `F.aimCam` hands the camera to the aim camera and the gunner's sight (render3d.js, chapter 8 §5).
 
 **2D fallback**: `App.use3D()` (`main.js:146`) is false without WebGL, or with the `retro2d` silly setting. `Flight.render` then calls `World.render` (`world.js:317`), which uses `F.scale`, `viewRot`, `camAbs`, `v.rot` (the planar projection of `q`, `vessel.js:154`) and `com.x/y`. The physics is the same 3D simulation either way.
 
 **Saving**:
 - `serialize` (`:145`) writes `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels}` to `store['rss.flight']`. It skips AI craft, dead craft and uncontrolled debris.
-- It saves every 10 s, on Save & exit, and on `visibilitychange`/`pagehide`. Nothing is saved in multiplayer.
+- It saves every 10 s, on Save & exit, and on `visibilitychange`/`pagehide`. Nothing is saved in multiplayer, nor in a Practice Battle (`:179`, PR #38: its vehicle is lent, and the save `start` makes is cleared).
 - It is cleared on revert, recover, a new launch, or destruction with no other controllable craft left.
 - `restore` (`:159`) bumps `_partSeq` past the restored ids.
-- Recover (`:417`): landed or splashed on Earth, speed < 1.2. It refunds 90% of `value()`.
+- Recover (`canRecover`, `:442`): landed or splashed on Earth, speed < 1.2, not in a Practice Battle. It refunds 90% of `value()`. A ground vehicle's end screens say "Knocked out" / "Off the range" with its knock-outs, best shot and distance driven (`summaryHTML`).
 
 **Missions hook**: `checkMilestones` (`:823`) raises flags: `liftoff`, `alt1k`, `space`, `soi:/orbit:/land:<id>` (an orbit needs `rp > R+warpAlt` and `ra < soi`), `sunDive`, `escapeSun`, `takeoff`, `flyHigh`, `runwayLanding`, `supersonic`, `mach2`, `seaplane`, `hover`, `drive1k`. Recover adds `recoveredSpace`, `home:<id>` and `splashdown`. `award` (`:798`) → `Career.onFlag` (not in multiplayer).
 
 ### 5. career.js
 
-`MISSIONS` (`career.js:4`) has 41 entries: 13 fixed missions, plus flyby/orbit/landing/return for each body (scaled by its tier; no landing or return on Jupiter), plus `escapeSun` and `sunDive`. Each is matched by `flag`.
+`MISSIONS` (`career.js:4`) has 42 entries: 14 fixed missions (since PR #38 the Tank Range, $25,000 for three knock-outs there with a ground vehicle, flag `tankRange`; Road Trip counts Armour too), plus flyby/orbit/landing/return for each body (scaled by its tier; no landing or return on Jupiter), plus `escapeSun` and `sunDive`. Each is matched by `flag`.
 
 `Career.data` (`'rss.career'`) holds `mode` (`null` | `'sandbox'` | `'career'`), `funds` (starts at 50000), `tier`, `done` and `flights`. `sandbox` means `mode !== 'career'`: spending, earning and unlocks are no-ops there. `onFlag` marks missions done in both modes, but pays only in career. `buyTier` uses `TIERS` (`parts.js:825`). A launch costs `designCost` of the kept parts, and revert refunds it.
 
@@ -725,7 +739,7 @@ Other helpers:
 - **`EARTH.terrainMax` changes** from 352 to 1700 when the map loads. That affects the broad-phase ground check and the prediction's impact check. `cfgOf` caches must be cleared when terrain inputs change (`setEarthData` does this).
 - **Numerical stability**: `qnorm` every step, `MAX_SPIN`, the `Ixx..≥1` floor and Schur `s ≥ 1e-3`, `e` clamped away from 1, the degenerate-orbit path, bisection for events, 4-iteration contacts plus a 0.9 push-out, rest sleeping, a finite control-surface slew, stress hysteresis, and `dt` caps of 0.1 / 0.05 / 1/120 s.
 - **The `sim` contract**: `physicsStep(dt, sim)` needs `toast`, `breakParts`, `ripParts`, `fireSeparator`, `deployChute`, `target`, `time` and `vessels`. Globals `Silly` and (optionally) `Combat` must exist, guarded by `hasCombat()`.
-- **Other Vessel users**: AI fighters are Vessels too (`combat.js:996`, `v.ai`, `sas 'off'`). Multiplayer ghosts (`v.remote`) are never stepped; they only coast. Multiplayer forces warp to 0.
+- **Other Vessel users**: AI fighters are Vessels too (`combat.js:996`, `v.ai`, `sas 'off'`). Multiplayer ghosts (`v.remote`) are never stepped; they only coast. Multiplayer forces warp to 0. The ground AI's vehicles (`v.kin`) and wrecks (`v.wreck`) are never stepped by physics or rails either (flight.js:612, :855): groundai.js moves the first, and wrecks stay put (chapter 8). The Tank Range and the Practice Battle keep the warp at 1× too (flight.js:227).
 - **Ordering**: set `kind` before `rebuildGroups`. Call `rebuildGroups` after any change to `parts` or `adj`. Never call `recompute(true)` on a placed craft; it would lose the "parts fixed in space" shift.
 
 ## 3. Rendering
@@ -741,10 +755,11 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 | `Settings`, `FX`, `World` | world.js:5/32/277 | Settings, particles, 2D fallback flight view, 3D markers overlay | `World.render` 317, `World.drawOverlay3D` 821 |
 | `GlobeView` | globe.js:7 | Globe map state and its 2D overlay | `open` 18, `render` 90 |
 | `MapView`, `PATCH_COLORS` | map.js:4/6 | 2D solar-system map (also the home screen backdrop, main.js:258) | `render` 133, `drawSystem` 83 |
+| `GHUD` | ghud.js:8 | the ground HUD on the 2D overlay (PR #38): crosshair, the gun's reticle, hit results, the damage diagram, radar scope, tags and zone badges; the minimap and the tactical map on their own canvases | `draw` 151, `frame` 959; chapter 8 §11 |
 
 - **Frame dispatch** (main.js:52-116). Since PR #35 a frame draws only what can have changed (§5.2 has the rules: the frame cap, stale views, 30 and 10 fps backdrops):
   - Hangar with 3D on: `Render3D.renderBuilder(Builder, dt, force)`, which itself draws nothing when nothing in the view moves (§2).
-  - Flight in 3D: `Flight.updateCamera()`, then `Render3D.renderFlight(Flight, dt, calm)`, then the 2D overlays on the `#view` canvas (`World.drawOverlay3D`, `Combat.drawHUD`, `MPUI.drawHUD`). Paused or under a dialog (`calm`), this runs 10 times a second.
+  - Flight in 3D: `Flight.updateCamera()`, then `Render3D.renderFlight(Flight, dt, calm)`, then the 2D overlays on the `#view` canvas (`World.drawOverlay3D`, `Combat.drawHUD`, `MPUI.drawHUD`, and `GHUD.draw` while aiming a ground vehicle, PR #38). Paused or under a dialog (`calm`), this runs 10 times a second.
   - Globe map: `GlobeView.render`.
   - Otherwise: `Flight.render` → `World.render` or `MapView.render`.
   - `App.clear2D()` (main.js:141) clears the overlay canvas only when something was drawn on it (`App.ink`).
@@ -867,7 +882,8 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - *Lost* (other body, moved > 25 %, or span off by ×3): `buildPatchNow` (1168) runs synchronously, at most every 0.12 s; otherwise the patch is hidden.
   - When the job finishes, `swapPatch` (1161) swaps the slots and marks scenery dirty.
 - **`meshHeight(b, a, z)`** (1180) bilinearly samples the *rendered* patch (null outside it). `groundAt` (1188) falls back to `h3dAt`. The camera clamp and all scenery seating use these.
-- **`fieldGround`** (1151) keeps rendered ground under airfield paving.
+- **`fieldGround`** (1151) keeps rendered ground under airfield paving; a Ground Battle pad (`f.pad`) gets none.
+- **Near a Ground Battle arena** (PR #38): the patch leaves the arenas' berms out (`height(..., noBerm)`), and inside an arena whose own ground mesh is on show its shader discards a rectangle (`terr.holeU`, in its UVs) where that mesh is drawn; a finished patch near an arena waits for the mesh's seam against it, so the two swap together (`arenaWaits`). `drawnAt` adds the berms back for anything seated on the drawn ground. Chapter 8 §10.
 
 #### 1.7 Water
 - **Ocean:** `terr.oceanMat` (823): transparent, roughness 0.08, a ripple `normalMap`, `envMapIntensity` 1.2. The colour runs shallow→deep by depth and goes deep for far cells. Surf foam comes from `depth/tan(slope)`.
@@ -892,7 +908,8 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
 - **`updateScenery`** (2685): shown only near the ground, when `dist < 9 km`. The radius is `clamp(3·dist + 600, 800, 2400)`.
   - Background rebuild budget: 2-3 ms, plus up to 30 ms.
   - Synchronous rebuild on another body or when moved > 80 % of the radius (at most every 0.3 s).
-- Farmland, roads and urban grey are terrain vertex colours, not geometry.
+- Farmland, roads and urban grey are terrain vertex colours, not geometry. Since PR #38 the patch's vertex colours come from `groundPaint` (968), which the arena's own ground mesh paints with too.
+- **Arenas** (PR #38): scenery keeps off the Ground Battle arenas cleared for the fight (`EARTH.arenas`, `clear`, on the real map), as far out as the arena's own ground is drawn: a tree or a house there would hide a tank from the eye but not from a shell.
 
 #### 1.9 Clouds (lit cumulus)
 - **Layout:** `cumulusJob` (1410) uses a hashed 750 m grid out to 15 km (9 km on low). Bases are 1.4-3.6 km up, with fewer and bigger puffs far off.
@@ -929,7 +946,8 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - `'fire'` turns to smoke after 45 % of its life.
   - `'glint'` (chaff foil, PR #35) is additive, its alpha × `FX.twinkle(p)` × the night dim (2292), as `FX.draw` does in 2D.
   - A random depth jitter `p.jz` is added lazily.
-- **Combat** (`syncCombat` 3112): tracer `LineSegments` plus head points (700), pooled missile/rocket/bomb models, and target models within 30 km (they become wrecks when destroyed). A shot with `big` (the frigate's radar SAM) gets its model at 1.5× (3137).
+- **Combat** (`syncCombat` 3112): tracer `LineSegments` plus head points (700), pooled missile/rocket/bomb models, and target models within 30 km (they become wrecks when destroyed). A shot with `big` (the frigate's radar SAM) gets its model at 1.5× (3137). Since PR #38: shells (`k: 'shell'`) are tracers too, a main gun's longer and whiter, and a cheap round holding a substep is drawn ahead by `s.ha`; missiles from ground launchers are drawn smaller (0.45 an anti-tank missile, 0.8 a SAM); a kind with no model draws nothing instead of throwing every frame.
+- **Ground vehicles** (PR #38): other players' and the AI's ground vehicles and wrecks more than 150 m off are drawn raised or lowered onto the ground as drawn (`reseat`, `reseatOf`), zones get capture rings (one draw), and Highland Ridge has a ground mesh of its own (`updateArena`, after `updatePatch`). Chapter 8 §10.
 
 #### 1.12 Cameras
 - **Flight follow camera:** `fc` (2346).
@@ -937,7 +955,8 @@ The flight view is 3D (three.js r159, lazy-loaded). The 2D canvas renderer in `w
   - `followCam` (2382) eases the heading at a rate of 2.2/s.
 - **Hangar turntable:** `bc`.
 - **Shared controls:** `orbitBy` (3349) clamps pitch to −1.25..1.45. `resetCamera` (3356) returns the short way round. Spectating is just `F.viewVessel`.
-- There is no cockpit or free camera.
+- **Aim camera** (PR #38; `F.aimCam`, `aimPivot` 2893): aiming a ground vehicle's guns, the camera stands 7-30 m behind and over the main gun's turret, looking along `F.aimDir`; in the gunner's sight it sits at `Aim.sightPoint` with the field of view at 50/zoom degrees (`setFov` 3634, `Render3D.setSight`). Every reader of `TANH` follows the field of view; the hangar and the globe only ever see 50°. Chapter 8 §5.
+- There is no cockpit or free camera (holding `C` in a ground vehicle looks round, the turret holding its aim).
 
 #### 1.13 Quality and adaptive resolution
 - **`adaptResolution`** (3030): when the frame-time EMA exceeds 1/42 s, the pixel ratio scale drops by 0.08, down to 0.55. Below 1/57 s it rises by 0.04. It changes at most every 0.6 s. The base ratio is `min(DPR, 1.75)` on high and 1 on low. `calm` frames (paused, under a dialog, or carrying several frames' time) don't feed it.
@@ -1044,6 +1063,7 @@ Low over the ground most of the screen is terrain, yet the planet's sphere, the 
 | `wheel`, `gear` | `wheelNode` cached by r and W; `wheelPair` adds a cosmetic second wheel at ±track |
 | `turret` 882 | The small turret: a base on the mounting (+x) side, a dome on a `yaw` sub-node, twin barrels on a `pitch` one. `style: 'manned'` (`turretL`, PR #37) is `mannedTurret(d)` (627) instead: a ring on the mount, and on the `yaw` node an armoured collar (`mil`, so it takes paint), a framed half-sphere of `glass` with the gunner's `helmet` and shoulders inside; the twin guns with cooling jackets elevate on a `pitch` node pivoting at a trunnion (`pos: [-0.04, 0.15, 0]`), not at the part's centre; under the ring a `steelDark` skirt reaches 0.2 m into whatever the turret stands on, so on a round hull its flanks don't stand off the curve |
 | `leg`, `rcs`, `girder`, `airbrake`, `chassis`, `cab`, `rotodome`, `skid`, `ecm`, `drone`, `box`, `extrude` | Dedicated models |
+| `trackUnit` 1144, `awheel` 1199, `tankGun` 1211, `launcher` 1253, `radarAnt` 1275 (PR #38) | The ground update's running gear, guns, launchers and radars, from the layouts parts.js draws them by; hulls, plate turrets and boxed kit are their outline's exact prism (`plated` 659), cast turrets and rings lathes. Chapter 8 §10 |
 
 **Materials** (`makeMat` 1335, `KINDS` 13).
 - Textured kinds (`map: true`: hull, metal, gold, shield, sep) take `textureFor(def, flip, skin, at)` (1305). That is a `CanvasTexture` of `drawPart` painted with `PartPaint.flat = true` (no fake shading), 64 px/m clamped to 16..512 (power of two), by `paint(d, flip, skin, at)` (1259). It is drawn 8× offset as an edge bleed. An `us4body`'s canvas is twice as wide (1261): the side art on the left, its plan view (`drawPartTop`) on the right (1272), which `loftTube` maps onto tops and bottoms.
@@ -1095,7 +1115,8 @@ Low over the ground most of the screen is terrain, yet the planet's sphere, the 
 | `hinge` (PR #36) | A door: `rotation[axis] = open · clamp(p.deployed, 0, 1)` (1811), the axis and open angle from the sub-node (`userData.hinge`, 1496). The FS-22/35 bays and guns |
 | `ruMove` (PR #36) | `move: 'rudder'`: an all-moving fin turns about its own span axis by `p.deflect` (mirrored copies the same way back). `move: 'vec'`: a Russian vectoring nozzle swings with the stick, `rotation = (−cmd.x·k, 0, −(cmd.z + 0.6·side·cmd.y)·k)` with `k = d.gimbal` (exits up for nose up, apart to roll; as far as the engine's gimbal, after the Sugoi-35's showed 2.6 times too far), from `VesselMesh.cmd` (1799-1802). Collected in `instance` (1497) |
 | `swingP` / `swingN` | `p.sweep − swing[0]` |
-| `yaw` / `pitch` | `p.aimYaw` / `p.aimEl` (turret) |
+| `yaw` / `pitch` | `p.aimYaw` / `p.aimEl` (turret; a ground-update gun's yaw node sits at its trunnion, the pitch node at the yaw node's origin) |
+| `recoil`, `susp`, `sprocket`, `antenna`, belt and wheel textures (PR #38) | `gvAnim` (2028): a barrel's kick from `p.shotAt`, a track or wheel lifted by `v.susp`, belts run by `p.belt`, wheels and sprockets turned, a search antenna in flight only. Parts on turret rings are turned with them (`turnRig` 1990) |
 | `store` | Visible count from `p.ammo`, alternating sides |
 | `lid`, canopy | `p.deployed`, `p.used` |
 | Retractable wheels | `root.visible = !p.retracted` |
@@ -1205,6 +1226,10 @@ Low over the ground most of the screen is terrain, yet the planet's sphere, the 
    | A flat nozzle's `pivot` and its flame | its 2D art (`US5_ART.eng22`) turning the flaps by `p.deflect` |
    | Bay and gun doors: `hinge` sub-nodes | the FS-22/35 2D art's doors from `p.deployed` (the Sugoi-57's bays have neither, chapter 7) |
    | Fin outlines and cant: `vtail` with `def.vtail`, `ruFin`, `US5_FIT.fin` | `partPath0` `vtail` with `def.vtail`, `ruFinPath`, `us5FinPoly` |
+   | Armour (PR #38): hulls, plate turrets and boxed kit as their outline's prism (`plated`), `BUILD.trackUnit`, `awheel`, `tankGun`, `launcher`, `radarAnt`, cast turrets and rings as lathes | `gvPath`/`gvDraw` (`gvHull`, `gvTurret`, `gvCast`, `gvRing`, `gvTrack`, `gvAWheel`, `gvGun`, `gvLaunch`, the radars, `gvKit`): both read `def.outline` and `trackLayout`, `gunLayout`, `launchLayout`, `radarLayout`, so change the data, not one side. The outline is also the clash shape and armour.js's hit prism |
+   | Belts and wheels: the belt texture's offset from `p.belt`, the wheel faces turned with the sprocket, an armoured wheel by `p.spin` | `gvTrack`'s links from `p.belt`, `gvAWheel` from `p.spin` |
+   | X-ray: `VesselMesh.setXray` / `Parts3D.xray` (armour at 0.3 opacity, inner parts in their kind's colour, built-in crew and stores as balls) | `PartPaint.xray` in `gvDraw` (armour outlined over a faint fill, the insides as icons, replaced built-ins dashed) |
+   | Capture rings on the ground (`updateRings`, render3d.js:3653) | the minimap's and tactical map's zone circles and the HUD's zone badges (ghud.js) |
 
    The wing planform formula lives in `wingGeo`, `wingAt`, `oldStruts.holds` (parts3d.js:1576) and builder.js; the `plan` and `crank` variants in `planGeo`/`planAt` and `crankAt`, which `wingAt` and `oldStruts.holds` (1575) share.
 9. **The emissive channel is shared** by heat glow (`emissive`) and builder tints (`tint`).
@@ -1212,7 +1237,9 @@ Low over the ground most of the screen is terrain, yet the planet's sphere, the 
 11. **Quality-dependent buffers** must be reallocated in `applyQuality`. If you raise a placement cap, raise the `InstancedMesh` capacity too.
 12. **parts3d.js top level must not reference `THREE`.** Use `need()`. It may read parts.js globals (`LATHE_SHAPES`, `PART_RECIPE`, `PART_FLAT_DEPTH`, `pathRecorder`, `partOutline`, `outlineSpan`, `CAMO_M`, `US5_CAMO_TILE`), since parts.js loads first. Watch for duplicate names inside the IIFE: two function declarations of one name don't throw, the later one silently wins. That is why the merge renamed the FS jets' `loftGeo` to `us5LoftGeo`; it would otherwise have replaced the Russian hulls' builder.
 13. **The flight view skips what the ground hides** (§1.14, §1.7, §1.4). New far-layer content (a body, a glow, an atmosphere, a deck) must count in `updateBodies`'s `seen` (2540-2600), or the haze dome may be hidden or cut over it. The ground cut trusts `patch.minH` and `sag`, so anything that lets the rendered ground dip below what `patchJob` records must update them. Water draws only the triangles `cullWater` keeps (`patch.hide`).
-14. **The hangar is drawn on demand** (§2; chapter 1 §7). Anything that animates in the 3D hangar must keep `renderBuilder` drawing (`bv.moving`, `bd.anim`), and a change made from code must call `Builder.redraw()`.
+14. **The hangar is drawn on demand** (§2; chapter 1 §7). Anything that animates in the 3D hangar must keep `renderBuilder` drawing (`bv.moving`, `bd.anim`), and a change made from code must call `Builder.redraw()`. (The ground update's search antenna turns in flight only, so the idle hangar still draws nothing; Test turret and the sweep's late answer redraw once.)
+15. **In a Ground Battle arena the drawn ground is the physics' ground** (PR #38, chapter 8 §10). The arena's mesh is built from `h3dAt`, so anything that changes the arena's heights (a berm, a pad, the detail fade) must rebuild it and pass `test/tools/arena-probe.js`. The terrain patch leaves the berms out (`noBerm`); `drawnAt` and `Render3D.drawnGround` put them back. The aim, sight lines, zone badges and strikes read `drawnGround`, and use the physics' ground inside a clear arena until its mesh is up. The mesh is built only in ground play (`groundPlay`), so an old plane flying past pays nothing.
+16. **The flight camera's field of view can change** (PR #38: the gunner's sight, `setFov`). Read `TANH`, never a literal 50°, in anything that projects or sizes by pixels (`project`, `metresPerPixelAt`, glow sizes, culling); the hangar and the globe must stay at 50° (`setFov(50)` on the way).
 
 ### 8. Adding a 3D model for a new part
 1. **Define the part** in `PARTS` (parts.js:40) with a `shape`, and draw it in `partPath0`/`drawPart0`. The 2D art becomes its texture automatically.
@@ -1232,7 +1259,7 @@ Low over the ground most of the screen is terrain, yet the planet's sphere, the 
 
 ## 4. Combat and multiplayer
 
-Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:346-352) puts combat.js after globe.js and before builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js` and bump its `CACHE` name.
+Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`), `js/mpui.js` (`MPUI`), plus vendored PeerJS 1.5.4 at `js/vendor/peer.min.js`. Load order (index.html:390-398) puts combat.js after globe.js and before gmode.js, groundai.js and builder.js. peer.min.js, net.js, mp.js and mpui.js load after flight.js and before main.js. Each file is a plain script whose top-level `const`s are globals, so they are reachable from the devtools console. If you add a file, also add it to the `SHELL` list in `sw.js` and bump its `CACHE` name.
 
 ### Where the game calls in
 
@@ -1247,14 +1274,17 @@ Files: `js/combat.js` (global `Combat`), `js/net.js` (`Net`), `js/mp.js` (`MP`),
 | `MP.beforeUpdate(dt)` | flight.js:510 | Pose the ghosts before physics |
 | `MP.afterUpdate()`, `MP.syncMissiles()` | flight.js:552 | Send snapshots after physics |
 | `MP.onLocalDestroyed()` | flight.js:398 (`onDestroyed`) | The local craft is lost |
+| `Aim.stepAll`, `Aim.smokeStep` | combat.js:589-590 (`step`) | Every substep, PR #38: aimed guns and launchers (the player's and the ground AI's), smoke clouds |
+| `GroundAI.frame`, `Armour.repairStep`, `Aim.radarStep` | combat.js:1278-1280 (`frame`) | Every frame for ground flights, the Tank Range and the Practice Battle (chapter 8) |
+| `Armour.moveShell`, `hitFirst`, `legacyHit`, `blastK`, `moduleDown` | combat.js `moveShot`, `explode`, `damage`, `destroyPart` | Shells, plated craft and module parts (chapter 8 §6) |
 
-Remote craft are skipped by physics (flight.js:524). They only coast along their velocity on each substep (flight.js:639).
+Remote craft are skipped by physics (flight.js:524). They only coast along their velocity on each substep (flight.js:639). The ground AI's vehicles (`v.kin`) and wrecks (`v.wreck`) are skipped too (flight.js:612).
 
 ---
 
 ### 1. combat.js
 
-**Mode.** `mode()` (combat.js:28) reads `Settings.get('targets')`, which is `practice`, `hostile` or `off`. It is forced to `'off'` whenever `MP.active` (combat.js:27), so a multiplayer room never has range targets, SAMs or AI fighters. Any new AI or target code must check `mpOn()` too.
+**Mode.** `mode()` (combat.js:28) reads `Settings.get('targets')`, which is `practice`, `hostile` or `off`. It is forced to `'off'` whenever `MP.active` (combat.js:27), so a multiplayer room never has range targets, SAMs or AI fighters. Any new AI or target code must check `mpOn()` too. The same setting drives the Tank Range on Highland Ridge (PR #38, groundai.js, chapter 8 §12), which a room never has either.
 
 #### 1.1 Weapon parts (parts.js:349-420)
 
@@ -1346,7 +1376,7 @@ Related defs:
 #### 1.3 Projectiles (`moveShot` combat.js:519)
 
 A shot is a plain object with these fields:
-- `k`: `bullet`, `rocket`, `missile`, `bomb` or `torp`
+- `k`: `bullet`, `rocket`, `missile`, `bomb` or `torp`, and since PR #38 `shell` (a ground-update gun's round, with `sh` its SHELLS key: `moveShot` hands it to `Armour.moveShell`, chapter 8 §6)
 - position and velocity, plus `dx/dy/dz` heading
 - `t`, `life`, `dmg`, `blast`, `owner`, `enemy`
 - `net`: the owning pid, on a replica
@@ -1438,22 +1468,25 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
 
 #### 1.5 Damage
 
-- **`maxHp(def)`** (combat.js:37) = `round((60 + 220·√(mass + fuel·0.25)) · (control ? 1.4 : 1))`. `p.hp` is lazily created.
+- **`maxHp(def)`** (combat.js:37) = `def.hp` when the part has one (the ground update's parts), else `round((60 + 220·√(mass + fuel·0.25)) · (control ? 1.4 : 1))`. `p.hp` is lazily created.
 - **`engineK`**: thrust is ×1 at ≥60% health, falling to 0.3 at 0. **`liftK`**: lift is ×1 at ≥70%, falling to 0.45.
 - **`damage(v, p, amt, cause, sim, by)`** (combat.js:43):
   - **does nothing for `v.remote`**: the owner applies damage to its own craft;
+  - (PR #38) does nothing to a dead crewman's seat, or within 4 s of a battle spawn (`v.spawnAt`); on a gv vessel sets `v.hurtAt` (repairs wait 6 s after it); a gv part at 0 hp goes to `Armour.moduleDown` (a module breaks and stays; a hull or turret knocks the vehicle out, the hulk staying) instead of `destroyPart`;
   - armour scales damage by `(1 − armor)`;
   - sets `v.lastHitBy` and `v.lastHitAt`;
   - toasts at 60% and 30% for the player;
   - calls `destroyPart` at 0 hp.
-- **`destroyPart`** (combat.js:58):
+- **`holdRips`/`flushRips`** (combat.js:80, PR #38): while a hit, a blast or a hit message lands, the ground update's parts it breaks off (bricks, skirts, slats, plates: nothing that explodes) wait and go in one `ripParts` call per craft at the end. Old parts break off as before.
+- **`destroyPart`** (combat.js:61):
   - Parts with thrust, more than 50 kg of fuel, rocket/missile/bomb ammo, or `control` go through `sim.breakParts` (an explosion). Everything else goes through `sim.ripParts` (torn off as debris; flight.js:258, 372).
   - Fuel over 500 kg adds a blast of radius `4+√(fuel/n)·0.08`, dmg 45.
   - Remaining stores blast at radius `blast·0.6`, dmg `dmg·0.5/count`.
   - **A legacy twin pair** (spread equal to `def.twinZ` within 5e-4) **blasts once**, at the centre (z = 0).
   - **A split twin** (any other spread) **blasts at each copy**, with fuel and store damage divided by the number of blast points. If only one store of a pair is left, it blasts only on the side due to fire next.
   - These secondary blasts carry `by = null`, so they never credit anyone and never reach remote craft.
-- **`explode(b, at, blast, dmg, by, sim, quiet)`** (combat.js:128):
+- **`explode(b, at, blast, dmg, by, sim, quiet, he, spare)`** (combat.js:152; `he`, the blast's penetration against armour, and `spare`, a craft it leaves alone such as a launcher at its own muzzle, since PR #38):
+  - A plated craft's parts are measured where their rings turn them and go through `Armour.blastK` (chapter 8 §6); its module rows go out with the hit message. Wrecks take nothing.
   - Falloff `dmg·(1 − d/blast)^1.5`, where d is the distance to the nearest copy of the part minus `max(w,h)/2`.
   - If `by` is the local player's craft: blasts of 8 m or more go out as `MP.sendBoom`, and remote craft in range collect `[part, dmg]` lists, sent as one `MP.sendHits(..., 'blast')` per craft.
   - Range targets are skipped in multiplayer.
@@ -1499,7 +1532,7 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
 - **Fighters:**
   - `RAIDER` (combat.js:21) is a Falcon-like jet layout with a cannon and flares.
   - `spawnFighter` (combat.js:996) places one 12–16 km away and 1.5–2.5 km up, flying at 230 m/s.
-  - At most 2 alive. Spawning repeats every 45 s (the first after 20 s, from `reset`) and needs the player airborne.
+  - At most 2 alive. Spawning repeats every 45 s (the first after 20 s, from `reset`) and needs the player airborne. Since PR #38 a tank counts as airborne only after more than 1 s off the ground and 15 m up (so driving over a crest brings no fighters, AA fire or SAMs; cars as before), and fighters ignore the ground AI.
   - **`flyFighter`** (combat.js:1026):
     - engages within `16 km·(1−stealth)` using lead pursuit;
     - otherwise orbits `at(9000,0,2500)`;
@@ -1518,7 +1551,7 @@ The target is dropped (`s.target = null`, missile flies dumb) when:
 
 #### 1.7 The HUD and the warning receiver's display
 
-The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the seeker circle and LOCK, a 600 m gun pipper and LEAD marker, the bombsight (`bombImpact` combat.js:1413), the missile markers and, last, the warning receiver's display (`drawRWR`). Before PR #37 it wrote MISSILE or RADAR MISSILE itself whenever `S.warn` was set.
+The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the seeker circle and LOCK, a 600 m gun pipper and LEAD marker, the bombsight (`bombImpact` combat.js:1413), the missile markers and, last, the warning receiver's display (`drawRWR`). Since PR #38, aiming a ground vehicle, the pipper and LEAD marker step aside for the ground HUD's own marks (ghud.js, chapter 8 §11), the islands' far targets aren't bracketed along a ground vehicle's horizon, and the ground AI gets no Bandit diamond. Before PR #37 it wrote MISSILE or RADAR MISSILE itself whenever `S.warn` was set.
 - **MSL markers** (:1282-1295): over every missile within `SEE_MSL` (4 km, :1300) on our body and in front of the camera for which `hostileMissile(s, v)` (:1308) holds, a small red triangle and `MSL` (alpha 1 under 2 km, else 0.8). `hostileMissile`: a missile, not our own; anything homing on us (a team-mate's too, with friendly fire); another player's when `MP.enemy(Net.me, s.net)`; else `s.enemy` (the AI's and the sites'). It needs no RWR: it is the only way to see a missile coming without one.
 - **`hudText(ctx, t, x, y, rim)`** (:1302): text with a dark rim (`strokeText` under `fillText`), so it reads over cloud and sea. The markers and the display use it.
 - **`drawRWR(ctx, W, H, v)`** (:1332), nothing without an RWR:
@@ -1536,7 +1569,7 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
 ### 2. net.js: transport
 
 - **Constants:**
-  - `NET_VERSION = 6` (net.js:11). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below); version 4 (PR #35) has the Chaff Dispenser, a part an older peer would drop from spawn rows (so it would see, and shoot at, a different craft), and the chaff strength in `cm`; version 5 (PR #36) has the look-alike jets' 96 parts and 13 paints, which an older peer would drop (`hasOwn(PARTS, …)`) or show in a part's own colours (`cleanSkin`); version 6 (PR #37) has the two warning receivers and the manned turret, parts an older peer would drop, and turrets that hold fire on the ground (an older peer's parked turrets would still shoot, and their hits count, §3). The host rejects a `hello` with any other `ver` (net.js:171).
+  - `NET_VERSION = 7` (net.js:11). Version 7 (PR #38) is the ground update: the Armour kind and its parts and paints, armour thickness in spawn rows, shells, module hits, turret rings in part states, `gd` in snapshots, ground battles (`obj`, `seen`/`spot`, respawns, wrecks on `down`), ground-launched missiles (chapter 8 §9). Version 2 added part depth, paint and host (`att`) to spawn rows; version 3 sends big messages in pieces (below); version 4 (PR #35) has the Chaff Dispenser, a part an older peer would drop from spawn rows (so it would see, and shoot at, a different craft), and the chaff strength in `cm`; version 5 (PR #36) has the look-alike jets' 96 parts and 13 paints, which an older peer would drop (`hasOwn(PARTS, …)`) or show in a part's own colours (`cleanSkin`); version 6 (PR #37) has the two warning receivers and the manned turret, parts an older peer would drop, and turrets that hold fire on the ground (an older peer's parked turrets would still shoot, and their hits count, §3). The host rejects a `hello` with any other `ver` (net.js:171).
   - `NET_MAX_BYTES = 256 KB` (net.js:12): the host drops, without relaying, any client message whose `JSON.stringify` length is larger (net.js:188). The host's own sends and clients' sends are not size-checked.
   - Room codes are 5 characters from `ROOM_CHARS` (net.js:13; no I, O, 0 or 1). `cleanCode` accepts 4–8 characters.
   - `PEER_PREFIX = 'rss-room-'` (net.js:14).
@@ -1550,7 +1583,7 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
   - The host is pid 1; clients get pid 2, 3, … from `accept()` (net.js:170).
   - `N.send(msg, to?)` (net.js:107) stamps `msg.f = N.me`. Clients send only to the host. The host's `route()` (net.js:115) forwards to `to`, or to everyone except the sender, and emits locally.
   - **The host overwrites `msg.f` with the real sender's pid** (net.js:189).
-  - The host never relays client messages whose type is in `HOST_ONLY` = `{~, hello, welcome, reject, ping, closed, join, leave, warn, state, result}` (net.js:39). `~` (a piece) is there because a player's piece relayed whole would be taken by the others as part of the host's own stream, and so could fake anything from the host. Clients ignore those types unless `f === 1` (net.js:268). `result` is listed but never sent.
+  - The host never relays client messages whose type is in `HOST_ONLY` = `{~, hello, welcome, reject, ping, closed, join, leave, warn, state, result, obj, spot}` (net.js:39; `obj` and `spot`, a ground battle's zones and tickets and a team's spots, since PR #38). `~` (a piece) is there because a player's piece relayed whole would be taken by the others as part of the host's own stream, and so could fake anything from the host. Clients ignore those types unless `f === 1` (net.js:268). `result` is listed but never sent.
 - **Handshake:**
   1. Client sends `hello {name, ver}`.
   2. Host replies `welcome {pid, code, names}` or `reject {reason}`: wrong version, room locked (`N.lock`, set during PvP phases), or full.
@@ -1581,7 +1614,8 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
 - `MP_FORMATS`: `1v1` (n 2), `2v2` (4), `3v3` (6), `ffa` (6, teams 0).
 - `MP_DEFAULTS`: format 1v1, build 180 s, test on, polish 120 s, budget 75000, carriers on, friendly fire off, time of day `day`, limit 900 s.
 - `MP_CARRIER`: bonus ×1.3, span 13 m, length 16 m, mass 12000 kg.
-- `MP_KINDS_PVP`: plane, heli, car.
+- `MP_KINDS_PVP`: plane, heli, car (an air battle; a ground battle takes Armour and cars, aircraft only at a respawn with air support).
+- Ground battles (PR #38, mp.js:33-46): `MP_GROUND` (the ground settings' defaults), `MP_PADS` (the two pad spawns), `MP_SET_OK` (every setting's allowed values, air battles' too: anything else is refused), `MP_WRECKS` 8, `MP_WRECK_MS` 90 s, `MP_WRECK_AGL` 10 m, `MP_ARMS`. Chapter 8 §9.
 - Rates: snapshot 15 Hz, part states (`pv`) 200 ms, health (`hp`) 500 ms.
 - `MP_MAX_PARTS = 600`.
 - Team names: Faroes / Shetland.
@@ -1590,8 +1624,8 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
 - The host's `MP.state` is the truth. `push()` (mp.js:258) sends the whole object as `state` and applies it locally. Clients deep-copy it in `applyState` (mp.js:274) and accept it only from `f===1` (mp.js:176).
 - State shape:
   - `{mode, phase, ends, endsLen, round, result, settings, players[], feed[], t0, t0At, tod, battleAt, sides, format}`
-  - each player: `{pid, name, team, ready, spawn, alive, kills, deaths, dmg, ping, kind, flying}`
-- Clients change only their own row through `set {k, v}`, validated per key in `applySet` (mp.js:227). The allowed keys are `ready`, `spawn` (must be in `spawnsFor`), `kind`, `flying`, `team` (lobby only), `name` (≤18 characters) and `dmg` (clamped to 0..20000 per report).
+  - each player: `{pid, name, team, ready, spawn, alive, kills, deaths, dmg, ping, kind, flying}`, plus in a ground battle `caps, score, sorties, respawnAt, slot, slots, airSlots, troops, cost, sortieEnd`; the state also holds `obj` (GroundMode's tickets and zones)
+- Clients change only their own row through `set {k, v}`, validated per key in `applySet` (mp.js:227). The allowed keys are `ready`, `spawn` (must be in `spawnsFor`), `kind`, `flying`, `team` (lobby only), `name` (≤18 characters) and `dmg` (clamped to 0..20000 per report), and in a ground battle `slot`, `troops` and `airSlots`; in a ground battle under way the host ignores `flying`, `ready` and `spawn` from clients (it decides who is on the field from spawns and downs).
 - Only the host changes settings (`setSetting` mp.js:246, lobby only). Switching format re-deals teams: in FFA, `team = pid`.
 - While in a room, `pushCareer`/`popCareer` (mp.js:135-154) swap out the player's career and saved blueprint, and `Builder.save` is suppressed (builder.js:358). `setMoney` turns the budget into career funds.
 
@@ -1605,7 +1639,7 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
   5. `battle` (`settings.limit` s)
   6. `results` → `backToLobby` (mp.js:402)
 - When everyone is ready in `build` or `polish`, `ends` is set to 3 s from now; it is restored if someone un-readies (`maybeAllReady` mp.js:347).
-- **Win** (`checkWin` mp.js:381): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:390), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
+- **Win** (`checkWin` mp.js:480; a ground battle goes to `checkGround` :577 instead, on tickets, a wiped-out team or time, chapter 8 §9): the battle ends 3.5 s after at most one team (in FFA, team = pid) is still alive, unless only one side started (a solo try-out). On time (`finish` mp.js:390), the winner is the side with the most players still flying, then the most kills; otherwise it is a draw.
 - `hostile(a, b)` (mp.js:74) decides who can hurt whom: enemies, or teammates with friendly fire on. `enemy(a, b)` (mp.js:79) decides what can be locked and tagged; teammates are never enemies.
 - Silly flags are off throughout a PvP room, in every phase (`Silly.on` checks `MP.pvp`, util.js:143); sandbox rooms keep them. Time warp is disabled in every room (flight.js:202, flight.js:512), and the flight menu does not pause (`openMpMenu` flight.js:469).
 
@@ -1617,7 +1651,7 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
   - a kind other than plane, heli or car;
   - for carriers: not a plane or heli, span over 13 m, length over 16 m, or mass over 12 t.
 - `measure` (mp.js:435): span is the extent of `partZs` ± half-depth (twins ±`max(w,.6)/2`); length is the y extent; mass is the sum of `partKg`.
-- `battleDesign` (mp.js:464) swaps a failing design for the first stock template (`mustang`, `camel`, `skylark`) that passes.
+- `battleDesign` (mp.js:650) swaps a failing design for the first stock template (`mustang`, `camel`, `skylark`) that passes; in a ground battle (PR #38) for the money tier's stock vehicles (`GroundMode.stock`), then the technical, never a plane. A ground battle's spawns are its two pads (`spawnsFor`), with no money bonus or size limits, and the host prices each new craft from its spawn rows for the tickets it costs (`priceSpawn`).
 - These checks run **only on the owner's machine**. Peers never re-check budgets.
 - The look-alike jets (PR #36) are priced against the lobby's money choices ($45k / $75k / $120k): every one fits $120k as it comes, the MyG-21 $45k and the FS-16 $75k (chapter 1 §5). Only the MyG-21 meets the carrier limits; the others weigh over 12 t (`mp-measure.json` holds each template's span, length, height and mass).
 
@@ -1638,12 +1672,12 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
   - `carrierPlacement` (mp.js:948): two bow catapults at ±6 m, queue 40 m back; helis on the aft deck. `catapult: {length, speed: 78}` is armed for planes only (flight.js:56); press L to launch.
 
 **Our craft → the others** (`sendSpawn` mp.js:591, `afterUpdate` mp.js:609):
-- **Spawn rows** `[id, type, x, y, rot, flip, z, att, skin]`:
+- **Spawn rows** `[id, type, x, y, rot, flip, z, att, skin, mm?]` (the tenth column, an armoured part's thickness, since PR #38):
   - x, y and z are rounded to 3 decimals; z is `partZ(p)`, which is the positive spread for twins;
   - `att` is the host part's id, or 0;
   - `skin` is the paint id, or 0.
-- **Snapshot `s`** at 15 Hz, sent whenever this player is in the shared world: `th` (host ms), `b` (body id), `P`, `V` (0.01 precision), `Q` (w,x,y,z), `W` (body-frame angular velocity), `C` (**centre of mass x, y, z**), `g` (gear up), `l` (landed).
-- **`pv`** at 5 Hz, only changed rows plus everything every 2 s: `[id, deflect, firing, ab, retracted, sweep, aimYaw, aimEl, ammo, deployed, used, gunOn]`. Only parts with wing, thrust, weapon, chute or retractable wheels are sent. The receiver's `irSig` depends on `firing` and `ab`. Since PR #36 two existing fields carry more: `deployed` is a bay or gun door's opening (so a ghost's doors move and its `stealthOf` drops while they are open), and `deflect` a flat nozzle's swing. The Russian vectoring nozzles swing from the stick command, which isn't sent, so on a ghost they stay centred (chapter 7).
+- **Snapshot `s`** at 15 Hz, sent whenever this player is in the shared world: `th` (host ms), `b` (body id), `P`, `V` (0.01 precision), `Q` (w,x,y,z), `W` (body-frame angular velocity), `C` (**centre of mass x, y, z**), `g` (gear up), `l` (landed), and in a ground battle `gd` (on the ground in the last half second: it may take a zone).
+- **`pv`** at 5 Hz, only changed rows plus everything every 2 s: `[id, deflect, firing, ab, retracted, sweep, aimYaw, aimEl, ammo, deployed, used, gunOn]`. Only parts with wing, thrust, weapon, chute or retractable wheels are sent, and since PR #38 turret rings and tracking radars (a ring's yaw rides in `aimYaw`); a ghost's ground-update turrets and guns ease toward the angles (`easeTurrets`). The receiver's `irSig` depends on `firing` and `ab`. Since PR #36 two existing fields carry more: `deployed` is a bay or gun door's opening (so a ghost's doors move and its `stealthOf` drops while they are open), and `deflect` a flat nozzle's swing. The Russian vectoring nozzles swing from the stick command, which isn't sent, so on a ghost they stay centred (chapter 7).
 - **`hp`** every 500 ms when anything changed: `[id, percent]`.
 - **`parts`**: the list of remaining ids whenever the part count changes.
 
@@ -1652,6 +1686,7 @@ The HUD (`drawHUD` combat.js:1203) draws target brackets, Bandit diamonds, the s
 - A row is dropped if its id is not a positive safe integer, is a duplicate, names an unknown `PARTS` type (`hasOwn`), or has non-finite x/y.
 - x/y are clamped to ±500 and `rot` masked with `&3`. `flip` becomes 0/1, `z` goes through `cleanZ`, `skin` through `cleanSkin || 0`.
 - `att` is kept only if it names an id seen in the same spawn, then `cleanAtt` breaks self-links and loops.
+- `mm` (PR #38) is kept only as `cleanMm` allows it for that part (left off when it has none).
 - Only clean rows are stored: `onSpawn` keeps `P.design = {kind, parts}` and never the raw message.
 
 **Ghosts:**
@@ -1720,7 +1755,12 @@ Clients trust the host completely.
 | `boom` | shooter → all | `onBoom` → `Combat.netBoom` |
 | `gun` / `shot` / `cm` | owner → all | `P.gun`, `Combat.netShot`, `Combat.netFlares` |
 | `msl` / `mp` / `mx` | owner → all | `onMissile`, `netMissileUpdate`, `netMissileEnd` |
-| `lock` | locker → target | `MP.rwr` |
+| `lock` | locker → target | `MP.rwr` (also a ground vehicle's tracking radar, PR #38) |
+| `obj` | host → all | `onObj`: a ground battle's tickets and zones (PR #38) |
+| `seen` | client → host | `onSeen`: the enemies a player sees, or a map ping |
+| `spot` | host → teammates | `onSpot` |
+
+Since PR #38 `down` also carries `w` (a wreck stays), `x` (an ammunition detonation) and `why`; `hit` carries `m` (module rows), `d` (where it came from) and `h` (hot), and `k` may be `pen` or `np`; `shot` may be a `shell` with `sh`; `cm` may be a smoke grenade (`smoke: 1`). Chapter 8 §9 has the table.
 
 ---
 
@@ -1729,11 +1769,11 @@ Clients trust the host completely.
 - **Connect** (`#mp-connect`; `open` mpui.js:9, `bind` mpui.js:15):
   - name is stored in `rss.mp.name` (18 characters max);
   - transport toggle `#mp-transport` (`data-tr="p2p"` / `"local"`), stored in `rss.mp.tr`;
-  - Create sandbox / Create battle / Join; only one attempt at a time (`this.connecting` token);
+  - Create sandbox / Create air battle / Create ground battle (PR #38) / Practice battle (vs AI) (PR #38, `MPUI.practice`: no room) / Join; only one attempt at a time (`this.connecting` token);
   - **Test this network** `#mp-test` → `testNetwork` (`Net.probe`): matchmaking server, direct links, relay, and a verdict.
 - **Lobby** (`refresh` mpui.js:145):
   - `renderPlayers` (mpui.js:156): team columns with Join buttons and open slots, ping, host tag;
-  - `renderSettings` (mpui.js:190): editable by the host in the lobby only — format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min;
+  - `renderSettings` (mpui.js:193): editable by the host in the lobby only. Game Air or Ground (PR #38); an air battle's: format, money $45k/$75k/$120k, build 2/3/5 min, test flight, carriers, friendly fire (not FFA), time of day, limit 10/15/25 min; a ground battle's (`renderGround` :238): format 1v1-3v3, money by era, tickets, respawns, air support, aim, build time, test drive, friendly fire, time of day, limit and the arena;
   - `start` (mpui.js:123): asks before starting alone or with uneven teams; refuses if a team is empty.
 - **Phase bar** `#mp-bar` (`renderBar` mpui.js:251, `tick` mpui.js:270):
   - phase name, timer from `s.ends − Net.hostNow()`, "urgent" under 15 s;
@@ -1746,7 +1786,8 @@ Clients trust the host completely.
 - **Chat:** lobby log, plus in flight `T`/`Enter` → `#mp-hud-input`. Text is inserted with `createTextNode`. Sends are capped at 140 characters.
 - **Kill feed:** `notice` (mpui.js:422) → `#mp-feed`, 5 lines, fading after 5 s.
 - **Scoreboard:** hold `` ` `` or press Score (`showScore` mpui.js:447).
-- **Results:** a locked modal (`MP.modalLocked`, main.js:20). The host gets "Back to the lobby".
+- **Results:** a locked modal (`MP.modalLocked`, main.js:20). The host gets "Back to the lobby". A ground battle's scoreboard and results (`groundTable` :553) read Kills, Caps, Lost and Score.
+- **Ground battles** (PR #38): the bar's tickets, zone chips and capture bar (`tickGround` :341), the Respawn panel (`respawnPanel` :707, built by `rsp` :753, which the Practice Battle's panel shares) and the lineup (`renderLineup` :786, `lineupPick` :800). Chapter 8 §9.
 - **In flight** (`drawHUD` mpui.js:495):
   - name tags: gold in the sandbox, blue (filled) for friends, red (outlined) for enemies;
   - `spotted` (mpui.js:529): enemies show within `6 km·(1−0.5·stealth)`, or on our own radar within 60° of the nose;
@@ -1775,7 +1816,7 @@ Clients trust the host completely.
   - the spawn row layout or meaning;
   - snapshot fields;
   - part geometry or ids in parts.js (`w`, `h`, `twinZ`, `depth`, `partZ`/`partZs`/`partRect`, `cleanZ`);
-  - a new part: an older peer drops the unknown type from spawn rows (`hasOwn(PARTS, …)`), so it builds a different craft (version 4, the Chaff Dispenser; version 5, the look-alike jets' parts; version 6, the warning receivers and the manned turret);
+  - a new part: an older peer drops the unknown type from spawn rows (`hasOwn(PARTS, …)`), so it builds a different craft (version 4, the Chaff Dispenser; version 5, the look-alike jets' parts; version 6, the warning receivers and the manned turret; version 7, the ground update's 71 parts, paints, thickness and messages);
   - a new paint: an older peer's `cleanSkin` turns it into the part's own colours (version 5, the jets' camouflage);
   - the meaning of message fields;
   - what a part does on its owner's side when that decides hits on others (version 6: turrets hold fire on the ground).
@@ -1809,24 +1850,28 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
 - `#modal > #modal-card` (:331) is the one and only dialog.
 - Fonts: Chakra Petch and IBM Plex Mono from Google Fonts (:15-17). The viewport meta sets `user-scalable=no, viewport-fit=cover` (:5).
 
-**Load order** (classic synchronous `<script src>` at the end of `<body>`, index.html:333-353). Each file may use only earlier files at load time.
+**Load order** (classic synchronous `<script src>` at the end of `<body>`, index.html:374-400). Each file may use only earlier files at load time.
 
 | # | File | Globals it creates (top-level `const`/`function`) |
 |---|---|---|
 | 1 | util.js | `TAU G0 clamp lerp smoothstep wrapAngle v3 dot3 cross3 len3 norm3 quat qmul qnorm qconj qaxis qrot qunrot qbasis qslerp surfaceFrame mulberry32 mixColor hexToRgb fmt store Silly effectMach $ el isTouch` |
 | 2 | space.js | bodies (`SUN`…`EUROPA`, `BODIES`, `BODY_BY_ID`), orbit math, `airDensity`, `deltaVChart` … |
 | 3 | terrain.js | `Terrain` (IIFE; its internals are not global) |
-| 4 | parts.js | `PARTS TIERS PART_CATEGORIES VEHICLE_KINDS SKINS`, design/drawing helpers; since PR #36 also the outline and clash helpers (`pathRecorder PART_PROFILE LATHE_SHAPES PART_RECIPE shapesClash …`) and the jets' `us5…`, `ru…`, `us4…` and `camo…` names |
-| 5 | vessel.js | `Vessel SAS_MODES soundSpeed …` |
-| 6 | ui.js | `UI ICONS icon` |
-| 7 | world.js | **`Settings`** (world.js:5-11), `FX World rgba hash1 …` |
-| 8-9 | parts3d.js, render3d.js | `Parts3D`, `Render3D` (IIFEs that touch `THREE` only after `init()`) |
-| 10 | audio.js | `Sound` |
-| 11 | career.js | `MISSIONS Career money` (calls `Career.load()` at load time, career.js:77) |
-| 12-16 | map, globe, combat, builder, flight | `MapView GlobeView Combat Builder TEMPLATES Flight WARPS haptic …` |
-| 17 | vendor/peer.min.js | `Peer` (PeerJS 1.5.4) |
-| 18-20 | net, mp, mpui | `Net`, `MP` + `MP_*` constants, `MPUI` |
-| 21 | main.js | `App EARTH_MAP_FILES`; `DOMContentLoaded → App.init()` (:469); service-worker registration (:471-480) |
+| 4 | parts.js | `PARTS TIERS PART_CATEGORIES VEHICLE_KINDS SKINS`, design/drawing helpers; since PR #36 also the outline and clash helpers (`pathRecorder PART_PROFILE LATHE_SHAPES PART_RECIPE shapesClash …`) and the jets' `us5…`, `ru…`, `us4…` and `camo…` names; since PR #38 `GROUND_KINDS isGround NO_GEAR cleanMm massPerMm armourMassT armourCostDelta BOX_OUTLINE`, the `GV_…` constants and the `gv…` drawing functions, `trackLayout gunLayout launchLayout radarLayout` |
+| 5 | vessel.js | `Vessel SAS_MODES soundSpeed GV_SAVE gvSave gvLoad …` |
+| 6-8 | gear.js, aim.js, armour.js (PR #38) | `GEAR Gear` (and `gear…`/`_g…` helpers), `Aim` (and `aim…`/`AIM_…`), `SHELLS SHELL_TYPES Armour` |
+| 9 | ui.js | `UI ICONS icon` |
+| 10 | world.js | **`Settings`** (world.js:5-14), `FX World rgba hash1 …` |
+| 11-12 | parts3d.js, render3d.js | `Parts3D`, `Render3D` (IIFEs that touch `THREE` only after `init()`) |
+| 13 | audio.js | `Sound` |
+| 14 | career.js | `MISSIONS Career money` (calls `Career.load()` at load time, career.js:77) |
+| 15-17 | map, globe, combat | `MapView GlobeView Combat …` |
+| 18-19 | gmode.js, groundai.js (PR #38) | `GROUND_STOCK GroundMode`, `GroundAI` |
+| 20-21 | builder, flight | `Builder TEMPLATES Flight WARPS haptic …` |
+| 22 | vendor/peer.min.js | `Peer` (PeerJS 1.5.4) |
+| 23-25 | net, mp, mpui | `Net`, `MP` + `MP_*` constants, `MPUI` |
+| 26 | ghud.js (PR #38) | `GHUD` |
+| 27 | main.js | `App EARTH_MAP_FILES`; `DOMContentLoaded → App.init()` (:469); service-worker registration (:471-480) |
 
 **three.js is not in index.html.** `Render3D.load()` injects `<script src="js/vendor/three.min.js">` on demand (render3d.js:3296-3310). If `window.THREE` already exists it skips the injection, and the single-file build relies on that.
 
@@ -1864,7 +1909,7 @@ Scope: `index.html`, `css/style.css`, `js/main.js`, `js/ui.js`, `js/util.js`, `j
 |---|---|---|
 | → home | `toHome()` :228-244 | Saves and stops a flight. If `MP.active` it calls `MP.end()`, which comes back here. With no `Career.mode` yet, it shows the Career/Sandbox picker (`#home-modes`). Fills the Resume button from `rss.flight`. |
 | → build | `toBuild()` :262-268 | Leaves the flight (MP: `MP.leaveFlight()`), rebuilds the palette, fits the view |
-| build → flight | `launch()` :270-293 | Needs a control part. In a room it calls `MP.launch()`. Checks locked parts and funds, confirms before replacing a saved flight, waits for Earth, clears `rss.flight`, calls `Flight.start(Builder.serialize())`, shows a launch-tip toast if hints are on |
+| build → flight | `launch()` :270-293 | Needs a control part. In a room it calls `MP.launch()`. Checks locked parts and funds, confirms before replacing a saved flight, waits for Earth, clears `rss.flight`, calls `Flight.start(Builder.serialize())` (Armour, PR #38: with `{place: GroundMode.soloPlace('tank')}`, Highland Ridge's north pad, else the runway with a toast why), shows a launch-tip toast if hints are on |
 | home → flight | `resumeFlight()` :295-302 | `Flight.restore(saved)`. If that throws it drops the save and goes to build |
 | → mp | `showMP()` :205-208 | Called by `MPUI.open()` (mpui.js:9) and by `MP` |
 
@@ -1897,13 +1942,13 @@ The **home background** (`renderHome`, :251-259) is the 2D solar-system map runn
 
 | Menu | Location | Contents |
 |---|---|---|
-| `showHelp()` | :312-330 | Static `<ol class="howto">` (since PR #37 with a Missiles item: the MSL markers, the warning receivers, `K`) plus `Flight.controlsHelp()` (flight.js:481, also the pause-menu body). Opens automatically once after the first mode pick (`rss.seenHelp`, :224). |
+| `showHelp()` | :322-341 | Static `<ol class="howto">` (since PR #37 with a Missiles item: the MSL markers, the warning receivers, `K`; since PR #38 an Armour item) plus `Flight.controlsHelp()` (flight.js:518, also the pause-menu body, which for a ground vehicle is `groundHelp` or `driveHelp`) and, since PR #38, an "Armour and armed cars" heading with `Flight.groundHelp()`. Opens automatically once after the first mode pick (`rss.seenHelp`, :231). |
 | `showResearch()` | :332-353 | Tiers, each listing its parts (not `retired` ones, PR #37); the buy button calls `Career.buyTier()` |
 | `showMissions()` | :355-369 | Missions grouped by body |
 | `showDeltaV()` | :371-389 | Table from `deltaVChart()` |
 | `showSettings()` | :391-442 | Settings below |
 
-**Settings.** The `Settings` object lives in **world.js:5-11**: one JSON blob in `rss.settings`. Defaults (world.js:7): `{quality:'high', hints:true, volume:0.8, markers:true, build3d:false, targets:'practice', fps: isTouch ? 60 : 0}`. Read with `Settings.get(k)`; `Settings.high` means `quality !== 'low'`.
+**Settings.** The `Settings` object lives in **world.js:5-11**: one JSON blob in `rss.settings`. Defaults (world.js:9): `{quality:'high', hints:true, volume:0.8, markers:true, build3d:false, targets:'practice', fps: isTouch ? 60 : 0, aimAssist: isTouch, aimMode:'arcade', aimSens:1}` (the last three since PR #38). Read with `Settings.get(k)`; `Settings.high` means `quality !== 'low'`.
 
 | Control (main.js) | Key | Consumers |
 |---|---|---|
@@ -1912,7 +1957,10 @@ The **home background** (`renderHome`, :251-259) is the 2D solar-system map runn
 | Frame rate select (:400-403) | `fps`: 60 ("saves battery, runs cooler") or 0 (unlimited) | the frame cap in `App.frame` (main.js:54) |
 | Targets select (:408) | `targets` `practice`/`hostile`/`off` | combat.js:28 (forced `off` in multiplayer) |
 | Flight hints checkbox (:404) | `hints` | `Flight.hint()` (flight.js:1215), launch tip (main.js:282) |
-| Prograde markers checkbox (:406) | `markers` | world.js:803, :823 |
+| Prograde markers checkbox (:406) | `markers` | world.js:803, :823 (not while aiming a ground vehicle) |
+| Aim assist (ground) checkbox (PR #38) | `aimAssist` | `Aim.assist` (aim.js:537) |
+| Ground aim (solo) select | `aimMode` `arcade`/`realistic` | `Aim.realistic` (aim.js:355; a room's lobby setting wins) |
+| Mouse aim speed ("Aim speed (drag)" on touch) range 0.3-3 | `aimSens` | `Flight.aimBy` (flight.js:766) |
 | (3D button / V, not in the dialog) | `build3d` | `App.preview3D` |
 | Toggle fullscreen (:413) | none | Fullscreen API; toasts if unavailable |
 | Reset career progress (:420) | none | Two taps (`dataset.armed`). Then `Career.reset()` (keeps the mode), clears `rss.flight`, rebuilds the palette, `toHome()` |
@@ -2010,7 +2058,7 @@ The **home background** (`renderHome`, :251-259) is the 2D solar-system map runn
 - **No blur over the flight view** (PR #35; :257-264): `body.flying:not(.mapping) :is(.btn, .panel, .round, .stage-box, .sas, .joy, .pill)` drops `backdrop-filter` and makes `--panel` a touch more opaque (0.85 alpha for 0.82). A backdrop blur over a 3D view that changes every frame is worked out again every frame, a big share of a phone's GPU time. Side by side the panels look the same (4-5 levels of 255 darker; 15 % of the view shows through instead of 18 %, so sharp moving edges show a little fainter). Screens that hold still keep the blur: home, hangar, dialogs, and the map (`body.mapping`, whose fine labels the blur hides). `App.showScene` sets `body.flying` and `Flight.toggleMap` `body.mapping` (§2).
 - The fuel bar (`.fuel-fill`, :244; flight.js:1414) and the battle timer bar (`.mp-bar-fill`, :843; mpui.js:277) move by `transform: scaleX` with `transform-origin: 0 50%`, not by width, so they cost no layout per frame.
 - z-index: sel-box 5, mp-feed/hud-chat 18, flight-alert/mp-bar 19, toasts 20, mp-score 25, modal 30.
-- The file is **append-only by feature**: base sections (:44-393), then "v2 additions" (:395), then per-feature blocks (home, builder, settings, flight, 3D stick, planes, silly :624-633, saved designs, globe, weapons, multiplayer :748). Each block carries its own `@media` overrides, and later rules win. Put new feature CSS in a new section at the end with its own breakpoints.
+- The file is **append-only by feature**: base sections (:44-393), then "v2 additions" (:395), then per-feature blocks (home, builder, settings, flight, 3D stick, planes, silly :624-633, saved designs, globe, weapons, multiplayer, and since PR #38 the ground AI's bar :748, the Armour kind :952, the builder's ground tools :963, ground battles :1007 and the ground flight HUD :1082: `body.ground`, `g-thrust`, `g-stages`, `body.sighting`; chapter 8 §11). Each block carries its own `@media` overrides, and later rules win. Put new feature CSS in a new section at the end with its own breakpoints.
 
 **Breakpoints:**
 
@@ -2055,14 +2103,15 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | `rss.statsFolded` | builder.js:1826-1827 | Stats panel collapsed |
 | `rss.flight` | flight.js:115, 157, 402, 427; main.js:235-300, 423 | Saved flight `{v:2, time, design, launchCost, active, flags, stats, target, scale, vessels:[…]}`, or null. Cleared on launch, revert, recovery, total loss and career reset. |
 | `rss.seenHelp` | main.js:224 | The first-run help has been shown |
+| `rss.xray` | builder.js:484, 1859 | The builder's X-ray (PR #38; on unless switched off) |
 | `rss.silly`, `rss.sillyUnlocked` | util.js:142-146 | Silly flags; secret unlocked |
 | `rss.mp.name`, `rss.mp.tr` | mp.js:82; mpui.js:19-46 | MP name (≤18 chars); transport `'p2p'`/`'local'` |
 
 ### 6. Offline / PWA
 
 **sw.js** (31 lines):
-- `CACHE = 'overbuilt-v23'` (:3; v21 was PR #35, v22 PR #36, the look-alike jets, v23 PR #37, the warning receivers). Neither PR added files, so `SHELL` is unchanged.
-- `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
+- `CACHE = 'overbuilt-v24'` (:3; v21 was PR #35, v22 PR #36, the look-alike jets, v23 PR #37, the warning receivers, v24 PR #38, the ground update). PR #38 added six files to `SHELL`: gear.js, aim.js and armour.js after vessel.js, gmode.js and groundai.js after combat.js, ghud.js after mpui.js.
+- `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg` and `icons/icon-tab.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.
 - **fetch** (:20-31): **network-first** for every GET. A good same-origin response is copied into `CACHE`. When the network fails it falls back to `caches.match(req, {ignoreSearch:true})`, then to `index.html`, for any request.
@@ -2076,7 +2125,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 **manifest.webmanifest:**
 - `name` and `short_name` "Overbuilt"
 - `start_url`/`scope` `./`, `display: fullscreen`, `orientation: any`, colours `#05070d`
-- icons: `icon.svg` (any), `icon-192.png`, `icon-512.png`. The PNGs are not in `SHELL`; they get cached at runtime.
+- icons: `icon.svg` (any), `icon-192.png`, `icon-512.png`, all "The Stack" (a tank, a car, a jet, a helicopter and a rocket piled into one wobbly tower: built too high). `icon-tab.svg` is the browser tab's favicon (index.html's `rel="icon"`), the same idea cut down to a tank, a car and a rocket so it reads at 16-32 px. The PNGs are rendered from `icon.svg` on the game's background (#05070d) and are not in `SHELL`; they get cached at runtime.
 - The `description` is outdated ("…land on the Moon").
 
 index.html:8-14 also sets `theme-color`, the Apple web-app metas, the SVG favicon and `apple-touch-icon` (192 png).
@@ -2119,22 +2168,22 @@ The single file still loads Google Fonts from the network. Its Earth works even 
 ### 8. README.md
 
 Sections:
-- Title and pitch (:1-10)
-- **Play** (:12-16): online URL, local serving, single file
-- **Modes** (:18-22)
-- **Multiplayer** (:24-35)
-- **Controls** table plus a long Builder paragraph (:37-61)
-- **What's in it** (:63-100): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, damage, structure, the look-alike jets with their 5th-generation and battle sub-bullets (:81-83), parts by category, flight model, builder, physics, solar system, navigation, graphics, saving, settings, battery)
-- **Scale** (:102-104)
-- **Project layout** (:106-139): one line per file or folder, including `test/`, `docs/HANDBOOK.md` and `CLAUDE.md`
-- the file:// note (:141), data credits (:143), the name history and Cam-Strike (:145)
-- **Ideas for later** (:147-149)
+- Title and pitch (:1-11)
+- **Play** (:13-17): online URL, local serving, single file
+- **Modes** (:19-23)
+- **Multiplayer** (:25-43): sandbox, air battle, ground battle (with its spotting and score sub-bullets), the Practice Battle, carriers, seeing the others, chat
+- **Controls** table with its "Armour and armed cars" block (:45-77), plus a long Builder paragraph (:79)
+- **What's in it** (:81-137): one bold-led bullet per feature area (Earth, 3D world, vehicles, weapons, missiles, targets, damage, stealth, structure, the look-alike jets with their 5th-generation and battle sub-bullets, Armour with its building, customising, stats and stock sub-bullets (:102-106), driving, aiming, armour and damage, SPAA and missiles, Highland Ridge and the Tank Range with the computer tanks, the ground HUD, parts by category with the seven Armour tabs (:122-128), flight model, builder, physics, solar system, navigation, graphics, saving, settings, battery)
+- **Scale** (:139-141)
+- **Project layout** (:143-182): one line per file or folder, including the six ground-update files, `test/`, `docs/HANDBOOK.md` and `CLAUDE.md`
+- the file:// note (:184), data credits (:186), the name history and Cam-Strike (:188)
+- **Ideas for later** (:190-192)
 
 Convention: **every user-visible feature, control or part change gets documented in README in the same commit.** Recent feature commits all touch README. When you change something:
 - edit the matching "What's in it" bullet and the Controls table
 - add new files to Project layout
-- keep the counts in prose correct. Since PR #37 they are "257 parts" in "fourteen categories (256 in the tray …)", "182 aircraft parts and 31 weapons (96 of these 213 come from the ten look-alike jets)", "one of 26 paints … thirteen plain ones … the look-alike jets' thirteen, eleven of them camouflage", "41 missions", "thirty-five examples" with "seventeen military aircraft", and the jets' prices "from $45,000 to $120,000"; CLAUDE.md's architecture table repeats the part and template counts (257 parts, 35 templates)
-- keep three places in sync for controls: README, `App.showHelp` (main.js:315-327) and `Flight.controlsHelp` (flight.js:481-505)
+- keep the counts in prose correct. Since PR #38 they are "328 parts" in "twenty-one categories (327 in the tray …)", "182 aircraft parts and 31 weapons (96 of these 213 come from the ten look-alike jets); and 71 armour parts in the seven Armour tabs" (and each tab's count in its sub-bullet: Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9), "one of 30 paints … thirteen plain ones … the look-alike jets' thirteen, eleven of them camouflage … and four for armour", "42 missions", "fifty-one examples" with "seventeen military aircraft", "two cars" and "fifteen ground forces", "37 kinds of round", the jets' prices "from $45,000 to $120,000" and the stock ground vehicles' "from $18,800 to $79,300"; CLAUDE.md's architecture table repeats the part and template counts (328 parts, 51 templates)
+- keep three places in sync for controls: README, `App.showHelp` (main.js:322-341) and `Flight.controlsHelp` (flight.js:518), with its ground lists `Flight.groundHelp` (:562: README's "Armour and armed cars" block, the manual's own list after the old one, and on a phone a touch line first with the keys folded under "Keys, with a keyboard") and `Flight.driveHelp` (an unarmed ground vehicle or the 2D view: the keys it has)
 
 Known drift:
 - The Project layout line for world.js doesn't mention that it holds `Settings`.
@@ -2168,8 +2217,8 @@ Known drift:
 
 `test/README.md` covers the suites, baselines and helpers in full. In short:
 
-- `node test/run.mjs` runs the headless suites. They load the game's own scripts into a Node VM: fingerprints of every template, full-precision flight traces, the plane handling table, and checks for the part model, physics, flight, combat, multiplayer and flutter, plus since PR #36 `us4.test.js` and `shapes.test.js`, and since PR #37 `rwr.test.js` (test/run.mjs:13). The suites run side by side; at PR #36 the whole run takes about 47 s (it was about 40 before), the longest being `handling.js` (36-40 s for its 25 planes), `us4.test.js` and `combat.test.js` (about 17-20 s each); `rwr.test.js` takes about 2 s.
-- `node test/run.mjs --browser` adds the browser suites: the 2D builder, the 3D builder, the builder by shape (PR #36), the warning receiver's display (PR #37), redraw on demand and two-tab multiplayer, in headless Chromium with software WebGL.
+- `node test/run.mjs` runs the headless suites. They load the game's own scripts into a Node VM: fingerprints of every template, full-precision flight traces, the plane handling table, and checks for the part model, physics, flight, combat, multiplayer and flutter, plus since PR #36 `us4.test.js` and `shapes.test.js`, since PR #37 `rwr.test.js`, and since PR #38 the ground update's eight: `driving.js`, `ground.test.js`, `catalogue.test.js`, `armour.test.js`, `aim.test.js`, `duel.test.js`, `gmode.test.js` and `groundai.test.js` (test/run.mjs:13-14: 20 suites). The suites run side by side; at PR #38 the whole run takes about a minute on a laptop's worth of cores, the longest being `handling.js` (about 30 s for its 25 planes), `ground.test.js` (about 23 s), `groundai.test.js` (about 22 s), `armour.test.js` (about 18 s), `driving.js` (about 15 s), `us4.test.js` and `combat.test.js` (about 12-13 s each).
+- `node test/run.mjs --browser` adds the browser suites: the 2D builder, the 3D builder, the builder by shape (PR #36), the warning receiver's display (PR #37), redraw on demand and two-tab multiplayer, and since PR #38 the Armour builder, the ground HUD, a two-tab ground battle, the ground models and the Practice Battle (11 suites), in headless Chromium with software WebGL. They run one at a time and take about a quarter of an hour (`ground-hud.mjs` alone about 5 minutes). Headless Chromium runs the sim at about 0.08× real time: a browser test must measure `Flight.time`, never the wall clock, or set `Render3D.skipDraw = true` where the picture doesn't matter.
 - **New in PR #36:**
   - **`us4.test.js`**: the FS-4, FS-16 and FS-15. Their lofted bodies are well formed (finite sections in order, top over waist over bottom, inside the part lengthwise) and each has a `fill` between 0.3 and 1; the bodies of each template meet end to end without a step; every part joins; a lofted body alone counts `w × depth × fill` head-on; the stock fin with the default `vtail` fields keeps its old outline; and each jet takes off from the runway (lift-off within 1.5 km, nothing breaks) and settles level at 11 km on full afterburner inside a Mach band (FS-4 1.9-2.25, FS-16 1.9-2.15, FS-15 2.0-2.3), holding its height, short of the speed warning.
   - **`shapes.test.js`**: the clash test on 3D shapes (chapter 1 §4). How far a disc or a rectangle cuts into another against points sampled on a grid; the heights `shapesClash` samples against a 2 mm scan for 400 random pairs of real parts (round, flat, lofted, boxed, turned, pairs); and what a player sees: round tanks corner to corner don't clash and closer in they do, a pod by a nose cone's slim tip doesn't and by its wide base does, boxed gear clash as their boxes do, a part turned a quarter keeps the box rule, both sides of a twin pair count, a canopy drawn only in 2D still takes room.
@@ -2185,6 +2234,19 @@ Known drift:
   - **`browser/builder-shapes.mjs`**: the Weapons tab offers both RWRs and the manned turret, not the retired small one.
   - **`combat.test.js`**: its `craft()` now builds template rows as the builder does, turning `att` indices into part ids (before, the index was taken for an id, so the jets' attachments in the combat fingerprint pointed at the wrong parts). `test/lib/game.js` also exposes `rwrOf`, `hostileMissile`, `lockers`, `rwrAdvice`, `turretStep` and `airframe` on `Combat._t`.
   - The baselines moved for the 15 military templates only, the ones that gained a receiver (and the Stratobomber's turret, the FS-22's and FS-35's re-seated countermeasures, the Striker's chaff): fingerprint, traces, combat and mp-measure for all 15, handling for ten of them. Every other entry is identical.
+- **New in PR #38 (the ground update; chapter 8):**
+  - **`driving.js`** (`baseline/driving.json`, 20 entries; Phase 0, before the update touched a wheel): ground traces at 17 significant digits every 0.25 s, driven as the game drives (the stick read every 1/60 s frame, then two 1/120 s substeps of physics and `Combat.step`): the Dune Buggy flat out and coasting, cornering at 10, 20 and 30 m/s (at 10 it rolls over and is righted), braking, reversing, down the ramp and along the causeway, up a dry 10° slope on Shetland and parking on it, and on the sea; the Dragonfly rolling with its rotor idle; the Lunar Rover on the Moon; the take-off rolls of the Falcon, the Mustang and the FS-16. Those 14 are byte-identical to the code before the update. Six tank entries (pulling away and coasting, a pivot, a hill, braking, an 8×8 cornering, a tank on the arena's pad) came with the running gear. Every scenario runs twice and must match; perturbing the rolling friction, the steering limit, the drive gain, the coast-down, the water drag or the righting torque moves the scenarios it should.
+  - **`ground.test.js`** (138 checks). §contract: counters on every function of `Gear`, `Aim`, `Armour`, `GroundMode` and `GroundAI` stay at zero for the old templates' traces with weapons, the combat fingerprint's operations, a buggy drive and save, and every template's rows, codes, costs and spawn rows; thickness rides rows, RSS3 codes, spawn rows and saved flights with its mass and price; turret groups and poses on hand-built rings (and a turret built first); every hook's dispatch; the new messages leave the old ones byte-identical; then a TK-34-like tank of catalogue parts through all of it. §physics: the running gear on five catalogue vehicles (`lib/tanks.js`) against the design's table, the probe budget (at most 16 terrain calls a step), slopes, step size, a broken track both ways, turning on the spot on a slope, braking and parking, water and flooding, righting, tipping, collisions (ramming in a room, a ghost plane, a forged ghost), crashes and dents on both paths, a wheel on a plane, and what physics hands the renderer and the HUD.
+  - **`catalogue.test.js`** (64): every gv def's fields, outlines and effective fronts, the shells and their sums (85 mm APHE 124 mm at 1 km, 120 mm APFSDS 518 at 1.5 km), the paints, the pads level to 5 cm and dry, the berms where they should be and nowhere else, nothing of it without the map, and the ground everywhere else bit for bit as before (`heightAt` and `surfaceAt` at 2,000 points and `fieldAt` round every airfield and site, against values recorded from the code before the arena; Wick's strip and blend; `--print` gives a checkout's own). It also loads render3d.js in Node and builds the arena mesh in one go and a step at a time with every slice spent: identical meshes, no step over one cell's heights, the quadtree in typed arrays within 0.3 m of the physics' ground.
+  - **`armour.test.js`** (98): where shells hit (prisms, round parts, boxes, turned turrets, raised barrels), plates by face and angle, normalisation, overmatch, ricochet windows, penetration falling with each shell's drag, skirts, slats and bricks (chipped by MGs, a tandem through), the way in, fragments and an APHE burst (the same every time for the same shot), modules, crew, cook-offs, fires, repairs, knock-outs and the thrown turret, HE against plates and HE rockets, old weapons against armour, point blank, the berm crest (0.1 and 0.2 m under it), cheap rounds stepping every 1/60 s and their lookups, multiplayer hit messages from honest, hostile and broken peers, wrecks, and old craft untouched. It prints the resolver's timing (1,000 random hits on the MA-1).
+  - **`aim.test.js`** (53): turrets and guns slewing at their rates within their limits, the sweep and the dip by direction, limits carried over when parts are shot off, the stabiliser, the ballistic solve against real shells, firing along the barrel with its recoil, reloads and where the next round comes from (a killed loader, a real rack and autoloader), shell select, held automatic fire at any step size, launchers (wire-guided past its aim point, top attack and the turbine's reach, the command SAM against crossing aircraft at 2.5 and 4 km, a ground missile with no lock, rocket rails and their range table to six points 0.5-2 km off level and 60 m up or down, held FIRE intact, broken and unmanned, stowed reloads), the proximity fuze, smoke, the tracking radar's lock and its warning to another player, a TK-72 rolled 10° either way, `Aim.eyes`, `sees` with `both` and `known`.
+  - **`duel.test.js`** (13): two real tanks with every system meeting (test/README.md).
+  - **`gmode.test.js`** (125): the rules (capture by one, two and three and with troops, who may capture, contests, no decay, an enemy zone neutral at the middle, the bleed, deaths by cost and the aircraft multiplier, the results and draws, dt clamping, the same battle twice) and every pad slot on level dry ground off the berms, 22 m apart, never inside each other, with real vehicles placed as `Flight.start` places them, facing the zones; helicopters, planes at the air start, the Runway arena without the map, `soloPlace`.
+  - **`groundai.test.js`** (37): the Tank Range's Practice targets (parked, patrolling, never firing, a knock-out counted and back 45 s later elsewhere, the mission, drones for an AA vehicle), an AI that fights (sees, stops and fires within 1.2 km, never through a hill or smoke, AP or HE by target, falls back below 40% crew, steers round a parked tank, takes a mended gun up again, leaves a firing spot its gun can't reach, a wheeled one turning, no round into a hump), its budget (at most 60 ground looks a second each, a move well under 40 µs, at most 10 fresh sight checks a second), the Practice Battle (its sides, stock, rules, wrecks, respawn, revert, out of bounds, a new flight ending it), Hostile waves and the attack plane, the Hostile gates for Armour (a tank over a hilltop draws nothing; a buggy still does), and nothing in a room.
+  - Old suites gained: `core.test.js` the sixteen stock ground vehicles (names, kinds, joins, clashes, rings, depression, price, tier, paint, a runway drive, a 15° climb, every slot of both pads, a full pad of six bumping on the real gear; the MA-1's stores against its blurb); `combat.test.js` the `groundcombat` fingerprint (`baseline/groundcombat.json`: body boxes, muzzles at 0° and 90°, shell launch vectors, 24 rays a vehicle, two fixed shots' module rows); `mp.test.js` (111 checks) ground settings, kinds, pads, carriers, pricing, fallbacks, wrecks, thrown turrets kept through a respawn, respawns and the lineup, `obj`/`seen`/`spot` from hostile peers, shells, mm rows, ring easing, troops, spotting through smoke with a thermal sight, the no-3D toast, the sandbox's spawns for old armed cars, and **`baseline/mp-air.json`**: a full air battle and a sandbox recorded step by step with `lib/mptrace.js` from the code before, replayed identically; `flight.test.js` "Righting…" with hints on or off and not for an old car. `fingerprint`, `traces` and `mp-measure` took the sixteen as additions, every old entry byte-identical (the 11 tracked ground templates' traces moved once more with the neutral-turn fix, said in its commit).
+  - Browser: **`builder-tank.mjs`** (69: six taps, stats, warnings, the armour stepper through a code, the hangar and a reload, plates and bricks flush, launchers by a tap, the fresh Armour design, X-ray on X, the kind strip at four sizes), **`ground-hud.mjs`** (59: layouts on four screens and in a room, what shows, the zero keys, pointer lock, drag and FIRE-slide aiming, Esc, the sight's projection, the reload ring, the canvas-call and DOM budgets, the commander's reading, the help's words), **`ground-battle.mjs`** (21: two tabs fight a ground battle to a result with real shells and log the bytes a second), **`ground-models.mjs`** (19: every part in 2D and 3D, draw calls, turrets where aim.js says, belts, recoil, wrecks, X-ray, no texture leak), **`practice-battle.mjs`** (16: career money, the warp keys, Retro 2D, the bar on narrow phones, the arena mesh only in ground play). `redraw.mjs` gained the armour tools; `builder-shapes.mjs` counts the Armour tabs.
+  - Tools, not in run.mjs: **`test/tools/arena-probe.js`** (Highland Ridge on the real map: heights, slopes and water, every line of sight, the berms, the drawn ground minus the physics' on the terrain patch per distance and on the arena's own mesh within 0.1 m RMS and 0.3 m; about 90 s) and **`test/bench/ground-bench.mjs`** (µs per physics step and terrain calls per step for the ground vehicles, collisions, and the round budgets; compare runs on one machine).
+  - Helpers: `test/lib/tanks.js` (the stock ground vehicles as design rows, from the checkout's own builder.js), `test/lib/mptrace.js`, and `test/lib/game.js` loading gear.js, aim.js and armour.js always (when present, so `ROOT` can point at an older checkout) and gmode.js and groundai.js with combat, flight, mp or `ground`.
 - **`browser/redraw.mjs`** (PR #35) guards on-demand drawing: every kind of edit, by hand and from code, must show at once in the 2D and the 3D hangar, and the idle hangar must draw nothing. It sets `App.heartbeat` to 1e9, so a missing `Builder.redraw()` fails instead of hiding behind the half-second safety net. On synthetic frame times it checks the frame cap (60 frames' work a second on 90-144 Hz screens), the home backdrop at 30 fps and a paused flight, or anything under a dialog, at 10. A test of your own that changes Builder state from code and then reads pixels must go through `changed()`/`renderInfo()` or call `Builder.redraw()` too.
 - **`combat.test.js`** has a second check list since PR #35, "combat: countermeasures and the frigate radar SAM" (test/combat.test.js:137-356): the dispenser's ammo and store, the free cloud unchanged for a flares-only craft, an empty dispenser, chaff-only craft, `status()` for flares-only, chaff-only, plain and Falcon craft, the Spectre's stealth, `netFlares` sanitising, `decoyed` and `chaffBreaks` (odds, radii, the 4 km wait), countermeasure particles per second at 60, 120 and 144 fps and none past 3 km, the ship radar (reach, stealth, ECM, notching, an island in the way), a small Monte Carlo of the radar SAM with the real missile code, its launch cadence, and no launch at a craft under 150 m (a take-off). The suite takes 11-20 s depending on the machine (about 2 s before PR #35). `test/lib/game.js` exposes `chaff`, `dispenser`, `autoCM`, `cmFX`, `decoyed`, `chaffBreaks`, `siteSees`, `clearLine`, `makeTarget`, `shipSamFire`, `samFire` and `at` on `Combat._t` for it. `mp.test.js` checks that `cm` carries chaff 2, 1 and 0 and that a dispenser survives `mpSpawnRows`.
 - Baselines in `test/baseline/` are the output of `main`. A change that is meant to move them is re-baselined with `--update`, with the reason in the commit. A refactor must leave them identical. PR #35 is an example of both: its physics and rendering changes left every baseline identical (and 67 extra ground, air, bay and causeway scenarios matched to 17 digits), and only the four templates that gained a Chaff Dispenser (falcon, kestrel, striker, spectre) moved in fingerprint, traces, handling, combat and mp-measure.
@@ -2208,9 +2270,9 @@ Found while writing this handbook, in earlier reviews or in play-testing, and no
 | `flight.js:634` (sleep) | Only non-active vessels sleep: a parked active craft is stepped in full (a Falcon on the runway, about 6 ms of physics a second) | Letting it sleep isn't bit-identical (a resting craft is not a fixed point); it probably wouldn't move a baseline, but check |
 | `render3d.js` `syncCombat` | Target models are removed without disposing their geometry | A small leak |
 | scenery caps | Tree, building, rock and boat loops stop silently at their `InstancedMesh` capacity | Raise the capacity with the cap |
-| torpedoes, ARMs | Have nothing to hit in multiplayer (no range or sea targets in rooms) | A design gap |
+| torpedoes, ARMs | Torpedoes have nothing to hit in multiplayer (no range or sea targets in rooms). Since PR #38 anti-radar missiles do: another player's ground vehicle whose search or tracking radar works (`emits`, combat.js `candidates`) | A design gap for torpedoes |
 | handling table | In 30 s hands-off ("hold" autopilot, 85 % throttle) most planes sink 170-730 m (`node test/handling.js`) | Probably trim rather than a bug; check before "fixing" |
-| input | No gamepad support; no cockpit or free camera | Ideas |
+| input | No gamepad support; no cockpit or free camera (a ground vehicle can look round with `C` while its turret holds, PR #38) | Ideas |
 | Sugoi-57 bays (`ruBay57`, `ruBayS57`, parts.js:636, 640) | They have `doors`, so they cost stealth while open (0.54 → 0.42) like the FS jets' bays, but nothing shows the doors: `RU_ART.bay` draws closed doors and the missiles left, and the `ruLoft` model has no `hinge` doors | Add hinge doors to the 3D model and a `p.deployed` door to the 2D art, as `US5_FIT`/`US5_ART` do |
 | FS-4 fin (`us4f4Fin`) | Its camouflage maps differently in 3D from the 2D blueprint, unlike the other parts, which line up since the play-test fixes | Only seen in play-testing; it is a stock-recipe `vtail` textured through `projUV`, so look there first |
 | Russian vectoring nozzles on ghosts | The Sugoi-35's and Sugoi-57's nozzles swing from `VesselMesh.cmd`, the stick command, which multiplayer doesn't send, so on another player's screen they stay centred (the FS-22's flat nozzles move, through `deflect` in `pv`) | Cosmetic; sending it would need a `pv` field and a `NET_VERSION` bump |
@@ -2221,7 +2283,372 @@ Found while writing this handbook, in earlier reviews or in play-testing, and no
 | doors on a craft you leave | Doors are stepped for `F.active` only (combat.js:476), so if you switch craft within the hold after a shot (up to 1.8 s), the old one's doors stay open, and its stealth down, until you switch back | Step them for every craft that has them |
 | FS-35 | The conventional version only: no lift fan or swivelling nozzle for hovering | A design choice, worth knowing before someone asks for a jump jet |
 | radar locks solo (combat.js:1316, `lockers`) | A warning receiver's RADAR LOCK, lock tone and rim strobes come only from other players' `lock` reports. Flying solo nothing reports one: the frigate's radar looks for the craft (`siteSees`, first after 20 s, then every second) without a sound, and the RWR speaks only once its missile is in the air | Found while writing up PR #37. A lock report from `shipSamFire` (and the SAM sites) would make the Advanced RWR's scope useful solo |
+| drawn ground outside the arena (render3d.js patch) | Only inside a clear arena (Highland Ridge's box and 150 m round it, with its own mesh up) is the drawn ground the physics' ground. Elsewhere (the Runway arena, Shetland, a tank driven off the ridge) the terrain patch still drops the 40 m and 160 m detail physics keeps on its coarse far cells: up to 1-2.5 m at 300-600 m (the arena probe's numbers without the fade). Far vehicles are reseated onto the picture (`reseat`, at most 3 m), but the crosshair's range comes from the drawn ground while shells and sight lines meet the physics' | A square patch, or the fade, wider than the arenas would cost pictures and frames everywhere; left as it is (PR #38) |
+| cars and the Hostile gates (combat.js `frame`) | A tank counts as flying only after more than 1 s airborne and 15 m up, so driving over a crest brings no AA fire, SAMs or fighters. A car keeps the old rule: a Dune Buggy moving over a hill 233 m up draws AA fire, a SAM and fighters | Kept deliberately, so old designs behave exactly as before (`groundai.test.js` pins both) |
+| ground saves (vessel.js `GV_SAVE`) | Not saved in a flight: fires (`p.fire`, `v.mfire`), `v.ko`, a blow-out vent and a ring's stabiliser state. A restored burning tank isn't burning | Found in Phase 2; small, since a knocked-out flight ends |
+| crew seat swaps (armour.js `SWAP`) | A dead driver's or gunner's seat goes to the loader, then the radio operator, then the commander, so the turret's loader can take the wheel with the hull's radio operator sitting beside it ("Loader takes the wheel") | As the design says; it reads oddly |
+| Ammo Rack's description (parts.js:1092) | Says its rounds "are fired first", but `Aim.draw` (aim.js:708, `aimStoreRank` :1304) takes a hull's or turret's built-in rounds first, then placed racks, then an autoloader's (the MA-1's blurb was fixed to match the code) | Found writing up PR #38: fix the words or the order, not both |
+| rocket artillery on Highland Ridge | A 69 m ridge 900 m in front of the north pad hides the ground behind it from every path the rails can fly (0-55°): the flattest that reaches it is under the crest and steeper ones fly long, so a strike there lands on the ridge. The HUD now says "Blocked by the ground" | Terrain, not code (the mechanics review) |
+| TK-72's bricks | It carries three Reactive Bricks, not the eight the design had: an upright brick against the MBT hull or the round turret is clash-tested on boxes (a rule old designs rely on), so more would float off the slopes, and bricks across the glacis would stop the gun dipping or jam the turret | The P4 review; three seated bricks beat eight floating ones |
+| Hostile Tank Range | Its waves always leave from the south pad | As the design says (the play-test asked; not changed) |
+| APFSDS against WWII sides | A dart through a thin side does less inside than an APHE shell (the post-penetration model: APHE is the one-shot killer) | Kept (the play-test) |
+| arena mesh build (render3d.js `arenaGeoJob`) | A step can still overrun its frame slice by one terrain evaluation, which can't be split (37 of 83,618 take more than 0.3 ms in Node) | The perf review |
+| one arena | Ground battles have Highland Ridge (the real map) and the Runway fallback; the host's map decides, there is no choice | Ideas |
 | solo auto countermeasures, several missiles (combat.js:1164) | `S.flareT` counts down once per threat within 2.2 km each frame, so with two missiles closing the countermeasures go out every 0.3 s, with three every 0.2 s. `autoCM` has no gate of its own, so the Advanced RWR (and, before PR #37, every solo craft) empties its flares that much faster; the basic RWR goes through `countermeasures`, whose 0.6 s gate holds | Count down once a frame, outside the loop |
 
 The README's "Ideas for later" lists the owner-facing wishlist: docking and space stations, payload fairings, solar panels and batteries for ion engines, editable staging, boats, more moons around Jupiter, and planet rotation.
 
+## 8. Ground vehicles and ground combat
+
+PR #38, the ground update: the Armour kind (tanks, tank destroyers, armoured cars, SPAA, infantry vehicles, missile carriers, rocket artillery, SAM launchers), built from 71 parts, driven on sprung running gear, aimed from a War Thunder-style camera, fought with shells that meet real plate, and played on Highland Ridge alone (the Tank Range, the Practice Battle against computer tanks) or in the Ground Battle multiplayer mode. It adds six files and opens hooks into most of the old ones. Every hook is shut for old designs: it opens only for a part with `def.gv`, a vessel with `v.gv` or running gear (`v.gear.length`), the `tank` kind, a live ground AI (`Combat.S.gai`) or a ground battle (`MP.ground`). `test/ground.test.js` §contract proves it by wrapping every function of `Gear`, `Aim`, `Armour`, `GroundMode` and `GroundAI` in a counter and running the old templates' traces with weapons, the combat fingerprint's operations, a buggy drive and save, and every template's rows, codes, costs and spawn rows: zero calls (chapter 6).
+
+### 0. The six files, and where the old code calls in
+
+They load in this order (index.html:379-399): gear.js, aim.js and armour.js after vessel.js; gmode.js and groundai.js after combat.js; ghud.js after mpui.js. All are plain scripts with IIFE or object-literal globals; each reads the others only inside functions.
+
+| File | Globals | Owns | Entry points |
+|---|---|---|---|
+| gear.js | `GEAR`, `Gear` | running gear: contact points, suspension, traction and skid steering, water, righting, collisions between vehicles, the builder's driving numbers | `points` :197, `ground` :214, `ht` :595, `corner` :605, `bump` :626, `stats` :695 |
+| aim.js | `Aim` and `aim…` helpers | turret groups and poses, traverse and depression limits, the aim step, ballistics, firing, radars and locks, missile guidance, smoke, line of sight | `groupsOfParts` :191, `groups` :221, `pose`/`unpose` :239/:244, `muzzle` :272, `sightPoint` :282, `sweep` :298, `limits` :330, `stepAll` :365, `step` :396, `solve` :578, `rangeTable` :589, `fire` :658, `status` :822, `summary` :864, `radarStep` :910, `guideSaclos` :1030, `smoke` :1132, `sees` :1209 |
+| armour.js | `SHELLS`, `SHELL_TYPES`, `Armour` | the rounds, shells in flight, hit geometry, the resolver, crew and stores, modules, cook-offs, knock-outs, fires, repairs, HE and old weapons against plate | `SHELLS` :14, `hitAll` :320, `resolve` :442, `apply` :703, `moveShell` :772, `netShell` :1002, `blastK` :1027, `legacyHit` :1080, `moduleDown` :1108, `knockOut` :1177, `repairStep` :1244, `summary` :1339 |
+| gmode.js | `GROUND_STOCK`, `GroundMode` | the Ground Battle's rules, pure (no DOM, no Flight, no randomness) | `placement` :75, `soloPlace` :96, `stock` :102, `init` :113, `tick` :136, `death` :179, `result` :195, `obj` :216 |
+| groundai.js | `GroundAI` | computer-driven ground vehicles, the Tank Range, the Practice Battle | `frame` :964, `down` :1020, `reset` :1036, `startRange` :1049, `startBattle` :1070, `onDestroyed` :1103, `respawn` :1121, `revert` :1134 |
+| ghud.js | `GHUD` | the ground HUD: the aim ray, the canvas, the minimap and tactical map, layouts, spotting by hand, the touch controls | `aimUpdate` :38, `draw` :155, `place` :559, `sync` :602, `tactical` :725, `spot` :837, `bind` :911, `frame` :963 |
+
+The hooks in the old files (each gated as said above):
+
+| Where | What it hands over |
+|---|---|
+| vessel.js `rebuildGroups` (:261) | `v.gv`, `v.plated`, `v.gear` (tracks and armoured wheels, only on a car or tank: on an aircraft they are boxes), `Aim.groups(v)`; `aircraft` is false for a tank whatever wings it carries (:281) |
+| vessel.js `computeHull` (:326) | running gear adds `Gear.points` instead of wheel rims (:343); `inner` parts add no corners; an outlined part adds its outline's corners at ±half depth |
+| vessel.js `turnTarget` (:550), `ground` (:978) | with running gear: `null` (the gear rights the hull) and `Gear.ground` as the first line |
+| vessel.js `applyImpulse` (:1118) | an impulse at a part-space point: recoil, shoves, heavy hits |
+| vessel.js `serialize`/`restore` (:1224, :1237) | `gvSave`/`gvLoad` (:116, :120): `GV_SAVE` (:114) fields, cleaned on the way in, and pending seat swaps |
+| combat.js `damage` (:43), `destroyPart` (:61) | spawn protection (4 s from `v.spawnAt`), `v.hurtAt`, a module part to `Armour.moduleDown` (broken, not gone), a gv control part at 0 hp to a knock-out |
+| combat.js `holdRips`/`flushRips` (:80) | the ground update's kit one hit strips goes in one `ripParts` call per craft |
+| combat.js `explode` (:152) | `he` (the blast's penetration) and `spare`; a plated craft's parts through `Armour.blastK`, posed by their rings; wrecks take nothing |
+| combat.js `moveShot` (:616, :652, :677) | `k: 'shell'` to `Armour.moveShell`; plated craft hit with `Armour.hitFirst`; an old round on a gv part to `Armour.legacyHit` |
+| combat.js `step` (:589) | `Aim.stepAll` and `Aim.smokeStep` every substep |
+| combat.js `frame` (:1278-1280) | `GroundAI.frame`; `Armour.repairStep` and `Aim.radarStep` for our ground vehicle and the ground AI's; only the three nearest wrecks smoke |
+| combat.js `playerFrame`, `fireRocket`, `launchMissile`, `candidates`, `countermeasures` | aimed launchers fire along their aim (`Aim.muzzle`/`Aim.dir`), boosted; `Aim.fire` for main guns, launchers and rocket artillery; ground vehicles are candidates for anti-ground seekers; smoke first on `K` |
+| flight.js `start` (:37) | `opts.place.air` (an air start), `opts.keep` (wrecks and AI kept), `Aim.limits(v)` at launch (:54) |
+| flight.js `groundTick` (:711), `groundKey`, `bindDom` | aim mode, the ground keys and pointer handling (§5) |
+| flight.js `revert`, `onDestroyed`, `canRecover`, `save` | `GroundAI.revert`/`onDestroyed` in a Practice Battle; Armour reverts to `GroundMode.soloPlace`; nothing saved in a Practice Battle (:179) |
+| main.js `launch` | Armour starts at `GroundMode.soloPlace('tank')`, with a toast when it can't |
+| mp.js, mpui.js, net.js | ground battles (§9) and NET_VERSION 7 |
+| render3d.js, parts3d.js, world.js | the aim camera and sight, the arena's ground mesh, the models (§10) |
+| builder.js | the Armour kind's builder (§2) |
+
+### 1. Parts, thickness and saves
+
+**The kind.** `VEHICLE_KINDS.tank` (parts.js:38) is "Armour": `site: 'runway'`, `launchRot 0`, its seven tabs (`hulls`, `turrets`, `drive`, `guns`, `launchers`, `crew`, `kit`, :20-27). `GROUND_KINDS` = {car, tank} and `isGround(kind)` (:41-42) say who drives; `NO_GEAR` (:44) is the frozen empty `v.gear` every old vessel has. `PILOT.tank` (vessel.js:104) only matters in the air, rates 0.25. `DRIVE.other` serves it. The builder's tank kind is built nose-right like a car: +x forward, +y up, +z right.
+
+**The def contract** (comment at parts.js:830-846; the 71 parts run :849-1137). Every field is opt-in and every reader falls back to the old behaviour without it.
+
+| Field | Meaning | Read by |
+|---|---|---|
+| `gv` | a ground-update part: every new path keys on it | everything |
+| `family` | its era group in the tray (WWII, Cold War, Modern, AA) | `partFamilies` |
+| `place` | where a tray tap puts it: `hull`, `side`, `inside`, `roof`, `ring`, `front`, `flank`, `top`, `face`, `skirt` | `Builder.tankSpot` (builder.js:1484) |
+| `outline` | the side-view shape, convex and counter-clockwise, as fractions of w and h; a hull's edges run bottom, lower front, upper front, top, rear. It is the 2D outline, the clash shape, the 3D prism and the hit prism at once | parts.js `gvPath`, parts3d `plated`, armour.js `geo`, builder |
+| `round {slope}` | hit as an upright cylinder, its wall leaning back `slope`° (cast turrets, rings) | armour.js `cyl` |
+| `armour {mm, min, max, edge, z, mat, heat, open, round, slab}` | nominal mm and the range the player may dial (none: fixed), each outline edge's share, the sides' share, steel or composite (composite weighs 0.45, `heat` its strength against shaped charges), missing plates (`open`, an open top), a round part's share by bearing (`f, s, r, t`), `slab` (one sheet, the Applique Plate) | armour.js `faceMm`, parts.js `massPerMm` |
+| `hp`, `module` | its health; at 0 a `module` part (track, wheel, engine, breech, ring, radar, sight, launcher, crew, ammo, fuel, troops) breaks but stays | combat.js, armour.js |
+| `mods [{k, role, at, r, hp, rounds, cook, blowout, autoload, troops}]` | what a hull or turret has built in: crew by role, ammunition, fuel, troops, as spheres at fractions of w, h and depth | armour.js `crewList`, parts3d crew balls, X-ray |
+| `inner` | inside a hull or turret: drawn under it in 2D, never built in flight | parts.js `sideLayer` 4, parts3d, vessel `computeHull` |
+| `track {r, n, travel, vmax, rev, turn, mu, side, crr, load}`, `awheel {r, travel, vmax, mu, side, load}` | running gear: road-wheel radius and count, spring travel, top speed (m/s), reverse share, pivot rate, grip, rolling resistance, rated tonnes | gear.js |
+| `engine {kw, fuel, ir}` | power, fuel (fire odds: petrol 0.35, diesel 0.12, turbine 0.2) and exhaust heat (`ir` 1.25 for the turbine) | gear.js, armour.js, combat.js `hotK` |
+| `ring {rate, cap, stab}` | a turret ring: °/s, the tonnes it turns at full rate, stabiliser (2: held steady) | aim.js |
+| `aim {el, elRate, trav, travRate, pivot, disp, stab, casemate}` | an aimed part: elevation and its own traverse (°), their rates, the trunnion as a share of h from the breech, dispersion (mrad), stabiliser, an arc of its own `[deg, rate]` in a hull with no turret | aim.js |
+| `weapon.kind` `tgun` / `agun` / `smoke`; launchers `missile` or `rocket` with `def.aim` | a main gun (`reload`, `ammo` ready, `shells`), an automatic gun (`rate`), smoke dischargers (`ammo` salvos, `salvo`); launchers add `boost`, `coast`, `stow`, `reload`, `heat`, `tandem`, `he`, `seek` (`saclos`, `top`, `clos`, `air`), `loft`, `lockT` | aim.js, combat.js |
+| `searchRadar {range, rpm}`, `trackRadar {range, cone}`, `thermal`, `lrf`, `era {ke, ce}`, `spaced`, `slat`, `seat`, `rack {rounds, cook}`, `autoload`, `troops`, `amph` | kit, crew and stores, an amphibious hull | aim.js, armour.js, gear.js, mp.js `mpTroops` |
+
+Shapes: `thull`, `tturret` (both outlined), `tcast` (round), `tring` (round), `ttrack`, `twheel`, `tgun`, `tlaunch`, `tradar`, `tkit`; `tcast` and `tring` are in `ROUND3D` (vessel.js:11). Player-visible names never carry a real designation; comments do (CLAUDE.md).
+
+**Thickness** (parts.js:1158-1194). `p.mm` is the nominal thickness the player dialled, absent when it is the catalogue's. `cleanMm(v, def)` (:1162) rounds to 5 mm within `min..max`, and returns undefined for fixed armour (rings, tracks, wheels, skirts, slats), so those never save one. `massPerMm` (:1169) is the steel in the plates: each outline edge's length × depth × its edge factor, plus both z faces × `z`, a round part's wall and roof by bearing, a slab's `w × depth`, times 7.85 t/m³ per metre (×0.45 composite), cached per def. `armourMassT` (:1190) and `armourCostDelta` (:1191, $400 a tonne, $900 composite) feed `partKg` (:1157) and `designCost`. A part's own `hp`, when it has one, is its health (`maxHp`, combat.js:37).
+
+**Saves and codes.**
+- `designRows` (parts.js:1586) writes `mm` only when it differs from the catalogue's by more than 0.5, so old rows are byte-identical; `partsFromDesign` and paste clean it with `cleanMm`.
+- Design codes become `RSS3.` only when some part has `mm` (builder.js:2349-2363): its tenth column, read only when it is a finite number (`parseCode` :2374). Every old design keeps its `RSS1.`/`RSS2.` code byte for byte. Older versions can't read RSS3.
+- Spawn rows carry `mm` as a tenth column (mp.js `sendSpawn` :907, `mpSpawnRows` :73 cleans it).
+- Saved flights (`rss.flight`) keep `GV_SAVE` (vessel.js:114): turret and gun angles, `mm`, module health (`mods`), `broken`, `ko`, stowed reloads, the selected shell, each store's rounds (`rounds` on a rack, `mrounds` on a host) and who sits in each seat (`roles`, `role`), plus a pending seat swap (`swaps`, written only for a gv vessel with one waiting). `gvLoad` clamps every value to what the part allows and keeps only the five known jobs. Fires, `v.ko`, a vent and a ring's stabiliser state are not saved (chapter 7).
+
+### 2. The Armour builder (builder.js)
+
+- **Placing by a tap.** On the tank kind, `quickAdd` (:1357) asks `tankSpot(type, centre)` (:1484) first, which reads `def.place`: a hull on the empty blueprint; a track beside it with its twin on the other side (symmetry for the tank kind mirrors across z, `kindSymmetry` :2012); the engine, seats, racks, fuel cells and the carousel into the first free room inside the armour (`inArmour` :1446; a turret's crew sit down through the ring into its basket); a ring on the roof just ahead of the middle (`roofOf` :1452); a turret on the ring; a gun with its trunnion in the turret's front face, breech inside; a launcher on a bare ring first, side by side with its trunnion over the middle, then against the turret's front beside the gun, the roof, or the hull's front (P4 review: "No room" every time before); radars to the back of the roof, sights to the front; smoke and AA guns in pairs on the turret's sides; plates and bricks on the face nearest the middle of the view, and only where they touch it (`onFront` :1470, within 3 cm at the nearest height they share, 10 cm steps when the first heights fail: an upright brick against a hull is clash-tested on boxes, which old designs rely on, so before this a brick on the MBT's nose stood 0.48 m in the air); skirts and slat cages over the tracks. With a hull and no room left, a toast instead of a part dumped under it. All 71 parts land by a tap on a phone (`builder-tank.mjs`).
+- **Aimed parts come pointing forward:** `defaultRot(def, kind)` (:1424) is 3 for an aimed part on a ground kind, in 2D, 3D and the drag ghost (`p.rot` 3 puts a barrel along +x).
+- **Kinds:** `setKind`/`pickKind` (:1980, :1995): tapping Armour on a blueprint with no armour parts (the stock Hopper) starts an empty Armour design, with a toast that Undo brings the old one back; unsaved work of the player's own is asked about first ("Keep these parts" keeps the old behaviour).
+- **Stats** (`renderStats` :2042, `groundStats` :1637): for a ground design the Thrust, Δv and stage rows give way to Power (hp/t), Top speed and Front (`#s-power-row`, `#s-top-row`, `#s-front-row`), and `#s-ground` carries `groundLine` (:1834) from `Gear.stats`, `Armour.summary` and `Aim.summary` ("85 mm APHE 124 mm at 1 km · reload 7.0 s · turret 24°/s · gun −5°/+22° · crew 5 · pivots 40°/s · climbs 30° · tips at 0.90 g · 42 rounds" for the TK-34). It gives way while a part is picked on a phone.
+- **Warnings** (`groundWarnings` :1767): no tracks, tracks on one side, no engine, underpowered, overloaded running gear, no driver, no gunner, no loader, only the ready rounds, a ring on its side, a jammed or overloaded ring, where the turret stops and what stops it (`hitAt` :1742), how far the gun dips over the back deck, a gun pointing up, a rack outside the armour, top-heavy, a radar SAM with no tracking radar, car wheels that roll free, tracks that don't reach the ground; on any car, a wing that stops it driving. Only a missing hull stops a launch. The first rack or seat placed in a host says it takes over the built-in rounds or crew.
+- **The turret sweep** (`Aim.sweep`, §4) runs 150 ms after the last edit (`landSweep` :1651); when its answer lands with no input, it redraws once and refreshes the stats.
+- **The part panel:** `#pi-armour` (`renderArmour` :1888, `setMm` :1880): − and + in 5 mm steps and a slider within the part's limits, for the selection and its twins, one undo step per slide, and `#pi-mm-faces` (`facesText` :1723: "Glacis 55 mm at 63° → 121 mm · lower 61 mm at 53° → 101 mm · sides 40 mm · …"). `#pi-turret` (`renderTurret` :1902): the arc and speed, and **Test turret** (`testTurret` :1916, 3D only): the turret swings once through its arc over 3 s and what stops it flashes red (`Parts3D.tgOf`).
+- **X-ray** (`X`, `#btn-xray`; `setXray` :1857, `rss.xray`, on by default while something sits inside armour, `xrayAvail`): sets `PartPaint.xray` (2D) and `Parts3D.xray` (3D). Ctrl+X stays cut. The **armour view** (`setArmourView` :1864, `#btn-armour`, 2D) sets `PartPaint.armour`. Picking a ring, gun or launcher draws its elevation fan at the trunnion (`drawArcs` :1951) and, in 3D, a traverse fan on the ring (`arcs3d` :1943; render3d draws it), green where it turns and red where it is stopped.
+- **The hangar** lists "Ground forces" first while building Armour (:2477-2478), each card with its class (`groundClass` :426: tank, tank destroyer, armoured car, SPAA, SAM launcher, rocket artillery, infantry vehicle, ATGM carrier, technical).
+- **Phones:** a centred hull, ring or turret drops the depth row; the armour row is one line; after a tray tap on Armour the view refits when a part is out of the room the panels leave (`keepInView` :1409); on a short phone the kind buttons give way while a card is up, and the Select/Grid/Fit column becomes a row of icons. Old kinds keep their layout.
+- **Stock vehicles** (`TEMPLATES`, the fifteen tank-kind entries and the `technical` car): built from att rows like the look-alike jets (clash-free, every part joined to its hull), each turret turning all the way round and its gun dipping as far as its mount allows, priced inside its money tier (`GROUND_STOCK`, §9), and each drives off the runway, climbs a 15° slope and settles on every spawn slot of both pads (`core.test.js`). `test/lib/tanks.js` reads them for the tests.
+
+| Key | Name | Price | Mass | Notes |
+|---|---|---|---|---|
+| `tk34` | TK-34 | $30,600 | 27.5 t | sloped medium hull, 85 mm APHE |
+| `ms4` | MS-4 Shermin | $27,800 | 26.3 t | stabilised 75 mm |
+| `tygr` | Tygr I | $40,000 | 50.7 t | heavy box hull, 88 mm |
+| `pumo` | Pumo 8×8 | $18,800 | 12.4 t | armoured car, 50 mm, 108 km/h |
+| `stuq3` | StuQ III | $23,900 | 30.7 t | casemate, ±12° |
+| `ms18` | MS-18 Hellion | $20,100 | 12.1 t | open top, 76 mm |
+| `leapard1` | Leapard 1 | $43,400 | 33.7 t | 105 mm, three rounds |
+| `tk72` | TK-72 | $67,600 | 50.7 t | autoloader, three reactive bricks (more don't seat: an upright brick against the MBT nose or the round turret is clash-tested on boxes and would float) |
+| `ma1` | MA-1 Abrahm | $79,300 | 56.5 t | turbine, stabilised 120 mm, bustle with blow-out panels (16 of its 50 rounds in the hull, spent first) |
+| `zsy23` | ZSY-23 Shilko | $30,100 | 15.9 t | quad 23 mm, tracking radar |
+| `gepardo` | Gepardo | $56,600 | 33.2 t | twin 35 mm HE-VT, search and tracking radars |
+| `bmk2` | BMK-2 | $33,900 | 20.2 t | troops, 30 mm, an ATGM |
+| `brdk2` | BRDK-2 Gadfly | $23,000 | 10.2 t | wire-guided missiles |
+| `bk21` | BK-21 Grod | $19,500 | 12.4 t | rocket artillery |
+| `ok8` | OK-8 Hive | $68,500 | 20.9 t | radar-commanded SAMs |
+| `technical` | Desert Technical (car) | $6,000 | 1.4 t | a pickup with a heavy MG on the cab |
+
+### 3. 2D drawing (parts.js:4048-5032)
+
+- `partPath0` and `drawPart0` hand a gv part to `gvPath` (:4999) and `gvDraw` (:5016) before their switches. The art for each shape is in `GV_ART` (:5013): `gvHull` (:4168, welded, riveted or composite plate with seams, rivets, lights, tools, drums, grilles and grime, each hull its own), `gvTurret` (:4253) with `gvRoof` (:4317, `GV_ROOF` :4309: cupolas, hatches, periscopes), `gvCast` (:4350), `gvRing` (:4386), `gvTrack` (:4496), `gvAWheel` (:4547), `gvGun` (:4618), `gvLaunch` (:4719), the radars, and `gvKit` (:4822).
+- **The layouts are shared with 3D:** `trackLayout` (:4410: road wheels, sprocket, idler, return rollers, the belt's loop), `gunLayout` (:4572: mantlet, barrel bands, muzzle brake or evacuator), `launchLayout` (:4675: rails, tubes, canisters, packs), `radarLayout` (:4762) and the outlines. parts3d builds its models from the same functions, so what is built in 2D drives off in 3D (§10). Change the layout, not one side.
+- Links move with `p.belt` and wheels turn with `p.spin`; launchers' rounds empty as they fire. Tracks and armoured wheels take paint (fenders and hubs), so a camouflaged tank is camouflaged all over; the four armour paints (`steppe`, `ambush`, `woodland`, `whitewash`, parts.js:1885-1888) have patches sized for a tank.
+- `sideLayer` (:2097) puts `inner` parts at layer 4: under everything normally (`sideOrder` sorts them first) and over everything in X-ray.
+- **X-ray** (`PartPaint.xray`, :1905): armour is an outline over a faint fill, with the crew, stores, fuel, troops, engines and breeches drawn over it as icons; built-in ones a placed seat or rack replaces are dashed. **The armour view** (`PartPaint.armour`): `gvArmour` (:4972) colours each plate edge by its effective thickness against a level shot.
+- `gvPlanned(d)` (:5032): the parts whose 3D texture holds the side, plan, front and back views in one picture (hulls, plate turrets, boxed kit).
+
+### 4. Turret groups, poses and limits (aim.js)
+
+**Groups** (`groupsOfParts` :191; comment at :6-13). A turret ring (`def.ring`, standing upright, rot 0) turns everything above its top that is joined to it, and whatever hangs on those by `att` (a breech below the ring's top, a bustle bin), about the vertical through the middle of its top, `c`. The walk never passes the ring or anything joined to the ring's base below its top (the P1 review: a turret built first records the ring as hanging on it), so a turret-first design turns only its turret. A ring on another's group turns with it (a cupola: two levels deep at most). A member also joined to something that doesn't turn jams it (`jam`). `rate` is the ring's °/s × `clamp(√(cap / mass), 0.35, 1)`, so a turret that outweighs its ring turns slower. The same rows give the same groups in the builder, a craft, a ghost and the renderer. `Aim.groups(v)` (:221) puts them on the vessel: `v.tg` (outer first), `v.tgOf` (each turning part's innermost group), `v.aimed` (parts with `def.aim`) and `v.bodyBox` (the part-space box of what doesn't turn, for collisions).
+
+**Poses** (pure, out parameters, no allocation). A ring's yaw ψ is its `p.aimYaw`; `aimTurn` (:17) turns part +x toward +z (Ry). Physics keeps the build pose for mass, inertia and the hull; hits, blasts, aim and the 3D model pose the parts (`pose`/`unpose` :239/:244, outer group's turn undone first). An aimed part keeps its own `aimYaw` and `aimEl` like the old turrets; unturned, its barrel points along `(−sin el, cos el cos yaw, cos el sin yaw)`, turned by its rot, and it pivots on its **trunnion** `T = partPt(p, 0, −h/2 + pivot·h)` in its own yaw as in elevation (`localTrunnion` :265, `muzzle` :272). parts3d's gun yaw node sits at the trunnion with the pitch node at its origin, and armour.js's hit prism turns there too (pinned by tests).
+
+**Limits.** `sweep(parts, group)` (:298): how far the group turns either way before what turns with it (above the ring's top) meets what stands above it and doesn't (5° steps; `yawLim` null all the way round), and its main weapon's lowest elevation in each 30° direction (`dep`, a Float32Array(12)); each aimed part's dip too (`deps`). Cached by the layout's signature (at most 40). `limits(v)` (:330) runs every sweep for a craft: at launch (flight.js:54) and for the AI's vehicles when they spawn, not on the first frame it aims (Phase 2 measured 11-36 ms of hitch there). Parts shot off can only take away what was in the way, so the old limits carry over ring by ring with no new sweep mid-fight. Rocket rails' range tables are worked out here too.
+
+### 5. Aiming, the aim camera and the gunner's sight
+
+**Aim mode** (flight.js `groundTick` :711, every frame before the controls):
+- `body.ground` (the ground HUD's layout) for a car or tank with running gear or ground-update parts (`F._bodyGround`); `g-thrust` with thrust parts aboard (the throttle shows, and `Shift` stays the throttle); `g-stages` while stages remain (the Stage pill over the stick, never over FIRE).
+- `groundAim` (the aim camera, the ground keys, the trigger) when it also has aimed parts and the 3D view is up; in 2D, driving works and the guns hold their aim ("Ground combat needs the 3D view", once).
+- `aimYaw`/`aimPitch`: where the crosshair looks, in the local surface frame (yaw from east toward game north, so turning the hull never swings it), pitch clamped to −0.35 rad … the steepest gun aboard (an SPAA's 85°). `aimDir` is that way in the sim. `aimAlong(v)` (:758) puts it straight ahead along the hull.
+- `GHUD.aimUpdate(F, now)` (ghud.js:38) finds what the crosshair is on: a full look 20 times a second (vessels and wrecks within 3 km as drawn, then the ground as drawn every 25 m out to 3 km, the crossing found on the real ground), the point carried along the ray between; `now` forces a full look. The ray starts at the camera of the last frame drawn (`Render3D.aimRay`), or, just after the sight opened or closed and until a frame is drawn from there, at the new view's eye (`GHUD.holdEye` :57, keyed on `Render3D.frameNo`). Held while looking round (`C`) and while a rocket strike is set. `F.aim` = `{o, dir, P, d, src, indirect, blk}`.
+- Input: `aimBy(dx, dy, k)` (:766; slower in the sight, times `Settings.aimSens`); a mouse is captured by the first click (pointer lock; that click never fires), then aims by its movement, the left button fires (a click shorter than a frame still fires once: `fireTap`), the right holds the sight (`mouseButtons`); without the lock a left drag aims. Esc under the lock opens the menu once, whichever arrives first, the key or the lock let go. `groundKey` (:1423) takes `1`–`4`, Space, Shift, PgUp/PgDn, L, J, M, Esc (the tactical map first), Y and C before the old handler. Q/E traverse the aim at 60°/s. A touch drag on the view, or a slide on FIRE, aims.
+
+**The aim camera** (render3d.js `renderFlight` :2941-2949, its eye `aimEye` :2895, `aimPivot` :2908). With `F.aimCam`, the camera stands 7-30 m behind (the zoom kept to that, so no wheel notch is lost) and looks along `aimDir` from a pivot 1.4 m over the top of the main gun's outermost ring (else over the hull's top); since the play-test it rises to 0.8 m over the turret's tallest part, so an SPAA's radar mast doesn't sit on the crosshair. Over and across the pivot rides with the hull; up and down it doesn't pitch with it, so the view stays steady as the hull rocks on its springs. Its line of sight runs through 1 m over the pivot whatever the zoom. It is kept 2 m over the ground (0.3 m in the sight; `camFloor` :2904).
+
+**The gunner's sight** (`F.setSight` flight.js:774; `Render3D.setSight` :3974, `setFov` :3643): the camera moves to `Aim.sightPoint` (aim.js:282: 0.35 m over the primary gun's trunnion and 0.3 m to its right, turning with its turret) and the field of view narrows to 50/zoom degrees (3×, 6×, 8×; 3× and 6× by pinch on touch). **It opens and closes on the crosshair's point** (`F.keepAimPoint` flight.js:791, the final verification's fix): the sight and the third-person camera look along parallel lines 1.6-2.5 m apart, so keeping `aimYaw`/`aimPitch` dropped the crosshair by that much at every range (a TK-34 picked out at 610 m in third person sat over the sight's crosshair, the ray on the ground 25-50 m short, and Arcade aim re-laid the gun there). On each toggle (not a new zoom) it takes a full look, then turns the aim so the other view's line of sight runs through that point (`Render3D.aimWay` :4000: the eye where `renderFlight` will put it, kept out of the ground, a few rounds for the third-person eye, which hangs on the way it looks); the turret, already laid on the point, doesn't move. Looking round (`C`) it turns the aim the guns come back to (`freeYaw`/`freePitch`) instead; on the sky (a way, not a point), with a rocket strike set, in 2D or spectating, nothing changes. `ground-hud.mjs` checks it on a TK-34 610 m out from the Gepardo, the OK-8 and a TK-34. Every reader of `TANH` follows it, so `project()` and `metresPerPixelAt` agree at every zoom (`ground-hud.mjs` checks the markers keep their place); the hangar and the globe only ever see 50° (the sight closes on the map, on stop and on destruction). `body.sighting` shows the vignette (`#sight-vig`). `ghud.js` `sightMarks` (:341) draws mil ticks and, in Realistic aim, stadia for the loaded shell.
+
+**The aim step** (`Aim.stepAll` :365, from `Combat.step` every substep; `step` :396, `partStep` :456):
+- The player's vehicle in aim mode, and every local ground AI's (at its `v.aimP`). Rings slew outer first to bring their main weapon round to the point; each aimed part then takes its own elevation (and traverse within its arc) toward it.
+- **Each ring turns to its main gun's lifted point** (`liftPt` :494, `ringAim` :509): the line from the trunnion lifted for the shell's drop, so the lift lies in the plane the barrel rises in. On a hull rolled by a side slope the gun now settles on the crosshair (the desktop review: before, rounds landed range × drop × sin(roll) aside, a TK-34 2 m at 2 km).
+- Guns are lifted for their shell's drop at the range (`Aim.solve` :578: the elevation, time of flight, drop and speed for a SHELLS key at D m and dH up, with the body's gravity and air), or in **Realistic aim** (`Aim.realistic` :355: the room's lobby setting, else `Settings.aimMode`) at the sight's zero `F.zero` (200-3,000 m). AA guns aim at the lead point while the tracking radar holds a lock (`leadAt` :524, worked out twice); rocket rails by their range table; a tracking dish at its target.
+- Rates: a ring's (slower with a heavy turret, halved when damaged, a hand crank's when broken, none when jammed), each aimed part's `elRate`/`travRate`. **Stabilised** axes (`ring.stab`, `aim.stab`) are first held where they pointed in the world a step ago; the others ride the hull and catch up only at their rate, so on the move they bounce off target. A casemate gun (`aim.casemate [arc, rate]`) traverses within its arc; past it the HUD's mark turns red, with a "Turn the hull" arrow when it is off a portrait screen.
+- **Aim assist** (`assist` :537; `Settings.aimAssist`, on by default on touch): with the crosshair within 4° of the lead point the aim eases onto it at 8°/s; it never takes the aim.
+- `manned(v)` (:348): someone aboard to lay the guns (a gunner, or the commander taking over; a design with no gunner seat at all has anyone but the driver do it).
+
+**Firing** (`fire` :658, `fireMain` :688, `burst` :720, `shoot` :744):
+- A main gun fires the loaded round; the next comes from its ready rounds, then out of the stores (`draw` :708: built-in stores first, then placed racks, then an autoloader's: `aimStoreRank` :1304), after its reload: its own, half as long again with no loader alive, or the autoloader's fixed 7 s for 100 mm guns and up (`reloadOf` :703). `select(v, i, F)` (:796): `1`–`4` queue the next shell; the same key again unloads and loads it now.
+- An automatic gun fires at its own rate while held (`hold` :382: the chosen one on the trigger, machine guns under 15 mm on Space or the MG button), its barrels spinning (`def.barrels`).
+- `shoot` makes a shell `{k: 'shell', sh, …}` along the barrel as it points now (turret lag and all), spread by `aim.disp` (more on the move, less stabilised); a main gun kicks the hull (`applyImpulse` at the trunnion, 0.5 × kg × v0), flashes (`flash` :777: a 2-4 m ring, 6 m of dust), is heard (`Sound.cannon(cal, dist)`, audio.js: a thump and a crack, duller, quieter and later with distance, nothing past 2 km) and goes to the others (`MP.sendShot`, with `sh`). Machine-gun and autocannon rounds are `cheap` (§6).
+- Launchers: missiles one per 0.5 s with the lock as target; rocket rails a ripple at `w.rate`. A tap of rocket artillery ripples what the rails hold until a second tap; held, it ripples until let go (combat.js `playerFrame` :457-475, `S.rip`; "Ripple: 16 rockets · tap FIRE again to stop"). Broken or unmanned rails say why and fire nothing.
+- Every refusal says why, at most every 1.2 s ("No gunner to fire", "85 mm Gun broken", "… empty"); reloading says nothing (the HUD's ring shows it).
+- `status(v)` (:822) is what the HUD reads (part, kind, reload 0..1, shells with counts, selected and queued, lock, lead, guiding); `summary(parts)` (:864) the builder's numbers.
+
+### 6. Shells, armour and damage (armour.js)
+
+**Rounds** (`SHELLS` :14): 37 keys, each `{type, label, cal, v0, pen, k, kg, dmg, he, blast, burst, r, prox, arm, life, tracer}`; a gun's `weapon.shells` names them, the first loaded by default. Labels are generic types (AP, APHE, APCR, APDS, APFSDS, HEAT, HESH, HE, HEI, HE-VT, Ball). `SHELL_TYPES` (:58): per type, the ricochet window `ric [from, certain]` (° from the plate's normal), normalisation, how far it carries on inside (`L`), its fragments (`n`, `cone`), HESH's `blind` (any plate up to 60° counts as flat) and APHE's `fuse` (1.2 m).
+
+**In flight** (`moveShell` :772): gravity and drag (`k·ρ·v²`, each shell its own k); penetration of a kinetic round falls as `(v/v0)^1.43` (`penAt`); HEAT keeps its own at any range. Vessels are tested along the step (not its own for 1.5 s, nor one it went through), with a point-blank rule on the first step (a muzzle pushed into the turret in front of it counts as entering that plate by its face); then range targets, the proximity fuze (HE-VT bursts passing within `prox` of an aircraft, armed after `arm`), then the ground. The ground test (`groundT` :891) is skipped above the arena's highest ground (`gTop`, read a few points a step after the first shot: `aimGTop`, aim.js:1317), is exact at the step's end, every 5 m near the ground and **every 0.75 m over a berm's crest** (`bermSpan` :927, `Terrain.BERM`; the desktop review: 15 of 90 crest shots went through before), bisected three times. **Cheap rounds** (machine guns and autocannons, `s.cheap`) hold every other 1/120 s substep (`s.ha`) and step 1/60 s at a time, look at a 16 m coarse lattice first (`coarseH` :986, its own 20k-node cache) and test exactly only within 3 m of it, every 10 m: a 35 mm round's life went from 0.57 to 0.25 ms (the perf review). The renderer draws a held round ahead by the time it holds. A gun's round into the ground (37 mm and up) throws up a dirt kick sized by its calibre (`kick` :974).
+
+**Where it hits** (`hitAll` :320, `hitFirst` :341). Every part along the segment, each by its own shape in its own frame: an outline extruded across its depth (`prism` :224), a round part as a sloped cylinder (`cyl` :248), an old part as its old box (`oldBoxes` :275), with turrets turned and barrels raised as they are (`ray`/`rayOf` unpose the segment once per group). Shapes are cached per def (`geo` :212) and culled by bounding spheres. `faceMm(p, edge, u)` (:351) is the plate's thickness where it went in: the nominal mm × the edge's share, the sides' share, a round part's share by bearing, its roof's; 0 for an `open` face.
+
+**The resolver** (`resolve(s, v, hits, F)` :442; nothing happens to the vessel yet). For each part along the way:
+- `effOf` (:366): the effective thickness `t / cos θ'` (at most 6t), θ' the impact angle less the type's normalisation; **overmatch** (calibre ≥ 3 × the plate) cuts the angle ×0.6; a shaped charge meets composite's `heat` strength.
+- **Ricochet** by the type's window (a ricochet flies off as a new round, `bounce` :530; a shaped charge's fuze fails there instead; past HESH's, it slips off).
+- **Screens:** a `spaced` skirt sets shaped charges off early; a slat cage crushes `slat` (half) of them; a reactive brick (`era {ke, ce}`) blows apart the first shaped charge (or a round of 20 mm calibre, or 30 mm of penetration, and up) that hits it, and a tandem warhead's precursor gets through it; a machine-gun bullet only chips it.
+- Tracks soak up what doesn't get through. Parts with no armour take the whole shell, so SPAA rounds still kill planes and a tank gun shreds a technical's cab.
+- **Through:** `postPen` (:606) carries the round on inside along its path (`L` m), meeting the inner parts, breeches, rings and every host's built-in modules near the entry (`cands` :551), throws fragments off the plate's back (`spall` :641; none through an open face; a fuel cell stops them), and an APHE shell bursts 1.2 m in (`burstIn` :662; it reaches fuel too). Ball rounds that get through carry on 1 m (open-top and armoured-car crews). HE bursts where it hits.
+- Its dice are the shooter's, seeded by the shot and the vessel (`rs`), so the same shot does the same thing on every screen; the victim's own (`vs`) decide cook-offs and fires.
+- The result: `{r: 'ric' | 'nopen' | 'pen' | 'hit' | 'miss', rows [[part, dmg]], mods [[host, i, dmg]], at, what, crew, ric, burst, go, pen, k, hot}`. `apply` (:703) hands it to `Combat.damage` and `modDamage` for our own vessels, or to the owner as one hit message (§9), then the burst and the ricochet, and fills `Armour.fb.shot` for the HUD (the burst's work included: crew it kills make it a way in, modules it breaks a 'hit' with what). The kit one hit strips goes in one piece (`Combat.holdRips`/`flushRips`, combat.js:80): one HE shell on an MA-1 wearing 16 bricks went from 18 rips, 20 toasts and 18 bangs to one rip and three toasts.
+
+**HE and old weapons.** `blastK(v, p, d, blast, k, he, mods, at)` (:1027), from combat.js `explode` for a plated craft: a plate the blast's penetration overmatches at that distance (its thinnest face toward the blast, `thinnest` :1056) takes all of the old falloff `k` and its modules in reach half; otherwise 0.15 k. Inner parts only through an overmatched host; running gear, guns, radars and launchers all of it from 20 mm of penetration up (HE strips them), else 0.3 k; parts with no armour all of it; open tops are open. `he` is the shell's own, else 3 mm a metre of blast. `legacyHit(s, v, p, at, F)` (:1080), for any old projectile meeting a gv part of a plated craft (combat.js:677, `hv.plated && hit.def.gv`): bullets go through 10, 30 or 55 mm by their damage (as ball or AP), old rockets are 120 mm shaped charges, anti-ground missiles 700 (a cruise missile 900); bombs, glide bombs, air-to-air missiles and the new HE rockets burst as their blast decides. A penetration does the round's damage ×3 along a 1.5 m path, otherwise 5%. Old craft see none of it: `explode`, `damage` and the hit messages are unchanged for them, which `combat.json`, `traces`, `handling` and `driving` prove.
+
+**Modules, crew and knock-outs** (:1098-1222):
+- `moduleDown` (:1108): a module part at 0 hp is `broken` (once), not removed. Tracks and wheels lose their grip, an engine its power (and may catch fire: `FIRE_ODDS` :88), a breech can't fire, a ring turns by hand, a radar, sight or launcher stops; a crew seat's man is dead; a rack may go up; a fuel cell may burn. A gv control part (a hull or turret) at 0 hp knocks the vehicle out.
+- `modDamage` (:1128): a built-in module's damage, its hp kept in `host.mods[i]`; ammunition hit loses some rounds. The owner applies it (a shooter only sends rows).
+- **Crew** (`crewList` :380, `crewOf` :412, `has` :421): per host, its built-in crew and stores unless a placed seat or rack hangs on it, which take over (fuel and troops stay). `has(v, role)` is always true for old craft (or any vessel with an old cab). `crewDied` (:1150): after 4 s a dead driver's or gunner's seat is taken by the loader, the radio operator or the commander, in that order (`SWAP` :92; so the turret's loader may take the wheel beside the hull's radio operator, chapter 7). Fewer than two left, or none of a one-man crew: knocked out.
+- **Cook-off** (`cookOff` :1157): a store destroyed goes up with odds `clamp((0.5 + 0.4·rounds/capacity)·cook, 0, 0.95)`, +0.2 against HEAT, APHE or HE (`Armour.hot`); a blow-out bustle vents instead (the rounds are gone, the crew lives).
+- `knockOut` (:1177): `v.ko = {why, x, t}`, the control parts `p.ko`, the craft lost for whoever drives it (`sim.onDestroyed`; the AI's `aiDown`), "Knocked out!" or "Ammo detonation!" (`Armour.fb.ko`); the hulk stays. A detonation blows out everything near and **throws the turret** (`toss` :1202, `tossGroup` :1195): the outermost group holding the store that went up (else, ammunition in the hull, the heaviest turret riding on nothing), cut from its base and sent up at 9 m/s tumbling (twice that in Hollywood).
+- **Per frame** (`repairStep` :1244, from Combat.frame): fires burn (an engine 6 hp/s, the crew beside it 3 hp/s; a fuel fire 15 hp/s to the crew in its host) until they burn out or the vehicle has stood still 4 s ("Fire out"); seat swaps; and **repairs**: stopped (under 1 m/s for 1 s), unhurt for 6 s (`v.hurtAt`) and crewed, the worst broken module is mended, one at a time, over `REPAIR_T` (:89: a track 8 s, a wheel 6, a breech 12, a ring 12, a radar 12, a sight 10, a launcher 12, an engine 15). `v.repair = {p, name, t, T, on}` feeds the HUD's "Repairing: left track 8 s".
+- `partFX` (:1310): smoke and fire from modules, every 0.07 s with Combat.frame's damage smoke; only the three nearest wrecks smoke (combat.js:1308).
+- `summary(parts)` (:1339): the front, side and turret front for the stats, crew and rounds.
+
+**Performance** (measured in Node, 1,000 random hits on the MA-1): resolve about 50 µs mean, resolve and apply 60-80 µs; a knock-out about 0.17 ms, a detonation and its thrown turret about 0.45 ms, kit torn off about 0.6 ms (once in a fight); a main-gun shell's life 0.6-0.9 ms, a cheap round's 0.2-0.25 ms (`armour.test.js` asserts these with a margin).
+
+### 7. SPAA, radars, SAMs, ATGMs, rocket artillery and smoke
+
+- **Radars** (`radarStep` :910, every frame for each ground vehicle, from Combat.frame; `kit(v)` :898 finds the parts again when they change):
+  - The **search radar** (`searchStep` :928): the antenna sweeps round at `rpm`; twice a second the aircraft in reach (10 km), in sight (the ground sampled every 150 m) and not lost in the clutter (below 40 m over the ground and under 40 m/s along the beam) light up as blips where the sweep has passed; a blip not seen for a turn fades (at most 10). The HUD draws the scope (ghud.js `scope` :533).
+  - The **tracking radar** (`trackStep` :955, 10 times a second): `L` or LOCK (`lockKey` :998) starts looking; it locks the aircraft nearest the crosshair within its cone and reach, seen clearly (not notching, nothing in the way, no smoke on the line) after 0.8 s on it (twice that against a jammer). The lock holds while in reach and sight; 0.5 s behind the ground, 1 s notching, or chaff (`Combat.chaffBreaks`) breaks it. It lights the target's warning receiver in a room (`lockPid` :1006 → `MP.sendLock`, combat.js frame) and gives the AA guns their lead point.
+- **Proximity-fuzed AA:** the 35 mm HE-VT round bursts within 4 m of an aircraft (armed after 0.4 s, gone after 6 s); the aircraft a fuze can see are gathered once a step per shooter (`airNear` :868).
+- **Ground-launched missiles** (combat.js `launchMissile` :320-338): out of the tube along the launcher's aim with `boost/4`, the motor at once (`coast 0`: no nose-dive off the rail), guidance from 0.2 s, the launcher spared by its own blast for 0.6 s. Seekers:
+  - `air`: heat-seeking SAMs lock as the player aims (`lockT`); smoke hides a target from an IR seeker; flares fool them as ever.
+  - `clos` (the Radar SAM Launcher, `guideClos` :1086): rides the tracking radar's beam while its lock holds. The mechanics review fixed it against crossing aircraft: it asks for the beam's own sideways speed at its range a turn-lag ahead, less 1.5 × its offset a second, and steers onto where the target will be in its last 1.2 s; before, crossing shots missed by 18-70 m.
+  - `air` with `radar` (the Long-Range SAM Launcher): semi-active on the tracking radar's lock.
+  - `saclos` (wire-guided: the rail and the twin launcher, `guideSaclos` :1030): rides the shooter's line of aim, steering for the point on it 150 m past itself; the wire is cut when the shooter or its launcher is knocked out; smoke between them holds its last steering; "GUIDING" on the HUD.
+  - `top` (the Top-Attack Launcher, `guideTop` :1064): its own lock (2,500 m × the target's hottest running engine's `engine.ir`, `hotK` combat.js:773: a turbine tank 3,125 m), lofted 150 m, diving onto the roof.
+  - Wire-guided and top-attack missiles go to the others as anti-ground ones with no target, and their updates carry `tg 0` too, so they never light a warning receiver (mp.js `sendMissile`, the P1 review).
+- **Rocket artillery** (`rangeTable` :589, `rocketEl` :622, `rocketH` :643): a table built once per part type and body, by flying rockets as `moveShot` flies them at each elevation of `AIM_RK_EL` (:1266, from 2° under the level up, finer low down) and keeping each path's height and time every 50 m along the ground to 500 m below the launch level. The solve picks the flattest path that passes at or over the point (the mechanics review: the old table started at 5° and guessed everything nearer, 180-900 m off). Laid at the crosshair or at a strike set on the tactical map (`F.strike`, ghud.js `tacTap` :818; moving the aim 90 px cancels it). The HUD checks the path against the ground along the bearing (ghud.js `rocketBlk` :137, five times a second at most) and says "Blocked by the ground 180 m out" rather than promise a strike; past the table's longest shot (45°, about 13 km) a rocket outlasts its 60 s life.
+- **Smoke** (`smoke` :1132, `smokeStep` :1169, `smokeBlocks` :1190): `K` (or SMOKE: `#btn-cm` reads Smoke with smoke launchers alone) throws every launcher's salvo, fanned over 80° round the main turret's facing, landing 25-35 m off, each blooming into a cloud 2 m to 9 m round in 3 s, for 25 s. Clouds hide what is behind them from `Aim.sees` (not with a working thermal sight), heat seekers, the tracking radar and a wire-guided missile's steering. They live in `Combat.S.smoke` and travel as `cm {smoke: 1, P, D}` (`MP.sendSmoke`, `Aim.netSmoke` :1184, at most 80).
+- **Line of sight** (`sees(a, b, opts)` :1209): from a's top to b's along the ground as drawn (`Render3D.drawnGround` with the 3D view up, else `Terrain.surfaceAt`) every 20 m, and wherever the line comes within 3 m of it the real ground; wrecks in the way and smoke (unless `opts.thermal`) block it. Remembered 0.5 s a pair; at most three pairs looked at afresh a frame. `opts.both`: the answer serves b's look at a too. `known` (:1242) reads what is remembered, `eyes(v)` (:1248) gives a player's own options (thermal while a working Thermal Sight is aboard). It decides who is marked and what the AI sees, never what is hit.
+- **Combined arms:** ground vehicles are candidates for anti-ground seekers (combat.js `candidates` :531-548; anti-radar missiles home on any vehicle whose radar works, `emits`); the Hostile gates count a tank as flying only after more than 1 s airborne and 15 m up, so driving over a crest doesn't bring fighters and SAMs (cars keep today's behaviour); AI fighters ignore the ground AI; the ground AI gets no Bandit diamond.
+
+### 8. Running gear and collisions (gear.js)
+
+**Contact points** (`Gear.points(p, wheels, cz)` :197): a track's `track.n` road-wheel contacts along its belt (0.8 of its length), an armoured wheel's one at its centre, pushed onto `v.wheelPts` (so placing, reach and the wheelbase count them), each with `side` ±1 from `sign(partZ − com.z)` and a radius that takes in the suspension's sag at rest (0.4 of `travel`), so a parked vehicle shows its belt on the ground.
+
+**One step** (`Gear.ground(v, dt, sim)` :214; the file's header :1-15):
+1. The spot under the centre of mass (one `surfaceAt`, `deckAt` and `waterAt`), read again once it has moved half a metre (or 8 times a second); it culls, and says whether it wades.
+2. One `surfaceAt` under each gear contact (`ht` :595: the last height again while the probe has moved under 2 mm, re-read once a second, so a parked tank costs almost nothing), and a least-squares plane through those heights: the normal every contact uses (no `normalAt` per contact). With no plane (one track down, on its side) the ground's own normal.
+3. Hull corners: with the gear down, only those within 0.6 m (+2 cm a metre out) of the plane, the lowest first, within a budget of 15 terrain calls a step (an upright tank's four belly corners: 13 calls, never more than 16 with the vessel's own); otherwise every corner near the ground, so a rollover is caught (`corner` :605; deep under a deck's edge is the ship's side).
+4. The crash and dent rules, the landing and rest rules: **vessel.js `ground()` line for line**, each copy naming the other (change both).
+5. Each gear contact is a spring and damper along the plane's normal (k = m·g / (N·sag), damping ratio 0.45, 0.08 with Silly `bouncy`; a bump stop past its travel).
+6. Four iterations of accumulated impulses: rigid normals (hull corners, old wheels, bump stops); **traction** along each belt toward its side's belt speed, out of the engine's power budget when it adds energy (braking is free; coasting brakes at 0.18 g); **sideways grip** (0.15 in water): a track's resists its sliding and rolling but never the hull's turn about its centre of mass, up to the pivot rate its tracks and engine give (`turn × min(1, √(kW/t/12))`); faster turns (a dead track, a shove) it scrubs off; an armoured wheel's resists all of it, as a tyre does; hull friction 0.9 as vessel.js has it.
+7. Rolling resistance against the speed along the ground (`crr·m·g` at top speed, less when slower, so a weak tank still gets going); braking or parked, the grip also takes back the step gravity moved it (a parked tank doesn't creep down a slope: under 1 mm in 10 s on 15°).
+
+**Driving** (the belts): W/S set the belts' mean, A/D their difference (D turns right: the left belt faster); the difference is held while the engine can't yet reach the speed asked, so it turns under full throttle and when pulling away. **A/D alone** under 1.5 m/s (`GEAR.pivotV`) holds the mean at 0: a neutral turn that the brakes hold on a slope (the mechanics review: on an 18° berm face it turned the wrong way and slid before). Faster, the mean follows the hull's own speed, so it turns as it rolls to a stop. Reversing steers like a car's tail. B, or no input under 0.3 m/s, is a parking brake. A **broken track** drags (it no longer runs at its side's speed): A or D alone swing the hull round it at about half the pivot rate, and W with A or D still drives off. Armoured wheels steer by the front axle as a car's (about 0.45 g of turn, within their grip), roll at their own speed round the turn (an open differential), and have a skid assist for A/D alone below 3 m/s that fades as the stick goes up (the play-test: with the throttle on as well it held an 8×8 to 6 km/h).
+
+**Water, righting, tipping.** Wading: grip 0.12 at up to 2 m/s; an amphibious hull (`amph`) swims at 3.5 m/s on 0.35. Water deeper than 1.4 m over the lowest engine part floods it ("Engine flooded!": no power for 5 s, then a fifth so the crew can crawl out, "Engine restarted" 5 s after leaving it; `v.flooded`). On its side or roof (the hull's up more than 70° from the ground's) for 1.5 s, nearly still: `v.righting`, a torque of 3·m·g·B rolling it back until within 20° of upright, never faster than 2 rad/s, tried again if wedged after 6 s; the hint line says "Righting…" even with hints off (old rovers, which vessel.js rights, show nothing new). A top-heavy rig tips at its static threshold.
+
+**Collisions** (`Gear.bump(v, sim)` :626): a local vessel with running gear against every vessel within 50 m on its body: body boxes (`gearBox`: `v.bodyBox`, what doesn't turn; an old craft's bounds), spheres first, then a 15-axis separating-axis test (`gearSat`). The push apart is at most 0.1 m a step, shared by mass; restitution 0.15, friction 0.3.
+- Ground AI (`v.kin`) and wrecks don't move: we take the whole push.
+- Another local vessel (a second tank, an old car, debris) shares it by mass and takes the equal and opposite impulse, so a tank shoves a buggy. Old vessels never start a bump, so two of them still pass through each other.
+- Another player's vehicle shares it by mass too, but its owner resolves their own share on their screen: we take ours and guess theirs until its snapshots show it (`o._bump`, fading over 0.3 s), so two players ramming end as two local tanks do (the mechanics review: before, each took the whole closing speed, and a buggy threw a TK-34 to 103 km/h). A ghost's closing speed counts up to 25 m/s (peers are untrusted); other players' aircraft pass through.
+- Ramming faster than 6 m/s dents the parts that met (`Combat.impact`, local damage only, each owner its own).
+
+**What it writes** for the renderer, the HUD and sound: `p.belt` (wrapping at 60 m) and `p.spin`, `v.beltV`, `v.susp` (mean compression per side), `v.drivePower` (the engine note follows it), `v.flooded`, `v.righting`. Running gear on a plane, helicopter or rocket is only a box on the hull (`rebuildGroups`), so the stick still flies it (the mechanics review: a Falcon with an armoured wheel turned at 3.3°/s whatever the stick did).
+
+**`Gear.stats(parts)`** (:695, pure) gives the builder the mass, kW, hp/t, top and reverse speed (km/h; `top0` without an overload), the pivot rate, the steepest slope it climbs at 2 m/s (by power or grip), the sideways pull it tips at (half the track spacing over the centre of mass's height, less its springs' lean), the overload and the rated load, from the same rules. Null for a design with nothing of the ground update.
+
+Measured (`ground.test.js` §physics against the design's table, all within 25%): 0-30 km/h TK-34 4.1 s, MS-4 7.2, Tygr 8.4, MA-1 3.3, Pumo 3.0; top 50 / 48 / 43 / 68 / 108 km/h; pivot 40 / 36 / 27 / 34 °/s. A step costs 85-115 µs in Node.
+
+### 9. Ground Battle (mp.js, mpui.js, gmode.js)
+
+**Settings** (mp.js:33-45). A ground battle is a game of its own inside `pvp`: `settings.game === 'ground'` (`MP.ground`). An air battle carries none of the ground settings (no `game` means air), so its state is exactly what it was: `test/baseline/mp-air.json` replays a full air battle and a sandbox step by step from the code before (`test/lib/mptrace.js`). `MP_GROUND` (:34) holds the defaults (`tickets 600`, `respawn 'free'`, `air false`, `aim 'arcade'`, `arena 'highland'`); `MP_SET_OK` (:40) the values each setting may take (format 1v1-3v3, no `ffa` in a ground game; money 45k/75k/120k as eras; tickets 400/600/900; respawn free/lineup; air on/off; aim arcade/realistic): anything else is refused, for air battles too. `groundSettings` (:333) applies them; the arena isn't chosen: the host's map decides it (`GroundMode.pick`: Highland Ridge on the real map, else the Runway). `MP_PADS` (:35) are the spawns (kind `pad`: no money bonus, no size limits). The lobby (`MPUI.renderGround` mpui.js:238): Format, Money by era, Tickets, Respawns, Air support, Aim, Build time, Test drive, Friendly fire, Time of day, Time limit and the Arena line, with a warning when this client has no 3D view (`MP.no3D`) or its map isn't the host's (`MPUI.mapCheck` :826). The connect screen gains **Create ground battle** and **Practice battle (vs AI)** (`MPUI.practice` :814), and Create battle reads **Create air battle**.
+
+**Kinds and designs.** A ground battle takes Armour and cars from the builder; aircraft only at a respawn with air support on (`designProblems(stats, parts, kind, air)` :627). `battleDesign` (:650) falls back to the money tier's stock vehicles (`GroundMode.stock`, below), then the technical, never a plane. `choices(air)` (:682) lists the player's saved designs of those kinds that fit, then the stock ones (Armour first by era, then the cars; aircraft armed first, saying what each carries).
+
+**The rules** (gmode.js, pure; the host and the Practice Battle run the same game):
+- `GROUND_STOCK` (:23): `{45000: [tk34, ms4, pumo], 75000: [tk72, leapard1, tk34], 120000: [ma1, tk72, leapard1], fallback: 'technical'}`; `stock(budget)` (:102) lists the dearest tier the money reaches, then the technical.
+- `init(arena, settings, teamSizes)` (:113) → `obj = {arena, tk: [T, T], zones: [{id, name, e, z, r, own: −1, p: 0}], sizes, bleed}`, plain JSON so it lives in `MP.state.obj`. A duel (format 1v1, or nobody's team bigger than one) is fought over zone C alone, `rDuel` (70 m) wide.
+- `tick(obj, dt, units)` (:136), dt clamped to 1 s (a stalled host hands out nothing at once): a unit takes a zone when it is a ground kind, slower than 30 m/s, on the ground (`gd`) and inside it. One team inside moves `p` its way at 1/20 a second (×1.5 for two, ×1.8 for three or more, ×1.5 more with living troops aboard); both sides: frozen; nobody: it stays. An enemy zone goes neutral as `p` passes the middle and is yours at the end (40 s alone). Then each team bleeds `max(0, enemy zones − its own)` tickets a second, in whole tickets (fractions in `bleed`). Events `{k: 'cap', zone, team, by}` and `{k: 'lost', zone, team}` feed "Shetland took B".
+- `death(obj, team, cost, air)` (:179): `round((30 + round(cost / 2500)) × (air ? 1.5 : 1))` tickets, never below 0.
+- `result(obj, timeUp, alive)` (:195): out of tickets ('tickets'; both at once a draw), a team that started with players and has none left who can spawn ('wiped'), on time more tickets ('time'), else a draw.
+- `placement(arenaId, team, slot, kind)` (:75) → `{e, z, yaw, air?}` for `Flight.start`'s `opts.place`: ground vehicles three abreast 22 m apart from the pad's centre out (0, +22, −22), then a second row 22 m behind (six spots, then again); helicopters 60 m beside the pad in pairs 25 m apart (in a file behind a narrow pad); planes 1,000 m up at 140 m/s at the team's air start, 80 m apart, or 2 km behind the pad on the Runway arena. The nose points `(cos yaw, −sin yaw)` in (e, z), as `placeOnSurface` turns it. `soloPlace(kind)` (:96): a solo Armour launch's spot (the north pad's first slot, with the map ready and the 3D view on), else null.
+
+**The host** (`groundTick` mp.js:522, every 250 ms of host time): the vehicles on the field from their last snapshots under 2 s old and our own (`groundUnits` :550; a player back before their respawn time doesn't count until then), `GroundMode.tick`, captures into the feed and the score (a capture +2 score and a sortie point, a kill +3 and a sortie point), the tickets and zones out as `obj` twice a second while they change (every 2 s anyway), the whole state on a capture or every tenth of the tickets lost; `checkGround` (:577) ends it 3.5 s after `GroundMode.result` says so. The host prices each new craft from its spawn rows as everyone builds them (`priceSpawn` :924, armour included: never the player's own word), sets `respawnAt` 5 s after a `down`, and decides who is on the field from spawns and downs: in a ground battle it ignores `flying`, `ready` and `spawn` sets from clients (the battle review: a client could otherwise make its knock-outs free). `canRespawn(p)` (:570): Free while the team has tickets; a Lineup of 3 while a slot is unused (`slots`, bits) and an aircraft slot (`airSlots`) only with a sortie point. Clients' new `set` keys: `slot` (the lineup slot to spawn next, checked against the slots, the tickets and the respawn time), `troops` (0-12, living troops aboard, from `mpTroops` :49), `airSlots` (0-7).
+
+**Respawns** (`MPUI.respawnPanel` mpui.js:707, `MPUI.rsp` :753, which the Practice Battle's panel shares): after a `down`, 1.8 s later, a countdown to the host's respawn time and big buttons: your vehicle, Change vehicle… (a saved or stock design within the money), Aircraft… (air support on, a sortie point, a minute after the last sortie ended), or a lineup's unused slots; "No vehicle you can take: watching the rest of the battle" when nothing is left. `MP.respawnWith(design, slot)` (:829) spawns once `canSpawnNow` (:821) allows it (300 ms early for the trip). The lineup's slots 2 and 3 are picked in the build phase (`renderLineup` :786, `lineupPick` :800). A fresh spawn has 4 s of protection (`v.spawnAt`, combat.js:46, armour.js modDamage). `padPlace` (:892) moves a spawn to the next clear spot when a wreck or a vehicle stands within 12 m of its own. An aircraft respawn joins at the air start with its engines running (`Flight.start` fires stage 1, flight.js:75).
+
+**Wrecks** (`addWreck` :839, `dropWreck` :844; `MP_WRECKS` 8, `MP_WRECK_MS` 90 s). Knocked out on the ground (under `MP_WRECK_AGL`, 10 m, on the owner's screen; 30 m on a ghost), the owner's craft stops dead at its `down` (`v.wreck`, never stepped; the battle review: it coasted 15-26 m before) and sends `down {by, P, w: 1, x?, why}` (`onLocalDestroyed` :987): `w` a wreck, `x` an ammunition detonation, `why` 'parts', 'crew' or 'ammo'. Receivers keep the ghost as a wreck where the owner says it stopped (P, its centre of mass, within 20 m of where they had it: a forged P can't carry it off) and throw its turret there too (`Armour.toss`, the pieces marked `foreign` so a peer's hit never lands in them). An aircraft never leaves a wreck, nor does a ghost that never got a snapshot. Our own hulk becomes a wreck at the respawn; `startFlight` keeps every wreck and its thrown turret through a respawn (`opts.keep`), and `beforeUpdate` puts them back. Wrecks are solid to shells, take nothing (sparks), block sight lines, bump vehicles, are charred in 3D, and only the three nearest smoke.
+
+**Spotting** (`spotted(pid, eye)` mp.js:1438, `sees` :1454, `groundReports` :1461): friends always; an enemy within 250 m; in our own sight (`Aim.sees` with `Aim.eyes`: the ground, wrecks and smoke in the way, a thermal sight through smoke) within 1.5 km (+25% with a living commander), 3 km between the ground and the air; spotted by a teammate in the last 3 s (15 s by hand); or it fired its main gun within 2.5 km in the last 3 s (`P.firedAt`, set by its `shot`). Aircraft see aircraft as in an air battle (6 km). Once a second each player sends the host which enemies it sees (`seen {ids ≤ 6, man, pt?}`, `sendSeen` :1427); the host passes them to the team as `spot` (`onSeen` :1399: only real enemies, twice a second at most), and teammates mark them (`onSpot` :1417; a map ping `pt` for 10 s, at most four). `J` or a long press on a tag (`GHUD.spot`, `press` :864) spots by hand. Out of the battle area: "Out of the battle area: the zones are behind you" every 5 s (aircraft exempt).
+
+**Ghosts** (`onPartVis` :1187, `easeTurrets` :1180): a ghost's ground-update turrets and guns ease toward the angles in its part states, so they don't step five times a second; a ghost that loses its ring stops turning. `pv` rows now go for rings and tracking radars too (their yaw rides in `aimYaw`). Snapshots carry `gd` (on the ground in the last half second, for captures, :957). Someone else's shells fly as copies for show (`netShell` armour.js:1002: dmg 0, they stop on what they meet with sparks, and the ghost's gun flashes and kicks); their automatic guns fire show rounds along the aim we see (`Aim.netFire`).
+
+**Hits** (`sendHits(ghost, list, kind, mods, dir, hot)` :1271, `onHit` :1285). A shell on someone else's tank is resolved by the shooter and sent as one `hit` with `k` 'pen' or 'np' as well as the old kinds, `m` module rows `[part id, module index, damage]`, `d` the direction it came from (for the victim's hit arc) and `h` (a shaped charge, APHE or HE: its ammunition cooks off more easily). The victim checks every row (ids, indices, NaN, Infinity, 1e9 clamped to 2,000, 32 rows), refuses a friend's, and decides deaths, cook-offs and fires itself (`Armour.modDamage` with the victim's dice). A wreck takes nothing. Old hit messages are byte-identical.
+
+**The bar, the scoreboard and the results** (`tickGround` mpui.js:341, 4 times a second, writing only what changed): money and readiness while building; in the battle our tickets and theirs round the three zone chips (ours blue, theirs red, each filled as far as it is taken; `#mp-ground`), a capture bar while we stand in a zone (`#mp-cap`: capturing, losing it, holding it, or stuck), and Respawn once knocked out (`#mp-spawn-btn`). The scoreboard (`groundTable` :553): Player · Team · Kills · Caps · Lost · Score · Ping, each name in its team's colour, the Team column dropped under 400 px. Results: "Faroes win on tickets (212 – 0) · Highland Ridge". A ground battle's telemetry drops the room's day count. `MPUI.drawHUD` leaves the room's radar scope out (the minimap does that job) and tags enemies only while spotted.
+
+**Messages** (NET_VERSION 7, net.js:11; `obj` and `spot` are in `HOST_ONLY`, net.js:39):
+
+| Type | Sender → receivers | Content |
+|---|---|---|
+| `obj` | host → all | `{tk: [a, b], z: [[own, p×100], …]}`, one row a zone (`sendObj` :547, `onObj` :1390) |
+| `seen` | client → host | `{ids, man, pt?}`: the enemies it sees, or a map ping |
+| `spot` | host → teammates | `{ids, by, man, pt?}` |
+| `down` | victim → all | as before, plus `w`, `x`, `why` |
+| `hit` | shooter → victim | as before, plus `m`, `d`, `h`; `k` may be `pen` or `np` |
+| `shot` | owner → all | `k: 'shell'` with `sh` (the SHELLS key) |
+| `cm` | owner → all | `smoke: 1` with `P` and `D`: a smoke grenade |
+| `msl` / `mp` | owner → all | ground-class missiles (`saclos`, `top`) with no target and `tg 0` |
+| `s` | owner → all | `gd` in a ground battle |
+| `set` | client → host | `slot`, `troops`, `airSlots` in a ground battle |
+| spawn rows | owner → all | a tenth column, `mm` |
+
+**In the sandbox,** Armour and cars armed by the ground update (a gun, launcher or missile with `def.gv`; smoke alone arms nothing) start on Highland Ridge's pads, the sides taken in turn, when the map is in and the view is 3D (`placement` mp.js:863); an old car with any weapon starts on the runway slots exactly as before (the old-designs review).
+
+### 10. Rendering ground vehicles and the arena
+
+**Models** (parts3d.js). The layouts parts.js draws by (§3) build the models, so 2D and 3D agree:
+- Hulls, plate turrets and boxed kit are their outline's prism exactly (`plated` :659: hard-edged, no bevel, so the model is the hit and clash prism), each face painted with its own view of the part from one texture (`gvTex` :707: the side view, the plan, the front and the back), in a matt armour finish (`KINDS.plate`, `plate2` double-sided for an open top, `armour`); roof fittings from `GV_ROOF` (`roofFit` :683), exhausts behind a hull's back plate. Cast turrets and rings are lathes.
+- `BUILD.trackUnit` (:1144): the fender in the hull's paint over a sprung group (role `susp`) holding the belt (its link texture cloned per part and run round with the belt), every road wheel, idler and roller in one mesh whose faces turn as one texture, and the sprocket. `BUILD.awheel` (:1199): a tyre and a bolted hub on its spring, turning about z (in `ZMIRROR`, :72). `BUILD.tankGun` (:1211): a `yaw` node at the trunnion and a `pitch` node at its origin, the mantlet on the pitch node and the barrel and breech on a `recoil` node. `BUILD.launcher` (:1253): its post, then traverse and elevation at the trunnion carrying the frame and the rounds, each a store hidden as they fire. `BUILD.radarAnt` (:1275): a tracking dish on its pedestal, or a search antenna turning on its mast (in flight only, so the hangar stays still).
+- **Motion** (`gvRig` :1979, `gvState` :2004, `gvAnim` :2028): a part on turret rings is turned with each, innermost first (`turnRig` :1990: `c + Ry(ψ)(pos − c)`, no allocation); `place()` sets the root's whole rotation each frame (the Phase 2 seam fix: it set only `.z`, so the ring's yaw piled up frame after frame). Belts run (the texture offset by `p.belt`'s change, wrapped at 60 m), wheels and sprockets turn, tracks and wheels lift by their side's `v.susp`, a ghost's or an AI's belts and wheels run from its own speed and turn, barrels recoil 0.25-0.4 m over 0.08 s and come home over 0.6 s from `p.shotAt`.
+- `inner` parts aren't built in flight. Models and textures of gv parts never depend on `p.flip`. Small fittings cast no shadows. Wrecks are charred (colours ×0.35, hardly any shine). `VesselMesh.setXray` (:2298) and `Parts3D.xray` make armour see-through (0.3) with the inner parts in their kind's colour and the built-in crew and stores as balls (one mesh, cached by type and which are replaced). `Parts3D.tgOf` lets the builder turn a turret for Test turret.
+- Draw calls: the TK-34 17 in flight and the MA-1 23 (budget 30); 50 tanks spawned and removed leave no texture behind (`ground-models.mjs`).
+
+**Shells and FX** (render3d.js `syncCombat`): shells draw as tracers, a main gun's longer and whiter, autocannon rounds like bullets; a held cheap round is drawn ahead by `s.ha`; a kind with no model draws nothing rather than throw. Missiles from ground launchers are drawn smaller (0.45 for anti-tank missiles, 0.8 for SAMs). Tracks throw dust over 4 m/s within 300 m of the camera, not on paving, at most 10 bursts a second a vehicle (flight.js). **Capture rings** (`updateRings` :3662): each zone of `GroundMode.obj()` as a ring of 48 segments over the ground as drawn, in its owner's colour with the share being taken in the taker's, one draw, rebuilt only when an owner or a share changes or the ground under it is redrawn.
+
+**Far vehicles on the drawn ground** (`reseat` :3351, `Render3D.reseatOf` :3976): other players' and the AI's ground vehicles and wrecks more than 150 m off are drawn raised or lowered by how far the ground as drawn is off the ground they stand on under their centre (looked up 10 times a second, eased over 0.3 s, never more than 3 m: it's only the picture). On the arena's own mesh the two agree and nothing moves. The aim ray reads `reseatOf` so it hits a far tank where it is drawn.
+
+**Highland Ridge's ground** (space.js:103-133, terrain.js:548-606):
+- `EARTH.groundPads` (space.js:103): the two pads in the airfields' format, levelled to their own ground height (25.1 and 51.3 m) over 160 × 70 m, blended over 80 m, no runway painted (`fieldAt`, on the real map only).
+- `EARTH.arenas` (:115): `highland` (`map: true`, `clear: true`, the `box`, zones A Hilltop, B East and C Slope at r 55 m, C's `rDuel` 70, the two pads facing each other 2.4 km apart, the air starts 3 km behind them, twelve berms) and `runway` (the space centre's runway with its two ends as pads and three zones, no map needed). Every line of sight the design promised was measured (`test/tools/arena-probe.js`): no pad sees the other or any zone, the hilltop overlooks the other two, no berm opens a sight line. Berm pair 2 sits at z 14,430 / 15,570, 130 m in from the planned 14,300 / 15,700 (that hillside is 11°).
+- **The detail fade** (`arenaW` terrain.js:572): inside a `clear` arena, on the real map, the ground's 40 m and 160 m detail fades out over 200 m round the box, so the ground drawn far off is the ground shells hit (drawn minus physics went from 0.5-0.9 m RMS at 300 m to 0.1-0.5). Never on an airfield's ground: the fade is 0 over every strip and blend and 3 m past it (the physics lattice's cells), coming back over the next 200 m (the P1 review: Wick's south end reaches into the box, and its ground moved by up to 3.75 m; `catalogue.test.js` checks the whole strip and blend bit for bit against the code before).
+- **Berms** (`bermAt` :594, `BERM` :593): banks 2.4 m high, Gaussian across (σ 3.5 m, ending 12 m out), 26 m long, tapering over their last 6 m, in pairs mirrored for both teams (the slanted pairs' yaws mirrored too). Physics and line of sight have them through `height()`; the terrain patch leaves them out (`noBerm`), because no patch cell is fine enough to show a bank 10 m wide: the arena mesh draws them.
+- Scenery keeps off a clear arena (render3d.js scenery jobs): a tree or a house there would hide a tank from the eye but not from a shell.
+
+**The arena's own ground mesh** (render3d.js:1238-1700; comment at :1240-1260). What you see is what you hit:
+- Inside an arena marked clear, on the real map, within 6 km (`ARENA` :1254), the terrain patch is cut away over the box and 150 m round it (its shader discards a rectangle in its UVs, `terr.holeU`) and a mesh of its own is drawn there, built once from the very heights the physics stands on (`h3dAt`: the map's relief, the pads, the berms). It is a quadtree on the height map's own texel grid (the map is bilinear, so its creases fall on the mesh's lines): cells about 32 m across, split down to 2 m wherever the ground between their corners is more than 0.1 m (0.13 on low) off, and always over a berm (`arenaGeoJob` :1263). T-junctions are fanned so no crack opens.
+- Outside the box it blends over 150 m into the patch's own drawn ground, colours and normals (`arenaBandJob` :1566, worked out again against each new patch before it goes up, so the two swap together: `arenaWaits` :1674, `bandWait`), then runs on 0.4 m under the patch to its rim, so the seam has neither a crack nor two surfaces fighting. Its colours are the patch's own at each vertex (`groundPaint` :968, shared with `patchJob`), its normals its own near the camera and the patch's far off (500 m to 1.2 km), and it shares the patch's compiled shader program (no compile stall).
+- Drawn minus physics: 0.026 m RMS and 0.23 m at worst in the box, on high and low (`arena-probe.js` asserts 0.1 m RMS and 0.3 m). One more draw call; 32.6k vertices and 64.7k triangles on high (29.1k and 57.6k on low); from 300 m about 0.15% of a picture's pixels differ from the patch alone once the light has settled.
+- **Cost:** it is built a slice a frame (3 ms on high, 2 ms on low) once the camera is within 6 km in ground play (`groundPlay` :1612: a ground battle, the Practice Battle or the Tank Range on, or a ground-update vehicle flown, watched or in the flight), otherwise only while a craft stands inside the box (an old car, a plane landed on the berms), then kept for the session (`updateArena` :1634, `arenaReset` :1686). The old-designs review measured an FS-16 at the Scotland airfield facing the ridge drawing 232,060 triangles against 169,946 before this gate; now it builds nothing. The perf review made the jobs yield when the frame's slice is spent (`arenaUntil`, checked every few units of work), typed and pre-sized the point arrays, wrote the index straight into its 16-bit buffer, found the bounding sphere a slice at a time and packed the quadtree into typed arrays for the session (`geoAt` :1429 walks them): 18-30 ms steps on a 4×-throttled phone profile became 6-11 ms, and the heap after a GC went from about 20 MB to 15.4. About 0.45 s of CPU on a desktop, 1.2-1.4 s on the phone profile.
+- **The ground as drawn:** `Render3D.drawnGround(b, a, z)` (:3965): inside an arena's mesh its own triangles' height, else the patch's with the berms added (`drawnAt` :1217), off the patch the ground itself. The aim ray, `Aim.sees`, zone badges and strikes use it, except inside a clear arena whose mesh isn't up yet (it builds over a few seconds; longer on a phone), where the patch is metres off (up to 7 m on high, 17 m on low): there they use the physics' ground. `Render3D.arenaOff` (tests and measurements) keeps the plain patch.
+
+### 11. The ground HUD (ghud.js) and its layouts
+
+**The canvas** (`GHUD.draw` :155, from `App.frame` while `Flight.groundAim`; the old pipper and prograde markers step aside, `World.drawOverlay3D`):
+- the crosshair (`crosshair` :184) and the gun's own reticle where the barrel really points (`reticle` :192), filling as it reloads, amber and crossed when the round's path from the muzzle meets the ground before the crosshair (**Blocked**: `blocked` :108, the gun's path sampled every 2 m near the muzzle; the barrel sits lower than the camera, so just over a crest the camera sees past it), with a matching reload ring round FIRE (`fireRing` :333);
+- the range under the crosshair (`rangeText` :226; its words remade only when the 10 m, the zero or the mode change), and in Realistic aim the commander's reading (`cmdRange` :240: after 3 s of sim time on one vehicle or one spot, "Range ≈ 620 m · Sight 800 m", within ±4% with one error per hold);
+- `weaponMarks` (:256): the lead diamond, the lock box, GUIDING, the rocket strike's ring and time, a casemate's arc mark;
+- hit results (`hits` :295, `RES` :286: "Ricochet!", "Did not penetrate", "Hit · tracks", "Penetration · 2 crew", from `Armour.fb.shot`), red arcs toward whoever hit us (`fb.hurt`), "Knocked out!" / "Ammo detonation!" (`fb.ko`), "Repairing: … 8 s" or "Stop to repair: …";
+- zone badges (`zones` :405, faded under the crosshair), tags for the ground AI's vehicles and spotted enemies (`tags` :385), the damage diagram (`diagram` :428, a cached top view: the turret as it points, the crew where they sit, modules lit when hurt, repainted only when `diagKey` changes) and an SPAA's search radar scope (`scope` :533);
+- at most 120 canvas calls a frame (33 on a fully kitted tank), and no DOM writes while nothing changes (`ground-hud.mjs`).
+
+**The DOM** (`sync` :602, from `updateHUD` every 0.08 s, writing only on change): `#btn-sight` (the binoculars), `#btn-mg` (shown with small machine guns besides the selected weapon), `#btn-lock` ("Lock"/"Locked", with a tracking radar), `#btn-cm` ("Smoke" with smoke launchers alone), the shell chips in `#ammo-stack` (two or more rounds for the main gun; the loaded one pressed, the queued one marked), `#weapon-box.g-one` (no weapon chip with fewer than two systems besides the MGs), `#btn-range` ("Zero 800 m" in Realistic aim) and `#gmap`. The touch controls are bound in `bind` (:911): a chip's tap from a long press is told by the events' own times, so a frame that stalls between down and up doesn't unload the gun; the Zero pill sets the sight from a rangefinder on every tap, or, without one, from the commander's reading on the first tap and in 100 m steps after (wrapping from 3,000 to 200 m).
+
+**The flight HUD for ground vehicles** (flight.js `updateHUD` :1664): the Crew row (`#row-crew`, against the crew it set out with, so a thrown turret's men still count; hidden only on a change, so an old plane's HUD tick writes nothing new), Damage reads "Knocked out", the speed carries ▲ or ▼, the room's day count goes from a ground battle's telemetry, Brake shows with running gear, and the hint line says the driving tip until 15 s or the first shot, and "Righting…". End screens after a ground vehicle: "Off the range" / "Knocked out", the knock-outs and best shot, the distance driven, km/h (`summaryHTML`).
+
+**The minimap and the tactical map** (`frame` :963, from App.frame after the canvas): the north-up minimap (`drawMap` :673: us, friends, enemies seen, wrecks, zones, pings) at most four times a second and only when it changed (`mapKey`); a tap on it, `M` or MAP opens the full-screen tactical map (`tactical` :725, `drawTac` :740) with a hillshade baked once (`bake` :787, smoothed: the height map's 32 m planes showed as a quilt). A tap on it (`tacTap` :818) sets a rocket strike with rocket artillery selected, else pings a spot for the team (`MP.sendSeen` with a point; alone: "Tap the map to mark a spot" / "Spot marked", for 8 s); its Globe button opens the old map; Esc or Close shuts it, and so does a tap off it on touch.
+
+**Layouts** (`place` :559, once a second or on a resize; CSS "Flight: ground", style.css:1082 on). The damage diagram and the radar scope take the first spot clear of the flight data, the room's bar or the range's bar (`#gai-bar`), the controls, the buttons top right, the warning receiver's display, the room's own scope, the minimap, the Stage pill and the throttle; FIRE is measured for its ring; the minimap's bottom goes to `--gmap-b` (the hint sits under it on a phone) and under a grown room bar to `--gmap-t`. `body.ground` hides the throttle box, the autopilot bar, the roll and air buttons, the catapult and the flight rows (`.gh`), and turns `#weapon-box` into a layer of absolutely placed controls; `g-thrust` brings back a short throttle (a track with Max, the setting and Cut beside it) above the Stage pill; `g-stages` brings the Stage pill over the stick (left), never over FIRE. `test/browser/ground-hud.mjs` checks that everything stays clear of everything else on 390×844, 375×667, 844×390 and 1280×720 and in a room, with a stage left and thrust aboard; the kill feed moves under the minimap (beside it on a phone on its side).
+
+**Settings** (world.js `Settings.data`, main.js `showSettings`): `aimAssist` (on by default on touch), `aimMode` ('arcade' or 'realistic', solo; a room's lobby decides there) and `aimSens` (0.3-3, the mouse's speed or, labelled "Aim speed (drag)" on phones, a finger's).
+
+### 12. The Tank Range, the Practice Battle and the computer's vehicles (groundai.js)
+
+**The vehicles** (header :1-23). Real `Vessel`s built from the stock templates (`build` :81: the same armour, crews, guns, 3D models and hits as anyone's), marked `v.ai = {ground: true, team, role, skill, state, …}` and `v.kin = true`, so no physics step moves them (flight.js skips `kin` and `wreck` vessels, `railsTick` too). `kinStep` (:193) moves them: 30 moves a second along the ground (heading and speed, held to what the template's power can climb on the slope under it), 10 attitude fits a second (`fit` :176: a plane through three points of ground under the hull, lifted to a fourth under its middle over a crest), a look 25 m ahead twice a second for water and slopes over 22°, and a reverse-and-turn when stuck for 3 s; between moves the pose glides on each frame (`pose` :236). About 44 looks at the ground a second each while moving, none parked (`groundai.test.js` holds it under 60), 6.5-8.9 µs a move in Chromium.
+
+**Decisions** (`think` :302, 4 times a second): whom to fight (the nearest enemy it can see, `Aim.sees` within 1.5 km, at most one fresh look a decision, a look serving both ways), where to go (the nearest zone its side doesn't hold; a firing spot behind the nearest berm once it has someone to shoot, `coverFor` :518; home to its pad below 40% crew or with no weapon working), when to shoot (stopped, within 1.2 km, after a reaction of 0.6-1.2 s, aiming 0.5-1.5 mrad off by its skill, wider on the first round at a new target, the gun within 0.4° and loaded). AP at armour, HE at open tops and soft vehicles (`pickRound` :505), machine guns only at soft ones; after three harmless hits on a plated target, round its side; hurt, smoke and back off. It aims through `Aim.step` (`v.aimP`) and fires through `Aim.stepAll` (`v.aimFire`, `v.mgFire`; `aimFrame` :571).
+- The solo review fixed three stalls: a tank whose main gun was knocked out went home for good (it now looks for a working weapon at every decision, and takes a mended gun up again); one parked where its gun couldn't reach (a berm's foot, nose up) sat for up to 112 s (after 1.5 s held at a limit it turns its hull and moves 12 m to a spot where the gun reaches, `shiftFor` :375; a wheeled one creeps on at 3 m/s to turn); and 21% of its shells hit the ground in front of its own muzzle (`pathBlocked` :626 now follows the round's path before each shot, every metre near the ground and 0.75 m over a berm's top; blocked, it holds fire and rolls 10 m on). At most 10 fresh looks a second for five AI once the sides meet.
+
+**The Tank Range** (`rangeWanted` :710, `startRange` :1049, `rangeStep` :734): on with a ground vehicle (Armour, or a car with aimed guns) within 4 km of Highland Ridge's middle, solo, on Earth with the map in, targets not off. Settings › Targets decides:
+- **Practice** (`LAYOUT` :38): a parked TK-34 side-on 600 m out, an MS-4 hull-down behind the berm 760 m out, a ZSY-23 on the hilltop, and a Pumo and a Leapard 1 patrolling a 1.2 km loop through zone B at 6 and 4 m/s, half a lap apart. They never shoot. A knock-out leaves a smoking wreck and a new target drives in somewhere else 45 s later (at least 400 m from the player); an AA vehicle (`hasAA` :718) also gets two target drones circling north of the pad (Combat's own drone targets).
+- **Hostile:** waves of `min(2 + n, 5)` fighting stock vehicles from the south pad (`wave` :755), priced within 40% of the player's (else the nearest three), the first after 12 s; with AA aboard an attack plane (Combat's own fighter, `gaiPlane`) a minute in and every 3 min after, "Enemy aircraft inbound!".
+- **Off:** nothing.
+- Knock-outs are counted with the best shot's range (the end screen, "Off the range"); three with a ground vehicle complete the Tank Range mission ($25,000, `tankRange`).
+
+**The Practice Battle** (`startBattle` :1070, from `MPUI.practice`'s era dialog): the Ground Battle's rules alone on this device. `S.b = {obj: GroundMode.init(arena, {tickets: 600, format: '3v3'}, [3, 3]), arena, money, team: 0, …}`: you and two AI allies on the north pad against three AI on the south one, 600 tickets a side (300 was over in four minutes: the play-test), on Highland Ridge, or the Runway without the map or the 3D view (picked once the flight scene is up, so the Retro 2D flight gets the Runway too). Your blueprint's design if it fits the money (`designFor` :776, `practiceVehicle` :1097 says which in the dialog), else the era's first stock vehicle. `rules` (:799, 4 times a second) runs `GroundMode.tick`, the out-of-bounds warning and the end (`end` :831); `bar` (:845) is the bar at the top (`#gai-bar`: tickets, zones, the clock and Respawn, written only on change; the warp control's place, so `,` and `.` do nothing there). Knocked out (`onDestroyed` :1103): the hulk stays as a wreck, the tickets go, and after 1.6 s the respawn panel (`panel` :904, `MPUI.rsp`) offers the same vehicle, another, leave or watch, from 5 s on (`respawn` :1121); respawns keep the AI and the wrecks (`Flight.start`'s `keep`). Revert to launch (`revert` :1134) puts you back on the pad for the vehicle's tickets; over, it starts a new battle. Recover is off. A battle's flight is never saved (flight.js:179; the solo review: Save & exit, Back to hangar and the autosave saved the free vehicle, which Recover then paid 90% for), and the warp stays at 1× on the range and in a battle (flight.js:227).
+
+**Lifecycle.** `Combat.frame` calls `GroundAI.frame` (:964) for a ground flight, the range or a battle (or while its bar is still up). A new flight (`Combat.reset`, which also clears `Armour.fb`'s banners: the play-test's phantom "Ammo detonation!") ends what ran (`reset` :1036). `down` (:1020), from `Combat.aiDown`, keeps the hulk as a wreck, counts it (the range's score, the battle's tickets, the player's knock-outs) and brings one back later. Nothing of this runs in a room: `startRange`, `startBattle` and `spawn` refuse, and `frame` resets.
+
+### 13. Invariants and gotchas
+
+1. **Old designs never reach the new code.** Every hook keys on `def.gv`, `v.gv`, `v.gear.length`, `kind === 'tank'`, `Combat.S.gai` or `MP.ground`. Keep it so: a new hook needs a gate, and `ground.test.js` §contract's counters must stay at zero for the old templates. driving.json's 14 old entries, fingerprint, traces, handling, combat.json, mp-measure and mp-air must stay byte-identical; the ground templates' entries are additions.
+2. **Gear.ground copies vessel.js's crash, dent, landing and rest rules** line for line, and each copy names the other: change both.
+3. **The outline is the model is the hit shape.** A hull's or plate turret's `outline` is its 2D art, its clash shape, its 3D prism and armour.js's prism; its edge order (bottom, lower front, upper front, top, rear) is what `armour.edge` indexes. Changing an outline moves every plate's angle and every stock vehicle's balance.
+4. **An aimed part pivots on its trunnion** in yaw and elevation: aim.js, armour.js's hit prism and parts3d's yaw and pitch nodes agree, and tests pin it.
+5. **Turret groups are worked out from the rows** (`groupsOfParts`), the same in the builder, a craft, a ghost and the renderer; never store them in saves.
+6. **Old saves, codes and peers:** `mm` is written only when it differs; codes become RSS3 only with `mm`; spawn rows' tenth column is optional; `gvLoad` cleans everything. Never change a ground part's key, `w`/`h`, outline or default `mm` (saves store absolute positions and omit the default thickness).
+7. **Shells resolve on the shooter's screen** for someone else's craft and the victim applies the module rows with its own dice; `Combat.damage` stays a no-op on `v.remote`. A wreck takes nothing.
+8. **What the player sees must be what physics has:** the arena mesh is built from `h3dAt`; anything that changes the arena's heights (a berm, a pad, the fade) must rebuild it, and `arena-probe.js` must pass. The patch leaves berms out (`noBerm`); `drawnGround` adds them back.
+9. **Battery:** the arena mesh only in ground play; the minimap only on change; the HUD's DOM only on change; the AI's ground looks within 60 a second each and 10 fresh sight checks a second in all; cheap rounds at 1/60 s. Measure before and after (the PR #35 method) when you touch any of them.
+10. **Player-visible names** of the ground parts, rounds, paints and stock vehicles never carry a real designation (labels are round types: APFSDS, not a model number).

@@ -3,8 +3,11 @@
 // rockets with engine plumes, particle effects and navigation markers.
 
 const Settings = {
-  // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat
-  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0 }, store.get('rss.settings', {})),
+  // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat. The ground
+  // update's aim: aimAssist (easing onto the lead point; on by default on touch), aimMode ('arcade': guns lifted for the
+  // measured range; 'realistic': for the sight's setting) when flying solo, aimSens (the aim's speed, ×: a mouse's or a finger's drag)
+  data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0,
+    aimAssist: typeof isTouch !== 'undefined' && isTouch, aimMode: 'arcade', aimSens: 1 }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
@@ -820,7 +823,7 @@ const World = {
   // The same markers over the 3D view: each one sits where its direction points, on a sphere around the craft.
   drawOverlay3D(ctx, W, H, dpr, F) {
     const v = F.active;
-    if (!v || !v.parts.length || !Settings.get('markers')) return;
+    if (!v || !v.parts.length || !Settings.get('markers') || F.groundAim) return; // (aiming a ground vehicle: its own HUD's marks)
     const bp = bodyPos(v.body, F.time), ax = bp.x + v.x, ay = bp.y + v.y, az = v.z;
     const c = Render3D.project(ax, ay, az);
     if (c.behind) return;

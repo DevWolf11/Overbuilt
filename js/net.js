@@ -8,7 +8,7 @@
 //  - 'local': tabs of the same browser on this device, through a BroadcastChannel (offline, and handy for testing).
 // Messages are small plain objects { t: type, ... }. Net stamps the sender's player id on them as `f`.
 
-const NET_VERSION = 6; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft); 3: big messages travel in pieces; 4: the Chaff Dispenser (a part an older peer would drop) and chaff strength in 'cm'; 5: the look-alike jets' parts and paints (an older peer would drop them); 6: the warning receivers and the manned turret (parts an older peer would drop), turrets that hold fire on the ground
+const NET_VERSION = 7; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft); 3: big messages travel in pieces; 4: the Chaff Dispenser (a part an older peer would drop) and chaff strength in 'cm'; 5: the look-alike jets' parts and paints (an older peer would drop them); 6: the warning receivers and the manned turret (parts an older peer would drop), turrets that hold fire on the ground; 7: the ground update: the Armour kind and its parts and paints, armour thickness in spawn rows, shells (`shot` k 'shell'), module hits (`hit` m), turret rings in part states, `gd` in snapshots, ground battles (`obj`, `seen`/`spot`, respawns, wrecks on `down`), ground-launched missiles with a boost
 const NET_MAX_BYTES = 256 * 1024; // the biggest message the host passes on
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'rss-room-';
@@ -36,7 +36,7 @@ const Net = (() => {
     hostOffset: 0,        // host clock minus ours (ms)
     bytesIn: 0, bytesOut: 0,
   };
-  const HOST_ONLY = new Set(['~', 'hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result']);
+  const HOST_ONLY = new Set(['~', 'hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result', 'obj', 'spot']); // (obj, spot: a ground battle's zones and tickets, and a team's spots)
   let joinGen = 0;
   let peer = null, chan = null, link = null, cid = '', nextPid = 2, pingTimer = 0, watchTimer = 0, lastHeard = 0;
   const links = new Map(); // host: pid -> { send, close, heard }

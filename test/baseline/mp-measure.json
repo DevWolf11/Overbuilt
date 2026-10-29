@@ -208,5 +208,101 @@
   "length": 20.1,
   "height": 4.89,
   "mass": 25626
+ },
+ "tk34": {
+  "span": 3.2,
+  "length": 2.9,
+  "height": 7.7219999999999995,
+  "mass": 27536
+ },
+ "ms4": {
+  "span": 3.2,
+  "length": 3.57,
+  "height": 6.574,
+  "mass": 26262
+ },
+ "tygr": {
+  "span": 4,
+  "length": 3.27,
+  "height": 8.714,
+  "mass": 50720
+ },
+ "pumo": {
+  "span": 3.3,
+  "length": 3.05,
+  "height": 6.2780000000000005,
+  "mass": 12410
+ },
+ "stuq3": {
+  "span": 3.62,
+  "length": 2.45,
+  "height": 8.394,
+  "mass": 30680
+ },
+ "ms18": {
+  "span": 2.6,
+  "length": 3.1,
+  "height": 6.524,
+  "mass": 12100
+ },
+ "leapard1": {
+  "span": 3.5,
+  "length": 2.92,
+  "height": 9.48,
+  "mass": 33710
+ },
+ "tk72": {
+  "span": 3.8,
+  "length": 3.53,
+  "height": 8.914,
+  "mass": 50695
+ },
+ "ma1": {
+  "span": 4,
+  "length": 3.42,
+  "height": 10.348,
+  "mass": 56500
+ },
+ "zsy23": {
+  "span": 2.6,
+  "length": 3.85,
+  "height": 4.59,
+  "mass": 15950
+ },
+ "gepardo": {
+  "span": 3.5,
+  "length": 4.37,
+  "height": 6.8,
+  "mass": 33204
+ },
+ "bmk2": {
+  "span": 3.4,
+  "length": 4,
+  "height": 6.4,
+  "mass": 20220
+ },
+ "brdk2": {
+  "span": 3.4000000000000004,
+  "length": 2.75,
+  "height": 6.2,
+  "mass": 10183
+ },
+ "bk21": {
+  "span": 3.4000000000000004,
+  "length": 3.35,
+  "height": 7.279999999999999,
+  "mass": 12440
+ },
+ "ok8": {
+  "span": 4.8,
+  "length": 4.77,
+  "height": 6.2,
+  "mass": 20870
+ },
+ "technical": {
+  "span": 2.2,
+  "length": 3.7,
+  "height": 4,
+  "mass": 1380
  }
 }

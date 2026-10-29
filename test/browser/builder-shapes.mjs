@@ -23,13 +23,19 @@ t = await tabs();
 ok('a plane shows cockpits, fuselage, wings, aero engines, gear and weapons', t.join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|More…', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'More…').click());
 t = await tabs();
-ok('More shows every tab, the plane ones first', t.length === 15 && t.slice(0, 6).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons' && t.includes('Command') && t[14] === 'Fewer', t.join('|'));
+ok('More shows every tab, the plane ones first', t.length === 22 && t.slice(0, 6).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons' && t.includes('Command') && t.includes('Hulls') && t[21] === 'Fewer', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Engines').click());
 let items = await ev(() => [...document.querySelectorAll('#palette-items .part-item')].length);
 ok('a rocket engine can still go on a plane', items > 5, items);
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Fewer').click());
 t = await tabs();
 ok('Fewer goes back to the plane tabs (from Engines, to the first)', t[0] === 'Cockpits*' && t.length === 7, t.join('|'));
+await ev(() => { Builder.moreCats = false; Builder.setKind('tank'); });
+t = await tabs();
+ok('armour shows hulls, turrets, drive, guns, launchers, crew and kit', t.join('|') === 'Hulls*|Turrets|Drive|Guns|Launchers|Crew & ammo|Kit|More…', t.join('|'));
+const per = await ev((names) => names.map((name) => { [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === name).click();
+  return name + ' ' + document.querySelectorAll('#palette-items .part-item').length; }).join(', '), t.slice(0, -1).map((n) => n.replace('*', '')));
+ok('each armour tab holds its parts (the catalogue\'s 71)', per === 'Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9', per);
 await ev(() => { Builder.loadTemplate('sugoi27'); });
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Wings').click());
 const tray = await ev(() => [...document.querySelectorAll('#palette-items > *')].map((e) => (e.classList.contains('tray-group') ? '#' + e.textContent : '.')));
@@ -157,7 +163,7 @@ ok(`dragging a big lofted part about its own jet: ${r.toFixed(2)} ms a move`, r 
   watch(ph, errs);
   await openGame(ph, srv.url, { build3d: false });
   await ph.evaluate(() => App.toBuild());
-  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
+  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli', 'tank']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
   ok('phone portrait: More is in sight for every kind of craft', r.every(Boolean), JSON.stringify(r));
 }
 

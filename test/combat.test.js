@@ -392,3 +392,52 @@ function finger() {
   return out;
 }
 check('combat', finger());
+
+// ---- the stock ground vehicles' fingerprint (test/baseline/groundcombat.json): what doesn't turn (the body box), each
+// aimed weapon's muzzle with the turrets straight ahead and turned 90°, the shell each gun fires (where it leaves, how
+// fast which way), what 24 fixed level rays through the vehicle meet (12 bearings at two heights: part, face, entry),
+// and what two fixed shots do inside (an 85 mm APHE at 500 m and a 120 mm dart at 1 km on the hull's front: the
+// result, the rows and the module rows). Part ids are made the same each time (the resolver's dice read them).
+function groundFinger() {
+  const out = {}, P = (o, x, y, z) => { const l = o.toLocal(x, y, z); return [r(l.x), r(l.y), r(l.z)].join(','); };
+  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].parts.some((q) => ctx.PARTS[q[0]] && ctx.PARTS[q[0]].gv));
+  const mr = ctx.Math.random;
+  ctx.Math.random = () => 0.5;
+  for (const key of keys) {
+    Gm.run(ctx, '_partSeq = 1000000;');
+    const ps = Gm.run(ctx, `partsFromDesign(templateRows(TEMPLATES.${key}))`), adjAll = G.buildAdjacency(ps), ctrl = G.findControlPart(ps), keep = G.componentOf(ctrl.id, adjAll), kp = ps.filter((p) => keep.has(p.id)), adj = new Map();
+    for (const p of kp) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
+    const v = new G.Vessel(kp, adj, G.EARTH);
+    v.kind = ctx.TEMPLATES[key].kind; v.stages = G.computeStages(kp, adj, ctrl.id); v.rebuildGroups();
+    v.x = G.EARTH.radius + 3000; v.y = 0; v.z = 0; v.vx = v.vy = v.vz = 0; v.q = { w: 1, x: 0, y: 0, z: 0 };
+    const B = v.bodyBox, o = out[key] = { body: [B.minX, B.maxX, B.minY, B.maxY, B.minZ, B.maxZ].map(r).join(','), groups: (v.tg || []).map((g) => `${g.ring.type}:${g.members.map((p) => p.type).join('+')}:${r(g.rate)}`),
+      muzzles: [], launch: [], rays: [], shots: [] }, m = { x: 0, y: 0, z: 0 }, F = sim(ctx, v), weapons = v.aimed.filter((p) => p.def.weapon);
+    for (const yaw of [0, Math.PI / 2]) {
+      for (const g of v.tg || []) if (!g.parent) g.ring.aimYaw = yaw;
+      for (const p of weapons) { ctx.Aim.muzzle(v, p, m); o.muzzles.push(`${p.type}@${Math.round(yaw * 180 / Math.PI)}:${P(v, m.x, m.y, m.z)}`); }
+    }
+    for (const g of v.tg || []) g.ring.aimYaw = 0;
+    for (const p of weapons) if (p.def.weapon.kind === 'tgun' || p.def.weapon.kind === 'agun') {
+      C.S.shots = []; v.vx = v.vy = v.vz = 0;
+      if (!ctx.Aim.shoot(v, p, F)) { o.launch.push(`${p.type}:none`); continue; }
+      const s = C.S.shots[0], c = v.toLocal(v.x, v.y, v.z), d = v.toLocal(v.x + s.vx, v.y + s.vy, v.z + s.vz);
+      o.launch.push(`${p.type}:${s.sh}:${P(v, s.x, s.y, s.z)}>${r(d.x - c.x)},${r(d.y - c.y)},${r(d.z - c.z)}`);
+      v.vx = v.vy = v.vz = 0; v.av = { x: 0, y: 0, z: 0 };
+    }
+    C.S.shots = [];
+    const c = v.com, top = weapons.length ? ctx.Aim.localTrunnion(v, weapons[0], { x: 0, y: 0, z: 0 }).y : B.maxY - 0.3;
+    for (const y of [(B.minY + B.maxY) / 2, top]) for (let i = 0; i < 12; i++) {
+      const b = (i * Math.PI) / 6, dx = Math.cos(b), dz = Math.sin(b), a = v.toWorld(c.x + dx * 20, y, (c.z || 0) + dz * 20), e = v.toWorld(c.x - dx * 20, y, (c.z || 0) - dz * 20);
+      o.rays.push(ctx.Armour.hitAll(v, a, e, []).map((H) => `${H.p.type}${H.edge}@${r(H.t0)}`).join(' '));
+    }
+    const h = v.parts[0];
+    for (const [sh, range] of [['aphe85', 500], ['apfsds120', 1000]]) {
+      const S = ctx.SHELLS[sh], spd = S.v0 * Math.exp(-S.k * 1.2 * range), w = v.toWorld(h.x + h.def.w / 2 + 2, h.y, -0.3), s = { k: 'shell', sh, b: G.EARTH, x: w.x, y: w.y, z: w.z, vx: -spd, vy: 0, vz: 0, t: 1, life: 10, owner: null, cal: S.cal, pen: S.pen, v0: S.v0, n: 4242 };
+      const e = v.toWorld(h.x - 30, h.y, -0.3), R = ctx.Armour.resolve(s, v, ctx.Armour.hitAll(v, w, e, []), null);
+      o.shots.push(`${sh}:${R.r}:${R.crew}:${R.what.join('+')}|${R.rows.map(([p, k]) => `${p.type}=${r(k)}`).join(' ')}|${R.mods.map(([q, i, k]) => `${q.type}.${i}=${r(k)}`).join(' ')}`);
+    }
+  }
+  ctx.Math.random = mr;
+  return out;
+}
+check('groundcombat', groundFinger());

@@ -19,8 +19,11 @@ const ok = checks('3D builder: surface attach, paint, flight');
 await ev(() => Builder.loadTemplate('jumbo'));
 await page.waitForTimeout(1500);
 log('api', JSON.stringify(await ev(() => ({ surfaceHit: typeof Render3D.surfaceHit, dp: Render3D.designPoint.length, dts: Render3D.designToScreen.length }))));
-// where the wing's underside is, 8 m out on the right wing, on screen
-const at = await ev(() => { const w = Builder.parts.find((p) => p.type === 'wingL'), sec = Parts3D.wingAt ? Parts3D.wingAt(w.def, 8) : null; return { ...Render3D.designToScreen(w.x + (sec ? sec.x : 0), sec ? (sec.le + sec.te) / 2 + w.y : w.y - 2.5, 8), sec }; });
+// where the wing's underside is, 8 m out on the right wing, on screen (once the hangar's camera has eased in to fit the
+// craft: still easing, the wing moved between this and the pointer's test, and it missed, now and then)
+const wingPoint = () => ev(() => { const w = Builder.parts.find((p) => p.type === 'wingL'), sec = Parts3D.wingAt ? Parts3D.wingAt(w.def, 8) : null; return { ...Render3D.designToScreen(w.x + (sec ? sec.x : 0), sec ? (sec.le + sec.te) / 2 + w.y : w.y - 2.5, 8), sec }; });
+let at = await wingPoint();
+for (let i = 0; i < 40; i++) { await page.waitForTimeout(250); const q = await wingPoint(), still = Math.hypot(q.x - at.x, q.y - at.y) < 0.5; at = q; if (still) break; }
 log('screen point', JSON.stringify(at));
 const hit = await ev((a) => { const h = Render3D.surfaceHit(a.x, a.y, new Set()); return h && { type: h.part.type, x: +h.x.toFixed(2), y: +h.y.toFixed(2), z: +h.z.toFixed(2), n: [h.nx, h.ny, h.nz].map((v) => +v.toFixed(2)) }; }, at);
 log('hit', JSON.stringify(hit));

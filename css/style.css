@@ -745,6 +745,39 @@ kbd {
 @media (max-width: 760px) { .weapon-box { right: calc(var(--gut-r) + 54px); bottom: calc(168px + var(--safe-b)); } }
 .toast.kill { border-color: #ff5d5d; color: #ffd0d0; font-weight: 700; }
 
+/* ---- the ground AI (groundai.js): the Tank Range's score and the Practice Battle's tickets and zones, in the time
+   warp's place (as the room's bar is); its respawn panel is the room's (.rsp, in "MP: ground") */
+.gai-bar {
+  position: fixed; z-index: 19; left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-t)); pointer-events: none;
+  min-width: 200px; max-width: min(380px, calc(100% - 420px)); padding: 6px 12px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+.gai-main { display: flex; align-items: center; gap: 10px; font: 600 14px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gai-tk.t0 { color: var(--cyan); }
+.gai-tk.t1 { color: var(--danger); }
+.gai-zones { display: flex; gap: 4px; }
+.gai-zones b { min-width: 22px; padding: 1px 5px; border-radius: 4px; text-align: center; font: 700 12px var(--display); color: var(--muted); border: 1px solid var(--line-strong); }
+.gai-zones b.own { color: #04121c; background: var(--cyan); border-color: var(--cyan); }
+.gai-zones b.foe { color: #1c0406; background: var(--danger); border-color: var(--danger); }
+.gai-zones b.taking { color: var(--amber); border-color: var(--amber); }
+.gai-sub { font: 500 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.gai-sub span { white-space: nowrap; }
+.gai-best i { font-style: normal; color: var(--muted); }
+.gai-bar .gai-btn { pointer-events: auto; margin-top: 2px; }
+@media (max-width: 760px) {
+  .gai-bar { top: calc(54px + var(--safe-t)); left: auto; right: var(--gut-r); transform: none; max-width: calc(100% - 210px); min-width: 0; align-items: flex-end; }
+  .gai-main { font-size: 13px; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .gai-best { flex-basis: 100%; text-align: right; font: 500 11px var(--mono); color: var(--muted); }
+  .gai-best i { display: none; }
+  .gai-sub { white-space: normal; overflow: visible; text-align: right; } /* (on two lines rather than cut: "Knocked out ·" over "back in 5 s") */
+}
+@media (max-height: 500px) { /* (a phone on its side: up top in the middle, as on a desktop, clear of the minimap) */
+  .gai-bar { top: calc(8px + var(--safe-t)); left: 50%; right: auto; transform: translateX(-50%); max-width: min(380px, calc(100% - 420px)); align-items: center; padding: 4px 10px; }
+  .gai-main { flex-wrap: nowrap; justify-content: center; }
+  .gai-best { flex-basis: auto; }
+  .gai-best i { display: inline; }
+  .gai-sub { text-align: center; }
+}
+
 /* ================================================================== multiplayer */
 .home-btn.mp-btn { border-color: rgba(98, 208, 255, 0.55); }
 .home-btn.mp-btn .hb-name { color: var(--cyan); }
@@ -915,3 +948,267 @@ kbd {
 @media (min-width: 761px) and (max-width: 1000px) {
   .mp-bar:not(.flight) { left: calc(var(--gut-l) + 250px); transform: none; width: min(420px, calc(100% - 262px - var(--gut-l) - var(--gut-r))); }
 }
+
+/* ---- Ground update: the Armour kind, a fifth button in the builder's kind strip (by id: .kind-select elsewhere stays at four) */
+#kind-select { grid-template-columns: repeat(5, 1fr); }
+#kind-select .kind-btn { font-size: 9px; letter-spacing: 0.04em; }
+@media (max-height: 500px) {
+  #kind-select .kind-btn { flex-direction: column; }
+}
+/* (P4 play-test) folded (a short phone's first look), the stats keep the kind strip as one slim row, so Armour is in sight */
+#build-ui:not(.has-info) .stats.collapsed #kind-select { display: grid !important; padding: 2px; }
+.stats.collapsed #kind-select .kind-btn { flex-direction: row; justify-content: center; gap: 3px; padding: 2px 0; }
+.stats.collapsed #kind-select .kind-btn .icon { width: 14px; height: 14px; }
+
+/* ---- Builder: ground (armour stats, the armour control, X-ray, armour view, turret arcs) */
+.ground-info { margin: 0; font: 500 11px/1.4 var(--mono); color: #c3e6a3; border-left: 2px solid #79c04f; padding-left: 8px; }
+.stats.collapsed .ground-info { display: none !important; }
+#pi-mm { flex: 1; min-width: 0; accent-color: var(--amber); }
+/* the armour row: its label, thickness and the view toggle over the steppers; on a phone all in one line */
+.pi-mm { flex-wrap: wrap; }
+.pi-mm .pi-val { order: 1; }
+.pi-mm #btn-armour { order: 2; }
+.pi-mm .pi-break { order: 3; flex-basis: 100%; height: 0; }
+.pi-mm #btn-mm-down, .pi-mm #pi-mm, .pi-mm #btn-mm-up { order: 4; }
+.pi-faces { margin: 0; font: 500 11px/1.35 var(--mono); color: var(--muted); }
+.pi-arc { flex: 1; min-width: 0; font: 500 11px/1.3 var(--mono); color: var(--amber); }
+#btn-xray .icon, #btn-armour .icon { width: 18px; height: 18px; }
+/* the armour view is a 2D one; Test turret shows in 3D */
+#build-ui:has(.view3d-toggle[aria-pressed="true"]) #btn-armour { display: none; }
+#build-ui:not(:has(.view3d-toggle[aria-pressed="true"])) #btn-test-turret { display: none; }
+/* a part panel with armour on it can be tall: it scrolls rather than run under the tray */
+@media (min-width: 761px) {
+  .part-info { max-height: calc(100% - 64px - var(--safe-t) - var(--pal-h, 170px) - 14px); overflow-y: auto; }
+}
+@media (max-width: 760px) {
+  /* (armour: no room for the Fit column between the stats and a tall part panel: a row of icons; builder.js layout()) */
+  .fit-col.row { flex-direction: row; }
+  .fit-col.row .btn { font-size: 0; gap: 0; padding: 0; width: 34px; }
+  .ground-info { flex: 1 1 100%; font-size: 10px; }
+  .has-info .ground-info { display: none; } /* (a part picked: its panel needs the room) */
+}
+@media (max-width: 760px) and (max-height: 700px) {
+  /* a short phone building armour: while a part's card is up the kind buttons give way, so the tank shows above it */
+  #build-ui.has-info:has(#kind-select [data-kind="tank"][aria-checked="true"]) #kind-select { display: none; }
+}
+@media (max-width: 760px) {
+  .pi-faces { font-size: 10px; }
+  .pi-mm { flex-wrap: nowrap; }
+  .pi-mm .pi-break { display: none; }
+  .pi-mm #btn-mm-down, .pi-mm #pi-mm, .pi-mm #btn-mm-up { order: 0; }
+}
+@media (max-width: 480px) {
+  #btn-xray { width: 34px; min-width: 34px; padding: 0; }
+}
+@media (max-width: 350px) {
+  #btn-xray { width: 31px; min-width: 31px; }
+}
+
+/* ---- MP: ground (ground battles: the connect buttons, the lobby's money by era and arena, the bar's tickets, zones and
+   capture bar, the lineup chips, the Respawn panel) */
+.home-btn.ground { border-color: rgba(121, 192, 79, 0.6); }
+.home-btn.ground .hb-name { color: #b9e08f; }
+.home-btn.primary.ground { background: #79c04f; border-color: #79c04f; color: #0e1a06; }
+.home-btn.primary.ground .hb-name { color: #0e1a06; }
+.home-btn.primary.ground .hb-sub { color: rgba(14, 26, 6, 0.75); }
+.mp-set .mp-money { grid-template-columns: repeat(3, 1fr); }
+.mp-money .kind-btn { flex-direction: column; gap: 0; line-height: 1.15; }
+.mp-money .kind-btn small { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }
+.mp-money .kind-btn[aria-checked="true"] small { color: var(--amber); }
+.mp-arena { font-size: 13px; }
+.mp-arena b { letter-spacing: 0.04em; }
+.mp-arena .mp-flat { color: var(--amber); }
+/* tickets round the zones, in the bar's row: ours blue on the left, theirs red */
+.mp-ground { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font: 600 13px var(--mono); font-variant-numeric: tabular-nums; }
+.mp-ground[hidden] { display: none; }
+.mp-tk { min-width: 30px; }
+.mp-tk.us { color: var(--cyan); text-align: right; }
+.mp-tk.them { color: var(--danger); }
+.mp-zones { display: flex; gap: 3px; }
+.mp-zone { position: relative; width: 22px; height: 20px; border-radius: 4px; overflow: hidden; display: grid; place-items: center; background: rgba(150, 185, 230, 0.12); border: 1px solid var(--line-strong); }
+.mp-zone.us { border-color: var(--cyan); }
+.mp-zone.them { border-color: var(--danger); }
+.mp-zone b { position: relative; font: 700 11px var(--display); color: var(--text); }
+.mp-zone i, .mp-cap-track i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: 0 50%; transform: scaleX(0); transition: transform 0.25s linear; }
+.mp-zone i.us, .mp-cap-track i.us { background: rgba(98, 208, 255, 0.45); }
+.mp-zone i.them, .mp-cap-track i.them { background: rgba(255, 93, 93, 0.45); }
+.mp-cap { display: flex; flex-direction: column; gap: 3px; font: 600 11px var(--mono); color: var(--text); }
+.mp-cap[hidden] { display: none; }
+.mp-cap-track { position: relative; height: 6px; border-radius: 3px; overflow: hidden; background: rgba(150, 185, 230, 0.14); }
+/* the lineup (Lineup of 3) while building */
+.mp-lineup { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.mp-lineup[hidden] { display: none; }
+.mp-slot { display: flex; align-items: center; gap: 5px; min-width: 0; height: 30px; padding: 0 6px; border-radius: 6px; cursor: pointer; font: 600 11px var(--display); color: var(--text);
+  background: rgba(20, 32, 54, 0.7); border: 1px solid var(--line-strong); }
+.mp-slot small { font: 700 10px var(--mono); color: var(--amber); }
+.mp-slot span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-slot.built { cursor: default; border-style: dashed; }
+/* the Respawn panel (and the lineup's and the practice battle's pickers): big buttons for thumbs */
+.rsp { display: flex; flex-direction: column; gap: 10px; }
+.rsp-wait { margin: 0; font: 600 14px var(--mono); color: var(--amber); }
+.rsp-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; }
+.rsp-opt { text-align: left; min-height: 56px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-family: var(--display); color: var(--text);
+  background: rgba(20, 32, 54, 0.7); border: 1px solid var(--line-strong); display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.rsp-opt:hover:not(:disabled) { border-color: var(--amber); }
+.rsp-opt b { font-size: 14px; letter-spacing: 0.04em; }
+.rsp-opt span { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.rsp-opt .rsp-you { color: var(--amber); }
+.rsp-opt.menu { border-style: dashed; }
+.rsp-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+/* the ground scoreboard: seven columns, names in their team's colour; on a phone tighter, without the ping (and on a
+   narrow one the team), and scrolling sideways if need be */
+.mp-twrap { max-width: 100%; overflow-x: auto; }
+.mp-gtable .t0 { color: var(--cyan); }
+.mp-gtable .t1 { color: var(--danger); }
+/* two- and three-way choices in a ground battle's lobby: as wide as they need */
+.mp-set .kind-select.n2 { grid-template-columns: repeat(2, 1fr); }
+.mp-set .kind-select.n3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 520px) {
+  .rsp-list { grid-template-columns: 1fr; }
+  .mp-gtable th, .mp-gtable td { padding-left: 4px; padding-right: 4px; }
+  .mp-gtable th { letter-spacing: 0.04em; }
+  .mp-gtable th:last-child, .mp-gtable td:last-child { display: none; }
+}
+@media (max-width: 400px) {
+  .mp-gtable th:nth-child(2), .mp-gtable td:nth-child(2) { display: none; }
+}
+@media (max-width: 760px) {
+  body:has(#mp-bar:not([hidden]):not(.flight) #mp-lineup:not([hidden])) .stats { top: calc(168px + var(--safe-t)); } /* (the lineup's row makes the bar taller) */
+  .mp-ground { font-size: 12px; gap: 4px; }
+  .mp-zone { width: 20px; }
+  .mp-tk { min-width: 26px; }
+}
+
+/* ---- Flight: ground (a ground vehicle: body.ground; the gunner's sight: body.sighting). The rocket's and plane's
+   heavy right column goes, and the ground controls sit round the right thumb on FIRE; ghud.js places the canvas pieces
+   (the damage diagram, the radar scope) clear of all this, and writes --gmap-b, the minimap's bottom. */
+body.ground .throttle-box, body.ground #sas-bar, body.ground .roll-btns, body.ground .air-btns, body.ground #btn-catapult { display: none !important; }
+/* (stages left: a compact Stage pill over the stick, and with thrust parts the throttle over that, a short track with
+   Max, the setting and Cut beside it: clear of FIRE, the chips and the minimap; ghud.js keeps the diagram and scope off) */
+body.ground.g-thrust .throttle-box {
+  display: grid !important; grid-template-columns: 44px auto; grid-template-rows: auto 1fr auto; gap: 6px; align-items: center; justify-items: start;
+  top: auto; right: auto; transform: none; left: var(--gut-l); bottom: calc(198px + var(--safe-b));
+}
+body.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(140px + var(--safe-b)); }
+body.ground .throttle-box .throttle-track { grid-column: 1; grid-row: 1 / 4; height: clamp(96px, 14vh, 130px); }
+body.ground .throttle-box #btn-tmax { grid-column: 2; grid-row: 1; }
+body.ground .throttle-box .throttle-label { grid-column: 2; grid-row: 2; }
+body.ground .throttle-box #btn-tcut { grid-column: 2; grid-row: 3; }
+body.ground .stage-box { display: none; }
+body.ground.g-stages .stage-box { display: flex; width: auto; padding: 0; background: none; border: 0; right: auto; left: var(--gut-l); bottom: calc(140px + var(--safe-b)); }
+body.ground.g-stages .stage-box > :not(.stage-btn) { display: none; }
+body.ground.g-stages .stage-btn { width: 88px; height: 48px; font-size: 14px; }
+/* the flight data: speed with its way, heading, crew, damage */
+body.ground .t-grid > .gh, body.ground .t-grid > .orbit-row, body.ground #row-heat, body.ground #row-target, body.ground #row-enc { display: none; }
+body.ground .telemetry { width: 168px; padding: 7px 10px; }
+body.ground .t-head { margin-bottom: 3px; }
+body.ground .t-body { font-size: 11px; letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+body.ground .t-time { white-space: nowrap; flex-shrink: 0; } /* (a room's clock, "5d 13:53:29", stays on one line: the body's name gives way) */
+#row-crew.danger dd { color: var(--amber); animation: none; }
+/* the weapon box comes apart: FIRE, the chip and SMOKE each go where the thumb finds them */
+body.ground #weapon-box { position: absolute; inset: 0; display: block; pointer-events: none; }
+body.ground #weapon-box > * { position: absolute; pointer-events: auto; }
+body.ground #weapon-box.g-one .weapon-chip { display: none; }
+body.ground #btn-fire { right: calc(var(--gut-r) + 6px); bottom: calc(26px + var(--safe-b)); width: 84px; height: 84px; font-size: 15px; }
+body.ground #btn-cm { right: calc(var(--gut-r) + 168px); bottom: calc(40px + var(--safe-b)); width: 46px; height: 46px; font-size: 11px; }
+body.ground #btn-weapon { right: calc(var(--gut-r) + 6px); bottom: calc(262px + var(--safe-b)); min-width: 84px; }
+.gbtn { position: absolute; font: 700 12px var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.gbtn .icon { width: 26px; height: 26px; }
+.g-sight { right: calc(var(--gut-r) + 102px); bottom: calc(40px + var(--safe-b)); width: 56px; height: 56px; }
+.g-sight[aria-pressed="true"] { background: rgba(255, 181, 71, 0.22); border-color: var(--amber); color: var(--amber); }
+.g-mg { right: calc(var(--gut-r) + 104px); bottom: calc(108px + var(--safe-b)); width: 52px; height: 52px; }
+.g-lock { right: calc(var(--gut-r) + 168px); bottom: calc(108px + var(--safe-b)); width: 46px; height: 46px; font-size: 10px; color: #b9ffd4; border-color: rgba(125, 255, 176, 0.5); }
+body.ground #btn-cm, .g-lock { padding: 0; letter-spacing: 0.02em; } /* (P4 play-test: "Locked" and "Smoke" inside their circles) */
+.g-lock { letter-spacing: 0; }
+.g-lock[aria-pressed="true"] { background: rgba(125, 255, 176, 0.22); border-color: #7dffb0; color: #7dffb0; }
+.g-range { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(18px + var(--safe-b)); font-family: var(--mono); text-transform: none; letter-spacing: 0; }
+/* the shell chips: a column over FIRE (a row on a phone on its side) */
+.ammo-stack { position: absolute; right: calc(var(--gut-r) + 20px); bottom: calc(124px + var(--safe-b)); display: flex; flex-direction: column-reverse; gap: 6px; }
+.ammo-chip {
+  width: 56px; height: 40px; border-radius: 8px; cursor: pointer; touch-action: manipulation; padding: 0 4px;
+  font: 700 12px var(--mono); letter-spacing: 0.02em; color: var(--muted); background: var(--panel); border: 1px solid var(--line-strong);
+}
+.ammo-chip[aria-pressed="true"] { color: #1a1205; background: var(--amber); border-color: var(--amber); }
+.ammo-chip.queued { border-color: var(--amber); color: var(--amber); }
+/* the minimap (a tap opens the tactical map) */
+.gmap { position: absolute; right: var(--gut-r); top: calc(54px + var(--safe-t)); width: 160px; height: 160px; border-radius: 10px; border: 1px solid var(--line-strong); cursor: pointer; touch-action: manipulation; }
+/* the gunner's sight: the flight data and the hint make way; a vignette round the view, drawn once (no blur) */
+.sight-vig { position: absolute; inset: 0; pointer-events: none !important; display: none; background: radial-gradient(ellipse 72% 78% at 50% 50%, rgba(0, 0, 0, 0) 64%, rgba(0, 0, 0, 0.5) 86%, rgba(0, 0, 0, 0.88) 100%); }
+body.sighting .sight-vig { display: block; }
+body.sighting .telemetry, body.sighting #hint, body.sighting .gmap { visibility: hidden; }
+/* the tactical map, full screen */
+.gtac { position: fixed; inset: 0; z-index: 22; background: rgba(5, 9, 18, 0.94); display: flex; flex-direction: column; padding: calc(10px + var(--safe-t)) var(--gut-r) calc(10px + var(--safe-b)) var(--gut-l); }
+.gtac-canvas { flex: 1; width: 100%; min-height: 0; touch-action: none; cursor: crosshair; }
+.gtac-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; }
+.gtac-info { font: 500 12px var(--mono); color: var(--muted); }
+.gtac-btns { display: flex; gap: 8px; flex-shrink: 0; }
+/* a room's kill feed goes under the minimap (beside it on a phone on its side) */
+body.ground .mp-feed, body.ground:has(#mp-bar.flight:not([hidden])) .mp-feed { top: var(--gmap-b, calc(230px + var(--safe-t))); }
+/* (no blur over the moving view: these new pieces too) */
+body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: rgba(8, 13, 24, 0.85); backdrop-filter: none; -webkit-backdrop-filter: none; }
+@media (pointer: fine) {
+  body.ground #btn-fire { width: 58px; height: 58px; right: calc(var(--gut-r) + 12px); bottom: calc(24px + var(--safe-b)); font-size: 11px; }
+  .g-sight { right: calc(var(--gut-r) + 82px); bottom: calc(29px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-mg { right: calc(var(--gut-r) + 82px); bottom: calc(89px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 17px); bottom: calc(94px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-lock { right: calc(var(--gut-r) + 17px); bottom: calc(150px + var(--safe-b)); width: 48px; height: 48px; }
+  .ammo-stack { right: calc(var(--gut-r) + 142px); bottom: calc(24px + var(--safe-b)); }
+  .ammo-chip { width: 70px; height: 32px; font-size: 11px; }
+  body.ground #btn-weapon { right: calc(var(--gut-r) + 142px); bottom: calc(176px + var(--safe-b)); min-width: 70px; }
+  .g-range { left: auto; transform: none; right: calc(var(--gut-r) + 142px); bottom: calc(226px + var(--safe-b)); } /* (the hint has the bottom middle) */
+}
+@media (max-width: 760px) {
+  body.ground .telemetry { width: 150px; padding: 6px 9px; }
+  body.ground .t-vessel, body.ground .t-where { display: none; }
+  body.ground .t-grid { gap: 1px; }
+  body.ground .t-grid dd { font-size: 11px; }
+  /* the brake sits over the stick (the autopilot grid it used to sit by is gone) */
+  body.ground .round.brake { left: 0; bottom: calc(100% + 12px); width: 54px; height: 54px; }
+  body.ground.g-stages .stage-box, body.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(208px + var(--safe-b)); } /* (over the brake) */
+  body.ground.g-thrust .throttle-box { bottom: calc(266px + var(--safe-b)); }
+  .gmap { width: 112px; height: 112px; top: calc(98px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .gmap, body:has(#gai-bar:not([hidden])) .gmap { top: max(calc(140px + var(--safe-t)), var(--gmap-t, 0px)); } /* (under the room's bar, or the range's and the practice battle's; lower when the bar grows: GHUD.place's --gmap-t) */
+  body.ground .hint { top: var(--gmap-b, calc(220px + var(--safe-t))); }
+  body.ground #btn-weapon { bottom: calc(262px + var(--safe-b)); }
+  /* the sight's zero, left of the minimap (the thumbs' buttons fill the bottom) */
+  .g-range { left: auto; transform: none; bottom: auto; right: calc(var(--gut-r) + 122px); top: calc(98px + var(--safe-t)); }
+  body:has(#mp-bar.flight:not([hidden])) .g-range, body:has(#gai-bar:not([hidden])) .g-range { top: calc(140px + var(--safe-t)); }
+}
+@media (max-width: 760px) and (max-height: 700px) {
+  body.ground #btn-fire { width: 76px; height: 76px; right: calc(var(--gut-r) + 2px); bottom: calc(18px + var(--safe-b)); }
+  .g-sight { right: calc(var(--gut-r) + 88px); bottom: calc(30px + var(--safe-b)); width: 52px; height: 52px; }
+  .g-mg { right: calc(var(--gut-r) + 90px); bottom: calc(90px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 148px); bottom: calc(30px + var(--safe-b)); width: 42px; height: 42px; }
+  .g-lock { right: calc(var(--gut-r) + 148px); bottom: calc(86px + var(--safe-b)); width: 42px; height: 42px; }
+  .ammo-stack { right: calc(var(--gut-r) + 14px); bottom: calc(108px + var(--safe-b)); }
+  .ammo-chip { width: 52px; height: 36px; font-size: 11px; }
+  body.ground #btn-weapon { bottom: calc(252px + var(--safe-b)); min-width: 76px; }
+  .gmap { width: 96px; height: 96px; }
+  .g-range { right: calc(var(--gut-r) + 106px); }
+}
+@media (max-height: 500px) {
+  body.ground .telemetry { width: 150px; padding: 4px 8px; }
+  body.ground .t-vessel, body.ground .t-where, body.ground #row-hdg { display: none; }
+  body.ground #btn-fire { width: 72px; height: 72px; right: calc(var(--gut-r) + 4px); bottom: calc(14px + var(--safe-b)); }
+  .g-sight { right: calc(var(--gut-r) + 86px); bottom: calc(26px + var(--safe-b)); width: 48px; height: 48px; }
+  .g-mg { right: calc(var(--gut-r) + 86px); bottom: calc(84px + var(--safe-b)); width: 48px; height: 48px; }
+  body.ground #btn-cm { right: calc(var(--gut-r) + 16px); bottom: calc(96px + var(--safe-b)); width: 44px; height: 44px; }
+  .g-lock { right: calc(var(--gut-r) + 16px); bottom: calc(148px + var(--safe-b)); width: 44px; height: 44px; }
+  .ammo-stack { flex-direction: row-reverse; right: calc(var(--gut-r) + 144px); bottom: calc(20px + var(--safe-b)); }
+  .ammo-chip { width: 50px; height: 34px; font-size: 11px; }
+  body.ground #btn-weapon { right: calc(var(--gut-r) + 144px); bottom: calc(66px + var(--safe-b)); min-width: 76px; }
+  .gmap, body:has(#gai-bar:not([hidden])) .gmap { width: 96px; height: 96px; top: calc(54px + var(--safe-t)); } /* (the range's bar is up top in the middle here) */
+  body.ground .round.brake { position: static; }
+  body.ground.g-stages .stage-box { bottom: calc(114px + var(--safe-b)); } /* (over the stick; the throttle beside the brake) */
+  body.ground.g-thrust .throttle-box, body.ground.g-thrust:not(.g-stages) .throttle-box { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
+  body.ground .mp-feed, body.ground:has(#mp-bar.flight:not([hidden])) .mp-feed { top: calc(104px + var(--safe-t)); right: calc(var(--gut-r) + 106px); } /* (under the room's bar, left of the minimap) */
+  .g-range, body:has(#mp-bar.flight:not([hidden])) .g-range { left: auto; transform: none; top: auto; right: calc(var(--gut-r) + 144px); bottom: calc(112px + var(--safe-b)); }
+}
+/* a finger's targets: the shell chips, the sight's zero, the tactical map's Close and the ground lobby's choices (its
+   rows fit their choices: n2, n3, the money by era; an air battle's keep their old size) at least 40 px tall on touch */
+@media (pointer: coarse) {
+  .ammo-chip, .g-range, #gtac-close, #gtac-globe, .mp-set :is(.n2, .n3, .mp-money) .kind-btn { min-height: 40px; }
+}
+/* (P4 play-test) a phone's ground menu: the keys folded under a disclosure */
+.help-keys { margin-top: 8px; }
+.help-keys > summary { cursor: pointer; font: 600 12px var(--display); letter-spacing: 0.06em; color: var(--muted); padding: 6px 0; }

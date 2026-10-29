@@ -288,23 +288,172 @@ const TEMPLATES = {
     paint: { ruNose57: 'ruPixel', ruIRST: 'ruPixel', ruBody57: 'ruPixel', ruNacelle57: 'ruPixel', ruAL41F1: 'ruPixel', ruBay57: 'ruPixel', ruStinger57: 'ruPixel', ruBoom57: 'ruPixel',
       ruFins57: 'ruPixel', ruWing57: 'ruPixel', ruLevcon57: 'ruPixel', ruTail57: 'ruPixel', ruBayS57: 'ruPixel' },
   },
+  // Armour (the ground update), by era and then by job. Built like the car, nose toward +x: the hull on its tracks or
+  // wheels (one per side, z), the engine inside, a ring on the roof with the turret on it and the main gun at rot 3 in
+  // the turret's front, its trunnion at the face. Rows as the jets': [type, x, y, rot, {z, att}], att counted from 0.
+  tk34: { // (the T-34-85)
+    name: 'TK-34', kind: 'tank', tier: 1,
+    blurb: 'Sloped armour: its 55 mm glacis lies back so far that shells twice as thick bounce off it. Keep your nose toward the enemy, and its 85 mm shell bursts inside whatever it gets through.',
+    parts: [['hullMedium', 0, 1.1], ['trackMed', 0, 0.5, 0, { z: -1.35, att: 0 }], ['trackMed', 0, 0.5, 0, { z: 1.35, att: 0 }], ['engDiesel', -1.8, 1.1, 0, { att: 0 }],
+      ['ringM', 0, 1.85, 0, { att: 0 }], ['turretCast', 0, 2.425, 0, { att: 4 }], ['gun85', 2.622, 2.425, 3, { att: 5 }], ['mgCoax', 1.4, 2.425, 3, { z: 0.6, att: 5 }],
+      ['mgCoax', 2.03, 1.35, 3, { z: 0.55, att: 0 }]],
+    paint: { hullMedium: 'steppe', trackMed: 'steppe', ringM: 'steppe', turretCast: 'steppe', gun85: 'steppe' },
+  },
+  ms4: { // (the M4 Sherman)
+    name: 'MS-4 Shermin', kind: 'tank', tier: 1,
+    blurb: 'Its 75 mm is stabilised, so it hits on the move, but it bounces off sloped fronts. Flank them: a medium tank\'s sides are only 40 mm.',
+    parts: [['hullMedium', 0, 1.1], ['trackMed', 0, 0.5, 0, { z: -1.35, att: 0 }], ['trackMed', 0, 0.5, 0, { z: 1.35, att: 0 }], ['engPetrol', -1.8, 1.1, 0, { att: 0 }],
+      ['ringM', 0, 1.85, 0, { att: 0 }], ['turretCast', 0, 2.425, 0, { att: 4 }], ['gun75', 2.174, 2.425, 3, { att: 5 }], ['mgCoax', 1.4, 2.425, 3, { z: 0.6, att: 5 }],
+      ['mgHeavy', 0.044, 3.32, 3, { z: -0.52, att: 5 }]],
+    paint: { hullMedium: 'olive', trackMed: 'olive', ringM: 'olive', turretCast: 'olive', gun75: 'olive' },
+  },
+  tygr: { // (the Tiger I)
+    name: 'Tygr I', kind: 'tank', tier: 2,
+    blurb: 'Slow and thick-skinned: angle its hull and few guns will hurt it. Flank it.',
+    parts: [['hullHeavy', 0, 1.25], ['trackHeavy', 0, 0.55, 0, { z: -1.65, att: 0 }], ['trackHeavy', 0, 0.55, 0, { z: 1.65, att: 0 }], ['engDiesel', -2.0, 1.25, 0, { att: 0 }],
+      ['ringL', 0, 2.16, 0, { att: 0 }], ['turretBox', 0, 2.77, 0, { att: 4 }], ['gun88', 3.014, 2.77, 3, { att: 5 }], ['mgCoax', 1.5, 2.77, 3, { z: 0.7, att: 5 }],
+      ['smokeL', 0.6, 2.9, 0, { z: -1.4, att: 5 }], ['smokeL', 0.6, 2.9, 0, { z: 1.4, att: 5 }]],
+    paint: { hullHeavy: 'ambush', trackHeavy: 'ambush', ringL: 'ambush', turretBox: 'ambush', gun88: 'ambush', smokeL: 'ambush' },
+  },
+  pumo: { // (the Sd.Kfz. 234/2 Puma)
+    name: 'Pumo 8×8', kind: 'tank', tier: 1,
+    blurb: 'A scout on eight wheels, twice as fast as a tank on the flat: get to the zones first and spot for your team. One man in the turret aims and loads, so pick your shots.',
+    parts: [['hullWheeled', 0, 1.3], ['wheelArmS', -2.25, 0.5, 0, { z: -1.45, att: 0 }], ['wheelArmS', -2.25, 0.5, 0, { z: 1.45, att: 0 }], ['wheelArmS', -0.75, 0.5, 0, { z: -1.45, att: 0 }],
+      ['wheelArmS', -0.75, 0.5, 0, { z: 1.45, att: 0 }], ['wheelArmS', 0.75, 0.5, 0, { z: -1.45, att: 0 }], ['wheelArmS', 0.75, 0.5, 0, { z: 1.45, att: 0 }], ['wheelArmS', 2.25, 0.5, 0, { z: -1.45, att: 0 }],
+      ['wheelArmS', 2.25, 0.5, 0, { z: 1.45, att: 0 }], ['engPetrol', -2.0, 1.3, 0, { att: 0 }], ['ringS', 0, 2.15, 0, { att: 0 }], ['turretSmall', 0, 2.625, 0, { att: 10 }],
+      ['gun50', 1.728, 2.55, 3, { att: 11 }], ['mgCoax', 1.2, 2.55, 3, { z: 0.4, att: 11 }]],
+    paint: { hullWheeled: 'ambush', wheelArmS: 'ambush', ringS: 'ambush', turretSmall: 'ambush', gun50: 'ambush' },
+  },
+  stuq3: { // (the StuG III)
+    name: 'StuQ III', kind: 'tank', tier: 2,
+    blurb: 'No turret: the hull turns to aim, and the gun swings only 12° either way. Ambush from cover, low and thick in front.',
+    parts: [['hullCasemate', 0, 1.45], ['trackMed', 0, 0.5, 0, { z: -1.5, att: 0 }], ['trackMed', 0, 0.5, 0, { z: 1.5, att: 0 }], ['engPetrol', -2.0, 1.1, 0, { att: 0 }],
+      ['gun76L', 3.294, 1.75, 3, { att: 0 }], ['skirts', 0.3, 0.85, 0, { z: -1.78, att: 1 }], ['skirts', 0.3, 0.85, 0, { z: 1.78, att: 2 }]],
+    paint: { hullCasemate: 'ambush', trackMed: 'ambush', gun76L: 'ambush', skirts: 'ambush' },
+  },
+  ms18: { // (the M18 Hellcat)
+    name: 'MS-18 Hellion', kind: 'tank', tier: 1,
+    blurb: 'Light, quick and open-topped: a long 76 mm on a hull that spins on the spot, but shells bursting above the crew get in. Hit and run.',
+    parts: [['hullLight', 0, 1.0], ['trackLight', 0, 0.45, 0, { z: -1.1, att: 0 }], ['trackLight', 0, 0.45, 0, { z: 1.1, att: 0 }], ['engPetrol', -1.3, 1.0, 0, { att: 0 }],
+      ['ringM', -0.1, 1.65, 0, { att: 0 }], ['turretOpen', -0.1, 2.175, 0, { att: 4 }], ['gun76L', 2.224, 2.175, 3, { att: 5 }], ['mgHeavy', -0.3, 2.85, 3, { z: 1.0, att: 5 }]],
+    paint: { hullLight: 'olive', trackLight: 'olive', ringM: 'olive', turretOpen: 'olive', gun76L: 'olive' },
+  },
+  leapard1: { // (the Leopard 1)
+    name: 'Leapard 1', kind: 'tank', tier: 3,
+    blurb: 'Speed over armour, and a 105 mm with a round for every target: APDS for tanks, HEAT at long range, HESH for thin plates. Pick the next one before you fire.',
+    parts: [['hullMedium', 0, 1.1], ['trackMBT', 0, 0.55, 0, { z: -1.425, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.425, att: 0 }], ['engDieselL', -1.7, 1.1, 0, { att: 0 }],
+      ['ringP', 0, 1.86, 0, { att: 0 }], ['turretCast', 0, 2.445, 0, { att: 4 }], ['gun105', 3.08, 2.445, 3, { att: 5 }], ['mgCoax', 1.4, 2.445, 3, { z: 0.6, att: 5 }],
+      ['smokeL', 0, 2.22, 0, { z: -1.52, att: 5 }], ['smokeL', 0, 2.22, 0, { z: 1.52, att: 5 }]],
+    paint: { hullMedium: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretCast: 'woodland', gun105: 'woodland', smokeL: 'woodland' },
+  },
+  tk72: { // (the T-72B)
+    name: 'TK-72', kind: 'tank', tier: 3,
+    blurb: 'An autoloader: a steady 7 s reload with no loader, but a hit in the carousel under the turret sets off every round. Its reactive bricks blow apart the first shot that hits them.',
+    parts: [['hullMBT', 0, 1.15], ['trackMBT', 0, 0.55, 0, { z: -1.575, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.575, att: 0 }], ['engDieselL', -2.5, 1.15, 0, { att: 0 }],
+      ['ringP', -1.0, 1.96, 0, { att: 0 }], ['turretAuto', -1.0, 2.47, 0, { att: 4 }], ['gun125', 2.214, 2.6, 3, { att: 5 }], ['mgCoax', 0.4, 2.6, 3, { z: 0.7, att: 5 }],
+      ['mgHeavy', -0.668, 3.28, 3, { z: -0.57, att: 5 }], ['smokeL', -1.7, 3.12, 0, { att: 5 }], ['smokeL', -1.2, 3.12, 0, { att: 5 }],
+      ['era', 0.95, 2.05, 0, { z: -0.65, att: 0 }], ['era', 0.95, 2.05, 0, { z: 0.65, att: 0 }], ['era', -0.44, 3.07, 0, { z: 0.12, att: 5 }]],
+    paint: { hullMBT: 'whitewash', trackMBT: 'whitewash', ringP: 'whitewash', turretAuto: 'whitewash', gun125: 'whitewash', smokeL: 'whitewash', era: 'whitewash' },
+  },
+  ma1: { // (the M1A1 Abrams)
+    name: 'MA-1 Abrahm', kind: 'tank', tier: 3,
+    blurb: 'A turbine, a stabilised 120 mm and a composite front few shells get through. Most of its rounds sit in the bustle behind blow-out panels: hit there, the blast vents up and the crew lives.',
+    parts: [['hullMBT', 0, 1.15], ['trackMBT', 0, 0.55, 0, { z: -1.575, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.575, att: 0 }], ['engTurbine', -2.4, 1.15, 0, { att: 0 }],
+      ['ringP', -0.3, 1.96, 0, { att: 0 }], ['turretWedge', -0.3, 2.495, 0, { att: 4 }], ['gun120', 3.548, 2.45, 3, { att: 5 }], ['mgCoax', 1.7, 2.45, 3, { z: 0.75, att: 5 }],
+      ['mgHeavy', -1.0, 3.17, 3, { z: 0.8, att: 5 }], ['smokeL', 0.6, 2.6, 0, { z: -1.8, att: 5 }], ['smokeL', 0.6, 2.6, 0, { z: 1.8, att: 5 }],
+      ['thermal', -0.6, 3.12, 0, { z: -0.8, att: 5 }], ['lrf', -0.4, 3.07, 0, { z: -0.3, att: 5 }], ['skirts', 0.5, 0.85, 0, { z: -1.93, att: 1 }], ['skirts', 0.5, 0.85, 0, { z: 1.93, att: 2 }]],
+    paint: { hullMBT: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretWedge: 'woodland', gun120: 'woodland', smokeL: 'woodland', skirts: 'woodland' },
+  },
+  zsy23: { // (the ZSU-23-4 Shilka)
+    name: 'ZSY-23 Shilko', kind: 'tank', tier: 2,
+    blurb: 'Four 23 mm barrels and a tracking radar: lock an aircraft (LOCK, or L) and the guns lead it for you. Shreds helicopters; keep it away from tanks.',
+    parts: [['hullLight', 0, 1.0], ['trackLight', 0, 0.45, 0, { z: -1.1, att: 0 }], ['trackLight', 0, 0.45, 0, { z: 1.1, att: 0 }], ['engPetrol', -1.3, 0.9, 0, { att: 0 }],
+      ['ringM', -0.2, 1.65, 0, { att: 0 }], ['turretAA', -0.2, 2.35, 0, { att: 4 }], ['aa23q', 1.39, 2.35, 3, { att: 5 }], ['radarTrack', -0.05, 3.4, 0, { att: 5 }]],
+    paint: { hullLight: 'steppe', trackLight: 'steppe', ringM: 'steppe', turretAA: 'steppe', aa23q: 'steppe' },
+  },
+  gepardo: { // (the Gepard)
+    name: 'Gepardo', kind: 'tank', tier: 3,
+    blurb: 'Its search radar sees aircraft 10 km out. Lock one (LOCK, or L) and the twin 35 mm guns throw shells that burst as they pass it: no direct hit needed.',
+    parts: [['hullMedium', 0, 1.1], ['trackMBT', 0, 0.55, 0, { z: -1.425, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.425, att: 0 }], ['engDieselL', -1.7, 1.1, 0, { att: 0 }],
+      ['ringP', -0.2, 1.86, 0, { att: 0 }], ['turretAA', -0.2, 2.57, 0, { att: 4 }], ['ac35', 1.224, 2.57, 3, { z: -1.45, att: 5 }], ['ac35', 1.224, 2.57, 3, { z: 1.45, att: 5 }],
+      ['radarSearch', -1.1, 3.77, 0, { att: 5 }], ['radarTrack', 0.0, 3.62, 0, { att: 5 }], ['smokeL', -1.0, 2.9, 0, { z: -1.4, att: 5 }], ['smokeL', -1.0, 2.9, 0, { z: 1.4, att: 5 }]],
+    paint: { hullMedium: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretAA: 'woodland', ac35: 'woodland', smokeL: 'woodland' },
+  },
+  bmk2: { // (the BMP-2)
+    name: 'BMK-2', kind: 'tank', tier: 2,
+    blurb: 'Six troops in the back capture zones half as fast again. Don\'t let it take a hit: a 30 mm and an anti-tank missile are its teeth, thin plate its skin.',
+    parts: [['hullIFV', 0, 1.3], ['trackMed', 0, 0.5, 0, { z: -1.45, att: 0 }], ['trackMed', 0, 0.5, 0, { z: 1.45, att: 0 }], ['engDiesel', 1.3, 1.1, 0, { z: 0.4, att: 0 }],
+      ['ringS', 0.3, 2.25, 0, { att: 0 }], ['turretSmall', 0.3, 2.725, 0, { att: 4 }], ['ac30', 1.832, 2.725, 3, { att: 5 }], ['mgCoax', 1.32, 2.725, 3, { z: 0.35, att: 5 }],
+      ['atgmTube', 0.3, 3.55, 3, { z: -0.42, att: 5 }], ['smokeL', 0.5, 2.8, 0, { z: -1.0, att: 5 }], ['smokeL', 0.5, 2.8, 0, { z: 1.0, att: 5 }]],
+    paint: { hullIFV: 'steppe', trackMed: 'steppe', ringS: 'steppe', turretSmall: 'steppe', ac30: 'steppe', atgmTube: 'steppe', smokeL: 'steppe' },
+  },
+  brdk2: { // (the BRDM-2 with anti-tank missiles)
+    name: 'BRDK-2 Gadfly', kind: 'tank', tier: 1,
+    blurb: 'Wire-guided missiles: fire, then keep the crosshair on the target until they hit. Slow to fly, but 400 mm goes through almost anything you can see.',
+    parts: [['hullWheeled', 0, 1.4], ['wheelArm', -1.4, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', -1.4, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 1.4, 0.65, 0, { z: -1.475, att: 0 }],
+      ['wheelArm', 1.4, 0.65, 0, { z: 1.475, att: 0 }], ['engPetrol', -2.0, 1.3, 0, { att: 0 }], ['ringS', -0.6, 2.25, 0, { att: 0 }],
+      ['atgmWire', -0.36, 2.55, 3, { z: -0.42, att: 6 }], ['atgmWire', -0.36, 2.55, 3, { att: 6 }], ['atgmWire', -0.36, 2.55, 3, { z: 0.42, att: 6 }]],
+    paint: { hullWheeled: 'tan', wheelArm: 'tan', ringS: 'tan', atgmWire: 'tan' },
+  },
+  bk21: { // (the BM-21 Grad)
+    name: 'BK-21 Grod', kind: 'tank', tier: 1,
+    blurb: 'Rocket artillery: raise the rails and ripple sixteen rockets at a spot kilometres away. Reloading takes 45 s, so make every salvo count.',
+    parts: [['hullWheeled', 0, 1.4], ['wheelArm', -2.1, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', -2.1, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', -0.7, 0.65, 0, { z: -1.475, att: 0 }],
+      ['wheelArm', -0.7, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: 1.475, att: 0 }],
+      ['engPetrol', 1.3, 1.3, 0, { att: 0 }], ['ringM', -2.1, 2.25, 0, { att: 0 }], ['mlrsLight', -2.38, 2.85, 3, { att: 8 }]],
+    paint: { hullWheeled: 'steppe', wheelArm: 'steppe', ringM: 'steppe', mlrsLight: 'steppe' },
+  },
+  ok8: { // (the 9K33 Osa)
+    name: 'OK-8 Hive', kind: 'tank', tier: 3,
+    blurb: 'Radar-guided missiles: lock an aircraft with the tracking radar (LOCK, or L), fire, and hold the lock until they hit. Chaff and a dive to the treetops can break it.',
+    parts: [['hullWheeled', 0, 1.4], ['wheelArm', -1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', -1.9, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 0, 0.65, 0, { z: -1.475, att: 0 }],
+      ['wheelArm', 0, 0.65, 0, { z: 1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: -1.475, att: 0 }], ['wheelArm', 1.9, 0.65, 0, { z: 1.475, att: 0 }],
+      ['engDiesel', -2.1, 1.35, 0, { att: 0 }], ['ringP', 0, 2.26, 0, { att: 0 }], ['turretAA', 0, 2.97, 0, { att: 8 }],
+      ['samCmd', 0.18, 2.97, 3, { z: -1.8, att: 9 }], ['samCmd', 0.18, 2.97, 3, { z: 1.8, att: 9 }], ['radarSearch', -0.9, 4.17, 0, { att: 9 }], ['radarTrack', 0.2, 4.02, 0, { att: 9 }]],
+    paint: { hullWheeled: 'steppe', wheelArm: 'steppe', ringP: 'steppe', turretAA: 'steppe', samCmd: 'steppe' },
+  },
+  technical: { // (a pickup truck with a heavy machine gun)
+    name: 'Desert Technical', kind: 'car', tier: 0,
+    blurb: 'A pickup with a heavy machine gun on the cab. It drives like the buggy, and the gun swings all the way round on its own: aim with the view and hold FIRE.',
+    parts: [['chassis', 0, 1.25], ['cab', 0.6, 2.25], ['carWheel', 1.4, 0.4], ['carWheel', -1.4, 0.4], ['mgHeavy', 0.75, 3.25, 3, { att: 1 }]],
+    paint: { chassis: 'tan', cab: 'tan' },
+  },
 };
 
-// A template's parts as design rows.
+// A template's parts as design rows (extras: z, att, skin, mm).
+// What kind of ground vehicle a stock one is, for its hangar card (from its parts): a tank, a tank destroyer (a gun with no
+// turret), an armoured car, an SPAA, a SAM launcher, rocket artillery, an infantry vehicle, an ATGM carrier, a technical
+function groundClass(t) {
+  const P = t.parts.map((r) => PARTS[r[0]]).filter(Boolean), has = (f) => P.some(f), w = (d) => d.weapon || {};
+  if (t.kind === 'car') return 'Technical';
+  if (has((d) => w(d).kind === 'missile' && (w(d).seek === 'air' || w(d).seek === 'clos'))) return 'SAM launcher';
+  if (has((d) => w(d).kind === 'rocket' && d.aim)) return 'Rocket artillery';
+  if (has((d) => w(d).kind === 'agun' && (w(d).cal || 0) >= 20) && has((d) => d.trackRadar || d.searchRadar)) return 'SPAA';
+  const gun = has((d) => w(d).kind === 'tgun' && (w(d).cal || 0) >= 37);
+  if (has((d) => d.troops || (d.mods && d.mods.some((m) => m.k === 'troops')))) return 'Infantry vehicle';
+  if (!gun && has((d) => w(d).kind === 'missile')) return 'ATGM carrier';
+  if (gun && (!has((d) => d.ring) || has((d) => d.style === 'open'))) return 'Tank destroyer'; // (a casemate gun, or a big gun in an open-topped turret)
+  return gun && has((d) => d.awheel) ? 'Armoured car' : 'Tank';
+}
 function templateRows(t) {
   return t.parts.map(([type, x, y, rot, o = {}]) => {
     const q = { type, x, y, flip: x < 0, rot: rot || 0 }, skin = o.skin || (t.paint && t.paint[type]);
     if (o.z != null) q.z = o.z;
     if (o.att != null) q.att = o.att;
     if (skin) q.skin = skin;
+    if (o.mm != null) q.mm = o.mm;
     return q;
   });
 }
+// The tab each kind of craft opens on.
+const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls' };
 
 // The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
 // generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
 // jet that carries it (the IRST ball to the MyG-29). A retired part (def.retired: the small turret) is left out: old
-// designs keep it, but the tray no longer offers it. Worked out once.
+// designs keep it, but the tray no longer offers it. The armour parts go by their era (def.family), oldest first.
+// Worked out once.
+const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA'];
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
@@ -312,6 +461,7 @@ function partFamilies() {
   for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
   const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
+  for (const k of keys) { const f = PARTS[k].family; if (f && !of.has(k)) { of.set(k, f); rank.set(f, jets.length + 1 + Math.max(0, PART_ERAS.indexOf(f))); } }
   const order = keys.map((k, i) => [k, i]).sort((a, b) => (rank.get(of.get(a[0])) || 0) - (rank.get(of.get(b[0])) || 0) || a[1] - b[1]).map((e) => e[0]);
   return (PART_FAMILIES = { of, order });
 }
@@ -331,6 +481,8 @@ const Builder = {
     this.pointers = new Map();
     this.symmetry = store.get('rss.symmetry', true);
     this.grid = store.get('rss.grid', false); // 2D only: snap to a quarter-metre grid
+    this.xray = store.get('rss.xray', true); // armour see-through (X), while there is something inside to see
+    this.armourView = false; // the plates coloured by thickness (2D)
     this.category = 'command';
     this.name = 'Rocket';
     this.savedAs = null; // which hangar design the blueprint is, if any
@@ -338,9 +490,16 @@ const Builder = {
     this.history = [];
     this.future = [];
     this.bindDom();
-    // the panels round the view: when one changes size, so does the part of the screen the craft shows in
+    // the panels round the view: when one changes size, so does the part of the screen the craft shows in (the 3D view
+    // keeps the craft in it; the 2D blueprint under the panels doesn't change, so it isn't drawn again for that)
     if (typeof ResizeObserver === 'function') {
-      const ro = new ResizeObserver(() => { this.area = null; this.redraw(); });
+      const ro = new ResizeObserver(() => {
+        const a = this.area;
+        this.area = null;
+        if (!this.in3D()) return;
+        const b = this.viewArea();
+        if (!a || a.w !== b.w || a.h !== b.h || a.cx !== b.cx || a.cy !== b.cy) this.redraw();
+      });
       for (const sel of ['#build-top', '#stats', '#palette', '#part-info']) ro.observe($(sel));
       this.keepArea = true;
     }
@@ -363,7 +522,7 @@ const Builder = {
     this.kindSymmetry(kind);
     const turned = kind !== this.kind;
     this.kind = kind;
-    if (turned) this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    if (turned) this.category = KIND_TAB[kind] || this.category;
     this.renderKind();
     this.linkMirrors();
     this.selected = null;
@@ -371,7 +530,7 @@ const Builder = {
     this.changed(!!keepHistory);
     if (!keepHistory) this.baseSnap = this.snapOf(this.serialize());
     this.renderInfo();
-    if (turned && $('#palette-items').childElementCount) this.buildPalette();
+    if (turned && $('#palette-tabs').childElementCount) this.buildPalette(); // (once it has been built: a tab may hold no parts yet)
     if (!keepHistory || turned) this.fitView();
   },
   loadTemplate(key) {
@@ -379,12 +538,12 @@ const Builder = {
     this.savedAs = null;
     this.loadDesign({ name: t.name, kind: t.kind, parts: templateRows(t) });
   },
-  // Symmetry. Planes mirror left and right (across the blueprint), rockets turn half round the stack, cars
-  // and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
+  // Symmetry. Planes and armour mirror left and right (across the blueprint), rockets turn half round the stack,
+  // cars and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
   // the mirror line (or is a pair or a wing already).
   mirrorOf(q) {
     const def = PARTS[q.type], rot = q.rot || 0, z = partZ({ def, z: q.z });
-    if (this.kind === 'plane') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
+    if (this.kind === 'plane' || this.kind === 'tank') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
     const zz = this.kind === 'rocket' && !def.twinZ ? -z : z;
     if (Math.abs(q.x) < 0.01 && Math.abs(zz - z) < 0.01) return null;
     return { x: -q.x, y: q.y, z: zz, rot: mirrorRot(rot) };
@@ -446,6 +605,8 @@ const Builder = {
       loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
       air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne, mmax: w.mmax }; })() },
     };
+    this.groundStats(ps, adj);
+    this.renderTools();
     this.renderStats();
     if (!fromHistory) {
       const snap = JSON.stringify(this.serialize());
@@ -535,7 +696,12 @@ const Builder = {
     bottom = Math.max(bottom, top + 80);
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
-    const a = { w: innerWidth - left, h: bottom - top, cx: (left + innerWidth) / 2, cy: (top + bottom) / 2 };
+    let right = innerWidth;
+    if (this.kind === 'tank') { // (P4 play-test) Armour: clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
+      const f = $('.fit-col').getBoundingClientRect();
+      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) right = f.left - 6;
+    }
+    const a = { w: right - left, h: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
     if (this.keepArea && !$('#build-ui').hidden) this.area = a;
     return a;
   },
@@ -755,18 +921,20 @@ const Builder = {
     return !this.parts.some((o) => !ignore.includes(o) && partsClash(probe, o));
   },
 
-  // ex: {z, att (the part it hangs on), host (the part it was put against), skin}. A new part takes the
+  // ex: {z, att (the part it hangs on), host (the part it was put against), skin, mm}. A new part takes the
   // paint of what it is put on (a wing on a stealth fuselage comes in stealth grey).
   addPart(type, x, y, rot = 0, ex = {}) {
     const def = PARTS[type];
     if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
     const att = ex.att || null, host = ex.host || att;
     const skin = ex.skin !== undefined ? cleanSkin(ex.skin, def) : host ? cleanSkin(skinOf(host), def) : null;
-    const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin });
+    const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin }), mm = cleanMm(ex.mm, def);
+    if (mm != null) p.mm = mm;
     this.parts.push(p);
     if (this.symmetry && this.mirrorOk(type, x, y, [], rot, p.z)) {
       const s = this.mirrorOf(p), mh = att && (att.mirror || att);
       const m = makePart(type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, att: mh ? mh.id : null, skin });
+      if (mm != null) m.mm = mm;
       this.parts.push(m);
       p.mirror = m; m.mirror = p;
     }
@@ -774,6 +942,14 @@ const Builder = {
     this.changed();
     this.renderInfo();
     Sound.click();
+    // (P4 play-test) the first rack (or seat) placed in a hull or turret takes over its built-in ammunition (or crew):
+    // say so, or the rounds the stats lose read as the rack taking them away
+    if (att && att.def.mods && (def.rack || def.seat)) {
+      const k = def.seat ? 'crew' : 'ammo', built = att.def.mods.filter((m) => m.k === k);
+      const first = !this.parts.some((q) => q !== p && q !== p.mirror && q.att === att.id && (k === 'crew' ? q.def.seat : q.def.rack));
+      if (first && built.length) UI.toast(k === 'ammo' ? `The ${att.def.name}'s ${built.reduce((n, m) => n + (m.rounds || 0), 0)} built-in rounds now live in your racks: the racks hold all it carries`
+        : `The ${att.def.name}'s ${built.length} built-in crew step out for your seats: give a seat to each job it needs`);
+    }
   },
 
   // Parts go with everything attached to them.
@@ -801,11 +977,11 @@ const Builder = {
     const host = this.hosts().get(p);
     if (host && host.def.wing && !isSurface(p.def) && !zLocked(p.def)) {
       const z = this.zFit(p.type, p.x, p.y, p.rot || 0, partZ(p) + partDepth(p) + 0.2, this.parts);
-      if (z != null) { this.addPart(p.type, p.x, p.y, p.rot || 0, { z, att: host, skin: p.skin }); return; }
+      if (z != null) { this.addPart(p.type, p.x, p.y, p.rot || 0, { z, att: host, skin: p.skin, mm: p.mm }); return; }
     }
     const s = this.snap(p.type, { x: p.x, y: partRect(p).t + partDims(p).h / 2, z: p.z }, [], p.rot || 0);
     if (!s.ok) { UI.toast('No room to duplicate it there'); return; }
-    this.addPart(p.type, s.x, s.y, p.rot || 0, { z: s.z, att: s.att, host: s.host, skin: p.skin });
+    this.addPart(p.type, s.x, s.y, p.rot || 0, { z: s.z, att: s.att, host: s.host, skin: p.skin, mm: p.mm });
   },
 
   // Turn the selected part (and its mirror twin) a quarter turn; while dragging from the palette, turn the
@@ -819,7 +995,7 @@ const Builder = {
     const m = p.mirror;
     const H = this.hosts();
     if (this.kidsOf([p, m].filter(Boolean), H).length) { // with what hangs on it (and its twin, turned the mirrored way)
-      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' ? 1 : -1]] : [[p, 1]], H);
+      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' ? 1 : -1]] : [[p, 1]], H);
       return;
     }
     const k = ((p.rot || 0) + 1) & 3, ignore = [p, m].filter(Boolean);
@@ -1047,7 +1223,7 @@ const Builder = {
       const twins = [];
       for (const p of [...made]) {
         if (p.mirror || !this.mirrorOk(p.type, p.x, p.y, [], p.rot, p.z)) continue;
-        const s = this.mirrorOf(p), m = makePart(p.type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, skin: p.skin });
+        const s = this.mirrorOf(p), m = makePart(p.type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, skin: p.skin, mm: p.mm });
         this.parts.push(m); made.push(m); twins.push(m); p.mirror = m; m.mirror = p;
       }
       const byId = new Map(this.parts.map((q) => [q.id, q]));
@@ -1120,6 +1296,19 @@ const Builder = {
   },
 
   specLine(def) {
+    if (def.gv) {
+      const w = def.weapon, A = def.armour, r = def.searchRadar || def.trackRadar;
+      if (A && (def.outline || def.round) && A.min != null) return `${A.mm} mm · ${this.frontOf(def)} front`;
+      if (def.engine) return `${def.engine.kw} kW`;
+      if (w && w.kind === 'tgun') return `${w.cal} mm · ${w.reload.toFixed(1)} s`;
+      if (w && w.kind === 'agun') return `${w.cal} mm · ${w.rate}/s`;
+      if (r) return `${r.range / 1000} km`;
+      if (def.ring) return `${def.ring.rate}°/s · ${def.ring.cap} t`;
+      if (def.track || def.awheel) return `${(def.track || def.awheel).load} t`;
+      if (w && w.range) return `${w.label} · ${w.range / 1000} km`;
+      if (def.rack) return `${def.rack.rounds} rounds`;
+      if (A) return `${A.mm} mm`;
+    }
     if (def.wing) return `${def.wing.area} m² · ${def.wing.span} m span`;
     if (def.thrust) return `${def.thrust} kN · ${def.ispVac}s`;
     if (def.fuel) return `${def.fuel} t fuel`;
@@ -1135,7 +1324,7 @@ const Builder = {
       if (!start.drag && ((dy < -8 && Math.abs(dy) > Math.abs(dx) * 0.8) || (!isTouch && Math.hypot(dx, dy) > 6))) {
         start.drag = true;
         item.setPointerCapture(e.pointerId);
-        this.drag = { type, fromPalette: true, offset: { x: 0, y: 0 }, rot: 0 };
+        this.drag = { type, fromPalette: true, offset: { x: 0, y: 0 }, rot: this.defaultRot(PARTS[type]) };
         this.selected = null; this.renderInfo();
         if (this.in3D()) Render3D.editView(true);
       }
@@ -1163,22 +1352,25 @@ const Builder = {
     });
   },
 
-  // Tap on a palette item: attach it somewhere sensible.
+  // Tap on a palette item: attach it somewhere sensible (on armour, where the part goes on a tank: tankSpot). An aimed
+  // part on a ground vehicle comes pointing forward (defaultRot).
   quickAdd(type) {
     const area = this.viewArea();
     const centre = this.pointerToPart(area.cx, area.cy) || this.com || { x: 0, y: 0 };
-    const def = PARTS[type];
-    let spot = null;
+    const def = PARTS[type], rot = this.defaultRot(def), { w: dw, h: dh } = partDims({ def, rot });
+    let spot = this.kind === 'tank' ? this.tankSpot(type, centre) : null;
+    // (armour with a hull or turret already: a part with nowhere of its kind left goes nowhere odd either)
+    if (!spot && this.kind === 'tank' && def.place && this.parts.some((p) => p.def.place === 'hull' || p.def.place === 'ring')) { UI.toast('No room for it there. Drag the part into place instead.'); return; }
     // a spot that fits, with the part it hangs on (a wing for pods), at the first free depth there
     const fit = (t) => {
-      const z = this.zFit(type, t.x, t.y, 0, t.z, this.parts);
+      const z = this.zFit(type, t.x, t.y, rot, t.z, this.parts);
       if (z == null) return null;
-      const probe = { def, type, x: t.x, y: t.y, z };
+      const probe = { def, type, x: t.x, y: t.y, z, rot };
       const host = this.parts.find((o) => partsMounted(probe, o) && (!def.pod || isSurface(o.def)));
       if ((isSurface(def) || def.pod) && !host) return null;
       return { x: t.x, y: t.y, z, host: host || t.host || null, att: host || t.att || null };
     };
-    if (this.parts.length && (isSurface(def) || def.pod)) {
+    if (!spot && this.parts.length && (isSurface(def) || def.pod)) {
       // planes: a main wing goes through the fuselage just behind the centre of mass, tail surfaces through
       // the rearmost hull part, a canard through the front one, pods under a wing (one more pair further
       // out along it each time)
@@ -1193,44 +1385,634 @@ const Builder = {
       else if ((def.wing && def.wing.control) || type === 'stabilizer') { if (rear) for (const dy of [0, -0.5, 0.5]) tries.push({ x: rear.x, y: g(rear.y + dy) }); }
       else if (def.wing) for (const dy of [0, -0.5, 0.5, -1, 1]) { const y = g(com.y - def.h / 4 - 0.2 + dy), h = at(y); if (h) tries.push({ x: h.x, y }); }
       for (const t of tries) if ((spot = fit(t))) break;
-    } else if (this.parts.length) {
+    } else if (!spot && this.parts.length) {
       const centred = this.parts.filter((p) => Math.abs(p.x) < 0.01 && Math.abs(partZc(p)) < 0.01);
       const sorted = centred.sort((a, b) => partRect(b).t - partRect(a).t);
       const topP = sorted[0], botP = sorted[sorted.length - 1];
       const tries = [];
-      const top = topP && { x: 0, y: partRect(topP).t + def.h / 2, host: topP };
-      const bottom = botP && { x: 0, y: partRect(botP).b - def.h / 2, host: botP };
+      const top = topP && { x: 0, y: partRect(topP).t + dh / 2, host: topP };
+      const bottom = botP && { x: 0, y: partRect(botP).b - dh / 2, host: botP };
       if (def.side || def.leg || def.fin || def.shape === 'rcs' || def.shape === 'girder') {
-        for (const p of centred) tries.push({ x: p.def.w / 2 + def.w / 2, y: def.fin ? partRect(p).b + def.h / 2 : p.y, host: p, att: p });
+        for (const p of centred) tries.push({ x: p.def.w / 2 + dw / 2, y: def.fin ? partRect(p).b + dh / 2 : p.y, host: p, att: p });
       } else if (def.control || def.chute || def.aero) tries.push(top, bottom);
       else tries.push(bottom, top);
       for (const t of tries.filter(Boolean)) if ((spot = fit({ ...t, z: 0 }))) break;
     }
-    if (!spot) { const s = this.snap(type, centre, []); spot = s.ok ? s : null; }
+    if (!spot) { const s = this.snap(type, centre, [], rot); spot = s.ok ? s : null; }
     // else the free attachment nearest the middle of the view, wherever it is on the craft
-    if (!spot && this.parts.length) { const s = this.snap(type, centre, [], 0, Infinity); spot = s.ok && s.attached ? s : null; }
+    if (!spot && this.parts.length) { const s = this.snap(type, centre, [], rot, Infinity); spot = s.ok && s.attached ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
-    this.addPart(type, spot.x, spot.y, 0, { z: spot.z, att: spot.att, host: spot.host });
+    this.addPart(type, spot.x, spot.y, spot.rot ?? rot, { z: spot.z, att: spot.att, host: spot.host });
+    if (this.kind === 'tank' && !this.in3D()) this.keepInView(); // (the tank seen taking shape, not under the part's card)
+  },
+  // Fit the view if any part is outside the room the panels leave it (on a phone: above the part's card). 2D.
+  keepInView() {
+    this.area = null;
+    const a = this.viewArea(), x0 = a.cx - a.w / 2, y0 = a.cy - a.h / 2, c = this.canvas.getBoundingClientRect(), k = this.cam.scale;
+    for (const p of this.parts) {
+      const R = partRect(p);
+      for (const [x, y] of [[R.l, R.b], [R.r, R.b], [R.l, R.t], [R.r, R.t]]) {
+        const d = this.toDisp(x, y), sx = c.left + c.width / 2 + (d.x - this.cam.x) * k, sy = c.top + c.height / 2 - (d.y - this.cam.y) * k;
+        if (sx < x0 || sx > x0 + a.w || sy < y0 || sy > y0 + a.h) { this.fitView(); return; }
+      }
+    }
+  },
+
+  // ---------------------------------------------------------------- armour (the ground update)
+  // The turn a part comes in at: an aimed part (a gun, a launcher, a dish) on a ground vehicle points forward with its
+  // base down (rot 3: its own +y along +x); anything else, and every part from before, upright as always.
+  defaultRot(def, kind = this.kind) { return def && def.aim && isGround(kind) ? 3 : 0; },
+  // A hull's or turret's side outline in part space, turned as the part is (counter-clockwise): def.outline, else its box.
+  outlineOf(p) {
+    const d = p.def;
+    return (d.outline || BOX_OUTLINE).map(([fx, fy]) => { const q = partPt(p, fx * d.w, fy * d.h); return [q.x, q.y]; });
+  },
+  // The armour other parts sit inside: hulls, turret rings and turrets.
+  casings(parts = this.parts) { return parts.filter((p) => p.def.gv && (p.def.place === 'hull' || p.def.place === 'ring' || p.def.place === 'roof')); },
+  // Is a point m clear inside an armour shell: within its outline (a round one: its upright cylinder) and its depth?
+  within(H, x, y, z, m) {
+    const d = H.def, hz = partZ(H);
+    if (d.round) { const R = partRect(H); return y >= R.b + m && y <= R.t - m && Math.hypot(x - H.x, z - hz) <= d.w / 2 - m; }
+    if (Math.abs(z - hz) > partDepth(H) / 2 - m) return false;
+    const P = this.outlineOf(H);
+    for (let i = 0; i < P.length; i++) {
+      const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length];
+      if ((bx - ax) * (y - ay) - (by - ay) * (x - ax) < m * Math.hypot(bx - ax, by - ay)) return false;
+    }
+    return true;
+  },
+  // Is part (or pose) q all inside the armour: every corner of its box in one shell or another (a turret's crew sit
+  // down through the ring into the hull)?
+  inArmour(q, cs = this.casings(), m = 0.03) {
+    const R = partRect(q), z = partZ(q), hd = partDepth(q) / 2;
+    for (const x of [R.l, R.r]) for (const y of [R.b, R.t]) for (const zz of [z - hd, z + hd]) if (!cs.some((H) => H !== q && this.within(H, x, y, zz, m))) return false;
+    return true;
+  },
+  // The flat of a part's roof: [from x, to x] (a round turret: the middle of its dome).
+  roofOf(H) {
+    if (H.def.round || !H.def.outline) { const R = partRect(H), k = H.def.round ? 0.3 : 0.5; return [H.x - (R.r - R.l) * k, H.x + (R.r - R.l) * k]; }
+    const P = this.outlineOf(H);
+    let best = null, ny = -1;
+    for (let i = 0; i < P.length; i++) {
+      const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length], L = Math.hypot(bx - ax, by - ay) || 1;
+      if ((ax - bx) / L > ny) { ny = (ax - bx) / L; best = [Math.min(ax, bx), Math.max(ax, bx)]; }
+    }
+    return best;
+  },
+  // How far forward a part's shape reaches at height y (its front face there), from its clash shape (2D = 3D).
+  frontAt(H, y) {
+    const k = (H.rot || 0) & 3, s = k & 1 ? null : clashSection(H, clashShape(H.def, H.flip), k, y);
+    return s ? s[1] : partRect(H).r;
+  },
+  // Does an upright part (a brick or plate stood on a front) touch H's front face, within 3 cm at the nearest height
+  // they share? (Against a part at another turn the clash rules only know boxes, so the snug stops at H's box: in front
+  // of a nose that slopes back from the bottom, that is in the air.)
+  onFront(q, H) {
+    const P = partRect(q), R = partRect(H);
+    let gap = Infinity;
+    for (let y = Math.max(P.b, R.b); y <= Math.min(P.t, R.t) + 1e-9; y += 0.02) gap = Math.min(gap, P.l - this.frontAt(H, y));
+    return gap < 0.03;
+  },
+  // Where a tapped part goes on a tank, by its def.place: {x, y, z, rot, host, att}, or null (the usual tap then). A hull
+  // on an empty blueprint (else behind the last one); tracks and armoured wheels beside the biggest hull, symmetry
+  // adding the other side; engines, crew, racks and fuel inside, the first free spot within the armour; a ring on the
+  // roof, a turret on the ring; guns in the turret's front face (with no turret, the hull's), the trunnion in the face,
+  // so the breech is inside, pointing forward; launchers on a bare ring, else against the turret's face or on a roof;
+  // radars at the back of the roof, sights at the front, gun mounts in the middle; smoke and AA guns on the turret's
+  // sides; plates and bricks on the face nearest the middle of the view (a front upright, a roof flat); skirts and
+  // slats over the tracks' outer faces.
+  tankSpot(type, centre) {
+    const def = PARTS[type], place = def.place, parts = this.parts;
+    if (!place) return null;
+    const rot0 = this.defaultRot(def), dep = partDepth({ def }), piv = def.aim && def.aim.pivot != null ? def.aim.pivot : 0.5;
+    const big = (f) => parts.filter((p) => f(p.def)).reduce((m, p) => (!m || p.def.w * p.def.h > m.def.w * m.def.h ? p : m), null);
+    const hull = big((d) => d.place === 'hull'), tur = big((d) => d.place === 'ring');
+    const pose = (x, y, z, host, rot = rot0) => ({ def, type, x: +x.toFixed(3), y: +y.toFixed(3), z: cleanZ(+z.toFixed(3), def), rot, host, att: host });
+    const free = (q) => !parts.some((o) => partsClash(q, o));
+    const dims = (rot = rot0) => partDims({ def, rot });
+    const { w, h } = dims();
+    // the gun's pivot in a face at x: an aimed part turned forward (rot 3) has its breech at x - length/2
+    const into = (x) => (rot0 === 3 ? x + def.h / 2 - piv * def.h : x + w / 2);
+    const steps = (n, d) => { const o = [0]; for (let k = 1; k <= n; k++) o.push(k * d, -k * d); return o; };
+    if (place === 'hull') {
+      if (!parts.length) return pose(0, 0.45 + h / 2, 0, null);
+      const hs = parts.filter((p) => p.def.place === 'hull');
+      if (!hs.length) return null;
+      const last = hs.reduce((m, p) => (partRect(p).l < partRect(m).l ? p : m)), R = partRect(last), q = pose(R.l - w / 2, R.b + h / 2, partZ(last), null);
+      return free(q) ? q : null;
+    }
+    if (!hull && !tur) return null;
+    const main = tur || hull, M = partRect(main), mz = partZ(main), md = partDepth(main) / 2;
+    if (place === 'side' && hull) { // beside the hull, the bottom 0.45 m below its belly; wheels 1.6 m apart from the front back
+      const R = partRect(hull), y = R.b - 0.45 + h / 2, xs = def.track ? [hull.x] : [];
+      if (!def.track) for (let x = R.r - w / 2 - 0.3; x >= R.l + w / 2 - 0.3; x -= 1.6) xs.push(x);
+      for (const s of [1, -1]) for (const x of xs) { const q = pose(x, y, partZ(hull) + s * (partDepth(hull) / 2 + dep / 2), hull); if (free(q)) return q; }
+      return null;
+    }
+    if (place === 'inside') {
+      const seat = def.seat, crew = seat && seat !== 'driver', H = crew && tur ? tur : hull || tur, cs = this.casings();
+      const R = partRect(H), hz = partZ(H), m = 0.03, ring = parts.find((p) => p.def.ring && p.att === H.id), cx = ring ? ring.x : H.x;
+      const xs = [];
+      for (let x = R.l + w / 2 + m + 0.005; x <= R.r - w / 2 - m; x += 0.1) xs.push(x);
+      if (seat === 'driver' || def.module === 'fuel') xs.reverse(); // (the driver and the fuel up front; engines and troops at the back)
+      else if (!def.engine && !def.troops) xs.sort((a, b) => Math.abs(a - cx) - Math.abs(b - cx)); // (racks and the carousel under the turret)
+      const ys = [];
+      if (H === tur) for (let y = R.t - h / 2 - m - 0.005; y >= R.b - h / 2; y -= 0.1) ys.push(y); // (a turret's crew sit down into its basket)
+      else for (let y = R.b + h / 2 + m + 0.005; y <= R.t - h / 2 - m; y += 0.1) ys.push(y);
+      for (const dz of steps(Math.floor(partDepth(H) / 0.4), 0.2)) for (const x of xs) for (const y of ys) {
+        const q = pose(x, y, hz + dz, H);
+        if (this.inArmour(q, cs) && free(q)) return q;
+      }
+      return null;
+    }
+    if (place === 'roof') { // a ring on the hull roof 0.3 m ahead of its middle (that taken: on the turret, a cupola)
+      for (const H of [hull, tur]) {
+        if (!H) continue;
+        const [a, b] = this.roofOf(H), x = (a + b) / 2 + (H === hull ? 0.3 : 0), q = pose(b - a >= w ? clamp(x, a + w / 2, b - w / 2) : x, partRect(H).t + h / 2, partZ(H), H);
+        if (free(q)) return q;
+      }
+      return null;
+    }
+    if (place === 'ring') { // a turret on the top ring
+      for (const g of parts.filter((p) => p.def.ring && !(p.rot & 3)).sort((a, b) => partRect(b).t - partRect(a).t)) { const q = pose(g.x, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      return null;
+    }
+    if (place === 'front') { // in the front face at mid-height, beside or over anything already there
+      const face = () => {
+        for (const dy of steps(4, 0.1)) for (const dz of steps(Math.floor(md / 0.05), 0.05)) {
+          const y = main.y + dy, z = mz + dz;
+          if (y - h / 2 < M.b || y + h / 2 > M.t || Math.abs(dz) + dep / 2 > md) continue;
+          // (a launcher isn't set into the armour like a gun's breech: its back end against the face, where the face
+          // reaches furthest forward over its height)
+          const x = def.flush ? into(this.frontAt(main, y)) : Math.max(...[y - h / 2, y, y + h / 2].map((yy) => this.frontAt(main, yy))) + w / 2;
+          const q = pose(x, y, z, main);
+          if (clear(q)) return q;
+        }
+        return null;
+      };
+      // (and clear of the gun barrels and the kit set into the armour, which a part that isn't flush could pass through)
+      const clear = (q) => free(q) && (def.flush || !parts.some((o) => o.def.flush && partsOverlap(q, o)));
+      if (def.flush) return face();
+      // A launcher sits on top of a bare ring as the stock rocket and missile carriers have it (side by side across it,
+      // its trunnion over the middle); on a turret, against its front face; else on the roof; with no turret and no
+      // room up there, against the hull's front.
+      const mount = (H) => {
+        const [a, b] = this.roofOf(H), hz = partZ(H), hd = partDepth(H) / 2, y = partRect(H).t + h / 2, off = rot0 === 3 ? def.h / 2 - piv * def.h : 0;
+        for (const dz of steps(Math.floor(hd / (dep + 0.02)), dep + 0.02)) for (let k = 0; k <= 40; k++) for (const s of k ? [-1, 1] : [1]) {
+          const tx = (a + b) / 2 + s * k * 0.05;
+          if (tx < a || tx > b || Math.abs(dz) + dep / 2 > hd + 0.01) continue;
+          const q = pose(tx + off, y, hz + dz, H);
+          if (clear(q)) return q;
+        }
+        return null;
+      };
+      for (const g of parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id && o.def.place === 'ring')).sort((a, b) => partRect(b).t - partRect(a).t)) {
+        const q = mount(g);
+        if (q) return q;
+      }
+      return (tur && face()) || mount(main) || (!tur && face()) || null;
+    }
+    if (place === 'top') { // on the roof: radars at the back, sights at the front, gun mounts with their pivot over the middle
+      const [a, b] = this.roofOf(main), radar = !!(def.searchRadar || def.trackRadar), sight = def.module === 'sight';
+      const x0 = radar ? a + w / 2 + 0.1 : sight ? b - w / 2 - 0.1 : rot0 === 3 ? (a + b) / 2 + def.h / 2 - piv * def.h : (a + b) / 2;
+      for (const dz of steps(Math.floor(md / 0.1), 0.1)) for (let k = 0; k <= 40; k++) {
+        const x = x0 + (radar ? k : -k) * 0.1, z = mz + dz;
+        if (x - w / 2 < M.l - 0.5 || x + w / 2 > M.r + 0.5 || Math.abs(dz) + dep / 2 > md) continue;
+        const q = pose(x, M.t + h / 2, z, main);
+        if (free(q)) return q;
+      }
+      return null;
+    }
+    if (place === 'flank') { // on the turret's side (a pair, with symmetry): aimed ones pivoting over its middle, smoke up front by the roof
+      for (const dy of steps(4, 0.15)) for (const s of [1, -1]) {
+        const y = (def.aim ? main.y : M.t - h / 2 - 0.05) + dy, x = def.aim ? main.x + def.h / 2 - piv * def.h : this.frontAt(main, y) - w / 2 - 0.1;
+        const q = pose(x, y, mz + s * (md + dep / 2), main);
+        if (!free(q)) continue;
+        const sq = this.snug(q, 'z', -s, md, parts); // (in against a round turret)
+        return sq && cleanZ(sq.z, def) === sq.z && free(sq) ? { ...q, z: sq.z } : q;
+      }
+      return null;
+    }
+    if (place === 'face') { // the face nearest the middle of the view: a front (upright, rot 1, slid back onto it), else a roof
+      const cands = [], grid = (A, B) => A.flatMap((u) => B.map((v) => [u, v]));
+      for (const H of parts.filter((p) => p.def.gv && (p.def.place === 'hull' || p.def.place === 'ring'))) {
+        const R = partRect(H), P = H.def.outline ? this.outlineOf(H) : null, fr = dims(1), fl = dims(0), hz = partZ(H), zs = steps(3, dep + 0.02).filter((o) => Math.abs(o) + dep / 2 <= partDepth(H) / 2 + 0.01);
+        let y0 = P ? Infinity : R.b, y1 = P ? -Infinity : R.t; // (the height of its forward faces)
+        if (P) for (let i = 0; i < P.length; i++) { const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length]; if ((by - ay) / (Math.hypot(bx - ax, by - ay) || 1) > 0.3) { y0 = Math.min(y0, ay, by); y1 = Math.max(y1, ay, by); } }
+        const yf = y1 > y0 ? (y0 + y1) / 2 : H.y, [a, b] = this.roofOf(H);
+        // up front: beside or above and below anything there (a casemate's gun); on the roof: along it and across
+        // (then 10 cm steps, for a nose that only reaches its box low down: the MBT's)
+        const oys = steps(3, fr.h + 0.02), fine = steps(7, 0.1).filter((o) => !oys.some((u) => Math.abs(u - o) < 1e-6));
+        cands.push({ H, rot: 1, axis: 'x', max: R.r - R.l, at: [R.r, yf], ps: grid([...oys, ...fine].filter((o) => Math.abs(o) <= (y1 - y0) / 2 + 0.01), zs).map(([oy, oz]) => [R.r + fr.w / 2 + 0.02, yf + oy, hz + oz]) });
+        cands.push({ H, rot: 0, axis: 'y', max: R.t - R.b, at: [(a + b) / 2, R.t], ps: grid(steps(4, fl.w + 0.02).filter((o) => Math.abs(o) <= (b - a - fl.w) / 2 + 0.01), zs).map(([ox, oz]) => [(a + b) / 2 + ox, R.t + fl.h / 2 + 0.02, hz + oz]) });
+      }
+      cands.sort((p, q) => Math.hypot(p.at[0] - centre.x, p.at[1] - centre.y) - Math.hypot(q.at[0] - centre.x, q.at[1] - centre.y));
+      for (const c of cands) for (const [x, y, z] of c.ps) {
+        const q = pose(x, y, z, c.H, c.rot);
+        if (!free(q)) continue;
+        const sq = this.snug(q, c.axis, -1, c.max, parts); // (slid in until it meets the plate: then within 3 cm of it)
+        if (sq && free(sq) && partsOverlap(sq, c.H, -0.03, -0.03) && (c.rot !== 1 || this.onFront(sq, c.H))) return { ...q, x: sq.x, y: sq.y };
+      }
+      return null;
+    }
+    if (place === 'skirt') { // over a track's outer face, its top level with the track's, along it
+      const sides = parts.filter((p) => p.def.track).sort((a, b) => partZ(b) - partZ(a)), cz = this.com ? this.com.z || 0 : 0;
+      for (const T of sides) {
+        const R = partRect(T), s = Math.sign(partZ(T) - cz) || 1, z = partZ(T) + s * (partDepth(T) / 2 + dep / 2);
+        for (const o of [0, -1, 1, -2, 2]) {
+          const x = T.x + o * (w + 0.02);
+          if (spanOverlap(x - w / 2, x + w / 2, R.l, R.r) < Math.min(w, R.r - R.l) / 3) continue;
+          const q = pose(x, R.t - h / 2, z, T);
+          if (free(q)) return q;
+        }
+      }
+      return null;
+    }
+    return null;
+  },
+
+  // Armour (and a car carrying ground-update parts): its turret groups, what Gear, Armour and Aim make of the design
+  // (each null while it can't say), and the turrets' traverse and depression sweep, 150 ms after the last edit. Other
+  // craft never come here.
+  groundStats(ps, adj) {
+    const on = this.kind === 'tank' || (this.kind === 'car' && ps.some((p) => p.def.gv));
+    clearTimeout(this.sweepT);
+    this.tg = on ? Aim.groupsOfParts(ps, adj) : null;
+    this.tgOf = on ? new Map() : null;
+    if (!on) { this.statsData.ground = null; this.sweeps = this.sweepSig = null; return; }
+    for (const g of this.tg) for (const id of g.ids) this.tgOf.set(id, g); // (outer first: the innermost wins)
+    const safe = (f) => { try { return f() || null; } catch (e) { console.error(e); return null; } };
+    this.statsData.ground = { gear: safe(() => Gear.stats(ps)), armour: safe(() => Armour.summary(ps)), aim: safe(() => Aim.summary(ps)) };
+    const tg = this.tg;
+    this.sweepT = setTimeout(() => this.landSweep(tg, ps), 150);
+  },
+  // The sweep's answer arrives with no input: when it changes the arcs or the warnings, they are shown again at once
+  // (stats and picture). Kept by turret, in order, so an undo that brings the same turrets back draws nothing new.
+  landSweep(tg, ps) {
+    if (tg !== this.tg) return; // (a newer edit has its own on the way)
+    this.sweeps = tg.map((g) => { try { return Aim.sweep(ps, g) || null; } catch (e) { console.error(e); return null; } });
+    const r3 = (a) => Math.round(a * 1000) / 1000;
+    const sig = JSON.stringify(this.sweeps.map((r) => r && [r.yawLim && [...r.yawLim].map(r3), r.dep && [...r.dep].map(r3)]));
+    if (sig === this.sweepSig) return;
+    this.sweepSig = sig;
+    this.renderStats();
+    if (this.selected && !$('#part-info').hidden) this.renderTurret();
+    this.redraw();
+  },
+  // a traverse limit [lo, hi] (radians) in words: ±130°, or −40°/+130°
+  arcText([lo, hi]) {
+    const d0 = Math.round((-lo * 180) / Math.PI), d1 = Math.round((hi * 180) / Math.PI);
+    return Math.abs(d0 - d1) <= 2 ? `±${Math.round((d0 + d1) / 2)}°` : `${d0 > 0 ? '−' : '+'}${Math.abs(d0)}°/${d1 < 0 ? '−' : '+'}${Math.abs(d1)}°`;
+  },
+  sweepOf(g) { const i = this.tg ? this.tg.indexOf(g) : -1; return (i >= 0 && this.sweeps && this.sweeps[i]) || null; },
+  // a turret's main weapon: the biggest gun in it, else its tracking dish
+  primaryOf(g) {
+    let best = null;
+    for (const p of g.members) if (p.def.aim && (p.def.weapon ? !best || !best.def.weapon || (p.def.weapon.cal || 0) > (best.def.weapon.cal || 0) : !best)) best = p;
+    return best;
+  },
+  // The vehicle's main gun (the biggest tank gun), if any.
+  mainGun(ps) { return ps.filter((p) => p.def.aim && p.def.weapon && p.def.weapon.kind === 'tgun').sort((a, b) => b.def.weapon.cal - a.def.weapon.cal)[0] || null; },
+  // Who rides in it and what holds its rounds: a hull's or turret's own crew and racks (def.mods) until a seat (or a
+  // rack, or the carousel) is put in it, then the placed ones (an old cab's crew does every job).
+  crewOf(ps) {
+    const seated = new Set(), racked = new Set(), roles = [], stores = [];
+    for (const p of ps) { if (p.def.seat && p.att != null) seated.add(p.att); if ((p.def.rack || p.def.autoload) && p.att != null) racked.add(p.att); }
+    for (const p of ps) {
+      const d = p.def;
+      if (!d.gv && d.control) roles.push('driver', 'gunner', 'loader', 'commander');
+      if (d.mods) for (const m of d.mods) {
+        if (m.k === 'crew' && !seated.has(p.id)) { roles.push(m.role); if (m.also) roles.push(m.also); }
+        if (m.k === 'ammo' && !racked.has(p.id)) stores.push({ rounds: m.rounds || 0, autoload: m.autoload || 0 });
+      }
+      if (d.seat) roles.push(d.seat);
+      if (d.rack) stores.push({ rounds: d.rack.rounds || 0, autoload: d.autoload || 0 });
+    }
+    return { roles, stores };
+  },
+  // A plated part's faces against a level shot: [{kind: front|rear|roof|sides|plate, mm, ang (° from upright), eff (mm)}],
+  // the front ones from the top down (2D = 3D = hits: the outline is the hit shape).
+  facesOf(p) {
+    const d = p.def, A = d.armour, mm = p.mm != null ? p.mm : A.mm, k = (p.rot || 0) & 3, out = [], RAD = Math.PI / 180;
+    const eff = (t, c) => Math.round(Math.min(t / Math.max(c, 1e-6), 6 * t));
+    if (A.slab) return [{ kind: 'plate', mm, ang: 0, eff: mm }];
+    if (d.round || A.round) {
+      const R = A.round || {}, sl = (d.round && d.round.slope) || 0, f = mm * (R.f ?? 1);
+      out.push({ kind: 'front', mm: Math.round(f), ang: sl, eff: eff(f, Math.cos(sl * RAD)) }, { kind: 'sides', mm: Math.round(mm * (R.s ?? 1)) },
+        { kind: 'roof', mm: Math.round(mm * (R.t ?? 1)) }, { kind: 'rear', mm: Math.round(mm * (R.r ?? 1)) });
+      return out;
+    }
+    if (!d.outline) return [{ kind: 'all', mm }];
+    const o = d.outline, n = o.length, E = A.edge || [], open = A.open || [], fr = [];
+    let roof = null, rear = null;
+    for (let i = 0; i < n; i++) {
+      const [x0, y0] = o[i], [x1, y1] = o[(i + 1) % n], L = Math.hypot((x1 - x0) * d.w, (y1 - y0) * d.h) || 1;
+      let nx = ((y1 - y0) * d.h) / L, ny = (-(x1 - x0) * d.w) / L, my = (y0 + y1) / 2;
+      for (let j = 0; j < k; j++) { const t = nx; nx = -ny; ny = t; }
+      const t = Math.round(mm * (E[i] ?? 1)), f = { mm: t, open: open.includes(i), ang: Math.round(Math.acos(Math.min(1, Math.abs(nx))) / RAD), eff: eff(t, nx), my };
+      if (nx > 0.3) fr.push({ kind: 'front', ...f });
+      else if (ny > 0.7 && (!roof || ny > roof.ny)) roof = { kind: 'roof', ...f, ny };
+      else if (nx < -0.3 && (!rear || t < rear.mm)) rear = { kind: 'rear', ...f };
+    }
+    out.push(...fr.sort((a, b) => b.my - a.my), { kind: 'sides', mm: Math.round(mm * (A.z ?? 1)) });
+    if (roof) out.push(roof);
+    if (rear) out.push(rear);
+    return out;
+  },
+  // ...in words, for the armour control: "Glacis 45 mm at 63° → 99 mm · lower 45 mm at 53° → 75 mm · sides 40 mm"
+  facesText(p) {
+    const F = this.facesOf(p), fronts = F.filter((f) => f.kind === 'front').length, hull = p.def.place === 'hull', of = (k) => F.find((f) => f.kind === k);
+    const fr = of('front'), sd = of('sides'), rr = of('rear'), roof = of('roof');
+    if (fronts === 1 && sd && rr && fr.ang < 5 && fr.mm === sd.mm && sd.mm === rr.mm) return `${fr.mm} mm all round${roof ? ` · roof ${roof.mm} mm` : ''}`; // (a ring)
+    let i = 0;
+    return F.map((f) => {
+      if (f.kind === 'plate') return `${f.mm} mm, on top of the plate behind it`;
+      if (f.kind === 'all') return `${f.mm} mm all round`;
+      const name = f.kind !== 'front' ? f.kind : i++ === 0 ? (fronts > 1 && hull ? 'Glacis' : 'Front') : 'lower';
+      if (f.open) return `${name} open`;
+      return `${name} ${f.mm} mm` + (f.kind === 'front' && f.ang >= 5 ? ` at ${f.ang}° → ${f.eff} mm` : '');
+    }).join(' · ');
+  },
+  // the weakest forward plate against a level shot (mm), for the tray
+  frontOf(def) { const F = this.facesOf({ def, rot: 0 }).filter((f) => f.kind === 'front' && !f.open); return F.length ? Math.min(...F.map((f) => f.eff)) : 0; },
+  // power to weight (hp/t), from the engines and the mass, while Gear.stats can't say
+  hptOf(ps) { let kw = 0, kg = 0; for (const p of ps) { kg += partKg(p); if (p.def.engine) kw += p.def.engine.kw || 0; } return kg ? (kw * 1.341) / (kg / 1000) : 0; },
+  // What a turret's parts meet turned by a about its ring (plan view, at the heights they share): [member, other] or null.
+  // Names the part that stops a turret for the warning and Test turret.
+  hitAt(g, a) {
+    const c = g.c, cs = Math.cos(a), sn = Math.sin(a), top = c.y, ex = 0.01;
+    const obs = this.parts.filter((p) => !g.ids.has(p.id) && p !== g.ring && !p.def.inner && partRect(p).t > top + 0.05);
+    for (const m of g.members) {
+      if (m.def.inner || m.def.round) continue; // (a round turret's footprint is the same however it turns)
+      const A = partRect(m), mz = partZ(m), mh = partDepth(m) / 2;
+      const P = [[A.l, mz - mh], [A.r, mz - mh], [A.r, mz + mh], [A.l, mz + mh]].map(([x, z]) => [c.x + (x - c.x) * cs - (z - c.z) * sn, c.z + (x - c.x) * sn + (z - c.z) * cs]);
+      for (const o of obs) {
+        const B = partRect(o);
+        if (Math.min(A.t, B.t) - Math.max(A.b, B.b) <= ex) continue;
+        for (const oz of partZs(o)) {
+          const oh = partDepth(o) / 2, Q = [[B.l, oz - oh], [B.r, oz - oh], [B.r, oz + oh], [B.l, oz + oh]];
+          let apart = false; // (separating axes: the box's two and the turned box's two)
+          for (const [ux, uz] of [[1, 0], [0, 1], [cs, sn], [-sn, cs]]) {
+            const pr = (S) => S.map(([x, z]) => x * ux + z * uz), a1 = pr(P), b1 = pr(Q);
+            if (Math.max(...a1) <= Math.min(...b1) + ex || Math.max(...b1) <= Math.min(...a1) + ex) { apart = true; break; }
+          }
+          if (!apart) return [m, o];
+        }
+      }
+    }
+    return null;
+  },
+  // The stats rows and warnings for armour (and for a car's ground-update parts): spec §2.5. All of them are warnings;
+  // only the missing control part (a hull or crewed turret) keeps it from launching.
+  groundWarnings(ps, warn) {
+    const G = this.statsData.ground || {}, gear = G.gear, has = (f) => ps.some((p) => f(p.def)), tank = this.kind === 'tank', RAD = Math.PI / 180;
+    const byId = new Map(ps.map((p) => [p.id, p])), runs = ps.filter((p) => p.def.track || p.def.awheel), cz = this.com ? this.com.z || 0 : 0;
+    const sgn = (d) => `${d < 0 ? '−' : '+'}${Math.abs(Math.round(d))}°`;
+    if (tank) {
+      if (!runs.length) warn.push('Add tracks or armoured wheels beside the hull.');
+      else {
+        const sides = new Set(runs.map((p) => Math.sign(partZ(p) - cz)));
+        if (!sides.has(1) || !sides.has(-1)) warn.push(`${runs.some((p) => p.def.track) ? 'Tracks' : 'Wheels'} on one side only: it will drive in circles.`);
+        // (what stands on the ground is the lowest part: tracks over a rocket's engine never touch it)
+        const low = ps.reduce((m, p) => (partRect(p).b < partRect(m).b ? p : m)), dy = Math.min(...runs.map((p) => partRect(p).b)) - partRect(low).b;
+        if (dy > 0.3) warn.push(`The ${runs.some((p) => p.def.track) ? 'tracks don’t' : 'wheels don’t'} reach the ground: the ${low.def.name} sits ${dy.toFixed(1)} m lower.`);
+      }
+      if (!has((d) => d.engine)) warn.push('Add an engine inside the hull: without one it won’t move.');
+    }
+    const hpt = gear ? gear.hpt : this.hptOf(ps);
+    if (runs.length && has((d) => d.engine) && hpt < 10) warn.push(`Underpowered: ${Math.round(hpt)} hp/t, it will crawl uphill.`);
+    if (gear && runs.length && gear.overload > 0.05) {
+      const what = runs.some((p) => p.def.track) ? 'Tracks' : 'Wheels', drop = gear.top0 != null && gear.top0 > gear.top + 0.5 ? `from ${Math.round(gear.top0)} ` : '';
+      warn.push(`${what} rated for ${Math.round(gear.loadT)} t carry ${Math.round(gear.mass)} t: top speed drops ${drop}to ${Math.round(gear.top)} km/h.`);
+    }
+    const C = this.crewOf(ps), role = (r) => C.roles.includes(r), W = this.mainGun(ps);
+    if (runs.length && !role('driver')) warn.push('No driver: it can’t move until someone takes the seat.');
+    if (W && !role('gunner') && !C.roles.some((r) => r && r !== 'driver')) warn.push('No gunner: the main gun can’t fire until someone takes the seat.');
+    if (W && !role('loader') && !(W.def.weapon.cal >= 100 && (has((d) => d.autoload) || C.stores.some((e) => e.autoload)))) warn.push('No loader: reloads take 50% longer.');
+    if (W && !C.stores.length) warn.push(`The ${W.def.name} has only its ${W.def.weapon.ammo} ready rounds: add an Ammo Rack.`);
+    if (ps.some((p) => p.def.ring && p.rot & 3)) warn.push('Turret rings work flat on the roof: parts on the ring turn with it.');
+    for (const g of this.tg || []) {
+      if (g.jam) {
+        const a = byId.get(g.jam[0]), b = byId.get(g.jam[1]);
+        warn.push(`The ${g.ring.def.name} can’t turn: the ${a ? a.def.name : 'turret'} touches both the turret and the ${b ? b.def.name : 'hull'}.`);
+        continue;
+      }
+      if (g.mass > (g.ring.def.ring.cap || 0)) warn.push(`This turret is heavy for its ring: it turns at ${Math.round(g.rate / RAD)}°/s.`);
+      const S = this.sweepOf(g);
+      if (S && S.yawLim) {
+        const [lo, hi] = S.yawLim, hit = this.hitAt(g, hi + 5 * RAD) || this.hitAt(g, lo - 5 * RAD);
+        warn.push(`The turret stops at ${this.arcText(S.yawLim)}: beyond that ${hit ? `the ${hit[0].def.name} hits the ${hit[1].def.name}` : 'it hits the hull'}.`);
+      }
+      const P = this.primaryOf(g), D = S && P && ((S.deps && S.deps.get && S.deps.get(P.id)) || null), dep = D ? D.a || D : S && S.dep;
+      if (dep && P && P.def.aim.el) {
+        const el0 = P.def.aim.el[0], fwd = dep[0] / RAD, lim = S.yawLim;
+        let worst = -Infinity, at = 0;
+        for (let i = 0; i < dep.length; i++) { // (where the turret can turn to: a sector it can't reach doesn't count)
+          const a = (((i * 30 + 180) % 360) - 180) * RAD;
+          if ((!lim || (a >= lim[0] + 15 * RAD - 1e-6 && a <= lim[1] - 15 * RAD + 1e-6)) && dep[i] / RAD > worst) { worst = dep[i] / RAD; at = i; } // (each sector spans ±15°)
+        }
+        if (worst > el0 + 1.5 && worst > fwd + 1) {
+          const where = at >= 4 && at <= 8 ? 'over the back deck' : 'to the side';
+          warn.push(`${worst <= 0 ? `The gun only dips ${sgn(worst)}` : `The gun can’t come down below ${sgn(worst)}`} ${where} (${sgn(Math.max(el0, fwd))} forward).`);
+        }
+      }
+    }
+    for (const p of ps) if (p.def.aim && p.def.weapon && !(p.rot & 1)) { warn.push(`The ${p.def.name} points ${p.rot & 2 ? 'down' : 'up'}: turn it with R so it points forward.`); break; }
+    const cs = this.casings(ps);
+    for (const p of ps) if (p.def.inner && !this.inArmour(p, cs, -0.02)) {
+      warn.push(`The ${p.def.name} sits outside the ${cs.length ? 'hull' : 'armour'}: ${p.def.module === 'ammo' ? 'one hit can set it off' : 'one hit can knock it out'}.`);
+      break;
+    }
+    if (gear && runs.length && gear.tip > 0 && gear.tip < 0.6) warn.push(`Top-heavy: it may tip over on side slopes (tips at ${gear.tip.toFixed(2)} g).`);
+    const rs = ps.find((p) => p.def.weapon && p.def.weapon.radar);
+    if (rs && !has((d) => d.trackRadar)) warn.push(`The ${rs.def.name} needs a Tracking Radar on board.`);
+    if (runs.length && has((d) => d.wheel && d.wheel.drive)) warn.push('Car Wheels don’t drive with tracks or armoured wheels: they roll free.');
+    if (tank && !has((d) => d.weapon && d.weapon.kind !== 'smoke')) warn.push('No gun: it can drive and capture, but not fight.');
+  },
+  // The line under the stats: "85 mm APHE 124 mm at 1 km · reload 7.0 s · turret 24°/s · gun −5°/+22° · crew 5 · pivots
+  // 40°/s · climbs 28° · tips at 0.71 g · 42 rounds" (what Aim, Gear and Armour can say so far)
+  groundLine(ps) {
+    const G = this.statsData.ground || {}, A = G.aim, g = G.gear, out = [], sgn = (d) => `${d < 0 ? '−' : '+'}${Math.abs(Math.round(d))}°`;
+    if (A) {
+      const W = ps.find((p) => p.def.aim && p.def.weapon && p.def.name === A.gun), w = W && W.def.weapon, sh = w && w.shells && typeof SHELLS !== 'undefined' && SHELLS[w.shells[0]];
+      out.push(sh ? `${w.cal} mm ${sh.label} ${A.pen1k} mm at 1 km` : `${A.gun}${A.pen1k ? ` ${A.pen1k} mm` : ''}`);
+      if (w && w.kind === 'agun') out.push(`${w.rate} rounds/s`); else if (A.reload) out.push(`reload ${A.reload.toFixed(1)} s`);
+      const tg = W && this.tgOf && this.tgOf.get(W.id);
+      out.push(tg && tg.jam ? 'turret jammed' : A.trav ? `${tg ? 'turret' : 'traverse'} ${Math.round(A.trav)}°/s` : 'fixed');
+      if (A.el) out.push(`gun ${sgn(A.el[0])}/${sgn(A.el[1])}`);
+    }
+    const crew = A ? A.crew : G.armour && G.armour.crew;
+    if (crew) out.push(`crew ${crew}`);
+    if (g) { if (g.pivot) out.push(`pivots ${Math.round(g.pivot)}°/s`); if (g.climb) out.push(`climbs ${Math.round(g.climb)}°`); if (g.tip) out.push(`tips at ${g.tip.toFixed(2)} g`); }
+    const rounds = A ? A.rounds : G.armour && G.armour.rounds;
+    if (rounds) out.push(`${rounds} rounds`);
+    return out.join(' · ');
+  },
+
+  // X-ray (X): the armour goes see-through and what is inside it shows: crew, ammunition, engines, fuel (parts.js draws
+  // it in 2D through PartPaint.xray, Parts3D in 3D). Offered while something on the design sits inside armour; on unless
+  // switched off (rss.xray). The armour view (2D) colours each plate by how thick it is against a level shot.
+  xrayAvail() { return this.parts.some((p) => p.def.mods || p.def.inner); },
+  xrayShown() { return !!this.xray && this.xrayAvail(); },
+  setXray(on) {
+    this.xray = !!on;
+    store.set('rss.xray', this.xray);
+    this.renderTools();
+    this.redraw();
+    UI.toast(this.xray ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray off');
+  },
+  setArmourView(on) {
+    this.armourView = !!on;
+    this.renderTools();
+    this.redraw();
+    UI.toast(this.armourView ? 'Armour view: red is thin, yellow 100 mm, green 250 mm, blue over 450 mm (against a level shot)' : 'Armour view off');
+  },
+  renderTools() {
+    const x = $('#btn-xray'), a = $('#btn-armour'), av = this.xrayAvail(), plated = this.parts.some((p) => p.def.gv && p.def.armour);
+    if (x.hidden !== !av) x.hidden = !av;
+    x.setAttribute('aria-pressed', String(this.xrayShown()));
+    if (a.hidden !== !plated) a.hidden = !plated;
+    a.setAttribute('aria-pressed', String(!!this.armourView && plated));
+  },
+
+  // The armour control: a plated part's thickness, in 5 mm steps between its def's limits, for every selected part and
+  // their twins (each kept within its own limits). live: while the slider moves (one undo step when it is let go).
+  setMm(v, live) {
+    const list = this.withTwins([...this.sel]).filter((q) => cleanMm(v, q.def) != null);
+    if (!list.length) return;
+    for (const q of list) { const m = cleanMm(v, q.def); if (Math.abs(m - q.def.armour.mm) < 0.5) delete q.mm; else q.mm = m; }
+    this.changed(!!live);
+    if (live) this.renderArmour(true); else this.renderInfo();
+  },
+  stepMm(k) { const p = this.selected, A = p && p.def.armour; if (A && A.min != null) this.setMm((p.mm ?? A.mm) + 5 * k); },
+  renderArmour(live) {
+    const row = $('#pi-armour'), p = this.selected, q = p && (p.def.armour ? p : [...this.sel].find((o) => o.def.armour));
+    if (!q) { row.hidden = true; return; }
+    row.hidden = false;
+    const A = q.def.armour, mm = q.mm ?? A.mm, dial = A.min != null && A.max != null, input = $('#pi-mm');
+    for (const id of ['#btn-mm-down', '#pi-mm', '#btn-mm-up']) $(id).hidden = !dial;
+    if (dial && !live) { input.min = A.min; input.max = A.max; input.step = 5; input.value = mm; }
+    $('#btn-mm-down').disabled = !dial || mm <= A.min; $('#btn-mm-up').disabled = !dial || mm >= A.max;
+    $('#pi-mm-val').textContent = dial ? `${mm} mm` : `${mm} mm · fixed`;
+    $('#pi-mm-faces').textContent = this.facesText(q);
+    if (!this.multi) $('#pi-specs').textContent = this.partSpecs(q);
+  },
+  // the turret block: how far the selected turret (or the turret a part rides on) turns, how fast, and the gun's
+  // elevation; Test turret in 3D
+  renderTurret() {
+    const row = $('#pi-turret'), p = !this.multi && this.selected, g = p && this.tgOf && (p.def.ring ? this.tg.find((q) => q.ring === p) : this.tgOf.get(p.id));
+    const W = p && p.def.aim ? p : g && this.primaryOf(g);
+    if ((!g && !(p && p.def.aim)) || !isGround(this.kind)) { row.hidden = true; return; } // (other craft fire aimed guns straight ahead)
+    row.hidden = false;
+    const RAD = Math.PI / 180, sgn = (d) => `${d < 0 ? '−' : '+'}${Math.abs(Math.round(d))}°`, S = g && this.sweepOf(g), out = [];
+    if (g) out.push(g.jam ? 'jammed' : `${S && S.yawLim ? this.arcText(S.yawLim) : 'all round'} · ${Math.round(g.rate / RAD)}°/s`);
+    else if (W.def.aim.trav) out.push(`${sgn(W.def.aim.trav[0])}/${sgn(W.def.aim.trav[1])} on its own mount`);
+    else if (W.def.aim.casemate) out.push(`±${W.def.aim.casemate[0]}° in the hull · ${W.def.aim.casemate[1]}°/s`);
+    if (W && W.def.aim.el) out.push(`gun ${sgn(W.def.aim.el[0])}/${sgn(W.def.aim.el[1])}`);
+    $('#pi-arc').textContent = out.join(' · ');
+    $('#btn-test-turret').hidden = !g || !!g.jam;
+  },
+  // Test turret: the selected turret swings once through its arc over 3 s in the 3D view, and what stops it flashes
+  testTurret() {
+    const p = this.selected, g = p && this.tgOf && (p.def.ring ? this.tg.find((q) => q.ring === p) : this.tgOf.get(p.id));
+    if (!g || g.jam) { UI.toast(g ? 'That turret can’t turn: see the warning' : 'Select a turret ring to test it'); return; }
+    if (!this.in3D()) { UI.toast('Test turret shows in the 3D view: press V or 3D'); return; }
+    const S = this.sweepOf(g), lim = S && S.yawLim ? [S.yawLim[0], S.yawLim[1]] : null, RAD = Math.PI / 180;
+    const hit = lim ? [this.hitAt(g, lim[1] + 5 * RAD), this.hitAt(g, lim[0] - 5 * RAD)].filter(Boolean).flatMap((h) => h) : [];
+    this.turretTest = { g, t0: performance.now(), lim, hit };
+    this.redraw();
+    Sound.click();
+  },
+  // per 3D frame while it runs (Render3D.renderBuilder): the ring turned for the time since it began (0, round to one
+  // end, to the other, back; or once all the way round), with the parts it meets at the ends; null once it is over
+  turretNow() {
+    const T = this.turretTest;
+    if (!T) return null;
+    const k = (performance.now() - T.t0) / 3000, R = T.g.ring;
+    if (k >= 1 || !this.parts.includes(R) || App.scene !== 'build') { R.aimYaw = 0; this.turretTest = null; this.redraw(); return null; }
+    let a = k * TAU, near = false;
+    if (T.lim) {
+      const [lo, hi] = T.lim, s = k * 2 * (hi - lo);
+      a = s < hi ? s : s < 2 * hi - lo ? 2 * hi - s : lo + (s - (2 * hi - lo));
+      near = Math.min(Math.abs(a - hi), Math.abs(a - lo)) < 0.12;
+    }
+    R.aimYaw = a;
+    return { tgOf: this.tgOf, hit: near ? T.hit : null };
+  },
+  // The 3D hangar's traverse fan (Render3D): the selected turret's ring top and its free arc ([lo, hi], null: all round)
+  arcs3d() {
+    const p = !this.multi && !this.drag && this.selected, g = p && this.tgOf && (p.def.ring ? this.tg.find((q) => q.ring === p) : this.tgOf.get(p.id));
+    if (!g) return null;
+    const S = this.sweepOf(g);
+    return { c: g.c, lim: g.jam ? [0, 0] : S && S.yawLim ? S.yawLim : null };
+  },
+  // The 2D arcs: the selected gun's (or the selected ring's main gun's) elevation fan at its trunnion, with dotted rays
+  // where the sweep finds it can dip no lower ahead and, turned round, over the back; a ring's traverse in words.
+  drawArcs(ctx, lw, XY) {
+    const p = !this.multi && !this.drag && this.selected;
+    if (!p || !this.tg) return;
+    const g = p.def.ring ? this.tg.find((q) => q.ring === p) : this.tgOf.get(p.id), W = p.def.aim ? p : g ? this.primaryOf(g) : null, RAD = Math.PI / 180;
+    if (!W && !g) return;
+    const S = g && this.sweepOf(g), labels = [];
+    if (W && W.def.aim.el) {
+      const d = W.def, a = d.aim, pv = a.pivot != null ? a.pivot : 0.5, T = partPt(W, 0, -d.h / 2 + pv * d.h), L = Math.max(1.5, (d.h - pv * d.h) * 1.15), k = (W.rot || 0) & 3;
+      const dir = (el) => { let gx = -Math.sin(el), gy = Math.cos(el); for (let i = 0; i < k; i++) { const t = gx; gx = -gy; gy = t; } return [gx, gy]; };
+      const e0 = a.el[0] * RAD, e1 = a.el[1] * RAD;
+      ctx.beginPath(); ctx.moveTo(T.x, T.y);
+      for (let i = 0; i <= 16; i++) { const [gx, gy] = dir(e0 + ((e1 - e0) * i) / 16); ctx.lineTo(T.x + gx * L, T.y + gy * L); }
+      ctx.closePath(); ctx.fillStyle = 'rgba(255,181,71,0.12)'; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(255,181,71,0.75)'; ctx.stroke();
+      const D = S && S.deps && S.deps.get && S.deps.get(W.id), dep = D ? D.a || D : S && W === (g && this.primaryOf(g)) ? S.dep : null;
+      if (dep) {
+        ctx.setLineDash([0.04, 0.14]); ctx.lineCap = 'round'; ctx.lineWidth = 3 * lw; ctx.strokeStyle = '#ff8a5c';
+        const ray = (x, y, gx, gy) => { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + gx * L, y + gy * L); ctx.stroke(); };
+        const [fx, fy] = dir(Math.max(e0, dep[0])); ray(T.x, T.y, fx, fy);
+        const lim = S.yawLim, back = g && dep.length > 6 && (!lim || (lim[0] <= -Math.PI + 1e-6 && lim[1] >= Math.PI - 1e-6));
+        if (back) { const [bx, by] = dir(Math.max(e0, dep[6])); ray(2 * g.c.x - T.x, T.y, -bx, by); } // (the turret turned to the rear, if it can)
+        ctx.setLineDash([]); ctx.lineCap = 'butt';
+      }
+      const [ex, ey] = dir(e1);
+      labels.push([T.x + ex * L, T.y + ey * L, `${a.el[0] < 0 ? '−' : '+'}${Math.abs(a.el[0])}°/+${a.el[1]}°`]);
+    }
+    if (g && p.def.ring) labels.push([g.c.x, g.c.y + 0.25, g.jam ? 'can’t turn' : S && S.yawLim ? `turns ${this.arcText(S.yawLim)}` : 'turns all round']);
+    this.arcLabels = labels.map(([x, y, t]) => [...XY(x, y), t]);
   },
 
   setKind(kind) {
     if (!VEHICLE_KINDS[kind] || kind === this.kind) return;
     this.kindSymmetry(kind);
     this.kind = kind;
-    this.category = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng' }[kind] || this.category;
+    this.category = KIND_TAB[kind] || this.category;
     this.linkMirrors();
     this.buildPalette();
     this.renderKind();
     this.changed();
     this.fitView();
+    if (typeof App !== 'undefined' && App.hint3D) { App.hint3D(); this.layout(); } // (the 3D hint's words are the kind's)
     Sound.click();
   },
-  // Planes mirror left and right and keep their own symmetry setting (on unless switched off); the others
-  // share one. True if it just changed.
-  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : 'rss.symmetry'; },
+  // A tap on a kind button. Armour from a blueprint with no armour on it (the stock Hopper a new player meets, a plane):
+  // a new, empty Armour design, the old one a tap of Undo away; the player's own unsaved work is asked about first.
+  pickKind(kind) {
+    if (kind !== 'tank' || this.kind === 'tank' || !this.parts.length || this.parts.some((p) => p.def.gv)) return this.setKind(kind);
+    const was = this.name, fresh = () => {
+      this.parts = []; this.selected = null; this.savedAs = null; this.name = VEHICLE_KINDS.tank.name;
+      this.setKind('tank'); this.renderInfo();
+      UI.toast(`A new Armour design: Undo brings back the ${was}`);
+    };
+    if (!this.unsavedWork()) return fresh();
+    UI.modal({
+      title: 'A new Armour design?',
+      body: el('p', { text: `The ${was} has no armour parts. A tank starts from a hull on an empty blueprint; Undo brings these parts back.` }),
+      actions: [{ label: 'Keep these parts', onClick: () => this.setKind('tank') }, { label: 'New Armour design', primary: true, onClick: fresh }],
+    });
+  },
+  // Planes and armour mirror left and right and keep their own symmetry settings (on unless switched off); the
+  // others share one. True if it just changed.
+  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : 'rss.symmetry'; },
   kindSymmetry(kind) {
     const want = store.get(this.symKey(kind), true), b = $('#btn-sym');
-    b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack' : 'Symmetry: parts get a twin front and back';
+    b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack'
+      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : 'Symmetry: parts get a twin front and back';
     if (want === this.symmetry) return false;
     this.symmetry = want;
     b.setAttribute('aria-pressed', String(want));
@@ -1239,7 +2021,7 @@ const Builder = {
   renderKind() {
     document.querySelectorAll('[data-kind]').forEach((b) => {
       b.setAttribute('aria-checked', String(b.dataset.kind === this.kind));
-      b.disabled = !!this.mp && !this.mp.kinds.includes(b.dataset.kind); // battles: planes, helicopters and cars
+      b.disabled = !!this.mp && !this.mp.kinds.includes(b.dataset.kind); // battles: the kinds that game allows
     });
   },
   // The launch button: Launch, or in a multiplayer room Fly (sandbox) and Ready (battle).
@@ -1263,10 +2045,19 @@ const Builder = {
     set('#s-name', this.name);
     set('#s-mass', fmt.mass(s.mass));
     set('#s-thrust', `${Math.round(s.thrust / 1000).toLocaleString('en-US')} kN`);
-    const kind = this.kind, rocket = kind === 'rocket';
+    const kind = this.kind, rocket = kind === 'rocket', tank = kind === 'tank';
     set('#s-twr', s.thrust ? s.twr.toFixed(2) : '—');
     set('#s-twr-label', rocket ? 'TWR' : 'T/W');
-    $('#s-twr-row').hidden = kind === 'car';
+    $('#s-twr-row').hidden = kind === 'car' || tank;
+    // armour: mass, power to weight, top speed and the front's thickness instead of thrust, T/W, fuel and stages
+    for (const id of ['#s-thrust-row', '#s-dv-row', '#s-stage-box']) $(id).hidden = tank;
+    for (const id of ['#s-power-row', '#s-top-row', '#s-front-row']) $(id).hidden = !tank;
+    if (tank) {
+      const G = s.ground || {}, ps0 = this.parts.filter((p) => this.attached.has(p.id)), hpt = G.gear ? G.gear.hpt : this.hptOf(ps0);
+      set('#s-power', hpt > 0 ? `${Math.round(hpt)} hp/t` : '—');
+      set('#s-top', G.gear && G.gear.top > 0 ? `${Math.round(G.gear.top)} km/h` : '—');
+      set('#s-front', G.armour && G.armour.front > 0 ? `${Math.round(G.armour.front)} mm` : '—');
+    }
     set('#s-dv-label', rocket ? 'Δv vac' : 'Fuel');
     set('#s-dv', rocket ? `${Math.round(s.dv).toLocaleString('en-US')} m/s` : fmt.mass(s.fuel));
     set('#s-stages', String(this.stages.length));
@@ -1280,7 +2071,7 @@ const Builder = {
       const btns = $('#career-row .cr-btns'); if (btns) btns.hidden = !!this.mp; // (no research or missions in a battle)
     }
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
-    if (!this.ctrl) warn.push(kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
+    if (!this.ctrl) warn.push(tank ? 'Add a hull: it holds the crew.' : kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
     else if (kind === 'plane') {
       const com = this.com, col = this.col, L = Math.max(4, s.air.length);
       if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
@@ -1298,8 +2089,13 @@ const Builder = {
         else if (m > 0.22) warn.push('Very nose-heavy: the centre of lift is far behind the centre of mass, so it may not lift its nose. Move the wing forward.');
       }
       if (s.thrust && s.twr < 0.2) warn.push('Underpowered: it will struggle to take off.');
-    } else if (kind === 'car') {
-      if (!has((p) => p.def.wheel && p.def.wheel.drive)) warn.push('Add car wheels under the chassis to drive.');
+    } else if (tank) this.groundWarnings(ps, warn);
+    else if (kind === 'car') {
+      const run = has((p) => p.def.track || p.def.awheel);
+      if (!run && !has((p) => p.def.wheel && p.def.wheel.drive)) warn.push('Add car wheels under the chassis to drive.');
+      const wing = ps.find((p) => p.def.wing);
+      if (wing) warn.push(`A wing part (${wing.def.name}) stops a car driving.`);
+      if (s.ground) this.groundWarnings(ps, warn);
     } else if (kind === 'heli') {
       if (!has((p) => p.def.air && p.def.air.kind === 'rotor')) warn.push('Add a main rotor on top.');
       else if (s.twr < 1) warn.push('Too heavy to lift off: the rotor needs T/W above 1.');
@@ -1316,6 +2112,9 @@ const Builder = {
     else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
+    const gl = s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
+    gEl.hidden = !gl;
+    if (gl) gEl.textContent = gl;
     const a = s.air, airLine = kind === 'plane' && a.stall > 0;
     $('#s-air').hidden = !airLine;
     if (airLine) {
@@ -1345,8 +2144,10 @@ const Builder = {
     box.hidden = false;
     this.renderDepth();
     this.renderPaint();
+    this.renderArmour();
+    this.renderTurret();
     if (this.multi) {
-      const g = [...this.sel], mass = g.reduce((s, q) => s + q.def.mass, 0), cost = g.reduce((s, q) => s + (q.def.cost || 0), 0);
+      const g = [...this.sel], mass = g.reduce((s, q) => s + (q.mm != null ? armourMassT(q.def, q.mm) : q.def.mass), 0), cost = g.reduce((s, q) => s + (q.def.cost || 0) + (q.mm != null ? armourCostDelta(q.def, q.mm) : 0), 0);
       $('#pi-name').textContent = `${g.length} parts selected`;
       $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Career.sandbox ? '' : ` · ${money(cost)}`);
       $('#pi-desc').textContent = isTouch ? 'Drag any of them to move them together. Copy to paste them again (here or in another design).'
@@ -1357,20 +2158,54 @@ const Builder = {
     const d = p.def;
     $('#pi-name').textContent = d.name + (p.mirror || d.twinZ ? ' ×2' : '');
     $('#pi-desc').textContent = d.desc || '';
-    const specs = [`${d.mass} t`];
+    $('#pi-specs').textContent = this.partSpecs(p);
+    this.layout();
+  },
+  // The part panel's numbers: mass (an armour part's as dialled), fuel, thrust, a ground part's power, load, speed,
+  // calibre, reload, rounds, range, and a gun's shells (what each goes through at 500 m and 1 km), then the price.
+  partSpecs(p) {
+    const d = p.def, specs = [`${p.mm != null ? +armourMassT(d, p.mm).toFixed(2) : d.mass} t`];
     if (d.fuel) specs.push(`${d.fuel} t ${d.solid ? 'solid fuel' : 'fuel'}`);
     if (d.thrust) specs.push(`${d.thrust} kN`, `Isp ${d.ispSL}–${d.ispVac} s`);
     if (d.torque) specs.push(`${d.torque / 1000} kN·m`);
     if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h${W.mmax ? ` or Mach ${W.mmax}` : ' (more up high)'}`); } // (to 10 km/h)
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
-    if (!Career.sandbox) specs.push(money(d.cost));
-    $('#pi-specs').textContent = specs.join(' · ');
-    this.layout();
+    if (d.gv) specs.push(...this.groundSpecs(d));
+    if (!Career.sandbox) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
+    return specs.join(' · ');
+  },
+  // kinetic rounds lose penetration as they slow (by (v/v0)^1.43, slowed by the air as in flight); the rest don't
+  PEN_KIN: { ap: 1, aphe: 1, apcr: 1, apds: 1, apfsds: 1, ball: 1 },
+  penAt(S, D) { return Math.round(this.PEN_KIN[S.type] ? S.pen * Math.exp(-1.43 * S.k * (EARTH.rho0 || 1.2) * D) : S.pen || 0); },
+  groundSpecs(d) {
+    const out = [], w = d.weapon;
+    if (d.engine) out.push(`${d.engine.kw} kW (${Math.round(d.engine.kw * 1.341)} hp)`, d.engine.fuel);
+    if (d.track || d.awheel) { const t = d.track || d.awheel; out.push(`carries ${t.load} t`, `${Math.round(t.vmax * 3.6)} km/h`); }
+    if (d.ring) out.push(`${d.ring.rate}°/s with up to ${d.ring.cap} t`, ...(d.ring.stab ? ['stabilised'] : []));
+    if (d.mods) {
+      const crew = d.mods.filter((m) => m.k === 'crew').length, rounds = d.mods.reduce((n, m) => n + (m.k === 'ammo' ? m.rounds || 0 : 0), 0);
+      if (crew) out.push(`crew ${crew}`);
+      if (rounds) out.push(`${rounds} rounds`);
+    }
+    if (w && w.kind === 'tgun') out.push(`${w.cal} mm`, `reload ${w.reload.toFixed(1)} s`, `${w.ammo} ready`);
+    else if (w && w.kind === 'agun') out.push(`${w.cal} mm`, `${w.rate} rounds/s`, `${w.ammo} rounds`);
+    else if (w && w.kind === 'smoke') out.push(`${w.ammo} salvos`);
+    else if (w && (w.kind === 'missile' || w.kind === 'rocket')) out.push(`${w.ammo}${w.stow ? ` + ${w.stow}` : ''} ${w.label || 'rockets'}`, ...(w.range ? [`${w.range / 1000} km`] : []), ...(w.heat ? [`${w.heat} mm`] : []));
+    if (w && w.shells && typeof SHELLS !== 'undefined') for (const k of w.shells) {
+      const S = SHELLS[k];
+      if (!S) continue;
+      out.push(S.pen && this.PEN_KIN[S.type] ? `${S.label} ${this.penAt(S, 500)}/${this.penAt(S, 1000)} mm at 500/1000 m` : S.pen ? `${S.label} ${S.pen} mm` : `${S.label} ${S.he || 0} mm blast`);
+    }
+    if (d.searchRadar || d.trackRadar) out.push(`${(d.searchRadar || d.trackRadar).range / 1000} km`);
+    if (d.rack) out.push(`${d.rack.rounds} rounds`, ...(d.autoload ? [`loads every ${d.autoload} s`] : []));
+    if (d.seat) out.push(d.seat);
+    if (d.troops) out.push(`${d.troops} troops`);
+    return out;
   },
   // The depth row: where the part sits across the blueprint (a pair: how far out each one is).
   renderDepth(live) {
-    const p = this.selected, row = $('#pi-depth');
-    if (!p || this.multi || zLocked(p.def)) { row.hidden = true; return; }
+    const p = this.selected, row = $('#pi-depth'), core = p && p.def.gv && /^(hull|ring|roof)$/.test(p.def.place) && Math.abs(partZ(p)) < 0.005; // (a tank's hull, ring or turret on the centre line: room for its armour instead)
+    if (!p || this.multi || zLocked(p.def) || core) { row.hidden = true; return; }
     row.hidden = false;
     const d = p.def, z = partZ(p), wings = this.parts.filter((q) => q.def.wing).map((q) => q.def.wing.span / 2 + 1);
     const lim = Math.min(PART_Z_MAX, Math.ceil(Math.max(4, Math.abs(z) + 1, ...wings))), input = $('#pi-z');
@@ -1383,7 +2218,7 @@ const Builder = {
     const z = partZ(p), a = Math.abs(z).toFixed(2);
     if (p.def.twinZ) return `±${a} m`;
     if (Math.abs(z) < 0.005) return 'centre';
-    return this.kind === 'plane' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
+    return this.kind === 'plane' || this.kind === 'tank' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
   },
   // The paint row: a swatch per skin (and the part's own look), lit for the paint the selection wears.
   renderPaint() {
@@ -1412,10 +2247,36 @@ const Builder = {
     if (!ui || ui.hidden) return;
     ui.style.setProperty('--pal-h', `${Math.round(innerHeight - $('#palette').getBoundingClientRect().top)}px`);
     const fit = $('.fit-col'), info = $('#part-info');
-    fit.style.bottom = '';
+    fit.style.bottom = ''; fit.style.right = ''; fit.classList.remove('row'); info.style.maxHeight = ''; info.style.overflowY = '';
+    const hint = $('#build-3d-hint'); if (hint) hint.style.left = hint.style.maxWidth = hint.style.transform = hint.style.whiteSpace = '';
     if (info.hidden) return;
-    const i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
-    if (f.bottom > i.top - 6 && f.top < i.bottom && f.right > i.left && f.left < i.right) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
+    let i = info.getBoundingClientRect(), f = fit.getBoundingClientRect();
+    if (!(f.bottom > i.top - 6 && f.top < i.bottom && f.right > i.left && f.left < i.right)) return;
+    // above the panel; a panel too tall for that on a wide screen (an armour part's): beside it. On a phone building
+    // armour, with no room under the stats for the column (a small screen, a tall panel), a row of icons, and if even
+    // that won't go, the panel a little shorter (it scrolls): the stats and the kind buttons are never covered
+    if (innerWidth <= 760) {
+      const top = $('#stats').getBoundingClientRect().bottom + 8;
+      if (this.kind === 'tank' && i.top - 8 - f.height < top) {
+        fit.classList.add('row'); f = fit.getBoundingClientRect();
+        if (i.top - 8 - f.height < top) { info.style.maxHeight = `${Math.max(120, Math.floor(i.bottom - top - f.height - 8))}px`; info.style.overflowY = 'auto'; i = info.getBoundingClientRect(); }
+      }
+      fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
+    } else if (i.top - 8 - f.height >= $('#build-top').getBoundingClientRect().bottom + 6) fit.style.bottom = `${Math.round(innerHeight - i.top + 8)}px`;
+    else fit.style.right = `${Math.round(innerWidth - i.left + 8)}px`;
+    this.hintClear(fit);
+  },
+  // (P4 play-test) on a wide screen the 3D hint keeps clear of the Fit column when that moves in beside the part panel:
+  // between the stats and the column, wrapping
+  hintClear(fit) {
+    const hint = $('#build-3d-hint');
+    if (!hint || innerWidth <= 760) return;
+    hint.style.left = hint.style.maxWidth = hint.style.transform = hint.style.whiteSpace = '';
+    if (hint.hidden) return;
+    const h = hint.getBoundingClientRect(), f = fit.getBoundingClientRect();
+    if (!(h.right > f.left - 6 && h.left < f.right && h.bottom > f.top && h.top < f.bottom + 6)) return;
+    const L = $('#stats').getBoundingClientRect().right + 10;
+    hint.style.left = `${Math.round(L)}px`; hint.style.transform = 'none'; hint.style.whiteSpace = 'normal'; hint.style.maxWidth = `${Math.max(180, Math.round(f.left - 10 - L))}px`;
   },
 
   // ---------------------------------------------------------------- modals
@@ -1485,23 +2346,24 @@ const Builder = {
   },
 
   // Designs travel as a short text code: "RSS1." + base64url of compact JSON, rows [type, x, y, flip, rot];
-  // "RSS2." when parts also carry [..., z, att, skin] (depth, what they hang on, paint), which older
-  // versions can't read.
+  // "RSS2." when parts also carry [..., z, att, skin] (depth, what they hang on, paint), and "RSS3." when some
+  // also carry [..., mm] (armour dialled thicker or thinner), which older versions can't read.
   designCode(d) {
-    let ext = false;
+    let ext = false, mm = false;
     const rows = d.parts.map((q) => {
-      const r = [q.type, q.x, q.y, q.flip ? 1 : 0, q.rot || 0], more = [q.z ?? null, q.att ?? null, q.skin ?? null];
+      const r = [q.type, q.x, q.y, q.flip ? 1 : 0, q.rot || 0], more = [q.z ?? null, q.att ?? null, q.skin ?? null, q.mm ?? null];
       while (more.length && more[more.length - 1] == null) more.pop();
       if (more.length) { ext = true; r.push(...more); }
+      if (more.length > 3) mm = true;
       return r;
     });
     const bytes = new TextEncoder().encode(JSON.stringify({ n: d.name, k: d.kind || 'rocket', p: rows }));
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return (ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return (mm ? 'RSS3.' : ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   },
   parseCode(text) {
-    const m = /RSS[12]\.([A-Za-z0-9_-]+)/.exec(text || '');
+    const m = /RSS[123]\.([A-Za-z0-9_-]+)/.exec(text || '');
     if (!m) return null;
     try {
       const b = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'));
@@ -1509,7 +2371,7 @@ const Builder = {
       const raw = Array.isArray(o.p) ? o.p.slice(0, 20000) : [];
       // (rows stay in place, unknown ones as null, so the att indices still point right)
       const parts = raw.map((q) => (Array.isArray(q) && typeof q[0] === 'string' && hasOwn(PARTS, q[0]) && isFinite(q[1]) && isFinite(q[2])
-        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined }
+        ? { type: q[0], x: +q[1], y: +q[2], flip: !!q[3], rot: (q[4] | 0) & 3, z: q[5] == null ? undefined : +q[5], att: Number.isInteger(q[6]) ? q[6] : undefined, skin: typeof q[7] === 'string' ? q[7] : undefined, mm: Number.isFinite(q[8]) ? q[8] : undefined }
         : null));
       const n = parts.filter(Boolean).length;
       if (!n) return null;
@@ -1532,7 +2394,7 @@ const Builder = {
     const note = el('p', { class: 'hangar-note', hidden: '' });
     const go = (keep) => {
       const d = this.parseCode(ta.value);
-      if (!d) { note.textContent = 'That is not a design code. Codes start with RSS1. or RSS2.'; note.hidden = false; return; }
+      if (!d) { note.textContent = 'That is not a design code. Codes start with RSS1., RSS2. or RSS3.'; note.hidden = false; return; }
       UI.closeModal();
       this.savedAs = null;
       this.loadDesign(d);
@@ -1612,18 +2474,20 @@ const Builder = {
       }
       wrap.append(list);
     }
-    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', heli: 'Helicopters' };
-    for (const kind in groups) {
-      const keys = Object.keys(TEMPLATES).filter((k) => (TEMPLATES[k].military ? 'military' : TEMPLATES[k].kind || 'rocket') === kind);
+    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters' };
+    const order = this.kind === 'tank' ? ['tank', ...Object.keys(groups).filter((k) => k !== 'tank')] : Object.keys(groups); // (P4 play-test: building Armour, its stock vehicles first, not five screens down)
+    for (const kind of order) {
+      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.military ? 'military' : t.kind || 'rocket') === kind; });
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
+      if (kind === 'tank') wrap.append(el('p', { class: 'hangar-hint', text: 'Open one, turn on X-ray, and see how it’s built.' }));
       const tl = el('div', { class: 'template-list' });
       for (const key of keys) {
         const t = TEMPLATES[key];
-        const locked = !Career.sandbox && t.tier > Career.data.tier;
+        const locked = !Career.sandbox && t.tier > Career.data.tier, cls = kind === 'tank' ? groundClass(t) : null;
         const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
           el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
-          el('span', { class: 'template-blurb', text: t.blurb }));
+          el('span', { class: 'template-blurb', text: cls ? `${cls} · ${t.blurb}` : t.blurb }));
         b.addEventListener('click', () => {
           const go = () => { UI.closeModal(); this.loadTemplate(key); };
           if (this.unsavedWork()) this.confirmLeave(go); else go();
@@ -1772,6 +2636,7 @@ const Builder = {
       else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
       else if (e.code === 'KeyG' && !mod) this.setGrid(!this.grid);
       else if (e.code === 'KeyM' && !mod) this.matchPaint();
+      else if (e.code === 'KeyX' && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
       else if ((e.code === 'BracketLeft' || e.code === 'BracketRight') && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(e.code === 'BracketLeft' ? -k : k); }
       else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); if (this.selectMode) this.setSelectMode(false); } }
       else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
@@ -1798,6 +2663,15 @@ const Builder = {
     zIn.addEventListener('change', () => { this.setDepth(+zIn.value, true); this.changed(); this.renderInfo(); });
     $('#btn-z-in').addEventListener('click', () => zStep(-1));
     $('#btn-z-out').addEventListener('click', () => zStep(1));
+    // armour: the slider dials it live, one step to undo when it's let go; the steppers 5 mm at a time
+    const mmIn = $('#pi-mm');
+    mmIn.addEventListener('input', () => this.setMm(+mmIn.value, true));
+    mmIn.addEventListener('change', () => this.setMm(+mmIn.value));
+    $('#btn-mm-down').addEventListener('click', () => this.stepMm(-1));
+    $('#btn-mm-up').addEventListener('click', () => this.stepMm(1));
+    $('#btn-test-turret').addEventListener('click', () => this.testTurret());
+    $('#btn-xray').addEventListener('click', () => this.setXray(!this.xray));
+    $('#btn-armour').addEventListener('click', () => this.setArmourView(!this.armourView));
     $('#pi-skins').addEventListener('click', (e) => { const b = e.target.closest('.skin-sw'); if (b) this.paintSel(b.dataset.skin || null); });
     $('#btn-match').addEventListener('click', () => this.matchPaint());
     $('#btn-paint-all').addEventListener('click', () => this.paintAll());
@@ -1810,7 +2684,8 @@ const Builder = {
       this.redraw();
       store.set(this.symKey(this.kind), this.symmetry);
       sym.setAttribute('aria-pressed', String(this.symmetry));
-      UI.toast(!this.symmetry ? 'Symmetry off' : this.kind === 'plane' ? 'Symmetry on: whatever goes out on one wing gets a twin on the other' : 'Symmetry on: parts are mirrored across the centre line');
+      UI.toast(!this.symmetry ? 'Symmetry off' : this.kind === 'plane' ? 'Symmetry on: whatever goes out on one wing gets a twin on the other'
+        : this.kind === 'tank' ? 'Symmetry on: whatever goes on one side gets a twin on the other' : 'Symmetry on: parts are mirrored across the centre line');
     });
     $('#btn-clear').addEventListener('click', () => this.confirmClear());
     $('#btn-save').addEventListener('click', () => this.quickSave());
@@ -1826,7 +2701,7 @@ const Builder = {
     fold(store.get('rss.statsFolded', innerHeight < 520 || (innerHeight < 700 && innerWidth <= 760)));
     tog.addEventListener('click', () => { const on = !stats.classList.contains('collapsed'); fold(on); store.set('rss.statsFolded', on); });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
-    document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.setKind(b.dataset.kind)));
+    document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.pickKind(b.dataset.kind)));
     $('#btn-rd').addEventListener('click', () => App.showResearch());
     $('#btn-missions').addEventListener('click', () => App.showMissions());
   },
@@ -1996,7 +2871,7 @@ const Builder = {
     }
     // a single part (with nothing on it) dropped off the centre line gets a twin, with symmetry on
     if (d.list.length === 1 && !p.mirror && d.group.length === 1 && this.symmetry && this.mirrorOk(p.type, p.x, p.y, [p], p.rot || 0, p.z)) {
-      const t = this.mirrorOf(p), h = byId.get(p.att), m = makePart(p.type, t.x, t.y, { flip: t.x < 0, rot: t.rot, z: t.z, att: h ? (h.mirror || h).id : null, skin: p.skin });
+      const t = this.mirrorOf(p), h = byId.get(p.att), m = makePart(p.type, t.x, t.y, { flip: t.x < 0, rot: t.rot, z: t.z, att: h ? (h.mirror || h).id : null, skin: p.skin, mm: p.mm });
       this.parts.push(m); p.mirror = m; m.mirror = p;
     }
     this.linkMirrors();
@@ -2048,38 +2923,45 @@ const Builder = {
     ctx.setTransform(S, 0, 0, -S, Wd / 2 - this.cam.x * S, Hd / 2 + this.cam.y * S);
     ctx.rotate(rot);
     const lw = 1.2 / this.cam.scale;
-    // back to front (the view looks from +z): parts on the far side are drawn first and fade into the
-    // blueprint; wings and pods go over the hull they pass through
-    for (const p of sideOrder(this.parts)) {
-      const loose = !this.attached.has(p.id), z = partZ(p);
-      ctx.globalAlpha = loose ? 0.4 : 1;
-      drawPart(ctx, p, lw);
-      if (z < -0.05 && !p.def.twinZ) { partPath(ctx, p); ctx.fillStyle = `rgba(7,18,34,${Math.min(0.5, 0.15 + 0.04 * -z).toFixed(3)})`; ctx.fill(); }
-      if (!Career.unlocked(p.def)) {
-        ctx.globalAlpha = 0.45; partPath(ctx, p); ctx.fillStyle = '#ff5d5d'; ctx.fill(); ctx.globalAlpha = 1;
-      }
-    }
-    ctx.globalAlpha = 1;
-    if (this.selected) {
-      for (const p of this.multi ? this.sel : [this.selected, this.selected.mirror]) {
-        if (!p) continue;
-        const r = partRect(p);
-        ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 2 / this.cam.scale;
-        ctx.setLineDash([0.25, 0.15]);
-        ctx.strokeRect(r.l - 0.08, r.b - 0.08, r.r - r.l + 0.16, r.t - r.b + 0.16);
-        ctx.setLineDash([]);
-      }
-    }
+    if (this.turretTest) { this.turretTest.g.ring.aimYaw = 0; this.turretTest = null; } // (a 3D test, left for 2D)
+    // X-ray and the armour view: parts.js draws plated parts see-through or coloured by thickness while these are set
+    PartPaint.xray = this.xrayShown() ? this.parts : null; PartPaint.armour = !!this.armourView;
     const d = this.drag;
-    if (d && d.fromPalette && d.ghost) {
-      const [g0, g1] = this.ghosts().length ? this.ghosts() : [{ ...d.ghost, rot: d.rot || 0, flip: d.ghost.x < 0 }];
-      const gp = { def: PARTS[d.type], type: d.type, deployed: 0, ...g0 };
-      ctx.globalAlpha = 0.75;
-      drawPart(ctx, gp, lw);
-      // the twin, where it shows in the side view (a left/right twin hides right behind the part)
-      if (g1 && (Math.abs(g1.x - gp.x) > 0.01 || Math.abs(g1.y - gp.y) > 0.01)) { ctx.globalAlpha = 0.35; drawPart(ctx, { ...gp, ...g1 }, lw); }
+    try {
+      // back to front (the view looks from +z): parts on the far side are drawn first and fade into the
+      // blueprint; wings and pods go over the hull they pass through
+      for (const p of sideOrder(this.parts)) {
+        const loose = !this.attached.has(p.id), z = partZ(p);
+        ctx.globalAlpha = loose ? 0.4 : 1;
+        drawPart(ctx, p, lw);
+        if (z < -0.05 && !p.def.twinZ) { partPath(ctx, p); ctx.fillStyle = `rgba(7,18,34,${Math.min(0.5, 0.15 + 0.04 * -z).toFixed(3)})`; ctx.fill(); }
+        if (!Career.unlocked(p.def)) {
+          ctx.globalAlpha = 0.45; partPath(ctx, p); ctx.fillStyle = '#ff5d5d'; ctx.fill(); ctx.globalAlpha = 1;
+        }
+      }
       ctx.globalAlpha = 1;
-    }
+      if (this.selected) {
+        for (const p of this.multi ? this.sel : [this.selected, this.selected.mirror]) {
+          if (!p) continue;
+          const r = partRect(p);
+          ctx.strokeStyle = '#ffb547'; ctx.lineWidth = 2 / this.cam.scale;
+          ctx.setLineDash([0.25, 0.15]);
+          ctx.strokeRect(r.l - 0.08, r.b - 0.08, r.r - r.l + 0.16, r.t - r.b + 0.16);
+          ctx.setLineDash([]);
+        }
+      }
+      if (d && d.fromPalette && d.ghost) {
+        const [g0, g1] = this.ghosts().length ? this.ghosts() : [{ ...d.ghost, rot: d.rot || 0, flip: d.ghost.x < 0 }];
+        const gp = { def: PARTS[d.type], type: d.type, deployed: 0, ...g0 };
+        ctx.globalAlpha = 0.75;
+        drawPart(ctx, gp, lw);
+        // the twin, where it shows in the side view (a left/right twin hides right behind the part)
+        if (g1 && (Math.abs(g1.x - gp.x) > 0.01 || Math.abs(g1.y - gp.y) > 0.01)) { ctx.globalAlpha = 0.35; drawPart(ctx, { ...gp, ...g1 }, lw); }
+        ctx.globalAlpha = 1;
+      }
+    } finally { PartPaint.xray = null; PartPaint.armour = false; }
+    this.arcLabels = null;
+    if (this.tg) this.drawArcs(ctx, lw, XY);
     if (d && d.part && d.ghost && !d.ghost.ok) {
       ctx.fillStyle = 'rgba(255,93,93,0.35)';
       for (const q of d.group) { const r = partRect(q); ctx.fillRect(r.l, r.b, r.r - r.l, r.t - r.b); }
@@ -2111,6 +2993,10 @@ const Builder = {
       ctx.fillStyle = '#c38cff';
       ctx.beginPath(); ctx.moveTo(0, -10 * dpr); ctx.lineTo(7 * dpr, 6 * dpr); ctx.lineTo(0, 2 * dpr); ctx.lineTo(-7 * dpr, 6 * dpr); ctx.closePath(); ctx.fill();
       ctx.restore();
+    }
+    if (this.arcLabels) { // the arcs' numbers
+      ctx.font = `600 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      for (const [x, y, t] of this.arcLabels) { const w = ctx.measureText(t).width + 8 * dpr; ctx.fillStyle = 'rgba(5,9,18,0.85)'; ctx.fillRect(x + 4 * dpr, y - 8 * dpr, w, 16 * dpr); ctx.fillStyle = '#ffb547'; ctx.fillText(t, x + 8 * dpr, y); }
     }
     // stage badges
     ctx.font = `600 ${10 * dpr}px "IBM Plex Mono", ui-monospace, monospace`;

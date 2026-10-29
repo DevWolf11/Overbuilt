@@ -99,6 +99,7 @@ const App = {
             this.clear2D();
             World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
           } else Flight.render(this.ctx, this.W, this.H, this.dpr);
           this.ink = true;
@@ -184,10 +185,16 @@ const App = {
     hint.classList.remove('faded');
     clearTimeout(this.hintTimer);
     if (on) this.hintTimer = setTimeout(() => hint.classList.add('faded'), 9000);
-    hint.textContent = isTouch
-      ? '3D · drop parts onto any wing or body: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom'
-      : '3D · drop parts onto any wing or body: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out';
+    this.hint3D();
     const grid = $('#btn-grid'); if (grid) grid.hidden = on; // the grid is a 2D mode
+  },
+  // (its words for the kind being built: Armour's parts go on a hull or a turret, not a wing)
+  hint3D() {
+    const hint = $('#build-3d-hint'), on = typeof Builder !== 'undefined' && Builder.kind === 'tank' ? 'the hull or a turret' : 'any wing or body';
+    const t = isTouch
+      ? `3D · drop parts onto ${on}: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom`
+      : `3D · drop parts onto ${on}: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out`;
+    if (hint && hint.textContent !== t) hint.textContent = t;
   },
 
   showScene(name) {
@@ -277,8 +284,11 @@ const App = {
       if (s.loose) UI.toast(`${s.loose} loose part(s) left in the hangar`);
       store.set('rss.flight', null);
       this.showScene('flight');
-      Flight.start(Builder.serialize());
-      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor' }[Builder.kind];
+      const place = Builder.kind === 'tank' ? GroundMode.soloPlace(Builder.kind) : null; // (Armour: Highland Ridge's north pad, as Flight.revert)
+      Flight.start(Builder.serialize(), place ? { place } : undefined);
+      if (Builder.kind === 'tank' && !place) UI.toast(this.use3D() ? 'The Earth map isn’t in: Armour starts on the runway, away from the Tank Range' : 'In the 2D view Armour starts on the runway: the Tank Range on Highland Ridge is in 3D', 'warn');
+      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor',
+        tank: isTouch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : 'Drive with W/S, turn with A/D, aim with the mouse' }[Builder.kind];
       if (Settings.get('hints') && tip) UI.toast(tip);
     });
     const saved = store.get('rss.flight', null);
@@ -323,8 +333,9 @@ const App = {
         <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (S) at about 55 m/s. Bank with A/D to turn, Q/E use the rudder. Let go and the autopilot holds your pitch and bank. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1. Every wing has a speed limit (the builder shows it): past it, it flutters and tears off, so slow down when the Overspeed warning comes up.</li>
         <li><b>Missiles.</b> A hostile missile in sight, within 4 km, shows a red MSL marker. Only a warning receiver (RWR, in the Weapons tab) tells you one is homing on you: the basic one that it's coming, the advanced one what kind, from where and what to do. Without one, keep looking around. K drops flares and chaff; flying solo, with an RWR on board, they go out by themselves.</li>
         <li><b>Cars and helicopters.</b> Cars drive with W/S and steer with A/D. Helicopters lift off as you raise the throttle (Shift); the stick tilts them to fly that way and they level out when you let go, Q/E turn. Hold B (or Brake) to stop on the ground.</li>
+        <li><b>Armour (tanks, SPAA, launchers).</b> W/S drive, A/D turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or Shift) is the gunner's sight. 1–4 choose the next shell, Space the machine guns, K smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
         <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, C to reset. It follows behind planes, cars and helicopters and beside rockets. On touch screens the stick at the bottom left flies the craft.</li>
-      </ol>${Flight.controlsHelp()}`,
+      </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
   },
@@ -409,7 +420,17 @@ const App = {
     tg.innerHTML = '<option value="practice">Practice: targets don’t fight back</option><option value="hostile">Hostile: AA, SAMs and enemy fighters</option><option value="off">Off: no targets</option>';
     tg.value = Settings.get('targets');
     tg.addEventListener('change', () => Settings.set('targets', tg.value));
-    wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks));
+    // ground vehicles' aim: easing onto the lead point, Arcade or Realistic aim flying solo (a room's lobby decides there), the mouse's speed
+    const assist = el('input', { id: 'set-aim-assist', type: 'checkbox' }); assist.checked = !!Settings.get('aimAssist');
+    assist.addEventListener('change', () => Settings.set('aimAssist', assist.checked));
+    const am = el('select', { id: 'set-aim-mode' });
+    am.innerHTML = '<option value="arcade">Arcade: guns lifted for the range you aim at</option><option value="realistic">Realistic: set the sight\'s range yourself</option>';
+    am.value = Settings.get('aimMode') === 'realistic' ? 'realistic' : 'arcade';
+    am.addEventListener('change', () => Settings.set('aimMode', am.value));
+    const sens = el('input', { id: 'set-aim-sens', type: 'range', min: '0.3', max: '3', step: '0.1', value: String(Settings.get('aimSens') || 1) });
+    sens.addEventListener('input', () => Settings.set('aimSens', +sens.value));
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
+      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {
