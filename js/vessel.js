@@ -263,7 +263,7 @@ class Vessel {
     this.byId = new Map(this.parts.map((p) => [p.id, p]));
     // the ground update's parts: running gear (tracks, armoured wheels), turret groups and aimed parts, armour
     this.gv = this.parts.some((p) => p.def.gv);
-    this.gear = this.gv ? this.parts.filter((p) => p.def.track || p.def.awheel) : NO_GEAR;
+    this.gear = this.gv && isGround(this.kind) ? this.parts.filter((p) => p.def.track || p.def.awheel) : NO_GEAR; // (on an aircraft or a rocket: only a box, so the stick still flies it)
     this.plated = this.gv;
     if (this.gv) Aim.groups(this); else { this.aimed = NO_GEAR; this.tg = this.tgOf = null; }
     let top = null; // the nose: the part furthest up the centreline (not a pod or a store out on a wing)
@@ -340,7 +340,7 @@ class Vessel {
       }
       if (p.def.gv) {
         const d = p.def;
-        if (d.track || d.awheel) { Gear.points(p, wheels, this.com.z || 0); continue; }
+        if ((d.track || d.awheel) && this.gear.length) { Gear.points(p, wheels, this.com.z || 0); continue; }
         if (d.inner) continue;
         if (d.outline) {
           const hd = partDepth(p) / 2;

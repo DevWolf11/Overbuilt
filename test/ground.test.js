@@ -676,6 +676,21 @@ var STOP = { brake: stopIn(true), coast: stopIn(false) };
 usePlane(null);`);
 t('a broken left track: W swings the tank round it (to the left) at no more than about its pivot rate, the right track still driving', RP(`BW.turn < -60 * D2R && BW.yaw > 0.3 && BW.yaw < 1.15 * 0.7 + 0.01 && BW.v.beltV[1] > 2`), RP('[BW.turn / D2R, BW.yaw, BW.v.beltV]'));
 t('...and it still pivots on the good one, both ways', RP(`BA.yaw > 0.3 && BD.yaw < -0.1`), RP('[BA.yaw, BD.yaw]'));
+// (P3 review) a dead track doesn't run: A or D alone swing the hull round it at about half the pivot rate, moving, the
+// same both ways; a pivot under way when it breaks slows to that; W+D still drives off (the live side isn't held back)
+RP(`usePlane({});
+var midPivot = () => { const v = tank(__tanks.tk34), F = world(v); go(F, 1); go(F, 2, () => { v.ctl.h = 1; }); v.parts[1].broken = true; go(F, 3, () => { v.ctl.h = 1; }); return { yaw: yawOf(v), v: fwd(v) }; };
+var DEAD = { A: { yaw: BA.yaw, v: fwd(BA.v) }, D: { yaw: BD.yaw, v: fwd(BD.v) }, mid: midPivot(), WD: (() => { const r = dead((v) => { v.ctl.v = 1; v.ctl.h = 1; }, 4); return { yaw: r.yaw, v: fwd(r.v) }; })() };
+usePlane(null);`);
+t('...at about half the pivot rate (0.25-0.75 of it), the hull moving round the dead track, the same both ways; breaking mid-pivot slows it as much; W+D still drives off',
+  RP(`(() => { const P = TABLE.tk34[2] * D2R; return [DEAD.A, DEAD.D, DEAD.mid].every((o) => Math.abs(o.yaw) > 0.25 * P && Math.abs(o.yaw) < 0.75 * P && Math.abs(o.v) > 0.2)
+    && Math.abs(DEAD.A.yaw + DEAD.D.yaw) < 0.02 && DEAD.WD.v > 2; })()`), RP('JSON.stringify(DEAD)'));
+// (P3 review) A or D alone on a slope or a berm's face: a neutral turn on the spot (it used to roll back down and the
+// reversing rule turned it the wrong way)
+RP(`var SLOPE = {}; for (const [n, yaw, pitch] of [['up', 0, 15], ['down', Math.PI, -15]]) { usePlane({ te: Math.tan(15 * D2R) }); const v = tank(__tanks.tk34, { yaw, pitch: pitch * D2R }), F = world(v); go(F, 2);
+  const a = { x: v.x, y: v.y, z: v.z }; let ys = 0; go(F, 2, () => { v.ctl.h = 1; }); go(F, 2, () => { v.ctl.h = 1; ys += yawOf(v) / 120; }); SLOPE[n] = { pivot: -ys / D2R, moved: Math.hypot(v.x - a.x, v.y - a.y, v.z - a.z) }; }
+usePlane(null);`);
+t('D alone on a 15° slope, facing up it or down it: it turns right on the spot at its flat pivot rate (±25%), moving under 0.5 m', RP(`['up', 'down'].every((n) => SLOPE[n].pivot > 0.75 * meas.tk34.pivot && SLOPE[n].pivot < 1.25 * meas.tk34.pivot && SLOPE[n].moved < 0.5)`), RP('JSON.stringify(SLOPE)'));
 t('turning at full throttle while still gathering speed: the inner side held back, the hull turns right (D) and leans out of the turn', RP(`TURN.wd.yaw < -0.25 && TURN.wd.susp[0] > TURN.wd.susp[1] + 0.03`), RP('JSON.stringify(TURN.wd)'));
 t('A/D alone at speed: it turns as it rolls to a stop (no slam of the brakes)', RP(`TURN.d.yaw < -0.3 && TURN.d.v > 2`), RP('JSON.stringify(TURN.d)'));
 t('reverse at its share of the top speed; D while reversing swings the nose left, as a car\'s does', RP(`Math.abs(TURN.rev.rev / -(14 * 0.35) - 1) < 0.05 && TURN.rev.yaw > 0.3`), RP('JSON.stringify(TURN.rev)'));
@@ -735,6 +750,38 @@ t('...ramming faster than 6 m/s dents the hull that hit (a local dent: never sen
 t('two local tanks overlapping split the push by mass (the 26 t one moves 1.9 times as far as the 51 t one)', RP('SPLIT.a < -0.1 && SPLIT.b > 0.05 && Math.abs(-SPLIT.a / SPLIT.b / SPLIT.ratio - 1) < 0.05'), RP('JSON.stringify(SPLIT)'));
 t('a tank shoves an old buggy out of its way (the buggy takes the impulse)', RP('SHOVE.moved > 3 && SHOVE.behind && !SHOVE.broken'), RP('JSON.stringify(SHOVE)'));
 t('two old cars still pass through each other exactly as if alone', RP('THROUGH'));
+// (P3 review) another player's vehicle: each owner resolves its own share (by mass), so two players ramming end as two
+// local tanks do, not bounced apart; their aircraft pass through (they never bump on their owners' screens); a forged
+// velocity counts no more than 25 m/s
+RP(`usePlane({});
+var pose = (g, v) => { g.x = v.x; g.y = v.y; g.z = v.z; g.q = quat(v.q.w, v.q.x, v.q.y, v.q.z); g.vx = v.vx; g.vy = v.vy; g.vz = v.vz; g.av = v3(v.av.x, v.av.y, v.av.z); };
+var ghostOf = (rows, v, pid, kind) => { const g = tank(rows, { kind }); g.remote = pid; pose(g, v); return g; };
+var shove = (v, k) => { const f = v.axis(1, 0, 0); v.vx += f.x * k; v.vy += f.y * k; v.vz += f.z * k; };
+var headOn = (room) => { const a = tank(__tanks.tk34), b = tank(__tanks.tk34, { e: 30, yaw: Math.PI });
+  if (!room) { const F = world(a, b); go(F, 0.5); shove(a, 10); shove(b, 10); go(F, 2.5); return [fwd(a), fwd(b)]; }
+  const gb = ghostOf(__tanks.tk34, b, 2), ga = ghostOf(__tanks.tk34, a, 3), FA = world(a, gb), FB = world(b, ga);
+  for (let f = 0; f < 180; f++) { if (f === 30) { shove(a, 10); shove(b, 10); } pose(gb, b); pose(ga, a); go(FA, 1 / 60); go(FB, 1 / 60); }
+  return [fwd(a), fwd(b)]; };
+var GHOST = { local: headOn(false), room: headOn(true) };
+{ const t1 = tank(__tanks.tk34), pl = tank(templateRows(TEMPLATES.falcon), { kind: 'plane' }); pl.remote = 4; pose(pl, t1); const s = t1.axis(0, 0, 1); pl.vx = s.x * 60; pl.vy = s.y * 60; pl.vz = s.z * 60;
+  const F = world(t1, pl); go(F, 1); GHOST.plane = t1.speed(); }
+{ const t1 = tank(__tanks.tk34), F0 = world(t1); go(F0, 0.5); const g = ghostOf(__tanks.tk34, t1, 5); const s = t1.axis(0, 0, 1), w = t1.bodyBox.maxZ - t1.bodyBox.minZ - 0.05; g.x += s.x * w; g.y += s.y * w; g.z += s.z * w; g.vx = -1e6 * s.x; g.vy = -1e6 * s.y; g.vz = -1e6 * s.z;
+  const F = world(t1, g); go(F, 1 / 60); GHOST.forged = t1.speed(); }
+usePlane(null);`);
+t('two players ramming head-on at 10 m/s end as two local tanks do (within 1.5 m/s), not bounced apart; another player\'s plane passes through a parked tank; a forged 1,000 km/s ghost shoves it under 20 m/s',
+  RP(`GHOST.room.every((x, i) => Math.abs(x - GHOST.local[i]) < 1.5 && x > -2) && GHOST.plane < 0.5 && GHOST.forged < 20`), RP('JSON.stringify(GHOST)'));
+// (P3 review) running gear on an aircraft is only a box: a Falcon with an armoured wheel under its fuselage answers the
+// stick as without it (it used to lose all its attitude control)
+RP(`var flyStick = (wheel) => { const rows = templateRows(TEMPLATES.falcon).map((r) => ({ ...r }));
+  if (wheel) { const fi = rows.findIndex((r) => r.type === 'fuselage'), f = partsFromDesign([rows[fi]])[0]; rows.push({ type: 'wheelArmS', x: partRect(f).r + 0.55, y: f.y, rot: 0, flip: false, att: fi }); }
+  const v = tank(rows, { kind: 'plane' }), F = world(v), r = v.radius(), k = (r + 3000) / r; v.x *= k; v.y *= k; v.z *= k;
+  const n = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z); v.vx = n.x * 140; v.vy = n.y * 140; v.vz = n.z * 140; v.landed = false; v.throttle = 0.8;
+  for (const p of v.parts) if (p.def.thrust) p.active = true;
+  let w = 0; go(F, 1, () => { v.ctl.v = -1; }); go(F, 1, () => { v.ctl.v = -1; w += len3(v.bodyAV(v3())) / 120; });
+  return { parts: v.parts.length, gv: v.gv, gear: v.gear.length, hull: v.hull.some((k) => k.p.type === 'wheelArmS'), w }; };
+var WING = { without: flyStick(false), with: flyStick(true) };`);
+t('a Falcon with an armoured wheel aboard has no running gear (the wheel is a box on its hull) and pitches to the stick as without it (±25%)',
+  RP(`WING.with.gv && WING.with.gear === 0 && WING.with.hull && WING.with.parts === WING.without.parts + 1 && Math.abs(WING.with.w / WING.without.w - 1) < 0.25`), RP('JSON.stringify(WING)'));
 
 // ---------------------------------------------------------------- a crash and a dent, old path and new
 RP(`usePlane({});

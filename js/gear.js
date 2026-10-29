@@ -21,18 +21,19 @@ const gMath = Math, gQrot = qrot, gDot = dot3, gCross = cross3, gNorm = norm3, g
 const GEAR = {
   zeta: 0.45, zetaBouncy: 0.08,                      // suspension damping ratio (Silly 'bouncy': it boings)
   wade: { mu: 0.12, v: 2 }, swim: { mu: 0.35, v: 3.5 }, wetSide: 0.15, brokenMu: 0.05, // in water (swim: amph); a dead track
-  eta: 0.6, vFloor: 1.5, coast: 0.18, park: 0.3,     // transmission; the power budget's lowest speed; engine braking (g); parking brake below (m/s)
+  eta: 0.6, vFloor: 1.5, coast: 0.18, park: 0.3, pivotV: 1.5, // transmission; the power budget's lowest speed; engine braking (g); parking brake below (m/s); A/D alone below: on the spot (m/s)
   crrWheel: 0.015, wheelTurn: 0.6, wheelRev: 0.4,    // armoured wheels: rolling resistance, the skid assist's turn (rad/s), reverse share
   band: 0.6, bandK: 0.02, calls: 15,                 // hull corners probed within this height over the plane (+ per metre out), up to 15 calls a step (+ 1: its air)
   ford: 1.4, dry: 5, limp: 0.2,                      // flooding: deeper than this (m); restarts after `dry` s out of it; a fifth after `dry` s in
   // righting: tipped past 70° for 1.5 s, until within 20°; a torque of m·g·B·rightK, at most rightW rad/s
   tipCos: gMath.cos((70 * gMath.PI) / 180), upCos: gMath.cos((20 * gMath.PI) / 180), tipT: 1.5, rightK: 3, rightW: 2,
   ramV: 6, bumpE: 0.15, bumpMu: 0.3, bumpMax: 0.1,   // collisions: dents above (m/s), restitution, friction, the most a step pushes apart (m)
+  bumpLag: 0.3, bumpV: 25,                           // another player's: how long its owner's share shows only in our guess (s); the most closing speed it counts (m/s)
 };
 const _gU = v3(), _gF = v3(), _gUp = v3(), _gE1 = v3(), _gE2 = v3(), _gN = v3(), _gT = v3(), _gD = v3(), _gA = v3(), _gB = v3(), _gR = v3();
 const _gW = [0, 0, 0, 0, 0, 0, 0, 0, 0], _gQ = quat(), _gJ = { x: 0, y: 0, z: 0, a: 0, ax: 0, ay: 0, lat: 0, lx: 0, ly: 0, lz: 0 };
 const _gGo = [], _gHo = [], _gHc = [], _gHh = [], _gBrk = [], _gDentP = [], _gDentR = []; // (this step's touching gear and hull contacts; parts to break or dent)
-const _gVs = [0, 0], _gBud = [0, 0], _gFl = [0, 0], _gCnt = [0, 0], _gSat = [false, false], _gSum = [0, 0], _gSus = [0, 0], _gSN = [0, 0];
+const _gVs = [0, 0], _gOff = [0, 0], _gBud = [0, 0], _gFl = [0, 0], _gCnt = [0, 0], _gSat = [false, false], _gSum = [0, 0], _gSus = [0, 0], _gSN = [0, 0];
 const _gBoxA = { c: v3(), u: [v3(), v3(), v3()], e: [0, 0, 0] }, _gBoxB = { c: v3(), u: [v3(), v3(), v3()], e: [0, 0, 0] }, _gL = v3(), _gNb = v3();
 
 // A contact slot: one per gear point, old wheel and hull corner, made once per hull (gearCache) and reused every step.
@@ -366,8 +367,10 @@ const Gear = {
     const tc = _gT; k = gDot(Fh, nG); tc.x = Fh.x - nG.x * k; tc.y = Fh.y - nG.y * k; tc.z = Fh.z - nG.z * k; gNorm(tc);
     const vF = v.vx * tc.x + v.vy * tc.y + v.vz * tc.z;
     // (A/D alone while moving: the belts' mean follows the hull's own speed, slowing as coasting would, so it turns as
-    // it rolls to a stop rather than braking first and pivoting after)
-    const roll = gMath.max(0, gMath.abs(vF) - GEAR.coast * G0 * h) * gMath.sign(vF);
+    // it rolls to a stop rather than braking first and pivoting after. Tracks nearly still hold it at 0: a neutral turn
+    // on the spot that the brakes hold on a slope, where following its own speed gravity would roll it back and the
+    // reversing rule flip the turn. Wheels have no pivot: their skid assist drives them round a circle.)
+    const roll = turn > 0 && gMath.abs(vF) < GEAR.pivotV ? 0 : gMath.max(0, gMath.abs(vF) - GEAR.coast * G0 * h) * gMath.sign(vF);
     const base = cv > 0 ? cv * Vmax : cv < 0 ? cv * Vrev : gClamp(roll, -Vrev, Vmax), str = ch * (base < -0.1 ? -1 : 1);
     const pk = gMath.min(1, gMath.sqrt(P / 1000 / mt / 12)), slow = 1 - 0.55 * gMath.min(1, gMath.abs(vF) / gMath.max(Vmax, 0.1));
     const yawCap = 1.15 * turn * pk, om = str * turn * pk * slow, omW = gMath.abs(vF) < 3 ? 0.3 * str * GEAR.wheelTurn * pk * slow : 0, half = C.B / 2;
@@ -377,7 +380,7 @@ const Gear = {
     // the rows of every touching contact, once a step (the world inverse inertia, then r × d and I⁻¹(r × d))
     const W = _gW, invM = 1 / v.mass;
     gearInvI(v, W);
-    _gVs[0] = _gVs[1] = 0; _gCnt[0] = _gCnt[1] = 0; _gSat[0] = _gSat[1] = false;
+    _gVs[0] = _gVs[1] = 0; _gOff[0] = _gOff[1] = 0; _gCnt[0] = _gCnt[1] = 0; _gSat[0] = _gSat[1] = false;
     for (let i = 0; i < nG0; i++) {
       const s = _gGo[i], t1 = s.t1, t2 = s.t2, si = s.side > 0 ? 1 : 0;
       if (s.steer) { // the rolling direction turned by the steering, toward the right (t × n) for D
@@ -392,7 +395,7 @@ const Gear = {
       const broken = s.p.broken;
       s.muT = broken ? GEAR.brokenMu : wet ? wet.mu : s.muD; s.muL = wet ? GEAR.wetSide : s.sideD;
       s.Js = 0; s.lb = 0; s.JT = 0; s.JL = 0; s.sat = false; s.vs = 0;
-      if (!broken) { _gVs[si] += gearVel(v, t1, s.at); _gCnt[si]++; } // (each side's speed: its working gear's)
+      if (!broken) { _gVs[si] += gearVel(v, t1, s.at); _gOff[si] += s.side * (s.track ? om : omW); _gCnt[si]++; } // (each side's speed: its working gear's)
     }
     for (let i = 0; i < nH; i++) {
       const s = _gHo[i];
@@ -408,13 +411,15 @@ const Gear = {
     // the speed asked (pulling away, climbing) the turn still happens: the outer side drives, the inner one is held back.
     // Their mean goes there as fast as the power lets it; slowing down, at once (braking is free).
     if (mode === 2) {
-      const cur = _gCnt[0] && _gCnt[1] ? (_gVs[0] / _gCnt[0] + _gVs[1] / _gCnt[1]) / 2 : _gCnt[0] || _gCnt[1] ? (_gVs[0] + _gVs[1]) / (_gCnt[0] + _gCnt[1]) : vF;
+      // (one side dead: the live side's speed less its share of the turn, or the mean would hold it back as it turns)
+      const cur = _gCnt[0] && _gCnt[1] ? (_gVs[0] / _gCnt[0] + _gVs[1] / _gCnt[1]) / 2 : _gCnt[0] || _gCnt[1] ? (_gVs[0] + _gVs[1] + (_gOff[0] + _gOff[1]) * half) / (_gCnt[0] + _gCnt[1]) : vF;
       const gain = (h * GEAR.eta * P) / gMath.max(gMath.abs(cur), GEAR.vFloor) / v.mass; // (what the engine can add this step)
       const c = base * cur >= 0 && gMath.abs(base) > gMath.abs(cur) ? cur + gClamp(base - cur, -gain, gain) : base;
       // (an armoured wheel rolls at its own speed round the turn the hull is making, as an open differential lets it)
       const wy0 = av.x * nG.x + av.y * nG.y + av.z * nG.z;
       for (let i = 0; i < nG0; i++) {
         const s = _gGo[i];
+        if (s.p.broken) { s.vs = 0; continue; } // (a dead track or wheel doesn't run: its side drags, and the hull swings round it)
         if (s.track) { s.vs = c - s.side * om * half; continue; }
         const t1 = s.t1, turn1 = (nG.y * s.rz - nG.z * s.ry) * t1.x + (nG.z * s.rx - nG.x * s.rz) * t1.y + (nG.x * s.ry - nG.y * s.rx) * t1.z; // ((n × r)·t)
         s.vs = c - s.side * omW * half + wy0 * turn1;
@@ -609,17 +614,21 @@ const Gear = {
 
   // ---- collisions between vehicles (Phase 2A)
   // A local vessel with running gear against every other vessel near it: body boxes (what doesn't turn; an old craft's
-  // bounds), spheres first, then the separating-axis test. Ghosts, ground AI moving itself and wrecks don't move: we
-  // take the whole push. Another local vessel (a second tank, an old car, debris) shares it by mass and takes the equal
-  // and opposite impulse, so a tank shoves a buggy; old vessels never start a bump, so two of them still pass through
-  // each other. Ramming faster than 6 m/s dents the parts that met (local damage only).
+  // bounds), spheres first, then the separating-axis test. Ground AI moving itself and wrecks don't move: we take the
+  // whole push. Another local vessel (a second tank, an old car, debris) shares it by mass and takes the equal and
+  // opposite impulse, so a tank shoves a buggy; old vessels never start a bump, so two of them still pass through each
+  // other. Another player's vehicle shares it by mass too, but its owner resolves their own share on their screen: we
+  // take only ours, and guess theirs until its snapshots show it (bumpLag), so two players ramming end as two local
+  // tanks do. Its closing speed counts up to bumpV (a peer's numbers are untrusted), and another player's aircraft
+  // (which never bumps on its owner's screen) passes through. Ramming faster than 6 m/s dents the parts that met (local
+  // damage only).
   bump(v, sim) {
     const list = sim && sim.vessels;
     if (!list || list.length < 2 || !v.parts.length) return;
     const rv = gearBoxR(v);
     let A = null, fresh = false;
     for (const o of list) {
-      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body) continue;
+      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body || (o.remote && !o.wreck && !isGround(o.kind))) continue;
       const dx = o.x - v.x, dy = o.y - v.y, dz = o.z - v.z, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > 2500) continue; // (50 m: nothing a vehicle's box reaches)
       const rr = rv + gearBoxR(o);
@@ -630,10 +639,10 @@ const Gear = {
       if (!B) continue;
       const nb = _gNb, depth = gearSat(A, B, nb);
       if (!(depth > 0)) continue;
-      const fixed = !!(o.remote || o.kin || o.wreck), mv = v.mass, mo = o.mass || 1, wv = fixed ? 1 : mo / (mv + mo), push = gMath.min(depth, GEAR.bumpMax);
+      const fixed = !!(o.kin || o.wreck), ghost = !fixed && !!o.remote, mv = v.mass, mo = o.mass || 1, wv = fixed ? 1 : mo / (mv + mo), push = gMath.min(depth, GEAR.bumpMax);
       v.x += nb.x * push * wv; v.y += nb.y * push * wv; v.z += nb.z * push * wv;
       fresh = false; // (moved: its box again for the next one)
-      if (!fixed) { const wo = 1 - wv; o.x -= nb.x * push * wo; o.y -= nb.y * push * wo; o.z -= nb.z * push * wo; o.restTime = 0; }
+      if (!fixed && !ghost) { const wo = 1 - wv; o.x -= nb.x * push * wo; o.y -= nb.y * push * wo; o.z -= nb.z * push * wo; o.restTime = 0; }
       // where they meet: between the two boxes' faces along the axis, on the line of their centres
       let ra = 0, rb = 0;
       for (let i = 0; i < 3; i++) { ra += A.e[i] * gMath.abs(gDot(A.u[i], nb)); rb += B.e[i] * gMath.abs(gDot(B.u[i], nb)); }
@@ -644,18 +653,26 @@ const Gear = {
         const w = o.av, rox = cx - o.x, roy = cy - o.y, roz = cz - o.z;
         ux -= (o.vx || 0) + w.y * roz - w.z * roy; uy -= (o.vy || 0) + w.z * rox - w.x * roz; uz -= (o.vz || 0) + w.x * roy - w.y * rox;
       }
-      const vn = ux * nb.x + uy * nb.y + uz * nb.z;
-      if (vn >= 0) continue;
+      const G = ghost ? o._bump || (o._bump = { x: 0, y: 0, z: 0, t: 0 }) : null;
+      if (G) { // (its owner's share of the bumps we've had, fading as its snapshots catch up)
+        const now = sim.time || 0, f = gMath.exp(-gMath.max(0, now - G.t) / GEAR.bumpLag);
+        G.x *= f; G.y *= f; G.z *= f; G.t = now; ux -= G.x; uy -= G.y; uz -= G.z;
+      }
+      const vn0 = ux * nb.x + uy * nb.y + uz * nb.z;
+      if (vn0 >= 0) continue;
+      const vn = ghost ? gMath.max(vn0, -GEAR.bumpV) : vn0;
       const k = 1 / mv + (fixed ? 0 : 1 / mo), j = (-(1 + GEAR.bumpE) * vn) / k;
       const Pv = gearLocal(v, cx, cy, cz, _gA);
       v.applyImpulse(Pv, nb, j);
+      if (G) { G.x -= (nb.x * j) / mo; G.y -= (nb.y * j) / mo; G.z -= (nb.z * j) / mo; }
       let Po = null;
-      if (!fixed) { Po = gearLocal(o, cx, cy, cz, _gB); _gD.x = -nb.x; _gD.y = -nb.y; _gD.z = -nb.z; o.applyImpulse(Po, _gD, j); }
+      if (!fixed && !ghost) { Po = gearLocal(o, cx, cy, cz, _gB); _gD.x = -nb.x; _gD.y = -nb.y; _gD.z = -nb.z; o.applyImpulse(Po, _gD, j); }
       // friction across the axis, against the sliding
-      const tx = ux - nb.x * vn, ty = uy - nb.y * vn, tz = uz - nb.z * vn, vt = gMath.hypot(tx, ty, tz);
+      const tx = ux - nb.x * vn0, ty = uy - nb.y * vn0, tz = uz - nb.z * vn0, vt = gMath.hypot(tx, ty, tz);
       if (vt > 1e-6) {
         const jt = gMath.min(GEAR.bumpMu * j, vt / k), d = _gR; d.x = -tx / vt; d.y = -ty / vt; d.z = -tz / vt;
         v.applyImpulse(Pv, d, jt);
+        if (G) { G.x -= (d.x * jt) / mo; G.y -= (d.y * jt) / mo; G.z -= (d.z * jt) / mo; }
         if (Po) { d.x = -d.x; d.y = -d.y; d.z = -d.z; o.applyImpulse(Po, d, jt); }
       }
       // ramming: the parts that met take a dent (never sent: each owner dents its own)
