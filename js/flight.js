@@ -560,7 +560,7 @@ const Flight = {
   },
   // Armour and armed cars (§8.4): the same list as README's "Armour and armed cars" block and the manual's
   groundHelp() {
-    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives. Right thumb: FIRE, and drag the view or slide on FIRE to aim; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; hold an enemy\'s tag to spot it; tap MAP or the minimap for the tactical map (its Globe button: the old map); Realistic aim: tap Zero to set the sight</span></div>';
+    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives, hold Brake to stop. Right thumb: FIRE, and drag the view or slide on FIRE to aim; hold MG for the machine guns; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; tap the weapon chip to change weapon; Smoke (CM) and LOCK; hold an enemy\'s tag to spot it; tap MAP or the minimap for the tactical map (its Globe button: the old map); Realistic aim: tap Zero to set the sight (with a rangefinder, its range; without, the commander\'s reading, then 100 m steps)</span></div>';
     // (P4 play-test) on a phone the touch line, and the keys folded away under "Keys" (they were a wall of twenty rows)
     return `${isTouch ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
@@ -568,7 +568,7 @@ const Flight = {
       <div><kbd>B</kbd><span>Hold to brake</span></div>
       <div><span class="tap">Mouse</span><span>Aim (click the view to capture the mouse; without it, drag)</span></div>
       <div><kbd>Q</kbd><kbd>E</kbd><span>Turn the aim left / right</span></div>
-      <div><span class="tap">Left click</span><kbd>V</kbd><span>Fire the selected weapon (hold for automatic guns)</span></div>
+      <div><span class="tap">Left click</span><kbd>V</kbd><span>Fire the selected weapon (hold for automatic guns; a tap of rocket artillery ripples what its rails hold, another tap stops it)</span></div>
       <div><kbd>Space</kbd><span>Machine guns (hold)</span></div>
       <div><span class="tap">Right mouse</span><kbd>Shift</kbd><span>Gunner's sight: hold, or Shift toggles it (Shift stays the throttle with jets or rockets aboard)</span></div>
       <div><kbd>Wheel</kbd><span>Zoom the view or the sight (3×, 6×, 8×)</span></div>
