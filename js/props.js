@@ -27,7 +27,11 @@
 const Props = (() => {
   const SH = 1, SI = 2, SO = 4, CR = 8; // collider flags
   const P_BOX = 0, P_ROOF = 1, P_CYL = 2, P_SPIRE = 3, P_CONIFER = 4, P_BROAD = 5, P_BUSH = 6, P_ROCK = 7, P_HEDGE = 8;
-  const CELL = 16;
+  const CELL = 16, TCELL = 64;
+  // (the shell's quick looks use no Math functions: the test harness's Math is an object of its own, which V8 doesn't
+  // see as the built-in, and a call to it costs a hundred times a multiplication there)
+  const fl = (v) => { const t = v | 0; return t > v ? t - 1 : t; };
+  const OCC = new Uint8Array(1 << 20), cube = (x, y, z) => ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) & 0xfffff;
   // colours (sRGB hex); the renderer turns them linear
   const C = {
     white: 0xe9e3d5, cream: 0xddd2bb, stone: 0xa59d8e, grey: 0x8f8c84, tar: 0x2e2c2a, redw: 0x8e3326, ochre: 0xc9a46a,
@@ -50,7 +54,7 @@ const Props = (() => {
   // ---------------------------------------------------------------- state
   const S = {
     built: false, mapped: null, list: [], cols: [], grid: new Map(), roads: [], rgrid: new Map(), fields: [], maps: [], groups: [],
-    stamp: new Uint32Array(0), q: 0, fallen: [], ver: 0, crushed: 0, passT: -1, hit: null, calls: 0, ms: 0, worst: 0, worstAt: '', top: 0, all: false,
+    stamp: new Uint32Array(0), q: 0, fallen: [], ver: 0, crushed: 0, passT: -1, hit: null, calls: 0, ms: 0, worst: 0, worstAt: '', top: 0, all: false, tops: new Map(), hgrid: new Map(),
   };
   const R = () => EARTH.radius;
   const gKey = (ix, iz) => (ix + 8192) * 16384 + (iz + 8192);
@@ -239,7 +243,7 @@ const Props = (() => {
     // clear of the map's protected lines of sight (props only add cover where the arena was made to have none)
     if (!free && M.lines && cs.some((q) => q[1] & SI) && blocksLines(p, cs)) return null;
     S.list.push(p); M.props.push(p);
-    S.top = Math.max(S.top, p.gt + p.h + (p.th || 0) + 12);
+    S.top = Math.max(S.top, p.gt + p.h + (p.r2 || 0) + (p.th ? p.th + 8 : 0) + 12);
     for (const q of cs) insert(p, q);
     return p;
   }
@@ -260,6 +264,21 @@ const Props = (() => {
     if (S.stamp.length < S.cols.length) growStamps();
     const br = Math.hypot(col.ha, col.hw) + 1, i0 = Math.floor((pe - br) / CELL), i1 = Math.floor((pe + br) / CELL), j0 = Math.floor((pz - br) / CELL), j1 = Math.floor((pz + br) / CELL);
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const key = gKey(i, j); let L = S.grid.get(key); if (!L) S.grid.set(key, (L = [])); L.push(col.i); }
+    // what stops shells has a grid of its own (most props are trees, bushes and hedges: shells pass them by), and its tops
+    // over sea level in 64 m cells (a shell's step over none of them, or over them all, looks no further)
+    if (f & SH) {
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const key = gKey(i, j); let L = S.hgrid.get(key); if (!L) S.hgrid.set(key, (L = [])); L.push(col.i); }
+      // (and the 64 m cubes of the sim's own axes it reaches, in a hashed bitset: a shell's step through none of them
+      // looks no further, with no conversion to (e, z) at all)
+      const rb = Math.sqrt(col.ha * col.ha + col.hh * col.hh + col.hw * col.hw) + 1;
+      for (let x = fl((col.cx - rb) / 64); x <= fl((col.cx + rb) / 64); x++) for (let y = fl((col.cy - rb) / 64); y <= fl((col.cy + rb) / 64); y++)
+        for (let zz = fl((col.cz - rb) / 64); zz <= fl((col.cz + rb) / 64); zz++) OCC[cube(x, y, zz)] = 1;
+      const top = p.g + oy + hh + 0.5;
+      for (let i = Math.floor((pe - br) / TCELL); i <= Math.floor((pe + br) / TCELL); i++) for (let j = Math.floor((pz - br) / TCELL); j <= Math.floor((pz + br) / TCELL); j++) {
+        const key = gKey(i, j), t0 = S.tops.get(key);
+        if (!(t0 >= top)) S.tops.set(key, top);
+      }
+    }
   }
   // does a plan rectangle (middle e, z; axis (c, s); half sizes a, b) overlap any collider's footprint? (2D separating axes)
   function overlaps(e, z, c, s, a, b, skipW) {
@@ -339,31 +358,34 @@ const Props = (() => {
   }
   // The cells a plan segment (e0, z0) -> (e1, z1) crosses, in order (Amanatides-Woo), each handed to fn(list): stops when
   // fn returns true
-  function walk(e0, z0, e1, z1, fn) {
+  function walk(e0, z0, e1, z1, fn, grid = S.grid) {
     let i = Math.floor(e0 / CELL), j = Math.floor(z0 / CELL);
     const i1 = Math.floor(e1 / CELL), j1 = Math.floor(z1 / CELL), de = e1 - e0, dz = z1 - z0;
     const si = de > 0 ? 1 : -1, sj = dz > 0 ? 1 : -1, td = Math.abs(CELL / (de || 1e-12)), tdz = Math.abs(CELL / (dz || 1e-12));
     let tm = de !== 0 ? ((si > 0 ? (i + 1) * CELL - e0 : e0 - i * CELL) / Math.abs(de)) : Infinity;
     let tmz = dz !== 0 ? ((sj > 0 ? (j + 1) * CELL - z0 : z0 - j * CELL) / Math.abs(dz)) : Infinity;
     for (let n = 0; n < 4000; n++) {
-      const L = S.grid.get(gKey(i, j));
+      const L = grid.get(gKey(i, j));
       if (L && fn(L)) return;
       if (i === i1 && j === j1) return;
       if (tm < tmz) { tm += td; i += si; } else { tmz += tdz; j += sj; }
     }
   }
-  // (e, z) of a sim point near an anchor kept on c (a shell): from the surface frame there, east and south, no trigonometry
-  // (the walk needs it to well under a metre: the anchor moves on every 250 m, where it is off by 6 cm at most)
-  function ezNear(P, c, o) {
-    let dx = P.x - c.pax, dy = P.y - c.pay, dz = P.z - c.paz;
-    if (!(dx * dx + dy * dy + dz * dz < 62500)) {
-      ezOf(P.x, P.y, P.z, o);
-      frameAt(o.e, o.z, _U, _E, _W);
-      c.pax = P.x; c.pay = P.y; c.paz = P.z; c.pae = o.e; c.paz2 = o.z; c.pk = 1 / Math.cos(o.z / R());
-      c.pEx = _E[0]; c.pEy = _E[1]; c.pEz = _E[2]; c.pWx = _W[0]; c.pWy = _W[1]; c.pWz = _W[2];
-      return o;
+  // (e, z) of a sim point from the nearest of a few anchors (any within 250 m: shells in flight share them), through the
+  // surface frame there, east and south: no trigonometry for a shell's step (the walk needs it to well under a metre: 6 cm
+  // at most). Kept here, not on the shells: a field more on every shell would slow moveShell's every look at one.
+  const ANC = Array.from({ length: 8 }, () => ({ x: NaN, y: 0, z: 0, e: 0, zz: 0, k: 1, Ex: 0, Ey: 0, Ez: 0, Wx: 0, Wy: 0, Wz: 0 }));
+  let ancN = 0;
+  function ezNear(P, o) {
+    for (let i = 0; i < 8; i++) {
+      const q = ANC[i], dx = P.x - q.x, dy = P.y - q.y, dz = P.z - q.z;
+      if (dx * dx + dy * dy + dz * dz < 62500) { o.e = q.e + (dx * q.Ex + dy * q.Ey + dz * q.Ez) * q.k; o.z = q.zz + dx * q.Wx + dy * q.Wy + dz * q.Wz; return o; }
     }
-    o.e = c.pae + (dx * c.pEx + dy * c.pEy + dz * c.pEz) * c.pk; o.z = c.paz2 + dx * c.pWx + dy * c.pWy + dz * c.pWz;
+    ezOf(P.x, P.y, P.z, o);
+    frameAt(o.e, o.z, _U, _E, _W);
+    const q = ANC[ancN]; ancN = (ancN + 1) & 7;
+    q.x = P.x; q.y = P.y; q.z = P.z; q.e = o.e; q.zz = o.z; q.k = 1 / Math.cos(o.z / R());
+    q.Ex = _E[0]; q.Ey = _E[1]; q.Ez = _E[2]; q.Wx = _W[0]; q.Wy = _W[1]; q.Wz = _W[2];
     return o;
   }
   // the maps' spheres in the sim (a quick way to skip what is nowhere near one)
@@ -386,20 +408,29 @@ const Props = (() => {
     }
     return false;
   }
-  // (c: an object to keep an anchor on, so the next steps near it need no trigonometry: a shell)
-  function segment(a, b, mask, m = 0, c) {
+  // (near: a short step, found through the anchors, ezNear)
+  function segment(a, b, mask, m = 0, near = false) {
     S.hit = null;
     // (both ends over the highest prop's top, once every map is in: nothing to meet; the cheapest look first)
     const R0 = R() + S.top, ra = a.x * a.x + a.y * a.y + a.z * a.z, rb = b.x * b.x + b.y * b.y + b.z * b.z;
     if (S.all && ra > R0 * R0 && rb > R0 * R0) return -1;
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mz = (a.z + b.z) / 2, hl = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / 2;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mz = (a.z + b.z) / 2, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, hl = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) + (dz < 0 ? -dz : dz); // (over half the length: enough for the spheres)
     if (!S.all) needAt(mx, my, mz, hl);
     if (!S.cols.length || !nearMap(mx, my, mz, hl)) return -1;
     if (ra > R0 * R0 && rb > R0 * R0) return -1;
-    S.calls++;
-    if (c) { ezNear(a, c, A0); ezNear(b, c, B0); } else { ezOf(a.x, a.y, a.z, A0); ezOf(b.x, b.y, b.z, B0); }
+    if (near) { ezNear(a, A0); ezNear(b, B0); } else { ezOf(a.x, a.y, a.z, A0); ezOf(b.x, b.y, b.z, B0); }
+    // a shell (SHELL alone): the 64 m grid of what stops shells under a short step, nothing there or both ends over its
+    // highest top; then only that grid is walked
+    const hard = mask === SH, ea = fl(A0.e / TCELL), eb = fl(B0.e / TCELL), za = fl(A0.z / TCELL), zb = fl(B0.z / TCELL), i0 = ea < eb ? ea : eb, i1 = ea < eb ? eb : ea, j0 = za < zb ? za : zb, j1 = za < zb ? zb : za;
+    if (hard && i1 - i0 <= 1 && j1 - j0 <= 1) {
+      let hi = -Infinity;
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const t = S.tops.get(gKey(i, j)); if (t > hi) hi = t; }
+      const RH = R() + hi;
+      if (hi === -Infinity || (ra > RH * RH && rb > RH * RH)) return -1;
+    }
+    S.calls++; // (segments walked: the tests count them)
     segBest = 2; segHitC = null; segA = a; segB = b; segMask = mask; segM = m; segQn = ++S.q;
-    walk(A0.e, A0.z, B0.e, B0.z, segScan);
+    walk(A0.e, A0.z, B0.e, B0.z, segScan, hard ? S.hgrid : S.grid);
     if (!segHitC) return -1;
     S.hit = segHitC;
     return segBest;
@@ -407,7 +438,19 @@ const Props = (() => {
 
   // ---------------------------------------------------------------- what the game asks
   // A shell's step a -> b: where it meets a prop that stops shells (fraction, or -1); Props.hit says which
-  function shell(a, b, s) { return segment(a, b, SH, 0, s); }
+  // (first, in a function small enough to stay fast: past the top of everything once all is in, or through none of the
+  // 64 m cubes anything that stops shells reaches)
+  function shell(a, b) {
+    if (S.all) { const R0 = R() + S.top, q = R0 * R0; if (a.x * a.x + a.y * a.y + a.z * a.z > q && b.x * b.x + b.y * b.y + b.z * b.z > q) return -1; }
+    else needAt((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2, 30);
+    if (!occupied(a, b)) return -1;
+    return segment(a, b, SH, 0, true);
+  }
+  function occupied(a, b) {
+    const ax = fl(a.x / 64), bx = fl(b.x / 64), ay = fl(a.y / 64), by = fl(b.y / 64), az = fl(a.z / 64), bz = fl(b.z / 64);
+    if (ax - bx > 1 || bx - ax > 1 || ay - by > 1 || by - ay > 1 || az - bz > 1 || bz - az > 1) return true; // (a long one: look)
+    return OCC[cube(ax, ay, az)] || OCC[cube(bx, ay, az)] || OCC[cube(ax, by, az)] || OCC[cube(bx, by, az)] || OCC[cube(ax, ay, bz)] || OCC[cube(bx, ay, bz)] || OCC[cube(ax, by, bz)] || OCC[cube(bx, by, bz)];
+  }
   // How far along the ray from o (unit dir d) to D m the first prop that blocks sight or stops shells is, past `skip` m
   // (the HUD's aim ray: past our own vehicle, from a camera behind it), or -1
   const RA = { x: 0, y: 0, z: 0 }, RB = { x: 0, y: 0, z: 0 };
@@ -956,7 +999,8 @@ const Props = (() => {
   function ensure() {
     const mapped = !!(typeof EARTH !== 'undefined' && EARTH.mapped);
     if (S.built && S.mapped === mapped) return;
-    Object.assign(S, { built: true, mapped, list: [], cols: [], grid: new Map(), roads: [], rgrid: new Map(), fields: [], maps: [], groups: [], fallen: [], crushed: 0, stamp: new Uint32Array(4096), q: 0, ms: 0, top: 0, all: false });
+    Object.assign(S, { built: true, mapped, list: [], cols: [], grid: new Map(), roads: [], rgrid: new Map(), fields: [], maps: [], groups: [], fallen: [], crushed: 0, stamp: new Uint32Array(4096), q: 0, ms: 0, top: 0, all: false, tops: new Map(), hgrid: new Map() });
+    OCC.fill(0);
     S.ver++;
     if (typeof EARTH === 'undefined' || !EARTH.arenas || !EARTH.groundPads) return;
     for (const ids of GROUPS) {

@@ -816,7 +816,8 @@ const Armour = (() => {
     }
     // the props that stop shells (props.js: houses, walls, rocks, the tank yard's kit): the first thing in its way, the
     // ground under it first (behind a crest)
-    const clr = s.cheap ? s.gcc : s.gc, pt = typeof Props !== 'undefined' && b === EARTH && !(clr > 60) ? Props.shell(TA, TE, s) : -1; // (60 m over the ground at its last look: over every prop)
+    // (skipped 60 m over the ground at its last look, or 40 m over the arena's highest ground: over every prop there)
+    const clr = s.cheap ? s.gcc : s.gc, pt = typeof Props !== 'undefined' && b === EARTH && !(clr > 60) && !(len(ex, ey, ez) - b.radius > (s.gTop ?? Infinity) + 40) ? Props.shell(TA, TE) : -1;
     if (pt >= 0 && (!hv || pt < ht) && (!tg || pt < tt)) {
       const q = Props.hit, gt = groundT(s, b, s.gk ? s.g0 : TA, TE, false);
       if (gt >= 0 && gt <= (s.gk ? 0.5 + pt / 2 : pt)) return ground(s, b, gtAt, F, SH, spare);

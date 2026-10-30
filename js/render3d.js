@@ -1334,7 +1334,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (N.s < 2 || e1 < B.e0 || e0 > B.e1 || z1 < B.z0 || z0 > B.z1) continue; // (the finest, or wholly outside the box: as it is)
       let split = false;
       for (const bm of berms) if (e1 > bm.e - 19 && e0 < bm.e + 19 && z1 > bm.z - 19 && z0 < bm.z + 19) { split = true; break; }
-      if (!split && N.s > 2 && roads && Props.roadIn(e0, e1, z0, z1, 0.5)) split = true; // (and down to about 4 m along the dirt roads painted on it: props.js)
+      if (!split && N.s > 4 && roads && Props.roadIn(e0, e1, z0, z1, 0.5)) split = true; // (and down to about 8 m along the dirt roads painted on it: props.js; 4 m cells made more points than its table holds, and the table grew inside one step)
       const h00 = ph[v[0]], h10 = ph[v[1]], h01 = ph[v[2]], h11 = ph[v[3]], s = N.s, hs = s / 2;
       N.c = pt(N.ix + hs, N.iy + hs);
       for (let t = 0; t < 10 && !split; t += 2) {
@@ -1950,26 +1950,39 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const hd = jit(new THREE.BoxGeometry(1, 1, 1, 6, 2, 1), 0.06, 0.16, 13);
     const hedge = new Batch().add(hd, new THREE.Matrix4(), W).build();
     void flat;
-    PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge];
+    // far shapes (past PROP_LOD's near radius): a conifer as one cone, a broadleaf tree as one crown on a three-sided trunk,
+    // a bush as one lump, a wall or hedge as a plain box (6, 26, 20 and 12 triangles)
+    const conF = new Batch().geo(new THREE.ConeGeometry(2.5, 8.8, 6, 1, true), 0, 5.6, 0, needle).build();
+    const brdF = new Batch().geo(new THREE.CylinderGeometry(0.22, 0.32, 4.4, 3, 1, true), 0, 2.2, 0, trunk).geo(new THREE.IcosahedronGeometry(3.3, 0), 0, 6.9, 0, leaf, 0, 0.3, 0, 1, 0.85, 1).build();
+    const bushF = new Batch().geo(new THREE.IcosahedronGeometry(0.85, 0), 0, 0.6, 0, shrub, 0, 0, 0, 1, 0.8, 1).build();
+    PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge, conF, brdF, bushF, box];
     PR.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, envMapIntensity: 0.55 });
     return PR.geo;
   }
-  // a set of props' meshes (one per piece), its frame at a0 (the first map's middle), and its fill job
+  // Level of detail (the coordinator's battery pass): trees, bushes, walls and hedges past `near` m from the camera's focus
+  // are drawn as the far shapes; bushes, bales, fences, poles, tyres, crates and small rocks are not drawn past `cull` m (a
+  // few pixels there). What they block and stop never changes with it: their colliders are Props'. Low quality is closer in.
+  const PROP_LOD = { high: { near: 320, cull: 650 }, low: { near: 200, cull: 420 }, move: 30 };
+  const FAR_OF = [-1, -1, -1, -1, 9, 10, 11, -1, 12]; // (each piece's far mesh, by its near one; -1: none)
+  // a set of props' meshes (the nine pieces and four far shapes), its frame at a0 (the first map's middle), every
+  // instance's matrix and colour worked out once (M, C: by slot, each prop's pieces in a row from first[j]), which mesh
+  // and index each slot is drawn at now (where: mesh << 20 | index, -1 not drawn), and its fill job
   function propSet(key, ids) {
     let s = PR.sets.get(key);
     if (s) return s;
-    s = { key, ids, frame: new THREE.Group(), meshes: [], n: null, ri: null, props: null, job: null, ver: -1, gen: -1, fallN: 0, anim: [], a0: 0, ready: false, hi: null };
+    s = { key, ids, frame: new THREE.Group(), meshes: [], props: null, jOf: null, first: null, pc: null, M: null, C: null, where: null, job: null, ver: -1, gen: -1,
+      fallN: 0, anim: [], a0: 0, ready: false, hi: null, lodE: NaN, lodZ: NaN, drawn: 0 };
     s.frame.visible = false;
     localWorld.add(s.frame);
     PR.sets.set(key, s);
     return s;
   }
   const PM = { A: null, B: null, P: null, q: null, e: null, s: null, v: null };
-  // prop p's instances (from Props.pieces) at base height h, tipped by ang (radians) toward its fall: into set s (and
-  // their colours too, with paint)
-  function propPlace(s, p, h, ang, paint) {
+  // prop j's slots (from Props.pieces) at base height h, tipped by ang (radians) toward its fall, into the set's M (and C,
+  // with paint); then wherever those slots are drawn now
+  function propPlace(s, j, h, ang, paint) {
     if (!PM.A) { PM.A = new THREE.Matrix4(); PM.B = new THREE.Matrix4(); PM.P = new THREE.Matrix4(); PM.q = new THREE.Quaternion(); PM.e = new THREE.Euler(0, 0, 0, 'YZX'); PM.s = tmpV(); PM.v = tmpV(); PM.c = new THREE.Color(); }
-    const R = EARTH.radius, a = siteAngle(EARTH, p.e), d = a - s.a0, cp = Math.cos(p.z / R), sp = Math.sin(p.z / R), r = R + h, cd = Math.cos(d), sd = Math.sin(d);
+    const p = s.props[j], R = EARTH.radius, a = siteAngle(EARTH, p.e), d = a - s.a0, cp = Math.cos(p.z / R), sp = Math.sin(p.z / R), r = R + h, cd = Math.cos(d), sd = Math.sin(d);
     // the surface frame there in the set's frame: east, up, south (+z); then the prop's yaw about up
     PM.A.set(cd, -cp * sd, sp * sd, -r * cp * sd, sd, cp * cd, -sp * cd, r * cp * cd - R, 0, sp, cp, r * sp, 0, 0, 0, 1);
     PM.A.multiply(PM.B.makeRotationY(p.y));
@@ -1977,50 +1990,69 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const u = p.fe * p.c + p.fz * p.s, w = -p.fe * p.s + p.fz * p.c, piv = p.k === Props.K.hedge || p.k === Props.K.fence ? (p.d || 0.3) / 2 : 0.3;
       PM.A.multiply(PM.B.makeTranslation(u * piv, 0, w * piv)).multiply(PM.B.makeRotationAxis(PM.v.set(w, 0, -u).normalize(), ang)).multiply(PM.B.makeTranslation(-u * piv, 0, -w * piv));
     }
-    const ri = s.ri[p.i];
-    let k = 0;
+    let k = s.first[j];
     Props.pieces(p, (pc, x, y, z, sx, sy, sz, ry, rz, c) => {
-      const m = s.meshes[pc], i = ri ? ri[k++] : -1;
-      if (!m || i < 0) return;
       PM.e.set(0, ry, rz);
       PM.P.compose(PM.v.set(x, y, z), PM.q.setFromEuler(PM.e), PM.s.set(sx, sy, sz)).premultiply(PM.A);
-      m.setMatrixAt(i, PM.P);
-      if (paint) m.setColorAt(i, PM.c.setHex(c));
+      PM.P.toArray(s.M, k * 16);
+      if (paint) { PM.c.setHex(c); s.C[k * 3] = PM.c.r; s.C[k * 3 + 1] = PM.c.g; s.C[k * 3 + 2] = PM.c.b; }
+      const wh = s.where ? s.where[k] : -1;
+      if (wh >= 0) { const m = s.meshes[wh >> 20]; m.instanceMatrix.array.set(s.M.subarray(k * 16, k * 16 + 16), (wh & 0xfffff) * 16); m.instanceMatrix.needsUpdate = true; }
+      k++;
     });
   }
-  // the fill: instances counted per piece (the meshes made to fit), then every prop placed, a slice at a time
+  // The fill: every prop's slots counted, their matrices and colours worked out, a slice at a time; the meshes made to
+  // hold every slot of their piece (and the far shapes theirs); then the first pick of what is drawn (propLod)
   function* propFill(s, hOf) {
     const L = [];
     for (const m of Props.areas()) if (s.ids.includes(m.id)) for (const p of m.props) L.push(p);
-    s.props = L;
-    const n = new Int32Array(PIECES), ri = [];
-    for (let j = 0; j < L.length; j++) {
-      const p = L[j], own = [];
-      Props.pieces(p, (pc) => { own.push(n[pc]++); });
-      ri[p.i] = Int32Array.from(own);
-      if ((j & 255) === 255 && spent()) yield;
-    }
-    // (counted per piece: each prop's instances are its pieces' numbers in order, as pieces() hands them out)
-    const geos = propGeos();
-    if (!s.n || s.n.some((c, i) => c !== n[i]) || s.hi !== Settings.high) {
-      for (const m of s.meshes) if (m) { s.frame.remove(m); m.dispose(); }
-      s.meshes = geos.map((g, i) => {
-        if (!n[i]) return null;
-        const m = new THREE.InstancedMesh(g, PR.mat, n[i]);
-        m.frustumCulled = false; m.receiveShadow = true; m.castShadow = PCAST[i] === true || (PCAST[i] === 'hi' && Settings.high);
-        s.frame.add(m);
-        return m;
-      });
-      s.n = n; s.hi = Settings.high;
-    }
-    s.ri = ri;
+    const first = new Int32Array(L.length + 1), jOf = new Map();
+    let n = 0;
+    for (let j = 0; j < L.length; j++) { first[j] = n; jOf.set(L[j], j); Props.pieces(L[j], () => { n++; }); if ((j & 255) === 255 && spent()) yield; }
+    first[L.length] = n;
+    const pc = new Uint8Array(n), cnt = new Int32Array(PR.geo ? PR.geo.length : 13);
+    for (let j = 0, k = 0; j < L.length; j++) { Props.pieces(L[j], (q) => { pc[k++] = q; cnt[q]++; if (FAR_OF[q] >= 0) cnt[FAR_OF[q]]++; }); if ((j & 255) === 255 && spent()) yield; }
+    Object.assign(s, { props: L, jOf, first, pc, M: new Float32Array(n * 16), C: new Float32Array(n * 3), where: null });
     yield;
+    for (let j = 0; j < L.length; j++) { const p = L[j]; propPlace(s, j, hOf(p), p.down ? fallAng(p, Infinity) : 0, true); if ((j & 31) === 31 && spent()) yield; }
+    const geos = propGeos();
+    for (const m of s.meshes) if (m) { s.frame.remove(m); m.dispose(); }
+    s.meshes = geos.map((g, i) => {
+      if (!cnt[i]) return null;
+      const m = new THREE.InstancedMesh(g, PR.mat, cnt[i]);
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cnt[i] * 3), 3);
+      m.frustumCulled = false; m.receiveShadow = true; m.castShadow = i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
+      s.frame.add(m);
+      return m;
+    });
+    s.where = new Int32Array(n).fill(-1);
+    s.lodE = NaN;
+  }
+  // What is drawn, and how, for the camera's focus at (e, z): each prop's slots copied (matrix and colour, worked out
+  // already) into the mesh its distance picks, the meshes' counts set. A few thousand copies: once the focus has moved
+  // PROP_LOD.move m, not every frame
+  const LODK = new Int32Array(16);
+  function propLod(s, e, z) {
+    const K = Props.K, Q = Settings.high ? PROP_LOD.high : PROP_LOD.low, n2 = Q.near * Q.near, c2 = Q.cull * Q.cull, L = s.props, ms = s.meshes;
+    LODK.fill(0);
+    let drawn = 0;
     for (let j = 0; j < L.length; j++) {
-      const p = L[j];
-      propPlace(s, p, hOf(p), p.down ? fallAng(p, Infinity) : 0, true);
-      if ((j & 31) === 31 && spent()) yield;
+      const p = L[j], de = p.e - e, dz = p.z - z, d2 = de * de + dz * dz, k = p.k;
+      const small = k === K.bush || k === K.bale || k === K.fence || k === K.pole || k === K.tyres || k === K.crate || k === K.rock;
+      const gone = small && d2 > c2, far = d2 > n2;
+      for (let q = s.first[j], qe = s.first[j + 1]; q < qe; q++) {
+        let mi = gone ? -1 : s.pc[q];
+        if (mi >= 0 && far && FAR_OF[mi] >= 0) mi = FAR_OF[mi];
+        if (mi < 0 || !ms[mi]) { s.where[q] = -1; continue; }
+        const m = ms[mi], i = LODK[mi]++;
+        m.instanceMatrix.array.set(s.M.subarray(q * 16, q * 16 + 16), i * 16);
+        m.instanceColor.array.set(s.C.subarray(q * 3, q * 3 + 3), i * 3);
+        s.where[q] = (mi << 20) | i;
+        drawn++;
+      }
     }
-    for (const m of s.meshes) if (m) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    for (let i = 0; i < ms.length; i++) { const m = ms[i]; if (!m) continue; m.count = LODK[i]; m.visible = LODK[i] > 0; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
+    s.lodE = e; s.lodZ = z; s.drawn = drawn;
   }
   // how far a fallen prop has tipped by now (it falls faster as it goes: 0.7 s), and how far it ends
   const FALL_T = 0.7;
@@ -2034,12 +2066,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z, budget = Settings.high ? 2.5 : 1.5, t0 = performance.now();
     // Highland Ridge: with its arena ground (in ground play, within 6 km), its set built while that one is
     const H = EARTH.mapped && EARTH.arenas.highland, B = H && H.box, hlNear = !!H && AR.A === H && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near + 500;
-    if (hlNear) propStep(propSet('hl', ['highland']), F, t0 + budget, propFlat, AR.on && !!AR.mesh);
+    if (hlNear) propStep(propSet('hl', ['highland']), F, t0 + budget, propFlat, AR.on && !!AR.mesh, e, z);
     else if (PR.sets.has('hl')) PR.sets.get('hl').frame.visible = false;
     // the space centre's (the Runway's, and on the map the island's): within 7 km and under 5 km up
     const camAlt = Math.hypot(F.camAbs.x - bodyPos(EARTH, F.time).x, F.camAbs.y - bodyPos(EARTH, F.time).y, F.camAbs.z || 0) - EARTH.radius;
     const scNear = Math.hypot(Math.max(0, Math.abs(e - 1500) - 2200), Math.max(0, Math.abs(z) - 800)) < 7000 && camAlt < 5000 && patch.active;
-    if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true);
+    if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true, e, z);
     else if (PR.sets.has('sc')) PR.sets.get('sc').frame.visible = false;
   }
   const propFlat = () => 0; // (Highland Ridge's sit on the physics' ground: the arena's own mesh is drawn from it)
@@ -2048,14 +2080,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const a = siteAngle(EARTH, p.e), d = drawnAt(EARTH, a, p.z) - Terrain.surfaceAt(EARTH, a, p.z);
     return d === d ? clamp(d, -3, 3) : 0;
   }
-  function propStep(s, F, until, seat, show) {
+  function propStep(s, F, until, seat, show, e, z) {
     const ids = s.ids;
     // its layout first (Props builds it a slice at a time), then the fill; again when the layout changes (a map in, the
     // Earth map loaded, everything stood up again), or (seated on the drawn ground) when the terrain patch is replaced
     if (!Props.tick(Math.max(0.2, until - performance.now()), ids)) { s.frame.visible = false; return; }
     const fresh = s.ver !== Props.ver || s.hi !== Settings.high || Props.fallen.length < s.fallN;
     if (fresh || (seat !== propFlat && s.gen !== patchGen && !s.job)) {
-      if (fresh || !s.job) { s.a0 = siteAngle(EARTH, (Props.areas().find((m) => ids.includes(m.id)) || { ce: 0 }).ce); s.job = propFill(s, (p) => p.g + seat(p)); s.ver = Props.ver; s.gen = patchGen; s.fallN = 0; s.anim.length = 0; s.seat = seat; }
+      if (fresh || !s.job) { s.a0 = siteAngle(EARTH, (Props.areas().find((m) => ids.includes(m.id)) || { ce: 0 }).ce); s.job = propFill(s, (p) => p.g + seat(p)); s.ver = Props.ver; s.hi = Settings.high; s.gen = patchGen; s.fallN = 0; s.anim.length = 0; s.seat = seat; }
     }
     if (s.job) {
       arenaUntil = until;
@@ -2064,18 +2096,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (done) { s.job = null; s.ready = true; s.fallN = Math.min(s.fallN, Props.fallen.length); }
       arenaUntil = Infinity;
     }
-    if (!s.ready || !s.ri) { s.frame.visible = false; return; }
+    if (!s.ready || !s.where) { s.frame.visible = false; return; }
+    // what is drawn, and how: again once the focus has moved on
+    if (!(Math.abs(e - s.lodE) < PROP_LOD.move && Math.abs(z - s.lodZ) < PROP_LOD.move)) propLod(s, e, z);
     // the newly fallen (ours, ghosts', the AI's), tipping over
     const FL = Props.fallen;
-    for (; s.fallN < FL.length; s.fallN++) { const p = FL[s.fallN]; if (ids.includes(p.map) && s.ri[p.i]) s.anim.push(p); }
+    for (; s.fallN < FL.length; s.fallN++) { const p = FL[s.fallN]; if (ids.includes(p.map) && s.jOf.has(p)) s.anim.push(p); }
     if (s.anim.length) {
       const now = F.time || 0;
       for (let i = s.anim.length - 1; i >= 0; i--) {
         const p = s.anim[i];
-        propPlace(s, p, p.g + s.seat(p), fallAng(p, now));
+        propPlace(s, s.jOf.get(p), p.g + s.seat(p), fallAng(p, now));
         if (now - (p.t0 || 0) >= FALL_T || now < (p.t0 || 0)) s.anim.splice(i, 1);
       }
-      for (const m of s.meshes) if (m) m.instanceMatrix.needsUpdate = true;
     }
     s.frame.visible = !!show;
     if (show) placeFrame(s.frame, EARTH, s.a0, F.time);
@@ -4116,7 +4149,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // draw calls and triangles in the last frame (for tuning)
     info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
     // the props' sets (tests, measurements): shown, filled, instances per piece
-    propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.n ? [...s.n] : null, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
+    propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.meshes.map((m) => (m ? m.count : 0)), slots: s.first ? s.first[s.first.length - 1] : 0, drawn: s.drawn, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing
     arenaOff: false, // tests and measurements: the plain terrain patch even near an arena
     get supported() {

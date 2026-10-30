@@ -33,15 +33,16 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   // ---- Highland Ridge's village
   await ev(start, ['tk34', { e: 18190, z: 15040, yaw: 0 }]);
   await page.waitForFunction(setUp, 'hl', { timeout: 600000, polling: 250 });
-  const hl = await ev((want) => { const I = Render3D.propsInfo().hl; return { n: I.n, want: eval(want)(['highland']), props: I.props, layout: Props.areas().find((m) => m.id === 'highland').props.length, built: !!Render3D.info().t.arenaBand }; }, want.toString());
-  ok(`${tag}: in the village the Highland Ridge set is up with the arena's own ground, every prop's pieces drawn`, hl.built && hl.props === hl.layout && hl.props > 2500 && hl.n.join() === hl.want.join(), hl);
+  const hl = await ev((want) => { const I = Render3D.propsInfo().hl, w = eval(want)(['highland']); return { slots: I.slots, want: w.reduce((a, b) => a + b, 0), drawn: I.drawn, n: I.n, props: I.props, layout: Props.areas().find((m) => m.id === 'highland').props.length, built: !!Render3D.info().t.arenaBand }; }, want.toString());
+  ok(`${tag}: in the village the Highland Ridge set is up with the arena's own ground, every prop's pieces in it, the far ones as their far shapes and the small far ones left out (level of detail)`,
+    hl.built && hl.props === hl.layout && hl.props > 2500 && hl.slots === hl.want && hl.drawn < hl.slots && hl.n.slice(9).some((c) => c > 0), hl);
   await draw();
   await ev(() => { Flight.aimYaw = 0; Flight.aimPitch = -0.02; });
   await page.waitForTimeout(1200);
   const calls = await ev(() => { const on = Render3D.info().calls; Render3D.propsOff = true; return on; });
   await page.waitForTimeout(1200);
   const off = await ev(() => { const c = Render3D.info().calls; Render3D.propsOff = false; return c; });
-  ok(`${tag}: the props add at most 18 draws (nine pieces, and their shadows)`, calls > off && calls - off <= 18, { with: calls, without: off });
+  ok(`${tag}: the props add at most 20 draws (nine pieces and four far shapes, the near ones' shadows)`, calls > off && calls - off <= 20, { with: calls, without: off });
   await page.waitForTimeout(800);
   await shot('village');
   // the crosshair on a house: a house straight ahead along the street's side, the ray stops at its wall
@@ -72,8 +73,8 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   // ---- the tank yard
   await ev(() => { const t = TEMPLATES.tk34, P = Props.yardPlace(1); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: P }); Render3D.skipDraw = true; });
   await page.waitForFunction(setUp, 'sc', { timeout: 600000, polling: 250 });
-  const sc = await ev((want) => { const I = Render3D.propsInfo(); return { n: I.sc.n, want: eval(want)(['runway', 'isle']), props: I.sc.props, hl: I.hl ? I.hl.shown : false }; }, want.toString());
-  ok(`${tag}: at the tank yard the space centre's set is up (the island's props and the Runway's), Highland Ridge's not shown`, sc.props > 700 && sc.n.join() === sc.want.join() && !sc.hl, sc);
+  const sc = await ev((want) => { const I = Render3D.propsInfo(); return { slots: I.sc.slots, want: eval(want)(['runway', 'isle']).reduce((a, b) => a + b, 0), drawn: I.sc.drawn, props: I.sc.props, hl: I.hl ? I.hl.shown : false }; }, want.toString());
+  ok(`${tag}: at the tank yard the space centre's set is up (the island's props and the Runway's), Highland Ridge's not shown`, sc.props > 700 && sc.slots === sc.want && sc.drawn > 0 && !sc.hl, sc);
   await draw();
   await ev(() => { Flight.aimYaw = 0; Flight.aimPitch = -0.03; });
   await page.waitForTimeout(1200);
