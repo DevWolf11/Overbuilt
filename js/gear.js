@@ -167,6 +167,38 @@ const gearSat = (A, B, n) => {
   }
   return best;
 };
+// The props a vehicle with running gear meets (props.js): buildings, walls, boulders, sandbags, crates, containers and
+// blocks are immovable (we take the whole push, as off a wreck), each a box against the body box (gearSat); restitution
+// and friction as for vehicles, and ramming one faster than 6 m/s dents the part that met it. (Trees, hedges, fences,
+// bushes and bales fall over instead: Props.crushStep.)
+const gearProps = (v, sim) => {
+  const rv = gearBoxR(v), L = Props.solidNear(v.x, v.y, v.z, rv + 1);
+  if (!L.length) return;
+  let A = gearBox(v, _gBoxA);
+  if (!A) return;
+  for (let n = 0; n < L.length; n++) {
+    const B = L[n], nb = _gNb, depth = gearSat(A, B, nb);
+    if (!(depth > 0)) continue;
+    const push = gMath.min(depth, GEAR.bumpMax);
+    v.x += nb.x * push; v.y += nb.y * push; v.z += nb.z * push;
+    let ra = 0, rb = 0;
+    for (let i = 0; i < 3; i++) { ra += A.e[i] * gMath.abs(gDot(A.u[i], nb)); rb += B.e[i] * gMath.abs(gDot(B.u[i], nb)); }
+    const cx = (A.c.x - nb.x * ra + B.c.x + nb.x * rb) / 2, cy = (A.c.y - nb.y * ra + B.c.y + nb.y * rb) / 2, cz = (A.c.z - nb.z * ra + B.c.z + nb.z * rb) / 2;
+    A = gearBox(v, _gBoxA); // (moved: its box again for the next)
+    const a = v.av, rvx = cx - v.x, rvy = cy - v.y, rvz = cz - v.z;
+    const ux = v.vx + a.y * rvz - a.z * rvy, uy = v.vy + a.z * rvx - a.x * rvz, uz = v.vz + a.x * rvy - a.y * rvx, vn = ux * nb.x + uy * nb.y + uz * nb.z;
+    if (vn >= 0) continue;
+    const k = 1 / v.mass, j = (-(1 + GEAR.bumpE) * vn) / k, Pv = gearLocal(v, cx, cy, cz, _gA);
+    v.applyImpulse(Pv, nb, j);
+    const tx = ux - nb.x * vn, ty = uy - nb.y * vn, tz = uz - nb.z * vn, vt = gMath.hypot(tx, ty, tz);
+    if (vt > 1e-6) { const jt = gMath.min(GEAR.bumpMu * j, vt / k), d = _gR; d.x = -tx / vt; d.y = -ty / vt; d.z = -tz / vt; v.applyImpulse(Pv, d, jt); }
+    if (-vn > GEAR.ramV && typeof Combat !== 'undefined' && sim && sim.vessels) {
+      const p = gearNearest(v, Pv);
+      if (p) Combat.impact(v, p, 0.75 + (-vn - GEAR.ramV) / (4 * (p.def.breakSpeed || DEFAULT_BREAK_SPEED)), sim);
+      if (v.dead || !v.parts.length) return;
+    }
+  }
+};
 // A sim point in a vessel's part space (out)
 const gearLocal = (v, x, y, z, out) => {
   const q = v.q; _gQ.w = q.w; _gQ.x = -q.x; _gQ.y = -q.y; _gQ.z = -q.z;
@@ -624,6 +656,7 @@ const Gear = {
   // (which never bumps on its owner's screen) passes through. Ramming faster than 6 m/s dents the parts that met (local
   // damage only).
   bump(v, sim) {
+    if (typeof Props !== 'undefined' && v.parts.length) gearProps(v, sim);
     const list = sim && sim.vessels;
     if (!list || list.length < 2 || !v.parts.length) return;
     const rv = gearBoxR(v);

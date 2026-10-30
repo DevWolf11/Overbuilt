@@ -814,6 +814,14 @@ const Armour = (() => {
         if (CL < (s.prox || SH.prox)) { Combat.explode(b, lerpTo(f), SH.blast || 1, SH.dmg, s.owner, F, true, SH.he, spare); return false; }
       }
     }
+    // the props that stop shells (props.js: houses, walls, rocks, the tank yard's kit): the first thing in its way, the
+    // ground under it first (behind a crest)
+    const clr = s.cheap ? s.gcc : s.gc, pt = typeof Props !== 'undefined' && !(clr > 60) ? Props.shell(TA, TE, s) : -1; // (60 m over the ground at its last look: over every prop)
+    if (pt >= 0 && (!hv || pt < ht) && (!tg || pt < tt)) {
+      const q = Props.hit, gt = groundT(s, b, s.gk ? s.g0 : TA, TE, false);
+      if (gt >= 0 && gt <= (s.gk ? 0.5 + pt / 2 : pt)) return ground(s, b, gtAt, F, SH, spare);
+      return propHit(s, b, lerpTo(pt), F, SH, spare, q);
+    }
     if (hv || tg) {
       // (behind a crest or a berm: the ground there first)
       const gt = groundT(s, b, s.gk ? s.g0 : TA, TE, false);
@@ -952,6 +960,22 @@ const Armour = (() => {
     if (hi < lo) return false;
     BSP[0] = lo; BSP[1] = hi;
     return true;
+  }
+  // into a prop (q, its collider): high explosive bursts there (a copy only shows it); anything else stops in it with a
+  // puff of stone, wood, earth or leaves, or sparks off metal
+  const PUFF = { stone: '#a49c8c', wood: '#7a5f42', earth: '#9a8a68', leaf: '#5d7a3e' };
+  function propHit(s, b, P, F, SH, spare, q) {
+    const at = { x: P.x, y: P.y, z: P.z };
+    if ((BURST[SH.type] || SH.type === 'hesh') && !s.dud) {
+      if (s.net) Combat.boomFX(b, at, SH.blast || 1, true, F);
+      else Combat.explode(b, at, SH.blast || 1, SH.dmg, s.owner, F, !!s.cheap, SH.he, spare);
+      return false;
+    }
+    if (s.cheap && Math.random() > 0.5) return false;
+    const r = len(at.x, at.y, at.z) || 1, m = Props.matOf(q), k = s.cheap ? 1 : 2.5;
+    if (m === 'metal') FX.sparks(b, at, { x: 0, y: 0, z: 0 }, s.cheap ? 2 : 6);
+    else FX.puff(b, at, { x: (at.x / r) * 2.5, y: (at.y / r) * 2.5, z: (at.z / r) * 2.5 }, k, PUFF[m] || PUFF.stone);
+    return false;
   }
   // into the ground: high explosive bursts (a copy only shows it), anything else puffs dust or splashes
   function ground(s, b, P, F, SH, spare) {

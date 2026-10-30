@@ -24,6 +24,7 @@ function load(opts = {}) {
     ctx.__earth = require('./earth.js').layers();
     run('Terrain.setEarthData(__earth); delete this.__earth;');
   }
+  if (fs.existsSync(path.join(root, 'js', 'props.js'))) run(src(root, 'props.js'), 'props.js'); // (the ground update's props: built when first asked)
   run(src(root, 'parts.js'), 'parts.js');
   run(src(root, 'vessel.js'), 'vessel.js');
   // the ground update's systems (each only if present, so ROOT can point at a checkout from before it)
@@ -73,7 +74,7 @@ function load(opts = {}) {
   }
   // top-level const/let/class bindings aren't properties of the context: copy the common ones over
   for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain',
-    'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI'])
+    'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props'])
     run(`if (typeof ${k} !== 'undefined') this.${k} = ${k};`);
   return ctx;
 }

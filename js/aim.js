@@ -1202,7 +1202,8 @@ const Aim = {
   // ---- line of sight (Phase 2C)
   // Can a see b (craft, range targets or points, sim): from a's top to b's along the ground as drawn (Render3D.drawnGround
   // with the 3D view up, else Terrain.surfaceAt) every 20 m, and wherever the line comes within 3 m of it, the real ground
-  // (3 looks, 0.3 m clear); wrecks in the way (0.7 of their reach) and smoke (not with opts.thermal) block it too.
+  // (3 looks, 0.3 m clear); wrecks in the way (0.7 of their reach), the props that block sight (props.js: buildings, walls,
+  // tree crowns, bushes, hedges; not one knocked over) and smoke (not with opts.thermal) block it too.
   // Remembered for 0.5 s a pair; no more than 3 pairs looked at afresh a frame (the rest keep their last answer). It
   // decides who is marked and what the AI sees, never what is hit. opts.both: the answer is b's of a too (the line is
   // the same both ways; with the same sight).
@@ -1221,6 +1222,7 @@ const Aim = {
     }
     const B = a.body || b.body || EARTH, A0 = aimEye(a, aimA), B0 = aimEye(b, aimB);
     let r = aimLos(B, A0, B0) && (th || !this.smokeBlocks(A0, B0));
+    if (r && B === EARTH && typeof Props !== 'undefined' && !Props.clear(A0, B0)) r = false; // (houses, walls, woods, hedges: props.js; a thermal sight doesn't see through them either)
     if (r && F && F.vessels) { // wrecks in the way
       let k = 0;
       for (const w of F.vessels) {

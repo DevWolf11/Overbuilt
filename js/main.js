@@ -111,6 +111,9 @@ const App = {
         if (force || t >= this.next - 2) { this.renderHome(this.lag); this.lag = 0; this.ink = true; this.drew(t, modal ? 100 : 1000 / 30); }
       }
       if (!in3d && Render3D.ready) Render3D.setVisible(false);
+      // the props of the battlefields (props.js), laid out a millisecond a frame ahead of need: while Armour is being
+      // built or a ground battle's lobby is up (a launch there would otherwise lay them out all at once)
+      if (typeof Props !== 'undefined' && EARTH.mapped && ((this.scene === 'build' && Builder.kind === 'tank') || (MP.live && MP.ground)) && !Props.done()) Props.tick(1);
     } catch (err) {
       console.error(err);
     }

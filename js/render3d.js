@@ -1310,7 +1310,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       return h;
     };
     const inside = (i, m) => pe[i] >= B.e0 - m && pe[i] <= B.e1 + m && pz[i] >= B.z0 - m && pz[i] <= B.z1 + m;
-    const berms = A.berms || [];
+    const berms = A.berms || [], roads = A === EARTH.arenas.highland && typeof Props !== 'undefined' && Props.paintReady();
     const TP = [0.5, 0.5, 0.5, 0, 0, 0.5, 1, 0.5, 0.5, 1];
     yield;
     const node = (X, Y, s) => ({ ix: X, iy: Y, s, k: null, v: [pt(X, Y), pt(X + s, Y), pt(X, Y + s), pt(X + s, Y + s)], c: -1, f: null });
@@ -1334,6 +1334,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (N.s < 2 || e1 < B.e0 || e0 > B.e1 || z1 < B.z0 || z0 > B.z1) continue; // (the finest, or wholly outside the box: as it is)
       let split = false;
       for (const bm of berms) if (e1 > bm.e - 19 && e0 < bm.e + 19 && z1 > bm.z - 19 && z0 < bm.z + 19) { split = true; break; }
+      if (!split && N.s > 2 && roads && Props.roadIn(e0, e1, z0, z1, 0.5)) split = true; // (and down to about 4 m along the dirt roads painted on it: props.js)
       const h00 = ph[v[0]], h10 = ph[v[1]], h01 = ph[v[2]], h11 = ph[v[3]], s = N.s, hs = s / 2;
       N.c = pt(N.ix + hs, N.iy + hs);
       for (let t = 0; t < 10 && !split; t += 2) {
@@ -1477,10 +1478,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     return true;
   }
   const PQ = { h: 0, c: [0, 0, 0], n: [0, 0, 0], night: 0 };
+  // Highland Ridge's dirt roads and fields (props.js), painted over the arena ground's colours at each vertex (linear)
+  const PPC = [0, 0, 0];
+  const propPainted = (G) => G.A === EARTH.arenas.highland && typeof Props !== 'undefined' && Props.paintReady();
+  function propPaint(G, k, col, q) {
+    PPC[0] = col[q]; PPC[1] = col[q + 1]; PPC[2] = col[q + 2];
+    Props.paint(G.ve[k], G.vz[k], PPC);
+    col[q] = PPC[0]; col[q + 1] = PPC[1]; col[q + 2] = PPC[2];
+  }
   // The GPU side, once the quadtree is done, a few hundred vertices a step: positions (in a frame at the arena's middle
   // angle), normals, colours; then the mesh (not shown until its seam is ready: arenaBandJob)
   function* arenaMeshJob() {
-    const G = AR.geo, n = G.n, R = EARTH.radius, a0 = (AR.a0 = siteAngle(EARTH, (G.A.box.e0 + G.A.box.e1) / 2)), c = cfgOf(EARTH), cell = AR.hi ? 20 : 25;
+    const G = AR.geo, n = G.n, R = EARTH.radius, a0 = (AR.a0 = siteAngle(EARTH, (G.A.box.e0 + G.A.box.e1) / 2)), c = cfgOf(EARTH), cell = AR.hi ? 20 : 25, painted = propPainted(G);
     const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uv = new Float32Array(n * 2), night = new Float32Array(n);
     G.pos = pos; G.nor = nor; G.col = col; G.uv = uv; G.night = night;
     yield;
@@ -1509,6 +1518,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (al < 0) al += TAU * R;
       night[k] = groundPaint(c, EARTH, al, G.vz[k], G.va[k], G.vz[k], phi, G.ve[k], trackHalf(G.ve[k]), cell, G.hx[k], contAt(c, G.va[k], phi), G.dk[k], 1 - cu, tan, G.wl[k], G.wp[k], G.rd[k], G.rv[k], out);
       col[q] = lin(out[0]); col[q + 1] = lin(out[1]); col[q + 2] = lin(out[2]);
+      if (painted) propPaint(G, k, col, q);
       if ((k & 7) === 7 && spent()) yield; // (a vertex's paint is the dearest work here)
     }
     G.ocol = col.slice(); yield; G.onor = nor.slice(); yield; G.onight = night.slice(); // (its own, before the seam blends them into the patch's)
@@ -1564,7 +1574,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // it is lit as the patch is. And the patch's cut (its shader's hole, in its UVs) is set to the box and that blend.
   // Worked out against the patch about to go up while it waits (bandWait), so the two swap together.
   function* arenaBandJob(P, bb) {
-    const G = AR.geo, nb = G.nb, n = G.n, R = EARTH.radius, hole = ARENA.hole, H = bb.H, col = bb.col, nor = bb.nor, night = bb.night;
+    const G = AR.geo, nb = G.nb, n = G.n, R = EARTH.radius, hole = ARENA.hole, H = bb.H, col = bb.col, nor = bb.nor, night = bb.night, painted = propPainted(G);
     const dl = P.a0 - AR.a0, cs = Math.cos(dl), sn = Math.sin(dl), [l0, l1] = ARENA.lit;
     for (let k = 0; k < n; k++) {
       const d = G.vd[k], q = k * 3;
@@ -1576,6 +1586,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         continue;
       }
       for (let c = 0; c < 3; c++) col[q + c] = PQ.c[c];
+      if (painted) propPaint(G, k, col, q);
       night[k] = PQ.night;
       const far = smoothstep(l0, l1, Math.hypot(wrapAngle(G.va[k] - P.a0) * R * P.kl, G.vz[k] - P.z0)); // (the patch's normals far off)
       let w = far;
@@ -1888,6 +1899,181 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const job = sceneryJob(S.scen[1], b, a0, z0, rad);
     while (!job.next().done);
     swapScenery();
+  }
+
+  // ------------------------------------------------------------------ props (props.js): the solid scenery of ground play
+  // Houses, ruins, walls, hedges, trees, rocks and the tank yard's kit, built from Props' own list (one layout for every
+  // player, whatever the quality: each prop is what shells, sight lines and vehicles meet), as InstancedMeshes of nine
+  // shared pieces (a box, a gable roof, a cylinder, a spire, a conifer, a broadleaf tree, a bush, a rock, a lumpy wall),
+  // one draw each. Two sets: Highland Ridge's, shown with the arena's own ground (built from the same heights the props
+  // stand on) in ground play, and the space centre's (the Runway's and the island's), shown with the camera near it and
+  // seated on the ground as drawn there. Each is filled a slice a frame (Props builds its layout a slice at a time too);
+  // a crushed prop tips over where it stood (Props.fallen) over 0.7 s.
+  const PR = { geo: null, mat: null, sets: new Map(), mats: null };
+  const PIECES = 9, PCAST = [true, true, true, true, 'hi', 'hi', false, true, true]; // (casts a shadow: always, on High, never)
+  function propGeos() {
+    if (PR.geo) return PR.geo;
+    const W = col('#ffffff'), trunk = col('#5a4130'), jit = (g, k, ky, seed) => { // (a lumpy, flat-shaded surface: shared corners move together)
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        V1.fromBufferAttribute(p, i);
+        const h = hashI(Math.round(V1.x * 97), Math.round(V1.y * 89) + Math.round(V1.z * 83) * 131, seed) - 0.5;
+        p.setXYZ(i, V1.x * (1 + k * h), V1.y * (1 + ky * h), V1.z * (1 + k * h));
+      }
+      return g;
+    };
+    const flat = (g) => { const n = g.index ? g.toNonIndexed() : g; n.computeVertexNormals(); return n; };
+    const box = new Batch().add(new THREE.BoxGeometry(1, 1, 1), new THREE.Matrix4(), W).build();
+    // a gable roof: the ridge along x at y 1 over z 0, its eaves at y 0, z ±0.5; two slopes and two gable ends
+    const rg = new THREE.BufferGeometry(), x = 0.5;
+    rg.setAttribute('position', new THREE.Float32BufferAttribute([-x, 0, 0.5, x, 0, 0.5, x, 1, 0, -x, 0, 0.5, x, 1, 0, -x, 1, 0, x, 0, -0.5, -x, 0, -0.5, -x, 1, 0, x, 0, -0.5, -x, 1, 0, x, 1, 0,
+      x, 0, 0.5, x, 0, -0.5, x, 1, 0, -x, 0, -0.5, -x, 0, 0.5, -x, 1, 0, -x, 0, -0.5, x, 0, -0.5, x, 0, 0.5, -x, 0, -0.5, x, 0, 0.5, -x, 0, 0.5], 3));
+    rg.computeVertexNormals();
+    const roof = new Batch().add(rg, new THREE.Matrix4(), W).build();
+    const cyl = new Batch().geo(new THREE.CylinderGeometry(0.5, 0.5, 1, 10), 0, 0, 0, W).build();
+    const sp = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4); sp.rotateY(Math.PI / 4); sp.translate(0, 0.5, 0);
+    const spire = new Batch().add(sp, new THREE.Matrix4(), W).build();
+    // a conifer 10 m tall (crown 2.6 m round its foot), a broadleaf tree 10 m tall (crown 3.5 m): scaled to each prop
+    const con = new Batch().geo(new THREE.CylinderGeometry(0.16, 0.28, 2.6, 6), 0, 1.3, 0, trunk);
+    for (const [r, h, y] of [[2.6, 4.6, 3.9], [2.0, 4.0, 5.9], [1.35, 3.4, 8.3]]) con.geo(jit(new THREE.ConeGeometry(r, h, 7), 0.1, 0.05, 3), 0, y, 0, W);
+    const brd = new Batch().geo(new THREE.CylinderGeometry(0.2, 0.34, 4.6, 6), 0, 2.3, 0, trunk);
+    brd.geo(jit(new THREE.IcosahedronGeometry(3.0, 1), 0.16, 0.12, 5), 0, 6.4, 0, W, 0, 0, 0, 1, 0.82, 1)
+      .geo(jit(new THREE.IcosahedronGeometry(2.1, 0), 0.12, 0.1, 6), 1.5, 7.7, 0.6, W).geo(jit(new THREE.IcosahedronGeometry(1.9, 0), 0.12, 0.1, 7), -1.3, 7.3, -1.0, W);
+    const bush = new Batch().geo(jit(new THREE.IcosahedronGeometry(0.72, 1), 0.2, 0.15, 8), 0, 0.55, 0, W, 0, 0, 0, 1, 0.8, 1).geo(jit(new THREE.IcosahedronGeometry(0.55, 0), 0.15, 0.1, 9), 0.45, 0.72, 0.28, W).build();
+    // a rock: 1 m across, its foot at y 0; a wall or hedge: a unit box, lumpy, centred
+    const rk = jit(new THREE.IcosahedronGeometry(0.5, 1), 0.45, 0.3, 11); rk.translate(0, 0.42, 0);
+    const rock = new Batch().add(rk, new THREE.Matrix4(), W).build();
+    const hd = jit(new THREE.BoxGeometry(1, 1, 1, 8, 2, 2), 0.06, 0.16, 13);
+    const hedge = new Batch().add(hd, new THREE.Matrix4(), W).build();
+    void flat;
+    PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge];
+    PR.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, envMapIntensity: 0.55 });
+    return PR.geo;
+  }
+  // a set of props' meshes (one per piece), its frame at a0 (the first map's middle), and its fill job
+  function propSet(key, ids) {
+    let s = PR.sets.get(key);
+    if (s) return s;
+    s = { key, ids, frame: new THREE.Group(), meshes: [], n: null, ri: null, props: null, job: null, ver: -1, gen: -1, fallN: 0, anim: [], a0: 0, ready: false, hi: null };
+    s.frame.visible = false;
+    localWorld.add(s.frame);
+    PR.sets.set(key, s);
+    return s;
+  }
+  const PM = { A: null, B: null, P: null, q: null, e: null, s: null, v: null };
+  // prop p's instances (from Props.pieces) at base height h, tipped by ang (radians) toward its fall: into set s
+  function propPlace(s, p, h, ang) {
+    if (!PM.A) { PM.A = new THREE.Matrix4(); PM.B = new THREE.Matrix4(); PM.P = new THREE.Matrix4(); PM.q = new THREE.Quaternion(); PM.e = new THREE.Euler(0, 0, 0, 'YZX'); PM.s = tmpV(); PM.v = tmpV(); PM.c = new THREE.Color(); }
+    const R = EARTH.radius, a = siteAngle(EARTH, p.e), d = a - s.a0, cp = Math.cos(p.z / R), sp = Math.sin(p.z / R), r = R + h, cd = Math.cos(d), sd = Math.sin(d);
+    // the surface frame there in the set's frame: east, up, south (+z); then the prop's yaw about up
+    PM.A.set(cd, -cp * sd, sp * sd, -r * cp * sd, sd, cp * cd, -sp * cd, r * cp * cd - R, 0, sp, cp, r * sp, 0, 0, 0, 1);
+    PM.A.multiply(PM.B.makeRotationY(p.y));
+    if (ang) { // (fallen: about the foot on its far side, toward where it fell)
+      const u = p.fe * p.c + p.fz * p.s, w = -p.fe * p.s + p.fz * p.c, piv = p.k === Props.K.hedge || p.k === Props.K.fence ? (p.d || 0.3) / 2 : 0.3;
+      PM.A.multiply(PM.B.makeTranslation(u * piv, 0, w * piv)).multiply(PM.B.makeRotationAxis(PM.v.set(w, 0, -u).normalize(), ang)).multiply(PM.B.makeTranslation(-u * piv, 0, -w * piv));
+    }
+    const ri = s.ri[p.i];
+    let k = 0;
+    Props.pieces(p, (pc, x, y, z, sx, sy, sz, ry, rz, c) => {
+      const m = s.meshes[pc], i = ri ? ri[k++] : -1;
+      if (!m || i < 0) return;
+      PM.e.set(0, ry, rz);
+      PM.P.compose(PM.v.set(x, y, z), PM.q.setFromEuler(PM.e), PM.s.set(sx, sy, sz)).premultiply(PM.A);
+      m.setMatrixAt(i, PM.P);
+      if (!ang) m.setColorAt(i, PM.c.setHex(c));
+    });
+  }
+  // the fill: instances counted per piece (the meshes made to fit), then every prop placed, a slice at a time
+  function* propFill(s, hOf) {
+    const L = [];
+    for (const m of Props.areas()) if (s.ids.includes(m.id)) for (const p of m.props) L.push(p);
+    s.props = L;
+    const n = new Int32Array(PIECES), ri = [];
+    for (let j = 0; j < L.length; j++) {
+      const p = L[j], own = [];
+      Props.pieces(p, (pc) => { own.push(n[pc]++); });
+      ri[p.i] = Int32Array.from(own);
+      if ((j & 255) === 255 && spent()) yield;
+    }
+    // (counted per piece: each prop's instances are its pieces' numbers in order, as pieces() hands them out)
+    const geos = propGeos();
+    if (!s.n || s.n.some((c, i) => c !== n[i]) || s.hi !== Settings.high) {
+      for (const m of s.meshes) if (m) { s.frame.remove(m); m.dispose(); }
+      s.meshes = geos.map((g, i) => {
+        if (!n[i]) return null;
+        const m = new THREE.InstancedMesh(g, PR.mat, n[i]);
+        m.frustumCulled = false; m.receiveShadow = true; m.castShadow = PCAST[i] === true || (PCAST[i] === 'hi' && Settings.high);
+        s.frame.add(m);
+        return m;
+      });
+      s.n = n; s.hi = Settings.high;
+    }
+    s.ri = ri;
+    yield;
+    for (let j = 0; j < L.length; j++) {
+      const p = L[j];
+      propPlace(s, p, hOf(p), p.down ? fallAng(p, Infinity) : 0);
+      if ((j & 31) === 31 && spent()) yield;
+    }
+    for (const m of s.meshes) if (m) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  }
+  // how far a fallen prop has tipped by now (it falls faster as it goes: 0.7 s), and how far it ends
+  const FALL_T = 0.7;
+  function fallAng(p, now) {
+    const K = Props.K, end = p.k === K.bush ? 1.0 : p.k === K.hedge || p.k === K.fence ? 1.35 : p.k === K.bale ? 1.57 : 1.45, f = clamp((now - (p.t0 || 0)) / FALL_T, 0, 1);
+    return end * f * f;
+  }
+  // Every flight frame: the props near the camera, built, seated and shown; the fallen ones tipping over
+  function updateProps(F, b) {
+    if (typeof Props === 'undefined' || b !== EARTH || !EARTH.arenas) { for (const s of PR.sets.values()) s.frame.visible = false; return; }
+    const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z, budget = Settings.high ? 2.5 : 1.5, t0 = performance.now();
+    // Highland Ridge: with its arena ground (in ground play, within 6 km), its set built while that one is
+    const H = EARTH.mapped && EARTH.arenas.highland, B = H && H.box, hlNear = !!H && AR.A === H && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near + 500;
+    if (hlNear) propStep(propSet('hl', ['highland']), F, t0 + budget, propFlat, AR.on && !!AR.mesh);
+    else if (PR.sets.has('hl')) PR.sets.get('hl').frame.visible = false;
+    // the space centre's (the Runway's, and on the map the island's): within 7 km and under 5 km up
+    const camAlt = Math.hypot(F.camAbs.x - bodyPos(EARTH, F.time).x, F.camAbs.y - bodyPos(EARTH, F.time).y, F.camAbs.z || 0) - EARTH.radius;
+    const scNear = Math.hypot(Math.max(0, Math.abs(e - 1500) - 2200), Math.max(0, Math.abs(z) - 800)) < 7000 && camAlt < 5000 && patch.active;
+    if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true);
+    else if (PR.sets.has('sc')) PR.sets.get('sc').frame.visible = false;
+  }
+  const propFlat = () => 0; // (Highland Ridge's sit on the physics' ground: the arena's own mesh is drawn from it)
+  // (the space centre's props sit on the ground as drawn: the patch's own there, which is metres off the physics' far out)
+  function propSeat(p) {
+    const a = siteAngle(EARTH, p.e), d = drawnAt(EARTH, a, p.z) - Terrain.surfaceAt(EARTH, a, p.z);
+    return d === d ? clamp(d, -3, 3) : 0;
+  }
+  function propStep(s, F, until, seat, show) {
+    const ids = s.ids;
+    // its layout first (Props builds it a slice at a time), then the fill; again when the layout changes (a map in, the
+    // Earth map loaded, everything stood up again), or (seated on the drawn ground) when the terrain patch is replaced
+    if (!Props.tick(Math.max(0.2, until - performance.now()), ids)) { s.frame.visible = false; return; }
+    const fresh = s.ver !== Props.ver || s.hi !== Settings.high || Props.fallen.length < s.fallN;
+    if (fresh || (seat !== propFlat && s.gen !== patchGen && !s.job)) {
+      if (fresh || !s.job) { s.a0 = siteAngle(EARTH, (Props.areas().find((m) => ids.includes(m.id)) || { ce: 0 }).ce); s.job = propFill(s, (p) => p.g + seat(p)); s.ver = Props.ver; s.gen = patchGen; s.fallN = 0; s.anim.length = 0; s.seat = seat; }
+    }
+    if (s.job) {
+      arenaUntil = until;
+      let done = false;
+      while (!done && performance.now() < until) done = s.job.next().done;
+      if (done) { s.job = null; s.ready = true; s.fallN = Math.min(s.fallN, Props.fallen.length); }
+      arenaUntil = Infinity;
+    }
+    if (!s.ready || !s.ri) { s.frame.visible = false; return; }
+    // the newly fallen (ours, ghosts', the AI's), tipping over
+    const FL = Props.fallen;
+    for (; s.fallN < FL.length; s.fallN++) { const p = FL[s.fallN]; if (ids.includes(p.map) && s.ri[p.i]) s.anim.push(p); }
+    if (s.anim.length) {
+      const now = F.time || 0;
+      for (let i = s.anim.length - 1; i >= 0; i--) {
+        const p = s.anim[i];
+        propPlace(s, p, p.g + s.seat(p), fallAng(p, now));
+        if (now - (p.t0 || 0) >= FALL_T || now < (p.t0 || 0)) s.anim.splice(i, 1);
+      }
+      for (const m of s.meshes) if (m) m.instanceMatrix.needsUpdate = true;
+    }
+    s.frame.visible = !!show;
+    if (show) placeFrame(s.frame, EARTH, s.a0, F.time);
   }
 
   // Cumulus on a hashed 750 m grid (the row through the flight plane uses the 2D view's clouds): flat,
@@ -2357,6 +2543,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (a.clear && B && e > B.e0 - m && e < B.e1 + m && z > B.z0 - m && z < B.z1 + m) return true;
     }
     if (sea && EARTH.carriers) for (const k in EARTH.carriers) { const d = EARTH.carriers[k]; if (Math.hypot(e - d.e, z - d.z) < 600) return true; }
+    // (without the map, the Runway arena: its own props stand there, solid, and nothing that only looks it: props.js)
+    const RW = !EARTH.mapped && EARTH.arenas && EARTH.arenas.runway, RB = RW && RW.box;
+    if (RB && e > RB.e0 - 60 && e < RB.e1 + 60 && z > RB.z0 - 60 && z < RB.z1 + 60) return true;
     return false;
   }
   // The top of a carrier at (a, z): its flight deck, sponsons and overhangs, or its island; -Infinity
@@ -3038,6 +3227,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // ---- surface things
     updateSpaceCentre(F, b, envV, dist);
     updateScenery(F, b, near, dist);
+    updateProps(F, b);
     updateClouds(F, b, camAlt);
 
     // ---- vessels, engine glow, plasma, vapour cone, particles

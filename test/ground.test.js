@@ -14,7 +14,7 @@ const t = G.checks('ground: §contract (Phase 1)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 
 // ---------------------------------------------------------------- counters on every function of the new systems
-const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI'];
+const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props']; // (Props: the battlefields' solid scenery, props.js)
 const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringify(SYSTEMS)}) {
   if (typeof this[name] === 'undefined') continue;
   const o = this[name];
@@ -22,7 +22,7 @@ const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringif
 }`);
 wrap(ctx);
 const calls = (c = ctx) => G.run(c, 'JSON.stringify(CALLS)');
-t('the loader brings Gear, Aim, Armour, GroundMode and GroundAI', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
+t('the loader brings Gear, Aim, Armour, GroundMode, GroundAI and Props', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
 
 // ---------------------------------------------------------------- old designs: zero calls into the new code
 // 1. the traces script (every template, 12 s, the same stick script), with the weapons' step and frame alongside
@@ -425,7 +425,7 @@ oldRun(drv, dF, 2, (v) => { v.ctl.v = 0; v.ctl.h = 1; });
 var yaw = dot3(drv.av, up);`);
 t('a tank on the runway settles on its tracks and stays put', R(`Math.abs(settled) < 0.4 && still < 0.2 && !dF.broken.length && sat`), R('[settled, still, dF.broken, sat]'));
 t('W drives it forward; D turns it on the spot (right)', R(`vf > 2 && yaw < -0.05 && !dF.broken.length`), R('[vf, yaw]'));
-t('(and the counters do see the new code run for a ground-update craft)', R(`CALLS['Aim.groups'] > 0 && CALLS['Gear.ground'] > 0 && CALLS['Gear.points'] > 0 && CALLS['Aim.stepAll'] > 0`), calls());
+t('(and the counters do see the new code run for a ground-update craft)', R(`CALLS['Aim.groups'] > 0 && CALLS['Gear.ground'] > 0 && CALLS['Gear.points'] > 0 && CALLS['Aim.stepAll'] > 0 && CALLS['Props.solidNear'] > 0`), calls());
 
 // ---------------------------------------------------------------- the catalogue's own parts meet the hooks (a TK-34-like tank)
 // hull (its plate dialled to 75 mm, 20 over its 55), two tracks, a diesel inside, a ring, a cast turret, the 85 mm gun

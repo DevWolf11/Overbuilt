@@ -863,10 +863,11 @@ const MP = {
   placement(spawnId, kind, design) {
     if (!spawnId) { // sandbox: the usual pad, runway or helipad, a little apart so craft don't start inside each other
       const slot = Math.max(0, this.state.players.map((p) => p.pid).sort((a, b) => a - b).indexOf(Net.me));
-      // (Armour and cars armed by the ground update: Highland Ridge's pads, the sides taken in turn, when the map is in
-      // and the view is 3D. An old car's gun, flares or chaff keep it on the runway, as before.)
+      // (Armour and cars armed by the ground update: the tank yard on the space centre's island, side by side facing the
+      // open ground (props.js yardPlace), when the map is in and the view is 3D. An old car's gun, flares or chaff keep it
+      // on the runway, as before.)
       const armed = kind === 'car' && design && Array.isArray(design.parts) && design.parts.some((q) => { const d = q && hasOwn(PARTS, q.type) && PARTS[q.type]; return d && d.gv && d.weapon && d.weapon.kind !== 'smoke'; });
-      if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D())) return this.padPlace('highland', slot % 2, Math.floor(slot / 2), 'tank');
+      if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D()) && typeof Props !== 'undefined') return this.yardSpot(slot);
       if (!slot) return null;
       if (kind === 'plane' || kind === 'car') return { e: EARTH.sites.runway.east + slot * 220, z: 0, yaw: 0, soft: true };
       if (kind === 'heli') return { e: EARTH.sites.helipad.east + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * 35, z: 0, yaw: 0, soft: true };
@@ -886,6 +887,14 @@ const MP = {
       return { e: EARTH.sites.runway.east + slot * 230, z: 0, yaw: 0 };
     }
     return airfieldPlacement(EARTH.airfields[sp.airfield], slot, kind);
+  },
+  // A spot at the sandbox's tank yard (Props.yardPlace): our own, or the next of its eight that no other player's craft
+  // stands within 10 m of (one parked on ours)
+  yardSpot(slot) {
+    const first = Props.yardPlace(slot), at = [], now = performance.now();
+    for (const [, P] of this.peers) if (P.snap && P.snap.b === EARTH.id && now - (P.recv || 0) < 6000) at.push(mpEZ(P.snap.P[0], P.snap.P[1], P.snap.P[2], {}));
+    for (let k = 0; k < 8 && at.length; k++) { const pl = k ? Props.yardPlace(slot + k) : first; if (pl && !at.some((a) => Math.hypot(a.e - pl.e, a.z - pl.z) < 10)) return pl; }
+    return first;
   },
   // A spot on an arena's pad (GroundMode.placement): our own, or, when a wreck or another vehicle stands within 12 m of
   // it (we were knocked out at the start), the next of the pad's spots that is clear
