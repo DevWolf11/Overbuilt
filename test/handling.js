@@ -5,7 +5,7 @@
 //   node test/handling.js [--update] [plane,plane,...] [sas mode: hold (default) | off | ...]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
 const argv = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const ctx = G.load();
+const ctx = G.load({ props: true }); // (every prop built: none on these paths, and nothing changes)
 const only = argv[0] && argv[0] !== 'all' ? argv[0].split(',') : null;
 const SAS = argv[1] || 'hold';
 const D = 180 / Math.PI, dt = 1 / 120;

@@ -3,7 +3,7 @@
 // however small, shows up here, so a refactor that should not change behaviour can prove it.
 //   node test/traces.js [--update]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
-const ctx = G.load(), dt = 1 / 120;
+const ctx = G.load({ props: true }), dt = 1 / 120; // (every prop built: none stands on these paths, and they change nothing)
 const out = {};
 for (const key of Object.keys(ctx.TEMPLATES)) {
   const v = G.craft(ctx, ctx.TEMPLATES[key].parts, ctx.TEMPLATES[key].kind || 'rocket'), s = G.sim();

@@ -3,7 +3,7 @@
 //   node test/fingerprint.js            compare with test/baseline/fingerprint.json
 //   node test/fingerprint.js --update   rewrite the baseline (only for an intended change)
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
-const ctx = G.load({ earth: false });
+const ctx = G.load({ earth: false, props: true }); // (the Runway's props built: nothing changes)
 const r = (v) => (Number.isFinite(v) ? +(+v).toPrecision(7) : v);
 const designs = Object.entries(ctx.TEMPLATES).map(([k, t]) => [k, t.kind || 'rocket', t.parts]);
 designs.push(['RAIDER', 'plane', ctx.RAIDER]);

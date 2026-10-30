@@ -979,10 +979,13 @@ class Vessel {
     if (this.gear.length) return Gear.ground(this, dt, sim); // tracks and armoured wheels: their own contact (gear.js)
     const b = this.body, R = b.radius, r = this.radius();
     const clear = () => { this.landed = false; this.splashed = false; this.wheelsDown = false; this.contactTime = 0; };
-    if (r - this.reach > R + b.terrainMax + 5) return clear();
+    // the props' solid boxes within its reach (props.js: houses, walls, rocks, sandbags, containers...), or null: none
+    // near, the same steps as ever
+    const pb = b === EARTH && typeof Props !== 'undefined' ? Props.solidAt(this, dt) : null;
+    if (!pb && r - this.reach > R + b.terrainMax + 5) return clear();
     const L0 = this.surfaceSpot(), dk = Terrain.deckAt(b, L0.a, L0.z, this.reach + 2); // part of the craft may be over a carrier's deck
     const h0 = Math.max(Terrain.surfaceAt(b, L0.a, L0.z), dk === dk ? dk : -Infinity), lim0 = R + h0 + 2 + this.reach * 0.3;
-    if (r - this.reach > lim0) return clear();
+    if (!pb && r - this.reach > lim0) return clear();
     const contacts = [], loc = {}, cz = this.com.z || 0;
     const probe = (k, rad, wheel) => {
       const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz);
@@ -999,6 +1002,7 @@ class Vessel {
     };
     for (const k of this.hull) probe(k, 0, false);
     for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
+    if (pb) this.propContacts(pb, contacts, dt);
     if (!contacts.length) return clear();
 
     // crash check: far past a part's limit it breaks at once; a bit past it (or near it), it's dented (Gear.ground in
@@ -1077,9 +1081,10 @@ class Vessel {
         }
       }
     }
-    let maxPen = 0, pn = null;
-    for (const k of contacts) if (k.pen > maxPen) { maxPen = k.pen; pn = k.n; }
+    let maxPen = 0, pn = null, propPen = 0, ppn = null;
+    for (const k of contacts) if (k.prop) { if (k.pen > propPen) { propPen = k.pen; ppn = k.n; } } else if (k.pen > maxPen) { maxPen = k.pen; pn = k.n; }
     if (pn) { this.x += pn.x * maxPen * 0.9; this.y += pn.y * maxPen * 0.9; this.z += pn.z * maxPen * 0.9; }
+    if (ppn) { this.x += ppn.x * propPen; this.y += ppn.y * propPen; this.z += ppn.z * propPen; } // (out of a prop's face at once)
 
     // driven wheels: a simple speed controller along the ground (the brake works through friction above)
     if (this.wheelsDown) {
@@ -1111,6 +1116,57 @@ class Vessel {
       this.restTime += dt;
       if (this.restTime > 0.5) { this.vx = 0; this.vy = 0; this.vz = 0; this.av.x *= 0.5; this.av.y *= 0.5; this.av.z *= 0.5; }
     } else this.restTime = 0;
+  }
+
+  // The props' solid boxes (Props.solidAt: { c, u: three unit axes, e: half sizes }) against the hull's points and the
+  // wheels (a wheel's box grown by its radius), each point swept back along its own motion over this step, so a thin wall
+  // isn't passed through between two steps: a contact on the face it came in by (the shallowest, for one already
+  // inside), as deep as it is past that face. The crash, dent and push rules are the ground's (ground()).
+  propContacts(boxes, contacts, dt) {
+    const cz = this.com.z || 0, vp = v3();
+    const probe = (k, rad) => {
+      const o = qrot(this.q, k.x - this.com.x, k.y - this.com.y, k.z - cz), px = this.x + o.x, py = this.y + o.y, pz = this.z + o.z;
+      this.pointVel(o, vp);
+      let best = null;
+      for (const B of boxes) {
+        const dx = px - B.c.x, dy = py - B.c.y, dz = pz - B.c.z, U = B.u, E = B.e;
+        // the point now and a step ago, in the box's axes
+        let t0 = 0, t1 = 1, ax = -1, inside = true;
+        const l = [0, 0, 0], l0 = [0, 0, 0];
+        for (let i = 0; i < 3; i++) {
+          const u = U[i], e = E[i] + rad, li = dx * u.x + dy * u.y + dz * u.z, di = (vp.x * u.x + vp.y * u.y + vp.z * u.z) * dt, si = li - di;
+          l[i] = li; l0[i] = si;
+          if (Math.abs(si) > e) inside = false;
+          // the swept segment si -> li against the slab |x| <= e
+          if (Math.abs(di) < 1e-12) { if (Math.abs(li) > e) { t0 = 2; break; } continue; }
+          let ta = (-e - si) / di, tb = (e - si) / di;
+          if (ta > tb) { const x = ta; ta = tb; tb = x; }
+          if (ta > t0) { t0 = ta; ax = i; }
+          if (tb < t1) t1 = tb;
+          if (t0 > t1) break;
+        }
+        if (t0 > t1 || t0 > 1) continue;
+        let n, pen;
+        if (inside || ax < 0) { // (already in it a step ago: out by its nearest face)
+          let lo = Infinity;
+          for (let i = 0; i < 3; i++) { const d = E[i] + rad - Math.abs(l[i]); if (d < lo) { lo = d; ax = i; } }
+          if (!(lo > 0)) continue;
+          const sg = l[ax] < 0 ? -1 : 1;
+          n = v3(U[ax].x * sg, U[ax].y * sg, U[ax].z * sg); pen = lo;
+        } else {
+          const sg = l0[ax] < 0 ? -1 : 1; // (the side it came from)
+          n = v3(U[ax].x * sg, U[ax].y * sg, U[ax].z * sg); pen = E[ax] + rad - sg * l[ax];
+          if (!(pen > 0)) continue;
+        }
+        if (!best || pen > best.pen) best = { n, pen };
+      }
+      if (!best) return;
+      const n = best.n;
+      if (rad) { o.x -= n.x * rad; o.y -= n.y * rad; o.z -= n.z * rad; }
+      contacts.push({ p: k.p, k, r: o, pen: best.pen, n, wheel: false, side: false, float: false, water: false, prop: true });
+    };
+    for (const k of this.hull) probe(k, 0);
+    for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r);
   }
 
   // An impulse j (N·s) along dir (sim axes) at a part-space point P: the same arithmetic as ground()'s contacts
