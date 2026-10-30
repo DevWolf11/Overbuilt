@@ -674,7 +674,7 @@ const Combat = (() => {
     }
     // the ground update's own rockets and missiles meet the props that stop shells (props.js) and burst there; old
     // weapons' shots never look at them (their baselines stay as they were: chapter 7)
-    if (s.gvp && !s.net && typeof Props !== 'undefined') {
+    if (s.gvp && !s.net && b === EARTH && typeof Props !== 'undefined') {
       const pt = Props.shell(a, e, s);
       if (pt >= 0 && (!hit || pt < ht) && (!he || pt < ht2)) { const at = lerp3(a, e, pt); if (s.blast > 0) explode(b, at, s.blast, s.dmg, s.owner, F, false, s.he, spare); else FX.puff(b, at, { x: 0, y: 0, z: 0 }, 2, '#a49c8c'); return false; }
     }

@@ -172,6 +172,7 @@ const gearSat = (A, B, n) => {
 // and friction as for vehicles, and ramming one faster than 6 m/s dents the part that met it. (Trees, hedges, fences,
 // bushes and bales fall over instead: Props.crushStep.)
 const gearProps = (v, sim) => {
+  if (v.body !== EARTH) return;
   const rv = gearBoxR(v), L = Props.solidNear(v.x, v.y, v.z, rv + 1);
   if (!L.length) return;
   let A = gearBox(v, _gBoxA);

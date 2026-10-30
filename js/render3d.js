@@ -1351,7 +1351,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // (drawn as a fan round the middle, so no crack opens along a T-junction); those outside the box first (the seam's)
     const leaves = [], corner = new Uint8Array(np);
     const walk = (N) => { if (N.k) for (const q of N.k) walk(q); else { leaves.push(N); for (const q of N.v) corner[q] = 1; } };
-    for (let r = 0; r < roots.length; r++) { if (roots[r]) walk(roots[r]); if ((r & 63) === 63 && spent()) yield; }
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) walk(roots[r]); if ((r & 3) === 3 && spent()) yield; }
     yield;
     let nt = 0; // (the triangles' corners: two triangles a leaf, or its fan's)
     for (const N of leaves) {
@@ -1411,7 +1411,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // v (vertex indices), its middle c, and its fan's run in Fa (f0, -1: none; fl long). root: each root cell's, or -1.
     let nn = 0, nf = 0;
     const count = (N) => { nn++; if (N.f) nf += N.f.length; if (N.k) for (const q of N.k) count(q); };
-    for (let r = 0; r < roots.length; r++) { if (roots[r]) count(roots[r]); if ((r & 63) === 63 && spent()) yield; }
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) count(roots[r]); if ((r & 3) === 3 && spent()) yield; }
     const Q = { ix: new Int32Array(nn), iy: new Int32Array(nn), s: new Int32Array(nn), k: new Int32Array(nn), v: new Int32Array(nn * 4), c: new Int32Array(nn), f0: new Int32Array(nn), fl: new Int32Array(nn), Fa: new Float64Array(nf), root: new Int32Array(roots.length).fill(-1) };
     yield;
     let at = 0, fa = 0;
@@ -1422,7 +1422,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const k0 = (Q.k[q] = at); at += 4;
       for (let i = 0; i < 4; i++) pack(N.k[i], k0 + i);
     };
-    for (let r = 0; r < roots.length; r++) { if (roots[r]) { const q = at++; Q.root[r] = q; pack(roots[r], q); } if ((r & 63) === 63 && spent()) yield; }
+    for (let r = 0; r < roots.length; r++) { if (roots[r]) { const q = at++; Q.root[r] = q; pack(roots[r], q); } if ((r & 3) === 3 && spent()) yield; }
     yield;
     return { A, W, HH, X0, Y0, NX, NY, fx, fy, Q, n, nb, va, vz, ve, vd, hx, H, dk, rd, rv, wl, wp, tri, leaves: leaves.length, evals, pts: np };
   }
@@ -1910,7 +1910,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // seated on the ground as drawn there. Each is filled a slice a frame (Props builds its layout a slice at a time too);
   // a crushed prop tips over where it stood (Props.fallen) over 0.7 s.
   const PR = { geo: null, mat: null, sets: new Map(), mats: null };
-  const PIECES = 9, PCAST = [true, true, true, true, 'hi', 'hi', false, true, true]; // (casts a shadow: always, on High, never)
+  const PIECES = 9, PCAST = [true, true, true, true, false, false, false, true, true]; // (casts a shadow; trees and bushes don't: every instance is drawn again in the shadow pass, for a shadow box 50 m across)
   function propGeos() {
     if (PR.geo) return PR.geo;
     const W = col('#ffffff'), trunk = col('#5a4130'), jit = (g, k, ky, seed) => { // (a lumpy, flat-shaded surface: shared corners move together)
@@ -1934,16 +1934,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const sp = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4); sp.rotateY(Math.PI / 4); sp.translate(0, 0.5, 0);
     const spire = new Batch().add(sp, new THREE.Matrix4(), W).build();
     // a conifer 10 m tall (crown 2.6 m round its foot), a broadleaf tree 10 m tall (crown 3.5 m): scaled to each prop
-    const con = new Batch().geo(new THREE.CylinderGeometry(0.16, 0.28, 2.6, 6), 0, 1.3, 0, trunk);
-    for (const [r, h, y] of [[2.6, 4.6, 3.9], [2.0, 4.0, 5.9], [1.35, 3.4, 8.3]]) con.geo(jit(new THREE.ConeGeometry(r, h, 7), 0.1, 0.05, 3), 0, y, 0, W);
-    const brd = new Batch().geo(new THREE.CylinderGeometry(0.2, 0.34, 4.6, 6), 0, 2.3, 0, trunk);
-    brd.geo(jit(new THREE.IcosahedronGeometry(3.0, 1), 0.16, 0.12, 5), 0, 6.4, 0, W, 0, 0, 0, 1, 0.82, 1)
-      .geo(jit(new THREE.IcosahedronGeometry(2.1, 0), 0.12, 0.1, 6), 1.5, 7.7, 0.6, W).geo(jit(new THREE.IcosahedronGeometry(1.9, 0), 0.12, 0.1, 7), -1.3, 7.3, -1.0, W);
-    const bush = new Batch().geo(jit(new THREE.IcosahedronGeometry(0.72, 1), 0.2, 0.15, 8), 0, 0.55, 0, W, 0, 0, 0, 1, 0.8, 1).geo(jit(new THREE.IcosahedronGeometry(0.55, 0), 0.15, 0.1, 9), 0.45, 0.72, 0.28, W).build();
+    // (low-poly: open trunks and cone skirts, crowns of plain icosahedra; 33 and 92 triangles)
+    const con = new Batch().geo(new THREE.CylinderGeometry(0.16, 0.28, 2.6, 6, 1, true), 0, 1.3, 0, trunk);
+    for (const [r, h, y] of [[2.6, 4.6, 3.9], [2.0, 4.0, 5.9], [1.35, 3.4, 8.3]]) con.geo(jit(new THREE.ConeGeometry(r, h, 7, 1, true), 0.1, 0.05, 3), 0, y, 0, W);
+    const brd = new Batch().geo(new THREE.CylinderGeometry(0.2, 0.34, 4.6, 6, 1, true), 0, 2.3, 0, trunk);
+    brd.geo(jit(new THREE.IcosahedronGeometry(2.9, 0), 0.14, 0.1, 5), 0, 6.3, 0, W, 0, 0.3, 0, 1, 0.82, 1).geo(jit(new THREE.IcosahedronGeometry(2.2, 0), 0.12, 0.1, 6), 1.5, 7.6, 0.6, W)
+      .geo(jit(new THREE.IcosahedronGeometry(2.0, 0), 0.12, 0.1, 7), -1.3, 7.3, -1.0, W).geo(jit(new THREE.IcosahedronGeometry(1.8, 0), 0.12, 0.1, 8), 0.2, 8.4, -0.3, W);
+    const bush = new Batch().geo(jit(new THREE.IcosahedronGeometry(0.75, 0), 0.2, 0.15, 8), 0, 0.55, 0, W, 0, 0, 0, 1, 0.8, 1).geo(jit(new THREE.IcosahedronGeometry(0.55, 0), 0.15, 0.1, 9), 0.45, 0.72, 0.28, W)
+      .geo(jit(new THREE.IcosahedronGeometry(0.5, 0), 0.15, 0.1, 10), -0.4, 0.5, -0.3, W).build();
     // a rock: 1 m across, its foot at y 0; a wall or hedge: a unit box, lumpy, centred
-    const rk = jit(new THREE.IcosahedronGeometry(0.5, 1), 0.45, 0.3, 11); rk.translate(0, 0.42, 0);
+    const rk = jit(new THREE.IcosahedronGeometry(0.5, 0), 0.35, 0.25, 11); rk.translate(0, 0.42, 0);
     const rock = new Batch().add(rk, new THREE.Matrix4(), W).build();
-    const hd = jit(new THREE.BoxGeometry(1, 1, 1, 8, 2, 2), 0.06, 0.16, 13);
+    const hd = jit(new THREE.BoxGeometry(1, 1, 1, 6, 2, 1), 0.06, 0.16, 13);
     const hedge = new Batch().add(hd, new THREE.Matrix4(), W).build();
     void flat;
     PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge];
@@ -1961,8 +1963,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     return s;
   }
   const PM = { A: null, B: null, P: null, q: null, e: null, s: null, v: null };
-  // prop p's instances (from Props.pieces) at base height h, tipped by ang (radians) toward its fall: into set s
-  function propPlace(s, p, h, ang) {
+  // prop p's instances (from Props.pieces) at base height h, tipped by ang (radians) toward its fall: into set s (and
+  // their colours too, with paint)
+  function propPlace(s, p, h, ang, paint) {
     if (!PM.A) { PM.A = new THREE.Matrix4(); PM.B = new THREE.Matrix4(); PM.P = new THREE.Matrix4(); PM.q = new THREE.Quaternion(); PM.e = new THREE.Euler(0, 0, 0, 'YZX'); PM.s = tmpV(); PM.v = tmpV(); PM.c = new THREE.Color(); }
     const R = EARTH.radius, a = siteAngle(EARTH, p.e), d = a - s.a0, cp = Math.cos(p.z / R), sp = Math.sin(p.z / R), r = R + h, cd = Math.cos(d), sd = Math.sin(d);
     // the surface frame there in the set's frame: east, up, south (+z); then the prop's yaw about up
@@ -1980,7 +1983,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       PM.e.set(0, ry, rz);
       PM.P.compose(PM.v.set(x, y, z), PM.q.setFromEuler(PM.e), PM.s.set(sx, sy, sz)).premultiply(PM.A);
       m.setMatrixAt(i, PM.P);
-      if (!ang) m.setColorAt(i, PM.c.setHex(c));
+      if (paint) m.setColorAt(i, PM.c.setHex(c));
     });
   }
   // the fill: instances counted per piece (the meshes made to fit), then every prop placed, a slice at a time
@@ -2012,7 +2015,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     yield;
     for (let j = 0; j < L.length; j++) {
       const p = L[j];
-      propPlace(s, p, hOf(p), p.down ? fallAng(p, Infinity) : 0);
+      propPlace(s, p, hOf(p), p.down ? fallAng(p, Infinity) : 0, true);
       if ((j & 31) === 31 && spent()) yield;
     }
     for (const m of s.meshes) if (m) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
@@ -2025,7 +2028,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   // Every flight frame: the props near the camera, built, seated and shown; the fallen ones tipping over
   function updateProps(F, b) {
-    if (typeof Props === 'undefined' || b !== EARTH || !EARTH.arenas) { for (const s of PR.sets.values()) s.frame.visible = false; return; }
+    if (typeof Props === 'undefined' || b !== EARTH || !EARTH.arenas || api.propsOff) { for (const s of PR.sets.values()) s.frame.visible = false; return; }
     const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z, budget = Settings.high ? 2.5 : 1.5, t0 = performance.now();
     // Highland Ridge: with its arena ground (in ground play, within 6 km), its set built while that one is
     const H = EARTH.mapped && EARTH.arenas.highland, B = H && H.box, hlNear = !!H && AR.A === H && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near + 500;
@@ -4110,6 +4113,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   Object.assign(api, {
     // draw calls and triangles in the last frame (for tuning)
     info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
+    // the props' sets (tests, measurements): shown, filled, instances per piece
+    propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.n ? [...s.n] : null, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing
     arenaOff: false, // tests and measurements: the plain terrain patch even near an arena
     get supported() {

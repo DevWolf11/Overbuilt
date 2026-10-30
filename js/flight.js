@@ -69,6 +69,9 @@ const Flight = {
     if (v.kind === 'heli') v.throttle = 0;
     this.launchCost = designCost(ps);
     if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
+    // a ground vehicle's battlefield props (props.js), laid out now if they aren't yet: part of the launch, not a stall a
+    // frame or two into the drive
+    if (typeof Props !== 'undefined' && (v.gv || v.gear.length)) Props.needNear(v.x, v.y, v.z);
     const kept = opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [];
     this.resetState([v, ...kept], v, opts && opts.time != null ? opts.time : 0);
     if (P && P.catapult && v.kind === 'plane') this.armCatapult(v, P);

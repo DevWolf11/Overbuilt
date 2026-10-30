@@ -33,8 +33,8 @@ const Props = (() => {
     white: 0xe9e3d5, cream: 0xddd2bb, stone: 0xa59d8e, grey: 0x8f8c84, tar: 0x2e2c2a, redw: 0x8e3326, ochre: 0xc9a46a,
     slate: 0x4c5159, slate2: 0x5d6168, tile: 0x9a4a36, tile2: 0x7d4434, turf: 0x627d3c, zinc: 0x7b8086, roofG: 0x55595e,
     barnR: 0x8a3a2b, barnG: 0x76797a, timber: 0x6e563b, wood: 0x7a6045, dark: 0x2f2a25, glass: 0x2c3a46, brick: 0x8a6f62,
-    wall: 0x8c877c, wall2: 0x7b776d, hedge: 0x3f5a2a, hedge2: 0x4b6431, conifer: 0x5d8a55, broad: 0x7aa05a, broad2: 0x92a84e,
-    bush: 0x6d8f4a, rock: 0x7f7c74, rock2: 0x6b6862, bale: 0xc9ab5c, sand: 0xb39d6e, concrete: 0xa7a7a1, crate: 0x8a6b40,
+    wall: 0xa39d90, wall2: 0x938d82, hedge: 0x3f5a2a, hedge2: 0x4b6431, conifer: 0x5d8a55, broad: 0x7aa05a, broad2: 0x92a84e,
+    bush: 0x6d8f4a, rock: 0x7f7c74, rock2: 0x6b6862, bale: 0xc9ab5c, sand: 0xb39d6e, concrete: 0xa7a7a1, apron: 0x8b8c88, paint: 0xd8b13c, crate: 0x8a6b40,
     olive: 0x5f6b45, contB: 0x3f6f8f, contR: 0x9a4434, contG: 0x5f7f45, steel: 0xd6d9dc, rubber: 0x262626, pole: 0x5b4a36,
   };
   // The kinds (indices into K): what each is made of, its colliders and its pieces (see make). solid kinds are
@@ -202,7 +202,11 @@ const Props = (() => {
       cb(P_BOX, 0, 3.4, 0, 0.8, 0.4, 0.8, 0, 0, C.steel);
     } else if (k === K.silo) { cb(P_CYL, 0, (H - 0.3) / 2, 0, w, H + 0.3, w, 0, 0, C.steel); cb(P_SPIRE, 0, H, 0, w * 1.05, 1.2, w * 1.05, 0.4, 0, C.zinc); }
     else if (k === K.tyres) for (let i = 0; i < 3; i++) cb(P_CYL, 0, 0.15 + i * 0.3, 0, 0.95, 0.28, 0.95, 0, 0, C.rubber);
-    else if (k === K.slab) cb(P_BOX, 0, -0.25, 0, w, 0.6, d, 0, 0, C.concrete);
+    else if (k === K.slab) { // (the yard's apron: its eight bays painted, two rows of four, facing east)
+      cb(P_BOX, 0, -0.25, 0, w, 0.6, d, 0, 0, C.apron);
+      for (const u of [-10, -32]) for (let i = 0; i <= 4; i++) cb(P_BOX, u + 2, 0.06, -28 + i * 14, 14, 0.03, 0.25, 0, 0, C.paint);
+      cb(P_BOX, w / 2 - 1.5, 0.06, 0, 0.3, 0.03, d - 6, 0, 0, C.paint);
+    }
   }
 
   // ---------------------------------------------------------------- placing: the maps' keep-outs and the grid
@@ -610,7 +614,7 @@ const Props = (() => {
     }
     return false;
   }
-  const DIRT = [0.21, 0.155, 0.085], DIRT2 = [0.13, 0.1, 0.06];
+  const DIRT = [0.15, 0.105, 0.058], DIRT2 = [0.1, 0.085, 0.045];
   // The arena ground's colour at (e, z) (c: linear rgb, changed in place): dirt on the roads, with a darker verge, and
   // the fields' greens, yellows and browns
   function paint(e, z, c) {
@@ -622,13 +626,13 @@ const Props = (() => {
       const w = (1 - smoothstep(f.hu - 3, f.hu + 2, u)) * (1 - smoothstep(f.hv - 3, f.hv + 2, v)) * f.k;
       for (let i = 0; i < 3; i++) c[i] = lerp(c[i], c[i] * f.tint[i] + f.add[i], w);
     }
-    if (g < 3) {
-      const w = 1 - smoothstep(-1.2, 1.6, g), vg = (1 - smoothstep(0.5, 3, g)) * smoothstep(-0.5, 1, g) * 0.35;
-      for (let i = 0; i < 3; i++) { c[i] = lerp(c[i], DIRT2[i], vg); c[i] = lerp(c[i], DIRT[i], 0.85 * w); }
+    if (g < 3.5) { // (the track, and a darker verge where the grass is worn)
+      const w = 1 - smoothstep(-0.6, 1.9, g), vg = (1 - smoothstep(0.8, 3.5, g)) * smoothstep(-0.5, 1.2, g) * 0.45;
+      for (let i = 0; i < 3; i++) { c[i] = lerp(c[i], DIRT2[i], vg); c[i] = lerp(c[i], DIRT[i], 0.95 * w); }
     }
     return c;
   }
-  const FIELD_TINT = { lush: [[0.86, 1.08, 0.74], [0, 0.004, 0]], hay: [[1.25, 1.1, 0.62], [0.02, 0.012, 0]], brown: [[1.05, 0.78, 0.6], [0.025, 0.012, 0.004]], pale: [[1.08, 1.06, 0.82], [0.006, 0.006, 0]] };
+  const FIELD_TINT = { lush: [[0.8, 1.1, 0.68], [0, 0.006, 0]], hay: [[1.35, 1.12, 0.5], [0.035, 0.02, 0]], brown: [[1.0, 0.7, 0.5], [0.04, 0.02, 0.006]], pale: [[1.12, 1.08, 0.75], [0.012, 0.01, 0]] };
 
 
   // ---------------------------------------------------------------- layout helpers (generators: the build yields between
@@ -648,7 +652,7 @@ const Props = (() => {
   // the corners, a side left open now and then, gates)
   function field(e, z, yaw, hu, hv, tint, edge) {
     const c = Math.cos(yaw), s = -Math.sin(yaw), T = FIELD_TINT[tint];
-    const f = { e, z, c, s, hu, hv, tint: T[0], add: T[1], k: 0.85, edge };
+    const f = { e, z, c, s, hu, hv, tint: T[0], add: T[1], k: 1, edge };
     S.fields.push(f);
     return f;
   }
@@ -694,7 +698,7 @@ const Props = (() => {
   }
   function ruin(e, z, yaw, o) {
     const w = 8 + 5 * rnd(), d = 6 + 2.5 * rnd();
-    return add(K.ruin, e, z, yaw, w, d, 3.4 + 2.2 * rnd(), Object.assign({ c1: rnd.pick([C.stone, C.wall, C.cream]) }, o));
+    return add(K.ruin, e, z, yaw, w, d, 3.4 + 2.2 * rnd(), Object.assign({ c1: rnd.pick([0x8f8678, 0x7d756a, 0x9a8f7f]) }, o)); // (weathered, smoke-stained stone)
   }
   function shed(e, z, yaw, o) { return add(K.shed, e, z, yaw, 4 + 2 * rnd(), 3 + 1.2 * rnd(), 2.5 + 0.5 * rnd(), Object.assign({ r2: 1.1 + 0.4 * rnd(), c1: rnd.pick([C.timber, C.wood, C.barnG]), c2: C.zinc }, o)); }
   // houses along a street (pts), both sides, every 14-22 m, set back from its middle, their fronts to it; keep(e, z):
@@ -783,6 +787,8 @@ const Props = (() => {
     // the protected lines of sight: the hilltop sees the slope and the village (arena-probe's eye 2.4 m, target 1.6 m)
     const eye = (zn, up) => simAt(zn.e, zn.z, gH(zn.e, zn.z) + up, {});
     M.lines = [{ a: eye(Z.A, 2.4), b: eye(Z.C, 1.6) }, { a: eye(Z.A, 2.4), b: eye(Z.B, 1.6) }];
+    // (and the Tank Range's: its parked TK-34 and the MS-4's turret over its berm, seen from the north pad's front row)
+    for (const de of [0, 22, -22]) { const f = A.pads[0], o = eye({ e: f.e + de, z: f.z }, 2.4); M.lines.push({ a: o, b: eye({ e: targets[0][0], z: targets[0][1] }, 1.6) }, { a: o, b: eye({ e: targets[1][0], z: targets[1][1] }, 2.4) }); }
     yield;
     // ---- the village round zone B: its church, houses along the street and the lane south, farms inside the loop
     add(K.church, 18568, 15092, 0, 17, 8.5, 6.8, { r2: 4.6, tw: 5.4, th: 11, c1: C.stone, c2: C.slate });
@@ -817,9 +823,22 @@ const Props = (() => {
     for (const [e, z, r, n, mix] of [[16630, 14260, 200, 95, 0.7], [16560, 15720, 220, 105, 0.6], [18960, 14240, 150, 60, 0.3], [18950, 15860, 170, 70, 0.45],
       [17330, 14560, 70, 24, 0.2], [18190, 15340, 80, 26, 0.3], [17230, 15560, 90, 32, 0.5], [18110, 14660, 55, 16, 0.2], [16920, 13900, 120, 42, 0.6],
       [18600, 16230, 120, 40, 0.5], [16700, 15050, 90, 34, 0.75], [18880, 15000, 60, 18, 0.3]]) yield* wood(e, z, r, n, mix);
-    yield* scatter(B, 520, 0.42, 300, 17, (e, z) => tree(e, z, rnd() < 0.4, 0.95));
-    yield* scatter(B, 520, 0.35, 220, 23, (e, z) => bush(e, z));
-    yield* scatter(B, 420, 0, 1, 0, (e, z) => { const s = reliefAt(e, z); if (s > 0.09 || rnd() < 0.25) rock(e, z, s > 0.12 && rnd() < 0.5); });
+    // copses: a few trees and bushes together, here and there over the open ground
+    for (let i = 0; i < 34; i++) {
+      const e = B.e0 + 60 + rnd() * (B.e1 - B.e0 - 120), z = B.z0 + 60 + rnd() * (B.z1 - B.z0 - 120);
+      yield* wood(e, z, 10 + 10 * rnd(), 3 + Math.floor(rnd() * 5), rnd() < 0.5 ? 0.15 : 0.7);
+    }
+    // the roads: a hedge or a line of trees along a stretch here and there, short of the zones
+    for (const pts of HL_ROADS) for (let i = 0; i + 1 < pts.length; i++) {
+      if (rnd() < 0.45) continue;
+      const [e0, z0] = pts[i], [e1, z1] = pts[i + 1], L = Math.hypot(e1 - e0, z1 - z0), ue = (e1 - e0) / L, uz = (z1 - z0) / L, side = rnd() < 0.5 ? 1 : -1, hedge = rnd() < 0.55, off = hedge ? 11 + 2 * rnd() : 7 + 2 * rnd();
+      const a = 0.15 + 0.2 * rnd(), b = 0.85 - 0.2 * rnd(), pe = (f) => e0 + ue * L * f - uz * off * side, pz = (f) => z0 + uz * L * f + ue * off * side;
+      if (hedge) yield* run(K.hedge, pe(a), pz(a), pe(b), pz(b), 7, 1.6, 2.0, { c1: rnd() < 0.5 ? C.hedge : C.hedge2 }, 0.2);
+      else for (let f = a; f < b; f += 14 / L) { tree(pe(f), pz(f), rnd() < 0.3, 0.9); yield; }
+    }
+    yield* scatter(B, 900, 0.38, 300, 17, (e, z) => tree(e, z, rnd() < 0.4, 0.95));
+    yield* scatter(B, 900, 0.3, 220, 23, (e, z) => bush(e, z));
+    yield* scatter(B, 700, 0, 1, 0, (e, z) => { const s = reliefAt(e, z); if (s > 0.08 || rnd() < 0.3) rock(e, z, s > 0.12 && rnd() < 0.5); });
   }
 
   // ---------------------------------------------------------------- the Runway (no map needed)
@@ -1033,7 +1052,7 @@ const Props = (() => {
 
   return {
     KINDS, K, F: { SHELL: SH, SIGHT: SI, SOLID: SO, CRUSH: CR }, PIECE: { BOX: P_BOX, ROOF: P_ROOF, CYL: P_CYL, SPIRE: P_SPIRE, CONIFER: P_CONIFER, BROAD: P_BROAD, BUSH: P_BUSH, ROCK: P_ROCK, HEDGE: P_HEDGE }, C,
-    ensure, tick, buildAll, paintReady, done, shell, ray, matOf, clear, segment, solidNear, pen2D, lane, freeAt, coverNear, crushBy, crushStep, reset, paint, roadIn, roadGap, pieces, yardPlace, count,
+    needNear(x, y, z) { needAt(x, y, z, 50); }, ensure, tick, buildAll, paintReady, done, shell, ray, matOf, clear, segment, solidNear, pen2D, lane, freeAt, coverNear, crushBy, crushStep, reset, paint, roadIn, roadGap, pieces, yardPlace, count,
     all() { buildAll(); return S.list; }, areas() { ensure(); return S.maps; },
     get hit() { return S.hit; }, get fallen() { return S.fallen; }, get ver() { return S.ver; }, get crushed() { return S.crushed; }, get built() { return S.built; }, _S: S,
   };

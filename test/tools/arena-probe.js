@@ -8,6 +8,8 @@
 // Terrain.surfaceAt. With the arena's detail fade in (EARTH.arenas) it checks the RMS on high against BUDGET (out to
 // 600 m), and that the fade leaves every airfield's strip and blend alone. Then the arena's own ground mesh (render3d's
 // quadtree, built near an arena marked clear): on high and low, within 0.1 m RMS and 0.3 m of the physics in the box.
+// With js/props.js the lines of sight count the props that block sight too (PROPS=0: the ground alone), and the design's
+// pairs are checked: A-C and A-B seen, the pads' hidden.
 // A Node tool, not in run.mjs (about 90 s, most of it the mesh check):   node test/tools/arena-probe.js
 const G = require('../lib/game.js');
 const ctx = G.load(), T = ctx.Terrain, EARTH = ctx.EARTH, R = EARTH.radius, D = 180 / Math.PI;
@@ -39,6 +41,9 @@ const rect = (e, z, he, hz) => { // steepest slope (8 m baselines) and wet point
 // a point `up` metres over the ground at (e, z), in sim axes (z is latitude × R, as Terrain.locate has it)
 const at = (g, e, z, up) => { const a = A(e), ph = z / R, r = R + g(e, z) + up; return { x: r * Math.cos(ph) * Math.cos(a), y: r * Math.cos(ph) * Math.sin(a), z: r * Math.sin(ph) }; };
 const L = {};
+// (and, once the arena has props (js/props.js), what blocks sight among them: buildings, walls, tree crowns, bushes,
+// hedges; PROPS=0 leaves them out)
+const props = ctx.Props && process.env.PROPS !== '0' ? ctx.Props : null;
 function los(g, p, q, eye = 2.4, tgt = 1.6) { // a straight line through 3D space: the Earth's curve is in it
   const o = at(g, p.e, p.z, eye), t = at(g, q.e, q.z, tgt), n = Math.ceil(Math.hypot(t.x - o.x, t.y - o.y, t.z - o.z) / 5);
   for (let i = 1; i < n; i++) {
@@ -46,11 +51,12 @@ function los(g, p, q, eye = 2.4, tgt = 1.6) { // a straight line through 3D spac
     T.locate(EARTH, o.x + (t.x - o.x) * k, o.y + (t.y - o.y) * k, o.z + (t.z - o.z) * k, L);
     if (L.r < R + g(E(L.a), L.z) + 0.3) return false;
   }
-  return true;
+  return !props || props.clear(o, t);
 }
 const f1 = (x) => x.toFixed(1), pad = (s, n) => String(s).padEnd(n);
 
-console.log(`Highland Ridge on the real Earth map. Detail fade (EARTH.arenas): ${faded ? 'in' : 'not yet'}; berms (Terrain.bermAt): ${bermy ? 'in' : 'not yet'}.`);
+if (props) props.buildAll();
+console.log(`Highland Ridge on the real Earth map. Detail fade (EARTH.arenas): ${faded ? 'in' : 'not yet'}; berms (Terrain.bermAt): ${bermy ? 'in' : 'not yet'}; props (js/props.js): ${props ? props.count('highland') && props.areas().find((m) => m.id === 'highland').props.length + ' of them, as sight blockers' : 'none'}.`);
 console.log('\nitem  e       z       ground   max slope ±70×40 m  wet points  role');
 for (const [k, p] of Object.entries(PTS)) {
   const r = rect(p.e, p.z, 70, 40);
@@ -71,6 +77,11 @@ const names = Object.keys(PTS);
 for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) {
   const p = PTS[names[i]], q = PTS[names[j]];
   console.log(`  ${names[i]}-${names[j]}  ${pad(Math.round(Math.hypot(p.e - q.e, p.z - q.z)) + ' m', 8)} ${los(S, p, q) ? 'SEEN' : 'hidden'}`);
+}
+{ // the arena as it was made: the hilltop sees the slope and the village, no pad sees the other or a zone (props only add cover)
+  const seen = [];
+  for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) if (los(S, PTS[names[i]], PTS[names[j]])) seen.push(names[i] + '-' + names[j]);
+  verdict(seen.join() === 'A-C,A-B', `lines of sight: ${seen.join(', ')} seen, every other pair hidden${props ? ' (with the props)' : ''}`);
 }
 console.log('share of dry ground seen at 300-1,200 m (24 bearings × 300, 600, 900, 1,200 m)');
 for (const [k, p] of Object.entries(PTS)) {
