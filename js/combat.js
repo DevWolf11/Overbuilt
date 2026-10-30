@@ -672,11 +672,13 @@ const Combat = (() => {
       const tp = refPos(s.target);
       if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.blast * 0.45) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F, undefined, s.he, spare); return false; } }
     }
-    // the ground update's own rockets and missiles meet the props that stop shells (props.js) and burst there; old
-    // weapons' shots never look at them (their baselines stay as they were: chapter 7)
-    if (s.gvp && !s.net && b === EARTH && typeof Props !== 'undefined') {
-      const pt = Props.shell(a, e);
-      if (pt >= 0 && (!hit || pt < ht) && (!he || pt < ht2)) { const at = lerp3(a, e, pt); if (s.blast > 0) explode(b, at, s.blast, s.dmg, s.owner, F, false, s.he, spare); else FX.puff(b, at, { x: 0, y: 0, z: 0 }, 2, '#a49c8c'); return false; }
+    // the props that stop shells (props.js: houses, walls, rocks, containers...) stop every shot: bullets puff stone, wood,
+    // earth or leaves, or spark off metal; rockets, missiles and bombs burst there with their usual blast (a copy of
+    // someone else's only shows it). The ground update's own rockets and missiles build the map on the spot if need be
+    // (Props.shell); every other shot looks only at what is built (Props.shot: where there's none, a look at a bitset)
+    if (b === EARTH && typeof Props !== 'undefined') {
+      const pt = s.gvp && !s.net ? Props.shell(a, e) : Props.shot(a, e);
+      if (pt >= 0 && (!hit || pt < ht) && (!he || pt < ht2)) { propShot(s, b, lerp3(a, e, pt), F, spare); return false; }
     }
     if (hit && ht <= ht2) {
       const at = lerp3(a, e, ht);
@@ -717,6 +719,17 @@ const Combat = (() => {
     return true;
   }
   const lerp3 = (a, e, t) => ({ x: a.x + (e.x - a.x) * t, y: a.y + (e.y - a.y) * t, z: a.z + (e.z - a.z) * t });
+  // a shot into a prop (Props.hit: what it met): a blast bursts there (a copy: its look only, a big one shown by its
+  // owner's boom, as on the ground); a plain round stops in it, with a puff of what the prop is made of, or sparks
+  const PROP_PUFF = { stone: '#a49c8c', wood: '#7a5f42', earth: '#9a8a68', leaf: '#5d7a3e' };
+  function propShot(s, b, at, F, spare) {
+    if (s.blast > 0 && s.net) { if (s.blast < 8) boomFX(b, at, s.blast, true, F); return; }
+    if (s.blast > 0) { explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare); return; }
+    if (F.warpIdx > 1 || Math.random() > 0.6) return; // (not every round of a burst: the ground's own is a third)
+    const m = Props.matOf(Props.hit), r = len(at.x, at.y, at.z) || 1;
+    if (m === 'metal') FX.sparks(b, at, { x: 0, y: 0, z: 0 }, 3);
+    else FX.puff(b, at, { x: (at.x / r) * 2.5, y: (at.y / r) * 2.5, z: (at.z / r) * 2.5 }, 1.5, PROP_PUFF[m] || PROP_PUFF.stone);
+  }
   // A cluster bomb's casing splits: its bomblets scatter and fall on their own.
   function burst(s, at, F) {
     FX.explosion(s.b, at, { x: s.vx, y: s.vy, z: s.vz }, 0.8, true);
@@ -1283,8 +1296,14 @@ const Combat = (() => {
     // seat, and radars, for the player's ground vehicle and the ground AI's
     if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle || GroundAI.shown) GroundAI.frame(F, dt); // (shown: its bar still up from a flight before)
     if (v.gv) { Armour.repairStep(v, dt, F); Aim.radarStep(v, F, dt); }
-    // the props a ground vehicle drives into fall over (ours, the AI's and the other players' alike: props.js)
-    if (typeof Props !== 'undefined') for (const o of F.vessels) if (o.gv || (o.gear && o.gear.length)) { Props.crushStep(F); break; }
+    // the props anything drives (or flies) into fall over (ours, the AI's and the other players' alike: props.js); and
+    // Highland Ridge's are open to old weapons and vessels in ground play only, where they're on show (render3d.js)
+    if (typeof Props !== 'undefined') {
+      let gv = v.kind === 'tank' || !!S.gai || !!(GroundAI.battle || GroundAI.range) || (typeof MP !== 'undefined' && MP.live && MP.ground);
+      if (!gv) for (const o of F.vessels) if (o.gv || (o.gear && o.gear.length)) { gv = true; break; }
+      Props.play = gv;
+      Props.crushStep(F);
+    }
     if (S.gai) for (const o of F.vessels) if (o !== v && o.gv && o.ai && o.ai.ground && !o.dead) { Armour.repairStep(o, dt, F); Aim.radarStep(o, F, dt); }
     // missiles homing on the player's craft: only a warning receiver hears them (without one, a missile's red marker,
     // when it is in sight, is all there is). With one, a warning tone; and flying solo (not in multiplayer: K there) the
@@ -1337,8 +1356,9 @@ const Combat = (() => {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
     S.smoke = []; S.gai = 0; S.rip = null;
-    // a new flight stands the props it knocked over up again (not a respawn in a battle, which keeps the field as it is)
-    if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length)) Props.reset();
+    // a new flight stands the props it knocked over up again (not a respawn in a battle, which keeps the field as it is,
+    // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
+    if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();
     if (typeof Armour !== 'undefined') { const fb = Armour.fb; fb.shot = fb.ko = null; fb.hurt.length = 0; } // (the last flight's hit and kill banners stay with it)
     void F;
   }

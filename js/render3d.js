@@ -2066,7 +2066,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const L = focusSpot(F, EARTH), e = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z = L.z, budget = Settings.high ? 2.5 : 1.5, t0 = performance.now();
     // Highland Ridge: with its arena ground (in ground play, within 6 km), its set built while that one is
     const H = EARTH.mapped && EARTH.arenas.highland, B = H && H.box, hlNear = !!H && AR.A === H && Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1)) < ARENA.near + 500;
-    if (hlNear) propStep(propSet('hl', ['highland']), F, t0 + budget, propFlat, AR.on && !!AR.mesh, e, z);
+    if (hlNear) propStep(propSet('hl', ['highland']), F, t0 + budget, propFlat, AR.on && !!AR.mesh && Props.play, e, z); // (play: in ground play, as old weapons and craft meet them: Combat.frame)
     else if (PR.sets.has('hl')) PR.sets.get('hl').frame.visible = false;
     // the space centre's (the Runway's, and on the map the island's): within 7 km and under 5 km up
     const camAlt = Math.hypot(F.camAbs.x - bodyPos(EARTH, F.time).x, F.camAbs.y - bodyPos(EARTH, F.time).y, F.camAbs.z || 0) - EARTH.radius;

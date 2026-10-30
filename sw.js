@@ -1,6 +1,6 @@
 // Offline support: always try the network first so updates show up on the next load, and fall back to
 // the cached copy when offline.
-const CACHE = 'overbuilt-v25';
+const CACHE = 'overbuilt-v26';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-tab.svg',
   'js/util.js', 'js/space.js', 'js/terrain.js', 'js/props.js', 'js/parts.js', 'js/vessel.js', 'js/gear.js', 'js/aim.js', 'js/armour.js', 'js/ui.js', 'js/audio.js',

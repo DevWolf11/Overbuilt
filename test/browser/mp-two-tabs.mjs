@@ -1,7 +1,8 @@
 // Multiplayer across two tabs of one browser (BroadcastChannel, the "This device" transport): A hosts a sandbox and
 // flies a Jumbo with its fan pods moved out to z 9, a stealth-grey wing and a single jet hung on the wing; B joins
 // in a Skylark. B's ghost of A must match A's craft exactly. Then: the host drops a relayed message over 256 KB, and
-// a forged spawn from B is rebuilt clean on A without breaking anything.
+// a forged spawn from B is rebuilt clean on A without breaking anything. Then the props: a tree knocked over on B's
+// screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -110,6 +111,41 @@ ok('a forged spawn is rebuilt clean (known types, unique ids, z and paint cleane
 await A.evaluate(() => { Render3D.skipDraw = false; Flight.spectate = Flight.vessels.find((v) => v.remote) || null; });
 await A.waitForTimeout(2500);
 await A.evaluate(() => { Render3D.skipDraw = true; Flight.spectate = null; });
+
+// the props: a tree knocked over on B's screen falls on A's (the host's) the same way; a third tab joining later gets
+// the room's set; a player's forged "fallen" goes nowhere (host-only)
+const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'ready';
+await A.waitForFunction(mapIn, null, { timeout: 180000 }); await B.waitForFunction(mapIn, null, { timeout: 180000 });
+const built = () => Props.areas().some((m) => m.id === 'isle') && Props.areas().some((m) => m.id === 'runway');
+await A.waitForFunction(built, null, { timeout: 180000 }); await B.waitForFunction(built, null, { timeout: 180000 });
+const knock = await B.evaluate(() => {
+  const m = Props.areas().find((q) => q.id === 'isle'), n = m.props.findIndex((p) => (p.k === Props.K.conifer || p.k === Props.K.broadleaf) && !p.down), p = m.props[n];
+  const ps = partsFromDesign(templateRows(TEMPLATES.buggy)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'car'; v.rebuildGroups();
+  v.placeOnSurface(EARTH, siteAngle(EARTH, p.e - 1.6), 0, p.z, 0); const a = v.axis(1, 0, 0); v.vx = a.x * 8; v.vy = a.y * 8; v.vz = a.z * 8;
+  Props.crushStep({ time: Flight.time + 1, vessels: [v] });
+  return { n, down: !!p.down, fe: p.fe, fz: p.fz, queued: Props.queued, sig: m.sig };
+});
+const onA = await A.waitForFunction((n) => { const p = Props.areas().find((q) => q.id === 'isle').props[n]; return p.down ? { fe: p.fe, fz: p.fz, sig: Props.areas().find((q) => q.id === 'isle').sig } : false; }, knock.n, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => null);
+log('B knocked over isle prop', knock.n, JSON.stringify(knock), 'A sees', JSON.stringify(onA));
+ok('a tree knocked over on B\'s screen falls on the host\'s too, the same way', knock.down && !!onA && Math.hypot(onA.fe - knock.fe, onA.fz - knock.fz) < 0.02, { knock, onA });
+await B.evaluate((n) => Net.send({ t: 'fallen', r: 0, L: [[2, Props.areas().find((q) => q.id === 'isle').sig, [n + 1, n + 2], [0, 0]]] }), knock.n);
+const C = await mk('C');
+await C.goto(srv.url + 'index.html');
+await C.waitForTimeout(300);
+if (await C.isVisible('[data-mode="sandbox"]')) await C.click('[data-mode="sandbox"]');
+await C.evaluate(() => { Render3D.skipDraw = true; });
+await C.click('#home-mp');
+await C.fill('#mp-name', 'Cy'); await C.dispatchEvent('#mp-name', 'change');
+await C.click('[data-tr="local"]');
+await C.fill('#mp-join-code', code);
+await C.click('#mp-join');
+await C.waitForFunction(() => MP.live && MP.me, null, { timeout: 10000 });
+await C.waitForFunction(mapIn, null, { timeout: 180000 });
+const onC = await C.waitForFunction((n) => { const m = Props.areas().find((q) => q.id === 'isle'), p = m && m.props[n]; return p && p.down ? { fe: p.fe, t0: p.t0, n: Props.crushed } : false; }, knock.n, { timeout: 120000 }).then((h) => h.jsonValue()).catch(() => null);
+const forgedFallen = await A.evaluate((n) => { const m = Props.areas().find((q) => q.id === 'isle'); return !!m.props[n + 1].down || !!m.props[n + 2].down; }, knock.n);
+log('C (joined later) sees', JSON.stringify(onC), '| B\'s forged fallen reached the host:', forgedFallen);
+ok('a third tab joining later gets the room\'s set from the host: the tree already down there', !!onC && Math.abs(onC.fe - knock.fe) < 0.02 && onC.t0 < -1e6 && onC.n === 1, onC);
+ok('...and a player\'s own "fallen" message is dropped by the host (host-only)', !forgedFallen);
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();

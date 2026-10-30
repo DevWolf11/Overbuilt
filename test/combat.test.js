@@ -4,7 +4,7 @@
 // where gun rounds go, flares and turret rounds) against test/baseline/combat.json.
 //   node test/combat.test.js [--update]
 const Gm = require('./lib/game.js'), { check } = require('./lib/baseline.js');
-const ctx = Gm.load({ combat: true }), C = ctx.Combat, T = C._t, G = ctx;
+const ctx = Gm.load({ combat: true, props: true }), C = ctx.Combat, T = C._t, G = ctx; // (every prop built: nothing changes)
 ctx.Math.random = () => 0.5; // no gun spread
 const r3 = (x) => +x.toFixed(3);
 const t = Gm.checks('combat: depth');

@@ -4,6 +4,12 @@
 // design has them; a shell stopped by a house, an HE one bursting on it; Aim.sees blocked by a house and by a wood and
 // not by a tree knocked over; a tank stopped by a house's wall, and a tree it drives into falling and no longer in its
 // way; an AI vehicle driving 120 s through the village never inside a building, and its costs; the sandbox's tank yard.
+// Old weapons and craft (combat.js moveShot, vessel.js ground()): a plane's cannon and machine-gun bursts into a house
+// stop there, a bomb on it bursts on its roof, a rocket pod salvo bursts on a wall; the Dune Buggy stops against a wall
+// and knocks a tree over; a plane flown into the church at 80 m/s breaks up against it; an old car where none stands
+// drives exactly as with no props at all. The room (mp.js): what falls on one player's screen falls on another's, the
+// same way; forged crush messages (bad ids, a solid prop, NaN, another layout, a flood) change nothing; a player who
+// joins late gets the room's set; a respawn in a room keeps the field, a new battle stands it up.
 //   node test/props.test.js
 const G = require('./lib/game.js'), TANKS = require('./lib/tanks.js'), crypto = require('crypto');
 const t = G.checks('props.test.js');
@@ -200,6 +206,103 @@ t('an AI vehicle driving 120 s between the village\'s houses (to a new free spot
   R(`inside.length === 0 && moved.every((m) => m > 250)`), R('({ inside: inside.slice(0, 5), worstPen, moved, legs })'));
 t('...a move with the props in costs well under 40 µs (Node)', R('kinUs < 40'), R('kinUs'));
 
+// ---------------------------------------------------------------- old weapons and old craft (combat.js moveShot, vessel.js ground())
+// craftAt: an old template's craft at sim point `from`, level, its nose (part +y: a plane's) toward `to`, at speed; the
+// FX of what bursts and puffs, and each shot's prop, recorded; still: not stepped (a gun platform)
+R(`var at3 = (e, z, h) => { const r = EARTH.radius + h, a = siteAngle(EARTH, e), ph = z / EARTH.radius; return { x: r * Math.cos(ph) * Math.cos(a), y: r * Math.cos(ph) * Math.sin(a), z: r * Math.sin(ph) }; };
+var gh = (e, z) => Terrain.surfaceAt(EARTH, siteAngle(EARTH, e), z);
+var ezh = (q) => { const L = Terrain.locate(EARTH, q.x, q.y, q.z, {}); return { e: -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z: L.z, h: L.r - EARTH.radius }; };
+var goStill = (F, secs, each) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { if (each) each(F); for (let i = 0; i < 2; i++) { for (const v of F.vessels) if (!v.dead && !v.still && v.parts.length) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; } Combat.frame(F, 1 / 60); } };
+var craftAt = (key, from, to, speed) => { const t = TEMPLATES[key], ps = partsFromDesign(templateRows(t)), adj = buildAdjacency(ps), v = new Vessel(ps, adj, EARTH); v.kind = t.kind; v.stages = computeStages(ps, adj, findControlPart(ps).id); v.rebuildGroups();
+  const U = norm3(v3(from.x, from.y, from.z)), d = norm3(v3(to.x - from.x, to.y - from.y, to.z - from.z)), k0 = -dot3(U, d), dn = norm3(v3(-U.x - d.x * k0, -U.y - d.y * k0, -U.z - d.z * k0));
+  v.q = qbasis(dn, d, cross3(dn, d, v3())); v.x = from.x; v.y = from.y; v.z = from.z; v.vx = d.x * speed; v.vy = d.y * speed; v.vz = d.z * speed; v.av = v3();
+  for (const id of v.stages[0] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx = 1; v.throttle = 1; return v; };
+var booms = [], puffs = [], shotAt = []; { const X = FX.explosion; FX.explosion = (b, q, ...r) => { booms.push(ezh(q)); }; FX.puff = (b, q) => { puffs.push(ezh(q)); }; FX.sparks = (b, q) => { puffs.push(ezh(q)); }; }
+{ const s = Props.shot; Props.shot = function (a, b) { const t = s.call(this, a, b); if (t >= 0) shotAt.push(Props._S.list[Props.hit.p]); return t; }; }
+// where FX happened against prop p: across (out along its front from its middle) and along (its long side)
+var rel = (p, L) => L.map((q) => [(q.e - p.e) * -p.s + (q.z - p.z) * p.c, (q.e - p.e) * p.c + (q.z - p.z) * p.s, q.h - p.g]);
+var inBox = (p, L, m) => { const H = p.h + p.gt - p.g + (p.r2 || 0); return L.length > 0 && rel(p, L).every(([u, w, h]) => Math.abs(u) <= p.d / 2 + m && Math.abs(w) <= p.w / 2 + m && h > -1 && h < H + m); };
+// (parts broken off and ripped away go, as Flight's do: the rest splits into pieces)
+var breaks = (F) => Object.assign(F, { ripParts(v, parts, why) { this.broken.push((why || 'rip') + ':' + parts.map((p) => p.type).join(',')); this.breakParts(v, parts, null, true); },
+  breakParts(v, parts, cause, quiet) { if (!quiet) this.broken.push(cause + ':' + parts.map((p) => p.type).join(','));
+    for (const p of parts) { v.parts = v.parts.filter((q) => q !== p); for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.delete(p.id); }
+    if (!v.parts.length) { v.dead = true; return; } v.splitComponents(); v.rebuildGroups(); } });
+// (a TK-34 parked 400 m off: ground play, where Highland Ridge's props meet old weapons and craft, as they're shown)
+var withTank = (...vs) => { const p = __house, tk = tank(__tk, p.e + 400, p.z, 0); tk.still = true; return breaks(world(...vs, tk)); };`);
+R(`var burst = (key, type) => { const p = __house, fe = -p.s, fz = p.c, mid = p.g + (p.h + p.gt - p.g) / 2;
+  const from = at3(p.e + fe * 40, p.z + fz * 40, gh(p.e + fe * 40, p.z + fz * 40) + 4), to = at3(p.e, p.z, mid);
+  const v = craftAt(key, from, to, 0); v.still = true; const F = withTank(v); Combat.reset(F);
+  booms.length = puffs.length = shotAt.length = 0; Math.random = (() => { let s = 3; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+  const gun = v.parts.find((q) => q.type === type), n0 = gun.ammo;
+  goStill(F, 3, (F) => { if (F.time < 1) Combat._t.fireGun(v, gun, 1 / 60, false, F); });
+  return { fired: n0 - gun.ammo, stopped: shotAt.filter((q) => q === p).length, others: shotAt.length - shotAt.filter((q) => q === p).length, booms: booms.length, puffs: puffs.length, left: Combat.S.shots.length,
+    inHouse: inBox(p, booms.length ? booms : puffs, 0.6), where: rel(p, (booms.length ? booms : puffs).slice(0, 2)) }; };
+var cannon = burst('striker', 'cannon'), mg = burst('camel', 'gun');`);
+t('a plane\'s cannon burst into a house stops there, every round bursting on it (its wall or its roof), none past it', R(`cannon.fired >= 6 && cannon.stopped === cannon.fired && cannon.booms === cannon.fired && cannon.inHouse && !cannon.left && !cannon.others`), R('cannon'));
+t('...and a machine gun\'s rounds stop in it too, with puffs of stone', R(`mg.fired >= 10 && mg.stopped === mg.fired && !mg.booms && mg.puffs > 0 && mg.inHouse && !mg.left && !mg.others`), R('mg'));
+R(`var bomb = (() => { const p = __house, H = p.h + p.gt - p.g, from = at3(p.e, p.z, p.g + H + 40), to = at3(p.e + 50 * p.c, p.z - 50 * p.s, p.g + H + 40);
+  const v = craftAt('striker', from, to, 0); v.still = true; const F = withTank(v); Combat.reset(F); booms.length = shotAt.length = 0;
+  Combat._t.dropBomb(v, v.parts.find((q) => q.def.weapon && q.def.weapon.kind === 'bomb'), F);
+  goStill(F, 6);
+  return { booms: booms.length, onHouse: shotAt.filter((q) => q === p).length, inHouse: inBox(p, booms, 0.5), where: rel(p, booms), H }; })();`);
+t('a bomb dropped on a house bursts on it (over its walls, not on the ground inside them)', R(`bomb.booms === 1 && bomb.onHouse === 1 && bomb.inHouse && bomb.where[0][2] > bomb.H - 0.5`), R('bomb'));
+// a stone wall on Highland Ridge with flat ground and nothing else for 30 m in front of it
+const wall = HL.filter((p) => p.k === K.wall && p.w > 7).find((p) => {
+  const fe = -p.s, fz = p.c, H = p.h + p.gt - p.g;
+  for (let d = 2; d <= 32; d += 2) if (Math.abs(gH(p.e + fe * d, p.z + fz * d) - p.g) > 0.4) return false;
+  const a = at(p.e + fe * 30, p.z + fz * 30, 0.6), q = P.segment(a, front(p, 0, H / 2), P.F.SHELL | P.F.SIGHT | P.F.SOLID | P.F.CRUSH);
+  return q >= 0 && own(p) && HL.every((o) => o === p || Math.hypot(o.e - (p.e + fe * 16), o.z - (p.z + fz * 16)) > 16);
+});
+ctx.__wall = wall;
+R(`var salvo = (() => { const p = __wall; if (!p) return null; const fe = -p.s, fz = p.c, from = at3(p.e + fe * 30, p.z + fz * 30, p.g + 1.7), to = at3(p.e, p.z, p.g + 1.7);
+  const v = craftAt('striker', from, to, 0); v.still = true; const F = withTank(v); Combat.reset(F); booms.length = shotAt.length = 0;
+  const pod = v.parts.find((q) => q.def.weapon && q.def.weapon.kind === 'rocket'), n0 = pod.ammo;
+  goStill(F, 3, (F) => { if (F.time < 0.7 && Math.round(F.time * 60) % 10 === 0) Combat._t.fireRocket(v, pod, false, F); });
+  return { fired: n0 - pod.ammo, booms: booms.length, onWall: shotAt.filter((q) => q === p).length, others: shotAt.length - shotAt.filter((q) => q === p).length, inWall: inBox(p, booms, 0.5), left: Combat.S.shots.length }; })();`);
+t('an old rocket pod salvo at a stone wall bursts on it, every rocket, none over or through it', !!wall && R(`salvo.fired >= 4 && salvo.booms === salvo.fired && salvo.onWall === salvo.fired && !salvo.others && salvo.inWall && !salvo.left`), wall ? R('salvo') : 'no wall');
+// the Dune Buggy on the space centre's island: at a wall, flat out (nothing else for 34 m in front of it), and into a tree
+const IS = P.areas().find((m) => m.id === 'isle').props, flat = (e, z, r) => { const g = gH(e, z); return [[r, 0], [-r, 0], [0, r], [0, -r]].every(([a, b]) => Math.abs(gH(e + a, z + b) - g) <= 0.6); };
+const iwall = IS.filter((p) => p.k === K.wall && p.w > 7).find((p) => {
+  const fe = -p.s, fz = p.c;
+  for (let d = 0; d <= 34; d += 2) if (Math.abs(gH(p.e + fe * d, p.z + fz * d) - p.g) > 0.6 || wet(p.e + fe * d, p.z + fz * d)) return false;
+  return IS.every((q) => q === p || Math.hypot(q.e - (p.e + fe * 17), q.z - (p.z + fz * 17)) > 19);
+});
+const itree = IS.filter((p) => p.k === K.conifer || p.k === K.broadleaf).find((p) => flat(p.e, p.z, 10) && flat(p.e - 12, p.z, 10) && !wet(p.e - 20, p.z)
+  && IS.every((q) => q === p || !(q.e > p.e - 24 && q.e < p.e + 14 && Math.abs(q.z - p.z) < 6 + Math.hypot(q.w, q.d) / 2)));
+ctx.__iwall = iwall; ctx.__itree = itree;
+R(`var buggy = (e, z, yaw) => { const ps = partsFromDesign(templateRows(TEMPLATES.buggy)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'car'; v.stages = computeStages(ps, buildAdjacency(ps), findControlPart(ps).id); v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, yaw); return v; };
+var bwall = (() => { const p = __iwall; if (!p) return null; const fe = -p.s, fz = p.c, v = buggy(p.e + fe * 30, p.z + fz * 30, Math.atan2(fz, -fe)), F = breaks(world(v)); Combat.reset(F);
+  let least = Infinity, top = 0; go(F, 10, () => { v.ctl.v = 1; const q = ezOf(v); least = Math.min(least, (q.e - p.e) * fe + (q.z - p.z) * fz); top = Math.max(top, v.speed()); });
+  return { least, half: p.d / 2, top, speed: v.speed(), parts: v.parts.length, broken: F.broken.join(';'), upright: dot3(v.axis(0, 1, 0), norm3(v3(v.x, v.y, v.z))), play: Props.play }; })();
+var btree = (() => { const p = __itree; if (!p) return null; const v = buggy(p.e - 18, p.z, 0), F = breaks(world(v)); Combat.reset(F); const n0 = Props.crushed;
+  go(F, 6, () => { v.ctl.v = 1; }); const q = ezOf(v);
+  return { down: !!p.down, fe: p.fe, passed: q.e - p.e, n: Props.crushed - n0, broken: F.broken.join(';') }; })();
+Props.reset();`);
+t('the Dune Buggy driven flat out at a wall on the island stops against it, upright and whole (Highland Ridge closed to it: no ground play)', !!iwall && R(`bwall.least > bwall.half + 1 && bwall.least < bwall.half + 3 && bwall.top > 8 && bwall.speed < 0.5 && !bwall.broken && bwall.upright > 0.95 && !bwall.play`), iwall ? R('bwall') : 'no wall');
+t('...and a tree it drives into falls over along its way, and it drives on past', !!itree && R(`btree.down && btree.fe > 0.9 && btree.passed > 10 && btree.n >= 1 && !btree.broken`), itree ? R('btree') : 'no tree');
+// the Striker flown at the church's front wall at 80 m/s, 9 m up, 100 m out
+const church = HL.find((p) => p.k === K.church);
+ctx.__ch = church;
+R(`var churchRun = (() => { const p = __ch, from = at3(p.e, p.z + 100, p.g + 9), to = at3(p.e, p.z, p.g + 9), v = craftAt('striker', from, to, 80);
+  v.gearUp = true; for (const w of v.wheels) if (w.def.wheel.retract) w.retracted = true;
+  const F = withTank(v); Combat.reset(F); let least = Infinity, first = null;
+  goStill(F, 3, (F) => { for (const o of F.vessels) if (!o.still && o.parts.length) least = Math.min(least, ezh(o).z - p.z); if (F.broken.length && !first) { const q = ezh(v); first = { z: q.z - p.z, h: q.h - gh(q.e, q.z), why: F.broken[0] }; } });
+  return { first, least, half: p.d / 2, broken: F.broken.length, parts: v.parts.length, reach: v.reach }; })();`);
+t('a plane flown into the church at 80 m/s breaks up against its wall (in the air, not on the ground), nothing of it through', R(`!!churchRun.first && churchRun.first.why.startsWith('impact:') && churchRun.first.z < churchRun.half + 12 && churchRun.first.z > churchRun.half && churchRun.first.h > 2 && churchRun.least > 0 && churchRun.broken >= 2`), R('churchRun'));
+// an old car where no prop stands (the buggy on the runway: away, round a corner, back, braked), here with every prop
+// built and in a game with none: the same to the last digit
+{
+  const bare = G.load({ combat: true }), drive = `(() => { const ps = partsFromDesign(templateRows(TEMPLATES.buggy)), adj = buildAdjacency(ps), v = new Vessel(ps, adj, EARTH); v.kind = 'car'; v.stages = computeStages(ps, adj, findControlPart(ps).id); v.rebuildGroups();
+    const K = VEHICLE_KINDS.car; v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[K.site].east), K.launchRot);
+    const F = { time: 0, target: null, toasts: [], broken: [], vessels: [v], active: v, running: true, warpIdx: 0, camAbs: { x: 0, y: 0, z: 0 }, toast() {}, ripParts() {}, breakParts() {} }; Combat.reset(F);
+    for (let f = 0; f < 14 * 60; f++) { const tt = f / 60; v.ctl.v = tt < 6 ? 1 : tt < 9 ? 0 : tt < 11 ? -1 : 0; v.ctl.h = tt > 4 && tt < 6 ? 1 : 0; v.brake = tt > 11;
+      for (let i = 0; i < 2; i++) { v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; } Combat.frame(F, 1 / 60); }
+    return JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length]); })()`;
+  G.run(bare, `Settings.get = (k) => ({ targets: 'off', high: false })[k];`);
+  const a = R(drive), b = G.run(bare, drive);
+  t('an old car where no prop stands drives exactly as in a game with no props at all (the buggy on the runway, 14 s)', a === b && bare.Props._S.cols.length === 0 && P._S.cols.length > 5000, a === b ? '' : [a, b]);
+}
+
 // ---------------------------------------------------------------- the sandbox's tank yard
 {
   const spots = Array.from({ length: 8 }, (_, k) => P.yardPlace(k)), lvl = spots.map((q) => Math.abs(gH(q.e, q.z) - Y.h));
@@ -214,4 +317,58 @@ t('...a move with the props in costs well under 40 µs (Node)', R('kinUs < 40'),
   const want = [0, 1, 2].map((k) => P.yardPlace(k));
   t('a multiplayer sandbox starts Armour at the tank yard, side by side (planes where they were)', pl.every((q, k) => q[0] === want[k].e && q[1] === want[k].z && q[2] === 0) && pl[0][3] === null && pl[1][3] && pl[1][3].e === E.sites.runway.east + 220, pl);
 }
+
+// ---------------------------------------------------------------- the room: what falls on one screen falls on all
+// Four players' games (mp.js with Net's stand-in: what each sends lands in Net.out), every prop built in each: the host
+// (1), two players (2, 3) and one about to join (4). Player 2's buggy (as its own screen moves it) knocks the island's
+// tree over; its message reaches player 3 (as the host passes it on) and the host, and the host's set reaches player 4.
+{
+  const room = (me, host) => { const c = G.load({ mp: true, props: true });
+    G.run(c, `Net.me = ${me}; Net.isHost = ${host}; Net.active = true; var MPUI = new Proxy({}, { get: () => () => {} });
+      MP.active = true; MP.state = { mode: 'sandbox', phase: 'free', round: 0, players: [1, 2, 3, 4].map((pid) => ({ pid, name: 'P' + pid, team: 0 })), settings: {}, feed: [] };
+      MP.seenEpoch = MP.crushEpoch(); MP.crushRate = new Map(); Props.sync(true); Net.out = [];
+      var treeAt = (n) => Props.areas().find((m) => m.id === 'isle').props[n];
+      var hl = Props.areas().find((m) => m.id === 'highland').props;`);
+    return c; };
+  const [H, A, B, C] = [room(1, true), room(2, false), room(3, false), room(4, false)];
+  const n = itree ? itree.n : -1;
+  [H, A, B, C].forEach((c) => (c.__n = n));
+  const sent = G.run(A, `(() => { const p = treeAt(__n), ps = partsFromDesign(templateRows(TEMPLATES.buggy)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'car'; v.rebuildGroups();
+    v.placeOnSurface(EARTH, siteAngle(EARTH, p.e - 1.6), 0, p.z, 0); const a = v.axis(1, 0, 0); v.vx = a.x * 8; v.vy = a.y * 8; v.vz = a.z * 8;
+    Props.crushStep({ time: 1, vessels: [v] }); MP.sendCrush(); return { down: !!p.down, fe: p.fe, fz: p.fz, out: Net.out.map(([m, to]) => [m, to ?? null]) }; })()`);
+  const msg = sent.out.length === 1 ? sent.out[0][0] : null, deliver = (c, m, f) => G.run(c, `(() => { MP.onCrush(Object.assign(${JSON.stringify(m)}, { f: ${f} })); return Props.crushed; })()`);
+  const got = msg && (deliver(B, msg, 2), deliver(H, msg, 2), G.run(B, `(() => { const p = treeAt(__n); return { down: !!p.down, fe: p.fe, fz: p.fz, t0: p.t0 }; })()`));
+  t('player 2\'s buggy knocks a tree over: one small message (its map, its layout\'s signature, its place, the way it fell in whole degrees)', !!itree && sent.down && !!msg && msg.t === 'crush' && msg.r === 0 && msg.m === 2 && msg.ids.length === 1 && msg.ids[0] === n && Number.isInteger(msg.d[0]) && sent.out[0][1] === null, sent);
+  t('...on player 3\'s screen (the host passing it on) the same tree falls the same way (within a degree)', !!got && got.down && Math.hypot(got.fe - sent.fe, got.fz - sent.fz) < 0.02 && G.run(B, 'Props.crushed') === 1 && G.run(B, 'Props.queued') === 0, got);
+  // the host's set, to player 4 as it joins: the tree already down there (no fall to watch)
+  const late = G.run(H, `(() => { Net.out = []; MP.sendFallen(4); return Net.out.map(([m, to]) => [m, to]); })()`);
+  const lateGot = late.length === 1 && late[0][1] === 4 && late[0][0].t === 'fallen' && (G.run(C, `MP.onFallen(Object.assign(${JSON.stringify(late[0][0])}, { f: 1 }))`), G.run(C, `(() => { const p = treeAt(__n); return { down: !!p.down, fe: p.fe, t0: p.t0, n: Props.crushed }; })()`));
+  t('a player who joins later gets the room\'s set from the host, and sees the tree already down', !!lateGot && lateGot.down && lateGot.t0 < -1e6 && lateGot.n === 1 && Math.abs(lateGot.fe - sent.fe) < 0.02, { late, lateGot });
+  t('...the set comes only from the host (a player\'s "fallen" is not believed), and only when there is one', G.run(C, `(() => { Props.reset(); MP.onFallen(Object.assign(${JSON.stringify(late[0] ? late[0][0] : {})}, { f: 2 })); return Props.crushed; })()`) === 0
+    && G.run(H, `(() => { Props.reset(); Net.out = []; MP.sendFallen(4); return Net.out.length; })()`) === 0);
+  // forged messages to player 3: nothing falls, nothing throws
+  const forged = G.run(B, `(() => { const g = Props.areas().find((m) => m.id === 'isle').sig, n = __n, wallI = Props.areas().find((m) => m.id === 'isle').props.findIndex((p) => p.k === Props.K.wall), houseI = hl.findIndex((p) => p.k === Props.K.house);
+    const ok = { t: 'crush', r: 0, m: 2, g, ids: [n], d: [90] }, c0 = Props.crushed, bad = [];
+    const L = [{ ids: [n + 0.5] }, { ids: ['' + n] }, { ids: [-1] }, { ids: [70000] }, { ids: [NaN] }, { ids: [] }, { ids: null }, { ids: [Props.areas().find((m) => m.id === 'isle').props.length + 3] },
+      { m: 3 }, { m: -1 }, { m: '2' }, { m: null }, { g: g + 1 }, { g: 'x' }, { g: -5 }, { d: [NaN] }, { d: [360] }, { d: [-1] }, { d: [1.5] }, { d: [Infinity] }, { d: [] },
+      { ids: [n, n], d: [0] }, { ids: Array.from({ length: 33 }, () => n), d: Array.from({ length: 33 }, () => 0) },
+      { ids: [wallI] }, { m: 0, g: Props.areas().find((m) => m.id === 'highland').sig, ids: [houseI] }, { r: 99 }, { f: 'x' }, { f: Net.me }, { t: 'crush', r: 0 }];
+    for (const o of L) { try { MP.onCrush(Object.assign({}, ok, { f: 2 }, o)); } catch (e) { bad.push(String(e)); } }
+    return { fell: Props.crushed - c0, bad, wall: !!Props.areas().find((m) => m.id === 'isle').props[wallI].down, house: !!hl[houseI].down, tree: !!Props.areas().find((m) => m.id === 'isle').props[n].down }; })()`);
+  t('forged crush messages (fractions, strings, negatives, past the layout, NaN, Infinity, another map or layout, mismatched or too many, a wall or a house, another epoch, a bad sender) change nothing and throw nothing', forged.fell === 0 && !forged.bad.length && !forged.wall && !forged.house, forged);
+  // a flood: 100 messages of a tree each from one player in the same instant: 64 believed (64 a second), the rest not
+  const flood = G.run(B, `(() => { const g = Props.areas().find((m) => m.id === 'highland').sig, T = hl.map((p, i) => [p, i]).filter(([p]) => p.k === Props.K.conifer && !p.down).slice(0, 100), c0 = Props.crushed;
+    for (const [, i] of T) MP.onCrush({ t: 'crush', f: 4, r: 0, m: 0, g, ids: [i], d: [0] });
+    const other = hl.findIndex((p, i) => p.k === Props.K.broadleaf && !p.down); MP.onCrush({ t: 'crush', f: 2, r: 0, m: 0, g, ids: [other], d: [0] });
+    return { n: T.length, fell: Props.crushed - c0, other: !!hl[other].down }; })()`);
+  t('...a flood from one player: 64 props a second believed, the rest dropped (another player\'s still heard)', flood.n === 100 && flood.fell === 65 && flood.other, flood);
+  // a new battle (the room's epoch moves on) stands everything up, and a message from before it isn't believed after
+  const epoch = G.run(B, `(() => { MP.onPhase = () => {}; const before = Props.crushed, s = JSON.parse(JSON.stringify(MP.state)); s.mode = 'pvp'; s.phase = 'battle'; s.round = 1; MP.applyState(s);
+    const after = Props.crushed; MP.onCrush({ t: 'crush', f: 2, r: 0, m: 2, g: Props.areas().find((m) => m.id === 'isle').sig, ids: [__n], d: [0] });
+    return { before, after, late: Props.crushed, epoch: MP.crushEpoch() }; })()`);
+  t('a new battle stands every prop up again (and a crush from before it is not believed after)', epoch.before > 60 && epoch.after === 0 && epoch.late === 0 && epoch.epoch === 6, epoch);
+}
+// in a room a new flight (a respawn, or a sandbox flight) keeps what is down: the room's set rules (combat.js reset)
+R(`var MP = { active: true }; var roomKeep = (() => { const p = __tree; p.down = 1; Props._S.fallen.push(p); Props._S.crushed++; Combat.reset(simOf()); const kept = !!p.down; MP = undefined; Combat.reset(simOf()); return kept && !p.down; })();`);
+t('in a room a new flight keeps the props that are down (Combat.reset); out of it, they stand up again', !!tr && R('roomKeep'));
 t.done();

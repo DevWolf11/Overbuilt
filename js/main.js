@@ -113,8 +113,14 @@ const App = {
       if (!in3d && Render3D.ready) Render3D.setVisible(false);
       // the props of the battlefields (props.js), laid out 3 ms a frame ahead of need: while Armour is being
       // built, and on the multiplayer screens (the Practice Battle and ground battles start there), so a launch doesn't
-      // lay them out all at once (once a session: about 0.6 s of work on a desktop)
-      if (typeof Props !== 'undefined' && EARTH.mapped && ((this.scene === 'build' && Builder.kind === 'tank') || this.scene === 'mp' || (MP.live && MP.ground)) && !Props.done()) Props.tick(3);
+      // lay them out all at once (once a session: about 0.6 s of work on a desktop); the space centre's while anything
+      // else is built; and in 3D flight, those within 10 km of the craft (any height), a slice a frame: every shot and
+      // every craft meets them, but only once they're in (and drawn)
+      if (typeof Props !== 'undefined') {
+        if (EARTH.mapped && ((this.scene === 'build' && Builder.kind === 'tank') || this.scene === 'mp' || (MP.live && MP.ground)) && !Props.done()) Props.tick(3);
+        else if (this.scene === 'build' && Render3D.supported && !Render3D.failed) Props.tick(3, ['runway', 'isle']);
+        else if (this.scene === 'flight' && in3d && Flight.running && Flight.active && Flight.active.body === EARTH) Props.warm(Flight.active.x, Flight.active.y, Flight.active.z, 1.5); // (in 3D only: the 2D view draws none)
+      }
     } catch (err) {
       console.error(err);
     }

@@ -8,7 +8,7 @@
 // tipping, collisions, crashes, and what physics hands the renderer and the HUD.
 //   node test/ground.test.js
 const G = require('./lib/game.js'), fs = require('fs'), path = require('path');
-const ctx = G.load({ combat: true, ground: true });
+const ctx = G.load({ combat: true, ground: true, props: true }); // (every map's props built: old designs ask about them, and meet none)
 const R = (c) => G.run(ctx, c);
 const t = G.checks('ground: §contract (Phase 1)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
@@ -22,13 +22,22 @@ const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringif
 }`);
 wrap(ctx);
 const calls = (c = ctx) => G.run(c, 'JSON.stringify(CALLS)');
+// (the calls into the five systems old designs never reach: Props they may ask, where its answer is "nothing here")
+const quiet = (c = ctx) => G.run(c, `JSON.stringify(Object.fromEntries(Object.entries(CALLS).filter(([k]) => !k.startsWith('Props.'))))`);
+// what old designs met among the props: shots stopped (Props.shot), contacts made (Vessel.propContacts), props knocked over
+R(`var MET = { shot: 0, contacts: 0 }; { const s = Props.shot, pc = Vessel.prototype.propContacts;
+  Props.shot = function (a, b) { const q = s.call(this, a, b); if (q >= 0) MET.shot++; return q; };
+  Vessel.prototype.propContacts = function (B, L, dt) { const n = L.length; pc.call(this, B, L, dt); MET.contacts += L.length - n; }; }`);
+const met = () => R(`JSON.stringify([MET.shot, MET.contacts, Props.crushed])`);
 t('the loader brings Gear, Aim, Armour, GroundMode, GroundAI and Props', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
+t('...with every map\'s props built (Highland Ridge, the Runway, the island)', R(`Props.done() && Props.areas().map((m) => m.id).join() === 'highland,runway,isle'`));
 
 // ---------------------------------------------------------------- old designs: zero calls into the new code
 // 1. the traces script (every template, 12 s, the same stick script), with the weapons' step and frame alongside
 // (the range's targets and fighters about, hostile), guns firing for a second. simOf: test/lib/game.js's stand-in for
-// Flight, with the craft in its world.
-R(`var near = (a, b, e = 1e-9) => Math.abs(a - b) <= e, most = 0;
+// Flight, with the craft in its world. The same again in a second game with no props built at all, the dice the same in
+// both: every craft and every round in flight end exactly where they did (the props change nothing where none stands)
+const OLDRUN = `var near = (a, b, e = 1e-9) => Math.abs(a - b) <= e, most = 0;
 var simOf = (v) => ({ time: 0, target: null, toasts: [], broken: [], vessels: [v], active: v, running: true, warpIdx: 1, firing: false, destroyed: false, camAbs: { x: 0, y: 0, z: 0 },
   toast(t) { this.toasts.push(t); },
   ripParts(v, parts) { this.broken.push('rip'); for (const p of parts) { for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.get(p.id).clear(); } v.splitComponents(); v.rebuildGroups(); },
@@ -43,15 +52,22 @@ var oldRun = (v, F, secs, script) => {
     most = Math.max(most, Combat.S.shots.length);
     if (v.dead || !v.parts.length) break;
   }
-};`);
+};
+var dice = (seed) => { let s = seed >>> 0; Math.random = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+var where = (v) => JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length, v.dead, Combat.S.shots.map((s) => [s.k, s.x, s.y, s.z])]);`;
+R(OLDRUN);
+const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
+RB(OLDRUN);
 // (every old template: the ground update's own stock vehicles, which carry its parts, are left out of these proofs)
 const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv));
 ctx.__OLD = OLD;
 let traced = 0;
+const same = [];
 for (const key of OLD) {
   const T = ctx.TEMPLATES[key];
   ctx.__v = G.craft(ctx, T.parts, T.kind || 'rocket');
-  R(`(() => {
+  bare.__v = G.craft(bare, T.parts, T.kind || 'rocket');
+  const script = `(() => {
     const v = __v;
     if (v.kind === 'plane') {
       const r = v.radius() + 1500, u = { x: v.x / v.radius(), y: v.y / v.radius() };
@@ -66,10 +82,16 @@ for (const key of OLD) {
       if (v.kind !== 'plane' && tt > 6 && v.stageIdx < v.stages.length && i % 240 === 0) { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; }
       F.firing = tt > 3 && tt < 4;
     });
-  })()`);
+    return where(v);
+  })()`;
+  R('dice(7)'); RB('dice(7)');
+  const a = R(script), b = RB(script);
+  if (a !== b) same.push(key);
   traced++;
 }
-t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls`, calls() === '{}' && R('most') > 0, calls());
+t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other five systems; Props asked (its shots, its contacts, the crush pass), and nothing met`,
+  quiet() === '{}' && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
+t('...and every craft and every round in flight ends exactly where it does in a game with no props at all', !same.length && traced > 30, same);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
@@ -104,18 +126,18 @@ for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'pl
   for (const p of v.parts.slice()) if (v.parts.includes(p)) Combat.damage(v, p, 1e6, 'shot', F);
   Combat.reset(F); fp++;
 }`);
-t(`the combat fingerprint's operations (${R('fp')} craft): no calls`, calls() === '{}', calls());
+t(`the combat fingerprint's operations (${R('fp')} craft): no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
 
 // 3. a buggy drive on the runway: away, round a corner, back, braked to a stop
 ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
 R(`var bug = __v; Combat.reset({});
 oldRun(bug, simOf(bug), 14, (v, tt) => { v.ctl.v = tt < 6 ? 1 : tt < 9 ? 0 : tt < 11 ? -1 : 0; v.ctl.h = tt > 4 && tt < 6 ? 1 : 0; v.brake = tt > 11; });
 var bugSaved = Vessel.restore(JSON.parse(JSON.stringify(bug.serialize())));`);
-t('a buggy drive (and its saved flight): no calls', calls() === '{}' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), calls());
+t('a buggy drive (and its saved flight): no calls into the other five systems, no prop met', quiet() === '{}' && met() === '[0,0,0]' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), [quiet(), met()]);
 
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
-t('rows and costs of every old template: no calls', calls() === '{}', calls());
+t('rows and costs of every old template: no calls', quiet() === '{}', quiet());
 t('old vessels carry the new fields\' defaults (no gear, no groups, not plated)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)`));
 
 // 5. multiplayer: an old craft's spawn rows out and back, and its ghost

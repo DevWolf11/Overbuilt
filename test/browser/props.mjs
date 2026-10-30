@@ -37,10 +37,12 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   ok(`${tag}: in the village the Highland Ridge set is up with the arena's own ground, every prop's pieces in it, the far ones as their far shapes and the small far ones left out (level of detail)`,
     hl.built && hl.props === hl.layout && hl.props > 2500 && hl.slots === hl.want && hl.drawn < hl.slots && hl.n.slice(9).some((c) => c > 0), hl);
   await draw();
+  // (a frame drawn at 1280x720 in software WebGL can take seconds: wait for two new ones, not for the clock)
+  const frames = (n) => page.waitForFunction((k) => Flight.frameN >= k, n, { timeout: 120000, polling: 100 });
   await ev(() => { Flight.aimYaw = 0; Flight.aimPitch = -0.02; });
-  await page.waitForTimeout(1200);
+  await frames(await ev(() => Flight.frameN + 2));
   const calls = await ev(() => { const on = Render3D.info().calls; Render3D.propsOff = true; return on; });
-  await page.waitForTimeout(1200);
+  await frames(await ev(() => Flight.frameN + 2));
   const off = await ev(() => { const c = Render3D.info().calls; Render3D.propsOff = false; return c; });
   ok(`${tag}: the props add at most 20 draws (nine pieces and four far shapes, the near ones' shadows)`, calls > off && calls - off <= 20, { with: calls, without: off });
   await page.waitForTimeout(800);

@@ -14,11 +14,17 @@
 // sheep walls, rocks and bushes.
 //
 // Each prop is made of colliders, each a yawed box, an upright cylinder or a sphere with flags: SHELL (stops shells:
-// Armour.moveShell, and the ground update's own rockets and missiles), SIGHT (blocks Aim.sees and the HUD's aim ray: trees
-// by their crowns, bushes low down), SOLID (an immovable obstacle to vehicles with running gear: Gear.bump, and to the
-// ground AI's moves), CRUSH (falls over when a vehicle drives into it, on every screen: then it blocks nothing). Old
-// designs never reach any of it: old weapons' shots (combat.js moveShot) don't test props, old vessels have no running
-// gear, and the hooks sit behind the ground update's gates (test/ground.test.js counts the calls).
+// Armour.moveShell, and every other shot: combat.js moveShot's bullets, rockets, missiles and bombs), SIGHT (blocks
+// Aim.sees and the HUD's aim ray: trees by their crowns, bushes low down), SOLID (an immovable obstacle: to vehicles with
+// running gear, Gear.bump; to everything else that moves, vessel.js ground(): a car stops at a wall, a plane flown into
+// the church breaks up; and to the ground AI's moves), CRUSH (falls over when a vehicle drives into it, on every screen,
+// and in a room on every player's: then it blocks nothing).
+//
+// Old designs meet them only where some stand: an old weapon's shot or an old vessel looks at the props already built
+// (shot, solidAt, crushOld: they never build a map on the spot; the renderer and the app build the space centre's in the
+// background near it), and only those of a map open to them (Highland Ridge's in ground play: play, where they are on
+// show). Everywhere else (the runway, the causeway, the sea, the air: every old test path) they cost a look at a bitset
+// and change nothing (test/ground.test.js and the old baselines, run with every prop built, prove it).
 //
 // Coordinates: (e, z) as the space centre has them (metres east along the track, and depth: game north is -z); yaw as
 // placeOnSurface turns a craft: a prop's long side (its local x) runs along (cos yaw, -sin yaw) in (e, z), its front
@@ -55,6 +61,7 @@ const Props = (() => {
   const S = {
     built: false, mapped: null, list: [], cols: [], grid: new Map(), roads: [], rgrid: new Map(), fields: [], maps: [], groups: [],
     stamp: new Uint32Array(0), q: 0, fallen: [], ver: 0, crushed: 0, passT: -1, hit: null, calls: 0, ms: 0, worst: 0, worstAt: '', top: 0, all: false, tops: new Map(), hgrid: new Map(),
+    play: false, // (ground play: Highland Ridge's props open to old weapons and vessels, as they are on show there; Combat.frame says)
   };
   const R = () => EARTH.radius;
   const gKey = (ix, iz) => (ix + 8192) * 16384 + (iz + 8192);
@@ -237,7 +244,7 @@ const Props = (() => {
       const lim = BUILDING.has(k) ? 0.12 * Math.hypot(w, d) + 0.4 : k === K.wall || k === K.hedge || k === K.fence || k === K.sandbags ? 0.3 * w + 0.5 : Infinity;
       if (gt - g > lim) return null;
     }
-    const p = { k, e, z, y: yaw, c, s, w, d, h, g: g + lift, gt: gt + lift, r2: 0, v: rnd(), y2: rnd() * Math.PI * 2, c1: C.white, c2: C.slate, down: 0, map: M.id, i: S.list.length };
+    const p = { k, e, z, y: yaw, c, s, w, d, h, g: g + lift, gt: gt + lift, r2: 0, v: rnd(), y2: rnd() * Math.PI * 2, c1: C.white, c2: C.slate, down: 0, map: M.id, i: S.list.length, n: M.props.length };
     if (o) for (const q in o) if (q !== 'free' && q !== 'lift') p[q] = o[q];
     const cs = colliders(p);
     // clear of the map's protected lines of sight (props only add cover where the arena was made to have none)
@@ -264,15 +271,18 @@ const Props = (() => {
     if (S.stamp.length < S.cols.length) growStamps();
     const br = Math.hypot(col.ha, col.hw) + 1, i0 = Math.floor((pe - br) / CELL), i1 = Math.floor((pe + br) / CELL), j0 = Math.floor((pz - br) / CELL), j1 = Math.floor((pz + br) / CELL);
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const key = gKey(i, j); let L = S.grid.get(key); if (!L) S.grid.set(key, (L = [])); L.push(col.i); }
+    // (the 64 m cubes of the sim's own axes it reaches, in a hashed bitset: 1 what stops shells, 2 what vehicles meet,
+    // solid or crushed; a shot's step or a vessel through none of them looks no further, with no conversion to (e, z))
+    const ob = (f & SH ? 1 : 0) | (f & (SO | CR) ? 2 : 0);
+    if (ob) {
+      const rb = Math.sqrt(col.ha * col.ha + col.hh * col.hh + col.hw * col.hw) + 1;
+      for (let x = fl((col.cx - rb) / 64); x <= fl((col.cx + rb) / 64); x++) for (let y = fl((col.cy - rb) / 64); y <= fl((col.cy + rb) / 64); y++)
+        for (let zz = fl((col.cz - rb) / 64); zz <= fl((col.cz + rb) / 64); zz++) OCC[cube(x, y, zz)] |= ob;
+    }
     // what stops shells has a grid of its own (most props are trees, bushes and hedges: shells pass them by), and its tops
     // over sea level in 64 m cells (a shell's step over none of them, or over them all, looks no further)
     if (f & SH) {
       for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const key = gKey(i, j); let L = S.hgrid.get(key); if (!L) S.hgrid.set(key, (L = [])); L.push(col.i); }
-      // (and the 64 m cubes of the sim's own axes it reaches, in a hashed bitset: a shell's step through none of them
-      // looks no further, with no conversion to (e, z) at all)
-      const rb = Math.sqrt(col.ha * col.ha + col.hh * col.hh + col.hw * col.hw) + 1;
-      for (let x = fl((col.cx - rb) / 64); x <= fl((col.cx + rb) / 64); x++) for (let y = fl((col.cy - rb) / 64); y <= fl((col.cy + rb) / 64); y++)
-        for (let zz = fl((col.cz - rb) / 64); zz <= fl((col.cz + rb) / 64); zz++) OCC[cube(x, y, zz)] = 1;
       const top = p.g + oy + hh + 0.5;
       for (let i = Math.floor((pe - br) / TCELL); i <= Math.floor((pe + br) / TCELL); i++) for (let j = Math.floor((pz - br) / TCELL); j <= Math.floor((pz + br) / TCELL); j++) {
         const key = gKey(i, j), t0 = S.tops.get(key);
@@ -408,14 +418,14 @@ const Props = (() => {
     }
     return false;
   }
-  // (near: a short step, found through the anchors, ezNear)
-  function segment(a, b, mask, m = 0, near = false) {
+  // (near: a short step, found through the anchors, ezNear; lazy: over the maps built so far only, building none)
+  function segment(a, b, mask, m = 0, near = false, lazy = false) {
     S.hit = null;
     // (both ends over the highest prop's top, once every map is in: nothing to meet; the cheapest look first)
     const R0 = R() + S.top, ra = a.x * a.x + a.y * a.y + a.z * a.z, rb = b.x * b.x + b.y * b.y + b.z * b.z;
     if (S.all && ra > R0 * R0 && rb > R0 * R0) return -1;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mz = (a.z + b.z) / 2, dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, hl = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy) + (dz < 0 ? -dz : dz); // (over half the length: enough for the spheres)
-    if (!S.all) needAt(mx, my, mz, hl);
+    if (!S.all && !lazy) needAt(mx, my, mz, hl);
     if (!S.cols.length || !nearMap(mx, my, mz, hl)) return -1;
     if (ra > R0 * R0 && rb > R0 * R0) return -1;
     if (near) { ezNear(a, A0); ezNear(b, B0); } else { ezOf(a.x, a.y, a.z, A0); ezOf(b.x, b.y, b.z, B0); }
@@ -449,7 +459,30 @@ const Props = (() => {
   function occupied(a, b) {
     const ax = fl(a.x / 64), bx = fl(b.x / 64), ay = fl(a.y / 64), by = fl(b.y / 64), az = fl(a.z / 64), bz = fl(b.z / 64);
     if (ax - bx > 1 || bx - ax > 1 || ay - by > 1 || by - ay > 1 || az - bz > 1 || bz - az > 1) return true; // (a long one: look)
-    return OCC[cube(ax, ay, az)] || OCC[cube(bx, ay, az)] || OCC[cube(ax, by, az)] || OCC[cube(bx, by, az)] || OCC[cube(ax, ay, bz)] || OCC[cube(bx, ay, bz)] || OCC[cube(ax, by, bz)] || OCC[cube(bx, by, bz)];
+    return ((OCC[cube(ax, ay, az)] | OCC[cube(bx, ay, az)] | OCC[cube(ax, by, az)] | OCC[cube(bx, by, az)] | OCC[cube(ax, ay, bz)] | OCC[cube(bx, ay, bz)] | OCC[cube(ax, by, bz)] | OCC[cube(bx, by, bz)]) & 1) !== 0;
+  }
+  // Does the box round the sim point (x, y, z), r each way, reach a 64 m cube that something vehicles meet stands in?
+  function touches(x, y, z, r) {
+    const x0 = fl((x - r) / 64), x1 = fl((x + r) / 64), y0 = fl((y - r) / 64), y1 = fl((y + r) / 64), z0 = fl((z - r) / 64), z1 = fl((z + r) / 64);
+    for (let i = x0; i <= x1; i++) for (let j = y0; j <= y1; j++) for (let k = z0; k <= z1; k++) if (OCC[cube(i, j, k)] & 2) return true;
+    return false;
+  }
+  // Is the map about the sim point (x, y, z) open to old weapons and vessels? Highland Ridge's only in ground play (play:
+  // where the renderer shows it, with the arena's own ground); the space centre's always
+  function openAt(x, y, z) {
+    if (S.play) return true;
+    for (const m of S.maps) if (m.id === 'highland') { const dx = x - m.cx, dy = y - m.cy, dz = z - m.cz3; return dx * dx + dy * dy + dz * dz > m.cr * m.cr; }
+    return true;
+  }
+  // An old weapon's shot's step a -> b (combat.js moveShot: bullets and cannon rounds, rockets, missiles, bombs; another
+  // player's as we see it): as shell, but over the maps built so far (lazy: the space centre's builds in the background
+  // near it, and is drawn once it's in) and open to it. Props.hit says which.
+  function shot(a, b) {
+    if (!S.cols.length) return -1;
+    const R0 = R() + S.top, q = R0 * R0;
+    if (a.x * a.x + a.y * a.y + a.z * a.z > q && b.x * b.x + b.y * b.y + b.z * b.z > q) return -1;
+    if (!occupied(a, b) || !openAt(a.x, a.y, a.z)) return -1;
+    return segment(a, b, SH, 0, true, true);
   }
   // How far along the ray from o (unit dir d) to D m the first prop that blocks sight or stops shells is, past `skip` m
   // (the HUD's aim ray: past our own vehicle, from a camera behind it), or -1
@@ -505,6 +538,19 @@ const Props = (() => {
     nearList(VL.e, VL.z, r, SO, NEAR);
     for (const q of NEAR) { const H = Math.abs(VL.h - (Math.hypot(q.cx, q.cy, q.cz) - R())); if (H < r + q.hh) BOXES.push(boxOf(q)); }
     return BOXES;
+  }
+  // The solid props an old vessel (no running gear: vessel.js ground()) may meet this step, dt s: their boxes (Gear's
+  // form), or null when none stands within its reach and its step's travel (lazy, as shot: the maps built and open)
+  const SOL = [];
+  function solidAt(v, dt) {
+    if (!S.cols.length) return null;
+    const x = v.x, y = v.y, z = v.z, sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy + v.vz * v.vz), r = (v.reach || 1) + sp * dt + 1, R0 = R() + S.top + r;
+    if (x * x + y * y + z * z > R0 * R0 || !touches(x, y, z, r) || !nearMap(x, y, z, r) || !openAt(x, y, z)) return null;
+    ezOf(x, y, z, VL);
+    nearList(VL.e, VL.z, r, SO, NEAR);
+    SOL.length = 0;
+    for (const q of NEAR) { const H = Math.abs(VL.h - (Math.hypot(q.cx, q.cy, q.cz) - R())); if (H < r + q.hh) SOL.push(boxOf(q)); }
+    return SOL.length ? SOL : null;
   }
   // a circle (e, z, r) against the solid props' footprints: how deep it is in the deepest (0: clear). The ground AI's moves.
   function pen2D(e, z, r) {
@@ -599,31 +645,165 @@ const Props = (() => {
     }
     return n;
   }
-  function fall(p, de, dz, now) {
+  // (net: it fell by the room's word, so it isn't sent on)
+  function fall(p, de, dz, now, net) {
     p.down = 1; p.fe = de; p.fz = dz; p.t0 = now || 0;
     S.fallen.push(p); S.crushed++; S.ver++;
+    if (SYNC) { const m = S.maps[mapAt(p.map)]; ROOM.set(MAP_IDS.indexOf(p.map) * 65536 + p.n, [degOf(de, dz), m ? m.sig : -1]); if (!net) OUT.push(p); }
   }
-  // Each frame (Combat.frame, while ground vehicles are about): every ground vehicle that moves crushes what it drives
-  // into, ours, the AI's and the other players' alike, 15 times a second
+  // An old vessel (no running gear: a car, a plane, a helicopter, debris; ours, the AI's, another player's as we see it)
+  // against the props that crush: its box (its parts' bounds, turned with it), swept back over its travel since the last
+  // look (T s: a fast one passes no tree by between looks), against each one's box; what it meets falls over along its
+  // way. Lazy, as shot: the maps built and open to it.
+  const OB = { c: { x: 0, y: 0, z: 0 }, u: [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }], e: [0, 0, 0] }, ZERO = { x: 0, y: 0, z: 0 };
+  function crushOld(v, now, T) {
+    const bb = v.bounds;
+    if (!bb || !v.q || !S.cols.length) return 0;
+    const vx = v.vx || 0, vy = v.vy || 0, vz = v.vz || 0, com = v.com || ZERO, k = T / 2;
+    qrot(v.q, (bb.minX + bb.maxX) / 2 - com.x, (bb.minY + bb.maxY) / 2 - com.y, (bb.minZ + bb.maxZ) / 2 - (com.z || 0), Q1);
+    const cx = v.x + Q1.x - vx * k, cy = v.y + Q1.y - vy * k, cz = v.z + Q1.z - vz * k, U = OB.u, E = OB.e;
+    qrot(v.q, 1, 0, 0, U[0]); qrot(v.q, 0, 1, 0, U[1]); qrot(v.q, 0, 0, 1, U[2]);
+    E[0] = (bb.maxX - bb.minX) / 2 + 0.2; E[1] = (bb.maxY - bb.minY) / 2 + 0.2; E[2] = (bb.maxZ - bb.minZ) / 2 + 0.2;
+    for (let i = 0; i < 3; i++) E[i] += Math.abs(vx * U[i].x + vy * U[i].y + vz * U[i].z) * k;
+    const r = Math.sqrt(E[0] * E[0] + E[1] * E[1] + E[2] * E[2]), R0 = R() + S.top + r;
+    if (cx * cx + cy * cy + cz * cz > R0 * R0 || !touches(cx, cy, cz, r) || !nearMap(cx, cy, cz, r) || !openAt(cx, cy, cz)) return 0;
+    ezOf(cx, cy, cz, VB);
+    nearList(VB.e, VB.z, r, CR, CRL);
+    if (!CRL.length) return 0;
+    OB.c.x = cx; OB.c.y = cy; OB.c.z = cz;
+    let n = 0;
+    for (const q of CRL) {
+      const p = S.list[q.p];
+      if (p.down || !obbHit(OB, boxOf(q))) continue;
+      frameAt(VB.e, VB.z, _U, _E, _W);
+      const ve = vx * _E[0] + vy * _E[1] + vz * _E[2], vw = vx * _W[0] + vy * _W[1] + vz * _W[2], sp = Math.hypot(ve, vw);
+      let de, dz;
+      if (sp > 0.5) { de = ve / sp; dz = vw / sp; } else { de = p.e - VB.e; dz = p.z - VB.z; const l = Math.hypot(de, dz) || 1; de /= l; dz /= l; }
+      fall(p, de, dz, now);
+      n++;
+    }
+    return n;
+  }
+  // Do two boxes ({ c, u: three unit axes, e: half sizes }) overlap? (separating axes: their 3 + 3 faces and 9 edge pairs)
+  const OR = new Float64Array(9), OA = new Float64Array(9), OT = [0, 0, 0];
+  function obbHit(A, B) {
+    const tx = B.c.x - A.c.x, ty = B.c.y - A.c.y, tz = B.c.z - A.c.z;
+    for (let i = 0; i < 3; i++) {
+      const a = A.u[i];
+      OT[i] = tx * a.x + ty * a.y + tz * a.z;
+      for (let j = 0; j < 3; j++) { const b = B.u[j], d = a.x * b.x + a.y * b.y + a.z * b.z; OR[i * 3 + j] = d; OA[i * 3 + j] = Math.abs(d) + 1e-6; }
+    }
+    const ea = A.e, eb = B.e;
+    for (let i = 0; i < 3; i++) if (Math.abs(OT[i]) > ea[i] + eb[0] * OA[i * 3] + eb[1] * OA[i * 3 + 1] + eb[2] * OA[i * 3 + 2]) return false;
+    for (let j = 0; j < 3; j++) if (Math.abs(OT[0] * OR[j] + OT[1] * OR[3 + j] + OT[2] * OR[6 + j]) > ea[0] * OA[j] + ea[1] * OA[3 + j] + ea[2] * OA[6 + j] + eb[j]) return false;
+    for (let i = 0; i < 3; i++) {
+      const i1 = (i + 1) % 3, i2 = (i + 2) % 3;
+      for (let j = 0; j < 3; j++) {
+        const j1 = (j + 1) % 3, j2 = (j + 2) % 3;
+        if (Math.abs(OT[i2] * OR[i1 * 3 + j] - OT[i1] * OR[i2 * 3 + j]) > ea[i1] * OA[i2 * 3 + j] + ea[i2] * OA[i1 * 3 + j] + eb[j1] * OA[i * 3 + j2] + eb[j2] * OA[i * 3 + j1]) return false;
+      }
+    }
+    return true;
+  }
+  // Each frame (Combat.frame): every vehicle that moves crushes what it drives (or flies) into, ours, the AI's and the
+  // other players' alike, 15 times a second: a ground vehicle by its footprint (crushBy), any other by its box (crushOld)
   function crushStep(F) {
     if (!F || !F.vessels) return;
     const now = F.time || 0;
     if (now - S.passT < 1 / 15 && now >= S.passT) return;
+    const T = S.passT >= 0 && now > S.passT ? Math.min(now - S.passT, 0.25) : 1 / 15;
     S.passT = now;
     ensure();
     if (!S.cols.length) return;
     for (const v of F.vessels) {
-      if (v.dead || v.wreck || !v.parts || !v.parts.length || v.body !== EARTH || !(v.gv || (v.gear && v.gear.length))) continue;
+      if (v.dead || v.wreck || !v.parts || !v.parts.length || v.body !== EARTH) continue;
       const sp = Math.hypot(v.vx || 0, v.vy || 0, v.vz || 0);
       if (sp < 0.4 && !v.remote) continue; // (parked: it can't push anything over)
-      crushBy(v, now);
+      if (v.gv || (v.gear && v.gear.length)) crushBy(v, now); else crushOld(v, now, T);
     }
   }
-  // stand everything back up (a new flight)
+  // stand everything back up (a new flight; in a room, a new battle: mp.js)
   function reset() {
     for (const p of S.fallen) { p.down = 0; p.t0 = 0; }
     if (S.fallen.length) S.ver++;
     S.fallen.length = 0; S.crushed = 0; S.passT = -1;
+    ROOM.clear(); OUT.length = 0;
+  }
+
+  // ---------------------------------------------------------------- the room's (multiplayer: mp.js)
+  // What falls on any player's screen falls on everyone's: each sends what fell on its own (ours, a ghost's as we saw it:
+  // the union, whoever saw it first), at most 32 a message, a few messages a second; the host relays them and keeps the
+  // room's set (ROOM) for a player who joins later. A prop goes by its map's code (MAP_IDS: fixed, whatever order the maps
+  // were built in) and its place in that map's list; each map's layout has a signature (sig: its kinds and places), and a
+  // peer whose layout differs (no Earth map there: another Runway) is not believed. Peers are untrusted: only props that
+  // crush, never a solid one, by whole numbers within the layout, fall directions in whole degrees.
+  const MAP_IDS = ['highland', 'runway', 'isle'], ROOM_MAX = 8192, NET_MAX = 32;
+  const ROOM = new Map(), OUT = []; // (ROOM: code * 65536 + index -> [degrees, sig]; OUT: fallen here, not yet sent)
+  let SYNC = false;
+  const CRUSHK = new Set([K.hedge, K.fence, K.conifer, K.broadleaf, K.bush, K.bale, K.pole, K.tyres]);
+  const degOf = (de, dz) => { const a = Math.round((Math.atan2(dz, de) * 180) / Math.PI); return ((a % 360) + 360) % 360; };
+  const mapAt = (id) => { for (let i = 0; i < S.maps.length; i++) if (S.maps[i].id === id) return i; return -1; };
+  // in a room or not (mp.js: begin, end): either way the room's set and what was waiting to go are dropped
+  function sync(on) { SYNC = !!on; ROOM.clear(); OUT.length = 0; }
+  // What fell here since the last call, for the room: messages' bodies { m: map code, g: its sig, ids, d: degrees },
+  // max in all (the rest waits for the next call)
+  function outbox(max = NET_MAX) {
+    const out = [];
+    let n = 0;
+    while (OUT.length && n < max) {
+      const p = OUT.shift();
+      if (!p.down) continue;
+      const m = MAP_IDS.indexOf(p.map), mi = mapAt(p.map);
+      if (m < 0 || mi < 0) continue;
+      let b = out.find((q) => q.m === m);
+      if (!b) out.push((b = { m, g: S.maps[mi].sig, ids: [], d: [] }));
+      b.ids.push(p.n); b.d.push(degOf(p.fe, p.fz)); n++;
+    }
+    return out;
+  }
+  // A body from the room (a peer's crush, or the host's set for us joining late): checked whole (-1: refused, nothing
+  // falls), then each prop falls here (now: the sim's clock; far in the past for what fell before we came) if its map is
+  // built, or when it is. The number that fell.
+  function netFall(m, g, ids, d, now) {
+    if (!SYNC || !Number.isInteger(m) || m < 0 || m >= MAP_IDS.length || !Number.isInteger(g) || g < 0 || g > 0xffffff) return -1;
+    if (!Array.isArray(ids) || !Array.isArray(d) || !ids.length || ids.length !== d.length || ids.length > 512) return -1;
+    for (let i = 0; i < ids.length; i++) if (!Number.isInteger(ids[i]) || ids[i] < 0 || ids[i] > 65535 || !Number.isInteger(d[i]) || d[i] < 0 || d[i] > 359) return -1;
+    const mi = mapAt(MAP_IDS[m]), mp = mi >= 0 ? S.maps[mi] : null;
+    if (mp && (mp.sig !== g || ids.some((i) => i >= mp.props.length || !CRUSHK.has(mp.props[i].k)))) return -1; // (another layout, past its end, or solid: not believed)
+    let n = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const key = m * 65536 + ids[i];
+      if (!ROOM.has(key) && ROOM.size >= ROOM_MAX) break;
+      if (!mp) { ROOM.set(key, [d[i], g]); continue; } // (its map isn't built here yet: when it is, groupJob)
+      const p = mp.props[ids[i]];
+      if (p.down) { if (!ROOM.has(key)) ROOM.set(key, [d[i], g]); continue; }
+      const a = (d[i] * Math.PI) / 180;
+      fall(p, Math.cos(a), Math.sin(a), now, true);
+      n++;
+    }
+    return n;
+  }
+  // the room's set heard before map mp was built here, now that it is: what passes the checks falls (long ago)
+  function roomOn(mp) {
+    const m = MAP_IDS.indexOf(mp.id);
+    if (m < 0 || !ROOM.size) return;
+    for (const [key, [deg, g]] of [...ROOM]) {
+      if (Math.floor(key / 65536) !== m) continue;
+      const p = mp.props[key % 65536];
+      if (g !== mp.sig || !p || !CRUSHK.has(p.k)) { ROOM.delete(key); continue; }
+      if (!p.down) { const a = (deg * Math.PI) / 180; fall(p, Math.cos(a), Math.sin(a), -1e9, true); }
+    }
+  }
+  // The room's set as bodies of up to max each (the host's, for a player who joins late)
+  function roomList(max = 400) {
+    const out = [];
+    for (const [key, [deg, g]] of ROOM) {
+      const m = Math.floor(key / 65536);
+      let b = out.length && out[out.length - 1];
+      if (!b || b.m !== m || b.g !== g || b.ids.length >= max) out.push((b = { m, g, ids: [], d: [] }));
+      b.ids.push(key % 65536); b.d.push(deg);
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- roads and fields (painted on the arena's ground)
@@ -1018,7 +1198,12 @@ const Props = (() => {
       rnd = rng(m.seed);
       yield* m.gen();
       const ce = (box.e0 + box.e1) / 2, cz = (box.z0 + box.z1) / 2, c = simAt(ce, cz, 0, {});
-      S.maps.push({ id, props: M.props, box, ce, cz, a0: siteAngle(EARTH, ce), cx: c.x, cy: c.y, cz3: c.z, cr: Math.hypot(box.e1 - box.e0, box.z1 - box.z0) / 2 + 400 });
+      // (its layout's signature, for the room: its kinds and places to the metre)
+      let sig = M.props.length | 0;
+      for (const p of M.props) sig = (Math.imul(Math.imul(Math.imul(sig, 31) + p.k, 31) + Math.round(p.e), 31) + Math.round(p.z)) | 0;
+      const mp = { id, props: M.props, box, ce, cz, a0: siteAngle(EARTH, ce), cx: c.x, cy: c.y, cz3: c.z, cr: Math.hypot(box.e1 - box.e0, box.z1 - box.z0) / 2 + 400, sig: sig & 0xffffff };
+      S.maps.push(mp);
+      roomOn(mp);
       S.ver++;
       M.ok = null;
       yield;
@@ -1066,6 +1251,21 @@ const Props = (() => {
     }
     return all;
   }
+  // A slice of the build (ms) for the groups within 10 km of the sim point (x, y, z), at any height (App.frame: the craft
+  // flown, so what it and its shots meet is in before they get there; Highland Ridge's only in ground play, where it is
+  // open to them: an old plane flying past never lays it out); true: none left to build there
+  function warm(x, y, z, ms) {
+    ensure();
+    let left = false;
+    for (const g of S.groups) {
+      if (g.done || (!S.play && g.ids.includes('highland'))) continue;
+      for (const q of g.sph) {
+        const dx = x - q.x, dy = y - q.y, dz = z - q.z, rr = q.r + 10000;
+        if (dx * dx + dy * dy + dz * dz < rr * rr) { if (!step(g, performance.now() + ms)) left = true; break; }
+      }
+    }
+    return !left;
+  }
   // everything, now (tests)
   function buildAll() { ensure(); for (const g of S.groups) step(g, Infinity); }
   // the roads and fields of Highland Ridge are in (its job's first step), so its ground can be painted
@@ -1097,8 +1297,10 @@ const Props = (() => {
 
   return {
     KINDS, K, F: { SHELL: SH, SIGHT: SI, SOLID: SO, CRUSH: CR }, PIECE: { BOX: P_BOX, ROOF: P_ROOF, CYL: P_CYL, SPIRE: P_SPIRE, CONIFER: P_CONIFER, BROAD: P_BROAD, BUSH: P_BUSH, ROCK: P_ROCK, HEDGE: P_HEDGE }, C,
-    needNear(x, y, z) { needAt(x, y, z, 50); }, ensure, tick, buildAll, paintReady, done, shell, ray, matOf, clear, segment, solidNear, pen2D, lane, freeAt, coverNear, crushBy, crushStep, reset, paint, roadIn, roadGap, pieces, yardPlace, count,
+    needNear(x, y, z) { needAt(x, y, z, 50); }, ensure, tick, warm, buildAll, paintReady, done, shell, shot, ray, matOf, clear, segment, solidNear, solidAt, pen2D, lane, freeAt, coverNear, crushBy, crushOld, crushStep, reset, paint, roadIn, roadGap, pieces, yardPlace, count,
+    sync, outbox, netFall, roomList, MAP_IDS, NET_MAX,
     all() { buildAll(); return S.list; }, areas() { ensure(); return S.maps; },
-    get hit() { return S.hit; }, get fallen() { return S.fallen; }, get ver() { return S.ver; }, get crushed() { return S.crushed; }, get built() { return S.built; }, _S: S,
+    get hit() { return S.hit; }, get fallen() { return S.fallen; }, get ver() { return S.ver; }, get crushed() { return S.crushed; }, get built() { return S.built; },
+    get play() { return S.play; }, set play(on) { S.play = !!on; }, get synced() { return SYNC; }, get room() { return ROOM; }, get queued() { return OUT.length; }, _S: S,
   };
 })();

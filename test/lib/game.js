@@ -11,7 +11,7 @@ const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 
 // opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t),
 // flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground (gmode.js and groundai.js, which
-// combat, flight and mp also bring)
+// combat, flight and mp also bring), props (every map's props built: Props.buildAll)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -72,6 +72,9 @@ function load(opts = {}) {
       var Builder = {};`);
     run(src(root, 'mp.js') + '\nthis.MP = MP;', 'mp.js');
   }
+  // props: every map's props built at once (as the game has them by the time anything flies there): the old baselines'
+  // suites load with them in, so a baseline unchanged proves the props change nothing where none stands near
+  if (opts.props) run('Props.buildAll();');
   // top-level const/let/class bindings aren't properties of the context: copy the common ones over
   for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain',
     'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props'])
