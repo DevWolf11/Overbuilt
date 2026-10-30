@@ -1935,13 +1935,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const spire = new Batch().add(sp, new THREE.Matrix4(), W).build();
     // a conifer 10 m tall (crown 2.6 m round its foot), a broadleaf tree 10 m tall (crown 3.5 m): scaled to each prop
     // (low-poly: open trunks and cone skirts, crowns of plain icosahedra; 33 and 92 triangles)
+    // (the foliage's green is in the shapes, so a trunk stays brown: a prop's colour only tints them a little)
+    const needle = col('#5d8a55'), leaf = col('#7aa05a'), shrub = col('#6d8f4a');
     const con = new Batch().geo(new THREE.CylinderGeometry(0.16, 0.28, 2.6, 6, 1, true), 0, 1.3, 0, trunk);
-    for (const [r, h, y] of [[2.6, 4.6, 3.9], [2.0, 4.0, 5.9], [1.35, 3.4, 8.3]]) con.geo(jit(new THREE.ConeGeometry(r, h, 7, 1, true), 0.1, 0.05, 3), 0, y, 0, W);
+    for (const [r, h, y] of [[2.6, 4.6, 3.9], [2.0, 4.0, 5.9], [1.35, 3.4, 8.3]]) con.geo(jit(new THREE.ConeGeometry(r, h, 7, 1, true), 0.1, 0.05, 3), 0, y, 0, needle);
     const brd = new Batch().geo(new THREE.CylinderGeometry(0.2, 0.34, 4.6, 6, 1, true), 0, 2.3, 0, trunk);
-    brd.geo(jit(new THREE.IcosahedronGeometry(2.9, 0), 0.14, 0.1, 5), 0, 6.3, 0, W, 0, 0.3, 0, 1, 0.82, 1).geo(jit(new THREE.IcosahedronGeometry(2.2, 0), 0.12, 0.1, 6), 1.5, 7.6, 0.6, W)
-      .geo(jit(new THREE.IcosahedronGeometry(2.0, 0), 0.12, 0.1, 7), -1.3, 7.3, -1.0, W).geo(jit(new THREE.IcosahedronGeometry(1.8, 0), 0.12, 0.1, 8), 0.2, 8.4, -0.3, W);
-    const bush = new Batch().geo(jit(new THREE.IcosahedronGeometry(0.75, 0), 0.2, 0.15, 8), 0, 0.55, 0, W, 0, 0, 0, 1, 0.8, 1).geo(jit(new THREE.IcosahedronGeometry(0.55, 0), 0.15, 0.1, 9), 0.45, 0.72, 0.28, W)
-      .geo(jit(new THREE.IcosahedronGeometry(0.5, 0), 0.15, 0.1, 10), -0.4, 0.5, -0.3, W).build();
+    brd.geo(jit(new THREE.IcosahedronGeometry(2.9, 0), 0.14, 0.1, 5), 0, 6.3, 0, leaf, 0, 0.3, 0, 1, 0.82, 1).geo(jit(new THREE.IcosahedronGeometry(2.2, 0), 0.12, 0.1, 6), 1.5, 7.6, 0.6, leaf)
+      .geo(jit(new THREE.IcosahedronGeometry(2.0, 0), 0.12, 0.1, 7), -1.3, 7.3, -1.0, leaf).geo(jit(new THREE.IcosahedronGeometry(1.8, 0), 0.12, 0.1, 8), 0.2, 8.4, -0.3, leaf);
+    const bush = new Batch().geo(jit(new THREE.IcosahedronGeometry(0.75, 0), 0.2, 0.15, 8), 0, 0.55, 0, shrub, 0, 0, 0, 1, 0.8, 1).geo(jit(new THREE.IcosahedronGeometry(0.55, 0), 0.15, 0.1, 9), 0.45, 0.72, 0.28, shrub)
+      .geo(jit(new THREE.IcosahedronGeometry(0.5, 0), 0.15, 0.1, 10), -0.4, 0.5, -0.3, shrub).build();
     // a rock: 1 m across, its foot at y 0; a wall or hedge: a unit box, lumpy, centred
     const rk = jit(new THREE.IcosahedronGeometry(0.5, 0), 0.35, 0.25, 11); rk.translate(0, 0.42, 0);
     const rock = new Batch().add(rk, new THREE.Matrix4(), W).build();

@@ -667,13 +667,14 @@ const Props = (() => {
       else yield* run(K.fence, e0, z0, e1, z1, 7.5, 0.3, 1.2, {});
     }
   }
-  const TREE_C = [C.conifer, 0x557f4e, 0x648f58], BROAD_C = [C.broad, C.broad2, 0x6f9752, 0x86a35a];
+  // (tints: the renderer's tree and bush shapes carry their own greens and brown trunks; these vary them a little)
+  const TREE_C = [0xffffff, 0xe6f0e2, 0xf2fff0], BROAD_C = [0xffffff, 0xf6ffd8, 0xe8f2e0, 0xfff6d6];
   function tree(e, z, conifer, big = 1, o) {
     if (conifer) { const h = (8 + 7 * rnd()) * big; return add(K.conifer, e, z, 0, 1, 1, h, Object.assign({ r2: h * (0.2 + 0.06 * rnd()), c1: rnd.pick(TREE_C) }, o)); }
     const h = (7 + 6 * rnd()) * big;
     return add(K.broadleaf, e, z, 0, 1, 1, h, Object.assign({ r2: h * (0.32 + 0.08 * rnd()), c1: rnd.pick(BROAD_C) }, o));
   }
-  const bush = (e, z, o) => { const r = 0.9 + 0.9 * rnd(); return add(K.bush, e, z, 0, r * 2, r * 2, r * (1.1 + 0.4 * rnd()), Object.assign({ r2: r, c1: rnd() < 0.5 ? C.bush : 0x5f7f40 }, o)); };
+  const bush = (e, z, o) => { const r = 0.9 + 0.9 * rnd(); return add(K.bush, e, z, 0, r * 2, r * 2, r * (1.1 + 0.4 * rnd()), Object.assign({ r2: r, c1: rnd() < 0.5 ? 0xffffff : 0xe2ecd6 }, o)); };
   const rock = (e, z, big, o) => {
     const s = big ? 1.6 + 2.6 * rnd() * rnd() : 0.5 + 0.7 * rnd();
     return add(big ? K.boulder : K.rock, e, z, rnd() * 6.28, s * (0.9 + 0.3 * rnd()), s * (0.8 + 0.3 * rnd()), s * (0.55 + 0.35 * rnd()), Object.assign({ c1: rnd() < 0.5 ? C.rock : C.rock2 }, o));
