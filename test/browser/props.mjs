@@ -15,7 +15,8 @@ if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const srv = await serve(), b = await launch(), errs = [];
 const ok = checks('props: the battlefields\' solid scenery in the page');
 const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'ready' && Render3D.ready;
-const start = (key, place) => { const t = TEMPLATES[key]; store.set('rss.flight', null); App.showScene('flight'); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, place ? { place } : undefined); Render3D.skipDraw = true; };
+const start = ([key, place]) => { const t = TEMPLATES[key]; store.set('rss.flight', null); App.showScene('flight'); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, place ? { place } : undefined); Render3D.skipDraw = true; };
+// (start: page.evaluate hands over one argument, [key, place])
 const setUp = (k) => { const I = Render3D.propsInfo()[k]; return Flight.running && !!I && I.shown && I.ready && !I.job; };
 // how many instances of each piece Props' own layout asks for, the maps given
 const want = (ids) => { const n = new Array(9).fill(0); for (const m of Props.areas()) if (ids.includes(m.id)) for (const p of m.props) Props.pieces(p, (pc) => n[pc]++); return n; };
@@ -45,13 +46,19 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   await shot('village');
   // the crosshair on a house: a house straight ahead along the street's side, the ray stops at its wall
   const ray = await ev(() => {
-    const v = Flight.active, L = Terrain.locate(EARTH, v.x, v.y, v.z, {}), e0 = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z0 = L.z;
-    const H = Props.areas().find((m) => m.id === 'highland').props.filter((p) => p.k === Props.K.house && p.e > e0 + 20 && Math.hypot(p.e - e0, p.z - z0) < 120).sort((a, b) => Math.hypot(a.e - e0, a.z - z0) - Math.hypot(b.e - e0, b.z - z0));
+    // from the camera's own eye (where the aim ray starts) at the middle of a house's wall it sees first among the props
+    const v = Flight.active, L = Terrain.locate(EARTH, v.x, v.y, v.z, {}), e0 = -wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, z0 = L.z, R = EARTH.radius;
+    const O = Render3D.aimRay({ o: v3(), d: v3() }).o, M = Props.F.SHELL | Props.F.SIGHT;
+    const H = Props.areas().find((m) => m.id === 'highland').props.filter((p) => p.k === Props.K.house && Math.hypot(p.e - e0, p.z - z0) < 150).sort((a, b) => Math.hypot(a.e - e0, a.z - z0) - Math.hypot(b.e - e0, b.z - z0));
     for (const p of H) {
-      Flight.aimYaw = Math.atan2(-(p.z - z0), p.e - e0); Flight.aimPitch = 0.02; Flight.update(1 / 60); GHUD.aimUpdate(Flight, true);
-      const A = Flight.aim, P = Terrain.locate(EARTH, A.P.x, A.P.y, A.P.z, {}), pe = -wrapAngle(P.a - EARTH.padAngle) * EARTH.radius, de = pe - p.e, dz = P.z - p.z;
+      const a = siteAngle(EARTH, p.e), ph = p.z / R, r = R + p.g + p.h / 2, T = { x: r * Math.cos(ph) * Math.cos(a), y: r * Math.cos(ph) * Math.sin(a), z: r * Math.sin(ph) };
+      if (Props.segment(O, T, M) < 0 || Props._S.list[Props.hit.p] !== p) continue;
+      const d = Math.hypot(T.x - O.x, T.y - O.y, T.z - O.z);
+      Flight.aimDir = { x: (T.x - O.x) / d, y: (T.y - O.y) / d, z: (T.z - O.z) / d };
+      GHUD.aimUpdate(Flight, true);
+      const A = Flight.aim, P = Terrain.locate(EARTH, A.P.x, A.P.y, A.P.z, {}), pe = -wrapAngle(P.a - EARTH.padAngle) * R, de = pe - p.e, dz = P.z - p.z;
       const u = Math.abs(de * p.c + dz * p.s), w = Math.abs(-de * p.s + dz * p.c);
-      if (A.src === 'ground' && u < p.w / 2 + 0.6 && w < p.d / 2 + 0.6) return { ok: true, d: Math.round(A.d) };
+      return { ok: A.src === 'ground' && u < p.w / 2 + 0.6 && w < p.d / 2 + 0.6, d: Math.round(A.d), src: A.src, u: +u.toFixed(1), w: +w.toFixed(1) };
     }
     return { ok: false, n: H.length };
   });

@@ -2,8 +2,8 @@
 // Props: the solid scenery of ground play. Houses, barns, ruins, a church, stone walls, hedges, fences, trees, woods,
 // bushes, boulders, hay bales, telegraph poles, and at the sandbox's tank yard garages, a fuel depot, sandbags, crates,
 // containers and concrete blocks. Unlike the old scenery (render3d's sceneryJob: visual only, thinned by the quality
-// setting) every prop is generated once per map from a fixed seed and the physics' own ground (Terrain.surfaceAt,
-// waterAt, bermAt), never from the quality, so every player sees and hits the same ones: what you see is what you hit.
+// setting) every prop is generated once per map from a fixed seed and the physics' own ground (Terrain.surfaceAt, which
+// has the berms, and waterAt), never from the quality, so every player sees and hits the same ones: what you see is what you hit.
 //
 // Three maps: Highland Ridge (EARTH.arenas.highland, the real Earth map only): a village round zone B with its church,
 // a ruined farm and stone walls on hilltop A, a farmstead, an orchard and hedges on slope C, woods on the flanks, fields
