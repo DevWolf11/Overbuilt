@@ -593,9 +593,9 @@ const Builder = {
     // and the speed the wings stall at, clean and with full flaps, at sea level
     let la = 0, lx = 0, ly = 0, clS = 0, clF = 0, wingArea = 0;
     for (const p of ps) if (p.def.wing) {
-      const W = wingAero(p.def), wd = p.def.wing, k = wd.area * W.slope, c = partPt(p, 0, p.def.h / 4 - W.back);
+      const W = wingAero(p.def, this.kind === 'plane'), wd = p.def.wing, k = wd.area * W.slope, c = partPt(p, 0, p.def.h / 4 - W.back);
       la += k; lx += k * c.x; ly += k * c.y;
-      if (!wd.control) { clS += k * W.stall; clF += wd.flaps ? k * (W.stall - 0.03) + 0.8 * wd.area : k * W.stall; wingArea += wd.area; }
+      if (!wd.control) { const cm = this.kind === 'plane' && W.vortex ? wd.area * W.clMax : k * W.stall; clS += cm; clF += wd.flaps ? cm - k * 0.03 + 0.8 * wd.area : cm; wingArea += wd.area; } // (a plane's look-alike wing: its vortex lift too)
     }
     this.col = la ? { x: lx / la, y: ly / la } : null;
     const vStall = (cl) => (cl > 0 ? Math.sqrt((2 * mass * G0) / (1.225 * cl)) : 0);
