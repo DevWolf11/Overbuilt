@@ -81,11 +81,12 @@ const MPUI = {
       if (!MP.live || e.repeat) return;
       const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT');
       if (typing) return;
-      if (e.code === 'Backquote') { this.showScore(true); e.preventDefault(); }
-      if (App.scene === 'flight' && (e.code === 'KeyT' || e.code === 'Enter') && !UI.modalOpen) { e.preventDefault(); this.chatInput(true); }
-      if (App.scene === 'flight' && Flight.destroyed && (e.code === 'BracketLeft' || e.code === 'BracketRight')) this.spectate(e.code === 'BracketLeft' ? -1 : 1);
+      if (Controls.editing) return;
+      if (Keys.is(e.code, 'score')) { this.showScore(true); e.preventDefault(); }
+      if (App.scene === 'flight' && Keys.is(e.code, 'chat') && !UI.modalOpen) { e.preventDefault(); this.chatInput(true); }
+      if (App.scene === 'flight' && Flight.destroyed && (Keys.is(e.code, 'prevCraft') || Keys.is(e.code, 'nextCraft'))) this.spectate(Keys.is(e.code, 'prevCraft') ? -1 : 1);
     }, true);
-    addEventListener('keyup', (e) => { if (e.code === 'Backquote' && !this.scoreSticky) this.showScore(false); });
+    addEventListener('keyup', (e) => { if (Keys.is(e.code, 'score') && !this.scoreSticky) this.showScore(false); });
   },
   // Can online play get through this network? Matchmaking server, direct links, relay: a verdict in plain words.
   async testNetwork() {
@@ -594,6 +595,8 @@ const MPUI = {
 
   // ------------------------------------------------------------------ in flight
   // after a crash in battle: watch another player's craft
+  // how to switch to another player while spectating: a tap on touch controls, else the keys bound to it ([ ])
+  switchWord() { return typeof Controls !== 'undefined' && Controls.touch ? 'tap' : typeof Keys !== 'undefined' ? `${Keys.k('prevCraft')} ${Keys.k('nextCraft')}` : '[ ]'; },
   spectate(dir) {
     const list = MP.ghosts().sort((a, b) => (MP.teamOf(a.remote) === MP.teamOf(Net.me) ? 0 : 1) - (MP.teamOf(b.remote) === MP.teamOf(Net.me) ? 0 : 1) || a.remote - b.remote);
     if (!list.length) { Flight.spectate = null; return; }
@@ -629,7 +632,7 @@ const MPUI = {
     if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
-      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${isTouch ? 'tap' : '[ ]'} to switch`, W / 2, H - 40);
+      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${this.switchWord()} to switch`, W / 2, H - 40);
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },

@@ -5,9 +5,13 @@
 const Settings = {
   // fps: the frame cap (0: none), on by default on phones and tablets, where it saves battery and heat. The ground
   // update's aim: aimAssist (easing onto the lead point; on by default on touch), aimMode ('arcade': guns lifted for the
-  // measured range; 'realistic': for the sight's setting) when flying solo, aimSens (the aim's speed, ×: a mouse's or a finger's drag)
+  // measured range; 'realistic': for the sight's setting) when flying solo, aimSens (the aim's speed, ×: a mouse's or a finger's drag).
+  // planeAim (PR #40): a new flight of a plane starts in Aim, the mouse aim (in 3D). The controls (controls.js): touchUI
+  // ('auto': a touch screen's own; 'on', 'off'), uiSize (the HUD's size ×, 0.75-1.5), stickSize (the stick's ×, 0.75-1.5),
+  // stickSens (Aim's stick speed ×, 0.5-2), aimInvert (the Aim stick upside down), haptics (the stick's ticks)
   data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0,
-    aimAssist: typeof isTouch !== 'undefined' && isTouch, aimMode: 'arcade', aimSens: 1 }, store.get('rss.settings', {})),
+    aimAssist: typeof isTouch !== 'undefined' && isTouch, aimMode: 'arcade', aimSens: 1, planeAim: true,
+    touchUI: 'auto', uiSize: 1, stickSize: 1, stickSens: 1, aimInvert: false, haptics: true }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },

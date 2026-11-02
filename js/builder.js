@@ -593,9 +593,9 @@ const Builder = {
     // and the speed the wings stall at, clean and with full flaps, at sea level
     let la = 0, lx = 0, ly = 0, clS = 0, clF = 0, wingArea = 0;
     for (const p of ps) if (p.def.wing) {
-      const W = wingAero(p.def), wd = p.def.wing, k = wd.area * W.slope, c = partPt(p, 0, p.def.h / 4 - W.back);
+      const W = wingAero(p.def, this.kind === 'plane'), wd = p.def.wing, k = wd.area * W.slope, c = partPt(p, 0, p.def.h / 4 - W.back);
       la += k; lx += k * c.x; ly += k * c.y;
-      if (!wd.control) { clS += k * W.stall; clF += wd.flaps ? k * (W.stall - 0.03) + 0.8 * wd.area : k * W.stall; wingArea += wd.area; }
+      if (!wd.control) { const cm = this.kind === 'plane' && W.vortex ? wd.area * W.clMax : k * W.stall; clS += cm; clF += wd.flaps ? cm - k * 0.03 + 0.8 * wd.area : cm; wingArea += wd.area; } // (a plane's look-alike wing: its vortex lift too)
     }
     this.col = la ? { x: lx / la, y: ly / la } : null;
     const vStall = (cl) => (cl > 0 ? Math.sqrt((2 * mass * G0) / (1.225 * cl)) : 0);
@@ -2620,9 +2620,10 @@ const Builder = {
     addEventListener('keydown', (e) => {
       const t = e.target, slider = t.tagName === 'INPUT' && t.type === 'range'; // (a focused slider keeps its arrow keys, not the rest)
       if (App.scene !== 'build' || UI.modalOpen || (t.tagName === 'INPUT' && !slider) || t.tagName === 'TEXTAREA' || (slider && e.code.startsWith('Arrow'))) return;
-      const mod = e.ctrlKey || e.metaKey;
+      // the Ctrl shortcuts are fixed; the rest are the binding table's (Keys, controls.js: their defaults the old keys)
+      const mod = e.ctrlKey || e.metaKey, K = (id) => Keys.is(e.code, id);
       if (mod && e.code === 'KeyS') { e.preventDefault(); if (e.shiftKey) this.saveAs(); else this.quickSave(); return; }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) { e.preventDefault(); this.deleteSel(); }
+      if (K('bDelete') && this.selected) { e.preventDefault(); this.deleteSel(); }
       else if (mod && e.code === 'KeyA') { e.preventDefault(); this.selectAll(); }
       else if (mod && e.code === 'KeyC') { e.preventDefault(); this.copySel(); }
       else if (mod && e.code === 'KeyX') { e.preventDefault(); this.copySel(true); }
@@ -2630,14 +2631,14 @@ const Builder = {
       else if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
       else if (mod && e.code === 'KeyY') { e.preventDefault(); this.redo(); }
       else if (mod && e.code === 'KeyD') { e.preventDefault(); this.duplicateSelected(); }
-      else if (e.code === 'Enter' && this.ctrl) App.launch();
-      else if (e.code === 'KeyF') this.fitView();
-      else if (e.code === 'KeyR' && !mod) this.rotateSel();
-      else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
-      else if (e.code === 'KeyG' && !mod) this.setGrid(!this.grid);
-      else if (e.code === 'KeyM' && !mod) this.matchPaint();
-      else if (e.code === 'KeyX' && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
-      else if ((e.code === 'BracketLeft' || e.code === 'BracketRight') && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(e.code === 'BracketLeft' ? -k : k); }
+      else if (K('bLaunch') && this.ctrl) App.launch();
+      else if (K('bFit')) this.fitView();
+      else if (K('bRotate') && !mod) this.rotateSel();
+      else if (K('b3d')) App.setPreview3D(!Settings.get('build3d'));
+      else if (K('bGrid') && !mod) this.setGrid(!this.grid);
+      else if (K('bMatch') && !mod) this.matchPaint();
+      else if (K('bXray') && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
+      else if ((K('bIn') || K('bOut')) && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(K('bIn') ? -k : k); }
       else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); if (this.selectMode) this.setSelectMode(false); } }
       else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
         e.preventDefault();

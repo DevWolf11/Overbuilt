@@ -567,7 +567,9 @@ const GHUD = (() => {
     const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
     const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + 14 } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
-    const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire].filter(Boolean);
+    // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)
+    const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire,
+      rect('#joy'), rect('#key-hints')].filter(Boolean);
     const hit = (a) => block.some((b) => a.x < b.right && a.x + a.w > b.left && a.y < b.bottom && a.y + a.h > b.top) || a.x < 4 || a.y < 4 || a.x + a.w > W - 4 || a.y + a.h > H - 4;
     const small = W < 380 || H < 700, land = H < 500, dw = small ? 104 : 120, dh = small ? 62 : 72, Tb = T ? T.bottom : 80, Tl = T ? T.left : 12, Tr = T ? T.right : 200;
     const tries = [[Tl, Tb + 8], ...(ms ? [[Tl, ms.bottom + 8]] : []), [Tr + 8, T ? T.top : 12], [Tl, Tb + 8 + 60], [lc ? lc.right + 10 : 140, lc ? lc.top : H - 200]];
@@ -588,10 +590,11 @@ const GHUD = (() => {
     if (map && gm) {
       const dpr = App.dpr || 1, w = Math.round(gm.width * dpr), h = Math.round(gm.height * dpr);
       if (map.width !== w || map.height !== h) { map.width = w; map.height = h; S.mapKey = ''; }
-      const b = `${Math.round(gm.bottom + 8)}px`;
+      const z = (typeof Controls !== 'undefined' && Controls.z) || 1; // (the HUD's own units: it is drawn at --ui-scale)
+      const b = `${Math.round((gm.bottom + 8) / z)}px`;
       if (S.gmapB !== b) { S.gmapB = b; document.body.style.setProperty('--gmap-b', b); }
       // (P4 play-test) under the room's bar when it grows (its capture line, its lineup): the phone's minimap goes down with it
-      const t = bar && bar.left < gm.right && bar.right > gm.left ? `${Math.round(bar.bottom + 8)}px` : '0px';
+      const t = bar && bar.left < gm.right && bar.right > gm.left ? `${Math.round((bar.bottom + 8) / z)}px` : '0px';
       if (S.gmapT !== t) { S.gmapT = t; document.body.style.setProperty('--gmap-t', t); }
     }
     return S.P;
@@ -612,7 +615,7 @@ const GHUD = (() => {
     hide(E.lock, !trk);
     if (trk) { const on = !!(st && (st.lock || st.lockOn)); attr(E.lock, 'aria-pressed', String(on)); setTxt(E.lock, st && st.lock ? 'Locked' : 'Lock'); }
     setTxt(E.cm, gnd && ws && ws.smoke > 0 && !(ws.flares > 0 || ws.chaff > 0) ? 'Smoke' : 'CM');
-    attr(E.cm, 'title', gnd && ws && ws.smoke > 0 ? 'Smoke (K)' : 'Flares and chaff (K)');
+    attr(E.cm, 'title', `${gnd && ws && ws.smoke > 0 ? 'Smoke' : 'Flares and chaff'} (${Keys.k('cm')})`);
     // the shell chips: the main gun's rounds (two or more), the loaded one pressed, the next one marked
     const sh = st && st.shells.length > 1 && st.kind === 'tgun' ? st.shells : null, key = sh ? sh.map((s) => s.label).join('|') + (isTouch ? '' : '#') : '';
     if (key !== S.chipKey) { S.chipKey = key; E.ammo.replaceChildren(...(sh || []).map((s, i) => el('button', { class: 'ammo-chip', 'data-i': String(i), 'aria-pressed': 'false', text: isTouch ? s.label : `${s.n} ${s.label}`, title: `${s.label} (${s.n}; twice, or hold: load it now)` }))); }
@@ -955,7 +958,8 @@ const GHUD = (() => {
     $('#gmap').addEventListener('click', () => tactical(true));
     $('#gtac-close').addEventListener('click', () => tactical(false));
     $('#gtac-globe').addEventListener('click', () => { tactical(false); if (typeof Flight !== 'undefined' && Flight.running && !Flight.mapMode) Flight.toggleMap(); }); // (the old map: the globe)
-    if (isTouch) $('#gtac-close').textContent = 'Close'; // (M is a key: a phone has none)
+    const close = () => { $('#gtac-close').textContent = Controls.touch ? 'Close' : `Close (${Keys.k('tacMap')})`; }; // (M is a key: a phone has none)
+    close(); Keys.onChange(close);
     const tc = $('#gtac-canvas');
     let down = null;
     tc.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });

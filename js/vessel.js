@@ -12,6 +12,18 @@ const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 's
   'jetnose', 'airnose', 'float', 'droptank', 'tcast', 'tring']);
 const MIN_AIR = 0.03; // kg/m³: air-breathing engines flame out below this
 const MAX_SPIN = 6;   // rad/s
+// Plane handling (PR #40). The autopilot's, the manual law's and the instructor's rate loop has an integral term (PLANE_KI,
+// per second, of the proportional command), in the air; hold and the instructor keep within PLANE_G of the wings' g
+// rating (at most PLANE_GMAX) and below PLANE_AOA of the stall; the stick's full roll is ROLL_K of the rate the ailerons
+// alone would roll the plane at (clamped to ROLL_MIN..ROLL_MAX rad/s). A tail behind the main wing flies in its downwash
+// (DOWNWASH of the wing's angle of attack) and moves TAIL_THROW times its part's throw.
+const PLANE_KI = 4, PLANE_G = 0.9, PLANE_GMAX = 9.5, PLANE_AOA = 0.92, ROLL_K = 0.45, ROLL_MIN = 0.5, ROLL_MAX = 4.5;
+const AIM_AOA = 0.8; // (the instructor's AoA limit, of the stall, and never past the wing's own stall: it rolls hard too, so it stays further from it)
+// (the instructor: the nose's turn rate per rad of the error (1/s); the flight path's, for the bank (1/s), and the error
+// (rad) under which that comes on gently; the push it allows (g); the sideslip it may hold to put the nose on a close aim (rad), and its rudder per rad of
+// sideslip; how long the nose's offset over the flight path is smoothed over (s))
+const AIM_K = 3.5, AIM_KB = 1.5, AIM_B0 = 0.08, AIM_PUSH = -1.5, AIM_SLIPMAX = 0.05, AIM_SLIP = 2.5, AIM_TAU = 0.8;
+const DOWNWASH = 0.35, TAIL_THROW = 1.3, PLANE_GK = 1.5, PLANE_AK = 2.5, PLANE_AL = 0.3; // (GK, AK: how fast the g and the AoA may come on below their limits, per second; AL: the AoA limit's lead, s)
 // Where a part's mass sits across (z), one entry per copy: each side of a twin pair, or an axle's two wheels
 // (track apart, either side of the part's depth).
 function massZs(p) {
@@ -26,23 +38,36 @@ function liftCoef(a, slope = 5.5, stall = 0.28) {
   const cl = x < stall ? slope * x : lerp(slope * stall, 1.1 * Math.sin(2 * x), smoothstep(stall, stall + 0.22, x));
   return Math.sign(a) * cl;
 }
+// Vortex lift (wing.vortex, the look-alike jets' wings; planes only, PR #40): the swirl off a sharp, swept leading edge
+// lifts on top of the wing's own lift as the angle grows (Polhamus: K·sin²α·cos α), and goes on a little past the
+// wing's stall before it bursts (fading from the stall + 0.15 rad, gone by the stall + 0.45).
+function vortexCl(K, a, stall) { const x = Math.abs(a), s = Math.sin(x); return Math.sign(a) * K * s * s * Math.cos(x) * (1 - smoothstep(stall + 0.15, stall + 0.45, x)); }
 // The aerodynamics of one wing, worked out once per part type: lift slope from the aspect ratio
 // (Helmbold's formula, less for sweep), induced drag, stall angle, where wave drag starts.
-const WING_AERO = new Map();
-function wingAero(d) {
+// A wing part's `plane` fields (PR #40) take the place of its own when it flies on a plane (plane: true): a delta's centre
+// of lift, a canard's stall; on anything else, and on a part without them, it is the one set as before.
+const WING_AERO = new Map(), WING_AERO_P = new Map();
+function wingAero(d, plane) {
+  if (plane && d.wing.plane) { let p = WING_AERO_P.get(d); if (!p) WING_AERO_P.set(d, (p = wingAeroOf(Object.assign({}, d.wing, d.wing.plane)))); return p; }
   let a = WING_AERO.get(d);
-  if (a) return a;
-  const w = d.wing, AR = w.ar || (w.span * w.span) / w.area, sw = w.swing ? w.swing[0] : w.sweep || 0; // (ar: a biplane's is each wing's own)
-  a = {
+  if (!a) WING_AERO.set(d, (a = wingAeroOf(d.wing)));
+  return a;
+}
+function wingAeroOf(w) {
+  const AR = w.ar || (w.span * w.span) / w.area, sw = w.swing ? w.swing[0] : w.sweep || 0; // (ar: a biplane's is each wing's own)
+  const a = {
     AR, slope: w.slope || (TAU * AR * Math.cos(sw)) / (2 + Math.sqrt(4 + AR * AR)), stall: w.stall || 0.3,
     kInd: 1 / (Math.PI * (w.oswald || 0.8) * AR), cd0: w.cd0 || 0.012, mcrit: w.mcrit || 0.78, wave: w.wave != null ? w.wave : 1,
-    back: Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord
+    back: w.back != null ? w.back : Math.tan(sw) * (w.span / 4), // each half's centre of lift sits this far back along the chord (a part may say: a delta's)
     dihedral: w.dihedral != null ? w.dihedral : w.control ? 0 : 0.06, load: (w.load || 1) * (w.control ? 70000 : 14000),
     // the speeds it breaks at: past vne (equivalent airspeed, m/s, so it goes faster up high) or past Mach mmax
     // (0: none) the wing flutters and tears off. Moving surfaces have neither.
     vne: w.control ? 0 : w.vne || 110, mmax: w.control ? 0 : w.mmax || 0,
+    // the most lift it gives (a plane's) and at what angle: the stall's, or with vortex lift, the peak of both together
+    vortex: w.vortex || 0, clMax: 0, aMax: 0,
   };
-  WING_AERO.set(d, a);
+  a.clMax = a.slope * a.stall; a.aMax = a.stall;
+  if (a.vortex) for (let x = a.stall * 0.5; x < a.stall + 0.45; x += 0.002) { const c = liftCoef(x, a.slope, a.stall) + vortexCl(a.vortex, x, a.stall); if (c > a.clMax) { a.clMax = c; a.aMax = x; } }
   return a;
 }
 // A swing wing's aerodynamics for its sweep now: spread below Mach 0.55 (or with the flaps out), fully back
@@ -280,9 +305,12 @@ class Vessel {
     this.noseSharp = !!(top && top.def.sharp);
     this.aircraft = this.wings.length > 0 && this.kind !== 'tank';
     this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
-    this.stallAoA = this.mainWing ? wingAero(this.mainWing.def).stall : 0.3;
+    // (a plane's wing with vortex lift lifts most a little past its own stall: that angle, and that lift)
+    const plane = this.kind === 'plane', mwA = this.mainWing && wingAero(this.mainWing.def, plane);
+    this.stallAoA = mwA ? (plane && mwA.vortex ? mwA.aMax : mwA.stall) : 0.3;
+    this.wingStall = mwA ? mwA.stall : 0.3; // (its own stall, without the vortex lift: the instructor keeps under it)
     this.clS = 0; // area x lift coefficient at the stall, all the (non-control) wings together
-    for (const p of this.wings) if (!p.def.wing.control) { const W = wingAero(p.def); this.clS += p.def.wing.area * W.slope * W.stall; }
+    for (const p of this.wings) if (!p.def.wing.control) { const W = wingAero(p.def, plane); this.clS += plane && W.vortex ? p.def.wing.area * W.clMax : p.def.wing.area * W.slope * W.stall; }
     const ws = wingStrength(this.parts);
     this.wingS = ws.S; this.vne = ws.vne; this.mmax = ws.mmax;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
@@ -550,6 +578,8 @@ class Vessel {
   turnTarget(sim, engF, dt = 1 / 120) {
     if (this.gear.length) return null; // (running gear rights the hull itself: Gear.ground)
     const P = this.pilot, c = this.ctl, wb = this.bodyAV();
+    this.planeLaw = false; this.pitchLimit = null; this.limitOver = false; // (set below: a plane flown by its own laws; what held its pull back, and whether it is past it)
+    const aimWas = this._aimOn; this._aimOn = false; // (was the instructor flying it last step: else it starts afresh)
     const onWheels = this.wheelsDown && this.canDrive;
     // pilot-frame rates: pitch (+ nose up), roll (+ right wing down), yaw (+ nose right); null = no input
     const want = { pitch: null, roll: null, yaw: null };
@@ -565,6 +595,7 @@ class Vessel {
       for (let i = 0; i < 3; i++) if (ins[i]) want[P.map[i]] = ins[i] * P.rate[i];
     }
     const cur = { pitch: dot3(wb, P.R), roll: dot3(wb, P.F), yaw: -dot3(wb, P.U) };
+    this.qNow = cur.pitch; // (a plane's AoA limit leads by how fast the AoA is growing)
     const anyInput = heli ? !!(c.v || c.h || c.r) : want.pitch != null || want.roll != null || want.yaw != null;
     const toBody = (w) => {
       const o = v3();
@@ -590,6 +621,19 @@ class Vessel {
       const keep = dot3(wb, D.U) - dot3(w, D.U); // leave the heading to the wheels
       return v3(clamp(w.x + D.U.x * keep, -1.2, 1.2), clamp(w.y + D.U.y * keep, -1.2, 1.2), clamp(w.z + D.U.z * keep, -1.2, 1.2));
     }
+    // a plane flown by hand (the Off button: 'manual') or by its instructor ('aim', the mouse aim): their own laws, and
+    // hold's on the ground (PR #40). The bare stick, 'off', is the AI's.
+    // (the keys in Aim: the manual law within hold's limits; on the runway the circle steers: aimSteer)
+    if (this.aircraft && this.kind === 'plane' && (this.sas === 'manual' || this.sas === 'aim')) {
+      this.planeLaw = true; this.rollReleased(c); this.aimSteer = 0;
+      const aim = this.sas === 'aim';
+      if (this.wheelsDown) { this._aimRwy = true; return toBody(this.planeTarget(aim && !anyInput ? this.aimRunway(want) : want, c, dt)); }
+      if (anyInput || !aim || !this.aimDir) { this._aimRwy = false; return toBody(this.manualTarget(c, aim)); }
+      this._aimOn = true;
+      const t = this.aimTarget(dt, !aimWas, this._aimRwy);
+      this._aimRwy = false;
+      return toBody(t);
+    }
     if (this.sas === 'off') return anyInput ? toBody(want) : null;
     const head = this.sasHeading(sim);
     if (head && !heli) {
@@ -604,7 +648,10 @@ class Vessel {
     }
     if (this.chuteOpen) return anyInput ? toBody(want) : null;
     if (heli) return toBody(want);
-    if (this.aircraft) return toBody(this.planeTarget(want, c, dt));
+    if (this.aircraft) {
+      if (this.kind === 'plane') { this.planeLaw = true; this.rollReleased(c); }
+      return toBody(this.planeTarget(want, c, dt));
+    }
     for (const k in want) if (want[k] == null) want[k] = 0;
     return toBody(want);
   }
@@ -616,10 +663,13 @@ class Vessel {
   // In every mode it won't pull much past 8 g (or push past -3 g) and lowers the nose before the wing
   // stalls. 'off' (handled before this) is the bare stick: no help at all.
   planeTarget(want, c, dt) {
-    const at = this.attitude(), V = Math.max(this.speed(), 20), mode = this.sas;
-    // the ailerons roll it more gently when slow, and while the plane is already sliding sideways: a roll
-    // faster than the rudder can follow (adverse yaw) skids it out of control
-    if (want.roll != null) want.roll *= clamp(V / 110, 0.5, 1) * clamp(1 - (Math.abs(this.slip || 0) - 0.12) / 0.2, 0.25, 1);
+    const at = this.attitude(), V = Math.max(this.speed(), 20), mode = this.sas, plane = this.kind === 'plane';
+    // the ailerons roll it more gently when slow (a plane's: as fast as its own ailerons allow, rollRate), and while
+    // the plane is already sliding sideways: a roll faster than the rudder can follow (adverse yaw) skids it out of control
+    if (want.roll != null) {
+      const sk = clamp(1 - (Math.abs(this.slip || 0) - 0.12) / 0.2, 0.25, 1);
+      if (plane) want.roll = c.h * this.rollRate() * sk; else want.roll *= clamp(V / 110, 0.5, 1) * sk;
+    }
     if (mode === 'level' || mode === 'heading') {
       const alt = this.altitude(), vs = this.vSpeed();
       if (want.pitch != null || this.altHold == null) { this.altHold = alt; this.pitchHold = at.pitch; }
@@ -647,31 +697,329 @@ class Vessel {
       } else if (want.roll == null) want.roll = clamp(wrapAngle(-at.bank) * 1.6, -0.8, 0.8);
     } else {
       if (this.holdPitch == null) this.holdPitch = at.pitch;
+      if (plane && want.pitch != null && want.roll == null) { this.holdBank = null; want.roll = 0; } // (a plane's: pulling, the roll stops but the bank isn't held, so a loop goes over the top)
       if (this.holdBank == null) this.holdBank = Math.abs(at.bank) < 0.06 ? 0 : at.bank;
-      if (want.pitch == null) want.pitch = clamp((this.holdPitch - at.pitch) * 1.6, -0.5, 0.5);
+      if (want.pitch == null) {
+        want.pitch = clamp((this.holdPitch - at.pitch) * 1.6, -0.5, 0.5);
+        // (a plane's: the nose held up the right way round when banked or upside down, and the pull a banked turn takes)
+        if (plane) { const cb = Math.cos(at.bank), sb = Math.sin(at.bank); want.pitch = want.pitch * cb + ((G0 / V) * Math.cos(at.pitch) * sb * sb) / (Math.abs(cb) > 0.2 ? cb : cb < 0 ? -0.2 : 0.2); }
+      }
       if (want.roll == null) want.roll = clamp(wrapAngle(this.holdBank - at.bank) * 1.6, -0.8, 0.8);
     }
-    // the rudder: the tail follows the flight path round a banked turn (the rate the turn swings it at)
-    // and any sideslip is flown out, so the plane neither skids sideways nor fishtails. Held rudder (Q/E)
-    // still yaws the plane, but it won't let the sideslip grow past about 12°.
-    const slip = this.slip || 0;
-    if (!this.wheelsDown && this.airspeed > 25) {
-      if (want.yaw == null) want.yaw = clamp((G0 / V) * Math.sin(at.bank) * Math.cos(at.pitch) + 2.5 * slip, -1.2, 1.2);
-      else want.yaw += 3 * Math.sign(slip) * Math.max(0, Math.abs(slip) - 0.2);
-    }
+    this.coordinate(want, at, V);
     // running out of speed nose-high (a steep climb, a loop held too long): the nose comes down before the
-    // plane stalls and tumbles; diving is always allowed
+    // plane stalls and tumbles; diving is always allowed. (A plane's only right at the stall, below 1.1 times its stall
+    // speed: before that, the stall horn says so; PR #40.)
     if (want.pitch != null && !this.wheelsDown && this.clS > 0 && at.pitch > 0.15) {
       const rho = airDensity(this.body, this.altitude()), vs = Math.sqrt((2 * this.mass * G0) / (Math.max(rho, 0.01) * this.clS));
-      const low = 1 - V / (1.35 * vs);
+      const low = 1 - V / ((plane ? 1.1 : 1.35) * vs);
       if (low > 0) want.pitch = Math.min(want.pitch, -low * 3 * Math.min(1, at.pitch / 0.5));
     }
     if (want.pitch != null) {
       if (this.wheelsDown) want.pitch *= 0.4; // rotate gently on the runway
-      want.pitch = clamp(want.pitch, (-3 * G0) / V, (8 * G0) / V);
-      const a = this.aoa, st = this.stallAoA - 0.03 * this.flaps;
-      if (a != null && a > st * 0.85 && !this.wheelsDown) want.pitch = Math.min(want.pitch, -2 * (a - st * 0.85));
+      if (plane) this.limitPitch(want, at, V, this.gLimit(PLANE_G), (this.stallAoA - 0.03 * this.flaps) * PLANE_AOA);
+      else {
+        want.pitch = clamp(want.pitch, (-3 * G0) / V, (8 * G0) / V);
+        const a = this.aoa, st = this.stallAoA - 0.03 * this.flaps;
+        if (a != null && a > st * 0.85 && !this.wheelsDown) want.pitch = Math.min(want.pitch, -2 * (a - st * 0.85));
+      }
     }
+    return want;
+  }
+  // The rudder: the tail follows the flight path round a banked turn (the rate the turn swings it at) and any sideslip
+  // is flown out, so the plane neither skids sideways nor fishtails. Held rudder (Q/E) still yaws the plane, but it won't
+  // let the sideslip grow past about 12°.
+  // (A plane's own laws also roll it about its flight path rather than its nose: yaw with the roll by tan(AoA), so a roll
+  // at a high angle of attack doesn't turn that angle into sideslip; PR #40.)
+  coordinate(want, at, V) {
+    const slip = this.slip || 0;
+    if (!this.wheelsDown && this.airspeed > 25) {
+      if (want.yaw == null) want.yaw = clamp((G0 / V) * Math.sin(at.bank) * Math.cos(at.pitch) + 2.5 * slip + (this.planeLaw ? this.rollYaw(want.roll) : 0), -1.2, 1.2);
+      else want.yaw += 3 * Math.sign(slip) * Math.max(0, Math.abs(slip) - 0.2);
+    }
+  }
+  rollYaw(p) { return (p || 0) * Math.tan(clamp(this.aoa || 0, -0.5, 0.5)); }
+  // ---- a plane's laws (PR #40)
+  // The g a plane's law keeps to: k times the wings' rating, 2 to 9.5 g (8 without a rating)
+  gLimit(k, max = PLANE_GMAX) { const r = this.gRating(); return r ? clamp(k * r, 2, max) : 8; }
+  // The stick's full roll rate (rad/s): ROLL_K of the rate the ailerons alone would roll the plane at now, so a fighter
+  // rolls fast, an airliner slowly, and every plane faster the faster it flies (rollNat: worked out in the aero step)
+  // (and at a high angle of attack less, down to a quarter of it from 70% of the stall, as fly-by-wire jets do: a fast
+  // roll there swaps the angle of attack for sideslip; and pulling hard, less too: a rolling g limit)
+  rollRate() {
+    return (this.rollNat > 0 ? clamp(ROLL_K * this.rollNat, ROLL_MIN, ROLL_MAX) : PILOT.plane.rate[1]) * (1 - 0.75 * smoothstep(0.2 * this.stallAoA, 0.7 * this.stallAoA, Math.abs(this.aoa || 0)))
+      * (1 - 0.6 * smoothstep(0.5, 1, (this.nz || 0) / this.gLimit(PLANE_G))); // (and under a heavy load less, down to 40% at the g limit: a full roll there loads the rising wing's half past its rating)
+  }
+  // The roll part of the rate loop's integral term starts afresh when the roll stick is let go (no roll on after it)
+  rollReleased(c) { if (this._rollIn && !c.h && this.rateI) this.rateI.y = 0; this._rollIn = !!c.h; }
+  // Keep a wanted pitch rate (pilot frame) inside the g and AoA limits. The g: the rate that turns the path at n g (with
+  // cosθ·cosφ of gravity along the lift), plus PLANE_GK times what the load is short of n (so the g comes on quickly, and
+  // comes back when over); and any one surface (a rolling wing's half, a tail) kept to 90% of what it takes, the g
+  // coming down (by the square of how far over it is) until it is. The AoA: aoaQ. Notes which one held it (pitchLimit, for the HUD).
+  limitPitch(want, at, V, n, aLim) {
+    const gV = G0 / V, cg = Math.cos(at.pitch) * Math.cos(at.bank), nz = this.nz == null ? 1 : this.nz, s = this.strain || 0;
+    if (s > 0.9 && nz > 1.5) n = Math.max(1.5, Math.min(n, nz * (0.9 / s) ** 2));
+    const hi = (n - cg) * gV + (n - nz) * PLANE_GK * gV; // (below n it may pitch faster, so the g comes on quickly)
+    if (want.pitch > hi) { want.pitch = hi; this.pitchLimit = 'g'; }
+    if (nz > n) this.limitOver = true;
+    if (want.pitch < -3 * gV) want.pitch = -3 * gV;
+    if (this.aoa != null && !this.wheelsDown) {
+      const q = this.aoaQ(aLim, gV, cg, nz);
+      if (want.pitch > q) { want.pitch = q; this.pitchLimit = 'aoa'; }
+      if (this.aoa > aLim) this.limitOver = true;
+    }
+  }
+  // The pitch rate that holds the AoA at aLim: the rate the path turns at (so the AoA holds), plus PLANE_AK times what it is
+  // short of aLim, less what it will still rise: PLANE_AL seconds of how fast it grows now, and the angle it takes to stop
+  // that with 40% of the elevator's authority (slow and high up, where there is little of it, that is most of it)
+  aoaQ(aLim, gV, cg, nz) {
+    const pq = this.pathQ != null ? this.pathQ : (nz - cg) * gV, ex = Math.max(0, (this.qNow || 0) - pq);
+    const P = this.pilot, I = this.mulI(P.R, this._qI || (this._qI = v3())), dec = Math.max(0.03, (0.4 * (this.surfAuth.z || 0)) / Math.max(1e-6, dot3(I, P.R)));
+    return pq + PLANE_AK * (aLim - this.aoa - ex * PLANE_AL - (ex * ex) / (2 * dec));
+  }
+  // The manual law (the Off button): the stick asks for g (let go: 1 g, so the plane is trimmed wherever it points; full
+  // back: the wings' rating, full forward -3 g), the roll stick for a roll rate (let go: the roll stops, the bank stays),
+  // the rudder keeps it coordinated. Nothing is held or levelled. The stall is only for the stick held right back, and
+  // even then no more than 5° past it (so no jet flips over on its back); past the rating the wings warn, then give.
+  // Keys flying a plane in Aim (prot) go through it too, but within hold's limits: 0.9 of the rating, 0.92 of the stall,
+  // a push to -1.5 g.
+  manualTarget(c, prot) {
+    const at = this.attitude(), V = Math.max(this.speed(), 20), gV = G0 / V, pull = -c.v;
+    const n = prot ? this.gLimit(PLANE_G) : this.gLimit(1, 12), nCmd = pull >= 0 ? 1 + pull * (n - 1) : 1 + pull * (prot ? 2.5 : 4);
+    const cg = Math.cos(at.pitch) * Math.cos(at.bank), nz = this.nz == null ? 1 : this.nz;
+    const sk = clamp(1 - (Math.abs(this.slip || 0) - 0.12) / 0.2, 0.25, 1);
+    const want = { pitch: clamp((nCmd - cg) * gV + 0.6 * (nCmd - nz) * gV, -1.2, 1.2), roll: c.h * this.rollRate() * sk, yaw: c.r ? c.r * PILOT.plane.rate[2] : null };
+    const st = this.stallAoA - 0.03 * this.flaps;
+    if (prot) this.limitPitch(want, at, V, n, st * PLANE_AOA);
+    else {
+      const aLim = pull >= 0.95 ? st + 0.087 : st;
+      if (this.aoa != null) {
+        const q = this.aoaQ(aLim, gV, cg, nz);
+        if (want.pitch > q) { want.pitch = q; this.pitchLimit = 'aoa'; }
+        if (this.aoa > aLim) this.limitOver = true;
+      }
+      if (want.pitch > (nCmd - cg) * gV && nz > n) this.pitchLimit = 'g';
+    }
+    this.coordinate(want, at, V);
+    return want;
+  }
+  // Aim on the runway: the nose wheel and the rudder steer towards the circle; slower than 1.1 times the stall speed the
+  // nose is held at its attitude standing, so it doesn't hop off too slow to fly; then the nose comes up to a circle above
+  // it, gently, and with the circle about level it rotates to a take-off attitude at 1.25 times the stall speed, so it
+  // lifts off rather than racing down the runway; otherwise hold's
+  aimRunway(want) {
+    const D = this.aimDir, P = this.pilot;
+    if (!D) return want;
+    const T = this.aimTmp(), F = this.axis(P.F.x, P.F.y, P.F.z, T.F), U = this.axis(P.U.x, P.U.y, P.U.z, T.U), R = this.axis(P.R.x, P.R.y, P.R.z, T.R);
+    const lat = Math.atan2(dot3(D, R), Math.max(0.05, dot3(D, F)));
+    this.aimSteer = clamp(lat * 2.5, -0.7, 0.7);
+    want.yaw = clamp(lat * 1.2, -0.3, 0.3);
+    if (this.clS <= 0) return want;
+    const rho = airDensity(this.body, this.altitude()), vs = Math.sqrt((2 * this.mass * G0) / (Math.max(rho, 0.01) * this.clS)), V = this.speed(), pitch = this.attitude().pitch;
+    if (V < 3 || this._aimPark == null) this._aimPark = pitch; // (the nose as it stands on its wheels)
+    const r0 = this.radius(), elD = (D.x * this.x + D.y * this.y + D.z * this.z) / r0, e = Math.atan2(dot3(D, U), Math.max(0.05, dot3(D, F)));
+    if (V < 1.1 * vs) { // (too slow to fly: the nose held down, on its wheels, so it doesn't hop off too soon)
+      if (pitch > this._aimPark + 0.03) want.pitch = -clamp((pitch - this._aimPark) * 1.5, 0, 0.3);
+      return want;
+    }
+    let up = e > 0.02 ? e : 0;
+    if (elD > -0.05 && V > 1.25 * vs) up = Math.max(up, Math.min(0.6 * this.stallAoA, 0.17) - pitch);
+    if (up > 0.02) want.pitch = clamp(up * 1.5, 0, 0.3);
+    return want;
+  }
+  aimTmp() { return this._aimT || (this._aimT = { F: v3(), U: v3(), R: v3(), Z: v3(), v: v3(), D: v3(), Dp: v3(), W: v3(), O: v3(), Tn: v3(), ax: v3(), a: v3(), c: v3(), H: v3() }); }
+  // The instructor's AoA limit: AIM_AOA of the stall, never past the wing's own stall (no vortex lift)
+  aimAoA() { return Math.min(this.stallAoA * AIM_AOA, this.wingStall || 9) - 0.03 * this.flaps; }
+  // The g the instructor can pull now: its g limit, or what the wings lift at its AoA limit if that is less (1.05 at least)
+  aimG(V) {
+    const n = this.gLimit(PLANE_G);
+    if (!(this.clS > 0)) return n;
+    const k = this.aimAoA() / Math.max(0.05, this.stallAoA - 0.03 * this.flaps), q = this.dynP || 0.5 * airDensity(this.body, this.altitude()) * V * V;
+    return clamp((q * this.clS * k) / (this.mass * G0), 1.05, n);
+  }
+  // The lowest the instructor lets the flight path point (rad; -π/2: anywhere):
+  //  - over the ground and anything rising ahead along the track (1, 2, 4 and 6 s out, looked at 5 times a second), clear
+  //    of it by most of the height it is flying at, 15 to 40 m (so a low pass stays low, and it climbs over a hill);
+  //  - no steeper than it can pull out of: the height a pull-out takes at the g it can make now, V²(1 - cos γ)/(g(n - 1)),
+  //    counting on 75% of that g and with 30% to spare, after rolling the wings level, kept above 30 m (but on a landing's
+  //    shallow approach, under 10°);
+  //  - near its wings' speed limit (the warning past 92%), shallower and shallower, level at the limit;
+  //  - coming in to land (the circle under the horizon, and its retractable gear down under 2.5 times its stall speed, or
+  //    fixed gear under 1.6 times), down to the runway, flaring the last 25 m.
+  aimFloor(dt, at) {
+    const h = (this._aimH = this.groundAltitude()), sp = Math.max(1, this.speed()), sinG = clamp(this.vSpeed() / sp, -1, 1);
+    const vst = this.clS > 0 ? Math.sqrt((2 * this.mass * G0) / (Math.max(airDensity(this.body, this.altitude()), 0.01) * this.clS)) : 0;
+    // (the circle under the horizon: no take-off; once landing, until the circle goes 2° over it, a go-around)
+    const A = this.aimDir, r0 = this.radius(), el = A ? (A.x * this.x + A.y * this.y + A.z * this.z) / r0 : -1, below = el < (this._landing ? 0.035 : -0.017);
+    const landing = (this._landing = below && this.wheels.length > 0 && vst > 0 && (this.hasRetract ? !this.gearUp && sp < 2.5 * vst : sp < 1.6 * vst));
+    const L = this._look || (this._look = { t: 0, rise: [0, 0, 0, 0], d: [1, 1, 1, 1], loc: {} });
+    if ((L.t -= dt) <= 0) {
+      L.t = 0.2;
+      const r0 = this.radius(), ux = this.x / r0, uy = this.y / r0, uz = this.z / r0, vu = this.vx * ux + this.vy * uy + this.vz * uz;
+      const hx = this.vx - ux * vu, hy = this.vy - uy * vu, hz = this.vz - uz * vu, hv = Math.hypot(hx, hy, hz), g0 = this.groundHeight();
+      for (let i = 0; i < 4; i++) {
+        const t = [1, 2, 4, 6][i];
+        Terrain.locate(this.body, this.x + hx * t, this.y + hy * t, this.z + hz * t, L.loc);
+        L.rise[i] = Terrain.surfaceAt(this.body, L.loc.a, L.loc.z) - g0; L.d[i] = Math.max(1, hv * t);
+      }
+    }
+    const c = landing ? 0 : clamp(0.8 * h, 15, 40);
+    let floor = -Math.PI / 2;
+    for (let i = 0; i < 4; i++) floor = Math.max(floor, Math.atan2(L.rise[i] + c - h, L.d[i]));
+    if (sinG < 0 && !(landing && sinG > -0.17)) { // (a landing's shallow approach: the flare's, below)
+      const n = 1 + 0.75 * (this.aimG(sp) - 1), tr = Math.abs(at.bank) / Math.max(0.3, this.rollRate()) + 0.5; // (n: 75% of the g it has over 1, as a tail or a store may hold it to less)
+      const room = h - Math.max(0, L.rise[0], L.rise[1]) - 30 + sp * sinG * tr, x = room > 0 ? (room * G0 * (n - 1)) / (1.3 * sp * sp) : 0;
+      floor = Math.max(floor, x >= 2 ? -Math.PI / 2 : -Math.acos(1 - x));
+    }
+    if (landing) floor = Math.max(floor, -lerp(0.01, 0.12, smoothstep(2, 25, h)));
+    const ow = this.overWarn || 0;
+    if (ow > 0.92 && sinG < 0) floor = Math.max(floor, -(Math.PI / 2) * (1 - smoothstep(0.92, 1, ow)));
+    // (and a ceiling, aimCeil: running out of speed, under 1.3 times the stall speed and slowing, the path comes down
+    // towards level before the plane stalls and slides back on its tail)
+    const dv = this._aimV0 != null ? (sp - this._aimV0) / Math.max(dt, 1e-3) : 0;
+    this._aimV0 = sp;
+    this.aimCeil = vst > 0 && dv < -0.5 ? lerp(-0.1, Math.PI / 2, smoothstep(1, 1.3, sp / vst)) : Math.PI / 2;
+    return floor;
+  }
+  // The instructor (Aim, the mouse aim): puts the nose on aimDir (sim axes), as a pilot would.
+  //  - The nose turns towards it at AIM_K per rad of the error, plus the circle's own turn rate (smoothed: a player keeping
+  //    it on something that moves), the pitch part by the elevator.
+  //  - The bank points the lift where it is wanted: to turn the flight path towards the aim (gently for a small error) and
+  //    to hold it up against gravity, within the g it can make. An aim below the nose is pushed down to with the wings
+  //    about level, banked only towards its side; more than 55° below (and more below than to the side) it rolls over and
+  //    pulls, until within 35°. An aim behind is a level turn one way, until it is well round. It rolls first, then pulls.
+  //  - The rudder coordinates (the roll about the flight path), and close to the aim holds a little sideslip, at most
+  //    AIM_SLIPMAX, to put the nose on it sideways while the bank comes round.
+  //  - Near the horizon (the circle within a degree or so of it, blending out by 11°) and coming in to land, it flies the
+  //    flight path at the circle rather than the nose, so a circle on the horizon holds the height and one on the runway
+  //    is where it lands; elsewhere the path is aimed below the circle by the nose's smoothed offset (AIM_TAU).
+  //  - It stays within PLANE_G of the wings' rating and aimAoA, and the path above aimFloor.
+  // fresh: the first step of it, so nothing smoothed is carried over (offRunway: just off the runway).
+  aimTarget(dt, fresh, offRunway) {
+    const P = this.pilot, at = this.attitude(), V = Math.max(this.speed(), 20), gV = G0 / V, slip = this.slip || 0, T = this.aimTmp();
+    const F = this.axis(P.F.x, P.F.y, P.F.z, T.F), U = this.axis(P.U.x, P.U.y, P.U.z, T.U), R = this.axis(P.R.x, P.R.y, P.R.z, T.R);
+    const r0 = this.radius(), sp = Math.max(1, this.speed()), Z = T.Z, vh = T.v;
+    Z.x = this.x / r0; Z.y = this.y / r0; Z.z = this.z / r0;
+    vh.x = this.vx / sp; vh.y = this.vy / sp; vh.z = this.vz / sp;
+    const D = norm3(this.aimDir, T.D), W = T.W, O = T.O;
+    if (fresh) {
+      W.x = 0; W.y = 0; W.z = 0; // (and the nose's offset over the path as it is now; just off the runway, the nose is still up from the rotation: none yet)
+      O.x = offRunway ? 0 : F.x - vh.x; O.y = offRunway ? 0 : F.y - vh.y; O.z = offRunway ? 0 : F.z - vh.z;
+      this._aimTurn = 0; this._aimOver = 0; this._aimPush = 0; this._aimRS = 0; this._aimLift = false; this._rwy = false;
+    } else {
+      // (the circle's turn rate, smoothed over 0.15 s; a jump of it, a flick or the circle put back on the nose, isn't one)
+      const c = cross3(T.Dp, D, T.c), s = len3(c), k = Math.min(1, dt / 0.15), j = s > 0.08 ? 0 : 1 / dt;
+      W.x += (c.x * j - W.x) * k; W.y += (c.y * j - W.y) * k; W.z += (c.z * j - W.z) * k;
+      const wl = len3(W); if (wl > 1.5) { W.x *= 1.5 / wl; W.y *= 1.5 / wl; W.z *= 1.5 / wl; }
+      const ko = Math.min(1, dt / AIM_TAU);
+      O.x += (F.x - vh.x - O.x) * ko; O.y += (F.y - vh.y - O.y) * ko; O.z += (F.z - vh.z - O.z) * ko;
+    }
+    T.Dp.x = D.x; T.Dp.y = D.y; T.Dp.z = D.z;
+    const floor = this.aimFloor(dt, at);
+    if (this._landing) { W.x = 0; W.y = 0; W.z = 0; } // (in to land, the circle on a runway: its swing as the plane comes over it isn't a turn to follow)
+    // (coming in to land, the last 30 m, the circle more than 20° to the side of the track or 20° under it, so passing over
+    // it: on along the runway's line instead, 3° down, the flare taking it from there, no turning back for it near the
+    // ground; that line is the track as the override starts, kept level, so the plane's own sideslip can't steer it)
+    if (this._landing && this._aimH < 30) {
+      const k = dot3(vh, Z), hx = vh.x - Z.x * k, hy = vh.y - Z.y * k, hz = vh.z - Z.z * k, hl = Math.hypot(hx, hy, hz);
+      const sd = dot3(D, Z), dx = D.x - Z.x * sd, dy = D.y - Z.y * sd, dz = D.z - Z.z * sd, dl = Math.hypot(dx, dy, dz);
+      const H = T.Hr || (T.Hr = v3());
+      if (this._rwy || (hl > 0.1 && (sd < -0.34 || dl < 0.1 || (dx * hx + dy * hy + dz * hz) / (dl * hl) < 0.94))) {
+        if (!this._rwy) { H.x = hx / hl; H.y = hy / hl; H.z = hz / hl; this._rwy = true; }
+        const j = dot3(H, Z); H.x -= Z.x * j; H.y -= Z.y * j; H.z -= Z.z * j; norm3(H); // (level, as the planet turns under it)
+        D.x = H.x * 0.9986 - Z.x * 0.0523; D.y = H.y * 0.9986 - Z.y * 0.0523; D.z = H.z * 0.9986 - Z.z * 0.0523;
+      }
+    } else this._rwy = false;
+    // the nose's target: the circle, or near the horizon (wings about level, the circle not following anything) and coming
+    // in to land, over it by the nose's offset over the flight path, up and down only, so the path flies at it; the path
+    // that gives (the nose's target less the whole offset) between the floor and the ceiling
+    const elD = Math.asin(clamp(dot3(D, Z), -1, 1)), kv = (this._landing ? 1 : (1 - smoothstep(0.02, 0.2, Math.abs(elD))) * (1 - smoothstep(0.3, 0.7, Math.abs(at.bank))) * (1 - smoothstep(0.02, 0.08, len3(W)))) * dot3(O, Z);
+    const Tn = T.Tn;
+    Tn.x = D.x + Z.x * kv - O.x; Tn.y = D.y + Z.y * kv - O.y; Tn.z = D.z + Z.z * kv - O.z; norm3(Tn);
+    const sinP = dot3(Tn, Z), el = sinP < Math.sin(floor) ? floor : sinP > Math.sin(this.aimCeil) ? this.aimCeil : null;
+    if (el == null) this._aimLift = false;
+    else {
+      // (its heading kept; one nearly straight down or up has none worth keeping: the way the plane pulls out quickest,
+      // towards the top of its canopy, taken as it starts and kept while the floor or ceiling holds it)
+      const sd = dot3(D, Z), dl = Math.hypot(D.x - Z.x * sd, D.y - Z.y * sd, D.z - Z.z * sd);
+      let hx = Tn.x - Z.x * sinP, hy = Tn.y - Z.y * sinP, hz = Tn.z - Z.z * sinP, hl = Math.hypot(hx, hy, hz);
+      if (dl < 0.3) {
+        const H = T.H || (T.H = v3());
+        if (!this._aimLift) {
+          const k = dot3(U, Z), ux = U.x - Z.x * k, uy = U.y - Z.y * k, uz = U.z - Z.z * k, ul = Math.hypot(ux, uy, uz), j = dot3(F, Z);
+          if (ul > 0.1) { H.x = ux / ul; H.y = uy / ul; H.z = uz / ul; } else { H.x = F.x - Z.x * j; H.y = F.y - Z.y * j; H.z = F.z - Z.z * j; norm3(H); }
+        }
+        const w = (0.3 - dl) / 0.3;
+        hx = (D.x - Z.x * sd) * (1 - w) + H.x * w; hy = (D.y - Z.y * sd) * (1 - w) + H.y * w; hz = (D.z - Z.z * sd) * (1 - w) + H.z * w; hl = Math.hypot(hx, hy, hz) || 1;
+      }
+      this._aimLift = true;
+      const cf = Math.cos(el) / hl, sf = Math.sin(el);
+      Tn.x = hx * cf + Z.x * sf; Tn.y = hy * cf + Z.y * sf; Tn.z = hz * cf + Z.z * sf;
+    }
+    Tn.x += O.x; Tn.y += O.y; Tn.z += O.z; norm3(Tn);
+    const f = dot3(Tn, F), u = dot3(Tn, U), r = dot3(Tn, R), th = Math.acos(clamp(f, -1, 1));
+    if (th > 2.6 && Math.abs(at.pitch) < 1.05) { if (!this._aimTurn) this._aimTurn = r > 0.03 ? 1 : r < -0.03 ? -1 : at.bank >= 0 ? 1 : -1; }
+    else if (th < 2.3 || Math.abs(at.pitch) >= 1.05) this._aimTurn = 0;
+    // the axis the nose turns about: towards the aim (behind: level, about the vertical; -Z turns it right)
+    const ax = T.ax;
+    if (this._aimTurn) { ax.x = -Z.x * this._aimTurn; ax.y = -Z.y * this._aimTurn; ax.z = -Z.z * this._aimTurn; }
+    else { cross3(F, Tn, ax); const l = len3(ax); if (l > 1e-6) { ax.x /= l; ax.y /= l; ax.z /= l; } else { ax.x = R.x; ax.y = R.y; ax.z = R.z; } }
+    const thE = this._aimTurn ? Math.PI : th, kq = AIM_K * thE;
+    let q = (ax.x * kq + W.x) * R.x + (ax.y * kq + W.y) * R.y + (ax.z * kq + W.z) * R.z; // (the nose's pitch rate)
+    // the lift wanted: V·(b × v) + g·(Z - (Z·v)v), b the flight path's wanted turn: towards where the path should end up
+    // (the nose's target less the up and down of its offset; so arriving out of a hard turn, the nose on the aim and the path
+    // still behind it, it holds the bank until the path comes round), gently for a small error, within the g it can make
+    // (a circle that moves, kept on something: less the whole offset, so a steady turn after it holds a steady bank)
+    const kt = smoothstep(0.02, 0.08, len3(W)), zo = dot3(O, Z) * (1 - kt);
+    const px = Tn.x - Z.x * zo - O.x * kt, py = Tn.y - Z.y * zo - O.y * kt, pz = Tn.z - Z.z * zo - O.z * kt, pl = Math.hypot(px, py, pz) || 1;
+    let bx, by, bz;
+    if (this._aimTurn) { const k = AIM_KB * Math.PI; bx = ax.x * k + W.x; by = ax.y * k + W.y; bz = ax.z * k + W.z; }
+    else {
+      const cx = vh.y * pz - vh.z * py, cy = vh.z * px - vh.x * pz, cz = vh.x * py - vh.y * px, cl = Math.hypot(cx, cy, cz) / pl;
+      const tp = Math.atan2(cl, (vh.x * px + vh.y * py + vh.z * pz) / pl), k = cl > 1e-9 ? (AIM_KB * tp * tp) / (tp + AIM_B0) / (cl * pl) : 0;
+      bx = cx * k + W.x; by = cy * k + W.y; bz = cz * k + W.z;
+    }
+    const zv = dot3(Z, vh), a = T.a;
+    const gcx = G0 * (Z.x - vh.x * zv), gcy = G0 * (Z.y - vh.y * zv), gcz = G0 * (Z.z - vh.z * zv);
+    let atx = V * (by * vh.z - bz * vh.y), aty = V * (bz * vh.x - bx * vh.z), atz = V * (bx * vh.y - by * vh.x);
+    const nAv = this.aimG(V), gl = nAv * G0;
+    if (Math.hypot(atx + gcx, aty + gcy, atz + gcz) > gl) {
+      const A2 = atx * atx + aty * aty + atz * atz, B = atx * gcx + aty * gcy + atz * gcz, C = gcx * gcx + gcy * gcy + gcz * gcz - gl * gl;
+      const s = A2 > 1e-9 ? clamp((-B + Math.sqrt(Math.max(0, B * B - A2 * C))) / A2, 0, 1) : 0;
+      atx *= s; aty *= s; atz *= s;
+    }
+    a.x = atx + gcx; a.y = aty + gcy; a.z = atz + gcz;
+    const au = dot3(a, U), ar = dot3(a, R);
+    // the bank, the lift where it is wanted:
+    //  - an aim far below (more than 55° under the nose, more below than to the side): roll over and pull, until within 35°;
+    //  - the floor lifting it well over the path (a pull-out): never a push, a roll over and pull if it is under the wings;
+    //  - a lift wanted mostly downwards: a push with the wings level (the rudder keeping it straight), until it is wanted
+    //    up, or more to the side than down;
+    //  - otherwise bank towards it (past 90° for one to the side and below: a descending turn); no lift wanted either way,
+    //    the bank it has;
+    //  - low down (under 150 m, not pulling out): no rolling over and no descending turn, a push for any lift wanted
+    //    downwards, and the bank within 80°.
+    const below = Math.atan2(-u, f), lifted = el === floor && floor > Math.asin(clamp(dot3(vh, Z), -1, 1)) + 0.087; // (lifted well over where the path points now: a pull-out)
+    const low = this._aimH < 150 && !lifted;
+    if (!this._aimOver) { if (!low && u < 0 && ((-u > Math.abs(r) && below > 0.96) || (lifted && below > 0.35))) this._aimOver = ar > 0.2 ? 1 : ar < -0.2 ? -1 : at.bank >= 0 ? 1 : -1; }
+    else if (low || u >= 0 || (below < 0.6 && !lifted)) this._aimOver = 0;
+    if (this._aimOver || lifted) this._aimPush = 0;
+    else if (!this._aimPush) { if (au < 0 && (low || Math.abs(ar) < -0.6 * au)) this._aimPush = 1; }
+    else if (au >= 0.05 * G0 || (!low && Math.abs(ar) > Math.abs(au))) this._aimPush = 0;
+    let bankErr = Math.atan2(ar, au), kr = smoothstep(0.1 * G0, 0.3 * G0, Math.hypot(ar, au));
+    // (a roll of nearly half a turn either way: the way it chose first, so it doesn't flick between the two)
+    if (!this._aimPush && Math.abs(bankErr) > 2.6) { if (!this._aimRS) this._aimRS = this._aimOver || Math.sign(bankErr) || 1; bankErr = this._aimRS * Math.abs(bankErr); }
+    else if (Math.abs(bankErr) < 2.2) this._aimRS = 0;
+    if (this._aimPush) { bankErr = Math.abs(at.pitch) < 1 ? -at.bank : Math.atan2(-r, -u); kr = 1; } // (steep, the bank means nothing: the aim under the belly)
+    else if (low && Math.abs(at.pitch) < 1) bankErr = clamp(at.bank + bankErr, -1.4, 1.4) - at.bank;
+    const rmax = this.rollRate(), want = { pitch: 0, roll: clamp(bankErr * 4, -rmax, rmax) * kr, yaw: 0 };
+    // roll first, then pull (rolling over, or lifted by the floor and still rolling right round: the nose held, no push)
+    const along = lerp(0.15, 1, 1 - smoothstep(0.3, 1, Math.abs(bankErr))), cg = Math.cos(at.pitch) * Math.cos(at.bank), nz = this.nz == null ? 1 : this.nz;
+    q = this._aimOver || (lifted && Math.abs(bankErr) > 1.57) ? Math.max(0, q) * along : q * along;
+    want.pitch = Math.max(q, (AIM_PUSH - cg) * gV + (AIM_PUSH - nz) * gV);
+    this.limitPitch(want, at, V, this.gLimit(PLANE_G), this.aimAoA());
+    const near = 1 - smoothstep(0.08, 0.2, th), slipT = this._aimTurn ? 0 : -clamp(Math.atan2(r, Math.max(f, 0.05)), -AIM_SLIPMAX, AIM_SLIPMAX) * near;
+    want.yaw = this.airspeed > 25 ? clamp(gV * Math.sin(at.bank) * Math.cos(at.pitch) + AIM_SLIP * (slip - slipT) + this.rollYaw(want.roll), -1.2, 1.2) : 0;
     return want;
   }
   // How many g the main wings carry at this weight before they start to give (0: no wings).
@@ -713,13 +1061,28 @@ class Vessel {
     let tz = 0; // (the share of the pitch authority in use: a flat nozzle shows it)
     if (!this.isDebris) {
       const wt = this.turnTarget(sim, eng.total, dt);
+      // a plane flown by its own laws, in the air: the surfaces' command has an integral term too, so a steady pull or
+      // roll gets the rate it asks for rather than settling short of it (PR #40; it doesn't wind up against a stop)
+      const RI = wt && this.planeLaw && !this.wheelsDown ? this.rateI || (this.rateI = v3()) : null;
+      if (!RI && this.rateI) { this.rateI.x = 0; this.rateI.y = 0; this.rateI.z = 0; }
+      if (RI && this.limitOver && RI.z > 0) RI.z *= Math.max(0, 1 - 6 * dt); // (past the g or AoA limit, what the pull built up ebbs: no overshoot)
       if (wt) {
         const k = 0.35 / Math.max(dt, 1e-3), need = this.mulI(v3((wt.x - wb.x) * k, (wt.y - wb.y) * k, (wt.z - wb.z) * k));
         for (const a of ['x', 'y', 'z']) {
-          if (this.surfAuth[a] > 0) want[a] = clamp(need[a] / Math.max(1, this.surfAuth[a] + A[a]), -1, 1);
+          if (this.surfAuth[a] > 0) {
+            let u = need[a] / Math.max(1, this.surfAuth[a] + A[a]);
+            if (RI) { const sum = u + RI[a]; if (!(Math.abs(sum) >= 1 && Math.sign(sum) === Math.sign(u))) RI[a] = clamp(RI[a] + u * dt * PLANE_KI, -0.5, 0.5); u += RI[a]; }
+            want[a] = clamp(u, -1, 1);
+          }
           if (A[a] > 0) T[a] += clamp(need[a], -A[a], A[a]);
         }
         if (eng.gimbalZ > 0) tz = clamp(need.z / A.z, -1, 1);
+        // past the stall the ailerons work backwards (the wing they push further stalls first) and rob the tail of its pitch:
+        // a plane's own laws ease off them, to 30% at the stall + 6°, and stop winding them up
+        if (RI && this.aoa != null && this.aoa > this.stallAoA) { const k = 1 - 0.7 * smoothstep(this.stallAoA, this.stallAoA + 0.1, this.aoa); want.y *= k; RI.y *= k; }
+        // and a surface near what it takes (a wing's half rising on its aileron at speed, under load): they give no more
+        // than keeps it there, none from its rating on
+        if (RI && this.strain > 0.9) { const k = clamp((1 - this.strain) / 0.1, 0, 1); want.y *= k; RI.y *= k; }
       }
     }
     // a flat nozzle's flaps swing with the pitch it gives (for the eye only, in 2D and 3D and for the other players):
@@ -740,6 +1103,7 @@ class Vessel {
     this.dynP = 0.5 * rho * v * v;
     this.airspeed = rho > 0 ? v : 0;
     this.mach = rho > 0 ? v / soundSpeed(b, alt) : 0;
+    const aoa0 = this.aoa || 0; // (last step's: the main wing's downwash on a plane's tail)
     this.aoa = null;
     this.slip = 0;
     const auth = this.surfAuth;
@@ -805,11 +1169,14 @@ class Vessel {
       // Wings (in two halves, so rolling damps itself, ailerons work and one half can stall before the
       // other) and tail fins: lift and drag at each surface's centre of lift, from the air flowing past it.
       // W: the wing's aerodynamics (null for a fin); ge: ground effect, more lift within a span of the ground.
-      const M = this.mach, rip = this.rip, noodle = Silly.on('noodle'), cz = this.com.z || 0;
+      // (plane: a plane's own aerodynamics, PR #40; an AI's bandit keeps the old, the one its pilot, combat.js's flyFighter,
+      // was tuned for)
+      const M = this.mach, rip = this.rip, noodle = Silly.on('noodle'), cz = this.com.z || 0, plane = this.kind === 'plane' && !this.ai;
+      let rollA = 0, rollD = 0; // (a plane's: the roll torque the surfaces give at full roll, and the damping per rad/s of roll)
       let strain = 0; // the most loaded surface's load over its limit
       for (const p of this.wings) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
       for (const p of this.vtails) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
-      const surf = (p, area, nrm, ch, rz, kd, main, W, ge) => {
+      const surf = (p, area, nrm, ch, rz, kd, main, W, ge, dw = 0) => { // (dw: the downwash the surface flies in, rad)
         const back = W ? W.back : 0;
         const rx = p.x + ch.x * (p.def.h / 4 - back) - this.com.x, ry = p.y + ch.y * (p.def.h / 4 - back) - this.com.y;
         const ux = vb.x + wb.y * rz - wb.z * ry, uy = vb.y + wb.z * rx - wb.x * rz, uz = vb.z + wb.x * ry - wb.y * rx;
@@ -825,10 +1192,12 @@ class Vessel {
           const gl = Math.hypot(gx, gy, gz) || 1, kq = kd * Math.min(1, 26000 / Math.max(1, qS / area));
           defl = kq * clamp((this.cmd.x * gx + this.cmd.y * gy + this.cmd.z * gz) / gl, -1, 1);
           auth.x += Math.abs(gx) * slope * kq; auth.y += Math.abs(gy) * slope * kq; auth.z += Math.abs(gz) * slope * kq;
+          if (plane) { rollA += ((gy * gy) / gl) * slope * kq; rollD += (gy * gy * slope) / (qS * V); }
           const flap = W && p.def.wing.flaps ? this.flaps : 0, stall = (W ? W.stall : 0.45) - 0.03 * flap; // (a stubby fin stalls late)
           // flaps add lift (and drag) at any angle, and make the wing stall a little sooner
-          const a = Math.atan2(un, uc), ae = a + defl, x = Math.abs(ae);
-          const cl = (liftCoef(ae, slope, stall) + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge * (p.hp != null && hasCombat() ? Combat.liftK(p) : 1); // a shot-up wing lifts less
+          const a = Math.atan2(un, uc) - dw, ae = a + defl, x = Math.abs(ae);
+          const lc = plane && W && W.vortex ? liftCoef(ae, slope, stall) + vortexCl(W.vortex, ae, stall) : liftCoef(ae, slope, stall); // (a plane's look-alike wing: vortex lift on top)
+          const cl = (lc + 0.8 * flap * (1 - 0.5 * smoothstep(stall, stall + 0.22, x))) * ge * (p.hp != null && hasCombat() ? Combat.liftK(p) : 1); // a shot-up wing lifts less
           const cdw = (W ? W.cd0 : 0.012) + (W ? W.kInd : 0.1) * cl * cl + 1.2 * Math.sin(x) ** 2 * smoothstep(stall, stall + 0.22, x)
             + 0.06 * flap + (W ? 0.03 * W.wave : 0.03) * waveDrag(M, W ? W.mcrit : 0.85);
           Fn = qS * (-cl * uc - cdw * un) / V; // lift along (-uc, un)/V, drag against the flow
@@ -851,14 +1220,18 @@ class Vessel {
         T.x += ry * fz - rz * fy; T.y += rz * fx - rx * fz; T.z += rx * fy - ry * fx;
         return defl;
       };
+      // (a plane's tail, a smaller surface behind the main wing, flies in its downwash and its moving part swings
+      // further (PR #40); a plane's plain wing's throw can be its part's: elevons on a delta, smaller ailerons on an airliner)
+      const mw = plane ? this.mainWing : null, mws = mw ? wingAero(mw.def, true).stall : 0, dwn = mw ? DOWNWASH * clamp(aoa0, -mws, mws) : 0;
       for (const p of this.wings) {
-        const wd = p.def.wing, W = wd.swing ? swingAero(p, M, this.flaps) : wingAero(p.def), ch = partAxis(p), s = wd.span / 4;
-        const kd = wd.control || 0.12; // plain wings carry ailerons
-        const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span);
+        const wd = p.def.wing, W = wd.swing ? swingAero(p, M, this.flaps) : wingAero(p.def, plane), ch = partAxis(p), s = wd.span / 4;
+        const tail = mw && p !== mw && p.y < mw.y - mw.def.h / 2 && wd.area < mw.def.wing.area;
+        const kd = wd.control ? (tail ? wd.control * TAIL_THROW : wd.control) : plane ? wd.elevon || wd.aileron || 0.12 : 0.12; // plain wings carry ailerons
+        const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span), dw = tail ? dwn : 0;
         // dihedral: each half's lift leans in towards the middle, so a sideslip rolls the plane level
         const cg = Math.cos(W.dihedral), sg = Math.sin(W.dihedral);
-        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge);
-        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, false, W, ge);
+        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge, dw);
+        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, false, W, ge, dw);
         p.deflect = (d0 + d1) / 2; p.aileron = (d0 - d1) / 2;
       }
       // a fin works from where it stands; a twin pair as one fin of twice the area on the centreline
@@ -867,6 +1240,7 @@ class Vessel {
         p.deflect = surf(p, ar, v3(0, 0, 1), partAxis(p), partZc(p) - cz, 0.4, false, null, 1);
       }
       this.slip = Math.asin(clamp(hz, -1, 1));
+      if (plane) this.rollNat = rollD > 0 ? rollA / rollD : 0; // the rate full roll would settle at, by the air alone
       // the fuselage and fin together resist yawing more than the fin alone works out to here: this damps
       // the nose's swing back and forth after a sideslip (the fishtail)
       if (this.kind === 'plane' && this.vtails.length) {
@@ -902,6 +1276,7 @@ class Vessel {
       this.overspeed = over; this.overWarn = warn; this.overMach = overM;
     } else {
       for (const p of this.wings) { p.deflect = 0; p.aileron = 0; }
+      if (this.kind === 'plane') this.rollNat = 0;
       this.strain = 0; this.overspeed = 0; this.overWarn = 0; this.overMach = false; this.nz = 0;
     }
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
@@ -912,6 +1287,10 @@ class Vessel {
     const Fa = qrot(this.q, Fb.x - eng.F.x, Fb.y - eng.F.y, Fb.z - eng.F.z, _t2);
     this.lift = (Fa.x * this.x + Fa.y * this.y + Fa.z * this.z) / r; // aerodynamic force, upwards
     this.vx += ax * dt; this.vy += ay * dt; this.vz += az * dt;
+    if (this.kind === 'plane') { // (the rate the flight path turns about the pitch axis: what holds the AoA, for a plane's AoA limit)
+      const v2 = this.vx * this.vx + this.vy * this.vy + this.vz * this.vz, R = qrot(this.q, this.pilot.R.x, this.pilot.R.y, this.pilot.R.z, _t3);
+      this.pathQ = v2 > 1 ? ((this.vy * az - this.vz * ay) * R.x + (this.vz * ax - this.vx * az) * R.y + (this.vx * ay - this.vy * ax) * R.z) / v2 : 0;
+    }
     const Iw = this.mulI(wb, _t2), gyro = cross3(wb, Iw, _t3);
     const dw = this.mulInvI(v3(T.x - gyro.x, T.y - gyro.y, T.z - gyro.z));
     wb.x += dw.x * dt; wb.y += dw.y * dt; wb.z += dw.z * dt;
@@ -1033,7 +1412,7 @@ class Vessel {
     const braking = this.brake && this.wheelsDown;
     // steering: the front wheels turn, less the faster the craft goes
     const fwdW = qrot(this.q, D.F.x, D.F.y, D.F.z), vF = this.vx * fwdW.x + this.vy * fwdW.y + this.vz * fwdW.z;
-    const steerIn = clamp(this.kind === 'plane' ? ctl.h + ctl.r : ctl.h, -1, 1);
+    const steerIn = clamp(this.kind === 'plane' ? ctl.h + ctl.r + (this.sas === 'aim' ? this.aimSteer || 0 : 0) : ctl.h, -1, 1); // (a plane in Aim: the circle steers it too)
     // keep the sideways pull within what the tyres hold, so the craft slides rather than flips
     this.steer = steerIn * Math.min(this.kind === 'plane' ? 0.5 : 0.6, (this.kind === 'plane' ? 3 : 6) * this.wheelbase / Math.max(1, vF * vF));
     const cs = Math.cos(this.steer), sn = Math.sin(this.steer);

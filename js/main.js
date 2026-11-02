@@ -13,6 +13,7 @@ const App = {
     document.querySelectorAll('[data-icon]').forEach((n) => n.prepend(icon(n.dataset.icon)));
     Builder.init(this.canvas);
     Flight.init(this.canvas);
+    Controls.init(); // (the floating stick, touch or desktop controls, the HUD's size, the custom layout, key tips)
     this.init3D();
     this.homeTime = 0;
     this.bindHome();
@@ -40,6 +41,7 @@ const App = {
     this.canvas.height = Math.round(this.H * dpr);
     if (Render3D.ready) Render3D.resize(this.W, this.H, this.dpr);
     if (typeof Builder !== 'undefined' && Builder.canvas) Builder.layout();
+    if (typeof Controls !== 'undefined' && this.scene === 'flight') Controls.resize(); else if (typeof Controls !== 'undefined') Controls.applyScale(); // (the HUD's size, and the stick's place)
     this.ink = false; this.dirty = true; // (resizing a canvas wipes it)
   },
 
@@ -98,6 +100,7 @@ const App = {
             Render3D.renderFlight(Flight, d, calm || d !== dt); // (several frames' time in one isn't a slow frame)
             this.clear2D();
             World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (Flight.flyAim) Flight.drawFlyAim(this.ctx, this.W, this.H, this.dpr); // (a plane in Aim: the circle and the nose cross)
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
             if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
@@ -186,7 +189,7 @@ const App = {
     const on = !!Settings.get('build3d') && Render3D.supported && !Render3D.failed;
     document.querySelectorAll('.view3d-toggle').forEach((b) => {
       b.setAttribute('aria-pressed', String(on));
-      b.title = on ? 'Back to the 2D blueprint (V)' : '3D preview (V)';
+      b.title = on ? `Back to the 2D blueprint (${Keys.k('b3d')})` : `3D preview (${Keys.k('b3d')})`;
       b.setAttribute('aria-label', b.title);
     });
     // the 3D hint shows when the 3D view comes on, then fades after a while
@@ -203,7 +206,7 @@ const App = {
     const hint = $('#build-3d-hint'), on = typeof Builder !== 'undefined' && Builder.kind === 'tank' ? 'the hull or a turret' : 'any wing or body';
     const t = isTouch
       ? `3D · drop parts onto ${on}: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom`
-      : `3D · drop parts onto ${on}: they attach where you drop them · drag empty space to turn · right-drag to pan · [ ] in and out`;
+      : `3D · drop parts onto ${on}: they attach where you drop them · drag empty space to turn · right-drag to pan · ${Keys.k('bIn')} ${Keys.k('bOut')} in and out`;
     if (hint && hint.textContent !== t) hint.textContent = t;
   },
 
@@ -297,8 +300,9 @@ const App = {
       const place = Builder.kind === 'tank' ? GroundMode.soloPlace(Builder.kind) : null; // (Armour: Highland Ridge's north pad, as Flight.revert)
       Flight.start(Builder.serialize(), place ? { place } : undefined);
       if (Builder.kind === 'tank' && !place) UI.toast(this.use3D() ? 'The Earth map isn’t in: Armour starts on the runway, away from the Tank Range' : 'In the 2D view Armour starts on the runway: the Tank Range on Highland Ridge is in 3D', 'warn');
-      const tip = { rocket: 'Press STAGE (Space) to ignite', plane: 'Press STAGE (Space) to start the engine', car: 'Drive with W/S and steer with A/D', heli: 'Press STAGE (Space) to start the rotor',
-        tank: isTouch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : 'Drive with W/S, turn with A/D, aim with the mouse' }[Builder.kind];
+      const k = (id) => Keys.k(id), sp = k('stage');
+      const tip = { rocket: `Press STAGE (${sp}) to ignite`, plane: `Press STAGE (${sp}) to start the engine`, car: `Drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}`, heli: `Press STAGE (${sp}) to start the rotor`,
+        tank: Controls.touch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : `Drive with ${k('fwd')}/${k('back')}, turn with ${k('left')}/${k('right')}, aim with the mouse` }[Builder.kind];
       if (Settings.get('hints') && tip) UI.toast(tip);
     });
     const saved = store.get('rss.flight', null);
@@ -329,22 +333,25 @@ const App = {
   },
 
   // ---------------------------------------------------------------- menus
+  // the manual: its keys as bound now (Keys), with the lists of Flight.controlsHelp and groundHelp after it
   showHelp() {
+    const k = (id) => Keys.k(id), T = Controls.touch;
     UI.modal({
       kicker: 'Flight manual', title: 'How to fly',
       body: `<ol class="howto">
-        <li><b>Build.</b> Drag parts from the tray onto the craft: they attach to whatever you drop them on, right where you drop them, and things attached to a part move with it. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. Press R (or the turn button) to rotate the selected part a quarter turn. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
-        <li><b>Depth and paint.</b> The blueprint is a side view; in 3D, drop engines, pods and missiles anywhere along a wing, as many as fit. In 2D, [ and ] (or the Depth slider) move the selected part in and out across the craft. With symmetry on, a plane's parts come in left and right pairs. Paint any part, Match it to what it hangs on, or paint the whole craft (All). G switches on a grid in 2D.</li>
+        <li><b>Build.</b> Drag parts from the tray onto the craft: they attach to whatever you drop them on, right where you drop them, and things attached to a part move with it. Tap a tray part to stack it automatically, or drag a part back onto the tray to remove it. Press ${k('bRotate')} (or the turn button) to rotate the selected part a quarter turn. The yellow disc is the centre of mass; the purple arrow is where the stage-1 engines push.</li>
+        <li><b>Depth and paint.</b> The blueprint is a side view; in 3D, drop engines, pods and missiles anywhere along a wing, as many as fit. In 2D, ${k('bIn')} and ${k('bOut')} (or the Depth slider) move the selected part in and out across the craft. With symmetry on, a plane's parts come in left and right pairs. Paint any part, Match it to what it hangs on, or paint the whole craft (All). ${k('bGrid')} switches on a grid in 2D.</li>
         <li><b>Stage.</b> Orange numbers show the firing order. Separators split the rocket, and fuel can't flow through them. Solid boosters can't be shut down.</li>
-        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean east (D) a little at a time. W/S lean the rocket towards or away from you and Q/E roll it: the world is fully 3D, so you can fly in any direction.</li>
+        <li><b>Launch.</b> Hit STAGE to light the engines. Climb straight up to about 3 km, then lean east (${k('right')}) a little at a time. ${k('fwd')}/${k('back')} lean the rocket towards or away from you and ${k('rollL')}/${k('rollR')} roll it: the world is fully 3D, so you can fly in any direction.</li>
         <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
         <li><b>Travel.</b> In the map, tap a planet or moon to target it. The HUD tells you when the transfer window opens. Warp to it, burn prograde until an encounter appears, then burn retrograde at periapsis to be captured.</li>
         <li><b>Come home hot.</b> Returns from the Moon and planets heat the leading part. Lead with a heat shield, then open the parachute below 250 m/s.</li>
-        <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (S) at about 55 m/s. Bank with A/D to turn, Q/E use the rudder. Let go and the autopilot holds your pitch and bank. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1. Every wing has a speed limit (the builder shows it): past it, it flutters and tears off, so slow down when the Overspeed warning comes up.</li>
-        <li><b>Missiles.</b> A hostile missile in sight, within 4 km, shows a red MSL marker. Only a warning receiver (RWR, in the Weapons tab) tells you one is homing on you: the basic one that it's coming, the advanced one what kind, from where and what to do. Without one, keep looking around. K drops flares and chaff; flying solo, with an RWR on board, they go out by themselves.</li>
-        <li><b>Cars and helicopters.</b> Cars drive with W/S and steer with A/D. Helicopters lift off as you raise the throttle (Shift); the stick tilts them to fly that way and they level out when you let go, Q/E turn. Hold B (or Brake) to stop on the ground.</li>
-        <li><b>Armour (tanks, SPAA, launchers).</b> W/S drive, A/D turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or Shift) is the gunner's sight. 1–4 choose the next shell, Space the machine guns, K smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
-        <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, C to reset. It follows behind planes, cars and helicopters and beside rockets. On touch screens the stick at the bottom left flies the craft.</li>
+        <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (${k('back')}), or lift the circle, at about 55 m/s. A new flight starts in Aim (${k('apAim')}): ${T ? 'the stick moves the circle (it keeps moving while you hold it over, and stays where you leave it); drag anywhere else on the view to look round, and it swings back when you let go; double-tap the view to put the circle on the nose' : 'move the mouse (click the view to capture it)'}, and the plane flies its nose to the circle, the cross is where it points now and where the guns shoot; keys still fly it by hand (the circle follows), hold ${k('camera')} to look round. Or fly the stick: bank with ${k('left')}/${k('right')} to turn, ${k('rollL')}/${k('rollR')} use the rudder, and the autopilot holds your pitch and bank when you let go (${k('apHold')}); Off (${k('apOff')}) is yours alone: the stick asks for g, the plane stays trimmed and stops rolling when you let go, but it can stall and over-g. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1. Every wing has a speed limit (the builder shows it): past it, it flutters and tears off, so slow down when the Overspeed warning comes up.</li>
+        <li><b>Missiles.</b> A hostile missile in sight, within 4 km, shows a red MSL marker. Only a warning receiver (RWR, in the Weapons tab) tells you one is homing on you: the basic one that it's coming, the advanced one what kind, from where and what to do. Without one, keep looking around. ${k('cm')} drops flares and chaff; flying solo, with an RWR on board, they go out by themselves.</li>
+        <li><b>Cars and helicopters.</b> Cars drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}. Helicopters lift off as you raise the throttle (${k('thrUp')}); the stick tilts them to fly that way and they level out when you let go, ${k('rollL')}/${k('rollR')} turn. Hold ${k('brake')} (or Brake) to stop on the ground.</li>
+        <li><b>Armour (tanks, SPAA, launchers).</b> ${k('fwd')}/${k('back')} drive, ${k('left')}/${k('right')} turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or ${k('sight')}) is the gunner's sight. ${Keys.k('shell1')}–${Keys.k('shell4')} choose the next shell, ${k('mg')} the machine guns, ${k('cm')} smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
+        <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, ${k('camera')} to reset. It follows behind planes, cars and helicopters and beside rockets; in Aim it looks along the circle${T ? ', and a drag looks round (only the stick moves the circle)' : ', and a drag moves the circle instead: hold ' + k('camera') + ' to look round'}. On touch screens the stick flies the craft: put your left thumb down anywhere in the bottom-left corner and it comes to you (in Aim it moves the circle).</li>
+        <li><b>Your controls.</b> Settings → Keys rebinds every key (two per action); Settings → Edit controls moves, sizes and fades the touch controls (also from the pause menu on a phone); UI size makes the whole HUD bigger or smaller; Touch controls switches between the phone's controls and a desktop's key hints.</li>
       </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
@@ -439,8 +446,36 @@ const App = {
     am.addEventListener('change', () => Settings.set('aimMode', am.value));
     const sens = el('input', { id: 'set-aim-sens', type: 'range', min: '0.3', max: '3', step: '0.1', value: String(Settings.get('aimSens') || 1) });
     sens.addEventListener('input', () => Settings.set('aimSens', +sens.value));
+    // planes: start a flight in Aim (the mouse aim: the plane flies to the circle), or on the stick with the hold autopilot
+    const pa = el('input', { id: 'set-plane-aim', type: 'checkbox' }); pa.checked = !!Settings.get('planeAim');
+    pa.addEventListener('change', () => Settings.set('planeAim', pa.checked));
+    const head = (t) => el('h3', { class: 'summary-h set-h', text: t });
+    // the controls (controls.js): touch controls or a desktop's key hints, the HUD's size, the floating stick, the keys and the layout
+    const tu = el('select', { id: 'set-touch-ui' });
+    tu.innerHTML = `<option value="auto">Auto (${isTouch ? 'on' : 'off'} here)</option><option value="on">On: stick and buttons</option><option value="off">Off: keys, with hints</option>`;
+    tu.value = ['on', 'off'].includes(Settings.get('touchUI')) ? Settings.get('touchUI') : 'auto';
+    tu.addEventListener('change', () => { Settings.set('touchUI', tu.value); Controls.applyMode(); Controls.relayout(); this.redraw(); });
+    const pct = (id, key, min, max, def, after) => {
+      const v0 = Math.round(clamp(+Settings.get(key) || def, min / 100, max / 100) * 100);
+      const r = el('input', { id, type: 'range', min: String(min), max: String(max), step: '5', value: String(v0) }), out = el('output', { class: 'set-val', text: `${v0}%` });
+      r.addEventListener('input', () => { out.textContent = `${r.value}%`; Settings.set(key, +r.value / 100); if (after) after(); });
+      return el('span', { class: 'set-range' }, r, out);
+    };
+    const uiSize = pct('set-ui-size', 'uiSize', 75, 150, 1, () => { Controls.applyScale(); Controls.relayout(); });
+    const stSize = pct('set-stick-size', 'stickSize', 75, 150, 1, () => Controls.relayout());
+    const stSens = pct('set-stick-sens', 'stickSens', 50, 200, 1);
+    const inv = el('input', { id: 'set-aim-invert', type: 'checkbox' }); inv.checked = !!Settings.get('aimInvert');
+    inv.addEventListener('change', () => Settings.set('aimInvert', inv.checked));
+    const hap = el('input', { id: 'set-haptics', type: 'checkbox' }); hap.checked = Settings.get('haptics') !== false;
+    hap.addEventListener('change', () => Settings.set('haptics', hap.checked));
+    const keys = el('button', { id: 'set-keys', class: 'btn small', text: 'Keys…' });
+    keys.addEventListener('click', () => Controls.keysScreen({ onClose: () => this.showSettings() }));
+    const lay = el('button', { id: 'set-layout', class: 'btn small', text: 'Edit controls…' });
+    lay.addEventListener('click', () => { UI.closeModal(); Controls.edit({ done: () => this.showSettings() }); });
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
-      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
+      head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
+      el('div', { class: 'setting-actions' }, keys, lay),
+      head('Aiming'), row(isTouch ? 'Planes: start in Aim' : 'Planes: mouse aim', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

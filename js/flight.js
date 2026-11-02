@@ -5,10 +5,11 @@ const WARPS = [1, 2, 4, 8, 25, 100, 500, 2500, 10000, 50000, 250000, 1000000];
 const PHYS_WARP_MAX = 3; // index of the last physics warp (8x)
 const PHYS_DT = 1 / 120;
 const NEAR_DIST = 6000;  // vessels closer than this to the active one get full physics
-const SAS_KEYS = { Digit1: 'hold', Digit2: 'prograde', Digit3: 'retrograde', Digit4: 'radialOut', Digit5: 'radialIn', Digit6: 'target' };
-const PLANE_SAS_KEYS = { Digit1: 'hold', Digit2: 'level', Digit3: 'heading', Digit4: 'off' };
+// the autopilot's keys: their actions in the binding table (Keys, controls.js), and the mode each sets
+const SAS_KEYS = { sasHold: 'hold', sasPro: 'prograde', sasRetro: 'retrograde', sasOut: 'radialOut', sasIn: 'radialIn', sasTarget: 'target' };
+const PLANE_SAS_KEYS = { apHold: 'hold', apLevel: 'level', apHeading: 'heading', apOff: 'off', apAim: 'aim' };
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off']);
+const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
 const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
 
 const Flight = {
@@ -26,6 +27,7 @@ const Flight = {
     this.keys = new Set();
     this.pointers = new Map();
     this.stick = { v: 0, h: 0, r: 0 }; // touch joystick and roll buttons
+    this.stickAim = { x: 0, y: 0 }; // the stick in Aim: the circle's rate (x right, y up), shaped (controls.js)
     this.scale = 12;
     this.bindDom();
   },
@@ -51,6 +53,7 @@ const Flight = {
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
+    if (v.kind === 'plane' && Settings.get('planeAim') && this.aim3D()) v.sas = 'aim'; // (a new flight of a plane starts in Aim, the mouse aim, when it's on)
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
@@ -83,6 +86,7 @@ const Flight = {
     this.updateHUD(true);
     if (!this.mp) this.save();
     $('#warp').hidden = !!this.mp;
+    Controls.relayout(); // (the custom touch layout, and the stick's place)
   },
 
   resetState(vessels, active, time) {
@@ -187,6 +191,7 @@ const Flight = {
     this.mp = null; this.spawnOpts = null;
     $('#warp').hidden = false;
     const vessels = d.vessels.map((x) => Vessel.restore(x));
+    for (const v of vessels) if (v.kind === 'plane' && v.sas === 'off') v.sas = 'manual'; // (a save from before PR #40: its Off is the manual law now)
     let maxId = 0;
     for (const v of vessels) for (const p of v.parts) maxId = Math.max(maxId, p.id);
     _partSeq = Math.max(_partSeq, maxId + 1);
@@ -201,6 +206,7 @@ const Flight = {
     this.updatePrediction();
     this.updateDvEstimate();
     this.updateHUD(true);
+    Controls.relayout();
   },
 
   // ------------------------------------------------------------------ helpers
@@ -247,17 +253,20 @@ const Flight = {
     const v = this.active;
     if (!v) return;
     if (mode === 'target' && !this.target) { this.toast('Pick a target on the map first'); return; }
+    if (v.kind === 'plane' && mode === 'off') mode = 'manual'; // (a plane's Off: the manual law, PR #40)
+    if (v.kind === 'plane' && mode === 'aim' && !this.aim3D()) { this.toast('Aim needs the 3D view'); return; }
     v.sas = v.sas === mode && mode !== 'hold' ? 'hold' : mode;
     v.holdPitch = v.holdBank = v.altHold = v.hdgHold = null; // each mode starts from where the craft is now
-    if (v.kind === 'plane') this.toast({ hold: 'Autopilot: hold attitude', level: 'Autopilot: level flight, holding altitude', heading: 'Autopilot: holding heading and altitude (A/D turn)', off: 'Autopilot off: you fly it' }[v.sas]);
+    if (v.kind === 'plane') this.toast({ hold: 'Autopilot: hold attitude', level: 'Autopilot: level flight, holding altitude', heading: 'Autopilot: holding heading and altitude (A/D turn)', manual: 'Autopilot off: you fly it',
+      aim: Controls.touch ? 'Aim: the stick moves the circle, the plane flies to it (drag the view to look round)' : 'Aim: the mouse moves the circle, the plane flies to it (keys still fly it)' }[v.sas]);
     this.syncSas();
   },
   // Planes get their own autopilot buttons; everything else gets the rocket set.
   syncSas() {
-    const v = this.active, m = v ? v.sas : 'hold', plane = !!v && v.kind === 'plane';
+    const v = this.active, m = v ? (v.sas === 'manual' ? 'off' : v.sas) : 'hold', plane = !!v && v.kind === 'plane';
     document.querySelectorAll('[data-sas]').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.sas === m));
-      b.hidden = plane ? !PLANE_SAS.has(b.dataset.sas) : !!b.dataset.plane;
+      b.hidden = plane ? !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : !!b.dataset.plane;
     });
     $('#sas-bar').classList.toggle('plane', plane);
   },
@@ -497,6 +506,12 @@ const Flight = {
       { label: 'Revert to launch', onClick: () => this.revert() },
     ];
     if (this.canRecover()) acts.push({ label: 'Recover', onClick: () => this.recover() });
+    // the controls, from here: on touch the layout editor (over the paused flight), with a keyboard the Keys screen;
+    // either way back to this menu after
+    acts.push({ label: Controls.touch ? 'Edit controls' : 'Keys', onClick: () => {
+      this.setPaused(true);
+      if (Controls.touch) Controls.edit({ done: () => this.openMenu() }); else Controls.keysScreen({ onClose: () => this.openMenu() });
+    } });
     acts.push({ label: 'Resume', primary: true, onClick: () => {} });
     UI.modal({
       kicker: `T+ ${fmt.clock(this.time)} · ${this.active.name}`, title: 'Paused',
@@ -509,6 +524,7 @@ const Flight = {
   // Multiplayer: the world goes on while the menu is open.
   openMpMenu() {
     const acts = [{ label: 'Leave the room', onClick: () => MPUI.leave() }];
+    if (!Controls.touch) acts.push({ label: 'Keys', onClick: () => Controls.keysScreen({ onClose: () => { if (this.running && this.mp && !this.ended) this.openMenu(); } }) }); // (the world goes on meanwhile, as under this menu)
     if (this.mp.mode === 'sandbox') {
       acts.push({ label: 'Back to hangar', onClick: () => { MP.leaveFlight(); App.toBuild(); } });
       acts.push({ label: 'Respawn', onClick: () => MP.respawn() });
@@ -518,77 +534,83 @@ const Flight = {
     UI.modal({ kicker: `${what} · ${this.active.name}`, title: 'Menu', body: Flight.controlsHelp(), actions: acts });
   },
 
+  // The keys as they are bound now (Keys, controls.js): the same lists as README's Controls table (its defaults) and the
+  // manual's (App.showHelp). On touch controls the touch line comes first and the keys fold away under "Keys".
   controlsHelp() {
     if (this.groundAim) return this.groundHelp(); // (aiming a ground vehicle: its own list)
     if (this.running && this._bodyGround) return this.driveHelp(); // (one with nothing to aim, or in the 2D view: the keys it has)
+    const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids);
     return `<div class="help-grid">
-      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Pitch: nose down / up (cars and Armour drive forward / back)</span></div>
-      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Rockets turn left / right; planes and helicopters roll; cars and Armour steer (tracks turn on the spot)</span></div>
-      <div><kbd>Q</kbd><kbd>E</kbd><span>Rockets roll; planes and helicopters yaw</span></div>
-      <div><kbd>Shift</kbd><kbd>Ctrl</kbd><span>Throttle up / down</span></div>
-      <div><kbd>Z</kbd><kbd>X</kbd><span>Full throttle / cut</span></div>
-      <div><kbd>Space</kbd><span>Activate next stage</span></div>
-      <div><kbd>1</kbd>–<kbd>6</kbd><span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
-      <div><kbd>1</kbd>–<kbd>4</kbd><span>Plane autopilot: hold attitude, level (holds altitude), heading, off</span></div>
-      <div><kbd>M</kbd><span>Map view (tap a planet to target it)</span></div>
-      ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
-      <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
+      <div>${P('fwd', 'back')}<span>Pitch: nose down / up (cars and Armour drive forward / back)</span></div>
+      <div>${P('left', 'right')}<span>Rockets turn left / right; planes and helicopters roll; cars and Armour steer (tracks turn on the spot)</span></div>
+      <div>${f('rollL', 'rollR')}<span>Rockets roll; planes and helicopters yaw</span></div>
+      <div>${f('thrUp', 'thrDown')}<span>Throttle up / down</span></div>
+      <div>${f('thrFull', 'thrCut')}<span>Full throttle / cut</span></div>
+      <div>${K('stage')}<span>Activate next stage</span></div>
+      <div>${Keys.run(['sasHold', 'sasPro', 'sasRetro', 'sasOut', 'sasIn', 'sasTarget'])}<span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
+      <div>${Keys.run(['apHold', 'apLevel', 'apHeading', 'apOff', 'apAim'])}<span>Plane autopilot: hold attitude, level (holds altitude), heading, off (you fly it: the stick asks for g, it stays trimmed), aim</span></div>
+      <div><span class="tap">Mouse</span><span>Planes in Aim (${Keys.k('apAim')}): move the circle, the plane flies its nose there (click the view to capture the mouse, <kbd>Esc</kbd> lets it go; on touch the stick moves it, a drag on the view looks round, a double tap puts it on the nose); the keys still fly it, within the autopilot's limits, the circle following · hold ${K('camera')} to look round, tap it to put the circle on the nose · left click fires</span></div>
+      <div>${K('map')}<span>Map view (tap a planet to target it)</span></div>
+      ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
+      <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
-      <div><kbd>B</kbd><span>Hold to brake on wheels (and pop the air brakes)</span></div>
-      <div><kbd>F</kbd><kbd>G</kbd><span>Planes: flaps (three steps), retractable gear up / down</span></div>
-      <div><kbd>C</kbd><span>Reset the camera (drag to look around)</span></div>
-      <div><kbd>V</kbd><kbd>Tab</kbd><span>Fire (hold) / change weapon · <kbd>K</kbd> flares and chaff</span></div>
-      ${this.mp ? '<div><kbd>L</kbd><span>Carrier catapult: launch</span></div><div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : ''}
+      <div>${K('brake')}<span>Hold to brake on wheels (and pop the air brakes)</span></div>
+      <div>${f('flaps', 'gear')}<span>Planes: flaps (three steps), retractable gear up / down</span></div>
+      <div>${K('camera')}<span>Reset the camera (drag to look around); in Aim, hold to look round, tap to put the circle on the nose</span></div>
+      <div>${f('fire', 'weapon')}<span>Fire (hold) / change weapon · ${K('cm')} flares and chaff</span></div>
+      ${this.mp ? `<div>${K('catapult')}<span>Carrier catapult: launch</span></div><div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
     </div>`;
   },
 
   // a ground vehicle out of aim mode (no guns aboard, or the 2D view): driving, and the old keys that still work for it
   driveHelp() {
+    const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids);
     return `<div class="help-grid">
-      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
-      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
-      <div><kbd>B</kbd><span>Hold to brake</span></div>
-      <div><kbd>Space</kbd><span>Activate next stage (a booster)</span></div>
-      <div><kbd>K</kbd><span>Smoke (and flares or chaff)</span></div>
-      <div><kbd>M</kbd><span>Map view</span></div>
-      ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
-      <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
+      <div>${P('fwd', 'back')}<span>Drive forward / reverse</span></div>
+      <div>${P('left', 'right')}<span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
+      <div>${K('brake')}<span>Hold to brake</span></div>
+      <div>${K('stage')}<span>Activate next stage (a booster)</span></div>
+      <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
+      <div>${K('map')}<span>Map view</span></div>
+      ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
+      <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
-      <div><kbd>C</kbd><span>Reset the camera (drag to look around)</span></div>
-      <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu</span></div>
-      ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
+      <div>${K('camera')}<span>Reset the camera (drag to look around)</span></div>
+      <div><kbd>Esc</kbd>${K('menu')}<span>Menu</span></div>
+      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped on the ground)</span></div>`}
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator</span></div>
     </div>`;
   },
   // Armour and armed cars (§8.4): the same list as README's "Armour and armed cars" block and the manual's
   groundHelp() {
+    const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch;
     const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick drives, hold Brake to stop. Right thumb: FIRE, and drag the view or slide on FIRE to aim; hold MG for the machine guns; pinch to zoom; the binoculars for the sight; tap a shell chip to load it next, hold it to load it now; tap the weapon chip to change weapon; Smoke (CM) and LOCK; hold an enemy\'s tag to spot it; tap MAP or the minimap for the tactical map (its Globe button: the old map); Realistic aim: tap Zero to set the sight (with a rangefinder, its range; without, the commander\'s reading, then 100 m steps)</span></div>';
     // (P4 play-test) on a phone the touch line, and the keys folded away under "Keys" (they were a wall of twenty rows)
-    return `${isTouch ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
-      <div><kbd>W</kbd><kbd>S</kbd> / <kbd>↑</kbd><kbd>↓</kbd><span>Drive forward / reverse</span></div>
-      <div><kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd><span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
-      <div><kbd>B</kbd><span>Hold to brake</span></div>
+    return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
+      <div>${P('fwd', 'back')}<span>Drive forward / reverse</span></div>
+      <div>${P('left', 'right')}<span>Turn (tracks turn on the spot; reversing turns like a car's tail)</span></div>
+      <div>${K('brake')}<span>Hold to brake</span></div>
       <div><span class="tap">Mouse</span><span>Aim (click the view to capture the mouse; without it, drag)</span></div>
-      <div><kbd>Q</kbd><kbd>E</kbd><span>Turn the aim left / right</span></div>
-      <div><span class="tap">Left click</span><kbd>V</kbd><span>Fire the selected weapon (hold for automatic guns; a tap of rocket artillery ripples what its rails hold, another tap stops it)</span></div>
-      <div><kbd>Space</kbd><span>Machine guns (hold)</span></div>
-      <div><span class="tap">Right mouse</span><kbd>Shift</kbd><span>Gunner's sight: hold, or Shift toggles it (Shift stays the throttle with jets or rockets aboard)</span></div>
+      <div>${f('aimL', 'aimR')}<span>Turn the aim left / right</span></div>
+      <div><span class="tap">Left click</span>${K('fire')}<span>Fire the selected weapon (hold for automatic guns; a tap of rocket artillery ripples what its rails hold, another tap stops it)</span></div>
+      <div>${K('mg')}<span>Machine guns (hold)</span></div>
+      <div><span class="tap">Right mouse</span>${K('sight')}<span>Gunner's sight: hold, or ${Keys.k('sight')} toggles it (${Keys.k('sight')} stays the throttle with jets or rockets aboard)</span></div>
       <div><kbd>Wheel</kbd><span>Zoom the view or the sight (3×, 6×, 8×)</span></div>
-      <div><kbd>1</kbd>–<kbd>4</kbd><span>Choose the next shell (twice: unload and load it now)</span></div>
-      <div><kbd>Tab</kbd><span>Change weapon (<kbd>Shift</kbd>+<kbd>Tab</kbd> back)</span></div>
-      <div><kbd>K</kbd><span>Smoke (and flares or chaff)</span></div>
-      <div><kbd>L</kbd><span>Radar lock (with a tracking radar)</span></div>
-      <div><kbd>J</kbd><span>Spot the enemy under the crosshair for your team</span></div>
-      <div><kbd>M</kbd><span>Tactical map (tap it to set a rocket-artillery strike, or to ping; Esc shuts it)</span></div>
-      <div><kbd>C</kbd><span>Hold: look round, the turret holds · tap: aim straight ahead</span></div>
-      <div><kbd>Y</kbd><span>Realistic aim: set the sight to the rangefinder's range (or the commander's reading) · <kbd>PgUp</kbd><kbd>PgDn</kbd> step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
-      ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
-      <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
-      <div><kbd>Esc</kbd><kbd>P</kbd><span>Menu (Esc also lets the mouse go)</span></div>
-      ${this.mp ? '<div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : '<div><kbd>R</kbd><span>Recover (stopped on the ground)</span></div>'}
-      ${isTouch ? '' : touch}
-    </div>${isTouch ? '</details>' : ''}`;
+      <div>${Keys.run(['shell1', 'shell2', 'shell3', 'shell4'])}<span>Choose the next shell (twice: unload and load it now)</span></div>
+      <div>${K('weapon')}<span>Change weapon (<kbd>Shift</kbd>+${f('weapon')} back)</span></div>
+      <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
+      <div>${K('lock')}<span>Radar lock (with a tracking radar)</span></div>
+      <div>${K('spot')}<span>Spot the enemy under the crosshair for your team</span></div>
+      <div>${K('tacMap')}<span>Tactical map (tap it to set a rocket-artillery strike, or to ping; Esc shuts it)</span></div>
+      <div>${K('camera')}<span>Hold: look round, the turret holds · tap: aim straight ahead</span></div>
+      <div>${K('zero')}<span>Realistic aim: set the sight to the rangefinder's range (or the commander's reading) · ${f('zeroUp', 'zeroDown')} step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
+      ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
+      <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
+      <div><kbd>Esc</kbd>${K('menu')}<span>Menu (Esc also lets the mouse go)</span></div>
+      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped on the ground)</span></div>`}
+      ${T ? '' : touch}
+    </div>${T ? '</details>' : ''}`;
   },
 
   // ------------------------------------------------------------------ simulation
@@ -598,6 +620,7 @@ const Flight = {
     const dt = Math.min(rdt, 0.05);
     this.groundTick(dt);
     this.readControls(dt);
+    this.planeTick(dt);
     if (this.mp) MP.beforeUpdate(dt); // pose the other players' craft
     if (!this.paused) {
       if (this.mp) this.warpIdx = 0;
@@ -679,15 +702,16 @@ const Flight = {
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
 
-  // The stick: W/S (↑/↓), A/D (←/→) and Q/E, plus the touch joystick and roll buttons.
+  // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
+  // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
   readControls(dt) {
-    const k = this.keys, key = (...c) => c.some((x) => k.has(x)) ? 1 : 0;
+    const k = this.keys, key = (id, but) => (Keys.held(k, id, but) ? 1 : 0);
     const v = this.active;
     if (!v) return;
-    const st = this.stick;
-    v.ctl.v = clamp(key('KeyW', 'ArrowUp') - key('KeyS', 'ArrowDown') + st.v, -1, 1);
-    v.ctl.h = clamp(key('KeyD', 'ArrowRight') - key('KeyA', 'ArrowLeft') + st.h, -1, 1);
-    v.ctl.r = clamp(key('KeyE') - key('KeyQ') + st.r, -1, 1);
+    const st = this.stick, sv = this.flyAim ? 0 : st.v, sh = this.flyAim ? 0 : st.h;
+    v.ctl.v = clamp(key('fwd') - key('back') + sv, -1, 1);
+    v.ctl.h = clamp(key('right') - key('left') + sh, -1, 1);
+    v.ctl.r = clamp(key('rollR') - key('rollL') + st.r, -1, 1);
     if (Silly.on('drunk')) { // the stick wanders off on its own, in waves
       const t = this.time, w = Math.max(0, Math.sin(t * 0.23)) * 0.6;
       v.ctl.v = clamp(v.ctl.v + w * Math.sin(t * 1.1), -1, 1);
@@ -695,14 +719,14 @@ const Flight = {
       v.ctl.r = clamp(v.ctl.r + w * 0.6 * Math.sin(t * 0.9 + 4), -1, 1);
     }
     const ga = this.groundAim, shiftSight = ga && !this.thrusty(v); // (aiming with no thrust parts: Shift is the sight)
-    const dT = (shiftSight ? key('PageUp') : key('ShiftLeft', 'ShiftRight', 'PageUp')) - key('ControlLeft', 'ControlRight', 'PageDown');
+    const dT = key('thrUp', shiftSight ? 'sight' : null) - key('thrDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
-    v.brake = k.has('KeyB') || this.touchBrake;
-    this.firing = k.has('KeyV') || !!this.touchFire || (ga && this.mouseFire);
-    this.mgFiring = ga && (k.has('Space') || !!this.touchMG);
+    v.brake = !!key('brake') || this.touchBrake;
+    this.firing = !!key('fire') || !!this.touchFire || (this.mouseAim() && this.mouseFire);
+    this.mgFiring = ga && (!!key('mg') || !!this.touchMG);
     if (this.firing || this.mgFiring || this.fireTap) this.shotYet = true; // (the ground tip goes once the trigger is found)
     if (ga) { // Q/E traverse the aim at 60°/s (a ground vehicle doesn't roll on them)
-      const q = key('KeyE') - key('KeyQ');
+      const q = key('aimR') - key('aimL');
       if (q) this.aimYaw = wrapAngle(this.aimYaw - q * 1.0472 * dt);
     }
   },
@@ -714,7 +738,7 @@ const Flight = {
   groundTick(dt) {
     const v = this.active, ok = !!v && v.parts.length > 0 && !v.dead;
     const gr = ok && isGround(v.kind) && (v.gear.length > 0 || v.gv);
-    if (gr !== !!this._bodyGround) { this._bodyGround = gr; document.body.classList.toggle('ground', gr); }
+    if (gr !== !!this._bodyGround) { this._bodyGround = gr; document.body.classList.toggle('ground', gr); Controls.relayout(); } // (the custom layout's other HUD)
     const th = gr && this.thrusty(v), sg = gr && v.stageIdx < v.stages.length; // (a throttle with thrust parts aboard; a Stage pill while stages remain)
     if (th !== !!this._gth) { this._gth = th; document.body.classList.toggle('g-thrust', th); }
     if (sg !== !!this._gst) { this._gst = sg; document.body.classList.toggle('g-stages', sg); }
@@ -722,7 +746,7 @@ const Flight = {
     const want = ok && aimed && has3d && !this.mapMode && !this.destroyed && this.running;
     if (ok && aimed && !has3d && !this._warn2d) { this._warn2d = true; this.toast('Ground combat needs the 3D view'); }
     if (want !== this.groundAim) this.setGroundAim(want);
-    if (this._locked && (UI.modalOpen || !this.groundAim || this.paused)) this.unlockPointer();
+    if (this._locked && (UI.modalOpen || !this.mouseAim() || this.paused)) this.unlockPointer();
     if (!this.groundAim) return;
     if (this._aimV !== v) this.aimAlong(v);
     // the pitch's limits: -0.35 rad, up to +1.35 or the steepest gun aboard (an SPAA's 85°, nearly straight up)
@@ -752,6 +776,7 @@ const Flight = {
   // a new flight, or the end of one: out of the sight, the mouse let go, the aim to start afresh
   aimReset() {
     this.groundAim = this.aimCam = this.freeLook = this.mouseFire = this.sightHold = false; // (first: no aim to keep as the sight shuts)
+    this._flyV = null; this.flyLook = null; if (this.flyAim) { this.flyAim = false; document.body.classList.remove('flyaim'); }
     this.setSight(false); this.unlockPointer();
     this._aimV = null; this._warn2d = false; this.strike = null; this.zoom = 3;
     if (this._bodyGround || this._gth || this._gst) { this._bodyGround = this._gth = this._gst = false; document.body.classList.remove('ground', 'g-thrust', 'g-stages'); }
@@ -767,6 +792,7 @@ const Flight = {
   // drag (touch, or the mouse without the pointer locked) or mouse movement turns the aim: k rad a pixel, slower in the
   // sight; a drag right swings it right, up lifts it
   aimBy(dx, dy, k = 0.006) {
+    if (this.flyAim) { this.flyAimBy(dx, dy, k); return; }
     if (!this.groundAim) return;
     const s = k / (this.sight ? this.zoom : 1);
     this.aimYaw = wrapAngle(this.aimYaw - dx * s);
@@ -819,6 +845,147 @@ const Flight = {
   unlockPointer() {
     this._locked = false;
     if (document.pointerLockElement) { this._ownUnlock = true; try { document.exitPointerLock(); } catch (e) { /* not supported */ } }
+  },
+  // ------------------------------------------------------------------ planes: Aim, the mouse aim (PR #40)
+  // The circle is a way through the world: flyF (where it points) and flyU (the view's up), kept as their (east, up,
+  // north) parts at the craft, so the circle stays put over the ground as the plane flies on round the planet. The mouse
+  // (captured) or a drag turns it about the view's own axes, so it goes over the top in a loop; the view's up comes back to
+  // the sky's, gently, unless the circle points nearly straight up or down. Keys or the stick held fly the plane by hand
+  // (the manual law) and the circle rides the nose meanwhile. C held looks round (flyLook) while the plane holds the circle;
+  // a tap of C puts the circle on the nose. The vessel's instructor (Vessel.aimTarget) flies the nose onto flyDir.
+  flyAim: false, flyF: null, flyU: null, flyLook: null, flyDir: null, flyUp: null, flyCamDir: null, flyCamUp: null,
+  // aiming with the mouse or a drag: a ground vehicle's guns, or a plane's circle
+  mouseAim() { return this.groundAim || this.flyAim; },
+  // can a plane fly Aim here: the 3D view (or three.js still on its way), not the Retro 2D flight
+  aim3D() { return typeof App !== 'undefined' && !Silly.on('retro2d') && Render3D.supported && !Render3D.failed; },
+  planeTick(dt) {
+    const v = this.active, ok = this.running && !!v && v.parts.length > 0 && !v.dead && v.kind === 'plane' && v.sas === 'aim';
+    if (ok && !this.aim3D()) { this.setSas('hold'); this.toast('Aim needs the 3D view: the autopilot holds instead'); return; }
+    const on = ok && !this.destroyed && !this.mapMode && this.viewVessel === v;
+    if (on !== this.flyAim) {
+      this.flyAim = on; document.body.classList.toggle('flyaim', on);
+      if (!on) { this.flyLook = null; this.mouseFire = false; if (this._locked) this.unlockPointer(); }
+    }
+    if (!ok) { this._flyV = null; return; }
+    const F = surfaceFrame(v.x, v.y, v.z), toSim = (a, o) => { o.x = F.east.x * a.x + F.up.x * a.y + F.north.x * a.z; o.y = F.east.y * a.x + F.up.y * a.y + F.north.y * a.z; o.z = F.east.z * a.x + F.up.z * a.y + F.north.z * a.z; return o; };
+    if (this._flyV !== v || !this.flyF) this.flyAlong(v);
+    const c = v.ctl, R = this.stickAim;
+    if (c.v || c.h || c.r) this.flyAlong(v, true); // (flown by hand: the circle rides the nose)
+    else if (R && (R.x || R.y) && on) { // the stick: the circle's rate, about the view's own axes, up to 100°/s (× its speed)
+      const k = 1.745 * clamp(+Settings.get('stickSens') || 1, 0.3, 3) * dt, inv = Settings.get('aimInvert') ? -1 : 1;
+      this.flyAimBy(R.x, -R.y * inv, k, true);
+    }
+    if (this.flyLook && this.flyLookBack) this.flyLookEase(dt); // (a finger lifted after looking round: the view glides back)
+    for (const A of this.flyLook ? [this.flyLook, { f: this.flyF, u: this.flyU }] : [{ f: this.flyF, u: this.flyU }]) this.flyLevel(A.f, A.u, dt);
+    this.flyDir = toSim(this.flyF, this.flyDir || v3()); this.flyUp = toSim(this.flyU, this.flyUp || v3());
+    const L = this.flyLook;
+    this.flyCamDir = L ? toSim(L.f, this._lookD || (this._lookD = v3())) : this.flyDir; this.flyCamUp = L ? toSim(L.u, this._lookU || (this._lookU = v3())) : this.flyUp; // (looking round: its own vectors)
+    const D = v.aimDir || (v.aimDir = v3()); // (the vessel's own copy: the physics steps read it)
+    D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
+  },
+  // the circle on the nose (keep: the view's up as it was, else the sky's)
+  flyAlong(v, keep) {
+    const F = surfaceFrame(v.x, v.y, v.z), P = v.pilot, n = v.axis(P.F.x, P.F.y, P.F.z), u = v.axis(P.U.x, P.U.y, P.U.z);
+    const loc = (a) => v3(dot3(a, F.east), dot3(a, F.up), dot3(a, F.north));
+    this.flyF = loc(n);
+    const up = keep && this.flyU ? this.flyU : Math.abs(this.flyF.y) < 0.97 ? v3(0, 1, 0) : loc(u);
+    const k = dot3(up, this.flyF);
+    this.flyU = norm3(v3(up.x - this.flyF.x * k, up.y - this.flyF.y * k, up.z - this.flyF.z * k));
+    if (!len3(this.flyU) || !Number.isFinite(this.flyU.x)) this.flyU = norm3(loc(u));
+    this._flyV = v;
+  },
+  // its up back towards the sky's (2 rad/s; not near straight up or down, where the sky's up is no guide)
+  flyLevel(f, u, dt) {
+    const k = f.y, w = 1 - smoothstep(0.85, 0.97, Math.abs(k));
+    if (w <= 0) return;
+    const lx = -f.x * k, ly = 1 - f.y * k, lz = -f.z * k, ll = Math.hypot(lx, ly, lz);
+    if (ll < 1e-6) return;
+    const r = cross3(f, u), ang = Math.atan2((r.x * lx + r.y * ly + r.z * lz) / ll, (u.x * lx + u.y * ly + u.z * lz) / ll); // (about f, from u to the level up)
+    const a = clamp(ang, -2 * w * dt, 2 * w * dt), ca = Math.cos(a), sa = Math.sin(a);
+    const nx = u.x * ca + r.x * sa, ny = u.y * ca + r.y * sa, nz = u.z * ca + r.z * sa;
+    u.x = nx; u.y = ny; u.z = nz; norm3(u);
+  },
+  // a drag right turns the circle right, up lifts it, about the view's own axes (looking round: the view instead, unless
+  // circle: the stick, which always moves the circle)
+  flyAimBy(dx, dy, k, circle) {
+    const A = (!circle && this.flyLook) || { f: this.flyF, u: this.flyU };
+    if (!A.f) return;
+    const f = A.f, u = A.u, r = cross3(f, u), a = dx * k, b = -dy * k;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    let fx = f.x * ca + r.x * sa, fy = f.y * ca + r.y * sa, fz = f.z * ca + r.z * sa; // (right)
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const ux = u.x * cb - fx * sb, uy = u.y * cb - fy * sb, uz = u.z * cb - fz * sb; // (up)
+    fx = fx * cb + u.x * sb; fy = fy * cb + u.y * sb; fz = fz * cb + u.z * sb;
+    f.x = fx; f.y = fy; f.z = fz; norm3(f);
+    const d = ux * f.x + uy * f.y + uz * f.z; // (kept square to f)
+    u.x = ux - f.x * d; u.y = uy - f.y * d; u.z = uz - f.z * d; norm3(u);
+  },
+  // C: held, look round (the plane holds the circle); a tap, the circle on the nose
+  flyLookStart() { if (this.flyLook || !this.flyF) return; this.flyLook = { f: v3(this.flyF.x, this.flyF.y, this.flyF.z), u: v3(this.flyU.x, this.flyU.y, this.flyU.z) }; this.flyLookAt = performance.now(); },
+  flyLookEnd() {
+    if (!this.flyLook) return;
+    this.flyLook = null; this.flyLookBack = false;
+    if (performance.now() - (this.flyLookAt || 0) < 250 && this.active) this.flyAlong(this.active, true);
+  },
+  // On touch, a finger dragged on the view looks round (the circle stays where it is, the plane flies on to it); lifted,
+  // the view glides back onto the circle (flyLookEase). A double tap puts the circle on the nose.
+  flyLookDrag(dx, dy) {
+    if (!this.flyF) return;
+    if (!this.flyLook) this.flyLook = { f: v3(this.flyF.x, this.flyF.y, this.flyF.z), u: v3(this.flyU.x, this.flyU.y, this.flyU.z) };
+    this.flyLookBack = false;
+    this.flyAimBy(dx, dy, 0.006 * clamp(+Settings.get('aimSens') || 1, 0.3, 3));
+  },
+  flyLookRelease() { if (this.flyLook) this.flyLookBack = true; },
+  // the view back toward the circle: most of the way in a quarter second, settled within half a degree
+  flyLookEase(dt) {
+    const L = this.flyLook, k = 1 - Math.exp(-dt * 9);
+    const turn = (a, b, ax) => { // a toward b by k of the angle between (about ax when they're opposite)
+      const d = clamp(dot3(a, b), -1, 1), th = Math.acos(d);
+      if (th < 1e-6) { a.x = b.x; a.y = b.y; a.z = b.z; return 0; }
+      let n = cross3(a, b, v3());
+      if (len3(n) < 1e-6) n = v3(ax.x, ax.y, ax.z);
+      norm3(n);
+      const t = Math.max(th * k, Math.min(th, 0.6 * dt)), ca = Math.cos(t), sa = Math.sin(t), c = cross3(n, a, v3()), dn = dot3(n, a);
+      a.x = a.x * ca + c.x * sa + n.x * dn * (1 - ca); a.y = a.y * ca + c.y * sa + n.y * dn * (1 - ca); a.z = a.z * ca + c.z * sa + n.z * dn * (1 - ca);
+      norm3(a);
+      return th;
+    };
+    const tf = turn(L.f, this.flyF, L.u), tu = turn(L.u, this.flyU, L.f);
+    const d = dot3(L.u, L.f); L.u.x -= L.f.x * d; L.u.y -= L.f.y * d; L.u.z -= L.f.z * d; norm3(L.u); // (kept square to f)
+    if (tf < 0.008 && tu < 0.02) { this.flyLook = null; this.flyLookBack = false; }
+  },
+  // The HUD of Aim: the circle (white; amber when the g limit holds the pull back, red at the AoA's), a pale blue open
+  // cross where the nose points (where the guns shoot; the gun pipper, green, is Combat's), and a faint line between them
+  // while they're far apart
+  drawFlyAim(ctx, W, H, dpr) {
+    const v = this.active;
+    if (!this.flyAim || !v || !v.parts.length || !this.flyDir || !Render3D.ready || this.destroyed) return;
+    const bp = bodyPos(v.body, this.time), L = 2000, P = v.pilot, nose = v.axis(P.F.x, P.F.y, P.F.z), D = this.flyDir;
+    const c = Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
+    const n = Render3D.project(bp.x + v.x + nose.x * L, bp.y + v.y + nose.y * L, v.z + nose.z * L);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineWidth = 2;
+    const col = v.pitchLimit === 'aoa' ? '#ff5d5d' : v.pitchLimit === 'g' ? '#ffb547' : '#f2f5f7';
+    const off = Math.acos(clamp(dot3(nose, D), -1, 1));
+    if (!c.behind && !n.behind && off > 0.44) {
+      ctx.globalAlpha = 0.35; ctx.strokeStyle = '#f2f5f7'; ctx.setLineDash([4, 6]);
+      ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(c.x, c.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    if (!n.behind) { // (four ticks round an empty middle, pale blue: not the guns' green pipper, which may sit beside it)
+      const tick = (w, c) => {
+        ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(n.x + dx * 4, n.y + dy * 4); ctx.lineTo(n.x + dx * 11, n.y + dy * 11); }
+        ctx.stroke();
+      };
+      tick(4, 'rgba(8, 11, 16, 0.55)'); tick(2, '#9fe3ff');
+    }
+    if (!c.behind) {
+      ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(c.x, c.y, 17, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(c.x, c.y, 17, 0, TAU); ctx.stroke();
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   },
   // does the craft have any thrust parts (then Shift stays its throttle in aim mode)
   thrusty(v) { if (v._thrN !== v.parts.length) { v._thrN = v.parts.length; v._thr = v.parts.some((p) => p.def.thrust); } return v._thr; },
@@ -1218,46 +1385,51 @@ const Flight = {
   // ------------------------------------------------------------------ input
   bindDom() {
     const c = this.canvas;
+    // every key through the one binding table (Keys, controls.js): its defaults are the keys the game always had
     addEventListener('keydown', (e) => {
-      if (App.scene !== 'flight' || UI.modalOpen) return;
+      if (App.scene !== 'flight' || UI.modalOpen || Controls.editing) return;
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return; // typing in the chat
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if (e.repeat) return;
-      if (e.code !== 'ShiftLeft' && e.code !== 'ShiftRight') this._shiftTap = false; // (Shift+Tab: a modifier, not the sight)
-      if (e.code === 'KeyV') this.fireTap = true;
+      const K = (id) => Keys.is(e.code, id);
+      if (!K('sight')) this._shiftTap = false; // (Shift+Tab: a modifier, not the sight)
+      if (K('fire')) this.fireTap = true;
       if (this.groundAim && this.groundKey(e)) return; // (aiming a ground vehicle: its own keys first)
-      const sasKeys = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
-      if (sasKeys[e.code]) { this.setSas(sasKeys[e.code]); return; }
-      switch (e.code) {
-        case 'Space': this.stage(); break;
-        case 'KeyM': this.toggleMap(); break;
-        case 'KeyN': if (this.mapMode) this.setMapView(GlobeView.active ? 'system' : 'globe'); break;
-        case 'Comma': this.setWarp(this.warpIdx - 1); break;
-        case 'Period': this.setWarp(this.warpIdx + 1); break;
-        case 'KeyZ': this.setThrottle(1); break;
-        case 'KeyX': this.setThrottle(0); break;
-        case 'BracketLeft': case 'BracketRight': this.cycleVessel(e.code === 'BracketRight' ? 1 : -1); break;
-        case 'Tab': Combat.cycle(this, e.shiftKey ? -1 : 1); this.updateHUD(true); break;
-        case 'Escape': case 'KeyP': this.openMenu(); break;
-        case 'KeyR': if (this.canRecover()) this.recover(); break;
-        case 'KeyC': if (App.use3D()) Render3D.resetCamera(); break;
-        case 'KeyF': this.cycleFlaps(); break;
-        case 'KeyG': this.toggleGear(); break;
-        case 'KeyK': this.countermeasures(); break;
-        case 'KeyL': this.launchCatapult(); break;
-      }
+      if (this.flyAim && K('camera')) { this.flyLookStart(); return; } // (a plane in Aim: C held looks round)
+      const sas = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
+      for (const id in sas) if (K(id)) { this.setSas(sas[id]); return; }
+      if (e.code === 'Escape') this.openMenu(); // (Esc always: not a binding)
+      else if (K('stage')) this.stage();
+      else if (K('map')) this.toggleMap();
+      else if (K('mapView')) { if (this.mapMode) this.setMapView(GlobeView.active ? 'system' : 'globe'); }
+      else if (K('warpDown')) this.setWarp(this.warpIdx - 1);
+      else if (K('warpUp')) this.setWarp(this.warpIdx + 1);
+      else if (K('thrFull')) this.setThrottle(1);
+      else if (K('thrCut')) this.setThrottle(0);
+      else if (K('prevCraft') || K('nextCraft')) this.cycleVessel(K('nextCraft') ? 1 : -1);
+      else if (K('weapon')) { Combat.cycle(this, e.shiftKey ? -1 : 1); this.updateHUD(true); }
+      else if (K('menu')) this.openMenu();
+      else if (K('recover')) { if (this.canRecover()) this.recover(); }
+      else if (K('camera')) { if (App.use3D()) Render3D.resetCamera(); }
+      else if (K('flaps')) this.cycleFlaps();
+      else if (K('gear')) this.toggleGear();
+      else if (K('cm')) this.countermeasures();
+      else if (K('catapult')) this.launchCatapult();
     });
     addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
-      if (e.code === 'KeyC' && this.freeLook) this.endFreeLook();
-      // Shift on its own toggles the gunner's sight, on its way up (with a key pressed meanwhile it was a modifier)
-      if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && this._shiftTap) { this._shiftTap = false; if (App.scene === 'flight' && this.groundAim && !UI.modalOpen) this.setSight(!this.sight); }
+      if (Keys.is(e.code, 'camera') && this.freeLook) this.endFreeLook();
+      if (Keys.is(e.code, 'camera') && this.flyLook) this.flyLookEnd();
+      // Shift (a modifier bound to the sight) on its own toggles the gunner's sight, on its way up (with a key pressed
+      // meanwhile it was a modifier)
+      if (Keys.is(e.code, 'sight') && Keys.mod(e.code) && this._shiftTap) { this._shiftTap = false; if (App.scene === 'flight' && this.groundAim && !UI.modalOpen) this.setSight(!this.sight); }
     });
     addEventListener('blur', () => {
-      this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.touchBrake = false; this.touchFire = false;
+      this.keys.clear(); Object.assign(this.stick, { v: 0, h: 0, r: 0 }); this.stickAim.x = this.stickAim.y = 0; this.touchBrake = false; this.touchFire = false;
       this.mouseFire = false; this.touchMG = false; this._shiftTap = this._capBtn = false; if (this.sightHold) { this.sightHold = false; this.setSight(false); }
       if (this.freeLook) { this.freeLook = false; this.aimYaw = this.freeYaw; this.aimPitch = this.freePitch; } // (C let go in another window: back to the guns' aim)
+      this.flyLook = null; this.flyLookBack = false; // (and a plane's view back on its circle)
     });
     document.addEventListener('visibilitychange', () => { if (this.running) this.syncAwake(); });
     // pointer lock (aim mode, a mouse): the game's own release says nothing; one the player makes (Esc) opens the menu
@@ -1287,7 +1459,7 @@ const Flight = {
       // aiming with a mouse: the first click captures it (and doesn't fire); captured, the buttons fire (left) and hold the
       // sight (right); without the capture (refused, or none on this device) a left drag aims and the right button holds
       // the sight; nothing orbits
-      if (this.groundAim && e.pointerType === 'mouse' && !this.mapMode) {
+      if (this.mouseAim() && e.pointerType === 'mouse' && !this.mapMode) {
         if (this._locked) { this.mouseButtons(e.buttons); return; }
         if (e.button === 2) { this.mouseButtons(2); return; }
         if (e.button !== 0) return;
@@ -1298,15 +1470,15 @@ const Flight = {
       if (this.pointers.size === 2) this.pinch = this.pinchInfo();
       if (this.groundAim) GHUD.press(this, e, this.pointers.size === 1); // (a long press on an enemy's tag spots it)
     });
-    c.addEventListener('contextmenu', (e) => { if (this.groundAim) e.preventDefault(); }); // (the right button holds the sight)
+    c.addEventListener('contextmenu', (e) => { if (this.mouseAim()) e.preventDefault(); }); // (the right button holds the sight)
     c.addEventListener('pointermove', (e) => {
       if (App.scene !== 'flight') return;
-      if (this._locked && this.groundAim && e.pointerType === 'mouse') { // (captured: the mouse's own movement aims; clientX/Y stand still)
+      if (this._locked && this.mouseAim() && e.pointerType === 'mouse') { // (captured: the mouse's own movement aims; clientX/Y stand still)
         this.mouseButtons(e.buttons);
         this.aimBy(e.movementX || 0, e.movementY || 0, 0.0022 * (Settings.get('aimSens') || 1));
         return;
       }
-      if (this.groundAim && e.pointerType === 'mouse') { // (a second button comes as a move: the left onto a held right starts a drag)
+      if (this.mouseAim() && e.pointerType === 'mouse') { // (a second button comes as a move: the left onto a held right starts a drag)
         this.mouseButtons(e.buttons);
         if (e.buttons & 1 && !this.pointers.has(e.pointerId) && !this.mapMode) { try { c.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() }); return; }
       }
@@ -1320,21 +1492,38 @@ const Flight = {
         if (this.mapMode) this.mapPan(now.cx - this.pinch.cx, now.cy - this.pinch.cy);
         this.pinch = now;
       } else if (this.pointers.size === 1 && this.mapMode) this.mapPan(dx, dy);
-      else if (this.pointers.size === 1 && this.groundAim) { this.aimBy(dx, dy, (e.pointerType === 'mouse' ? 0.0035 : 0.006) * (Settings.get('aimSens') || 1)); GHUD.dragged(p, e); }
+      else if (this.pointers.size === 1 && this.flyAim && e.pointerType !== 'mouse') this.flyLookDrag(dx, dy); // (a plane in Aim, a finger: look round; only the stick moves the circle)
+      else if (this.pointers.size === 1 && this.mouseAim()) { this.aimBy(dx, dy, (e.pointerType === 'mouse' ? 0.0035 : 0.006) * (Settings.get('aimSens') || 1)); if (this.groundAim) GHUD.dragged(p, e); }
       else if (this.pointers.size === 1 && App.use3D()) Render3D.orbitBy(dx, dy);
     });
-    c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D() && !this.groundAim) Render3D.resetCamera(); });
+    c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D() && !this.mouseAim()) Render3D.resetCamera(); });
     const up = (e) => {
       if (App.scene !== 'flight') return;
       // (captured: no tap, no drag; the click that asked for the capture may end after it came, and goes from the list)
-      if (this.groundAim && e.pointerType === 'mouse') { this.mouseButtons(e.buttons); if (this._locked) { this.pointers.delete(e.pointerId); this.pinch = null; return; } }
+      if (this.mouseAim() && e.pointerType === 'mouse') { this.mouseButtons(e.buttons); if (this._locked) { this.pointers.delete(e.pointerId); this.pinch = null; return; } }
       if (this.groundAim) GHUD.press(this, e, false);
       const p = this.pointers.get(e.pointerId);
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = null;
+      if (this.flyAim && e.pointerType !== 'mouse' && !this.pointers.size) this.flyLookRelease(); // (the view glides back onto the circle)
       if (!p || e.type === 'pointercancel') return;
       const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy);
-      if (moved < 10 && performance.now() - p.t < 450 && this.pointers.size === 0) this.tapAt(e.clientX, e.clientY);
+      if (!(moved < 10 && performance.now() - p.t < 450 && this.pointers.size === 0)) return;
+      // a plane in Aim, a finger: a double tap puts the circle on the nose (a single tap waits to see it isn't one)
+      if (this.flyAim && e.pointerType !== 'mouse') {
+        const now = performance.now(), L = this._tap1;
+        clearTimeout(this._tapT);
+        if (L && now - L.t < 330 && Math.hypot(e.clientX - L.x, e.clientY - L.y) < 40) {
+          this._tap1 = null;
+          if (this.active) { this.flyAlong(this.active, true); this.flyLook = null; this.flyLookBack = false; haptic(12); }
+          return;
+        }
+        const x = e.clientX, y = e.clientY;
+        this._tap1 = { t: now, x, y };
+        this._tapT = setTimeout(() => { this._tap1 = null; if (App.scene === 'flight' && this.running && !Controls.editing) this.tapAt(x, y); }, 330);
+        return;
+      }
+      this.tapAt(e.clientX, e.clientY);
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
@@ -1351,23 +1540,8 @@ const Flight = {
     };
     hold($('#rot-left'), -1);
     hold($('#rot-right'), 1);
-    // the flight stick: drag the knob; up is W (nose down, drive forward), right is D
-    const joy = $('#joy'), knob = joy.querySelector('.joy-knob');
-    let joyId = null;
-    const joyMove = (e) => {
-      const r = joy.getBoundingClientRect(), R = r.width * 0.36;
-      let dx = (e.clientX - (r.left + r.width / 2)) / R, dy = (e.clientY - (r.top + r.height / 2)) / R;
-      const l = Math.hypot(dx, dy);
-      if (l > 1) { dx /= l; dy /= l; }
-      knob.style.transform = `translate(${dx * R}px, ${dy * R}px)`;
-      const dead = (x) => (Math.abs(x) < 0.12 ? 0 : (x - Math.sign(x) * 0.12) / 0.88);
-      this.stick.h = dead(dx); this.stick.v = dead(-dy);
-    };
-    const joyOff = () => { joyId = null; this.stick.h = 0; this.stick.v = 0; knob.style.transform = ''; joy.classList.remove('held'); };
-    joy.addEventListener('pointerdown', (e) => { e.preventDefault(); joyId = e.pointerId; joy.setPointerCapture(e.pointerId); joy.classList.add('held'); joyMove(e); });
-    joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyMove(e); });
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) joy.addEventListener(ev, (e) => { if (e.pointerId === joyId) joyOff(); });
-    joy.addEventListener('contextmenu', (e) => e.preventDefault());
+    // the flight stick: the floating stick in its zone (controls.js, Controls.bindStick): up is W (nose down, drive
+    // forward), right is D; a plane in Aim: it moves the circle
     const brake = $('#btn-brake');
     const brakeOff = () => { this.touchBrake = false; brake.classList.remove('held'); };
     brake.addEventListener('pointerdown', (e) => { e.preventDefault(); brake.setPointerCapture && brake.setPointerCapture(e.pointerId); this.touchBrake = true; brake.classList.add('held'); });
@@ -1377,7 +1551,7 @@ const Flight = {
     const fire = $('#btn-fire');
     const fireOff = () => { this.touchFire = false; this.fireAt = null; fire.classList.remove('held'); };
     fire.addEventListener('pointerdown', (e) => { e.preventDefault(); fire.setPointerCapture && fire.setPointerCapture(e.pointerId); this.touchFire = true; this.fireTap = true; this.fireAt = { x: e.clientX, y: e.clientY }; fire.classList.add('held'); haptic(10); });
-    // aiming a ground vehicle: one thumb fires and aims, sliding on FIRE
+    // aiming a ground vehicle: one thumb fires and aims, sliding on FIRE (a plane in Aim: FIRE only fires, the stick aims)
     fire.addEventListener('pointermove', (e) => {
       const p = this.fireAt;
       if (!p || !this.groundAim) return;
@@ -1424,21 +1598,21 @@ const Flight = {
   },
   // A ground vehicle's own keys while aiming (§8.4); true when the key was one of them
   groundKey(e) {
-    const v = this.active, k = e.code;
+    const v = this.active, k = e.code, K = (id) => Keys.is(k, id);
     if (!v) return false;
-    const d = /^Digit([1-4])$/.exec(k);
-    if (d) { if (Aim.select(v, +d[1] - 1, this)) { Sound.click(); this.updateHUD(true); } return true; } // shells (twice: unload, reload with it now)
-    switch (k) {
-      case 'Space': return true; // (held: the machine guns; the Stage button still stages)
-      case 'ShiftLeft': case 'ShiftRight': if (this.thrusty(v)) return false; this._shiftTap = true; return true; // (the sight: on the keyup)
-      case 'PageUp': case 'PageDown': if (!Aim.realistic()) return false; e.preventDefault(); this.zero = clamp((this.zero || 800) + (k === 'PageUp' ? 100 : -100), 200, 3000); this.updateHUD(true); return true; // (Realistic: the sight's range)
-      case 'KeyL': { const on = Aim.lockKey(v); if (Aim.kit(v).track) { this.toast(on ? 'Radar: looking for a lock' : 'Radar lock off'); this.updateHUD(true); } return true; }
-      case 'KeyJ': GHUD.spot(this); return true;
-      case 'KeyM': GHUD.tactical(!GHUD.tacOpen); return true;
-      case 'Escape': if (!GHUD.tacOpen) return false; GHUD.tactical(false); return true; // (Esc shuts the tactical map first)
-      case 'KeyY': GHUD.zeroKey(this); return true; // (Realistic aim: the sight set to the rangefinder's range, or the commander's reading; R stays Recover)
-      case 'KeyC': this.freeLook = true; this.freeAt = performance.now(); this.freeYaw = this.aimYaw; this.freePitch = this.aimPitch; return true;
+    for (let i = 0; i < 4; i++) if (K(`shell${i + 1}`)) { if (Aim.select(v, i, this)) { Sound.click(); this.updateHUD(true); } return true; } // shells (twice: unload, reload with it now)
+    if (K('mg')) return true; // (held: the machine guns; the Stage button still stages)
+    if (K('sight') && !(K('thrUp') && this.thrusty(v))) { // (with thrust parts aboard, a key that is the throttle's stays the throttle)
+      if (Keys.mod(k)) this._shiftTap = true; else this.setSight(!this.sight); // (a modifier: on the keyup, unless it was one)
+      return true;
     }
+    if ((K('zeroUp') || K('zeroDown')) && Aim.realistic()) { e.preventDefault(); this.zero = clamp((this.zero || 800) + (K('zeroUp') ? 100 : -100), 200, 3000); this.updateHUD(true); return true; } // (Realistic: the sight's range)
+    if (K('lock')) { const on = Aim.lockKey(v); if (Aim.kit(v).track) { this.toast(on ? 'Radar: looking for a lock' : 'Radar lock off'); this.updateHUD(true); } return true; }
+    if (K('spot')) { GHUD.spot(this); return true; }
+    if (K('tacMap')) { GHUD.tactical(!GHUD.tacOpen); return true; }
+    if (k === 'Escape') { if (!GHUD.tacOpen) return false; GHUD.tactical(false); return true; } // (Esc shuts the tactical map first)
+    if (K('zero')) { GHUD.zeroKey(this); return true; } // (Realistic aim: the sight set to the rangefinder's range, or the commander's reading; R stays Recover)
+    if (K('camera')) { this.freeLook = true; this.freeAt = performance.now(); this.freeYaw = this.aimYaw; this.freePitch = this.aimPitch; return true; }
     return false;
   },
   // C let go: after a look round (held), the view comes back to where the guns aim; a tap aims straight ahead
@@ -1483,6 +1657,7 @@ const Flight = {
     if (this.mapMode) { this.updatePrediction(); MapView.fit(this); GlobeView.open(this); }
     $('#btn-map').classList.toggle('on', this.mapMode);
     document.body.classList.toggle('mapping', this.mapMode); // (the map keeps the HUD's blur: style.css)
+    Controls.measureStick(); // (the stick's zone: just the ring on the map, so a drag elsewhere pans it)
     $('#map-legend').hidden = !this.mapMode;
     $('#btn-center').hidden = !this.mapMode;
     this.syncMapView();
@@ -1566,16 +1741,17 @@ const Flight = {
     const alt = v.altitude();
     if (v.kind !== 'rocket' && b === EARTH) return this.vehicleHint(v);
     if (b === EARTH) {
-      if (v.stageIdx === 0 && v.landed && this.time < 20) return 'Tap STAGE (Space) to light the engines.';
+      const T = Controls.touch, k = (id) => Keys.k(id);
+      if (v.stageIdx === 0 && v.landed && this.time < 20) return `Tap STAGE (${k('stage')}) to light the engines.`;
       const lean = Math.PI / 2 - v.attitude().pitch;
       if (!this.flags.space && alt < 2500 && v.thrust > 0) return 'Climb straight up for now.';
-      if (!this.flags.space && alt < 22000 && v.thrust > 0 && lean < 0.35) return isTouch ? 'Push the stick right to lean east, toward 45°, and build sideways speed.' : 'Lean east with D toward 45° to build sideways speed.';
+      if (!this.flags.space && alt < 22000 && v.thrust > 0 && lean < 0.35) return T ? 'Push the stick right to lean east, toward 45°, and build sideways speed.' : `Lean east with ${k('right')} toward 45° to build sideways speed.`;
       if (o && !o.degenerate && o.ra - EARTH.radius > 34000 && o.rp < EARTH.radius + 30000 && alt < 30000 && v.thrust > 0)
-        return 'Apoapsis is above the air. Cut the throttle (X) and coast up.';
+        return `Apoapsis is above the air. Cut the throttle (${k('thrCut')}) and coast up.`;
       if (o && !o.degenerate && o.e < 1 && o.rp < EARTH.radius + 30000 && alt > 28000 && v.thrust === 0 && !v.landed)
-        return 'Coast to apoapsis, press PRO (2) and burn until periapsis passes 30 km.';
+        return `Coast to apoapsis, press PRO (${k('sasPro')}) and burn until periapsis passes 30 km.`;
       if (o && !o.degenerate && o.e < 1 && o.rp > EARTH.radius + 30000 && !this.flags['soi:moon'] && !this.target)
-        return 'In orbit! Open the map (M) and tap the Moon to target it.';
+        return `In orbit! Open the map (${k('map')}) and tap the Moon to target it.`;
       if (this.target && this.window && this.window.wait > 120) return `Warp ahead: the ${this.target.name} transfer window opens in ${fmt.duration(this.window.wait)}.`;
       if (this.target && this.window && this.window.wait <= 120 && !(this.approach && this.approach.encounter)) return 'Window open: burn prograde until the map shows an encounter.';
       const chute = v.parts.find((p) => p.def.chute && !p.deployed && !p.used);
@@ -1583,45 +1759,48 @@ const Flight = {
       if (this.canRecover()) return 'Safely down. Tap Recover to finish the mission.';
     }
     if (b !== EARTH && !b.star && v.landed && this.flags[`land:${b.id}`]) return `You landed on ${b.name}. Plan your trip home from the map.`;
-    if (b !== EARTH && !b.star && o && !o.degenerate && o.e >= 1 && !v.landed) return `Burn retrograde (3) near periapsis to be captured by ${b.name}.`;
+    if (b !== EARTH && !b.star && o && !o.degenerate && o.e >= 1 && !v.landed) return `Burn retrograde (${Keys.k('sasRetro')}) near periapsis to be captured by ${b.name}.`;
     return '';
   },
 
   vehicleHint(v) {
+    const T = Controls.touch, k = (id) => Keys.k(id), ws = `${k('fwd')}/${k('back')}`, ad = `${k('left')}/${k('right')}`; // (the keys as bound: W/S, A/D by default)
     if (this._bodyGround) { // (a ground vehicle with tracks, armoured wheels or the ground update's guns)
       if (this.time > 15 || this.mp || this.shotYet) return ''; // (P4 play-test: not for 30 s, over the kill banner and the targets' labels on a phone)
-      if (this.groundAim) return isTouch ? 'Left thumb drives. Drag the view, or slide on FIRE, to aim. Binoculars: the gunner’s sight.'
-        : 'W/S drive, A/D turn (tracks turn on the spot). Click the view: the mouse aims, left click fires, hold right for the sight.';
-      return isTouch ? 'The stick drives: up goes, sideways turns (on the spot when stopped).' : 'W/S drive, A/D turn: tracks turn on the spot. Hold B to brake.';
+      if (this.groundAim) return T ? 'Left thumb drives. Drag the view, or slide on FIRE, to aim. Binoculars: the gunner’s sight.'
+        : `${ws} drive, ${ad} turn (tracks turn on the spot). Click the view: the mouse aims, left click fires, hold right for the sight.`;
+      return T ? 'The stick drives: up goes, sideways turns (on the spot when stopped).' : `${ws} drive, ${ad} turn: tracks turn on the spot. Hold ${k('brake')} to brake.`;
     }
     const sp = v.speed(), ga = this.groundAlt(v), started = v.parts.some((p) => p.def.thrust && p.active);
     if (this.canRecover() && this.stats.maxSpeed > 8) return 'Safely stopped. Tap Recover to finish, or carry on.';
     if (v.kind === 'plane' && this.catapult && this.catapult.state === 'hold') {
-      if (!started) return 'On the catapult: tap STAGE (Space) to start the engine.';
-      return v.throttle < 0.9 ? 'Full throttle (Z), then hit LAUNCH (L).' : 'Catapult ready: hit LAUNCH (L).';
+      if (!started) return `On the catapult: tap STAGE (${k('stage')}) to start the engine.`;
+      return v.throttle < 0.9 ? `Full throttle (${k('thrFull')}), then hit LAUNCH (${k('catapult')}).` : `Catapult ready: hit LAUNCH (${k('catapult')}).`;
     }
     if (v.kind === 'plane') {
-      if (!started && v.parts.some((p) => p.def.thrust)) return 'Tap STAGE (Space) to start the engine.';
-      if (v.wheelsDown && v.throttle < 0.9 && sp < 20 && !this.flags.takeoff) return 'Full throttle (Z) and roll down the runway.';
-      if (v.wheelsDown && !this.flags.takeoff) return sp < 50 ? (isTouch ? 'Keep rolling straight (the stick steers the nose wheel)…' : 'Keep rolling straight (A/D steer the nose wheel)…') : (isTouch ? 'Pull the stick back gently to take off.' : 'Pull up gently with S to take off.');
+      if (!started && v.parts.some((p) => p.def.thrust)) return `Tap STAGE (${k('stage')}) to start the engine.`;
+      if (v.wheelsDown && v.throttle < 0.9 && sp < 20 && !this.flags.takeoff) return `Full throttle (${k('thrFull')}) and roll down the runway.`;
+      if (v.wheelsDown && !this.flags.takeoff) return sp < 50 ? (T ? 'Keep rolling straight (the stick steers the nose wheel)…' : `Keep rolling straight (${ad} steer the nose wheel)…`)
+        : this.flyAim ? (T ? 'Push the stick up: the circle rises over the horizon, and the plane takes off.' : `Lift the circle over the horizon (the mouse, or ${k('back')}) to take off.`) : (T ? 'Pull the stick back gently to take off.' : `Pull up gently with ${k('back')} to take off.`);
       if (v.aoa != null && !v.wheelsDown && v.aoa > v.stallAoA * 0.9) return 'Stalling! Push the nose down and add power.';
-      if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return 'Raise the gear (G) to cut drag.';
-      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return isTouch ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : 'Bank with A/D to turn, pitch with W/S. Press 2 for level flight (holds altitude), 3 to hold a heading.';
+      if (!v.wheelsDown && v.gearUp === false && v.hasRetract && sp > 90 && ga > 150) return `Raise the gear (${k('gear')}) to cut drag.`;
+      if (!v.wheelsDown && ga < 600 && !this.flags.flyHigh) return this.flyAim ? (T ? 'The stick moves the circle: the plane flies to it, the cross is where the nose (and the guns) point. Drag the view to look round; double-tap it to put the circle on the nose.' : `Move the mouse: the plane flies to the circle; the cross is where the nose (and the guns) point. Hold ${k('camera')} to look round.`)
+        : T ? 'Stick left/right banks to turn, forward/back pitches. The horizon button holds your altitude for you.' : `Bank with ${ad} to turn, pitch with ${ws}. Press ${k('apLevel')} for level flight (holds altitude), ${k('apHeading')} to hold a heading.`;
       if (!v.wheelsDown && ga > 150 && !this.mp && Combat.systems(v).length && Combat.S.kills === 0 && this.time - (this.weaponHintAt ?? (this.weaponHintAt = this.time)) < 40)
-        return Settings.get('targets') === 'off' ? (isTouch ? 'Hold FIRE to shoot; tap the weapon chip to change weapon. Turn on targets in Settings.' : 'Hold V to fire, Tab changes weapon. Turn on targets in Settings for something to shoot.')
-          : (isTouch ? 'Targets wait around the islands (the brackets). Hold FIRE to shoot; tap the weapon chip to change weapon.' : 'Targets wait around the islands (the brackets). Hold V to fire, Tab changes weapon.');
+        return Settings.get('targets') === 'off' ? (T ? 'Hold FIRE to shoot; tap the weapon chip to change weapon. Turn on targets in Settings.' : `Hold ${k('fire')} to fire, ${k('weapon')} changes weapon. Turn on targets in Settings for something to shoot.`)
+          : (T ? 'Targets wait around the islands (the brackets). Hold FIRE to shoot; tap the weapon chip to change weapon.' : `Targets wait around the islands (the brackets). Hold ${k('fire')} to fire, ${k('weapon')} changes weapon.`);
       if (!v.wheelsDown && v.mach > 0.85 && v.mach < 1 && !this.flags.machOne) return 'Nearly Mach 1. Keep going to break the sound barrier!';
-      if (v.wheelsDown && sp > 2) return 'Hold B (Brake) to stop.';
+      if (v.wheelsDown && sp > 2) return `Hold ${k('brake')} (Brake) to stop.`;
       return '';
     }
     if (v.kind === 'car') {
-      if (sp < 1 && !this.flags.drive1k) return isTouch ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 18 km out across the sea to Shetland.' : 'W/S to drive, A/D to steer, hold B to brake. The causeway leads 18 km out across the sea to Shetland.';
+      if (sp < 1 && !this.flags.drive1k) return T ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 18 km out across the sea to Shetland.' : `${ws} to drive, ${ad} to steer, hold ${k('brake')} to brake. The causeway leads 18 km out across the sea to Shetland.`;
       return '';
     }
     if (v.kind === 'heli') {
-      if (!started) return 'Tap STAGE (Space) to start the rotor.';
-      if (v.landed && v.throttle < 0.6) return isTouch ? 'Raise the throttle until it lifts off.' : 'Raise the throttle (Shift) until it lifts off.';
-      if (!v.landed && !this.flags.hover) return isTouch ? 'The stick tilts it to fly that way; let go and it levels out. ⟲ ⟳ turn. Lower the throttle to come down.' : 'W/A/S/D tilt it to fly that way; let go and it levels out. Q/E turn. Lower the throttle (Ctrl) to come down.';
+      if (!started) return `Tap STAGE (${k('stage')}) to start the rotor.`;
+      if (v.landed && v.throttle < 0.6) return T ? 'Raise the throttle until it lifts off.' : `Raise the throttle (${k('thrUp')}) until it lifts off.`;
+      if (!v.landed && !this.flags.hover) return T ? 'The stick tilts it to fly that way; let go and it levels out. ⟲ ⟳ turn. Lower the throttle to come down.' : `${k('fwd')}/${k('left')}/${k('back')}/${k('right')} tilt it to fly that way; let go and it levels out. ${k('rollL')}/${k('rollR')} turn. Lower the throttle (${k('thrDown')}) to come down.`;
       return '';
     }
     return '';
@@ -1640,7 +1819,9 @@ const Flight = {
   structAlert(v) {
     if (!v || v.landed || this.destroyed || !(v.airspeed > 20)) return null;
     const sp = v.overspeed > 1 ? { kind: 'speed', level: 2 } : Math.max(v.overspeed || 0, v.overWarn || 0) > 0.9 ? { kind: 'speed', level: 1 } : null;
-    if (v.kind === 'plane' && v.strain > 0.85) {
+    // (a plane flown by a law that keeps it inside its limits, hold, level, heading or Aim (its keys too): no warning under
+    // the wings' rating, the plane is keeping itself safe; past it, or flown by hand (Off), the warning as ever)
+    if (v.kind === 'plane' && v.strain > (v.planeLaw && v.sas !== 'manual' ? 1 : 0.85)) {
       const stress = v.overspeed > 1 ? 0 : v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0); // (stress from flutter is the speed's doing)
       const g = { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };
       if (!sp || g.level > sp.level || (g.level === sp.level && (sp.level < 2 || v.strain > 1))) return g;
@@ -1781,8 +1962,9 @@ const Flight = {
 
     const next = v.stages[v.stageIdx];
     set('stage-num', v.stageIdx < v.stages.length ? `Stage ${v.stageIdx + 1}/${v.stages.length}` : 'Staging done');
-    set('stage-next', next ? describeStage(next, v.byId) : gnd ? (isTouch ? 'The stick drives · hold Brake to stop' : 'Drive with W/S, turn with A/D · hold B to brake')
-      : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? 'Drive with W/S, steer A/D · hold B to brake' : 'Tap parts to use them');
+    const kk = (id) => Keys.k(id);
+    set('stage-next', next ? describeStage(next, v.byId) : gnd ? (Controls.touch ? 'The stick drives · hold Brake to stop' : `Drive with ${kk('fwd')}/${kk('back')}, turn with ${kk('left')}/${kk('right')} · hold ${kk('brake')} to brake`)
+      : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? `Drive with ${kk('fwd')}/${kk('back')}, steer ${kk('left')}/${kk('right')} · hold ${kk('brake')} to brake` : 'Tap parts to use them');
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length && !v.gear.length; // (running gear brakes too)
     const ws = Combat.status(v);
     $('#weapon-box').hidden = !ws || this.destroyed;
@@ -1808,6 +1990,7 @@ const Flight = {
     $('#hint').hidden = !h;
     set('hint-text', h);
     if (gnd || this._gsync) { this._gsync = gnd; GHUD.sync(this, ws); } // (the ground controls; once more as they go)
+    Controls.keyHints(this, false, ws); // (a desktop's key hints: rebuilt only when what they say changes)
     if (force) { this.updateThrottleDom(); this.syncSas(); }
   },
 

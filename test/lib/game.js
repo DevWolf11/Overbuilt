@@ -35,6 +35,7 @@ function load(opts = {}) {
   if (opts.flight) { // world.js brings the real Settings and FX
     run('var navigator = {}; var innerWidth = 800, innerHeight = 600;');
     run(src(root, 'world.js') + '\nthis.Settings = Settings; this.FX = FX; this.World = World;', 'world.js');
+    if (has('controls.js')) run(src(root, 'controls.js') + '\nthis.Keys = Keys; this.Controls = Controls;', 'controls.js'); // (the key bindings: flight.js's hints and help read them)
   } else {
     run(`var Settings = { get: (k) => ({ targets: 'hostile', high: false })[k] };
       var FX = { add() {}, explosion() {}, sparks() {}, puff() {}, splash() {}, clear() {}, list: [] };`);
@@ -45,7 +46,7 @@ function load(opts = {}) {
     const ret = '  return {\n    S, step,';
     if (!cs.includes(ret)) throw new Error("combat.js: its final 'return { S, step, ...' moved; update test/lib/game.js");
     const names = ['boxesOf', 'hitVessel', 'muzzle', 'explode', 'destroyPart', 'fireGun', 'fireRocket', 'launchMissile', 'dropBomb',
-      'systems', 'playerFrame', 'spawnFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
+      'systems', 'playerFrame', 'spawnFighter', 'flyFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
       'chaff', 'dispenser', 'autoCM', 'cmFX', 'decoyed', 'chaffBreaks', 'siteSees', 'clearLine', 'makeTarget', 'shipSamFire', 'samFire', 'at', 'rangeOf',
       'rwrOf', 'hostileMissile', 'lockers', 'rwrAdvice', 'turretStep', 'airframe',
       'candidates', 'refPos', 'guide', 'guideAir', 'moveShot', 'netShot', 'netFlares', 'countermeasures', 'segPoint', 'damage', 'aiDown', 'targetCentre']

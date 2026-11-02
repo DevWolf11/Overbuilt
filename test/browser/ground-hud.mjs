@@ -90,11 +90,11 @@ const layout = () => {
   // the hint: its words, not the strip it sits in
   const hint = document.querySelector('#hint'), ht = hint && !hint.hidden && hint.querySelector('#hint-text');
   const panels = {
-    telemetry: rect('#flight-ui .telemetry'), controls: rect('#flight-ui .left-controls'), bar: rect('#mp-bar'), topRight: rect('#flight-ui .flight-top-right'),
+    telemetry: rect('#flight-ui .telemetry'), controls: rect('#flight-ui .left-controls'), keys: rect('#key-hints'), bar: rect('#mp-bar'), topRight: rect('#flight-ui .flight-top-right'),
     hint: ht ? rect(ht.textContent ? hint : null) : null, brake: rect('#btn-brake'), roomScope: M ? { l: M.x - M.R, t: M.y - M.R, r: M.x + M.R, b: M.y + M.R } : null,
   };
   const f = hud.fire, mid = f && document.elementFromPoint((f.l + f.r) / 2, (f.t + f.b) / 2);
-  return { W: innerWidth, H: innerHeight, hud, panels, ground: document.body.classList.contains('ground'), aim: Flight.groundAim, sight: Flight.sight, fireMid: !!mid && mid.closest('button') === document.querySelector('#btn-fire') };
+  return { W: innerWidth, H: innerHeight, hud, panels, pc: document.body.classList.contains('pc'), ground: document.body.classList.contains('ground'), aim: Flight.groundAim, sight: Flight.sight, fireMid: !!mid && mid.closest('button') === document.querySelector('#btn-fire') };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L, need) {
@@ -106,10 +106,11 @@ function judge(tag, L, need) {
     for (let j = i + 1; j < H.length; j++) if (meets(a, H[j][1])) clash.push(`${k}/${H[j][0]}`);
     for (const [p, c] of Object.entries(L.panels)) if (meets(a, c)) clash.push(`${k}/${p}`);
   }
-  ok(`${tag} (${L.W}×${L.H}): the ground HUD clear of itself and the panels, on the screen`, L.ground && L.aim && !clash.length && !off.length && !missing.length && L.fireMid,
+  ok(`${tag} (${L.W}×${L.H}): the ground HUD clear of itself and the panels, on the screen`, L.ground && L.aim && !clash.length && !off.length && !missing.length && (L.fireMid || (L.pc && !L.hud.fire)),
     JSON.stringify({ clash, off, missing, fireMid: L.fireMid, hud: L.hud, panels: L.panels }));
 }
 const NEED = ['fire', 'smoke', 'chip', 'sight', 'mg', 'lock', 'range', 'shells', 'map', 'diagram', 'scope'];
+const NEED_PC = ['chip', 'range', 'shells', 'map', 'diagram', 'scope']; // (a desktop: no touch buttons, the key hints in their corner: the controls update)
 
 // ---- 1. the layout, on four screens; the HUD's cost a frame and its DOM writes on the phone
 const SIZES = [['phone portrait', [390, 844, true]], ['small phone', [375, 667, true]], ['phone on its side', [844, 390, true]], ['desktop', [1280, 720, false]]];
@@ -118,13 +119,15 @@ for (const [tag, vp] of SIZES) {
   await fly(page, 'Kit', KIT);
   await page.waitForTimeout(1300); // (the places are looked up once a second)
   const L = await page.evaluate(layout);
-  judge(tag, L, NEED);
+  judge(tag, L, L.pc ? NEED_PC : NEED);
   await shot(page, `hud-${vp[0]}x${vp[1]}`);
-  // (P4 play-test) the round buttons' words inside their circles: LOCK reading "Locked", SMOKE
+  // (P4 play-test) the round buttons' words inside their circles: LOCK reading "Locked", SMOKE (touch controls only)
+  if (!L.pc) {
   const fit = await page.evaluate(() => ['#btn-lock', '#btn-cm'].map((q) => { const b = document.querySelector(q), t0 = b.textContent; if (q === '#btn-lock') b.textContent = 'Locked';
     const r = b.getBoundingClientRect(), g = document.createRange(); g.selectNodeContents(b); const w = g.getBoundingClientRect(); b.textContent = t0;
     return { q, txt: q === '#btn-lock' ? 'Locked' : t0, gap: [Math.round(w.left - r.left), Math.round(r.right - w.right)] }; }));
   ok(`${tag}: the round LOCK ("Locked") and SMOKE buttons' words fit inside them`, fit.every((f) => f.gap[0] >= 1 && f.gap[1] >= 1), fit);
+  }
   if (tag === 'phone portrait') {
     // the HUD's 2D-context calls a frame (aiming on, the diagram, the radar scope, the range): at most 120
     await page.evaluate(() => { Render3D.skipDraw = true; window.__ops.length = 0; });
@@ -265,7 +268,7 @@ for (const [tag, vp] of SIZES) {
   await fly(page, 'Rocket Kit', ROCKET);
   await page.waitForTimeout(1300);
   const LR = await page.evaluate(layout);
-  judge(`${tag}, a stage left and thrust aboard`, LR, [...NEED, 'stage', 'throttle']);
+  judge(`${tag}, a stage left and thrust aboard`, LR, [...(LR.pc ? NEED_PC : NEED), 'stage', 'throttle']);
   await shot(page, `hud-stage-${vp[0]}x${vp[1]}`);
   await pageErrors(page, tag + ' ');
   await ctx.close();
@@ -475,13 +478,17 @@ for (const [tag, vp] of [['in a room, on its side', [844, 390]], ['in a room, up
   ok('the sight narrows the view to 50/zoom degrees and back; markers (project) and metresPerPixelAt agree', good(p0, 50) && good(p1, 50 / 3) && good(p2, 50 / 8) && good(p3, 50) && p1.sightOn && !p3.sightOn && p1.px > p0.px * 2.8,
     JSON.stringify({ p0, p1, p2, p3 }));
 
-  // the reload ring: fire the main gun; while it reloads an arc goes round FIRE
+  // the reload ring: fire the main gun; while it reloads an arc goes round FIRE (FIRE is a touch control: a desktop shows it
+  // with Settings → Touch controls On, a touchscreen laptop's way)
+  await page.evaluate(() => { Settings.set('touchUI', 'on'); Controls.applyMode(); Controls.relayout(); GHUD._S.P = null; });
+  await page.waitForTimeout(1200); // (the places: looked up once a second)
   await page.evaluate(() => { Flight.fireTap = true; });
   await page.waitForFunction(() => { const st = Aim.status(Flight.active); if (st && st.reload >= 1 && !Flight.fireTap) Flight.fireTap = true; return st && st.reload < 1; }, null, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(400); // (a frame or two drawn since)
   const ring = await page.evaluate(() => { const f = GHUD._S.P && GHUD._S.P.fire, st = Aim.status(Flight.active); return { f, reload: st && st.reload, paused: Flight.paused, modal: UI.modalOpen, t: Flight.time, ammo: st && st.part && st.part.ammo, arcs: window.__arcs.slice(), hit: !!f && window.__arcs.some(([x, y, r]) => Math.abs(x - f.x) < 1.5 && Math.abs(y - f.y) < 1.5 && r > f.r) }; });
   ok('the reload ring draws round FIRE while the gun reloads', ring.reload < 1 && ring.hit, { reload: ring.reload, paused: ring.paused, modal: ring.modal, t: ring.t, ammo: ring.ammo, fire: ring.f, arcs: ring.arcs.slice(0, 6) });
   await shot(page, 'reload-1280x720');
+  await page.evaluate(() => { Settings.set('touchUI', 'auto'); Controls.applyMode(); Controls.relayout(); });
 
   // Blocked when the crosshair is on the ground: a TK-34 14 m downhill of a berm's crest (Highland Ridge, the one between
   // zones A and C), looking over it up the far slope: the camera sees the ground 120 m out, the gun's round would bury
