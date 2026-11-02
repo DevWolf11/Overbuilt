@@ -563,7 +563,7 @@ kbd {
   .kind-select { flex: 1 1 100%; }
   /* no room for a third round button: the brake sits beside the autopilot grid instead */
   .left-controls .rot-controls { position: relative; }
-  .round.brake { position: absolute; left: 146px; bottom: calc(100% + 18px); width: 56px; height: 56px; font-size: 11px; }
+  .round.brake { position: absolute; left: 146px; bottom: calc(100% + 30px); width: 56px; height: 56px; font-size: 11px; } /* (clear of the stage box: PR #40) */
   .chip-hint { white-space: normal; text-align: center; width: max-content; max-width: calc(100% - 32px); }
 }
 @media (max-height: 500px) {
@@ -603,9 +603,10 @@ kbd {
 }
 
 /* ---- planes: autopilot modes, flaps and gear */
-.sas.plane { grid-template-columns: repeat(4, 38px); }
-@media (max-width: 760px) { .sas.plane { grid-template-columns: repeat(4, 38px); } }
-@media (max-height: 500px) { .sas.plane { grid-template-columns: repeat(4, 32px); } }
+/* (five plane modes, PR #40: one row; on a phone in portrait two rows of three, clear of the Brake beside them) */
+.sas.plane { grid-template-columns: repeat(5, 38px); }
+@media (max-width: 760px) { .sas.plane { grid-template-columns: repeat(3, 38px); } }
+@media (max-height: 500px) { .sas.plane { grid-template-columns: repeat(5, 32px); } }
 .air-btns { display: flex; gap: 6px; }
 .air-btns:not(:has(.pill:not([hidden]))) { display: none; }
 .pill {
@@ -743,6 +744,8 @@ kbd {
 .round.fire.held, .round.fire:active { background: rgba(255, 93, 93, 0.45); color: #fff; }
 @media (pointer: fine) { .round.fire { width: 58px; height: 58px; font-size: 11px; } }
 @media (max-width: 760px) { .weapon-box { right: calc(var(--gut-r) + 54px); bottom: calc(168px + var(--safe-b)); } }
+/* (a phone on its side: the chip, FIRE and CM in a row over the stage box, clear of the buttons top right: PR #40) */
+@media (max-height: 500px) { .weapon-box { flex-direction: row-reverse; bottom: calc(158px + var(--safe-b)); } }
 .toast.kill { border-color: #ff5d5d; color: #ffd0d0; font-weight: 700; }
 
 /* ---- the ground AI (groundai.js): the Tank Range's score and the Practice Battle's tickets and zones, in the time

@@ -3167,12 +3167,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // ---- camera: orbit around the craft, following its heading; never below the ground. Aiming a ground vehicle's guns
     // (F.aimCam): behind and over its turret looking along the aim, the crosshair in the middle (or at the gunner's sight)
     const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
+    // (a plane in Aim, the mouse aim, PR #40: behind the craft and a little over it, looking along the circle, the view's
+    // up the circle's, so a loop goes over the top; the zoom is the follow camera's)
+    const FA = !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
     let dist, rx, ry, rz;
     if (AC) {
       dist = aimDist(F);
       aimEye(v, S.sightOn, D, dist, T3);
       rx = T3.x; ry = T3.y; rz = T3.z;
       fc.vessel = null; // (the follow camera starts afresh after aiming)
+    } else if (FA) {
+      dist = (H / 2) / F.scale / TANH;
+      rx = vx - PD.x * dist + PU.x * dist * 0.2; ry = vy - PD.y * dist + PU.y * dist * 0.2; rz = vz - PD.z * dist + PU.z * dist * 0.2;
+      fc.vessel = null;
     } else {
       followCam(v, dt, false);
       const s = 1 - Math.exp(-dt * 14);
@@ -3195,6 +3202,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
     if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else if (FA) { toView(PU.x, PU.y, PU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(PD.x, PD.y, PD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else camera.lookAt(0, 0, 0);
     const sh = flutterShake(F, v, clock); // (a fluttering wing shakes the view)
     if (sh) { camera.rotateX(sh.y * 0.012); camera.rotateY(sh.x * 0.012); }

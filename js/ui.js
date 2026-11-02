@@ -74,6 +74,7 @@ const ICONS = {
   sasDown: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15M6 13l6 6 6-6"/></svg>',
   sasLevel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 13h20"/><path d="M7 13a5 5 0 0 1 10 0"/><path d="M12 8V5"/></svg>',
   sasHeading: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 6l2.5 6H9.5z"/><path d="M12 12v6"/></svg>',
+  sasAim: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></svg>',
   sasOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>',
   sasTarget: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9z"/><circle cx="12" cy="12" r="1.5"/></svg>',
   plane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h15l4-4h1l-1 6H4z"/><path d="M8 14l3-5h2l-1 5M10 14l2 4h2l-1-4"/></svg>',

@@ -1,0 +1,204 @@
+// Aim, the mouse aim for planes (PR #40), in the real page:
+//  - A new plane flight starts in Aim (the autopilot bar's Aim pressed); a restored save keeps its own mode, and an old
+//    save's Off flies the manual law (the Off button pressed); the Retro 2D flight doesn't offer Aim (no button, the key
+//    says why).
+//  - A desktop: the first click captures the mouse (and doesn't fire); the mouse's movement under the lock moves the circle
+//    (right turns it right, up lifts it) and the plane follows it; a click under the lock fires; held keys fly the plane
+//    by hand and the circle rides the nose; C held looks round (the circle stays where it was), a tap puts the circle on
+//    the nose; 4 is Off (the manual law), 5 back to Aim.
+//  - A phone: a drag on the view moves the circle, and so does a slide on FIRE; the stick takes over while held.
+//  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720), the
+//    autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills, FIRE, CM, the weapon chip, the throttle,
+//    the stage box, the flight data and the buttons top right stay on the screen and clear of each other, and the circle
+//    sits on the screen clear of them; no console errors (App.frame swallows them).
+// SHOTS=<dir> saves screenshots there (aim-*.png).
+//   node test/browser/plane-aim.mjs
+import fs from 'node:fs';
+import path from 'node:path';
+import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
+const SHOTS = process.env.SHOTS || null;
+if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
+const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `aim-${name}.png`) }); };
+const srv = await serve(), b = await launch(), errs = [];
+const ok = checks('plane-aim: Aim, the mouse aim, and the manual law in the page');
+
+const instrument = () => {
+  window.__errs = [];
+  addEventListener('error', (e) => window.__errs.push('onerror ' + e.message));
+  for (const [o, k, n] of [[Flight, 'update', 'Flight.update'], [Flight, 'drawFlyAim', 'Flight.drawFlyAim'], [Render3D, 'renderFlight', 'Render3D.renderFlight']]) {
+    const f = o[k]; o[k] = function (...a) { try { return f.apply(this, a); } catch (e) { window.__errs.push(`${n}: ${e && e.stack}`); throw e; } };
+  }
+};
+async function open(vp, settings = {}, tag = '') {
+  const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] }), page = await ctx.newPage();
+  watch(page, errs, tag);
+  await openGame(page, srv.url, settings);
+  await page.evaluate(instrument);
+  return { ctx, page };
+}
+// a template in the air (the arena's air start: over the spot, flying along its nose, gear up, engines running)
+async function fly(page, key = 'fs16', speed = 200) {
+  await page.evaluate(async ([key, speed]) => {
+    await Render3D.load();
+    App.toBuild(); Builder.loadTemplate(key); store.set('rss.flight', null); App.showScene('flight');
+    Flight.start(Builder.serialize(), { place: { e: 0, z: 0, yaw: 0, air: { alt: 1500, speed } } });
+  }, [key, speed]);
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.time > 0.6, null, { timeout: 60000 });
+}
+const until = (page, t) => page.waitForFunction((t) => Flight.time > t, t, { timeout: 180000 });
+const frames = (page, n = 2) => page.evaluate((n) => new Promise((done) => { let i = 0; const f = () => (++i >= n ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+const pageErrors = async (page, tag) => { const e = await page.evaluate(() => window.__errs.splice(0)); for (const x of e) errs.push(tag + x); };
+const state = (page) => page.evaluate(() => {
+  const v = Flight.active, P = v.pilot, n = v.axis(P.F.x, P.F.y, P.F.z), D = Flight.flyDir, F = surfaceFrame(v.x, v.y, v.z);
+  return { sas: v.sas, flyAim: Flight.flyAim, off: D ? Math.acos(Math.max(-1, Math.min(1, n.x * D.x + n.y * D.y + n.z * D.z))) * 57.2958 : null,
+    right: D ? D.x * F.north.x + D.y * F.north.y + D.z * F.north.z : null, up: D ? D.x * F.up.x + D.y * F.up.y + D.z * F.up.z : null,
+    pressed: [...document.querySelectorAll('[data-sas]')].filter((b) => !b.hidden && b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.sas),
+    shown: [...document.querySelectorAll('[data-sas]')].filter((b) => !b.hidden).map((b) => b.dataset.sas), locked: Flight._locked, look: !!Flight.flyLook, firing: Flight.firing };
+});
+
+// ---- where everything is (the plane's HUD), and the circle on screen
+const layout = () => {
+  const rect = (q) => { const e = typeof q === 'string' ? document.querySelector(q) : q; if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width && r.height && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+  const items = { stick: rect('#joy'), rollL: rect('#rot-left'), rollR: rect('#rot-right'), brake: rect('#btn-brake'), flaps: rect('#btn-flaps'), gear: rect('#btn-gear'),
+    fire: rect('#btn-fire'), cm: rect('#btn-cm'), chip: rect('#btn-weapon'), throttle: rect('#flight-ui .throttle-box'), stage: rect('#flight-ui .stage-box'),
+    telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp') };
+  document.querySelectorAll('#sas-bar [data-sas]').forEach((b) => { const r = rect(b); if (r) items['sas-' + b.dataset.sas] = r; });
+  const v = Flight.active, bp = bodyPos(v.body, Flight.time), D = Flight.flyDir, L = 2000;
+  const c = D && Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
+  return { W: innerWidth, H: innerHeight, items, circle: c && !c.behind ? { l: c.x - 16, t: c.y - 16, r: c.x + 16, b: c.y + 16 } : null };
+};
+const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+function judge(tag, L) {
+  const clash = [], off = [], E = Object.entries(L.items);
+  for (let i = 0; i < E.length; i++) {
+    const [k, a] = E[i];
+    if (!a) continue;
+    if (a.l < -0.5 || a.t < -0.5 || a.r > L.W + 0.5 || a.b > L.H + 0.5) off.push(k);
+    for (let j = i + 1; j < E.length; j++) if (meets(a, E[j][1])) clash.push(`${k}/${E[j][0]}`);
+    if (meets(a, L.circle)) clash.push(`${k}/circle`);
+  }
+  const need = ['stick', 'fire', 'throttle', 'telemetry', 'sas-aim'].filter((k) => !L.items[k]);
+  const onScreen = !!L.circle && L.circle.l >= 0 && L.circle.t >= 0 && L.circle.r <= L.W && L.circle.b <= L.H;
+  ok(`${tag} (${L.W}×${L.H}): the plane's HUD clear of itself and of the circle, on the screen`, !clash.length && !off.length && !need.length && onScreen, JSON.stringify({ clash, off, need, onScreen, circle: L.circle }));
+}
+
+// ---- a desktop
+{
+  const { ctx, page } = await open([1280, 720, false], {}, 'desktop ');
+  await fly(page);
+  let s = await state(page);
+  ok('a new plane flight starts in Aim: the Aim button pressed, the circle on the nose', s.sas === 'aim' && s.flyAim && s.pressed.join() === 'aim' && s.shown.join() === 'hold,level,heading,off,aim' && s.off < 6, s);
+  judge('desktop', await page.evaluate(layout));
+  await shot(page, 'desktop');
+  // a stand-in pointer lock (headless Chromium's own gives synthetic moves huge jumps)
+  await page.evaluate(() => {
+    const c = Flight.canvas; window.__pl = null;
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => window.__pl });
+    c.requestPointerLock = () => { window.__pl = c; setTimeout(() => document.dispatchEvent(new Event('pointerlockchange'))); };
+    document.exitPointerLock = () => { if (!window.__pl) return; window.__pl = null; setTimeout(() => document.dispatchEvent(new Event('pointerlockchange'))); };
+    window.__used = 0; const u = Flight.usePart; Flight.usePart = function (...a) { window.__used++; return u.apply(this, a); };
+  });
+  const mid = [640, 250];
+  await page.mouse.move(mid[0], mid[1]); await page.mouse.down(); await page.mouse.up();
+  await page.waitForTimeout(150);
+  s = await state(page);
+  ok('the first click captures the mouse, and neither fires nor uses a part', s.locked && !s.firing && (await page.evaluate(() => window.__used)) === 0, s);
+  // under the lock: 200 px right, 100 px up, in steps (0.0022 rad a pixel: about 25° right and 13° up)
+  for (let i = 0; i < 10; i++) await page.evaluate(() => Flight.canvas.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true, clientX: 640, clientY: 250, movementX: 20, movementY: -10 })));
+  await frames(page);
+  s = await state(page);
+  ok('the mouse moves the circle: right turns it right, up lifts it', s.right > 0.3 && s.up > 0.12 && s.off > 15, s);
+  const t1 = await page.evaluate(() => Flight.time);
+  await until(page, t1 + 4);
+  const s2 = await state(page);
+  ok('the plane flies its nose onto the circle (within 8° after 4 s)', s2.off < 8, { before: s.off, after: s2.off });
+  await page.mouse.down(); await frames(page);
+  const fire = await page.evaluate(() => Flight.firing); await page.mouse.up(); await frames(page);
+  ok('a click under the lock fires', fire);
+  // keys fly it by hand; the circle rides the nose
+  await page.keyboard.down('KeyD'); await until(page, (await page.evaluate(() => Flight.time)) + 0.6);
+  s = await state(page);
+  await page.keyboard.up('KeyD');
+  ok('held keys fly it (the manual law) and the circle rides the nose', s.off < 3 && s.sas === 'aim', s);
+  // C held looks round: the camera along another way, the circle where it was; a tap puts the circle on the nose
+  await page.keyboard.down('KeyC');
+  for (let i = 0; i < 5; i++) await page.evaluate(() => Flight.canvas.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true, clientX: 640, clientY: 250, movementX: 60, movementY: 0 })));
+  await frames(page);
+  const look = await page.evaluate(() => ({ look: !!Flight.flyLook, apart: Flight.flyCamDir !== Flight.flyDir && Math.acos(Math.max(-1, Math.min(1, Flight.flyCamDir.x * Flight.flyDir.x + Flight.flyCamDir.y * Flight.flyDir.y + Flight.flyCamDir.z * Flight.flyDir.z))) * 57.3 }));
+  await page.keyboard.up('KeyC'); await frames(page);
+  const after = await state(page);
+  ok('C held looks round (the view turned, the circle kept), let go the view comes back', look.look && look.apart > 20 && !after.look, { look, after });
+  await page.keyboard.down('KeyC'); await page.keyboard.up('KeyC'); await frames(page);
+  s = await state(page);
+  ok('a tap of C puts the circle on the nose', s.off < 3, s);
+  // 4: Off (the manual law), 5: Aim again
+  await page.keyboard.press('Digit4'); await frames(page); s = await state(page);
+  const off = s;
+  await page.keyboard.press('Digit5'); await frames(page); s = await state(page);
+  ok('4 is Off (the manual law, the Off button pressed), 5 is Aim again', off.sas === 'manual' && off.pressed.join() === 'off' && !off.flyAim && s.sas === 'aim' && s.flyAim, { off, aim: s });
+  // a restored save keeps its mode; an old save's Off flies the manual law
+  const restored = await page.evaluate(() => {
+    Flight.active.sas = 'level'; Flight.save(); const d = store.get('rss.flight'); Flight.restore(d); const a = Flight.active.sas;
+    d.vessels[d.active].sas = 'off'; Flight.restore(d); return [a, Flight.active.sas, [...document.querySelectorAll('[data-sas]')].filter((b) => !b.hidden && b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.sas).join()];
+  });
+  ok('a restored flight keeps its own mode (never switched to Aim); a saved Off flies the manual law', restored[0] === 'level' && restored[1] === 'manual' && restored[2] === 'off', restored);
+  await pageErrors(page, 'desktop ');
+  await ctx.close();
+}
+
+// ---- a phone in portrait: a drag on the view and a slide on FIRE move the circle; the stick takes over while held
+for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
+  const tag = `phone ${vp[0]}×${vp[1]} `;
+  const { ctx, page } = await open(vp, {}, tag);
+  await fly(page);
+  let s = await state(page);
+  judge(tag.trim(), await page.evaluate(layout));
+  await shot(page, `${vp[0]}x${vp[1]}`);
+  if (vp[0] === 390) {
+    // a finger's drag on open sky
+    const at = [vp[0] * 0.55, vp[1] * 0.3];
+    const top = await page.evaluate(([x, y]) => document.elementFromPoint(x, y) === Flight.canvas, at);
+    const cdp = await ctx.newCDPSession(page);
+    const touch = async (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+    await touch('touchStart', at[0], at[1]);
+    for (let i = 1; i <= 8; i++) await touch('touchMove', at[0] + i * 10, at[1] - i * 4);
+    await touch('touchEnd'); await frames(page);
+    const s1 = await state(page);
+    ok('a drag on the view moves the circle (right and up)', top && s1.right > s.right + 0.2 && s1.up > s.up + 0.05, { top, before: s, after: s1 });
+    // a slide on FIRE
+    const f = await page.evaluate(() => { const r = document.querySelector('#btn-fire').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    await touch('touchStart', f[0], f[1]);
+    for (let i = 1; i <= 6; i++) await touch('touchMove', f[0] - i * 8, f[1]);
+    await frames(page);
+    const firing = await page.evaluate(() => Flight.firing);
+    await touch('touchEnd'); await frames(page);
+    const s2 = await state(page);
+    ok('a slide on FIRE fires and moves the circle', firing && s2.right < s1.right - 0.1, { before: s1.right, after: s2.right, firing });
+    // the stick takes over while held, the circle on the nose
+    const j = await page.evaluate(() => { const r = document.querySelector('#joy').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+    await touch('touchStart', j[0], j[1]); await touch('touchMove', j[0] + 30, j[1]);
+    await until(page, (await page.evaluate(() => Flight.time)) + 0.5);
+    const s3 = await state(page);
+    await touch('touchEnd');
+    ok('the stick flies it while held, the circle riding the nose', s3.off < 3 && s3.sas === 'aim', s3);
+  }
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ---- the Retro 2D flight: no Aim
+{
+  const { ctx, page } = await open([1280, 720, false], {}, '2d ');
+  await page.evaluate(() => Silly.set('retro2d', true));
+  await fly(page);
+  await page.keyboard.press('Digit5'); await frames(page);
+  const s = await state(page);
+  ok('the Retro 2D flight doesn\'t offer Aim: it starts in hold, no Aim button, 5 says why', s.sas === 'hold' && !s.shown.includes('aim') && !s.flyAim, s);
+  await page.evaluate(() => Silly.set('retro2d', false));
+  await pageErrors(page, '2d ');
+  await ctx.close();
+}
+
+ok('no console errors', !errs.length, errs.slice(0, 6).join('\n'));
+await b.close(); srv.close();
+ok.done();

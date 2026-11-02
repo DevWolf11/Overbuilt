@@ -98,6 +98,7 @@ const App = {
             Render3D.renderFlight(Flight, d, calm || d !== dt); // (several frames' time in one isn't a slow frame)
             this.clear2D();
             World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (Flight.flyAim) Flight.drawFlyAim(this.ctx, this.W, this.H, this.dpr); // (a plane in Aim: the circle and the nose cross)
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
             if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
@@ -340,11 +341,11 @@ const App = {
         <li><b>Orbit.</b> Once apoapsis clears 30 km, cut the engines, coast up, press PRO and burn until periapsis also clears 30 km.</li>
         <li><b>Travel.</b> In the map, tap a planet or moon to target it. The HUD tells you when the transfer window opens. Warp to it, burn prograde until an encounter appears, then burn retrograde at periapsis to be captured.</li>
         <li><b>Come home hot.</b> Returns from the Moon and planets heat the leading part. Lead with a heat shield, then open the parachute below 250 m/s.</li>
-        <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (S) at about 55 m/s. Bank with A/D to turn, Q/E use the rudder. Let go and the autopilot holds your pitch and bank. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1. Every wing has a speed limit (the builder shows it): past it, it flutters and tears off, so slow down when the Overspeed warning comes up.</li>
+        <li><b>Planes.</b> Built nose-right with wings, a tail and landing gear; they take off from the runway. Full throttle, then pull back (S), or lift the circle, at about 55 m/s. A new flight starts in Aim (5): move the mouse (click the view to capture it) or drag, and the plane flies its nose to the circle, the cross is where it points now and where the guns shoot; keys still fly it by hand (the circle follows), hold C to look round. Or fly the stick: bank with A/D to turn, Q/E use the rudder, and the autopilot holds your pitch and bank when you let go (1); Off (4) is yours alone: the stick asks for g, the plane stays trimmed and stops rolling when you let go, but it can stall and over-g. Fast jets can break the sound barrier: watch for the vapour cone at Mach 1. Every wing has a speed limit (the builder shows it): past it, it flutters and tears off, so slow down when the Overspeed warning comes up.</li>
         <li><b>Missiles.</b> A hostile missile in sight, within 4 km, shows a red MSL marker. Only a warning receiver (RWR, in the Weapons tab) tells you one is homing on you: the basic one that it's coming, the advanced one what kind, from where and what to do. Without one, keep looking around. K drops flares and chaff; flying solo, with an RWR on board, they go out by themselves.</li>
         <li><b>Cars and helicopters.</b> Cars drive with W/S and steer with A/D. Helicopters lift off as you raise the throttle (Shift); the stick tilts them to fly that way and they level out when you let go, Q/E turn. Hold B (or Brake) to stop on the ground.</li>
         <li><b>Armour (tanks, SPAA, launchers).</b> W/S drive, A/D turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or Shift) is the gunner's sight. 1–4 choose the next shell, Space the machine guns, K smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
-        <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, C to reset. It follows behind planes, cars and helicopters and beside rockets. On touch screens the stick at the bottom left flies the craft.</li>
+        <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, C to reset. It follows behind planes, cars and helicopters and beside rockets; in Aim it looks along the circle. On touch screens the stick at the bottom left flies the craft (in Aim it takes over from the circle while you hold it).</li>
       </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
@@ -439,8 +440,11 @@ const App = {
     am.addEventListener('change', () => Settings.set('aimMode', am.value));
     const sens = el('input', { id: 'set-aim-sens', type: 'range', min: '0.3', max: '3', step: '0.1', value: String(Settings.get('aimSens') || 1) });
     sens.addEventListener('input', () => Settings.set('aimSens', +sens.value));
+    // planes: start a flight in Aim (the mouse aim: the plane flies to the circle), or on the stick with the hold autopilot
+    const pa = el('input', { id: 'set-plane-aim', type: 'checkbox' }); pa.checked = !!Settings.get('planeAim');
+    pa.addEventListener('change', () => Settings.set('planeAim', pa.checked));
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
-      row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
+      row(isTouch ? 'Planes: drag to aim' : 'Planes: mouse aim', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {
