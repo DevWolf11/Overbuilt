@@ -204,7 +204,7 @@ const GroundAI = (() => {
     k.w = clamp(dy * 4, -rate, rate);
     k.yaw = wrapAngle(k.yaw + k.w * dt);
     const ne = k.e + k.s * Math.cos(k.yaw) * dt, nz = k.z - k.s * Math.sin(k.yaw) * dt;
-    if (blocked(v, k, ne, nz)) k.s = 0;
+    if (blocked(v, k, ne, nz) || propBlocked(k, ne, nz)) k.s = 0;
     else { k.e = ne; k.z = nz; }
     // (standing still, it stops looking at the ground after two fits, and the pose stops too: a parked target costs nothing)
     if (k.s !== 0 || k.w !== 0) k.idle = 0; else k.idle += dt;
@@ -229,6 +229,14 @@ const GroundAI = (() => {
       if (de * de + dz * dz < pe * pe + pz * pz) return true;
     }
     return false;
+  }
+  // would (e, z) put it into a building, a wall or a rock (props.js), or deeper in than it is? (its circle, a little
+  // inside its hull's: it brushes past corners; the trees, hedges and fences it drives into fall over: Props.crushStep)
+  const PROPS = () => typeof Props !== 'undefined';
+  function propBlocked(k, e, z) {
+    if (!PROPS()) return false;
+    const r = k.r * 0.8, p1 = Props.pen2D(e, z, r);
+    return p1 > 0 && p1 >= Props.pen2D(k.e, k.z, r) - 1e-6;
   }
   // The pose drawn and hit this frame: the last move carried on for `ahead` s, on the ground's plane (blended from the
   // last fit to this one), the hull square to it, facing its yaw; with its velocity and its turn (no allocation)
@@ -334,7 +342,7 @@ const GroundAI = (() => {
         a.flankReq = false;
         const te = a.tgtU.e - k.e, tz = a.tgtU.z - k.z, tl = Math.hypot(te, tz) || 1, sd = (a.flankSide = -(a.flankSide || 1));
         const fe = k.e + (-tz / tl) * 150 * sd + (te / tl) * 60, fz = k.z + (te / tl) * 150 * sd + (tz / tl) * 60;
-        if (!wetAt(fe, fz)) { a.flank = { e: fe, z: fz, until: F.time + 25 }; a.cover = null; }
+        if (!wetAt(fe, fz) && !(PROPS() && !Props.freeAt(fe, fz, k.r + 2))) { a.flank = { e: fe, z: fz, until: F.time + 25 }; a.cover = null; }
       }
       if (a.flank && (F.time > a.flank.until || Math.hypot(a.flank.e - k.e, a.flank.z - k.z) < 8)) a.flank = null;
       if (a.cover && a.cover.until && F.time > a.cover.until) a.cover = null; // (a few metres on or back: 10 s at most)
@@ -380,7 +388,7 @@ const GroundAI = (() => {
     let best = null, bm = -Infinity;
     for (const [f, sd] of SHIFT) {
       const e = k.e + ce * f - cz * sd, z = k.z + cz * f + ce * sd, D = Math.hypot(a.tgtU.e - e, a.tgtU.z - z) || 1;
-      if (S.obs.some((o) => o.v !== v && Math.hypot(o.e - e, o.z - z) < o.r + k.r + 1) || wetAt(e, z)) continue;
+      if (S.obs.some((o) => o.v !== v && Math.hypot(o.e - e, o.z - z) < o.r + k.r + 1) || wetAt(e, z) || (PROPS() && !Props.freeAt(e, z, k.r))) continue;
       const h0 = groundAt(e - ce * k.L, z - cz * k.L), h1 = groundAt(e + ce * k.L, z + cz * k.L);
       const need = Math.atan2(ht - (h0 + h1) / 2 - gh, D) + (GRAV / 2) * a.tof * a.tof / D - Math.atan2(h1 - h0, 2 * k.L), m = Math.min(need - el[0] * RAD, el[1] * RAD - need);
       if (m > bm) { bm = m; best = { e, z, rev: f < 0, until: F.time + 10 }; }
@@ -390,7 +398,7 @@ const GroundAI = (() => {
   // d m on toward the target (dry), or null
   function ahead(v, F, d) {
     const a = v.ai, k = a.k, te = a.tgtU.e - k.e, tz = a.tgtU.z - k.z, D = Math.hypot(te, tz) || 1, e = k.e + (te / D) * d, z = k.z + (tz / D) * d;
-    return wetAt(e, z) ? null : { e, z, until: F.time + 10 };
+    return wetAt(e, z) || (PROPS() && !Props.freeAt(e, z, k.r)) ? null : { e, z, until: F.time + 10 };
   }
   // the round's time of flight to the target (for the lead), worked out here, 4 times a second, not each frame
   function flight(v) {
@@ -433,6 +441,21 @@ const GroundAI = (() => {
       if (fw <= 0 || Math.abs(lat) >= lane) continue;
       yw += (lat > 0 ? 1 : -1) * 0.8 * (1 - Math.abs(lat) / lane);
       slow = Math.min(slow, clamp((fw - k.r - o.r) / 15, 0.15, 1));
+    }
+    // buildings, walls and rocks in the way (props.js; it may crush trees and fences): its lane toward the goal blocked
+    // within 35 m, the nearest heading either side whose lane is clear for 20 m, keeping to the side it chose last
+    // (else slow, and the stuck rule below backs it off and turns it)
+    if (PROPS()) {
+      const L = Math.min(d, 35), hw = k.r * 0.8 + 1.2, cl = Props.lane(k.e, k.z, Math.cos(yw), -Math.sin(yw), L, hw);
+      if (cl < L) {
+        let pick = null;
+        const L2 = Math.min(L, 20), sides = (a.pside || 1) > 0 ? [1, -1] : [-1, 1];
+        for (let i = 1; i <= 8 && pick == null; i++) for (const sg of sides) {
+          const y2 = yw + sg * i * 0.3;
+          if (Props.lane(k.e, k.z, Math.cos(y2), -Math.sin(y2), L2, hw) >= L2) { pick = y2; a.pside = sg; break; }
+        }
+        if (pick != null) { yw = pick; slow = Math.min(slow, 0.6); } else slow = Math.min(slow, clamp((cl - k.r) / 15, 0.15, 1));
+      }
     }
     // a look ahead every 0.5 s: water there, or too steep to climb (its own limit, at most 22°): swing off to one side
     // for 2 s (the other side if that side is no better)
@@ -526,6 +549,19 @@ const GroundAI = (() => {
       const e = b.e + px * 7 * side, z = b.z + pz * 7 * side, d = Math.hypot(e - k.e, z - k.z);
       if (d < bd && Math.hypot(u.e - e, u.z - z) <= AI.engage) { bd = d; best = { e, z, b }; }
     }
+    // and the props (props.js): behind a low wall, sandbags or a boulder, as behind a berm (hull down); at the corner of a
+    // house, a barn or a ruin, on the side nearer its own way, its gun past the wall
+    if (PROPS()) for (const c of Props.coverNear(k.e, k.z, AI.cover)) {
+      if (c.p === v.ai.badB && t === v.ai.badFor) continue;
+      const te = u.e - c.e, tz = u.z - c.z, tl = Math.hypot(te, tz) || 1, ue = te / tl, uz = tz / tl;
+      if (((k.e - c.e) * ue + (k.z - c.z) * uz) > c.r) continue; // (it is on the target's side of it)
+      let e, z;
+      if (c.low) { e = c.e - ue * (c.r + k.r * 0.6 + 1.5); z = c.z - uz * (c.r + k.r * 0.6 + 1.5); }
+      else { const sd = (k.e - c.e) * -uz + (k.z - c.z) * ue >= 0 ? 1 : -1, off = c.r + k.r + 1.5; e = c.e - uz * off * sd - ue * (k.r * 0.5); z = c.z + ue * off * sd - uz * (k.r * 0.5); }
+      const d = Math.hypot(e - k.e, z - k.z);
+      if (d >= bd || Math.hypot(u.e - e, u.z - z) > AI.engage || !Props.freeAt(e, z, k.r * 0.8) || wetAt(e, z)) continue;
+      bd = d; best = { e, z, b: c.p };
+    }
     return best;
   }
   const arenaOf = () => (S.b ? GroundMode.arena(S.b.arena) : GroundMode.arena('highland'));
@@ -615,7 +651,7 @@ const GroundAI = (() => {
   // dropping as the round falls, against the physics' ground (what shells hit), every 2 m near the gun, out to every
   // 20 m; every metre where the line runs within a metre of the ground, and every 0.75 m over a berm's top (as shells
   // look: a line grazing a crest crosses it in a couple of metres)
-  const PM = v3(), PD = v3(), PL = {}, PEZ = { e: 0, z: 0 }, BS = [0, 0];
+  const PM = v3(), PD = v3(), PL = {}, PEZ = { e: 0, z: 0 }, BS = [0, 0], PA = v3(), PB = v3();
   let pP = null, pU = null, pV0 = 800, pUx = 0, pUy = 0, pUz = 0;
   function gapAt(s) {
     const q = 4.905 * (s / pV0) * (s / pV0);
@@ -632,6 +668,13 @@ const GroundAI = (() => {
     const e0 = PEZ.e, z0 = PEZ.z;
     eOf(pP.x + pU.x * D, pP.y + pU.y * D, pP.z + pU.z * D, PEZ);
     if (bermOn(e0, z0, PEZ.e, PEZ.z)) for (let s = BS[0] * D; s < BS[1] * D; s += 0.75) if (s > 1 && gapAt(s) < 0) return s;
+    if (PROPS()) for (let i = 0; i < 4; i++) { // (a house, a wall or a rock in the way: props.js, along the falling path in four lines)
+      const s0 = (i * D) / 4, s1 = ((i + 1) * D) / 4, q0 = 4.905 * (s0 / pV0) ** 2, q1 = 4.905 * (s1 / pV0) ** 2;
+      PA.x = pP.x + pU.x * s0 - pUx * q0; PA.y = pP.y + pU.y * s0 - pUy * q0; PA.z = pP.z + pU.z * s0 - pUz * q0;
+      PB.x = pP.x + pU.x * s1 - pUx * q1; PB.y = pP.y + pU.y * s1 - pUy * q1; PB.z = pP.z + pU.z * s1 - pUz * q1;
+      const f = Props.shell(PA, PB);
+      if (f >= 0) return Math.max(1, s0 + f * (s1 - s0));
+    }
     for (let s = 2, prev = 0, cp = Infinity; s < D; prev = s, s += clamp(s * 0.25, 2, 20)) {
       const c = gapAt(s);
       if (c < 0) return s;
@@ -697,6 +740,7 @@ const GroundAI = (() => {
       const e = 16800 + S.rnd() * 1900, z = 14250 + S.rnd() * 1500;
       if (A && Math.hypot(A.e - e, A.z - z) < RANGE.near) continue;
       if (S.obs.some((o) => Math.hypot(o.e - e, o.z - z) < 60)) continue;
+      if (PROPS() && !Props.freeAt(e, z, 10)) continue; // (not in a building or by a wall)
       const h = groundAt(e, z);
       if (wetAt(e, z) || Math.abs(groundAt(e + 8, z) - h) > 1.6 || Math.abs(groundAt(e, z + 8) - h) > 1.6 || e < B.e0 || e > B.e1) continue;
       return { e, z, yaw: S.rnd() * TAU };

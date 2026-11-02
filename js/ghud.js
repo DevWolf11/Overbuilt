@@ -75,7 +75,7 @@ const GHUD = (() => {
       best = h.t * L; hitV = w; Px = A1.x + d.x * best; Py = A1.y + d.y * best; Pz = A1.z + d.z * best;
     }
     // 2. the ground as drawn (the arena's own ground, else the terrain patch and the berms), 25 m a step, and where the
-    // line crosses it, the real ground (six halvings)
+    // line crosses it, the real ground (six halvings); 3. the props
     const sea = b.ocean ? 0 : -Infinity, gap = (s) => {
       Terrain.locate(b, o.x + d.x * s, o.y + d.y * s, o.z + d.z * s, LOC);
       return LOC.r - R - Math.max(sea, Render3D.drawnGround(b, LOC.a, LOC.z));
@@ -91,7 +91,10 @@ const GHUD = (() => {
       gs = hi;
       break;
     }
-    if (gs >= 0 && gs < best) { best = gs; hitV = null; A.src = 'ground'; }
+    // 3. the props in the way (props.js: what blocks sight or stops shells), past our own vehicle: the crosshair is on them
+    const pd = typeof Props !== 'undefined' && b === EARTH ? Props.ray(o, d, Math.min(best, gs >= 0 ? gs : Infinity), Math.hypot(v.x - o.x, v.y - o.y, v.z - o.z) + (v.reach || 4)) : -1;
+    if (pd >= 0) { best = pd; hitV = null; A.src = 'ground'; }
+    else if (gs >= 0 && gs < best) { best = gs; hitV = null; A.src = 'ground'; }
     else A.src = hitV ? 'vessel' : 'none';
     A.v = hitV;
     if (A.src === 'none') best = 1500;

@@ -164,7 +164,8 @@ const MP = {
     this.state = null;
     this.peers.clear(); this.rwr.clear(); this.missiles.clear();
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
-    this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null;
+    this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
+    if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
     this.pushCareer();
     if (!this.bound) this.bind();
     clearInterval(this.tickTimer);
@@ -177,6 +178,7 @@ const MP = {
     this.awake(false);
     clearInterval(this.tickTimer);
     Net.leave();
+    if (typeof Props !== 'undefined') Props.sync(false);
     this.dropAllGhosts();
     if (this.wrecks.length) this.clearWrecks();
     this.state = null;
@@ -231,7 +233,7 @@ const MP = {
     this.bound = true;
     document.addEventListener('visibilitychange', () => { if (!document.hidden && this.wantAwake) this.awake(true); });
     Net.on('state', (m) => { if (!Net.isHost && m.f === 1) this.applyState(m.s); });
-    Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); } });
+    Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); this.sendFallen(m.pid); } });
     Net.on('leave', (m) => this.onLeave(m.pid));
     Net.on('closed', (m) => this.end(m.reason || 'The room closed'));
     Net.on('warn', (m) => UI.toast(m.text, 'warn'));
@@ -259,6 +261,9 @@ const MP = {
     Net.on('obj', (m) => this.onObj(m));
     Net.on('seen', (m) => this.onSeen(m));
     Net.on('spot', (m) => this.onSpot(m));
+    // the props knocked over: on any player's screen (the host relays it), and the room's set for one joining late (host)
+    Net.on('crush', (m) => this.onCrush(m));
+    Net.on('fallen', (m) => this.onFallen(m));
   },
 
   // ------------------------------------------------------------------ host: roster and settings
@@ -365,6 +370,9 @@ const MP = {
     for (const pid of [...this.peers.keys()]) if (!ids.has(pid)) { this.dropGhost(pid, true); this.peers.delete(pid); this.rwr.delete(pid); }
     // kill feed and chat-like notices
     for (const f of this.state.feed) if (f.n > (this.feedSeen || 0)) { this.feedSeen = f.n; MPUI.notice(f.text); }
+    // a new match, its test flights or its battle: every prop stood up again, here and in the host's set (a respawn keeps them)
+    const ep = this.crushEpoch();
+    if (ep !== this.seenEpoch) { this.seenEpoch = ep; if (typeof Props !== 'undefined' && Props.synced) Props.reset(); }
     if (this.state.phase !== prevPhase || this.state.round !== prevRound) {
       this.seenPhase = this.state.phase; this.seenRound = this.state.round;
       this.onPhase(prevPhase, this.state.phase);
@@ -459,6 +467,7 @@ const MP = {
       if (this.ground && s.phase === 'battle' && s.obj) { try { this.groundTick(now); } catch (e) { console.error(e); } }
     }
     if (this.ground && this.phase === 'battle') this.groundReports();
+    this.sendCrush();
     // clients report the damage they dealt about once a second (the host keeps the score)
     if (!Net.isHost && this.dmgOut > 0 && performance.now() - (this.dmgSent || 0) > 1000) {
       this.dmgSent = performance.now();
@@ -863,10 +872,11 @@ const MP = {
   placement(spawnId, kind, design) {
     if (!spawnId) { // sandbox: the usual pad, runway or helipad, a little apart so craft don't start inside each other
       const slot = Math.max(0, this.state.players.map((p) => p.pid).sort((a, b) => a - b).indexOf(Net.me));
-      // (Armour and cars armed by the ground update: Highland Ridge's pads, the sides taken in turn, when the map is in
-      // and the view is 3D. An old car's gun, flares or chaff keep it on the runway, as before.)
+      // (Armour and cars armed by the ground update: the tank yard on the space centre's island, side by side facing the
+      // open ground (props.js yardPlace), when the map is in and the view is 3D. An old car's gun, flares or chaff keep it
+      // on the runway, as before.)
       const armed = kind === 'car' && design && Array.isArray(design.parts) && design.parts.some((q) => { const d = q && hasOwn(PARTS, q.type) && PARTS[q.type]; return d && d.gv && d.weapon && d.weapon.kind !== 'smoke'; });
-      if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D())) return this.padPlace('highland', slot % 2, Math.floor(slot / 2), 'tank');
+      if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D()) && typeof Props !== 'undefined') return this.yardSpot(slot);
       if (!slot) return null;
       if (kind === 'plane' || kind === 'car') return { e: EARTH.sites.runway.east + slot * 220, z: 0, yaw: 0, soft: true };
       if (kind === 'heli') return { e: EARTH.sites.helipad.east + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * 35, z: 0, yaw: 0, soft: true };
@@ -886,6 +896,14 @@ const MP = {
       return { e: EARTH.sites.runway.east + slot * 230, z: 0, yaw: 0 };
     }
     return airfieldPlacement(EARTH.airfields[sp.airfield], slot, kind);
+  },
+  // A spot at the sandbox's tank yard (Props.yardPlace): our own, or the next of its eight that no other player's craft
+  // stands within 10 m of (one parked on ours)
+  yardSpot(slot) {
+    const first = Props.yardPlace(slot), at = [], now = performance.now();
+    for (const [, P] of this.peers) if (P.snap && P.snap.b === EARTH.id && now - (P.recv || 0) < 6000) at.push(mpEZ(P.snap.P[0], P.snap.P[1], P.snap.P[2], {}));
+    for (let k = 0; k < 8 && at.length; k++) { const pl = k ? Props.yardPlace(slot + k) : first; if (pl && !at.some((a) => Math.hypot(a.e - pl.e, a.z - pl.z) < 10)) return pl; }
+    return first;
   },
   // A spot on an arena's pad (GroundMode.placement): our own, or, when a wreck or another vehicle stands within 12 m of
   // it (we were knocked out at the start), the next of the pad's spots that is clear
@@ -1476,6 +1494,38 @@ const MP = {
     // out of the battle area: a warning only, every 5 s while out (aircraft fly where they like)
     const A = EARTH.arenas && EARTH.arenas[this.state.settings.arena], B = A && A.box, q = mpEZ(v.x, v.y, v.z, this.repQ || (this.repQ = {}));
     if (B && v.body === EARTH && !mpAir(v.kind) && (q.e < B.e0 || q.e > B.e1 || q.z < B.z0 || q.z > B.z1) && now - (this.oobAt || 0) > 5000) { this.oobAt = now; UI.toast('Out of the battle area: the zones are behind you', 'warn'); }
+  },
+
+  // ------------------------------------------------------------------ the props knocked over (props.js)
+  // What falls on our screen (our vehicle, a ghost's as we see it) goes to the room 4 times a second, at most 16 a time
+  // (Props.outbox: the rest waits), so never more than the 64 a second a peer believes of us; the host relays it and keeps
+  // the room's set. Messages carry the room's epoch (the match and its stage): one sent before a new battle stood
+  // everything up isn't believed after it.
+  crushEpoch() { const s = this.state; return s ? (s.round || 0) * 4 + (s.phase === 'battle' || s.phase === 'results' ? 2 : s.phase === 'test' || s.phase === 'polish' ? 1 : 0) : -1; },
+  sendCrush() {
+    if (!this.live || typeof Props === 'undefined' || !Props.synced || !Props.queued) return;
+    for (const b of Props.outbox(16)) Net.send({ t: 'crush', r: this.crushEpoch(), m: b.m, g: b.g, ids: b.ids, d: b.d });
+  },
+  // a peer's: checked (Props.netFall: whole numbers within the layout, only props that crush), at most 64 props a second
+  // from any one player (a tank through a wood knocks over a few a second)
+  onCrush(m) {
+    if (!this.live || typeof Props === 'undefined' || !Number.isSafeInteger(m.f) || m.f === Net.me || m.r !== this.crushEpoch()) return;
+    const R = this.crushRate || (this.crushRate = new Map()), now = performance.now(), q = R.get(m.f) || { t: now, tok: 64 }, n = Array.isArray(m.ids) ? m.ids.length : 0;
+    q.tok = Math.min(64, q.tok + Math.max(0, now - q.t) * 0.064); q.t = now;
+    R.set(m.f, q);
+    if (!(n > 0) || n > Props.NET_MAX || q.tok < n) return;
+    if (Props.netFall(m.m, m.g, m.ids, m.d, Flight.running ? Flight.time : -1e9) >= 0) q.tok -= n;
+  },
+  // host: the room's set, to a player who just joined (a few bodies a message)
+  sendFallen(pid) {
+    if (!Net.isHost || typeof Props === 'undefined' || !Props.synced || !Props.room.size) return;
+    const L = Props.roomList(400);
+    for (let i = 0; i < L.length; i += 4) Net.send({ t: 'fallen', r: this.crushEpoch(), L: L.slice(i, i + 4).map((b) => [b.m, b.g, b.ids, b.d]) }, pid);
+  },
+  // the room's set, from the host as we join: already down (no fall to watch)
+  onFallen(m) {
+    if (Net.isHost || m.f !== 1 || !this.live || typeof Props === 'undefined' || m.r !== this.crushEpoch() || !Array.isArray(m.L) || m.L.length > 8) return;
+    for (const b of m.L) if (Array.isArray(b) && b.length === 4) Props.netFall(b[0], b[1], b[2], b[3], -1e9);
   },
 };
 

@@ -172,7 +172,8 @@ t('Highland Ridge: its box, three zones (Hilltop, East, Slope), two pads, two ai
   && H.air.length === 2 && H.air.every((s) => s.air.alt === 1000 && s.air.speed === 140) && H.berms.length === 12);
 t('the berms come in pairs mirrored across z 15,000, and two on it', H.berms.every((b) => b.z === 15000 || H.berms.some((q) => q.e === b.e && q.z === 30000 - b.z && Math.abs(q.yaw + b.yaw) < 1e-12)) && H.berms.filter((b) => b.z === 15000).length === 2);
 t('the Runway arena: pads at the runway\'s ends, three zones, no berms, ground as it is', A.runway.pads.map((p) => p.e + ':' + p.z).join() === '760:0,2640:0' && A.runway.zones.map((z) => z.e).sort().join() === '1250,1700,2150'
-  && A.runway.zones.every((z) => z.r === 45) && !A.runway.berms.length && !A.runway.clear && !Object.values(P).some((p) => Math.abs(p.e - 1700) < 3000 && Math.abs(p.z) < 3000));
+  && A.runway.zones.every((z) => z.r === 45) && !A.runway.berms.length && !A.runway.clear && ![P.highlandN, P.highlandS].some((p) => Math.abs(p.e - 1700) < 3000 && Math.abs(p.z) < 3000)
+  && !(T.fieldAt(1700, 0).w > 0) && [[650, -250], [2750, -250], [650, 250], [2750, 250], [2100, 250]].every(([e, z]) => !(T.fieldAt(e, z).w > 0))); // (the sandbox's tank yard, props.js, levels its own pad well off the runway arena)
 t('the detail fade: 1 in the box, fading over 200 m, nothing past it (and nothing round the runway)', T.arenaW(17750, 15000) === 1 && T.arenaW(16400, 13550) === 1 && T.arenaW(16300, 15000) > 0 && T.arenaW(16300, 15000) < 1
   && T.arenaW(16199, 15000) === 0 && T.arenaW(19301, 16651) === 0 && T.arenaW(1700, 0) === 0 && T.arenaW(1700, 200) === 0);
 { // ...and never on an airfield's ground: Wick's south end and blend reach into Highland Ridge's box and its fade
@@ -194,7 +195,7 @@ for (const [k, p] of Object.entries(P)) for (let u = -p.hl; u <= p.hl; u += 5) f
   const e = p.e + u * p.c - v * p.s, z = p.z + u * p.s + v * p.c, h = S(e, z);
   if (Math.abs(h - p.h) > 0.05 || WET(e, z)) padOff.push(`${k} (${e.toFixed(0)}, ${z.toFixed(0)}) ${h.toFixed(3)}`);
 }
-t('the pads are level to ±5 cm over their 160 x 70 m and dry', Object.keys(P).length === 2 && !padOff.length, show(padOff));
+t('the pads are level to ±5 cm over their 160 x 70 m and dry (and the tank yard\'s over its 100 x 70 m)', Object.keys(P).join() === 'highlandN,highlandS,yard' && !padOff.length, show(padOff));
 t('each pad is levelled at its own ground\'s height (25.1 and 51.3 m), facing the other', P.highlandN.h === 25.1 && P.highlandS.h === 51.3 && P.highlandN.yaw === -Math.PI / 2 && P.highlandS.yaw === Math.PI / 2
   && T.fieldAt(17750, 13800).f === P.highlandN && T.fieldAt(17750, 16200).f === P.highlandS);
 // the berms: 2.4 m high where they stand, nothing elsewhere, physics standing on them, and none without the map

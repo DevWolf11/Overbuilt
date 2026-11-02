@@ -103,7 +103,11 @@ for (const f of [...Object.values(EARTH.airfields), ...Object.values(EARTH.carri
 EARTH.groundPads = {
   highlandN: { name: 'Highland Ridge north pad', e: 17750, z: 13800, yaw: -Math.PI / 2, hl: 35, hw: 80, blend: 80, h: 25.1, pad: true },
   highlandS: { name: 'Highland Ridge south pad', e: 17750, z: 16200, yaw: Math.PI / 2, hl: 35, hw: 80, blend: 80, h: 51.3, pad: true },
+  // the tank yard on the space centre's island (props.js), on the plateau south-east of the runway: where Armour and armed
+  // cars start in a multiplayer sandbox, facing east along it to the driving course (past e 1,420, so no site's ground moves)
+  yard: { name: 'Tank yard', e: 2050, z: 340, yaw: 0, hl: 50, hw: 35, blend: 30, h: 62.7, pad: true },
 };
+{ const y = EARTH.groundPads.yard; y.c = Math.cos(y.yaw); y.s = -Math.sin(y.yaw); }
 // The Ground Battle arenas (gmode.js). Highland Ridge, in the rolling hills of North Scotland on the real map: the
 // teams' pads (team 0's on the Faroes side, to the north) face each other 2.4 km apart across three capture zones,
 // and the hilltop zone A overlooks the other two. box: the battle area (out of it is a warning only). clear: its

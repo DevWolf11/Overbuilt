@@ -39,13 +39,14 @@ A free browser game: build any machine from parts, then take it anywhere. It mix
 
 ## Architecture in one screen
 
-Plain `<script>` files share one global scope. They load in this order (index.html:374-400):
+Plain `<script>` files share one global scope. They load in this order (index.html:374-401):
 
 | File | Owns |
 |---|---|
 | `util.js` | maths (vectors, quaternions), `fmt`, `store` (localStorage JSON), `$`, `el`, the `Silly` joke flags |
 | `space.js` | bodies, Kepler orbits, patched conics, sites (pad, runway, airfields, carriers), the 2D terrain profile |
 | `terrain.js` | `Terrain`: the 3D ground (real Earth map or generated), shared by physics and renderer |
+| `props.js` | `Props`: the battlefields' solid scenery (Highland Ridge's village, farms, woods, walls and roads, the Runway's sheds and sandbags, the island's tank yard and hamlet), laid out from fixed seeds a slice at a time; colliders in a hash grid that every shot, sight line, vehicle and the AI meet; crushing, shared in a room; the pieces render3d draws |
 | `parts.js` | `PARTS` catalogue (328 parts, 71 of them the ground update's `def.gv` ones; `def.retired` ones load but leave the tray), the vehicle kinds (`VEHICLE_KINDS`, `GROUND_KINDS`), geometry, joints (`buildAdjacency`), staging, Δv, design rows, armour thickness (`cleanMm`, `massPerMm`), paint (`SKINS`), all 2D part drawing (the armour's too: `gvDraw`, X-ray, the armour view) |
 | `vessel.js` | `Vessel`: the rigid-body simulation (engines, wings in halves, aero, heat, chutes, wheels, ground and water, splitting, autopilot); hands vessels with running gear to `Gear` |
 | `gear.js` | `Gear`: running gear for ground vehicles (tracks and armoured wheels, suspension, skid steering, wading, righting), collisions between vehicles, and the builder's driving numbers |
@@ -91,6 +92,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
   - Bump `NET_VERSION` (net.js) when an older peer would build, pose or hit a different craft.
   - Damage to another player's craft goes through `MP.sendHit(s)`; `Combat.damage` is a no-op on `v.remote`.
   - AI, range targets and auto-flares are off in any room.
+- **Props are deterministic and solid** (props.js, handbook §8.14). Each map's layout comes from its seed and the physics' ground alone, never the quality setting or the camera, and what is drawn is what shots, sight lines and vehicles meet. Old weapons' shots (`Props.shot`) and old vessels (`Props.solidAt`, `crushOld`) meet them too, but only where props stand, only once a map is built (they never build one), and Highland Ridge's only in ground play (`Props.play`, as render3d shows them). Everywhere else (the runway, the causeway, the sea, the air: every old test path) they cost a look at a bitset and change nothing: the old baselines' suites load with every prop built (`G.load({ props: true })`), and `ground.test.js` runs every old template with and without props and finds them identical. Keep-outs hold the runway, causeway, pads, zones' middles and the AI's spots clear. Knocked-over props are shared in a room (`crush`, the host's `fallen`; peers checked by `Props.netFall`). A layout change changes what an older peer would hit: bump `NET_VERSION`.
 - **No `import`/`export`, no `type="module"`, and no `fetch` of local files that the game can't do without.** It must run from `file://`; only the Earth map may fail there, and it falls back to generated terrain.
 - **Top-level names are global across files.** A duplicate `const` kills every later script. Check with `grep -n "^const NAME\|^function NAME" js/*.js`.
 - **2D and 3D must agree.** Plumes, sky colours, clouds in the flight plane, the space-centre layout, the reentry sheath and paint stripes are implemented twice (handbook §3.7 has the table). For shapes built by parts3d's lathe or extrude recipes, the 2D outline (`partPath0`) is also the 3D silhouette unless parts3d has a `PROFILE` for it. Other recipes build from the def and use the 2D art only as a texture.

@@ -359,7 +359,7 @@ async function groundBattle() {
     const vm = require('vm'), fs = require('fs'), path = require('path');
     const NC = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
     vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net; this.V = NET_VERSION;', NC);
-    t('ground: obj and spot are host-only (a player\'s are never passed on); NET_VERSION 7', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 7);
+    t('ground: obj, spot and fallen are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 9 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 9);
   }
   // the lineup: a slot only when unused, the respawn time come and tickets left; each spawn uses its slot
   X(`MP.state.settings.respawn = 'lineup'; const p2 = MP.player(2); p2.slots = 1; p2.slot = 0; p2.respawnAt = __T + 5000;
@@ -383,12 +383,13 @@ async function groundBattle() {
   t('ground: a team out of tickets loses: results with the tickets and the arena', X(`(() => { const r = MP.state.result; return MP.phase === 'results' && r.ground && r.winner === 0 && r.why === 'tickets' && r.tk[1] === 0 && r.arena === 'highland'; })()`), X('MP.state.result && [MP.state.result.winner, MP.state.result.why, MP.state.result.tk]'));
   X(`MP.backToLobby();`);
   t('ground: back in the lobby the objective and the wrecks are gone', X(`MP.phase === 'lobby' && !('obj' in MP.state) && MP.wrecks.length === 0`));
-  // the sandbox: Armour and armed cars on Highland Ridge's pads (the map in, 3D), the sides in turn; others as ever
+  // the sandbox: Armour and armed cars at the tank yard on the space centre's island (the map in, 3D), side by side;
+  // others as ever
   await X(`MP.host('sandbox', 'local')`);
   X(`MP.addPlayer(2, 'Bea'); MP.addPlayer(3, 'Cid');`);
-  t('ground: the sandbox puts Armour and armed cars on Highland Ridge\'s pads, the sides in turn; unarmed cars and planes where they were', X(`(() => { const out = [], want = [];
+  t('ground: the sandbox puts Armour and armed cars side by side at the tank yard, facing east; unarmed cars and planes where they were', X(`(() => { const out = [], want = [];
     for (const me of [1, 2, 3]) { Net.me = me; const k = me - 1, a = MP.placement(null, 'tank'), b = MP.placement(null, 'car', { parts: templateRows(TEMPLATES.technical) }), c = MP.placement(null, 'car', { parts: templateRows(TEMPLATES.buggy) }), d = MP.placement(null, 'plane');
-      const w = GroundMode.placement('highland', k % 2, Math.floor(k / 2), 'tank');
+      const w = Props.yardPlace(k), Y = EARTH.groundPads.yard; if (a.yaw !== 0 || Math.abs(a.e - Y.e) > Y.hl || Math.abs(a.z - Y.z) > Y.hw) return false;
       out.push([a.e, a.z, b.e, b.z, c ? c.e : null, d ? d.e : null].join('/')); want.push([w.e, w.z, w.e, w.z, k ? EARTH.sites.runway.east + k * 220 : null, k ? EARTH.sites.runway.east + k * 220 : null].join('/')); }
     Net.me = 1; return out.join(' ') === want.join(' '); })()`));
   // (an old car's gun, flares or chaff, or smoke alone, arm it with nothing new: it starts on the runway as ever)

@@ -9,7 +9,7 @@
 // and must come out the same both times.
 //   node test/driving.js [--update]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
-const ctx = G.load({ combat: true }), R = (c) => G.run(ctx, c), TANKS = require('./lib/tanks.js');
+const ctx = G.load({ combat: true, props: true }), R = (c) => G.run(ctx, c), TANKS = require('./lib/tanks.js'); // (every prop built: none on these paths, and nothing changes)
 const FPS = 60, SUB = 2, h = 1 / 120; // a 1/60 s frame: n = ceil(total / PHYS_DT - 0.05) = 2 substeps of 1/120 s
 const D = 180 / Math.PI, TOP = ctx.PARTS.carWheel.wheel.speed; // the buggy's top speed: a stick at V/TOP holds V
 const fwd = (v) => v.wheelSpeed || 0; // speed along the ground, as the drive measures it
