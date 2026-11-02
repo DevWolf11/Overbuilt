@@ -1034,7 +1034,7 @@ const MP = {
         if (!this.live || !this.ground || this.phase !== 'battle' || !Flight.destroyed) return;
         const me = this.me;
         if (me && me.alive) MPUI.respawnPanel(by);
-        else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${isTouch ? 'tap' : '[ ]'} to switch)`, 'warn'); }
+        else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${MPUI.switchWord()} to switch)`, 'warn'); }
       }, 1800);
       return true;
     }
@@ -1050,7 +1050,7 @@ const MP = {
     }
     // a battle: watch the others until it's over
     Flight.ended = false;
-    setTimeout(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${isTouch ? 'tap' : '[ ]'} to switch)`, 'warn'); } }, 1800);
+    setTimeout(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${MPUI.switchWord()} to switch)`, 'warn'); } }, 1800);
     return true;
   },
   // host: book-keeping for a craft lost

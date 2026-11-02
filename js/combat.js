@@ -470,7 +470,7 @@ const Combat = (() => {
       }
       const tapped = S.rip && S.rip.on && !S.rip.said && (up || (edge && !trig)) && now - S.rip.at <= 0.4;
       if (up && S.rip) { S.rip.mute = false; if (S.rip.on && now - S.rip.at > 0.4) S.rip.on = false; } // (held, not tapped: letting go stops it)
-      if (tapped && S.rip.n > 1) { S.rip.said = true; F.toast(`Ripple: ${S.rip.n} rockets · ${typeof isTouch !== 'undefined' && isTouch ? 'tap FIRE' : 'press V'} again to stop`); }
+      if (tapped && S.rip.n > 1) { S.rip.said = true; F.toast(`Ripple: ${S.rip.n} rockets · ${typeof Controls !== 'undefined' ? (Controls.touch ? 'tap FIRE' : `press ${Keys.k('fire')}`) : 'press V'} again to stop`); }
       if (S.rip && !S.rip.on && !S.rip.mute) S.rip = null;
     }
     // missiles lock on to whatever sits nearest the nose, inside the seeker's cone and range

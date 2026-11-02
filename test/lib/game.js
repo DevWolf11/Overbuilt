@@ -35,6 +35,7 @@ function load(opts = {}) {
   if (opts.flight) { // world.js brings the real Settings and FX
     run('var navigator = {}; var innerWidth = 800, innerHeight = 600;');
     run(src(root, 'world.js') + '\nthis.Settings = Settings; this.FX = FX; this.World = World;', 'world.js');
+    if (has('controls.js')) run(src(root, 'controls.js') + '\nthis.Keys = Keys; this.Controls = Controls;', 'controls.js'); // (the key bindings: flight.js's hints and help read them)
   } else {
     run(`var Settings = { get: (k) => ({ targets: 'hostile', high: false })[k] };
       var FX = { add() {}, explosion() {}, sparks() {}, puff() {}, splash() {}, clear() {}, list: [] };`);

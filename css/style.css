@@ -1215,3 +1215,94 @@ body.flying:not(.mapping) :is(.ammo-chip, .gmap, .ammo-stack, .gbtn) { --panel: 
 /* (P4 play-test) a phone's ground menu: the keys folded under a disclosure */
 .help-keys { margin-top: 8px; }
 .help-keys > summary { cursor: pointer; font: 600 12px var(--display); letter-spacing: 0.06em; color: var(--muted); padding: 6px 0; }
+
+/* ================================================================== controls (controls.js): the HUD's size, the floating
+   stick, a desktop's HUD (body.pc), the layout editor (body.ctl-edit) and the Keys screen */
+/* the HUD's size: --ui-scale (Controls.applyScale: the screen's short side in bands, times Settings' UI size) zooms the
+   flight HUD as one piece, its lengths, offsets and transforms alike, so every layout below holds at any size. The room's
+   overlays go with it in flight (in the hangar the room's bar keeps the builder's size). Viewport units inside a zoomed
+   box are zoomed too, so the few HUD sizes in vh and vw are divided back. */
+:root { --ui-scale: 1; }
+#flight-ui, body.flying #mp-bar, body.flying #mp-feed, body.flying #mp-hud-chat { zoom: var(--ui-scale); }
+.throttle-track { height: clamp(110px, calc(30vh / var(--ui-scale)), 240px); }
+.hint { max-width: min(420px, calc(40vw / var(--ui-scale))); }
+.flight-alert { top: max(calc(150px + var(--safe-t)), calc(22vh / var(--ui-scale))); }
+body.ground .throttle-box .throttle-track { height: clamp(96px, calc(14vh / var(--ui-scale)), 130px); }
+@media (max-width: 760px) { .hint { max-width: min(200px, calc(48vw / var(--ui-scale))); } }
+@media (max-height: 500px) { .throttle-track { height: clamp(90px, calc(34vh / var(--ui-scale)), 200px); } }
+
+/* the floating stick: its zone takes the left thumb anywhere round the stick's place (Controls.measureStick sizes it);
+   the ring comes to the thumb and glides home after. Only real controls inside the left column take a touch: its empty
+   corners pass it on to the zone (or the view). */
+.joy-zone { position: absolute; left: 0; bottom: 0; width: 46%; height: 50%; touch-action: none; -webkit-user-select: none; user-select: none; }
+#joy { pointer-events: none; transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#joy.held { transition: none; border-color: rgba(255, 181, 71, 0.55); box-shadow: 0 0 0 6px rgba(255, 181, 71, 0.06); }
+#joy.held::before, #joy.held::after { background: rgba(255, 181, 71, 0.22); }
+.joy-knob { transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#flight-ui .left-controls, #flight-ui .rot-controls, #flight-ui .roll-btns, #flight-ui .air-btns { pointer-events: none; }
+#flight-ui .left-controls :is(.sas, .pill, .round, .key-hints) { pointer-events: auto; }
+
+/* a desktop (touch controls off: body.pc): no stick, no touch buttons; the panels stay (autopilot, throttle, stage, the
+   weapon chip, the shell chips, the minimap), and the key hints take the stick's corner */
+body.pc :is(#joy-zone, #flight-ui .rot-controls, #btn-fire, #btn-cm, #btn-catapult, #btn-sight, #btn-mg, #btn-lock) { display: none !important; }
+.key-hints { display: none; padding: 4px 8px 7px; border-radius: 10px; max-width: 330px; }
+body.pc .key-hints { display: block; }
+.kh-head { display: block; padding: 2px 0 3px; border: 0; background: none; cursor: pointer; font: 600 10px var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.kh-head:hover { color: var(--text); }
+.kh-list { display: grid; grid-template-columns: repeat(2, auto); gap: 3px 14px; font-size: 11px; }
+.kh-list > div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.kh-k { display: inline-flex; gap: 2px; }
+.kh-list kbd { font-size: 10px; padding: 1px 4px; }
+.kh-list span:last-child { color: var(--muted); }
+body.flying:not(.mapping) .key-hints { --panel: rgba(8, 13, 24, 0.85); backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* (a desktop's ground HUD: the Stage pill and the short throttle move to FIRE's empty corner, clear of the key hints) */
+body.pc.ground.g-stages .stage-box { left: auto; right: calc(var(--gut-r) + 12px); bottom: calc(24px + var(--safe-b)); }
+body.pc.ground.g-thrust .throttle-box { left: auto; right: calc(var(--gut-r) + 12px); bottom: calc(84px + var(--safe-b)); }
+body.pc.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(24px + var(--safe-b)); }
+@media (max-width: 760px) { .kh-list { grid-template-columns: auto; } }
+@media (max-height: 500px) { .kh-list { gap: 1px 12px; } }
+
+/* the layout editor: every movable control outlined, the chosen one solid; the rest of the HUD faded; its bar */
+body.ctl-edit #flight-ui :is(.telemetry, .flight-top-right, #warp, #hint, #map-legend, #flight-alert, .sight-vig, #gai-bar) { opacity: 0.3; }
+body.ctl-edit #joy-zone { outline: 1px dashed rgba(98, 208, 255, 0.4); outline-offset: -1px; background: rgba(98, 208, 255, 0.04); }
+body.ctl-edit :is(#joy, #sas-bar, #flight-ui .air-btns, #flight-ui .roll-btns, #btn-brake, #flight-ui .throttle-box, #flight-ui .stage-box, #btn-fire, #btn-cm, #btn-weapon, #btn-catapult,
+  #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
+body.ctl-edit .ctl-sel { outline: 2px solid var(--amber) !important; outline-offset: 3px; }
+body.ctl-edit .air-btns { display: flex !important; }
+.ctl-edit-bar { position: fixed; z-index: 27; left: 50%; transform: translateX(-50%); top: 36%; width: min(440px, calc(100% - 24px)); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ctl-edit-bar[data-dock="1"] { top: calc(10px + var(--safe-t)); }
+.ctl-edit-bar[data-dock="2"] { top: auto; bottom: calc(10px + var(--safe-b)); }
+.ce-head { display: flex; align-items: center; gap: 8px; }
+.ce-head b { flex: 1; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--amber); }
+.ce-body { display: flex; flex-direction: column; gap: 6px; }
+.ce-tip { margin: 0; }
+.ce-sel { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ce-slider { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.ce-slider input { width: 100%; accent-color: var(--amber); }
+.ce-slider output { font: 500 12px var(--mono); color: var(--text); text-align: right; }
+.ce-foot { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ce-seg { display: grid; grid-template-columns: repeat(2, auto); }
+.ce-seg .kind-btn { padding: 5px 10px; }
+
+/* the Keys screen: an action, its two keys, ↺; a key another action wants at the same time shows red until it's settled */
+.kb { display: flex; flex-direction: column; gap: 4px; }
+.kb-note { margin: 0 0 4px; line-height: 1.4; }
+.kb-h { margin: 10px 0 2px; }
+.kb-row { display: grid; grid-template-columns: 1fr 76px 76px 26px; gap: 6px; align-items: center; font-size: 13px; }
+.kb-row.changed .kb-label { color: var(--amber); }
+.kb-slot { height: 30px; padding: 0 4px; border-radius: 6px; cursor: pointer; font: 500 12px var(--mono); color: var(--text); background: rgba(150, 185, 230, 0.08); border: 1px solid var(--line-strong); border-bottom-width: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kb-slot:hover { border-color: var(--amber); }
+.kb-slot.empty { color: var(--muted); }
+.kb-slot.wait { color: var(--amber); border-color: var(--amber); animation: pulse 0.6s ease-in-out infinite alternate; }
+.kb-slot.clash { color: var(--danger); border-color: var(--danger); }
+.kb-reset { height: 30px; padding: 0; border: 0; background: none; cursor: pointer; font-size: 15px; color: var(--muted); }
+.kb-reset:hover { color: var(--amber); }
+.kb-conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border-radius: 8px; font-size: 12px; background: rgba(80, 14, 18, 0.4); border: 1px solid rgba(255, 93, 93, 0.5); }
+.kb-conflict > span { flex: 1 1 100%; }
+.kb-slot:focus-visible, .kb-reset:focus-visible, .kh-head:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+@media (max-width: 760px) { .kb-row { grid-template-columns: 1fr 62px 54px 22px; font-size: 12px; } }
+/* Settings: its groups, and a slider with its value */
+.set-h { margin: 6px 0 -4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.set-range { display: flex; align-items: center; gap: 10px; }
+.set-range input { flex: 1; min-width: 0; }
+.set-val { font: 500 12px var(--mono); min-width: 40px; text-align: right; color: var(--muted); }

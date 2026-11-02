@@ -123,7 +123,7 @@
       <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
       <button id="btn-3d-build" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
       <button id="btn-sym" class="btn toggle" data-icon="sym" aria-pressed="true" aria-label="Symmetry" title="Mirror parts across the centre line"><span class="sym-text">Sym<span class="long">metry</span></span></button>
-      <button id="btn-xray" class="btn toggle" data-icon="xray" aria-pressed="false" aria-label="X-ray" title="X-ray: see the crew, ammunition and engine inside the armour (X)" hidden><span class="long">X-ray</span></button>
+      <button id="btn-xray" class="btn toggle" data-icon="xray" aria-pressed="false" aria-label="X-ray" title="X-ray: see the crew, ammunition and engine inside the armour (X)" data-k="bXray" data-tip="X-ray: see the crew, ammunition and engine inside the armour ({k})" hidden><span class="long">X-ray</span></button>
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
@@ -166,7 +166,7 @@
     <div class="pi-head">
       <h3 id="pi-name"></h3>
       <div class="pi-btns">
-        <button id="btn-rotate" class="btn small icon-only" data-icon="rotR" aria-label="Rotate a quarter turn (R)" title="Rotate (R)"></button>
+        <button id="btn-rotate" class="btn small icon-only" data-icon="rotR" aria-label="Rotate a quarter turn (R)" title="Rotate (R)" data-k="bRotate" data-tip="Rotate ({k})" data-aria="Rotate a quarter turn ({k})"></button>
         <button id="btn-dup" class="btn small icon-only" data-icon="dup" aria-label="Duplicate" title="Duplicate (Ctrl+D)"></button>
         <button id="btn-copy" class="btn small icon-only" data-icon="copy" aria-label="Copy" title="Copy, to paste here or in another design (Ctrl+C)"></button>
         <button id="btn-delete" class="btn danger small icon-only" data-icon="trash" aria-label="Remove (Delete)" title="Remove (Delete) · or drag the part onto the tray"></button>
@@ -176,9 +176,9 @@
     <div id="pi-depth" class="pi-block" hidden>
       <div class="pi-row"><span id="pi-z-label" class="pi-label">Depth</span><output id="pi-z-val" class="pi-val" for="pi-z"></output></div>
       <div class="pi-row">
-        <button id="btn-z-in" class="btn small icon-only pi-step" aria-label="In ([)" title="In ([)">−</button>
+        <button id="btn-z-in" class="btn small icon-only pi-step" aria-label="In ([)" title="In ([)" data-k="bIn" data-tip="In ({k})" data-aria="In ({k})">−</button>
         <input id="pi-z" type="range" min="-4" max="4" step="0.05" value="0" aria-label="Depth across the craft">
-        <button id="btn-z-out" class="btn small icon-only pi-step" aria-label="Out (])" title="Out (])">+</button>
+        <button id="btn-z-out" class="btn small icon-only pi-step" aria-label="Out (])" title="Out (])" data-k="bOut" data-tip="Out ({k})" data-aria="Out ({k})">+</button>
       </div>
     </div>
     <div id="pi-armour" class="pi-block" hidden>
@@ -199,7 +199,7 @@
     </div>
     <div id="pi-paint" class="pi-block" hidden>
       <div class="pi-row"><span class="pi-label">Paint</span><span class="pi-fill"></span>
-        <button id="btn-match" class="btn small" title="Paint it like the part it hangs on (M)">Match</button>
+        <button id="btn-match" class="btn small" title="Paint it like the part it hangs on (M)" data-k="bMatch" data-tip="Paint it like the part it hangs on ({k})">Match</button>
         <button id="btn-paint-all" class="btn small" title="Paint the whole craft like this part">All</button>
       </div>
       <div id="pi-skins" class="pi-skins" role="radiogroup" aria-label="Paint"></div>
@@ -210,7 +210,7 @@
   <div class="fit-col">
     <button id="btn-paste" class="btn small" data-icon="paste" title="Paste the copied parts (Ctrl+V)" hidden>Paste</button>
     <button id="btn-select" class="btn small toggle" data-icon="select" aria-pressed="false" title="Select several parts: click or tap them, or drag a box (or hold Shift)">Select</button>
-    <button id="btn-grid" class="btn small toggle" data-icon="grid" aria-pressed="false" title="Grid: snap parts to a quarter-metre grid (G)">Grid</button>
+    <button id="btn-grid" class="btn small toggle" data-icon="grid" aria-pressed="false" title="Grid: snap parts to a quarter-metre grid (G)" data-k="bGrid" data-tip="Grid: snap parts to a quarter-metre grid ({k})">Grid</button>
     <button id="btn-fit" class="btn small fit" data-icon="center">Fit</button>
   </div>
   <div id="sel-box" class="sel-box" hidden></div>
@@ -224,6 +224,8 @@
 
 <!-- ============================== FLIGHT ============================== -->
 <div id="flight-ui" class="ui" hidden>
+  <!-- the floating stick's zone: the left thumb lands anywhere in it and the stick comes to it (controls.js places it) -->
+  <div id="joy-zone" class="joy-zone" aria-hidden="true"></div>
   <div id="sight-vig" class="sight-vig" aria-hidden="true"></div>
   <div id="flight-alert" class="flight-alert" role="alert" hidden></div>
   <section class="panel telemetry" aria-label="Telemetry">
@@ -258,7 +260,7 @@
 
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
-    <button id="btn-mapview" class="btn" hidden title="Switch between the globe and the solar system (N)">System</button>
+    <button id="btn-mapview" class="btn" hidden title="Switch between the globe and the solar system (N)" data-k="mapView" data-tip="Switch between the globe and the solar system ({k})">System</button>
     <button id="btn-center" class="btn icon-only" data-icon="center" aria-label="Centre on vessel" hidden></button>
     <button id="btn-map" class="btn" data-icon="map">Map</button>
     <button id="btn-menu" class="btn icon-only" data-icon="menu" aria-label="Menu"></button>
@@ -283,43 +285,45 @@
 
   <div class="left-controls">
     <div class="air-btns">
-      <button id="btn-flaps" class="pill" hidden title="Flaps (F)">Flaps</button>
-      <button id="btn-gear" class="pill" hidden title="Gear (G)">Gear down</button>
+      <button id="btn-flaps" class="pill" hidden title="Flaps (F)" data-k="flaps" data-tip="Flaps ({k})">Flaps</button>
+      <button id="btn-gear" class="pill" hidden title="Gear (G)" data-k="gear" data-tip="Gear ({k})">Gear down</button>
     </div>
     <div id="sas-bar" class="sas" role="group" aria-label="Autopilot">
-      <button class="sas-btn" data-sas="hold" data-icon="sasHold" aria-label="Hold attitude" title="Hold (1)"></button>
-      <button class="sas-btn" data-sas="prograde" data-icon="sasPro" aria-label="Point prograde" title="Prograde (2)"></button>
-      <button class="sas-btn" data-sas="retrograde" data-icon="sasRetro" aria-label="Point retrograde" title="Retrograde (3)"></button>
-      <button class="sas-btn" data-sas="radialOut" data-icon="sasUp" aria-label="Point radial out" title="Radial out (4)"></button>
-      <button class="sas-btn" data-sas="radialIn" data-icon="sasDown" aria-label="Point radial in" title="Radial in (5)"></button>
-      <button class="sas-btn" data-sas="target" data-icon="sasTarget" aria-label="Point at target" title="Target (6)"></button>
-      <button class="sas-btn" data-sas="level" data-plane="1" data-icon="sasLevel" aria-label="Level flight, hold altitude" title="Level (2)" hidden></button>
-      <button class="sas-btn" data-sas="heading" data-plane="1" data-icon="sasHeading" aria-label="Hold heading and altitude" title="Heading (3)" hidden></button>
-      <button class="sas-btn" data-sas="off" data-plane="1" data-icon="sasOff" aria-label="Autopilot off" title="Off (4)" hidden></button>
-      <button class="sas-btn" data-sas="aim" data-plane="1" data-icon="sasAim" aria-label="Aim: the plane flies to the circle" title="Aim (5)" hidden></button>
+      <button class="sas-btn" data-sas="hold" data-icon="sasHold" aria-label="Hold attitude" title="Hold (1)" data-k="sasHold" data-tip="Hold ({k})"></button>
+      <button class="sas-btn" data-sas="prograde" data-icon="sasPro" aria-label="Point prograde" title="Prograde (2)" data-k="sasPro" data-tip="Prograde ({k})"></button>
+      <button class="sas-btn" data-sas="retrograde" data-icon="sasRetro" aria-label="Point retrograde" title="Retrograde (3)" data-k="sasRetro" data-tip="Retrograde ({k})"></button>
+      <button class="sas-btn" data-sas="radialOut" data-icon="sasUp" aria-label="Point radial out" title="Radial out (4)" data-k="sasOut" data-tip="Radial out ({k})"></button>
+      <button class="sas-btn" data-sas="radialIn" data-icon="sasDown" aria-label="Point radial in" title="Radial in (5)" data-k="sasIn" data-tip="Radial in ({k})"></button>
+      <button class="sas-btn" data-sas="target" data-icon="sasTarget" aria-label="Point at target" title="Target (6)" data-k="sasTarget" data-tip="Target ({k})"></button>
+      <button class="sas-btn" data-sas="level" data-plane="1" data-icon="sasLevel" aria-label="Level flight, hold altitude" title="Level (2)" data-k="apLevel" data-tip="Level ({k})" hidden></button>
+      <button class="sas-btn" data-sas="heading" data-plane="1" data-icon="sasHeading" aria-label="Hold heading and altitude" title="Heading (3)" data-k="apHeading" data-tip="Heading ({k})" hidden></button>
+      <button class="sas-btn" data-sas="off" data-plane="1" data-icon="sasOff" aria-label="Autopilot off" title="Off (4)" data-k="apOff" data-tip="Off ({k})" hidden></button>
+      <button class="sas-btn" data-sas="aim" data-plane="1" data-icon="sasAim" aria-label="Aim: the plane flies to the circle" title="Aim (5)" data-k="apAim" data-tip="Aim ({k})" hidden></button>
     </div>
+    <!-- a desktop (no touch controls): the keys for the craft and mode at hand, from the current bindings -->
+    <div id="key-hints" class="key-hints panel"><button id="key-hints-toggle" class="kh-head" type="button" aria-expanded="true" aria-controls="key-hints-list">Keys ▾</button><div id="key-hints-list" class="kh-list"></div></div>
     <div class="rot-controls">
-      <div id="joy" class="joy" role="application" aria-label="Flight stick: drag to steer"><div class="joy-knob"></div></div>
+      <div id="joy" class="joy" role="application" aria-label="Flight stick: put your thumb down anywhere in the bottom-left corner and drag"><div class="joy-knob"></div></div>
       <div class="roll-btns">
-        <button id="rot-left" class="round small-round" data-icon="rotL" aria-label="Roll or yaw left (Q)" title="Q"></button>
-        <button id="rot-right" class="round small-round" data-icon="rotR" aria-label="Roll or yaw right (E)" title="E"></button>
+        <button id="rot-left" class="round small-round" data-icon="rotL" aria-label="Roll or yaw left (Q)" title="Q" data-k="rollL" data-tip="{k}" data-aria="Roll or yaw left ({k})"></button>
+        <button id="rot-right" class="round small-round" data-icon="rotR" aria-label="Roll or yaw right (E)" title="E" data-k="rollR" data-tip="{k}" data-aria="Roll or yaw right ({k})"></button>
       </div>
       <button id="btn-brake" class="round brake" aria-label="Brake (hold)" hidden>Brake</button>
     </div>
   </div>
 
-  <button id="btn-catapult" class="round catapult" hidden title="Catapult launch (L)">Launch</button>
+  <button id="btn-catapult" class="round catapult" hidden title="Catapult launch (L)" data-k="catapult" data-tip="Catapult launch ({k})">Launch</button>
   <div id="weapon-box" class="weapon-box" hidden>
-    <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
-    <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)">Fire</button>
-    <button id="btn-cm" class="round cm" aria-label="Countermeasures (K)" title="Flares and chaff (K)" hidden>CM</button>
+    <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)" data-k="weapon" data-tip="Change weapon ({k})"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
+    <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)" data-k="fire" data-tip="Fire (hold {k})" data-aria="Fire (hold {k})">Fire</button>
+    <button id="btn-cm" class="round cm" aria-label="Countermeasures (K)" title="Flares and chaff (K)" data-k="cm" data-aria="Countermeasures ({k})" hidden>CM</button>
   </div>
 
   <!-- the ground update: a ground vehicle's own controls (ghud.js places nothing here: style.css "Flight: ground" does) -->
-  <button id="btn-sight" class="round gbtn g-sight" hidden aria-label="Gunner's sight (Shift, or hold the right mouse button)" title="Gunner's sight (Shift / hold right mouse)" aria-pressed="false"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="15" r="4"/><circle cx="17" cy="15" r="4"/><path d="M11 15h2M5 11l2-6h2l1 6M19 11l-2-6h-2l-1 6"/></svg></span></button>
-  <button id="btn-mg" class="round gbtn g-mg" hidden aria-label="Machine guns (hold Space)" title="Machine guns (hold Space)">MG</button>
-  <button id="btn-lock" class="round gbtn g-lock" hidden aria-label="Radar lock (L)" title="Radar lock (L)" aria-pressed="false">Lock</button>
-  <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder, or the commander's reading)">Zero 800 m</button>
+  <button id="btn-sight" class="round gbtn g-sight" hidden aria-label="Gunner's sight (Shift, or hold the right mouse button)" title="Gunner's sight (Shift / hold right mouse)" aria-pressed="false" data-k="sight" data-tip="Gunner's sight ({k} / hold right mouse)" data-aria="Gunner's sight ({k}, or hold the right mouse button)"><span class="icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="15" r="4"/><circle cx="17" cy="15" r="4"/><path d="M11 15h2M5 11l2-6h2l1 6M19 11l-2-6h-2l-1 6"/></svg></span></button>
+  <button id="btn-mg" class="round gbtn g-mg" hidden aria-label="Machine guns (hold Space)" title="Machine guns (hold Space)" data-k="mg" data-tip="Machine guns (hold {k})" data-aria="Machine guns (hold {k})">MG</button>
+  <button id="btn-lock" class="round gbtn g-lock" hidden aria-label="Radar lock (L)" title="Radar lock (L)" aria-pressed="false" data-k="lock" data-tip="Radar lock ({k})" data-aria="Radar lock ({k})">Lock</button>
+  <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder, or the commander's reading)" data-k="zero" data-tip="Sight's range ({k}: from the rangefinder, or the commander's reading)">Zero 800 m</button>
   <div id="ammo-stack" class="ammo-stack" role="group" aria-label="Shells" hidden></div>
   <canvas id="gmap" class="gmap" hidden aria-label="Minimap: tap for the tactical map"></canvas>
   <div id="gtac" class="gtac" hidden>
@@ -345,7 +349,7 @@
     <span id="mp-bar-info" class="mp-bar-info"></span>
     <span id="mp-ground" class="mp-ground" hidden><span id="mp-tk0" class="mp-tk us" title="Your team’s tickets">0</span><span id="mp-zones" class="mp-zones"></span><span id="mp-tk1" class="mp-tk them" title="The enemy’s tickets">0</span></span>
     <button id="mp-spawn-btn" class="btn small" hidden>Spawn</button>
-    <button id="mp-score-btn" class="btn small" title="Scoreboard (hold `)">Score</button>
+    <button id="mp-score-btn" class="btn small" title="Scoreboard (hold `)" data-k="score" data-tip="Scoreboard (hold {k})">Score</button>
     <button id="mp-ready-btn" class="btn small primary" hidden>Ready</button>
   </div>
   <div id="mp-cap" class="mp-cap" hidden><span id="mp-cap-text"></span><div class="mp-cap-track"><i id="mp-cap-fill"></i></div></div>
@@ -383,6 +387,7 @@
 <script src="js/armour.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/world.js"></script>
+<script src="js/controls.js"></script>
 <script src="js/parts3d.js"></script>
 <script src="js/render3d.js"></script>
 <script src="js/audio.js"></script>

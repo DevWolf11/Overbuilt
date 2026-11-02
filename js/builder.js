@@ -2620,9 +2620,10 @@ const Builder = {
     addEventListener('keydown', (e) => {
       const t = e.target, slider = t.tagName === 'INPUT' && t.type === 'range'; // (a focused slider keeps its arrow keys, not the rest)
       if (App.scene !== 'build' || UI.modalOpen || (t.tagName === 'INPUT' && !slider) || t.tagName === 'TEXTAREA' || (slider && e.code.startsWith('Arrow'))) return;
-      const mod = e.ctrlKey || e.metaKey;
+      // the Ctrl shortcuts are fixed; the rest are the binding table's (Keys, controls.js: their defaults the old keys)
+      const mod = e.ctrlKey || e.metaKey, K = (id) => Keys.is(e.code, id);
       if (mod && e.code === 'KeyS') { e.preventDefault(); if (e.shiftKey) this.saveAs(); else this.quickSave(); return; }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && this.selected) { e.preventDefault(); this.deleteSel(); }
+      if (K('bDelete') && this.selected) { e.preventDefault(); this.deleteSel(); }
       else if (mod && e.code === 'KeyA') { e.preventDefault(); this.selectAll(); }
       else if (mod && e.code === 'KeyC') { e.preventDefault(); this.copySel(); }
       else if (mod && e.code === 'KeyX') { e.preventDefault(); this.copySel(true); }
@@ -2630,14 +2631,14 @@ const Builder = {
       else if (mod && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); }
       else if (mod && e.code === 'KeyY') { e.preventDefault(); this.redo(); }
       else if (mod && e.code === 'KeyD') { e.preventDefault(); this.duplicateSelected(); }
-      else if (e.code === 'Enter' && this.ctrl) App.launch();
-      else if (e.code === 'KeyF') this.fitView();
-      else if (e.code === 'KeyR' && !mod) this.rotateSel();
-      else if (e.code === 'KeyV') App.setPreview3D(!Settings.get('build3d'));
-      else if (e.code === 'KeyG' && !mod) this.setGrid(!this.grid);
-      else if (e.code === 'KeyM' && !mod) this.matchPaint();
-      else if (e.code === 'KeyX' && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
-      else if ((e.code === 'BracketLeft' || e.code === 'BracketRight') && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(e.code === 'BracketLeft' ? -k : k); }
+      else if (K('bLaunch') && this.ctrl) App.launch();
+      else if (K('bFit')) this.fitView();
+      else if (K('bRotate') && !mod) this.rotateSel();
+      else if (K('b3d')) App.setPreview3D(!Settings.get('build3d'));
+      else if (K('bGrid') && !mod) this.setGrid(!this.grid);
+      else if (K('bMatch') && !mod) this.matchPaint();
+      else if (K('bXray') && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
+      else if ((K('bIn') || K('bOut')) && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(K('bIn') ? -k : k); }
       else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); if (this.selectMode) this.setSelectMode(false); } }
       else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
         e.preventDefault();
