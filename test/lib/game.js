@@ -45,7 +45,7 @@ function load(opts = {}) {
     const ret = '  return {\n    S, step,';
     if (!cs.includes(ret)) throw new Error("combat.js: its final 'return { S, step, ...' moved; update test/lib/game.js");
     const names = ['boxesOf', 'hitVessel', 'muzzle', 'explode', 'destroyPart', 'fireGun', 'fireRocket', 'launchMissile', 'dropBomb',
-      'systems', 'playerFrame', 'spawnFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
+      'systems', 'playerFrame', 'spawnFighter', 'flyFighter', 'turretFire', 'release', 'nextStore', 'nextSide',
       'chaff', 'dispenser', 'autoCM', 'cmFX', 'decoyed', 'chaffBreaks', 'siteSees', 'clearLine', 'makeTarget', 'shipSamFire', 'samFire', 'at', 'rangeOf',
       'rwrOf', 'hostileMissile', 'lockers', 'rwrAdvice', 'turretStep', 'airframe',
       'candidates', 'refPos', 'guide', 'guideAir', 'moveShot', 'netShot', 'netFlares', 'countermeasures', 'segPoint', 'damage', 'aiDown', 'targetCentre']

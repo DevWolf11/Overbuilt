@@ -1200,6 +1200,12 @@ const Combat = (() => {
     const pullK = Math.abs(bankErr) < 0.9 ? 1 : 0.3;
     const strainEase = v.strain > 0.75 ? 0.4 : 1;
     v.ctl.v = clamp(-Math.atan2(wu, Math.max(wf, 0.05)) * 3 * pullK * strainEase, -1, 0.35);
+    // (a g ceiling, 80% of its wings' rating: the stick it may use eases off quickly while it is over that, and comes back
+    // slowly while under. Its airframe is the one it was tuned for, before PR #40 (vessel.js: an AI's plane keeps the old
+    // aerodynamics), which pulls no more than 75%, so it is a safety net)
+    const gMax = 0.8 * (v.gRating() || 8), nz = v.nz || 0;
+    ai.pullMax = clamp((ai.pullMax ?? 1) + (nz > gMax ? -1.5 : 0.3) * Math.abs(gMax - nz) * dt, 0.1, 1);
+    v.ctl.v = Math.max(v.ctl.v, -ai.pullMax);
     v.ctl.r = clamp(-wr * 0.8, -0.5, 0.5);
     v.throttle = engage && d > 6000 ? 1 : 0.86; // afterburner only to close a long way
     if (v.overspeed > 0.85) v.throttle = v.overspeed > 0.95 ? 0 : 0.5; // and back off near the wings' speed limit

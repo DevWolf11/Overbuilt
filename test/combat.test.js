@@ -117,6 +117,42 @@ const base = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockp
   ok(b.parts.length === 11 && ctx.RAIDER.length === 11, `RAIDER spawns with ${b.parts.length} of ${ctx.RAIDER.length} parts`);
   ok(b.parts.some((p) => p.type === 'vtailTwin'), 'its twin tail is kept (pylonLink)');
 }
+// the bandit flies as it did before PR #40 (an AI's plane keeps the old aerodynamics; flyFighter's g ceiling is a safety
+// net that its old airframe never reaches): chasing a target that flies a steady 4 g turn, and one that weaves at 4 g,
+// its seconds with a firing solution (within 1,100 m and 0.05 rad), its first one, closest pass, peak g and strain are
+// those it had (the play-test's aifighter.js against c9e2973)
+{
+  const chase = (scen) => {
+    const { v: tgt0 } = craft(ctx, [['cockpitJet', 0, 12.1]]);
+    const R = G.EARTH.radius, v = T.spawnFighter(sim(ctx, tgt0));
+    const tgt = { x: R + 2000, y: 0, z: 0, vx: 0, vy: 220, vz: 0, parts: [1], body: G.EARTH, landed: false, stealth: 0, speed() { return Math.hypot(this.vx, this.vy, this.vz); }, altitude() { return Math.hypot(this.x, this.y, this.z) - R; } };
+    const nrm = (a) => { const l = Math.hypot(a.x, a.y, a.z); return { x: a.x / l, y: a.y / l, z: a.z / l }; }, crs = (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+    v.x = R + 2500; v.y = -6000; v.z = 2000; v.landed = false;
+    const up = nrm(v); let fwd = { x: tgt.x - v.x, y: tgt.y - v.y, z: tgt.z - v.z }; const k = (fwd.x * up.x + fwd.y * up.y + fwd.z * up.z) / Math.hypot(fwd.x, fwd.y, fwd.z);
+    fwd = nrm(fwd); fwd = nrm({ x: fwd.x - up.x * k, y: fwd.y - up.y * k, z: fwd.z - up.z * k });
+    const nx = { x: -up.x, y: -up.y, z: -up.z };
+    v.q = G.qbasis(nx, fwd, crs(nx, fwd)); v.av = { x: 0, y: 0, z: 0 }; v.vx = fwd.x * 230; v.vy = fwd.y * 230; v.vz = fwd.z * 230; v.ai = { t: 0, down: false };
+    const s = sim(ctx, v), F = { active: tgt, destroyed: false, vessels: [v, tgt] }, dt = 1 / 120;
+    let sol = 0, first = null, dmin = 1e9, g = 0, strain = 0, dep = false;
+    for (let i = 0; i < 65 * 120; i++) {
+      const ti = i * dt, Rr = Math.hypot(tgt.x, tgt.y, tgt.z), u = { x: tgt.x / Rr, y: tgt.y / Rr, z: tgt.z / Rr }, side = crs(nrm({ x: tgt.vx, y: tgt.vy, z: tgt.vz }), u);
+      const n = scen === 'turn' ? 9.80665 * Math.sqrt(15) : 9.80665 * 4 * Math.sign(Math.sin((ti * Math.PI) / 6));
+      tgt.vx += side.x * n * dt; tgt.vy += side.y * n * dt; tgt.vz += side.z * n * dt;
+      const ss = 220 / Math.hypot(tgt.vx, tgt.vy, tgt.vz); tgt.vx *= ss; tgt.vy *= ss; tgt.vz *= ss;
+      tgt.x += tgt.vx * dt; tgt.y += tgt.vy * dt; tgt.z += tgt.vz * dt;
+      if (i % 2 === 0) T.flyFighter(v, F, 2 * dt);
+      v.physicsStep(dt, s);
+      const d = Math.hypot(tgt.x - v.x, tgt.y - v.y, tgt.z - v.z), P = v.pilot, nose = v.axis(P.F.x, P.F.y, P.F.z), w = nrm({ x: tgt.x - v.x, y: tgt.y - v.y, z: tgt.z - v.z });
+      if (d < 1100 && Math.acos(Math.max(-1, Math.min(1, nose.x * w.x + nose.y * w.y + nose.z * w.z))) < 0.05) { sol += dt; if (first == null) first = ti; }
+      dmin = Math.min(dmin, d); g = Math.max(g, v.nz || 0); strain = Math.max(strain, v.strain || 0);
+      if (Math.abs(v.slip || 0) > 0.45 || Math.abs(v.aoa || 0) > 1.05) dep = true;
+    }
+    return { sol: +sol.toFixed(1), first: first == null ? null : +first.toFixed(1), dmin: Math.round(dmin), g: +g.toFixed(1), strain: +strain.toFixed(2), dep };
+  };
+  const turn = chase('turn'), weave = chase('weave');
+  ok(turn.sol === 0.2 && turn.first === 22 && turn.dmin === 84 && turn.g === 5.3 && turn.strain === 0.75 && !turn.dep && weave.sol === 1.5 && weave.first === 48.6 && weave.dmin === 167 && weave.g === 5 && weave.strain === 0.75 && !weave.dep,
+    `the bandit chases as before PR #40: a 4 g turn ${JSON.stringify(turn)}, a 4 g weave ${JSON.stringify(weave)} (old: 0.2 s, first 22.0 s, 84 m, 5.3 g, 0.75; 1.5 s, 48.6 s, 167 m, 5.0 g, 0.75)`);
+}
 // skins never touch radar
 {
   const { v } = craft(ctx, ctx.TEMPLATES.falcon.parts, 'plane');

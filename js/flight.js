@@ -535,14 +535,14 @@ const Flight = {
       <div><kbd>Space</kbd><span>Activate next stage</span></div>
       <div><kbd>1</kbd>–<kbd>6</kbd><span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
       <div><kbd>1</kbd>–<kbd>5</kbd><span>Plane autopilot: hold attitude, level (holds altitude), heading, off (you fly it: the stick asks for g, it stays trimmed), aim</span></div>
-      <div><span class="tap">Mouse</span><span>Planes in Aim (5): move the circle, the plane flies its nose there (click the view to capture the mouse; on touch, drag or slide on FIRE); the keys and the stick still fly it, the circle following · hold <kbd>C</kbd> to look round, tap it to put the circle on the nose · left click fires</span></div>
+      <div><span class="tap">Mouse</span><span>Planes in Aim (5): move the circle, the plane flies its nose there (click the view to capture the mouse, <kbd>Esc</kbd> lets it go; on touch, drag or slide on FIRE); the keys and the stick still fly it, within the autopilot's limits, the circle following · hold <kbd>C</kbd> to look round, tap it to put the circle on the nose · left click fires</span></div>
       <div><kbd>M</kbd><span>Map view (tap a planet to target it)</span></div>
       ${this.mp ? '' : '<div><kbd>,</kbd><kbd>.</kbd><span>Time warp down / up</span></div>'}
       <div><kbd>[</kbd><kbd>]</kbd><span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
       <div><kbd>B</kbd><span>Hold to brake on wheels (and pop the air brakes)</span></div>
       <div><kbd>F</kbd><kbd>G</kbd><span>Planes: flaps (three steps), retractable gear up / down</span></div>
-      <div><kbd>C</kbd><span>Reset the camera (drag to look around); in Aim, hold to look round</span></div>
+      <div><kbd>C</kbd><span>Reset the camera (drag to look around); in Aim, hold to look round, tap to put the circle on the nose</span></div>
       <div><kbd>V</kbd><kbd>Tab</kbd><span>Fire (hold) / change weapon · <kbd>K</kbd> flares and chaff</span></div>
       ${this.mp ? '<div><kbd>L</kbd><span>Carrier catapult: launch</span></div><div><kbd>T</kbd><kbd>`</kbd><span>Chat · scoreboard (hold)</span></div>' : ''}
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
@@ -904,8 +904,9 @@ const Flight = {
     this.flyLook = null;
     if (performance.now() - (this.flyLookAt || 0) < 250 && this.active) this.flyAlong(this.active, true);
   },
-  // The HUD of Aim: the circle (white; amber when the g limit holds the pull back, red at the AoA's), a cross where the
-  // nose points (where the guns shoot), and a faint line between them while they're far apart
+  // The HUD of Aim: the circle (white; amber when the g limit holds the pull back, red at the AoA's), a pale blue open
+  // cross where the nose points (where the guns shoot; the gun pipper, green, is Combat's), and a faint line between them
+  // while they're far apart
   drawFlyAim(ctx, W, H, dpr) {
     const v = this.active;
     if (!this.flyAim || !v || !v.parts.length || !this.flyDir || !Render3D.ready || this.destroyed) return;
@@ -920,17 +921,19 @@ const Flight = {
       ctx.globalAlpha = 0.35; ctx.strokeStyle = '#f2f5f7'; ctx.setLineDash([4, 6]);
       ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(c.x, c.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
-    if (!n.behind) {
-      ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(n.x - 8, n.y); ctx.lineTo(n.x + 8, n.y); ctx.moveTo(n.x, n.y - 8); ctx.lineTo(n.x, n.y + 8); ctx.stroke();
-      ctx.strokeStyle = '#7dffb0'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(n.x - 8, n.y); ctx.lineTo(n.x + 8, n.y); ctx.moveTo(n.x, n.y - 8); ctx.lineTo(n.x, n.y + 8); ctx.stroke();
+    if (!n.behind) { // (four ticks round an empty middle, pale blue: not the guns' green pipper, which may sit beside it)
+      const tick = (w, c) => {
+        ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(n.x + dx * 4, n.y + dy * 4); ctx.lineTo(n.x + dx * 11, n.y + dy * 11); }
+        ctx.stroke();
+      };
+      tick(4, 'rgba(8, 11, 16, 0.55)'); tick(2, '#9fe3ff');
     }
     if (!c.behind) {
       ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.arc(c.x, c.y, 15, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(c.x, c.y, 17, 0, TAU); ctx.stroke();
       ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(c.x, c.y, 15, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(c.x, c.y, 17, 0, TAU); ctx.stroke();
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },
@@ -1759,9 +1762,9 @@ const Flight = {
   structAlert(v) {
     if (!v || v.landed || this.destroyed || !(v.airspeed > 20)) return null;
     const sp = v.overspeed > 1 ? { kind: 'speed', level: 2 } : Math.max(v.overspeed || 0, v.overWarn || 0) > 0.9 ? { kind: 'speed', level: 1 } : null;
-    // (a plane's law holding the pull at its own g limit, under the wings' rating: no warning, the plane is keeping itself
-    // safe; past the rating, or flown by hand, the warning as ever)
-    if (v.kind === 'plane' && v.strain > 0.85 && !(v.planeLaw && v.pitchLimit === 'g' && v.strain <= 1)) {
+    // (a plane flown by a law that keeps it inside its limits, hold, level, heading or Aim (its keys too): no warning under
+    // the wings' rating, the plane is keeping itself safe; past it, or flown by hand (Off), the warning as ever)
+    if (v.kind === 'plane' && v.strain > (v.planeLaw && v.sas !== 'manual' ? 1 : 0.85)) {
       const stress = v.overspeed > 1 ? 0 : v.wings.reduce((m, p) => Math.max(m, p.stress || 0), 0); // (stress from flutter is the speed's doing)
       const g = { kind: 'g', level: v.strain > 1 || stress > 0.3 ? 2 : 1 };
       if (!sp || g.level > sp.level || (g.level === sp.level && (sp.level < 2 || v.strain > 1))) return g;

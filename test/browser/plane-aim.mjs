@@ -7,6 +7,7 @@
 //    by hand and the circle rides the nose; C held looks round (the circle stays where it was), a tap puts the circle on
 //    the nose; 4 is Off (the manual law), 5 back to Aim.
 //  - A phone: a drag on the view moves the circle, and so does a slide on FIRE; the stick takes over while held.
+//  - On the runway (the play-test's finding 12): a level circle, full throttle: the FS-16 lifts off under 500 km/h.
 //  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720), the
 //    autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills, FIRE, CM, the weapon chip, the throttle,
 //    the stage box, the flight data and the buttons top right stay on the screen and clear of each other, and the circle
@@ -65,7 +66,7 @@ const layout = () => {
   document.querySelectorAll('#sas-bar [data-sas]').forEach((b) => { const r = rect(b); if (r) items['sas-' + b.dataset.sas] = r; });
   const v = Flight.active, bp = bodyPos(v.body, Flight.time), D = Flight.flyDir, L = 2000;
   const c = D && Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
-  return { W: innerWidth, H: innerHeight, items, circle: c && !c.behind ? { l: c.x - 16, t: c.y - 16, r: c.x + 16, b: c.y + 16 } : null };
+  return { W: innerWidth, H: innerHeight, items, circle: c && !c.behind ? { l: c.x - 18, t: c.y - 18, r: c.x + 18, b: c.y + 18 } : null };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L) {
@@ -183,6 +184,22 @@ for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
     ok('the stick flies it while held, the circle riding the nose', s3.off < 3 && s3.sas === 'aim', s3);
   }
   await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ---- on the runway: a level circle, full throttle (the flight loop's own update, 60 a second)
+{
+  const { ctx, page } = await open([1280, 720, false], {}, 'runway ');
+  await page.evaluate(async () => { await Render3D.load(); App.toBuild(); Builder.loadTemplate('fs16'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize()); });
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.time > 0.3, null, { timeout: 60000 });
+  await page.keyboard.press('Space'); await page.keyboard.press('KeyZ'); await frames(page, 2);
+  const r = await page.evaluate(() => {
+    const v = Flight.active; let lift = null, top = 0;
+    for (let i = 0; i < 40 * 60 && !lift; i++) { Flight.update(1 / 60); if (v.wheelsDown) top = Math.max(top, v.speed()); else if (Flight.time > 2 && v.groundAltitude() > 3) lift = v.speed(); }
+    return { sas: v.sas, lift: lift && Math.round(lift * 3.6), top: Math.round(top * 3.6) };
+  });
+  ok('on the runway in Aim with a level circle, full throttle: the FS-16 lifts off under 500 km/h (it raced to 1,206 km/h before)', r.sas === 'aim' && r.lift && r.lift < 500, r);
+  await pageErrors(page, 'runway ');
   await ctx.close();
 }
 
