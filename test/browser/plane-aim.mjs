@@ -6,12 +6,14 @@
 //    (right turns it right, up lifts it) and the plane follows it; a click under the lock fires; held keys fly the plane
 //    by hand and the circle rides the nose; C held looks round (the circle stays where it was), a tap puts the circle on
 //    the nose; 4 is Off (the manual law), 5 back to Aim.
-//  - A phone: a drag on the view moves the circle, and so does a slide on FIRE; the stick takes over while held.
+//  - A phone (the controls update): only the stick moves the circle (held right, it turns right and the plane isn't flown
+//    by hand); a drag on the view looks round and leaves the circle where it is; a slide on FIRE fires and doesn't move it.
 //  - On the runway (the play-test's finding 12): a level circle, full throttle: the FS-16 lifts off under 500 km/h.
-//  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720), the
-//    autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills, FIRE, CM, the weapon chip, the throttle,
-//    the stage box, the flight data and the buttons top right stay on the screen and clear of each other, and the circle
-//    sits on the screen clear of them; no console errors (App.frame swallows them).
+//  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720: no
+//    touch controls, the key hints instead), the autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills,
+//    FIRE, CM, the weapon chip, the throttle, the stage box, the key hints, the flight data and the buttons top right stay on
+//    the screen and clear of each other, and the circle sits on the screen clear of them; no console errors (App.frame
+//    swallows them).
 // SHOTS=<dir> saves screenshots there (aim-*.png).
 //   node test/browser/plane-aim.mjs
 import fs from 'node:fs';
@@ -62,11 +64,11 @@ const layout = () => {
   const rect = (q) => { const e = typeof q === 'string' ? document.querySelector(q) : q; if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width && r.height && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden' ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
   const items = { stick: rect('#joy'), rollL: rect('#rot-left'), rollR: rect('#rot-right'), brake: rect('#btn-brake'), flaps: rect('#btn-flaps'), gear: rect('#btn-gear'),
     fire: rect('#btn-fire'), cm: rect('#btn-cm'), chip: rect('#btn-weapon'), throttle: rect('#flight-ui .throttle-box'), stage: rect('#flight-ui .stage-box'),
-    telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp') };
+    telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp'), keys: rect('#key-hints') };
   document.querySelectorAll('#sas-bar [data-sas]').forEach((b) => { const r = rect(b); if (r) items['sas-' + b.dataset.sas] = r; });
   const v = Flight.active, bp = bodyPos(v.body, Flight.time), D = Flight.flyDir, L = 2000;
   const c = D && Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
-  return { W: innerWidth, H: innerHeight, items, circle: c && !c.behind ? { l: c.x - 18, t: c.y - 18, r: c.x + 18, b: c.y + 18 } : null };
+  return { W: innerWidth, H: innerHeight, pc: document.body.classList.contains('pc'), items, circle: c && !c.behind ? { l: c.x - 18, t: c.y - 18, r: c.x + 18, b: c.y + 18 } : null };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L) {
@@ -78,7 +80,7 @@ function judge(tag, L) {
     for (let j = i + 1; j < E.length; j++) if (meets(a, E[j][1])) clash.push(`${k}/${E[j][0]}`);
     if (meets(a, L.circle)) clash.push(`${k}/circle`);
   }
-  const need = ['stick', 'fire', 'throttle', 'telemetry', 'sas-aim'].filter((k) => !L.items[k]);
+  const need = (L.pc ? ['keys', 'chip', 'throttle', 'telemetry', 'sas-aim'] : ['stick', 'fire', 'throttle', 'telemetry', 'sas-aim']).filter((k) => !L.items[k]);
   const onScreen = !!L.circle && L.circle.l >= 0 && L.circle.t >= 0 && L.circle.r <= L.W && L.circle.b <= L.H;
   ok(`${tag} (${L.W}×${L.H}): the plane's HUD clear of itself and of the circle, on the screen`, !clash.length && !off.length && !need.length && onScreen, JSON.stringify({ clash, off, need, onScreen, circle: L.circle }));
 }
@@ -147,7 +149,7 @@ function judge(tag, L) {
   await ctx.close();
 }
 
-// ---- a phone in portrait: a drag on the view and a slide on FIRE move the circle; the stick takes over while held
+// ---- a phone in portrait: only the stick moves the circle; a drag on the view looks round; a slide on FIRE only fires
 for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
   const tag = `phone ${vp[0]}×${vp[1]} `;
   const { ctx, page } = await open(vp, {}, tag);
@@ -165,7 +167,7 @@ for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
     for (let i = 1; i <= 8; i++) await touch('touchMove', at[0] + i * 10, at[1] - i * 4);
     await touch('touchEnd'); await frames(page);
     const s1 = await state(page);
-    ok('a drag on the view moves the circle (right and up)', top && s1.right > s.right + 0.2 && s1.up > s.up + 0.05, { top, before: s, after: s1 });
+    ok('a drag on the view looks round, and leaves the circle where it was', top && Math.abs(s1.right - s.right) < 0.03 && Math.abs(s1.up - s.up) < 0.03, { top, before: s, after: s1 });
     // a slide on FIRE
     const f = await page.evaluate(() => { const r = document.querySelector('#btn-fire').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
     await touch('touchStart', f[0], f[1]);
@@ -174,14 +176,14 @@ for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
     const firing = await page.evaluate(() => Flight.firing);
     await touch('touchEnd'); await frames(page);
     const s2 = await state(page);
-    ok('a slide on FIRE fires and moves the circle', firing && s2.right < s1.right - 0.1, { before: s1.right, after: s2.right, firing });
-    // the stick takes over while held, the circle on the nose
+    ok('a slide on FIRE fires and no longer moves the circle', firing && Math.abs(s2.right - s1.right) < 0.03, { before: s1.right, after: s2.right, firing });
+    // the stick moves the circle (held right: it turns right), the plane not flown by hand
     const j = await page.evaluate(() => { const r = document.querySelector('#joy').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
     await touch('touchStart', j[0], j[1]); await touch('touchMove', j[0] + 30, j[1]);
     await until(page, (await page.evaluate(() => Flight.time)) + 0.5);
-    const s3 = await state(page);
+    const s3 = await state(page), c3 = await page.evaluate(() => Flight.active.ctl.h);
     await touch('touchEnd');
-    ok('the stick flies it while held, the circle riding the nose', s3.off < 3 && s3.sas === 'aim', s3);
+    ok('the stick moves the circle right while held, in Aim, and doesn\'t fly the plane by hand', s3.right > s2.right + 0.2 && s3.sas === 'aim' && c3 === 0, { s3, ctl: c3 });
   }
   await pageErrors(page, tag);
   await ctx.close();
