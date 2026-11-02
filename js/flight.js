@@ -1990,7 +1990,7 @@ const Flight = {
     $('#hint').hidden = !h;
     set('hint-text', h);
     if (gnd || this._gsync) { this._gsync = gnd; GHUD.sync(this, ws); } // (the ground controls; once more as they go)
-    Controls.keyHints(this); // (a desktop's key hints: rebuilt only when what they say changes)
+    Controls.keyHints(this, false, ws); // (a desktop's key hints: rebuilt only when what they say changes)
     if (force) { this.updateThrottleDom(); this.syncSas(); }
   },
 

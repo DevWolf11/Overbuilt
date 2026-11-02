@@ -382,12 +382,13 @@ const Controls = (() => {
     // ---------------------------------------------------------------- a desktop's key hints
     // In place of the touch controls: the keys for the craft and mode at hand, from the current bindings. Rebuilt only
     // when what it would say changes (a short key string a HUD tick), never per frame.
-    keyHints(F, force) {
+    keyHints(F, force, wsNow) {
       const box = q('#key-hints');
       if (!box || this.touch) return;
       const v = F.active, list = q('#key-hints-list');
-      const open = store.get('rss.keyHints', true) !== false;
-      const ws = v && !F.destroyed ? Combat.status(v) : null, cat = !!(F.catapult && F.catapult.state === 'hold');
+      if (S.hintOpen == null || force) S.hintOpen = store.get('rss.keyHints', true) !== false;
+      const open = S.hintOpen;
+      const ws = v && !F.destroyed ? (wsNow !== undefined ? wsNow : Combat.status(v)) : null, cat = !!(F.catapult && F.catapult.state === 'hold');
       const weap = !!ws && !ws.cmOnly, cm = !!ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0);
       const mode = !v ? '' : F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}` : F._bodyGround ? 'd' : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '') : v.kind;
       const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}`;
@@ -667,6 +668,13 @@ const Controls = (() => {
       body.append(el('div', { class: 'ce-foot' }, seg, all));
       bar.replaceChildren(head, body);
       bar.dataset.dock = String(E.dock);
+      // never over the chosen control: its own spot first, else the first of middle, top and bottom clear of it
+      const c = k && q(CTL[k][0]);
+      if (c) {
+        const cr = c.getBoundingClientRect(), meets = (r) => r.left < cr.right && r.right > cr.left && r.top < cr.bottom && r.bottom > cr.top;
+        for (const d of [E.dock, 0, 1, 2]) { bar.dataset.dock = String(d); if (!meets(bar.getBoundingClientRect())) { E.dock = d; break; } }
+        bar.dataset.dock = String(E.dock);
+      }
     },
     editSwitch(E, hud) {
       this.editUndo(E);
