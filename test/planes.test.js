@@ -7,6 +7,8 @@
 //    back stick held 5 s at 360 and 540 km/h doesn't flip it (no departure, no more than the stall + 10°).
 //  - Hold: full back stick at speed reaches most of its g limit (0.9 of the wings' rating, at most 9.5 g), never past the
 //    rating, and nothing departs at 360 to 900 km/h, 1 and 5 km.
+//  - Roll (PR #43): full roll stick in hold banks 90° within 2.3 s at 1.5 times the stall speed (the bomber, airliner
+//    and glider 45°), and at 720 km/h it never departs nor tears a wing.
 // The Albatross is a glider (stage 1 is its take-off booster): it flies these without lighting it. Hold's g is checked at
 // 75% of the limit: the Falcon's canard and the Striker's small tail reach 76-80% of it.
 //   node test/planes.test.js [plane,plane,...]
@@ -132,5 +134,34 @@ for (const key of keys) {
     if (N.dep || N.dead) fails.push(`full back stick at ${alt / 1000} km, ${V2 * 3.6} km/h: departed`);
   }
   t(`${key}: hold pulls to its g limit (${lim.toFixed(1)} g: ${M.n.toFixed(1)} at ${Math.round(V * 3.6)} km/h), never past the rating, never departs`, !fails.length, fails.join(' | ') || undefined);
+}
+
+// ---- Roll (PR #43): 3 s of full roll stick in hold, 2 km up. Slow (1.5 times the stall speed, at least 55 m/s) every
+// plane answers briskly: 90° of bank within ROLL_T90 s (the heavy ones, ROLL_HEAVY, 45°). At 720 km/h (or what the wings
+// take) none departs or tears a wing, as the fastest jets did past ROLL_MAX 4.5 rad/s.
+const ROLL_T90 = 2.3, ROLL_HEAVY = { bomber: 1, jumbo: 1, albatross: 1 };
+for (const key of keys) {
+  const probe = air(key, 100, 2000).v, fails = [];
+  let fast = 200;
+  while (!easOk(probe, fast, 2000)) fast -= 10;
+  const out = [];
+  for (const [what, V] of [['slow', Math.max(55, 1.5 * vstall(probe, 2000))], ['fast', fast]]) {
+    if (what === 'slow' && V > 0.85 * fast) continue;
+    const o = settle(key, V, 2000, 'hold'), M = newM();
+    let last = o.v.attitude().bank, turned = 0, t45 = null, t90 = null;
+    fly(o.v, o.s, 3, (v, tt) => {
+      v.ctl.h = 1;
+      const b = v.attitude().bank; let db = b - last; if (db > Math.PI) db -= 2 * Math.PI; if (db < -Math.PI) db += 2 * Math.PI; turned += db; last = b;
+      if (t45 == null && turned > Math.PI / 4) t45 = tt; if (t90 == null && turned > Math.PI / 2) t90 = tt;
+    }, M);
+    if (M.dep || M.dead) fails.push(`full roll at ${Math.round(V * 3.6)} km/h: departed`);
+    if (o.s.broken.length) fails.push(`full roll at ${Math.round(V * 3.6)} km/h: ${o.s.broken.join(';')}`);
+    if (what === 'slow') {
+      const [deg, at] = ROLL_HEAVY[key] ? [45, t45] : [90, t90];
+      if (at == null || at > ROLL_T90) fails.push(`at ${Math.round(V * 3.6)} km/h ${deg}° of bank took ${at == null ? 'over 3' : at.toFixed(2)} s (at most ${ROLL_T90})`);
+      out.push(`${deg}° in ${at == null ? '-' : at.toFixed(2)} s at ${Math.round(V * 3.6)} km/h`);
+    }
+  }
+  t(`${key}: full roll stick: ${out.join(', ') || 'no slow case'}, never departs`, !fails.length, fails.join(' | ') || undefined);
 }
 t.done();

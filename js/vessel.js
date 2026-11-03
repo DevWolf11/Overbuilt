@@ -15,9 +15,12 @@ const MAX_SPIN = 6;   // rad/s
 // Plane handling (PR #40). The autopilot's, the manual law's and the instructor's rate loop has an integral term (PLANE_KI,
 // per second, of the proportional command), in the air; hold and the instructor keep within PLANE_G of the wings' g
 // rating (at most PLANE_GMAX) and below PLANE_AOA of the stall; the stick's full roll is ROLL_K of the rate the ailerons
-// alone would roll the plane at (clamped to ROLL_MIN..ROLL_MAX rad/s). A tail behind the main wing flies in its downwash
-// (DOWNWASH of the wing's angle of attack) and moves TAIL_THROW times its part's throw.
-const PLANE_KI = 4, PLANE_G = 0.9, PLANE_GMAX = 9.5, PLANE_AOA = 0.92, ROLL_K = 0.45, ROLL_MIN = 0.5, ROLL_MAX = 4.5;
+// alone would roll the plane at (clamped to ROLL_MIN..ROLL_MAX rad/s), cut by up to ROLL_AOA of it at a high angle of
+// attack. A tail behind the main wing flies in its downwash (DOWNWASH of the wing's angle of attack) and moves
+// TAIL_THROW times its part's throw.
+// (ROLL_K was 0.45 and the AoA cut 0.75 until PR #43: slow and light planes rolled at half what
+// their ailerons gave; past ROLL_MAX 4.5 the fastest jets overshoot the stop and spin past 300°/s in all axes)
+const PLANE_KI = 4, PLANE_G = 0.9, PLANE_GMAX = 9.5, PLANE_AOA = 0.92, ROLL_K = 0.6, ROLL_MIN = 0.5, ROLL_MAX = 4.5, ROLL_AOA = 0.55;
 const AIM_AOA = 0.8; // (the instructor's AoA limit, of the stall, and never past the wing's own stall: it rolls hard too, so it stays further from it)
 // (the instructor: the nose's turn rate per rad of the error (1/s); the flight path's, for the bank (1/s), and the error
 // (rad) under which that comes on gently; the push it allows (g); the sideslip it may hold to put the nose on a close aim (rad), and its rudder per rad of
@@ -747,10 +750,10 @@ class Vessel {
   gLimit(k, max = PLANE_GMAX) { const r = this.gRating(); return r ? clamp(k * r, 2, max) : 8; }
   // The stick's full roll rate (rad/s): ROLL_K of the rate the ailerons alone would roll the plane at now, so a fighter
   // rolls fast, an airliner slowly, and every plane faster the faster it flies (rollNat: worked out in the aero step)
-  // (and at a high angle of attack less, down to a quarter of it from 70% of the stall, as fly-by-wire jets do: a fast
-  // roll there swaps the angle of attack for sideslip; and pulling hard, less too: a rolling g limit)
+  // (and at a high angle of attack less, down to 45% of it from 70% of the stall, as fly-by-wire jets do: a fast roll
+  // there swaps the angle of attack for sideslip; and pulling hard, less too: a rolling g limit)
   rollRate() {
-    return (this.rollNat > 0 ? clamp(ROLL_K * this.rollNat, ROLL_MIN, ROLL_MAX) : PILOT.plane.rate[1]) * (1 - 0.75 * smoothstep(0.2 * this.stallAoA, 0.7 * this.stallAoA, Math.abs(this.aoa || 0)))
+    return (this.rollNat > 0 ? clamp(ROLL_K * this.rollNat, ROLL_MIN, ROLL_MAX) : PILOT.plane.rate[1]) * (1 - ROLL_AOA * smoothstep(0.2 * this.stallAoA, 0.7 * this.stallAoA, Math.abs(this.aoa || 0)))
       * (1 - 0.6 * smoothstep(0.5, 1, (this.nz || 0) / this.gLimit(PLANE_G))); // (and under a heavy load less, down to 40% at the g limit: a full roll there loads the rising wing's half past its rating)
   }
   // The roll part of the rate loop's integral term starts afresh when the roll stick is let go (no roll on after it)
