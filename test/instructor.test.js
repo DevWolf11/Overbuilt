@@ -18,8 +18,11 @@
 //     speed a second later, at full throttle; the deltas, slow to rotate, under 6), and a circle 10° right of the
 //     runway's line steers the roll round to it;
 // 13. Off's AoA cap holds below 1 g speed (a Sugoi-27 at 300 km/h, 8 km, full back stick: no more than the stall + 10°);
-// 14. the Albatross (a glider) with the circle straight up: no departure, it runs out of speed and comes back down.
-// About two minutes.   node test/instructor.test.js [check numbers, e.g. 1,4]
+// 14. the Albatross (a glider) with the circle straight up: no departure, it runs out of speed and comes back down;
+// 15. the circle put on the cross, 2 km up, stays on it (the nose within 1° 3 s later: the nose flies to the circle, the
+//     flight path only low down and landing);
+// 16. a flick 3° right or 3° down is reached within 0.75° in under 1 s (the bomber and the Jumbo 1.5 s), no more than 2° past.
+// About four minutes.   node test/instructor.test.js [check numbers, e.g. 1,4]
 const G = require('./lib/game.js');
 const ctx = G.load({ props: true, flight: true });
 const t = G.checks("planes: Aim's instructor (the play-test's findings)");
@@ -309,5 +312,32 @@ if (want(14)) {
   let dep = false, top = 0;
   run(v, s, 25, aim, (vv) => { if (departed(vv)) dep = true; top = Math.max(top, vv.attitude().pitch * D); });
   t(`14. the Albatross with the circle straight up: no departure, it comes back down before its speed runs out (highest pitch ${top.toFixed(0)}°; before: a tail slide)`, !dep && !s.broken.length, s.broken.join(';') || undefined);
+}
+
+// ---- 15, 16. the cross on the circle (the play-test after PR #42: "the circle feels odd, the planes don't respond")
+// 2 km up at its cruise speed, the circle put on the nose (the cross) and held there 3 s; then flicked 3° right, or 3° down
+const elOf = (v) => Math.asin(Math.max(-1, Math.min(1, dot(noseOf(v), upOf(v))))) * D;
+const HEAVY = ['bomber', 'jumbo'];
+if (want(15) || want(16)) {
+  const gap = [], slow = [], past = [], sums = [];
+  for (const key of PLANES) {
+    for (const [nm, az, el] of [['3° right', 3, 0], ['3° down', 0, -3]]) {
+      const { v, s } = air(key, speedOf(key), 2000, 'hold', 0.85);
+      run(v, s, 1);
+      let aim = aimFixed(v, 0, elOf(v)); v.sas = 'aim';
+      let e0 = 0;
+      run(v, s, 3, aim, (vv) => { aim(vv); e0 = ang(noseOf(vv), vv.aimDir); });
+      if (nm === '3° right' && e0 > 1) gap.push(`${key} ${e0.toFixed(1)}°`);
+      aim = aimFixed(v, az, elOf(v) + el);
+      let tin = null, worst = 0;
+      run(v, s, 3, aim, (vv, tt) => { aim(vv); const e = ang(noseOf(vv), vv.aimDir); if (tin == null) { if (e < 0.75) tin = tt; } else worst = Math.max(worst, e); });
+      const lim = HEAVY.includes(key) ? 1.5 : 1;
+      if (tin == null || tin > lim) slow.push(`${key} ${nm} ${tin == null ? 'never' : tin.toFixed(2) + ' s'}`);
+      if (worst > 2) past.push(`${key} ${nm} ${worst.toFixed(1)}°`);
+      if (tin != null) sums.push(tin);
+    }
+  }
+  if (want(15)) t('15. the circle put on the cross (2 km up, cruising) stays on it: every plane\'s nose within 1° of it 3 s later (before: 3-13° over it, the flight path flown at the circle near the horizon at any height)', !gap.length, gap.join(' | ') || undefined);
+  if (want(16)) t(`16. a flick of the circle 3° right or 3° down is reached: the nose within 0.75° in under 1 s (the bomber and the Jumbo 1.5 s), never more than 2° away after (mean ${(sums.reduce((a, b) => a + b, 0) / Math.max(1, sums.length)).toFixed(2)} s; before: a 3° flick down never reached, one to the side banked a slow FS-16 38° and swung 3° past)`, !slow.length && !past.length, [...slow, ...past].join(' | ') || undefined);
 }
 t.done();
