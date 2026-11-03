@@ -1,8 +1,9 @@
 // Planes flown by their own laws (PR #40), every plane template, headless:
 //  - Aim (the instructor, the mouse aim): the nose onto a circle 90° to the right, 60° left and 20° down, behind and 10°
 //    up, and 45° up, in its time, without a wing coming off, departing (sideslip past 26°, yaw past 57°/s, the AoA past
-//    60°, any rate past 5.4 rad/s) or coming within 30 m of the ground; aimed 30° into the sea from 400 m, it stays at
-//    least 50 m up; a level aim it holds to a few degrees.
+//    60°, any rate past 5.4 rad/s) or coming within 30 m of the ground; a circle on the ground 60° below from 1500 m, the
+//    nose on it in 6 s (PR #44: the heavy ones aside); aimed 30° into the sea from 400 m, it dives at it and pulls out by
+//    itself, at least 15 m up (50 m, never getting there, until PR #44); a level aim it holds to a few degrees.
 //  - Off (the manual law): hands-off it stays trimmed (no nose-over), the roll stops when the stick is let go, and full
 //    back stick held 5 s at 360 and 540 km/h doesn't flip it (no departure, no more than the stall + 10°).
 //  - Hold: full back stick at speed reaches most of its g limit (0.9 of the wings' rating, at most 9.5 g), never past the
@@ -53,9 +54,9 @@ const AIMS = [['90° right', 90, 0, 14], ['60° left, 20° down', -60, -20, 12],
 const slow = [];
 for (const key of keys) {
   const probe = air(key, 100, 2000).v, heavy = probe.gRating() < 5, V0 = probe.vne < 160 ? Math.min(110, 0.75 * probe.vne) : 200, thr = 0.9;
-  const fails = [], times = [];
-  for (const [name, az, el, secs] of [...AIMS, ['30° down from 400 m', 0, -30, 12, 400], ['level ahead', 0, 0, 15]]) {
-    const alt0 = name.includes('400 m') ? 400 : 2000;
+  const fails = [], times = [], sea = [];
+  for (const [name, az, el, secs, alt] of [...AIMS, ['60° down from 1500 m', 0, -60, 6, 1500], ['30° down from 400 m', 0, -30, 12, 400], ['level ahead', 0, 0, 15]]) {
+    const alt0 = alt || 2000;
     const { v, s } = air(key, V0, alt0, 'hold', thr);
     fly(v, s, 1, null, newM());
     const P = v.pilot, F0 = v.axis(P.F.x, P.F.y, P.F.z), r = v.radius(), U = { x: v.x / r, y: v.y / r, z: v.z / r };
@@ -74,15 +75,18 @@ for (const key of keys) {
     const endErr = Math.max(...last);
     if (s.broken.length) fails.push(`${name}: broke ${s.broken.join(';')}`);
     if (M.dep) fails.push(`${name}: departed`);
-    if (name.includes('400 m')) { if (M.minH < 50) fails.push(`${name}: ${Math.round(M.minH)} m off the sea`); }
-    else {
+    if (name.includes('400 m')) { // (PR #44: dived at, and pulled out of at the last moment; until then held 50 m up, never got there)
+      if (M.minH < 15) fails.push(`${name}: ${Math.round(M.minH)} m off the sea`);
+      if (tIn == null && !heavy) fails.push(`${name}: the nose never on it`);
+      sea.push(Math.round(M.minH));
+    } else {
       if (M.minH < 30) fails.push(`${name}: ${Math.round(M.minH)} m off the ground`);
-      if (tIn == null) fails.push(`${name}: not on in ${secs} s`);
+      if (tIn == null && !(heavy && name.includes('1500 m'))) fails.push(`${name}: not on in ${secs} s`);
       if (name === 'level ahead' && endErr > 6) fails.push(`level ahead: ${endErr.toFixed(1)}° off at the end`);
       times.push(tIn == null ? '-' : tIn.toFixed(1));
     }
   }
-  t(`${key}: Aim puts the nose on the circle (90° right, 60° left & down, behind, 45° up, level: ${times.join(' / ')} s), out of the ground, nothing torn or departing`, !fails.length, fails.join(' | ') || undefined);
+  t(`${key}: Aim puts the nose on the circle (90° right, 60° left & down, behind, 45° up, 60° down from 1500 m, level: ${times.join(' / ')} s; 30° into the sea from 400 m, out at ${sea[0]} m), nothing torn or departing`, !fails.length, fails.join(' | ') || undefined);
   if (times.some((x) => x === '-')) slow.push(key);
 }
 
