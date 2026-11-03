@@ -5,8 +5,8 @@
 //     and levelling off from a 25° climb doesn't roll the plane over;
 //  3. arriving from a 90° turn: no skid (sideslip under 6°) and the nose not past the aim by more than 3°;
 //  4. a circle held on a target in a steady 4 g turn (fighters, 600 km/h): the nose within 2° of it 80% of the time;
-//  5. the circle straight down from 5 km, and 45° down from 3 km: the plane pulls out, at least 50 m up, no wing past
-//     110% of its rating;
+//  5. the circle straight down from 5 km, and 45° down from 3 km: the plane dives at it and pulls out by itself at the last
+//     moment, at least 15 m up (50 m until PR #44), no wing past 110% of its rating;
 //  7. slow, the gear and full landing flaps down, the throttle shut, the circle level: no departure; a landing flown as a
 //     player would (the speed held by the throttle down the glide, shut in the flare, the circle on a point 300 m down
 //     the runway) touches down on its main wheels near it, gently, wings level;
@@ -164,7 +164,7 @@ if (want(4)) {
 
 // ---- 5. dives
 if (want(5)) {
-  const bad = [];
+  const bad = [], lows = [];
   for (const [el, alt] of [[-89, 5000], [-45, 3000]]) {
     for (const key of PLANES) {
       const { v, s } = air(key, speedOf(key), alt, 'hold', 0.9);
@@ -172,10 +172,11 @@ if (want(5)) {
       const aim = aimFixed(v, 0, el); v.sas = 'aim';
       let minH = 1e9, strain = 0;
       const ok = run(v, s, el < -60 ? 30 : 25, aim, (vv) => { minH = Math.min(minH, vv.groundAltitude()); strain = Math.max(strain, vv.strain || 0); });
-      if (!ok || minH < 50 || strain > 1.1 || s.broken.some((b) => b.startsWith('rip'))) bad.push(`${key} ${el}° from ${alt} m: ${ok ? Math.round(minH) + ' m' : 'CRASHED'}, strain ${strain.toFixed(2)} ${s.broken.join(';')}`);
+      lows.push(minH);
+      if (!ok || minH < 15 || strain > 1.1 || s.broken.some((b) => b.startsWith('rip'))) bad.push(`${key} ${el}° from ${alt} m: ${ok ? Math.round(minH) + ' m' : 'CRASHED'}, strain ${strain.toFixed(2)} ${s.broken.join(';')}`);
     }
   }
-  t('5. the circle straight down from 5 km and 45° down from 3 km: every plane pulls out at least 50 m up, no wing past 110% of its rating (before: the Kestrel, the bomber and the Jumbo hit the ground)', !bad.length, bad.join(' | ') || undefined);
+  t(`5. the circle straight down from 5 km and 45° down from 3 km: every plane dives at it and pulls out by itself at the last moment, at least 15 m up (lowest ${Math.round(Math.min(...lows))} m; 50 m until PR #44, when the floor still looked 6 s ahead under a circle on the ground), no wing past 110% of its rating nor torn off (before PR #40: the Kestrel, the bomber and the Jumbo hit the ground)`, !bad.length, bad.join(' | ') || undefined);
 }
 
 // ---- 7. slow with the gear and flaps down; a landing

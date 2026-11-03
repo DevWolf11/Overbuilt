@@ -1,7 +1,8 @@
 // Multiplayer across two tabs of one browser (BroadcastChannel, the "This device" transport): A hosts a sandbox and
 // flies a Jumbo with its fan pods moved out to z 9, a stealth-grey wing and a single jet hung on the wing; B joins
 // in a Skylark. B's ghost of A must match A's craft exactly. Then: the host drops a relayed message over 256 KB, and
-// a forged spawn from B is rebuilt clean on A without breaking anything. Then the props: a tree knocked over on B's
+// a forged spawn from B is rebuilt clean on A without breaking anything. Then the part limit: on, B's 1,009-part craft
+// can't fly; the host turns it off and sees it. Then the props: a tree knocked over on B's
 // screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
@@ -111,6 +112,31 @@ ok('a forged spawn is rebuilt clean (known types, unique ids, z and paint cleane
 await A.evaluate(() => { Render3D.skipDraw = false; Flight.spectate = Flight.vessels.find((v) => v.remote) || null; });
 await A.waitForTimeout(2500);
 await A.evaluate(() => { Render3D.skipDraw = true; Flight.spectate = null; });
+
+// the part limit, a room setting: with it on (as every room starts), B's 1,009-part craft can't fly, and says who can
+// turn the limit off; the host turns it off; B flies it, and the host sees all of it
+const big = () => {
+  Builder.loadTemplate('skylark');
+  const c = Builder.parts[0];
+  for (let i = 0; i < 1000; i++) Builder.parts.push(makePart('gun', c.x, c.y, { att: c.id, z: ((i % 20) - 10) * 0.05 }));
+  Builder.changed(); UI._seen = []; const t0 = UI.toast; UI.toast = (x, k) => { UI._seen.push(x); t0.call(UI, x, k); };
+  const flew = Flight.time; MP.launch(); UI.toast = t0;
+  return { parts: Builder.parts.length, toasts: UI._seen, cap: MP.state.settings.cap, spawned: MP.spawnMsg ? MP.spawnMsg.parts.length : 0 };
+};
+const capOn = await B.evaluate(big);
+log('B, part limit on:', JSON.stringify(capOn));
+ok('the part limit on: B\'s 1,009-part craft doesn\'t fly, and the toast says the host can turn the limit off', capOn.spawned < 600 && capOn.toasts.some((x) => /601|1009/.test(x) && /host can turn the part limit off/.test(x)), capOn);
+await A.evaluate(() => MP.setSetting('cap', false));
+await B.waitForFunction(() => MP.state.settings.cap === false, null, { timeout: 10000 });
+const capOff = await B.evaluate(big);
+log('B, part limit off:', JSON.stringify(capOff));
+await B.waitForFunction(() => Flight.running && Flight.active && Flight.active.parts.length > 1000 && MP.spawnMsg && MP.spawnMsg.parts.length > 1000, null, { timeout: 120000 });
+capOff.spawned = await B.evaluate(() => MP.spawnMsg.parts.length);
+const seen = await A.waitForFunction(() => { const g = Flight.vessels.find((v) => v.remote === 2); return g && g.parts.length > 1000 ? g.parts.length : false; }, null, { timeout: 120000 }).then((h) => h.jsonValue()).catch(() => 0);
+log('A sees B\'s ghost with', seen, 'parts');
+ok('the host turns the limit off: B flies it, and the host sees all 1,009 parts', capOff.spawned === 1009 && seen === 1009, { spawned: capOff.spawned, seen });
+await A.evaluate(() => MP.setSetting('cap', true));
+await B.waitForFunction(() => MP.state.settings.cap === true, null, { timeout: 10000 });
 
 // the props: a tree knocked over on B's screen falls on A's (the host's) the same way; a third tab joining later gets
 // the room's set; a player's forged "fallen" goes nowhere (host-only)

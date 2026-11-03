@@ -11,11 +11,15 @@
 // [test -> polish] -> battle -> results).
 
 const MP_FORMATS = { '1v1': { teams: 2, n: 2 }, '2v2': { teams: 2, n: 4 }, '3v3': { teams: 2, n: 6 }, ffa: { teams: 0, n: 6 } };
-const MP_DEFAULTS = { format: '1v1', build: 180, test: true, polish: 120, budget: 75000, carriers: true, ff: false, tod: 'day', limit: 900 };
+const MP_DEFAULTS = { format: '1v1', build: 180, test: true, polish: 120, budget: 75000, carriers: true, ff: false, tod: 'day', limit: 900 }; // (cap: the part limit, on unless set false)
 const MP_CARRIER = { bonus: 1.3, span: 13, length: 16, mass: 12000 }; // more money, but the craft has to fit the deck and the catapult
 const MP_KINDS_PVP = ['plane', 'heli', 'car'];
 const MP_SNAP_MS = 1000 / 15, MP_PV_MS = 200, MP_HP_MS = 500;
-const MP_MAX_PARTS = 600; // the most parts a craft in the shared world may have (bigger spawns are ignored)
+const MP_MAX_PARTS = 600; // the most parts a craft in the shared world may have with the room's part limit on (bigger spawns are ignored)
+// The part limit off (settings.cap false, the host's choice, in a sandbox at any time): a craft as big as one spawn
+// message carries, MP_SPAWN_CHARS of JSON (the host passes on nothing past NET_MAX_BYTES), about 5,000 parts.
+// MP_NET_PARTS only turns a forged list away sooner.
+const MP_SPAWN_CHARS = 250000, MP_NET_PARTS = 20000;
 const MP_TEAM_NAMES = ['Faroes', 'Shetland'];
 // Where players start. Bases use EARTH.airfields (and the space centre's own runway); carriers EARTH.carriers.
 const MP_SPAWNS = [
@@ -39,7 +43,7 @@ const MP_PADS = [
 // What the host may set in the lobby, and to what (anything else is refused)
 const MP_SET_OK = {
   format: (v, st) => hasOwn(MP_FORMATS, v) && !(st.game === 'ground' && v === 'ffa'), budget: [45000, 75000, 120000], build: [120, 180, 300],
-  test: [true, false], carriers: [true, false], ff: [true, false], tod: ['day', 'dusk', 'night'], limit: [600, 900, 1500],
+  test: [true, false], carriers: [true, false], ff: [true, false], tod: ['day', 'dusk', 'night'], limit: [600, 900, 1500], cap: [true, false],
   game: ['air', 'ground'], tickets: [400, 600, 900], respawn: ['free', 'lineup'], air: [true, false], aim: ['arcade', 'realistic'],
 };
 const MP_WRECKS = 8, MP_WRECK_MS = 90000; // the most wrecks kept on the field, and for how long
@@ -69,9 +73,9 @@ const mpBody = (id) => (typeof id === 'string' && hasOwn(BODY_BY_ID, id) && BODY
 // A peer's spawn rows rebuilt clean, [id, type, x, y, rot, flip, z, att, skin, mm?]: unique ids, known parts, depth and
 // paint as the builder allows them, att another id of the same craft (0: none) and never in a loop, skin 0 for
 // the part's own look, mm an armoured part's thickness as the builder allows it (left off when it has none). Anything
-// else in a row is dropped. null: not a craft we take.
-function mpSpawnRows(list) {
-  if (!Array.isArray(list) || list.length > MP_MAX_PARTS) return null;
+// else in a row is dropped. null: not a craft we take (max: the room's part limit, MP.maxParts()).
+function mpSpawnRows(list, max = MP_MAX_PARTS) {
+  if (!Array.isArray(list) || list.length > max) return null;
   const rows = [], links = [], seen = new Set();
   for (const r of list) {
     if (!Array.isArray(r) || !Number.isSafeInteger(r[0]) || r[0] <= 0 || seen.has(r[0]) || typeof r[1] !== 'string' || !hasOwn(PARTS, r[1]) || !Number.isFinite(r[2]) || !Number.isFinite(r[3])) continue;
@@ -86,6 +90,14 @@ function mpSpawnRows(list) {
   cleanAtt(ps); // (self links and loops)
   ps.forEach((p, i) => { rows[i][7] = p.att || 0; });
   return rows;
+}
+
+// The JSON a design's parts take in a spawn message (as startFlight writes its rows), to know before flying that it
+// can be sent: only asked of a craft past MP_MAX_PARTS, with the part limit off.
+function mpSpawnChars(parts) {
+  let n = 0;
+  for (const p of parts) n += JSON.stringify([p.id, p.type, +(+p.x || 0).toFixed(3), +(+p.y || 0).toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att || 0, p.skin || 0]).length + 1 + (p.mm != null ? String(p.mm).length + 1 : 0);
+  return n + 60; // (the message around them)
 }
 
 const MP = {
@@ -236,7 +248,7 @@ const MP = {
     Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); this.sendFallen(m.pid); } });
     Net.on('leave', (m) => this.onLeave(m.pid));
     Net.on('closed', (m) => this.end(m.reason || 'The room closed'));
-    Net.on('warn', (m) => UI.toast(m.text, 'warn'));
+    Net.on('warn', (m) => { UI.toast(m.text, m.ok ? '' : 'warn'); if (this.state) MPUI.refresh(); }); // (the room card says when joining is paused: Net.offline)
     Net.on('set', (m) => { if (Net.isHost) this.applySet(m.f, m.k, m.v); });
     Net.on('chat', (m) => MPUI.chat(m.f, m.text));
     // the shared world
@@ -318,8 +330,9 @@ const MP = {
     else { const p = this.me; if (p) { p[k] = v; MPUI.refresh(); } Net.send({ t: 'set', k, v }, 1); }
   },
   setSetting(k, v) {
-    if (!Net.isHost || !this.state || this.state.phase !== 'lobby') return;
+    if (!Net.isHost || !this.state) return;
     const s = this.state;
+    if (s.phase !== 'lobby' && !(k === 'cap' && s.mode === 'sandbox')) return; // (a sandbox's part limit changes any time: it is for the next craft flown)
     if (!this.settingOk(k, v, s.settings) || (k === 'game' && s.mode !== 'pvp')) return; // (each key to its own values only)
     if (k === 'game' && v === 'ground') {
       this.groundSettings(s.settings);
@@ -344,6 +357,8 @@ const MP = {
   // the kinds a battle takes from the builder: planes, helicopters and cars in the air; Armour and cars on the ground
   // (aircraft join a ground battle only at a respawn, with air support on: designProblems' `air`)
   kindsFor(st) { return st && st.game === 'ground' ? ['tank', 'car'] : MP_KINDS_PVP; },
+  // the most parts a craft in this room may have: the part limit, or (off) what a spawn message carries
+  maxParts() { return this.state && this.state.settings && this.state.settings.cap === false ? MP_NET_PARTS : MP_MAX_PARTS; },
   // host: send the session to everyone (and apply it here)
   push() {
     const s = this.state;
@@ -634,8 +649,13 @@ const MP = {
   // problems with a design for the current match (shown in the builder's stats, and checked before flying). air: a
   // respawn in a ground battle, where aircraft may join too with air support on.
   designProblems(stats, parts, kind, air) {
-    const out = [];
-    if (parts.length > MP_MAX_PARTS) out.push(`Too many parts for the shared world: ${parts.length}, the most is ${MP_MAX_PARTS}.`);
+    const out = [], max = this.maxParts();
+    const say = max === MP_MAX_PARTS && this.state && this.state.mode === 'sandbox'; // (a battle's settings are its lobby's: fixed by the time anyone builds)
+    if (parts.length > max) out.push(`Too many parts for the shared world: ${parts.length}, the most is ${max}${say ? (Net.isHost ? ' (turn the part limit off in the room’s settings)' : ' (the host can turn the part limit off)') : ''}.`);
+    else if (parts.length > MP_MAX_PARTS) { // (the limit off: as big as the others can be sent)
+      const n = mpSpawnChars(parts);
+      if (n > MP_SPAWN_CHARS) out.push(`Too big to send to the others: ${Math.ceil(n / 1024)} KB of parts, the most is ${Math.floor(MP_SPAWN_CHARS / 1024)} KB (about ${Math.floor(parts.length * MP_SPAWN_CHARS / n)} parts of these).`);
+    }
     if (!this.pvp) return out;
     const budget = this.budgetFor(this.spawnId);
     if (stats.cost > budget) out.push(`Over budget by ${money(stats.cost - budget)}: remove parts or pick cheaper ones.`);
@@ -934,7 +954,7 @@ const MP = {
       return r;
     }) };
     Net.send(this.spawnMsg);
-    if (Net.isHost && this.ground) this.priceSpawn(Net.me, mpSpawnRows(this.spawnMsg.parts), v.kind);
+    if (Net.isHost && this.ground) this.priceSpawn(Net.me, mpSpawnRows(this.spawnMsg.parts, this.maxParts()), v.kind);
   },
   // host, a ground battle: what a player's new craft costs, from the spawn rows as everyone builds it (their armour
   // too); it prices the tickets they lose with it (never their own word). A lineup slot is used; an aircraft spends a
@@ -1083,7 +1103,7 @@ const MP = {
     return P;
   },
   onSpawn(m) {
-    const parts = mpSpawnRows(m.parts);
+    const parts = mpSpawnRows(m.parts, this.maxParts());
     if (!parts) return;
     const P = this.peer(m.f);
     this.dropGhost(m.f, false);
