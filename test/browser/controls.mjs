@@ -14,10 +14,9 @@
 //    (unknown keys, nonsense, a place off the screen ignored).
 //  - A desktop (no touch controls): no stick or touch buttons, the key hints for the craft from the current bindings,
 //    collapsible; the Touch controls switch turns them round both ways.
-//  - The controls' own size (Settings → Controls size, the editor's All controls): at 100% nothing written; 75% makes the
-//    stick, FIRE and the stage box three-quarters as big and leaves the flight data; 150% on a phone grows them only as far
-//    as fits; a plane and a tank stay clear at every size; the stick and the editor's drag follow the finger; a desktop's
-//    key hints at 125%.
+//  - UI size held to what fits (also the editor's UI size slider): smaller as asked; at 150% a phone's controls no longer
+//    run into each other or the flight data (portrait and on its side, a plane and a tank); the stick and the editor's drag
+//    follow the finger at any size.
 //  - Keys: a key rebound in the Keys screen works in flight and shows in the hints, the help and the manual; Esc cancels,
 //    Backspace clears; a clash asks (swap, clear it there); reset one and all; kept after a reload; a forged rss.keys
 //    cleaned; the builder's keys too. No console errors (App.frame swallows them).
@@ -489,73 +488,69 @@ if (part(5)) {
   await ctx.close();
 }
 
-// ================================================================ 6. the controls' own size (Settings → Controls size, the editor's All controls)
-// Every control at once, the HUD's panels as they were; each group grows from its corner; a size over 100% only as far
-// as it fits; at 100% nothing written (the old layout to the pixel); the stick and the editor's drag still follow the finger.
+// ================================================================ 6. UI size: the whole HUD, held to what fits
+// Settings → UI size and the editor's UI size slider (one setting) scale the whole HUD (--ui-scale); smaller as asked;
+// larger only as far as it fits (Controls.fit): at 150% a phone's controls no longer run into each other or the flight
+// data (on 390×844 the roll buttons and Brake met the stage box and CM, on 844×390 flaps and gear met the flight data);
+// the stick and the editor's drag follow the finger at any size.
 if (part(6)) {
-  const tag = 'controls size ', { ctx, page } = await open([390, 844, true], {}, tag), cdp = await ctx.newCDPSession(page), T = fingers(cdp);
+  const tag = 'ui size fit ', { ctx, page } = await open([390, 844, true], {}, tag), cdp = await ctx.newCDPSession(page), T = fingers(cdp);
   await fly(page, 'fs16');
   await frames(page, 2);
   const sz = () => page.evaluate(() => {
     const w = (q) => { const e = document.querySelector(q); return e ? Math.round(e.getBoundingClientRect().width * 10) / 10 : null; };
-    return { c: Controls._S.c, joy: w('#joy'), fire: w('#btn-fire'), stage: w('#flight-ui .stage-box'), tel: w('#flight-ui .telemetry'), zooms: [...document.querySelectorAll('#flight-ui .left-controls, #weapon-box, #flight-ui .throttle-box, #flight-ui .stage-box')].map((e) => e.style.zoom) };
+    return { z: Controls.z, joy: w('#joy'), fire: w('#btn-fire'), stage: w('#flight-ui .stage-box'), tel: w('#flight-ui .telemetry') };
   });
-  const set = (v) => page.evaluate((v) => { Settings.set('ctlSize', v); Controls.relayout(); }, v);
+  const set = (v) => page.evaluate((v) => { Settings.set('uiSize', v); Controls.relayout(); }, v);
   const s1 = await sz();
-  ok('at 100% (the default) no group is zoomed: the old layout to the pixel', s1.c === 1 && s1.zooms.every((z) => z === ''), s1);
   await set(0.75); await frames(page, 2);
   const s2 = await sz();
   await page.waitForTimeout(1300);
-  judge('390×844, a plane in Aim, controls at 75%', await page.evaluate(layout), ['stick', 'fire', 'throttle', 'stage', 'sas-aim']);
-  ok('75%: the stick, FIRE and the stage box three-quarters as big, the flight data as it was', s2.c === 0.75 && Math.abs(s2.joy - s1.joy * 0.75) < 1 && Math.abs(s2.fire - s1.fire * 0.75) < 1 && Math.abs(s2.stage - s1.stage * 0.75) < 1 && s2.tel === s1.tel, { s1, s2 });
-  await shot(page, 'ctlsize75-390x844');
-  // the stick still comes to the thumb (its translate is in its zoomed group's px)
-  await T.down(1, 70, 560); await T.move(1, 80, 560);
+  judge('390×844, a plane in Aim, UI size 75%', await page.evaluate(layout), ['stick', 'fire', 'throttle', 'stage', 'sas-aim']);
+  ok('UI size 75%: the whole HUD three-quarters as big (the stick, FIRE, the stage box and the flight data)', s1.z === 1 && s2.z === 0.75 && [['joy'], ['fire'], ['stage'], ['tel']].every(([k]) => Math.abs(s2[k] - s1[k] * 0.75) < 1.5), { s1, s2 });
+  await shot(page, 'uisize75-390x844');
+  await T.down(1, 70, 600); await T.move(1, 80, 600);
   const j = await page.evaluate(() => { const r = document.querySelector('#joy').getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }; });
-  await T.up(1);
-  ok('at 75% the stick still comes to the thumb (where it landed)', Math.hypot(j.x - 70, j.y - 560) < 3, j);
+  await T.up(1); await page.waitForTimeout(400);
+  ok('at 75% the stick still comes to the thumb (where it landed)', Math.hypot(j.x - 70, j.y - 600) < 3, j);
   await set(1.5); await frames(page, 2);
   const s3 = await sz();
   await page.waitForTimeout(1300);
-  judge('390×844, a plane in Aim, controls at 150% (held to what fits)', await page.evaluate(layout), ['stick', 'fire', 'throttle', 'stage', 'sas-aim']);
-  ok('150% on a phone in portrait: as big as fits (over 100%, under the room\'s 118%), the flight data as it was', s3.c > 1 && s3.c < 1.18 && Math.abs(s3.fire - s1.fire * s3.c) < 1.5 && s3.tel === s1.tel, { s1, s3 });
-  await shot(page, 'ctlsize150-390x844');
-  // a tank: smaller and larger
+  judge('390×844, a plane in Aim, UI size 150% (held to what fits: it used to overlap)', await page.evaluate(layout), ['stick', 'fire', 'throttle', 'stage', 'sas-aim']);
+  ok('UI size 150% on a phone in portrait: as big as fits (over 100%, at most the room\'s 1.18), the whole HUD with it', s3.z > 1 && s3.z <= 1.18 && Math.abs(s3.tel - s1.tel * s3.z) < 1.5, { s1, s3 });
+  await shot(page, 'uisize150-390x844');
+  // a tank, smaller and larger
   await fly(page, 'tk34');
-  for (const v of [0.6, 1.25]) {
+  for (const v of [0.6, 1.5]) {
     await set(v); await page.waitForTimeout(1300); await frames(page, 2);
-    const L = await page.evaluate(layout);
-    judge(`390×844, a tank, controls at ${v * 100}% (zoom ${await page.evaluate(() => Controls._S.c)})`, L, ['stick', 'fire', 'sight', 'map', 'shells']);
+    judge(`390×844, a tank, UI size ${v * 100}% (scale ${await page.evaluate(() => Controls.z)})`, await page.evaluate(layout), ['stick', 'fire', 'sight', 'map', 'shells']);
   }
-  await shot(page, 'ctlsize125-tank-390x844');
-  // the editor: All controls (when no control is chosen), the same setting; a control dragged at 80% follows the finger
-  await set(1); await fly(page, 'fs16');
-  await page.evaluate(() => { App.showSettings(); const r = document.querySelector('#set-ctl-size'); r.value = '80'; r.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#set-layout').click(); });
+  await shot(page, 'uisize150-tank-390x844');
+  // a phone on its side: flaps and gear used to meet the flight data at 150%
+  await set(1.5); await fly(page, 'fs16');
+  await page.setViewportSize({ width: 844, height: 390 }); await page.evaluate(() => Controls.resize());
+  await page.waitForTimeout(1300); await frames(page, 2);
+  judge(`844×390, a plane in Aim, UI size 150% (scale ${await page.evaluate(() => Controls.z)}; it used to overlap)`, await page.evaluate(layout), ['stick', 'fire', 'throttle', 'stage', 'sas-aim']);
+  await shot(page, 'uisize150-844x390');
+  await page.setViewportSize({ width: 390, height: 844 }); await set(1); await frames(page, 2);
+  // the editor: its UI size slider (when no control is chosen) is Settings → UI size; a control dragged at 80% follows the finger
+  await page.evaluate(() => { App.showSettings(); const r = document.querySelector('#set-ui-size'); r.value = '80'; r.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#set-layout').click(); });
   await frames(page, 2);
-  const ed = await page.evaluate(() => { const a = document.querySelector('#ce-all'), f = document.querySelector('#btn-fire').getBoundingClientRect(); return { all: a && a.value, c: Controls._S.c, fire: { x: (f.left + f.right) / 2, y: (f.top + f.bottom) / 2 } }; });
+  const ed = await page.evaluate(() => { const a = document.querySelector('#ce-all'), f = document.querySelector('#btn-fire').getBoundingClientRect(); return { all: a && a.value, z: Controls.z, fire: { x: (f.left + f.right) / 2, y: (f.top + f.bottom) / 2 } }; });
   await T.down(3, ed.fire.x, ed.fire.y);
   for (let i = 1; i <= 6; i++) await T.move(3, ed.fire.x - i * 10, ed.fire.y - i * 15);
   await T.up(3); await frames(page, 2);
   const ed2 = await page.evaluate(() => { const f = document.querySelector('#btn-fire').getBoundingClientRect(); return { x: (f.left + f.right) / 2, y: (f.top + f.bottom) / 2 }; });
-  ok('Settings → Controls size 80% is the editor\'s All controls; at 80% a control dragged follows the finger', ed.all === '80' && ed.c === 0.8 && Math.abs(ed2.x - (ed.fire.x - 60)) < 2 && Math.abs(ed2.y - (ed.fire.y - 90)) < 2, { ed, ed2 });
-  await page.evaluate(() => { document.querySelector('.ctl-sel') && document.querySelector('.ctl-sel').classList.remove('ctl-sel'); });
-  await page.evaluate(() => { const b = document.querySelector('#ctl-edit-bar .btn.danger'); b.click(); b.click(); }); // (reset FIRE's place: nothing chosen, All controls shows)
+  ok('Settings → UI size 80% is the editor\'s UI size slider; at 80% a control dragged follows the finger', ed.all === '80' && ed.z === 0.8 && Math.abs(ed2.x - (ed.fire.x - 60)) < 2 && Math.abs(ed2.y - (ed.fire.y - 90)) < 2, { ed, ed2 });
+  await page.evaluate(() => { const b = document.querySelector('#ctl-edit-bar .btn.danger'); b.click(); b.click(); }); // (FIRE back in its place; nothing chosen: the UI size slider shows)
   await frames(page, 2);
-  const out = await page.evaluate(() => { const a = document.querySelector('#ce-all'); a.value = '150'; a.dispatchEvent(new Event('input', { bubbles: true })); return { text: a.parentNode.querySelector('output').textContent, c: Controls._S.c }; });
-  ok('All controls at 150% on a phone says what fits ("150% · fits …%")', /^150% · fits 1[01]\d%$/.test(out.text) && out.c > 1 && out.c < 1.18, out);
-  await shot(page, 'ctlsize-editor-390x844');
+  const out = await page.evaluate(() => { const a = document.querySelector('#ce-all'); a.value = '150'; a.dispatchEvent(new Event('input', { bubbles: true })); return { text: a.parentNode.querySelector('output').textContent, z: Controls.z }; });
+  ok('the editor\'s UI size at 150% on a phone says what fits ("150% · fits …%")', /^150% · fits 1[01]\d%$/.test(out.text) && out.z > 1 && out.z <= 1.18, out);
+  await shot(page, 'uisize-editor-390x844');
   await page.evaluate(() => document.querySelector('#ctl-edit-bar .btn.primary').click());
-  await page.evaluate(() => { UI.closeModal(); Settings.set('ctlSize', 1); });
+  await page.evaluate(() => { UI.closeModal(); Settings.set('uiSize', 1); });
   await pageErrors(page, tag);
   await ctx.close();
-  // a desktop: the key hints and the throttle larger, clear of the flight data
-  const dk = await open([1280, 720, false], { ctlSize: 1.25 }, 'controls size desktop ');
-  await fly(dk.page, 'fs16');
-  await dk.page.waitForTimeout(600);
-  judge(`1280×720 desktop, controls at 125% (zoom ${await dk.page.evaluate(() => Controls._S.c)})`, await dk.page.evaluate(layout), ['telemetry', 'keys']);
-  await shot(dk.page, 'ctlsize125-1280x720');
-  await pageErrors(dk.page, 'controls size desktop ');
-  await dk.ctx.close();
 }
 
 ok('no console errors', !errs.length, errs.slice(0, 6).join('\n'));
