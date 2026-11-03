@@ -1037,9 +1037,10 @@ class Vessel {
     else if (Math.abs(bankErr) < 2.2) this._aimRS = 0;
     if (this._aimPush) { bankErr = Math.abs(at.pitch) < 1 ? -at.bank : Math.atan2(-r, -u); kr = 1; } // (steep, the bank means nothing: the aim under the belly)
     else if (low && Math.abs(at.pitch) < 1) bankErr = clamp(at.bank + bankErr, -1.4, 1.4) - at.bank;
-    // (with the nose already on the aim, a big roll comes slower: it rolls about the flight path, so at a high AoA a quick
-    // one swings the nose off by the AoA (righting itself in a dive after rolling over to it, 15° off for a second))
-    const rmax = this.rollRate() * lerp(0.3, 1, smoothstep(0.05, 0.14, th)), want = { pitch: 0, roll: clamp(bankErr * 4, -rmax, rmax) * kr, yaw: 0 };
+    // (with the nose already on the aim, a big roll (more than 30° to go) comes slower: it rolls about the flight path, so at
+    // a high AoA a quick one swings the nose off by the AoA (righting itself in a dive after rolling over to it, 15° off for a
+    // second); the small banks of fine aim keep their pace, and so does a plane that rolls slowly anyway (under 2 rad/s))
+    const rr = this.rollRate(), rmax = rr * (Math.abs(bankErr) > 0.5 && rr > 2 ? lerp(0.3, 1, smoothstep(0.05, 0.14, th)) : 1), want = { pitch: 0, roll: clamp(bankErr * 4, -rmax, rmax) * kr, yaw: 0 };
     // roll first, then pull (rolling over, or lifted by the floor and still rolling right round: the nose held, no push)
     const along = lerp(0.15, 1, 1 - smoothstep(0.3, 1, Math.abs(bankErr))), cg = Math.cos(at.pitch) * Math.cos(at.bank), nz = this.nz == null ? 1 : this.nz;
     q = this._aimOver || (lifted && Math.abs(bankErr) > 1.57) ? Math.max(0, q) * along : q * along;
