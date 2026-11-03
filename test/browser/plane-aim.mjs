@@ -1,6 +1,7 @@
 // Aim, the mouse aim for planes (PR #40), in the real page:
-//  - A new plane flight starts in Aim (the autopilot bar's Aim pressed); a restored save keeps its own mode, and an old
-//    save's Off flies the manual law (the Off button pressed); the Retro 2D flight doesn't offer Aim (no button, the key
+//  - With Settings → Planes start in: Aim, a new plane flight starts in Aim (the autopilot bar's Aim pressed); by default
+//    it starts in hold (the play-test after PR #42), and the setting starts it in any of the bar's five modes; a restored
+//    save keeps its own mode, and an old save's Off flies the manual law (the Off button pressed); the Retro 2D flight doesn't offer Aim (no button, the key
 //    says why).
 //  - A desktop: the first click captures the mouse (and doesn't fire); the mouse's movement under the lock moves the circle
 //    (right turns it right, up lifts it) and the plane follows it; a click under the lock fires; held keys fly the plane
@@ -39,7 +40,7 @@ const instrument = () => {
 async function open(vp, settings = {}, tag = '') {
   const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] }), page = await ctx.newPage();
   watch(page, errs, tag);
-  await openGame(page, srv.url, settings);
+  await openGame(page, srv.url, { planeStart: 'aim', ...settings }); // (Settings → Planes start in: Aim, but where a check says otherwise)
   await page.evaluate(instrument);
   return { ctx, page };
 }
@@ -99,7 +100,7 @@ function judge(tag, L) {
   const { ctx, page } = await open([1280, 720, false], {}, 'desktop ');
   await fly(page);
   let s = await state(page);
-  ok('a new plane flight starts in Aim: the Aim button pressed, the circle on the nose', s.sas === 'aim' && s.flyAim && s.pressed.join() === 'aim' && s.shown.join() === 'hold,level,heading,off,aim' && s.off < 6, s);
+  ok('with Planes start in: Aim, a new plane flight starts in Aim: the Aim button pressed, the circle on the nose', s.sas === 'aim' && s.flyAim && s.pressed.join() === 'aim' && s.shown.join() === 'hold,level,heading,off,aim' && s.off < 6, s);
   judge('desktop', await page.evaluate(layout));
   await shot(page, 'desktop');
   // a stand-in pointer lock (headless Chromium's own gives synthetic moves huge jumps)
@@ -178,6 +179,29 @@ function judge(tag, L) {
   });
   ok('a restored flight keeps its own mode (never switched to Aim); a saved Off flies the manual law', restored[0] === 'level' && restored[1] === 'manual' && restored[2] === 'off', restored);
   await pageErrors(page, 'desktop ');
+  await ctx.close();
+}
+
+// ---- Settings → Planes start in (the play-test after PR #42: the normal autopilot first, for now): a new plane flight
+// starts in hold by default, an old settings file's PR #40 planeAim (on) no longer starts it in Aim; the setting offers the
+// five modes of the autopilot bar and starts a new flight in the one picked
+{
+  const { ctx, page } = await open([1280, 720, false], { planeStart: undefined, planeAim: true }, 'start mode ');
+  await fly(page);
+  const d = await state(page);
+  const opts = await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-plane-start'), r = { o: [...s.options].map((x) => x.value), v: s.value }; UI.closeModal(); return r; });
+  const modes = [];
+  for (const m of ['level', 'heading', 'manual', 'aim', 'hold']) {
+    await page.evaluate((m) => { App.showSettings(); const s = document.querySelector('#set-plane-start'); s.value = m; s.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); }, m);
+    await fly(page);
+    const st = await state(page);
+    modes.push([m, st.sas, st.pressed.join(), st.flyAim]);
+  }
+  ok('a new plane flight starts in hold, the normal autopilot, by default (an old settings file with planeAim on too); Settings → Planes start in offers hold, level, heading, Off and Aim and starts a new flight in the one picked',
+    d.sas === 'hold' && d.pressed.join() === 'hold' && !d.flyAim && opts.v === 'hold' && opts.o.join() === 'hold,level,heading,manual,aim' && modes.every(([m, sas, p, fa]) => sas === m && p === (m === 'manual' ? 'off' : m) && fa === (m === 'aim')),
+    { d: { sas: d.sas, pressed: d.pressed, flyAim: d.flyAim }, opts, modes });
+  await shot(page, 'start-hold');
+  await pageErrors(page, 'start mode ');
   await ctx.close();
 }
 

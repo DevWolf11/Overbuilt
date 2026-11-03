@@ -53,7 +53,9 @@ const Flight = {
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
-    if (v.kind === 'plane' && Settings.get('planeAim') && this.aim3D()) v.sas = 'aim'; // (a new flight of a plane starts in Aim, the mouse aim, when it's on)
+    // a new flight of a plane starts in the mode Settings → Planes start in picks: hold, the autopilot, unless another is
+    // chosen (level, heading, Off's manual law, or Aim, the mouse aim, in 3D only: else hold)
+    if (v.kind === 'plane') { const m = Settings.get('planeStart'); v.sas = m === 'aim' ? (this.aim3D() ? 'aim' : 'hold') : ['level', 'heading', 'manual'].includes(m) ? m : 'hold'; }
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];

@@ -42,7 +42,7 @@ const instrument = () => {
 async function open(vp, settings = {}, tag = '', keep) {
   const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] }), page = await ctx.newPage();
   watch(page, errs, tag);
-  await openGame(page, srv.url, settings);
+  await openGame(page, srv.url, { planeStart: 'aim', ...settings }); // (planes start in Aim here: these are its controls; the default is hold)
   if (keep) { await page.evaluate((k) => { for (const [a, v] of Object.entries(k)) localStorage.setItem(a, v); }, keep); await page.reload(); await page.waitForTimeout(400); }
   await page.evaluate(instrument);
   return { ctx, page };
