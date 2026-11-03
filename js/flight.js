@@ -884,8 +884,8 @@ const Flight = {
     D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
   },
   // The camera's own way (local, like flyF/flyU): it eases after the circle as War Thunder's does (the play-test after
-  // PR #40: locked to the circle, the view jerked with every flick), most of the way in a quarter second and slowing as
-  // it closes, but never so far behind that the circle leaves the middle of the screen (half of the way to its edge,
+  // PR #40: locked to the circle, the view jerked with every flick), most of the way in under half a second and slowing
+  // as it closes, but never so far behind that the circle leaves the middle of the screen (60% of the way to its edge,
   // across and up, so a phone held upright keeps it too); looking round it is the look's own, as before, and it starts
   // on the circle when Aim comes on or the craft changes
   flyCamEase(v, on, dt) {
@@ -898,17 +898,17 @@ const Flight = {
       return C;
     }
     const k = 1 - Math.exp(-dt / this.FLY_CAM_TAU);
-    // the most it may trail: the circle half way from the middle to the screen's edge, in the direction it lies
+    // the most it may trail: the circle 60% of the way from the middle to the screen's edge, in the direction it lies
     const r = cross3(C.f, C.u, this._tr || (this._tr = v3())), tx = dot3(T.f, r), ty = dot3(T.f, C.u), th = Math.hypot(tx, ty) || 1;
     const W = (typeof App !== 'undefined' && App.W) || 1, H = (typeof App !== 'undefined' && App.H) || 1, tv = 0.4663; // (tan 25°: the flight camera's 50°)
-    const lag = Math.atan(0.5 / Math.hypot(tx / th / (tv * W / H), ty / th / tv));
+    const lag = Math.atan(0.6 / Math.hypot(tx / th / (tv * W / H), ty / th / tv));
     this.flyTurn(C.f, T.f, C.u, k, 0, lag);
     this.flyTurn(C.u, T.u, C.f, k, 0, Math.PI);
     const d = dot3(C.u, C.f); C.u.x -= C.f.x * d; C.u.y -= C.f.y * d; C.u.z -= C.f.z * d; // (kept square to f)
     if (len3(C.u) < 1e-6) { C.u.x = T.u.x; C.u.y = T.u.y; C.u.z = T.u.z; } else norm3(C.u);
     return C;
   },
-  FLY_CAM_TAU: 0.12,
+  FLY_CAM_TAU: 0.18, // (0.12 until the play-test after PR #41 asked for a little more delay)
   // a toward b (unit vectors, about ax when they're opposite) by k of the angle between, at least min radians, and
   // leaving at most max between them; the angle it was
   flyTurn(a, b, ax, k, min, max) {

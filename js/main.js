@@ -351,7 +351,7 @@ const App = {
         <li><b>Cars and helicopters.</b> Cars drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}. Helicopters lift off as you raise the throttle (${k('thrUp')}); the stick tilts them to fly that way and they level out when you let go, ${k('rollL')}/${k('rollR')} turn. Hold ${k('brake')} (or Brake) to stop on the ground.</li>
         <li><b>Armour (tanks, SPAA, launchers).</b> ${k('fwd')}/${k('back')} drive, ${k('left')}/${k('right')} turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or ${k('sight')}) is the gunner's sight. ${Keys.k('shell1')}–${Keys.k('shell4')} choose the next shell, ${k('mg')} the machine guns, ${k('cm')} smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
         <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, ${k('camera')} to reset. It follows behind planes, cars and helicopters and beside rockets; in Aim it follows the circle a moment behind${T ? ', and a drag looks round (only the stick moves the circle)' : ', and a drag moves the circle instead: hold ' + k('camera') + ' to look round'}. On touch screens the stick flies the craft: put your left thumb down anywhere in the bottom-left corner and it comes to you (in Aim it moves the circle).</li>
-        <li><b>Your controls.</b> Settings → Keys rebinds every key (two per action); Settings → Edit controls moves, sizes and fades the touch controls (also from the pause menu on a phone); UI size makes the whole HUD bigger or smaller; Touch controls switches between the phone's controls and a desktop's key hints.</li>
+        <li><b>Your controls.</b> Settings → Keys rebinds every key (two per action); Settings → Edit controls moves, sizes and fades the touch controls (also from the pause menu on a phone); UI size makes the whole HUD bigger or smaller, Controls size (or All controls in the editor) every control at once; Touch controls switches between the phone's controls and a desktop's key hints.</li>
       </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
@@ -462,6 +462,7 @@ const App = {
       return el('span', { class: 'set-range' }, r, out);
     };
     const uiSize = pct('set-ui-size', 'uiSize', 75, 150, 1, () => { Controls.applyScale(); Controls.relayout(); });
+    const ctSize = pct('set-ctl-size', 'ctlSize', 50, 150, 1, () => Controls.relayout()); // (every control at once: the stick, the buttons, the throttle, the key hints)
     const stSize = pct('set-stick-size', 'stickSize', 75, 150, 1, () => Controls.relayout());
     const stSens = pct('set-stick-sens', 'stickSens', 50, 200, 1);
     const inv = el('input', { id: 'set-aim-invert', type: 'checkbox' }); inv.checked = !!Settings.get('aimInvert');
@@ -473,7 +474,7 @@ const App = {
     const lay = el('button', { id: 'set-layout', class: 'btn small', text: 'Edit controls…' });
     lay.addEventListener('click', () => { UI.closeModal(); Controls.edit({ done: () => this.showSettings() }); });
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
-      head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
+      head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Controls size', ctSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
       el('div', { class: 'setting-actions' }, keys, lay),
       head('Aiming'), row(isTouch ? 'Planes: start in Aim' : 'Planes: mouse aim', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens)); // (a finger's drag too: fine aim in a phone's 6x sight)
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
