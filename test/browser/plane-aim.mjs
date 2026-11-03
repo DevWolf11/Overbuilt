@@ -8,6 +8,10 @@
 //    the nose; 4 is Off (the manual law), 5 back to Aim.
 //  - A phone (the controls update): only the stick moves the circle (held right, it turns right and the plane isn't flown
 //    by hand); a drag on the view looks round and leaves the circle where it is; a slide on FIRE fires and doesn't move it.
+//  - One cross (the play-test after PR #40): Aim's HUD is the circle and one cross where the nose points and the guns hit
+//    (green with a gun selected, pale blue in the same place with a missile); no pipper beside it, no prograde marks (both
+//    back in hold). The camera eases after the circle: it trails while the stick turns it, the circle at most half way to
+//    the screen's edge, and settles on it once the stick is let go.
 //  - On the runway (the play-test's finding 12): a level circle, full throttle: the FS-16 lifts off under 500 km/h.
 //  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720: no
 //    touch controls, the key hints instead), the autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills,
@@ -69,6 +73,11 @@ const layout = () => {
   const v = Flight.active, bp = bodyPos(v.body, Flight.time), D = Flight.flyDir, L = 2000;
   const c = D && Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
   return { W: innerWidth, H: innerHeight, pc: document.body.classList.contains('pc'), items, circle: c && !c.behind ? { l: c.x - 18, t: c.y - 18, r: c.x + 18, b: c.y + 18 } : null };
+};
+// the camera's lag behind the circle (degrees) and where the circle is across the screen (from the middle, in half-widths)
+const camLag = () => {
+  const v = Flight.active, bp = bodyPos(v.body, Flight.time), D = Flight.flyDir, C = Flight.flyCamDir, L = 2000, c = Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
+  return { lag: Math.acos(Math.max(-1, Math.min(1, C.x * D.x + C.y * D.y + C.z * D.z))) * 57.2958, x: (c.x - innerWidth / 2) / (innerWidth / 2) };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L) {
@@ -139,6 +148,29 @@ function judge(tag, L) {
   const off = s;
   await page.keyboard.press('Digit5'); await frames(page); s = await state(page);
   ok('4 is Off (the manual law, the Off button pressed), 5 is Aim again', off.sas === 'manual' && off.pressed.join() === 'off' && !off.flyAim && s.sas === 'aim' && s.flyAim, { off, aim: s });
+  // one cross (the play-test after PR #40 counted three marks): in Aim the HUD is the circle and the cross where the nose
+  // points and the guns hit; Combat draws no pipper beside it and the prograde marks are gone; in hold they're back
+  const marks = await page.evaluate(() => {
+    const v = Flight.active, sys = Combat.systems(v), bp = bodyPos(v.body, Flight.time);
+    const rec = () => { const c = document.createElement('canvas').getContext('2d'), arcs = [], a = c.arc; c.arc = function (x, y, r, ...o) { arcs.push(Math.round(r * 10) / 10); return a.call(this, x, y, r, ...o); }; return { c, arcs }; };
+    const look = () => {
+      const h = rec(), f = rec(), m = []; Combat.drawHUD(h.c, App.W, App.H, 1, Flight); if (Flight.flyAim) Flight.drawFlyAim(f.c, App.W, App.H, 1);
+      World.markersFor(v, Flight, bp, (x, y, k) => m.push(k));
+      return { hud: h.arcs, fly: f.arcs, marks: m };
+    };
+    v.wsel = sys.findIndex((x) => x.w.kind === 'gun');
+    const gun = Combat.aimCross(v, {}), inAim = look();
+    v.wsel = sys.findIndex((x) => x.w.kind === 'missile');
+    const msl = Combat.aimCross(v, {});
+    v.wsel = sys.findIndex((x) => x.w.kind === 'gun');
+    Flight.setSas('hold'); Flight.planeTick(0.016);
+    const inHold = look();
+    Flight.setSas('aim'); Flight.planeTick(0.016);
+    return { gun, msl, same: Math.hypot(gun.x - msl.x, gun.y - msl.y, gun.z - msl.z), inAim, inHold };
+  });
+  ok('Aim shows one cross where the nose points and the guns hit (green with the gun selected, pale blue and in the same place with a missile), no pipper beside it and no prograde marks; in hold the pipper and the marks are back',
+    marks.gun.armed && !marks.msl.armed && marks.same < 1e-6 && !marks.inAim.hud.includes(13) && marks.inAim.fly.filter((r) => r === 17).length === 2 && marks.inAim.fly.includes(1.8) && !marks.inAim.marks.length
+    && marks.inHold.hud.includes(13) && marks.inHold.marks.includes('pro') && !marks.inHold.fly.length, marks);
   // a restored save keeps its mode; an old save's Off flies the manual law
   const restored = await page.evaluate(() => {
     Flight.active.sas = 'level'; Flight.save(); const d = store.get('rss.flight'); Flight.restore(d); const a = Flight.active.sas;
@@ -181,9 +213,14 @@ for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
     const j = await page.evaluate(() => { const r = document.querySelector('#joy').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
     await touch('touchStart', j[0], j[1]); await touch('touchMove', j[0] + 30, j[1]);
     await until(page, (await page.evaluate(() => Flight.time)) + 0.5);
-    const s3 = await state(page), c3 = await page.evaluate(() => Flight.active.ctl.h);
+    const s3 = await state(page), c3 = await page.evaluate(() => Flight.active.ctl.h), cam = await page.evaluate(camLag);
     await touch('touchEnd');
     ok('the stick moves the circle right while held, in Aim, and doesn\'t fly the plane by hand', s3.right > s2.right + 0.2 && s3.sas === 'aim' && c3 === 0, { s3, ctl: c3 });
+    // the camera eases after the circle (the play-test after PR #40): it trails it while the stick turns it, the circle
+    // ahead of the middle but no more than half way to the screen's edge; let go, it settles on the circle within 0.6 s
+    await until(page, (await page.evaluate(() => Flight.time)) + 0.6);
+    const cam2 = await page.evaluate(camLag);
+    ok('the camera follows the circle a moment behind: it trails while the stick turns it (the circle ahead of the middle, at most half way to the edge) and settles on it once let go', cam.lag > 1 && cam.x > 0.05 && cam.x < 0.56 && cam2.lag < 0.5 && Math.abs(cam2.x) < 0.03, { held: cam, after: cam2 });
   }
   await pageErrors(page, tag);
   await ctx.close();

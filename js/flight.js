@@ -776,7 +776,7 @@ const Flight = {
   // a new flight, or the end of one: out of the sight, the mouse let go, the aim to start afresh
   aimReset() {
     this.groundAim = this.aimCam = this.freeLook = this.mouseFire = this.sightHold = false; // (first: no aim to keep as the sight shuts)
-    this._flyV = null; this.flyLook = null; if (this.flyAim) { this.flyAim = false; document.body.classList.remove('flyaim'); }
+    this._flyV = this._flyCV = null; this.flyLook = null; if (this.flyAim) { this.flyAim = false; document.body.classList.remove('flyaim'); }
     this.setSight(false); this.unlockPointer();
     this._aimV = null; this._warn2d = false; this.strike = null; this.zoom = 3;
     if (this._bodyGround || this._gth || this._gst) { this._bodyGround = this._gth = this._gst = false; document.body.classList.remove('ground', 'g-thrust', 'g-stages'); }
@@ -866,7 +866,7 @@ const Flight = {
       this.flyAim = on; document.body.classList.toggle('flyaim', on);
       if (!on) { this.flyLook = null; this.mouseFire = false; if (this._locked) this.unlockPointer(); }
     }
-    if (!ok) { this._flyV = null; return; }
+    if (!ok) { this._flyV = this._flyCV = null; return; }
     const F = surfaceFrame(v.x, v.y, v.z), toSim = (a, o) => { o.x = F.east.x * a.x + F.up.x * a.y + F.north.x * a.z; o.y = F.east.y * a.x + F.up.y * a.y + F.north.y * a.z; o.z = F.east.z * a.x + F.up.z * a.y + F.north.z * a.z; return o; };
     if (this._flyV !== v || !this.flyF) this.flyAlong(v);
     const c = v.ctl, R = this.stickAim;
@@ -878,10 +878,49 @@ const Flight = {
     if (this.flyLook && this.flyLookBack) this.flyLookEase(dt); // (a finger lifted after looking round: the view glides back)
     for (const A of this.flyLook ? [this.flyLook, { f: this.flyF, u: this.flyU }] : [{ f: this.flyF, u: this.flyU }]) this.flyLevel(A.f, A.u, dt);
     this.flyDir = toSim(this.flyF, this.flyDir || v3()); this.flyUp = toSim(this.flyU, this.flyUp || v3());
-    const L = this.flyLook;
-    this.flyCamDir = L ? toSim(L.f, this._lookD || (this._lookD = v3())) : this.flyDir; this.flyCamUp = L ? toSim(L.u, this._lookU || (this._lookU = v3())) : this.flyUp; // (looking round: its own vectors)
+    const C = this.flyCamEase(v, on, dt);
+    this.flyCamDir = toSim(C.f, this._camD || (this._camD = v3())); this.flyCamUp = toSim(C.u, this._camU || (this._camU = v3()));
     const D = v.aimDir || (v.aimDir = v3()); // (the vessel's own copy: the physics steps read it)
     D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
+  },
+  // The camera's own way (local, like flyF/flyU): it eases after the circle as War Thunder's does (the play-test after
+  // PR #40: locked to the circle, the view jerked with every flick), most of the way in a quarter second and slowing as
+  // it closes, but never so far behind that the circle leaves the middle of the screen (half of the way to its edge,
+  // across and up, so a phone held upright keeps it too); looking round it is the look's own, as before, and it starts
+  // on the circle when Aim comes on or the craft changes
+  flyCamEase(v, on, dt) {
+    const T = this.flyLook || { f: this.flyF, u: this.flyU };
+    let C = this._flyC;
+    if (!C || !on || this.flyLook || this._flyCV !== v) {
+      if (!C) C = this._flyC = { f: v3(), u: v3() };
+      C.f.x = T.f.x; C.f.y = T.f.y; C.f.z = T.f.z; C.u.x = T.u.x; C.u.y = T.u.y; C.u.z = T.u.z;
+      this._flyCV = on ? v : null;
+      return C;
+    }
+    const k = 1 - Math.exp(-dt / this.FLY_CAM_TAU);
+    // the most it may trail: the circle half way from the middle to the screen's edge, in the direction it lies
+    const r = cross3(C.f, C.u, this._tr || (this._tr = v3())), tx = dot3(T.f, r), ty = dot3(T.f, C.u), th = Math.hypot(tx, ty) || 1;
+    const W = (typeof App !== 'undefined' && App.W) || 1, H = (typeof App !== 'undefined' && App.H) || 1, tv = 0.4663; // (tan 25°: the flight camera's 50°)
+    const lag = Math.atan(0.5 / Math.hypot(tx / th / (tv * W / H), ty / th / tv));
+    this.flyTurn(C.f, T.f, C.u, k, 0, lag);
+    this.flyTurn(C.u, T.u, C.f, k, 0, Math.PI);
+    const d = dot3(C.u, C.f); C.u.x -= C.f.x * d; C.u.y -= C.f.y * d; C.u.z -= C.f.z * d; // (kept square to f)
+    if (len3(C.u) < 1e-6) { C.u.x = T.u.x; C.u.y = T.u.y; C.u.z = T.u.z; } else norm3(C.u);
+    return C;
+  },
+  FLY_CAM_TAU: 0.12,
+  // a toward b (unit vectors, about ax when they're opposite) by k of the angle between, at least min radians, and
+  // leaving at most max between them; the angle it was
+  flyTurn(a, b, ax, k, min, max) {
+    const d = clamp(dot3(a, b), -1, 1), th = Math.acos(d);
+    if (th < 1e-6) { a.x = b.x; a.y = b.y; a.z = b.z; return 0; }
+    const n = cross3(a, b, this._tn || (this._tn = v3()));
+    if (len3(n) < 1e-6) { n.x = ax.x; n.y = ax.y; n.z = ax.z; }
+    norm3(n);
+    const t = Math.min(th, Math.max(th * k, min, th - max)), ca = Math.cos(t), sa = Math.sin(t), c = cross3(n, a, this._tc || (this._tc = v3())), dn = dot3(n, a);
+    a.x = a.x * ca + c.x * sa + n.x * dn * (1 - ca); a.y = a.y * ca + c.y * sa + n.y * dn * (1 - ca); a.z = a.z * ca + c.z * sa + n.z * dn * (1 - ca);
+    norm3(a);
+    return th;
   },
   // the circle on the nose (keep: the view's up as it was, else the sky's)
   flyAlong(v, keep) {
@@ -939,45 +978,36 @@ const Flight = {
   // the view back toward the circle: most of the way in a quarter second, settled within half a degree
   flyLookEase(dt) {
     const L = this.flyLook, k = 1 - Math.exp(-dt * 9);
-    const turn = (a, b, ax) => { // a toward b by k of the angle between (about ax when they're opposite)
-      const d = clamp(dot3(a, b), -1, 1), th = Math.acos(d);
-      if (th < 1e-6) { a.x = b.x; a.y = b.y; a.z = b.z; return 0; }
-      let n = cross3(a, b, v3());
-      if (len3(n) < 1e-6) n = v3(ax.x, ax.y, ax.z);
-      norm3(n);
-      const t = Math.max(th * k, Math.min(th, 0.6 * dt)), ca = Math.cos(t), sa = Math.sin(t), c = cross3(n, a, v3()), dn = dot3(n, a);
-      a.x = a.x * ca + c.x * sa + n.x * dn * (1 - ca); a.y = a.y * ca + c.y * sa + n.y * dn * (1 - ca); a.z = a.z * ca + c.z * sa + n.z * dn * (1 - ca);
-      norm3(a);
-      return th;
-    };
-    const tf = turn(L.f, this.flyF, L.u), tu = turn(L.u, this.flyU, L.f);
+    const tf = this.flyTurn(L.f, this.flyF, L.u, k, 0.6 * dt, Math.PI), tu = this.flyTurn(L.u, this.flyU, L.f, k, 0.6 * dt, Math.PI);
     const d = dot3(L.u, L.f); L.u.x -= L.f.x * d; L.u.y -= L.f.y * d; L.u.z -= L.f.z * d; norm3(L.u); // (kept square to f)
     if (tf < 0.008 && tu < 0.02) { this.flyLook = null; this.flyLookBack = false; }
   },
-  // The HUD of Aim: the circle (white; amber when the g limit holds the pull back, red at the AoA's), a pale blue open
-  // cross where the nose points (where the guns shoot; the gun pipper, green, is Combat's), and a faint line between them
-  // while they're far apart
+  // The HUD of Aim: the circle (white; amber when the g limit holds the pull back, red at the AoA's) where you want to go,
+  // and one cross where the plane points now and its guns hit (Combat.aimCross: the selected gun's pipper, green, or pale
+  // blue for a missile or bomb selected or no guns at all; it was a nose cross with the pipper beside it until the
+  // play-test after PR #40), with a faint line between them while they're far apart
   drawFlyAim(ctx, W, H, dpr) {
     const v = this.active;
     if (!this.flyAim || !v || !v.parts.length || !this.flyDir || !Render3D.ready || this.destroyed) return;
-    const bp = bodyPos(v.body, this.time), L = 2000, P = v.pilot, nose = v.axis(P.F.x, P.F.y, P.F.z), D = this.flyDir;
+    const bp = bodyPos(v.body, this.time), L = 2000, D = this.flyDir, X = Combat.aimCross(v, this._cross || (this._cross = {}));
     const c = Render3D.project(bp.x + v.x + D.x * L, bp.y + v.y + D.y * L, v.z + D.z * L);
-    const n = Render3D.project(bp.x + v.x + nose.x * L, bp.y + v.y + nose.y * L, v.z + nose.z * L);
+    const n = Render3D.project(bp.x + X.x, bp.y + X.y, X.z);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineWidth = 2;
     const col = v.pitchLimit === 'aoa' ? '#ff5d5d' : v.pitchLimit === 'g' ? '#ffb547' : '#f2f5f7';
-    const off = Math.acos(clamp(dot3(nose, D), -1, 1));
+    const dx = X.x - v.x, dy = X.y - v.y, dz = X.z - v.z, off = Math.acos(clamp((dx * D.x + dy * D.y + dz * D.z) / (Math.hypot(dx, dy, dz) || 1), -1, 1));
     if (!c.behind && !n.behind && off > 0.44) {
       ctx.globalAlpha = 0.35; ctx.strokeStyle = '#f2f5f7'; ctx.setLineDash([4, 6]);
       ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(c.x, c.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
-    if (!n.behind) { // (four ticks round an empty middle, pale blue: not the guns' green pipper, which may sit beside it)
-      const tick = (w, c) => {
+    if (!n.behind) { // (four ticks round a dot where the rounds go, inside the circle when the nose is on it)
+      const cross = (w, c, r) => {
         ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(n.x + dx * 4, n.y + dy * 4); ctx.lineTo(n.x + dx * 11, n.y + dy * 11); }
+        for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(n.x + ex * 5, n.y + ey * 5); ctx.lineTo(n.x + ex * 12, n.y + ey * 12); }
         ctx.stroke();
+        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, TAU); ctx.fill();
       };
-      tick(4, 'rgba(8, 11, 16, 0.55)'); tick(2, '#9fe3ff');
+      cross(4, 'rgba(8, 11, 16, 0.55)', 3); cross(2, X.armed ? '#7dffb0' : '#9fe3ff', 1.8);
     }
     if (!c.behind) {
       ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;

@@ -3167,8 +3167,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // ---- camera: orbit around the craft, following its heading; never below the ground. Aiming a ground vehicle's guns
     // (F.aimCam): behind and over its turret looking along the aim, the crosshair in the middle (or at the gunner's sight)
     const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
-    // (a plane in Aim, the mouse aim, PR #40: behind the craft and a little over it, looking along the circle, the view's
-    // up the circle's, so a loop goes over the top; the zoom is the follow camera's)
+    // (a plane in Aim, the mouse aim, PR #40: behind the craft and a little over it, looking a moment behind the circle
+    // (flyCamDir, Flight.flyCamEase), the view's up the circle's, so a loop goes over the top; the zoom is the follow
+    // camera's)
     const FA = !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
     let dist, rx, ry, rz;
     if (AC) {
