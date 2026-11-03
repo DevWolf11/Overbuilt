@@ -846,7 +846,7 @@ const World = {
   },
 
   markersFor(v, F, bp, mark) {
-    if (!v.landed && v.speed() > 1) {
+    if (!v.landed && v.speed() > 1 && !F.flyAim) { // (a plane in Aim shows only its circle and its one cross, as War Thunder's: the play-test after PR #40 counted three marks)
       mark(v.vx, v.vy, 'pro', 'rgba(185,255,120,0.85)', v.vz);
       mark(-v.vx, -v.vy, 'retro', 'rgba(185,255,120,0.55)', -v.vz);
     }

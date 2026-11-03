@@ -1370,6 +1370,31 @@ const Combat = (() => {
   }
 
   // ---------------------------------------------------------------- HUD (drawn over the 3D view)
+  // the speed a gun-like system's rounds leave at (a gun's own, an aimed gun's first shell's, a rocket pod's 400 m/s);
+  // 0 for anything else (a missile, a bomb, nothing)
+  function gunSpeed(s) {
+    if (!s) return 0;
+    const sh = s.def.aim && s.w.shells && SHELLS[s.w.shells[0]];
+    return sh ? sh.v0 : s.w.kind === 'gun' ? s.w.speed : s.w.kind === 'rocket' ? 400 : 0;
+  }
+  const PIP = { x: 0, y: 0, z: 0, armed: false };
+  // where a gun-like system's rounds are 600 m out, the craft's own velocity and the drop on the way in (sim axes, into o)
+  function pipper(v, s, o) {
+    const spd = gunSpeed(s), fwd = noseDir(v), tof = 600 / spd, up = norm3(v3(v.x, v.y, v.z)), g = 4.9 * tof * tof;
+    o.x = v.x + (v.vx + fwd.x * spd) * tof - up.x * g; o.y = v.y + (v.vy + fwd.y * spd) * tof - up.y * g; o.z = v.z + (v.vz + fwd.z * spd) * tof - up.z * g;
+    return o;
+  }
+  // A plane in Aim has one cross where it points and its guns hit (the play-test after PR #40: the nose's cross and the
+  // pipper beside it read as two things): the selected gun or rocket pod's pipper (armed), else its first gun's, so the
+  // cross doesn't jump to a missile and back; with no guns, 600 m down the nose
+  function aimCross(v, o) {
+    const sys = systems(v), sel = sys[v.wsel], s = gunSpeed(sel) ? sel : sys.find((x) => x.w.kind === 'gun') || sys.find(gunSpeed);
+    o.armed = !!s && s === sel;
+    if (s) return pipper(v, s, o);
+    const f = noseDir(v);
+    o.x = v.x + f.x * 600; o.y = v.y + f.y * 600; o.z = v.z + f.z * 600;
+    return o;
+  }
   function drawHUD(ctx, W, H, dpr, F) {
     const v = F.active;
     if (!v || !v.parts.length || F.destroyed || !Render3D.ready) return;
@@ -1419,12 +1444,10 @@ const Combat = (() => {
     }
     // guns: a pipper where the rounds will be 600 m out, and a lead marker on the nearest bandit or drone (aiming a
     // ground vehicle's guns, the ground HUD draws its own; an aimed gun elsewhere fires its first shell)
-    const sh = cur && cur.def.aim && cur.w.shells && SHELLS[cur.w.shells[0]];
-    if (cur && !F.groundAim && (cur.w.kind === 'gun' || cur.w.kind === 'rocket' || sh)) {
-      const spd = sh ? sh.v0 : cur.w.kind === 'gun' ? cur.w.speed : 400, fwd = noseDir(v), tof = 600 / spd, up = norm3(v3(v.x, v.y, v.z)), g = 4.9 * tof * tof;
-      const px = v.x + (v.vx + fwd.x * spd) * tof - up.x * g, py = v.y + (v.vy + fwd.y * spd) * tof - up.y * g, pz = v.z + (v.vz + fwd.z * spd) * tof - up.z * g;
-      const s = pr(px, py, pz);
-      if (!s.behind) {
+    const spd = gunSpeed(cur);
+    if (spd && !F.groundAim) {
+      const P = F.flyAim ? null : pipper(v, cur, PIP), s = P && pr(P.x, P.y, P.z); // (a plane in Aim: its one cross is the pipper, Flight.drawFlyAim)
+      if (s && !s.behind) {
         ctx.strokeStyle = '#7dffb0'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(s.x, s.y, 13, 0, TAU); ctx.stroke();
         ctx.beginPath(); ctx.arc(s.x, s.y, 1.8, 0, TAU); ctx.fillStyle = '#7dffb0'; ctx.fill();
@@ -1640,7 +1663,7 @@ const Combat = (() => {
   }
 
   return {
-    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, cycle, status, systems, integrity, flares, chaff, stealthOf,
+    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, aimCross, cycle, status, systems, integrity, flares, chaff, stealthOf,
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,

@@ -146,7 +146,7 @@ if (part(1)) {
   const l1 = await state(page);
   ok('a drag on the view looks round (the camera turned away from the circle) and leaves the circle where it is', l1.look && l1.cam > 20 && angD(l0.D, l1.D) < 1.5, { look: l1.look, cam: l1.cam, moved: angD(l0.D, l1.D) });
   await T.up(2);
-  await page.waitForFunction(() => !Flight.flyLook && Flight.flyCamDir === Flight.flyDir, null, { timeout: 20000 }).catch(() => {});
+  await page.waitForFunction(() => { const a = Flight.flyCamDir, b = Flight.flyDir; return !Flight.flyLook && a.x * b.x + a.y * b.y + a.z * b.z > Math.cos(0.3 / 57.3); }, null, { timeout: 20000 }).catch(() => {}); // (the camera then eases the last of the way)
   const l2 = await state(page);
   ok('lifted, the view glides back onto the circle', !l2.look && l2.cam < 0.5, { look: l2.look, cam: l2.cam });
   // a double tap: the circle on the nose, no part used (synthetic events in one go: headless frames are slow)
