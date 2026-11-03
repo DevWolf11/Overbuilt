@@ -151,7 +151,7 @@ const MPUI = {
     $('#mp-connect').hidden = live;
     $('#mp-lobby').hidden = !live;
     $('#mp-code-box').hidden = !live;
-    if (live) $('#mp-code').textContent = Net.code;
+    if (live) { $('#mp-code').textContent = Net.code; $('#mp-code-box .mp-code-label').textContent = Net.offline ? 'Joining paused: reconnecting…' : 'Room code'; }
     $('#mp-kicker').textContent = live ? (s.mode === 'pvp' ? `${MP.ground ? 'Ground battle' : 'Battle'} · ${s.settings.format.toUpperCase()}` : 'Sandbox') + (Net.transport === 'local' ? ' · this device' : ' · online') : 'Multiplayer';
     $('#mp-heading').textContent = live ? (s.mode === 'pvp' ? (s.phase === 'lobby' ? 'Battle lobby' : 'Battle in progress') : 'Shared sandbox') : 'Play together';
     if (live) { this.renderPlayers(); this.renderSettings(); this.renderFoot(); }
@@ -195,9 +195,11 @@ const MPUI = {
     const s = MP.state, box = $('#mp-settings'), st = s.settings, host = Net.isHost && (s.phase === 'lobby' || s.mode === 'sandbox');
     box.innerHTML = '';
     $('#mp-settings-h').textContent = s.mode === 'pvp' ? 'Match' : 'How it works';
+    const set = (label, ctl) => box.append(el('div', { class: 'mp-set' }, el('span', { text: label }), ctl));
     if (s.mode === 'sandbox') {
       box.append(el('p', { class: 'mp-explain', text: 'Everyone builds and flies whatever they like, from the usual pad, runway and helipad. You see each other’s craft, and guns and missiles hurt. Crash or get shot down and you can fly again straight away. No time warp in a shared world.' }),
         el('p', { class: 'mp-explain', text: `Share the code ${Net.code} with up to four friends. ${Net.transport === 'local' ? 'This room is on this device: open the game in another tab to join it.' : 'They join from anywhere over the internet.'}` }));
+      this.partCap(st, host, set);
       this.stayHint(box);
       return;
     }
@@ -212,7 +214,6 @@ const MPUI = {
       }
       return g;
     };
-    const set = (label, ctl) => box.append(el('div', { class: 'mp-set' }, el('span', { text: label }), ctl));
     set('Game', seg('game', [['air', 'Air'], ['ground', 'Ground']], st.game === 'ground' ? 'ground' : 'air', true));
     if (st.game === 'ground') { this.renderGround(box, st, host, seg, set); return; }
     set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3'], ['ffa', 'FFA']], st.format));
@@ -231,6 +232,7 @@ const MPUI = {
     }
     set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod));
     set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit));
+    this.partCap(st, host, set);
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
     else if (s.phase === 'lobby') this.stayHint(box);
   },
@@ -259,6 +261,7 @@ const MPUI = {
     set('Friendly fire', ff);
     set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod, true));
     set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit, true));
+    this.partCap(st, host, set);
     const A = EARTH.arenas && EARTH.arenas[st.arena], hill = st.arena === 'highland', flat = MP.no3D();
     set('Arena', el('div', { class: 'mp-arena' }, el('b', { text: A ? A.name : 'Runway' }),
       el('span', { class: 'muted small', text: hill ? ' · three zones in the North Scotland hills' : ' · The real map didn’t load: the battle is on the runway' }),
@@ -269,6 +272,14 @@ const MPUI = {
   },
   // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
   // in front (as when sending the code in a chat app), so say so, first thing in the card.
+  // The part limit (settings.cap): on, MP_MAX_PARTS a craft; off, as many as the network carries. The host's to set: in
+  // a sandbox at any time (for the next craft flown), in a battle in its lobby.
+  partCap(st, host, set) {
+    const c = el('input', { type: 'checkbox' }); c.checked = st.cap !== false; c.disabled = !host;
+    c.addEventListener('change', () => MP.setSetting('cap', c.checked));
+    set('Part limit', el('label', { class: 'mp-set-inline' }, c, el('span', { class: 'muted small',
+      text: c.checked ? ` ${MP_MAX_PARTS} parts a craft. Off: as many as the network can send (about 5,000), though big craft slow down phones` : ' Off: any craft the network can send (about 5,000 parts). Big ones slow down phones' })));
+  },
   stayHint(box) {
     if (Net.isHost && Net.transport !== 'local' && isTouch) box.prepend(el('p', { class: 'mp-explain mp-stay', text: 'Keep the game on screen while friends join: your phone or tablet lets them in, and it can’t while its screen is off or another app is open. After sending the code, come straight back.' }));
   },

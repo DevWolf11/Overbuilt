@@ -8,7 +8,7 @@
 //  - 'local': tabs of the same browser on this device, through a BroadcastChannel (offline, and handy for testing).
 // Messages are small plain objects { t: type, ... }. Net stamps the sender's player id on them as `f`.
 
-const NET_VERSION = 9; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft); 3: big messages travel in pieces; 4: the Chaff Dispenser (a part an older peer would drop) and chaff strength in 'cm'; 5: the look-alike jets' parts and paints (an older peer would drop them); 6: the warning receivers and the manned turret (parts an older peer would drop), turrets that hold fire on the ground; 7: the ground update: the Armour kind and its parts and paints, armour thickness in spawn rows, shells (`shot` k 'shell'), module hits (`hit` m), turret rings in part states, `gd` in snapshots, ground battles (`obj`, `seen`/`spot`, respawns, wrecks on `down`), ground-launched missiles with a boost; 8: the props (props.js): houses, walls, woods and rocks on Highland Ridge, the Runway and the space centre's island that stop shells and block sight (an older peer would see through, and shoot through, what we hit), and Armour in a sandbox starting at the tank yard; 9: every shot (an old weapon's too) stops at the props, every vehicle meets them (an older peer's bullets and craft would pass through what ours hit), and the props knocked over are shared (`crush`, the host's `fallen` for a player joining late)
+const NET_VERSION = 10; // 2: parts have a depth, paint and a host in spawns (an older peer would see, and shoot at, a different craft); 3: big messages travel in pieces; 4: the Chaff Dispenser (a part an older peer would drop) and chaff strength in 'cm'; 5: the look-alike jets' parts and paints (an older peer would drop them); 6: the warning receivers and the manned turret (parts an older peer would drop), turrets that hold fire on the ground; 7: the ground update: the Armour kind and its parts and paints, armour thickness in spawn rows, shells (`shot` k 'shell'), module hits (`hit` m), turret rings in part states, `gd` in snapshots, ground battles (`obj`, `seen`/`spot`, respawns, wrecks on `down`), ground-launched missiles with a boost; 8: the props (props.js): houses, walls, woods and rocks on Highland Ridge, the Runway and the space centre's island that stop shells and block sight (an older peer would see through, and shoot through, what we hit), and Armour in a sandbox starting at the tank yard; 9: every shot (an old weapon's too) stops at the props, every vehicle meets them (an older peer's bullets and craft would pass through what ours hit), and the props knocked over are shared (`crush`, the host's `fallen` for a player joining late); 10: the part limit is a room setting (`settings.cap`: off, craft past 600 parts that an older peer would drop)
 const NET_MAX_BYTES = 256 * 1024; // the biggest message the host passes on
 const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PEER_PREFIX = 'rss-room-';
@@ -34,6 +34,7 @@ const Net = (() => {
     names: new Map(),     // pid -> name (everyone, kept by the host and sent round in `state`)
     pings: new Map(),     // pid -> round trip (ms), on the host
     hostOffset: 0,        // host clock minus ours (ms)
+    offline: false,       // host: off the matchmaking server (no one new can join), trying again
     bytesIn: 0, bytesOut: 0,
   };
   const HOST_ONLY = new Set(['~', 'hello', 'welcome', 'reject', 'ping', 'closed', 'join', 'leave', 'warn', 'state', 'result', 'obj', 'spot', 'fallen']); // (obj, spot: a ground battle's zones and tickets, and a team's spots; fallen: the props down, for one joining late)
@@ -143,14 +144,20 @@ const Net = (() => {
       }
       if (typeof Peer === 'undefined') { reject(new Error('Online play isn’t available (the networking library didn’t load)')); return; }
       peer = new Peer(PEER_PREFIX + code, { debug: 0, config });
-      peer.on('open', () => { start(); resolve(code); });
+      peer.on('open', () => { // (again: back on the server after losing it; never for a room already left)
+        if (gen !== joinGen) return;
+        if (N.active) { serverBack(); return; }
+        start(); resolve(code);
+      });
       peer.on('connection', (conn) => hostConn(conn));
       peer.on('error', (e) => {
-        if (e.type === 'unavailable-id' && ++tries < 4) { peer.destroy(); open(N.makeCode()); return; }
-        if (!N.active) { reject(new Error(netError(e))); return; }
-        if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error') emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: players already in the room stay connected' });
+        if (!N.active) {
+          if (e.type === 'unavailable-id' && ++tries < 4) { peer.destroy(); open(N.makeCode()); return; }
+          reject(new Error(netError(e))); return;
+        }
+        if (SERVER_LOST.has(e.type)) serverLost(); // (a live room never starts over under a new code: its players are on its links)
       });
-      peer.on('disconnected', () => { if (N.active && peer && !peer.destroyed) setTimeout(() => { try { peer.reconnect(); } catch (err) { /* gone */ } }, 1500); });
+      peer.on('disconnected', () => serverLost());
     };
     if (transport === 'local') { open(N.makeCode()); return; }
     N.ice().then((c) => { if (gen !== joinGen) { reject(new Error('Cancelled')); return; } config = c; open(N.makeCode()); }); // (unless something else started meanwhile)
@@ -165,6 +172,41 @@ const Net = (() => {
         l.send({ t: 'ping', f: 1, ts: now, rtt: N.pings.get(pid) || 0 });
       }
     }, 2000);
+  }
+  // The matchmaking server (PeerJS's) only lets new players in: the room runs on the direct links. When the host loses
+  // it, say so once and try again quietly, waiting longer each time (2 s, 4, 8, 16, then every 30 s); when it's back,
+  // say that, once. A link that keeps dropping is told at most every 5 minutes, and its waits start over only after it
+  // has held for a minute. (Each failed try used to raise the warning again, every couple of seconds, for as long as
+  // the server stayed out of reach: a notice that never went away.) N.offline: no one new can join meanwhile.
+  const SERVER_LOST = new Set(['network', 'server-error', 'socket-error', 'socket-closed', 'unavailable-id']);
+  let offTimer = 0, offWait = 2000, upAt = 0, toldAt = -Infinity, told = false;
+  function serverLost() {
+    if (!N.active || !N.isHost || !peer || peer.destroyed) return;
+    if (!N.offline) {
+      const now = performance.now();
+      N.offline = true;
+      if (now - upAt > 60000) offWait = 2000;
+      if (now - toldAt > 300000) {
+        toldAt = now; told = true;
+        emit({ t: 'warn', text: 'Lost the matchmaking server: everyone in the room plays on, but no one new can join until it’s back. Trying again…' });
+      }
+    }
+    if (offTimer) return; // (a try is already on its way)
+    offTimer = setTimeout(() => {
+      offTimer = 0;
+      if (!N.active || !peer || peer.destroyed) return;
+      if (peer.disconnected) { try { peer.reconnect(); } catch (e) { /* not disconnected after all */ } }
+      else if (peer.open) serverBack(); // (it never went after all)
+      else serverLost(); // (a try still on its way: look again later)
+    }, offWait);
+    offWait = Math.min(30000, offWait * 2);
+  }
+  function serverBack() {
+    clearTimeout(offTimer); offTimer = 0;
+    upAt = performance.now();
+    if (!N.offline) return;
+    N.offline = false;
+    if (told) { told = false; emit({ t: 'warn', ok: true, text: 'Back on the matchmaking server: friends can join again' }); }
   }
   // a new client: assign it an id once it says hello
   function accept(hello, sendFn, closeFn) {
@@ -267,7 +309,7 @@ const Net = (() => {
       }
       if (HOST_ONLY.has(msg.t) && msg.f !== 1) return; // (only the host closes the room or sets the clock)
       if (msg.t === 'ping') {
-        link.send({ t: 'pong', ts: msg.ts });
+        if (link) link.send({ t: 'pong', ts: msg.ts }); // (a ping still on its way after the room closed here)
         if (msg.rtt > 0) { // host clock now = ts + about half a round trip
           offsets.push(msg.ts + msg.rtt / 2 - performance.now());
           if (offsets.length > 7) offsets.shift();
@@ -313,8 +355,10 @@ const Net = (() => {
       peer = new Peer({ debug: 0, config });
       peer.on('error', (e) => {
         if (!done) { fail(e.type === 'peer-unavailable' ? 'No room with that code right now. Check the code; if it’s right, the host’s game may have been in the background a while (screen off or another app open): ask them to come back to it and try again, as the same code still works' : netError(e)); return; }
-        if (e.type === 'peer-unavailable') closeAll('Lost the connection to the host');
-        else emit({ t: 'warn', text: 'Lost the connection to the matchmaking server: the room carries on' }); // (the link to the host is separate)
+        // In the room, the matchmaking server no longer matters: the link to the host is direct, and says itself when
+        // the host is gone (it closes, errs, or goes quiet for 25 s). So nothing is said here: no warning that changes
+        // nothing, and no leaving when the server says the host isn't on it (as when the host's own link to the
+        // server drops, while the room plays on).
       });
       peer.on('open', () => {
         if (done) return;
@@ -357,8 +401,9 @@ const Net = (() => {
       if (N.isHost) for (const [, l] of links) { try { l.send({ t: 'closed', f: 1, reason: 'The host closed the room' }); } catch (e) { /* gone */ } }
       else if (link) { try { link.send({ t: 'bye' }); } catch (e) { /* gone */ } }
     }
-    N.active = false;
-    clearInterval(pingTimer); clearInterval(watchTimer);
+    N.active = false; N.offline = false;
+    clearInterval(pingTimer); clearInterval(watchTimer); clearTimeout(offTimer);
+    offTimer = 0; offWait = 2000; upAt = 0; toldAt = -Infinity; told = false;
     for (const [, l] of links) { try { l.close(); } catch (e) { /* gone */ } }
     links.clear(); localPids.clear();
     if (link) { try { link.close(); } catch (e) { /* gone */ } }
@@ -419,7 +464,7 @@ const Net = (() => {
   // back on screen after a phone put the game to sleep: get back onto the matchmaking server at once, so
   // friends waiting to join get through (the delayed reconnect on 'disconnected' still covers the rest)
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && N.active && peer && peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch (e) { /* gone */ } }
+    if (!document.hidden && N.active && N.isHost && peer && peer.disconnected && !peer.destroyed) { clearTimeout(offTimer); offTimer = 0; try { peer.reconnect(); } catch (e) { /* gone */ } } // (a failed try sets up the next)
   });
   return N;
 })();

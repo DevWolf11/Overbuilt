@@ -1,7 +1,7 @@
 // Multiplayer craft sync: the spawn-row sanitiser on forged input (ids, types, numbers, depth, paint, att links and
 // loops, the 600-part cap), onSpawn and buildGhost on what survives, an owner -> ghost round trip of a jumbo with
 // moved pods and paint (adjacency, mass, centre of mass, inertia, hull equal), snapshots carrying com.z, the carrier
-// size check (measure) against test/baseline/mp-measure.json, the part cap, and battleDesign.
+// size check (measure) against test/baseline/mp-measure.json, the part cap (and the room's part limit off), and battleDesign.
 //   node test/mp.test.js [--update]
 const G = require('./lib/game.js'), { check } = require('./lib/baseline.js');
 const N = G.load({ mp: true, earth: false });
@@ -114,6 +114,38 @@ R(`MP.state.settings.budget = 20000; UI.toasts = []; var bd = MP.battleDesign();
 t('battleDesign over budget falls back to a stock template rows', R(`bd.parts.length === TEMPLATES[bd.name.toLowerCase()].parts.length && UI.toasts.length === 1`), R('[bd.name, UI.toasts]'));
 R(`MP.state.settings.budget = 1e9; MP.myDesign = { kind: 'plane', parts: Array.from({ length: 601 }, (_, i) => ({ type: 'gun', x: 0, y: i })) }; UI.toasts = []; var bd2 = MP.battleDesign();`);
 t('battleDesign with 601 loose-free parts swaps in stock (no ctrl or too many)', R('bd2 !== MP.myDesign'));
+
+// ---- 5b. the part limit as a room setting (settings.cap: on unless the host sets it false)
+R(`var big = Array.from({ length: 1500 }, () => makePart('gun', 0, 0)), huge = Array.from({ length: 9000 }, (_, i) => makePart('fuselageW', i * 1.25, i * 2.5, { z: 0.125 }));`);
+t('the part limit: 600 with no room, with a room that never set it (an older room’s state), and on; off: MP_NET_PARTS',
+  R(`(() => { const a = (MP.state = null, MP.maxParts()), b = (MP.state = { mode: 'sandbox', settings: { budget: 75000 }, players: [] }, MP.maxParts());
+    const c = (MP.state.settings.cap = true, MP.maxParts()), d = (MP.state.settings.cap = false, MP.maxParts()); return [a, b, c, d].join() === [600, 600, 600, MP_NET_PARTS].join(); })()`));
+R(`MP.state.settings.cap = true; Net.isHost = false; var p601 = MP.designProblems({ cost: 0 }, many, 'plane'); Net.isHost = true; var p601h = MP.designProblems({ cost: 0 }, many, 'plane'); Net.isHost = false;`);
+t('...on: 601 parts are too many, and it says who can turn the limit off', R(`p601.length === 1 && /the most is 600 \\(the host can turn the part limit off\\)/.test(p601[0]) && /turn the part limit off in the room’s settings/.test(p601h[0])`), R('[p601, p601h]'));
+R(`MP.state = { mode: 'pvp', phase: 'build', settings: { budget: 1e9 }, players: [] }; MP.spawnId = 'faroes'; var pPvp = MP.designProblems({ cost: 0 }, many, 'plane'); MP.state = { mode: 'sandbox', settings: { budget: 75000 }, players: [] };`);
+t('...in a battle, past its lobby, no hint (its settings are fixed by then)', R(`pPvp.some((x) => x === 'Too many parts for the shared world: 601, the most is 600.')`), R('pPvp'));
+R(`MP.state.settings.cap = false; var pBig = MP.designProblems({ cost: 0 }, big, 'plane'), pHuge = MP.designProblems({ cost: 0 }, huge, 'plane');`);
+t('...off: 1,500 parts fly; 9,000 fuselages are too big to send (KB, and about how many would go)', R(`pBig.length === 0 && pHuge.length === 1 && /^Too big to send to the others: \\d+ KB of parts, the most is 244 KB \\(about \\d+ parts of these\\)\\.$/.test(pHuge[0])`), R('[pBig, pHuge]'));
+// what passes the check goes: the biggest design of these that passes, sent as startFlight writes it, is under NET_MAX_BYTES
+R(`var fit = huge.slice(0, Math.floor(9000 * MP_SPAWN_CHARS / mpSpawnChars(huge))); while (mpSpawnChars(fit) > MP_SPAWN_CHARS) fit.pop(); while (MP.designProblems({ cost: 0 }, fit, 'plane').length) fit.pop();
+  var fitMsg = JSON.stringify({ t: 'spawn', name: 'The biggest of them', kind: 'plane', f: 7, parts: fit.map((p) => [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att || 0, p.skin || 0]) }).length;`);
+t('...the biggest craft that passes, as its spawn message (sender stamped), is under the 256 KB the host passes on', R(`fit.length > 4000 && fitMsg < 256 * 1024 && Math.abs(fitMsg - mpSpawnChars(fit)) < 200`), R('[fit.length, fitMsg, mpSpawnChars(fit)]'));
+// a peer's spawn past 600 parts: taken with the limit off, ignored with it on
+R(`var rows1500 = Array.from({ length: 1500 }, (_, i) => [i + 1, 'gun', 0, i]); MP.peers.clear();
+  MP.state.settings.cap = true; MP.onSpawn({ t: 'spawn', f: 2, kind: 'plane', parts: rows1500 }); var on1500 = MP.peers.get(2) ? MP.peers.get(2).design : null;
+  MP.state.settings.cap = false; MP.onSpawn({ t: 'spawn', f: 2, kind: 'plane', parts: rows1500 }); var off1500 = MP.peers.get(2).design;
+  var forged = mpSpawnRows(Array.from({ length: MP_NET_PARTS + 1 }, (_, i) => [i + 1, 'gun', 0, i]), MP.maxParts());`);
+t('...a peer’s 1,500-part spawn: ignored with the limit on, its craft with it off; a list past MP_NET_PARTS still refused', R(`!on1500 && off1500 && off1500.parts.length === 1500 && forged === null`));
+// the host sets it: in a sandbox at any time, in a battle only in its lobby
+R(`var pushes = 0, push0 = MP.push; MP.push = () => { pushes++; }; Net.isHost = true;
+  MP.state = { mode: 'sandbox', phase: 'free', settings: { budget: 75000 }, players: [] };
+  MP.setSetting('cap', false); var sb = MP.state.settings.cap; MP.setSetting('budget', 45000); var sbBudget = MP.state.settings.budget; MP.setSetting('cap', 'no'); var sbJunk = MP.state.settings.cap;
+  MP.state = { mode: 'pvp', phase: 'battle', settings: { budget: 75000 }, players: [] }; MP.setSetting('cap', false); var pvpBattle = MP.state.settings.cap;
+  MP.state.phase = 'lobby'; MP.setSetting('cap', false); var pvpLobby = MP.state.settings.cap;
+  Net.isHost = false; MP.state.settings.cap = true; MP.setSetting('cap', false); var notHost = MP.state.settings.cap;
+  MP.push = push0; MP.state = null;`);
+t('...the host sets it in a sandbox at any time (nothing else there), in a battle only in its lobby; junk values and other players refused',
+  R(`sb === false && sbBudget === 75000 && sbJunk === false && pvpBattle === undefined && pvpLobby === false && notHost === true && pushes === 2`), R('[sb, sbBudget, sbJunk, pvpBattle, pvpLobby, notHost, pushes]'));
 
 // ---- big messages in pieces (net.js wire/unwire): PeerJS's json channel refuses 16300 bytes or more
 {
@@ -359,7 +391,7 @@ async function groundBattle() {
     const vm = require('vm'), fs = require('fs'), path = require('path');
     const NC = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
     vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net; this.V = NET_VERSION;', NC);
-    t('ground: obj, spot and fallen are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 9 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 9);
+    t('ground: obj, spot and fallen are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 10 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 10);
   }
   // the lineup: a slot only when unused, the respawn time come and tickets left; each spawn uses its slot
   X(`MP.state.settings.respawn = 'lineup'; const p2 = MP.player(2); p2.slots = 1; p2.slot = 0; p2.respawnAt = __T + 5000;
