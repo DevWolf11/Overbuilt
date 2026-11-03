@@ -22,7 +22,10 @@ const AIM_AOA = 0.8; // (the instructor's AoA limit, of the stall, and never pas
 // (the instructor: the nose's turn rate per rad of the error (1/s); the flight path's, for the bank (1/s), and the error
 // (rad) under which that comes on gently; the push it allows (g); the sideslip it may hold to put the nose on a close aim (rad), and its rudder per rad of
 // sideslip; how long the nose's offset over the flight path is smoothed over (s))
-const AIM_K = 3.5, AIM_KB = 1.5, AIM_B0 = 0.08, AIM_PUSH = -1.5, AIM_SLIPMAX = 0.05, AIM_SLIP = 2.5, AIM_TAU = 0.8;
+// (AIM_K was 3.5 until the play-test after PR #42: 4 settles a flick about 0.1 s sooner; past 4.5 the nose swings past)
+const AIM_K = 4, AIM_KB = 1.5, AIM_B0 = 0.08, AIM_PUSH = -1.5, AIM_SLIPMAX = 0.05, AIM_SLIP = 2.5, AIM_TAU = 0.8;
+const AIM_JUMP = 0.03; // (rad: the circle moved further than this between two steps jumped (a flick), it isn't moving: no turn to follow; was 0.08, and a 3° flick read as a circle racing at 360°/s, banked the plane 38° and swung the nose 3° past)
+const AIM_LOW0 = 120, AIM_LOW1 = 300; // (m over the ground: under the first, a circle on the horizon flies the flight path at it, a low pass; over the second, the nose)
 const DOWNWASH = 0.35, TAIL_THROW = 1.3, PLANE_GK = 1.5, PLANE_AK = 2.5, PLANE_AL = 0.3; // (GK, AK: how fast the g and the AoA may come on below their limits, per second; AL: the AoA limit's lead, s)
 // Where a part's mass sits across (z), one entry per copy: each side of a twin pair, or an axle's two wheels
 // (track apart, either side of the part's depth).
@@ -890,9 +893,11 @@ class Vessel {
   //    pulls, until within 35°. An aim behind is a level turn one way, until it is well round. It rolls first, then pulls.
   //  - The rudder coordinates (the roll about the flight path), and close to the aim holds a little sideslip, at most
   //    AIM_SLIPMAX, to put the nose on it sideways while the bank comes round.
-  //  - Near the horizon (the circle within a degree or so of it, blending out by 11°) and coming in to land, it flies the
-  //    flight path at the circle rather than the nose, so a circle on the horizon holds the height and one on the runway
-  //    is where it lands; elsewhere the path is aimed below the circle by the nose's smoothed offset (AIM_TAU).
+  //  - Low down (under AIM_LOW0 m, blending out by AIM_LOW1) near the horizon (the circle within a degree or so of it,
+  //    blending out by 11°), and coming in to land, it flies the flight path at the circle rather than the nose, so a low
+  //    pass on the horizon holds the height and a circle on the runway is where it lands; elsewhere the nose (and the cross
+  //    with it) goes on the circle, the path aimed below it by the nose's smoothed offset (AIM_TAU). (Until the play-test
+  //    after PR #42 the horizon's rule held at any height, and the cross sat 3-13° off a circle put on it.)
   //  - It stays within PLANE_G of the wings' rating and aimAoA, and the path above aimFloor.
   // fresh: the first step of it, so nothing smoothed is carried over (offRunway: just off the runway).
   aimTarget(dt, fresh, offRunway) {
@@ -908,7 +913,7 @@ class Vessel {
       this._aimTurn = 0; this._aimOver = 0; this._aimPush = 0; this._aimRS = 0; this._aimLift = false; this._rwy = false;
     } else {
       // (the circle's turn rate, smoothed over 0.15 s; a jump of it, a flick or the circle put back on the nose, isn't one)
-      const c = cross3(T.Dp, D, T.c), s = len3(c), k = Math.min(1, dt / 0.15), j = s > 0.08 ? 0 : 1 / dt;
+      const c = cross3(T.Dp, D, T.c), s = len3(c), k = Math.min(1, dt / 0.15), j = s > AIM_JUMP ? 0 : 1 / dt;
       W.x += (c.x * j - W.x) * k; W.y += (c.y * j - W.y) * k; W.z += (c.z * j - W.z) * k;
       const wl = len3(W); if (wl > 1.5) { W.x *= 1.5 / wl; W.y *= 1.5 / wl; W.z *= 1.5 / wl; }
       const ko = Math.min(1, dt / AIM_TAU);
@@ -933,7 +938,10 @@ class Vessel {
     // the nose's target: the circle, or near the horizon (wings about level, the circle not following anything) and coming
     // in to land, over it by the nose's offset over the flight path, up and down only, so the path flies at it; the path
     // that gives (the nose's target less the whole offset) between the floor and the ceiling
-    const elD = Math.asin(clamp(dot3(D, Z), -1, 1)), kv = (this._landing ? 1 : (1 - smoothstep(0.02, 0.2, Math.abs(elD))) * (1 - smoothstep(0.3, 0.7, Math.abs(at.bank))) * (1 - smoothstep(0.02, 0.08, len3(W)))) * dot3(O, Z);
+    // (only low down, where a circle on the horizon is a low pass to hold: higher up the nose, and the cross with it, goes on
+    // the circle itself, as War Thunder's does; the play-test after PR #42: flying the path there left the nose 3-5° over
+    // the circle at cruise, 10-13° slow, and a small flick down was never reached)
+    const elD = Math.asin(clamp(dot3(D, Z), -1, 1)), kv = (this._landing ? 1 : (1 - smoothstep(0.02, 0.2, Math.abs(elD))) * (1 - smoothstep(0.3, 0.7, Math.abs(at.bank))) * (1 - smoothstep(0.02, 0.08, len3(W))) * (1 - smoothstep(AIM_LOW0, AIM_LOW1, this._aimH))) * dot3(O, Z);
     const Tn = T.Tn;
     Tn.x = D.x + Z.x * kv - O.x; Tn.y = D.y + Z.y * kv - O.y; Tn.z = D.z + Z.z * kv - O.z; norm3(Tn);
     const sinP = dot3(Tn, Z), el = sinP < Math.sin(floor) ? floor : sinP > Math.sin(this.aimCeil) ? this.aimCeil : null;

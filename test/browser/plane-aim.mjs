@@ -1,6 +1,7 @@
 // Aim, the mouse aim for planes (PR #40), in the real page:
-//  - A new plane flight starts in Aim (the autopilot bar's Aim pressed); a restored save keeps its own mode, and an old
-//    save's Off flies the manual law (the Off button pressed); the Retro 2D flight doesn't offer Aim (no button, the key
+//  - With Settings → Planes start in: Aim, a new plane flight starts in Aim (the autopilot bar's Aim pressed); by default
+//    it starts in hold (the play-test after PR #42), and the setting starts it in any of the bar's five modes; a restored
+//    save keeps its own mode, and an old save's Off flies the manual law (the Off button pressed); the Retro 2D flight doesn't offer Aim (no button, the key
 //    says why).
 //  - A desktop: the first click captures the mouse (and doesn't fire); the mouse's movement under the lock moves the circle
 //    (right turns it right, up lifts it) and the plane follows it; a click under the lock fires; held keys fly the plane
@@ -10,8 +11,8 @@
 //    by hand); a drag on the view looks round and leaves the circle where it is; a slide on FIRE fires and doesn't move it.
 //  - One cross (the play-test after PR #40): Aim's HUD is the circle and one cross where the nose points and the guns hit
 //    (green with a gun selected, pale blue in the same place with a missile); no pipper beside it, no prograde marks (both
-//    back in hold). The camera eases after the circle: it trails while the stick turns it, the circle at most half way to
-//    the screen's edge, and settles on it once the stick is let go.
+//    back in hold). The camera eases after the circle: it trails while the stick turns it, the circle at most 60% of the
+//    way to the screen's edge, and settles on it once the stick is let go.
 //  - On the runway (the play-test's finding 12): a level circle, full throttle: the FS-16 lifts off under 500 km/h.
 //  - Where things go: on a phone in portrait (390×844, 375×667), a phone on its side (844×390) and a desktop (1280×720: no
 //    touch controls, the key hints instead), the autopilot bar, the stick, the roll buttons, Brake, the flaps and gear pills,
@@ -39,7 +40,7 @@ const instrument = () => {
 async function open(vp, settings = {}, tag = '') {
   const ctx = await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] }), page = await ctx.newPage();
   watch(page, errs, tag);
-  await openGame(page, srv.url, settings);
+  await openGame(page, srv.url, { planeStart: 'aim', ...settings }); // (Settings → Planes start in: Aim, but where a check says otherwise)
   await page.evaluate(instrument);
   return { ctx, page };
 }
@@ -99,7 +100,7 @@ function judge(tag, L) {
   const { ctx, page } = await open([1280, 720, false], {}, 'desktop ');
   await fly(page);
   let s = await state(page);
-  ok('a new plane flight starts in Aim: the Aim button pressed, the circle on the nose', s.sas === 'aim' && s.flyAim && s.pressed.join() === 'aim' && s.shown.join() === 'hold,level,heading,off,aim' && s.off < 6, s);
+  ok('with Planes start in: Aim, a new plane flight starts in Aim: the Aim button pressed, the circle on the nose', s.sas === 'aim' && s.flyAim && s.pressed.join() === 'aim' && s.shown.join() === 'hold,level,heading,off,aim' && s.off < 6, s);
   judge('desktop', await page.evaluate(layout));
   await shot(page, 'desktop');
   // a stand-in pointer lock (headless Chromium's own gives synthetic moves huge jumps)
@@ -181,6 +182,29 @@ function judge(tag, L) {
   await ctx.close();
 }
 
+// ---- Settings → Planes start in (the play-test after PR #42: the normal autopilot first, for now): a new plane flight
+// starts in hold by default, an old settings file's PR #40 planeAim (on) no longer starts it in Aim; the setting offers the
+// five modes of the autopilot bar and starts a new flight in the one picked
+{
+  const { ctx, page } = await open([1280, 720, false], { planeStart: undefined, planeAim: true }, 'start mode ');
+  await fly(page);
+  const d = await state(page);
+  const opts = await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-plane-start'), r = { o: [...s.options].map((x) => x.value), v: s.value }; UI.closeModal(); return r; });
+  const modes = [];
+  for (const m of ['level', 'heading', 'manual', 'aim', 'hold']) {
+    await page.evaluate((m) => { App.showSettings(); const s = document.querySelector('#set-plane-start'); s.value = m; s.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); }, m);
+    await fly(page);
+    const st = await state(page);
+    modes.push([m, st.sas, st.pressed.join(), st.flyAim]);
+  }
+  ok('a new plane flight starts in hold, the normal autopilot, by default (an old settings file with planeAim on too); Settings → Planes start in offers hold, level, heading, Off and Aim and starts a new flight in the one picked',
+    d.sas === 'hold' && d.pressed.join() === 'hold' && !d.flyAim && opts.v === 'hold' && opts.o.join() === 'hold,level,heading,manual,aim' && modes.every(([m, sas, p, fa]) => sas === m && p === (m === 'manual' ? 'off' : m) && fa === (m === 'aim')),
+    { d: { sas: d.sas, pressed: d.pressed, flyAim: d.flyAim }, opts, modes });
+  await shot(page, 'start-hold');
+  await pageErrors(page, 'start mode ');
+  await ctx.close();
+}
+
 // ---- a phone in portrait: only the stick moves the circle; a drag on the view looks round; a slide on FIRE only fires
 for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
   const tag = `phone ${vp[0]}×${vp[1]} `;
@@ -216,11 +240,12 @@ for (const vp of [[390, 844, true], [375, 667, true], [844, 390, true]]) {
     const s3 = await state(page), c3 = await page.evaluate(() => Flight.active.ctl.h), cam = await page.evaluate(camLag);
     await touch('touchEnd');
     ok('the stick moves the circle right while held, in Aim, and doesn\'t fly the plane by hand', s3.right > s2.right + 0.2 && s3.sas === 'aim' && c3 === 0, { s3, ctl: c3 });
-    // the camera eases after the circle (the play-test after PR #40): it trails it while the stick turns it, the circle
-    // ahead of the middle but no more than half way to the screen's edge; let go, it settles on the circle within 0.6 s
-    await until(page, (await page.evaluate(() => Flight.time)) + 0.6);
+    // the camera eases after the circle (the play-test after PR #40; a little more after PR #41's): it trails it while the
+    // stick turns it, the circle ahead of the middle but no more than 60% of the way to the screen's edge; let go, it
+    // settles on the circle within 0.9 s
+    await until(page, (await page.evaluate(() => Flight.time)) + 0.9);
     const cam2 = await page.evaluate(camLag);
-    ok('the camera follows the circle a moment behind: it trails while the stick turns it (the circle ahead of the middle, at most half way to the edge) and settles on it once let go', cam.lag > 1 && cam.x > 0.05 && cam.x < 0.56 && cam2.lag < 0.5 && Math.abs(cam2.x) < 0.03, { held: cam, after: cam2 });
+    ok('the camera follows the circle a moment behind: it trails while the stick turns it (the circle ahead of the middle, at most 60% of the way to the edge) and settles on it once let go', cam.lag > 1 && cam.x > 0.05 && cam.x < 0.66 && cam2.lag < 0.5 && Math.abs(cam2.x) < 0.03, { held: cam, after: cam2 });
   }
   await pageErrors(page, tag);
   await ctx.close();

@@ -191,8 +191,11 @@ const Controls = (() => {
     range: ['#btn-range', 'Sight\'s range', 'ground'], gmap: ['#gmap', 'Minimap', 'ground'], hints: ['#key-hints', 'Key hints', 'both'],
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
+  // the panels the controls must stay clear of when the HUD grows (fit)
+  const PANELS = ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar'];
   const S = {
-    z: 1, // the HUD's scale (--ui-scale)
+    z: 1, // the HUD's scale (--ui-scale): the screen's own times UI size, held to what fits (fit)
+    want: 1, nat: 1, // the scale UI size asks for, and the screen's own (UI size 100%)
     layout: null, // { portrait: { air: { key: { x, y, s, o } }, ground }, landscape }
     rest: null, // the stick's rest: { x, y, w } (CSS px)
     joy: { id: null, cx: 0, cy: 0, T: 1, zone: false, dead: true, edge: false, upAt: -1e9 },
@@ -244,28 +247,75 @@ const Controls = (() => {
       document.body.classList.toggle('pc', !t); document.body.classList.toggle('touchui', t);
       this.applyScale();
     },
-    resize() { this.applyScale(); this.relayout(); },
+    resize() { this.relayout(); }, // (the HUD's size with it)
 
     // ---------------------------------------------------------------- the HUD's size
     // From the screen's short side, in bands: a phone's 390 CSS px is 1 (360 → 0.92, 430 → 1.1), a tablet's 1.0-1.3,
-    // a desktop 1 up to 800 px tall and larger past it (1080 → 1.2, 1440 → 1.46); times the player's UI size (75-150%),
+    // a desktop 1 up to 800 px tall and larger past it (1080 → 1.2, 1440 → 1.46); times the player's UI size (50-150%),
     // but never so large that the HUD's own room shrinks below what its layout needs: the CSS picks a layout by the
     // screen's real size (a phone on its side up to 500 px tall, a phone in portrait up to 760 px wide, else the desktop's),
     // and each needs its room (330 × 600, 780 × 360, 640 × 640 HUD px). CSS pixels already carry the screen's density
     // (devicePixelRatio), so a dense phone and a desktop get the same physical-ish sizes.
-    scaleFor(W, H, touch) {
+    scaleFor(W, H, touch, u = clamp(+Settings.get('uiSize') || 1, 0.5, 1.5)) {
       const s = Math.min(W, H);
       const a = touch ? (s < 600 ? clamp(s / 390, 0.9, 1.1) : clamp(s / 640, 1, 1.3)) : s < 560 ? clamp(s / 560, 0.85, 1) : clamp(1 + (s - 800) / 1400, 1, 1.5);
-      const u = clamp(+Settings.get('uiSize') || 1, 0.75, 1.5);
-      const cap = H <= 500 ? Math.min(W / 780, H / 360) : W <= 760 ? Math.min(W / 330, H / 600) : Math.min(W / 640, H / 640);
-      return Math.round(clamp(a * u, 0.7, Math.max(0.7, cap)) * 100) / 100;
+      return Math.round(clamp(a * u, 0.5, Math.max(0.5, this.room(W, H))) * 100) / 100;
     },
+    // the largest scale the screen has room for (the layout the CSS picks for it, and the room that one needs)
+    room(W, H) { return H <= 500 ? Math.min(W / 780, H / 360) : W <= 760 ? Math.min(W / 330, H / 600) : Math.min(W / 640, H / 640); },
+    // The HUD's size held to what fits (UI size over 100% used to let a phone's controls run into each other: on 390×844 the
+    // roll buttons and Brake into the stage box and CM, on 844×390 flaps and gear into the flight data): over the screen's
+    // own scale (nat, UI size 100%), the largest up to the one asked (want) at which no control lands on another, on a
+    // panel or the middle of the screen (Aim's circle), or off the screen, that didn't at nat. Measured with every control
+    // of this HUD shown (as the editor shows them; put back before anything is painted), on a relayout only (a flight's
+    // start, a resize, the setting): a few layouts each, never a frame's work. With the HUD hidden (the home screen) the
+    // size asked stands until it shows. Smaller is as asked. Since it measures the layout as it is, moving controls apart
+    // in the editor makes room for more.
+    fit(want, nat) {
+      const ui = q('#flight-ui'), set = (z) => document.documentElement.style.setProperty('--ui-scale', String(z));
+      if (want <= nat || !ui || ui.hidden) return want;
+      const hud = this.hud(), shown = [];
+      for (const k in CTL) {
+        if (CTL[k][2] !== 'both' && CTL[k][2] !== hud) continue;
+        const e = q(CTL[k][0]);
+        if (e && e.hidden) { e.hidden = false; shown.push(e); }
+      }
+      for (const sel of ['#weapon-box', '#btn-flaps', '#btn-gear']) { const e = q(sel); if (e && e.hidden) { e.hidden = false; shown.push(e); } }
+      // (the stick by its slot, whose box its own translate doesn't move: held or gliding home, it is wherever the thumb was)
+      const W = innerWidth, H = innerHeight, ctl = Object.keys(CTL).filter((k) => k !== 'gmap').map((k) => (k === 'joy' && q('#flight-ui .rot-controls')) || q(CTL[k][0])).filter(Boolean), els = [...ctl, ...PANELS.map(q).filter(Boolean)];
+      const mid = { left: W / 2 - 26, right: W / 2 + 26, top: H / 2 - 26, bottom: H / 2 + 26 }; // (where Aim's circle rests)
+      const bad = () => {
+        const R = [], out = new Set();
+        for (let i = 0; i < els.length; i++) { const r = els[i].getBoundingClientRect(); if (r.width > 0 && r.height > 0) R.push([i, r]); }
+        R.push([els.length, mid]);
+        for (let a = 0; a < R.length; a++) {
+          const [i, r] = R[a];
+          if (i < ctl.length && (r.left < -0.5 || r.top < -0.5 || r.right > W + 0.5 || r.bottom > H + 0.5)) out.add(`o${i}`);
+          for (let n = a + 1; n < R.length; n++) { const [j, t] = R[n]; if (r.left < t.right - 0.5 && r.right > t.left + 0.5 && r.top < t.bottom - 0.5 && r.bottom > t.top + 0.5) out.add(`${i}.${j}`); }
+        }
+        return out;
+      };
+      set(nat);
+      const base = bad(), ok = (z) => { set(z); for (const k of bad()) if (!base.has(k)) return false; return true; };
+      let z = want;
+      if (!ok(want)) { // (the largest that fits, to 0.01, between the screen's own and the size asked)
+        let lo = nat, hi = want;
+        for (let i = 0; i < 6; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; }
+        z = Math.max(nat, Math.floor(lo * 100) / 100);
+      }
+      for (const e of shown) e.hidden = true;
+      return z;
+    },
+    // the size asked, and what fits when the screen holds it back ('' when it doesn't), as UI size percentages
+    fits(v) { const f = S.z / (S.nat || 1); return f < v - 0.005 ? `${Math.round(v * 100)}% · fits ${Math.round(f * 100)}%` : ''; },
     applyScale() {
       if (!doc()) return;
-      const z = this.scaleFor(innerWidth, innerHeight, this.touch);
-      if (z === S.z && document.documentElement.style.getPropertyValue('--ui-scale')) return;
+      const W = innerWidth, H = innerHeight, t = this.touch;
+      S.want = this.scaleFor(W, H, t); S.nat = this.scaleFor(W, H, t, 1);
+      const z = this.fit(S.want, S.nat), st = document.documentElement.style;
+      if (st.getPropertyValue('--ui-scale') !== String(z)) st.setProperty('--ui-scale', String(z));
+      if (z === S.z) return;
       S.z = z;
-      document.documentElement.style.setProperty('--ui-scale', String(z));
       if (typeof GHUD !== 'undefined' && GHUD._S) GHUD._S.P = null; // (the ground HUD's places looked up again)
     },
 
@@ -276,10 +326,11 @@ const Controls = (() => {
     relayout() {
       if (!doc() || !S.layout) return;
       const E = this.entries(), W = innerWidth, H = innerHeight;
+      for (const k in CTL) { const el = q(CTL[k][0]); if (el) this.place(el, k, E[k]); }
+      this.applyScale(); // (the HUD's size, held to what fits with the controls where they are)
       for (const k in CTL) {
         const el = q(CTL[k][0]);
         if (!el) continue;
-        this.place(el, k, E[k]);
         const e = E[k];
         if (!e || S.editing) continue;
         const r = el.getBoundingClientRect();
@@ -556,7 +607,7 @@ const Controls = (() => {
       };
       E.block = (e) => { if (!mine(e)) { e.stopPropagation(); if (e.cancelable && e.type !== 'wheel') e.preventDefault(); } };
       E.key = (e) => { if (e.code === 'Escape' && !UI.modalOpen) { e.preventDefault(); e.stopImmediatePropagation(); this.editDone(); } else if (!mine(e)) e.stopImmediatePropagation(); };
-      E.rs = () => { this.applyScale(); this.relayout(); this.editBar(E); };
+      E.rs = () => { this.relayout(); this.editBar(E); };
       addEventListener('pointerdown', E.down, true); addEventListener('pointermove', E.move, true);
       addEventListener('pointerup', E.up, true); addEventListener('pointercancel', E.up, true);
       for (const t of ['click', 'dblclick', 'contextmenu', 'touchstart']) addEventListener(t, E.block, { capture: true, passive: false });
@@ -645,14 +696,20 @@ const Controls = (() => {
       done.addEventListener('click', () => this.editDone());
       head.append(dock, done);
       const body = el('div', { class: 'ce-body' });
-      if (!k) body.append(el('p', { class: 'muted small ce-tip', text: 'Drag a control to move it; tap one to change its size and opacity. It snaps to the edges of the screen.' }));
-      else {
-        const slider = (label, min, max, val, on) => {
-          const r = el('input', { type: 'range', min: String(min), max: String(max), step: '5', value: String(Math.round(val * 100)) }), out = el('output', { text: `${Math.round(val * 100)}%` });
-          r.addEventListener('input', () => { out.textContent = `${r.value}%`; on(+r.value / 100); });
-          r.addEventListener('change', () => this.editSave(E));
-          return el('label', { class: 'ce-slider' }, el('span', { text: label }), r, out);
-        };
+      const slider = (label, min, max, val, on, id) => {
+        const r = el('input', { type: 'range', min: String(min), max: String(max), step: '5', value: String(Math.round(val * 100)) }), out = el('output', { text: `${Math.round(val * 100)}%` });
+        if (id) r.id = id;
+        r.addEventListener('input', () => { const t = on(+r.value / 100); out.textContent = t || `${r.value}%`; }); // (on may say more: what fits)
+        r.addEventListener('change', () => this.editSave(E));
+        return el('label', { class: `ce-slider${id ? ' ce-wide' : ''}` }, el('span', { text: label }), r, out);
+      };
+      if (!k) {
+        // the whole HUD at once (Settings → UI size): the same setting, both HUDs and orientations
+        body.append(el('p', { class: 'muted small ce-tip', text: 'Drag a control to move it; tap one to change its size and opacity. It snaps to the edges of the screen. UI size sizes the whole HUD, as far as it fits: move some controls apart to make room.' }),
+          slider('UI size', 50, 150, clamp(+Settings.get('uiSize') || 1, 0.5, 1.5), (v) => { Settings.set('uiSize', v); this.relayout(); return this.fits(v); }, 'ce-all'));
+        const o = body.querySelector('#ce-all').parentNode.querySelector('output'), t = this.fits(clamp(+Settings.get('uiSize') || 1, 0.5, 1.5));
+        if (t) o.textContent = t;
+      } else {
         const apply = () => this.place(q(CTL[k][0]), k, this.editEntry(E, k));
         const reset = el('button', { class: 'btn small', type: 'button', text: 'Reset this' });
         reset.addEventListener('click', () => { delete S.layout[this.orient()][E.hud][k]; this.place(q(CTL[k][0]), k, null); this.editSave(E); });

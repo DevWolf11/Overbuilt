@@ -1284,6 +1284,7 @@ body.ctl-edit .air-btns { display: flex !important; }
 .ce-slider { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .ce-slider input { width: 100%; accent-color: var(--amber); }
 .ce-slider output { font: 500 12px var(--mono); color: var(--text); text-align: right; }
+.ce-slider.ce-wide { grid-template-columns: auto 1fr auto; } /* (All controls: its name, and what fits beside the size asked) */
 .ce-foot { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .ce-seg { display: grid; grid-template-columns: repeat(2, auto); }
 .ce-seg .kind-btn { padding: 5px 10px; }
