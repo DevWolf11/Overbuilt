@@ -409,6 +409,9 @@ const Flight = {
   },
 
   breakParts(v, parts, cause) {
+    // (the big update) a crash meets the damage model first (death.js): a hulk, or any aircraft whose cockpit breaks,
+    // goes up in one fireball; a ground vehicle's cab or hull is knocked out and stays. What it leaves goes on as ever.
+    if (cause === 'impact' && typeof Death !== 'undefined') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; }
     const air = airDensity(v.body, v.altitude()) > 0.01;
     const kv = cause === 'heat' ? 0.9 : 0.2;
     for (const p of parts) {
@@ -1342,6 +1345,7 @@ const Flight = {
       if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
         const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
         for (const s of [-1, 1]) {
+          if (s === v.mainWing.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
           if (Math.random() > 0.35 + 0.6 * k) continue;
           const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
           FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,

@@ -1936,11 +1936,61 @@ void main() {
   function freeRig(rig) {
     rig.root.removeFromParent();
     dropPylons(rig);
+    if (rig.cutGeos) for (const g of rig.cutGeos) g.dispose(); // (a cut wing's own halves, cutRig)
     if (rig.twin) rig.twin.removeFromParent();
     for (const m of rig.matList) { if (m.userData.own && m.map) m.map.dispose(); m.dispose(); } // (a belt's or wheels' own copy of their texture)
     if (rig.modsMat) rig.modsMat.dispose();
     if (rig.disc) rig.disc.dispose();
     for (const P of rig.plumes) for (const m of P.mats) m.dispose();
+  }
+
+  // (the big update's damage model) Half a wing shot off (p.cut: 1, its +z half gone; -1, its -z half): every mesh of
+  // the rig shows the half that is left, a copy of its geometry keeping the triangles whose middle, in the part's own
+  // frame, lies on that side. The copies are the rig's (freeRig disposes them); the shared model is untouched. Works for
+  // every wing recipe (extruded foils, lofted plans, a swing wing's halves). The 2D flight view is a side view: as ever.
+  let _cutInv = null, _cutM = null;
+  function halfGeo(g, M, cut) {
+    const P = g.attributes.position, I = g.index, n = I ? I.count : P.count, e = M.elements, keep = [];
+    const zOf = (i) => e[2] * P.getX(i) + e[6] * P.getY(i) + e[10] * P.getZ(i) + e[14];
+    for (let t = 0; t + 2 < n; t += 3) {
+      const a = I ? I.getX(t) : t, b = I ? I.getX(t + 1) : t + 1, c = I ? I.getX(t + 2) : t + 2;
+      if ((zOf(a) + zOf(b) + zOf(c)) * cut < 0) keep.push(t);
+    }
+    const out = new THREE.BufferGeometry(), get = ['getX', 'getY', 'getZ', 'getW'];
+    for (const k of Object.keys(g.attributes)) { // (own copies, de-indexed: disposing them never touches the shared model's buffers)
+      const A = g.attributes[k], sz = A.itemSize, arr = new Float32Array(keep.length * 3 * sz);
+      let o = 0;
+      for (const t of keep) for (let j = 0; j < 3; j++) { const i = I ? I.getX(t + j) : t + j; for (let c = 0; c < sz; c++) arr[o++] = A[get[c]](i); }
+      out.setAttribute(k, new THREE.BufferAttribute(arr, sz)); // (getX gives the value itself, a normalised one too)
+    }
+    if (g.groups && g.groups.length) { // (one material per group, the runs kept in order)
+      let cur = null;
+      keep.forEach((t, i) => {
+        const gr = g.groups.find((q) => t >= q.start && t < q.start + q.count), mi = gr ? gr.materialIndex : 0;
+        if (cur && cur.mi === mi) cur.count += 3; else { if (cur) out.addGroup(cur.start, cur.count, cur.mi); cur = { start: i * 3, count: 3, mi }; }
+      });
+      if (cur) out.addGroup(cur.start, cur.count, cur.mi);
+    }
+    out.computeBoundingSphere();
+    return out;
+  }
+  function cutRig(rig, cut) {
+    if (!_cutInv) { _cutInv = new THREE.Matrix4(); _cutM = new THREE.Matrix4(); }
+    rig.cut = cut || 0;
+    const old = rig.cutGeos || [];
+    rig.cutGeos = [];
+    rig.root.updateMatrixWorld(true);
+    _cutInv.copy(rig.root.matrixWorld).invert();
+    rig.root.traverse((m) => {
+      if (!m.isMesh || m.isInstancedMesh || !m.geometry || !m.geometry.attributes || !m.geometry.attributes.position) return;
+      const g0 = m.userData.geo0 || m.geometry;
+      if (!rig.cut) { m.geometry = g0; delete m.userData.geo0; return; }
+      _cutM.multiplyMatrices(_cutInv, m.matrixWorld);
+      m.userData.geo0 = g0;
+      m.geometry = halfGeo(g0, _cutM, rig.cut);
+      rig.cutGeos.push(m.geometry);
+    });
+    for (const g of old) g.dispose();
   }
 
   // A part's place, depth and quarter turn (they change as it is dragged around): a single part at its
@@ -2160,8 +2210,9 @@ void main() {
       gvState(this, v, this.builder ? api.tgOf : null);
       let rotor = 0;
       for (let i = 0; i < parts.length; i++) {
-        const p = parts[i];
-        (this.items.get(p) || this.add(p)).seen = stamp;
+        const p = parts[i], rig = this.items.get(p) || this.add(p);
+        rig.seen = stamp;
+        if ((p.cut || 0) !== (rig.cut || 0)) cutRig(rig, p.cut); // (half a wing shot off: death.js)
         if (p.def.air && p.def.air.kind === 'rotor' && p.firing > rotor) rotor = p.firing;
       }
       if (this.list.length > parts.length) this.prune(stamp);

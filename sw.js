@@ -5,7 +5,7 @@ const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-tab.svg',
   'js/util.js', 'js/space.js', 'js/terrain.js', 'js/props.js', 'js/parts.js', 'js/vessel.js', 'js/gear.js', 'js/aim.js', 'js/armour.js', 'js/ui.js', 'js/audio.js',
   'js/world.js', 'js/controls.js', 'js/parts3d.js', 'js/render3d.js', 'js/vendor/three.min.js',
-  'js/career.js', 'js/map.js', 'js/globe.js', 'js/combat.js', 'js/gmode.js', 'js/groundai.js', 'js/builder.js', 'js/flight.js',
+  'js/career.js', 'js/map.js', 'js/globe.js', 'js/combat.js', 'js/death.js', 'js/gmode.js', 'js/groundai.js', 'js/builder.js', 'js/flight.js',
   'js/vendor/peer.min.js', 'js/net.js', 'js/mp.js', 'js/mpui.js', 'js/ghud.js', 'js/main.js',
   'assets/earth-height.png', 'assets/earth-color.jpg', 'assets/earth-night.jpg', 'assets/earth-lakes.png', 'assets/earth-urban.png',
   'assets/earth-regions.png', 'assets/earth-places.json', 'assets/earth-lines.bin',

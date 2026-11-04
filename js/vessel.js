@@ -170,6 +170,17 @@ function gvLoad(p) {
   set('shellSel', sh && (typeof q === 'string' ? sh.includes(q) : Number.isInteger(q) && q >= 0 && q < sh.length) ? q : undefined);
 }
 
+// (the big update's damage model) What an old part of an aircraft keeps in a saved flight: p.cut, the half of a plain
+// wing shot off (1 or -1, nothing else and on nothing else); fires are never saved.
+function airLoad(p) {
+  const w = p.def.wing;
+  if (!(w && !w.control && (p.cut === 1 || p.cut === -1))) delete p.cut;
+  delete p.burn; delete p.burnBy; delete p.fireN;
+}
+// A helicopter without its tail rotor (v.tailLost): the reaction's share of the main rotor's thrust × its radius, and the
+// spin (rad/s) it fades out at (death.js's DEATH.tailYaw, tailW: it loads after this file)
+const DEATH_TAIL_YAW = 0.12, DEATH_TAIL_W = 3.2;
+
 class Vessel {
   constructor(parts, adj, body) {
     this.parts = parts;
@@ -320,7 +331,7 @@ class Vessel {
     this.stallAoA = mwA ? (plane && mwA.vortex ? mwA.aMax : mwA.stall) : 0.3;
     this.wingStall = mwA ? mwA.stall : 0.3; // (its own stall, without the vortex lift: the instructor keeps near it)
     this.clS = 0; // area x lift coefficient at the stall, all the (non-control) wings together
-    for (const p of this.wings) if (!p.def.wing.control) { const W = wingAero(p.def, plane); this.clS += plane && W.vortex ? p.def.wing.area * W.clMax : p.def.wing.area * W.slope * W.stall; }
+    for (const p of this.wings) if (!p.def.wing.control) { const W = wingAero(p.def, plane), A = p.def.wing.area * (p.cut ? 0.5 : 1); this.clS += plane && W.vortex ? A * W.clMax : A * W.slope * W.stall; } // (p.cut: half of it shot off, death.js)
     const ws = wingStrength(this.parts);
     this.wingS = ws.S; this.vne = ws.vne; this.mmax = ws.mmax;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
@@ -527,6 +538,12 @@ class Vessel {
         // a single propeller twists the plane the other way (a twin pair turns in opposite directions, and so
         // does one on the left wing, so a mirrored pair cancels out)
         if (e.def.air && e.def.air.kind === 'prop' && !e.def.twinZ && !e.def.contra) { const a = partAxis(e), tq = -0.035 * f * scale * (e.def.w / 2) * (partZ(e) < -0.01 ? -1 : 1); T.x += a.x * tq; T.y += a.y * tq; }
+        // (the big update) a helicopter without its tail rotor: the main rotor's reaction turns the craft, less the faster
+        // it already spins (nothing at DEATH_TAIL_W rad/s about the rotor's axis), less with the throttle down
+        if (this.tailLost && e.def.air && e.def.air.kind === 'rotor') {
+          const a = partAxis(e), w = this.bodyAV(v3()), wa = w.x * a.x + w.y * a.y, tq = DEATH_TAIL_YAW * f * scale * (e.def.w / 2) * Math.max(0, 1 - wa / DEATH_TAIL_W);
+          T.x += a.x * tq; T.y += a.y * tq;
+        }
       }
       changed = true;
     }
@@ -1260,8 +1277,9 @@ class Vessel {
         const ge = 1 + 0.3 * Math.exp((-3 * Math.max(0, above)) / wd.span), dw = tail ? dwn : 0;
         // dihedral: each half's lift leans in towards the middle, so a sideslip rolls the plane level
         const cg = Math.cos(W.dihedral), sg = Math.sin(W.dihedral);
-        const d0 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge, dw);
-        const d1 = surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, false, W, ge, dw);
+        // (p.cut: one half shot off, death.js: 1 the +z half, -1 the -z half; the main wing's angle is read off the other)
+        const d0 = p.cut === 1 ? 0 : surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge, dw);
+        const d1 = p.cut === -1 ? 0 : surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, p === this.mainWing && p.cut === 1, W, ge, dw);
         p.deflect = (d0 + d1) / 2; p.aileron = (d0 - d1) / 2;
       }
       // a fin works from where it stands; a twin pair as one fin of twice the area on the centreline
@@ -1693,8 +1711,9 @@ class Vessel {
       throttle: this.throttle, sas: this.sas, isDebris: this.isDebris, name: this.name, kind: this.kind, flaps: this.flaps, gearUp: this.gearUp,
       stages: this.stages, stageIdx: this.stageIdx, landed: this.landed,
       parts: this.parts.map((p) => gvSave(p, { id: p.id, type: p.type, x: p.x, y: p.y, z: p.z, att: p.att, skin: p.skin, rot: p.rot || 0, flip: p.flip, fuel: p.fuel, active: p.active,
-        deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store })),
+        deployed: p.deployed, used: p.used, fired: p.fired, temp: p.temp, flameout: p.flameout, hp: p.hp, ammo: p.ammo, store: p.store, ...(p.cut ? { cut: p.cut } : {}) })),
       adj: [...this.adj].map(([k, v]) => [k, [...v]]),
+      ...(this.tailLost ? { tailLost: true } : {}), // (a helicopter spinning without its tail rotor)
       ...(this.gv && this.swaps && this.swaps.length ? { swaps: this.swaps.map((q) => ({ role: q.role, t: q.t })) } : {}), // (a seat waiting for someone: armour.js)
     };
   }
@@ -1704,7 +1723,7 @@ class Vessel {
     const parts = d.parts.filter((q) => q && hasOwn(PARTS, q.type)).map((q) => {
       const def = PARTS[q.type], p = makePart(q.type, q.x, q.y);
       Object.assign(p, q, { def, z: cleanZ(q.z, def), skin: cleanSkin(q.skin, def) });
-      gvLoad(p);
+      gvLoad(p); airLoad(p);
       return p;
     });
     cleanAtt(parts);
@@ -1719,6 +1738,7 @@ class Vessel {
     v.av = d.av ? v3(...d.av) : v3(0, 0, d.w || 0);
     for (const p of parts) if (p.def.wheel && p.def.wheel.retract) p.retracted = v.gearUp;
     v.rebuildGroups();
+    if (d.tailLost === true && v.rotors.length && !v.tailRotors.length) v.tailLost = true;
     if (v.gv && Array.isArray(d.swaps)) { const sw = d.swaps.filter((q) => q && (q.role === 'driver' || q.role === 'gunner') && Number.isFinite(q.t)).slice(0, 4).map((q) => ({ role: q.role, t: clamp(q.t, 0, 4) })); if (sw.length) v.swaps = sw; }
     // rebuildGroups shifts position for the COM; restore the saved values
     Object.assign(v, { x: d.x, y: d.y, z: d.z || 0, vx: d.vx, vy: d.vy, vz: d.vz || 0 });
