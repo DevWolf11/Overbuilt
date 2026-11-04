@@ -1311,3 +1311,12 @@ body.ctl-edit .air-btns { display: flex !important; }
 .set-range { display: flex; align-items: center; gap: 10px; }
 .set-range input { flex: 1; min-width: 0; }
 .set-val { font: 500 12px var(--mono); min-width: 40px; text-align: right; color: var(--muted); }
+
+/* The big update's styles, one section per feature: add rules only inside your feature's section. */
+/* == big: damage == */
+
+/* == big: radar == */
+
+/* == big: drones == */
+
+/* == big: graphics == */

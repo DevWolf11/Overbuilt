@@ -1,6 +1,6 @@
 # Tests
 
-The game has no build step and no test framework, so these are plain Node scripts. The headless ones load the game's own `js/` files into a Node VM (see `lib/game.js`), with no DOM or WebGL, and drive the real physics, combat, ground combat and multiplayer code. The browser ones open the game in headless Chromium through Playwright. There are 23 headless suites and 13 browser ones (the lists are at the top of `run.mjs`), plus two tools that `run.mjs` doesn't run (below).
+The game has no build step and no test framework, so these are plain Node scripts. The headless ones load the game's own `js/` files into a Node VM (see `lib/game.js`), with no DOM or WebGL, and drive the real physics, combat, ground combat and multiplayer code. The browser ones open the game in headless Chromium through Playwright. There are 24 headless suites and 14 browser ones (the lists are at the top of `run.mjs`), plus three tools that `run.mjs` doesn't run (below).
 
 ```
 node test/run.mjs              # the headless suites, side by side, about a minute
@@ -59,14 +59,16 @@ You need Node 18 or newer, plus Playwright and a Chromium: the browser suites ne
 
 ## Tools
 
-Two scripts that `run.mjs` leaves out, for when you change the arena's ground or the ground physics:
+Three scripts that `run.mjs` leaves out: two for when you change the arena's ground or the ground physics, one to prove which baseline keys a change moved:
 
 ```
 node test/tools/arena-probe.js           # Highland Ridge on the real map, about 90 s
 node test/bench/ground-bench.mjs         # ground physics timings; name words narrow it ('rounds', 'collisions', 'MA-1'), --secs 5
+node test/tools/keydiff.mjs 68ea3fe      # every baseline key against a ref; --allow file:key[=f1|f2],... --add file:key,...
 ```
 
 - **`tools/arena-probe.js`** measures Highland Ridge, the Ground Battle arena in North Scotland: each pad's and zone's height, steepest slope and water; every line of sight between pads and zones over the curved Earth, and the share of ground each sees from 300 to 1,200 m; each berm's slope and dryness, and that no berm opens a line of sight from a pad to the other pad or to a zone; the Scotland airfield's clearance. Then the drawn ground against the physics' ground: the terrain patch round each pad and zone (its RMS out to 600 m, with every airfield's strip and blend left alone by the arena's detail fade), and the arena's own ground mesh within 0.1 m RMS and 0.3 m of the physics everywhere in the arena, on high and low. Run it after anything that changes the arena's heights (a berm, a pad, the fade) or its props: what the player sees must be what the shells hit. Since the props update its lines of sight count the props that block sight (`PROPS=0` leaves them out) and it checks the design's pairs: the hilltop sees the slope and the village, no pad sees the other or a zone.
+- **`tools/keydiff.mjs`** compares every `baseline/*.json` in the working tree with the same file at a git ref (a commit, branch or tag), key by key and field by field, and fails (exit 1) on any key that moved, appeared or went missing unless it was allowed: `--allow fingerprint:falcon=mass|com` lets those fields of that key move (`file:key` alone any field, `file:*` any key of the file), `--add traces:bumble` lets a key be new; a key or a whole file gone is never allowed. It checks the checkout it sits in, wherever it is run from (`--repo dir` for another). Run it after `--update`, to show that only the keys a change was meant to move moved (the method of PRs #36 and #38); its header has the details.
 - **`bench/ground-bench.mjs`** times the ground vehicles headless: microseconds per physics step and terrain calls per step (counted through the `Terrain` object, as vessel.js and gear.js make them), stepped as `driving.js` steps them; then collisions (`Gear.bump`) and the cost of an autocannon round and a main-gun shell over their lives. Timings depend on the machine, so compare runs made on one machine.
 
 ## Baselines
@@ -78,7 +80,7 @@ node test/traces.js --update        # one suite
 node test/run.mjs traces --update   # the same through the runner; with no suite named, every baseline
 ```
 
-Commit the new baseline with the change, and say in the commit why it moved. A refactor that should change nothing must leave every baseline identical. That is the main point of `traces.js`: it shows even a last-digit change in any template's flight.
+Commit the new baseline with the change, and say in the commit why it moved; `node test/tools/keydiff.mjs main --allow …` (under Tools) proves key by key that nothing else did. A refactor that should change nothing must leave every baseline identical. That is the main point of `traces.js`: it shows even a last-digit change in any template's flight.
 
 ## How it works
 
