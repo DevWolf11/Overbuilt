@@ -241,6 +241,17 @@ const Render3D = (() => {
     return { map, nrm };
   }
 
+  // ------------------------------------------------------------------ three.js chunk patches
+  // patchChunks(THREE): edits to three's own shader chunks, made once, first thing in init (before any material
+  // compiles): the flight Sun's shadow filter (patchShadow) and the haze before tone mapping (patchFog). Each checks the
+  // r159 text it edits and, on any mismatch, leaves its chunk alone, warns once and keeps its flag false
+  // (Render3D.info().patched), so a three.js upgrade fails loudly, never silently. Idempotent. test/fx.test.js runs it on
+  // Node's copy of three (Render3D._patchChunks).
+  const PATCHED = { fog: false, shadow: false };
+  function patchShadow(C) { void C; } // (the shadow filter: 4 taps and a faded box edge in flight, the hangar's 16 untouched)
+  function patchFog(T) { void T; } // (the haze: height, curvature, the sky's horizon colour, before tone mapping)
+  function patchChunks(T) { patchShadow(T.ShaderChunk); patchFog(T); }
+
   // ------------------------------------------------------------------ shaders
   const LOGV = '#include <common>\n#include <logdepthbuf_pars_vertex>\n';
   const LOGF = '#include <common>\n#include <logdepthbuf_pars_fragment>\n';
@@ -465,6 +476,7 @@ void main() {
 
   function init() {
     THREE = window.THREE;
+    patchChunks(THREE); // (before any material compiles)
     canvas = document.getElementById('view3d');
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -500,6 +512,9 @@ void main() {
     initParticles();
     initStudio();
     if (typeof Parts3D !== 'undefined') { Parts3D.envMap = api.envMap; Parts3D.init(THREE, renderer); }
+    // the first flight frames drawn (and the first after a quality change) keep the effect meshes on show with nothing
+    // in them, so their programs compile while loading, not at the first explosion (renderFlight counts it down)
+    S.warm = 3;
     api.ready = true;
   }
 
@@ -1909,7 +1924,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // stand on) in ground play, and the space centre's (the Runway's and the island's), shown with the camera near it and
   // seated on the ground as drawn there. Each is filled a slice a frame (Props builds its layout a slice at a time too);
   // a crushed prop tips over where it stood (Props.fallen) over 0.7 s.
-  const PR = { geo: null, mat: null, sets: new Map(), mats: null };
+  const PR = { geo: null, mat: null, sets: new Map(), mats: null, castOff: false };
   const PIECES = 9, PCAST = [true, true, true, true, false, false, false, true, true]; // (casts a shadow; trees and bushes don't: every instance is drawn again in the shadow pass, for a shadow box 50 m across)
   function propGeos() {
     if (PR.geo) return PR.geo;
@@ -2021,7 +2036,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (!cnt[i]) return null;
       const m = new THREE.InstancedMesh(g, PR.mat, cnt[i]);
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cnt[i] * 3), 3);
-      m.frustumCulled = false; m.receiveShadow = true; m.castShadow = i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
+      m.frustumCulled = false; m.receiveShadow = true; m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
       s.frame.add(m);
       return m;
     });
@@ -2073,6 +2088,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const scNear = Math.hypot(Math.max(0, Math.abs(e - 1500) - 2200), Math.max(0, Math.abs(z) - 800)) < 7000 && camAlt < 5000 && patch.active;
     if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true, e, z);
     else if (PR.sets.has('sc')) PR.sets.get('sc').frame.visible = false;
+    // (measuring only: Render3D.propsCastOff takes the props out of the shadow pass while it is on)
+    if (PR.castOff !== !!api.propsCastOff) { PR.castOff = !!api.propsCastOff; for (const s of PR.sets.values()) s.meshes.forEach((m, i) => { if (m) m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; }); }
   }
   const propFlat = () => 0; // (Highland Ridge's sit on the physics' ground: the arena's own mesh is drawn from it)
   // (the space centre's props sit on the ground as drawn: the patch's own there, which is metres off the physics' far out)
@@ -3304,6 +3321,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.shadowMap.autoUpdate = S.sun.intensity > 0 || !S.sun.shadow.map;
     if (!api.skipDraw) renderer.render(localScene, camera);
     renderer.shadowMap.autoUpdate = true; // (the hangar's)
+    if (S.warm > 0 && !api.skipDraw) S.warm--; // (a frame drawn: the warm-up's programs compiled in it, init)
   }
 
   // Returns what of the far layer besides the sky is in view (within a margin): 2 another body, a glow, an atmosphere,
@@ -3847,6 +3865,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // there is time to spare. The HUD is HTML, so it stays sharp either way.
   const perf = { ema: 1 / 60, scale: 1, at: 0 };
   function adaptResolution(dt) {
+    if (api.bench.pin) { if (perf.scale !== 1) { perf.scale = 1; resize(W, H, DPR); } return; } // (measuring: the pixel ratio held at basePixelRatio())
     if (!(dt > 0)) return;
     perf.ema += (Math.min(dt, 0.1) - perf.ema) * 0.08;
     if (clock - perf.at < 0.6) return;
@@ -3861,6 +3880,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (hi === high) return;
     high = hi;
     S.sun.castShadow = hi; S.key.castShadow = hi;
+    S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
     allocPatch();
     patch.b = patchB.b = null; patch.ready = patchB.ready = false;
     S.scenery.dirty = true; S.clouds.b = null;
@@ -4155,8 +4175,51 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   Object.assign(api, {
-    // draw calls and triangles in the last frame (for tuning)
-    info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
+    // draw calls and triangles in the last frame (for tuning); scale: adaptive resolution's share of the pixel ratio (1:
+    // all of it); programs: the shader programs alive; patched: which of three's chunks patchChunks edited; proxies: the
+    // city buildings' shadow stand-ins on show (walls, roofs, boats: instances in the shadow pass)
+    info() {
+      if (!renderer) return null;
+      const sc = S.scen && S.scen[0], px = (m) => (m && m.nSh) || 0;
+      return { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs,
+        scale: perf.scale, programs: renderer.info.programs ? renderer.info.programs.length : 0, patched: { fog: PATCHED.fog, shadow: PATCHED.shadow },
+        proxies: sc ? [px(sc.wallsS), px(sc.roofsS), px(sc.boatsS)] : [0, 0, 0] };
+    },
+    // Measuring (test/bench/render-bench.mjs, test/browser/graphics.mjs); never set in play. pin: adaptive resolution
+    // off, the pixel ratio exactly basePixelRatio(); fill: the particles' fill of the last frame drawn, in screens (counted
+    // only while pinned); day, sunset: the Sun's light (0..1) and the sunset's warmth where the craft is; busy: anything
+    // still being built a slice a frame (terrain, scenery, clouds, the arena, props, the planets' maps); fogK: a
+    // multiplier on the fog's density (tests: everything past a kilometre fogged)
+    bench: {
+      pin: false,
+      fill: 0,
+      day: () => (S.sun ? clamp(S.sun.intensity / 3.1, 0, 1) : 0),
+      sunset: () => envV.sunset || 0,
+      busy: () => !!(pjob || bandWait || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
+      fogK: 1,
+    },
+    shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
+    propsCastOff: false, // measuring only: the props cast no shadow
+    // tests only: a snapshot of the renderer's insides, made on call (never read by the game)
+    gfx() {
+      if (!renderer) return null;
+      const e = S.engine, sc = S.sun.shadow.camera, st = S.sun.target.position, oc = patch.ocean, ms = patch.mesh, uv = (m) => m && m.geometry.attributes.uv;
+      const defs = (m) => (m ? { ...(m.defines || {}) } : null);
+      return {
+        fxN: typeof FX !== 'undefined' ? FX.list.length : 0, // particles alive
+        fxDraw: (S.smoke ? S.smoke.geometry.instanceCount : 0) + (S.fire ? S.fire.geometry.instanceCount : 0), // particles drawn last frame
+        streakN: CB.ready ? CB.lineGeo.drawRange.count / 2 : 0, // tracers drawn last frame
+        debrisN: 0, decalN: 0, decals: [],
+        engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
+        waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
+        terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
+        waterOffset: null, fogArrays: null,
+        sunV: S.sunV ? { x: S.sunV.x, y: S.sunV.y, z: S.sunV.z } : null,
+        box: { half: sc.right, cx: st.x, cy: st.y, cz: st.z }, // the Sun's shadow box: its half width and centre (view axes)
+        warm: S.warm || 0,
+      };
+    },
+    _patchChunks: patchChunks, // (test/fx.test.js: run on Node's copy of three)
     // the props' sets (tests, measurements): shown, filled, instances per piece
     propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.meshes.map((m) => (m ? m.count : 0)), slots: s.first ? s.first[s.first.length - 1] : 0, drawn: s.drawn, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing
