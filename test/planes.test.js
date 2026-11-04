@@ -2,8 +2,10 @@
 //  - Aim (the instructor, the mouse aim): the nose onto a circle 90° to the right, 60° left and 20° down, behind and 10°
 //    up, and 45° up, in its time, without a wing coming off, departing (sideslip past 26°, yaw past 57°/s, the AoA past
 //    60°, any rate past 5.4 rad/s) or coming within 30 m of the ground; a circle on the ground 60° below from 1500 m, the
-//    nose on it in 6 s (PR #44: the heavy ones aside); aimed 30° into the sea from 400 m, it dives at it and pulls out by
-//    itself, at least 15 m up (50 m, never getting there, until PR #44); a level aim it holds to a few degrees.
+//    nose on it in 6 s (PR #44: the heavy ones aside); aimed 30° into the sea from 400 m with Settings → Aim pulls out of
+//    dives on, it dives at it and pulls out by itself, at least 15 m up (50 m, never getting there, until PR #44), and with
+//    it off (the default since PR #45) it holds the dive, the nose within 3° of the circle 60 m up, into the sea; a level
+//    aim it holds to a few degrees.
 //  - Off (the manual law): hands-off it stays trimmed (no nose-over), the roll stops when the stick is let go, and full
 //    back stick held 5 s at 360 and 540 km/h doesn't flip it (no departure, no more than the stall + 10°).
 //  - Hold: full back stick at speed reaches most of its g limit (0.9 of the wings' rating, at most 9.5 g), never past the
@@ -55,7 +57,7 @@ const slow = [];
 for (const key of keys) {
   const probe = air(key, 100, 2000).v, heavy = probe.gRating() < 5, V0 = probe.vne < 160 ? Math.min(110, 0.75 * probe.vne) : 200, thr = 0.9;
   const fails = [], times = [], sea = [];
-  for (const [name, az, el, secs, alt] of [...AIMS, ['60° down from 1500 m', 0, -60, 6, 1500], ['30° down from 400 m', 0, -30, 12, 400], ['level ahead', 0, 0, 15]]) {
+  for (const [name, az, el, secs, alt, pull] of [...AIMS, ['60° down from 1500 m', 0, -60, 6, 1500], ['30° down from 400 m', 0, -30, 12, 400, true], ['30° down from 400 m, no pull-out', 0, -30, 12, 400], ['level ahead', 0, 0, 15]]) {
     const alt0 = alt || 2000;
     const { v, s } = air(key, V0, alt0, 'hold', thr);
     fly(v, s, 1, null, newM());
@@ -65,17 +67,23 @@ for (const key of keys) {
     const Rt = { x: Fl.y * U.z - Fl.z * U.y, y: Fl.z * U.x - Fl.x * U.z, z: Fl.x * U.y - Fl.y * U.x };
     const ca = Math.cos(az / D), sa = Math.sin(az / D), ce = Math.cos(el / D), se = Math.sin(el / D);
     const A = { x: Fl.x * ca * ce + Rt.x * sa * ce + U.x * se, y: Fl.y * ca * ce + Rt.y * sa * ce + U.y * se, z: Fl.z * ca * ce + Rt.z * sa * ce + U.z * se };
-    v.sas = 'aim'; v.aimDir = A;
-    const M = newM(); let tIn = null, last = [];
+    v.sas = 'aim'; v.aimDir = A; v.aimPull = !!pull; // (Settings → Aim pulls out of dives: off by default)
+    const M = newM(); let tIn = null, last = [], at60 = null;
     fly(v, s, secs * (heavy && name.startsWith('behind') ? 1.2 : 1), (vv, tt) => {
       const f = vv.axis(P.F.x, P.F.y, P.F.z), ang = Math.acos(Math.max(-1, Math.min(1, f.x * A.x + f.y * A.y + f.z * A.z))) * D;
       if (tIn == null && ang < 6) tIn = tt;
+      if (at60 == null && vv.groundAltitude() < 60) at60 = ang;
       last.push(ang); if (last.length > 240) last.shift();
     }, M);
     const endErr = Math.max(...last);
-    if (s.broken.length) fails.push(`${name}: broke ${s.broken.join(';')}`);
+    const torn = name.includes('no pull-out') ? s.broken.filter((b) => !b.startsWith('impact')) : s.broken; // (flown into the sea: its impact is the point)
+    if (torn.length) fails.push(`${name}: broke ${torn.join(';')}`);
     if (M.dep) fails.push(`${name}: departed`);
-    if (name.includes('400 m')) { // (PR #44: dived at, and pulled out of at the last moment; until then held 50 m up, never got there)
+    if (name.includes('no pull-out')) { // (PR #45: the default; the dive is the player's to pull out of)
+      if (!M.dead) fails.push(`${name}: pulled out by itself, ${Math.round(M.minH)} m off the sea`);
+      if (!(at60 < 3)) fails.push(`${name}: the nose ${at60 == null ? 'never 60 m up' : at60.toFixed(1) + '° off the circle 60 m up'}`);
+      sea.push(at60 == null ? '-' : at60.toFixed(1));
+    } else if (name.includes('400 m')) { // (PR #44: dived at, and pulled out of at the last moment; until then held 50 m up, never got there)
       if (M.minH < 15) fails.push(`${name}: ${Math.round(M.minH)} m off the sea`);
       if (tIn == null && !heavy) fails.push(`${name}: the nose never on it`);
       sea.push(Math.round(M.minH));
@@ -86,7 +94,7 @@ for (const key of keys) {
       times.push(tIn == null ? '-' : tIn.toFixed(1));
     }
   }
-  t(`${key}: Aim puts the nose on the circle (90° right, 60° left & down, behind, 45° up, 60° down from 1500 m, level: ${times.join(' / ')} s; 30° into the sea from 400 m, out at ${sea[0]} m), nothing torn or departing`, !fails.length, fails.join(' | ') || undefined);
+  t(`${key}: Aim puts the nose on the circle (90° right, 60° left & down, behind, 45° up, 60° down from 1500 m, level: ${times.join(' / ')} s; 30° into the sea from 400 m: pulling out, out at ${sea[0]} m; not, ${sea[1]}° off it 60 m up), nothing torn or departing`, !fails.length, fails.join(' | ') || undefined);
   if (times.some((x) => x === '-')) slow.push(key);
 }
 

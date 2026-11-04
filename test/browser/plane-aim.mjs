@@ -201,6 +201,15 @@ function judge(tag, L) {
     d.sas === 'hold' && d.pressed.join() === 'hold' && !d.flyAim && opts.v === 'hold' && opts.o.join() === 'hold,level,heading,manual,aim' && modes.every(([m, sas, p, fa]) => sas === m && p === (m === 'manual' ? 'off' : m) && fa === (m === 'aim')),
     { d: { sas: d.sas, pressed: d.pressed, flyAim: d.flyAim }, opts, modes });
   await shot(page, 'start-hold');
+  // Settings → Aim pulls out of dives (PR #45): off by default, and the plane in Aim follows it as soon as it's changed
+  const pull0 = await page.evaluate(() => { App.showSettings(); const c = document.querySelector('#set-aim-pull'), r = c ? c.checked : null; UI.closeModal(); return r; });
+  await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-plane-start'); s.value = 'aim'; s.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); });
+  await fly(page);
+  const inAim0 = await page.waitForFunction(() => Flight.flyAim && Flight.active.aimPull === false, null, { timeout: 20000 }).then(() => true, () => false);
+  await page.evaluate(() => { App.showSettings(); const c = document.querySelector('#set-aim-pull'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); });
+  const inAim1 = await page.waitForFunction(() => Flight.active.aimPull === true, null, { timeout: 20000 }).then(() => true, () => false);
+  const saved = await page.evaluate(() => Settings.get('aimPull'));
+  ok('Settings → Aim pulls out of dives is off by default (the dive is the player\'s to pull out of), and turning it on reaches the plane in Aim at once', pull0 === false && inAim0 && inAim1 && saved === true, { pull0, inAim0, inAim1, saved });
   await pageErrors(page, 'start mode ');
   await ctx.close();
 }

@@ -5,8 +5,10 @@
 //     and levelling off from a 25° climb doesn't roll the plane over;
 //  3. arriving from a 90° turn: no skid (sideslip under 6°) and the nose not past the aim by more than 3°;
 //  4. a circle held on a target in a steady 4 g turn (fighters, 600 km/h): the nose within 2° of it 80% of the time;
-//  5. the circle straight down from 5 km, and 45° down from 3 km: the plane dives at it and pulls out by itself at the last
-//     moment, at least 15 m up (50 m until PR #44), no wing past 110% of its rating;
+//  5. the circle straight down from 5 km, and 45° down from 3 km, with Settings → Aim pulls out of dives on: the plane dives
+//     at it and pulls out by itself at the last moment, at least 15 m up (50 m until PR #44), no wing past 110% of its
+//     rating; 5b. with it off (the default since PR #45), 45° down from 3 km: it holds the dive, the nose on the circle
+//     (within 3° 150 m up; the bomber and the Jumbo, that can't dive at 45°, 20°), and never pulls out by itself;
 //  7. slow, the gear and full landing flaps down, the throttle shut, the circle level: no departure; a landing flown as a
 //     player would (the speed held by the throttle down the glide, shut in the flare, the circle on a point 300 m down
 //     the runway) touches down on its main wheels near it, gently, wings level;
@@ -169,14 +171,31 @@ if (want(5)) {
     for (const key of PLANES) {
       const { v, s } = air(key, speedOf(key), alt, 'hold', 0.9);
       run(v, s, 1);
-      const aim = aimFixed(v, 0, el); v.sas = 'aim';
+      const aim = aimFixed(v, 0, el); v.sas = 'aim'; v.aimPull = true; // (Settings → Aim pulls out of dives: on)
       let minH = 1e9, strain = 0;
       const ok = run(v, s, el < -60 ? 30 : 25, aim, (vv) => { minH = Math.min(minH, vv.groundAltitude()); strain = Math.max(strain, vv.strain || 0); });
       lows.push(minH);
       if (!ok || minH < 15 || strain > 1.1 || s.broken.some((b) => b.startsWith('rip'))) bad.push(`${key} ${el}° from ${alt} m: ${ok ? Math.round(minH) + ' m' : 'CRASHED'}, strain ${strain.toFixed(2)} ${s.broken.join(';')}`);
     }
   }
-  t(`5. the circle straight down from 5 km and 45° down from 3 km: every plane dives at it and pulls out by itself at the last moment, at least 15 m up (lowest ${Math.round(Math.min(...lows))} m; 50 m until PR #44, when the floor still looked 6 s ahead under a circle on the ground), no wing past 110% of its rating nor torn off (before PR #40: the Kestrel, the bomber and the Jumbo hit the ground)`, !bad.length, bad.join(' | ') || undefined);
+  t(`5. the circle straight down from 5 km and 45° down from 3 km, Aim pulls out of dives on: every plane dives at it and pulls out by itself at the last moment, at least 15 m up (lowest ${Math.round(Math.min(...lows))} m; 50 m until PR #44, when the floor still looked 6 s ahead under a circle on the ground), no wing past 110% of its rating nor torn off (before PR #40: the Kestrel, the bomber and the Jumbo hit the ground)`, !bad.length, bad.join(' | ') || undefined);
+}
+
+// ---- 5b. the pull-out off (the default since PR #45): the dive held into the ground
+if (want(5)) {
+  const bad = [], errs = [];
+  for (const key of PLANES) {
+    const { v, s } = air(key, speedOf(key), 3000, 'hold', 0.9);
+    run(v, s, 1);
+    const aim = aimFixed(v, 0, -45); v.sas = 'aim'; v.aimPull = false;
+    let a150 = null, vs = -1e9;
+    const ok = run(v, s, 25, aim, (vv) => { const h = vv.groundAltitude(); if (h < 150) { if (a150 == null) a150 = ang(noseOf(vv), vv.aimDir); vs = Math.max(vs, vv.vSpeed()); } });
+    if (a150 == null) continue; // (the slow ones, held short of their speed limit, never get down in 25 s)
+    errs.push(`${key} ${a150.toFixed(1)}°`);
+    if (a150 > (['bomber', 'jumbo'].includes(key) ? 20 : 3)) bad.push(`${key}: the nose ${a150.toFixed(1)}° off the circle 150 m up`);
+    if (vs > -30) bad.push(`${key}: pulled out by itself (${ok ? Math.round(v.groundAltitude()) + ' m up' : 'then crashed'}, climbing at ${vs.toFixed(0)} m/s)`);
+  }
+  t(`5b. the pull-out off (the default since PR #45), the circle 45° down from 3 km: every plane that gets down holds the dive into the ground, never pulling out by itself, the nose on the circle 150 m up (${errs.join(', ')})`, !bad.length, bad.join(' | ') || undefined);
 }
 
 // ---- 7. slow with the gear and flaps down; a landing

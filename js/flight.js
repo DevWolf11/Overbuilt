@@ -884,6 +884,7 @@ const Flight = {
     this.flyCamDir = toSim(C.f, this._camD || (this._camD = v3())); this.flyCamUp = toSim(C.u, this._camU || (this._camU = v3()));
     const D = v.aimDir || (v.aimDir = v3()); // (the vessel's own copy: the physics steps read it)
     D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
+    v.aimPull = !!Settings.get('aimPull'); // (Settings → Aim pulls out of dives: off by default, the dive is the player's to pull out of)
   },
   // The camera's own way (local, like flyF/flyU): it eases after the circle as War Thunder's does (the play-test after
   // PR #40: locked to the circle, the view jerked with every flick), most of the way in under half a second and slowing

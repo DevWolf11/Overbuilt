@@ -854,9 +854,11 @@ class Vessel {
   //  - flying about level (the circle no more than 4° under the horizon), over the ground and anything rising ahead along
   //    the track (1, 2, 4 and 6 s out, looked at 5 times a second), clear of it by most of the height it is flying at, 15 to
   //    40 m (so a low pass stays low, and it climbs over a hill); a circle put on the ground is dived at;
-  //  - no steeper than it can still pull out of, at the last moment: the height a pull-out takes at the g it can make now,
-  //    V²(1 - cos γ)/(g(n - 1)), counting on 75% of that g and with 30% to spare, after rolling the wings level and the g
-  //    coming on, kept above 25 m (but on a landing's shallow approach, under 10°);
+  //  - with aimPull (Settings → Aim pulls out of dives, off by default: PR #45's play-test found it annoying, the plane
+  //    pulling off a target it was diving at), and coming in to land: no steeper than it can still pull out of, at the
+  //    last moment: the height a pull-out takes at the g it can make now, V²(1 - cos γ)/(g(n - 1)), counting on 75% of that
+  //    g and with 30% to spare, after rolling the wings level and the g coming on, kept above 25 m (but on a landing's
+  //    shallow approach, under 10°); without it a circle held on the ground is flown into, as War Thunder's would be;
   //  - near its wings' speed limit (past 96% of it), shallower and shallower, level at the limit;
   //  - coming in to land (the circle under the horizon, and its retractable gear down under 2.5 times its stall speed, or
   //    fixed gear under 1.6 times), down to the runway, flaring the last 25 m.
@@ -882,7 +884,7 @@ class Vessel {
     const c = landing ? 0 : clamp(0.8 * h, 15, 40);
     let floor = -Math.PI / 2;
     if (landing || el > -0.07) for (let i = 0; i < 4; i++) floor = Math.max(floor, Math.atan2(L.rise[i] + c - h, L.d[i]));
-    if (sinG < 0 && !(landing && sinG > -0.17)) { // (a landing's shallow approach: the flare's, below)
+    if (sinG < 0 && (this.aimPull || landing) && !(landing && sinG > -0.17)) { // (a landing's shallow approach: the flare's, below)
       const n = 1 + 0.75 * (this.aimG(sp) - 1), tr = Math.abs(at.bank) / Math.max(0.3, this.rollRate()) + 0.6; // (n: 75% of the g it has over 1, as a tail, a store or a swept wing may hold it to less; tr: rolling level, and the g coming on)
       const room = h - Math.max(0, L.rise[0], L.rise[1]) - 25 + sp * sinG * tr, x = room > 0 ? (room * G0 * (n - 1)) / (1.3 * sp * sp) : 0;
       floor = Math.max(floor, x >= 2 ? -Math.PI / 2 : -Math.acos(1 - x));
