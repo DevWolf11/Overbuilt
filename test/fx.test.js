@@ -8,6 +8,9 @@
 //      about), and the new fields (rise, drag, floor, trail, pop) do what they say
 //   4  the presets, FX.flame and FX.trail; FX.seed makes the stream repeat; the headless stub has the API's names
 //   5  FX.draw (the 2D view) with every kind: no throw, nothing drawn for a timer
+//   6  three's chunks as Render3D.init patches them (run here on Node's copy of three): the shadow filter (flight's PCF
+//      branch 4 bilinear taps and a faded edge, the hangar's soft branch three's own 16 taps verbatim), idempotent, and a
+//      chunk that isn't r159's left alone with its flag false and one warning
 const G = require('./lib/game.js');
 const ctx = G.load({ flight: true });
 const R = (code) => G.run(ctx, code);
@@ -321,4 +324,39 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across, fading over the la
     FX.clear(); FX.add(p); p.life = life; FX.draw(c, { x: bp.x + P0.x, y: bp.y }, 10, 0, 0); FX.clear(); return c; };
   const a = at(0.3, 0.5), b = at(0.3, 0.9), c = at(0.04, 0.5);
   return a.calls.join() === 'beginPath,arc,fill' && a.r[0] === 0.3 && a.alpha[0] === 1 && Math.abs(b.alpha[0] - 0.5) < 1e-9 && c.r[0] === 0.06; })()`));
+
+// ---------------------------------------------------------------------------------------------------------------
+// 6 the chunk patches (Render3D._patchChunks on Node's three r159; a fresh copy of three and of render3d.js each time)
+{
+  const fs = require('fs'), path = require('path'), vm = require('vm');
+  const THREE_JS = path.join(G.ROOT, 'js', 'vendor', 'three.min.js');
+  const three = () => { delete require.cache[require.resolve(THREE_JS)]; return require(THREE_JS); };
+  const render3d = () => { const c = G.load({ flight: true, earth: false }), warns = [];
+    c.console = Object.assign(Object.create(console), { warn: (...a) => warns.push(a.join(' ')) });
+    vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js', 'render3d.js'), 'utf8') + '\nthis.Render3D = Render3D;', c, { filename: 'render3d.js' });
+    return { R3: c.Render3D, warns }; };
+  const SH_P = '\t\tif ( frustumTest ) {\n\t\t#if defined( SHADOWMAP_TYPE_PCF )\n', SH_A = '#elif defined( SHADOWMAP_TYPE_PCF_SOFT )', SH_B = '#elif defined( SHADOWMAP_TYPE_VSM )';
+  const T = three(), r159 = T.ShaderChunk.shadowmap_pars_fragment, pcf = r159.slice(r159.indexOf(SH_P) + SH_P.length, r159.indexOf(SH_A)), soft = r159.slice(r159.indexOf(SH_A), r159.indexOf(SH_B));
+  const { R3, warns } = render3d(), P = R3._patchChunks(T), s1 = T.ShaderChunk.shadowmap_pars_fragment;
+  const pcf1 = s1.slice(s1.indexOf(SH_P) + SH_P.length, s1.indexOf(SH_A)), taps = (x) => (x.match(/texture2DCompare/g) || []).length;
+  t('6 the shadow chunk is patched on r159 (PATCHED.shadow), with no warning', T.REVISION === '159' && P.shadow === true && warns.length === 0, { rev: T.REVISION, P, warns });
+  t('6 the PCF branch (flight\'s: 17 taps on r159) is 4 bilinear taps and a fade over the box\'s outer 12%', taps(pcf) === 17 && taps(pcf1) === 4 && pcf1.includes('smoothstep( 0.88, 1.0,') && pcf1.includes('fract( st )'));
+  t('6 the soft branch (the hangar\'s: three\'s 16 taps) is r159\'s verbatim, and so is the rest of the chunk', taps(soft) === 16 && s1.includes(soft) && s1.replace(pcf1, pcf) === r159);
+  const P2 = R3._patchChunks(T);
+  t('6 a second call changes nothing (idempotent) and keeps the flag', T.ShaderChunk.shadowmap_pars_fragment === s1 && P2.shadow === true && warns.length === 0);
+  const again = render3d(), P3 = again.R3._patchChunks(T); // (a fresh render3d on the already patched three: no double patch)
+  t('6 a fresh Render3D on a three already patched leaves it as it is, flag true', T.ShaderChunk.shadowmap_pars_fragment === s1 && P3.shadow === true && again.warns.length === 0);
+  // a three whose chunk isn't r159's: each kind of mismatch leaves it untouched, the flag false, one warning
+  const bad = { 'no PCF branch': (x) => x.replace(SH_P, SH_P.replace('SHADOWMAP_TYPE_PCF )', 'SHADOWMAP_TYPE_PCF2 )')), 'no soft branch': (x) => x.replace(SH_A, '#elif defined( SHADOWMAP_TYPE_PCF_SOFTER )'),
+    'two soft branches': (x) => x.replace(SH_B, SH_A + '\n' + SH_B), 'PCF of 16 taps': (x) => x.replace('\t\t\t\ttexture2DCompare( shadowMap, shadowCoord.xy, shadowCoord.z ) +\n', ''),
+    'getShadow without shadowRadius': (x) => x.replace('float shadowBias, float shadowRadius, vec4 shadowCoord ) {', 'float shadowBias, vec4 shadowCoord ) {') };
+  const left = [];
+  for (const [why, f] of Object.entries(bad)) {
+    const T2 = three(), m = f(T2.ShaderChunk.shadowmap_pars_fragment), r = render3d();
+    T2.ShaderChunk.shadowmap_pars_fragment = m;
+    const P4 = r.R3._patchChunks(T2);
+    if (!(m !== r159 && T2.ShaderChunk.shadowmap_pars_fragment === m && P4.shadow === false && r.warns.length === 1 && /shadow/.test(r.warns[0]))) left.push(why);
+  }
+  t('6 a chunk that isn\'t r159\'s (no PCF branch, no soft one, two, a PCF of 16 taps, no shadowRadius) is left alone, flag false, one warning', left.length === 0, left.join(', '));
+}
 t.done();

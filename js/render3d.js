@@ -248,9 +248,40 @@ const Render3D = (() => {
   // (Render3D.info().patched), so a three.js upgrade fails loudly, never silently. Idempotent. test/fx.test.js runs it on
   // Node's copy of three (Render3D._patchChunks).
   const PATCHED = { fog: false, shadow: false };
-  function patchShadow(C) { void C; } // (the shadow filter: 4 taps and a faded box edge in flight, the hangar's 16 untouched)
+  // The shadow filter. Flight draws with three's PCF shadow type (renderFlight switches renderer.shadowMap.type round
+  // the local scene's render; the hangar keeps PCF_SOFT, three's own 16 taps, byte for byte), and patchShadow replaces
+  // the PCF branch of getShadow (17 taps, used by nothing else here) with 4 bilinear taps that fade out over the box's
+  // outer 12%, so a shadow never stops in a hard line. A compile-time switch, not a branch on a uniform: a uniform branch
+  // still carries both filters in every lit shader, and a GPU that runs both sides under a mask (SwiftShader does)
+  // paid 20 taps for 16 and ~2% on every quiet scene. (Unpatched, flight keeps PCF_SOFT: nothing changes.)
+  const SH_P = '\t\tif ( frustumTest ) {\n\t\t#if defined( SHADOWMAP_TYPE_PCF )\n', SH_A = '#elif defined( SHADOWMAP_TYPE_PCF_SOFT )', SH_ON = '/* ob: 4 taps */';
+  const SH_SIG = 'float getShadow( sampler2D shadowMap, vec2 shadowMapSize, float shadowBias, float shadowRadius, vec4 shadowCoord ) {';
+  const SH_4 = `\t\t\t${SH_ON}
+			vec2 ts = vec2( 1.0 ) / shadowMapSize, st = shadowCoord.xy * shadowMapSize - 0.5, fq = fract( st ), q = ( floor( st ) + 0.5 ) * ts;
+			shadow = mix( mix( texture2DCompare( shadowMap, q, shadowCoord.z ), texture2DCompare( shadowMap, q + vec2( ts.x, 0.0 ), shadowCoord.z ), fq.x ),
+				mix( texture2DCompare( shadowMap, q + vec2( 0.0, ts.y ), shadowCoord.z ), texture2DCompare( shadowMap, q + ts, shadowCoord.z ), fq.x ), fq.y );
+			shadow = mix( shadow, 1.0, smoothstep( 0.88, 1.0, max( abs( shadowCoord.x * 2.0 - 1.0 ), abs( shadowCoord.y * 2.0 - 1.0 ) ) ) );
+		`;
+  const chunkOnce = (s, a) => s.indexOf(a) >= 0 && s.indexOf(a) === s.lastIndexOf(a);
+  function patchShadow(C) {
+    const s = C && C.shadowmap_pars_fragment;
+    if (typeof s !== 'string') return warnPatch('shadow', 'no shadowmap_pars_fragment');
+    if (s.includes(SH_ON)) return (PATCHED.shadow = true); // (patched already: a second call changes nothing)
+    // r159's text: in getShadow( …, vec4 shadowCoord ), inside its frustum test, the PCF branch (17 taps, ending in
+    // 1 / 17) right before the soft one, each anchor once
+    const p = s.indexOf(SH_P), a = s.indexOf(SH_A), body = p >= 0 && a > p ? s.slice(p + SH_P.length, a) : '';
+    if (!chunkOnce(s, SH_P) || !chunkOnce(s, SH_A) || !chunkOnce(s, SH_SIG) || s.indexOf(SH_SIG) > p || (body.match(/texture2DCompare/g) || []).length !== 17 || !body.includes('* ( 1.0 / 17.0 );'))
+      return warnPatch('shadow', 'anchors not found');
+    C.shadowmap_pars_fragment = s.slice(0, p + SH_P.length) + SH_4 + s.slice(a);
+    return (PATCHED.shadow = true);
+  }
+  function warnPatch(name, why) {
+    PATCHED[name] = false;
+    console.warn(`Render3D: three.js's ${name} chunks aren't r159's (${why}): left as they are`);
+    return false;
+  }
   function patchFog(T) { void T; } // (the haze: height, curvature, the sky's horizon colour, before tone mapping)
-  function patchChunks(T) { patchShadow(T.ShaderChunk); patchFog(T); }
+  function patchChunks(T) { patchShadow(T.ShaderChunk); patchFog(T); return PATCHED; }
 
   // ------------------------------------------------------------------ shaders
   const LOGV = '#include <common>\n#include <logdepthbuf_pars_vertex>\n';
@@ -796,6 +827,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.sun.castShadow = Settings.high;
     S.sun.shadow.mapSize.set(2048, 2048);
     S.sun.shadow.bias = -0.0004; S.sun.shadow.normalBias = 0.03;
+    S.sunV = new THREE.Vector3(0, 1, 0); // the Sun's direction this frame (renderFlight; sunDir there is a shared temporary)
+    for (const k of ['c', 'x', 'y', 'z']) SB[k] = new THREE.Vector3(); // (the shadow box and the stand-ins' state: shadowProxies)
+    for (const k of ['c', 'ax', 'az', 'lc', 'lx', 'ly', 'lz']) PX[k] = new THREE.Vector3();
+    PX.inv = new THREE.Matrix4();
     S.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
     S.engine = new THREE.PointLight(0xff9a4a, 0, 80, 2);
     localScene.add(S.sun, S.sun.target, S.hemi);
@@ -889,7 +924,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       set.rocks.count = 0; set.rocks.frustumCulled = false; set.rocks.receiveShadow = true;
       set.walls = new THREE.InstancedMesh(unit, hmat, 7000); set.roofs = new THREE.InstancedMesh(pyr, roofMat, 7000);
       set.boats = new THREE.InstancedMesh(boatG, boatMat, 200);
-      for (const m of [set.walls, set.roofs, set.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = m.receiveShadow = true; }
+      // the buildings and boats cast no shadow themselves: their stand-ins below do, holding only the ones the Sun's
+      // shadow box can reach (shadowProxies), a few dozen of a town's thousands
+      for (const m of [set.walls, set.roofs, set.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = false; m.receiveShadow = true; }
+      set.wallsS = shadowProxy(unit, hmat, 256); set.roofsS = shadowProxy(pyr, roofMat, 256); set.boatsS = shadowProxy(boatG, boatMat, 32);
+      set.casts = [[set.walls, set.wallsS], [set.roofs, set.roofsS], [set.boats, set.boatsS]]; set.sph = [null, null, null];
+      set.ver = 0; set.sphVer = -1; // (ver: bumped each time the set is filled, so the stand-ins are chosen again; sph: the instances' spheres)
       // city lights: a glowing point on many buildings at night
       const cg = new THREE.BufferGeometry(), CL = 7000;
       cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -898,7 +938,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       cg.setDrawRange(0, 0);
       set.cityLights = new THREE.Points(cg, lightMat);
       set.cityLights.frustumCulled = false;
-      set.frame.add(set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats, set.cityLights);
+      set.frame.add(set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats, set.cityLights, set.wallsS, set.roofsS, set.boatsS);
       set.frame.visible = false;
       localWorld.add(set.frame);
       return set;
@@ -1902,6 +1942,93 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
     Object.assign(set, { b, a0, z0, rad });
+    set.ver++; // (its shadow stand-ins are chosen afresh: shadowProxies)
+  }
+
+  // The city's shadow stand-ins. The thousands of buildings and boats of a scenery set cast no shadow themselves; for
+  // each of walls, roofs and boats a stand-in (the same geometry and material, so the same programs) holds copies of the
+  // instances the Sun's shadow box can reach. It is in the scene with count 0, so the colour pass draws nothing of it
+  // (three returns before any GL draw at count 0); the shadow pass sees its count only between onBeforeShadow and
+  // onAfterShadow. (r159's shadow pass tests an object's layers against the view camera's, so a shadow-only layer can't
+  // do this.) Every instance that could touch the shadow map is in, so the map, and the picture, are the same to the byte
+  // as with the buildings casting whole (Render3D.shadowAll, graphics.mjs 2), for a fraction of the shadow pass' vertices.
+  function shadowProxy(geo, mat, cap) {
+    const m = new THREE.InstancedMesh(geo, mat, cap);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3); // (never filled: the full mesh's program, not one more)
+    m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; m.count = 0; m.visible = false;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    m.box = [(bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2, (bb.max.x - bb.min.x) / 2, (bb.max.y - bb.min.y) / 2, (bb.max.z - bb.min.z) / 2];
+    m.nSh = 0;
+    m.onBeforeShadow = () => { m.count = m.nSh; };
+    m.onAfterShadow = () => { m.count = 0; };
+    return m;
+  }
+  // The Sun's shadow box this frame (renderFlight's shadow block fills it: c the point it looks at, x y z the shadow
+  // camera's axes, z towards the Sun, half the half-width) and what the stand-ins were last chosen for (PX)
+  const SB = { half: 25 }, PX = { set: null, ver: -1, half: 0, n: [0, 0, 0] };
+  function shadowProxies(set) {
+    const on = S.sun.castShadow && !api.shadowAll && set && set.frame.visible;
+    if (!on) { // (shadowAll, a test switch: the buildings cast whole, as before the stand-ins)
+      if (set) for (const [full, px] of set.casts) { full.castShadow = !!api.shadowAll && S.sun.castShadow; px.nSh = 0; px.visible = false; }
+      PX.set = null;
+      return;
+    }
+    // the box in the set frame's own axes (a rigid frame: lengths and angles as in the scene)
+    set.frame.updateWorldMatrix(true, false);
+    const inv = PX.inv.copy(set.frame.matrixWorld).invert(), half = SB.half, mg = 0.1 * half;
+    const lc = PX.lc.copy(SB.c).applyMatrix4(inv), lx = PX.lx.copy(SB.x).transformDirection(inv), ly = PX.ly.copy(SB.y).transformDirection(inv), lz = PX.lz.copy(SB.z).transformDirection(inv);
+    // chosen again only when the set or its contents changed, the box changed size, or it has moved so far since the
+    // stand-ins were chosen that a point of it may have gone a tenth of its half-width (the margin every test below
+    // allows): its centre's move, plus its turn (the Sun's, or the frame's as the ground turns under the view) at its
+    // farthest point, 4.25 half-widths out (a turn moves a point at most √2 × the larger of two axes' moves × its reach)
+    const capT = api.bench.proxyCap > 0 ? api.bench.proxyCap : 1e9; // (tests: a smaller cap, to see an overflow fall back)
+    if (PX.set === set && PX.ver === set.ver && PX.half === half && PX.cap === capT &&
+      PX.c.distanceTo(lc) + 6.1 * half * Math.max(PX.ax.distanceTo(lx), PX.az.distanceTo(lz)) <= mg) return;
+    const X = half + mg, Z = 4 * half + mg; // (the shadow camera: ±half across, its near and far 4·half either side of c)
+    if (set.sphVer !== set.ver) sphereUp(set);
+    for (let k = 0; k < 3; k++) {
+      const [full, px] = set.casts[k], e = full.instanceMatrix.array, sp = set.sph[k], o = px.instanceMatrix.array, cap = Math.min(px.instanceMatrix.count, capT), [bx, by, bz, hx, hy, hz] = px.box;
+      let n = 0, over = false;
+      for (let i = 0, N = full.count; i < N; i++) {
+        // a bounding sphere first (most of a town is far off), then the instance's own box: its centre, and its half-
+        // extent along each of the shadow camera's axes (exact for any affine matrix: the sum over its three edges of each
+        // one's length along that axis). Kept if it reaches into the box (with the margin) on all three.
+        const q4 = i * 4, ux = sp[q4] - lc.x, uy = sp[q4 + 1] - lc.y, uz = sp[q4 + 2] - lc.z, r = sp[q4 + 3];
+        if (Math.abs(ux * lx.x + uy * lx.y + uz * lx.z) - r > X || Math.abs(ux * ly.x + uy * ly.y + uz * ly.z) - r > X || Math.abs(ux * lz.x + uy * lz.y + uz * lz.z) - r > Z) continue;
+        const j = i * 16, ax = e[j], ay = e[j + 1], az = e[j + 2], bxx = e[j + 4], byy = e[j + 5], bzz = e[j + 6], cx = e[j + 8], cy = e[j + 9], cz = e[j + 10];
+        const dx = e[j + 12] + bx * ax + by * bxx + bz * cx - lc.x, dy = e[j + 13] + bx * ay + by * byy + bz * cy - lc.y, dz = e[j + 14] + bx * az + by * bzz + bz * cz - lc.z;
+        if (Math.abs(dx * lx.x + dy * lx.y + dz * lx.z) - hx * Math.abs(ax * lx.x + ay * lx.y + az * lx.z) - hy * Math.abs(bxx * lx.x + byy * lx.y + bzz * lx.z) - hz * Math.abs(cx * lx.x + cy * lx.y + cz * lx.z) > X) continue;
+        if (Math.abs(dx * ly.x + dy * ly.y + dz * ly.z) - hx * Math.abs(ax * ly.x + ay * ly.y + az * ly.z) - hy * Math.abs(bxx * ly.x + byy * ly.y + bzz * ly.z) - hz * Math.abs(cx * ly.x + cy * ly.y + cz * ly.z) > X) continue;
+        if (Math.abs(dx * lz.x + dy * lz.y + dz * lz.z) - hx * Math.abs(ax * lz.x + ay * lz.y + az * lz.z) - hy * Math.abs(bxx * lz.x + byy * lz.y + bzz * lz.z) - hz * Math.abs(cx * lz.x + cy * lz.y + cz * lz.z) > Z) continue;
+        if (n >= cap) { over = true; break; } // (more than the stand-in holds: this mesh casts whole until the next choice)
+        for (let q = 0; q < 16; q++) o[n * 16 + q] = e[j + q];
+        n++;
+      }
+      if (over) n = 0;
+      full.castShadow = over;
+      px.nSh = n; px.visible = n > 0;
+      if (n) { px.instanceMatrix.clearUpdateRanges(); px.instanceMatrix.addUpdateRange(0, n * 16); px.instanceMatrix.needsUpdate = true; }
+      PX.n[k] = n;
+    }
+    PX.set = set; PX.ver = set.ver; PX.half = half; PX.cap = capT; PX.c.copy(lc); PX.ax.copy(lx); PX.az.copy(lz);
+  }
+  // each instance's bounding sphere (centre, radius: the sum of its box's half-edges, safe for any affine matrix), once
+  // per filling of the set (~0.2 ms for a city)
+  function sphereUp(set) {
+    for (let k = 0; k < 3; k++) {
+      const [full, px] = set.casts[k], e = full.instanceMatrix.array, N = full.count, [bx, by, bz, hx, hy, hz] = px.box;
+      let sp = set.sph[k];
+      if (!sp || sp.length < N * 4) sp = set.sph[k] = new Float32Array(full.instanceMatrix.count * 4);
+      for (let i = 0; i < N; i++) {
+        const j = i * 16, q4 = i * 4, ax = e[j], ay = e[j + 1], az = e[j + 2], bxx = e[j + 4], byy = e[j + 5], bzz = e[j + 6], cx = e[j + 8], cy = e[j + 9], cz = e[j + 10];
+        sp[q4] = e[j + 12] + bx * ax + by * bxx + bz * cx; sp[q4 + 1] = e[j + 13] + bx * ay + by * byy + bz * cy; sp[q4 + 2] = e[j + 14] + bx * az + by * bzz + bz * cz;
+        // (rounded up a little: the centre and radius are stored in 32 bits)
+        sp[q4 + 3] = (hx * Math.sqrt(ax * ax + ay * ay + az * az) + hy * Math.sqrt(bxx * bxx + byy * byy + bzz * bzz) + hz * Math.sqrt(cx * cx + cy * cy + cz * cz)) * 1.001 + 0.01;
+      }
+    }
+    set.sphVer = set.ver;
   }
   // The new scenery set goes on show; the old one becomes the next to fill.
   function swapScenery() {
@@ -3253,7 +3380,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const sx = envV.sx, sy = envV.sy, cT = Math.cos(TILT), sT = Math.sin(TILT);
     toView(sx * cT, sy * cT, sT, T3);
     const sunDir = V2.set(T3.x, T3.y, T3.z);
-    S.sunS.position.copy(sunDir); S.sunS.target.position.set(0, 0, 0);
+    S.sunV.copy(sunDir); // (V2 is a shared temporary: syncCombat and the scenery's builder overwrite it before the shadows below. Read S.sunV)
+    S.sunS.position.copy(S.sunV); S.sunS.target.position.set(0, 0, 0);
     S.ambS.intensity = 0.03 + 0.05 * envC.atmo;
 
     // ---- planets, Sun, far layer; the haze dome only where it can show: over stars or anything else out there (never
@@ -3270,7 +3398,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.cityU.uAlpha.value = envV.night * 1.3;
     S.sun.intensity = 3.1 * day * (1 - 0.55 * hz) * (b.star ? 1.6 : 1);
     S.sun.color.setRGB(1, lerp(0.97, 0.72, warm), lerp(0.92, 0.5, warm));
-    S.sun.position.copy(sunDir).multiplyScalar(100); S.sun.target.position.set(0, 0, 0);
+    S.sun.position.copy(S.sunV).multiplyScalar(100); S.sun.target.position.set(0, 0, 0);
     const skyAvg = mixC(zen, hor, 0.5, T1), grd = C(b.colors.ground || '#333333');
     const amb = atm > 0 ? (0.35 + 1.1 * atm) * (0.18 + 0.82 * day) : 0.12 + 0.2 * day * smoothstep(R * 0.5, 0, envV.alt);
     setCol3(S.hemi.color, mixC(skyAvg, [200, 210, 225], atm > 0 ? 0.25 : 0.6, T2));
@@ -3287,7 +3415,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     const eS = S.envS, eG = S.envG;
     setCol3(eS, zen); setCol3(eG, grd, 0.4 * day);
-    updateEnv(U.uHor.value, S.envH.copy(U.uHor.value).lerp(eS, 0.5), eG, sunDir, day * (1 - hz), null);
+    updateEnv(U.uHor.value, S.envH.copy(U.uHor.value).lerp(eS, 0.5), eG, S.sunV, day * (1 - hz), null);
     envUni.uZen.value.copy(eS);
 
     // ---- surface things
@@ -3308,8 +3436,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const ext = v.parts.length ? Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY) : 10;
       const half = Math.max(25, ext * 2.5), sc = S.sun.shadow.camera;
       if (sc.right !== half) { sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.5; sc.far = half * 8; sc.updateProjectionMatrix(); }
-      S.sun.position.copy(sunDir).multiplyScalar(half * 4);
+      S.sun.position.copy(S.sunV).multiplyScalar(half * 4);
+      // the box as the shadow camera will hold it (three's own lookAt, from the Sun to the target): the city's shadow
+      // stand-ins hold what it can reach
+      SB.c.copy(S.sun.target.position); SB.half = half;
+      M1.lookAt(S.sun.position, S.sun.target.position, sc.up).extractBasis(SB.x, SB.y, SB.z);
     }
+    shadowProxies(S.scen[0]);
     S.glowU.uScale.value = (H * renderer.getPixelRatio()) / (2 * TANH);
     S.cityU.uScale.value = S.glowU.uScale.value;
     S.dotU.uScale.value = S.glowU.uScale.value;
@@ -3321,8 +3454,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.clearDepth();
     // at night and in eclipse the Sun lights nothing, so its shadow map would be drawn for nothing: the last one stays
     renderer.shadowMap.autoUpdate = S.sun.intensity > 0 || !S.sun.shadow.map;
+    // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
+    if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
     if (!api.skipDraw) renderer.render(localScene, camera);
-    renderer.shadowMap.autoUpdate = true; // (the hangar's)
+    renderer.shadowMap.autoUpdate = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; // (the hangar's)
     if (S.warm > 0 && !api.skipDraw) S.warm--; // (a frame drawn: the warm-up's programs compiled in it, init)
   }
 
@@ -3538,7 +3673,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const e = envV, U = S.cloudU, day = e.day, warm = e.sunset;
     U.uLit.value.setRGB(1, lerp(0.97, 0.66, warm), lerp(0.94, 0.42, warm)).multiplyScalar(0.1 + 1.55 * day + 0.6 * warm);
     U.uShadow.value.copy(S.hemi.color).multiplyScalar(0.18 + 0.6 * day);
-    U.uSunV.value.copy(S.sun.position).normalize().transformDirection(camera.matrixWorldInverse);
+    U.uSunV.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
     U.uFogC.value.copy(localScene.fog.color); U.uFogD.value = localScene.fog.density;
   }
 
@@ -4191,7 +4326,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // off, the pixel ratio exactly basePixelRatio(); fill: the particles' fill of the last frame drawn, in screens (counted
     // only while pinned); day, sunset: the Sun's light (0..1) and the sunset's warmth where the craft is; busy: anything
     // still being built a slice a frame (terrain, scenery, clouds, the arena, props, the planets' maps); fogK: a
-    // multiplier on the fog's density (tests: everything past a kilometre fogged)
+    // multiplier on the fog's density (tests: everything past a kilometre fogged); proxyCap: fewer instances than the
+    // city's shadow stand-ins hold (tests: an overflow falls back to the whole mesh casting; 0: their own capacity)
     bench: {
       pin: false,
       fill: 0,
@@ -4199,6 +4335,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       sunset: () => envV.sunset || 0,
       busy: () => !!(pjob || bandWait || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
       fogK: 1,
+      proxyCap: 0,
     },
     shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
     propsCastOff: false, // measuring only: the props cast no shadow
@@ -4216,9 +4353,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
         terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
         waterOffset: null, fogArrays: null,
-        sunV: S.sunV ? { x: S.sunV.x, y: S.sunV.y, z: S.sunV.z } : null,
+        sunV: S.sunV ? { x: S.sunV.x, y: S.sunV.y, z: S.sunV.z } : null, sunAt: { x: S.sun.position.x, y: S.sun.position.y, z: S.sun.position.z }, // (the Sun's direction this frame, the light's place)
         box: { half: sc.right, cx: st.x, cy: st.y, cz: st.z }, // the Sun's shadow box: its half width and centre (view axes)
         warm: S.warm || 0,
+        scenery: S.scen ? { id: S.scen[0].frame.id, ver: S.scen[0].ver } : null, // (the scenery set on show, and its filling)
       };
     },
     _patchChunks: patchChunks, // (test/fx.test.js: run on Node's copy of three)
