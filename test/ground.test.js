@@ -54,6 +54,7 @@ var oldRun = (v, F, secs, script) => {
   }
 };
 var dice = (seed) => { let s = seed >>> 0; Math.random = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+var KOS = 0;
 var where = (v) => JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length, v.dead, Combat.S.shots.map((s) => [s.k, s.x, s.y, s.z])]);`;
 R(OLDRUN);
 const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
@@ -81,6 +82,7 @@ for (const key of OLD) {
       v.ctl.v = tt > 2 && tt < 4 ? -0.6 : 0; v.ctl.h = tt > 4 && tt < 5 ? 1 : tt > 7 && tt < 8 ? -0.7 : 0; v.ctl.r = tt > 9 && tt < 10 ? 0.5 : 0;
       if (v.kind !== 'plane' && tt > 6 && v.stageIdx < v.stages.length && i % 240 === 0) { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; }
       F.firing = tt > 3 && tt < 4;
+      if (isAirKind(v.kind) && tt > 10.5 && v.control && !v.koDone) { v.koDone = true; Combat.damage(v, v.control, 1e6, 'shot', F); if (v.down) KOS++; } // (the big update: the pilot knocked out, the craft falls limp)
     });
     return where(v);
   })()`;
@@ -91,7 +93,7 @@ for (const key of OLD) {
 }
 t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other five systems; Props asked (its shots, its contacts, the crush pass), and nothing met`,
   quiet() === '{}' && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
-t('...and every craft and every round in flight ends exactly where it does in a game with no props at all', !same.length && traced > 30, same);
+t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
@@ -124,9 +126,10 @@ for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'pl
   Combat.netShot(g, { k: 'rocket', b: 'earth', P: [v.x, v.y, v.z], V: [10, 0, 0], D: [1, 0, 0] });
   Combat.netFlares(g, { P: [v.x, v.y, v.z], V: [0, 0, 0], chaff: 1 });
   for (const p of v.parts.slice()) if (v.parts.includes(p)) Combat.damage(v, p, 1e6, 'shot', F);
+  for (let i = 0; i < 300; i++) { F.time += 1 / 30; Combat.frame(F, 1 / 30); } // (the big update: 10 s of the damage model's ticks over what is left)
   Combat.reset(F); fp++;
 }`);
-t(`the combat fingerprint's operations (${R('fp')} craft): no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
+t(`the combat fingerprint's operations (${R('fp')} craft), every part then shot to 0 (the damage model's air rule) and 10 s of its ticks: no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
 
 // 3. a buggy drive on the runway: away, round a corner, back, braked to a stop
 ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');

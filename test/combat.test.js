@@ -52,12 +52,20 @@ const base = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['cockp
   pod.hp = null;
   C.explode(G.EARTH, v.toWorld(pod.x, pod.y, 4 + 3), 5, 100, null, F, true);
   ok(pod.hp != null, `blast 3 m outboard of the +4 pod reaches it (hp ${pod.hp && pod.hp.toFixed(1)})`);
-  // destroyed: blasts at each pod
-  const booms = [];
-  const ex0 = ctx.FX.explosion; ctx.FX.explosion = (b, at) => booms.push(r3(v.toLocal(at.x, at.y, at.z).z));
-  pod.fuel = 2000; T.destroyPart(v, pod, 'shot', F);
-  ctx.FX.explosion = ex0;
-  ok(booms.length === 2 && booms.includes(-4) && booms.includes(4), `destroyed pod pair with fuel blows at ${JSON.stringify(booms)}`);
+  // destroyed: blasts at each pod. (The big update) That is the old rule, which a rocket keeps (and every craft in
+  // Hollywood); on a plane the air rule leaves a shot engine aboard, dead (death.js: no explosion, nothing torn off)
+  const destroyed = (kind, hollywood) => {
+    const c = craft(ctx, base.concat([['jetPods', 1.2, 5.6, 0, { z: 4 }]]), kind), pd = c.v.parts.find((p) => p.type === 'jetPods'), FF = sim(ctx, c.v), booms = [];
+    const SF = Gm.run(ctx, 'Silly.flags'), ex0 = ctx.FX.explosion, h0 = SF.hollywood;
+    ctx.FX.explosion = (b, at) => booms.push(r3(c.v.toLocal(at.x, at.y, at.z).z));
+    SF.hollywood = !!hollywood;
+    try { pd.fuel = 2000; pd.active = true; T.destroyPart(c.v, pd, 'shot', FF); } finally { ctx.FX.explosion = ex0; SF.hollywood = h0; }
+    return { booms, aboard: c.v.parts.includes(pd), active: pd.active, broken: FF.broken.join() };
+  };
+  const rk = destroyed('rocket'), pl = destroyed('plane'), hw = destroyed('plane', true);
+  ok(rk.booms.length === 2 && rk.booms.includes(-4) && rk.booms.includes(4) && rk.broken === 'break:jetPods', `destroyed pod pair with fuel on a rocket (the old rule) blows at ${JSON.stringify(rk.booms)}`);
+  ok(pl.booms.length === 0 && pl.aboard && pl.active === false && pl.broken === '', `...on a plane the pair stays aboard, dead, no explosion (${JSON.stringify(pl)})`);
+  ok(hw.booms.length === 2 && hw.booms.includes(-4) && hw.booms.includes(4) && !hw.aboard, `...on a plane in Hollywood, the old way: it blows at ${JSON.stringify(hw.booms)}`);
 }
 // rocket pods at z = 5: muzzles at ±5; the pods ripple
 {
