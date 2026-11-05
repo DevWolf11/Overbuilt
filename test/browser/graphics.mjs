@@ -95,6 +95,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   const pass = (off) => ev((off) => { Render3D.propsCastOff = off; Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); window.__pass = {}; Render3D.renderFlight(Flight, 0, true); const p = window.__pass; window.__pass = null; return p; }, off);
   const p0 = await pass(false), p1 = await pass(true), p2 = await pass(false);
   ok(`${tag}: Render3D.propsCastOff takes the props out of the shadow pass (fewer shadow draws, the canvas' the same) and puts them back`, p1.shadow < p0.shadow && p1.canvas === p0.canvas && p2.shadow === p0.shadow, { on: p0, off: p1, back: p2 });
+  await shot('village'); // (built round the tank: the quality change below rebuilds the ground and the scenery)
   // a quality change: the warm-up again over the next frames drawn
   const q = await ev(async () => {
     Render3D.skipDraw = true;
@@ -109,7 +110,6 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   await frames(4);
   const w2 = await ev(() => Render3D.gfx().warm);
   ok(`${tag}: a quality change starts the warm-up again (3), done over the next frames drawn`, q === 3 && w2 === 0, { afterChange: q, later: w2 });
-  await shot('village');
 
   // the globe, then the hangar: the console stays clean
   await ev(() => { Flight.paused = false; Flight.toggleMap(); });
