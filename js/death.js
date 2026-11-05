@@ -106,6 +106,24 @@ const Death = (() => {
     return v.air0;
   }
 
+  // The hooks more than one section fills (fixed: combat.js and flight.js call these; each section fills only its own
+  // part, so the fire, crash and ground sections never share a function).
+  // Flight.breakParts' first line for a crash (cause 'impact', the real Flight only): the parts today's per-part
+  // breakage still takes, or none (null or []) when the craft went up in one piece. Aircraft: the crash section's;
+  // ground vehicles: the ground section's; rockets and everything else: untouched.
+  function impact(v, parts, sim) {
+    if (isAirKind(v.kind)) return impactAir(v, parts, sim);
+    if (isGround(v.kind)) return impactGround(v, parts, sim);
+    return parts;
+  }
+  // Combat.frame's 0.07 s tick (e: the real time since the last; n: the tick's count): the fires (their damage
+  // applied after their loop), then falling hulks, rest and age, crash sites and junk, then ground wrecks (settling,
+  // their fire and smoke).
+  function tick(F, e, n) { fireTick(F, e, n); hulkTick(F, e, n); groundTick(F, e, n); }
+  // A part's smoke for Combat.frame's tick (a part at 60 % health or under): true when it was drawn here, so the
+  // generic hp smoke leaves it. An aircraft's (the fire section's), a knocked-out ground vehicle's (the ground section's).
+  function partFX(o, p, f, n) { return airPartFX(o, p, f, n) || koPartFX(o, p, f, n); }
+
   // ================================================================ the air rule
   // The gate: an aircraft's old part, shot, blasted or burnt (a crash and burning up keep the old breakage, then meet
   // the crash hook in the real Flight), outside Hollywood. Rockets, cars and tanks never take it.
@@ -265,22 +283,25 @@ const Death = (() => {
   function afterAir(v, sim, n0) { tagPieces(sim, n0, v); airCheck(v, sim); }
 
   // ================================================================ fire
-  // (D2 fills this section: ignite, the fire's tick inside tick(), burn-through, the trails, the leak trail, air kinds'
-  // grey smoke through partFX.) ignite(v, p, odds, by, sim, quiet): lights the part on a roll of dice(p, p.fireN), true
-  // when lit; quiet: the caller says so itself (damage's 30 % line). Not yet: nothing burns.
+  // (D2 fills this section: ignite, fireTick (the fire's part of tick(): burn-through, the trails, the leak trail),
+  // airPartFX (air kinds' grey smoke, partFX's air half).) ignite(v, p, odds, by, sim, quiet): lights the part on a
+  // roll of dice(p, p.fireN), true when lit; quiet: the caller says so itself (damage's 30 % line). Not yet: nothing
+  // burns.
   function ignite(v, p, odds, by, sim, quiet) { void v; void p; void odds; void by; void sim; void quiet; return false; }
-  // A part's smoke for Combat.frame's tick (an aircraft's trails, a knocked-out hulk's parts): true when it was drawn
-  // here, so the generic hp smoke leaves it. (D2: air kinds; D4: o.ko.) Not yet: the generic smoke for every part.
-  function partFX(o, p, f, n) { void o; void p; void f; void n; return false; }
+  // tick()'s first part: the burning parts (their timers, their damage, burn-through), the trails, the leak trail, the
+  // crackle. Not yet: nothing.
+  function fireTick(F, e, n) { void F; void e; void n; }
+  // partFX()'s air half: an aircraft's damaged part smokes here (grey; black and white are the trails'), true when it
+  // did. Not yet: false (the generic smoke for every part).
+  function airPartFX(o, p, f, n) { void o; void p; void f; void n; return false; }
 
   // ================================================================ crash and lifecycle
-  // (D3 fills this section: impact's air branch, crash, pyres, rest and age, junk, the fall's near list.)
-  // Flight.breakParts' first line for a crash (cause 'impact', the real Flight only): the parts today's per-part
-  // breakage still takes, or none when the craft went up in one piece. Not yet: all of them, as today.
-  function impact(v, parts, sim) { void v; void sim; return parts; }
-  // Combat.frame's 0.07 s tick (e: the real time since the last; n: the tick's count): fires, falling hulks, rest and
-  // age, crash sites, junk, wreck smoke (D2-D4). Not yet: nothing.
-  function tick(F, e, n) { void F; void e; void n; }
+  // (D3 fills this section: impactAir (impact's air branch), crash, pyres, hulkTick (rest and age, junk), the near list.)
+  // impact()'s aircraft branch: null when the hulk (or a craft whose cockpit broke) crashes in one fireball, else the
+  // parts today's breakage takes. Not yet: all of them, as today.
+  function impactAir(v, parts, sim) { void v; void sim; return parts; }
+  // tick()'s second part: falling hulks at rest or too old, crash sites, junk. Not yet: nothing.
+  function hulkTick(F, e, n) { void F; void e; void n; }
   // A new flight (Combat.reset): the last flight's banner and merged losses go (the crash section keeps a respawn's
   // pyres, the HUD's clears the rest: D3, D6).
   function reset(F) {
@@ -290,10 +311,20 @@ const Death = (() => {
   }
 
   // ================================================================ ground
-  // (D4 fills this section: the old-car rule, groundKO, settle, wreckFX, impact's ground branch.)
+  // (D4 fills this section: the old-car rule, groundKO, settle, wreckFX, impactGround (impact's ground branch),
+  // groundTick (settling, wreck smoke) and koPartFX (partFX's ground half).)
   // An old part of a ground vehicle at 0 hp (Combat.destroyPart, after the air rule): true when handled (the cab of an
   // old car: knocked out, the hulk stays). Not yet: today's body for every part.
   function groundPart(v, p, cause, sim) { void v; void p; void cause; void sim; return false; }
+  // impact()'s ground branch: a hull or cab broken in a crash knocks the vehicle out and it stays; the parts today's
+  // breakage still takes. Not yet: all of them, as today.
+  function impactGround(v, parts, sim) { void v; void sim; return parts; }
+  // tick()'s last part: knocked-out vehicles settling into wrecks, thrown turrets coming to rest, the nearest wrecks'
+  // fire and smoke. Not yet: nothing.
+  function groundTick(F, e, n) { void F; void e; void n; }
+  // partFX()'s ground half: a knocked-out vehicle's parts leave the generic hp smoke (its wreck smokes in groundTick),
+  // true when so. Not yet: false.
+  function koPartFX(o, p, f, n) { void o; void p; void f; void n; return false; }
 
   // ================================================================ HUD
   // (D6 fills this section: the drawing, the chime, the end of a life's strip.) The air HUD's hit feedback: a tick
