@@ -3016,6 +3016,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     let ns = 0, nf = 0;
     const ps = S.smoke.geometry.attributes, pf = S.fire.geometry.attributes;
     for (const p of list) {
+      if (p.kind === 'emit') continue; // (the effects API's timers: nothing to draw)
       if (p.jz === undefined) p.jz = (Math.random() - 0.5) * (p.size + p.grow) * 0.3;
       const bp = bodyPos(p.b, t), k = p.life / p.max, size = p.size + p.grow * k;
       const x = bp.x + p.x - camAbs.x, y = bp.y + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
@@ -3026,6 +3027,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         case 'ring': c = fxColor(p.color); kind = 1; break;
         case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
         case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
+        case 'debris': // (a chunk: a dark disc here)
         default: c = fxColor(p.color);
       }
       const A = add ? pf : ps, i = add ? nf++ : ns++;
