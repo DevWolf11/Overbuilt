@@ -47,8 +47,10 @@ const Death = (() => {
   // the air HUD's hit tick and banner (the HUD section draws them)
   const fb = { tick: -9, text: '', col: '', pri: -1, t: -9, life: 0 };
   // a detonation under way (n: its own blasts never roll again), the rolls' event counter for a hit outside any window,
-  // and where and how big the craft that went up was (taken before today's body breaks it)
-  const DET = { n: 0, seq: 0, at: null, size: 0 };
+  // and where and how big the craft that went up was (taken before today's body breaks it); crash: a crash's old body
+  // under way (Combat.destroyPart for a dent or a burn-up), so the fuel and stores it sets off break every aircraft
+  // they reach the old way: a crash is no hit (§3.1)
+  const DET = { n: 0, seq: 0, at: null, size: 0, crash: 0 };
 
   // A number in [0, 1) from a part's id and a salt: the same part and salt, the same number; no random stream consumed.
   // Salts: fire p.fireN (1, 2, …) and 100 + p.fireN; detonation 900 + v.detN; its pieces 960-963; burn-through 950;
@@ -126,8 +128,10 @@ const Death = (() => {
 
   // ================================================================ the air rule
   // The gate: an aircraft's old part, shot, blasted or burnt (a crash and burning up keep the old breakage, then meet
-  // the crash hook in the real Flight), outside Hollywood. Rockets, cars and tanks never take it.
-  function airRule(v, p, cause) { return isAirKind(v.kind) && !p.def.gv && cause !== 'impact' && cause !== 'heat' && !hollywood(); }
+  // the crash hook in the real Flight; so do the blasts a crash's dent sets off), outside Hollywood. Rockets, cars and
+  // tanks never take it. airHit: the same for the craft (a hit's old body is followed by afterAir; a crash's never).
+  function airHit(v, cause) { return isAirKind(v.kind) && cause !== 'impact' && cause !== 'heat' && !DET.crash && !hollywood(); }
+  function airRule(v, p, cause) { return airHit(v, cause) && !p.def.gv; }
 
   // One roll per craft per hit event (an explode, a hit message: Combat.ripWin; a lone shot is its own event, numbered
   // apart from the windows); a detonation's own blasts never roll again.
@@ -352,7 +356,7 @@ const Death = (() => {
 
   return {
     S, fb, DET, dice, alive, partDead, airSize, groundSize, deathFX, tagPieces, base,
-    airRule, airPart, detonated, cutWing, airCheck, afterAir,
+    airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, partFX,
     impact, tick, reset,
     groundPart,

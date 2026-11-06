@@ -283,6 +283,30 @@ function P0() { return { name: 'someone' }; }
   }
 }
 
+// A11 a flight with no hits never meets the air rule (§3.1): a crash's dents (Combat.impact, cause 'impact') keep the
+// old breakage alone, so an untouched Skylark dropped hard on one wing tip loses the wing as before (its pilot, its
+// stick, its throttle and its flight kept, no hulk), and a parked Dragonfly's tail rotor dented off doesn't spin it
+{
+  const qmul = R('qmul'), dt = 1 / 120;
+  const v = G.craft(ctx, G.templateRows(ctx, 'skylark'), 'plane', 'site'), F = fsim(v), w = v.mainWing;
+  const r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 }, Fw = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z), h = 0.125;
+  v.x += up.x * 2.5; v.y += up.y * 2.5; v.z += up.z * 2.5; v.landed = false; // (2.5 m up, banked 0.25 rad, 12 m/s down)
+  v.q = qmul({ w: Math.cos(h), x: Math.sin(h) * Fw.x, y: Math.sin(h) * Fw.y, z: Math.sin(h) * Fw.z }, v.q);
+  v.vx = -up.x * 12; v.vy = -up.y * 12; v.vz = -up.z * 12;
+  for (let i = 0; i < 240; i++) { v.physicsStep(dt, F); F.time += dt; }
+  const clean = (o) => o.hulk == null && o.junkAt == null && !o.down && !o.hulkWhy && !o.tailLost;
+  t('A11 an untouched Skylark dropped hard on a wing tip: the wing knocked off the old way ("Wing knocked off!"), its pilot, throttle and flight kept; no hulk, no air rule, no tagged pieces',
+    !v.parts.includes(w) && !!v.control && !v.isDebris && v.throttle === 1 && F.ondead === 0 && v.air0 == null && F.vessels.every(clean) && F.log.join() === 'Wing knocked off!',
+    { log: F.log, down: v.down, hulk: v.hulk, throttle: v.throttle, air0: !!v.air0 });
+  const hv = G.craft(ctx, G.templateRows(ctx, 'dragonfly'), 'heli', 'air'), HF = fsim(hv);
+  Combat.impact(hv, hv.tailRotors[0], 3, HF);
+  G.stage(hv); hv.throttle = 0.6; hv.sas = 'hold';
+  for (let i = 0; i < 360; i++) { hv.ctl.v = hv.ctl.h = hv.ctl.r = 0; hv.physicsStep(dt, HF); HF.time += dt; }
+  const yaw = Math.abs(hv.bodyAV().y) * 180 / Math.PI;
+  t(`A11 an untouched Dragonfly's tail rotor dented off: knocked off the old way, no spin (${yaw.toFixed(1)}°/s at 3 s), no hulk`,
+    !hv.tailRotors.length && !hv.tailLost && HF.vessels.every(clean) && hv.air0 == null && yaw < 1 && HF.log.join() === 'Tail Rotor knocked off!', { log: HF.log, yaw, why: hv.hulkWhy });
+}
+
 // I9, I12: the player's hit marker only for the player's hits; Combat.byMe
 {
   const P = air('falcon'), A = air('mustang'), B = air('skylark'), C = G.craft(ctx, rows('buggy'), 'car'), F = fsim(P);

@@ -55,7 +55,7 @@ const Combat = (() => {
     if (Death.partDead(p) && (isAirKind(v.kind) || v.ko)) return; // (a dead engine, a knocked-out cockpit or cab: nothing more to take)
     if (p.broken && p.def.module === 'crew') return; // (a crewman already dead)
     if (v.spawnAt != null && (sim.time || 0) - v.spawnAt < 4) return; // (a battle's spawn protection: 4 s)
-    if (isAirKind(v.kind) && !p.def.gv && !v.air0) Death.base(v); // (what the aircraft had when first hit: death.js)
+    if (Death.airRule(v, p, cause) && !v.air0) Death.base(v); // (what the aircraft had when first hit: death.js; a crash's dent is no hit)
     if (p.hp == null) p.hp = maxHp(p.def);
     const before = hpFrac(p);
     p.hp -= amount * (1 - (p.def.armor || 0)); // armour plate turns most of it away
@@ -93,15 +93,17 @@ const Combat = (() => {
     if (RIP.n && p.def.gv && !boom) { let e = RIP.list.find((q) => q.v === v); if (!e) RIP.list.push((e = { v, sim, cause, parts: [] })); if (!e.parts.includes(p)) e.parts.push(p); return; } // (kit torn off by a hit: together, at its end)
     const legacy = n > 1 && Math.abs(partZ(p) - p.def.twinZ) < 5e-4; // (at its usual spread: one blast in the middle, as ever)
     const fat = (legacy ? [0] : zs).map(at), sat = (legacy ? [0] : stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
+    const crash = !det && (cause === 'impact' || cause === 'heat'); // (a crash's dent, a burn-up: the blasts it sets off break aircraft the old way too)
     if (det) Death.DET.n++; // (its own blasts never roll for another)
+    if (crash) Death.DET.crash++;
     try {
       if (boom) sim.breakParts(v, [p], cause);
       else sim.ripParts(v, [p], cause);
       if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / fat.length) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
       if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, (p.def.weapon.dmg * 0.5) / sat.length, null, sim, true);
-    } finally { if (det) Death.DET.n--; }
+    } finally { if (det) Death.DET.n--; if (crash) Death.DET.crash--; }
     if (det) Death.detonated(v, p, sim, n0);
-    else if (isAirKind(v.kind) && !Silly.on('hollywood')) Death.afterAir(v, sim, n0); // (a crash's dent, a burn-up: crippled or down?)
+    else if (Death.airHit(v, cause)) Death.afterAir(v, sim, n0); // (a hit's old body: crippled or down? A crash keeps the old breakage alone)
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
   }
   // (the ground update) While a hit or a blast lands (holdRips ... flushRips: Armour.apply, explode, a hit message), the
@@ -125,7 +127,7 @@ const Combat = (() => {
       for (const [o, ps] of on) {
         const n0 = sim.vessels ? sim.vessels.length : 0;
         sim.ripParts(o, ps, cause);
-        if (isAirKind(o.kind) && !Silly.on('hollywood')) Death.afterAir(o, sim, n0); // (an aircraft: crippled or down?)
+        if (Death.airHit(o, cause)) Death.afterAir(o, sim, n0); // (an aircraft: crippled or down?)
         if (o.ai && !o.control && !o.ai.down) aiDown(o, sim);
       }
     }
