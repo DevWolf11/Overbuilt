@@ -397,16 +397,120 @@ const Death = (() => {
   }
 
   // ================================================================ crash and lifecycle
-  // (D3 fills this section: impactAir (impact's air branch), crash, pyres, hulkTick (rest and age, junk), the near list.)
-  // impact()'s aircraft branch: null when the hulk (or a craft whose cockpit broke) crashes in one fireball, else the
-  // parts today's breakage takes. Not yet: all of them, as today.
-  function impactAir(v, parts, sim) { void v; void sim; return parts; }
-  // tick()'s second part: falling hulks at rest or too old, crash sites, junk. Not yet: nothing.
-  function hulkTick(F, e, n) { void F; void e; void n; }
-  // A new flight (Combat.reset): the last flight's banner and merged losses go (the crash section keeps a respawn's
-  // pyres, the HUD's clears the rest: D3, D6).
+  // A hulk (an aircraft crippled or down, the pieces shot off one, a peer's falling hulk on our screen: v.hulk, the
+  // time it became one) falls under the physics and ends in one fireball where it hits (crash), and a big one leaves a
+  // crash site burning for 30 s and smoking to 75 s (a pyre). Any aircraft whose cockpit breaks in a crash goes up the
+  // same way. A limp hulk (no pilot, or shot down: no stick) lying still for 2 s goes up if anything in it can burn,
+  // else it lies as cold junk; one still about after 150 s goes up wherever it is. A crippled craft whose pilot lands
+  // it safely (on the ground, still for 3 s) lives: its credit and its crash rule go. Junk (cold pieces at rest, torn-
+  // off ground kit) lies 90 s once still, then sinks away over 6 s; past 40 at rest the oldest sinks at once. All of it
+  // runs on the sim's clock, for local vessels only (a peer's craft is its owner's), from Death.tick; nothing here is
+  // reached by a flight without hits but a crash that breaks a cockpit (one fireball, where today's breakage blew each
+  // part up), and the real Flight alone meets that (the suites' stand-in sims keep the old crash).
+
+  // limp: nobody flies it (no pilot, down, or a bandit shot down); hot: something in it burns when it hits
+  const limp = (v) => !v.control || !!v.isDebris;
+  const hotOf = (v) => fuelOf(v) > 50 || v.parts.some((p) => p.def.thrust || p.burn > 0);
+  // how far a point on body b is from the camera (0 when the sim can't say: the tests' stand-ins)
+  const PYR = { body: null, x: 0, y: 0, z: 0 };
+  function camOff(F, b, p) {
+    if (typeof F.dist !== 'function' || typeof F.absPos !== 'function' || !F.camAbs) return 0;
+    PYR.body = b; PYR.x = p.x; PYR.y = p.y; PYR.z = p.z;
+    return F.dist(F.absPos(PYR), F.camAbs);
+  }
+
+  // impact()'s aircraft branch (Flight.breakParts, cause 'impact': a crash): a hulk hitting anything, or a crippled one
+  // (its pilot alive) hitting hard or breaking its cockpit, goes up in one fireball (null: today's breakage takes
+  // nothing); so does any aircraft whose cockpit breaks (not in Hollywood: there it blows up part by part, as ever).
+  // Gear or a wing tip broken on landing: today's breakage, part by part.
+  function impactAir(v, parts, sim) {
+    const ctrl = parts.some((p) => p.def.control);
+    if (v.hulk != null && (!v.control || ctrl || v.speed() > 40)) { crash(v, sim); return null; }
+    if (ctrl && !hollywood()) { crash(v, sim); return null; }
+    return parts;
+  }
+  // The end of an aircraft (or a piece of one): one fireball where it is, a small 'thud' for a cold piece (no fuel, no
+  // engine, nothing burning), in water a splash and steam; a crash site for anything big and hot; gone (v.dead: the
+  // flight's cleanup drops it). Only a picture and a sound: it hurts nothing (the old crash never did, and a peer's hulk
+  // landing near us must not). A bandit that wasn't yet is shot down now (the kill its last hitter's); the player's own
+  // craft is destroyed now (if it wasn't), and the end screen counts from here (crashedAt).
+  function crash(v, sim) {
+    if (v.dead) return;
+    const c = v.toWorld(v.com.x, v.com.y, v.com.z || 0), hot = hotOf(v), size = airSize(v);
+    const L = Terrain.locate(v.body, c.x, c.y, c.z, {}), wet = !!Terrain.waterAt(v.body, L.a, L.z);
+    deathFX(v, sim, hot ? 'crash' : 'thud', size, c, { water: wet });
+    if (hot && size >= 2.5) pyre(v.body, c, size, wet, sim);
+    v.dead = true; v.throttle = 0; v.thrust = 0;
+    for (const p of v.parts) if (p.def.thrust) { p.active = false; p.firing = 0; } // (no plume, no engine note from what's gone)
+    if (v.ai && !v.ai.down) Combat.aiDown(v, sim);
+    if (v === sim.active) { sim.crashedAt = sim.time || 0; if (sim.onDestroyed) sim.onDestroyed(); }
+  }
+  // A crash site at `at` on body b, k across (the crash's size), wet: in water (steam for 10 s, no fire); the newest 6 kept
+  function pyre(b, at, k, wet, sim) {
+    S.pyres.push({ b, x: at.x, y: at.y, z: at.z, t: sim.time || 0, k, wet: !!wet });
+    while (S.pyres.length > DEATH.pyres) S.pyres.shift();
+  }
+
+  // tick()'s second part: hulks at rest or too old, a crippled craft landed safely, junk, then the crash sites.
+  function hulkTick(F, e, n) {
+    const t = F.time || 0;
+    let still = null; // (junk at rest, not yet sinking: the cap's)
+    if (F.vessels) for (const o of F.vessels) {
+      if (o.dead || o.remote || o.wreck) continue; // (a peer's craft is its owner's; a wreck the ground's)
+      if (o.hulk != null) hulkLife(o, F, e, t);
+      else if (o.junkAt != null && !o.tossed && junkLife(o, t)) (still || (still = [])).push(o);
+    }
+    if (still && still.length > DEATH.junkMax) { // (too many lying about: the oldest at rest sink now)
+      still.sort((a, b) => a.restAt - b.restAt);
+      for (let i = 0; i < still.length - DEATH.junkMax; i++) still[i].sinkAt = t;
+    }
+    pyreTick(F, n, t);
+  }
+  function hulkLife(o, F, e, t) {
+    if (limp(o)) {
+      o.restH = (o.landed || o.splashed) && o.speed() < DEATH.restV ? (o.restH || 0) + e : 0;
+      if (o.restH >= DEATH.restT) { if (hotOf(o)) crash(o, F); else { o.hulk = null; o.junkAt = t; o.restH = 0; } } // (a cold piece: junk)
+      else if (t - o.hulk > DEATH.hulkMax) crash(o, F);
+    } else { // crippled, its pilot alive: landed and still for 3 s, it made it (its damage kept)
+      o.restH = o.landed && o.speed() < DEATH.settleV ? (o.restH || 0) + e : 0;
+      if (o.restH >= DEATH.doomRest) { o.hulk = null; o.doomBy = null; o.restH = 0; }
+    }
+  }
+  // a junk piece's life: still (on the ground or afloat, under 1 m/s) for 90 s, then 6 s sinking (v.sink 0..1, the
+  // renderer lowers it), then gone. true: at rest and not yet sinking
+  function junkLife(o, t) {
+    if (o.sinkAt == null) {
+      if ((o.landed || o.splashed) && o.speed() < 1) { if (o.restAt == null) o.restAt = t; } else o.restAt = null;
+      if (o.restAt != null && t - o.restAt > DEATH.junkRest) o.sinkAt = t;
+    }
+    if (o.sinkAt != null) { o.sink = clamp((t - o.sinkAt) / DEATH.sink, 0, 1); if (o.sink >= 1) o.dead = true; return false; }
+    return o.restAt != null;
+  }
+  // The crash sites: gone at 75 s; the 3 nearest within 6 km of the camera (not above 4x warp) burn for 30 s (a flame
+  // every 2nd tick, a column puff every 6th, 12th on Low), then smoke (a thinner puff every 20th); one in water steams
+  // for 10 s instead.
+  const PZ = { x: 0, y: 0, z: 0 }, PF = { x: 0, y: 0, z: 0 };
+  function pyreTick(F, n, t) {
+    const P = S.pyres;
+    for (let i = P.length - 1; i >= 0; i--) if (!(t - P[i].t < DEATH.pyreEnd && t >= P[i].t)) P.splice(i, 1); // (and any from a clock that went back)
+    if (!P.length || (F.warpIdx || 0) > 2) return;
+    const near = [];
+    for (const p of P) { const d = camOff(F, p.b, p); if (d <= 6000) near.push([d, p]); }
+    if (near.length > 1) near.sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < near.length && i < 3; i++) {
+      const p = near[i][1], age = t - p.t, k = p.k;
+      if (p.wet) { if (age < 10 && n % 10 === 0) FX.smoke(p.b, p, PZ, 'steam', k / 3); continue; }
+      if (age < DEATH.pyreFire) {
+        if (n % 2 === 0) { const j = 0.25 * k; PF.x = p.x + (FX.rnd() * 2 - 1) * j; PF.y = p.y + (FX.rnd() * 2 - 1) * j; PF.z = p.z + (FX.rnd() * 2 - 1) * j; FX.flame(p.b, PF, PZ, 0.5 * k); }
+        if (n % (Settings.high ? 6 : 12) === 0) FX.smoke(p.b, p, PZ, 'column', k / 3);
+      } else if (n % 20 === 0) FX.smoke(p.b, p, PZ, 'column', (0.7 * k) / 3);
+    }
+  }
+  // A new flight (Combat.reset): the last flight's banner and merged losses go, and its crash sites, but for a respawn
+  // (a room's, or one keeping vessels: a Practice Battle's), which keeps the field as it was
   function reset(F) {
-    void F;
+    const so = F && F.spawnOpts;
+    if (!(so && (so.mp || (Array.isArray(so.keep) && so.keep.length)))) S.pyres.length = 0;
     S.lost = null;
     fb.tick = -9; fb.text = ''; fb.pri = -1; fb.t = -9; fb.life = 0;
   }
@@ -455,7 +559,7 @@ const Death = (() => {
     S, fb, DET, dice, alive, partDead, airSize, groundSize, deathFX, tagPieces, base,
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, burning, leaking, partFX,
-    impact, tick, reset,
+    impact, tick, reset, crash, pyre, limp, // (the crash section's: crash, crash sites, who flies no more)
     groundPart,
     feedback, hit, drawHits,
     _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T },

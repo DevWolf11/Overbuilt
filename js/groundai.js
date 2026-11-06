@@ -1147,8 +1147,8 @@ const GroundAI = (() => {
     onDestroyed(F) {
       const B = S.b;
       if (!B || !Combat.S.gai || mpOn()) return false;
-      const v = F.active;
-      if (v && !v.dead && v.parts.length) wreckOf(v, F);
+      const v = F.active, falls = !!v && isAirKind(v.kind) && !v.landed && !v.splashed; // (an aircraft in the air falls and crashes, death.js: no wreck frozen in the sky)
+      if (v && !v.dead && v.parts.length && !falls) wreckOf(v, F);
       if (!B.over) {
         B.lost++;
         const n = GroundMode.death(B.obj, B.team, B.cost, B.kind === 'plane' || B.kind === 'heli'), by = v && v.lastHitBy;

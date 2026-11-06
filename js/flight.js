@@ -184,7 +184,7 @@ const Flight = {
     };
   },
   save() {
-    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length) return;
+    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length || this.active.dead) return; // (dead: crashed in one piece, death.js)
     if (typeof GroundAI !== 'undefined' && GroundAI.battle) return; // (a Practice Battle's vehicle is lent, and the battle can't be saved: nothing to resume)
     if (this.destroyed && !this.vessels.some((v) => v.control && !v.dead && v !== this.active)) return;
     store.set('rss.flight', this.serialize());
@@ -295,6 +295,7 @@ const Flight = {
   // attached to them along (the engines and stores on a wing), unless the craft itself hangs off them.
   // cause: 'g' (too much load), 'speed' (flutter, past a wing's speed limit), 'impact', or a hit.
   ripParts(v, parts, cause = 'g') {
+    if (v.dead) return; // (the big update: a craft that crashed this step goes in one piece, its queued g-rips with it)
     const ctrl = v.control, keep = ctrl || v.keepPart; // (keep: a knocked-out pilot's cockpit stays with the hulk too)
     for (const p of parts) {
       const go = new Set([p.id]);
@@ -355,7 +356,8 @@ const Flight = {
     for (const p of parts) {
       if (p.def.thrust) {
         chutesOnly = false;
-        if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
+        if (this.partOut(p)) this.toast(`${p.def.name} is out`); // (an engine shot dead stays dead: the damage model's)
+        else if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
       } else if (p.def.chute) {
         if (this.deployChute(v, p)) used = true;
       } else chutesOnly = false;
@@ -456,7 +458,7 @@ const Flight = {
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
   },
 
   recover() {
@@ -643,7 +645,7 @@ const Flight = {
           if (v.remote || v.kin || v.wreck) continue; // other players' craft: their owners fly them (ground AI moves itself; wrecks stay put)
           if (v === this.active) { near.push(v); continue; }
           const d = this.dist(this.absPos(v), ap);
-          if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
+          if (this.stepsNear(v, d)) near.push(v);
           else if (!v.landed) far.push(v);
         }
         // (frame times come in a hair over 1/60 s, 16.7 or 16.8 ms: a step may run up to 5% long rather than add a third)
@@ -671,7 +673,7 @@ const Flight = {
       if (this.mp) { MP.afterUpdate(); MP.syncMissiles(); }
     }
     const v = this.active;
-    if (v && v.parts.length && !this.paused) {
+    if (v && v.parts.length && !v.dead && !this.paused) { // (dead: crashed in one piece, death.js: quiet, as when every part broke)
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       if (v.gear.length && !maxT) { // (running gear: the engine's note rises with the power it gives, idling at 0.3)
@@ -707,6 +709,11 @@ const Flight = {
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
 
+  // Who gets the full physics (the rest go on rails while airborne, or sleep): anything within 6 km of the active craft,
+  // anything flown in the air, and (the big update) a falling hulk out to 12 km (an aircraft shot down, its pieces: it
+  // falls and crashes, instead of vanishing on rails a few km off). d: its distance from the active craft.
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar); },
+
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
   readControls(dt) {
@@ -723,6 +730,7 @@ const Flight = {
       v.ctl.h = clamp(v.ctl.h + w * Math.sin(t * 0.7 + 2), -1, 1);
       v.ctl.r = clamp(v.ctl.r + w * 0.6 * Math.sin(t * 0.9 + 4), -1, 1);
     }
+    if (this.inert(v)) { v.ctl.v = v.ctl.h = v.ctl.r = 0; v.brake = !!v.ko; return; } // (nobody at the controls: a knocked-out vehicle brakes)
     const ga = this.groundAim, shiftSight = ga && !this.thrusty(v); // (aiming with no thrust parts: Shift is the sight)
     const dT = key('thrUp', shiftSight ? 'sight' : null) - key('thrDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
@@ -1043,8 +1051,13 @@ const Flight = {
     if (m < 0.97 || m >= 1) this.machWas = m;
   },
 
+  // (the big update) the active craft destroyed with nobody at its controls: a knocked-out ground vehicle, a falling
+  // hulk without its pilot, an aircraft shot down. The stick, the throttle and its parts do nothing
+  inert(v) { return !!v && this.destroyed && (!!v.ko || (v.hulk != null && !v.control) || !!v.down); },
+  // an engine (or cockpit) shot dead, kept aboard at 0: the damage model's (Death.partDead; no death.js, none is)
+  partOut(p) { return typeof Death !== 'undefined' && Death.partDead(p); },
   setThrottle(t) {
-    if (!this.active) return;
+    if (!this.active || this.inert(this.active)) return;
     this.active.throttle = clamp(t, 0, 1);
     this.updateThrottleDom();
   },
@@ -1753,6 +1766,8 @@ const Flight = {
   },
 
   usePart(v, p) {
+    if (v.down || this.inert(v)) return; // (a hulk shot down: nobody aboard to work its parts)
+    if (p.def.thrust && this.partOut(p)) { this.toast(`${p.def.name} is out`); return; } // (an engine shot dead won't relight)
     if (v.activatePart(p, this)) {
       this.flash = { id: p.id, t: performance.now() };
       Sound.click();

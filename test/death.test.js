@@ -60,8 +60,8 @@ let detonations = 0;
   F.vessels.push(B); B.ai = { t: 0, down: false }; B.name = 'Bandit';
   Death.reset(F); const k0 = Combat.S.kills;
   Combat.damage(B, B.control, dmgTo(B.control, 1.01), 'shot', F, P);
-  t('A1 ...a bandit (the raider) knocked out by the player: shot down (ai.down, "Bandit shot down!", a kill), the PILOT KO banner, no end for the player',
-    B.ai.down && F.log.includes('Bandit shot down!') && Combat.S.kills === k0 + 1 && Death.fb.text === 'PILOT KO' && F.ondead === 0 && B.down, [F.log, Death.fb.text]);
+  t('A1 ...a bandit (the raider) knocked out by the player: shot down (ai.down, "Bandit shot down!", a kill), the SHOT DOWN banner (the kill outranks PILOT KO), no end for the player',
+    B.ai.down && F.log.includes('Bandit shot down!') && Combat.S.kills === k0 + 1 && Death.fb.text === 'SHOT DOWN' && F.ondead === 0 && B.down, [F.log, Death.fb.text]);
   // the limp hulk falls on as one with its knocked-out pilot: a later round tearing its fuselage off leaves the
   // player's craft the cockpit's section, as with the pilot alive (not whichever piece holds parts[0]), its bandit's
   // ai with it; the torn-off rest is debris
@@ -582,7 +582,352 @@ function P0() { return { name: 'someone' }; }
 }
 
 // ================================================================ B. the fall and the crash
-// (the fall, crash and lifecycle package's: B1-B7)
+// Steps every vessel of F (but the one given) as Flight.update does (two 1/120 s steps a 60 fps frame), with Death's
+// tick every 0.07 s of sim time (Combat.frame's), and drops the dead (Flight.cleanup). each(f): stop on true.
+function fly(F, secs, each, still) {
+  const dt = 1 / 120;
+  F.tickE = F.tickE || 0; F.tickN = F.tickN || 0;
+  for (let i = 0, N = Math.round(secs / dt); i < N; i++) {
+    for (const o of F.vessels.slice()) if (!o.dead && o.parts.length && o !== still && !o.wreck && !(o !== F.active && o.landed && o.restTime > 2 && !o.thrust)) o.physicsStep(dt, F);
+    F.time += dt; F.tickE += dt;
+    if (F.tickE >= 0.07) { Death.tick(F, F.tickE, ++F.tickN); F.tickE = 0; }
+    F.vessels = F.vessels.filter((o) => !o.dead && o.parts.length);
+    if (each && each(i * dt + dt)) return i * dt + dt;
+  }
+  return null;
+}
+// a craft flying level at cruise (the half-wing probe's: 200 m/s, or 0.75 of a slow plane's speed limit), alt m up over
+// the sea, hold on, gear up, engines lit at 0.85
+function cruise(key, alt = 2000, ai) {
+  const mk = (V) => {
+    const v = G.craft(ctx, rows(key), 'plane'), u = { x: v.x / v.radius(), y: v.y / v.radius() }, r = EARTH.radius + alt;
+    v.x = u.x * r; v.y = u.y * r; v.landed = false; v.vx = u.y * V; v.vy = -u.x * V;
+    v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true;
+    G.stage(v); v.throttle = 0.85; v.sas = 'hold';
+    if (ai) { v.ai = { t: 0, down: false }; v.name = 'Bandit'; v.sas = 'off'; }
+    return v;
+  };
+  const probe = mk(100);
+  return mk(probe.vne < 160 ? Math.min(110, 0.75 * probe.vne) : 200);
+}
+const counter = (name) => { let n = 0; const f0 = FX[name]; FX[name] = function (...a) { n++; return f0.apply(this, a); }; return { get n() { return n; }, off() { FX[name] = f0; } }; };
+
+// B1 the pilot knocked out 2 km up: the hulk falls limp (no stick, no thrust) and is on the ground within 35 s; a
+// bandit shot down (pilot out, or crippled with a half wing and its pilot alive) is just as limp
+{
+  const D = 180 / Math.PI, bad = [], times = {};
+  const rates = (key, how, ai) => {
+    const out = [];
+    for (const s of [-1, 0, 1]) {
+      const v = cruise(key, 2000, ai), F = fsim(ai ? air('falcon') : v);
+      if (ai) F.vessels.push(v);
+      fly(F, 1, null);
+      how(v, F);
+      for (let i = 0; i < 120; i++) { v.ctl.v = s; v.ctl.h = s; v.ctl.r = s; v.physicsStep(1 / 120, F); F.time += 1 / 120; }
+      const w = v.bodyAV();
+      out.push({ v, F, w: [w.x, w.y, w.z] });
+    }
+    const same = out.every((o) => o.w.every((x, j) => Math.abs(x - out[1].w[j]) <= 1e-9));
+    return { same, v: out[1].v, F: out[1].F, w: out.map((o) => o.w.map((x) => +(x * D).toFixed(3))) };
+  };
+  const ko = (v, F) => Combat.damage(v, v.control, dmgTo(v.control, 1.01), 'shot', F);
+  for (const key of ['falcon', 'mustang', 'jumbo', 'RAIDER']) {
+    const r = rates(key, ko);
+    deaths = [];
+    const { v, F } = r, t0 = F.time;
+    const tg = fly(F, 35, () => v.dead);
+    times[key] = tg == null ? null : +(tg + 1).toFixed(1);
+    if (!(r.same && v.down && v.isDebris && tg != null && tg + 1 <= 35 && deaths.includes('crash') && v.thrust === 0)) bad.push({ key, same: r.same, w: r.w, tg, deaths, thrust: v.thrust });
+    void t0;
+  }
+  t(`B1 the pilot knocked out 2 km up (Falcon, Mustang, Jumbo, the raider): the stick held full either way turns it no more than hands off (body rates equal to 1e-9 after 1 s), no thrust, one fireball on the ground within 35 s (${JSON.stringify(times)})`, !bad.length, bad);
+  const P = air('falcon'), k0 = Combat.S.kills;
+  const bko = rates('RAIDER', (v, F) => { F.active = P; Combat.damage(v, v.control, dmgTo(v.control, 1.01), 'shot', F, P); }, true);
+  const bcut = rates('RAIDER', (v, F) => { F.active = P; const w = v.mainWing; Combat.damage(v, w, dmgTo(w, 1.1), 'shot', F, P, 1); }, true);
+  const lim = (o) => o.v.ai.down && o.v.isDebris && o.v.throttle === 0 && o.v.hulk != null && o.v.thrust === 0;
+  t('B1 ...a bandit shot down by the player, its pilot knocked out or its wing half cut (its pilot alive): limp (debris, throttle 0, no thrust, a hulk), the stick it held turns it no more (1e-9), the kill the player\'s each time',
+    bko.same && bcut.same && lim(bko) && lim(bcut) && !!bcut.v.control && bcut.v.hulkWhy === 'wing' && Combat.S.kills - k0 === 6 && Death.fb.text === 'SHOT DOWN', { ko: bko.w, cut: bcut.w, kills: Combat.S.kills - k0, fb: Death.fb.text });
+}
+
+// B2 the crash (the real Flight.breakParts, cause 'impact'): a hulk goes up in one fireball and leaves a crash site; a
+// cold piece only thuds; an intact plane whose cockpit breaks goes up in one; one whose gear breaks, the old way
+{
+  const ex = counter('explosion');
+  const P0n = () => Death.S.pyres.length;
+  Death.reset({}); deaths = [];
+  // a hulk (its pilot out) hitting the ground with its gear
+  const h = air('falcon'), HF = fsim(h);
+  Combat.damage(h, h.control, dmgTo(h.control, 1.01), 'shot', HF);
+  const e0 = ex.n, gear = h.parts.find((p) => p.def.wheel);
+  HF.breakParts(h, [gear], 'impact');
+  const a = { deaths: deaths.slice(), dead: h.dead, pyres: P0n(), ex: ex.n - e0, parts: h.parts.includes(gear), k: Death.S.pyres[0] && +Death.S.pyres[0].k.toFixed(2) };
+  // a cold piece (a fin shot off, no fuel, no engine): a thud, no crash site
+  deaths = [];
+  const c = air('falcon'), CF = fsim(c), fin = c.parts.find((p) => p.def.shape === 'vtail');
+  Combat.damage(c, fin, dmgTo(fin, 1.1), 'shot', CF);
+  const piece = CF.vessels.find((o) => o !== c && o.parts.includes(fin)), p0 = P0n(), e1 = ex.n;
+  CF.breakParts(piece, piece.parts.slice(), 'impact');
+  const b = { deaths: deaths.slice(), dead: piece.dead, hulk: piece.hulk != null, one: piece.parts.length === 1, pyres: P0n() - p0, ex: ex.n - e1 };
+  // an intact plane whose cockpit breaks in a crash; one whose gear breaks
+  deaths = [];
+  const i = air('falcon'), IF = fsim(i), e2 = ex.n;
+  IF.breakParts(i, [i.control], 'impact');
+  const cc = { deaths: deaths.slice(), dead: i.dead, ondead: IF.ondead, ex: ex.n - e2, crashedAt: IF.crashedAt, hulk: i.hulk };
+  deaths = [];
+  const g = air('falcon'), GF = fsim(g), gr = g.parts.filter((p) => p.def.wheel), e3 = ex.n, n0 = g.parts.length;
+  GF.breakParts(g, [gr[0]], 'impact');
+  const gg = { deaths: deaths.slice(), dead: !!g.dead, ex: ex.n - e3, parts: n0 - g.parts.length, control: !!g.control, ondead: GF.ondead };
+  ex.off();
+  t('B2 a hulk (pilot out) breaking its gear on the ground: one fireball (crash), gone, a crash site its size (no part blown up on its own)',
+    a.deaths.join() === 'crash' && a.dead && a.pyres === 1 && a.ex === 0 && a.k > 2.5, a);
+  t('B2 ...a cold piece (a fin shot off: a hulk of one part) hitting the ground: a thud, gone, no crash site', b.one && b.hulk && b.deaths.join() === 'thud' && b.dead && b.pyres === 0 && b.ex === 0, b);
+  t('B2 ...an intact Falcon whose cockpit breaks in a crash: one fireball, gone, destroyed now (the end screen counts from the crash), no hulk made', cc.deaths.join() === 'crash' && cc.dead && cc.ondead === 1 && cc.ex === 0 && cc.crashedAt === 0 && cc.hulk == null, cc);
+  t('B2 ...an intact Falcon whose gear breaks: today\'s breakage (an explosion at the part), flying on', gg.deaths.length === 0 && !gg.dead && gg.ex === 1 && gg.parts === 1 && gg.control && gg.ondead === 0, gg);
+  // Hollywood: the cockpit blows up the old way; a hulk still goes in one
+  const h0 = SILLY.hollywood;
+  SILLY.hollywood = true;
+  try {
+    deaths = [];
+    const w = air('falcon'), WF = fsim(w); WF.breakParts(w, [w.control], 'impact');
+    const hw = { deaths: deaths.slice(), dead: !!w.dead, cockpit: w.parts.includes(w.control) };
+    t('B2 ...Hollywood: a crash that breaks the cockpit blows it up the old way (no fireball for the craft, not gone in one)', hw.deaths.length === 0 && !hw.dead, hw);
+  } finally { SILLY.hollywood = h0; }
+  // the crash sites: a new flight clears them, a respawn keeps them; the newest 6 kept
+  const keep = P0n();
+  Death.reset({ spawnOpts: { mp: { mode: 'sandbox' } } }); const mp = P0n();
+  Death.reset({ spawnOpts: { keep: [h] } }); const kp = P0n();
+  Death.reset({ spawnOpts: { keep: [] } }); const fresh = P0n();
+  for (let k = 0; k < 8; k++) R('Death').pyre(EARTH, { x: k, y: 0, z: 0 }, 3, false, { time: k });
+  const six = Death.S.pyres.map((p) => p.x).join();
+  Death.reset({});
+  t('B2 ...crash sites: kept by a respawn (a room\'s, or one keeping vessels), cleared by a new flight; the newest 6 kept', keep === 2 && mp === 2 && kp === 2 && fresh === 0 && six === '2,3,4,5,6,7', [keep, mp, kp, fresh, six]);
+}
+
+// B3 at rest and too old: a hot hulk lying still goes up after 2 s (on land; on the sea, steaming); a cold piece lies as
+// junk, sinks from 90 s and is gone at 96 s; past 40 at rest the oldest sinks; a hulk still about after 150 s goes up
+{
+  const sea = () => {
+    const v = air('falcon'), r = v.radius(), F = fsim(v), k = (EARTH.radius + 1.2) / r;
+    v.x *= k; v.y *= k; v.z *= k; return { v, F };
+  };
+  // on the runway, its pilot knocked out: still, it goes up 2 s later
+  deaths = []; Death.reset({});
+  const L = G.craft(ctx, rows('falcon'), 'plane', 'site'), LF = fsim(L);
+  Combat.damage(L, L.control, dmgTo(L.control, 1.01), 'shot', LF);
+  let gone = null;
+  fly(LF, 4, () => { if (L.dead && gone == null) gone = LF.time; return L.dead; });
+  const land = { gone, deaths: deaths.slice(), pyres: Death.S.pyres.length, wet: Death.S.pyres[0] && Death.S.pyres[0].wet };
+  t(`B3 a hot hulk (pilot out) lying still on the runway: it goes up after 2 s at rest (at ${gone && gone.toFixed(2)} s), a crash site on dry land`, gone > 1.95 && gone < 2.4 && land.deaths.join() === 'crash' && land.pyres === 1 && land.wet === false, land);
+  // afloat
+  deaths = []; Death.reset({});
+  const { v: W, F: WF } = sea();
+  Combat.damage(W, W.control, dmgTo(W.control, 1.01), 'shot', WF);
+  W.splashed = true; W.vx = W.vy = W.vz = 0;
+  for (let n = 1; n <= 40 && !W.dead; n++) { WF.time += 0.07; W.splashed = true; Death.tick(WF, 0.07, n); }
+  const wp = Death.S.pyres[0], wet = { dead: W.dead, deaths: deaths.slice(), pyre: !!wp, wet: wp && wp.wet };
+  t('B3 ...afloat on the sea: it goes up (a wet crash site, steam and no fire)', wet.dead && wet.deaths.join() === 'crash' && wet.pyre && wet.wet === true, wet);
+  // a cold piece at rest: junk
+  Death.reset({}); deaths = [];
+  const J = G.craft(ctx, rows('falcon'), 'plane', 'site'), JF = fsim(J), fin = J.parts.find((p) => p.def.shape === 'vtail');
+  Combat.damage(J, fin, dmgTo(fin, 1.1), 'shot', JF);
+  const pc = JF.vessels.find((o) => o !== J && o.parts.includes(fin));
+  fly(JF, 6, null, J);
+  const lie = { hulk: pc.hulk, junkAt: pc.junkAt, dead: !!pc.dead, landed: pc.landed, deaths: deaths.slice() };
+  let sinkAt = null, deadAt = null;
+  const t0 = pc.junkAt;
+  for (let n = 1; JF.time < 120 && !pc.dead; n++) { JF.time += 0.07; Death.tick(JF, 0.07, n); if (pc.sink > 0 && sinkAt == null) sinkAt = JF.time; if (pc.dead) deadAt = JF.time; }
+  t(`B3 ...a cold piece (a fin shot off) at rest: junk (no fireball), sinking from 90 s (${sinkAt && (sinkAt - t0).toFixed(1)}), gone at 96 s (${deadAt && (deadAt - t0).toFixed(1)})`,
+    lie.hulk == null && lie.junkAt != null && !lie.dead && !lie.deaths.length && sinkAt - t0 > 89.8 && sinkAt - t0 < 92.5 && deadAt - t0 > 95.8 && deadAt - t0 < 98.5, { lie, sinkAt, deadAt, t0 });
+  // 41 junk pieces at rest: the oldest sinks now
+  const parts = R('(() => { const out = []; for (let i = 0; i < 41; i++) { const p = makePart("vtail", 0, 0); const v = new Vessel([p], new Map([[p.id, new Set()]]), EARTH); v.kind = "plane"; v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east + 30 * i), 0); v.junkAt = 0; v.restAt = 10 + i; out.push(v); } return out; })()');
+  const JF2 = fsim(null); JF2.vessels = parts.slice(); JF2.active = air('falcon'); JF2.time = 50;
+  Death.tick(JF2, 0.07, 1);
+  const sinking = parts.filter((o) => o.sinkAt != null);
+  t('B3 ...41 junk pieces at rest: the oldest (and only it) starts sinking', sinking.length === 1 && sinking[0] === parts[0] && parts.every((o) => o.landed), sinking.map((o) => o.restAt));
+  // a hulk still falling after 150 s goes up where it is
+  deaths = []; Death.reset({});
+  const O = air('falcon'), OF = fsim(O);
+  Combat.damage(O, O.control, dmgTo(O.control, 1.01), 'shot', OF);
+  OF.time = 149.9; Death.tick(OF, 0.07, 1); const at149 = !O.dead;
+  OF.time = 150.1; Death.tick(OF, 0.07, 2);
+  t('B3 ...a hulk still in the air after 150 s: it goes up where it is (not at 149.9 s)', at149 && O.dead && deaths.join() === 'crash', deaths);
+  // a crippled craft (its pilot alive) landed safely: still for 3 s, its credit and crash rule go; its damage stays
+  Death.reset({}); deaths = [];
+  const C = G.craft(ctx, rows('mustang'), 'plane', 'site'), CF = fsim(C), by = air('skylark');
+  for (const p of C.parts.filter((q) => q.def.wing && q.def.wing.control)) Combat.damage(C, p, dmgTo(p, 1.1), 'shot', CF, by);
+  const was = { hulk: C.hulk != null, doom: C.doomBy === by, why: C.hulkWhy };
+  fly(CF, 2.8, null); const early = C.hulk != null;
+  fly(CF, 0.8, null);
+  t('B3 ...a crippled Mustang (no tail, its pilot alive) landed and still for 3 s: it made it (no hulk, no credit), its damage kept, never blown up',
+    was.hulk && was.doom && was.why === 'tail' && early && C.hulk == null && C.doomBy == null && !C.dead && !deaths.length && !C.wings.some((q) => q.def.wing.control), { was, hulk: C.hulk, doom: !!C.doomBy, deaths });
+}
+
+// B4 the near list (Flight.stepsNear): a hulk falling 8 km from the player is stepped (it falls and crashes there); at
+// 13 km it goes on rails, where the air below the warp height ends it (Flight.railsAdvance), as anything else's would
+{
+  const v = air('falcon'), F = fsim(v), H = air('mustang'), D2 = air('skylark');
+  Combat.damage(H, H.control, dmgTo(H.control, 1.01), 'shot', F); // (a hulk)
+  const on = (o, d) => ctx.Flight.stepsNear.call(F, o, d);
+  const plain = { d8: on(D2, 8000), d5: on(D2, 5000) }, hulk = { d8: on(H, 8000), d11: on(H, 11900), d13: on(H, 13000) };
+  D2.control = null; void D2;
+  const h0 = H.altitude();
+  for (let i = 0; i < 240; i++) H.physicsStep(1 / 120, F);
+  const fell = h0 - H.altitude();
+  const used = ctx.Flight.railsAdvance.call(F, H, 1 / 60, false, 0);
+  t('B4 a hulk 8 km and 11.9 km off is stepped (not a plain craft beyond 6 km with nobody in it); at 13 km it is not', hulk.d8 && hulk.d11 && !hulk.d13 && plain.d5 && on(H, 5000), { plain, hulk });
+  t(`B4 ...stepped, it falls (${fell.toFixed(1)} m in 2 s); on rails under the warp height it ends at once (used ${used} of ${1 / 60} s: dead by the old rule)`, fell > 15 && used < 1 / 60 - 1e-6, [fell, used]);
+}
+
+// B5 no pile-up: the Hostile range, six bandits knocked out one after another (their pilots, by the player): 60 s after
+// each kill nothing of it is left, never more than two bandits fly at once, and each kill is the player's
+{
+  const g0 = ctx.Settings.get, SET = { targets: 'hostile' };
+  ctx.Settings.get = (k) => (k in SET ? SET[k] : g0.call(ctx.Settings, k));
+  try {
+    const P = air('falcon'), at = Combat._t.at(9000, 0, 2000), F = fsim(P);
+    P.x = at.x; P.y = at.y; P.z = at.z; P.landed = false;
+    Combat.reset(F); Combat.S.spawned = true; Combat.S.fighterT = 1; Death.reset(F);
+    const k0 = Combat.S.kills, kills = [], left = [], seen = new Set();
+    let most = 0, n = 0;
+    const frame = () => {
+      for (let i = 0; i < 2; i++) { for (const o of F.vessels.slice()) if (o !== P && !o.dead && o.parts.length) o.physicsStep(1 / 120, F); F.time += 1 / 120; }
+      Combat.frame(F, 1 / 60);
+      F.vessels = F.vessels.filter((o) => !o.dead && o.parts.length);
+      const live = F.vessels.filter((o) => Combat.isFighter(o) && !o.ai.down && o.control);
+      most = Math.max(most, live.length);
+      for (const b of live) if (!seen.has(b)) { seen.add(b); b.seenAt = F.time; }
+      for (const b of live) if (F.time - b.seenAt > 8 && kills.length < 6) { kills.push({ b, t: F.time, parts: new Set(b.parts) }); Combat.damage(b, b.control, dmgTo(b.control, 1.01), 'shot', F, P); }
+      for (const k of kills) if (!k.checked && F.time - k.t >= 60) { k.checked = true; left.push(F.vessels.filter((o) => o === k.b || o.parts.some((p) => k.parts.has(p))).length); }
+      n++;
+    };
+    while (F.time < 400 && !(kills.length === 6 && kills.every((k) => k.checked))) { frame(); if (kills.length < 6 && !F.vessels.some((o) => Combat.isFighter(o) && !o.ai.down)) Combat.S.fighterT = Math.min(Combat.S.fighterT, 1); }
+    t(`B5 the Hostile range, six bandits knocked out one after another (${F.time.toFixed(0)} s of sim): 60 s after each kill nothing of it is left (${left.join(' ')}), never more than ${most} flying at once, every kill the player's`,
+      kills.length === 6 && left.length === 6 && left.every((x) => x === 0) && most <= 2 && Combat.S.kills - k0 === 6, { kills: kills.length, left, most, k: Combat.S.kills - k0 });
+  } finally { ctx.Settings.get = g0; Combat.reset({}); }
+}
+
+// B7 a target drone shot down: it falls on its way (fv), trailing smoke, and goes up where it hits the ground or the
+// sea within 30 s; one hovering still (the Tank Range's) falls straight down; the range's respawn doesn't keep the fall
+{
+  const g0 = ctx.Settings.get;
+  ctx.Settings.get = (k) => (k === 'targets' ? 'off' : g0.call(ctx.Settings, k));
+  try {
+    const P = air('falcon'), F = fsim(P), at = Combat._t.at(9000, 0, 2000);
+    P.x = at.x; P.y = at.y; P.z = at.z; // (over the range, where the drones fly: their smoke within 8 km)
+    Combat.reset(F);
+    const mk = (speed) => {
+      const d = Combat._t.makeTarget('drone'), fr = R('surfaceFrame')(d.pos.x, d.pos.y, d.pos.z);
+      d.vel = { x: fr.east.x * speed, y: fr.east.y * speed, z: fr.east.z * speed };
+      Combat.S.targets.push(d); return d;
+    };
+    const a = mk(75), b = mk(0), h0 = [a, b].map((d) => d.h);
+    const tr = counter('trail');
+    deaths = [];
+    Combat.hitTarget(a, 1e6, P, F); Combat.hitTarget(b, 1e6, P, F);
+    const fv0 = a.fv && Math.hypot(a.fv.x, a.fv.y, a.fv.z), pos0 = { ...b.pos }, r0 = Math.hypot(b.pos.x, b.pos.y, b.pos.z);
+    const when = [null, null];
+    let lat = 0;
+    for (let i = 0; i < 31 * 60 && (when[0] == null || when[1] == null); i++) {
+      F.time += 1 / 60; Combat.frame(F, 1 / 60);
+      [a, b].forEach((d, j) => { if (when[j] == null && !d.fv) when[j] = F.time; });
+      const rb = Math.hypot(b.pos.x, b.pos.y, b.pos.z);
+      lat = Math.max(lat, Math.hypot(b.pos.x / rb - pos0.x / r0, b.pos.y / rb - pos0.y / r0, b.pos.z / rb - pos0.z / r0) * EARTH.radius);
+    }
+    tr.off();
+    const alt = (d) => { const L = R('Terrain').locate(EARTH, d.pos.x, d.pos.y, d.pos.z, {}); return Math.hypot(d.pos.x, d.pos.y, d.pos.z) - EARTH.radius - R('Terrain').surfaceAt(EARTH, L.a, L.z); };
+    t(`B7 two target drones shot down (one flying at 75 m/s, one still): they fall (from ${h0.map((x) => x.toFixed(0)).join(', ')} m), trailing smoke, and go up where they hit within 30 s (${when.map((x) => x && x.toFixed(1)).join(', ')} s), then nothing more`,
+      Math.abs(fv0 - 75) < 1e-6 && when.every((x) => x != null && x <= 30) && deaths.filter((k) => k === 'crash').length === 2 && tr.n > 20 && !a.fv && !b.fv && Math.abs(alt(a)) < 1 && Math.abs(alt(b)) < 1 && lat < 1,
+      { fv0, when, deaths, trails: tr.n, alt: [alt(a), alt(b)], lat });
+  } finally { ctx.Settings.get = g0; Combat.reset({}); }
+}
+
+// B6 a Practice Battle flown in an aircraft: knocked out 400 m up it leaves no wreck in the sky, it falls and goes up
+// where it hits; knocked out standing on the ground it stays as a wreck (and is never blown up by the rest rule)
+{
+  const designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: R('templateRows')(TEMPLATES[key]) });
+  const world = () => fsim(null, { launchCost: 0, flags: {}, downs: 0, design: null, warpIdx: 0, mgFiring: false, aim: null, zero: 800,
+    award() {}, cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); },
+    onDestroyed() { if (this.destroyed) return; this.destroyed = true; this.downs++; if (ctx.GroundAI.battle && ctx.GroundAI.onDestroyed(this)) return; },
+    start(design, opts) {
+      this.design = design;
+      const v = R('((d, P) => { const ps = partsFromDesign(d.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map(); for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); } const v = new Vessel(parts, adj, EARTH); v.name = d.name; v.kind = d.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, P ? P.e : EARTH.sites.runway.east), 0, P ? P.z : 0, P ? P.yaw || 0 : 0); return v; })')(design, opts && opts.place);
+      this.vessels = [v, ...(opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [])]; this.active = v; this.destroyed = false;
+      Combat.reset(this); this.running = true;
+      return v;
+    } });
+  const run0 = ctx.Flight.running;
+  ctx.Flight.running = true; // (GroundAI.battle reads the real Flight's)
+  try {
+    const go = (air) => {
+      const F = world();
+      ctx.GroundAI.startBattle(F, { money: 45000, design: designOf('tk34'), seed: 5 });
+      const B = ctx.GroundAI.battle, tank = F.active, pl = air ? cruise('mustang', 0) : G.craft(ctx, rows('mustang'), 'plane', 'site');
+      const u = { x: tank.x / tank.radius(), y: tank.y / tank.radius(), z: tank.z / tank.radius() }, r = air ? tank.radius() + 400 : null;
+      if (air) { pl.x = u.x * r; pl.y = u.y * r; pl.z = u.z * r; const f = Math.hypot(pl.vx, pl.vy, pl.vz), e = { x: -u.y, y: u.x, z: 0 }, el = Math.hypot(e.x, e.y) || 1; pl.vx = (e.x / el) * f; pl.vy = (e.y / el) * f; pl.vz = 0; }
+      else { const P = R('GroundMode').placement(B.arena, 0, 0, 'tank'); pl.placeOnSurface(EARTH, R('siteAngle')(EARTH, P.e), R('VEHICLE_KINDS').plane.launchRot, P.z, P.yaw || 0); }
+      tank.dead = true; F.vessels = F.vessels.filter((o) => o !== tank); F.vessels.push(pl); F.active = pl; B.kind = 'plane';
+      deaths = [];
+      Combat.damage(pl, pl.control, dmgTo(pl.control, 1.01), 'shot', F, F.vessels.find((o) => o.ai && o.ai.ground && o.ai.team === 1));
+      const out = { battle: !!B, destroyed: F.destroyed, wreck: !!pl.wreck, lost: B.lost };
+      out.tg = fly(F, air ? 30 : 3, () => pl.dead);
+      Object.assign(out, { dead: !!pl.dead, deaths: deaths.filter((k) => k === 'crash').length, wreck2: !!pl.wreck });
+      return out;
+    };
+    const up = go(true), down = go(false);
+    t(`B6 a Practice Battle's aircraft knocked out 400 m up: no wreck frozen in the sky, it falls and goes up where it hits (${up.tg && up.tg.toFixed(1)} s)`,
+      up.battle && up.destroyed && !up.wreck && up.lost === 1 && up.dead && up.deaths === 1 && up.tg != null && up.tg < 25, up);
+    t('B6 ...knocked out standing on the ground: it stays as a wreck (not blown up by the rest rule)', down.battle && down.destroyed && down.wreck && down.wreck2 && !down.dead && down.deaths === 0, down);
+  } finally { ctx.Flight.running = run0; Combat.reset({}); }
+}
+
+// B8 nobody at the controls: Flight.readControls and setThrottle do nothing to a hulk (a knocked-out vehicle brakes);
+// usePart and stage won't relight an engine shot dead, nor work a downed hulk's parts
+{
+  const ui = { updateDvEstimate() {}, updateHUD() {}, updateThrottleDom() {}, setWarp() {}, flash: null, keys: new Set(['KeyW', 'KeyD', 'KeyE']), stick: { v: 1, h: 1, r: 1 }, touchBrake: false };
+  const v = air('falcon'), F = fsim(v, ui);
+  Combat.damage(v, v.control, dmgTo(v.control, 1.01), 'shot', F);
+  ctx.Flight.readControls.call(F, 1 / 60); ctx.Flight.setThrottle.call(F, 1);
+  const hulk = { ctl: [v.ctl.v, v.ctl.h, v.ctl.r], brake: v.brake, th: v.throttle };
+  const car = G.craft(ctx, rows('buggy'), 'car'), CF = fsim(car, ui);
+  car.ko = { why: 'crew', x: false, t: 0 }; CF.destroyed = true;
+  ctx.Flight.readControls.call(CF, 1 / 60);
+  const m = air('mustang'), MF = fsim(m, ui), e = m.parts.find((p) => p.def.thrust);
+  Combat.damage(m, e, dmgTo(e, 1.1), 'shot', MF);
+  ctx.Flight.usePart.call(MF, m, e); const used = e.active;
+  m.stageIdx = 0; m.stages = [[e.id]];
+  ctx.Flight.stage.call(MF); const staged = e.active;
+  const tank = v.parts.find((p) => p.def.thrust);
+  ctx.Flight.usePart.call(F, v, tank);
+  t('B8 a pilot knocked out: the stick and keys held, the hulk\'s controls stay at rest, the throttle stays shut; a knocked-out car brakes',
+    hulk.ctl.every((x) => x === 0) && hulk.brake === false && hulk.th === 0 && car.brake === true && car.ctl.v === 0, { hulk, car: car.brake });
+  t('B8 ...an engine shot dead: a tap on it and STAGE won\'t relight it ("… is out"); a downed hulk\'s parts can\'t be worked',
+    used === false && staged === false && MF.log.filter((x) => / is out$/.test(x)).length === 2 && tank.active === false, MF.log);
+}
+
+
+// B9 (Phase 1's close) half a wing shot off rolls the plane off towards the lost half at once, whatever its autopilot
+// does (the kept half's lift with its aileron at rest, twice more: DEATH_CUT_ROLL, vessel.js): every plane template on
+// hold, hands off, at cruise 2 km up, rolls at 60°/s or more within 2 s and banks past 60° within 3 s; not the
+// biplane (its other wing holds it up). Before, hold held the wings level: most rolled under 10°/s
+{
+  const D = 180 / Math.PI, dt = 1 / 120, bad = [], peaks = {};
+  for (const key of PLANES) {
+    const v = cruise(key), s = G.sim();
+    for (let i = 0; i < 120; i++) { v.physicsStep(dt, s); s.time += dt; }
+    v.mainWing.cut = 1; v.rebuildGroups();
+    const P = v.pilot;
+    let peak = 0, bank = 0;
+    for (let i = 1; i <= 3 / dt; i++) {
+      v.ctl.v = v.ctl.h = v.ctl.r = 0; v.physicsStep(dt, s); s.time += dt;
+      const w = v.bodyAV(), roll = (w.x * P.F.x + w.y * P.F.y + w.z * P.F.z) * D, r = Math.hypot(v.x, v.y, v.z), Rr = v.axis(P.R.x, P.R.y, P.R.z);
+      if (i * dt <= 2) peak = Math.max(peak, roll);
+      bank = Math.max(bank, -Math.asin(Math.max(-1, Math.min(1, (Rr.x * v.x + Rr.y * v.y + Rr.z * v.z) / r))) * D);
+    }
+    peaks[key] = Math.round(peak);
+    if (key !== 'barnstormer' && !(peak >= 60 && bank > 60)) bad.push({ key, peak, bank });
+  }
+  t(`B9 half the main wing shot off, hold on, hands off: every plane template but the biplane rolls off towards the lost half at 60°/s or more within 2 s and banks past 60° within 3 s (${Object.entries(peaks).map(([k, x]) => k + ' ' + x).join(', ')})`, PLANES.length === 25 && !bad.length, bad);
+}
 
 // ================================================================ C. ground vehicles
 // (the ground corpses package's: C1-C7)
