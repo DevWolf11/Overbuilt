@@ -146,6 +146,19 @@ const Sound = {
     og.gain.setValueAtTime(0.0001, t); og.gain.linearRampToValueAtTime(0.02 + 0.6 * k * fall, t + 0.015); og.gain.exponentialRampToValueAtTime(0.001, t + 0.6 + 0.4 * k);
     o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.9 + 0.4 * k);
   },
+  // A fire's crackle (the damage model's: a part of the player's craft burning, death.js): a 40 ms click of band-passed
+  // noise, each at its own pitch, quiet (0.04), `at` s from now (death.js spaces them 0.15-0.35 s apart).
+  crackle(at = 0) {
+    if (!this.ctx) return;
+    const a = Math.max(0, +at || 0), dur = 0.04;
+    this.oneOff(dur + a);
+    const ctx = this.ctx, t = ctx.currentTime + a;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200 + 2000 * Math.random(); f.Q.value = 1.5;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  },
   // the seeker's growl and lock tone: a sine, not the square beep
   tone(f = 1000, dur = 0.12, vol = 0.05) {
     if (!this.ctx) return;
