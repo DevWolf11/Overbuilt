@@ -578,7 +578,7 @@ const Combat = (() => {
   function candidates(v, seek, F) {
     const out = [], foes = typeof MP !== 'undefined' ? MP.enemyGhosts().filter((g) => !g.hiddenUntilSnap) : [];
     if (seek === 'air') {
-      for (const o of F.vessels) if (o !== v && !o.dead && o.ai && !o.ai.ground && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o });
+      for (const o of F.vessels) if (o !== v && !o.dead && isFighter(o) && !o.ai.down && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o }); // (a bandit shot down, its pilot alive, is no target)
       for (const e of S.targets) if (e.alive && e.def.air) out.push({ ...e.pos, ref: e });
       for (const g of foes) if (g !== v && !g.landed && !isGround(g.kind)) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
     } else {
@@ -1057,6 +1057,7 @@ const Combat = (() => {
     e.hp -= dmg;
     if (by) e.lastHitBy = by;
     if (e.hp > 0) return;
+    if (e.def.air) { e.fv = e.vel ? { x: e.vel.x, y: e.vel.y, z: e.vel.z } : { x: 0, y: 0, z: 0 }; e.fsT = 0; } // (a drone shot down falls on its way: fallTarget)
     e.alive = false; e.deadAt = sim.time; e.firing = false; e.vel = null;
     const c = targetCentre(e);
     FX.explosion(EARTH, c, { x: 0, y: 0, z: 0 }, clamp(e.def.r / 1.4, 2, 9), true);
@@ -1066,10 +1067,46 @@ const Combat = (() => {
       Sound.explode();
     }
   }
+  // An AI vehicle out of the fight. A bandit (or the Tank Range's attack plane) shot down falls limp, no stick, no
+  // throttle, no autopilot (it had flown on its last stick, engines pushing, until it hit something), a hulk that
+  // crashes and goes (death.js); the kill and the SHOT DOWN banner are the player's when they (or a drone they flew)
+  // hit it last.
   function aiDown(v, sim) {
     v.ai.down = true; v.aiFire = false;
-    if (v.lastHitBy === sim.active && !v.ai.ally) { S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill'); }
+    if (!v.ai.ground) { if (v.hulk == null) v.hulk = sim.time || 0; v.isDebris = true; v.throttle = 0; v.ctl.v = v.ctl.h = v.ctl.r = 0; }
+    if (byMe(v.lastHitBy, sim) && !v.ai.ally) {
+      S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill');
+      if (!v.ai.ground) Death.feedback('SHOT DOWN', sim);
+    }
     if (v.ai.ground) GroundAI.down(v, sim); // (its hulk stays; the range or the battle counts it, and brings another)
+  }
+  // (the big update) A target drone shot down (hitTarget kept its way: fv) falls under gravity and the air's drag,
+  // burning and trailing black smoke, and ends in a small fireball where it meets the ground or the sea (the range's
+  // and the Tank Range's alike: GroundAI's drones are Combat's targets too). It had hung in the sky, a black model,
+  // until a new one came. Only a picture: it hurts nothing.
+  const FLOC = {};
+  function fallTarget(t, dt, F) {
+    const f = t.fv, p = t.pos;
+    if (!p || !(F.time - t.deadAt < 60)) { t.fv = null; return; }
+    for (let k = 0, n = Math.max(1, Math.ceil(dt / 0.05)), h = dt / n; k < n; k++) {
+      const r = len(p.x, p.y, p.z) || 1, g = EARTH.mu / (r * r), d = 0.0015 * len(f.x, f.y, f.z); // (about 80 m/s at the most)
+      f.x -= ((p.x / r) * g + f.x * d) * h; f.y -= ((p.y / r) * g + f.y * d) * h; f.z -= ((p.z / r) * g + f.z * d) * h;
+      p.x += f.x * h; p.y += f.y * h; p.z += f.z * h;
+    }
+    const L = Terrain.locate(EARTH, p.x, p.y, p.z, FLOC), g = Terrain.surfaceAt(EARTH, L.a, L.z), h = L.r - R(), v = F.active;
+    const d = v && v.body === EARTH ? len(p.x - v.x, p.y - v.y, p.z - v.z) : Infinity;
+    if (h <= g) { // (on the ground or the sea: put back onto it, it goes up there)
+      const u = (g - h) / L.r, at = { x: p.x * (1 + u), y: p.y * (1 + u), z: p.z * (1 + u) };
+      FX.death(EARTH, at, { x: 0, y: 0, z: 0 }, 2, 'crash', true, { water: !!Terrain.waterAt(EARTH, L.a, L.z) });
+      if (d < 4000 && typeof Sound.blast === 'function') Sound.blast(2, d);
+      t.pos = at; t.fv = null;
+      return;
+    }
+    t.fsT = (t.fsT || 0) + dt;
+    if (t.fsT >= 0.1) {
+      t.fsT = Math.min(t.fsT - 0.1, 0.1);
+      if (d < 8000) { FX.trail(EARTH, p, f, 'black', 1, 0.1); FX.flame(EARTH, p, { x: f.x * 0.15, y: f.y * 0.15, z: f.z * 0.15 }, 0.6); }
+    }
   }
   // Flying, as the hostile range's AA guns, SAM sites, frigate and fighters see it: off the ground and over 40 m up (a car
   // on a high road counts, as it always has); Armour only once it has been in the air over a second and is more than
@@ -1309,7 +1346,7 @@ const Combat = (() => {
     if (S.spawned) {
       for (const t of S.targets) {
         if (t.alive) syncTarget(t, dt);
-        else if (F.time - t.deadAt > 60) Object.assign(t, makeTarget(t.kind) || {}); // a new one, somewhere else
+        else if (F.time - t.deadAt > 60) { Object.assign(t, makeTarget(t.kind) || {}); t.fv = null; } // a new one, somewhere else
       }
       // hostile sites wake when the player is near and flying (and see a stealthy craft much later)
       const flying = flyingFor(v, dt), st = v.stealth = stealthOf(v);
@@ -1339,6 +1376,7 @@ const Combat = (() => {
         if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) { spawnFighter(F); S.fighterT = 45; }
       }
     }
+    for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
     for (const o of F.vessels) if (o.ai && !o.dead) {
       if (o.ai.ground) continue; // (the ground AI: groundai.js runs it, and says when it goes)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);

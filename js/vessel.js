@@ -183,6 +183,11 @@ function airLoad(p) {
 // A helicopter without its tail rotor (v.tailLost): the reaction's share of the main rotor's thrust × its radius, and the
 // spin (rad/s) it fades out at (death.js's DEATH.tailYaw, tailW: it loads after this file)
 const DEATH_TAIL_YAW = 0.12, DEATH_TAIL_W = 3.2;
+// Half a wing shot off (p.cut): besides the kept half's own lift, a roll towards the lost half of this many times the
+// moment the kept half's lift gives with its aileron at rest, which no autopilot or law takes back with that aileron
+// and the tail (hold had held most planes' wings level, rolling under 10°/s: now every plane rolls off at 75-280°/s
+// within 2 s, as in War Thunder; death.test B9). It fades as the roll lifts the kept half out of the air's way.
+const DEATH_CUT_ROLL = 2;
 
 class Vessel {
   constructor(parts, adj, body) {
@@ -1235,7 +1240,9 @@ class Vessel {
       let strain = 0; // the most loaded surface's load over its limit
       for (const p of this.wings) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
       for (const p of this.vtails) if (p.stress) p.stress = Math.max(0, p.stress - 0.12 * dt);
-      const surf = (p, area, nrm, ch, rz, kd, main, W, ge, dw = 0) => { // (dw: the downwash the surface flies in, rad)
+      // (ghost: the big update's cut wing, death.js: the kept half's lift with its control at rest, worked out but not
+      // applied; it returns that force's torque about the nose, and touches no authority, strain or angle of attack)
+      const surf = (p, area, nrm, ch, rz, kd, main, W, ge, dw = 0, ghost) => { // (dw: the downwash the surface flies in, rad)
         const back = W ? W.back : 0;
         const rx = p.x + ch.x * (p.def.h / 4 - back) - this.com.x, ry = p.y + ch.y * (p.def.h / 4 - back) - this.com.y;
         const ux = vb.x + wb.y * rz - wb.z * ry, uy = vb.y + wb.z * rx - wb.x * rz, uz = vb.z + wb.x * ry - wb.y * rx;
@@ -1249,9 +1256,11 @@ class Vessel {
           // a moving surface deflects whichever way turns the craft as commanded; at high speed the air
           // pushes it back, so it can't swing as far
           const gl = Math.hypot(gx, gy, gz) || 1, kq = kd * Math.min(1, 26000 / Math.max(1, qS / area));
-          defl = kq * clamp((this.cmd.x * gx + this.cmd.y * gy + this.cmd.z * gz) / gl, -1, 1);
-          auth.x += Math.abs(gx) * slope * kq; auth.y += Math.abs(gy) * slope * kq; auth.z += Math.abs(gz) * slope * kq;
-          if (plane) { rollA += ((gy * gy) / gl) * slope * kq; rollD += (gy * gy * slope) / (qS * V); }
+          if (!ghost) {
+            defl = kq * clamp((this.cmd.x * gx + this.cmd.y * gy + this.cmd.z * gz) / gl, -1, 1);
+            auth.x += Math.abs(gx) * slope * kq; auth.y += Math.abs(gy) * slope * kq; auth.z += Math.abs(gz) * slope * kq;
+            if (plane) { rollA += ((gy * gy) / gl) * slope * kq; rollD += (gy * gy * slope) / (qS * V); }
+          }
           const flap = W && p.def.wing.flaps ? this.flaps : 0, stall = (W ? W.stall : 0.45) - 0.03 * flap; // (a stubby fin stalls late)
           // flaps add lift (and drag) at any angle, and make the wing stall a little sooner
           const a = Math.atan2(un, uc) - dw, ae = a + defl, x = Math.abs(ae);
@@ -1268,13 +1277,14 @@ class Vessel {
         }
         // pull too hard and the structure gives way. A moment over its load is survivable (stress builds up,
         // and fades again below it); far over (or noodle wings over at all) is not.
+        const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
+        if (ghost) return (ry * fz - rz * fy) * P.F.x + (rz * fx - rx * fz) * P.F.y + (rx * fy - ry * fx) * P.F.z;
         const rr = Math.abs(Fn) / ((W ? W.load : FIN_LOAD) * area * (noodle ? 0.25 : 1));
         if (rr > strain) strain = rr;
         if (rr > 1) {
           p.stress = (p.stress || 0) + (rr - 1) * 2 * dt;
           if ((rr > 1.8 || noodle || p.stress >= 1) && !rip.includes(p) && !this.isDebris) rip.push(p); // (a torn-off piece tumbling on doesn't tear again)
         }
-        const fx = nrm.x * Fn + ch.x * Fc, fy = nrm.y * Fn + ch.y * Fc, fz = nrm.z * Fn;
         Fb.x += fx; Fb.y += fy; Fb.z += fz;
         T.x += ry * fz - rz * fy; T.y += rz * fx - rx * fz; T.z += rx * fy - ry * fx;
         return defl;
@@ -1293,6 +1303,10 @@ class Vessel {
         const d0 = p.cut === 1 ? 0 : surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, sg), ch, s - cz, kd, p === this.mainWing, W, ge, dw);
         const d1 = p.cut === -1 ? 0 : surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, -sg), ch, -s - cz, kd, p === this.mainWing && p.cut === 1, W, ge, dw);
         p.deflect = (d0 + d1) / 2; p.aileron = (d0 - d1) / 2;
+        if (p.cut) { // (the roll its lost half leaves, the controls can't take back: DEATH_CUT_ROLL)
+          const k = p.cut === 1, tr = DEATH_CUT_ROLL * surf(p, wd.area / 2, v3(ch.y * cg, -ch.x * cg, k ? -sg : sg), ch, (k ? -s : s) - cz, kd, false, W, ge, dw, true);
+          T.x += P.F.x * tr; T.y += P.F.y * tr; T.z += P.F.z * tr;
+        }
       }
       // a fin works from where it stands; a twin pair as one fin of twice the area on the centreline
       for (const p of this.vtails) {

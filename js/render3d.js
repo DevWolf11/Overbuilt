@@ -3249,6 +3249,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
   const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18] };
+  // (the big update) The player's aircraft destroyed and falling (a hulk: the pilot knocked out, shot down): the follow
+  // camera eases back to 1.4x its distance over the first second, the spiral and the trail in view, and holds there
+  // until it hits. From the death's time (Flight.diedAt), else from the first frame it saw the fall.
+  function deathEase(F, v) {
+    if (!(F.destroyed && v === F.active && isAirKind(v.kind) && v.hulk != null && !v.dead)) { fc.died = null; return 1; }
+    if (fc.died == null) fc.died = Number.isFinite(F.diedAt) && F.diedAt <= F.time ? F.diedAt : F.time;
+    return 1 + 0.4 * clamp(F.time - fc.died, 0, 1);
+  }
   function followCam(v, dt, snap) {
     if (!v || !v.parts.length || v.dead) return;
     if (fc.vessel !== v) {
@@ -3336,7 +3344,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       followCam(v, dt, false);
       const s = 1 - Math.exp(-dt * 14);
       fc.yaw += (fc.ty - fc.yaw) * s; fc.pitch += (fc.tp - fc.pitch) * s;
-      dist = (H / 2) / F.scale / TANH;
+      dist = ((H / 2) / F.scale / TANH) * deathEase(F, v);
       const cp = Math.cos(fc.pitch), yaw = fc.follow + fc.yaw;
       toSim(dist * Math.sin(yaw) * cp, dist * Math.sin(fc.pitch), dist * Math.cos(yaw) * cp, T3);
       rx = vx + T3.x; ry = vy + T3.y; rz = vz + T3.z;
@@ -4192,17 +4200,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       let o = CB.tg.get(e);
       if (!o || o.userData.kind !== e.kind) { if (o) localWorld.remove(o); o = targetModel(e.kind); o.userData.kind = e.kind; CB.tg.set(e, o); localWorld.add(o); }
       seen.add(e);
-      o.visible = true;
+      o.visible = e.alive || !e.def.air || !!e.fv; // (a drone shot down shows while it falls, nose along its way, and goes when it hits: Combat's fallTarget)
       o.position.set(x, y, z);
-      const fr = surfaceFrame(e.pos.x, e.pos.y, e.pos.z);
+      const fr = surfaceFrame(e.pos.x, e.pos.y, e.pos.z), fv = !e.alive && e.fv, fl = fv ? Math.hypot(fv.x, fv.y, fv.z) : 0;
       let fx, fy, fz;
-      if (e.vel && Math.hypot(e.vel.x, e.vel.y, e.vel.z) > 0.5) { fx = e.vel.x; fy = e.vel.y; fz = e.vel.z; } else { const c = Math.cos(e.heading || 0), s = Math.sin(e.heading || 0); fx = c * fr.east.x - s * fr.north.x; fy = c * fr.east.y - s * fr.north.y; fz = c * fr.east.z - s * fr.north.z; }
+      if (e.vel && Math.hypot(e.vel.x, e.vel.y, e.vel.z) > 0.5) { fx = e.vel.x; fy = e.vel.y; fz = e.vel.z; }
+      else if (fl > 0.5 && Math.abs(fv.x * fr.up.x + fv.y * fr.up.y + fv.z * fr.up.z) < 0.95 * fl) { fx = fv.x; fy = fv.y; fz = fv.z; } // (not straight down: no way to tell its right then)
+      else { const c = Math.cos(e.heading || 0), s = Math.sin(e.heading || 0); fx = c * fr.east.x - s * fr.north.x; fy = c * fr.east.y - s * fr.north.y; fz = c * fr.east.z - s * fr.north.z; }
       const k = fx * fr.up.x + fy * fr.up.y + fz * fr.up.z, up = fr.up;
       if (!e.def.air) { fx -= up.x * k; fy -= up.y * k; fz -= up.z * k; }
       const f = V1.set(fx, fy, fz).normalize(), u = V2.set(up.x, up.y, up.z), r = new THREE.Vector3().crossVectors(f, u).normalize();
       u.crossVectors(r, f);
       M1.makeBasis(f, u, r); o.quaternion.setFromRotationMatrix(M1);
-      if (!e.alive && !o.userData.dead) { o.userData.dead = true; o.traverse((m) => { if (m.isMesh) m.material = CB.mat.wreck; }); o.scale.set(1, 0.55, 1); if (e.def.air) o.visible = false; }
+      if (!e.alive && !o.userData.dead) { o.userData.dead = true; o.traverse((m) => { if (m.isMesh) m.material = CB.mat.wreck; }); o.scale.set(1, 0.55, 1); }
       if (e.alive && o.userData.dead) { localWorld.remove(o); CB.tg.delete(e); } // a fresh one takes its place next frame
       if (e.alive && o.userData.spin) o.userData.spin.rotation.y = t * 1.4;
       if (e.alive && o.userData.turret && e.firing) o.userData.turret.rotation.y = Math.sin(t * 3) * 0.3;
