@@ -105,6 +105,7 @@ const Combat = (() => {
     } finally { if (det) Death.DET.n--; if (crash) Death.DET.crash--; }
     if (det) Death.detonated(v, p, sim, n0);
     else if (Death.airHit(v, cause)) Death.afterAir(v, sim, n0); // (a hit's old body: crippled or down? A crash keeps the old breakage alone)
+    else Death.groundPieces(v, sim, n0, cause); // (a ground vehicle's: what the hit knocked off lies as junk, then sinks)
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
   }
   // (the ground update) While a hit or a blast lands (holdRips ... flushRips: Armour.apply, explode, a hit message), the
@@ -129,6 +130,7 @@ const Combat = (() => {
         const n0 = sim.vessels ? sim.vessels.length : 0;
         sim.ripParts(o, ps, cause);
         if (Death.airHit(o, cause)) Death.afterAir(o, sim, n0); // (an aircraft: crippled or down?)
+        else Death.groundPieces(o, sim, n0, cause); // (a ground vehicle's torn-off kit: junk, it sinks in time)
         if (o.ai && !o.control && !o.ai.down) aiDown(o, sim);
       }
     }

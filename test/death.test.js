@@ -1104,6 +1104,44 @@ function sysCalls(fn) {
   t('C6 ...a knocked-out hulk\'s parts give none of the old generic smoke (Death.partFX takes them); a live car\'s still do', f0 === true && f1 === false);
   FX.flame = fl; FX.smoke = sm;
 }
+// C8 (Phase 2's merge) what a hit knocks off a ground vehicle is junk, as an aircraft's cold pieces are: it lies 90 s
+// once still, then sinks away over 6 s. A buggy's wheel shot off (combat.js's old body), a StuQ's skirt torn off in a
+// blast's window (the ground update's kit, together at the window's end: flushRips) and outside one. A crash's dent
+// knocking a wheel off, and Hollywood, leave the piece lying as ever (a drive without hits is unchanged)
+{
+  const pieceOf = (F, v) => F.vessels.find((o) => o !== v && !o.dead);
+  const wheelOff = (cause, holly) => {
+    const v = gnd('buggy'), F = fsim(v), w = v.parts.find((p) => p.def.wheel);
+    Combat.reset(F); goG(F, 0.5);
+    SILLY.hollywood = !!holly;
+    try { Combat.damage(v, w, dmgTo(w, 1.2), cause, F); } finally { SILLY.hollywood = false; }
+    return { v, F, t: F.time, q: pieceOf(F, v), gone: !v.parts.includes(w) };
+  };
+  const shot = wheelOff('shot'), dent = wheelOff('impact'), holly = wheelOff('shot', true);
+  // the shot-off wheel's life: at rest on the runway, 90 s on it sinks, 6 s later it is gone
+  let rest = null, sink = null, gone = null;
+  if (shot.q) {
+    const { F, q } = shot;
+    goG(F, 20, () => (q.restAt != null ? false : undefined));
+    rest = q.restAt;
+    if (rest != null) {
+      F.time = rest + 90.05; goG(F, 0.1); sink = q.sinkAt != null ? q.sinkAt - rest : null;
+      F.time += 6; goG(F, 0.1); gone = !F.vessels.includes(q) && !!q.dead;
+    }
+  }
+  t(`C8 a buggy's wheel shot off: the piece is junk (tagged at once), still on the runway, sinking 90 s on (${sink != null ? sink.toFixed(1) : '-'} s), gone 6 s later`,
+    shot.gone && !!shot.q && near(shot.q.junkAt, shot.t, 1e-9) && shot.q.hulk == null && rest != null && sink != null && sink >= 90 && sink < 90.3 && gone === true, { junk: shot.q && shot.q.junkAt, t: shot.t, rest, sink, gone });
+  t('C8 ...knocked off by a crash\'s dent (cause impact), or in Hollywood: it lies as ever (no junk)', dent.gone && !!dent.q && dent.q.junkAt == null && holly.gone && !!holly.q && holly.q.junkAt == null, [dent.gone, dent.q && dent.q.junkAt, holly.gone, holly.q && holly.q.junkAt]);
+  const skirt = (win) => {
+    const v = gnd('stuq3'), F = fsim(v), s = v.parts.find((p) => p.type === 'skirts');
+    if (win) Combat.holdRips();
+    try { Combat.damage(v, s, 1e6, 'blast', F); } finally { if (win) Combat.flushRips(); }
+    const q = F.vessels.find((o) => o !== v && o.parts.includes(s));
+    return { torn: !v.parts.includes(s), junk: q ? q.junkAt : undefined, rips: F.nRip };
+  };
+  const inWin = skirt(true), alone = skirt(false);
+  t('C8 ...a StuQ\'s skirt torn off by a blast (in the blast\'s window, at its end, and alone): junk too', inWin.torn && inWin.junk === 0 && inWin.rips === 1 && alone.torn && alone.junk === 0, { inWin, alone });
+}
 
 // ================================================================ D. the particle budget
 // D1 Settings Low, the worst realistic mix in view: two planes with burning engines at 250 m/s for 10 s, a TK-34's ammo

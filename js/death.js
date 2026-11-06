@@ -555,6 +555,14 @@ const Death = (() => {
   }
   // A knocked-out hulk becomes a wreck: frozen where it stands (no longer stepped, solid to everything, charred)
   function settle(v) { v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); }
+  // The pieces a hit knocked off a ground vehicle since n0 (Combat.destroyPart's old body, flushRips' torn-off kit: an
+  // old car's wheel, a skirt, a brick, a tank blown off): cold junk, which lies 90 s once still and then sinks away (the
+  // crash section's junkLife), as an aircraft's cold pieces do. Not a crash's or a burn-up's pieces, nor the blasts a
+  // crash's old body sets off (no hit: debris from a drive without hits lies as ever), nor Hollywood's; a thrown turret
+  // is its wreck's (tossed)
+  function groundPieces(v, sim, n0, cause) {
+    if (isGround(v.kind) && cause !== 'impact' && cause !== 'heat' && !DET.crash && !hollywood()) tagPieces(sim, n0, v);
+  }
 
   // impact()'s ground branch (Flight.breakParts, a crash): a hull, turret, crew seat or cab broken knocks the vehicle
   // out (Armour's own rule for one of the ground update's, groundKO for an old car), keeps the parts aboard at 0 and
@@ -667,7 +675,7 @@ const Death = (() => {
     ignite, burning, leaking, partFX,
     impact, tick, reset, crash, pyre, limp, // (the crash section's: crash, crash sites, who flies no more)
     groundPart,
-    groundKO, settle, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
+    groundKO, settle, groundPieces, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
     feedback, hit, drawHits,
     _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T },
   };
