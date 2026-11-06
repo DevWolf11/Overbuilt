@@ -82,7 +82,7 @@ for (const key of OLD) {
       v.ctl.v = tt > 2 && tt < 4 ? -0.6 : 0; v.ctl.h = tt > 4 && tt < 5 ? 1 : tt > 7 && tt < 8 ? -0.7 : 0; v.ctl.r = tt > 9 && tt < 10 ? 0.5 : 0;
       if (v.kind !== 'plane' && tt > 6 && v.stageIdx < v.stages.length && i % 240 === 0) { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; }
       F.firing = tt > 3 && tt < 4;
-      if (isAirKind(v.kind) && tt > 10.5 && v.control && !v.koDone) { v.koDone = true; Combat.damage(v, v.control, 1e6, 'shot', F); if (v.down) KOS++; } // (the big update: the pilot knocked out, the craft falls limp)
+      if ((isAirKind(v.kind) || isGround(v.kind)) && tt > 10.5 && v.control && !v.koDone) { v.koDone = true; Combat.damage(v, v.control, 1e6, 'shot', F); if (v.down || v.ko) KOS++; } // (the big update: the pilot knocked out, the craft falls limp; a car's driver knocked out, its hulk a wreck)
     });
     return where(v);
   })()`;
@@ -93,7 +93,7 @@ for (const key of OLD) {
 }
 t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other five systems; Props asked (its shots, its contacts, the crush pass), and nothing met`,
   quiet() === '{}' && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
-t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
+t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s, cars their drivers)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
@@ -137,6 +137,20 @@ R(`var bug = __v; Combat.reset({});
 oldRun(bug, simOf(bug), 14, (v, tt) => { v.ctl.v = tt < 6 ? 1 : tt < 9 ? 0 : tt < 11 ? -1 : 0; v.ctl.h = tt > 4 && tt < 6 ? 1 : 0; v.brake = tt > 11; });
 var bugSaved = Vessel.restore(JSON.parse(JSON.stringify(bug.serialize())));`);
 t('a buggy drive (and its saved flight): no calls into the other five systems, no prop met', quiet() === '{}' && met() === '[0,0,0]' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), [quiet(), met()]);
+// 3b. (the big update) the buggy's cab shot to 0 as it drives: the driver knocked out (death.js's groundKO), the hulk
+// coasting to a stop and a wreck, then 6 s of frames (the damage model's ticks: its wreck's fire and smoke); and a buggy
+// driven nose first into the runway at 30 m/s through the crash hook as Flight.breakParts calls it (Death.impact)
+ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car'); ctx.__c = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
+R(`var deadRun = (v, F, secs, script) => { for (let i = 0; i < secs * 120; i++) { if (script) script(v, i / 120); if (!v.wreck && !v.dead) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; if (i % 2 === 0) Combat.frame(F, 1 / 60); } };
+var bko = __v, bkF = simOf(bko); Combat.reset({});
+deadRun(bko, bkF, 2, (v) => { v.ctl.v = 1; });
+Combat.damage(bko, bko.parts.find((p) => p.type === 'cab'), 1e6, 'shot', bkF);
+deadRun(bko, bkF, 6, (v) => { v.ctl.v = 0; });
+var bcr = __c, bcF = simOf(bcr), bcB = bcF.breakParts; bcF.breakParts = function (v, parts, cause) { if (cause === 'impact') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; } return bcB.call(this, v, parts, cause); };
+{ const r = Math.hypot(bcr.x, bcr.y, bcr.z), u = { x: bcr.x / r, y: bcr.y / r, z: bcr.z / r }; bcr.q = qmul(bcr.q, qaxis(0, 0, 1, -Math.PI / 2)); bcr.x += u.x * 6; bcr.y += u.y * 6; bcr.z += u.z * 6; bcr.vx = -u.x * 30; bcr.vy = -u.y * 30; bcr.vz = -u.z * 30; bcr.landed = false; }
+deadRun(bcr, bcF, 2);`);
+t('...the buggy\'s driver shot (knocked out, a wreck, 6 s of its fire and smoke) and a buggy crashed nose first at 30 m/s (knocked out where it hit): no calls into the other five systems, no prop met',
+  quiet() === '{}' && met() === '[0,0,0]' && R(`bko.ko && bko.ko.why === 'crew' && bko.wreck && bcr.ko && bcr.ko.why === 'hull' && bcr.wreck`), [quiet(), met(), R('[bko.ko, bko.wreck, bcr.ko, bcr.wreck]')]);
 
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);

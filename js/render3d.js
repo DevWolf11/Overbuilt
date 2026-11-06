@@ -4054,6 +4054,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (!vis) continue;
       e.root.position.set(x, y, z);
       if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
+      if (v.sink > 0) { // (a wreck or a cold piece going: lowered into the ground over its last 6 s, all of it under by the end)
+        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * ((isGround(v.kind) ? v.bounds.maxY - v.bounds.minY : ext) + 1);
+        e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
+      }
       e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
       e.vm.group.position.set(-v.com.x, -v.com.y, -(v.com.z || 0));
       q.rho = airDensity(v.body, v.altitude());
@@ -4064,13 +4068,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
   }
-  // Other players' and the AI's ground vehicles, and wrecks, more than 150 m off: drawn raised or lowered by how far the
-  // ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch swap doesn't
-  // pop them) and never more than 3 m (it's only the picture). Coarse far terrain cells would float or sink them; on an
-  // arena's own ground mesh the two agree and nothing moves. The target is looked up 10 times a second.
+  // Other players' and the AI's ground vehicles, and wrecks (old cars' too), more than 150 m off: drawn raised or lowered
+  // by how far the ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch
+  // swap doesn't pop them) and never more than 3 m (it's only the picture). Coarse far terrain cells would float or sink
+  // them; on an arena's own ground mesh the two agree and nothing moves. The target is looked up 10 times a second.
   const RSL = {};
   function reseat(F, v, e, d, dt) {
-    if (!isGround(v.kind) || !(v.gear.length || v.gv)) return;
+    if (!isGround(v.kind) || !(v.gear.length || v.gv || v.wreck)) return; // (an old car's wreck too)
     if (d < 150) { e.rsW = 0; } else if ((e.rsT = (e.rsT || 0) - dt) <= 0) {
       e.rsT = 0.1;
       const L = Terrain.locate(v.body, v.x, v.y, v.z, RSL);
