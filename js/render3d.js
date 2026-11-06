@@ -452,27 +452,130 @@ void main() {
   gl_FragColor = vec4(c * uK, 1.0);
   ${OUT}
 }`;
+  // Every particle but sparks, chunks and timers (updateParticles): one premultiplied mesh sorted back to front, so lit,
+  // textured smoke and additive fire, flashes and rings share one draw. iMisc: x size (m), y style + 8 × atlas cell,
+  // z the quad's turn (rad), w by style: heat (SMOKE, FIRE), the least size in device px (GLOW, STAR), occlusion (DISC:
+  // 1 "over", 0 added light). Styles: 0 DISC, 1 RING, 2 SMOKE, 3 FIRE, 4 GLOW (a big flash), 5 STAR (a muzzle flash),
+  // 6 GLINT. A big soft puff is pulled towards the eye (no straight cut into the ground), keeping its size on screen,
+  // and thins out as the eye nears it; a flash never shrinks under its floor at range nor grows past uGlowMax device
+  // px up close (a blast beside the camera doesn't white the screen out)
   const PART_VS = `${LOGV}#include <fog_pars_vertex>
-attribute vec3 iPos; attribute vec4 iCol; attribute vec2 iSize;
-varying vec2 vUv; varying vec4 vCol; varying float vKind;
+attribute vec4 iPos; attribute vec4 iCol; attribute vec4 iMisc;
+uniform vec3 uSunV, uUpV; uniform float uScale, uGlowMax;
+varying vec2 vUv; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vCell, vW, vFade, vGr;
 void main() {
-  vUv = position.xy; vCol = iCol; vKind = iSize.y;
-  vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
-  mvPosition.xy += position.xy * iSize.x;
+  float cell = floor(iMisc.y / 8.0), st = iMisc.y - 8.0 * cell, cr = cos(iMisc.z), sr = sin(iMisc.z);
+  vec4 mvPosition = modelViewMatrix * vec4(iPos.xyz, 1.0);
+  float d = max(-mvPosition.z, 1e-3), s = iMisc.x, soft = (st > 1.5 && st < 3.5) ? 1.0 : 0.0;
+  if (st > 3.5 && st < 5.5) s = min(max(s, iMisc.w * d / uScale), max(uGlowMax, iMisc.w) * d / uScale); // GLOW, STAR: between their floor and the cap (device px)
+  vec2 q = position.xy, p = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
+  float pull = soft * min(0.4 * s, 0.5 * max(d - 0.2, 0.0));
+  mvPosition.z += pull;
+  mvPosition.xy += p * s * (d - pull) / d;
   gl_Position = projectionMatrix * mvPosition;
+  vUv = q; vCol = iCol; vStyle = st; vCell = cell; vW = iMisc.w;
+  vGr = (iPos.w + dot(vec3(p * s, 0.0), uUpV)) / max(s, 1e-3); // (how high over the ground this corner is, in sizes: iPos.w the centre's height)
+  vFade = mix(1.0, smoothstep(s * 0.25, s, d), soft);
+  if (st > 0.5 && st < 1.5) vFade = clamp(uGlowMax * d / (s * uScale), 0.0, 1.0); // RING: a shock ring sweeping past the eye fades as it outgrows the cap
+  vL = vec3(cr * uSunV.x + sr * uSunV.y, -sr * uSunV.x + cr * uSunV.y, uSunV.z); // the Sun in the turned quad's frame
+  vV = normalize(mvPosition.xyz);
   #include <logdepthbuf_vertex>
   #include <fog_vertex>
 }`;
+  // (OB_FOG: the haze patch's fog, before tone mapping; without it, three's own after it, as before. Added light is
+  // dimmed by the fog, smoke takes its colour. A puff by the ground thins out towards it, so the ground doesn't cut it
+  // off in a straight line)
   const PART_FS = `${LOGF}#include <fog_pars_fragment>
-varying vec2 vUv; varying vec4 vCol; varying float vKind;
+uniform sampler2D uMap; uniform vec3 uSunC, uAmb, uSunV; uniform float uFloor;
+varying vec2 vUv; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vCell, vW, vFade, vGr;
+const vec3 SOOT = vec3(0.042, 0.036, 0.033);
+vec3 heatRamp(float h) {
+  vec3 c = mix(vec3(0.20, 0.05, 0.02), vec3(1.6, 0.35, 0.06), smoothstep(0.0, 0.35, h));
+  c = mix(c, vec3(3.0, 1.35, 0.35), smoothstep(0.3, 0.7, h));
+  return mix(c, vec3(4.0, 3.4, 2.4), smoothstep(0.7, 1.0, h));
+}
 void main() {
   #include <logdepthbuf_fragment>
-  float r = length(vUv);
-  if (r > 1.0) discard;
-  float a = vKind > 0.5 ? smoothstep(0.6, 0.8, r) * (1.0 - smoothstep(0.86, 1.0, r)) : pow(1.0 - r * r, 1.7);
-  gl_FragColor = vec4(vCol.rgb, vCol.a * a);
+  float r = length(vUv), a = 0.0, occ = 1.0; vec3 c = vCol.rgb;
+  if (vStyle > 1.5 && vStyle < 3.5) {
+    vec4 t = texture2D(uMap, (vec2(mod(vCell, 2.0), floor(vCell / 2.0)) + vUv * 0.5 + 0.5) * 0.5);
+    float l = clamp(dot(normalize(t.rgb * 2.0 - 1.0), normalize(vL)) * 0.5 + 0.5, 0.0, 1.0);
+    vec3 lit = max(uAmb + uSunC * l, vec3(uFloor));
+    if (vStyle < 2.5) {
+      c = vCol.rgb * lit + uSunC * vCol.rgb * pow(max(dot(vV, uSunV), 0.0), 6.0) * 0.6 * (1.0 - t.a);
+      c += heatRamp(vW * 0.6) * vW * 1.2 * t.a * t.a; // (fire smoke glows in its dense core at first, fading out with its heat)
+      a = t.a;
+    } else {
+      float hl = vW * (0.55 + 0.65 * t.a);
+      vec3 tint = mix(vec3(1.0), vCol.rgb / max(max(vCol.r, vCol.g), 1e-3), 0.35);
+      occ = max(1.0 - smoothstep(0.08, 0.3, hl), 0.75 * t.a); // (its dense core hides what is behind it: a fireball, not a glow on the sky)
+      c = mix(heatRamp(hl) * tint, SOOT * lit, occ);
+      a = pow(t.a, 0.8);
+    }
+    a *= smoothstep(-0.05, 0.35, vGr);
+  } else {
+    if (r > 1.0) discard;
+    if (vStyle < 0.5) { a = pow(1.0 - r * r, 1.7); occ = vW; }
+    else if (vStyle < 1.5) { a = 0.45 * smoothstep(0.7, 0.86, r) * (1.0 - smoothstep(0.88, 1.0, r)); occ = 0.0; }
+    else if (vStyle < 4.5) { a = min(1.0, exp(-3.0 * r * r) + 0.6 * exp(-40.0 * r * r)); c *= 2.2; occ = 0.0; }
+    else if (vStyle < 5.5) { float an = atan(vUv.y, vUv.x);
+      a = min(1.0, exp(-6.0 * r * r) * 0.8 + pow(abs(cos(3.0 * an)), 16.0) * (1.0 - r) * 0.7); c *= 2.0; occ = 0.0; }
+    else { a = pow(1.0 - r * r, 1.7); occ = 0.0; }
+  }
+  a *= vCol.a * vFade;
+  if (a < 0.004) discard;
+#ifdef OB_FOG
+  float ff = obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+  c = mix(c * (1.0 - ff), mix(c, obFogCol(normalize(vFogPos), fogLin), ff), occ);
+#endif
+  gl_FragColor = vec4(c, 1.0);
   ${OUT}
-  #include <fog_fragment>
+#if defined(USE_FOG) && !defined(OB_FOG)
+#ifdef FOG_EXP2
+  float ff0 = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+#else
+  float ff0 = smoothstep(fogNear, fogFar, vFogDepth);
+#endif
+  gl_FragColor.rgb = mix(gl_FragColor.rgb * (1.0 - ff0), mix(gl_FragColor.rgb, fogColor, ff0), occ);
+#endif
+  gl_FragColor = vec4(gl_FragColor.rgb * a, a * occ);
+}`;
+  // Tracers, sparks (and a drone's laser beam): one glowing capsule each from its head (iA) to its tail (iB), in screen
+  // space, never thinner than iF device px however far; iC: HDR colour and core width (m; negative: a beam, as bright
+  // all along, no white-hot head). Tone-mapped and premultiplied: the core covers what is behind it (its colour shows
+  // on the sky), the halo adds light, the head burns white
+  const STREAK_VS = `${LOGV}attribute vec3 iA, iB; attribute vec4 iC; attribute float iF;
+uniform float uScale; uniform vec2 uRes;
+varying vec2 vQ; varying vec3 vC; varying float vBeam;
+void main() {
+  vec4 a = modelViewMatrix * vec4(iA, 1.0), b = modelViewMatrix * vec4(iB, 1.0);
+  const float NZ = -0.1;
+  vBeam = iC.w < 0.0 ? 1.0 : 0.0;
+  if (a.z > NZ && b.z > NZ) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vQ = vec2(0.0); vC = vec3(0.0); return; }
+  if (a.z > NZ) a = mix(b, a, (b.z - NZ) / (b.z - a.z)); else if (b.z > NZ) b = mix(a, b, (a.z - NZ) / (a.z - b.z));
+  vec4 A = projectionMatrix * a, B = projectionMatrix * b;
+  vec2 sa = A.xy / A.w * uRes * 0.5, sb = B.xy / B.w * uRes * 0.5, dir = sb - sa;
+  float len = length(dir); dir = len > 1e-3 ? dir / len : vec2(1.0, 0.0);
+  bool head = position.x < 0.5;
+  vec4 P = head ? A : B;
+  float core = max(iF, abs(iC.w) * uScale / P.w), halo = 2.5 * core;
+  P.xy += (vec2(-dir.y, dir.x) * position.y * halo * 0.5 + dir * (head ? -0.5 : 0.5) * halo) / (uRes * 0.5) * P.w;
+  gl_Position = P; vQ = position.xy; vC = iC.rgb;
+  #include <logdepthbuf_vertex>
+}`;
+  const STREAK_FS = `${LOGF}varying vec2 vQ; varying vec3 vC; varying float vBeam;
+void main() {
+  #include <logdepthbuf_fragment>
+  float t = abs(vQ.y), x = clamp(vQ.x, 0.0, 1.0);
+  float core = 1.0 - smoothstep(0.3, 0.4, t), glow = 0.5 * exp(-6.0 * t * t) * (1.0 - core);
+  float fade = mix(mix(1.0, 0.15, x), 1.0, vBeam), head = exp(-x * 10.0) * (1.0 - vBeam);
+  gl_FragColor = vec4(mix(vC, vec3(2.4, 2.25, 2.0), head), 1.0);
+  ${OUT}
+  vec3 cc = gl_FragColor.rgb;
+  gl_FragColor = vec4(vC * glow * fade, 1.0);
+  ${OUT}
+  float a = 0.9 * core * fade;
+  gl_FragColor = vec4(cc * a + gl_FragColor.rgb, a); // (premultiplied: the core covers what is behind it, so its colour shows even on the sky; the halo adds light)
 }`;
   const SHEATH_FS = `${LOGF}uniform float uK, uT;
 varying vec3 vN, vV; varying vec2 vUv;
@@ -3118,66 +3221,275 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // ------------------------------------------------------------------ particles (FX.list)
+  // One mesh for every particle drawn as a quad (S.fx: smoke, fire, flashes, rings, chaff, plasma), sorted back to front
+  // and blended premultiplied, so lit smoke and additive fire mix in one draw; the debris chunks as 3D bits (S.debris,
+  // the scenery trees' program); tracers, sparks and a drone's laser beams as glowing streaks (S.streak, updateStreaks).
+  // While S.warm counts down (the first flight frames drawn, and after a quality change) the three stay on show with
+  // nothing in them, so their programs are built while loading, not at the first explosion or burst of fire.
+  // FX_N, DBR_N: the most quads and chunks drawn; the streaks hold TRC_N tracers, SPK_N sparks and BEAM_N beams (the
+  // drones' lasers: Drone.beams). SMOKE_K: the Sun's and the sky's light on smoke (tuned so a grey puff at noon reads
+  // about as the unlit one did). GLOW_MAX: a flash's glow never wider on screen than this share of the screen's
+  // shorter side (radius), however near: a blast beside the camera doesn't white the view out
+  const FX_N = 1100, DBR_N = 160, TRC_N = 700, SPK_N = 300, BEAM_N = 8, STREAK_N = TRC_N + SPK_N + BEAM_N;
+  const SMOKE_K = 1.05, GLOW_MAX = 0.25;
+  const PK = {}; // the particles' scratch rows, sort keys and index buffers; the chunks' and streaks' temporaries
   function initParticles() {
-    const mk = (additive) => {
-      const N = 1100, geo = new THREE.InstancedBufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
-      geo.setIndex([0, 1, 2, 0, 2, 3]);
-      const at = (name, n) => geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(N * n), n).setUsage(THREE.DynamicDrawUsage));
-      at('iPos', 3); at('iCol', 4); at('iSize', 2);
-      geo.instanceCount = 0;
-      const m = new THREE.Mesh(geo, smat({
-        uniforms: THREE.UniformsUtils.clone(THREE.UniformsLib.fog), vertexShader: PART_VS, fragmentShader: PART_FS, fog: !additive,
-        transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      }));
-      m.frustumCulled = false; m.renderOrder = additive ? 6 : 5; m.N = N;
-      localWorld.add(m);
-      return m;
-    };
-    S.smoke = mk(false); S.fire = mk(true);
-    S.fxCol = new Map();
+    S.fxCol = new Map(); S.pseed = 1;
+    const at = (g, name, w, N) => g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(N * w), w).setUsage(THREE.DynamicDrawUsage));
+    // the quads
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    at(geo, 'iPos', 4, FX_N); at(geo, 'iCol', 4, FX_N); at(geo, 'iMisc', 4, FX_N);
+    geo.instanceCount = 0;
+    S.partU = { uMap: { value: S.cloudU.uMap.value }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uUpV: { value: new THREE.Vector3(0, 1, 0) }, uSunC: { value: new THREE.Color() }, uAmb: { value: new THREE.Color() },
+      uFloor: { value: 0.05 }, uScale: S.glowU.uScale, uGlowMax: { value: 200 } };
+    S.fx = new THREE.Mesh(geo, smat({
+      uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), S.partU), vertexShader: PART_VS, fragmentShader: PART_FS, defines: { OB_NOFOG: '' }, fog: true,
+      transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    }));
+    S.fx.frustumCulled = false; S.fx.renderOrder = 5; S.fx.visible = false;
+    PK.pos = new Float32Array(FX_N * 4); PK.col = new Float32Array(FX_N * 4); PK.misc = new Float32Array(FX_N * 4); PK.dz = new Float32Array(FX_N);
+    PK.key = new Uint16Array(FX_N); PK.a = new Uint16Array(FX_N); PK.b = new Uint16Array(FX_N); PK.cnt = new Uint32Array(256);
+    PK.cam = { x: 0, y: 0, z: 0 }; PK.fw = { x: 0, y: 0, z: 0 }; PK.rt = { x: 0, y: 0, z: 0 }; PK.up = { x: 0, y: 0, z: 0 }; PK.v = new THREE.Vector3(); PK.loc = {};
+    PK.spk = []; PK.dbr = [];
+    // the chunks: a lumpy icosahedron (each corner pushed in or out by a hash of where it is, so the faces still meet)
+    const dg = new THREE.IcosahedronGeometry(1, 0), dp = dg.attributes.position;
+    for (let i = 0; i < dp.count; i++) {
+      PK.v.fromBufferAttribute(dp, i);
+      const k = 0.75 + 0.5 * hash1(Math.round(PK.v.x * 97) + 131 * Math.round(PK.v.y * 89) + 17161 * Math.round(PK.v.z * 83), 7);
+      dp.setXYZ(i, PK.v.x * k, PK.v.y * k, PK.v.z * k);
+    }
+    dg.computeVertexNormals();
+    dg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(dp.count * 3).fill(1), 3));
+    S.debris = new THREE.InstancedMesh(dg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true }), DBR_N);
+    S.debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    S.debris.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DBR_N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    S.debris.count = 0; S.debris.frustumCulled = false; S.debris.castShadow = S.debris.receiveShadow = false; S.debris.visible = false;
+    PK.m = new THREE.Matrix4(); PK.q = new THREE.Quaternion(); PK.ax = new THREE.Vector3(); PK.sc = new THREE.Vector3(); PK.at = new THREE.Vector3();
+    // the streaks: x 0 at the head, 1 at the tail; y across
+    const sg = new THREE.InstancedBufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3));
+    sg.setIndex([0, 1, 2, 0, 2, 3]);
+    at(sg, 'iA', 3, STREAK_N); at(sg, 'iB', 3, STREAK_N); at(sg, 'iC', 4, STREAK_N); at(sg, 'iF', 1, STREAK_N);
+    sg.instanceCount = 0;
+    S.streakU = { uScale: S.glowU.uScale, uRes: { value: new THREE.Vector2(1, 1) } };
+    S.streak = new THREE.Mesh(sg, smat({ uniforms: S.streakU, vertexShader: STREAK_VS, fragmentShader: STREAK_FS, transparent: true, depthWrite: false, blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor }));
+    S.streak.frustumCulled = false; S.streak.renderOrder = 7; S.streak.visible = false;
+    localWorld.add(S.fx, S.debris, S.streak);
   }
+  // a particle colour in linear rgb, and its sRGB blue (0..1: a pale flame burns white longer), cached
   function fxColor(hex) {
     let c = S.fxCol.get(hex);
-    if (!c) { const r = C(hex); c = [lin(r[0]), lin(r[1]), lin(r[2])]; S.fxCol.set(hex, c); }
+    if (!c) { const r = C(hex); c = [lin(r[0]), lin(r[1]), lin(r[2]), r[2] / 255]; S.fxCol.set(hex, c); }
     return c;
   }
-  const FLASH = [1, 0.92, 0.7], SMOKY = [0.16, 0.13, 0.11];
+  // the sort: LSD radix on 16-bit keys (far first), one byte a pass, from src into dst (stable)
+  function radix(src, dst, n, shift) {
+    const cnt = PK.cnt, key = PK.key;
+    cnt.fill(0);
+    for (let i = 0; i < n; i++) cnt[(key[src[i]] >> shift) & 255]++;
+    for (let i = 0, s = 0; i < 256; i++) { const c = cnt[i]; cnt[i] = s; s += c; }
+    for (let i = 0; i < n; i++) { const j = src[i]; dst[cnt[(key[j] >> shift) & 255]++] = j; }
+  }
+  const usedRange = (at, n) => { at.clearUpdateRanges(); at.addUpdateRange(0, Math.max(1, n) * at.itemSize); at.needsUpdate = true; };
+  const FLASH = [1, 0.92, 0.7];
+  // Fills the particle mesh (and gathers the sparks and chunks for their own meshes) from FX.list; a big flash near the
+  // camera lends its light to S.engine for the frame (the engine's glow keeps it unless the flash is by the craft)
   function updateParticles(F, env) {
-    const dim = 1 - env.night * 0.6, list = FX.list, t = F.time;
-    let ns = 0, nf = 0;
-    const ps = S.smoke.geometry.attributes, pf = S.fire.geometry.attributes;
-    for (const p of list) {
-      if (p.kind === 'emit') continue; // (the effects API's timers: nothing to draw)
+    const list = FX.list, t = F.time, night = env.night, dim = 1 - night * 0.6, pr = renderer.getPixelRatio(), uPx = S.glowU.uScale.value;
+    const U = S.partU, kl = SMOKE_K / Math.PI, cam = PK.cam, fw = PK.fw, rt = PK.rt, up = PK.up, pos = PK.pos, col = PK.col, misc = PK.misc, dzs = PK.dz;
+    toSim(camera.position.x, camera.position.y, camera.position.z, cam);
+    const e = camera.matrixWorld.elements; // (the camera's axes in the scene, then in the sim's: right, up, forward)
+    toSim(e[0], e[1], e[2], rt); toSim(e[4], e[5], e[6], up); toSim(-e[8], -e[9], -e[10], fw);
+    U.uSunV.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
+    const fv = F.viewVessel || F.active; // (the local vertical, in the view: puffs by the ground thin out towards it)
+    if (fv) { const r = Math.hypot(fv.x, fv.y, fv.z) || 1; toView(fv.x / r, fv.y / r, fv.z / r, PK.v); U.uUpV.value.copy(PK.v).transformDirection(camera.matrixWorldInverse); }
+    U.uSunC.value.copy(S.sun.color).multiplyScalar(S.sun.intensity * kl);
+    U.uAmb.value.copy(S.hemi.color).multiplyScalar(S.hemi.intensity * kl);
+    U.uGlowMax.value = GLOW_MAX * Math.min(W, H) * pr;
+    const pin = api.bench.pin && !api.skipDraw, aspect = W / H, glowMax = U.uGlowMax.value;
+    let fill = 0, n = 0, lb = null, lbx = 0, lby = 0, best = null, bs = 0, bI = 0, bR = 0, bx = 0, by = 0, bz = 0;
+    const SPK = PK.spk, DBR = PK.dbr;
+    SPK.length = 0; DBR.length = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i], kd = p.kind;
+      if (kd === 'emit') continue; // (the effects API's timers: nothing to draw)
+      if (kd === 'spark') { if (SPK.length < SPK_N) SPK.push(p); continue; }
+      if (kd === 'debris') { if (DBR.length < DBR_N) DBR.push(p); continue; }
+      if (n >= FX_N) continue;
       if (p.jz === undefined) p.jz = (Math.random() - 0.5) * (p.size + p.grow) * 0.3;
-      const bp = bodyPos(p.b, t), k = p.life / p.max, size = p.size + p.grow * k;
-      const x = bp.x + p.x - camAbs.x, y = bp.y + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
-      let add = p.kind !== 'smoke', c = null, a = p.alpha * (1 - k), kind = 0, sz = size;
-      switch (p.kind) {
-        case 'spark': c = fxColor(p.color); a = 1 - k; sz = 0.22; break;
-        case 'flash': c = FLASH; a = 0.9 * (1 - k); break;
-        case 'ring': c = fxColor(p.color); kind = 1; break;
-        case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
-        case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
-        case 'debris': add = false; c = fxColor(p.color); break; // (a chunk: a dark disc here, drawn over what's behind it as smoke is)
-        default: c = fxColor(p.color);
+      if (p.ce === undefined) { const h = S.pseed++; p.ro = hash1(h, 1) * TAU; p.sp = (hash1(h, 2) - 0.5) * 2 * (kd === 'fire' ? 0.7 : 0.25); p.ce = (hash1(h, 3) * 4) | 0; }
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const x = lbx + p.x - camAbs.x, y = lby + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
+      const k = p.life / p.max, s = p.size + p.grow * (p.ease ? 1 - (1 - k) * (1 - k) : k);
+      let st = 0, c = null, a = 0, w = 0, r = 1, g = 1, bl = 1, gh = 1e5;
+      if ((kd === 'smoke' || kd === 'fire') && p.size + p.grow >= 1) { // (soft puffs: how high over the ground as drawn, looked up once)
+        if (p.gr === undefined) {
+          p.gr = null;
+          if (!p.b.star && (x - cam.x) * (x - cam.x) + (y - cam.y) * (y - cam.y) + (z - cam.z) * (z - cam.z) < 9e6) { const L = Terrain.locate(p.b, p.x, p.y, p.z, PK.loc); p.gr = p.b.radius + groundAt(p.b, L.a, L.z); }
+        }
+        if (p.gr != null) gh = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) - p.gr;
       }
-      const A = add ? pf : ps, i = add ? nf++ : ns++;
-      if (i >= S.smoke.N) { if (add) nf--; else ns--; continue; }
-      A.iPos.array[i * 3] = x; A.iPos.array[i * 3 + 1] = y; A.iPos.array[i * 3 + 2] = z;
-      const m = add ? 1 : dim;
-      A.iCol.array[i * 4] = c[0] * m; A.iCol.array[i * 4 + 1] = c[1] * m; A.iCol.array[i * 4 + 2] = c[2] * m; A.iCol.array[i * 4 + 3] = clamp(a, 0, 1);
-      A.iSize.array[i * 2] = sz; A.iSize.array[i * 2 + 1] = kind;
-    }
-    for (const [mesh, n] of [[S.smoke, ns], [S.fire, nf]]) {
-      const g = mesh.geometry;
-      g.instanceCount = n;
-      for (const [name, w] of [['iPos', 3], ['iCol', 4], ['iSize', 2]]) {
-        const at = g.attributes[name];
-        at.clearUpdateRanges(); at.addUpdateRange(0, Math.max(1, n) * w); at.needsUpdate = true;
+      switch (kd) {
+        case 'smoke': { // lit and textured; soot greys as it thins; a burning column's base glows at first
+          st = 2; c = (p.fc || (p.fc = fxColor(p.color)));
+          const q = k < 0.2 ? 0 : (k - 0.2) / 0.8, sk = q * q * (3 - 2 * q), m = 1 + 0.3 * sk, o = 0.025 * sk; // (smoothstep(0.2, 1, k))
+          r = c[0] * m + o; g = c[1] * m + o; bl = c[2] * m + o;
+          if (p.heat) { const q = k > 0.2 ? 1 : k / 0.2; w = p.heat * (1 - q * q * (3 - 2 * q)); }
+          a = p.alpha * Math.min(1, k / (p.fin || 0.06)) * Math.pow(1 - k, 1.2);
+          break;
+        }
+        case 'fire': { // hot in the dense core, cooling into lit soot by `cool` of its life
+          st = 3; c = (p.fc || (p.fc = fxColor(p.color)));
+          if (p.h0 === undefined) p.h0 = p.heat != null ? p.heat : 1 + 0.5 * clamp((c[3] - 0.45) / 0.35, 0, 1);
+          w = p.h0 * (1 - smoothstep(0, p.cool || 0.5, k));
+          r = c[0]; g = c[1]; bl = c[2];
+          a = p.alpha * Math.min(1, k / 0.04) * (1 - k);
+          break;
+        }
+        case 'flash': {
+          const big = p.size >= 1.6;
+          st = big ? 4 : 5; w = (big ? clamp(2.5 + (2.5 * p.size) / 4, 3, 14) : 1.5) * pr;
+          r = FLASH[0]; g = FLASH[1]; bl = FLASH[2]; a = 0.9 * (1 - k);
+          if (p.size >= 1.5 && !p.nolight) { // a light candidate: the brightest for its distance (cd over d² + R²)
+            const d2 = (x - cam.x) * (x - cam.x) + (y - cam.y) * (y - cam.y) + (z - cam.z) * (z - cam.z);
+            if (d2 < 640000) {
+              const P = Math.min(p.size / 4, 5), I = 60 * P * P * (1 - k) * (1 - k), R = clamp(12 * P, 15, 120), sc = I / (d2 + R * R);
+              if (sc > bs) { best = p; bs = sc; bI = I; bR = R; bx = x; by = y; bz = z - p.jz; } // (the light at the flash itself, not its draw-order jitter)
+            }
+          }
+          break;
+        }
+        case 'ring': st = 1; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0]; g = c[1]; bl = c[2]; a = p.alpha * (1 - k); break;
+        case 'glint': st = 6; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0] * dim; g = c[1] * dim; bl = c[2] * dim; a = p.alpha * (1 - k) * FX.twinkle(p); break; // chaff's foil (as FX.draw: dimmer at night)
+        case 'plasma': st = 0; w = 0; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0]; g = c[1]; bl = c[2]; a = p.alpha * (1 - k); break; // (reentry's glow: added light, as before)
+        default: st = 0; w = 1; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0] * dim; g = c[1] * dim; bl = c[2] * dim; a = p.alpha * (1 - k);
       }
-      mesh.visible = n > 0;
+      const dz = (x - cam.x) * fw.x + (y - cam.y) * fw.y + (z - cam.z) * fw.z;
+      const i4 = n * 4;
+      pos[i4] = x; pos[i4 + 1] = y; pos[i4 + 2] = z; pos[i4 + 3] = gh;
+      col[i4] = r; col[i4 + 1] = g; col[i4 + 2] = bl; col[i4 + 3] = a < 0 ? 0 : a > 1 ? 1 : a;
+      misc[i4] = s; misc[i4 + 1] = st + 8 * p.ce; misc[i4 + 2] = p.ro + p.sp * p.life; misc[i4 + 3] = w;
+      dzs[n] = dz;
+      n++;
+      if (pin && dz > 0.1) { // the fill (bench, tests): its quad's area on screen, thinned near the eye as the shader does
+        const soft = st === 2 || st === 3, se = st === 4 || st === 5 ? Math.min(Math.max(s, (w * dz) / uPx), (Math.max(glowMax, w) * dz) / uPx) : s;
+        const vx = (x - cam.x) * rt.x + (y - cam.y) * rt.y + (z - cam.z) * rt.z, vy = (x - cam.x) * up.x + (y - cam.y) * up.y + (z - cam.z) * up.z;
+        if (Math.abs(vy) - se < dz * TANH && Math.abs(vx) - se < dz * TANH * aspect) { const q = (se * uPx) / dz; fill += Math.PI * q * q * (soft ? smoothstep(se * 0.25, se, dz) : st === 1 ? Math.min(1, (glowMax * dz) / (se * uPx)) : 1); }
+      }
     }
+    if (pin) api.bench.fill = fill / (W * H * pr * pr);
+    // back to front: far first, then the rows copied into the mesh in that order
+    let dmax = 1;
+    for (let i = 0; i < n; i++) if (dzs[i] > dmax) dmax = dzs[i];
+    const key = PK.key, ia = PK.a, ib = PK.b;
+    for (let i = 0; i < n; i++) { const q = Math.round(65535 * (1 - dzs[i] / dmax)); key[i] = q < 0 ? 0 : q > 65535 ? 65535 : q; ia[i] = i; }
+    radix(ia, ib, n, 0); radix(ib, ia, n, 8);
+    const G = S.fx.geometry, A = G.attributes, ap = A.iPos.array, ac = A.iCol.array, am = A.iMisc.array;
+    for (let j = 0; j < n; j++) {
+      const i = ia[j], i4 = i * 4, j4 = j * 4;
+      ap[j4] = pos[i4]; ap[j4 + 1] = pos[i4 + 1]; ap[j4 + 2] = pos[i4 + 2]; ap[j4 + 3] = pos[i4 + 3];
+      ac[j4] = col[i4]; ac[j4 + 1] = col[i4 + 1]; ac[j4 + 2] = col[i4 + 2]; ac[j4 + 3] = col[i4 + 3];
+      am[j4] = misc[i4]; am[j4 + 1] = misc[i4 + 1]; am[j4 + 2] = misc[i4 + 2]; am[j4 + 3] = misc[i4 + 3];
+    }
+    G.instanceCount = n;
+    usedRange(A.iPos, n); usedRange(A.iCol, n); usedRange(A.iMisc, n);
+    S.fx.visible = n > 0 || S.warm > 0;
+    // the flash's light: when the engine isn't glowing this frame, or the flash is within 150 m of the craft
+    if (best) {
+      const v = F.active;
+      let near = false;
+      if (v && v.body) { const bp = bodyPos(v.body, t); near = Math.hypot(bp.x + v.x - camAbs.x - bx, bp.y + v.y - camAbs.y - by, v.z - camAbs.z - bz) < 150; }
+      if (S.engine.intensity === 0 || near) { S.engine.position.set(bx, by, bz); S.engine.color.setRGB(1, 0.69, 0.4); S.engine.intensity = bI; S.engine.distance = bR; }
+    }
+    updateDebris(t);
+  }
+  // the chunks: tumbling about their own axis until they come to rest, shrinking away at the end of their life
+  function updateDebris(t) {
+    const D = S.debris, L = PK.dbr, M = PK.m, Q = PK.q, ax = PK.ax, sc = PK.sc, at = PK.at, ic = D.instanceColor;
+    let nd = 0, lb = null, lbx = 0, lby = 0;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      if (p.ax === undefined) {
+        const h = S.pseed++, x = hash1(h, 4) - 0.5, y = hash1(h, 5) - 0.5, z = hash1(h, 6) - 0.5, l = Math.hypot(x, y, z) || 1;
+        p.ax = [x / l, y / l, z / l]; p.ro = hash1(h, 1) * TAU; p.sp = (hash1(h, 9) < 0.5 ? -1 : 1) * (4 + 8 * hash1(h, 8));
+      }
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const k = p.life / p.max, s = p.size * (1 - smoothstep(0.8, 1, k)), c = (p.fc || (p.fc = fxColor(p.color)));
+      Q.setFromAxisAngle(ax.set(p.ax[0], p.ax[1], p.ax[2]), p.ro + p.sp * (p.restAt != null ? p.restAt : p.life));
+      M.compose(at.set(lbx + p.x - camAbs.x, lby + p.y - camAbs.y, (p.z || 0) - camAbs.z), Q, sc.set(s, s, s));
+      D.setMatrixAt(nd, M);
+      ic.array[nd * 3] = c[0]; ic.array[nd * 3 + 1] = c[1]; ic.array[nd * 3 + 2] = c[2];
+      nd++;
+    }
+    D.count = nd;
+    usedRange(D.instanceMatrix, nd); usedRange(ic, nd);
+    D.visible = nd > 0 || S.warm > 0;
+  }
+  // Tracers (Combat.shots with a tracer: a main gun's longer and whiter; s.col, s.tw, s.tk where a shot sets its own
+  // colour, core width and length), sparks (their tail from their speed against the craft in view, so sparks off a craft
+  // flying beside it don't smear) and a drone's laser beams (Drone.beams: {b, a, e, col, w}, as bright all along): one
+  // glowing streak each, at least a pixel and a half wide however far (sparks 1.2)
+  // one streak into row n of the streak mesh's attributes (head, tail, colour, core width, floor)
+  function putStreak(A, n, hx, hy, hz, tx, ty, tz, r, g, b, w, fl) {
+    const ia = A.iA.array, ib = A.iB.array, ic = A.iC.array, i3 = n * 3, i4 = n * 4;
+    ia[i3] = hx; ia[i3 + 1] = hy; ia[i3 + 2] = hz; ib[i3] = tx; ib[i3 + 1] = ty; ib[i3 + 2] = tz;
+    ic[i4] = r; ic[i4 + 1] = g; ic[i4 + 2] = b; ic[i4 + 3] = w; A.iF.array[n] = fl;
+    return n + 1;
+  }
+  function updateStreaks(F) {
+    const G = S.streak.geometry, A = G.attributes;
+    renderer.getDrawingBufferSize(S.streakU.uRes.value);
+    const pr = renderer.getPixelRatio(), t = F.time;
+    let n = 0;
+    const B = typeof Drone !== 'undefined' && Array.isArray(Drone.beams) ? Drone.beams : null; // (the drone package's lasers; none before it)
+    if (B) for (let i = 0, m = Math.min(B.length, BEAM_N); i < m; i++) {
+      const q = B[i], a = q && q.a, e = q && q.e;
+      if (!q || !q.b || !a || !e) continue;
+      const bp = bodyPos(q.b, t), ox = bp.x - camAbs.x, oy = bp.y - camAbs.y, cl = Array.isArray(q.col) ? q.col : [1, 0.25, 0.3], w = q.w > 0 ? q.w : 0.06;
+      const v = [e.x + ox, e.y + oy, e.z - camAbs.z, a.x + ox, a.y + oy, a.z - camAbs.z, cl[0], cl[1], cl[2]];
+      if (v.every(Number.isFinite)) n = putStreak(A, n, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], -w, 1.5 * pr);
+    }
+    const shots = typeof Combat !== 'undefined' ? Combat.shots : [];
+    let lb = null, lbx = 0, lby = 0;
+    for (let i = 0, nt = 0; i < shots.length && nt < TRC_N; i++) {
+      const s = shots[i];
+      if ((s.k !== 'bullet' && s.k !== 'shell') || !s.tracer) continue; // (the ground update's shells: tracers too, a main gun's longer and whiter)
+      if (s.b !== lb) { const bp = bodyPos(s.b, t); lb = s.b; lbx = bp.x; lby = bp.y; }
+      let x = lbx + s.x - camAbs.x, y = lby + s.y - camAbs.y, z = s.z - camAbs.z;
+      if (s.ha) { x += s.vx * s.ha; y += s.vy * s.ha; z += s.vz * s.ha; } // (a cheap round holding a substep: where it is by now)
+      const big = s.k === 'shell' && !s.cheap, k = s.tk != null ? s.tk : big ? 0.045 : 0.028, w = s.tw != null ? s.tw : big ? 0.3 : 0.15;
+      const c = Array.isArray(s.col) ? s.col : s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
+      n = putStreak(A, n, x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k, c[0], c[1], c[2], w, 1.5 * pr);
+      nt++;
+    }
+    const L = PK.spk, cv = F.viewVessel || F.active;
+    lb = null;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const x = lbx + p.x - camAbs.x, y = lby + p.y - camAbs.y, z = (p.z || 0) - camAbs.z, k = p.life / p.max, c = p.fc || (p.fc = fxColor(p.color)), f = 1 - k;
+      let vx = p.vx, vy = p.vy, vz = p.vz || 0;
+      if (cv && cv.body === p.b) { vx -= cv.vx; vy -= cv.vy; vz -= cv.vz; }
+      let l = Math.sqrt(vx * vx + vy * vy + vz * vz) * 0.035;
+      const m = l > 1e-6 ? Math.max(l, 0.15) / l : 0;
+      if (!m) { vx = 0; vy = 0; vz = 1; l = 0.15; }
+      const kk = m ? 0.035 * m : 0.15;
+      n = putStreak(A, n, x, y, z, x - vx * kk, y - vy * kk, z - vz * kk, c[0] * f, c[1] * f, c[2] * f, 0.05, 1.2 * pr);
+    }
+    G.instanceCount = n;
+    usedRange(A.iA, n); usedRange(A.iB, n); usedRange(A.iC, n); usedRange(A.iF, n);
+    S.streak.visible = n > 0 || S.warm > 0;
+  }
+
+  // (tests: the first n streaks drawn last frame)
+  function streakRows(n) {
+    const A = S.streak.geometry.attributes, out = [];
+    for (let i = 0; i < Math.min(n, S.streak.geometry.instanceCount); i++) out.push({ a: [...A.iA.array.slice(i * 3, i * 3 + 3)], b: [...A.iB.array.slice(i * 3, i * 3 + 3)], c: [...A.iC.array.slice(i * 4, i * 4 + 4)], f: A.iF.array[i] });
+    return out;
   }
 
   // ------------------------------------------------------------------ hangar turntable
@@ -3434,6 +3746,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     vaporCone(F, dt);
     updateParticles(F, envV);
     syncCombat(F);
+    updateStreaks(F);
     updateRings(F);
 
     // ---- shadows fitted around the active craft
@@ -3761,6 +4074,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     e.root.position.x += (v.x / r) * e.rsO; e.root.position.y += (v.y / r) * e.rsO; e.root.position.z += (v.z / r) * e.rsO;
   }
   function engineGlow(v, vm, x, y, z) {
+    S.engine.color.setHex(0xff9a4a); // (back from a flash's, updateParticles)
     let ex = 0, ey = 0, ez = 0, ek = 0, ea = 0, eg = 0;
     for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ez += (e.z || 0) * e.k; ek += e.k; ea += e.aft * e.k; eg += e.glow * e.k; }
     if (ek <= 0) return 0;
@@ -4103,22 +4417,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     placeFrame(RG.frame, EARTH, RG.a0, F.time);
   }
 
-  // ------------------------------------------------------------------ combat: tracers, missiles, bombs and targets
+  // ------------------------------------------------------------------ combat: missiles, bombs and targets (tracers: updateStreaks)
   const CB = { ready: false };
   function initCombat() {
-    CB.ready = true;
-    const N = 700;
-    CB.lineGeo = new THREE.BufferGeometry();
-    CB.lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.lines = new THREE.LineSegments(CB.lineGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    CB.lines.frustumCulled = false; CB.lines.renderOrder = 7; CB.N = N;
-    CB.headGeo = new THREE.BufferGeometry();
-    CB.headGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.headGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.heads = new THREE.Points(CB.headGeo, new THREE.PointsMaterial({ size: 1.1, sizeAttenuation: true, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    CB.heads.frustumCulled = false; CB.heads.renderOrder = 7;
-    localWorld.add(CB.lines, CB.heads);
+    CB.ready = true; // (tracers are the streak mesh's: initParticles, updateStreaks)
     const m = (c, r = 0.5, me = 0.3) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: me });
     CB.mat = { olive: m('#56603f', 0.8, 0.1), dark: m('#2e3338', 0.5, 0.6), grey: m('#7d8790', 0.6, 0.3), concrete: m('#8c8a84', 0.95, 0), white: m('#e9ecef', 0.4, 0.1),
       navy: m('#5b6670', 0.6, 0.35), orange: m('#ff7a1a', 0.5, 0.1), wreck: m('#1d1b19', 0.95, 0), tyre: m('#1b1e22', 0.9, 0), sand: m('#b9a77c', 0.8, 0.05) };
@@ -4151,23 +4453,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (typeof Combat === 'undefined') return;
     if (!CB.ready) initCombat();
     const t = F.time;
-    // tracers: a streak behind each tracer round, with a bright head
-    const shots = Combat.shots, pa = CB.lineGeo.attributes.position.array, ca = CB.lineGeo.attributes.color.array, ha = CB.headGeo.attributes.position.array, hc = CB.headGeo.attributes.color.array;
-    let n = 0;
+    // stores in flight (tracers are updateStreaks')
+    const shots = Combat.shots;
     const used = { missile: 0, rocket: 0, bomb: 0 };
     for (const s of shots) {
-      const bp = bodyPos(s.b, t);
-      let x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
-      if (s.k === 'bullet' || s.k === 'shell') { // (the ground update's shells: tracers too, a main gun's longer and whiter)
-        if (!s.tracer || n >= CB.N) continue;
-        if (s.ha) { x += s.vx * s.ha; y += s.vy * s.ha; z += s.vz * s.ha; } // (a cheap round holding a substep: where it is by now)
-        const big = s.k === 'shell' && !s.cheap, k = big ? 0.045 : 0.028, c = s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
-        pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
-        ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);
-        ha.set([x, y, z], n * 3); hc.set(c, n * 3);
-        n++;
-        continue;
-      }
+      if (s.k === 'bullet' || s.k === 'shell') continue;
+      const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
       const kk = s.k === 'torp' ? 'bomb' : s.k, pool = CB.pool[kk]; // a torpedo in the water looks like the bomb it was
       if (!pool) continue; // (a kind with no model draws nothing, rather than throw every frame)
       let o = pool[used[kk]];
@@ -4180,9 +4471,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }
     for (const k in CB.pool) for (let i = used[k]; i < CB.pool[k].length; i++) CB.pool[k][i].visible = false;
-    CB.lineGeo.setDrawRange(0, n * 2); CB.headGeo.setDrawRange(0, n);
-    for (const g of [CB.lineGeo, CB.headGeo]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
-    CB.lines.visible = CB.heads.visible = n > 0;
     // targets: placed on the ground, sea or sky, facing the way they go; wrecks when destroyed
     const seen = new Set();
     for (const e of Combat.targets) {
@@ -4355,9 +4643,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const defs = (m) => (m ? { ...(m.defines || {}) } : null);
       return {
         fxN: typeof FX !== 'undefined' ? FX.list.length : 0, // particles alive
-        fxDraw: (S.smoke ? S.smoke.geometry.instanceCount : 0) + (S.fire ? S.fire.geometry.instanceCount : 0), // particles drawn last frame
-        streakN: CB.ready ? CB.lineGeo.drawRange.count / 2 : 0, // tracers drawn last frame
-        debrisN: 0, decalN: 0, decals: [],
+        fxDraw: S.fx ? S.fx.geometry.instanceCount : 0, // particles drawn last frame (the quads)
+        streakN: S.streak ? S.streak.geometry.instanceCount : 0, // tracers, sparks and beams drawn last frame
+        debrisN: S.debris ? S.debris.count : 0, // chunks drawn last frame
+        streaks: S.streak ? streakRows(8) : [], // (the first few streaks: head, tail, colour and core width, floor)
+        fxShown: S.fx ? [S.fx.visible, S.debris.visible, S.streak.visible] : null, // (the three effect meshes on show)
+        fxLight: S.partU ? { sun: S.partU.uSunC.value.toArray(), amb: S.partU.uAmb.value.toArray(), glowMax: S.partU.uGlowMax.value } : null, // (the light on smoke)
+        decalN: 0, decals: [],
         engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
         terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),

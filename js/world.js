@@ -207,11 +207,13 @@ const FX = {
       q.x = gx * w; q.y = gy * w; q.z = gz * w;
       this.smoke(body, p, q, 'dust', s / 2);
     }
+    // (on the ground the puffs stand in a column, f from its foot to its top: the higher ones thrown up faster and
+    // wider, all rising on, so it climbs and widens; in the air they stay one cloud)
     if (!K.airOnly || air) for (let i = 0, n = K.col ? this.nq(K.col) : 0, j = 0.3 * s; i < n; i++) {
-      const w = (1.5 + 2.5 * this.rnd()) * 0.5 * rs, d = this.dir();
+      const f = (i + 0.5) / n, w = (ground ? 1 + 8 * f + 1.5 * this.rnd() : 1.5 + 2.5 * this.rnd()) * 0.5 * rs, d = this.dir();
       this.add({ kind: 'smoke', b, x: p.x + (2 * this.rnd() - 1) * j, y: p.y + (2 * this.rnd() - 1) * j, z: p.z + (2 * this.rnd() - 1) * j,
         vx: v.x * 0.3 + u.x * w + d.x * 2, vy: v.y * 0.3 + u.y * w + d.y * 2, vz: v.z * 0.3 + u.z * w + d.z * 2, max: (4 + 3 * this.rnd()) * (Settings.high ? 1 : 0.7),
-        size: 0.7 * s, grow: 3.2 * s, color: K.cc, alpha: 0.6, rise: 1.4, drag: 1.2, ease: 1, fin: 0.15, heat: K.ch });
+        size: ground ? 0.5 * s * (0.5 + 0.5 * f) : 0.7 * s, grow: ground ? 1.6 * s * (0.35 + 0.65 * f) : 3.2 * s, color: K.cc, alpha: 0.6, rise: 1.4, drag: ground ? 0.5 : 1.2, ease: 1, fin: 0.15, heat: K.ch });
     }
     if (K.pops) for (const t of K.pops) { // timers that burst as they run out (popOf)
       const d = this.dir(), j = 0.4 * s * this.rnd(), e = { kind: 'emit', b, x: p.x + d.x * j, y: p.y + d.y * j, z: p.z + d.z * j, vx: v.x * 0.3, vy: v.y * 0.3, vz: v.z * 0.3,
