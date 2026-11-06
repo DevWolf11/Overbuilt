@@ -176,7 +176,7 @@ const Death = (() => {
     return tearOff(v, p, cause, sim);
   }
   function tearOff(v, p, cause, sim) {
-    if ((p.fuel || 0) > 50 && !(p.burn > 0)) ignite(v, p, FIRE.lit0.fuel, v.lastHitBy, sim);
+    if ((p.fuel || 0) > 50 && !(p.burn > 0)) ignite(v, p, FIRE.lit0.fuel, v.lastHitBy, sim, 'piece'); // (it burns as it falls: no word of a fire aboard)
     sim.ripParts(v, [p], cause);
     return true;
   }
@@ -287,17 +287,114 @@ const Death = (() => {
   function afterAir(v, sim, n0) { tagPieces(sim, n0, v); airCheck(v, sim); }
 
   // ================================================================ fire
-  // (D2 fills this section: ignite, fireTick (the fire's part of tick(): burn-through, the trails, the leak trail),
-  // airPartFX (air kinds' grey smoke, partFX's air half).) ignite(v, p, odds, by, sim, quiet): lights the part on a
-  // roll of dice(p, p.fireN), true when lit; quiet: the caller says so itself (damage's 30 % line). Not yet: nothing
-  // burns.
-  function ignite(v, p, odds, by, sim, quiet) { void v; void p; void odds; void by; void sim; void quiet; return false; }
-  // tick()'s first part: the burning parts (their timers, their damage, burn-through), the trails, the leak trail, the
-  // crackle. Not yet: nothing.
-  function fireTick(F, e, n) { void F; void e; void n; }
-  // partFX()'s air half: an aircraft's damaged part smokes here (grey; black and white are the trails'), true when it
-  // did. Not yet: false (the generic smoke for every part).
-  function airPartFX(o, p, f, n) { void o; void p; void f; void n; return false; }
+  // An aircraft's engine or fuel part catches fire: on a hit taking it under 30 % (Combat.damage's line), an engine at
+  // 0 hp, a fuel part torn off, a falling half wing or a detonation's piece holding fuel. Only that part burns (no
+  // spread), for 8-22 s, losing 4 % of its health a second while it is on a craft someone flies (on a piece, a limp
+  // hulk or another player's craft the fire is only a picture), so a part lit at 30 % is gone in 7.5 s: a burning engine
+  // dies, a wing loses its half, a fuselage tears off, and a big tank (over 500 kg) burnt through goes up one time in
+  // ten (the air rule's #2). War Thunder's two answers put it out sooner: an engine fire's timer runs three times as
+  // fast with the throttle back (0.2 or less), any fire's three times as fast again above 150 m/s EAS (a dive); water
+  // puts it out at once. A fire leaves black smoke and a flame behind it, a leaking tank a white trail, other damage a
+  // grey one (FX: pictures, drawn from FX.rnd); the player hears it crackle. Never on a drone (grams of battery), a
+  // rocket, a car or a tank, nor from a crash (a dent, or the blasts a crash's old body sets off: no hit).
+  const T = { F: null, e: 0, o: null, od: 0, crack: 0 }; // the tick under way (airPartFX reads it), the last vessel's camera distance, the next crackle (s from now)
+  // a fuel part (fuel left) under half its health, not burning: it leaks (the white trail; the fuel it loses is
+  // combat.js's arithmetic, as ever)
+  const leaking = (p) => p.fuel > 0 && !(p.burn > 0) && p.hp != null && Combat.hpFrac(p) < 0.5;
+  // a craft's burning part, an engine first (the HUD's alert: "Engine fire" or "Fire"), else null
+  function burning(v) { let f = null; for (const p of v.parts) if (p.burn > 0) { if (p.def.thrust) return p; f = f || p; } return f; }
+  // how far a vessel is from the camera (0 when the sim can't say: every trail at full rate)
+  const camDist = (F, o) => (typeof F.dist === 'function' && typeof F.absPos === 'function' && F.camAbs ? F.dist(F.absPos(o), F.camAbs) : 0);
+  // where a part's smoke comes from: a plain wing's halves in turn (a cut wing's remaining half only), a pair's copies in
+  // turn (k: the turn), else its middle
+  function partAt(o, p, k) {
+    const w = p.def.wing;
+    if (w && !w.control) return o.toWorld(p.x, p.y, partZc(p) + (p.cut ? -p.cut : k % 2 ? -1 : 1) * (w.span || 0) / 4);
+    const zs = partZs(p);
+    return o.toWorld(p.x, p.y, zs[k % zs.length]);
+  }
+
+  // Lights part p of v on a roll of dice(p, p.fireN) under odds: true when lit. by: who lit it (else the craft's last
+  // hitter). quiet: true, the caller tells the player itself (damage's 30 % line); 'piece', a part on its way off the
+  // craft (torn off): no word to anyone. The player's own craft: a toast and a buzz; a craft we lit: the ON FIRE banner.
+  function ignite(v, p, odds, by, sim, quiet) {
+    if (v.remote || v.foreign || p.burn > 0 || p.def.gv || v.kind === 'drone' || !airHit(v, null)) return false; // (a peer's craft: its owner's fire; a crash lights nothing: airHit)
+    p.fireN = (p.fireN || 0) + 1;
+    if (!(dice(p, p.fireN) < odds)) return false;
+    p.burn = FIRE.t0 + FIRE.tSpan * dice(p, 100 + p.fireN);
+    p.burnBy = by || v.lastHitBy || null;
+    if (quiet === 'piece') return true;
+    if (v === sim.active && !v.ai) {
+      if (!quiet) toastMe(v, sim, `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`);
+      if (typeof haptic === 'function') haptic([30]);
+    }
+    if (v !== sim.active && v.control && !v.isDebris && Combat.byMe(p.burnBy, sim)) feedback('ON FIRE', sim);
+    return true;
+  }
+  // tick()'s first part, for every vessel on the active craft's body (no distance cap): each burning part's timer and
+  // damage (applied after the loop: a part may tear off), the fire out; then the trails behind burning and leaking
+  // parts, the nearest 4 within 3 km at full rate (a puff every 7 m on High, 14 m on Low), the rest to 8 km at a
+  // trickle, none further or above 4× warp; and the crackle while the player's craft burns.
+  function fireTick(F, e, n) {
+    const v = F.active;
+    T.F = F; T.e = e; T.o = null;
+    if (!v || !F.vessels) return;
+    const hurt = [], trails = [];
+    let mine = false;
+    for (const o of F.vessels) {
+      if (o.dead || o.body !== v.body) continue;
+      const air = isAirKind(o.kind);
+      for (const p of o.parts) {
+        if (p.burn > 0) {
+          if (!o.remote) { // (a peer's craft: only the picture, its owner runs the fire and says when it is out)
+            if (o.splashed) p.burn = 0;
+            else if (o.foreign || !o.control || o.isDebris) p.burn = Math.max(0, p.burn - e); // (a piece, a limp hulk: it burns, it hurts nothing)
+            else {
+              const k = (p.def.thrust && o.throttle <= 0.2 ? FIRE.idleK : 1) * (Math.sqrt((o.dynP || 0) / 0.6) > FIRE.diveEas ? FIRE.diveK : 1);
+              p.burn = Math.max(0, p.burn - e * k);
+              if (alive(p)) hurt.push([o, p, FIRE.dps * Combat.maxHp(p.def) * e]);
+            }
+            if (!(p.burn > 0) && o === v && !F.destroyed) toastMe(o, F, `${p.def.name}: fire out`, 'info');
+          }
+          if (p.burn > 0) { if (o === v) mine = true; trails.push({ o, p, burn: true, d: 0 }); continue; }
+        }
+        if (air && leaking(p)) trails.push({ o, p, burn: false, d: 0 });
+      }
+    }
+    // the trails (pictures), before the damage moves any part to a piece of its own
+    if (trails.length && !((F.warpIdx || 0) > 2)) {
+      const C = DEATH.trail, hi = Settings.high ? 0 : 1;
+      for (const t of trails) t.d = camDist(F, t.o);
+      trails.sort((a, b) => a.d - b.d);
+      let full = 0;
+      for (const { o, p, burn, d } of trails) {
+        if (d > C.far) break;
+        const all = full < C.full && d <= C.near;
+        if (all) full++;
+        else if (n % 2) continue; // (further off: a puff and a flame every 2nd tick)
+        const P = partAt(o, p, all ? n : n >> 1), vel = { x: o.vx || 0, y: o.vy || 0, z: o.vz || 0 };
+        FX.trail(o.body, P, vel, burn ? 'black' : 'white', all ? clamp(Math.ceil((o.speed() * e) / C.space[hi]), 1, C.nmax[hi]) : 1, e);
+        if (burn) FX.flame(o.body, P, vel, clamp(Math.max(p.def.w || 0, p.def.h || 0) / 2, 0.6, 2));
+      }
+    }
+    for (const [o, p, d] of hurt) Combat.damage(o, p, d, 'fire', F, p.burnBy); // (the fire's damage is the hitter's who lit it)
+    // the crackle: a click every 0.15-0.35 s, scheduled into the coming tick's span (at: s from now)
+    if (mine) { while (T.crack < e) { Sound.crackle(T.crack); T.crack += 0.15 + 0.2 * FX.rnd(); } T.crack -= e; } else T.crack = 0;
+  }
+  // partFX()'s air half (Combat.frame's part loop, a part at 60 % or under): an aircraft's damage leaves a grey trail, a
+  // puff every 2nd tick within 3 km of the camera, and no fire unless it really burns (black is a fire's, white a
+  // leak's: fireTick's trails). true: drawn here (none of the old generic smoke). Hollywood keeps the old smoke.
+  function airPartFX(o, p, f, n) {
+    void f;
+    if (!isAirKind(o.kind) || p.def.gv || hollywood()) return false;
+    if (p.burn > 0 || leaking(p) || n % 2) return true;
+    const F = T.F;
+    if (!F || (F.warpIdx || 0) > 2) return true;
+    if (T.o !== o) { T.o = o; T.od = camDist(F, o); } // (a vessel's parts come one after another)
+    if (T.od > DEATH.trail.near) return true;
+    FX.trail(o.body, partAt(o, p, n >> 1), { x: o.vx || 0, y: o.vy || 0, z: o.vz || 0 }, 'grey', 1, T.e);
+    return true;
+  }
 
   // ================================================================ crash and lifecycle
   // (D3 fills this section: impactAir (impact's air branch), crash, pyres, hulkTick (rest and age, junk), the near list.)
@@ -357,10 +454,10 @@ const Death = (() => {
   return {
     S, fb, DET, dice, alive, partDead, airSize, groundSize, deathFX, tagPieces, base,
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
-    ignite, partFX,
+    ignite, burning, leaking, partFX,
     impact, tick, reset,
     groundPart,
     feedback, hit, drawHits,
-    _t: { detRoll, state, intactClS, tearOff, loaded, FB },
+    _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T },
   };
 })();

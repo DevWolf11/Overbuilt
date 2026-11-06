@@ -62,12 +62,13 @@ const Combat = (() => {
     if (by) { v.lastHitBy = by; v.lastHitAt = sim.time || 0; }
     if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     const after = hpFrac(p);
-    if (by && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick)
-    // an aircraft's engine or fuel part (> 50 kg) knocked under 30 %: it may catch fire (death.js); the player hears what
-    // really happened (on fire, or badly damaged), every other kind as before
+    if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit)
+    // an aircraft's engine or fuel part (> 50 kg) knocked under 30 % by a hit (not a crash's dent or a crash's own
+    // blasts: the air rule's gate): it may catch fire (death.js); the player hears what really happened (on fire, or
+    // badly damaged), every other kind as before
     const c30 = before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50), air = isAirKind(v.kind) && !p.def.gv && !Silly.on('hollywood');
-    const lit = c30 && air && Death.ignite(v, p, p.def.thrust ? FIRE.lit30.eng : FIRE.lit30.fuel, by || v.lastHitBy, sim, true);
-    if (v === sim.active && !v.ai && !p.def.gv) { // (the ground update's parts say what broke themselves: armour.js)
+    const lit = c30 && air && Death.airRule(v, p, cause) && Death.ignite(v, p, p.def.thrust ? FIRE.lit30.eng : FIRE.lit30.fuel, by || v.lastHitBy, sim, true);
+    if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire') { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast)
       if (c30) sim.toast(!air ? `${p.def.name} on fire!` : lit ? `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out` : `${p.def.name} badly damaged`, 'warn');
       else if (before >= 0.6 && after < 0.6 && after > 0) sim.toast(`${p.def.name} damaged`, 'warn');
     }
