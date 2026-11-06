@@ -465,7 +465,8 @@ const Death = (() => {
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, partFX,
     impact, tick, reset,
-    groundPart, groundKO, settle, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint },
+    groundPart,
+    groundKO, settle, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
     feedback, hit, drawHits,
     _t: { detRoll, state, intactClS, tearOff, loaded, FB },
   };
