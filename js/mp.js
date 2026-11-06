@@ -46,7 +46,7 @@ const MP_SET_OK = {
   test: [true, false], carriers: [true, false], ff: [true, false], tod: ['day', 'dusk', 'night'], limit: [600, 900, 1500], cap: [true, false],
   game: ['air', 'ground'], tickets: [400, 600, 900], respawn: ['free', 'lineup'], air: [true, false], aim: ['arcade', 'realistic'],
 };
-const MP_WRECKS = 8, MP_WRECK_MS = 90000; // the most wrecks kept on the field, and for how long
+const MP_WRECKS = 8, MP_WRECK_MS = 300000, MP_SINK_MS = 6000; // the most wrecks standing on the field, how long each stays (from its `down`), the last ms of it sinking into the ground
 const MP_WRECK_AGL = 10; // (a knocked-out ground vehicle higher than this off the ground leaves no wreck: none hangs in the air)
 const mpAir = (kind) => kind === 'plane' || kind === 'heli';
 // living troops on board (a hull's built-in bay and placed troop bays, while they're whole), at most 12
@@ -797,9 +797,9 @@ const MP = {
   startFlight(solo) {
     const s = this.state, ground = this.ground && !solo && s.phase === 'battle';
     UI.closeModal(); MPUI.closeSpawnMap();
-    // a ground battle: our knocked-out hulk stays where it stopped at the `down` (onLocalDestroyed), a wreck like the
-    // others', with its thrown turret
-    const H = this.hulk, hulk = ground && H && Flight.running && Flight.destroyed && Flight.active === H.v && !H.v.dead && H.v.parts.length ? H : null;
+    // our knocked-out hulk stays where it stopped at the `down` (onLocalDestroyed), a wreck like the others', with its
+    // thrown turret: in every shared mode (a sandbox's too)
+    const H = this.hulk, hulk = H && Flight.running && Flight.destroyed && Flight.active === H.v && !H.v.dead && H.v.parts.length ? H : null;
     this.hulk = null;
     if (hulk) { for (const q of hulk.bits || []) q.foreign = Net.me; this.addWreck(hulk.v, Net.me, hulk.bits, hulk.t); } // (the pieces carry the ids our new craft has: hits never look in them)
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
@@ -819,8 +819,10 @@ const MP = {
       if (!this.live) return;
       App.showScene('flight');
       const opts = { place, time, mp: { mode: s.mode, solo: !!solo, phase: s.phase } };
-      if (ground) opts.keep = this.wrecks.flatMap((w) => (w.bits ? [w.v, ...w.bits] : [w.v])); // (the hulks on the field, ours too, and their thrown turrets)
+      if (ground || this.wrecks.length) opts.keep = this.wrecks.flatMap((w) => (w.bits ? [w.v, ...w.bits] : [w.v])); // (the hulks on the field, ours too, and their thrown turrets)
       Flight.start(design, opts);
+      // a spawn on top of a wreck: it starts sinking, here and (at our first snapshot) on every other screen alike
+      if (!solo && typeof Death !== 'undefined' && Flight.active) { const a = Flight.active; Death.clearSpawn(a.body, a.toWorld(a.com.x, a.com.y, a.com.z || 0)); }
       if (ground && Flight.active) Flight.active.spawnAt = Flight.time; // (4 s of spawn protection: Armour)
       Builder.mp = null;
       if (!solo) { this.sendSpawn(); this.setMine('flying', true); if (this.pvp) this.setMine('kind', kind); }
@@ -863,12 +865,29 @@ const MP = {
     this.startFlight(false);
     return true;
   },
-  // a knocked-out hulk kept on the field (ours at a respawn, the others' on their `down`): still, never stepped, solid
-  // to shells; the oldest goes past MP_WRECKS, each after MP_WRECK_MS (from t: its `down`)
+  // a knocked-out hulk kept on the field (ours at a respawn, the others' on their `down`), in every shared mode: still,
+  // never stepped, solid to shells, charred, burning then smoking (death.js); five minutes from its `down` (t), the last
+  // 6 s of them sinking into the ground (solid until it is gone). A 9th standing starts the oldest standing one sinking
+  // now: on every screen at the same `down`, so they stay solid alike (sinkAt: when it began early, by our clock)
   addWreck(v, pid, bits, t) {
     v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
-    this.wrecks.push({ v, pid, t: t || performance.now(), bits: bits && bits.length ? bits : null });
-    while (this.wrecks.length > MP_WRECKS) this.dropWreck(this.wrecks[0]);
+    const now = performance.now();
+    this.wrecks.push({ v, pid, t: t || now, bits: bits && bits.length ? bits : null, sinkAt: null });
+    let up = 0;
+    for (const w of this.wrecks) if (this.sinkStart(w) > now) up++;
+    for (const w of this.wrecks) { if (up <= MP_WRECKS) break; if (this.sinkStart(w) > now) { w.sinkAt = now; up--; } }
+  },
+  // when a wreck starts sinking (performance.now() ms): early (the cap, a spawn on top of it), else its last 6 s
+  sinkStart(w) { return w.sinkAt != null ? w.sinkAt : w.t + MP_WRECK_MS - MP_SINK_MS; },
+  // a wreck's sinking at now: 0 standing, 0..1 going down (v.sink on the hulk and its thrown turret: the renderer lowers
+  // them), gone at 1 (true); a clock past its end drops it at once
+  sinkWreck(w, now) {
+    const k = (now - this.sinkStart(w)) / MP_SINK_MS;
+    if (!(k > 0)) return false;
+    if (k >= 1) return true;
+    w.v.sink = k;
+    if (w.bits) for (const q of w.bits) q.sink = k;
+    return false;
   },
   dropWreck(w) {
     this.wrecks = this.wrecks.filter((x) => x !== w);
@@ -977,16 +996,18 @@ const MP = {
     Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }, pid);
     if (this.sent) { this.sent.hpSig = ''; this.sent.pvFull = 0; } // and the damage and moving parts, with the next updates
   },
-  // after each Flight.update: snapshots of our craft, at fixed wall-clock rates
-  afterUpdate() {
+  // after each Flight.update: snapshots of our craft, at fixed wall-clock rates. last: our hulk's last word as it starts
+  // to fall on everyone else's screen (onLocalDestroyed): everything now, whatever the clocks, though we are destroyed
+  // (the parts the killing hit took, a wing's half, what burns, where it is), the snapshots stopping after it
+  afterUpdate(last) {
     if (!this.shared) return;
     const v = Flight.active, now = performance.now(), S = this.sent;
     if (!v || !S) return;
-    if (Flight.destroyed || !v.parts.length) return;
+    if ((Flight.destroyed && !last) || !v.parts.length) return;
     if (v.parts.length !== this.lastParts) { this.lastParts = v.parts.length; Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }); }
     const ground = this.ground;
     if (ground && (v.wheelsDown || v.contactTime > 0)) this.gdAt = now; // (on the ground in the last half second: it may take a zone)
-    if (now - S.s >= MP_SNAP_MS) {
+    if (last || now - S.s >= MP_SNAP_MS) {
       S.s = now;
       const r2 = (x) => Math.round(x * 100) / 100, r4 = (x) => Math.round(x * 1e4) / 1e4;
       const snap = { t: 's', th: Math.round(Net.hostNow()), b: v.body.id, P: [r2(v.x), r2(v.y), r2(v.z)], V: [r2(v.vx), r2(v.vy), r2(v.vz)],
@@ -995,7 +1016,7 @@ const MP = {
       if (ground) snap.gd = now - (this.gdAt || -1e9) < 500 ? 1 : 0;
       Net.send(snap);
     }
-    if (now - S.pv >= MP_PV_MS) { // moving parts: only those that changed (all of them every 2 s)
+    if (last || now - S.pv >= MP_PV_MS) { // moving parts: only those that changed (all of them every 2 s)
       S.pv = now;
       const full = now - (S.pvFull || 0) > 2000, list = [];
       if (full) S.pvFull = now;
@@ -1006,6 +1027,7 @@ const MP = {
         const row = [p.id, Math.round((p.deflect || 0) * 100) / 100, Math.round((p.firing || 0) * 100) / 100, Math.round((p.ab || 0) * 100) / 100,
           p.retracted ? 1 : 0, p.sweep != null ? Math.round(p.sweep * 100) / 100 : null, Math.round((p.aimYaw || 0) * 100) / 100, Math.round((p.aimEl || 0) * 100) / 100,
           p.ammo == null ? null : p.ammo, Math.round((p.deployed || 0) * 100) / 100, p.used ? 1 : 0, p.gunOn ? 1 : 0];
+        if (p.cut) row.push(p.cut); // (a 13th column: a main wing with half shot off, 1 its +z half gone, -1 its -z half; intact craft never send it)
         const sig = row.join();
         if (!full && S.pvSig.get(p.id) === sig) continue;
         S.pvSig.set(p.id, sig);
@@ -1013,10 +1035,10 @@ const MP = {
       }
       if (list.length) Net.send({ t: 'pv', list });
     }
-    if (now - S.hp >= MP_HP_MS) {
+    if (last || now - S.hp >= MP_HP_MS) {
       S.hp = now;
       const list = [];
-      for (const p of v.parts) if (p.hp != null) list.push([p.id, Math.round(Combat.hpFrac(p) * 100)]);
+      for (const p of v.parts) if (p.hp != null) list.push(p.burn > 0 ? [p.id, Math.round(Combat.hpFrac(p) * 100), 1] : [p.id, Math.round(Combat.hpFrac(p) * 100)]); // (a 3rd column while it burns: the others draw its fire)
       const sig = list.join(';');
       if (sig !== S.hpSig) { S.hpSig = sig; Net.send({ t: 'hp', list }); }
     }
@@ -1024,55 +1046,82 @@ const MP = {
   // our craft is gone (Flight.onDestroyed): tell everyone, and who did it
   onLocalDestroyed() {
     if (this.live && Flight.mp && Flight.mp.solo) { // a test flight: try again while the clock runs
-      setTimeout(() => {
+      setTimeout(this.afterFall(() => {
         if (!this.live || this.phase !== 'test' || App.scene !== 'flight' || !Flight.destroyed) return;
         const g = this.ground;
         UI.modal({ kicker: g ? 'Test drive' : 'Test flight', title: g ? 'Vehicle lost' : 'Craft lost', body: '<p>Only a test: nothing is lost. Try again, or wait for the polish phase to fix what broke.</p>',
           actions: [{ label: g ? 'Drive again' : 'Fly again', primary: true, onClick: () => { if (this.phase === 'test') this.startFlight(true); } }] });
-      }, 1400);
+      }), 1400);
       return true;
     }
     if (!this.shared) return false;
-    const v = Flight.active, s = this.state;
-    const by = v.lastHitBy && v.lastHitBy.remote && Flight.time - (v.lastHitAt || -99) < 20 ? v.lastHitBy.remote : 0;
-    const P = v.toWorld(v.com.x, v.com.y, v.com.z || 0);
-    if (this.ground && s.phase === 'battle') { // knocked out: the hulk stays (w), for everyone; then the Respawn panel
-      const ko = v.ko, msg = { t: 'down', by, P: [P.x, P.y, P.z] };
-      this.hulk = null;
-      if (ko && !v.dead && v.parts.length && isGround(v.kind) && v.groundAltitude() < MP_WRECK_AGL) {
-        msg.w = 1; if (ko.x) msg.x = 1;
-        // it stops here, as it does on every other screen (a wreck is never stepped), with the turret it threw (not
-        // pieces of anyone else's); a wreck of ours from the respawn on (startFlight)
-        v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
-        this.hulk = { v, t: performance.now(), bits: ko.x ? Flight.vessels.filter((q) => q.tossed && !q.foreign && !q.dead && !q.remote) : null };
-      }
-      msg.why = ko ? (ko.why === 'hull' ? 'parts' : ko.why) : 'parts';
-      Net.send(msg);
-      if (Net.isHost) this.recordDown(Net.me, by);
+    const v = Flight.active, s = this.state, battle = this.ground && s.phase === 'battle';
+    // who did it: whoever crippled it (doomBy, death.js: an aircraft shot apart, however long it then fell or burned),
+    // else the last hit within 20 s. (mptrace's stand-in craft has no doomBy, down or ko: every new read stops there.)
+    const src = this.pidOf(v.doomBy) ? v.doomBy : this.pidOf(v.lastHitBy) && Flight.time - (v.lastHitAt || -99) < 20 ? v.lastHitBy : null;
+    const by = src && this.pidOf(src) !== Net.me ? this.pidOf(src) : 0; // (never ourselves: our own old pieces carry our id)
+    const P = v.toWorld(v.com.x, v.com.y, v.com.z || 0), msg = { t: 'down', by, P: [P.x, P.y, P.z] };
+    // an aircraft shot down in the air (its pilot out, its lift or its rotor gone) falls on every screen from where it is,
+    // with its velocity (fall: MP.toFall there), and crashes where it hits; a knocked-out ground vehicle on the ground
+    // stays as a wreck (w) on every screen, in every mode
+    const fall = !!v.down && !v.dead && v.parts.length > 0 && isAirKind(v.kind) && !v.landed && v.groundAltitude() > 10;
+    const ko = v.ko, wreck = !!ko && !v.dead && v.parts.length > 0 && isGround(v.kind) && v.groundAltitude() < MP_WRECK_AGL;
+    this.hulk = null;
+    if (wreck) {
+      msg.w = 1; if (ko.x) msg.x = 1;
+      // it stops here, as it does on every other screen (a wreck is never stepped), with the turret it threw (not
+      // pieces of anyone else's); a wreck of ours from the respawn on (startFlight). (death.js's settle, written out:
+      // the mp loader has no death.js)
+      v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
+      this.hulk = { v, t: performance.now(), bits: ko.x ? Flight.vessels.filter((q) => q.tossed && !q.foreign && !q.dead && !q.remote) : null };
+    }
+    if (wreck || battle) msg.why = ko ? (ko.why === 'hull' ? 'parts' : ko.why) : 'parts';
+    // falling: the last word waits for the hit under way to end (a hit message's later rows, the rest of a blast's
+    // parts: what they take here goes there too), at the end of this task; first everything that hit changed (the
+    // parts it took, a wing's half, what burns, where it is), then the down with where it goes. Crashed by then: no fall.
+    if (fall) Promise.resolve().then(() => this.lastWord(v, msg));
+    else Net.send(msg);
+    if (Net.isHost) this.recordDown(Net.me, by);
+    // (each end screen waits for the fall and the crash: Flight.afterFall; the delays as ever)
+    if (battle) { // knocked out: the Respawn panel
       Flight.ended = false;
-      setTimeout(() => {
+      setTimeout(this.afterFall(() => {
         if (!this.live || !this.ground || this.phase !== 'battle' || !Flight.destroyed) return;
         const me = this.me;
         if (me && me.alive) MPUI.respawnPanel(by);
         else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${MPUI.switchWord()} to switch)`, 'warn'); }
-      }, 1800);
+      }), 1800);
       return true;
     }
-    Net.send({ t: 'down', by, P: [P.x, P.y, P.z] });
-    if (Net.isHost) this.recordDown(Net.me, by);
     if (!this.pvp) { // sandbox: back to the hangar or fly again
-      setTimeout(() => {
+      setTimeout(this.afterFall(() => {
         if (!this.live || App.scene !== 'flight' || !Flight.destroyed) return;
         UI.modal({ kicker: by ? `Shot down by ${this.nameOf(by)}` : 'Crashed', title: 'Craft lost', body: Flight.summaryHTML(),
           actions: [{ label: 'Back to hangar', onClick: () => { this.leaveFlight(); App.toBuild(); } }, { label: 'Fly again', primary: true, onClick: () => this.startFlight(false) }] });
-      }, 1600);
+      }), 1600);
       return true;
     }
     // a battle: watch the others until it's over
     Flight.ended = false;
-    setTimeout(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${MPUI.switchWord()} to switch)`, 'warn'); } }, 1800);
+    setTimeout(this.afterFall(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${MPUI.switchWord()} to switch)`, 'warn'); } }), 1800);
     return true;
   },
+  // our hulk's down with its fall (onLocalDestroyed), sent once whatever happens
+  lastWord(v, msg) {
+    try {
+      if (this.shared && Flight.active === v && !v.dead && v.parts.length && !v.landed) {
+        this.afterUpdate(true);
+        const r1 = (x) => Math.round(x * 10) / 10;
+        msg.fall = [r1(v.vx), r1(v.vy), r1(v.vz)];
+      }
+    } finally { Net.send(msg); }
+  },
+  // an end screen's timer callback that waits, once due, for our falling hulk to crash (Flight.afterFall: 1.2 s after
+  // the crash, at most 10 s after the death), then runs go
+  afterFall(go) { return () => (typeof Flight.afterFall === 'function' ? Flight.afterFall(go) : go()); },
+  // the player a craft stands for: a peer's ghost, the stand-in a hit message makes, their falling hulk or its pieces
+  // on our screen (foreign); else 0
+  pidOf(o) { return (o && (o.remote || o.foreign)) || 0; },
   // host: book-keeping for a craft lost
   recordDown(pid, by) {
     const s = this.state, p = this.player(pid);
@@ -1109,6 +1158,7 @@ const MP = {
     this.dropGhost(m.f, false);
     P.design = { kind: typeof m.kind === 'string' && hasOwn(VEHICLE_KINDS, m.kind) ? m.kind : 'plane', parts }; // (never the raw message)
     P.snap = null;
+    P.fresh = true; // (a new craft: a wreck its first snapshot puts it on top of starts sinking, as on its owner's screen)
     if (Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
     if (Net.isHost && this.state) {
       const p = this.player(m.f), priced = this.ground && this.priceSpawn(m.f, parts, P.design.kind); // (a ground battle: priced here)
@@ -1172,7 +1222,7 @@ const MP = {
     const W = S.W, wl = Math.hypot(W[0], W[1], W[2]);
     let tq = quat(S.Q[0], S.Q[1], S.Q[2], S.Q[3]);
     if (wl > 1e-6) tq = qnorm(qmul(tq, qaxis(W[0] / wl, W[1] / wl, W[2] / wl, wl * age))); // body-frame spin
-    const ex = tx - g.x, ey = ty - g.y, ez = tz - g.z, err = Math.hypot(ex, ey, ez);
+    const ex = tx - g.x, ey = ty - g.y, ez = tz - g.z, err = Math.hypot(ex, ey, ez), first = g.hiddenUntilSnap;
     if (snap || g.hiddenUntilSnap || err > 60) { g.x = tx; g.y = ty; g.z = tz; g.q = tq; g.hiddenUntilSnap = false; }
     else {
       const k = Math.min(1, dt * 10);
@@ -1185,6 +1235,9 @@ const MP = {
     if (Math.hypot(C[0] - c0.x, C[1] - c0.y, (C[2] || 0) - (c0.z || 0)) <= (g.reach || 30) + 1) g.com = { x: C[0], y: C[1], z: C[2] || 0 };
     g.gearUp = !!S.g; g.landed = !!S.l;
     g.lastSeen = P.recv;
+    // a craft just spawned (its first snapshot since its spawn) on top of a wreck: the wreck starts sinking, as its owner
+    // saw at its start (death.js clearSpawn)
+    if (first && P.fresh) { P.fresh = false; if (typeof Death !== 'undefined') Death.clearSpawn(g.body, g.toWorld(g.com.x, g.com.y, g.com.z || 0)); }
   },
   // before each Flight.update: put every ghost where it should be and make sure the flight lists it
   beforeUpdate(dt) {
@@ -1203,11 +1256,15 @@ const MP = {
     }
     // radar locks time out
     for (const [pid, t] of this.rwr) if (performance.now() - t > 2500) this.rwr.delete(pid);
-    // the wrecks on the field stay in the flight (a respawn rebuilt its list) until they go, after 90 s
+    // watching a peer's hulk fall (toFall): once it has crashed, on to the next player 1.5 s later
+    const sp = Flight.spectate;
+    if (sp && sp.foreign && sp.dead && !this.specT) this.specT = setTimeout(() => { this.specT = 0; if (Flight.spectate && Flight.spectate.dead) { Flight.spectate = null; if (this.live && Flight.destroyed) MPUI.spectate(1); } }, 1500);
+    // the wrecks on the field stay in the flight (a respawn rebuilt its list) until they go: five minutes, the last 6 s
+    // sinking (or sooner, sunk for the cap or a spawn on top of them)
     if (this.wrecks.length) {
       const now = performance.now();
       for (const w of [...this.wrecks]) {
-        if (now - w.t > MP_WRECK_MS || w.v.dead) { this.dropWreck(w); continue; }
+        if (w.v.dead || this.sinkWreck(w, now)) { this.dropWreck(w); continue; }
         if (!list.includes(w.v)) list.push(w.v);
         if (w.bits) for (const q of w.bits) if (!q.dead && q.parts.length && !list.includes(q)) list.push(q); // (its thrown turret)
       }
@@ -1241,7 +1298,25 @@ const MP = {
       if (ammo != null) p.ammo = ammo;
       p.deployed = dep; p.used = !!used; p.gunOn = !!gun;
       if (p.def.thrust) p.active = fire > 0;
+      const c = row[12]; // (the big update: a main wing with half shot off, the half that went; never undone)
+      if ((c === 1 || c === -1) && !p.cut && p.def.wing && !p.def.wing.control && isAirKind(g.kind)) this.cutHalf(m.f, g, p, c);
     }
+  },
+  // A peer's aircraft lost half a main wing (its pv row's 13th column): the ghost's wing shows the half that is left
+  // (parts3d cuts its model), and the half that went falls here as a piece of our own physics (foreign: a picture),
+  // burning nothing, within 3 km of the camera; our HUD says WING OFF when it was our doing (a hit of ours in 8 s)
+  cutHalf(pid, g, p, c) {
+    p.cut = c;
+    const mh = Combat.maxHp(p.def);
+    if (p.hp != null) p.hp = Math.min(p.hp, 0.5 * mh); // (its health is the half's from now: the rows say so)
+    g.rebuildGroups();
+    if (this.near(g)) {
+      const q = makePart(p.type, p.x, p.y, { flip: p.flip, rot: p.rot, z: p.z, skin: p.skin });
+      q.cut = -c; q.hp = 1;
+      if (p.fuel != null) { q.fuel = p.fuel / 2; p.fuel /= 2; }
+      this.chip(g, [q], pid);
+    }
+    this.lostByMe(g, 'WING OFF');
   },
   onParts(m) {
     const P = this.peers.get(m.f), g = P && P.ghost;
@@ -1252,6 +1327,13 @@ const MP = {
     for (const p of gone) {
       const zs = partZs(p), vel = { x: g.vx, y: g.vy, z: g.vz }; // (each of a pair)
       for (const z of zs) { const wp = g.toWorld(p.x, p.y, z); FX.sparks(g.body, wp, vel, 12 / zs.length); FX.puff(g.body, wp, vel, 6 / zs.length, '#cfd5dc'); }
+    }
+    // (the big update) what came off falls here too, as pieces of our own physics, before the ghost lets go of them
+    if (this.near(g)) this.chips(g, gone, m.f);
+    if (isAirKind(g.kind)) { // (our HUD's word for a loss of ours: a hit of ours on it in the last 8 s)
+      if (gone.some((p) => p.def.wing && !p.def.wing.control)) this.lostByMe(g, 'WING OFF');
+      else if (gone.some((p) => (p.def.wing && p.def.wing.control) || p.def.shape === 'vtail' || p.def.fin)) this.lostByMe(g, 'TAIL OFF');
+      if (gone.some((p) => p.def.air && p.def.air.kind === 'rotor')) this.lostByMe(g, 'ROTOR OFF');
     }
     g.parts = g.parts.filter((p) => keep.has(p.id));
     for (const p of g.parts) if (p.att != null && !keep.has(p.att)) p.att = null; // (its host broke off)
@@ -1266,19 +1348,86 @@ const MP = {
   onHp(m) {
     const P = this.peers.get(m.f), g = P && P.ghost;
     if (!g || !Array.isArray(m.list)) return;
-    const by = new Map(g.parts.map((p) => [p.id, p]));
-    for (const row of m.list) { if (!Array.isArray(row)) continue; const p = by.get(row[0]); if (p && Number.isFinite(row[1])) p.hp = (clamp(row[1], 0, 100) / 100) * Combat.maxHp(p.def); }
+    const by = new Map(g.parts.map((p) => [p.id, p])), air = isAirKind(g.kind);
+    let lit = false;
+    for (const row of m.list) {
+      if (!Array.isArray(row)) continue;
+      const p = by.get(row[0]);
+      if (!p || !Number.isFinite(row[1])) continue;
+      p.hp = (clamp(row[1], 0, 100) / 100) * Combat.maxHp(p.def) * (p.cut ? 0.5 : 1); // (a wing with half shot off: the half's own health)
+      if (air && !p.def.gv) { const b = row[2] === 1 ? 1 : 0; if (b && !(p.burn > 0)) lit = true; p.burn = b; } // (a 3rd column: it burns; its owner runs the fire, we draw it)
+    }
+    if (lit) this.lostByMe(g, 'ON FIRE');
+  },
+  // is a ghost near enough the camera for its falling pieces (3 km)?
+  near(g) { return Flight.running && typeof Flight.dist === 'function' && typeof Flight.absPos === 'function' && !!Flight.camAbs && Flight.dist(Flight.absPos(g), Flight.camAbs) < 3000; },
+  // our HUD's banner for a peer's aircraft's loss when a hit of ours on it landed in the last 8 s (death.js's feedback)
+  lostByMe(g, text) {
+    if (typeof Death !== 'undefined' && g.hitByMeAt != null && performance.now() - g.hitByMeAt < DEATH.hitWin * 1000) Death.feedback(text, Flight);
+  },
+  // The parts a peer's craft lost (onParts: gone) fall here as pieces of our own physics: in
+  // connected sets (over the ghost's joints), the 6 heaviest, each placed and moving as the craft breaking in two
+  // places its pieces (Vessel.splitComponents). The part objects move into the pieces (their ids are the owner's: a
+  // hit message naming them lands nowhere, the pieces are foreign). An aircraft's fall and crash (hulk), a ground
+  // vehicle's lie and sink away (junk): death.js
+  chips(g, gone, pid) {
+    const ids = new Set(gone.map((p) => p.id)), left = new Set(ids), sets = [];
+    while (left.size) {
+      const id0 = left.values().next().value, set = [], todo = [id0];
+      left.delete(id0);
+      while (todo.length) {
+        const id = todo.pop();
+        set.push(id);
+        for (const n of g.adj.get(id) || []) if (left.has(n)) { left.delete(n); todo.push(n); }
+      }
+      sets.push(gone.filter((p) => set.includes(p.id)));
+    }
+    const mass = (ps) => ps.reduce((s, p) => s + (p.def.mass || 0) + (p.fuel || 0), 0);
+    sets.sort((a, b) => mass(b) - mass(a));
+    for (const ps of sets.slice(0, 6)) this.chip(g, ps, pid);
+  },
+  // one piece of a peer's craft (parts ps, off ghost g) falling on our screen
+  chip(g, ps, pid) {
+    const ids = new Set(ps.map((p) => p.id)), adj = new Map(), air = isAirKind(g.kind);
+    const burnT = typeof FIRE !== 'undefined' ? FIRE.t0 + FIRE.tSpan / 2 : 15;
+    for (const p of ps) {
+      adj.set(p.id, new Set([...(g.adj.get(p.id) || [])].filter((id) => ids.has(id))));
+      if (p.att != null && !ids.has(p.att)) p.att = null;
+      if (p.def.thrust) { p.active = false; p.firing = 0; }
+      if (p.def.control) p.ko = true;
+      if (p.burn > 0) p.burn = burnT; // (it burns on as it falls: a picture)
+    }
+    const v = new Vessel(ps, adj, g.body);
+    const rel = qrot(g.q, v.com.x - g.com.x, v.com.y - g.com.y, (v.com.z || 0) - (g.com.z || 0));
+    v.x = g.x + rel.x; v.y = g.y + rel.y; v.z = g.z + rel.z;
+    const pv = g.pointVel(rel);
+    v.vx = pv.x; v.vy = pv.y; v.vz = pv.z;
+    v.q = quat(g.q.w, g.q.x, g.q.y, g.q.z); v.av = v3(g.av.x, g.av.y, g.av.z);
+    v.kind = g.kind; v.name = 'Debris'; v.isDebris = true; v.throttle = 0; v.sas = 'off'; v.foreign = pid;
+    if (air) v.hulk = Flight.time || 0; else v.junkAt = Flight.time || 0;
+    v.rebuildGroups();
+    if (Flight.vessels) Flight.vessels.push(v);
+    return v;
   },
   onDown(m) {
     const P = this.peers.get(m.f), ground = this.ground, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null; // (a down with no place: no blast, the rest as ever)
     const g = P && P.ghost, kind = (P && P.design && P.design.kind) || (g && g.kind);
-    // a ground battle: a knocked-out ground vehicle (w) stays as a wreck, on every screen; an ammunition detonation (x)
-    // throws its turret here too. (Never an aircraft's, nor one in the sky or never seen yet: that one goes, as a plane
-    // shot down does. Its owner sends w on the ground only: the margin is for the ghost's lag.)
-    const hulk = ground && m.w === 1 && g && isGround(kind) && Flight.running && !g.dead && g.parts.length && !g.hiddenUntilSnap && g.groundAltitude() < MP_WRECK_AGL * 3 ? g : null;
-    if (g && Flight.running && at) {
-      FX.explosion(g.body, at, { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01);
-      if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
+    // a knocked-out ground vehicle (w) stays as a wreck, on every screen, in every mode; an ammunition detonation (x)
+    // throws its turret here too. (Never an aircraft's, nor one in the sky or never seen yet: that one goes. Its owner
+    // sends w on the ground only: the margin is for the ghost's lag.)
+    const hulk = m.w === 1 && g && isGround(kind) && Flight.running && !g.dead && g.parts.length && !g.hiddenUntilSnap && g.groundAltitude() < MP_WRECK_AGL * 3 ? g : null;
+    // an aircraft shot down in the air (fall: its velocity, 0.1 m/s) falls here too, from where its owner says, and
+    // crashes where it hits: a hulk of our own physics, no longer theirs (toFall). Only a ghost we have seen fly, and a
+    // velocity a craft could have
+    const fall = !hulk && mpNums(m.fall, 3) && Math.hypot(m.fall[0], m.fall[1], m.fall[2]) <= 2000 && g && isAirKind(kind) && Flight.running && !g.dead && g.parts.length && !g.hiddenUntilSnap ? g : null;
+    if (g && Flight.running && at && !fall) {
+      const D = typeof Death !== 'undefined' ? Death : null, vel = { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 };
+      if (hulk && D) D.deathFX(g, Flight, m.x === 1 ? 'ammo' : 'ko', undefined, at); // (the death its owner saw: a detonation, or a knock-out's fire)
+      else if (D && isAirKind(kind) && !g.hiddenUntilSnap && (g.groundAltitude() < 30 || this.aglAt(g.body, at) < 30)) this.crashAt(g, at); // (it crashed: the fireball its owner saw, and the crash site)
+      else {
+        FX.explosion(g.body, at, vel, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01); // (mid-air, never seen, or no damage model: as ever)
+        if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
+      }
     }
     if (hulk) {
       P.ghost = null; P.gun = {};
@@ -1288,29 +1437,68 @@ const MP = {
       // where its owner's hulk stopped (P: its centre of mass, the turret gone), give or take 20 m: a forged P can't carry it off
       const dx = at ? at.x - g.x : 0, dy = at ? at.y - g.y : 0, dz = at ? at.z - g.z : 0;
       if (dx * dx + dy * dy + dz * dz < 400) for (const o of bits ? [g, ...bits] : [g]) { o.x += dx; o.y += dy; o.z += dz; }
+      g.ko = { why: m.why === 'ammo' || m.why === 'crew' ? m.why : 'hull', x: m.x === 1, t: Flight.time || 0 }; // (it burns, then smokes, as any wreck: death.js)
       this.addWreck(g, m.f, bits);
-    } else this.dropGhost(m.f, false);
+    } else if (fall) this.toFall(m.f, g, m, at);
+    else this.dropGhost(m.f, false);
     this.peer(m.f).design = null; // (a new craft comes with a new spawn)
     if (m.by === Net.me) {
       Combat.S.kills++;
-      const ko = ground && isGround(kind);
+      const ko = isGround(kind);
       UI.toast(`${this.nameOf(m.f)} ${ko ? 'knocked out!' : 'shot down!'}`, 'kill'); Sound.chime();
-      if (ground) Armour.fb.ko = { text: m.x === 1 ? 'Ammo detonation!' : ko ? 'Knocked out!' : 'Shot down!', t: Flight.time || 0 }; // (the HUD's banner)
+      if (typeof Death !== 'undefined') Death.feedback(ko ? 'KNOCKED OUT' : 'SHOT DOWN', Flight); // (the air HUD's banner)
+      if (ground) Armour.fb.ko = { text: m.x === 1 ? 'Ammo detonation!' : ko ? 'Knocked out!' : 'Shot down!', t: Flight.time || 0 }; // (the ground HUD's banner)
     }
     if (Net.isHost) this.recordDown(m.f, m.by);
   },
+  // How high a point (body coordinates) is over the ground or the water under it (m)
+  aglAt(b, at) { const L = Terrain.locate(b, at.x, at.y, at.z, {}); return Math.hypot(at.x, at.y, at.z) - b.radius - Terrain.surfaceAt(b, L.a, L.z); },
+  // A peer's aircraft crashed (a down with no fall, on or near the ground): the fireball and the crash site its owner
+  // saw (death.js's crash, at its owner's place), here too. Only pictures and sound: it hurts nothing.
+  crashAt(g, at) {
+    if (typeof Death === 'undefined') return;
+    const L = Terrain.locate(g.body, at.x, at.y, at.z, {}), wet = !!Terrain.waterAt(g.body, L.a, L.z);
+    const k = Death.deathFX(g, Flight, 'crash', undefined, at, { water: wet });
+    if (k >= 2.5) Death.pyre(g.body, at, k, wet, Flight);
+  },
+  // A peer's aircraft shot down in the air (its down's fall): on our screen it becomes a hulk of our own physics (P's
+  // ghost no more: never locked, tagged, spotted or hit, no score; foreign: hits never look in it, only a picture), with
+  // its last pose and the owner's velocity, its pilot out, its engines dead, falling with its spin, and it crashes where
+  // it hits (death.js: one fireball and a crash site, no damage). E: a record other than the peer's (a second craft's,
+  // the drones package's), with the same ghost and gun fields.
+  toFall(pid, g, m, at, E) {
+    const R = E || this.peers.get(pid);
+    if (R && R.ghost === g && R.snap && !g.hiddenUntilSnap) this.poseGhost(R, 0, true); // (where the last snapshot, just come with the down, put it)
+    if (R) { R.ghost = null; R.gun = {}; }
+    const burnT = typeof FIRE !== 'undefined' ? FIRE.t0 + FIRE.tSpan / 2 : 15; // (a fire it had goes on for the picture: its owner's runs out of sight)
+    Object.assign(g, { remote: 0, foreign: pid, isDebris: true, throttle: 0, hulk: Flight.time || 0, down: true, sas: 'off', _ease: null });
+    for (const p of g.parts) {
+      if (p.def.control) p.ko = true;
+      if (p.def.thrust) { p.active = false; p.firing = 0; }
+      if (p.burn > 0) p.burn = burnT;
+    }
+    g.rebuildGroups(); // (its lift without a half shot off: the physics' own)
+    g.vx = m.fall[0]; g.vy = m.fall[1]; g.vz = m.fall[2];
+    if (at) { // (where its owner's hulk was, give or take 60 m: a forged P can't carry it off)
+      const c = g.toWorld(g.com.x, g.com.y, g.com.z || 0), dx = at.x - c.x, dy = at.y - c.y, dz = at.z - c.z;
+      if (dx * dx + dy * dy + dz * dz < 3600) { g.x += dx; g.y += dy; g.z += dz; }
+    }
+    if (Flight.vessels && !Flight.vessels.includes(g)) Flight.vessels.push(g);
+  },
 
   // ------------------------------------------------------------------ combat over the network
-  // our round (or blast) hit someone else's craft: list = [[part, damage], ...] on that craft
-  sendHit(ghost, part, dmg, kind) { this.sendHits(ghost, [[part, dmg]], kind); },
+  // our round (or blast) hit someone else's craft: list = [[part, damage], ...] on that craft (side: the half of an
+  // aircraft's plain wing it hit, 1 or -1, when we know it: combat.js)
+  sendHit(ghost, part, dmg, kind, side) { this.sendHits(ghost, [side === 1 || side === -1 ? [part, dmg, side] : [part, dmg]], kind); },
   // (the ground update: kind 'pen' or 'np' as well; mods: [[host part, module index, damage], ...] for its built-in crew,
   // ammunition and fuel, as m rows; dir: [x, y, z] toward us, for their hit arc; hot: a shaped charge, APHE or HE.
-  // A wreck takes nothing.)
+  // A wreck takes nothing, nor a peer's falling hulk on our screen: no longer theirs to hurt. The big update: a row's
+  // 3rd element, the wing half [part, damage, side], so the same half goes on every screen; our HUD's hit tick.)
   sendHits(ghost, list, kind, mods, dir, hot) {
     if (!this.shared || !ghost || !ghost.remote || ghost.wreck || !this.hostile(Net.me, ghost.remote)) return;
     const out = [], m = [];
     let total = 0;
-    for (const [p, d] of list) if (p && d > 0.05) { out.push([p.id, Math.round(d * 10) / 10]); total += d; }
+    for (const [p, d, sd] of list) if (p && d > 0.05) { out.push(sd === 1 || sd === -1 ? [p.id, Math.round(d * 10) / 10, sd] : [p.id, Math.round(d * 10) / 10]); total += d; }
     if (mods) for (const [p, i, d] of mods) if (p && d > 0.05 && m.length < 32) { m.push([p.id, i, Math.round(d * 10) / 10]); total += d; }
     if (!out.length && !m.length) return;
     const msg = { t: 'hit', to: ghost.remote, list: out, k: kind || 'shot' };
@@ -1319,6 +1507,8 @@ const MP = {
     if (hot) msg.h = 1;
     Net.send(msg, ghost.remote);
     if (Net.isHost) this.addDamage(Net.me, total); else this.dmgOut = (this.dmgOut || 0) + total;
+    ghost.hitByMeAt = performance.now(); // (its losses in the next 8 s show on our HUD: lostByMe)
+    if (typeof Death !== 'undefined' && (isAirKind(ghost.kind) || isGround(ghost.kind))) Death.hit(Flight); // (the hit tick)
   },
   onHit(m) {
     if (!this.shared || m.to !== Net.me) return;
@@ -1336,10 +1526,10 @@ const MP = {
     try {
       for (const row of list) {
         if (!Array.isArray(row)) continue;
-        const [id, dmg] = row, [part, owner] = find(id);
+        const [id, dmg, side] = row, [part, owner] = find(id);
         if (!part || !(dmg > 0)) continue;
         if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
-        Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by);
+        Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by, side === 1 || side === -1 ? side : undefined); // (side: the wing half the shooter saw hit)
       }
       // (the ground update) built-in modules, as m rows [part id, module index, damage], each checked (we decide what
       // follows: deaths, cook-offs, fires), and where it came from for the hit arc (d, else the shooter's bearing)

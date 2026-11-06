@@ -548,6 +548,33 @@ t('the pv rows carry a turret ring (its yaw) and nothing new for old craft', G.r
   const old = pv(b), want = b.parts.filter((p) => { const d = p.def; return d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract); }).map((p) => p.id).join();
   return !!ring && ring[6] === 0.5 && old.map((r) => r[0]).join() === want;
 })()`));
+// (the big update, NET_VERSION 11: a cut wing's pv column, a burning part's hp column, a falling hulk's down.fall, a
+// wreck's down.w in every mode, a hit row's wing side) an old craft's messages exactly as before: a buggy hit about
+// sends its part states in 12 columns and its health as [id, %]; an intact plane shot down in the air sends
+// { t, by, P } and nothing first; hits on an old buggy are [id, damage] rows; no calls into the new systems
+t('old craft send their messages as before the big update: a buggy\'s hp rows ([id, %]; part states it has none), a Mustang\'s pv rows (12 columns) and hp rows, an intact plane\'s down {t, by, P} (no last word first), hit rows [id, damage]', G.run(mp, `(() => {
+  for (const k in CALLS) delete CALLS[k]; // (the ring check above built a tank)
+  const C0 = globalThis.Combat, T0 = globalThis.setTimeout, timers = [];
+  globalThis.Combat = { hpFrac: (p) => (p.hp == null ? 1 : Math.max(0, p.hp) / 1000), maxHp: () => 1000, S: { kills: 0 } }; globalThis.setTimeout = (fn, ms) => { timers.push(ms); return 0; };
+  const bp = partsFromDesign(templateRows(TEMPLATES.buggy)), b = new Vessel(bp, buildAdjacency(bp), EARTH); b.kind = 'car'; b.rebuildGroups();
+  b.parts.forEach((p, i) => { if (i % 2) p.hp = 1000 - 150 * i; }); // (hit about: some parts hurt, some not)
+  const send = (v) => { Flight.active = v; Flight.destroyed = false; MP.sent = { s: 1e12, pv: -1e9, hp: -1e9, hpSig: '' }; MP.lastParts = v.parts.length; Net.out = []; MP.afterUpdate();
+    const f = (t) => { const m = Net.out.find(([q]) => q.t === t); return m ? m[0].list : []; }; return [f('pv'), f('hp')]; };
+  const [pvB, hp] = send(b), pp = partsFromDesign(templateRows(TEMPLATES.mustang)), pl = new Vessel(pp, buildAdjacency(pp), EARTH); pl.kind = 'plane'; pl.rebuildGroups();
+  pl.parts.forEach((p, i) => { if (i % 3 === 0) p.hp = 900 - 40 * i; }); const [pv, hpP] = send(pl);
+  const okPv = !pvB.length && pv.length > 3 && pv.every((r) => r.length === 12) && hpP.every((r) => r.length === 2);
+  const okHp = hp.length > 0 && JSON.stringify(hp) === JSON.stringify(b.parts.filter((p) => p.hp != null).map((p) => [p.id, Math.round(Combat.hpFrac(p) * 100)]));
+  pl.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), VEHICLE_KINDS.plane.launchRot); { const r = Math.hypot(pl.x, pl.y, pl.z); for (const k of ['x', 'y', 'z']) pl[k] += (pl[k] / r) * 1000; } pl.landed = false;
+  pl.vx = 80; pl.lastHitBy = { remote: 5 }; pl.lastHitAt = 5; Flight.time = 10; Flight.active = pl; Flight.destroyed = true; MP.lastParts = pl.parts.length - 1; Net.out = [];
+  MP.onLocalDestroyed(); const out = Net.out.map(([m]) => m), dn = out[0];
+  const okDown = out.length === 1 && dn.t === 'down' && Object.keys(dn).join() === 't,by,P' && dn.by === 5 && timers.join() === '1600';
+  const gp = partsFromDesign(templateRows(TEMPLATES.buggy)), g = new Vessel(gp, buildAdjacency(gp), EARTH); g.kind = 'car'; g.rebuildGroups(); g.remote = 5; Net.out = [];
+  MP.sendHits(g, [[g.parts[0], 50], [g.parts[1], 12.34]], 'shot'); MP.sendHit(g, g.parts[2], 7, 'shot'); const hits = Net.out.map(([m]) => JSON.stringify(m));
+  const okHit = hits.length === 2 && hits[0] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[0].id, 50], [g.parts[1].id, 12.3]], k: 'shot' }) && hits[1] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[2].id, 7]], k: 'shot' });
+  globalThis.Combat = C0; globalThis.setTimeout = T0; Flight.destroyed = false; Flight.time = undefined;
+  return okPv && okHp && okDown && okHit || JSON.stringify([okPv, okHp, okDown, okHit, out, hits]);
+})()`) === true);
+t('...and none of it calls into the new systems', calls(mp) === '{}', calls(mp));
 
 // ================================================================ §physics (Phase 2A): the running gear (gear.js)
 // The five vehicles of spec §4.4, built from the catalogue's own parts (test/lib/tanks.js), on the real map (the arena's
