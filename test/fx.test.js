@@ -320,10 +320,10 @@ var deaths2d = (() => { try { FX.seed(2); const L = []; for (const k of ['ammo',
   FX.clear(); return draw2d(L).calls.length; } catch (e) { return e.message; } })();`);
 t('5 FX.draw with every kind (old and new) on a 2D context: no throw', R(`typeof every2d === 'number' && every2d > 0 && typeof deaths2d === 'number' && deaths2d > 0`), R(`every2d + ' / ' + deaths2d`));
 t('5 nothing drawn for an emit (a timer), even a big one', R(`draw2d([mk('emit', { size: 5, grow: 5, pop: 2 })]).calls.length === 0`));
-t('5 a debris chunk: one filled disc, at least 0.6 px across, fading over the last fifth of its life', R(`(() => { const at = (size, life) => { const c = stubCtx(), bp = bodyPos(EARTH, 0), p = mk('debris', { size, grow: 0 });
+t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, under the old cull\'s 0.35 px), fading over the last fifth of its life', R(`(() => { const at = (size, life) => { const c = stubCtx(), bp = bodyPos(EARTH, 0), p = mk('debris', { size, grow: 0 });
     FX.clear(); FX.add(p); p.life = life; FX.draw(c, { x: bp.x + P0.x, y: bp.y }, 10, 0, 0); FX.clear(); return c; };
-  const a = at(0.3, 0.5), b = at(0.3, 0.9), c = at(0.04, 0.5);
-  return a.calls.join() === 'beginPath,arc,fill' && a.r[0] === 0.3 && a.alpha[0] === 1 && Math.abs(b.alpha[0] - 0.5) < 1e-9 && c.r[0] === 0.06; })()`));
+  const a = at(0.3, 0.5), b = at(0.3, 0.9), c = at(0.04, 0.5), d = at(0.01, 0.5);
+  return a.calls.join() === 'beginPath,arc,fill' && a.r[0] === 0.3 && a.alpha[0] === 1 && Math.abs(b.alpha[0] - 0.5) < 1e-9 && c.r[0] === 0.06 && d.calls.join() === 'beginPath,arc,fill' && d.r[0] === 0.06; })()`));
 
 // ---------------------------------------------------------------------------------------------------------------
 // 6 the chunk patches (Render3D._patchChunks on Node's three r159; a fresh copy of three and of render3d.js each time)

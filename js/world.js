@@ -272,7 +272,7 @@ const FX = {
       const x = bp.x + p.x - cam.x, y = bp.y + p.y - cam.y;
       const k = p.life / p.max;
       const size = p.size + p.grow * k;
-      if (size * S < 0.35 && p.kind !== 'spark' && p.kind !== 'glint') continue;
+      if (size * S < 0.35 && p.kind !== 'spark' && p.kind !== 'glint' && p.kind !== 'debris') continue; // (glint and debris keep a size of their own at least)
       switch (p.kind) {
         case 'spark': {
           ctx.globalAlpha = 1 - k;

@@ -1966,8 +1966,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     return m;
   }
   // The Sun's shadow box this frame (renderFlight's shadow block fills it: c the point it looks at, x y z the shadow
-  // camera's axes, z towards the Sun, half the half-width) and what the stand-ins were last chosen for (PX)
-  const SB = { half: 25 }, PX = { set: null, ver: -1, half: 0, n: [0, 0, 0] };
+  // camera's axes, z towards the Sun, half the half-width) and what the stand-ins were last chosen for (PX). PX.warm:
+  // until three frames have been drawn with them on (and the shadow map drawn), the stand-ins stay on show even when
+  // empty, so their depth programs compile then (as the buildings' own did when they cast whole), not when a building
+  // first comes within the box mid-flight. (Three frames, as S.warm: the shadow pass runs before the frame's lights are
+  // set up, so the very first frame's depth programs are built for no lights, and the next frames' are the ones used.)
+  // renderFlight counts it down, a quality change sets it again
+  const SB = { half: 25 }, PX = { set: null, ver: -1, half: 0, n: [0, 0, 0], warm: 3 };
   function shadowProxies(set) {
     const on = S.sun.castShadow && !api.shadowAll && set && set.frame.visible;
     if (!on) { // (shadowAll, a test switch: the buildings cast whole, as before the stand-ins)
@@ -2008,7 +2013,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
       if (over) n = 0;
       full.castShadow = over;
-      px.nSh = n; px.visible = n > 0;
+      px.nSh = n; px.visible = n > 0 || PX.warm > 0;
       if (n) { px.instanceMatrix.clearUpdateRanges(); px.instanceMatrix.addUpdateRange(0, n * 16); px.instanceMatrix.needsUpdate = true; }
       PX.n[k] = n;
     }
@@ -3154,7 +3159,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         case 'ring': c = fxColor(p.color); kind = 1; break;
         case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
         case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
-        case 'debris': // (a chunk: a dark disc here)
+        case 'debris': add = false; c = fxColor(p.color); break; // (a chunk: a dark disc here, drawn over what's behind it as smoke is)
         default: c = fxColor(p.color);
       }
       const A = add ? pf : ps, i = add ? nf++ : ns++;
@@ -3457,6 +3462,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
     if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
     if (!api.skipDraw) renderer.render(localScene, camera);
+    if (PX.warm > 0 && PX.set && renderer.shadowMap.autoUpdate && !api.skipDraw && --PX.warm === 0) { // (drawn with the stand-ins on show: their programs compiled, shadowProxies)
+      for (const [, px] of PX.set.casts) px.visible = px.nSh > 0;
+    }
     renderer.shadowMap.autoUpdate = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; // (the hangar's)
     if (S.warm > 0 && !api.skipDraw) S.warm--; // (a frame drawn: the warm-up's programs compiled in it, init)
   }
@@ -4018,6 +4026,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     high = hi;
     S.sun.castShadow = hi; S.key.castShadow = hi;
     S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
+    PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
     patch.b = patchB.b = null; patch.ready = patchB.ready = false;
     S.scenery.dirty = true; S.clouds.b = null;

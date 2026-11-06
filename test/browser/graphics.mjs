@@ -5,10 +5,12 @@
 //     down over the first flight frames drawn (and again after a quality change); bench.busy settles once a TK-34 in
 //     Highland Ridge's village is built round it, bench.day reads daylight at noon; Render3D.propsCastOff takes the
 //     props out of the shadow pass and puts them back; patched.shadow: the shadow filter's chunk patch is in (the fog's
-//     is the haze package's), flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF
+//     is the haze package's), flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF;
+//     a debris chunk is a dark disc over the sky (as a smoke puff of its colour), not a faint light
 //  2. the city's shadow stand-ins: a Buggy in the most built-up town at noon, paused: stand-ins hold buildings, the picture
 //     is the same to the byte as with the buildings casting whole (Render3D.shadowAll), for at most a quarter of the
-//     shadow pass' vertices; an instance cap overflow falls back to the whole mesh, and a scenery swap chooses afresh
+//     shadow pass' vertices; an instance cap overflow falls back to the whole mesh, and a scenery swap chooses afresh;
+//     started on an open spot in town, the first building to come within the box builds no shader then
 //  6. the Sun's direction (G26): with a missile in flight and range targets about (both overwrite the renderer's shared
 //     temporary), the light still sits along the Sun's direction, and the picture is the one without them
 //  3-5, 7-10, 12-13. (each graphics package adds its own: tracers, particles and light, decals, no compile at first use,
@@ -43,6 +45,8 @@ const PASSES = () => {
   P.drawArrays = function (m, f, n) { add(this, n, 1); return da.call(this, m, f, n); };
   P.drawElementsInstanced = function (m, n, t, o, i) { add(this, n, i); return dei.call(this, m, n, t, o, i); };
   P.drawArraysInstanced = function (m, f, n, i) { add(this, n, i); return dai.call(this, m, f, n, i); };
+  // (and every shader program the page builds: window.__nprog)
+  const cp = P.createProgram; window.__nprog = 0; P.createProgram = function () { window.__nprog++; return cp.call(this); };
   // a frame drawn with Math.random seeded (the engine's flicker) and the whole canvas read back at once: an FNV-1a hash
   window.__mb = (s) => () => { let t = (s = (s + 0x6d2b79f5) >>> 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   window.__shot = () => {
@@ -125,6 +129,26 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   // to 4 taps and a faded edge), none the hangar's soft PCF
   const ty = await ev(() => { window.__types = {}; Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); const t = window.__types; window.__types = null; return t; });
   ok(`${tag}: in flight the shadowed programs are the 4-tap filter's (three's PCF type, patched), none three's soft 16 taps`, ty.SHADOWMAP_TYPE_PCF > 10 && !ty.SHADOWMAP_TYPE_PCF_SOFT, ty);
+  // a debris chunk (FX.death's, until the particle rewrite) is a dark disc over what's behind it: the pixel it covers
+  // the same as under a smoke puff of its colour and size, darker than the bare sky there (it was drawn additively,
+  // a faint light)
+  const deb = await ev(() => {
+    const v = Flight.active, f = v.axis(1, 0, 0), r = Math.hypot(v.x, v.y, v.z), u = { x: v.x / r, y: v.y / r, z: v.z / r };
+    const at = { x: v.x + f.x * 30 + u.x * 12, y: v.y + f.y * 30 + u.y * 12, z: v.z + f.z * 30 + u.z * 12 };
+    const gl = document.getElementById('view3d').getContext('webgl2');
+    const px = (kind) => {
+      FX.clear();
+      if (kind) FX.add({ kind, b: v.body, x: at.x, y: at.y, z: at.z, vx: 0, vy: 0, vz: 0, max: 100, size: 1.2, grow: 0, color: '#2a2622', alpha: 1, jz: 0 });
+      const mr = Math.random; Math.random = window.__mb(1); Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); Math.random = mr;
+      const bp = bodyPos(v.body, Flight.time), pr = Render3D.project(bp.x + at.x, bp.y + at.y, at.z), sx = gl.drawingBufferWidth / innerWidth, buf = new Uint8Array(4);
+      gl.readPixels(Math.round(pr.x * sx), gl.drawingBufferHeight - 1 - Math.round(pr.y * sx), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      return { rgb: [buf[0], buf[1], buf[2]], lum: buf[0] + buf[1] + buf[2], behind: !!pr.behind };
+    };
+    const out = { none: px(null), debris: px('debris'), smoke: px('smoke') };
+    FX.clear();
+    return out;
+  });
+  ok(`${tag}: a debris chunk is a dark disc over the sky (the pixel ${deb.none.rgb} → ${deb.debris.rgb}), as a smoke puff of its colour is (${deb.smoke.rgb}), not a faint light`, !deb.none.behind && deb.debris.lum === deb.smoke.lum && deb.debris.lum < deb.none.lum - 100, deb);
   await shot('village'); // (built round the tank: the quality change below rebuilds the ground and the scenery)
   // a quality change: the warm-up again over the next frames drawn
   const q = await ev(async () => {
@@ -189,6 +213,27 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     Render3D.shadowAll = false; const c = window.__shot();
     return { a: a.hash, b: b.hash, c: c.hash, va: a.verts.shadow || 0, vb: b.verts.shadow || 0, ca: a.verts.canvas, cb: b.verts.canvas, proxies: I.proxies, proxiesAll: Ib.proxies, box: G.box.half, scenery: G.scenery };
   });
+  // no shader built mid-play when the first building comes within the shadow box: the flight starts on an open spot in
+  // town (the town drawn round it, no building in reach: the stand-ins empty), its first frames drawn (the warm-up),
+  // then the Buggy put by the buildings (as if driven there) and the view built round it: that frame builds no program
+  // (the stand-ins' depth programs were built while loading, as the buildings' own were when they cast whole)
+  // (where the Buggy stands by the buildings, nothing drawn there: the page's own loop draws no frame while skipDraw)
+  const byB = await ev2(([TOWN, T_NOON]) => { const t = TEMPLATES.buggy; Render3D.skipDraw = true; store.set('rss.flight', null);
+    Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: TOWN }); Flight.paused = true; Flight.time = T_NOON; Props.play = false;
+    const v = Flight.active; return { x: v.x, y: v.y, z: v.z, q: { ...v.q } }; }, [TOWN, T_NOON]);
+  await town('buggy', { ...TOWN, e: TOWN.e + 424, z: TOWN.z + 424 });
+  const fc = await ev2(async (at) => {
+    for (let i = 0; i < 4; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); }
+    const open = Render3D.info().proxies, p0 = window.__nprog, v = Flight.active;
+    Object.assign(v, { x: at.x, y: at.y, z: at.z }); v.q = { ...at.q };
+    Render3D.skipDraw = true;
+    for (let n = 0, quiet = 0; n < 4000 && quiet < 30; n++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); quiet = Render3D.bench.busy() ? 0 : quiet + 1; if ((n & 63) === 63) await new Promise((r) => setTimeout(r, 0)); }
+    Render3D.skipDraw = false;
+    const p1 = window.__nprog;
+    Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true);
+    return { open, by: Render3D.info().proxies, built: window.__nprog - p1, before: p1 - p0 };
+  }, byB);
+  ok(`${tag}: the first building to come within the shadow box builds no shader then (stand-ins ${fc.open} on the open spot, ${fc.by} by the buildings: ${fc.built} programs built in that frame)`, fc.open.every((x) => x === 0) && fc.by[0] > 0 && fc.built === 0, fc);
   const tw = await town('buggy', TOWN);
   const s2 = await triple();
   ok(`${tag}: a Buggy in town at noon, everything built (${tw.frames} frames); the shadow stand-ins hold buildings (walls, roofs, boats ${s2.proxies.join(', ')})`, tw.frames < 8000 && tw.day > 0.95 && s2.proxies[0] > 0 && s2.proxies[1] > 0, { ...tw, ...s2 });
