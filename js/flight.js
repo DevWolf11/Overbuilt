@@ -102,6 +102,7 @@ const Flight = {
     this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0 };
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
+    this.crashedAt = null; // (the big update: when the active craft crashed in one fireball, death.js; the end screen counts from it)
     this.ended = false;
     this.paused = false;
     this.flash = null;
