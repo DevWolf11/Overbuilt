@@ -513,6 +513,7 @@ void main() {
       a = pow(t.a, 0.8);
     }
     a *= smoothstep(-0.05, 0.35, vGr);
+    a *= 1.0 - smoothstep(0.62, 0.88, r); // (the atlas's lumps run into its cells' square edges: rounded off here, so a big puff close by never shows a straight cut)
   } else {
     if (r > 1.0) discard;
     if (vStyle < 0.5) { a = pow(1.0 - r * r, 1.7); occ = vW; }
