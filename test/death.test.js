@@ -1064,6 +1064,56 @@ function sysCalls(fn) {
   t('C5 ...knocked out on the ground: the turret it throws settles into a wreck once it lies still (on the ground, under 1 m/s)',
     !!gt && gw != null && still != null && gw - still < 0.1 && gt.speed() === 0 && g.wreck, { still, gw });
 }
+// C5b (Phase 2's merge) the player's TK-34 knocked out in the air in a Practice Battle (a blast threw it, it went off a
+// crest): no wreck frozen in the air (GroundAI.onDestroyed made it one at once, where it was); it falls, and is the
+// battle's wreck once it lands (five minutes, then sunk, as every other). Knocked out 120 m up with the respawn coming
+// before it lands, the respawn keeps it falling, and it is a wreck where it lands.
+{
+  const designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: R('templateRows')(TEMPLATES[key]) });
+  const world = () => fsim(null, { launchCost: 0, flags: {}, downs: 0, design: null, warpIdx: 0, mgFiring: false, aim: null, zero: 800,
+    award() {}, cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); },
+    onDestroyed() { if (this.destroyed) return; this.destroyed = true; this.downs++; if (ctx.GroundAI.battle && ctx.GroundAI.onDestroyed(this)) return; },
+    start(design, opts) {
+      this.design = design;
+      const v = R('((d, P) => { const ps = partsFromDesign(d.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map(); for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); } const v = new Vessel(parts, adj, EARTH); v.name = d.name; v.kind = d.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, P ? P.e : EARTH.sites.runway.east), 0, P ? P.z : 0, P ? P.yaw || 0 : 0); return v; })')(design, opts && opts.place);
+      this.vessels = [v, ...(opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [])]; this.active = v; this.destroyed = false;
+      Combat.reset(this); this.running = true;
+      return v;
+    } });
+  const r0 = (o) => Math.hypot(o.x, o.y, o.z);
+  const run0 = ctx.Flight.running;
+  ctx.Flight.running = true; // (GroundAI.battle reads the real Flight's)
+  try {
+    const go = (h, respawnAt) => {
+      const F = world();
+      ctx.GroundAI.startBattle(F, { money: 45000, design: designOf('tk34'), seed: 5 });
+      const B = ctx.GroundAI.battle, tank = F.active;
+      goG(F, 1);
+      const g0 = r0(tank);
+      upBy(tank, h); tank.vx = tank.vy = tank.vz = 0;
+      ctx.Armour.knockOut(tank, F, 'crew');
+      const o = { battle: !!B, destroyed: F.destroyed, wreck0: !!tank.wreck, lost: B.lost, h0: r0(tank) - g0 };
+      let wAt = null, hAt = null, kept = null, again = null;
+      const t0 = F.time;
+      goG(F, 14, () => {
+        if (respawnAt != null && again == null && F.time - t0 >= respawnAt) { F.time = Math.max(F.time, B.respawnAt); again = ctx.GroundAI.respawn(F); kept = again && F.active !== tank && F.vessels.includes(tank) && !tank.wreck; }
+        if (wAt == null && tank.wreck) { wAt = F.time - t0; hAt = r0(tank) - g0; }
+        if (wAt != null && F.time - t0 > wAt + 0.2) return false;
+      });
+      Object.assign(o, { wAt, hAt, again, kept, still: tank.speed() === 0, apart: F.active !== tank ? Math.hypot(F.active.x - tank.x, F.active.y - tank.y, F.active.z - tank.z) : null });
+      if (!again) { F.time = Math.max(F.time, B.respawnAt); again = ctx.GroundAI.respawn(F); }
+      const T = F.time;
+      F.time = T + 301; goG(F, 0.1); // (five minutes on: the battle's wreck list sinks it and it goes)
+      o.sunk = !!tank.dead && !F.vessels.includes(tank);
+      return o;
+    };
+    const lo = go(20), hi = go(120, 4.5);
+    t(`C5b a Practice Battle: the player's TK-34 knocked out 20 m up isn't a wreck in the air; it falls and is the battle's wreck where it lands (${lo.wAt != null ? lo.wAt.toFixed(2) : '-'} s on, ${lo.hAt != null ? lo.hAt.toFixed(2) : '-'} m off the ground it stood on), sunk five minutes on`,
+      lo.battle && lo.destroyed && !lo.wreck0 && lo.lost === 1 && lo.h0 > 19 && lo.wAt != null && lo.wAt > 1.5 && Math.abs(lo.hAt) < 2 && lo.still && lo.sunk, lo);
+    t('C5b ...knocked out 120 m over its pad and respawned (4.5 s on) before it lands: it is kept by the respawn, still falling, the new vehicle on a pad spot clear of it, and is a wreck where it lands, sunk five minutes on',
+      hi.destroyed && !hi.wreck0 && hi.again === true && hi.kept === true && hi.wAt != null && hi.wAt > 4.5 && Math.abs(hi.hAt) < 1 && hi.apart > 9 && hi.sunk, hi);
+  } finally { ctx.Flight.running = run0; Combat.reset({}); }
+}
 // C6 a wreck's fire and smoke (Death.wreckFX, one 0.07 s tick each; FX counted): a plain knock-out burns 20 s (a flame
 // each tick, a column puff every 6th on High, 12th on Low), a detonation's 40 s; then a column puff every 20th tick to
 // two minutes; then a grey wisp every 40th; none once it sinks. Of five knocked-out hulks only the 3 nearest the camera

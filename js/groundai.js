@@ -47,7 +47,7 @@ const GroundAI = (() => {
 
   const S = {
     ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false, fresh: 0,
-    tpl: new Map(), rnd: Math.random, panelT: null,
+    tpl: new Map(), rnd: Math.random, panelT: null, fall: null, fallStill: 0, // fall: the player's hulk knocked out in the air, a wreck once it lands (fallStill: s it has lain still)
   };
   const mpOn = () => typeof MP !== 'undefined' && MP.active;
   const targetsMode = () => (mpOn() ? 'off' : (typeof Settings !== 'undefined' && Settings.get('targets')) || 'practice');
@@ -297,8 +297,8 @@ const GroundAI = (() => {
       put(UNITS, nu++, A, S.b ? S.b.team : 0, LOC2.e, LOC2.z, r); put(OBS, no++, A, 0, LOC2.e, LOC2.z, r);
     }
     for (const v of S.ai) if (!v.dead && !v.ai.down) { const k = v.ai.k; put(UNITS, nu++, v, v.ai.team, k.e, k.z, k.r); put(OBS, no++, v, v.ai.team, k.e, k.z, k.r); }
-    for (const w of F.vessels) {
-      if (!w.wreck || w.dead || !w.parts.length) continue;
+    for (const w of F.vessels) { // (wrecks, and the player's last hulk still falling: no respawn under it)
+      if (!(w.wreck || w === S.fall) || w.dead || !w.parts.length) continue;
       if (w.ai && w.ai.k) put(OBS, no++, w, -1, w.ai.k.e, w.ai.k.z, w.ai.k.r);
       else { eOf(w.x, w.y, w.z, LOC2); put(OBS, no++, w, -1, LOC2.e, LOC2.z, 3.5); }
     }
@@ -848,7 +848,7 @@ const GroundAI = (() => {
   const money$ = (n) => (typeof money === 'function' ? money(n) : '$' + Math.round(n).toLocaleString('en-US'));
   // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks; a practice launch is free
   function launch(F, design, place, fresh) {
-    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck || o.tossed)); // (thrown turrets too: they lie by their wrecks)
+    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck || o.tossed || o === S.fall)); // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
     if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
     if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
@@ -1064,6 +1064,12 @@ const GroundAI = (() => {
           else S.dead.push({ ...d, at: now + 5 });
         } else if (S.b) { units(F); const P = padSpot(S.b.arena, d.team, 'tank'), v = P && spawn(F, d.key, P.e, P.z, P.yaw, d.team, 'fight'); if (v) v.spawnAt = now; }
       }
+      if (S.fall) { // (the player's hulk knocked out in the air: a wreck once down and still, or settled by death.js, or still 2 s anywhere: on another wreck)
+        const o = S.fall;
+        S.fallStill = o.speed() < 1 ? S.fallStill + dt : 0;
+        if (o.dead || !o.parts.length) S.fall = null;
+        else if (o.wreck || ((o.landed || o.splashed || o.contactTime > 0) && o.speed() < 2) || S.fallStill > 2) { S.fall = null; wreckOf(o, F); }
+      }
       gone = 0;
       for (const w of S.wrecks) { if (w.v !== F.active) sinkStep(w, now); if (w.v.dead) gone++; } // (five minutes in every mode, then sunk; the player's own hulk stays while it is theirs)
       if (gone) S.wrecks = S.wrecks.filter((w) => !w.v.dead);
@@ -1095,6 +1101,8 @@ const GroundAI = (() => {
     reset(F) {
       for (const v of S.ai) v.dead = true;
       for (const w of S.wrecks) if (!F || w.v !== F.active) { w.v.dead = true; if (w.bits) for (const q of w.bits) q.dead = true; }
+      if (S.fall && (!F || S.fall !== F.active)) S.fall.dead = true;
+      S.fall = null;
       if (S.range) {
         for (const t of S.range.drones) { const i = Combat.S.targets.indexOf(t); if (i >= 0) Combat.S.targets.splice(i, 1); }
         if (F && F.vessels) for (const o of F.vessels) if (o.gaiPlane) o.dead = true;
@@ -1163,7 +1171,8 @@ const GroundAI = (() => {
       const B = S.b;
       if (!B || !Combat.S.gai || mpOn()) return false;
       const v = F.active, falls = !!v && isAirKind(v.kind) && !v.landed && !v.splashed; // (an aircraft in the air falls and crashes, death.js: no wreck frozen in the sky)
-      if (v && !v.dead && v.parts.length && !falls) wreckOf(v, F);
+      const up = !!v && !isAirKind(v.kind) && !v.landed && !v.splashed && !(v.contactTime > 0); // (a ground vehicle knocked out in the air: it falls, and is a wreck once it lands, frame's S.fall)
+      if (v && !v.dead && v.parts.length && !falls) { if (up) { S.fall = v; S.fallStill = 0; } else wreckOf(v, F); }
       if (!B.over) {
         B.lost++;
         const n = GroundMode.death(B.obj, B.team, B.cost, B.kind === 'plane' || B.kind === 'heli'), by = v && v.lastHitBy;
