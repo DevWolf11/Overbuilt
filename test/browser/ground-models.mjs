@@ -115,12 +115,17 @@ r = await ev(() => {
   // a wreck: charred
   const m = tr.matList[0], c0 = m.color.r; v.wreck = true; vm.sync(v, { dt: 0.016, time: Flight.time, quality: 'high' }); const charred = m.color.r / c0, env = m.envMapIntensity;
   v.wreck = false; vm.sync(v, { dt: 0.016, time: Flight.time, quality: 'high' }); const back2 = m.color.r / c0;
+  // ...an old part too (the big update: every part of a wreck, an old car's knocked out at last): the Dune Buggy's cab
+  const bps = partsFromDesign(templateRows(TEMPLATES.buggy)), bv = new Vessel(bps, buildAdjacency(bps), EARTH); bv.kind = 'car'; bv.rebuildGroups();
+  const bvm = new Parts3D.VesselMesh(bv.parts, {}), so = { dt: 0.016, time: Flight.time, quality: 'high' }; bvm.sync(bv, so);
+  const cm = bvm.items.get(bv.parts.find((p) => p.type === 'cab')).matList.find((x) => x.isMeshStandardMaterial), cc0 = cm.color.r;
+  bv.wreck = true; bvm.sync(bv, so); const old = { charred: cm.color.r / cc0, env: cm.envMapIntensity }; bv.wreck = false; bvm.sync(bv, so); old.back = cm.color.r / cc0; bvm.dispose();
   // a ghost (nobody steps it): its belts run with its speed
   v.remote = 7; v.vx = 0; v.vy = 0; v.vz = 0; const q = v.q; v.vx = 2 * (1 - 2 * (q.y * q.y + q.z * q.z)); v.vy = 2 * (2 * (q.x * q.y + q.w * q.z)); v.vz = 2 * (2 * (q.x * q.z - q.w * q.y));
   const g0 = trig.mats.track.map.offset.x; vm.sync(v, { dt: 0.1, time: Flight.time, quality: 'high' }); const ghost = trig.mats.track.map.offset.x - g0;
   delete v.remote; v.vx = v.vy = v.vz = 0; v.susp = susp0; ring.aimYaw = 0; gun.aimEl = 0; gun.shotAt = undefined;
   vm.dispose();
-  return { tip: [tip.x, tip.y, tip.z], want, miss: Math.hypot(tip.x - want.x, tip.y - want.y, tip.z - want.z), off, pile, belt, back, home, charred, env, back2, ghost };
+  return { tip: [tip.x, tip.y, tip.z], want, miss: Math.hypot(tip.x - want.x, tip.y - want.y, tip.z - want.z), off, pile, belt, back, home, charred, env, back2, ghost, old };
 });
 ok('a turned turret and raised gun: the 3D muzzle is where aim.js puts it (within 1 cm)', r.miss < 0.01, JSON.stringify({ tip: r.tip, want: r.want, miss: r.miss }));
 ok('the turret turns about its ring (its centre stays on the ring\'s axis)', r.off < 0.01, r.off);
@@ -129,6 +134,7 @@ ok('a belt that moves runs its own texture round, turns its wheels and sprocket 
 ok('the suspension lifts the running gear by its compression past the sag at rest', Math.abs(r.belt.susp - (0.2 - 0.4 * 0.25)) < 1e-6, r.belt.susp);
 ok('a shot kicks the barrel back, and it comes home', r.back < -0.1 && r.home === 0, `${r.back} ${r.home}`);
 ok('a wreck is charred (a third as bright, hardly shiny), and back if it is not', Math.abs(r.charred - 0.35) < 0.01 && r.env <= 0.2 && Math.abs(r.back2 - 1) < 1e-6, `${r.charred} ${r.env} ${r.back2}`);
+ok('...an old part of a wreck too (the Dune Buggy\'s cab), and back', Math.abs(r.old.charred - 0.35) < 0.01 && r.old.env <= 0.2 && Math.abs(r.old.back - 1) < 1e-6, JSON.stringify(r.old));
 ok('another player\'s tank (not stepped here) runs its belts at its speed', r.ghost !== 0, r.ghost);
 
 // 5. a belt's texture copy goes with its part: 50 tanks come and go in flight, and no texture is left behind

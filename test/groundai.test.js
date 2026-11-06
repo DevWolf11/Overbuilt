@@ -64,10 +64,32 @@ go(F1, 44); var back44 = GroundAI.ai.some((v) => v.ai.key === 'tk34'), wreck44 =
 go(F1, 2); var nt = GroundAI.ai.find((v) => v.ai.key === 'tk34'), p2 = nt && eOf(nt);`);
 t('...one the player knocks out counts (1 KO, the best shot its range), says "Enemy TK-34 knocked out!", and stays as a wreck',
   R(`kos1 === 1 && Math.abs(best1 - 604) < 15 && wreck1 && n1 === 4 && F1.toasts.includes('Enemy TK-34 knocked out!') && Combat.S.kills === 1`), R('[kos1, best1, wreck1, n1, F1.toasts.slice(-3)]'));
-t('...it comes back 45 s later (not at 44 s), somewhere else at least 400 m from the player, and its wreck goes then',
-  R(`!back44 && wreck44 && !!nt && Math.hypot(p2.e - p1.e, p2.z - p1.z) > 50 && Math.hypot(p2.e - NPAD.e, p2.z - NPAD.z) > 395 && !F1.vessels.includes(tgt1) && !p2.wet`), R('[back44, wreck44, !!nt, p2]'));
+// (the big update re-pinned the last: a practice target's wreck no longer goes when its target comes back; it stays its
+// five minutes, as every wreck does, below)
+t('...it comes back 45 s later (not at 44 s), somewhere else at least 400 m from the player and clear of its wreck, which stays',
+  R(`!back44 && wreck44 && !!nt && Math.hypot(p2.e - p1.e, p2.z - p1.z) > 50 && Math.hypot(p2.e - NPAD.e, p2.z - NPAD.z) > 395 && F1.vessels.includes(tgt1) && !tgt1.dead && tgt1.wreck && !(tgt1.sink > 0) && !p2.wet`), R('[back44, wreck44, !!nt, p2, F1.vessels.includes(tgt1), tgt1.sink]'));
 R(`for (const v of GroundAI.ai.slice(0, 2)) { v.lastHitBy = F1.active; Armour.knockOut(v, F1, 'crew'); } go(F1, 0.5);`);
 t('...three knock-outs with a ground vehicle: the Tank Range mission ($25,000)', R(`GroundAI.range.kos === 3 && F1.flags.tankRange === true`), R('[GroundAI.range.kos, F1.flags]'));
+// (the big update, death.test's C7) every wreck stays five minutes, the last 6 s of them sinking (o.sink 0..1: the
+// renderer lowers it), and then it is gone with the turret its detonation threw; a clock that jumps past the end drops
+// one at once. The comeback TK-34 knocked out by a detonation, then the clock moved on
+R(`var A7 = Armour, tgt7 = nt; tgt7.lastHitBy = F1.active; A7.knockOut(tgt7, F1, 'ammo', { st: A7.crewOf(tgt7).stores[0], rounds: 20 });
+var bits7 = (tgt7.bits || []).slice(), t7 = tgt7.ko.t, all7 = () => [tgt7, ...bits7];
+go(F1, 3); var stand7 = all7().every((o) => !o.dead && !(o.sink > 0) && F1.vessels.includes(o)) && bits7.length === 1 && bits7[0].tossed;
+var jump = (dt) => { F1.time = t7 + dt - 0.1; go(F1, 0.1); }, sinks = () => all7().map((o) => (o.dead ? 'dead' : +(o.sink || 0).toFixed(3)));
+jump(293.9); var s293 = sinks(), old1 = tgt1.dead && !F1.vessels.includes(tgt1);
+jump(294.5); var s294 = sinks();
+jump(299.9); var s299 = sinks();
+jump(300.05); var s300 = sinks(), gone7 = all7().every((o) => o.dead && !F1.vessels.includes(o));`);
+t('...a wreck stays five minutes with the turret its detonation threw; sinking (both) from 294 s, deep in by 299.9 s, gone at 300 s; an older wreck the clock jumped past gone at once',
+  R(`stand7 && s293.every((k) => k === 0) && s294.every((k) => k > 0.05 && k < 0.15) && s299.every((k) => k > 0.95 && k < 1) && gone7 && old1`), R('[stand7, s293, s294, s299, s300, old1]'));
+// more than 8 standing: the oldest starts sinking at once and is gone 6 s later (nine more knocked out on the range)
+R(`var up7 = F1.vessels.filter((o) => o.wreck && !(o.sink > 0) && !o.tossed).length, w7 = [];
+for (let i = 0; i < 9 - up7; i++) { const o = world().start(designOf('pumo'), { place: { e: 16900 + 40 * i, z: 14200, yaw: 0 } }); o.kin = true; o.ai = { ground: true, key: 'pumo', role: 'parked', team: 1 }; F1.vessels.push(o); w7.push(o); F1.time += 1; GroundAI.down(o, F1); }
+Combat.S.gai = 1; // (each stand-in start reset Combat: the range runs on)
+var first7 = F1.vessels.find((o) => o.wreck && !o.tossed && !(o.sink > 0)); go(F1, 0.2); var cap8 = F1.vessels.filter((o) => o.wreck && !o.tossed).map((o) => +(o.sink || 0).toFixed(2));
+go(F1, 6); var cap8b = [first7.dead, F1.vessels.filter((o) => o.wreck && !o.tossed && !o.dead).length, F1.vessels.filter((o) => o.wreck && o.sink > 0).length];`);
+t('...nine standing: the oldest starts sinking at once and is gone 6 s later; the other eight stand', R(`up7 + w7.length === 9 && cap8.length === 9 && cap8.filter((k) => k > 0).length === 1 && cap8[0] > 0 && cap8b[0] === true && cap8b[1] === 8 && cap8b[2] === 0`), R('[up7, cap8, cap8b]'));
 // an AA vehicle: the drones
 R(`var F2 = world(); F2.start(designOf('zsy23'), { place: NPAD }); go(F2, 1.5);
 var dr = GroundAI.range && GroundAI.range.drones, drN = (dr || []).filter((d) => Combat.S.targets.includes(d) && d.alive).length, drAt = (dr || []).map((d) => [Math.round(d.cz), Math.round(d.h)]);`);

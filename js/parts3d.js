@@ -2058,7 +2058,7 @@ void main() {
     vm.ghost = !!(v.gv && (v.remote || v.kin) && !v.wreck && v.q && v.av);
     if (vm.ghost) { qunrot(v.q, v.vx || 0, v.vy || 0, v.vz || 0, _gv); vm.gvF = _gv.x; qunrot(v.q, v.av.x, v.av.y, v.av.z, _gv); vm.gwy = _gv.y; }
     const w = !!v.wreck;
-    if (w !== !!vm.wreck) { vm.wreck = w; for (const r of vm.list) if (r.gv) char(r, w); }
+    if (w !== !!vm.wreck) { vm.wreck = w; for (const r of vm.list) char(r, w); } // (every part of a wreck, old ones too: no old vessel was ever a wreck)
   }
   // a wreck's paint: charred (its colours a third as bright, hardly any shine), or back
   function char(rig, on) {
@@ -2181,7 +2181,7 @@ void main() {
     add(p) {
       const obj = buildPart(p, this.builder, this.radial), rig = obj.userData.rig;
       if (this.xray) xrayRig(rig, true, null);
-      if (this.wreck && rig.gv) char(rig, true);
+      if (this.wreck) char(rig, true);
       this.items.set(p, rig);
       this.list.push(rig);
       this.group.add(obj);

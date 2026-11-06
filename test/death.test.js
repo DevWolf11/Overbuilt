@@ -382,7 +382,180 @@ function P0() { return { name: 'someone' }; }
 // (the fall, crash and lifecycle package's: B1-B7)
 
 // ================================================================ C. ground vehicles
-// (the ground corpses package's: C1-C7)
+// Old cars, the Desert Technical and Armour knocked out and left as wrecks (C7, the ground AI's lifetimes, runs with the
+// Tank Range in groundai.test.js). A vehicle on the runway as Flight.start puts it; stepped as Flight.update steps the
+// world (what isn't a wreck, two 1/120 s physics steps a 60 fps frame, Combat.step, Combat.frame once a frame).
+const gnd = (key) => G.craft(ctx, rows(key), TEMPLATES[key].kind, 'site');
+const goG = (F, secs, each) => {
+  for (let f = 0, N = Math.round(secs * 60); f < N; f++) {
+    for (let i = 0; i < 2; i++) { for (const o of F.vessels.slice()) if (!o.remote && !o.wreck && !o.kin && !o.dead && o.parts.length) o.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+    Combat.frame(F, 1 / 60); F.vessels = F.vessels.filter((o) => !o.dead && o.parts.length);
+    if (each && each(f) === false) return;
+  }
+};
+const upBy = (v, h) => { const r = Math.hypot(v.x, v.y, v.z); v.x += (v.x / r) * h; v.y += (v.y / r) * h; v.z += (v.z / r) * h; v.landed = false; v.contactTime = 0; };
+// calls into the ground update's systems (gear.js, aim.js, armour.js, gmode.js, groundai.js), counted while fn runs
+function sysCalls(fn) {
+  const n = {}, undo = [];
+  for (const name of ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI']) {
+    const o = ctx[name];
+    if (!o) continue;
+    for (const k of Object.keys(o)) if (typeof o[k] === 'function') { const f = o[k]; o[k] = function (...a) { n[name + '.' + k] = (n[name + '.' + k] || 0) + 1; return f.apply(this, a); }; undo.push([o, k, f]); }
+  }
+  try { fn(); } finally { for (const [o, k, f] of undo) o[k] = f; }
+  return n;
+}
+// C1 a cab shot to 0 on the Dune Buggy and the Desert Technical, each the player's, driving on the runway: the driver
+// knocked out, every part aboard, one small 'ko' death effect, the end of the drive once; it coasts to a stop and is
+// a wreck within 6 s; the Technical's gun silenced; the buggy never calls into the ground update's code
+{
+  const out = {};
+  for (const key of ['buggy', 'technical']) {
+    const v = gnd(key), F = fsim(v), cab = v.parts.find((p) => p.type === 'cab'), ids = v.parts.map((p) => p.id).join();
+    Combat.reset(F); goG(F, 1); v.ctl.v = 1; goG(F, 2); v.ctl.v = 0;
+    const sp = v.speed();
+    deaths = [];
+    let wAt = null, shots = 0;
+    const calls = sysCalls(() => {
+      Combat.damage(v, cab, dmgTo(cab, 1.2), 'shot', F);
+      const t0 = F.time;
+      F.firing = true; // (the trigger held: the Technical's gun, knocked out, fires nothing)
+      goG(F, 7, () => { shots = Math.max(shots, Combat.S.shots.length); if (wAt == null && v.wreck) wAt = F.time - t0; });
+      F.firing = false;
+    });
+    out[key] = { v, F, cab, sp, wAt, shots, calls, d: deaths.slice(), same: v.parts.map((p) => p.id).join() === ids };
+  }
+  const b = out.buggy, k = out.technical;
+  const ok = (o, toast) => o.same && o.v.ko && o.v.ko.why === 'crew' && o.cab.ko === true && o.cab.hp <= 0 && !o.v.control && o.d.join() === 'ko' && o.F.ondead === 1 && o.F.nBreak === 0 && o.F.nRip === 0
+    && o.F.log.includes(toast) && o.sp > 5 && o.wAt != null && o.wAt <= 6 && o.v.speed() === 0;
+  t(`C1 the Dune Buggy's cab shot to 0 while driving (${b.sp.toFixed(1)} m/s): its driver knocked out ("Driver knocked out!"), every part aboard, one 'ko' death effect, the end of the drive once, a wreck ${b.wAt != null ? b.wAt.toFixed(1) : '-'} s later`,
+    ok(b, 'Driver knocked out!'), { ko: b.v.ko, d: b.d, log: b.F.log, wAt: b.wAt, break: b.F.nBreak, rip: b.F.nRip });
+  t(`C1 ...the Desert Technical's the same (armour.js's knock-out: "Knocked out!"), a wreck ${k.wAt != null ? k.wAt.toFixed(1) : '-'} s later, its gun silent with the trigger held (Armour.has false)`,
+    ok(k, 'Knocked out!') && ctx.Armour.has(k.v) === false && k.shots === 0, { ko: k.v.ko, d: k.d, log: k.F.log, wAt: k.wAt, shots: k.shots });
+  t('C1 ...the buggy\'s knock-out, coast and 7 s as a wreck: no calls into Gear, Aim, Armour, GroundMode or GroundAI', JSON.stringify(b.calls) === '{}', b.calls);
+}
+// C1b Hollywood: the cab blows up the old way
+{
+  const v = gnd('buggy'), F = fsim(v), cab = v.parts.find((p) => p.type === 'cab');
+  SILLY.hollywood = true;
+  try { Combat.damage(v, cab, dmgTo(cab, 1.2), 'shot', F); } finally { SILLY.hollywood = false; }
+  t('C1 ...in Hollywood the buggy\'s cab blows up the old way (breakParts, no knock-out)', F.nBreak === 1 && !v.parts.includes(cab) && !v.ko, { n: F.nBreak, ko: v.ko });
+}
+// C2 a buggy driven nose first into the runway at 30 m/s, and one dropped on its roof at 30 m/s, through the real
+// Flight.breakParts and its crash hook: the cab broken is kept aboard knocked out ("Wrecked!"), the hulk frozen at once
+// where it hit, and 120 more steps leave it there (a wreck isn't stepped: it can't sink through the ground)
+{
+  const qmul = R('qmul'), qaxis = R('qaxis'), res = {};
+  for (const how of ['nose', 'roof']) {
+    const v = gnd('buggy'), F = fsim(v, { dist: () => 10, absPos: (o) => ({ x: o.x, y: o.y, z: o.z }) }), cab = v.parts.find((p) => p.type === 'cab');
+    Combat.reset(F); goG(F, 0.5);
+    const r = Math.hypot(v.x, v.y, v.z), u = { x: v.x / r, y: v.y / r, z: v.z / r };
+    v.q = how === 'nose' ? qmul(v.q, qaxis(0, 0, 1, -Math.PI / 2)) : qmul(v.q, qaxis(1, 0, 0, Math.PI));
+    upBy(v, 6); v.vx = -u.x * 30; v.vy = -u.y * 30; v.vz = -u.z * 30; v.av = { x: 0, y: 0, z: 0 };
+    deaths = [];
+    let at = null;
+    goG(F, 1, () => { if (v.wreck && !at) at = [v.x, v.y, v.z]; });
+    const P = [v.x, v.y, v.z];
+    goG(F, 1);
+    res[how] = { v, F, cab, at, still: !!at && P.every((x, i) => x === at[i]) && [v.x, v.y, v.z].every((x, i) => x === at[i]), d: deaths.slice() };
+  }
+  const ok = (o) => o.v.ko && o.v.ko.why === 'hull' && o.v.wreck && o.v.parts.includes(o.cab) && o.cab.ko && o.cab.hp <= 0 && o.still && o.d.join() === 'ko' && o.F.log.includes('Wrecked!') && o.F.ondead === 1;
+  t('C2 a buggy nose first into the runway at 30 m/s: the cab kept, knocked out ("Wrecked!"), the hulk frozen where it hit and still there 120 steps later; one \'ko\' effect',
+    ok(res.nose), { ko: res.nose.v.ko, parts: res.nose.v.parts.map((p) => p.type), d: res.nose.d, still: res.nose.still, log: res.nose.F.log });
+  t('C2 ...dropped on its roof at 30 m/s: the same, its chassis and wheels still on it', ok(res.roof) && res.roof.v.parts.length === 4, { parts: res.roof.v.parts.map((p) => p.type), still: res.roof.still });
+}
+// C3 a TK-34 dropped 40 m on its roof: the turret broken in the crash knocks it out (Armour's rule, 'hull'), its hull,
+// turret and crew kept (what else broke goes as ever), a wreck at once, one death effect. (Dropped 40 m the right way up, its tracks take the landing: broken, the
+// hull untouched, no knock-out, as today.)
+{
+  const qmul = R('qmul'), qaxis = R('qaxis');
+  const v = gnd('tk34'), F = fsim(v, { dist: () => 10, absPos: (o) => ({ x: o.x, y: o.y, z: o.z }) }), n0 = v.parts.length;
+  Combat.reset(F); goG(F, 1);
+  const ctl = v.parts.filter((p) => p.def.control);
+  v.q = qmul(v.q, qaxis(1, 0, 0, Math.PI)); upBy(v, 40);
+  deaths = [];
+  goG(F, 4);
+  t(`C3 a TK-34 dropped 40 m on its roof: knocked out by armour.js ("hull"), its hull, turret and crew kept (${v.parts.length} of ${n0} parts), a wreck, one death effect`,
+    v.ko && v.ko.why === 'hull' && ctl.every((p) => v.parts.includes(p)) && v.wreck && deaths.join() === 'ko' && F.destroyed, { ko: v.ko, n: v.parts.length, n0, wreck: v.wreck, d: deaths }); // (the end of the drive: breakParts says so again for what else broke, which Flight.onDestroyed ignores)
+  const w = gnd('tk34'), WF = fsim(w);
+  Combat.reset(WF); goG(WF, 1); upBy(w, 40); deaths = [];
+  goG(WF, 4);
+  t('C3 ...dropped 40 m the right way up: its tracks take the landing (broken), no knock-out (as today)', !w.ko && w.parts.filter((p) => p.def.track).every((p) => p.broken) && !deaths.length, { ko: w.ko, log: WF.log });
+}
+// C4 Armour.knockOut's death effect: one FX.death, 'ammo' with a detonation (where the rounds went up), 'ko' without; it
+// draws none of the victim's dice (the turret a detonation throws tumbles exactly as a bare toss from the same seed does)
+{
+  const A = ctx.Armour;
+  const ko = (det) => { const v = gnd('tk34'), F = fsim(v); deaths = []; A.knockOut(v, F, det ? 'ammo' : 'crew', det ? { st: A.crewOf(v).stores[0], rounds: 30 } : undefined); return { v, F, d: deaths.slice() }; };
+  const a = ko(false), b = ko(true);
+  const tumble = (bare) => { const v = gnd('tk34'), F = fsim(v); A.seed(4242); if (bare) A.toss(v, F, A.crewOf(v).stores[0]); else A.knockOut(v, F, 'ammo', { st: A.crewOf(v).stores[0], rounds: 30 }); const q = F.vessels.find((o) => o.tossed); return q && [q.av.x, q.av.y, q.av.z, q.vx, q.vy, q.vz]; };
+  const t1 = tumble(false), t2 = tumble(true);
+  t('C4 Armour.knockOut: one death effect, \'ko\' for a plain knock-out and \'ammo\' for a detonation, which keeps its thrown turret (v.bits)',
+    a.d.join() === 'ko' && b.d.join() === 'ammo' && Array.isArray(b.v.bits) && b.v.bits.length === 1 && b.v.bits[0].tossed && !a.v.bits, [a.d, b.d, b.v.bits && b.v.bits.length]);
+  t('C4 ...and draws none of the victim\'s dice: the thrown turret tumbles exactly as a bare toss from the same seed', !!t1 && JSON.stringify(t1) === JSON.stringify(t2), [t1, t2]);
+}
+// C5 a TK-34 knocked out by a detonation 20 m up falls, and settles into a wreck within 6 s of touching down; its thrown
+// turret lies where it lands (a wreck, charred, not knocked out itself: no fire of its own). Knocked out on the ground,
+// the turret settles once it lies still
+{
+  const v = gnd('tk34'), F = fsim(v), A = ctx.Armour;
+  Combat.reset(F); goG(F, 1); upBy(v, 20);
+  deaths = [];
+  A.knockOut(v, F, 'ammo', { st: A.crewOf(v).stores[0], rounds: 30 });
+  const tur = (v.bits || [])[0];
+  let touch = null, wAt = null;
+  goG(F, 12, () => { if (touch == null && v.contactTime > 0) touch = F.time; if (wAt == null && v.wreck) wAt = F.time; });
+  t(`C5 a TK-34 knocked out 20 m up: it falls, touches down at ${touch != null ? touch.toFixed(2) : '-'} s and is a wreck ${wAt != null && touch != null ? (wAt - touch).toFixed(2) : '-'} s later (≤ 6); its thrown turret lands hard and lies there, a wreck, with no death effect or fire of its own`,
+    touch != null && wAt != null && wAt - touch <= 6 && v.speed() === 0 && !!tur && tur.wreck && deaths.join() === 'ammo', { touch, wAt, tur: tur && [tur.wreck, tur.ko], d: deaths });
+  const g = gnd('tk34'), GF = fsim(g);
+  Combat.reset(GF); goG(GF, 1);
+  A.knockOut(g, GF, 'ammo', { st: A.crewOf(g).stores[0], rounds: 30 });
+  const gt = (g.bits || [])[0];
+  let still = null, gw = null;
+  goG(GF, 12, () => { if (gt && still == null && gt.contactTime > 0 && gt.speed() < 1) still = GF.time; if (gt && gw == null && gt.wreck) gw = GF.time; });
+  t('C5 ...knocked out on the ground: the turret it throws settles into a wreck once it lies still (on the ground, under 1 m/s)',
+    !!gt && gw != null && still != null && gw - still < 0.1 && gt.speed() === 0 && g.wreck, { still, gw });
+}
+// C6 a wreck's fire and smoke (Death.wreckFX, one 0.07 s tick each; FX counted): a plain knock-out burns 20 s (a flame
+// each tick, a column puff every 6th on High, 12th on Low), a detonation's 40 s; then a column puff every 20th tick to
+// two minutes; then a grey wisp every 40th; none once it sinks. Of five knocked-out hulks only the 3 nearest the camera
+// within 4 km burn and smoke (groundTick), none above 4× warp; a knocked-out hulk's parts give none of the old smoke
+{
+  const fl = FX.flame, sm = FX.smoke, Sg = R('Settings'), partZc = R('partZc');
+  let log = [];
+  FX.flame = function (b, p, v, k) { log.push(['flame', p]); return fl.apply(this, arguments); };
+  FX.smoke = function (b, p, v, pr, k) { log.push([pr, p]); return sm.apply(this, arguments); };
+  const count = (o, age, n0, N, x) => { log = []; o.ko.t = 0; o.ko.x = x; for (let n = n0; n < n0 + N; n++) Death.wreckFX(o, n, { time: age }); const c = {}; for (const [k] of log) c[k] = (c[k] || 0) + 1; return c; };
+  const v = gnd('tk34'); v.ko = { why: 'crew', x: false, t: 0 };
+  const q0 = Sg.data.quality;
+  Sg.data.quality = 'high';
+  const hi = { b: count(v, 10, 1, 60, false), b2: count(v, 19.9, 1, 60, false), s: count(v, 20.1, 1, 60, false), a: count(v, 39.9, 1, 60, true), as: count(v, 40.1, 1, 60, true), s2: count(v, 119.9, 1, 60, false), w: count(v, 121, 1, 80, false) };
+  Sg.data.quality = 'low';
+  const lo = count(v, 10, 1, 60, false);
+  v.sink = 0.2; const sunk = count(v, 10, 1, 60, false); v.sink = 0;
+  Sg.data.quality = q0;
+  const J = JSON.stringify;
+  t('C6 a knocked-out wreck: burning to 20 s (a flame each tick, a column every 6th on High, every 12th on Low), a detonation\'s to 40 s; then a column every 20th tick to 120 s; then a grey wisp every 40th; none while it sinks',
+    J(hi.b) === J({ flame: 60, column: 10 }) && J(hi.b2) === J(hi.b) && J(hi.s) === J({ column: 3 }) && J(hi.a) === J(hi.b) && J(hi.as) === J({ column: 3 }) && J(hi.s2) === J({ column: 3 }) && J(hi.w) === J({ grey: 2 })
+    && J(lo) === J({ flame: 60, column: 5 }) && J(sunk) === '{}', { hi, lo, sunk });
+  // the burn point: a tank's engine deck (its engine's x, the top of the hull it sits in), an old car's knocked-out cab's top
+  const eng = v.parts.find((p) => p.def.module === 'engine'), hull = v.byId.get(eng.att), P = Death._g.burnPoint(v), E = v.toWorld(eng.x, hull.y + hull.def.h / 2, partZc(eng));
+  const bug = gnd('buggy'), cab = bug.parts.find((p) => p.type === 'cab'); cab.ko = true;
+  const B = Death._g.burnPoint(bug), C = bug.toWorld(cab.x, cab.y + cab.def.h / 2, partZc(cab));
+  t('C6 ...burning from a tank\'s engine deck (the engine\'s place, on top of the hull it sits in) and an old car\'s knocked-out cab', near(P.x, E.x, 1e-9) && near(P.y, E.y, 1e-9) && near(P.z, E.z, 1e-9) && near(B.x, C.x, 1e-9) && near(B.y, C.y, 1e-9) && near(B.z, C.z, 1e-9));
+  // five knocked-out hulks along a line from the camera, 0.5 to 4.5 km: the three nearest burn, none further
+  const me = gnd('tk34'), cam = { x: me.x, y: me.y, z: me.z }, five = [];
+  for (const d of [4500, 900, 2500, 300, 1700]) { const o = gnd('tk34'); o.z += d; o.ko = { why: 'crew', x: false, t: 0 }; o.wreck = true; o._d = d; five.push(o); }
+  const W = fsim(me, { time: 5, camAbs: cam, absPos: (o) => ({ x: o.x, y: o.y, z: o.z }), dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) });
+  W.vessels.push(...five);
+  const who = () => { const s = new Set(); for (const [k, p] of log) if (k === 'flame') { let best = null, bd = Infinity; for (const o of five) { const d = Math.hypot(p.x - o.x, p.y - o.y, p.z - o.z); if (d < bd) { bd = d; best = o; } } s.add(best._d); } return [...s].sort((a, b) => a - b); };
+  log = []; Death._g.groundTick(W, 0.07, 7); const near3 = who();
+  W.warpIdx = 3; log = []; Death._g.groundTick(W, 0.07, 7); const warp = log.length; W.warpIdx = 1;
+  t('C6 ...of five knocked-out hulks 0.3-4.5 km from the camera, only the three nearest burn (none past 4 km); none above 4× warp', J(near3) === J([300, 900, 1700]) && warp === 0, { near3, warp });
+  const f0 = Death.partFX(five[1], five[1].parts[0], 0.1, 3), live = gnd('buggy'), f1 = Death.partFX(live, live.parts[0], 0.1, 3);
+  t('C6 ...a knocked-out hulk\'s parts give none of the old generic smoke (Death.partFX takes them); a live car\'s still do', f0 === true && f1 === false);
+  FX.flame = fl; FX.smoke = sm;
+}
 
 // ================================================================ D. the particle budget
 // (the fire package's: D1)

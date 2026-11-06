@@ -315,20 +315,126 @@ const Death = (() => {
   }
 
   // ================================================================ ground
-  // (D4 fills this section: the old-car rule, groundKO, settle, wreckFX, impactGround (impact's ground branch),
-  // groundTick (settling, wreck smoke) and koPartFX (partFX's ground half).)
-  // An old part of a ground vehicle at 0 hp (Combat.destroyPart, after the air rule): true when handled (the cab of an
-  // old car: knocked out, the hulk stays). Not yet: today's body for every part.
-  function groundPart(v, p, cause, sim) { void v; void p; void cause; void sim; return false; }
-  // impact()'s ground branch: a hull or cab broken in a crash knocks the vehicle out and it stays; the parts today's
-  // breakage still takes. Not yet: all of them, as today.
-  function impactGround(v, parts, sim) { void v; void sim; return parts; }
-  // tick()'s last part: knocked-out vehicles settling into wrecks, thrown turrets coming to rest, the nearest wrecks'
-  // fire and smoke. Not yet: nothing.
-  function groundTick(F, e, n) { void F; void e; void n; }
-  // partFX()'s ground half: a knocked-out vehicle's parts leave the generic hp smoke (its wreck smokes in groundTick),
-  // true when so. Not yet: false.
-  function koPartFX(o, p, f, n) { void o; void p; void f; void n; return false; }
+  // Ground vehicles (Armour, old cars, the Desert Technical): every way to die is one knock-out, and the hulk stays. A
+  // hit, a blast or a fire taking an old car's cab to 0 knocks its driver out (the cab stays aboard; before, it blew up
+  // and the rest rolled off as debris); a crash breaking a hull or a cab knocks the vehicle out where it lies (before, it
+  // blew apart). The hulk coasts to a stop with its brakes on and becomes a wreck (settle: frozen, solid, charred by the
+  // renderer), burns 20 s (40 after an ammunition detonation), then smokes for two minutes, then wisps until it sinks
+  // away (the wrecks' lifetimes: GroundAI's and MP's lists). Old cars never reach Gear, Aim, Armour, GroundMode or
+  // GroundAI (the ground update's zero-call contract): their knock-out (groundKO) and every wreck's fire and smoke live
+  // here. Hollywood keeps the old breakage (cars blow up, ×3).
+
+  // An old control part of a ground vehicle (an old car's cab, the Technical's) at 0 hp from a hit, a blast or a fire
+  // (Combat.destroyPart, after the air rule): the driver knocked out, the cab kept aboard at 0 (a crash and burning up
+  // keep today's breakage, then meet the crash hook, impactGround). true: handled.
+  function groundPart(v, p, cause, sim) {
+    if (!isGround(v.kind) || p.def.gv || !p.def.control || cause === 'impact' || cause === 'heat' || hollywood()) return false;
+    deadHp(p); p.ko = true;
+    if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'crew'); else groundKO(v, sim, 'crew'); // (the Technical: armour.js's own knock-out, its gun silenced)
+    return true;
+  }
+  // Armour.knockOut's twin for a vehicle with none of the ground update's parts (it never calls into armour.js): the
+  // driver knocked out (why 'crew'), or the car wrecked in a crash ('hull'); every control part out of charge, the
+  // throttle closed, our HUD's banner when we did it, the player's toast and the end of their drive, the small 'ko'
+  // death effect, an AI's knock-out counted.
+  function groundKO(v, sim, why) {
+    if (v.ko) return;
+    const t = sim.time || 0;
+    v.ko = { why, x: false, t };
+    for (const q of v.parts) if (q.def.control) q.ko = true;
+    v.throttle = 0;
+    if (v !== sim.active && v.lastHitBy !== v && Combat.byMe(v.lastHitBy, sim)) {
+      feedback('KNOCKED OUT', sim);
+      if (typeof Armour !== 'undefined' && sim.active.gv) Armour.fb.ko = { text: 'Knocked out!', t }; // (the ground HUD's banner: a property, no call)
+    }
+    if (v === sim.active && sim.toast) sim.toast(why === 'hull' ? 'Wrecked!' : 'Driver knocked out!', 'warn');
+    deathFX(v, sim, 'ko');
+    if (v === sim.active && sim.onDestroyed) sim.onDestroyed();
+    if (v.ai && !v.ai.down) Combat.aiDown(v, sim);
+  }
+  // A knocked-out hulk becomes a wreck: frozen where it stands (no longer stepped, solid to everything, charred)
+  function settle(v) { v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); }
+
+  // impact()'s ground branch (Flight.breakParts, a crash): a hull, turret, crew seat or cab broken knocks the vehicle
+  // out (Armour's own rule for one of the ground update's, groundKO for an old car), keeps the parts aboard at 0 and
+  // freezes the hulk at once (the crash returns before the ground pushes back: stepped on, it would sink); whatever else
+  // broke goes as ever. A thrown turret landing hard is no vehicle to knock out: it lies where it fell. Hollywood: the
+  // old breakage.
+  function impactGround(v, parts, sim) {
+    if (hollywood() || !parts.some((p) => p.def.control)) return parts;
+    if (!v.tossed) { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull'); }
+    for (const p of parts) if (p.def.control) p.hp = Math.min(p.hp ?? 0, 0);
+    settle(v);
+    return parts.filter((p) => !p.def.control);
+  }
+
+  // Where a wreck burns and smokes from: one of the ground update's vehicles at its engine (else its first control part),
+  // an old car at its knocked-out cab; the top of the part, or of the hull it sits inside, so the flames rise from the deck
+  function burnPoint(o) {
+    let p = null;
+    if (o.gv) p = o.parts.find((q) => q.def.module === 'engine' || q.def.engine) || o.parts.find((q) => q.def.control);
+    else p = o.parts.find((q) => q.def.control && q.ko) || o.parts.find((q) => q.def.control);
+    p = p || o.parts[0];
+    if (!p) return null;
+    let y = p.y + p.def.h / 2;
+    const host = p.def.inner && p.att != null && o.byId ? o.byId.get(p.att) : null;
+    if (host) y = Math.max(y, host.y + host.def.h / 2);
+    return o.toWorld(p.x, y, partZc(p));
+  }
+  const WZ = Object.freeze({ x: 0, y: 0, z: 0 });
+  // A knocked-out vehicle's fire and smoke (one 0.07 s tick, n its count; F for the clock), from its burn point:
+  // burning (20 s, 40 after a detonation), a flame each tick and a smoke column's puff every 6th (12th on Low); then
+  // the column every 20th tick to two minutes; then a thin grey wisp every 40th until it sinks. About 30 live particles
+  // a burning wreck, 6 a smoking one, 3 after (FX: pictures, drawn from FX.rnd).
+  function wreckFX(o, n, F) {
+    if (!o.ko || o.dead || o.sink > 0 || !o.parts.length) return;
+    const P = burnPoint(o);
+    if (!P) return;
+    const clk = F || (typeof Flight !== 'undefined' ? Flight : null), tn = clk && Number.isFinite(clk.time) ? clk.time : 0;
+    let age = tn - (Number.isFinite(o.ko.t) ? o.ko.t : tn);
+    if (!(age >= 0)) age = DEATH.smoke - 1; // (a clock that went back: a new flight's; only the smoke)
+    const k = clamp(groundSize(o) / 3, 0.6, 1.6), b = o.body;
+    if (age < DEATH.burn[o.ko.x ? 'ammo' : 'ko']) {
+      FX.flame(b, P, WZ, k);
+      if (n % (Settings.high ? 6 : 12) === 0) { const r = Math.hypot(P.x, P.y, P.z) || 1; FX.smoke(b, { x: P.x + P.x / r, y: P.y + P.y / r, z: P.z + P.z / r }, WZ, 'column', k); }
+    } else if (age < DEATH.smoke) { if (n % 20 === 0) FX.smoke(b, P, WZ, 'column', 0.8 * k); }
+    else if (n % 40 === 0) FX.smoke(b, P, WZ, 'grey', 0.6 * k);
+  }
+  // how far a vessel is from the camera (the sim's camera when it can say; else from its active craft)
+  function koFar(F, o) {
+    if (typeof F.dist === 'function' && typeof F.absPos === 'function' && F.camAbs) return F.dist(F.absPos(o), F.camAbs);
+    const A = F.active;
+    return A ? Math.hypot(o.x - A.x, o.y - A.y, o.z - A.z) : 0;
+  }
+  const WRK = []; // (groundTick's knocked-out vehicles, reused)
+  // tick()'s last part: knocked-out hulks of ours settling into wrecks (on the ground or in water, under 2 m/s, or 6 s
+  // after the knock-out), thrown turrets (ours or a peer's) once they lie still, then the fire and smoke of the 3
+  // knocked-out vehicles nearest the camera within 4 km (ours, the AI's, peers' wrecks), none above 4× warp.
+  function groundTick(F, e, n) {
+    void e;
+    if (!F || !F.vessels) return;
+    const t = F.time || 0, A = F.active, L = WRK;
+    L.length = 0;
+    for (const o of F.vessels) {
+      if (o.dead) continue;
+      if (!o.wreck && !o.remote) {
+        const down = o.landed || o.splashed || o.contactTime > 0;
+        if (o.ko && !o.kin && !o.foreign) { if (down && (o.speed() < DEATH.settleV || t - (o.ko.t || 0) > DEATH.settleT)) settle(o); }
+        else if (o.tossed && down && o.speed() < 1) settle(o);
+      }
+      if (o.ko && !o.tossed && A && o.body === A.body && o.parts.length) L.push(o); // (a thrown turret's crew knocked out as it lands: no fire of its own)
+    }
+    if (L.length && !((F.warpIdx || 0) > 2)) {
+      const near = [];
+      for (const o of L) { const d = koFar(F, o); if (d <= 4000) near.push([d, o]); }
+      if (near.length > 3) { near.sort((a, b) => a[0] - b[0]); near.length = 3; }
+      for (const [, o] of near) wreckFX(o, n, F);
+    }
+    L.length = 0;
+  }
+  // partFX()'s ground half: a knocked-out vehicle's old parts give none of the generic hp smoke (its hull at 0 no longer
+  // burns forever; the wreck's fire and smoke are wreckFX's). true when so.
+  function koPartFX(o, p, f, n) { void p; void f; void n; return !!o.ko; }
 
   // ================================================================ HUD
   // (D6 fills this section: the drawing, the chime, the end of a life's strip.) The air HUD's hit feedback: a tick
@@ -359,7 +465,7 @@ const Death = (() => {
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, partFX,
     impact, tick, reset,
-    groundPart,
+    groundPart, groundKO, settle, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint },
     feedback, hit, drawHits,
     _t: { detRoll, state, intactClS, tearOff, loaded, FB },
   };

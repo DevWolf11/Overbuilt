@@ -439,10 +439,12 @@ t('a new flight forgets the last one\'s hit and kill banners and hit arcs (Comba
 // (3I's balance: the medium hull's lower plate is 61 mm, 101 against a level shot, under a 55 mm glacis worth 121)
 t('summary: the TK-34\'s front is its weakest forward plate (the 53° lower one, 101 mm), side 40, cast turret front 99, crew 5, 36 rounds', R(`JSON.stringify(Armour.summary(air().parts)) === JSON.stringify({ front: 101, side: 40, turretFront: 99, crew: 5, rounds: 36 })`), R('Armour.summary(air().parts)'));
 t('summary: the MA-1\'s composite (upper glacis 335 against a level shot), wedge face; nothing for an old craft', R(`(() => { const s = Armour.summary(air(MA).parts); return Math.abs(s.front - 335) <= 1 && s.turretFront > 500 && s.crew === 4 && Armour.summary(partsFromDesign(templateRows(TEMPLATES.falcon))) === null; })()`), R('Armour.summary(air(MA).parts)'));
-t('smoke and fire: only what burns does (a burning engine), a broken module a thin wisp, a knocked-out hulk from its first module', R(`(() => { const v = air(), out = [], fa = FX.add; FX.add = (o) => out.push(o.kind + ':' + o.color);
+// (the big update re-pinned the last: a knocked-out hulk's own fire and smoke column are death.js's wreckFX now, from its
+// burn point by its age; partFX gives the hulk nothing of its own, death.test C6)
+t('smoke and fire: only what burns does (a burning engine), a broken module a thin wisp; a knocked-out hulk nothing from its first module (its fire and smoke: Death.wreckFX)', R(`(() => { const v = air(), out = [], fa = FX.add; FX.add = (o) => out.push(o.kind + ':' + o.color);
   const eng = v.parts[3], tr = v.parts[1]; Armour.partFX(v, eng, 1); const a = out.length; eng.fire = 5; Armour.partFX(v, eng, 1); const b = out.length; tr.broken = true; Armour.partFX(v, tr, 3); const c = out.length; Armour.partFX(v, tr, 4); const d = out.length;
   v.ko = { why: 'crew', x: false, t: 0 }; tr.broken = false; Armour.partFX(v, tr, 2); const e = out.length; FX.add = fa;
-  return a === 0 && b === 2 && c === 3 && d === 3 && e === 4; })()`));
+  return a === 0 && b === 2 && c === 3 && d === 3 && e === d && Armour.crewOf(v).anchor === tr; })()`));
 
 // ---------------------------------------------------------------- old craft: explode as before
 R(`// explode's loop as it was before the ground update (for a vessel with no armour: v.plated false)
