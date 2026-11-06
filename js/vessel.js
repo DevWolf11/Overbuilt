@@ -171,11 +171,14 @@ function gvLoad(p) {
 }
 
 // (the big update's damage model) What an old part of an aircraft keeps in a saved flight: p.cut, the half of a plain
-// wing shot off (1 or -1, nothing else and on nothing else); fires are never saved.
+// wing shot off (1 or -1, nothing else and on nothing else); fires are never saved. A knocked-out pilot's ko isn't
+// saved either (gvLoad drops it from old parts): it comes back from the cockpit's own health, at 0 or under (only a
+// knock-out leaves an old control part aboard there), so the restored craft is still without a pilot.
 function airLoad(p) {
   const w = p.def.wing;
   if (!(w && !w.control && (p.cut === 1 || p.cut === -1))) delete p.cut;
   delete p.burn; delete p.burnBy; delete p.fireN;
+  if (p.def.control && !p.def.gv && Number.isFinite(p.hp) && p.hp <= 0) p.ko = true;
 }
 // A helicopter without its tail rotor (v.tailLost): the reaction's share of the main rotor's thrust × its radius, and the
 // spin (rad/s) it fades out at (death.js's DEATH.tailYaw, tailW: it loads after this file)
@@ -224,6 +227,15 @@ class Vessel {
   }
 
   get control() { return findControlPart(this.parts); }
+  // The part a craft keeps when it splits (splitComponents, Flight.ripParts): its control part, else (the big update) a
+  // knocked-out pilot still aboard, an old cockpit or cab at 0, so the limp hulk falls on as one with it; else none
+  get keepPart() {
+    const c = this.control;
+    if (c) return c;
+    let best = null;
+    for (const p of this.parts) if (p.ko && p.def.control && !p.def.gv && (!best || p.def.control > best.def.control)) best = p;
+    return best;
+  }
   get pilot() { return PILOT[this.kind] || PILOT.rocket; }
   get drive() { return this.kind === 'plane' ? DRIVE.plane : DRIVE.other; }
   // The planar view of the attitude (2D fallback): the stack axis's angle in the XY plane, and spin about z.
@@ -1659,7 +1671,7 @@ class Vessel {
 
   // Split off every part not connected to the control part (or the first part).
   splitComponents() {
-    const ctrl = this.control || this.parts[0];
+    const ctrl = this.keepPart || this.parts[0];
     if (!ctrl) return [];
     const keep = componentOf(ctrl.id, this.adj);
     const rest = this.parts.filter((p) => !keep.has(p.id));

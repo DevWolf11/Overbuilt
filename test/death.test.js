@@ -62,6 +62,23 @@ let detonations = 0;
   Combat.damage(B, B.control, dmgTo(B.control, 1.01), 'shot', F, P);
   t('A1 ...a bandit (the raider) knocked out by the player: shot down (ai.down, "Bandit shot down!", a kill), the PILOT KO banner, no end for the player',
     B.ai.down && F.log.includes('Bandit shot down!') && Combat.S.kills === k0 + 1 && Death.fb.text === 'PILOT KO' && F.ondead === 0 && B.down, [F.log, Death.fb.text]);
+  // the limp hulk falls on as one with its knocked-out pilot: a later round tearing its fuselage off leaves the
+  // player's craft the cockpit's section, as with the pilot alive (not whichever piece holds parts[0]), its bandit's
+  // ai with it; the torn-off rest is debris
+  const tear = (key, body, ko, ai) => {
+    const v = air(key), F = fsim(v), ck = v.control, b = v.parts.find((p) => p.type === body);
+    if (ai) v.ai = { t: 0, down: false };
+    if (ko) Combat.damage(v, ck, dmgTo(ck, 1.01), 'shot', F);
+    F.time = 2;
+    Combat.damage(v, b, dmgTo(b, 1.6), 'shot', F);
+    return { parts: v.parts.map((p) => p.type).sort().join(), ck: v.parts.includes(ck), ko: !!ck.ko, rest: F.vessels.filter((o) => o !== v).every((o) => o.isDebris && !o.parts.includes(ck)) };
+  };
+  const kb = [];
+  for (const [k, body] of [['fs16', 'us4f16Body'], ['mustang', 'fuselage'], ['falcon', 'fuselageS']]) {
+    const a = tear(k, body, false), b = tear(k, body, true), c = tear(k, body, true, true);
+    if (!(a.ck && b.ck && b.ko && c.ck && b.parts === a.parts && c.parts === a.parts && b.rest && c.rest)) kb.push({ k, a, b });
+  }
+  t('A1 ...a knocked-out FS-16, Mustang and Falcon (and as bandits) with the fuselage torn off later: the cockpit\'s section is still the craft, the same as with the pilot alive; the rest is debris', !kb.length, kb);
 }
 
 // A2 every engine of every plane template to -0.1 of its health: dead, aboard; a second hit takes nothing more
@@ -392,6 +409,16 @@ function P0() { return { name: 'someone' }; }
     gone(f1) && gone(f2) && gone(f3) && gone(f4) && near(f1.clS, v.clS * 0 + air('hornet').clS, 1e-12) && !f5.tailLost && !f6.tailLost);
   const keys = air('hornet').serialize().parts.map((p) => Object.keys(p).join());
   t('E1 an intact old part\'s saved keys are exactly the old list (ground.test.js)', keys.every((k) => k === KEYS), [...new Set(keys)]);
+  // a knocked-out pilot stays out: ko isn't saved, it comes back from the cockpit's health (0 or under), so the craft
+  // restores without a pilot (and debris), the saved keys as ever; a live cockpit, even hurt, still flies
+  const m = air('mustang'), MF = fsim(m), mk = m.control;
+  Combat.damage(m, mk, dmgTo(mk, 1.05), 'shot', MF, P0());
+  const md = trip(m), mb = ctx.Vessel.restore(md), mbk = mb.parts.find((p) => p.def.control);
+  const hurt = air('mustang'); Combat.damage(hurt, hurt.control, dmgTo(hurt.control, 0.9), 'shot', fsim(hurt));
+  const hb2 = ctx.Vessel.restore(trip(hurt));
+  t('E1 a knocked-out pilot saved and restored: still knocked out (no control part, ko from its health), debris; ko not among the saved keys; a hurt pilot (10 % left) still flies',
+    !m.control && mk.ko && !mb.control && mbk.ko === true && mbk.hp <= 0 && mb.isDebris === true && !('ko' in md.parts.find((p) => p.id === mk.id)) && !!hb2.control && !hb2.control.ko,
+    { control: !!mb.control, ko: mbk.ko, hp: mbk.hp, debris: mb.isDebris, hurt: !!hb2.control });
 }
 
 t.done();

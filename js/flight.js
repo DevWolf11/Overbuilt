@@ -295,10 +295,10 @@ const Flight = {
   // attached to them along (the engines and stores on a wing), unless the craft itself hangs off them.
   // cause: 'g' (too much load), 'speed' (flutter, past a wing's speed limit), 'impact', or a hit.
   ripParts(v, parts, cause = 'g') {
-    const ctrl = v.control;
+    const ctrl = v.control, keep = ctrl || v.keepPart; // (keep: a knocked-out pilot's cockpit stays with the hulk too)
     for (const p of parts) {
       const go = new Set([p.id]);
-      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(ctrl)) for (const q of br) go.add(q.id); }
+      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(keep)) for (const q of br) go.add(q.id); }
       for (const id of go) for (const n of [...(v.adj.get(id) || [])]) if (!go.has(n)) { v.adj.get(id).delete(n); v.adj.get(n) && v.adj.get(n).delete(id); }
       const zs = partZs(p), vel = { x: v.vx, y: v.vy, z: v.vz };
       for (const z of zs) {
