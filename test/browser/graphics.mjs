@@ -6,15 +6,27 @@
 //     Highland Ridge's village is built round it, bench.day reads daylight at noon; Render3D.propsCastOff takes the
 //     props out of the shadow pass and puts them back; patched.shadow: the shadow filter's chunk patch is in (the fog's
 //     is the haze package's), flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF;
-//     a debris chunk is a dark disc over the sky (as a smoke puff of its colour), not a faint light
+//     a debris chunk is a dark lumpy chunk over the sky, not a faint light
 //  2. the city's shadow stand-ins: a Buggy in the most built-up town at noon, paused: stand-ins hold buildings, the picture
 //     is the same to the byte as with the buildings casting whole (Render3D.shadowAll), for at most a quarter of the
 //     shadow pass' vertices; an instance cap overflow falls back to the whole mesh, and a scenery swap chooses afresh;
 //     started on an open spot in town, the first building to come within the box builds no shader then
 //  6. the Sun's direction (G26): with a missile in flight and range targets about (both overwrite the renderer's shared
 //     temporary), the light still sits along the Sun's direction, and the picture is the one without them
-//  3-5, 7-10, 12-13. (each graphics package adds its own: tracers, particles and light, decals, no compile at first use,
-//     water, terrain, haze against the sky, 2D fallback, screenshots)
+//  7. no shader built at the first explosion, chunk, spark or tracer (the effect meshes are on show, empty, through the
+//     warm-up)
+//  3. tracers: one glowing streak each (one draw for all, today two), a round without a tracer drawn not at all, a shot's
+//     own colour, core width and length (s.col, s.tw, s.tk) taken, a tracer 2 km off at least 1.5 CSS px wide; a drone's
+//     laser beam (Drone.beams) drawn as a streak bright all along
+//  4. particles and light: an ammo death 40 m from a TK-34 in Highland Ridge: the particle, chunk and streak meshes one
+//     draw each; its flash lends S.engine its light at once, at the flash, gone by 0.6 s (a flash with light: false
+//     lends none); the chunks come to rest on their floor; five deaths stay under the cap; a puff by the ground thins out
+//     towards it; a mid-air death 75 m off whites out under a tenth of the screen (its flash and shock ring held to
+//     GLOW_MAX of the screen however near)
+// 12. the 2D fallback (Silly retro2d): every FX.death kind drawn by FX.draw without an error
+// 13. (SHOTS) screenshots of every FX.death kind, the presets, a muzzle flash, flares, chaff, tracers, dust, a splash,
+//     damage smoke and a smoke screen
+//  5, 8-10. (the other graphics packages: decals, water, terrain, haze against the sky)
 // 11. the idle 3D hangar after a flight: nothing drawn in a second
 // The console stays clean through flight, hangar and globe.
 //   node test/browser/graphics.mjs       (SHOTS=<dir> saves screenshots there: graphics-*.png)
@@ -45,6 +57,15 @@ const PASSES = () => {
   P.drawArrays = function (m, f, n) { add(this, n, 1); return da.call(this, m, f, n); };
   P.drawElementsInstanced = function (m, n, t, o, i) { add(this, n, i); return dei.call(this, m, n, t, o, i); };
   P.drawArraysInstanced = function (m, f, n, i) { add(this, n, i); return dai.call(this, m, f, n, i); };
+  // the flight's axes along the ground (forward, right, up at the craft) and a point a m ahead, s m right, u m up (on the
+  // ground as the physics has it: u over it)
+  window.__ax = () => { const v = Flight.active, r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 }, F = v.pilot.F, f = v.axis(F.x, F.y, F.z), k0 = f.x * up.x + f.y * up.y + f.z * up.z;
+    const fw = { x: f.x - up.x * k0, y: f.y - up.y * k0, z: f.z - up.z * k0 }, fl = Math.hypot(fw.x, fw.y, fw.z); fw.x /= fl; fw.y /= fl; fw.z /= fl;
+    return { fw, up, rt: { x: fw.y * up.z - fw.z * up.y, y: fw.z * up.x - fw.x * up.z, z: fw.x * up.y - fw.y * up.x } }; };
+  window.__at = (a, s, u, ground) => { const v = Flight.active, A = window.__ax(), p = { x: v.x + A.fw.x * a + A.rt.x * s + A.up.x * u, y: v.y + A.fw.y * a + A.rt.y * s + A.up.y * u, z: v.z + A.fw.z * a + A.rt.z * s + A.up.z * u };
+    if (!ground) return p; const L = Terrain.locate(v.body, p.x, p.y, p.z, {}), rr = v.body.radius + Terrain.surfaceAt(v.body, L.a, L.z) + u, n = Math.hypot(p.x, p.y, p.z); return { x: (p.x / n) * rr, y: (p.y / n) * rr, z: (p.z / n) * rr }; };
+  // a frame drawn (the paused flight: the same moment), its canvas draws counted
+  window.__draws = () => { window.__pass = {}; Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const c = window.__pass.canvas || 0; window.__pass = null; return c; };
   // (and every shader program the page builds: window.__nprog)
   const cp = P.createProgram; window.__nprog = 0; P.createProgram = function () { window.__nprog++; return cp.call(this); };
   // a frame drawn with Math.random seeded (the engine's flicker) and the whole canvas read back at once: an FNV-1a hash
@@ -108,6 +129,92 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   await frames(4);
   const w1 = await ev(() => Render3D.gfx().warm);
   ok(`${tag}: three flight frames drawn and the warm-up is done`, w1 === 0, w1);
+
+  // ---- 7. no shader built at first use: the effect meshes were on show (empty) through the warm-up
+  const p7 = await ev(() => {
+    const n0 = window.__nprog, i0 = Render3D.info().programs, v = Flight.active, Z = { x: 0, y: 0, z: 0 }, A = window.__ax(), p = window.__at(20, -6, 2);
+    FX.clear(); FX.seed(3); FX.death(v.body, window.__at(40, 0, 1.2, true), Z, 5, 'ammo');
+    Combat.shots.push({ k: 'bullet', tracer: true, b: v.body, x: p.x, y: p.y, z: p.z, vx: A.rt.x * 900, vy: A.rt.y * 900, vz: A.rt.z * 900 });
+    window.__draws();
+    const G = Render3D.gfx(), out = { built: window.__nprog - n0, programs: Render3D.info().programs - i0, fx: G.fxDraw, debris: G.debrisN, streak: G.streakN, shown: G.fxShown };
+    Combat.shots.pop(); FX.clear(); window.__draws();
+    out.after = Render3D.gfx().fxShown;
+    return out;
+  });
+  ok(`${tag}: the first explosion, its chunks and sparks and the first tracer build no shader (${p7.built} built in that frame)`, p7.built === 0 && p7.programs === 0 && p7.fx > 0 && p7.debris > 0 && p7.streak > 1 && p7.shown.every(Boolean), p7);
+  ok(`${tag}: with nothing to draw, the three effect meshes are off again (no draw at all)`, p7.after.every((x) => !x), p7.after);
+
+  // ---- 3. tracers
+  const p3 = await ev(() => {
+    const v = Flight.active, A = window.__ax(), bp = bodyPos(v.body, Flight.time), pr = Render3D.info().pixelRatio, shot = (p, sp, o) => Object.assign({ k: 'bullet', tracer: true, b: v.body, x: p.x, y: p.y, z: p.z, vx: A.rt.x * sp, vy: A.rt.y * sp, vz: A.rt.z * sp }, o);
+    FX.clear(); Combat.shots.length = 0;
+    const d0 = window.__draws();
+    for (let i = 0; i < 12; i++) Combat.shots.push(shot(window.__at(30 + i * 8, (i % 3) * 3 - 3, 2), 900));
+    Combat.shots.push(shot(window.__at(60, 0, 4), 900, { tracer: false })); // (a round without a tracer: not drawn)
+    const d1 = window.__draws(), n1 = Render3D.gfx().streakN;
+    Combat.shots.length = 0;
+    Combat.shots.push(shot(window.__at(50, 0, 3), 300, { col: [1, 0.25, 0.3], tw: 0.06, tk: 0.004 })); // (its own colour, core width and length)
+    window.__draws(); const own = Render3D.gfx().streaks[0], len = Math.hypot(own.a[0] - own.b[0], own.a[1] - own.b[1], own.a[2] - own.b[2]);
+    // 2 km off: the core at least 1.5 CSS px wide (the shader: max(floor, width × px per metre))
+    Combat.shots.length = 0;
+    const far = window.__at(2000, 0, 40);
+    Combat.shots.push(shot(far, 900));
+    window.__draws(); const fr = Render3D.gfx().streaks[0], pj = Render3D.project(bp.x + far.x, bp.y + far.y, far.z), mpp = Render3D.metresPerPixelAt(bp.x + far.x, bp.y + far.y, far.z);
+    const coreCss = Math.max(fr.f / pr, fr.c[3] / mpp);
+    Combat.shots.length = 0;
+    // a drone's laser (Drone.beams, the drone package's: a stand-in here when there is none yet)
+    const had = typeof Drone !== 'undefined', D = had ? Drone : (window.Drone = {}), keep = D.beams;
+    D.beams = [{ b: v.body, a: window.__at(5, 0, 3), e: window.__at(80, 10, 6), col: [1, 0.25, 0.3], w: 0.06 }];
+    window.__draws(); const bm = Render3D.gfx().streaks[0], nb = Render3D.gfx().streakN;
+    D.beams = keep; if (!had) delete window.Drone;
+    window.__draws();
+    return { draws: d1 - d0, n1, own, len, coreCss, far: { behind: pj.behind, x: pj.x, y: pj.y }, f: fr.f, pr, bm, nb };
+  });
+  ok(`${tag}: twelve tracers (and a round without one) are twelve glowing streaks in one draw (today's lines and heads were two)`, p3.n1 === 12 && p3.draws === 1, p3);
+  const near = (a, b) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) < 1e-6);
+  ok(`${tag}: a shot's own colour, core width and length are taken (s.col, s.tw, s.tk: a laser pulse's)`, near(p3.own.c, [1, 0.25, 0.3, 0.06]) && Math.abs(p3.len - 1.2) < 1e-3, p3.own);
+  ok(`${tag}: a tracer 2 km off is at least 1.5 CSS px wide (${p3.coreCss.toFixed(2)} px: the floor)`, !p3.far.behind && p3.coreCss >= 1.5 - 1e-6 && Math.abs(p3.f - 1.5 * p3.pr) < 1e-9, p3);
+  ok(`${tag}: a drone's laser beam (Drone.beams) is a streak, bright all along (core width negative), its colour, 1.5 px at least`, p3.nb === 1 && near(p3.bm.c, [1, 0.25, 0.3, -0.06]) && Math.abs(p3.bm.f - 1.5 * p3.pr) < 1e-9, p3.bm);
+
+  // ---- 4. particles and light: an ammo death 40 m from the tank
+  const p4 = await ev(() => {
+    const v = Flight.active, Z = { x: 0, y: 0, z: 0 }, at = window.__at(40, 0, 1.2, true), bp = bodyPos(v.body, Flight.time), C = Flight.camAbs;
+    const lx = bp.x + at.x - C.x, ly = bp.y + at.y - C.y, lz = at.z - C.z; // (where the light should be: the scene's floating origin)
+    FX.clear(); const d0 = window.__draws();
+    FX.seed(5); FX.death(v.body, at, Z, 5, 'ammo');
+    const d1 = window.__draws(), G1 = Render3D.gfx(), off = Math.hypot(G1.engine.x - lx, G1.engine.y - ly, G1.engine.z - lz);
+    const light = [];
+    for (let i = 1; i <= 120; i++) { FX.update(1 / 60, Flight); window.__draws(); if (i % 6 === 0) light.push([+(i / 60).toFixed(2), +Render3D.gfx().engine.i.toFixed(1)]); }
+    const deb = FX.list.filter((p) => p.kind === 'debris'), rest = deb.filter((p) => p.restAt != null), under = deb.filter((p) => Math.hypot(p.x, p.y, p.z) < p.floor - 1e-6);
+    const onFloor = rest.every((p) => Math.abs(Math.hypot(p.x, p.y, p.z) - p.floor) < 1e-6);
+    // light: false lends none
+    FX.clear(); window.__draws(); FX.death(v.body, at, Z, 5, 'ammo', undefined, { light: false }); window.__draws(); const nl = Render3D.gfx().engine.i;
+    // five deaths at once stay under the cap
+    FX.clear(); for (let i = 0; i < 5; i++) FX.death(v.body, at, Z, 5, 'ammo'); FX.update(1 / 60, Flight); const capped = FX.list.length <= FX.max();
+    FX.clear(); window.__draws();
+    return { draws: d1 - d0, shown: G1.fxShown, i0: G1.engine.i, off, light, deb: deb.length, rest: rest.length, under: under.length, onFloor, nl, capped };
+  });
+  const lit = (t) => p4.light.filter(([s]) => s <= t).map(([, i]) => i);
+  ok(`${tag}: the death's particles, chunks and sparks are one draw each (three in all)`, p4.draws === 3 && p4.shown.every(Boolean), p4);
+  // (its cook-off pops, at 0.42 and 0.8 s, flash again: a light each for their 0.12 s)
+  ok(`${tag}: its flash lends S.engine its light at once, at the flash (${p4.i0.toFixed(0)} cd, ${p4.off.toFixed(2)} m off), fading, none by 0.4 s nor after the last pop (1 s on)`, p4.i0 > 500 && p4.off < 1e-3 && lit(0.3).some((i) => i > 0) && p4.light.find(([s]) => s === 0.4)[1] === 0 && p4.light.filter(([s]) => s >= 1).every(([, i]) => i === 0), p4.light);
+  ok(`${tag}: a flash with light: false lends no light`, p4.nl === 0, p4.nl);
+  ok(`${tag}: the chunks come to rest on their floor, none under it (${p4.rest} of ${p4.deb} at rest by 2 s)`, p4.deb > 0 && p4.rest >= p4.deb / 2 && p4.onFloor && p4.under === 0, p4);
+  ok(`${tag}: five deaths at once stay under the particle cap`, p4.capped, p4);
+  // a puff on the ground thins out towards it (no straight cut): its lower edge fades where the ground meets it
+  const gfade = await ev(() => {
+    const v = Flight.active, gl = document.getElementById('view3d').getContext('webgl2'), bp = bodyPos(v.body, Flight.time), A = window.__ax(), at = window.__at(30, 0, 0, true);
+    const px = (p) => { const q = Render3D.project(bp.x + p.x, bp.y + p.y, p.z), k = gl.drawingBufferWidth / innerWidth, b = new Uint8Array(4); gl.readPixels(Math.round(q.x * k), gl.drawingBufferHeight - 1 - Math.round(q.y * k), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [b[0], b[1], b[2]]; };
+    const probe = { x: at.x + A.up.x * 0.25, y: at.y + A.up.y * 0.25, z: at.z + A.up.z * 0.25 }, high = { x: at.x + A.up.x * 3, y: at.y + A.up.y * 3, z: at.z + A.up.z * 3 };
+    FX.clear(); window.__draws(); const g0 = px(probe), h0 = px(high);
+    for (let i = 0; i < 6; i++) FX.add({ kind: 'smoke', b: v.body, x: at.x, y: at.y, z: at.z, vx: 0, vy: 0, vz: 0, max: 100, size: 6, grow: 0, color: '#26272b', alpha: 1, jz: 0 });
+    for (const p of FX.list) p.life = 10;
+    window.__draws(); const g1 = px(probe), h1 = px(high);
+    FX.clear(); window.__draws();
+    const d = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    return { low: d(g0, g1), high: d(h0, h1), g0, g1, h0, h1 };
+  });
+  ok(`${tag}: a dark puff sitting on the ground thins out towards it (the ground 25 cm up hardly changed: ${gfade.low}; 3 m up darkened: ${gfade.high})`, gfade.high > 60 && gfade.low < gfade.high / 3, gfade);
   // the pin: slow frames (50 ms) cut the resolution without it, and with it the pixel ratio is basePixelRatio() at once
   const pin = await ev(() => {
     Render3D.skipDraw = true; Render3D.bench.pin = false;
@@ -129,9 +236,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   // to 4 taps and a faded edge), none the hangar's soft PCF
   const ty = await ev(() => { window.__types = {}; Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); const t = window.__types; window.__types = null; return t; });
   ok(`${tag}: in flight the shadowed programs are the 4-tap filter's (three's PCF type, patched), none three's soft 16 taps`, ty.SHADOWMAP_TYPE_PCF > 10 && !ty.SHADOWMAP_TYPE_PCF_SOFT, ty);
-  // a debris chunk (FX.death's, until the particle rewrite) is a dark disc over what's behind it: the pixel it covers
-  // the same as under a smoke puff of its colour and size, darker than the bare sky there (it was drawn additively,
-  // a faint light)
+  // a debris chunk is a dark lumpy chunk (the 3D debris mesh, lit) over what's behind it, not a faint light (GB-1)
   const deb = await ev(() => {
     const v = Flight.active, f = v.axis(1, 0, 0), r = Math.hypot(v.x, v.y, v.z), u = { x: v.x / r, y: v.y / r, z: v.z / r };
     const at = { x: v.x + f.x * 30 + u.x * 12, y: v.y + f.y * 30 + u.y * 12, z: v.z + f.z * 30 + u.z * 12 };
@@ -142,13 +247,13 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       const mr = Math.random; Math.random = window.__mb(1); Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); Math.random = mr;
       const bp = bodyPos(v.body, Flight.time), pr = Render3D.project(bp.x + at.x, bp.y + at.y, at.z), sx = gl.drawingBufferWidth / innerWidth, buf = new Uint8Array(4);
       gl.readPixels(Math.round(pr.x * sx), gl.drawingBufferHeight - 1 - Math.round(pr.y * sx), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-      return { rgb: [buf[0], buf[1], buf[2]], lum: buf[0] + buf[1] + buf[2], behind: !!pr.behind };
+      return { rgb: [buf[0], buf[1], buf[2]], lum: buf[0] + buf[1] + buf[2], behind: !!pr.behind, n: Render3D.gfx().debrisN };
     };
-    const out = { none: px(null), debris: px('debris'), smoke: px('smoke') };
+    const out = { none: px(null), debris: px('debris') };
     FX.clear();
     return out;
   });
-  ok(`${tag}: a debris chunk is a dark disc over the sky (the pixel ${deb.none.rgb} → ${deb.debris.rgb}), as a smoke puff of its colour is (${deb.smoke.rgb}), not a faint light`, !deb.none.behind && deb.debris.lum === deb.smoke.lum && deb.debris.lum < deb.none.lum - 100, deb);
+  ok(`${tag}: a debris chunk is a dark chunk over the sky (the pixel ${deb.none.rgb} → ${deb.debris.rgb}), in the debris mesh, not a faint light`, !deb.none.behind && deb.debris.n === 1 && deb.debris.lum < deb.none.lum - 100, deb);
   await shot('village'); // (built round the tank: the quality change below rebuilds the ground and the scenery)
   // a quality change: the warm-up again over the next frames drawn
   const q = await ev(async () => {
@@ -164,6 +269,57 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   await frames(4);
   const w2 = await ev(() => Render3D.gfx().warm);
   ok(`${tag}: a quality change starts the warm-up again (3), done over the next frames drawn`, q === 3 && w2 === 0, { afterChange: q, later: w2 });
+
+  // ---- 4 (cont.). a mid-air death 75 m off (a full Falcon's size, 6 m) whites out well under a quarter of the screen:
+  // its flash's glow and its shock ring held to GLOW_MAX of the screen's shorter side however near. 75 m ahead and 15 m
+  // up, over the sky: the share of the screen it turns near-white in its first frames, past what was near-white before
+  const white = await ev(() => {
+    const v = Flight.active, at = window.__at(75, 0, 15), gl = document.getElementById('view3d').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, buf = new Uint8Array(w * h * 4);
+    const share = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf); let n = 0; for (let i = 0; i < buf.length; i += 4) if (buf[i] > 235 && buf[i + 1] > 235 && buf[i + 2] > 235) n++; return n / (w * h); };
+    FX.clear(); window.__draws(); const s0 = share();
+    FX.seed(9); FX.death(v.body, at, { x: 0, y: 0, z: 0 }, 6, 'air', true, { ground: false });
+    const out = [];
+    for (let i = 0; i < 18; i++) { window.__draws(); out.push(+(share() - s0).toFixed(4)); FX.update(1 / 60, Flight); }
+    const bp = bodyPos(v.body, Flight.time), pj = Render3D.project(bp.x + at.x, bp.y + at.y, at.z);
+    FX.clear(); window.__draws();
+    return { max: Math.max(...out), out, s0, onScreen: !pj.behind && pj.x > 0 && pj.x < innerWidth && pj.y > 0 && pj.y < innerHeight, pj };
+  });
+  ok(`${tag}: a mid-air death 75 m off whites out at most ${(white.max * 100).toFixed(1)}% of the screen (well under a quarter)`, white.onScreen && white.max < 0.1, white);
+
+  // ---- 12. the 2D fallback (Silly's retro2d): every FX.death kind drawn by FX.draw, no error
+  const e12 = errs.length;
+  const d12 = await ev(async () => {
+    const v = Flight.active, Z = { x: 0, y: 0, z: 0 }, d0 = FX.draw, seen = new Set();
+    let calls = 0;
+    FX.draw = function (...a) { calls++; for (const p of this.list) seen.add(p.kind); return d0.apply(this, a); };
+    Silly.flags.retro2d = true; Flight.paused = false; Render3D.skipDraw = false;
+    FX.clear(); ['ammo', 'crash', 'air', 'fuel', 'ko', 'thud'].forEach((k, i) => FX.death(v.body, window.__at(20 + i * 15, 0, 1, true), Z, 4, k, undefined, { water: k === 'ko' }));
+    const t0 = Flight.time; await new Promise((r) => { const t = () => (Flight.time > t0 + 0.4 || calls > 30 ? r() : setTimeout(t, 30)); t(); });
+    FX.draw = d0; Silly.flags.retro2d = false; Flight.paused = true; FX.clear();
+    return { calls, kinds: [...seen].sort() };
+  });
+  ok(`${tag}: the 2D view draws every kind of an FX.death of each kind (${d12.kinds.join(', ')}) with no error`, d12.calls > 0 && ['debris', 'emit', 'fire', 'flash', 'smoke', 'spark'].every((k) => d12.kinds.includes(k)) && errs.length === e12, { ...d12, errs: errs.slice(e12) });
+
+  // ---- 13. screenshots of the effects (SHOTS): every FX.death kind at 0.25 s and 1.5 s, the presets, a muzzle flash and
+  // its blast ring, flares, chaff, tracers, dust, a splash, damage smoke, a smoke screen
+  if (SHOTS) {
+    const fx = (code) => ev((code) => { FX.clear(); Combat.shots.length = 0; FX.seed(4); if (!window.__mr0) window.__mr0 = Math.random; Math.random = window.__mb(4); (0, eval)(code); }, code);
+    const run = (secs) => ev((secs) => { for (let t = 0; t < secs - 1e-9; t += 1 / 60) { FX.update(1 / 60, Flight); for (const s of Combat.shots) { s.x += s.vx / 60; s.y += s.vy / 60; s.z += s.vz / 60; } } window.__draws(); }, secs);
+    const Z = '{ x: 0, y: 0, z: 0 }', B = 'Flight.active.body';
+    for (const k of ['ammo', 'crash', 'air', 'fuel', 'ko', 'thud']) {
+      await fx(`FX.death(${B}, __at(${k === 'air' ? '70, 0, 25' : '40, 0, 1.2, true'}), ${Z}, ${k === 'ko' ? 2.3 : 5}, '${k}', ${k === 'air' ? 'true, { ground: false }' : 'undefined'})`);
+      await run(0.25); await shot(`death-${k}-0.25s`); await run(1.25); await shot(`death-${k}-1.5s`);
+    }
+    await fx(`['black', 'grey', 'white', 'dust', 'column', 'steam'].forEach((pr, j) => { for (let i = 0; i < 5; i++) FX.smoke(${B}, __at(45, -20 + j * 8, 2, true), ${Z}, pr); })`); await run(1); await shot('presets');
+    await fx(`{ const p = __at(15, 0, 2, true); FX.add({ kind: 'flash', b: ${B}, ...p, vx: 0, vy: 0, vz: 0, max: 0.09, size: 2.4, grow: 6.7, color: '#ffd27a', alpha: 1 }); FX.add({ kind: 'ring', b: ${B}, ...p, vx: 0, vy: 0, vz: 0, max: 0.35, size: 0.6, grow: 4, color: '#e8dcc0', alpha: 0.5 }); }`); await run(0.02); await shot('muzzle');
+    await fx(`for (let i = 0; i < 8; i++) { const p = __at(30 + i * 2, -6 + i, 6 - i * 0.4); FX.add({ kind: 'fire', b: ${B}, ...p, vx: 0, vy: 0, vz: 0, max: 0.6, size: 1.2, grow: 1.5, color: '#fff2c4', alpha: 1 }); }
+      for (let i = 0; i < 60; i++) { const p = __at(30, 8, 6); FX.add({ kind: 'glint', b: ${B}, ...p, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, vz: (Math.random() - 0.5) * 8, max: 4, size: 0.15, grow: 0, color: '#eef3fa', alpha: 1, tw: i, tf: 9 + i % 5 }); }`); await run(0.3); await shot('flares-chaff');
+    await fx(`{ const A = __ax(); for (let i = 0; i < 24; i++) { const p = __at(25 + i * 9, (i % 5) - 2, 1.5 + (i % 3)), d = i & 1 ? 1 : -1; Combat.shots.push({ k: i % 6 ? 'bullet' : 'shell', tracer: true, enemy: i % 4 === 0, b: ${B}, ...p, vx: A.rt.x * 900 * d, vy: A.rt.y * 900 * d, vz: A.rt.z * 900 * d }); } FX.sparks(${B}, __at(25, 2, 1, true), ${Z}, 30); }`); await run(0.02); await shot('tracers');
+    await fx(`for (let i = 0; i < 12; i++) FX.smoke(${B}, __at(20 + i, -4, 0.3, true), ${Z}, 'dust'); FX.splash(${B}, __at(30, 6, 0, true), __ax().up, 25)`); await run(0.4); await shot('dust-splash');
+    await fx(`{ const A = __ax(); for (let i = 0; i < 40; i++) FX.trail(${B}, __at(60, -30 + i * 1.5, 25), { x: A.rt.x * 90, y: A.rt.y * 90, z: A.rt.z * 90 }, 'grey', 2, 1 / 60); }`); await run(0.5); await shot('damage-smoke');
+    await fx(`{ const c = __at(35, 0, 2, true); for (let i = 0; i < 16; i++) FX.add({ kind: 'smoke', b: ${B}, x: c.x + (Math.random() - 0.5) * 10, y: c.y + (Math.random() - 0.5) * 10, z: c.z + (Math.random() - 0.5) * 10, vx: 0, vy: 0, vz: 0, max: 6, size: 4 + Math.random() * 2, grow: 1.3, color: '#d6d9dc', alpha: 0.75 }); }`); await run(1); await shot('smoke-screen');
+    await ev(() => { FX.clear(); Combat.shots.length = 0; Math.random = window.__mr0; window.__draws(); });
+  }
 
   // the globe, then the hangar: the console stays clean
   await ev(() => { Flight.paused = false; Flight.toggleMap(); });
