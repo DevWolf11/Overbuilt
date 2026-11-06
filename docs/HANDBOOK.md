@@ -1417,7 +1417,7 @@ Other fates:
 
 Part hit boxes (`boxesOf` combat.js:82):
 - every part: its `partRect`;
-- across (z): a twin copy is ±`max(w,0.6)/2`, a wheel ±`track/2+0.3`, anything else ±`partDepth/2`;
+- across (z): a twin copy is ±`max(w,0.6)/2`, a wheel ±`track/2+0.3`, anything else ±`partDepth/2`; a wing with half shot off (`p.cut`, the big update's damage model), and the half that fell, only the half that is there;
 - one box per entry of `partZs(p)`.
 
 `hitVessel` returns early when the segment's closest approach to the vessel is more than `reach+2` away.

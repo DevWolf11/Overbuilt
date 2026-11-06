@@ -116,7 +116,7 @@ function sim() {
   return { time: 0, target: null, toasts: [], broken: [], vessels: [], camAbs: { x: 0, y: 0, z: 0 },
     toast(t) { this.toasts.push(t); },
     ripParts(v, parts) {
-      this.broken.push('rip:' + parts.map((p) => p.type).join(',') + '@' + v.gForce.toFixed(1) + 'g');
+      this.broken.push('rip:' + parts.map((p) => p.type).join(',') + '@' + (v.gForce || 0).toFixed(1) + 'g'); // (a piece never stepped, the air rule's falling half: no g yet)
       for (const p of parts) { for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.get(p.id).clear(); }
       v.splitComponents(); v.rebuildGroups();
     },

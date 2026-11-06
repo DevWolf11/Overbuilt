@@ -143,10 +143,12 @@ const Combat = (() => {
 
   // ---------------------------------------------------------------- hit tests
   // A part's boxes in part space: its rectangle, and across (z) its depth, wing span or wheel track around
-  // where it sits; a pair, one box at each side (a thin pod a little fatter, to be hittable).
+  // where it sits; a pair, one box at each side (a thin pod a little fatter, to be hittable). A wing with half shot
+  // off (p.cut: 1, its +z half gone; -1, its -z half), and the half that fell: only the half that's there.
   function boxesOf(p) {
     const r = partRect(p), d = p.def, hz = d.twinZ ? Math.max(d.w, 0.6) / 2 : d.wheel ? (d.wheel.track || 0) / 2 + 0.3 : partDepth(p) / 2;
-    return partZs(p).map((z) => [r.l, r.r, r.b, r.t, z - hz, z + hz]);
+    const lo = p.cut === -1 ? 0 : -hz, hi = p.cut === 1 ? 0 : hz; // (z + -hz is z - hz to the bit: an uncut part's boxes as ever)
+    return partZs(p).map((z) => [r.l, r.r, r.b, r.t, z + lo, z + hi]);
   }
   function segBox(o, e, B) { // segment o->e against an axis-aligned box: entry fraction, or -1
     let t0 = 0, t1 = 1;

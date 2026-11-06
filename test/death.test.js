@@ -138,6 +138,43 @@ function P0() { return { name: 'someone' }; }
     return w.cut;
   })();
   t('A3 a round through the left half (moveShot) cuts the left half', sh === -1, sh);
+  // what's gone is gone for hits too: after the right half fell, a round through the middle of where it was (moveShot)
+  // misses the wing, as one past the old tip does, and one through the left half still hits; the falling half's box is
+  // its own half
+  const gh = (() => {
+    const { v, F, w } = mk(), span = w.def.wing.span;
+    Combat.damage(v, w, dmgTo(w, 1.1), 'shot', F, null, 1);
+    const piece = F.vessels.find((o) => o !== v), q = piece.parts.find((p) => p.type === 'wingSwept');
+    piece.x += 500; // (only the plane in the way)
+    for (const p of v.parts) if (p !== w) p.hp = 1e9;
+    const shoot = (z) => {
+      const a0 = v.toWorld(w.x - 0.05, w.y - 25, z), dir = v.axis(0, 1, 0), h = w.hp;
+      Combat.S.shots = [{ k: 'bullet', b: EARTH, x: a0.x, y: a0.y, z: a0.z, vx: dir.x * 900, vy: dir.y * 900, vz: dir.z * 900, t: 0, life: 3, dmg: 9, blast: 0, owner: null }];
+      for (let i = 0; i < 20 && Combat.S.shots.length; i++) Combat.step(1 / 120, F);
+      return +(h - w.hp).toFixed(6);
+    };
+    const B = (p) => Combat.boxesOf(p)[0], zc = R('partZc')(w);
+    return { gone: shoot(span / 4), tip: shoot(span * 0.75), left: shoot(-span / 4), wz: [B(w)[4] - zc, B(w)[5] - zc], qz: [B(q)[4] - zc, B(q)[5] - zc], hz: span / 2 };
+  })();
+  t('A3 ...the right half gone: a round where it was misses the wing (as past the old tip), one through the left half hits; the wing\'s box is its left half, the falling half\'s its right',
+    gh.gone === 0 && gh.tip === 0 && gh.left > 0 && near(gh.wz[0], -gh.hz) && gh.wz[1] === 0 && gh.qz[0] === 0 && near(gh.qz[1], gh.hz), gh);
+  // the suites' stand-in sim (G.sim) takes the new path: a blast cuts the wing (the falling half, never stepped, goes
+  // into its vessels), and a second blast at that half tears it off through G.sim's ripParts without a throw
+  const gs = (() => {
+    const v = G.craft(ctx, G.templateRows(ctx, 'hornet'), 'plane', 'air'), s = G.sim(), w = v.mainWing;
+    s.vessels.push(v); v.physicsStep(1 / 120, s);
+    for (const p of v.parts) if (p !== w) p.hp = 1e9;
+    w.hp = 1;
+    try {
+      Combat.explode(EARTH, v.toWorld(w.x, w.y, w.def.wing.span / 4 + 3), 6, 50, null, s, true);
+      const piece = s.vessels.find((o) => o !== v), q = piece && piece.parts[0];
+      if (!q) return 'no piece';
+      q.hp = 1;
+      Combat.explode(EARTH, piece.toWorld(q.x, q.y, R('partZc')(q)), 6, 50, null, s, true);
+      return s.broken.some((b) => b.startsWith('rip:wingSwept@0.0g')) ? 'ok' : s.broken.join();
+    } catch (e) { return 'threw ' + e.message; }
+  })();
+  t('A3 ...G.sim: a blast cuts the wing, a second at the falling half (never stepped) tears it off without a throw', gs === 'ok', gs);
 }
 
 // A4 the half-wing flight: hold on, hands off, at cruise 2 km up (the spec's judge probe): most planes spiral down
