@@ -7,7 +7,9 @@
 //     props out of the shadow pass and puts them back; patched.shadow: the shadow filter's chunk patch is in (the fog's
 //     is the haze package's), flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF;
 //     a debris chunk is a dark lumpy chunk over the sky, not a faint light
-//  2. the city's shadow stand-ins: a Buggy in the most built-up town at noon, paused: stand-ins hold buildings, the picture
+//  2. the shadow pass cut to the Sun's shadow box: in Highland Ridge's village only the props within its reach cast, the
+//     picture the same to the byte as with every prop casting (Render3D.shadowAll), for fewer shadow vertices. And the
+//     city's shadow stand-ins: a Buggy in the most built-up town at noon, paused: stand-ins hold buildings, the picture
 //     is the same to the byte as with the buildings casting whole (Render3D.shadowAll), for at most a quarter of the
 //     shadow pass' vertices; an instance cap overflow falls back to the whole mesh, and a scenery swap chooses afresh;
 //     started on an open spot in town, the first building to come within the box builds no shader then
@@ -26,7 +28,12 @@
 // 12. the 2D fallback (Silly retro2d): every FX.death kind drawn by FX.draw without an error
 // 13. (SHOTS) screenshots of every FX.death kind, the presets, a muzzle flash, flares, chaff, tracers, dust, a splash,
 //     damage smoke and a smoke screen
-//  5, 8-10. (the other graphics packages: decals, water, terrain, haze against the sky)
+//  5. the shadow box (50 m round a tank's turret camera, pushed 12.5 m into the view; the tight 25 m in the gunner's
+//     sight); contact shadows and scorch marks, all in one draw: a still TK-34 and a Buggy on blobs (0.32 on High within
+//     the box, 0.6 on Low), none under a Falcon 200 m up, a scorch under a wreck (0.8 after an ammunition detonation,
+//     fading in over a second), a round scorch at a crash site that outlives its pyre and goes at 300 s (and with the
+//     crash sites wiped before their time, a new flight's); SHOTS: graphics-decals-high/-low
+//  8-10. (the other graphics packages: water, terrain, haze against the sky)
 // 11. the idle 3D hangar after a flight: nothing drawn in a second
 // The console stays clean through flight, hangar and globe.
 //   node test/browser/graphics.mjs       (SHOTS=<dir> saves screenshots there: graphics-*.png)
@@ -64,6 +71,14 @@ const PASSES = () => {
     return { fw, up, rt: { x: fw.y * up.z - fw.z * up.y, y: fw.z * up.x - fw.x * up.z, z: fw.x * up.y - fw.y * up.x } }; };
   window.__at = (a, s, u, ground) => { const v = Flight.active, A = window.__ax(), p = { x: v.x + A.fw.x * a + A.rt.x * s + A.up.x * u, y: v.y + A.fw.y * a + A.rt.y * s + A.up.y * u, z: v.z + A.fw.z * a + A.rt.z * s + A.up.z * u };
     if (!ground) return p; const L = Terrain.locate(v.body, p.x, p.y, p.z, {}), rr = v.body.radius + Terrain.surfaceAt(v.body, L.a, L.z) + u, n = Math.hypot(p.x, p.y, p.z); return { x: (p.x / n) * rr, y: (p.y / n) * rr, z: (p.z / n) * rr }; };
+  // everything round the craft built again (after a quality change: the ground, the scenery, the props), nothing drawn
+  window.__rebuild = async () => {
+    Render3D.skipDraw = true;
+    let n = 0;
+    for (let quiet = 0; n < 8000 && quiet < 30; n++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const I = Render3D.propsInfo().hl; quiet = (!Props.play || (I && I.ready && I.shown)) && !Render3D.bench.busy() ? quiet + 1 : 0; if ((n & 63) === 63) await new Promise((r) => setTimeout(r, 0)); }
+    Render3D.skipDraw = false;
+    return n;
+  };
   // a frame drawn (the paused flight: the same moment), its canvas draws counted
   window.__draws = () => { window.__pass = {}; Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const c = window.__pass.canvas || 0; window.__pass = null; return c; };
   // (and every shader program the page builds: window.__nprog)
@@ -89,7 +104,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   watch(page, errs, tag + ' ');
   await page.addInitScript(PASSES);
   const ev = (f, a) => page.evaluate(f, a);
-  const shot = async (name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `graphics-${name}-${tag}.png`) }); };
+  const shot = async (name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `graphics-${name}-${tag}.png`), timeout: 180000 }); }; // (a frame on High in the village is slow under SwiftShader)
   // flight frames drawn from now (Render3D.frameNo counts them), n of them: the sim runs slowly here, so frames, not the clock
   const frames = async (n) => { const f0 = await ev(() => Render3D.frameNo); await page.waitForFunction(([f0, n]) => Render3D.frameNo >= f0 + n, [f0, n], { timeout: 300000, polling: 50 }); };
   await openGame(page, srv.url, { quality: 'high', fps: 0 });
@@ -286,6 +301,91 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   });
   ok(`${tag}: a mid-air death 75 m off whites out at most ${(white.max * 100).toFixed(1)}% of the screen (well under a quarter)`, white.onScreen && white.max < 0.1, white);
 
+  // ---- 2 (Highland Ridge). the props in the shadow pass: only those within reach of the Sun's shadow box (each casting
+  // piece's in-box instances written first, nSh of them drawn there): the picture the same to the byte as with every
+  // instance in the shadow pass in the order of old (Render3D.shadowAll), for fewer shadow vertices
+  const hl2 = await ev(async () => {
+    await window.__rebuild(); // (the quality change above: the village built again)
+    Render3D.shadowAll = false; const a = window.__shot(); Render3D.shadowAll = true; const b = window.__shot(); Render3D.shadowAll = false; const c = window.__shot();
+    return { a: a.hash, b: b.hash, c: c.hash, va: a.verts.shadow || 0, vb: b.verts.shadow || 0, ca: a.verts.canvas, cb: b.verts.canvas };
+  });
+  ok(`${tag}: in Highland Ridge's village only the props within reach of the shadow box are in the shadow pass (${hl2.va} vertices, ${hl2.vb} with all of them), the picture the same to the byte`, hl2.a === hl2.b && hl2.c === hl2.a && hl2.ca === hl2.cb && hl2.va < 0.6 * hl2.vb, hl2);
+
+  // ---- 5. the shadow box, contact shadows and scorch marks. The box round the tank's turret camera: 50 m, pushed 12.5 m
+  // into the view; in the gunner's sight the tight box round the tank (25 m) at the tank
+  const box5 = await ev(() => {
+    window.__draws(); const a = Render3D.gfx().box;
+    Render3D.setSight(true, 3); window.__draws(); const b = Render3D.gfx().box; Render3D.setSight(false); window.__draws();
+    return { a, b, ca: Math.hypot(a.cx, a.cy, a.cz), cb: Math.hypot(b.cx, b.cy, b.cz) };
+  });
+  ok(`${tag}: the shadow box follows the view: ${box5.a.half} m round the tank's turret camera, its middle ${box5.ca.toFixed(2)} m into the view; ${box5.b.half} m in the gunner's sight, at the tank`, box5.a.half === 50 && Math.abs(box5.ca - 12.5) < 0.1 && box5.b.half === 25 && box5.cb < 0.1, box5);
+  // a still TK-34 (ours), a Buggy beside it, a wrecked TK-34 (an ammunition detonation), a Falcon 200 m up; a crash site
+  const mk = () => ev((HL) => {
+    window.__mk = (key, e, z, yaw, o) => { const t = TEMPLATES[key], ps = partsFromDesign(templateRows(t)), adj = buildAdjacency(ps), v = new Vessel(ps, adj, EARTH); v.kind = t.kind; v.name = t.name; v.stages = computeStages(ps, adj, findControlPart(ps).id); v.rebuildGroups();
+      v.placeOnSurface(EARTH, siteAngle(EARTH, e), VEHICLE_KINDS[t.kind].launchRot, z, yaw || 0); v.landed = true; Object.assign(v, o || {}); Flight.vessels.push(v); return v; };
+    // the decal under v (its ground point within 3 m of v's own, across): {k, a, w, d} or null
+    window.__dk = (v) => { const bp = bodyPos(v.body, Flight.time), C = Flight.camAbs, x = bp.x + v.x - C.x, y = bp.y + v.y - C.y, z = v.z - (C.z || 0), r = Math.hypot(v.x, v.y, v.z), u = { x: v.x / r, y: v.y / r, z: v.z / r };
+      let best = null;
+      for (const d of Render3D.gfx().decals) { const dx = d.x - x, dy = d.y - y, dz = d.z - z, k = dx * u.x + dy * u.y + dz * u.z, h = Math.hypot(dx - u.x * k, dy - u.y * k, dz - u.z * k); if (h < 3 && (!best || h < best.h)) best = { k: d.k, a: +d.a.toFixed(3), w: +d.w.toFixed(2), d: +d.d.toFixed(2), h: +h.toFixed(2) }; }
+      return best; };
+    window.__ground = (a, s) => window.__at(a, s, 0, true);
+    void HL;
+  }, HL);
+  await mk();
+  const p5 = await ev((HL) => {
+    const v = Flight.active, d = (k) => { for (let i = 0; i < (k || 2); i++) window.__draws(); };
+    FX.clear(); Combat.shots.length = 0; Death.S.pyres.length = 0;
+    // one draw for every quad: none at all (our tank sunk out of sight: its blob gone), its blob alone, the blob and three
+    // crash sites' scorches
+    v.sink = 0.9999; d(); const n0 = Render3D.gfx().decalN, d0 = window.__draws(); v.sink = 0; d(); const n1 = Render3D.gfx().decalN, d1 = window.__draws();
+    for (let i = 0; i < 3; i++) { const p = window.__ground(60 + i * 25, -20); Death.S.pyres.push({ b: v.body, x: p.x, y: p.y, z: p.z, t: Flight.time - 5, k: 3, wet: false }); }
+    d(); const n3 = Render3D.gfx().decalN, d3 = window.__draws(), shown3 = Render3D.gfx().decalShown;
+    Death.S.pyres.length = 0; d(); const wiped = Render3D.gfx().scorches; // (a new flight's Death.reset wipes them before their time: the copies go)
+    const draws = { n0, d0, n1, d1, n3, d3, shown3, wiped };
+    // the vehicles
+    const bug = window.__mk('buggy', HL.e + 3, HL.z + 9, 0.4), wr = window.__mk('tk34', HL.e + 14, HL.z - 7, 0.9, { wreck: true, ko: { why: 'ammo', x: true, t: Flight.time } });
+    const fal = window.__mk('falcon', HL.e - 22, HL.z + 14, 1.2), r = Math.hypot(fal.x, fal.y, fal.z);
+    fal.x += (fal.x / r) * 200; fal.y += (fal.y / r) * 200; fal.z += (fal.z / r) * 200; fal.landed = false;
+    d(); const wr0 = window.__dk(wr);
+    Flight.time += 1.2; d(); // (a wreck's scorch fades in over its first second)
+    const out = { draws, tank: window.__dk(v), bug: window.__dk(bug), wreck0: wr0, wreck: window.__dk(wr), falcon: window.__dk(fal) };
+    // a crash site: a round scorch that outlives its pyre (75 s, Death's pyreTick) and goes at 300 s
+    const p = window.__ground(30, 0), t0 = Flight.time, py = { b: v.body, x: p.x, y: p.y, z: p.z, t: t0, k: 4, wet: false };
+    Death.S.pyres.push(py);
+    const pyre = () => { const bp = bodyPos(v.body, Flight.time), C = Flight.camAbs, x = bp.x + p.x - C.x, y = bp.y + p.y - C.y, z = p.z - (C.z || 0); return Render3D.gfx().decals.find((q) => q.k >= 1 && Math.hypot(q.x - x, q.y - y, q.z - z) < 3) || null; };
+    Flight.time = t0 + 1; d(); out.pyre1 = pyre();
+    Flight.time = t0 + 80; Death.S.pyres.splice(Death.S.pyres.indexOf(py), 1); d(); out.pyre80 = pyre();
+    Flight.time = t0 + 100; d(); out.pyre100 = pyre();
+    Flight.time = t0 + 301; d(); out.pyre301 = pyre();
+    Flight.time = t0 - 1.2; d();
+    window.__keep = [bug, wr, fal];
+    return out;
+  }, HL);
+  const D = p5.draws;
+  ok(`${tag}: every contact shadow and scorch is in one draw (no quad: ${D.d0} draws; our tank's blob: ${D.d1}; with three scorches too: ${D.d3})`, D.n0 === 0 && D.n1 === 1 && D.d1 === D.d0 + 1 && D.n3 === 4 && D.d3 === D.d1 && D.shown3, D);
+  ok(`${tag}: crash sites' scorches wiped before their time (a new flight) go with them`, D.wiped === 0, D);
+  ok(`${tag}: on High a still TK-34 and a Buggy beside it lie on soft blobs (α ${p5.tank && p5.tank.a}, ${p5.bug && p5.bug.a}: inside the Sun's shadow box, 0.32)`, !!p5.tank && !!p5.bug && p5.tank.k === 0 && p5.bug.k === 0 && Math.abs(p5.tank.a - 0.32) < 0.01 && Math.abs(p5.bug.a - 0.32) < 0.01 && p5.tank.w > p5.bug.w, p5);
+  ok(`${tag}: a Falcon 200 m up has no blob`, p5.falcon === null, p5.falcon);
+  ok(`${tag}: a wreck lies on a scorch (cell ${p5.wreck && p5.wreck.k}), not a blob, fading in over its first second, deep after an ammunition detonation (α ${p5.wreck && p5.wreck.a})`, !p5.wreck0 && !!p5.wreck && p5.wreck.k >= 1 && p5.wreck.k <= 4 && Math.abs(p5.wreck.a - 0.8) < 0.01, p5);
+  ok(`${tag}: a crash site leaves one round scorch, still there after its pyre is gone (80 s) and at 100 s, gone at 300 s`, !!p5.pyre1 && Math.abs(p5.pyre1.w - p5.pyre1.d) < 1e-3 && Math.abs(p5.pyre1.a - 0.75) < 0.01 && !!p5.pyre80 && !!p5.pyre100 && !p5.pyre301, p5);
+  // (SHOTS) the blobs and scorches, looked down on
+  if (SHOTS) {
+    await ev(() => { Flight.time += 1.2; const p = window.__ground(30, 0); Death.S.pyres.push({ b: Flight.active.body, x: p.x, y: p.y, z: p.z, t: Flight.time - 2, k: 4, wet: false }); for (let i = 0; i < 3; i++) window.__draws(); });
+    await shot('decals-high');
+  }
+  // on Low (no real shadows): the blobs are the only shadows, 0.6
+  const low5 = await ev(async () => {
+    Settings.set('quality', 'low'); await window.__rebuild(); for (let i = 0; i < 4; i++) window.__draws();
+    return { tank: window.__dk(Flight.active), bug: window.__dk(window.__keep[0]) };
+  });
+  ok(`${tag}: on Low a still TK-34 and a Buggy each lie on a blob (α ${low5.tank && low5.tank.a}, ${low5.bug && low5.bug.a}: no real shadows there)`, !!low5.tank && !!low5.bug && low5.tank.a > 0.5 && low5.bug.a > 0.5, low5);
+  if (SHOTS) await shot('decals-low');
+  await ev(async () => {
+    for (const o of window.__keep) Flight.vessels.splice(Flight.vessels.indexOf(o), 1);
+    Death.S.pyres.length = 0; window.__keep = null;
+    Settings.set('quality', 'high'); await window.__rebuild(); for (let i = 0; i < 4; i++) window.__draws();
+  });
+
   // ---- 12. the 2D fallback (Silly's retro2d): every FX.death kind drawn by FX.draw, no error
   const e12 = errs.length;
   const d12 = await ev(async () => {
@@ -377,7 +477,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   const byB = await ev2(([TOWN, T_NOON]) => { const t = TEMPLATES.buggy; Render3D.skipDraw = true; store.set('rss.flight', null);
     Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: TOWN }); Flight.paused = true; Flight.time = T_NOON; Props.play = false;
     const v = Flight.active; return { x: v.x, y: v.y, z: v.z, q: { ...v.q } }; }, [TOWN, T_NOON]);
-  await town('buggy', { ...TOWN, e: TOWN.e + 424, z: TOWN.z + 424 });
+  await town('buggy', { ...TOWN, e: TOWN.e + 600, z: TOWN.z + 600 }); // (open: no building within reach of a ground vehicle's 50 m box)
   const fc = await ev2(async (at) => {
     for (let i = 0; i < 4; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); }
     const open = Render3D.info().proxies, p0 = window.__nprog, v = Flight.active;
@@ -406,8 +506,10 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   const s2c = await ev2(() => { Render3D.bench.proxyCap = 2; const a = window.__shot(), I = Render3D.info(); Render3D.shadowAll = true; const b = window.__shot(); Render3D.shadowAll = false;
     Render3D.bench.proxyCap = 0; const c = window.__shot(), Ic = Render3D.info(); return { a: a.hash, b: b.hash, c: c.hash, va: a.verts.shadow, vb: b.verts.shadow, vc: c.verts.shadow, proxies: I.proxies, back: Ic.proxies }; });
   ok(`${tag}: more buildings in reach than a stand-in holds: those meshes cast whole (stand-ins ${s2c.proxies.join(', ')}), the same picture; back to the stand-ins after`, s2c.proxies[0] === 0 && s2c.proxies[1] === 0 && s2c.a === s2c.b && s2c.va <= s2c.vb && s2c.va > s2c.vc && s2c.c === s2c.a && s2c.back[0] > 0, s2c);
-  // a Jumbo in town: a bigger shadow box (twice the Buggy's), more stand-ins, the same picture to the byte
+  // a Jumbo in town, the camera drawn back: a bigger shadow box (60 m, the Buggy's 50), more stand-ins, the same picture
+  // to the byte
   await town('jumbo', TOWN);
+  await ev2(async () => { Flight.scale /= 2; Render3D.skipDraw = true; for (let n = 0, quiet = 0; n < 4000 && quiet < 30; n++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); quiet = Render3D.bench.busy() ? 0 : quiet + 1; if ((n & 63) === 63) await new Promise((r) => setTimeout(r, 0)); } Render3D.skipDraw = false; });
   const s2d = await triple();
   ok(`${tag}: a Jumbo's bigger shadow box (half-width ${s2d.box} m): more stand-ins (${s2d.proxies.join(', ')}), the picture the same to the byte`, s2d.box > s2.box && s2d.proxies[0] > s2.proxies[0] && s2d.a === s2d.b && s2d.c === s2d.a && s2d.va < s2d.vb, s2d);
 
