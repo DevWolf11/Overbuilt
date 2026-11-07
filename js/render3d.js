@@ -4035,7 +4035,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh;
     const q = SYNC_Q;
     q.dt = dt; q.time = F.time; q.rho = 0; q.quality = Settings.high ? 'high' : 'low';
-    let glowK = 0;
+    let glowK = 0, baked1 = false;
     const camSim = toSim(camera.position.x, camera.position.y, camera.position.z, CAM_A);
     for (const v of F.vessels) {
       if (!have || !v.parts.length || v.dead) continue;
@@ -4059,6 +4059,18 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * ((isGround(v.kind) ? v.bounds.maxY - v.bounds.minY : ext) + 1);
         e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
       }
+      // (the big update) a wreck drawn for BAKE_S (wall clock, from its first frame drawn as one) is baked to one mesh
+      // (Parts3D's VesselMesh.bake: one draw for its 14-29, and one shadow draw), once the small copies of its textures it
+      // asked for on that first frame have come back from the GPU (bakeReady: no frame waits on the GPU for them); one that
+      // changes (no longer a wreck, parts lost or gained) is taken apart by its sync and baked afresh on a later frame. At
+      // most one a frame (a TK-34 takes 3-20 ms): eight wrecks of one battle bake over eight frames
+      if (!v.wreck) e.wreckAt = null;
+      else if (!e.vm.baked && !e.bakeErr) {
+        try {
+          if (e.wreckAt == null) { e.wreckAt = performance.now(); e.vm.bakeReady(); }
+          else if (!baked1 && performance.now() - e.wreckAt >= BAKE_S * 1000 && e.vm.bakeReady()) baked1 = e.vm.bake(); // (one a frame: a few ms each)
+        } catch (err) { e.bakeErr = true; console.error('Render3D: a wreck could not be baked (drawn as it was)', err); } // (once: never retried)
+      }
       e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
       e.vm.group.position.set(-v.com.x, -v.com.y, -(v.com.z || 0));
       q.rho = airDensity(v.body, v.altitude());
@@ -4066,8 +4078,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
     }
     for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    if (S.warm > 0 || S.bakeW) warmBake(F);
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
+  }
+  // The baked wrecks' material (Parts3D.bakeMat) compiled while a flight with a ground vehicle in it loads (S.warm's first
+  // frames), not 6 s after the first kill: a speck with no area drawn with it, as the effect meshes are (initParticles)
+  const BAKE_S = 6;
+  function warmBake(F) {
+    const on = S.warm > 0 && typeof Parts3D !== 'undefined' && !!Parts3D.bakeMat && F.vessels.some((v) => isGround(v.kind));
+    let m = S.bakeW;
+    if (!m) {
+      if (!on) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9), 3));
+      g.setIndex([0, 1, 2]);
+      m = S.bakeW = new THREE.Mesh(g, Parts3D.bakeMat());
+      m.frustumCulled = false; m.receiveShadow = true;
+      localWorld.add(m);
+    }
+    m.visible = on;
   }
   // Other players' and the AI's ground vehicles, and wrecks (old cars' too), more than 150 m off: drawn raised or lowered
   // by how far the ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch
@@ -4732,6 +4764,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : 50); },
     // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
+    // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
+    meshOf(v) { const e = vessels.get(v); return e ? e.vm : null; },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
     // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
     arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },
