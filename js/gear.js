@@ -659,11 +659,11 @@ const Gear = {
   bump(v, sim) {
     if (typeof Props !== 'undefined' && v.parts.length) gearProps(v, sim);
     const list = sim && sim.vessels;
-    if (!list || list.length < 2 || !v.parts.length) return;
+    if (!list || list.length < 2 || !v.parts.length || v.foreign) return; // (another player's falling pieces on our screen: pictures, they push nothing)
     const rv = gearBoxR(v);
     let A = null, fresh = false;
     for (const o of list) {
-      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body || (o.remote && !o.wreck && !isGround(o.kind))) continue;
+      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body || (o.remote && !o.wreck && !isGround(o.kind)) || (o.foreign && !o.wreck)) continue; // (nor are they pushed: a peer's hulk falling on us hurts nothing)
       const dx = o.x - v.x, dy = o.y - v.y, dz = o.z - v.z, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > 2500) continue; // (50 m: nothing a vehicle's box reaches)
       const rr = rv + gearBoxR(o);

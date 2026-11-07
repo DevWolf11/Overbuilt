@@ -555,6 +555,22 @@ const Death = (() => {
   }
   // A knocked-out hulk becomes a wreck: frozen where it stands (no longer stepped, solid to everything, charred)
   function settle(v) { v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); }
+  // A craft spawning in a room on top of a wreck (a respawn on the spot where it was knocked out, a sandbox's start):
+  // every standing wreck whose centre is within 12 m of the new craft's (P, body coordinates on body b) starts sinking
+  // now, on every screen alike (its owner at its start, the others at its first snapshot: MP.startFlight, poseGhost),
+  // so the wrecks stay solid in step. The room's wrecks (MP's list): GroundAI's never stand in a room. The number sunk.
+  function clearSpawn(b, P) {
+    if (typeof MP === 'undefined' || !MP.wrecks || !MP.wrecks.length || !P) return 0;
+    const now = performance.now();
+    let n = 0;
+    for (const w of MP.wrecks) {
+      const o = w.v;
+      if (o.dead || o.body !== b || MP.sinkStart(w) <= now) continue; // (gone, elsewhere, or sinking already)
+      const c = o.toWorld(o.com.x, o.com.y, o.com.z || 0);
+      if (Math.hypot(c.x - P.x, c.y - P.y, c.z - P.z) <= DEATH.spawnClear) { w.sinkAt = now; n++; }
+    }
+    return n;
+  }
   // The pieces a hit knocked off a ground vehicle since n0 (Combat.destroyPart's old body, flushRips' torn-off kit: an
   // old car's wheel, a skirt, a brick, a tank blown off): cold junk, which lies 90 s once still and then sinks away (the
   // crash section's junkLife), as an aircraft's cold pieces do. Not a crash's or a burn-up's pieces, nor the blasts a
@@ -676,6 +692,7 @@ const Death = (() => {
     impact, tick, reset, crash, pyre, limp, // (the crash section's: crash, crash sites, who flies no more)
     groundPart,
     groundKO, settle, groundPieces, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
+    clearSpawn, // (multiplayer's: a spawn on top of a wreck sinks it, mp.js)
     feedback, hit, drawHits,
     _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T },
   };
