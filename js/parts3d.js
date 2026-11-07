@@ -2147,6 +2147,308 @@ void main() {
     } else rig.modsMesh.geometry = g;
   }
 
+  // ------------------------------------------------------------------ the bake (the big update: a wreck in one draw)
+  // A wreck that has stood for 6 s (render3d's syncVessels) is drawn as one mesh: every visible mesh of its rigs with a
+  // standard material (their twin holders, radial copies and pylons too) merged in the vessel's group's frame, under one
+  // shared matt material, each vertex coloured with its material's colour (charred already) times its own vertex colour
+  // times its texture as it lies round it: the mean of the picture over the triangles that meet at the vertex (read from
+  // a 64 px mip level of the texture), so a hull keeps its paint, an engine deck its tone and a cab its colour, and only
+  // the fine pattern goes (it is charred). Sprites, plumes, lines, lamps (basic materials) and shader materials are
+  // dropped. The merge keeps the meshes' indices (each vertex shaded once, as before: a tank's 5-12 thousand triangles
+  // cost the GPU what they did) and turns their 14-29 draws, and as many shadow draws, into one each. A mirrored mesh has
+  // its triangles turned back; a two-sided one is put in twice, once each way round. BAKE: the shared material, the
+  // pictures read (by image), the renderer, scratch.
+  const BAKE = { mat: null, pics: new WeakMap(), wait: [], cv: null, lin: null, N: null, T: null, s: new Float32Array(3), R: null, fb: null,
+    B: [1 / 3, 1 / 3, 1 / 3, 2 / 3, 1 / 6, 1 / 6, 1 / 6, 2 / 3, 1 / 6, 1 / 6, 1 / 6, 2 / 3] }; // (B: the four points a triangle is sampled at)
+  function bakeMat() {
+    let m = BAKE.mat;
+    if (!m) m = BAKE.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.05, envMap: api.envMap, envMapIntensity: 0.2 });
+    if (m.envMap !== api.envMap) { m.envMap = api.envMap; m.needsUpdate = true; }
+    return m;
+  }
+  // A texture's picture for the bake, read once per image, at most 64 px a side: its own mip level of that size (filtered
+  // down when it was uploaded) read back from the GPU, else its canvas drawn down. bakeAsk starts the GPU read without
+  // waiting (into a pixel buffer, behind a fence, collected by bakePoll on a later frame), so no frame stalls on the GPU;
+  // bakePic then has it (the picture; null: none to read; undefined: not read yet). bakeNow reads at once (waiting on the
+  // GPU if it must), for a bake asked for before its pictures came in.
+  function bakePic(t) {
+    const img = t && t.image;
+    if (!img || !(img.width > 0) || !(img.height > 0)) return null;
+    return BAKE.pics.get(img);
+  }
+  // the WebGL2 context and the texture's GL object and mip level to read (l, w x h), or null
+  function bakeSrc(t) {
+    const R = BAKE.R, p = R && R.properties && R.properties.get(t), tex = p && p.__webglTexture, gl = R && R.getContext && R.getContext();
+    if (!tex || !gl || typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return null;
+    const W = t.image.width, H = t.image.height, mips = t.generateMipmaps && t.minFilter !== THREE.LinearFilter && t.minFilter !== THREE.NearestFilter;
+    const l = Math.max(0, Math.ceil(Math.log2(Math.max(W, H) / 64)));
+    return l > 0 && !mips ? null : { gl, tex, l, w: Math.max(1, W >> l), h: Math.max(1, H >> l) };
+  }
+  // the level read into px (a Uint8Array: now, checked) or, with buf, into that pixel buffer (queued: no call here waits
+  // on the GPU, so nothing is checked; bakePoll throws away a read that came back empty); false if it couldn't be read
+  function bakeRead(S, px, buf) {
+    const gl = S.gl, dr = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING), rd = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING), fb = BAKE.fb || (BAKE.fb = gl.createFramebuffer());
+    let ok = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    try {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, S.tex, S.l);
+      if (buf) { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf); gl.readPixels(0, 0, S.w, S.h, gl.RGBA, gl.UNSIGNED_BYTE, 0); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); ok = true; }
+      else if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) { gl.readPixels(0, 0, S.w, S.h, gl.RGBA, gl.UNSIGNED_BYTE, px); ok = gl.getError() === gl.NO_ERROR; }
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+    } finally { gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dr); gl.bindFramebuffer(gl.READ_FRAMEBUFFER, rd); } // (as three left them: its state cache stays true)
+    return ok;
+  }
+  // Start reading t's picture (a texture never drawn yet is uploaded first); where it can't be read without waiting, it is
+  // read now
+  function bakeAsk(t) {
+    const img = t && t.image;
+    if (bakePic(t) !== undefined || BAKE.wait.some((q) => q.img === img)) return;
+    let S = bakeSrc(t);
+    if (!S && BAKE.R && BAKE.R.initTexture && !(BAKE.R.properties.get(t) || {}).__webglTexture) { BAKE.R.initTexture(t); S = bakeSrc(t); } // (never drawn yet: uploaded now)
+    if (!S) { bakeNow(t); return; } // (no WebGL2 or no mip level to read: the canvas, now)
+    const gl = S.gl, buf = gl.createBuffer();
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf); gl.bufferData(gl.PIXEL_PACK_BUFFER, S.w * S.h * 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    if (!bakeRead(S, null, buf)) { gl.deleteBuffer(buf); bakeNow(t); return; }
+    BAKE.wait.push({ img, t, S, buf, sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0) });
+    gl.flush();
+  }
+  // collect the reads the GPU has finished
+  function bakePoll() {
+    for (let i = BAKE.wait.length - 1; i >= 0; i--) {
+      const q = BAKE.wait[i], gl = q.S.gl, st = gl.clientWaitSync(q.sync, 0, 0);
+      if (st !== gl.ALREADY_SIGNALED && st !== gl.CONDITION_SATISFIED && st !== gl.WAIT_FAILED) continue;
+      const px = new Uint8Array(q.S.w * q.S.h * 4);
+      if (st !== gl.WAIT_FAILED) { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, q.buf); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+      gl.deleteSync(q.sync); gl.deleteBuffer(q.buf);
+      BAKE.wait.splice(i, 1);
+      let seen = false;
+      for (let k = 3; k < px.length && !seen; k += 4) seen = px[k] > 0; // (nothing came back: the level couldn't be read)
+      if (st === gl.WAIT_FAILED || !seen) bakeNow(q.t); else BAKE.pics.set(q.img, bakeLevels(q.t, px, q.S.w, q.S.h, true));
+    }
+  }
+  // t's picture read now: from the GPU (waiting for it), else its canvas drawn down
+  function bakeNow(t) {
+    const img = t && t.image;
+    let P = bakePic(t);
+    if (P !== undefined) return P;
+    P = null;
+    if (BAKE.R && BAKE.R.initTexture && !(BAKE.R.properties.get(t) || {}).__webglTexture) try { BAKE.R.initTexture(t); } catch (e) { /* (the canvas, below) */ }
+    try { const S = bakeSrc(t), px = S && new Uint8Array(S.w * S.h * 4); if (S && bakeRead(S, px)) P = bakeLevels(t, px, S.w, S.h, true); } catch (e) { P = null; }
+    if (!P) {
+      try {
+        const w = Math.min(64, img.width), h = Math.min(64, img.height), cv = BAKE.cv || (BAKE.cv = document.createElement('canvas'));
+        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+        const c = cv.getContext('2d', { willReadFrequently: true });
+        c.clearRect(0, 0, w, h); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+        c.drawImage(img, 0, 0, w, h);
+        P = bakeLevels(t, c.getImageData(0, 0, w, h).data, w, h, !t.flipY); // (a canvas' rows run down; flipY puts its top row at v = 1)
+      } catch (e) { P = null; } // (a picture that can't be read: the material's colour alone)
+    }
+    BAKE.pics.set(img, P);
+    return P;
+  }
+  // A picture from its pixels (RGBA bytes, rows from v = 0 up if up): linear RGB as drawn, with its smaller levels (2x2
+  // means, down to 1 px) for wide footprints, and the mean over its opaque pixels
+  function bakeLevels(t, px, w, h, up) {
+    if (!BAKE.lin) { BAKE.lin = new Float32Array(256); for (let i = 0; i < 256; i++) { const c = i / 255; BAKE.lin[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); } }
+    const L = BAKE.lin, srgb = t.colorSpace === THREE.SRGBColorSpace, d = new Float32Array(w * h * 3), mean = [0, 0, 0];
+    let a = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = ((up ? y : h - 1 - y) * w + x) * 4, j = (y * w + x) * 3, al = px[i + 3] / 255;
+      for (let k = 0; k < 3; k++) { const c = srgb ? L[px[i + k]] : px[i + k] / 255; d[j + k] = c; mean[k] += c * al; }
+      a += al;
+    }
+    const lv = [{ w, h, d }];
+    for (let q = lv[0]; q.w > 1 || q.h > 1; q = lv[lv.length - 1]) {
+      const W2 = Math.max(1, q.w >> 1), H2 = Math.max(1, q.h >> 1), d2 = new Float32Array(W2 * H2 * 3);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) for (let k = 0; k < 3; k++) {
+        const x0 = Math.min(q.w - 1, 2 * x), x1 = Math.min(q.w - 1, 2 * x + 1), y0 = Math.min(q.h - 1, 2 * y), y1 = Math.min(q.h - 1, 2 * y + 1);
+        d2[(y * W2 + x) * 3 + k] = (q.d[(y0 * q.w + x0) * 3 + k] + q.d[(y0 * q.w + x1) * 3 + k] + q.d[(y1 * q.w + x0) * 3 + k] + q.d[(y1 * q.w + x1) * 3 + k]) / 4;
+      }
+      lv.push({ w: W2, h: H2, d: d2 });
+    }
+    const top = lv[lv.length - 1].d;
+    return { lv, mean: a > 0 ? mean.map((x) => x / a) : [top[0], top[1], top[2]] };
+  }
+  // The picture's colour at uv (u, v) into BAKE.s, from level l: through the texture's transform (BAKE.T) and wrapping,
+  // bilinear
+  const bakeWrap = (x, mode) => (mode === THREE.RepeatWrapping ? x - Math.floor(x) : mode === THREE.MirroredRepeatWrapping ? 1 - Math.abs(1 - (x - 2 * Math.floor(x / 2))) : x < 0 ? 0 : x > 1 ? 1 : x);
+  const bakeCell = (i, n, rep) => (rep ? ((i % n) + n) % n : i < 0 ? 0 : i >= n ? n - 1 : i);
+  function bakeAt(P, l, t, u, v) {
+    const q = P.lv[Math.min(l, P.lv.length - 1)], m = BAKE.T, W = q.w, H = q.h, d = q.d, s = BAKE.s, rs = t.wrapS === THREE.RepeatWrapping, rt = t.wrapT === THREE.RepeatWrapping;
+    const x = bakeWrap(m[0] * u + m[3] * v + m[6], t.wrapS) * W - 0.5, y = bakeWrap(m[1] * u + m[4] * v + m[7], t.wrapT) * H - 0.5;
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+    const xa = bakeCell(x0, W, rs), xb = bakeCell(x0 + 1, W, rs), ya = bakeCell(y0, H, rt) * W, yb = bakeCell(y0 + 1, H, rt) * W;
+    const a = (ya + xa) * 3, b = (ya + xb) * 3, c = (yb + xa) * 3, e = (yb + xb) * 3;
+    for (let k = 0; k < 3; k++) s[k] = (d[a + k] * (1 - fx) + d[b + k] * fx) * (1 - fy) + (d[c + k] * (1 - fx) + d[e + k] * fx) * fy;
+    return s;
+  }
+  const bakeStd = (m) => !!m && m.isMeshStandardMaterial && m.visible !== false && !(m.opacity <= 0);
+  // A material's colour in the bake (null: not baked) and its picture: the colour times the picture's mean, unless pic
+  function bakeColour(m, pic) {
+    if (!bakeStd(m)) return null;
+    const c = [m.color.r, m.color.g, m.color.b], P = !pic && m.map ? bakeNow(m.map) : null;
+    if (P) { c[0] *= P.mean[0]; c[1] *= P.mean[1]; c[2] *= P.mean[2]; }
+    return c;
+  }
+  // An attribute's numbers as one array with a stride (the attribute's own when it is plain, else a copy)
+  function bakeArr(A, n) {
+    if (!A) return null;
+    if (!A.isInterleavedBufferAttribute && !A.normalized && A.array) return { a: A.array, s: A.itemSize };
+    const a = new Float32Array(A.count * n), get = ['getX', 'getY', 'getZ', 'getW'];
+    for (let i = 0; i < A.count; i++) for (let k = 0; k < n; k++) a[i * n + k] = k < A.itemSize ? A[get[k]](i) : 1;
+    return { a, s: n };
+  }
+  // The meshes a bake takes from a rig, with their transforms into the vessel's group: the product of their own matrices
+  // from the rig's root down (its root, radial copy and pylons hang straight off the group), so the group's place in the
+  // world never enters. Hidden ones (a retracted wheel, a fired store, an inner part, a plume) are left out.
+  function bakeList(rig, out) {
+    const walk = (o, M, radial, side) => {
+      if (!o.visible) return;
+      if (o.matrixAutoUpdate) o.updateMatrix();
+      const W = new THREE.Matrix4().multiplyMatrices(M, o.matrix), s = o.userData.side || side;
+      if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.position) {
+        const m = o.material;
+        if (Array.isArray(m) ? m.some(bakeStd) : bakeStd(m)) out.push({ o, M: W, part: rig.part, radial, side: s });
+      }
+      for (const c of o.children) walk(c, W, radial, s);
+    };
+    const I = new THREE.Matrix4();
+    walk(rig.root, I, false, 0);
+    if (rig.twin) walk(rig.twin, I, true, 0);
+    if (rig.pylons) walk(rig.pylons, I, false, 0);
+  }
+  // A textured mesh's picture at each of its vertices (rgb, flat): the mean over the triangles that meet there (each the
+  // mean of its own patch of the picture: four samples from the level whose texels are about a quarter of the patch wide,
+  // weighted by its area); null if it has no picture to read or no uv
+  function bakeTex(J) {
+    const m = J.it.o.material, t = m.map, g = J.it.o.geometry, P = t && bakeNow(t), UV = g.attributes.uv;
+    if (!P || !UV) return null;
+    if (t.matrixAutoUpdate) t.updateMatrix();
+    const M = (BAKE.T = t.matrix.elements), sc = Math.abs(M[0] * M[4] - M[1] * M[3]) * P.lv[0].w * P.lv[0].h; // (texels of level 0 a unit of uv area)
+    const n = g.attributes.position.count, out = new Float32Array(n * 3), wt = new Float32Array(n), I = g.index, ua = bakeArr(UV, 2), pa = bakeArr(g.attributes.position, 3);
+    const U = ua.a, us = ua.s, X = pa.a, ps = pa.s, B = BAKE.B;
+    for (let t3 = J.r0; t3 < J.r0 + J.cnt; t3 += 3) {
+      const a = I ? I.getX(t3) : t3, b = I ? I.getX(t3 + 1) : t3 + 1, c = I ? I.getX(t3 + 2) : t3 + 2;
+      const ux = X[b * ps] - X[a * ps], uy = X[b * ps + 1] - X[a * ps + 1], uz = X[b * ps + 2] - X[a * ps + 2], wx = X[c * ps] - X[a * ps], wy = X[c * ps + 1] - X[a * ps + 1], wz = X[c * ps + 2] - X[a * ps + 2];
+      const ar = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) + 1e-9;
+      const ua0 = U[a * us], va0 = U[a * us + 1], ub = U[b * us], vb = U[b * us + 1], uc = U[c * us], vc = U[c * us + 1];
+      const tex = Math.abs((ub - ua0) * (vc - va0) - (uc - ua0) * (vb - va0)) * 0.5 * sc, l = tex > 4 ? Math.floor(Math.log2(Math.sqrt(tex) / 2)) : 0;
+      let r = 0, gg = 0, bb = 0;
+      for (let q = 0; q < 12; q += 3) {
+        const s = bakeAt(P, l, t, B[q] * ua0 + B[q + 1] * ub + B[q + 2] * uc, B[q] * va0 + B[q + 1] * vb + B[q + 2] * vc);
+        r += s[0]; gg += s[1]; bb += s[2];
+      }
+      r *= ar / 4; gg *= ar / 4; bb *= ar / 4;
+      out[a * 3] += r; out[a * 3 + 1] += gg; out[a * 3 + 2] += bb; wt[a] += ar;
+      out[b * 3] += r; out[b * 3 + 1] += gg; out[b * 3 + 2] += bb; wt[b] += ar;
+      out[c * 3] += r; out[c * 3 + 1] += gg; out[c * 3 + 2] += bb; wt[c] += ar;
+    }
+    for (let v = 0; v < n; v++) {
+      if (wt[v] > 0) { out[v * 3] /= wt[v]; out[v * 3 + 1] /= wt[v]; out[v * 3 + 2] /= wt[v]; } else { out[v * 3] = P.mean[0]; out[v * 3 + 1] = P.mean[1]; out[v * 3 + 2] = P.mean[2]; }
+    }
+    return out;
+  }
+  // The merged geometry of bakeList's meshes and, per run of triangles, the part, side and radial flag they came from (for
+  // picking). A mesh with several materials is taken triangle by triangle (no vertex shared across two colours).
+  function bakeGeometry(list) {
+    if (!BAKE.N) BAKE.N = new THREE.Matrix3();
+    const jobs = [];
+    let nv = 0, ni = 0;
+    for (const it of list) {
+      const g = it.o.geometry, P = g.attributes.position, I = g.index, mats = it.o.material;
+      const n0 = I ? I.count : P.count, r0 = Math.max(0, g.drawRange.start || 0), r1 = Math.min(n0, r0 + (isFinite(g.drawRange.count) ? g.drawRange.count : n0));
+      if (Array.isArray(mats)) { // (per group: its own material)
+        const tris = [];
+        for (const gr of g.groups.length ? g.groups : [{ start: 0, count: n0, materialIndex: 0 }]) {
+          const m = mats[gr.materialIndex], col = bakeColour(m);
+          if (!col) continue;
+          const a = Math.max(r0, gr.start), b = Math.min(r1, gr.start + gr.count);
+          for (let t = a; t + 2 < b; t += 3) tris.push(t, col, !!m.vertexColors);
+        }
+        if (!tris.length) continue;
+        const two = mats.some((m) => bakeStd(m) && m.side === THREE.DoubleSide) ? 2 : 1;
+        jobs.push({ it, flat: true, tris, two });
+        nv += tris.length * two; ni += tris.length * two; // (three entries a triangle: three vertices, three indices)
+      } else {
+        const cnt = Math.max(0, r1 - r0 - ((r1 - r0) % 3)), two = mats.side === THREE.DoubleSide ? 2 : 1;
+        if (!cnt) continue;
+        const J = { it, r0, cnt, two, back: mats.side === THREE.BackSide, vc: !!mats.vertexColors };
+        J.tex = mats.map ? bakeTex(J) : null;
+        J.col = bakeColour(mats, !!J.tex);
+        jobs.push(J);
+        nv += (I ? P.count : cnt) * two; ni += cnt * two;
+      }
+    }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni), at = [];
+    let v = 0, k = 0;
+    for (const J of jobs) {
+      const it = J.it, g = it.o.geometry, I = g.index, pa = bakeArr(g.attributes.position, 3), na = bakeArr(g.attributes.normal, 3), ca = J.flat || J.vc ? bakeArr(g.attributes.color, 3) : null;
+      const X = pa.a, ps = pa.s, Nn = na && na.a, ns = na && na.s, C = ca && ca.a, cs = ca && ca.s, TX = J.tex;
+      const e = it.M.elements, n = BAKE.N.getNormalMatrix(it.M).elements, mirror = it.M.determinant() < 0, k0 = k;
+      // vertex i of the source at v: its place, normal (reversed for a back copy) and colour (c: its material's, vc: times
+      // its own vertex colour; times the picture round it, TX)
+      const put = (i, rev, c, vc) => {
+        const x = X[i * ps], y = X[i * ps + 1], z = X[i * ps + 2], o = v * 3;
+        pos[o] = e[0] * x + e[4] * y + e[8] * z + e[12]; pos[o + 1] = e[1] * x + e[5] * y + e[9] * z + e[13]; pos[o + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+        if (Nn) {
+          const a = Nn[i * ns], b = Nn[i * ns + 1], d = Nn[i * ns + 2], nx = n[0] * a + n[3] * b + n[6] * d, ny = n[1] * a + n[4] * b + n[7] * d, nz = n[2] * a + n[5] * b + n[8] * d;
+          const s = (rev ? -1 : 1) / (Math.hypot(nx, ny, nz) || 1);
+          nor[o] = nx * s; nor[o + 1] = ny * s; nor[o + 2] = nz * s;
+        }
+        let r = c[0], gg = c[1], b = c[2];
+        if (vc && C) { r *= C[i * cs]; gg *= C[i * cs + 1]; b *= C[i * cs + 2]; }
+        if (TX) { r *= TX[i * 3]; gg *= TX[i * 3 + 1]; b *= TX[i * 3 + 2]; }
+        col[o] = r; col[o + 1] = gg; col[o + 2] = b;
+        return v++;
+      };
+      for (let w = 0; w < J.two; w++) {
+        // back: this copy faces the other way (a two-sided mesh's second, or a back-sided one): reversed, as its normals;
+        // a mirrored transform reverses the triangles once more
+        const back = J.flat ? w === 1 : J.back !== (w === 1), turn = mirror !== back, v0 = v, j0 = k;
+        if (J.flat) {
+          for (let q = 0; q < J.tris.length; q += 3) {
+            const t = J.tris[q], c = J.tris[q + 1], vc = J.tris[q + 2];
+            const a = put(I ? I.getX(t) : t, back, c, vc), b = put(I ? I.getX(t + 1) : t + 1, back, c, vc), d = put(I ? I.getX(t + 2) : t + 2, back, c, vc);
+            idx[k++] = a; idx[k++] = turn ? d : b; idx[k++] = turn ? b : d;
+          }
+        } else if (I) {
+          const cntV = g.attributes.position.count;
+          for (let i = 0; i < cntV; i++) put(i, back, J.col, J.vc);
+          for (let t = J.r0; t < J.r0 + J.cnt; t += 3) {
+            const a = I.getX(t), b = I.getX(t + 1), d = I.getX(t + 2);
+            idx[k++] = v0 + a; idx[k++] = v0 + (turn ? d : b); idx[k++] = v0 + (turn ? b : d);
+          }
+        } else {
+          for (let t = J.r0; t < J.r0 + J.cnt; t += 3) {
+            const a = put(t, back, J.col, J.vc), b = put(t + 1, back, J.col, J.vc), d = put(t + 2, back, J.col, J.vc);
+            idx[k++] = a; idx[k++] = turn ? d : b; idx[k++] = turn ? b : d;
+          }
+        }
+        if (!Nn) bakeNormals(pos, nor, idx, v0, v, j0, k); // (wound as drawn, so a reversed copy's come out reversed)
+      }
+      at.push({ from: k0 / 3, end: k / 3, part: it.part, side: it.side, radial: it.radial });
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere();
+    return { geo, at };
+  }
+  // a run's normals from its triangles as wound (vertices v0..v1, indices j0..j1), where its geometry has none (as three's
+  // computeVertexNormals)
+  function bakeNormals(pos, nor, idx, v0, v1, j0, j1) {
+    for (let j = j0; j < j1; j += 3) {
+      const a = idx[j] * 3, b = idx[j + 1] * 3, c = idx[j + 2] * 3;
+      const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], wx = pos[c] - pos[a], wy = pos[c + 1] - pos[a + 1], wz = pos[c + 2] - pos[a + 2];
+      const fx = uy * wz - uz * wy, fy = uz * wx - ux * wz, fz = ux * wy - uy * wx;
+      for (const q of [a, b, c]) { nor[q] += fx; nor[q + 1] += fy; nor[q + 2] += fz; }
+    }
+    for (let q = v0 * 3; q < v1 * 3; q += 3) { const l = Math.hypot(nor[q], nor[q + 1], nor[q + 2]) || 1; nor[q] /= l; nor[q + 1] /= l; nor[q + 2] /= l; }
+  }
+
   class VesselMesh {
     constructor(parts, opts) {
       need(); ensureShared();
@@ -2192,6 +2494,7 @@ void main() {
 
     // Drops parts that are gone (separation, explosions) and disposes their materials.
     prune(stamp) {
+      if (this.baked) return; // (baked: no rigs left)
       for (let i = this.list.length - 1; i >= 0; i--) {
         const rig = this.list[i];
         if (rig.seen === stamp) continue;
@@ -2202,7 +2505,58 @@ void main() {
       this.pickables = this.list.flatMap((r) => r.meshes);
     }
 
+    // (the big update) Whether a bake could go ahead without waiting on the GPU: the pictures of its textured meshes read
+    // (bakeAsk starts the reads it still needs; they come in on later frames). render3d asks when a wreck is first drawn
+    // and again from 6 s, and bakes once it says yes.
+    bakeReady() {
+      if (this.baked || this.builder || this.xray) return false;
+      bakePoll();
+      const list = [];
+      for (const rig of this.list) bakeList(rig, list);
+      let ok = true;
+      for (const it of list) for (const m of [].concat(it.o.material)) {
+        if (!bakeStd(m) || !m.map || bakePic(m.map) !== undefined) continue;
+        bakeAsk(m.map);
+        if (bakePic(m.map) === undefined) ok = false;
+      }
+      return ok;
+    }
+    // (the big update) A wreck as one mesh (see bakeGeometry): its rigs merged, then freed. render3d calls it once a
+    // wreck has stood for 6 s; never in the hangar or X-ray. False: refused (not a wreck as last synced, or baked).
+    bake() {
+      if (this.baked || this.builder || this.xray || !this.wreck) return false;
+      const list = [];
+      for (const rig of this.list) bakeList(rig, list);
+      const { geo, at } = bakeGeometry(list), mesh = new THREE.Mesh(geo, bakeMat());
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData.baked = true;
+      this.bakeN = this.list.length;
+      for (const rig of this.list) freeRig(rig);
+      this.list.length = 0;
+      this.items.clear();
+      this.pickables.length = 0;
+      this.exhaust.length = 0;
+      this.pylonSig = null; // (pylons built afresh if it is ever taken apart again)
+      this.baked = mesh;
+      this.bakeAt = at;
+      this.group.add(mesh);
+      return true;
+    }
+    // Back to rigs (sync builds them again): a baked vessel that is no longer a wreck, or has lost or gained parts
+    unbake() {
+      const m = this.baked;
+      if (!m) return;
+      m.removeFromParent();
+      m.geometry.dispose();
+      this.baked = null;
+      this.bakeAt = null;
+    }
+
     sync(v, o) {
+      if (this.baked) { // (while baked nothing is drawn afresh: the mesh is the wreck as it stood)
+        if (v.wreck && v.parts.length === this.bakeN) { bakeMat(); return; }
+        this.unbake();
+      }
       o = o || {};
       const parts = v.parts, dt = o.dt > 0 ? Math.min(o.dt, 0.25) : 0, time = o.time || 0, rho = o.rho > 0 ? o.rho : 0, high = o.quality !== 'low' && o.quality !== false;
       const stamp = ++this.stamp;
@@ -2311,12 +2665,12 @@ void main() {
     // pair it was (side ±1, else 0). A rocket's radial copies of its legs and fins are only for show, so
     // they don't count unless `radial`.
     pickHit(raycaster, skip, radial) {
-      const hits = raycaster.intersectObjects(this.pickables, false), dir = raycaster.ray.direction;
+      const hits = raycaster.intersectObjects(this.baked ? [this.baked] : this.pickables, false), dir = raycaster.ray.direction;
       for (const h of hits) {
-        const o = h.object, part = o.userData.part;
-        if (!part || (skip && skip.has(part)) || (!radial && o.userData.radial) || !shown(o)) continue;
-        let side = 0;
-        for (let a = o; a && a !== this.group; a = a.parent) if (a.userData.side) { side = a.userData.side; break; }
+        const o = h.object, B = o === this.baked ? this.bakedRun(h.faceIndex) : null, part = B ? B.part : o.userData.part; // (baked: the part a triangle came from)
+        if (!part || (skip && skip.has(part)) || (!radial && (B ? B.radial : o.userData.radial)) || !shown(o)) continue;
+        let side = B ? B.side : 0;
+        if (!B) for (let a = o; a && a !== this.group; a = a.parent) if (a.userData.side) { side = a.userData.side; break; }
         const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
         const n = h.face ? h.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(o.matrixWorld)) : dir.clone().negate();
         if (n.dot(dir) > 0) n.negate(); // (the inside of an open or two-sided shape)
@@ -2327,6 +2681,14 @@ void main() {
     pick(raycaster, skip) {
       const h = this.pickHit(raycaster, skip, true);
       return h ? h.part : null;
+    }
+    // the baked run a triangle of the baked mesh belongs to ({part, side, radial}), or null
+    bakedRun(t) {
+      const A = this.bakeAt;
+      if (!A || !(t >= 0)) return null;
+      let lo = 0, hi = A.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (A[m].end <= t) lo = m + 1; else hi = m; }
+      return A[lo] && t >= A[lo].from && t < A[lo].end ? A[lo] : null;
     }
 
     // Builder: a glow over a part's paint (selection, hover, a spot it can't go), or none (k = 0).
@@ -2355,6 +2717,7 @@ void main() {
     }
 
     dispose() {
+      this.unbake(); // (the baked mesh's own geometry; its material is shared)
       for (const rig of this.list) freeRig(rig);
       this.list.length = 0;
       this.items.clear();
@@ -2371,11 +2734,13 @@ void main() {
     init(three, renderer) {
       THREE = three || window.THREE || null;
       if (renderer && renderer.capabilities) aniso = renderer.capabilities.getMaxAnisotropy();
+      BAKE.R = renderer || null; // (the bake reads its textures' small mip levels back)
     },
     textureFor,
     wingAt,
     buildPart: (p) => buildPart(p, false),
     VesselMesh,
+    bakeMat: () => bakeMat(), // (the baked wrecks' one material: render3d compiles its program while a flight loads)
     ghost,
     place,
     tint,
