@@ -31,7 +31,7 @@ const GroundAI = (() => {
     sag: 0.45, crr: 0.035, eta: 0.6, acc: 2.5, brake: 5, // the suspension's settle (of its travel), rolling resistance, transmission; m/s² up and down
   };
   const RANGE = { r: 4000, back: 45, gap: 30, plane: 180, first: 12, near: 400 }; // m from the arena's middle; s to come back, between waves, between attack planes, to the first wave; m clear of the player
-  const BATTLE = { tickets: 600, limit: 900, respawn: 5, wrecks: 8, wreckT: 90, panel: 1.6 }; // a side's tickets, s; s to respawn; wrecks kept, s; s before the respawn panel
+  const BATTLE = { tickets: 600, limit: 900, respawn: 5, wrecks: 8, wreckT: 300, sink: 6, panel: 1.6 }; // a side's tickets, s; s to respawn; wrecks standing, s a wreck lasts, the last s of it sinking; s before the respawn panel
   // The Tank Range's Practice targets on Highland Ridge, ahead of the north pad (the player's spot, 17,750 / 13,800):
   // a TK-34 side-on 600 m out, an MS-4 hull-down behind the berm 760 m out, a ZSY-23 on the hilltop (zone A), and a
   // Pumo and a Leapard 1 patrolling a 1.2 km loop through zone B at 6 and 4 m/s, half a lap apart
@@ -47,7 +47,7 @@ const GroundAI = (() => {
 
   const S = {
     ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false, fresh: 0,
-    tpl: new Map(), rnd: Math.random, panelT: null,
+    tpl: new Map(), rnd: Math.random, panelT: null, fall: null, fallStill: 0, // fall: the player's hulk knocked out in the air, a wreck once it lands (fallStill: s it has lain still)
   };
   const mpOn = () => typeof MP !== 'undefined' && MP.active;
   const targetsMode = () => (mpOn() ? 'off' : (typeof Settings !== 'undefined' && Settings.get('targets')) || 'practice');
@@ -297,8 +297,8 @@ const GroundAI = (() => {
       put(UNITS, nu++, A, S.b ? S.b.team : 0, LOC2.e, LOC2.z, r); put(OBS, no++, A, 0, LOC2.e, LOC2.z, r);
     }
     for (const v of S.ai) if (!v.dead && !v.ai.down) { const k = v.ai.k; put(UNITS, nu++, v, v.ai.team, k.e, k.z, k.r); put(OBS, no++, v, v.ai.team, k.e, k.z, k.r); }
-    for (const w of F.vessels) {
-      if (!w.wreck || w.dead || !w.parts.length) continue;
+    for (const w of F.vessels) { // (wrecks, and the player's last hulk still falling: no respawn under it)
+      if (!(w.wreck || w === S.fall) || w.dead || !w.parts.length) continue;
       if (w.ai && w.ai.k) put(OBS, no++, w, -1, w.ai.k.e, w.ai.k.z, w.ai.k.r);
       else { eOf(w.x, w.y, w.z, LOC2); put(OBS, no++, w, -1, LOC2.e, LOC2.z, 3.5); }
     }
@@ -710,18 +710,34 @@ const GroundAI = (() => {
     R0.kos++; R0.best = Math.max(R0.best, d);
     if (R0.kos >= 3 && F.award && A && isGround(A.kind)) F.award('tankRange');
   }
+  // A knocked-out vehicle's hulk stays as a wreck (with the turret its detonation threw, v.bits) for five minutes in
+  // every mode, the last 6 s of them sinking into the ground; more than 8 standing (the player's own hulk aside), and
+  // the oldest starts sinking now
   function wreckOf(v, F) {
     if (!v.parts.length || v.dead) return;
     v.wreck = true; v.aimP = null; v.aimFire = v.mgFire = false; v.vx = v.vy = v.vz = 0;
     if (v.av) { v.av.x = v.av.y = v.av.z = 0; }
-    S.wrecks.push({ v, t: F.time || 0 });
-    while (S.wrecks.length > BATTLE.wrecks) { const w = S.wrecks.shift(); if (w.v !== F.active) w.v.dead = true; }
+    const now = F.time || 0;
+    S.wrecks.push({ v, t: now, bits: v.bits && v.bits.length ? v.bits : null, sinkAt: null });
+    let up = 0;
+    for (const w of S.wrecks) if (w.sinkAt == null && w.v !== F.active) up++;
+    for (const w of S.wrecks) { if (up <= BATTLE.wrecks) break; if (w.sinkAt == null && w.v !== F.active) { w.sinkAt = now; up--; } }
+  }
+  // a wreck's sinking (0..1 over its last 6 s, o.sink on the hulk and its bits: the renderer lowers them), and gone at
+  // the end (true), at any clock: one that jumped past the end goes at once
+  function sinkStep(w, now) {
+    const k = (now - (w.sinkAt != null ? w.sinkAt : w.t + BATTLE.wreckT - BATTLE.sink)) / BATTLE.sink;
+    if (!(k > 0)) return false;
+    const vs = w.bits ? [w.v, ...w.bits] : [w.v];
+    if (k >= 1) { for (const o of vs) o.dead = true; return true; }
+    for (const o of vs) o.sink = k;
+    return false;
   }
   // what comes after a knock-out: a range target 45 s later somewhere else; a battle's AI 5 s later on its pad, if its
   // side has tickets
   function after(v, F) {
     const a = v.ai, R0 = S.range, B = S.b;
-    if (R0 && R0.mode === 'practice') S.dead.push({ key: a.key, role: a.role, speed: a.cruise, at: (F.time || 0) + RANGE.back, wreck: v, team: a.team });
+    if (R0 && R0.mode === 'practice') S.dead.push({ key: a.key, role: a.role, speed: a.cruise, at: (F.time || 0) + RANGE.back, team: a.team }); // (its wreck stays: wreckOf's five minutes)
     else if (R0 && R0.left) { R0.left = R0.left.filter((o) => o !== v); if (!R0.left.length) { R0.waveAt = (F.time || 0) + RANGE.gap; say(F, `Wave ${R0.wave} cleared: the next in ${RANGE.gap} s`, 'info'); } }
     else if (B && !B.over) S.dead.push({ key: a.key, role: 'fight', at: (F.time || 0) + BATTLE.respawn, team: a.team });
   }
@@ -832,7 +848,7 @@ const GroundAI = (() => {
   const money$ = (n) => (typeof money === 'function' ? money(n) : '$' + Math.round(n).toLocaleString('en-US'));
   // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks; a practice launch is free
   function launch(F, design, place, fresh) {
-    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck));
+    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck || o.tossed || o === S.fall)); // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
     if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
     if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
@@ -1041,7 +1057,6 @@ const GroundAI = (() => {
         if (S.b && !(S.b.obj.tk[d.team] > 0)) continue;
         S.dead.splice(i, 1);
         if (S.range) {
-          if (d.wreck) { d.wreck.dead = true; S.wrecks = S.wrecks.filter((w) => w.v !== d.wreck); }
           units(F);
           const P = d.role === 'patrol' ? null : rangeSpot(F);
           if (d.role === 'patrol') patroller(F, d.key, Math.floor(S.rnd() * LOOP.n), d.speed); // (back somewhere else on the loop)
@@ -1049,8 +1064,14 @@ const GroundAI = (() => {
           else S.dead.push({ ...d, at: now + 5 });
         } else if (S.b) { units(F); const P = padSpot(S.b.arena, d.team, 'tank'), v = P && spawn(F, d.key, P.e, P.z, P.yaw, d.team, 'fight'); if (v) v.spawnAt = now; }
       }
+      if (S.fall) { // (the player's hulk knocked out in the air: a wreck once down and still, or settled by death.js, or still 2 s anywhere: on another wreck)
+        const o = S.fall;
+        S.fallStill = o.speed() < 1 ? S.fallStill + dt : 0;
+        if (o.dead || !o.parts.length) S.fall = null;
+        else if (o.wreck || ((o.landed || o.splashed || o.contactTime > 0) && o.speed() < 2) || S.fallStill > 2) { S.fall = null; wreckOf(o, F); }
+      }
       gone = 0;
-      for (const w of S.wrecks) { if (now - w.t > BATTLE.wreckT && w.v !== F.active && (!S.range || S.range.mode !== 'practice')) w.v.dead = true; if (w.v.dead) gone++; }
+      for (const w of S.wrecks) { if (w.v !== F.active) sinkStep(w, now); if (w.v.dead) gone++; } // (five minutes in every mode, then sunk; the player's own hulk stays while it is theirs)
       if (gone) S.wrecks = S.wrecks.filter((w) => !w.v.dead);
       if (S.range) rangeStep(F, dt);
       if (S.b) { const B = S.b; B.tickT = (B.tickT || 0) + dt; while (B.tickT >= 0.25) { B.tickT -= 0.25; if (!B.over) rules(F, 0.25); } }
@@ -1079,7 +1100,9 @@ const GroundAI = (() => {
     // everything the range or a battle put out, gone: the AI, its wrecks, the drones, the attack plane; the bar hidden
     reset(F) {
       for (const v of S.ai) v.dead = true;
-      for (const w of S.wrecks) if (!F || w.v !== F.active) w.v.dead = true;
+      for (const w of S.wrecks) if (!F || w.v !== F.active) { w.v.dead = true; if (w.bits) for (const q of w.bits) q.dead = true; }
+      if (S.fall && (!F || S.fall !== F.active)) S.fall.dead = true;
+      S.fall = null;
       if (S.range) {
         for (const t of S.range.drones) { const i = Combat.S.targets.indexOf(t); if (i >= 0) Combat.S.targets.splice(i, 1); }
         if (F && F.vessels) for (const o of F.vessels) if (o.gaiPlane) o.dead = true;
@@ -1147,8 +1170,9 @@ const GroundAI = (() => {
     onDestroyed(F) {
       const B = S.b;
       if (!B || !Combat.S.gai || mpOn()) return false;
-      const v = F.active;
-      if (v && !v.dead && v.parts.length) wreckOf(v, F);
+      const v = F.active, falls = !!v && isAirKind(v.kind) && !v.landed && !v.splashed; // (an aircraft in the air falls and crashes, death.js: no wreck frozen in the sky)
+      const up = !!v && !isAirKind(v.kind) && !v.landed && !v.splashed && !(v.contactTime > 0); // (a ground vehicle knocked out in the air: it falls, and is a wreck once it lands, frame's S.fall)
+      if (v && !v.dead && v.parts.length && !falls) { if (up) { S.fall = v; S.fallStill = 0; } else wreckOf(v, F); }
       if (!B.over) {
         B.lost++;
         const n = GroundMode.death(B.obj, B.team, B.cost, B.kind === 'plane' || B.kind === 'heli'), by = v && v.lastHitBy;
@@ -1157,7 +1181,8 @@ const GroundAI = (() => {
       B.respawnAt = (F.time || 0) + BATTLE.respawn;
       if (typeof setTimeout === 'function' && typeof UI !== 'undefined') {
         if (S.panelT) clearTimeout(S.panelT);
-        S.panelT = setTimeout(() => { S.panelT = null; if (S.b === B && F.running && F.destroyed) panel(F); }, BATTLE.panel * 1000);
+        const go = () => { if (S.b === B && F.running && F.destroyed) panel(F); };
+        S.panelT = setTimeout(() => { S.panelT = null; if (typeof F.afterFall === 'function') F.afterFall(go); else go(); }, BATTLE.panel * 1000); // (an aircraft's waits for its fall: Flight.afterFall)
       }
       return true;
     },

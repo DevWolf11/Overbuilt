@@ -54,6 +54,7 @@ var oldRun = (v, F, secs, script) => {
   }
 };
 var dice = (seed) => { let s = seed >>> 0; Math.random = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+var KOS = 0;
 var where = (v) => JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length, v.dead, Combat.S.shots.map((s) => [s.k, s.x, s.y, s.z])]);`;
 R(OLDRUN);
 const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
@@ -81,6 +82,7 @@ for (const key of OLD) {
       v.ctl.v = tt > 2 && tt < 4 ? -0.6 : 0; v.ctl.h = tt > 4 && tt < 5 ? 1 : tt > 7 && tt < 8 ? -0.7 : 0; v.ctl.r = tt > 9 && tt < 10 ? 0.5 : 0;
       if (v.kind !== 'plane' && tt > 6 && v.stageIdx < v.stages.length && i % 240 === 0) { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; }
       F.firing = tt > 3 && tt < 4;
+      if ((isAirKind(v.kind) || isGround(v.kind)) && tt > 10.5 && v.control && !v.koDone) { v.koDone = true; Combat.damage(v, v.control, 1e6, 'shot', F); if (v.down || v.ko) KOS++; } // (the big update: the pilot knocked out, the craft falls limp; a car's driver knocked out, its hulk a wreck)
     });
     return where(v);
   })()`;
@@ -91,7 +93,7 @@ for (const key of OLD) {
 }
 t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other five systems; Props asked (its shots, its contacts, the crush pass), and nothing met`,
   quiet() === '{}' && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
-t('...and every craft and every round in flight ends exactly where it does in a game with no props at all', !same.length && traced > 30, same);
+t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s, cars their drivers)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
@@ -124,9 +126,10 @@ for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'pl
   Combat.netShot(g, { k: 'rocket', b: 'earth', P: [v.x, v.y, v.z], V: [10, 0, 0], D: [1, 0, 0] });
   Combat.netFlares(g, { P: [v.x, v.y, v.z], V: [0, 0, 0], chaff: 1 });
   for (const p of v.parts.slice()) if (v.parts.includes(p)) Combat.damage(v, p, 1e6, 'shot', F);
+  for (let i = 0; i < 300; i++) { F.time += 1 / 30; Combat.frame(F, 1 / 30); } // (the big update: 10 s of the damage model's ticks over what is left)
   Combat.reset(F); fp++;
 }`);
-t(`the combat fingerprint's operations (${R('fp')} craft): no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
+t(`the combat fingerprint's operations (${R('fp')} craft), every part then shot to 0 (the damage model's air rule) and 10 s of its ticks: no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
 
 // 3. a buggy drive on the runway: away, round a corner, back, braked to a stop
 ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
@@ -134,6 +137,20 @@ R(`var bug = __v; Combat.reset({});
 oldRun(bug, simOf(bug), 14, (v, tt) => { v.ctl.v = tt < 6 ? 1 : tt < 9 ? 0 : tt < 11 ? -1 : 0; v.ctl.h = tt > 4 && tt < 6 ? 1 : 0; v.brake = tt > 11; });
 var bugSaved = Vessel.restore(JSON.parse(JSON.stringify(bug.serialize())));`);
 t('a buggy drive (and its saved flight): no calls into the other five systems, no prop met', quiet() === '{}' && met() === '[0,0,0]' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), [quiet(), met()]);
+// 3b. (the big update) the buggy's cab shot to 0 as it drives: the driver knocked out (death.js's groundKO), the hulk
+// coasting to a stop and a wreck, then 6 s of frames (the damage model's ticks: its wreck's fire and smoke); and a buggy
+// driven nose first into the runway at 30 m/s through the crash hook as Flight.breakParts calls it (Death.impact)
+ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car'); ctx.__c = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
+R(`var deadRun = (v, F, secs, script) => { for (let i = 0; i < secs * 120; i++) { if (script) script(v, i / 120); if (!v.wreck && !v.dead) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; if (i % 2 === 0) Combat.frame(F, 1 / 60); } };
+var bko = __v, bkF = simOf(bko); Combat.reset({});
+deadRun(bko, bkF, 2, (v) => { v.ctl.v = 1; });
+Combat.damage(bko, bko.parts.find((p) => p.type === 'cab'), 1e6, 'shot', bkF);
+deadRun(bko, bkF, 6, (v) => { v.ctl.v = 0; });
+var bcr = __c, bcF = simOf(bcr), bcB = bcF.breakParts; bcF.breakParts = function (v, parts, cause) { if (cause === 'impact') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; } return bcB.call(this, v, parts, cause); };
+{ const r = Math.hypot(bcr.x, bcr.y, bcr.z), u = { x: bcr.x / r, y: bcr.y / r, z: bcr.z / r }; bcr.q = qmul(bcr.q, qaxis(0, 0, 1, -Math.PI / 2)); bcr.x += u.x * 6; bcr.y += u.y * 6; bcr.z += u.z * 6; bcr.vx = -u.x * 30; bcr.vy = -u.y * 30; bcr.vz = -u.z * 30; bcr.landed = false; }
+deadRun(bcr, bcF, 2);`);
+t('...the buggy\'s driver shot (knocked out, a wreck, 6 s of its fire and smoke) and a buggy crashed nose first at 30 m/s (knocked out where it hit): no calls into the other five systems, no prop met',
+  quiet() === '{}' && met() === '[0,0,0]' && R(`bko.ko && bko.ko.why === 'crew' && bko.wreck && bcr.ko && bcr.ko.why === 'hull' && bcr.wreck`), [quiet(), met(), R('[bko.ko, bko.wreck, bcr.ko, bcr.wreck]')]);
 
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
@@ -531,6 +548,33 @@ t('the pv rows carry a turret ring (its yaw) and nothing new for old craft', G.r
   const old = pv(b), want = b.parts.filter((p) => { const d = p.def; return d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract); }).map((p) => p.id).join();
   return !!ring && ring[6] === 0.5 && old.map((r) => r[0]).join() === want;
 })()`));
+// (the big update, NET_VERSION 11: a cut wing's pv column, a burning part's hp column, a falling hulk's down.fall, a
+// wreck's down.w in every mode, a hit row's wing side) an old craft's messages exactly as before: a buggy hit about
+// sends its part states in 12 columns and its health as [id, %]; an intact plane shot down in the air sends
+// { t, by, P } and nothing first; hits on an old buggy are [id, damage] rows; no calls into the new systems
+t('old craft send their messages as before the big update: a buggy\'s hp rows ([id, %]; part states it has none), a Mustang\'s pv rows (12 columns) and hp rows, an intact plane\'s down {t, by, P} (no last word first), hit rows [id, damage]', G.run(mp, `(() => {
+  for (const k in CALLS) delete CALLS[k]; // (the ring check above built a tank)
+  const C0 = globalThis.Combat, T0 = globalThis.setTimeout, timers = [];
+  globalThis.Combat = { hpFrac: (p) => (p.hp == null ? 1 : Math.max(0, p.hp) / 1000), maxHp: () => 1000, S: { kills: 0 } }; globalThis.setTimeout = (fn, ms) => { timers.push(ms); return 0; };
+  const bp = partsFromDesign(templateRows(TEMPLATES.buggy)), b = new Vessel(bp, buildAdjacency(bp), EARTH); b.kind = 'car'; b.rebuildGroups();
+  b.parts.forEach((p, i) => { if (i % 2) p.hp = 1000 - 150 * i; }); // (hit about: some parts hurt, some not)
+  const send = (v) => { Flight.active = v; Flight.destroyed = false; MP.sent = { s: 1e12, pv: -1e9, hp: -1e9, hpSig: '' }; MP.lastParts = v.parts.length; Net.out = []; MP.afterUpdate();
+    const f = (t) => { const m = Net.out.find(([q]) => q.t === t); return m ? m[0].list : []; }; return [f('pv'), f('hp')]; };
+  const [pvB, hp] = send(b), pp = partsFromDesign(templateRows(TEMPLATES.mustang)), pl = new Vessel(pp, buildAdjacency(pp), EARTH); pl.kind = 'plane'; pl.rebuildGroups();
+  pl.parts.forEach((p, i) => { if (i % 3 === 0) p.hp = 900 - 40 * i; }); const [pv, hpP] = send(pl);
+  const okPv = !pvB.length && pv.length > 3 && pv.every((r) => r.length === 12) && hpP.every((r) => r.length === 2);
+  const okHp = hp.length > 0 && JSON.stringify(hp) === JSON.stringify(b.parts.filter((p) => p.hp != null).map((p) => [p.id, Math.round(Combat.hpFrac(p) * 100)]));
+  pl.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), VEHICLE_KINDS.plane.launchRot); { const r = Math.hypot(pl.x, pl.y, pl.z); for (const k of ['x', 'y', 'z']) pl[k] += (pl[k] / r) * 1000; } pl.landed = false;
+  pl.vx = 80; pl.lastHitBy = { remote: 5 }; pl.lastHitAt = 5; Flight.time = 10; Flight.active = pl; Flight.destroyed = true; MP.lastParts = pl.parts.length - 1; Net.out = [];
+  MP.onLocalDestroyed(); const out = Net.out.map(([m]) => m), dn = out[0];
+  const okDown = out.length === 1 && dn.t === 'down' && Object.keys(dn).join() === 't,by,P' && dn.by === 5 && timers.join() === '1600';
+  const gp = partsFromDesign(templateRows(TEMPLATES.buggy)), g = new Vessel(gp, buildAdjacency(gp), EARTH); g.kind = 'car'; g.rebuildGroups(); g.remote = 5; Net.out = [];
+  MP.sendHits(g, [[g.parts[0], 50], [g.parts[1], 12.34]], 'shot'); MP.sendHit(g, g.parts[2], 7, 'shot'); const hits = Net.out.map(([m]) => JSON.stringify(m));
+  const okHit = hits.length === 2 && hits[0] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[0].id, 50], [g.parts[1].id, 12.3]], k: 'shot' }) && hits[1] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[2].id, 7]], k: 'shot' });
+  globalThis.Combat = C0; globalThis.setTimeout = T0; Flight.destroyed = false; Flight.time = undefined;
+  return okPv && okHp && okDown && okHit || JSON.stringify([okPv, okHp, okDown, okHit, out, hits]);
+})()`) === true);
+t('...and none of it calls into the new systems', calls(mp) === '{}', calls(mp));
 
 // ================================================================ §physics (Phase 2A): the running gear (gear.js)
 // The five vehicles of spec §4.4, built from the catalogue's own parts (test/lib/tanks.js), on the real map (the arena's

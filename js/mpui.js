@@ -643,7 +643,7 @@ const MPUI = {
     if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
-      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${this.switchWord()} to switch`, W / 2, H - 40);
+      ctx.fillText(`Watching ${MP.nameOf(MP.pidOf(F.spectate))} · ${this.switchWord()} to switch`, W / 2, H - 40); // (their craft, or its hulk falling: foreign)
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },

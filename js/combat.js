@@ -31,63 +31,121 @@ const Combat = (() => {
   let seed = 1;
   const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   const len = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+  // (the big update) one credit rule for "the player did it": the player's craft, or one it carries (a drone launched
+  // from it: o.carrier, undefined on every other craft), so a kill finished after the drone that started it died still
+  // counts. And the AI fighters (bandits): every AI aircraft that is neither the ground AI's nor a drone.
+  function byMe(o, sim) { return !!o && !!sim && !!sim.active && (o === sim.active || (!!o.carrier && o.carrier === sim.active)); }
+  function isFighter(o) { return !!o.ai && !o.ai.ground && !o.ai.drone; }
+  // which half of an aircraft's plain wing a hit at `at` (body coordinates) lands on: 1 for +z, -1 for -z (else undefined)
+  function wingSide(v, p, at) { return isAirKind(v.kind) && p.def.wing && !p.def.wing.control ? Math.sign(v.toLocal(at.x, at.y, at.z).z - partZc(p)) || 1 : undefined; }
 
   // ---------------------------------------------------------------- health
   // Every part has health from its size; control parts (the pilot) are a little tougher.
   function maxHp(d) { return d.hp || Math.round((60 + 220 * Math.sqrt(d.mass + (d.fuel || 0) * 0.25)) * (d.control ? 1.4 : 1)); }
-  function hpFrac(p) { return p.hp == null ? 1 : Math.max(0, p.hp) / maxHp(p.def); }
+  function hpFrac(p) { return p.hp == null ? 1 : Math.max(0, p.hp) / (p.cut ? maxHp(p.def) * 0.5 : maxHp(p.def)); } // (a wing with half shot off: the half that's left, its own pool)
   // A damaged engine loses thrust; a damaged wing, lift.
   function engineK(p) { const f = hpFrac(p); return f >= 0.6 ? 1 : 0.3 + (0.7 * f) / 0.6; }
   function liftK(p) { const f = hpFrac(p); return f >= 0.7 ? 1 : 0.45 + (0.55 * f) / 0.7; }
 
-  function damage(v, p, amount, cause, sim, by) {
+  // (side: the half of an aircraft's plain wing the hit was on, 1 for +z, -1 for -z, when the shooter knows it: explode,
+  // moveShot, a hit message; else undefined)
+  function damage(v, p, amount, cause, sim, by, side) {
     if (!(amount > 0) || v.dead || v.remote || !v.parts.includes(p)) return; // (someone else's craft: only its owner hurts it, see MP.sendHit)
+    if (v.foreign) return; // (someone else's falling hulk or its pieces, on our screen: only a picture)
+    if (Death.partDead(p) && (isAirKind(v.kind) || v.ko)) return; // (a dead engine, a knocked-out cockpit or cab: nothing more to take)
     if (p.broken && p.def.module === 'crew') return; // (a crewman already dead)
     if (v.spawnAt != null && (sim.time || 0) - v.spawnAt < 4) return; // (a battle's spawn protection: 4 s)
+    if (Death.airRule(v, p, cause) && !v.air0) Death.base(v); // (what the aircraft had when first hit: death.js; a crash's dent is no hit)
     if (p.hp == null) p.hp = maxHp(p.def);
     const before = hpFrac(p);
     p.hp -= amount * (1 - (p.def.armor || 0)); // armour plate turns most of it away
     if (by) { v.lastHitBy = by; v.lastHitAt = sim.time || 0; }
     if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     const after = hpFrac(p);
-    if (v === sim.active && !v.ai && !p.def.gv) { // (the ground update's parts say what broke themselves: armour.js)
-      if (before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50)) sim.toast(`${p.def.name} on fire!`, 'warn');
-      else if (before >= 0.6 && after < 0.6 && after > 0) sim.toast(`${p.def.name} damaged`, 'warn');
-    }
-    if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
+    if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit)
+    const own = v === sim.active && !v.ai; // (the player's own losses from this hit: one toast for all of it, death.js)
+    if (own) Death.holdLost();
+    try { hurtPart(v, p, cause, sim, by, side, before, after); } finally { if (own) Death.flushLost(); }
   }
-  // A part at zero health: engines, tanks, loaded weapons and cockpits blow up; the rest break off.
-  // A pair goes up where each one hangs, its fuel shared between them.
-  function destroyPart(v, p, cause, sim) {
+  // damage()'s second half: what the player hears, and a part at zero
+  function hurtPart(v, p, cause, sim, by, side, before, after) {
+    // an aircraft's engine or fuel part (> 50 kg) knocked under 30 % by a hit (not a crash's dent or a crash's own
+    // blasts: the air rule's gate): it may catch fire (death.js); the player hears what really happened (on fire, or
+    // badly damaged), every other kind as before
+    const c30 = before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50), air = isAirKind(v.kind) && !p.def.gv && !Silly.on('hollywood');
+    const lit = c30 && air && Death.airRule(v, p, cause) && Death.ignite(v, p, p.def.thrust ? FIRE.lit30.eng : FIRE.lit30.fuel, by || v.lastHitBy, sim, true);
+    if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire') { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast)
+      const k = c30 ? (!air || lit ? 'fire' : 'bad') : before >= 0.6 && after < 0.6 && after > 0 ? 'dmg' : null; // (in a hit window, one toast for all of it: death.js)
+      const msg = k === 'fire' ? (!air ? `${p.def.name} on fire!` : `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`) : k === 'bad' ? `${p.def.name} badly damaged` : `${p.def.name} damaged`;
+      if (k && !Death.lose(v, sim, { name: p.def.name, k, text: msg })) sim.toast(msg, 'warn');
+    }
+    if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim, side); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
+  }
+  // A part at zero health. An aircraft's (death.js, the air rule): torn off, an engine dead, half a wing off, the pilot
+  // knocked out, and only now and then the whole craft blown up. Everything else (rockets, cars, Hollywood): engines,
+  // tanks, loaded weapons and cockpits blow up; the rest break off. A pair goes up where each one hangs, its fuel shared
+  // between them. The order of the lines is fixed (each package of the big update has its slot).
+  function destroyPart(v, p, cause, sim, side) {
     if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
+    const n0 = sim.vessels ? sim.vessels.length : 0; // (the pieces it makes are pushed after these)
+    let det = false; // (the rare mid-air detonation: today's body, then death.js's)
+    if (Death.airRule(v, p, cause)) {
+      const r = Death.airPart(v, p, cause, sim, side);
+      if (r === true) { Death.afterAir(v, sim, n0); return; }
+      det = r === 'det';
+    }
+    if (Death.groundPart(v, p, cause, sim)) return; // (an old car's cab: knocked out, the hulk stays)
     const b = v.body, zs = partZs(p), n = zs.length, at = (z) => v.toWorld(p.x, p.y, z);
     const wk = p.def.weapon && p.def.weapon.kind, fuel = p.fuel || 0, stores = wk === 'rocket' || wk === 'missile' || wk === 'bomb' ? p.ammo || 0 : 0;
     const boom = p.def.thrust || fuel > 50 || stores > 0 || p.def.control;
     if (RIP.n && p.def.gv && !boom) { let e = RIP.list.find((q) => q.v === v); if (!e) RIP.list.push((e = { v, sim, cause, parts: [] })); if (!e.parts.includes(p)) e.parts.push(p); return; } // (kit torn off by a hit: together, at its end)
     const legacy = n > 1 && Math.abs(partZ(p) - p.def.twinZ) < 5e-4; // (at its usual spread: one blast in the middle, as ever)
     const fat = (legacy ? [0] : zs).map(at), sat = (legacy ? [0] : stores && stores < n ? [nextSide(p) * partZ(p)] : zs).map(at); // (a pair's last store: on the side due to go next)
-    if (boom) sim.breakParts(v, [p], cause);
-    else sim.ripParts(v, [p], cause);
-    if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / fat.length) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
-    if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, (p.def.weapon.dmg * 0.5) / sat.length, null, sim, true);
+    const crash = !det && (cause === 'impact' || cause === 'heat'); // (a crash's dent, a burn-up: the blasts it sets off break aircraft the old way too)
+    if (det) Death.DET.n++; // (its own blasts never roll for another)
+    if (crash) Death.DET.crash++;
+    try {
+      if (boom) sim.breakParts(v, [p], cause);
+      else sim.ripParts(v, [p], cause);
+      if (fuel > 500) for (const w of fat) explode(b, w, 4 + Math.sqrt(fuel / fat.length) * 0.08, 45, null, sim, true); // the fuel goes up too (not quite a chain reaction)
+      if (stores) for (const w of sat) explode(b, w, p.def.weapon.blast * 0.6, (p.def.weapon.dmg * 0.5) / sat.length, null, sim, true);
+    } finally { if (det) Death.DET.n--; if (crash) Death.DET.crash--; }
+    if (det) Death.detonated(v, p, sim, n0);
+    else if (Death.airHit(v, cause)) Death.afterAir(v, sim, n0); // (a hit's old body: crippled or down? A crash keeps the old breakage alone)
+    else Death.groundPieces(v, sim, n0, cause); // (a ground vehicle's: what the hit knocked off lies as junk, then sinks)
     if (v.ai && !v.control && !v.ai.down) aiDown(v, sim);
   }
   // (the ground update) While a hit or a blast lands (holdRips ... flushRips: Armour.apply, explode, a hit message), the
   // ground update's parts it breaks off (reactive bricks, skirts, slat cages, plates: nothing that explodes) wait, and go
   // at the end in one ripParts call per craft: one split, one toast, one bang, however many bricks one shell strips.
   // Old parts break off as they always have.
-  const RIP = { n: 0, list: [] };
-  function holdRips() { RIP.n++; }
+  // (the big update) RIP.id numbers the hit window (an explode, a hit message): an aircraft's rare mid-air detonation
+  // rolls once per craft per window (death.js detRoll, Combat.ripWin)
+  const RIP = { n: 0, list: [], id: 0 };
+  function holdRips() { if (!RIP.n) RIP.id = (RIP.id || 0) + 1; RIP.n++; }
+  function ripWin() { return RIP.n > 0 ? RIP.id : 0; }
+  // (the big update) at the outermost end, the player's own losses in the window (and in the kit torn off now) go as one
+  // toast: Death.flushLost
   function flushRips() {
     RIP.n = Math.max(0, RIP.n - 1);
     if (RIP.n) return;
+    Death.holdLost();
+    try { flushList(); } finally { Death.flushLost(); }
+  }
+  function flushList() {
     while (RIP.list.length) {
       const { v, sim, cause, parts } = RIP.list.shift(), on = new Map();
       for (const p of parts) { // (each from where it is now: a turret thrown meanwhile took its bricks with it)
         const o = v.parts.includes(p) ? v : (sim.vessels || []).find((q) => q.parts.includes(p));
         if (o && !o.dead) { if (!on.has(o)) on.set(o, []); on.get(o).push(p); }
       }
-      for (const [o, ps] of on) { sim.ripParts(o, ps, cause); if (o.ai && !o.control && !o.ai.down) aiDown(o, sim); }
+      for (const [o, ps] of on) {
+        const n0 = sim.vessels ? sim.vessels.length : 0;
+        sim.ripParts(o, ps, cause);
+        if (Death.airHit(o, cause)) Death.afterAir(o, sim, n0); // (an aircraft: crippled or down?)
+        else Death.groundPieces(o, sim, n0, cause); // (a ground vehicle's torn-off kit: junk, it sinks in time)
+        if (o.ai && !o.control && !o.ai.down) aiDown(o, sim);
+      }
     }
   }
   // Hitting the ground a bit too hard dents a part (once per bump) instead of breaking it outright.
@@ -101,10 +159,12 @@ const Combat = (() => {
 
   // ---------------------------------------------------------------- hit tests
   // A part's boxes in part space: its rectangle, and across (z) its depth, wing span or wheel track around
-  // where it sits; a pair, one box at each side (a thin pod a little fatter, to be hittable).
+  // where it sits; a pair, one box at each side (a thin pod a little fatter, to be hittable). A wing with half shot
+  // off (p.cut: 1, its +z half gone; -1, its -z half), and the half that fell: only the half that's there.
   function boxesOf(p) {
     const r = partRect(p), d = p.def, hz = d.twinZ ? Math.max(d.w, 0.6) / 2 : d.wheel ? (d.wheel.track || 0) / 2 + 0.3 : partDepth(p) / 2;
-    return partZs(p).map((z) => [r.l, r.r, r.b, r.t, z - hz, z + hz]);
+    const lo = p.cut === -1 ? 0 : -hz, hi = p.cut === 1 ? 0 : hz; // (z + -hz is z - hz to the bit: an uncut part's boxes as ever)
+    return partZs(p).map((z) => [r.l, r.r, r.b, r.t, z + lo, z + hi]);
   }
   function segBox(o, e, B) { // segment o->e against an axis-aligned box: entry fraction, or -1
     let t0 = 0, t1 = 1;
@@ -157,7 +217,7 @@ const Combat = (() => {
     holdRips(); // (a plated craft's kit it strips goes in one piece, at the end)
     try {
       for (const v of sim.vessels.slice()) {
-        if (v.dead || v === spare || v.body !== b || (v.remote && !mine) || v.wreck) continue; // (a wreck takes nothing more)
+        if (v.dead || v === spare || v.body !== b || (v.remote && !mine) || v.wreck || v.foreign) continue; // (a wreck takes nothing more; someone else's falling hulk is only a picture)
         if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
         // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
         const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
@@ -173,7 +233,8 @@ const Combat = (() => {
           if (d >= blast) continue;
           let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
           if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; Armour.tally(v, p, k); } // (tally: what the shooter's HUD hears)
-          if (hits) hits.push([p, k]); else damage(v, p, k, 'blast', sim, by);
+          const side = wingSide(v, p, at); // (an aircraft's plain wing: the half the blast is on)
+          if (hits) hits.push(side ? [p, k, side] : [p, k]); else damage(v, p, k, 'blast', sim, by, side);
         }
         if (mods) Armour.tallyMods(v, mods);
         if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
@@ -533,7 +594,7 @@ const Combat = (() => {
   function candidates(v, seek, F) {
     const out = [], foes = typeof MP !== 'undefined' ? MP.enemyGhosts().filter((g) => !g.hiddenUntilSnap) : [];
     if (seek === 'air') {
-      for (const o of F.vessels) if (o !== v && !o.dead && o.ai && !o.ai.ground && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o });
+      for (const o of F.vessels) if (o !== v && !o.dead && isFighter(o) && !o.ai.down && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o }); // (a bandit shot down, its pilot alive, is no target)
       for (const e of S.targets) if (e.alive && e.def.air) out.push({ ...e.pos, ref: e });
       for (const g of foes) if (g !== v && !g.landed && !isGround(g.kind)) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
     } else {
@@ -662,8 +723,9 @@ const Combat = (() => {
     if (hit && hv.wreck && ht <= ht2) { FX.sparks(b, lerp3(a, e, ht), { x: hv.vx, y: hv.vy, z: hv.vz }, 3); return false; } // (a wreck is solid, and takes nothing more)
     const armed = !s.arm || s.t >= s.arm;
     if (!armed && hit) { // too close to have armed: a dud that only knocks
-      if (!hv.remote) damage(hv, hit, s.dmg * 0.1, 'shot', F, s.owner);
-      else if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg * 0.1, 'shot');
+      const side = wingSide(hv, hit, lerp3(a, e, ht));
+      if (!hv.remote) damage(hv, hit, s.dmg * 0.1, 'shot', F, s.owner, side);
+      else if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg * 0.1, 'shot', side);
       FX.sparks(b, a, { x: hv.vx, y: hv.vy, z: hv.vz }, 6);
       return false;
     }
@@ -683,9 +745,10 @@ const Combat = (() => {
     if (hit && ht <= ht2) {
       const at = lerp3(a, e, ht);
       if (hv.plated && hit.def.gv) return Armour.legacyHit(s, hv, hit, at, F); // (a ground vehicle's new part, armoured or not (a brick, a gun, a sight): armour.js decides what gets through, and the blast)
+      const side = s.blast ? undefined : wingSide(hv, hit, at); // (an aircraft's plain wing: the half the round hit)
       if (s.blast) explode(b, at, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
-      else if (hv.remote) { FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg, 'shot'); } // (its owner takes the damage)
-      else { damage(hv, hit, s.dmg, 'shot', F, s.owner); FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (hv === F.active) Sound.hit(); }
+      else if (hv.remote) { FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (typeof MP !== 'undefined' && ours(s.owner)) MP.sendHit(hv, hit, s.dmg, 'shot', side); } // (its owner takes the damage)
+      else { damage(hv, hit, s.dmg, 'shot', F, s.owner, side); FX.sparks(b, at, { x: hv.vx, y: hv.vy, z: hv.vz }, 3); if (hv === F.active) Sound.hit(); }
       return false;
     }
     if (he) {
@@ -1010,6 +1073,7 @@ const Combat = (() => {
     e.hp -= dmg;
     if (by) e.lastHitBy = by;
     if (e.hp > 0) return;
+    if (e.def.air) { e.fv = e.vel ? { x: e.vel.x, y: e.vel.y, z: e.vel.z } : { x: 0, y: 0, z: 0 }; e.fsT = 0; } // (a drone shot down falls on its way: fallTarget)
     e.alive = false; e.deadAt = sim.time; e.firing = false; e.vel = null;
     const c = targetCentre(e);
     FX.explosion(EARTH, c, { x: 0, y: 0, z: 0 }, clamp(e.def.r / 1.4, 2, 9), true);
@@ -1019,10 +1083,46 @@ const Combat = (() => {
       Sound.explode();
     }
   }
+  // An AI vehicle out of the fight. A bandit (or the Tank Range's attack plane) shot down falls limp, no stick, no
+  // throttle, no autopilot (it had flown on its last stick, engines pushing, until it hit something), a hulk that
+  // crashes and goes (death.js); the kill and the SHOT DOWN banner are the player's when they (or a drone they flew)
+  // hit it last.
   function aiDown(v, sim) {
     v.ai.down = true; v.aiFire = false;
-    if (v.lastHitBy === sim.active && !v.ai.ally) { S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill'); }
+    if (!v.ai.ground) { if (v.hulk == null) v.hulk = sim.time || 0; v.isDebris = true; v.throttle = 0; v.ctl.v = v.ctl.h = v.ctl.r = 0; }
+    if (byMe(v.lastHitBy, sim) && !v.ai.ally) {
+      S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill');
+      Death.feedback(v.ai.ground ? 'KNOCKED OUT' : 'SHOT DOWN', sim); // (the air HUD's banner and the chime; a ground vehicle's sight shows its own, Armour.fb)
+    }
     if (v.ai.ground) GroundAI.down(v, sim); // (its hulk stays; the range or the battle counts it, and brings another)
+  }
+  // (the big update) A target drone shot down (hitTarget kept its way: fv) falls under gravity and the air's drag,
+  // burning and trailing black smoke, and ends in a small fireball where it meets the ground or the sea (the range's
+  // and the Tank Range's alike: GroundAI's drones are Combat's targets too). It had hung in the sky, a black model,
+  // until a new one came. Only a picture: it hurts nothing.
+  const FLOC = {};
+  function fallTarget(t, dt, F) {
+    const f = t.fv, p = t.pos;
+    if (!p || !(F.time - t.deadAt < 60)) { t.fv = null; return; }
+    for (let k = 0, n = Math.max(1, Math.ceil(dt / 0.05)), h = dt / n; k < n; k++) {
+      const r = len(p.x, p.y, p.z) || 1, g = EARTH.mu / (r * r), d = 0.0015 * len(f.x, f.y, f.z); // (about 80 m/s at the most)
+      f.x -= ((p.x / r) * g + f.x * d) * h; f.y -= ((p.y / r) * g + f.y * d) * h; f.z -= ((p.z / r) * g + f.z * d) * h;
+      p.x += f.x * h; p.y += f.y * h; p.z += f.z * h;
+    }
+    const L = Terrain.locate(EARTH, p.x, p.y, p.z, FLOC), g = Terrain.surfaceAt(EARTH, L.a, L.z), h = L.r - R(), v = F.active;
+    const d = v && v.body === EARTH ? len(p.x - v.x, p.y - v.y, p.z - v.z) : Infinity;
+    if (h <= g) { // (on the ground or the sea: put back onto it, it goes up there)
+      const u = (g - h) / L.r, at = { x: p.x * (1 + u), y: p.y * (1 + u), z: p.z * (1 + u) };
+      FX.death(EARTH, at, { x: 0, y: 0, z: 0 }, 2, 'crash', true, { water: !!Terrain.waterAt(EARTH, L.a, L.z) });
+      if (d < 4000 && typeof Sound.blast === 'function') Sound.blast(2, d);
+      t.pos = at; t.fv = null;
+      return;
+    }
+    t.fsT = (t.fsT || 0) + dt;
+    if (t.fsT >= 0.1) {
+      t.fsT = Math.min(t.fsT - 0.1, 0.1);
+      if (d < 8000) { FX.trail(EARTH, p, f, 'black', 1, 0.1); FX.flame(EARTH, p, { x: f.x * 0.15, y: f.y * 0.15, z: f.z * 0.15 }, 0.6); }
+    }
   }
   // Flying, as the hostile range's AA guns, SAM sites, frigate and fighters see it: off the ground and over 40 m up (a car
   // on a high road counts, as it always has); Armour only once it has been in the air over a second and is more than
@@ -1262,7 +1362,7 @@ const Combat = (() => {
     if (S.spawned) {
       for (const t of S.targets) {
         if (t.alive) syncTarget(t, dt);
-        else if (F.time - t.deadAt > 60) Object.assign(t, makeTarget(t.kind) || {}); // a new one, somewhere else
+        else if (F.time - t.deadAt > 60) { Object.assign(t, makeTarget(t.kind) || {}); t.fv = null; } // a new one, somewhere else
       }
       // hostile sites wake when the player is near and flying (and see a stealthy craft much later)
       const flying = flyingFor(v, dt), st = v.stealth = stealthOf(v);
@@ -1292,6 +1392,7 @@ const Combat = (() => {
         if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) { spawnFighter(F); S.fighterT = 45; }
       }
     }
+    for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
     for (const o of F.vessels) if (o.ai && !o.dead) {
       if (o.ai.ground) continue; // (the ground AI: groundai.js runs it, and says when it goes)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);
@@ -1333,9 +1434,11 @@ const Combat = (() => {
     const lk = (S.lock && S.lock.remote && S.lockR ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
     if (typeof MP !== 'undefined' && (lk !== S.lockPid || (lk && performance.now() - S.lockAt > 1000))) { MP.sendLock(lk, !!lk); S.lockPid = lk; S.lockAt = performance.now(); }
     // damaged parts smoke, badly damaged ones burn; leaking tanks lose fuel
-    S.smokeT -= dt;
+    S.smokeT -= dt; S.smokeE = (S.smokeE || 0) + dt; // (smokeE: the real time the tick covers, for death.js)
     if (S.smokeT <= 0) {
       S.smokeT = 0.07; S.smokeN = (S.smokeN || 0) + 1;
+      const e = S.smokeE; S.smokeE = 0;
+      Death.tick(F, e, S.smokeN); // (the damage model: fires, falling hulks, crash sites, wrecks' smoke)
       let wk = null; // (knocked-out ground vehicles: only the three nearest wrecks smoke)
       for (const o of F.vessels) if (o.wreck && !o.dead) (wk = wk || []).push(o);
       if (wk && wk.length > 3) { const d = (o) => len(o.x - v.x, o.y - v.y, o.z - v.z); wk.sort((a, b) => d(a) - d(b)); wk.length = 3; }
@@ -1346,9 +1449,11 @@ const Combat = (() => {
           if (p.hp == null) continue;
           const f = hpFrac(p);
           if (f > 0.6) continue;
-          const zs = partZs(p), wp = o.toWorld(p.x, p.y, zs[S.smokeN % zs.length]); // (a pair: each side in turn)
-          FX.add({ kind: 'smoke', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.85, vy: o.vy * 0.85, vz: o.vz * 0.85, max: 2.5, size: 0.8, grow: 4, color: f < 0.3 ? '#2b2d31' : '#5d6168', alpha: 0.65 });
-          if (f < 0.3) FX.add({ kind: 'fire', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.9, vy: o.vy * 0.9, vz: o.vz * 0.9, max: 0.35, size: 0.8, grow: 1.2, color: '#ff9a3c', alpha: 1 });
+          if (!Death.partFX(o, p, f, S.smokeN)) { // (an aircraft's trails, a knocked-out hulk's parts: death.js smokes them its own way)
+            const zs = partZs(p), wp = o.toWorld(p.x, p.y, zs[S.smokeN % zs.length]); // (a pair: each side in turn)
+            FX.add({ kind: 'smoke', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.85, vy: o.vy * 0.85, vz: o.vz * 0.85, max: 2.5, size: 0.8, grow: 4, color: f < 0.3 ? '#2b2d31' : '#5d6168', alpha: 0.65 });
+            if (f < 0.3) FX.add({ kind: 'fire', b: o.body, x: wp.x, y: wp.y, z: wp.z, vx: o.vx * 0.9, vy: o.vy * 0.9, vz: o.vz * 0.9, max: 0.35, size: 0.8, grow: 1.2, color: '#ff9a3c', alpha: 1 });
+          }
           if (f < 0.5 && p.fuel > 0) p.fuel = Math.max(0, p.fuel - (0.5 - f) * 40 * 0.07);
         }
       }
@@ -1366,7 +1471,8 @@ const Combat = (() => {
     // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
     if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();
     if (typeof Armour !== 'undefined') { const fb = Armour.fb; fb.shot = fb.ko = null; fb.hurt.length = 0; } // (the last flight's hit and kill banners stay with it)
-    void F;
+    S.smokeE = 0;
+    Death.reset(F); // (the damage model's: crash sites, the air HUD's banner, merged losses)
   }
 
   // ---------------------------------------------------------------- HUD (drawn over the 3D view)
@@ -1489,6 +1595,7 @@ const Combat = (() => {
       hudText(ctx, 'MSL', p.x, p.y - 19, 2);
     }
     ctx.globalAlpha = 1;
+    Death.drawHits(ctx, W, H, dpr, F); // (the air HUD's hit markers and banners: death.js)
     drawRWR(ctx, W, H, v);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
@@ -1668,6 +1775,8 @@ const Combat = (() => {
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
     targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips, spawnFighter,
+    // (the big update's damage model: death.js, and every "the player did it" and "a bandit" test)
+    ripWin, byMe, isFighter,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },
   };
 })();

@@ -1311,3 +1311,20 @@ body.ctl-edit .air-btns { display: flex !important; }
 .set-range { display: flex; align-items: center; gap: 10px; }
 .set-range input { flex: 1; min-width: 0; }
 .set-val { font: 500 12px var(--mono); min-width: 40px; text-align: right; color: var(--muted); }
+
+/* The big update's styles, one section per feature: add rules only inside your feature's section. */
+/* == big: damage == */
+/* the end of a life: #flight-alert becomes the strip ("Pilot knocked out · by Bea · tap for options") while the end screen
+   waits for the fall; a tap or a click on it brings the end screen at once (Flight.endNow). It wraps on a narrow phone
+   instead of running off the screen's sides. Where it (or any alert) goes when its own place meets a panel or a control:
+   Flight.placeAlert (inline top, left and width). */
+.flight-alert.lost {
+  pointer-events: auto; cursor: pointer; color: #fff; background: rgba(20, 24, 32, 0.88); border-color: #9aa3ad;
+  white-space: normal; text-align: center; width: max-content; max-width: min(560px, calc(92vw / var(--ui-scale))); line-height: 1.35;
+}
+
+/* == big: radar == */
+
+/* == big: drones == */
+
+/* == big: graphics == */

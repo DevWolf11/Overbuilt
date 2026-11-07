@@ -102,6 +102,8 @@ const Flight = {
     this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0 };
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
+    this.crashedAt = null; // (the big update: when the active craft crashed in one fireball, death.js; the end screen counts from it)
+    this.endReset(); // (and the last life's end: its strip, its end screen still waiting)
     this.ended = false;
     this.paused = false;
     this.flash = null;
@@ -184,7 +186,7 @@ const Flight = {
     };
   },
   save() {
-    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length) return;
+    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length || this.active.dead) return; // (dead: crashed in one piece, death.js)
     if (typeof GroundAI !== 'undefined' && GroundAI.battle) return; // (a Practice Battle's vehicle is lent, and the battle can't be saved: nothing to resume)
     if (this.destroyed && !this.vessels.some((v) => v.control && !v.dead && v !== this.active)) return;
     store.set('rss.flight', this.serialize());
@@ -295,10 +297,11 @@ const Flight = {
   // attached to them along (the engines and stores on a wing), unless the craft itself hangs off them.
   // cause: 'g' (too much load), 'speed' (flutter, past a wing's speed limit), 'impact', or a hit.
   ripParts(v, parts, cause = 'g') {
-    const ctrl = v.control;
+    if (v.dead) return; // (the big update: a craft that crashed this step goes in one piece, its queued g-rips with it)
+    const ctrl = v.control, keep = ctrl || v.keepPart; // (keep: a knocked-out pilot's cockpit stays with the hulk too)
     for (const p of parts) {
       const go = new Set([p.id]);
-      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(ctrl)) for (const q of br) go.add(q.id); }
+      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(keep)) for (const q of br) go.add(q.id); }
       for (const id of go) for (const n of [...(v.adj.get(id) || [])]) if (!go.has(n)) { v.adj.get(id).delete(n); v.adj.get(n) && v.adj.get(n).delete(id); }
       const zs = partZs(p), vel = { x: v.vx, y: v.vy, z: v.vz };
       for (const z of zs) {
@@ -308,10 +311,12 @@ const Flight = {
       }
     }
     if (v === this.active) {
-      const name = parts[0].def.name, at = v.overMach ? `Mach ${v.mach.toFixed(2)}` : `${Math.round(v.speed() * 3.6)} km/h`;
-      this.toast(cause === 'g' ? `${name} torn off at ${v.gForce.toFixed(1)} g!` : cause === 'speed' ? `Flutter tore the ${name} off at ${at}!`
-        : `${name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
-      Sound.explode(); haptic([60, 40, 80]);
+      const name = parts[0].def.name, at = v.overMach ? `Mach ${v.mach.toFixed(2)}` : `${Math.round(v.speed() * 3.6)} km/h`, hit = cause !== 'g' && cause !== 'speed' && cause !== 'impact';
+      if (!(hit && typeof Death !== 'undefined' && Death.lose(v, this, { name, k: 'off', text: `${name} shot off!`, bang: true }))) { // (a hit window's losses: one toast at its end, death.js)
+        this.toast(cause === 'g' ? `${name} torn off at ${v.gForce.toFixed(1)} g!` : cause === 'speed' ? `Flutter tore the ${name} off at ${at}!`
+          : `${name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
+        Sound.explode(); haptic([60, 40, 80]);
+      }
     }
     const pieces = v.splitComponents();
     for (const piece of pieces) { piece.isDebris = !piece.control; this.vessels.push(piece); }
@@ -355,7 +360,8 @@ const Flight = {
     for (const p of parts) {
       if (p.def.thrust) {
         chutesOnly = false;
-        if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
+        if (this.partOut(p)) this.toast(`${p.def.name} is out`); // (an engine shot dead stays dead: the damage model's)
+        else if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
       } else if (p.def.chute) {
         if (this.deployChute(v, p)) used = true;
       } else chutesOnly = false;
@@ -409,6 +415,9 @@ const Flight = {
   },
 
   breakParts(v, parts, cause) {
+    // (the big update) a crash meets the damage model first (death.js): a hulk, or any aircraft whose cockpit breaks,
+    // goes up in one fireball; a ground vehicle's cab or hull is knocked out and stays. What it leaves goes on as ever.
+    if (cause === 'impact' && typeof Death !== 'undefined') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; }
     const air = airDensity(v.body, v.altitude()) > 0.01;
     const kv = cause === 'heat' ? 0.9 : 0.2;
     for (const p of parts) {
@@ -427,18 +436,26 @@ const Flight = {
     else if (!hadControl) v.isDebris = true;
   },
 
+  // The craft is lost (destroyed, knocked out, its pilot knocked out, shot down, crashed). No end screen over the fall
+  // (the big update, death.js): #flight-alert becomes the strip, "Pilot knocked out · by Bea · tap for options", and the
+  // end screen (this one's, a room's, the Practice Battle's) waits through afterFall: an aircraft's comes 1.2 s after
+  // its crash, at most 10 s after the death; a tap on the strip brings it at once.
   onDestroyed() {
     if (this.destroyed) return;
     this.destroyed = true;
+    const v = this.active;
+    this.diedAt = this.time; this.endPending = true; this.endAsk = false;
+    this.deathText = this.deathLine(v);
+    if (v && v.down && !v.dead) haptic([80, 50, 140]); // (an aircraft shot down or its pilot out: a crash's and a knock-out's buzz is death.js's deathFX)
     this.setSight(false); this.unlockPointer(); // (out of the gunner's sight, the mouse let go)
     this.syncAwake();
-    $('#flight-alert').hidden = true; // (the HUD stops updating once nothing is left)
+    this.strip(true);
     this.warpIdx = 0;
     if (this.catapult) this.catapult.state = 'done';
     if (this.mp && MP.onLocalDestroyed()) { this.updateHUD(true); return; }
     if (GroundAI.battle && GroundAI.onDestroyed(this)) return; // (the Practice Battle: its own respawn, keeping its AI)
     const ground = !!this._bodyGround; // (as it was: a knocked-out vehicle's HUD goes back to the flight's)
-    setTimeout(() => {
+    this.endAfter(Silly.on('ghostCam') ? 5000 : 1600, () => { // leave time to enjoy the view
       if (!this.running || this.ended || !this.destroyed) return;
       const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
       if (!others.length) { this.ended = true; store.set('rss.flight', null); this.syncAwake(); }
@@ -448,12 +465,188 @@ const Flight = {
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
       UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: ground ? 'Knocked out' : 'Vessel destroyed', body: this.summaryHTML('', ground), actions: acts });
-    }, Silly.on('ghostCam') ? 5000 : 1600); // leave time to enjoy the view
+    });
+  },
+  // What the strip says happened: a ground vehicle's ammunition gone up, knocked out (wrecked in a crash of its own);
+  // an aircraft's pilot knocked out, shot down (down, or credited to someone), crashed (by itself); a drone lost; and who
+  // did it: the credited killer (doomBy), else the last hitter within 20 s, by name (a room's player by theirs), 24 letters
+  deathLine(v) {
+    const t = this.time || 0, hit = v && v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null;
+    const by = (v && v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
+    let what = 'Destroyed';
+    if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
+    else if (v && isAirKind(v.kind)) {
+      what = v.kind === 'drone' ? 'Drone lost' : v.hulkWhy === 'pilot' ? 'Pilot knocked out' : v.down || (v.hulk != null && v.doomBy) ? 'Shot down'
+        : this.crashedAt != null ? 'Crashed' : by ? 'Shot down' : 'Destroyed';
+    }
+    let name = '';
+    if (by) name = String((by.remote && typeof MP !== 'undefined' ? MP.nameOf(by.remote) : by.name || (by.def && by.def.name)) || '').slice(0, 24);
+    return name ? `${what} · by ${name}` : what;
+  },
+  // The strip (#flight-alert, class lost): what happened, and how to go on (a tap or a click on it: endNow). Shown from
+  // the death while the end screen waits (not under a dialog, nor while watching someone else in a room); off: gone.
+  strip(on) {
+    const al = $('#flight-alert');
+    if (!on) { if (al.classList.contains('lost')) { al.classList.remove('lost'); al.hidden = true; } return; }
+    al.classList.remove('critical'); al.classList.add('lost');
+    const txt = `${this.deathText || 'Destroyed'} · ${Controls.touch ? 'tap for options' : 'Esc for options'}`;
+    if (al.textContent !== txt) al.textContent = txt;
+    const show = !!this.endPending && !UI.modalOpen && !this.spectate;
+    if (al.hidden === show) al.hidden = !show;
+    if (show) this.placeAlert(al);
+  },
+  // Where the alert line goes (#flight-alert: a warning, or the strip once lost). Its own place, top middle under the
+  // panels, when that is clear (a desktop's); else the nearest height at which it clears every control and panel on the
+  // screen and what the canvas draws there (the warning receiver's lines and scope, a room's scope, the ground HUD's
+  // diagram and scope), in the gap they leave, on more lines when the gap is narrow, never lower than the top half (Aim's
+  // circle rests in the middle). On a phone in portrait its own place runs over the flight data (an over-g's always
+  // did), on its side over the weapon buttons. Measured when it shows, when its words (not their figures), the screen or
+  // the HUD's size change, when the flight data or a bar changes size, and once a second while it shows; never while
+  // it is hidden.
+  placeAlert(al) {
+    if (!al || al.hidden || typeof document === 'undefined' || typeof innerWidth === 'undefined' || !al.getBoundingClientRect) return;
+    const W = innerWidth, H = innerHeight, z = (typeof Controls !== 'undefined' && Controls.z) || 1, now = performance.now();
+    const P = this._alP || (this._alP = { key: '', at: -1e9, how: '' });
+    if (!P.ro && typeof ResizeObserver === 'function') { // (the flight data grows a row, the room's bar a line: placed again at once)
+      P.ro = new ResizeObserver(() => { if (!al.hidden && P.key) { P.key = ''; this.placeAlert(al); } });
+      for (const q of ['#flight-ui .telemetry', '#mp-bar', '#gai-bar']) { const e = document.querySelector(q); if (e) P.ro.observe(e); }
+    }
+    const key = `${al.className}|${al.textContent.replace(/[\d.,]+/g, '0')}|${W}|${H}|${z}`;
+    if (key === P.key && now - P.at < 1000) return;
+    P.key = key; P.at = now;
+    // (mw: the width it may take, wrapping, 0: on one line; null: as the style sheet has it)
+    const st = al.style, put = (t, x, mw) => {
+      st.top = t == null ? '' : `${t / z}px`; st.left = x == null ? '' : `${x / z}px`;
+      st.maxWidth = mw ? `${mw / z}px` : mw === 0 ? 'none' : ''; st.whiteSpace = mw ? 'normal' : mw === 0 ? 'nowrap' : '';
+      st.width = mw ? 'max-content' : ''; st.textAlign = mw ? 'center' : '';
+    };
+    const box = () => { const r = al.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+    put(null, null, null); // (its own place, to measure)
+    const A = box();
+    if (!A) return;
+    const all = this.alertClear(W, H), hard = all.filter((o) => !o.soft), at = (R, obs) => obs.some((o) => R.l < o.r + o.p && R.r > o.l - o.p && R.t < o.b + o.p && R.b > o.t - o.p);
+    if (!at(A, all) && A.l >= 0 && A.r <= W) { P.how = 'own'; return; }
+    put(null, null, 0);
+    const L = box() || A, w = L.r - L.l + 24, h = L.b - L.t, hi = H / 2 - 30; // (on one line; 24: room for its figures to grow)
+    const line = Math.max(12, (parseFloat(getComputedStyle(al).lineHeight) || 17) * z), padX = 34 * z;
+    // the nearest place clear of obs: on its one line, else on two or three in the widest gap of at least 150 px at a
+    // height that holds it (its lines guessed from its line's width; the best dozen by nearness, fewer lines and the
+    // middle tried, measured)
+    const search = (obs) => {
+      const gaps = (t, b) => { // (the gaps obs leave along a band)
+        const xs = obs.filter((o) => t < o.b + o.p && b > o.t - o.p).map((o) => [o.l - o.p, o.r + o.p]).sort((a, c) => a[0] - c[0]), out = [];
+        let x = 8;
+        for (const [a, c] of xs) { if (a > x) out.push([x, a]); x = Math.max(x, c); }
+        if (W - 8 > x) out.push([x, W - 8]);
+        return out;
+      };
+      const fit = (t, hh, ww) => { // (the centre nearest the middle for a box ww wide)
+        let best = null;
+        for (const [a, c] of gaps(t, t + hh)) { if (c - a < ww) continue; const x = clamp(W / 2, a + ww / 2, c - ww / 2); if (best == null || Math.abs(x - W / 2) < Math.abs(best - W / 2)) best = x; }
+        return best;
+      };
+      const tops = (hs) => [...new Set([A.t, ...obs.flatMap((o) => [o.b + o.p + 1, ...hs.map((hh) => o.t - o.p - 1 - hh)])].map(Math.round))]
+        .filter((t) => t >= 8 && t + h <= hi).sort((a, c) => Math.abs(a - A.t) - Math.abs(c - A.t));
+      for (const t of tops([h])) { const x = fit(t, h, w); if (x != null) { put(t, x, 0); return 'line'; } }
+      const cand = [];
+      for (const t of tops([h + line, h + 2 * line])) {
+        const g = gaps(t, t + h).filter(([a, c]) => c - a >= 150).sort((p, q) => q[1] - q[0] - (p[1] - p[0]))[0];
+        if (!g) continue;
+        const gw = g[1] - g[0], n = Math.ceil((w - 24 - padX) / Math.max(1, gw - padX)), x = (g[0] + g[1]) / 2;
+        if (n > 3 || t + h + (n - 1) * line > hi || fit(t, h + (n - 1) * line, gw) == null) continue;
+        cand.push({ t, x, gw, k: Math.abs(t - A.t) + 60 * (n - 1) + 0.5 * Math.abs(x - W / 2) }); // (near its own place, on few lines, near the middle)
+      }
+      cand.sort((p, q) => p.k - q.k);
+      for (const c of cand.slice(0, 12)) {
+        put(c.t, c.x, c.gw);
+        const R = box();
+        if (R && !at(R, obs) && R.b <= hi) return 'wrap';
+      }
+      return '';
+    };
+    // clear of everything; else of the controls and panels alone (a toast or the warning receiver's lines, both passing,
+    // may then show over it for a while: a small phone in portrait has no room for all of them)
+    const how = search(all) || (hard.length < all.length && search(hard));
+    if (how) { P.how = how; return; }
+    put(null, null, null); P.how = 'none'; // (no room anywhere: its own place, as ever)
+  },
+  // What the alert line keeps clear of (screen px boxes, p: the gap kept): this HUD's controls and the panels, the first
+  // toast's slot (it would cover the line), and what the canvas draws (the warning receiver's lines and scope while
+  // alive, a room's scope, the ground HUD's diagram and scope: drawn lines, no gap)
+  alertClear(W, H) {
+    const out = [], add = (e) => { if (!e || e.hidden) return; const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom, p: 6 }); };
+    const C = typeof Controls !== 'undefined' && Controls.CTL, hud = C ? Controls.hud() : 'air';
+    if (C) for (const k in C) if (k !== 'joy' && (C[k][2] === 'both' || C[k][2] === hud)) add(document.querySelector(C[k][0]));
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q));
+    const T = document.querySelector('#toasts'), tr = T && T.getBoundingClientRect();
+    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: true });
+    const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
+    const R = !this.destroyed && Combat.S.rwr > 0 && Combat.S.rwrBox;
+    if (R && R.W === W && R.H === H) { box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1) ball(R.x, R.y, R.R); }
+    const M = this.mp && typeof MPUI !== 'undefined' && W >= 761 && MPUI.scope;
+    if (M) ball(M.x, M.y, M.R, 4);
+    const G = this._bodyGround && typeof GHUD !== 'undefined' && GHUD._S && GHUD._S.P;
+    if (G && G.diag) box(G.diag.x, G.diag.y, G.diag.x + G.diag.w, G.diag.y + G.diag.h + 18);
+    if (G && G.scope) ball(G.scope.x, G.scope.y, G.scope.R);
+    return out;
+  },
+  // The end screen's timers (this one's, GroundAI's Practice Battle panel, a room's: mp.js) go through afterFall(cb):
+  // cb runs once the craft has stopped falling (a hulk that hasn't crashed or landed yet) and 1.2 s after a crash, at
+  // most 10 s (sim time) after the death; polled every 250 ms. Each waits (in turn, together when the fall is over), so a
+  // second timer never drops the first. Out of the flight (left, reverted): at once, as the timers it replaces did
+  // (each checks for itself).
+  afterFall(cb) {
+    if (typeof cb !== 'function') return;
+    this.endCbs = (this.endCbs || []).concat(cb); // (a new list: never one shared through a prototype)
+    if (this.endAsk) { this.endNow(); return; } // (the strip was tapped before the timer came)
+    if (!this._fallT) this.fallPoll();
+  },
+  fallPoll() {
+    this._fallT = null;
+    if (!this.endCbs || !this.endCbs.length) return;
+    if (this.fallDone()) { this.endGo(); return; }
+    this._fallT = setTimeout(() => this.fallPoll(), 250);
+  },
+  // what waited for the fall, now (the strip gone)
+  endGo() {
+    clearTimeout(this._fallT); this._fallT = null;
+    const cbs = this.endCbs || [];
+    this.endCbs = []; this.endPending = false; this.strip(false);
+    for (const cb of cbs) cb();
+  },
+  fallDone() {
+    const v = this.active, t = this.time || 0, D = typeof DEATH !== 'undefined' ? DEATH : { endAfter: 1.2, endMax: 10 };
+    if (!this.running || this.diedAt == null || t - this.diedAt >= D.endMax || t < this.diedAt) return true;
+    const falling = !!v && v.hulk != null && !v.dead && v.parts.length > 0 && !v.landed && !v.splashed;
+    const crashed = this.crashedAt != null && t >= this.crashedAt && t - this.crashedAt < D.endAfter;
+    return !falling && !crashed;
+  },
+  // The strip tapped (or clicked): the end screen now. Before its timer has come (the first 1.6 s), this one's runs at
+  // once; a room's or the Practice Battle's runs the moment its timer comes (endAsk).
+  endNow() {
+    if (!this.destroyed) return;
+    const go = this._endGo;
+    if (this.endCbs && this.endCbs.length) { this.endGo(); return; }
+    if (go) { clearTimeout(this._endT); this._endT = null; this._endGo = null; this.endPending = false; this.strip(false); go(); return; }
+    this.endAsk = true;
+  },
+  // this flight's own end screen: after ms, then through afterFall
+  endAfter(ms, go) {
+    clearTimeout(this._endT);
+    this._endGo = go;
+    this._endT = setTimeout(() => { this._endT = null; this._endGo = null; this.afterFall(go); }, ms);
+  },
+  // a new flight (resetState): no strip, nothing waiting
+  endReset() {
+    clearTimeout(this._fallT); clearTimeout(this._endT);
+    this._fallT = this._endT = null; this._endGo = null; this.endCbs = [];
+    this.diedAt = null; this.endPending = false; this.endAsk = false; this.deathText = '';
+    this.strip(false);
   },
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
   },
 
   recover() {
@@ -640,7 +833,7 @@ const Flight = {
           if (v.remote || v.kin || v.wreck) continue; // other players' craft: their owners fly them (ground AI moves itself; wrecks stay put)
           if (v === this.active) { near.push(v); continue; }
           const d = this.dist(this.absPos(v), ap);
-          if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
+          if (this.stepsNear(v, d)) near.push(v);
           else if (!v.landed) far.push(v);
         }
         // (frame times come in a hair over 1/60 s, 16.7 or 16.8 ms: a step may run up to 5% long rather than add a third)
@@ -668,7 +861,7 @@ const Flight = {
       if (this.mp) { MP.afterUpdate(); MP.syncMissiles(); }
     }
     const v = this.active;
-    if (v && v.parts.length && !this.paused) {
+    if (v && v.parts.length && !v.dead && !this.paused) { // (dead: crashed in one piece, death.js: quiet, as when every part broke)
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       if (v.gear.length && !maxT) { // (running gear: the engine's note rises with the power it gives, idling at 0.3)
@@ -704,6 +897,11 @@ const Flight = {
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
 
+  // Who gets the full physics (the rest go on rails while airborne, or sleep): anything within 6 km of the active craft,
+  // anything flown in the air, and (the big update) a falling hulk out to 12 km (an aircraft shot down, its pieces: it
+  // falls and crashes, instead of vanishing on rails a few km off). d: its distance from the active craft.
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar); },
+
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
   readControls(dt) {
@@ -720,6 +918,7 @@ const Flight = {
       v.ctl.h = clamp(v.ctl.h + w * Math.sin(t * 0.7 + 2), -1, 1);
       v.ctl.r = clamp(v.ctl.r + w * 0.6 * Math.sin(t * 0.9 + 4), -1, 1);
     }
+    if (this.inert(v)) { v.ctl.v = v.ctl.h = v.ctl.r = 0; v.brake = !!v.ko; return; } // (nobody at the controls: a knocked-out vehicle brakes)
     const ga = this.groundAim, shiftSight = ga && !this.thrusty(v); // (aiming with no thrust parts: Shift is the sight)
     const dT = key('thrUp', shiftSight ? 'sight' : null) - key('thrDown');
     if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
@@ -1040,8 +1239,13 @@ const Flight = {
     if (m < 0.97 || m >= 1) this.machWas = m;
   },
 
+  // (the big update) the active craft destroyed with nobody at its controls: a knocked-out ground vehicle, a falling
+  // hulk without its pilot, an aircraft shot down. The stick, the throttle and its parts do nothing
+  inert(v) { return !!v && this.destroyed && (!!v.ko || (v.hulk != null && !v.control) || !!v.down); },
+  // an engine (or cockpit) shot dead, kept aboard at 0: the damage model's (Death.partDead; no death.js, none is)
+  partOut(p) { return typeof Death !== 'undefined' && Death.partDead(p); },
   setThrottle(t) {
-    if (!this.active) return;
+    if (!this.active || this.inert(this.active)) return;
     this.active.throttle = clamp(t, 0, 1);
     this.updateThrottleDom();
   },
@@ -1342,6 +1546,7 @@ const Flight = {
       if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
         const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
         for (const s of [-1, 1]) {
+          if (s === v.mainWing.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
           if (Math.random() > 0.35 + 0.6 * k) continue;
           const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
           FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
@@ -1601,6 +1806,7 @@ const Flight = {
     $('#btn-gear').addEventListener('click', () => this.toggleGear());
     $('#btn-map').addEventListener('click', () => { if (this.groundAim && !this.mapMode) GHUD.tactical(!GHUD.tacOpen); else this.toggleMap(); }); // (a ground vehicle's MAP is the tactical map, as M is; the globe is a button on it)
     $('#btn-menu').addEventListener('click', () => this.openMenu());
+    $('#flight-alert').addEventListener('click', () => { if (this.destroyed && this.endPending) this.endNow(); }); // (the strip: the end screen now)
     $('#btn-recover').addEventListener('click', () => this.recover());
     $('#warp-up').addEventListener('click', () => this.setWarp(this.warpIdx + 1));
     $('#warp-down').addEventListener('click', () => this.setWarp(this.warpIdx - 1));
@@ -1749,6 +1955,8 @@ const Flight = {
   },
 
   usePart(v, p) {
+    if (v.down || this.inert(v)) return; // (a hulk shot down: nobody aboard to work its parts)
+    if (p.def.thrust && this.partOut(p)) { this.toast(`${p.def.name} is out`); return; } // (an engine shot dead won't relight)
     if (v.activatePart(p, this)) {
       this.flash = { id: p.id, t: performance.now() };
       Sound.click();
@@ -1918,9 +2126,15 @@ const Flight = {
     $('#row-hdg').hidden = !hdg;
     if (hdg) { const c = this.compass(v); set('t-hdg', `${String(Math.round(c) % 360).padStart(3, '0')}° ${COMPASS[Math.round(c / 22.5) % 16]}`); }
     const integ = Combat.integrity(v); // the share of the craft's health that's gone
-    $('#row-dmg').hidden = integ > 0.995 && !v.ko;
-    if (v.ko) { set('t-dmg', 'Knocked out'); $('#row-dmg').classList.add('danger'); } // (P4 play-test: not "8%" with its turret thrown)
-    else if (integ <= 0.995) { set('t-dmg', `${Math.max(1, Math.round((1 - integ) * 100))}%`); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
+    // (the big update) an aircraft's fire (death.js): only once it has been hurt at all (an old flight without hits asks nothing)
+    const hurt = integ <= 0.995, air = isAirKind(v.kind) && typeof Death !== 'undefined', fire = hurt && air ? Death.burning(v) : null;
+    const pct = `${Math.max(1, Math.round((1 - integ) * 100))}%`;
+    // (the row is narrow: "Pilot knocked out" took two lines on a phone and a desktop alike; the strip says it in full)
+    const dmg = v.ko ? 'Knocked out' : v.down ? (v.hulkWhy === 'pilot' && v.kind !== 'drone' ? 'Pilot KO' : 'Shot down') // (P4 play-test: not "8%" with its turret thrown)
+      : v.hulk != null && air ? `Crippled · ${pct}` : fire ? `On fire · ${pct}` : null;
+    $('#row-dmg').hidden = !hurt && !dmg;
+    if (dmg) { set('t-dmg', dmg); $('#row-dmg').classList.add('danger'); }
+    else if (hurt) { set('t-dmg', pct); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
     const st = this.structAlert(v);
@@ -1929,13 +2143,27 @@ const Flight = {
       set('t-g', gr ? `${v.nz.toFixed(1)} / ${gr.toFixed(gr < 10 ? 1 : 0)} g` : `${v.gForce.toFixed(1)} g`);
       $('#row-g').classList.toggle('danger', !!(st && st.kind === 'g'));
     }
-    // over-g or overspeed: the wings are at risk (near a wing's speed limit, or past it and fluttering apart)
-    const al = $('#flight-alert');
-    al.hidden = !st;
-    if (st) {
-      const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
-      set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`);
-      al.classList.toggle('critical', st.level > 1);
+    // over-g or overspeed: the wings are at risk (near a wing's speed limit, or past it and fluttering apart). (the big
+    // update) An aircraft's fire and a leaking tank too, in order: breaking (over-g or overspeed at level 2) > a fire >
+    // the level-1 warnings > a fuel leak. Once lost, it is the strip (what happened, tap for options) while the end
+    // screen waits, and nothing else.
+    if (this.destroyed) {
+      if (this.endPending && !(this.endCbs && this.endCbs.length) && !this._endGo && this.diedAt != null && this.time - this.diedAt > DEATH.endMax + 2) this.endPending = false; // (no end screen came for it: nothing to tap for)
+      this.strip(true);
+    } else {
+      const al = $('#flight-alert'), leak = hurt && air && !fire && v.parts.some(Death.leaking);
+      let msg = null, crit = false;
+      const struct = () => {
+        const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
+        return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
+      };
+      if (st && st.level > 1) { msg = struct(); crit = true; }
+      else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
+      else if (st) msg = struct();
+      else if (leak) msg = 'Fuel leak';
+      if (al.classList.contains('lost')) al.classList.remove('lost');
+      al.hidden = !msg;
+      if (msg) { set('flight-alert', msg); al.classList.toggle('critical', crit); this.placeAlert(al); }
     }
     // orbital readouts mean little for a car or a plane low in the air
     const orbital = rocket || !b.atmoHeight || alt > b.atmoHeight * 0.7;

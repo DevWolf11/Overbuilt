@@ -136,7 +136,7 @@ const Silly = {
     ['noodle', 'Noodle wings', 'Wings and tails tear off at a quarter of the load, and wings at half their speed.'],
     ['bouncy', 'Bouncy castle', 'Nothing breaks when it hits the ground. Everything bounces.'],
     ['drunk', 'Wobbly pilot', 'The stick drifts around on its own, in waves.'],
-    ['hollywood', 'Hollywood', 'Explosions three times the size, and stage separations explode too.'],
+    ['hollywood', 'Hollywood', 'Explosions three times the size, stage separations explode too, and shot-down planes blow up in mid-air the old way.'],
     ['boomy', 'Sonic boom at 90 km/h', 'The vapour cone and the boom think the speed of sound is 25 m/s.'],
   ],
   flags: store.get('rss.silly', {}),

@@ -40,6 +40,10 @@ const VEHICLE_KINDS = {
 // The kinds that drive on the ground (tracks, armour and aimed guns work on any of them; behaviour comes from parts).
 const GROUND_KINDS = new Set(['car', 'tank']);
 function isGround(kind) { return GROUND_KINDS.has(kind); }
+// The kinds that fly as aircraft: the damage model's air rule (death.js) covers them. 'drone' is the Drone kind,
+// harmless before it exists.
+const AIR_KINDS = new Set(['plane', 'heli', 'drone']);
+function isAirKind(kind) { return AIR_KINDS.has(kind); }
 // A vessel's running gear (v.gear) when it has none: every old design.
 const NO_GEAR = Object.freeze([]);
 
