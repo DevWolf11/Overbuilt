@@ -204,6 +204,38 @@ const Render3D = (() => {
       return g;
     }
   }
+  // Baked darkening: the light left at each vertex, f(x, y, z, ny, trunk) in 0..1, multiplied into its colour (a colour
+  // attribute of white made if it has none; instance colours multiply on top), once per geometry (userData.ao). trunk: the
+  // vertex has trunkCol's colour (a tree's trunk, told from its crown by colour, not height: crowns reach below trunk
+  // tops). Scenery and props sit on the ground: darker at the foot, under crowns, under eaves. Positions untouched
+  // (colliders and the arena's ground are Props' and the physics': nothing they meet changes)
+  function aoBake(g, f, trunkCol) {
+    if (g.userData.ao) return g;
+    g.userData.ao = true;
+    const p = g.attributes.position, n = g.attributes.normal;
+    let c = g.attributes.color;
+    if (!c) { c = new THREE.Float32BufferAttribute(new Float32Array(p.count * 3).fill(1), 3); g.setAttribute('color', c); }
+    for (let i = 0; i < p.count; i++) {
+      const t = !!trunkCol && Math.abs(c.getX(i) - trunkCol.r) < 1e-3 && Math.abs(c.getZ(i) - trunkCol.b) < 1e-3;
+      const k = f(p.getX(i), p.getY(i), p.getZ(i), n ? n.getY(i) : 0, t);
+      c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
+    }
+    return g;
+  }
+  // the rules, by piece (y in each piece's own unit space; ny the normal's up; t a trunk's vertex)
+  const AO = {
+    box: (x, y, z, ny) => (ny > 0.9 ? 1 : 0.74 + 0.26 * smoothstep(-0.5, 0.15, y)), // (y −0.5..0.5; its top lit)
+    roof: (x, y) => 0.82 + 0.18 * y, // (a roof or a spire: y 0..1)
+    cyl: (x, y) => 0.78 + 0.22 * smoothstep(-0.5, 0.2, y),
+    con: (x, y, z, ny, t) => (t ? 0.7 + 0.3 * smoothstep(0, 2.6, y) : (0.62 + 0.38 * smoothstep(2, 9.5, y)) * (ny < 0 ? 0.8 : 1)), // (a conifer)
+    brd: (x, y, z, ny, t) => (t ? 0.7 + 0.3 * smoothstep(0, 4.5, y) : (0.6 + 0.4 * (0.5 + 0.5 * ny)) * (0.8 + 0.2 * smoothstep(4, 9, y))), // (a broadleaf tree)
+    bush: (x, y) => 0.65 + 0.35 * smoothstep(0.1, 1.0, y),
+    rock: (x, y) => 0.62 + 0.38 * smoothstep(0, 0.7, y), // (a prop's: y 0..0.9)
+    hedge: (x, y) => 0.7 + 0.3 * smoothstep(-0.5, 0.4, y),
+    wall: (x, y) => 0.78 + 0.22 * smoothstep(0, 0.25, y), // (the scenery's villages: walls y 0..1, roofs, rocks centred ±0.7)
+    pyr: (x, y) => 0.85 + 0.15 * y,
+    stone: (x, y) => 0.62 + 0.38 * smoothstep(-0.7, 0.4, y),
+  };
   const col = (hex) => new THREE.Color(hex);
   function canvasTex(w, h, draw, srgb = true, repeat = false) {
     const cv = document.createElement('canvas');
@@ -578,6 +610,43 @@ void main() {
   float a = 0.9 * core * fade;
   gl_FragColor = vec4(cc * a + gl_FragColor.rgb, a); // (premultiplied: the core covers what is behind it, so its colour shows even on the sky; the halo adds light)
 }`;
+  // Contact shadows and scorch marks (syncDecals): a flat quad on the ground as drawn, x and y ±0.5 (vUv ±1 across its
+  // ellipse; its instance's third axis the ground's normal), drawn 30 cm nearer the eye (more far off) so the ground
+  // never cuts it. Its opacity and kind ride in the instance matrix's fourth row (an affine matrix's 0, 0, 0): the
+  // opacity, then 0 a soft blob or 1-4 a scorch from that cell of the cumulus atlas (an irregular burnt blotch: a black
+  // core, a brown rim). It fades as the ground under it does into the haze (OB_FOG: the haze package's fog; without it
+  // three's own)
+  const DECAL_VS = `${LOGV}#include <fog_pars_vertex>
+varying vec2 vUv; varying float vO, vK;
+void main() {
+  vUv = position.xy * 2.0; vO = instanceMatrix[0][3]; vK = instanceMatrix[1][3];
+  mat4 im = instanceMatrix; im[0][3] = 0.0; im[1][3] = 0.0;
+  vec4 mvPosition = modelViewMatrix * im * vec4(position, 1.0);
+  float d = max(length(mvPosition.xyz), 1e-3);
+  gl_Position = projectionMatrix * vec4(mvPosition.xyz * (1.0 - min(0.5, (0.3 + 4e-4 * d) / d)), 1.0);
+  #include <logdepthbuf_vertex>
+  #include <fog_vertex>
+}`;
+  const DECAL_FS = `${LOGF}#include <fog_pars_fragment>
+uniform sampler2D uMap;
+varying vec2 vUv; varying float vO, vK;
+void main() {
+  #include <logdepthbuf_fragment>
+  float r2 = dot(vUv, vUv); if (r2 > 1.0) discard;
+  vec3 c = vec3(0.0); float a;
+  if (vK < 0.5) a = vO * (1.0 - smoothstep(0.2, 1.0, r2)); // (dark right under it, gone 40 % past its footprint)
+  else { float cell = floor(vK - 0.5); // (a whole number however the constant varying comes out: 0.9999999 would pick another cell)
+    vec4 t = texture2D(uMap, (vec2(mod(cell, 2.0), floor(cell / 2.0)) + vUv * 0.5 + 0.5) * 0.5, 1.0); // (a mip level coarser: the lumps, not the cloud's finest wisps)
+    a = vO * smoothstep(0.05, 0.5, t.a) * (1.0 - smoothstep(0.75, 1.0, r2)); c = mix(vec3(0.09, 0.06, 0.04), vec3(0.015, 0.012, 0.01), smoothstep(0.3, 0.8, t.a)); }
+#ifdef OB_FOG
+  a *= 1.0 - obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+#elif defined(USE_FOG) && defined(FOG_EXP2)
+  a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+#endif
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(c, a);
+  ${OUT}
+}`;
   const SHEATH_FS = `${LOGF}uniform float uK, uT;
 varying vec3 vN, vV; varying vec2 vUv;
 void main() {
@@ -645,6 +714,7 @@ void main() {
     initTerrain();
     initSpaceCentre();
     initParticles();
+    initDecals();
     initStudio();
     if (typeof Parts3D !== 'undefined') { Parts3D.envMap = api.envMap; Parts3D.init(THREE, renderer); }
     // the first flight frames drawn (and the first after a quality change) keep the effect meshes on show with nothing
@@ -932,7 +1002,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.sun.shadow.mapSize.set(2048, 2048);
     S.sun.shadow.bias = -0.0004; S.sun.shadow.normalBias = 0.03;
     S.sunV = new THREE.Vector3(0, 1, 0); // the Sun's direction this frame (renderFlight; sunDir there is a shared temporary)
-    for (const k of ['c', 'x', 'y', 'z']) SB[k] = new THREE.Vector3(); // (the shadow box and the stand-ins' state: shadowProxies)
+    for (const k of ['c', 'x', 'y', 'z', 'f', 'a', 'o']) SB[k] = new THREE.Vector3(); // (the shadow box and the stand-ins' state: shadowProxies; f, a, o renderFlight's own)
     for (const k of ['c', 'ax', 'az', 'lc', 'lx', 'ly', 'lz']) PX[k] = new THREE.Vector3();
     PX.inv = new THREE.Matrix4();
     S.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
@@ -1010,14 +1080,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const trF = new Batch().geo(new THREE.ConeGeometry(2.1, 7.6, 6), 0, 4.6, 0, leaf);
     const brF = new Batch().geo(new THREE.IcosahedronGeometry(2.7, 0), 0, 5, 0, leaf, 0, 0, 0, 1, 0.9, 1);
     const inst = (g) => { const m = new THREE.InstancedMesh(g, smat2, 7000); m.count = 0; m.frustumCulled = false; return m; };
-    const gTrees = [tr.build(), br.build()], gFar = [trF.build(), brF.build()];
-    const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true });
+    const gTrees = [aoBake(tr.build(), AO.con, trunk), aoBake(br.build(), AO.brd, trunk)], gFar = [aoBake(trF.build(), AO.con, trunk), aoBake(brF.build(), AO.brd, trunk)]; // (baked darkening: aoBake)
+    const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true, vertexColors: true });
+    aoBake(rock, AO.stone);
     // villages (walls and roofs) and boats at sea, on Earth
-    const unit = new THREE.BoxGeometry(1, 1, 1); unit.translate(0, 0.5, 0);
-    const pyr = new THREE.ConeGeometry(0.75, 1, 4); pyr.rotateY(Math.PI / 4); pyr.translate(0, 0.5, 0);
+    const unit = aoBake(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), AO.wall);
+    const pyr = new THREE.ConeGeometry(0.75, 1, 4); pyr.rotateY(Math.PI / 4); pyr.translate(0, 0.5, 0); aoBake(pyr, AO.pyr);
     // half the sky light: shaded walls lit by the blue sky alone turned whole cities blue
-    const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5 });
-    const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6 });
+    const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5, vertexColors: true });
+    const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6, vertexColors: true });
     const boatG = boatGeo(), boatMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0 });
     S.cityU = { uScale: { value: 1 }, uMin: { value: 1.6 }, uAlpha: { value: 0 } };
     const lightMat = smat({ uniforms: S.cityU, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
@@ -2207,6 +2278,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const brdF = new Batch().geo(new THREE.CylinderGeometry(0.22, 0.32, 4.4, 3, 1, true), 0, 2.2, 0, trunk).geo(new THREE.IcosahedronGeometry(3.3, 0), 0, 6.9, 0, leaf, 0, 0.3, 0, 1, 0.85, 1).build();
     const bushF = new Batch().geo(new THREE.IcosahedronGeometry(0.85, 0), 0, 0.6, 0, shrub, 0, 0, 0, 1, 0.8, 1).build();
     PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge, conF, brdF, bushF, box];
+    // baked darkening (aoBake): each piece once (the far wall is the near box itself)
+    const G = PR.geo;
+    for (const [i, f, t] of [[0, AO.box], [1, AO.roof], [2, AO.cyl], [3, AO.roof], [4, AO.con, trunk], [5, AO.brd, trunk], [6, AO.bush], [7, AO.rock], [8, AO.hedge], [9, AO.con, trunk], [10, AO.brd, trunk], [11, AO.bush]]) aoBake(G[i], f, t);
     PR.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, envMapIntensity: 0.55 });
     return PR.geo;
   }
@@ -2273,6 +2347,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const m = new THREE.InstancedMesh(g, PR.mat, cnt[i]);
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cnt[i] * 3), 3);
       m.frustumCulled = false; m.receiveShadow = true; m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
+      if (i < PIECES && PCAST[i]) { // (the shadow pass draws only the first nSh: those within reach of the Sun's shadow box, propLod)
+        m.nSh = m.nAll = 0;
+        m.onBeforeShadow = () => { m.count = m.nSh; };
+        m.onAfterShadow = () => { m.count = m.nAll; };
+      }
       s.frame.add(m);
       return m;
     });
@@ -2281,12 +2360,48 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   // What is drawn, and how, for the camera's focus at (e, z): each prop's slots copied (matrix and colour, worked out
   // already) into the mesh its distance picks, the meshes' counts set. A few thousand copies: once the focus has moved
-  // PROP_LOD.move m, not every frame
-  const LODK = new Int32Array(16);
+  // PROP_LOD.move m, not every frame. On High, in each casting piece's mesh the instances within reach of the Sun's
+  // shadow box (PROP_BOX m to spare: the box's own test, shadowProxies') come first, and the shadow pass draws only
+  // those (nSh, swapped in by onBeforeShadow; the canvas draws all nAll): the rest would only be clipped from the shadow
+  // map, three quarters of the shadow pass's vertices in Highland Ridge's village. Again when the box has moved
+  // PROP_LOD.move m since in the set's frame (the view turning), grown or shrunk 5 %, or the Sun turned 0.5°
+  // (propBoxMoved). Without shadows, or with Render3D.shadowAll (tests), every instance in the order of old
+  const LODK = new Int32Array(16), LODIN = new Int32Array(16), LODAT = new Int32Array(16), LODOUT = new Int32Array(16), PROP_BOX = 60;
+  const PB = { on: false, inv: null, lc: null, lx: null, ly: null, lz: null, bb: null };
+  // the shadow box in the set frame's own axes (into PB); false: no box to sort by
+  function propBox(s) {
+    if (!S.sun || !S.sun.castShadow || api.shadowAll || !SB.c) return false;
+    if (!PB.inv) { PB.inv = new THREE.Matrix4(); for (const k of ['lc', 'lx', 'ly', 'lz']) PB[k] = new THREE.Vector3(); }
+    PB.inv.copy(s.frame.matrixWorld).invert();
+    PB.lc.copy(SB.c).applyMatrix4(PB.inv); PB.lx.copy(SB.x).transformDirection(PB.inv); PB.ly.copy(SB.y).transformDirection(PB.inv); PB.lz.copy(SB.z).transformDirection(PB.inv);
+    return true;
+  }
+  function propBoxMoved(s) {
+    const box = !!(S.sun && S.sun.castShadow && !api.shadowAll);
+    if (box !== s.lodBox) return true;
+    if (!box || !PB.inv) return false;
+    if (Math.abs(SB.half - s.lodHalf) > 0.05 * s.lodHalf || SB.z.dot(s.lodSun) < 0.99996) return true; // (0.5°)
+    PB.inv.copy(s.frame.matrixWorld).invert();
+    return PB.lc.copy(SB.c).applyMatrix4(PB.inv).distanceTo(s.lodC) > PROP_LOD.move;
+  }
+  // slot q's instance (piece mesh mi) within reach of the box (PB) with PROP_BOX m to spare: its geometry's box turned
+  // by its matrix, measured along each of the box's axes (exact for any affine matrix, as shadowProxies' test)
+  function propInBox(M, q, mi, X, Z) {
+    const bb = PB.bb[mi], j = q * 16, ax = M[j], ay = M[j + 1], az = M[j + 2], bx = M[j + 4], by = M[j + 5], bz = M[j + 6], cx = M[j + 8], cy = M[j + 9], cz = M[j + 10];
+    const dx = M[j + 12] + bb[0] * ax + bb[1] * bx + bb[2] * cx - PB.lc.x, dy = M[j + 13] + bb[0] * ay + bb[1] * by + bb[2] * cy - PB.lc.y, dz = M[j + 14] + bb[0] * az + bb[1] * bz + bb[2] * cz - PB.lc.z;
+    for (let k = 0; k < 3; k++) {
+      const l = k === 0 ? PB.lx : k === 1 ? PB.ly : PB.lz, lim = k === 2 ? Z : X;
+      if (Math.abs(dx * l.x + dy * l.y + dz * l.z) - bb[3] * Math.abs(ax * l.x + ay * l.y + az * l.z) - bb[4] * Math.abs(bx * l.x + by * l.y + bz * l.z) - bb[5] * Math.abs(cx * l.x + cy * l.y + cz * l.z) > lim) return false;
+    }
+    return true;
+  }
   function propLod(s, e, z) {
-    const K = Props.K, Q = Settings.high ? PROP_LOD.high : PROP_LOD.low, n2 = Q.near * Q.near, c2 = Q.cull * Q.cull, L = s.props, ms = s.meshes;
-    LODK.fill(0);
-    let drawn = 0;
+    const K = Props.K, Q = Settings.high ? PROP_LOD.high : PROP_LOD.low, n2 = Q.near * Q.near, c2 = Q.cull * Q.cull, L = s.props, ms = s.meshes, N = s.first[L.length];
+    if (!PB.bb) PB.bb = PR.geo.map((g) => { if (!g.boundingBox) g.computeBoundingBox(); const b = g.boundingBox; return [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2, (b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2, (b.max.z - b.min.z) / 2]; });
+    if (!s.lodMi || s.lodMi.length < N) { s.lodMi = new Int8Array(N); s.lodIn = new Uint8Array(N); }
+    const box = propBox(s), X = SB.half + PROP_BOX, Z = 4 * SB.half + PROP_BOX, MI = s.lodMi, IN = s.lodIn;
+    LODK.fill(0); LODIN.fill(0);
+    // where each slot goes, and whether it is within the box's reach (every slot is, without a box: the order of old)
     for (let j = 0; j < L.length; j++) {
       const p = L[j], de = p.e - e, dz = p.z - z, d2 = de * de + dz * dz, k = p.k;
       const small = k === K.bush || k === K.bale || k === K.fence || k === K.pole || k === K.tyres || k === K.crate || k === K.rock;
@@ -2294,16 +2409,31 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       for (let q = s.first[j], qe = s.first[j + 1]; q < qe; q++) {
         let mi = gone ? -1 : s.pc[q];
         if (mi >= 0 && far && FAR_OF[mi] >= 0) mi = FAR_OF[mi];
-        if (mi < 0 || !ms[mi]) { s.where[q] = -1; continue; }
-        const m = ms[mi], i = LODK[mi]++;
-        m.instanceMatrix.array.set(s.M.subarray(q * 16, q * 16 + 16), i * 16);
-        m.instanceColor.array.set(s.C.subarray(q * 3, q * 3 + 3), i * 3);
-        s.where[q] = (mi << 20) | i;
-        drawn++;
+        if (mi < 0 || !ms[mi]) { MI[q] = -1; continue; }
+        MI[q] = mi;
+        const inb = !box || !(mi < PIECES && PCAST[mi]) || propInBox(s.M, q, mi, X, Z);
+        IN[q] = inb ? 1 : 0;
+        LODK[mi]++; if (inb) LODIN[mi]++;
       }
     }
-    for (let i = 0; i < ms.length; i++) { const m = ms[i]; if (!m) continue; m.count = LODK[i]; m.visible = LODK[i] > 0; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
-    s.lodE = e; s.lodZ = z; s.drawn = drawn;
+    for (let i = 0; i < 16; i++) { LODAT[i] = 0; LODOUT[i] = LODIN[i]; }
+    let drawn = 0;
+    for (let q = 0; q < N; q++) {
+      const mi = MI[q];
+      if (mi < 0) { s.where[q] = -1; continue; }
+      const m = ms[mi], i = IN[q] ? LODAT[mi]++ : LODOUT[mi]++;
+      m.instanceMatrix.array.set(s.M.subarray(q * 16, q * 16 + 16), i * 16);
+      m.instanceColor.array.set(s.C.subarray(q * 3, q * 3 + 3), i * 3);
+      s.where[q] = (mi << 20) | i;
+      drawn++;
+    }
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i]; if (!m) continue;
+      m.count = LODK[i]; m.visible = LODK[i] > 0; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true;
+      if (m.nAll != null) { m.nAll = LODK[i]; m.nSh = LODIN[i]; }
+    }
+    s.lodE = e; s.lodZ = z; s.drawn = drawn; s.lodBox = box;
+    if (box) { s.lodHalf = SB.half; (s.lodSun || (s.lodSun = new THREE.Vector3())).copy(SB.z); (s.lodC || (s.lodC = new THREE.Vector3())).copy(PB.lc); }
   }
   // how far a fallen prop has tipped by now (it falls faster as it goes: 0.7 s), and how far it ends
   const FALL_T = 0.7;
@@ -2350,8 +2480,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       arenaUntil = Infinity;
     }
     if (!s.ready || !s.where) { s.frame.visible = false; return; }
-    // what is drawn, and how: again once the focus has moved on
-    if (!(Math.abs(e - s.lodE) < PROP_LOD.move && Math.abs(z - s.lodZ) < PROP_LOD.move)) propLod(s, e, z);
+    placeFrame(s.frame, EARTH, s.a0, F.time); s.frame.updateWorldMatrix(true, false); // (where it is now: propLod's shadow box is measured in its frame)
+    // what is drawn, and how: again once the focus (or the Sun's shadow box) has moved on
+    if (!(Math.abs(e - s.lodE) < PROP_LOD.move && Math.abs(z - s.lodZ) < PROP_LOD.move) || propBoxMoved(s)) propLod(s, e, z);
     // the newly fallen (ours, ghosts', the AI's), tipping over
     const FL = Props.fallen;
     for (; s.fallN < FL.length; s.fallN++) { const p = FL[s.fallN]; if (ids.includes(p.map) && s.jOf.has(p)) s.anim.push(p); }
@@ -2364,7 +2495,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
     }
     s.frame.visible = !!show;
-    if (show) placeFrame(s.frame, EARTH, s.a0, F.time);
   }
 
   // Cumulus on a hashed 750 m grid (the row through the flight plane uses the 2D view's clouds): flat,
@@ -3281,6 +3411,20 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.streak.frustumCulled = false; S.streak.renderOrder = 7; S.streak.visible = false;
     localWorld.add(S.fx, S.debris, S.streak);
   }
+  // Contact shadows and scorch marks: one mesh of flat quads on the ground as drawn (DECAL_VS/FS), drawn first among the
+  // see-through things (after the ground, never on water), no shadows. Filled each frame from state by syncDecals: nothing
+  // in the sim reads it. While S.warm counts down it stays on show, empty, so its program is built while loading. Its
+  // quad is the cumulus puffs' own unit plane (no geometry of its own: its attributes ride in the instance matrices)
+  function initDecals() {
+    S.decal = new THREE.InstancedMesh(S.puffs.geometry, smat({
+      vertexShader: DECAL_VS, fragmentShader: DECAL_FS, uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), { uMap: { value: S.cloudU.uMap.value } }),
+      defines: { OB_NOFOG: '' }, fog: true, transparent: true, depthWrite: false,
+    }), DECAL_N);
+    S.decal.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    S.decal.count = 0; S.decal.frustumCulled = false; S.decal.renderOrder = -1; S.decal.visible = false;
+    DK.seen = new WeakSet();
+    localWorld.add(S.decal);
+  }
   // a particle colour in linear rgb, and its sRGB blue (0..1: a pale flame burns white longer), cached
   function fxColor(hex) {
     let c = S.fxCol.get(hex);
@@ -3758,16 +3902,35 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updateStreaks(F);
     updateRings(F);
 
-    // ---- shadows fitted around the active craft
+    // ---- shadows: a box round what the camera looks at. Never smaller than the box fitted round the craft (2.5 of its
+    // length, 25 m at least: a Jumbo's stays 175 m); grown with the camera's distance up to 60 m (50 m at least round a
+    // ground vehicle, its turret's camera too), pushed into the view by what it grew, so the craft stays inside and the
+    // shadows reach as far as the view does; the gunner's sight keeps the tight box. Its centre is snapped to whole shadow-map texels against a
+    // point fixed to the ground (the terrain patch's), so shadow edges don't swim as the craft moves. The depth bias
+    // keeps 8 cm whatever the box (today's at 25 m), the normal bias grows with the texel
     if (S.sun.castShadow) {
       const ext = v.parts.length ? Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY) : 10;
-      const half = Math.max(25, ext * 2.5), sc = S.sun.shadow.camera;
-      if (sc.right !== half) { sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.5; sc.far = half * 8; sc.updateProjectionMatrix(); }
-      S.sun.position.copy(S.sunV).multiplyScalar(half * 4);
-      // the box as the shadow camera will hold it (three's own lookAt, from the Sun to the target): the city's shadow
-      // stand-ins hold what it can reach
-      SB.c.copy(S.sun.target.position); SB.half = half;
-      M1.lookAt(S.sun.position, S.sun.target.position, sc.up).extractBasis(SB.x, SB.y, SB.z);
+      const tight = Math.max(25, ext * 2.5), want = AC && S.sightOn ? 0 : Math.max(dist * 1.1, isGround(v.kind) ? 50 : 0);
+      const half = Math.max(tight, Math.min(60, want)), sc = S.sun.shadow.camera, e = camera.matrixWorld.elements;
+      SB.f.set(-e[8], 0, -e[10]); // (the view's line along the ground: the scene's y is up at the focus)
+      if (SB.f.lengthSq() > 1e-6) SB.f.normalize();
+      SB.c.copy(SB.f).multiplyScalar(0.5 * (half - tight));
+      // the box's axes as the shadow camera will hold them (three's own lookAt, from the Sun to the target): the snap
+      // below, and the city's shadow stand-ins, which hold what it can reach
+      M1.lookAt(S.sunV, SB.o, sc.up).extractBasis(SB.x, SB.y, SB.z);
+      if (patch.active) {
+        const tx = (2 * half) / S.sun.shadow.mapSize.x;
+        SB.a.copy(patch.frame.position).applyQuaternion(localWorld.quaternion);
+        const dx = SB.c.dot(SB.x) - SB.a.dot(SB.x), dy = SB.c.dot(SB.y) - SB.a.dot(SB.y);
+        SB.c.addScaledVector(SB.x, Math.round(dx / tx) * tx - dx).addScaledVector(SB.y, Math.round(dy / tx) * tx - dy);
+      }
+      if (sc.right !== half) {
+        sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.5; sc.far = half * 8; sc.updateProjectionMatrix();
+        S.sun.shadow.bias = -0.01 / half;
+        S.sun.shadow.normalBias = 0.03 * Math.max(1, half / 25);
+      }
+      S.sun.target.position.copy(SB.c); S.sun.position.copy(SB.c).addScaledVector(SB.z, half * 4);
+      SB.half = half;
     }
     shadowProxies(S.scen[0]);
     S.glowU.uScale.value = (H * renderer.getPixelRatio()) / (2 * TANH);
@@ -4068,6 +4231,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
+    syncDecals(F, dt);
   }
   // Other players' and the AI's ground vehicles, and wrecks (old cars' too), more than 150 m off: drawn raised or lowered
   // by how far the ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch
@@ -4085,6 +4249,185 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (Math.abs(e.rsO) < 1e-3) return;
     const r = Math.hypot(v.x, v.y, v.z) || 1;
     e.root.position.x += (v.x / r) * e.rsO; e.root.position.y += (v.y / r) * e.rsO; e.root.position.z += (v.z / r) * e.rsO;
+  }
+
+  // ---- contact shadows and scorch marks (S.decal, initDecals): a soft blob under every vehicle near the ground (AI tanks,
+  // wrecks' bits, parked planes, a hovering helicopter's tightening as it lands), on Low and outside the Sun's shadow box
+  // their only shadow; a scorch under every wreck (deeper after an ammunition detonation, going as it sinks: every screen,
+  // a peer's wreck being a vessel too) and at every dry crash site (Death.S.pyres, copied here when it appears, so the
+  // scorch outlives the pyre: SCORCH_LIFE s). Each lies on the ground as drawn (drawnAt: the arena's own mesh, the patch,
+  // a carrier's deck), tilted to it by two more points 1.5 m east and north; the ground under a vehicle is looked up 10
+  // times a second and met each frame along its up, so a fast one carries its blob along a slope. At most DECAL_N,
+  // nearest first, one draw; never over water, nor on a cliff, nor in the gunner's sight (we look out of that one)
+  const DECAL_N = 48, SCORCH_N = 12, SCORCH_LIFE = 300, BLOB_FAR = 600, SCORCH_FAR = 1500, BLOB_K = 0.7;
+  const DK = { c: [], o: [], scorch: [], seen: null, cell: 0, L: {}, deck: false, E: new Float64Array(6), p: v3(), ax: v3(), ay: v3(), az: v3(), u: v3(), w: v3(), byD: (a, b) => a.d - b.d };
+  // the ground as drawn at body-relative direction (ux, uy, uz) on body b: a carrier's deck, else drawnAt; NaN over water
+  // (DK.deck: whether that was a deck)
+  function decalH(b, x, y, z) {
+    const L = Terrain.locate(b, x, y, z, DK.L), dk = Terrain.deckAt(b, L.a, L.z);
+    DK.deck = dk === dk;
+    if (DK.deck) return dk;
+    if (Terrain.waterAt(b, L.a, L.z)) return NaN;
+    const h = drawnAt(b, L.a, L.z);
+    return b.ocean && h < 0 ? NaN : h;
+  }
+  // The ground plane under body-relative point (x, y, z) into G: a point on it (gx, gy, gz, body-relative) and its normal
+  // (nx, ny, nz, up-facing); G.off over water
+  function decalSeat(b, x, y, z, G) {
+    const r = Math.hypot(x, y, z) || 1, ux = x / r, uy = y / r, uz = z / r, R = b.radius;
+    const h0 = decalH(b, x, y, z);
+    G.off = !(h0 === h0);
+    if (G.off) return G;
+    G.gx = ux * (R + h0); G.gy = uy * (R + h0); G.gz = uz * (R + h0);
+    G.nx = ux; G.ny = uy; G.nz = uz;
+    if (DK.deck) return G; // (a deck is flat)
+    // east (up × world z) and north (east × up), 1.5 m each way, each dropped onto the ground as drawn there (off it, over
+    // water: as high as the middle)
+    const el = Math.hypot(uy, ux) || 1, ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux, E = DK.E;
+    const side = (k, ax, ay, az) => {
+      const px = x + ax * 1.5, py = y + ay * 1.5, pz = z + az * 1.5, pr = Math.hypot(px, py, pz) || 1, h = decalH(b, px, py, pz), s = (R + (h === h ? h : h0)) / pr;
+      E[k] = px * s - G.gx; E[k + 1] = py * s - G.gy; E[k + 2] = pz * s - G.gz;
+    };
+    side(0, ex, ey, 0); side(3, nx, ny, nz);
+    const cx = E[1] * E[5] - E[2] * E[4], cy = E[2] * E[3] - E[0] * E[5], cz = E[0] * E[4] - E[1] * E[3];
+    let cl = Math.hypot(cx, cy, cz);
+    if (!(cl > 1e-9)) return G;
+    if (cx * ux + cy * uy + cz * uz < 0) cl = -cl; // (east × north points down: turned up)
+    G.nx = cx / cl; G.ny = cy / cl; G.nz = cz / cl;
+    return G;
+  }
+  // one quad into the candidates: centre on the plane G met along unit up (ux, uy, uz) from the body's centre, axes u
+  // (along, semi-axis A) and w (across, B) on the plane, opacity a, kind k (in the fourth row: DECAL_VS); d its distance
+  // from the camera. (The quad's x along u, its y along −w, its face along the normal: u × −w = n, so it faces up)
+  function decalPut(n, G, ux, uy, uz, bp, u, w, A, B, a, k, d) {
+    const cu = Math.max(0.2, G.nx * ux + G.ny * uy + G.nz * uz), s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / cu;
+    const c = DK.c[n] || (DK.c[n] = { d: 0, m: new Float64Array(16) }), m = c.m;
+    c.d = d;
+    m[0] = u.x * 2 * A; m[1] = u.y * 2 * A; m[2] = u.z * 2 * A; m[3] = a;
+    m[4] = -w.x * 2 * B; m[5] = -w.y * 2 * B; m[6] = -w.z * 2 * B; m[7] = k;
+    m[8] = G.nx; m[9] = G.ny; m[10] = G.nz; m[11] = 0;
+    m[12] = bp.x + ux * s - camAbs.x; m[13] = bp.y + uy * s - camAbs.y; m[14] = uz * s - camAbs.z; m[15] = 1;
+    return n + 1;
+  }
+  // u: a laid on the plane G (a minus its part along the normal), unit; false if a stands nearly upright
+  function onPlane(G, a, u) {
+    const k = a.x * G.nx + a.y * G.ny + a.z * G.nz;
+    u.x = a.x - G.nx * k; u.y = a.y - G.ny * k; u.z = a.z - G.nz * k;
+    const l = Math.hypot(u.x, u.y, u.z);
+    if (l < 0.3) return false;
+    u.x /= l; u.y /= l; u.z /= l;
+    return true;
+  }
+  // w = u × n: across u on the plane
+  const across = (G, u, w) => { w.x = u.y * G.nz - u.z * G.ny; w.y = u.z * G.nx - u.x * G.nz; w.z = u.x * G.ny - u.y * G.nx; return w; };
+  // (tests: the quads drawn last frame: kind, opacity, centre (sim axes from the focus), length and width)
+  function decalRows() {
+    const D = S.decal, out = [];
+    if (!D) return out;
+    const M = D.instanceMatrix.array;
+    for (let i = 0; i < D.count; i++) {
+      const j = i * 16;
+      out.push({ k: M[j + 7], a: M[j + 3], x: M[j + 12], y: M[j + 13], z: M[j + 14], w: Math.hypot(M[j], M[j + 1], M[j + 2]), d: Math.hypot(M[j + 4], M[j + 5], M[j + 6]), n: [M[j + 8], M[j + 9], M[j + 10]] });
+    }
+    return out;
+  }
+  function syncDecals(F, dt) {
+    const D = S.decal;
+    if (!D) return;
+    const v0 = F.viewVessel || F.active, b = v0.body, t = F.time, bp = bodyPos(b, t);
+    let n = 0;
+    if (!b.star && patch.active) {
+      for (const v of F.vessels) {
+        const e = vessels.get(v);
+        if (!e || e.seen !== frameNo || !e.root.visible || v.dead || v.body !== b || v.kind === 'rocket' || !v.parts.length) continue;
+        n = blobOf(F, v, e, b, bp, dt, n);
+      }
+      n = scorchOf(F, b, bp, n);
+    } else if (DK.scorch.length) scorchOf(F, b, bp, -1); // (only aged and dropped)
+    let m = n;
+    if (n > DECAL_N) { const o = DK.o; o.length = n; for (let i = 0; i < n; i++) o[i] = DK.c[i]; o.sort(DK.byD); m = DECAL_N; }
+    const M = D.instanceMatrix.array;
+    for (let i = 0; i < m; i++) { const c = n > DECAL_N ? DK.o[i] : DK.c[i]; for (let j = 0; j < 16; j++) M[i * 16 + j] = c.m[j]; }
+    D.count = m; D.visible = m > 0 || S.warm > 0;
+    if (m) usedRange(D.instanceMatrix, m);
+  }
+  // a vessel's blob, or a wreck's scorch
+  function blobOf(F, v, e, b, bp, dt, n) {
+    const B = v.bounds, Lx = B.maxX - B.minX, Ly = B.maxY - B.minY, Lz = B.maxZ - B.minZ || 0, wreck = !!v.wreck;
+    // the middle of its box, under which it lies (from the centre of mass, sim axes)
+    const o = qrot(v.q, (B.minX + B.maxX) / 2 - v.com.x, (B.minY + B.maxY) / 2 - v.com.y, (B.minZ + B.maxZ) / 2 - (v.com.z || 0) || 0, DK.p);
+    const px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z, pr = Math.hypot(px, py, pz) || 1, ux = px / pr, uy = py / pr, uz = pz / pr;
+    const d = Math.hypot(bp.x + px - camAbs.x - CAM_A.x, bp.y + py - camAbs.y - CAM_A.y, pz - camAbs.z - CAM_A.z);
+    if (d > (wreck ? SCORCH_FAR : BLOB_FAR)) return n;
+    let G = e.dk;
+    if (!G || (e.dkT = (e.dkT || 0) - dt) <= 0) {
+      e.dkT = 0.1;
+      G = decalSeat(b, px, py, pz, e.dk || (e.dk = {}));
+      G.alt = v.landed ? 0 : v.groundAltitude(); G.r = Math.hypot(v.x, v.y, v.z) || 1;
+      G.s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / Math.max(0.2, G.nx * ux + G.ny * uy + G.nz * uz);
+    }
+    if (G.off) return n;
+    const cu = G.nx * ux + G.ny * uy + G.nz * uz, fly = !isGround(v.kind), sink = Math.min(1, v.sink || 0);
+    let a, k = 0;
+    if (wreck) {
+      if (e.wreckSeen == null || F.time < e.wreckSeen) e.wreckSeen = F.time;
+      if (!e.scell) e.scell = 1 + (DK.cell++ & 3);
+      a = (v.ko && v.ko.x ? 0.8 : 0.55) * (1 - sink) * Math.min(1, F.time - e.wreckSeen);
+      k = e.scell;
+    } else {
+      // how high its lowest point is over the ground: as last looked up, moved by how far it has climbed since and by how
+      // far the ground's plane has (along a slope)
+      const s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / Math.max(0.2, cu), alt = v.landed ? 0 : Math.max(0, G.alt + (Math.hypot(v.x, v.y, v.z) - G.r) - (s - G.s));
+      // fainter where the Sun's own shadows fall (High, by day, within the shadow box)
+      let box = false;
+      if (Settings.high && S.sun.castShadow && S.sun.intensity > 0) {
+        V1.set(bp.x + px - camAbs.x, bp.y + py - camAbs.y, pz - camAbs.z).applyQuaternion(localWorld.quaternion);
+        box = Math.hypot(V1.x - SB.c.x, V1.z - SB.c.z) < 0.8 * SB.half;
+      }
+      a = (box ? 0.32 : 0.6) * (1 - smoothstep(0.05, fly ? Math.max(4, 1.5 * Math.max(Lx, Ly)) : 2.5, alt)) * smoothstep(0.75, 0.95, cu) * (1 - 0.4 * (envV.night || 0)) * (fly ? 0.6 : 1) * (1 - sink);
+    }
+    if (!(a > 0.004)) return n;
+    // its footprint: the box's support along the longer of its own x and y laid on the ground (u), and across it (w)
+    const ex = v.axis(1, 0, 0, DK.ax), ey = v.axis(0, 1, 0, DK.ay), ez = v.axis(0, 0, 1, DK.az), u = DK.u, w = DK.w;
+    if (!onPlane(G, Lx >= Ly ? ex : ey, u) && !onPlane(G, Lx >= Ly ? ey : ex, u) && !onPlane(G, ez, u)) return n;
+    across(G, u, w);
+    const kk = BLOB_K * (fly ? 0.85 : 1) * (wreck ? 1.35 : 1);
+    const A = kk * (Lx * Math.abs(ex.x * u.x + ex.y * u.y + ex.z * u.z) + Ly * Math.abs(ey.x * u.x + ey.y * u.y + ey.z * u.z) + Lz * Math.abs(ez.x * u.x + ez.y * u.y + ez.z * u.z));
+    const Bw = kk * (Lx * Math.abs(ex.x * w.x + ex.y * w.y + ex.z * w.z) + Ly * Math.abs(ey.x * w.x + ey.y * w.y + ey.z * w.z) + Lz * Math.abs(ez.x * w.x + ez.y * w.y + ez.z * w.z));
+    return decalPut(n, G, ux, uy, uz, bp, u, w, Math.max(A, 0.05), Math.max(Bw, 0.05), a, k, d);
+  }
+  // the crash sites' scorches: each dry pyre copied once (n < 0: only age and drop them)
+  function scorchOf(F, b, bp, n) {
+    const P = typeof Death !== 'undefined' && Death.S ? Death.S.pyres : null, L = DK.scorch, t = F.time;
+    if (P) for (const p of P) {
+      if (p.wet || DK.seen.has(p)) continue;
+      DK.seen.add(p);
+      L.push({ src: p, b: p.b, x: p.x, y: p.y, z: p.z, t: p.t, r: 2.2 * (p.k || 1), cell: (hash1(p.t * 100, 9) * 4) | 0, ang: hash1(p.t * 100, 10) * TAU, G: null, at: -9 });
+      if (L.length > SCORCH_N) L.shift();
+    }
+    // gone: 300 s on, a new flight (its clock back before it, or the crash sites wiped before their time: Death.reset),
+    // or another body in view
+    const end = typeof DEATH !== 'undefined' ? DEATH.pyreEnd : 75, most = typeof DEATH !== 'undefined' ? DEATH.pyres : 6;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const s = L[i], age = t - s.t, wiped = age < end - 0.5 && (!P || (P.length < most && !P.includes(s.src)));
+      if (t < s.t - 1 || age > SCORCH_LIFE || s.b !== b || wiped) L.splice(i, 1);
+    }
+    if (n < 0) return n;
+    for (const s of L) {
+      const age = t - s.t, a = 0.75 * (1 - smoothstep(SCORCH_LIFE - 20, SCORCH_LIFE, age)) * Math.min(1, age / 0.5);
+      if (!(a > 0.004)) continue;
+      const d = Math.hypot(bp.x + s.x - camAbs.x - CAM_A.x, bp.y + s.y - camAbs.y - CAM_A.y, s.z - camAbs.z - CAM_A.z);
+      if (d > SCORCH_FAR + s.r) continue;
+      if (!s.G || clock - s.at > 1) { s.at = clock; s.G = decalSeat(b, s.x, s.y, s.z, s.G || {}); } // (seated afresh now and then: the ground drawn finer as we near)
+      if (s.G.off) continue;
+      const r = Math.hypot(s.x, s.y, s.z) || 1, ux = s.x / r, uy = s.y / r, uz = s.z / r, el = Math.hypot(uy, ux) || 1, ex = uy / el, ey = -ux / el;
+      const ca = Math.cos(s.ang), sa = Math.sin(s.ang), dir = DK.ax;
+      dir.x = ex * ca + ey * uz * sa; dir.y = ey * ca - ex * uz * sa; dir.z = (ex * uy - ey * ux) * sa; // (east turned by ang towards north)
+      if (!onPlane(s.G, dir, DK.u)) continue;
+      across(s.G, DK.u, DK.w);
+      n = decalPut(n, s.G, ux, uy, uz, bp, DK.u, DK.w, s.r, s.r, a, 1 + s.cell, d);
+    }
+    return n;
   }
   function engineGlow(v, vm, x, y, z) {
     S.engine.color.setHex(0xff9a4a); // (back from a flash's, updateParticles)
@@ -4664,7 +5007,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         streaks: S.streak ? streakRows(8) : [], // (the first few streaks: head, tail, colour and core width, floor)
         fxShown: S.fx ? [S.fx.visible, S.debris.visible, S.streak.visible] : null, // (the three effect meshes on show)
         fxLight: S.partU ? { sun: S.partU.uSunC.value.toArray(), amb: S.partU.uAmb.value.toArray(), glowMax: S.partU.uGlowMax.value } : null, // (the light on smoke)
-        decalN: 0, decals: [],
+        decalN: S.decal ? S.decal.count : 0, decals: decalRows(), decalShown: S.decal ? S.decal.visible : false, scorches: DK.scorch.length, // contact shadows and scorch marks drawn last frame ({k, a, x, y, z, w, d}), the crash sites' scorches kept
         engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
         terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
