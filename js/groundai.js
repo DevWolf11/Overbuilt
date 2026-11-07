@@ -1181,7 +1181,8 @@ const GroundAI = (() => {
       B.respawnAt = (F.time || 0) + BATTLE.respawn;
       if (typeof setTimeout === 'function' && typeof UI !== 'undefined') {
         if (S.panelT) clearTimeout(S.panelT);
-        S.panelT = setTimeout(() => { S.panelT = null; if (S.b === B && F.running && F.destroyed) panel(F); }, BATTLE.panel * 1000);
+        const go = () => { if (S.b === B && F.running && F.destroyed) panel(F); };
+        S.panelT = setTimeout(() => { S.panelT = null; if (typeof F.afterFall === 'function') F.afterFall(go); else go(); }, BATTLE.panel * 1000); // (an aircraft's waits for its fall: Flight.afterFall)
       }
       return true;
     },

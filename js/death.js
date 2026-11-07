@@ -42,8 +42,9 @@ const FIRE = {
 };
 
 const Death = (() => {
-  // pyres: crash sites {b, x, y, z, t, k, wet} (the crash section); lost: the player's losses merged in a hit window (the HUD's)
-  const S = { pyres: [], lost: null };
+  // pyres: crash sites {b, x, y, z, t, k, wet} (the crash section); lost: the player's losses merged in a hit window,
+  // hold: how many holds are open on it (the HUD's)
+  const S = { pyres: [], lost: null, hold: 0 };
   // the air HUD's hit tick and banner (the HUD section draws them)
   const fb = { tick: -9, text: '', col: '', pri: -1, t: -9, life: 0 };
   // a detonation under way (n: its own blasts never roll again), the rolls' event counter for a hit outside any window,
@@ -166,7 +167,8 @@ const Death = (() => {
     // 5 an engine (jets, props, fan pods, rocket motors on a plane): dead, aboard (a pair is one part: both pods)
     if (p.def.thrust) {
       p.active = false; p.firing = 0; deadHp(p);
-      toastMe(v, sim, `${p.def.name} out!`);
+      if (!lose(v, sim, { name: p.def.name, k: 'out', text: `${p.def.name} out!` })) toastMe(v, sim, `${p.def.name} out!`);
+      if (v !== sim.active && Combat.byMe(v.lastHitBy, sim)) feedback('ENGINE OUT', sim); // (ours: the banner)
       if (!(p.burn > 0)) ignite(v, p, FIRE.lit0.eng, v.lastHitBy, sim);
       return true;
     }
@@ -231,7 +233,10 @@ const Death = (() => {
     }
     p.cut = s;
     FX.sparks(v.body, at, vel, 14); FX.puff(v.body, at, vel, 8, '#cfd5dc');
-    if (v === sim.active && !v.ai) { toastMe(v, sim, `${s === 1 ? 'Right' : 'Left'} wing shot off!`); Sound.explode(); if (typeof haptic === 'function') haptic([60, 40, 80]); }
+    if (v === sim.active && !v.ai) {
+      const side = s === 1 ? 'Right wing' : 'Left wing';
+      if (!lose(v, sim, { name: side, k: 'off', text: `${side} shot off!`, bang: true })) { toastMe(v, sim, `${side} shot off!`); Sound.explode(); if (typeof haptic === 'function') haptic([60, 40, 80]); }
+    }
     const pieces = v.splitComponents();
     v.rebuildGroups();
     for (const piece of pieces) {
@@ -263,6 +268,7 @@ const Death = (() => {
     return [false, ''];
   }
   const CRIPPLED = { tail: 'Tail shot off!', fin: 'Fin shot off!', tailrotor: 'Tail rotor shot off!', engines: 'All engines out' }; // (a wing: its half's own toast said so)
+  const CRIP_NAME = { tail: ['Tail', 'off'], fin: ['Fin', 'off'], tailrotor: ['Tail rotor', 'off'], engines: ['All engines', 'out'] }; // (the same, merged with a hit window's other losses)
   // After a part of an aircraft went (the air rule, a detonation, a rip at the end of a hit window): is it crippled or
   // down? The credit (doomBy: the hitter within 20 s, once), a helicopter's spin, the player's toast, the limp hulk
   // (no stick, no autopilot, engines off) and the end of its flight, an AI bandit shot down, and our HUD's banner.
@@ -274,7 +280,7 @@ const Death = (() => {
     if (v.hulk == null) { v.hulk = t; v.doomBy = v.lastHitBy && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null; }
     if (why === 'tailrotor') v.tailLost = true;
     const fresh = v.hulkWhy !== why || (down && !v.down);
-    if (v.hulkWhy !== why) { v.hulkWhy = why; if (CRIPPLED[why]) toastMe(v, sim, CRIPPLED[why]); }
+    if (v.hulkWhy !== why) { v.hulkWhy = why; if (CRIPPLED[why] && !lose(v, sim, { name: CRIP_NAME[why][0], k: CRIP_NAME[why][1], text: CRIPPLED[why] })) toastMe(v, sim, CRIPPLED[why]); }
     if (down && !v.down) {
       v.down = true; v.isDebris = true; v.throttle = 0;
       for (const q of v.parts) if (q.def.thrust && !q.def.solid) { q.active = false; q.firing = 0; }
@@ -325,7 +331,8 @@ const Death = (() => {
     p.burnBy = by || v.lastHitBy || null;
     if (quiet === 'piece') return true;
     if (v === sim.active && !v.ai) {
-      if (!quiet) toastMe(v, sim, `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`);
+      const say = `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`;
+      if (!quiet && !lose(v, sim, { name: p.def.name, k: 'fire', text: say })) toastMe(v, sim, say);
       if (typeof haptic === 'function') haptic([30]);
     }
     if (v !== sim.active && v.control && !v.isDebris && Combat.byMe(p.burnBy, sim)) feedback('ON FIRE', sim);
@@ -511,7 +518,7 @@ const Death = (() => {
   function reset(F) {
     const so = F && F.spawnOpts;
     if (!(so && (so.mp || (Array.isArray(so.keep) && so.keep.length)))) S.pyres.length = 0;
-    S.lost = null;
+    S.lost = null; S.hold = 0;
     fb.tick = -9; fb.text = ''; fb.pri = -1; fb.t = -9; fb.life = 0;
   }
 
@@ -662,30 +669,131 @@ const Death = (() => {
   function koPartFX(o, p, f, n) { void p; void f; void n; return !!o.ko; }
 
   // ================================================================ HUD
-  // (D6 fills this section: the drawing, the chime, the end of a life's strip.) The air HUD's hit feedback: a tick
-  // round the gun cross after each of our hits, and one banner at a time (a lower one never replaces a higher one
-  // still showing).
+  // What the player sees of it (spec §6). The air HUD's hit feedback, drawn on the HUD's canvas by Combat.drawHUD: a
+  // tick round the gun cross after each of our hits, and one banner at a time (HIT, ENGINE OUT, ON FIRE, WING OFF and
+  // the like, PILOT KO, SHOT DOWN / KNOCKED OUT; a lower one never replaces a higher one still showing; a kill of ours
+  // chimes). The player's own losses in one hit window (a missile's burst: a wing, a fin, an engine, a tank) said in one
+  // toast, with one bang and one buzz. The words for the end of a life (Flight's strip, Flight.deathLine).
   const FB = { 'HIT': ['#f2f5f7', 0, 0.6], 'ENGINE OUT': ['#ffd23f', 1, 1.5], 'ON FIRE': ['#ffa040', 2, 1.5],
     'WING OFF': ['#ffd23f', 3, 1.5], 'TAIL OFF': ['#ffd23f', 3, 1.5], 'FIN OFF': ['#ffd23f', 3, 1.5], 'ROTOR OFF': ['#ffd23f', 3, 1.5], 'ENGINE OFF': ['#ffd23f', 3, 1.5],
     'PILOT KO': ['#ff5d5d', 4, 2.2], 'SHOT DOWN': ['#ff5d5d', 5, 2.2], 'KNOCKED OUT': ['#ff5d5d', 5, 2.2] };
   const now = (sim) => (sim && Number.isFinite(sim.time) ? sim.time : typeof Flight !== 'undefined' && Number.isFinite(Flight.time) ? Flight.time : 0);
+  // a banner up (shown, not over; a clock that went back ends it)
+  const showing = (t) => !!fb.text && t >= fb.t && t - fb.t < fb.life;
+  // A banner (FB's words): over a lower one still showing, never under it. The kill's (SHOT DOWN, KNOCKED OUT) chimes once,
+  // where the air HUD draws it (not in a ground vehicle's sight, whose own banner is Armour.fb's, nor in a room, where the
+  // kill's message chimes: mp.js onDown)
   function feedback(text, sim) {
     const k = FB[text];
     if (!k) return;
-    const t = now(sim);
-    if (fb.text && t - fb.t < fb.life && k[1] < fb.pri) return;
+    const t = now(sim), up = showing(t);
+    if (up && k[1] < fb.pri) return;
+    const again = up && fb.text === text;
     fb.text = text; fb.col = k[0]; fb.pri = k[1]; fb.life = k[2]; fb.t = t;
+    if (k[1] === 5 && !again && chimes(sim)) Sound.chime();
+  }
+  function chimes(sim) {
+    const F = sim || (typeof Flight !== 'undefined' ? Flight : null);
+    return !(F && F.groundAim) && !(typeof MP !== 'undefined' && MP.live);
   }
   // one of our hits landed on an aircraft or a ground vehicle (damage, a hit message): the tick, and HIT when no banner is up
   function hit(sim) {
     const t = now(sim);
     fb.tick = t;
-    if (!fb.text || t - fb.t >= fb.life) feedback('HIT', sim);
+    if (!showing(t)) feedback('HIT', sim);
   }
-  // drawn from Combat.drawHUD (not while destroyed, nor in a ground vehicle's sight). Not yet: nothing drawn.
-  function drawHits(ctx, W, H, dpr, F) { void ctx; void W; void H; void dpr; void F; }
 
-  return {
+  // Drawn from Combat.drawHUD, over the 3D view (not while destroyed: drawHUD stops; nor in a ground vehicle's sight,
+  // whose hits GHUD shows): round the gun cross (Combat.aimCross: the pipper's cross in Aim, the selected gun's 600 m out,
+  // 600 m down the nose without guns; the middle of the screen when it is behind the camera), the tick for 0.15 s after
+  // each hit (four short diagonals 16-22 px out, the banner's colour, else white) and the banner 48 px over the cross (a
+  // kill's bigger, 74 px over), below it when that would run into the panels at the top of the screen (the flight data,
+  // the buttons at the top right: measured once a banner, as the HUD's size and the screen's change), kept 8 px inside
+  // the screen's sides, fading out in its last third of a second. Nothing to show: no work at all.
+  const HX = { x: 0, y: 0, z: 0, armed: false }, TK = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  const FONT = '700 15px "Chakra Petch", system-ui, sans-serif', BIG = '700 20px "Chakra Petch", system-ui, sans-serif';
+  const TOP = { t: -1, W: 0, H: 0, boxes: [] }; // (the top panels' boxes, measured for the banner of time t on a W×H screen)
+  function topBoxes(W, H) {
+    if (TOP.t === fb.t && TOP.W === W && TOP.H === H) return TOP.boxes;
+    TOP.t = fb.t; TOP.W = W; TOP.H = H; TOP.boxes = [];
+    if (typeof document === 'undefined') return TOP.boxes;
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar']) {
+      const e = document.querySelector(q);
+      if (!e || e.hidden) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.top < H / 2) TOP.boxes.push(r); // (only what sits in the top half)
+    }
+    return TOP.boxes;
+  }
+  // does a banner w wide, its baseline at y (font size f), meet any of the boxes (6 px apart)?
+  const meets = (B, x, y, w, f) => B.some((r) => x - w / 2 - 6 < r.right && x + w / 2 + 6 > r.left && y - f - 6 < r.bottom && y + 6 > r.top);
+  function drawHits(ctx, W, H, dpr, F) {
+    void dpr;
+    const t = now(F), tick = t >= fb.tick && t - fb.tick < 0.15, ban = showing(t);
+    if (!tick && !ban) return;
+    const v = F.active;
+    if (!v || !v.parts.length || F.destroyed || F.groundAim || typeof Render3D === 'undefined') return;
+    const bp = bodyPos(v.body, F.time), P = Combat.aimCross(v, HX), s = Render3D.project(bp.x + P.x, bp.y + P.y, P.z);
+    const cx = s.behind ? W / 2 : clamp(s.x, 0, W), cy = s.behind ? 0.45 * H : clamp(s.y, 0.1 * H, 0.9 * H);
+    const col = ban ? fb.col : '#f2f5f7';
+    ctx.save();
+    if (tick) {
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.lineCap = 'butt';
+      ctx.beginPath();
+      for (const [p, q] of TK) { ctx.moveTo(cx + p * 16, cy + q * 16); ctx.lineTo(cx + p * 22, cy + q * 22); }
+      ctx.stroke();
+    }
+    if (ban) {
+      const big = fb.pri === 5, f = big ? 20 : 15;
+      ctx.font = big ? BIG : FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const w = ctx.measureText(fb.text).width, x = clamp(cx, 8 + w / 2, W - 8 - w / 2), B = topBoxes(W, H);
+      let y = cy - (big ? 74 : 48);
+      if (y - f < 64 || meets(B, x, y, w, f)) { const y2 = cy + (big ? 64 : 44) + f; if (!meets(B, x, y2, w, f) || y - f < 0) y = y2; } // (below the cross instead: a phone's top panels)
+      ctx.globalAlpha = clamp(3 * (fb.life - (t - fb.t)), 0, 1);
+      ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(fb.text, x, y);
+      ctx.fillStyle = fb.col; ctx.fillText(fb.text, x, y);
+    }
+    ctx.restore();
+  }
+
+  // The player's own losses from one hit (Combat.damage holds them) or one hit window (Combat.ripWin: an explode, a hit
+  // message; and its end, the torn-off kit flushRips sends): each would have been a toast of its own (a part shot off,
+  // half a wing, the tail, an engine out, a part damaged or on fire), so a missile's burst stacked three or four on a
+  // phone. They wait in S.lost and go as one when the last hold ends outside any window (flushLost): "Right wing, Pylon
+  // and 2 more shot off! Jet Engine out!", with one bang and one buzz; a single loss in its own words, as ever.
+  // it: { name, k: 'off' | 'out' | 'fire' | 'bad' | 'dmg', text (the toast it would have been), bang }. true: held.
+  function lose(v, sim, it) {
+    if (!sim || v !== sim.active || v.ai || !(S.hold > 0 || Combat.ripWin() > 0)) return false;
+    if (!S.lost) S.lost = { sim, list: [] };
+    S.lost.sim = sim; S.lost.list.push(it);
+    return true;
+  }
+  function holdLost() { S.hold++; }
+  // "a", "a and b", "a, b and 3 more"
+  const names = (a) => (a.length === 1 ? a[0] : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a[0]}, ${a[1]} and ${a.length - 2} more`);
+  function lostText(list) {
+    if (list.length === 1) return list[0].text;
+    const of = (k) => [...new Set(list.filter((x) => x.k === k).map((x) => x.name))];
+    const off = of('off'), out0 = of('out'), out = out0.includes('All engines') ? ['All engines'] : out0;
+    const fire = of('fire').filter((n) => !off.includes(n) && !out0.includes(n)), bad = of('bad'), dmg = of('dmg').filter((n) => !bad.includes(n));
+    const seg = [];
+    if (off.length) seg.push(`${names(off)} shot off!`);
+    if (out.length) seg.push(`${names(out)} out!`);
+    if (fire.length) seg.push(`${names(fire)} on fire!`);
+    if (!seg.length) seg.push(bad.length && !dmg.length ? `${names(bad)} badly damaged` : `${names([...bad, ...dmg])} damaged`);
+    return seg.join(' ');
+  }
+  function flushLost() {
+    S.hold = Math.max(0, S.hold - 1);
+    if (S.hold || Combat.ripWin() > 0) return; // (a hit inside a window: the window's end says it all)
+    const L = S.lost;
+    S.lost = null;
+    if (!L || !L.list.length) return;
+    if (L.sim.toast) L.sim.toast(lostText(L.list), 'warn');
+    if (L.list.some((x) => x.bang)) { Sound.explode(); if (typeof haptic === 'function') haptic([60, 40, 80]); }
+  }
+
+    return {
     S, fb, DET, dice, alive, partDead, airSize, groundSize, deathFX, tagPieces, base,
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, burning, leaking, partFX,
@@ -693,7 +801,7 @@ const Death = (() => {
     groundPart,
     groundKO, settle, groundPieces, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
     clearSpawn, // (multiplayer's: a spawn on top of a wreck sinks it, mp.js)
-    feedback, hit, drawHits,
-    _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T },
+    feedback, hit, drawHits, lose, holdLost, flushLost, // (the HUD section's: banners and ticks, the losses of one hit window in one toast)
+    _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T, lostText, TOP },
   };
 })();

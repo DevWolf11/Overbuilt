@@ -63,14 +63,21 @@ const Combat = (() => {
     if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     const after = hpFrac(p);
     if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit)
+    const own = v === sim.active && !v.ai; // (the player's own losses from this hit: one toast for all of it, death.js)
+    if (own) Death.holdLost();
+    try { hurtPart(v, p, cause, sim, by, side, before, after); } finally { if (own) Death.flushLost(); }
+  }
+  // damage()'s second half: what the player hears, and a part at zero
+  function hurtPart(v, p, cause, sim, by, side, before, after) {
     // an aircraft's engine or fuel part (> 50 kg) knocked under 30 % by a hit (not a crash's dent or a crash's own
     // blasts: the air rule's gate): it may catch fire (death.js); the player hears what really happened (on fire, or
     // badly damaged), every other kind as before
     const c30 = before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50), air = isAirKind(v.kind) && !p.def.gv && !Silly.on('hollywood');
     const lit = c30 && air && Death.airRule(v, p, cause) && Death.ignite(v, p, p.def.thrust ? FIRE.lit30.eng : FIRE.lit30.fuel, by || v.lastHitBy, sim, true);
     if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire') { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast)
-      if (c30) sim.toast(!air ? `${p.def.name} on fire!` : lit ? `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out` : `${p.def.name} badly damaged`, 'warn');
-      else if (before >= 0.6 && after < 0.6 && after > 0) sim.toast(`${p.def.name} damaged`, 'warn');
+      const k = c30 ? (!air || lit ? 'fire' : 'bad') : before >= 0.6 && after < 0.6 && after > 0 ? 'dmg' : null; // (in a hit window, one toast for all of it: death.js)
+      const msg = k === 'fire' ? (!air ? `${p.def.name} on fire!` : `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`) : k === 'bad' ? `${p.def.name} badly damaged` : `${p.def.name} damaged`;
+      if (k && !Death.lose(v, sim, { name: p.def.name, k, text: msg })) sim.toast(msg, 'warn');
     }
     if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim, side); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
   }
@@ -117,9 +124,15 @@ const Combat = (() => {
   const RIP = { n: 0, list: [], id: 0 };
   function holdRips() { if (!RIP.n) RIP.id = (RIP.id || 0) + 1; RIP.n++; }
   function ripWin() { return RIP.n > 0 ? RIP.id : 0; }
+  // (the big update) at the outermost end, the player's own losses in the window (and in the kit torn off now) go as one
+  // toast: Death.flushLost
   function flushRips() {
     RIP.n = Math.max(0, RIP.n - 1);
     if (RIP.n) return;
+    Death.holdLost();
+    try { flushList(); } finally { Death.flushLost(); }
+  }
+  function flushList() {
     while (RIP.list.length) {
       const { v, sim, cause, parts } = RIP.list.shift(), on = new Map();
       for (const p of parts) { // (each from where it is now: a turret thrown meanwhile took its bricks with it)
@@ -1079,7 +1092,7 @@ const Combat = (() => {
     if (!v.ai.ground) { if (v.hulk == null) v.hulk = sim.time || 0; v.isDebris = true; v.throttle = 0; v.ctl.v = v.ctl.h = v.ctl.r = 0; }
     if (byMe(v.lastHitBy, sim) && !v.ai.ally) {
       S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill');
-      if (!v.ai.ground) Death.feedback('SHOT DOWN', sim);
+      Death.feedback(v.ai.ground ? 'KNOCKED OUT' : 'SHOT DOWN', sim); // (the air HUD's banner and the chime; a ground vehicle's sight shows its own, Armour.fb)
     }
     if (v.ai.ground) GroundAI.down(v, sim); // (its hulk stays; the range or the battle counts it, and brings another)
   }

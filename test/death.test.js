@@ -236,7 +236,7 @@ function P0() { return { name: 'someone' }; }
   t('A5 the Mustang\'s every tail surface shot off: crippled (tail), not down', tail.v.hulkWhy === 'tail' && tail.v.hulk != null && !tail.v.down && tail.F.ondead === 0 && !tail.v.wings.some((q) => q.def.wing.control), tail.v.hulkWhy);
   t('A5 the Falcon\'s canard alone: nothing (its delta has elevons)', canard.v.hulk == null && !canard.v.hulkWhy && !canard.v.wings.some((q) => q.def.wing.control), canard.v.hulkWhy);
   t('A5 the FS-16\'s every fin shot off: crippled (fin)', fin.v.hulkWhy === 'fin' && !fin.v.vtails.length && !fin.v.down, fin.v.hulkWhy);
-  t('A5 the Mustang\'s engine dead: crippled (engines), gliding, not down', eng.v.hulkWhy === 'engines' && !eng.v.down && eng.F.ondead === 0 && eng.F.log.includes('All engines out'), [eng.v.hulkWhy, eng.F.log]);
+  t('A5 the Mustang\'s engine dead: crippled (engines), gliding, not down; the player told so in one toast (the engine out and all engines out: F4)', eng.v.hulkWhy === 'engines' && !eng.v.down && eng.F.ondead === 0 && eng.F.log.join() === 'All engines out!', [eng.v.hulkWhy, eng.F.log]);
 }
 
 // A6 the rare mid-air detonation: one roll a hit event a craft, on a big tank's or loaded rack's overkill of half its health
@@ -324,7 +324,7 @@ function P0() { return { name: 'someone' }; }
     const at = tick(F, 12, 0.07, () => { if (mid == null && F.time >= 2) mid = v.lastHitBy === by && near(v.lastHitAt, F.time, 1e-9) && j.burnBy === by; return !(j.hp > 0); });
     t(`A7 an engine lit at 30 % (throttle 0.85, 100 m/s): at 0 hp after ${at == null ? 'over 12' : at.toFixed(2)} s (7.5 ± 0.3), dead aboard; the fire's damage credited to who lit it (lastHitBy, lastHitAt kept fresh)`,
       lit && at != null && Math.abs(at - 7.5) <= 0.3 && v.parts.includes(j) && j.active === false && mid === true, { at, mid });
-    t('A7 ...the player told: "on fire! Throttle back or dive to put it out" (once), then the engine out', F.log.filter((m) => m === `${j.def.name} on fire! Throttle back or dive to put it out`).length === 1 && F.log.includes(`${j.def.name} out!`), F.log);
+    t('A7 ...the player told: "on fire! Throttle back or dive to put it out" (once), then the engine out (its only one: "All engines out!", one toast, F4)', F.log.filter((m) => m === `${j.def.name} on fire! Throttle back or dive to put it out`).length === 1 && F.log.length === 2 && F.log[1] === 'All engines out!', F.log);
   }
   // the timer: 3× with an engine throttled back, 3× above 150 m/s EAS, 9× both; a fuel fire doesn't care for the throttle
   {
@@ -1269,6 +1269,251 @@ function sysCalls(fn) {
   t('E1 a knocked-out pilot saved and restored: still knocked out (no control part, ko from its health), debris; ko not among the saved keys; a hurt pilot (10 % left) still flies',
     !m.control && mk.ko && !mb.control && mbk.ko === true && mbk.hp <= 0 && mb.isDebris === true && !('ko' in md.parts.find((p) => p.id === mk.id)) && !!hb2.control && !hb2.control.ko,
     { control: !!mb.control, ko: mbk.ko, hp: mbk.hp, debris: mb.isDebris, hurt: !!hb2.control });
+}
+
+// ================================================================ F. the HUD and the end of a life
+// What the player sees (spec §6): the air HUD's banners (one at a time, a lower one never over a higher one still
+// showing; a kill chimes once) and the tick, drawn round the gun cross (a canvas that records its calls; nothing at all
+// drawn with nothing to show); a hit window's losses said in one toast; the alert line's order (breaking > a fire >
+// the old warnings > a leak) and the damage row; the strip's words; the end screen waiting for the fall (afterFall,
+// with a clock of its own: 1.2 s after the crash, at most 10 s after the death; a tap at once).
+{
+  const SND = ctx.Sound;
+  let chimes = 0;
+  ctx.Sound = new Proxy({}, { get: (_, k) => (k === 'chime' ? () => { chimes++; } : () => {}) });
+  // F1 the banners' order and the chime
+  {
+    const F = fsim(air('falcon'));
+    F.time = 10; Death.reset(F); chimes = 0;
+    const fb = Death.fb, seq = [];
+    Death.feedback('ENGINE OUT', F); Death.hit(F); seq.push(fb.text, fb.tick); // (HIT only when no banner is up; the tick always)
+    F.time = 10.5; Death.feedback('ON FIRE', F); seq.push(fb.text);
+    Death.feedback('ENGINE OUT', F); seq.push(fb.text);
+    F.time = 11; Death.feedback('PILOT KO', F); Death.feedback('WING OFF', F); seq.push(fb.text);
+    F.time = 13.3; Death.feedback('ON FIRE', F); seq.push(fb.text); // (PILOT KO's 2.2 s are over)
+    F.time = 15; Death.hit(F); seq.push(fb.text);
+    const c0 = chimes;
+    F.time = 20; Death.feedback('SHOT DOWN', F); Death.feedback('SHOT DOWN', F); F.time = 21; Death.feedback('KNOCKED OUT', F);
+    const c1 = chimes;
+    F.time = 30; F.groundAim = true; Death.feedback('SHOT DOWN', F); F.groundAim = false;
+    t('F1 banners: HIT never over a banner (the tick still), a higher one over a lower, a lower one never over a higher one still showing, after its time anything; each kill chimes once (not again while its banner shows, not in a ground vehicle\'s sight)',
+      seq.join() === 'ENGINE OUT,10,ON FIRE,ON FIRE,PILOT KO,ON FIRE,HIT' && c0 === 0 && c1 === 2 && chimes === 2, { seq, c0, c1, chimes });
+  }
+  // F2 who gets which: an engine of a bandit's (one of two) killed by us: ENGINE OUT (ON FIRE if it lit); a ground AI's
+  // car knocked out by us: KNOCKED OUT; a stranger's hit: nothing
+  {
+    const P = air('falcon'), B = air('fs22'), F = fsim(P);
+    F.vessels.push(B); B.ai = { t: 0, down: false }; B.z = 300; F.time = 5; Death.reset(F);
+    const e = B.parts.filter((p) => p.def.thrust)[0];
+    Combat.damage(B, e, dmgTo(e, 1.2), 'shot', F, P);
+    const eng = Death.fb.text, lit = e.burn > 0;
+    const C = gnd('buggy'), CF = fsim(P);
+    CF.vessels.push(C); C.ai = { ground: true, t: 0 }; CF.time = 50; Death.reset(CF);
+    Combat.damage(C, C.control, dmgTo(C.control, 1.05), 'shot', CF, P);
+    const car = Death.fb.text;
+    const Q = air('fs22'), QF = fsim(P); QF.vessels.push(Q); Q.ai = { t: 0 }; Q.z = 300; QF.time = 90; Death.reset(QF);
+    const qe = Q.parts.filter((p) => p.def.thrust)[0];
+    Combat.damage(Q, qe, dmgTo(qe, 1.2), 'shot', QF, P0());
+    t(`F2 a bandit's engine (one of two) shot dead by us: ${eng}; an AI car knocked out by us: ${car}; a stranger's hit on a bandit: no banner`,
+      eng === (lit ? 'ON FIRE' : 'ENGINE OUT') && !B.ai.down && car === 'KNOCKED OUT' && C.ko && !Death.fb.text, { eng, lit, car, other: Death.fb.text });
+  }
+  // F3 drawn round the gun cross: a canvas recording what it is asked to draw (Render3D.project stood in: the cross at AX, AY)
+  {
+    const R0 = ctx.Render3D;
+    let AX = 400, AY = 300, BEH = false;
+    ctx.Render3D = { project: () => ({ x: AX, y: AY, behind: BEH }) };
+    const draw = (F, W = 800, H = 600) => {
+      const calls = [], st = {};
+      const c = new Proxy(st, { get: (o, k) => (k in o ? o[k] : (...a) => { calls.push([k, ...a]); return k === 'measureText' ? { width: 9 * String(a[0]).length } : undefined; }),
+        set: (o, k, x) => { o[k] = x; calls.push(['=' + String(k), x]); return true; } });
+      Death.drawHits(c, W, H, 1, F);
+      const txt = calls.filter((q) => q[0] === 'fillText').map((q) => ({ s: q[1], x: q[2], y: q[3] }));
+      return { n: calls.length, ticks: calls.filter((q) => q[0] === 'moveTo').length, txt, alpha: st.globalAlpha, font: st.font, col: st.strokeStyle };
+    };
+    const P = air('falcon'), F = fsim(P);
+    F.time = 40; Death.reset(F);
+    const idle = draw(F);
+    Death.hit(F); F.time = 40.05;
+    const a = draw(F); F.time = 40.3; const b = draw(F); F.time = 40.7; const c = draw(F);
+    Death.feedback('SHOT DOWN', F); F.time = 40.75;
+    const d = draw(F);
+    AY = 100; const e = draw(F); AY = 300;
+    BEH = true; const f = draw(F); BEH = false;
+    AX = 4; const g = draw(F); AX = 400;
+    F.time = 40.7 + 2.2 - 0.1; const h = draw(F);
+    F.time = 40.75; F.groundAim = true; const gi = draw(F); F.groundAim = false; F.destroyed = true; const de = draw(F); F.destroyed = false;
+    ctx.Render3D = R0;
+    const at = (r, s, x, y) => r.txt.length === 1 && r.txt[0].s === s && near(r.txt[0].x, x, 1e-6) && near(r.txt[0].y, y, 1e-6);
+    const w = 9 * 'SHOT DOWN'.length;
+    t('F3 the hit marker: nothing at all drawn with nothing to show; the tick (4 diagonals) for 0.15 s, HIT 48 px over the cross for 0.6 s; SHOT DOWN in the bigger font 74 px over',
+      idle.n === 0 && a.ticks === 4 && at(a, 'HIT', 400, 252) && b.ticks === 0 && at(b, 'HIT', 400, 252) && c.n === 0 && at(d, 'SHOT DOWN', 400, 226) && /20px/.test(d.font), { idle: idle.n, a, b: b.ticks, c: c.n, d });
+    t('F3 ...below the cross where it would meet the top of the screen (+64 px for a kill); the middle of the screen when the cross is behind the camera; kept 8 px inside the side; fading in its last third of a second; not in a ground vehicle\'s sight, not once destroyed',
+      at(e, 'SHOT DOWN', 400, 184) && at(f, 'SHOT DOWN', 400, 270 - 74) && at(g, 'SHOT DOWN', 8 + w / 2, 226) && near(h.alpha, 0.3, 1e-9) && gi.n === 0 && de.n === 0, { e: e.txt, f: f.txt, g: g.txt, alpha: h.alpha, gi: gi.n, de: de.n });
+  }
+  // F4 a hit window's losses in one toast: a big burst on the player's FS-16 (a missile's: a blast, a hit window) takes
+  // several parts; the toasts each loss would have been come as one, with one bang. A lone direct hit says it at once
+  {
+    const v = air('fs16'), F = fsim(v), B = air('falcon');
+    B.ai = { t: 0 }; F.time = 3; Death.reset(F);
+    let held = 0;
+    const l0 = Death.lose;
+    Death.lose = function (...a) { const r = l0.apply(this, a); if (r) held++; return r; };
+    const w = v.mainWing, at = v.toWorld(w.x, w.y + 1, 2.5);
+    Combat._t.explode(EARTH, at, 9, 2600, B, F);
+    Death.lose = l0;
+    const burst = F.log.slice(), lost = !!Death.S.lost;
+    const u = air('fs16'), UF = fsim(u), ue = u.parts.find((p) => p.def.thrust);
+    Combat.damage(u, ue, dmgTo(ue, 1.2), 'shot', UF, B);
+    // a lone hit taking the 60 % mark: its own words, as ever
+    const w2 = air('fs16'), WF = fsim(w2), wp = w2.mainWing;
+    Combat.damage(w2, wp, dmgTo(wp, 0.5), 'shot', WF, B);
+    t(`F4 a burst taking several parts of the player's craft: ${held} losses, one toast ("${burst[0]}"); a lone hit killing the only engine (out, maybe burning, all engines out): one toast ("${UF.log.join('" "')}"); a lone hit's single loss in its own words`,
+      held >= 3 && burst.length === 1 && / shot off!/.test(burst[0]) && !lost && !Death.S.hold && UF.log.length === 1 && UF.log[0] === 'All engines out!' && WF.log.join() === `${wp.def.name} damaged`, { held, burst, lone: UF.log, w: WF.log });
+    const L = Death._t.lostText, it = (name, k) => ({ name, k, text: `${name}!` });
+    const t1 = L([it('Wing', 'off')]), t2 = L([it('Wing', 'off'), it('Fin', 'off'), it('Pod', 'off'), it('Tank', 'off')]);
+    const t3 = L([it('Jet', 'out'), it('All engines', 'out'), it('Jet', 'fire'), it('Tank', 'off'), it('Tank', 'fire')]), t4 = L([it('Jet', 'bad'), it('Nose', 'dmg')]), t5 = L([it('Jet', 'bad'), it('Nose', 'bad')]);
+    t('F4 ...the merged words: one loss its own; "a, b and 2 more shot off!"; all engines out over each engine; no fire named for a part shot off or out; damage alone, "damaged"',
+      t1 === 'Wing!' && t2 === 'Wing, Fin and 2 more shot off!' && t3 === 'Tank shot off! All engines out!' && t4 === 'Jet and Nose damaged' && t5 === 'Jet and Nose badly damaged', [t1, t2, t3, t4, t5]);
+  }
+  // F5 the HUD's alert line and damage row (Flight.updateHUD over a stand-in page: elements that remember what they're set to)
+  {
+    const els = new Map();
+    const mk = (id) => {
+      if (els.has(id)) return els.get(id);
+      const cls = new Set(), o = { id, hidden: false, textContent: '', style: {}, getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }),
+        classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c), toggle: (c, on) => { if (on === undefined ? !cls.has(c) : on) cls.add(c); else cls.delete(c); }, has: (c) => cls.has(c) } };
+      const e = new Proxy(o, { get: (x, k) => (k in x ? x[k] : () => {}) });
+      els.set(id, e);
+      return e;
+    };
+    ctx.$ = (q) => mk(q.replace(/^#/, '')); ctx.document = { getElementById: (id) => mk(id), querySelectorAll: () => [], querySelector: (q) => mk(q) };
+    ctx.UI = { modalOpen: false, toast() {}, modal() {} };
+    const hud = (v, set) => {
+      const F = Object.create(ctx.Flight);
+      if (v.nz == null) v.nz = 7.5; // (a craft never stepped: the over-g line's figure)
+      Object.assign(F, { time: 30, vessels: [v], active: v, running: true, destroyed: false, mp: null, prediction: null, target: null, _bodyGround: false, spectate: null, structAlert: () => null, stats: { maxAlt: 0, maxSpeed: 0, maxG: 0 }, flags: {}, hint: () => '' }, set || {});
+      F.updateHUD(true);
+      const al = mk('flight-alert');
+      return { al: al.hidden ? '' : al.textContent, crit: al.classList.has('critical'), lost: al.classList.has('lost'), dmg: mk('row-dmg').hidden ? '' : mk('t-dmg').textContent, danger: mk('row-dmg').classList.has('danger') };
+    };
+    let asked = 0;
+    const b0 = Death.burning, k0 = Death.leaking;
+    Death.burning = (...a) => { asked++; return b0(...a); }; Death.leaking = (...a) => { asked++; return k0(...a); };
+    const old = hud(air('falcon'));
+    Death.burning = b0; Death.leaking = k0;
+    const hurtE = () => { const v = air('falcon'), e = v.parts.find((p) => p.def.thrust); e.hp = 0.25 * Combat.maxHp(e.def); return { v, e }; };
+    const a = hurtE(); a.e.burn = 5;
+    const fire = hud(a.v), brk = hud(a.v, { structAlert: () => ({ kind: 'g', level: 2 }) }), lvl1 = hud(a.v, { structAlert: () => ({ kind: 'g', level: 1 }) });
+    const q = air('falcon'), tank = q.parts.find((p) => p.fuel > 50 && !p.def.thrust);
+    tank.hp = 0.4 * Combat.maxHp(tank.def);
+    const leak = hud(q), leak1 = hud(q, { structAlert: () => ({ kind: 'g', level: 1 }) });
+    tank.burn = 4; const ffire = hud(q);
+    const c = air('falcon'); c.hulk = 2; c.hulkWhy = 'wing'; c.parts[1].hp = 0.5 * Combat.maxHp(c.parts[1].def);
+    const crip = hud(c);
+    const d = air('falcon'); d.hulk = 2; d.down = true; d.hulkWhy = 'pilot'; const pko = hud(d);
+    d.hulkWhy = 'lift'; const sd = hud(d);
+    const g = gnd('buggy'); g.ko = { why: 'crew', x: false, t: 0 }; const ko = hud(g);
+    t('F5 an old flight without hits: no alert, no damage row, and nothing asked of the damage model (no fire, no leak looked for)', !old.al && !old.dmg && asked === 0, { old, asked });
+    t('F5 the alert line\'s order: breaking (over-g at level 2) over an engine fire, the fire over a level-1 warning, a level-1 warning over a leak; a fuel fire says dive; a leak alone, amber',
+      brk.al.startsWith('Over-g') && brk.crit && fire.al === 'Engine fire · throttle back or dive' && fire.crit && lvl1.al === fire.al && leak1.al.startsWith('Over-g') && !leak1.crit
+      && leak.al === 'Fuel leak' && !leak.crit && ffire.al === 'Fire · dive to put it out' && ffire.crit, { brk, fire, lvl1, leak, leak1, ffire });
+    t('F5 the damage row: on fire, crippled, the pilot knocked out, shot down, knocked out (a ground vehicle), each in red',
+      /^On fire · \d+%$/.test(fire.dmg) && fire.danger && /^Crippled · \d+%$/.test(crip.dmg) && crip.danger && pko.dmg === 'Pilot KO' && sd.dmg === 'Shot down' && ko.dmg === 'Knocked out' && ko.danger, { fire: fire.dmg, crip: crip.dmg, pko: pko.dmg, sd: sd.dmg, ko: ko.dmg });
+    // the strip once lost: what happened and how to go on, while the end screen waits; not under a dialog, nor while
+    // watching someone else; gone once the end screen came
+    const s = air('falcon'); s.down = true; s.hulk = 1; s.hulkWhy = 'pilot';
+    const strip = (set) => { const r = hud(s, Object.assign({ destroyed: true, endPending: true, deathText: 'Pilot knocked out · by Bea', diedAt: 29 }, set)); return r; };
+    const on = strip(), modal = (ctx.UI.modalOpen = true, strip()), spec = (ctx.UI.modalOpen = false, strip({ spectate: {} })), done = strip({ endPending: false });
+    t('F5 the strip: "Pilot knocked out · by Bea · Esc for options" (lost, not flashing) while the end screen waits; hidden under a dialog, while spectating, and once the end screen came',
+      on.al === 'Pilot knocked out · by Bea · Esc for options' && on.lost && !on.crit && !modal.al && !spec.al && !done.al, { on, modal: modal.al, spec: spec.al, done: done.al });
+    delete ctx.$; delete ctx.document; delete ctx.UI;
+  }
+  // F6 the strip's words (Flight.deathLine)
+  {
+    const L = (v, set) => { const F = Object.create(ctx.Flight); Object.assign(F, { time: 50, crashedAt: null }, set || {}); return F.deathLine(v); };
+    const B = { name: 'Bandit' }, long = { name: 'A name far too long to fit on any strip at all' };
+    const pk = air('falcon'); pk.hulkWhy = 'pilot'; pk.down = true; pk.lastHitBy = B; pk.lastHitAt = 45;
+    const lf = air('falcon'); lf.hulkWhy = 'lift'; lf.down = true; lf.doomBy = long;
+    const cr = air('falcon'); cr.dead = true;
+    const cd = air('falcon'); cd.hulk = 10; cd.hulkWhy = 'wing'; cd.doomBy = B; cd.lastHitAt = 0;
+    const old = air('falcon'); old.lastHitBy = B; old.lastHitAt = 10;
+    const dr = air('falcon'); dr.kind = 'drone'; dr.down = true; dr.hulkWhy = 'pilot';
+    const ta = gnd('tk34'), tk = gnd('tk34'), bg = gnd('buggy');
+    ta.kind = tk.kind = 'tank'; ta.ko = { why: 'ammo', x: true, t: 0 }; tk.ko = { why: 'crew', x: false, t: 0 }; tk.lastHitBy = B; tk.lastHitAt = 49; bg.ko = { why: 'hull', x: false, t: 0 };
+    const w = [L(pk), L(lf), L(cr, { crashedAt: 49 }), L(cd, { crashedAt: 49 }), L(old, { crashedAt: 49 }), L(dr), L(ta), L(tk), L(bg)];
+    t('F6 the strip\'s words: the pilot knocked out (by the last hitter), shot down (its credit, 24 letters), crashed (by itself, a hit 40 s before), shot down (crippled by someone, crashed), a drone lost, an ammo detonation, knocked out (by), wrecked (a crash of its own)',
+      w.join('|') === 'Pilot knocked out · by Bandit|Shot down · by A name far too long to f|Crashed|Shot down · by Bandit|Crashed|Drone lost|Ammo detonation|Knocked out · by Bandit|Wrecked', w);
+  }
+  // F7 the end screen waits for the fall (Flight.afterFall, endAfter, endNow over a stand-in with a clock of its own: a
+  // timer is due when the sim's time reaches it; the real onDestroyed's lines, its page stubbed)
+  {
+    const Q = { now: 0, q: [], id: 0 };
+    ctx.setTimeout = (fn, ms) => { const id = ++Q.id; Q.q.push({ id, fn, at: Q.now + (ms || 0) / 1000 }); return id; };
+    ctx.clearTimeout = (id) => { Q.q = Q.q.filter((x) => x.id !== id); };
+    const due = () => { for (;;) { Q.q.sort((a, b) => a.at - b.at); const x = Q.q[0]; if (!x || x.at > Q.now + 1e-9) return; Q.q.shift(); x.fn(); } };
+    ctx.UI = { modalOpen: false, toast() {}, modal(o) { ends.push({ t: Q.now, title: o.title }); } };
+    let ends = [];
+    const stand = (v) => {
+      const F = fsim(v);
+      Object.assign(F, { setSight() {}, unlockPointer() {}, syncAwake() {}, strip() {}, updateHUD() {}, summaryHTML: () => '', ended: false, spectate: null, _bodyGround: false });
+      F.onDestroyed = ctx.Flight.onDestroyed; // (the real one)
+      return F;
+    };
+    // fly the stand-in, its timers on the sim's clock, until the end screen came (or secs)
+    const run = (F, secs) => { const dt = 1 / 120; fly(F, secs, () => { Q.now = F.time; due(); return ends.length > 0; }); return ends[0] || null; };
+    const end = (key, alt, how) => {
+      Q.now = 0; Q.q = []; ends = [];
+      const v = cruise(key, alt), F = stand(v);
+      Q.now = F.time; how(v, F);
+      const e = run(F, 40);
+      return { e: e && +(e.t - F.diedAt).toFixed(2), crash: F.crashedAt != null ? +(F.crashedAt - F.diedAt).toFixed(2) : null, after: e && F.crashedAt != null ? +(e.t - F.crashedAt).toFixed(2) : null, dead: v.dead, title: e && e.title, F, v };
+    };
+    const ko = (v, F) => { v.vx *= 0.4; v.vy *= 0.4; const u = v.radius(); v.vx -= (v.x / u) * 60; v.vy -= (v.y / u) * 60; Combat.damage(v, v.control, dmgTo(v.control, 1.01), 'shot', F); }; // (diving at 60 m/s)
+    const low = end('falcon', 300, ko), high = end('falcon', 3000, ko);
+    t(`F7 the pilot knocked out 300 m up, diving: the end screen 1.2 s after the crash (${low.after} s; the crash ${low.crash} s after the death), not before`,
+      low.dead && low.crash != null && low.crash < 8 && low.after >= 1.2 && low.after <= 1.2 + 0.25 + 0.02 && low.title === 'Vessel destroyed', { e: low.e, crash: low.crash, after: low.after });
+    t(`F7 ...3 km up: the end screen at most 10 s after the death (${high.e} s), the hulk still falling`, high.e >= 10 && high.e <= 10.27 && !high.dead && high.crash == null, { e: high.e, crash: high.crash });
+    // a tap on the strip (endNow): before the 1.6 s timer, at once; while it waits for the fall, at once
+    const tap = (at) => {
+      Q.now = 0; Q.q = []; ends = [];
+      const v = cruise('falcon', 3000), F = stand(v);
+      Q.now = F.time; ko(v, F);
+      const d0 = F.diedAt;
+      fly(F, at, () => { Q.now = F.time; due(); return ends.length > 0; });
+      F.endNow();
+      return { t: ends.length ? +(ends[0].t - d0).toFixed(2) : null, n: ends.length, pending: F.endPending, q: Q.q.length };
+    };
+    const t05 = tap(0.5), t4 = tap(4);
+    // a ground vehicle knocked out (no fall): as before, at 1.6 s
+    Q.now = 0; Q.q = []; ends = [];
+    const g = gnd('buggy'), GF = stand(g);
+    GF._bodyGround = true; Q.now = GF.time = 1; Combat.damage(g, g.control, dmgTo(g.control, 1.05), 'shot', GF);
+    const gt = run(GF, 5);
+    // a timer that comes later (a room's, the Practice Battle's) after a tap: at once when it does; a new flight drops what waits
+    Q.now = 0; Q.q = []; ends = [];
+    const v3 = cruise('falcon', 3000), F3 = stand(v3); Q.now = F3.time; ko(v3, F3);
+    Q.q = []; F3._endGo = null; F3.endNow(); let late = 0;
+    F3.afterFall(() => { late++; });
+    const v4 = cruise('falcon', 3000), F4 = stand(v4); Q.now = F4.time; ko(v4, F4);
+    let never = 0; Q.q = []; F4._endGo = null; F4.afterFall(() => { never++; }); F4.strip = () => {}; F4.endReset(); fly(F4, 12, () => { Q.now = F4.time; due(); });
+    t(`F7 a tap on the strip: at once, before the timer (${t05.t} s) and during the fall (${t4.t} s), nothing left waiting; a ground vehicle's end screen at 1.6 s as ever (${gt && +(gt.t - 1).toFixed(2)} s); a later timer after a tap runs at once; a new flight drops what waits`,
+      t05.n === 1 && t05.t === 0.5 && t4.n === 1 && t4.t === 4 && !t05.pending && !t4.pending && t05.q === 0 && t4.q === 0 && gt && near(gt.t - 1, 1.6, 0.02) && gt.title === 'Knocked out' && late === 1 && never === 0 && Q.q.length === 0,
+      { t05, t4, g: gt, late, never, q: Q.q.length });
+    // two timers waiting for one fall (a room's end screen and a spectate pick): neither drops the other; both run once,
+    // together, when the fall is over
+    Q.now = 0; Q.q = []; ends = [];
+    const v5 = cruise('falcon', 300), F5 = stand(v5); Q.now = F5.time; ko(v5, F5);
+    Q.q = []; F5._endGo = null;
+    const ran = [];
+    F5.afterFall(() => ran.push(['a', +(F5.time - F5.diedAt).toFixed(2)])); F5.afterFall(() => ran.push(['b', +(F5.time - F5.diedAt).toFixed(2)]));
+    const w0 = ran.length;
+    fly(F5, 14, () => { Q.now = F5.time; due(); return ran.length > 1; });
+    t(`F7 two timers waiting for one fall: both run once, together, after the crash (${JSON.stringify(ran)})`,
+      w0 === 0 && ran.length === 2 && ran[0][0] === 'a' && ran[1][0] === 'b' && ran[0][1] === ran[1][1] && F5.crashedAt != null && ran[0][1] >= F5.crashedAt - F5.diedAt + 1.2 && !(F5.endCbs || []).length && Q.q.length === 0,
+      { ran, crash: F5.crashedAt != null ? +(F5.crashedAt - F5.diedAt).toFixed(2) : null });
+    delete ctx.setTimeout; delete ctx.clearTimeout; delete ctx.UI;
+  }
+  ctx.Sound = SND;
 }
 
 t.done();
