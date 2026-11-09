@@ -68,6 +68,19 @@ const DEATH_FX = {
 };
 const fxOwn = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 // what a burning chunk leaves behind it, a tenth of its speed kept: a lick of fire while hot and young, else dark smoke
+// (review P2-VIS-2) a chunk with land (FX.death's on the ground, not in water) stops on the ground under it, its
+// centre half its size up (the physics' ground: Highland Ridge's mesh is drawn from it), not on a sphere through the
+// blast (floor: it floated on slopes and sank into flat ground). The ground is looked up again only once the chunk has
+// moved 2 m from where it was last looked up (exact: now), so a chunk costs a few looks in its life
+const LANDL = {};
+function landR(p, exact) {
+  const dx = p.x - p.gx, dy = p.y - p.gy, dz = p.z - p.gz;
+  if (exact || p.gr === undefined || dx * dx + dy * dy + dz * dz > 4) {
+    Terrain.locate(p.b, p.x, p.y, p.z, LANDL);
+    p.gr = p.b.radius + Terrain.surfaceAt(p.b, LANDL.a, LANDL.z) + 0.5 * p.size; p.gx = p.x; p.gy = p.y; p.gz = p.z;
+  }
+  return p.gr;
+}
 function trailOf(p) {
   if (p.hot && p.life < 0.5) return { kind: 'fire', b: p.b, x: p.x, y: p.y, z: p.z, vx: p.vx * 0.1, vy: p.vy * 0.1, vz: p.vz * 0.1, max: 0.35, size: 0.3 + p.size * 0.6, grow: 0.8, color: '#ff9a3c', alpha: 1 };
   return { kind: 'smoke', b: p.b, x: p.x, y: p.y, z: p.z, vx: p.vx * 0.1, vy: p.vy * 0.1, vz: p.vz * 0.1, max: 0.9 + 0.5 * FX.rnd(),
@@ -188,7 +201,7 @@ const FX = {
     for (let i = 0, n = K.deb ? this.nq(K.deb) : 0; i < n; i++) { // (the first half burning, trailing fire then smoke)
       const d = this.dir(u, K.db), sp = 8 + 16 * this.rnd(), hot = i < n / 2;
       this.add({ kind: 'debris', b, x: p.x, y: p.y, z: p.z, vx: v.x + d.x * sp, vy: v.y + d.y * sp, vz: v.z + d.z * sp, max: 2 + 1.5 * this.rnd(), size: (0.12 + 0.3 * this.rnd()) * rs, grow: 0,
-        color: '#2a2622', alpha: 1, heavy: true, drag: 0.15, floor: ground ? r0 - 0.3 * s : 0, trail: Settings.high ? 0.15 : 0.3, trailT: hot ? 1.2 : 0, hot });
+        color: '#2a2622', alpha: 1, heavy: true, drag: 0.15, floor: ground ? r0 - 0.3 * s : 0, land: ground && !water, trail: Settings.high ? 0.15 : 0.3, trailT: hot ? 1.2 : 0, hot });
     }
     for (let i = 0, n = K.spk ? this.nq(K.spk) : 0; i < n; i++) {
       const d = this.dir(u, K.bias), sp = 10 + 24 * this.rnd();
@@ -259,7 +272,7 @@ const FX = {
         p.vx -= (p.x / r) * g; p.vy -= (p.y / r) * g; p.vz -= (p.z / r) * g;
       }
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-      if (p.floor) { const r = Math.hypot(p.x, p.y, p.z); if (r < p.floor) { const f = p.floor / r; p.x *= f; p.y *= f; p.z *= f; p.vx = p.vy = p.vz = 0; p.trailT = 0; if (p.restAt == null) p.restAt = p.life; } }
+      if (p.floor) { const r = Math.hypot(p.x, p.y, p.z), fl = p.land ? landR(p, false) : p.floor; if (r < fl && (!p.land || p.restAt != null || r < landR(p, true))) { const f = (p.land ? p.gr : fl) / r; p.x *= f; p.y *= f; p.z *= f; p.vx = p.vy = p.vz = 0; p.trailT = 0; if (p.restAt == null) p.restAt = p.life; } }
       if (p.trail && p.life < p.trailT) for (p.tt = (p.tt || 0) + dt; p.tt >= p.trail; p.tt -= p.trail) born.push(trailOf(p));
       L[w++] = p;
     }

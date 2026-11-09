@@ -249,6 +249,38 @@ R(`var landing = (() => { FX.clear(); const p = chunk({ vx: -15 }); FX.add(p); c
 t('3 a floor stops a chunk dead: on it, still, restAt set, its trail ended (puffs only before it landed)', R(`Math.abs(landing.r) < 1e-6 && landing.v.every((x) => x === 0) && landing.restAt > 0 && landing.restAt < 0.5
   && landing.trailT === 0 && landing.born.length > 0 && landing.born.every((t) => t <= landing.restAt)`), R('JSON.stringify(landing)'));
 t('3 ... and stays there (gravity can\'t sink it)', R(`(() => { FX.clear(); const p = chunk({ vx: -15, max: 9 }); FX.add(p); for (let i = 0; i < 400; i++) FX.update(1 / 60); const r = Math.hypot(p.x, p.y, p.z); FX.clear(); return Math.abs(r - P0.x) < 1e-6; })()`));
+// (review P2-VIS-2) FX.death's chunks on the ground (land) rest on the ground under each, its centre half its size up,
+// on a 22% slope by Highland Ridge as on flat ground (before: on a sphere through the blast, up to 6 m in the air on the
+// slope and 0.6 m under flat ground); in water they keep the old floor; a chunk looks the ground up a few times only
+R(`var landRun = (() => {
+  const B = EARTH, Rr = B.radius, at = (e, z, up) => { const a = B.padAngle - e / Rr, lat = z / Rr, r = Rr + Terrain.surfaceAt(B, a, z) + up; return { x: r * Math.cos(lat) * Math.cos(a), y: r * Math.cos(lat) * Math.sin(a), z: r * Math.sin(lat) }; };
+  const h = (e, z) => Terrain.surfaceAt(B, B.padAngle - e / Rr, z), slope = (e, z) => Math.hypot(h(e + 3, z) - h(e - 3, z), h(e, z + 3) - h(e, z - 3)) / 6;
+  let steep = null, flat = null;
+  for (let de = -900; de <= 900; de += 60) for (let dz = -900; dz <= 900; dz += 60) {
+    const e = 18190 + de, z = 15040 + dz, s = slope(e, z);
+    if (Terrain.waterAt(B, B.padAngle - e / Rr, z)) continue;
+    if (!steep || s > steep.s) steep = { e, z, s };
+    if (!flat || s < flat.s) flat = { e, z, s };
+  }
+  const S0 = Terrain.surfaceAt; let looks = 0; Terrain.surfaceAt = function (...a) { looks++; return S0.apply(this, a); };
+  const out = { slope: +steep.s.toFixed(2) };
+  try {
+    for (const [name, P, kind, up, opt] of [['steep', steep, 'ammo', 1.5], ['flat', flat, 'crash', 0], ['wet', flat, 'crash', 0, { water: true }]]) {
+      const off = [], ws = [];
+      let n = 0, L0 = looks;
+      for (let seed = 1; seed <= 3; seed++) {
+        FX.clear(); FX.seed(seed); FX.death(B, at(P.e, P.z, up), V0, 6, kind, true, opt);
+        const C = FX.list.filter((q) => q.kind === 'debris'); n += C.length;
+        for (let i = 0; i < 240; i++) FX.update(1 / 60);
+        for (const q of C) { if (q.restAt == null) continue; const L = Terrain.locate(B, q.x, q.y, q.z, {}); off.push(Math.hypot(q.x, q.y, q.z) - Rr - S0(B, L.a, L.z) - 0.5 * q.size); ws.push(q.land); }
+      }
+      out[name] = { rested: off.length, worst: off.length ? +Math.max(...off.map(Math.abs)).toFixed(3) : null, minOff: off.length ? +Math.min(...off).toFixed(2) : null, land: ws.every(Boolean), perChunk: +((looks - L0) / n).toFixed(1) };
+    }
+  } finally { Terrain.surfaceAt = S0; FX.clear(); }
+  return out; })();`);
+t('3 FX.death\'s chunks rest on the ground under each (centre half its size up) on a 22% slope and on flat ground; in water the old floor (under the surface); a few ground looks a chunk',
+  R(`landRun.slope > 0.15 && ['steep', 'flat'].every((k) => landRun[k].rested >= 15 && landRun[k].worst < 0.02 && landRun[k].land && landRun[k].perChunk < 20)
+  && !landRun.wet.land && landRun.wet.minOff < -1`), R('JSON.stringify(landRun)'));
 R(`var trailRun = (o, dt = 1 / 60) => { FX.clear(); const p = chunk(Object.assign({ floor: 0, x: P0.x + 400, vx: 0 }, o)); FX.add(p); const born = [];
   for (let i = 0; i < 180; i++) { FX.update(dt); for (const q of FX.list) if (q !== p && !born.includes(q)) born.push(Object.assign(q, { at: p.life })); }
   FX.clear(); return born; };
