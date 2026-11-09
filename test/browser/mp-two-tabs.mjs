@@ -3,7 +3,10 @@
 // in a Skylark. B's ghost of A must match A's craft exactly. Then: the host drops a relayed message over 256 KB, and
 // a forged spawn from B is rebuilt clean on A without breaking anything. Then the part limit: on, B's 1,009-part craft
 // can't fly; the host turns it off and sees it. Then the props: a tree knocked over on B's
-// screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere.
+// screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere. Then the
+// big update's deaths on the other screen: B's plane, its pilot knocked out 1 km up, falls on A's screen as A's own hulk
+// and crashes there once, leaving a crash site; B's wing loses a half, which A sees go; B's Dune Buggy knocked out in the
+// sandbox stays on A's screen as a wreck.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -172,6 +175,53 @@ const forgedFallen = await A.evaluate((n) => { const m = Props.areas().find((q) 
 log('C (joined later) sees', JSON.stringify(onC), '| B\'s forged fallen reached the host:', forgedFallen);
 ok('a third tab joining later gets the room\'s set from the host: the tree already down there', !!onC && Math.abs(onC.fe - knock.fe) < 0.02 && onC.t0 < -1e6 && onC.n === 1, onC);
 ok('...and a player\'s own "fallen" message is dropped by the host (host-only)', !forgedFallen);
+
+// the big update's deaths on the other screen (spec-damage §10.5): B's plane, its pilot knocked out 1 km up, falls on A's
+// screen as a hulk of A's own physics (no longer B's ghost) and crashes there once, leaving a crash site; B's wing loses
+// its right half: A's ghost of it keeps the left half and the right one falls; B's Dune Buggy knocked out in the sandbox
+// stays on A's screen as a wreck
+const flyB = (key, alt) => B.evaluate(([key, alt]) => {
+  UI.closeModal(); Builder.loadTemplate(key); Builder.changed(); MP.launch();
+  return new Promise((done) => { const f = () => { const v = Flight.active; if (!(Flight.running && v && v.name === TEMPLATES[key].name && Flight.time > 0.3)) return requestAnimationFrame(f);
+    if (alt) { const r = Math.hypot(v.x, v.y, v.z), k = (r + alt) / r, n = v.axis(0, 1, 0); v.x *= k; v.y *= k; v.z *= k; v.vx = n.x * 120; v.vy = n.y * 120; v.vz = n.z * 120; v.landed = false; v.throttle = 0.8; }
+    done({ name: v.name, alt: Math.round(v.groundAltitude()) }); }; f(); });
+}, [key, alt]);
+const seenUp = (alt) => A.waitForFunction((alt) => { const P = MP.peers.get(2), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.groundAltitude() > alt; }, alt, { timeout: 60000 });
+await A.evaluate(() => { const W = (window.__dx = { death: [] }), f = FX.death; FX.death = function (b, at, vel, size, kind) { W.death.push({ kind, t: Flight.time }); return f.apply(this, arguments); }; });
+log('B flies', JSON.stringify(await flyB('mustang', 1000)));
+await seenUp(900);
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__py = Death.S.pyres.length; window.__dx.death.length = 0; });
+await B.evaluate(() => { const v = Flight.active; Combat.damage(v, v.control, 1e6, 'shot', Flight, null); });
+await A.waitForFunction(() => window.__g.foreign === 2, null, { timeout: 20000 }).catch(() => {});
+const f1 = await A.evaluate(() => { const g = window.__g, P = MP.peers.get(2); return { foreign: g.foreign, remote: g.remote, ghost: !!(P && P.ghost), inWorld: Flight.vessels.includes(g), down: !!g.down, ghosts: MP.ghosts().includes(g), control: g.control === null || g.parts.some((p) => p.def.control && p.ko), alt: Math.round(g.groundAltitude()), vy: Math.hypot(g.vx, g.vy, g.vz) }; });
+log('A sees B\'s hulk', JSON.stringify(f1));
+ok('B\'s pilot knocked out 1 km up: on A\'s screen a falling hulk of A\'s own (foreign, no longer B\'s ghost), moving', f1.foreign === 2 && !f1.remote && !f1.ghost && f1.inWorld && f1.down && !f1.ghosts && f1.alt > 500 && f1.vy > 20, f1);
+await A.waitForFunction(() => window.__g.dead, null, { timeout: 600000 }).catch(() => {});
+await A.waitForTimeout(500);
+const f2 = await A.evaluate(() => ({ dead: !!window.__g.dead, deaths: window.__dx.death.map((d) => d.kind), pyres: Death.S.pyres.length - window.__py, inWorld: Flight.vessels.includes(window.__g) }));
+log('A after the crash', JSON.stringify(f2));
+ok('...it crashes there once (one fireball, a crash site), and is gone', f2.dead && f2.deaths.filter((k) => k === 'crash').length === 1 && f2.deaths.length === 1 && f2.pyres === 1, f2);
+// half a wing
+log('B flies', JSON.stringify(await flyB('mustang', 1000)));
+await seenUp(900);
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__n0 = Flight.vessels.length; });
+const cut = await B.evaluate(() => { const v = Flight.active, w = v.mainWing; Combat.damage(v, w, 1.1 * Combat.maxHp(w.def), 'shot', Flight, null, 1); return { cut: w.cut, id: w.id, hulk: v.hulk, down: !!v.down }; });
+await A.waitForFunction((id) => { const p = window.__g.parts.find((q) => q.id === id); return p && p.cut === 1; }, cut.id, { timeout: 20000 }).catch(() => {});
+const c1 = await A.evaluate((id) => { const g = window.__g, p = g.parts.find((q) => q.id === id), half = Flight.vessels.slice(window.__n0).filter((o) => o.foreign === 2 && o.parts.some((q) => q.cut === -1 && q.type === p.type));
+  return { cut: p && p.cut, ghost: MP.peers.get(2).ghost === g, halves: half.length, falling: half.map((o) => Math.round(Math.hypot(o.vx, o.vy, o.vz))) }; }, cut.id);
+log('B cut', JSON.stringify(cut), 'A sees', JSON.stringify(c1));
+ok('B\'s wing loses its right half: A\'s ghost of it keeps the left half, and the right one falls there', cut.cut === 1 && c1.cut === 1 && c1.ghost && c1.halves === 1 && c1.falling[0] > 20, { cut, c1 });
+// a Dune Buggy knocked out in the sandbox: a wreck on A's screen
+log('B drives', JSON.stringify(await flyB('buggy', 0)));
+await A.waitForFunction(() => { const P = MP.peers.get(2), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.kind === 'car'; }, null, { timeout: 60000 });
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__w0 = MP.wrecks.length; });
+await B.waitForTimeout(1500);
+await B.evaluate(() => { const v = Flight.active; Combat.damage(v, v.parts.find((p) => p.def.control), 1e6, 'shot', Flight, null); });
+await A.waitForFunction(() => MP.wrecks.length > window.__w0, null, { timeout: 20000 }).catch(() => {});
+const k1 = await A.evaluate(() => { const g = window.__g, w = MP.wrecks.find((x) => x.v === g); return { wreck: !!g.wreck, listed: !!w, pid: w && w.pid, ko: g.ko && g.ko.why, inWorld: Flight.vessels.includes(g), ghost: !!MP.peers.get(2).ghost }; });
+const kB = await B.evaluate(() => { const v = Flight.active; return { ko: v.ko && v.ko.why, wreck: !!v.wreck, v: Math.hypot(v.vx, v.vy, v.vz) }; });
+log('B\'s buggy knocked out', JSON.stringify(kB), 'A sees', JSON.stringify(k1));
+ok('B\'s Dune Buggy knocked out in the sandbox (its driver: crew) stops dead and stays on A\'s screen as a wreck', kB.ko === 'crew' && kB.wreck && kB.v === 0 && k1.wreck && k1.listed && k1.pid === 2 && k1.ko === 'crew' && k1.inWorld && !k1.ghost, { kB, k1 });
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();

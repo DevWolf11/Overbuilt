@@ -14,6 +14,10 @@
 // flight scene may differ in at most 0.01% of its pixels, as the base tree against itself does, the hangar in none).
 // --check fails (exit 1) on a breach of the budgets of spec-graphics §3.4; --find-times prints the scene constants below
 // (the times of day, the sea, the town and the land), found on this tree. Not in run.mjs: a full run takes an hour or two.
+// The damage model's two scenes (spec-damage §11), rangefight and wrecks8, step the simulation in every timed frame, so
+// their cpuMs is a whole frame's JS (physics, Combat.frame, the fires, falls, crashes and wrecks' smoke, the renderer's
+// share); they run only when named and --check reports them without budgets (each tree plays its own rules):
+//   node test/bench/render-bench.mjs --base ../ob-p1 --scenes rangefight,wrecks8 --profiles phone --quality low
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -47,8 +51,13 @@ const SCENES = {
   hangar: { key: 'tk34', hangar: true, what: 'the hangar, byte for byte (a craft with no glass)' },
   // (the drone package: a stock drone 20 m up in Highland Ridge seen through its camera at --fov; needs a drone template)
   fpv: { drone: true, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'the drone\'s FPV view at --fov', props: ['hl'] },
+  // (the damage model, spec-damage §11: the simulation stepped in every timed frame as the game steps it, Flight.update, so
+  // its cpuMs is the JS of a whole frame. Named with --scenes only; reported, not judged by --check: each tree plays its
+  // own rules, so their pictures and their pieces differ on purpose)
+  rangefight: { key: 'falcon', place: { e: 6000, z: 0, yaw: 0, air: { alt: 1500, speed: 200 } }, time: 'noon', what: 'a Hostile range fight: two bandits shot down (one burning), one crashing, the sim stepped', load: 'rangefight', sim: true, targets: 'hostile' },
+  wrecks8: { key: 'tk34', place: HL, time: 'noon', what: 'eight knocked-out tanks in Highland Ridge (burning, smoking, wisps; baked), the sim stepped', props: ['hl'], pre: 'wrecks8', sim: true },
 };
-const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight'];
+const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight'], SIM = ['rangefight', 'wrecks8'];
 const PROFILES = {
   phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true }, throttle: 4 },
   desktop: { context: { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 }, throttle: 1 },
@@ -62,7 +71,7 @@ const A_DIR = opt('base', null) ? path.resolve(opt('base')) : null, B_DIR = ROOT
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'high,low').split(',');
 const FRAMES = +opt('frames', 2), ROUNDS = +opt('rounds', 16), FOV = +opt('fov', 100), CPU_FRAMES = 12;
 const SAVE = opt('save', null), SHOTS = opt('shots', null);
-let LIST = opt('scenes', Object.keys(SCENES).filter((k) => k !== 'fpv').join(',')).split(',');
+let LIST = opt('scenes', Object.keys(SCENES).filter((k) => k !== 'fpv' && !SIM.includes(k)).join(',')).split(',');
 for (const k of [...PROF.filter((p) => !PROFILES[p]), ...LIST.filter((s) => !SCENES[s]), ...QUAL.filter((q) => !['high', 'low'].includes(q))]) throw new Error('unknown profile, scene or quality: ' + k);
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const commit = (dir) => { try { const c = execSync('git rev-parse --short HEAD', { cwd: dir, encoding: 'utf8' }).trim(); const d = execSync('git status --porcelain -- js', { cwd: dir, encoding: 'utf8' }).trim(); return c + (d ? '+dirty' : ''); } catch { return '?'; } };
@@ -148,6 +157,7 @@ async function startScene(T, name) {
       let key = S.key;
       if (S.drone) { key = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone'); if (!key) return { skip: 'no drone template on this tree' }; }
       const tp = TEMPLATES[key];
+      if (S.targets) Settings.set('targets', S.targets); // (the range's mode: the fighters live only in Hostile)
       App.showScene('flight');
       Flight.start({ name: tp.name, kind: tp.kind, parts: templateRows(tp) }, S.place ? { place: S.place } : undefined);
       Flight.paused = true;
@@ -163,9 +173,12 @@ async function startScene(T, name) {
   }, [S, S.time === 'dusk' ? T_DUSK : T_NOON, FOV]);
 }
 // One frame drawn (or not) the way renderFlight/renderBuilder are driven here. In the page.
+// A scene with sim (window.__sim, from its effects on): the simulation's step first, as App.frame runs it (Flight.update:
+// physics, Combat.frame, the effects), the flight unpaused for it.
 const FRAME = `window.__frame = (dt, seed) => {
   if (seed != null) window.__seed(seed);
   if (App.scene === 'build') return Render3D.renderBuilder(Builder, dt, true);
+  if (window.__sim) { Flight.paused = false; try { Flight.update(dt); } finally { Flight.paused = true; } }
   Flight.updateCamera(); return Render3D.renderFlight(Flight, dt, true);
 };`;
 // Warm up with nothing drawn (the follow camera settles, everything is built), at least `min` frames and until nothing
@@ -235,6 +248,31 @@ const LOAD = `window.__load = (kind) => {
     for (let i = 0; i < 150; i++) { const g = (150 - i) / 60; trail({ x: P.x - w.x * g, y: P.y - w.y * g, z: P.z - w.z * g }, w, 4); }
     for (let i = 0; i < 100; i++) { const p = at(20 + i * 3.6, (i % 3) - 1, (i % 4) - 1.5); Combat.shots.push({ k: 'bullet', tracer: true, b, x: p.x, y: p.y, z: p.z, vx: v.vx + fw.x * 900, vy: v.vy + fw.y * 900, vz: v.vz + fw.z * 900 }); }
     death(at(600, 150, 0), 4, 'air');
+  } else if (kind === 'rangefight') {
+    // two bandits flying as we do, shot down (their cockpits; the kills ours): one 300 m ahead with an engine on fire,
+    // one 400 m ahead and right, 40 m over the ground and diving at 60 m/s (it crashes in the frames measured)
+    const mk = (P, dive) => { const e = Combat.spawnFighter(Flight); e.x = P.x; e.y = P.y; e.z = P.z; e.q = { ...v.q }; e.vx = v.vx - up.x * dive; e.vy = v.vy - up.y * dive; e.vz = v.vz - up.z * dive; e.ai.hold = true; e.lastHitBy = v; e.lastHitAt = Flight.time; return e; };
+    const e1 = mk(at(300, -20, 10), 0), e2 = mk(at(400, 40, 40, true), 60), eng = e1.parts.find((p) => p.def.thrust);
+    if (typeof Death !== 'undefined' && typeof Death.ignite === 'function') Death.ignite(e1, eng, 1, v, Flight);
+    for (const e of [e1, e2]) Combat.damage(e, e.control, 1e6, 'shot', Flight, v);
+    tracers(40, 30, 300, 0, 2);
+  } else if (kind === 'wrecks8') {
+    // (before the warm-up) eight TK-34s knocked out round the street, 30-95 m ahead, frozen where they stand: two by an
+    // ammunition detonation 5 s ago (burning), three 60 s ago (smoking), three 150 s ago (a wisp); their blasts cleared
+    const tp = TEMPLATES.tk34, ages = [5, 5, 60, 60, 60, 150, 150, 150], spots = [[30, -12], [35, 10], [50, -25], [55, 22], [70, -8], [75, 30], [90, -35], [95, 12]];
+    for (const [i, [a, s]] of spots.entries()) {
+      const ps = partsFromDesign(templateRows(tp)), all = buildAdjacency(ps), c = findControlPart(ps), keep = componentOf(c.id, all), kp = ps.filter((p) => keep.has(p.id)), adj = new Map();
+      for (const p of kp) adj.set(p.id, new Set([...all.get(p.id)].filter((id) => keep.has(id))));
+      const w = new Vessel(kp, adj, b); w.name = tp.name; w.kind = tp.kind; w.stages = computeStages(kp, adj, c.id); w.rebuildGroups();
+      const P = at(a, s, 1.6, true); w.q = { ...v.q }; w.x = P.x; w.y = P.y; w.z = P.z; w.vx = w.vy = w.vz = 0;
+      Flight.vessels.push(w); w.lastHitBy = v;
+      Armour.knockOut(w, Flight, i < 2 ? 'ammo' : 'crew', i < 2 ? { st: Armour.crewOf(w).stores[0], rounds: 30 } : undefined);
+      if (w.ko) w.ko.t = Flight.time - ages[i];
+      w.wreck = true; w.vx = w.vy = w.vz = 0; w.av = { x: 0, y: 0, z: 0 };
+    }
+    for (const o of Flight.vessels) if (o.tossed) { o.wreck = true; o.vx = o.vy = o.vz = 0; o.av = { x: 0, y: 0, z: 0 }; }
+    if (FX.clear) FX.clear(); else FX.list.length = 0;
+    return { fx: FX.list.length, wrecks: Flight.vessels.filter((o) => o.wreck).length };
   }
   FX.update(0.4, Flight);
   return { fx: FX.list.length, shots: Combat.shots.length };
@@ -434,8 +472,12 @@ for (const prof of PROF) for (const q of QUAL) for (const name of LIST) {
   const st = await Promise.all(T.map((t) => startScene(t, name)));
   if (st.some((s) => s.skip)) { console.log(`${name} ${prof} ${q}: skipped (${st.find((s) => s.skip).skip})`); for (const t of T) await t.ctx.close(); continue; }
   for (const t of T) await t.ev(LOAD);
+  const pre = [];
+  if (S.pre) for (const t of T) pre.push(await t.ev((k) => window.__load(k), S.pre)); // (what stands before the warm-up)
   // warm up, side by side (each tree says when it has built everything)
   const W = await Promise.all(T.map((t) => warm(t, name, 300)));
+  // what stood before the warm-up has stood 6 s on the page's clock (a wreck is baked then: one a frame, so a few frames)
+  if (S.pre) await Promise.all(T.map((t) => t.ev(async () => { const t0 = performance.now(); Render3D.skipDraw = true; while (performance.now() - t0 < 6500) { window.__frame(1 / 60, 1); await new Promise((r) => setTimeout(r, 50)); } for (let i = 0; i < 12; i++) window.__frame(1 / 60, 1); Render3D.skipDraw = false; })));
   const C = await Promise.all(T.map((t) => cond(t, name)));
   for (const [i, c] of C.entries()) if (!c.ok) { console.error(`render-bench: ${name} ${prof} ${q} ${trees[i][0]}: the scene isn't what it stands for: ${JSON.stringify(c)}`); process.exitCode = 1; }
   if (C.length === 2 && JSON.stringify(C[0].cam) !== JSON.stringify(C[1].cam)) console.log(`render-bench: ${name} ${prof} ${q}: the camera differs between A and B ${JSON.stringify([C[0].cam, C[1].cam])}`);
@@ -443,7 +485,8 @@ for (const prof of PROF) for (const q of QUAL) for (const name of LIST) {
   const loads = [];
   for (const t of T) {
     await t.ev(() => { window.__rb.clock(1e5); window.__rb.resort(); }); // (past any clock a warm-up reached: the clouds sorted again now)
-    loads.push(S.load ? await t.ev((k) => window.__load(k), S.load) : null);
+    loads.push(S.load ? await t.ev((k) => window.__load(k), S.load) : S.pre ? pre[T.indexOf(t)] : null);
+    if (S.sim) await t.ev(() => { window.__sim = true; });
     await timed(t, 3, false);
   }
   // the trees take turns, a round of FRAMES frames each, so the machine's load drifting (other jobs) hits both alike;
@@ -469,7 +512,8 @@ for (const prof of PROF) for (const q of QUAL) for (const name of LIST) {
   const row = { scene: name, profile: prof, quality: q, secs: Math.round((Date.now() - t0) / 1000) };
   for (const [i, [tag]] of trees.entries()) {
     const { b64, ...s } = snap[i]; void b64;
-    row[tag] = { gpuMs: r2(med(gpu[i])), gpuAll: gpu[i].map(r2), cpuMs: +med(cpuR[i]).toFixed(3), cpuRounds: cpuR[i].map((x) => +x.toFixed(3)), warm: W[i], cond: C[i], load: loads[i], ...s, ...(cpuProf ? { profile: cpuProf[i] } : {}) };
+    row[tag] = { gpuMs: r2(med(gpu[i])), gpuAll: gpu[i].map(r2), cpuMs: +med(cpuR[i]).toFixed(3), cpuRounds: cpuR[i].map((x) => +x.toFixed(3)), warm: W[i], cond: C[i], load: loads[i], ...s, ...(cpuProf ? { profile: cpuProf[i] } : {}),
+      ...(S.sim ? { after: await T[i].ev(() => ({ t: +Flight.time.toFixed(2), vessels: Flight.vessels.filter((o) => !o.dead).length, fx: FX.list.length, baked: Flight.vessels.filter((o) => o.wreck && Render3D.meshOf && Render3D.meshOf(o) && Render3D.meshOf(o).baked).length, pyres: typeof Death !== 'undefined' && Death.S ? Death.S.pyres.length : 0 })) } : {}) };
   }
   if (A_DIR) {
     row.ratio = +med(gpuR[1].map((b, r) => b / gpuR[0][r])).toFixed(3);
@@ -513,6 +557,7 @@ if (A_DIR && (flag('check') || flag('same'))) {
     if (flag('same')) budget(`${id}: pixels identical${r.scene === 'hangar' ? '' : ' (to within 0.01%: a few far depth ties, as the base against itself)'}`, r.pixels.same || (r.scene !== 'hangar' && r.pixels.near), r.pixels);
     if (!flag('check')) continue;
     if (r.scene === 'hangar') { budget(`${id}: hangar pixels identical`, r.pixels.same, r.pixels); continue; }
+    if (SIM.includes(r.scene)) continue; // (reported, not judged: each tree plays its own rules)
     const lim = QUIET.includes(r.scene) ? (ph ? 1.05 : 1.08) : r.scene === 'town' ? (ph && !hi ? 1.05 : 1.0) : BUSY.includes(r.scene) ? (ph ? (hi ? 1.2 : 1.12) : 1.25) : null;
     if (lim) budget(`${id}: gpuMs B/A ≤ ${lim}`, r.ratio <= lim, r.ratio);
     if (ph) { const c = BUSY.includes(r.scene) ? (hi ? 1.0 : 0.8) : 0.3; budget(`${id}: cpuMs B−A ≤ +${c} ms`, r.cpuDelta <= c, r.cpuDelta); }

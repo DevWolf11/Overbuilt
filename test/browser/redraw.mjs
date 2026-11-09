@@ -1,7 +1,8 @@
 // Redraw on demand (battery): the hangar is drawn only when something changes, so a change that forgets to ask for a
 // redraw would leave a stale picture on screen. Every kind of edit, by hand and from code, must show at once in 2D
 // and 3D; the idle 2D and 3D hangar must stop drawing; the home backdrop draws 30 times a second and a paused
-// flight 10; the frame cap gives a 90-144 Hz screen 60 frames' work a second.
+// flight 10; the frame cap gives a 90-144 Hz screen 60 frames' work a second. After a flight where things died (the big
+// update's banners, crash sites and fires), the idle 3D hangar still draws nothing.
 //   node test/browser/redraw.mjs        (screenshots go to test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -229,6 +230,19 @@ await ev(() => { UI.closeModal(); App.showHelp(); });
 r = await synth(0, 60);
 ok('a flight under a dialog 10 times a second', near(r.flight, 10, 1), r.flight);
 await ev(() => { UI.closeModal(); Render3D.skipDraw = false; });
+
+// (the big update) back in the 3D hangar after a flight where things died (our pilot knocked out, a banner up, a crash site
+// burning, a crash), the idle hangar still draws nothing: none of it animates there
+await ev(() => { App.toBuild(); store.set('rss.flight', null); Builder.loadTemplate('mustang'); Render3D.skipDraw = true; App.launch(); }); // (the saved flight forgotten: no question)
+await page.waitForFunction(() => App.scene === 'flight' && Flight.running && Flight.active && Flight.time > 0.3, null, { timeout: 60000 });
+await ev(() => { const v = Flight.active; Combat.damage(v, v.control, 1e6, 'shot', Flight, null); Death.feedback('SHOT DOWN', Flight); Death.pyre(v.body, v.toWorld(v.com.x, v.com.y, 0), 5, false, Flight); });
+await page.waitForFunction(() => Flight.active.dead || Flight.time > 8, null, { timeout: 60000 });
+const died = await ev(() => ({ destroyed: Flight.destroyed, dead: !!Flight.active.dead, pyres: Death.S.pyres.length, fx: FX.list.length }));
+await ev(() => { UI.closeModal(); Render3D.skipDraw = false; App.toBuild(); Render3D.orbitBy(0, 0); });
+await page.waitForFunction(() => App.scene === 'build' && App.preview3D(), null, { timeout: 30000 });
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('after a flight where things died (pilot out, a banner, a crash site, a crash), the idle 3D hangar issues no draw calls', died.destroyed && f1 === f0, `${f1 - f0} renders in 1 s; ${JSON.stringify(died)}`);
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();
