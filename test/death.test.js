@@ -1421,8 +1421,28 @@ function sysCalls(fn) {
     const L = Death._t.lostText, it = (name, k) => ({ name, k, text: `${name}!` });
     const t1 = L([it('Wing', 'off')]), t2 = L([it('Wing', 'off'), it('Fin', 'off'), it('Pod', 'off'), it('Tank', 'off')]);
     const t3 = L([it('Jet', 'out'), it('All engines', 'out'), it('Jet', 'fire'), it('Tank', 'off'), it('Tank', 'fire')]), t4 = L([it('Jet', 'bad'), it('Nose', 'dmg')]), t5 = L([it('Jet', 'bad'), it('Nose', 'bad')]);
-    t('F4 ...the merged words: one loss its own; "a, b and 2 more shot off!"; all engines out over each engine; no fire named for a part shot off or out; damage alone, "damaged"',
-      t1 === 'Wing!' && t2 === 'Wing, Fin and 2 more shot off!' && t3 === 'Tank shot off! All engines out!' && t4 === 'Jet and Nose damaged' && t5 === 'Jet and Nose badly damaged', [t1, t2, t3, t4, t5]);
+    t('F4 ...the merged words: one loss its own; "a, b and 2 more shot off!"; all engines out over each engine; a fire on an engine out named, none for a part shot off; damage alone, "damaged"',
+      t1 === 'Wing!' && t2 === 'Wing, Fin and 2 more shot off!' && t3 === 'Tank shot off! All engines out! Jet on fire!' && t4 === 'Jet and Nose damaged' && t5 === 'Jet and Nose badly damaged', [t1, t2, t3, t4, t5]);
+    // (Phase 2 review P2-AIR-R1) a fire is told by the part that burns, not its name: one on a part shot off in the window
+    // is not told, one on a part of the same name still aboard is
+    const J1 = { id: 1 }, J2 = { id: 2 }, cv = { parts: [J2] }, pf = (p, k) => ({ name: 'Jet', k, text: 'Jet!', p, v: cv });
+    const t6 = L([pf(J1, 'off'), pf(J1, 'fire')]), t7 = L([pf(J1, 'off'), pf(J2, 'fire')]);
+    t('F4 ...a fire on the part shot off is not told; a fire on its namesake still aboard is', t6 === 'Jet shot off!' && t7 === 'Jet shot off! Jet on fire!', [t6, t7]);
+    // a lone killing shot on every plane template's first engine: every engine it lights is told "on fire" (toasts =
+    // fires lit), and none is told "fire out" without having been told it was on fire. Before, all 16 lit were silent
+    let lit = 0, told = 0, outs = 0, silent = [];
+    for (const key of PLANES) {
+      const q = air(key), QF = fsim(q), qe = q.parts.find((p) => p.def.thrust);
+      if (!qe) continue;
+      Combat.damage(q, qe, dmgTo(qe, 1.05), 'shot', QF, B);
+      if (!(qe.burn > 0)) continue;
+      lit++;
+      for (let i = 0; i < 400 && qe.burn > 0; i++) { QF.time += 0.07; Death.tick(QF, 0.07, i + 1); }
+      const said = QF.log.join(' | ');
+      if (said.includes(`${qe.def.name} on fire!`)) told++; else silent.push(key + ': ' + said);
+      if (/fire out/.test(said)) outs++;
+    }
+    t(`F4 ...a lone shot killing the first engine of each plane: the ${lit} it lit are each told "on fire" (${told}), before any "fire out" (${outs})`, lit >= 10 && told === lit && outs <= told, silent);
   }
   // F5 the HUD's alert line and damage row (Flight.updateHUD over a stand-in page: elements that remember what they're set to)
   {

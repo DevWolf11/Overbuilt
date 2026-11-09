@@ -332,7 +332,7 @@ const Death = (() => {
     if (quiet === 'piece') return true;
     if (v === sim.active && !v.ai) {
       const say = `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`;
-      if (!quiet && !lose(v, sim, { name: p.def.name, k: 'fire', text: say })) toastMe(v, sim, say);
+      if (!quiet && !lose(v, sim, { name: p.def.name, k: 'fire', text: say, p, v })) toastMe(v, sim, say);
       if (typeof haptic === 'function') haptic([30]);
     }
     if (v !== sim.active && v.control && !v.isDebris && Combat.byMe(p.burnBy, sim)) feedback('ON FIRE', sim);
@@ -780,7 +780,10 @@ const Death = (() => {
     if (list.length === 1) return list[0].text;
     const of = (k) => [...new Set(list.filter((x) => x.k === k).map((x) => x.name))];
     const off = of('off'), out0 = of('out'), out = out0.includes('All engines') ? ['All engines'] : out0;
-    const fire = of('fire').filter((n) => !off.includes(n) && !out0.includes(n)), bad = of('bad'), dmg = of('dmg').filter((n) => !bad.includes(n));
+    // (review P2-AIR-R1) a fire is told unless its part was shot off in the window (by the part when the item has it, as
+    // ignite's do; by the name else): an engine out and burning says both, '<name> out! <name> on fire!' (spec §3.2 #5)
+    const gone = (x) => (x.p && x.v ? !x.v.parts.includes(x.p) : off.includes(x.name));
+    const fire = [...new Set(list.filter((x) => x.k === 'fire' && !gone(x)).map((x) => x.name))], bad = of('bad'), dmg = of('dmg').filter((n) => !bad.includes(n));
     const seg = [];
     if (off.length) seg.push(`${names(off)} shot off!`);
     if (out.length) seg.push(`${names(out)} out!`);

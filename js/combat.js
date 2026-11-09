@@ -77,7 +77,7 @@ const Combat = (() => {
     if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire') { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast)
       const k = c30 ? (!air || lit ? 'fire' : 'bad') : before >= 0.6 && after < 0.6 && after > 0 ? 'dmg' : null; // (in a hit window, one toast for all of it: death.js)
       const msg = k === 'fire' ? (!air ? `${p.def.name} on fire!` : `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`) : k === 'bad' ? `${p.def.name} badly damaged` : `${p.def.name} damaged`;
-      if (k && !Death.lose(v, sim, { name: p.def.name, k, text: msg })) sim.toast(msg, 'warn');
+      if (k && !Death.lose(v, sim, { name: p.def.name, k, text: msg, p, v })) sim.toast(msg, 'warn');
     }
     if (p.hp <= 0) { if (p.def.gv && p.def.control) Armour.moduleDown(v, p, cause, sim); else destroyPart(v, p, cause, sim, side); } // (a ground vehicle's hull or turret: knocked out, the hulk stays)
   }
