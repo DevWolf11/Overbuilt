@@ -601,10 +601,36 @@ const Death = (() => {
     if (hollywood() || !parts.some((p) => p.def.control)) return parts;
     if (!v.tossed) { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull'); }
     for (const p of parts) if (p.def.control) p.hp = Math.min(p.hp ?? 0, 0);
+    layDown(v); // (review P2-GND-1: one standing on its nose or tail is laid down first)
     settle(v);
     return parts.filter((p) => !p.def.control);
   }
 
+  // A hull broken in a nose- or tail-first crash is frozen at once (stepped on, it would fall through the ground), and
+  // so stood 60-90° up, to 10 m tall, for five minutes. One whose forward axis (+x, part space) is more than 30° off the
+  // level is laid down first: pitched about its own lateral axis by the least turn that levels it (so onto its tracks
+  // if it leaned that way, onto its roof if it leaned that way by more than 15°), then lifted or lowered until its lowest point is on the ground
+  // under it (twice, for a slope). Only for a vehicle knocked out in a crash: everything else settles as it lies
+  function layDown(v) {
+    const r = Math.hypot(v.x, v.y, v.z) || 1, u = { x: v.x / r, y: v.y / r, z: v.z / r };
+    const f = qrot(v.q, 1, 0, 0), y = qrot(v.q, 0, 1, 0), k = qrot(v.q, 0, 0, 1);
+    const s = f.x * u.x + f.y * u.y + f.z * u.z, yu = y.x * u.x + y.y * u.y + y.z * u.z;
+    if (!(Math.abs(s) > 0.5) || !v.hull) return;
+    let th = Math.abs(yu) < 1e-9 ? (s > 0 ? -1 : 1) * (Math.PI / 2) : Math.atan(-s / yu);
+    if (yu < 0 && yu > -0.26) th += th > 0 ? -Math.PI : Math.PI; // (all but upright on its end: onto its tracks, not its roof)
+    v.q = qnorm(qmul(qaxis(k.x, k.y, k.z, th), v.q));
+    const cz = v.com.z || 0, loc = {};
+    for (let it = 0; it < 2; it++) {
+      let worst = -Infinity;
+      for (const P of [v.hull, v.wheelPts || []]) for (const p of P) {
+        const o = qrot(v.q, p.x - v.com.x, p.y - v.com.y, (p.z || 0) - cz), px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z, pr = Math.hypot(px, py, pz);
+        Terrain.locate(v.body, px, py, pz, loc);
+        worst = Math.max(worst, v.body.radius + Terrain.surfaceAt(v.body, loc.a, loc.z) - (pr - (p.r || 0)));
+      }
+      if (!Number.isFinite(worst)) return;
+      v.x += u.x * worst; v.y += u.y * worst; v.z += u.z * worst;
+    }
+  }
   // Where a wreck burns and smokes from: one of the ground update's vehicles at its engine (else its first control part),
   // an old car at its knocked-out cab; the top of the part, or of the hull it sits inside, so the flames rise from the deck
   function burnPoint(o) {

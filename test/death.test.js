@@ -1079,6 +1079,33 @@ function sysCalls(fn) {
   goG(WF, 4);
   t('C3 ...dropped 40 m the right way up: its tracks take the landing (broken), no knock-out (as today)', !w.ko && w.parts.filter((p) => p.def.track).every((p) => p.broken) && !deaths.length, { ko: w.ko, log: WF.log });
 }
+// C3b (Phase 2 review P2-GND-1) dropped 40 m nose first or tail first, the hull broken in the crash: the wreck is laid
+// down (its forward axis within 30° of the level, onto its tracks), its lowest point on the ground, no taller than it is
+// lying; before, it froze standing on its nose or tail (60-90° up, 5.5-10.4 m tall) for five minutes
+{
+  const qmul = R('qmul'), qaxis = R('qaxis'), qrot = R('qrot'), got = [];
+  const pose = (v) => {
+    const r = Math.hypot(v.x, v.y, v.z), u = { x: v.x / r, y: v.y / r, z: v.z / r }, cz = v.com.z || 0, loc = {};
+    let lo = 1e9, hi = -1e9, deep = -1e9;
+    for (const k of [...v.hull, ...v.wheelPts]) {
+      const o = qrot(v.q, k.x - v.com.x, k.y - v.com.y, k.z - cz), h = o.x * u.x + o.y * u.y + o.z * u.z;
+      lo = Math.min(lo, h - (k.r || 0)); hi = Math.max(hi, h + (k.r || 0));
+      const px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z; ctx.Terrain.locate(v.body, px, py, pz, loc);
+      deep = Math.max(deep, v.body.radius + ctx.Terrain.surfaceAt(v.body, loc.a, loc.z) - (Math.hypot(px, py, pz) - (k.r || 0)));
+    }
+    const f = qrot(v.q, 1, 0, 0), y = qrot(v.q, 0, 1, 0);
+    return { pitch: Math.round(Math.asin(Math.abs(f.x * u.x + f.y * u.y + f.z * u.z)) * 180 / Math.PI), up: +(y.x * u.x + y.y * u.y + y.z * u.z).toFixed(2), tall: +(hi - lo).toFixed(1), deep: +deep.toFixed(2) };
+  };
+  for (const key of ['tk34', 'ma1']) for (const [how, a] of [['nose', -Math.PI / 2], ['nose 60°', -Math.PI / 3], ['tail', Math.PI / 2]]) {
+    const v = gnd(key), F = fsim(v, { dist: () => 10, absPos: (o) => ({ x: o.x, y: o.y, z: o.z }) });
+    Combat.reset(F); goG(F, 1);
+    v.q = qmul(v.q, qaxis(0, 0, 1, a)); upBy(v, 40); v.vx = v.vy = v.vz = 0; v.av = { x: 0, y: 0, z: 0 };
+    goG(F, 5);
+    got.push({ key, how, ko: v.ko && v.ko.why, wreck: !!v.wreck, ...(v.wreck ? pose(v) : {}) });
+  }
+  t(`C3b dropped 40 m nose or tail first and knocked out: the wreck lies on its tracks on the ground (${got.map((g) => `${g.key} ${g.how}: ${g.pitch}°, ${g.tall} m tall`).join('; ')})`,
+    got.every((g) => g.wreck && g.ko === 'hull' && g.pitch <= 30 && g.up > 0.8 && g.tall < 4.5 && Math.abs(g.deep) < 0.3), got);
+}
 // C4 Armour.knockOut's death effect: one FX.death, 'ammo' with a detonation (where the rounds went up), 'ko' without; it
 // draws none of the victim's dice (the turret a detonation throws tumbles exactly as a bare toss from the same seed does)
 {

@@ -3555,6 +3555,16 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     updateDebris(t);
   }
+  // how tall a vessel stands as it lies now: its hull's and wheels' points along the local up (a wreck's, for its sink)
+  function standH(v) {
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, cz = v.com.z || 0;
+    let lo = Infinity, hi = -Infinity;
+    for (const P of [v.hull || [], v.wheelPts || []]) for (const p of P) {
+      const o = qrot(v.q, p.x - v.com.x, p.y - v.com.y, (p.z || 0) - cz), h = o.x * ux + o.y * uy + o.z * uz;
+      lo = Math.min(lo, h - (p.r || 0)); hi = Math.max(hi, h + (p.r || 0));
+    }
+    return hi > lo ? hi - lo : v.bounds.maxY - v.bounds.minY;
+  }
   // the chunks: tumbling about their own axis until they come to rest, shrinking away at the end of their life
   function updateDebris(t) {
     const D = S.debris, L = PK.dbr, M = PK.m, Q = PK.q, ax = PK.ax, sc = PK.sc, at = PK.at, ic = D.instanceColor;
@@ -4222,7 +4232,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       e.root.position.set(x, y, z);
       if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
       if (v.sink > 0) { // (a wreck or a cold piece going: lowered into the ground over its last 6 s, all of it under by the end)
-        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * ((isGround(v.kind) ? v.bounds.maxY - v.bounds.minY : ext) + 1);
+        if (e.sinkH == null) e.sinkH = isGround(v.kind) ? standH(v) : ext; // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
+        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * (e.sinkH + 1);
         e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
       }
       // (the big update) a wreck drawn for BAKE_S (wall clock, from its first frame drawn as one) is baked to one mesh
