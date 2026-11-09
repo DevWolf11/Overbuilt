@@ -1,7 +1,8 @@
 // A ground battle between two tabs of one browser (the "This device" transport, as a player would test it): A creates a
 // ground battle, B joins, both build (A the money's stock tank, B a Pumo armoured car) and the host skips to the battle.
 // Both start on their own pads on Highland Ridge. A scripted shell from A's gun goes through B's side: the hit, with its
-// module rows, reaches B and hurts its crew. B is knocked out: its hulk stays on A's screen as a wreck, B's team loses
+// module rows, reaches B and hurts its crew. B is knocked out: its hulk stays on A's screen as a wreck that burns and
+// smokes (the big update), B's team loses
 // tickets by B's price, and B comes back through the Respawn panel. A takes zone C, and the battle ends on tickets with
 // the results on both screens. Each player's bytes a second are logged. Screenshots of the lobby, the Respawn panel,
 // the bar in the battle and the results at 390x844 and 1280x720 (SHOTS=<dir>, else test/.cache/shots/).
@@ -116,6 +117,18 @@ await A.waitForFunction(() => MP.wrecks.length === 1 && MP.player(2) && !MP.play
 r = await A.evaluate((tk0) => ({ wreck: MP.wrecks[0].v.wreck, inWorld: Flight.vessels.includes(MP.wrecks[0].v), ghost: !!MP.peers.get(2).ghost, tk: MP.state.obj.tk[1], cost: MP.battleCost.get(2), lost: tk0 - MP.state.obj.tk[1], kills: MP.me.kills, score: MP.me.score }), tk0);
 log('A after the knock-out', JSON.stringify(r));
 ok('B knocked out: its hulk stays on A\'s screen as a wreck (not a ghost any more)', r.wreck && r.inWorld && !r.ghost, r);
+// (the big update) ...and there it burns, then smokes, as any wreck does (death.js's wreckFX: its knock-out, g.ko)
+const fire = await A.evaluate(async () => {
+  const g = MP.wrecks[0].v, c = Death._g.burnPoint(g), fl = FX.flame, sm = FX.smoke, n = { f: 0, s: 0 }, near = (at) => !!c && Math.hypot(at.x - c.x, at.y - c.y, at.z - c.z) < 1.5;
+  FX.flame = function (b, at) { if (near(at)) n.f++; return fl.apply(this, arguments); };
+  FX.smoke = function (b, at) { if (near(at)) n.s++; return sm.apply(this, arguments); };
+  const t0 = Flight.time;
+  await new Promise((ok) => { const f = () => (Flight.time > t0 + 2 ? ok() : requestAnimationFrame(f)); f(); });
+  FX.flame = fl; FX.smoke = sm;
+  return { ko: g.ko, ...n, d: Math.round(Flight.dist(Flight.absPos(g), Flight.camAbs)) };
+});
+log('B\'s wreck on A\'s screen', JSON.stringify(fire));
+ok('...and on A\'s screen it burns and smokes as any wreck (knocked out, g.ko: flames and a smoke column from it)', !!fire.ko && fire.f > 3 && fire.s > 0, fire);
 ok('B\'s team loses 30 + price/2,500 tickets, priced by the host from B\'s spawn rows; A scores the kill', r.lost === 30 + Math.round(r.cost / 2500) && r.cost > 0 && r.kills === 1 && r.score === 3, r);
 
 // ---- B's Respawn panel, then back in (its own vehicle)
