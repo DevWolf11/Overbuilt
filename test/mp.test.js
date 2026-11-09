@@ -404,7 +404,7 @@ async function groundBattle() {
     const vm = require('vm'), fs = require('fs'), path = require('path');
     const NC = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
     vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net; this.V = NET_VERSION;', NC);
-    t('ground: obj, spot and fallen are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 11 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 11);
+    t('ground: obj, spot, fallen and wrecks are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 11 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && NC.Net._t.HOST_ONLY.has('wrecks') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && NC.V === 11);
   }
   // the lineup: a slot only when unused, the respawn time come and tickets left; each spawn uses its slot
   X(`MP.state.settings.respawn = 'lineup'; const p2 = MP.player(2); p2.slots = 1; p2.slot = 0; p2.respawnAt = __T + 5000;
@@ -616,9 +616,67 @@ async function roomDeaths() {
   X(`FX.death = fd0;`);
 }
 
+// ---- 8. the room's wrecks on every screen (Phase 2 review P2-GND-2, P2-GND-3, MP-P2-1): our own hulk is one of the
+// wrecks from its down (the 9th wreck's cap and a spawn on top of it act on it at once, as on every other screen); a
+// player joining late gets the room's wrecks from the host; a sandbox's wrecks stay while we are in the hangar
+async function roomWrecks() {
+  const H = `Flight.onDestroyed = function () { if (this.destroyed) return; this.destroyed = true; if (this.mp) MP.onLocalDestroyed(); };
+    var centre = (v) => v.toWorld(v.com.x, v.com.y, v.com.z || 0), RW = EARTH.sites.runway.east;
+    var craftOf = (key, kind, e) => { const ps = partsFromDesign(templateRows(TEMPLATES[key])), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = kind; v.name = key; v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, e), VEHICLE_KINDS[kind].launchRot); return v; };
+    var wreckAt = (e, pid) => { const v = craftOf('tk34', 'tank', e); v.remote = pid; MP.addWreck(v, pid); return MP.wrecks.at(-1); };
+    var snapOf = (v, f) => ({ t: 's', f, th: __T, b: v.body.id, P: [v.x, v.y, v.z], V: [0, 0, 0], Q: [v.q.w, v.q.x, v.q.y, v.q.z], W: [0, 0, 0], C: [v.com.x, v.com.y, v.com.z || 0], g: 0, l: 1 });`;
+  const room = async () => { const Q = G.load({ mp: true, combat: true }), X = (c) => G.run(Q, c); X(ROOM); X(H); await X(`MP.host('sandbox', 'local')`); return X; };
+  // the owner's screen: eight wrecks stand; our TK-34 is knocked out (the 9th)
+  const A = await room();
+  A(`MP.addPlayer(2, 'Bea'); MP.addPlayer(3, 'Cid'); __design = { name: 'Tank', kind: 'tank', parts: templateRows(TEMPLATES.tk34) }; MP.startFlight(false);
+    for (let i = 0; i < 8; i++) { __P = i * 1000; wreckAt(RW + 400 + i * 40, 2); } __P = 10000;
+    var oldest = MP.wrecks[0], me = Flight.active; me.placeOnSurface(EARTH, siteAngle(EARTH, RW + 250), VEHICLE_KINDS.tank.launchRot); // (driven off its start)
+    Armour.knockOut(me, Flight, 'crew'); var mine = MP.wrecks.find((w) => w.v === me);`);
+  t('wrecks: our knocked-out hulk is one of the room\'s wrecks from its down: as the 9th it starts the oldest sinking now, as on every other screen (it waited for our respawn)',
+    A(`!!mine && mine.pid === 1 && mine.t === 10000 && oldest.sinkAt === 10000 && MP.hulk.v === me`), A('[!!mine, oldest.sinkAt, mine && mine.t]'));
+  A(`__P = 11000; MP.respawn(); var kept = MP.wrecks.filter((w) => w.v === me).length, keep1 = Flight.starts.at(-1).keep;`);
+  t('wrecks: ...our respawn keeps it (once) standing where it was', A(`kept === 1 && Flight.vessels.includes(me) && mine.sinkAt == null && MP.sinkStart(mine) === 10000 + 294000`), A('[kept, keep1, mine.sinkAt]'));
+  // a peer's new craft 4 m from our hulk while we wait to respawn: it sinks on our screen at their first snapshot too
+  const B = await room();
+  B(`MP.addPlayer(2, 'Bea'); __design = { name: 'Tank', kind: 'tank', parts: templateRows(TEMPLATES.tk34) }; MP.startFlight(false);
+    __P = 1000; var me = Flight.active; me.placeOnSurface(EARTH, siteAngle(EARTH, RW + 300), VEHICLE_KINDS.tank.launchRot); Armour.knockOut(me, Flight, 'crew');
+    __P = 3000; emit({ t: 'spawn', f: 2, name: 'P2', kind: 'tank', parts: rowsOf('ms4') }); var c0 = centre(me), tw = craftOf('ms4', 'tank', RW); { const c = centre(tw); tw.x += c0.x - c.x; tw.y += c0.y - c.y; tw.z += c0.z - c.z + 4; }
+    emit(snapOf(tw, 2)); MP.peers.get(2).recv = __P; MP.beforeUpdate(0.016); var w = MP.wrecks.find((x) => x.v === me), s3 = w && w.sinkAt;
+    __P = 9100; MP.peers.get(2).recv = __P; MP.beforeUpdate(0.016);`);
+  t('wrecks: a peer spawning 4 m from our hulk while we wait to respawn sinks it on our screen too (at their first snapshot, gone 6 s later), as on every other',
+    B(`s3 === 3000 && !MP.wrecks.some((x) => x.v === me) && !Flight.vessels.includes(me)`), B('[s3, MP.wrecks.length]'));
+  // a player joining late: the host (A, our hulk and the eight others, the oldest sinking) sends each standing wreck
+  A(`__P = 12000; Net.out = []; emit({ t: 'join', pid: 4, name: 'Dot' }); var W = sent('wrecks').filter(([, to]) => to === 4).map(([m]) => JSON.parse(JSON.stringify(m)));
+    var standing = MP.wrecks.filter((w) => MP.sinkStart(w) + 6000 > __P), mineW = W.find((m) => m.p === 1);`);
+  t('wrecks: a player joining late gets the room\'s wrecks from the host, one a message (ours too, with its parts, where it lies and how old it is); none to anyone else',
+    A(`W.length === standing.length && W.length >= 8 && sent('wrecks').every(([, to]) => to === 4) && !!mineW && mineW.r.length === me.parts.length && mineW.a === 2000 && mineW.s === -1 && mineW.why === 'crew' && mineW.k === 'tank' && mineW.P[0] === me.x`),
+    A('[W.length, standing.length, mineW && [mineW.r.length, mineW.a, mineW.s]]'));
+  const msgs = A('JSON.stringify(W)'), at = A('JSON.stringify([me.x, me.y, me.z, me.q.w, me.q.x, me.q.y, me.q.z, me.parts.map((p) => p.id).join()])');
+  // the late joiner (pid 4, not the host) builds them: where they lie, as old as they are, solid wrecks, ours as player 1's
+  const C = await room();
+  C(`Net.isHost = false; Net.me = 4; MP.wrecks = []; __P = 50000; var W = ${msgs}; for (const m of W) emit(Object.assign({}, m, { f: 1 }));
+    var got = MP.wrecks.find((w) => w.pid === 1), A0 = ${at};`);
+  t('wrecks: ...and builds each where it lies, as old as it is, a solid wreck (player 1\'s TK-34 with the same parts), sinking where the host\'s was sinking',
+    C(`MP.wrecks.length === W.length && !!got && got.v.wreck && got.v.ko && got.v.ko.why === 'crew' && got.t === 50000 - 2000 && Math.abs(got.v.x - A0[0]) < 1e-6 && Math.abs(got.v.y - A0[1]) < 1e-6 && Math.abs(got.v.q.w - A0[3]) < 1e-9
+      && got.v.parts.map((p) => p.id).join() === A0[7] && got.v.remote === 1 && MP.wrecks.filter((w) => w.sinkAt != null).length === W.filter((m) => m.s >= 0).length`),
+    C('[MP.wrecks.length, got && got.t, got && [got.v.x - A0[0], got.v.parts.length]]'));
+  C(`var n0 = MP.wrecks.length; emit(Object.assign({}, W[0], { f: 2 })); var fromPeer = MP.wrecks.length;
+    emit(Object.assign({}, W[0], { f: 1, k: 'plane' })); emit(Object.assign({}, W[0], { f: 1, r: 'x' })); emit(Object.assign({}, W[0], { f: 1, P: [1e9, 0, 0] })); emit(Object.assign({}, W[0], { f: 1, Q: [0, 0, 0, 0] })); emit(Object.assign({}, W[0], { f: 1, a: NaN }));
+    var forged = MP.wrecks.length; for (let i = 0; i < 20; i++) emit(Object.assign({}, W[0], { f: 1 })); var capped = MP.wrecks.length;`);
+  t('wrecks: ...only from the host; a forged one (an aircraft, bad rows, off in space, no turn, no age) builds nothing; at most 16 held',
+    C(`fromPeer === n0 && forged === n0 && capped === 16`), C('[n0, fromPeer, forged, capped]'));
+  // the hangar (a sandbox): Back to hangar and Fly again keeps the room's wrecks; back in a battle's lobby they go
+  A(`__P = 20000; MP.beforeUpdate(0.016); var n1 = MP.wrecks.length; MP.leaveFlight(); var inHangar = MP.wrecks.length; MP.startFlight(false); __P = 21000; MP.beforeUpdate(0.016);
+    var back = MP.wrecks.length, inFlight = MP.wrecks.every((w) => Flight.vessels.includes(w.v));`);
+  t('wrecks: in a sandbox, Back to hangar and Fly again keeps the room\'s wrecks (they stand on every other screen): in our next flight, solid', A(`n1 >= 8 && inHangar === n1 && back === n1 && inFlight`), A('[n1, inHangar, back]'));
+  A(`MP.state.mode = 'pvp'; MP.onPhase('battle', 'lobby'); var lobby = MP.wrecks.length;`);
+  t('wrecks: ...and a battle\'s lobby starts with none', A(`lobby === 0`), A('lobby'));
+}
+
 (async () => {
   await groundBattle();
   await roomDeaths();
+  await roomWrecks();
   // ---- the air battle and the sandbox, step by step, exactly as before the ground update (test/lib/mptrace.js:
   // state, messages, toasts, flights and their options, the builder's battle settings, at every step)
   t('an air battle and a sandbox go exactly as before (every state, message, toast and flight: baseline mp-air)', !check('mp-air', await require('./lib/mptrace.js')(G)));

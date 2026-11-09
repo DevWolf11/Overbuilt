@@ -111,7 +111,7 @@ const MP = {
   nextMissile: 1,
   // (ground battles)
   wrecks: [],          // knocked-out hulks left on the field: { v, pid, t (ms), bits (a tossed turret) }, the oldest first
-  hulk: null,          // ours, from its `down` until we respawn (then one of the wrecks): { v, t, bits }
+  hulk: null,          // ours, from its `down` until we respawn (one of the wrecks from its down): { v, bits }
   battleCost: new Map(), // host: pid -> what the craft they last spawned cost (priced here from its spawn rows)
   battleKind: new Map(), // host: pid -> its kind
   spots: new Map(),    // pid -> { t (ms), man } when a teammate (or we, by hand) last spotted that enemy
@@ -245,7 +245,7 @@ const MP = {
     this.bound = true;
     document.addEventListener('visibilitychange', () => { if (!document.hidden && this.wantAwake) this.awake(true); });
     Net.on('state', (m) => { if (!Net.isHost && m.f === 1) this.applyState(m.s); });
-    Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); this.sendFallen(m.pid); } });
+    Net.on('join', (m) => { if (Net.isHost && this.state) { this.addPlayer(m.pid, m.name); this.feed(`${m.name} joined`); this.push(); this.sendFallen(m.pid); this.sendWrecks(m.pid); } });
     Net.on('leave', (m) => this.onLeave(m.pid));
     Net.on('closed', (m) => this.end(m.reason || 'The room closed'));
     Net.on('warn', (m) => { UI.toast(m.text, m.ok ? '' : 'warn'); if (this.state) MPUI.refresh(); }); // (the room card says when joining is paused: Net.offline)
@@ -276,6 +276,7 @@ const MP = {
     // the props knocked over: on any player's screen (the host relays it), and the room's set for one joining late (host)
     Net.on('crush', (m) => this.onCrush(m));
     Net.on('fallen', (m) => this.onFallen(m));
+    Net.on('wrecks', (m) => this.onWrecks(m));
   },
 
   // ------------------------------------------------------------------ host: roster and settings
@@ -400,6 +401,7 @@ const MP = {
     switch (to) {
       case 'lobby':
         this.leaveFlight();
+        if (this.wrecks.length) this.clearWrecks(); // (a sandbox's kept from the hangar too: a new battle starts with none)
         UI.closeModal();
         this.myDesign = null;
         App.showMP();
@@ -797,11 +799,12 @@ const MP = {
   startFlight(solo) {
     const s = this.state, ground = this.ground && !solo && s.phase === 'battle';
     UI.closeModal(); MPUI.closeSpawnMap();
-    // our knocked-out hulk stays where it stopped at the `down` (onLocalDestroyed), a wreck like the others', with its
-    // thrown turret: in every shared mode (a sandbox's too)
-    const H = this.hulk, hulk = H && Flight.running && Flight.destroyed && Flight.active === H.v && !H.v.dead && H.v.parts.length ? H : null;
+    // our knocked-out hulk, a wreck in MP.wrecks since its `down` (onLocalDestroyed), stays where it stopped, with its
+    // thrown turret: in every shared mode (a sandbox's too). Its pieces now carry the ids our new craft has: hits never
+    // look in them
+    const H = this.hulk;
     this.hulk = null;
-    if (hulk) { for (const q of hulk.bits || []) q.foreign = Net.me; this.addWreck(hulk.v, Net.me, hulk.bits, hulk.t); } // (the pieces carry the ids our new craft has: hits never look in them)
+    if (H) for (const q of H.bits || []) q.foreign = Net.me;
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
     let design;
     if (this.pvp) {
@@ -903,7 +906,10 @@ const MP = {
     Flight.stop();
     this.dropAllGhosts();
     this.hulk = null;
-    if (this.wrecks.length) this.clearWrecks();
+    // (review MP-P2-1) a sandbox's wrecks stand on in the room while we are in the hangar, and go back into our next
+    // flight (startFlight keeps them; any past their five minutes are dropped at once), so we meet what everyone else
+    // does; a battle's go with it (and every wreck at the lobby: onPhase)
+    if (this.wrecks.length && this.pvp) this.clearWrecks();
     Combat.reset(Flight);
   },
   // Where a craft starts for a spawn point (PvP) or the normal sites (sandbox): placement for Flight.start. design
@@ -1072,8 +1078,11 @@ const MP = {
       // it stops here, as it does on every other screen (a wreck is never stepped), with the turret it threw (not
       // pieces of anyone else's); a wreck of ours from the respawn on (startFlight). (death.js's settle, written out:
       // the mp loader has no death.js)
-      v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0);
-      this.hulk = { v, t: performance.now(), bits: ko.x ? Flight.vessels.filter((q) => q.tossed && !q.foreign && !q.dead && !q.remote) : null };
+      // (review P2-GND-2/3) it joins the room's wrecks now, at the down, as it does on every other screen: the 9th
+      // wreck's cap and a spawn on top of it (Death.clearSpawn) act on it here at the same moment as there
+      const bits = ko.x ? Flight.vessels.filter((q) => q.tossed && !q.foreign && !q.dead && !q.remote) : null;
+      this.addWreck(v, Net.me, bits);
+      this.hulk = { v, bits };
     }
     if (wreck || battle) msg.why = ko ? (ko.why === 'hull' ? 'parts' : ko.why) : 'parts';
     // falling: the last word waits for the hit under way to end (a hit message's later rows, the rest of a blast's
@@ -1168,24 +1177,30 @@ const MP = {
   buildGhost(pid) {
     const P = this.peers.get(pid);
     if (!P || !P.design || P.ghost) return;
-    const parts = [];
-    for (const [id, type, x, y, rot, flip, z, att, skin, mm] of P.design.parts) { // (clean: see mpSpawnRows)
-      const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
-      p.id = id; p.att = att || null;
-      if (mm != null) p.mm = mm;
-      parts.push(p);
-    }
-    if (!parts.length) return;
-    const v = new Vessel(parts, buildAdjacency(parts), EARTH); // (in depth, and along att: the owner's own joints)
-    v.kind = hasOwn(VEHICLE_KINDS, P.design.kind) ? P.design.kind : 'plane';
-    v.name = this.nameOf(pid);
-    v.remote = pid;
-    v.rebuildGroups();
+    const v = this.vesselOf(P.design.parts, P.design.kind, pid);
+    if (!v) return;
     v.sas = 'off';
     for (const p of v.parts) if (p.def.weapon) p.ammo = p.def.weapon.ammo; // (kept in step by the owner's part states)
     v.hiddenUntilSnap = true;
     P.ghost = v;
     if (P.snap) this.poseGhost(P, 0, true);
+  },
+  // A player's craft (remote: pid) from clean spawn rows (mpSpawnRows), in depth and along att (the owner's own joints)
+  vesselOf(rows, kind, pid) {
+    const parts = [];
+    for (const [id, type, x, y, rot, flip, z, att, skin, mm] of rows) { // (clean: see mpSpawnRows)
+      const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
+      p.id = id; p.att = att || null;
+      if (mm != null) p.mm = mm;
+      parts.push(p);
+    }
+    if (!parts.length) return null;
+    const v = new Vessel(parts, buildAdjacency(parts), EARTH);
+    v.kind = hasOwn(VEHICLE_KINDS, kind) ? kind : 'plane';
+    v.name = this.nameOf(pid);
+    v.remote = pid;
+    v.rebuildGroups();
+    return v;
   },
   // Take a player's craft out of our world (it comes back from their design and snapshots when we fly again).
   dropGhost(pid, boom) {
@@ -1736,6 +1751,52 @@ const MP = {
   onFallen(m) {
     if (Net.isHost || m.f !== 1 || !this.live || typeof Props === 'undefined' || m.r !== this.crushEpoch() || !Array.isArray(m.L) || m.L.length > 8) return;
     for (const b of m.L) if (Array.isArray(b) && b.length === 4) Props.netFall(b[0], b[1], b[2], b[3], -1e9);
+  },
+  // (review MP-P2-1) host: the room's wrecks, to a player who just joined, one a message (a wreck is a design's rows), so
+  // a late joiner meets the same wrecks as everyone else (they stop shells and block sight): its owner, kind, the parts
+  // left on it as spawn rows, where it lies (P, Q, C: its centre of mass), how old it is (a, ms) and how long it has been
+  // sinking (s, ms; -1 standing), its knock-out (why, x) and the turret a detonation threw (bits, at most 2)
+  sendWrecks(pid) {
+    if (!Net.isHost) return;
+    const now = performance.now();
+    const one = (v) => {
+      const ids = new Set(v.parts.map((p) => p.id));
+      return { b: v.body.id, P: [v.x, v.y, v.z], Q: [v.q.w, v.q.x, v.q.y, v.q.z], C: [v.com.x, v.com.y, v.com.z || 0], r: v.parts.map((p) => {
+        const r = [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0];
+        if (p.mm != null) r.push(p.mm);
+        return r;
+      }) };
+    };
+    for (const w of this.wrecks) {
+      const o = w.v;
+      if (o.dead || !o.parts.length || this.sinkStart(w) + MP_SINK_MS <= now) continue;
+      Net.send({ t: 'wrecks', p: w.pid, k: o.kind, a: Math.round(now - w.t), s: w.sinkAt != null ? Math.round(now - w.sinkAt) : -1, why: o.ko ? o.ko.why : 'hull', x: o.ko && o.ko.x ? 1 : 0,
+        ...one(o), bits: (w.bits || []).filter((q) => !q.dead && q.parts.length).slice(0, 2).map(one) }, pid);
+    }
+  },
+  // a wreck from the host as we join (sendWrecks): built from its rows, where it lies, as old as it is; a ground
+  // vehicle's only, at most 2·MP_WRECKS held
+  onWrecks(m) {
+    if (Net.isHost || m.f !== 1 || !this.live || this.wrecks.length >= 2 * MP_WRECKS || !Number.isSafeInteger(m.p) || m.p <= 0 || typeof m.k !== 'string' || !isGround(m.k) || !hasOwn(VEHICLE_KINDS, m.k)) return;
+    if (!Number.isFinite(m.a) || !Number.isFinite(m.s)) return;
+    const one = (o) => {
+      if (!o || !mpNums(o.P, 3) || !mpNums(o.Q, 4) || !mpNums(o.C, 3) || !(Math.hypot(...o.Q) > 0.5) || !mpBody(o.b)) return null;
+      const rows = mpSpawnRows(o.r, this.maxParts());
+      const v = rows && rows.length ? this.vesselOf(rows, m.k, m.p) : null;
+      if (!v) return null;
+      v.body = mpBody(o.b); v.x = o.P[0]; v.y = o.P[1]; v.z = o.P[2]; v.q = qnorm(quat(o.Q[0], o.Q[1], o.Q[2], o.Q[3]));
+      if (Math.hypot(o.C[0] - v.com.x, o.C[1] - v.com.y, o.C[2] - (v.com.z || 0)) <= (v.reach || 30) + 1) v.com = { x: o.C[0], y: o.C[1], z: o.C[2] }; // (never off the craft)
+      v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); v.landed = true;
+      return Math.abs(Math.hypot(v.x, v.y, v.z) - v.body.radius) < 20000 ? v : null; // (on its body's ground: the host's word, the map may not be in yet)
+    };
+    const v = one(m);
+    if (!v) return;
+    const bits = Array.isArray(m.bits) ? m.bits.slice(0, 2).map(one).filter(Boolean) : [];
+    for (const q of bits) { q.remote = 0; q.foreign = m.p; q.isDebris = true; q.tossed = true; } // (its pieces carry its owner's part ids: hits never look in them)
+    const now = performance.now(), age = clamp(m.a, 0, MP_WRECK_MS);
+    v.ko = { why: m.why === 'ammo' || m.why === 'crew' ? m.why : 'hull', x: m.x === 1, t: (Flight.running ? Flight.time || 0 : 0) - age / 1000 }; // (it burns, then smokes, as any wreck: death.js)
+    this.addWreck(v, m.p, bits, now - age);
+    if (m.s >= 0) { const w = this.wrecks.at(-1); if (w.v === v) w.sinkAt = now - clamp(m.s, 0, MP_SINK_MS); }
   },
 };
 
