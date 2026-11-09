@@ -741,13 +741,28 @@ const GroundAI = (() => {
     else if (R0 && R0.left) { R0.left = R0.left.filter((o) => o !== v); if (!R0.left.length) { R0.waveAt = (F.time || 0) + RANGE.gap; say(F, `Wave ${R0.wave} cleared: the next in ${RANGE.gap} s`, 'info'); } }
     else if (B && !B.over) S.dead.push({ key: a.key, role: 'fight', at: (F.time || 0) + BATTLE.respawn, team: a.team });
   }
-  // a free spot on team's pad for one more vehicle (the first of its six where nobody stands within 9 m)
-  function padSpot(arena, team, kind) {
+  // a free spot on team's pad for one more vehicle (the first of its six where nobody stands within 9 m). With all six
+  // taken (review P2-GND-5: wrecks stand five minutes, so knock-outs on the pad can fill it), the first where only
+  // wrecks stand: those within 12 m of it (Death's spawnClear) go now, with their thrown turrets (no screen to keep in
+  // step: a battle in a room never gets here), so no vehicle starts inside one; else spot 0, as ever
+  function padSpot(arena, team, kind, F) {
     for (let i = 0; i < 6; i++) {
       const P = GroundMode.placement(arena, team, i, kind);
       if (P && !S.obs.some((o) => Math.hypot(o.e - P.e, o.z - P.z) < 9)) return P;
     }
+    for (let i = 0; F && F.vessels && i < 6; i++) {
+      const P = GroundMode.placement(arena, team, i, kind);
+      if (!P || S.obs.some((o) => !(o.v && o.v.wreck) && Math.hypot(o.e - P.e, o.z - P.z) < 9)) continue;
+      for (const o of S.obs) if (o.v && o.v.wreck && Math.hypot(o.e - P.e, o.z - P.z) <= (typeof DEATH !== 'undefined' ? DEATH.spawnClear : 12)) clearWreck(o.v);
+      return P;
+    }
     return GroundMode.placement(arena, team, 0, kind);
+  }
+  function clearWreck(v) {
+    v.dead = true;
+    const w = S.wrecks.find((x) => x.v === v);
+    if (w && w.bits) for (const q of w.bits) q.dead = true;
+    if (w) S.wrecks = S.wrecks.filter((x) => x !== w);
   }
   // a fresh spot for a range target somewhere else: dry, gentle, 400 m clear of the player and 60 m of the others
   function rangeSpot(F) {
@@ -820,7 +835,7 @@ const GroundAI = (() => {
     if (!fit.length) fit = pool.sort((x, y) => Math.abs(cost(x) - me) - Math.abs(cost(y) - me)).slice(0, 3);
     R0.left = [];
     for (let i = 0; i < n && fit.length; i++) {
-      const P = padSpot('highland', 1, 'tank'), v = P && spawn(F, fit[Math.floor(S.rnd() * fit.length)], P.e, P.z, P.yaw, 1, 'fight', { wave: R0.wave });
+      const P = padSpot('highland', 1, 'tank', F), v = P && spawn(F, fit[Math.floor(S.rnd() * fit.length)], P.e, P.z, P.yaw, 1, 'fight', { wave: R0.wave });
       if (v) R0.left.push(v);
       units(F);
     }
@@ -1062,7 +1077,7 @@ const GroundAI = (() => {
           if (d.role === 'patrol') patroller(F, d.key, Math.floor(S.rnd() * LOOP.n), d.speed); // (back somewhere else on the loop)
           else if (P) spawn(F, d.key, P.e, P.z, P.yaw, d.team, d.role);
           else S.dead.push({ ...d, at: now + 5 });
-        } else if (S.b) { units(F); const P = padSpot(S.b.arena, d.team, 'tank'), v = P && spawn(F, d.key, P.e, P.z, P.yaw, d.team, 'fight'); if (v) v.spawnAt = now; }
+        } else if (S.b) { units(F); const P = padSpot(S.b.arena, d.team, 'tank', F), v = P && spawn(F, d.key, P.e, P.z, P.yaw, d.team, 'fight'); if (v) v.spawnAt = now; }
       }
       if (S.fall) { // (the player's hulk knocked out in the air: a wreck once down and still, or settled by death.js, or still 2 s anywhere: on another wreck)
         const o = S.fall;
@@ -1193,7 +1208,7 @@ const GroundAI = (() => {
       const D = designFor(B.money, d || B.design);
       if (typeof UI !== 'undefined' && UI.modalOpen) UI.closeModal();
       units(F);
-      launch(F, D.design, padSpot(B.arena, B.team, D.design.kind));
+      launch(F, D.design, padSpot(B.arena, B.team, D.design.kind, F));
       say(F, `Back in the fight: ${D.design.name || 'your vehicle'}`, 'info');
       S.barKey = ''; bar(F);
       return true;
@@ -1209,7 +1224,7 @@ const GroundAI = (() => {
       B.lost++;
       say(F, `Back to your pad (−${n} tickets)`, 'warn');
       units(F);
-      launch(F, B.design, padSpot(B.arena, B.team, B.kind));
+      launch(F, B.design, padSpot(B.arena, B.team, B.kind, F));
       S.barKey = ''; bar(F);
       return true;
     },

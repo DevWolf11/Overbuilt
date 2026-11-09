@@ -243,6 +243,16 @@ F3.active.placeOnSurface(EARTH, siteAngle(EARTH, bx3.e0 - 150), 0, (bx3.z0 + bx3
 F3.active.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e), 0, NPAD.z, NPAD.yaw || 0); go(F3, 8); var oBack = oob() - o0 - oOut;`);
 t('...out of the battle area (150 m west of Highland Ridge\'s box) the Practice Battle warns every 5 s, as a room does; in it, never',
   R(`oIn === 0 && oOut === 3 && oBack === 0`), R('[oIn, oOut, oBack]'));
+// (Phase 2 review P2-GND-5) a wreck on each of the six spots of the player's pad (they stand five minutes): the player's
+// respawn takes the first spot only wrecks hold and those within 12 m of it go, so the new tank starts clear of every
+// standing wreck and is not thrown onto one (it started inside one and was thrown 3.7 m up)
+R(`var pw = [];
+for (let i = 0; i < 6; i++) { const P = GroundMode.placement('highland', 0, i, 'tank'), ps = partsFromDesign(designOf('tk34').parts), w = new Vessel(ps, buildAdjacency(ps), EARTH); w.kind = 'tank'; w.name = 'TK-34'; w.rebuildGroups(); w.placeOnSurface(EARTH, siteAngle(EARTH, P.e), 0, P.z, P.yaw || 0); w.lastHitBy = null; Armour.knockOut(w, F3, 'crew'); w.wreck = true; w.vx = w.vy = w.vz = 0; F3.vessels.push(w); pw.push(w); }
+var me6 = F3.active; Armour.knockOut(me6, F3, 'crew'); go(F3, 5.5); var ok6 = GroundAI.respawn(F3, B3.design), n6 = F3.active, c6 = (o) => o.toWorld(o.com.x, o.com.y, o.com.z || 0);
+var near6 = Math.min(...pw.filter((w) => !w.dead).map((w) => { const a = c6(n6), b = c6(w); return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); })), gone6 = pw.filter((w) => w.dead).length, r6 = Math.hypot(n6.x, n6.y, n6.z), sp6 = 0;
+go(F3, 3, () => { sp6 = Math.max(sp6, n6.speed()); }); var up6 = Math.hypot(n6.x, n6.y, n6.z) - r6;`);
+t('...with a wreck on each of the six spots of the player\'s pad, the respawn clears the wrecks on the spot it takes: the new tank starts clear of every standing wreck and is not thrown',
+  R(`ok6 && n6 !== me6 && gone6 >= 1 && gone6 <= 2 && near6 > 12 && sp6 < 2 && Math.abs(up6) < 0.5 && pw.filter((w) => w.dead).every((w) => !F3.vessels.includes(w))`), R('[ok6, gone6, near6, sp6, up6]'));
 R(`var ai5 = GroundAI.ai.slice(); F3.start(designOf('tk34'), { place: NPAD }); go(F3, 0.1);`);
 t('...a new flight (Combat.reset: a new launch, a saved flight resumed) ends it: its AI gone, GroundAI.battle null, its zones off the HUD (and a tank on the north pad gets the Tank Range instead)',
   R(`GroundAI.battle === null && GroundMode.obj() === null && ai5.every((v) => v.dead && !F3.vessels.includes(v)) && !!GroundAI.range && GroundAI.ai.every((v) => v.ai.role !== 'fight')`),
