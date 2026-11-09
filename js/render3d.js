@@ -494,7 +494,7 @@ void main() {
   const PART_VS = `${LOGV}#include <fog_pars_vertex>
 attribute vec4 iPos; attribute vec4 iCol; attribute vec4 iMisc;
 uniform vec3 uSunV, uUpV; uniform float uScale, uGlowMax;
-varying vec2 vUv; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vCell, vW, vFade, vGr;
+varying vec2 vUv, vCo; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vW, vFade, vGr;
 void main() {
   float cell = floor(iMisc.y / 8.0), st = iMisc.y - 8.0 * cell, cr = cos(iMisc.z), sr = sin(iMisc.z);
   vec4 mvPosition = modelViewMatrix * vec4(iPos.xyz, 1.0);
@@ -505,7 +505,10 @@ void main() {
   mvPosition.z += pull;
   mvPosition.xy += p * s * (d - pull) / d;
   gl_Position = projectionMatrix * mvPosition;
-  vUv = q; vCol = iCol; vStyle = st; vCell = cell; vW = iMisc.w;
+  vUv = q; vCol = iCol; vStyle = st; vW = iMisc.w;
+  vCo = vec2(mod(cell, 2.0), floor(cell / 2.0)); // (the atlas cell's corner, worked out here from the exact attribute: an
+  // interpolated cell number can come out a hair under its whole value, and mod/floor of it in the fragment shader then
+  // picked another cell over a straight-edged part of a big puff close by)
   vGr = (iPos.w + dot(vec3(p * s, 0.0), uUpV)) / max(s, 1e-3); // (how high over the ground this corner is, in sizes: iPos.w the centre's height)
   vFade = mix(1.0, smoothstep(s * 0.25, s, d), soft);
   if (st > 0.5 && st < 1.5) vFade = clamp(uGlowMax * d / (s * uScale), 0.0, 1.0); // RING: a shock ring sweeping past the eye fades as it outgrows the cap
@@ -519,7 +522,7 @@ void main() {
   // off in a straight line)
   const PART_FS = `${LOGF}#include <fog_pars_fragment>
 uniform sampler2D uMap; uniform vec3 uSunC, uAmb, uSunV; uniform float uFloor;
-varying vec2 vUv; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vCell, vW, vFade, vGr;
+varying vec2 vUv, vCo; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vW, vFade, vGr;
 const vec3 SOOT = vec3(0.042, 0.036, 0.033);
 vec3 heatRamp(float h) {
   vec3 c = mix(vec3(0.20, 0.05, 0.02), vec3(1.6, 0.35, 0.06), smoothstep(0.0, 0.35, h));
@@ -530,7 +533,7 @@ void main() {
   #include <logdepthbuf_fragment>
   float r = length(vUv), a = 0.0, occ = 1.0; vec3 c = vCol.rgb;
   if (vStyle > 1.5 && vStyle < 3.5) {
-    vec4 t = texture2D(uMap, (vec2(mod(vCell, 2.0), floor(vCell / 2.0)) + vUv * 0.5 + 0.5) * 0.5);
+    vec4 t = texture2D(uMap, (vCo + vUv * 0.5 + 0.5) * 0.5);
     float l = clamp(dot(normalize(t.rgb * 2.0 - 1.0), normalize(vL)) * 0.5 + 0.5, 0.0, 1.0);
     vec3 lit = max(uAmb + uSunC * l, vec3(uFloor));
     if (vStyle < 2.5) {
