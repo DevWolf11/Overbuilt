@@ -275,9 +275,10 @@ const Flight = {
     $('#sas-bar').classList.toggle('plane', plane);
   },
 
-  // Flaps in three steps; retractable gear up and down.
+  // Flaps in three steps; retractable gear up and down. (the big update) Neither moves on a hulk nobody flies (inert)
   cycleFlaps() {
     const v = this.active;
+    if (this.inert(v)) return;
     if (!v || !v.hasFlaps) { this.toast('No flaps on this craft'); return; }
     v.flaps = v.flaps >= 1 ? 0 : v.flaps + 0.5;
     Sound.click();
@@ -285,6 +286,7 @@ const Flight = {
   },
   toggleGear() {
     const v = this.active;
+    if (this.inert(v)) return;
     if (!v || !v.hasRetract) { this.toast('No retractable gear on this craft'); return; }
     if (!v.gearUp && v.wheelsDown) { this.toast('Can’t raise the gear on the ground'); return; }
     v.gearUp = !v.gearUp;
@@ -2239,10 +2241,11 @@ const Flight = {
       set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }
-    $('#btn-flaps').hidden = !v.hasFlaps;
+    const nobody = this.inert(v); // (a hulk nobody flies: no flaps or gear to work)
+    $('#btn-flaps').hidden = !v.hasFlaps || nobody;
     set('btn-flaps', v.flaps ? `Flaps ${Math.round(v.flaps * 100)}%` : 'Flaps');
     $('#btn-flaps').classList.toggle('on', v.flaps > 0);
-    $('#btn-gear').hidden = !v.hasRetract;
+    $('#btn-gear').hidden = !v.hasRetract || nobody;
     set('btn-gear', v.gearUp ? 'Gear up' : 'Gear down');
     $('#btn-gear').classList.toggle('on', !v.gearUp);
     $('#btn-stage').disabled = !next || this.destroyed;

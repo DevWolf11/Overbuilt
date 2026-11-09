@@ -902,6 +902,22 @@ const counter = (name) => { let n = 0; const f0 = FX[name]; FX[name] = function 
     hulk.ctl.every((x) => x === 0) && hulk.brake === false && hulk.th === 0 && car.brake === true && car.ctl.v === 0, { hulk, car: car.brake });
   t('B8 ...an engine shot dead: a tap on it and STAGE won\'t relight it ("… is out"); a downed hulk\'s parts can\'t be worked',
     used === false && staged === false && MF.log.filter((x) => / is out$/.test(x)).length === 2 && tank.active === false, MF.log);
+  // (Phase 2 review P2-AIR-R2) F and G on a knocked-out pilot's hulk: the flaps and the gear stay as they were (a
+  // hulk with its flaps put out and its gear dropped climbed 650 m instead of falling)
+  const hk = [];
+  for (const key of ['mustang', 'jumbo']) {
+    const h = cruise(key), HF = fsim(h, ui);
+    Combat.damage(h, h.control, dmgTo(h.control, 1.01), 'shot', HF);
+    const was = [h.flaps, h.gearUp];
+    ctx.Flight.cycleFlaps.call(HF); ctx.Flight.cycleFlaps.call(HF); ctx.Flight.toggleGear.call(HF);
+    hk.push({ key, inert: ctx.Flight.inert.call(HF, h), was, now: [h.flaps, h.gearUp], log: HF.log.slice() });
+  }
+  // ...while a craft with its pilot in it still works both (no change for the living)
+  const lv = cruise('mustang'), LF = fsim(lv, ui);
+  ctx.Flight.cycleFlaps.call(LF); ctx.Flight.toggleGear.call(LF);
+  t('B8 ...F and G on a knocked-out pilot\'s hulk: its flaps and gear stay as they were, with no toast; a live plane still works both',
+    hk.every((x) => x.inert && x.now[0] === x.was[0] && x.now[1] === x.was[1] && !x.log.some((m) => /Gear|flaps/i.test(m))) && lv.flaps === 0.5 && lv.gearUp === false,
+    { hk, live: [lv.flaps, lv.gearUp] });
 }
 
 
