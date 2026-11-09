@@ -945,6 +945,39 @@ const counter = (name) => { let n = 0; const f0 = FX[name]; FX[name] = function 
   t(`B9 half the main wing shot off, hold on, hands off: every plane template but the biplane rolls off towards the lost half at 60°/s or more within 2 s and banks past 60° within 3 s (${Object.entries(peaks).map(([k, x]) => k + ' ' + x).join(', ')})`, PLANES.length === 25 && !bad.length, bad);
 }
 
+// B10 (Phase 2 review P2-AIR-R3) the crash's fireball and crash site are on the ground where the craft hit, not at its
+// centre of mass: hulks dropped on the runway level and banked 85° (a wing tip touching first: the centre 14 m up),
+// and diving; and a hulk too old to fall any longer goes up where it is, in the air (nothing there to stand on)
+{
+  const qmul = R('qmul'), { Terrain } = ctx, got = [];
+  const hAbove = (p) => { const L = Terrain.locate(EARTH, p.x, p.y, p.z, {}); return Math.hypot(p.x, p.y, p.z) - EARTH.radius - Terrain.surfaceAt(EARTH, L.a, L.z); };
+  const d0 = FX.death; let at = null;
+  FX.death = function (...a) { if (a[4] === 'crash') at = { ...a[1] }; return d0.apply(this, a); };
+  try {
+    for (const [key, roll, down, along] of [['jumbo', 0, 25, 60], ['jumbo', 85, 25, 60], ['falcon', 45, 25, 60], ['mustang', 0, 190, 70]]) {
+      const v = G.craft(ctx, rows(key), 'plane', 'site'), F = fsim(v);
+      Death.reset({}); at = null;
+      const r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+      const Fw = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z), h = (roll * Math.PI) / 360;
+      v.q = qmul({ w: Math.cos(h), x: Math.sin(h) * Fw.x, y: Math.sin(h) * Fw.y, z: Math.sin(h) * Fw.z }, v.q);
+      v.x += up.x * 40; v.y += up.y * 40; v.z += up.z * 40; v.landed = false;
+      v.vx = -up.x * down + Fw.x * along; v.vy = -up.y * down + Fw.y * along; v.vz = -up.z * down + Fw.z * along;
+      Combat.damage(v, v.control, dmgTo(v.control, 1.01), 'shot', F);
+      for (let i = 0; i < 120 * 6 && !v.dead; i++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; }
+      const p = Death.S.pyres[Death.S.pyres.length - 1];
+      got.push({ key, roll, dead: !!v.dead, fire: at && +hAbove(at).toFixed(2), site: p && +hAbove(p).toFixed(2) });
+    }
+    // a hulk gliding on past DEATH.hulkMax: it goes up in the air where it is
+    const g = cruise('falcon', 2000), GF = fsim(g); Death.reset({}); at = null;
+    Combat.damage(g, g.control, dmgTo(g.control, 1.01), 'shot', GF);
+    g.hulk = -1e3; Death.tick(GF, 0.07, 1);
+    got.push({ key: 'old hulk', dead: !!g.dead, fire: at && Math.round(hAbove(at)) });
+  } finally { FX.death = d0; Death.reset({}); }
+  const onGround = got.slice(0, 4), aloft = got[4];
+  t(`B10 a crash's fireball and crash site sit on the ground where it hit, level or banked 85° (${onGround.map((x) => `${x.key} ${x.roll}°: ${x.site} m`).join(', ')}); a hulk too old goes up in the air where it is (${aloft.fire} m up)`,
+    onGround.every((x) => x.dead && Math.abs(x.fire) < 0.05 && Math.abs(x.site) < 0.05) && aloft.dead && aloft.fire > 1500, got);
+}
+
 // ================================================================ C. ground vehicles
 // Old cars, the Desert Technical and Armour knocked out and left as wrecks (C7, the ground AI's lifetimes, runs with the
 // Tank Range in groundai.test.js). A vehicle on the runway as Flight.start puts it; stepped as Flight.update steps the

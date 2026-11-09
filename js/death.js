@@ -445,6 +445,11 @@ const Death = (() => {
     if (v.dead) return;
     const c = v.toWorld(v.com.x, v.com.y, v.com.z || 0), hot = hotOf(v), size = airSize(v);
     const L = Terrain.locate(v.body, c.x, c.y, c.z, {}), wet = !!Terrain.waterAt(v.body, L.a, L.z);
+    // (review P2-AIR-R3) on what it hit: the point under its centre on the ground (the sea, a deck), when it is within
+    // the craft's reach of it (a banked jumbo's centre is 14 m up when a wing tip touches); one too old to fall any
+    // longer goes up where it is
+    const gr = v.body.radius + Terrain.surfaceAt(v.body, L.a, L.z), up = L.r - gr;
+    if (up < (v.reach || 0) + 2) { const f = gr / L.r; c.x *= f; c.y *= f; c.z *= f; }
     deathFX(v, sim, hot ? 'crash' : 'thud', size, c, { water: wet });
     if (hot && size >= 2.5) pyre(v.body, c, size, wet, sim);
     v.dead = true; v.throttle = 0; v.thrust = 0;
