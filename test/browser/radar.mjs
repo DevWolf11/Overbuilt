@@ -197,19 +197,27 @@ for (const [W, H, touch] of PART === 'hud' ? [] : [[390, 844, true], [1280, 720,
 // again; on the desktop I (Shift+I back) and O do the same, and the pill is hidden. The set shot out: RADAR OUT, the
 // toast, RDR OUT. Screenshots of each, with a lock: radar-hud-<W>x<H>[-ui<u>].png.
 const HUD = [[360, 640, true, 1], [375, 667, true, 1], [390, 844, true, 1], [844, 390, true, 1], [1280, 720, false, 1], [1920, 1080, false, 1],
-  [360, 640, true, 1.5], [360, 640, true, 0.75], [390, 844, true, 1.5], [844, 390, true, 1.5], [1920, 1080, false, 1.5], [1280, 720, false, 0.75]];
-// in the page: count the 2D-context calls inside Radar.draw, and keep the scope's label (its one fillText)
+  [360, 640, true, 1.5], [360, 640, true, 0.75], [390, 844, true, 1.5], [844, 390, true, 1.5], [1920, 1080, false, 1.5], [1280, 720, false, 0.75],
+  [667, 375, true, 1], [740, 360, true, 1], [844, 390, true, 1.25], [844, 390, true, 0.75]]; // (review P3-RHUD-4: short landscape phones, BRAKE beside the scope)
+// in the page: count the 2D-context calls inside Radar.draw, and keep the scope's label (its fillTexts in the 9 px font:
+// the text, and each line's box as drawn, measured with the canvas's own font)
 const instrument = () => {
-  const P = CanvasRenderingContext2D.prototype, R = (window.__rd = { calls: [], label: '' });
-  let on = false, n = 0, txt = '';
+  const P = CanvasRenderingContext2D.prototype, R = (window.__rd = { calls: [], label: '', rows: [] }), mt = P.measureText;
+  let on = false, n = 0, txt = '', rows = [];
   for (const k of Object.getOwnPropertyNames(P)) {
     const d = Object.getOwnPropertyDescriptor(P, k);
     if (!d || typeof d.value !== 'function' || k === 'constructor') continue;
     const f = d.value;
-    P[k] = function (...a) { if (on) { n++; if (k === 'fillText') txt = a[0]; } return f.apply(this, a); };
+    P[k] = function (...a) {
+      if (on) {
+        n++;
+        if (k === 'fillText' && this.font.includes('9px')) { const w = mt.call(this, a[0]).width, l = this.textAlign === 'center' ? a[1] - w / 2 : a[1]; txt = a[0]; rows.push({ t: a[0], l, r: l + w, top: a[2] - 8, b: a[2] + 2 }); }
+      }
+      return f.apply(this, a);
+    };
   }
   const draw = Radar.draw;
-  Radar.draw = function (...a) { on = true; n = 0; try { return draw.apply(this, a); } finally { on = false; R.calls.push(n); if (R.calls.length > 120) R.calls.shift(); R.label = txt; } };
+  Radar.draw = function (...a) { on = true; n = 0; rows = []; try { return draw.apply(this, a); } finally { on = false; R.calls.push(n); if (R.calls.length > 120) R.calls.shift(); R.label = txt; R.rows = rows; } };
 };
 // the jet at 3 km, level at 250 m/s; n bandits ahead (the first one above, the second below), coming at it, held
 // (they neither fly nor fire: the picture stays put); the range's ground targets cleared (no SAMs)
@@ -236,7 +244,8 @@ const lockOn = () => {
 const where = () => {
   const rect = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
   const W = innerWidth, H = innerHeight, B = Combat.S.rwrBox;
-  const panels = { telemetry: '#flight-ui .telemetry', left: '#flight-ui .left-controls', bar: '#mp-bar', topRight: '#flight-ui .flight-top-right', warp: '#warp', hint: '#hint', box: '#weapon-box', pill: '#btn-radar', fire: '#btn-fire', throttle: '#flight-ui .throttle-box', stage: '#flight-ui .stage-box', keys: '#key-hints' };
+  const panels = { telemetry: '#flight-ui .telemetry', left: '#flight-ui .left-controls', bar: '#mp-bar', topRight: '#flight-ui .flight-top-right', warp: '#warp', hint: '#hint', box: '#weapon-box', pill: '#btn-radar', fire: '#btn-fire', throttle: '#flight-ui .throttle-box', stage: '#flight-ui .stage-box', keys: '#key-hints',
+    brake: '#btn-brake', rot: '#flight-ui .rot-controls', sas: '#sas-bar', air: '#flight-ui .air-btns', cm: '#btn-cm' }; // (BRAKE: outside the left controls' box in landscape)
   const P = {};
   for (const k in panels) P[k] = rect(panels[k]);
   P.aim = { l: W / 2 - 26, t: H / 2 - 26, r: W / 2 + 26, b: H / 2 + 26 };
@@ -277,6 +286,16 @@ for (const [W, H, touch, ui] of PART === 'builder' ? [] : HUD.filter(([w, h, , u
     ok(tag + `the RDR pill ("${L.pill}") shown, on the screen and clear of everything Controls.fit measures`, L.pillShown && /^RDR PD$/.test(L.pill) && L.P.pill.l >= 0 && L.P.pill.r <= L.W && L.P.pill.t >= 0 && !pc.length, { pc, pill: L.P.pill });
   } else ok(tag + 'a desktop: no RDR pill (I and O)', L.pc && !L.pillShown);
   ok(tag + `the scope's label: "${L.label}"`, /^PD 18( km)? · LOCK \d+\.\d$/.test(L.label), L.label);
+  // (review P3-RHUD-4) the label at its widest (a set damaged: "PD 14 · LOCK 9.0 · DMG 62%", wider than the disc): every
+  // line of it on the screen and clear of every panel and control (on two lines where one has no room)
+  const dl = await page.evaluate(() => new Promise((done) => {
+    const v = Flight.active, s = v.parts.find((q) => innerRadar(q.def)), hp = s.hp; s.hp = Math.round(0.38 * Combat.maxHp(s.def)); let i = 0;
+    const f = () => { if (++i < 4) return requestAnimationFrame(f); const rows = window.__rd.rows.slice(); s.hp = hp; done({ rows, lines: Combat.S.rwrBox.lines }); };
+    requestAnimationFrame(f);
+  }));
+  const lclash = Object.entries(L.P).filter(([, r]) => dl.rows.some((q) => meets({ l: q.l, r: q.r, t: q.top, b: q.b }, r))).map(([k]) => k);
+  ok(tag + `the label at its widest ("${dl.rows.map((q) => q.t).join(' / ')}", ${dl.lines} line${dl.lines > 1 ? 's' : ''}) on the screen and clear of every panel and control`,
+    dl.rows.length >= 1 && /DMG 62%/.test(dl.rows.map((q) => q.t).join()) && !lclash.length && dl.rows.every((q) => q.l >= 0 && q.r <= L.W && q.b <= L.H), { lclash, rows: dl.rows });
   await page.screenshot({ path: SHOTS + `radar-hud-${W}x${H}${ui !== 1 ? `-ui${ui * 100}` : ''}.png` });
   if (!full) { await ctx.close(); continue; }
   // ---- the canvas calls with ten contacts (or two on the desktop), over 20 frames: with a pick and the gun chosen at
@@ -324,6 +343,45 @@ for (const [W, H, touch, ui] of PART === 'builder' ? [] : HUD.filter(([w, h, , u
   const lb = await label(page), r = await page.evaluate(() => ({ pill: $('#btn-radar').textContent, cls: $('#btn-radar').className }));
   ok(tag + `the set shot out: "${lb}" on the scope and the toast${touch ? `, "${r.pill}"` : ''}`, lb === 'RADAR OUT' && said.some((t) => /knocked out: radar out/.test(t)) && (!touch || (r.pill === 'RDR OUT' && /\bout\b/.test(r.cls))), { lb, r, said });
   await page.screenshot({ path: SHOTS + `radar-hud-out-${W}x${H}.png` });
+  await ctx.close();
+}
+
+// (review P3-RHUD-2, -3) a tap goes to the scope only where one is drawn: after an FS-16 flight an old design with no
+// warning receiver and no radar (the Skylark) has no scope, and a tap where the FS-16's was reaches the part pick as it
+// always did; and in the 2D view (no scope drawn) a tap there picks no target
+if (PART !== 'builder' && (!ONLY || ONLY.includes('390x844'))) {
+  const tag = '390x844 ', ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  watch(page, errs, tag);
+  await openGame(page, srv.url, { targets: 'hostile' });
+  await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('fs16'); App.launch(); });
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  await page.evaluate(fly, 2);
+  await page.waitForFunction(() => Radar.S.rc.length > 0 && Combat.S.rwrBox && Combat.S.rwrBox.rad, null, { timeout: 60000 });
+  const B0 = await page.evaluate(() => ({ ...Combat.S.rwrBox }));
+  // the 2D view: no drawHUD, no scope; a tap at its place picks nothing
+  await page.evaluate(() => { Silly.flags.retro2d = true; });
+  await page.waitForFunction(() => !App.use3D() && !Combat.S.rwrBox, null, { timeout: 30000 });
+  await page.evaluate(() => { document.querySelectorAll('.toast').forEach((t) => t.remove()); Radar.S.pick = null; });
+  await page.touchscreen.tap(B0.x, B0.y); await page.waitForTimeout(600);
+  const r2d = await page.evaluate(() => ({ pick: !!Radar.S.pick, box: Combat.S.rwrBox, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent) }));
+  ok(tag + 'the 2D view: no scope (rwrBox null), and a tap at its 3D place picks no target', !r2d.pick && r2d.box === null && !r2d.toasts.some((t) => /^Target|No targets/.test(t)), r2d);
+  await page.evaluate(() => { Silly.flags.retro2d = false; });
+  // the Skylark next: no scope, the tap at the old place goes to the part pick
+  await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('skylark'); App.launch(); });
+  await page.waitForFunction(() => UI.modalOpen || Flight.running, null, { timeout: 60000 });
+  await page.evaluate(() => { const x = [...document.querySelectorAll('#modal-card button')].find((e) => e.textContent === 'Launch new'); if (x) x.click(); });
+  await page.waitForFunction(() => Flight.running && Render3D.ready && Flight.active && Flight.active.parts.length && Flight.time > 0.5, null, { timeout: 90000 });
+  await page.waitForTimeout(1500);
+  const st = await page.evaluate(() => {
+    window.__n = { pick: 0 }; const pk = Render3D.pickPart; Render3D.pickPart = function (...a) { window.__n.pick++; return pk.apply(this, a); };
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    return { rwr: Combat.S.rwr, aboard: Radar.aboard(Flight.active), box: Combat.S.rwrBox };
+  });
+  await page.touchscreen.tap(B0.x, B0.y); await page.waitForTimeout(600);
+  const rs = await page.evaluate(() => ({ pick: window.__n.pick, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent) }));
+  ok(tag + 'after an FS-16 flight, the Skylark: no scope (rwrBox null), and a tap where the FS-16\'s was goes to the part pick, not the radar',
+    st.rwr === 0 && !st.aboard && st.box === null && rs.pick === 1 && !rs.toasts.some((t) => /^Target|No targets/.test(t)), { st, rs, B0 });
   await ctx.close();
 }
 

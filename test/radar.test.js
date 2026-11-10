@@ -271,6 +271,23 @@ FC.__air = air;
     const d = JSON.parse(JSON.stringify(v.serialize())), back = Vessel.restore(d), q = __set(back);
     return { keys: Object.keys(d.parts.find((p) => p.type === 'radarPD')).join(), hp: q.hp, guiding: radarSummary(back.parts).guiding, fine: radarSummary(__air('falcon').parts).guiding }; })()`);
   t('...a restored flight with the set at 0 hp reads it as out (hp is saved; no new save field)', sv.hp <= 0 && !sv.guiding && sv.fine && !/broken|ko/.test(sv.keys) && /\bhp\b/.test(sv.keys), sv);
+  // (review P3-CROSS-1) once the player is dead (the pilot knocked out: Flight.destroyed), the end strip is the message: a
+  // set shot on the falling hulk, or a part hurt, toasts nothing
+  const dd = RF(`__JETS.filter(([k]) => ['fs16', 'sugoi35', 'fs35', 'sugoi57'].includes(k)).map(([k]) => { const v = __air(k), F = __fsim(v), s = __set(v), host = v.byId.get(s.att), ck = v.parts.find((p) => p.def.control && p !== host) || host;
+    Combat.damage(v, ck, 1e6, 'shot', F); const dead = F.destroyed, n = F.log.length;
+    Combat.damage(v, s, 1e6, 'shot', F); const fz = v.parts.find((p) => p !== s && p !== ck && !p.def.control && Combat.hpFrac(p) > 0.9 && Combat.maxHp(p.def) > 100);
+    if (fz) Combat.damage(v, fz, Combat.maxHp(fz.def) * 0.5, 'shot', F);
+    return [k, dead, s.broken === true, !!fz, F.log.slice(n)]; })`);
+  t('...the player dead (pilot knocked out), a set shot on the falling hulk and a part hurt toast nothing (review P3-CROSS-1)', dd.length === 4 && dd.every(([, dead, br, fz, after]) => dead && br && fz && after.length === 0), dd);
+}
+{
+  // (review P3-RHUD-5) a key the player gave another action before the radar's I and O came keeps doing only that: the
+  // new row's default gives way (unbound, to be set on the Keys screen); the player's own key for it, a key in a context
+  // that can't clash (the hangar's), and no saved keys at all leave it as it is
+  const K = FC.Keys, kc = (raw) => { const b = K.clean(raw); return [b.fire.join(), b.radarNext.join(), b.radarPower.join(), b.bRotate.join()].join('|'); };
+  const got = [kc({ fire: ['KeyI'] }), kc({ cm: ['KeyO'], fire: ['KeyI', 'KeyV'] }), kc({ fire: ['KeyI'], radarNext: ['KeyI'] }), kc({ bRotate: ['KeyI'] }), kc(null), kc({})];
+  t('...Keys: Fire on I saved before the update: I fires only (radarNext unbound); O on flares: radarPower unbound; the player\'s own I for both kept; the hangar\'s I and no saved keys change nothing (review P3-RHUD-5)',
+    got.join(' ; ') === 'KeyI||KeyO|KeyR ; KeyI,KeyV|||KeyR ; KeyI|KeyI|KeyO|KeyR ; KeyV|KeyI|KeyO|KeyI ; KeyV|KeyI|KeyO|KeyR ; KeyV|KeyI|KeyO|KeyR', got);
 }
 {
   // every part of each jet to 0, one at a time, wherever it is by then: the set is broken, and stays with its host
@@ -565,6 +582,25 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   t('E21 notching a radar missile: a low target turning across the PD\'s beam gets 0.4 s of grace, then the missile goes dumb a second later',
     lt != null && s.sarh && tN != null && tN < 12 && Math.abs(grace - 0.4) <= 1.5 / 120 && Math.abs(after - 1) <= 1.5 / 120 && !s.target, [lt, tN, grace, after]);
 }
+// E21b (review P3-XDMG-1): the pilot knocked out (the craft down, the set still aboard and whole): nothing reads a down
+// craft's radar, so its radar missile goes dumb a second later, as when the set itself is knocked out
+{
+  const go = (what) => {
+    const v = jet(['radarPD']), F = scene(v), b = bandit(F, P(v, 9000), { to: P(v, 20000) });
+    F.onDestroyed = function () { this.destroyed = true; };
+    const lt = lockIn(F, v, b, 'radarMissiles'); fire(F);
+    const s = C.S.shots.find((x) => x.k === 'missile' && x.launcher === v), ck = v.parts.find((p) => p.def.control), set = v.parts.find((p) => p.type === 'radarPD');
+    for (let i = 0; i < 240; i++) { C.step(1 / 120, F); F.time += 1 / 120; }
+    if (what === 'pilot') C.damage(v, ck, 1e6, 'shot', F, b);
+    if (what === 'set') C.damage(v, set, 1e6, 'shot', F, b);
+    const st = [!!v.down, !!set.broken, v.parts.includes(set)];
+    let n = 0; for (; n < 480 && s.target; n++) { C.step(1 / 120, F); F.time += 1 / 120; }
+    return { lt: lt != null, st, dumbAt: s.target ? null : +(n / 120).toFixed(2) };
+  };
+  const live = go('none'), pilot = go('pilot'), set = go('set');
+  t('E21b the pilot knocked out: the craft down with its set whole aboard, its radar missile goes dumb 1 s later, as with the set knocked out; a live pilot guides it on (review P3-XDMG-1)',
+    live.lt && live.dumbAt === null && pilot.st.join() === 'true,false,true' && pilot.dumbAt != null && Math.abs(pilot.dumbAt - 1) <= 2 / 120 && set.dumbAt != null && Math.abs(set.dumbAt - 1) <= 2 / 120, [live, pilot, set]);
+}
 
 // E22: the pick
 {
@@ -588,6 +624,27 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   const empty = jet(['radarPD']), Fe = scene(empty); RD.next(Fe, 1);
   t('...a picked bandit that dies falls back to auto; a tap on a drawn marker picks it (30 px), elsewhere it is not ours; a tap on the radar disc steps the pick; nothing in sight says so',
     fell && tapped && !miss && disc && Fe.toasts[0] === 'No targets in sight', [fell, tapped, miss, disc, Fe.toasts]);
+}
+// E22b (review P3-RDR-1): a picked bandit shot down (falling, ai.down, not yet dead) is no target: the pick goes at once, so
+// the next radar lock is a held one again, which chaff can break (and LOST sounds)
+{
+  const go = (shot) => {
+    const v = jet(['radarPD']), F = scene(v), b1 = bandit(F, bearing(v, 5000, -3)), b2 = bandit(F, bearing(v, 6000, 3));
+    frame(F, 30); RD.S.pick = b1;
+    if (shot) T.aiDown(b1, F); else b1.dead = true;
+    frame(F, 2); const gone = RD.S.pick === null;
+    frame(F, 28); const lt = lockIn(F, v, b2, 'radarMissiles');
+    const tp = C.refPos(b2), lost0 = RD.S.lostT;
+    ctx.Math.random = () => 0.01;
+    C.S.flares.push({ b: b2.body, x: tp.x, y: tp.y, z: tp.z, vx: 0, vy: 0, vz: 0, t: 0, life: 30, chaff: true, str: 2 });
+    frame(F, 3); ctx.Math.random = () => 0.5;
+    const r = [gone, lt != null, C.S.lock !== b2 || C.S.lockT < 0.5, RD.S.lostT !== lost0, !!b1.ai.down && !b1.dead];
+    C.S.flares.length = 0;
+    return r;
+  };
+  const a = go(false), b = go(true);
+  t('E22b a picked bandit shot down (still falling) drops the pick within two frames, as one that dies does; the next lock is broken by chaff and says LOST (review P3-RDR-1)',
+    a.slice(0, 4).every(Boolean) && b.every(Boolean), [a, b]);
 }
 
 // E23: radar off
@@ -618,6 +675,15 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   const a = six(['radarTail'], 2000), b = six([], 2000), c = six(['radarTail'], 3500);
   t('G27 CHECK SIX: a bandit 2 km behind sets S.six with a tail set (and the 900 Hz tone each second), not without one; at 3.5 km a blip but no CHECK SIX',
     Math.abs(a[0] - 2000) < 1 && a[1] === 1 && a[2] === 2 && b.join() === '0,0,0' && c[0] === 0 && c[1] === 1 && c[2] === 0, [a, b, c]);
+}
+// G27b (review P3-RDR-2): an all-round radar aboard (a mast, the Rotodome) holding the bandit behind as an air contact
+// doesn't silence the tail set: CHECK SIX and its tone as with the tail set alone (the contact stays the radar's)
+{
+  const six = (sets) => { const v = jet(sets), F = scene(v); R('__snd.length = 0'); const b = bandit(F, P(v, -2000)); frame(F, 70);
+    return [Math.round(RD.S.six), R(`__snd.filter((s) => s[0] === 'beep' && s[1] === 900).length`), RD.has(b), (RD.S.rc.find((c) => c.ref === b) || {}).k]; };
+  const m = six(['radarTail', 'radarMast']), r = six(['radarTail', 'rotodome']), o = six(['radarMast']);
+  t('G27b CHECK SIX with a mast radar or the Rotodome aboard too: S.six 2000 m and two 900 Hz beeps, the bandit an air contact on the scope; the mast alone no CHECK SIX (review P3-RDR-2)',
+    [m, r].every((x) => Math.abs(x[0] - 2000) < 1 && x[1] === 2 && x[2] && x[3] === 'air') && o[0] === 0 && o[1] === 0 && o[2], [m, r, o]);
 }
 
 // G28: solo radar locks on us
@@ -657,6 +723,27 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   const lk = [lockOn('radarAESA', 10000), lockOn('radarAESA', 11000), lockOn('radarPD', 14000)];
   t('G29 LPI: an AESA\'s lock is heard within 10.4 km (10 km yes, 11 km no), a PD\'s at any range; a ghost\'s AESA paints us (search strobes) at 9 km, not 12 km; Combat.frame reports the AESA\'s lock (MP.sendLock) only inside 10.4 km, the PD\'s at 14 km',
     heard.join() === 'true,false,true' && ghostPaints.join() === 'false,true' && lk.join() === 'true,false,true', [heard, ghostPaints, lk, paint]);
+}
+// G29b (review P3-LPI edge, P3-RDR-3): an AESA lock held on a craft sitting on the 10.4 km edge, its distance wobbling ±2 m
+// (a ghost eased between snapshots): reported steadily, once a second as inside the edge, not on and off at each crossing;
+// heard() once heard holds to 3 % past the edge (10.71 km), not yet heard only inside it
+{
+  const mk = (d) => { const v = jet(['radarAESA']), F = scene(v), g = jet([]); move(g, P(v, d)); level(g, { x: v.x - g.x, y: v.y - g.y, z: v.z - g.z }); return { v, F, g }; };
+  const hy = [[10300, false], [10600, false], [10600, true], [10700, true], [10750, true]].map(([d, was]) => { const o = mk(d); return RD.heard(o.v, o.g, was); });
+  const edge = (d0) => {
+    const { v, F, g } = mk(d0), sent = [];
+    g.remote = 7; g.name = 'Ann';
+    let clock = 0; const now0 = ctx.performance.now; ctx.performance.now = () => clock;
+    ctx.MP = { active: false, shared: false, pvp: false, rwr: new Map(), peers: new Map(), ghosts: () => [g], enemyGhosts: () => [g], enemy: () => true, sendLock: (pid, on) => sent.push(on), sendFlares() {}, sendMissile() {} };
+    try {
+      lockIn(F, v, g, 'radarMissiles', 3); sent.length = 0;
+      for (let i = 0; i < 300; i++) { clock += 1000 / 60; move(g, P(v, d0 + 2 * Math.sin((i / 60) * 2 * Math.PI * 2.5))); frame(F); }
+    } finally { delete ctx.MP; ctx.performance.now = now0; }
+    return [sent.length, sent.filter((x) => !x).length];
+  };
+  const e = edge(10400), i = edge(9000);
+  t('G29b LPI at the 10.4 km edge (±2 m): 4-6 lock reports in 5 s, none of them off (inside: 4 to 5); heard() holds a heard lock to 10.71 km (10.6 and 10.7 km yes, 10.75 no), a new one only inside 10.4 (review P3-RDR-3)',
+    e[0] >= 4 && e[0] <= 6 && e[1] === 0 && i[0] >= 4 && i[0] <= 5 && hy.join() === 'true,false,true,true,false', [e, i, hy]);
 }
 
 // G30: old designs do no radar work

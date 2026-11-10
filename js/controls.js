@@ -99,15 +99,24 @@ const Keys = (() => {
     ver++;
     for (const f of listeners) { try { f(); } catch (e) { console.error(e); } }
   }
+  // Rows added after keys could be rebound (PR #40): a player may have given their default key to another action before
+  // the row existed. A new row's default gives way to the player's own key (below). Add every later row here.
+  const LATE = ['radarNext', 'radarPower'];
   // the player's own keys from rss.keys: only actions that exist, at most two keys each, real key codes (never Esc)
   function clean(raw) {
-    const out = {};
+    const out = {}, own = raw && typeof raw === 'object' ? raw : null;
     for (const id in DEF) {
-      const r = raw && typeof raw === 'object' && has(raw, id) ? raw[id] : null;
+      const r = own && has(own, id) ? own[id] : null;
       if (!Array.isArray(r)) { out[id] = DEF[id].slice(); continue; }
       const list = [];
       for (const c of r.slice(0, 2)) if (okCode(c) && !list.includes(side(c))) list.push(side(c));
       out[id] = list;
+    }
+    // a later row left at its default loses a default key the player bound to an action that can be live with it (Fire
+    // on I before the radar's I came: I fires, and only fires); the Keys screen shows it unbound, to be set there
+    if (own) for (const id of LATE) {
+      if (!has(DEF, id) || (has(own, id) && Array.isArray(own[id]))) continue; // (the player's own keys for it: as they set them)
+      out[id] = out[id].filter((c) => !Object.keys(out).some((o) => o !== id && has(own, o) && Array.isArray(own[o]) && out[o].includes(c) && clash(INFO[id].ctx, INFO[o].ctx)));
     }
     return out;
   }

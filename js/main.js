@@ -104,7 +104,7 @@ const App = {
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
             if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
-          } else Flight.render(this.ctx, this.W, this.H, this.dpr);
+          } else { Combat.noHUD(); Flight.render(this.ctx, this.W, this.H, this.dpr); } // (the 2D view: no scope nor markers to tap)
           this.ink = true;
           this.drew(t, 100);
         }

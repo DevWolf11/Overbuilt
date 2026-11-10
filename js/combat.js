@@ -74,7 +74,7 @@ const Combat = (() => {
     // badly damaged), every other kind as before
     const c30 = before >= 0.3 && after < 0.3 && after > 0 && (p.def.thrust || p.fuel > 50), air = isAirKind(v.kind) && !p.def.gv && !Silly.on('hollywood');
     const lit = c30 && air && Death.airRule(v, p, cause) && Death.ignite(v, p, p.def.thrust ? FIRE.lit30.eng : FIRE.lit30.fuel, by || v.lastHitBy, sim, true);
-    if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire') { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast)
+    if (v === sim.active && !v.ai && !p.def.gv && cause !== 'fire' && !sim.destroyed) { // (the ground update's parts say what broke themselves: armour.js; a fire burning a part down was its own toast; dead, the end strip is the message)
       const k = c30 ? (!air || lit ? 'fire' : 'bad') : before >= 0.6 && after < 0.6 && after > 0 ? 'dmg' : null; // (in a hit window, one toast for all of it: death.js)
       const msg = k === 'fire' ? (!air ? `${p.def.name} on fire!` : `${p.def.name} on fire! ${p.def.thrust ? 'Throttle back or dive' : 'Dive'} to put it out`) : k === 'bad' ? `${p.def.name} badly damaged` : `${p.def.name} damaged`;
       if (k && !Death.lose(v, sim, { name: p.def.name, k, text: msg, p, v })) sim.toast(msg, 'warn');
@@ -87,7 +87,7 @@ const Combat = (() => {
   // between them. The order of the lines is fixed (each package of the big update has its slot).
   function destroyPart(v, p, cause, sim, side) {
     if (innerRadar(p.def)) { // (a radar set at 0 hp stays where it is inside its nose, dead: the player hears it once, in the hit's one toast)
-      if (!p.broken) { p.broken = true; const say = `${p.def.name} knocked out: radar out`; if (v === sim.active && !v.ai && sim.toast && !Death.lose(v, sim, { name: p.def.name, k: 'out', text: say })) sim.toast(say, 'warn'); }
+      if (!p.broken) { p.broken = true; const say = `${p.def.name} knocked out: radar out`; if (v === sim.active && !v.ai && sim.toast && !sim.destroyed && !Death.lose(v, sim, { name: p.def.name, k: 'out', text: say })) sim.toast(say, 'warn'); }
       return;
     }
     if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
@@ -1459,7 +1459,7 @@ const Combat = (() => {
     playerFrame(F, dt);
     // a radar lock on another player's craft lights up their warner (sent again every second while it holds; a quiet
     // radar's only within its quiet reach)
-    const lk = (S.lock && S.lock.remote && S.lockR && (typeof Radar === 'undefined' || Radar.heard(v, S.lock)) ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
+    const lk = (S.lock && S.lock.remote && S.lockR && (typeof Radar === 'undefined' || Radar.heard(v, S.lock, S.lockPid === S.lock.remote)) ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
     if (typeof MP !== 'undefined' && (lk !== S.lockPid || (lk && performance.now() - S.lockAt > 1000))) { MP.sendLock(lk, !!lk); S.lockPid = lk; S.lockAt = performance.now(); }
     // damaged parts smoke, badly damaged ones burn; leaking tanks lose fuel
     S.smokeT -= dt; S.smokeE = (S.smokeE || 0) + dt; // (smokeE: the real time the tick covers, for death.js)
@@ -1499,7 +1499,7 @@ const Combat = (() => {
     // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
     if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();
     if (typeof Armour !== 'undefined') { const fb = Armour.fb; fb.shot = fb.ko = null; fb.hurt.length = 0; } // (the last flight's hit and kill banners stay with it)
-    S.smokeE = 0;
+    S.smokeE = 0; S.rwrBox = rwrBox = null; // (the last flight's scope: no tap lands on it)
     Death.reset(F); // (the damage model's: crash sites, the air HUD's banner, merged losses)
     if (typeof Radar !== 'undefined') Radar.reset(); // (the radar picture, the pick, solo locks, what the chip has said)
   }
@@ -1530,9 +1530,14 @@ const Combat = (() => {
     o.x = v.x + f.x * 600; o.y = v.y + f.y * 600; o.z = v.z + f.z * 600;
     return o;
   }
+  // a frame with no HUD over the 3D view (the 2D view draws none): no scope nor markers to tap (drawHUD starts with it too)
+  function noHUD() {
+    S.rwrBox = null; // (drawRWR puts it back, drawing the scope; a tap goes to the scope only where one is drawn)
+    if (typeof Radar !== 'undefined') Radar.beginFrame(); // (this frame's air markers, for taps; the gun cue)
+  }
   function drawHUD(ctx, W, H, dpr, F) {
     const v = F.active, RD = typeof Radar !== 'undefined' ? Radar : null;
-    if (RD) RD.beginFrame(); // (this frame's air markers, for taps; the gun cue)
+    noHUD();
     if (!v || !v.parts.length || F.destroyed || !Render3D.ready) return;
     const bp = bodyPos(v.body, F.time), pr = (x, y, z) => Render3D.project(bp.x + x, bp.y + y, z);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1789,7 +1794,7 @@ const Combat = (() => {
   let rwrBox = null, rwrAt = 0;
   function rwrPlace(W, H, rad = false) {
     const now = performance.now();
-    if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H && rwrBox.rad === rad) return rwrBox;
+    if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H && rwrBox.rad === rad) return (S.rwrBox = rwrBox);
     rwrAt = now;
     const rect = (q) => { const e = $(q); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
     const T = rect('#flight-ui .telemetry') || { left: 12, right: 220, top: 12, bottom: 220 }, lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar');
@@ -1798,18 +1803,34 @@ const Combat = (() => {
     let ty = H * 0.3;
     for (const o of [T, bar]) if (o && hit({ l: W / 2 - 150, r: W / 2 + 150, t: ty - 22, b: ty + 44 }, o)) ty = o.bottom + 26;
     const text = { left: W / 2 - 150, right: W / 2 + 150, top: ty - 22, bottom: ty + 44 };
-    const extra = rad ? [rect('#flight-ui .flight-top-right'), rect('#warp'), rect('#hint')] : [];
-    const free = (x, y, R, low) => { const a = { l: x - R, r: x + R, t: y - R, b: y + R + 14 }; return !hit(a, bar) && !hit(a, text) && !hit(a, T) && !hit(a, lc) && !extra.some((e) => hit(a, e)) && a.r < W && a.b < low; };
+    const extra = rad ? ['#flight-ui .flight-top-right', '#warp', '#hint', '#btn-brake', '#flight-ui .throttle-box', '#flight-ui .stage-box', '#sas-bar', '#flight-ui .air-btns', '#weapon-box', '#btn-radar', '#btn-fire', '#btn-cm'].map(rect) : []; // (and the controls round it: BRAKE is outside the left controls' box in landscape)
+    // (review P3-RHUD-4) a radar's scope has its label under it ("PESA 24 km · LOCK 10.4 · DMG 62%": up to 32 letters,
+    // wider than the disc, kept on the screen as radar.js draws it): kept clear too, on one line where it fits anywhere,
+    // else on two (the damage under the rest: 22 letters at most, 28 px high). hw: the label's half width by the disc's
+    // radius (radar.js's 9 px font, 0.6 em a letter)
+    const one = (R) => Math.max(R, (R >= 50 ? 32 : 29) * 2.75 + 2), two = (R) => Math.max(R, (R >= 50 ? 22 : 19) * 2.75 + 2), same = (R) => R;
+    const clear = (a) => !hit(a, bar) && !hit(a, text) && !hit(a, T) && !hit(a, lc) && !extra.some((e) => hit(a, e));
+    const free = (x, y, R, low, hw) => {
+      if (!rad) { const a = { l: x - R, r: x + R, t: y - R, b: y + R + 14 }; return clear(a) && a.r < W && a.b < low; }
+      const h = hw(R), lh = hw === two ? 28 : 14, lx = clamp(x, h, Math.max(h, W - h));
+      return x + R < W && y + R + lh < low && clear({ l: x - R, r: x + R, t: y - R, b: y + R }) && clear({ l: lx - h, r: lx + h, t: y + R, b: y + R + lh });
+    };
     const R0 = !rad ? (W < 500 ? 40 : 46) : H < 500 ? 40 : W < 500 ? 52 : W < 761 ? 54 : Math.round(64 * clamp(typeof Controls !== 'undefined' ? Controls.z : 1, 0.85, 1.3));
     const top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? ty + 52 : 0); // (a narrow screen: below the warning's lines)
-    const tries = [[T.left + R0 + 4, top + R0, R0, bottom]];
-    if (mps) tries.push([mps.x + mps.R + 14 + R0, mps.y, R0, bottom]);
-    tries.push([T.right + 14 + R0, T.top + R0, R0, H]);
     const Rs = Math.floor((bottom - top - 24) / 2);
-    if (Rs >= 28) tries.push([T.left + Rs + 4, top + Rs, Rs, bottom]);
-    if (lc) tries.push([lc.right + 14 + 40, lc.top + 40, 40, H]); // (a short screen, the room's bar over the flight data's side: beside the controls)
-    const at = tries.find(([x, y, R, low]) => free(x, y, R, low)) || tries[0];
+    const tries = (hw) => {
+      const out = [[T.left + R0 + 4, top + R0, R0, bottom]];
+      if (mps) out.push([mps.x + mps.R + 14 + R0, mps.y, R0, bottom]);
+      out.push([T.right + 14 + hw(R0), T.top + R0, R0, H]); // (a radar's: its label clear of the flight data too)
+      if (Rs >= 28) out.push([T.left + Rs + 4, top + Rs, Rs, bottom]);
+      if (lc) out.push([lc.right + 14 + hw(40), lc.top + 40, 40, H]); // (a short screen, the room's bar over the flight data's side: beside the controls)
+      return out;
+    };
+    let at = null, lines = 1;
+    for (const hw of rad ? [one, two] : [same]) { at = tries(hw).find(([x, y, R, low]) => free(x, y, R, low, hw)); if (at) { lines = hw === two ? 2 : 1; break; } }
+    if (!at) at = tries(rad ? one : same)[0];
     rwrBox = S.rwrBox = { x: at[0], y: at[1], R: at[2], ty, W, H, rad }; // (on S for the tests)
+    if (rad) rwrBox.lines = lines; // (the radar's label: 1 or 2 lines)
     return rwrBox;
   }
   // The bomb's fall, stepped until it meets the ground (drag as in flight; good to a few metres).
@@ -1872,7 +1893,7 @@ const Combat = (() => {
   }
 
   return {
-    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, aimCross, cycle, status, systems, integrity, flares, chaff, stealthOf,
+    S, step, frame, reset, damage, impact, explode, engineK, liftK, hpFrac, maxHp, drawHUD, noHUD, aimCross, cycle, status, systems, integrity, flares, chaff, stealthOf,
     countermeasures, netShot, netMissile, netMissileUpdate, netMissileEnd, netFlares, netBoom,
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,

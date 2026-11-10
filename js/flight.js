@@ -594,7 +594,7 @@ const Flight = {
     if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: true });
     const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
     const R = !this.destroyed && Combat.S.rwr > 0 && Combat.S.rwrBox;
-    if (R && R.W === W && R.H === H) { box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1) ball(R.x, R.y, R.R); }
+    if (R && R.W === W && R.H === H) { box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
     const M = this.mp && typeof MPUI !== 'undefined' && W >= 761 && MPUI.scope;
     if (M) ball(M.x, M.y, M.R, 4);
     const G = this._bodyGround && typeof GHUD !== 'undefined' && GHUD._S && GHUD._S.P;

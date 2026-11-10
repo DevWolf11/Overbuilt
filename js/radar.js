@@ -115,7 +115,7 @@ const Radar = (() => {
   // range: what a warning receiver hears). true, 'notch' (low and crossing the beam), 'clutter' (low, under a radar
   // that can't look down) or false. No 5 km fallback: no radar part, nothing seen.
   function sees(L, t, tp, job = 'guide', memo, keep = 0.25) {
-    if (!L || L.dead || !L.parts || !L.parts.length || L.radarOff || !t || !tp || !tp.alive) return false;
+    if (!L || L.dead || L.down || !L.parts || !L.parts.length || L.radarOff || !t || !tp || !tp.alive) return false; // (down: a pilot knocked out leaves the set aboard, unread)
     if (t.kind === 'drone' || (t.ai && t.ai.drone)) return false; // (drones: the counter-drone kit's job, not an aircraft radar's)
     const rl = radars(L);
     if (rl === NONE) return false;
@@ -136,12 +136,14 @@ const Radar = (() => {
     }
     return out;
   }
-  // Does a warning receiver on t hear v's lock? An LPI radar's only within its quiet reach.
-  function heard(v, t) {
+  // Does a warning receiver on t hear v's lock? An LPI radar's only within its quiet reach. was: it was heard a moment
+  // ago, so it stays heard to 3% past the edge (a craft sitting on the edge doesn't flicker RADAR LOCK on and off)
+  const HEARD_H = 1.03;
+  function heard(v, t, was = false) {
     const r = mainRadar(v);
     if (!r || !r.R.lpi || !t) return true;
     const tp = Combat.refPos(t);
-    return !!tp && Math.hypot(tp.x - v.x, tp.y - v.y, tp.z - v.z) < r.R.range * rk(r.p) * (1 - r.R.lpi);
+    return !!tp && Math.hypot(tp.x - v.x, tp.y - v.y, tp.z - v.z) < r.R.range * rk(r.p) * (1 - r.R.lpi) * (was ? HEARD_H : 1);
   }
 
   // ---------------------------------------------------------------- eyes
@@ -172,15 +174,15 @@ const Radar = (() => {
     now = F.time || 0;
     const v = F.active;
     if (S.chirpAt && performance.now() >= S.chirpAt) { S.chirpAt = 0; Sound.tone(1600, 0.03, 0.025); } // (the chirp's second note)
+    if (S.pick && !pickable(S.pick)) S.pick = null; // (dead, or shot down and falling: no target)
     if (!v || !v.parts || !v.parts.length || F.destroyed || v.down || F.groundAim) {
       clearPic(true); S.locks.length = 0;
-      if (S.pick && !alive(S.pick)) S.pick = null;
       return;
     }
     // radar locks on us, solo (in a room the others report theirs): whatever the RWR makes of them
     if ((S.lkT -= dt) <= 0) { S.lkT = 0.25; lockers(v, F); }
     chip(v, F);
-    if (!aboard(v) || v.radarOff) { clearPic(true); if (S.pick && !alive(S.pick)) S.pick = null; } // (a pick by eye stays)
+    if (!aboard(v) || v.radarOff) clearPic(true); // (a pick by eye stays)
     else if ((S.rcT -= dt) <= 0) { S.rcT = 0.25; scan(v, F); }
     if (Combat.S.rwr > 1) { if ((S.scT -= dt) <= 0) { S.scT = 0.5; scanners(v, F); } }
     else S.scanners.length = 0;
@@ -189,6 +191,8 @@ const Radar = (() => {
     else S.sixT = 0;
   }
   const alive = (o) => { const tp = Combat.refPos(o); return !!tp && tp.alive; };
+  // a pick stays only on something still a target: not a bandit shot down (ai.down) nor anyone's hulk falling (down), nor a wreck
+  const pickable = (o) => alive(o) && !(o.ai && o.ai.down) && !o.down && !o.wreck;
   function lockers(v, F) {
     const out = S.locks;
     out.length = 0;
@@ -235,6 +239,7 @@ const Radar = (() => {
     let far = 0, gfar = 0;
     for (const r of rl) if (works(r.p)) { const g = r.R.range * rk(r.p); if (g > far) far = g; if (r.R.ground > 0 && r.R.ground * rk(r.p) > gfar) gfar = r.R.ground * rk(r.p); }
     S.set = new Set(); S.gset.clear(); S.six = 0;
+    const tail = rl.some((r) => r.R.warn && works(r.p)); // (a working tail set: CHECK SIX, whatever else sees the bandit)
     // the air: bandits, the range's target drones, and in a room the other players' craft in the air
     const air = [];
     for (const o of fighters(F)) if (!o.landed) air.push(o);
@@ -246,9 +251,10 @@ const Radar = (() => {
       const d = Math.hypot(tp.x - v.x, tp.y - v.y, tp.z - v.z);
       if (d > far) continue;
       const m = memoOf(o, M);
-      if (sees(v, o, tp, 'scan', m, 0.5) === true) { S.set.add(o); seenNow.set(o, contact(o, tp, d, 'air')); continue; }
-      if (sideOf(o) === 'foe' && sees(v, o, tp, 'warn', m, 0.5) === true) {
-        seenNow.set(o, contact(o, tp, d, 'six'));
+      const on = sees(v, o, tp, 'scan', m, 0.5) === true;
+      if (on) { S.set.add(o); seenNow.set(o, contact(o, tp, d, 'air')); }
+      if (tail && sideOf(o) === 'foe' && sees(v, o, tp, 'warn', m, 0.5) === true) {
+        if (!on) seenNow.set(o, contact(o, tp, d, 'six'));
         if (d < SIX && (!S.six || d < S.six)) S.six = d;
       }
     }
@@ -284,7 +290,7 @@ const Radar = (() => {
     out.sort((a, b) => a.d - b.d);
     if (out.length > 16) out.length = 16;
     S.rc = out;
-    if (S.pick && !alive(S.pick)) S.pick = null;
+    if (S.pick && !pickable(S.pick)) S.pick = null;
   }
   // radars painting us, for an advanced RWR's search strobes: the other players' (an LPI one only close), bandits with
   // us in their nose, the frigate in hostile mode, the AI's ground search radars
@@ -511,9 +517,14 @@ const Radar = (() => {
       if (rk(main.p) < 1) { txt += ` · DMG ${Math.round((1 - Combat.hpFrac(main.p)) * 100)}%`; col = '#ffb547'; }
     }
     ctx.font = LBL; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = col;
-    const hw = txt.length * 2.75 + 2, lx = clamp(cx, hw, Math.max(hw, B.W - hw)); // (IBM Plex Mono: 0.6 em a letter; kept on the screen)
-    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(txt, lx, cy + R + 11); // (a dark rim: it reads over cloud too)
-    ctx.fillText(txt, lx, cy + R + 11);
+    const cut = B.lines === 2 ? txt.indexOf(' · DMG') : -1; // (no room for one line beside the controls: the damage goes under the rest, combat.js rwrPlace)
+    const rows = cut > 0 ? [txt.slice(0, cut), txt.slice(cut + 3)] : [txt];
+    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)';
+    rows.forEach((s, i) => {
+      const hw = s.length * 2.75 + 2, lx = clamp(cx, hw, Math.max(hw, B.W - hw)); // (IBM Plex Mono: 0.6 em a letter; kept on the screen)
+      ctx.strokeText(s, lx, cy + R + 11 + 14 * i); // (a dark rim: it reads over cloud too)
+      ctx.fillText(s, lx, cy + R + 11 + 14 * i);
+    });
   }
 
   function reset() {

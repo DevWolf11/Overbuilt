@@ -565,7 +565,7 @@ const GHUD = (() => {
     if (S.P && now - S.placeAt < 1000 && S.W === W && S.H === H && S.sight === !!F.sight && S.mk === mk) return S.P;
     S.placeAt = now; S.W = W; S.H = H; S.sight = !!F.sight; S.mk = mk;
     const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
-    const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + 14 } : null;
+    const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + (Combat.S.rwrBox.lines === 2 ? 28 : 14) } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)
     const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire,
