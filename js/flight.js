@@ -428,6 +428,13 @@ const Flight = {
       for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id);
       v.adj.delete(p.id);
     }
+    // (radar) the sets inside the parts that blew up go with them, unseen: no flash of their own, no lone debris
+    const kids = v.parts.filter((q) => innerRadar(q.def) && !parts.includes(q) && parts.some((h) => h.id === q.att));
+    for (const q of kids) {
+      v.parts = v.parts.filter((o) => o !== q);
+      for (const n of v.adj.get(q.id) || []) v.adj.get(n) && v.adj.get(n).delete(q.id);
+      v.adj.delete(q.id);
+    }
     if (v === this.active || this.dist(this.absPos(v), this.camAbs) < 3000) { Sound.explode(); haptic([40, 30, 60]); }
     if (!v.parts.length) { v.dead = true; if (v === this.active) this.onDestroyed(); return; }
     const hadControl = !!v.control;

@@ -189,4 +189,116 @@ t('...radarSpecs: the part card\'s lines, worked by hand (26 km × 0.32 = 8.3 km
   && specs[2].join('|') === '8 km ahead, ±20° (2.6 km against a stealth jet)|blind to targets below it|guns: leads to 3 km, cues heat seekers'
   && specs[3].join('|') === '9 km all round (2.9 km against a stealth jet)|looks down (a low target crossing slower than 10 m/s hides)|locks in 1 s (1.7 s on a jammer)|guides radar missiles at 2 targets; active ones go on alone|marks vehicles on the ground (8 km)|resists jamming', specs);
 
+// ---------------------------------------------------------------- B5-B6. the stock jets carry their sets
+const probsAll = R(`Object.keys(TEMPLATES).map((k) => [k, radarProblems(partsFromDesign(templateRows(TEMPLATES[k])))]).filter((e) => e[1].length)`);
+t('B5 radarProblems: no warning for any stock template (each jet with radar missiles has a set that guides them, inside its nose)', !probsAll.length, probsAll);
+const own = R(`__JETS.map(([k, ni, set, x, y]) => {
+  const rows = templateRows(TEMPLATES[k]), ps = partsFromDesign(rows), sets = ps.filter((p) => innerRadar(p.def)), s = sets[0], H = ps[ni];
+  const adj = buildAdjacency(ps), ctl = findControlPart(ps);
+  const tap = insideSpot(set, 0, H, null, ps.filter((p) => p !== s), __PL); // (where a tap in the builder puts it)
+  return { k, n: sets.length, type: s && s.type, last: s === ps[ps.length - 1], host: !!s && s.att === H.id, inside: !!s && insideOf(s, H), free: !!s && !ps.some((o) => o !== s && o !== H && partsClash(s, o)),
+    joined: !!s && componentOf(ctl.id, adj).has(s.id), dx: s ? Math.abs(s.x - x) : 9, dy: s ? Math.abs(s.y - y) : 9, z: !!s && partZ(s) === partZ(H), rot: s && s.rot, tap: !!s && !!tap && Math.hypot(tap.x - s.x, tap.y - s.y) <= 0.01 };
+})`);
+const badB6 = own.filter((o, i) => o.n !== 1 || o.type !== JETS[i][2] || !o.last || !o.host || !o.inside || !o.free || !o.joined || o.dx > 0.03 || o.dy > 0.03 || !o.z || o.rot !== 0 || !o.tap);
+t('B6 each of the twelve radar jets carries one set, its era\'s, as its last row: hosted by its nose (att), inside it 4 cm clear, clashing with nothing, joined to the tree, within 1 cm of where a tap in the builder puts it (three nudged a few mm so the gun fingerprint\'s last digit holds), within 3 cm of the probe\'s spot', !badB6.length, badB6);
+t('...the other templates carry no radar part (Spectre, Striker, Hornet, Viper, the bomber, warbirds, airliners, helicopters, cars, rockets, Armour), and RAIDER none either',
+  R(`Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].parts.some((r) => PARTS[r[0]].radarSet)).sort().join()`) === JETS.map((j) => j[0]).sort().join() && R(`RAIDER.length === 11 && !RAIDER.some((r) => PARTS[r[0]].radarSet)`));
+t('...every set\'s tier is at most its template\'s, and each template blurb that names its radar names the right one (Sugoi-35: PESA; Spectre: none)', R(`__JETS.every(([k, , set]) => PARTS[set].tier <= TEMPLATES[k].tier)`)
+  && /a PESA radar/.test(ctx.TEMPLATES.sugoi35.blurb) && !/bigger radar/.test(ctx.TEMPLATES.sugoi35.blurb) && /No radar: it stays silent\.$/.test(ctx.TEMPLATES.spectre.blurb));
+// prices: each nose dropped by its set, so every radar jet costs what it did (worked by hand from the spec's table, §9.2)
+const COST = { falcon: 73400, kestrel: 69900, myg21: 45000, fs4: 97900, fs16: 75000, myg29: 91800, fs15: 113600, sugoi27: 113300, sugoi35: 119500, fs22: 120000, fs35: 101300, sugoi57: 119800,
+  striker: 39900, hornet: 26400, viper: 34700, spectre: 59200 };
+const costs = R(`Object.fromEntries(${JSON.stringify(Object.keys(COST))}.map((k) => [k, TEMPLATES[k].parts.reduce((s, r) => s + PARTS[r[0]].cost, 0)]))`);
+t('...the template totals: the twelve radar jets as before (the MyG-21 and FS-16 at their caps, the FS-22 at $120k), Striker, Hornet, Viper and Spectre $3,500 cheaper (their nose, no set)',
+  Object.keys(COST).every((k) => costs[k] === COST[k]), costs);
+const NOSE$ = { cockpitJet: 3500, cockpitTandem: 5500, cockpitStealth: 10500, ruNose21: 5900, us4f4Nose: 3500, us4f16Nose: 1300, ruNose29: 4000, us4f15Nose: 4500, ruNose27: 5000,
+  ruNose35: 2000, us5Nose22: 2700, us5Nose35: 6000, ruNose57: 2200, radome: 600, droneCore: 3000, rotodome: 12000 };
+t('...the noses\' new prices (each the old one less its set\'s; the Radome, Drone Core and Rotodome unchanged)', Object.keys(NOSE$).every((k) => PARTS[k].cost === NOSE$[k]), Object.keys(NOSE$).filter((k) => PARTS[k].cost !== NOSE$[k]));
+
+// ---------------------------------------------------------------- C. physics gates (vessel.js, combat.js stealthOf)
+ctx.__G = G;
+const twin = R(`__JETS.map(([k]) => {
+  const all = templateRows(TEMPLATES[k]), wo = all.filter((r) => !innerRadar(PARTS[r.type])), set = all.find((r) => innerRadar(PARTS[r.type]));
+  const mk = (rows) => { const ps = partsFromDesign(rows), adj = buildAdjacency(ps), v = new Vessel(ps, adj, EARTH); v.kind = 'plane'; v.rebuildGroups(); return v; };
+  const a = mk(all), b = mk(wo), hull = (v) => JSON.stringify(v.hull.map((h) => [h.p.type, h.x, h.y, h.z]));
+  return { k, area: ['x', 'y', 'z'].every((c) => a.area[c] === b.area[c]), hull: hull(a) === hull(b), wheels: JSON.stringify(a.wheelPts.map((w) => [w.x, w.y, w.z, w.r])) === JSON.stringify(b.wheelPts.map((w) => [w.x, w.y, w.z, w.r])),
+    nose: a.noseAero === b.noseAero && a.noseSharp === b.noseSharp && a.noseAero, dims: a.depth === b.depth && a.width === b.width, reach: Math.abs(a.reach - b.reach),
+    mass: Math.abs(a.mass - b.mass - PARTS[set.type].mass * 1000), st: [Combat.stealthOf(a), Combat.stealthOf(b)], com: a.com.y - b.com.y };
+})`);
+const badC = twin.filter((o) => !o.area || !o.hull || !o.wheels || !o.nose || !o.dims || o.mass > 1e-6 || o.st[0] !== o.st[1] || o.reach > 0.01 || !(o.com > 0 && o.com < 0.03));
+t('C10 each radar jet with and without its set: the same areas (x, y, z), hull and wheel points, nose (aero, sharp), depth and width; heavier by exactly the set; its centre of mass 0-3 cm forward (so its reach within 1 cm); the same stealth', !badC.length,
+  badC.length ? badC : twin.map((o) => `${o.k} com +${(o.com * 100).toFixed(1)} cm, reach ${(o.reach * 1000).toFixed(1)} mm`).join('; '));
+const st = Object.fromEntries(twin.map((o) => [o.k, +o.st[0].toFixed(4)]));
+const spectre = +ctx.Combat.stealthOf(G.craft(ctx, G.templateRows(ctx, 'spectre'), 'plane', 'air')).toFixed(4);
+t('...stealth as before the sets (FS-22 0.6814, FS-35 0.6410, Sugoi-57 0.5417; the Spectre, with no set, 0.4709)', st.fs22 === 0.6814 && st.fs35 === 0.641 && st.sugoi57 === 0.5417 && spectre === 0.4709, [st.fs22, st.fs35, st.sugoi57, spectre]);
+t('...a Radar Pod hung on a stealth jet counts as a store (−0.12), unlike a set inside', R(`(() => { const ps = partsFromDesign(templateRows(TEMPLATES.fs22)), a = Combat.stealthOf({ parts: ps }), b = Combat.stealthOf({ parts: ps.concat([makePart('radarPod', 2, 8)]) });
+  return Math.abs(a - b - 0.12) < 1e-9; })()`));
+// the gates change nothing for any part but a set: every template without one (the TK-34 and the other Armour among them), and
+// RAIDER, built with the gates and with innerRadar() stubbed to false, have the same areas, hull, wheels, nose, reach and stealth
+const fp = R(`(() => {
+  const keys = Object.keys(TEMPLATES).filter((k) => !TEMPLATES[k].parts.some((r) => innerRadar(PARTS[r[0]])));
+  const mk = (k) => { const T = TEMPLATES[k], ps = partsFromDesign(T ? templateRows(T) : RAIDER.map(([type, x, y, rot]) => ({ type, x, y, rot: rot || 0, flip: x < 0 }))), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = T ? T.kind : 'plane'; v.rebuildGroups();
+    return JSON.stringify([v.area, v.hull.map((h) => [h.x, h.y, h.z]), v.wheelPts.map((w) => [w.x, w.y, w.z, w.r]), v.noseAero, v.noseSharp, v.reach, v.depth, v.width, v.mass, Combat.stealthOf(v)]); };
+  const now = keys.concat(['RAIDER']).map(mk), real = innerRadar;
+  innerRadar = () => false;
+  try { const off = keys.concat(['RAIDER']).map(mk); return { n: keys.length, diff: keys.concat(['RAIDER']).filter((k, i) => now[i] !== off[i]), tk34: keys.includes('tk34') }; } finally { innerRadar = real; }
+})()`);
+t(`...for the ${fp.n} templates without a set (TK-34 and the other Armour included) and RAIDER, the gates change nothing: areas, hull, wheels, nose, reach and stealth as with them switched off`, fp.n >= 39 && fp.tk34 && !fp.diff.length, fp);
+
+// ---------------------------------------------------------------- F. damage (the real Flight.breakParts and ripParts)
+const FC = G.load({ combat: true, flight: true, props: true }), RF = (c) => G.run(FC, c);
+FC.Math.random = () => 0.5;
+FC.__JETS = JETS;
+RF(`var __fsim = (v) => { const F = Object.create(Flight); Object.assign(F, { time: 0, vessels: [v], active: v, running: true, destroyed: false, mp: null, camAbs: { x: 0, y: 0, z: 0 }, warpIdx: 1, firing: false,
+    groundAim: false, flyAim: false, target: null, dist: () => 1e9, absPos: () => ({ x: 0, y: 0, z: 0 }), log: [], toast(m) { this.log.push(m); }, onDestroyed() { this.destroyed = true; } }); return F; };
+  var __booms = 0; { const e0 = FX.explosion; FX.explosion = function (...a) { __booms++; return e0.apply(this, a); }; }
+  var __set = (v) => v.parts.find((p) => innerRadar(p.def)), __has = (F, p) => F.vessels.filter((o) => !o.dead && o.parts.includes(p));`);
+const air = (k) => G.craft(FC, G.templateRows(FC, k), 'plane', 'air');
+FC.__air = air;
+{
+  const r = RF(`(() => { const v = __air('falcon'), F = __fsim(v), s = __set(v), n0 = v.parts.length, b0 = __booms, f0 = FX.list.length;
+    Combat.damage(v, s, Combat.maxHp(s.def) * 0.5, 'shot', F); const half = Combat.hpFrac(s), t0 = F.log.slice();
+    Combat.damage(v, s, 1e6, 'shot', F); const t1 = F.log.slice();
+    Combat.damage(v, s, 1e6, 'shot', F); Combat._t.destroyPart(v, s, 'shot', F);
+    return { half, broken: s.broken === true, aboard: v.parts.includes(s) && v.parts.length === n0 && F.vessels.length === 1, booms: __booms - b0, fx: FX.list.length - f0, t0, t1, t2: F.log.slice(),
+      guiding: radarSummary(v.parts).guiding, dead: Death.partDead(s), control: !!v.control, down: !!v.down };
+  })()`);
+  t('F24 a set at half health is at half (the radar\'s reach follows it: radar.js)', near(r.half, 0.5, 1e-9), r.half);
+  t('...at 0 hp it is broken and stays aboard: nothing exploded or torn off, the craft flies on (not down)', r.broken && r.aboard && r.booms === 0 && r.fx === 0 && r.control && !r.down, r);
+  t('...the player hears it once ("Pulse-Doppler Radar knocked out: radar out"), and it no longer counts as a radar', r.t1.slice(r.t0.length).join('|') === 'Pulse-Doppler Radar knocked out: radar out' && r.t2.length === r.t1.length && !r.guiding && r.dead, [r.t0, r.t1, r.t2]);
+  const sv = RF(`(() => { const v = __air('falcon'), F = __fsim(v), s = __set(v); Combat.damage(v, s, 1e6, 'shot', F);
+    const d = JSON.parse(JSON.stringify(v.serialize())), back = Vessel.restore(d), q = __set(back);
+    return { keys: Object.keys(d.parts.find((p) => p.type === 'radarPD')).join(), hp: q.hp, guiding: radarSummary(back.parts).guiding, fine: radarSummary(__air('falcon').parts).guiding }; })()`);
+  t('...a restored flight with the set at 0 hp reads it as out (hp is saved; no new save field)', sv.hp <= 0 && !sv.guiding && sv.fine && !/broken|ko/.test(sv.keys) && /\bhp\b/.test(sv.keys), sv);
+}
+{
+  // every part of each jet to 0, one at a time, wherever it is by then: the set is broken, and stays with its host
+  const r = RF(`__JETS.map(([k]) => { const v = __air(k), F = __fsim(v), s = __set(v), host = v.byId.get(s.att), all = v.parts.slice(); let lost = 0;
+    Combat.damage(v, s, 1e6, 'shot', F);
+    for (const p of all) { const o = __has(F, p)[0]; if (!o) continue; Combat.damage(o, p, 1e6, 'shot', F); const hs = __has(F, host)[0], ss = __has(F, s)[0]; if (hs !== ss || (!hs && ss)) lost++; }
+    const ss = __has(F, s);
+    return [k, s.broken === true, lost, ss.length <= 1, ss.length === 1 && ss[0].parts.length > 1]; })`);
+  t('...every part of each radar jet shot to 0, one after another: its set broken, never alone, always where its nose is', r.every(([, b, lost, one, notAlone]) => b && lost === 0 && one && notAlone), r);
+  const bp = RF(`__JETS.map(([k]) => { const v = __air(k), F = __fsim(v), s = __set(v), host = v.byId.get(s.att); F.breakParts(v, [host], 'blast');
+    return [k, !F.vessels.some((o) => o.parts.includes(s)), !F.vessels.some((o) => o.parts.length === 1 && innerRadar(o.parts[0].def)), !v.adj.has(s.id)]; })`);
+  t('...the nose blown up (Flight.breakParts): the set goes with it, unseen (no vessel holds it, no lone debris, no joins left)', bp.every((e) => e[1] && e[2] && e[3]), bp);
+  const bb = RF(`(() => { const v = __air('falcon'), F = __fsim(v), s = __set(v), host = v.byId.get(s.att), b0 = __booms; F.breakParts(v, [host], 'blast'); return __booms - b0; })()`);
+  t('...one explosion for the nose, none for the set inside it', bb === 1, bb);
+  const rp = RF(`__JETS.map(([k]) => { const v = __air(k), F = __fsim(v), s = __set(v), host = v.byId.get(s.att), n0 = v.parts.length; F.ripParts(v, [host], 'shot');
+    const ps = __has(F, s), ph = __has(F, host); return [k, ps.length === 1 && ps[0] === ph[0], F.vessels.length > 1 && ps[0].parts.length < n0]; })`);
+  t('...the nose torn off (Flight.ripParts): the set goes with it, in the same piece', rp.every((e) => e[1] && e[2]), rp);
+}
+{
+  // F25: a radar missile (blast 16 m, 450) bursting ahead of the Falcon's nose tip, on its axis (worked by hand from explode's
+  // falloff, 450·(1 − d/16)^1.5, d from the part's centre less half its longest side: the set 10.05 m → 102 of its 180;
+  // the nose 9.0 m → 130 of its 359; at 1.5 m the nose takes 388 and the set 225)
+  const burst = (ahead) => RF(`(() => { const v = __air('falcon'), F = __fsim(v), nose = v.byId.get(__set(v).att), s = __set(v);
+    Combat.explode(EARTH, v.toWorld(0, 12.1 + 2.1 + ${ahead}, 0), 16, 450, null, F, true);
+    return { nose: nose.hp / Combat.maxHp(nose.def), set: s.hp / Combat.maxHp(s.def), broken: !!s.broken, ko: !!nose.ko, setIn: __has(F, s)[0] === __has(F, nose)[0] && __has(F, s).length === 1 }; })()`);
+  const b9 = burst(9), b4 = burst(4), b15 = burst(1.5);
+  t('F25 a radar missile 9 m ahead of the Falcon\'s nose: the nose at 64 %, the set alive at 43 % (its own 180 hp)', near(b9.nose, 229 / 359, 0.01) && near(b9.set, 78 / 180, 0.01) && !b9.broken, b9);
+  t('...4 m ahead: the set out (broken, still in the nose), the nose hurt (19 %) but its pilot flying', b4.set <= 0 && b4.broken && b4.setIn && b4.nose > 0.1 && b4.nose < 0.3 && !b4.ko, b4);
+  t('...1.5 m ahead: both at 0: the pilot knocked out, the set out, both aboard the falling hulk', b15.set <= 0 && b15.nose <= 0 && b15.broken && b15.ko && b15.setIn, b15);
+}
+
 t.done();
