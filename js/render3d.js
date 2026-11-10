@@ -331,20 +331,23 @@ const Render3D = (() => {
 float obFog( float dens, float d, float h ) {
 	h += ( d * d - h * h ) * fogH.y;
 	float x = clamp( - h * fogH.x, -30.0, 30.0 );
-	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : ( exp( log( max( dens, 1e-30 ) ) + x ) - dens ) / x;
-	return 1.0 - exp( - pow( max( t * d, 0.0 ), 1.5 ) );
+	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : dens * ( exp( x ) - 1.0 ) / x;
+	float v = max( t * d, 0.0 );
+	return 1.0 - exp( - v * sqrt( v ) );
 }`;
   // (dens: extinction at the camera; d: distance; h: height over the camera. The curvature term: far points sit lower in
-  // the view's flat frame than over the planet, 0.8 of the drop; t: the mean density along the ray, in log space)
+  // the view's flat frame than over the planet, 0.8 of the drop; t: the mean density along the ray (highp: e^30 fits);
+  // v·√v: τ^1.5, without a pow (the haze runs on every fogged pixel: two exps and a root)
   const OB_FOGC_FN = `
 vec3 obFogCol( vec3 dir, vec3 base ) {
 	vec3 up = viewMatrix[ 1 ].xyz, sv = fogSunV.xyz;
 	vec3 hd = dir - up * dot( dir, up ), hs = sv - up * dot( sv, up );
-	float az = dot( hd, hs ) / max( length( hd ) * length( hs ), 1e-4 ) * 0.5 + 0.5;
-	return mix( base, fogSunset, fogSunV.w * pow( az, 2.5 ) ) + fogGlow * pow( max( dot( dir, sv ), 0.0 ), 8.0 );
+	float az = dot( hd, hs ) * inversesqrt( max( dot( hd, hd ) * dot( hs, hs ), 1e-8 ) ) * 0.5 + 0.5;
+	float s = max( dot( dir, sv ), 0.0 ), s2 = s * s, s4 = s2 * s2;
+	return mix( base, fogSunset, fogSunV.w * az * az * sqrt( az ) ) + fogGlow * ( s4 * s4 );
 }`;
-  // (the sky's colour at el = 0 in dir's azimuth, SKY_FS: base its band, the sunset side, the aureole s^8; dir, fogSunV in
-  // view space, viewMatrix[1] the scene's up there)
+  // (the sky's colour at el = 0 in dir's azimuth, SKY_FS: base its band, the sunset side az^2.5, the aureole s^8, in
+  // products and roots, no pow; dir, fogSunV in view space, viewMatrix[1] the scene's up there)
   // r159's text of the five chunks (each must match exactly, or nothing is patched)
   const FOG_R159 = {
     fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n#endif',
@@ -361,8 +364,9 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
       + '\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
     fog_fragment: '#if defined( USE_FOG ) && ! defined( FOG_EXP2 )\n\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
     tonemapping_fragment: '#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )\n'
-      + '\tfloat fogFactor = obFog( fogDensity, length( vFogPos ), dot( vFogPos, viewMatrix[ 1 ].xyz ) );\n'
-      + '\tgl_FragColor.rgb = mix( gl_FragColor.rgb, obFogCol( normalize( vFogPos ), fogLin ), fogFactor );\n#endif\n'
+      + '\tfloat fogD2 = dot( vFogPos, vFogPos ), fogID = inversesqrt( max( fogD2, 1e-12 ) );\n'
+      + '\tfloat fogFactor = obFog( fogDensity, fogD2 * fogID, dot( vFogPos, viewMatrix[ 1 ].xyz ) );\n'
+      + '\tif ( fogFactor > 1e-3 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, obFogCol( vFogPos * fogID, fogLin ), fogFactor );\n#endif\n'
       + FOG_R159.tonemapping_fragment,
   };
   const FOG_U = { fogSunV: 'sun', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
@@ -411,8 +415,8 @@ void main() {
   float az = dot(hd, hs) / max(length(hd) * length(hs), 1e-4) * 0.5 + 0.5;
   c = mix(c, uSunset, uSunsetK * pow(az, 2.5) * (1.0 - smoothstep(-0.05, 0.55, el)));
   c *= mix(1.0, 0.55, smoothstep(0.0, -0.2, el));
-  float s = max(dot(d, uSun), 0.0);
-  c += uGlow * uGlare * (0.9 * pow(s, 1800.0) + 0.22 * pow(s, 90.0) + 0.1 * pow(s, 8.0)) + uSunset * uSunsetK * 0.35 * pow(s, 8.0); // (+ a warm aureole round a low Sun)
+  float s = max(dot(d, uSun), 0.0), s2 = s * s, s4 = s2 * s2, s8 = s4 * s4;
+  c += uGlow * uGlare * (0.9 * pow(s, 1800.0) + 0.22 * pow(s, 90.0) + 0.1 * s8) + uSunset * uSunsetK * 0.35 * s8; // (+ a warm aureole round a low Sun)
   gl_FragColor = vec4(c, uAlpha);
   ${OUT}
 }`;
@@ -1114,6 +1118,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const det = noiseMaps(256, 24, 4, 208, 255, 6, 3);
     const rip = noiseMaps(256, 16, 3, 255, 255, 3.5, 9);
     rip.nrm.repeat.set(0.25, 0.25); // (a 48 m tile: the ripple map's 16 cells make ~3 m ripples)
+    rip.nrm.anisotropy = 1; // (trilinear only: the ripples calm far off anyway, and a grazing sea would take up to 8 taps a sample)
     S.waterN = rip.nrm; S.waterT = 0;
     terr.mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: det.map, normalMap: det.nrm, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, metalness: 0 });
     // cities glow at night: aNight (per vertex) times uNight (how dark it is)
