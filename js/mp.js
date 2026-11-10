@@ -1298,6 +1298,7 @@ const MP = {
     const P = this.peers.get(m.f), g = P && P.ghost;
     if (!g || !Array.isArray(m.list)) return;
     const by = new Map(g.parts.map((p) => [p.id, p]));
+    let cuts = null; // (half wings this message cuts: all at once, after the rows)
     for (const row of m.list) {
       if (!Array.isArray(row)) continue;
       const [id, defl, fire, ab, ret, sweep, ay, ae, ammo, dep, used, gun] = row.map((x) => (x == null || Number.isFinite(x) ? x : 0));
@@ -1314,18 +1315,23 @@ const MP = {
       p.deployed = dep; p.used = !!used; p.gunOn = !!gun;
       if (p.def.thrust) p.active = fire > 0;
       const c = row[12]; // (the big update: a main wing with half shot off, the half that went; never undone)
-      if ((c === 1 || c === -1) && !p.cut && p.def.wing && !p.def.wing.control && isAirKind(g.kind)) this.cutHalf(m.f, g, p, c);
+      if ((c === 1 || c === -1) && !p.cut && p.def.wing && !p.def.wing.control && isAirKind(g.kind)) (cuts || (cuts = [])).push([p, c]);
     }
+    if (cuts) this.cutHalves(m.f, g, cuts);
   },
   // A peer's aircraft lost half a main wing (its pv row's 13th column): the ghost's wing shows the half that is left
   // (parts3d cuts its model), and the half that went falls here as a piece of our own physics (foreign: a picture),
-  // burning nothing, within 3 km of the camera; our HUD says WING OFF when it was our doing (a hit of ours in 8 s)
-  cutHalf(pid, g, p, c) {
-    p.cut = c;
-    const mh = Combat.maxHp(p.def);
-    if (p.hp != null) p.hp = Math.min(p.hp, 0.5 * mh); // (its health is the half's from now: the rows say so)
+  // burning nothing, within 3 km of the camera; our HUD says WING OFF when it was our doing (a hit of ours in 8 s).
+  // (review MP-P2-2) every cut of one message at once: the ghost rebuilt once, at most 6 halves falling (onParts'
+  // cap), one WING OFF: a forged message cutting every wing of a 600-part craft cost 3 s and left 581 vessels
+  cutHalves(pid, g, cuts) {
+    for (const [p, c] of cuts) {
+      p.cut = c;
+      const mh = Combat.maxHp(p.def);
+      if (p.hp != null) p.hp = Math.min(p.hp, 0.5 * mh); // (its health is the half's from now: the rows say so)
+    }
     g.rebuildGroups();
-    if (this.near(g)) {
+    if (this.near(g)) for (const [p, c] of cuts.slice(0, 6)) {
       const q = makePart(p.type, p.x, p.y, { flip: p.flip, rot: p.rot, z: p.z, skin: p.skin });
       q.cut = -c; q.hp = 1;
       if (p.fuel != null) { q.fuel = p.fuel / 2; p.fuel /= 2; }

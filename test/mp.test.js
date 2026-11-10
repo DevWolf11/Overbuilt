@@ -550,6 +550,13 @@ async function roomDeaths() {
   t('rooms: a pv row\'s 13th column cuts a peer\'s wing: the half that went falls (foreign, its own cut the other way); junk values and a gun ignored, never twice, never undone; WING OFF when it was our doing',
     X(`cuts.join() === '0,0,0,0,0,0,0,0' && !!half && half.parts.length === 1 && half.parts[0].type === ww.type && half.parts[0].cut === -1 && half.hulk != null && fbW === 'WING OFF' && after.join() === '1,1' && wg.clS < Death._t.intactClS(wg) - 1e-9`),
     X('[cuts, !!half, fbW, after]'));
+  // (Phase 2 review MP-P2-2) one forged pv message cutting every plain wing of a craft of 201 wings: the ghost rebuilt
+  // once, at most 6 halves falling (it cost 0.6 s and left 201 vessels of our physics; 583 wings, 3 s and 581)
+  X(`emit({ t: 'spawn', f: 5, name: 'P5', kind: 'plane', parts: (() => { const b = rowsOf('falcon'), w = b.find((r) => PARTS[r[1]].wing && !PARTS[r[1]].wing.control), rs = b.slice(); for (let i = 0; i < 200; i++) { const r = w.slice(); r[0] = 1000 + i; r[3] = w[3] + (i % 20) * 0.05; rs.push(r); } return rs; })() });
+    { const tw = craftOf('falcon', 'plane', RW + 1500, 700); emit(snapOf(tw, 5)); } MP.peers.get(5).recv = __P; MP.beforeUpdate(0.016);
+    var fw = MP.peers.get(5).ghost, fwings = fw.parts.filter((p) => p.def.wing && !p.def.wing.control), rb = 0, rb0 = fw.rebuildGroups; fw.rebuildGroups = function () { rb++; return rb0.apply(this, arguments); };
+    var nv5 = Flight.vessels.length; emit({ t: 'pv', f: 5, list: fwings.map((p) => [p.id, 0, 0, 0, 0, null, 0, 0, null, 0, 0, 0, 1]) }); var made5 = Flight.vessels.length - nv5;`);
+  t('rooms: ...one message cutting every wing of a 201-wing craft: all cut, the ghost rebuilt once, at most 6 halves falling', X(`fwings.length === 201 && fwings.every((p) => p.cut === 1) && rb === 1 && made5 === 6`), X('[fwings.length, rb, made5]'));
   X(`var eng = wg.parts.find((p) => p.def.thrust); Death.fb.text = ''; emit({ t: 'hp', f: 4, list: [[eng.id, 25, 1]] }); var b1 = eng.burn, h1 = eng.hp, fbF = Death.fb.text; emit({ t: 'hp', f: 4, list: [[eng.id, 25]] }); var b2 = eng.burn;
     emit({ t: 'hp', f: 4, list: [[ww.id, 50]] }); var hw = ww.hp;`);
   t('rooms: an hp row\'s 3rd column: that part of a peer\'s plane burns here (ON FIRE when it was our doing); without it, out; a cut wing\'s health is its half\'s',
