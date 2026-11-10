@@ -765,6 +765,7 @@ const Flight = {
       <div>${f('flaps', 'gear')}<span>Planes: flaps (three steps), retractable gear up / down</span></div>
       <div>${K('camera')}<span>Reset the camera (drag to look around); in Aim, hold to look round, tap to put the circle on the nose</span></div>
       <div>${f('fire', 'weapon')}<span>Fire (hold) / change weapon · ${K('cm')} flares and chaff</span></div>
+      <div>${f('radarNext', 'radarPower')}<span>Radar: the next target (Shift: back) / on or off · touch: tap a target, or tap RDR; hold RDR for on/off</span></div>
       ${this.mp ? `<div>${K('catapult')}<span>Carrier catapult: launch</span></div><div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
     </div>`;
@@ -1221,7 +1222,7 @@ const Flight = {
         ctx.stroke();
         ctx.fillStyle = c; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, TAU); ctx.fill();
       };
-      cross(4, 'rgba(8, 11, 16, 0.55)', 3); cross(2, X.armed ? '#7dffb0' : '#9fe3ff', 1.8);
+      cross(4, 'rgba(8, 11, 16, 0.55)', 3); cross(2, X.armed ? (typeof Radar !== 'undefined' && Radar.S.gunIn ? '#ffd23f' : '#7dffb0') : '#9fe3ff', 1.8); // (yellow: the radar holds the gun's target inside 900 m)
     }
     if (!c.behind) {
       ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;
@@ -1665,6 +1666,8 @@ const Flight = {
       else if (K('flaps')) this.cycleFlaps();
       else if (K('gear')) this.toggleGear();
       else if (K('cm')) this.countermeasures();
+      else if (K('radarNext')) { if (typeof Radar !== 'undefined') Radar.next(this, e.shiftKey ? -1 : 1); } // (I, Shift+I back: no-ops without a radar or a target)
+      else if (K('radarPower')) { if (typeof Radar !== 'undefined') { Radar.toggle(this); this.updateHUD(true); } } // (O: the radar off, silent, or on)
       else if (K('catapult')) this.launchCatapult();
     });
     addEventListener('keyup', (e) => {
@@ -1812,6 +1815,27 @@ const Flight = {
     fire.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#btn-weapon').addEventListener('click', () => { Combat.cycle(this); this.updateHUD(true); });
     $('#btn-cm').addEventListener('click', () => this.countermeasures());
+    // the RDR pill: a tap picks the next target, a hold (0.6 s, its ring filling) switches the radar on or off
+    // (the hold is timed by the touches' own time stamps, and the timer's switch waits for any lift already queued, so a
+    // busy frame never turns a tap into a hold or a hold into a tap)
+    const rdr = $('#btn-radar');
+    let rdrT = null, rdrAt = 0, rdrDown = false;
+    const rdrOff = () => { clearTimeout(rdrT); rdrT = null; rdrDown = false; rdr.classList.remove('holding'); };
+    const rdrPower = () => { rdrOff(); if (typeof Radar !== 'undefined') Radar.toggle(this); haptic(20); this.updateHUD(true); };
+    rdr.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); rdr.setPointerCapture && rdr.setPointerCapture(e.pointerId);
+      rdrOff(); rdrDown = true; rdrAt = e.timeStamp; rdr.classList.add('holding');
+      rdrT = setTimeout(() => { rdrT = setTimeout(() => { if (rdrDown) rdrPower(); }, 0); }, 600);
+    });
+    rdr.addEventListener('pointerup', (e) => {
+      if (!rdrDown) return; // (held: already switched)
+      const held = e.timeStamp - rdrAt >= 600;
+      if (held) { rdrPower(); return; }
+      rdrOff();
+      if (typeof Radar !== 'undefined') { Radar.next(this, 1); haptic(10); }
+    });
+    for (const ev of ['pointercancel', 'lostpointercapture']) rdr.addEventListener(ev, rdrOff);
+    rdr.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#btn-catapult').addEventListener('click', () => this.launchCatapult());
     $('#btn-stage').addEventListener('click', () => this.stage());
     $('#btn-flaps').addEventListener('click', () => this.cycleFlaps());
@@ -1942,6 +1966,7 @@ const Flight = {
       return;
     }
     if (this.destroyed) { if (this.mp && !this.mp.solo && MP.pvp) MPUI.spectate(1); return; } // (shot down: a tap watches the next player)
+    if (!this.groundAim && typeof Radar !== 'undefined' && Radar.tap(this, cx, cy)) return; // (a tap on the radar scope or a target's marker picks a target)
     if (App.use3D()) {
       const hit = Render3D.pickPart(cx, cy);
       if (!hit || !hit.part) return;
@@ -2240,12 +2265,15 @@ const Flight = {
       : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? `Drive with ${kk('fwd')}/${kk('back')}, steer ${kk('left')}/${kk('right')} · hold ${kk('brake')} to brake` : 'Tap parts to use them');
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length && !v.gear.length; // (running gear brakes too)
     const ws = Combat.status(v);
-    $('#weapon-box').hidden = !ws || this.destroyed;
+    // a radar aboard: the RDR pill (touch), and the weapon box shows for it even on a craft with nothing to fire
+    const rdr = typeof Radar !== 'undefined' && Radar.aboard(v) && !this.destroyed && !this.groundAim;
+    $('#weapon-box').hidden = (!ws && !rdr) || this.destroyed;
     $('#btn-cm').hidden = !(ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0)) || this.destroyed; // (a ground vehicle's smoke grenades: SMOKE)
-    $('#btn-fire').hidden = !!(ws && ws.cmOnly); // (only flares or chaff on board: nothing to fire)
+    $('#btn-fire').hidden = !!(ws && ws.cmOnly) || (!ws && rdr); // (only flares or chaff on board: nothing to fire)
+    if (rdr || this._rdr) this.radarPill(v, ws, rdr); // (an old craft: never)
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
-      set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
+      set('w-name', (ws.radar && ws.radar !== 'ok' ? '⊘ ' : '') + ws.name + (ws.n > 1 ? ' ▸' : '')); // (⊘: radar missiles with no radar to guide them)
       const fl = ws.flares || (ws.cmOnly && ws.fl) ? `✦${ws.flares}` : '', ch = ws.chaff || (ws.cmOnly && ws.ch) ? `≋${ws.chaff}` : '';
       const cm = fl && ch ? `${fl} ${ch}` : fl || ch; // flares and chaff left (0 shown when they are all a craft has)
       set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
@@ -2266,6 +2294,21 @@ const Flight = {
     if (gnd || this._gsync) { this._gsync = gnd; GHUD.sync(this, ws); } // (the ground controls; once more as they go)
     Controls.keyHints(this, false, ws); // (a desktop's key hints: rebuilt only when what they say changes)
     if (force) { this.updateThrottleDom(); this.syncSas(); }
+  },
+
+  // The RDR pill (touch: a desktop hides it and has I and O) and what the weapon box shows for a radar: its words
+  // ('RDR PD', 'RDR OFF', 'RDR OUT'), dimmed while off, red when knocked out; on a craft with a radar and nothing to
+  // fire, the box holds the pill alone. Written only on change; an old craft never comes here (rdr false and _rdr unset).
+  radarPill(v, ws, rdr) {
+    const b = $('#btn-radar'), chip = $('#btn-weapon'), t = rdr ? Radar.pill(v) : '';
+    if (b.hidden !== !rdr) b.hidden = !rdr;
+    if (rdr && b.textContent !== t) b.textContent = t;
+    const off = rdr && !!v.radarOff, out = rdr && t === 'RDR OUT';
+    if (b.classList.contains('off') !== off) b.classList.toggle('off', off);
+    if (b.classList.contains('out') !== out) b.classList.toggle('out', out);
+    const noChip = !ws && rdr;
+    if (chip.hidden !== noChip) chip.hidden = noChip;
+    this._rdr = rdr;
   },
 
   // ------------------------------------------------------------------ rendering

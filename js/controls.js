@@ -61,6 +61,8 @@ const KEY_ACTIONS = [
   ['fire', 'Weapons', 'any', 'Fire (hold)', ['KeyV']],
   ['weapon', 'Weapons', 'any', 'Change weapon (with Shift: back)', ['Tab']],
   ['cm', 'Weapons', 'any', 'Flares, chaff or smoke', ['KeyK']],
+  ['radarNext', 'Weapons', 'any', 'Radar: the next target (with Shift: back)', ['KeyI']],
+  ['radarPower', 'Weapons', 'any', 'Radar on or off (off: silent, warning receivers can\'t hear it)', ['KeyO']],
   ['camera', 'Camera', 'any', 'Reset the camera · aiming: hold to look round, tap to centre', ['KeyC']],
   ['chat', 'Multiplayer', 'any', 'Chat', ['KeyT', 'Enter']],
   ['score', 'Multiplayer', 'any', 'Scoreboard (hold)', ['Backquote']],
@@ -71,7 +73,7 @@ const KEY_ACTIONS = [
   ['bMatch', 'Builder', 'build', 'Paint it like the part it hangs on', ['KeyM']],
   ['bGrid', 'Builder', 'build', 'Grid (2D)', ['KeyG']],
   ['b3d', 'Builder', 'build', '2D blueprint or 3D view', ['KeyV']],
-  ['bXray', 'Builder', 'build', 'X-ray (Armour)', ['KeyX']],
+  ['bXray', 'Builder', 'build', 'X-ray (armour and radar)', ['KeyX']],
   ['bFit', 'Builder', 'build', 'Fit the view', ['KeyF']],
   ['bLaunch', 'Builder', 'build', 'Launch', ['Enter']],
 ];
@@ -189,6 +191,7 @@ const Controls = (() => {
     fire: ['#btn-fire', 'Fire', 'both'], cm: ['#btn-cm', 'Flares, chaff, smoke', 'both'], chip: ['#btn-weapon', 'Weapon chip', 'both'], catapult: ['#btn-catapult', 'Catapult', 'air'],
     sight: ['#btn-sight', 'Sight', 'ground'], mg: ['#btn-mg', 'Machine guns', 'ground'], lock: ['#btn-lock', 'Radar lock', 'ground'], ammo: ['#ammo-stack', 'Shell chips', 'ground'],
     range: ['#btn-range', 'Sight\'s range', 'ground'], gmap: ['#gmap', 'Minimap', 'ground'], hints: ['#key-hints', 'Key hints', 'both'],
+    radar: ['#btn-radar', 'Radar', 'air'],
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
   // the panels the controls must stay clear of when the HUD grows (fit)
@@ -442,7 +445,8 @@ const Controls = (() => {
       const ws = v && !F.destroyed ? (wsNow !== undefined ? wsNow : Combat.status(v)) : null, cat = !!(F.catapult && F.catapult.state === 'hold');
       const weap = !!ws && !ws.cmOnly, cm = !!ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0);
       const mode = !v ? '' : F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}` : F._bodyGround ? 'd' : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '') : v.kind;
-      const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}`;
+      const rdr = !!(v && !F.destroyed && typeof Radar !== 'undefined' && Radar.aboard(v)); // (a radar aboard: its keys)
+      const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}|${rdr}`;
       if (key === S.hintKey && !force) return;
       S.hintKey = key;
       const b = q('#key-hints-toggle');
@@ -470,6 +474,7 @@ const Controls = (() => {
         if (!F.flyAim) r.push(row(f('brake'), 'Brake'));
         if (weap) r.push(row(`${F.flyAim ? '<kbd>LMB</kbd>' : ''}${f('fire')}`, 'Fire'), row(f('weapon'), 'Weapon'));
         if (cm) r.push(row(f('cm'), 'Flares'));
+        if (rdr) r.push(row(f('radarNext', 'radarPower'), 'Radar: next, on/off'));
         if (cat) r.push(row(f('catapult'), 'Launch'));
         r.push(row(f('map'), 'Map'));
       } else { // a rocket or a helicopter
@@ -479,6 +484,7 @@ const Controls = (() => {
         if (heli) r.push(row(f('brake'), 'Brake'));
         if (weap) r.push(row(f('fire'), 'Fire'), row(f('weapon'), 'Weapon'));
         if (cm) r.push(row(f('cm'), 'Flares'));
+        if (rdr) r.push(row(f('radarNext', 'radarPower'), 'Radar: next, on/off'));
         if (!F.mp) r.push(row(f('warpDown', 'warpUp'), 'Warp'));
         r.push(row(f('map'), 'Map'));
       }

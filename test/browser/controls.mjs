@@ -482,7 +482,7 @@ if (part(5)) {
   const k = await page.evaluate(() => { const c = document.querySelector('#modal-card'), rows = [...c.querySelectorAll('.kb-row')]; return { fit: c.scrollWidth <= c.clientWidth + 1, rows: rows.length, over: rows.filter((r) => r.getBoundingClientRect().right > innerWidth).length }; });
   await shot(page, 'keys-390x844');
   ok('on a phone: Settings has the controls (Touch controls, UI size, Stick size, Aim stick speed, Keys, Edit controls) and the Keys screen fits its width',
-    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 64 && k.over === 0, { s: { w: s.w }, k });
+    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 66 && k.over === 0, { s: { w: s.w }, k });
   await page.evaluate(() => UI.closeModal());
   await pageErrors(page, 'phone keys ');
   await ctx.close();

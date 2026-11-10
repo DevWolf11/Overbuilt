@@ -1244,7 +1244,7 @@ body.ground .throttle-box .throttle-track { height: clamp(96px, calc(14vh / var(
 
 /* a desktop (touch controls off: body.pc): no stick, no touch buttons; the panels stay (autopilot, throttle, stage, the
    weapon chip, the shell chips, the minimap), and the key hints take the stick's corner */
-body.pc :is(#joy-zone, #flight-ui .rot-controls, #btn-fire, #btn-cm, #btn-catapult, #btn-sight, #btn-mg, #btn-lock) { display: none !important; }
+body.pc :is(#joy-zone, #flight-ui .rot-controls, #btn-fire, #btn-cm, #btn-catapult, #btn-sight, #btn-mg, #btn-lock, #btn-radar) { display: none !important; }
 .key-hints { display: none; padding: 4px 8px 7px; border-radius: 10px; max-width: 330px; }
 body.pc .key-hints { display: block; }
 .kh-head { display: block; padding: 2px 0 3px; border: 0; background: none; cursor: pointer; font: 600 10px var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
@@ -1270,7 +1270,7 @@ body.pc.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(24px + var(-
 body.ctl-edit #flight-ui :is(.telemetry, .flight-top-right, #warp, #hint, #map-legend, #flight-alert, .sight-vig, #gai-bar) { opacity: 0.3; }
 body.ctl-edit #joy-zone { outline: 1px dashed rgba(98, 208, 255, 0.4); outline-offset: -1px; background: rgba(98, 208, 255, 0.04); }
 body.ctl-edit :is(#joy, #sas-bar, #flight-ui .air-btns, #flight-ui .roll-btns, #btn-brake, #flight-ui .throttle-box, #flight-ui .stage-box, #btn-fire, #btn-cm, #btn-weapon, #btn-catapult,
-  #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
+  #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints, #btn-radar) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
 body.ctl-edit .ctl-sel { outline: 2px solid var(--amber) !important; outline-offset: 3px; }
 body.ctl-edit .air-btns { display: flex !important; }
 .ctl-edit-bar { position: fixed; z-index: 27; left: 50%; transform: translateX(-50%); top: 36%; width: min(440px, calc(100% - 24px)); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -1336,6 +1336,24 @@ body.ctl-edit .air-btns { display: flex !important; }
   color: #5fd7ff; background: rgba(95, 215, 255, 0.1); border: 1px solid rgba(95, 215, 255, 0.5);
 }
 .pi-chip:hover { background: rgba(95, 215, 255, 0.2); }
+
+/* the flight HUD: the RDR pill over the weapon chip (touch only: a desktop has I and O), in the chip's colours. A tap
+   picks the next target, a hold (0.6 s, the ring filling) switches the radar on or off. It sits above the weapon box
+   without moving the chip, FIRE or CM, in the portrait column and the landscape row alike */
+.radar-pill {
+  position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 64px; height: 30px; padding: 0 10px; border-radius: 15px;
+  font: 600 11px var(--mono); letter-spacing: .08em; white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: var(--panel); border: 1px solid var(--line-strong); color: #7dffb0; overflow: hidden;
+}
+.radar-pill[hidden] { display: none; }
+.radar-pill::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; border: 2px solid #7dffb0; pointer-events: none;
+  clip-path: inset(0 100% 0 0); transition: clip-path 0s;
+}
+.radar-pill.holding::after { clip-path: inset(0 0 0 0); transition: clip-path 0.6s linear; }
+.radar-pill.off { opacity: .55; color: var(--muted); }
+.radar-pill.out { color: #ff5d5d; }
+body.ground #btn-radar { display: none; }
 
 /* == big: drones == */
 
