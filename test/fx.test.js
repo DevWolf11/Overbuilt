@@ -435,7 +435,8 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   t('6 the fog chunks are patched on r159 (PATCHED.fog), with no warning', P.fog === true && warns.length === 0 && NAMES.every((k) => C[k] !== r159[k]), { P, warns });
   const LIN = ['float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', 'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );'];
   t('6 the linear fog (the hangar\'s THREE.Fog) is r159\'s formula verbatim, outside the EXP2 case', LIN.every((l) => r159.fog_fragment.includes(l) && C.fog_fragment.includes(l)) && /^#if defined\( USE_FOG \) && ! defined\( FOG_EXP2 \)/.test(C.fog_fragment));
-  t('6 tonemapping_fragment ends with r159\'s text verbatim; the haze goes first, only for FogExp2 and not under OB_NOFOG', C.tonemapping_fragment.endsWith(r159.tonemapping_fragment) && C.tonemapping_fragment.startsWith('#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )') && /obFog\( fogDensity, fogD2 \* fogID, dot\( vFogPos, viewMatrix\[ 1 \]\.xyz \) \)/.test(C.tonemapping_fragment) && /inversesqrt\( max\( fogD2, 1e-12 \) \)/.test(C.tonemapping_fragment));
+  t('6 tonemapping_fragment ends with r159\'s text verbatim; the haze goes first, only for FogExp2 and not under OB_NOFOG', C.tonemapping_fragment.endsWith(r159.tonemapping_fragment) && C.tonemapping_fragment.startsWith('#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )') && /mix\( gl_FragColor\.rgb, vFogC, obFogF\( vFogT, length\( vFogPos \) \) \)/.test(C.tonemapping_fragment)
+    && /vFogT = obFogT\( fogDensity, obD, dot\( mvPosition\.xyz, viewMatrix\[ 1 \]\.xyz \) \);/.test(C.fog_vertex) && /vFogC = obFogCol\( mvPosition\.xyz \/ max\( obD, 1e-6 \), fogLin \);/.test(C.fog_vertex));
   const cases = { 'no fog': [], 'linear fog (the hangar)': ['USE_FOG'], 'linear fog, tone-mapped': ['USE_FOG', 'TONE_MAPPING'], 'FogExp2 under OB_NOFOG': ['USE_FOG', 'FOG_EXP2', 'OB_NOFOG', 'TONE_MAPPING'] };
   const same = Object.entries(cases).filter(([, d]) => {
     if (d.includes('OB_NOFOG')) return pre(C.tonemapping_fragment, d) === pre(r159.tonemapping_fragment, d) && pre(C.fog_fragment, d) === ''; // (PART, DECAL: they fog themselves; three's own fog chunk empty for EXP2 now)
@@ -443,7 +444,7 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   }).map(([k]) => k);
   t('6 preprocessed, the patched chunks give r159\'s very lines without fog, with the linear fog (tone-mapped or not), and for FogExp2 under OB_NOFOG (tone mapping only)', same.length === 4, same);
   const e2 = pre(all(C), ['USE_FOG', 'FOG_EXP2', 'TONE_MAPPING']);
-  t('6 with FogExp2 the fog mixes in at the start of the tone mapping (linear, before it), never after the colour-space encode', e2.indexOf('obFogCol( vFogPos * fogID, fogLin )') > 0 && e2.indexOf('obFogCol( vFogPos * fogID, fogLin )') < e2.indexOf('toneMapping( gl_FragColor.rgb )') && !/1\.0 - exp\( - fogDensity \* fogDensity/.test(e2) && /vFogPos = mvPosition\.xyz;/.test(e2) && /#define OB_FOG|uniform vec4 fogSunV/.test(e2));
+  t('6 with FogExp2 the fog mixes in at the start of the tone mapping (linear, before it), never after the colour-space encode', e2.indexOf('mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) )') > 0 && e2.indexOf('mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) )') < e2.indexOf('toneMapping( gl_FragColor.rgb )') && !/1\.0 - exp\( - fogDensity \* fogDensity/.test(e2) && /vFogPos = mvPosition\.xyz;/.test(e2) && /#define OB_FOG|uniform vec4 fogSunV/.test(e2));
   const U = ['fogSunV', 'fogSunH', 'fogSunset', 'fogGlow', 'fogLin', 'fogH'], L = T.UniformsLib.fog, fogged = Object.keys(T.ShaderLib).filter((k) => T.ShaderLib[k].uniforms.fogColor);
   const shared = fogged.filter((k) => U.every((u) => T.ShaderLib[k].uniforms[u] && T.ShaderLib[k].uniforms[u].value === L[u].value));
   t('6 every ShaderLib entry with fog (eleven) holds the very arrays of UniformsLib.fog (fogSunV, fogSunH, fogSunset, fogGlow, fogLin, fogH): one write reaches all', fogged.length === 11 && shared.length === 11 && Object.prototype.toString.call(L.fogSunV.value) === '[object Float32Array]' && L.fogSunV.value.length === 4 && L.fogH.value.length === 2, { fogged, shared });
@@ -460,10 +461,14 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   }
   t('6 a fog chunk that isn\'t r159\'s (any of the five) leaves all five as they are and installs no uniform, flag false, one warning (the shadow patch goes ahead)', left.length === 0, left.join(', '));
   // 7 the haze's numbers: obFog lifted from the patched chunk into JS (GLSL's float → let, its built-ins as Math's)
-  const src = C.fog_pars_fragment, a = src.indexOf('float obFog('), body = src.slice(src.indexOf('{', a) + 1, src.indexOf('\n}', a));
-  const lift = (hp) => Function('fogH', 'dens', 'd', 'h', 'const clamp = (x, a, b) => Math.min(b, Math.max(a, x)), { abs, exp, log, max, pow, sqrt } = Math;\n'
-    + pre(body, hp ? ['GL_FRAGMENT_PRECISION_HIGH'] : []).replace(/\bfloat\s+/g, 'let ')); // (highp's form, or the log-space one a GPU without highp fragments takes)
-  const obFog = lift(true), obFogLow = lift(false);
+  // (the built-in materials: obFogT a vertex, from fog_pars_vertex, then obFogF a pixel, from fog_pars_fragment; obFogT in
+  // highp's form or the log-space one a GPU without highp fragments takes)
+  const fnOf = (src, name) => { const a = src.indexOf('float ' + name + '('); return src.slice(src.indexOf('{', a) + 1, src.indexOf('\n}', a)); };
+  const MATH = 'const clamp = (x, a, b) => Math.min(b, Math.max(a, x)), { abs, exp, log, max, pow, sqrt } = Math;\n', js = (b, hp) => pre(b, hp ? ['GL_FRAGMENT_PRECISION_HIGH'] : []).replace(/\bfloat\s+/g, 'let ');
+  const body = fnOf(C.fog_pars_vertex, 'obFogT'), T_HI = Function('fogH', 'dens', 'd', 'h', MATH + js(body, true)), T_LO = Function('fogH', 'dens', 'd', 'h', MATH + js(body, false));
+  const F_ = Function('t', 'd', MATH + js(fnOf(C.fog_pars_fragment, 'obFogF'), true));
+  const obFog = (fh, dens, d, h) => F_(T_HI(fh, dens, d, h), d), obFogLow = (fh, dens, d, h) => F_(T_LO(fh, dens, d, h), d);
+  t('7 the particles\' and decals\' obFog is the built-ins\' obFogF of obFogT, and the fragment chunk\'s obFogT is the vertex chunk\'s', /return obFogF\( obFogT\( dens, d, h \), d \);/.test(C.fog_pars_fragment) && fnOf(C.fog_pars_fragment, 'obFogT') === body);
   const src3d = fs.readFileSync(path.join(G.ROOT, 'js', 'render3d.js'), 'utf8');
   t('7 the game sets Earth\'s haze as the table assumes: 6e-5/m at the camera, thinning every 1600 m, 0.8 of the curvature', /const HAZE_H = 1600;/.test(src3d) && /b === EARTH \? 6e-5 \* Math\.exp\(-alt \/ HAZE_H\)/.test(src3d) && /FOGX\.h\[0\] = b === EARTH \? 1 \/ HAZE_H : 0; FOGX\.h\[1\] = b === EARTH \? 0\.8 \/ \(2 \* R\) : 0;/.test(src3d));
   const R0 = 315000, fh = { x: 1 / 1600, y: 0.8 / (2 * R0) };

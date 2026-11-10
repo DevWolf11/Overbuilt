@@ -327,22 +327,30 @@ const Render3D = (() => {
   // ShaderMaterial with fog: true must include fog_pars_fragment; defining OB_NOFOG it fogs itself with obFog/obFogCol
   // (PART, DECAL).
   const FOGX = { sun: new Float32Array(4), sunH: new Float32Array(3), sunset: new Float32Array(3), glow: new Float32Array(3), lin: new Float32Array(3), h: new Float32Array(2) };
-  const OB_FOG_FN = `
-float obFog( float dens, float d, float h ) {
+  const OB_FOGT_FN = `
+float obFogT( float dens, float d, float h ) {
 	h += ( d * d - h * h ) * fogH.y;
 	float x = clamp( - h * fogH.x, -30.0, 30.0 );
 #ifdef GL_FRAGMENT_PRECISION_HIGH
-	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : dens * ( exp( x ) - 1.0 ) / x;
+	return abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : dens * ( exp( x ) - 1.0 ) / x;
 #else
-	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : ( exp( log( max( dens, 1e-30 ) ) + x ) - dens ) / x;
+	return abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : ( exp( log( max( dens, 1e-30 ) ) + x ) - dens ) / x;
 #endif
+}`;
+  const OB_FOG_FN = `${OB_FOGT_FN}
+float obFogF( float t, float d ) {
 	float v = max( t * d, 0.0 );
 	return 1.0 - exp( - v * sqrt( v ) );
-}`;
-  // (dens: extinction at the camera; d: distance; h: height over the camera. The curvature term: far points sit lower in
-  // the view's flat frame than over the planet, 0.8 of the drop; t: the mean density along the ray (highp holds e^30; a
-  // GPU without highp fragments takes the log-space form, which never leaves the density's own range);
-  // v·√v: τ^1.5, without a pow (the haze runs on every fogged pixel: two exps and a root)
+}
+float obFog( float dens, float d, float h ) { return obFogF( obFogT( dens, d, h ), d ); }`;
+  // (obFogT: the mean density along the ray, dens the extinction at the camera, d the distance, h the height over the
+  // camera. The curvature term: far points sit lower in the view's flat frame than over the planet, 0.8 of the drop.
+  // highp holds e^30; a GPU without highp fragments takes the log-space form, which never leaves the density's own range.
+  // obFogF: the haze for that mean density over d, 1 − exp(−τ^1.5), τ^1.5 as v·√v.)
+  // The built-in materials work out the mean density and the haze's colour a vertex (both change slowly and smoothly over
+  // a triangle; near the ground the mean density is the camera's own, so even a long runway quad gets it right, and where
+  // the colour would go wrong across a big triangle round the camera the haze is nil), and only the distance, the shaping
+  // and the mix a pixel: about the work three's own fog did. Particles, decals and clouds take obFog and obFogCol whole
   const OB_FOGC_FN = `
 vec3 obFogCol( vec3 dir, vec3 base ) {
 	float az = clamp( dot( dir, fogSunH ) * 0.5 + 0.5, 0.0, 1.0 );
@@ -362,16 +370,18 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
     tonemapping_fragment: '#if defined( TONE_MAPPING )\n\tgl_FragColor.rgb = toneMapping( gl_FragColor.rgb );\n#endif',
   };
   const FOG_OB = {
-    fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\tvarying vec3 vFogPos;\n\t#endif\n#endif',
-    fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n\t#ifdef FOG_EXP2\n\t\tvFogPos = mvPosition.xyz;\n\t#endif\n#endif',
-    fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\t#define OB_FOG\n\t\tuniform float fogDensity;\n\t\tvarying vec3 vFogPos;\n'
+    fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\tvarying vec3 vFogPos, vFogC;\n\t\tvarying float vFogT;\n'
+      + '\t\tuniform float fogDensity; uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOGT_FN + OB_FOGC_FN + '\n\t#endif\n#endif',
+    fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n\t#ifdef FOG_EXP2\n\t\tvFogPos = mvPosition.xyz;\n'
+      + '\t\tfloat obD = length( mvPosition.xyz );\n'
+      + '\t\tvFogT = obFogT( fogDensity, obD, dot( mvPosition.xyz, viewMatrix[ 1 ].xyz ) );\n'
+      + '\t\tvFogC = obFogCol( mvPosition.xyz / max( obD, 1e-6 ), fogLin );\n\t#endif\n#endif',
+    fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\t#define OB_FOG\n\t\tuniform float fogDensity;\n\t\tvarying vec3 vFogPos, vFogC;\n\t\tvarying float vFogT;\n'
       + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN
       + '\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
     fog_fragment: '#if defined( USE_FOG ) && ! defined( FOG_EXP2 )\n\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
     tonemapping_fragment: '#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )\n'
-      + '\tfloat fogD2 = dot( vFogPos, vFogPos ), fogID = inversesqrt( max( fogD2, 1e-12 ) );\n'
-      + '\tfloat fogFactor = obFog( fogDensity, fogD2 * fogID, dot( vFogPos, viewMatrix[ 1 ].xyz ) );\n'
-      + '\tif ( fogFactor > 1e-3 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, obFogCol( vFogPos * fogID, fogLin ), fogFactor );\n#endif\n'
+      + '\tgl_FragColor.rgb = mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) );\n#endif\n'
       + FOG_R159.tonemapping_fragment,
   };
   const FOG_U = { fogSunV: 'sun', fogSunH: 'sunH', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
