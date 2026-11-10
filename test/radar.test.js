@@ -699,4 +699,82 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   void f; void r;
 }
 
+// ---------------------------------------------------------------- I. multiplayer
+// A room of our own (pid 1) and a peer (pid 2) in an mp context, as mp.test.js's: the `rdr` message (radar off and on) and
+// what it does to that peer's search strobes, forged ones, a spawn's reset, the 5 s resend while off, an active missile's
+// `a` on its `mp` rows and on the replica, radar contacts spotting for the team (air only), and the room's name tags.
+{
+  const Q = G.load({ mp: true, combat: true }), X = (c) => G.run(Q, c);
+  const msrc = fs.readFileSync(path.join(G.ROOT, 'js', 'mpui.js'), 'utf8').match(/\n {2}spotted\(g, me, F\) \{[\s\S]*?\n {2}\},\n/)[0];
+  X(`var __P = 1000, __h = new Map(); performance.now = () => __P;
+    var document = { hidden: false, addEventListener() {} }, navigator = {}, setInterval = () => 0, clearInterval = () => {};
+    Object.assign(Net, { isHost: false, me: 1, hostNow: () => __P, on: (t, fn) => { if (!__h.has(t)) __h.set(t, []); __h.get(t).push(fn); } });
+    var emit = (m) => { for (const fn of __h.get(m.t) || []) fn(m); };
+    var sent = (t) => (Net.out || []).filter(([m]) => m.t === t);
+    var MPUI = new Proxy({ ${msrc.trim().replace(/,$/, '')} }, { get: (o, k) => (k in o ? o[k] : () => {}) });
+    MP.bind(); MP.active = true;
+    MP.state = { mode: 'sandbox', format: '2v2', settings: { ...MP_DEFAULTS }, players: [{ pid: 1, name: 'Us', team: 0 }, { pid: 2, name: 'Them', team: 1 }] };
+    var spawnRows = (key) => templateRows(TEMPLATES[key]).map((q, i) => [i + 1, q.type, q.x, q.y, q.rot, q.flip ? 1 : 0, q.z || 0, q.att != null ? q.att + 1 : 0, q.skin || 0]);`);
+  const v = G.craft(Q, X('TEMPLATES.fs16.parts'), 'plane', 'air');
+  Q.__v = v;
+  X(`Object.assign(Flight, { running: true, mp: { solo: false }, vessels: [__v], active: __v, time: 10, destroyed: false, spectate: null, groundAim: false, toast() {} });
+    MP.sent = { s: 0, pv: 0, hp: 0, hpSig: '' }; MP.spawnMsg = { t: 'spawn', kind: 'plane', parts: spawnRows('fs16') };
+    emit({ t: 'spawn', f: 2, kind: 'plane', parts: spawnRows('fs16') });
+    var P2 = MP.peers.get(2), g = P2.ghost;`);
+  // the ghost behind us, nose on us, 8 km back: its radar (a pulse-Doppler, 15 km) paints us
+  X(`(() => { g.q = { ...__v.q }; const f = __v.axis(0, 1, 0); g.x = __v.x - f.x * 8000; g.y = __v.y - f.y * 8000; g.z = __v.z - f.z * 8000; g.vx = g.vy = g.vz = 0; g.hiddenUntilSnap = false; })()`);
+  const strobes = () => X(`(Radar._t.scanners(__v, Flight), Radar.S.scanners.some((s) => s.ref === g))`);
+  const s0 = strobes();
+  X(`emit({ t: 'rdr', f: 2, on: 0 })`);
+  const off = X('P2.radarOff'), s1 = strobes();
+  X(`emit({ t: 'rdr', f: 2, on: 1 })`);
+  const on = X('P2.radarOff'), s2 = strobes();
+  t('I32 rdr: a peer\'s radar off sets its radarOff and its search strobes stop; on again, they come back', !!X('g') && s0 && off === true && !s1 && on === false && s2, [s0, off, s1, on, s2]);
+  X(`emit({ t: 'rdr', f: 2, on: 0 }); for (const on of ['1', '0', {}, NaN, null, undefined, true, false, [0], 2, -1]) emit({ t: 'rdr', f: 2, on }); emit({ t: 'rdr', f: 2 }); var off2 = P2.radarOff;
+    emit({ t: 'rdr', f: 2, on: 1 }); for (const on of ['1', '0', {}, NaN, null, true, false, [0]]) emit({ t: 'rdr', f: 2, on }); var on2 = P2.radarOff;
+    emit({ t: 'rdr', f: 99, on: 0 }); emit({ t: 'rdr', f: '__proto__', on: 0 }); emit({ t: 'rdr', on: 0 });`);
+  t('...forged rdr (on "1", {}, NaN, null, true, missing; from an unknown pid or none) is ignored, and makes no peer', X(`off2 === true && on2 === false && !MP.peers.has(99) && !MP.peers.has('__proto__') && !MP.peers.has(undefined) && MP.peers.size === 1`), X('[off2, on2, [...MP.peers.keys()]]'));
+  X(`emit({ t: 'rdr', f: 2, on: 0 }); emit({ t: 'spawn', f: 2, kind: 'plane', parts: spawnRows('fs16') }); var reset = P2.radarOff;`);
+  t('...a new spawn from that player resets it (a new craft starts with its radar on)', X('reset === false'));
+
+  // sending: the toggle says so at once; every 5 s while off; nothing while on; a spawn sent again carries it
+  X(`Net.out = []; Radar.toggle(Flight); var t0 = sent('rdr').map(([m, to]) => [m.on, to === undefined]);
+    var tick = (dt) => { __P += dt; MP.afterUpdate(); }, n = () => sent('rdr').length;
+    var seq = []; for (let i = 0; i < 12; i++) { tick(1000); seq.push(n()); } MP.afterUpdate(true); var last = n();
+    Net.out = []; MP.resendSpawn(3); var re = Net.out.map(([m, to]) => m.t + ':' + to + (m.t === 'rdr' ? ':' + m.on : '')).join();
+    Net.out = []; Radar.toggle(Flight); var t1 = sent('rdr').map(([m]) => m.on); for (let i = 0; i < 12; i++) tick(1000); var quiet = n();
+    Net.out = []; MP.resendSpawn(3); var re2 = Net.out.map(([m]) => m.t).join();`);
+  t('...ours: the toggle sends rdr off at once; while off it is said again every 5 s (not by the hulk\'s last word); on, rdr on once and then nothing', X(`JSON.stringify(t0) === '[[0,true]]' && seq.join() === '1,1,1,1,2,2,2,2,2,3,3,3' && last === 3 && JSON.stringify(t1) === '[1]' && quiet === 1 && !__v.radarOff`), X('[t0, seq, last, t1, quiet]'));
+  t('...a spawn sent again to one who missed it is followed by rdr off to them while our radar is off (their spawn turned it on), nothing more while on', X(`re === 'spawn:3,parts:3,rdr:3:0' && re2 === 'spawn,parts'`), X('[re, re2]'));
+  X(`(() => { const S = MP.sent; MP.sent = null; MP.sendRadar(false); MP.sent = S; })(); Flight.mp = null; Net.out = []; MP.sendRadar(false); var unshared = Net.out.length; Flight.mp = { solo: false };`);
+  t('...nothing goes out unless our craft is in the room', X('unshared === 0'));
+
+  // an active missile: `a: 1` on its mp rows (absent before: old rows unchanged), and the replica goes active
+  X(`Net.out = []; var ms = { k: 'missile', b: EARTH, x: __v.x, y: __v.y, z: __v.z, vx: 300, vy: 0, vz: 0, dx: 1, dy: 0, dz: 0, target: g, sarh: true }; Combat.S.shots.push(ms); MP.missiles.set(ms, { id: 5, at: -1e9, quiet: false });
+    __P += 200; MP.syncMissiles(); var m0 = sent('mp').map(([m]) => Object.keys(m).join()); ms.pit = true; __P += 200; MP.syncMissiles(); var m1 = sent('mp').map(([m]) => m.a);
+    Combat.S.shots.splice(Combat.S.shots.indexOf(ms), 1); MP.missiles.clear();`);
+  t('I32 mp rows: an active radar missile\'s carry a: 1; before it goes active the row is the old one exactly (t, id, P, V, D, tg)', X(`JSON.stringify(m0) === '["t,id,P,V,D,tg"]' && JSON.stringify(m1) === '[null,1]' && !('a' in sent('mp')[0][0])`), X('[m0, m1]'));
+  X(`var at = [g.x + 2000, g.y, g.z], rep = () => Combat.S.shots.find((q) => q.net === 2 && q.netId === 9);
+    emit({ t: 'msl', f: 2, id: 9, b: 'earth', P: at, V: [300, 0, 0], D: [1, 0, 0], tg: 1, radar: 1 }); var r0 = !!rep() && !rep().pit;
+    emit({ t: 'mp', f: 2, id: 9, P: at, V: [300, 0, 0], D: [1, 0, 0], tg: 1 }); var r1 = rep().pit;
+    for (const a of ['1', true, 2, {}, [1]]) emit({ t: 'mp', f: 2, id: 9, P: at, V: [300, 0, 0], D: [1, 0, 0], tg: 1, a }); var r2 = rep().pit;
+    emit({ t: 'mp', f: 2, id: 9, P: at, V: [300, 0, 0], D: [1, 0, 0], tg: 1, a: 1 }); var r3 = rep().pit;
+    emit({ t: 'mp', f: 2, id: 9, P: at, V: [300, 0, 0], D: [1, 0, 0], tg: 1 }); var r4 = rep().pit;`);
+  t('...on our screen: their missile\'s replica goes active (pit) on a: 1 and stays so; anything but the number 1 does nothing', X('r0 && !r1 && !r2 && r3 === true && r4 === true'), X('[r0, r1, r2, r3, r4]'));
+
+  // spotting: a radar contact counts for aircraft against aircraft, our own craft's radar only, never a ground vehicle
+  X(`var tk = null; (() => { const parts = partsFromDesign(templateRows(TEMPLATES.tk34)); tk = new Vessel(parts, buildAdjacency(parts), EARTH); tk.kind = 'tank'; })();
+    var other = { kind: 'plane' }, sv = (me, o, d) => MP.sees(me, o, d);
+    Radar.S.set.clear(); var a0 = [sv(__v, g, 20000), sv(__v, g, 5000)];
+    Radar.S.set.add(g); Radar.S.set.add(tk); var a1 = [sv(__v, g, 20000), sv(other, g, 20000), sv(__v, tk, 20000)]; Radar.S.set.clear();`);
+  t('I32 MP.sees: an enemy aircraft our radar holds is seen at 20 km (by eye within 6 km either way); not on another craft\'s behalf, and never a ground vehicle', X(`a0.join() === 'false,true' && a1.join() === 'true,false,false'`), X('[a0, a1]'));
+  // the room's name tags: within 6 km by eye; further only while our radar holds them; never while destroyed
+  X(`MP.state.mode = 'pvp'; MP.state.settings = { ...MP_DEFAULTS }; Radar.S.set.clear();
+    var sp = () => MPUI.spotted(g, __v, Flight), far = (k) => { const f = __v.axis(0, 1, 0); g.x = __v.x - f.x * k; g.y = __v.y - f.y * k; g.z = __v.z - f.z * k; };
+    far(4000); var b0 = sp(); far(12000); var b1 = sp(); Radar.S.set.add(g); var b2 = sp(); Flight.destroyed = true; var b3 = sp(); Flight.destroyed = false;
+    MP.state.players[1].team = 0; Radar.S.set.clear(); var b4 = sp(); MP.state.players[1].team = 1; MP.state.mode = 'sandbox'; Radar.S.set.clear();`);
+  t('...MPUI.spotted (an air battle\'s tags and scope): an enemy at 4 km by eye; at 12 km not, unless our radar holds it; never while we are destroyed; a team-mate always', X(`[b0, b1, b2, b3, b4].join() === 'true,false,true,false,true'`), X('[b0, b1, b2, b3, b4]'));
+  t('...the radar half reads radar.js (no part loop, no numeric radar left on any part)', !/def\.radar\b/.test(msrc) && /Radar\.has\(g\)/.test(msrc));
+}
+
 t.done();

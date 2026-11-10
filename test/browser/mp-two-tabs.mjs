@@ -6,7 +6,8 @@
 // screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere. Then the
 // big update's deaths on the other screen: B's plane, its pilot knocked out 1 km up, falls on A's screen as A's own hulk
 // and crashes there once, leaving a crash site; B's wing loses a half, which A sees go; B's Dune Buggy knocked out in the
-// sandbox stays on A's screen as a wreck.
+// sandbox stays on A's screen as a wreck. Then radar: A's FS-16 locks B's 8 km ahead and B's warning receiver warns;
+// A's radar off stops the warning and its search strobe on B's screen, on again brings the strobe back.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -222,6 +223,38 @@ const k1 = await A.evaluate(() => { const g = window.__g, w = MP.wrecks.find((x)
 const kB = await B.evaluate(() => { const v = Flight.active; return { ko: v.ko && v.ko.why, wreck: !!v.wreck, v: Math.hypot(v.vx, v.vy, v.vz) }; });
 log('B\'s buggy knocked out', JSON.stringify(kB), 'A sees', JSON.stringify(k1));
 ok('B\'s Dune Buggy knocked out in the sandbox (its driver: crew) stops dead and stays on A\'s screen as a wreck', kB.ko === 'crew' && kB.wreck && kB.v === 0 && k1.wreck && k1.listed && k1.pid === 2 && k1.ko === 'crew' && k1.inWorld && !k1.ghost, { kB, k1 });
+
+// radar in a room (the big update, spec-radar §8): A flies an FS-16 8 km behind B's FS-16, its radar missiles chosen;
+// A's radar locks B and B's warning receiver warns (RADAR LOCK, the lock's sender) and hears A's search; A switches its
+// radar off: the lock goes, B is told (rdr) and A's search strobe stops; on again, B hears it again
+log('B flies', JSON.stringify(await flyB('fs16', 3000)));
+await A.evaluate(() => { UI.closeModal(); Builder.loadTemplate('fs16'); Builder.changed(); MP.launch(); });
+await A.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.fs16.name, null, { timeout: 60000 });
+const poseB = await B.evaluate(() => { const v = Flight.active, n = v.axis(0, 1, 0); v.vx = n.x * 200; v.vy = n.y * 200; v.vz = n.z * 200; return { x: v.x, y: v.y, z: v.z, q: { ...v.q }, n: { x: n.x, y: n.y, z: n.z } }; });
+await A.evaluate((B) => { const v = Flight.active; v.x = B.x - B.n.x * 8000; v.y = B.y - B.n.y * 8000; v.z = B.z - B.n.z * 8000; v.q = { ...B.q }; v.vx = B.n.x * 200; v.vy = B.n.y * 200; v.vz = B.n.z * 200; v.av = { x: 0, y: 0, z: 0 }; v.landed = false; v.throttle = 0.8;
+  v.wsel = Combat.systems(v).findIndex((s) => s.w.kind === 'missile' && s.w.radar && s.w.seek === 'air'); }, poseB);
+await B.waitForFunction(() => { const P = MP.peers.get(1), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.parts.some((p) => p.type === 'radarPD'); }, null, { timeout: 60000 });
+const lockA = await A.waitForFunction(() => { const L = Combat.S.lock; return L && L.remote === 2 ? { d: Math.round(Math.hypot(L.x - Flight.active.x, L.y - Flight.active.y, L.z - Flight.active.z)), held: Radar.has(L), sent: MP.lockSent } : false; }, null, { timeout: 120000 }).then((h) => h.jsonValue()).catch(() => null);
+const warnB = await B.waitForFunction(() => MP.rwr.has(1) && Combat.S.rwr > 1 ? { rwr: Combat.S.rwr, off: !!MP.peers.get(1).radarOff } : false, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+const strobeB = await B.waitForFunction(() => Radar.S.scanners.some((s) => s.ref === MP.peers.get(1).ghost), null, { timeout: 30000 }).then(() => true).catch(() => false);
+log('A locks B', JSON.stringify(lockA), '| B warned', JSON.stringify(warnB), '| B hears A\'s search', strobeB);
+ok('a radar plane\'s lock in a room: A\'s radar holds and locks B 8 km ahead, and B\'s warning receiver warns of it (RADAR LOCK) and hears A\'s search', !!lockA && lockA.held && lockA.sent === 2 && !!warnB && !warnB.off && strobeB, { lockA, warnB, strobeB });
+// drawn: B's warning on screen; A's name tag over B marks it for a tap (radar.js picks it)
+for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = false; });
+await A.waitForTimeout(2500);
+const markA = await A.evaluate(() => { const g = MP.peers.get(2).ghost; return Radar.S.marks.filter((m) => m.ref === g).map((m) => [Math.round(m.x), Math.round(m.y)]); });
+await A.screenshot({ path: SHOTS + 'mp-radar-lock-A.png' }); await B.screenshot({ path: SHOTS + 'mp-radar-lock-B.png' });
+for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = true; });
+log('A\'s tag mark on B', JSON.stringify(markA));
+ok('...A\'s name tag over B is a radar mark (a tap there picks B)', markA.length === 1 && markA[0][0] > 0 && markA[0][0] < 900 && markA[0][1] > 0 && markA[0][1] < 560, markA);
+await A.evaluate(() => Radar.toggle(Flight));
+const offB = await B.waitForFunction(() => !MP.rwr.has(1) && MP.peers.get(1).radarOff === true && !Radar.S.scanners.length ? true : false, null, { timeout: 30000 }).then(() => true).catch(() => false);
+const offA = await A.evaluate(() => ({ off: !!Flight.active.radarOff, lock: !!Combat.S.lock, held: Radar.S.set.size, sent: MP.lockSent }));
+log('A radar off', JSON.stringify(offA), '| B: lock gone, told, strobe gone:', offB);
+ok('...A switches its radar off: no lock and no contacts on A; on B the warning stops, rdr says it is off and its search strobe goes', offB && offA.off && !offA.lock && offA.held === 0 && !offA.sent, offA);
+await A.evaluate(() => Radar.toggle(Flight));
+const onB = await B.waitForFunction(() => MP.peers.get(1).radarOff === false && Radar.S.scanners.some((s) => s.ref === MP.peers.get(1).ghost), null, { timeout: 30000 }).then(() => true).catch(() => false);
+ok('...on again: B hears A\'s search again', onB);
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();
