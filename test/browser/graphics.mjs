@@ -22,7 +22,7 @@
 //     laser beam (Drone.beams) drawn as a streak bright all along
 //  4. particles and light: an ammo death 40 m from a TK-34 in Highland Ridge: the particle, chunk and streak meshes one
 //     draw each; its flash lends S.engine its light at once, at the flash, gone by 0.6 s (a flash with light: false
-//     lends none); the chunks come to rest on their floor; five deaths stay under the cap; a puff by the ground thins out
+//     lends none); the chunks come to rest on the ground under them; five deaths stay under the cap; a puff by the ground thins out
 //     towards it; a mid-air death 75 m off whites out under a tenth of the screen (its flash and shock ring held to
 //     GLOW_MAX of the screen however near)
 // 12. the 2D fallback (Silly retro2d): every FX.death kind drawn by FX.draw without an error
@@ -200,21 +200,24 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     const d1 = window.__draws(), G1 = Render3D.gfx(), off = Math.hypot(G1.engine.x - lx, G1.engine.y - ly, G1.engine.z - lz);
     const light = [];
     for (let i = 1; i <= 120; i++) { FX.update(1 / 60, Flight); window.__draws(); if (i % 6 === 0) light.push([+(i / 60).toFixed(2), +Render3D.gfx().engine.i.toFixed(1)]); }
-    const deb = FX.list.filter((p) => p.kind === 'debris'), rest = deb.filter((p) => p.restAt != null), under = deb.filter((p) => Math.hypot(p.x, p.y, p.z) < p.floor - 1e-6);
-    const onFloor = rest.every((p) => Math.abs(Math.hypot(p.x, p.y, p.z) - p.floor) < 1e-6);
+    // (review P2-VIS-2: a chunk on land rests on the ground under it, its centre half its size up, p.gr; else on its floor)
+    const grnd = (p) => { const L = Terrain.locate(p.b, p.x, p.y, p.z, {}); return p.b.radius + Terrain.surfaceAt(p.b, L.a, L.z); };
+    const deb = FX.list.filter((p) => p.kind === 'debris'), rest = deb.filter((p) => p.restAt != null);
+    const under = deb.filter((p) => Math.hypot(p.x, p.y, p.z) < (p.land ? grnd(p) : p.floor) - 1e-6), land = deb.every((p) => p.land);
+    const onFloor = rest.every((p) => p.land ? Math.abs(Math.hypot(p.x, p.y, p.z) - p.gr) < 1e-6 && Math.abs(p.gr - grnd(p) - 0.5 * p.size) < 0.02 : Math.abs(Math.hypot(p.x, p.y, p.z) - p.floor) < 1e-6);
     // light: false lends none
     FX.clear(); window.__draws(); FX.death(v.body, at, Z, 5, 'ammo', undefined, { light: false }); window.__draws(); const nl = Render3D.gfx().engine.i;
     // five deaths at once stay under the cap
     FX.clear(); for (let i = 0; i < 5; i++) FX.death(v.body, at, Z, 5, 'ammo'); FX.update(1 / 60, Flight); const capped = FX.list.length <= FX.max();
     FX.clear(); window.__draws();
-    return { draws: d1 - d0, shown: G1.fxShown, i0: G1.engine.i, off, light, deb: deb.length, rest: rest.length, under: under.length, onFloor, nl, capped };
+    return { draws: d1 - d0, shown: G1.fxShown, i0: G1.engine.i, off, light, deb: deb.length, rest: rest.length, under: under.length, land, onFloor, nl, capped };
   });
   const lit = (t) => p4.light.filter(([s]) => s <= t).map(([, i]) => i);
   ok(`${tag}: the death's particles, chunks and sparks are one draw each (three in all)`, p4.draws === 3 && p4.shown.every(Boolean), p4);
   // (its cook-off pops, at 0.42 and 0.8 s, flash again: a light each for their 0.12 s)
   ok(`${tag}: its flash lends S.engine its light at once, at the flash (${p4.i0.toFixed(0)} cd, ${p4.off.toFixed(2)} m off), fading, none by 0.4 s nor after the last pop (1 s on)`, p4.i0 > 500 && p4.off < 1e-3 && lit(0.3).some((i) => i > 0) && p4.light.find(([s]) => s === 0.4)[1] === 0 && p4.light.filter(([s]) => s >= 1).every(([, i]) => i === 0), p4.light);
   ok(`${tag}: a flash with light: false lends no light`, p4.nl === 0, p4.nl);
-  ok(`${tag}: the chunks come to rest on their floor, none under it (${p4.rest} of ${p4.deb} at rest by 2 s)`, p4.deb > 0 && p4.rest >= p4.deb / 2 && p4.onFloor && p4.under === 0, p4);
+  ok(`${tag}: the chunks come to rest on the ground under them (their centres half their size up), none under it (${p4.rest} of ${p4.deb} at rest by 2 s)`, p4.deb > 0 && p4.rest >= p4.deb / 2 && p4.land && p4.onFloor && p4.under === 0, p4);
   ok(`${tag}: five deaths at once stay under the particle cap`, p4.capped, p4);
   // a puff on the ground thins out towards it (no straight cut): its lower edge fades where the ground meets it
   const gfade = await ev(() => {
