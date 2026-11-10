@@ -399,6 +399,123 @@ const Radar = (() => {
     if (!F.toast || !v || !b) return;
     F.toast(`Bandit inbound: ${fmt.dist(Math.hypot(b.x - v.x, b.y - v.y, b.z - v.z))}, your ${clock(v, b.x, b.y, b.z)} o'clock`, 'warn');
   }
+  // ---------------------------------------------------------------- the scope
+  // Drawn by combat.js's drawRWR in the warning receiver's slot, grown (B = Combat.S.rwrBox: centre, R), heading up with
+  // us in the middle; at(x, y, z, k) gives a point's bearing off the nose (its .a) as the warning receiver's scope does,
+  // o = { fw, rt, hot }: the horizontal forward and right, and the rim red while warned or locked. The range scale is a
+  // square root (near things spread out), out to the longest working reach rounded up to 5 km: each radar's cover as a
+  // lit wedge (all round: a disc), the main radar's sweep, the contacts of the last scan (one path per colour, fading
+  // over their 1.5 s memory, a tick along their heading), the pick, the lock, our radar missiles and, with one chosen,
+  // its reach; the label says what the radar is doing. At most 60 canvas calls with 10 contacts (the caller saves and
+  // restores the context).
+  const TAU2 = Math.PI * 2;
+  const tri = (t) => { const p = t - Math.floor(t); return p < 0.5 ? 4 * p - 1 : 3 - 4 * p; }; // (a triangle wave, -1..1, period 1)
+  const COL = { foe: '#ff5d5d', friend: '#62d0ff', neutral: '#ffb547' };
+  const AX = { x: 0, y: 0, z: 0 };
+  const LBL = '600 9px "IBM Plex Mono", ui-monospace, monospace';
+  function draw(ctx, B, v, F, at, o) {
+    const R = B.R, cx = B.x, cy = B.y, t = F.time || 0, off = !!v.radarOff, rl = radars(v), fw = o.fw, rt = o.rt;
+    let far = 0, tail = null, ok = false;
+    for (const r of rl) if (works(r.p)) { ok = true; if (r.R.warn) tail = tail || r; else far = Math.max(far, r.R.range * rk(r.p)); }
+    const Rng = Math.max(5000, Math.ceil((far || (tail ? tail.R.range * rk(tail.p) : 20000)) / 5000) * 5000);
+    const rr = (d) => R * Math.sqrt(Math.min(d, Rng) / Rng);
+    const pos = (x, y, z) => { const p = at(x, y, z, 0), k = rr(Math.hypot(x - v.x, y - v.y, z - v.z)); return { x: cx + Math.sin(p.a) * k, y: cy - Math.cos(p.a) * k }; };
+    // 1. the disc and its rim, the half ring (a quarter of the range) and the cross lines
+    ctx.fillStyle = 'rgba(8, 13, 24, 0.72)'; ctx.strokeStyle = o.hot ? 'rgba(255, 93, 93, 0.6)' : 'rgba(150, 185, 230, 0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(150, 185, 230, 0.15)';
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.5, 0, TAU2); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
+    // 2. each working radar's cover (three at most): a wedge about its axis's bearing, out to its reach
+    const main = mainRadar(v) || (() => { let b = null, br = 0; for (const r of rl) if (works(r.p) && !r.R.warn && r.R.range * rk(r.p) > br) { br = r.R.range * rk(r.p); b = r; } return b; })() || tail;
+    let mainA = 0, n = 0;
+    ctx.fillStyle = off ? 'rgba(125, 255, 176, 0.03)' : 'rgba(125, 255, 176, 0.08)';
+    for (const r of rl) {
+      if (!works(r.p) || n >= 3) continue;
+      n++;
+      const f = v.axis(r.ax, r.ay, 0, AX), th = at(v.x + f.x * 1000, v.y + f.y * 1000, v.z + f.z * 1000, 0).a - Math.PI / 2, k = rr(r.R.range * rk(r.p));
+      if (r === main) mainA = th;
+      ctx.beginPath();
+      if (r.R.cone >= 180) ctx.arc(cx, cy, k, 0, TAU2);
+      else { const c = (r.R.cone * Math.PI) / 180; ctx.moveTo(cx, cy); ctx.arc(cx, cy, k, th - c, th + c); } // (a fill closes the wedge itself)
+      ctx.fill();
+    }
+    // 3. the sweep: a forward radar's bar scan across its cone, an all-round one's turn
+    if (main && !off) {
+      const c = (main.R.cone * Math.PI) / 180, s = Math.max(0.2, main.R.scan), a = main.R.cone >= 180 ? TAU2 * (t / s - Math.floor(t / s)) - Math.PI / 2 : mainA + c * tri(t / (2 * s)), k = rr(main.R.range * rk(main.p));
+      ctx.strokeStyle = 'rgba(125, 255, 176, 0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * k, cy + Math.sin(a) * k); ctx.stroke();
+    }
+    // 4. the contacts: a square each (hollow for the ground), a tick along its heading from the corner it leads with,
+    // one path per colour and age (fresh, or fading out of the scan's memory)
+    if (ok && !off && S.rc.length) {
+      const groups = new Map();
+      for (const c of S.rc) {
+        const fresh = now - c.t < 0.3, key = (c.k === 'ground' ? 'g' : c.side === 'friend' ? 'b' : c.side === 'neutral' ? 'n' : 'r') + (fresh ? '' : 'f');
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = []));
+        g.push(c);
+      }
+      for (const [key, g] of groups) {
+        const gr = key[0] === 'g', h = gr ? 2.5 : 2;
+        ctx.globalAlpha = key.length > 1 ? 0.4 : 1;
+        ctx.fillStyle = ctx.strokeStyle = gr ? COL.neutral : key[0] === 'b' ? COL.friend : key[0] === 'n' ? COL.neutral : COL.foe;
+        ctx.beginPath();
+        for (const c of g) {
+          const p = pos(c.x, c.y, c.z), hx = c.vx * rt.x + c.vy * rt.y + c.vz * rt.z, hy = c.vx * fw.x + c.vy * fw.y + c.vz * fw.z, sp = Math.hypot(hx, hy);
+          if (sp > 5) { const ux = hx / sp, uy = -hy / sp, sx = ux >= 0 ? 1 : -1, sy = uy >= 0 ? 1 : -1; ctx.rect(p.x + sx * h, p.y + sy * h, -sx * 2 * h, -sy * 2 * h); ctx.lineTo(p.x + ux * (h + 6), p.y + uy * (h + 6)); }
+          else ctx.rect(p.x - h, p.y - h, 2 * h, 2 * h);
+        }
+        if (!gr) ctx.fill();
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // 5. the pick (a white square) and the lock (a green diamond), where they are now
+    const pk = S.pick && ok && !off ? Combat.refPos(S.pick) : null, lk = Combat.S.lock && ok && !off ? Combat.refPos(Combat.S.lock) : null;
+    if (pk && pk.alive && S.pick !== Combat.S.lock) { const p = pos(pk.x, pk.y, pk.z); ctx.strokeStyle = '#e9edf1'; ctx.lineWidth = 1; ctx.strokeRect(p.x - 5, p.y - 5, 10, 10); } // (the pick locked: the diamond says it)
+    if (lk && lk.alive) {
+      const p = pos(lk.x, lk.y, lk.z);
+      ctx.strokeStyle = '#7dffb0'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y - 7); ctx.lineTo(p.x + 7, p.y); ctx.lineTo(p.x, p.y + 7); ctx.lineTo(p.x - 7, p.y); ctx.closePath(); ctx.stroke();
+    }
+    // 6. our radar missiles in flight (six at most): white dots, ringed once one has gone active on its own seeker
+    let ms = 0, pit = null;
+    ctx.fillStyle = '#e9edf1';
+    for (const s of Combat.S.shots) {
+      if (s.launcher !== v || !s.sarh || ms >= 6) continue;
+      ms++;
+      const p = pos(s.x, s.y, s.z);
+      ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+      if (s.pit) (pit || (pit = [])).push(p);
+    }
+    if (pit) { ctx.strokeStyle = '#e9edf1'; ctx.lineWidth = 1; ctx.beginPath(); for (const p of pit) { ctx.moveTo(p.x + 4, p.y); ctx.arc(p.x, p.y, 4, 0, TAU2); } ctx.stroke(); }
+    // 7. a radar missile chosen: its reach, dashed, across the main radar's wedge
+    const cur = Combat.systems(v)[v.wsel], w = cur && cur.w;
+    if (w && w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && main && !main.R.warn && !off) {
+      const g = Math.min(w.range, guideRange(v));
+      if (g > 0) {
+        const c = main.R.cone >= 180 ? Math.PI : (main.R.cone * Math.PI) / 180;
+        ctx.strokeStyle = 'rgba(125, 255, 176, 0.55)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(cx, cy, rr(g), mainA - c, mainA + c); ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    // 8. us
+    ctx.fillStyle = '#e9edf1'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 4, cy + 4); ctx.lineTo(cx - 4, cy + 4); ctx.fill();
+    // 9. the label: the radar, its reach and what it is doing (LOST, OFF, BUSY, LOCK and km, GUIDE and how many, SRCH)
+    let txt, col = 'rgba(125, 255, 176, 0.75)';
+    if (!ok) { txt = 'RADAR OUT'; col = '#ff5d5d'; }
+    else {
+      const k = main.R.range * rk(main.p), lock = Combat.S.lock && Combat.refPos(Combat.S.lock), gd = guided(v).n;
+      const st = now - S.lostT < 1 && now >= S.lostT ? 'LOST' : off ? 'OFF' : busy(v) ? 'BUSY' : lock && lock.alive ? `LOCK ${(Math.hypot(lock.x - v.x, lock.y - v.y, lock.z - v.z) / 1000).toFixed(1)}` : gd ? `GUIDE ${gd}` : 'SRCH';
+      txt = `${main.R.kind} ${Math.round(k / 1000)}${R >= 50 ? ' km' : ''} · ${st}`;
+      if (rk(main.p) < 1) { txt += ` · DMG ${Math.round((1 - Combat.hpFrac(main.p)) * 100)}%`; col = '#ffb547'; }
+    }
+    ctx.font = LBL; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = col;
+    const hw = txt.length * 2.75 + 2, lx = clamp(cx, hw, Math.max(hw, B.W - hw)); // (IBM Plex Mono: 0.6 em a letter; kept on the screen)
+    ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(txt, lx, cy + R + 11); // (a dark rim: it reads over cloud too)
+    ctx.fillText(txt, lx, cy + R + 11);
+  }
+
   function reset() {
     clearPic(false);
     S.rcT = 0; S.rcN = 0; S.los = new Map(); S.locks.length = 0; S.lkT = 0; S.scT = 0; S.heard = new WeakSet(); S.marks.length = 0; S.gunIn = false;
@@ -408,7 +525,7 @@ const Radar = (() => {
 
   return {
     S, step, reset, sees, has, eye, seen, aboard, radars, works, rk, mainRadar, guideRange, radarOf, bestRadar, lockTime, guided, busy, heard,
-    next, toggle, tap, mark, beginFrame, lost, chipState, pill, call, clock,
+    next, toggle, tap, mark, beginFrame, lost, chipState, pill, call, clock, draw,
     get now() { return now; },
     _t: { seesOver, stealth, scan, lockers, scanners, LOS_TOP, NONE },
   };

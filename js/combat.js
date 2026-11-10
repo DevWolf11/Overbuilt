@@ -1658,7 +1658,7 @@ const Combat = (() => {
     }
     ctx.globalAlpha = 1;
     Death.drawHits(ctx, W, H, dpr, F); // (the air HUD's hit markers and banners: death.js)
-    drawRWR(ctx, W, H, v);
+    drawRWR(ctx, W, H, v, F);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
   const SEE_MSL = 4000;
@@ -1688,36 +1688,47 @@ const Combat = (() => {
   }
   // What the threat display says to do about missile s, d metres out, with what the craft carries.
   function rwrAdvice(v, s, d) {
+    if (s.pit) return 'ACTIVE: chaff now · turn across its path'; // (an active radar missile on its own seeker: its launcher's radar is out of it)
     const fl = v.parts.some((p) => p.def.weapon && p.def.weapon.kind === 'flare' && p.ammo > 0), ch = !!dispenser(v);
     if (s.heat) return d > 2500 ? 'throttle back · flares at 2 km' : fl ? 'FLARES NOW · break turn' : 'break turn hard';
     if (s.radar || s.sarh) return d > 4500 ? 'put it on your wing and dive (notch)' : ch ? 'CHAFF NOW · keep it on your wing' : fl ? 'FLARES (chaff cloud) · notch it' : 'notch it: on your wing, low';
     return 'turn hard and get low';
   }
   // The warning receiver's display. Basic: MISSILE (or RADAR LOCK), flashing. With a threat display also the nearest
-  // missile's kind, distance, time to arrive and what to do, and a scope: each missile (by its kind) and radar lock round
-  // the craft, nose up, nearer the middle the closer it is.
-  function drawRWR(ctx, W, H, v) {
-    if (!S.rwr) return;
-    const locks = lockers(), blink = Math.floor(performance.now() / 250) % 2 === 0, m = S.threats[0], B = rwrPlace(W, H), ty = B.ty;
+  // missile's kind, distance, time to arrive and what to do, and a scope: each missile (by its kind), radar lock and
+  // radar painting us (search strobes) round the craft, nose up, nearer the middle the closer it is. With a radar part
+  // aboard the scope is the radar's (radar.js draws it, bigger) and the warning's marks go on the same disc; a tail
+  // warning set says CHECK SIX even without a warning receiver. An old design without a radar draws what it always did.
+  function drawRWR(ctx, W, H, v, F) {
+    const RD = typeof Radar !== 'undefined' ? Radar : null;
+    const rad = !!F && !F.groundAim && !!RD && RD.aboard(v), six = RD ? RD.S.six : 0; // (aiming a ground vehicle: the ground HUD has its own scope)
+    if (!S.rwr && !rad && !six) return;
+    const locks = S.rwr ? lockers() : NONE, blink = Math.floor(performance.now() / 250) % 2 === 0, m = S.threats[0], B = rwrPlace(W, H, rad), ty = B.ty;
     ctx.textAlign = 'center';
-    if (m) {
-      const d = len(m.x - v.x, m.y - v.y, m.z - v.z);
-      if (blink) {
-        ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-        hudText(ctx, S.rwr < 2 ? 'MISSILE' : m.heat ? 'HEAT SEEKER' : m.radar || m.sarh ? 'RADAR MISSILE' : 'MISSILE', W / 2, ty);
+    if (S.rwr) {
+      if (m) {
+        const d = len(m.x - v.x, m.y - v.y, m.z - v.z);
+        if (blink) {
+          ctx.font = '700 22px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
+          hudText(ctx, S.rwr < 2 ? 'MISSILE' : m.pit ? 'MISSILE ACTIVE' : m.heat ? 'HEAT SEEKER' : m.radar || m.sarh ? 'RADAR MISSILE' : 'MISSILE', W / 2, ty);
+        }
+        if (S.rwr > 1) { // (the nearest one: how far, how soon, what to do; and how many more)
+          const vc = -((m.x - v.x) * (m.vx - v.vx) + (m.y - v.y) * (m.vy - v.vy) + (m.z - v.z) * (m.vz - v.vz)) / (d || 1), n = S.threats.length;
+          ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#ffd0d0';
+          hudText(ctx, fmt.dist(d) + (vc > 30 ? ` · ${Math.max(1, Math.round(d / vc))} s` : '') + (n > 1 ? ` · +${n - 1} more` : ''), W / 2, ty + 20);
+          ctx.font = '700 14px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ffd23f';
+          hudText(ctx, rwrAdvice(v, m, d), W / 2, ty + 38);
+        }
+      } else if (locks.length && blink) {
+        ctx.font = '700 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
+        hudText(ctx, 'RADAR LOCK', W / 2, ty);
       }
-      if (S.rwr > 1) { // (the nearest one: how far, how soon, what to do; and how many more)
-        const vc = -((m.x - v.x) * (m.vx - v.vx) + (m.y - v.y) * (m.vy - v.vy) + (m.z - v.z) * (m.vz - v.vz)) / (d || 1), n = S.threats.length;
-        ctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = '#ffd0d0';
-        hudText(ctx, fmt.dist(d) + (vc > 30 ? ` · ${Math.max(1, Math.round(d / vc))} s` : '') + (n > 1 ? ` · +${n - 1} more` : ''), W / 2, ty + 20);
-        ctx.font = '700 14px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ffd23f';
-        hudText(ctx, rwrAdvice(v, m, d), W / 2, ty + 38);
-      }
-    } else if (locks.length && blink) {
-      ctx.font = '700 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ff5d5d';
-      hudText(ctx, 'RADAR LOCK', W / 2, ty);
     }
-    if (S.rwr < 2) return;
+    if (six && !m && !(S.rwr && locks.length) && blink) { // (a tail warning set: an enemy within 3 km behind, with or without a warning receiver)
+      ctx.font = '700 15px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#ffb547';
+      hudText(ctx, `CHECK SIX ${fmt.dist(six)}`, W / 2, ty);
+    }
+    if (!rad && S.rwr < 2) return;
     // the scope: heading up, in the local horizontal
     const R = B.R, cx = B.x, cy = B.y;
     const up = norm3(v3(v.x, v.y, v.z)), f0 = noseDir(v), fu = dot3(f0, up);
@@ -1726,12 +1737,35 @@ const Combat = (() => {
     norm3(fw);
     const rt = cross3(fw, up), at = (x, y, z, k) => { const dx = x - v.x, dy = y - v.y, dz = z - v.z, a = Math.atan2(dx * rt.x + dy * rt.y + dz * rt.z, dx * fw.x + dy * fw.y + dz * fw.z); return { a, x: cx + Math.sin(a) * R * k, y: cy - Math.cos(a) * R * k }; };
     ctx.save();
+    if (rad) { // (the radar's scope; the warning receiver's marks on it)
+      RD.draw(ctx, B, v, F, at, { fw, rt, hot: S.warn || locks.length > 0 });
+      if (S.rwr > 1) rwrMarks(ctx, B, at, locks, v);
+      ctx.restore();
+      return;
+    }
     ctx.fillStyle = 'rgba(8, 13, 24, 0.72)'; ctx.strokeStyle = S.warn || locks.length ? 'rgba(255, 93, 93, 0.6)' : 'rgba(150, 185, 230, 0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.strokeStyle = 'rgba(150, 185, 230, 0.15)';
     ctx.beginPath(); ctx.arc(cx, cy, R * 0.5, 0, TAU); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
     ctx.fillStyle = '#e9edf1'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 4, cy + 4); ctx.lineTo(cx - 4, cy + 4); ctx.closePath(); ctx.fill(); // (us)
+    rwrMarks(ctx, B, at, locks, v);
+    ctx.restore();
+    ctx.font = '600 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = 'rgba(150, 185, 230, 0.7)';
+    ctx.fillText('RWR', cx, cy + R + 11);
+  }
+  // The warning receiver's marks on a scope (its own, or the radar's): radars painting us (an advanced RWR's search
+  // strobes: faint ticks on the rim), radar locks (a strobe on the rim towards each) and missiles (a red triangle
+  // pointing in at us, with its kind: A an active radar missile on its own seeker, IR, R, M).
+  function rwrMarks(ctx, B, at, locks, v) {
+    const R = B.R, cx = B.x, cy = B.y;
     ctx.font = '700 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.textBaseline = 'middle';
+    const sc = typeof Radar !== 'undefined' ? Radar.S.scanners : NONE;
+    if (sc.length) {
+      ctx.strokeStyle = 'rgba(255, 93, 93, 0.45)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const g of sc) { const a = at(g.x, g.y, g.z, 0).a - Math.PI / 2; ctx.moveTo(cx + Math.cos(a - 0.08) * R * 0.95, cy + Math.sin(a - 0.08) * R * 0.95); ctx.arc(cx, cy, R * 0.95, a - 0.08, a + 0.08); }
+      ctx.stroke();
+    }
     for (const g of locks) { // a lock: a strobe on the rim towards its radar
       const p = at(g.x, g.y, g.z, 0.9);
       ctx.strokeStyle = '#ff5d5d'; ctx.lineWidth = 2;
@@ -1742,20 +1776,19 @@ const Combat = (() => {
       const ix = ux / ul, iy = uy / ul;
       ctx.fillStyle = '#ff5d5d';
       ctx.beginPath(); ctx.moveTo(p.x + ix * 6, p.y + iy * 6); ctx.lineTo(p.x - ix * 4 - iy * 4.5, p.y - iy * 4 + ix * 4.5); ctx.lineTo(p.x - ix * 4 + iy * 4.5, p.y - iy * 4 - ix * 4.5); ctx.closePath(); ctx.fill();
-      ctx.fillText(s.heat ? 'IR' : s.radar || s.sarh ? 'R' : 'M', p.x - ix * 12, p.y - iy * 12);
+      ctx.fillText(s.pit ? 'A' : s.heat ? 'IR' : s.radar || s.sarh ? 'R' : 'M', p.x - ix * 12, p.y - iy * 12);
     }
-    ctx.restore();
-    ctx.font = '600 9px "IBM Plex Mono", ui-monospace, monospace'; ctx.fillStyle = 'rgba(150, 185, 230, 0.7)';
-    ctx.fillText('RWR', cx, cy + R + 11);
   }
   // Where the warning's lines and the scope go (looked up once a second, from where the panels are). The lines: a third
   // of the way down, or just below the flight data or the room's bar where they would run under one. The scope: under
   // the flight data (and the room's radar scope), else beside the room's radar scope, else beside the flight data, as
-  // long as it is clear of the room's bar and the lines; else smaller, under the flight data.
+  // long as it is clear of the room's bar and the lines; else smaller, under the flight data. A radar's scope (rad) is
+  // bigger (52-77 px round by the screen and the HUD's size) and also keeps clear of the buttons top right, the time
+  // warp and the hint.
   let rwrBox = null, rwrAt = 0;
-  function rwrPlace(W, H) {
+  function rwrPlace(W, H, rad = false) {
     const now = performance.now();
-    if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H) return rwrBox;
+    if (rwrBox && now - rwrAt < 1000 && rwrBox.W === W && rwrBox.H === H && rwrBox.rad === rad) return rwrBox;
     rwrAt = now;
     const rect = (q) => { const e = $(q); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
     const T = rect('#flight-ui .telemetry') || { left: 12, right: 220, top: 12, bottom: 220 }, lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar');
@@ -1764,8 +1797,10 @@ const Combat = (() => {
     let ty = H * 0.3;
     for (const o of [T, bar]) if (o && hit({ l: W / 2 - 150, r: W / 2 + 150, t: ty - 22, b: ty + 44 }, o)) ty = o.bottom + 26;
     const text = { left: W / 2 - 150, right: W / 2 + 150, top: ty - 22, bottom: ty + 44 };
-    const free = (x, y, R, low) => { const a = { l: x - R, r: x + R, t: y - R, b: y + R + 14 }; return !hit(a, bar) && !hit(a, text) && !hit(a, T) && !hit(a, lc) && a.r < W && a.b < low; };
-    const R0 = W < 500 ? 40 : 46, top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? ty + 52 : 0); // (a narrow screen: below the warning's lines)
+    const extra = rad ? [rect('#flight-ui .flight-top-right'), rect('#warp'), rect('#hint')] : [];
+    const free = (x, y, R, low) => { const a = { l: x - R, r: x + R, t: y - R, b: y + R + 14 }; return !hit(a, bar) && !hit(a, text) && !hit(a, T) && !hit(a, lc) && !extra.some((e) => hit(a, e)) && a.r < W && a.b < low; };
+    const R0 = !rad ? (W < 500 ? 40 : 46) : H < 500 ? 40 : W < 500 ? 52 : W < 761 ? 54 : Math.round(64 * clamp(typeof Controls !== 'undefined' ? Controls.z : 1, 0.85, 1.3));
+    const top = Math.max(mps ? mps.y + mps.R + 12 : T.bottom + 12, W < 500 ? ty + 52 : 0); // (a narrow screen: below the warning's lines)
     const tries = [[T.left + R0 + 4, top + R0, R0, bottom]];
     if (mps) tries.push([mps.x + mps.R + 14 + R0, mps.y, R0, bottom]);
     tries.push([T.right + 14 + R0, T.top + R0, R0, H]);
@@ -1773,7 +1808,7 @@ const Combat = (() => {
     if (Rs >= 28) tries.push([T.left + Rs + 4, top + Rs, Rs, bottom]);
     if (lc) tries.push([lc.right + 14 + 40, lc.top + 40, 40, H]); // (a short screen, the room's bar over the flight data's side: beside the controls)
     const at = tries.find(([x, y, R, low]) => free(x, y, R, low)) || tries[0];
-    rwrBox = S.rwrBox = { x: at[0], y: at[1], R: at[2], ty, W, H }; // (on S for the tests)
+    rwrBox = S.rwrBox = { x: at[0], y: at[1], R: at[2], ty, W, H, rad }; // (on S for the tests)
     return rwrBox;
   }
   // The bomb's fall, stepped until it meets the ground (drag as in flight; good to a few metres).

@@ -5,8 +5,9 @@
 // then the blueprint is idle; the nose's card has a chip that selects the set; a set dragged from the tray (a finger on
 // the phone, the mouse on the desktop) goes into the nose under it; dragged on over the tail fin it is red and the drop
 // does nothing, and into the fuselage it moves there; deleting its host takes the set along; in 3D, X-ray shows the set
-// and a tap there picks it, a set over a wing is red, and one dragged onto the fuselage goes inside it.
-//   node test/browser/radar.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/)
+// and a tap there picks it, a set over a wing is red, and one dragged onto the fuselage goes inside it. Then the flight
+// HUD (below): the scope on eight screens, the RDR pill, picks, radar off and on, RADAR OUT.
+//   node test/browser/radar.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/; RADAR_PART=builder or hud: one half)
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
@@ -53,7 +54,8 @@ const tray = (page, cat) => page.evaluate((cat) => { Builder.category = cat; Bui
 const item = (page, name) => page.evaluate((name) => { const e = [...document.querySelectorAll('#palette-items .part-item')].find((x) => x.querySelector('.part-name').textContent === name); if (!e) return null; e.scrollIntoView({ inline: 'center', block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, spec: e.querySelector('.part-spec').textContent }; }, name);
 const at = (page, f) => page.evaluate((f) => { const p = Builder.parts.find(new Function('p', 'return ' + f)), s = Builder.partScreen(p); return { x: s.x, y: s.y }; }, f);
 
-for (const [W, H, touch] of [[390, 844, true], [1280, 720, false]]) {
+const PART = process.env.RADAR_PART || ''; // ('builder' or 'hud': one half only)
+for (const [W, H, touch] of PART === 'hud' ? [] : [[390, 844, true], [1280, 720, false]]) {
   const tag = `${W}x${H} `, ctx = await b.newContext({ viewport: { width: W, height: H }, hasTouch: touch, isMobile: touch, deviceScaleFactor: touch ? 2 : 1 });
   const page = await ctx.newPage();
   watch(page, errs, tag);
@@ -181,6 +183,147 @@ for (const [W, H, touch] of [[390, 844, true], [1280, 720, false]]) {
   await page.waitForTimeout(1500);
   await page.screenshot({ path: SHOTS + `radar-drag3d-${W}.png` });
   await page.evaluate(() => { Builder.setXray(false); App.setPreview3D(false); });
+  await ctx.close();
+}
+
+// ================================================================ the flight HUD (spec-radar §6, §7, §12.2's HUD half)
+// The FS-16 (a pulse-Doppler set in its nose, an advanced RWR) at 3 km with bandits ahead, one above and one below, on
+// phones in portrait (360×640, 375×667, 390×844), on its side (844×390) and desktops (1280×720, 1920×1080), and at UI
+// sizes 75% and 150%: the radar's scope sits in the warning receiver's slot (Combat.S.rwrBox.rad), on the screen and
+// clear of the flight data, the controls, the buttons top right, the time warp, the hint, the weapon box and its RDR
+// pill, FIRE, the throttle, the stage box, the key hints and Aim's circle at rest; the pill is clear of everything
+// Controls.fit measures. With ten contacts the scope takes at most 60 canvas calls. On the phone a tap on a bandit's
+// marker picks it, a tap on RDR steps the pick, a 0.7 s hold switches the radar off (OFF on the scope, RDR OFF) and on
+// again; on the desktop I (Shift+I back) and O do the same, and the pill is hidden. The set shot out: RADAR OUT, the
+// toast, RDR OUT. Screenshots of each, with a lock: radar-hud-<W>x<H>[-ui<u>].png.
+const HUD = [[360, 640, true, 1], [375, 667, true, 1], [390, 844, true, 1], [844, 390, true, 1], [1280, 720, false, 1], [1920, 1080, false, 1],
+  [360, 640, true, 1.5], [360, 640, true, 0.75], [390, 844, true, 1.5], [844, 390, true, 1.5], [1920, 1080, false, 1.5], [1280, 720, false, 0.75]];
+// in the page: count the 2D-context calls inside Radar.draw, and keep the scope's label (its one fillText)
+const instrument = () => {
+  const P = CanvasRenderingContext2D.prototype, R = (window.__rd = { calls: [], label: '' });
+  let on = false, n = 0, txt = '';
+  for (const k of Object.getOwnPropertyNames(P)) {
+    const d = Object.getOwnPropertyDescriptor(P, k);
+    if (!d || typeof d.value !== 'function' || k === 'constructor') continue;
+    const f = d.value;
+    P[k] = function (...a) { if (on) { n++; if (k === 'fillText') txt = a[0]; } return f.apply(this, a); };
+  }
+  const draw = Radar.draw;
+  Radar.draw = function (...a) { on = true; n = 0; try { return draw.apply(this, a); } finally { on = false; R.calls.push(n); if (R.calls.length > 120) R.calls.shift(); R.label = txt; } };
+};
+// the jet at 3 km, level at 250 m/s; n bandits ahead (the first one above, the second below), coming at it, held
+// (they neither fly nor fire: the picture stays put); the range's ground targets cleared (no SAMs)
+const fly = (n) => {
+  const v = Flight.active, r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+  v.x += up.x * 3000; v.y += up.y * 3000; v.z += up.z * 3000; const f0 = v.axis(0, 1, 0); v.vx = f0.x * 250; v.vy = f0.y * 250; v.vz = f0.z * 250; v.landed = false;
+  const f = v.axis(0, 1, 0), rt = v.axis(0, 0, 1);
+  const at = [[9000, -1500, 800], [12000, 2500, -600], [6000, 3000, 0], [15000, -5000, 300], [8000, 6000, 200], [11000, -7000, -200], [14000, 0, 500], [5000, -2000, 100], [16000, 6000, 0], [7000, 1000, -300]];
+  for (let i = 0; i < n; i++) {
+    const o = Combat.spawnFighter(Flight), [a, c, u] = at[i];
+    o.x = v.x + f.x * a + rt.x * c + up.x * u; o.y = v.y + f.y * a + rt.y * c + up.y * u; o.z = v.z + f.z * a + rt.z * c + up.z * u;
+    o.q = { ...v.q }; o.vx = -v.vx * 0.9; o.vy = -v.vy * 0.9; o.vz = -v.vz * 0.9; o.ai.hold = true;
+  }
+  Combat.S.targets.length = 0; Combat.S.spawned = true; Combat.S.rwrBox = null;
+};
+// a lock on the first bandit with the radar missiles chosen (as if held for the lock time)
+const lockOn = () => {
+  const v = Flight.active, F = Flight, sys = Combat.systems(v), i = sys.findIndex((c) => c.w.kind === 'missile' && c.w.radar && c.w.seek === 'air');
+  const t = F.vessels.find((o) => o !== v && Combat.isFighter(o));
+  v.wsel = i; Radar.S.pick = t; Combat.S.cand = t; Combat.S.lockT = 9; Flight.updateHUD(true);
+  return i >= 0 && !!t;
+};
+// where everything is
+const where = () => {
+  const rect = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+  const W = innerWidth, H = innerHeight, B = Combat.S.rwrBox;
+  const panels = { telemetry: '#flight-ui .telemetry', left: '#flight-ui .left-controls', bar: '#mp-bar', topRight: '#flight-ui .flight-top-right', warp: '#warp', hint: '#hint', box: '#weapon-box', pill: '#btn-radar', fire: '#btn-fire', throttle: '#flight-ui .throttle-box', stage: '#flight-ui .stage-box', keys: '#key-hints' };
+  const P = {};
+  for (const k in panels) P[k] = rect(panels[k]);
+  P.aim = { l: W / 2 - 26, t: H / 2 - 26, r: W / 2 + 26, b: H / 2 + 26 };
+  // what Controls.fit measures (this HUD's movable controls and the panels), for the pill
+  const fit = {};
+  for (const k in Controls.CTL) { const [sel, , hud] = Controls.CTL[k]; if (k !== 'radar' && k !== 'gmap' && (hud === 'both' || hud === 'air')) fit[k] = rect(k === 'joy' ? '#flight-ui .rot-controls' : sel); }
+  for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#mp-bar', '#gai-bar']) fit[q] = rect(q);
+  fit.aim = P.aim;
+  return { W, H, z: Controls.z, B, disc: B && { l: B.x - B.R, t: B.y - B.R, r: B.x + B.R, b: B.y + B.R + 14 }, P, fit, pc: document.body.classList.contains('pc'),
+    pillShown: getComputedStyle($('#btn-radar')).display !== 'none' && !$('#btn-radar').hidden, pill: $('#btn-radar').textContent, pillCls: $('#btn-radar').className, label: window.__rd.label };
+};
+const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+const label = (page) => page.evaluate(() => new Promise((ok) => { let i = 0; const f = () => (++i >= 3 ? ok(window.__rd.label) : requestAnimationFrame(f)); requestAnimationFrame(f); }));
+const flightAt = (page, t) => page.waitForFunction((t) => Flight.time >= t, t, { timeout: 60000 });
+
+const ONLY = process.env.RADAR_HUD ? process.env.RADAR_HUD.split(',') : null; // (e.g. RADAR_HUD=390x844,1280x720: those screens only)
+for (const [W, H, touch, ui] of PART === 'builder' ? [] : HUD.filter(([w, h, , u]) => !ONLY || ONLY.includes(`${w}x${h}`) || ONLY.includes(`${w}x${h}@${u}`))) {
+  const tag = `${W}x${H}${ui !== 1 ? ` UI ${ui * 100}%` : ''} `, full = ui === 1 && ((W === 390 && H === 844) || (W === 1280 && H === 720));
+  const ctx = await b.newContext({ viewport: { width: W, height: H }, hasTouch: touch, isMobile: touch, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  watch(page, errs, tag);
+  await openGame(page, srv.url, { targets: 'hostile', uiSize: ui });
+  await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('fs16'); App.launch(); });
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  await page.evaluate(instrument);
+  await page.evaluate(fly, full && touch ? 10 : 2);
+  await page.waitForFunction(() => Radar.S.rc.length > 0 && Combat.S.rwrBox, null, { timeout: 60000 });
+  await page.waitForTimeout(1300); // (the place is looked up again once a second: now with the panels as they are in flight)
+  ok(tag + 'a lock on the bandit above with the radar missiles chosen', await page.evaluate(lockOn));
+  await page.waitForFunction(() => Combat.S.lock, null, { timeout: 60000 });
+  await page.evaluate(() => Flight.updateHUD(true));
+  const L = await page.evaluate(where);
+  const clash = Object.entries(L.P).filter(([k, r]) => meets(L.disc, r)).map(([k]) => k);
+  const on = L.disc && L.disc.l >= 0 && L.disc.t >= 0 && L.disc.r <= L.W && L.disc.b <= L.H;
+  ok(tag + `the radar's scope (R ${L.B && L.B.R}) in the warning receiver's slot, on the screen, clear of every panel and control`, !!L.B && L.B.rad === true && on && !clash.length, { clash, disc: L.disc, z: L.z, P: L.P });
+  if (touch) {
+    const pc = Object.entries(L.fit).filter(([k, r]) => meets(L.P.pill, r)).map(([k]) => k);
+    ok(tag + `the RDR pill ("${L.pill}") shown, on the screen and clear of everything Controls.fit measures`, L.pillShown && /^RDR PD$/.test(L.pill) && L.P.pill.l >= 0 && L.P.pill.r <= L.W && L.P.pill.t >= 0 && !pc.length, { pc, pill: L.P.pill });
+  } else ok(tag + 'a desktop: no RDR pill (I and O)', L.pc && !L.pillShown);
+  ok(tag + `the scope's label: "${L.label}"`, /^PD 18( km)? · LOCK \d+\.\d$/.test(L.label), L.label);
+  await page.screenshot({ path: SHOTS + `radar-hud-${W}x${H}${ui !== 1 ? `-ui${ui * 100}` : ''}.png` });
+  if (!full) { await ctx.close(); continue; }
+  // ---- the canvas calls with ten contacts (or two on the desktop), over 20 frames: with a pick and the gun chosen at
+  // most 60; with the radar missiles' lock and their reach drawn too, at most 64
+  const calls = () => page.evaluate(() => new Promise((ok) => { window.__rd.calls.length = 0; let i = 0; const f = () => (++i >= 20 ? ok({ n: Radar.S.rc.length, max: Math.max(...window.__rd.calls), frames: window.__rd.calls.length }) : requestAnimationFrame(f)); requestAnimationFrame(f); }));
+  const c1 = await calls();
+  await page.evaluate(() => { const v = Flight.active; Combat.S.lock = Combat.S.cand = null; Combat.S.lockT = 0; v.wsel = Combat.systems(v).findIndex((c) => c.w.kind === 'gun'); Flight.updateHUD(true); });
+  const c0 = await calls();
+  ok(tag + `Radar.draw: at most 60 canvas calls a frame with ${c0.n} contacts and a pick (${c0.max}); 64 with the lock and the missiles' reach too (${c1.max})`,
+    c0.frames >= 8 && c1.frames >= 8 && c0.max <= 60 && c1.max <= 64 && (!touch || c0.n >= 10), { c0, c1 });
+  await page.evaluate(() => { Radar.S.pick = null; Flight.updateHUD(true); });
+  if (touch) {
+    // ---- a tap on a bandit's marker picks it
+    const m = await page.evaluate(() => { const ok = (x, y) => { const e = document.elementFromPoint(x, y); return e && e.tagName === 'CANVAS'; }; const k = Radar.S.marks.find((q) => ok(q.x, q.y)); if (!k) return null; window.__want = k.ref; return { x: k.x, y: k.y }; });
+    if (m) { await page.touchscreen.tap(m.x, m.y); await page.waitForTimeout(900); }
+    ok(tag + 'a tap on a bandit\'s marker picks it', !!m && (await page.evaluate(() => Radar.S.pick === window.__want && !!Radar.S.pick)), m);
+    // ---- a tap on RDR: the next target; a 0.7 s hold: the radar off, and on again
+    const cdp = await ctx.newCDPSession(page), T = fingers(cdp), pr = L.P.pill, px = (pr.l + pr.r) / 2, py = (pr.t + pr.b) / 2;
+    const p0 = await page.evaluate(() => { window.__p0 = Radar.S.pick; return true; });
+    await page.touchscreen.tap(px, py); await page.waitForTimeout(300); // (one CDP call: a slow headless frame between a separate down and up would read as a hold)
+    ok(tag + 'a tap on RDR steps the pick', p0 && (await page.evaluate(() => Radar.S.pick !== window.__p0)), await page.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => t.textContent)));
+    await T.down(1, px, py); await page.waitForTimeout(700); await T.up(1); await page.waitForTimeout(200);
+    let r = await page.evaluate(() => ({ off: !!Flight.active.radarOff, pill: $('#btn-radar').textContent, cls: $('#btn-radar').className }));
+    let lb = await label(page);
+    ok(tag + `a 0.7 s hold on RDR: the radar off ("${lb}", "${r.pill}")`, r.off && / · OFF$/.test(lb) && r.pill === 'RDR OFF' && /\boff\b/.test(r.cls), { r, lb });
+    await page.screenshot({ path: SHOTS + `radar-hud-off-${W}x${H}.png` });
+    await T.down(1, px, py); await page.waitForTimeout(700); await T.up(1); await page.waitForTimeout(200);
+    r = await page.evaluate(() => ({ off: !!Flight.active.radarOff, pill: $('#btn-radar').textContent }));
+    ok(tag + '...and held again, on', !r.off && r.pill === 'RDR PD', r);
+  } else {
+    // ---- I picks the next target, Shift+I steps back (past the first: auto); O off and on
+    await page.keyboard.press('KeyI'); await page.waitForTimeout(150);
+    const a = await page.evaluate(() => !!Radar.S.pick);
+    await page.keyboard.press('Shift+KeyI'); await page.waitForTimeout(150);
+    const z = await page.evaluate(() => Radar.S.pick);
+    ok(tag + 'I picks a target, Shift+I steps back to auto', a && z === null, { a, z });
+    await page.keyboard.press('KeyO'); await page.waitForTimeout(150);
+    const off = await page.evaluate(() => !!Flight.active.radarOff), lb = await label(page);
+    ok(tag + `O: the radar off ("${lb}")`, off && / · OFF$/.test(lb), lb);
+    await page.keyboard.press('KeyO'); await page.waitForTimeout(150);
+    ok(tag + '...and on again', !(await page.evaluate(() => !!Flight.active.radarOff)));
+  }
+  // ---- the set shot out: RADAR OUT on the scope, the toast, RDR OUT
+  const said = await page.evaluate(() => { const v = Flight.active, p = v.parts.find((q) => innerRadar(q.def)); Combat.damage(v, p, 1e6, 'shot', Flight); Flight.updateHUD(true); return [...document.querySelectorAll('.toast')].map((t) => t.textContent); });
+  const lb = await label(page), r = await page.evaluate(() => ({ pill: $('#btn-radar').textContent, cls: $('#btn-radar').className }));
+  ok(tag + `the set shot out: "${lb}" on the scope and the toast${touch ? `, "${r.pill}"` : ''}`, lb === 'RADAR OUT' && said.some((t) => /knocked out: radar out/.test(t)) && (!touch || (r.pill === 'RDR OUT' && /\bout\b/.test(r.cls))), { lb, r, said });
+  await page.screenshot({ path: SHOTS + `radar-hud-out-${W}x${H}.png` });
   await ctx.close();
 }
 

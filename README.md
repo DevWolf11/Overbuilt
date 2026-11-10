@@ -67,6 +67,7 @@ The keys below are the defaults: **Settings → Keys** rebinds any of them (two 
 | Camera | Drag to look around; `C` or double-click resets it. In Aim it follows the circle a moment behind instead: the mouse moves the circle, hold `C` to look round | Drag (in Aim a drag looks round and swings back) |
 | Pause, save & exit | `Esc` | Menu button |
 | Flares and chaff | `K` | CM button |
+| Radar: next target · on/off | `I` (`Shift+I` back) · `O` | Tap a target, or tap RDR · hold RDR |
 | Multiplayer: catapult launch · chat · scoreboard | `L` · `T` or `Enter` · hold `` ` `` | LAUNCH · Score |
 | **Armour and armed cars** | | |
 | Drive · turn · brake | `W` / `S` · `A` / `D` (tracks turn on the spot; reversing turns like a car's tail) · hold `B` | The stick (left thumb) · hold Brake |
