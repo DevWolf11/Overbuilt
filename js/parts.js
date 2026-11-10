@@ -177,14 +177,14 @@ const PARTS = {
   cockpit: { cat: 'cabins', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
   cockpitJet: { cat: 'cabins', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radarFit: 'radarPD', shape: 'jetnose', aero: true, sharp: true,
-    breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag. Room inside for a radar set (Radar tab).' },
+    breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 3500, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag. Room inside for a radar set (Radar tab).' },
   cockpitAir: { cat: 'cabins', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6500, desc: 'Flight deck for a wide fuselage.' },
   cockpitTandem: { cat: 'cabins', name: 'Tandem Cockpit', w: 1.7, h: 5.2, mass: 1.0, control: 3, torque: 2800, crew: 2, radarFit: 'radarPulse', shape: 'jetnose',
-    canopy: { at: 0.36, len: 0.3, seats: 2 }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 8000,
+    canopy: { at: 0.36, len: 0.3, seats: 2 }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 5500,
     desc: 'Two seats in a row under one long canopy, like a jet trainer. Pointed for speed. Room inside for a radar set (Radar tab).' },
   cockpitStealth: { cat: 'cabins', name: 'Stealth Nose', w: 2, h: 4.6, mass: 0.9, control: 3, torque: 2600, crew: 1, radarFit: 'radarPD', stealth: 0.6, shape: 'jetnose',
-    style: 'stealth', facets: 6, canopy: { at: 0.32, len: 0.2, gold: true }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
+    style: 'stealth', facets: 6, canopy: { at: 0.32, len: 0.2, gold: true }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 10500,
     desc: 'Faceted nose with a gold-tinted canopy. Radar glances off it: build the whole plane stealthy and enemy radars, SAMs and fighters find you much later. Room inside for a radar set (Radar tab).' },
   cockpitBomber: { cat: 'cabins', name: 'Glazed Bomber Nose', w: 3, h: 3.6, mass: 1.3, control: 3, torque: 4000, crew: 3, shape: 'glassnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6000, desc: 'A greenhouse nose for the bomb aimer, with the flight deck behind. Fits a wide fuselage.' },
@@ -510,7 +510,7 @@ const PARTS = {
   // leaves the bay, by store; vec2d: a flat nozzle that vectors in pitch only; irK: the exhaust's heat, as seen by
   // heat seekers; twinMirror: the left one of a pair is the mirror image (canted fins, gear legs).
   us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radarFit: 'radarAESA', stealth: 0.7,
-    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11700,
+    shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 2700,
     desc: 'The FS-22’s chined nose: a sharp-edged radome and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it. Room inside for a radar set (Radar tab).' },
   us5Intake22: { cat: 'air', name: 'FS-22 Caret-Intake Fuselage', w: 2.2, h: 4.4, depth: 4.66, mass: 3.3, fuel: 2.6, stealth: 0.7, shape: 'us5body', us5: 'intake22',
     body3d: 'us5', look: 'raptor', fill: 0.45, bay: true, doors: true, bayRack: [[0.38, -0.78, -2.67], [0.38, -0.78, 2.67]], tier: 4, cost: 11000,
@@ -544,7 +544,7 @@ const PARTS = {
     wheel: { r: 0.45, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9, tier: 3, cost: 2600,
     desc: 'A pair of single-wheel legs that fold into the fuselage sides (G). For heavy fighters.' },
   us5Nose35: { cat: 'cabins', name: 'FS-35 Stealth Nose', w: 2.4, h: 4.5, depth: 2.44, mass: 1.8, control: 3, torque: 3000, crew: 1, radarFit: 'radarAESA', stealth: 0.65,
-    shape: 'us5body', us5: 'nose35', body3d: 'us5', look: 'lightning', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 15000,
+    shape: 'us5body', us5: 'nose35', body3d: 'us5', look: 'lightning', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 6000,
     desc: 'The FS-35’s nose: a chined radome, the faceted window of its targeting camera under the chin and a tall bulged canopy for a good view. Put the Bump-Intake Fuselage behind it. Room inside for a radar set (Radar tab).' },
   us5Intake35: { cat: 'air', name: 'FS-35 Bump-Intake Fuselage', w: 2.4, h: 2.6, depth: 3.9, mass: 2.5, fuel: 1.8, stealth: 0.65, shape: 'us5body', us5: 'intake35', body3d: 'us5',
     look: 'lightning', fill: 0.45, tier: 4, cost: 8000,
@@ -585,7 +585,7 @@ const PARTS = {
 
   // the Sugoi-27 (after the Su-27 Flanker), also the Sugoi-35's airframe
   ruNose27: { cat: 'cabins', name: 'Sugoi-27 Nose', w: 1.7, h: 8.3, depth: 1.64, mass: 2.2, control: 3, torque: 4000, crew: 1, radarFit: 'radarPD', shape: 'ruLoft', ru: 'nose',
-    ruRadome: 5.9, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8500,
+    ruRadome: 5.9, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 5000,
     loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.82, -0.3], [14.3, -0.95, 0.5, 0.82, -0.25], [15.1, -0.95, 0.7, 0.82, -0.18], [16.0, -0.95, 0.75, 0.82, -0.15],
       [17.0, -0.95, 0.75, 0.8, -0.15], [17.8, -0.95, 0.72, 0.76, -0.15], [18.6, -0.83, 0.66, 0.7, -0.12], [19.5, -0.66, 0.55, 0.6, -0.08], [20.5, -0.47, 0.38, 0.44, -0.05],
       [21.3, -0.25, 0.17, 0.24, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
@@ -626,7 +626,7 @@ const PARTS = {
     wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.22, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
     desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
   ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radarFit: 'radarPESA', shape: 'ruLoft', ru: 'nose',
-    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 8500,
+    ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 2000,
     loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.83, -0.3], [14.3, -0.95, 0.5, 0.83, -0.25], [15.1, -0.95, 0.7, 0.83, -0.18], [16.0, -0.95, 0.75, 0.83, -0.15],
       [17.0, -0.95, 0.75, 0.81, -0.15], [17.8, -0.95, 0.73, 0.78, -0.15], [18.6, -0.86, 0.69, 0.73, -0.12], [19.5, -0.72, 0.6, 0.65, -0.08], [20.5, -0.52, 0.43, 0.49, -0.05],
       [21.35, -0.27, 0.2, 0.26, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
@@ -647,7 +647,7 @@ const PARTS = {
   ruGearMain: { cat: 'airGear', name: 'Fighter Main Gear', w: 1.2, h: 0.9, mass: 0.45, twinZ: 1.4, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 0, retract: true },
     breakSpeed: 9, tier: 2, cost: 2000, desc: 'A pair of main legs with single wheels, one each side under the wing roots or nacelles. Folds away (G).' },
   ruNose29: { cat: 'cabins', name: 'MyG-29 Nose', w: 1.5, h: 6.5, depth: 1.44, mass: 1.6, control: 3, torque: 3000, crew: 1, radarFit: 'radarPD', shape: 'ruLoft', ru: 'nose', ruRadome: 3.9,
-    aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 7500,
+    aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4000,
     loft: ruG(-0.1, 10.4, { s: [[10.4, -0.85, 0.32, 0.72, -0.26], [11.0, -0.85, 0.45, 0.72, -0.22], [11.8, -0.85, 0.6, 0.72, -0.15], [12.6, -0.85, 0.65, 0.7, -0.12],
       [13.9, -0.84, 0.64, 0.64, -0.08], [14.6, -0.7, 0.58, 0.55, -0.04], [15.3, -0.5, 0.47, 0.44, 0], [15.9, -0.3, 0.35, 0.31, 0.04], [16.5, -0.1, 0.22, 0.16, 0.07],
       [16.9, 0.07, 0.11, 0, 0.09]], n: 2.2, nb: 2.3 }),
@@ -687,7 +687,7 @@ const PARTS = {
   ruGearNose2L: { cat: 'airGear', name: 'Tall Twin Nose Gear', w: 2.45, h: 0.9, mass: 0.24, shape: 'gear', wheel: { r: 0.32, drive: false, brake: true, track: 0.55, retract: true },
     breakSpeed: 9, tier: 4, cost: 1300, desc: 'A tall nose leg with two wheels side by side, for a big fighter. Folds away (G).' },
   ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radarFit: 'radarAESA', stealth: 0.6, shape: 'ruLoft', ru: 'nose',
-    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11200,
+    ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 2200,
     loft: ruG(-0.09, 12.6, { s: [[12.6, -0.78, 0.25, 0.92, 0.1], [13.4, -0.78, 0.4, 0.88, 0.12], [14.4, -0.78, 0.53, 0.82, 0.14], [15.4, -0.78, 0.58, 0.76, 0.15],
       [16.4, -0.78, 0.57, 0.68, 0.15], [17.2, -0.76, 0.52, 0.58, 0.15], [18.0, -0.56, 0.42, 0.46, 0.14], [18.8, -0.34, 0.31, 0.33, 0.12], [19.5, -0.15, 0.2, 0.19, 0.1],
       [20.1, 0.06, 0.09, 0, 0.08]], n: 2, nb: 2.6, chine: true }),
@@ -739,7 +739,7 @@ const PARTS = {
   ruGearNose: { cat: 'airGear', name: 'Short Nose Gear', w: 0.78, h: 0.8, mass: 0.1, shape: 'gear', wheel: { r: 0.27, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8,
     tier: 2, cost: 900, desc: 'A short single-wheel nose leg for a small fighter. Folds away (G).' },
   ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radarFit: 'radarPulse', shape: 'ruLoft', ru: 'nose21',
-    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6900,
+    ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 5900,
     loft: ruG(-0.165, 9.4, { s: [[9.4, -0.62, 0.62, 0.62, 0], [11.0, -0.62, 0.62, 0.62, 0], [12.6, -0.59, 0.59, 0.59, 0], [13.6, -0.53, 0.53, 0.53, 0], [14.1, -0.48, 0.48, 0.48, 0]], open: true },
       { s: [[13.8, -0.31, 0.31, 0.31, 0], [14.15, -0.25, 0.25, 0.25, 0], [14.5, -0.01, 0.01, 0, 0]] },
       { s: [[9.4, -0.92, -0.3, 0.28, -0.55], [9.95, -0.93, -0.3, 0.3, -0.55]] }),
@@ -780,7 +780,7 @@ const PARTS = {
   us4Vulcan: { flush: true, cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 7000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
     desc: 'Six spinning 20 mm barrels: a short, savage burst for dogfights. Tuck it inside the fuselage with just the muzzle at a gun port.' },
   // FS-4 (3rd generation, after the F-4 Phantom II)
-  us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radarFit: 'radarPulse', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6000, shape: 'us4body',
+  us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radarFit: 'radarPulse', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 3500, shape: 'us4body',
     body: { tubes: [
       { st: [[-4.3, -0.71, 0.37, 1.09, 0.73, 2.6, 3.2], [-3.3, -0.63, 0.35, 1.07, 0.7, 2.6, 3], [-2.1, -0.53, 0.33, 1.03, 0.68, 2.5, 2.8], [-0.9, -0.47, 0.32, 0.97, 0.66, 2.4, 2.6], [0.1, -0.43, 0.31, 0.91, 0.63, 2.3, 2.4], [1.3, -0.35, 0.31, 0.82, 0.57, 2.2, 2.2], [2.3, -0.25, 0.32, 0.73, 0.48, 2, 2], [3.4, -0.07, 0.33, 0.59, 0.31, 2, 2], [4.3, 0.31, 0.33, 0.35, 0, 2, 2]] },
       { st: [[-4.3, -0.83, -0.71, -0.55, 0.3, 2], [-3.7, -0.99, -0.73, -0.47, 0.4, 2], [-2.9, -1.09, -0.75, -0.47, 0.46, 2], [-2.1, -1.09, -0.75, -0.47, 0.47, 2], [-1.3, -1.03, -0.73, -0.47, 0.46, 2], [-0.6, -0.95, -0.68, -0.47, 0.42, 2], [-0.1, -0.65, -0.53, -0.45, 0.28, 2], [0.2, -0.43, -0.43, -0.41, 0.05, 2]], kind: 'glass', front: 'open', back: 'open' }],
@@ -818,7 +818,7 @@ const PARTS = {
       { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
     desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
   // FS-16 (4th generation, after the F-16)
-  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4800, shape: 'us4body',
+  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 1300, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.25, -0.27, 0.48, 0.93, 0.68, 2.6, 3.6], [-2.25, -0.23, 0.46, 0.93, 0.64, 2.6, 3.4], [-1.25, -0.2, 0.45, 0.93, 0.61, 2.6, 3.2], [-0.25, -0.19, 0.43, 0.93, 0.57, 2.6, 3], [0.35, -0.17, 0.41, 0.9, 0.53, 2.4, 2.8], [1.05, -0.1, 0.37, 0.81, 0.45, 2.2, 2.4], [1.75, 0.02, 0.33, 0.65, 0.31, 2, 2], [2.35, 0.17, 0.31, 0.47, 0.16, 2, 2], [2.75, 0.3, 0.3, 0.3, 0, 2, 2]] },
       { st: [[-3.25, -0.61, -0.43, -0.12, 0.3, 2], [-2.85, -0.75, -0.43, -0.09, 0.37, 2], [-2.35, -0.87, -0.43, -0.09, 0.41, 2], [-1.75, -0.93, -0.44, -0.09, 0.43, 2], [-1.15, -0.9, -0.43, -0.09, 0.42, 2], [-0.55, -0.74, -0.37, -0.09, 0.38, 2], [-0.05, -0.45, -0.25, -0.09, 0.28, 2], [0.3, -0.19, -0.17, -0.12, 0.06, 2]], kind: 'glass', front: 'open', back: 'open' }],
@@ -854,7 +854,7 @@ const PARTS = {
   us4f16Ventral: { cat: 'wings', name: 'Ventral Fins', w: 0.6, h: 1.4, mass: 0.04, shape: 'vtail', twinZ: 0.62, twinMirror: true, vtail: { tle: 0.45, tte: 0, cant: 0.26 }, tier: 3, cost: 400,
     desc: 'A pair of small fins under the tail, splayed outwards: they keep the nose straight at high angles of attack.' },
   // FS-15 (4th generation, after the F-15)
-  us4f15Nose: { cat: 'cabins', name: 'FS-15 Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8000, shape: 'us4body',
+  us4f15Nose: { cat: 'cabins', name: 'FS-15 Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4500, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.9, -0.57, 0.45, 1.15, 0.71, 2.6, 3], [-3.1, -0.53, 0.43, 1.11, 0.7, 2.6, 3], [-2.1, -0.45, 0.4, 1.05, 0.68, 2.6, 2.8], [-0.9, -0.39, 0.37, 1.01, 0.67, 2.5, 2.6], [0.3, -0.37, 0.35, 0.99, 0.66, 2.4, 2.4], [1.3, -0.32, 0.33, 0.93, 0.62, 2.2, 2.2], [2.3, -0.19, 0.31, 0.79, 0.49, 2, 2], [3.2, 0.02, 0.29, 0.57, 0.28, 2, 2], [3.9, 0.27, 0.27, 0.27, 0, 2, 2]] },
       { st: [[-3.9, -0.77, -0.6, -0.37, 0.38, 2], [-3.3, -0.95, -0.63, -0.33, 0.46, 2], [-2.5, -1.1, -0.65, -0.31, 0.5, 2], [-1.7, -1.15, -0.65, -0.31, 0.5, 2], [-0.9, -1.07, -0.63, -0.31, 0.47, 2], [-0.2, -0.77, -0.53, -0.31, 0.38, 2], [0.4, -0.39, -0.37, -0.31, 0.08, 2]], kind: 'glass', front: 'open', back: 'open' }],

@@ -236,7 +236,9 @@ function P0() { return { name: 'someone' }; }
   t('A5 the Mustang\'s every tail surface shot off: crippled (tail), not down', tail.v.hulkWhy === 'tail' && tail.v.hulk != null && !tail.v.down && tail.F.ondead === 0 && !tail.v.wings.some((q) => q.def.wing.control), tail.v.hulkWhy);
   t('A5 the Falcon\'s canard alone: nothing (its delta has elevons)', canard.v.hulk == null && !canard.v.hulkWhy && !canard.v.wings.some((q) => q.def.wing.control), canard.v.hulkWhy);
   t('A5 the FS-16\'s every fin shot off: crippled (fin)', fin.v.hulkWhy === 'fin' && !fin.v.vtails.length && !fin.v.down, fin.v.hulkWhy);
-  t('A5 the Mustang\'s engine dead: crippled (engines), gliding, not down; the player told so in one toast (the engine out and all engines out: F4)', eng.v.hulkWhy === 'engines' && !eng.v.down && eng.F.ondead === 0 && eng.F.log.join() === 'All engines out!', [eng.v.hulkWhy, eng.F.log]);
+  const ep = eng.v.parts.find((p) => p.def.thrust), lit = !!ep && ep.burn > 0; // (the hit may light it: dice on the part's id, which hangs on how many parts were made before it)
+  t('A5 the Mustang\'s engine dead: crippled (engines), gliding, not down; the player told so in one toast (the engine out and all engines out: F4; on fire if the dice lit it)', eng.v.hulkWhy === 'engines' && !eng.v.down && eng.F.ondead === 0
+    && eng.F.log.join() === (lit ? `All engines out! ${ep.def.name} on fire!` : 'All engines out!'), [eng.v.hulkWhy, eng.F.log, lit]);
 }
 
 // A6 the rare mid-air detonation: one roll a hit event a craft, on a big tank's or loaded rack's overkill of half its health
@@ -285,8 +287,11 @@ function P0() { return { name: 'someone' }; }
     return (detonations - d0) / N;
   };
   const R6 = {};
-  for (const k of ['falcon', 'fs16', 'myg21', 'bomber', 'skylark', 'mustang', 'hornet', 'fs22', 'jumbo']) R6[k] = +(rate(k) * 100).toFixed(1);
-  t('A6 ...the rate in 400 missile bursts: FS-16, MyG-21 5-15 %, the Falcon 3-15 %; the bomber 12-28 %; the Skylark, Mustang, Hornet, FS-22, Jumbo at most 1 %',
+  // (the dice hang on the parts' ids, so on how many parts were made before: the four that do go up are measured over 1200
+  // bursts, enough that the figure doesn't hang on where the ids start. With 400, the radar sets added to the jets in Phase
+  // 3 moved the Falcon's figure from 3.3 to 1.8 %: the same rules, other ids)
+  for (const k of ['falcon', 'fs16', 'myg21', 'bomber', 'skylark', 'mustang', 'hornet', 'fs22', 'jumbo']) R6[k] = +(rate(k, ['falcon', 'fs16', 'myg21', 'bomber'].includes(k) ? 1200 : 400) * 100).toFixed(1);
+  t('A6 ...the rate in 1200 missile bursts: FS-16, MyG-21 5-15 %, the Falcon 3-15 %; the bomber 12-28 %; in 400, the Skylark, Mustang, Hornet, FS-22, Jumbo at most 1 %',
     R6.fs16 >= 5 && R6.fs16 <= 15 && R6.myg21 >= 5 && R6.myg21 <= 15 && R6.falcon >= 3 && R6.falcon <= 15 && R6.bomber >= 12 && R6.bomber <= 28 && ['skylark', 'mustang', 'hornet', 'fs22', 'jumbo'].every((k) => R6[k] <= 1), R6);
 }
 
@@ -1456,7 +1461,8 @@ function sysCalls(fn) {
     const w2 = air('fs16'), WF = fsim(w2), wp = w2.mainWing;
     Combat.damage(w2, wp, dmgTo(wp, 0.5), 'shot', WF, B);
     t(`F4 a burst taking several parts of the player's craft: ${held} losses, one toast ("${burst[0]}"); a lone hit killing the only engine (out, maybe burning, all engines out): one toast ("${UF.log.join('" "')}"); a lone hit's single loss in its own words`,
-      held >= 3 && burst.length === 1 && / shot off!/.test(burst[0]) && !lost && !Death.S.hold && UF.log.length === 1 && UF.log[0] === 'All engines out!' && WF.log.join() === `${wp.def.name} damaged`, { held, burst, lone: UF.log, w: WF.log });
+      held >= 3 && burst.length === 1 && / shot off!/.test(burst[0]) && !lost && !Death.S.hold && UF.log.length === 1 && UF.log[0] === (ue.burn > 0 ? `All engines out! ${ue.def.name} on fire!` : 'All engines out!')
+      && WF.log.join() === `${wp.def.name} damaged`, { held, burst, lone: UF.log, w: WF.log });
     const L = Death._t.lostText, it = (name, k) => ({ name, k, text: `${name}!` });
     const t1 = L([it('Wing', 'off')]), t2 = L([it('Wing', 'off'), it('Fin', 'off'), it('Pod', 'off'), it('Tank', 'off')]);
     const t3 = L([it('Jet', 'out'), it('All engines', 'out'), it('Jet', 'fire'), it('Tank', 'off'), it('Tank', 'fire')]), t4 = L([it('Jet', 'bad'), it('Nose', 'dmg')]), t5 = L([it('Jet', 'bad'), it('Nose', 'bad')]);

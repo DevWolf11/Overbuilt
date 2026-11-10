@@ -86,6 +86,10 @@ const Combat = (() => {
   // tanks, loaded weapons and cockpits blow up; the rest break off. A pair goes up where each one hangs, its fuel shared
   // between them. The order of the lines is fixed (each package of the big update has its slot).
   function destroyPart(v, p, cause, sim, side) {
+    if (innerRadar(p.def)) { // (a radar set at 0 hp stays where it is inside its nose, dead: the player hears it once, in the hit's one toast)
+      if (!p.broken) { p.broken = true; const say = `${p.def.name} knocked out: radar out`; if (v === sim.active && !v.ai && sim.toast && !Death.lose(v, sim, { name: p.def.name, k: 'out', text: say })) sim.toast(say, 'warn'); }
+      return;
+    }
     if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
     const n0 = sim.vessels ? sim.vessels.length : 0; // (the pieces it makes are pushed after these)
     let det = false; // (the rare mid-air detonation: today's body, then death.js's)
@@ -279,7 +283,7 @@ const Combat = (() => {
     let a = 0, s = 0, ext = 0;
     for (const p of v.parts) {
       const d = p.def;
-      if (d.wing || d.wheel || d.rwr || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser, and a warning receiver's antennas, sit flush in the skin)
+      if (d.wing || d.wheel || d.rwr || innerRadar(d) || (d.weapon && d.weapon.kind === 'chaff')) continue; // (a chaff dispenser, and a warning receiver's antennas, sit flush in the skin; a radar set sits inside a nose)
       if (d.pod || d.shape === 'missile' || d.shape === 'bomb' || d.shape === 'ecm') { if (p.ammo !== 0) ext++; continue; }
       if (d.doors && p.deployed > 0.05) ext++; // (bay or gun doors open to fire: it shows up like a store hung outside)
       const ar = d.w * d.h; a += ar; s += ar * (d.stealth || 0);
@@ -1446,7 +1450,7 @@ const Combat = (() => {
         if (o.dead || o.body !== v.body || len(o.x - v.x, o.y - v.y, o.z - v.z) > 5000 || (o.wreck && !wk.includes(o))) continue;
         for (const p of o.parts) {
           if (p.def.module) { Armour.partFX(o, p, S.smokeN); continue; } // (tracks, crews, engines: only what really burns does)
-          if (p.hp == null) continue;
+          if (p.hp == null || innerRadar(p.def)) continue; // (a radar set inside a nose neither smokes nor burns)
           const f = hpFrac(p);
           if (f > 0.6) continue;
           if (!Death.partFX(o, p, f, S.smokeN)) { // (an aircraft's trails, a knocked-out hulk's parts: death.js smokes them its own way)
