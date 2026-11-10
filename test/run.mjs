@@ -14,7 +14,7 @@ const NODE = ['fingerprint.js', 'core.test.js', 'physics.test.js', 'flight.test.
   'driving.js', 'ground.test.js', 'catalogue.test.js', 'armour.test.js', 'aim.test.js', 'duel.test.js', 'gmode.test.js', 'groundai.test.js', 'props.test.js', 'planes.test.js', 'instructor.test.js', 'fx.test.js', 'death.test.js', 'radar.test.js'];
 const BROWSER = ['browser/builder2d.mjs', 'browser/builder3d.mjs', 'browser/builder-shapes.mjs', 'browser/rwr-hud.mjs', 'browser/redraw.mjs', 'browser/mp-two-tabs.mjs',
   'browser/builder-tank.mjs', 'browser/ground-hud.mjs', 'browser/ground-battle.mjs', 'browser/ground-models.mjs', 'browser/practice-battle.mjs', 'browser/props.mjs', 'browser/plane-aim.mjs', 'browser/controls.mjs',
-  'browser/graphics.mjs', 'browser/deaths.mjs'];
+  'browser/graphics.mjs', 'browser/deaths.mjs', 'browser/radar.mjs'];
 const args = process.argv.slice(2), verbose = args.includes('-v'), pass = args.includes('--update') ? ['--update'] : [];
 const named = args.filter((a) => !a.startsWith('-'));
 let suites = [...NODE, ...(args.includes('--browser') ? BROWSER : [])];

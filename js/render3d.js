@@ -4745,7 +4745,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       bd.key.length = 0;
       for (const p of parts) bd.key.push(p.id, p.type, !!p.flip, p.skin || '');
       bd.kind = B.kind || ''; bd.parts = parts; bd.att.length = 0; bv.tinted.clear();
-      bd.anim = !!bd.vm && bd.vm.list.some((r) => r.spins.length && r.anim && r.anim.always); // (a rotodome turns all the time)
+      bd.anim = false; // (a rotodome turns in flight only: the idle hangar draws nothing, for the battery)
     }
     // loose parts (not joined to the craft) are see-through
     let att = bd.att.length === n;
