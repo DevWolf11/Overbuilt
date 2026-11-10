@@ -1421,7 +1421,12 @@ const Builder = {
   // ---------------------------------------------------------------- armour (the ground update)
   // The turn a part comes in at: an aimed part (a gun, a launcher, a dish) on a ground vehicle points forward with its
   // base down (rot 3: its own +y along +x); anything else, and every part from before, upright as always.
-  defaultRot(def, kind = this.kind) { return def && def.aim && isGround(kind) ? 3 : 0; },
+  defaultRot(def, kind = this.kind) {
+    // a radar that looks one way faces the craft's nose (planes and rockets unturned, helicopters, cars and Armour a
+    // quarter turn); a tail set faces back
+    if (def && def.radarSet && def.radarSet.cone < 180) { const F = (PILOT[kind] || PILOT.rocket).F, r = F.x > 0.5 ? 3 : F.x < -0.5 ? 1 : F.y < -0.5 ? 2 : 0; return (r + (def.radarSet.warn ? 2 : 0)) & 3; }
+    return def && def.aim && isGround(kind) ? 3 : 0;
+  },
   // A hull's or turret's side outline in part space, turned as the part is (counter-clockwise): def.outline, else its box.
   outlineOf(p) {
     const d = p.def;

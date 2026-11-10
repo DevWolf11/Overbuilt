@@ -25,6 +25,8 @@ const PART_CATEGORIES = [
   { id: 'launchers', name: 'Launchers' },
   { id: 'crew', name: 'Crew & ammo' },
   { id: 'kit', name: 'Kit' },
+  // the big update's radar parts (planes and helicopters; last, so the ground tabs keep their places)
+  { id: 'radar', name: 'Radar' },
 ];
 
 // Vehicle kinds decide where a design launches and how the builder shows it. launchRot is the
@@ -32,9 +34,9 @@ const PART_CATEGORIES = [
 // part tabs the builder shows for it, in order (More shows the rest: any part still goes on any craft).
 const VEHICLE_KINDS = {
   rocket: { id: 'rocket', name: 'Rocket', site: 'pad', launchRot: 0, cats: ['command', 'fuel', 'engine', 'coupling', 'aero', 'utility', 'structure'] },
-  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2, cats: ['cabins', 'air', 'wings', 'airEng', 'airGear', 'weapons'] },
+  plane: { id: 'plane', name: 'Plane', site: 'runway', launchRot: -Math.PI / 2, cats: ['cabins', 'air', 'wings', 'airEng', 'airGear', 'weapons', 'radar'] },
   car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0, cats: ['ground', 'utility', 'structure', 'weapons'] },
-  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons'] },
+  heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons', 'radar'] },
   tank: { id: 'tank', name: 'Armour', site: 'runway', launchRot: 0, cats: ['hulls', 'turrets', 'drive', 'guns', 'launchers', 'crew', 'kit'] },
 };
 // The kinds that drive on the ground (tracks, armour and aimed guns work on any of them; behaviour comes from parts).
@@ -46,6 +48,25 @@ const AIR_KINDS = new Set(['plane', 'heli', 'drone']);
 function isAirKind(kind) { return AIR_KINDS.has(kind); }
 // A vessel's running gear (v.gear) when it has none: every old design.
 const NO_GEAR = Object.freeze([]);
+
+// A radar part (def.radarSet; radar.js reads it, the builder shows it). kind: its short name on the scope and the RWR;
+// range: m against a fighter with no stealth (× (1 − stealth), × its health factor); cone: half-angle in degrees about
+// the part's own +y (180: all round); scan: s for one sweep across the cone (all round: one turn), the scope's sweep;
+// down: it sees low targets (else a target below it by 50 m or under 300 m above the ground is lost in the clutter at any
+// speed); notch: m/s (with down): a low target crossing its beam slower hides; lock: s to lock a radar missile; guide:
+// 0 nothing (guns only), 1 semi-active radar missiles, 2 those and a data link (active ones go on alone near the
+// target); tws: targets its missiles may be guided at at once; eccm: 0..1 against a jammer (reach past 5 km ×
+// (0.7 + 0.3·eccm), lock × (2 − eccm)); lpi: 0..1 (a warning receiver hears its lock and search only within
+// range × (1 − lpi)); warn: a tail warning (looks behind, no lock, no guidance); ground: m, it also marks vehicles on the
+// ground that far. Frozen: shared by every part of the type. (No old part has one: cockpits, noses, the Radome and the
+// Drone Core carried a hidden `radar` number before the big update; now only radar parts see.)
+function radarDef(o) { return Object.freeze({ kind: 'PD', range: 18000, cone: 60, scan: 2, down: true, notch: 40, lock: 1.4, guide: 2, tws: 2, eccm: 0, lpi: 0, warn: false, ground: 0, ...o }); }
+function innerRadar(d) { return !!(d && d.inner && d.radarSet); } // (a set inside a nose, cockpit or fuselage)
+// The inner radar sets' common fields: they sit inside a body (flush: they may overlap it; inner: hidden in flight,
+// drawn on top in X-ray), as deep as they are wide (a round set), with hit points of their own (a near miss that leaves
+// the nose standing mostly leaves the set working too).
+const RADAR_SET = { cat: 'radar', tray: 'Inside a nose', inner: true, flush: true, shape: 'radarset', maxTemp: 2400 };
+const RADAR_ROOM = ' Goes inside a nose, cockpit or fuselage; a Radome has the most room.';
 
 const FUEL_PER_M2 = 0.55; // tonnes of propellant per m² of tank side area
 const AMBIENT_T = 290;
@@ -155,26 +176,26 @@ const PARTS = {
     tier: 0, cost: 2500, desc: 'Small cockpit for light planes and gliders.' },
   cockpit: { cat: 'cabins', name: 'Cockpit', w: 2, h: 2.5, mass: 0.9, control: 3, torque: 2500, crew: 1, shape: 'cockpit', aero: true, breakSpeed: 12,
     tier: 0, cost: 4500, desc: 'Streamlined plane nose with a bubble canopy on top.' },
-  cockpitJet: { cat: 'cabins', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radar: 12000, shape: 'jetnose', aero: true, sharp: true,
-    breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag.' },
+  cockpitJet: { cat: 'cabins', name: 'Fighter Nose', w: 1.6, h: 4.2, mass: 0.8, control: 3, torque: 2500, crew: 1, radarFit: 'radarPD', shape: 'jetnose', aero: true, sharp: true,
+    breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 7000, desc: 'Long pointed nose with a bubble canopy. Slips through the sound barrier with less drag. Room inside for a radar set (Radar tab).' },
   cockpitAir: { cat: 'cabins', name: 'Airliner Nose', w: 3, h: 3.4, mass: 1.4, control: 3, torque: 4000, crew: 2, shape: 'airnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6500, desc: 'Flight deck for a wide fuselage.' },
-  cockpitTandem: { cat: 'cabins', name: 'Tandem Cockpit', w: 1.7, h: 5.2, mass: 1.0, control: 3, torque: 2800, crew: 2, radar: 10000, shape: 'jetnose',
+  cockpitTandem: { cat: 'cabins', name: 'Tandem Cockpit', w: 1.7, h: 5.2, mass: 1.0, control: 3, torque: 2800, crew: 2, radarFit: 'radarPulse', shape: 'jetnose',
     canopy: { at: 0.36, len: 0.3, seats: 2 }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 8000,
-    desc: 'Two seats in a row under one long canopy, like a jet trainer. Pointed for speed.' },
-  cockpitStealth: { cat: 'cabins', name: 'Stealth Nose', w: 2, h: 4.6, mass: 0.9, control: 3, torque: 2600, crew: 1, radar: 14000, stealth: 0.6, shape: 'jetnose',
+    desc: 'Two seats in a row under one long canopy, like a jet trainer. Pointed for speed. Room inside for a radar set (Radar tab).' },
+  cockpitStealth: { cat: 'cabins', name: 'Stealth Nose', w: 2, h: 4.6, mass: 0.9, control: 3, torque: 2600, crew: 1, radarFit: 'radarPD', stealth: 0.6, shape: 'jetnose',
     style: 'stealth', facets: 6, canopy: { at: 0.32, len: 0.2, gold: true }, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 14000,
-    desc: 'Faceted nose with a gold-tinted canopy. Radar glances off it: build the whole plane stealthy and enemy radars, SAMs and fighters find you much later.' },
+    desc: 'Faceted nose with a gold-tinted canopy. Radar glances off it: build the whole plane stealthy and enemy radars, SAMs and fighters find you much later. Room inside for a radar set (Radar tab).' },
   cockpitBomber: { cat: 'cabins', name: 'Glazed Bomber Nose', w: 3, h: 3.6, mass: 1.3, control: 3, torque: 4000, crew: 3, shape: 'glassnose', aero: true, breakSpeed: 12,
     tier: 1, cost: 6000, desc: 'A greenhouse nose for the bomb aimer, with the flight deck behind. Fits a wide fuselage.' },
   cockpitWarbird: { cat: 'cabins', name: 'Warbird Cockpit', w: 2, h: 2.6, mass: 0.7, control: 3, torque: 2200, crew: 1, shape: 'cabin', breakSpeed: 12,
     tier: 1, cost: 4000, desc: 'A fuselage section with a bubble canopy. Put the engine and propeller in front of it, like a WWII fighter.' },
   cockpitHeli: { cat: 'cabins', name: 'Helicopter Bubble', w: 2.4, h: 2.4, mass: 0.5, control: 3, torque: 5000, crew: 2, shape: 'bubble', aero: true, breakSpeed: 10,
     tier: 1, cost: 3500, desc: 'An all-glass cabin with a view all round. Main rotor on top, a tail boom behind and skids underneath.' },
-  droneCore: { cat: 'cabins', name: 'Drone Core', w: 1.2, h: 1.4, mass: 0.15, control: 2, torque: 1200, crew: 0, radar: 6000, shape: 'dronecore', depth: 1.2, breakSpeed: 12,
+  droneCore: { cat: 'cabins', name: 'Drone Core', w: 1.2, h: 1.4, mass: 0.15, control: 2, torque: 1200, crew: 0, shape: 'dronecore', depth: 1.2, breakSpeed: 12,
     tier: 2, cost: 3000, desc: 'Remote-control brain with a satellite link: no pilot, no canopy, light and cheap. Put it in a fuselage stack.' },
-  radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600, radar: 16000,
-    desc: 'Pointed nose cone for a fuselage. Lower drag, especially near Mach 1.' },
+  radome: { cat: 'air', name: 'Radome', w: 2, h: 2.2, mass: 0.1, shape: 'nose', aero: true, sharp: true, tier: 1, cost: 600, radarFit: 'radarPD',
+    desc: 'Pointed nose cone for a fuselage. Lower drag, especially near Mach 1, and the most room of any nose for a radar set (Radar tab).' },
   fuselageS: { cat: 'air', name: 'Short Fuselage', w: 2, h: 2, fuel: 1, mass: 0.18, shape: 'fuselage', tier: 0, cost: 1000,
     desc: 'Short plane body with a fuel tank.' },
   fuselage: { cat: 'air', name: 'Fuselage', w: 2, h: 4, fuel: 2, mass: 0.35, shape: 'fuselage', tier: 0, cost: 1800,
@@ -209,8 +230,9 @@ const PARTS = {
     desc: 'A slim tube to carry a tail: for helicopters (tail rotor at the end) and twin-boom planes.' },
   fuselageAdS: { cat: 'air', name: 'Slim Adapter', w: 2, h: 1, topW: 1.5, mass: 0.06, shape: 'adapter', tier: 0, cost: 300,
     desc: 'Narrows a 2 m fuselage to a slim 1.5 m one. Rotate it to narrow the other way.' },
-  rotodome: { cat: 'air', name: 'Radar Rotodome', w: 1.7, h: 5, mass: 0.9, radar: 45000, shape: 'rotodome', tier: 3, cost: 12000,
-    desc: 'Spinning early-warning radar on a pylon. Mount it on top of the fuselage: radar missiles reach their full range and the HUD shows targets three times further away.' },
+  rotodome: { cat: 'radar', tray: 'Outside', name: 'Radar Rotodome', w: 1.7, h: 5, mass: 0.9, shape: 'rotodome', tier: 3, cost: 12000,
+    radarSet: radarDef({ kind: 'AEW', range: 45000, cone: 180, scan: 4.8, notch: 30, lock: 2.0, tws: 4, eccm: 0.5 }),
+    desc: 'Spinning early-warning radar on a pylon: sees all round to 45 km, guides radar missiles at four targets, slow to lock (2 s). Mount it on top of the fuselage.' },
 
   // wings and tails
   wingS: { cat: 'wings', name: 'Small Wing', w: 0.35, h: 1.75, mass: 0.15, shape: 'wing', wing: { area: 7, span: 5, flaps: true, vne: 250, mmax: 0.74 }, breakSpeed: 14, tier: 0, cost: 700,
@@ -387,7 +409,7 @@ const PARTS = {
     desc: 'Short-range missiles that home on engine heat: a hot jet seen from behind locks from 5 km, a cold one or one coming at you much closer. The motor burns 3 s, then they coast, so long or low shots run out of energy. Flares fool them, more so if the target throttles back.' },
   radarMissiles: { cat: 'weapons', name: 'Radar Missiles', w: 0.5, h: 3.6, mass: 0.05, shape: 'missile', twinZ: 2.4, pod: true, aero: true, tier: 3, cost: 16000,
     weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 2, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
-    desc: 'Long-range missiles that ride your nose radar (a Radome reaches furthest): keep the target in front of you until they hit. A low target flying across your beam (notching), or chaff, can shake them. A target with a warning receiver (RWR) hears them coming.' },
+    desc: 'Long-range missiles that ride your radar: fit one (Radar tab) and keep the target in its scan until they hit. A low target flying across your beam (notching), or chaff, can shake them. A target with a warning receiver (RWR) hears them coming.' },
   agm: { cat: 'weapons', name: 'Attack Missiles', w: 0.5, h: 2.8, mass: 0.05, shape: 'missile', agm: true, twinZ: 2.9, pod: true, aero: true, tier: 2, cost: 12000,
     weapon: { kind: 'missile', seek: 'ground', ammo: 2, range: 8000, cone: 0.5, accel: 200, burn: 4, vmax: 700, turn: 18, dmg: 900, blast: 20, each: 200 },
     desc: 'Guided missiles for tanks, boats and buildings. Point at a ground target until it locks.' },
@@ -441,6 +463,36 @@ const PARTS = {
   ecm: { cat: 'weapons', name: 'ECM Jammer Pod', w: 0.55, h: 2.6, mass: 0.25, shape: 'ecm', ecm: true, aero: true, tier: 3, cost: 9000,
     desc: 'Jams enemy radars: incoming SAMs often lose you, and AA gunners aim badly. Hang it under the fuselage or a wing.' },
 
+  // ---- radar (the big update): sets that go inside a nose, cockpit or fuselage (tray group "Inside a nose"), and
+  // radars outside (a pod, a mast over a helicopter's rotor; the Rotodome is with the fuselage parts above)
+  radarRanging: { ...RADAR_SET, name: 'Ranging Radar', w: 0.4, h: 0.35, depth: 0.4, mass: 0.005, hp: 120, style: 'dish', tier: 1, cost: 1000,
+    radarSet: radarDef({ kind: 'RNG', range: 8000, cone: 20, scan: 0.6, down: false, notch: 0, lock: 0, guide: 0, tws: 0 }),
+    desc: 'A small gun-ranging radar: finds a target dead ahead out to 8 km, leads your guns out to 3 km and cues heat seekers on to it (they lock faster). It can\'t guide radar missiles and can\'t see anything below you.' + RADAR_ROOM },
+  radarPulse: { ...RADAR_SET, name: 'Pulse Radar', w: 0.6, h: 0.5, depth: 0.6, mass: 0.01, hp: 160, style: 'dish', tier: 2, cost: 2500,
+    radarSet: radarDef({ kind: 'PULSE', range: 14000, cone: 45, scan: 2.4, down: false, notch: 0, lock: 1.8, guide: 1, tws: 1 }),
+    desc: 'The first fighter radar: 14 km, ±45°, guides radar missiles at one target at a time. It can\'t look down: anything below you is lost in the ground\'s echo, so get under them.' + RADAR_ROOM },
+  radarPD: { ...RADAR_SET, name: 'Pulse-Doppler Radar', w: 0.7, h: 0.55, depth: 0.7, mass: 0.01, hp: 180, style: 'dish', tier: 3, cost: 3500,
+    radarSet: radarDef({ kind: 'PD', range: 18000, cone: 60, scan: 2.0, down: true, notch: 40, lock: 1.4, guide: 2, tws: 2 }),
+    desc: 'Looks down as well as up: 18 km, ±60°, and guides radar missiles at two targets at once (active ones go on alone for the last 6 km). A low target flying across its beam can still hide (notching).' + RADAR_ROOM },
+  radarPESA: { ...RADAR_SET, name: 'PESA Radar', w: 0.9, h: 0.55, depth: 0.9, mass: 0.01, hp: 200, style: 'pesa', tier: 4, cost: 6500,
+    radarSet: radarDef({ kind: 'PESA', range: 24000, cone: 60, scan: 1.2, down: true, notch: 25, lock: 1.0, guide: 2, tws: 4, eccm: 0.5 }),
+    desc: 'An electronically steered array: 24 km, ±60°, locks in a second, guides missiles at four targets, shrugs off half of a jammer\'s effect, and only a low target almost exactly across its beam can hide.' + RADAR_ROOM },
+  radarAESA: { ...RADAR_SET, name: 'AESA Radar', w: 0.8, h: 0.45, depth: 0.8, mass: 0.01, hp: 200, style: 'aesa', tier: 4, cost: 9000,
+    radarSet: radarDef({ kind: 'AESA', range: 26000, cone: 70, scan: 0.8, down: true, notch: 15, lock: 0.7, guide: 2, tws: 6, eccm: 0.7, lpi: 0.6 }),
+    desc: 'The best there is: 26 km, ±70°, locks in 0.7 s, guides missiles at six targets, hard to jam or notch, and quiet: warning receivers hear it only within 10 km.' + RADAR_ROOM },
+  radarTail: { ...RADAR_SET, name: 'Tail Warning Radar', w: 0.32, h: 0.3, depth: 0.32, mass: 0.005, hp: 100, style: 'dish', tier: 2, cost: 1200,
+    radarSet: radarDef({ kind: 'TAIL', range: 4000, cone: 60, scan: 1.0, down: true, notch: 0, lock: 0, guide: 0, tws: 0, warn: true }),
+    desc: 'A small radar looking backwards: CHECK SIX and a tone when an enemy aircraft comes within 3 km of your tail, and its blips on your scope. Put it in the tail cone or the back of the fuselage.' },
+  radarPod: { cat: 'radar', tray: 'Outside', name: 'Radar Pod', w: 0.55, h: 2.4, mass: 0.16, shape: 'ecm', style: 'radar', pod: true, aero: true, tier: 3, cost: 4000,
+    radarSet: radarDef({ kind: 'POD', range: 12000, cone: 45, scan: 2.0, down: true, notch: 40, lock: 1.6, guide: 1, tws: 1 }),
+    desc: 'A radar in a pod for a plane with no room in its nose: 12 km, ±45°, guides radar missiles at one target. Hang it under a wing or the fuselage. It spoils stealth like any store.' },
+  radarMast: { cat: 'radar', tray: 'Outside', name: 'Mast Radar', w: 0.9, h: 0.95, mass: 0.12, shape: 'mastdome', tier: 3, cost: 6000,
+    radarSet: radarDef({ kind: 'MAST', range: 9000, cone: 180, scan: 1.5, down: true, notch: 10, lock: 1.0, guide: 2, tws: 2, eccm: 0.3, ground: 8000 }),
+    desc: 'A dome on a mast over a helicopter\'s rotor: sees all round to 9 km, picks out low, slow targets other radars lose, and marks vehicles on the ground out to 8 km. Put it on top of the main rotor.' },
+  radarMissilesA: { cat: 'weapons', name: 'Active Radar Missiles', w: 0.45, h: 3.7, mass: 0.05, shape: 'missile', style: 'arh', twinZ: 2.4, pod: true, aero: true, tier: 4, cost: 19000,
+    weapon: { kind: 'missile', seek: 'air', radar: true, active: 6000, label: 'ARH', ammo: 2, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'Long-range missiles with their own radar: they ride yours until 6 km out, then home by themselves, so you can turn away (with a pulse-Doppler radar or better; from a pulse radar or a pod they ride it all the way). A low target flying across their beam, or chaff, can still shake them.' },
+
   // ---- ground
   cab: { cat: 'ground', name: 'Driver Cab', w: 2.4, h: 1.5, mass: 0.6, control: 2, torque: 4000, crew: 2, shape: 'cab', depth: 2, aero: true, breakSpeed: 11, tier: 0, cost: 2500,
     desc: 'Two-seat cab for cars and trucks.' },
@@ -457,9 +509,9 @@ const PARTS = {
   // doors: bay or gun doors that open only to fire (stealthOf counts them while open); bayRack: where each store
   // leaves the bay, by store; vec2d: a flat nozzle that vectors in pitch only; irK: the exhaust's heat, as seen by
   // heat seekers; twinMirror: the left one of a pair is the mirror image (canted fins, gear legs).
-  us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radar: 18000, stealth: 0.7,
+  us5Nose22: { cat: 'cabins', name: 'FS-22 Stealth Nose', w: 2.2, h: 5.6, depth: 2.36, mass: 2.4, control: 3, torque: 3200, crew: 1, radarFit: 'radarAESA', stealth: 0.7,
     shape: 'us5body', us5: 'nose22', body3d: 'us5', look: 'raptor', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11700,
-    desc: 'The FS-22’s chined nose: a sharp-edged radome, a long radar and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it.' },
+    desc: 'The FS-22’s chined nose: a sharp-edged radome and a frameless gold-tinted bubble canopy. Radar barely sees it. Put the Caret-Intake Fuselage behind it. Room inside for a radar set (Radar tab).' },
   us5Intake22: { cat: 'air', name: 'FS-22 Caret-Intake Fuselage', w: 2.2, h: 4.4, depth: 4.66, mass: 3.3, fuel: 2.6, stealth: 0.7, shape: 'us5body', us5: 'intake22',
     body3d: 'us5', look: 'raptor', fill: 0.45, bay: true, doors: true, bayRack: [[0.38, -0.78, -2.67], [0.38, -0.78, 2.67]], tier: 4, cost: 11000,
     weapon: { kind: 'missile', seek: 'air', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
@@ -467,8 +519,8 @@ const PARTS = {
   us5Bay22: { cat: 'weapons', name: 'Internal Missile Bay', w: 2.2, h: 3.8, depth: 4.66, mass: 3.0, fuel: 1.4, stealth: 0.7, shape: 'us5body', us5: 'bay22', body3d: 'us5',
     look: 'raptor', fill: 0.57, bay: true, doors: true, tier: 4, cost: 13000,
     bayRack: [[1.05, 0, -0.16], [1.05, 0, 0.16], [1.05, 0, -0.47], [1.05, 0, 0.47], [1.05, 0, -0.78], [1.05, 0, 0.78]],
-    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 6, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
-    desc: 'The FS-22’s belly bay: six radar missiles inside, out of the wind and out of sight. The doors snap open for each launch and shut again, and only while they are open do enemy radars see you sooner (watch ◈).' },
+    weapon: { kind: 'missile', seek: 'air', radar: true, active: 6000, ammo: 6, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'The FS-22’s belly bay: six radar missiles inside, out of the wind and out of sight. The doors snap open for each launch and shut again, and only while they are open do enemy radars see you sooner (watch ◈). With a pulse-Doppler radar or better they go active 6 km out: turn away and they carry on.' },
   us5Aft22: { cat: 'air', name: 'FS-22 Aft Fuselage', w: 2.2, h: 2.0, depth: 4.5, mass: 1.9, fuel: 0.6, stealth: 0.7, shape: 'us5body', us5: 'aft22', body3d: 'us5', look: 'raptor',
     fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-22’s tail end, with the booms that carry its tailplanes. Two Flat Vectoring Nozzle Engines go behind it, the Canted Twin Tails on top.' },
   us5Eng22: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Flat Vectoring Nozzle Engine', w: 1.2, h: 3.1, depth: 1.48, mass: 1.8, thrust: 186, ispSL: 5400, ispVac: 5400, gimbal: 0.35, vec2d: true, irK: 0.7,
@@ -491,16 +543,16 @@ const PARTS = {
   us5GearM: { cat: 'airGear', name: 'Stealth Main Gear', w: 0.9, h: 1.0, mass: 0.7, shape: 'gear', us5: 'gear', body3d: 'us5', twinZ: 1.6, twinMirror: true,
     wheel: { r: 0.45, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 9, tier: 3, cost: 2600,
     desc: 'A pair of single-wheel legs that fold into the fuselage sides (G). For heavy fighters.' },
-  us5Nose35: { cat: 'cabins', name: 'FS-35 Stealth Nose', w: 2.4, h: 4.5, depth: 2.44, mass: 1.8, control: 3, torque: 3000, crew: 1, radar: 16000, stealth: 0.65,
+  us5Nose35: { cat: 'cabins', name: 'FS-35 Stealth Nose', w: 2.4, h: 4.5, depth: 2.44, mass: 1.8, control: 3, torque: 3000, crew: 1, radarFit: 'radarAESA', stealth: 0.65,
     shape: 'us5body', us5: 'nose35', body3d: 'us5', look: 'lightning', fill: 0.6, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 15000,
-    desc: 'The FS-35’s nose: a chined radome, the faceted window of its targeting camera under the chin and a tall bulged canopy for a good view. Put the Bump-Intake Fuselage behind it.' },
+    desc: 'The FS-35’s nose: a chined radome, the faceted window of its targeting camera under the chin and a tall bulged canopy for a good view. Put the Bump-Intake Fuselage behind it. Room inside for a radar set (Radar tab).' },
   us5Intake35: { cat: 'air', name: 'FS-35 Bump-Intake Fuselage', w: 2.4, h: 2.6, depth: 3.9, mass: 2.5, fuel: 1.8, stealth: 0.65, shape: 'us5body', us5: 'intake35', body3d: 'us5',
     look: 'lightning', fill: 0.45, tier: 4, cost: 8000,
     desc: 'The FS-35’s intakes: a smooth bump on each side sweeps the slow air away, so the inlets need no splitter plate, and the raked lips hide the engine face from radar.' },
   us5Bay35: { cat: 'weapons', name: 'FS-35 Missile Bays', w: 2.4, h: 3.8, depth: 3.84, mass: 2.3, fuel: 1.7, stealth: 0.65, shape: 'us5body', us5: 'bay35', body3d: 'us5',
     look: 'lightning', fill: 0.58, bay: true, doors: true, tier: 4, cost: 12000, bayRack: [[1.16, 0, -0.33], [1.16, 0, 0.33], [1.16, 0, -0.7], [1.16, 0, 0.7]],
-    weapon: { kind: 'missile', seek: 'air', radar: true, ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
-    desc: 'Two bays in the FS-35’s belly, left and right, with two radar missiles each. Their doors open only for a launch, so the plane keeps its stealth until it shoots.' },
+    weapon: { kind: 'missile', seek: 'air', radar: true, active: 6000, ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    desc: 'Two bays in the FS-35’s belly, left and right, with two radar missiles each. Their doors open only for a launch, so the plane keeps its stealth until it shoots. With a pulse-Doppler radar or better they go active 6 km out: turn away and they carry on.' },
   us5Aft35: { cat: 'air', name: 'FS-35 Aft Fuselage', w: 2.4, h: 2.4, depth: 3.6, mass: 1.5, fuel: 0.9, stealth: 0.65, shape: 'us5body', us5: 'aft35', body3d: 'us5', look: 'lightning',
     fill: 0.5, tier: 4, cost: 5000, desc: 'The FS-35’s tail end around its single big engine, with booms for the tailplanes. The FS-35 Stealth Turbofan goes behind it.' },
   us5Eng35: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'FS-35 Stealth Turbofan', w: 1.5, h: 2.4, depth: 1.52, mass: 1.75, thrust: 196, ispSL: 5300, ispVac: 5300, gimbal: 0.02, irK: 0.85, stealth: 0.6,
@@ -532,14 +584,14 @@ const PARTS = {
     breakSpeed: 10, tier: 3, cost: 2200, desc: 'A pair of long main legs with big single wheels, one under each engine nacelle. Folds away (G).' },
 
   // the Sugoi-27 (after the Su-27 Flanker), also the Sugoi-35's airframe
-  ruNose27: { cat: 'cabins', name: 'Sugoi-27 Nose', w: 1.7, h: 8.3, depth: 1.64, mass: 2.2, control: 3, torque: 4000, crew: 1, radar: 20000, shape: 'ruLoft', ru: 'nose',
+  ruNose27: { cat: 'cabins', name: 'Sugoi-27 Nose', w: 1.7, h: 8.3, depth: 1.64, mass: 2.2, control: 3, torque: 4000, crew: 1, radarFit: 'radarPD', shape: 'ruLoft', ru: 'nose',
     ruRadome: 5.9, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8500,
     loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.82, -0.3], [14.3, -0.95, 0.5, 0.82, -0.25], [15.1, -0.95, 0.7, 0.82, -0.18], [16.0, -0.95, 0.75, 0.82, -0.15],
       [17.0, -0.95, 0.75, 0.8, -0.15], [17.8, -0.95, 0.72, 0.76, -0.15], [18.6, -0.83, 0.66, 0.7, -0.12], [19.5, -0.66, 0.55, 0.6, -0.08], [20.5, -0.47, 0.38, 0.44, -0.05],
       [21.3, -0.25, 0.17, 0.24, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
     glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
       [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
-    desc: 'The long, drooping nose of a big air-superiority fighter: a powerful radar under the radome and a bubble canopy with a view all round. Put an IRST ball ahead of the canopy.' },
+    desc: 'The long, drooping nose of a big air-superiority fighter: a long radome and a bubble canopy with a view all round. Put an IRST ball ahead of the canopy. Room inside for a radar set (Radar tab).' },
   ruBody27: { cat: 'air', name: 'Sugoi-27 Centre Fuselage', w: 1.3, h: 10, depth: 2.6, mass: 3.2, fuel: 3, shape: 'ruLoft', ru: 'body', ruLines: [1.6, 3.4, 5.4, 7.6], ruBrake: [7.9, 9.4], tier: 3, cost: 4500,
     loft: ruG(-0.3, 3.6, { s: [[3.6, 0.15, 0.35, 0.38, 0.3, 2, 2], [4.2, -0.1, 0.35, 0.5, 0.28, 1.9, 3], [5.0, -0.4, 0.35, 0.72, 0.25, 1.8, 3], [6.0, -0.62, 0.35, 0.98, 0.22, 1.7, 3],
       [7.0, -0.78, 0.35, 1.18, 0.2, 1.6, 3], [8.5, -0.88, 0.35, 1.3, 0.2, 1.6, 3], [10.0, -0.93, 0.35, 1.3, 0.18, 1.6, 3], [11.5, -0.95, 0.35, 1.22, 0.1, 1.7, 3],
@@ -573,14 +625,14 @@ const PARTS = {
   ruTail27: { cat: 'wings', name: 'Sugoi-27 Tailerons', w: 0.18, h: 3, mass: 0.5, shape: 'elevator',
     wing: { area: 12.25, span: 9.9, sweep: 0.785, mcrit: 0.95, wave: 0.4, control: 0.22, plan: [[0.505, 1.5, -1.5], [1, -0.95, -1.95]] }, breakSpeed: 14, tier: 3, cost: 1700,
     desc: 'All-moving swept tailplanes on the tail booms (the middle of the part is left open for the engines). They pitch the plane and help it roll.' },  // the Sugoi-35 (after the Su-35): the Flanker airframe with a bigger radar and vectoring engines
-  ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radar: 26000, shape: 'ruLoft', ru: 'nose',
+  ruNose35: { cat: 'cabins', name: 'Sugoi-35 Nose', w: 1.7, h: 8.3, depth: 1.66, mass: 2.5, control: 3, torque: 4500, crew: 1, radarFit: 'radarPESA', shape: 'ruLoft', ru: 'nose',
     ruRadome: 5.5, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 8500,
     loft: ruG(-0.1, 13.6, { s: [[13.6, -0.95, 0.36, 0.83, -0.3], [14.3, -0.95, 0.5, 0.83, -0.25], [15.1, -0.95, 0.7, 0.83, -0.18], [16.0, -0.95, 0.75, 0.83, -0.15],
       [17.0, -0.95, 0.75, 0.81, -0.15], [17.8, -0.95, 0.73, 0.78, -0.15], [18.6, -0.86, 0.69, 0.73, -0.12], [19.5, -0.72, 0.6, 0.65, -0.08], [20.5, -0.52, 0.43, 0.49, -0.05],
       [21.35, -0.27, 0.2, 0.26, -0.04], [21.9, -0.04, -0.03, 0, -0.035]], n: 2.2, nb: 2.3 }),
     glass: ruG(-0.1, 13.6, { s: [[13.75, -0.96, -0.82, 0.1, -0.9], [14.2, -1.12, -0.78, 0.32, -0.84], [15.0, -1.32, -0.72, 0.46, -0.8], [15.9, -1.36, -0.72, 0.48, -0.79],
       [16.6, -1.25, -0.74, 0.45, -0.8], [17.05, -1.04, -0.8, 0.36, -0.86], [17.3, -0.96, -0.86, 0.2, -0.92]], n: 2, nb: 6, frames: [0.66] }),
-    desc: 'An upgraded Sugoi nose: a bigger, longer-reaching radar under a fatter radome. Put an IRST ball ahead of the canopy, a little to the right.' },
+    desc: 'An upgraded Sugoi nose: a fatter radome. Put an IRST ball ahead of the canopy, a little to the right. Room inside for a radar set (Radar tab).' },
   ruAL41: { glowAft: 7, glowK: 0.2, cat: 'airEng', name: 'Sugoi-35 Vectoring Engines', w: 1.26, h: 2.5, depth: 1.26, twinZ: 1.3, mass: 2.0, thrust: 282, ispSL: 5000, ispVac: 5000, gimbal: 0.1, vector: true,
     air: { kind: 'jet', vmax: 760, ab: 1.65 }, shape: 'jet', body3d: 'ruLoft', ru: 'jet', ruJet: { petal: 1.4, exit: 0.45 }, plume: 'jet', maxTemp: 2300, tier: 4, cost: 26000,
     loft: ruG(0.95, 1.1, { s: [[2.5, 0.36, 1.54, 0.59], [3.6, 0.33, 1.57, 0.63]], mat: 'metal' }, { s: [[1.1, 0.47, 1.43, 0.48], [2.5, 0.37, 1.53, 0.58]], mat: 'steelDark', vec: 1.4 }),
@@ -594,14 +646,14 @@ const PARTS = {
     tier: 3, cost: 1200, desc: 'A long nose leg with two wheels side by side, for fighters that sit high. Folds away (G).' },
   ruGearMain: { cat: 'airGear', name: 'Fighter Main Gear', w: 1.2, h: 0.9, mass: 0.45, twinZ: 1.4, shape: 'gear', wheel: { r: 0.4, drive: false, brake: true, track: 0, retract: true },
     breakSpeed: 9, tier: 2, cost: 2000, desc: 'A pair of main legs with single wheels, one each side under the wing roots or nacelles. Folds away (G).' },
-  ruNose29: { cat: 'cabins', name: 'MyG-29 Nose', w: 1.5, h: 6.5, depth: 1.44, mass: 1.6, control: 3, torque: 3000, crew: 1, radar: 16000, shape: 'ruLoft', ru: 'nose', ruRadome: 3.9,
+  ruNose29: { cat: 'cabins', name: 'MyG-29 Nose', w: 1.5, h: 6.5, depth: 1.44, mass: 1.6, control: 3, torque: 3000, crew: 1, radarFit: 'radarPD', shape: 'ruLoft', ru: 'nose', ruRadome: 3.9,
     aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 7500,
     loft: ruG(-0.1, 10.4, { s: [[10.4, -0.85, 0.32, 0.72, -0.26], [11.0, -0.85, 0.45, 0.72, -0.22], [11.8, -0.85, 0.6, 0.72, -0.15], [12.6, -0.85, 0.65, 0.7, -0.12],
       [13.9, -0.84, 0.64, 0.64, -0.08], [14.6, -0.7, 0.58, 0.55, -0.04], [15.3, -0.5, 0.47, 0.44, 0], [15.9, -0.3, 0.35, 0.31, 0.04], [16.5, -0.1, 0.22, 0.16, 0.07],
       [16.9, 0.07, 0.11, 0, 0.09]], n: 2.2, nb: 2.3 }),
     glass: ruG(-0.1, 10.4, { s: [[10.55, -0.86, -0.74, 0.1, -0.8], [11.0, -1.05, -0.7, 0.3, -0.75], [11.7, -1.2, -0.66, 0.42, -0.72], [12.4, -1.18, -0.68, 0.42, -0.73],
       [12.95, -1.0, -0.74, 0.34, -0.78], [13.25, -0.86, -0.8, 0.18, -0.83]], n: 2, nb: 6, frames: [0.7] }),
-    desc: 'A light fighter’s drooping nose with its radar and a bubble canopy. Put an IRST ball just ahead of the windscreen.' },
+    desc: 'A light fighter’s drooping nose with its radome and a bubble canopy. Put an IRST ball just ahead of the windscreen. Room inside for a radar set (Radar tab).' },
   ruBody29: { cat: 'air', name: 'MyG-29 Centre Fuselage', w: 1.15, h: 7.4, depth: 2.2, mass: 2.2, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [1.0, 2.6, 4.2, 5.8], tier: 3, cost: 4000,
     loft: ruG(-0.275, 3.0, { s: [[3.0, 0.08, 0.3, 0.36, 0.25, 2, 2], [3.6, -0.15, 0.3, 0.45, 0.22, 1.9, 3], [4.6, -0.42, 0.3, 0.7, 0.18, 1.8, 3], [6.0, -0.62, 0.3, 0.98, 0.15, 1.7, 3],
       [7.5, -0.76, 0.3, 1.1, 0.12, 1.6, 3], [9.0, -0.84, 0.3, 1.0, 0, 1.8, 2.8], [10.4, -0.85, 0.32, 0.72, -0.26, 2.2, 2.3]] }),
@@ -634,14 +686,14 @@ const PARTS = {
   // the Sugoi-57 (after the Su-57): stealthy, chined, its weapons inside
   ruGearNose2L: { cat: 'airGear', name: 'Tall Twin Nose Gear', w: 2.45, h: 0.9, mass: 0.24, shape: 'gear', wheel: { r: 0.32, drive: false, brake: true, track: 0.55, retract: true },
     breakSpeed: 9, tier: 4, cost: 1300, desc: 'A tall nose leg with two wheels side by side, for a big fighter. Folds away (G).' },
-  ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radar: 28000, stealth: 0.6, shape: 'ruLoft', ru: 'nose',
+  ruNose57: { cat: 'cabins', name: 'Sugoi-57 Nose', w: 1.38, h: 7.5, depth: 1.84, mass: 2.2, control: 3, torque: 4500, crew: 1, radarFit: 'radarAESA', stealth: 0.6, shape: 'ruLoft', ru: 'nose',
     ruRadome: 5.0, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 4, cost: 11200,
     loft: ruG(-0.09, 12.6, { s: [[12.6, -0.78, 0.25, 0.92, 0.1], [13.4, -0.78, 0.4, 0.88, 0.12], [14.4, -0.78, 0.53, 0.82, 0.14], [15.4, -0.78, 0.58, 0.76, 0.15],
       [16.4, -0.78, 0.57, 0.68, 0.15], [17.2, -0.76, 0.52, 0.58, 0.15], [18.0, -0.56, 0.42, 0.46, 0.14], [18.8, -0.34, 0.31, 0.33, 0.12], [19.5, -0.15, 0.2, 0.19, 0.1],
       [20.1, 0.06, 0.09, 0, 0.08]], n: 2, nb: 2.6, chine: true }),
     glass: ruG(-0.09, 12.6, { s: [[13.0, -0.79, -0.7, 0.1, -0.74], [13.5, -0.98, -0.62, 0.36, -0.66], [14.3, -1.17, -0.56, 0.5, -0.6], [15.2, -1.2, -0.56, 0.52, -0.6],
       [15.9, -1.1, -0.58, 0.48, -0.63], [16.3, -0.92, -0.64, 0.36, -0.7], [16.6, -0.79, -0.72, 0.16, -0.76]], n: 2, nb: 6, gold: true }),
-    desc: 'A chined stealth nose with a long frameless, gold-tinted canopy and a powerful radar. Radar glances off it.' },
+    desc: 'A chined stealth nose with a long frameless, gold-tinted canopy. Radar glances off it. Room inside for a radar set (Radar tab).' },
   ruBody57: { cat: 'air', name: 'Sugoi-57 Centre Fuselage', w: 1.03, h: 9.1, depth: 3.5, mass: 4.0, fuel: 4, stealth: 0.6, shape: 'ruLoft', ru: 'body', ruLines: [1.4, 3.2, 5.4, 7.6],
     loft: ruG(-0.265, 3.5, { s: [[3.5, 0, 0.25, 0.5, 0.18, 1.6, 3], [4.5, -0.35, 0.25, 1.0, 0.15, 1.4, 4], [6.0, -0.58, 0.25, 1.55, 0.12, 1.3, 4], [8.0, -0.72, 0.25, 1.75, 0.1, 1.3, 4],
       [10.0, -0.78, 0.25, 1.62, 0.1, 1.4, 4], [11.5, -0.78, 0.25, 1.25, 0.1, 1.7, 3], [12.6, -0.78, 0.25, 0.92, 0.1, 2, 2.6]], chine: true }),
@@ -656,9 +708,9 @@ const PARTS = {
     loft: ruG(0.85, 0.8, { s: [[2.3, 0.32, 1.38, 0.53], [3.5, 0.275, 1.425, 0.575]], mat: 'metal' }, { s: [[0.8, 0.4, 1.3, 0.43], [2.3, 0.33, 1.37, 0.52]], mat: 'steelDark', vec: 1.5 }),
     desc: 'The newest pair of afterburning turbofans: strong enough to cruise past Mach 1, with nozzles that swivel with the stick. Afterburner above 90%.' },
   ruBay57: { cat: 'weapons', name: 'Internal Radar Missiles', w: 0.45, h: 6, depth: 2.1, mass: 0.6, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 21000,
-    weapon: { kind: 'missile', seek: 'air', radar: true, label: 'RV-77', ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
+    weapon: { kind: 'missile', seek: 'air', radar: true, active: 6000, label: 'RV-77', ammo: 4, range: 15000, cone: 0.6, accel: 240, burn: 5, vmax: 1300, turn: 25, dmg: 450, blast: 16, each: 150, life: 30 },
     loft: ruG(0.475, 5.0, { s: [[5.0, 0.25, 0.4, 0.9, 0.3, 4, 4], [5.6, 0.25, 0.65, 1.04, 0.4, 5, 5], [10.4, 0.25, 0.68, 1.04, 0.4, 5, 5], [11.0, 0.25, 0.45, 0.95, 0.3, 4, 4]] }),
-    desc: 'Two long bays between the engines with four radar missiles inside: no drag, and a stealth plane stays stealthy. They ride your nose radar like the outside ones.' },
+    desc: 'Two long bays between the engines with four radar missiles inside: no drag, and a stealth plane stays stealthy. They ride your radar like the outside ones. With a pulse-Doppler radar or better they go active 6 km out: turn away and they carry on.' },
   ruBayS57: { cat: 'weapons', name: 'Internal Heat Seekers', w: 0.36, h: 3, depth: 0.5, twinZ: 2.6, mass: 0.1, stealth: 0.6, bay: true, doors: true, shape: 'ruLoft', ru: 'bay', tier: 4, cost: 8000,
     weapon: { kind: 'missile', seek: 'air', label: 'RV-74', ammo: 2, range: 5000, cone: 0.35, accel: 260, burn: 3, vmax: 900, turn: 30, dmg: 400, blast: 15, each: 90, life: 18 },
     loft: ruG(0.43, 9.0, { s: [[9.0, 0.25, 0.32, 0.12, 0.27, 3, 3], [9.5, 0.25, 0.58, 0.24, 0.35, 4, 4], [11.4, 0.25, 0.6, 0.24, 0.36, 4, 4], [12.0, 0.25, 0.36, 0.16, 0.28, 3, 3]] }),
@@ -686,14 +738,14 @@ const PARTS = {
   // the MyG-21 (after the MiG-21 Fishbed)
   ruGearNose: { cat: 'airGear', name: 'Short Nose Gear', w: 0.78, h: 0.8, mass: 0.1, shape: 'gear', wheel: { r: 0.27, drive: false, brake: true, track: 0, retract: true }, breakSpeed: 8,
     tier: 2, cost: 900, desc: 'A short single-wheel nose leg for a small fighter. Folds away (G).' },
-  ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radar: 8000, shape: 'ruLoft', ru: 'nose21',
+  ruNose21: { cat: 'cabins', name: 'MyG-21 Shock-Cone Nose', w: 1.57, h: 5.1, depth: 1.24, mass: 1.3, control: 3, torque: 2200, crew: 1, radarFit: 'radarPulse', shape: 'ruLoft', ru: 'nose21',
     ruCone: 4.4, ruLip: 4.7, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6900,
     loft: ruG(-0.165, 9.4, { s: [[9.4, -0.62, 0.62, 0.62, 0], [11.0, -0.62, 0.62, 0.62, 0], [12.6, -0.59, 0.59, 0.59, 0], [13.6, -0.53, 0.53, 0.53, 0], [14.1, -0.48, 0.48, 0.48, 0]], open: true },
       { s: [[13.8, -0.31, 0.31, 0.31, 0], [14.15, -0.25, 0.25, 0.25, 0], [14.5, -0.01, 0.01, 0, 0]] },
       { s: [[9.4, -0.92, -0.3, 0.28, -0.55], [9.95, -0.93, -0.3, 0.3, -0.55]] }),
     glass: ruG(-0.165, 9.4, { s: [[9.95, -0.93, -0.55, 0.3, -0.6], [10.4, -0.99, -0.52, 0.36, -0.57], [11.0, -1.0, -0.5, 0.37, -0.55], [11.5, -0.92, -0.52, 0.33, -0.57],
       [11.85, -0.72, -0.56, 0.2, -0.6], [12.0, -0.63, -0.59, 0.05, -0.61]], n: 2, nb: 6, frames: [0.62] }),
-    desc: 'A round nose that is all intake, with the radar in the shock cone in its mouth and a small bubble canopy behind. A long pitot boom on top.' },
+    desc: 'A round nose that is all intake, with a shock cone in its mouth and a small bubble canopy behind. A long pitot boom on top. Room inside for a radar set (Radar tab).' },
   ruBody21: { cat: 'air', name: 'MyG-21 Fuselage', w: 1.57, h: 6.2, depth: 1.24, mass: 1.6, fuel: 2, shape: 'ruLoft', ru: 'body', ruLines: [0.8, 2.4, 4.0, 5.4], tier: 2, cost: 3500,
     loft: ruG(-0.165, 3.2, { s: [[3.2, -0.6, 0.6, 0.6, 0], [5.0, -0.61, 0.62, 0.62, 0.005], [9.4, -0.62, 0.62, 0.62, 0]] },
       { s: [[4.4, -0.6, -0.3, 0.1, -0.45], [5.4, -0.8, -0.3, 0.2, -0.5], [8.0, -0.9, -0.3, 0.26, -0.55], [9.4, -0.92, -0.3, 0.28, -0.55]] }),
@@ -728,14 +780,14 @@ const PARTS = {
   us4Vulcan: { flush: true, cat: 'weapons', name: '20 mm Rotary Cannon', w: 0.32, h: 1.8, mass: 0.12, shape: 'gun', barrels: 6, calibre: 20, tier: 3, cost: 7000, weapon: { kind: 'gun', ammo: 510, rate: 50, speed: 1030, dmg: 11, spread: 0.005, each: 0.25 },
     desc: 'Six spinning 20 mm barrels: a short, savage burst for dogfights. Tuck it inside the fuselage with just the muzzle at a gun port.' },
   // FS-4 (3rd generation, after the F-4 Phantom II)
-  us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radar: 14000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6000, shape: 'us4body',
+  us4f4Nose: { cat: 'cabins', name: 'FS-4 Twin-Seat Nose', w: 2.18, h: 8.6, depth: 1.46, fill: 0.72, mass: 2.3, control: 3, torque: 4000, crew: 2, radarFit: 'radarPulse', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 2, cost: 6000, shape: 'us4body',
     body: { tubes: [
       { st: [[-4.3, -0.71, 0.37, 1.09, 0.73, 2.6, 3.2], [-3.3, -0.63, 0.35, 1.07, 0.7, 2.6, 3], [-2.1, -0.53, 0.33, 1.03, 0.68, 2.5, 2.8], [-0.9, -0.47, 0.32, 0.97, 0.66, 2.4, 2.6], [0.1, -0.43, 0.31, 0.91, 0.63, 2.3, 2.4], [1.3, -0.35, 0.31, 0.82, 0.57, 2.2, 2.2], [2.3, -0.25, 0.32, 0.73, 0.48, 2, 2], [3.4, -0.07, 0.33, 0.59, 0.31, 2, 2], [4.3, 0.31, 0.33, 0.35, 0, 2, 2]] },
       { st: [[-4.3, -0.83, -0.71, -0.55, 0.3, 2], [-3.7, -0.99, -0.73, -0.47, 0.4, 2], [-2.9, -1.09, -0.75, -0.47, 0.46, 2], [-2.1, -1.09, -0.75, -0.47, 0.47, 2], [-1.3, -1.03, -0.73, -0.47, 0.46, 2], [-0.6, -0.95, -0.68, -0.47, 0.42, 2], [-0.1, -0.65, -0.53, -0.45, 0.28, 2], [0.2, -0.43, -0.43, -0.41, 0.05, 2]], kind: 'glass', front: 'open', back: 'open' }],
       seats: [[-0.85, -0.95], [-0.91, -2.6]],
       frames: [-0.18, -1.6, -1.8, -3.65],
       deco: [['tone', 2.3, '#2c3034'], ['line', -0.47, -0.9, 0.97, -0.9], ['line', -0.63, -3.3, 1.07, -3.3]] },
-    desc: 'A long drooping radome and two seats in a row under a framed canopy, pilot in front and radar operator behind. The Side Intakes go either side of its back end.' },
+    desc: 'A long drooping radome and two seats in a row under a framed canopy, pilot in front and radar operator behind. The Side Intakes go either side of its back end. Room inside for a radar set (Radar tab).' },
   us4f4Body: { cat: 'air', name: 'FS-4 Centre Fuselage', w: 1.98, h: 5.1, depth: 1.48, fill: 0.82, mass: 2.2, fuel: 3.2, tier: 2, cost: 2800, shape: 'us4body',
     body: { tubes: [
       { st: [[-2.55, -0.77, 0.21, 0.99, 0.74, 3, 3.5], [-1.05, -0.79, 0.21, 0.99, 0.74, 3, 3.5], [0.45, -0.81, 0.21, 0.97, 0.74, 3, 3.4], [2.55, -0.87, 0.21, 0.93, 0.73, 2.6, 3.2]] },
@@ -766,14 +818,14 @@ const PARTS = {
       { st: [[-1.625, -0.2, 0, 0.06, 0.04, 2], [-1.125, -0.2, 0.1, 0.26, 0.19, 2], [-0.075, -0.22, 0.11, 0.32, 0.22, 2], [0.925, -0.28, 0.07, 0.26, 0.19, 2], [1.625, -0.32, 0.03, 0.16, 0.13, 2]], front: 'intake' }] },
     desc: 'A 20 mm rotary cannon in a long fairing under the nose, the muzzle near the radome. Fit it under a fighter nose.' },
   // FS-16 (4th generation, after the F-16)
-  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radar: 15000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4800, shape: 'us4body',
+  us4f16Nose: { cat: 'cabins', name: 'FS-16 Bubble Canopy Nose', w: 1.86, h: 6.5, depth: 1.36, fill: 0.56, mass: 1.5, control: 3, torque: 3000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 4800, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.25, -0.27, 0.48, 0.93, 0.68, 2.6, 3.6], [-2.25, -0.23, 0.46, 0.93, 0.64, 2.6, 3.4], [-1.25, -0.2, 0.45, 0.93, 0.61, 2.6, 3.2], [-0.25, -0.19, 0.43, 0.93, 0.57, 2.6, 3], [0.35, -0.17, 0.41, 0.9, 0.53, 2.4, 2.8], [1.05, -0.1, 0.37, 0.81, 0.45, 2.2, 2.4], [1.75, 0.02, 0.33, 0.65, 0.31, 2, 2], [2.35, 0.17, 0.31, 0.47, 0.16, 2, 2], [2.75, 0.3, 0.3, 0.3, 0, 2, 2]] },
       { st: [[-3.25, -0.61, -0.43, -0.12, 0.3, 2], [-2.85, -0.75, -0.43, -0.09, 0.37, 2], [-2.35, -0.87, -0.43, -0.09, 0.41, 2], [-1.75, -0.93, -0.44, -0.09, 0.43, 2], [-1.15, -0.9, -0.43, -0.09, 0.42, 2], [-0.55, -0.74, -0.37, -0.09, 0.38, 2], [-0.05, -0.45, -0.25, -0.09, 0.28, 2], [0.3, -0.19, -0.17, -0.12, 0.06, 2]], kind: 'glass', front: 'open', back: 'open' }],
       seats: [[-0.59, -1.65]],
       probe: [0.3, 2.75, 3.25, 0.03],
       deco: [['tone', 1.05, -0.1], ['line', -0.17, 0.35, 0.9, 0.35], ['line', -0.27, -2.65, 0.93, -2.65]] },
-    desc: 'Pointed radome, chined nose and a frameless bubble canopy: the pilot sits high with a view all round. Hang the Chin Intake under it.' },
+    desc: 'Pointed radome, chined nose and a frameless bubble canopy: the pilot sits high with a view all round. Hang the Chin Intake under it. Room inside for a radar set (Radar tab).' },
   us4f16Body: { cat: 'air', name: 'FS-16 Blended Fuselage', w: 1.63, h: 5.6, depth: 1.64, fill: 0.74, mass: 2.3, fuel: 2.6, tier: 3, cost: 2700, shape: 'us4body',
     body: { tubes: [
       { st: [[-2.8, -0.525, 0.275, 0.815, 0.78, 2.4, 3], [-2.2, -0.545, 0.295, 0.815, 0.8, 2.4, 3], [-1.2, -0.565, 0.315, 0.815, 0.82, 2.4, 3.2], [-0.2, -0.585, 0.315, 0.795, 0.82, 2.4, 3.4], [0.8, -0.585, 0.315, 0.765, 0.8, 2.4, 3.6], [1.8, -0.545, 0.295, 0.735, 0.75, 2.5, 3.6], [2.8, -0.485, 0.265, 0.715, 0.68, 2.6, 3.6]] },
@@ -802,14 +854,14 @@ const PARTS = {
   us4f16Ventral: { cat: 'wings', name: 'Ventral Fins', w: 0.6, h: 1.4, mass: 0.04, shape: 'vtail', twinZ: 0.62, twinMirror: true, vtail: { tle: 0.45, tte: 0, cant: 0.26 }, tier: 3, cost: 400,
     desc: 'A pair of small fins under the tail, splayed outwards: they keep the nose straight at high angles of attack.' },
   // FS-15 (4th generation, after the F-15)
-  us4f15Nose: { cat: 'cabins', name: 'FS-15 Radar Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radar: 18000, aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8000, shape: 'us4body',
+  us4f15Nose: { cat: 'cabins', name: 'FS-15 Nose', w: 2.3, h: 7.8, depth: 1.42, fill: 0.65, mass: 2, control: 3, torque: 4000, crew: 1, radarFit: 'radarPD', aero: true, sharp: true, breakSpeed: 12, maxTemp: 2400, tier: 3, cost: 8000, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.9, -0.57, 0.45, 1.15, 0.71, 2.6, 3], [-3.1, -0.53, 0.43, 1.11, 0.7, 2.6, 3], [-2.1, -0.45, 0.4, 1.05, 0.68, 2.6, 2.8], [-0.9, -0.39, 0.37, 1.01, 0.67, 2.5, 2.6], [0.3, -0.37, 0.35, 0.99, 0.66, 2.4, 2.4], [1.3, -0.32, 0.33, 0.93, 0.62, 2.2, 2.2], [2.3, -0.19, 0.31, 0.79, 0.49, 2, 2], [3.2, 0.02, 0.29, 0.57, 0.28, 2, 2], [3.9, 0.27, 0.27, 0.27, 0, 2, 2]] },
       { st: [[-3.9, -0.77, -0.6, -0.37, 0.38, 2], [-3.3, -0.95, -0.63, -0.33, 0.46, 2], [-2.5, -1.1, -0.65, -0.31, 0.5, 2], [-1.7, -1.15, -0.65, -0.31, 0.5, 2], [-0.9, -1.07, -0.63, -0.31, 0.47, 2], [-0.2, -0.77, -0.53, -0.31, 0.38, 2], [0.4, -0.39, -0.37, -0.31, 0.08, 2]], kind: 'glass', front: 'open', back: 'open' }],
       seats: [[-0.85, -1.5]],
       frames: [-0.35],
       deco: [['tone', 1.3, -0.1], ['line', -0.32, 1.3, 0.93, 1.3], ['line', -0.5, -3.2, 1.11, -3.2]] },
-    desc: 'A big radome and a tall bubble canopy, the pilot sitting high above the box intakes. Put the FS-15 Box Intakes either side of its back end.' },
+    desc: 'A big radome and a tall bubble canopy, the pilot sitting high above the box intakes. Put the FS-15 Box Intakes either side of its back end. Room inside for a radar set (Radar tab).' },
   us4f15Body: { cat: 'air', name: 'FS-15 Centre Fuselage', w: 1.97, h: 7.6, depth: 1.42, fill: 0.82, mass: 2.6, fuel: 4.4, tier: 3, cost: 4000, shape: 'us4body',
     body: { tubes: [
       { st: [[-3.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [-1.8, -0.785, 0.255, 0.985, 0.71, 3, 3.5], [0.2, -0.795, 0.255, 0.985, 0.71, 3, 3.5], [2.2, -0.795, 0.245, 0.965, 0.71, 2.8, 3.2], [3.8, -0.785, 0.235, 0.935, 0.71, 2.6, 3]] },
@@ -1331,7 +1383,7 @@ function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def)
 // (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
 // (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
 const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr', 'tcast', 'tring']);
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr', 'tcast', 'tring', 'radarset', 'mastdome']);
 // (the ground update's: hulls and plate turrets are extrusions of their outlines, cast turrets and rings lathes)
 const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
   wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
@@ -1559,6 +1611,150 @@ function partsClash(a, b) {
   if (!a.def.flush !== !b.def.flush) return false;
   return !partsMix(a, b) && partsOverlap(a, b) && shapesClash(a, b, 0.02);
 }
+// ---------------------------------------------------------------------------
+// Radar sets inside a nose, cockpit or fuselage (the big update). Pure geometry on the parts' real outlines, shared by
+// the builder (where a set may go), the joins (which body holds a set placed without att) and the warnings.
+// A body a radar set may sit inside: not a wing or tail surface, fin, pod, wheel, leg, weapon, engine, pair, flush or
+// inner part, separator, chute, radar or the ground update's armour.
+function radarHost(d) { return !!d && !isSurface(d) && !d.fin && !d.pod && !d.wheel && !d.leg && !d.weapon && !d.thrust && !d.twinZ && !d.flush && !d.inner && !d.gv && !d.separator && !d.chute && !d.radarSet; }
+// A host's room: its outline's span every centimetre along its own (unturned) axis, from partOutline (the real outline,
+// not the clash shape, since CLASH_BOXED noses clash as boxes), round for a lathe shape, else as deep as it is tall at
+// that station but no deeper than the part. Cached per type and side, as CLASH_SHAPES.
+const INSIDE_SHAPES = new Map();
+function insideShape(d, flip) {
+  const key = d.type + (flip ? '|f' : '');
+  let S = INSIDE_SHAPES.get(key);
+  if (S) return S;
+  const polys = partOutline(d, flip), n = Math.ceil(d.h / CLASH_STEP) + 1;
+  S = { y0: -d.h / 2, n, lo: new Float32Array(n), hi: new Float32Array(n), round: LATHE_SHAPES.has(d.shape), depth: partDepth({ def: d }) };
+  for (let i = 0; i < n; i++) { const sp = outlineSpan(polys, Math.min(d.h / 2, -d.h / 2 + i * CLASH_STEP)); S.lo[i] = sp ? sp[0] : NaN; S.hi[i] = sp ? sp[1] : NaN; }
+  INSIDE_SHAPES.set(key, S);
+  return S;
+}
+// The span [lo, hi] across the host's axis at local height ly (between the centimetre samples, straight), or null
+// outside the part or where the outline has none.
+function insideSpan(S, ly) {
+  const f = (ly - S.y0) / CLASH_STEP;
+  if (!(f >= -1e-6 && f <= S.n - 1 + 1e-6)) return null;
+  const i = Math.max(0, Math.min(S.n - 2, Math.floor(f))), t = Math.min(1, Math.max(0, f - i));
+  const a0 = S.lo[i], a1 = S.lo[i + 1], b0 = S.hi[i], b1 = S.hi[i + 1];
+  if (a0 !== a0 || a1 !== a1) return t < 1e-6 && a0 === a0 ? [a0, b0] : t > 1 - 1e-6 && a1 === a1 ? [a1, b1] : null;
+  return [a0 + (a1 - a0) * t, b0 + (b1 - b0) * t];
+}
+// A point (x, y) in part space taken into H's unturned frame (the inverse of partPt).
+function partLocal(H, x, y) { const dx = x - H.x, dy = y - H.y; switch (H.rot & 3) { case 1: return { x: dy, y: -dx }; case 2: return { x: -dx, y: -dy }; case 3: return { x: -dy, y: dx }; default: return { x: dx, y: dy }; } }
+// Is set q wholly inside host H, m clear of its skin? (m < 0: a looser test.) Along the host's axis every 2 cm and at
+// both ends of the set: a set lying along the host is a disc as wide as the set; one lying across it a box.
+function insideOf(q, H, m = 0.04) {
+  if (!q || !H || !q.def || !H.def) return false;
+  const c = partLocal(H, q.x, q.y), dz = partZ(q) - partZ(H), S = insideShape(H.def, H.flip);
+  const along = (((q.rot || 0) ^ (H.rot || 0)) & 1) === 0, d = q.def;
+  const len = along ? d.h : d.w, ax = along ? d.w / 2 : d.h / 2, az = d.w / 2; // (the set's half-extents across H and in depth)
+  const u0 = c.y - len / 2, u1 = c.y + len / 2, k = Math.max(1, Math.ceil((u1 - u0) / 0.02 - 1e-9));
+  for (let i = 0; i <= k; i++) {
+    const sp = insideSpan(S, i === k ? u1 : u0 + i * 0.02);
+    if (!sp) return false;
+    const half = (sp[1] - sp[0]) / 2, mid = (sp[0] + sp[1]) / 2, ox = Math.abs(c.x - mid), oz = Math.abs(dz);
+    if (S.round) { if ((along ? Math.hypot(ox, oz) + ax : Math.hypot(ox + ax, oz + az)) + m > half) return false; }
+    else if (ox + ax + m > half || oz + az + m > Math.min(half, S.depth / 2)) return false;
+  }
+  return true;
+}
+// The first spot inside H for a set of `type` turned `rot`, or null. fwd: the craft's nose in part space (PILOT[kind].F;
+// its negative for a tail set): the stations run from H's end that faces it to the other, 2 cm apart, each on the
+// outline's middle line. A pose is taken when it is inside (m clear) and clashes with none of `others` (flush against
+// flush: never into an internal gun, a gear well or another set). want == null (a tap): the front-most; want {x, y} (a
+// drag): the accepted station nearest want along H's axis, within 1 m of it, else null.
+function insideSpot(type, rot, H, want, others, fwd, m = 0.04) {
+  const d = PARTS[type];
+  if (!d || !H || !radarHost(H.def)) return null;
+  rot = (rot || 0) & 3;
+  const ax = partAxis(H), sgn = ax.x * fwd.x + ax.y * fwd.y >= 0 ? 1 : -1, S = insideShape(H.def, H.flip);
+  const len = (((rot ^ (H.rot || 0)) & 1) === 0) ? d.h : d.w, top = H.def.h / 2 - len / 2;
+  const wy = want ? (want.x - H.x) * ax.x + (want.y - H.y) * ax.y : 0;
+  let best = null, bd = Infinity;
+  for (let i = 0; ; i++) {
+    const ly = sgn * (top - i * 0.02);
+    if (ly * sgn < -top - 1e-9) break;
+    if (want && Math.abs(ly - wy) > 1) continue;
+    const sp = insideSpan(S, ly);
+    if (!sp) continue;
+    const at = partPt(H, (sp[0] + sp[1]) / 2, ly), x = +at.x.toFixed(3), y = +at.y.toFixed(3);
+    const pose = { id: -1, type, def: d, x, y, z: partZ(H), rot, flip: x < 0, att: null };
+    if (!insideOf(pose, H, m) || (others && others.some((o) => o !== H && o.def && partsClash(pose, o)))) continue;
+    if (!want) return pose;
+    const e = Math.abs(ly - wy);
+    if (e < bd) { bd = e; best = pose; }
+  }
+  return best;
+}
+// The host a set with no att sits in: the radar hosts whose rect holds its centre (and whose depth holds its z); the
+// first that insideOf(s, h, -0.02) accepts, else the smallest rect, else the lowest index. null if none.
+function insideHostOf(s, parts) {
+  let best = null, ba = Infinity;
+  const z = partZ(s);
+  for (const h of parts) {
+    if (h === s || !radarHost(h.def)) continue;
+    const R = partRect(h), hz = partZ(h), hd = partDepth(h) / 2;
+    if (s.x < R.l || s.x > R.r || s.y < R.b || s.y > R.t || z < hz - hd || z > hz + hd) continue;
+    if (insideOf(s, h, -0.02)) return h;
+    const a = (R.r - R.l) * (R.t - R.b);
+    if (a < ba) { ba = a; best = h; }
+  }
+  return best;
+}
+// What a design's radar parts add up to, for the builder's stats row: the best working forward or all-round radar (the
+// longest reach), whether a tail set, a radar missile for air targets (not an aimed launcher's), an active one and a
+// radar that guides them are aboard.
+const radarWorks = (p) => !p.broken && !(p.hp != null && p.hp <= 0); // (null hp: a part at full health; null <= 0 is true)
+function radarSummary(parts) {
+  let best = null, tail = false, missiles = false, arh = false, guiding = false;
+  for (const p of parts) {
+    const d = p.def, R = d.radarSet, w = d.weapon;
+    if (w && w.radar && w.seek === 'air' && !d.aim) { missiles = true; if (w.active) arh = true; }
+    if (!R || !radarWorks(p)) continue;
+    if (R.warn) { tail = true; continue; }
+    if (R.guide >= 1) guiding = true;
+    if (!best || R.range > best.range) best = { name: d.name, kind: R.kind, range: R.range, cone: R.cone };
+  }
+  return { best, tail, missiles, arh, guiding };
+}
+// A radar part's lines on its part card (empty ones left out).
+function radarSpecs(R) {
+  const km = (m) => +(m / 1000).toFixed(1);
+  return [
+    `${km(R.range)} km ${R.warn ? 'behind' : R.cone >= 180 ? 'all round' : 'ahead, ±' + R.cone + '°'} (${(R.range * (1 - 0.68) / 1000).toFixed(1)} km against a stealth jet)`,
+    R.down ? (R.notch > 0 ? 'looks down (a low target crossing slower than ' + R.notch + ' m/s hides)' : 'looks down') : 'blind to targets below it',
+    R.guide ? 'locks in ' + R.lock + ' s (' + (R.lock * (2 - R.eccm)).toFixed(1) + ' s on a jammer)' : '',
+    R.guide === 2 ? 'guides radar missiles at ' + R.tws + ' targets; active ones go on alone' : R.guide === 1 ? 'guides radar missiles at ' + R.tws + ' target' + (R.tws > 1 ? 's' : '') : R.warn ? 'warns of an enemy behind (3 km)' : 'guns: leads to 3 km, cues heat seekers',
+    R.ground ? 'marks vehicles on the ground (' + km(R.ground) + ' km)' : '',
+    R.eccm >= 0.7 ? 'hard to jam' : R.eccm >= 0.3 ? 'resists jamming' : '',
+    R.lpi ? 'warning receivers hear it only within ' + (R.range * (1 - R.lpi) / 1000).toFixed(1) + ' km' : '',
+  ].filter(Boolean);
+}
+// The builder's radar warnings, in order (any kind of craft): radar missiles with nothing to guide them, a set that isn't
+// inside a body, active missiles that can't go on alone, and two radars looking forward.
+function radarProblems(parts) {
+  const out = [], radars = parts.filter((p) => p.def.radarSet), byId = new Map(parts.map((p) => [p.id, p]));
+  const rocks = parts.filter((p) => { const w = p.def.weapon; return w && w.radar && w.seek === 'air' && !p.def.aim; });
+  const guides = radars.filter((p) => p.def.radarSet.guide >= 1);
+  if (rocks.length && !guides.length) {
+    if (!radars.length) out.push('Radar-guided missiles need a radar to lock on: fit one inside the nose.');
+    else { const b = radars.reduce((m, p) => (!m || (!p.def.radarSet.warn && (m.def.radarSet.warn || p.def.radarSet.range > m.def.radarSet.range)) ? p : m), null); out.push(`The ${b.def.name} can't guide radar missiles: fit a Pulse radar or better.`); }
+  }
+  const loose = new Set();
+  for (const p of radars) if (innerRadar(p.def)) {
+    const h = p.att != null ? byId.get(p.att) : null;
+    if (!(h && radarHost(h.def) && insideOf(p, h, -0.02))) loose.add(p.def.name);
+  }
+  for (const n of loose) out.push(`The ${n} isn't inside a nose or fuselage: drag it into one.`);
+  if (guides.length && rocks.some((p) => p.def.weapon.active)) {
+    const g = guides.reduce((m, p) => (!m || p.def.radarSet.guide > m.def.radarSet.guide || (p.def.radarSet.guide === m.def.radarSet.guide && p.def.radarSet.range > m.def.radarSet.range) ? p : m), null);
+    if (g.def.radarSet.guide < 2) out.push(`With a ${g.def.name} the active radar missiles ride it all the way: a pulse-Doppler or better lets them go on alone.`);
+  }
+  if (radars.filter((p) => !p.def.radarSet.warn && p.def.radarSet.cone < 180).length >= 2) out.push('Two radars look forward: only the best one locks.');
+  return out;
+}
 function partsMounted(a, b) { return partsMix(a, b) && partsOverlap(a, b, 0.04, 0); }
 function partsMounted2D(a, b) {
   if (!partsMix(a, b)) return false;
@@ -1578,11 +1774,15 @@ function buildAdjacency(parts) {
   const adj = new Map(), byId = new Map();
   for (const p of parts) { adj.set(p.id, new Set()); byId.set(p.id, p); }
   const link = (a, b) => { adj.get(a.id).add(b.id); adj.get(b.id).add(a.id); };
+  const sets = parts.some((p) => innerRadar(p.def)); // (a radar set joins only the body it sits in: never by its faces)
   for (let i = 0; i < parts.length; i++)
     for (let j = i + 1; j < parts.length; j++) {
       const a = parts[i], b = parts[j];
+      if (sets && (innerRadar(a.def) || innerRadar(b.def))) continue;
       if (partsTouch(a, b) || partsMounted(a, b) || pylonLink(a, b)) link(a, b);
     }
+  // a radar set placed with no att (a template's legacy rows, a hand-edited code) joins the one body it sits inside
+  for (const s of parts) if (innerRadar(s.def) && s.att == null) { const h = insideHostOf(s, parts); if (h) link(s, h); }
   for (const p of parts) if (p.att != null && p.att !== p.id && byId.has(p.att)) link(p, byId.get(p.att));
   return adj;
 }
@@ -1620,6 +1820,11 @@ function partsFromDesign(rows) {
   });
   const parts = made.filter(Boolean);
   cleanAtt(parts);
+  // a radar set with no att hangs on the body it sits inside (never one that hangs, through others, on the set)
+  for (const s of parts) if (innerRadar(s.def) && s.att == null) {
+    const h = insideHostOf(s, parts);
+    if (h && !attachedTo(parts, [s]).includes(h)) s.att = h.id;
+  }
   return parts;
 }
 // Drop links to parts that aren't there and break any loop (a part attached, through others, to itself).
@@ -1898,7 +2103,7 @@ const SKINS = {
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint. (A track's fender and road wheels, and an armoured
 // wheel's hub, are painted with the hull; their links and tyres keep their colours.)
-const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor']);
+const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor', 'radarset']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
 // The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part
@@ -2188,6 +2393,19 @@ function partPath0(ctx, p) {
       ctx.rect(l, b, w * 0.32, h);
       ctx.rect(l + w * 0.3, y - 0.6, w * 0.7, 1.2);
       break;
+    case 'radarset': { // an antenna disc over the front (+y) 28%, its face a shallow dome, and the electronics drum behind
+      const dw = w * 0.35, ft = t - h * 0.28;
+      ctx.moveTo(x - dw, b); ctx.lineTo(x + dw, b); ctx.lineTo(x + dw, ft); ctx.lineTo(r, ft); ctx.lineTo(r, t - h * 0.1);
+      ctx.quadraticCurveTo(x, t + h * 0.1, l, t - h * 0.1); ctx.lineTo(l, ft); ctx.lineTo(x - dw, ft); ctx.closePath();
+      break;
+    }
+    case 'mastdome': { // a slim stalk up the lower 40% and an oblate dome on it, as wide as the part
+      const k = Math.min(0.99, 0.06 / (w / 2)), ry = h * 0.3, yc = t - ry;
+      ctx.moveTo(x - 0.06, b); ctx.lineTo(x + 0.06, b);
+      ctx.ellipse(x, yc, w / 2, ry, 0, -Math.acos(k), Math.PI + Math.acos(k));
+      ctx.closePath();
+      break;
+    }
     case 'skid': // a tube along the bottom (+x) and two struts up to the cabin
       ctx.rect(r - 0.24, b + 0.1, 0.24, h - 0.2);
       ctx.rect(l, y + h * 0.25 - 0.07, w - 0.2, 0.14);
@@ -2613,6 +2831,36 @@ function drawPart0(ctx, p, lw) {
       ctx.strokeRect(l, b, dw, h);
       break;
     }
+    case 'radarset': { // a radar set: the electronics drum and the antenna's face (a dish, slots or a tiled array), rimmed in cyan
+      const dw = w * 0.35, ft = t - h * 0.28, face = () => { ctx.beginPath(); ctx.moveTo(r, ft); ctx.lineTo(r, t - h * 0.1); ctx.quadraticCurveTo(x, t + h * 0.1, l, t - h * 0.1); ctx.lineTo(l, ft); ctx.closePath(); };
+      ctx.fillStyle = '#3a4048'; ctx.fillRect(x - dw, b, dw * 2, ft - b); ctx.strokeRect(x - dw, b, dw * 2, ft - b);
+      ctx.fillStyle = '#59616b'; ctx.fillRect(x - dw * 0.7, b + (ft - b) * 0.3, dw * 1.4, (ft - b) * 0.12); // a card rack
+      face(); ctx.fillStyle = d.style === 'dish' ? '#8a96a3' : '#2f353c'; ctx.fill();
+      ctx.save(); face(); ctx.clip();
+      if (d.style === 'dish') { // the dish's curve and its feed horn
+        ctx.strokeStyle = '#5d6772'; ctx.lineWidth = lw * 0.8;
+        for (const f of [0.35, 0.7]) { ctx.beginPath(); ctx.moveTo(l, ft + h * 0.04 * f); ctx.quadraticCurveTo(x, t - h * 0.2 + h * 0.18 * f, r, ft + h * 0.04 * f); ctx.stroke(); }
+        ctx.beginPath(); ctx.arc(x, t - h * 0.06, Math.min(w, h) * 0.05, 0, TAU); ctx.fillStyle = '#2b3036'; ctx.fill();
+      } else if (d.style === 'pesa') { // rows of slots
+        ctx.fillStyle = '#9aa6b2';
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 7; j++) ctx.fillRect(l + w * (0.06 + j * 0.13), ft + h * (0.04 + i * 0.075), w * 0.08, h * 0.03);
+      } else { // a grid of gold tiles
+        ctx.fillStyle = '#c9a24a';
+        for (let i = 0; i < 4; i++) for (let j = 0; j < 5; j++) ctx.fillRect(l + w * (0.03 + j * 0.19), ft + h * (0.015 + i * 0.065), w * 0.16, h * 0.05);
+      }
+      ctx.restore();
+      ctx.strokeStyle = '#5fd7ff'; ctx.lineWidth = lw; face(); ctx.stroke(); ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+      if (PartPaint.xray) { ctx.strokeStyle = '#5fd7ff'; ctx.lineWidth = lw * 1.5; partPath(ctx, p); ctx.stroke(); ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)'; }
+      break;
+    }
+    case 'mastdome': { // the mast radar: a white dome with a dark band on a grey stalk
+      const ry = h * 0.3, yc = t - ry;
+      ctx.fillStyle = '#59616b'; ctx.fillRect(x - 0.06, b, 0.12, yc - b); ctx.strokeRect(x - 0.06, b, 0.12, yc - b);
+      ctx.beginPath(); ctx.ellipse(x, yc, w / 2, ry, 0, 0, TAU); ctx.fillStyle = bodyFlat('#d6dbe0'); ctx.fill();
+      ctx.save(); ctx.clip(); ctx.fillStyle = '#3a4048'; ctx.fillRect(l, yc - ry * 0.12, w, ry * 0.24); ctx.restore();
+      ctx.beginPath(); ctx.ellipse(x, yc, w / 2, ry, 0, 0, TAU); ctx.stroke();
+      break;
+    }
     case 'skid': {
       ctx.fillStyle = PAL.steelDark;
       for (const yy of [y + h * 0.25, y - h * 0.25]) { ctx.fillRect(l, yy - 0.07, w - 0.2, 0.14); ctx.strokeRect(l, yy - 0.07, w - 0.2, 0.14); }
@@ -2907,6 +3155,12 @@ function drawPart0(ctx, p, lw) {
       ctx.beginPath(); ctx.moveTo(cx - rw / 2, b + h * 0.12); ctx.lineTo(cx - rw / 2, t - h * 0.12); ctx.quadraticCurveTo(cx, t + h * 0.02, cx + rw / 2, t - h * 0.12);
       ctx.lineTo(cx + rw / 2, b + h * 0.12); ctx.quadraticCurveTo(cx, b - h * 0.02, cx - rw / 2, b + h * 0.12); ctx.closePath();
       ctx.fillStyle = bodyFlat('#7d8790'); ctx.fill(); ctx.stroke();
+      if (d.style === 'radar') { // a radar pod: a white radome over its front fifth, no emitters or blades
+        ctx.save(); ctx.clip(); ctx.fillStyle = '#eef1f4'; ctx.fillRect(cx - rw / 2, t - h * 0.2, rw, h * 0.2); ctx.restore();
+        ctx.beginPath(); ctx.moveTo(cx - rw / 2, t - h * 0.2); ctx.lineTo(cx + rw / 2, t - h * 0.2); ctx.stroke();
+        ctx.fillStyle = '#7dffb0'; ctx.fillRect(cx - rw * 0.1, y - 0.05, rw * 0.2, 0.1);
+        break;
+      }
       ctx.fillStyle = '#2b3036'; ctx.fillRect(cx - rw / 2, t - h * 0.2, rw, h * 0.08); ctx.fillRect(cx - rw / 2, b + h * 0.12, rw, h * 0.08); // emitter windows
       ctx.fillStyle = '#4d545d';
       for (const yy of [y - h * 0.15, y + h * 0.1]) { ctx.beginPath(); ctx.moveTo(cx + rw / 2, yy); ctx.lineTo(cx + rw / 2 + 0.18, yy - 0.05); ctx.lineTo(cx + rw / 2 + 0.18, yy + 0.12); ctx.lineTo(cx + rw / 2, yy + 0.16); ctx.closePath(); ctx.fill(); }
@@ -3049,6 +3303,15 @@ function drawStoreStyle(ctx, d, cx, rw, b, t, h) {
       ctx.fillStyle = '#9aa3ad'; ctx.fillRect(cx - rw * 0.55, b, rw * 1.1, h * 0.05); ctx.fillRect(cx - rw * 0.4, b + h * 0.06, rw * 0.8, h * 0.03);
       ctx.fillStyle = accent(PAL.orange); ctx.fillRect(cx - rw * 0.42, t - h * 0.2, rw * 0.84, h * 0.03);
       break;
+    case 'arh': { // an active radar missile: the radar missile's fins, a grey radome tip and a cyan band
+      ctx.fillStyle = '#4d545d';
+      ctx.beginPath(); ctx.moveTo(bl, b + h * 0.06); ctx.lineTo(bl - rw * 0.7, b); ctx.lineTo(bl, b + h * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(br, b + h * 0.06); ctx.lineTo(br + rw * 0.7, b); ctx.lineTo(br, b + h * 0.24); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bl, t - h * 0.16); ctx.quadraticCurveTo(cx, t + h * 0.02, br, t - h * 0.16); ctx.closePath(); ctx.fillStyle = '#9aa3ad'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#5fd7ff'; ctx.fillRect(bl, t - h * 0.21, rw, h * 0.04);
+      ctx.fillStyle = '#ffb547'; ctx.fillRect(bl, (b + t) / 2 - h * 0.02, rw, h * 0.04);
+      break;
+    }
     case 'harm': case 'cruise': { // fins, a band and (cruise) little wings mid-body
       const big = d.style === 'cruise';
       ctx.fillStyle = '#4d545d';
