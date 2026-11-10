@@ -454,6 +454,7 @@ const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'air
 // designs keep it, but the tray no longer offers it. The armour parts go by their era (def.family), oldest first.
 // Worked out once.
 const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA'];
+const TRAY_ORDER = ['Inside a nose', 'Outside']; // (the groups parts name for themselves, def.tray, in this order)
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
@@ -462,6 +463,9 @@ function partFamilies() {
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
   const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
   for (const k of keys) { const f = PARTS[k].family; if (f && !of.has(k)) { of.set(k, f); rank.set(f, jets.length + 1 + Math.max(0, PART_ERAS.indexOf(f))); } }
+  // a part's own tray group (def.tray: the radar sets "Inside a nose", the radars "Outside"), between the ungrouped stock
+  // parts (rank 0) and the jets (1…n), in TRAY_ORDER's order
+  for (const k of keys) { const g = PARTS[k].tray; if (g && !of.has(k)) { of.set(k, g); if (!rank.has(g)) rank.set(g, 0.01 * (1 + TRAY_ORDER.indexOf(g) + (TRAY_ORDER.includes(g) ? 0 : 50))); } }
   const order = keys.map((k, i) => [k, i]).sort((a, b) => (rank.get(of.get(a[0])) || 0) - (rank.get(of.get(b[0])) || 0) || a[1] - b[1]).map((e) => e[0]);
   return (PART_FAMILIES = { of, order });
 }
@@ -482,6 +486,7 @@ const Builder = {
     this.symmetry = store.get('rss.symmetry', true);
     this.grid = store.get('rss.grid', false); // 2D only: snap to a quarter-metre grid
     this.xray = store.get('rss.xray', true); // armour see-through (X), while there is something inside to see
+    this.xrayAir = store.get('rss.xrayAir', false) === true; // an aircraft's noses see-through, where they hold a radar set
     this.armourView = false; // the plates coloured by thickness (2D)
     this.category = 'command';
     this.name = 'Rocket';
@@ -605,6 +610,7 @@ const Builder = {
       loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
       air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne, mmax: w.mmax }; })() },
     };
+    this.statsData.radar = radarSummary(ps); // (the radar row and the Fit button)
     this.groundStats(ps, adj);
     this.renderTools();
     this.renderStats();
@@ -852,6 +858,13 @@ const Builder = {
       return q ? { ...b, x: q.x } : b;
     };
     const gx = g(want.x), gy = g(want.y), flat = { def, type, x: gx, y: gy, z: z0, rot };
+    // a radar set goes inside the body drawn on top under the pointer, at the station nearest it with room (else nowhere:
+    // red, and the drop does nothing); never against an outside face
+    if (innerRadar(def)) {
+      const host = sideOrder(others).reverse().find((o) => { if (!radarHost(o.def)) return false; const R = partRect(o); return want.x >= R.l && want.x <= R.r && want.y >= R.b && want.y <= R.t; });
+      const s = host && insideSpot(type, rot, host, want, others, this.radarFwd(def.radarSet.warn));
+      return s ? { x: s.x, y: s.y, z: s.z, host, att: host, attached: true, ok: true } : { x: gx, y: gy, z: 0, host: null, att: null, attached: false, ok: false };
+    }
     // wings and tail surfaces sit right where they are dropped, through the part they mount on; pods,
     // engines and anything else dropped on a wing hang off it there, at the first free spot along it
     const onWing = !isSurface(def) && !def.control && !def.separator && others.some((o) => o.def.wing && (partsMounted2D(flat, o) || this.wingHolds(o, flat)));
@@ -887,6 +900,10 @@ const Builder = {
   // Wings, legs and fins go by the blueprint plane as before (null).
   attach(type, rot, hit, others) {
     const def = PARTS[type], host = hit.part;
+    if (innerRadar(def)) { // (a radar set sinks into the nose under the pointer, if it has room there)
+      const s = host && radarHost(host.def) && insideSpot(type, rot, host, { x: hit.x, y: hit.y }, others, this.radarFwd(def.radarSet.warn));
+      return s ? { x: s.x, y: s.y, z: s.z, host, att: host, attached: true, ok: true } : { x: hit.x, y: hit.y, z: hit.z, host: null, att: null, attached: false, ok: false };
+    }
     if (zLocked(def) || !host) return null;
     const { w, h } = partDims({ def, rot }), hd = partDepth({ def }) / 2, R = partRect(host), surf = isSurface(host.def), hhd = partDepth(host) / 2;
     const hz = host.def.twinZ ? (hit.z < 0 ? -1 : 1) * partZ(host) : partZ(host); // the copy of a pair that was hit
@@ -1309,6 +1326,7 @@ const Builder = {
       if (def.rack) return `${def.rack.rounds} rounds`;
       if (A) return `${A.mm} mm`;
     }
+    if (def.radarSet) { const R = def.radarSet; return R.warn ? `${R.range / 1000} km behind` : `${R.range / 1000} km ${R.cone >= 180 ? 'all round' : '±' + R.cone + '°'}`; } // (a radar: how far and where it looks)
     if (def.wing) return `${def.wing.area} m² · ${def.wing.span} m span`;
     if (def.thrust) return `${def.thrust} kN · ${def.ispVac}s`;
     if (def.fuel) return `${def.fuel} t fuel`;
@@ -1355,9 +1373,11 @@ const Builder = {
   // Tap on a palette item: attach it somewhere sensible (on armour, where the part goes on a tank: tankSpot). An aimed
   // part on a ground vehicle comes pointing forward (defaultRot).
   quickAdd(type) {
+    const def = PARTS[type];
+    if (innerRadar(def)) return this.radarSpot(type); // (a radar set goes inside a nose: radarSpot)
     const area = this.viewArea();
     const centre = this.pointerToPart(area.cx, area.cy) || this.com || { x: 0, y: 0 };
-    const def = PARTS[type], rot = this.defaultRot(def), { w: dw, h: dh } = partDims({ def, rot });
+    const rot = def.shape === 'mastdome' && this.kind === 'plane' ? 1 : this.defaultRot(def), { w: dw, h: dh } = partDims({ def, rot }); // (a mast stands up out of a plane's back: −x is up)
     let spot = this.kind === 'tank' ? this.tankSpot(type, centre) : null;
     // (armour with a hull or turret already: a part with nowhere of its kind left goes nowhere odd either)
     if (!spot && this.kind === 'tank' && def.place && this.parts.some((p) => p.def.place === 'hull' || p.def.place === 'ring')) { UI.toast('No room for it there. Drag the part into place instead.'); return; }
@@ -1392,9 +1412,15 @@ const Builder = {
       const tries = [];
       const top = topP && { x: 0, y: partRect(topP).t + dh / 2, host: topP };
       const bottom = botP && { x: 0, y: partRect(botP).b - dh / 2, host: botP };
+      const round = def.radarSet && def.radarSet.cone >= 180; // (a radar that sees all round: a rotodome, a mast)
+      if (round && this.kind === 'plane') { // on top of the fuselage (−x is up) at the centre of mass, on the widest body there
+        const com = this.com || { x: 0, y: 0 }, cy = Math.round(com.y * 4) / 4;
+        const H = centred.filter((p) => radarHost(p.def) && partRect(p).b <= cy && partRect(p).t >= cy).sort((a, b) => (partRect(b).r - partRect(b).l) - (partRect(a).r - partRect(a).l))[0];
+        if (H) tries.push({ x: partRect(H).l - dw / 2, y: cy, host: H, att: H });
+      }
       if (def.side || def.leg || def.fin || def.shape === 'rcs' || def.shape === 'girder') {
         for (const p of centred) tries.push({ x: p.def.w / 2 + dw / 2, y: def.fin ? partRect(p).b + dh / 2 : p.y, host: p, att: p });
-      } else if (def.control || def.chute || def.aero) tries.push(top, bottom);
+      } else if (def.control || def.chute || def.aero || round) tries.push(top, bottom);
       else tries.push(bottom, top);
       for (const t of tries.filter(Boolean)) if ((spot = fit({ ...t, z: 0 }))) break;
     }
@@ -1405,6 +1431,47 @@ const Builder = {
     this.addPart(type, spot.x, spot.y, spot.rot ?? rot, { z: spot.z, att: spot.att, host: spot.host });
     if (this.kind === 'tank' && !this.in3D()) this.keepInView(); // (the tank seen taking shape, not under the part's card)
   },
+  // ---------------------------------------------------------------- radar sets (the big update)
+  // The bodies a set may go in (attached, on the centre line), the front-most first along the craft's nose (planes and
+  // rockets: their top end; other kinds: their right end); for a tail set, the rear-most first.
+  radarFwd(warn) { const F = (PILOT[this.kind] || PILOT.rocket).F; return warn ? { x: -F.x, y: -F.y } : { x: F.x, y: F.y }; },
+  radarHosts(warn) {
+    const f = this.radarFwd(warn);
+    const key = (p) => { const R = partRect(p); return f.y > 0.5 ? R.t : f.y < -0.5 ? -R.b : f.x > 0.5 ? R.r : -R.l; };
+    return { fwd: f, list: this.parts.filter((p) => (!this.ctrl || this.attached.has(p.id)) && radarHost(p.def) && Math.abs(partZc(p)) < 0.01).sort((a, b) => key(b) - key(a)) };
+  },
+  // A tap on a radar set in the tray: it goes into the front of the first nose, cockpit or fuselage with room for it (a tail
+  // set into the back of the last), and the jet goes see-through for a moment so you see it there. A set of the same kind
+  // already aboard (forward or tail) is swapped out: the new one tries its host first.
+  radarSpot(type) {
+    const def = PARTS[type], rot = this.defaultRot(def), warn = !!def.radarSet.warn, { fwd, list } = this.radarHosts(warn);
+    const old = this.parts.find((p) => innerRadar(p.def) && (!this.ctrl || this.attached.has(p.id)) && !!p.def.radarSet.warn === warn) || null;
+    const oh = old && list.find((h) => h.id === old.att);
+    const hosts = oh ? [oh, ...list.filter((h) => h !== oh)] : list, others = this.parts.filter((p) => p !== old);
+    for (const H of hosts) {
+      const s = insideSpot(type, rot, H, null, others, fwd);
+      if (!s) continue;
+      if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
+      if (old) this.parts = this.parts.filter((p) => p !== old && p.att !== old.id); // (out with the old one: one step to undo, with the new one in)
+      this.addPart(type, s.x, s.y, rot, { z: s.z, att: H, host: H });
+      if (!this.in3D()) { // (the nose seen, not under the set's card or a button: the set brought to the middle if it is)
+        this.keepInView();
+        const q = this.selected, sp = q && this.partScreen(q), a = this.viewArea();
+        if (sp && document.elementFromPoint(sp.x, sp.y) !== this.canvas) { this.cam.x += (sp.x - a.cx) / this.cam.scale; this.cam.y += (a.cy - sp.y) / this.cam.scale; }
+      }
+      UI.toast(old ? `${def.name} replaces the ${old.def.name} in the ${H.def.name}` : `${def.name} fitted in the ${H.def.name}`);
+      this.peek();
+      return;
+    }
+    UI.toast(`No room for the ${def.name} inside: try a bigger nose (a Radome has the most room) or a Radar Pod.`);
+  },
+  // "Fit a radar" (the warning's button): the set the front-most nose was built for (its radarFit: what its hidden radar
+  // was before the big update), else a pulse-Doppler.
+  fitRadar() {
+    const h = this.radarHosts(false).list[0];
+    this.quickAdd((h && h.def.radarFit && PARTS[h.def.radarFit] ? h.def.radarFit : 'radarPD'));
+  },
+
   // Fit the view if any part is outside the room the panels leave it (on a phone: above the part's card). 2D.
   keepInView() {
     this.area = null;
@@ -1824,7 +1891,7 @@ const Builder = {
     }
     for (const p of ps) if (p.def.aim && p.def.weapon && !(p.rot & 1)) { warn.push(`The ${p.def.name} points ${p.rot & 2 ? 'down' : 'up'}: turn it with R so it points forward.`); break; }
     const cs = this.casings(ps);
-    for (const p of ps) if (p.def.inner && !this.inArmour(p, cs, -0.02)) {
+    for (const p of ps) if (p.def.gv && p.def.inner && !this.inArmour(p, cs, -0.02)) {
       warn.push(`The ${p.def.name} sits outside the ${cs.length ? 'hull' : 'armour'}: ${p.def.module === 'ammo' ? 'one hit can set it off' : 'one hit can knock it out'}.`);
       break;
     }
@@ -1857,14 +1924,26 @@ const Builder = {
   // X-ray (X): the armour goes see-through and what is inside it shows: crew, ammunition, engines, fuel (parts.js draws
   // it in 2D through PartPaint.xray, Parts3D in 3D). Offered while something on the design sits inside armour; on unless
   // switched off (rss.xray). The armour view (2D) colours each plate by how thick it is against a level shot.
+  // Aircraft (the big update's radar sets, inside noses): their own X-ray switch, off unless switched on (rss.xrayAir), and a
+  // 1.6 s peek after a set is fitted, swapped or dropped. Armour keeps its own (rss.xray), as before.
   xrayAvail() { return this.parts.some((p) => p.def.mods || p.def.inner); },
-  xrayShown() { return !!this.xray && this.xrayAvail(); },
+  xrayArmour() { return this.parts.some((p) => p.def.gv && (p.def.mods || p.def.inner)); },
+  xrayOn() { return this.xrayArmour() ? !!this.xray : !!this.xrayAir; }, // (the switch, without the peek)
+  xrayShown() { return this.xrayAvail() && (this.xrayArmour() ? !!this.xray : !!this.xrayAir || performance.now() < (this.peekUntil || 0)); },
   setXray(on) {
-    this.xray = !!on;
-    store.set('rss.xray', this.xray);
+    const armour = this.xrayArmour();
+    if (armour) { this.xray = !!on; store.set('rss.xray', this.xray); } else { this.xrayAir = !!on; store.set('rss.xrayAir', this.xrayAir); }
+    this.peekUntil = 0; clearTimeout(this._peekT);
     this.renderTools();
     this.redraw();
-    UI.toast(this.xray ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray off');
+    UI.toast(!on ? 'X-ray off' : armour ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray on: the noses holding a radar are see-through');
+  },
+  // A look inside for 1.6 s (a set just fitted, swapped or dropped): one redraw now and one when it ends, then idle.
+  peek() {
+    this.peekUntil = performance.now() + 1600;
+    this.redraw();
+    clearTimeout(this._peekT);
+    this._peekT = setTimeout(() => this.redraw(), 1610);
   },
   setArmourView(on) {
     this.armourView = !!on;
@@ -1875,7 +1954,7 @@ const Builder = {
   renderTools() {
     const x = $('#btn-xray'), a = $('#btn-armour'), av = this.xrayAvail(), plated = this.parts.some((p) => p.def.gv && p.def.armour);
     if (x.hidden !== !av) x.hidden = !av;
-    x.setAttribute('aria-pressed', String(this.xrayShown()));
+    x.setAttribute('aria-pressed', String(av && this.xrayOn()));
     if (a.hidden !== !plated) a.hidden = !plated;
     a.setAttribute('aria-pressed', String(!!this.armourView && plated));
   },
@@ -2106,6 +2185,9 @@ const Builder = {
       else if (s.twr < 1) warn.push('Too heavy to lift off: the rotor needs T/W above 1.');
     } else if (!s.thrust) warn.push('No engine fires in stage 1.');
     else if (s.twr < 1) warn.push('Too heavy to lift off: TWR below 1.');
+    // radar (any kind): radar missiles with nothing to guide them, a set outside any nose, two radars looking forward
+    if (this.ctrl) warn.push(...radarProblems(ps));
+    this.renderRadar(s.radar, ps);
     // lopsided: engines or weight off to one side, or something hanging past a wing tip
     if (this.ctrl && this.cot && Math.abs(this.cot.z) > 0.3) warn.push(`The engines push ${Math.abs(this.cot.z).toFixed(1)} m off the centre line, so it will swing to one side. Turn on symmetry or balance them.`);
     if (this.ctrl && this.com && Math.abs(this.com.z) > 0.15) warn.push('More weight on one side than the other: it will lean that way.');
@@ -2140,6 +2222,19 @@ const Builder = {
     this.renderLaunch();
   },
 
+  // The Radar row (any kind with a radar part or radar missiles aboard): the best radar's kind, reach and cover, amber
+  // when nothing aboard guides the radar missiles; and the Fit a radar button while that holds.
+  renderRadar(R, ps) {
+    const row = $('#s-radar-row'), fix = $('#s-fix'), on = !!R && (R.missiles || ps.some((p) => p.def.radarSet));
+    if (row.hidden !== !on) row.hidden = !on;
+    const need = !!this.ctrl && !!R && R.missiles && !R.guiding;
+    if (fix.hidden !== !need) fix.hidden = !need;
+    if (!on) return;
+    const b = R.best, dd = $('#s-radar');
+    dd.textContent = b ? `${b.kind} ${b.range / 1000} km ${b.cone >= 180 ? 'all round' : '±' + b.cone + '°'}${R.tail ? ' · tail' : ''}` : R.tail ? 'tail only' : 'none';
+    dd.className = R.missiles && !R.guiding ? 'warnv' : '';
+  },
+
   renderInfo() {
     this.redraw();
     const p = this.selected;
@@ -2153,6 +2248,7 @@ const Builder = {
     this.renderTurret();
     if (this.multi) {
       const g = [...this.sel], mass = g.reduce((s, q) => s + (q.mm != null ? armourMassT(q.def, q.mm) : q.def.mass), 0), cost = g.reduce((s, q) => s + (q.def.cost || 0) + (q.mm != null ? armourCostDelta(q.def, q.mm) : 0), 0);
+      this.renderHolds(null);
       $('#pi-name').textContent = `${g.length} parts selected`;
       $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Career.sandbox ? '' : ` · ${money(cost)}`);
       $('#pi-desc').textContent = isTouch ? 'Drag any of them to move them together. Copy to paste them again (here or in another design).'
@@ -2164,7 +2260,20 @@ const Builder = {
     $('#pi-name').textContent = d.name + (p.mirror || d.twinZ ? ' ×2' : '');
     $('#pi-desc').textContent = d.desc || '';
     $('#pi-specs').textContent = this.partSpecs(p);
+    this.renderHolds(p);
     this.layout();
+  },
+  // The host chip: a nose (or any body) holding radar sets names each, a tap away (the set is hidden inside it).
+  renderHolds(p) {
+    const box = $('#pi-holds'), sets = p ? this.parts.filter((q) => q.att === p.id && innerRadar(q.def)) : [];
+    if (!box) return;
+    box.hidden = !sets.length;
+    box.textContent = '';
+    for (const q of sets) {
+      const b = el('button', { class: 'pi-chip', text: `Holds: ${q.def.name} ›` });
+      b.addEventListener('click', () => this.setSel([q]));
+      box.append(b);
+    }
   },
   // The part panel's numbers: mass (an armour part's as dialled), fuel, thrust, a ground part's power, load, speed,
   // calibre, reload, rounds, range, and a gun's shells (what each goes through at 500 m and 1 km), then the price.
@@ -2176,6 +2285,7 @@ const Builder = {
     if (d.wing && !d.wing.control) { const W = wingAero(d); specs.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h${W.mmax ? ` or Mach ${W.mmax}` : ' (more up high)'}`); } // (to 10 km/h)
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
     if (d.gv) specs.push(...this.groundSpecs(d));
+    if (d.radarSet) specs.push(...radarSpecs(d.radarSet));
     if (!Career.sandbox) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
     return specs.join(' · ');
   },
@@ -2210,7 +2320,7 @@ const Builder = {
   // The depth row: where the part sits across the blueprint (a pair: how far out each one is).
   renderDepth(live) {
     const p = this.selected, row = $('#pi-depth'), core = p && p.def.gv && /^(hull|ring|roof)$/.test(p.def.place) && Math.abs(partZ(p)) < 0.005; // (a tank's hull, ring or turret on the centre line: room for its armour instead)
-    if (!p || this.multi || zLocked(p.def) || core) { row.hidden = true; return; }
+    if (!p || this.multi || zLocked(p.def) || core || innerRadar(p.def)) { row.hidden = true; return; } // (a radar set: its depth is its host's)
     row.hidden = false;
     const d = p.def, z = partZ(p), wings = this.parts.filter((q) => q.def.wing).map((q) => q.def.wing.span / 2 + 1);
     const lim = Math.min(PART_Z_MAX, Math.ceil(Math.max(4, Math.abs(z) + 1, ...wings))), input = $('#pi-z');
@@ -2642,7 +2752,7 @@ const Builder = {
       else if (K('b3d')) App.setPreview3D(!Settings.get('build3d'));
       else if (K('bGrid') && !mod) this.setGrid(!this.grid);
       else if (K('bMatch') && !mod) this.matchPaint();
-      else if (K('bXray') && !mod && this.xrayAvail()) this.setXray(!this.xray); // (Ctrl+X is cut)
+      else if (K('bXray') && !mod && this.xrayAvail()) this.setXray(!this.xrayOn()); // (Ctrl+X is cut)
       else if ((K('bIn') || K('bOut')) && !this.drag) { e.preventDefault(); const k = e.shiftKey ? 1 : this.gridOn() ? 0.25 : 0.1; this.nudgeZ(K('bIn') ? -k : k); }
       else if (e.code === 'Escape') { if (this.drag) this.cancelDrag(); else { this.selected = null; this.renderInfo(); if (this.selectMode) this.setSelectMode(false); } }
       else if (this.selected && !this.drag && e.code.startsWith('Arrow')) {
@@ -2653,6 +2763,7 @@ const Builder = {
     });
 
     $('#btn-launch').addEventListener('click', () => App.launch());
+    $('#s-fix').addEventListener('click', () => this.fitRadar());
     $('#btn-delete').addEventListener('click', () => this.deleteSel());
     $('#btn-dup').addEventListener('click', () => this.duplicateSelected());
     $('#btn-copy').addEventListener('click', () => this.copySel());
@@ -2676,7 +2787,7 @@ const Builder = {
     $('#btn-mm-down').addEventListener('click', () => this.stepMm(-1));
     $('#btn-mm-up').addEventListener('click', () => this.stepMm(1));
     $('#btn-test-turret').addEventListener('click', () => this.testTurret());
-    $('#btn-xray').addEventListener('click', () => this.setXray(!this.xray));
+    $('#btn-xray').addEventListener('click', () => this.setXray(!this.xrayOn()));
     $('#btn-armour').addEventListener('click', () => this.setArmourView(!this.armourView));
     $('#pi-skins').addEventListener('click', (e) => { const b = e.target.closest('.skin-sw'); if (b) this.paintSel(b.dataset.skin || null); });
     $('#btn-match').addEventListener('click', () => this.matchPaint());
@@ -2854,6 +2965,7 @@ const Builder = {
     if (d.fromPalette) {
       if (overPalette || !s.ok) return;
       this.addPart(d.type, s.x, s.y, d.rot || 0, { z: s.z, att: s.att, host: s.host });
+      if (innerRadar(PARTS[d.type]) && this.selected && this.selected.type === d.type) this.peek(); // (a radar set: see it inside)
       return;
     }
     const p = d.part;
@@ -2883,6 +2995,7 @@ const Builder = {
     this.linkMirrors();
     this.changed();
     this.renderInfo();
+    if (innerRadar(p.def)) this.peek();
   },
 
   cancelDrag(dd) {
@@ -2932,13 +3045,15 @@ const Builder = {
     if (this.turretTest) { this.turretTest.g.ring.aimYaw = 0; this.turretTest = null; } // (a 3D test, left for 2D)
     // X-ray and the armour view: parts.js draws plated parts see-through or coloured by thickness while these are set
     PartPaint.xray = this.xrayShown() ? this.parts : null; PartPaint.armour = !!this.armourView;
+    // an aircraft's X-ray (or a set's peek): the bodies holding radar sets go see-through over them
+    const hosts = PartPaint.xray && !this.xrayArmour() ? new Set(this.parts.filter((p) => innerRadar(p.def)).map((p) => p.att)) : null;
     const d = this.drag;
     try {
       // back to front (the view looks from +z): parts on the far side are drawn first and fade into the
       // blueprint; wings and pods go over the hull they pass through
       for (const p of sideOrder(this.parts)) {
         const loose = !this.attached.has(p.id), z = partZ(p);
-        ctx.globalAlpha = loose ? 0.4 : 1;
+        ctx.globalAlpha = (loose ? 0.4 : 1) * (hosts && hosts.has(p.id) ? 0.35 : 1);
         drawPart(ctx, p, lw);
         if (z < -0.05 && !p.def.twinZ) { partPath(ctx, p); ctx.fillStyle = `rgba(7,18,34,${Math.min(0.5, 0.15 + 0.04 * -z).toFixed(3)})`; ctx.fill(); }
         if (!Career.unlocked(p.def)) {
@@ -2954,6 +3069,15 @@ const Builder = {
           ctx.setLineDash([0.25, 0.15]);
           ctx.strokeRect(r.l - 0.08, r.b - 0.08, r.r - r.l + 0.16, r.t - r.b + 0.16);
           ctx.setLineDash([]);
+        }
+        const R = !this.multi && this.selected.def.radarSet;
+        if (R) { // where a radar looks: a wedge ±its cone along the part's own +y (a circle all round), 3 craft lengths out
+          const sp = this.selected, ax = partAxis(sp), a0 = Math.atan2(ax.y, ax.x), c = (R.cone * Math.PI) / 180, L = 3 * Math.max(4, this.length(this.parts));
+          ctx.beginPath();
+          if (R.cone >= 180) ctx.arc(sp.x, sp.y, L, 0, TAU);
+          else { ctx.moveTo(sp.x, sp.y); ctx.arc(sp.x, sp.y, L, a0 - c, a0 + c); ctx.closePath(); }
+          ctx.fillStyle = 'rgba(95,215,255,0.10)'; ctx.fill();
+          ctx.strokeStyle = 'rgba(95,215,255,0.5)'; ctx.lineWidth = 1.5 / this.cam.scale; ctx.setLineDash([0.3, 0.2]); ctx.stroke(); ctx.setLineDash([]);
         }
       }
       if (d && d.fromPalette && d.ghost) {
@@ -3034,7 +3158,7 @@ const Builder = {
       ctx.fillStyle = '#9fd1ff'; ctx.fillText(`×${n}`, bx - 11 * dpr, by + 7 * dpr);
     }
     const sp = this.selected;
-    if (sp && !this.multi && !zLocked(sp.def) && !d) {
+    if (sp && !this.multi && !zLocked(sp.def) && !innerRadar(sp.def) && !d) {
       const r = partRect(sp), [ex, ey] = XY(r.l, r.b), [fx, fy] = XY(r.r, r.t), t = this.zText(sp);
       ctx.textAlign = 'left';
       const w = ctx.measureText(t).width + 10 * dpr, bx = Math.min(ex, fx), by = Math.max(ey, fy) + 6 * dpr;

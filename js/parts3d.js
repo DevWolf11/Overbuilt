@@ -59,7 +59,7 @@ const Parts3D = (() => {
     armour: { color: GV_BASE, roughness: 0.78, metalness: 0.14, env: 0.55 }, // fittings in the armour's paint
   };
   const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
-  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate' };
+  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate', radarset: 'metal' };
   const RECIPE = PART_RECIPE;
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
@@ -960,7 +960,12 @@ const Parts3D = (() => {
 
     ecm(d) { // a capsule on a pylon with antenna blades and emitter windows
       const w = d.w, h = d.h, b = -h / 2, t = h / 2, cx = w * 0.12, rw = w * 0.66;
-      const pod = new THREE.LatheGeometry([[0, b + h * 0.04], [0.7, b + h * 0.1], [1, b + h * 0.2], [1, t - h * 0.2], [0.7, t - h * 0.1], [0, t - h * 0.04]].map(([r, y]) => v2((r * rw) / 2, y)), 20).translate(cx, 0, 0);
+      const prof = [[0, b + h * 0.04], [0.7, b + h * 0.1], [1, b + h * 0.2], [1, t - h * 0.2], [0.7, t - h * 0.1], [0, t - h * 0.04]].map(([r, y]) => v2((r * rw) / 2, y));
+      if (d.style === 'radar') { // a radar pod: the same capsule, its front fifth a white radome, no emitters or blades
+        const lathe = (pts) => new THREE.LatheGeometry(pts, 20).translate(cx, 0, 0);
+        return node([[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark'], [lathe(prof.slice(0, 4)), 'mil'], [lathe(prof.slice(3)), 'white']]);
+      }
+      const pod = new THREE.LatheGeometry(prof, 20).translate(cx, 0, 0);
       const list = [[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark'], [pod, 'mil'],
         [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, t - h * 0.24, 0), 'ink'], [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, b + h * 0.24, 0), 'ink']];
       for (const y of [-h * 0.15, h * 0.1]) list.push([box(0.2, 0.16, 0.03, cx + rw / 2 + 0.09, y, 0), 'steelDark']);
@@ -2107,11 +2112,15 @@ void main() {
     }
     for (const mesh of rig.meshes) mesh.castShadow = a >= 1 && !rig.small;
   }
+  // (the big update: an aircraft's radar set takes X-ray's cyan, and the body holding one, rig.rhost, goes see-through;
+  // every other part from before as it was)
   function xrayRig(rig, on, parts) {
-    const d = rig.part.def;
-    if (!d.gv || !!rig.xray === on) return;
+    const d = rig.part.def, set = innerRadar(d);
+    if (!d.gv && !set && !rig.rhost && !rig.xray) return;
+    on = on && (!!d.gv || set || !!rig.rhost);
+    if (!!rig.xray === on) return;
     rig.xray = on;
-    if (d.inner) { const c = shared.color.set(GV_MOD[gvModKind(d)]); for (const m of rig.matList) if (m.isMeshStandardMaterial) m.color.copy(on ? c : m.userData.c0); }
+    if (d.inner) { const c = shared.color.set(d.gv ? GV_MOD[gvModKind(d)] : '#4fd2ff'); for (const m of rig.matList) if (m.isMeshStandardMaterial) m.color.copy(on ? c : m.userData.c0); }
     fade(rig);
     if (on && d.mods && parts) modsMesh(rig, parts);
     if (rig.modsMesh) rig.modsMesh.visible = on;
@@ -2571,7 +2580,7 @@ void main() {
       }
       if (this.list.length > parts.length) this.prune(stamp);
       this.pylons(parts);
-      if (this.builder && this.xray !== !!api.xray) this.setXray(api.xray);
+      if (this.builder) this.setXray(api.xray); // (returns at once when nothing changed; a set's host found once its rig is built)
       if (this.xray) for (const r of this.list) if (r.part.def.mods) modsMesh(r, parts);
       if (api.envMap !== this.env) {
         this.env = api.envMap;
@@ -2590,7 +2599,7 @@ void main() {
       if (rig.spins.length) {
         let s = p.spin;
         if (typeof s !== 'number' || !isFinite(s)) { // no spin bookkeeping: turn props and rotors with the throttle
-          rig.fspin += (A.always ? 1 : A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
+          rig.fspin += (A.always && !this.builder ? 1 : A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
           s = rig.fspin;
         }
         const ds = rig.last == null ? 0 : Math.abs(s - rig.last);
@@ -2679,6 +2688,12 @@ void main() {
       return null;
     }
     pick(raycaster, skip) {
+      if (this.xray && !this.baked) { // (X-ray: a radar set seen through its nose is what a tap there means)
+        for (const h of raycaster.intersectObjects(this.pickables, false)) {
+          const part = h.object.userData.part;
+          if (part && innerRadar(part.def) && !(skip && skip.has(part)) && shown(h.object)) return part;
+        }
+      }
       const h = this.pickHit(raycaster, skip, true);
       return h ? h.part : null;
     }
@@ -2708,12 +2723,16 @@ void main() {
     // Builder: X-ray. The ground update's armour goes see-through, what is inside it (inner parts, in their kind's colour;
     // built-in crew, stores, fuel and troops, as balls) shows; other parts are as they were. Builder meshes follow
     // Parts3D.xray by themselves (sync).
+    // With radar sets aboard, the bodies holding them (their att) go see-through too: worked out again when they change.
     setXray(on) {
       on = !!on;
-      if (this.xray === on) return;
-      this.xray = on;
+      let hosts = null;
+      for (const r of this.list) if (innerRadar(r.part.def)) (hosts || (hosts = new Set())).add(r.part.att);
+      const sig = hosts ? [...hosts].join(',') : '';
+      if (this.xray === on && sig === (this.rsig || '')) return; // (no sets: as before)
+      this.xray = on; this.rsig = sig;
       const parts = this.list.map((r) => r.part);
-      for (const r of this.list) xrayRig(r, on, parts);
+      for (const r of this.list) { if (hosts || r.rhost) r.rhost = !!hosts && hosts.has(r.part.id); xrayRig(r, on, parts); }
     }
 
     dispose() {

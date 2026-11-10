@@ -121,6 +121,18 @@ ok('2D: the sweep landing redraws once', n === 1, `${n} draws`);
 n = await idle('b2', 600);
 ok('...and then the armour blueprint is idle again', n === 0, `${n} draws`);
 
+// ---- a radar set's peek (the big update): fitted from code, its nose see-through for 1.6 s; the peek's end is exactly
+// one more redraw, and then the blueprint is idle again
+await ev(() => { const t = TEMPLATES.falcon; Builder.loadDesign({ name: 'F', kind: 'plane', parts: templateRows(t).filter((r) => !innerRadar(PARTS[r.type])) }); });
+await frames(4); await page.waitForTimeout(300);
+await ev(() => Builder.quickAdd('radarPD'));
+await frames(4);
+const pk = await ev(() => ({ set: Builder.parts.some((p) => p.type === 'radarPD'), shown: Builder.xrayShown() }));
+n = await idle('b2', 2200);
+ok('2D: a radar set\'s peek ends with one redraw', pk.set && pk.shown && n === 1, `${n} draws ${JSON.stringify(pk)}`);
+n = await idle('b2', 600);
+ok('...and then the blueprint with its set is idle again', n === 0, `${n} draws`);
+
 // ---- the 3D hangar
 await page.keyboard.press('KeyV');
 await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 30000 });
@@ -171,6 +183,11 @@ ok('Test turret draws while the turret swings, for 3 s, and sets it back', tt.dr
 await settle3d();
 f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
 ok('...and then the 3D hangar stops drawing again', f1 === f0, `${f1 - f0} renders in 1 s`);
+// a rotodome turns in flight only (the big update): the idle 3D hangar holding one draws nothing
+const roto = await ev(() => { Builder.loadTemplate('skylark'); Builder.quickAdd('rotodome'); Builder.selected = null; Builder.renderInfo(); Render3D.orbitBy(0, 0); return Builder.parts.some((p) => p.type === 'rotodome'); });
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('the idle 3D hangar with a rotodome aboard issues no draw calls', roto && f1 === f0, `${f1 - f0} renders in 1 s`);
 await ev(() => Render3D.resetCamera()); // (the turntable spins again: it draws every frame)
 n = await over('b3', 8);
 ok('the spinning turntable draws every frame', n >= 7, `${n} draws in 8 frames`);

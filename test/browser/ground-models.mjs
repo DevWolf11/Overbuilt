@@ -314,6 +314,15 @@ r = await ev(() => {
   return out;
 });
 ok('a search radar turns in flight only: the hangar keeps still', r.hangar === 0 && r.flight > 1 && !r.anim, JSON.stringify(r));
+// the rotodome (the big update) likewise: still in the hangar (which then draws nothing), turning in flight at 1.3 rad/s
+r = await ev(() => {
+  const p = makePart('rotodome', 0, 0), a = new Parts3D.VesselMesh([p], { builder: true }), f = new Parts3D.VesselMesh([p], {});
+  for (let i = 0; i < 5; i++) { a.sync({ parts: [p] }, { dt: 0.1, time: i * 0.1 }); f.sync({ parts: [p] }, { dt: 0.1, time: i * 0.1 }); }
+  const out = { hangar: a.list[0].spins[0].rotation.x, flight: f.list[0].spins[0].rotation.x, always: !!a.list[0].anim.always };
+  a.dispose(); f.dispose();
+  return out;
+});
+ok('a rotodome turns in flight only: the hangar keeps it still', r.hangar === 0 && Math.abs(r.flight - 0.65) < 0.01 && r.always, JSON.stringify(r));
 
 ok('no page errors', !errs.length, errs.join('\n'));
 await b.close(); srv.close();

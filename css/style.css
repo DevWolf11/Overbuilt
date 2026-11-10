@@ -1324,6 +1324,18 @@ body.ctl-edit .air-btns { display: flex !important; }
 }
 
 /* == big: radar == */
+/* the builder: the Radar row's value in amber while nothing aboard guides the radar missiles; the Fit a radar button under
+   the warnings (shown while that holds); the part card's host chips ("Holds: Pulse-Doppler Radar ›": a tap selects the
+   set hidden in the nose) */
+.stat-grid dd.warnv { color: var(--amber); }
+#s-fix { margin: 4px 0; color: var(--amber); border-color: var(--amber); align-self: flex-start; }
+.pi-holds { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.pi-holds[hidden] { display: none; }
+.pi-chip {
+  font: 600 11px/1 var(--mono); padding: 6px 10px; border-radius: 999px; cursor: pointer; touch-action: manipulation;
+  color: #5fd7ff; background: rgba(95, 215, 255, 0.1); border: 1px solid rgba(95, 215, 255, 0.5);
+}
+.pi-chip:hover { background: rgba(95, 215, 255, 0.2); }
 
 /* == big: drones == */
 
