@@ -260,6 +260,15 @@ async function strip(P, sizes) {
     const inside = L.alert && L.alert.l >= 0 && L.alert.t >= 0 && L.alert.r <= L.W && L.alert.b <= L.H;
     ok(`${tag} ${w}×${h}: the strip shows over the fall ("${L.text}"), on the screen and clear of every control and panel`, L.lost && !!L.alert && inside && !cl.length && /^Pilot knocked out · (tap|Esc) for options$/.test(L.text), { alert: L.alert, clashes: cl });
     if (w === sizes[0][0] && h === sizes[0][1]) await P.shot('strip');
+    // (Phase 2 review P2-HUD-1) with a room player's name in it (18 letters at most, the widest): clear too, wrapped into
+    // a gap if it must be (on a small phone it ran over the flight data and the throttle)
+    await ev(() => { Flight.deathText = 'Shot down · by WWWWWWWWWWWWWWWWWW'; if (Flight._alP) Flight._alP.key = ''; Flight.strip(true); Flight.updateHUD(true); });
+    await page.waitForTimeout(150);
+    const N = await ev(layout), ncl = Object.entries(N.items).filter(([, r]) => meets(N.alert, r)).map(([n]) => n);
+    const nin = N.alert && N.alert.l >= 0 && N.alert.t >= 0 && N.alert.r <= N.W && N.alert.b <= N.H;
+    ok(`${tag} ${w}×${h}: ...and with a room player's name ("${N.text}"), clear too`, N.lost && !!N.alert && nin && !ncl.length && / · by W{18} · /.test(N.text), { alert: N.alert, clashes: ncl });
+    if (w === 360) await P.shot('strip-named');
+    await ev(() => { Flight.deathText = Flight.deathLine(Flight.active); if (Flight._alP) Flight._alP.key = ''; });
   }
   await page.setViewportSize({ width: sizes[0][0], height: sizes[0][1] });
   await ev(() => { Flight.paused = false; });

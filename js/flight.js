@@ -501,7 +501,7 @@ const Flight = {
   // panels, when that is clear (a desktop's); else the nearest height at which it clears every control and panel on the
   // screen and what the canvas draws there (the warning receiver's lines and scope, a room's scope, the ground HUD's
   // diagram and scope), in the gap they leave, on more lines when the gap is narrow, never lower than the top half (Aim's
-  // circle rests in the middle). On a phone in portrait its own place runs over the flight data (an over-g's always
+  // circle rests in the middle; the strip of a craft lost may go lower: no circle then). On a phone in portrait its own place runs over the flight data (an over-g's always
   // did), on its side over the weapon buttons. Measured when it shows, when its words (not their figures), the screen or
   // the HUD's size change, when the flight data or a bar changes size, and once a second while it shows; never while
   // it is hidden.
@@ -529,7 +529,10 @@ const Flight = {
     const all = this.alertClear(W, H), hard = all.filter((o) => !o.soft), at = (R, obs) => obs.some((o) => R.l < o.r + o.p && R.r > o.l - o.p && R.t < o.b + o.p && R.b > o.t - o.p);
     if (!at(A, all) && A.l >= 0 && A.r <= W) { P.how = 'own'; return; }
     put(null, null, 0);
-    const L = box() || A, w = L.r - L.l + 24, h = L.b - L.t, hi = H / 2 - 30; // (on one line; 24: room for its figures to grow)
+    // (hi: the lowest its bottom may go: the top half while flying, for Aim's circle; the strip once lost, with no circle
+    // to keep clear, anywhere above the bottom controls: on a small phone a killer's name left it no room up there,
+    // review P2-HUD-1)
+    const L = box() || A, w = L.r - L.l + 24, h = L.b - L.t, hi = this.destroyed && al.classList.contains('lost') ? H - 8 : H / 2 - 30; // (on one line; 24: room for its figures to grow)
     const line = Math.max(12, (parseFloat(getComputedStyle(al).lineHeight) || 17) * z), padX = 34 * z;
     // the nearest place clear of obs: on its one line, else on two or three in the widest gap of at least 150 px at a
     // height that holds it (its lines guessed from its line's width; the best dozen by nearness, fewer lines and the
