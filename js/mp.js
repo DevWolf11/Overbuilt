@@ -269,6 +269,7 @@ const MP = {
     Net.on('mx', (m) => Combat.netMissileEnd(m.f, m.id));
     Net.on('cm', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && Flight.running) Combat.netFlares(P.ghost, m); });
     Net.on('lock', (m) => { if (m.on) this.rwr.set(m.f, performance.now()); else this.rwr.delete(m.f); });
+    Net.on('rdr', (m) => { const P = this.peers.get(m.f); if (P && (m.on === 0 || m.on === 1)) P.radarOff = m.on === 0; }); // (their radar off: it paints nobody's search strobes; anything else ignored)
     // ground battles: the zones and tickets (host), what each player sees (to the host) and their team's spots (host)
     Net.on('obj', (m) => this.onObj(m));
     Net.on('seen', (m) => this.onSeen(m));
@@ -1000,6 +1001,7 @@ const MP = {
     if (!this.shared || !this.spawnMsg || !v || Flight.destroyed) return;
     Net.send(this.spawnMsg, pid);
     Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }, pid);
+    if (v.radarOff) Net.send({ t: 'rdr', on: 0 }, pid); // (the spawn turned our radar on again on their screen)
     if (this.sent) { this.sent.hpSig = ''; this.sent.pvFull = 0; } // and the damage and moving parts, with the next updates
   },
   // after each Flight.update: snapshots of our craft, at fixed wall-clock rates. last: our hulk's last word as it starts
@@ -1041,6 +1043,7 @@ const MP = {
       }
       if (list.length) Net.send({ t: 'pv', list });
     }
+    if (v.radarOff && !last && now - (S.rdr || 0) >= 5000) this.sendRadar(false); // (our radar off: said again every 5 s, for those who joined since; nothing while it is on)
     if (last || now - S.hp >= MP_HP_MS) {
       S.hp = now;
       const list = [];
@@ -1168,6 +1171,7 @@ const MP = {
     P.design = { kind: typeof m.kind === 'string' && hasOwn(VEHICLE_KINDS, m.kind) ? m.kind : 'plane', parts }; // (never the raw message)
     P.snap = null;
     P.fresh = true; // (a new craft: a wreck its first snapshot puts it on top of starts sinking, as on its owner's screen)
+    P.radarOff = false; // (a new craft starts with its radar on: its owner says otherwise with 'rdr')
     if (Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
     if (Net.isHost && this.state) {
       const p = this.player(m.f), priced = this.ground && this.priceSpawn(m.f, parts, P.design.kind); // (a ground battle: priced here)
@@ -1603,7 +1607,9 @@ const MP = {
       if (now - M.at < 100) continue;
       M.at = now;
       const r = (x) => Math.round(x * 10) / 10;
-      Net.send({ t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: !M.quiet && s.target && s.target.remote ? s.target.remote : 0 });
+      const m = { t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: !M.quiet && s.target && s.target.remote ? s.target.remote : 0 };
+      if (s.pit) m.a = 1; // (an active radar missile on its own seeker now: the target's warning says MISSILE ACTIVE; absent otherwise)
+      Net.send(m);
     }
   },
   sendShot(s) { // bombs, rockets and shells: the others fly a copy for show
@@ -1615,6 +1621,13 @@ const MP = {
   sendGun(key, on) { if (this.shared) Net.send({ t: 'gun', k: key, on: on ? 1 : 0 }); },
   sendSmoke(v, c) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', smoke: 1, P: [c.x, c.y, c.z], D: [c.dx || 0, c.dy || 0, c.dz || 0] }); }, // (a smoke grenade's cloud: Aim.netSmoke)
   sendFlares(v, f) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }); }, // (chaff 2: a dispenser's bundle)
+  // our radar on or off (radar.js toggle; every 5 s while off, from afterUpdate): their advanced warning receivers hear
+  // the search of a radar that is on (the main craft's only)
+  sendRadar(on) {
+    if (!this.shared) return;
+    Net.send({ t: 'rdr', on: on ? 1 : 0 });
+    if (this.sent) this.sent.rdr = performance.now();
+  },
   sendLock(target, on) {
     if (!this.shared) return;
     if (this.lockSent && (!on || this.lockSent !== target)) { Net.send({ t: 'lock', on: 0 }, this.lockSent); this.lockSent = 0; }
@@ -1698,11 +1711,12 @@ const MP = {
     if (P.firedAt && now - P.firedAt < 3000 && d < 2500) return true;
     return this.sees(me, g, d);
   },
-  // our own eyes: aircraft by aircraft within 6 km (as an air battle), else Aim.sees within 1.5 km (+25% with a commander)
-  // or 3 km between the ground and the air
+  // our own eyes: aircraft by aircraft within 6 km (as an air battle) or held by our radar (radar.js: so a radar plane
+  // spots enemy aircraft for its team), else Aim.sees within 1.5 km (+25% with a commander) or 3 km between the ground
+  // and the air
   sees(me, g, d) {
     const airMe = mpAir(me.kind), airG = mpAir(g.kind);
-    if (airMe && airG) return d < 6000 * (1 - 0.5 * Combat.stealthOf(g));
+    if (airMe && airG) return d < 6000 * (1 - 0.5 * Combat.stealthOf(g)) || (me === Flight.active && typeof Radar !== 'undefined' && Radar.has(g)); // (and further on our radar: air contacts only, a mast's ground ones stay ours)
     const reach = airMe !== airG ? 3000 : me.gv && Armour.has(me, 'commander') ? 1875 : 1500;
     return d < reach && Aim.sees(me, g, Aim.eyes(me)); // (a thermal sight sees through smoke)
   },

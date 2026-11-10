@@ -638,6 +638,7 @@ const MPUI = {
       ctx.font = '600 11px "Chakra Petch", system-ui, sans-serif';
       ctx.fillText(MP.nameOf(g.remote), s.x, s.y - 26);
       if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 38); ctx.globalAlpha = 1; }
+      if (!friend && typeof Radar !== 'undefined') Radar.mark(g, s.x, s.y - 14); // (a tap on an enemy's tag picks it: radar.js)
     }
     // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
     if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
@@ -649,18 +650,15 @@ const MPUI = {
   },
 
   // Can we see another player's craft? Friends (and everyone in the sandbox) always; enemies within about 6 km by
-  // eye, or further on our own radar if it's ahead of us (stealth shrinks both).
+  // eye (less for a stealthy one), or further while our own radar part holds them (radar.js).
   spotted(g, me, F) {
     if (!MP.pvp || (!MP.ffa() && MP.teamOf(g.remote) === MP.teamOf(Net.me))) return true;
     if (MP.ground) return MP.spotted(g.remote, me); // (a ground battle: sight lines, spotting by the team, gun flashes)
-    const dx = g.x - me.x, dy = g.y - me.y, dz = g.z - me.z, d = Math.hypot(dx, dy, dz), st = Combat.stealthOf(g);
-    if (d < 6000 * (1 - 0.5 * st)) return true;
-    const v = F.active;
-    if (F.destroyed || !v || !v.parts.length) return false;
-    const radar = v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
-    if (!radar || d > radar * (1 - st)) return false;
-    const f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
-    return (dx * f.x + dy * f.y + dz * f.z) / d > 0.5; // within 60° of the nose
+    const d = Math.hypot(g.x - me.x, g.y - me.y, g.z - me.z);
+    if (d < 6000 * (1 - 0.5 * Combat.stealthOf(g))) return true;
+    // further only on our own radar: what its last scan held (radar.js: its cone, its reach less their stealth, look-down,
+    // notching, the ground in the way; nothing with the radar off or no radar part aboard)
+    return !F.destroyed && !!F.active && typeof Radar !== 'undefined' && Radar.has(g);
   },
   // A heading-up radar scope under the flight data (wide screens): 8 km round; friends, spotted enemies, bases.
   drawRadar(ctx, W, H, F, me) {

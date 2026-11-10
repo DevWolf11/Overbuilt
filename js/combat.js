@@ -1060,6 +1060,7 @@ const Combat = (() => {
     if (D) { s.dx = D[0]; s.dy = D[1]; s.dz = D[2]; }
     s.seen = s.t;
     s.target = target || null; // after us (now, or still: our craft may be a new one since), or no longer
+    if (m.a === 1) s.pit = true; // (an active radar missile on its own seeker now: the warning says so; it never goes back)
   }
   function netMissileEnd(pid, id) {
     const s = replica(pid, id);
