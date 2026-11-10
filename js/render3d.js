@@ -1131,6 +1131,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   let patch = {}, patchB = {}, pjob = null, pjobMs = 0, pjobSlice = 0;
   function initTerrain() {
     const det = noiseMaps(256, 24, 4, 208, 255, 6, 3);
+    // (the ground's normal map trilinear only: its grain fades far off anyway (holeHook), and the anisotropic taps it
+    // spent on grazing ground pay for the 48 m variation's sample on High; the colour map keeps its anisotropy)
+    det.nrm.anisotropy = 1;
     const rip = noiseMaps(256, 16, 3, 255, 255, 3.5, 9);
     rip.nrm.repeat.set(0.25, 0.25); // (a 48 m tile: the ripple map's 16 cells make ~3 m ripples)
     rip.nrm.anisotropy = 1; // (trilinear only: the ripples calm far off anyway, and a grazing sea would take up to 8 taps a sample)
@@ -1154,9 +1157,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       sh.uniforms.uHole = U;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vHole;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHole = uv;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uHole;\nvarying vec2 vHole;')
-        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;');
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;')
+        // less tiling (High): the detail map again at a quarter of its scale (a 48 m repeat), turned 90° and moved off its
+        // own grain, darkening and lightening the ground (WebGL 2: at the mip level its footprint picks, without the
+        // anisotropic taps a second grazing sample would cost: most of its price on the bench); no far shimmer (both): the normal map's grain fades from
+        // 80 m to a quarter by 700 m (spec-graphics §10.3; in this one hook, so the patch and the arena's ground keep one
+        // program; heights untouched)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+#ifdef OB_HI
+\tvec2 obVq = vec2( - vMapUv.y, vMapUv.x ) * 0.25 + vec2( 0.37, 0.61 );
+#if __VERSION__ >= 300
+\tvec2 obVt = obVq * vec2( textureSize( map, 0 ) ), obVx = dFdx( obVt ), obVy = dFdy( obVt );
+\tfloat obV = textureLod( map, obVq, 0.5 * log2( max( max( dot( obVx, obVx ), dot( obVy, obVy ) ), 1e-8 ) ) ).g;
+#else
+\tfloat obV = texture2D( map, obVq ).g;
+#endif
+\tdiffuseColor.rgb *= mix( 1.0, obV * 1.22, 0.55 );
+#endif`)
+        .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;',
+          'mapN.xy *= normalScale * ( 1.0 - 0.75 * smoothstep( 80.0, 700.0, length( vViewPosition ) ) );'));
     };
     terr.mat.onBeforeCompile = terr.holeHook(terr.holeU);
+    if (Settings.high) terr.mat.defines.OB_HI = ''; // (the 48 m variation: High only; the arena's material copies it, applyQuality flips both)
     terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.45, 0.45), envMapIntensity: 1.2 });
     // Moving water (spec-graphics §7): the sea, lakes and rivers share the ground's UVs (allocSlot), so the ripple map
     // drifts across them (its offset, renderFlight); on High a second set 16 m across, turned 90°, drifts the other way
@@ -1906,7 +1928,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     G.tri = null;
     if (!terr.amat) { // the patch's material with a cut of its own that never cuts: the patch's compiled program, no stall
       const m = terr.mat;
-      terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness });
+      terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness, defines: { ...m.defines } });
       terr.amat.onBeforeCompile = terr.holeHook({ value: new THREE.Vector4(1, 1, 0, 0) });
     }
     AR.mesh = new THREE.Mesh(geo, terr.amat);
@@ -4892,6 +4914,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
     if (hi) terr.oceanMat.defines.OB_HI = ''; else delete terr.oceanMat.defines.OB_HI; // (the water's second ripple set)
     terr.oceanMat.needsUpdate = true;
+    for (const m of [terr.mat, terr.amat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch and the arena's ground alike, one program)
     PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
     patch.b = patchB.b = null; patch.ready = patchB.ready = false;
@@ -5207,6 +5230,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
         terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
+        terrProgs: new Set([terr.mat, terr.amat].map((m) => m && renderer.properties.get(m).currentProgram).filter(Boolean)).size, // (the shader programs the patch and the arena's ground were last drawn with: one)
         waterOffset: S.waterN ? { x: S.waterN.offset.x, y: S.waterN.offset.y, bx: S.waveB.value.x, by: S.waveB.value.y, t: S.waterT } : null, // the ripples' drift
         fogArrays: { sun: [...FOGX.sun], sunH: [...FOGX.sunH], sunset: [...FOGX.sunset], glow: [...FOGX.glow], lin: [...FOGX.lin], h: [...FOGX.h], density: localScene.fog.density }, // the haze's shared uniforms
         camAt: (toSim(camera.position.x, camera.position.y, camera.position.z, T3), { x: camAbs.x + T3.x, y: camAbs.y + T3.y, z: camAbs.z + T3.z }), // (the flight camera, in the sim's absolute axes, as project() takes points)

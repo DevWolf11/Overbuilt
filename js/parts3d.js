@@ -8,6 +8,14 @@ const Parts3D = (() => {
   const models = new Map(), textures = new Map();
   const PX_PER_M = 64;
   const CREASE = 0.45; // radians: sharper turns in a revolved outline get a hard edge
+  // Canopy glass gives back more of the sky the flatter it is seen: see-through face on, towards a mirror at the edge (a
+  // Fresnel term on its opacity, relative to it, so X-ray's faint glass stays faint). Every glass material shares the
+  // one program (spec-graphics §10.2)
+  const glassHook = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>',
+      'diffuseColor.a = min( 1.0, diffuseColor.a * ( 1.0 + 0.6 * pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 4.0 ) ) );\n#include <opaque_fragment>');
+  };
+  const glassKey = () => 'obGlass';
 
   // Material kinds. Every part instance gets its own materials, so heat glow and transparency are per part.
   const KINDS = {
@@ -37,7 +45,7 @@ const Parts3D = (() => {
     nozzle: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     intake: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     dish: { color: PAL.steelLight, roughness: 0.3, metalness: 0.6, double: true },
-    glass: { color: '#1d3a5c', roughness: 0.05, metalness: 0.2, opacity: 0.75, env: 1 },
+    glass: { color: '#1d3a5c', roughness: 0.05, metalness: 0.2, opacity: 0.75, env: 1.3 },
     goldglass: { color: '#a5803a', roughness: 0.06, metalness: 0.75, opacity: 0.88, env: 1.2 },
     darkgrey: { color: '#3f464e', roughness: 0.55, metalness: 0.4 },
     cluster: { color: '#8d949c', roughness: 0.55, metalness: 0.3 },
@@ -1621,7 +1629,7 @@ const Parts3D = (() => {
     if (k.camo && S && S.camo) { m.map = camoMap(S, camoAt(at, S)); m.roughness = S.rough != null ? S.rough : k.roughness; m.metalness = S.metal != null ? S.metal : k.metalness; }
     if (k.vertexColors) m.vertexColors = true;
     if (k.double) m.side = THREE.DoubleSide;
-    if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; }
+    if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; m.onBeforeCompile = glassHook; m.customProgramCacheKey = glassKey; }
     if (api.envMap) m.envMap = api.envMap;
     m.userData.op = m.opacity;
     m.userData.c0 = m.color.clone();

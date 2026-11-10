@@ -36,7 +36,8 @@
 //  8. water: the sea's and the lakes' surfaces run on the ground's very UV attribute (before and after a quality change),
 //     their ripples drift with frames drawn in flight and stand still while paused, the second ripple set (OB_HI) on High
 //     only
-//  9. (the materials package: terrain)
+//  9. terrain: the ground's 48 m variation (OB_HI) on the patch and the arena's own ground on High and on neither on Low,
+//     the two drawn with one shader program (the arena's ground first shown on Low builds none)
 // 10. the haze matches the sky: at dusk on the runway, everything past a kilometre fogged (bench.fogK 200), the ground
 //     2 px under the horizon line and the sky 2 px over it agree within 4/255 a channel away from the Sun and 8/255
 //     towards it (today's fog, after the tone mapping, missed it by far more); the haze's shared uniforms are written each
@@ -453,6 +454,36 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   ok(`${tag}: the sea and the lakes run on the ground's very UV attribute, before and after a quality change (High, Low, High)`, w8.hi.shared && w8.lo.shared && w8.hi2.shared, w8);
   ok(`${tag}: the water's second ripple set (OB_HI) is on High and not on Low (the material's own STANDARD kept)`, 'OB_HI' in w8.hi.defs && !('OB_HI' in w8.lo.defs) && 'OB_HI' in w8.hi2.defs && 'STANDARD' in w8.lo.defs && 'STANDARD' in w8.hi.defs, { hi: w8.hi.defs, lo: w8.lo.defs });
   ok(`${tag}: the ripples stand still while paused and drift with the frames drawn in flight (0.1 s: ${w8.b.t.toFixed(3)} → ${w8.c.t.toFixed(3)} s)`, w8.a.t === w8.b.t && w8.a.x === w8.b.x && Math.abs(w8.c.t - w8.b.t - 0.1) < 1e-6 && w8.c.x !== w8.b.x && w8.c.bx !== w8.b.bx && w8.d.t === w8.c.t, w8);
+
+  // ---- 9. terrain: the 48 m variation (OB_HI) on High only, on the patch and the arena's own ground alike, and the two
+  // drawn with one program: on Low, with the arena's ground (and the props it brings) held off, everything drawn, then
+  // the arena's ground shown: no new program
+  const t9 = await ev(async () => {
+    const G = () => Render3D.gfx(), A = () => Render3D.arenaInfo();
+    const draw = async (want) => { // frames back to back (nothing drawn) until the arena's ground is on show, or not, and nothing builds; then two drawn
+      Render3D.skipDraw = true;
+      let n = 0;
+      for (let quiet = 0; n < 8000 && quiet < 30; n++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); quiet = A().on === want && !Render3D.bench.busy() ? quiet + 1 : 0; if ((n & 63) === 63) await new Promise((r) => setTimeout(r, 0)); }
+      Render3D.skipDraw = false;
+      for (let i = 0; i < 2; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); }
+      return { on: A().on, n, programs: Render3D.info().programs, progs: G().terrProgs, t: G().terrDefines, a: G().amatDefines };
+    };
+    const hi = await draw(true);
+    Settings.set('quality', 'low'); Render3D.arenaOff = true; Render3D.propsOff = true;
+    const off = await draw(false);
+    Render3D.arenaOff = false;
+    const on = await draw(true);
+    Render3D.propsOff = false; Settings.set('quality', 'high');
+    const back = await draw(true);
+    await window.__rebuild();
+    return { hi, off, on, back };
+  });
+  const same = (x) => JSON.stringify(x.t) === JSON.stringify(x.a);
+  ok(`${tag}: the ground's 48 m variation (OB_HI) is on the patch and the arena's ground on High, on neither on Low, back on both on High (the materials' own STANDARD kept)`,
+    same(t9.hi) && same(t9.off) && same(t9.on) && same(t9.back) && 'OB_HI' in t9.hi.t && !('OB_HI' in t9.off.t) && !('OB_HI' in t9.on.a) && 'OB_HI' in t9.back.a && 'STANDARD' in t9.on.t && 'STANDARD' in t9.back.a,
+    { hi: [t9.hi.t, t9.hi.a], lo: [t9.on.t, t9.on.a], back: [t9.back.t, t9.back.a] });
+  ok(`${tag}: the patch and the arena's ground draw with one shader program, on High and on Low`, t9.hi.on && t9.hi.progs === 1 && t9.on.on && t9.on.progs === 1 && t9.back.on && t9.back.progs === 1, { hi: t9.hi.progs, lo: t9.on.progs, back: t9.back.progs });
+  ok(`${tag}: on Low, the arena's ground first shown builds no shader program (${t9.off.programs} → ${t9.on.programs})`, !t9.off.on && t9.on.on && t9.on.programs === t9.off.programs, { off: t9.off, on: t9.on });
 
   // ---- 10. the haze meets the sky: dusk on the runway, a Falcon, the camera 400 m behind it and level; everything past a
   // kilometre fogged (bench.fogK 200). A column 20° off the Sun's azimuth (towards it: its own glare, s^90 and s^1800, isn't
