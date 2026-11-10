@@ -435,8 +435,8 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   t('6 the fog chunks are patched on r159 (PATCHED.fog), with no warning', P.fog === true && warns.length === 0 && NAMES.every((k) => C[k] !== r159[k]), { P, warns });
   const LIN = ['float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );', 'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );'];
   t('6 the linear fog (the hangar\'s THREE.Fog) is r159\'s formula verbatim, outside the EXP2 case', LIN.every((l) => r159.fog_fragment.includes(l) && C.fog_fragment.includes(l)) && /^#if defined\( USE_FOG \) && ! defined\( FOG_EXP2 \)/.test(C.fog_fragment));
-  t('6 tonemapping_fragment ends with r159\'s text verbatim; the haze goes first, only for FogExp2 and not under OB_NOFOG', C.tonemapping_fragment.endsWith(r159.tonemapping_fragment) && C.tonemapping_fragment.startsWith('#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )') && /mix\( gl_FragColor\.rgb, vFogC, obFogF\( vFogT, length\( vFogPos \) \) \)/.test(C.tonemapping_fragment)
-    && /vFogT = obFogT\( fogDensity, obD, dot\( mvPosition\.xyz, viewMatrix\[ 1 \]\.xyz \) \);/.test(C.fog_vertex) && /vFogC = obFogCol\( mvPosition\.xyz \/ max\( obD, 1e-6 \), fogLin \);/.test(C.fog_vertex));
+  t('6 tonemapping_fragment ends with r159\'s text verbatim; the haze goes first, only for FogExp2 and not under OB_NOFOG', C.tonemapping_fragment.endsWith(r159.tonemapping_fragment) && C.tonemapping_fragment.startsWith('#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )') && /mix\( gl_FragColor\.rgb, vFogC, obHaze\(\) \)/.test(C.tonemapping_fragment)
+    && /vFogT = obFogT\( fogDensity, obD, dot\( mvPosition\.xyz, viewMatrix\[ 1 \]\.xyz \) \) \* 4096\.0;/.test(C.fog_vertex) && /vFogC = obFogCol\( mvPosition\.xyz \/ max\( obD, 1e-6 \), fogLin \);/.test(C.fog_vertex));
   const cases = { 'no fog': [], 'linear fog (the hangar)': ['USE_FOG'], 'linear fog, tone-mapped': ['USE_FOG', 'TONE_MAPPING'], 'FogExp2 under OB_NOFOG': ['USE_FOG', 'FOG_EXP2', 'OB_NOFOG', 'TONE_MAPPING'] };
   const same = Object.entries(cases).filter(([, d]) => {
     if (d.includes('OB_NOFOG')) return pre(C.tonemapping_fragment, d) === pre(r159.tonemapping_fragment, d) && pre(C.fog_fragment, d) === ''; // (PART, DECAL: they fog themselves; three's own fog chunk empty for EXP2 now)
@@ -444,7 +444,7 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   }).map(([k]) => k);
   t('6 preprocessed, the patched chunks give r159\'s very lines without fog, with the linear fog (tone-mapped or not), and for FogExp2 under OB_NOFOG (tone mapping only)', same.length === 4, same);
   const e2 = pre(all(C), ['USE_FOG', 'FOG_EXP2', 'TONE_MAPPING']);
-  t('6 with FogExp2 the fog mixes in at the start of the tone mapping (linear, before it), never after the colour-space encode', e2.indexOf('mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) )') > 0 && e2.indexOf('mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) )') < e2.indexOf('toneMapping( gl_FragColor.rgb )') && !/1\.0 - exp\( - fogDensity \* fogDensity/.test(e2) && /vFogPos = mvPosition\.xyz;/.test(e2) && /#define OB_FOG|uniform vec4 fogSunV/.test(e2));
+  t('6 with FogExp2 the fog mixes in at the start of the tone mapping (linear, before it), never after the colour-space encode', e2.indexOf('mix( gl_FragColor.rgb, vFogC, obHaze() )') > 0 && e2.indexOf('mix( gl_FragColor.rgb, vFogC, obHaze() )') < e2.indexOf('toneMapping( gl_FragColor.rgb )') && !/1\.0 - exp\( - fogDensity \* fogDensity/.test(e2) && /vFogPos = mvPosition\.xyz;/.test(e2) && /#define OB_FOG|uniform vec4 fogSunV/.test(e2));
   const U = ['fogSunV', 'fogSunH', 'fogSunset', 'fogGlow', 'fogLin', 'fogH'], L = T.UniformsLib.fog, fogged = Object.keys(T.ShaderLib).filter((k) => T.ShaderLib[k].uniforms.fogColor);
   const shared = fogged.filter((k) => U.every((u) => T.ShaderLib[k].uniforms[u] && T.ShaderLib[k].uniforms[u].value === L[u].value));
   t('6 every ShaderLib entry with fog (eleven) holds the very arrays of UniformsLib.fog (fogSunV, fogSunH, fogSunset, fogGlow, fogLin, fogH): one write reaches all', fogged.length === 11 && shared.length === 11 && Object.prototype.toString.call(L.fogSunV.value) === '[object Float32Array]' && L.fogSunV.value.length === 4 && L.fogH.value.length === 2, { fogged, shared });
@@ -485,6 +485,32 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   t('7 off Earth each world\'s haze is half way at today\'s distance (within 0.5 %), with no height falloff', keep.length === 3 && /b\.haze \? 3\.01e-4 : b === MARS \? 5\.64e-5 : 2\.26e-5/.test(src3d));
   const twins = [[6e-5, 3000, -2], [6e-5 * Math.exp(-10000 / 1600), 79000, -10000], [6e-5 * Math.exp(-10000 / 1600), 10000, -9999], [6e-5 * Math.exp(-1000 / 1600), 2000, 3], [6e-5, 5000, 400], [0, 5000, -10]];
   t('7 the log-space form (a GPU without highp fragments) gives the same haze as highp\'s within 1e-6, from the ground to 10 km up', twins.every(([dn, d, h]) => Math.abs(obFog(fh, dn, d, h) - obFogLow(fh, dn, d, h)) < 1e-6) && /#ifdef GL_FRAGMENT_PRECISION_HIGH/.test(body));
+  // (review P3-ATM-2) a GPU without highp fragments runs the pixel's half in half floats (phones: largest 65504, smallest
+  // normal 6.1e-5, often flushed to 0): the mean density (≤ 6e-5) went subnormal and the distance's square overflowed past
+  // 256 m, so the haze was 100 % (or NaN) everywhere. vFogT now comes ×4096 (exact) and the mediump branch takes the
+  // distance in 4096 m units, capped at 28: replayed here with every value rounded to a half float, it gives the table's
+  // haze within 3 % (the 10 km horizon too), never NaN, subnormals kept or flushed; and highp's
+  // branch is obFogF(vFogT / 4096, length(vFogPos)): the haze as it was
+  {
+    const MIN_N = 2 ** -14, SUB = 2 ** -24, MAX = 65504;
+    const h16 = (x, ftz) => { if (!isFinite(x)) return x; const a = Math.abs(x); if (a > MAX) return Math.sign(x) * Infinity; if (a < MIN_N) return ftz ? 0 : Math.sign(x) * Math.round(a / SUB) * SUB; const e = Math.floor(Math.log2(a)), q = 2 ** (e - 10); return Math.sign(x) * Math.round(a / q) * q; };
+    const hz = fnOf(C.fog_pars_fragment, 'obHaze'), hi = pre(hz, ['GL_FRAGMENT_PRECISION_HIGH']), lo = pre(hz, []);
+    const LO = 'float v = max( vFogT * min( length( vFogPos * ( 1.0 / 4096.0 ) ), 28.0 ), 0.0 );\nreturn 1.0 - exp( - v * sqrt( v ) );';
+    const half = (t4096, pos, ftz) => { // (lo, op by op: each value a half float)
+      const T = h16(t4096, ftz), k = h16(1 / 4096, ftz), p = pos.map((c) => h16(h16(h16(c, ftz) * k, ftz), ftz));
+      const d = h16(Math.sqrt(p.reduce((s, c) => h16(s + h16(c * c, ftz), ftz), 0)), ftz), v = h16(Math.max(h16(T * Math.min(d, 28), ftz), 0), ftz);
+      return 1 - Math.exp(-h16(v * h16(Math.sqrt(v), ftz), ftz));
+    };
+    const at = (alt, s) => { const th = s / R0, x = R0 * Math.sin(th), y = R0 * Math.cos(th) - (R0 + alt), d = Math.hypot(x, y); return { t: T_HI(fh, 6e-5 * Math.exp(-alt / 1600), d, y), d, pos: [x * 0.6, y, -x * 0.8] }; };
+    const views = [[2, 1000], [2, 3000], [2, 10000], [1000, 10000], [3000, 43000], [10000, 1], [10000, 10000], [10000, 79000], [2, 200], [2, 30]];
+    const bad = [];
+    for (const [alt, s] of views) {
+      const { t: tt, d, pos } = at(alt, s), want = F_(tt, d);
+      for (const ftz of [false, true]) { const got = half(tt * 4096, pos, ftz); if (!(Math.abs(got - want) <= 0.03)) bad.push(`${alt} m up, ${s} m: ${(100 * got).toFixed(1)} % (highp ${(100 * want).toFixed(1)} %)${ftz ? ', flushed' : ''}`); }
+    }
+    t('7 a GPU without highp fragments: the haze in half floats is the table\'s within 3 % (to the 10 km horizon), never NaN or white, subnormals kept or flushed; highp\'s branch is the haze as it was', bad.length === 0 && lo === LO && hi === 'return obFogF( vFogT * ( 1.0 / 4096.0 ), length( vFogPos ) );'
+      && /#ifdef GL_FRAGMENT_PRECISION_HIGH\n {2}float ff = obFog\(fogDensity, length\(vFogPos\)/.test(src3d) && /#else\n {2}float ff = obHaze\(\);/.test(src3d) && /#else\n {2}a \*= 1\.0 - obHaze\(\);/.test(src3d), bad.join('; ') || { lo, hi });
+  }
   t('7 obFog is 0 at the eye and never NaN: 10 km up looking 100 km out, straight up, a dens of 0', obFog(fh, 6e-5, 0, 0) === 0 && [obFog(fh, 6e-5 * Math.exp(-10000 / 1600), 1e5, -1e4), obFog(fh, 6e-5, 1e4, 1e4), obFog(fh, 0, 5000, -10)].every((x) => x >= 0 && x <= 1));
 }
 t.done();

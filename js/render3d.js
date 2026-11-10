@@ -361,6 +361,21 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
   // products and a root, no pow; dir, fogSunV in view space. fogSunH: the Sun's direction along the ground there (the
   // scene's up taken out, normalised, renderFlight), so dir·fogSunH is the azimuth's cosine times the elevation's: the
   // sky's own az at the horizon, where the haze meets it, and a little nearer 0.5 above and below it, at one dot)
+  // The haze a pixel, from the vertex's mean density (vFogT, ×4096: 2^12, so exact) and the pixel's distance. highp: the
+  // haze as ever. A GPU without highp fragments (WebGL1; phones run mediump as half floats: 6.1e-5 the smallest normal,
+  // 65504 the largest) would see the mean density (≤ 6e-5) underflow and the distance (past 256 m: its square) overflow,
+  // a white or NaN screen: there both are taken in units of 4096 m (the density per 4096 m: 0.004-0.25), the distance
+  // capped at 28 (a varying past 65 km on an axis is Infinity in a half float: the haze out there is near whole anyway),
+  // so nothing leaves the half float's range and nothing is NaN.
+  const OB_HAZE_FN = `
+float obHaze() {
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+	return obFogF( vFogT * ( 1.0 / 4096.0 ), length( vFogPos ) );
+#else
+	float v = max( vFogT * min( length( vFogPos * ( 1.0 / 4096.0 ) ), 28.0 ), 0.0 );
+	return 1.0 - exp( - v * sqrt( v ) );
+#endif
+}`;
   // r159's text of the five chunks (each must match exactly, or nothing is patched)
   const FOG_R159 = {
     fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n#endif',
@@ -374,14 +389,14 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
       + '\t\tuniform float fogDensity; uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOGT_FN + OB_FOGC_FN + '\n\t#endif\n#endif',
     fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n\t#ifdef FOG_EXP2\n\t\tvFogPos = mvPosition.xyz;\n'
       + '\t\tfloat obD = length( mvPosition.xyz );\n'
-      + '\t\tvFogT = obFogT( fogDensity, obD, dot( mvPosition.xyz, viewMatrix[ 1 ].xyz ) );\n'
+      + '\t\tvFogT = obFogT( fogDensity, obD, dot( mvPosition.xyz, viewMatrix[ 1 ].xyz ) ) * 4096.0;\n'
       + '\t\tvFogC = obFogCol( mvPosition.xyz / max( obD, 1e-6 ), fogLin );\n\t#endif\n#endif',
     fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\t#define OB_FOG\n\t\tuniform float fogDensity;\n\t\tvarying vec3 vFogPos, vFogC;\n\t\tvarying float vFogT;\n'
-      + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN
+      + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN + OB_HAZE_FN
       + '\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
     fog_fragment: '#if defined( USE_FOG ) && ! defined( FOG_EXP2 )\n\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
     tonemapping_fragment: '#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )\n'
-      + '\tgl_FragColor.rgb = mix( gl_FragColor.rgb, vFogC, obFogF( vFogT, length( vFogPos ) ) );\n#endif\n'
+      + '\tgl_FragColor.rgb = mix( gl_FragColor.rgb, vFogC, obHaze() );\n#endif\n'
       + FOG_R159.tonemapping_fragment,
   };
   const FOG_U = { fogSunV: 'sun', fogSunH: 'sunH', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
@@ -654,7 +669,11 @@ void main() {
   a *= vCol.a * vFade;
   if (a < 0.004) discard;
 #ifdef OB_FOG
+#ifdef GL_FRAGMENT_PRECISION_HIGH
   float ff = obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+#else
+  float ff = obHaze();
+#endif
   c = mix(c * (1.0 - ff), mix(c, obFogCol(normalize(vFogPos), fogLin), ff), occ);
 #endif
   gl_FragColor = vec4(c, 1.0);
@@ -735,7 +754,11 @@ void main() {
     vec4 t = texture2D(uMap, (vec2(mod(cell, 2.0), floor(cell / 2.0)) + vUv * 0.5 + 0.5) * 0.5, 1.0); // (a mip level coarser: the lumps, not the cloud's finest wisps)
     a = vO * smoothstep(0.05, 0.5, t.a) * (1.0 - smoothstep(0.75, 1.0, r2)); c = mix(vec3(0.09, 0.06, 0.04), vec3(0.015, 0.012, 0.01), smoothstep(0.3, 0.8, t.a)); }
 #ifdef OB_FOG
+#ifdef GL_FRAGMENT_PRECISION_HIGH
   a *= 1.0 - obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+#else
+  a *= 1.0 - obHaze();
+#endif
 #elif defined(USE_FOG) && defined(FOG_EXP2)
   a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
 #endif
