@@ -266,13 +266,16 @@ const Combat = (() => {
     return v._ws;
   }
   const ammoOf = (sys) => sys.parts.reduce((s, p) => s + (p.ammo || 0), 0);
-  const radarOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
+  // the longest reach of the craft's working radar parts (radar.js; no radar part, none: no magic radar)
+  const radarOf = (v) => (typeof Radar !== 'undefined' ? Radar.radarOf(v) : 0);
   // an IRST ball (def.irst, the look-alike jets) sees engine heat: heat seekers lock on that share further away
   const irstOf = (v) => v.parts.reduce((m, p) => Math.max(m, p.def.irst || 0), 0);
   // a radar warning receiver (def.rwr) on board: 0 none, 1 basic (a missile is coming), 2 with a threat display (what kind,
   // from where and what to do)
   const rwrOf = (v) => (v && v.parts ? v.parts.reduce((m, p) => Math.max(m, p.def.rwr || 0), 0) : 0);
-  function rangeOf(v, w) { return w.radar ? (radarOf(v) ? Math.min(w.range, radarOf(v)) : 5000) : w.seek === 'air' ? w.range * (1 + irstOf(v)) : w.range; }
+  // how far a weapon locks: a radar missile no further than the radar that guides it reaches (none aboard: no lock at
+  // all, no 5 km fallback), a heat seeker further with an IRST
+  function rangeOf(v, w) { return w.radar ? Math.min(w.range, typeof Radar !== 'undefined' ? Radar.guideRange(v) : 0) : w.seek === 'air' ? w.range * (1 + irstOf(v)) : w.range; }
   // How hard a craft is to see on radar (0..0.75): the stealthy share of its hull, less for each thing hung outside.
   // (Paint never counts: a part's skin is for looks only.)
   function stealthOf(v) {
@@ -395,6 +398,9 @@ const Combat = (() => {
       else if (w.seek === 'top') { s.top = true; s.tgt = target; s.target = null; s.loft = w.loft || 150; } // (its own lock: no proximity burst short of the roof)
       else if (w.seek === 'clos') s.clos = true; // (the tracking radar steers it)
       else if (w.radar && w.seek === 'air') s.gr = true; // (semi-active on the tracking radar)
+    } else if (w.radar && w.seek === 'air') { // (an aircraft's radar missile: active ones go on alone near the target when its radar has a data link)
+      const rd = typeof Radar !== 'undefined' && Radar.mainRadar(v);
+      s.act = w.active || 0; s.link = !!(rd && rd.R.guide >= 2);
     }
     S.shots.push(s);
     release(v, p);
@@ -539,22 +545,30 @@ const Combat = (() => {
       S.cand = S.lock = w.radar ? Aim.lockTarget(v) : null; S.lockT = 0; S.lockR = false;
     } else if (w.kind === 'missile') {
       // heat seekers see a hot target further (and a cold one, or one seen from the front, much closer);
-      // radar needs to see the target (not notching) and keeps its lock anywhere within its field
+      // radar needs the craft's own radar to see the target (radar.js: its cone, reach, look-down, not notching) and
+      // keeps its lock anywhere within its field; the target the player picked (I, a tap) wins over the nearest the nose
       const range = rangeOf(v, w), fwd = cur.def.aim ? Aim.aimDir(v, undefined, F) : noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
       const cands = candidates(v, w.seek, F), ir = (heat || w.seek === 'top') && S.smoke.length > 0; // (smoke hides a target from an IR seeker)
+      const RD = typeof Radar !== 'undefined' ? Radar : null, pick = RD ? RD.S.pick : null, rs = (t) => !!RD && RD.sees(v, t, refPos(t), 'guide') === true;
       let best = null, ba = w.cone;
-      if (sarh && S.lock && cands.some((c) => c.ref === S.lock) && radarSees(v, S.lock, refPos(S.lock)) === true && !chaffBreaks(v, S.lock)) best = S.lock;
-      else for (const c of cands) {
-        const dx = c.x - v.x, dy = c.y - v.y, dz = c.z - v.z, d = len(dx, dy, dz);
-        if (d > (w.seek === 'top' ? range * hotK(c.ref) : range) || d < (air ? 350 : 150)) continue; // (a turbine's exhaust is seen further off)
-        if (heat && d > range * clamp(Math.sqrt(irSig(c.ref, v)), 0.2, 1)) continue;
-        if (sarh && radarSees(v, c.ref, refPos(c.ref)) !== true) continue;
-        if (ir && Aim.smokeBlocks(v, c)) continue;
-        const ang = Math.acos(clamp((dx * fwd.x + dy * fwd.y + dz * fwd.z) / d, -1, 1));
-        if (ang < ba) { ba = ang; best = c.ref; }
+      const held = sarh && S.lock && (!pick || pick === S.lock) && cands.some((c) => c.ref === S.lock);
+      if (held && rs(S.lock) && !chaffBreaks(v, S.lock)) best = S.lock;
+      else {
+        if (held && S.lockR && RD) RD.lost(F); // (a held radar lock gone: notching, out of reach or the cone, the ground, chaff)
+        for (const c of cands) {
+          const dx = c.x - v.x, dy = c.y - v.y, dz = c.z - v.z, d = len(dx, dy, dz);
+          if (d > (w.seek === 'top' ? range * hotK(c.ref) : range) || d < (air ? 350 : 150)) continue; // (a turbine's exhaust is seen further off)
+          if (heat && d > range * clamp(Math.sqrt(irSig(c.ref, v)), 0.2, 1)) continue;
+          if (sarh && !rs(c.ref)) continue;
+          if (ir && Aim.smokeBlocks(v, c)) continue;
+          const ang = Math.acos(clamp((dx * fwd.x + dy * fwd.y + dz * fwd.z) / d, -1, 1));
+          if (pick && c.ref === pick && ang < w.cone) { best = c.ref; break; }
+          if (ang < ba) { ba = ang; best = c.ref; }
+        }
       }
       if (best && best === S.cand) S.lockT += dt; else { S.cand = best; S.lockT = 0; }
-      S.lock = best && S.lockT > (w.lockT || (w.radar ? 1.4 * (best.parts && jams(best) ? 2 : 1) : 0.9)) ? best : null; // (a jammer slows a radar lock)
+      // (a radar lock takes the main radar's time, longer against a jammer; a heat seeker cued by a radar holding the target 0.6 s)
+      S.lock = best && S.lockT > (w.lockT || (w.radar ? (RD ? RD.lockTime(v, best) : 1.4 * (best.parts && jams(best) ? 2 : 1)) : RD && RD.has(best) ? 0.6 : 0.9)) ? best : null;
       S.lockR = !!w.radar; // (a radar lock warns its target; a heat seeker is passive)
       S.toneT -= dt;
       if (S.cand && S.toneT <= 0) { Sound.tone(S.lock ? 1250 : 820, S.lock ? 0.09 : 0.06, S.lock ? 0.06 : 0.035); S.toneT = S.lock ? 0.1 : 0.32; }
@@ -564,6 +578,11 @@ const Combat = (() => {
     // "empty" while it reloads; they say themselves why they can't)
     if (cur.def.aim && (w.kind === 'tgun' || w.kind === 'missile')) { Aim.fire(v, cur, dt, F, S.lock); return; }
     if (!cur.parts.some((p) => (p.ammo || 0) > 0)) { F.toast(`${cur.def.name}: empty`); return; }
+    if (w.kind === 'missile' && w.radar && w.seek === 'air' && typeof Radar !== 'undefined') { // (an aircraft's radar missile: its radar guides it)
+      const rd = Radar.mainRadar(v);
+      if (!rd) { if (!Radar.S.said.nr) { Radar.S.said.nr = true; F.toast(`No radar to guide the ${cur.def.name}: they fly straight. Fit a radar set (builder: Radar tab).`, 'warn'); } } // (it goes, unguided)
+      else if (S.lock && Radar.busy(v, S.lock)) { const n = rd.R.tws; F.toast(`Radar busy: the ${rd.p.def.name} guides missiles at ${n} target${n > 1 ? 's' : ''} at a time`, 'warn'); return; }
+    }
     if (w.kind === 'missile') launchMissile(v, nextStore(cur), S.lock, F);
     else if (w.kind === 'bomb') dropBomb(v, nextStore(cur), F);
   }
@@ -876,29 +895,22 @@ const Combat = (() => {
     }
     return sig;
   }
-  // Can L's radar see t (at tp) right now? Within 60° of its nose and the radar's reach (shorter for a stealthy
-  // target, and for a jamming one beyond 5 km), and not lost in the ground clutter: a target low down (below L,
-  // or under 300 m) moving across the beam (under 40 m/s over the ground along it) is notching. True, 'notch' or false.
-  function radarSees(L, t, tp) {
-    if (!L || L.dead || !L.parts || !L.parts.length || !tp || !tp.alive) return false;
-    const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = len(dx, dy, dz) || 1;
-    if (d > radarReach(radarOf(L) || 5000, t, d)) return false;
-    const f = noseDir(L);
-    if ((dx * f.x + dy * f.y + dz * f.z) / d < 0.5) return false;
-    return clutter(L, t, tp, dx, dy, dz, d);
-  }
-  // how far a radar of range R sees t, d away: less for a stealthy craft, and for a jamming one beyond 5 km
-  function radarReach(R, t, d) {
-    let r = R * (1 - (t.parts ? stealthOf(t) : 0));
-    if (t.parts && jams(t) && d > 5000) r = Math.max(5000, r * 0.7);
+  // (What an aircraft's radar sees is radar.js's Radar.sees: its radar parts' cones, reach, look-down and notch gates.)
+  // how far a radar of range R sees t, d away: less for a stealthy craft (st: its stealth, if known), and for a jamming
+  // one beyond 5 km (less so for a radar that resists jamming: eccm)
+  function radarReach(R, t, d, eccm = 0, st) {
+    let r = R * (1 - (st != null && st >= 0 ? st : t.parts ? stealthOf(t) : 0));
+    if (t.parts && jams(t) && d > 5000) r = Math.max(5000, r * (0.7 + 0.3 * eccm));
     return r;
   }
-  // a craft low down (below the radar at o, or under 300 m) moving across the beam is lost in the ground clutter
-  function clutter(o, t, tp, dx, dy, dz, d) {
+  // a craft low down (below the radar at o, or under 300 m) moving across the beam is lost in the ground clutter (a radar
+  // R that can't look down loses it there at any speed; R's notch gate, else 40 m/s)
+  function clutter(o, t, tp, dx, dy, dz, d, R) {
     if (t.parts) {
       const vr = (tp.vx * dx + tp.vy * dy + tp.vz * dz) / d; // (its speed along the beam over the ground: the clutter's doppler is zero)
       const low = len(tp.x, tp.y, tp.z) < len(o.x, o.y, o.z) - 50 || (t.groundAltitude ? t.groundAltitude() < 300 : false);
-      if (low && Math.abs(vr) < 40) return 'notch';
+      if (low && R && !R.down) return 'clutter';
+      if (low && Math.abs(vr) < (R ? R.notch : 40)) return 'notch';
     }
     return true;
   }
@@ -915,10 +927,11 @@ const Combat = (() => {
     return clear ? clutter(o, t, tp, dx, dy, dz, d) : false;
   }
   function mastOf(e) { const u = 1 / (len(e.pos.x, e.pos.y, e.pos.z) || 1), k = e.def.h + 12; return { x: e.pos.x * (1 + k * u), y: e.pos.y * (1 + k * u), z: e.pos.z * (1 + k * u) }; }
-  // nothing in the way between o and p, d apart (on Earth): the ground (or the sea) sampled every 150 m or so
+  // nothing in the way between o and p, d apart (on Earth): the ground (or the sea) sampled every 150 m or so (step: an
+  // aircraft radar's coarser look, radar.js, at most 40 samples)
   const LOC = {};
-  function clearLine(o, p, d) {
-    const n = clamp(Math.ceil(d / 150), 4, 120);
+  function clearLine(o, p, d, step = 150) {
+    const n = clamp(Math.ceil(d / step), 4, step > 150 ? 40 : 120);
     for (let i = 1; i < n; i++) {
       const k = i / n, L = Terrain.locate(EARTH, o.x + (p.x - o.x) * k, o.y + (p.y - o.y) * k, o.z + (p.z - o.z) * k, LOC);
       if (L.r < EARTH.radius + Math.max(0, Terrain.surfaceAt(EARTH, L.a, L.z)) + 4) return false;
@@ -958,7 +971,12 @@ const Combat = (() => {
     const tp = refPos(t);
     if (!tp || !tp.alive) { s.target = null; return 0; }
     if (s.sarh && !t.flare) { // the launcher's radar (a craft's, or a ship's) must hold the target: notching gets 0.4 s of grace, a lost lock 1 s of memory
-      const r = s.gr ? Aim.radarSees(s.launcher, t, tp, s) : s.launcher && s.launcher.def ? siteSees(s.launcher, t, tp, s) : radarSees(s.launcher, t, tp); // (gr: a ground launcher's tracking radar, all round)
+      // an active one with a data link goes on alone inside its own radar's reach (pit): from then it needs nobody, but a
+      // low target crossing its beam can still hide from it
+      if (s.act && s.link && !s.pit && len(tp.x - s.x, tp.y - s.y, tp.z - s.z) < s.act) s.pit = true;
+      const r = s.pit ? clutter(s, t, tp, tp.x - s.x, tp.y - s.y, tp.z - s.z, len(tp.x - s.x, tp.y - s.y, tp.z - s.z) || 1)
+        : s.gr ? Aim.radarSees(s.launcher, t, tp, s) : s.launcher && s.launcher.def ? siteSees(s.launcher, t, tp, s) // (gr: a ground launcher's tracking radar, all round)
+        : typeof Radar !== 'undefined' ? Radar.sees(s.launcher, t, tp, 'guide', s) : false; // (a craft's: its own radar parts, radar.js)
       s.notchT = r === 'notch' ? s.notchT + h : 0;
       s.lostT = r === true || (r === 'notch' && s.notchT < 0.4) ? 0 : s.lostT + h;
       if (s.lostT > 1) { s.target = null; return 0; }
@@ -1387,9 +1405,12 @@ const Combat = (() => {
       }
       // enemy fighters in hostile mode: two at a time
       if (hostile() && !F.destroyed) {
-        const alive = F.vessels.filter((o) => o.ai && !o.ai.ground && !o.ai.down && o.control && !o.dead);
+        const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.down && o.control && !o.dead);
         S.fighterT -= dt;
-        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) { spawnFighter(F); S.fighterT = 45; }
+        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) {
+          const b = spawnFighter(F); S.fighterT = 45;
+          if (typeof Radar !== 'undefined') Radar.call(F, v, b); // (the range controller's call: "Bandit inbound: 14 km, your 10 o'clock")
+        }
       }
     }
     for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
@@ -1429,9 +1450,11 @@ const Combat = (() => {
     if (S.warn) { S.warnT -= dt; if (S.warnT <= 0) { Sound.beep(1500); S.warnT = 0.22; } }
     else if (rwr && lockers().length && (S.lockToneT -= dt) <= 0) { Sound.tone(700, 0.2, 0.04); S.lockToneT = 1; } // (a radar lock: a slow tone)
     cmFX(F, dt);
+    if (typeof Radar !== 'undefined') Radar.step(F, dt); // (the player's radar picture, solo radar locks on us, search strobes: radar.js)
     playerFrame(F, dt);
-    // a radar lock on another player's craft lights up their warner (sent again every second while it holds)
-    const lk = (S.lock && S.lock.remote && S.lockR ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
+    // a radar lock on another player's craft lights up their warner (sent again every second while it holds; a quiet
+    // radar's only within its quiet reach)
+    const lk = (S.lock && S.lock.remote && S.lockR && (typeof Radar === 'undefined' || Radar.heard(v, S.lock)) ? S.lock.remote : 0) || (v.gv ? Aim.lockPid() : 0); // (or a tracking radar's)
     if (typeof MP !== 'undefined' && (lk !== S.lockPid || (lk && performance.now() - S.lockAt > 1000))) { MP.sendLock(lk, !!lk); S.lockPid = lk; S.lockAt = performance.now(); }
     // damaged parts smoke, badly damaged ones burn; leaking tanks lose fuel
     S.smokeT -= dt; S.smokeE = (S.smokeE || 0) + dt; // (smokeE: the real time the tick covers, for death.js)
@@ -1473,6 +1496,7 @@ const Combat = (() => {
     if (typeof Armour !== 'undefined') { const fb = Armour.fb; fb.shot = fb.ko = null; fb.hurt.length = 0; } // (the last flight's hit and kill banners stay with it)
     S.smokeE = 0;
     Death.reset(F); // (the damage model's: crash sites, the air HUD's banner, merged losses)
+    if (typeof Radar !== 'undefined') Radar.reset(); // (the radar picture, the pick, solo locks, what the chip has said)
   }
 
   // ---------------------------------------------------------------- HUD (drawn over the 3D view)
@@ -1502,21 +1526,24 @@ const Combat = (() => {
     return o;
   }
   function drawHUD(ctx, W, H, dpr, F) {
-    const v = F.active;
+    const v = F.active, RD = typeof Radar !== 'undefined' ? Radar : null;
+    if (RD) RD.beginFrame(); // (this frame's air markers, for taps; the gun cue)
     if (!v || !v.parts.length || F.destroyed || !Render3D.ready) return;
     const bp = bodyPos(v.body, F.time), pr = (x, y, z) => Render3D.project(bp.x + x, bp.y + y, z);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineWidth = 1.5; ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace'; ctx.textAlign = 'center';
     const sys = systems(v), cur = sys[v.wsel];
-    // targets: brackets with their distance (further with a big radar)
+    // targets: brackets with their distance (further with a big radar); a drone only once seen (by eye, 4 km, or radar)
     const seeR = clamp(radarOf(v) * 0.7, 14000, 32000);
     if (S.spawned && v.body === EARTH) {
       for (const t of S.targets) {
         if (!t.alive) continue;
         const c = targetCentre(t), d = len(c.x - v.x, c.y - v.y, c.z - v.z);
         if (d > seeR || (F.groundAim && !t.def.air && d > 5000)) continue; // (P4 play-test: from a ground vehicle, the islands' far targets piled up as brackets on the horizon)
+        if (t.def.air && RD && !RD.seen(v, t, d)) continue;
         const s = pr(c.x, c.y, c.z);
         if (s.behind) continue;
+        if (t.def.air && RD) RD.mark(t, s.x, s.y);
         const armed = hostile() && (t.def.aa || t.def.sam), col = armed ? '#ff5d5d' : '#ffb547', k = 7;
         ctx.strokeStyle = col; ctx.globalAlpha = d < 6000 ? 0.95 : 0.6;
         ctx.beginPath();
@@ -1529,13 +1556,33 @@ const Combat = (() => {
       }
       ctx.globalAlpha = 1;
     }
+    // bandits: a diamond within eye range (6 km, less for a stealthy one), a hollow square held by the radar only; the
+    // one the player picked white, with a ▸
     for (const o of F.vessels) {
-      if (!o.ai || o.dead || !o.control || o.ai.down || o.ai.ground) continue; // (the ground AI is tagged by the ground HUD's spotting)
-      const d = len(o.x - v.x, o.y - v.y, o.z - v.z), s = pr(o.x, o.y, o.z);
+      if (o.dead || !isFighter(o) || !o.control || o.ai.down) continue; // (the ground AI is tagged by the ground HUD's spotting)
+      const d = len(o.x - v.x, o.y - v.y, o.z - v.z), eye = !RD || RD.eye(v, o, d), rad = !!RD && RD.has(o);
+      if (!eye && !rad) continue;
+      const s = pr(o.x, o.y, o.z);
       if (s.behind) continue;
-      ctx.strokeStyle = '#ff5d5d'; ctx.fillStyle = '#ff5d5d';
-      ctx.beginPath(); ctx.moveTo(s.x, s.y - 9); ctx.lineTo(s.x + 9, s.y); ctx.lineTo(s.x, s.y + 9); ctx.lineTo(s.x - 9, s.y); ctx.closePath(); ctx.stroke();
-      ctx.fillText(`Bandit ${fmt.dist(d)}`, s.x, s.y + 22);
+      const pk = !!RD && RD.S.pick === o, col = pk ? '#e9edf1' : '#ff5d5d';
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.beginPath();
+      if (eye) { ctx.moveTo(s.x, s.y - 9); ctx.lineTo(s.x + 9, s.y); ctx.lineTo(s.x, s.y + 9); ctx.lineTo(s.x - 9, s.y); ctx.closePath(); } else ctx.rect(s.x - 7, s.y - 7, 14, 14);
+      ctx.stroke();
+      ctx.fillText(`${pk ? '▸ ' : ''}Bandit ${fmt.dist(d)}`, s.x, s.y + 22);
+      if (RD) RD.mark(o, s.x, s.y);
+    }
+    // vehicles on the ground a ground radar (the mast) holds: a small amber square and how far (ours only)
+    if (RD && RD.S.gset.size) {
+      ctx.strokeStyle = '#ffb547'; ctx.fillStyle = '#ffb547'; ctx.font = '600 9px "IBM Plex Mono", ui-monospace, monospace';
+      for (const c of RD.S.rc) {
+        if (c.k !== 'ground' || !c.ref.parts) continue;
+        const s = pr(c.x, c.y, c.z);
+        if (s.behind) continue;
+        ctx.strokeRect(s.x - 5, s.y - 5, 10, 10);
+        ctx.fillText(fmt.dist(len(c.x - v.x, c.y - v.y, c.z - v.z)), s.x, s.y + 16);
+      }
+      ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
     }
     // missile seeker: a circle on the candidate, closing to a diamond when it locks
     const cand = S.cand && refPos(S.cand);
@@ -1545,21 +1592,32 @@ const Combat = (() => {
         ctx.strokeStyle = S.lock ? '#7dffb0' : '#e9edf1'; ctx.lineWidth = 2;
         const rr = S.lock ? 14 : 22 - 8 * clamp(S.lockT, 0, 1);
         ctx.beginPath(); ctx.arc(s.x, s.y, rr, 0, TAU); ctx.stroke();
-        if (S.lock) { ctx.fillStyle = '#7dffb0'; ctx.fillText('LOCK', s.x, s.y - 20); }
+        if (S.lock) { ctx.fillStyle = '#7dffb0'; ctx.fillText(`LOCK ${fmt.dist(len(cand.x - v.x, cand.y - v.y, cand.z - v.z))}`, s.x, s.y - 20); }
       }
     }
     // guns: a pipper where the rounds will be 600 m out, and a lead marker on the nearest bandit or drone (aiming a
     // ground vehicle's guns, the ground HUD draws its own; an aimed gun elsewhere fires its first shell)
     const spd = gunSpeed(cur);
     if (spd && !F.groundAim) {
+      // the lead: the nearest aircraft within 2 km, or within 3 km one the radar holds; the picked one wins in reach.
+      // The radar holding it inside 900 m turns the pipper yellow (fire)
+      const lim = RD && RD.S.set.size ? 3000 : 2000, pick = RD && RD.S.pick;
+      let best = null, bd = lim, pk = null, pd = 0;
+      for (const c of candidates(v, 'air', F)) {
+        const d = len(c.x - v.x, c.y - v.y, c.z - v.z);
+        if (d > 2000 && !(RD && RD.has(c.ref))) continue;
+        if (pick && c.ref === pick && d < lim) { pk = c.ref; pd = d; }
+        if (d < bd) { bd = d; best = c.ref; }
+      }
+      if (pk) { best = pk; bd = pd; }
+      if (RD) RD.S.gunIn = !!best && bd < 900 && RD.has(best);
+      const gc = RD && RD.S.gunIn ? '#ffd23f' : '#7dffb0';
       const P = F.flyAim ? null : pipper(v, cur, PIP), s = P && pr(P.x, P.y, P.z); // (a plane in Aim: its one cross is the pipper, Flight.drawFlyAim)
       if (s && !s.behind) {
-        ctx.strokeStyle = '#7dffb0'; ctx.lineWidth = 1.5;
+        ctx.strokeStyle = gc; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(s.x, s.y, 13, 0, TAU); ctx.stroke();
-        ctx.beginPath(); ctx.arc(s.x, s.y, 1.8, 0, TAU); ctx.fillStyle = '#7dffb0'; ctx.fill();
+        ctx.beginPath(); ctx.arc(s.x, s.y, 1.8, 0, TAU); ctx.fillStyle = gc; ctx.fill();
       }
-      let best = null, bd = 2000;
-      for (const c of candidates(v, 'air', F)) { const d = len(c.x - v.x, c.y - v.y, c.z - v.z); if (d < bd) { bd = d; best = c.ref; } }
       const tp = best && refPos(best);
       if (tp) {
         const t2 = bd / spd, s2 = pr(tp.x + (tp.vx - v.vx) * t2, tp.y + (tp.vy - v.vy) * t2, tp.z + (tp.vz - v.vz) * t2);
@@ -1613,12 +1671,15 @@ const Combat = (() => {
     if (s.net) return typeof MP === 'undefined' || typeof Net === 'undefined' || MP.enemy(Net.me, s.net);
     return !!s.enemy;
   }
-  // the other players whose radar holds us (multiplayer), from the locks they report
+  // the radars that hold us: the other players' (multiplayer), from the locks they report; flying solo, the bandits with
+  // us in their nose, the frigate guiding a SAM at us and the AI's SPAA (radar.js, four times a second)
   const NONE = [];
   function lockers() {
-    if (typeof MP === 'undefined' || !MP.rwr || !MP.rwr.size) return NONE;
+    const loc = typeof Radar !== 'undefined' ? Radar.S.locks : NONE, mp = typeof MP !== 'undefined' && MP.rwr && MP.rwr.size;
+    if (!mp && !loc.length) return NONE;
     const out = [];
-    for (const pid of MP.rwr.keys()) { const P = MP.peers.get(pid); if (P && P.ghost && !P.ghost.dead) out.push(P.ghost); }
+    if (mp) for (const pid of MP.rwr.keys()) { const P = MP.peers.get(pid); if (P && P.ghost && !P.ghost.dead) out.push(P.ghost); }
+    for (const p of loc) out.push(p);
     return out;
   }
   // What the threat display says to do about missile s, d metres out, with what the craft carries.
@@ -1754,6 +1815,7 @@ const Combat = (() => {
     const cur = sys[v.wsel], w = cur.w;
     const o = { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
       lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
+    if (w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && typeof Radar !== 'undefined') o.radar = Radar.chipState(v, cur); // ('ok', 'off', 'none', 'guns', 'out': the chip's ⊘)
     if ((w.kind === 'tgun' || w.kind === 'agun') && cur.def.aim) { // (an aimed gun: '85 mm APHE', every round it has, its reload)
       const a = Aim.status(v), sh = a && a.shells[a.sel];
       o.name = (w.cal < 15 ? 'MG' : `${w.cal} mm`) + (sh && w.shells.length > 1 ? ` ${sh.label}` : '');
@@ -1775,6 +1837,8 @@ const Combat = (() => {
     // (for the ground update's systems: aim.js, armour.js, groundai.js)
     candidates, refPos, clutter, irSig, chaffBreaks, segPoint, boxesOf, hitVessel, launchMissile, fireRocket, release, nextStore,
     targetCentre, hitTarget, aiDown, jams, radarOf, boomFX, holdRips, flushRips, spawnFighter,
+    // (the big update's radar: radar.js)
+    clearLine, radarReach, siteSees, hostile,
     // (the big update's damage model: death.js, and every "the player did it" and "a bandit" test)
     ripWin, byMe, isFighter,
     get targets() { return S.targets; }, get shots() { return S.shots; }, get flaresList() { return S.flares; },

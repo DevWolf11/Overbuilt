@@ -173,6 +173,7 @@ js/vendor/three.min.js three.js r159 (MIT licence in js/vendor/three.LICENSE)
 js/map.js             solar-system map: orbits, trajectories, targets, vessels
 js/globe.js           the globe map: a 3D planet with your track, route or orbit, places and the way home
 js/combat.js          weapons, projectiles, missile guidance, explosions, part damage, the target range and enemy fighters
+js/radar.js           aircraft radar parts: what each sees (cone, look-down, notching, stealth, jamming, terrain), the 4 Hz picture, the pick, locks and guidance, the scope, the RWR's solo locks and search strobes
 js/death.js           what 0 hp does (aircraft shot apart, pilots knocked out, fires, falls and crashes; ground vehicles knocked out and left as burning wrecks), crash sites, wreck smoke, debris clean-up, the air HUD's hit markers
 js/gmode.js           the Ground Battle's rules, pure (shared by a room's host and the Practice Battle): arenas, spawn slots, zone capture, tickets, deaths and the result
 js/groundai.js        computer-driven ground vehicles: the Tank Range and the Practice Battle
