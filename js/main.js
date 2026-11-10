@@ -422,7 +422,7 @@ const App = {
     const vol = el('input', { id: 'set-volume', type: 'range', min: '0', max: '1', step: '0.05', value: String(Settings.get('volume')) });
     vol.addEventListener('input', () => { Settings.set('volume', +vol.value); Sound.unlock(); Sound.applyVolume(); });
     const q = el('select', { id: 'set-quality' });
-    q.innerHTML = '<option value="high">High: clouds, trees, shadows, effects</option><option value="low">Low: faster on older phones</option>';
+    q.innerHTML = '<option value="high">High: clouds, trees, shadows, sharper ground, effects</option><option value="low">Low: faster on older phones (soft shadows under vehicles only)</option>';
     q.value = Settings.get('quality');
     q.addEventListener('change', () => Settings.set('quality', q.value));
     const fps = el('select', { id: 'set-fps' });
