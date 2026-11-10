@@ -461,7 +461,9 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   t('6 a fog chunk that isn\'t r159\'s (any of the five) leaves all five as they are and installs no uniform, flag false, one warning (the shadow patch goes ahead)', left.length === 0, left.join(', '));
   // 7 the haze's numbers: obFog lifted from the patched chunk into JS (GLSL's float → let, its built-ins as Math's)
   const src = C.fog_pars_fragment, a = src.indexOf('float obFog('), body = src.slice(src.indexOf('{', a) + 1, src.indexOf('\n}', a));
-  const obFog = Function('fogH', 'dens', 'd', 'h', 'const clamp = (x, a, b) => Math.min(b, Math.max(a, x)), { abs, exp, log, max, pow, sqrt } = Math;\n' + body.replace(/\bfloat\s+/g, 'let '));
+  const lift = (hp) => Function('fogH', 'dens', 'd', 'h', 'const clamp = (x, a, b) => Math.min(b, Math.max(a, x)), { abs, exp, log, max, pow, sqrt } = Math;\n'
+    + pre(body, hp ? ['GL_FRAGMENT_PRECISION_HIGH'] : []).replace(/\bfloat\s+/g, 'let ')); // (highp's form, or the log-space one a GPU without highp fragments takes)
+  const obFog = lift(true), obFogLow = lift(false);
   const src3d = fs.readFileSync(path.join(G.ROOT, 'js', 'render3d.js'), 'utf8');
   t('7 the game sets Earth\'s haze as the table assumes: 6e-5/m at the camera, thinning every 1600 m, 0.8 of the curvature', /const HAZE_H = 1600;/.test(src3d) && /b === EARTH \? 6e-5 \* Math\.exp\(-alt \/ HAZE_H\)/.test(src3d) && /FOGX\.h\[0\] = b === EARTH \? 1 \/ HAZE_H : 0; FOGX\.h\[1\] = b === EARTH \? 0\.8 \/ \(2 \* R\) : 0;/.test(src3d));
   const R0 = 315000, fh = { x: 1 / 1600, y: 0.8 / (2 * R0) };
@@ -476,6 +478,8 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   const flat = { x: 0, y: 0 }, half = (dens) => { let lo = 1, hi = 1e7; for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (obFog(flat, dens, m, 0) < 0.5) lo = m; else hi = m; } return lo; };
   const keep = [[3.2e-4, 3.01e-4], [6e-5, 5.64e-5], [2.4e-5, 2.26e-5]].filter(([o, n]) => Math.abs(half(n) / (Math.sqrt(Math.LN2) / o) - 1) < 0.005);
   t('7 off Earth each world\'s haze is half way at today\'s distance (within 0.5 %), with no height falloff', keep.length === 3 && /b\.haze \? 3\.01e-4 : b === MARS \? 5\.64e-5 : 2\.26e-5/.test(src3d));
+  const twins = [[6e-5, 3000, -2], [6e-5 * Math.exp(-10000 / 1600), 79000, -10000], [6e-5 * Math.exp(-10000 / 1600), 10000, -9999], [6e-5 * Math.exp(-1000 / 1600), 2000, 3], [6e-5, 5000, 400], [0, 5000, -10]];
+  t('7 the log-space form (a GPU without highp fragments) gives the same haze as highp\'s within 1e-6, from the ground to 10 km up', twins.every(([dn, d, h]) => Math.abs(obFog(fh, dn, d, h) - obFogLow(fh, dn, d, h)) < 1e-6) && /#ifdef GL_FRAGMENT_PRECISION_HIGH/.test(body));
   t('7 obFog is 0 at the eye and never NaN: 10 km up looking 100 km out, straight up, a dens of 0', obFog(fh, 6e-5, 0, 0) === 0 && [obFog(fh, 6e-5 * Math.exp(-10000 / 1600), 1e5, -1e4), obFog(fh, 6e-5, 1e4, 1e4), obFog(fh, 0, 5000, -10)].every((x) => x >= 0 && x <= 1));
 }
 t.done();

@@ -331,12 +331,17 @@ const Render3D = (() => {
 float obFog( float dens, float d, float h ) {
 	h += ( d * d - h * h ) * fogH.y;
 	float x = clamp( - h * fogH.x, -30.0, 30.0 );
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : dens * ( exp( x ) - 1.0 ) / x;
+#else
+	float t = abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : ( exp( log( max( dens, 1e-30 ) ) + x ) - dens ) / x;
+#endif
 	float v = max( t * d, 0.0 );
 	return 1.0 - exp( - v * sqrt( v ) );
 }`;
   // (dens: extinction at the camera; d: distance; h: height over the camera. The curvature term: far points sit lower in
-  // the view's flat frame than over the planet, 0.8 of the drop; t: the mean density along the ray (highp: e^30 fits);
+  // the view's flat frame than over the planet, 0.8 of the drop; t: the mean density along the ray (highp holds e^30; a
+  // GPU without highp fragments takes the log-space form, which never leaves the density's own range);
   // v·√v: τ^1.5, without a pow (the haze runs on every fogged pixel: two exps and a root)
   const OB_FOGC_FN = `
 vec3 obFogCol( vec3 dir, vec3 base ) {
