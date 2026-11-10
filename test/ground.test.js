@@ -180,7 +180,7 @@ t('spawning and ghosting every old template: no calls', calls(mp) === '{}', call
 t('isGround: cars and armour, nothing else', R(`isGround('car') && isGround('tank') && !isGround('plane') && !isGround('heli') && !isGround('rocket') && !isGround(undefined)`));
 t('the Armour kind: launches from the runway at rot 0 with its seven tabs', R(`(() => { const K = VEHICLE_KINDS.tank; return K.name === 'Armour' && K.site === 'runway' && K.launchRot === 0
   && K.cats.join() === 'hulls,turrets,drive,guns,launchers,crew,kit' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)); })()`));
-t('21 part categories, the seven new ones after Ground', R(`PART_CATEGORIES.length === 21 && PART_CATEGORIES.map((c) => c.id).slice(13).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'`));
+t('22 part categories, the seven new ones after Ground (and the big update\'s Radar last)', R(`PART_CATEGORIES.length === 22 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit' && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
 t('PILOT.tank and a car-like drive frame', R(`!!PILOT.tank && PILOT.tank.F.x === 1 && PILOT.tank.U.y === 1`));
 
 // ---------------------------------------------------------------- test parts (shaped like the catalogue's; §3.1, §3.5)
