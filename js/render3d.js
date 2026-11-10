@@ -326,7 +326,7 @@ const Render3D = (() => {
   // every material, clones keep typed arrays by reference) go into UniformsLib.fog and every ShaderLib entry with fog. A
   // ShaderMaterial with fog: true must include fog_pars_fragment; defining OB_NOFOG it fogs itself with obFog/obFogCol
   // (PART, DECAL).
-  const FOGX = { sun: new Float32Array(4), sunset: new Float32Array(3), glow: new Float32Array(3), lin: new Float32Array(3), h: new Float32Array(2) };
+  const FOGX = { sun: new Float32Array(4), sunH: new Float32Array(3), sunset: new Float32Array(3), glow: new Float32Array(3), lin: new Float32Array(3), h: new Float32Array(2) };
   const OB_FOG_FN = `
 float obFog( float dens, float d, float h ) {
 	h += ( d * d - h * h ) * fogH.y;
@@ -345,14 +345,14 @@ float obFog( float dens, float d, float h ) {
   // v·√v: τ^1.5, without a pow (the haze runs on every fogged pixel: two exps and a root)
   const OB_FOGC_FN = `
 vec3 obFogCol( vec3 dir, vec3 base ) {
-	vec3 up = viewMatrix[ 1 ].xyz, sv = fogSunV.xyz;
-	vec3 hd = dir - up * dot( dir, up ), hs = sv - up * dot( sv, up );
-	float az = dot( hd, hs ) * inversesqrt( max( dot( hd, hd ) * dot( hs, hs ), 1e-8 ) ) * 0.5 + 0.5;
-	float s = max( dot( dir, sv ), 0.0 ), s2 = s * s, s4 = s2 * s2;
+	float az = clamp( dot( dir, fogSunH ) * 0.5 + 0.5, 0.0, 1.0 );
+	float s = max( dot( dir, fogSunV.xyz ), 0.0 ), s2 = s * s, s4 = s2 * s2;
 	return mix( base, fogSunset, fogSunV.w * az * az * sqrt( az ) ) + fogGlow * ( s4 * s4 );
 }`;
   // (the sky's colour at el = 0 in dir's azimuth, SKY_FS: base its band, the sunset side az^2.5, the aureole s^8, in
-  // products and roots, no pow; dir, fogSunV in view space, viewMatrix[1] the scene's up there)
+  // products and a root, no pow; dir, fogSunV in view space. fogSunH: the Sun's direction along the ground there (the
+  // scene's up taken out, normalised, renderFlight), so dir·fogSunH is the azimuth's cosine times the elevation's: the
+  // sky's own az at the horizon, where the haze meets it, and a little nearer 0.5 above and below it, at one dot)
   // r159's text of the five chunks (each must match exactly, or nothing is patched)
   const FOG_R159 = {
     fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n#endif',
@@ -365,7 +365,7 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
     fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\tvarying vec3 vFogPos;\n\t#endif\n#endif',
     fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n\t#ifdef FOG_EXP2\n\t\tvFogPos = mvPosition.xyz;\n\t#endif\n#endif',
     fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\t#define OB_FOG\n\t\tuniform float fogDensity;\n\t\tvarying vec3 vFogPos;\n'
-      + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN
+      + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN
       + '\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
     fog_fragment: '#if defined( USE_FOG ) && ! defined( FOG_EXP2 )\n\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
     tonemapping_fragment: '#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )\n'
@@ -374,7 +374,7 @@ vec3 obFogCol( vec3 dir, vec3 base ) {
       + '\tif ( fogFactor > 1e-3 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, obFogCol( vFogPos * fogID, fogLin ), fogFactor );\n#endif\n'
       + FOG_R159.tonemapping_fragment,
   };
-  const FOG_U = { fogSunV: 'sun', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
+  const FOG_U = { fogSunV: 'sun', fogSunH: 'sunH', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
   function patchFog(T) {
     const C = T && T.ShaderChunk, L = T && T.UniformsLib, SL = T && T.ShaderLib;
     if (!C || !L || !L.fog || !SL) return warnPatch('fog', 'no ShaderChunk, UniformsLib.fog or ShaderLib');
@@ -488,7 +488,7 @@ void main() {
   #include <logdepthbuf_vertex>
 }`;
   const CLOUD_FS = `${LOGF}uniform sampler2D uMap; uniform vec3 uLit, uShadow, uFogC, uSunV;
-uniform vec4 fogSunV; uniform vec3 fogSunset, fogGlow;${OB_FOGC_FN}
+uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow;${OB_FOGC_FN}
 varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
 void main() {
   #include <logdepthbuf_fragment>
@@ -1219,7 +1219,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // cumulus puffs
     S.cloudU = { uMap: { value: cloudAtlas() }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uLit: { value: new THREE.Color() }, uShadow: { value: new THREE.Color() },
       uFogC: { value: new THREE.Color() }, uFogD: { value: 0 },
-      fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
+      fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunH: { value: FOGX.sunH }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
     S.puffs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smat({ uniforms: S.cloudU, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS, transparent: true, depthWrite: false }), CLOUD_MAX);
     S.puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     S.puffAttr = new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX * 4), 4).setUsage(THREE.DynamicDrawUsage);
@@ -1230,6 +1230,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     localWorld.add(S.cloudFrame);
     S.cloudFogC = new THREE.Color();
     S.fogLin = new THREE.Color(); // (the fog's colour this frame, linear: the sky's at the horizon, renderFlight)
+    S.fogUp = new THREE.Vector3(); // (the scene's up in the view's axes, renderFlight)
     S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0 };
   }
   const WATER_NM = 'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\n\tmapN.xy *= normalScale;';
@@ -4021,6 +4022,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const ins = (b.haze ? 0 : 1) * (1 - inCloud), sk = U.uSunsetK.value, sc0 = U.uSunset.value, gw = U.uGlow.value;
     V1.copy(U.uSun.value).transformDirection(camera.matrixWorldInverse);
     FOGX.sun[0] = V1.x; FOGX.sun[1] = V1.y; FOGX.sun[2] = V1.z; FOGX.sun[3] = sk * 0.98 * ins; // (0.98: SKY_FS's 1 − smoothstep(−0.05, 0.55, el) at el = 0)
+    const fu = S.fogUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+    V1.addScaledVector(fu, -V1.dot(fu)); const hl = V1.length(); if (hl > 1e-4) V1.multiplyScalar(1 / hl); else V1.set(0, 0, 0); // (the Sun along the ground: none overhead, az 0.5 all round as the sky has it)
+    FOGX.sunH[0] = V1.x; FOGX.sunH[1] = V1.y; FOGX.sunH[2] = V1.z;
     FOGX.sunset[0] = sc0.r; FOGX.sunset[1] = sc0.g; FOGX.sunset[2] = sc0.b;
     FOGX.glow[0] = (gw.r * g * 0.1 + sc0.r * sk * 0.35) * ins; FOGX.glow[1] = (gw.g * g * 0.1 + sc0.g * sk * 0.35) * ins; FOGX.glow[2] = (gw.b * g * 0.1 + sc0.b * sk * 0.35) * ins;
     FOGX.lin[0] = fl.r; FOGX.lin[1] = fl.g; FOGX.lin[2] = fl.b;
@@ -5194,7 +5198,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
         terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
         waterOffset: S.waterN ? { x: S.waterN.offset.x, y: S.waterN.offset.y, bx: S.waveB.value.x, by: S.waveB.value.y, t: S.waterT } : null, // the ripples' drift
-        fogArrays: { sun: [...FOGX.sun], sunset: [...FOGX.sunset], glow: [...FOGX.glow], lin: [...FOGX.lin], h: [...FOGX.h], density: localScene.fog.density }, // the haze's shared uniforms
+        fogArrays: { sun: [...FOGX.sun], sunH: [...FOGX.sunH], sunset: [...FOGX.sunset], glow: [...FOGX.glow], lin: [...FOGX.lin], h: [...FOGX.h], density: localScene.fog.density }, // the haze's shared uniforms
         camAt: (toSim(camera.position.x, camera.position.y, camera.position.z, T3), { x: camAbs.x + T3.x, y: camAbs.y + T3.y, z: camAbs.z + T3.z }), // (the flight camera, in the sim's absolute axes, as project() takes points)
         sunV: S.sunV ? { x: S.sunV.x, y: S.sunV.y, z: S.sunV.z } : null, sunAt: { x: S.sun.position.x, y: S.sun.position.y, z: S.sun.position.z }, // (the Sun's direction this frame, the light's place)
         box: { half: sc.right, cx: st.x, cy: st.y, cz: st.z }, // the Sun's shadow box: its half width and centre (view axes)

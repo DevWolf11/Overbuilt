@@ -444,9 +444,9 @@ t('5 a debris chunk: one filled disc, at least 0.6 px across (a far one too, und
   t('6 preprocessed, the patched chunks give r159\'s very lines without fog, with the linear fog (tone-mapped or not), and for FogExp2 under OB_NOFOG (tone mapping only)', same.length === 4, same);
   const e2 = pre(all(C), ['USE_FOG', 'FOG_EXP2', 'TONE_MAPPING']);
   t('6 with FogExp2 the fog mixes in at the start of the tone mapping (linear, before it), never after the colour-space encode', e2.indexOf('obFogCol( vFogPos * fogID, fogLin )') > 0 && e2.indexOf('obFogCol( vFogPos * fogID, fogLin )') < e2.indexOf('toneMapping( gl_FragColor.rgb )') && !/1\.0 - exp\( - fogDensity \* fogDensity/.test(e2) && /vFogPos = mvPosition\.xyz;/.test(e2) && /#define OB_FOG|uniform vec4 fogSunV/.test(e2));
-  const U = ['fogSunV', 'fogSunset', 'fogGlow', 'fogLin', 'fogH'], L = T.UniformsLib.fog, fogged = Object.keys(T.ShaderLib).filter((k) => T.ShaderLib[k].uniforms.fogColor);
+  const U = ['fogSunV', 'fogSunH', 'fogSunset', 'fogGlow', 'fogLin', 'fogH'], L = T.UniformsLib.fog, fogged = Object.keys(T.ShaderLib).filter((k) => T.ShaderLib[k].uniforms.fogColor);
   const shared = fogged.filter((k) => U.every((u) => T.ShaderLib[k].uniforms[u] && T.ShaderLib[k].uniforms[u].value === L[u].value));
-  t('6 every ShaderLib entry with fog (eleven) holds the very arrays of UniformsLib.fog (fogSunV, fogSunset, fogGlow, fogLin, fogH): one write reaches all', fogged.length === 11 && shared.length === 11 && Object.prototype.toString.call(L.fogSunV.value) === '[object Float32Array]' && L.fogSunV.value.length === 4 && L.fogH.value.length === 2, { fogged, shared });
+  t('6 every ShaderLib entry with fog (eleven) holds the very arrays of UniformsLib.fog (fogSunV, fogSunH, fogSunset, fogGlow, fogLin, fogH): one write reaches all', fogged.length === 11 && shared.length === 11 && Object.prototype.toString.call(L.fogSunV.value) === '[object Float32Array]' && L.fogSunV.value.length === 4 && L.fogH.value.length === 2, { fogged, shared });
   const cl = T.UniformsUtils.clone(T.ShaderLib.standard.uniforms);
   t('6 a material\'s clone of them keeps the same arrays (a typed array is shared by UniformsUtils.clone)', U.every((u) => cl[u].value === L[u].value));
   const before = all(C), arr = L.fogSunV.value, P2 = R3._patchChunks(T), again = render3d(), P3 = again.R3._patchChunks(T);
