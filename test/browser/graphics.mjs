@@ -4,8 +4,8 @@
 //     holds the pixel ratio at basePixelRatio() through slow frames that would cut it; the effect meshes' warm-up counts
 //     down over the first flight frames drawn (and again after a quality change); bench.busy settles once a TK-34 in
 //     Highland Ridge's village is built round it, bench.day reads daylight at noon; Render3D.propsCastOff takes the
-//     props out of the shadow pass and puts them back; patched.shadow: the shadow filter's chunk patch is in (the fog's
-//     is the haze package's), flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF;
+//     props out of the shadow pass and puts them back; patched is { fog: true, shadow: true }: both chunk patches are in,
+//     flight draws with it (three's PCF type) and the hangar, after a flight, with three's soft PCF;
 //     a debris chunk is a dark lumpy chunk over the sky, not a faint light
 //  2. the shadow pass cut to the Sun's shadow box: in Highland Ridge's village only the props within its reach cast, the
 //     picture the same to the byte as with every prop casting (Render3D.shadowAll), for fewer shadow vertices. And the
@@ -33,7 +33,14 @@
 //     the box, 0.6 on Low), none under a Falcon 200 m up, a scorch under a wreck (0.8 after an ammunition detonation,
 //     fading in over a second), a round scorch at a crash site that outlives its pyre and goes at 300 s (and with the
 //     crash sites wiped before their time, a new flight's); SHOTS: graphics-decals-high/-low
-//  8-10. (the other graphics packages: water, terrain, haze against the sky)
+//  8. water: the sea's and the lakes' surfaces run on the ground's very UV attribute (before and after a quality change),
+//     their ripples drift with frames drawn in flight and stand still while paused, the second ripple set (OB_HI) on High
+//     only
+//  9. (the materials package: terrain)
+// 10. the haze matches the sky: at dusk on the runway, everything past a kilometre fogged (bench.fogK 200), the ground
+//     2 px under the horizon line and the sky 2 px over it agree within 4/255 a channel away from the Sun and 8/255
+//     towards it (today's fog, after the tone mapping, missed it by far more); the haze's shared uniforms are written each
+//     frame (the sky's own Sun and sunset), patched.fog: the chunk patch is in
 // 11. the idle 3D hangar after a flight: nothing drawn in a second
 // The console stays clean through flight, hangar and globe.
 //   node test/browser/graphics.mjs       (SHOTS=<dir> saves screenshots there: graphics-*.png)
@@ -119,6 +126,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   }, GFX);
   ok(`${tag}: info() reports the resolution's scale, the programs, the chunk patches and the shadow stand-ins`, h0.info && h0.scale === 1 && h0.programs >= 0 && typeof h0.patched.fog === 'boolean' && typeof h0.patched.shadow === 'boolean' && h0.proxies.length === 3, h0);
   ok(`${tag}: the shadow filter's chunk patch is in (info().patched.shadow)`, h0.patched.shadow === true, h0.patched);
+  ok(`${tag}: the haze's chunk patch is in (info().patched is { fog: true, shadow: true })`, h0.patched.fog === true && h0.patched.shadow === true, h0.patched);
   ok(`${tag}: gfx() has every field the graphics tests read; Render3D.bench, shadowAll, propsCastOff and _patchChunks are there, all off`, !h0.gfx.length && h0.bench && h0.flags && h0.chunks, h0.gfx);
   ok(`${tag}: before any flight frame the effect meshes' warm-up is still to come (3 frames)`, h0.warm === 3, h0.warm);
   // a TK-34 in Highland Ridge's village, paused (time stands still): the arena's ground, the props, the scenery and the
@@ -423,6 +431,73 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     await fx(`{ const c = __at(35, 0, 2, true); for (let i = 0; i < 16; i++) FX.add({ kind: 'smoke', b: ${B}, x: c.x + (Math.random() - 0.5) * 10, y: c.y + (Math.random() - 0.5) * 10, z: c.z + (Math.random() - 0.5) * 10, vx: 0, vy: 0, vz: 0, max: 6, size: 4 + Math.random() * 2, grow: 1.3, color: '#d6d9dc', alpha: 0.75 }); }`); await run(1); await shot('smoke-screen');
     await ev(() => { FX.clear(); Combat.shots.length = 0; Math.random = window.__mr0; window.__draws(); });
   }
+
+  // ---- 8. water: the ground's UVs shared, the ripples' drift, the second set on High only
+  const w8 = await ev(async () => {
+    const G = () => Render3D.gfx(), one = () => { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); };
+    Render3D.skipDraw = true;
+    const hi = { shared: G().waterUvShared, defs: G().oceanDefines };
+    Settings.set('quality', 'low'); one();
+    const lo = { shared: G().waterUvShared, defs: G().oceanDefines };
+    Settings.set('quality', 'high'); one();
+    const hi2 = { shared: G().waterUvShared, defs: G().oceanDefines };
+    await window.__rebuild();
+    // paused: frames drawn, the ripples still; flying (the frames' time, not the sim's: drawn here with no physics step)
+    const a = G().waterOffset; for (let i = 0; i < 5; i++) one();
+    const b = G().waterOffset; Flight.paused = false; for (let i = 0; i < 6; i++) one(); Flight.paused = true;
+    const c = G().waterOffset; for (let i = 0; i < 5; i++) one();
+    const d = G().waterOffset;
+    Render3D.skipDraw = false;
+    return { hi, lo, hi2, a, b, c, d };
+  });
+  ok(`${tag}: the sea and the lakes run on the ground's very UV attribute, before and after a quality change (High, Low, High)`, w8.hi.shared && w8.lo.shared && w8.hi2.shared, w8);
+  ok(`${tag}: the water's second ripple set (OB_HI) is on High and not on Low (the material's own STANDARD kept)`, 'OB_HI' in w8.hi.defs && !('OB_HI' in w8.lo.defs) && 'OB_HI' in w8.hi2.defs && 'STANDARD' in w8.lo.defs && 'STANDARD' in w8.hi.defs, { hi: w8.hi.defs, lo: w8.lo.defs });
+  ok(`${tag}: the ripples stand still while paused and drift with the frames drawn in flight (0.1 s: ${w8.b.t.toFixed(3)} → ${w8.c.t.toFixed(3)} s)`, w8.a.t === w8.b.t && w8.a.x === w8.b.x && Math.abs(w8.c.t - w8.b.t - 0.1) < 1e-6 && w8.c.x !== w8.b.x && w8.c.bx !== w8.b.bx && w8.d.t === w8.c.t, w8);
+
+  // ---- 10. the haze meets the sky: dusk on the runway, a Falcon, the camera 400 m behind it and level; everything past a
+  // kilometre fogged (bench.fogK 200). A column 20° off the Sun's azimuth (towards it: its own glare, s^90 and s^1800, isn't
+  // in the fog) and one straight away from it: the pixel 2 px under the horizon line (the sea's edge, a point on the
+  // horizon projected) is fogged ground, the one 2 px over it sky
+  const T_DUSK = 130000;
+  const h10 = await ev(async (T_DUSK) => {
+    const tp = TEMPLATES.falcon; store.set('rss.flight', null);
+    Flight.start({ name: tp.name, kind: tp.kind, parts: templateRows(tp) }); Flight.paused = true; Flight.time = T_DUSK; Props.play = false;
+    Render3D.bench.fogK = 200; Flight.scale = (innerHeight / 2) / 400 / Math.tan((25 * Math.PI) / 180);
+    Render3D.orbitBy(0, -999); Render3D.orbitBy(0, (1.25 + 0.01) / 0.006); // (the camera level, a hair over the craft)
+    await window.__rebuild();
+    const gl = document.getElementById('view3d').getContext('webgl2'), pr = gl.drawingBufferWidth / innerWidth;
+    const hor = (off) => { // a point on the horizon `off` rad round from the Sun's azimuth, on screen (CSS px), the camera's height
+      const c = Render3D.gfx().camAt, v = Flight.active, bp = bodyPos(v.body, Flight.time), R = v.body.radius;
+      const rx = c.x - bp.x, ry = c.y - bp.y, rz = c.z, r = Math.hypot(rx, ry, rz), up = [rx / r, ry / r, rz / r], hc = r - R;
+      const sl = Math.hypot(c.x, c.y), sd = [-c.x / sl, -c.y / sl, 0], k = sd[0] * up[0] + sd[1] * up[1];
+      let hs = [sd[0] - up[0] * k, sd[1] - up[1] * k, -up[2] * k]; const hl = Math.hypot(...hs); hs = hs.map((q) => q / hl);
+      const sx = [up[1] * hs[2] - up[2] * hs[1], up[2] * hs[0] - up[0] * hs[2], up[0] * hs[1] - up[1] * hs[0]], co = Math.cos(off), si = Math.sin(off);
+      const h = hs.map((q, i) => q * co + sx[i] * si), D = Math.sqrt(2 * R * hc + hc * hc), cd = R / (R + hc), sn = Math.sqrt(1 - cd * cd);
+      return Render3D.project(c.x + D * (h[0] * cd - up[0] * sn), c.y + D * (h[1] * cd - up[1] * sn), c.z + D * (h[2] * cd - up[2] * sn));
+    };
+    const settle = async () => { Render3D.skipDraw = true; for (let i = 0; i < 90; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false; };
+    const pick = (y) => { const b = new Uint8Array(4); gl.readPixels(Math.round(window.__col * pr), gl.drawingBufferHeight - 1 - Math.round(y * pr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [b[0], b[1], b[2]]; };
+    const out = {};
+    for (const [name, off] of [['towards', 0.35], ['away', Math.PI]]) {
+      // turn the camera until that point sits a third of the way across the screen (left of the craft)
+      for (let i = 0; i < 12; i++) {
+        const p = hor(off), want = innerWidth * 0.3;
+        if (!p.behind && Math.abs(p.x - want) < innerWidth * 0.04) break;
+        Render3D.orbitBy(p.behind || p.x < 0 || p.x > innerWidth ? 0.5 / 0.006 : ((p.x - want) / innerWidth) * 1.2 / 0.006, 0); await settle();
+      }
+      const p = hor(off); window.__col = p.x;
+      Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); // (then read the frame just drawn)
+      const g = pick(p.y + 2), s = pick(p.y - 2), d = Math.max(...g.map((q, i) => Math.abs(q - s[i])));
+      out[name] = { at: [Math.round(p.x), +p.y.toFixed(1)], ground: g, sky: s, d, behind: p.behind };
+    }
+    out.fog = Render3D.gfx().fogArrays; out.sunset = Render3D.bench.sunset(); out.patched = Render3D.info().patched;
+    Render3D.bench.fogK = 1;
+    return out;
+  }, T_DUSK);
+  ok(`${tag}: the haze is written each frame: its colour the sky's at the horizon, a warm sunset side (dusk: ${h10.sunset.toFixed(2)}), an aureole, Earth's falloff`, h10.fog.lin.every((x) => x > 0) && h10.fog.sun[3] > 0.2 && h10.fog.glow[0] > h10.fog.glow[2] && Math.abs(h10.fog.h[0] - 1 / 1600) < 1e-9 && h10.fog.density > 0.005, h10.fog);
+  ok(`${tag}: at dusk, away from the Sun, fogged ground 2 px under the horizon matches the sky 2 px over it within 4/255 (${h10.away.ground} | ${h10.away.sky}; r159's fog after the tone mapping missed it by tens)`, !h10.away.behind && h10.away.d <= 4, h10.away);
+  ok(`${tag}: at dusk, towards the Sun (20° off it), fogged ground under the horizon matches the sky over it within 8/255 (${h10.towards.ground} | ${h10.towards.sky})`, !h10.towards.behind && h10.towards.d <= 8, h10.towards);
+  if (SHOTS) await shot('haze-dusk');
 
   // the globe, then the hangar: the console stays clean
   await ev(() => { Flight.paused = false; Flight.toggleMap(); });
