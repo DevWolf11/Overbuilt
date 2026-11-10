@@ -411,6 +411,9 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     return { calls, kinds: [...seen].sort() };
   });
   ok(`${tag}: the 2D view draws every kind of an FX.death of each kind (${d12.kinds.join(', ')}) with no error`, d12.calls > 0 && ['debris', 'emit', 'fire', 'flash', 'smoke', 'spark'].every((k) => d12.kinds.includes(k)) && errs.length === e12, { ...d12, errs: errs.slice(e12) });
+  // (the 2D frames hid the 3D view: the next App.frame shows it again. Until then Render3D.renderFlight draws nothing,
+  // so the checks below, which call it directly, wait for that frame)
+  await page.waitForFunction(() => document.getElementById('view3d').style.display === 'block', null, { timeout: 120000, polling: 50 });
 
   // ---- 13. screenshots of the effects (SHOTS): every FX.death kind at 0.25 s and 1.5 s, the presets, a muzzle flash and
   // its blast ring, flares, chaff, tracers, dust, a splash, damage smoke, a smoke screen
