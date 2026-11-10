@@ -1418,7 +1418,19 @@ function sysCalls(fn) {
     AX = 4; const g = draw(F); AX = 400;
     F.time = 40.7 + 2.2 - 0.1; const h = draw(F);
     F.time = 40.75; F.groundAim = true; const gi = draw(F); F.groundAim = false; F.destroyed = true; const de = draw(F); F.destroyed = false;
+    // (Phase 2 review P2-HUD-2) a 360x640 phone's top panels (the flight data, the buttons at the top right): the cross
+    // beside or under them, where the banner above and below both meet one, puts it beside them, clear (it was drawn over
+    // them: 49 cross places on this screen); the cross in the open, where it always was
+    const D0 = ctx.document, PAN = [[11, 9, 173, 208], [243, 9, 349, 40]];
+    ctx.document = { querySelector: (q) => { const r = { '#flight-ui .telemetry': PAN[0], '#flight-ui .flight-top-right': PAN[1] }[q]; return r ? { hidden: false, getBoundingClientRect: () => ({ left: r[0], top: r[1], right: r[2], bottom: r[3], width: r[2] - r[0], height: r[3] - r[1] }) } : null; } };
+    const over = (r, big) => r.txt.some((q) => { const ww = 9 * q.s.length, f = big ? 20 : 15; return PAN.some((p) => q.x - ww / 2 < p[2] && q.x + ww / 2 > p[0] && q.y - f < p[3] && q.y + 4 > p[1]); });
+    const ph = [];
+    for (const [x, y, s] of [[210, 114, 'SHOT DOWN'], [190, 70, 'SHOT DOWN'], [200, 220, 'ENGINE OUT'], [230, 64, 'HIT']]) { Death.feedback(s, F); F.time += 0.01; AX = x; AY = y; const r = draw(F, 360, 640); ph.push({ x, y, s, txt: r.txt, over: over(r, s === 'SHOT DOWN') }); F.time += 3; }
+    Death.feedback('SHOT DOWN', F); F.time += 0.01; AX = 180; AY = 400; const open = draw(F, 360, 640); F.time += 3;
+    ctx.document = D0; if (D0 === undefined) delete ctx.document; AX = 400; AY = 300;
     ctx.Render3D = R0;
+    t('F3 ...the cross beside or under a phone\'s top panels: the banner drawn beside them, over none; the cross in the open: 74 px over it, as ever',
+      ph.every((q) => q.txt.length === 1 && !q.over) && open.txt.length === 1 && open.txt[0].x === 180 && open.txt[0].y === 326, { ph: ph.map((q) => [q.x, q.y, q.s, q.txt[0], q.over]), open: open.txt });
     const at = (r, s, x, y) => r.txt.length === 1 && r.txt[0].s === s && near(r.txt[0].x, x, 1e-6) && near(r.txt[0].y, y, 1e-6);
     const w = 9 * 'SHOT DOWN'.length;
     t('F3 the hit marker: nothing at all drawn with nothing to show; the tick (4 diagonals) for 0.15 s, HIT 48 px over the cross for 0.6 s; SHOT DOWN in the bigger font 74 px over',

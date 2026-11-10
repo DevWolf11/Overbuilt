@@ -739,7 +739,8 @@ const Death = (() => {
   // 600 m down the nose without guns; the middle of the screen when it is behind the camera), the tick for 0.15 s after
   // each hit (four short diagonals 16-22 px out, the banner's colour, else white) and the banner 48 px over the cross (a
   // kill's bigger, 74 px over), below it when that would run into the panels at the top of the screen (the flight data,
-  // the buttons at the top right: measured once a banner, as the HUD's size and the screen's change), kept 8 px inside
+  // the buttons at the top right: measured once a banner, as the HUD's size and the screen's change), beside them when
+  // both would (the cross beside or under a panel: the nearest place clear of them, above or below), kept 8 px inside
   // the screen's sides, fading out in its last third of a second. Nothing to show: no work at all.
   const HX = { x: 0, y: 0, z: 0, armed: false }, TK = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
   const FONT = '700 15px "Chakra Petch", system-ui, sans-serif', BIG = '700 20px "Chakra Petch", system-ui, sans-serif';
@@ -777,9 +778,21 @@ const Death = (() => {
     if (ban) {
       const big = fb.pri === 5, f = big ? 20 : 15;
       ctx.font = big ? BIG : FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      const w = ctx.measureText(fb.text).width, x = clamp(cx, 8 + w / 2, W - 8 - w / 2), B = topBoxes(W, H);
-      let y = cy - (big ? 74 : 48);
-      if (y - f < 64 || meets(B, x, y, w, f)) { const y2 = cy + (big ? 64 : 44) + f; if (!meets(B, x, y2, w, f) || y - f < 0) y = y2; } // (below the cross instead: a phone's top panels)
+      const w = ctx.measureText(fb.text).width, B = topBoxes(W, H);
+      let x = clamp(cx, 8 + w / 2, W - 8 - w / 2), y = cy - (big ? 74 : 48);
+      const y2 = cy + (big ? 64 : 44) + f;
+      if (y - f < 64 || meets(B, x, y, w, f)) { if (!meets(B, x, y2, w, f) || y - f < 0) y = y2; } // (below the cross instead: a phone's top panels)
+      if (meets(B, x, y, w, f)) { // (review P2-HUD-2: over a panel both ways, the cross beside or under one: slid sideways clear of it, the nearest place)
+        let best = null;
+        for (const yy of [y, y === y2 ? cy - (big ? 74 : 48) : y2]) {
+          if (yy - f < 0 || yy + 6 > H) continue;
+          for (const r of B) for (const xx of [r.left - 7 - w / 2, r.right + 7 + w / 2]) {
+            const X = clamp(xx, 8 + w / 2, W - 8 - w / 2), k = Math.abs(X - cx) + Math.abs(yy - y);
+            if (!meets(B, X, yy, w, f) && (!best || k < best.k)) best = { x: X, y: yy, k };
+          }
+        }
+        if (best) { x = best.x; y = best.y; }
+      }
       ctx.globalAlpha = clamp(3 * (fb.life - (t - fb.t)), 0, 1);
       ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(fb.text, x, y);
       ctx.fillStyle = fb.col; ctx.fillText(fb.text, x, y);
