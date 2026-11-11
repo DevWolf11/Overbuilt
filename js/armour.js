@@ -879,6 +879,7 @@ const Armour = (() => {
       airAt = F.time; airBy = s.owner;
       const a = F.active;
       airList = s.enemy ? (a && a !== s.owner && !a.dead && !a.landed && a.parts.length ? [a] : []) : Combat.candidates(s.owner, 'air', F);
+      if (s.enemy && Combat.S.dr) airList = airList.concat(Drone.ownedAir(F, s.owner)); // (the big update: the player's drones nobody flies now burst them too)
     }
     return airList;
   }

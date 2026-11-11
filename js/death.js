@@ -158,7 +158,8 @@ const Death = (() => {
     if (p.def.control) {
       p.ko = true; deadHp(p);
       const at = v.toWorld(p.x, p.y, partZc(p)), vel = { x: v.vx, y: v.vy, z: v.vz };
-      FX.sparks(v.body, at, vel, 8); FX.puff(v.body, at, vel, 6, '#cfd5dc'); // (the canopy)
+      if (v.kind === 'drone') { FX.sparks(v.body, at, vel, 3); FX.puff(v.body, at, vel, 1, '#8b8f96'); } // (a drone's controller burnt out: a few sparks and a wisp, plan I5)
+      else { FX.sparks(v.body, at, vel, 8); FX.puff(v.body, at, vel, 6, '#cfd5dc'); } // (the canopy)
       return true;
     }
     // 4 a main rotor (a helicopter's; a drone's motor): torn off, it falls. ripParts says '<name> shot off!' to the
@@ -399,6 +400,7 @@ const Death = (() => {
     if (!F || (F.warpIdx || 0) > 2) return true;
     if (T.o !== o) { T.o = o; T.od = camDist(F, o); } // (a vessel's parts come one after another)
     if (T.od > DEATH.trail.near) return true;
+    if (o.kind === 'drone') { FX.smoke(o.body, partAt(o, p, n >> 1), { x: (o.vx || 0) * 0.15, y: (o.vy || 0) * 0.15, z: (o.vz || 0) * 0.15 }, 'grey', clamp(Math.max(p.def.w, p.def.h) / 2, 0.15, 1)); return true; } // (plan I5: a drone's puff as small as its part)
     FX.trail(o.body, partAt(o, p, n >> 1), { x: o.vx || 0, y: o.vy || 0, z: o.vz || 0 }, 'grey', 1, T.e);
     return true;
   }
@@ -417,7 +419,8 @@ const Death = (() => {
 
   // limp: nobody flies it (no pilot, down, or a bandit shot down); hot: something in it burns when it hits
   const limp = (v) => !v.control || !!v.isDebris;
-  const hotOf = (v) => fuelOf(v) > 50 || v.parts.some((p) => p.def.thrust || p.burn > 0);
+  // (a drone: a live warhead or bombs aboard, else a thud: grams of battery burn nothing; plan I5)
+  const hotOf = (v) => (v.kind === 'drone' ? v.parts.some((p) => (p.def.drone && p.def.drone.warhead && p.ammo !== 0) || (p.def.weapon && p.def.weapon.kind === 'bomb' && p.ammo > 0)) : fuelOf(v) > 50 || v.parts.some((p) => p.def.thrust || p.burn > 0));
   // how far a point on body b is from the camera (0 when the sim can't say: the tests' stand-ins)
   const PYR = { body: null, x: 0, y: 0, z: 0 };
   function camOff(F, b, p) {

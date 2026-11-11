@@ -212,6 +212,20 @@ const Sound = {
     this.glide('bf', this.buzzF.frequency, 380 + 400 * (k / 0.05), 0.2, 2);
   },
   chirp() { this.tone(900, 0.08, 0.06); setTimeout(() => this.tone(1200, 0.08, 0.06), 80); },
+  // an anti-drone laser burning near the camera: a thin high whine (one oscillator, made on first use; 0 stops it)
+  laser(level) {
+    if (!this.ctx) return;
+    const k = clamp(+level || 0, 0, 0.1);
+    if (!this.lasG) {
+      if (!(k > 0)) return;
+      const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.value = 2200; g.gain.value = 0;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 4;
+      o.connect(f); f.connect(g); g.connect(this.master); o.start();
+      this.lasG = g;
+    }
+    this.glide('ls', this.lasG.gain, k, 0.05, 1e-4);
+  },
   chime() {
     if (!this.ctx) return;
     this.oneOff(0.9);

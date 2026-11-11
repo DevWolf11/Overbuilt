@@ -102,6 +102,7 @@ const App = {
             World.drawOverlay3D(this.ctx, this.W, this.H, this.dpr, Flight);
             if (Flight.flyAim) Flight.drawFlyAim(this.ctx, this.W, this.H, this.dpr); // (a plane in Aim: the circle and its one cross, nose and guns)
             Combat.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);
+            if (Combat.S.dr) Drone.drawMarks(this.ctx, this.W, this.H, this.dpr, Flight); // (the big update: hostile drones seen, by eye or a drone sensor)
             if (Flight.impactCam || (Flight.active && Flight.active.kind === 'drone')) Drone.drawOSD(this.ctx, this.W, this.H, this.dpr, Flight); // (the big update: a drone's FPV display, or its impact view)
             else if (Flight.groundAim) GHUD.draw(this.ctx, this.W, this.H, this.dpr, Flight); // (aiming a ground vehicle's guns)
             if (MP.live) MPUI.drawHUD(this.ctx, this.W, this.H, this.dpr, Flight);

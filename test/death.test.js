@@ -1279,7 +1279,10 @@ function sysCalls(fn) {
 // death, three knocked-out wrecks and a crash site. The cap lifted (FX.max): what the scene asks for stays within Low's
 // 350 every frame, and each burning plane's trail within 75 live puffs. (The wrecks' and the crash site's smoke are the
 // ground and crash sections': set up here as their state, Death.S.pyres and v.wreck/v.ko, so their real code joins in.)
-{
+// D1b (the big update's drones, plan I8) the same, with an anti-drone gun's airburst rounds going off 10 times a second
+// beside the wrecks the whole time (Combat.explode's light 'ab' look: a flash, 4 sparks, a puff; the old fireball's 58
+// particles a burst would be 580 a second)
+const runD1 = (ab) => {
   const SET = ctx.Settings, q0 = SET.data.quality, tg0 = SET.data.targets, max0 = FX.max, add0 = FX.add, tr0 = FX.trail, py0 = Death.S.pyres.slice();
   SET.data.quality = 'low'; SET.data.targets = 'off';
   FX.clear(); FX.max = () => 1e9;
@@ -1304,6 +1307,7 @@ function sysCalls(fn) {
       for (const o of [A, B]) { o.x += o.vx * dt; o.y += o.vy * dt; o.z += o.vz * dt; }
       F.camAbs = { x: A.x + 8, y: A.y - 40, z: A.z };
       if (i === 30) Death.deathFX(tk, F, 'ammo');
+      if (ab && i % 6 === 0) Combat.explode(EARTH, { x: mid.x + 40, y: mid.y + 20 * Math.sin(i), z: mid.z + 60 }, 3, 40, null, F, true, 2, undefined, 'ab');
       F.time += dt;
       Combat.frame(F, dt);
       FX.update(dt, F);
@@ -1314,8 +1318,14 @@ function sysCalls(fn) {
       trail = Math.max(trail, a, b);
     }
   } finally { SET.data.quality = q0; SET.data.targets = tg0; FX.max = max0; FX.add = add0; FX.trail = tr0; delete FX._who; Death.S.pyres.length = 0; Death.S.pyres.push(...py0); FX.clear(); }
+  return { peak, at, trail };
+};
+{
+  const { peak, at, trail } = runD1(false);
   t(`D1 Settings Low, two planes burning at 250 m/s for 10 s, a TK-34's ammo death, three knocked-out wrecks and a crash site: at most ${peak} particles (at ${at.toFixed(1)} s; Low's cap 350), at most ${trail} live puffs a trail (75)`,
     peak <= 350 && peak > 100 && trail <= 75 && trail > 40, { peak, at, trail });
+  const R = runD1(true);
+  t(`D1b ...with an anti-drone gun's airbursts going off 10 times a second all the while: at most ${R.peak} particles (Low's cap 350; ${R.peak - peak} more)`, R.peak <= 350 && R.peak > peak, { R, peak });
 }
 
 // ================================================================ E. saved flights
