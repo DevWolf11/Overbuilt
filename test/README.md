@@ -4,7 +4,7 @@ The game has no build step and no test framework, so these are plain Node script
 
 ```
 node test/run.mjs              # the headless suites, side by side, about a minute
-node test/run.mjs --browser    # plus the browser suites, one at a time, about 40 minutes
+node test/run.mjs --browser    # plus the browser suites, one at a time, about an hour
 node test/run.mjs traces mp    # only suites whose file names contain these words (browser ones too:
                                #   "mp" also runs browser/mp-two-tabs.mjs; "mp.test" is the headless one)
 node test/run.mjs -v           # print every suite's output, not only failures
