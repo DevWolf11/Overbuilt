@@ -1139,7 +1139,7 @@ const Combat = (() => {
     v.ai.down = true; v.aiFire = false;
     if (!v.ai.ground) { if (v.hulk == null) v.hulk = sim.time || 0; v.isDebris = true; v.throttle = 0; v.ctl.v = v.ctl.h = v.ctl.r = 0; }
     if (byMe(v.lastHitBy, sim) && !v.ai.ally) {
-      S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : 'Bandit shot down!', 'kill');
+      S.kills++; sim.toast(v.ai.ground ? `Enemy ${v.name} knocked out!` : v.ai.drone ? 'Enemy drone down!' : 'Bandit shot down!', 'kill');
       Death.feedback(v.ai.ground ? 'KNOCKED OUT' : 'SHOT DOWN', sim); // (the air HUD's banner and the chime; a ground vehicle's sight shows its own, Armour.fb)
     }
     if (v.ai.ground) GroundAI.down(v, sim); // (its hulk stays; the range or the battle counts it, and brings another)

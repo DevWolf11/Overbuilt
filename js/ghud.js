@@ -657,6 +657,7 @@ const GHUD = (() => {
       else if (o.wreck || o.ko) k = 3;
       else if (o.remote && o.craft) { const en = foe(o); if (en && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; k = en ? 2 : 1; const p = eZ(o); out.push([p.e, p.z, k, 1]); continue; } // (the big update: a player's drone, as our sensors mark it: a small diamond)
       else if (o.remote) { const en = foe(o); if (en && !(typeof MP.spotted === 'function' ? MP.spotted(o.remote) : typeof MPUI !== 'undefined' && MPUI.spotted(o, v, F))) continue; k = en ? 2 : 1; }
+      else if (o.ai && o.ai.drone) { const en = !friendAI(o); if (en && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; const p = eZ(o); out.push([p.e, p.z, en ? 2 : 1, 1]); continue; } // (the big update: the AI's drones, as a player's: a small diamond once our sensors mark it)
       else if (o.ai) {
         const en = !friendAI(o), d = Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z);
         if (en && (o.ai.ground ? !spotted(F, v, o, d) : d > 3000)) continue; // (an aircraft is seen within 3 km)

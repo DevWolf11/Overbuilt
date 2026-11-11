@@ -11,7 +11,8 @@ const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 
 // opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t, then
 // radar.js and death.js when present), flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground
-// (gmode.js and groundai.js, which combat, flight and mp also bring), props (every map's props built: Props.buildAll)
+// (gmode.js and groundai.js, which combat, flight and mp also bring), props (every map's props built: Props.buildAll),
+// drone (false: no drone.js, as before the big update's drones)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -29,7 +30,7 @@ function load(opts = {}) {
   run(src(root, 'vessel.js'), 'vessel.js');
   // the ground update's systems (each only if present, so ROOT can point at a checkout from before it)
   const has = (f) => fs.existsSync(path.join(root, 'js', f));
-  for (const f of ['gear.js', 'aim.js', 'armour.js', 'drone.js']) if (has(f)) run(src(root, f), f); // (the big update's drones: drone.js after armour.js)
+  for (const f of ['gear.js', 'aim.js', 'armour.js', 'drone.js']) if (has(f) && !(f === 'drone.js' && opts.drone === false)) run(src(root, f), f); // (the big update's drones: drone.js after armour.js; drone: false leaves it out, for old play's proof)
   if (opts.flight && opts.mp) throw new Error('load(): flight and mp stub each other out; load them in separate contexts');
   run('var Sound = new Proxy({}, { get: () => () => {} });');
   if (opts.flight) { // world.js brings the real Settings and FX

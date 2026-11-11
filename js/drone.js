@@ -1254,7 +1254,7 @@ const Drone = (() => {
       const a = dl.at0 || v, far = Math.hypot(v.x - a.x, v.y - a.y, v.z - a.z) >= DRONE.ARM_D;
       if (far && dl.t - (dl.t0 || 0) >= DRONE.ARM_T) dl.armOK = true;
     }
-    const busy = dl.mode === 'home' || dl.mode === 'land' || dl.hop > 0 || !!dl.dock;
+    const busy = dl.mode === 'home' || dl.mode === 'land' || dl.hop > 0 || !!dl.dock || !!(v.ai && v.ai.passive); // (an AI drone that is only a practice target never arms)
     const arm = !!dl.armOK && !busy;
     if (arm && !dl.arm) { dl.armedAt = F.time || 0; if (v === F.active && !v.ai && typeof Sound !== 'undefined' && Sound.click) Sound.click(); }
     dl.arm = arm;
@@ -1692,6 +1692,7 @@ const Drone = (() => {
     if (!F || !F.vessels || !(dt >= 0)) return;
     CB.now = F.time || 0; CB.F = F;
     bayFrame(F, dt); // (the bays' and the links': above)
+    aiFrame(F, dt); // (the AI's drones: the AI section)
     beamFrame(F);
     markFrame(F);
   }
@@ -1727,9 +1728,153 @@ const Drone = (() => {
     }
   }
 
-  // ================================================================ AI
-  function spawnAI(F, key, at, team, opts) { return null; }
-  function aiSteer(v, F, dt) { return null; } // (an AI drone's autopilot target; null: it hovers)
+  // ================================================================ AI (spec §15.1)
+  // The computer's drones (the Tank Range and the Practice Battle; never in a room): a stock drone flown by its own
+  // controller's Level law, the AI steering through pre's autopilot target (dl.auto). It climbs to 30 m over the ground,
+  // cruises at 20 m/s toward the nearest enemy within 1.5 km (where it will be in 2 s), and 200 m out dives at 0.9 of its
+  // top speed on the enemy's roof (1.5 m over its middle, led for its motion): the contact fuse does the rest. With no
+  // enemy near it heads for the zone nearest the enemy's pad. A passive drone (the range's practice targets) circles
+  // 60 m round its spot 50 m up at 10 m/s and never arms. Jammed, its controller's failsafe has it (an FPV drops); under
+  // 15 % charge it dives on the nearest enemy, wherever it is. It decides 4 times a second on its own clock (dl.t), so
+  // the same seed flies the same way. Shot down it is Combat.aiDown's ("Enemy drone down!") and death.js's hulk; landed
+  // 3 s or lost 60 s it goes (aiFrame).
+  const AIK = { THINK: 0.25, ALT: 30, CRUISE: 20, LEAD: 2, SEE: 1500, TERM: 200, LEAVE: 300, TOP: 1.5, K: 0.9, LOW: 0.15, ORBIT: { V: 10, R: 60, H: 50 }, UP: 3 };
+  // a spot on the space centre's map (e m along the track, z across it) h m over the ground, in the sim's axes
+  function siteSpot(e, z, h) {
+    const a = siteAngle(EARTH, e), ph = z / EARTH.radius, r = EARTH.radius + Terrain.surfaceAt(EARTH, a, z) + (h || 0);
+    return { x: r * Math.cos(ph) * Math.cos(a), y: r * Math.cos(ph) * Math.sin(a), z: r * Math.sin(ph) };
+  }
+  const myTeam = () => (typeof GroundAI !== 'undefined' && GroundAI.battle ? GroundAI.battle.team : 0);
+  // One more AI drone of stock template key (a drone template) for team, at site spot at = { e, z, h (m up), yaw }; or,
+  // with opts.nest (an AI vehicle with a drone bay), the first bay's own drone launched off its deck as the player's are
+  // (key null: the bay's stock drone; the bay one lighter). opts: { passive, at: the circle's middle { e, z }, nest }.
+  // The vessel (in F.vessels), or null (no such drone, the rack empty).
+  function spawnAI(F, key, at, team, opts) {
+    if (!F || !F.vessels) return null;
+    const o = opts || {}, N = o.nest || null, t = team === 0 ? 0 : 1;
+    let bay = null;
+    if (N) {
+      if (N.dead || N.ko || N.wreck || !N.docks || !N.docks.length) return null;
+      bay = N.docks.slice().sort((a, b) => DOCK_ORDER.indexOf(a.type) - DOCK_ORDER.indexOf(b.type)).find((p) => !p.broken && left1(p) > 0) || null;
+      if (!bay) return null;
+      if (key == null) key = bay.def.dock.stock;
+    }
+    if (typeof TEMPLATES === 'undefined' || typeof key !== 'string' || !hasOwn(TEMPLATES, key) || TEMPLATES[key].kind !== 'drone') return null;
+    const ally = t === myTeam(), v = build(choiceRows({ key }), ally ? 'Allied drone' : 'Enemy drone');
+    if (!v || !v.dr) return null;
+    v.ai = { drone: true, ground: false, team: t, ally, tgt: null, state: o.passive ? 'passive' : 'climb', passive: !!o.passive, nest: N, key,
+      at: o.at || (at ? { e: at.e, z: at.z } : null), thinkAt: -Infinity, goal: null, fuel0: v.dr.cells.map((p) => p.fuel) };
+    if (N) { // off its deck, as a bay's launch (launch): its pose, 0.4 m over the bay's top, moving with it, then the hop
+      v.q = quat(N.q.w, N.q.x, N.q.y, N.q.z);
+      const T = dockTop(N, bay), Up = N.axis(0, 1, 0), off = v.com.y - v.bounds.minY + 0.4;
+      v.x = T.x + Up.x * off; v.y = T.y + Up.y * off; v.z = T.z + Up.z * off;
+      const pv = N.pointVel({ x: v.x - N.x, y: v.y - N.y, z: v.z - N.z });
+      v.vx = pv.x; v.vy = pv.y; v.vz = pv.z; v.av = v3(); v.landed = false;
+      v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0, hop: DRONE.LAUNCH.HOP_T, hopAlt: v.altitude() - 0.4 + DRONE.LAUNCH.HOP };
+      bay.docked = left1(bay) - 1; bay.deployed = 1; bay._lidAt = F.time || 0;
+    } else {
+      if (!at) return null;
+      v.placeOnSurface(EARTH, siteAngle(EARTH, at.e), 0, at.z, at.yaw || 0);
+      const r = v.radius() || 1, h = at.h || 0;
+      v.x += (v.x / r) * h; v.y += (v.y / r) * h; v.z += (v.z / r) * h;
+      v.landed = h <= 0;
+      v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+    }
+    state(v);
+    F.vessels.push(v);
+    return v;
+  }
+  // a world vector's parts in the heading frame S: f ahead, r right (its horizontal part), up, and its horizontal length h
+  const FL = { f: 0, r: 0, up: 0, h: 0 };
+  function flat(v, S, dx, dy, dz) {
+    const rr = v.radius() || 1, ux = v.x / rr, uy = v.y / rr, uz = v.z / rr, k = dx * ux + dy * uy + dz * uz, hx = dx - ux * k, hy = dy - uy * k, hz = dz - uz * k;
+    FL.f = hx * S.fx + hy * S.fy + hz * S.fz; FL.r = hx * S.rx + hy * S.ry + hz * S.rz; FL.up = k; FL.h = Math.hypot(hx, hy, hz);
+    return FL;
+  }
+  // is u (a GroundAI unit) an enemy of AI drone v still in the fight?
+  const foeUnit = (v, u) => !!u && !!u.v && u.v !== v && u.team !== v.ai.team && !u.v.dead && !u.v.wreck && !u.v.ko && u.v.hulk == null && !(u.v.ai && u.v.ai.down) && u.v.parts.length > 0;
+  // The decision, 4 times a second: whom to go for (the nearest enemy within SEE; any distance on a low battery), and the
+  // state (climb, cruise, terminal; passive stays passive)
+  function aiThink(v, F, agl) {
+    const a = v.ai, U = typeof GroundAI !== 'undefined' && GroundAI.units ? GroundAI.units : [];
+    if (a.passive) return;
+    const low = charge(v) < AIK.LOW;
+    let best = null, bd = low ? Infinity : AIK.SEE;
+    if (a.tgt && !U.some((u) => u.v === a.tgt && foeUnit(v, u))) a.tgt = null; // (gone, knocked out or a wreck)
+    for (const u of U) {
+      if (!foeUnit(v, u)) continue;
+      const d = Math.hypot(u.v.x - v.x, u.v.y - v.y, u.v.z - v.z) - (u.v === a.tgt ? 200 : 0); // (it keeps its target unless another is 200 m nearer)
+      if (d < bd) { bd = d; best = u.v; }
+    }
+    a.tgt = best;
+    if (!best) { a.goal = a.goal || zoneGoal(v); if (a.state === 'terminal') a.state = 'cruise'; }
+    if (a.state === 'climb' && agl >= AIK.ALT - AIK.UP) a.state = 'cruise';
+    if (best) {
+      const S = state(v).S || hframe(v), h = flat(v, S, best.x - v.x, best.y - v.y, best.z - v.z).h;
+      if (low || h < AIK.TERM) a.state = 'terminal';
+      else if (a.state === 'terminal' && h > AIK.LEAVE) a.state = 'cruise';
+    }
+  }
+  // with nobody to go for: over the zone nearest the enemy's pad (the battle's zones, else Highland Ridge's), 30 m up
+  function zoneGoal(v) {
+    if (typeof GroundMode === 'undefined') return null;
+    const B = typeof GroundAI !== 'undefined' ? GroundAI.battle : null, A = GroundMode.arena(B ? B.arena : 'highland'), Z = B ? B.obj.zones : A && A.zones;
+    const pad = A && A.pads && A.pads[v.ai.team ? 0 : 1];
+    if (!Z || !Z.length || !pad) return null;
+    let bz = null, bd = Infinity;
+    for (const zn of Z) { const d = Math.hypot(zn.e - pad.e, zn.z - pad.z); if (d < bd) { bd = d; bz = zn; } }
+    return siteSpot(bz.e, bz.z, 0);
+  }
+  // An AI drone's autopilot target this step ({ vf, vr, vz, yawTo }), for pre; null: it hovers (as one does that spawnAI
+  // didn't make: no state, no orders)
+  function aiSteer(v, F, dt) {
+    const a = v.ai;
+    if (!a || !v.dr || !a.state) return null;
+    const dl = state(v), S = dl.S || (dl.S = hframe(v)), fc = v.dr.fc || GPS, agl = v.altitude() - groundUnder(v, dl, S);
+    if (!(dl.t - a.thinkAt < AIK.THINK) || dl.t < a.thinkAt) { a.thinkAt = dl.t; aiThink(v, F, agl); }
+    const hold = (h) => clamp((h - agl) * DRONE.HOLD, -DRONE.VHOLD, fc.vz);
+    // passive: round its spot, ORBIT.R m out, at ORBIT.V m/s, ORBIT.H m up
+    if (a.passive) {
+      const O = AIK.ORBIT, c = a.at ? (a.atS || (a.atS = siteSpot(a.at.e, a.at.z, 0))) : dl.at0, L = flat(v, S, v.x - c.x, v.y - c.y, v.z - c.z);
+      const d = L.h || 1e-3, rf = L.f / d, rr = L.r / d, pull = clamp((O.R - d) * 0.3, -O.V, O.V); // (out from the middle: rf, rr; its way round is square to that)
+      const vf = -rr * O.V + rf * pull, vr = rf * O.V + rr * pull;
+      return { vf, vr, vz: hold(O.H), yawTo: S.head + Math.atan2(vr, vf) };
+    }
+    if (v.dr.wing) { // (a winged drone circles over what it goes for, 60 m up: the stock AI flies quads)
+      const T = a.tgt || a.goal;
+      return circleSteer(v, dl, S, T ? { x: T.x, y: T.y, z: T.z } : null, AIK.ALT * 2);
+    }
+    if (a.state === 'climb') return { vf: 0, vr: 0, vz: clamp((AIK.ALT - agl) * DRONE.HOLD + 1, 1, fc.vz), yawTo: S.head };
+    const t = a.tgt;
+    if (t && a.state === 'terminal') { // the dive: on its roof, led for its motion over the time it takes to get there
+      const r = Math.hypot(t.x, t.y, t.z) || 1, sp = AIK.K * fc.vmax;
+      let tgo = Math.hypot(t.x - v.x, t.y - v.y, t.z - v.z) / sp;
+      const P = { x: t.x + (t.x / r) * AIK.TOP, y: t.y + (t.y / r) * AIK.TOP, z: t.z + (t.z / r) * AIK.TOP };
+      for (let i = 0; i < 2; i++) { // (where it will be: twice round, the time to it from where it will be)
+        const qx = P.x + (t.vx || 0) * tgo - v.x, qy = P.y + (t.vy || 0) * tgo - v.y, qz = P.z + (t.vz || 0) * tgo - v.z;
+        tgo = Math.hypot(qx, qy, qz) / sp;
+      }
+      const L = flat(v, S, P.x + (t.vx || 0) * tgo - v.x, P.y + (t.vy || 0) * tgo - v.y, P.z + (t.vz || 0) * tgo - v.z), D = Math.hypot(L.h, L.up) || 1e-3;
+      return { vf: (L.f / D) * sp, vr: (L.r / D) * sp, vz: (L.up / D) * sp, yawTo: L.h > 2 ? S.head + Math.atan2(L.r, L.f) : S.head };
+    }
+    // cruise: toward where the target will be in LEAD s (or the zone), CRUISE m/s at most, ALT m up, nose toward it
+    const G = t ? { x: t.x + (t.vx || 0) * AIK.LEAD, y: t.y + (t.vy || 0) * AIK.LEAD, z: t.z + (t.vz || 0) * AIK.LEAD } : a.goal;
+    if (!G) return { vf: 0, vr: 0, vz: hold(AIK.ALT), yawTo: S.head };
+    const L = flat(v, S, G.x - v.x, G.y - v.y, G.z - v.z), d = L.h || 1e-3, sp = Math.min(fc.vmax, AIK.CRUISE, d * 0.5);
+    return { vf: (L.f / d) * sp, vr: (L.r / d) * sp, vz: hold(AIK.ALT), yawTo: d > 5 ? S.head + Math.atan2(L.r, L.f) : S.head };
+  }
+  // (Drone.frame, after the bays') The AI drones' upkeep: a passive one's battery kept full (a practice target: it flies
+  // till it is shot down); one landed 3 s, or lost 60 s, goes with a puff. A hulk is death.js's alone (plan I13).
+  function aiFrame(F, dt) {
+    for (let i = F.vessels.length; i--;) {
+      const v = F.vessels[i];
+      if (!v || !v.ai || !v.ai.drone || v.remote || v.dead || v.hulk != null || !v.dr) continue;
+      const dl = state(v), a = v.ai;
+      if (a.passive && a.fuel0) v.dr.cells.forEach((p, k) => { if (a.fuel0[k] != null) p.fuel = a.fuel0[k]; });
+      dl.restT = v.landed ? (dl.restT || 0) + dt : 0;
+      if (dl.restT >= DRONE.REST_GONE || (dl.lost && dl.lostT >= DRONE.LOST_GONE)) gone(F, v);
+    }
+  }
 
   // ================================================================ MP
   // (mp.js carries a second craft's messages: the craft index c, tc, extras)
