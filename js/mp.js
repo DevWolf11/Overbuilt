@@ -15,6 +15,7 @@ const MP_DEFAULTS = { format: '1v1', build: 180, test: true, polish: 120, budget
 const MP_CARRIER = { bonus: 1.3, span: 13, length: 16, mass: 12000 }; // more money, but the craft has to fit the deck and the catapult
 const MP_KINDS_PVP = ['plane', 'heli', 'car'];
 const MP_SNAP_MS = 1000 / 15, MP_PV_MS = 200, MP_HP_MS = 500;
+const MP_SNAP_DRONE_MS = 100; // (the big update: a second craft's snapshots, a drone from a tank's bay, 10 a second)
 const MP_MAX_PARTS = 600; // the most parts a craft in the shared world may have with the room's part limit on (bigger spawns are ignored)
 // The part limit off (settings.cap false, the host's choice, in a sandbox at any time): a craft as big as one spawn
 // message carries, MP_SPAWN_CHARS of JSON (the host passes on nothing past NET_MAX_BYTES), about 5,000 parts.
@@ -48,7 +49,11 @@ const MP_SET_OK = {
 };
 const MP_WRECKS = 8, MP_WRECK_MS = 300000, MP_SINK_MS = 6000; // the most wrecks standing on the field, how long each stays (from its `down`), the last ms of it sinking into the ground
 const MP_WRECK_AGL = 10; // (a knocked-out ground vehicle higher than this off the ground leaves no wreck: none hangs in the air)
-const mpAir = (kind) => kind === 'plane' || kind === 'heli';
+const mpAir = (kind) => kind === 'plane' || kind === 'heli' || kind === 'drone';
+// The craft index of a message (the big update's drones): 0 for a player's main craft (no `c`: every message of one
+// craft is as it was), 1-3 for a second one (a drone from their tank's bay); -1 for anything else, which is refused
+// (NaN, 0.5, '1', 4, 1e9, {}, null)
+const mpC = (m) => (m.c === undefined ? 0 : Number.isInteger(m.c) && m.c >= 1 && m.c <= 3 ? m.c : -1);
 // living troops on board (a hull's built-in bay and placed troop bays, while they're whole), at most 12
 function mpTroops(v) {
   let n = 0;
@@ -117,6 +122,10 @@ const MP = {
   spots: new Map(),    // pid -> { t (ms), man } when a teammate (or we, by hand) last spotted that enemy
   pings: [],           // map pings from the team: { e, z, by, t }
   lineup: [null, null, null], // Lineup of 3: the designs for slots 2 and 3 (slot 1 is the one built)
+  // (the big update's drones) our second craft in the room: c -> { v, c, msg, sent, lastParts }; at most one at a time
+  extra: new Map(),
+  nextC: 1,            // the craft index the next launch takes (1 -> 2 -> 3 -> 1)
+  mainDown: false,     // our main craft's down is told (a tank knocked out under its flown drone: announceDown)
 
   get live() { return this.active && !!this.state; },
   get isHost() { return Net.isHost; },
@@ -174,7 +183,7 @@ const MP = {
     this.active = true;
     this.awake(true);
     this.state = null;
-    this.peers.clear(); this.rwr.clear(); this.missiles.clear();
+    this.peers.clear(); this.rwr.clear(); this.missiles.clear(); this.extra.clear(); this.mainDown = false;
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
     if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
@@ -193,6 +202,7 @@ const MP = {
     if (typeof Props !== 'undefined') Props.sync(false);
     this.dropAllGhosts();
     if (this.wrecks.length) this.clearWrecks();
+    this.extra.clear(); this.mainDown = false;
     this.state = null;
     Builder.mp = null;
     this.popCareer();
@@ -253,9 +263,9 @@ const MP = {
     Net.on('chat', (m) => MPUI.chat(m.f, m.text));
     // the shared world
     Net.on('spawn', (m) => this.onSpawn(m));
-    Net.on('despawn', (m) => { this.dropGhost(m.f, false); this.peer(m.f).design = null; });
+    Net.on('despawn', (m) => { if (m.c !== undefined) { const c = mpC(m); if (c > 0) this.dropExtraGhost(m.f, c); return; } this.dropGhost(m.f, false); this.peer(m.f).design = null; }); // (c: their drone docked)
     Net.on('s', (m) => this.onSnap(m));
-    Net.on('want', (m) => this.resendSpawn(m.f)); // someone sees our craft but missed its spawn (joined later)
+    Net.on('want', (m) => { const c = mpC(m); if (c >= 0) this.resendSpawn(m.f, c); }); // someone sees our craft (c: our drone) but missed its spawn (joined later)
     Net.on('pv', (m) => this.onPartVis(m));
     Net.on('parts', (m) => this.onParts(m));
     Net.on('hp', (m) => this.onHp(m));
@@ -263,11 +273,11 @@ const MP = {
     Net.on('gun', (m) => { const P = this.peers.get(m.f); if (P) P.gun[m.k] = !!m.on; });
     Net.on('hit', (m) => this.onHit(m));
     Net.on('boom', (m) => this.onBoom(m));
-    Net.on('shot', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && Flight.running) { if (m.k === 'shell') P.firedAt = performance.now(); Combat.netShot(P.ghost, m); } }); // (a main gun's flash gives it away: spotted)
+    Net.on('shot', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) { if (m.k === 'shell' && !c) P.firedAt = performance.now(); Combat.netShot(g, m); } }); // (a main gun's flash gives it away: spotted; c: their drone's)
     Net.on('msl', (m) => this.onMissile(m));
-    Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? Flight.active : null));
+    Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? this.mine(m.tc) : null)); // (tc: after our drone)
     Net.on('mx', (m) => Combat.netMissileEnd(m.f, m.id));
-    Net.on('cm', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && Flight.running) Combat.netFlares(P.ghost, m); });
+    Net.on('cm', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) Combat.netFlares(g, m); }); // (c: from their drone)
     Net.on('lock', (m) => { if (m.on) this.rwr.set(m.f, performance.now()); else this.rwr.delete(m.f); });
     Net.on('rdr', (m) => { const P = this.peers.get(m.f); if (P && (m.on === 0 || m.on === 1)) P.radarOff = m.on === 0; }); // (their radar off: it paints nobody's search strobes; anything else ignored)
     // ground battles: the zones and tickets (host), what each player sees (to the host) and their team's spots (host)
@@ -293,6 +303,7 @@ const MP = {
   },
   onLeave(pid) {
     this.dropGhost(pid, true);
+    this.dropExtraGhost(pid, 0); // (their drone too)
     this.peers.delete(pid);
     this.rwr.delete(pid);
     if (!Net.isHost || !this.state) return;
@@ -583,7 +594,7 @@ const MP = {
       units.push({ team: p.team, e: q.e, z: q.z, kind, speed: Math.hypot(V[0], V[1], V[2]), gd: !!gd, troops: p.troops || 0 });
       pids.push(pid);
     };
-    const v = Flight.active;
+    const v = this.main(); // (our tank while we fly its drone)
     if (this.shared && v && !Flight.destroyed && v.body === EARTH) add(Net.me, v.x, v.y, v.z, [v.vx, v.vy, v.vz], v.kind, performance.now() - (this.gdAt || -1e9) < 500);
     for (const [pid, P] of this.peers) {
       const S = P.snap;
@@ -712,7 +723,7 @@ const MP = {
   // What a player may come back in at a ground battle's respawn: their saved designs of those kinds that fit the
   // battle, then the stock ones (TEMPLATES; worked out once per money and kind of craft). air: planes and helicopters.
   choices(air) {
-    const kinds = air ? ['plane', 'heli'] : ['tank', 'car'], out = [], st = this.state.settings;
+    const kinds = air ? ['plane', 'heli', 'drone'] : ['tank', 'car'], out = [], st = this.state.settings;
     // (P4 play-test) aircraft are air support: what each carries (guns, rockets, missiles, bombs), the armed ones first
     const arms = (rows) => { if (!air) return undefined; const k = new Set(); for (const p of partsFromDesign(rows)) { const w = p.def.weapon; if (w && MP_ARMS[w.kind]) k.add(MP_ARMS[w.kind]); } return [...k].join(', '); };
     for (const d of Builder.designs ? Builder.designs() : []) {
@@ -806,6 +817,7 @@ const MP = {
     const H = this.hulk;
     this.hulk = null;
     if (H) for (const q of H.bits || []) q.foreign = Net.me;
+    this.dropExtras(); // (our drone goes with the craft it came from)
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
     let design;
     if (this.pvp) {
@@ -903,6 +915,7 @@ const MP = {
   sandboxTime() { return this.state && this.state.t0 != null ? this.state.t0 + (Net.hostNow() - this.state.t0At) / 1000 : 0; },
   leaveFlight() {
     if (App.scene !== 'flight' && !Flight.running) return;
+    this.dropExtras();
     if (Flight.running && Flight.mp && !Flight.mp.solo) { Net.send({ t: 'despawn' }); if (!this.pvp) this.setMine('flying', false); }
     Flight.stop();
     this.dropAllGhosts();
@@ -925,7 +938,7 @@ const MP = {
       if ((kind === 'tank' || armed) && this.mapReady() && (typeof App === 'undefined' || !App.use3D || App.use3D()) && typeof Props !== 'undefined') return this.yardSpot(slot);
       if (!slot) return null;
       if (kind === 'plane' || kind === 'car') return { e: EARTH.sites.runway.east + slot * 220, z: 0, yaw: 0, soft: true };
-      if (kind === 'heli') return { e: EARTH.sites.helipad.east + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * 35, z: 0, yaw: 0, soft: true };
+      if (kind === 'heli' || kind === 'drone') return { e: EARTH.sites.helipad.east + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * 35, z: 0, yaw: 0, soft: true }; // (a drone from the helipad too)
       return null; // rockets share the pad
     }
     if (this.ground) { // a ground battle: the team's pad (gmode.js), the slot by player number among the team
@@ -955,7 +968,7 @@ const MP = {
   // it (we were knocked out at the start), the next of the pad's spots that is clear
   padPlace(arena, team, slot, kind) {
     const first = GroundMode.placement(arena, team, slot, kind);
-    if (!first || first.air || kind === 'heli') return first;
+    if (!first || first.air || kind === 'heli' || kind === 'drone') return first;
     const at = [], now = performance.now();
     for (const w of this.wrecks) if (w.v.body === EARTH && !w.v.dead) at.push(mpEZ(w.v.x, w.v.y, w.v.z, {}));
     for (const [, P] of this.peers) if (P.snap && P.snap.b === EARTH.id && now - (P.recv || 0) < 6000) at.push(mpEZ(P.snap.P[0], P.snap.P[1], P.snap.P[2], {}));
@@ -973,12 +986,7 @@ const MP = {
     if (!v) return;
     this.lastParts = v.parts.length;
     this.sent = { s: 0, pv: 0, hp: 0, hpSig: '' };
-    const ids = new Set(v.parts.map((p) => p.id)); // att: the host's id (ghosts keep ours), 0 for none or a host gone
-    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: v.parts.map((p) => {
-      const r = [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0];
-      if (p.mm != null) r.push(p.mm); // (armour dialled thicker or thinner)
-      return r;
-    }) };
+    this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: this.spawnRows(v) };
     Net.send(this.spawnMsg);
     if (Net.isHost && this.ground) this.priceSpawn(Net.me, mpSpawnRows(this.spawnMsg.parts, this.maxParts()), v.kind);
   },
@@ -996,9 +1004,28 @@ const MP = {
     if (mpAir(kind)) p.sorties = Math.max(0, (p.sorties || 0) - 1);
     return true;
   },
-  resendSpawn(pid) {
-    const v = Flight.active;
-    if (!this.shared || !this.spawnMsg || !v || Flight.destroyed) return;
+  // a craft's parts as spawn rows: [id, type, x, y, rot, flip, z, att (the host's id; ghosts keep ours: 0 for none or a
+  // host gone), skin, mm (armour dialled thicker or thinner, only then)]
+  spawnRows(v) {
+    const ids = new Set(v.parts.map((p) => p.id));
+    return v.parts.map((p) => {
+      const r = [p.id, p.type, +p.x.toFixed(3), +p.y.toFixed(3), p.rot || 0, p.flip ? 1 : 0, +partZ(p).toFixed(3), p.att != null && p.att !== p.id && ids.has(p.att) ? p.att : 0, p.skin || 0];
+      if (p.mm != null) r.push(p.mm);
+      return r;
+    });
+  },
+  // someone asks for our craft's spawn (c: our drone's, our second craft)
+  resendSpawn(pid, c) {
+    if (c) {
+      const E = this.extra.get(c);
+      if (!this.shared || !E || E.v.dead || !E.v.parts.length) return;
+      Net.send(E.msg, pid);
+      Net.send({ t: 'parts', ids: E.v.parts.map((p) => p.id), c }, pid);
+      E.sent.hpSig = ''; E.sent.pvFull = 0;
+      return;
+    }
+    const v = this.main();
+    if (!this.shared || !this.spawnMsg || !v || Flight.destroyed || this.mainDown) return;
     Net.send(this.spawnMsg, pid);
     Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }, pid);
     if (v.radarOff) Net.send({ t: 'rdr', on: 0 }, pid); // (the spawn turned our radar on again on their screen)
@@ -1009,19 +1036,34 @@ const MP = {
   // (the parts the killing hit took, a wing's half, what burns, where it is), the snapshots stopping after it
   afterUpdate(last) {
     if (!this.shared) return;
-    const v = Flight.active, now = performance.now(), S = this.sent;
-    if (!v || !S) return;
-    if ((Flight.destroyed && !last) || !v.parts.length) return;
-    if (v.parts.length !== this.lastParts) { this.lastParts = v.parts.length; Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }); }
-    const ground = this.ground;
+    // (the big update's drones) our main craft (the tank while its drone is flown: inline, as mptrace's stand-in has no
+    // carrier) and our second craft, each with its own clocks; a main craft's down told (announceDown) sends no more
+    // (but its last word: a hulk's fall)
+    const a = Flight.active, main = a && a.carrier ? a.carrier : a, S = this.sent;
+    if (main && S && !((Flight.destroyed && !last) || !main.parts.length) && (!this.mainDown || last)) this.stream(main, S, 0, null, last);
+    if (this.extra.size) for (const [c, E] of this.extra) if (!E.v.dead && E.v.parts.length) this.stream(E.v, E.sent, c, E, false);
+  },
+  // One craft's updates (c: its craft index, 0 the main craft; E its extra's record): the parts it has left on a change,
+  // snapshots (15 a second, a drone's 10), the moving parts' states and the health of its parts. c = 0: exactly as ever
+  // (every object and its order); otherwise `c` goes last on each, and a motor's throttle in tenths.
+  stream(v, S, c, E, last) {
+    const now = performance.now();
+    if (v.parts.length !== (E ? E.lastParts : this.lastParts)) {
+      if (E) E.lastParts = v.parts.length; else this.lastParts = v.parts.length;
+      const m = { t: 'parts', ids: v.parts.map((p) => p.id) };
+      if (c) m.c = c;
+      Net.send(m);
+    }
+    const ground = this.ground && !c; // (gd: the main craft's only)
     if (ground && (v.wheelsDown || v.contactTime > 0)) this.gdAt = now; // (on the ground in the last half second: it may take a zone)
-    if (last || now - S.s >= MP_SNAP_MS) {
+    if (last || now - S.s >= (c ? MP_SNAP_DRONE_MS : MP_SNAP_MS)) {
       S.s = now;
       const r2 = (x) => Math.round(x * 100) / 100, r4 = (x) => Math.round(x * 1e4) / 1e4;
       const snap = { t: 's', th: Math.round(Net.hostNow()), b: v.body.id, P: [r2(v.x), r2(v.y), r2(v.z)], V: [r2(v.vx), r2(v.vy), r2(v.vz)],
         Q: [r4(v.q.w), r4(v.q.x), r4(v.q.y), r4(v.q.z)], W: [r4(v.av.x), r4(v.av.y), r4(v.av.z)], C: [r4(v.com.x), r4(v.com.y), r4(v.com.z || 0)],
         g: v.gearUp ? 1 : 0, l: v.landed ? 1 : 0 };
       if (ground) snap.gd = now - (this.gdAt || -1e9) < 500 ? 1 : 0;
+      if (c) snap.c = c;
       Net.send(snap);
     }
     if (last || now - S.pv >= MP_PV_MS) { // moving parts: only those that changed (all of them every 2 s)
@@ -1032,7 +1074,7 @@ const MP = {
       for (const p of v.parts) {
         const d = p.def;
         if (!(d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract) || d.ring || d.trackRadar || d.cuas || d.dock)) continue; // (a turret ring's yaw rides in aimYaw; the big update's counter-drone kit and bays: their aim, fire, rounds and lids)
-        const row = [p.id, Math.round((p.deflect || 0) * 100) / 100, Math.round((p.firing || 0) * 100) / 100, Math.round((p.ab || 0) * 100) / 100,
+        const row = [p.id, Math.round((p.deflect || 0) * 100) / 100, c ? Math.round((p.firing || 0) * 10) / 10 : Math.round((p.firing || 0) * 100) / 100, Math.round((p.ab || 0) * 100) / 100,
           p.retracted ? 1 : 0, p.sweep != null ? Math.round(p.sweep * 100) / 100 : null, Math.round((p.aimYaw || 0) * 100) / 100, Math.round((p.aimEl || 0) * 100) / 100,
           p.ammo == null ? null : p.ammo, Math.round((p.deployed || 0) * 100) / 100, p.used ? 1 : 0, p.gunOn ? 1 : 0];
         if (p.cut) row.push(p.cut); // (a 13th column: a main wing with half shot off, 1 its +z half gone, -1 its -z half; intact craft never send it)
@@ -1041,16 +1083,70 @@ const MP = {
         S.pvSig.set(p.id, sig);
         list.push(row);
       }
-      if (list.length) Net.send({ t: 'pv', list });
+      if (list.length) Net.send(c ? { t: 'pv', list, c } : { t: 'pv', list });
     }
-    if (v.radarOff && !last && now - (S.rdr || 0) >= 5000) this.sendRadar(false); // (our radar off: said again every 5 s, for those who joined since; nothing while it is on)
+    if (!c && v.radarOff && !last && now - (S.rdr || 0) >= 5000) this.sendRadar(false); // (our radar off: said again every 5 s, for those who joined since; nothing while it is on; the main craft's only)
     if (last || now - S.hp >= MP_HP_MS) {
       S.hp = now;
       const list = [];
       for (const p of v.parts) if (p.hp != null) list.push(p.burn > 0 ? [p.id, Math.round(Combat.hpFrac(p) * 100), 1] : [p.id, Math.round(Combat.hpFrac(p) * 100)]); // (a 3rd column while it burns: the others draw its fire)
       const sig = list.join(';');
-      if (sig !== S.hpSig) { S.hpSig = sig; Net.send({ t: 'hp', list }); }
+      if (sig !== S.hpSig) { S.hpSig = sig; Net.send(c ? { t: 'hp', list, c } : { t: 'hp', list }); }
     }
+  },
+  // our main craft: the tank while its drone is flown, else the craft we fly (or nothing)
+  main() { const a = Flight.active; return a && a.carrier ? a.carrier : a; },
+  // a craft of ours by its index: 0 the main one, 1-3 our drone up (its `tc`, a missile after it); anything else the main
+  mine(c) {
+    if (Number.isInteger(c) && c >= 1 && c <= 3) { const E = this.extra.get(c); return E && !E.v.dead ? E.v : null; }
+    return this.main();
+  },
+  // (the big update's drones) Our drone from a tank's bay goes up in the room as our second craft: its spawn with the
+  // next craft index (c, 1 -> 2 -> 3), streamed beside the tank (stream) until it docks or is lost (dropExtra). One at a
+  // time: an older one still listed goes first. Never in a test flight.
+  sendExtra(v) {
+    if (!this.shared || !v) return false;
+    this.dropExtras(true);
+    const c = this.nextC;
+    this.nextC = (c % 3) + 1;
+    const msg = { t: 'spawn', name: v.name, kind: 'drone', parts: this.spawnRows(v), c };
+    v.craft = c;
+    this.extra.set(c, { v, c, msg, sent: { s: 0, pv: 0, hp: 0, hpSig: '' }, lastParts: v.parts.length });
+    Net.send(msg);
+    return true;
+  },
+  // Our second craft leaves the room: docked ('despawn'), or lost ('down': shot down, its warhead gone off, crashed, its
+  // battery flat or nobody's), by: who did it (a peer's craft or their stand-in: credited by their pid; anything else
+  // none). A drone shot down in the air falls on every screen (fall, the damage model's rule: its last updates first);
+  // x: its warhead burst. Nothing is booked: no death, kill or ticket. Once per drone.
+  dropExtra(v, how, by) {
+    const c = v && v.craft, E = c ? this.extra.get(c) : null;
+    if (!E || E.v !== v) return false;
+    this.extra.delete(c);
+    if (!this.shared) return true;
+    if (how !== 'down') { Net.send({ t: 'despawn', c }); return true; }
+    const pid = this.pidOf(by), P = v.toWorld(v.com.x, v.com.y, v.com.z || 0);
+    const msg = { t: 'down', by: pid && pid !== Net.me ? pid : 0, P: [P.x, P.y, P.z] };
+    if (v.dl && v.dl.boom) msg.x = 1;
+    const fall = !!v.down && !v.dead && v.parts.length > 0 && !v.landed && v.groundAltitude() > 10;
+    if (!fall) { msg.c = c; Net.send(msg); return true; }
+    Promise.resolve().then(() => { // (as our main craft's last word: what the hit took, then where it goes)
+      try {
+        if (this.shared && !v.dead && v.parts.length && !v.landed) {
+          this.stream(v, E.sent, c, E, true);
+          const r1 = (x) => Math.round(x * 10) / 10;
+          msg.fall = [r1(v.vx), r1(v.vy), r1(v.vz)];
+        }
+      } finally { msg.c = c; Net.send(msg); }
+    });
+    return true;
+  },
+  // every second craft of ours gone from the room (a new flight, back to the hangar, a respawn): despawn {c} while we
+  // fly; keepDown: our main craft's down stays told (sendExtra's one-at-a-time)
+  dropExtras(keepDown) {
+    if (this.extra.size) for (const [c] of this.extra) if (this.shared) Net.send({ t: 'despawn', c });
+    this.extra.clear();
+    if (!keepDown) this.mainDown = false;
   },
   // our craft is gone (Flight.onDestroyed): tell everyone, and who did it
   onLocalDestroyed() {
@@ -1064,7 +1160,39 @@ const MP = {
       return true;
     }
     if (!this.shared) return false;
-    const v = Flight.active, s = this.state, battle = this.ground && s.phase === 'battle';
+    const s = this.state, battle = this.ground && s.phase === 'battle';
+    // (the big update's drones) a tank knocked out under its flown drone was told at once (Drone.lastFlight:
+    // announceDown); its LAST FLIGHT over, only the timers are left. (mptrace's stand-in never sets mainDown.)
+    const by = this.mainDown && !!Flight.carrierDown && Flight.active === Flight.carrierDown ? this.downBy || 0 : this.announceDown(Flight.active);
+    // (each end screen waits for the fall and the crash: Flight.afterFall; the delays as ever)
+    if (battle) { // knocked out: the Respawn panel
+      Flight.ended = false;
+      setTimeout(this.afterFall(() => {
+        if (!this.live || !this.ground || this.phase !== 'battle' || !Flight.destroyed) return;
+        const me = this.me;
+        if (me && me.alive) MPUI.respawnPanel(by);
+        else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${MPUI.switchWord()} to switch)`, 'warn'); }
+      }), 1800);
+      return true;
+    }
+    if (!this.pvp) { // sandbox: back to the hangar or fly again
+      setTimeout(this.afterFall(() => {
+        if (!this.live || App.scene !== 'flight' || !Flight.destroyed) return;
+        UI.modal({ kicker: by ? `Shot down by ${this.nameOf(by)}` : 'Crashed', title: 'Craft lost', body: Flight.summaryHTML(),
+          actions: [{ label: 'Back to hangar', onClick: () => { this.leaveFlight(); App.toBuild(); } }, { label: 'Fly again', primary: true, onClick: () => this.startFlight(false) }] });
+      }), 1600);
+      return true;
+    }
+    // a battle: watch the others until it's over
+    Flight.ended = false;
+    setTimeout(this.afterFall(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${MPUI.switchWord()} to switch)`, 'warn'); } }), 1800);
+    return true;
+  },
+  // Our main craft's down, told to the room (onLocalDestroyed; the big update's drones: at once, by Drone.lastFlight,
+  // when a tank is knocked out under its flown drone): who did it, the wreck it leaves or its fall, the host's
+  // book-keeping. The `by` it told (kept in downBy for the end screen's words).
+  announceDown(v) {
+    const s = this.state, battle = this.ground && s.phase === 'battle';
     // who did it: whoever crippled it (doomBy, death.js: an aircraft shot apart, however long it then fell or burned),
     // else the last hit within 20 s. (mptrace's stand-in craft has no doomBy, down or ko: every new read stops there.)
     const src = this.pidOf(v.doomBy) ? v.doomBy : this.pidOf(v.lastHitBy) && Flight.time - (v.lastHitAt || -99) < 20 ? v.lastHitBy : null;
@@ -1094,29 +1222,8 @@ const MP = {
     if (fall) Promise.resolve().then(() => this.lastWord(v, msg));
     else Net.send(msg);
     if (Net.isHost) this.recordDown(Net.me, by);
-    // (each end screen waits for the fall and the crash: Flight.afterFall; the delays as ever)
-    if (battle) { // knocked out: the Respawn panel
-      Flight.ended = false;
-      setTimeout(this.afterFall(() => {
-        if (!this.live || !this.ground || this.phase !== 'battle' || !Flight.destroyed) return;
-        const me = this.me;
-        if (me && me.alive) MPUI.respawnPanel(by);
-        else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${MPUI.switchWord()} to switch)`, 'warn'); }
-      }), 1800);
-      return true;
-    }
-    if (!this.pvp) { // sandbox: back to the hangar or fly again
-      setTimeout(this.afterFall(() => {
-        if (!this.live || App.scene !== 'flight' || !Flight.destroyed) return;
-        UI.modal({ kicker: by ? `Shot down by ${this.nameOf(by)}` : 'Crashed', title: 'Craft lost', body: Flight.summaryHTML(),
-          actions: [{ label: 'Back to hangar', onClick: () => { this.leaveFlight(); App.toBuild(); } }, { label: 'Fly again', primary: true, onClick: () => this.startFlight(false) }] });
-      }), 1600);
-      return true;
-    }
-    // a battle: watch the others until it's over
-    Flight.ended = false;
-    setTimeout(this.afterFall(() => { if (this.live && Flight.destroyed) { MPUI.spectate(1); UI.toast(`${by ? `Shot down by ${this.nameOf(by)}` : 'You crashed'}. Spectating (${MPUI.switchWord()} to switch)`, 'warn'); } }), 1800);
-    return true;
+    this.mainDown = true; this.downBy = by;
+    return by;
   },
   // our hulk's down with its fall (onLocalDestroyed), sent once whatever happens
   lastWord(v, msg) {
@@ -1145,7 +1252,7 @@ const MP = {
     const k = by && by !== pid ? this.player(by) : null;
     if (ground) { // the team pays for it in tickets, priced from its spawn rows here (x1.5 for an aircraft); back in 5 s
       const kind = this.battleKind.get(pid) || p.kind;
-      GroundMode.death(s.obj, p.team, this.battleCost.get(pid) || 0, mpAir(kind));
+      GroundMode.death(s.obj, p.team, this.battleCost.get(pid) || 0, kind === 'drone' ? 'drone' : mpAir(kind)); // (a drone flown alone: 10 + cost / 2,500)
       if (mpAir(kind)) p.sortieEnd = Net.hostNow();
       if (k && k.team !== p.team) { k.score = (k.score || 0) + 3; k.sorties = (k.sorties || 0) + 1; }
       p.respawnAt = Net.hostNow() + 5000;
@@ -1163,7 +1270,11 @@ const MP = {
     if (!P) { P = { ghost: null, snap: null, gun: {}, design: null }; this.peers.set(pid, P); }
     return P;
   },
+  // a player's second craft (the big update's drones: c, its index): its record in P.x (c -> { c, design, ghost, snap,
+  // recv, asked, gun }), its ghost (main ghost P.ghost: c 0)
+  ghostOf(pid, c) { const P = this.peers.get(pid); return !P ? null : c ? ((P.x && P.x.get(c)) || {}).ghost || null : P.ghost; },
   onSpawn(m) {
+    if (m.c !== undefined) return this.onExtraSpawn(m); // (a second craft: a drone from their tank's bay)
     const parts = mpSpawnRows(m.parts, this.maxParts());
     if (!parts) return;
     const P = this.peer(m.f);
@@ -1178,26 +1289,38 @@ const MP = {
       if (p && (!p.flying || priced)) { p.flying = true; this.push(); }
     }
   },
-  buildGhost(pid) {
-    const P = this.peers.get(pid);
-    if (!P || !P.design || P.ghost) return;
-    const v = this.vesselOf(P.design.parts, P.design.kind, pid);
+  // A peer's drone from their tank's bay (spawn with c), their second craft: taken only as a drone (40 parts at most) that
+  // fits one of the bays of the craft they fight in (their own main design: Drone.fits, so a forged one can't put a
+  // fighter in the air beside their tank). It replaces any other of theirs; nothing is priced, booked or counted.
+  onExtraSpawn(m) {
+    const c = mpC(m);
+    if (c <= 0 || m.kind !== 'drone' || typeof Drone === 'undefined') return;
+    const rows = mpSpawnRows(m.parts, DRONE.MAX_PARTS), P = this.peers.get(m.f);
+    if (!rows || !rows.length || !P || !P.design || !Array.isArray(P.design.parts)) return;
+    const parts = this.partsOfRows(rows), D = parts.length ? { kind: 'drone', parts } : null;
+    if (!D || !P.design.parts.some((r) => hasOwn(PARTS, r[1]) && PARTS[r[1]].dock && Drone.fits(D, PARTS[r[1]].dock).ok)) return;
+    this.dropExtraGhost(m.f, 0); // (one at a time: an older one, and this one's old ghost, go)
+    if (!P.x) P.x = new Map();
+    const E = { c, design: { kind: 'drone', parts: rows }, ghost: null, snap: null, recv: performance.now(), asked: 0, gun: {} }; // (recv: silent 15 s from its spawn, it goes)
+    P.x.set(c, E);
+    if (Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f, E);
+  },
+  // R: a record with a design and a snapshot (the peer's own for their main craft; E for their drone)
+  buildGhost(pid, E) {
+    const R = E || this.peers.get(pid);
+    if (!R || !R.design || R.ghost) return;
+    const v = this.vesselOf(R.design.parts, R.design.kind, pid);
     if (!v) return;
     v.sas = 'off';
     for (const p of v.parts) if (p.def.weapon) p.ammo = p.def.weapon.ammo; // (kept in step by the owner's part states)
     v.hiddenUntilSnap = true;
-    P.ghost = v;
-    if (P.snap) this.poseGhost(P, 0, true);
+    if (E) { v.craft = E.c; v.name = `${this.nameOf(pid)}'s drone`; } // (text only: never innerHTML)
+    R.ghost = v;
+    if (R.snap) this.poseGhost(R, 0, true);
   },
   // A player's craft (remote: pid) from clean spawn rows (mpSpawnRows), in depth and along att (the owner's own joints)
   vesselOf(rows, kind, pid) {
-    const parts = [];
-    for (const [id, type, x, y, rot, flip, z, att, skin, mm] of rows) { // (clean: see mpSpawnRows)
-      const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
-      p.id = id; p.att = att || null;
-      if (mm != null) p.mm = mm;
-      parts.push(p);
-    }
+    const parts = this.partsOfRows(rows);
     if (!parts.length) return null;
     const v = new Vessel(parts, buildAdjacency(parts), EARTH);
     v.kind = hasOwn(VEHICLE_KINDS, kind) ? kind : 'plane';
@@ -1206,7 +1329,30 @@ const MP = {
     v.rebuildGroups();
     return v;
   },
-  // Take a player's craft out of our world (it comes back from their design and snapshots when we fly again).
+  // parts from clean spawn rows (mpSpawnRows), with the owner's ids and joints
+  partsOfRows(rows) {
+    const parts = [];
+    for (const [id, type, x, y, rot, flip, z, att, skin, mm] of rows) { // (clean: see mpSpawnRows)
+      const p = makePart(type, x, y, { flip: !!flip, rot, z, skin: skin || null });
+      p.id = id; p.att = att || null;
+      if (mm != null) p.mm = mm;
+      parts.push(p);
+    }
+    return parts;
+  },
+  // A player's second craft out of our world: c (0: every one of theirs), its record too (docked, down, gone silent,
+  // the player gone)
+  dropExtraGhost(pid, c) {
+    const P = this.peers.get(pid);
+    if (!P || !P.x) return;
+    for (const [k, E] of [...P.x]) {
+      if (c && k !== c) continue;
+      if (E.ghost) { E.ghost.dead = true; if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => v !== E.ghost); E.ghost = null; }
+      P.x.delete(k);
+    }
+  },
+  // Take a player's craft out of our world (it comes back from their design and snapshots when we fly again). Their
+  // main craft's (their drone's: dropExtraGhost; it flies on while the tank it came from is knocked out)
   dropGhost(pid, boom) {
     const P = this.peers.get(pid);
     if (!P) return;
@@ -1220,12 +1366,29 @@ const MP = {
     P.gun = {};
   },
   dropAllGhosts() {
-    for (const pid of [...this.peers.keys()]) this.dropGhost(pid, false);
+    for (const pid of [...this.peers.keys()]) {
+      this.dropGhost(pid, false);
+      const P = this.peers.get(pid);
+      if (P && P.x) for (const E of P.x.values()) if (E.ghost) { E.ghost.dead = true; E.ghost = null; } // (their drones come back from their designs and snapshots too)
+    }
     if (Flight.vessels) Flight.vessels = Flight.vessels.filter((v) => !v.remote);
   },
   onSnap(m) {
     if (!mpNums(m.P, 3) || !mpNums(m.V, 3) || !mpNums(m.Q, 4) || !mpNums(m.W, 3) || !(mpNums(m.C, 3) || mpNums(m.C, 2)) || !Number.isFinite(m.th) || !mpBody(m.b)) return;
     if (!(Math.hypot(...m.Q) > 0.5)) return;
+    const c = mpC(m);
+    if (c) { // (their drone's: its own record; missed its spawn, ask for it, every 3 s at most)
+      if (c < 0) return;
+      const P = this.peer(m.f), E = P.x && P.x.get(c), now = performance.now();
+      if (!E) {
+        const A = P.xAsked || (P.xAsked = {});
+        if (this.shared && now - (A[c] ?? -1e9) > 3000) { A[c] = now; Net.send({ t: 'want', c }, m.f); }
+        return;
+      }
+      E.snap = m; E.recv = now;
+      if (!E.ghost && Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f, E);
+      return;
+    }
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
     if (!P.design && this.shared && P.recv - (P.asked || 0) > 3000) { P.asked = P.recv; Net.send({ t: 'want' }, m.f); }
@@ -1263,6 +1426,7 @@ const MP = {
     if (!this.shared) return;
     const list = Flight.vessels;
     for (const [pid, P] of this.peers) {
+      if (P.x && P.x.size) this.extrasUpdate(pid, P, dt, list); // (their drone: it flies on whatever became of their tank)
       try {
         if (!P.ghost && P.design && P.snap) this.buildGhost(pid);
         const g = P.ghost;
@@ -1289,6 +1453,23 @@ const MP = {
       }
     }
   },
+  // (the big update's drones) a peer's second craft each frame: built once its spawn and a snapshot are in, posed, listed;
+  // silent 6 s it stays where it was, 15 s it is gone
+  extrasUpdate(pid, P, dt, list) {
+    const now = performance.now();
+    for (const [c, E] of [...P.x]) {
+      try {
+        if (now - (E.recv || 0) > 15000) { this.dropExtraGhost(pid, c); continue; }
+        if (!E.ghost && E.design && E.snap) this.buildGhost(pid, E);
+        const g = E.ghost;
+        if (!g) continue;
+        if (now - (E.recv || 0) > 6000) { g.vx = g.vy = g.vz = 0; continue; }
+        this.poseGhost(E, dt, false);
+        if (!g.dead && g.parts.length && !list.includes(g)) list.push(g);
+        if (g._ease) this.easeTurrets(g, dt);
+      } catch (e) { console.error(e); this.dropExtraGhost(pid, c); }
+    }
+  },
   // A ghost's turrets and guns (the ground update's parts) ease toward the angles in its part states, so they don't
   // step five times a second; the renderer and our hit tests both see the eased pose
   easeTurrets(g, dt) {
@@ -1299,7 +1480,7 @@ const MP = {
     }
   },
   onPartVis(m) {
-    const P = this.peers.get(m.f), g = P && P.ghost;
+    const c = mpC(m), g = c < 0 ? null : this.ghostOf(m.f, c); // (c: their drone's)
     if (!g || !Array.isArray(m.list)) return;
     const by = new Map(g.parts.map((p) => [p.id, p]));
     let cuts = null; // (half wings this message cuts: all at once, after the rows)
@@ -1344,7 +1525,7 @@ const MP = {
     this.lostByMe(g, 'WING OFF');
   },
   onParts(m) {
-    const P = this.peers.get(m.f), g = P && P.ghost;
+    const c = mpC(m), g = c < 0 ? null : this.ghostOf(m.f, c); // (c: their drone's; never their main craft's)
     if (!g || !Array.isArray(m.ids)) return;
     const keep = new Set(m.ids);
     const gone = g.parts.filter((p) => !keep.has(p.id));
@@ -1371,7 +1552,7 @@ const MP = {
     }
   },
   onHp(m) {
-    const P = this.peers.get(m.f), g = P && P.ghost;
+    const c = mpC(m), g = c < 0 ? null : this.ghostOf(m.f, c);
     if (!g || !Array.isArray(m.list)) return;
     const by = new Map(g.parts.map((p) => [p.id, p])), air = isAirKind(g.kind);
     let lit = false;
@@ -1435,6 +1616,7 @@ const MP = {
     return v;
   },
   onDown(m) {
+    if (m.c !== undefined) return this.onExtraDown(m); // (their drone: nothing booked)
     const P = this.peers.get(m.f), ground = this.ground, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null; // (a down with no place: no blast, the rest as ever)
     const g = P && P.ghost, kind = (P && P.design && P.design.kind) || (g && g.kind);
     // a knocked-out ground vehicle (w) stays as a wreck, on every screen, in every mode; an ammunition detonation (x)
@@ -1475,6 +1657,28 @@ const MP = {
       if (ground) Armour.fb.ko = { text: m.x === 1 ? 'Ammo detonation!' : ko ? 'Knocked out!' : 'Shot down!', t: Flight.time || 0 }; // (the ground HUD's banner)
     }
     if (Net.isHost) this.recordDown(m.f, m.by);
+  },
+  // A peer's drone down (down with c): shot down in the air, it falls here too (toFall, its own record: a hulk of our
+  // physics, no longer theirs); else a small blast where it went (a warhead's, x: bigger), and it goes. Their tank and
+  // the battle are untouched: no death, kill, ticket or feed, P.design kept. Ours to shoot down: the toast, the chime and
+  // the SHOT DOWN banner (no kill counted).
+  onExtraDown(m) {
+    const c = mpC(m), P = this.peers.get(m.f), E = c > 0 && P && P.x ? P.x.get(c) : null;
+    if (!E) return;
+    const g = E.ghost, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null;
+    const fall = mpNums(m.fall, 3) && Math.hypot(m.fall[0], m.fall[1], m.fall[2]) <= 2000 && g && Flight.running && !g.dead && g.parts.length && !g.hiddenUntilSnap ? g : null;
+    if (fall) { this.toFall(m.f, g, m, at, E); P.x.delete(c); }
+    else {
+      if (g && Flight.running && at && !g.hiddenUntilSnap) {
+        FX.explosion(g.body, at, { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 }, m.x === 1 ? 3 : 1.2, airDensity(g.body, g.altitude()) > 0.01);
+        if (typeof Flight.dist === 'function' && Flight.dist(Flight.absPos(g), Flight.camAbs) < 1500) Sound.explode();
+      }
+      this.dropExtraGhost(m.f, c);
+    }
+    if (m.by === Net.me) {
+      UI.toast(`${this.nameOf(m.f)}'s drone down!`, 'kill'); Sound.chime();
+      if (typeof Death !== 'undefined') Death.feedback('SHOT DOWN', Flight);
+    }
   },
   // How high a point (body coordinates) is over the ground or the water under it (m)
   aglAt(b, at) { const L = Terrain.locate(b, at.x, at.y, at.z, {}); return Math.hypot(at.x, at.y, at.z) - b.radius - Terrain.surfaceAt(b, L.a, L.z); },
@@ -1538,21 +1742,33 @@ const MP = {
   onHit(m) {
     if (!this.shared || m.to !== Net.me) return;
     const v = Flight.active, P = this.peers.get(m.f);
-    if (!v || Flight.destroyed || !this.hostile(m.f, Net.me)) return;
+    if (!v || (Flight.destroyed && !this.extra.size) || !this.hostile(m.f, Net.me)) return; // (our drone still flies after our craft is lost: it can still be hit)
     const by = (P && P.ghost) || { remote: m.f, name: this.nameOf(m.f) };
     const list = Array.isArray(m.list) ? m.list.slice(0, 64) : [[m.part, m.dmg]];
     // a part may have broken off into a piece of debris since: look in every craft of ours
     const mine = Flight.vessels.filter((x) => !x.remote && !x.ai && !x.wreck && !x.foreign); // (not our old hulk, nor pieces of someone else's)
-    v.lastHitBy = by; v.lastHitAt = Flight.time; // first: the hit may be the one that brings us down
+    // first: the hit may be the one that brings us down. (A drone from a bay that we fly: the craft each row hits, below.)
+    if (!v.carrier) { v.lastHitBy = by; v.lastHitAt = Flight.time; }
     const find = (id) => { for (const x of mine) { const part = x.parts.find((p) => p.id === id); if (part) return [part, x]; } return [null, null]; };
+    // (the big update's drones) the hit on our drone or on the tank it came from: each of them knows who hit it, and a
+    // hit on our tank while we fly its drone raises the alarm. Old craft (no bays, not a drone) get nothing new.
+    let carrierHit = false;
+    if (v.carrier || v.kind === 'drone' || (v.docks && v.docks.length) || this.extra.size) for (const row of list) {
+      const owner = Array.isArray(row) ? find(row[0])[1] : null;
+      if (!owner || owner === v || !(owner.kind === 'drone' || (owner.docks && owner.docks.length))) continue;
+      owner.lastHitBy = by; owner.lastHitAt = Flight.time;
+      if (owner === v.carrier) carrierHit = true;
+    }
+    if (carrierHit && typeof Drone !== 'undefined' && Drone.alarm) Drone.alarm(Flight);
     if (m.h === 1) Armour.hot = true; // (a shaped charge, APHE or HE: our ammunition cooks off more easily)
-    let first = true;
+    let first = true, hitV = false;
     Combat.holdRips(); // (the ground update's kit it strips goes in one piece: Combat.flushRips)
     try {
       for (const row of list) {
         if (!Array.isArray(row)) continue;
         const [id, dmg, side] = row, [part, owner] = find(id);
         if (!part || !(dmg > 0)) continue;
+        if (owner === v) hitV = true;
         if (first) { first = false; const zs = partZs(part); for (const z of zs) FX.sparks(owner.body, owner.toWorld(part.x, part.y, z), { x: owner.vx, y: owner.vy, z: owner.vz }, 4 / zs.length); Sound.hit(); }
         Combat.damage(owner, part, Math.min(dmg, 5000), m.k === 'blast' ? 'blast' : 'shot', Flight, by, side === 1 || side === -1 ? side : undefined); // (side: the wing half the shooter saw hit)
       }
@@ -1562,11 +1778,12 @@ const MP = {
         if (!Array.isArray(row)) continue;
         const [id, i, dmg] = row, [part, owner] = find(id);
         if (!part || !part.def.mods || !Number.isInteger(i) || i < 0 || i >= part.def.mods.length || !Number.isFinite(dmg) || !(dmg > 0)) continue;
+        if (owner === v) hitV = true;
         Armour.modDamage(owner, part, i, Math.min(dmg, 2000), Flight, by, m.h === 1);
       }
     } finally { Combat.flushRips(); }
     if (m.h === 1) Armour.hot = false;
-    if (v.gv && !v.dead) {
+    if (v.gv && !v.dead && (hitV || !this.extra.size)) { // (with our drone up, only a hit on the craft we are in)
       let d = Array.isArray(m.d) && m.d.length === 3 && m.d.every(Number.isFinite) ? { x: m.d[0], y: m.d[1], z: m.d[2] } : null, l = d ? Math.hypot(d.x, d.y, d.z) : 0;
       if (!(l >= 0.1 && l <= 10) && by.parts) { d = { x: by.x - v.x, y: by.y - v.y, z: by.z - v.z }; l = Math.hypot(d.x, d.y, d.z); }
       if (l > 0 && Number.isFinite(l)) Armour.hurt(v, { x: d.x / l, y: d.y / l, z: d.z / l }, m.k === 'pen' ? 'pen' : 'np', Flight);
@@ -1591,12 +1808,15 @@ const MP = {
     const id = this.nextMissile++, gr = w.seek === 'ground' || w.seek === 'saclos' || w.seek === 'top', quiet = gr && w.seek !== 'ground';
     this.missiles.set(s, { id, at: 0, quiet });
     const tgt = s.target && s.target.remote && !quiet ? s.target.remote : 0;
-    Net.send({ t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: gr ? 1 : 0 });
+    const m = { t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: gr ? 1 : 0 };
+    if (tgt && s.target.craft) m.tc = s.target.craft; // (the big update's drones: after their drone, not their main craft)
+    if (s.owner && s.owner.craft && !s.owner.remote) m.c = s.owner.craft; // (fired by our drone)
+    Net.send(m);
   },
   onMissile(m) {
-    const P = this.peers.get(m.f);
-    if (!P || !P.ghost || !Flight.running) return;
-    Combat.netMissile(P.ghost, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? Flight.active : null);
+    const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; // (c: their drone fired it)
+    if (!P || !g || !Flight.running) return;
+    Combat.netMissile(g, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? this.mine(m.tc) : null); // (tc: after our drone)
   },
   // each frame: where our missiles are (10 Hz), and which have gone
   syncMissiles() {
@@ -1609,6 +1829,7 @@ const MP = {
       const r = (x) => Math.round(x * 10) / 10;
       const m = { t: 'mp', id: M.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], tg: !M.quiet && s.target && s.target.remote ? s.target.remote : 0 };
       if (s.pit) m.a = 1; // (an active radar missile on its own seeker now: the target's warning says MISSILE ACTIVE; absent otherwise)
+      if (m.tg && s.target.craft) m.tc = s.target.craft; // (after their drone)
       Net.send(m);
     }
   },
@@ -1616,11 +1837,14 @@ const MP = {
     if (!this.shared) return;
     const m = { t: 'shot', k: s.k, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx || 0, s.dy || 0, s.dz || 0], burn: s.burn || 0, accel: s.accel || 0, small: s.small ? 1 : 0, torpedo: s.torpedo ? 1 : 0 };
     if (s.k === 'shell') m.sh = s.sh; // (which round: SHELLS)
+    if (s.owner && s.owner.craft && !s.owner.remote) m.c = s.owner.craft; // (the big update: from our drone)
     Net.send(m);
   },
   sendGun(key, on) { if (this.shared) Net.send({ t: 'gun', k: key, on: on ? 1 : 0 }); },
-  sendSmoke(v, c) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', smoke: 1, P: [c.x, c.y, c.z], D: [c.dx || 0, c.dy || 0, c.dz || 0] }); }, // (a smoke grenade's cloud: Aim.netSmoke)
-  sendFlares(v, f) { if (this.shared && v === Flight.active) Net.send({ t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }); }, // (chaff 2: a dispenser's bundle)
+  // (the big update's drones: from our tank while we fly its drone, or from our drone, c last)
+  ourCm(v) { return v === Flight.active || (!!v && (v === (Flight.active && Flight.active.carrier) || (!!v.craft && !v.remote && this.extra.has(v.craft)))); },
+  sendSmoke(v, c) { if (this.shared && this.ourCm(v)) { const m = { t: 'cm', smoke: 1, P: [c.x, c.y, c.z], D: [c.dx || 0, c.dy || 0, c.dz || 0] }; if (v && v.craft && !v.remote) m.c = v.craft; Net.send(m); } }, // (a smoke grenade's cloud: Aim.netSmoke)
+  sendFlares(v, f) { if (this.shared && this.ourCm(v)) { const m = { t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }; if (v && v.craft && !v.remote) m.c = v.craft; Net.send(m); } }, // (chaff 2: a dispenser's bundle)
   // our radar on or off (radar.js toggle; every 5 s while off, from afterUpdate): their advanced warning receivers hear
   // the search of a radar that is on (the main craft's only)
   sendRadar(on) {
@@ -1638,6 +1862,13 @@ const MP = {
     const out = [];
     if (!this.shared) return out;
     for (const [pid, P] of this.peers) if (P.ghost && !P.ghost.dead && P.ghost.parts.length && this.enemy(Net.me, pid)) out.push(P.ghost);
+    for (const [pid, P] of this.peers) if (P.x && P.x.size && this.enemy(Net.me, pid)) for (const E of P.x.values()) { const g = E.ghost; if (g && !g.dead && g.parts.length) out.push(g); } // (their drones: seekers, turrets, counter-drone kit and warning receivers see them too)
+    return out;
+  },
+  // the other players' second craft (their drones from a bay), alive
+  extraGhosts() {
+    const out = [];
+    for (const [, P] of this.peers) if (P.x) for (const E of P.x.values()) { const g = E.ghost; if (g && !g.dead && g.parts.length) out.push(g); }
     return out;
   },
   // the colour another player's craft has on the map and globe: team mates, everyone in the sandbox; enemies hidden
@@ -1715,6 +1946,10 @@ const MP = {
   // spots enemy aircraft for its team), else Aim.sees within 1.5 km (+25% with a commander) or 3 km between the ground
   // and the air
   sees(me, g, d) {
+    // (the big update's drones, first) a drone we fly sees by its camera (a gimbal 3 km, an FPV camera 1.5 km, none
+    // 600 m); a drone is seen as our sensors and eyes mark it (Drone.marked: 400 m by eye, a detector, a Drone Radar)
+    if (me.kind === 'drone' && typeof Drone !== 'undefined') return d < (Drone.spotR(me) || 600) && Aim.sees(me, g, Aim.eyes(me));
+    if (g.kind === 'drone' && typeof Drone !== 'undefined') return Drone.marked(me, g) > 0;
     const airMe = mpAir(me.kind), airG = mpAir(g.kind);
     if (airMe && airG) return d < 6000 * (1 - 0.5 * Combat.stealthOf(g)) || (me === Flight.active && typeof Radar !== 'undefined' && Radar.has(g)); // (and further on our radar: air contacts only, a mast's ground ones stay ours)
     const reach = airMe !== airG ? 3000 : me.gv && Armour.has(me, 'commander') ? 1875 : 1500;
@@ -1734,7 +1969,7 @@ const MP = {
       if (ids.length >= 6) break;
     }
     if (ids.length) this.sendSeen(ids, 0);
-    const n = v.gv ? mpTroops(v) : 0;
+    const M = v.carrier || v, n = M.gv ? mpTroops(M) : 0; // (a drone we fly from a tank spots for the team; the troops are the tank's)
     if (n !== this.troopsSent) { this.troopsSent = n; this.setMine('troops', n); }
     // out of the battle area: a warning only, every 5 s while out (aircraft fly where they like)
     const A = EARTH.arenas && EARTH.arenas[this.state.settings.arena], B = A && A.box, q = mpEZ(v.x, v.y, v.z, this.repQ || (this.repQ = {}));

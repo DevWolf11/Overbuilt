@@ -655,6 +655,7 @@ const GHUD = (() => {
       let k;
       if (o === v) k = 0;
       else if (o.wreck || o.ko) k = 3;
+      else if (o.remote && o.craft) { const en = foe(o); if (en && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; k = en ? 2 : 1; const p = eZ(o); out.push([p.e, p.z, k, 1]); continue; } // (the big update: a player's drone, as our sensors mark it: a small diamond)
       else if (o.remote) { const en = foe(o); if (en && !(typeof MP.spotted === 'function' ? MP.spotted(o.remote) : typeof MPUI !== 'undefined' && MPUI.spotted(o, v, F))) continue; k = en ? 2 : 1; }
       else if (o.ai) {
         const en = !friendAI(o), d = Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z);
@@ -705,7 +706,10 @@ const GHUD = (() => {
     g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.arc(X(me.e), Y(me.z), 22 * dpr, -yaw - 0.35, -yaw + 0.35); g.closePath(); g.fill();
     for (const u of U) {
       g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.6)';
-      g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 3.2 : 2.6) * dpr, 0, TAU); g.fill();
+      g.beginPath();
+      if (u[3]) { const x = X(u[0]), y = Y(u[1]), r = 2.6 * dpr; g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); } // (a drone)
+      else g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 3.2 : 2.6) * dpr, 0, TAU);
+      g.fill();
     }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 1.5 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 5 * dpr, 0, TAU); g.stroke(); }
     for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.beginPath(); g.arc(X(p.e), Y(p.z), 4 * dpr, 0, TAU); g.stroke(); }
@@ -779,7 +783,12 @@ const GHUD = (() => {
     const me = eZ(v);
     g.fillStyle = 'rgba(255, 255, 255, 0.2)';
     g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.arc(X(me.e), Y(me.z), 60 * dpr, -F.aimYaw - 0.3, -F.aimYaw + 0.3); g.closePath(); g.fill();
-    for (const u of U) { g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU); g.fill(); }
+    for (const u of U) {
+      g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath();
+      if (u[3]) { const x = X(u[0]), y = Y(u[1]), r = 4 * dpr; g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); } // (a drone)
+      else g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU);
+      g.fill();
+    }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 10 * dpr, 0, TAU); g.moveTo(X(p.e) - 14 * dpr, Y(p.z)); g.lineTo(X(p.e) + 14 * dpr, Y(p.z)); g.moveTo(X(p.e), Y(p.z) - 14 * dpr); g.lineTo(X(p.e), Y(p.z) + 14 * dpr); g.stroke(); }
     for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 8 * dpr, 0, TAU); g.stroke(); }
     tacInfo(F, v);

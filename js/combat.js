@@ -699,17 +699,20 @@ const Combat = (() => {
   // The other players' guns and turrets: rounds for show (what they hit is for their owners to say).
   function netGuns(h, F) {
     for (const [, P] of MP.peers) {
-      const g = P.ghost;
-      if (!g || g.dead || !g.parts.length || g.hiddenUntilSnap) continue;
-      const foe = typeof Net !== 'undefined' && MP.enemy(Net.me, g.remote);
-      for (const p of g.parts) {
-        if (p.def.cuas && p.gunOn) { Drone.netFire(g, p, h, F); continue; } // (the big update: an anti-drone gun or laser at work, for show)
-        const w = p.def.weapon;
-        if (!w || !(p.ammo > 0)) continue;
-        if (w.kind === 'gun' && P.gun && P.gun[p.type]) fireGun(g, p, h, foe, F, true);
-        else if (w.kind === 'turret' && p.gunOn) turretFire(g, p, h, F, foe, true);
-        else if (w.kind === 'agun' && p.gunOn) Aim.netFire(g, p, h, F, foe); // (an aimed automatic gun, along its aim as we see it)
-      }
+      netGhostGuns(P.ghost, P, h, F);
+      if (P.x && P.x.size) for (const E of P.x.values()) netGhostGuns(E.ghost, P, h, F); // (the big update: their drone's too; a gun key fires that type on every craft of theirs)
+    }
+  }
+  function netGhostGuns(g, P, h, F) {
+    if (!g || g.dead || !g.parts.length || g.hiddenUntilSnap) return;
+    const foe = typeof Net !== 'undefined' && MP.enemy(Net.me, g.remote);
+    for (const p of g.parts) {
+      if (p.def.cuas && p.gunOn) { Drone.netFire(g, p, h, F); continue; } // (the big update: an anti-drone gun or laser at work, for show)
+      const w = p.def.weapon;
+      if (!w || !(p.ammo > 0)) continue;
+      if (w.kind === 'gun' && P.gun && P.gun[p.type]) fireGun(g, p, h, foe, F, true);
+      else if (w.kind === 'turret' && p.gunOn) turretFire(g, p, h, F, foe, true);
+      else if (w.kind === 'agun' && p.gunOn) Aim.netFire(g, p, h, F, foe); // (an aimed automatic gun, along its aim as we see it)
     }
   }
   function moveShot(s, h, F) {

@@ -6,7 +6,8 @@
 // screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere. Then the
 // big update's deaths on the other screen: B's plane, its pilot knocked out 1 km up, falls on A's screen as A's own hulk
 // and crashes there once, leaving a crash site; B's wing loses a half, which A sees go; B's Dune Buggy knocked out in the
-// sandbox stays on A's screen as a wreck. Then radar: A's FS-16 locks B's 8 km ahead and B's warning receiver warns;
+// sandbox stays on A's screen as a wreck. Then drones (the big update): B's TK-34 with a Drone Rack launches its drone;
+// A's ghost of it is B's drone exactly, a motor torn off it leaves the tank's ghost whole, and docked it goes. Then radar: A's FS-16 locks B's 8 km ahead and B's warning receiver warns;
 // A's radar off stops the warning and its search strobe on B's screen, on again brings the strobe back.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
@@ -223,6 +224,37 @@ const k1 = await A.evaluate(() => { const g = window.__g, w = MP.wrecks.find((x)
 const kB = await B.evaluate(() => { const v = Flight.active; return { ko: v.ko && v.ko.why, wreck: !!v.wreck, v: Math.hypot(v.vx, v.vy, v.vz) }; });
 log('B\'s buggy knocked out', JSON.stringify(kB), 'A sees', JSON.stringify(k1));
 ok('B\'s Dune Buggy knocked out in the sandbox (its driver: crew) stops dead and stays on A\'s screen as a wreck', kB.ko === 'crew' && kB.wreck && kB.v === 0 && k1.wreck && k1.listed && k1.pid === 2 && k1.ko === 'crew' && k1.inWorld && !k1.ghost, { kB, k1 });
+
+// drones in a room (the big update, spec-drones §16): B drives a TK-34 with a Drone Rack and launches its drone; A's
+// ghost of it (B's second craft, c) is B's drone exactly (parts, centre of mass, mass); a motor torn off it (its parts
+// message, c) leaves A's ghost of the tank whole; docked, it goes from A's screen and the tank stays
+const BUMBLE = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+  ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+  ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+await B.evaluate((rows) => { UI.closeModal(); Builder.loadTemplate('tk34'); Builder.quickAdd('dockRack'); Builder.droneChoice = TEMPLATES.bumble && TEMPLATES.bumble.kind === 'drone' ? { key: 'bumble' } : Drone.cleanChoice({ name: 'Bumble', parts: rows }); Builder.changed(); MP.launch(); }, BUMBLE);
+await B.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.tk34.name && Flight.time > 1 && Flight.active.speed() < 1, null, { timeout: 120000 });
+const dB = await B.evaluate(() => { const C = Flight.active, docks = C.docks.length, ok = Drone.launch(Flight, C), d = Flight.active;
+  return { docks, ok, c: d.craft, kind: d.kind, parts: d.parts.map((p) => [p.id, p.type, +partZ(p).toFixed(3)]).join(';'), com: [d.com.x, d.com.y, d.com.z || 0].map((x) => +x.toFixed(4)), mass: +d.mass.toFixed(4) }; });
+log('B launches', JSON.stringify({ ...dB, parts: dB.parts.split(';').length }));
+await A.waitForFunction((c) => { const g = MP.ghostOf(2, c); return !!g && !g.hiddenUntilSnap && !!MP.peers.get(2).ghost; }, dB.c, { timeout: 60000 }).catch(() => {});
+const ghD = () => A.evaluate((c) => { const g = MP.ghostOf(2, c), t = MP.peers.get(2).ghost; return g && { name: g.name, kind: g.kind, parts: g.parts.map((p) => [p.id, p.type, +partZ(p).toFixed(3)]).join(';'), com: [g.com.x, g.com.y, g.com.z || 0].map((x) => +x.toFixed(4)), mass: +g.mass.toFixed(4),
+  tank: t && t.parts.length, tankKind: t && t.kind, extras: MP.extraGhosts().length }; }, dB.c);
+const gd1 = await ghD();
+log('A sees', JSON.stringify(gd1 && { ...gd1, parts: gd1.parts.split(';').length }));
+ok('B\'s TK-34 launches its drone from its Drone Rack; A\'s ghost of it ("Bob\'s drone") is B\'s drone: the same parts, centre of mass and mass, beside B\'s tank',
+  dB.docks > 0 && dB.ok && dB.kind === 'drone' && !!gd1 && gd1.name === "Bob's drone" && gd1.parts === dB.parts && JSON.stringify(gd1.com) === JSON.stringify(dB.com) && gd1.mass === dB.mass && gd1.tankKind === 'tank' && gd1.extras === 1, { dB, gd1 });
+const tank0 = gd1 && gd1.tank;
+const torn = await B.evaluate(() => { const d = Flight.active, m = d.parts.filter((p) => p.def.thrust).at(-1); Combat.damage(d, m, 1e6, 'shot', Flight, null); return { id: m.id, gone: !d.parts.includes(m), n: d.parts.length }; });
+await A.waitForFunction(([c, id]) => { const g = MP.ghostOf(2, c); return !!g && !g.parts.some((p) => p.id === id); }, [dB.c, torn.id], { timeout: 30000 }).catch(() => {});
+const gd2 = await ghD();
+log('B\'s drone loses a motor', JSON.stringify(torn), 'A sees', JSON.stringify(gd2 && { ...gd2, parts: gd2.parts.split(';').length }));
+ok('...a motor torn off B\'s drone goes from A\'s ghost of the drone (its parts message, c) and A\'s ghost of the tank stays whole', torn.gone && !!gd2 && gd2.parts.split(';').length === torn.n && gd2.tank === tank0 && tank0 > 0, { torn, gd2 });
+await B.evaluate(() => Drone.dock(Flight, Flight.active));
+await A.waitForFunction((c) => !MP.ghostOf(2, c), dB.c, { timeout: 30000 }).catch(() => {});
+const gd3 = await A.evaluate(() => ({ extras: MP.extraGhosts().length, tank: !!MP.peers.get(2).ghost, tankKind: MP.peers.get(2).ghost && MP.peers.get(2).ghost.kind }));
+const dB3 = await B.evaluate(() => ({ kind: Flight.active.kind, extra: MP.extra.size }));
+log('B docks', JSON.stringify(dB3), 'A sees', JSON.stringify(gd3));
+ok('...B docks it (back in the tank): it goes from A\'s screen (despawn, c), B\'s tank stays', dB3.kind === 'tank' && dB3.extra === 0 && gd3.extras === 0 && gd3.tank && gd3.tankKind === 'tank', { dB3, gd3 });
 
 // radar in a room (the big update, spec-radar §8): A flies an FS-16 8 km behind B's FS-16, its radar missiles chosen;
 // A's radar locks B and B's warning receiver warns (RADAR LOCK, the lock's sender) and hears A's search; A switches its

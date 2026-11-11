@@ -196,6 +196,10 @@ for (const [us, s, why] of [[[unit(1, null, { troops: 4 })], 20 / 1.5, 'one vehi
   t('an aircraft costs half as much again (rounded): a $120k plane 117, a $45k one 72; air may be the kind (plane, heli) too',
     lose(120000, true)[0] === 117 && lose(45000, true)[0] === 72 && lose(45000, 'heli')[0] === 72 && lose(45000, 'plane')[0] === 72 && lose(1250, 1)[0] === 47 &&
     lose(45000, 'tank')[0] === 48 && lose(45000, false)[0] === 48);
+  t('(the big update) a drone flown alone (air \'drone\') costs 10 + round(cost / 2500): the Bumble\'s $1,920 11, $0 10, $9,000 14; never the aircraft\'s x1.5',
+    lose(1920, 'drone')[0] === 11 && J(lose(1920, 'drone')) === J([11, 589, 600]) && lose(0, 'drone')[0] === 10 && lose(9000, 'drone')[0] === 14 && lose(NaN, 'drone')[0] === 10);
+  t('...and every old argument prices as before (true, 1, plane, heli: x1.5; false, tank, Drone, a missing one: as a vehicle)',
+    lose(45000, true)[0] === 72 && lose(45000, 1)[0] === 72 && lose(45000, 'plane')[0] === 72 && lose(45000, 'heli')[0] === 72 && lose(45000, false)[0] === 48 && lose(45000, 'tank')[0] === 48 && lose(45000, 'Drone')[0] === 48 && lose(45000)[0] === 48);
   t('a forged cost: not a number or negative counts as $0, a huge one is capped at $10M',
     [NaN, -5e5, 'x', undefined, Infinity].every((c) => lose(c)[0] === 30) && lose(1e12)[0] === 30 + 4000);
   const o = fresh('3v3', [3, 3], 'highland', 100);
@@ -306,6 +310,7 @@ const placementChecks = (c, arenaId, label) => {
       near(dist(hs[0], f), 60, 1e-6) && hg.every((q) => q.hi - q.lo < 0.02 && !q.wet && q.berm === 0), hs.map((P) => padFrame(f, P)));
     t(`${name}: helicopters clear of each other (${hApart.toFixed(0)} m) and of every vehicle spot (${hTank.toFixed(1)} m)`,
       hApart > 2 * heliReach + 2 && hTank > heliReach + groundReach + 2 && J(M.placement(arenaId, team, 4, 'heli')) === J(hs[0]) && hs.every((P) => P.yaw === f.yaw));
+    t(`${name}: a drone flown alone (the big update) stands where a helicopter would, slot for slot`, [0, 1, 2, 3, 4].every((k) => J(M.placement(arenaId, team, k, 'drone')) === J(M.placement(arenaId, team, k, 'heli'))));
     // planes
     const ps = Array.from({ length: 8 }, (_, k) => M.placement(arenaId, team, k, 'plane'));
     const S = A.air && A.air[team];
