@@ -1550,10 +1550,9 @@ const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg'
   gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
   turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body',
   ttrack: 'trackUnit', twheel: 'awheel', tgun: 'tankGun', tlaunch: 'launcher', tradar: 'radarAnt', tkit: 'kit',
-  // (the drones' frames, motors, boxes, legs, guards and missile rails: boxes for now, clashing as boxes as their own
-  // recipes will; the big update's drone art gives each its recipe: droneFrame, droneMotor, droneBox, droneLegs,
-  // droneGuard, droneMissile)
-  dframe: 'box', dmotor: 'box', dbox: 'box', dlegs: 'box', dguard: 'box', dmissile: 'box' };
+  // (the drones' frames, motors, boxes, legs, guards and missile rails: built from drLayout inside their boxes, and
+  // clashing as boxes)
+  dframe: 'droneFrame', dmotor: 'droneMotor', dbox: 'droneBox', dlegs: 'droneLegs', dguard: 'droneGuard', dmissile: 'droneMissile' };
 
 // A stand-in canvas context that records the path calls partPath() makes as polygons
 // [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
@@ -2636,6 +2635,9 @@ function partPath0(ctx, p) {
     case 'thull': case 'tturret': case 'tcast': case 'tring': case 'ttrack': case 'twheel': case 'tgun': case 'tlaunch': case 'tradar': case 'tkit':
       gvPath(ctx, p); // (the ground update's armour, at the end of this file)
       break;
+    case 'dframe': case 'dmotor': case 'dbox': case 'dlegs': case 'dguard': case 'dbody': case 'dcharge': case 'dspool': case 'dmissile':
+      drPath(ctx, p); // (the big update's drones, at the end of this file)
+      break;
     default:
       ctx.rect(l, b, w, h);
   }
@@ -3380,6 +3382,9 @@ function drawPart0(ctx, p, lw) {
       break;
     case 'thull': case 'tturret': case 'tcast': case 'tring': case 'ttrack': case 'twheel': case 'tgun': case 'tlaunch': case 'tradar': case 'tkit':
       gvDraw(ctx, p, lw); // (the ground update's armour, at the end of this file)
+      break;
+    case 'dframe': case 'dmotor': case 'dbox': case 'dlegs': case 'dguard': case 'dbody': case 'dcharge': case 'dspool': case 'dmissile':
+      drDraw(ctx, p, lw); // (the big update's drones, at the end of this file)
       break;
   }
   // heat glow
@@ -5258,6 +5263,7 @@ function gvKit(ctx, p, lw) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, st = d.style;
   ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
   if (d.inner) { ctx.fillStyle = '#2b3035'; ctx.fillRect(l, b, w, h); } // (the compartment round it, so its 3D box is not bare)
+  if (DR_KIT.has(st)) { drKit(ctx, p, lw); return; } // (the big update's counter-drone kit and drone bays)
   switch (st) {
     case 'engine': {
       const turb = d.engine && d.engine.fuel === 'turbine';
@@ -5482,6 +5488,7 @@ function gvPlan(ctx, p, lw) {
     else if (st === 'sight') { ctx.fillStyle = gvTone(-0.15); ctx.fillRect(l + w * 0.1, n + D * 0.1, w * 0.8, D * 0.8); ctx.strokeRect(l + w * 0.1, n + D * 0.1, w * 0.8, D * 0.8); }
     else if (st === 'cell') { ctx.fillStyle = '#4c5a3a'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2c3036'; ctx.beginPath(); ctx.arc(r - w * 0.2, 0, Math.min(w, D) * 0.1, 0, TAU); ctx.fill(); }
     else if (st === 'seat' || st === 'troops') { ctx.fillStyle = '#353a33'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2b2a26'; const k = st === 'troops' ? 3 : 1; for (let i = 0; i < k; i++) for (const s of k > 1 ? [-1, 1] : [0]) { ctx.beginPath(); ctx.arc(l + (w * (i + 0.5)) / k, s * D * 0.25, Math.min(0.12, w * 0.15), 0, TAU); ctx.fill(); } }
+    else if (DR_KIT.has(st)) drKitPlan(ctx, p, lw); // (the big update's counter-drone kit and drone bays)
     else if (st === 'loader') { ctx.fillStyle = '#3b3f38'; ctx.fillRect(l, n, w, D); ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.46, 0, TAU); ctx.fillStyle = '#5b4a2a'; ctx.fill(); ctx.fillStyle = '#c9a24a'; for (let i = 0; i < 22; i++) { const a = (i / 22) * TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * w * 0.36, Math.sin(a) * D * 0.36, 0.05, 0, TAU); ctx.fill(); } }
     return;
   }
@@ -5581,5 +5588,567 @@ function drawBeltTex(ctx, style, W, H) {
     ctx.fillStyle = '#80878e'; ctx.fillRect(x0, h2 * 0.08, link, h2 * 0.26); ctx.fillRect(x0, h2 * 0.66, link, h2 * 0.26);
     if (style !== 'medium' || i === 0) { ctx.fillStyle = '#25282c'; ctx.fillRect(x0 + link * 0.3, h2 * 0.38, link * 0.4, h2 * 0.24); ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x0 + link * 0.3, h2 * 0.38, link * 0.4, h2 * 0.05); }
     ctx.fillStyle = '#1c1f22'; ctx.fillRect(x0, 0, 2, h2);
+  }
+}
+
+// ---- the big update's drones and counter-drone kit: their side views (partPath0, drawPart0, gvKit) and the layouts
+// parts3d.js builds their models from (drLayout), so the 2D and 3D pictures agree. Part space as everywhere, unturned and
+// centred: x across the side view, y up it, z across it (depth). A drone's +x is its nose and +y up; the parts that go on
+// at rot 3 (the warheads, the munition body, the pusher, the missile rail) point their +y forward. Every model lies
+// inside its part's box: the clash test treats them as boxes (lathes excepted: the munition body, the charges and the
+// fibre spools revolve their outlines), and test/browser/builder-shapes.mjs checks it.
+const DR_LAYOUT = new Map();
+// A drone motor's prop turns DR_SPIN times as fast as vessel.js's spin (28 rad/s at full throttle: a helicopter rotor's
+// pace), in 2D and 3D alike: an integer, so its wrap at a full turn stays seamless.
+const DR_SPIN = 8;
+// The kit styles drawn here (gvKit hands them on); the rest of the ground update's kit is drawn there.
+const DR_KIT = new Set(['dock', 'dockH', 'dockT', 'jam', 'jamL', 'det', 'rws', 'laser', 'cage']);
+function drLayout(d) {
+  let L = DR_LAYOUT.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h, D = d.depth || w, b = -h / 2, t = h / 2, st = d.style;
+  const bx = (x0, x1, y0, y1, hz, z = 0) => ({ x0, x1, y0, y1, hz, z }); // a box: x and y extents, half its depth, its middle in z
+  L = { w, h, D, b, t };
+  switch (d.shape) {
+    case 'dframe': { // a carbon plate and a top plate on standoffs, an arm out to each motor station, a round pad at its end
+      const tips = d.drone.frame.tips, ya = b + 0.42 * h, wa = 0.04 * w;
+      L.plate = bx(-0.225 * w, 0.225 * w, b, ya, 0.225 * D); L.top = bx(-0.18 * w, 0.18 * w, t - 0.24 * h, t, 0.16 * D);
+      L.posts = [[0.13 * w, 0.11 * D], [0.13 * w, -0.11 * D], [-0.13 * w, 0.11 * D], [-0.13 * w, -0.11 * D]]; L.pr = 0.012 * w;
+      L.arm = { y0: b, y1: ya, wa };
+      L.pads = tips.map(([x, z]) => { // a pad just inside its tip, as big as the box lets it be
+        const r0 = Math.hypot(x, z) || 1;
+        let r = 0.055 * w, cx = x, cz = z;
+        for (let i = 0; i < 30; i++) { cx = x * (1 - (r * 1.02) / r0); cz = z * (1 - (r * 1.02) / r0); if (Math.abs(cx) + r <= w / 2 && Math.abs(cz) + r <= D / 2) break; r *= 0.9; }
+        return { x: cx, z: cz, r };
+      });
+      L.tips = tips;
+      L.reach = Math.max(L.plate.x1, ...tips.map(([x, z], i) => Math.max(Math.abs(x) + (wa / 2) * (Math.abs(z) / (Math.hypot(x, z) || 1)), Math.abs(L.pads[i].x) + L.pads[i].r)));
+      break;
+    }
+    case 'dmotor': // the bell, the shaft and the prop (a pusher's bell at its +y end, which mounts it, its prop at the -y end)
+      if (st === 'duct') {
+        L.duct = { ri: 0.44 * w, ro: 0.5 * w, y0: b + 0.08 * h, y1: t };
+        L.bell = { r: 0.13 * w, y0: b + 0.15 * h, y1: b + 0.55 * h };
+        L.prop = { y: b + 0.7 * h, r: 0.42 * w, n: 5, c: 0.12 * w };
+        L.nut = { y0: L.prop.y, y1: L.prop.y + 0.12 * h, r: 0.05 * w };
+        L.struts = 3;
+      } else if (st === 'pusher') {
+        L.bell = { r: 0.15 * w, y0: t - 0.62 * h, y1: t };
+        L.prop = { y: b + 0.22 * h, r: 0.49 * w, n: 2, c: 0.09 * w };
+        L.nut = { y0: L.prop.y, y1: b, r: 0.07 * w };
+      } else {
+        L.bell = { r: 0.15 * w, y0: b, y1: b + 0.6 * h };
+        L.prop = { y: t - 0.18 * h, r: 0.49 * w, n: 2, c: 0.09 * w };
+        L.nut = { y0: L.prop.y, y1: t, r: 0.04 * w };
+      }
+      L.shaft = 0.025 * w;
+      break;
+    case 'dbox': { // a case (cs) and what stands on it or hangs under it
+      const cs = (x0, x1, y0, y1, hz) => (L.cs = bx(x0 * w, x1 * w, y0, y1, hz * D));
+      if (st === 'fc' || st === 'fcgps' || st === 'link') {
+        const k = st === 'link' ? 0.4 : 0.45, y1 = b + (st === 'fc' ? 0.5 : st === 'fcgps' ? 0.42 : 0.45) * h, xw = (st === 'link' ? -0.15 : -0.25) * w;
+        cs(-k, k, b, y1, k);
+        L.whips = [[[xw, y1, 0.2 * D], [xw - 0.17 * w, t - 0.02 * h, 0.36 * D]], [[xw, y1, -0.2 * D], [xw + 0.15 * w, t - 0.02 * h, -0.36 * D]]];
+        L.wr = 0.018 * w;
+        if (st !== 'link') L.led = { x: 0.3 * w, y: y1, z: 0.3 * D, s: 0.05 * w };
+        if (st === 'fcgps') L.puck = { x: 0.2 * w, m: y1, y0: t - 0.2 * h, y1: t, r: 0.2 * w };
+      } else if (st === 'batt') {
+        cs(-0.5, 0.5, b + 0.03 * h, t - 0.03 * h, 0.47);
+        L.strap = bx(0.1 * w, 0.22 * w, b, t, D / 2);
+      } else if (st === 'gen') {
+        cs(-0.44, 0.44, b, b + 0.72 * h, 0.44);
+        L.fins = []; for (let i = 0; i < 7; i++) L.fins.push(bx((-0.34 + i * 0.11) * w - 0.012 * w, (-0.34 + i * 0.11) * w + 0.012 * w, b + 0.72 * h, t - 0.02 * h, 0.38 * D));
+        L.pipe = { x0: -0.5 * w, x1: -0.44 * w, y: b + 0.42 * h, z: 0.18 * D, r: 0.1 * h };
+      } else if (st === 'linkL') {
+        cs(-0.45, 0.45, b, b + 0.32 * h, 0.45);
+        L.blade = { pts: [[-0.24 * w, b + 0.32 * h], [0.22 * w, b + 0.32 * h], [0.1 * w, t], [-0.12 * w, t]], hz: 0.07 * D };
+      } else if (st === 'sat') {
+        cs(-0.46, 0.46, b, b + 0.45 * h, 0.46);
+        L.dome = { y: b + 0.45 * h, r: 0.36 * w, hgt: 0.55 * h };
+      } else if (st === 'cam') {
+        cs(-0.5, 0.2, b + 0.08 * h, t - 0.08 * h, 0.42);
+        L.lens = { x0: 0.2 * w, x1: 0.44 * w, r: 0.3 * w, g0: 0.44 * w, g1: 0.5 * w, gr: 0.22 * w };
+      } else if (st === 'gimbal') { // a mount under the frame (the top); a fork that turns, a ball that tilts in it, its lens to +x
+        cs(-0.42, 0.42, t - 0.12 * h, t, 0.42);
+        L.gim = { y: t - 0.12 * h, bar: t - 0.3 * h, bt: 0.05 * h, yc: b + 0.36 * h, R: 0.3 * w, arm: 0.38 * D, at: 0.045 * D, post: 0.06 * w,
+          lens: { x0: 0.12 * w, x1: 0.36 * w, r: 0.14 * w, g1: 0.4 * w, gr: 0.11 * w } };
+      } else if (st === 'drop' || st === 'bombs') { // a release under the frame, its stores hanging nose down (hidden as they go)
+        const n = (d.weapon && d.weapon.ammo) || 1, bomb = st === 'bombs';
+        cs(-0.46, 0.46, t - (bomb ? 0.2 : 0.42) * h, t, bomb ? 0.4 : 0.42);
+        L.stores = [];
+        for (let i = 0; i < n; i++) L.stores.push({ x: (i - (n - 1) / 2) * (bomb ? 0.44 : 0.3) * w, y0: b + (bomb ? 0.01 : 0.02) * h, y1: L.cs.y0, r: (bomb ? 0.08 : 0.12) * w, bomb });
+      } else cs(-0.5, 0.5, b, t, 0.5);
+      break;
+    }
+    case 'dlegs': // a plate under the frame, four struts splaying down to two skids
+      L.plate = bx(-0.15 * w, 0.15 * w, t - 0.08 * h, t, 0.15 * D);
+      L.struts = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) L.struts.push([[sx * 0.12 * w, t - 0.08 * h, sz * 0.12 * D], [sx * 0.36 * w, b + 0.07 * h, sz * 0.42 * D]]);
+      L.st = 0.03 * w;
+      L.skids = [-1, 1].map((sz) => bx(-0.45 * w, 0.45 * w, b, b + 0.07 * h, 0.025 * D, sz * 0.42 * D));
+      break;
+    case 'dguard': { // a hoop at the prop's height, three struts down and in to where it clamps on
+      L.ring = { r0: 0.45 * w, r1: 0.485 * w, y0: t - 0.36 * h, y1: t - 0.06 * h };
+      L.struts = [0, 1, 2].map((i) => { const a = Math.PI / 6 + (i * TAU) / 3, c = Math.cos(a), s = Math.sin(a); return [[0.465 * w * c, L.ring.y0, 0.465 * w * s], [0.18 * w * c, b + 0.04 * h, 0.18 * w * s]]; });
+      L.st = 0.03 * w;
+      break;
+    }
+    case 'dbody': { // an ogive nose blunted to a face the warhead mounts on, a boat tail the pusher mounts on
+      const R = w / 2;
+      L.prof = [[0.6 * R, b], [R, b + 0.12 * h], [R, t - 0.18 * h], ['q', R, t - 0.03 * h, 0.62 * R, t]];
+      L.seams = [b + 0.12 * h, t - 0.18 * h];
+      break;
+    }
+    case 'dcharge': { // a cone nose and a fuse tip; a tandem charge's precursor on a rod ahead of it; a frag charge's fluted can
+      const R = w / 2;
+      if (st === 'tandem') L.prof = [[0.82 * R, b], [R, b + 0.05 * h], [R, b + 0.4 * h], [0.2 * R, b + 0.6 * h], [0.12 * R, b + 0.6 * h], [0.12 * R, t - 0.22 * h], [0.42 * R, t - 0.2 * h], [0.42 * R, t - 0.1 * h], [0.14 * R, t - 0.06 * h], [0.14 * R, t]];
+      else if (st === 'frag') L.prof = [[0.92 * R, b], [R, b + 0.05 * h], [R, t - 0.22 * h], ['q', R, t - 0.1 * h, 0.45 * R, t - 0.09 * h], [0.16 * R, t - 0.06 * h], [0.16 * R, t]];
+      else L.prof = [[0.82 * R, b], [R, b + 0.06 * h], [R, t - 0.38 * h], [0.16 * R, t - 0.07 * h], [0.14 * R, t - 0.07 * h], [0.14 * R, t]];
+      break;
+    }
+    case 'dspool': { // a drum: a flange at each end, the line wound between
+      const R = w / 2, f = 0.07 * h;
+      L.prof = [[R, b], [R, b + f], [0.84 * R, b + f], [0.84 * R, t - f], [R, t - f], [R, t]];
+      L.f = f;
+      break;
+    }
+    case 'dmissile': { // a rail on the -x side (it hangs under the drone at rot 3), two missiles side by side under it
+      L.rail = bx(-0.5 * w, -0.27 * w, b + 0.03 * h, t - 0.03 * h, 0.42 * D);
+      L.msl = { x: 0.12 * w, r: 0.25 * w, y0: b + 0.02 * h, y1: t - 0.02 * h, fin: 0.2 * w, fl: 0.12 * h, can: 0.09 * w, zs: [-0.25 * D, 0.25 * D] };
+      L.hang = [0.3, 0.7].map((k) => b + h * k);
+      break;
+    }
+    case 'tkit': { // the counter-drone kit and the drone bays (Armour's Kit and Launchers tabs)
+      if (st === 'dock') { // a tray, posts at its corners, the folded quads on it, a mesh lid hinged at the back
+        const n = d.dock.n;
+        L.tray = bx(-w / 2, w / 2, b, b + 0.34 * h, D / 2);
+        L.posts = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) L.posts.push(bx(sx * (w / 2 - 0.03) - 0.02, sx * (w / 2 - 0.03) + 0.02, b + 0.34 * h, t - 0.09 * h, 0.02, sz * (D / 2 - 0.03)));
+        L.lid = { x: -w / 2 + 0.02, y: t - 0.045 * h, len: w - 0.04, th: 0.09 * h, hz: D / 2 - 0.01, open: 1.9 };
+        L.quads = []; for (let i = 0; i < n; i++) L.quads.push({ x: (i - (n - 1) / 2) * 0.3 * w, y: b + 0.34 * h, len: 0.24 * w, hz: 0.24 * D, hgt: 0.3 * h });
+      } else if (st === 'dockH') { // an open box (the walls), its drone inside, two doors over it hinged along its sides
+        L.walls = bx(-w / 2, w / 2, b, t - 0.1 * h, D / 2);
+        L.doors = { y: t - 0.05 * h, th: 0.08 * h, len: w - 0.06, half: D / 2 - 0.03, open: 1.75 };
+        L.quads = [{ x: 0, y: b, len: 0.42 * w, hz: 0.3 * D, hgt: 0.32 * h }];
+      } else if (st === 'dockT') { // a cradle and two canisters on it, side by side, a cap on each front hinged at its top
+        const rt = Math.min(0.31 * h, 0.2 * D);
+        L.cradle = bx(-0.42 * w, 0.42 * w, b, b + 0.1 * h, 0.42 * D);
+        L.saddles = [-0.28 * w, 0.28 * w];
+        L.tubes = { r: rt, y: t - rt - 0.008, x0: -0.48 * w, x1: 0.45 * w, zs: [-(D / 2 - rt - 0.012), D / 2 - rt - 0.012], bands: [-0.35 * w, 0, 0.32 * w], cap: 0.02, open: 1.8 };
+      } else if (st === 'jam' || st === 'jamL') { // a case and its antennas (a big one: six, the middle pair taller)
+        const big = st === 'jamL', top = b + (big ? 0.5 : 0.55) * h;
+        L.cs = bx(-w / 2, w / 2, b, top, D / 2);
+        L.ants = [];
+        for (const fx of big ? [-0.33, 0, 0.33] : [-0.3, 0.3]) for (const fz of [-1, 1]) L.ants.push({ x: fx * w, z: fz * (big ? 0.28 : 0.3) * D, y0: top, y1: t - (big && fx ? 0.12 * h : 0.02), r: big ? 0.028 : 0.022, base: big ? 0.05 : 0.04 });
+      } else if (st === 'det') { // a base, a mast and the dome on it
+        L.cs = bx(-0.4 * w, 0.4 * w, b, b + 0.2 * h, 0.4 * D);
+        L.mast = { y0: b + 0.2 * h, y1: t - 0.12, r: 0.025 };
+        L.dome = { y: t - 0.09, rx: 0.43 * Math.min(w, D), ry: 0.09, band: 0.025 };
+      } else if (st === 'rws') { // a ring; on it (yaw) a housing, the cradle's side plates and the box magazine; the gun and its sight (pitch)
+        const xc = -0.06 * w, yb = b + 0.1 * h; // (the yaw axis and the ring's top; the yaw node's pieces from there, the pitch node's from the trunnion)
+        L.rws = { xc, yb, ring: 0.37 * Math.min(w, D), T: 0.5 * h, // (T: the trunnion's height over the ring)
+          house: bx(-0.25 * w, 0.18 * w, 0, 0.3 * h, 0.25 * D), plates: [-1, 1].map((s) => bx(-0.07 * w, 0.07 * w, 0.3 * h, 0.53 * h, 0.02 * D, s * 0.135 * D)),
+          mag: bx(-0.11 * w, 0.06 * w, 0.3 * h, 0.56 * h, 0.1 * D, 0.27 * D),
+          gun: bx(-0.12 * w, 0.1 * w, -0.06 * h, 0.06 * h, 0.06 * D), barrel: { x0: 0.1 * w, x1: 0.5 * w - xc - 0.012, r: 0.04 * h }, brake: 0.07 * w,
+          sight: bx(-0.05 * w, 0.08 * w, 0.07 * h, 0.19 * h, 0.05 * D, -0.16 * D) };
+      } else if (st === 'laser') { // a turntable, a yoke on it (yaw), the beam director between its arms (pitch), its big lens to the front
+        const yb = b + 0.1 * h;
+        L.las = { yb, ring: 0.37 * Math.min(w, D), T: 0.43 * h, arm: bx(-0.1 * w, 0.1 * w, 0, 0.5 * h, 0.04 * D, 0.38 * D),
+          drum: { x0: -0.38 * w, x1: 0.4 * w, r: 0.26 * Math.min(h, D) }, lens: { r: 0.2 * Math.min(h, D), x1: 0.48 * w }, fins: [-0.34, -0.29, -0.24].map((k) => k * w) };
+      } else if (st === 'cage') { // four corner posts and a slatted top
+        const s = 0.05;
+        L.posts = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) L.posts.push([sx * (w / 2 - s / 2), sz * (D / 2 - s / 2)]);
+        L.s = s; L.slats = Math.max(5, Math.round(w / 0.27));
+      }
+      break;
+    }
+  }
+  DR_LAYOUT.set(d, L);
+  return L;
+}
+
+// A profile [[r, y], …] (['q', cr, cy, r, y]: a curve to r, y) traced round the axis at x: up the right side, down the left.
+function drRev(ctx, x, y, prof) {
+  const P = prof;
+  ctx.moveTo(x - P[0][0], y + P[0][1]); ctx.lineTo(x + P[0][0], y + P[0][1]);
+  for (let i = 1; i < P.length; i++) { const q = P[i]; if (q[0] === 'q') ctx.quadraticCurveTo(x + q[1], y + q[2], x + q[3], y + q[4]); else ctx.lineTo(x + q[0], y + q[1]); }
+  const last = P[P.length - 1], end = last[0] === 'q' ? [last[3], last[4]] : last;
+  ctx.lineTo(x - end[0], y + end[1]);
+  for (let i = P.length - 1; i > 0; i--) {
+    const q = P[i], prev = P[i - 1][0] === 'q' ? [P[i - 1][3], P[i - 1][4]] : P[i - 1];
+    if (q[0] === 'q') ctx.quadraticCurveTo(x - q[1], y + q[2], x - prev[0], y + prev[1]); else ctx.lineTo(x - prev[0], y + prev[1]);
+  }
+  ctx.closePath();
+}
+// The outlines: the round parts' profiles (the clash test and the 3D lathe read them), a motor's bell and prop line; the
+// rest are their boxes.
+function drPath(ctx, p) {
+  const d = p.def, x = p.x, y = p.y, L = drLayout(d);
+  if (L.prof) { drRev(ctx, x, y, L.prof); return; }
+  if (d.shape === 'dmotor') {
+    const B = L.bell, P = L.prop;
+    if (L.duct) { ctx.rect(x - L.duct.ro, y + L.duct.y0, L.duct.ro * 2, L.duct.y1 - L.duct.y0); ctx.rect(x - B.r, y + B.y0, B.r * 2, L.duct.y0 - B.y0); return; }
+    ctx.rect(x - B.r, y + Math.min(B.y0, B.y1), B.r * 2, Math.abs(B.y1 - B.y0));
+    ctx.rect(x - P.r, y + P.y - P.c * 0.25, P.r * 2, P.c * 0.5);
+    ctx.rect(x - L.shaft, y + Math.min(P.y, B.y0, L.nut.y1), L.shaft * 2, Math.max(P.y, B.y0, L.nut.y1) - Math.min(P.y, B.y0, L.nut.y1));
+    return;
+  }
+  ctx.rect(x - d.w / 2, y - d.h / 2, d.w, d.h);
+}
+
+// carbon fibre (a skin paints it) and a motor's anodised bell
+function drCarbon(ctx, l, r) {
+  if (PartPaint.skin) return skinFill(ctx, l, r);
+  if (PartPaint.flat) return '#383d43';
+  const g = ctx.createLinearGradient(l, 0, r, 0);
+  g.addColorStop(0, '#2a2e33'); g.addColorStop(0.45, '#59606a'); g.addColorStop(1, '#2d3136');
+  return g;
+}
+function drBell(ctx, l, r) {
+  if (PartPaint.flat) return '#3c4249';
+  const g = ctx.createLinearGradient(l, 0, r, 0);
+  g.addColorStop(0, '#24282d'); g.addColorStop(0.4, '#8a939d'); g.addColorStop(1, '#2a2e33');
+  return g;
+}
+const drBox = (ctx, x0, y0, x1, y1, fill, stroke) => { ctx.fillStyle = fill; ctx.fillRect(x0, y0, x1 - x0, y1 - y0); if (stroke) ctx.strokeRect(x0, y0, x1 - x0, y1 - y0); };
+function drLine(ctx, x0, y0, x1, y1, lw, col) { // (the outline's width and colour are kept)
+  const w0 = ctx.lineWidth, s0 = ctx.strokeStyle;
+  ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.lineWidth = w0; ctx.strokeStyle = s0;
+}
+
+function drDraw(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, L = drLayout(d), w = d.w, h = d.h, st = d.style;
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = 'rgba(8,11,16,0.9)';
+  switch (d.shape) {
+    case 'dframe': {
+      const A = L.arm, P = L.plate, T = L.top, R = L.reach;
+      drBox(ctx, x - R, y + A.y0, x + R, y + A.y1, drCarbon(ctx, x - R, x + R), true); // the arms, seen from the side
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      for (const q of L.pads) ctx.fillRect(x + q.x - q.r, y + A.y0, q.r * 2, A.y1 - A.y0); // the motor pads at their ends
+      drBox(ctx, x + P.x0, y + P.y0, x + P.x1, y + P.y1, 'rgba(255,255,255,0.08)'); // the plate in the middle
+      ctx.fillStyle = '#b9c1c9';
+      for (const [px] of [L.posts[0], L.posts[2]]) ctx.fillRect(x + px - L.pr, y + P.y1, L.pr * 2, T.y0 - P.y1); // the standoffs
+      drBox(ctx, x + T.x0, y + T.y0, x + T.x1, y + T.y1, drCarbon(ctx, x + T.x0, x + T.x1), true);
+      drLine(ctx, x - R, y + A.y1 - lw * 0.6, x + R, y + A.y1 - lw * 0.6, lw * 0.5, 'rgba(255,255,255,0.18)'); // the weave's sheen along the top
+      break;
+    }
+    case 'dmotor': {
+      const B = L.bell, P = L.prop, N = L.nut, duct = L.duct, s = (p.spin || 0) * DR_SPIN;
+      const blades = () => {
+        if (p.firing > 0.05) { ctx.fillStyle = `rgba(160,170,184,${0.32 * Math.min(1, p.firing * 2)})`; ctx.beginPath(); ctx.ellipse(x, y + P.y, P.r, P.c * 0.4, 0, 0, TAU); ctx.fill(); } // a faint blur
+        const th = Math.max(lw, P.c * 0.42);
+        for (let i = 0; i < P.n; i++) {
+          const k = Math.cos(s + (i * TAU) / P.n) * P.r;
+          if (Math.abs(k) < th * 0.3) continue;
+          ctx.fillStyle = '#4a5058'; ctx.fillRect(Math.min(x, x + k), y + P.y - th / 2, Math.abs(k), th);
+          ctx.fillStyle = PAL.hazard; ctx.fillRect(x + k - Math.sign(k) * P.r * 0.14, y + P.y - th / 2, Math.sign(k) * P.r * 0.14, th); // the tips
+        }
+      };
+      if (duct) { // the motor and its fan inside the ring, seen through its near half (a band across, part see-through)
+        drBox(ctx, x - L.shaft, y + B.y1, x + L.shaft, y + P.y, '#8d96a0');
+        drBox(ctx, x - B.r, y + B.y0, x + B.r, y + B.y1, drBell(ctx, x - B.r, x + B.r), true);
+        blades();
+        const a = ctx.globalAlpha;
+        ctx.globalAlpha = a * 0.6; drBox(ctx, x - duct.ro, y + duct.y0, x + duct.ro, y + duct.y1, drCarbon(ctx, x - duct.ro, x + duct.ro)); ctx.globalAlpha = a;
+        for (const sx of [-1, 1]) drBox(ctx, Math.min(x + sx * duct.ri, x + sx * duct.ro), y + duct.y0, Math.max(x + sx * duct.ri, x + sx * duct.ro), y + duct.y1, '#3c4249'); // its walls, edge on
+        ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(x - duct.ro, y + duct.y1 - h * 0.1, duct.ro * 2, h * 0.05); // the lip's sheen
+        ctx.strokeRect(x - duct.ro, y + duct.y0, duct.ro * 2, duct.y1 - duct.y0);
+        break;
+      }
+      const y0 = Math.min(B.y0, B.y1), y1 = Math.max(B.y0, B.y1);
+      drBox(ctx, x - L.shaft, y + Math.min(P.y, B.y0, B.y1), x + L.shaft, y + Math.max(P.y, B.y0, B.y1), '#8d96a0'); // the shaft
+      drBox(ctx, x - B.r, y + y0, x + B.r, y + y1, drBell(ctx, x - B.r, x + B.r), true); // the bell
+      const top = P.y > y1; // (the prop above the bell; a pusher's is below it)
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; for (const k of top ? [0.12, 0.32, 0.52] : [0.42, 0.62, 0.82]) ctx.fillRect(x - B.r, y + y0 + (y1 - y0) * k, B.r * 2, (y1 - y0) * 0.07); // its cooling slots
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x - B.r, y + (top ? y1 - (y1 - y0) * 0.31 : y0 + (y1 - y0) * 0.19), B.r * 2, (y1 - y0) * 0.12); // its ring by the prop
+      blades();
+      ctx.fillStyle = '#9aa3ad'; ctx.beginPath(); ctx.moveTo(x - N.r, y + N.y0); ctx.lineTo(x + N.r, y + N.y0); ctx.lineTo(x, y + N.y1); ctx.closePath(); ctx.fill(); // the nut (a pusher's spinner)
+      break;
+    }
+    case 'dbox': drBoxArt(ctx, p, lw, L); break;
+    case 'dlegs': {
+      const P = L.plate, sk = L.skids[0], s = Math.max(lw, L.st);
+      ctx.lineCap = 'round';
+      for (const [a, c] of [L.struts[0], L.struts[2]]) drLine(ctx, x + a[0], y + a[1], x + c[0], y + c[1], s, '#2b2f34'); // the struts, front and back
+      ctx.lineCap = 'butt';
+      drBox(ctx, x + sk.x0, y + sk.y0, x + sk.x1, y + sk.y1, '#2b2f34', true); // the skid
+      ctx.fillStyle = '#c23b2c'; for (const sx of [-1, 1]) ctx.fillRect(x + sx * 0.42 * w - sx * 0.04 * w, y + sk.y0, sx * 0.04 * w, sk.y1 - sk.y0); // rubber feet
+      drBox(ctx, x + P.x0, y + P.y0, x + P.x1, y + P.y1, '#3a3f46', true); // the mounting plate
+      break;
+    }
+    case 'dguard': {
+      const R = L.ring, s = Math.max(lw, L.st);
+      for (const [a, c] of L.struts) drLine(ctx, x + a[0], y + a[1], x + c[0], y + c[1], s, '#2b2f34');
+      drBox(ctx, x - R.r1, y + R.y0, x + R.r1, y + R.y1, '#2b2f34', true); // the hoop, side on
+      ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(x - R.r1, y + R.y1 - (R.y1 - R.y0) * 0.25, R.r1 * 2, (R.y1 - R.y0) * 0.12);
+      break;
+    }
+    case 'dbody': {
+      const R = w / 2, l = x - R, r = x + R;
+      ctx.beginPath(); drPath(ctx, p); ctx.fillStyle = tintGradient(ctx, l, r, '#7b8579'); ctx.fill();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = bodyTone('#4f574d', -0.3); ctx.fillRect(l, y + L.b, w, L.seams[0] - L.b); // the tail cone, darker (the motor's mount)
+      ctx.fillStyle = bodyTone('#656e63', -0.15); ctx.fillRect(l, y + L.seams[1], w, L.t - L.seams[1]); // the nose
+      ctx.strokeStyle = 'rgba(12,16,10,0.55)'; ctx.lineWidth = lw * 0.6;
+      ctx.beginPath(); for (const yy of L.seams) { ctx.moveTo(l, y + yy); ctx.lineTo(r, y + yy); } ctx.stroke();
+      ctx.strokeRect(x - R * 0.55, y - h * 0.16, R * 1.1, h * 0.3); // the hatch over the controller and battery
+      ctx.fillStyle = 'rgba(12,16,10,0.6)'; ctx.fillRect(x + R * 0.3, y - h * 0.13, R * 0.12, h * 0.05); // its latch
+      ctx.fillStyle = accent(PAL.hazard); ctx.fillRect(l, y + L.seams[1] - h * 0.035, w, h * 0.02); // a band behind the nose
+      ctx.restore();
+      ctx.beginPath(); drPath(ctx, p); ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw * 0.7; ctx.stroke();
+      break;
+    }
+    case 'dcharge': {
+      const R = w / 2, l = x - R, r = x + R, b = y - h / 2, t = y + h / 2;
+      ctx.beginPath(); drPath(ctx, p); ctx.fillStyle = tintGradient(ctx, l, r, '#5f6b52'); ctx.fill();
+      ctx.save(); ctx.clip();
+      if (st === 'tandem') {
+        ctx.fillStyle = bodyTone('#47513d', -0.2); ctx.fillRect(l, b + h * 0.4, w, h * 0.2); // the main charge's cone
+        ctx.fillStyle = '#9aa3ad'; ctx.fillRect(x - R * 0.12, b + h * 0.6, R * 0.24, h * 0.18); // the rod
+        ctx.fillStyle = bodyTone('#5f6b52', 0); ctx.fillRect(x - R * 0.42, t - h * 0.2, R * 0.84, h * 0.1); // the precursor
+        ctx.fillStyle = accent('#c9a24a'); ctx.fillRect(l, b + h * 0.18, w, h * 0.03); ctx.fillRect(x - R * 0.42, t - h * 0.16, R * 0.84, h * 0.02);
+      } else if (st === 'frag') {
+        ctx.strokeStyle = 'rgba(14,18,10,0.5)'; ctx.lineWidth = Math.max(lw * 0.5, w * 0.03); ctx.beginPath(); // the flutes
+        for (let i = 1; i < 6; i++) { const xx = l + (w * i) / 6; ctx.moveTo(xx, b + h * 0.08); ctx.lineTo(xx, t - h * 0.24); } ctx.stroke();
+        ctx.fillStyle = accent('#c9a24a'); ctx.fillRect(l, b + h * 0.08, w, h * 0.04);
+      } else {
+        ctx.fillStyle = bodyTone('#47513d', -0.2); ctx.fillRect(l, t - h * 0.38, w, h * 0.31); // the cone
+        ctx.fillStyle = accent('#c9a24a'); ctx.fillRect(l, b + h * 0.2, w, h * 0.04); // the HE band
+      }
+      ctx.fillStyle = '#b9c1c9'; ctx.fillRect(l, t - h * 0.07, w, h * 0.07); // the fuse tip
+      ctx.restore();
+      ctx.beginPath(); drPath(ctx, p); ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.lineWidth = lw * 0.7; ctx.stroke();
+      break;
+    }
+    case 'dspool': {
+      const R = w / 2, l = x - R, r = x + R, b = y - h / 2, t = y + h / 2, f = L.f, rc = 0.84 * R;
+      drBox(ctx, x - rc, b + f, x + rc, t - f, PartPaint.flat ? '#e4ddc2' : '#e9e2c8'); // the line, wound
+      ctx.save(); ctx.beginPath(); ctx.rect(x - rc, b + f, rc * 2, h - 2 * f); ctx.clip();
+      ctx.strokeStyle = 'rgba(110,98,62,0.6)'; ctx.lineWidth = Math.max(lw * 0.4, h * 0.012); ctx.beginPath();
+      for (let k = -8; k < 22; k++) { const y0 = b + f + (k * h) / 18; ctx.moveTo(x - rc, y0); ctx.lineTo(x + rc, y0 + h * 0.06); } ctx.stroke();
+      ctx.restore();
+      for (const yy of [b, t - f]) drBox(ctx, l, yy, r, yy + f, bodyFlat('#3a3f46'), true); // the flanges
+      ctx.strokeRect(x - rc, b + f, rc * 2, h - 2 * f);
+      ctx.fillStyle = '#e9e2c8'; ctx.fillRect(r - R * 0.2, b + f * 0.2, R * 0.08, f * 0.6); // the line's way out
+      break;
+    }
+    case 'dmissile': {
+      const Rl = L.rail, M = L.msl, n = p.ammo == null ? M.zs.length : clamp(p.ammo | 0, 0, M.zs.length);
+      for (let i = 0; i < Math.min(n, 1); i++) { // (side by side: from the side the near one hides the far one)
+        const xm = x + M.x, k = 1;
+        drBox(ctx, x + Rl.x1, y + L.hang[0] - h * 0.03, xm - M.r, y + L.hang[0] + h * 0.03, '#2b3036'); drBox(ctx, x + Rl.x1, y + L.hang[1] - h * 0.03, xm - M.r, y + L.hang[1] + h * 0.03, '#2b3036');
+        ctx.fillStyle = '#4d545d'; ctx.beginPath(); ctx.moveTo(xm - M.r, y + M.y0 + M.fl); ctx.lineTo(xm - M.r - M.fin * 0.7, y + M.y0); ctx.lineTo(xm + M.r + M.fin * 0.7, y + M.y0); ctx.lineTo(xm + M.r, y + M.y0 + M.fl); ctx.closePath(); ctx.fill(); // the tail fins
+        ctx.beginPath(); ctx.moveTo(xm - M.r, y + M.y0); ctx.lineTo(xm - M.r, y + M.y1 - M.r * 3); ctx.quadraticCurveTo(xm - M.r, y + M.y1, xm, y + M.y1); ctx.quadraticCurveTo(xm + M.r, y + M.y1, xm + M.r, y + M.y1 - M.r * 3); ctx.lineTo(xm + M.r, y + M.y0); ctx.closePath();
+        ctx.fillStyle = k < 1 ? '#5a6450' : '#6b7560'; ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#2c3a48'; ctx.fillRect(xm - M.r * 0.7, y + M.y1 - M.r * 1.2, M.r * 1.4, M.r * 0.9); // the seeker
+        ctx.fillStyle = '#ffb547'; ctx.fillRect(xm - M.r, y + M.y1 - h * 0.3, M.r * 2, h * 0.025); // a band
+        ctx.fillStyle = '#4d545d'; ctx.fillRect(xm - M.r - M.can, y + M.y1 - h * 0.27, M.can, h * 0.05); ctx.fillRect(xm + M.r, y + M.y1 - h * 0.27, M.can, h * 0.05); // the canards
+      }
+      drBox(ctx, x + Rl.x0, y + Rl.y0, x + Rl.x1, y + Rl.y1, bodyFlat('#5d6670'), true); // the rail
+      break;
+    }
+  }
+}
+// The boxes: a case in the part's paint and what it carries
+function drBoxArt(ctx, p, lw, L) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, st = d.style, C = L.cs, l = x + C.x0, r = x + C.x1, b = y + C.y0, t = y + C.y1;
+  const own = { fc: '#4a5059', fcgps: '#4a5059', batt: '#434951', gen: '#6a7179', link: '#454b52', linkL: '#454b52', sat: '#4a5059', cam: '#3d434a', gimbal: '#3a3f46', drop: '#5f6b52', bombs: '#5d6670' }[st] || '#4a5059';
+  const whips = () => { ctx.lineCap = 'round'; for (const [a, c] of L.whips) { drLine(ctx, x + a[0], y + a[1], x + c[0], y + c[1], Math.max(lw * 0.8, L.wr * 2), '#16191c'); drLine(ctx, x + c[0] + (a[0] - c[0]) * 0.25, y + c[1] + (a[1] - c[1]) * 0.25, x + c[0], y + c[1], Math.max(lw, L.wr * 2.4), '#3a3f46'); } ctx.lineCap = 'butt'; };
+  if (st === 'gimbal') { // the fork and the ball under the mount, the lens to the front
+    const G = L.gim, Ls = G.lens;
+    drBox(ctx, x - G.post, y + G.bar, x + G.post, y + G.y, '#2a2e33');
+    drBox(ctx, x - G.R * 0.5, y + G.bar - G.bt, x + G.R * 0.5, y + G.bar + G.bt, '#2a2e33', true); // the fork's bridge, end on
+    ctx.beginPath(); ctx.arc(x, y + G.yc, G.R, 0, TAU); ctx.fillStyle = PartPaint.flat ? '#5a6168' : '#5d646c'; ctx.fill(); ctx.stroke(); // the ball
+    drBox(ctx, x + Ls.x0, y + G.yc - Ls.r, x + Ls.x1, y + G.yc + Ls.r, '#2a2e33', true);
+    drBox(ctx, x + Ls.x1, y + G.yc - Ls.gr, x + Ls.g1, y + G.yc + Ls.gr, PAL.glass);
+    drBox(ctx, x - G.R * 0.35, y + G.yc + G.R * 0.2, x + G.R * 0.35, y + G.bar, '#33383e', true); // the near arm, down to its pivot
+    ctx.beginPath(); ctx.arc(x, y + G.yc, G.R * 0.3, 0, TAU); ctx.fillStyle = '#2a2e33'; ctx.fill();
+  }
+  if (st === 'drop' || st === 'bombs') { // the stores, nose down (the ones gone left out)
+    const n = p.ammo == null ? L.stores.length : clamp(p.ammo | 0, 0, L.stores.length);
+    for (let i = 0; i < n; i++) {
+      const S = L.stores[i], sx = x + S.x, y0 = y + S.y0, y1 = y + S.y1, R = S.r, H = y1 - y0;
+      ctx.beginPath();
+      if (S.bomb) { ctx.moveTo(sx, y0); ctx.quadraticCurveTo(sx - R, y0 + H * 0.06, sx - R, y0 + H * 0.35); ctx.lineTo(sx - R, y0 + H * 0.55); ctx.lineTo(sx - R * 0.45, y0 + H * 0.8); ctx.lineTo(sx - R * 0.4, y1); ctx.lineTo(sx + R * 0.4, y1); ctx.lineTo(sx + R * 0.45, y0 + H * 0.8); ctx.lineTo(sx + R, y0 + H * 0.55); ctx.lineTo(sx + R, y0 + H * 0.35); ctx.quadraticCurveTo(sx + R, y0 + H * 0.06, sx, y0); }
+      else { ctx.moveTo(sx - R * 0.6, y0); ctx.lineTo(sx - R, y0 + H * 0.3); ctx.lineTo(sx - R, y0 + H * 0.75); ctx.lineTo(sx - R * 0.45, y0 + H * 0.9); ctx.lineTo(sx - R * 0.45, y1); ctx.lineTo(sx + R * 0.45, y1); ctx.lineTo(sx + R * 0.45, y0 + H * 0.9); ctx.lineTo(sx + R, y0 + H * 0.75); ctx.lineTo(sx + R, y0 + H * 0.3); ctx.lineTo(sx + R * 0.6, y0); }
+      ctx.closePath(); ctx.fillStyle = '#5f6b52'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = PAL.hazard; ctx.fillRect(sx - R, y0 + H * (S.bomb ? 0.22 : 0.45), R * 2, H * 0.05); // a band
+      if (S.bomb) { ctx.fillStyle = '#3a3f46'; ctx.fillRect(sx - R * 1.06, y0 + H * 0.75, R * 2.12, H * 0.2); ctx.strokeRect(sx - R * 1.06, y0 + H * 0.75, R * 2.12, H * 0.2); } // its tail fins (crossed, seen at 45°)
+    }
+  }
+  drBox(ctx, l, b, r, t, tintGradient(ctx, l, r, own), true); // the case
+  if (!PartPaint.flat) { ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(l, t - (t - b) * 0.18, r - l, (t - b) * 0.08); } // (its sheen: 2D only, or a 3D case's top would take it)
+  switch (st) {
+    case 'fc': case 'fcgps': {
+      ctx.fillStyle = '#2f7a45'; ctx.fillRect(l, b + (t - b) * 0.35, r - l, (t - b) * 0.18); // the board's edge
+      ctx.fillStyle = '#c9a24a'; for (let i = 0; i < 4; i++) ctx.fillRect(l + (r - l) * (0.12 + i * 0.1), b + (t - b) * 0.35, (r - l) * 0.04, (t - b) * 0.18); // pins
+      ctx.fillStyle = '#7dffb0'; ctx.fillRect(x + L.led.x - L.led.s / 2, t - L.led.s, L.led.s, L.led.s); // the LED
+      whips();
+      if (L.puck) { const K = L.puck; drBox(ctx, x + K.x - L.wr, y + K.m, x + K.x + L.wr, y + K.y0, '#16191c'); drBox(ctx, x + K.x - K.r, y + K.y0, x + K.x + K.r, y + K.y1, '#e9ecef', true); drBox(ctx, x + K.x - K.r, y + K.y0, x + K.x + K.r, y + K.y0 + (K.y1 - K.y0) * 0.3, '#2b2f34'); }
+      break;
+    }
+    case 'link': ctx.fillStyle = '#62d0ff'; ctx.fillRect(r - (r - l) * 0.28, b + (t - b) * 0.4, (r - l) * 0.12, (t - b) * 0.25); whips(); break;
+    case 'linkL': {
+      const P = L.blade.pts;
+      ctx.beginPath(); P.forEach(([px, py], i) => (i ? ctx.lineTo(x + px, y + py) : ctx.moveTo(x + px, y + py))); ctx.closePath(); ctx.fillStyle = '#1c1f22'; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e9ecef'; ctx.fillRect(x + P[3][0], y + P[3][1] - h * 0.12, P[2][0] - P[3][0], h * 0.05);
+      ctx.fillStyle = '#62d0ff'; ctx.fillRect(r - (r - l) * 0.25, b + (t - b) * 0.35, (r - l) * 0.1, (t - b) * 0.3);
+      break;
+    }
+    case 'sat': { const M = L.dome; ctx.beginPath(); ctx.ellipse(x, y + M.y, M.r, M.hgt, 0, 0, Math.PI); ctx.fillStyle = '#eef1f4'; ctx.fill(); ctx.stroke(); ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(x - M.r, y + M.y, M.r * 2, M.hgt * 0.18); break; }
+    case 'cam': {
+      const K = L.lens;
+      drBox(ctx, x + K.x0, y - K.r, x + K.x1, y + K.r, '#2a2e33', true);
+      drBox(ctx, x + K.g0, y - K.gr, x + K.g1, y + K.gr, PAL.glass);
+      ctx.fillStyle = PAL.orange; ctx.fillRect(x + K.x1 - (K.x1 - K.x0) * 0.2, y - K.r, (K.x1 - K.x0) * 0.1, K.r * 2);
+      break;
+    }
+    case 'batt': {
+      ctx.fillStyle = accent('#ffd23f'); ctx.fillRect(l, b + (t - b) * 0.38, r - l, (t - b) * 0.24); // the label
+      ctx.fillStyle = 'rgba(20,20,20,0.6)'; for (let i = 0; i < 3; i++) ctx.fillRect(l + (r - l) * (0.5 + i * 0.1), b + (t - b) * 0.45, (r - l) * 0.06, (t - b) * 0.1);
+      const S = L.strap; drBox(ctx, x + S.x0, y + S.y0, x + S.x1, y + S.y1, '#16191c'); // the strap
+      ctx.fillStyle = '#c23b2c'; ctx.fillRect(l, t - (t - b) * 0.16, (r - l) * 0.06, (t - b) * 0.12); ctx.fillStyle = '#16191c'; ctx.fillRect(l + (r - l) * 0.06, t - (t - b) * 0.16, (r - l) * 0.06, (t - b) * 0.12); // the leads
+      break;
+    }
+    case 'gen': {
+      for (const F of L.fins) drBox(ctx, x + F.x0, y + F.y0, x + F.x1, y + F.y1, '#8d96a0', true);
+      const E = L.pipe; drBox(ctx, x + E.x0, y + E.y - E.r, x + E.x1, y + E.y + E.r, '#5b4a3a', true);
+      ctx.fillStyle = '#16191c'; ctx.fillRect(l + (r - l) * 0.1, b + (t - b) * 0.15, (r - l) * 0.8, (t - b) * 0.12); // vents
+      ctx.fillStyle = accent(PAL.orange); ctx.fillRect(r - (r - l) * 0.16, b + (t - b) * 0.55, (r - l) * 0.08, (t - b) * 0.2);
+      break;
+    }
+    case 'drop': case 'bombs': {
+      ctx.fillStyle = '#16191c'; ctx.fillRect(l + (r - l) * 0.08, b, (r - l) * 0.84, (t - b) * 0.12); // the release
+      ctx.fillStyle = '#2b3036'; ctx.fillRect(l + (r - l) * 0.7, b + (t - b) * 0.3, (r - l) * 0.2, (t - b) * 0.5); ctx.strokeRect(l + (r - l) * 0.7, b + (t - b) * 0.3, (r - l) * 0.2, (t - b) * 0.5); // its servo
+      break;
+    }
+  }
+}
+
+// The counter-drone kit's and the bays' side views (gvKit draws the rest of Armour's kit)
+function drKit(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, b = y - h / 2, t = y + h / 2, l = x - w / 2, r = x + w / 2, st = d.style, L = drLayout(d);
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  const B = (Q, k = 0, fill) => drBox(ctx, x + Q.x0, y + Q.y0, x + Q.x1, y + Q.y1, fill || (k ? gvTone(k) : gvFill(ctx, y + Q.y0, y + Q.y1, x + Q.x0, x + Q.x1)), true);
+  const quad = (q, k) => { // a small drone, folded (or sitting, in the hangar): its body, arms folded along it, motors at their ends
+    const qx = x + q.x, qy = y + q.y, L2 = q.len / 2, H = q.hgt;
+    drBox(ctx, qx - L2, qy + H * 0.2, qx + L2, qy + H * 0.45, '#2b3036', true); // the arms
+    for (const sx of [-1, 1]) drBox(ctx, qx + sx * L2 * 0.8 - L2 * 0.14, qy + H * 0.45, qx + sx * L2 * 0.8 + L2 * 0.14, qy + H * 0.7, '#3c4249', true); // two of its motors
+    drBox(ctx, qx - L2 * 0.42, qy, qx + L2 * 0.42, qy + H * 0.85, k ? '#4b5157' : '#454b52', true); // its body
+    ctx.fillStyle = PAL.glass; ctx.fillRect(qx + L2 * 0.42 - L2 * 0.14, qy + H * 0.5, L2 * 0.14, H * 0.18); // its camera
+  };
+  switch (st) {
+    case 'dock': {
+      B(L.tray); gvRivets(ctx, gvAlong(l, y + L.tray.y1 - h * 0.08, r, y + L.tray.y1 - h * 0.08, 0.2, 0.08), 0.014);
+      const n = p.docked == null ? L.quads.length : clamp(p.docked | 0, 0, L.quads.length);
+      for (let i = 0; i < n; i++) quad(L.quads[i], i & 1);
+      for (const P of [L.posts[0], L.posts[2]]) B(P, -0.15);
+      const Ld = L.lid, y0 = y + Ld.y - Ld.th / 2;
+      if (p.deployed > 0) { // the lid open: up off the back, seen edge on
+        ctx.save(); ctx.translate(x + Ld.x, y + Ld.y); ctx.rotate(Ld.open * clamp(p.deployed, 0, 1)); drBox(ctx, 0, -Ld.th / 2, Ld.len, Ld.th / 2, gvTone(-0.1), true); ctx.restore();
+        break;
+      }
+      drBox(ctx, l, y0, r, y0 + Ld.th, gvTone(-0.1), true); // the lid's frame
+      ctx.save(); ctx.beginPath(); ctx.rect(l + 0.03, y0 + Ld.th * 0.2, w - 0.06, Ld.th * 0.6); ctx.clip(); ctx.fillStyle = 'rgba(12,14,10,0.6)'; ctx.fillRect(l, y0, w, Ld.th);
+      ctx.strokeStyle = gvTone(0.05); ctx.lineWidth = Math.max(lw * 0.5, 0.008); ctx.beginPath(); for (let xx = l - Ld.th; xx < r; xx += 0.05) { ctx.moveTo(xx, y0); ctx.lineTo(xx + Ld.th, y0 + Ld.th); ctx.moveTo(xx + Ld.th, y0); ctx.lineTo(xx, y0 + Ld.th); } ctx.stroke(); // the mesh
+      ctx.restore();
+      break;
+    }
+    case 'dockH': {
+      const W = L.walls, Dr = L.doors;
+      B(W); gvShade(ctx, l, r, y + W.y0, y + W.y1);
+      ctx.lineWidth = lw * 0.7; ctx.strokeStyle = 'rgba(10,12,8,0.55)'; ctx.beginPath(); for (const k of [0.33, 0.66]) { ctx.moveTo(l + w * k, y + W.y0); ctx.lineTo(l + w * k, y + W.y1); } ctx.stroke(); // panel seams
+      gvGrille(ctx, lw, l + w * 0.06, y + W.y0 + h * 0.25, w * 0.18, h * 0.3, 7); // a vent
+      ctx.fillStyle = accent(PAL.hazard); ctx.fillRect(l, y + W.y1 - h * 0.08, w, h * 0.03); // a band under the doors
+      drBox(ctx, l + 0.03, y + Dr.y - Dr.th / 2, r - 0.03, y + Dr.y + Dr.th / 2, gvTone(-0.06), true); // the near door's edge
+      gvRivets(ctx, gvAlong(l + 0.03, y + Dr.y, r - 0.03, y + Dr.y, 0.25, 0.08), 0.015);
+      for (const k of [0.3, 0.7]) drBox(ctx, l + w * k - 0.04, y + W.y1 - h * 0.16, l + w * k + 0.04, y + W.y1 - h * 0.05, '#2a2d2f'); // latches
+      gvGrime(ctx, l, r, y + W.y0, y + W.y1, 0.3, 0.5);
+      break;
+    }
+    case 'dockT': {
+      const T = L.tubes, cy = y + T.y;
+      B(L.cradle, -0.12); for (const sx of L.saddles) drBox(ctx, x + sx - 0.04, y + L.cradle.y1, x + sx + 0.04, cy, gvTone(-0.16), true); // the cradle and its saddles
+      drBox(ctx, x + T.x0, cy - T.r, x + T.x1, cy + T.r, '#5f6b52', true); // the near canister
+      ctx.fillStyle = 'rgba(255,255,236,0.14)'; ctx.fillRect(x + T.x0, cy + T.r * 0.45, T.x1 - T.x0, T.r * 0.25);
+      for (const bx0 of T.bands) drBox(ctx, x + bx0 - 0.015, cy - T.r - 0.006, x + bx0 + 0.015, cy + T.r + 0.006, '#3a3f45', true);
+      ctx.fillStyle = 'rgba(255,255,236,0.55)'; for (let i = 0; i < 4; i++) ctx.fillRect(x + T.x0 + 0.2 + i * 0.07, cy - T.r * 0.2, 0.04, T.r * 0.12); // a stencil
+      if (p.deployed > 0) { ctx.save(); ctx.translate(x + T.x1, cy + T.r); ctx.rotate(T.open * clamp(p.deployed, 0, 1)); drBox(ctx, 0, -2 * T.r, T.cap, 0, '#3a3f45', true); ctx.restore(); }
+      else drBox(ctx, x + T.x1, cy - T.r, x + T.x1 + T.cap, cy + T.r, '#3a3f45', true); // the front cap
+      break;
+    }
+    case 'jam': case 'jamL': {
+      const C = L.cs;
+      B(C); gvShade(ctx, l, r, y + C.y0, y + C.y1);
+      gvGrille(ctx, lw, l + w * 0.1, y + C.y0 + h * 0.08, w * 0.45, (C.y1 - C.y0) * 0.55, st === 'jamL' ? 10 : 6);
+      ctx.fillStyle = '#ff5d5d'; ctx.fillRect(r - w * 0.18, y + C.y1 - (C.y1 - C.y0) * 0.3, w * 0.06, (C.y1 - C.y0) * 0.12); // its lamp
+      ctx.fillStyle = '#2a2d2f'; ctx.fillRect(r - w * 0.3, y + C.y0 + h * 0.08, w * 0.16, (C.y1 - C.y0) * 0.3); // a connector panel
+      for (const A of L.ants) if (A.z > 0) { // the near row
+        drBox(ctx, x + A.x - A.base, y + A.y0, x + A.x + A.base, y + A.y0 + 0.06, '#2a2d2f', true);
+        drBox(ctx, x + A.x - A.r, y + A.y0 + 0.06, x + A.x + A.r, y + A.y1 - A.r, '#3a3f45', true);
+        ctx.beginPath(); ctx.arc(x + A.x, y + A.y1 - A.r, A.r * 1.15, 0, TAU); ctx.fillStyle = '#1c1f22'; ctx.fill();
+      }
+      gvGrime(ctx, l, r, y + C.y0, y + C.y1, 0.3, 0.5);
+      break;
+    }
+    case 'det': {
+      const C = L.cs, M = L.mast, Dm = L.dome;
+      drBox(ctx, x - M.r, y + M.y0, x + M.r, y + Dm.y, '#3a3f45', true); // the mast
+      B(C); gvRivets(ctx, [[x + C.x0 + 0.03, y + C.y1 - 0.03], [x + C.x1 - 0.03, y + C.y1 - 0.03]], 0.012);
+      ctx.beginPath(); ctx.ellipse(x, y + Dm.y, Dm.rx, Dm.ry, 0, 0, TAU); ctx.fillStyle = '#e4e7ea'; ctx.fill(); ctx.stroke(); // the dome
+      drBox(ctx, x - Dm.rx, y + Dm.y - Dm.band / 2, x + Dm.rx, y + Dm.y + Dm.band / 2, '#2b2f34'); // its band
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(x - Dm.rx * 0.3, y + Dm.y + Dm.ry * 0.45, Dm.rx * 0.3, Dm.ry * 0.2, 0, 0, TAU); ctx.fill();
+      break;
+    }
+    case 'rws': { // back to front (the viewer is at +z): ring, housing, the far plate and the sight, the gun, the near plate and the magazine
+      const R = L.rws, cx = x + R.xc, yb = y + R.yb, T = yb + R.T, H = R.house, G = R.gun, S = R.sight, Q = (q, oy, fill) => drBox(ctx, cx + q.x0, oy + q.y0, cx + q.x1, oy + q.y1, fill, true);
+      drBox(ctx, cx - R.ring, y - h / 2, cx + R.ring, yb, '#3a3f45', true); // the ring
+      Q(H, yb, gvFill(ctx, yb, yb + H.y1, cx + H.x0, cx + H.x1)); gvGrime(ctx, cx + H.x0, cx + H.x1, yb + H.y0, yb + H.y1, 0.25, 0.5); // the housing
+      Q(R.plates[0], yb, gvTone(-0.12));
+      Q(S, T, '#2b2f34'); ctx.fillStyle = PAL.glass; ctx.fillRect(cx + S.x1 - 0.012, T + S.y0 + (S.y1 - S.y0) * 0.25, 0.012, (S.y1 - S.y0) * 0.5); // the sight
+      Q(G, T, GV_GUN); // the gun: its receiver, barrel and muzzle brake
+      drBox(ctx, cx + R.barrel.x0, T - R.barrel.r, cx + R.barrel.x1, T + R.barrel.r, '#23272c', true);
+      drBox(ctx, cx + R.barrel.x1 - R.brake, T - R.barrel.r * 1.5, cx + R.barrel.x1, T + R.barrel.r * 1.5, '#1b1e22', true);
+      Q(R.plates[1], yb, gvTone(-0.06));
+      ctx.beginPath(); ctx.arc(cx, T, R.barrel.r * 1.2, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill(); ctx.stroke(); // the trunnion
+      Q(R.mag, yb, gvTone(-0.08)); ctx.fillStyle = 'rgba(255,255,230,0.2)'; ctx.fillRect(cx + R.mag.x0, yb + R.mag.y1 - h * 0.05, R.mag.x1 - R.mag.x0, h * 0.02); // the box magazine
+      break;
+    }
+    case 'laser': {
+      const R = L.las, yb = y + R.yb, T = yb + R.T, Dm = R.drum, Ls = R.lens, A = R.arm;
+      drBox(ctx, x - R.ring, y - h / 2, x + R.ring, yb, '#3a3f45', true); // the turntable
+      drBox(ctx, x - R.ring * 0.8, yb, x + R.ring * 0.8, yb + h * 0.06, gvTone(-0.12), true);
+      for (const fx of R.fins) drBox(ctx, x + fx - 0.012, T - Dm.r * 1.08, x + fx + 0.012, T + Dm.r * 1.08, '#2b2f34', true); // its cooling fins
+      drBox(ctx, x + Dm.x0, T - Dm.r, x + Dm.x1, T + Dm.r, gvFill(ctx, T - Dm.r, T + Dm.r, x + Dm.x0, x + Dm.x1), true); // the beam director
+      ctx.fillStyle = 'rgba(255,255,236,0.12)'; ctx.fillRect(x + Dm.x0, T + Dm.r * 0.5, Dm.x1 - Dm.x0, Dm.r * 0.2);
+      drBox(ctx, x + Dm.x1, T - Ls.r * 1.12, x + Ls.x1, T + Ls.r * 1.12, '#2b2f34', true); // the lens's rim
+      drBox(ctx, x + Ls.x1 - 0.02, T - Ls.r, x + Ls.x1, T + Ls.r, '#5a1c22'); // the lens, edge on
+      ctx.fillStyle = 'rgba(255,120,120,0.5)'; ctx.fillRect(x + Ls.x1 - 0.02, T + Ls.r * 0.2, 0.02, Ls.r * 0.5);
+      drBox(ctx, x + A.x0, yb + A.y0, x + A.x1, yb + A.y1, gvTone(-0.06), true); // the near arm of the yoke
+      ctx.beginPath(); ctx.arc(x, T, (A.x1 - A.x0) * 0.42, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill(); ctx.stroke(); // its trunnion
+      ctx.fillStyle = accent('#ffc93c'); ctx.fillRect(x + Dm.x0 + 0.06, T - Dm.r * 0.15, 0.1, Dm.r * 0.3); // a warning plate
+      break;
+    }
+    case 'cage': {
+      const s = L.s;
+      ctx.fillStyle = gvTone(-0.25);
+      for (let i = 0; i <= L.slats; i++) { const xx = l + s + ((w - 3 * s) * i) / L.slats; ctx.fillRect(xx, t - s * 0.9, s * 0.6, s * 0.7); } // the slats, end on
+      drBox(ctx, l, t - s, r, t - s * 0.35, gvTone(-0.18), true); // the top frame's near bar
+      for (const sx of [-1, 1]) drBox(ctx, x + sx * (w / 2 - s / 2) - s / 2, b, x + sx * (w / 2 - s / 2) + s / 2, t, gvTone(-0.12), true); // the near posts
+      for (const sx of [-1, 1]) drBox(ctx, x + sx * (w / 2 - s * 0.75) - s * 0.75, b, x + sx * (w / 2 - s * 0.75) + s * 0.75, b + s * 0.4, gvTone(-0.3), true); // their feet
+      break;
+    }
+  }
+}
+// The tops and ends of the cases and bays that parts3d.js builds as plated boxes (their 3D textures' other quarters)
+function drKitPlan(ctx, p, lw) {
+  const d = p.def, w = d.w, D = d.depth || w, l = -w / 2, n = -D / 2, st = d.style, L = drLayout(d);
+  ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(10,12,8,0.55)';
+  if (st === 'jam' || st === 'jamL') { gvGrille(ctx, lw, l + w * 0.12, n + D * 0.3, w * 0.76, D * 0.4, st === 'jamL' ? 14 : 9); for (const A of L.ants) { ctx.beginPath(); ctx.arc(A.x, A.z, A.base, 0, TAU); ctx.fillStyle = '#2a2d2f'; ctx.fill(); } }
+  else if (st === 'det') gvHatch(ctx, lw, 0, 0, Math.min(w, D) * 0.25);
+  else if (st === 'dock') { ctx.fillStyle = gvTone(-0.25); ctx.fillRect(l + 0.04, n + 0.04, w - 0.08, D - 0.08); ctx.strokeStyle = gvTone(-0.05); for (const k of [-1, 1]) for (let i = 0; i < 3; i++) { ctx.strokeRect(l + w * (0.06 + i * 0.31), k * D * 0.22 - D * 0.12, w * 0.26, D * 0.24); } }
+  else if (st === 'dockH') { // the floor: a landing pad's circle and its H
+    ctx.fillStyle = gvTone(-0.22); ctx.fillRect(l + 0.05, n + 0.05, w - 0.1, D - 0.1);
+    ctx.lineWidth = Math.max(lw, 0.025); ctx.strokeStyle = 'rgba(255,214,64,0.8)'; ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.32, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-0.12, -0.15); ctx.lineTo(-0.12, 0.15); ctx.moveTo(0.12, -0.15); ctx.lineTo(0.12, 0.15); ctx.moveTo(-0.12, 0); ctx.lineTo(0.12, 0); ctx.stroke();
   }
 }

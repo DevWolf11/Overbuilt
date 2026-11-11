@@ -139,6 +139,35 @@ r = await ev(() => {
   return out;
 });
 ok('every part\'s 3D model fits inside its clash shape', !r.length, r.join(' '));
+// 3d. the big update's drone parts and counter-drone kit clash as boxes (their recipes build inside them): every model, at
+// rest, within 1.5 cm of its part's box (the lathes, the munition body, charges and spools, within their outlines above). The
+// Drone Radar is the Search Radar's antenna, which turns in flight and reaches past its box's depth as that one's does.
+r = await ev(() => {
+  const out = [], inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let n = 0;
+  for (const type in PARTS) {
+    const d = PARTS[type];
+    if (!(d.drone || d.family === 'Drones') || isSurface(d) || d.searchRadar) continue;
+    const p = makePart(type, 0, 0), root = Parts3D.buildPart(p, true), hd = partDepth(p) / 2;
+    root.updateMatrixWorld(true);
+    let worst = 0, meshes = 0;
+    for (const H of root.userData.rig.holders) {
+      inv.copy(H.matrixWorld).invert();
+      H.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return;
+        for (let q = o; q; q = q.parent) if (!q.visible) return;
+        meshes++;
+        m.multiplyMatrices(inv, o.matrixWorld);
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m); worst = Math.max(worst, Math.abs(v.x) - d.w / 2, Math.abs(v.y) - d.h / 2, Math.abs(v.z) - hd); }
+      });
+    }
+    n++;
+    if (worst > 0.015 || !meshes) out.push(`${type} ${meshes ? worst.toFixed(3) : 'no mesh'}`);
+  }
+  return { n, out };
+});
+ok(`every drone part's and counter-drone part's 3D model lies inside its box (${r.n} parts)`, r.n === 41 && !r.out.length, r.out.join(' '));
 await ev(() => App.setPreview3D(false));
 
 // 4. cheap enough to run on every pointer move: snap against a whole jet
