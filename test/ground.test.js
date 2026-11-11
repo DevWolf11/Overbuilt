@@ -586,6 +586,28 @@ t('old craft send their messages as before the big update: a buggy\'s hp rows ([
   return okPv && okHp && okDown && okHit || JSON.stringify([okPv, okHp, okDown, okHit, out, hits]);
 })()`) === true);
 t('...and none of it calls into the new systems', calls(mp) === '{}', calls(mp));
+// (the big update's drones, NET_VERSION 11) a tank with its drone up, flown from the tank or from the drone: the tank's
+// own messages byte for byte as with no drone (c = 0 carries no c); the drone's (its spawn, s, pv, hp) carry c, last
+t('a tank with its drone up sends its own messages byte for byte as with none (flown from the tank or from the drone); the drone\'s all carry c last', G.run(mp, `(() => {
+  const C0 = globalThis.Combat; globalThis.Combat = { hpFrac: (p) => (p.hp == null ? 1 : Math.max(0, p.hp) / 1000), maxHp: () => 1000, S: { kills: 0 } };
+  const tp = partsFromDesign(templateRows(TEMPLATES.tk34)), tk = new Vessel(tp, buildAdjacency(tp), EARTH); tk.kind = 'tank'; tk.rebuildGroups();
+  tk.parts.forEach((p, i) => { if (i % 2) p.hp = 900 - 50 * i; }); tk.parts.find((p) => p.def.ring).aimYaw = 0.3;
+  const B = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }],
+    ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }]]
+    .map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+  const d = Drone.build(B, 'Bumble'); d.x = tk.x; d.y = tk.y + 20; d.z = tk.z; d.parts.find((p) => p.def.thrust).firing = 0.437; d.parts[1].hp = 5; // (hurt: it sends its health)
+  const cap = (fly, up) => { MP.extra.clear(); MP.mainDown = false; Flight.active = tk; Flight.destroyed = false; Net.out = [];
+    if (up) { MP.nextC = 1; MP.sendExtra(d); MP.extra.get(1).sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; if (fly) { d.carrier = tk; Flight.active = d; } }
+    MP.sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; MP.lastParts = tk.parts.length - 1; MP.afterUpdate(); d.carrier = undefined;
+    return Net.out.map(([m]) => m); };
+  const none = cap(false, false), withUp = cap(false, true), flown = cap(true, true), main = (L) => JSON.stringify(L.filter((m) => !('c' in m)));
+  const extra = flown.filter((m) => 'c' in m), types = extra.map((m) => m.t).join();
+  MP.extra.clear(); globalThis.Combat = C0;
+  const ok = none.length >= 4 && main(none) === JSON.stringify(none) && main(withUp) === JSON.stringify(none) && main(flown) === JSON.stringify(none)
+    && types === 'spawn,s,pv,hp' && extra.every((m) => m.c === 1 && Object.keys(m).at(-1) === 'c') && extra[2].list.some((r) => r[2] === 0.4);
+  return ok || JSON.stringify([none.map((m) => m.t), withUp.map((m) => m.t + (m.c || '')), flown.map((m) => m.t + (m.c || '')), types]);
+})()`) === true);
+G.run(mp, 'for (const k in CALLS) delete CALLS[k];'); // (the drone above was built through Drone)
 
 // ================================================================ §physics (Phase 2A): the running gear (gear.js)
 // The five vehicles of spec §4.4, built from the catalogue's own parts (test/lib/tanks.js), on the real map (the arena's

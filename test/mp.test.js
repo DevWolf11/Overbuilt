@@ -404,7 +404,7 @@ async function groundBattle() {
     const vm = require('vm'), fs = require('fs'), path = require('path');
     const NC = vm.createContext({ console, performance, setTimeout, clearTimeout, setInterval, clearInterval, addEventListener() {}, document: { hidden: false, addEventListener() {} } });
     vm.runInContext(fs.readFileSync(path.join(G.ROOT, 'js/net.js'), 'utf8') + '\nthis.Net = Net; this.V = NET_VERSION;', NC);
-    t('ground: obj, spot, fallen and wrecks are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 11 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen, radar parts, rdr and mp.a)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && NC.Net._t.HOST_ONLY.has('wrecks') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && !NC.Net._t.HOST_ONLY.has('rdr') && NC.V === 11);
+    t('ground: obj, spot, fallen and wrecks are host-only (a player\'s are never passed on), crush is anyone\'s; NET_VERSION 11 (7: the ground update; 8: the props; 9: every shot and craft meets them, and what falls is shared; 10: the part limit a room setting; 11: the big update: aircraft shot apart and falling, wrecks on every screen, radar parts, rdr and mp.a, drones beside their tanks: c, tc, extras)', NC.Net._t.HOST_ONLY.has('obj') && NC.Net._t.HOST_ONLY.has('spot') && NC.Net._t.HOST_ONLY.has('fallen') && NC.Net._t.HOST_ONLY.has('wrecks') && !NC.Net._t.HOST_ONLY.has('crush') && !NC.Net._t.HOST_ONLY.has('seen') && !NC.Net._t.HOST_ONLY.has('rdr') && NC.V === 11);
   }
   // the lineup: a slot only when unused, the respawn time come and tickets left; each spawn uses its slot
   X(`MP.state.settings.respawn = 'lineup'; const p2 = MP.player(2); p2.slots = 1; p2.slot = 0; p2.respawnAt = __T + 5000;
@@ -680,10 +680,163 @@ async function roomWrecks() {
   t('wrecks: ...and a battle\'s lobby starts with none', A(`lobby === 0`), A('lobby'));
 }
 
+// ---- 9. drones in a room (the big update, spec-drones §16): a player's second craft (a drone from their tank's bay)
+// on its own craft index c, beside their tank's ghost; refused when forged, without a bay or too big for it; nothing
+// booked when it goes down; our own drone's messages (c last) and the hits on it; a tank knocked out under its flown
+// drone told once; a standalone drone in a ground battle (11 tickets at $1,920); the zones and spotting see main craft only.
+const DRONE_ROWS = `(() => { const T = typeof TEMPLATES !== 'undefined' && TEMPLATES.bumble && TEMPLATES.bumble.kind === 'drone' ? TEMPLATES.bumble : null; if (T) return templateRows(T);
+  const R = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+    ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+    ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]];
+  return R.map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })); })()`;
+const DRONE_HELP = `var BUMBLE = ${DRONE_ROWS};
+    var up = (v, h) => { const r = Math.hypot(v.x, v.y, v.z); v.x += (v.x / r) * h; v.y += (v.y / r) * h; v.z += (v.z / r) * h; };
+    // a drone's spawn rows, its ids renumbered from base (1: the same ids as a tank's first parts, on purpose)
+    var renum = (rows, base) => { const map = new Map(rows.map((r, i) => [r[0], base + i])); return rows.map((r) => { const q = r.slice(); q[0] = map.get(r[0]); q[7] = r[7] ? map.get(r[7]) || 0 : 0; return q; }); };
+    var dRows = renum(MP.spawnRows(Drone.build(BUMBLE, 'Bumble')), 1), tankRows = [...rowsOf('tk34'), [99, 'dockRack', 0, 1.4, 0, 0, 0, 0, 0]];
+    var snapOf = (v, f, c) => { const m = { t: 's', f, th: __T, b: v.body.id, P: [v.x, v.y, v.z], V: [v.vx, v.vy, v.vz], Q: [v.q.w, v.q.x, v.q.y, v.q.z], W: [0, 0, 0], C: [v.com.x, v.com.y, v.com.z || 0], g: 0, l: 0 }; if (c !== undefined) m.c = c; return m; };
+    var twin = (rows, kind, f, e, h) => { const v = MP.vesselOf(mpSpawnRows(rows, 600), kind, f); v.placeOnSurface(EARTH, siteAngle(EARTH, e), VEHICLE_KINDS[kind].launchRot); if (h) up(v, h); return v; };
+    var sig = (g) => JSON.stringify(g.parts.map((p) => [p.id, p.hp, p.firing || 0])) + g.parts.length;
+    var RW = EARTH.sites.runway.east;`;
+async function roomDrones() {
+  const Q = G.load({ mp: true, combat: true });
+  const X = (code) => G.run(Q, code);
+  X(ROOM);
+  await X(`MP.host('sandbox', 'local')`);
+  X(DRONE_HELP);
+  // -- a peer's tank (with a Drone Rack) and its drone (c 1): two ghosts
+  X(`MP.addPlayer(2, 'Bea'); MP.addPlayer(3, 'Cid'); __design = { name: 'Tank', kind: 'tank', parts: templateRows(TEMPLATES.tk34) }; MP.startFlight(false); Net.out = [];
+    var tw = twin(tankRows, 'tank', 2, RW + 300, 0), dw = twin(dRows, 'drone', 2, RW + 330, 30);
+    emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: tankRows }); emit(snapOf(tw, 2));
+    emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); emit(snapOf(dw, 2, 1)); MP.beforeUpdate(0.016);
+    var P2 = MP.peers.get(2), gT = P2.ghost, gD = MP.ghostOf(2, 1);`);
+  t('drones: a peer\'s tank (a Drone Rack aboard) and its drone (spawn c 1): two ghosts, the drone "Bea\'s drone" (its own craft index, theirs), both in our flight',
+    X(`!!gT && !!gD && gT !== gD && gD.kind === 'drone' && gD.craft === 1 && gD.remote === 2 && gD.name === "Bea's drone" && gD.parts.length === dRows.length && gT.kind === 'tank' && Flight.vessels.includes(gT) && Flight.vessels.includes(gD)`),
+    X('[!!gT, !!gD, gD && gD.name, gD && gD.parts.length]'));
+  t('drones: ...the drone is an enemy ghost (seekers, turrets and counter-drone kit see it), never one of the players\' ghosts (spectating, the map), and an extra',
+    X(`MP.enemyGhosts().includes(gD) && MP.enemyGhosts().includes(gT) && !MP.ghosts().includes(gD) && MP.ghosts().includes(gT) && MP.extraGhosts().length === 1 && MP.extraGhosts()[0] === gD`));
+  // -- each snapshot poses its own ghost only
+  X(`var t0 = [gT.x, gT.y, gT.z]; dw.x += 40; emit(snapOf(dw, 2, 1)); P2.recv = __P; P2.x.get(1).recv = __P; MP.beforeUpdate(1); var dMoved = Math.abs(gD.x - dw.x) < 1e-6, tSame = gT.x === t0[0] && gT.y === t0[1] && gT.z === t0[2];
+    var d0 = [gD.x, gD.y, gD.z]; tw.x += 30; emit(snapOf(tw, 2)); P2.recv = __P; MP.beforeUpdate(1); var tMoved = Math.abs(gT.x - tw.x) < 1e-6, dSame = gD.x === d0[0] && gD.y === d0[1] && gD.z === d0[2];`);
+  t('drones: each snapshot poses only its own ghost (the drone\'s c 1 moves the drone, the tank\'s moves the tank)', X('dMoved && tSame && tMoved && dSame'), X('[dMoved, tSame, tMoved, dSame]'));
+  // -- parts, hp and pv stay within their c (the drone's ids are the tank's first ten, on purpose)
+  X(`var sT = sig(gT), motor = gD.parts.find((p) => p.def.thrust), one = gD.parts.find((p) => p.id === 1);
+    emit({ t: 'hp', f: 2, list: [[1, 50]], c: 1 }); emit({ t: 'pv', f: 2, list: [[motor.id, 0, 0.7, 0, 0, null, 0, 0, null, 0, 0, 0]], c: 1 });
+    var hpOk = Math.abs(one.hp - 0.5 * Combat.maxHp(one.def)) < 1e-9 && motor.firing === 0.7 && motor.active === true, sT1 = sig(gT);
+    emit({ t: 'parts', f: 2, ids: gD.parts.filter((p) => p !== motor).map((p) => p.id), c: 1 }); var lost = !gD.parts.includes(motor) && gD.parts.length === dRows.length - 1;
+    var sD = sig(gD); emit({ t: 'hp', f: 2, list: [[1, 20]] }); var tHit = gT.parts.find((p) => p.id === 1).hp < Combat.maxHp(gT.parts.find((p) => p.id === 1).def), dSame2 = sig(gD) === sD;`);
+  t('drones: parts, hp and pv with c 1 reach the drone only (the tank\'s parts with the same ids untouched), and the tank\'s (no c) the tank only',
+    X('hpOk && sT1 === sT && lost && gT.parts.length === tankRows.length && tHit && dSame2'), X('[hpOk, sT1 === sT, lost, gT.parts.length, tHit, dSame2]'));
+  // -- forged c: refused everywhere (never taken as the main craft)
+  X(`var bad = [NaN, 0.5, '1', 4, 1e9, {}, null, -1, 0], nT = gT.parts.length, xs0 = P2.x.size, out0 = [];
+    for (const c of bad) { emit({ t: 'spawn', f: 2, name: 'x', kind: 'drone', parts: dRows, c }); emit(Object.assign(snapOf(dw, 2), { c })); emit({ t: 'parts', f: 2, ids: [], c }); emit({ t: 'hp', f: 2, list: [[2, 1]], c });
+      emit({ t: 'down', f: 2, by: 1, P: [0, 0, 0], c }); emit({ t: 'despawn', f: 2, c }); }
+    var forgedOk = gT.parts.length === nT && !gT.dead && P2.ghost === gT && P2.x.size === xs0 && MP.ghostOf(2, 1) === gD && !gD.dead && !!P2.design && P2.x.get(1).snap.c === 1;`);
+  t('drones: a forged c (NaN, 0.5, \'1\', 4, 1e9, {}, null, -1, 0) is refused in spawn, s, parts, hp, down and despawn (the tank never takes it)', X('forgedOk'), X('[gT.parts.length, nT, P2.x.size, !!P2.design]'));
+  // -- refused spawns: no bay on their craft, too dear or heavy for the bay, too many parts, not a drone
+  X(`emit({ t: 'spawn', f: 3, name: 'Cid', kind: 'tank', parts: rowsOf('tk34') }); emit({ t: 'spawn', f: 3, name: 'x', kind: 'drone', parts: dRows, c: 1 }); var noBay = !MP.peers.get(3).x;
+    var big = MP.spawnRows(Drone.build([...BUMBLE, { type: 'drBattL', x: 0, y: -0.2, att: 0 }, { type: 'drGimbal', x: 0.1, y: -0.1, att: 0 }], 'Big')), bigFit = Drone.fits({ kind: 'drone', parts: MP.partsOfRows(mpSpawnRows(big, 40)) }, PARTS.dockRack.dock);
+    emit({ t: 'spawn', f: 2, name: 'x', kind: 'drone', parts: big, c: 2 }); var tooBig = MP.ghostOf(2, 2) === null && !P2.x.has(2) && P2.x.has(1);
+    var many = Array.from({ length: 41 }, (_, i) => [i + 1, 'drMotorS', 0, i * 0.1, 0, 0, 0, 0, 0]); emit({ t: 'spawn', f: 2, name: 'x', kind: 'drone', parts: many, c: 3 });
+    emit({ t: 'spawn', f: 2, name: 'x', kind: 'plane', parts: dRows, c: 3 }); var refused = !P2.x.has(3) && P2.x.has(1);`);
+  t('drones: a c spawn is refused when their craft has no bay, when the drone doesn\'t fit the bay (too dear, heavy or wide), past 40 parts, or not a drone', X('noBay && !bigFit.ok && tooBig && refused'), X('[noBay, bigFit, tooBig, refused]'));
+  // -- one extra per peer: a new one (c 2) puts the old (c 1) away
+  X(`emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 2 }); emit(snapOf(dw, 2, 2)); MP.beforeUpdate(0.016); var gD2 = MP.ghostOf(2, 2);`);
+  t('drones: one extra per peer: their drone c 2 puts c 1 away (its ghost gone from the flight)', X('!!gD2 && gD.dead && !Flight.vessels.includes(gD) && P2.x.size === 1 && P2.x.has(2) && Flight.vessels.includes(gD2)'), X('[!!gD2, gD.dead, P2.x.size]'));
+  // -- a down with c: nothing booked; ours: the toast and chime, no kill
+  X(`UI.toasts = []; var me2 = MP.player(2), dd0 = me2.deaths, fl0 = me2.flying, k0 = Combat.S.kills, feed0 = MP.state.feed.length;
+    emit({ t: 'down', f: 2, by: 1, P: [gD2.x, gD2.y, gD2.z], c: 2 }); var downOk = gD2.dead && !Flight.vessels.includes(gD2) && !P2.x.has(2) && me2.deaths === dd0 && me2.flying === fl0 && Combat.S.kills === k0
+      && MP.state.feed.length === feed0 && !!P2.design && P2.ghost === gT && !gT.dead && UI.toasts.includes("Bea's drone down!");`);
+  t('drones: a down with c books nothing (no death, kill, feed line; their tank and design kept); shot down by us: "Bea\'s drone down!"', X('downOk'), X('[gD2.dead, me2.deaths, Combat.S.kills, UI.toasts]'));
+  // -- shot down in the air (fall): it falls here as a hulk of our own physics
+  X(`emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 3 }); emit(snapOf(dw, 2, 3)); MP.beforeUpdate(0.016); var gD3 = MP.ghostOf(2, 3);
+    emit({ t: 'down', f: 2, by: 3, P: [gD3.x, gD3.y, gD3.z], fall: [3, -8, 1], c: 3 });`);
+  t('drones: a down with c and fall: their drone falls here (a foreign hulk of our physics, its velocity theirs), its record gone', X('gD3.foreign === 2 && gD3.remote === 0 && gD3.hulk != null && gD3.isDebris && gD3.vy === -8 && Flight.vessels.includes(gD3) && !P2.x.has(3) && P2.ghost === gT'),
+    X('[gD3.foreign, gD3.hulk, gD3.vy, P2.x.size]'));
+  // -- a drone's spawn waits for its first snapshot (a frame or several); silent 15 s from it, it goes
+  X(`emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); P2.recv = __P; MP.beforeUpdate(0.016); var waits = P2.x.has(1);
+    __P += 15100; P2.recv = __P; MP.beforeUpdate(0.016); var gone15 = !P2.x.has(1);`);
+  t('drones: a drone\'s spawn waits for its first snapshot (frames go by), and goes after 15 s with none', X('waits && gone15'), X('[waits, gone15]'));
+  // -- despawn with c (docked): that drone quietly; a late snapshot asks for its spawn (want c), at most every 3 s
+  X(`emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); emit(snapOf(dw, 2, 1)); MP.beforeUpdate(0.016); var gD4 = MP.ghostOf(2, 1);
+    emit({ t: 'despawn', f: 2, c: 1 }); Net.out = []; emit(snapOf(dw, 2, 1)); emit(snapOf(dw, 2, 1)); var wants = sent('want');`);
+  t('drones: despawn with c (docked) takes that drone away quietly, their tank kept; a late snapshot of it asks once for its spawn (want c 1)', X(`gD4.dead && !Flight.vessels.includes(gD4) && P2.ghost === gT && !!P2.design && wants.length === 1 && wants[0][0].c === 1 && wants[0][1] === 2`), X('[gD4.dead, wants]'));
+  // -- onLeave drops both
+  X(`emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); emit(snapOf(dw, 2, 1)); P2.recv = __P; MP.beforeUpdate(0.016); var gD5 = MP.ghostOf(2, 1); emit({ t: 'leave', pid: 2 });`);
+  t('drones: a player leaving takes their tank and their drone', X('!!gD5 && gD5.dead && gT.dead && !Flight.vessels.includes(gD5) && !Flight.vessels.includes(gT) && !MP.peers.has(2)'), X('[!!gD5, gD5 && gD5.dead, gT.dead]'));
+
+  // -- our own drone: its spawn (c last), its updates (c last, 10 snapshots a second, a motor's throttle in tenths), want
+  X(`MP.addPlayer(2, 'Bea'); emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: tankRows }); emit(snapOf(tw, 2)); MP.beforeUpdate(0.016); var gB = MP.peers.get(2).ghost;
+    var me = Flight.active, d = Drone.build(BUMBLE, 'Bumble'); d.x = me.x; d.y = me.y; d.z = me.z; up(d, 20); d.carrier = me; me.drone = d; Flight.vessels.push(d);
+    Net.out = []; MP.nextC = 1; MP.sendExtra(d); var sp = sent('spawn').map(([m]) => m), E1 = MP.extra.get(1);`);
+  t('our drone: its spawn goes out with c 1 last (kind drone, its rows), and it is our extra', X(`sp.length === 1 && Object.keys(sp[0]).join() === 't,name,kind,parts,c' && sp[0].c === 1 && sp[0].kind === 'drone' && sp[0].parts.length === d.parts.length && d.craft === 1 && E1.v === d && MP.nextC === 2`), X('[sp.map((m) => Object.keys(m).join()), d.craft]'));
+  X(`d.parts.find((p) => p.def.thrust).firing = 0.537; MP.sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; E1.sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; Net.out = []; __P += 1; MP.afterUpdate();
+    var o1 = Net.out.map(([m]) => m), s0 = o1.filter((m) => m.t === 's' && m.c === undefined), s1 = o1.filter((m) => m.t === 's' && m.c === 1), pv1 = o1.find((m) => m.t === 'pv' && m.c === 1);
+    __P += 80; Net.out = []; MP.afterUpdate(); var o2 = Net.out.map(([m]) => m); __P += 30; Net.out = []; MP.afterUpdate(); var o3 = Net.out.map(([m]) => m);`);
+  t('our drone: its updates carry c 1 last (s, pv, hp), a motor\'s throttle in tenths; the tank\'s none; 80 ms on the tank snaps again, the drone 100 ms after its last',
+    X(`s0.length === 1 && s1.length === 1 && Object.keys(s1[0]).at(-1) === 'c' && !!pv1 && Object.keys(pv1).at(-1) === 'c' && pv1.list.some((r) => r[2] === 0.5) && o1.filter((m) => m.c === 1).every((m) => Object.keys(m).at(-1) === 'c')
+      && o1.filter((m) => m.c === undefined).every((m) => !('c' in m)) && o2.some((m) => m.t === 's' && m.c === undefined) && !o2.some((m) => m.t === 's' && m.c === 1) && o3.some((m) => m.t === 's' && m.c === 1)`),
+    X('[o1.map((m) => m.t + (m.c || "")), o2.map((m) => m.t + (m.c || "")), o3.map((m) => m.t + (m.c || ""))]'));
+  X(`Net.out = []; emit({ t: 'want', f: 3, c: 1 }); var rs = Net.out.map(([m, to]) => [m.t, m.c, to]);`);
+  t('our drone: a want with c 1 sends its spawn and its parts (c 1) to the one who asked', X(`JSON.stringify(rs) === JSON.stringify([['spawn', 1, 3], ['parts', 1, 3]])`), X('rs'));
+  // -- a hit on our drone's part lands on the drone, and it knows who hit it
+  X(`var hpTank = JSON.stringify(me.parts.map((p) => p.hp)), fc = d.parts.find((p) => p.def.drone && p.def.drone.fc); Flight.time = 60; emit({ t: 'hit', f: 2, to: 1, list: [[fc.id, 2]], k: 'shot' });`);
+  t('our drone: a hit to:me on its part lands on the drone (our tank untouched) and the drone knows who hit it', X(`fc.hp < Combat.maxHp(fc.def) && JSON.stringify(me.parts.map((p) => p.hp)) === hpTank && d.lastHitBy === gB && d.lastHitAt === 60`), X('[fc.hp, d.lastHitBy && d.lastHitBy.remote]'));
+  // -- missiles and flares: c and tc
+  X(`Net.out = []; MP.sendFlares(d, { x: 1, y: 2, z: 3, vx: 0, vy: 0, vz: 0 }); MP.sendFlares(me, { x: 1, y: 2, z: 3, vx: 0, vy: 0, vz: 0 }); var cms = sent('cm').map(([m]) => m);
+    var gX = { remote: 2, craft: 1 }; MP.sendMissile({ b: EARTH, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, dx: 0, dy: 1, dz: 0, target: gX, owner: d }, { seek: 'air' }); var ms = sent('msl')[0][0];`);
+  t('flares from our drone carry c 1 (our tank\'s none); a missile from our drone at their drone carries tc 1 and c 1, last', X(`cms.length === 2 && cms[0].c === 1 && !('c' in cms[1]) && ms.tg === 2 && ms.tc === 1 && ms.c === 1 && Object.keys(ms).slice(-2).join() === 'tc,c'`), X('[cms, ms]'));
+  X(`var rep = []; Combat.netMissile = (g, m, tgt) => rep.push(tgt); emit({ t: 'msl', f: 2, id: 9, b: 'earth', P: [0, 0, 0], V: [0, 0, 0], D: [0, 1, 0], tg: 1, tc: 1 }); emit({ t: 'msl', f: 2, id: 10, b: 'earth', P: [0, 0, 0], V: [0, 0, 0], D: [0, 1, 0], tg: 1 });
+    emit({ t: 'msl', f: 2, id: 11, b: 'earth', P: [0, 0, 0], V: [0, 0, 0], D: [0, 1, 0], tg: 1, tc: 7 });`);
+  t('a peer\'s missile with tc 1 is after our drone; without tc (or a forged one) after our tank', X(`rep.length === 3 && rep[0] === d && rep[1] === me && rep[2] === me`), X('rep.map((v) => v && v.name)'));
+  // -- our drone goes: docked (despawn c), down (by, P, c last), once
+  X(`Net.out = []; MP.dropExtra(d, 'despawn'); MP.dropExtra(d, 'down', gB); var dk = Net.out.map(([m]) => JSON.stringify(m));
+    var d2 = Drone.build(BUMBLE, 'Bumble'); d2.x = me.x; d2.y = me.y; d2.z = me.z; d2.landed = true; Flight.vessels.push(d2); MP.sendExtra(d2); Net.out = []; MP.dropExtra(d2, 'down', gB); MP.dropExtra(d2, 'down', gB); var dn = Net.out.map(([m]) => m);`);
+  t('our drone docked: one despawn {c}; lost: one down {t, by, P, c} (by the hitter\'s player), nothing more', X(`dk.length === 1 && dk[0] === JSON.stringify({ t: 'despawn', c: 1 }) && dn.length === 1 && Object.keys(dn[0]).join() === 't,by,P,c' && dn[0].by === 2 && dn[0].c === 2 && MP.extra.size === 0`), X('[dk, dn]'));
+  // -- a tank knocked out under its flown drone: its down told at once (announceDown), the end once, no second down
+  X(`var d3 = Drone.build(BUMBLE, 'Bumble'); d3.x = me.x; d3.y = me.y; d3.z = me.z; up(d3, 25); d3.carrier = me; Flight.vessels.push(d3); MP.sendExtra(d3); Flight.active = d3; __timers = [];
+    me.ko = { why: 'crew', x: false, t: 0 }; Net.out = []; MP.me.deaths = 0; MP.announceDown(me); var told = sent('down').map(([m]) => m);
+    MP.sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; MP.extra.get(MP.extra.keys().next().value).sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; Net.out = []; MP.afterUpdate(); var after = Net.out.map(([m]) => m);
+    Net.out = []; Flight.carrierDown = me; Flight.active = me; Flight.destroyed = true; MP.onLocalDestroyed(); var again = sent('down').length, timers = __timers.map((x) => x[0]);`);
+  t('LAST FLIGHT in a room: the tank\'s down is told at once (a wreck, booked once); while its drone flies on only the drone streams; the end screen later sends no second down',
+    X(`told.length === 1 && told[0].w === 1 && told[0].c === undefined && MP.me.deaths === 1 && after.length > 0 && after.every((m) => m.c != null) && again === 0 && MP.me.deaths === 1 && timers.join() === '1600'`),
+    X('[told, after.map((m) => m.t + m.c), again, MP.me.deaths, timers]'));
+  X(`Flight.carrierDown = null; MP.startFlight(false);`);
+  t('...a new flight: the drone despawned, mainDown cleared', X(`MP.extra.size === 0 && MP.mainDown === false`));
+}
+// a ground battle: a drone flown alone (aircraft at a respawn) pays 10 + cost / 2,500 tickets ($1,920: 11); the zones
+// count main craft only; spotting reports main craft only
+async function groundDrones() {
+  const Q = G.load({ mp: true, combat: true });
+  const X = (code) => G.run(Q, code);
+  X(ROOM);
+  await X(`MP.host('pvp', 'local', { game: 'ground', air: true })`);
+  X(DRONE_HELP);
+  X(`MP.addPlayer(2, 'Bea'); MP.setSetting('test', false); __design = { name: 'Tank', kind: 'tank', parts: templateRows(TEMPLATES.tk34) }; MP.startMatch(); flush(); __T += 200000; MP.tick(); flush();`);
+  t('ground drones: a drone is an aircraft at a ground battle\'s respawn (with air support), never at the start; it stands where a helicopter would', X(`(() => {
+    const ps = partsFromDesign(BUMBLE), c = designCost(ps); const a = MP.designProblems({ cost: c }, ps, 'drone', true).length, b = MP.designProblems({ cost: c }, ps, 'drone', false);
+    return MP.phase === 'battle' && a === 0 && b.length === 1 && b[0] === 'Aircraft join a ground battle when you respawn: build Armour or a car.' && JSON.stringify(MP.padPlace('highland', 1, 0, 'drone')) === JSON.stringify(GroundMode.placement('highland', 1, 0, 'heli')); })()`));
+  X(`var cost = designCost(partsFromDesign(BUMBLE)), tk0 = MP.state.obj.tk.slice(), team = MP.player(2).team;
+    emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows }); var flying = MP.player(2).flying, kind = MP.battleKind.get(2);
+    emit({ t: 'down', f: 2, by: 0, P: [0, 0, 0] }); var paid = tk0[team] - MP.state.obj.tk[team];`);
+  t('ground drones: a drone flown alone downed costs its team 10 + cost / 2,500 tickets (the Bumble\'s ' + '$' + '1,920: 11)', X(`flying && kind === 'drone' && paid === 10 + Math.round(cost / 2500) && (cost !== 1920 || paid === 11)`), X('[cost, paid, kind]'));
+  // the zones and spotting: their tank and their drone up beside it; the drone counts for nothing
+  X(`__T += 10000; MP.player(2).respawnAt = 0; emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: tankRows }); var tw2 = twin(tankRows, 'tank', 2, RW + 6000, 0), dw2 = twin(dRows, 'drone', 2, RW + 6100, 30);
+    emit(snapOf(tw2, 2)); emit({ t: 'spawn', f: 2, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); emit(snapOf(dw2, 2, 1)); MP.beforeUpdate(0.016);
+    var U = MP.groundUnits(__T).pids, gTk = MP.peers.get(2).ghost, gDr = MP.ghostOf(2, 1);`);
+  t('ground drones: the zones count their tank, never their drone (groundUnits: main craft only)', X(`!!gDr && JSON.stringify(U.slice().sort()) === '[1,2]' && MP.groundUnits(__T).units.filter((u) => u.kind === 'drone').length === 0`), X('[U, !!gDr]'));
+  X(`(() => { const v = Flight.active, c = gDr.toWorld(gDr.com.x, gDr.com.y, gDr.com.z || 0); gDr.x += v.x - c.x; gDr.y += v.y - c.y; gDr.z += v.z - c.z; up(gDr, 40); gDr.hiddenUntilSnap = false; })();
+    MP.reportAt = -1e9; Net.out = []; MP.groundReports(); var seen = sent('seen').map(([m]) => m); var near = MP.sees(Flight.active, gDr, 40), far = (() => { up(gDr, 2000); return MP.sees(Flight.active, gDr, 2040); })();`);
+  t('ground drones: their drone 40 m over our tank (their tank far off) is seen by our eyes (Drone.marked), but goes in no seen report (main craft only); 2 km up, not seen',
+    X(`seen.every((m) => !m.ids.includes(2)) && near === true && far === false`), X('[seen, near, far]'));
+}
+
 (async () => {
   await groundBattle();
   await roomDeaths();
   await roomWrecks();
+  await roomDrones();
+  await groundDrones();
   // ---- the air battle and the sandbox, step by step, exactly as before the ground update (test/lib/mptrace.js:
   // state, messages, toasts, flights and their options, the builder's battle settings, at every step)
   t('an air battle and a sandbox go exactly as before (every state, message, toast and flight: baseline mp-air)', !check('mp-air', await require('./lib/mptrace.js')(G)));

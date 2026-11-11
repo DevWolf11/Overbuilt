@@ -1009,7 +1009,7 @@ const Drone = (() => {
     const C = F && F.carrierDown;
     if (!C) return false;
     const d = F.active && F.active.carrier === C ? F.active : C.drone;
-    if (live(d)) mpDrop(F, d, 'down', whoDid(d, F));
+    if (d) mpDrop(F, d, 'down', whoDid(d, F)); // (shot down, gone off or still flying: the room hears it once, MP.dropExtra)
     if (C.drone === d) C.drone = null;
     if (F.active !== C) F.switchTo(C, true, true);
     if (F.active !== C) F.active = C; // (a tank with no controls left: its death all the same)
