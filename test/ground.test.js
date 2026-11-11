@@ -231,7 +231,14 @@ t('massPerMm: composite weighs 0.45 of steel; a round turret by bearing', near(R
 t('armourMassT and armourCostDelta: thicker plate, more steel and money ($400 a tonne; $900 composite)', R(`near(armourMassT(PARTS.tstTurret, 150), 11 + massPerMm(PARTS.tstTurret) * 50)
   && armourCostDelta(PARTS.tstTurret, 150) === Math.round(massPerMm(PARTS.tstTurret) * 50 * 400) && armourCostDelta(PARTS.tstTurret, 100) === 0 && armourCostDelta(PARTS.tstTurret, 40) < 0
   && armourCostDelta(PARTS.tstCast, 160) === Math.round(massPerMm(PARTS.tstCast) * 70 * 900) && armourCostDelta(PARTS.tstHull, 'junk') === 0 && armourCostDelta(PARTS.cab, 50) === 0`));
-t('old parts: partKg and designCost unchanged for every template (no mm anywhere)', R(`Object.keys(TEMPLATES).every((k) => {
+// (the one stock design with armour dialled: the MA-1C Abrahm's turret at 480 mm, thinned to carry its drone kit within
+// its ring's 20 t; drones.test.js and core.test.js pin it)
+const DIALLED = { ma1c: { turretWedge: 480 } };
+ctx.__DIAL = DIALLED;
+t('the MA-1C alone has armour dialled (its turret 480 mm, $374 and 416 kg less than at 500 mm), written to its rows', R(`(() => { const ps = partsFromDesign(templateRows(TEMPLATES.ma1c)), d = ps.filter((p) => p.mm !== undefined);
+  return d.length === 1 && d[0].type === 'turretWedge' && d[0].mm === 480 && designRows(ps).filter((q) => 'mm' in q).length === 1
+    && designCost(ps) === ps.reduce((s, p) => s + p.def.cost, 0) + armourCostDelta(PARTS.turretWedge, 480) && armourCostDelta(PARTS.turretWedge, 480) === -374; })()`));
+t('old parts: partKg and designCost unchanged for every other template (no mm anywhere)', R(`Object.keys(TEMPLATES).filter((k) => !__DIAL[k]).every((k) => {
   const ps = partsFromDesign(templateRows(TEMPLATES[k]));
   return ps.every((p) => p.mm === undefined && partKg(p) === p.def.mass * 1000 + p.fuel + (p.store || 0)) && designCost(ps) === ps.reduce((s, p) => s + p.def.cost, 0)
     && designRows(ps).every((q) => !('mm' in q));
@@ -253,8 +260,8 @@ var oldCode = (d) => {
   let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return (ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
 };`);
-t('every template keeps its RSS1/RSS2 code, byte for byte', R(`Object.keys(TEMPLATES).every((k) => { const d = { name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, parts: designRows(partsFromDesign(templateRows(TEMPLATES[k]))) };
-  const c = Codes.designCode(d); return c === oldCode(d) && /^RSS[12]\\./.test(c); })`));
+t('every template keeps its RSS1/RSS2 code, byte for byte (the MA-1C, dialled, an RSS3 code)', R(`Object.keys(TEMPLATES).every((k) => { const d = { name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, parts: designRows(partsFromDesign(templateRows(TEMPLATES[k]))) };
+  const c = Codes.designCode(d); return __DIAL[k] ? /^RSS3\\./.test(c) : c === oldCode(d) && /^RSS[12]\\./.test(c); })`));
 R(`var tps = partsFromDesign(TANK); tps[0].mm = 60; tps[5].mm = 150; var trows = designRows(tps), tmass = kg(tps);`);
 t('designRows writes mm only where it was dialled', R(`trows[0].mm === 60 && trows[5].mm === 150 && trows.filter((q) => 'mm' in q).length === 2`));
 t('rows -> parts: the same mass (the thicker plates included)', R(`near(kg(partsFromDesign(trows)), tmass) && tmass > kg(partsFromDesign(TANK)) + 5000`), R('[tmass, kg(partsFromDesign(TANK))]'));
