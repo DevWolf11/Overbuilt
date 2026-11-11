@@ -77,6 +77,10 @@ const ICONS = {
   sasAim: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></svg>',
   sasOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>',
   sasTarget: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 9-9 9-9-9z"/><circle cx="12" cy="12" r="1.5"/></svg>',
+  // (the big update's drone mode pad: Acro (a loop), Land (a pad with an arrow down), the view (an eye))
+  sasAcro: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h7"/><path d="M10 18c5 0 8-3 8-7a5 5 0 0 0-10 0c0 4 3 7 8 7h5"/></svg>',
+  landPad: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="18" rx="8" ry="3"/><path d="M12 3v10M8 9l4 4 4-4"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   plane: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14h15l4-4h1l-1 6H4z"/><path d="M8 14l3-5h2l-1 5M10 14l2 4h2l-1-4"/></svg>',
   car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16v-4l2-4h8l4 4h4v4"/><circle cx="7" cy="16" r="2"/><circle cx="17" cy="16" r="2"/></svg>',
   tank: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="15" width="17" height="5" rx="2.5"/><path d="M4.5 15l1.5-3h11l1.5 3"/><path d="M8 12V9.5L9.5 8h4.5l1.5 1.5V12"/><path d="M15.5 10h6.5"/></svg>',

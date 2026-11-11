@@ -49,8 +49,12 @@ const SCENES = {
   dogfight: { key: 'falcon', place: { ...LAND, air: { alt: 3000, speed: 200 } }, time: 'noon', what: 'trails, tracers, an air death', load: 'dogfight' },
   dusk: { key: 'falcon', time: 'dusk', what: 'fog in-scatter, sky, sunset colours' },
   hangar: { key: 'tk34', hangar: true, what: 'the hangar, byte for byte (a craft with no glass)' },
-  // (the drone package: a stock drone 20 m up in Highland Ridge seen through its camera at --fov; needs a drone template)
+  // (the drone package: a stock drone 20 m up in Highland Ridge seen through its camera at --fov (a drone template, else
+  // the Bumble FPV's rows), and the same drone in the chase view: spec-drones I19, FPV at 100° only if its gpuMs is within
+  // 1.10× the chase view's, else 90°. Named with --scenes only)
   fpv: { drone: true, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'the drone\'s FPV view at --fov', props: ['hl'] },
+  fpvfast: { drone: true, lean: -0.44, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'FPV at --fov leaning 25° forward, as at speed: its camera level, the most ground', props: ['hl'] },
+  fpvchase: { drone: true, chase: true, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'the same drone in the chase view', props: ['hl'] },
   // (the damage model, spec-damage §11: the simulation stepped in every timed frame as the game steps it, Flight.update, so
   // its cpuMs is the JS of a whole frame. Named with --scenes only; reported, not judged by --check: each tree plays its
   // own rules, so their pictures and their pieces differ on purpose)
@@ -71,7 +75,7 @@ const A_DIR = opt('base', null) ? path.resolve(opt('base')) : null, B_DIR = ROOT
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'high,low').split(',');
 const FRAMES = +opt('frames', 2), ROUNDS = +opt('rounds', 16), FOV = +opt('fov', 100), CPU_FRAMES = 12;
 const SAVE = opt('save', null), SHOTS = opt('shots', null);
-let LIST = opt('scenes', Object.keys(SCENES).filter((k) => k !== 'fpv' && !SIM.includes(k)).join(',')).split(',');
+let LIST = opt('scenes', Object.keys(SCENES).filter((k) => !SCENES[k].drone && !SIM.includes(k)).join(',')).split(',');
 for (const k of [...PROF.filter((p) => !PROFILES[p]), ...LIST.filter((s) => !SCENES[s]), ...QUAL.filter((q) => !['high', 'low'].includes(q))]) throw new Error('unknown profile, scene or quality: ' + k);
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const commit = (dir) => { try { const c = execSync('git rev-parse --short HEAD', { cwd: dir, encoding: 'utf8' }).trim(); const d = execSync('git status --porcelain -- js', { cwd: dir, encoding: 'utf8' }).trim(); return c + (d ? '+dirty' : ''); } catch { return '?'; } };
@@ -155,17 +159,26 @@ async function startScene(T, name) {
       App.toBuild(); Builder.xray = false; Builder.loadTemplate(S.key); // (Armour's X-ray off: the hangar as built, not see-through)
     } else {
       let key = S.key;
-      if (S.drone) { key = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone'); if (!key) return { skip: 'no drone template on this tree' }; }
-      const tp = TEMPLATES[key];
+      let tp = null;
+      if (S.drone) { // (a stock drone, else the Bumble FPV's rows, spec-drones §18; a tree without the Drone kind: skipped)
+        if (typeof Drone === 'undefined') return { skip: 'no drones on this tree' };
+        key = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone');
+        tp = key ? { name: TEMPLATES[key].name, kind: 'drone', parts: templateRows(TEMPLATES[key]) } : { name: 'Bumble FPV', kind: 'drone', parts: [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }],
+          ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }],
+          ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })) };
+      } else { const T = TEMPLATES[key]; tp = { name: T.name, kind: T.kind, parts: templateRows(T) }; }
       if (S.targets) Settings.set('targets', S.targets); // (the range's mode: the fighters live only in Hostile)
       App.showScene('flight');
-      Flight.start({ name: tp.name, kind: tp.kind, parts: templateRows(tp) }, S.place ? { place: S.place } : undefined);
+      Flight.start(tp, S.place ? { place: S.place } : undefined);
       Flight.paused = true;
       Flight.time = t;
       // ground play as Combat.frame says it (the paused flight never runs it): Highland Ridge's props on show
       const v = Flight.active;
       if (typeof Props !== 'undefined') Props.play = v.kind === 'tank' || !!v.gv || !!(v.gear && v.gear.length);
-      if (S.drone && Render3D.setFov) Render3D.setFov(fov);
+      if (S.drone) { // (its camera at --fov, or the chase view; lean: pitched nose down by that much)
+        if (S.lean) { const v = Flight.active; v.q = qnorm(qmul(v.q, qaxis(0, 0, 1, S.lean))); }
+        Flight.setFpv(!S.chase, true); if (!S.chase) Render3D.setFpv(true, fov);
+      }
     }
     Render3D.setVisible(true);
     window.__perf.scale = 1; Render3D.resize(innerWidth, innerHeight, devicePixelRatio);

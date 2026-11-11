@@ -395,7 +395,18 @@ if (part(5)) {
   await page.evaluate(() => { App.showSettings(); document.querySelector('#set-keys').click(); });
   const slot = (id, i) => `#modal-card .kb-row[data-id="${id}"] .kb-slot[data-slot="${i}"]`;
   const k0 = await page.evaluate(() => ({ title: document.querySelector('#modal-card .modal-title').textContent, groups: [...document.querySelectorAll('#modal-card .kb-h')].map((h) => h.textContent), fire: document.querySelector('#modal-card .kb-row[data-id="fire"] .kb-slot').textContent }));
-  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 8 && k0.fire === 'V', k0);
+  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Drones, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 9 && k0.groups[6] === 'Drones' && k0.fire === 'V', k0);
+  // (the big update's drones) the defaults clash nowhere: U, H, J and the drone digits are free wherever they can be live
+  // together (J is the Armour's spot key, never live on a drone; T stays chat); the drone rows came after keys became
+  // rebindable, so they give way to a player's own key (Keys.LATE: a player who put Fire on U keeps U firing only)
+  const dk = await page.evaluate(() => {
+    const clash = []; for (const [id] of Keys.ACTIONS) for (const c of Keys.defaults(id)) for (const o of Keys.conflicts(id, c)) if (Keys.defaults(o).includes(c)) clash.push(`${id}/${o}:${c}`);
+    const late = Keys.clean({ fire: ['KeyU'] });
+    return { clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat') };
+  });
+  ok('the Drones group: 7 rows (U launches and switches, H the view, 1-4 Level, Acro, Home, Land, J the gimbal\'s thermal), 73 in all, no default key clashes; Fire on U leaves the drone key unbound',
+    dk.rows === 73 && dk.clash.length === 0 && dk.drones.join() === 'drone:any:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dThermal:drone:KeyJ'
+    && dk.lateDrone.length === 0 && dk.lateFire.join() === 'KeyU' && dk.chat.join() === 'KeyT,Enter', dk);
   await page.click(slot('fire', 0));
   const wait = await page.evaluate((q) => document.querySelector(q).textContent, slot('fire', 0));
   await page.keyboard.press('Escape');
@@ -482,7 +493,7 @@ if (part(5)) {
   const k = await page.evaluate(() => { const c = document.querySelector('#modal-card'), rows = [...c.querySelectorAll('.kb-row')]; return { fit: c.scrollWidth <= c.clientWidth + 1, rows: rows.length, over: rows.filter((r) => r.getBoundingClientRect().right > innerWidth).length }; });
   await shot(page, 'keys-390x844');
   ok('on a phone: Settings has the controls (Touch controls, UI size, Stick size, Aim stick speed, Keys, Edit controls) and the Keys screen fits its width',
-    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 66 && k.over === 0, { s: { w: s.w }, k });
+    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 73 && k.over === 0, { s: { w: s.w }, k });
   await page.evaluate(() => UI.closeModal());
   await pageErrors(page, 'phone keys ');
   await ctx.close();

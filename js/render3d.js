@@ -3890,7 +3890,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
   const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
-  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18] };
+  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18], drone: [0, 0.25] };
   // (the big update) The player's aircraft destroyed and falling (a hulk: the pilot knocked out, shot down): the follow
   // camera eases back to 1.4x its distance over the first second, the spiral and the trail in view, and holds there
   // until it hits. From the death's time (Flight.diedAt), else from the first frame it saw the fall.
@@ -3933,6 +3933,34 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
     return b.radius + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + lift;
   }
+  // A drone's camera (the big update): the eye on its camera part's front face (+x, 2 cm out), from the body's centre, and
+  // the way it looks (D) and its up (U), in the sim. FPV: tilted up by the camera's tilt and rolling with the drone (or, with
+  // Settings → Drone view's level horizon, its up the local vertical); a bomb selected, it looks 70° down at the drop. A
+  // gimbal: along the heading, level, then turned by Flight.gim (yaw ±170°, pitch −85..+20°); its up the local vertical.
+  const FPE = v3(), FPD = v3(), FPU = v3(), FPT = v3();
+  function fpvEye(F, v, E, Dv, U) {
+    const cp = v.dr.cam, c = cp.def.drone.cam, R0 = partRect(cp), e = v.toWorld(R0.r + 0.02, (R0.b + R0.t) / 2, partZ(cp));
+    E.x = e.x; E.y = e.y; E.z = e.z;
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    if (c.gimbal) {
+      const f = v.axis(1, 0, 0, FPT), k = f.x * ux + f.y * uy + f.z * uz;
+      let fx = f.x - ux * k, fy = f.y - uy * k, fz = f.z - uz * k;
+      const l = Math.hypot(fx, fy, fz);
+      if (l < 1e-6) { fx = -uy; fy = ux; fz = 0; } // (straight up or down: any level way)
+      const L = Math.hypot(fx, fy, fz) || 1; fx /= L; fy /= L; fz /= L;
+      const rx = fy * uz - fz * uy, ry = fz * ux - fx * uz, rz = fx * uy - fy * ux; // (the level right)
+      const G = F.gim || { yaw: 0, pitch: 0 }, cy = Math.cos(G.yaw), sy = Math.sin(G.yaw), cpi = Math.cos(G.pitch), spi = Math.sin(G.pitch);
+      const hx = fx * cy + rx * sy, hy = fy * cy + ry * sy, hz = fz * cy + rz * sy; // (yaw: + to the right)
+      Dv.x = hx * cpi + ux * spi; Dv.y = hy * cpi + uy * spi; Dv.z = hz * cpi + uz * spi;
+      U.x = ux; U.y = uy; U.z = uz;
+      return;
+    }
+    const sys = typeof Combat !== 'undefined' ? Combat.systems(v)[v.wsel] : null, bomb = !!sys && sys.w.kind === 'bomb';
+    const t = bomb ? -1.2217 : c.tilt || 0, ct = Math.cos(t), st = Math.sin(t);
+    v.axis(ct, st, 0, Dv);
+    if (Settings.get('droneView') === 'fpvLevel') { U.x = ux; U.y = uy; U.z = uz; } // (the horizon held level: the OSD draws the bank)
+    else v.axis(-st, ct, 0, U);
+  }
   function aimPivot(v, out) {
     let c = v._piv;
     if (!c || v._pivTg !== v.tg) {
@@ -3967,13 +3995,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
     // ---- camera: orbit around the craft, following its heading; never below the ground. Aiming a ground vehicle's guns
     // (F.aimCam): behind and over its turret looking along the aim, the crosshair in the middle (or at the gunner's sight)
-    const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
+    // (the big update's drones) The impact view first: a warhead gone off, the camera hanging behind where it hit for 1.5 s
+    // (F.impactCam: at and look, from the body's centre), the player already back in the tank
+    const IM = F.impactCam && F.time < F.impactCam.until ? F.impactCam : null;
+    const AC = !IM && !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
     // (a plane in Aim, the mouse aim, PR #40: behind the craft and a little over it, looking a moment behind the circle
     // (flyCamDir, Flight.flyCamEase), the view's up the circle's, so a loop goes over the top; the zoom is the follow
     // camera's)
-    const FA = !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
+    const FA = !IM && !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
+    // (the big update) a drone's first-person view (F.fpv): from its camera part, looking along it (FPV: tilted up, rolling
+    // with the drone, or with the horizon held level; a gimbal: along the heading, level, turned and zoomed by the player)
+    const FP = !IM && !AC && !FA && !!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed);
+    if (FP ? FOV !== S.fpvFov && S.fpvFov > 0 : !S.sightOn && FOV !== 50) setFov(FP ? S.fpvFov : 50); // (the drone's camera's field of view, kept across the map's and the hangar's 50°)
     let dist, rx, ry, rz;
-    if (AC) {
+    if (IM) {
+      dist = 0.3; rx = IM.at.x; ry = IM.at.y; rz = IM.at.z;
+      fc.vessel = null;
+    } else if (FP) {
+      dist = 0.3;
+      fpvEye(F, v, FPE, FPD, FPU);
+      rx = FPE.x; ry = FPE.y; rz = FPE.z; S.fpvAt = frameNo;
+      fc.vessel = null;
+    } else if (AC) {
       dist = aimDist(F);
       aimEye(v, S.sightOn, D, dist, T3);
       rx = T3.x; ry = T3.y; rz = T3.z;
@@ -3997,13 +4040,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
     updateArena(F, b, v);
     if (!b.star) {
-      const need = camFloor(b, rx, ry, rz, r3, AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
+      const need = camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
-    if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else if (FP) { toView(FPU.x, FPU.y, FPU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(FPD.x, FPD.y, FPD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FA) { toView(PU.x, PU.y, PU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(PD.x, PD.y, PD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else camera.lookAt(0, 0, 0);
     const sh = flutterShake(F, v, clock); // (a fluttering wing shakes the view)
@@ -4419,7 +4464,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const bp = bodyPos(v.body, F.time), x = bp.x + v.x - camAbs.x, y = bp.y + v.y - camAbs.y, z = v.z - camAbs.z;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1);
       const d = Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z);
-      const vis = (d < 50000 || (ext / d) * (H / (2 * TANH)) > 1) && !(S.sightOn && v === F.active); // (in the gunner's sight we look out of it)
+      const vis = (d < 50000 || (ext / d) * (H / (2 * TANH)) > 1) && !(S.sightOn && v === F.active) && !(F.fpv && v === F.active && v.kind === 'drone' && !F.destroyed); // (in the gunner's sight, or a drone's camera, we look out of it)
       e.root.visible = vis;
       if (!vis) continue;
       e.root.position.set(x, y, z);
@@ -5317,7 +5362,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     },
     // A ground vehicle's gunner sight (on, zoom: 3-8): the flight camera narrows to 50/zoom degrees and sits at the sight,
     // the vehicle's own model hidden; off, back to 50°.
-    setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : 50); },
+    setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : S.fpvFov || 50); },
+    // (the big update) a drone's camera: its field of view (FPV, a gimbal's zoom), 50° again without it (and a gunner's
+    // sight closing meanwhile goes back to it, not to 50°)
+    setFpv(on, fov) { S.fpvFov = on ? clamp(+fov || 50, 4, 120) : 0; setFov(S.fpvFov || 50); },
+    // the drone camera's way and up as last drawn (sim; shared: copy them), for the OSD's horizon; null when it wasn't
+    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU } : null; },
     // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
