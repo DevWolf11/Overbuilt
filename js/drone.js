@@ -1275,6 +1275,7 @@ const Drone = (() => {
     const fast = Math.max(sp, dl.sp || 0) > DRONE.FUSE_V;
     dl.sp = sp;
     if (!dl.arm || !was || v.isDebris || !v.control) return;
+    if (Math.hypot(now.x - was.x, now.y - was.y, now.z - was.z) > (sp + 10) * h * 3 + 1) return; // (moved, not flown: a launch, a restore, a teleport; the fuse looks from here)
     const C = v.carrier; // (never on its own tank, nor on anything about it: what it flies through there, or the ground by it)
     if (C && !C.dead && Math.hypot(now.x - C.x, now.y - C.y, now.z - C.z) < (C.reach || 5) + (v.reach || 0) + 1) return;
     // (0.3 m on, and the drone's own reach: the vehicles' bump stops a drone where its frame meets a hull, before its

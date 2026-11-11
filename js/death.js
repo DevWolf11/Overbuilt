@@ -158,7 +158,8 @@ const Death = (() => {
     if (p.def.control) {
       p.ko = true; deadHp(p);
       const at = v.toWorld(p.x, p.y, partZc(p)), vel = { x: v.vx, y: v.vy, z: v.vz };
-      FX.sparks(v.body, at, vel, 8); FX.puff(v.body, at, vel, 6, '#cfd5dc'); // (the canopy)
+      if (v.kind === 'drone') { FX.sparks(v.body, at, vel, 3); FX.puff(v.body, at, vel, 1, '#8b8f96'); } // (a drone's controller burnt out: a few sparks and a wisp, plan I5)
+      else { FX.sparks(v.body, at, vel, 8); FX.puff(v.body, at, vel, 6, '#cfd5dc'); } // (the canopy)
       return true;
     }
     // 4 a main rotor (a helicopter's; a drone's motor): torn off, it falls. ripParts says '<name> shot off!' to the

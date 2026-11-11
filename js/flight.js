@@ -429,10 +429,11 @@ const Flight = {
       for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(keep)) for (const q of br) go.add(q.id); }
       for (const id of go) for (const n of [...(v.adj.get(id) || [])]) if (!go.has(n)) { v.adj.get(id).delete(n); v.adj.get(n) && v.adj.get(n).delete(id); }
       const zs = partZs(p), vel = { x: v.vx, y: v.vy, z: v.vz };
+      const k = v.kind === 'drone' ? clamp(Math.max(p.def.w, p.def.h) / 2, 0.15, 1) : 1; // (the big update, plan I5: a drone's motor torn off throws as little as it is)
       for (const z of zs) {
         const wp = v.toWorld(p.x, p.y, z);
-        FX.sparks(v.body, wp, vel, 14 / zs.length);
-        FX.puff(v.body, wp, vel, 8 / zs.length, '#cfd5dc');
+        FX.sparks(v.body, wp, vel, k < 1 ? Math.ceil((14 * k) / zs.length) : 14 / zs.length);
+        FX.puff(v.body, wp, vel, k < 1 ? Math.ceil((8 * k) / zs.length) : 8 / zs.length, '#cfd5dc');
       }
     }
     if (v === this.active) {
