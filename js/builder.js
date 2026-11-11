@@ -2419,7 +2419,7 @@ const Builder = {
     $('#s-twr').className = D && !wing && D.twr > 0 && D.twr < 1.1 ? 'bad' : '';
     set('#s-dv-label', 'Battery');
     // (the battery's and top speed's extra words in their own spans: the folded stats on a small phone show only the core)
-    const parts = (id, ...xs) => { const dd = $(id); dd.textContent = ''; xs.forEach((x, i) => { if (x) dd.append(i === 1 ? x.replace(/ /g, '\u00a0') : el('span', { class: 's-more', text: i ? x.replace(/(\S) (?=\S)/g, '$1\u00a0') : x.replace(/ /g, '\u00a0') })); }); }; // (it wraps only at " · ")
+    const parts = (id, ...xs) => { const dd = $(id); dd.textContent = ''; xs.forEach((x, i) => { if (x) dd.append(i === 1 ? x.replace(/ /g, '\u00a0') : el('span', { class: 's-more', text: i ? (/^ · /.test(x) ? '\u00a0· ' + x.slice(3).replace(/ /g, '\u00a0') : x.replace(/(\S) (?=\S)/g, '$1\u00a0')) : x.replace(/ /g, '\u00a0') })); }); }; // (it wraps only after a " · ", which stays on the first line)
     const wh = D ? D.wh : 0, whT = wh >= 1000 ? `${+(wh / 1000).toFixed(1)} kWh` : `${Math.round(wh)} Wh`;
     if (!(wh > 0)) set('#s-dv', 'none');
     else parts('#s-dv', '', whT, wing ? (D.cruiseMin > 0 ? ` · ~${Math.round(D.cruiseMin)} min` : '') : D.hoverMin > 0 ? ` · hover ${D.hoverMin.toFixed(1)} min` : '');
