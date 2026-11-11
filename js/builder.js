@@ -288,6 +288,49 @@ const TEMPLATES = {
     paint: { ruNose57: 'ruPixel', ruIRST: 'ruPixel', ruBody57: 'ruPixel', ruNacelle57: 'ruPixel', ruAL41F1: 'ruPixel', ruBay57: 'ruPixel', ruStinger57: 'ruPixel', ruBoom57: 'ruPixel',
       ruFins57: 'ruPixel', ruWing57: 'ruPixel', ruLevcon57: 'ruPixel', ruTail57: 'ruPixel', ruBayS57: 'ruPixel' },
   },
+  // Drones (the big update): four multicopters (a frame with its motors on the arms, the controller and battery on the frame,
+  // a charge or a dropper under it) and a winged loitering munition (a body at rot 3 with the wing on its back, a pusher at
+  // the tail). Rows as the jets': [type, x, y, rot, {z, att}], att counted from 0.
+  bumble: { // (a racing FPV quad with an RPG-style shaped charge)
+    name: 'Bumble FPV', kind: 'drone', tier: 1,
+    blurb: 'A racing quad with a shaped charge under its nose. Climb, find a tank and dive onto its roof: roofs are thin. Level (1) flies it for you; Acro (2) is how the aces fly.',
+    parts: [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+      ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+      ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]],
+    paint: { drFrameS: 'red' },
+  },
+  bumbleF: { // (the same quad flown down a fibre-optic line)
+    name: 'Bumble Fibre', kind: 'drone', tier: 2,
+    blurb: 'A Bumble that flies down a fibre-optic line: no jammer can touch it and no detector hears it, but the line runs out at 5 km.',
+    parts: [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drSpool', 0, 0.1275, 0, { att: 1 }],
+      ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+      ['drBattM', -0.03, -0.0475, 0, { att: 0 }], ['drCharge', 0.06, -0.1225, 3, { att: 8 }]],
+    paint: { drFrameS: 'olive', drSpool: 'olive' },
+  },
+  mavik: { // (a folding consumer quad with a zoom and thermal gimbal)
+    name: 'Mavik Scout', kind: 'drone', tier: 2,
+    blurb: 'A quiet scout: it stops when you let go, comes home if it loses you, and zooms 12× with a thermal camera. Fly it from a Drone Hangar to spot for your tank.',
+    parts: [['drFrameM', 0, 0], ['drFCgps', 0, 0.05, 0, { att: 0 }], ['drGimbal', 0.2, -0.075, 0, { att: 0 }], ['drLinkL', -0.12, 0.075, 0, { att: 0 }],
+      ['drMotorM', 0.2, 0.06, 0, { z: 0.2, att: 0 }], ['drMotorM', 0.2, 0.06, 0, { z: -0.2, att: 0 }], ['drMotorM', -0.2, 0.06, 0, { z: 0.2, att: 0 }], ['drMotorM', -0.2, 0.06, 0, { z: -0.2, att: 0 }],
+      ['drBattM', -0.04, -0.055, 0, { att: 0 }], ['drLegs', 0, -0.085, 0, { att: 0 }]],
+    paint: { drFrameM: 'light', drBattM: 'light' },
+  },
+  babaYara: { // (a heavy hexacopter night bomber)
+    name: 'Baba Yara', kind: 'drone', tier: 2,
+    blurb: 'Six heavy motors, two 3 kg bombs, half an hour in the air. Hover over a tank, look down (the camera tilts with the bombs) and drop.',
+    parts: [['drFrameH', 0, 0], ['drFCgps', 0, 0.065, 0, { att: 0 }], ['drCam', 0.3, 0.065, 0, { att: 0 }], ['drLink', -0.3, 0.055, 0, { att: 0 }],
+      ['drMotorL', 0.6, 0.1, 0, { att: 0 }], ['drMotorL', 0.3, 0.1, 0, { z: 0.52, att: 0 }], ['drMotorL', 0.3, 0.1, 0, { z: -0.52, att: 0 }],
+      ['drMotorL', -0.3, 0.1, 0, { z: 0.52, att: 0 }], ['drMotorL', -0.3, 0.1, 0, { z: -0.52, att: 0 }], ['drMotorL', -0.6, 0.1, 0, { att: 0 }],
+      ['drBattL', 0, -0.1, 0, { z: 0.11, att: 0 }], ['drBattL', 0, -0.1, 0, { z: -0.11, att: 0 }], ['drBombs', 0, -0.26, 0, { att: 10 }], ['drLegsL', 0, -0.215, 0, { att: 0 }]],
+    paint: { drFrameH: 'black', drBattL: 'black' },
+  },
+  lancett: { // (the Lancet loitering munition)
+    name: 'Lancett', kind: 'drone', tier: 2,
+    blurb: 'A winged loitering munition: it can\'t hover, so circle high, pick a target and push the stick forward to dive. Its tandem charge beats cages and reactive bricks.',
+    parts: [['drBody', 0, 0, 3], ['drFC', 0.1, 0, 0, { att: 0 }], ['drBattM', -0.12, 0, 0, { att: 0 }], ['drChargeT', 0.75, 0, 3, { att: 0 }], ['drCam', 0.4, 0.105, 0, { att: 0 }],
+      ['drLinkL', -0.25, 0.13, 0, { att: 0 }], ['drWing', 0.3, 0.095, 3, { att: 0 }], ['drTail', -0.48, 0.09, 3, { att: 0 }], ['drFin', -0.48, 0.17, 3, { att: 0 }], ['drPusher', -0.6, 0, 3, { att: 0 }]],
+    paint: { drBody: 'light', drWing: 'light', drTail: 'light', drFin: 'light' },
+  },
   // Armour (the ground update), by era and then by job. Built like the car, nose toward +x: the hull on its tracks or
   // wheels (one per side, z), the engine inside, a ring on the roof with the turret on it and the main gun at rot 3 in
   // the turret's front, its trunnion at the face. Rows as the jets': [type, x, y, rot, {z, att}], att counted from 0.
@@ -417,6 +460,28 @@ const TEMPLATES = {
     blurb: 'A pickup with a heavy machine gun on the cab. It drives like the buggy, and the gun swings all the way round on its own: aim with the view and hold FIRE.',
     parts: [['chassis', 0, 1.25], ['cab', 0.6, 2.25], ['carWheel', 1.4, 0.4], ['carWheel', -1.4, 0.4], ['mgHeavy', 0.75, 3.25, 3, { att: 1 }]],
     paint: { chassis: 'tan', cab: 'tan' },
+  },
+  bmk2d: { // (a BMP-2 carrying FPV drones)
+    name: 'BMK-2D Nest', kind: 'tank', tier: 2, dw: true,
+    blurb: 'A BMK-2 with a rack of three FPV drones. Stop, press DRONE (U) and fly one onto a tank\'s roof; U brings you back.',
+    parts: [['hullIFV', 0, 1.3], ['trackMed', 0, 0.5, 0, { z: -1.45, att: 0 }], ['trackMed', 0, 0.5, 0, { z: 1.45, att: 0 }], ['engDiesel', 1.3, 1.1, 0, { z: 0.4, att: 0 }],
+      ['ringS', 0.3, 2.25, 0, { att: 0 }], ['turretSmall', 0.3, 2.725, 0, { att: 4 }], ['ac30', 1.832, 2.725, 3, { att: 5 }], ['mgCoax', 1.32, 2.725, 3, { z: 0.35, att: 5 }],
+      ['atgmTube', 0.3, 3.55, 3, { z: -0.42, att: 5 }], ['smokeL', 0.5, 2.8, 0, { z: -1.0, att: 5 }], ['smokeL', 0.5, 2.8, 0, { z: 1.0, att: 5 }],
+      ['dockRack', -1.6, 2.33, 0, { att: 0 }]],
+    paint: { hullIFV: 'steppe', trackMed: 'steppe', ringS: 'steppe', turretSmall: 'steppe', ac30: 'steppe', atgmTube: 'steppe', smokeL: 'steppe', dockRack: 'steppe' },
+  },
+  ma1c: { // (an M1A1 with counter-drone kit. The kit rides the turret, the gun on the cage's roof: anything standing on the
+    // engine deck would stop the bustle and the 120 mm turning past it. Its turret is 20 mm thinner (480) to carry the kit
+    // within its ring's 20 t, so it turns as fast as the MA-1's)
+    name: 'MA-1C Abrahm', kind: 'tank', tier: 3, dw: true,
+    blurb: 'An MA-1 built for a sky full of drones: a roof cage, a jammer, a detector and a gun that shoots them down by itself.',
+    parts: [['hullMBT', 0, 1.15], ['trackMBT', 0, 0.55, 0, { z: -1.575, att: 0 }], ['trackMBT', 0, 0.55, 0, { z: 1.575, att: 0 }], ['engTurbine', -2.4, 1.15, 0, { att: 0 }],
+      ['ringP', -0.3, 1.96, 0, { att: 0 }], ['turretWedge', -0.3, 2.495, 0, { att: 4, mm: 480 }], ['gun120', 3.548, 2.45, 3, { att: 5 }], ['mgCoax', 1.7, 2.45, 3, { z: 0.75, att: 5 }],
+      ['smokeL', 0.6, 2.6, 0, { z: -1.8, att: 5 }], ['smokeL', 0.6, 2.6, 0, { z: 1.8, att: 5 }], ['thermal', -0.6, 3.12, 0, { z: -0.8, att: 5 }], ['lrf', -0.4, 3.07, 0, { z: -0.3, att: 5 }],
+      ['skirts', 0.5, 0.85, 0, { z: -1.93, att: 1 }], ['skirts', 0.5, 0.85, 0, { z: 1.93, att: 2 }],
+      ['cdCage', -0.3, 3.295, 0, { att: 5 }], ['cdGun', -1.3, 3.97, 0, { att: 14 }], ['cdJam', -1.6, 2.55, 0, { z: -1.8, att: 5 }], ['cdDetect', -1.6, 2.55, 0, { z: 1.75, att: 5 }]],
+    paint: { hullMBT: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretWedge: 'woodland', gun120: 'woodland', smokeL: 'woodland', skirts: 'woodland',
+      cdCage: 'woodland', cdGun: 'woodland', cdJam: 'woodland', cdDetect: 'woodland' },
   },
 };
 

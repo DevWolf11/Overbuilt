@@ -85,17 +85,20 @@ ok('every armour part builds in 3D, in the hangar and in flight', !r.bad.length,
 ok('inner parts (engines, crew, racks) are not built in flight', !r.inner.length, r.inner.join(', '));
 ok('their models and textures are the same either way round (one cache entry)', r.flipFree);
 
-// 3. draw calls: what the flight view draws for one TK-34 and one MA-1 (every visible mesh, and again for its shadow)
-for (const [name, rows] of [['TK-34', TK34], ['MA-1', MA1]]) {
+// 3. draw calls: what the flight view draws for one TK-34, one MA-1 and the drones' two stock tanks, the BMK-2D Nest and the
+// MA-1C Abrahm (every visible mesh, and again for its shadow). A tank's budget is 30; the two with drone kit 34 (the
+// BMK-2 22 + the rack's 10: its tray, posts, lid and three folded quads that hide one by one as they launch; the MA-1 23
+// less its HMG + the cage, the gun's base, turning head, sight and lens, the jammer's 2 and the detector's 4)
+for (const [name, rows, budget] of [['TK-34', TK34, 30], ['MA-1', MA1, 30], ['BMK-2D Nest', 'bmk2d', 34], ['MA-1C Abrahm', 'ma1c', 34]]) {
   r = await ev((rows) => {
-    const ps = partsFromDesign(rows), vm = new Parts3D.VesselMesh(ps, {});
+    const ps = partsFromDesign(typeof rows === 'string' ? templateRows(TEMPLATES[rows]) : rows), vm = new Parts3D.VesselMesh(ps, {});
     vm.sync({ parts: ps }, { dt: 0.016, time: 1, quality: 'high' });
     let meshes = 0, shadows = 0;
     vm.group.traverse((o) => { if (!o.isMesh) return; for (let q = o; q; q = q.parent) if (!q.visible) return; meshes++; if (o.castShadow) shadows++; });
     vm.dispose();
     return { meshes, shadows };
   }, rows);
-  ok(`${name}: ${r.meshes} draw calls in flight (budget 30; ${r.shadows} also cast shadows on high)`, r.meshes <= 30 && r.meshes >= 12, JSON.stringify(r));
+  ok(`${name}: ${r.meshes} draw calls in flight (budget ${budget}; ${r.shadows} also cast shadows on high)`, r.meshes <= budget && r.meshes >= 12, JSON.stringify(r));
 }
 
 // 4. flight: the turret turns with its ring where aim.js points the gun; belts, wheels, recoil, suspension, wreck

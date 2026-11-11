@@ -37,7 +37,8 @@ t('wing plans run from the root out to the tip, leading edge ahead of the traili
 t('sideOrder puts the far side first and pods last', R(`sideOrder([mk('jet',0,0,{z:3}), fus, mk('jet',0,0,{z:-3}), wing]).map((p) => p.type + ':' + partZ(p)).join(',') === 'jet:-3,fuselageW:0,wingL:0,jet:3'`));
 t.done();
 
-// ---- the stock ground vehicles (spec §12): sixteen templates after the jets, fifteen Armour and an armed car. Each
+// ---- the stock ground vehicles (spec §12; the drones' two, spec-drones §18): eighteen templates after the jets and the
+// drones, seventeen Armour and an armed car. Each
 // can be edited (no clashes) and fights whole (every part joined to its control part), its turret turns all the way
 // round and its gun dips as far ahead as it may, it costs no more than its money tier, it drives off down the runway,
 // climbs a 15° slope and stands on every spawn slot of Highland Ridge's two pads without sinking or tipping.
@@ -47,12 +48,13 @@ const GROUND = { // key: [name, money tier it fits ($)]
   tk34: ['TK-34', 45000], ms4: ['MS-4 Shermin', 45000], tygr: ['Tygr I', 45000], pumo: ['Pumo 8×8', 45000], stuq3: ['StuQ III', 45000], ms18: ['MS-18 Hellion', 45000],
   leapard1: ['Leapard 1', 45000], tk72: ['TK-72', 75000], ma1: ['MA-1 Abrahm', 120000], zsy23: ['ZSY-23 Shilko', 45000], gepardo: ['Gepardo', 75000], bmk2: ['BMK-2', 45000],
   brdk2: ['BRDK-2 Gadfly', 45000], bk21: ['BK-21 Grod', 45000], ok8: ['OK-8 Hive', 75000], technical: ['Desert Technical', 45000],
+  bmk2d: ['BMK-2D Nest', 45000], ma1c: ['MA-1C Abrahm', 120000],
 };
 W.__G = GROUND;
 const keys = Object.keys(W.TEMPLATES), gv = keys.filter((k) => W.TEMPLATES[k].parts.some((r) => W.PARTS[r[0]] && W.PARTS[r[0]].gv));
-g('51 templates; the sixteen ground ones last (after the jets), under their own names', keys.length === 51 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(keys.slice(-16)) === JSON.stringify(gv)
+g('58 templates; the eighteen ground ones last (after the jets and the drones), under their own names', keys.length === 58 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(keys.slice(-18)) === JSON.stringify(gv)
   && gv.every((k) => W.TEMPLATES[k].name === GROUND[k][0]), gv.map((k) => W.TEMPLATES[k].name).join(', '));
-g('fifteen are Armour (kind tank), the Desert Technical a car; none of them military; each with a blurb', gv.filter((k) => W.TEMPLATES[k].kind === 'tank').length === 15 && W.TEMPLATES.technical.kind === 'car'
+g('seventeen are Armour (kind tank), the Desert Technical a car; none of them military; each with a blurb', gv.filter((k) => W.TEMPLATES[k].kind === 'tank').length === 17 && W.TEMPLATES.technical.kind === 'car'
   && gv.every((k) => !W.TEMPLATES[k].military && W.TEMPLATES[k].blurb.length > 40));
 // (P4 review) a blurb says what the vehicle does: most of the MA-1's rounds (34 of 50) sit behind blow-out panels, not all
 // (16 are in the hull, spent first)
@@ -69,19 +71,20 @@ for (const k in __G) {
   const W = Aim.summary(ps), main = ps.find((p) => p.def.aim && p.def.weapon && p.def.name === W.gun), mg = tg.find((q) => q.ids.has(main.id)), S = mg && Aim.sweep(ps, mg);
   ground[k] = { n: ps.length, joined: ctrl ? componentOf(ctrl.id, adj).size : 0, ctrl: ctrl && ctrl.type, clash, jam: tg.filter((q) => q.jam).length, groups: tg.length,
     yawLim: tg.map((q) => Aim.sweep(ps, q).yawLim).filter(Boolean).length, dep0: S ? S.dep[0] * 180 / Math.PI : null, el0: main.def.aim.el[0], main: main.type, inGroup: !!mg,
-    cost: designCost(ps), gear: Gear.stats(ps) };
+    cost: designCost(ps), gear: Gear.stats(ps), heavy: (() => { const v = new Vessel(ps, adj, EARTH); v.kind = TEMPLATES[k].kind; v.rebuildGroups(); return (v.tg || []).filter((q) => q.mass > (q.ring.def.ring.cap || 0)).map((q) => q.ring.type + ' ' + q.mass.toFixed(2) + ' t'); })() };
 }`);
 const GR = W.ground;
 g('no part clashes with another, and every part is joined to the control part (the hull; the technical\'s cab)', gv.every((k) => GR[k].clash === 0 && GR[k].joined === GR[k].n && GR[k].ctrl === (k === 'technical' ? 'cab' : W.TEMPLATES[k].parts[0][0])),
   gv.filter((k) => GR[k].clash || GR[k].joined !== GR[k].n).map((k) => `${k}: ${GR[k].clash} clashes, ${GR[k].joined}/${GR[k].n} joined`).join('; '));
-g('every turret ring turns (none jammed), all the way round (no part in the way)', gv.every((k) => !GR[k].jam && !GR[k].yawLim) && gv.filter((k) => GR[k].groups).length === 14,
+g('every turret ring turns (none jammed), all the way round (no part in the way)', gv.every((k) => !GR[k].jam && !GR[k].yawLim) && gv.filter((k) => GR[k].groups).length === 16,
   gv.filter((k) => GR[k].jam || GR[k].yawLim).join());
+g('every turret within its ring\'s load, so it turns at the ring\'s full rate (the MA-1C\'s kit rides a turret 20 mm thinner for it)', gv.every((k) => !GR[k].heavy.length), gv.filter((k) => GR[k].heavy.length).map((k) => `${k}: ${GR[k].heavy.join()}`).join('; '));
 g('the main weapon dips as far ahead as its own mount lets it (within 0.5°); on a turret but for the StuQ\'s casemate gun and the technical\'s own swivel', gv.every((k) => (GR[k].inGroup ? GR[k].dep0 <= GR[k].el0 + 0.5 : k === 'stuq3' || k === 'technical')),
   gv.map((k) => `${k} ${GR[k].main} ${GR[k].dep0 == null ? '-' : GR[k].dep0.toFixed(1)}/${GR[k].el0}`).join(', '));
 g('each fits its money tier', gv.every((k) => GR[k].cost <= GROUND[k][1]), gv.map((k) => `${k} $${GR[k].cost}`).join(', '));
 g('the stock fallbacks (GROUND_STOCK) are ground templates that fit their tier', Object.keys(W.GROUND_STOCK).filter((b) => b !== 'fallback').every((b) => W.GROUND_STOCK[b].every((k) => GR[k] && GR[k].cost <= +b)) && !!GR[W.GROUND_STOCK.fallback]);
 g('the running gear carries each Armour design (no overload)', gv.filter((k) => k !== 'technical').every((k) => GR[k].gear && GR[k].gear.overload === 0 && GR[k].gear.kw > 0));
-g('test/lib/tanks.js hands the tests the templates\' own rows', (() => { const T = require('./lib/tanks.js'); return ['tk34', 'ms4', 'tygr', 'ma1', 'pumo'].every((k) => JSON.stringify(T[k]) === JSON.stringify(RW(`templateRows(TEMPLATES.${k})`))) && Object.keys(T.all).length === 16; })());
+g('test/lib/tanks.js hands the tests the templates\' own rows', (() => { const T = require('./lib/tanks.js'); return ['tk34', 'ms4', 'tygr', 'ma1', 'pumo'].every((k) => JSON.stringify(T[k]) === JSON.stringify(RW(`templateRows(TEMPLATES.${k})`))) && Object.keys(T.all).length === 18; })());
 // on the runway, up a 15° plane (made to measure, as ground.test.js's), and on the Highland Ridge pads
 RW(`var A0 = siteAngle(EARTH, EARTH.sites.runway.east), eOf = (a) => -(a - A0) * EARTH.radius, PL = null, TORIG = {};
 for (const k of ['surfaceAt', 'heightAt', 'waterAt', 'deckAt', 'normalAt']) TORIG[k] = Terrain[k];

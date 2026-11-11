@@ -100,7 +100,12 @@ t('names and descriptions use no real product or system name', !bad([...DR, ...K
   bad([...DR, ...KIT], (k) => !REAL_DRONE.test(PARTS[k].name) && !REAL_DRONE.test(PARTS[k].desc)).join());
 {
   const tk = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'drone' || ['bmk2d', 'ma1c'].includes(k));
-  t(`...nor do the drone templates' names and blurbs (${tk.length} so far)`, tk.every((k) => !REAL_DRONE.test(ctx.TEMPLATES[k].name) && !REAL_DRONE.test(ctx.TEMPLATES[k].desc || '')));
+  t(`...nor do the drone templates' names and blurbs (${tk.length}: the five drones, the BMK-2D Nest and the MA-1C Abrahm)`, tk.length === 7 && tk.every((k) => !REAL_DRONE.test(ctx.TEMPLATES[k].name) && ctx.TEMPLATES[k].blurb.length >= 40 && !REAL_DRONE.test(ctx.TEMPLATES[k].blurb)));
+  t('the drone templates: after the jets and before the Armour, none military, career tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
+    const K = Object.keys(TEMPLATES), d = K.filter((k) => TEMPLATES[k].kind === 'drone');
+    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.slice(-2).join() === 'bmk2d,ma1c'
+      && ${JSON.stringify(tk)}.every((k) => { const T = TEMPLATES[k]; return !T.military && T.tier === Math.max(...T.parts.map((r) => PARTS[r[0]].tier || 0)) && (T.kind === 'drone') === !T.dw
+        && Object.keys(T.paint || {}).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); }); })()`));
 }
 
 // ================================================================ 2. the laws (each stock multicopter from the helipad)
@@ -778,6 +783,21 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   t('10 the laser: 0.8-1.0 s on a Bumble at 300 m, 2.7-3.2 s at 1.5 km (cued)', W10.l300.k >= 0.8 && W10.l300.k <= 1.0 && W10.l1500.k >= 2.7 && W10.l1500.k <= 3.2, [W10.l300, W10.l1500]);
   t('10 ...its beam is off after 8 s on, and back on once cooled to 0.3 (3.5 s)', Math.abs(W10.heat.on - 8) < 0.1 && Math.abs(W10.heat.cool - 3.5) < 0.1, W10.heat);
   t('10 ...smoke between holds it off', W10.smoke.on === 0 && !W10.smoke.down, W10.smoke);
+  // the stock counter-drone and bay templates (§18) against the same numbers: the MA-1C Abrahm (its gun on its cage's roof,
+  // turning with the turret) and the BMK-2D Nest (three Bumbles on its rear deck)
+  RB(`var W9 = (() => { const out = {}, pick = (r) => ({ at: r.at, on: r.on, fired: r.fired });
+    out.g500 = pick(engage(designOf('ma1c'), 500, 30, 6));
+    out.g1000 = pick(engage(designOf('ma1c'), 1000, 40, 10));
+    out.fib = pick(engage(designOf('ma1c'), 1000, 40, 6, rowsOf('bumbleF')));
+    { const F = world(), C = F.start(designOf('ma1c')); go(F, 1); F.vessels.push(enemy()); const g = C.cuas.find((p) => p.def.cuas.gun), a0 = g.ammo; go(F, 4); out.ground = a0 - g.ammo;
+      out.kit = C.cuas.map((p) => p.type).sort().join() + '|' + !!C.parts.find((p) => p.def.cage) + '|' + (C.tg || []).length; }
+    { const F = world(), C = F.start(designOf('bmk2d')); go(F, 1.5); const n0 = Drone.left(C), ok = Drone.key(F), d = F.active; let h = null; go(F, 1, () => { h = overTop(d, C); });
+      out.nest = { ok, n0, n1: Drone.left(C), name: d.name, kind: d.kind, mine: d.carrier === C, fpv: F.fpv, h }; }
+    return out; })();`);
+  const W9 = JSON.parse(RB('JSON.stringify(W9)'));
+  t('10 the stock MA-1C Abrahm: its gun downs a Bumble hovering 500 m off within 4 s, and one 1 km off (its detector cues it) within 8 s', W9.g500.at != null && W9.g500.at <= 4 && W9.g1000.at != null && W9.g1000.at <= 8, [W9.g500, W9.g1000]);
+  t('10 ...a fibre Bumble 1 km off is silent to it; it holds its fire at an enemy tank; its kit: the gun, jammer and detector, the cage, one turret', W9.fib.fired === 0 && W9.ground === 0 && W9.kit === 'cdDetect,cdGun,cdJam|true|1', [W9.fib, W9.ground, W9.kit]);
+  t('9 the stock BMK-2D Nest: U launches a Bumble FPV of its three, 4-6 m over its deck within 1 s, flown in first person', W9.nest.ok && W9.nest.n0 === 3 && W9.nest.n1 === 2 && W9.nest.name === 'Bumble FPV' && W9.nest.kind === 'drone' && W9.nest.mine && W9.nest.fpv === true && W9.nest.h >= 4 && W9.nest.h <= 6, W9.nest);
   // cdLow: a SPAA's tracking radar on a Bumble hovering 20 m up
   RB(`var LOW = (() => { const res = {};
     for (const [k, more] of [['without', []], ['with', [RAD]]]) {

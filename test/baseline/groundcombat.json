@@ -726,5 +726,99 @@
    "aphe85:hit:0:|chassis=290|",
    "apfsds120:hit:0:|chassis=320|"
   ]
+ },
+ "bmk2d": {
+  "body": "-3.2,3.2,0,2.505,-1.7,1.7",
+  "groups": [
+   "ringS:turretSmall+ac30+mgCoax+atgmTube+smokeL+smokeL:0.5235987756"
+  ],
+  "muzzles": [
+   "ac30@0:3.132,2.725,0",
+   "mgCoax@0:1.82,2.725,0.35",
+   "atgmTube@0:1,3.55,-0.42",
+   "ac30@90:0.3,2.725,2.832",
+   "mgCoax@90:-0.05,2.725,1.52",
+   "atgmTube@90:0.72,3.55,0.7"
+  ],
+  "launch": [
+   "ac30:apds30:3.132,2.725,0>1099.999604,-0.9333806151,1.144917494e-16",
+   "mgCoax:ball8:1.82,2.725,0.35>849.9986719,-1.502599562,1.838806885e-16"
+  ],
+  "rays": [
+   "hullIFV2@0.4295878151 engDiesel1@0.4517842857",
+   "hullIFV-1@0.4413263547 engDiesel1@0.4443252888",
+   "hullIFV-1@0.4661247551 engDiesel-1@0.4661247551",
+   "hullIFV-1@0.4706631773",
+   "hullIFV-1@0.4661247551",
+   "hullIFV-1@0.4413263547 engDiesel3@0.5094866897",
+   "hullIFV4@0.4157157143 engDiesel3@0.5082157143",
+   "hullIFV-1@0.4386736453 engDiesel3@0.5094866897",
+   "hullIFV-1@0.4645932126 engDiesel3@0.5164314286",
+   "hullIFV-1@0.4693368227",
+   "hullIFV-1@0.4645932126",
+   "hullIFV-1@0.4386736453 engDiesel-1@0.4786736453",
+   "ac302@0.4259842857 turretSmall1@0.4786560357",
+   "turretSmall1@0.4753541129 mgCoax-1@0.4788263547",
+   "smokeL1@0.4710685714 turretSmall-1@0.4776717605",
+   "turretSmall-1@0.4806631773",
+   "turretSmall-1@0.4776717605 smokeL-1@0.523859782",
+   "turretSmall3@0.4777324249 ac300@0.5104104501",
+   "turretSmall3@0.4807157143 ac300@0.5090157143",
+   "turretSmall3@0.4777324249 mgCoax0@0.518724294",
+   "turretSmall-1@0.476140218 smokeL-1@0.5223282395",
+   "turretSmall-1@0.4793368227",
+   "smokeL1@0.4710685714 turretSmall-1@0.476140218",
+   "turretSmall1@0.4753541129 ac30-1@0.4886736453"
+  ],
+  "shots": [
+   "aphe85:pen:1:ENGINE+CREW+FUEL+GUN|hullIFV=29 engDiesel=596.1645789 ac30=40.92586659 mgCoax=4.64060252|hullIFV.0=620.2020749 hullIFV.2=28.08654317",
+   "apfsds120:pen:1:ENGINE+CREW+TROOPS|hullIFV=32 engDiesel=777.0409506|hullIFV.0=616.5858543 hullIFV.1=186.1695946"
+  ]
+ },
+ "ma1c": {
+  "body": "-3.6,3.6,0,2.07,-1.96,1.96",
+  "groups": [
+   "ringP:turretWedge+gun120+mgCoax+smokeL+smokeL+thermal+lrf+cdCage+cdGun+cdJam+cdDetect:0.6981317008"
+  ],
+  "muzzles": [
+   "gun120@0:6.748,2.45,0",
+   "mgCoax@0:2.2,2.45,0.75",
+   "gun120@90:-0.3,2.45,7.048",
+   "mgCoax@90:-1.05,2.45,2.5"
+  ],
+  "launch": [
+   "gun120:apfsds120:6.748,2.45,0>1649.999983,-0.2333452355,2.862293735e-17",
+   "mgCoax:ball8:2.2,2.45,0.75>849.9986719,-1.502599562,1.840975289e-16"
+  ],
+  "rays": [
+   "hullMBT1@0.4346666597 engTurbine1@0.541264272",
+   "trackMBT-1@0.4049414037 hullMBT-1@0.4374414037 trackMBT-1@0.5624414037",
+   "skirts-1@0.4433858431 trackMBT-1@0.4451178939 hullMBT-1@0.4638817776 trackMBT-1@0.5360505613 skirts-1@0.554814445",
+   "skirts-1@0.4509707019 trackMBT-1@0.4524707019 hullMBT-1@0.4687207019 trackMBT-1@0.5312207019 skirts-1@0.5474707019",
+   "skirts-1@0.4433858431 trackMBT-1@0.4451178939 hullMBT-1@0.4638817776 trackMBT-1@0.5360505613 skirts-1@0.554814445",
+   "trackMBT-1@0.4049414037 hullMBT-1@0.4374414037 trackMBT-1@0.5624414037",
+   "hullMBT4@0.408735728 engTurbine3@0.418735728",
+   "trackMBT-1@0.4050585963 hullMBT-1@0.4375585963 trackMBT-1@0.5625585963",
+   "skirts-1@0.4434535042 trackMBT-1@0.445185555 hullMBT-1@0.4639494387 trackMBT-1@0.5361182224 skirts-1@0.5548821061",
+   "skirts-1@0.4510292981 trackMBT-1@0.4525292981 hullMBT-1@0.4687792981 trackMBT-1@0.5312792981 skirts-1@0.5475292981",
+   "skirts-1@0.4434535042 trackMBT-1@0.445185555 hullMBT-1@0.4639494387 trackMBT-1@0.5361182224 skirts-1@0.5548821061",
+   "trackMBT-1@0.4050585963 hullMBT-1@0.4375585963 trackMBT-1@0.5625585963",
+   "gun1202@0.332564272 turretWedge1@0.4638125073",
+   "mgCoax-1@0.4574414037 turretWedge1@0.4582142827 gun120-1@0.4724414037",
+   "turretWedge-1@0.4537781479 gun120-1@0.484089037",
+   "turretWedge-1@0.4599707019",
+   "turretWedge-1@0.4537781479 gun1200@0.514871456",
+   "turretWedge4@0.439884074 gun1200@0.5085860391",
+   "turretWedge4@0.4479380809 gun1200@0.507435728",
+   "turretWedge4@0.439884074 gun1200@0.5085860391 mgCoax0@0.5331811606",
+   "turretWedge-1@0.453845809 gun1200@0.514871456",
+   "turretWedge-1@0.4600292981",
+   "turretWedge-1@0.453845809 gun120-1@0.4841566982",
+   "turretWedge1@0.4582142827 gun120-1@0.4725585963"
+  ],
+  "shots": [
+   "aphe85:nopen:0:|hullMBT=8.7|",
+   "apfsds120:nopen:0:|hullMBT=9.6|"
+  ]
  }
 }
