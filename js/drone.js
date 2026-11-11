@@ -1197,7 +1197,7 @@ const Drone = (() => {
       if (v === A && v.carrier && dl.flat && !F.carrierDown) { lost(F, v, 'battery'); continue; }
       if (v.ai) continue; // (an AI drone's own end is the AI section's)
       // docking: homing or landing over its bay, or a GPS drone's failsafe bringing it home
-      if (v.carrier && v.bay && (dl.mode === 'home' || dl.mode === 'land' || (dl.lost && v.dr.fc.fs === 'home')) && overBay(v, DRONE.HOME.DOCK_R, DRONE.HOME.DOCK_H, DRONE.HOME.DOCK_V)) { dock(F, v); continue; }
+      if (v.carrier && v.bay && carrierUp(v.carrier, F) && (dl.mode === 'home' || dl.mode === 'land' || (dl.lost && v.dr.fc.fs === 'home')) && overBay(v, DRONE.HOME.DOCK_R, DRONE.HOME.DOCK_H, DRONE.HOME.DOCK_V)) { dock(F, v); continue; }
       // nobody's: lost 60 s, or lost or ownerless and landed 3 s
       if (v === A) continue;
       const owned = !v.carrier || (v.carrier.drone === v && carrierUp(v.carrier, F));

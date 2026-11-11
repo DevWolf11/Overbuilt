@@ -597,10 +597,14 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
     dead.hulk = 0; dead.down = true;
     let goneAt = null; for (let i = 0; i < 300; i++) { F.time += 1 / 60; Drone.frame(F, 1 / 60); if (goneAt == null && live.dead) goneAt = i / 60; }
     d.hulk = 0; d.down = true; Drone.frame(F, 1 / 60);
-    return { goneAt, hulk: !dead.dead, cdr: C.drone ? C.drone.name : null, log: F.log.slice(-1)[0] }; })();`);
+    // a GPS drone homing to a tank knocked out meanwhile: it lets down by the wreck, never docks in it
+    const gps = rowsOf('bumble').map((r) => (r.type === 'drFC' ? { ...r, type: 'drFCgps' } : r));
+    const { F: F4, C: C4, d: d4 } = launched({ drone: { name: 'GPS Bumble', parts: gps } }); go(F4, 1); putAt(d4, 40, 20); d4.dl.hold = null; F4.switchTo(C4, true, true); C4.ko = { why: 'crew', x: false, t: 0 }; d4.dl.mode = 'home';
+    go(F4, 25); const wreckDock = d4.name !== 'GPS Bumble' || !d4.dl.lost || Drone.left(C4) === 3 || F4.log.some((m) => /docked/.test(m));
+    return { goneAt, hulk: !dead.dead, cdr: C.drone ? C.drone.name : null, log: F.log.slice(-1)[0], wreckDock }; })();`);
   const I13 = JSON.parse(RB('JSON.stringify(I13)'));
-  t('I13 a live drone nobody has, its link lost and landed, is gone after 3 s (Drone.frame); a hulk never by Drone.frame; a tank whose unflown drone is shot down hears "The Bumble FPV was shot down"',
-    I13.goneAt != null && I13.goneAt >= 2.9 && I13.goneAt <= 3.2 && I13.hulk && I13.cdr == null && I13.log === 'The Bumble FPV was shot down', I13);
+  t('I13 a live drone nobody has, its link lost and landed, is gone after 3 s (Drone.frame); a hulk never by Drone.frame; a tank whose unflown drone is shot down hears "The Bumble FPV was shot down"; nothing docks in a knocked-out tank',
+    I13.goneAt != null && I13.goneAt >= 2.9 && I13.goneAt <= 3.2 && I13.hulk && I13.cdr == null && I13.log === 'The Bumble FPV was shot down' && !I13.wreckDock, I13);
 }
 
 // ================================================================ 12. the contract: drones fly with no call into the ground update's systems
