@@ -113,6 +113,36 @@ ok('grid mode rounds to 0.25 m, free mode does not', g[0] * 4 === Math.round(g[0
 const rk = await ev(() => { Builder.loadTemplate('pathfinder'); const t = Builder.parts.find((p) => p.type === 'tankL'); Builder.addPart('tankM', t.x, t.y, 0, { z: 2.6, att: t }); return Builder.parts.filter((p) => p.type === 'tankM').map((p) => [p.x, p.y, partZ(p)]); });
 log('rocket', JSON.stringify(rk));
 ok('a booster put on the front of a rocket stack gets its twin at the back', rk.some((r) => r[2] === 2.6) && rk.some((r) => r[2] === -2.6) && rk.filter((r) => r[2] === 2.6)[0][1] === rk.filter((r) => r[2] === -2.6)[0][1]);
+// (the big update) a tank whose drone bays carry a picked drone: its code carries it (d: a stock drone's key, or a saved
+// one's name and rows), cleaned on the way in; a design without bays never carries one, so every other code is as before
+const dc = await ev(() => {
+  const rows = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+    ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+  const enc = (o) => 'RSS2.' + btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const out = {};
+  Builder.loadTemplate('bmk2'); const bare = Builder.designCode(Builder.serialize());
+  Builder.quickAdd('dockRack'); const rack = Builder.designCode(Builder.serialize());
+  Builder.droneChoice = Drone.cleanChoice({ name: 'My <i>quad</i>', parts: rows }); Builder.changed();
+  const d = Builder.serialize(), code = Builder.designCode(d), back = Builder.parseCode(code);
+  out.pre = [rack.slice(0, 5), code.slice(0, 5)]; out.has = !!d.drone && code !== rack;
+  Builder.loadDesign(back); out.same = JSON.stringify(Builder.droneChoice) === JSON.stringify(d.drone) && JSON.stringify(Builder.serialize()) === JSON.stringify(d);
+  // a stock drone, by key (when this game has it)
+  const key = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone');
+  if (key) { Builder.droneChoice = { key }; Builder.changed(); const c = Builder.designCode(Builder.serialize()); out.key = JSON.stringify(Builder.parseCode(c).drone) === JSON.stringify({ key }) && c.length < code.length; } else out.key = true;
+  // the same tank without its rack: no d, as before (the bare tank's code unchanged by a pick left over)
+  Builder.loadTemplate('bmk2'); Builder.droneChoice = { name: 'x', parts: rows }; out.bare = Builder.designCode(Builder.serialize()) === bare && !('drone' in Builder.serialize());
+  // forged: armour rows, 41 rows, a key that is no drone, rows that are no list, a 500-letter name
+  const base = { n: 'Forged', k: 'tank', p: [['hullIFV', 0, 1]] }, cl = (dd) => { const r = Builder.parseCode(enc({ ...base, d: dd })); return r ? r.drone : 'no code'; };
+  out.forged = [cl({ n: 'a', p: [['cdJam', 0, 0]] }), cl({ n: 'a', p: Array.from({ length: 41 }, (_, i) => ['drGuard', i, 0]) }), cl({ k: 'falcon' }), cl({ n: 'a', p: 'junk' }), cl('x'), cl(null)];
+  const long = cl({ n: 'x'.repeat(500), p: rows.map((q) => [q.type, q.x, q.y, 0, q.rot || 0, q.z ?? null, q.att ?? null]) });
+  out.long = long && long.name.length === 40 && long.parts.length === rows.length;
+  return out;
+});
+log('drone codes', JSON.stringify(dc));
+ok('a tank whose rack carries a picked drone: the code carries it and comes back the same (the prefix by the tank\'s own rows)', dc.has && dc.same && dc.pre[0] === dc.pre[1] && dc.key, JSON.stringify(dc));
+ok('...without the rack, the code is the tank\'s as before (no d)', dc.bare);
+ok('...a forged pick comes back as the stock drone (null): armour rows, 41 rows, a plane\'s key, rows that are no list; a 500-letter name cut to 40',
+  dc.forged.every((x) => x === null || x === undefined) && dc.long, JSON.stringify(dc.forged));
 await ev(() => Builder.loadTemplate('jumbo'));
 await page.waitForTimeout(300);
 await page.screenshot({ path: SHOTS + 'b2d-jumbo.png' });

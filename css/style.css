@@ -1356,5 +1356,30 @@ body.ctl-edit .air-btns { display: flex !important; }
 body.ground #btn-radar { display: none; }
 
 /* == big: drones == */
+/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide) */
+#kind-select { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 359.98px) { #kind-select .kind-btn { font-size: 8px; } }
+/* the drone's line under the stats: its notes (no camera, more parts than a bay takes) in grey */
+.air-info .s-note { color: var(--muted); }
+/* a short phone building a drone, as building armour: while a part's card is up the kind buttons give way */
+@media (max-width: 760px) and (max-height: 700px) {
+  #build-ui.has-info:has(#kind-select [data-kind="drone"][aria-checked="true"]) #kind-select { display: none; }
+}
+/* its battery ("50 Wh · hover 7.5 min") and top speed ("Level 97 km/h · Acro 160") rows take two columns, a size smaller on a
+   desktop's narrow panel to keep to one line (a phone's wrap at the " · ") */
+.stats.drone #s-dv-row, .stats.drone #s-top-row { grid-column: span 2; }
+@media (min-width: 761px) { .stats.drone :is(#s-dv-row, #s-top-row, #s-link-row) dd { font-size: 14px; } }
+/* folded (a small phone's first look, or ▴): one row, the core of each ("50 Wh", "97 km/h"), no link */
+.stats.drone.collapsed .s-more, .stats.drone.collapsed #s-link-row { display: none; }
+.stats.drone.collapsed :is(#s-dv-row, #s-top-row) { grid-column: auto; }
+/* the part card's bay row ("Carries: Bumble FPV ×3 ▸") and the picker it opens: drones that don't fit are dimmed, with
+   the bay's reason in red; a tick on those that do */
+.pi-dock { flex: 1; min-width: 0; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pick .design-main[disabled] { cursor: default; opacity: 0.6; }
+.dock-pick .design:has(.design-main[disabled]):hover { border-color: var(--line); }
+.dock-ok, .dock-why { font: 600 12px var(--mono); }
+.dock-ok { color: #7dffb0; }
+.dock-why { color: var(--danger); }
+.hangar-hint.dock-foot { margin: 12px 0 0; }
 
 /* == big: graphics == */

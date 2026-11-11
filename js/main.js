@@ -203,10 +203,12 @@ const App = {
   },
   // (its words for the kind being built: Armour's parts go on a hull or a turret, not a wing)
   hint3D() {
-    const hint = $('#build-3d-hint'), on = typeof Builder !== 'undefined' && Builder.kind === 'tank' ? 'the hull or a turret' : 'any wing or body';
+    const hint = $('#build-3d-hint'), kind = typeof Builder !== 'undefined' ? Builder.kind : null, on = kind === 'tank' ? 'the hull or a turret' : 'any wing or body';
+    // (the big update) a drone is built by taps: the frame first, then its motors go on its arms
+    const how = kind === 'drone' ? 'tap a frame, then the parts: motors go on its arms (symmetry places them in pairs)' : `drop parts onto ${on}: they attach where you drop them`;
     const t = isTouch
-      ? `3D · drop parts onto ${on}: they attach where you drop them · drag to turn · tap a part, then drag it to move · pinch to zoom`
-      : `3D · drop parts onto ${on}: they attach where you drop them · drag empty space to turn · right-drag to pan · ${Keys.k('bIn')} ${Keys.k('bOut')} in and out`;
+      ? `3D · ${how} · drag to turn · tap a part, then drag it to move · pinch to zoom`
+      : `3D · ${how} · drag empty space to turn · right-drag to pan · ${Keys.k('bIn')} ${Keys.k('bOut')} in and out`;
     if (hint && hint.textContent !== t) hint.textContent = t;
   },
 

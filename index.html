@@ -139,6 +139,7 @@
       <button class="kind-btn" role="radio" data-kind="car" data-icon="car" title="Car: drives from the runway"><span>Car</span></button>
       <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
       <button class="kind-btn" role="radio" data-kind="tank" data-icon="tank" title="Armour: tanks and armoured vehicles, built nose-right"><span>Armour</span></button>
+      <button class="kind-btn" role="radio" data-kind="drone" data-icon="drone" title="Drone: quadcopters and winged munitions, built nose-right, lift off from the helipad"><span>Drone</span></button>
     </div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
@@ -147,6 +148,7 @@
       <div id="s-dv-row"><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
       <div id="s-power-row" hidden><dt>Power</dt><dd id="s-power">—</dd></div>
       <div id="s-top-row" hidden><dt>Top speed</dt><dd id="s-top">—</dd></div>
+      <div id="s-link-row" hidden><dt>Link</dt><dd id="s-link">—</dd></div>
       <div id="s-front-row" hidden><dt>Front</dt><dd id="s-front">—</dd></div>
       <div id="s-radar-row" hidden><dt>Radar</dt><dd id="s-radar">—</dd></div>
     </dl>
@@ -194,6 +196,9 @@
         <button id="btn-armour" class="btn small icon-only toggle" data-icon="plates" aria-pressed="false" aria-label="Armour view" title="Armour view: every plate in the colour of its thickness against a level shot"></button>
       </div>
       <p id="pi-mm-faces" class="pi-faces"></p>
+    </div>
+    <div id="pi-dock" class="pi-block" hidden>
+      <div class="pi-row"><span class="pi-label">Drones</span><button id="btn-dock" class="btn small pi-dock" title="Pick the drone this bay carries">Carries ▸</button></div>
     </div>
     <div id="pi-turret" class="pi-block" hidden>
       <div class="pi-row"><span class="pi-label">Aim</span><span id="pi-arc" class="pi-arc"></span>

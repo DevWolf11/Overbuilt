@@ -2,7 +2,9 @@
 // where it goes; the kind strip fits at every size; the stats and warnings speak tank; the armour stepper dials a
 // plate's thickness, which costs mass and money and survives saving, a design code and a reload; plates go flush on a
 // face; parts pair up across the hull; X-ray, the armour view, the arcs and the sweep's late answer redraw once.
-// From the build screen as a new player first meets it (the stock Hopper), Armour starts an empty design.
+// From the build screen as a new player first meets it (the stock Hopper), Armour starts an empty design. (The big
+// update) the Drone kind: the six-button strip, a quad by six taps, its stats rows and warnings, the tray's and the part
+// panel's words, the scale; a tank's drone bay and its picker (#pi-dock), what the bays carry in the stats and warnings.
 //   node test/browser/builder-tank.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -290,7 +292,7 @@ for (const [w, h] of [[390, 844], [375, 667], [844, 390], [1280, 720]]) {
   const pg = w === 390 ? page : await phone(w, h);
   if (w === 1280) await pg.setViewportSize({ width: w, height: h });
   const f = await fits(pg);
-  ok(`${w} × ${h}: every kind button fits its label`, f.length === 5 && f.every(([, s, c]) => s <= c), JSON.stringify(f));
+  ok(`${w} × ${h}: every kind button fits its label (six: Drone after Armour)`, f.length === 6 && f[5][0] === 'drone' && f.every(([, s, c]) => s <= c), JSON.stringify(f));
   if (pg !== page) await pg.close();
 }
 
@@ -389,6 +391,200 @@ await ev(() => { App.toBuild(); Render3D.skipDraw = false; });
   const bad = await e(() => Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'tank' || TEMPLATES[k].kind === 'car').filter((k) => { Builder.loadTemplate(k); return /reach the ground/.test($('#s-warn').textContent); }));
   ok('...and no stock Armour or car has its tracks or wheels off the ground', !bad.length, bad.join(', '));
   await pg.close();
+}
+
+// ---- 11. (the big update) the Drone kind: six taps make a quad, its numbers, its warnings, its words, its scale
+// The stock drones are the big update's templates package's: where this game has none yet, the spec's rows stand in.
+const DRONE_ROWS = {
+  bumble: ['Bumble FPV', [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+    ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+    ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]]],
+  mavik: ['Mavik Scout', [['drFrameM', 0, 0], ['drFCgps', 0, 0.05, 0, { att: 0 }], ['drGimbal', 0.2, -0.075, 0, { att: 0 }], ['drLinkL', -0.12, 0.075, 0, { att: 0 }],
+    ['drMotorM', 0.2, 0.06, 0, { z: 0.2, att: 0 }], ['drMotorM', 0.2, 0.06, 0, { z: -0.2, att: 0 }], ['drMotorM', -0.2, 0.06, 0, { z: 0.2, att: 0 }], ['drMotorM', -0.2, 0.06, 0, { z: -0.2, att: 0 }],
+    ['drBattM', -0.04, -0.055, 0, { att: 0 }], ['drLegs', 0, -0.085, 0, { att: 0 }]]],
+  lancett: ['Lancett', [['drBody', 0, 0, 3], ['drFC', 0.1, 0, 0, { att: 0 }], ['drBattM', -0.12, 0, 0, { att: 0 }], ['drChargeT', 0.75, 0, 3, { att: 0 }], ['drCam', 0.4, 0.105, 0, { att: 0 }],
+    ['drLinkL', -0.25, 0.13, 0, { att: 0 }], ['drWing', 0.3, 0.095, 3, { att: 0 }], ['drTail', -0.48, 0.09, 3, { att: 0 }], ['drFin', -0.48, 0.17, 3, { att: 0 }], ['drPusher', -0.6, 0, 3, { att: 0 }]]],
+};
+const stockDrones = (pg) => pg.evaluate((R) => { for (const k in R) if (!TEMPLATES[k]) TEMPLATES[k] = { name: R[k][0], kind: 'drone', tier: 1, blurb: 'A stock drone.', parts: R[k][1] }; }, DRONE_ROWS);
+const nb = (t) => (t || '').replace(/ /g, ' ');
+const SIX_DRONE = [['Frames', 'FPV Frame'], ['Frames', 'FPV Flight Controller'], ['Motors & power', 'Racing Motor'], ['Motors & power', 'Racing Motor'], ['Motors & power', 'Battery 50 Wh'], ['Links & sensors', 'FPV Camera']];
+const droneState = (pg) => pg.evaluate(() => ({ kind: Builder.kind, n: Builder.parts.length, name: Builder.name, tab: Builder.category, sym: Builder.symmetry, symTitle: $('#btn-sym').title, modal: UI.modalOpen,
+  tabs: [...document.querySelectorAll('#palette-tabs .tab')].map((t) => t.textContent).join('|'), warn: $('#s-warn').hidden ? '' : $('#s-warn').textContent,
+  toast: [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent).join(' | '), launch: !$('#btn-launch').disabled }));
+for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
+  const pg = touch ? await phone(w, h) : await (async () => { const d = await (await b.newContext({ viewport: { width: w, height: h } })).newPage(); watch(d, errs, 'desktop '); await openGame(d, srv.url, { build3d: false }); await d.evaluate(() => App.toBuild()); await d.waitForTimeout(300); return d; })();
+  const e = (f, a) => pg.evaluate(f, a), tap = async (loc) => (touch ? loc.tap() : loc.click()), tag = touch ? 'phone' : 'desktop';
+  const tapIt = async (tab, name) => { await tap(pg.locator('#palette-tabs .tab', { hasText: new RegExp(`^${tab}$`) })); await tap(pg.locator('#palette-items .part-item', { has: pg.locator('.part-name', { hasText: new RegExp(`^${name}$`) }) })); await frames(pg, 2); };
+  await stockDrones(pg);
+  if (!(await pg.isVisible('#kind-select [data-kind="drone"]'))) await tap(pg.locator('#btn-stats'));
+  await pg.screenshot({ path: `${SHOTS}w3-${tag}-kinds.png` });
+  // from the Hopper: a new, empty Drone design, the Frames tab, symmetry on, and the six-tap tip (once)
+  const d0 = await droneState(pg);
+  await tap(pg.locator('#kind-select [data-kind="drone"]'));
+  await frames(pg, 2);
+  const d1 = await droneState(pg);
+  ok(`${tag}: Drone from the Hopper: an empty Drone design (Undo brings the Hopper back), the Frames tab, symmetry on (mirror left and right), and the tip: six taps make a drone`,
+    d0.kind === 'rocket' && d1.kind === 'drone' && d1.n === 0 && d1.name === 'Drone' && d1.tab === 'drFrame' && d1.sym && /mirror left and right/.test(d1.symTitle) && /Undo brings back the Hopper/.test(d1.toast) && /Six taps make a drone: a frame, a flight controller, motors twice, a battery and a camera/.test(d1.toast),
+    JSON.stringify([d0, d1]));
+  ok(`${tag}: its tabs: Frames, Motors & power, Links & sensors, Payloads and More; an empty one asks for a flight controller and can't launch`,
+    d1.tabs === 'Frames|Motors & power|Links & sensors|Payloads|More…' && d1.warn === 'Add a flight controller (Frames).' && !d1.launch, JSON.stringify(d1));
+  await pg.screenshot({ path: `${SHOTS}w3-${tag}-drone-empty.png` });
+  for (const t of SIX_DRONE) await tapIt(...t);
+  const d2 = await droneState(pg);
+  const q = await e((B) => { const near = (p, r) => Math.abs(p.x - r[1]) <= 0.01 && Math.abs(p.y - r[2]) <= 0.01 && Math.abs(partZ(p) - ((r[4] || {}).z || 0)) <= 0.01 && (p.rot || 0) === (r[3] || 0);
+    const left = B.slice(), miss = []; for (const p of Builder.parts) { const i = left.findIndex((r) => r && r[0] === p.type && near(p, r)); if (i < 0) miss.push([p.type, p.x, p.y, partZ(p)]); else left[i] = null; }
+    return { miss, joined: Builder.attached.size === Builder.parts.length, mirrors: Builder.parts.filter((p) => p.type === 'drMotorS' && p.mirror).length }; }, DRONE_ROWS.bumble[1]);
+  ok(`${tag}: six taps make a quad: a frame, a controller, four motors (two taps, symmetry pairs them), a battery and a camera, each where the Bumble has it, joined, no warnings, ready to launch`,
+    d2.n === 8 && !q.miss.length && q.joined && q.mirrors === 4 && !d2.warn && d2.launch, JSON.stringify([d2.n, q, d2.warn]));
+  const vis = await inSight(pg);
+  ok(`${tag}: ...seen taking shape: every part in sight, the stats uncovered`, vis.vis === vis.n && !vis.fitOverStats, vis);
+  await pg.screenshot({ path: `${SHOTS}w3-${tag}-quad.png` });
+  await tapIt('Payloads', 'Shaped Charge');
+  await e(() => { Builder.selected = null; Builder.renderInfo(); $('#stats').classList.remove('collapsed'); Builder.layout(); });
+  await frames(pg, 2);
+  const s = await e(() => ({ rows: [...document.querySelectorAll('#stats .stat-grid > div')].filter((d) => !d.hidden).map((d) => [d.querySelector('dt').textContent, d.querySelector('dd').textContent]),
+    air: $('#s-air').hidden ? null : $('#s-air').textContent, stages: $('#s-stage-box').hidden, wrap: [...document.querySelectorAll('#stats .stat-grid > div:not([hidden]) dd')].every((d) => d.scrollWidth <= d.clientWidth + 1),
+    charge: Builder.parts.find((p) => p.type === 'drCharge') }));
+  const row = (k) => nb((s.rows.find((r) => r[0] === k) || [])[1]);
+  ok(`${tag}: the stats read Mass 1.66 kg, Thrust 3.9× weight, Battery 50 Wh · hover 7.6 min, Top speed Level 97 km/h · Acro …, Link Radio 1 km (no thrust in kN, fuel or stages)`,
+    s.rows.map((r) => r[0]).join('|') === 'Mass|Thrust|Battery|Top speed|Link' && row('Mass') === '1.66 kg' && row('Thrust') === '3.9× weight' && /^50 Wh · hover 7\.\d min$/.test(row('Battery'))
+    && /^Level 9\d km\/h · Acro \d+$/.test(row('Top speed')) && row('Link') === 'Radio 1 km' && s.stages && s.wrap, JSON.stringify(s.rows));
+  ok(`${tag}: ...and under them: Hovers at 25% · climbs 8 m/s · fits: Drone Rack, Drone Hangar`, nb(s.air) === 'Hovers at 25% · climbs 8 m/s · fits: Drone Rack, Drone Hangar', s.air);
+  ok(`${tag}: the charge goes under the battery, pointing forward, its tip 2 cm past the frame`, s.charge && s.charge.rot === 3 && Math.abs(s.charge.x - 0.06) < 0.01 && Math.abs(s.charge.y + 0.1125) < 0.01, JSON.stringify(s.charge && [s.charge.x, s.charge.y, s.charge.rot]));
+  await pg.screenshot({ path: `${SHOTS}w3-${tag}-stats.png` });
+  // a second time on an empty blueprint: no tip
+  await e(() => { Builder.loadTemplate('hopper'); });
+  await tap(pg.locator('#kind-select [data-kind="drone"]'));
+  await pg.waitForTimeout(3300); // (the first toasts gone)
+  const d3 = await droneState(pg);
+  ok(`${tag}: the tip comes once (rss.droneTip)`, d3.kind === 'drone' && d3.n === 0 && !/Six taps/.test(d3.toast), d3.toast);
+  await pg.close();
+}
+// a small phone (360 × 640, the stats folded as it first opens): the folded stats one row (the core of each value), and
+// the quad in sight above the part's card as it takes shape
+{
+  const pg = await phone(360, 640), e = (f, a) => pg.evaluate(f, a);
+  await pg.locator('#kind-select [data-kind="drone"]').tap();
+  for (const [tab, name] of SIX_DRONE) {
+    await pg.locator('#palette-tabs .tab', { hasText: new RegExp(`^${tab}$`) }).tap();
+    await pg.locator('#palette-items .part-item', { has: pg.locator('.part-name', { hasText: new RegExp(`^${name}$`) }) }).tap();
+    await frames(pg, 2);
+  }
+  const v = await inSight(pg), f = await e(() => ({ folded: $('#stats').classList.contains('collapsed'), rows: [...document.querySelectorAll('#stats .stat-grid > div')].filter((d) => d.offsetParent).map((d) => [d.querySelector('dt').textContent, d.querySelector('dd').innerText.replace(/\u00a0/g, ' ')]),
+    one: new Set([...document.querySelectorAll('#stats .stat-grid > div')].filter((d) => d.offsetParent).map((d) => Math.round(d.getBoundingClientRect().top))).size === 1 }));
+  ok('360 × 640, folded: the drone\'s stats in one row (1 kg, thrust, battery, top speed: no link, no second halves)', f.folded && f.one && f.rows.map((r) => r[0]).join('|') === 'Mass|Thrust|Battery|Top speed' && f.rows[2][1] === '50 Wh' && /^\d+ km\/h$/.test(f.rows[3][1]), JSON.stringify(f));
+  ok('...and six taps make a quad in sight above the card, the stats uncovered', v.card && v.vis === v.n && v.n === 8 && !v.fitOverStats, v);
+  await pg.screenshot({ path: `${SHOTS}w3-phone-360-quad.png` });
+  await pg.close();
+}
+// the warnings, the words and the scale (on the phone's page)
+{
+  await stockDrones(page);
+  const W = await ev(() => {
+    const warnOf = (kind, rows) => { Builder.loadDesign({ name: 't', kind, parts: rows }); return $('#s-warn').hidden ? '' : $('#s-warn').textContent; };
+    const air = () => ($('#s-air').hidden ? '' : $('#s-air').textContent);
+    const B = templateRows(TEMPLATES.bumble), L = templateRows(TEMPLATES.lancett), out = {};
+    out.ok = warnOf('drone', B);
+    out.noMotor = warnOf('drone', B.filter((r) => r.type !== 'drMotorS'));
+    out.noBatt = warnOf('drone', B.filter((r, i) => i !== 8 && i !== 9));
+    const heavy = B.concat([{ type: 'drBattL', x: -0.03, y: -0.2175, rot: 0, flip: false, att: 9 }]); out.heavy = warnOf('drone', heavy);
+    const slug = B.concat(Array.from({ length: 6 }, (_, i) => ({ type: 'drBattM', x: -0.03, y: -0.1875 - 0.06 * i, rot: 0, flip: false, att: 9 + i }))); out.slug = warnOf('drone', slug); // (+3.3 kg: 1.3× its weight)
+    out.balance = warnOf('drone', B.map((r) => (r.type === 'drCharge' ? { ...r, x: 0.4 } : r)));
+    out.props = warnOf('drone', B.filter((r, i) => i < 8).map((r) => (r.type === 'drMotorS' ? { ...r, y: -0.0475 } : r)));
+    out.legs = warnOf('drone', B.filter((r, i) => i < 8).map((r) => (r.type === 'drMotorS' ? { ...r, y: -0.0475 } : r)).concat([{ type: 'drLegs', x: 0, y: -0.0775, rot: 0, flip: false, att: 0 }]));
+    out.lancett = warnOf('drone', L); out.lancettAir = air();
+    out.wingFwd = warnOf('drone', L.map((r) => (r.type === 'drWing' ? { ...r, x: 0.5 } : r)));
+    out.armour = warnOf('drone', B.concat([{ type: 'cdJam', x: 0, y: 0.3, rot: 0, flip: false, att: 1 }]));
+    warnOf('drone', B.filter((r) => r.type !== 'drCam')); out.noCam = air();
+    Builder.loadDesign({ name: 'b', kind: 'drone', parts: B }); out.kg = $('#s-mass').textContent;
+    return out;
+  });
+  ok('a stock quad warns of nothing', !W.ok, W.ok);
+  ok('no motors: "Add motors (Motors & power): nothing lifts it."; no battery: "Add a battery (Motors & power): the motors have no power."',
+    W.noMotor.includes('Add motors (Motors & power): nothing lifts it.') && W.noBatt.includes('Add a battery (Motors & power): the motors have no power.'), [W.noMotor, W.noBatt]);
+  ok('a 700 Wh battery on a racer: "Too heavy to lift: thrust 6.5 of 6.4 kg"-style; three more 100 Wh ones: "Sluggish: thrust only 1.x× its weight"',
+    /Too heavy to lift: thrust \d+\.\d of \d+\.\d kg\./.test(W.heavy) && /Sluggish: thrust only 1\.\d× its weight\./.test(W.slug), [W.heavy, W.slug]);
+  ok('the charge pushed 34 cm forward: "Off balance: the weight is N cm ahead of the motors’ middle"', /Off balance: the weight is \d+ cm ahead of the motors’ middle; it will drift and fight itself\./.test(W.balance), W.balance);
+  ok('motors under the frame with nothing lower: "The props touch the ground first: add landing legs."; legs under it: no such warning',
+    W.props.includes('The props touch the ground first: add landing legs.') && !W.legs.includes('props touch'), [W.props, W.legs]);
+  ok('the Lancett (its tail keeps its lift behind its weight): no wing warning, and its line: it flies on its wing, fits the Launch Tubes', !/Wing ahead/.test(W.lancett) && /Flies on its wing: it can’t hover · fits: Launch Tubes/.test(W.lancettAir), [W.lancett, W.lancettAir]);
+  ok('its wing moved 20 cm forward: "Wing ahead of the balance point: it will flip. Move the wing back or the battery forward."', W.wingFwd.includes('Wing ahead of the balance point: it will flip. Move the wing back or the battery forward.'), W.wingFwd);
+  ok('an armour part aboard: "Armour parts don’t work on a drone."; no camera: a grey note "No camera: you’ll fly it from behind"', W.armour.includes('Armour parts don’t work on a drone.') && /No camera: you’ll fly it from behind/.test(W.noCam), [W.armour, W.noCam]);
+  // the tray's one-liners and the part panel's numbers (old parts' unchanged: gated on the new fields)
+  const L = await ev(() => { const sl = (k) => Builder.specLine(PARTS[k]), ps = (k) => Builder.partSpecs(makePart(k, 0, 0));
+    return { fc: sl('drFC'), gps: sl('drFCgps'), frame: sl('drFrameS'), motor: sl('drMotorS'), batt: sl('drBattS'), link: sl('drLink'), cam: sl('drCam'), gim: sl('drGimbal'), charge: sl('drCharge'), frag: sl('drChargeHE'),
+      dock: sl('dockRack'), jam: sl('cdJam'), det: sl('cdDetect'), gun: sl('cdGun'), laser: sl('cdLaser'), cage: sl('cdCage'), radar: sl('cdRadar'),
+      pMotor: ps('drMotorS'), pBatt: ps('drBattS'), pLink: ps('drLink'), pFibre: ps('drSpool'), pSat: ps('drSat'), pCam: ps('drCam'), pGim: ps('drGimbal'), pCharge: ps('drCharge'), pDock: ps('dockRack'),
+      old: [sl('jet'), sl('tankL'), sl('wingL'), sl('gun85'), sl('hullMedium'), sl('radarPD')], oldWant: [`${PARTS.jet.thrust} kN · ${PARTS.jet.ispVac}s`, `${PARTS.tankL.fuel} t fuel`, `${PARTS.wingL.wing.area} m² · ${PARTS.wingL.wing.span} m span`] }; });
+  ok('the tray: FPV · 108 km/h, GPS · 58 km/h, 4 motors · 0.36 m, 1.6 kgf · 4.2 g/W, 50 Wh, Radio 2.5 km, FPV 100°, Zoom 12× · thermal, 350 mm, frag',
+    L.fc === 'FPV · 108 km/h' && L.gps === 'GPS · 58 km/h' && L.frame === '4 motors · 0.36 m' && L.motor === '1.6 kgf · 4.2 g/W' && L.batt === '50 Wh' && L.link === 'Radio 2.5 km' && L.cam === 'FPV 100°' && L.gim === 'Zoom 12× · thermal' && L.charge === '350 mm' && L.frag === 'frag', JSON.stringify(L));
+  ok('...the kit: 3 drones ≤ $3,000, Jams 500 m, Hears 2 km, 600 m · airburst, 1 km · laser, slats 50% (the Drone Radar 4 km)',
+    L.dock === '3 drones ≤ $3,000' && L.jam === 'Jams 500 m' && L.det === 'Hears 2 km' && L.gun === '600 m · airburst' && L.laser === '1 km · laser' && L.cage === 'slats 50%' && L.radar === '4 km', JSON.stringify(L));
+  ok('the part panel: Thrust 1.6 kgf · 4.2 g/W · torque 40; Charge 50 Wh; Range 2.5 km · jammable / can’t be jammed / lag 0.25 s; Field 100° · tilted 25° up; Zoom 1-12× · thermal · spots 3 km; Pierces 350 mm · contact fuse · arms 20 m out; Carries 3 drones: up to 3.5 kg, 0.8 m, $3,000 each',
+    L.pMotor.includes('Thrust 1.6 kgf · 4.2 g/W · torque 40') && L.pBatt.includes('Charge 50 Wh') && L.pLink.includes('Range 2.5 km · jammable') && L.pFibre.includes('Range 5 km · can’t be jammed') && L.pSat.includes('Range 50 km · lag 0.25 s')
+    && L.pCam.includes('Field 100° · tilted 25° up') && L.pGim.includes('Zoom 1-12× · thermal · spots 3 km') && L.pCharge.includes('Pierces 350 mm · contact fuse · arms 20 m out') && L.pDock.includes('Carries 3 drones: up to 3.5 kg, 0.8 m, $3,000 each'), JSON.stringify(L));
+  ok('...old parts keep their words', L.old.slice(0, 3).join('|') === L.oldWant.join('|') && !L.old.some((t) => /kgf|Wh|drone/.test(t)), JSON.stringify(L.old));
+  // the scale: a drone's blueprint zooms ten times closer, its grid is 2.5 cm and its free placing 5 mm
+  const S = await ev(() => {
+    if (App.preview3D()) App.setPreview3D(false); // (the grid is the 2D blueprint's)
+    Builder.loadTemplate('bumble'); Builder.fitView(); const fit = Builder.cam.scale;
+    for (let i = 0; i < 40; i++) Builder.zoomAt(1.5, innerWidth / 2, innerHeight / 2); const max = Builder.cam.scale;
+    const free = Builder.snap('drCam', { x: 0.1234, y: 0.5345 }, [], 0); Builder.grid = true; const grid = Builder.snap('drCam', { x: 0.1234, y: 0.5345 }, [], 0); Builder.grid = false; // (in the air above it)
+    Builder.loadTemplate('hopper'); Builder.fitView(); const rocket = Builder.cam.scale; for (let i = 0; i < 40; i++) Builder.zoomAt(1.5, innerWidth / 2, innerHeight / 2);
+    return { fit, max, free: [free.x, free.y], grid: [grid.x, grid.y], rocket, rmax: Builder.cam.scale };
+  });
+  const on = (v, k) => Math.abs(v * k - Math.round(v * k)) < 1e-6;
+  ok('a drone\'s blueprint: fitted ten times closer than a rocket\'s (up to 600 px/m), zooms to 900 (a rocket\'s still 90)', S.fit > 100 && S.fit <= 600 && S.max === 900 && S.rocket <= 60 && S.rmax === 90, JSON.stringify(S));
+  ok('...its grid is 2.5 cm and its free placing 5 mm', S.grid.every((v) => on(v, 40)) && S.free.every((v) => on(v, 200)) && !S.free.every((v) => on(v, 40)), JSON.stringify(S));
+}
+
+// ---- 12. (the big update) a tank's drone bay: where a tap puts it, its panel row and picker, the stats and warnings
+{
+  await stockDrones(page);
+  await ev(() => { store.set('rss.hangar', [{ name: 'Wasp <b>Mk2</b>', kind: 'drone', parts: templateRows(TEMPLATES.bumble).concat([{ type: 'drBattL', x: -0.03, y: -0.2025, rot: 0, flip: false, att: 9 }]) },
+    { name: 'My quad', kind: 'drone', parts: templateRows(TEMPLATES.bumble) }, { name: 'A plane', kind: 'plane', parts: templateRows(TEMPLATES.skylark) }]); Builder.loadTemplate('bmk2'); });
+  await page.locator('#palette-tabs .tab', { hasText: /^Launchers$/ }).tap();
+  const tray = await ev(() => [...document.querySelectorAll('#palette-items > *')].map((e) => (e.classList.contains('tray-group') ? '#' + e.textContent : e.querySelector('.part-name').textContent)));
+  ok('Launchers: the bays last, behind a Drones label', tray.slice(-4).join('|') === '#Drones|Drone Rack|Drone Hangar|Launch Tubes', tray.join('|'));
+  await page.locator('#palette-items .part-item', { has: page.locator('.part-name', { hasText: /^Drone Rack$/ }) }).tap();
+  await frames(page, 2);
+  r = await ev(() => { const p = Builder.selected, h = Builder.parts.find((q) => q.id === p.att), H = partRect(h), T = Builder.parts.find((q) => q.def.place === 'ring');
+    return { type: p.type, att: h.type, onDeck: Math.abs(partRect(p).b - H.t) < 0.01, behind: partRect(p).r <= partRect(T).l + 0.01, z: partZ(p), clash: Builder.parts.some((q) => q !== p && partsClash(p, q)),
+      row: !$('#pi-dock').hidden, btn: $('#btn-dock').textContent, line: $('#s-ground').textContent }; });
+  ok('a Drone Rack tapped: on the hull\'s back deck behind the turret, hung on the hull, clear of everything', r.type === 'dockRack' && r.att === 'hullIFV' && r.onDeck && r.behind && r.z === 0 && !r.clash, JSON.stringify(r));
+  ok('...its panel row: "Carries: Bumble FPV ×3 ▸"; the stats line ends "drones: Bumble FPV ×3"', r.row && r.btn === 'Carries: Bumble FPV ×3 ▸' && /· drones: Bumble FPV ×3$/.test(r.line), JSON.stringify(r));
+  await page.screenshot({ path: SHOTS + 'w3-phone-rack.png' });
+  await page.locator('#btn-dock').tap();
+  await frames(page, 2);
+  r = await ev(() => ({ open: UI.modalOpen, title: $('#modal-card .modal-title').textContent, bold: !!$('#modal-card b'),
+    cards: [...document.querySelectorAll('#modal-card .dock-pick .design')].map((d) => [d.querySelector('.template-name').textContent, d.querySelector('.template-blurb').textContent, (d.querySelector('.dock-ok') || d.querySelector('.dock-why')).textContent, d.querySelector('button').disabled, !!d.querySelector('canvas')]),
+    foot: $('#modal-card .dock-foot').textContent }));
+  const names = r.cards.map((c) => c[0]), stock = await ev(() => Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'drone').map((k) => TEMPLATES[k].name));
+  ok('the picker: the stock drones in order, then the hangar\'s drones (not its plane), each with its picture, weight, width and price', r.open && names.join('|') === [...stock, 'Wasp <b>Mk2</b>', 'My quad'].join('|') && r.cards.every((c) => c[4] && /^\d+\.\d kg · \d\.\d\d m · \$[\d,]+$/.test(c[1])), JSON.stringify(r.cards));
+  const card = (n) => r.cards.find((c) => c[0] === n);
+  ok('...a tick on those that fit; the Mavik dimmed "Too dear: $3,190 of $3,000", the heavy one "Too heavy: …", the Lancett too dear or winged; a name\'s markup shown as text',
+    card('Bumble FPV')[2] === '✓ fits' && !card('Bumble FPV')[3] && card('Mavik Scout')[2] === 'Too dear: $3,190 of $3,000' && card('Mavik Scout')[3] && /^Too heavy: /.test(card('Wasp <b>Mk2</b>')[2]) && /^(Too dear|Takes winged drones only)/.test(card('Lancett')[2]) && card('Lancett')[3] && !r.bold, JSON.stringify(r.cards));
+  ok('...its footer: the rack\'s price covers three drones of up to $3,000 each', /The rack’s price covers three drones of up to \$3,000 each: a cheaper one gives no money back\./.test(r.foot), r.foot);
+  await page.screenshot({ path: SHOTS + 'w3-phone-picker.png' });
+  await page.locator('#modal-card .dock-pick .design-main', { hasText: 'My quad' }).tap();
+  await frames(page, 2);
+  r = await ev(() => ({ open: UI.modalOpen, choice: Builder.droneChoice, ser: Builder.serialize().drone, btn: $('#btn-dock').textContent, line: $('#s-ground').textContent, dirty: Builder.isDirty() }));
+  ok('picking My quad: the bays carry it (droneChoice: its rows), the design carries it, the row says so', !r.open && r.choice && r.choice.name === 'My quad' && r.choice.parts.length === 10 && JSON.stringify(r.ser) === JSON.stringify(r.choice) && r.btn === 'Carries: My quad ×3 ▸' && /drones: My quad ×3$/.test(r.line), JSON.stringify(r));
+  r = await ev(() => { Builder.undo(); const a = Builder.droneChoice; Builder.redo(); return [a, Builder.droneChoice && Builder.droneChoice.name]; });
+  ok('...one undo step', r[0] === null && r[1] === 'My quad', JSON.stringify(r));
+  r = await ev(() => { Builder.droneChoice = { key: 'mavik' }; Builder.changed(); Builder.selected = Builder.parts.find((p) => p.type === 'dockRack'); Builder.renderInfo(); return { warn: $('#s-warn').textContent, btn: $('#btn-dock').textContent }; });
+  ok('a pick the rack can\'t carry (the Mavik): "The Drone Rack can’t carry the Mavik Scout (too dear): it carries the Bumble FPV."', r.warn.includes('The Drone Rack can’t carry the Mavik Scout (too dear): it carries the Bumble FPV.') && r.btn === 'Carries: Bumble FPV ×3 ▸', JSON.stringify(r));
+  r = await ev(() => { Builder.addPart('drCam', -1, 2.5, 0, { att: Builder.parts[0] }); return $('#s-warn').textContent; });
+  ok('a drone part on a tank: "Drone parts only work on a drone: carry one in a Drone Rack, Hangar or Launch Tubes."', r.includes('Drone parts only work on a drone: carry one in a Drone Rack, Hangar or Launch Tubes.'), r);
+  r = await ev(() => { Builder.loadTemplate('bmk2'); const a = Builder.serialize(); Builder.droneChoice = { key: 'bumble' }; Builder.changed(); return [JSON.stringify(a) === JSON.stringify(Builder.serialize()), 'drone' in Builder.serialize()]; });
+  ok('a design without bays never carries a pick: byte-identical', r[0] && !r[1], JSON.stringify(r));
+  // the roof cage: centred over the turret, its bottom on the turret's roof, hung on the turret
+  r = await ev(() => { Builder.loadTemplate('ma1'); Builder.parts = Builder.parts.filter((p) => p.type !== 'mgHeavy'); Builder.changed(); Builder.quickAdd('cdCage');
+    const c = Builder.selected, t = Builder.parts.find((p) => p.id === c.att); return { type: c.type, att: t.type, x: +(c.x - t.x).toFixed(3), z: partZ(c) - partZ(t), gap: +(partRect(c).b - partRect(t).t).toFixed(3), clash: Builder.parts.some((q) => q !== c && partsClash(c, q)) }; });
+  ok('a Roof Cage tapped on the MA-1 (its roof HMG off): over the turret\'s middle, its bottom on the turret roof, hung on the turret', r.type === 'cdCage' && r.att === 'turretWedge' && r.x === 0 && r.z === 0 && r.gap === 0 && !r.clash, JSON.stringify(r));
+  // the hangar: building a drone, the stock drones first
+  r = await ev(() => { Builder.loadTemplate('bumble'); Builder.openHangar(); const h = [...document.querySelectorAll('#modal-card .summary-h')].map((e) => e.textContent); UI.closeModal(); return h; });
+  ok('the hangar, building a drone: Drones first after your designs', r[1] === 'Drones', r.join(' | '));
 }
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
