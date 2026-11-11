@@ -16,7 +16,7 @@ const show = (l) => (l.length ? l.slice(0, 6).join(', ') + (l.length > 6 ? ` (+$
 // ---------------------------------------------------------------- the parts
 const GV = Object.keys(PARTS).filter((k) => PARTS[k].gv);
 const CATS = R('VEHICLE_KINDS.tank.cats'); // the Armour kind's seven tabs
-const FAMILIES = ['WWII', 'Cold War', 'Modern', 'AA'];
+const FAMILIES = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones']; // (Drones: the big update's drone bays and counter-drone kit)
 const PLACES = ['hull', 'roof', 'ring', 'side', 'inside', 'front', 'top', 'flank', 'face', 'skirt'];
 const SHAPES = ['thull', 'tturret', 'tcast', 'tring', 'ttrack', 'twheel', 'tgun', 'tlaunch', 'tradar', 'tkit'];
 const MODULES = ['track', 'wheel', 'engine', 'breech', 'ring', 'radar', 'sight', 'launcher', 'crew', 'ammo', 'fuel', 'troops'];
@@ -24,7 +24,7 @@ const ROLES = ['driver', 'gunner', 'commander', 'loader', 'radio'];
 // real vehicles and weapons appear in code comments only: never in what a player reads
 const REAL = /\b(tiger|panther|sherman|abrams|leopard|gepard|shilka|tunguska|pantsir|hellcat|puma|bradley|marder|javelin|stinger|grad|osa|kornet|konkurs|malyutka|patriot|stug|bofors|oerlikon|flak|kwk|t-?34|t-?72|t-?80|m1a1|m4|m18|bmp|brdm|bm-?21|zsu|9k\d+|strela|igla|tow|hellfire|maverick|katyusha|chieftain|centurion|challenger)\b/i;
 
-t('71 ground parts (PARTS 257 -> 328, and 337 with the big update\'s nine radar parts)', GV.length === 71 && Object.keys(PARTS).length === 337, `${GV.length} of ${Object.keys(PARTS).length}`);
+t('81 ground parts (71, and the big update\'s 3 drone bays and 7 counter-drone parts; PARTS 257 -> 328, 337 with its nine radar parts, 382 with its 35 drone parts and those 10)', GV.length === 81 && Object.keys(PARTS).length === 382, `${GV.length} of ${Object.keys(PARTS).length}`);
 t('each is in one of the seven ground tabs, and every tab has parts', CATS.length === 7 && CATS.every((c) => R('PART_CATEGORIES').some((q) => q.id === c) && GV.some((k) => PARTS[k].cat === c))
   && !bad(GV, (k) => CATS.includes(PARTS[k].cat)).length, show(bad(GV, (k) => CATS.includes(PARTS[k].cat))));
 t('each has a family, a place and a known shape', !bad(GV, (k) => FAMILIES.includes(PARTS[k].family) && PLACES.includes(PARTS[k].place) && SHAPES.includes(PARTS[k].shape)).length,

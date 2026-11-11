@@ -366,7 +366,7 @@ const Gear = {
       }
       // a spinning propeller or rotor that touches the ground shatters
       const air = p.def.air;
-      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (p.rpm || 0) > 8 && !water) nB = gearOnce(_gBrk, nB, p);
+      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (p.rpm || 0) > 8 && !water && !(v.dr && v.dr.guarded.has(p.id) && sp < 6)) nB = gearOnce(_gBrk, nB, p); // (vessel.js's guarded drone motor, kept line for line)
     }
     if (nB && (!bouncy || sideHit)) { const list = _gBrk.slice(0, nB); _gBrk.length = 0; sim.breakParts(v, list, 'impact'); return; }
     if (nD && sim.vessels && !bouncy) for (let j = 0; j < nD; j++) Combat.impact(v, _gDentP[j], _gDentR[j], sim);

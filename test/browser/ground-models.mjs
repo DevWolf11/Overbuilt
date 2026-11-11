@@ -53,7 +53,7 @@ let r = await ev(() => {
   PartPaint.xray = null; PartPaint.armour = false;
   return { n, bad };
 });
-ok('every armour part draws in 2D: as it is, in X-ray, in the armour view, painted', !r.bad.length && r.n === 71 * 4, r.bad.join('; ') || r.n);
+ok('every armour part draws in 2D: as it is, in X-ray, in the armour view, painted', !r.bad.length && r.n === 81 * 4, r.bad.join('; ') || r.n);
 r = await ev((rows) => {
   const ps = partsFromDesign(rows), at = (o) => o.map((p) => p.type).indexOf('engDiesel'), hull = (o) => o.map((p) => p.type).indexOf('hullMedium');
   const a = sideOrder(ps); PartPaint.xray = ps; const b = sideOrder(ps); PartPaint.xray = null;

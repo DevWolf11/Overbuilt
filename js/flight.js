@@ -49,13 +49,22 @@ const Flight = {
     const adj = new Map();
     for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
     const v = new Vessel(ps, adj, EARTH);
-    v.name = design.name || (design.kind === 'tank' ? VEHICLE_KINDS.tank.name : 'Rocket');
+    v.name = design.name || (design.kind === 'tank' || design.kind === 'drone' ? VEHICLE_KINDS[design.kind].name : 'Rocket');
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
     // a new flight of a plane starts in the mode Settings → Planes start in picks: hold, the autopilot, unless another is
     // chosen (level, heading, Off's manual law, or Aim, the mouse aim, in 3D only: else hold)
     if (v.kind === 'plane') { const m = Settings.get('planeStart'); v.sas = m === 'aim' ? (this.aim3D() ? 'aim' : 'hold') : ['level', 'heading', 'manual'].includes(m) ? m : 'hold'; }
+    // (the big update) a drone: no stage to find, its motors on; Level (Settings → Drones start in: Acro for a multirotor);
+    // a winged one with its throttle up for its air start
+    if (v.kind === 'drone') {
+      for (const p of v.parts) if (p.def.thrust) p.active = true;
+      v.stageIdx = v.stages.length;
+      v.sas = !v.aircraft && Settings.get('droneStart') === 'acro' ? 'acro' : 'hold';
+      v.throttle = v.aircraft ? 0.7 : 0;
+    }
+    if (v.docks.length) v.droneChoice = Drone.cleanChoice(design.drone); // (the drone its bays carry: a stock one, or a saved design)
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
@@ -64,14 +73,16 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
-    if (P && P.air) { // an air start: raised over the spot, flying along its nose, gear up
-      const r = v.radius(), up = +P.air.alt || 0, sp = +P.air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
+    const air = P && P.air ? P.air : !P && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad)
+    if (air) { // an air start: raised over the spot, flying along its nose, gear up
+      const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
       v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
       v.vx = f.x * sp; v.vy = f.y * sp; v.vz = f.z * sp;
       v.landed = false;
       if (v.hasRetract) { v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true; }
     }
     if (v.kind === 'heli') v.throttle = 0;
+    if (v.kind === 'drone') v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 }; // (the law's state, drone.js: where it took off, for safe-arm and home)
     this.launchCost = designCost(ps);
     if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
     // a ground vehicle's battlefield props (props.js), laid out now if they aren't yet: part of the launch, not a stall a
@@ -83,7 +94,7 @@ const Flight = {
     if (P && P.air && v.kind === 'plane' && (v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; })) this.stage(); // (an air start comes with its engines running: stage 1, as STAGE would)
     const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
     const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w; // planes lie on their side
-    this.scale = clamp(Math.min((innerHeight * 0.42) / tall, (innerWidth * 0.5) / wide), 1.5, 40);
+    this.scale = clamp(Math.min((innerHeight * 0.42) / tall, (innerWidth * 0.5) / wide), 1.5, v.kind === 'drone' ? DRONE.LAUNCH.SCALE : 40); // (a drone is small: the camera comes closer)
     this.updateDvEstimate();
     this.updateHUD(true);
     if (!this.mp) this.save();
@@ -1924,7 +1935,7 @@ const Flight = {
     if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
     // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
     const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
-    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, 80);
+    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
   },
 
   toggleMap() {

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const NODE = ['fingerprint.js', 'core.test.js', 'physics.test.js', 'flight.test.js', 'combat.test.js', 'mp.test.js', 'net.test.js', 'flutter.test.js', 'traces.js', 'handling.js', 'us4.test.js', 'shapes.test.js', 'rwr.test.js',
-  'driving.js', 'ground.test.js', 'catalogue.test.js', 'armour.test.js', 'aim.test.js', 'duel.test.js', 'gmode.test.js', 'groundai.test.js', 'props.test.js', 'planes.test.js', 'instructor.test.js', 'fx.test.js', 'death.test.js', 'radar.test.js'];
+  'driving.js', 'ground.test.js', 'catalogue.test.js', 'armour.test.js', 'aim.test.js', 'duel.test.js', 'gmode.test.js', 'groundai.test.js', 'props.test.js', 'planes.test.js', 'instructor.test.js', 'fx.test.js', 'death.test.js', 'radar.test.js', 'drones.test.js'];
 const BROWSER = ['browser/builder2d.mjs', 'browser/builder3d.mjs', 'browser/builder-shapes.mjs', 'browser/rwr-hud.mjs', 'browser/redraw.mjs', 'browser/mp-two-tabs.mjs',
   'browser/builder-tank.mjs', 'browser/ground-hud.mjs', 'browser/ground-battle.mjs', 'browser/ground-models.mjs', 'browser/practice-battle.mjs', 'browser/props.mjs', 'browser/plane-aim.mjs', 'browser/controls.mjs',
   'browser/graphics.mjs', 'browser/deaths.mjs', 'browser/radar.mjs'];
