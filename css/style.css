@@ -1364,7 +1364,7 @@ body.drone .stage-box { display: none !important; }
 body.fpv:not(.mapping) #flight-ui :is(.telemetry, #hint) { display: none; }
 body.drone-level .throttle-track::after { content: ''; position: absolute; left: -1px; right: -1px; top: calc(50% - 1px); height: 2px; background: rgba(255, 255, 255, 0.85); pointer-events: none; }
 body.drone-level .throttle-fill { opacity: 0.55; }
-body.drone-level .throttle-label { min-width: 74px; text-align: center; }
+body.drone-level .throttle-label { white-space: pre; text-align: center; font-size: 11px; line-height: 1.15; padding: 2px 4px; }
 body.drone-level .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; font-size: 14px; touch-action: none; }
 body.drone-level .throttle-box :is(#btn-tmax, #btn-tcut).held { background: rgba(255, 181, 71, 0.22); border-color: var(--amber); color: var(--amber); }
 #row-batt.warn dd { color: var(--amber); }

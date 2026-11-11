@@ -75,7 +75,8 @@ const layout = () => {
   return { W: innerWidth, H: innerHeight, osd: P && { status: box(P.s), mode: box(P.m), line: box(P.f) },
     rwr: rb && { l: rb.x - rb.R, r: rb.x + rb.R, t: rb.y - rb.R, b: rb.y + rb.R + (rb.lines === 2 ? 28 : 14) },
     ctl: { top: r('#flight-ui .flight-top-right'), pad: r('#sas-bar'), joy: r('#joy'), zone: r('#joy-zone'), thr: r('#flight-ui .throttle-box'), weap: r('#weapon-box'),
-      alert: r('#flight-alert'), jam: r('#jam-chip'), warp: r('#warp'), keys: r('#key-hints'), roll: r('#flight-ui .roll-btns') } };
+      alert: r('#flight-alert'), jam: r('#jam-chip'), warp: r('#warp'), keys: r('#key-hints'), roll: r('#flight-ui .roll-btns') },
+    lever: { up: r('#btn-tmax'), down: r('#btn-tcut'), label: r('#throttle-label') }, chip: r('#btn-weapon'), fire: r('#btn-fire') };
 };
 const meets = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
 function judge(tag, L) {
@@ -86,6 +87,7 @@ function judge(tag, L) {
     for (const [c, q] of Object.entries(L.ctl)) if (meets(a, q)) clash.push(`${k}/${c}`);
     if (L.rwr && meets(a, L.rwr)) clash.push(`${k}/rwr`);
   }
+  for (const [k, a] of Object.entries(L.lever || {})) for (const [c, q] of [['chip', L.chip], ['fire', L.fire]]) if (meets(a, q)) clash.push(`lever ${k}/${c}`); // (the lever's ▲, ▼ and words clear of the weapon chip and FIRE)
   const o = L.osd || {};
   for (const [x, y] of [['status', 'mode'], ['status', 'line'], ['mode', 'line']]) if (meets(o[x], o[y])) clash.push(`${x}/${y}`);
   ok(`${tag} (${L.W}×${L.H}): the OSD's status, mode and flight line on the screen, clear of the controls, the panels and each other`, !clash.length && !off.length, JSON.stringify({ clash, off, osd: L.osd, ctl: L.ctl }));
@@ -111,7 +113,7 @@ for (const [w, h, touch, ui] of [[360, 640, true], [375, 667, true], [390, 844, 
       agl: v.altitude() - v.groundHeight(), label: document.querySelector('#throttle-label').textContent, tmax: document.querySelector('#btn-tmax').textContent };
   });
   ok(`${tag}a drone starts in FPV (body.fpv, its mesh hidden, the camera's ${100}°), the flight data and the stage box gone, the lever's ▲ ▼ and HOLD`,
-    st.fpv && st.drawn && /\bfpv\b/.test(st.cls) && /\bdrone-level\b/.test(st.cls) && st.cam === 100 && st.hidden === true && st.tele === 'none' && st.stage === 'none' && st.agl > 5 && /^HOLD \d+ m$/.test(st.label) && st.tmax === '▲', st);
+    st.fpv && st.drawn && /\bfpv\b/.test(st.cls) && /\bdrone-level\b/.test(st.cls) && st.cam === 100 && st.hidden === true && st.tele === 'none' && st.stage === 'none' && st.agl > 5 && /^HOLD\n\d+ m$/.test(st.label) && st.tmax === '▲', st);
   const L = await page.evaluate(layout);
   judge(tag + 'FPV', L);
   const calls = await page.evaluate(osdCalls);
@@ -141,7 +143,7 @@ for (const [w, h, touch, ui] of [[360, 640, true], [375, 667, true], [390, 844, 
   const t1 = await page.evaluate(() => Flight.time);
   await page.waitForFunction((t1) => Flight.time > t1 + 2, t1, { timeout: 90000 });
   const rel = await page.evaluate(() => ({ lift: Flight.droneLift, z: Flight.active.ctl.z, vs: Flight.active.vSpeed(), label: document.querySelector('#throttle-label').textContent }));
-  ok('the lever: dragged up it climbs (▲ in the label), let go it springs back to the middle and holds the height (HOLD)', held.lift > 0.8 && held.z > 0.8 && held.vs > 1 && /^▲/.test(held.label) && rel.lift === 0 && rel.z === 0 && Math.abs(rel.vs) < 1 && /^HOLD/.test(rel.label), { held, rel });
+  ok('the lever: dragged up it climbs (▲ in the label), let go it springs back to the middle and holds the height (HOLD)', held.lift > 0.8 && held.z > 0.8 && held.vs > 1 && /^▲ m\/s\n\d/.test(held.label) && rel.lift === 0 && rel.z === 0 && Math.abs(rel.vs) < 1 && /^HOLD/.test(rel.label), { held, rel });
   // the middle (±5 %) holds
   await sim('pointerdown', tr.top + tr.h * 0.52);
   const mid = await page.evaluate(() => Flight.droneLift);

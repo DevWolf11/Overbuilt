@@ -461,13 +461,14 @@ const Drone = (() => {
   }
   // The enemy drones our jammers hold (the combat section counts them: hud.jamN), for the JAM chip
   function jamN(F) { return hud.jamN | 0; }
-  // A Level multirotor's climb lever in words: ▲ climbing at, ▼ descending at, else the height it holds over the ground
+  // A Level multirotor's climb lever in words, on two short lines (the throttle box's column keeps its width): ▲ climbing
+  // at (m/s), ▼ descending at, else the height it holds over the ground
   function leverText(v) {
     const z = (v.ctl && v.ctl.z) || 0, vs = v.vSpeed(), dl = v.dl || {};
     if (v.landed && z <= 0) return 'LANDED';
-    if (z > 0.02) return `▲ ${Math.abs(vs).toFixed(1)} m/s`;
-    if (z < -0.02) return `▼ ${Math.abs(vs).toFixed(1)} m/s`;
-    return `HOLD ${Math.round(dl.hold != null ? dl.hold : 0)} m`;
+    if (z > 0.02) return `▲ m/s\n${Math.abs(vs).toFixed(1)}`;
+    if (z < -0.02) return `▼ m/s\n${Math.abs(vs).toFixed(1)}`;
+    return `HOLD\n${Math.round(dl.hold != null ? dl.hold : 0)} m`;
   }
   // The flight's first hint (the chase view's #hint; FPV hides it): how a drone flies, for its first 15 s alone
   function help(F) {
