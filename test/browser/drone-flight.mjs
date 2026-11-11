@@ -11,6 +11,9 @@
 //    states; the keys' hints, the help and the manual from the bindings (73 rows, the Drones group);
 //  - a gimbal camera (a Mavik Scout): the wheel zooms 1×, 4×, 12× (60°, 15°, 5°), C held and the mouse look round, a tap of
 //    C centres it, J toggles thermal (and opens no chat); the impact view (any key ends it);
+//  - a drone from a tank's bay (a TK-34 with a Drone Rack until the BMK-2D's template comes): U or DRONE launches it, flown
+//    in first person over its parked tank (the OSD's TANK line, the pad's Tank button); back in the tank it holds up there
+//    (▸ DRONE); the tank knocked out under it: a LAST FLIGHT on the alert line and the OSD; U ends it (the tank's strip);
 //  - an old plane's HUD shows none of it (no drone buttons, no drone classes). No console errors.
 // Times on Flight.time (headless Chromium runs the sim at about 0.08× real time). SHOTS=<dir> saves screenshots there
 // (drone-*.png; default test/.cache/shots).
@@ -304,6 +307,65 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   ok(`${tag}a warning receiver's scope is drawn (Combat.S.rwrBox)`, !!L.rwr, L.rwr);
   judge(tag + 'FPV with an RWR', L);
   await shot(page, `rwr-${w}x${h}`);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ 7. a drone from a tank's bay (spec §12): launch, the parked tank, the LAST FLIGHT
+// (a TK-34 with a Drone Rack and the Bumble as its bays' drone, until the BMK-2D's template comes)
+for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
+  const tag = `bay ${w}×${h} `, { ctx, page } = await open([w, h, touch], tag);
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (rows) => {
+    await Render3D.load(); App.toBuild(); Builder.loadTemplate(TEMPLATES.bmk2d ? 'bmk2d' : 'tk34'); store.set('rss.flight', null);
+    const d = Builder.serialize();
+    if (!TEMPLATES.bmk2d) { d.name = 'TK-34 Nest'; d.parts.push({ type: 'dockRack', x: -1.6, y: 1.0, rot: 0, att: 0 }); d.drone = { name: 'Bumble FPV', parts: rows.map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })) }; }
+    App.showScene('flight'); Flight.start(d, { place: GroundMode.soloPlace('tank') });
+  }, ROWS.bumble);
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  const t0 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t0) => Flight.time > t0 + 1.5, t0, { timeout: 120000 });
+  // launch: the DRONE button (touch) or U (desktop)
+  if (touch) await page.tap('#btn-drone'); else await page.keyboard.press('KeyU');
+  const t1 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t1) => Flight.time > t1 + 1.2, t1, { timeout: 120000 });
+  await frames(page, 3);
+  const A = await page.evaluate(() => { const d = Flight.active, C = d.carrier, P = Drone._osd.last;
+    const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
+    return { kind: d.kind, carrier: !!C, parked: !!(C && C.parked && C.brake), fpv: Flight.fpv && document.body.classList.contains('fpv'), left: C && Drone.left(C), tankBtn: r('#sas-bar [data-drone="bay"]'), droneBtn: r('#btn-drone'),
+      osd: !!P, tank: Drone._osd.blocks.st && Drone._osd.blocks.st.key, mesh: Render3D.meshOf && Render3D.meshOf(d) ? Render3D.meshOf(d).visible : null, h: (() => { const U = C.axis(0, 1, 0); return (d.x - C.x) * U.x + (d.y - C.y) * U.y + (d.z - C.z) * U.z; })() }; });
+  ok(`${tag}U / DRONE launches the bay's drone: flown in first person over its parked tank (2 left), the pad's Tank button there, the DRONE button gone, the OSD's TANK line`,
+    A.kind === 'drone' && A.carrier && A.parked && A.fpv && A.left === 2 && (!touch || !!A.tankBtn) && !A.droneBtn && A.osd && /TANK 100% · \d+ m/.test(A.tank || '') && A.h > 3, A);
+  await shot(page, `bay-launch-${w}x${h}`);
+  // back to the tank: the drone holds up there, the DRONE button says it is up
+  await page.evaluate(() => { const d = Flight.active; d.dl.hold = 12; });
+  await page.waitForFunction((t1) => Flight.time > t1 + 3.5, t1, { timeout: 120000 });
+  if (touch) await page.tap('#sas-bar [data-drone="bay"]'); else await page.keyboard.press('KeyU');
+  const t2 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t2) => Flight.time > t2 + 1, t2, { timeout: 120000 });
+  await frames(page, 3);
+  const B = await page.evaluate(() => { const C = Flight.active, d = C.drone, b = document.querySelector('#btn-drone');
+    return { kind: C.kind, up: !!d && !d.dead && Flight.vessels.includes(d), mode: d && d.dl.mode, fpv: Flight.fpv, btn: !b.hidden, text: b.textContent, hints: (document.querySelector('#key-hints-list') || {}).textContent || '', parked: C.parked }; });
+  ok(`${tag}back in the tank (unparked, the chase view): its drone holds up there, the DRONE button reads ▸ DRONE (touch) / the hints Drone (up)`,
+    B.kind === 'tank' && B.up && B.mode === 'hold' && !B.fpv && !B.parked && (touch ? B.btn && /▸ DRONE/.test(B.text) : /Drone \(up\)/.test(B.hints)), B);
+  await shot(page, `bay-parked-${w}x${h}`);
+  // the drone again, then the tank knocked out under it: the LAST FLIGHT
+  if (touch) await page.tap('#btn-drone'); else await page.keyboard.press('KeyU');
+  await page.evaluate(() => { const d = Flight.active; Armour.knockOut(d.carrier, Flight, 'crew'); });
+  const t3 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t3) => Flight.time > t3 + 1.2, t3, { timeout: 120000 });
+  await frames(page, 3);
+  const C = await page.evaluate(() => { const al = document.querySelector('#flight-alert'), b = al.getBoundingClientRect(), d = Flight.active;
+    return { kind: d.kind, lf: !!Flight.carrierDown, alert: al.hidden ? '' : al.textContent, box: { l: b.left, t: b.top, r: b.right, b: b.bottom }, mode: Drone._osd.blocks.m && Drone._osd.blocks.m.key, destroyed: Flight.destroyed }; });
+  ok(`${tag}the tank knocked out under its drone: a LAST FLIGHT ("Your tank is knocked out! Last flight: 19 s" on the alert line, on the screen; LAST FLIGHT 0:1x on the OSD), the drone still flown`,
+    C.kind === 'drone' && C.lf && !C.destroyed && /^Your tank is knocked out! Last flight: (19|20) s$/.test(C.alert) && C.box.l >= 0 && C.box.r <= w && C.box.t >= 0 && /LAST FLIGHT 0:1\d/.test(C.mode || ''), C);
+  await shot(page, `bay-lastflight-${w}x${h}`);
+  // U ends it: the tank's end (the strip)
+  if (touch) await page.tap('#sas-bar [data-drone="bay"]'); else await page.keyboard.press('KeyU');
+  await frames(page, 3);
+  const D = await page.evaluate(() => ({ kind: Flight.active.kind, destroyed: Flight.destroyed, strip: document.querySelector('#flight-alert').textContent, fpv: Flight.fpv }));
+  ok(`${tag}U (the pad's Tank) ends it: back on the tank, knocked out ("Knocked out · …" on the strip)`, D.kind === 'tank' && D.destroyed && /^Knocked out/.test(D.strip) && !D.fpv, D);
+  await shot(page, `bay-end-${w}x${h}`);
   await pageErrors(page, tag);
   await ctx.close();
 }

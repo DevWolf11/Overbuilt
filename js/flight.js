@@ -93,15 +93,21 @@ const Flight = {
     this.resetState([v, ...kept], v, opts && opts.time != null ? opts.time : 0);
     if (P && P.catapult && v.kind === 'plane') this.armCatapult(v, P);
     if (P && P.air && v.kind === 'plane' && (v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; })) this.stage(); // (an air start comes with its engines running: stage 1, as STAGE would)
-    const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
-    const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w; // planes lie on their side
-    this.scale = clamp(Math.min((innerHeight * 0.42) / tall, (innerWidth * 0.5) / wide), 1.5, v.kind === 'drone' ? DRONE.LAUNCH.SCALE : 40); // (a drone is small: the camera comes closer)
+    this.scale = this.naturalScale(v);
     if (v.kind === 'drone') this.setFpv(Settings.get('droneView') !== 'chase', true); // (the big update: a drone starts in the view last picked, FPV by default)
     this.updateDvEstimate();
     this.updateHUD(true);
     if (!this.mp) this.save();
     $('#warp').hidden = !!this.mp;
     Controls.relayout(); // (the custom touch layout, and the stick's place)
+  },
+
+  // The view's scale that frames a craft (planes lie on their side; a drone is small: the camera comes closer)
+  naturalScale(v) {
+    const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
+    const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w;
+    const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600;
+    return clamp(Math.min((H * 0.42) / tall, (W * 0.5) / wide), 1.5, v.kind === 'drone' ? DRONE.LAUNCH.SCALE : 40);
   },
 
   resetState(vessels, active, time) {
@@ -116,6 +122,7 @@ const Flight = {
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
     this.crashedAt = null; // (the big update: when the active craft crashed in one fireball, death.js; the end screen counts from it)
+    this.carrierDown = null; // (the big update's drones: the tank knocked out under its flown drone, its LAST FLIGHT's)
     this.endReset(); // (and the last life's end: its strip, its end screen still waiting)
     this.ended = false;
     this.paused = false;
@@ -191,18 +198,23 @@ const Flight = {
   },
 
   // ------------------------------------------------------------------ save / resume
+  // (the big update) a drone from a bay is never saved: its tank is, with that drone back in its bay (Drone.forSave), and
+  // the tank is the craft flown when the save comes back
   serialize() {
-    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length);
-    return {
+    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length && !v.carrier);
+    const a = this.active && this.active.carrier ? this.active.carrier : this.active;
+    const out = {
       v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
-      active: keep.indexOf(this.active), flags: this.flags, stats: this.stats,
-      target: this.target ? this.target.id : null, scale: this.scale,
+      active: keep.indexOf(a), flags: this.flags, stats: this.stats,
+      target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
     };
+    return keep.some((v) => v.drone) && typeof Drone !== 'undefined' ? Drone.forSave(out, this, keep) : out;
   },
   save() {
     if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length || this.active.dead) return; // (dead: crashed in one piece, death.js)
     if (typeof GroundAI !== 'undefined' && GroundAI.battle) return; // (a Practice Battle's vehicle is lent, and the battle can't be saved: nothing to resume)
+    if (this.carrierDown) return; // (a LAST FLIGHT: the tank is lost, its drone not saved)
     if (this.destroyed && !this.vessels.some((v) => v.control && !v.dead && v !== this.active)) return;
     store.set('rss.flight', this.serialize());
   },
@@ -214,6 +226,7 @@ const Flight = {
     let maxId = 0;
     for (const v of vessels) for (const p of v.parts) maxId = Math.max(maxId, p.id);
     _partSeq = Math.max(_partSeq, maxId + 1);
+    for (const v of vessels) if (v.docks.length && typeof Drone !== 'undefined') v.droneChoice = Drone.cleanChoice(d.design && d.design.drone); // (the drone its bays carry)
     const active = vessels[clamp(d.active, 0, vessels.length - 1)] || vessels[0];
     this.design = d.design;
     this.launchCost = d.launchCost || 0;
@@ -444,12 +457,25 @@ const Flight = {
     this.updateHUD(true);
   },
 
-  switchTo(v) {
+  // force: in a room's battle too (only drone.js passes it, for a tank and its own drone); quiet: no "Controlling" toast.
+  // (the big update) Between a tank and its drone: the craft left behind is a tank parked (its controls let go, braked,
+  // its crew and kit at work) or a drone holding where it is (unless homing or landing); the one taken is unparked, and
+  // each keeps the view's scale it had; a drone is flown in the view last picked for drones.
+  switchTo(v, force, quiet) {
     if (!v || v === this.active || !v.control || v.ai || v.remote) return;
-    if (this.mp && this.mp.mode === 'pvp') return; // one craft, one life
+    if (this.mp && this.mp.mode === 'pvp' && !force) return; // one craft, one life
+    const was = this.active, bay = !!(v.carrier || v.parked || (was && (was.carrier || was.drone))); // (an old craft: never)
+    if (bay && was) {
+      was._scale = this.scale;
+      was.ctl.v = was.ctl.h = was.ctl.r = 0;
+      if (was.kind === 'drone') was.ctl.z = 0;
+      if (was.drone === v) { was.brake = true; was.parked = true; was.throttle = 0; } // (the tank: parked)
+      else if (was.carrier && was.dl) { if (was.dl.mode !== 'home' && was.dl.mode !== 'land') was.dl.mode = 'hold'; was.dl.holdAt = null; } // (the drone: it holds)
+    }
     this.active = v;
     this.destroyed = false;
-    this.setFpv(false, true); this.droneLift = 0; // (the big update: out of a drone's camera)
+    if (bay) { v.parked = false; if (v._scale != null) this.scale = v._scale; }
+    this.setFpv(bay && v.kind === 'drone' && Settings.get('droneView') !== 'chase', true); this.droneLift = 0; // (the big update: out of a drone's camera, or into its own)
     this.syncAwake();
     this.prediction = null;
     MapView.focusVessel();
@@ -457,7 +483,8 @@ const Flight = {
     this.updatePrediction();
     this.updateDvEstimate();
     this.updateHUD(true);
-    this.toast(`Controlling ${v.name}`);
+    if (bay) Controls.relayout(); // (the air and ground HUDs swap)
+    if (!quiet) this.toast(`Controlling ${v.name}`);
   },
 
   // ------------------------------------------------------------------ actions
@@ -561,6 +588,7 @@ const Flight = {
   // end screen (this one's, a room's, the Practice Battle's) waits through afterFall: an aircraft's comes 1.2 s after
   // its crash, at most 10 s after the death; a tap on the strip brings it at once.
   onDestroyed() {
+    if (this.active && this.active.carrier && typeof Drone !== 'undefined' && Drone.lost(this, this.active, 'down')) return; // (a drone from a bay: back to its tank, drone.js)
     if (this.destroyed) return;
     this.destroyed = true;
     const v = this.active;
@@ -578,7 +606,7 @@ const Flight = {
     const ground = !!this._bodyGround; // (as it was: a knocked-out vehicle's HUD goes back to the flight's)
     this.endAfter(Silly.on('ghostCam') ? 5000 : 1600, () => { // leave time to enjoy the view
       if (!this.running || this.ended || !this.destroyed) return;
-      const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
+      const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active && !x.carrier); // (a bay's drone isn't a craft of its own)
       if (!others.length) { this.ended = true; store.set('rss.flight', null); this.syncAwake(); }
       const acts = [
         { label: 'Back to hangar', onClick: () => App.toBuild() },
@@ -770,7 +798,8 @@ const Flight = {
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
+      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies)
   },
 
   recover() {
@@ -1059,7 +1088,9 @@ const Flight = {
   // Who gets the full physics (the rest go on rails while airborne, or sleep): anything within 6 km of the active craft,
   // anything flown in the air, and (the big update) a falling hulk out to 12 km (an aircraft shot down, its pieces: it
   // falls and crashes, instead of vanishing on rails a few km off). d: its distance from the active craft.
-  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar); },
+  // A tank parked while its drone flies is always stepped, however far the drone (its kit, repairs and the AI's targeting
+  // go on: plan I14).
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier); },
 
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
@@ -1814,7 +1845,7 @@ const Flight = {
       else if (K('prevCraft') || K('nextCraft')) this.cycleVessel(K('nextCraft') ? 1 : -1);
       else if (K('weapon')) { Combat.cycle(this, e.shiftKey ? -1 : 1); this.updateHUD(true); }
       else if (K('menu')) this.openMenu();
-      else if (K('recover')) { if (this.canRecover()) this.recover(); }
+      else if (K('recover')) { if (this.canRecover()) this.recover(); else if (this.active && this.active.drone && !this.active.drone.dead && !this.mp) this.toast('Bring the drone home first'); }
       else if (K('camera')) { if (App.use3D()) Render3D.resetCamera(); }
       else if (K('flaps')) this.cycleFlaps();
       else if (K('gear')) this.toggleGear();
@@ -2092,8 +2123,9 @@ const Flight = {
   },
 
   cycleVessel(dir) {
+    if (this.active && this.active.carrier && !this.destroyed && typeof Drone !== 'undefined') { Drone.key(this); return; } // (a bay's drone: back to its tank, or dock)
     if (this.mp && (this.destroyed || this.mp.mode === 'pvp')) return; // (spectating: mpui.js)
-    const list = this.vessels.filter((v) => v.control && !v.dead && !v.ai && !v.remote);
+    const list = this.vessels.filter((v) => v.control && !v.dead && !v.ai && !v.remote && !v.carrier); // (a bay's drone is U's)
     if (list.length < 2) { this.toast('No other vessels to switch to'); return; }
     const i = list.indexOf(this.active);
     this.switchTo(list[(i + dir + list.length) % list.length]);
@@ -2392,7 +2424,9 @@ const Flight = {
         const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
         return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
       };
-      if (st && st.level > 1) { msg = struct(); crit = true; }
+      const dm = v.carrier && typeof Drone !== 'undefined' ? Drone.alertText(this) : null; // (a drone from a bay: its LAST FLIGHT, its tank hit; plan I6)
+      if (dm) { msg = dm; crit = true; }
+      else if (st && st.level > 1) { msg = struct(); crit = true; }
       else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
       else if (st) msg = struct();
       else if (leak) msg = 'Fuel leak';

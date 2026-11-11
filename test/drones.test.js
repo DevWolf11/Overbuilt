@@ -355,6 +355,254 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   v.parts.find((p) => p.type === 'cdRadar').broken = true; v.rebuildGroups();
   return ok && v.cdLow === false; })()`));
 
+// ================================================================ 6 and 9. the link and the bays (a second game, with flight.js: the real switchTo,
+// onDestroyed, serialize, canRecover and stepsNear over a stand-in page)
+{
+  const B = G.load({ combat: true, ground: true, props: true, flight: true }), RB = (c) => G.run(B, c);
+  B.__ROWS = ctx.__ROWS;
+  RB(`var rowsOf = (k) => __ROWS[k].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+  Math.random = mulberry32(4242);
+  var SET = { targets: 'off', droneView: 'fpv', droneStick: 'turn' }, get0 = Settings.get.bind(Settings);
+  Settings.get = (k) => (k in SET ? SET[k] : get0(k));
+  Flight.running = true; // (GroundAI.battle asks the page's Flight)
+  var MapView = { focusVessel() {} }; Controls.relayout = () => {}; Controls.keyHints = () => {};
+  var App = { use3D: () => !App.flat, flat: false, showScene() {}, afterEarth(f) { f(); }, scene: 'flight' };
+  // the stock drones as templates where the catalogue has none yet (the bays' stock drone, a stored choice)
+  for (const k of ['bumble', 'mavik']) if (!TEMPLATES[k]) TEMPLATES[k] = { name: k === 'bumble' ? 'Bumble FPV' : 'Mavik Scout', kind: 'drone', parts: __ROWS[k] };
+  var designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: templateRows(TEMPLATES[key]) });
+  // a TK-34 with a Drone Rack on its engine deck (the BMK-2D's bay; plain rows until its template comes)
+  var nest = () => { const d = designOf('tk34'); d.name = 'Test Nest'; d.parts = d.parts.concat([{ type: 'dockRack', x: -2.1, y: 1.925, rot: 0, flip: false, att: 0 }]); return d; };
+  var NPAD = GroundMode.placement('highland', 0, 0, 'tank');
+  // a vessel from a design, as Flight.start builds it, on the pad (or place)
+  var mk = (design, P) => {
+    const ps = partsFromDesign(design.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map();
+    for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); }
+    const v = new Vessel(parts, adj, EARTH); v.name = design.name; v.kind = design.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups();
+    if (v.docks.length) v.droneChoice = Drone.cleanChoice(design.drone);
+    P = P || NPAD; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), 0, P.z, P.yaw || 0);
+    return v; };
+  var enemy = () => { const o = mk(designOf('ms4'), { e: NPAD.e + 300, z: NPAD.z }); o.ai = { ground: true, team: 1 }; return o; };
+  // Flight over a stand-in page: the real flight.js for what this package changed, the page's own work stubbed
+  var world = () => { const F = Object.create(Flight);
+    Object.assign(F, { time: 0, target: null, log: [], broken: [], vessels: [], active: null, firing: false, mgFiring: false, groundAim: false, warpIdx: 0, mp: null, scale: 12,
+      running: true, destroyed: false, camAbs: { x: 0, y: 0, z: 0 }, launchCost: 0, flags: {}, stats: { maxAlt: 0, maxSpeed: 0, maxG: 0 }, design: null, deaths: 0, ends: 0, carrierDown: null, crashedAt: null,
+      toast(m) { this.log.push(m); }, award(f) { this.flags[f] = true; }, syncAwake() {}, syncSas() {}, updatePrediction() {}, updateDvEstimate() {}, updateHUD() {}, strip() {}, setSight() {}, unlockPointer() {},
+      endAfter() { this.ends++; }, cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); },
+      start(design, opts) {
+        this.design = design;
+        const v = mk(design, opts && opts.place);
+        this.launchCost = designCost(v.parts);
+        this.vessels = [v, ...(opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [])]; this.active = v; this.destroyed = false; this.carrierDown = null;
+        Combat.reset(this); this.running = true;
+        return v;
+      } });
+    const od = F.onDestroyed; F.onDestroyed = function () { if (!(this.active && this.active.carrier)) this.deaths++; return od.call(this); }; // (deaths: the tank's, not a drone's)
+    return F; };
+  // secs of 60 fps frames: two 1/120 s physics steps (a sleeping parked tank is let be, as Flight's), Combat.step, Combat.frame
+  var go = (F, secs, each) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { if (each && each(F, f) === false) return f;
+    for (let i = 0; i < 2; i++) { for (const v of F.vessels.slice()) if (!v.remote && !v.wreck && !v.kin && !v.dead && v.parts.length && !(v !== F.active && v.landed && v.restTime > 2)) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+    Combat.frame(F, 1 / 60); F.cleanup(); } return Math.round(secs * 60); };
+  var up = (o) => { const r = Math.hypot(o.x, o.y, o.z); return { x: o.x / r, y: o.y / r, z: o.z / r }; };
+  var bayOf = (C) => C.docks[0], topOf = (C) => { const p = bayOf(C), R = partRect(p); return C.toWorld((R.l + R.r) / 2, R.t, partZc(p)); };
+  var overTop = (d, C) => { const T = topOf(C), U = up(C); return (d.x - T.x) * U.x + (d.y - T.y) * U.y + (d.z - T.z) * U.z; };
+  var across = (a, b) => { const U = up(b), dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z, k = dx * U.x + dy * U.y + dz * U.z; return Math.hypot(dx - U.x * k, dy - U.y * k, dz - U.z * k); };
+  // move a vessel to h m over the ground d m east of where it is (as if it flew there), still
+  var putAt = (v, de, h) => { const L = Terrain.locate(EARTH, v.x, v.y, v.z, {}), lat = L.z / EARTH.radius, a = L.a - de / (EARTH.radius * Math.cos(lat)), r = EARTH.radius + Terrain.surfaceAt(EARTH, a, L.z) + h;
+    v.x = r * Math.cos(lat) * Math.cos(a); v.y = r * Math.cos(lat) * Math.sin(a); v.z = r * Math.sin(lat); v.vx = v.vy = v.vz = 0; v.landed = false; };
+  // a launched carrier: the Nest on Highland Ridge's north pad, settled, its drone up
+  var launched = (set) => { const F = world(), C = F.start(Object.assign(nest(), set || {})); go(F, 1.5); const ok = Drone.key(F); return { F, C, d: F.active, ok }; };`);
+
+  // ---------------------------------------------------------------- 6. the link
+  RB(`var solo = (k, rows) => { const F = world(), v = F.start({ name: k, kind: 'drone', parts: rows || rowsOf(k) });
+    for (const p of v.parts) if (p.def.thrust) p.active = true; v.stageIdx = v.stages.length; v.sas = 'hold'; v.throttle = 0; v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+    go(F, 3, (F) => { v.ctl.z = F.time < 2 ? 1 : 0; }); return { F, v }; };
+  var at0Of = (v) => { const a = v.dl.at0, r = Math.hypot(a.x, a.y, a.z); return { x: a.x + a.x / r * 2, y: a.y + a.y / r * 2, z: a.z + a.z / r * 2 }; };
+  var ticks = (F, secs) => { for (let i = 0, n = Math.round(secs * 60); i < n; i++) { F.time += 1 / 60; Drone.frame(F, 1 / 60); } };`);
+  RB(`var K1 = (() => { const { F, v } = solo('bumble'); putAt(v, 2700, 40); let lostAt = null; const t0 = F.time; go(F, 3, () => { if (lostAt == null && v.dl.lost) lostAt = F.time - t0; });
+    const o = { lostAt, thr: v.throttle, q: v.dl.q, via: v.dl.via && v.dl.via.kind, said: F.log.filter((m) => /Link/.test(m)) };
+    putAt(v, -2200, 40); v.dl.hold = null; let backAt = null; const t1 = F.time; go(F, 2, () => { if (backAt == null && !v.dl.lost) backAt = F.time - t1; });
+    o.backAt = backAt; o.q2 = v.dl.q; o.said2 = F.log.slice(-1)[0]; o.mode = v.dl.mode; o.sas = v.sas; return o; })();`);
+  const K1 = JSON.parse(RB('JSON.stringify(K1)'));
+  t('6 the radio past its range (a Bumble 2.7 km out on its 2.5 km link): LOST after 0.5 s ("Link lost"); an FPV controller lets it fall (throttle 0)',
+    K1.lostAt != null && K1.lostAt >= 0.45 && K1.lostAt <= 0.85 && K1.thr === 0 && K1.q === 0 && K1.said.includes('Link lost'), K1);
+  t('...back in range: the link is back once over 0.35 for 0.5 s, in Level ("Link back")', K1.backAt != null && K1.backAt >= 0.45 && K1.backAt <= 0.85 && K1.q2 > 0.35 && K1.said2 === 'Link back' && K1.mode === 'pilot' && K1.sas === 'hold', K1);
+  RB(`var K2 = (() => { const rows = rowsOf('mavik').filter((r) => r.type !== 'drLinkL'); const { F, v } = solo('mavik', rows); const a0 = at0Of(v);
+    putAt(v, 1150, 40); let lostAt = null, landedAt = null; go(F, 200, () => { if (lostAt == null && v.dl.lost) lostAt = F.time; if (v.landed && v.speed() < 0.3) { landedAt = F.time; return false; } });
+    return { lostAt: lostAt != null, landedAt, off: across(v, a0), mode: v.dl.mode, said: F.log.filter((m) => /Link/.test(m)) }; })();`);
+  const K2 = JSON.parse(RB('JSON.stringify(K2)'));
+  t('6 a GPS controller (a Mavik on its own 1 km radio, 1.15 km out): LOST, then it flies home by itself and lands within 10 m of where it took off ("Link lost: flying home")',
+    K2.lostAt && K2.landedAt != null && K2.off < 10 && K2.said[0] === 'Link lost: flying home', K2);
+  // a hill between: the station's line to a drone 3 m over the ground behind a ridge (the ground sampled finely here)
+  RB(`var K3 = (() => { const { F, v } = solo('bumble'); const P = at0Of(v), L0 = Terrain.locate(EARTH, v.x, v.y, v.z, {}), lat = L0.z / EARTH.radius;
+    const spot = (de, dn, h) => { const a = L0.a - de / (EARTH.radius * Math.cos(lat)), z = L0.z + dn, la = z / EARTH.radius, r = EARTH.radius + Terrain.surfaceAt(EARTH, a, z) + h; return { x: r * Math.cos(la) * Math.cos(a), y: r * Math.cos(la) * Math.sin(a), z: r * Math.sin(la) }; };
+    const margin = (Q) => { let m = Infinity; for (let i = 1; i < 60; i++) { const f = i / 60, x = P.x + (Q.x - P.x) * f, y = P.y + (Q.y - P.y) * f, z = P.z + (Q.z - P.z) * f, A = Terrain.locate(EARTH, x, y, z, {}); m = Math.min(m, Math.hypot(x, y, z) - EARTH.radius - Terrain.surfaceAt(EARTH, A.a, A.z)); } return m; };
+    let hid = null, open = null;
+    for (let b = 0; b < 72 && (!hid || !open); b++) for (const d of [700, 1000, 1300]) { const de = d * Math.cos(b * Math.PI / 36), dn = d * Math.sin(b * Math.PI / 36), Q = spot(de, dn, 3), m = margin(Q);
+      if (!hid && m < -8) hid = Q; const Q2 = spot(de, dn, 80); if (!open && margin(Q2) > 1.3) open = Q2; }
+    const q = (Q) => { Object.assign(v, Q); v.dl.losAt = null; ticks(F, 0.25); return v.dl.q; };
+    return { found: !!hid && !!open, hid: hid && q(hid), open: open && q(open) }; })();`);
+  const K3 = JSON.parse(RB('JSON.stringify(K3)'));
+  t('6 a hill between the station and the drone: the link ×0.35 (a clear line: 1)', K3.found && Math.abs(K3.hid - 0.35) < 1e-9 && K3.open === 1, K3);
+  // a 500 m jammer on an enemy tank: where each kind of link dies (k: radio 1, long 0.6, sat 0.25, fibre 0; dead inside 0.35 of that)
+  RB(`var jamTank = (ai) => { const d = designOf('ms4'); d.parts = d.parts.concat([{ type: 'cdJam', x: -1.4, y: 1.95, rot: 0, flip: false, att: 0 }]); const o = mk(d, { e: NPAD.e + 80, z: NPAD.z }); if (ai) o.ai = { ground: true, team: 1, ally: false }; return o; };
+  var JAM = (() => { const out = {};
+    const rowsSat = rowsOf('bumble').filter((r) => r.type !== 'drLink').concat([{ type: 'drSat', x: -0.1, y: 0.0725, rot: 0, flip: false, att: 0 }]);
+    const rowsLong = rowsOf('mavik');
+    for (const [k, rows, near, far] of [['radio', rowsOf('bumble'), 165, 470], ['long', rowsLong, 98, 260], ['sat', rowsSat, 40, 115], ['fibre', rowsOf('bumbleF'), 8, 400]]) {
+      for (const [mine, at] of [[false, near], [false, far], [true, near]]) {
+        const F = world(), J = jamTank(!mine), v = Drone.build(rows, k); F.vessels.push(J); F.vessels.push(v); F.active = v;
+        const jp = J.parts.find((p) => p.type === 'cdJam'), Q = J.toWorld(jp.x, jp.y, partZc(jp)), r = Math.hypot(Q.x, Q.y, Q.z);
+        v.x = Q.x + Q.x / r * at; v.y = Q.y + Q.y / r * at; v.z = Q.z + Q.z / r * at; v.landed = false; v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+        ticks(F, 1); out[k + (mine ? ':ours' : '') + ':' + at] = [v.dl.lost, +v.dl.q.toFixed(3), v.dl.jam, v.dl.via && v.dl.via.kind];
+      }
+    }
+    return out; })();`);
+  const JAM = JSON.parse(RB('JSON.stringify(JAM)'));
+  const lostAt = (k, d) => JAM[`${k}:${d}`][0];
+  t('6 a 500 m jammer on an enemy tank: a radio link LOST inside 175 m (not at 470 m), a long-range one inside 105 m (not at 260 m), a satellite one inside 44 m (not at 115 m), fibre never (8 m)',
+    lostAt('radio', 165) && !lostAt('radio', 470) && lostAt('long', 98) && !lostAt('long', 260) && lostAt('sat', 40) && !lostAt('sat', 115) && !lostAt('fibre', 8) && !lostAt('fibre', 400) && JAM['fibre:8'][1] === 1, JAM);
+  t('...our own jammer does nothing to our own drones', ['radio:ours:165', 'long:ours:98', 'sat:ours:40', 'fibre:ours:8'].every((k) => !JAM[k][0] && JAM[k][1] === 1 && !JAM[k][2]), JAM);
+  RB(`var JC = (() => { const F = world(), C = F.start((() => { const d = nest(); d.parts = d.parts.concat([{ type: 'cdJam', x: 1.6, y: 1.95, rot: 0, flip: false, att: 0 }]); return d; })()); go(F, 0.5);
+    const e = Drone.build(rowsOf('bumble'), 'Enemy'), r = C.radius(); e.x = C.x + C.x / r * 300; e.y = C.y + C.y / r * 300; e.z = C.z + C.z / r * 300; e.landed = false; e.ai = { drone: true, ground: false, team: 1, ally: false };
+    e.dl = { t: 0, at0: { x: e.x, y: e.y, z: e.z }, t0: 0 }; F.vessels.push(e); ticks(F, 0.3); const n1 = Drone.jamN(F);
+    e.x = C.x + C.x / r * 600; e.y = C.y + C.y / r * 600; e.z = C.z + C.z / r * 600; ticks(F, 0.3); return { n1, n2: Drone.jamN(F) }; })();`);
+  const JC = JSON.parse(RB('JSON.stringify(JC)'));
+  t('6 the JAM chip\'s count: an enemy drone inside our tank\'s 500 m jammer (1), outside it (0)', JC.n1 === 1 && JC.n2 === 0, JC);
+  RB(`var FB = (() => { const { F, v } = solo('bumbleF'); putAt(v, 5100, 60); ticks(F, 1); const o = { snapped: v.dl.snapped, lost: v.dl.lost, q: v.dl.q, said: F.log.filter((m) => /Fibre/.test(m)) };
+    putAt(v, -4900, 30); v.dl.losAt = null; ticks(F, 3); o.q2 = v.dl.q; o.lost2 = v.dl.lost; return o; })();`);
+  const FB = JSON.parse(RB('JSON.stringify(FB)'));
+  t('6 a fibre spool past its 5 km: snapped for good ("Fibre ran out at 5.0 km"); flown back to 200 m its link stays dead (q 0, LOST)', FB.snapped && FB.lost && FB.q === 0 && FB.said[0] === 'Fibre ran out at 5.0 km' && FB.q2 === 0 && FB.lost2, FB);
+  RB(`var LG = (() => { const { F, v } = solo('bumble'); const c = { v: 0, h: 0, r: 0, z: 0 }; let seen = null;
+    v.dl.q = 0.2; v.dl.via = { kind: 'radio', range: 2500 };
+    for (let i = 0; i < 60; i++) { F.time += 1 / 60; const x = { v: i >= 6 ? 1 : 0, h: 0, r: 0, z: 0 }; Drone.lagged(v, x, F); if (seen == null && x.v === 1) seen = (i - 6) / 60; }
+    const s = { kind: 'sat', range: 50000, lag: 0.25 }; v.dl.q = 1; v.dl.via = s; v.dl.ring = null; let seen2 = null;
+    for (let i = 0; i < 60; i++) { F.time += 1 / 60; const x = { v: i >= 6 ? 1 : 0, h: 0, r: 0, z: 0 }; Drone.lagged(v, x, F); if (seen2 == null && x.v === 1) seen2 = (i - 6) / 60; }
+    v.dl.via = { kind: 'radio', range: 2500 }; const x = { v: 0.5, h: 0, r: 0, z: 0 }; Drone.lagged(v, x, F); return { seen, seen2, none: x.v === 0.5 && v.dl.ring === null }; })();`);
+  const LG = JSON.parse(RB('JSON.stringify(LG)'));
+  t('6 a weak link (q 0.2) brings the stick late by 0.16 s, a satellite link by its 0.25 s; a good radio link at once', LG.seen != null && Math.abs(LG.seen - 0.16) <= 0.05 && LG.seen2 != null && Math.abs(LG.seen2 - 0.25) <= 0.05 && LG.none, LG);
+
+  // ---------------------------------------------------------------- 9. the bay
+  RB(`var L1 = (() => { const F = world(), C = F.start(nest()); go(F, 1.5); C.ctl.v = 1; const c0 = { x: C.x, y: C.y, z: C.z }, n0 = Drone.left(C);
+    const ok = Drone.key(F), d = F.active; let h1 = null; go(F, 1, () => { h1 = overTop(d, C); });
+    const o = { ok, n0, n1: Drone.left(C), docked: bayOf(C).docked, active: F.active === d && d.kind === 'drone' && d.carrier === C && C.drone === d, fpv: F.fpv, h1,
+      park: C.parked === true && C.brake === true && C.ctl.v === 0 && C.ctl.h === 0 && C.ctl.r === 0 && C.throttle === 0, lid: bayOf(C).deployed, toast: F.log.slice(-1)[0], scale: F.scale, cs: C._scale };
+    go(F, 10); o.moved = Math.hypot(C.x - c0.x, C.y - c0.y, C.z - c0.z); o.lid2 = bayOf(C).deployed; o.drone = Combat.S.dr; o.hover = overTop(d, C);
+    return o; })();`);
+  const L1 = JSON.parse(RB('JSON.stringify(L1)'));
+  t('9 launch from a parked Nest (U): 3 drones → 2, a drone 4-6 m over the deck within 1 s, flown in first person; the lid up', L1.ok && L1.n0 === 3 && L1.n1 === 2 && L1.docked === 2 && L1.active && L1.fpv === true && L1.h1 >= 4 && L1.h1 <= 6 && L1.lid === 1 && L1.lid2 === 0, L1);
+  t('...the tank parks (braked, its controls let go): with W held at the launch it moves under 0.1 m in 10 s; "Drone up: U back to the tank · H view"', L1.park && L1.moved < 0.1 && /^Drone up: U back to the tank · H view$/.test(L1.toast), [L1.moved, L1.toast]);
+  t('...the camera comes in for the drone (the tank\'s scale kept for the way back)', L1.scale > 12 && L1.cs === 12, [L1.scale, L1.cs]);
+  RB(`var S2 = (() => { const { F, C, d } = launched(); go(F, 1); putAt(d, 25, 12); d.dl.hold = null; go(F, 3); const h0 = overTop(d, C), a0 = across(d, C);
+    const k1 = Drone.key(F), inTank = F.active === C && !C.parked, fpv1 = F.fpv, sc1 = F.scale, mode1 = d.dl.mode; go(F, 5);
+    const h1 = overTop(d, C), a1 = across(d, C), k2 = Drone.key(F), back = F.active === d && d.dl.mode === 'pilot' && C.parked;
+    return { k1, inTank, fpv1, sc1, mode1, dh: h1 - h0, da: a1 - a0, k2, back, log: F.log.slice(-3) }; })();`);
+  const S2 = JSON.parse(RB('JSON.stringify(S2)'));
+  t('9 U from the drone: back in the tank (unparked, chase view, its own scale); the drone holds (±1 m over 5 s); U again: the drone', S2.k1 && S2.inTank && S2.fpv1 === false && S2.sc1 === 12 && S2.mode1 === 'hold'
+    && Math.abs(S2.dh) <= 1 && Math.abs(S2.da) <= 1 && S2.k2 && S2.back, S2);
+  RB(`var D3 = (() => { const { F, C, d } = launched(); go(F, 1); putAt(d, 300, 25); d.dl.hold = null; go(F, 0.5);
+    Drone.home(F, d); let t = null; go(F, 45, () => { if (t == null && !F.vessels.includes(d)) { t = F.time; return false; } });
+    return { t: t == null ? null : t - 1.5 - 1.5 - 0.5, docked: bayOf(C).docked, left: Drone.left(C), active: F.active === C, dead: d.dead, cdr: C.drone ? C.drone.name : null, log: F.log.slice(-2) }; })();`);
+  const D3 = JSON.parse(RB('JSON.stringify(D3)'));
+  t('9 Home (3) from 300 m: it climbs, flies back, lets down over the bay and docks within 40 s; 3 left again; control back in the tank; "Bumble FPV docked · ×3"',
+    D3.t != null && D3.t <= 40 && D3.docked === 3 && D3.left === 3 && D3.active && D3.dead && D3.cdr == null && D3.log.includes('Bumble FPV docked · ×3'), D3);
+  RB(`var D4 = (() => { const { F, C, d } = launched(); go(F, 2); const n = Drone.left(C), k = Drone.key(F); return { n, k, after: Drone.left(C), active: F.active === C, gone: !F.vessels.includes(d) }; })();
+  var D4b = (() => { const { F, C, d } = launched(); go(F, 1); putAt(d, 20, 15); go(F, 1); const k = Drone.key(F); return { k, inTank: F.active === C, still: F.vessels.includes(d) && !d.dead, n: Drone.left(C) }; })();`);
+  const D4 = JSON.parse(RB('JSON.stringify(D4)')), D4b = JSON.parse(RB('JSON.stringify(D4b)'));
+  t('9 U within 3 m of its bay docks at once (2 → 3); 20 m off, U goes back to the tank and the drone stays up', D4.k && D4.n === 2 && D4.after === 3 && D4.active && D4.gone && D4b.k && D4b.inTank && D4b.still && D4b.n === 2, { D4, D4b });
+  // losing it
+  RB(`var X1 = (() => { const { F, C, d } = launched(); go(F, 2); const foe = enemy(); const fc = d.dr.fcPart; Combat.damage(d, fc, 1e6, 'shot', F, foe);
+    const o = { active: F.active === C, destroyed: F.destroyed, deaths: F.deaths, ends: F.ends, cdr: C.drone ? C.drone.name : null, hulk: d.hulk != null, toast: F.log.slice(-1)[0], fpv: F.fpv, sc: F.scale };
+    go(F, 6); o.ends2 = F.ends; o.still = F.active === C && !F.destroyed; o.left = Drone.left(C); return o; })();`);
+  const X1 = JSON.parse(RB('JSON.stringify(X1)'));
+  t('9 the flown drone shot down (its controller knocked out): control is back in the tank in the same frame, no end screen, not destroyed; "Drone lost: back in the Test Nest"; its bay doesn\'t get it back',
+    X1.active && !X1.destroyed && X1.ends === 0 && X1.ends2 === 0 && X1.still && X1.cdr == null && X1.hulk && X1.toast === 'Drone lost: back in the Test Nest' && X1.fpv === false && X1.sc === 12 && X1.left === 2, X1);
+  RB(`var X2 = (() => { const { F, C, d } = launched(); go(F, 2); for (const p of d.dr.cells) p.fuel = 0; go(F, 0.2);
+    const o = { active: F.active === C, destroyed: F.destroyed, ends: F.ends, cdr: C.drone ? C.drone.name : null, log: F.log.slice(-3) }; go(F, 30); o.gone = d.dead || !F.vessels.includes(d); return o; })();`);
+  const X2 = JSON.parse(RB('JSON.stringify(X2)'));
+  t('9 the battery flat: the same (control back at once, "Battery flat: back in the Test Nest"); the drone falls, and is gone 3 s after it lands', X2.active && !X2.destroyed && X2.ends === 0 && X2.cdr == null && X2.log.includes('Battery flat: back in the Test Nest') && X2.gone, X2);
+  RB(`var X3 = (() => { const { F, C, d } = launched(); go(F, 2); putAt(d, 3000, 400); let lostAt = null, back = null;
+    go(F, 8, () => { if (lostAt == null && d.dl.lost) lostAt = F.time; if (back == null && F.active === C) back = F.time; });
+    return { lostAt: lostAt != null, after: back != null && lostAt != null ? back - lostAt : null, cdr: C.drone === d, log: F.log.filter((m) => /link/i.test(m)), fall: d.throttle }; })();`);
+  const X3 = JSON.parse(RB('JSON.stringify(X3)'));
+  t('9 the link lost 5 s (3 km out on a 2.5 km radio): handed back to the tank ("Lost the drone\'s link: back in the Test Nest"); the drone stays the tank\'s (an FPV controller lets it fall)',
+    X3.lostAt && X3.after != null && X3.after >= 4.9 && X3.after <= 5.5 && X3.cdr && X3.log.includes('Lost the drone\'s link: back in the Test Nest') && X3.fall === 0, X3);
+  // LAST FLIGHT
+  RB(`var LF = (() => { const F = world(); GroundAI.startBattle(F, { money: 120000, design: nest(), seed: 3 }); const C = F.active; go(F, 1.5); Drone.key(F); const d = F.active; go(F, 1);
+    const B = GroundAI.battle, tk0 = B.obj.tk[B.team], lost0 = B.lost; Armour.knockOut(C, F, 'crew'); go(F, 0.1);
+    const o = { lf: F.carrierDown === C, active: F.active === d, tk: tk0 - B.obj.tk[B.team], lost: B.lost - lost0, booked: B.booked === C, wreck: !!C.wreck, deaths0: F.deaths, end: d.dl.lastEnd - F.time,
+      alert: Drone.alertText(F) };
+    go(F, 19.5); o.mid = F.active === d && F.carrierDown === C && F.deaths === 0; go(F, 1);
+    o.after = F.active === C; o.deaths = F.deaths; o.destroyed = F.destroyed; o.tk2 = tk0 - B.obj.tk[B.team]; o.booked2 = B.booked; o.ends = F.ends; return o; })();`);
+  const LF = JSON.parse(RB('JSON.stringify(LF)'));
+  t('9 the Nest knocked out under its flown drone (a Practice Battle): a LAST FLIGHT of 20 s, the tickets and the wreck booked at once, "Your tank is knocked out! Last flight: 20 s"',
+    LF.lf && LF.active && LF.tk > 0 && LF.lost === 1 && LF.booked && LF.wreck && LF.deaths0 === 0 && Math.abs(LF.end - 19.9) < 0.15 && LF.alert === 'Your tank is knocked out! Last flight: 20 s', LF);
+  t('...then the tank\'s end, exactly once (onDestroyed: the tickets not taken again, the booking used)', LF.mid && LF.after && LF.deaths === 1 && LF.destroyed && LF.tk2 === LF.tk && LF.booked2 == null, LF);
+  RB(`var LU = (() => { const { F, C, d } = launched(); go(F, 1); Armour.knockOut(C, F, 'crew'); go(F, 0.2); const lf = F.carrierDown === C; const k = Drone.key(F);
+    return { lf, k, active: F.active === C, deaths: F.deaths, destroyed: F.destroyed, ends: F.ends }; })();`);
+  const LU = JSON.parse(RB('JSON.stringify(LU)'));
+  t('...U ends it early: the tank\'s death at once (solo: the end screen\'s timer)', LU.lf && LU.k && LU.active && LU.deaths === 1 && LU.destroyed && LU.ends === 1, LU);
+  RB(`var LD = (() => { const { F, C, d } = launched(); go(F, 1); Armour.knockOut(C, F, 'crew'); go(F, 0.2); const foe = enemy();
+    Combat.damage(d, d.dr.fcPart, 1e6, 'shot', F, foe); return { active: F.active === C, deaths: F.deaths, destroyed: F.destroyed, ends: F.ends, said: F.log.filter((m) => /Drone lost/.test(m)).length }; })();`);
+  const LD = JSON.parse(RB('JSON.stringify(LD)'));
+  t('...the drone shot down in its LAST FLIGHT ends it too (the tank\'s death once, no "Drone lost")', LD.active && LD.deaths === 1 && LD.destroyed && LD.ends === 1 && LD.said === 0, LD);
+  // refusals
+  RB(`var RF = (() => { const out = {}, F = world(), C = F.start(nest()); go(F, 1.5); const try1 = (k, f, undo) => { f(); const n = F.vessels.length, ok = Drone.launch(F, C); out[k] = [ok, F.vessels.length - n, F.log.slice(-1)[0], Drone.left(C)]; undo(); };
+    const v0 = { x: C.vx, y: C.vy, z: C.vz }, f = C.axis(1, 0, 0);
+    try1('moving', () => { C.vx += f.x * 4; C.vy += f.y * 4; C.vz += f.z * 4; }, () => { C.vx = v0.x; C.vy = v0.y; C.vz = v0.z; });
+    try1('empty', () => { bayOf(C).docked = 0; }, () => { bayOf(C).docked = null; });
+    try1('broken', () => { bayOf(C).broken = true; }, () => { bayOf(C).broken = undefined; });
+    try1('flat', () => { App.flat = true; }, () => { App.flat = false; });
+    try1('room', () => { F.mp = { mode: 'sandbox' }; this.MP = { extra: new Map([[1, { v: { dead: false } }]]) }; }, () => { F.mp = null; delete this.MP; });
+    try1('water', () => { C.splashed = true; }, () => { C.splashed = false; });
+    return out; })();`);
+  const RF = JSON.parse(RB('JSON.stringify(RF)'));
+  const no = (k, msg) => RF[k] && RF[k][0] === false && RF[k][1] === 0 && RF[k][2] === msg && RF[k][3] === (k === 'empty' ? 0 : 3);
+  t('9 launches refused, each saying why and changing nothing: moving 4 m/s, the rack empty, broken, the 2D view, a drone already up in a room, in the water',
+    no('moving', 'Stop to launch') && no('empty', 'The rack is empty') && no('broken', 'The rack is broken: wait for the crew') && no('flat', 'Drones need the 3D view') && no('room', 'One drone at a time in a room') && no('water', 'Not in the water'), RF);
+  // a save with the drone up
+  RB(`var SV = (() => { const { F, C, d } = launched(); go(F, 2); const data = JSON.parse(JSON.stringify(F.serialize()));
+    const back = data.vessels.map((x) => Vessel.restore(x)), T = back[data.active], bay = T && T.docks[0];
+    const live = { docked: bayOf(C).docked };
+    const F2 = world(); F2.resetState = function (vs, a, t) { this.vessels = vs; this.active = a; this.time = t; }; this.$ = () => ({ hidden: false }); let ok = true;
+    try { F2.restore(data); } catch (e) { ok = String(e); } delete this.$;
+    return { n: data.vessels.length, kinds: data.vessels.map((x) => x.kind), active: data.active, docked: bay && bay.docked, left: T && Drone.left(T), live, rescale: data.scale, ok, a2: F2.active && F2.active.kind, ch: F2.active && F2.active.droneChoice }; })();`);
+  const SV = JSON.parse(RB('JSON.stringify(SV)'));
+  t('9 a save with the drone up: the tank alone, the craft flown, its bay full again (3) in the save and still 2 aboard; it restores with the tank active', SV.n === 1 && SV.kinds[0] === 'tank' && SV.active === 0 && SV.docked === 3 && SV.left === 3 && SV.live.docked === 2 && SV.rescale === 12 && SV.ok === true && SV.a2 === 'tank' && SV.ch == null, SV);
+  // a stored choice that doesn't fit
+  RB(`var CH = (() => { const F = world(), d0 = nest(); d0.drone = { key: 'mavik' }; const C = F.start(d0); go(F, 1.5); Drone.key(F); const a = F.active; const l1 = F.log.slice(-2);
+    Drone.key(F); go(F, 0.5); Drone.key(F); go(F, 0.1); return { name: a.name, said: l1, again: F.log.filter((m) => /doesn't fit/.test(m)).length, choice: C.droneChoice }; })();`);
+  const CH = JSON.parse(RB('JSON.stringify(CH)'));
+  t('9 a stored drone that doesn\'t fit the rack (the Mavik Scout, $3,190 of $3,000): the rack\'s stock Bumble FPV goes up, said once', CH.name === 'Bumble FPV' && CH.said.includes('The Mavik Scout doesn\'t fit a Drone Rack: launching a Bumble FPV') && CH.again === 1, CH);
+  // the rest of flight.js's share
+  RB(`var FL = (() => { const { F, C, d } = launched(); go(F, 1);
+    const rec = Flight.canRecover.call(F), near = Flight.stepsNear.call(F, C, 9000), farOld = Flight.stepsNear.call(F, mk(designOf('tk34')), 9000);
+    F.switchTo(C, true, true); go(F, 3); const rec2 = Flight.canRecover.call(F);
+    const cyc = (() => { const n = F.vessels.filter((v) => v.control && !v.dead && !v.ai && !v.remote && !v.carrier).length; return n; })();
+    F.switchTo(d, true, true); Flight.cycleVessel.call(F, 1); const cy = F.active === C;
+    return { rec, near, farOld, rec2, cyc, cy, by: Combat.byMe(d, F), byOld: Combat.byMe({}, F) }; })();`);
+  const FL = JSON.parse(RB('JSON.stringify(FL)'));
+  t('9 a tank can\'t be recovered with its drone up (nor the drone); a parked tank 9 km from its flown drone is still stepped (plan I14), an old one isn\'t; from the drone, Tab is U',
+    FL.rec === false && FL.rec2 === false && FL.near === true && FL.farOld === false && FL.cyc === 1 && FL.cy, FL);
+  t('...kill credit through the drone: Combat.byMe(drone) while the tank is flown (plan I3), not for a craft with no carrier', FL.by === true && FL.byOld === false, FL);
+  RB(`var AL = (() => { const { F, C, d } = launched(); go(F, 1); const foe = enemy();
+    const hull = C.parts.find((p) => p.def.control); Combat.damage(C, hull, 1, 'shot', F, foe); const a = Drone.alertText(F), h = Drone.hud.hitAt; go(F, 3.2); const b = Drone.alertText(F); return { a, h, b }; })();`);
+  const AL = JSON.parse(RB('JSON.stringify(AL)'));
+  t('9 the parked tank hit while its drone flies: "YOUR TANK IS HIT · U: back" on the alert line for 3 s', AL.a === 'YOUR TANK IS HIT · U: back' && AL.b == null, AL);
+  // plan I13: who removes a drone. A live one nobody has any more (its link lost, landed) is the bays' clean-up (Drone.frame);
+  // a hulk is death.js's alone (Drone.frame never touches it), and its tank hears of it
+  RB(`var I13 = (() => { const { F, C, d } = launched(); go(F, 1); F.switchTo(C, true, true); go(F, 0.5);
+    const hulk = mk(designOf('tk34')); // (stand-ins: a landed drone, lost, nobody's; and the same as a hulk)
+    const live = Drone.build(rowsOf('bumble'), 'Live'), dead = Drone.build(rowsOf('bumble'), 'Hulk');
+    for (const v of [live, dead]) { v.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e + 50), 0, NPAD.z); v.landed = true; v.dl = { t: 0, at0: { x: v.x * 1.01, y: v.y * 1.01, z: v.z }, t0: 0, lost: true, lostT: 1, mode: 'pilot' }; F.vessels.push(v); }
+    dead.hulk = 0; dead.down = true;
+    let goneAt = null; for (let i = 0; i < 300; i++) { F.time += 1 / 60; Drone.frame(F, 1 / 60); if (goneAt == null && live.dead) goneAt = i / 60; }
+    d.hulk = 0; d.down = true; Drone.frame(F, 1 / 60);
+    return { goneAt, hulk: !dead.dead, cdr: C.drone ? C.drone.name : null, log: F.log.slice(-1)[0] }; })();`);
+  const I13 = JSON.parse(RB('JSON.stringify(I13)'));
+  t('I13 a live drone nobody has, its link lost and landed, is gone after 3 s (Drone.frame); a hulk never by Drone.frame; a tank whose unflown drone is shot down hears "The Bumble FPV was shot down"',
+    I13.goneAt != null && I13.goneAt >= 2.9 && I13.goneAt <= 3.2 && I13.hulk && I13.cdr == null && I13.log === 'The Bumble FPV was shot down', I13);
+}
+
 // ================================================================ 12. the contract: drones fly with no call into the ground update's systems
 {
   const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props'];

@@ -115,6 +115,7 @@ const Drone = (() => {
     const nx = ey * uz - ez * uy, ny = ez * ux - ex * uz, nz = ex * uy - ey * ux;
     o = o || {};
     o.vf = hx * fx + hy * fy + hz * fz; o.vr = hx * rx + hy * ry + hz * rz; o.vz = vu; o.hx = hx; o.hy = hy; o.hz = hz;
+    o.fx = fx; o.fy = fy; o.fz = fz; o.rx = rx; o.ry = ry; o.rz = rz; // (the frame's own axes: the bays' Home steers in it)
     o.head = Math.atan2(fx * ex + fy * ey + fz * ez, -(fx * nx + fy * ny + fz * nz));
     return o;
   }
@@ -162,10 +163,11 @@ const Drone = (() => {
 
   // The autopilots' targets in the heading frame ({ vf, vr, vz, yawTo }; vz null: hold the height). Hold: hover where it
   // is. Land: down at LAND m/s near the ground (3 m/s higher up, or AUTO_V for the 5 % auto-land), holding its place.
-  // Home: the bays' (a stand-in until then: it holds).
+  // Home: the bays' steering (homeSteer: to its dock, or where it took off; a winged drone circles its carrier).
+  // Unattended (hold): a multirotor hovers, a winged drone circles where it was left (the bays' circleSteer).
   const holdAuto = (S) => ({ vf: 0, vr: 0, vz: null, yawTo: S.head });
   const landAuto = (S, agl, v0) => ({ vf: 0, vr: 0, vz: agl < DRONE.LANDH ? -DRONE.LAND : -(v0 || 3), yawTo: S.head, land: true });
-  function homeAuto(v, dl, S, sim) { return holdAuto(S); } // (the bays' Home steering fills this)
+  function homeAuto(v, dl, S, sim) { return homeSteer(v, dl, S, sim); }
 
   // Before applyEngines, every physics step (Vessel.physicsStep, kind 'drone', not debris): the overrides (a launch's hop,
   // a lost link's failsafe, Home/Land/unattended, the AI, a spin-out, the 5 % auto-land), then the throttle: the pilot's
@@ -178,7 +180,10 @@ const Drone = (() => {
     dl.auto = null; dl.spin = false;
     battery(v, dl, sim);
     // 1. overrides (each zeroes the stick, so a key held at a switch never flies the drone off)
-    if (dl.hop > 0) { dl.hop -= dt; dl.auto = { vf: 0, vr: 0, vz: 4, yawTo: S.head }; zero(c); }
+    if (dl.hop > 0) { // (a bay's hop: up off the deck to LAUNCH.HOP m over it, quick, then held there)
+      dl.hop -= dt; zero(c);
+      dl.auto = { vf: 0, vr: 0, vz: dl.hopAlt != null ? clamp((dl.hopAlt - alt) * 4, -DRONE.VHOLD, F.vz + 2) : 4, yawTo: S.head, hop: true };
+    }
     else if (dl.lost) {
       zero(c);
       if (F.fs === 'drop') { v.throttle = 0; return; } // (an FPV controller lets it fall)
@@ -186,7 +191,7 @@ const Drone = (() => {
     } else if (dl.mode === 'home' || dl.mode === 'land' || dl.mode === 'hold') {
       zero(c);
       const agl = alt - groundUnder(v, dl, S);
-      dl.auto = dl.mode === 'home' ? homeAuto(v, dl, S, sim) : dl.mode === 'land' ? landAuto(S, agl) : holdAuto(S);
+      dl.auto = dl.mode === 'home' ? homeAuto(v, dl, S, sim) : dl.mode === 'land' ? landAuto(S, agl) : dr.wing ? circleSteer(v, dl, S) : holdAuto(S);
     } else if (v.ai && v.ai.drone) { zero(c); dl.auto = api.aiSteer(v, sim, dt) || holdAuto(S); }
     // a multirotor short of motors spins and sinks (the stick still works: control first)
     const alive = dr.rotors.length;
@@ -209,6 +214,7 @@ const Drone = (() => {
     const A = dl.auto, down = dl.hold != null && dl.hold < DRONE.FLOOR; // (down: it set down, and nothing has lifted it since)
     if ((v.landed || down) && ((z <= 0 && !stick && !A) || (v.landed && A && A.land))) { v.throttle = 0; if (v.landed) dl.hold = agl; return; } // (it sits; the props idle)
     if (z || dl.hold == null || (A && A.vz != null) || (stick && down)) dl.hold = Math.max(agl, DRONE.FLOOR); // (the stick on the ground: up to FLOOR, then away)
+    if (A && A.hop && dl.hopAlt != null) dl.hold = Math.max(dl.hold, dl.hopAlt - (alt - agl)); // (after the hop: held at the hop's height)
     let vzT;
     if (A && A.vz != null) vzT = A.vz;
     else if (z > 0) vzT = z * F.vz;
@@ -574,7 +580,7 @@ const Drone = (() => {
     const C = v.carrier;
     if (C) {
       const hp = C.dead ? 0 : Math.round((typeof Combat !== 'undefined' ? Combat.integrity(C) : 1) * 100), d = Math.hypot(v.x - C.x, v.y - C.y, v.z - C.z);
-      st.push([`TANK ${hp}% · ${km(d)}`, F.time - hud.hitAt < 3 || F.carrierDown ? RED : WHITE]);
+      st.push([`TANK ${C.dead || C.ko || C.wreck ? 'KO' : `${hp}%`} · ${km(d)}`, F.time - hud.hitAt < 3 || F.carrierDown ? RED : WHITE]); // (knocked out: its LAST FLIGHT)
     }
     const last = F.carrierDown && Number.isFinite(dl.lastEnd) ? `LAST FLIGHT ${clock(dl.lastEnd - F.time)}` : null;
     const mode = dl.lost ? 'LINK LOST' : last || (dl.mode === 'home' ? 'HOME' : dl.mode === 'land' || dl.autoLand ? 'LAND' : v.sas === 'acro' ? 'ACRO' : 'LEVEL');
@@ -722,26 +728,516 @@ const Drone = (() => {
     return true;
   }
   function drawMarks(ctx, W, H, dpr, F) {}
-  function alarm(F) {}
+  // The carrier hit while its drone flies (Combat.damage's one line, a parked carrier; a room's hit message): the screen's
+  // edge flashes red (#sight-vig.alarm, 0.6 s), a buzz, two low beeps, and for 3 s the alert line (alertText) and the
+  // OSD's TANK line in red. Once every half second at most.
+  function alarm(F) {
+    if (!F) return;
+    const t = Number.isFinite(F.time) ? F.time : 0;
+    if (t >= hud.hitAt && t - hud.hitAt < 0.5) return;
+    hud.hitAt = t;
+    const later = typeof setTimeout === 'function';
+    if (typeof document !== 'undefined' && document.getElementById) {
+      const e = document.getElementById('sight-vig');
+      if (e) { e.classList.add('alarm'); if (later) { clearTimeout(hud.vigT); hud.vigT = setTimeout(() => e.classList.remove('alarm'), 600); } }
+    }
+    if (typeof haptic === 'function') haptic([80, 40, 80]);
+    beep(520); if (later) setTimeout(() => beep(520), 160);
+    if (F.updateHUD) F.updateHUD(true);
+  }
+  // What the alert line (#flight-alert) says first while a drone from a bay is flown (Flight.updateHUD, plan I6): the
+  // LAST FLIGHT's count, else the tank hit (3 s); null: the other warnings have it
+  function alertText(F) {
+    const A = F && F.active;
+    if (!A || !A.carrier || F.destroyed) return null;
+    const t = F.time || 0;
+    if (F.carrierDown && A.dl && Number.isFinite(A.dl.lastEnd)) return `Your tank is knocked out! Last flight: ${Math.max(0, Math.ceil(A.dl.lastEnd - t))} s`;
+    if (t >= hud.hitAt && t - hud.hitAt < 3) return `YOUR TANK IS HIT · ${typeof Controls !== 'undefined' && Controls.touch ? 'tap Tank' : `${keyName('drone')}: back`}`;
+    return null;
+  }
 
   // ================================================================ bays (the key, launch, back, Home, Land, docking, a
   // lost drone, LAST FLIGHT, saves)
-  function key(F) { return false; }
-  function launch(F, C) { return false; }
-  function back(F) { return false; }
-  function home(F, v) { return false; }
-  function land(F, v) { return false; }
-  function lost(F, v, why) { return false; }
-  function lastFlight(F, C) {}
-  function endLastFlight(F) {}
-  function forSave(data, F) { return data; }
+  // A tank's bays (def.dock: a Drone Rack, a Drone Hangar, Launch Tubes) carry drones it launches and flies (U), parked
+  // meanwhile with its crew still at work. A drone from a bay is a vessel of its own in F.vessels (v.carrier: its tank,
+  // v.bay: its dock part; C.drone: the one it has up); it docks again (Home, or U over the bay), is lost (shot down, its
+  // battery flat: control goes back to the tank at once), or flies a LAST FLIGHT of 20 s when the tank is knocked out
+  // under it. A bay drone is never saved: a save puts it back in its bay.
+  const DOCK_ORDER = ['dockRack', 'dockHangar', 'dockTubes'];
+  const keyName = (id) => (typeof Keys !== 'undefined' && Keys.k ? Keys.k(id) : id);
+  const left1 = (p) => (p.docked == null ? p.def.dock.n : Math.max(0, p.docked | 0)); // (drones left in one bay)
+  const upAt = (o) => { const r = o.radius() || 1; return { x: o.x / r, y: o.y / r, z: o.z / r }; };
+  const live = (d) => !!d && !d.dead && d.hulk == null && !d.isDebris && !!d.control && d.parts.length > 0; // (a drone still flying for someone)
+  // the middle of a bay's top face, in the sim's axes
+  function dockTop(C, p) { const R = partRect(p); return C.toWorld((R.l + R.r) / 2, R.t, partZc(p)); }
+  // is a tank there to fly from: on the flight's list, not knocked out, not a wreck, with its controls
+  const carrierUp = (C, F) => !!C && !C.dead && !C.ko && !C.wreck && !!C.control && C.parts.length > 0 && (!F || !F.vessels || F.vessels.includes(C));
+  // who brought a drone down: the credited killer, else the last hitter within 20 s
+  const whoDid = (d, F) => d.doomBy || (d.lastHitBy && d.lastHitBy !== d && (F.time || 0) - (d.lastHitAt ?? -99) < 20 ? d.lastHitBy : null);
+  const mpDrop = (F, d, how, by) => { if (F && F.mp && typeof MP !== 'undefined' && typeof MP.dropExtra === 'function') MP.dropExtra(d, how, by); };
+  // a drone's view's natural scale (Flight's, else the same sums)
+  const scaleOf = (F, v) => (F && F.naturalScale ? F.naturalScale(v) : DRONE.LAUNCH.SCALE);
+  // Is the drone over its bay: within R m of the bay's top across, its lowest point at most H m over it (and not more than
+  // half a metre under), and slower than V m/s against the tank?
+  function overBay(v, R, H, V) {
+    const C = v.carrier, bay = v.bay;
+    if (!C || !bay || !C.parts.includes(bay)) return false;
+    const T = dockTop(C, bay), U = upAt(C), dx = v.x - T.x, dy = v.y - T.y, dz = v.z - T.z, k = dx * U.x + dy * U.y + dz * U.z;
+    const across = Math.hypot(dx - U.x * k, dy - U.y * k, dz - U.z * k), over = k - (v.com.y - v.bounds.minY);
+    if (across > R || over > H || over < -0.5) return false;
+    const pv = C.pointVel({ x: T.x - C.x, y: T.y - C.y, z: T.z - C.z });
+    return Math.hypot(v.vx - pv.x, v.vy - pv.y, v.vz - pv.z) < V;
+  }
+
+  // The drone key (U) and the DRONE button: launch from a tank with a bay; from it, take its drone again (Level, homing
+  // stopped; not while its link is lost); from the drone, dock when over its bay, else back to the tank (it holds); in a
+  // LAST FLIGHT, end it. true when something happened.
+  function key(F) {
+    const A = F && F.active;
+    if (!A || F.destroyed) return false;
+    if (A.carrier) {
+      if (F.carrierDown) return endLastFlight(F);
+      const H = DRONE.HOME;
+      if (overBay(A, H.NEAR_R, H.NEAR_H, DRONE.HOME.DOCK_V)) { dock(F, A); return true; }
+      return back(F);
+    }
+    if (A.docks && A.docks.length) {
+      const d = A.drone;
+      if (live(d) && F.vessels.includes(d)) {
+        const dl = state(d);
+        if (dl.lost) { say(F, 'No link to the drone', 'warn'); return false; }
+        if (dl.mode === 'home' || dl.mode === 'land') d.sas = 'hold'; // (homing stops: Level takes over)
+        dl.mode = 'pilot'; dl.autoLand = false;
+        F.switchTo(d, true, true);
+        say(F, `${d.name} · ${keyName('drone')}: back to the tank`);
+        return true;
+      }
+      return launch(F, A);
+    }
+    say(F, 'No drone bay aboard');
+    return false;
+  }
+
+  // The bay's drone (spec §12.2): the tank's chosen design when it fits that bay, else the bay's stock drone (said once
+  // per tank). { rows, name } or null (no design to launch).
+  function pickDesign(F, C, bay) {
+    const D = bay.def.dock, c = C.droneChoice, rows = c ? choiceRows(c) : null;
+    const T = typeof TEMPLATES !== 'undefined' && D.stock && hasOwn(TEMPLATES, D.stock) && TEMPLATES[D.stock].kind === 'drone' ? TEMPLATES[D.stock] : null;
+    const name = c ? (c.key ? (T && c.key === D.stock ? T.name : typeof TEMPLATES !== 'undefined' && hasOwn(TEMPLATES, c.key) ? TEMPLATES[c.key].name : 'Drone') : c.name) : null;
+    if (rows && fits({ kind: 'drone', parts: rows }, D).ok) return { rows, name: name || 'Drone' };
+    if (!T) return null;
+    if (rows && C._fitSaid !== bay.type) { C._fitSaid = bay.type; say(F, `The ${name} doesn't fit a ${bay.def.name}: launching a ${T.name}`, 'warn'); }
+    return { rows: choiceRows({ key: D.stock }), name: T.name };
+  }
+
+  // Launch the first bay's drone with one left (rack, hangar, tubes in that order) and fly it (spec §12.2). Refused, with
+  // the reason, when the tank is knocked out, tilted past 60°, in the water, moving faster than 3 m/s, every bay empty or
+  // broken, in the 2D view, or (in a room) while a drone of ours is already up.
+  function launch(F, C) {
+    if (!F || !C || F.destroyed || C.dead || F.carrierDown) return false;
+    const no = (t) => { say(F, t, 'warn'); return false; };
+    if (C.ko || C.wreck) return no('Knocked out: no launch');
+    if (!C.docks || !C.docks.length) return no('No drone bay aboard');
+    const U = upAt(C), A = C.axis(0, 1, 0);
+    if (A.x * U.x + A.y * U.y + A.z * U.z < Math.cos((DRONE.LAUNCH.TILT * Math.PI) / 180)) return no('Level out to launch');
+    if (C.splashed) return no('Not in the water');
+    const bays = C.docks.slice().sort((a, b) => DOCK_ORDER.indexOf(a.type) - DOCK_ORDER.indexOf(b.type)), bay = bays.find((p) => !p.broken && left1(p) > 0);
+    if (!bay) return no(bays.some((p) => p.broken && left1(p) > 0) ? 'The rack is broken: wait for the crew' : 'The rack is empty');
+    if (C.speed() > DRONE.LAUNCH.V) return no('Stop to launch');
+    if (typeof App !== 'undefined' && App.use3D && !App.use3D()) return no('Drones need the 3D view');
+    if (F.mp && typeof MP !== 'undefined' && MP.extra && [...MP.extra.values()].some((E) => E && E.v && !E.v.dead)) return no('One drone at a time in a room');
+    const D = bay.def.dock, pick = pickDesign(F, C, bay), v = pick && build(pick.rows, pick.name);
+    if (!v) return no(`No drone for the ${bay.def.name}`);
+    // pose: the tank's (the drone's +x along the tank's forward), its lowest point 0.4 m over the bay's top, moving as
+    // the tank moves there; out of a tube pitched up by the tube's angle and thrown out at its speed, throttle up
+    v.q = quat(C.q.w, C.q.x, C.q.y, C.q.z);
+    if (D.launch === 'tube') v.q = qnorm(qmul(v.q, qaxis(0, 0, 1, ((D.el || 0) * Math.PI) / 180)));
+    const T = dockTop(C, bay), Up = C.axis(0, 1, 0), off = v.com.y - v.bounds.minY + 0.4;
+    v.x = T.x + Up.x * off; v.y = T.y + Up.y * off; v.z = T.z + Up.z * off;
+    const pv = C.pointVel({ x: v.x - C.x, y: v.y - C.y, z: v.z - C.z });
+    v.vx = pv.x; v.vy = pv.y; v.vz = pv.z; v.av = v3(); v.landed = false;
+    const dl = (v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 });
+    if (D.launch === 'tube') { const f = v.axis(1, 0, 0), s0 = D.v0 || 28; v.vx += f.x * s0; v.vy += f.y * s0; v.vz += f.z * s0; v.throttle = 0.8; }
+    else { dl.hop = DRONE.LAUNCH.HOP_T; dl.hopAlt = v.altitude() - 0.4 + DRONE.LAUNCH.HOP; } // (its lowest point HOP m over the bay)
+    state(v);
+    // the links between them; the bay one drone lighter, its lid up 1.5 s
+    v.carrier = C; v.bay = bay; C.drone = v;
+    bay.docked = left1(bay) - 1; bay.deployed = 1; bay._lidAt = F.time || 0;
+    // the tank parks (switchTo) and the drone is flown, in the view last picked for drones
+    C._scale = F.scale;
+    F.vessels.push(v);
+    F.switchTo(v, true, true);
+    F.scale = clamp(scaleOf(F, v), 1.5, DRONE.LAUNCH.SCALE);
+    F.dronePulse = F.time; hud.pulse = F.time || 0; // (a static cut, 0.35 s)
+    if (typeof Sound !== 'undefined' && Sound.separate) Sound.separate();
+    if (typeof haptic === 'function') haptic(20);
+    say(F, `Drone up: ${keyName('drone')} back to the tank · ${keyName('dView')} view`);
+    if (F.mp && typeof MP !== 'undefined' && typeof MP.sendExtra === 'function') MP.sendExtra(v);
+    return true;
+  }
+  // From a bay's drone back to its tank (U, the pad's Tank button): the drone holds where it is (switchTo leaves it so)
+  function back(F) {
+    const d = F && F.active, C = d && d.carrier;
+    if (!C) return false;
+    if (F.carrierDown) return endLastFlight(F);
+    if (!carrierUp(C, F)) return false;
+    F.switchTo(C, true, true);
+    say(F, `Back in the ${C.name} · ${keyName('drone')}: the drone`);
+    return true;
+  }
+  // Home (3): back to its bay and dock (a solo drone: back where it took off, and land); a winged drone circles over its
+  // tank (or its start) instead. Land (4): straight down where it is (not a winged drone). Both until the pilot takes it
+  // again (Level or Acro: Flight.droneSas).
+  function home(F, v) {
+    if (!v || v.kind !== 'drone') return false;
+    const dl = state(v);
+    dl.mode = 'home'; dl.homeH = null; dl.homeUp = false; dl.wh = null; dl.autoLand = false;
+    say(F, v.dr && v.dr.wing ? `Home: circling over ${v.carrier ? `the ${v.carrier.name}` : 'where it took off'}` : v.carrier ? `Home: back to the ${v.carrier.name}'s bay` : 'Home: back to where it took off');
+    return true;
+  }
+  function land(F, v) {
+    if (!v || v.kind !== 'drone') return false;
+    if (v.dr && v.dr.wing) { say(F, 'A winged drone can\'t land: dive it on something, or fly it home to circle', 'warn'); return false; }
+    const dl = state(v);
+    dl.mode = 'land'; dl.autoLand = false;
+    say(F, 'Landing');
+    return true;
+  }
+  // Where Home goes: the top of its bay (moving with its tank), or where a solo drone took off. null: nowhere (its tank
+  // gone).
+  function homeTarget(v, dl) {
+    const C = v.carrier;
+    if (C) {
+      if (C.dead && !C.parts.length) return null;
+      const bay = v.bay && C.parts.includes(v.bay) ? v.bay : null, P = bay ? dockTop(C, bay) : { x: C.x, y: C.y, z: C.z };
+      return { x: P.x, y: P.y, z: P.z, vx: C.vx, vy: C.vy, vz: C.vz, dock: !!bay, C };
+    }
+    const a = dl.at0 || { x: v.x, y: v.y, z: v.z };
+    return { x: a.x, y: a.y, z: a.z, vx: 0, vy: 0, vz: 0, dock: false, C: null };
+  }
+  // Home's steering (spec §12.5), for pre: 1. climb where it is to max(its height, HOME.ALT 30 m) over the ground; 2. fly
+  // to the target at min(12 m/s, half the way), facing it, holding that height (within HOME.SLOW 15 m, slowing in, already
+  // letting down to NEAR_H 6 m over it); 3. within 3 m across, down over it (quicker high up, 1.5 m/s for the last
+  // metres), moving as its tank moves, until it docks (frame) or, solo, lands.
+  function homeSteer(v, dl, S, sim) {
+    const T = homeTarget(v, dl);
+    if (v.dr && v.dr.wing) return circleSteer(v, dl, S, T, DRONE.HOME.CIRCLE_H);
+    if (!T) return holdAuto(S);
+    const H = DRONE.HOME, F0 = (v.dr && v.dr.fc) || GPS, r = v.radius() || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    let dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z;
+    const k = dx * ux + dy * uy + dz * uz; // (the target's height over the drone)
+    dx -= ux * k; dy -= uy * k; dz -= uz * k;
+    const dh = Math.hypot(dx, dy, dz), df = dx * S.fx + dy * S.fy + dz * S.fz, dr = dx * S.rx + dy * S.ry + dz * S.rz;
+    const tvf = T.vx * S.fx + T.vy * S.fy + T.vz * S.fz, tvr = T.vx * S.rx + T.vy * S.ry + T.vz * S.rz;
+    const agl = v.altitude() - groundUnder(v, dl, S), toward = S.head + Math.atan2(dr, df);
+    if (dl.homeH == null) { dl.homeH = Math.max(agl, H.ALT); dl.homeUp = false; }
+    if (dh > H.NEAR_R && !dl.homeUp) { // 1. up first
+      if (agl < dl.homeH - 2) return { vf: tvf, vr: tvr, vz: clamp((dl.homeH - agl) * DRONE.HOLD + 1, 1, F0.vz), yawTo: toward };
+      dl.homeUp = true;
+    }
+    const sp = Math.min(H.V, dh * 0.5, F0.vmax), vf = dh > 1e-3 ? (df / dh) * sp + tvf : tvf, vr = dh > 1e-3 ? (dr / dh) * sp + tvr : tvr;
+    const over = -k - (v.com.y - v.bounds.minY); // (its lowest point's height over the target)
+    if (dh > H.SLOW) return { vf, vr, vz: clamp((dl.homeH - agl) * DRONE.HOLD, -DRONE.VHOLD, DRONE.VHOLD), yawTo: dh > 5 ? toward : S.head }; // 2. there
+    if (dh > H.NEAR_R) return { vf, vr, vz: -clamp((over - H.NEAR_H) * 0.4, 0, F0.vz), yawTo: dh > 5 ? toward : S.head }; // (slowing in, already letting down to NEAR_H over it)
+    return { vf, vr, vz: -clamp((over - H.DOCK_H) * 0.4, H.DESC, F0.vz), yawTo: S.head, land: !T.dock }; // 3. down over it
+  }
+  // A winged drone's circle (left, HOME.CIRCLE 60 m across the middle): round T (its tank or its start: Home, at hAgl m
+  // over the ground), or round where it was left (unattended, at the height it was left at). The stick it would take.
+  function circleSteer(v, dl, S, T, hAgl) {
+    if (!T) { if (!dl.holdAt) dl.holdAt = { x: v.x, y: v.y, z: v.z, alt: v.altitude() }; T = dl.holdAt; }
+    const r = v.radius() || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, W = DRONE.WING, R = DRONE.HOME.CIRCLE;
+    let dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z;
+    const k = dx * ux + dy * uy + dz * uz; dx -= ux * k; dy -= uy * k; dz -= uz * k;
+    const dc = Math.hypot(dx, dy, dz), rb = Math.atan2(dx * S.rx + dy * S.ry + dz * S.rz, dx * S.fx + dy * S.fy + dz * S.fz); // (where the middle is, from the nose)
+    const e = wrapAngle(rb - (-Math.PI / 2 + clamp((dc - R) / R, -1, 1) * 0.6)), sp = Math.max(v.speed(), 5);
+    const bank = clamp(-Math.atan((sp * sp) / (G0 * R)) + e * 1.5, -W.BANK, W.BANK);
+    const want = hAgl != null ? groundUnder(v, dl, S) + hAgl : T.alt != null ? T.alt : v.altitude(), sv = clamp(-(want - v.altitude()) * 0.05, -1, 1);
+    return { vf: 0, vr: 0, vz: null, yawTo: null, stick: { v: Math.abs(sv) > 0.03 ? sv : 0, h: bank / W.BANK, r: 0 } };
+  }
+
+  // Dock: the drone goes back in its bay (fresh battery and payload: one more aboard), with a puff; flown, control goes
+  // back to the tank
+  function dock(F, v) {
+    const C = v.carrier, bay = v.bay;
+    if (!C || !bay) return false;
+    const was = F.active === v;
+    v.dead = true;
+    const i = F.vessels.indexOf(v);
+    if (i >= 0) F.vessels.splice(i, 1);
+    bay.docked = Math.min(bay.def.dock.n, left1(bay) + 1);
+    if (C.drone === v) C.drone = null;
+    FX.puff(v.body, { x: v.x, y: v.y, z: v.z }, { x: v.vx, y: v.vy, z: v.vz }, 6, '#cfd5dc');
+    if (typeof Sound !== 'undefined' && Sound.separate) Sound.separate();
+    mpDrop(F, v, 'despawn');
+    if (was) { F.switchTo(C, true, true); if (F.setFpv) F.setFpv(false, true); }
+    say(F, `${v.name} docked · ×${left(C)}`);
+    return true;
+  }
+
+  // The flown drone from a bay is lost (Flight.onDestroyed's first line: shot down, its warhead gone off, crashed; frame:
+  // its battery flat): control goes back to its tank in the same frame, with no end screen and nothing booked (a room
+  // hears down {c}). Its hulk falls and crashes as any (death.js); its bay doesn't get it back. In a LAST FLIGHT it ends
+  // that instead. true: handled (the caller does nothing more).
+  function lost(F, d, why) {
+    const C = d && d.carrier;
+    if (!F || !C || F.active !== d) return false;
+    if (F.carrierDown || !carrierUp(C, F)) { if (!F.carrierDown) lastFlight(F, C); return endLastFlight(F); }
+    mpDrop(F, d, 'down', whoDid(d, F));
+    if (C.drone === d) C.drone = null;
+    F.crashedAt = null; // (the drone's crash was not the tank's)
+    F.switchTo(C, true, true);
+    if (F.setFpv) F.setFpv(false, true);
+    if (C._scale != null) F.scale = C._scale;
+    if (!(d.dl && d.dl.impact)) say(F, why === 'battery' ? `Battery flat: back in the ${C.name}` : `Drone lost: back in the ${C.name}`, 'warn');
+    return true;
+  }
+  // The tank knocked out under its flown drone (frame's poll): its death is told now (a room: MP.announceDown, credit and
+  // tickets at once; a Practice Battle: booked quietly), its end screen waits for the drone's LAST FLIGHT of 20 s
+  function lastFlight(F, C) {
+    const A = F && F.active;
+    if (!A || A.carrier !== C || F.carrierDown) return;
+    F.carrierDown = C;
+    state(A).lastEnd = (F.time || 0) + DRONE.LAST;
+    if (F.mp) { if (typeof MP !== 'undefined' && typeof MP.announceDown === 'function') MP.announceDown(C); }
+    else if (typeof GroundAI !== 'undefined' && GroundAI.battle) GroundAI.onDestroyed(F, C, true);
+    if (typeof haptic === 'function') haptic([80, 50, 140]);
+    if (F.updateHUD) F.updateHUD(true);
+  }
+  // The LAST FLIGHT ends (its 20 s out, the drone lost or gone off, or U): the drone, if it still flies, is gone for the
+  // room; the view goes back to the tank, and its death runs today's way (Flight.onDestroyed: the strip, then the end
+  // screen; a room's or a Practice Battle's only their timers and panel: the death was told at the start)
+  function endLastFlight(F) {
+    const C = F && F.carrierDown;
+    if (!C) return false;
+    const d = F.active && F.active.carrier === C ? F.active : C.drone;
+    if (live(d)) mpDrop(F, d, 'down', whoDid(d, F));
+    if (C.drone === d) C.drone = null;
+    if (F.active !== C) F.switchTo(C, true, true);
+    if (F.active !== C) F.active = C; // (a tank with no controls left: its death all the same)
+    if (F.setFpv) F.setFpv(false, true);
+    if (C._scale != null) F.scale = C._scale;
+    F.destroyed = false;
+    if (F.onDestroyed) F.onDestroyed();
+    return true;
+  }
+  // A save with a drone up (Flight.serialize): each tank with its drone in the air is saved with that drone back in its
+  // bay (the serialised rows only; the live parts are left alone). keep: the vessels saved, in data.vessels' order.
+  function forSave(data, F, keep) {
+    if (!data || !Array.isArray(data.vessels) || !Array.isArray(keep)) return data;
+    keep.forEach((C, i) => {
+      const d = C && C.drone, row = data.vessels[i];
+      if (!live(d) || !d.bay || !row || !Array.isArray(row.parts)) return;
+      const r = row.parts.find((q) => q && q.id === d.bay.id), n = d.bay.def.dock.n;
+      if (r) r.docked = Math.min(n, (r.docked == null ? n : r.docked) + 1);
+    });
+    return data;
+  }
+
+  // ---------------------------------------------------------------- the link (spec §7)
+  // Where a drone's link comes from: a bay drone's tank, 3 m over it (in a LAST FLIGHT, its wreck: the flown drone keeps
+  // it); a solo drone's take-off spot, 2 m up; an AI drone's Nest, else its spawn. null: none (its tank gone or knocked
+  // out while nobody flies it).
+  function station(v, F) {
+    const C = v.carrier, L = DRONE.LINK;
+    let o = null, k = L.HOME_UP;
+    if (C) {
+      const lf = !!F && F.carrierDown === C && F.active === v;
+      if (!lf && !carrierUp(C, F)) return null;
+      o = C; k = L.STATION;
+    } else if (v.ai && v.ai.drone && v.ai.nest && !v.ai.nest.dead) { o = v.ai.nest; k = L.STATION; }
+    else o = state(v).at0;
+    const r = Math.hypot(o.x, o.y, o.z) || 1;
+    return { x: o.x + (o.x / r) * k, y: o.y + (o.y / r) * k, z: o.z + (o.z / r) * k };
+  }
+  // the ground between the station and the drone (LOS_N points along the way, any under the surface + 1 m): ×LOS_K;
+  // looked at every LOS_DT s
+  function losK(v, dl, P, t) {
+    const L = DRONE.LINK;
+    if (dl.losAt != null && t >= dl.losAt && t - dl.losAt < L.LOS_DT) return dl.losK;
+    dl.losAt = t;
+    let k = 1;
+    for (let i = 1; i <= L.LOS_N; i++) {
+      const f = i / (L.LOS_N + 1), x = P.x + (v.x - P.x) * f, y = P.y + (v.y - P.y) * f, z = P.z + (v.z - P.z) * f, A = Terrain.locate(v.body, x, y, z, _loc);
+      if (Math.hypot(x, y, z) - v.body.radius < Terrain.surfaceAt(v.body, A.a, A.z) + 1) { k = L.LOS_K; break; }
+    }
+    return (dl.losK = k);
+  }
+  // Is drone d hostile to o, the owner of a piece of counter-drone kit (spec §13.1)? The player's side (the player, allied
+  // AI) against AI drones not allied and, in a room, enemy players' drones; the enemy AI against the player's drones and
+  // allied AI drones. Nothing against its own side or its own carrier's; a ghost's kit is its owner's to work.
+  function foe(o, d) {
+    if (!o || !d || o === d || o.remote || d.carrier === o) return false;
+    if (!o.ai || o.ai.ally) return d.remote ? typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, d.remote) : !!(d.ai && d.ai.drone && !d.ai.ally);
+    return !d.remote && (!d.ai || !!(d.ai.drone && d.ai.ally));
+  }
+  // ...and a jammer on someone else's craft in a room (a ghost) jams our drones when that player is an enemy
+  const jamFoe = (o, d) => (o.remote ? !d.remote && !d.ai && typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, o.remote) : foe(o, d));
+  // The jammers at work this tick: { o, R (radio m), at (sim position) } (not broken; the craft not dead, a wreck or knocked
+  // out; a ghost's while its hp holds)
+  function jammers(F) {
+    const J = [];
+    for (const o of F.vessels) {
+      if (!o.cuas || !o.cuas.length || o.dead || o.wreck || o.ko) continue;
+      for (const p of o.cuas) {
+        const c = p.def.cuas;
+        if (!c.jam || p.broken || (o.remote && p.hp != null && !(p.hp > 0))) continue;
+        J.push({ o, R: c.jam, at: o.toWorld(p.x, p.y, partZc(p)) });
+      }
+    }
+    return J;
+  }
+  // The link's quality now (dl.q, 0..1: the best link's range × line of sight × jamming), the link in use (dl.via), how far
+  // the station is (dl.dist) and whether a jammer has it (dl.jam). A fibre spool replaces the controller's own radio (a
+  // fibre drone is silent and can't be jammed); past its length it snaps for good.
+  function quality(v, F, P, J) {
+    const dl = state(v), K = DRONE.LINK.K, JI = DRONE.LINK.JAM_IN, t = F.time || 0;
+    const d = P ? Math.hypot(v.x - P.x, v.y - P.y, v.z - P.z) : Infinity, links = v.dr.links, fibre = links.some((l) => l.L.kind === 'fibre');
+    dl.dist = P ? d : NaN;
+    let best = -1, via = null, jam = false;
+    for (const l of links) {
+      const L = l.L;
+      if (fibre && l.p === v.dr.fcPart && !(l.p.def.drone && l.p.def.drone.link)) continue; // (the controller's own radio: not on a fibre drone)
+      if (l.p.broken || !v.parts.includes(l.p)) continue;
+      let q = 0, jq = false;
+      if (P) {
+        if (L.kind === 'fibre') {
+          if (d > L.range && !dl.snapped) { dl.snapped = true; if (!v.ai) say(F, `Fibre ran out at ${(L.range / 1000).toFixed(1)} km`, 'warn'); }
+          q = dl.snapped ? 0 : 1;
+        } else if (L.kind === 'sat') q = d <= L.range ? 1 : 0;
+        else q = (1 - smoothstep(0.8 * L.range, L.range, d)) * losK(v, dl, P, t);
+        const kj = K[L.kind] || 0;
+        if (q > 0 && kj > 0) for (const j of J) {
+          const Rj = j.R * kj, dj = Math.hypot(v.x - j.at.x, v.y - j.at.y, v.z - j.at.z);
+          if (dj >= Rj || !jamFoe(j.o, v)) continue;
+          q *= smoothstep(JI * Rj, Rj, dj); jq = true;
+        }
+      }
+      if (q > best) { best = q; via = L; jam = jq; }
+    }
+    if (!via) { dl.q = 1; dl.via = null; dl.jam = false; return; } // (no link aboard at all: nothing to lose)
+    dl.q = Math.max(0, best); dl.via = via; dl.jam = jam;
+  }
+  // One link tick (every LINK.DT s): the quality, then LOST once under LOST for LOST_T s (the stick does nothing, the
+  // controller's failsafe flies it: pre), back once over BACK for BACK_T s (in Level), and a flown bay drone handed back
+  // to its tank after HANDBACK s lost (it carries on by itself: an FPV falls, a GPS drone flies home)
+  function linkTick(v, F, dt, J) {
+    const dl = state(v), L = DRONE.LINK;
+    quality(v, F, station(v, F), J);
+    const q = dl.q, flown = v === F.active;
+    if (!dl.lost) {
+      dl.lowT = q < L.LOST ? (dl.lowT || 0) + dt : 0;
+      if (dl.lowT >= L.LOST_T - 1e-6) {
+        dl.lost = true; dl.lostT = 0; dl.hiT = 0; dl.homeH = null; dl.homeUp = false; dl.ring = null;
+        if (v.dr.fc.fs === 'home' && dl.mode !== 'land') dl.mode = 'home'; // (a GPS controller flies it home, and goes on home when the link is back)
+        if (flown) say(F, v.dr.fc.fs === 'home' ? 'Link lost: flying home' : 'Link lost', 'warn');
+      }
+      return;
+    }
+    dl.lostT = (dl.lostT || 0) + dt;
+    dl.hiT = q > L.BACK && !(dl.via && dl.via.kind === 'fibre' && dl.snapped) ? (dl.hiT || 0) + dt : 0;
+    if (dl.hiT >= L.BACK_T - 1e-6) {
+      dl.lost = false; dl.lowT = 0; dl.lostT = 0;
+      if (flown && dl.mode === 'home') say(F, `Link back: flying home · ${keyName('dLevel')} to take it`); // (Level or Acro takes it: Flight.droneSas)
+      else if (flown) { v.sas = 'hold'; dl.mode = 'pilot'; dl.hold = null; dl.wh = null; say(F, 'Link back'); if (F.syncSas) F.syncSas(); }
+      return;
+    }
+    if (flown && v.carrier && !F.carrierDown && dl.lostT >= L.HANDBACK - 1e-6 && carrierUp(v.carrier, F)) {
+      const C = v.carrier;
+      if (dl.mode !== 'home' && dl.mode !== 'land') dl.mode = 'hold'; // (a GPS drone flies on home: linkTick set it)
+      F.switchTo(C, true, true);
+      if (F.setFpv) F.setFpv(false, true);
+      if (C._scale != null) F.scale = C._scale;
+      say(F, `Lost the drone's link: back in the ${C.name}`, 'warn');
+    }
+  }
+  // The flown drone's inputs over a weak link (Flight.readControls): late by up to LAGMAX s as q falls under LAG (a ring of
+  // the stick, 8 entries 50 ms apart), and by a satellite link's own lag always
+  function lagged(v, c, F) {
+    const dl = v.dl;
+    if (!dl) return;
+    const L = DRONE.LINK, q = dl.q == null ? 1 : dl.q;
+    let lag = q < L.LAG ? Math.min(L.LAGMAX, ((L.LAG - q) / 0.25) * 0.2) : 0;
+    if (dl.via && dl.via.lag) lag += dl.via.lag;
+    if (!(lag > 0) || dl.lost) { dl.ring = null; return; }
+    const t = F.time || 0, R = dl.ring || (dl.ring = { buf: [], at: -1e9 });
+    if (t - R.at >= 0.05 || t < R.at) { R.buf.push({ t, v: c.v, h: c.h, r: c.r, z: c.z || 0 }); R.at = t; if (R.buf.length > 8) R.buf.shift(); }
+    let e = R.buf[0];
+    for (let i = R.buf.length - 1; i >= 0; i--) if (t - R.buf[i].t >= lag - 1e-9) { e = R.buf[i]; break; }
+    c.v = e.v; c.h = e.h; c.r = e.r; c.z = e.z;
+  }
+
+  // ---------------------------------------------------------------- the bays' frame (Drone.frame calls it)
+  // The links (every LINK.DT s: each owned or AI drone, never a ghost; the JAM chip's count), the flown drone's battery
+  // gone flat (lost), a tank knocked out under its flown drone (LAST FLIGHT) and the end of one, docking (Home or Land
+  // over the bay, a GPS drone's failsafe), drones nobody has (lost 60 s, or landed 3 s: gone with a puff), a drone of ours
+  // lost while nobody flew it, and the bays' lids. Live drones only: a hulk (v.hulk set, down or crippled) is death.js's
+  // alone (plan I13).
+  function bayFrame(F, dt) {
+    const A = F.active, t = F.time || 0;
+    hud.linkAcc = (hud.linkAcc || 0) + dt;
+    const tick = hud.linkAcc >= DRONE.LINK.DT - 1e-9, tdt = hud.linkAcc;
+    let J = null;
+    if (tick) {
+      hud.linkAcc = 0;
+      J = jammers(F);
+      // the JAM chip: enemy drones inside a radio jammer's reach on the flown craft or its tank
+      const own = A && A.carrier ? [A, A.carrier] : [A];
+      let n = 0;
+      if (J.length) for (const d of F.vessels) {
+        if (!isDrone(d)) continue;
+        if (J.some((j) => own.includes(j.o) && foe(j.o, d) && Math.hypot(d.x - j.at.x, d.y - j.at.y, d.z - j.at.z) < j.R)) n++;
+      }
+      hud.jamN = n;
+    }
+    for (let i = F.vessels.length; i--;) {
+      const v = F.vessels[i];
+      if (!v || v.kind !== 'drone' || v.remote || v.dead || v.isDebris || v.hulk != null || !v.dr || !v.control) continue;
+      const dl = state(v);
+      if (tick) linkTick(v, F, tdt, J);
+      if (v === A && v.carrier && dl.flat && !F.carrierDown) { lost(F, v, 'battery'); continue; }
+      if (v.ai) continue; // (an AI drone's own end is the AI section's)
+      // docking: homing or landing over its bay, or a GPS drone's failsafe bringing it home
+      if (v.carrier && v.bay && (dl.mode === 'home' || dl.mode === 'land' || (dl.lost && v.dr.fc.fs === 'home')) && overBay(v, DRONE.HOME.DOCK_R, DRONE.HOME.DOCK_H, DRONE.HOME.DOCK_V)) { dock(F, v); continue; }
+      // nobody's: lost 60 s, or lost or ownerless and landed 3 s
+      if (v === A) continue;
+      const owned = !v.carrier || (v.carrier.drone === v && carrierUp(v.carrier, F));
+      dl.restT = v.landed ? (dl.restT || 0) + dt : 0;
+      if ((dl.lost || !owned) && (dl.restT >= DRONE.REST_GONE || (dl.lost && dl.lostT >= DRONE.LOST_GONE))) gone(F, v);
+    }
+    // a drone of ours lost while nobody flew it (shot down, crashed, its battery flat): its tank's to know
+    for (const C of F.vessels) {
+      const d = C.drone;
+      if (!d || d === F.active) continue;
+      const down = d.dead || d.down || d.hulk != null || !d.control || !d.parts.length, flat = !down && d.dl && d.dl.flat;
+      if (!down && !flat) continue;
+      C.drone = null;
+      if (down && !d.dead) mpDrop(F, d, 'down', whoDid(d, F));
+      if (C === A || (A && A.carrier === C)) say(F, `The ${d.name} was ${d.down || d.hulk != null ? 'shot down' : flat ? 'lost: its battery went flat' : 'lost'}`, 'warn');
+    }
+    // the LAST FLIGHT: the poll, and its end
+    const C = A && A.carrier;
+    if (C && !F.carrierDown && !F.destroyed && !carrierUp(C, F)) lastFlight(F, C);
+    if (F.carrierDown && A && A.carrier === F.carrierDown && A.dl && t >= A.dl.lastEnd) endLastFlight(F);
+    // the bays' lids, shut 1.5 s after a launch
+    for (const o of F.vessels) if (o.docks && o.docks.length) for (const p of o.docks) if (p._lidAt != null && (t - p._lidAt >= 1.5 || t < p._lidAt)) { p.deployed = 0; p._lidAt = null; }
+  }
+  // a drone nobody has any more: gone with a puff (a room hears it down)
+  function gone(F, v) {
+    v.dead = true;
+    if (v.carrier && v.carrier.drone === v) v.carrier.drone = null;
+    FX.puff(v.body, { x: v.x, y: v.y, z: v.z }, { x: v.vx, y: v.vy, z: v.vz }, 6, '#cfd5dc');
+    mpDrop(F, v, 'down', null);
+  }
 
   // ================================================================ combat (fuses and warheads, the counter-drone kit)
   // (Combat.step, every physics substep while Combat.S.dr: fuses, docking, the anti-drone guns and lasers)
   function step(h, F) {}
   // (Combat.frame, every frame while Combat.S.dr: links, batteries' hand-backs, a carrier's LAST FLIGHT, clean-up, AI
   // launches, the marks, alarms)
-  function frame(F, dt) {}
+  function frame(F, dt) {
+    if (!F || !F.vessels || !(dt >= 0)) return;
+    bayFrame(F, dt); // (the bays' and the links': above)
+  }
   function detonate(v, F, at, hv, hp, why) { return false; }
   // (Combat.destroyPart's third line: a warhead at 0 hp; false: the part goes the usual way)
   function cookOff(v, p, cause, sim) { return false; }
@@ -765,7 +1261,7 @@ const Drone = (() => {
     // bays
     fits, cleanChoice, choiceRows, build,
     // flight
-    key, launch, back, home, land, lost, lastFlight, endLastFlight, forSave,
+    key, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
     // combat
     step, frame, detonate, cookOff, netFire, threats, marked, seeR, spotR, ownedAir,
     // AI
