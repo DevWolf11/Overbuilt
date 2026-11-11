@@ -408,8 +408,10 @@ const Drone = (() => {
   const list = (F) => (F && F.vessels ? F.vessels.filter((o) => o.kind === 'drone' && !o.dead && !o.isDebris) : []);
 
   // ================================================================ HUD (the FPV on-screen display, marks, alarms, help)
-  // The camera's field of view: an FPV camera's own (100°), no wider than FPV_FOV (the bench's call, spec I19: an FPV view
-  // costing over 1.10× the chase view's GPU time would be 90°); a gimbal's by its zoom (1×, 4×, 12×: 60°, 15°, 5°).
+  // The camera's field of view: an FPV camera's own (100°), no wider than FPV_FOV; a gimbal's by its zoom (1×, 4×, 12×:
+  // 60°, 15°, 5°). Spec I19: FPV at 100° only if it costs no more than 1.10× the chase view's GPU time, else 90°. The bench
+  // (render-bench.mjs fpv, fpvfast, fpvchase: a Bumble 20 m over a TK-34 in Highland Ridge's village, after the haze)
+  // measured 100° at 0.79-0.93× the chase view's gpuMs (phone and desktop, Low and High): it stays 100°.
   const FPV_FOV = 100, GIMBAL_FOV = [60, 15, 5];
   function fov(v, F) {
     const c = v && v.dr && v.dr.cam ? v.dr.cam.def.drone.cam : null;

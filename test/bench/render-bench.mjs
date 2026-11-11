@@ -49,12 +49,13 @@ const SCENES = {
   dogfight: { key: 'falcon', place: { ...LAND, air: { alt: 3000, speed: 200 } }, time: 'noon', what: 'trails, tracers, an air death', load: 'dogfight' },
   dusk: { key: 'falcon', time: 'dusk', what: 'fog in-scatter, sky, sunset colours' },
   hangar: { key: 'tk34', hangar: true, what: 'the hangar, byte for byte (a craft with no glass)' },
-  // (the drone package: a stock drone 20 m up in Highland Ridge seen through its camera at --fov (a drone template, else
-  // the Bumble FPV's rows), and the same drone in the chase view: spec-drones I19, FPV at 100° only if its gpuMs is within
-  // 1.10× the chase view's, else 90°. Named with --scenes only)
-  fpv: { drone: true, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'the drone\'s FPV view at --fov', props: ['hl'] },
-  fpvfast: { drone: true, lean: -0.44, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'FPV at --fov leaning 25° forward, as at speed: its camera level, the most ground', props: ['hl'] },
-  fpvchase: { drone: true, chase: true, place: { ...HL, air: { alt: 20, speed: 0 } }, time: 'noon', what: 'the same drone in the chase view', props: ['hl'] },
+  // (the drone package: a stock drone (a drone template, else the Bumble FPV's rows) 20 m over a TK-34 in Highland Ridge's
+  // village, as a bay's drone over its tank (ground play: the arena's ground and props up), seen through its camera at
+  // --fov; leaning 25° forward as at speed (its camera level: the most ground); and in the chase view. Spec-drones I19:
+  // FPV at 100° only if its gpuMs is within 1.10× the chase view's, else 90°. Named with --scenes only)
+  fpv: { key: 'tk34', drone: true, place: HL, time: 'noon', what: 'the drone\'s FPV view at --fov', props: ['hl'] },
+  fpvfast: { key: 'tk34', drone: true, lean: -0.44, place: HL, time: 'noon', what: 'FPV at --fov leaning 25° forward, as at speed: its camera level, the most ground', props: ['hl'] },
+  fpvchase: { key: 'tk34', drone: true, chase: true, place: HL, time: 'noon', what: 'the same drone in the chase view', props: ['hl'] },
   // (the damage model, spec-damage §11: the simulation stepped in every timed frame as the game steps it, Flight.update, so
   // its cpuMs is the JS of a whole frame. Named with --scenes only; reported, not judged by --check: each tree plays its
   // own rules, so their pictures and their pieces differ on purpose)
@@ -159,14 +160,15 @@ async function startScene(T, name) {
       App.toBuild(); Builder.xray = false; Builder.loadTemplate(S.key); // (Armour's X-ray off: the hangar as built, not see-through)
     } else {
       let key = S.key;
-      let tp = null;
+      let dp = null;
       if (S.drone) { // (a stock drone, else the Bumble FPV's rows, spec-drones §18; a tree without the Drone kind: skipped)
-        if (typeof Drone === 'undefined') return { skip: 'no drones on this tree' };
-        key = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone');
-        tp = key ? { name: TEMPLATES[key].name, kind: 'drone', parts: templateRows(TEMPLATES[key]) } : { name: 'Bumble FPV', kind: 'drone', parts: [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }],
+        if (typeof Drone === 'undefined' || typeof Drone.build !== 'function') return { skip: 'no drones on this tree' };
+        const dk = Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'drone');
+        dp = dk ? { name: TEMPLATES[dk].name, kind: 'drone', parts: templateRows(TEMPLATES[dk]) } : { name: 'Bumble FPV', kind: 'drone', parts: [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }],
           ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }],
           ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })) };
-      } else { const T = TEMPLATES[key]; tp = { name: T.name, kind: T.kind, parts: templateRows(T) }; }
+      }
+      const T = TEMPLATES[key], tp = { name: T.name, kind: T.kind, parts: templateRows(T) };
       if (S.targets) Settings.set('targets', S.targets); // (the range's mode: the fighters live only in Hostile)
       App.showScene('flight');
       Flight.start(tp, S.place ? { place: S.place } : undefined);
@@ -174,9 +176,15 @@ async function startScene(T, name) {
       Flight.time = t;
       // ground play as Combat.frame says it (the paused flight never runs it): Highland Ridge's props on show
       const v = Flight.active;
-      if (typeof Props !== 'undefined') Props.play = v.kind === 'tank' || !!v.gv || !!(v.gear && v.gear.length);
-      if (S.drone) { // (its camera at --fov, or the chase view; lean: pitched nose down by that much)
-        if (S.lean) { const v = Flight.active; v.q = qnorm(qmul(v.q, qaxis(0, 0, 1, S.lean))); }
+      if (typeof Props !== 'undefined') Props.play = v.kind === 'tank' || !!v.gv || !!(v.gear && v.gear.length) || !!S.drone; // (a drone: as over a ground battle, the village's props up)
+      if (S.drone) { // (the drone 20 m over the tank, flown; its camera at --fov, or the chase view; lean: pitched nose down by that much)
+        const C = Flight.active, d = Drone.build(dp.parts, dp.name), r = Math.hypot(C.x, C.y, C.z);
+        d.q = { w: C.q.w, x: C.q.x, y: C.q.y, z: C.q.z }; d.x = C.x + (C.x / r) * 20; d.y = C.y + (C.y / r) * 20; d.z = C.z + (C.z / r) * 20; d.body = C.body; d.landed = false;
+        if (S.lean) d.q = qnorm(qmul(d.q, qaxis(0, 0, 1, S.lean)));
+        d.dl = { t: 0, at0: { x: d.x, y: d.y, z: d.z }, t0: 0 };
+        Flight.vessels.push(d); Flight.switchTo(d);
+        const h = d.bounds.maxY - d.bounds.minY, w = d.bounds.maxX - d.bounds.minX;
+        Flight.scale = clamp(Math.min((innerHeight * 0.42) / h, (innerWidth * 0.5) / w), 1.5, 400);
         Flight.setFpv(!S.chase, true); if (!S.chase) Render3D.setFpv(true, fov);
       }
     }

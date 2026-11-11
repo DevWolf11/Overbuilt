@@ -1,5 +1,5 @@
 // A drone in flight (the big update, spec-drones §8, §14, §19.4): a Bumble FPV flown alone from the helipad on phones
-// (360×640, 390×844, 844×390) and desktops (1280×720, 1920×1080):
+// (360×640, 375×667, 390×844, 844×390; UI size 150%) and desktops (1280×720, 1920×1080; UI size 75%):
 //  - it starts in first person (FPV), its own mesh hidden, at the camera's field of view; H and the pad's eye swap to the
 //    chase view and back; the choice is kept for the next drone;
 //  - the on-screen display (drone.js): its status block, mode and flight line on the screen and clear of every control
@@ -99,8 +99,8 @@ const osdCalls = () => {
 };
 
 // ================================================================ 1. FPV and the OSD on five screens
-for (const [w, h, touch] of [[360, 640, true], [390, 844, true], [844, 390, true], [1280, 720, false], [1920, 1080, false]]) {
-  const tag = `${w}×${h} `, { ctx, page } = await open([w, h, touch], tag);
+for (const [w, h, touch, ui] of [[360, 640, true], [375, 667, true], [390, 844, true], [844, 390, true], [1280, 720, false], [1920, 1080, false], [390, 844, true, 1.5], [844, 390, true, 1.5], [1280, 720, false, 0.75]]) {
+  const tag = `${w}×${h}${ui ? ` UI ${ui * 100}%` : ''} `, { ctx, page } = await open([w, h, touch], tag, ui ? { uiSize: ui } : {});
   await fly(page, 'bumble');
   await page.waitForTimeout(1200); // (the OSD's places are looked up again once a second: now with the panels as in flight)
   await frames(page, 2);
@@ -116,12 +116,12 @@ for (const [w, h, touch] of [[360, 640, true], [390, 844, true], [844, 390, true
   judge(tag + 'FPV', L);
   const calls = await page.evaluate(osdCalls);
   ok(`${tag}the OSD draws in at most 40 canvas calls a frame`, calls > 0 && calls <= 40, calls);
-  await shot(page, `fpv-${w}x${h}`);
+  await shot(page, `fpv-${w}x${h}${ui ? `-ui${ui * 100}` : ''}`);
   await page.evaluate(() => Flight.setFpv(false));
   await frames(page, 3); await page.waitForTimeout(400);
   const ch = await page.evaluate(() => ({ fpv: Flight.fpv, cls: document.body.className, tele: getComputedStyle(document.querySelector('#flight-ui .telemetry')).display, batt: !document.querySelector('#row-batt').hidden && document.querySelector('#t-batt').textContent, link: !document.querySelector('#row-link').hidden && document.querySelector('#t-link').textContent, view: Settings.get('droneView') }));
   ok(`${tag}the chase view: the flight data back with Battery and Link rows, the choice kept (Settings → Drone view: chase)`, !ch.fpv && !/\bfpv\b/.test(ch.cls) && ch.tele !== 'none' && /^\d+%/.test(ch.batt) && /^\d+%$/.test(ch.link) && ch.view === 'chase', ch);
-  await shot(page, `chase-${w}x${h}`);
+  await shot(page, `chase-${w}x${h}${ui ? `-ui${ui * 100}` : ''}`);
   await pageErrors(page, tag);
   await ctx.close();
 }

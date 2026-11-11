@@ -4156,7 +4156,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // keeps 8 cm whatever the box (today's at 25 m), the normal bias grows with the texel
     if (S.sun.castShadow) {
       const ext = v.parts.length ? Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY) : 10;
-      const tight = Math.max(25, ext * 2.5), want = AC && S.sightOn ? 0 : Math.max(dist * 1.1, isGround(v.kind) ? 50 : 0);
+      const tight = Math.max(25, ext * 2.5), want = AC && S.sightOn ? 0 : Math.max(dist * 1.1, isGround(v.kind) || FP ? 50 : 0); // (a drone's camera: as a ground vehicle's, the ground ahead)
       const half = Math.max(tight, Math.min(60, want)), sc = S.sun.shadow.camera, e = camera.matrixWorld.elements;
       SB.f.set(-e[8], 0, -e[10]); // (the view's line along the ground: the scene's y is up at the focus)
       if (SB.f.lengthSq() > 1e-6) SB.f.normalize();
