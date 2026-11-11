@@ -135,7 +135,7 @@ const Flight = {
     this.aimReset(); // (a new flight: aimed afresh along the hull, out of the sight)
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
-    this.setFpv(false, true); this.impactCam = null; this.droneLift = 0; this.gimbalReset(); // (the big update's drones: chase view, no impact view, the lever and the gimbal at rest)
+    this.setFpv(false, true); this.clearImpact(); this.droneLift = 0; this.gimbalReset(); // (the big update's drones: chase view, no impact view, the lever and the gimbal at rest)
     Combat.reset(this);
     this.running = true;
     MapView.focusVessel();
