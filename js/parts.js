@@ -3543,7 +3543,7 @@ function renderPartIcon(type, size, dpr, rot = 0, skin = null) {
   c.width = c.height = Math.round(size * dpr);
   const ctx = c.getContext('2d');
   const def = PARTS[type];
-  const s = (size * dpr * 0.8) / Math.max(def.w, def.h, 1.2);
+  const s = (size * dpr * 0.8) / Math.max(def.w, def.h, def.drone ? 0.12 : 1.2); // (a drone's parts are small: drawn to a tenth of the size)
   ctx.setTransform(s, 0, 0, -s, c.width / 2, c.height / 2);
   ctx.rotate(rot);
   const p = { def, type, x: 0, y: 0, flip: false, deployed: 0, skin };

@@ -274,6 +274,61 @@ t('nothing broke and nothing was said (the battery far from 25 %)', B.broken ===
     return v && v.kind === 'drone' && v.name === 'Mine' && v.parts.length === 10 && v.dr && v.dr.rotors.length === 4 && v.dr.rotors.every((p) => p.active) && v.sas === 'hold' && v.stageIdx === v.stages.length && Drone.build([], 'x') === null; })()`));
 }
 
+// ================================================================ 8. the builder's quick-add (builder.js droneSpotOf, §10.3)
+// Tray taps on an empty Drone blueprint, symmetry on (each motor's mirror twin added as the builder adds it: across the
+// centre line, when it clashes with nothing), against the stock drones' rows: within 1 cm per part.
+{
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(process.env.ROOT ? path.resolve(process.env.ROOT) : path.join(__dirname, '..'), 'js', 'builder.js'), 'utf8').match(/\nfunction droneSpotOf\([\s\S]*?\n}\n/);
+  t('builder.js has the Drone kind\'s quick-add (droneSpotOf)', !!src);
+  if (src) R(src[0] + `
+var tapAll = (types, sym = true) => { const parts = [], said = [];
+  for (const type of types) {
+    const s = droneSpotOf(type, parts);
+    if (!s) { said.push(type + ': null'); continue; }
+    if (s.why) { said.push(s.why); continue; }
+    const p = makePart(type, s.x, s.y, { flip: s.x < 0, rot: s.rot, z: s.z, att: s.att ? s.att.id : null }); parts.push(p);
+    const z = partZ(p);
+    if (sym && Math.abs(z) >= 0.01 && !zLocked(p.def)) { const m = makePart(type, p.x, p.y, { flip: p.x < 0, rot: p.rot, z: -z, att: p.att }); if (!partsClash(m, p) && !parts.some((o) => o !== p && partsClash(m, o))) parts.push(m); }
+  }
+  return { parts, said }; };
+// each tapped part against the next row of its type in the stock rows: [type, dx, dy, dz, the same turn, the same host's type]
+var against = (parts, rows) => { const R = rows.map((r) => ({ ...r })), byId = new Map(parts.map((p) => [p.id, p])), out = [];
+  for (const p of parts) { const i = R.findIndex((r) => r && r.type === p.type); if (i < 0) { out.push([p.type, 'not in the stock rows']); continue; }
+    const r = R[i]; R[i] = null; const h = byId.get(p.att), want = r.att != null ? rows[r.att].type : null;
+    out.push([p.type, +Math.abs(p.x - r.x).toFixed(4), +Math.abs(p.y - r.y).toFixed(4), +Math.abs(partZ(p) - (r.z || 0)).toFixed(4), (p.rot || 0) === (r.rot || 0), (h ? h.type : null) === want]); }
+  return out; };
+var joined = (parts) => { const adj = buildAdjacency(parts), c = findControlPart(parts); return !!c && componentOf(c.id, adj).size === parts.length; };
+var clashes = (parts) => { const o = []; for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) if (partsClash(parts[i], parts[j])) o.push(parts[i].type + ' x ' + parts[j].type); return o; };`);
+  const near = (rows, cm = 0.01) => rows.every((r) => r.length === 6 && r[1] <= cm && r[2] <= cm && r[3] <= cm && r[4] && r[5]);
+  // the six taps and the charge: frame, controller, motors twice, battery, camera, charge (9 parts: the Bumble without its radio)
+  const B = JSON.parse(R(`(() => { const { parts, said } = tapAll(['drFrameS', 'drFC', 'drMotorS', 'drMotorS', 'drBattS', 'drCam', 'drCharge']);
+    return JSON.stringify({ n: parts.length, said, rows: against(parts, rowsOf('bumble')), joined: joined(parts), clash: clashes(parts) }); })()`));
+  t('quick-add: the six taps and a charge make the Bumble (9 parts: four motors from two taps), each part within 1 cm of its row, the same turn and host',
+    B.n === 9 && !B.said.length && near(B.rows), JSON.stringify(B.said.length ? B.said : B.rows.filter((r) => !near([r]))));
+  t('...joined and clash-free', B.joined && !B.clash.length, B.clash);
+  const B2 = JSON.parse(R(`(() => { const { parts, said } = tapAll(['drFrameS', 'drFC', 'drMotorS', 'drMotorS', 'drBattS', 'drCam', 'drCharge', 'drLink']);
+    return JSON.stringify({ n: parts.length, rows: against(parts, rowsOf('bumble')), said }); })()`));
+  t('...and a Radio Link tapped too: all ten of the Bumble\'s rows (the link on the frame behind the controller)', B2.n === 10 && near(B2.rows) && !B2.said.length, JSON.stringify(B2.rows.slice(-1)));
+  const W = JSON.parse(R(`JSON.stringify([tapAll(['drFrameS', 'drFC', 'drMotorS', 'drMotorS', 'drMotorS']).said, tapAll(['drFrameS', 'drFrameS']).said, tapAll(['drFrameS', 'drBody']).said,
+    tapAll(['drFrameH', 'drFCgps', 'drMotorL', 'drMotorL', 'drMotorL', 'drMotorL']).parts.filter((p) => p.type === 'drMotorL').map((p) => [p.x, partZ(p)]),
+    tapAll(['drFrameS', 'drFC', 'drMotorS', 'drMotorS'], false).parts.filter((p) => p.type === 'drMotorS').map((p) => [p.x, partZ(p)])])`));
+  t('a third motor tap on a quad: "Every arm has its motors: pick a bigger frame"; a second frame: "One frame per drone"; a body on a quad: "A winged drone needs its own design"',
+    W[0][0] === 'Every arm has its motors: pick a bigger frame' && W[1][0] === 'One frame per drone' && W[2][0] === 'A winged drone needs its own design', W.slice(0, 3));
+  t('a hex frame: four taps of a motor fill its six arms, front first (the nose and tail arms alone, the others in mirrored pairs)', JSON.stringify(W[3]) === JSON.stringify([[0.6, 0], [0.3, 0.52], [0.3, -0.52], [-0.3, 0.52], [-0.3, -0.52], [-0.6, 0]]), JSON.stringify(W[3]));
+  t('symmetry off: one motor a tap, the front right one first', JSON.stringify(W[4]) === JSON.stringify([[0.15, 0.15], [0.15, -0.15]]), JSON.stringify(W[4]));
+  // a winged one: the body, controller, battery, charge, camera, link, pusher, tail and fin where the Lancett has them; the
+  // wing on top of the body, its middle 8 cm behind the centre of mass of what is there
+  const L = JSON.parse(R(`(() => { const { parts, said } = tapAll(['drBody', 'drFC', 'drBattM', 'drChargeT', 'drCam', 'drLinkL', 'drPusher', 'drTail', 'drFin']);
+    let kg = 0, mx = 0; for (const p of parts) { kg += partKg(p); mx += partKg(p) * p.x; }
+    const w = droneSpotOf('drWing', parts);
+    parts.push(makePart('drWing', w.x, w.y, { rot: w.rot, att: w.att.id }));
+    return JSON.stringify({ said, rows: against(parts.slice(0, -1), rowsOf('lancett')), wing: [+(mx / kg - w.x).toFixed(3), w.rot, +(w.y - partRect(parts[0]).t).toFixed(3), w.att.type], joined: joined(parts), clash: clashes(parts) }); })()`));
+  t('a winged drone by taps: controller and battery inside the body, charge on its nose, camera and link on top, pusher, tail and fin at its tail, as the Lancett has them',
+    !L.said.length && near(L.rows.map((r) => (r[0] === 'drFin' ? [...r.slice(0, 5), true] : r))), JSON.stringify(L.said.length ? L.said : L.rows.filter((r) => !near([r]))));
+  t('...the wing on top of the body, turned forward, its middle 8 cm behind the centre of mass; all of it joined, nothing clashing', L.wing[0] === 0.08 && L.wing[1] === 3 && Math.abs(L.wing[2] - 0.015) < 1e-6 && L.wing[3] === 'drBody' && L.joined && !L.clash.length, JSON.stringify(L));
+}
+
 // ================================================================ the groups (Drone.groups through rebuildGroups) and the hooks
 t('a drone\'s groups: its controller, links (its own radio first), the camera, cells and full charge, motors, mot0 kept across rebuilds', R(`(() => {
   const v = (() => { const ps = partsFromDesign(rowsOf('mavik')); const w = new Vessel(ps, buildAdjacency(ps), EARTH); w.kind = 'drone'; w.rebuildGroups(); return w; })(), d = v.dr;

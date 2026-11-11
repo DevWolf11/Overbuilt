@@ -81,6 +81,7 @@ const ICONS = {
   car: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16v-4l2-4h8l4 4h4v4"/><circle cx="7" cy="16" r="2"/><circle cx="17" cy="16" r="2"/></svg>',
   tank: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="15" width="17" height="5" rx="2.5"/><path d="M4.5 15l1.5-3h11l1.5 3"/><path d="M8 12V9.5L9.5 8h4.5l1.5 1.5V12"/><path d="M15.5 10h6.5"/></svg>',
   heli: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M12 5v3"/><path d="M8 8h6l3 4-3 3H9a3.5 3.5 0 0 1-1-7zM3 11h5M2 9v4M9 19h7M11 15v4M14 15v4"/></svg>',
+  drone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 8.2l2.3 2.3M15.8 8.2l-2.3 2.3M8.2 15.8l2.3-2.3M15.8 15.8l-2.3-2.3"/><rect x="10" y="10" width="4" height="4" rx="1"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/></svg>',
   sym: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke-dasharray="2 2.5"/><path d="M9 7L3 17h6zM15 7l6 10h-6z"/></svg>',
   center: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
   grid: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg>',

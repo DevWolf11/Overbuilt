@@ -166,7 +166,7 @@ R(`var __B = { kind: 'plane', ${bsrc[0].trim().replace(/,$/, '')} };`);
 const rots = R(`['plane', 'rocket', 'heli', 'car', 'tank'].map((k) => [k, __B.defaultRot(PARTS.radarPD, k), __B.defaultRot(PARTS.radarTail, k), __B.defaultRot(PARTS.radarPod, k), __B.defaultRot(PARTS.radarMast, k), __B.defaultRot(PARTS.rotodome, k)].join())`);
 t('B9 defaultRot: a set faces the nose (plane and rocket 0, helicopter, car and Armour 3), a tail set the other way (+2); all-round radars as any part (0)',
   rots.join(' ') === 'plane,0,2,0,0,0 rocket,0,2,0,0,0 heli,3,1,3,0,0 car,3,1,3,0,0 tank,3,1,3,0,0', rots);
-t('...every old part comes in as before (an aimed part on a ground vehicle at 3, anything else 0)', R(`Object.keys(PARTS).filter((k) => !PARTS[k].radarSet).every((k) => ['plane', 'rocket', 'heli', 'car', 'tank'].every((K) => __B.defaultRot(PARTS[k], K) === (PARTS[k].aim && isGround(K) ? 3 : 0)))`));
+t('...every old part comes in as before (an aimed part on a ground vehicle at 3, anything else 0); a drone part at its own turn (def.drone.rot: the big update)', R(`Object.keys(PARTS).filter((k) => !PARTS[k].radarSet).every((k) => ['plane', 'rocket', 'heli', 'car', 'tank', 'drone'].every((K) => __B.defaultRot(PARTS[k], K) === (PARTS[k].drone && PARTS[k].drone.rot != null ? PARTS[k].drone.rot : PARTS[k].aim && isGround(K) ? 3 : 0)))`));
 
 // B5 (the pure half): the stats row, the part card and the warnings, on the Falcon's rows
 R(`var __fal = (extra, drop) => { const rows = __rowsOf('falcon').filter((r) => !(drop && drop(r))); return partsFromDesign(rows.concat(extra || [])); };
