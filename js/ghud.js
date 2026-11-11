@@ -569,7 +569,7 @@ const GHUD = (() => {
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)
     const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire,
-      rect('#joy'), rect('#key-hints')].filter(Boolean);
+      rect('#joy'), rect('#key-hints'), rect('#btn-drone')].filter(Boolean); // (the big update: a bay's DRONE button)
     const hit = (a) => block.some((b) => a.x < b.right && a.x + a.w > b.left && a.y < b.bottom && a.y + a.h > b.top) || a.x < 4 || a.y < 4 || a.x + a.w > W - 4 || a.y + a.h > H - 4;
     const small = W < 380 || H < 700, land = H < 500, dw = small ? 104 : 120, dh = small ? 62 : 72, Tb = T ? T.bottom : 80, Tl = T ? T.left : 12, Tr = T ? T.right : 200;
     const tries = [[Tl, Tb + 8], ...(ms ? [[Tl, ms.bottom + 8]] : []), [Tr + 8, T ? T.top : 12], [Tl, Tb + 8 + 60], [lc ? lc.right + 10 : 140, lc ? lc.top : H - 200]];
@@ -979,7 +979,7 @@ const GHUD = (() => {
   return {
     draw, frame,
     place: (W, H) => place(W, H, typeof Flight !== 'undefined' ? Flight : {}),
-    aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam,
+    aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam, resultText, // (a drone's impact view prints the shot's result as the sight does)
     get tacOpen() { return !!S.tacOpen; },
     set redrawDiagram(on) { if (on) S.diagKey = ''; },
     _S: S, // (the tests read where things went)

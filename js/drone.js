@@ -408,10 +408,321 @@ const Drone = (() => {
   const list = (F) => (F && F.vessels ? F.vessels.filter((o) => o.kind === 'drone' && !o.dead && !o.isDebris) : []);
 
   // ================================================================ HUD (the FPV on-screen display, marks, alarms, help)
-  function drawOSD(ctx, W, H, dpr, F) {}
+  // The camera's field of view: an FPV camera's own (100°), no wider than FPV_FOV; a gimbal's by its zoom (1×, 4×, 12×:
+  // 60°, 15°, 5°). Spec I19: FPV at 100° only if it costs no more than 1.10× the chase view's GPU time, else 90°. The bench
+  // (render-bench.mjs fpv, fpvfast, fpvchase: a Bumble 20 m over a TK-34 in Highland Ridge's village, after the haze)
+  // measured 100° at 0.79-0.93× the chase view's gpuMs (phone and desktop, Low and High): it stays 100°.
+  const FPV_FOV = 100, GIMBAL_FOV = [60, 15, 5];
+  function fov(v, F) {
+    const c = v && v.dr && v.dr.cam ? v.dr.cam.def.drone.cam : null;
+    if (!c) return 50;
+    if (c.gimbal) return GIMBAL_FOV[(F && F.gim && F.gim.zoom) || 0] || c.fov || 60;
+    return Math.min(c.fov || FPV_FOV, FPV_FOV);
+  }
+  // What the HUD shares with the other sections: jamN (the enemy drones our jammers hold now: the combat section's), hitAt
+  // (the carrier last hit, F.time: the bays' alarm), pulse (a static cut's start, F.time: a launch), and the ZOOM pill's
+  // place this frame (tap targets are registered per drawn frame).
+  const hud = { jamN: 0, hitAt: -1e9, pulse: -1e9, zoomBox: null };
+  const OSDF = '700 13px "Chakra Petch", ui-monospace, monospace', BIGF = '700 22px "Chakra Petch", ui-monospace, monospace';
+  const WHITE = '#ffffff', AMBER = '#ffb547', RED = '#ff5d5d', GREY = '#a7b0ba', EDGE = 'rgba(8, 11, 16, 0.7)';
+  const two = (n) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
+  const clock = (s) => `${Math.floor(Math.max(0, s) / 60)}:${two(Math.max(0, s) % 60)}`;
+  const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+
+  // Drones left in a vehicle's bays (a bay never launched from holds its full count).
+  function left(v) {
+    let n = 0;
+    for (const p of v.docks || NO_GEAR) n += p.docked == null ? p.def.dock.n : Math.max(0, p.docked | 0);
+    return n;
+  }
+  // The battery: its charge (q, 0..1) and the words ("78% · 6:12": minutes left at the last second's average draw).
+  function batt(v, F) {
+    const q = charge(v), dr = v.dr, wh = q * (dr ? dr.wh0 : 0), t = F && Number.isFinite(F.time) ? F.time : 0;
+    const B = v._bh || (v._bh = { t, wh, P: 0 });
+    if (t - B.t >= 1 || t < B.t) { const P = t > B.t ? ((B.wh - wh) * 3600) / (t - B.t) : 0; B.P = B.P ? B.P * 0.5 + P * 0.5 : P; B.t = t; B.wh = wh; }
+    const min = B.P > 0.5 ? (wh / B.P) * 60 : null;
+    return { q, text: `${Math.round(q * 100)}%${min != null && Number.isFinite(min) ? ` · ${clock(min * 60)}` : ''}` };
+  }
+  // How far the drone is from its station (where its link comes from): its carrier, else where it took off.
+  function stationDist(v) {
+    if (v.dl && Number.isFinite(v.dl.dist)) return v.dl.dist; // (the link's own, once the bays' link check runs)
+    const C = v.carrier, at = C && !C.dead ? C : v.dl && v.dl.at0;
+    return at ? Math.hypot(v.x - at.x, v.y - at.y, v.z - at.z) : 0;
+  }
+  // The link in words for the chase view's row ("92%", "WEAK", "LOST", "Fibre 3.1/5.0 km", "JAMMED"), and for the OSD
+  // (bars, the reach, JAM, LAG, FIBRE); bad: shown red.
+  function linkState(v) {
+    const dl = v.dl || {}, q = dl.q == null ? 1 : dl.q, L = linkOf(v), d = stationDist(v);
+    const fibre = !!L && L.kind === 'fibre', jam = !!dl.jam, lost = !!dl.lost || !!dl.snapped;
+    const text = dl.snapped ? 'Fibre cut' : lost ? 'LOST' : jam ? 'JAMMED' : fibre ? `Fibre ${(d / 1000).toFixed(1)}/${(L.range / 1000).toFixed(1)} km` : q < 0.4 ? 'WEAK' : `${Math.round(q * 100)}%`;
+    const bars = '▂▄▆█'.slice(0, lost ? 0 : clamp(Math.ceil(q * 4), 1, 4)).padEnd(4, '·');
+    const osd = `LINK ${bars} ${lost ? (dl.snapped ? 'CUT' : 'LOST') : fibre ? `FIBRE ${(d / 1000).toFixed(1)}/${(L.range / 1000).toFixed(1)} km` : `${Math.round(q * 100)}% ${km(d)}`}${jam ? ' JAM' : ''}${L && L.kind === 'sat' ? ' LAG' : ''}`;
+    return { q, text, osd, bad: lost || jam || q < 0.4, jam };
+  }
+  // The enemy drones our jammers hold (the combat section counts them: hud.jamN), for the JAM chip
+  function jamN(F) { return hud.jamN | 0; }
+  // A Level multirotor's climb lever in words, on two short lines (the throttle box's column keeps its width): ▲ climbing
+  // at (m/s), ▼ descending at, else the height it holds over the ground
+  function leverText(v) {
+    const z = (v.ctl && v.ctl.z) || 0, vs = v.vSpeed(), dl = v.dl || {};
+    if (v.landed && z <= 0) return 'LANDED';
+    if (z > 0.02) return `▲ m/s\n${Math.abs(vs).toFixed(1)}`;
+    if (z < -0.02) return `▼ m/s\n${Math.abs(vs).toFixed(1)}`;
+    return `HOLD\n${Math.round(dl.hold != null ? dl.hold : 0)} m`;
+  }
+  // The flight's first hint (the chase view's #hint; FPV hides it): how a drone flies, for its first 15 s alone
+  function help(F) {
+    const v = F && F.active;
+    if (!v || v.kind !== 'drone' || F.time > 15 || F.mp) return '';
+    const k = (id) => Keys.k(id), T = typeof Controls !== 'undefined' && Controls.touch;
+    if (v.aircraft) return T ? 'The stick banks and dives it; let go and it flies straight and level. The throttle box is its speed.' : `${k('left')}/${k('right')} bank it, ${k('fwd')} dives; let go and it flies level. ${k('thrUp')}/${k('thrDown')}: throttle.`;
+    if (v.sas === 'acro') return T ? 'Acro: the stick turns it, nothing levels it; the throttle box is the throttle.' : `Acro: the keys turn it, nothing levels it; ${k('thrUp')}/${k('thrDown')} throttle. ${k('dLevel')}: back to Level.`;
+    return T ? 'Drag the throttle box up to climb. The stick flies it; let go and it stops and hovers.' : `Hold ${k('thrUp')} to climb. ${k('fwd')}/${k('back')} fly it, ${k('left')}/${k('right')} turn; let go and it stops and hovers. ${k('dView')}: the view.`;
+  }
+  // The impact view (the combat section calls it when the active drone's warhead goes off): the camera hangs 12 m back
+  // along the way it flew and 4 m up, looking at the blast, for IMPACT s; the HUD's controls fade (body.impactcam)
+  function impactView(F, v, at) {
+    if (!F || !v) return;
+    const sp = v.speed() || 1, r = v.radius() || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    F.impactCam = { at: { x: v.x - (v.vx / sp) * 12 + ux * 4, y: v.y - (v.vy / sp) * 12 + uy * 4, z: v.z - (v.vz / sp) * 12 + uz * 4 },
+      look: { x: at ? at.x : v.x, y: at ? at.y : v.y, z: at ? at.z : v.z }, until: F.time + DRONE.IMPACT, t0: F.time };
+    if (typeof document !== 'undefined' && document.body) document.body.classList.add('impactcam');
+  }
+
+  // ---------------------------------------------------------------- the OSD
+  // White 13 px bold mono with a dark edge. Where its blocks go is looked up once a second from the panels on show (the
+  // buttons top right, the time warp, the JAM chip, the warning's scope and lines, the mode pad, the weapon box, the
+  // throttle box, the stick, the alert line, the key hints): the status block left under the top's panels (and under a
+  // warning receiver's or radar's scope when there is one), the mode in the middle on the same line, the flight line over
+  // the mode pad and the weapon box. The words are drawn into small cached canvases ten times a second when they change;
+  // each frame draws those, the cross and the horizon (≤ 40 canvas calls). Static only while the link is weak, at a
+  // launch's cut or a loss.
+  const O = { at: -1e9, W: 0, H: 0, P: null, blocks: {}, noise: null, pat: null, patCtx: null, lostAt: null, wasLost: false, calls: 0 };
+  function rectOf(q) {
+    const e = typeof q === 'string' ? document.querySelector(q) : q;
+    if (!e || e.hidden) return null;
+    const r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null;
+  }
+  const meets = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
+  // the first place for a w × h block at x (left edge), from y down (dir 1) or up (dir −1), clear of every blocker
+  function clearAt(x, y, w, h, B, dir, H) {
+    for (let i = 0; i < 12; i++) {
+      const a = { l: x, t: y, r: x + w, b: y + h }, hit = B.filter((b) => meets(a, b));
+      if (!hit.length) return y;
+      y = dir > 0 ? Math.max(...hit.map((b) => b.b)) + 6 : Math.min(...hit.map((b) => b.t)) - 6 - h;
+      if (y < 0 || y + h > H) break;
+    }
+    return y;
+  }
+  // the first place for a w × h block centred on cx at y, else slid sideways (no further than 12 px from the edges) to clear
+  // what it meets; null when neither does
+  function clearX(cx, y, w, h, B, W) {
+    let x = Math.round(cx - w / 2);
+    for (let i = 0; i < 4; i++) {
+      const a = { l: x, t: y, r: x + w, b: y + h }, hit = B.filter((b) => meets(a, b));
+      if (!hit.length) return x;
+      const b = hit[0], left = b.l - 6 - w, right = b.r + 6;
+      x = Math.abs(left - x) <= Math.abs(right - x) && left >= 12 ? left : right + w <= W - 12 ? right : left;
+      if (x < 12 || x + w > W - 12) return null;
+    }
+    return null;
+  }
+  function placeOSD(W, H, F) {
+    const now = performance.now(), rb = Combat.S.rwrBox;
+    const rk = `${rb ? `${rb.x}|${rb.y}|${rb.R}|${rb.ty}|${rb.lines || 1}` : ''}|${O.fw}|${O.sw}|${O.mw}`;
+    if (O.P && now - O.at < 1000 && O.W === W && O.H === H && O.rk === rk) return O.P;
+    O.at = now; O.W = W; O.H = H; O.rk = rk;
+    const touch = typeof Controls !== 'undefined' && Controls.touch, tr = rectOf('#flight-ui .flight-top-right'), warp = rectOf('#warp'), jam = rectOf('#jam-chip');
+    const top = [tr, warp, jam, rectOf('#mp-bar'), rectOf('#gai-bar'), rectOf('#flight-alert')].filter(Boolean);
+    if (rb) {
+      top.push({ l: rb.x - rb.R, r: rb.x + rb.R, t: rb.y - rb.R, b: rb.y + rb.R + (rb.lines === 2 ? 28 : 14) });
+      if (rb.ty != null && Combat.S.rwr > 1) top.push({ l: W / 2 - 150, r: W / 2 + 150, t: rb.ty - 22, b: rb.ty + 44 }); // (the warning's lines)
+    }
+    const bottom = ['#sas-bar', '#weapon-box', '#flight-ui .throttle-box', '#flight-ui .left-controls', '#key-hints', '#hint', '#flight-ui .roll-btns', '#joy-zone'].map(rectOf).filter(Boolean);
+    const all = top.concat(bottom), y0 = touch && tr ? tr.b + 8 : 10;
+    const sw = O.sw || 160, sh = 3 * 17 + 4, mw = O.mw || 100, mh = 2 * 17 + 4;
+    const sy = clearAt(12, y0, sw, sh, all, 1, H);
+    const mx = Math.round(W / 2 - mw / 2), my = clearAt(mx, y0, mw, mh, all.concat([{ l: 12, t: sy, r: 12 + sw, b: sy + sh }]), 1, H);
+    const sas = rectOf('#sas-bar'), wb = rectOf('#weapon-box'), fy0 = Math.min(sas ? sas.t : H, wb ? wb.t : H) - 12 - 17, fw = O.fw || 200;
+    let fx = clearX(W / 2, fy0, fw, 17, all, W), fy = fy0; // (centred over the pad and the weapon box; slid aside, else up, to clear the throttle)
+    if (fx == null) { fx = Math.round(W / 2 - fw / 2); fy = clearAt(fx, fy0, fw, 17, all, -1, H); }
+    const zw = 84, zh = 30, zx = W - 12 - zw, zy = clearAt(zx, fy - zh - 10, zw, zh, all, -1, H);
+    O.P = { s: { x: 12, y: sy, w: sw, h: sh }, m: { x: mx, y: my, w: mw, h: mh }, f: { x: fx, y: fy, w: fw, h: 17 }, z: { x: zx, y: zy, w: zw, h: zh } };
+    return O.P;
+  }
+  // a block of lines ([text, colour]) drawn into its own small canvas, again only when its words change
+  function block(id, lines, w, align, dpr) {
+    const key = lines.map((l) => l[0] + l[1]).join('|') + dpr + w;
+    let B = O.blocks[id];
+    if (B && B.key === key) return B.c;
+    if (!B) B = O.blocks[id] = { c: document.createElement('canvas'), key: '' };
+    B.key = key;
+    const c = B.c, h = lines.length * 17 + 4;
+    if (c.width !== Math.ceil(w * dpr) || c.height !== Math.ceil(h * dpr)) { c.width = Math.ceil(w * dpr); c.height = Math.ceil(h * dpr); }
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    g.font = OSDF; g.textAlign = align; g.textBaseline = 'top'; g.lineWidth = 3; g.lineJoin = 'round'; g.strokeStyle = EDGE;
+    const x = align === 'center' ? w / 2 : align === 'right' ? w - 2 : 2;
+    lines.forEach(([t, col], i) => { if (!t) return; g.strokeText(t, x, 2 + i * 17); g.fillStyle = col; g.fillText(t, x, 2 + i * 17); });
+    return c;
+  }
+  // the status block's, the mode's and the flight line's words (10 Hz)
+  function words(v, F) {
+    const dl = v.dl || {}, B = batt(v, F), L = linkState(v), blink = Math.floor(F.time * 2.5) % 2 === 0;
+    const st = [[`BAT ${B.text}`, B.q <= DRONE.BATT.CRIT ? (blink ? RED : 'rgba(255,93,93,0.35)') : B.q <= DRONE.BATT.WARN ? AMBER : WHITE], [L.osd, L.bad ? RED : WHITE]];
+    const C = v.carrier;
+    if (C) {
+      const hp = C.dead ? 0 : Math.round((typeof Combat !== 'undefined' ? Combat.integrity(C) : 1) * 100), d = Math.hypot(v.x - C.x, v.y - C.y, v.z - C.z);
+      st.push([`TANK ${hp}% · ${km(d)}`, F.time - hud.hitAt < 3 || F.carrierDown ? RED : WHITE]);
+    }
+    const last = F.carrierDown && Number.isFinite(dl.lastEnd) ? `LAST FLIGHT ${clock(dl.lastEnd - F.time)}` : null;
+    const mode = dl.lost ? 'LINK LOST' : last || (dl.mode === 'home' ? 'HOME' : dl.mode === 'land' || dl.autoLand ? 'LAND' : v.sas === 'acro' ? 'ACRO' : 'LEVEL');
+    const m = [[mode, dl.lost || last ? RED : WHITE]];
+    if (v.dr && v.dr.warheads.length) m.push(dl.arm ? ['ARMED', RED] : ['SAFE', GREY]);
+    const agl = Math.max(0, v.altitude() - v.groundHeight()), vs = v.vSpeed();
+    const fl = [[`ALT ${Math.round(agl)} m · ${Math.round(v.speed() * 3.6)} km/h · ${vs >= 0 ? '▲' : '▼'}${Math.abs(vs).toFixed(1)}`, WHITE]];
+    // (the flight line as wide as its words, in 20 px steps: placed again when it grows past its place)
+    const g = O.mg || (O.mg = document.createElement('canvas').getContext('2d'));
+    g.font = OSDF;
+    const wide = (L) => Math.ceil((Math.max(...L.map((l) => g.measureText(l[0]).width)) + 10) / 20) * 20;
+    const fw = wide(fl), sw = wide(st), mw = wide(m);
+    if (fw > (O.fw || 0)) O.fw = fw;
+    if (sw > (O.sw || 0)) O.sw = sw;
+    if (mw > (O.mw || 0)) O.mw = mw;
+    return { st, m, fl };
+  }
+  // the noise: one 128 × 128 canvas, made once, drawn as a pattern at a new offset each frame
+  function noisePat(ctx) {
+    if (!O.noise) {
+      const c = O.noise = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d'), img = g.createImageData(128, 128), d = img.data;
+      for (let i = 0; i < d.length; i += 4) { const n = Math.random() * 255; d[i] = d[i + 1] = d[i + 2] = n; d[i + 3] = 255; }
+      g.putImageData(img, 0, 0);
+    }
+    if (O.patCtx !== ctx) { O.pat = ctx.createPattern(O.noise, 'repeat'); O.patCtx = ctx; }
+    return O.pat;
+  }
+  // how much static: the link's (q under 0.6), a launch's cut (0.35 s), a loss (1.2 s); NO SIGNAL at q 0
+  function staticK(v, F) {
+    const dl = v.dl || {}, q = dl.q == null ? 1 : dl.q, t = F.time;
+    if (dl.lost && !O.wasLost) O.lostAt = t;
+    O.wasLost = !!dl.lost;
+    const pulse = Math.max(F.dronePulse != null ? F.dronePulse : -1e9, hud.pulse);
+    let a = q < 0.6 ? (0.9 * (0.6 - q)) / 0.6 : 0;
+    if (t - pulse >= 0 && t - pulse < 0.35) a = Math.max(a, 0.9 * (1 - (t - pulse) / 0.35));
+    if (O.lostAt != null && t - O.lostAt >= 0 && t - O.lostAt < 1.2) a = Math.max(a, 0.9 * (1 - (t - O.lostAt) / 1.2));
+    return { a, none: q <= 0 || !!dl.snapped };
+  }
+  function drawOSD(ctx, W, H, dpr, F) {
+    O.calls = 0;
+    if (F.impactCam) { // (the impact view: IMPACT and the shot's result, large in the middle; then gone)
+      if (!(F.time < F.impactCam.until)) { if (F.clearImpact) F.clearImpact(); return; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const sh = typeof Armour !== 'undefined' && Armour.fb.shot && Armour.fb.shot.t >= F.impactCam.t0 - 0.5 ? Armour.fb.shot : null;
+      const R = sh && typeof GHUD !== 'undefined' && GHUD.resultText ? GHUD.resultText(sh) : null;
+      ctx.drawImage(block('imp', [['IMPACT', WHITE], [R ? R[0].toUpperCase() : '', R ? R[1] : WHITE]], 360, 'center', dpr), W / 2 - 180, H * 0.32);
+      return;
+    }
+    const v = F.active;
+    hud.zoomBox = null;
+    if (!v || v.kind !== 'drone' || !F.fpv || F.destroyed || F.mapMode) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const P = placeOSD(W, H, F), cx = W / 2, cy = H / 2;
+    // the static first (under the words)
+    const S0 = staticK(v, F);
+    if (S0.a > 0.01) {
+      const ox = Math.floor(Math.random() * 128), oy = Math.floor(Math.random() * 128);
+      ctx.globalAlpha = S0.a; ctx.fillStyle = noisePat(ctx);
+      ctx.setTransform(dpr, 0, 0, dpr, ox * dpr, oy * dpr); ctx.fillRect(-ox, -oy, W, H); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      for (let i = 0, n = 1 + Math.floor(Math.random() * 3); i < n; i++) ctx.fillRect(0, Math.random() * H, W, 2 + Math.random() * 6);
+      ctx.globalAlpha = 1;
+      if (S0.none) ctx.drawImage(block('nosig', [['NO SIGNAL', WHITE]], 160, 'center', dpr), cx - 80, cy - 40);
+      O.calls += 6;
+    }
+    // the cross and the horizon, every frame: one path, a dark edge under a white line
+    const A = Render3D.fpvCam && Render3D.fpvCam(), r = v.radius() || 1, nx = v.x / r, ny = v.y / r, nz = v.z / r;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy); ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy + 12);
+    const level = Settings.get('droneView') === 'fpvLevel' && !(v.dr.cam && v.dr.cam.def.drone.cam.gimbal);
+    if (A) {
+      const D = A.D, U = A.U, Rx = D.y * U.z - D.z * U.y, Ry = D.z * U.x - D.x * U.z, Rz = D.x * U.y - D.y * U.x; // (the camera's right)
+      const el = Math.asin(clamp(D.x * nx + D.y * ny + D.z * nz, -1, 1)), sx = Rx * nx + Ry * ny + Rz * nz, sy = U.x * nx + U.y * ny + U.z * nz, h = Math.hypot(sx, sy);
+      if (h > 0.05 && Math.abs(el) < 1.4) {
+        const f = H / 2 / Math.tan((fov(v, F) * Math.PI) / 360), a = -f * Math.tan(el), ex = sx / h, ey = sy / h, hx = cx + a * ex, hy = cy - a * ey, L = W * 0.4;
+        ctx.moveTo(hx - ey * L, hy - ex * L); ctx.lineTo(hx + ey * L, hy + ex * L);
+      }
+    }
+    if (level) { // (the horizon held level: the drone's bank as a tick on an arc at the top)
+      const b = clamp(v.attitude().bank, -1.2, 1.2), ay = P.m.y + P.m.h + 40, R0 = 70;
+      ctx.moveTo(cx + R0 * Math.sin(-0.8), ay - R0 * Math.cos(-0.8)); ctx.arc(cx, ay, R0, -Math.PI / 2 - 0.8, -Math.PI / 2 + 0.8);
+      ctx.moveTo(cx + (R0 - 8) * Math.sin(b), ay - (R0 - 8) * Math.cos(b)); ctx.lineTo(cx + (R0 + 4) * Math.sin(b), ay - (R0 + 4) * Math.cos(b));
+    }
+    ctx.lineCap = 'round'; ctx.strokeStyle = EDGE; ctx.lineWidth = 3.5; ctx.stroke();
+    ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.stroke();
+    O.calls += 13;
+    // thermal: vehicles within the camera's reach as bright boxes, through smoke (a gimbal's)
+    const cam = v.dr.cam.def.drone.cam;
+    if (cam.gimbal && F.gim && F.gim.thermal) {
+      const bp = bodyPos(v.body, F.time), spot = cam.spot || 3000, list = [];
+      for (const o of F.vessels) {
+        if (o === v || o.dead || o.isDebris || !o.parts.length || o.kind === 'drone' || !(isGround(o.kind) || o.gv || (o.gear && o.gear.length))) continue;
+        const d = Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z);
+        if (d < spot) list.push([d, o]);
+      }
+      list.sort((a, b) => a[0] - b[0]);
+      ctx.beginPath();
+      for (const [d, o] of list.slice(0, 8)) {
+        const p = Render3D.project(bp.x + o.x, bp.y + o.y, o.z);
+        if (p.behind) continue;
+        const s = clamp((Math.max(o.bounds.maxX - o.bounds.minX, 3) * (H / 2)) / Math.tan((fov(v, F) * Math.PI) / 360) / Math.max(d, 1) / 2, 6, 120);
+        ctx.rect(p.x - s, p.y - s * 0.6, 2 * s, 1.2 * s);
+      }
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff6c8'; ctx.stroke();
+      O.calls += 4 + Math.min(8, list.length);
+    }
+    // the words: cached, redrawn ten times a second when they change
+    if (!O.w || F.time - O.wt >= 0.1 || F.time < O.wt) { O.w = words(v, F); O.wt = F.time; }
+    ctx.drawImage(block('st', O.w.st, P.s.w, 'left', dpr), P.s.x, P.s.y);
+    ctx.drawImage(block('m', O.w.m, P.m.w, 'center', dpr), P.m.x, P.m.y);
+    ctx.drawImage(block('fl', O.w.fl, P.f.w, 'center', dpr), P.f.x, P.f.y);
+    O.last = P; // (where the blocks went this frame: the tests read it)
+    O.calls += 3;
+    // the ZOOM pill (a gimbal, touch): tap steps the zoom, hold for thermal
+    if (cam.gimbal && Controls.touch) {
+      const z = P.z, g = F.gim || { zoom: 0 }, t = `ZOOM ×${[1, 4, 12][g.zoom] || 1}${g.thermal ? ' · TH' : ''}`;
+      ctx.drawImage(pill(t, z.w, z.h, dpr), z.x, z.y);
+      hud.zoomBox = z;
+      O.calls += 1;
+    }
+  }
+  function pill(t, w, h, dpr) {
+    const key = t + dpr;
+    let B = O.blocks.pill;
+    if (B && B.key === key) return B.c;
+    if (!B) B = O.blocks.pill = { c: document.createElement('canvas'), key: '' };
+    B.key = key;
+    const c = B.c; c.width = Math.ceil(w * dpr); c.height = Math.ceil(h * dpr);
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = 'rgba(8, 13, 24, 0.6)'; g.strokeStyle = 'rgba(255, 255, 255, 0.7)'; g.lineWidth = 1;
+    g.beginPath(); g.roundRect ? g.roundRect(0.5, 0.5, w - 1, h - 1, h / 2) : g.rect(0.5, 0.5, w - 1, h - 1); g.fill(); g.stroke();
+    g.font = '700 12px "Chakra Petch", ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = WHITE; g.fillText(t, w / 2, h / 2 + 1);
+    return c;
+  }
+  // A tap on the view in FPV (flight.js): the ZOOM pill's (a tap steps the zoom round, a press over 0.5 s is thermal);
+  // true when it was on the pill
+  function tap(F, x, y, held) {
+    const z = hud.zoomBox;
+    if (!z || x < z.x || x > z.x + z.w || y < z.y || y > z.y + z.h || !F.gimbalOn || !F.gimbalOn()) return false;
+    if (held >= 500) F.gimbalThermal();
+    else F.gimbalZoom(F.gim.zoom >= 2 ? -2 : 1);
+    if (typeof haptic === 'function') haptic(10);
+    return true;
+  }
   function drawMarks(ctx, W, H, dpr, F) {}
   function alarm(F) {}
-  function help(F) { return null; }
 
   // ================================================================ bays (the key, launch, back, Home, Land, docking, a
   // lost drone, LAST FLIGHT, saves)
@@ -460,7 +771,7 @@ const Drone = (() => {
     // AI
     spawnAI, aiSteer,
     // HUD
-    drawOSD, drawMarks, alarm, help,
+    drawOSD, drawMarks, alarm, help, fov, left, batt, linkState, jamN, leverText, impactView, tap, hud, _osd: O,
     // helpers
     isDrone, fcOf, linkOf, charge, list, hframe,
   };

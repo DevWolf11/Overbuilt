@@ -194,6 +194,24 @@ const Sound = {
     this.burst(1.8, 140, 1.1 * k);
     this.burst(0.35, 600, 0.4 * k, 'bandpass');
   },
+  // (the big update's drones) A hostile drone's buzz: one band-passed noise loop, made on first use, its gain the level
+  // asked (0 stops it: drone.js asks 0.05·(1 − d/250) while one is within 250 m); and a detector's chirp on a new contact
+  // (900 then 1200 Hz, 80 ms each)
+  buzz(level) {
+    if (!this.ctx) return;
+    const k = clamp(+level || 0, 0, 0.2);
+    if (!this.buzzG) {
+      if (!(k > 0)) return;
+      const ctx = this.ctx, src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 6;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(f); f.connect(g); g.connect(this.master); src.start(0, Math.random() * 1.5);
+      this.buzzG = g; this.buzzF = f;
+    }
+    this.glide('bz', this.buzzG.gain, k, 0.1, 1e-4);
+    this.glide('bf', this.buzzF.frequency, 380 + 400 * (k / 0.05), 0.2, 2);
+  },
+  chirp() { this.tone(900, 0.08, 0.06); setTimeout(() => this.tone(1200, 0.08, 0.06), 80); },
   chime() {
     if (!this.ctx) return;
     this.oneOff(0.9);

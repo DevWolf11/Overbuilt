@@ -250,6 +250,8 @@
       <div id="row-crew" hidden><dt>Crew</dt><dd id="t-crew">0/0</dd></div>
       <div id="row-dmg" hidden><dt>Damage</dt><dd id="t-dmg">0%</dd></div>
       <div id="row-g" class="gh" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
+      <div id="row-batt" hidden><dt>Battery</dt><dd id="t-batt">100%</dd></div>
+      <div id="row-link" hidden><dt>Link</dt><dd id="t-link">100%</dd></div>
       <div class="gh"><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
       <div class="orbit-row"><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
@@ -265,6 +267,9 @@
     <button id="warp-label" class="warp-label" aria-label="Reset time warp">1×</button>
     <button id="warp-up" class="btn icon-only" data-icon="ff" aria-label="Faster time warp"></button>
   </div>
+
+  <!-- a jammer's owner (the big update): an enemy drone inside its radio radius -->
+  <div id="jam-chip" class="chip jam-chip" role="status" hidden>JAM</div>
 
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
@@ -307,6 +312,13 @@
       <button class="sas-btn" data-sas="heading" data-plane="1" data-icon="sasHeading" aria-label="Hold heading and altitude" title="Heading (3)" data-k="apHeading" data-tip="Heading ({k})" hidden></button>
       <button class="sas-btn" data-sas="off" data-plane="1" data-icon="sasOff" aria-label="Autopilot off" title="Off (4)" data-k="apOff" data-tip="Off ({k})" hidden></button>
       <button class="sas-btn" data-sas="aim" data-plane="1" data-icon="sasAim" aria-label="Aim: the plane flies to the circle" title="Aim (5)" data-k="apAim" data-tip="Aim ({k})" hidden></button>
+      <!-- a drone's mode pad (the big update): Level, Acro, the view, Home, Land, and Tank for a drone from a bay -->
+      <button class="sas-btn" data-sas="hold" data-drone="1" data-icon="sasLevel" aria-label="Level: stops and holds its height" title="Level (1)" data-k="dLevel" data-tip="Level ({k})" data-aria="Level: stops and holds its height ({k})" hidden></button>
+      <button class="sas-btn" data-sas="acro" data-drone="1" data-icon="sasAcro" aria-label="Acro: no self-levelling" title="Acro (2)" data-k="dAcro" data-tip="Acro ({k})" data-aria="Acro: no self-levelling ({k})" hidden></button>
+      <button class="sas-btn" data-dact="view" data-drone="1" data-icon="eye" aria-label="First-person or chase view" title="View (H)" data-k="dView" data-tip="FPV or chase view ({k})" data-aria="First-person or chase view ({k})" hidden></button>
+      <button class="sas-btn" data-dact="home" data-drone="1" data-icon="home" aria-label="Fly home" title="Home (3)" data-k="dHome" data-tip="Home ({k})" data-aria="Fly home ({k})" hidden></button>
+      <button class="sas-btn" data-dact="land" data-drone="1" data-icon="landPad" aria-label="Land here" title="Land (4)" data-k="dLand" data-tip="Land ({k})" data-aria="Land here ({k})" hidden></button>
+      <button class="sas-btn" data-dact="back" data-drone="bay" data-icon="tank" aria-label="Back to the tank" title="Tank (U)" data-k="drone" data-tip="Back to the tank ({k})" data-aria="Back to the tank ({k})" hidden></button>
     </div>
     <!-- a desktop (no touch controls): the keys for the craft and mode at hand, from the current bindings -->
     <div id="key-hints" class="key-hints panel"><button id="key-hints-toggle" class="kh-head" type="button" aria-expanded="true" aria-controls="key-hints-list">Keys ▾</button><div id="key-hints-list" class="kh-list"></div></div>
@@ -334,6 +346,7 @@
   <button id="btn-lock" class="round gbtn g-lock" hidden aria-label="Radar lock (L)" title="Radar lock (L)" aria-pressed="false" data-k="lock" data-tip="Radar lock ({k})" data-aria="Radar lock ({k})">Lock</button>
   <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder, or the commander's reading)" data-k="zero" data-tip="Sight's range ({k}: from the rangefinder, or the commander's reading)">Zero 800 m</button>
   <div id="ammo-stack" class="ammo-stack" role="group" aria-label="Shells" hidden></div>
+  <button id="btn-drone" class="round gbtn g-drone" hidden data-k="drone" title="Launch a drone (U)" data-tip="Launch a drone ({k})" aria-label="Launch a drone (U)" data-aria="Launch a drone ({k})">DRONE<span class="badge">×3</span></button>
   <canvas id="gmap" class="gmap" hidden aria-label="Minimap: tap for the tactical map"></canvas>
   <div id="gtac" class="gtac" hidden>
     <canvas id="gtac-canvas" class="gtac-canvas" aria-label="Tactical map"></canvas>

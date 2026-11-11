@@ -50,9 +50,9 @@ The keys below are the defaults: **Settings → Keys** rebinds any of them (two 
 | --- | --- | --- |
 | Pitch (cars and Armour: drive forward / back) | `W` / `S` or `↑` / `↓`; `W` is nose down | Push the stick forward / back |
 | Rockets: turn · planes and helicopters: roll · cars and Armour: steer (tracks turn on the spot) | `A` / `D` or `←` / `→` | Push the stick left / right |
-| Rockets: roll · planes and helicopters: yaw | `Q` / `E` | Hold the ⟲ ⟳ buttons |
+| Rockets: roll · planes and helicopters: yaw · drones: slide | `Q` / `E` | Hold the ⟲ ⟳ buttons |
 | Brake on wheels, air brakes | Hold `B` | Hold Brake |
-| Throttle | `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
+| Throttle (drones: climb / descend) | `Shift` / `Ctrl`; `Z` full, `X` cut | Drag the throttle bar; Max / Cut |
 | Next stage | `Space` | STAGE button |
 | Autopilot | `1` hold · `2` prograde · `3` retrograde · `4` radial out · `5` radial in · `6` target | Autopilot buttons above the rotate controls |
 | Plane autopilot | `1` hold attitude · `2` level (holds altitude-ish) · `3` heading (`A` / `D` turn it) · `4` off (you fly it: the stick asks for g, it stays trimmed and stops rolling when you let go) · `5` aim | Autopilot buttons |
@@ -79,6 +79,14 @@ The keys below are the defaults: **Settings → Keys** rebinds any of them (two 
 | Spot an enemy · tactical map | `J` (the one under the crosshair, for your team) · `M` (tap it to ping, or to set a rocket-artillery strike; `Esc` shuts it; its Globe button opens the old map) | Hold its tag · tap MAP or the minimap |
 | Look round · sight's range (Realistic aim) | Hold `C` (the turret holds; a tap aims straight ahead) · `Y` sets it from the rangefinder (or the commander's reading); `PgUp` / `PgDn` step it 100 m (or, with the mouse free, the wheel at the sight's right edge) | Tap Zero (with a rangefinder, its range; without, the commander's reading first, then 100 m steps) |
 | Menu · recover | `Esc` (it also lets the mouse go) or `P` · `R` when stopped | Menu button · Recover |
+| Launch a drone · back to the tank | `U` (a Drone Rack, Hangar or Launch Tubes aboard) · `U` again: back to the tank | DRONE · Tank on the drone's pad |
+| **Drones** | | |
+| Fly | Level: `W` / `S` forward and back (let go: it stops and hovers), `A` / `D` turn, `Q` / `E` slide (Settings → Drone stick: Tilt swaps turning and sliding) · Acro: `W` / `S` pitch, `A` / `D` roll, `Q` / `E` yaw · winged drones bank to turn | The stick · hold ◀ ▶ |
+| Climb / descend (Level) · throttle (Acro, winged) | `Shift` / `Ctrl` (let go: it holds the height) · `Shift` / `Ctrl`, `Z` full, `X` cut | The throttle box is the climb lever: drag up or down, it springs back to hold (▲ ▼ hold too) · in Acro it is the throttle |
+| Level · Acro | `1` (stops and holds its height when you let go) · `2` (no self-levelling; the throttle is yours) | Level · Acro on the drone's pad |
+| Home · land | `3` (to its bay, or where it took off) · `4` (here) | Home · Land |
+| First-person (FPV) or chase view | `H` (Settings → Drone view: first person, first person with a level horizon, or chase) | The eye on the pad |
+| Gimbal camera: look round · zoom · thermal | Hold `C` and move the mouse, or hold the right button (a tap of `C` centres it) · the wheel (1×, 4×, 12×) · `J` | Drag the view (double-tap centres it) · tap ZOOM · hold ZOOM |
 | **Your controls** | | |
 | Rebind keys | Settings → Keys (or Keys in the pause menu): tap a key, press the new one; `Esc` cancels, `Backspace` clears; a key another action uses asks to swap or clear it there; ↺ resets one, Reset all keys every one | |
 | Move, size and fade the touch controls | Settings → Edit controls | Settings → Edit controls, or Edit controls in the pause menu: drag any control, size and fade it, it snaps to the edges; saved separately for portrait and landscape, and for Armour |
