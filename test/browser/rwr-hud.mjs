@@ -28,6 +28,15 @@ const layout = () => {
     text: B && { l: innerWidth / 2 - 150, t: B.ty - 22, r: innerWidth / 2 + 150, b: B.ty + 44 },
     panels: { telemetry: rect('#flight-ui .telemetry'), controls: rect('#flight-ui .left-controls'), bar: rect('#mp-bar') } };
 };
+// (the place is looked up again once a second; the flight data grows as its rows fill in, and a slow first second in
+// software WebGL can hold frames back past a fixed wait: wait for a placement made with the panels as they are in flight,
+// i.e. a new place while the flight data and the room's bar are the size they were at the place before)
+const settled = () => {
+  const B = Combat.S.rwrBox, r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return ''; const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom].join(); };
+  const k = r('#flight-ui .telemetry') + '|' + r('#mp-bar') + '|' + r('#flight-ui .left-controls'), w = window.__rwrW || (window.__rwrW = { B: null, k: null, n: 0 });
+  if (B && B !== w.B) { w.n = k === w.k ? w.n + 1 : 0; w.B = B; w.k = k; }
+  return w.n >= 1;
+};
 const meets = (a, c) => !!a && !!c && a.l < c.r && a.r > c.l && a.t < c.b && a.b > c.t;
 function judge(tag, L) {
   const clash = [];
@@ -44,7 +53,7 @@ for (const [tag, vp] of [['phone portrait', [390, 844, true]], ['small phone', [
   await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
   await page.evaluate(threats);
   await page.waitForFunction(() => Combat.S.rwrBox, null, { timeout: 20000 });
-  await page.waitForTimeout(1300); // (the place is looked up again once a second: now with the panels as they are in flight)
+  await page.waitForFunction(settled, null, { timeout: 30000, polling: 100 }); // (the place is looked up again once a second: now with the panels as they are in flight)
   judge(tag, await page.evaluate(layout));
   await page.close();
 }
@@ -67,7 +76,7 @@ for (const [tag, vp] of [['phone portrait', [390, 844, true]], ['small phone', [
   await A.bringToFront();
   await A.evaluate(threats);
   await A.waitForFunction(() => Combat.S.rwrBox, null, { timeout: 20000 });
-  await A.waitForTimeout(1300);
+  await A.waitForFunction(settled, null, { timeout: 30000, polling: 100 });
   judge('in a room, on its side', await A.evaluate(layout));
 }
 ok('no page errors', !errs.length, errs.join('\n'));
