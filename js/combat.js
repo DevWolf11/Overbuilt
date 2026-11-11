@@ -214,9 +214,17 @@ const Combat = (() => {
     FX.explosion(b, at, { x: 0, y: 0, z: 0 }, clamp(blast / 5, 0.6, 9), air);
     if ((!quiet || blast > 10) && sim && sim.camAbs) { const c = sim.camAbs, bp = bodyPos(b, sim.time); if (len(bp.x + at.x - c.x, bp.y + at.y - c.y, (at.z || 0) - (c.z || 0)) < 6000) Sound.explode(); }
   }
-  // (he: the blast's penetration against armour; spare: a craft it leaves alone, a shell's own just after firing)
-  function explode(b, at, blast, dmg, by, sim, quiet, he, spare) {
-    boomFX(b, at, blast, quiet, sim);
+  // (the big update's drones) An airburst round's look (fx 'ab': the anti-drone gun bursts ten a second, so not today's
+  // fireball of 58 particles): one flash that lights nothing, four sparks and one grey puff, drawn from FX.rnd
+  function abFX(b, at) {
+    FX.add({ kind: 'flash', b, x: at.x, y: at.y, z: at.z, vx: 0, vy: 0, vz: 0, max: 0.08, size: 0.6, grow: 1.4, color: '#fff3c4', alpha: 1, nolight: true });
+    for (let i = 0; i < 4; i++) { const d = FX.dir(), k = 8 + 14 * FX.rnd(); FX.add({ kind: 'spark', b, x: at.x, y: at.y, z: at.z, vx: d.x * k, vy: d.y * k, vz: d.z * k, max: 0.2 + 0.25 * FX.rnd(), size: 0.12, grow: 0, color: '#ffd27a', alpha: 1 }); }
+    FX.add({ kind: 'smoke', b, x: at.x, y: at.y, z: at.z, vx: 0, vy: 0, vz: 0, max: 1.1 + 0.4 * FX.rnd(), size: 0.5, grow: 2.2, color: '#6e7279', alpha: 0.55, drag: 1.5, ease: 1 });
+  }
+  // (he: the blast's penetration against armour; spare: a craft it leaves alone, a shell's own just after firing;
+  // fx: its look, undefined today's, 'ab' an airburst round's)
+  function explode(b, at, blast, dmg, by, sim, quiet, he, spare, fx) {
+    if (fx === 'ab') abFX(b, at); else boomFX(b, at, blast, quiet, sim);
     // our own fire reaching someone else's craft goes to its owner as hits, one message per craft
     const mine = typeof MP !== 'undefined' && ours(by);
     if (mine && blast >= 8) MP.sendBoom(b, at, blast); // (for everyone to see)
@@ -408,6 +416,7 @@ const Combat = (() => {
       const rd = typeof Radar !== 'undefined' && Radar.mainRadar(v);
       s.act = w.active || 0; s.link = !!(rd && rd.R.guide >= 2);
     }
+    if (!A && w.heat) s.pen = w.heat; // (the big update: a drone's mini missile, a shaped charge on an optical ground seeker)
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) { if (w.glide) Sound.separate(); else Sound.missile(); }
@@ -421,6 +430,7 @@ const Combat = (() => {
     const ax = partAxis(p), dir = v.axis(ax.x, ax.y, 0);
     const s = { k: 'bomb', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx + down.x * 2, vy: v.vy + down.y * 2, vz: v.vz + down.z * 2,
       dx: dir.x, dy: dir.y, dz: dir.z, t: 0, life: 90, dmg: w.dmg, blast: w.blast, cluster: w.cluster || 0, torpedo: !!w.torpedo, owner: v };
+    if (w.he != null) s.he = w.he; // (the big update: a drone's grenades and bombs, their blast through armour)
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) Sound.separate();
@@ -591,6 +601,7 @@ const Combat = (() => {
     }
     if (w.kind === 'missile') launchMissile(v, nextStore(cur), S.lock, F);
     else if (w.kind === 'bomb') dropBomb(v, nextStore(cur), F);
+    else if (w.kind === 'warhead') Drone.detonate(v, F, null, null, null, 'fire'); // (a drone's warhead set off by hand, armed only: drone.js)
   }
   const noseDir = (v) => { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); };
   // A chaff cloud's reach around the target and its odds of fooling a radar (vr: the target's speed along the beam;
@@ -622,6 +633,7 @@ const Combat = (() => {
       for (const o of F.vessels) if (o !== v && !o.dead && isFighter(o) && !o.ai.down && o.control && !o.landed) out.push({ x: o.x, y: o.y, z: o.z, ref: o }); // (a bandit shot down, its pilot alive, is no target)
       for (const e of S.targets) if (e.alive && e.def.air) out.push({ ...e.pos, ref: e });
       for (const g of foes) if (g !== v && !g.landed && !isGround(g.kind)) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
+      if (S.dr && v) for (const d of Drone.threats(v, F)) if (!d.remote) out.push({ x: d.x, y: d.y, z: d.z, ref: d }); // (the big update: the drones hostile to v, its own side's never; a peer's drone ghost comes with foes)
     } else {
       for (const e of S.targets) if (e.alive && !e.def.air && (seek !== 'radar' || e.def.emitter)) { const c = targetCentre(e); out.push({ ...c, ref: e }); }
       if (seek !== 'radar') for (const g of foes) if (g !== v && !g.wreck && (g.landed || isGround(g.kind))) out.push({ x: g.x, y: g.y, z: g.z, ref: g });
@@ -691,6 +703,7 @@ const Combat = (() => {
       if (!g || g.dead || !g.parts.length || g.hiddenUntilSnap) continue;
       const foe = typeof Net !== 'undefined' && MP.enemy(Net.me, g.remote);
       for (const p of g.parts) {
+        if (p.def.cuas && p.gunOn) { Drone.netFire(g, p, h, F); continue; } // (the big update: an anti-drone gun or laser at work, for show)
         const w = p.def.weapon;
         if (!w || !(p.ammo > 0)) continue;
         if (w.kind === 'gun' && P.gun && P.gun[p.type]) fireGun(g, p, h, foe, F, true);
@@ -759,6 +772,12 @@ const Combat = (() => {
     if (s.k === 'missile' && s.target && !hit && !he && armed) {
       const tp = refPos(s.target);
       if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.blast * 0.45) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F, undefined, s.he, spare); return false; } }
+    }
+    // (the big update) an anti-drone gun's airburst round bursts as it passes within ab m of its drone (or on it), a
+    // light burst with no harm to armour (he 2): drone.js's gun fires them
+    if (s.ab && s.tgt && !s.net && (!hit || hv === s.tgt) && !he) {
+      const tp = refPos(s.tgt);
+      if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < s.ab) { explode(b, lerp3(a, e, ft), s.abR, s.abD, s.owner, F, true, 2, undefined, 'ab'); return false; } }
     }
     // the props that stop shells (props.js: houses, walls, rocks, containers...) stop every shot: bullets puff stone, wood,
     // earth or leaves, or spark off metal; rockets, missiles and bombs burst there with their usual blast (a copy of
@@ -1427,7 +1446,7 @@ const Combat = (() => {
     }
     for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
     for (const o of F.vessels) if (o.ai && !o.dead) {
-      if (o.ai.ground) continue; // (the ground AI: groundai.js runs it, and says when it goes)
+      if (o.ai.ground || o.ai.drone) continue; // (the ground AI: groundai.js runs it, and says when it goes; an AI drone is drone.js's, never flyFighter's)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;

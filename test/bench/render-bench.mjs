@@ -47,6 +47,10 @@ const SCENES = {
   highland: { key: 'tk34', place: HL, time: 'noon', what: 'arena mesh, props, shadow box, blobs', props: ['hl'] },
   battle: { key: 'tk34', place: HL, time: 'noon', what: 'particles, debris, lights, tracers, sorting', props: ['hl'], load: 'battle' },
   dogfight: { key: 'falcon', place: { ...LAND, air: { alt: 3000, speed: 200 } }, time: 'noon', what: 'trails, tracers, an air death', load: 'dogfight' },
+  // (the drone package, plan I8: an anti-drone gun's fight in Highland Ridge's street, judged as the battle scene is: two
+  // Bumbles hovering ahead, the last second of the gun's airburst rounds round them (10 a second, Combat.explode's 'ab'
+  // look; a tree without it draws today's full explosion for each), its tracers on their way and a laser's beam)
+  cuas: { key: 'tk34', place: HL, time: 'noon', what: 'airbursts (10 a second), tracers, a laser beam, two drones', props: ['hl'], load: 'cuas' },
   dusk: { key: 'falcon', time: 'dusk', what: 'fog in-scatter, sky, sunset colours' },
   hangar: { key: 'tk34', hangar: true, what: 'the hangar, byte for byte (a craft with no glass)' },
   // (the drone package: a stock drone (a drone template, else the Bumble FPV's rows) 20 m over a TK-34 in Highland Ridge's
@@ -62,7 +66,7 @@ const SCENES = {
   rangefight: { key: 'falcon', place: { e: 6000, z: 0, yaw: 0, air: { alt: 1500, speed: 200 } }, time: 'noon', what: 'a Hostile range fight: two bandits shot down (one burning), one crashing, the sim stepped', load: 'rangefight', sim: true, targets: 'hostile' },
   wrecks8: { key: 'tk34', place: HL, time: 'noon', what: 'eight knocked-out tanks in Highland Ridge (burning, smoking, wisps; baked), the sim stepped', props: ['hl'], pre: 'wrecks8', sim: true },
 };
-const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight'], SIM = ['rangefight', 'wrecks8'];
+const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'];
 const PROFILES = {
   phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true }, throttle: 4 },
   desktop: { context: { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 }, throttle: 1 },
@@ -269,6 +273,19 @@ const LOAD = `window.__load = (kind) => {
     for (let i = 0; i < 150; i++) { const g = (150 - i) / 60; trail({ x: P.x - w.x * g, y: P.y - w.y * g, z: P.z - w.z * g }, w, 4); }
     for (let i = 0; i < 100; i++) { const p = at(20 + i * 3.6, (i % 3) - 1, (i % 4) - 1.5); Combat.shots.push({ k: 'bullet', tracer: true, b, x: p.x, y: p.y, z: p.z, vx: v.vx + fw.x * 900, vy: v.vy + fw.y * 900, vz: v.vz + fw.z * 900 }); }
     death(at(600, 150, 0), 4, 'air');
+  } else if (kind === 'cuas') {
+    // two Bumbles hovering 150 and 180 m ahead (where the tree has drones); ten airburst rounds round them, 0.1 s apart
+    // (aged as they go), 20 tracers on their way from the tank, and a laser's beam on the first (where the tree draws one)
+    const d1 = at(150, -10, 25, true), d2 = at(180, 15, 30, true);
+    if (typeof Drone !== 'undefined' && typeof Drone.build === 'function') for (const P of [d1, d2]) {
+      const rows = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }],
+        ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }],
+        ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+      const d = Drone.build(rows, 'Bumble FPV'); d.q = { ...v.q }; d.x = P.x; d.y = P.y; d.z = P.z; d.body = b; d.landed = false; Flight.vessels.push(d);
+    }
+    for (let i = 0; i < 10; i++) { const D = i & 1 ? d2 : d1, o = [(i % 3) - 1, ((i >> 1) % 3) - 1, (i % 2) - 0.5]; Combat.explode(b, { x: D.x + o[0] * 2, y: D.y + o[1] * 2, z: D.z + o[2] * 2 }, 3, 0, null, Flight, true, 2, undefined, 'ab'); FX.update(0.1, Flight); }
+    tracers(20, 10, 150, -5, 8);
+    if (typeof Drone !== 'undefined' && Array.isArray(Drone.beams)) Drone.beams.push({ b, a: at(1, 0, 3), e: d1, col: [1, 0.25, 0.3], w: 0.06 });
   } else if (kind === 'rangefight') {
     // two bandits flying as we do, shot down (their cockpits; the kills ours): one 300 m ahead with an engine on fire,
     // one 400 m ahead and right, 40 m over the ground and diving at 60 m/s (it crashes in the frames measured)

@@ -158,7 +158,7 @@ const Flight = {
   stop() {
     this.running = false;
     this.setFpv(false, true); this.clearImpact();
-    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0);
+    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0);
     this.aimReset();
     this.syncAwake();
   },

@@ -149,7 +149,7 @@ function aimDep(parts, p, g) {
   const el0 = (a.el ? a.el[0] : 0) * AIM_RAD, el1 = (a.el ? a.el[1] : 0) * AIM_RAD;
   const own = !g || (!!a.trav && a.trav[1] - a.trav[0] > 40);
   const arc = a.trav ? [a.trav[0] * AIM_RAD, a.trav[1] * AIM_RAD] : !g && a.casemate ? [-a.casemate[0] * AIM_RAD, a.casemate[0] * AIM_RAD] : [0, 0];
-  const obs = parts.filter((q) => q !== p && !q.def.inner && !(g && (q === g.ring || g.ids.has(q.id)))).map(aimShape);
+  const obs = parts.filter((q) => q !== p && !q.def.inner && !q.def.cage && !(g && (q === g.ring || g.ids.has(q.id)))).map(aimShape); // (a roof cage's slats: no gun's arc changes under it)
   const T0 = aimPt(p, 0, -h / 2 + pv * h, v3()), P = v3(), N = 10, s = [];
   for (let i = 0; i < N; i++) s.push(L * (0.3 + (0.7 * i) / (N - 1)));
   const at = (psi, yaw, el, k) => {
@@ -302,7 +302,7 @@ const Aim = {
     if (res) return res;
     const mem = [], obs = [];
     for (const p of parts) {
-      if (p === R || p.def.inner) continue;
+      if (p === R || p.def.inner || p.def.cage) continue; // (a roof cage turns no ring's arc)
       const r = partRect(p);
       if (ids.has(p.id)) { if (r.b >= top - 0.05) mem.push(...aimFeet(p)); }
       else if (r.t > top + 0.05) obs.push(...aimFeet(p));
@@ -939,7 +939,7 @@ const Aim = {
       const fu = dx * ux + dy * uy + dz * uz, brg = Math.atan2(dx * sd.x + dy * sd.y + dz * sd.z - fu * (sd.x * ux + sd.y * uy + sd.z * uz), dx * f.x + dy * f.y + dz * f.z - fu * (f.x * ux + f.y * uy + f.z * uz));
       if (arc < TAU && (((brg - from) % TAU) + TAU) % TAU > arc) continue; // (the sweep hasn't passed it)
       const t = c.ref, tp = aimPos(t, aimTp);
-      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(t, tp, O)) continue;
+      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(t, tp, O, v)) continue;
       let B = S.blips.find((q) => q.ref === t);
       if (!B) S.blips.push((B = { ref: t }));
       B.a = brg; B.d = d; B.alt = Math.hypot(tp.x, tp.y, tp.z) - v.body.radius; B.t = now;
@@ -962,7 +962,7 @@ const Aim = {
       const t = T.lock, tp = aimPos(t, aimTp), d = tp ? Math.hypot(tp.x - O.x, tp.y - O.y, tp.z - O.z) : Infinity;
       if (d <= tr.range) {
         T.blockT = aimClear(v.body, O, tp, d) ? 0 : T.blockT + st;
-        T.notchT = aimNotch(t, tp, O) ? T.notchT + st : 0;
+        T.notchT = aimNotch(t, tp, O, v) ? T.notchT + st : 0;
         if (T.blockT <= 0.5 && T.notchT <= 1 && !Combat.chaffBreaks(v, t)) return;
       }
       T.lock = T.cand = null; T.lockT = 0;
@@ -978,7 +978,7 @@ const Aim = {
       const ang = Math.acos(clamp((dx * ax.x + dy * ax.y + dz * ax.z) / d, -1, 1));
       if (ang >= ba) continue;
       const tp = aimPos(c.ref, aimTp);
-      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(c.ref, tp, O) || this.smokeBlocks(O, tp)) continue;
+      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(c.ref, tp, O, v) || this.smokeBlocks(O, tp)) continue;
       ba = ang; best = c.ref;
     }
     if (best && best === T.cand) T.lockT += st; else { T.cand = best; T.lockT = 0; }
@@ -1020,7 +1020,7 @@ const Aim = {
     let clear;
     if (s && s.losAt != null && s.t - s.losAt < 0.25) clear = s.los;
     else { clear = aimClear(L.body, O, tp, d); if (s) { s.losAt = s.t; s.los = clear; } }
-    return !clear ? false : aimNotch(t, tp, O) ? 'notch' : true;
+    return !clear ? false : aimNotch(t, tp, O, L) ? 'notch' : true;
   },
 
   // ---- guidance (Phase 2C): Combat's guide hands these missiles over
@@ -1350,8 +1350,10 @@ function aimClear(b, o, p, d) {
   return true;
 }
 // a ground radar's clutter: an aircraft under 40 m over the ground moving under 40 m/s along the beam from o is lost in it
-function aimNotch(t, tp, o) {
+// (the big update: never a drone to radar L's vessel v with a working Drone Radar aboard, v.cdLow)
+function aimNotch(t, tp, o, v) {
   if (!t.parts || !t.groundAltitude) return false; // (a target drone flies high)
+  if (v && v.cdLow && t.kind === 'drone') return false;
   const dx = tp.x - o.x, dy = tp.y - o.y, dz = tp.z - o.z, d = Math.hypot(dx, dy, dz) || 1;
   return Math.abs((tp.vx * dx + tp.vy * dy + tp.vz * dz) / d) < 40 && t.groundAltitude() < 40;
 }

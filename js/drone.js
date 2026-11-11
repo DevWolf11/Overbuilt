@@ -727,7 +727,6 @@ const Drone = (() => {
     if (typeof haptic === 'function') haptic(10);
     return true;
   }
-  function drawMarks(ctx, W, H, dpr, F) {}
   // The carrier hit while its drone flies (Combat.damage's one line, a parked carrier; a room's hit message): the screen's
   // edge flashes red (#sight-vig.alarm, 0.6 s), a buzz, two low beeps, and for 3 s the alert line (alertText) and the
   // OSD's TANK line in red. Once every half second at most.
@@ -1230,23 +1229,502 @@ const Drone = (() => {
   }
 
   // ================================================================ combat (fuses and warheads, the counter-drone kit)
-  // (Combat.step, every physics substep while Combat.S.dr: fuses, docking, the anti-drone guns and lasers)
-  function step(h, F) {}
-  // (Combat.frame, every frame while Combat.S.dr: links, batteries' hand-backs, a carrier's LAST FLIGHT, clean-up, AI
-  // launches, the marks, alarms)
+  // A drone's warhead arms 2 s after its start and 20 m out (never while it homes, lands or hops off its bay) and goes off
+  // on whatever it meets fast (a vessel, a prop, the ground over 4 m/s; never its own tank), or on FIRE once armed; shot
+  // to 0 hp it cooks off (high explosive only, no jet). The counter-drone kit on a tank: jammers (the link's, bays
+  // section), a detector and the Drone Radar (they mark drones and cue the guns), the anti-drone gun (an auto-turret
+  // firing airburst rounds, on the ground too), the laser (a dwell: the drone's controller burnt out) and the roof cage
+  // (the armour's slat rule). Nothing here runs for an old design: Combat.S.dr opens it (spec §13.6).
+  const CB = { now: 0, thrT: NaN, thr: new Map(), marks: [], markT: -1e9, seen: new Set(), buzz: 0, beamT: -1e9 };
+  const beams = []; // (render3d's streak mesh draws these, ≤ 8: { b, a, e, col, w }; a laser's beam, ours or a ghost's)
+  const BEAM_COL = [1, 0.25, 0.3], ORANGE = '#ffb547';
+  const LSRC = {}, LTMP = {}, V0 = { x: 0, y: 0, z: 0 };
+  const camDist = (F, o) => (F && typeof F.dist === 'function' && typeof F.absPos === 'function' && F.camAbs ? F.dist(F.absPos(o), F.camAbs) : 0);
+  // a part's own deterministic stream (its spread: no Math.random in the sim, so the tests' runs repeat)
+  function prand(p) { let s = p._rs || (p._rs = ((p.id | 0) * 2654435761 + 0x9e3779b9) >>> 0 || 1); s ^= s << 13; s ^= s >>> 17; s ^= s << 5; p._rs = s >>> 0; return (s >>> 0) / 4294967296; }
+
+  // ---------------------------------------------------------------- safe-arm and the contact fuse (spec §9)
+  // the first live warhead aboard (null: none left)
+  const headOf = (v) => (v.dr ? v.dr.warheads.find((p) => v.parts.includes(p) && !(p.hp != null && p.hp <= 0)) || null : null);
+  const headAt = (v, p) => v.toWorld(p.x, p.y, partZc(p));
+  // Armed once 20 m from where it started and 2 s on (its own clock), and never while it homes, lands or hops off its bay
+  // (it re-arms when that ends): a click and ARMED on the OSD for the pilot
+  function armTick(v, dl, F) {
+    if (!dl.armOK) {
+      const a = dl.at0 || v, far = Math.hypot(v.x - a.x, v.y - a.y, v.z - a.z) >= DRONE.ARM_D;
+      if (far && dl.t - (dl.t0 || 0) >= DRONE.ARM_T) dl.armOK = true;
+    }
+    const busy = dl.mode === 'home' || dl.mode === 'land' || dl.hop > 0 || !!dl.dock;
+    const arm = !!dl.armOK && !busy;
+    if (arm && !dl.arm) { dl.armedAt = F.time || 0; if (v === F.active && !v.ai && typeof Sound !== 'undefined' && Sound.click) Sound.click(); }
+    dl.arm = arm;
+  }
+  // under the ground or the sea at the sim point P?
+  function under(b, P) {
+    const L = Terrain.locate(b, P.x, P.y, P.z, _loc), g = Terrain.surfaceAt(b, L.a, L.z);
+    return L.r < b.radius + (b.ocean ? Math.max(0, g) : g);
+  }
+  // Every physics substep for a drone with a warhead (not a ghost, not debris): its arming, and the fuse along the way the
+  // warhead went this step and 0.3 m on (the first of a vessel, a prop, the ground or the sea at over 4 m/s)
+  function fuse(v, h, F) {
+    const dl = state(v), p = headOf(v);
+    if (!p) return;
+    armTick(v, dl, F);
+    const now = headAt(v, p), sp = v.speed(), was = dl.prev;
+    dl.prev = now;
+    const fast = Math.max(sp, dl.sp || 0) > DRONE.FUSE_V;
+    dl.sp = sp;
+    if (!dl.arm || !was || v.isDebris || !v.control) return;
+    const C = v.carrier; // (never on its own tank, nor on anything about it: what it flies through there, or the ground by it)
+    if (C && !C.dead && Math.hypot(now.x - C.x, now.y - C.y, now.z - C.z) < (C.reach || 5) + (v.reach || 0) + 1) return;
+    // (0.3 m on, and the drone's own reach: the vehicles' bump stops a drone where its frame meets a hull, before its
+    // warhead does, so it looks as far ahead as its frame reaches, and a step more)
+    const k = sp > 1e-3 ? (DRONE.AHEAD + (v.reach || 0)) / sp + h : 0, a = was, e = { x: now.x + v.vx * k, y: now.y + v.vy * k, z: now.z + v.vz * k };
+    // a vessel (not itself, not its tank, not a wreck, not a picture of someone else's falling hulk)
+    let best = null, bt = 2, bo = null;
+    for (const o of F.vessels) {
+      if (o === v || o === v.carrier || o.dead || o.wreck || o.foreign || o.body !== v.body || (o.isDebris && o.kind === 'drone') || !o.parts || !o.parts.length) continue;
+      if (Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z) > (o.reach || 10) + sp * h + 1 + DRONE.AHEAD) continue;
+      const q = o.plated ? Armour.hitFirst(o, a, e) : Combat.hitVessel(o, a, e);
+      if (q && q.t < bt) { bt = q.t; best = q.p; bo = o; }
+    }
+    // a prop (Highland Ridge's in ground play)
+    let pt = -1;
+    if (typeof Props !== 'undefined' && Props.play && v.body === EARTH) pt = Props.shell(a, e);
+    if (pt >= 0 && (!best || pt < bt)) { detonate(v, F, lerp(a, e, pt), null, null, 'contact'); return; }
+    if (best) { detonate(v, F, lerp(a, e, bt), bo, best, 'contact'); return; }
+    // the ground or the sea, fast (slower it has landed: an FPV can sit in ambush and take off again)
+    if (fast && (under(v.body, e) || (v.contactTime > 0 && v.contactTime <= h * 1.5))) detonate(v, F, now, null, null, 'contact');
+  }
+  const lerp = (a, e, t) => ({ x: a.x + (e.x - a.x) * t, y: a.y + (e.y - a.y) * t, z: a.z + (e.z - a.z) * t });
+
+  // The drone's warhead goes off at `at` (null: where the warhead is), having met hv's part hp (null: anything else).
+  // A shaped charge on a plated vessel's new part is HEAT along the dive, then its burst (Armour.legacyHit); everything
+  // else (frag, an old craft, the ground, a prop, mid-air) is a blast (Combat.explode). Then a flash, and the drone is
+  // gone (its active pilot gets the impact view; a drone from a bay hands back to its tank). why: 'contact', 'fire' (FIRE,
+  // armed only: an airburst where it is) or 'cook'. true: it went off.
+  function detonate(v, F, at, hv, hp, why) {
+    if (!v || v.dead || !v.dr || v.remote || v.foreign) return false;
+    const dl = state(v), p = headOf(v);
+    if (!p) return false;
+    if (why === 'fire' && !dl.arm) { say(F, `Not armed yet: fly ${DRONE.ARM_D} m clear`, 'warn'); return false; }
+    if (dl.boom) return false;
+    dl.boom = true;
+    const w = p.def.drone.warhead, b = v.body, P = at || headAt(v, p), sp = v.speed(), ax = partAxis(p), nose = v.axis(ax.x, ax.y, 0);
+    const vel = sp >= 15 ? { x: v.vx, y: v.vy, z: v.vz } : { x: nose.x * 15, y: nose.y * 15, z: nose.z * 15 }; // (the jet always points somewhere)
+    const vl = Math.hypot(vel.x, vel.y, vel.z) || 1;
+    const s = { k: 'missile', seek: 'top', b, x: P.x, y: P.y, z: P.z, vx: vel.x, vy: vel.y, vz: vel.z, dx: vel.x / vl, dy: vel.y / vl, dz: vel.z / vl,
+      pen: w.pen, tandem: !!w.tandem, he: w.he, blast: w.blast, dmg: w.dmg, t: 0, life: 9, owner: v, enemy: !!v.ai && !v.ai.ally, spare: v }; // (t 0, spare: its own blast leaves the drone itself to the end)
+    p.ammo = 0;
+    if (w.pen > 0 && hv && hv.plated && hp && hp.def.gv && !hv.wreck) Armour.legacyHit(s, hv, hp, P, F); // (never with pen 0: legacyHit's HEAT default is 700 mm)
+    else Combat.explode(b, P, w.blast, w.dmg, v, F, false, w.he, v);
+    const air = airDensity(b, Math.hypot(P.x, P.y, P.z) - b.radius) > 0.01;
+    FX.explosion(b, P, { x: v.vx * 0.2, y: v.vy * 0.2, z: v.vz * 0.2 }, w.blast * 0.7, air);
+    if (v === F.active && !v.ai) { impactView(F, v, P); dl.impact = true; }
+    shatter(v, F);
+    void why;
+    return true;
+  }
+  // The drone is gone (its warhead went off or cooked off): no parts left, dead. The flown one ends its flight (a drone
+  // from a bay hands back to its tank: Flight.onDestroyed's first line); an unflown one of ours is told to the room; an AI
+  // one is shot down (its kill its last hitter's). One flash only (detonate's or explode's), not one per part: a
+  // breakParts of every part would draw ten explosions for a drone a hand across.
+  function shatter(v, F) {
+    v.parts = [];
+    if (v.adj && v.adj.clear) v.adj.clear();
+    v.dead = true; v.throttle = 0; v.thrust = 0;
+    if (v.carrier && v.carrier.drone === v && v !== F.active) v.carrier.drone = null;
+    if (v.ai && v.ai.drone && !v.ai.down && typeof Combat !== 'undefined' && Combat.aiDown) Combat.aiDown(v, F);
+    if (v === F.active) { if (!v.carrier) F.crashedAt = F.time || 0; if (F.onDestroyed) F.onDestroyed(); }
+    else if (!v.ai) mpDrop(F, v, 'down', whoDid(v, F));
+  }
+  // (Combat.destroyPart's third line) A warhead shot to 0 hp: it bursts as high explosive only (no jet), with 0.6 of its
+  // damage, the hitter's blast, and the drone is gone. Shooting a drone near your own tank is a risk. true: handled.
+  function cookOff(v, p, cause, sim) {
+    if (!v || v.remote || v.foreign || v.dead) return false;
+    const dl = state(v);
+    if (dl.boom) { p.hp = 0; return true; } // (its own detonation's blast: shatter has it)
+    dl.boom = true;
+    const w = p.def.drone.warhead, at = headAt(v, p);
+    p.hp = 0; p.ammo = 0;
+    Combat.explode(v.body, at, w.blast, w.dmg * 0.6, v.lastHitBy || v, sim, true, w.he, v);
+    if (!v.ai && v !== sim.active && Combat.byMe(v.lastHitBy, sim) && typeof Death !== 'undefined') Death.feedback('SHOT DOWN', sim);
+    shatter(v, sim);
+    void cause;
+    return true;
+  }
+
+  // ---------------------------------------------------------------- who is hostile, and who sees it (spec §13.1-13.2)
+  // The drones hostile to o's kit, live (flying, not down, not landed), this physics step's list
+  function threats(o, F) {
+    const t = F && F.time;
+    if (CB.thrT !== t) { CB.thrT = t; CB.thr.clear(); }
+    let L = CB.thr.get(o);
+    if (L) return L;
+    L = [];
+    if (o && !o.remote && F && F.vessels) for (const d of F.vessels) if (isDrone(d) && foe(o, d)) L.push(d);
+    CB.thr.set(o, L);
+    return L;
+  }
+  // Does a drone give itself away to a detector: its link a radio (not a fibre), or a generator aboard (loud)?
+  const loud = (d) => d.parts.some((p) => p.def.drone && p.def.drone.loud);
+  function emits(d) {
+    if (loud(d)) return true;
+    if (d.dl && d.dl.via) return d.dl.via.kind !== 'fibre';
+    return !d.parts.some((p) => p.def.drone && p.def.drone.link && p.def.drone.link.kind === 'fibre');
+  }
+  // A vessel's drone sensors (the detectors, the Drone Radars), remembered until its parts change
+  function sensors(o) {
+    if (!o || !o.gv) return null;
+    const n = o.parts.length;
+    if (o._cds && o._cds.n === n) return o._cds;
+    const det = [], rad = [];
+    for (const p of o.parts) { if (p.def.cuas && p.def.cuas.detect) det.push(p); if (p.def.searchRadar && p.def.searchRadar.low) rad.push(p); }
+    return (o._cds = { n, det, rad });
+  }
+  const working = (o) => !!o && !o.dead && !o.ko && !o.wreck && o.parts.length > 0;
+  // Nothing but air between a and b (4 points along it, each over the ground or the sea by 0.3 m)
+  function clearSky(b, a, e) {
+    for (let i = 1; i <= 4; i++) {
+      const f = i / 5, x = a.x + (e.x - a.x) * f, y = a.y + (e.y - a.y) * f, z = a.z + (e.z - a.z) * f, L = Terrain.locate(b, x, y, z, _loc), g = Terrain.surfaceAt(b, L.a, L.z);
+      if (L.r < b.radius + (b.ocean ? Math.max(0, g) : g) + 0.3) return false;
+    }
+    return true;
+  }
+  // where a vessel looks from: its top (a drone: its middle)
+  function eyeOf(o, out) {
+    if (o.kind === 'drone' || !o.com || !o.bounds) { out.x = o.x; out.y = o.y; out.z = o.z; return out; }
+    const c = o.com, q = qrot(o.q, 0, o.bounds.maxY - 0.15 - c.y, 0, out);
+    out.x = o.x + q.x; out.y = o.y + q.y; out.z = o.z + q.z;
+    return out;
+  }
+  // the line from viewer o to drone d, looked at four times a second (per pair)
+  function sightOf(o, d) {
+    const M = o._sight || (o._sight = new Map()), c = M.get(d), t = CB.now;
+    if (c && t >= c.t && t - c.t < 0.25) return c.ok;
+    const ok = clearSky(o.body, eyeOf(o, LSRC), d);
+    if (M.size > 32) M.clear();
+    M.set(d, { t, ok });
+    return ok;
+  }
+  // How well viewer sees drone d (0: not at all): 1 by eye (400 m, a clear line), 2 a working detector (2 km, 4 km for a
+  // loud one; drones that emit; no line needed), 3 a working Drone Radar (4 km, a clear line: every drone, low and slow
+  // too). The sensors that count: the viewer's own and, for a drone from a bay, its tank's (the crew calls them out).
+  function marked(viewer, d) {
+    if (!viewer || !d || d.kind !== 'drone' || d.dead || d.body !== viewer.body) return 0;
+    const dist = Math.hypot(d.x - viewer.x, d.y - viewer.y, d.z - viewer.z);
+    let lvl = 0;
+    for (const o of viewer.carrier && working(viewer.carrier) ? [viewer, viewer.carrier] : [viewer]) {
+      const S = working(o) && sensors(o);
+      if (!S) continue;
+      const r = o === viewer ? dist : Math.hypot(d.x - o.x, d.y - o.y, d.z - o.z);
+      for (const p of S.rad) if (!p.broken && r <= p.def.searchRadar.range && sightOf(o, d)) return 3;
+      if (lvl < 2) for (const p of S.det) if (!p.broken && r <= p.def.cuas.detect * (loud(d) ? 2 : 1) && emits(d)) { lvl = 2; break; }
+    }
+    if (!lvl && dist <= DRONE.EYE && sightOf(viewer, d)) lvl = 1;
+    return lvl;
+  }
+  // A ground vehicle's (or a drone flown from it) sight and spotting reach for drones: a Drone Radar's, else a detector's,
+  // else the eye's
+  function seeR(v) {
+    const S = sensors(v && v.carrier ? v.carrier : v);
+    if (S && S.rad.some((p) => !p.broken)) return Math.max(...S.rad.map((p) => p.def.searchRadar.range));
+    if (S && S.det.some((p) => !p.broken)) return Math.max(...S.det.map((p) => p.def.cuas.detect));
+    return DRONE.EYE;
+  }
+  // what a drone's camera spots on the ground (the best camera's reach; none without one)
+  const spotR = (v) => (v && v.dr && v.dr.cam ? v.dr.cam.def.drone.cam.spot || 0 : 0);
+  // The player's live drones nobody flies now (an enemy proximity shell bursts by them too: armour.js airNear)
+  function ownedAir(F, owner) {
+    const out = [];
+    if (F && F.vessels) for (const d of F.vessels) if (d !== F.active && d !== owner && isDrone(d) && !d.ai && !d.remote) out.push(d);
+    return out;
+  }
+
+  // ---------------------------------------------------------------- the anti-drone gun and laser (spec §13.3)
+  // Their turning heads: yaw about the part's +y from its +x towards +z, elevation up from level, the barrel along
+  // (cos el cos yaw, sin el, cos el sin yaw) in the part's own frame (parts3d rws/laserT), then the part's rotation and
+  // the turret rings it rides, then the vessel's attitude.
+  function headLay(p) {
+    const d = p.def, L = drLayout(d), c = d.cuas;
+    if (c.gun) return { x: L.rws.xc, y: L.rws.yb + L.rws.T, len: L.rws.barrel.x1 };
+    return { x: 0, y: L.las.yb + L.las.T, len: L.las.lens.x1 };
+  }
+  // the head's pivot, in the sim
+  function pivotOf(o, p, out) {
+    const H = p._hl || (p._hl = headLay(p));
+    aimPt(p, H.x, H.y, out);
+    for (let g = o.tgOf && o.tgOf.get(p.id); g; g = g.parent) aimTurn(g, out, g.ring.aimYaw || 0);
+    const w = o.toWorld(out.x, out.y, out.z);
+    out.x = w.x; out.y = w.y; out.z = w.z;
+    return out;
+  }
+  // part-frame direction (yaw, el) → the sim's
+  function dirOf(o, p, yaw, el, out) {
+    const ce = Math.cos(el);
+    let x = ce * Math.cos(yaw), y = Math.sin(el), z = ce * Math.sin(yaw);
+    for (let i = 0, k = p.rot & 3; i < k; i++) { const t = x; x = -y; y = t; }
+    for (let g = o.tgOf && o.tgOf.get(p.id); g; g = g.parent) { const a = g.ring.aimYaw || 0, cs = Math.cos(a), sn = Math.sin(a), x0 = x; x = x0 * cs - z * sn; z = x0 * sn + z * cs; }
+    return qrot(o.q, x, y, z, out);
+  }
+  // the sim's direction (dx, dy, dz) → the part's yaw and elevation
+  const RING = [];
+  function anglesOf(o, p, dx, dy, dz, out) {
+    const A = o.toLocal(o.x, o.y, o.z), B = o.toLocal(o.x + dx, o.y + dy, o.z + dz);
+    let x = B.x - A.x, y = B.y - A.y, z = B.z - A.z;
+    RING.length = 0;
+    for (let g = o.tgOf && o.tgOf.get(p.id); g; g = g.parent) RING.push(g);
+    for (let i = RING.length - 1; i >= 0; i--) { const a = -(RING[i].ring.aimYaw || 0), cs = Math.cos(a), sn = Math.sin(a), x0 = x; x = x0 * cs - z * sn; z = x0 * sn + z * cs; }
+    for (let i = 0, k = p.rot & 3; i < k; i++) { const t = x; x = y; y = -t; }
+    out.yaw = Math.atan2(z, x); out.el = Math.atan2(y, Math.hypot(x, z));
+    return out;
+  }
+  const smoky = (a, b) => typeof Combat !== 'undefined' && Combat.S.smoke.length > 0 && typeof Aim !== 'undefined' && Aim.smokeBlocks(a, b);
+  // can a head at P see drone d: a clear line (cached 4 Hz per head and target) and no smoke between
+  function headSees(p, P, d) {
+    const M = p._los || (p._los = new Map()), c = M.get(d), t = CB.now;
+    let ok;
+    if (c && t >= c.t && t - c.t < 0.25) ok = c.ok;
+    else { ok = clearSky(d.body, P, d); if (M.size > 16) M.clear(); M.set(d, { t, ok }); }
+    return ok && !smoky(P, d);
+  }
+  const ANG = { yaw: 0, el: 0 }, PIV = {}, DIR = {};
+  // turn the head toward (yaw, el) at its rates, within its elevation; the errors left before the turn
+  function slew(p, want, yr, er, el, h) {
+    const dy = wrapAngle(want.yaw - (p.aimYaw || 0)), wantE = clamp(want.el, el[0] * RADI, el[1] * RADI), de = wantE - (p.aimEl || 0);
+    p.aimYaw = wrapAngle((p.aimYaw || 0) + clamp(dy, -yr * h, yr * h));
+    p.aimEl = (p.aimEl || 0) + clamp(de, -er * h, er * h);
+    return Math.max(Math.abs(dy), Math.abs(de));
+  }
+  const RADI = Math.PI / 180;
+  // The gun's target (every 0.1 s): the nearest hostile drone within 600 m it sees, or within 1.1 km when a sensor marks
+  // it (the cue), over its lowest elevation
+  function gunPick(o, p, g, P) {
+    let best = null, bd = Infinity;
+    for (const d of threats(o, CB.F)) {
+      const r = Math.hypot(d.x - P.x, d.y - P.y, d.z - P.z);
+      if (r >= bd || r > g.cued || (r > g.range && marked(o, d) < 2)) continue;
+      anglesOf(o, p, d.x - P.x, d.y - P.y, d.z - P.z, ANG);
+      if (ANG.el < g.el[0] * RADI - 0.02 || ANG.el > g.el[1] * RADI + 0.02 || !headSees(p, P, d)) continue;
+      bd = r; best = d;
+    }
+    return best;
+  }
+  // The anti-drone gun (an auto-turret, written like Combat's turretStep but its own: the old turret is untouched and
+  // still parks on the ground): it picks, leads (the time of flight on the relative velocity, twice), turns and fires
+  // 10 airburst rounds a second when on, on the ground too. Its rounds are ordinary tracers; each bursts 3 m from its
+  // target (Combat's moveShot: explode's light 'ab' effect).
+  function gunStep(o, p, h, F) {
+    const g = p.def.cuas.gun;
+    if (p.broken || o.ko) { p.gunOn = false; p.tgt = null; return; }
+    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; p.tgt = gunPick(o, p, g, pivotOf(o, p, PIV)); }
+    const t = p.tgt && isDrone(p.tgt) ? p.tgt : null;
+    if (!t) { p.tgt = null; p.gunOn = false; slew(p, { yaw: p.aimYaw || 0, el: 0 }, g.yaw, g.elr, g.el, h); return; }
+    const P = pivotOf(o, p, PIV), rx = t.vx - o.vx, ry = t.vy - o.vy, rz = t.vz - o.vz;
+    // the time of flight on the relative velocity, twice, with the round's drag (Combat's moveShot: 1.2e-4·ρ·v² slowing
+    // it) and its drop (held up by ½·g·t²: at 1 km a round falls 5 m)
+    const cd = 0.00012 * airDensity(o.body, o.altitude()), r0 = Math.hypot(P.x, P.y, P.z) || 1, ux = P.x / r0, uy = P.y / r0, uz = P.z / r0;
+    const tofOf = (d) => (cd > 1e-9 ? Math.expm1(cd * d) / (cd * g.speed) : d / g.speed);
+    let ax = t.x - P.x, ay = t.y - P.y, az = t.z - P.z, tof = tofOf(Math.hypot(ax, ay, az));
+    for (let i = 0; i < 2; i++) { const dr = 0.5 * G0 * tof * tof; ax = t.x + rx * tof - P.x + ux * dr; ay = t.y + ry * tof - P.y + uy * dr; az = t.z + rz * tof - P.z + uz * dr; tof = tofOf(Math.hypot(ax, ay, az)); }
+    const err = slew(p, anglesOf(o, p, ax, ay, az, ANG), g.yaw, g.elr, g.el, h);
+    p.gunOn = err <= 0.04 && p.ammo > 0;
+    if (!p.gunOn) return;
+    p.cool = (p.cool || 0) - h;
+    if (p.cool > 0) return;
+    p.cool = Math.max(p.cool, -h) + 1 / g.rate;
+    gunRound(o, p, g, F, t, 0);
+  }
+  // one round along the head's aim (net: a ghost's, for show: no damage, its owner says what it hit)
+  function gunRound(o, p, g, F, t, net) {
+    const D = dirOf(o, p, p.aimYaw || 0, p.aimEl || 0, DIR), P = pivotOf(o, p, PIV), H = p._hl, sp = g.spread;
+    const dx = D.x + (prand(p) - 0.5) * sp, dy = D.y + (prand(p) - 0.5) * sp, dz = D.z + (prand(p) - 0.5) * sp, m = H.len + 0.6;
+    const s = { k: 'bullet', b: o.body, x: P.x + D.x * m, y: P.y + D.y * m, z: P.z + D.z * m, vx: o.vx + dx * g.speed, vy: o.vy + dy * g.speed, vz: o.vz + dz * g.speed,
+      t: 0, life: 2, dmg: net ? 0 : g.dmg, blast: 0, owner: o, enemy: !!o.ai && !o.ai.ally, tracer: true, net: net || 0 };
+    if (!net) { s.ab = g.ab; s.abR = g.abR; s.abD = g.abD; s.tgt = t; }
+    Combat.S.shots.push(s);
+    p.ammo = Math.max(0, (p.ammo || 0) - 1);
+    p.shots = (p.shots || 0) + 1;
+    if (p.shots % 3 === 0 && typeof Sound !== 'undefined' && camDist(F, o) < 1500) Sound.gun(false);
+  }
+  // The laser's target: the hostile drone closing on the vessel fastest (the least time to reach it) within 1 km, or
+  // 1.5 km when a sensor marks it, in sight with no smoke; it keeps the one it burns while that one stays fair
+  function laserFair(o, p, L, P, d) {
+    if (!isDrone(d) || !foe(o, d)) return false;
+    const r = Math.hypot(d.x - P.x, d.y - P.y, d.z - P.z);
+    if (r > L.cued || (r > L.range && marked(o, d) < 2)) return false;
+    anglesOf(o, p, d.x - P.x, d.y - P.y, d.z - P.z, ANG);
+    return ANG.el >= L.el[0] * RADI - 0.02 && ANG.el <= L.el[1] * RADI + 0.02 && headSees(p, P, d);
+  }
+  function laserPick(o, p, L, P) {
+    if (p.tgt && laserFair(o, p, L, P, p.tgt)) return p.tgt;
+    let best = null, bt = Infinity;
+    for (const d of threats(o, CB.F)) {
+      if (!laserFair(o, p, L, P, d)) continue;
+      const dx = d.x - o.x, dy = d.y - o.y, dz = d.z - o.z, r = Math.hypot(dx, dy, dz) || 1, cl = -((d.vx - o.vx) * dx + (d.vy - o.vy) * dy + (d.vz - o.vz) * dz) / r;
+      const tt = r / Math.max(cl, 0.1);
+      if (tt < bt) { bt = tt; best = d; }
+    }
+    return best;
+  }
+  // The anti-drone laser: turns at 1.5 rad/s onto its target, and on it (within 0.01 rad) dwells: the drone's controller
+  // burns out after 0.8 s up close, 3 s at 1.5 km (kill: 0.8 + 2.2·(d/1.5 km)²). The beam is on while it dwells: 8 s of
+  // it, then off until cooled to 0.3 (5 s from full). In a room a ghost drone's owner takes the hit (MP.sendHit).
+  function laserStep(o, p, h, F) {
+    const L = p.def.cuas.laser;
+    if (p.broken || o.ko) { p.gunOn = false; p.tgt = null; p.dwell = 0; laserHeat(p, L, h, false); return; }
+    const P = pivotOf(o, p, PIV);
+    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const t = laserPick(o, p, L, P); if (t !== p.tgt) { p.tgt = t; p.dwell = 0; } }
+    const t = p.tgt && isDrone(p.tgt) ? p.tgt : null;
+    if (!t) { p.tgt = null; p.gunOn = false; p.dwell = 0; laserHeat(p, L, h, false); slew(p, { yaw: p.aimYaw || 0, el: 0 }, L.yaw, L.elr, L.el, h); return; }
+    const err = slew(p, anglesOf(o, p, t.x - P.x, t.y - P.y, t.z - P.z, ANG), L.yaw, L.elr, L.el, h);
+    const on = err <= 0.01 && !p.hot;
+    p.gunOn = on;
+    laserHeat(p, L, h, on);
+    if (!on) return;
+    const r = Math.hypot(t.x - P.x, t.y - P.y, t.z - P.z);
+    beamOf(o, p, F, t, r);
+    p.dwell = (p.dwell || 0) + h;
+    if (p.dwell < L.kill[0] + L.kill[1] * (r / 1500) ** 2) return;
+    p.dwell = 0; p.tgt = null; p._pick = 0;
+    const part = (t.dr && t.dr.fcPart && t.parts.includes(t.dr.fcPart) ? t.dr.fcPart : null) || t.parts[0];
+    if (!part) return;
+    if (t.remote) { if (typeof MP !== 'undefined' && MP.sendHit) MP.sendHit(t, part, Combat.maxHp(part.def) * 2, 'shot'); }
+    else Combat.damage(t, part, 1e6, 'laser', F, o);
+  }
+  function laserHeat(p, L, h, on) {
+    p.heat = clamp((p.heat || 0) + (on ? h / L.on : -h / L.cool), 0, 1);
+    if (p.heat >= 1) p.hot = true;
+    else if (p.hot && p.heat <= 0.3) p.hot = false;
+  }
+  // a laser's beam this frame, from its lens to r m along its aim (render3d draws Drone.beams), and a flare where it ends
+  // every 0.1 s (a flash that lights nothing)
+  function beamOf(o, p, F, t, r) {
+    const D = dirOf(o, p, p.aimYaw || 0, p.aimEl || 0, DIR), P = pivotOf(o, p, PIV), k = p._hl.len;
+    const B = p._beam || (p._beam = { b: null, a: {}, e: {}, col: BEAM_COL, w: 0.06, t: 0 });
+    B.b = o.body; B.a.x = P.x + D.x * k; B.a.y = P.y + D.y * k; B.a.z = P.z + D.z * k;
+    if (t) { B.e.x = t.x; B.e.y = t.y; B.e.z = t.z; } else { B.e.x = P.x + D.x * r; B.e.y = P.y + D.y * r; B.e.z = P.z + D.z * r; }
+    B.t = F.time || 0; B.o = o;
+    const T = F.time || 0;
+    if (!(T - (p._flareT ?? -1e9) < 0.1) || T < p._flareT) {
+      p._flareT = T;
+      FX.add({ kind: 'flash', b: o.body, x: B.e.x, y: B.e.y, z: B.e.z, vx: 0, vy: 0, vz: 0, max: 0.12, size: 0.5, grow: 0.8, color: '#ff8a8a', alpha: 1, nolight: true });
+    }
+  }
+  // A ghost's kit (Combat's netGuns, its pv's gunOn): its gun fires tracers along its aim for show; its laser shows its
+  // beam 1.5 km along its aim. Hits are only ever its owner's to say.
+  function netFire(g, p, h, F) {
+    const c = p.def.cuas;
+    if (c.gun && p.ammo > 0) {
+      p._hl = p._hl || headLay(p);
+      p.cool = (p.cool || 0) - h;
+      if (p.cool > 0) return;
+      p.cool = Math.max(p.cool, -h) + 1 / c.gun.rate;
+      gunRound(g, p, c.gun, F, null, g.remote || 1);
+    } else if (c.laser) { p._hl = p._hl || headLay(p); beamOf(g, p, F, null, 1500); }
+  }
+
+  // ---------------------------------------------------------------- the frame: beams, marks, the buzz
+  // Drone.beams for render3d: the lasers burning this frame (a beam not renewed for 0.1 s is gone)
+  function beamFrame(F) {
+    beams.length = 0;
+    const t = F.time || 0;
+    for (const o of F.vessels) {
+      if (!o.cuas || !o.cuas.length || o.dead) continue;
+      for (const p of o.cuas) {
+        const B = p._beam;
+        if (B && p.gunOn && p.def.cuas.laser && t - B.t <= 0.1 && t >= B.t && beams.length < 8) beams.push(B);
+      }
+    }
+    // its whine, near the camera (within 600 m)
+    let near = Infinity;
+    for (const B of beams) near = Math.min(near, camDist(F, B.o));
+    const lvl = near < 600 ? 0.03 * (1 - near / 600) : 0;
+    if (typeof Sound !== 'undefined' && typeof Sound.laser === 'function' && (lvl > 0 || CB.las > 0)) Sound.laser(lvl);
+    CB.las = lvl;
+  }
+  // The marks (4 times a second, for the flown craft): its hostile drones it sees, nearest first, at most MARKS; a chirp
+  // for a drone a sensor picks up that it didn't hold before; the buzz of the nearest within BUZZ m
+  function markFrame(F) {
+    const A = F.active;
+    let near = Infinity;
+    if (A && !F.destroyed) for (const d of threats(A, F)) near = Math.min(near, Math.hypot(d.x - A.x, d.y - A.y, d.z - A.z));
+    const lvl = near < DRONE.BUZZ ? 0.05 * (1 - near / DRONE.BUZZ) : 0;
+    if (typeof Sound !== 'undefined' && typeof Sound.buzz === 'function' && (lvl > 0 || CB.buzz > 0)) Sound.buzz(lvl);
+    CB.buzz = lvl;
+    const t = F.time || 0;
+    if (t - CB.markT < 0.25 && t >= CB.markT) return;
+    CB.markT = t;
+    const M = CB.marks;
+    M.length = 0;
+    if (!A || F.destroyed) { CB.seen.clear(); return; }
+    for (const d of threats(A, F)) {
+      const k = marked(A, d);
+      if (!k) continue;
+      const dist = Math.hypot(d.x - A.x, d.y - A.y, d.z - A.z), cl = -((d.vx - A.vx) * (d.x - A.x) + (d.vy - A.vy) * (d.y - A.y) + (d.vz - A.vz) * (d.z - A.z)) / (dist || 1);
+      M.push({ d, k, dist, cl });
+    }
+    M.sort((a, b) => a.dist - b.dist);
+    if (M.length > DRONE.MARKS) M.length = DRONE.MARKS;
+    let fresh = false;
+    const now = new Set();
+    for (const m of M) if (m.k >= 2) { now.add(m.d); if (!CB.seen.has(m.d)) fresh = true; }
+    CB.seen = now;
+    if (fresh && typeof Sound !== 'undefined' && typeof Sound.chirp === 'function') Sound.chirp();
+  }
+  // (Combat.step, every physics substep while Combat.S.dr) the fuses of drones with warheads; the anti-drone guns and
+  // lasers of every vessel that has them (not a ghost's: its owner works them; not dead, a wreck or knocked out)
+  function step(h, F) {
+    if (!F || !F.vessels || !(h > 0)) return;
+    CB.now = F.time || 0; CB.F = F;
+    const vs = F.vessels;
+    for (let i = 0, n = vs.length; i < n; i++) {
+      const v = vs[i];
+      if (!v || v.dead || v.remote || v.foreign) continue;
+      if (v.kind === 'drone') { if (v.dr && v.dr.warheads.length && v.parts.length) fuse(v, h, F); continue; }
+      if (!v.cuas || !v.cuas.length || v.wreck || v.ko) continue;
+      for (const p of v.cuas) { const c = p.def.cuas; if (c.gun) gunStep(v, p, h, F); else if (c.laser) laserStep(v, p, h, F); }
+    }
+  }
+  // (Combat.frame, every frame while Combat.S.dr) the bays' and links' frame, then the beams and the marks
   function frame(F, dt) {
     if (!F || !F.vessels || !(dt >= 0)) return;
+    CB.now = F.time || 0; CB.F = F;
     bayFrame(F, dt); // (the bays' and the links': above)
+    beamFrame(F);
+    markFrame(F);
   }
-  function detonate(v, F, at, hv, hp, why) { return false; }
-  // (Combat.destroyPart's third line: a warhead at 0 hp; false: the part goes the usual way)
-  function cookOff(v, p, cause, sim) { return false; }
-  function netFire(g, p, h, F) {}
-  function threats(o, F) { return []; }
-  function marked(viewer, d) { return false; }
-  function seeR(v) { return 0; }
-  function spotR(v) { return 0; }
-  function ownedAir(F, owner) { return []; }
+  // The marks on the HUD (main.js, after Combat.drawHUD, while Combat.S.dr): a grey ◇ for a drone seen by eye; an orange
+  // ◇ and its range for one a detector hears (an arrow on the screen's edge when it is off it), and its closing speed
+  // when a Drone Radar holds it. At most MARKS, nearest first.
+  const PRJ = { x: 0, y: 0, behind: false };
+  function drawMarks(ctx, W, H, dpr, F) {
+    const M = CB.marks, A = F && F.active;
+    if (!M.length || !A || F.destroyed || typeof Render3D === 'undefined' || !Render3D.ready) return;
+    const bp = bodyPos(A.body, F.time);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineWidth = 1.5; ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace'; ctx.textAlign = 'center';
+    for (const m of M) {
+      const d = m.d;
+      if (d.dead) continue;
+      const s = Render3D.projectTo(bp.x + d.x, bp.y + d.y, d.z, PRJ), col = m.k >= 2 ? ORANGE : GREY;
+      const off = s.behind || s.x < 8 || s.x > W - 8 || s.y < 8 || s.y > H - 8;
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      if (off) {
+        if (m.k < 2) continue;
+        let ex = s.x - W / 2, ey = s.y - H / 2;
+        if (s.behind) { ex = -ex; ey = -ey; }
+        const a = Math.atan2(ey, ex), k = Math.min((W / 2 - 22) / Math.max(Math.abs(Math.cos(a)), 1e-3), (H / 2 - 22) / Math.max(Math.abs(Math.sin(a)), 1e-3));
+        const x = W / 2 + Math.cos(a) * k, y = H / 2 + Math.sin(a) * k;
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 9, y + Math.sin(a) * 9); ctx.lineTo(x + Math.cos(a + 2.5) * 7, y + Math.sin(a + 2.5) * 7); ctx.lineTo(x + Math.cos(a - 2.5) * 7, y + Math.sin(a - 2.5) * 7); ctx.closePath(); ctx.fill();
+        ctx.fillText(km(m.dist), clamp(x - Math.cos(a) * 16, 24, W - 24), clamp(y - Math.sin(a) * 16 + 4, 12, H - 6));
+        continue;
+      }
+      const r = m.k >= 2 ? 7 : 5;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y - r); ctx.lineTo(s.x + r, s.y); ctx.lineTo(s.x, s.y + r); ctx.lineTo(s.x - r, s.y); ctx.closePath(); ctx.stroke();
+      if (m.k >= 2) ctx.fillText(m.k >= 3 ? `${km(m.dist)} ${m.cl >= 0 ? '▼' : '▲'}${Math.round(Math.abs(m.cl))}` : km(m.dist), s.x, s.y + r + 13);
+    }
+  }
 
   // ================================================================ AI
   function spawnAI(F, key, at, team, opts) { return null; }
@@ -1263,7 +1741,7 @@ const Drone = (() => {
     // flight
     key, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
     // combat
-    step, frame, detonate, cookOff, netFire, threats, marked, seeR, spotR, ownedAir,
+    step, frame, detonate, cookOff, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
     // AI
     spawnAI, aiSteer,
     // HUD

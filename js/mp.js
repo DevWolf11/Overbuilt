@@ -34,7 +34,7 @@ const MP_SPAWNS = [
 // carries none of these settings (no `game` means air), so it is exactly what it was. The arena isn't chosen: the
 // host's map decides it (GroundMode.pick). Each team starts on its pad (a spawn of kind 'pad': no money bonus, no
 // size limits); aircraft, with air support on, join at respawn.
-const MP_ARMS = { gun: 'guns', agun: 'guns', rocket: 'rockets', missile: 'missiles', bomb: 'bombs' }; // (an aircraft's weapons, as the respawn list says them)
+const MP_ARMS = { gun: 'guns', agun: 'guns', rocket: 'rockets', missile: 'missiles', bomb: 'bombs', warhead: 'a warhead' }; // (an aircraft's weapons, as the respawn list says them)
 const MP_GROUND = { game: 'ground', tickets: 600, respawn: 'free', air: false, aim: 'arcade', arena: 'highland' };
 const MP_PADS = [
   { id: 'pad0', name: 'North pad', kind: 'pad', team: 0, desc: 'Your team’s start, at the north end of the battlefield.' },
@@ -1031,7 +1031,7 @@ const MP = {
       if (!S.pvSig) S.pvSig = new Map();
       for (const p of v.parts) {
         const d = p.def;
-        if (!(d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract) || d.ring || d.trackRadar)) continue; // (a turret ring's yaw rides in aimYaw)
+        if (!(d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract) || d.ring || d.trackRadar || d.cuas || d.dock)) continue; // (a turret ring's yaw rides in aimYaw; the big update's counter-drone kit and bays: their aim, fire, rounds and lids)
         const row = [p.id, Math.round((p.deflect || 0) * 100) / 100, Math.round((p.firing || 0) * 100) / 100, Math.round((p.ab || 0) * 100) / 100,
           p.retracted ? 1 : 0, p.sweep != null ? Math.round(p.sweep * 100) / 100 : null, Math.round((p.aimYaw || 0) * 100) / 100, Math.round((p.aimEl || 0) * 100) / 100,
           p.ammo == null ? null : p.ammo, Math.round((p.deployed || 0) * 100) / 100, p.used ? 1 : 0, p.gunOn ? 1 : 0];

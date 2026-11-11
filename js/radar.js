@@ -151,6 +151,7 @@ const Radar = (() => {
   function eye(v, o, d) {
     if (!o) return false;
     if (o.def) return o.def.air ? d < 4000 : true; // (a range target: drones by eye; the ground's keep their brackets)
+    if (o.kind === 'drone') return typeof Drone !== 'undefined' && !!Drone.marked(v, o); // (a real drone: 400 m by eye, or a drone sensor's mark: drone.js)
     return d < 6000 * (1 - 0.5 * stealth(o));
   }
   const has = (o) => S.set.has(o);
