@@ -147,7 +147,7 @@ const _ia = v3(), _ib = v3(), _ic = v3(); // (applyImpulse's)
 // What a ground-update part (def.gv) keeps in a saved flight, on top of every part's fields; read back sanitised.
 // (rounds: a rack's left, mrounds: a host's built-in stores'; roles: who sits in a host's crew seats now, role: a placed
 // seat's: armour.js's stores and seat swaps)
-const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel', 'rounds', 'mrounds', 'roles', 'role'];
+const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel', 'rounds', 'mrounds', 'roles', 'role', 'docked']; // (docked: drones left in a bay, the big update)
 const GV_ROLES = new Set(['driver', 'gunner', 'commander', 'loader', 'radio']);
 function gvSave(p, o) {
   if (p.def.gv) for (const k of GV_SAVE) if (p[k] != null) o[k] = p[k];
@@ -167,6 +167,7 @@ function gvLoad(p) {
   set('mrounds', Array.isArray(p.mrounds) && d.mods ? d.mods.map((m, i) => (m.k === 'ammo' && Number.isFinite(p.mrounds[i]) ? clamp(Math.round(p.mrounds[i]), 0, m.rounds || 0) : null)) : undefined);
   set('roles', Array.isArray(p.roles) && d.mods ? d.mods.map((m, i) => (m.k === 'crew' && GV_ROLES.has(p.roles[i]) ? p.roles[i] : null)) : undefined);
   set('role', d.seat && GV_ROLES.has(p.role) ? p.role : undefined);
+  set('docked', d.dock && Number.isFinite(p.docked) ? clamp(Math.round(p.docked), 0, d.dock.n) : undefined); // (a bay's drones left; none saved: full)
   const sh = w && w.shells, q = p.shellSel;
   set('shellSel', sh && (typeof q === 'string' ? sh.includes(q) : Number.isInteger(q) && q >= 0 && q < sh.length) ? q : undefined);
 }

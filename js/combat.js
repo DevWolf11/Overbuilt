@@ -61,6 +61,7 @@ const Combat = (() => {
     p.hp -= amount * (1 - (p.def.armor || 0)); // armour plate turns most of it away
     if (by) { v.lastHitBy = by; v.lastHitAt = sim.time || 0; }
     if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
+    if (v.parked && sim.active && v === sim.active.carrier) Drone.alarm(sim); // (the big update: our tank hit while its drone flies)
     const after = hpFrac(p);
     if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit)
     const own = v === sim.active && !v.ai; // (the player's own losses from this hit: one toast for all of it, death.js)
@@ -1433,8 +1434,10 @@ const Combat = (() => {
     }
     // the ground update: the Tank Range and the Practice Battle (groundai.js); repairs, fires and crews taking another's
     // seat, and radars, for the player's ground vehicle and the ground AI's
-    if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle || GroundAI.shown) GroundAI.frame(F, dt); // (shown: its bar still up from a flight before)
+    if (v.gv || v.kind === 'tank' || S.gai || GroundAI.battle || GroundAI.shown || v.carrier) GroundAI.frame(F, dt); // (shown: its bar still up from a flight before; carrier: a drone flown from a tank's bay)
     if (v.gv) { Armour.repairStep(v, dt, F); Aim.radarStep(v, F, dt); }
+    const C = v.carrier; // (the big update: a tank parked while its drone flies: its crew mends and its radars look on)
+    if (C && C.gv && !C.dead && !C.wreck) { Armour.repairStep(C, dt, F); Aim.radarStep(C, F, dt); }
     // the props anything drives (or flies) into fall over (ours, the AI's and the other players' alike: props.js); and
     // Highland Ridge's are open to old weapons and vessels in ground play only, where they're on show (render3d.js)
     if (typeof Props !== 'undefined') {

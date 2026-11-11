@@ -294,8 +294,19 @@ const GroundAI = (() => {
     if (A && !F.destroyed && A.parts.length && !A.dead && !A.wreck && A.body === EARTH) {
       eOf(A.x, A.y, A.z, LOC2);
       const r = clamp(0.38 * Math.hypot(A.bounds.maxX - A.bounds.minX, A.bounds.maxZ - A.bounds.minZ), 1.5, 6);
-      put(UNITS, nu++, A, S.b ? S.b.team : 0, LOC2.e, LOC2.z, r); put(OBS, no++, A, 0, LOC2.e, LOC2.z, r);
+      put(UNITS, nu++, A, S.b ? S.b.team : 0, LOC2.e, LOC2.z, r);
+      if (A.kind !== 'drone') put(OBS, no++, A, 0, LOC2.e, LOC2.z, r); // (a drone flies over: in nobody's way)
     }
+    // (the big update's drones) the player's other craft: the tank parked while its drone flies (a unit and in the way),
+    // the drone up from the tank being driven (a unit), and the AI's drones (units of their side)
+    const C = A && A.carrier, D = A && A.drone;
+    if (C && !C.dead && !C.wreck && C.parts.length && C.body === EARTH) {
+      eOf(C.x, C.y, C.z, LOC2);
+      const r = clamp(0.38 * Math.hypot(C.bounds.maxX - C.bounds.minX, C.bounds.maxZ - C.bounds.minZ), 1.5, 6);
+      put(UNITS, nu++, C, S.b ? S.b.team : 0, LOC2.e, LOC2.z, r); put(OBS, no++, C, 0, LOC2.e, LOC2.z, r);
+    }
+    if (D && !F.destroyed && !D.dead && D.hulk == null && D.parts.length && D.body === EARTH) { eOf(D.x, D.y, D.z, LOC2); put(UNITS, nu++, D, S.b ? S.b.team : 0, LOC2.e, LOC2.z, 1); }
+    if (Combat.S.dr) for (const d of F.vessels) if (d.ai && d.ai.drone && !d.dead && d.hulk == null && d.parts.length) { eOf(d.x, d.y, d.z, LOC2); put(UNITS, nu++, d, d.ai.team || 0, LOC2.e, LOC2.z, 1); }
     for (const v of S.ai) if (!v.dead && !v.ai.down) { const k = v.ai.k; put(UNITS, nu++, v, v.ai.team, k.e, k.z, k.r); put(OBS, no++, v, v.ai.team, k.e, k.z, k.r); }
     for (const w of F.vessels) { // (wrecks, and the player's last hulk still falling: no respawn under it)
       if (!(w.wreck || w === S.fall) || w.dead || !w.parts.length) continue;
@@ -783,7 +794,7 @@ const GroundAI = (() => {
   // Its own: a ground vehicle (Armour, or a car with aimed guns) on Earth with the map in, within 4 km of Highland
   // Ridge's middle, solo, targets not off, no Practice Battle on
   function rangeWanted(F) {
-    const v = F.active;
+    const v = (F.active && F.active.carrier) || F.active; // (a drone flown from a tank's bay: the tank's range)
     if (!v || S.b || mpOn() || targetsMode() === 'off' || v.body !== EARTH || !mapReady()) return false;
     if (!(v.kind === 'tank' || (v.kind === 'car' && v.aimed && v.aimed.length))) return false;
     eOf(v.x, v.y, v.z, LOC2);
@@ -811,7 +822,7 @@ const GroundAI = (() => {
     // knocked-out drones (Combat's hitTarget): counted, back 45 s later
     for (let i = 0; i < R0.drones.length; i++) {
       const t = R0.drones[i];
-      if (!t.alive && !t.gone) { t.gone = true; t.backAt = now + RANGE.back; if (t.lastHitBy === F.active) score(F, { x: t.pos.x, y: t.pos.y, z: t.pos.z }); }
+      if (!t.alive && !t.gone) { t.gone = true; t.backAt = now + RANGE.back; if (Combat.byMe(t.lastHitBy, F)) score(F, { x: t.pos.x, y: t.pos.y, z: t.pos.z }); }
       else if (t.gone && now >= t.backAt) drone(R0, i);
       else if (t.alive && !Combat.S.targets.includes(t)) Combat.S.targets.push(t); // (the old range came back and dropped them)
     }
@@ -875,11 +886,11 @@ const GroundAI = (() => {
     const B = S.b, O = B.obj, U = [], A = F.active;
     B.t += dt;
     for (const u of S.units) {
-      const v = u.v, me = v === A, k = v.ai && v.ai.k;
+      const v = u.v, me = v === A, k = v.ai && v.ai.k; // (no k: the player's tank parked under its drone, or a drone)
       if (me && v.contactTime > 0) B.gdAt = F.time;
-      U.push({ team: u.team, e: u.e, z: u.z, kind: v.kind, speed: me ? v.speed() : Math.abs(k.s), gd: me ? (F.time - (B.gdAt ?? -9) < 0.5 ? 1 : 0) : 1, troops: troopsOf(v), v });
+      U.push({ team: u.team, e: u.e, z: u.z, kind: v.kind, speed: me || !k ? v.speed() : Math.abs(k.s), gd: me ? (F.time - (B.gdAt ?? -9) < 0.5 ? 1 : 0) : !k ? (v.contactTime > 0 ? 1 : 0) : 1, troops: troopsOf(v), v });
       // out of the battle area: a warning only, every 5 s while out, as in a room (aircraft fly where they like)
-      const X = me && !(v.kind === 'plane' || v.kind === 'heli') && GroundMode.arena(B.arena), bx = X && X.box, since = F.time - (B.oobAt ?? -Infinity);
+      const X = me && !(v.kind === 'plane' || v.kind === 'heli' || v.kind === 'drone') && GroundMode.arena(B.arena), bx = X && X.box, since = F.time - (B.oobAt ?? -Infinity);
       if (bx && (u.e < bx.e0 || u.e > bx.e1 || u.z < bx.z0 || u.z > bx.z1) && (since >= 5 || since < 0)) { B.oobAt = F.time; say(F, 'Out of the battle area: the zones are behind you', 'warn'); } // (since < 0: a new flight's clock)
     }
     for (const ev of GroundMode.tick(O, dt, U)) {
@@ -1101,7 +1112,7 @@ const GroundAI = (() => {
       const a = v && v.ai;
       if (!a || !a.ground || a.gone) return;
       a.gone = true; a.down = true; a.state = 'down';
-      const me = !!F && v.lastHitBy === F.active && !!F.active;
+      const me = !!F && Combat.byMe(v.lastHitBy, F); // (ours, or our drone's: plan I3)
       wreckOf(v, F || {});
       if (S.range && me && !a.ally) score(F, v);
       const B = S.b;
@@ -1181,11 +1192,15 @@ const GroundAI = (() => {
       return { name: String(D.design.name || 'Your design').slice(0, 40), cost: designCost(partsFromDesign(D.design.parts)), yours: !D.why };
     },
     // The player knocked out in a Practice Battle (Flight.onDestroyed): their hulk stays as a wreck, the tickets go, and
-    // the respawn panel opens (back in after 5 s, on the pad, the AI and the wrecks kept). True: handled.
-    onDestroyed(F) {
+    // the respawn panel opens (back in after 5 s, on the pad, the AI and the wrecks kept). True: handled. (the big update)
+    // v: the vehicle (the tank knocked out under its flown drone); quiet: the wreck and the tickets now, the panel later,
+    // when its drone's LAST FLIGHT ends (a second call for the same v opens only the panel).
+    onDestroyed(F, v0, quiet) {
       const B = S.b;
       if (!B || !Combat.S.gai || mpOn()) return false;
-      const v = F.active, falls = !!v && isAirKind(v.kind) && !v.landed && !v.splashed; // (an aircraft in the air falls and crashes, death.js: no wreck frozen in the sky)
+      const v = v0 || F.active;
+      if (B.booked && B.booked === v && !quiet) { B.booked = null; this.panelLater(F); return true; }
+      const falls = !!v && isAirKind(v.kind) && !v.landed && !v.splashed; // (an aircraft in the air falls and crashes, death.js: no wreck frozen in the sky)
       const up = !!v && !isAirKind(v.kind) && !v.landed && !v.splashed && !(v.contactTime > 0); // (a ground vehicle knocked out in the air: it falls, and is a wreck once it lands, frame's S.fall)
       if (v && !v.dead && v.parts.length && !falls) { if (up) { S.fall = v; S.fallStill = 0; } else wreckOf(v, F); }
       if (!B.over) {
@@ -1194,12 +1209,17 @@ const GroundAI = (() => {
         say(F, `${by && by.name ? `Knocked out by ${String(by.name).slice(0, 40)}` : 'Knocked out'} (−${n} tickets)`, 'warn');
       }
       B.respawnAt = (F.time || 0) + BATTLE.respawn;
-      if (typeof setTimeout === 'function' && typeof UI !== 'undefined') {
-        if (S.panelT) clearTimeout(S.panelT);
-        const go = () => { if (S.b === B && F.running && F.destroyed) panel(F); };
-        S.panelT = setTimeout(() => { S.panelT = null; if (typeof F.afterFall === 'function') F.afterFall(go); else go(); }, BATTLE.panel * 1000); // (an aircraft's waits for its fall: Flight.afterFall)
-      }
+      if (quiet) { B.booked = v; return true; }
+      this.panelLater(F);
       return true;
+    },
+    // the respawn panel, BATTLE.panel s on (an aircraft's waits for its fall: Flight.afterFall)
+    panelLater(F) {
+      const B = S.b;
+      if (!B || typeof setTimeout !== 'function' || typeof UI === 'undefined') return;
+      if (S.panelT) clearTimeout(S.panelT);
+      const go = () => { if (S.b === B && F.running && F.destroyed) panel(F); };
+      S.panelT = setTimeout(() => { S.panelT = null; if (typeof F.afterFall === 'function') F.afterFall(go); else go(); }, BATTLE.panel * 1000);
     },
     // Back in the battle in design d (the panel's choice): only once the respawn time has come and the side has tickets
     respawn(F, d) {
