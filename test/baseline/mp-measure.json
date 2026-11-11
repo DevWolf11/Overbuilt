@@ -209,6 +209,36 @@
   "height": 4.89,
   "mass": 25636
  },
+ "bumble": {
+  "span": 0.5,
+  "length": 0.235,
+  "height": 0.5,
+  "mass": 1.68
+ },
+ "bumbleF": {
+  "span": 0.5,
+  "length": 0.365,
+  "height": 0.5,
+  "mass": 3.08
+ },
+ "mavik": {
+  "span": 0.66,
+  "length": 0.27,
+  "height": 0.66,
+  "mass": 1.1500000000000001
+ },
+ "babaYara": {
+  "span": 1.54,
+  "length": 0.55,
+  "height": 1.7,
+  "mass": 21.49
+ },
+ "lancett": {
+  "span": 1.7,
+  "length": 0.39,
+  "height": 1.6,
+  "mass": 4.56
+ },
  "tk34": {
   "span": 3.2,
   "length": 2.9,
@@ -304,5 +334,17 @@
   "length": 3.7,
   "height": 4,
   "mass": 1380
+ },
+ "bmk2d": {
+  "span": 3.4,
+  "length": 4,
+  "height": 6.4,
+  "mass": 20300
+ },
+ "ma1c": {
+  "span": 4,
+  "length": 4.2700000000000005,
+  "height": 10.348,
+  "mass": 56744.245323913936
  }
 }
