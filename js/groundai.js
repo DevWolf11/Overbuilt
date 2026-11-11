@@ -44,10 +44,17 @@ const GroundAI = (() => {
   ];
   const LOOP = { e: 18450, z: 14810, r: 191, n: 16 }; // (its south point is zone B's middle)
   const DRONES = { e: 17750, z: 12400, r: [600, 900], alt: [400, 600] }; // circling 1.5 km north of the pad
+  // (the big update) The drone war: a player who brings a drone bay or counter-drone kit to the range or a Practice
+  // Battle (GroundAI.dw) meets drones. Practice: two passive Bumbles circling 400 m ahead of the north pad; Hostile, an
+  // attack Bumble every 60 s, two at most, from the south 900 m off; a Practice Battle's enemy fields a BMK-2D Nest (it
+  // launches a Bumble when it sees an enemy within 1.4 km, every 60 s, one up at a time, three a life) and a
+  // counter-drone vehicle for the money. Old play never sets it.
+  const DW = { e: 17750, z: 14200, key: 'bumble', every: 60, most: 2, from: 900, see: 1400, cuas: { 45000: 'zsy23', 75000: 'gepardo', 120000: 'ma1c' } };
 
   const S = {
     ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false, fresh: 0,
     tpl: new Map(), rnd: Math.random, panelT: null, fall: null, fallStill: 0, // fall: the player's hulk knocked out in the air, a wreck once it lands (fallStill: s it has lain still)
+    dw: false, // the drone war is on (DW)
   };
   const mpOn = () => typeof MP !== 'undefined' && MP.active;
   const targetsMode = () => (mpOn() ? 'off' : (typeof Settings !== 'undefined' && Settings.get('targets')) || 'practice');
@@ -141,7 +148,8 @@ const GroundAI = (() => {
       want: 0, yawWant: yaw, thinkT: S.rnd() * AI.think, lookT: S.rnd() * AI.look, tgt: null, seen: false, tD: Infinity, lostAt: -9, reactAt: 0, cover: null, coverFor: null,
       react: AI.react[0] + (AI.react[1] - AI.react[0]) * sk, errK: (AI.err[0] + (AI.err[1] - AI.err[0]) * sk) * 1e-3, errAt: -9, shot: null, P: v3(),
       sys: -1, gun: null, soft: false, clear: true, block: 0, blockDir: S.rnd() < 0.5 ? -1 : 1, revT: 0, progT: 0, progE: e, progZ: z, wp: 0, cruise: o.speed || 0, home: !!o.home, homeWhy: o.home ? 'crew' : null,
-      zone: null, spot: null, k: null, wave: o.wave || 0, tof: 0, onN: 0, nShot: 0, ea: 0, eb: 0, tgtU: { e: 0, z: 0 }, turretless: false, thermal: v.parts.some((p) => p.def.thermal), limT: 0, pathT: -9, pathOk: true, pathFor: null, pathBlk: 0, pathN: 0, badB: null, badFor: null };
+      zone: null, spot: null, k: null, wave: o.wave || 0, tof: 0, onN: 0, nShot: 0, ea: 0, eb: 0, tgtU: { e: 0, z: 0 }, turretless: false, thermal: v.parts.some((p) => p.def.thermal), limT: 0, pathT: -9, pathOk: true, pathFor: null, pathBlk: 0, pathN: 0, badB: null, badFor: null,
+      aa: hasAA(v), radar: v.parts.some((p) => p.def.trackRadar || p.def.searchRadar) };
     arm(v);
     place(v, T, e, z, yaw);
     F.vessels.push(v);
@@ -500,6 +508,9 @@ const GroundAI = (() => {
       if (u.team === a.team || u.v === v) continue;
       const d = Math.hypot(u.e - k.e, u.z - k.z);
       if (d > AI.see + (u.v === a.tgt ? 200 : 0)) continue;
+      // (the big update) a drone only for anti-aircraft guns (a tank's gun can't reach one: it never stalls on one), and
+      // only as far as it can pick one out: a radar's 1.2 km, else its drone sensors' (eyes 400 m)
+      if (u.v.kind === 'drone' && (!a.aa || d > (a.radar ? AI.engage : typeof Drone !== 'undefined' ? Drone.seeR(v) : 400))) continue;
       CAND[n++] = u; u.d = d;
     }
     CAND.length = n;
@@ -519,7 +530,7 @@ const GroundAI = (() => {
     // no clear shot through a teammate in the way (within 5 m of the line, nearer than the target)
     a.clear = true;
     if (a.tgt && a.seen) for (const u of S.units) {
-      if (u.team !== a.team || u.v === v) continue;
+      if (u.team !== a.team || u.v === v || u.v.kind === 'drone') continue; // (a drone flies over the line)
       const te = a.tgtU.e - k.e, tz = a.tgtU.z - k.z, tl = Math.hypot(te, tz) || 1, ue = u.e - k.e, uz = u.z - k.z, along = (ue * te + uz * tz) / tl;
       if (along > 0 && along < tl && Math.abs(ue * tz - uz * te) / tl < u.r + 2) { a.clear = false; break; }
     }
@@ -585,7 +596,7 @@ const GroundAI = (() => {
       if (!a.zone && Z.length) { let bz = null, bd = Infinity; for (const zn of Z) { const d = Math.hypot(zn.e - k.e, zn.z - k.z); if (d < bd) { bd = d; bz = zn; } } a.zone = bz; }
       if (a.zone && !a.reached && Math.hypot(a.zone.e - k.e, a.zone.z - k.z) < a.zone.r * 0.6) a.reached = true;
       if (a.zone && !a.reached) return a.zone;
-      const p = S.units.find((u) => u.team !== a.team);
+      const p = S.units.find((u) => u.team !== a.team && u.v.kind !== 'drone'); // (after the player's vehicle, not a drone over it)
       return p ? { e: p.e, z: p.z } : null;
     }
     const Z = B.obj.zones;
@@ -637,9 +648,10 @@ const GroundAI = (() => {
     let e1x = dy * uz - dz * uy, e1y = dz * ux - dx * uz, e1z = dx * uy - dy * ux;
     const el = len(e1x, e1y, e1z) || 1; e1x /= el; e1y /= el; e1z /= el;
     const e2x = e1y * dz - e1z * dy, e2y = e1z * dx - e1x * dz, e2z = e1x * dy - e1y * dx, ka = a.ea * D, kb = a.eb * D, tof = a.tof;
-    P.x = tx + ux * 0.5 + (t.vx - v.vx) * tof + e1x * ka + e2x * kb;
-    P.y = ty + uy * 0.5 + (t.vy - v.vy) * tof + e1y * ka + e2y * kb;
-    P.z = tz + uz * 0.5 + (t.vz - v.vz) * tof + e1z * ka + e2z * kb;
+    const up = t.kind === 'drone' ? 0 : 0.5; // (a drone at its middle: half a metre up is over it)
+    P.x = tx + ux * up + (t.vx - v.vx) * tof + e1x * ka + e2x * kb;
+    P.y = ty + uy * up + (t.vy - v.vy) * tof + e1y * ka + e2y * kb;
+    P.z = tz + uz * up + (t.vz - v.vz) * tof + e1z * ka + e2z * kb;
     const was = v.aimP === P;
     v.aimP = P;
     // on target this frame and the last (so an angle left from an earlier aim never fires a round)
@@ -826,6 +838,7 @@ const GroundAI = (() => {
       else if (t.gone && now >= t.backAt) drone(R0, i);
       else if (t.alive && !Combat.S.targets.includes(t)) Combat.S.targets.push(t); // (the old range came back and dropped them)
     }
+    if (R0.dw) dwStep(F, R0, now);
     if (R0.mode === 'hostile' && !F.destroyed) {
       if (!R0.left.length && now >= R0.waveAt) wave(F);
       // an attack plane every 3 minutes for an AA vehicle to shoot at (Combat's own fighter: it hunts the player)
@@ -840,7 +853,7 @@ const GroundAI = (() => {
   // within 40% of the player's (the nearest three by price when none is), placed on the pad's spots
   function wave(F) {
     const R0 = S.range, n = Math.min(2 + ++R0.wave, 5), me = F.active ? designCost(F.active.parts) : 30000;
-    const pool = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return t.kind === 'tank' && fighter(k); });
+    const pool = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return t.kind === 'tank' && fighter(k) && !t.dw; }); // (the drone war's tanks never join a wave)
     const cost = (k) => { const T = tplOf(k); if (!T.cost) T.cost = designCost(partsFromDesign(T.rows)); return T.cost; };
     let fit = pool.filter((k) => cost(k) >= me * 0.6 && cost(k) <= me * 1.4);
     if (!fit.length) fit = pool.sort((x, y) => Math.abs(cost(x) - me) - Math.abs(cost(y) - me)).slice(0, 3);
@@ -855,6 +868,45 @@ const GroundAI = (() => {
   // a stock vehicle that can fight another on the ground (a main gun, wire-guided missiles or an automatic gun; not
   // rocket artillery or a SAM carrier)
   const fighter = (key) => TEMPLATES[key].parts.some((r) => { const d = PARTS[r[0]], w = d && d.weapon; return !!d && !!d.aim && !!w && (w.kind === 'tgun' || (w.kind === 'missile' && w.seek === 'saclos') || (w.kind === 'agun' && (w.cal || 0) >= 20)); });
+
+  // ---------------------------------------------------------------- the drone war (the big update; DW above)
+  // A vehicle (or design rows) that brings it: a drone bay or counter-drone kit aboard
+  const dwOf = (v) => !!v && ((!!v.docks && v.docks.length > 0) || (!!v.cuas && v.cuas.length > 0));
+  const dwRows = (rows) => Array.isArray(rows) && rows.some((r) => { const d = r && hasOwn(PARTS, r.type) ? PARTS[r.type] : null; return !!d && (!!d.dock || !!d.cuas); });
+  const liveDrone = (d) => !!d && !d.dead && d.hulk == null && !!d.control && !(d.ai && d.ai.down) && d.parts.length > 0;
+  // a range practice drone, circling DW's spot (i: which of the two: half a lap apart)
+  function practiceDrone(F, i) {
+    const t = (i / 2) * TAU;
+    return typeof Drone === 'undefined' ? null : Drone.spawnAI(F, DW.key, { e: DW.e + Math.cos(t) * 60, z: DW.z + Math.sin(t) * 60, h: 50, yaw: S.rnd() * TAU }, 1, { passive: true, at: { e: DW.e, z: DW.z } });
+  }
+  // The range's drones: practice ones shot down (or lost) back 45 s later, the player's knock-outs counted as the old
+  // target drones' are; in Hostile, an attack Bumble every 60 s (two at most), from the south pad's way, 900 m off
+  function dwStep(F, R0, now) {
+    for (let i = 0; i < R0.dd.length; i++) {
+      const s = R0.dd[i];
+      if (!s.gone && !liveDrone(s.v)) { s.gone = true; s.backAt = now + RANGE.back; if (s.v && Combat.byMe(s.v.doomBy || s.v.lastHitBy, F)) score(F, s.v); }
+      else if (s.gone && now >= s.backAt) { s.v = practiceDrone(F, i); s.gone = !s.v; s.backAt = now + 5; }
+    }
+    if (R0.mode !== 'hostile' || F.destroyed || now < R0.dAt) return;
+    R0.dAt = now + DW.every;
+    R0.atk = R0.atk.filter(liveDrone);
+    if (R0.atk.length >= DW.most || typeof Drone === 'undefined') return;
+    const A = (F.active && F.active.carrier) || F.active;
+    if (!A) return;
+    eOf(A.x, A.y, A.z, LOC2);
+    const pad = EARTH.groundPads.highlandS, de = pad.e - LOC2.e, dz = pad.z - LOC2.z, d = Math.hypot(de, dz), f = d > DW.from ? DW.from / d : 1;
+    const v = Drone.spawnAI(F, DW.key, { e: LOC2.e + de * f, z: LOC2.z + dz * f, h: 3, yaw: Math.atan2(dz, -de) }, 1, {});
+    if (v) { R0.atk.push(v); say(F, 'Enemy drone inbound!', 'warn'); }
+  }
+  // A Nest (an AI vehicle with a drone bay) in the drone war: it launches its bay's drone when it sees an enemy within
+  // 1.4 km, every 60 s, one up at a time (three a life: its rack's; a new one when it comes back)
+  function nestStep(v, F) {
+    const a = v.ai, now = F.time || 0;
+    if (a.down || v.ko || v.wreck || !a.seen || !(a.tD < DW.see) || now < (a.droneAt ?? -Infinity) || liveDrone(a.droneUp) || typeof Drone === 'undefined') return;
+    a.droneAt = now + DW.every;
+    const d = Drone.spawnAI(F, null, null, a.team, { nest: v });
+    if (d) { a.droneUp = d; if (!a.ally) say(F, 'Enemy drone inbound!', 'warn'); }
+  }
 
   // ---------------------------------------------------------------- the Practice Battle
   // the player's design for a battle with this money: theirs if it's a ground vehicle within it, else the money's first
@@ -874,7 +926,7 @@ const GroundAI = (() => {
   const money$ = (n) => (typeof money === 'function' ? money(n) : '$' + Math.round(n).toLocaleString('en-US'));
   // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks; a practice launch is free
   function launch(F, design, place, fresh) {
-    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && o.ai.ground) || o.wreck || o.tossed || o === S.fall)); // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
+    const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && (o.ai.ground || o.ai.drone)) || o.wreck || o.tossed || o === S.fall)); // (and the AI's drones) // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
     if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
     if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
@@ -1041,6 +1093,10 @@ const GroundAI = (() => {
     get battle() { const B = S.b; return B && typeof Flight !== 'undefined' && Flight.running === false ? null : B && Combat.S.gai && !mpOn() ? B : null; },
     get range() { return S.range; },
     get ai() { return S.ai; },
+    // (the big update) the drone war is on: the player brought a drone bay or counter-drone kit to the range or a Practice
+    // Battle (Combat.S.dr then runs drone.js each frame); and who is in the fight (the AI's drones read their targets here)
+    get dw() { return S.dw && !!(S.range || S.b) && !mpOn(); },
+    get units() { return S.units; },
     get calls() { return S.calls; }, set calls(n) { S.calls = n; },
     // anything of ours still out (or the bar still up): Combat.frame keeps calling frame until it has gone
     get shown() { return !!(S.range || S.b || S.ai.length || (S.bar && !S.bar.root.hidden)); },
@@ -1057,7 +1113,7 @@ const GroundAI = (() => {
       if (!S.b && (S.chkT -= dt) <= 0) {
         S.chkT = 1;
         const want = rangeWanted(F);
-        if (S.range && (!want || S.range.mode !== targetsMode())) this.reset(F);
+        if (S.range && (!want || S.range.mode !== targetsMode() || S.range.dw !== dwOf((F.active && F.active.carrier) || F.active))) this.reset(F);
         if (!S.range && want) this.startRange(F);
       }
       if (!S.range && !S.b && !S.ai.length) { bar(F); return; }
@@ -1071,6 +1127,7 @@ const GroundAI = (() => {
         if (v.com.x !== k.cx || v.com.y !== k.cy || (v.com.z || 0) !== k.cz) recentre(v);
         if (k.idle < 4 * AI.fit || !k.rest) { pose(v, k.acc); k.rest = k.idle >= 4 * AI.fit; }
         aimFrame(v, F);
+        if (S.dw && v.docks && v.docks.length) nestStep(v, F); // (the drone war's Nest)
       }
       // the knocked out and the long gone
       let gone = 0;
@@ -1134,7 +1191,8 @@ const GroundAI = (() => {
         if (F && F.vessels) for (const o of F.vessels) if (o.gaiPlane) o.dead = true;
       }
       if (S.panelT) { clearTimeout(S.panelT); S.panelT = null; }
-      S.ai = []; S.wrecks = []; S.dead = []; S.range = null; S.b = null; S.units = []; S.obs = []; S.chkT = 0;
+      if (S.dw && F && F.vessels) for (const o of F.vessels) if (o.ai && o.ai.drone) o.dead = true; // (the drone war's drones)
+      S.ai = []; S.wrecks = []; S.dead = []; S.range = null; S.b = null; S.units = []; S.obs = []; S.chkT = 0; S.dw = false;
       Combat.S.gai = 0;
       bar(F || {});
     },
@@ -1146,6 +1204,7 @@ const GroundAI = (() => {
       S.rnd = typeof mulberry32 === 'function' ? mulberry32(4242 + ((F.time * 10) | 0)) : Math.random;
       const now = F.time || 0, R0 = S.range = { mode: m, kos: 0, best: 0, wave: 0, waveAt: now + RANGE.first, planeAt: now + 60, left: [], drones: [], aa: hasAA(F.active) };
       Combat.S.gai = 1;
+      if ((S.dw = R0.dw = dwOf(F.active.carrier || F.active))) { R0.dd = []; R0.atk = []; R0.dAt = now + DW.every; } // (the drone war)
       units(F);
       if (m === 'practice') {
         for (const L of LAYOUT) {
@@ -1153,7 +1212,8 @@ const GroundAI = (() => {
           else spawn(F, L.key, L.e, L.z, L.yaw, 1, 'parked');
         }
         if (R0.aa) { drone(R0, 0); drone(R0, 1); }
-        say(F, R0.aa ? 'Tank Range: five targets ahead and two drones overhead · they never shoot back' : 'Tank Range: five targets ahead · they never shoot back', 'info');
+        if (R0.dw) for (let i = 0; i < 2; i++) { const v = practiceDrone(F, i); R0.dd.push({ v, gone: !v, backAt: now + 5 }); }
+        say(F, R0.aa || R0.dw ? `Tank Range: five targets ahead and ${R0.aa && R0.dw ? 'four' : 'two'} drones overhead · they never shoot back` : 'Tank Range: five targets ahead · they never shoot back', 'info');
       } else say(F, `Hostile range: the first wave leaves the south pad in ${RANGE.first} s`, 'warn');
       return true;
     },
@@ -1177,9 +1237,13 @@ const GroundAI = (() => {
       launch(F, D.design, GroundMode.placement(arena, 0, 0, D.design.kind), true);
       if (D.why) say(F, `${D.why}: you drive the ${D.design.name}`, 'warn');
       const stock = GroundMode.stock(cash).filter((k) => tplOf(k) && fighter(k)), at = (i) => stock[i % stock.length];
+      // (the drone war: a design with a drone bay or counter-drone kit meets an enemy Nest, slot 1, and the money's
+      // counter-drone vehicle, slot 2; the player's allies as ever)
+      S.dw = dwRows(D.design.parts);
+      const foe = (i) => (S.dw && i === 1 && tplOf('bmk2d') ? 'bmk2d' : S.dw && i === 2 && tplOf(DW.cuas[cash]) ? DW.cuas[cash] : at(i));
       units(F);
       for (let i = 1; i <= 2; i++) { const P = GroundMode.placement(arena, 0, i, 'tank'); spawn(F, at(i), P.e, P.z, P.yaw, 0, 'fight'); }
-      for (let i = 0; i < 3; i++) { const P = GroundMode.placement(arena, 1, i, 'tank'); spawn(F, at(i), P.e, P.z, P.yaw, 1, 'fight'); }
+      for (let i = 0; i < 3; i++) { const P = GroundMode.placement(arena, 1, i, 'tank'); spawn(F, foe(i), P.e, P.z, P.yaw, 1, 'fight'); }
       units(F);
       say(F, `Practice battle on ${GroundMode.arena(arena).name}: take the zones · ${BATTLE.tickets} tickets a side`, 'info');
       S.barKey = ''; bar(F);
@@ -1251,6 +1315,8 @@ const GroundAI = (() => {
     // one more AI vehicle of stock template key at (e, z) facing yaw, on team (0: the player's), as role ('parked',
     // 'patrol' round the range's loop, 'fight'); opts { skill 0..1, speed }. The vessel, or null (no such template; in a room)
     spawn(F, key, e, z, yaw, team, role, opts) { if (mpOn() || !F || !F.vessels) return null; units(F); return spawn(F, key, e, z, yaw || 0, team === 0 ? 0 : 1, role || 'fight', opts || {}); },
+    // the AI's dice from seed n (startRange and startBattle roll their own; the tests seed a lone spawn's this way)
+    seed(n) { S.rnd = typeof mulberry32 === 'function' ? mulberry32(n) : Math.random; },
     // a teammate's spot (J, a long press on a tag: ghud.js): our side's AI treat it as seen for 10 s
     spot(o, F) { if (o && o.ai && o.ai.ground) o._gaiSpot = ((F && F.time) || 0) + 10; },
   };

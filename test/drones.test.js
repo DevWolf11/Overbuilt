@@ -816,6 +816,117 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   const EY = JSON.parse(RB('JSON.stringify(EY)'));
   t('10 drones seen by eye 400 m only (Radar.eye asks Drone.marked); a detector marks one at 1.5 km; the player\'s seekers get hostile AI drones, the radar never',
     EY.a === 1 && EY.b === 0 && EY.c === 0 && EY.cD === 2 && EY.eyeA === true && EY.eyeB === false && EY.thr === 3 && EY.cands === 3 && EY.sees !== true, EY);
+  // ---------------------------------------------------------------- 11. the AI (spec §15): the drone war in the Tank
+  // Range and the Practice Battle, the AI's drones, SPAA against drones, tanks that can't
+  RB(`var aiOf = (F) => F.vessels.filter((o) => o.ai && o.ai.drone && !o.dead);
+  var liveD = (d) => !!d && !d.dead && d.hulk == null && !!d.control && !(d.ai && d.ai.down);
+  var A11 = (() => { const out = {};
+    // Range Practice with an MA-1C (a gun, a jammer, a detector, a cage): two passive Bumbles circling 400 m ahead of the pad
+    { SET.targets = 'practice'; const F = world(); F.start(designOf('ma1c'), { place: NPAD }); go(F, 1);
+      const R0 = GroundAI.range, ds = aiOf(F), d0 = ds[0], P = d0 && Terrain.locate(EARTH, d0.x, d0.y, d0.z, {});
+      out.start = { dw: GroundAI.dw, dr: Combat.S.dr, n: ds.length, passive: ds.every((d) => d.ai.passive && d.ai.team === 1 && !d.ai.ally && d.name === 'Enemy drone' && !Combat.isFighter(d)),
+        h: P ? +(P.r - EARTH.radius - Terrain.surfaceAt(EARTH, P.a, P.z)).toFixed(0) : null, said: F.log.some((m) => /five targets ahead and two drones overhead/.test(m)) };
+      const goneAt = [null, null]; go(F, 12, (F) => { R0.dd.forEach((s, i) => { if (goneAt[i] == null && s.gone) goneAt[i] = F.time; }); if (goneAt.every((x) => x != null)) return false; });
+      const was = R0.dd.map((s) => s.v), back = R0.dd.map((s, i) => s.backAt - goneAt[i]);
+      out.down = { downAt: goneAt.every((x) => x != null) ? +(Math.max(...goneAt) - 1).toFixed(1) : null, kos: R0.kos, said: F.log.filter((m) => m === 'Enemy drone down!').length, armed: was.some((d) => d && d.dl && d.dl.armedAt != null) };
+      go(F, Math.min(...goneAt) + 44 - F.time); out.at44 = R0.dd.map((s, i) => s.v === was[i]);
+      go(F, Math.max(...goneAt) + 45.5 - F.time); out.at46 = R0.dd.map((s, i) => s.v !== was[i] && !!s.v && s.v.ai.passive);
+      out.back = back.map((x) => +x.toFixed(2));
+      GroundAI.reset(F); out.reset = aiOf(F).length; }
+    // Range Hostile with the BMK-2D Nest (a bay, no kit): an attack Bumble from the south, 900 m off, onto its roof
+    { SET.targets = 'hostile'; const F = world(), C = F.start(designOf('bmk2d'), { place: NPAD }); go(F, 1);
+      const R0 = GroundAI.range; R0.waveAt = 1e9; R0.dAt = F.time; let d = null, t0 = F.time, boom = null, dist0 = null, miss = null;
+      go(F, 62, (F) => { if (!d) { d = aiOf(F)[0]; if (d) dist0 = Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z); }
+        if (d && d.dead && boom == null) { boom = F.time - t0; miss = Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z); return false; } });
+      out.hostile = { dw: GroundAI.dw, said: F.log.includes('Enemy drone inbound!'), dist0: dist0 && Math.round(dist0), boom: boom && +boom.toFixed(1), miss: miss && +miss.toFixed(1), hurt: C.hurtAt != null || !!C.ko };
+      GroundAI.reset(F); }
+    // two at most up at a time (three called for at once)
+    { const F = world(); F.start(designOf('bmk2d'), { place: NPAD }); go(F, 1); const R0 = GroundAI.range; R0.waveAt = 1e9;
+      for (let i = 0; i < 3; i++) { R0.dAt = F.time; go(F, 0.1); } out.most = aiOf(F).filter(liveD).length; GroundAI.reset(F); }
+    SET.targets = 'off';
+    return out; })();`);
+  const A11 = JSON.parse(RB('JSON.stringify(A11)'));
+  t('11 Range Practice with an MA-1C: two passive enemy Bumbles circle 50 m up ("...and two drones overhead"); they are no bandits', A11.start.dw && A11.start.dr && A11.start.n === 2 && A11.start.passive && Math.abs(A11.start.h - 50) <= 3 && A11.start.said, A11.start);
+  t('11 ...its anti-drone gun downs both ("Enemy drone down!", two range KOs; they never armed), and each comes back 45 s later (not at 44 s)',
+    A11.down.downAt != null && A11.down.kos === 2 && A11.down.said === 2 && !A11.down.armed && A11.back.every((b) => Math.abs(b - 45) < 0.2) && A11.at44.every((x) => x) && A11.at46.every((x) => x) && A11.reset === 0, [A11.down, A11.back, A11.at44, A11.at46]);
+  t('11 Range Hostile: an attack Bumble ("Enemy drone inbound!") from 900 m reaches the player\'s Nest within 60 s and goes off on it; two at most at a time',
+    A11.hostile.dw && A11.hostile.said && Math.abs(A11.hostile.dist0 - 900) < 30 && A11.hostile.boom != null && A11.hostile.boom <= 60 && A11.hostile.miss < 8 && A11.hostile.hurt && A11.most === 2, [A11.hostile, A11.most]);
+  // SPAA against drones; a tank's gun never stalls on one; the parked carrier is a target
+  RB(`var B11 = (() => { const out = {};
+    const flyer = (seed) => { Math.random = mulberry32(seed); GroundAI.seed(seed); const { F, v } = pilot(); go(F, 3, (F) => { v.ctl.z = F.time < 3 ? 1 : 0; }); return { F, v }; };
+    // the AI ZSY-23 (guarding) against the player's Bumble hovering 400 m off: ten seeds
+    out.zsy = [];
+    for (let s = 1; s <= 10; s++) { const { F, v } = flyer(s * 7919), Z = GroundAI.spawn(F, 'zsy23', NPAD.e, NPAD.z + 400, Math.PI / 2, 1, 'guard', { skill: Math.random() });
+      let at = null; go(F, 20, (F) => { if (at == null && (F.destroyed || v.hulk != null || !v.control)) { at = F.time; return false; } });
+      out.zsy.push({ at: at && +(at - 3).toFixed(1), aa: Z.ai.aa, h: +v.altitude().toFixed(0) }); GroundAI.reset(F); }
+    // a non-AA tank (an MA-1 out to fight) with the player's Bumble hovering 300 m off: never its target, and it drives on
+    { const { F, v } = flyer(5), M = GroundAI.spawn(F, 'ma1', NPAD.e, NPAD.z + 300, Math.PI / 2, 1, 'fight', { skill: 1 }), k0 = { e: M.ai.k.e, z: M.ai.k.z };
+      let tg = 0, aim = 0; go(F, 20, () => { if (M.ai.tgt === v) tg++; if (M.aimP) aim++; });
+      out.mbt = { aa: M.ai.aa, tg, aim, moved: Math.round(Math.hypot(M.ai.k.e - k0.e, M.ai.k.z - k0.z)), alive: !F.destroyed }; GroundAI.reset(F); }
+    // the parked carrier: a Nest with its drone up is a unit (in the way too) and an MS-4 shoots it, not the drone
+    { Math.random = mulberry32(77); GroundAI.seed(77); const { F, C, d, ok } = launched(); const M = GroundAI.spawn(F, 'ms4', NPAD.e, NPAD.z + 500, Math.PI / 2, 1, 'guard', { skill: 1 });
+      go(F, 0.5); const U = GroundAI.units.map((u) => (u.v === C ? 'C' : u.v === d ? 'd' : u.v === M ? 'M' : '?')).join();
+      let tC = 0, tD = 0, hurt = null; const t0 = F.time; go(F, 30, (F) => { if (M.ai.tgt === C) tC++; if (M.ai.tgt === d) tD++; if (hurt == null && (C.hurtAt != null || C.ko)) { hurt = F.time - t0; return false; } });
+      out.carrier = { ok, U, tC: tC > 0, tD, hurt: hurt && +hurt.toFixed(1), parked: !!C.parked }; GroundAI.reset(F); }
+    return out; })();`);
+  const B11 = JSON.parse(RB('JSON.stringify(B11)'));
+  const zk = B11.zsy.filter((r) => r.at != null && r.at <= 15).length;
+  t('11 the AI ZSY-23 downs the player\'s Bumble hovering 400 m off within 15 s in at least 7 of 10 seeded runs', zk >= 7 && B11.zsy.every((r) => r.aa), [zk, B11.zsy]);
+  t('11 a non-AA AI tank (an MA-1) never targets the player\'s drone 300 m off, never aims at it, and drives on', !B11.mbt.aa && B11.mbt.tg === 0 && B11.mbt.aim === 0 && B11.mbt.moved > 30 && B11.mbt.alive, B11.mbt);
+  t('11 the parked carrier (its drone up) is a unit, and an AI MS-4 targets and hits it, never its drone', B11.carrier.ok && B11.carrier.parked && B11.carrier.U.includes('C') && B11.carrier.U.includes('d') && B11.carrier.tC && B11.carrier.tD === 0 && B11.carrier.hurt != null, B11.carrier);
+  // the Practice Battle with the BMK-2D ($45k): the enemy fields a Nest and a ZSY-23; the Nest launches once it sees us
+  RB(`var C11 = (() => { const out = {}, F = world(); Math.random = mulberry32(3); GroundAI.startBattle(F, { money: 45000, design: designOf('bmk2d'), seed: 99 });
+    const foes = GroundAI.ai.filter((v) => v.ai.team === 1), N = foes.find((v) => v.ai.key === 'bmk2d'); let contact = null, launch = null, D = null; const t0 = F.time;
+    go(F, 160, (F) => { if (contact == null && GroundAI.units.some((u) => u.team === 0 && Math.hypot(u.e - N.ai.k.e, u.z - N.ai.k.z) < 1400)) contact = F.time - t0;
+      const d = aiOf(F)[0]; if (d && launch == null) { launch = F.time - t0; D = d; return false; } });
+    out.b = { dw: GroundAI.dw, foes: foes.map((v) => v.ai.key).join(), allies: GroundAI.ai.filter((v) => v.ai.team === 0).map((v) => v.ai.key).join(), contact: contact && +contact.toFixed(1), launch: launch && +launch.toFixed(1),
+      nest: D && D.ai.nest === N, left: N.docks[0].docked, name: D && D.name, said: F.log.includes('Enemy drone inbound!') };
+    go(F, 1); out.b.hop = D && +(D.altitude() - N.altitude()).toFixed(1);
+    // ...and a battle in a design without a bay or kit is as ever: the money's stock tanks
+    const G2 = world(); GroundAI.startBattle(G2, { money: 45000, design: designOf('tk34'), seed: 99 }); out.old = { dw: GroundAI.dw, foes: GroundAI.ai.filter((v) => v.ai.team === 1).map((v) => v.ai.key).join() };
+    GroundAI.reset(G2); return out; })();`);
+  const C11 = JSON.parse(RB('JSON.stringify(C11)'));
+  t('11 a Practice Battle in the BMK-2D ($45k): the enemy\'s slot 1 is a BMK-2D Nest and slot 2 a ZSY-23, the allies as ever; the Nest launches a Bumble within 75 s of contact',
+    C11.b.dw && C11.b.foes === 'tk34,bmk2d,zsy23' && C11.b.allies === 'ms4,pumo' && C11.b.contact != null && C11.b.launch != null && C11.b.launch - C11.b.contact <= 75 && C11.b.nest && C11.b.left === 2 && C11.b.name === 'Enemy drone' && C11.b.said && C11.b.hop > 3,
+    C11.b);
+  t('11 ...in a design with no bay or kit, no drone war: the money\'s three stock tanks', !C11.old.dw && C11.old.foes === 'tk34,ms4,pumo', C11.old);
+}
+
+// ================================================================ 11. the AI: old play (no drone war) as it was before drones
+// The Tank Range in a TK-34 (Practice, then Hostile's first two waves) and a Practice Battle, in a game with drone.js and in
+// a second one without it (as before the drones): the same layout, the same waves, the same looks at the ground (S.calls),
+// the same toasts, the AI where it was, to the millimetre.
+{
+  const play = (opts) => { const c = G.load(opts); G.run(c, `Math.random = mulberry32(31337);
+    var SET = { targets: 'practice' }; Settings.get = (k) => SET[k];
+    var world = () => ({ time: 0, target: null, toasts: [], broken: [], vessels: [], active: null, firing: false, mgFiring: false, groundAim: false, aim: null, zero: 800, warpIdx: 0,
+      running: true, destroyed: false, camAbs: null, launchCost: 0, flags: {}, design: null, toast(m) { this.toasts.push(m); }, award(f) { this.flags[f] = true; },
+      onDestroyed() { if (this.destroyed) return; this.destroyed = true; if (GroundAI.battle && GroundAI.onDestroyed(this)) return; },
+      start(design, opts) { this.design = design;
+        const ps = partsFromDesign(design.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map();
+        for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); }
+        const v = new Vessel(parts, adj, EARTH); v.name = design.name; v.kind = design.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups();
+        const P = opts && opts.place; v.placeOnSurface(EARTH, siteAngle(EARTH, P ? P.e : 0), 0, P ? P.z : 0, P ? P.yaw || 0 : 0);
+        this.vessels = [v, ...(opts && Array.isArray(opts.keep) ? opts.keep.filter((o) => o && o !== v && !o.dead) : [])]; this.active = v; this.destroyed = false; Combat.reset(this); this.running = true; return v; },
+      ripParts() {}, breakParts(v, parts) { v.parts = v.parts.filter((q) => !parts.includes(q)); if (!v.parts.length) v.dead = true; },
+      cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); } });
+    var go = (F, secs) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { for (let i = 0; i < 2; i++) { for (const v of F.vessels.slice()) if (!v.remote && !v.wreck && !v.kin && !v.dead && v.parts.length && !(v !== F.active && v.landed && v.restTime > 2)) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+      Combat.frame(F, 1 / 60); F.cleanup(); } };
+    var designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: templateRows(TEMPLATES[key]) });
+    var NPAD = GroundMode.placement('highland', 0, 0, 'tank');
+    var sig = (F) => GroundAI.ai.map((v) => [v.ai.key, v.ai.role, v.ai.team, v.ai.state, Math.round(v.ai.k.e * 1000), Math.round(v.ai.k.z * 1000)].join(':')).join('|');
+    var OLD = (() => { const out = {};
+      { const F = world(); F.start(designOf('tk34'), { place: NPAD }); GroundAI.calls = 0; go(F, 20); out.practice = { sig: sig(F), calls: GroundAI.calls, toasts: F.toasts.join('/'), dr: Combat.S.dr, dw: !!GroundAI.dw, n: F.vessels.length }; GroundAI.reset(F); }
+      { SET.targets = 'hostile'; const F = world(); F.start(designOf('tk34'), { place: NPAD }); GroundAI.calls = 0; go(F, 40); const w1 = sig(F); GroundAI.range.waveAt = F.time; GroundAI.range.left = []; go(F, 5);
+        out.hostile = { w1, w2: sig(F), wave: GroundAI.range.wave, calls: GroundAI.calls, toasts: F.toasts.join('/'), dr: Combat.S.dr, n: F.vessels.length }; GroundAI.reset(F); SET.targets = 'practice'; }
+      { const F = world(); GroundAI.startBattle(F, { money: 75000, design: designOf('tk72'), seed: 5 }); GroundAI.calls = 0; go(F, 20);
+        out.battle = { sig: sig(F), calls: GroundAI.calls, toasts: F.toasts.join('/'), tk: GroundAI.battle.obj.tk.join(), dr: Combat.S.dr }; GroundAI.reset(F); }
+      return out; })();`); return JSON.parse(G.run(c, 'JSON.stringify(OLD)')); };
+  const now = play({ combat: true }), before = play({ combat: true, drone: false });
+  const same = (k) => JSON.stringify(now[k]) === JSON.stringify(before[k]);
+  t('11 old play (no drone war): the Tank Range in a TK-34, Practice and Hostile (two waves), and a $75k Practice Battle play exactly as with drone.js left out: layout, waves, S.calls, toasts, every AI to the millimetre',
+    same('practice') && same('hostile') && same('battle') && !now.practice.dr && !now.practice.dw && !now.hostile.dr && !now.battle.dr && now.hostile.wave === 2 && now.practice.calls > 0,
+    [now, before].map((o) => ({ p: [o.practice.calls, o.practice.n, o.practice.sig.length], h: [o.hostile.calls, o.hostile.wave, o.hostile.n], b: [o.battle.calls, o.battle.tk] })));
 }
 
 // ================================================================ 12. the contract: drones fly with no call into the ground update's systems
