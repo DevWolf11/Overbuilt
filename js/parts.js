@@ -25,7 +25,12 @@ const PART_CATEGORIES = [
   { id: 'launchers', name: 'Launchers' },
   { id: 'crew', name: 'Crew & ammo' },
   { id: 'kit', name: 'Kit' },
-  // the big update's radar parts (planes and helicopters; last, so the ground tabs keep their places)
+  // the big update's drones (the Drone kind's four tabs; after Kit, so the ground tabs keep their places)
+  { id: 'drFrame', name: 'Frames' },
+  { id: 'drPower', name: 'Motors & power' },
+  { id: 'drLink', name: 'Links & sensors' },
+  { id: 'drPay', name: 'Payloads' },
+  // the big update's radar parts (planes and helicopters; last, so the ground and drone tabs keep their places)
   { id: 'radar', name: 'Radar' },
 ];
 
@@ -38,6 +43,8 @@ const VEHICLE_KINDS = {
   car: { id: 'car', name: 'Car', site: 'runway', launchRot: 0, cats: ['ground', 'utility', 'structure', 'weapons'] },
   heli: { id: 'heli', name: 'Helicopter', site: 'helipad', launchRot: 0, cats: ['airEng', 'cabins', 'air', 'airGear', 'fuel', 'ground', 'wings', 'weapons', 'radar'] },
   tank: { id: 'tank', name: 'Armour', site: 'runway', launchRot: 0, cats: ['hulls', 'turrets', 'drive', 'guns', 'launchers', 'crew', 'kit'] },
+  // (the big update: drones, built from their own small parts and flown by their own laws, drone.js)
+  drone: { id: 'drone', name: 'Drone', site: 'helipad', launchRot: 0, cats: ['drFrame', 'drPower', 'drLink', 'drPay'] },
 };
 // The kinds that drive on the ground (tracks, armour and aimed guns work on any of them; behaviour comes from parts).
 const GROUND_KINDS = new Set(['car', 'tank']);
@@ -1194,6 +1201,158 @@ const PARTS = {
   slatCage: { gv: true, family: 'Modern', place: 'skirt', cat: 'kit', name: 'Slat Cage', w: 2.0, h: 1.0, depth: 0.1, mass: 0.15, shape: 'tkit', style: 'slat', hp: 120,
     armour: { mm: 2, mat: 'steel' }, slat: 0.5,
     tier: 2, cost: 700, desc: 'A cage of bars on the sides: half the shaped charges that hit it are crushed before they go off. No use against darts.' },
+
+  // ---- the big update's drones (drone.js; the Drone kind's four tabs). Drone-sized parts: +x forward, +y up, +z right,
+  // as helicopters. Each part's role is its def.drone (fc: a flight controller's law limits; frame: the motor stations,
+  // [x, z]; motor, guard, legs, body, cell, loud: what it is; link, cam, warhead: their numbers; hp: its hit points; rot:
+  // the turn it goes on at). mass in tonnes without the battery's charge; a battery's fuel is its charge, 1 kg = 1 kWh;
+  // a motor's isp is 3600 × its grams of lift per watt, so the engine code drains watt-hours at the right rate. cda:
+  // drag area, m² (wings carry their own). tray: the tray group.
+  // frames and controllers
+  drFC: { cat: 'drFrame', tray: 'Controllers', name: 'FPV Flight Controller', w: 0.10, h: 0.04, depth: 0.10, mass: 0.00003, shape: 'dbox', style: 'fc', control: 1, crew: 0, cda: 0.0004,
+    drone: { fc: { kind: 'fpv', lean: 0.75, vmax: 30, vz: 8, dive: 0.6, fs: 'drop', radio: 1000 }, hp: 20 }, maxTemp: 1500,
+    tier: 1, cost: 200, desc: 'The brain of a racing drone: it leans hard (108 km/h flat out) and dives steeply. Its own radio reaches 1 km; lose the link and it falls.' },
+  drFCgps: { cat: 'drFrame', tray: 'Controllers', name: 'GPS Flight Controller', w: 0.12, h: 0.05, depth: 0.12, mass: 0.00005, shape: 'dbox', style: 'fcgps', control: 1, crew: 0, cda: 0.0006,
+    drone: { fc: { kind: 'gps', lean: 0.45, vmax: 16, vz: 5, dive: 0, fs: 'home', radio: 1000 }, hp: 20 }, maxTemp: 1500,
+    tier: 1, cost: 600, desc: 'A steady brain with GPS: it holds its place, cruises at 58 km/h and flies home by itself if it loses you. Its own radio reaches 1 km.' },
+  drFrameS: { cat: 'drFrame', tray: 'Multirotor', name: 'FPV Frame', w: 0.36, h: 0.035, depth: 0.36, mass: 0.00014, shape: 'dframe', cda: 0.0035,
+    drone: { frame: { tips: [[0.15, 0.15], [0.15, -0.15], [-0.15, 0.15], [-0.15, -0.15]] }, hp: 25 }, maxTemp: 1500,
+    tier: 1, cost: 120, desc: 'A small carbon X frame for four racing motors: the start of an FPV drone. The controller and camera go on top, the battery underneath.' },
+  drFrameM: { cat: 'drFrame', tray: 'Multirotor', name: 'Quad Frame', w: 0.5, h: 0.05, depth: 0.5, mass: 0.00018, shape: 'dframe', cda: 0.005,
+    drone: { frame: { tips: [[0.2, 0.2], [0.2, -0.2], [-0.2, 0.2], [-0.2, -0.2]] }, hp: 30 }, maxTemp: 1500,
+    tier: 1, cost: 200, desc: 'A bigger X frame for four lift motors, with room underneath for a gimbal camera: the start of a scout drone.' },
+  drFrameH: { cat: 'drFrame', tray: 'Multirotor', name: 'Hex Frame', w: 1.2, h: 0.08, depth: 1.2, mass: 0.0022, shape: 'dframe', cda: 0.05,
+    drone: { frame: { tips: [[0.6, 0], [0.3, 0.52], [-0.3, 0.52], [-0.6, 0], [-0.3, -0.52], [0.3, -0.52]] }, hp: 60 }, maxTemp: 1500,
+    tier: 2, cost: 900, desc: 'A heavy six-armed frame for big motors: it lifts bombs and two big batteries, and keeps flying with one motor shot off.' },
+  drFrameO: { cat: 'drFrame', tray: 'Multirotor', name: 'Octo Frame', w: 1.9, h: 0.1, depth: 1.9, mass: 0.0042, shape: 'dframe', cda: 0.08,
+    drone: { frame: { tips: [[0.878, 0.364], [0.364, 0.878], [-0.364, 0.878], [-0.878, 0.364], [-0.878, -0.364], [-0.364, -0.878], [0.364, -0.878], [0.878, -0.364]] }, hp: 90 }, maxTemp: 1500,
+    tier: 3, cost: 1600, desc: 'Eight arms for heavy motors: the biggest lifter there is, and it shrugs off losing a motor.' },
+  drLegs: { cat: 'drFrame', tray: 'Multirotor', name: 'Landing Legs', w: 0.3, h: 0.12, depth: 0.3, mass: 0.00003, shape: 'dlegs', flush: true, breakSpeed: 8, cda: 0.001,
+    drone: { legs: 1, hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 40, desc: 'Light legs that keep the props off the ground when it lands. A battery or a camera can sit between them.' },
+  drLegsL: { cat: 'drFrame', tray: 'Multirotor', name: 'Landing Skids', w: 0.9, h: 0.35, depth: 0.8, mass: 0.0012, shape: 'dlegs', flush: true, breakSpeed: 9, cda: 0.02,
+    drone: { legs: 1, hp: 40 }, maxTemp: 1500,
+    tier: 2, cost: 150, desc: 'Tall skids for a heavy drone, with room for bombs and batteries under the frame.' },
+  drGuard: { cat: 'drFrame', tray: 'Multirotor', name: 'Prop Guard', w: 0.24, h: 0.1, depth: 0.24, mass: 0.000025, shape: 'dguard', flush: true, cda: 0.0008,
+    drone: { guard: 1, hp: 10 }, maxTemp: 1500,
+    tier: 1, cost: 30, desc: 'A ring round one motor: its prop survives a bump or a hard landing slower than 6 m/s.' },
+  drBody: { cat: 'drFrame', tray: 'Fixed wing', name: 'Munition Body', w: 0.16, h: 1.1, depth: 0.16, mass: 0.0012, shape: 'dbody', flush: true, cda: 0.012,
+    drone: { body: 1, rot: 3, hp: 40 }, maxTemp: 1500,
+    tier: 2, cost: 600, desc: 'The tube of a winged munition: the controller and battery go inside, a charge on its nose, a wing through its middle and a pusher at its tail.' },
+  drWing: { cat: 'drFrame', tray: 'Fixed wing', name: 'Drone Wing', w: 0.03, h: 0.22, mass: 0.0006, shape: 'wing', wing: { area: 0.36, span: 1.7, vne: 80 }, breakSpeed: 8,
+    drone: { rot: 3, hp: 25 }, maxTemp: 1500,
+    tier: 2, cost: 200, desc: 'A light wing for a loitering munition: put it through the Munition Body just behind the balance point. It breaks past about 290 km/h.' },
+  drTail: { cat: 'drFrame', tray: 'Fixed wing', name: 'Drone Tail', w: 0.02, h: 0.14, mass: 0.00015, shape: 'elevator', wing: { area: 0.1, span: 0.7, control: 0.35 }, breakSpeed: 8,
+    drone: { rot: 3, hp: 15 }, maxTemp: 1500,
+    tier: 2, cost: 120, desc: 'A small moving tailplane that pitches a winged drone up and down. Put it at the tail of the body.' },
+  drFin: { cat: 'drFrame', tray: 'Fixed wing', name: 'Drone Fin', w: 0.14, h: 0.14, depth: 0.01, mass: 0.00005, shape: 'vtail', breakSpeed: 8, cda: 0.0005,
+    drone: { rot: 3, hp: 10 }, maxTemp: 1500,
+    tier: 2, cost: 60, desc: 'A fin that keeps a winged drone pointing into the wind. Stand it on top of the body\'s tail.' },
+  // motors and power
+  drMotorS: { cat: 'drPower', tray: 'Motors', name: 'Racing Motor', w: 0.2, h: 0.06, depth: 0.2, mass: 0.00006, shape: 'dmotor', thrust: 0.016, ispSL: 15120, ispVac: 15120, gimbal: 0,
+    air: { kind: 'rotor', v0: 35, torque: 40 }, breakSpeed: 6, cda: 0.0012, drone: { motor: 1, hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 150, desc: 'A fast-spinning motor and prop: 1.6 kg of lift each, but thirsty (4.2 g a watt). Four on an FPV Frame make a racer.' },
+  drMotorM: { cat: 'drPower', tray: 'Motors', name: 'Lift Motor', w: 0.26, h: 0.07, depth: 0.26, mass: 0.00005, shape: 'dmotor', thrust: 0.008, ispSL: 21600, ispVac: 21600, gimbal: 0,
+    air: { kind: 'rotor', v0: 25, torque: 25 }, breakSpeed: 6, cda: 0.0012, drone: { motor: 1, hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 200, desc: 'A quiet, frugal motor with a big slow prop: 0.8 kg of lift each at 6 g a watt. Scouts on four of them stay up half an hour.' },
+  drMotorL: { cat: 'drPower', tray: 'Motors', name: 'Heavy Motor', w: 0.5, h: 0.12, depth: 0.5, mass: 0.0003, shape: 'dmotor', thrust: 0.06, ispSL: 25200, ispVac: 25200, gimbal: 0,
+    air: { kind: 'rotor', v0: 25, torque: 90 }, breakSpeed: 6, cda: 0.012, drone: { motor: 1, hp: 30 }, maxTemp: 1500,
+    tier: 2, cost: 600, desc: 'A big motor with a half-metre prop: 6 kg of lift each. Six of them on a Hex Frame carry bombs.' },
+  drFan: { cat: 'drPower', tray: 'Motors', name: 'Ducted Fan', w: 0.24, h: 0.12, depth: 0.24, mass: 0.00015, shape: 'dmotor', style: 'duct', thrust: 0.02, ispSL: 10800, ispVac: 10800, gimbal: 0,
+    air: { kind: 'rotor', v0: 45, torque: 45 }, breakSpeed: 9, cda: 0.0015, drone: { motor: 1, guard: 1, hp: 25 }, maxTemp: 1500,
+    tier: 2, cost: 350, desc: 'A fan in a ring: 2 kg of lift and hungry (3 g a watt), but the ring guards it, so a bump that would shatter a prop doesn\'t.' },
+  drPusher: { cat: 'drPower', tray: 'Motors', name: 'Pusher Motor', w: 0.3, h: 0.1, depth: 0.3, mass: 0.0003, shape: 'dmotor', style: 'pusher', thrust: 0.03, ispSL: 28800, ispVac: 28800, gimbal: 0,
+    air: { kind: 'prop', v0: 30 }, breakSpeed: 8, cda: 0.001, drone: { motor: 1, rot: 3, hp: 20 }, maxTemp: 1500,
+    tier: 2, cost: 300, desc: 'A propeller that pushes a winged drone along: 3.1 kg of thrust. Put it on the Munition Body\'s tail.' },
+  drBattS: { cat: 'drPower', tray: 'Batteries', name: 'Battery 50 Wh', w: 0.14, h: 0.05, depth: 0.06, mass: 0.00028, fuel: 0.00005, shape: 'dbox', style: 'batt', cda: 0.0008,
+    drone: { cell: 1, hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 120, desc: 'A small flight battery: 50 Wh, about seven minutes for a racer. It goes under the frame, touching it.' },
+  drBattM: { cat: 'drPower', tray: 'Batteries', name: 'Battery 100 Wh', w: 0.16, h: 0.06, depth: 0.08, mass: 0.00045, fuel: 0.0001, shape: 'dbox', style: 'batt', cda: 0.001,
+    drone: { cell: 1, hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 250, desc: 'A 100 Wh flight battery: a racer\'s long-range pack, or half an hour for a quiet scout.' },
+  drBattL: { cat: 'drPower', tray: 'Batteries', name: 'Battery 700 Wh', w: 0.4, h: 0.12, depth: 0.2, mass: 0.004, fuel: 0.0007, shape: 'dbox', style: 'batt', cda: 0.006,
+    drone: { cell: 1, hp: 40 }, maxTemp: 1500,
+    tier: 2, cost: 900, desc: 'A big 700 Wh battery for heavy lifters: two keep a bomber up for half an hour.' },
+  drGen: { cat: 'drPower', tray: 'Batteries', name: 'Hybrid Generator', w: 0.4, h: 0.22, depth: 0.3, mass: 0.0045, fuel: 0.002, shape: 'dbox', style: 'gen', cda: 0.012,
+    drone: { cell: 1, loud: 1, hp: 60 }, maxTemp: 1500,
+    tier: 3, cost: 2500, desc: 'A small engine and generator: 2 kWh for long flights, but loud: drone detectors hear it twice as far away.' },
+  // links and sensors
+  drLink: { cat: 'drLink', tray: 'Links', name: 'Radio Link', w: 0.05, h: 0.03, depth: 0.05, mass: 0.00002, shape: 'dbox', style: 'link', cda: 0.0002,
+    drone: { link: { kind: 'radio', range: 2500 }, hp: 10 }, maxTemp: 1500,
+    tier: 1, cost: 80, desc: 'A video and control radio good for 2.5 km in the open. Hills cut it off, and jammers break it.' },
+  drLinkL: { cat: 'drLink', tray: 'Links', name: 'Long-range Link', w: 0.08, h: 0.1, depth: 0.04, mass: 0.00006, shape: 'dbox', style: 'linkL', cda: 0.0005,
+    drone: { link: { kind: 'long', range: 8000 }, hp: 10 }, maxTemp: 1500,
+    tier: 1, cost: 400, desc: 'A stronger radio: 8 km in the open, and a jammer has to come much closer to break it.' },
+  drSpool: { cat: 'drLink', tray: 'Links', name: 'Fibre Spool', w: 0.1, h: 0.14, depth: 0.1, mass: 0.0012, shape: 'dspool', cda: 0.002,
+    drone: { link: { kind: 'fibre', range: 5000 }, hp: 20 }, maxTemp: 1500,
+    tier: 2, cost: 900, desc: 'Flies down a fibre-optic line that unwinds behind it: no jammer can touch it and no detector hears it, but it snaps for good at 5 km.' },
+  drSpoolL: { cat: 'drLink', tray: 'Links', name: 'Long Fibre Spool', w: 0.14, h: 0.16, depth: 0.14, mass: 0.0028, shape: 'dspool', cda: 0.003,
+    drone: { link: { kind: 'fibre', range: 12000 }, hp: 25 }, maxTemp: 1500,
+    tier: 3, cost: 1600, desc: '12 km of fibre-optic line: it can\'t be jammed or heard, but it is heavy.' },
+  drSat: { cat: 'drLink', tray: 'Links', name: 'Satellite Link', w: 0.2, h: 0.08, depth: 0.2, mass: 0.0012, shape: 'dbox', style: 'sat', cda: 0.004,
+    drone: { link: { kind: 'sat', range: 50000, lag: 0.25 }, hp: 25 }, maxTemp: 1500,
+    tier: 3, cost: 2500, desc: 'Steers the drone through a satellite: 50 km, and a jammer must be very close to break it, but every input arrives a quarter of a second late.' },
+  drCam: { cat: 'drLink', tray: 'Cameras', name: 'FPV Camera', w: 0.05, h: 0.05, depth: 0.05, mass: 0.00002, shape: 'dbox', style: 'cam', cda: 0.0003,
+    drone: { cam: { tilt: 0.44, fov: 100, spot: 1500 }, hp: 8 }, maxTemp: 1500,
+    tier: 1, cost: 100, desc: 'A wide racing camera tilted 25° up: fly in first person and spot vehicles out to 1.5 km. It goes at the front of the frame.' },
+  drGimbal: { cat: 'drLink', tray: 'Cameras', name: 'Gimbal Camera', w: 0.09, h: 0.1, depth: 0.09, mass: 0.00008, shape: 'dbox', style: 'gimbal', cda: 0.0008,
+    drone: { cam: { gimbal: 1, fov: 60, zoom: [1, 4, 12], thermal: 1, spot: 3000 }, hp: 12 }, maxTemp: 1500,
+    tier: 2, cost: 900, desc: 'A steadied camera that looks wherever you want, zooms 12× and sees heat: it spots vehicles out to 3 km, through smoke. It hangs under the frame.' },
+  // payloads
+  drCharge: { cat: 'drPay', tray: 'Warheads', name: 'Shaped Charge', w: 0.09, h: 0.28, depth: 0.09, mass: 0.0009, shape: 'dcharge', style: 'shaped', cda: 0.004,
+    drone: { warhead: { pen: 350, he: 10, blast: 3, dmg: 500 }, rot: 3, hp: 20 }, weapon: { kind: 'warhead', ammo: 1, label: 'CHARGE' }, maxTemp: 1500,
+    tier: 1, cost: 700, desc: 'A kamikaze drone\'s warhead: it pierces 350 mm when the drone flies into something, once 20 m clear of where it took off. Roofs are thin.' },
+  drChargeT: { cat: 'drPay', tray: 'Warheads', name: 'Tandem Charge', w: 0.1, h: 0.4, depth: 0.1, mass: 0.0016, shape: 'dcharge', style: 'tandem', cda: 0.005,
+    drone: { warhead: { pen: 650, tandem: true, he: 12, blast: 3.5, dmg: 700 }, rot: 3, hp: 25 }, weapon: { kind: 'warhead', ammo: 1, label: 'CHARGE' }, maxTemp: 1500,
+    tier: 2, cost: 1400, desc: 'Two charges, one behind the other: the first sets off reactive bricks and beats cages, the second pierces 650 mm.' },
+  drChargeHE: { cat: 'drPay', tray: 'Warheads', name: 'Frag Charge', w: 0.12, h: 0.22, depth: 0.12, mass: 0.0012, shape: 'dcharge', style: 'frag', cda: 0.004,
+    drone: { warhead: { pen: 0, he: 30, blast: 7, dmg: 500 }, rot: 3, hp: 20 }, weapon: { kind: 'warhead', ammo: 1, label: 'CHARGE' }, maxTemp: 1500,
+    tier: 1, cost: 600, desc: 'A fragmentation charge: no jet, but a 7 m burst that breaks thin roofs and shreds open-topped vehicles and their crews.' },
+  drGrenade: { cat: 'drPay', tray: 'Drops', name: 'Grenade Dropper', w: 0.12, h: 0.06, depth: 0.1, mass: 0.0002, shape: 'dbox', style: 'drop', cda: 0.002,
+    weapon: { kind: 'bomb', ammo: 3, each: 0.5, dmg: 140, blast: 3, he: 22, label: 'DROP' }, drone: { hp: 15 }, maxTemp: 1500,
+    tier: 1, cost: 300, desc: 'Three grenades on a release: hover over a vehicle and drop them on its thin roof or through an open top.' },
+  drBombs: { cat: 'drPay', tray: 'Drops', name: 'Bomb Rack', w: 0.5, h: 0.2, depth: 0.3, mass: 0.0008, shape: 'dbox', style: 'bombs', cda: 0.03,
+    weapon: { kind: 'bomb', ammo: 2, each: 3, dmg: 300, blast: 6, he: 45, label: 'BOMB' }, drone: { hp: 30 }, maxTemp: 1500,
+    tier: 2, cost: 600, desc: 'Two 3 kg bombs for a heavy drone: either one beats any roof it bursts within a metre or so of.' },
+  drMissile: { cat: 'drPay', tray: 'Missiles', name: 'Mini Missiles', w: 0.12, h: 0.6, depth: 0.3, mass: 0.0006, shape: 'dmissile', cda: 0.02,
+    weapon: { kind: 'missile', seek: 'ground', ammo: 2, each: 4, dmg: 500, blast: 4, heat: 450, range: 3000, lockT: 1.2, burn: 1.8, accel: 110, vmax: 220, turn: 10, life: 20, label: 'MSL' },
+    drone: { rot: 3, hp: 30 }, maxTemp: 1500,
+    tier: 3, cost: 1800, desc: 'Two small anti-tank missiles: lock a vehicle up to 3 km away through the camera and fire. Each one pierces 450 mm.' },
+
+  // the drone bays (Armour's Launchers tab): a tank carries its drones in them and launches them (drone.js). dock: n drones,
+  // each at most kg, span m across and budget $ (the bay's price pays for them), the stock drone it carries unless told
+  // otherwise, how they go up (a hop, or out of a tube at v0 m/s pitched el°); wing: winged drones only
+  dockRack: { gv: true, family: 'Drones', place: 'top', cat: 'launchers', name: 'Drone Rack', w: 1.0, h: 0.35, depth: 0.8, mass: 0.08, shape: 'tkit', style: 'dock', body3d: 'dock', module: 'launcher', hp: 150,
+    dock: { n: 3, kg: 3.5, span: 0.8, budget: 3000, stock: 'bumble', launch: 'hop' },
+    tier: 2, cost: 10000, desc: 'Three small drones (up to 3.5 kg and $3,000 each) on the deck. Stop, press DRONE and fly one.' },
+  dockHangar: { gv: true, family: 'Drones', place: 'top', cat: 'launchers', name: 'Drone Hangar', w: 1.6, h: 0.6, depth: 1.4, mass: 0.3, shape: 'tkit', style: 'dockH', body3d: 'dock', module: 'launcher', hp: 250,
+    dock: { n: 1, kg: 25, span: 1.8, budget: 9000, stock: 'mavik', launch: 'hop' },
+    tier: 3, cost: 12000, desc: 'One bigger drone (up to 25 kg and $9,000): a scout or a bomber. Stop, press DRONE and fly it.' },
+  dockTubes: { gv: true, family: 'Drones', place: 'top', cat: 'launchers', name: 'Launch Tubes', w: 1.6, h: 0.45, depth: 0.7, mass: 0.2, shape: 'tkit', style: 'dockT', body3d: 'dock', module: 'launcher', hp: 150,
+    dock: { n: 2, kg: 8, span: 1.8, budget: 4500, wing: true, stock: 'lancett', launch: 'tube', v0: 28, el: 20 },
+    tier: 3, cost: 11000, desc: 'Two winged munitions fired out of tubes (up to 8 kg and $4,500 each).' },
+  // counter-drone kit (Armour's Kit tab): what each does is drone.js's (cuas); the Drone Radar is a search radar that looks low
+  cdJam: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Drone Jammer', w: 0.6, h: 0.5, depth: 0.4, mass: 0.06, shape: 'tkit', style: 'jam', body3d: 'kit', module: 'radar', hp: 120,
+    cuas: { jam: 500 },
+    tier: 2, cost: 4000, desc: 'Jams drone radios: their links break up inside 500 m and die inside 175 m (an FPV drops, a GPS drone flies home). Fibre drones don\'t care.' },
+  cdJamL: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Wide-band Jammer', w: 1.0, h: 0.8, depth: 0.6, mass: 0.25, shape: 'tkit', style: 'jamL', body3d: 'kit', module: 'radar', hp: 180,
+    cuas: { jam: 1000 },
+    tier: 3, cost: 9000, desc: 'Twice the reach: radio links break up inside 1 km and die inside 350 m; long-range and satellite links hold out closer in.' },
+  cdDetect: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Drone Detector', w: 0.3, h: 0.5, depth: 0.3, mass: 0.02, shape: 'tkit', style: 'det', body3d: 'kit', module: 'sight', hp: 80,
+    cuas: { detect: 2000 },
+    tier: 1, cost: 2000, desc: 'Hears drone radios out to 2 km and marks them (fibre drones are silent). Cues your anti-drone gun.' },
+  cdRadar: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Drone Radar', w: 0.6, h: 0.6, depth: 0.15, mass: 0.12, shape: 'tradar', style: 'search', module: 'radar', hp: 120,
+    searchRadar: { range: 4000, rpm: 90, low: true },
+    tier: 3, cost: 8000, desc: 'A small radar that sees drones down to the ground, fibre ones too, 4 km out. Your radars see low drones with it.' },
+  cdGun: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Anti-drone Gun', w: 0.9, h: 0.6, depth: 0.6, mass: 0.35, shape: 'tkit', style: 'rws', body3d: 'rws', module: 'breech', hp: 250,
+    cuas: { gun: { range: 600, cued: 1100, rate: 10, speed: 1000, spread: 0.003, ab: 3, abR: 3, abD: 40, dmg: 8, ammo: 200, yaw: 3, elr: 2, el: [-10, 85] } },
+    tier: 2, cost: 9000, desc: 'A remote gun that aims and fires by itself, on the ground too, with rounds that burst beside a drone. 600 m alone, 1.1 km with a sensor.' },
+  cdLaser: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Anti-drone Laser', w: 0.8, h: 0.7, depth: 0.8, mass: 0.7, shape: 'tkit', style: 'laser', body3d: 'laserT', module: 'breech', hp: 200,
+    cuas: { laser: { range: 1000, cued: 1500, kill: [0.8, 2.2], on: 8, cool: 5, yaw: 1.5, elr: 1.5, el: [-5, 88] } },
+    tier: 4, cost: 15000, desc: 'Burns a drone out of the sky in under a second up close, three at 1.5 km. Eight seconds of beam, then it cools. No use in smoke.' },
+  cdCage: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Roof Cage', w: 3.0, h: 0.75, depth: 3.0, mass: 0.35, shape: 'tkit', style: 'cage', body3d: 'cage', flush: true, hp: 300,
+    armour: { mm: 2, mat: 'steel' }, slat: 0.5, cage: true,
+    tier: 1, cost: 1500, desc: 'A slatted cage over the turret: half the plain shaped charges that hit it are crushed. Tandem charges get through.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -1383,13 +1542,18 @@ function partsMix(a, b) { const sa = surfaceKind(a.def), sb = surfaceKind(b.def)
 // (LATHE_SHAPES), extruded for the flat ones (PART_FLAT_DEPTH, else up to a metre deep), or by a recipe of its own
 // (PART_RECIPE). The builder's clash test reads the same outlines, so parts can sit as close as their 3D shapes let them.
 const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'jet', 'cockpit',
-  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr', 'tcast', 'tring', 'radarset', 'mastdome']);
+  'jetnose', 'airnose', 'float', 'droptank', 'glassnose', 'bubble', 'cabin', 'rwr', 'tcast', 'tring', 'radarset', 'mastdome',
+  'dbody', 'dcharge', 'dspool']); // (the drones': the munition body, the charges and the fibre spools)
 // (the ground update's: hulls and plate turrets are extrusions of their outlines, cast turrets and rings lathes)
 const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
   wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
   gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
   turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body',
-  ttrack: 'trackUnit', twheel: 'awheel', tgun: 'tankGun', tlaunch: 'launcher', tradar: 'radarAnt', tkit: 'kit' };
+  ttrack: 'trackUnit', twheel: 'awheel', tgun: 'tankGun', tlaunch: 'launcher', tradar: 'radarAnt', tkit: 'kit',
+  // (the drones' frames, motors, boxes, legs, guards and missile rails: boxes for now, clashing as boxes as their own
+  // recipes will; the big update's drone art gives each its recipe: droneFrame, droneMotor, droneBox, droneLegs,
+  // droneGuard, droneMissile)
+  dframe: 'box', dmotor: 'box', dbox: 'box', dlegs: 'box', dguard: 'box', dmissile: 'box' };
 
 // A stand-in canvas context that records the path calls partPath() makes as polygons
 // [x0, y0, x1, y1, ...], flattening curves. Anything else it might call is a no-op.
@@ -2103,7 +2267,7 @@ const SKINS = {
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint. (A track's fender and road wheels, and an armoured
 // wheel's hub, are painted with the hull; their links and tyres keep their colours.)
-const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor', 'radarset']);
+const NO_SKIN = new Set(['sep', 'shield', 'chute', 'leg', 'wheel', 'gear', 'girder', 'rotor', 'tailrotor', 'radarset', 'dmotor', 'dguard', 'dlegs']);
 function skinnable(d) { return !NO_SKIN.has(d.shape); }
 function cleanSkin(id, d) { return typeof id === 'string' && hasOwn(SKINS, id) && skinnable(d) ? id : null; }
 // The paint a part comes in, as a skin, when it has one worth matching (stealth parts are dark grey; look: a part

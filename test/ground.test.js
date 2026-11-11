@@ -14,7 +14,7 @@ const t = G.checks('ground: §contract (Phase 1)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 
 // ---------------------------------------------------------------- counters on every function of the new systems
-const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props']; // (Props: the battlefields' solid scenery, props.js)
+const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props', 'Drone']; // (Props: the battlefields' solid scenery, props.js; Drone: the big update's drones, drone.js)
 const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringify(SYSTEMS)}) {
   if (typeof this[name] === 'undefined') continue;
   const o = this[name];
@@ -60,7 +60,7 @@ R(OLDRUN);
 const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
 RB(OLDRUN);
 // (every old template: the ground update's own stock vehicles, which carry its parts, are left out of these proofs)
-const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv));
+const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv) && (ctx.TEMPLATES[k].kind || 'rocket') !== 'drone'); // (nor the big update's drones)
 ctx.__OLD = OLD;
 let traced = 0;
 const same = [];
@@ -155,7 +155,8 @@ t('...the buggy\'s driver shot (knocked out, a wreck, 6 s of its fire and smoke)
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
 t('rows and costs of every old template: no calls', quiet() === '{}', quiet());
-t('old vessels carry the new fields\' defaults (no gear, no groups, not plated)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)`));
+t('old vessels carry the new fields\' defaults (no gear, no groups, not plated; no counter-drone kit, no bays, no drone groups)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)
+  && bug.cuas === NO_GEAR && bug.docks === NO_GEAR && bug.dr === null && !bug.cdLow`));
 
 // 5. multiplayer: an old craft's spawn rows out and back, and its ghost
 const mp = G.load({ mp: true, earth: false });
@@ -180,7 +181,10 @@ t('spawning and ghosting every old template: no calls', calls(mp) === '{}', call
 t('isGround: cars and armour, nothing else', R(`isGround('car') && isGround('tank') && !isGround('plane') && !isGround('heli') && !isGround('rocket') && !isGround(undefined)`));
 t('the Armour kind: launches from the runway at rot 0 with its seven tabs', R(`(() => { const K = VEHICLE_KINDS.tank; return K.name === 'Armour' && K.site === 'runway' && K.launchRot === 0
   && K.cats.join() === 'hulls,turrets,drive,guns,launchers,crew,kit' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)); })()`));
-t('22 part categories, the seven new ones after Ground (and the big update\'s Radar last)', R(`PART_CATEGORIES.length === 22 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit' && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
+t('26 part categories, the seven new ones after Ground (then the big update\'s four drone tabs, and its Radar last)', R(`PART_CATEGORIES.length === 26 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'
+  && PART_CATEGORIES.map((c) => c.id).slice(21, 25).join() === 'drFrame,drPower,drLink,drPay' && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
+t('the Drone kind: launches from the helipad at rot 0 with its four tabs', R(`(() => { const K = VEHICLE_KINDS.drone; return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0
+  && K.cats.join() === 'drFrame,drPower,drLink,drPay' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)) && !isGround('drone') && isAirKind('drone'); })()`));
 t('PILOT.tank and a car-like drive frame', R(`!!PILOT.tank && PILOT.tank.F.x === 1 && PILOT.tank.U.y === 1`));
 
 // ---------------------------------------------------------------- test parts (shaped like the catalogue's; §3.1, §3.5)

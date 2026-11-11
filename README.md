@@ -187,6 +187,7 @@ js/radar.js           aircraft radar parts: what each sees (cone, look-down, not
 js/death.js           what 0 hp does (aircraft shot apart, pilots knocked out, fires, falls and crashes; ground vehicles knocked out and left as burning wrecks), crash sites, wreck smoke, debris clean-up, the air HUD's hit markers
 js/gmode.js           the Ground Battle's rules, pure (shared by a room's host and the Practice Battle): arenas, spawn slots, zone capture, tickets, deaths and the result
 js/groundai.js        computer-driven ground vehicles: the Tank Range and the Practice Battle
+js/drone.js           drones: the Drone kind's flight laws (Level, Acro, winged), the battery, the builder's numbers and what fits a tank's drone bay; the bays, counter-drone kit and the AI's drones
 js/career.js          career and sandbox modes, funds, missions
 js/builder.js         build screen, vehicle kinds, hangar and example vehicles
 js/flight.js          flight loop, time warp, HUD, controls, saving, missions

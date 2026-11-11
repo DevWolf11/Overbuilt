@@ -137,6 +137,7 @@ const PILOT = {
   heli: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.0, 1.4]),
   car: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.2, 1.2]),
   tank: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.25, 0.25, 0.25]), // (in the air only: running gear never lets the stick turn the hull)
+  drone: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [4.5, 4.5, 3]), // (the big update's drones: a helicopter's frame at the Acro rates; drone.js flies them)
 };
 // How wheeled craft sit on the ground: planes on their belly side (+x), everything else on -y.
 const DRIVE = { plane: pilotFrame([0, 1, 0], [-1, 0, 0]), other: pilotFrame([1, 0, 0], [0, 1, 0]) };
@@ -228,6 +229,7 @@ class Vessel {
     this._loc = {};
     // the ground update's (rebuildGroups sets them; these defaults keep a vessel stepped before it safe)
     this.gv = false; this.gear = this.aimed = NO_GEAR; this.tg = this.tgOf = null; this.plated = false;
+    this.cuas = this.docks = NO_GEAR; this.cdLow = false; this.dr = null; // (the big update's drones: counter-drone kit, bays, a drone's groups)
     this.recompute(true);
   }
 
@@ -328,6 +330,11 @@ class Vessel {
     this.gv = this.parts.some((p) => p.def.gv);
     this.gear = this.gv && isGround(this.kind) ? this.parts.filter((p) => p.def.track || p.def.awheel) : NO_GEAR; // (on an aircraft or a rocket: only a box, so the stick still flies it)
     this.plated = this.gv;
+    // (the big update's drones) counter-drone kit, drone bays, and a working Drone Radar (its radars see low drones)
+    this.cuas = this.gv ? this.parts.filter((p) => p.def.cuas) : NO_GEAR;
+    this.docks = this.gv ? this.parts.filter((p) => p.def.dock) : NO_GEAR;
+    this.cdLow = this.gv && this.parts.some((p) => p.def.searchRadar && p.def.searchRadar.low && !p.broken);
+    for (const p of this.cuas) if (p.def.cuas.gun && p.ammo == null) p.ammo = p.def.cuas.gun.ammo; // (an anti-drone gun's rounds, saved as every part's)
     if (this.gv) Aim.groups(this); else { this.aimed = NO_GEAR; this.tg = this.tgOf = null; }
     let top = null; // the nose: the part furthest up the centreline (not a pod or a store out on a wing, nor a radar set inside it)
     for (const p of this.parts) if (!innerRadar(p.def) && partZs(p).length === 1 && Math.abs(partZc(p)) < partDepth(p) / 2 && (!top || partRect(p).t > partRect(top).t)) top = p;
@@ -353,6 +360,7 @@ class Vessel {
     this.wingS = ws.S; this.vne = ws.vne; this.mmax = ws.mmax;
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
     this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
+    if (this.kind === 'drone') Drone.groups(this); else this.dr = null; // (a drone's controller, links, cameras, battery, motors: drone.js)
     this.recompute(false);
     this.computeAreas();
     this.computeHull();
@@ -382,6 +390,9 @@ class Vessel {
       const r = wheelGeom(p).r, k = 0.5 * r * massZs(p).length;
       this.gearDrag += k; if (!p.def.wheel.retract) this.gearDragFixed += k;
     }
+    // (the big update) a drone's drag area, part by part (each part's own cda; wings carry their own)
+    this.droneCdA = 0;
+    if (this.kind === 'drone') for (const p of this.parts) if (!p.def.wing) this.droneCdA += (p.def.cda != null ? p.def.cda : 0.6 * partDims(p).w * partDepth(p)) * partZs(p).length;
   }
 
   // Points the ground can touch, in part space: the corners of each part's box (a diamond around a round
@@ -524,7 +535,7 @@ class Vessel {
       for (const e of g.engines) {
         e.firing = 0;
         if (!e.active) continue;
-        if (fuel <= 0.01) { e.flameout = true; continue; }
+        if (fuel <= (this.kind === 'drone' ? 1e-6 : 0.01)) { e.flameout = true; continue; } // (a drone's battery: kg = kWh, so it runs to the last milliwatt-hour)
         e.flameout = false;
         let f = e.def.thrust * 1000 * this.throttle, abK = 0;
         e.ab = 0;
@@ -650,6 +661,7 @@ class Vessel {
       }
       return o;
     };
+    if (this.kind === 'drone') return toBody(this.aircraft ? Drone.wingTurn(this, c, dt) : Drone.turn(this, c, dt)); // (the big update: a drone's own laws, drone.js)
     if (want.pitch != null) this.holdPitch = null;
     if (want.roll != null) this.holdBank = null;
 
@@ -1110,6 +1122,7 @@ class Vessel {
     const vb = qunrot(this.q, this.vx, this.vy, this.vz, v3()); // velocity in part axes
     const wb = this.bodyAV(v3());
 
+    if (this.kind === 'drone' && !this.isDebris) Drone.pre(this, dt, sim); // (the big update: a drone's law sets its throttle first, drone.js)
     const eng = this.applyEngines(dt, rho, vb, sim);
     this.spinRotors(dt);
     const T = eng.T, Fb = v3(eng.F.x, eng.F.y, eng.F.z); // torque and force, part axes
@@ -1118,7 +1131,7 @@ class Vessel {
     // surfaces get a command too; the wings below turn it into lift this same step.
     let rw = 0;
     for (const p of this.parts) if (p.def.torque) rw += p.def.torque;
-    const A = v3(rw + eng.gimbal + eng.rotorTorque, rw + (this.tailRotors.length ? 0.6 : 0.15) * eng.rotorTorque, rw + eng.gimbal + eng.gimbalZ + eng.rotorTorque);
+    const A = v3(rw + eng.gimbal + eng.rotorTorque, rw + (this.kind === 'drone' ? 1 : this.tailRotors.length ? 0.6 : 0.15) * eng.rotorTorque, rw + eng.gimbal + eng.gimbalZ + eng.rotorTorque); // (a drone yaws by its motors' speeds)
     if (this.wheelsDown) { A.x *= 0.5; A.y *= 0.5; A.z *= 0.5; }
     if (this.righting) { const g = this.mass * 14 * Math.max(1, this.width); A.x += g; A.y += g; A.z += g; }
     const want = this.cmdW || (this.cmdW = v3());
@@ -1191,6 +1204,7 @@ class Vessel {
         const sx = this.area.x * ex, sy = this.area.y * ey, sz = this.area.z * (sq ? az * az : az);
         area = sx + sy + sz;
         cdA = (Math.abs(P.F.x) > 0.5 ? cdF : cdO) * sx + (Math.abs(P.F.y) > 0.5 ? cdF : cdO) * sy + cdO * sz;
+        if (this.kind === 'drone') { cdA = this.droneCdA * (1 + 1.5 * hy * hy); area = cdA; } // (a drone: its parts' own drag, more with the air through its props)
         // shock waves near Mach 1 (a pointed nose eases them), dangling landing gear, air brakes
         cdA *= 1 + (this.noseSharp ? 0.4 : 1) * waveDrag(this.mach, 0.85);
         cdA += this.gearUp ? this.gearDragFixed : this.gearDrag;
@@ -1469,7 +1483,7 @@ class Vessel {
       else if (hasCombat() && s > lim * 0.75) dents.set(k.p, Math.max(dents.get(k.p) || 0, s / lim));
       // a spinning propeller or rotor that touches the ground shatters
       const air = k.p.def.air;
-      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water) broken.add(k.p);
+      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (k.p.rpm || 0) > 8 && !k.water && !(this.dr && this.dr.guarded.has(k.p.id) && s < 6)) broken.add(k.p); // (a drone's guarded motor: a light touch)
     }
     if (broken.size && (!Silly.on('bouncy') || contacts.some((k) => k.side))) { sim.breakParts(this, [...broken], 'impact'); return; }
     if (dents.size && sim.vessels && !Silly.on('bouncy')) for (const [p, ratio] of dents) Combat.impact(this, p, ratio, sim);
@@ -1764,6 +1778,7 @@ class Vessel {
     v.q = d.q ? qnorm(quat(...d.q)) : qaxis(0, 0, 1, d.rot || 0);
     v.av = d.av ? v3(...d.av) : v3(0, 0, d.w || 0);
     for (const p of parts) if (p.def.wheel && p.def.wheel.retract) p.retracted = v.gearUp;
+    if (v.kind === 'drone' && v.sas !== 'hold' && v.sas !== 'acro') v.sas = 'hold'; // (a drone flies Level or Acro)
     v.rebuildGroups();
     if (d.tailLost === true && v.rotors.length && !v.tailRotors.length) v.tailLost = true;
     if (v.gv && Array.isArray(d.swaps)) { const sw = d.swaps.filter((q) => q && (q.role === 'driver' || q.role === 'gunner') && Number.isFinite(q.t)).slice(0, 4).map((q) => ({ role: q.role, t: clamp(q.t, 0, 4) })); if (sw.length) v.swaps = sw; }

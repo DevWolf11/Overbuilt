@@ -23,7 +23,7 @@ const RAIDER = [['jetF', 0, 2.2], ['fuselage', 0, 6], ['fuselageS', 0, 9], ['coc
 
 const Combat = (() => {
   const S = { shots: [], targets: [], flares: [], kills: 0, lock: null, lockT: 0, cand: null, toneT: 0, warnT: 0, wasFiring: false, spawned: false, fighterT: 0, smokeT: 0, warn: false, warnR: false, killFeed: [], cmAt: -9, gunKey: null, lockPid: 0, lockAt: 0,
-    rwr: 0, threats: [], lockToneT: 0, smoke: [], gai: 0, rip: null }; // (rip: rocket artillery's tapped ripple; rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first; smoke: smoke clouds; gai: ground AI on the go)
+    rwr: 0, threats: [], lockToneT: 0, smoke: [], gai: 0, rip: null, dr: false }; // (rip: rocket artillery's tapped ripple; rwr: the player's warning receiver, 0 none; threats: the missiles it hears, nearest first; smoke: smoke clouds; gai: ground AI on the go)
   const mpOn = () => typeof MP !== 'undefined' && MP.active; // in a multiplayer room (no AI targets, SAMs or fighters there)
   const mode = () => (mpOn() ? 'off' : Settings.get('targets') || 'practice');
   const hostile = () => mode() === 'hostile';
@@ -41,7 +41,7 @@ const Combat = (() => {
 
   // ---------------------------------------------------------------- health
   // Every part has health from its size; control parts (the pilot) are a little tougher.
-  function maxHp(d) { return d.hp || Math.round((60 + 220 * Math.sqrt(d.mass + (d.fuel || 0) * 0.25)) * (d.control ? 1.4 : 1)); }
+  function maxHp(d) { return d.hp || (d.drone && d.drone.hp) || Math.round((60 + 220 * Math.sqrt(d.mass + (d.fuel || 0) * 0.25)) * (d.control ? 1.4 : 1)); } // (a drone part's own: one or two near bursts)
   function hpFrac(p) { return p.hp == null ? 1 : Math.max(0, p.hp) / (p.cut ? maxHp(p.def) * 0.5 : maxHp(p.def)); } // (a wing with half shot off: the half that's left, its own pool)
   // A damaged engine loses thrust; a damaged wing, lift.
   function engineK(p) { const f = hpFrac(p); return f >= 0.6 ? 1 : 0.3 + (0.7 * f) / 0.6; }
@@ -91,6 +91,7 @@ const Combat = (() => {
       return;
     }
     if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
+    if (p.def.drone && p.def.drone.warhead && Drone.cookOff(v, p, cause, sim)) return; // (a drone's warhead at 0 hp bursts, drone.js)
     const n0 = sim.vessels ? sim.vessels.length : 0; // (the pieces it makes are pushed after these)
     let det = false; // (the rare mid-air detonation: today's body, then death.js's)
     if (Death.airRule(v, p, cause)) {
@@ -669,6 +670,7 @@ const Combat = (() => {
       for (const p of v.parts) if (p.def.weapon && p.def.weapon.kind === 'turret') { n++; turretStep(v, p, h, F); }
       if (!n) v.turrets = 0; // none on board: stop looking (a rebuilt craft is a new vessel)
     }
+    if (S.dr) Drone.step(h, F); // (the big update's drones: fuses, docking, the counter-drone kit; drone.js)
     // the ground update's aimed guns and launchers (the player's and the ground AI's), and smoke clouds
     if ((v && v.aimed && v.aimed.length) || S.gai) Aim.stepAll(F, h);
     if (S.smoke.length) Aim.smokeStep(h);
@@ -1377,6 +1379,10 @@ const Combat = (() => {
   function frame(F, dt) {
     const v = F.active;
     if (!F.running || !v) return;
+    // (the big update's drones: anything drone-related in play, a drone, counter-drone kit, a bay or the AI's drone war;
+    // for an old flight, one look along the vessels a frame)
+    S.dr = !!(typeof GroundAI !== 'undefined' && GroundAI.dw) || F.vessels.some((o) => o.kind === 'drone' || (o.cuas && o.cuas.length) || (o.docks && o.docks.length));
+    if (S.dr) Drone.frame(F, dt); // (links, batteries, a carrier's last flight, clean-up, the AI's launches, marks, alarms)
     const onEarth = v.body === EARTH, near = onEarth && len(v.x - at(8000, 0, 0).x, v.y - at(8000, 0, 0).y, v.z - at(8000, 0, 0).z) < 60000;
     const m = mode();
     // the range: spawn once the player is near it (and on), keep it while they stay
@@ -1494,7 +1500,7 @@ const Combat = (() => {
   function reset(F) {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
-    S.smoke = []; S.gai = 0; S.rip = null;
+    S.smoke = []; S.gai = 0; S.rip = null; S.dr = false;
     // a new flight stands the props it knocked over up again (not a respawn in a battle, which keeps the field as it is,
     // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
     if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();
