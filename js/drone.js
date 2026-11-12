@@ -1139,12 +1139,12 @@ const Drone = (() => {
     const dl = state(v), K = DRONE.LINK.K, JI = DRONE.LINK.JAM_IN, t = F.time || 0;
     const d = P ? Math.hypot(v.x - P.x, v.y - P.y, v.z - P.z) : Infinity, links = v.dr.links, fibre = links.some((l) => l.L.kind === 'fibre');
     dl.dist = P ? d : NaN;
-    let best = -1, via = null, jam = false;
+    let best = -1, via = null, jam = false, jamBy = null;
     for (const l of links) {
       const L = l.L;
       if (fibre && l.p === v.dr.fcPart && !(l.p.def.drone && l.p.def.drone.link)) continue; // (the controller's own radio: not on a fibre drone)
       if (l.p.broken || !v.parts.includes(l.p)) continue;
-      let q = 0, jq = false;
+      let q = 0, jq = false, jo = null, jk = 1;
       if (P) {
         if (L.kind === 'fibre') {
           if (d > L.range && !dl.snapped) { dl.snapped = true; if (!v.ai) say(F, `Fibre ran out at ${(L.range / 1000).toFixed(1)} km`, 'warn'); }
@@ -1155,13 +1155,15 @@ const Drone = (() => {
         if (q > 0 && kj > 0) for (const j of J) {
           const Rj = j.R * kj, dj = Math.hypot(v.x - j.at.x, v.y - j.at.y, v.z - j.at.z);
           if (dj >= Rj || !jamFoe(j.o, v)) continue;
-          q *= smoothstep(JI * Rj, Rj, dj); jq = true;
+          const k = smoothstep(JI * Rj, Rj, dj);
+          q *= k; jq = true;
+          if (k < jk) { jk = k; jo = j.o; } // (the jammer that cuts it most)
         }
       }
-      if (q > best) { best = q; via = L; jam = jq; }
+      if (q > best) { best = q; via = L; jam = jq; jamBy = jo; }
     }
-    if (!via) { dl.q = 1; dl.via = null; dl.jam = false; return; } // (no link aboard at all: nothing to lose)
-    dl.q = Math.max(0, best); dl.via = via; dl.jam = jam;
+    if (!via) { dl.q = 1; dl.via = null; dl.jam = false; dl.jamBy = null; return; } // (no link aboard at all: nothing to lose)
+    dl.q = Math.max(0, best); dl.via = via; dl.jam = jam; dl.jamBy = jamBy;
   }
   // One link tick (every LINK.DT s): the quality, then LOST once under LOST for LOST_T s (the stick does nothing, the
   // controller's failsafe flies it: pre), back once over BACK for BACK_T s (in Level), and a flown bay drone handed back
@@ -1176,6 +1178,10 @@ const Drone = (() => {
         dl.lost = true; dl.lostT = 0; dl.hiT = 0; dl.homeH = null; dl.homeUp = false; dl.ring = null;
         if (v.dr.fc.fs === 'home' && dl.mode !== 'land') dl.mode = 'home'; // (a GPS controller flies it home, and goes on home when the link is back)
         if (flown) say(F, v.dr.fc.fs === 'home' ? 'Link lost: flying home' : 'Link lost', 'warn');
+        // a range's practice drone brought down by a jammer (it falls): the jammer's kill, as the kit's gun's is (P4-AI-5)
+        if (v.ai && v.ai.passive && !v.ai.down && v.dr.fc.fs === 'drop' && dl.jam && dl.jamBy && typeof Combat !== 'undefined' && Combat.aiDown) {
+          v.lastHitBy = dl.jamBy; v.lastHitAt = F.time || 0; v.kitAt = F.time || 0; Combat.aiDown(v, F);
+        }
       }
       return;
     }
@@ -1590,6 +1596,7 @@ const Drone = (() => {
     p.cool = (p.cool || 0) - h;
     if (p.cool > 0) return;
     p.cool = Math.max(p.cool, -h) + 1 / g.rate;
+    t.kitAt = F.time || 0; // (the automatic kit at it: a drone it brings down is no range knock-out of the player's; P4-AI-4)
     gunRound(o, p, g, F, t, 0);
   }
   // one round along the head's aim (net: a ghost's, for show: no damage, its owner says what it hit)
@@ -1640,6 +1647,7 @@ const Drone = (() => {
     laserHeat(p, L, h, on);
     if (!on) return;
     const r = Math.hypot(t.x - P.x, t.y - P.y, t.z - P.z);
+    t.kitAt = F.time || 0; // (as the gun's: P4-AI-4)
     beamOf(o, p, F, t, r);
     p.dwell = (p.dwell || 0) + h;
     if (p.dwell < L.kill[0] + L.kill[1] * (r / 1500) ** 2) return;
@@ -1819,7 +1827,8 @@ const Drone = (() => {
     const ally = t === myTeam(), v = build(choiceRows({ key }), ally ? 'Allied drone' : 'Enemy drone');
     if (!v || !v.dr) return null;
     v.ai = { drone: true, ground: false, team: t, ally, tgt: null, state: o.passive ? 'passive' : 'climb', passive: !!o.passive, nest: N, key,
-      at: o.at || (at ? { e: at.e, z: at.z } : null), thinkAt: -Infinity, goal: null, fuel0: v.dr.cells.map((p) => p.fuel) };
+      at: o.at || (at ? { e: at.e, z: at.z } : null), thinkAt: -Infinity, goal: null, fuel0: v.dr.cells.map((p) => p.fuel),
+      see: o.see > 0 ? o.see : AIK.SEE, cruise: o.cruise > 0 ? o.cruise : AIK.CRUISE }; // (see, cruise: the range's attack drone sees its target from where it starts and comes at full speed)
     if (N) { // off its deck, as a bay's launch (launch): its pose, 0.4 m over the bay's top, moving with it, then the hop
       v.q = quat(N.q.w, N.q.x, N.q.y, N.q.z);
       const T = dockTop(N, bay), Up = N.axis(0, 1, 0), off = v.com.y - v.bounds.minY + 0.4;
@@ -1855,7 +1864,7 @@ const Drone = (() => {
     const a = v.ai, U = typeof GroundAI !== 'undefined' && GroundAI.units ? GroundAI.units : [];
     if (a.passive) return;
     const low = charge(v) < AIK.LOW;
-    let best = null, bd = low ? Infinity : AIK.SEE;
+    let best = null, bd = low ? Infinity : a.see || AIK.SEE;
     if (a.tgt && !U.some((u) => u.v === a.tgt && foeUnit(v, u))) a.tgt = null; // (gone, knocked out or a wreck)
     for (const u of U) {
       if (!foeUnit(v, u)) continue;
@@ -1916,7 +1925,7 @@ const Drone = (() => {
     // cruise: toward where the target will be in LEAD s (or the zone), CRUISE m/s at most, ALT m up, nose toward it
     const G = t ? { x: t.x + (t.vx || 0) * AIK.LEAD, y: t.y + (t.vy || 0) * AIK.LEAD, z: t.z + (t.vz || 0) * AIK.LEAD } : a.goal;
     if (!G) return { vf: 0, vr: 0, vz: hold(AIK.ALT), yawTo: S.head };
-    const L = flat(v, S, G.x - v.x, G.y - v.y, G.z - v.z), d = L.h || 1e-3, sp = Math.min(fc.vmax, AIK.CRUISE, d * 0.5);
+    const L = flat(v, S, G.x - v.x, G.y - v.y, G.z - v.z), d = L.h || 1e-3, sp = Math.min(fc.vmax, a.cruise || AIK.CRUISE, d * 0.5);
     return { vf: (L.f / d) * sp, vr: (L.r / d) * sp, vz: hold(AIK.ALT), yawTo: d > 5 ? S.head + Math.atan2(L.r, L.f) : S.head };
   }
   // (Drone.frame, after the bays') The AI drones' upkeep: a passive one's battery kept full (a practice target: it flies

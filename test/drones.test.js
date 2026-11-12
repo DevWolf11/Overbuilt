@@ -854,10 +854,10 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
       go(F, Math.max(...goneAt) + 45.5 - F.time); out.at46 = R0.dd.map((s, i) => s.v !== was[i] && !!s.v && s.v.ai.passive);
       out.back = back.map((x) => +x.toFixed(2));
       GroundAI.reset(F); out.reset = aiOf(F).length; }
-    // Range Hostile with the BMK-2D Nest (a bay, no kit): an attack Bumble from the south, 900 m off, onto its roof
+    // Range Hostile with the BMK-2D Nest (a bay, no kit): an attack Bumble from the south, 1.6 km off (P4-AI-3), onto its roof
     { SET.targets = 'hostile'; const F = world(), C = F.start(designOf('bmk2d'), { place: NPAD }); go(F, 1);
       const R0 = GroundAI.range; R0.waveAt = 1e9; R0.dAt = F.time; let d = null, t0 = F.time, boom = null, dist0 = null, miss = null;
-      go(F, 62, (F) => { if (!d) { d = aiOf(F)[0]; if (d) dist0 = Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z); }
+      go(F, 77, (F) => { if (!d) { d = aiOf(F)[0]; if (d) dist0 = Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z); }
         if (d && d.dead && boom == null) { boom = F.time - t0; miss = Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z); return false; } });
       out.hostile = { dw: GroundAI.dw, said: F.log.includes('Enemy drone inbound!'), dist0: dist0 && Math.round(dist0), boom: boom && +boom.toFixed(1), miss: miss && +miss.toFixed(1), hurt: C.hurtAt != null || !!C.ko };
       GroundAI.reset(F); }
@@ -870,8 +870,8 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   t('11 Range Practice with an MA-1C: two passive enemy Bumbles circle 50 m up ("...and two drones overhead"); they are no bandits', A11.start.dw && A11.start.dr && A11.start.n === 2 && A11.start.passive && Math.abs(A11.start.h - 50) <= 3 && A11.start.said, A11.start);
   t('11 ...its anti-drone gun downs both ("Enemy drone down!", two range KOs; they never armed), and each comes back 45 s later (not at 44 s)',
     A11.down.downAt != null && A11.down.kos === 2 && A11.down.said === 2 && !A11.down.armed && A11.back.every((b) => Math.abs(b - 45) < 0.2) && A11.at44.every((x) => x) && A11.at46.every((x) => x) && A11.reset === 0, [A11.down, A11.back, A11.at44, A11.at46]);
-  t('11 Range Hostile: an attack Bumble ("Enemy drone inbound!") from 900 m reaches the player\'s Nest within 60 s and goes off on it; two at most at a time',
-    A11.hostile.dw && A11.hostile.said && Math.abs(A11.hostile.dist0 - 900) < 30 && A11.hostile.boom != null && A11.hostile.boom <= 60 && A11.hostile.miss < 8 && A11.hostile.hurt && A11.most === 2, [A11.hostile, A11.most]);
+  t('11 Range Hostile: an attack Bumble ("Enemy drone inbound!") from 1.6 km (outside every kit\'s reach: P4-AI-3) reaches the player\'s Nest within 75 s and goes off on it; two at most at a time',
+    A11.hostile.dw && A11.hostile.said && Math.abs(A11.hostile.dist0 - 1600) < 30 && A11.hostile.boom != null && A11.hostile.boom <= 75 && A11.hostile.miss < 8 && A11.hostile.hurt && A11.most === 2, [A11.hostile, A11.most]);
   // SPAA against drones; a tank's gun never stalls on one; the parked carrier is a target
   RB(`var B11 = (() => { const out = {};
     const flyer = (seed) => { Math.random = mulberry32(seed); GroundAI.seed(seed); const { F, v } = pilot(); go(F, 3, (F) => { v.ctl.z = F.time < 3 ? 1 : 0; }); return { F, v }; };
@@ -1019,6 +1019,41 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   t('UX-P4-4, UX-P4-5 the drone help follows the stick layout (Turn: A/D turn, Q/E and the round arrow buttons slide; Tilt: the reverse) and names no ◀ ▶',
     /Level: turn/.test(R13.turn.ad) && /Level: slide/.test(R13.turn.qe) && R13.turn.buttons === 'slide' && /A\/D turn/.test(R13.turn.hint)
     && /Level: slide/.test(R13.tilt.ad) && /Level: turn/.test(R13.tilt.qe) && R13.tilt.buttons === 'turn' && /A\/D slide, Q\/E turn/.test(R13.tilt.hint) && !R13.turn.glyph && !R13.tilt.glyph, R13);
+  // P4-AI-1: an MA-1C's turret (its kit aboard) thrown by an ammo detonation keeps the range and its tally
+  RB(`var R14 = (() => { SET.targets = 'hostile'; const F = world(), C = F.start(designOf('ma1c'), { place: NPAD }); go(F, 2); const R0 = GroundAI.range; R0.waveAt = 1e9; R0.kos = 3; R0.best = 850;
+    const tg = (C.tg || []).filter((g) => !g.parent).sort((a, b) => b.mass - a.mass)[0], tp = C.parts.find((p) => tg && tg.ids.has(p.id) && !p.def.cuas && p.def.weapon) || C.parts.find((p) => tg && tg.ids.has(p.id));
+    Armour.knockOut(C, F, 'ammo', { st: { part: tp }, rounds: 10 }); go(F, 2.5);
+    const out = { same: GroundAI.range === R0, kos: GroundAI.range && GroundAI.range.kos, cuas: C.cuas.length, dw: GroundAI.dw };
+    GroundAI.reset(F); SET.targets = 'off'; return out; })();`);
+  const R14 = JSON.parse(RB('JSON.stringify(R14)'));
+  t('P4-AI-1 a drone-war range kept when the knocked-out MA-1C\'s kit leaves with its thrown turret (the tally of 3 kept)', R14.same && R14.kos === 3 && R14.cuas === 0 && R14.dw, R14);
+  // P4-AI-2: a player on the south pad itself: the attack drone still appears 1.6 km off, never on top of them
+  RB(`var R15 = (() => { SET.targets = 'hostile'; const pad = EARTH.groundPads.highlandS, F = world(), C = F.start(designOf('bmk2d'), { place: { e: pad.e, z: pad.z, yaw: 0 } }); go(F, 1);
+    const R0 = GroundAI.range; R0.waveAt = 1e9; R0.planeAt = 1e9; R0.dAt = F.time; go(F, 0.2); const d = aiOf(F)[0], dist = d ? Math.hypot(d.x - C.x, d.y - C.y, d.z - C.z) : null;
+    GroundAI.reset(F); SET.targets = 'off'; return { dist }; })();`);
+  const R15 = JSON.parse(RB('JSON.stringify(R15)'));
+  t('P4-AI-2 with the player on the south pad the attack drone appears 1.6 km off (it appeared inside the tank)', R15.dist != null && Math.abs(R15.dist - 1600) < 30, R15);
+  // P4-AI-4, P4-AI-5: practice drones downed by the MA-1C's automatic gun, or dropped by a Wide-band Jammer, go on the tally
+  // ("Enemy drone down!") but never win the career's Tank Range mission with no hand on the controls
+  RB(`var R16 = (() => { const out = {}; SET.targets = 'practice';
+    for (const [k, more] of [['ma1c', []], ['tk34', [{ type: 'cdJamL', x: -2.4, y: 2.0, rot: 0, flip: false, att: 0 }]]]) {
+      Math.random = mulberry32(3); const F = world(), C = F.start(more.length ? kit(k, more) : designOf(k), { place: NPAD }), n0 = F.log.length;
+      go(F, 50, (F) => { C.ctl.v = C.ctl.h = 0; F.firing = false; });
+      out[k + (more.length ? '+jamL' : '')] = { kos: GroundAI.range.kos, award: !!F.flags.tankRange, down: F.log.slice(n0).filter((m) => m === 'Enemy drone down!').length };
+      GroundAI.reset(F); }
+    SET.targets = 'off'; return out; })();`);
+  const R16 = JSON.parse(RB('JSON.stringify(R16)'));
+  t('P4-AI-4, P4-AI-5 the automatic gun\'s and a jammer\'s downed practice drones count on the tally ("Enemy drone down!") but win no career mission with no input',
+    R16.ma1c.kos >= 3 && !R16.ma1c.award && R16['tk34+jamL'].kos >= 2 && R16['tk34+jamL'].down >= 2 && !R16['tk34+jamL'].award, R16);
+  // P4-AI-6: a Drone Radar or a Roof Cage alone brings the drone war (range and Practice Battle)
+  RB(`var R17 = (() => { const out = {}; const SP = { cdCage: { x: 0, y: 2.2 }, cdRadar: { x: -2.4, y: 2.06 } };
+    for (const t of ['cdRadar', 'cdCage']) { const row = [{ type: t, x: SP[t].x, y: SP[t].y, rot: 0, flip: false, att: 0 }];
+      SET.targets = 'practice'; const F = world(); F.start(kit('tk34', row), { place: NPAD }); go(F, 1.2); const range = GroundAI.dw; GroundAI.reset(F);
+      const G2 = world(); GroundAI.startBattle(G2, { money: 45000, design: kit('tk34', row), seed: 1 }); const battle = GroundAI.dw; GroundAI.reset(G2); SET.targets = 'off';
+      out[t] = { range, battle }; }
+    return out; })();`);
+  const R17 = JSON.parse(RB('JSON.stringify(R17)'));
+  t('P4-AI-6 a Drone Radar or a Roof Cage alone brings the drone war to the range and a Practice Battle', R17.cdRadar.range && R17.cdRadar.battle && R17.cdCage.range && R17.cdCage.battle, R17);
 }
 
 // ================================================================ 11. the AI: old play (no drone war) as it was before drones

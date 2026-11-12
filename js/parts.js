@@ -1334,10 +1334,10 @@ const PARTS = {
   // counter-drone kit (Armour's Kit tab): what each does is drone.js's (cuas); the Drone Radar is a search radar that looks low
   cdJam: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Drone Jammer', w: 0.6, h: 0.5, depth: 0.4, mass: 0.06, shape: 'tkit', style: 'jam', body3d: 'kit', module: 'radar', hp: 120,
     cuas: { jam: 500 },
-    tier: 2, cost: 4000, desc: 'Jams drone radios: their links break up inside 500 m and die inside 175 m (an FPV drops, a GPS drone flies home). Fibre drones don\'t care.' },
+    tier: 2, cost: 4000, desc: 'Jams drone radios: their links break up inside 500 m and are lost inside about 250 m (an FPV drops, a GPS drone flies home). Fibre drones don\'t care.' },
   cdJamL: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Wide-band Jammer', w: 1.0, h: 0.8, depth: 0.6, mass: 0.25, shape: 'tkit', style: 'jamL', body3d: 'kit', module: 'radar', hp: 180,
     cuas: { jam: 1000 },
-    tier: 3, cost: 9000, desc: 'Twice the reach: radio links break up inside 1 km and die inside 350 m; long-range and satellite links hold out closer in.' },
+    tier: 3, cost: 9000, desc: 'Twice the reach: radio links break up inside 1 km and are lost inside about 500 m; long-range and satellite links hold out closer in.' },
   cdDetect: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Drone Detector', w: 0.3, h: 0.5, depth: 0.3, mass: 0.02, shape: 'tkit', style: 'det', body3d: 'kit', module: 'sight', hp: 80,
     cuas: { detect: 2000 },
     tier: 1, cost: 2000, desc: 'Hears drone radios out to 2 km and marks them (fibre drones are silent). Cues your anti-drone gun.' },
