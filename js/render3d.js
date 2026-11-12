@@ -911,6 +911,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const a = I(64), c = I(6), kA = sk, kC = fx * sk * 0.06;
     for (let l = 0; l < 3; l++) { const k = 2 * Math.PI * (kA * a[l] + kC * c[l]) * E[l]; L.obSunC.value[l].set(k, k * 0.95, k * 0.85); }
     L.obSunD.value.copy(envUni.uSun.value).normalize();
+    L.snap = { zen: z.clone(), hor: h.clone(), ground: g.clone(), sun: envUni.uSun.value.clone(), sunK: sk, fx }; // (tests: the cube as drawn; renderFlight moves uZen on afterwards)
   }
   function updateEnv(zen, hor, ground, sun, sunK, key) {
     // only when the sky changed noticeably, and at most every 0.4 s
@@ -5068,7 +5069,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   const perf = { ema: 1 / 60, scale: 1, at: 0 };
   Object.assign(perf, { skip: 0, n: 0, probe: null, lock: 0 });
   function adaptResolution(dt) {
-    if (api.bench.pin) { if (perf.scale !== 1) { perf.scale = 1; resize(W, H, DPR); } return; } // (measuring: the pixel ratio held at basePixelRatio())
+    if (api.bench.pin) { perf.probe = null; perf.lock = 0; if (perf.scale !== 1) { perf.scale = 1; resize(W, H, DPR); } return; } // (measuring: the pixel ratio held at basePixelRatio(), no probe pending)
     if (!(dt > 0)) return;
     if (perf.skip > 0) { perf.skip--; return; } // (the resize's own hitch; a flight's first frames)
     const now = performance.now();
@@ -5432,7 +5433,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         return [0, 1, 2].map((i) => { const k = ['x', 'y', 'z'][i]; return Math.max(0, u[0][k] + u[1][k] * t + u[2][k] * P(t) + c[0][k] + c[1][k] * q + c[2][k] * P(q)); });
       },
       env(x, y, z) {
-        const U = envUni, zc = U.uZen.value, h = U.uHor.value, g = U.uGround.value, s = U.uSun.value, e = y, fx = U.uFx.value, k = U.uSunK.value;
+        const N = S.skyL.snap, zc = N.zen, h = N.hor, g = N.ground, s = N.sun, e = y, fx = N.fx, k = N.sunK;
         const w = e > 0 ? Math.pow(e, 0.6) : Math.pow(Math.min(-e * 3, 1), 0.6), o = e > 0 ? zc : g, dS = Math.max(x * s.x + y * s.y + z * s.z, 0), line = fx * 0.25 * Math.exp(-Math.abs(e) * 30);
         const sun = k * Math.pow(dS, 64) + fx * k * 0.06 * Math.pow(dS, 6), W = [1, 0.95, 0.85];
         return ['r', 'g', 'b'].map((c, i) => h[c] + (o[c] - h[c]) * w + h[c] * line + W[i] * sun);
@@ -5443,7 +5444,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       skyOn: () => {
         const has = (m) => { const p = m && renderer.properties.get(m).currentProgram; return p ? !!p.getUniforms().map.obUp : null; }, sc = S.scen[0];
         let craft = null;
-        for (const [, e] of vessels) { if (e && e.vm) e.vm.traverse((c) => { if (!craft && c.isMesh && c.visible && c.material && c.material.isMeshStandardMaterial && !c.material.userData.glass) craft = c.material; }); if (craft) break; }
+        for (const [, e] of vessels) { if (e && e.root) e.root.traverse((c) => { if (!craft && c.isMesh && c.visible && c.material && c.material.isMeshStandardMaterial && !c.material.userData.glass) craft = c.material; }); if (craft) break; }
         return { ground: has(terr.mat), trees: has(sc.trees[0].material), props: PR.mat ? has(PR.mat) : null, craft: has(craft) };
       },
     },

@@ -220,6 +220,12 @@ ok('frame cap 60: a 90 Hz screen does 60', near(cap.c90.work, 60, 2));
 ok('frame cap 60: a 144 Hz screen does about 60', near(cap.c144.work, 60, 4));
 ok('frame cap 60: a 60 Hz screen loses no frame', cap.c60.work === 60);
 ok('no cap: a 120 Hz screen does all 120', cap.u120.work === 120);
+// (the performance update) the battery saver: 30 frames' work a second on a 60 or 120 Hz screen
+const save = { c60: await synth(30, 60), c120: await synth(30, 120) };
+ok('frame cap 30 (battery saver): a 60 Hz screen does 30 frames of work a second, a 120 Hz one 30 too', near(save.c60.work, 30, 1) && near(save.c120.work, 30, 2), JSON.stringify([save.c60.work, save.c120.work]));
+// and the Settings select offers it, set and read back
+const sel = await ev(() => { App.showSettings(); const s = document.getElementById('set-fps'), opts = [...s.options].map((o) => o.value); s.value = '30'; s.dispatchEvent(new Event('change')); const v = Settings.get('fps'); s.value = '0'; s.dispatchEvent(new Event('change')); UI.closeModal && UI.closeModal(); return { opts, v }; });
+ok('Settings → Frame rate offers 30 (battery saver), 60 and Unlimited, and 30 sets fps 30', JSON.stringify(sel.opts) === '["30","60","0"]' && sel.v === 30, JSON.stringify(sel));
 ok('the home backdrop draws 30 times a second', [cap.c120, cap.c90, cap.c144, cap.c60, cap.u120, cap.u60].every((r) => near(r.home, 30, 1)), JSON.stringify([cap.c120, cap.c90, cap.c144, cap.c60, cap.u120, cap.u60].map((r) => r.home)));
 await ev(() => App.showSettings());
 let r = await synth(0, 60);

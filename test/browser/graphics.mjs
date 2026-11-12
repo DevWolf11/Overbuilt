@@ -136,8 +136,13 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   // (the performance update) the first frame: no world painted whole in it, the Earth a quick map at once and its full
   // maps lazy while the camera is down by its ground; a slice of the queue keeps to its time
   const first = await ev(() => {
-    const t0 = performance.now(); Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const ms = performance.now() - t0;
-    const J = Render3D._t.jobs(), E = J.worlds.find((w) => w.name === 'Earth'), slices = [];
+    // (a few frames: the patch round the tank comes first; the frame the Earth's maps start in is timed)
+    let ms = 0, J = null, E = null;
+    for (let i = 0; i < 20 && !(E && (E.lo || E.ready)); i++) {
+      const t0 = performance.now(); Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); ms = performance.now() - t0;
+      J = Render3D._t.jobs(); E = J.worlds.find((w) => w.name === 'Earth');
+    }
+    const slices = [];
     for (let i = 0; i < 6; i++) slices.push(Render3D._t.runJobs(4));
     return { ms, earth: E, n: J.n, lazy: J.lazy, slices, worst: Math.max(...slices) };
   });
