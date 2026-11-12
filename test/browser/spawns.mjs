@@ -1,6 +1,6 @@
 // The sandbox's spawn points in the page (the spawn points update: Spawns in mpui.js, the Start button beside Launch):
 //  - the Start button in Sandbox only, naming where the craft starts, inside the top bar with nothing over anything
-//    else from a 360 x 640 phone to a 1920 x 1080 desktop (under 640 px its twin in the stats panel's head instead)
+//    else from a 360 x 640 phone to a 1920 x 1080 desktop (under 641 px its twin in the stats panel's head instead)
 //  - the picker: the map and a list grouped by region, the kind's spots only (Armour: eight), the current one checked
 //  - a spot chosen is checked, named on the button, remembered (rss.spawn) through a reload, and the launch starts there;
 //    Revert starts there again; another kind keeps its own (a rocket still on the pad)
@@ -29,7 +29,7 @@ const bar = () => {
 };
 
 // ---- the button in every size (and none in Career)
-for (const [w, h] of [[360, 640], [390, 844], [1280, 720], [1920, 1080]]) {
+for (const [w, h] of [[360, 640], [390, 844], [641, 900], [861, 700], [1000, 800], [1280, 720], [1920, 1080]]) {
   const ctx = await b.newContext({ viewport: { width: w, height: h }, ...(w < 500 ? { hasTouch: true, isMobile: true } : {}) });
   const page = await ctx.newPage();
   watch(page, errs, `${w}x${h} `);
