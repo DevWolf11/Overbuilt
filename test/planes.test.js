@@ -2,8 +2,8 @@
 //  - Aim (the instructor, the mouse aim): the nose onto a circle 90° to the right, 60° left and 20° down, behind and 10°
 //    up, and 45° up, in its time, without a wing coming off, departing (sideslip past 26°, yaw past 57°/s, the AoA past
 //    60°, any rate past 5.4 rad/s) or coming within 30 m of the ground; a circle on the ground 60° below from 1500 m, the
-//    nose on it in 6 s (PR #44: the heavy ones aside); aimed 30° into the sea from 400 m with Settings → Aim pulls out of
-//    dives on, it dives at it and pulls out by itself, at least 15 m up (50 m, never getting there, until PR #44), and with
+//    nose on it in 6 s (PR #44: the heavy ones aside); aimed 30° into the open sea from 400 m (past the headland) with Settings → Aim pulls out of
+//    dives on, it dives at it and pulls out by itself, at least 5 m up over the open sea (15 m over the causeway's road until the spawn points update; 50 m, never getting there, until PR #44), and with
 //    it off (the default since PR #45) it holds the dive, the nose within 3° of the circle 60 m up, into the sea; a level
 //    aim it holds to a few degrees.
 //  - Off (the manual law): hands-off it stays trimmed (no nose-over), the roll stops when the stick is let go, and full
@@ -23,8 +23,11 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))[0];
 const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && (!only || only.split(',').includes(k)));
 G.run(ctx, 'this.__air = airDensity; this.__sound = soundSpeed;');
 
-function air(key, V, alt, sas, throttle = 0.85) {
+// de: metres further east along the track than the runway (the craft and its attitude turned with it): the sea dives start
+// over open water past the island's headland, as they started over the causeway's sea before the spawn points update
+function air(key, V, alt, sas, throttle = 0.85, de = 0) {
   const v = G.craft(ctx, G.templateRows(ctx, key), 'plane'), s = G.sim();
+  if (de) { const a = -de / ctx.EARTH.radius, c = Math.cos(a), sn = Math.sin(a), x = v.x, y = v.y; v.x = x * c - y * sn; v.y = x * sn + y * c; v.q = ctx.qnorm(ctx.qmul(ctx.qaxis(0, 0, 1, a), v.q)); }
   const u = { x: v.x / v.radius(), y: v.y / v.radius() }, r = ctx.EARTH.radius + alt;
   v.x = u.x * r; v.y = u.y * r; v.landed = false; v.vx = u.y * V; v.vy = -u.x * V;
   v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true;
@@ -59,7 +62,7 @@ for (const key of keys) {
   const fails = [], times = [], sea = [];
   for (const [name, az, el, secs, alt, pull] of [...AIMS, ['60° down from 1500 m', 0, -60, 6, 1500], ['30° down from 400 m', 0, -30, 12, 400, true], ['30° down from 400 m, no pull-out', 0, -30, 12, 400], ['level ahead', 0, 0, 15]]) {
     const alt0 = alt || 2000;
-    const { v, s } = air(key, V0, alt0, 'hold', thr);
+    const { v, s } = air(key, V0, alt0, 'hold', thr, name.includes('400 m') ? 3400 : 0); // (the sea dives: from e 4160, all water ahead)
     fly(v, s, 1, null, newM());
     const P = v.pilot, F0 = v.axis(P.F.x, P.F.y, P.F.z), r = v.radius(), U = { x: v.x / r, y: v.y / r, z: v.z / r };
     const k = F0.x * U.x + F0.y * U.y + F0.z * U.z, Fl = { x: F0.x - U.x * k, y: F0.y - U.y * k, z: F0.z - U.z * k }, lf = Math.hypot(Fl.x, Fl.y, Fl.z);
@@ -84,9 +87,9 @@ for (const key of keys) {
       if (!(at60 < 3)) fails.push(`${name}: the nose ${at60 == null ? 'never 60 m up' : at60.toFixed(1) + '° off the circle 60 m up'}`);
       sea.push(at60 == null ? '-' : at60.toFixed(1));
     } else if (name.includes('400 m')) { // (PR #44: dived at, and pulled out of at the last moment; until then held 50 m up, never got there)
-      // (the dive crosses the end of the island: until the spawn points update it ended over the causeway's 12 m road, where
-      // every plane was 15 m or more off it; now the headland falls away to the real sea under the dive, and the instructor,
-      // measuring from the ground under it, bottoms out lower over the water: the FS-4 6 m, the Kestrel 13 m, the rest 15-25)
+      // (over open sea, as it now starts: the light planes 17-25 m, the fast jets 6-14 m (the FS-35 6, the FS-4 8). Until the
+      // spawn points update the dive ended over the causeway's road 12 m up, where all were 15 m or more off it: the same
+      // pull-out, measured from a higher floor. Pulling the jets out higher is on docs/ROADMAP.md; the setting is off by default)
       if (M.minH < 5) fails.push(`${name}: ${Math.round(M.minH)} m off the sea`);
       if (tIn == null && !heavy) fails.push(`${name}: the nose never on it`);
       sea.push(Math.round(M.minH));
