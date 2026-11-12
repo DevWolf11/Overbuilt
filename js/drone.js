@@ -29,7 +29,10 @@ const DRONE = {
   ARM_D: 20, ARM_T: 2, FUSE_V: 4, AHEAD: 0.3, // safe-arm (m from launch, s); ground touch that sets it off (m/s); fuse look-ahead (m)
   JET_V: 4, JET_R: 3,                 // a warhead's jet along the way it flies from this speed (m/s; slower along its nose); how far ahead it still meets a plate (m)
   LINK: { DT: 0.2, LOS_DT: 0.5, LOS_N: 10, LOS_K: 0.35, STATIC: 0.6, LAG: 0.4, LAGMAX: 0.2, LOST: 0.15, LOST_T: 0.5,
-          BACK: 0.35, BACK_T: 0.5, HANDBACK: 5, JAM_IN: 0.35, K: { radio: 1, long: 0.6, sat: 0.25, fibre: 0 }, STATION: 3, HOME_UP: 2 },
+          BACK: 0.35, BACK_T: 0.5, HANDBACK: 5, JAM_IN: 0.005, LOSE: 0.25, HOLD: 2.5, K: { radio: 1, long: 0.6, sat: 0.25, fibre: 0 }, STATION: 3, HOME_UP: 2 },
+          // (the drones' balance) a jammer cuts a link's quality from its reach R down to JAM_IN·R (smoothstep), so it is lost
+          // about LOSE·R out (JAM_IN was 0.35: lost about half way in); a lost link holds the last stick HOLD s before the
+          // failsafe acts
   BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2, LEAK: 0.1 }, // (LEAK: a cell under half its hp loses this share of its full charge a second per (0.5 − hp fraction): 1 %/s at 40 % hp, 4 %/s at 10 %)
   HOME: { ALT: 30, V: 12, SLOW: 15, DESC: 1.5, DOCK_R: 1.5, DOCK_H: 2, DOCK_V: 3, NEAR_R: 3, NEAR_H: 6, CIRCLE: 60, CIRCLE_H: 80 },
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
@@ -180,12 +183,15 @@ const Drone = (() => {
     const dr = v.dr, c = v.ctl, F = dr.fc, alt = v.altitude(), S = (dl.S = hframe(v, dl.S));
     dl.auto = null; dl.spin = false;
     battery(v, dl, sim);
+    if (!dl.lost) { const H = dl.held || (dl.held = { v: 0, h: 0, r: 0, z: 0 }); H.v = c.v || 0; H.h = c.h || 0; H.r = c.r || 0; H.z = c.z || 0; } // (the stick as the link last carried it)
+    const hold = dl.lost && !(dl.lostT >= DRONE.LINK.HOLD) && (v.ai ? !!v.ai.drone : dl.mode === 'pilot' && !!dl.held); // (a lost link, its failsafe not yet acting)
     // 1. overrides (each zeroes the stick, so a key held at a switch never flies the drone off)
     if (dl.hop > 0) { // (a bay's hop: up off the deck to LAUNCH.HOP m over it, quick, then held there)
       dl.hop -= dt; zero(c);
       dl.auto = { vf: 0, vr: 0, vz: dl.hopAlt != null ? clamp((dl.hopAlt - alt) * 4, -DRONE.VHOLD, F.vz + 2) : 4, yawTo: S.head, hop: true };
     }
-    else if (dl.lost) {
+    else if (hold && !v.ai) { c.v = dl.held.v; c.h = dl.held.h; c.r = dl.held.r; c.z = dl.held.z; } // (the drones' balance: its receiver holds the last stick for LINK.HOLD s, so a drone already diving at a tank can finish its dive; the AI's flies on as it was)
+    else if (dl.lost && !hold) {
       zero(c);
       if (F.fs === 'drop') { v.throttle = 0; return; } // (an FPV controller lets it fall)
       dl.auto = homeAuto(v, dl, S, sim);
@@ -1213,7 +1219,7 @@ const Drone = (() => {
     dl.q = Math.max(0, best); dl.via = via; dl.jam = jam; dl.jamBy = jamBy;
   }
   // One link tick (every LINK.DT s): the quality, then LOST once under LOST for LOST_T s (the stick does nothing, the
-  // controller's failsafe flies it: pre), back once over BACK for BACK_T s (in Level), and a flown bay drone handed back
+  // last one held for LINK.HOLD s, then the controller's failsafe flies it: pre), back once over BACK for BACK_T s (in Level), and a flown bay drone handed back
   // to its tank after HANDBACK s lost (it carries on by itself: an FPV falls, a GPS drone flies home)
   function linkTick(v, F, dt, J) {
     const dl = state(v), L = DRONE.LINK;
@@ -1222,8 +1228,8 @@ const Drone = (() => {
     if (!dl.lost) {
       dl.lowT = q < L.LOST ? (dl.lowT || 0) + dt : 0;
       if (dl.lowT >= L.LOST_T - 1e-6) {
-        dl.lost = true; dl.lostT = 0; dl.hiT = 0; dl.homeH = null; dl.homeUp = false; dl.ring = null;
-        if (v.dr.fc.fs === 'home' && dl.mode !== 'land') dl.mode = 'home'; // (a GPS controller flies it home, and goes on home when the link is back)
+        dl.lost = true; dl.lostT = 0; dl.hiT = 0; dl.homeH = null; dl.homeUp = false; dl.ring = null; dl.fsOn = false;
+        if (v.dr.fc.fs === 'home' && dl.mode !== 'land' && dl.mode !== 'pilot') dl.mode = 'home'; // (a GPS controller flies it home, and goes on home when the link is back; flown by hand, once its hold is over: below)
         if (flown) say(F, v.dr.fc.fs === 'home' ? 'Link lost: flying home' : 'Link lost', 'warn');
         // a range's practice drone brought down by a jammer (it falls): the jammer's kill, as the kit's gun's is (P4-AI-5)
         if (v.ai && v.ai.passive && !v.ai.down && v.dr.fc.fs === 'drop' && dl.jam && dl.jamBy && typeof Combat !== 'undefined' && Combat.aiDown) {
@@ -1233,6 +1239,7 @@ const Drone = (() => {
       return;
     }
     dl.lostT = (dl.lostT || 0) + dt;
+    if (!dl.fsOn && dl.lostT >= L.HOLD - 1e-6) { dl.fsOn = true; if (v.dr.fc.fs === 'home' && dl.mode === 'pilot') dl.mode = 'home'; } // (the hold is over: the failsafe acts)
     dl.hiT = q > L.BACK && !(dl.via && dl.via.kind === 'fibre' && dl.snapped) ? (dl.hiT || 0) + dt : 0;
     if (dl.hiT >= L.BACK_T - 1e-6) {
       dl.lost = false; dl.lowT = 0; dl.lostT = 0;
@@ -1911,7 +1918,7 @@ const Drone = (() => {
   // 15 % charge it dives on the nearest enemy, wherever it is. It decides 4 times a second on its own clock (dl.t), so
   // the same seed flies the same way. Shot down it is Combat.aiDown's ("Enemy drone down!") and death.js's hulk; landed
   // 3 s or lost 60 s it goes (aiFrame).
-  const AIK = { THINK: 0.25, ALT: 30, CRUISE: 20, LEAD: 2, SEE: 1500, TERM: 200, LEAVE: 300, TOP: 1.5, K: 0.9, LOW: 0.15, ORBIT: { V: 10, R: 60, H: 50 }, UP: 3 };
+  const AIK = { THINK: 0.25, ALT: 30, CRUISE: 20, LEAD: 2, SEE: 1500, TERM: 200, LEAVE: 300, TOP: 1.5, K: 0.9, LOW: 0.15, ORBIT: { V: 10, R: 40, H: 50 }, UP: 3 };
   // a spot on the space centre's map (e m along the track, z across it) h m over the ground, in the sim's axes
   function siteSpot(e, z, h) {
     const a = siteAngle(EARTH, e), ph = z / EARTH.radius, r = EARTH.radius + Terrain.surfaceAt(EARTH, a, z) + (h || 0);

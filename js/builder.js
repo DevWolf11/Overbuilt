@@ -2715,7 +2715,7 @@ const Builder = {
     // (the big update) drone bays and counter-drone kit
     if (d.dock) { const D = d.dock; out.push(`Carries ${D.n} drone${D.n > 1 ? 's' : ''}: up to ${D.kg} kg, ${D.span} m, ${money(D.budget)}${D.n > 1 ? ' each' : ''}`); }
     const C = d.cuas;
-    if (C && C.jam) out.push(`Jams radios: they break up inside ${C.jam} m and are lost inside ${Math.round(C.jam * (typeof DRONE !== 'undefined' ? DRONE.LINK.JAM_IN : 0.35))} m`);
+    if (C && C.jam) out.push(`Jams radios: they break up inside ${C.jam} m and are lost inside ${Math.round(C.jam * (typeof DRONE !== 'undefined' ? DRONE.LINK.LOSE : 0.32))} m`);
     if (C && C.detect) out.push(`Hears drones out to ${+(C.detect / 1000).toFixed(1)} km`);
     if (C && C.gun) out.push(`${C.gun.range} m alone, ${C.gun.cued} m with a sensor`, `${C.gun.rate} rounds/s`, `${C.gun.ammo} rounds`, 'airburst');
     if (C && C.laser) out.push(`${C.laser.range} m alone, ${C.laser.cued} m with a sensor`, `${C.laser.on} s of beam, ${C.laser.cool} s to cool`);

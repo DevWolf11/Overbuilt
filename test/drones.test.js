@@ -236,7 +236,7 @@ t('nothing broke and nothing was said (the battery far from 25 %)', B.broken ===
   const acro = (k, what) => { const s = sim(), v = drone(k); ctx.__v = v; R(`__v.dl = { t: 0, at0: { x: __v.x, y: __v.y, z: __v.z }, t0: 0 };`);
     return JSON.parse(R(`(() => { const v = __v, s = __s; fly(v, s, 0.5, {}); fly(v, s, 5, { z: 1 }); fly(v, s, 4, { v: 1 }); fly(v, s, 5, {});
       const H = v.dl.at0, d0 = Math.hypot(v.x - H.x, v.y - H.y, v.z - H.z), a0 = agl(v); v.sas = 'acro'; fly(v, s, 0.3, {});
-      if ('${what}' === 'home') Drone.home(s, v); else if ('${what}' === 'land') Drone.land(s, v); else if ('${what}' === 'hold') v.dl.mode = 'hold'; else v.dl.lost = true;
+      if ('${what}' === 'home') Drone.home(s, v); else if ('${what}' === 'land') Drone.land(s, v); else if ('${what}' === 'hold') v.dl.mode = 'hold'; else { v.dl.lost = true; v.dl.lostT = DRONE.LINK.HOLD; } // (lost, its 2.5 s hold on the last stick over)
       fly(v, s, 20, {}, () => !s.broken.length);
       return JSON.stringify({ d0, d1: Math.hypot(v.x - H.x, v.y - H.y, v.z - H.z), dh: agl(v) - a0, sp: v.speed(), landed: v.landed, broken: s.broken.length }); })()`)); };
   const mh = acro('mavik', 'home'), ml = acro('mavik', 'lost'), bl = acro('bumble', 'land'), bh = acro('bumble', 'hold');
@@ -447,14 +447,14 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     go(F, 3, (F) => { v.ctl.z = F.time < 2 ? 1 : 0; }); return { F, v }; };
   var at0Of = (v) => { const a = v.dl.at0, r = Math.hypot(a.x, a.y, a.z); return { x: a.x + a.x / r * 2, y: a.y + a.y / r * 2, z: a.z + a.z / r * 2 }; };
   var ticks = (F, secs) => { for (let i = 0, n = Math.round(secs * 60); i < n; i++) { F.time += 1 / 60; Drone.frame(F, 1 / 60); } };`);
-  RB(`var K1 = (() => { const { F, v } = solo('bumble'); putAt(v, 2700, 40); let lostAt = null; const t0 = F.time; go(F, 3, () => { if (lostAt == null && v.dl.lost) lostAt = F.time - t0; });
-    const o = { lostAt, thr: v.throttle, q: v.dl.q, via: v.dl.via && v.dl.via.kind, said: F.log.filter((m) => /Link/.test(m)) };
+  RB(`var K1 = (() => { const { F, v } = solo('bumble'); putAt(v, 2700, 40); let lostAt = null, held = null; const t0 = F.time; go(F, 3.8, () => { if (lostAt == null && v.dl.lost) lostAt = F.time - t0; if (held == null && lostAt != null && F.time - t0 > lostAt + 1.5) held = v.throttle; });
+    const o = { lostAt, held, thr: v.throttle, q: v.dl.q, via: v.dl.via && v.dl.via.kind, said: F.log.filter((m) => /Link/.test(m)) };
     putAt(v, -2200, 40); v.dl.hold = null; let backAt = null; const t1 = F.time; go(F, 2, () => { if (backAt == null && !v.dl.lost) backAt = F.time - t1; });
     o.backAt = backAt; o.q2 = v.dl.q; o.said2 = F.log.slice(-1)[0]; o.mode = v.dl.mode; o.sas = v.sas; return o; })();`);
   const K1 = JSON.parse(RB('JSON.stringify(K1)'));
-  t('6 the radio past its range (a Bumble 2.7 km out on its 2.5 km link): LOST after 0.5 s ("Link lost"); an FPV controller lets it fall (throttle 0)',
-    K1.lostAt != null && K1.lostAt >= 0.45 && K1.lostAt <= 0.85 && K1.thr === 0 && K1.q === 0 && K1.said.includes('Link lost'), K1);
-  t('...back in range: the link is back once over 0.35 for 0.5 s, in Level ("Link back")', K1.backAt != null && K1.backAt >= 0.45 && K1.backAt <= 0.85 && K1.q2 > 0.35 && K1.said2 === 'Link back' && K1.mode === 'pilot' && K1.sas === 'hold', K1);
+  t('6 the radio past its range (a Bumble 2.7 km out on its 2.5 km link): LOST after 0.5 s ("Link lost"); it holds its last stick 2.5 s (hovering on), then an FPV controller lets it fall (throttle 0)',
+    K1.lostAt != null && K1.lostAt >= 0.45 && K1.lostAt <= 0.85 && K1.held > 0 && K1.thr === 0 && K1.q === 0 && K1.said.includes('Link lost'), K1);
+  t('...back in range: the link is back once over 0.35 for 0.5 s (its link looked at every 0.2 s), in Level ("Link back")', K1.backAt != null && K1.backAt >= 0.45 && K1.backAt <= 1.05 && K1.q2 > 0.35 && K1.said2 === 'Link back' && K1.mode === 'pilot' && K1.sas === 'hold', K1);
   RB(`var K2 = (() => { const rows = rowsOf('mavik').filter((r) => r.type !== 'drLinkL'); const { F, v } = solo('mavik', rows); const a0 = at0Of(v);
     putAt(v, 1150, 40); let lostAt = null, landedAt = null; go(F, 200, () => { if (lostAt == null && v.dl.lost) lostAt = F.time; if (v.landed && v.speed() < 0.3) { landedAt = F.time; return false; } });
     return { lostAt: lostAt != null, landedAt, off: across(v, a0), mode: v.dl.mode, said: F.log.filter((m) => /Link/.test(m)) }; })();`);
@@ -472,12 +472,13 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     return { found: !!hid && !!open, hid: hid && q(hid), open: open && q(open) }; })();`);
   const K3 = JSON.parse(RB('JSON.stringify(K3)'));
   t('6 a hill between the station and the drone: the link ×0.35 (a clear line: 1)', K3.found && Math.abs(K3.hid - 0.35) < 1e-9 && K3.open === 1, K3);
-  // a 500 m jammer on an enemy tank: where each kind of link dies (k: radio 1, long 0.6, sat 0.25, fibre 0; dead inside 0.35 of that)
+  // a 500 m jammer on an enemy tank: where each kind of link dies (k: radio 1, long 0.6, sat 0.25, fibre 0; dead inside 0.25 of that:
+  // the drones' balance, it was about half of it), jammed (the chip, the static) from all of it
   RB(`var jamTank = (ai) => { const d = designOf('ms4'); d.parts = d.parts.concat([{ type: 'cdJam', x: -1.4, y: 1.95, rot: 0, flip: false, att: 0 }]); const o = mk(d, { e: NPAD.e + 80, z: NPAD.z }); if (ai) o.ai = { ground: true, team: 1, ally: false }; return o; };
   var JAM = (() => { const out = {};
     const rowsSat = rowsOf('bumble').filter((r) => r.type !== 'drLink').concat([{ type: 'drSat', x: -0.1, y: 0.0725, rot: 0, flip: false, att: 0 }]);
     const rowsLong = rowsOf('mavik');
-    for (const [k, rows, near, far] of [['radio', rowsOf('bumble'), 165, 470], ['long', rowsLong, 98, 260], ['sat', rowsSat, 40, 115], ['fibre', rowsOf('bumbleF'), 8, 400]]) {
+    for (const [k, rows, near, far] of [['radio', rowsOf('bumble'), 110, 470], ['long', rowsLong, 65, 260], ['sat', rowsSat, 27, 115], ['fibre', rowsOf('bumbleF'), 8, 400]]) {
       for (const [mine, at] of [[false, near], [false, far], [true, near]]) {
         const F = world(), J = jamTank(!mine), v = Drone.build(rows, k); F.vessels.push(J); F.vessels.push(v); F.active = v;
         const jp = J.parts.find((p) => p.type === 'cdJam'), Q = J.toWorld(jp.x, jp.y, partZc(jp)), r = Math.hypot(Q.x, Q.y, Q.z);
@@ -488,9 +489,9 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     return out; })();`);
   const JAM = JSON.parse(RB('JSON.stringify(JAM)'));
   const lostAt = (k, d) => JAM[`${k}:${d}`][0];
-  t('6 a 500 m jammer on an enemy tank: a radio link LOST inside 175 m (not at 470 m), a long-range one inside 105 m (not at 260 m), a satellite one inside 44 m (not at 115 m), fibre never (8 m)',
-    lostAt('radio', 165) && !lostAt('radio', 470) && lostAt('long', 98) && !lostAt('long', 260) && lostAt('sat', 40) && !lostAt('sat', 115) && !lostAt('fibre', 8) && !lostAt('fibre', 400) && JAM['fibre:8'][1] === 1, JAM);
-  t('...our own jammer does nothing to our own drones', ['radio:ours:165', 'long:ours:98', 'sat:ours:40', 'fibre:ours:8'].every((k) => !JAM[k][0] && JAM[k][1] === 1 && !JAM[k][2]), JAM);
+  t('6 a 500 m jammer on an enemy tank: a radio link LOST inside 125 m (jammed, not lost, at 470 m), a long-range one inside 75 m (not at 260 m), a satellite one inside 31 m (not at 115 m), fibre never (8 m)',
+    lostAt('radio', 110) && !lostAt('radio', 470) && JAM['radio:470'][2] && lostAt('long', 65) && !lostAt('long', 260) && lostAt('sat', 27) && !lostAt('sat', 115) && !lostAt('fibre', 8) && !lostAt('fibre', 400) && JAM['fibre:8'][1] === 1, JAM);
+  t('...our own jammer does nothing to our own drones', ['radio:ours:110', 'long:ours:65', 'sat:ours:27', 'fibre:ours:8'].every((k) => !JAM[k][0] && JAM[k][1] === 1 && !JAM[k][2]), JAM);
   RB(`var JC = (() => { const F = world(), C = F.start((() => { const d = nest(); d.parts = d.parts.concat([{ type: 'cdJam', x: 1.6, y: 1.95, rot: 0, flip: false, att: 0 }]); return d; })()); go(F, 0.5);
     const e = Drone.build(rowsOf('bumble'), 'Enemy'), r = C.radius(); e.x = C.x + C.x / r * 300; e.y = C.y + C.y / r * 300; e.z = C.z + C.z / r * 300; e.landed = false; e.ai = { drone: true, ground: false, team: 1, ally: false };
     e.dl = { t: 0, at0: { x: e.x, y: e.y, z: e.z }, t0: 0 }; F.vessels.push(e); ticks(F, 0.3); const n1 = Drone.jamN(F);
@@ -750,7 +751,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     const fall = (how) => { const { F, v } = pilot(); go(F, 0.2); const U = up(v); fling(v, add3({ x: v.x, y: v.y, z: v.z }, U, 30), { x: 0, y: 0, z: 0 }, 0); arm(v); v.sas = 'hold'; v.dl.hold = null; go(F, 0.1);
       const kinds = [], d0 = FX.death; FX.death = function (b, p, vel, size, kind, ...r) { kinds.push(kind); return d0.call(this, b, p, vel, size, kind, ...r); };
       let now = null;
-      try { how(F, v); now = { boom: !!v.dl.boom, dead: v.dead }; go(F, 4); } finally { FX.death = d0; }
+      try { how(F, v); now = { boom: !!v.dl.boom, dead: v.dead }; go(F, 7); } finally { FX.death = d0; } // (7 s: a jammed one holds its last stick 2.5 s first)
       return { boom: !!v.dl.boom, dead: v.dead, debris: !!v.isDebris, kinds, now }; };
     out.jam = fall((F, v) => { const J = mk(kit('ms4', [{ type: 'cdJam', x: -1.6, y: 2.0, rot: 0, flip: false, att: 0 }]), { e: NPAD.e + 60, z: NPAD.z }); J.ai = { ground: true, team: 1 }; F.vessels.push(J); });
     out.shot = fall((F, v) => { const foe = enemy(); F.vessels.push(foe); Combat.damage(v, v.dr.fcPart, 1e6, 'shot', F, foe); });
@@ -856,8 +857,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   t('balance: ...a Nest picked to carry the Mavik launches it in sandbox play, its Bumble in career', SB.sandFly === 'Mavik Scout' && SB.carFly === 'Bumble FPV', [SB.sandFly, SB.carFly]);
 
   // ---------------------------------------------------------------- 10. counter-drone
-  RB(`var OLDGUN = { range: 600, cued: 1100, rate: 10, spread: 0.003, ab: 3, abR: 3, abD: 40, yaw: 3, elr: 2, acq: 0, jit: 0 }; // (the anti-drone gun before the drones' balance: the range's tally checks use it)
-  var hostile = (F, k, de, h, rows) => { const b = Drone.build(rows || rowsOf(k), 'Foe ' + k); b.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e), 0, NPAD.z); putAt(b, de, h);
+  RB(`var hostile = (F, k, de, h, rows) => { const b = Drone.build(rows || rowsOf(k), 'Foe ' + k); b.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e), 0, NPAD.z); putAt(b, de, h);
     for (const p of b.parts) if (p.def.thrust) p.active = true; b.stageIdx = b.stages.length; b.sas = 'hold'; b.throttle = 0.5;
     b.ai = { drone: true, ground: false, team: 1, ally: false }; b.dl = { t: 0, at0: { x: b.x, y: b.y, z: b.z }, t0: 0 }; F.vessels.push(b); return b; };
   var gunTank = (more) => kit('tk34', [{ type: 'cdGun', x: -1.6, y: 1.95, rot: 0, flip: false, att: 0 }].concat(more || []), 'Gun tank');
@@ -942,20 +942,19 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   RB(`var aiOf = (F) => F.vessels.filter((o) => o.ai && o.ai.drone && !o.dead);
   var liveD = (d) => !!d && !d.dead && d.hulk == null && !!d.control && !(d.ai && d.ai.down);
   var A11 = (() => { const out = {};
-    // Range Practice with an MA-1C (a gun, a jammer, a detector, a cage): two passive Bumbles circling 400 m ahead of the pad.
-    // (the drones' balance: the gun no longer reaches them dependably at 400 m; what this checks is the range's tally and
-    // its 45 s, so the gun here is given its old reach and aim, and its rounds their old punch, for the run)
-    { SET.targets = 'practice'; const G0 = { ...PARTS.cdGun.cuas.gun }; Object.assign(PARTS.cdGun.cuas.gun, OLDGUN); const F = world(); F.start(designOf('ma1c'), { place: NPAD }); go(F, 1);
+    // Range Practice with an MA-1C (a gun, a jammer, a detector, a cage): two passive Bumbles circling 140-220 m ahead of the
+    // pad (the drones' balance: within the new gun's own 250 m; they were 400 m out)
+    { SET.targets = 'practice'; const F = world(); F.start(designOf('ma1c'), { place: NPAD }); go(F, 1);
       const R0 = GroundAI.range, ds = aiOf(F), d0 = ds[0], P = d0 && Terrain.locate(EARTH, d0.x, d0.y, d0.z, {});
       out.start = { dw: GroundAI.dw, dr: Combat.S.dr, n: ds.length, passive: ds.every((d) => d.ai.passive && d.ai.team === 1 && !d.ai.ally && d.name === 'Enemy drone' && !Combat.isFighter(d)),
         h: P ? +(P.r - EARTH.radius - Terrain.surfaceAt(EARTH, P.a, P.z)).toFixed(0) : null, said: F.log.some((m) => /five targets ahead and two drones overhead/.test(m)) };
-      const goneAt = [null, null]; go(F, 12, (F) => { R0.dd.forEach((s, i) => { if (goneAt[i] == null && s.gone) goneAt[i] = F.time; }); if (goneAt.every((x) => x != null)) return false; });
+      const goneAt = [null, null]; go(F, 40, (F) => { R0.dd.forEach((s, i) => { if (goneAt[i] == null && s.gone) goneAt[i] = F.time; }); if (goneAt.every((x) => x != null)) return false; });
       const was = R0.dd.map((s) => s.v), back = R0.dd.map((s, i) => s.backAt - goneAt[i]);
       out.down = { downAt: goneAt.every((x) => x != null) ? +(Math.max(...goneAt) - 1).toFixed(1) : null, kos: R0.kos, said: F.log.filter((m) => m === 'Enemy drone down!').length, armed: was.some((d) => d && d.dl && d.dl.armedAt != null) };
       go(F, Math.min(...goneAt) + 44 - F.time); out.at44 = R0.dd.map((s, i) => s.v === was[i]);
       go(F, Math.max(...goneAt) + 45.5 - F.time); out.at46 = R0.dd.map((s, i) => s.v !== was[i] && !!s.v && s.v.ai.passive);
       out.back = back.map((x) => +x.toFixed(2));
-      GroundAI.reset(F); out.reset = aiOf(F).length; Object.assign(PARTS.cdGun.cuas.gun, G0); }
+      GroundAI.reset(F); out.reset = aiOf(F).length; }
     // Range Hostile with the BMK-2D Nest (a bay, no kit): an attack Bumble from the south, 1.6 km off (P4-AI-3), onto its roof
     { SET.targets = 'hostile'; const F = world(), C = F.start(designOf('bmk2d'), { place: NPAD }); go(F, 1);
       const R0 = GroundAI.range; R0.waveAt = 1e9; R0.dAt = F.time; let d = null, t0 = F.time, boom = null, dist0 = null, miss = null;
@@ -970,7 +969,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     return out; })();`);
   const A11 = JSON.parse(RB('JSON.stringify(A11)'));
   t('11 Range Practice with an MA-1C: two passive enemy Bumbles circle 50 m up ("...and two drones overhead"); they are no bandits', A11.start.dw && A11.start.dr && A11.start.n === 2 && A11.start.passive && Math.abs(A11.start.h - 50) <= 3 && A11.start.said, A11.start);
-  t('11 ...its anti-drone gun downs both ("Enemy drone down!", two range KOs; they never armed), and each comes back 45 s later (not at 44 s)',
+  t('11 ...its anti-drone gun downs both within 40 s ("Enemy drone down!", two range KOs; they never armed), and each comes back 45 s later (not at 44 s)',
     A11.down.downAt != null && A11.down.kos === 2 && A11.down.said === 2 && !A11.down.armed && A11.back.every((b) => Math.abs(b - 45) < 0.2) && A11.at44.every((x) => x) && A11.at46.every((x) => x) && A11.reset === 0, [A11.down, A11.back, A11.at44, A11.at46]);
   t('11 Range Hostile: an attack Bumble ("Enemy drone inbound!") from 1.6 km (outside every kit\'s reach: P4-AI-3) reaches the player\'s Nest within 75 s and goes off on it; two at most at a time',
     A11.hostile.dw && A11.hostile.said && Math.abs(A11.hostile.dist0 - 1600) < 30 && A11.hostile.boom != null && A11.hostile.boom <= 75 && A11.hostile.miss < 8 && A11.hostile.hurt && A11.most === 2, [A11.hostile, A11.most]);
@@ -1150,16 +1149,16 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   t('P4-AI-2 with the player on the south pad the attack drone appears 1.6 km off (it appeared inside the tank)', R15.dist != null && Math.abs(R15.dist - 1600) < 30, R15);
   // P4-AI-4, P4-AI-5: practice drones downed by the MA-1C's automatic gun, or dropped by a Wide-band Jammer, go on the tally
   // ("Enemy drone down!") but never win the career's Tank Range mission with no hand on the controls
-  RB(`var R16 = (() => { const out = {}; SET.targets = 'practice'; const G0 = { ...PARTS.cdGun.cuas.gun }; Object.assign(PARTS.cdGun.cuas.gun, OLDGUN); // (the old gun, as A11's)
+  RB(`var R16 = (() => { const out = {}; SET.targets = 'practice';
     for (const [k, more] of [['ma1c', []], ['tk34', [{ type: 'cdJamL', x: -2.4, y: 2.0, rot: 0, flip: false, att: 0 }]]]) {
       Math.random = mulberry32(3); const F = world(), C = F.start(more.length ? kit(k, more) : designOf(k), { place: NPAD }), n0 = F.log.length;
       go(F, 50, (F) => { C.ctl.v = C.ctl.h = 0; F.firing = false; });
       out[k + (more.length ? '+jamL' : '')] = { kos: GroundAI.range.kos, award: !!F.flags.tankRange, down: F.log.slice(n0).filter((m) => m === 'Enemy drone down!').length };
       GroundAI.reset(F); }
-    SET.targets = 'off'; Object.assign(PARTS.cdGun.cuas.gun, G0); return out; })();`);
+    SET.targets = 'off'; return out; })();`);
   const R16 = JSON.parse(RB('JSON.stringify(R16)'));
   t('P4-AI-4, P4-AI-5 the automatic gun\'s and a jammer\'s downed practice drones count on the tally ("Enemy drone down!") but win no career mission with no input',
-    R16.ma1c.kos >= 3 && !R16.ma1c.award && R16['tk34+jamL'].kos >= 2 && R16['tk34+jamL'].down >= 2 && !R16['tk34+jamL'].award, R16);
+    R16.ma1c.kos >= 2 && !R16.ma1c.award && R16['tk34+jamL'].kos >= 2 && R16['tk34+jamL'].down >= 2 && !R16['tk34+jamL'].award, R16);
   // P4-AI-6: a Drone Radar or a Roof Cage alone brings the drone war (range and Practice Battle)
   RB(`var R17 = (() => { const out = {}; const SP = { cdCage: { x: 0, y: 2.2 }, cdRadar: { x: -2.4, y: 2.06 } };
     for (const t of ['cdRadar', 'cdCage']) { const row = [{ type: t, x: SP[t].x, y: SP[t].y, rot: 0, flip: false, att: 0 }];
