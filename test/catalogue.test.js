@@ -272,9 +272,11 @@ function groundSample(c) { // c: a loaded game; -> { map | nomap: ['heightAt:sur
     wick: wick.length + ':' + hash(wick.map(([e, z]) => Tc.heightAt(Ec, ang(e), z))) + ':' + hash(wick.map(([e, z]) => Tc.surfaceAt(Ec, ang(e), z))) };
 }
 // ---- end ground sample
-const REF = { // (node test/catalogue.test.js --print, with ROOT at a checkout of 2e9884a)
-  map: ['8b991bcd:61e2bffe', '9b8c3c29:5516ca67', 'cb065937:5a4ef780', 'bb9114a7:5dd9846b', '06ade9c5:30381140', '138b09cc:93640bf5', '294a33c6:117857d0', '7c7cfbbb:3d81be7c'],
-  nomap: ['6adc1f5a:a262d8e0', '6f2b3f55:20bfe9f7'],
+const REF = { // (node test/catalogue.test.js --print, with ROOT at a checkout of 2e9884a; the spawn points update re-recorded
+  // the four map blocks round the Faroes and Shetland and the two without the map, where the causeway's flat stood and the
+  // headland's ramp now ends the track: the arena's two blocks, the anywhere block, Wick's and the fields' are as they were)
+  map: ['8b991bcd:61e2bffe', '9b8c3c29:5516ca67', '0b38965a:a196aee5', '6414a516:9f6250df', '6d4facb1:0906e3e8', '4e3424e4:93640bf5', '294a33c6:117857d0', '7c7cfbbb:3d81be7c'],
+  nomap: ['156015f7:542418f9', 'a6303fb7:e1ef9dfd'],
   field: 'f0362d73', nomapField: 'f0362d73', wick: '4424:8e0213a7:8e0213a7',
 };
 const now = groundSample(G.load()), nowNo = groundSample(nomap);

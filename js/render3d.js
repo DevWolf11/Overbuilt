@@ -1365,7 +1365,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   };
   // A ground vertex's colour (into out, sRGB 0..255) as the terrain patch paints it, and its night glow (returned): the
   // planet's own colour (paint), then on the real Earth its fields, towns, river banks, far water, roads, airfield grass,
-  // and the runway's and causeway's concrete shoulders. X: distance along the equator (the grid's al), zn: depth for the
+  // and the runway's concrete shoulders. X: distance along the equator (the grid's al), zn: depth for the
   // colour noise (the patch's row, from its centre), ang, Z, phi, ea, half: the grid's angle, depth, latitude, east and
   // track half-width there; cell: the cell size (finer detail fades on coarse cells); h, cn, dk: height, continent and
   // crater darkness; slope, tan: of the ground; wl, wp, rdw, rvw: water level and presence, road and river (Terrain.water).
@@ -1410,7 +1410,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (fw > 0) mixC(out, AIRGRASS, fw * 0.45, out);
       night = clamp(Math.max(0, Terrain.nightAt(ang, Z) - 0.08) * 1.2 + u * 0.1 + rdw * 0.1, 0, 1) * (0.15 + 0.85 * smoothstep(30, 400, cell));
     }
-    if (b === EARTH && h > 6 && ea > 560 && ea < EARTH.causeway.shore - 1000) { // concrete shoulders along the runway and causeway
+    if (b === EARTH && h > 6 && ea > 560 && ea < EARTH.roadEnd) { // concrete shoulders along the runway and the road down the headland
       mixC(out, P.concrete, (1 - smoothstep(half - 4, half + 3, Math.abs(Z))) * 0.85 * (1 - smoothstep(30, 120, cell)), out);
     }
     return night;
@@ -2229,7 +2229,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         if (Math.hypot((ca - a0 * R) * kl, cz - z0) > rad + 300) continue;
         const a = ca / R, e = -wrapAngle(a - EARTH.padAngle) * R;
         if (Math.hypot((e - Terrain.ISLE.e) / Terrain.ISLE.a, cz / Terrain.ISLE.b) < 1.3) continue; // the space centre
-        if (e > EARTH.causeway.shore - 100 && e < EARTH.causeway.shore + 2100 && Math.abs(cz) < 900) continue; // the port town is there already
+        if (e > EARTH.shore - 100 && e < EARTH.shore + 2100 && Math.abs(cz) < 900) continue; // the port town is there already
         const hc = meshHeight(b, a, cz);
         if (hc == null || hc < 3 || hc > 700) continue;
         if (c.mapped) { bioAt(a, cz); if (BIOW < 0.6) continue; }
@@ -2729,7 +2729,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
   // ------------------------------------------------------------------ space centre (Earth)
   // Surface frame at the pad: x metres east along the curved ground, y up, z depth (negative = away from
-  // the default camera). surf() follows the planet's curvature, so the runway and causeway stay on the ground.
+  // the default camera). surf() follows the planet's curvature, so the runway and its road stay on the ground.
   function surf(e, h, z, out) {
     const R = EARTH.radius, r = R + h, d = e / R, cp = Math.cos(z / R);
     return out.set(r * cp * Math.sin(d), r * cp * Math.cos(d) - (R + EARTH.padHeight), r * Math.sin(z / R));
@@ -2859,7 +2859,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const heli = new THREE.Mesh(new THREE.CylinderGeometry(10, 10.4, 0.5, 48), [stdMat({ color: '#3d424a' }), stdMat({ map: hp, roughness: 0.8 }), stdMat({ color: '#3d424a' })]);
     heli.geometry.translate(0, -0.21, 0);
     place(heli, EARTH.sites.helipad.east, EARTH.padHeight, 0).castShadow = false;
-    // ---- runway 12/30 (it heads 119°) and the causeway road: strips that follow the curved ground
+    // ---- runway 12/30 (it heads 119°) and the road down the headland: strips that follow the curved ground
     const strip = (e0, e1, step, z0, z1, hAt, uScale, mat) => {
       const pos = [], uv = [], nor = [], idx = [], n = Math.ceil((e1 - e0) / step), p = tmpV(), q = tmpV();
       for (let i = 0; i <= n; i++) {
@@ -2910,7 +2910,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       cx.fillStyle = '#ffc93c'; cx.fillRect(0, 62, 128, 4);
     }, true, true);
     const roadMat = stdMat({ map: rdTex, roughness: 0.9 }), gh = (e) => terrainHeight(EARTH, siteAngle(EARTH, e)) + 0.05;
-    strip(rw.to, EARTH.causeway.shore + 150, 20, -6, 6, gh, 24, roadMat);
+    strip(rw.to, EARTH.roadEnd, 20, -6, 6, gh, 24, roadMat); // (down the headland to the slipway, into the sea)
     strip(12, EARTH.sites.helipad.east - 11, 8, -4, 4, gh, 24, roadMat);
     strip(EARTH.sites.helipad.east + 11, rw.from, 10, -4, 4, gh, 24, roadMat);
     // ---- airport: an arched hangar and a control tower beside the runway
@@ -2944,7 +2944,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let e = rw.from; e <= rw.to + 0.1; e += 60) for (const z of [-24, 24]) add(e, rh(e) + 0.4, z, [1, 0.9, 0.7], 0.9);
     for (let z = -20; z <= 20; z += 5) { add(rw.from - 3, rh(rw.from) + 0.4, z, [0.3, 1, 0.45], 1); add(rw.to + 3, rh(rw.to) + 0.4, z, [1, 0.25, 0.2], 1); }
     for (let a = 0; a < 12; a++) add(EARTH.sites.helipad.east + Math.cos(a * TAU / 12) * 10.6, EARTH.padHeight + 0.3, Math.sin(a * TAU / 12) * 10.6, [1, 0.8, 0.3], 0.7);
-    for (let e = rw.to + 40; e < EARTH.causeway.shore + 150; e += 80) for (const z of [-6.6, 6.6]) add(e, terrainHeight(EARTH, siteAngle(EARTH, e)) + 1.2, z, [1, 0.85, 0.6], 0.6);
+    for (let e = rw.to + 40; e < EARTH.roadEnd - 60; e += 80) for (const z of [-6.6, 6.6]) add(e, terrainHeight(EARTH, siteAngle(EARTH, e)) + 1.2, z, [1, 0.85, 0.6], 0.6);
     const glowPts = (p, c, s, U) => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
@@ -2966,7 +2966,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // Around the space centre: a lighthouse on the west coast, wind turbines on the hills, a tank farm by the
-  // pad, a pier in the seaplane bay and a port town where the causeway comes ashore on Shetland.
+  // pad, a pier in the seaplane bay and a port town on the Shetland shore.
   function initLandmarks([g, place, stdMat, lit, glowPts, X]) {
     const ground = (e, z) => Terrain.heightAt(EARTH, siteAngle(EARTH, e), z);
     // the multiplayer airfields and carriers (a bad entry in EARTH.airfields / carriers mustn't cost the rest)
@@ -3034,14 +3034,14 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     boat.rotation.order = 'ZYX';
     place(boat, se - pierLen + 6, 0, -51);
     boat.rotation.y = 0.08;
-    // ---- port town on the Shetland shore, at the end of the causeway; windows light up at night
+    // ---- port town on the Shetland shore (where the old causeway came ashore); windows light up at night
     const town = new Batch(), lights = [], lc = [], ls = [];
     const walls = ['#efe6d2', '#f4f1ea', '#e3c79a', '#e8b8a6', '#cfdde6', '#d9d2c0'].map(col), roofs = ['#b5523b', '#8e4a33', '#5d6268', '#c2643f'].map(col);
     const m4 = new THREE.Matrix4(), mr = new THREE.Matrix4(), ms = new THREE.Matrix4(), pv = tmpV();
     let built = 0;
     for (let i = 0; i < 400 && built < 110; i++) {
-      // packed along the road where it comes ashore, thinning out away from it
-      const e = EARTH.causeway.shore + 100 + hashI(i, 1, 71) * 1300, side = hashI(i, 2, 71) < 0.5 ? -1 : 1, z = side * (24 + 520 * Math.pow(hashI(i, 12, 71), 1.6));
+      // packed along the old road's line, thinning out away from it
+      const e = EARTH.shore + 100 + hashI(i, 1, 71) * 1300, side = hashI(i, 2, 71) < 0.5 ? -1 : 1, z = side * (24 + 520 * Math.pow(hashI(i, 12, 71), 1.6));
       const h = ground(e, z);
       if (h < 2.5 || h > 120 || keepClear(e, z)) continue; // (not on the Shetland airfield)
       const w = 6 + 5 * hashI(i, 3, 71), d = 5 + 3 * hashI(i, 4, 71), hh = hashI(i, 5, 71) < 0.2 ? 6.5 : 3.6, yaw = Math.round(hashI(i, 6, 71) * 4) * (Math.PI / 2) + (hashI(i, 7, 71) - 0.5) * 0.3;

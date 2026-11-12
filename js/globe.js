@@ -211,12 +211,7 @@ const GlobeView = {
     // ---- places
     if (mapped) {
       const EM = Terrain.earthMap;
-      // the space centre and the causeway to Shetland
-      if (this.alt < R * 1.5) {
-        const pts = [];
-        for (let e = -300; e <= EARTH.causeway.shore + 300; e += 400) { const a = siteAngle(EARTH, e); pts.push(R * Math.cos(a), R * Math.sin(a), 0); }
-        line(pts, 'rgba(255,181,71,0.75)', 1.4);
-      }
+      // the space centre
       const pa = EARTH.padAngle;
       proj(R * Math.cos(pa), R * Math.sin(pa), 0);
       if (onScreen(20)) {

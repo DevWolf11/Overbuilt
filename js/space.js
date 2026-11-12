@@ -73,15 +73,19 @@ EARTH.sites = {
   bay: { name: 'Bay', east: -2300 }, // seaplanes start on the water west of the island, facing out to sea
 };
 EARTH.runway = { from: 700, to: 2700 }; // the paved strip
-EARTH.causeway = { from: 3300, to: 17200, shore: 17850 }; // the sea road to Shetland: raised from..to, ashore at `shore`
+// Where the old sea road to Shetland came ashore (removed with the spawn points update: it was ugly and unrealistic): its
+// harbour and port town stand there still, and the hostile range keeps its targets off the line it ran along
+EARTH.shore = 17850;
 // Flattened ground: each flat blends from `height` back to the natural terrain over `blend` metres.
-// Later entries win where they overlap.
+// Later entries win where they overlap. A ramp (top, bot) eases from `top` at its west end down to `bot` at its east
+// end instead of standing level: the headland past the runway's end, where the road runs down a slipway into the sea.
 EARTH.flats = [
   { name: 'spaceCentre', east: 0, half: 220, blend: 600, height: 40 }, // the pad stands on the west coast
-  { name: 'causeway', east: (EARTH.causeway.from + EARTH.causeway.to) / 2, half: (EARTH.causeway.to - EARTH.causeway.from) / 2, blend: 600, height: 12 },
   { name: 'runway', east: 1700, half: 1100, blend: 700, height: 40 },
+  { name: 'headland', east: 3050, half: 250, blend: 120, height: 40, top: 40, bot: -4 }, // (7.5° at its steepest)
 ];
 for (const f of EARTH.flats) f.ang = EARTH.padAngle - f.east / EARTH.radius;
+EARTH.roadEnd = 3240; // where the road from the runway's end runs into the sea (the slipway's foot)
 // Airfields away from the space centre (multiplayer battles spawn there): a strip centred at (e, z), metres along
 // and across the track, pointing along `yaw` as placeOnSurface turns a craft (the nose goes (cos yaw, -sin yaw)
 // in e, z: 0 is east, 90° game north). The ground is flattened to `h` over hl x hw, blending out over `blend`.
@@ -228,17 +232,23 @@ function terrainHeight(b, ang) {
   const F = b.flats;
   if (!F) return terrainRaw(b, ang);
   // on a flat's own level ground its blend is exactly 0 (lerp gives its height whatever came before), so the
-  // natural ground under the pad, runway or causeway (the real map's is slow to work out) is never needed there
+  // natural ground under the pad or runway (the real map's is slow to work out) is never needed there
   let k = F.length;
   while (--k >= 0 && !(Math.abs(wrapAngle(ang - F[k].ang)) * b.radius <= F[k].half));
-  let h = k >= 0 ? F[k].height : terrainRaw(b, ang);
+  let h = k >= 0 ? flatH(F[k], ang, b.radius) : terrainRaw(b, ang);
   for (let i = k + 1; i < F.length; i++) {
     const f = F[i], d = Math.abs(wrapAngle(ang - f.ang)) * b.radius;
-    if (d < f.half + f.blend) h = lerp(f.height, h, smoothstep(f.half, f.half + f.blend, d));
+    if (d < f.half + f.blend) h = lerp(flatH(f, ang, b.radius), h, smoothstep(f.half, f.half + f.blend, d));
   }
   return h;
 }
-// True on built-up flat ground (pad, runway, causeway), where no trees or rocks grow.
+// a flat's own height at ang: level, or a ramp's (top at its west end easing down to bot at its east end)
+function flatH(f, ang, R) {
+  if (f.top == null) return f.height;
+  const u = -wrapAngle(ang - f.ang) * R; // (metres east of its middle)
+  return lerp(f.top, f.bot, smoothstep(-f.half, f.half, u));
+}
+// True on built-up flat ground (pad, runway), where no trees or rocks grow.
 function clearZone(b, ang) {
   if (!b.flats) return false;
   for (const f of b.flats) if (Math.abs(wrapAngle(ang - f.ang)) * b.radius < f.half + 30) return true;

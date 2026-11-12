@@ -23,7 +23,7 @@
 // Old designs meet them only where some stand: an old weapon's shot or an old vessel looks at the props already built
 // (shot, solidAt, crushOld: they never build a map on the spot; the renderer and the app build the space centre's in the
 // background near it), and only those of a map open to them (Highland Ridge's in ground play: play, where they are on
-// show). Everywhere else (the runway, the causeway, the sea, the air: every old test path) they cost a look at a bitset
+// show). Everywhere else (the runway, the road past it, the sea, the air: every old test path) they cost a look at a bitset
 // and change nothing (test/ground.test.js and the old baselines, run with every prop built, prove it).
 //
 // Coordinates: (e, z) as the space centre has them (metres east along the track, and depth: game north is -z); yaw as
@@ -1110,7 +1110,7 @@ const Props = (() => {
       if (Math.abs(z) < 72 + r && e > 0 && e < 2820) return false; // (the runway, its shoulders and blend, and the road from the pad by the helipad)
       if (Math.hypot(e, z) < 330 + r) return false; // (the pad, the assembly building, mission control, the tank farm, the helipad and the road)
       if (e > 740 && e < 1420 && z > -240 && z < 20) return false; // (the apron, its hangar and the tower)
-      if (e > 2650 && Math.abs(z) < 70 + r) return false; // (the causeway)
+      if (e > 2650 && Math.abs(z) < 70 + r) return false; // (the road down the headland past the runway)
       if (Math.hypot(e - le, z - 220) < 45 + r) return false; // (the lighthouse)
       { const de = e - Y.e, dz = z - Y.z; if (Math.abs(de) < Y.hl + 18 + r && Math.abs(dz) < Y.hw + 14 + r) return false; } // (the yard: what stands on it is placed by hand)
       if (e > Y.e + Y.hl && e < Y.e + Y.hl + 300 && Math.abs(z - Y.z) < 90) return false; // (the course)

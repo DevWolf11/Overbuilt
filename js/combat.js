@@ -1198,7 +1198,7 @@ const Combat = (() => {
   function landOk(e, z) {
     const h = rawAt(e, z);
     if (!(h > 2 && h < 220)) return false;
-    if (Math.abs(z) < 140 && e > -900 && e < EARTH.causeway.shore + 400) return false;
+    if (Math.abs(z) < 140 && e > -900 && e < EARTH.shore + 400) return false; // (the old causeway's line: as it was)
     if (Math.hypot(e - 1300, z) < 2200) return false;
     return groundAt(e, z) <= h + 0.5 && Math.abs(rawAt(e + 25, z) - h) < 12 && Math.abs(rawAt(e, z + 25) - h) < 12;
   }

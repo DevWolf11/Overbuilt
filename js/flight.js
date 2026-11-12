@@ -1794,7 +1794,7 @@ const Flight = {
   },
 
   // Tracks and armoured wheels throw dust behind them over 4 m/s, more the faster (a third as much on low quality),
-  // within 300 m of the camera, not on the paved runway or causeway. The puffs build up and go out at most 10 times a
+  // within 300 m of the camera, not on the paved runway or its road. The puffs build up and go out at most 10 times a
   // second a vehicle (each costs a few ground lookups), from each side's rear in turn.
   trackDust(v, dt) {
     const sp = v.speed(), f = this.viewVessel;
@@ -2312,7 +2312,7 @@ const Flight = {
       return '';
     }
     if (v.kind === 'car') {
-      if (sp < 1 && !this.flags.drive1k) return T ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 18 km out across the sea to Shetland.' : `${ws} to drive, ${ad} to steer, hold ${k('brake')} to brake. The causeway leads 18 km out across the sea to Shetland.`;
+      if (sp < 1 && !this.flags.drive1k) return T ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The road past the runway runs down the headland to a slipway.' : `${ws} to drive, ${ad} to steer, hold ${k('brake')} to brake. The road past the runway runs down the headland to a slipway.`;
       return '';
     }
     if (v.kind === 'heli') {
