@@ -472,6 +472,26 @@ const ALL = ['radarRanging', 'radarPulse', 'radarPD', 'radarPESA', 'radarAESA', 
   t('D15 drones are never radar contacts (a drone craft, an AI drone), a fighter beside them is', sees(v, a) === false && sees(v, b) === false && sees(v, c) === true && RD.S.set.has(c) && !RD.S.rc.some((e) => e.ref === a || e.ref === b) && !RD.has(a) && !RD.has(b));
 }
 
+// D15b (P5-OLD-1): the Target Range's "Target drone" is an old range target (kind 'drone', with a def), an air target:
+// a radar sees it and a radar missile locks it, as in 68ea3fe; only the big update's real drones are refused
+{
+  const out = {};
+  for (const k of ['radarPD', 'rotodome']) {
+    const v = jet([k]), F = scene(v), tg = T.makeTarget('drone');
+    // (held on its circuit's centre, 3 km down the range from the jet at its height; the jet's nose on it)
+    Object.assign(tg, { def: { ...tg.def, speed: 0 }, cx: 12000, cz: 0, rad: 1e-6, alt: 3000 });
+    C.S.targets = [tg];
+    frame(F);
+    level(v, { x: tg.pos.x - v.x, y: tg.pos.y - v.y, z: tg.pos.z - v.z });
+    v.wsel = sysOf(v, 'radarMissiles');
+    let lock = null;
+    for (let i = 0; i < 180 && lock == null; i++) { frame(F); if (C.S.lock === tg) lock = i / 60; }
+    out[k] = { kind: tg.kind, d: Math.round(dist(v, tg.pos)), sees: sees(v, tg, 'guide'), held: RD.has(tg), lock };
+  }
+  t('D15b a range Target drone (kind drone, an old range target) 3 km dead ahead: a Pulse-Doppler set and a Rotodome see it, hold it and lock it with radar missiles within 3 s',
+    Object.values(out).every((o) => o.kind === 'drone' && Math.abs(o.d - 3000) < 50 && o.sees === true && o.held && o.lock != null), out);
+}
+
 // E16: lock times
 {
   const got = {};

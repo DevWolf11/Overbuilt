@@ -464,6 +464,18 @@ if (part(5)) {
   const all = await page.evaluate(() => ({ fire: Keys.get('fire').join(), stage: Keys.get('stage').join(), rot: Keys.get('bRotate').join(), saved: localStorage.getItem('rss.keys') }));
   await page.evaluate(() => { UI.closeModal(); UI.closeModal(); });
   ok('Reset all keys (two taps): every key as it was', all.fire === 'KeyV' && all.stage === 'Space' && all.rot === 'KeyR' && all.saved === '{}', all);
+  // (review P5-DOCS-6) the manual names every key that works outside a room: each action but the builder's rebound to F9 in
+  // turn, F9 is in App.showHelp (the in-room lists' catapult, chat and score aside); then back to today's key
+  const man = await page.evaluate(() => {
+    const out = [], room = new Set(['catapult', 'chat', 'score']);
+    for (const [id, group] of Keys.ACTIONS) {
+      if (group === 'Builder' || room.has(id)) continue;
+      Keys.set(id, 0, 'F9'); App.showHelp(); const m = document.querySelector('#modal-card').innerHTML; UI.closeModal(); Keys.reset(id);
+      if (!/<kbd>F9<\/kbd>/.test(m)) out.push(id);
+    }
+    return { out, saved: localStorage.getItem('rss.keys') };
+  });
+  ok('the manual shows the key of every action outside the builder and a room (each rebound to F9 in turn: the globe / solar-system switch N too)', !man.out.length && man.saved === '{}', man);
   await shot(page, 'keys-1280x720');
   await pageErrors(page, tag);
   await ctx.close();

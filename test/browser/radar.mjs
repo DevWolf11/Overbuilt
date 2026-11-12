@@ -6,7 +6,8 @@
 // the phone, the mouse on the desktop) goes into the nose under it; dragged on over the tail fin it is red and the drop
 // does nothing, and into the fuselage it moves there; deleting its host takes the set along; in 3D, X-ray shows the set
 // and a tap there picks it, a set over a wing is red, and one dragged onto the fuselage goes inside it. Then the flight
-// HUD (below): the scope on eight screens, the RDR pill, picks, radar off and on, RADAR OUT.
+// HUD (below): the scope on eight screens, the RDR pill, picks, radar off and on, RADAR OUT; the lock's and the bandit's
+// labels clear of the flight data on a phone in portrait (RADAR_HUD=lock: that part alone).
 //   node test/browser/radar.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/; RADAR_PART=builder or hud: one half)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -232,6 +233,7 @@ const fly = (n) => {
     o.q = { ...v.q }; o.vx = -v.vx * 0.9; o.vy = -v.vy * 0.9; o.vz = -v.vz * 0.9; o.ai.hold = true;
   }
   Combat.S.targets.length = 0; Combat.S.spawned = true; Combat.S.rwrBox = null;
+  Radar.S.rc = []; // (the range's target drones are radar contacts (P5-OLD-1): those seen before they were cleared would fade on the scope for 1.5 s)
 };
 // a lock on the first bandit with the radar missiles chosen (as if held for the lock time)
 const lockOn = () => {
@@ -385,6 +387,43 @@ if (PART !== 'builder' && (!ONLY || ONLY.includes('390x844'))) {
   await ctx.close();
 }
 
+// (review FEEL-3) a bandit dead ahead at our height on a phone in portrait sits at the flight data's height, by its right
+// edge: the seeker's "LOCK 6.0 km" and the marker's "Bandit 6.0 km" are drawn clear of the flight data and the buttons
+// top right (beside the marker, apart from each other), not under them
+for (const [W, H] of PART === 'builder' || (ONLY && !ONLY.includes('lock')) ? [] : [[360, 640], [390, 844]]) {
+  const tag = `${W}x${H} lock label `, ctx = await b.newContext({ viewport: { width: W, height: H }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 }), page = await ctx.newPage();
+  watch(page, errs, tag);
+  await openGame(page, srv.url, { targets: 'hostile' });
+  await page.evaluate(() => { App.toBuild(); Builder.loadTemplate('fs16'); App.launch(); });
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  await page.evaluate(() => {
+    window.__lb = {};
+    const P = CanvasRenderingContext2D.prototype, ft = P.fillText;
+    P.fillText = function (t, x, y) {
+      const m = this.canvas === App.canvas && /^(?:▸ )?(LOCK|Bandit) \d/.exec(t);
+      if (m) { const w = this.measureText(t).width, l = this.textAlign === 'center' ? x - w / 2 : this.textAlign === 'right' ? x - w : x; window.__lb[m[1]] = { t, l, r: l + w, t0: y - 11, b: y + 3 }; }
+      return ft.apply(this, arguments);
+    };
+    const v = Flight.active, r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+    v.x += up.x * 3000; v.y += up.y * 3000; v.z += up.z * 3000; const f = v.axis(0, 1, 0); v.vx = f.x * 250; v.vy = f.y * 250; v.vz = f.z * 250; v.landed = false;
+    const o = Combat.spawnFighter(Flight);
+    o.x = v.x + f.x * 6000; o.y = v.y + f.y * 6000; o.z = v.z + f.z * 6000; o.q = { ...v.q }; o.vx = -v.vx * 0.9; o.vy = -v.vy * 0.9; o.vz = -v.vz * 0.9; o.ai.hold = true;
+    Combat.S.targets.length = 0; Combat.S.spawned = true; Combat.S.fighterT = 1e9;
+  });
+  await page.waitForFunction(() => Radar.S.rc.length > 0, null, { timeout: 60000 });
+  ok(tag + 'a lock on the bandit dead ahead', await page.evaluate(lockOn));
+  await page.waitForFunction(() => Combat.S.lock, null, { timeout: 60000 });
+  await page.waitForTimeout(1200); await page.evaluate(() => { window.__lb = {}; });
+  await page.evaluate(() => new Promise((ok) => { let i = 0; const f = () => (++i >= 3 ? ok() : requestAnimationFrame(f)); requestAnimationFrame(f); }));
+  const L = await page.evaluate(() => { const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const x = e.getBoundingClientRect(); return x.width > 0 ? { l: x.left, t: x.top, r: x.right, b: x.bottom } : null; };
+    return { lb: window.__lb, tel: r('#flight-ui .telemetry'), top: r('#flight-ui .flight-top-right') }; });
+  const box = (q) => q && { l: q.l, r: q.r, t: q.t0, b: q.b }, lk = box(L.lb.LOCK), bd = box(L.lb.Bandit);
+  const clash = [['LOCK', lk], ['Bandit', bd]].flatMap(([k, a]) => [['flight data', L.tel], ['top right', L.top]].filter(([, p]) => meets(a, p)).map(([n]) => `${k}/${n}`));
+  if (meets(lk, bd)) clash.push('LOCK/Bandit');
+  ok(tag + `"${L.lb.LOCK && L.lb.LOCK.t}" and "${L.lb.Bandit && L.lb.Bandit.t}" drawn clear of the flight data, the buttons top right and each other`, !!lk && !!bd && !clash.length && [lk, bd].every((a) => a.l >= 0 && a.r <= W), { clash, L });
+  await page.screenshot({ path: SHOTS + `radar-lock-label-${W}x${H}.png` });
+  await ctx.close();
+}
 ok('no page errors', !errs.length, errs.join('\n'));
 await b.close(); srv.close();
 ok.done();

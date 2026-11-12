@@ -768,7 +768,10 @@ const Death = (() => {
     if (!tick && !ban) return;
     const v = F.active;
     if (!v || !v.parts.length || F.destroyed || F.groundAim || typeof Render3D === 'undefined') return;
-    const bp = bodyPos(v.body, F.time), P = Combat.aimCross(v, HX), s = Render3D.project(bp.x + P.x, bp.y + P.y, P.z);
+    // (a drone's FPV view: on its OSD's centre cross, the camera's line, and clear of the OSD's blocks and the alert line,
+    // review P5-COMBO-2)
+    const osd = v.kind === 'drone' && typeof Drone !== 'undefined' && Drone.osdBoxes ? Drone.osdBoxes(W, H, F) : null;
+    const bp = bodyPos(v.body, F.time), P = osd ? null : Combat.aimCross(v, HX), s = osd ? { x: W / 2, y: H / 2 } : Render3D.project(bp.x + P.x, bp.y + P.y, P.z);
     const cx = s.behind ? W / 2 : clamp(s.x, 0, W), cy = s.behind ? 0.45 * H : clamp(s.y, 0.1 * H, 0.9 * H);
     const col = ban ? fb.col : '#f2f5f7';
     ctx.save();
@@ -781,7 +784,8 @@ const Death = (() => {
     if (ban) {
       const big = fb.pri === 5, f = big ? 20 : 15;
       ctx.font = big ? BIG : FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      const w = ctx.measureText(fb.text).width, B = topBoxes(W, H);
+      const w = ctx.measureText(fb.text).width, B = osd ? topBoxes(W, H).concat(osd) : topBoxes(W, H);
+      if (osd) { const al = document.querySelector('#flight-alert'), r = al && !al.hidden && al.getBoundingClientRect(); if (r && r.width > 0 && r.height > 0) B.push(r); }
       let x = clamp(cx, 8 + w / 2, W - 8 - w / 2), y = cy - (big ? 74 : 48);
       const y2 = cy + (big ? 64 : 44) + f;
       if (y - f < 64 || meets(B, x, y, w, f)) { if (!meets(B, x, y2, w, f) || y - f < 0) y = y2; } // (below the cross instead: a phone's top panels)

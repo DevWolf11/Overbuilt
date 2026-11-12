@@ -411,6 +411,65 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   await ctx.close();
 }
 
+// ================================================================ 9. the camera shot off (review FEEL-1): the drone flies on and its OSD draws
+{
+  const tag = 'no camera 390×844 ', { ctx, page } = await open([390, 844, true], tag);
+  await fly(page, 'bumble');
+  const A = await page.evaluate(() => { const d = Flight.active, cam = d.parts.find((p) => p.def.drone && p.def.drone.cam);
+    Combat.damage(d, cam, (Combat.maxHp(cam.def) * 2) / (1 - (cam.def.armor || 0)), 'shot', Flight, { name: 'Bandit' });
+    window.__errs.length = 0; return { gone: !d.parts.includes(cam), cam: !!d.dr.cam, t: Flight.time }; });
+  await page.waitForFunction((t) => Flight.time > t + 1, A.t, { timeout: 120000 });
+  await frames(page, 3);
+  const B = await page.evaluate(() => { const d = Flight.active; return { kind: d.kind, alive: !d.dead && !d.down, errs: window.__errs.slice(0, 2), osd: !!Drone._osd.last, calls: (() => { try { Drone._osd.calls = 0; Drone.drawOSD(App.ctx, App.W, App.H, App.dpr, Flight); return Drone._osd.calls; } catch (e) { return String(e); } })() }; });
+  ok(`${tag}a Bumble with its FPV camera shot off flies on, the player's, and its OSD draws every frame without an error`, A.gone && !A.cam && B.kind === 'drone' && B.alive && B.osd && B.calls > 0 && !B.errs.length, { A, B });
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ 10. LAST FLIGHT with a kill banner up (review P5-COMBO-2/3): the BMK-2D's
+// Bumble flown over its knocked-out tank, the alert line's LAST FLIGHT and a KNOCKED OUT banner (Death.feedback, drawn on
+// the HUD's canvas: its fillText caught); on a phone on its side in the level view (the bank arc was forced over the
+// cross onto the alert line, the banner onto the cross) and a small phone at UI 75% (the banner on the flight line)
+for (const [w, h, ui, view] of [[844, 390, 1, 'fpvLevel'], [360, 640, 0.75, 'fpv']]) {
+  const tag = `last flight ${w}×${h} UI ${ui * 100}% ${view} `, { ctx, page } = await open([w, h, true], tag, { uiSize: ui });
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (view) => {
+    window.__ban = [];
+    const ft = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) {
+      if (this.canvas === App.canvas && s === 'KNOCKED OUT') { const tw = this.measureText(s).width, f = parseFloat((this.font.match(/(\d+(?:\.\d+)?)px/) || [0, 15])[1]); window.__ban.push({ l: x - tw / 2, r: x + tw / 2, t: y - f, b: y + 4 }); if (window.__ban.length > 40) window.__ban.splice(0, 20); }
+      return ft.apply(this, arguments);
+    };
+    Settings.set('droneView', view);
+    await Render3D.load(); App.toBuild(); Builder.loadTemplate('bmk2d'); store.set('rss.flight', null);
+    App.showScene('flight'); Flight.start(Builder.serialize(), { place: GroundMode.soloPlace('tank') });
+  }, view);
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  const t0 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t0) => Flight.time > t0 + 1.5, t0, { timeout: 120000 });
+  await page.tap('#btn-drone');
+  const t1 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t1) => Flight.time > t1 + 1.2 && Flight.active.kind === 'drone', t1, { timeout: 120000 });
+  await page.evaluate(() => { const d = Flight.active; Armour.knockOut(d.carrier, Flight, 'crew'); d.dl.hold = 15; });
+  await page.waitForTimeout(1500); // (the OSD and the alert placed again: once a second)
+  await page.evaluate(() => { Drone._osd.at = -1e9; Death.feedback('KNOCKED OUT', Flight); window.__ban.length = 0; });
+  await frames(page, 4);
+  const L = await page.evaluate(() => {
+    const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const x = e.getBoundingClientRect(); return x.width > 0 && x.height > 0 ? { l: x.left, t: x.top, r: x.right, b: x.bottom } : null; };
+    const P = Drone._osd.last, box = (p) => p && { l: p.x, t: p.y, r: p.x + p.w, b: p.y + p.h };
+    return { kind: Flight.active.kind, lf: !!Flight.carrierDown, alert: r('#flight-alert'), text: (document.querySelector('#flight-alert') || {}).textContent,
+      osd: P && { status: box(P.s), mode: box(P.m), line: box(P.f), arc: box(P.a), cross: P.c }, ban: window.__ban.slice(-1)[0] || null };
+  });
+  const clash = [];
+  for (const [k, a] of Object.entries(L.osd || {})) { if (meets(L.ban, a)) clash.push(`banner/${k}`); if (k !== 'cross' && meets(L.alert, a)) clash.push(`alert/${k}`); }
+  if (meets(L.ban, L.alert)) clash.push('banner/alert');
+  ok(`${tag}the KNOCKED OUT banner clear of the OSD's blocks, its centre cross and the alert line (LAST FLIGHT); the alert line clear of the OSD's blocks${view === 'fpvLevel' ? ' and its bank arc' : ''}`,
+    L.kind === 'drone' && L.lf && /Last flight/.test(L.text || '') && !!L.ban && (view !== 'fpvLevel' || !!(L.osd && L.osd.arc)) && !clash.length, Object.assign(L, { clash }));
+  await shot(page, `lastflight-banner-${w}x${h}-${view}`);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
 ok('no page errors', !errs.length, errs.join('\n'));
 await b.close(); srv.close();
 ok.done();

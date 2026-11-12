@@ -79,6 +79,33 @@ for (const [tag, vp] of [['phone portrait', [390, 844, true]], ['small phone', [
   await A.waitForFunction(settled, null, { timeout: 30000, polling: 100 });
   judge('in a room, on its side', await A.evaluate(layout));
 }
+// the alert line (an engine on fire) beside a radar's scope and the warning's lines (review P5-COMBO-1/4): the Falcon (a
+// Pulse-Doppler set, a Basic RWR: its disc is drawn with no threat display) on a small phone at UI 75%, where the alert
+// was put over the disc; the FS-16 (an Advanced RWR) on a phone on its side at UI 100%, where it fell on the warning's
+// lines (they stay up for a whole engagement: only a passing toast may be given up)
+for (const [key, vp, ui] of [['falcon', [360, 640, true], 0.75], ['fs16', [844, 390, true], 1]]) {
+  const tag = `${key} ${vp[0]}×${vp[1]} UI ${ui * 100}% on fire`, page = await (await b.newContext({ viewport: { width: vp[0], height: vp[1] }, hasTouch: vp[2], isMobile: vp[2] })).newPage();
+  watch(page, errs, tag + ' ');
+  await openGame(page, srv.url, { uiSize: ui });
+  await page.evaluate((key) => { Render3D.skipDraw = true; App.toBuild(); Builder.loadTemplate(key); App.launch(); }, key);
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 60000 });
+  await page.evaluate(threats);
+  await page.evaluate(() => { const v = Flight.active; Death.ignite(v, v.parts.find((p) => p.def.thrust), 1, null, Flight);
+    window.__hold = setInterval(() => { for (const p of Flight.active.parts) if (p.burn > 0) p.hp = Math.max(p.hp == null ? p.def.hp || 100 : p.hp, 50); }, 50); }); // (kept alive and burning)
+  await page.waitForFunction(() => Combat.S.rwrBox, null, { timeout: 20000 });
+  await page.waitForFunction(settled, null, { timeout: 30000, polling: 100 });
+  await page.evaluate(() => { if (Flight._alP) Flight._alP.key = ''; });
+  await page.waitForTimeout(1500); // (the alert is placed again once a second)
+  const L = await page.evaluate(() => {
+    const al = document.querySelector('#flight-alert'), r = al.getBoundingClientRect(), B = Combat.S.rwrBox, lh = B && B.rad ? (B.lines === 2 ? 28 : 14) : 14;
+    return { rwr: Combat.S.rwr, rad: !!(B && B.rad), text: al.hidden ? '' : al.textContent, how: Flight._alP && Flight._alP.how, alert: al.hidden ? null : { l: r.left, t: r.top, r: r.right, b: r.bottom },
+      disc: B && { l: B.x - B.R, t: B.y - B.R, r: B.x + B.R, b: B.y + B.R + lh }, lines: B && Combat.S.rwr > 0 ? { l: innerWidth / 2 - 150, t: B.ty - 22, r: innerWidth / 2 + 150, b: B.ty + 44 } : null };
+  });
+  const near = (a, c) => !!a && !!c && a.l < c.r - 0.5 && a.r > c.l + 0.5 && a.t < c.b - 0.5 && a.b > c.t + 0.5;
+  ok(`${tag}: the alert line ("Engine fire · …") clear of the radar's disc and its label${L.rwr > 0 ? ' and the warning\'s lines' : ''} (warning receiver ${L.rwr}, radar ${L.rad})`,
+    L.rad && L.rwr === (key === 'fs16' ? 2 : 1) && /^Engine fire/.test(L.text) && !near(L.alert, L.disc) && !near(L.alert, L.lines), L);
+  await page.close();
+}
 ok('no page errors', !errs.length, errs.join('\n'));
 await b.close(); srv.close();
 ok.done();

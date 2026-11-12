@@ -541,7 +541,7 @@ const Combat = (() => {
   const noLink = (v) => !!(v && v.kind === 'drone' && v.dl && v.dl.lost);
   function playerFrame(F, dt) {
     const v = F.active;
-    if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; return; }
+    if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; F.fireTap = false; return; } // (a press while lost is spent here, never kept for the next craft: P5-MODES-1)
     const sys = systems(v), cur = sys[v.wsel];
     const cut = noLink(v); // (a drone with its link lost: no command gets through, FIRE included; P4-CTR-1)
     const trig = !!F.firing && !cut, edge = ((trig && !S.wasFiring) || F.fireTap) && !cut, up = !trig && S.wasFiring; // (a tap shorter than a frame still counts)
@@ -1448,7 +1448,7 @@ const Combat = (() => {
       if (hostile() && !F.destroyed) {
         const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.down && o.control && !o.dead);
         S.fighterT -= dt;
-        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) {
+        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed && !(v.kind === 'drone' && v.carrier))) { // (a tank's own bay drone is the tank's: no jets for it, review P5-MODES-2)
           const b = spawnFighter(F); S.fighterT = 45;
           if (typeof Radar !== 'undefined') Radar.call(F, v, b); // (the range controller's call: "Bandit inbound: 14 km, your 10 o'clock")
         }
@@ -1568,8 +1568,42 @@ const Combat = (() => {
     o.x = v.x + f.x * 600; o.y = v.y + f.y * 600; o.z = v.z + f.z * 600;
     return o;
   }
+  // (review FEEL-3) A marker's label kept out from under the HUD's top panels (the flight data, the buttons top right, a
+  // room's bar, the battle bar: screen px, looked up once a second): where asked (text centred at x, its baseline y), else
+  // mirrored to the marker's other side (it at mx, my, r across), else beside it on the right, else on the left; where
+  // asked when none is clear. A bandit dead ahead sits at the flight data's height on a phone in portrait.
+  const LP = { at: -1e9, W: 0, H: 0, boxes: [] };
+  function labelPanels(W, H) {
+    const now = performance.now();
+    if (now - LP.at < 1000 && now >= LP.at && LP.W === W && LP.H === H) return LP.boxes;
+    LP.at = now; LP.W = W; LP.H = H; LP.boxes = [];
+    if (typeof document === 'undefined') return LP.boxes;
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar']) {
+      const e = document.querySelector(q);
+      if (!e || e.hidden) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) LP.boxes.push(r);
+    }
+    return LP.boxes;
+  }
+  const LB = []; // (the labels moved this frame: a second one keeps off the first; cleared by noHUD)
+  function hudLabel(ctx, t, x, y, mx, my, r, W, H) {
+    const B = labelPanels(W, H);
+    if (!B.length) { ctx.fillText(t, x, y); return; }
+    const w = ctx.measureText(t).width, h = 11, hit = (cx, by) => (b) => cx - w / 2 - 3 < b.right && cx + w / 2 + 3 > b.left && by - h - 2 < b.bottom && by + 3 > b.top;
+    const clear = (cx, by) => cx - w / 2 >= 2 && cx + w / 2 <= W - 2 && by - h >= 0 && by <= H && !B.some(hit(cx, by)) && !LB.some(hit(cx, by));
+    const R = mx + r + 6 + w / 2, L = mx - r - 6 - w / 2;
+    for (const [cx, by] of [[x, y], [x, 2 * my - y + h], [R, my + 4], [L, my + 4], [R, my + 18], [L, my + 18], [R, my - 10], [L, my - 10]]) {
+      if (!clear(cx, by)) continue;
+      ctx.fillText(t, cx, by);
+      if (LB.length < 16) LB.push({ left: cx - w / 2, right: cx + w / 2, top: by - h, bottom: by + 3 });
+      return;
+    }
+    ctx.fillText(t, x, y);
+  }
   // a frame with no HUD over the 3D view (the 2D view draws none): no scope nor markers to tap (drawHUD starts with it too)
   function noHUD() {
+    LB.length = 0;
     S.rwrBox = null; // (drawRWR puts it back, drawing the scope; a tap goes to the scope only where one is drawn)
     if (typeof Radar !== 'undefined') Radar.beginFrame(); // (this frame's air markers, for taps; the gun cue)
   }
@@ -1617,7 +1651,7 @@ const Combat = (() => {
       ctx.beginPath();
       if (eye) { ctx.moveTo(s.x, s.y - 9); ctx.lineTo(s.x + 9, s.y); ctx.lineTo(s.x, s.y + 9); ctx.lineTo(s.x - 9, s.y); ctx.closePath(); } else ctx.rect(s.x - 7, s.y - 7, 14, 14);
       ctx.stroke();
-      ctx.fillText(`${pk ? '▸ ' : ''}Bandit ${fmt.dist(d)}`, s.x, s.y + 22);
+      hudLabel(ctx, `${pk ? '▸ ' : ''}Bandit ${fmt.dist(d)}`, s.x, s.y + 22, s.x, s.y, 9, W, H); // (kept out from under the panels: FEEL-3)
       if (RD) RD.mark(o, s.x, s.y);
     }
     // vehicles on the ground a ground radar (the mast) holds: a small amber square and how far (ours only)
@@ -1640,7 +1674,7 @@ const Combat = (() => {
         ctx.strokeStyle = S.lock ? '#7dffb0' : '#e9edf1'; ctx.lineWidth = 2;
         const rr = S.lock ? 14 : 22 - 8 * clamp(S.lockT, 0, 1);
         ctx.beginPath(); ctx.arc(s.x, s.y, rr, 0, TAU); ctx.stroke();
-        if (S.lock) { ctx.fillStyle = '#7dffb0'; ctx.fillText(`LOCK ${fmt.dist(len(cand.x - v.x, cand.y - v.y, cand.z - v.z))}`, s.x, s.y - 20); }
+        if (S.lock) { ctx.fillStyle = '#7dffb0'; hudLabel(ctx, `LOCK ${fmt.dist(len(cand.x - v.x, cand.y - v.y, cand.z - v.z))}`, s.x, s.y - 20, s.x, s.y, rr, W, H); } // (kept out from under the panels: FEEL-3)
       }
     }
     // guns: a pipper where the rounds will be 600 m out, and a lead marker on the nearest bandit or drone (aiming a

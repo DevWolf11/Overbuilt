@@ -138,7 +138,7 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
-    this.firing = false; this.mgFiring = false; this.shotYet = false;
+    this.firing = false; this.mgFiring = false; this.shotYet = false; this.fireTap = false; // (a press while the last craft was lost fires nothing here: review P5-MODES-1)
     this.aimReset(); // (a new flight: aimed afresh along the hull, out of the sight)
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
@@ -721,9 +721,11 @@ const Flight = {
       }
       return '';
     };
-    // clear of everything; else of the controls and panels alone (a toast or the warning receiver's lines, both passing,
-    // may then show over it for a while: a small phone in portrait has no room for all of them)
-    const how = search(all) || (hard.length < all.length && search(hard));
+    // clear of everything; else of all but a toast (passing); else of the controls and panels alone (the warning
+    // receiver's lines, up for a whole engagement, may then show under it: a small phone in portrait has no room for all
+    // of them; a phone on its side keeps them clear, review P5-COMBO-4)
+    const noToast = all.filter((o) => o.soft !== 'toast');
+    const how = search(all) || (noToast.length < all.length && search(noToast)) || (hard.length < noToast.length && search(hard));
     if (how) { P.how = how; return; }
     put(null, null, null); P.how = 'none'; // (no room anywhere: its own place, as ever)
   },
@@ -736,10 +738,12 @@ const Flight = {
     if (C) for (const k in C) if (k !== 'joy' && (C[k][2] === 'both' || C[k][2] === hud)) add(document.querySelector(C[k][0]));
     for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q));
     const T = document.querySelector('#toasts'), tr = T && T.getBoundingClientRect();
-    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: true });
+    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: 'toast' });
     const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
-    const R = !this.destroyed && Combat.S.rwr > 0 && Combat.S.rwrBox;
-    if (R && R.W === W && R.H === H) { box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
+    // (the scope is drawn whenever rwrBox is set: a threat display's, or a radar's with any warning receiver or none,
+    // review P5-COMBO-1; the warning's lines only with a warning receiver)
+    const R = !this.destroyed && Combat.S.rwrBox;
+    if (R && R.W === W && R.H === H) { if (Combat.S.rwr > 0) box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1 || R.rad) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
     const M = this.mp && typeof MPUI !== 'undefined' && W >= 761 && MPUI.scope;
     if (M) ball(M.x, M.y, M.R, 4);
     const G = this._bodyGround && typeof GHUD !== 'undefined' && GHUD._S && GHUD._S.P;
@@ -904,7 +908,7 @@ const Flight = {
       <div>${Keys.run(['sasHold', 'sasPro', 'sasRetro', 'sasOut', 'sasIn', 'sasTarget'])}<span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
       <div>${Keys.run(['apHold', 'apLevel', 'apHeading', 'apOff', 'apAim'])}<span>Plane autopilot: hold attitude, level (holds altitude), heading, off (you fly it: the stick asks for g, it stays trimmed), aim</span></div>
       <div><span class="tap">Mouse</span><span>Planes in Aim (${Keys.k('apAim')}): move the circle, the plane flies its nose there (click the view to capture the mouse, <kbd>Esc</kbd> lets it go; on touch the stick moves it, a drag on the view looks round, a double tap puts it on the nose); the keys still fly it, within the autopilot's limits, the circle following · hold ${K('camera')} to look round, tap it to put the circle on the nose · left click fires</span></div>
-      <div>${K('map')}<span>Map view (tap a planet to target it)</span></div>
+      <div>${K('map')}<span>Map view (tap a planet to target it; ${K('mapView')} switches between the globe and the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -928,7 +932,7 @@ const Flight = {
       <div>${K('stage')}<span>Activate next stage (a booster)</span></div>
       <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
       ${this.bayLine()}
-      <div>${K('map')}<span>Map view</span></div>
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -995,7 +999,7 @@ const Flight = {
       <div>${K('camera')}<span>Chase view: reset the camera · gimbal camera: hold and move the mouse (or hold the right button) to look round, tap to centre</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (a gimbal camera: 1×, 4×, 12×)</span></div>
       <div>${K('dThermal')}<span>Gimbal camera: thermal (vehicles show through smoke)</span></div>
-      <div>${K('map')}<span>Map view</span></div>
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
       <div><kbd>Esc</kbd>${K('menu')}<span>Menu</span></div>
       ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       ${T ? '' : touch}

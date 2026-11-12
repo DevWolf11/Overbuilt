@@ -575,9 +575,14 @@ const Drone = (() => {
     const mBox = { l: mx, t: my, r: mx + mw, b: my + mh };
     // the level view's bank arc (its ticks reach ±70 px and 52 px down from its top): under the mode, above the cross
     const aw = 140, ah = 52, ax = Math.round(W / 2 - aw / 2), aB = mB.concat([mBox]);
-    let ay = clearAt(ax, y0, aw, ah, aB, 1, H);
-    if (ay + ah > cross.t - 4 || ay < 0) ay = Math.max(0, cross.t - 4 - ah); // (no room: just over the cross)
-    const aBox = { l: ax, t: ay, r: ax + aw, b: ay + ah };
+    let ay = clearAt(ax, y0, aw, ah, aB, 1, H), arx = ax;
+    if (ay + ah > cross.t - 4 || ay < 0) { // (no room in the middle: the nearest spot aside still above the cross; else under the
+      // cross; else just over it, whatever is there: the alert line is one of aB, review P5-COMBO-3)
+      const q = spotNear(ax, y0, aw, ah, aB, 1, W, H, (a) => a.b <= cross.t - 4), yb = clearAt(ax, cross.b + 6, aw, ah, aB, 1, H);
+      if (q) { arx = q.x; ay = q.y; } else if (onClear({ l: ax, t: yb, r: ax + aw, b: yb + ah }, aB, W, H)) ay = yb;
+      else ay = Math.max(0, cross.t - 4 - ah);
+    }
+    const aBox = { l: arx, t: ay, r: arx + aw, b: ay + ah };
     // the flight line: centred over the pad and the weapon box; else up from there (not above the top's panels); else slid
     // aside; else under the cross; else the nearest spot up; never off the screen
     const fB = all.concat([sBox, mBox, cross], level ? [aBox] : []);
@@ -591,8 +596,18 @@ const Drone = (() => {
       if (q) { fx = q.x; fy = q.y; } else fy = clamp(fy0, 0, H - 17);
     }
     const zw = 84, zh = 30, zx = W - 12 - zw, zy = clearAt(zx, fy - zh - 10, zw, zh, all, -1, H);
-    O.P = { s: { x: 12, y: sy, w: sw, h: sh }, m: { x: mx, y: my, w: mw, h: mh }, f: { x: fx, y: fy, w: fw, h: 17 }, z: { x: zx, y: zy, w: zw, h: zh }, a: level ? { x: ax, y: ay, w: aw, h: ah } : null, c: cross };
+    O.P = { s: { x: 12, y: sy, w: sw, h: sh }, m: { x: mx, y: my, w: mw, h: mh }, f: { x: fx, y: fy, w: fw, h: 17 }, z: { x: zx, y: zy, w: zw, h: zh }, a: level ? { x: arx, y: ay, w: aw, h: ah } : null, c: cross };
     return O.P;
+  }
+  // The OSD's blocks on the screen now (the status, the mode, the flight line, the bank arc and the centre cross, as
+  // { left, top, right, bottom }) for what else is drawn over a drone's view (the hit banners: death.js drawHits, review
+  // P5-COMBO-2); null while no OSD is drawn
+  function osdBoxes(W, H, F) {
+    const v = F && F.active, P = O.P;
+    if (!P || !v || v.kind !== 'drone' || !F.fpv || F.destroyed || F.mapMode || F.impactCam || O.W !== W || O.H !== H) return null;
+    const r = (p) => ({ left: p.x, top: p.y, right: p.x + p.w, bottom: p.y + p.h }), out = [r(P.s), r(P.m), r(P.f), { left: P.c.l, top: P.c.t, right: P.c.r, bottom: P.c.b }];
+    if (P.a) out.push(r(P.a));
+    return out;
   }
   // a block of lines ([text, colour]) drawn into its own small canvas, again only when its words change
   function block(id, lines, w, align, dpr) {
@@ -698,16 +713,16 @@ const Drone = (() => {
       }
     }
     if (level) { // (the horizon held level: the drone's bank as a tick on an arc at the top)
-      const b = clamp(v.attitude().bank, -1.2, 1.2), R0 = 70, ay = P.a ? P.a.y + R0 + 4 : P.m.y + P.m.h + R0 + 12; // (its spot from placeOSD: clear of the words, above the cross)
-      ctx.moveTo(cx + R0 * Math.sin(-0.8), ay - R0 * Math.cos(-0.8)); ctx.arc(cx, ay, R0, -Math.PI / 2 - 0.8, -Math.PI / 2 + 0.8);
-      ctx.moveTo(cx + (R0 - 8) * Math.sin(b), ay - (R0 - 8) * Math.cos(b)); ctx.lineTo(cx + (R0 + 4) * Math.sin(b), ay - (R0 + 4) * Math.cos(b));
+      const b = clamp(v.attitude().bank, -1.2, 1.2), R0 = 70, ay = P.a ? P.a.y + R0 + 4 : P.m.y + P.m.h + R0 + 12, ax = P.a ? P.a.x + P.a.w / 2 : cx; // (its spot from placeOSD: clear of the words and the cross)
+      ctx.moveTo(ax + R0 * Math.sin(-0.8), ay - R0 * Math.cos(-0.8)); ctx.arc(ax, ay, R0, -Math.PI / 2 - 0.8, -Math.PI / 2 + 0.8);
+      ctx.moveTo(ax + (R0 - 8) * Math.sin(b), ay - (R0 - 8) * Math.cos(b)); ctx.lineTo(ax + (R0 + 4) * Math.sin(b), ay - (R0 + 4) * Math.cos(b));
     }
     ctx.lineCap = 'round'; ctx.strokeStyle = EDGE; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.strokeStyle = WHITE; ctx.lineWidth = 1.5; ctx.stroke();
     O.calls += 13;
     // thermal: vehicles within the camera's reach as bright boxes, through smoke (a gimbal's)
-    const cam = v.dr.cam.def.drone.cam;
-    if (cam.gimbal && F.gim && F.gim.thermal) {
+    const cam = v.dr.cam && v.dr.cam.def.drone.cam; // (a camera shot off: the drone flies on, no thermal: FEEL-1)
+    if (cam && cam.gimbal && F.gim && F.gim.thermal) {
       const bp = bodyPos(v.body, F.time), spot = cam.spot || 3000, list = [];
       for (const o of F.vessels) {
         if (o === v || o.dead || o.isDebris || !o.parts.length || o.kind === 'drone' || !(isGround(o.kind) || o.gv || (o.gear && o.gear.length))) continue;
@@ -733,7 +748,7 @@ const Drone = (() => {
     O.last = P; // (where the blocks went this frame: the tests read it)
     O.calls += 3;
     // the ZOOM pill (a gimbal, touch): tap steps the zoom, hold for thermal
-    if (cam.gimbal && Controls.touch) {
+    if (cam && cam.gimbal && Controls.touch) {
       const z = P.z, g = F.gim || { zoom: 0 }, t = `ZOOM ×${[1, 4, 12][g.zoom] || 1}${g.thermal ? ' · TH' : ''}`;
       ctx.drawImage(pill(t, z.w, z.h, dpr), z.x, z.y);
       hud.zoomBox = z;
@@ -1956,7 +1971,7 @@ const Drone = (() => {
     // AI
     spawnAI, aiSteer,
     // HUD
-    drawOSD, drawMarks, alarm, help, fov, left, batt, linkState, jamN, leverText, impactView, tap, hud, _osd: O,
+    drawOSD, osdBoxes, drawMarks, alarm, help, fov, left, batt, linkState, jamN, leverText, impactView, tap, hud, _osd: O,
     // helpers
     isDrone, fcOf, linkOf, charge, list, hframe,
   };
