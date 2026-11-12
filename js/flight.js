@@ -2430,7 +2430,7 @@ const Flight = {
       else if (st && st.level > 1) { msg = struct(); crit = true; }
       else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
       else if (st) msg = struct();
-      else if (leak) msg = 'Fuel leak';
+      else if (leak) msg = v.kind === 'drone' ? 'Battery damaged' : 'Fuel leak';
       if (al.classList.contains('lost')) al.classList.remove('lost');
       al.hidden = !msg;
       if (msg) { set('flight-alert', msg); al.classList.toggle('critical', crit); this.placeAlert(al); }

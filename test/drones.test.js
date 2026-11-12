@@ -911,6 +911,15 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
     C11.b.dw && C11.b.foes === 'tk34,bmk2d,zsy23' && C11.b.allies === 'ms4,pumo' && C11.b.contact != null && C11.b.launch != null && C11.b.launch - C11.b.contact <= 75 && C11.b.nest && C11.b.left === 2 && C11.b.name === 'Enemy drone' && C11.b.said && C11.b.hop > 3,
     C11.b);
   t('11 ...in a design with no bay or kit, no drone war: the money\'s three stock tanks', !C11.old.dw && C11.old.foes === 'tk34,ms4,pumo', C11.old);
+
+  // ---------------------------------------------------------------- the Phase 4 review's fixes (each fails before its fix)
+  // P4-OF-2 / P4-BAY-5: a battery hit under half its hp leaks a share of its own charge, not a plane tank's 4 kg/s
+  RB(`var R1 = (() => { const { F, v } = solo('bumble'); const cell = v.dr.cells[0], q0 = Drone.charge(v); Combat.damage(v, cell, 0.6 * Combat.maxHp(cell.def), 'shot', F, null);
+    const hp = Combat.hpFrac(cell); go(F, 3); const q3 = Drone.charge(v), out = v.parts.some((p) => p.flameout);
+    return { hp, q0, q3, out, said: F.log.filter((m) => /Battery/.test(m)) }; })();`);
+  const R1 = JSON.parse(RB('JSON.stringify(R1)'));
+  t('P4-OF-2 a Bumble\'s battery hit to 40 % hp leaks about 1 % of its charge a second: 3 s later it still flies on over 90 %, and only "damaged" is said',
+    R1.hp > 0.35 && R1.hp < 0.45 && R1.q3 < R1.q0 - 0.01 && R1.q3 > R1.q0 - 0.06 && !R1.out && R1.said.length === 1 && /damaged/.test(R1.said[0]), R1);
 }
 
 // ================================================================ 11. the AI: old play (no drone war) as it was before drones

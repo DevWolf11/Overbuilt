@@ -29,7 +29,7 @@ const DRONE = {
   ARM_D: 20, ARM_T: 2, FUSE_V: 4, AHEAD: 0.3, // safe-arm (m from launch, s); ground touch that sets it off (m/s); fuse look-ahead (m)
   LINK: { DT: 0.2, LOS_DT: 0.5, LOS_N: 10, LOS_K: 0.35, STATIC: 0.6, LAG: 0.4, LAGMAX: 0.2, LOST: 0.15, LOST_T: 0.5,
           BACK: 0.35, BACK_T: 0.5, HANDBACK: 5, JAM_IN: 0.35, K: { radio: 1, long: 0.6, sat: 0.25, fibre: 0 }, STATION: 3, HOME_UP: 2 },
-  BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2 },
+  BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2, LEAK: 0.1 }, // (LEAK: a cell under half its hp loses this share of its full charge a second per (0.5 − hp fraction): 1 %/s at 40 % hp, 4 %/s at 10 %)
   HOME: { ALT: 30, V: 12, SLOW: 15, DESC: 1.5, DOCK_R: 1.5, DOCK_H: 2, DOCK_V: 3, NEAR_R: 3, NEAR_H: 6, CIRCLE: 60, CIRCLE_H: 80 },
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
