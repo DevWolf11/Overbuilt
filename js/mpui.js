@@ -409,17 +409,10 @@ const MPUI = {
     const W = Math.max(200, Math.round(r.width * dpr)), H = Math.max(150, Math.round(r.height * dpr));
     cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
-    if (!this.mapImg || this.mapImg.width !== W) this.mapImg = this.bakeMap(W, H);
+    if (!this.mapImg || this.mapImg.width !== W || this.mapImg.height !== H) this.mapImg = this.bakeMap(W, H);
     ctx.drawImage(this.mapImg, 0, 0);
-    const M = this.MAP, px = (e) => ((e - M.e0) / (M.e1 - M.e0)) * W, pz = (z) => ((z - M.z0) / (M.z1 - M.z0)) * H;
-    // a 5 km grid and a scale bar
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
-    for (let e = Math.ceil(M.e0 / 5000) * 5000; e < M.e1; e += 5000) { ctx.beginPath(); ctx.moveTo(px(e), 0); ctx.lineTo(px(e), H); ctx.stroke(); }
-    for (let z = Math.ceil(M.z0 / 5000) * 5000; z < M.z1; z += 5000) { ctx.beginPath(); ctx.moveTo(0, pz(z)); ctx.lineTo(W, pz(z)); ctx.stroke(); }
-    ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = `600 ${11 * dpr}px "IBM Plex Mono", monospace`;
-    const sb = px(M.e0 + 5000) - px(M.e0);
-    ctx.fillRect(14 * dpr, H - 16 * dpr, sb, 2 * dpr); ctx.fillText('5 km', 14 * dpr, H - 22 * dpr);
-    ctx.textAlign = 'right'; ctx.fillText('N ↑', W - 10 * dpr, 18 * dpr); ctx.textAlign = 'left';
+    const M = this.MAP;
+    spawnMapGrid(ctx, W, H, M, dpr, 5000); // (a 5 km grid and a scale bar)
     // the spawn points: ours bright, others dim, the chosen one ringed; other players' choices as dots
     const me = MP.me, mine = new Set(MP.spawnsFor(me).map((sp) => sp.id));
     this.hot = [];
@@ -450,26 +443,7 @@ const MPUI = {
     }
   },
   // a satellite-coloured map of the battle area, sea shaded by depth (once per size)
-  bakeMap(W, H) {
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d'), img = ctx.createImageData(W, H), M = this.MAP, out = [0, 0, 0], ready = Terrain.earthMap.state === 'ready';
-    const step = W > 600 ? 2 : 1;
-    for (let j = 0; j < H; j += step) for (let i = 0; i < W; i += step) {
-      const e = M.e0 + ((i + 0.5) / W) * (M.e1 - M.e0), z = M.z0 + ((j + 0.5) / H) * (M.z1 - M.z0), a = siteAngle(EARTH, e);
-      let r = 20, g = 50, b = 90;
-      if (ready) {
-        const h = Terrain.earthH(a, z);
-        if (h < 0) { const d = clamp(-h / 180, 0, 1); r = 18 - 10 * d; g = 64 - 34 * d; b = 112 - 40 * d; }
-        else { Terrain.earthColor(a, z, out); const k = 1.15 + 0.004 * Math.min(h, 300); r = out[0] * k; g = out[1] * k; b = out[2] * k; }
-      }
-      for (let dj = 0; dj < step && j + dj < H; dj++) for (let di = 0; di < step && i + di < W; di++) {
-        const o = ((j + dj) * W + i + di) * 4;
-        img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return c;
-  },
+  bakeMap(W, H) { return spawnMapBake(W, H, this.MAP); },
   spawnClick(e) {
     const r = $('#spawn-canvas').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     let best = null, bd = Infinity;
@@ -873,3 +847,242 @@ function mpBar(e, f) {
   if (e.className !== c) e.className = c;
 }
 function fmtClock(s) { s = Math.ceil(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+
+// ------------------------------------------------------------------ the maps behind the spawn pickers (the room's
+// battle area, MPUI.drawSpawnMap; the sandbox's regions, Spawns)
+// A satellite-coloured map of the box M (e0..e1 along the track, z0..z1 across: game north up), sea shaded by depth,
+// W x H pixels
+function spawnMapBake(W, H, M) {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(W, H), out = [0, 0, 0], ready = Terrain.earthMap.state === 'ready';
+  const step = W > 600 ? 2 : 1;
+  for (let j = 0; j < H; j += step) for (let i = 0; i < W; i += step) {
+    const e = M.e0 + ((i + 0.5) / W) * (M.e1 - M.e0), z = M.z0 + ((j + 0.5) / H) * (M.z1 - M.z0), a = siteAngle(EARTH, e);
+    let r = 20, g = 50, b = 90;
+    if (ready) {
+      const h = Terrain.earthH(a, z);
+      if (h < 0) { const d = clamp(-h / 180, 0, 1); r = 18 - 10 * d; g = 64 - 34 * d; b = 112 - 40 * d; }
+      else { Terrain.earthColor(a, z, out); const k = 1.15 + 0.004 * Math.min(h, 300); r = out[0] * k; g = out[1] * k; b = out[2] * k; }
+    }
+    for (let dj = 0; dj < step && j + dj < H; dj++) for (let di = 0; di < step && i + di < W; di++) {
+      const o = ((j + dj) * W + i + di) * 4;
+      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+// a grid every `cell` m over the map of box M, a scale bar of one cell and the north arrow
+function spawnMapGrid(ctx, W, H, M, dpr, cell) {
+  const px = (e) => ((e - M.e0) / (M.e1 - M.e0)) * W, pz = (z) => ((z - M.z0) / (M.z1 - M.z0)) * H;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+  for (let e = Math.ceil(M.e0 / cell) * cell; e < M.e1; e += cell) { ctx.beginPath(); ctx.moveTo(px(e), 0); ctx.lineTo(px(e), H); ctx.stroke(); }
+  for (let z = Math.ceil(M.z0 / cell) * cell; z < M.z1; z += cell) { ctx.beginPath(); ctx.moveTo(0, pz(z)); ctx.lineTo(W, pz(z)); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = `600 ${11 * dpr}px "IBM Plex Mono", monospace`;
+  const sb = px(M.e0 + cell) - px(M.e0);
+  ctx.fillRect(14 * dpr, H - 16 * dpr, sb, 2 * dpr); ctx.fillText(cell >= 1000 ? `${cell / 1000} km` : `${cell} m`, 14 * dpr, H - 22 * dpr);
+  ctx.textAlign = 'right'; ctx.fillText('N ↑', W - 10 * dpr, 18 * dpr); ctx.textAlign = 'left';
+}
+
+// ------------------------------------------------------------------ the sandbox's spawn points (the spawn points update)
+// Where a solo flight in Sandbox starts (and a craft in a multiplayer sandbox room): EARTH.spawns, a few for each kind of
+// craft on the Faroes, Shetland and in Scotland, picked in the hangar (the Start button beside Launch) and remembered per
+// kind (rss.spawn). Nothing chosen (or Career) starts as ever: the kind's own site, Armour on Highland Ridge's north pad.
+// A spot off its kind's own site needs the real Earth map and the 3D view; without them the flight starts as ever.
+const Spawns = {
+  KEY: 'rss.spawn',
+  // the regions as the picker's map shows them: a middle and the height of the view (its width follows the canvas)
+  REGIONS: [
+    { id: 'Faroes', e: 300, z: 300, h: 6600 },
+    { id: 'Shetland', e: 18500, z: -400, h: 4000 },
+    { id: 'Scotland', e: 18600, z: 12300, h: 4400 },
+  ],
+  view: null, // (the region the picker shows)
+  hot: [],
+  byId(id) { return typeof id === 'string' ? EARTH.spawns.find((sp) => sp.id === id) || null : null; },
+  list(kind) { return EARTH.spawns.filter((sp) => sp.kinds.includes(kind)); },
+  def(kind) { return EARTH.spawns.find((sp) => sp.def && sp.def.includes(kind)) || null; },
+  // the spot remembered for this kind, if it is still one of its spots
+  stored(kind) {
+    const m = store.get(this.KEY, null), id = m && typeof m === 'object' && hasOwn(m, kind) ? m[kind] : null, sp = this.byId(id);
+    return sp && sp.kinds.includes(kind) ? sp : null;
+  },
+  choose(kind, id) {
+    const sp = this.byId(id);
+    if (!sp || !sp.kinds.includes(kind)) return false;
+    const m = store.get(this.KEY, null), o = m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+    o[kind] = id;
+    store.set(this.KEY, o);
+    return true;
+  },
+  // where the picker is offered: a solo flight in Sandbox, or a multiplayer sandbox room (a battle has its own)
+  offered() {
+    const live = typeof MP !== 'undefined' && MP.live;
+    return live ? !MP.pvp && !MP.ground : !!(Career.data && Career.sandbox);
+  },
+  // the real map in and the 3D view: what every spot off its kind's own site needs
+  ready() { return !!(Terrain.earthMap && Terrain.earthMap.state === 'ready' && EARTH.mapped && App.use3D()); },
+  // the spot a solo flight of this kind starts at now: the one chosen (Sandbox), else the kind's default
+  current(kind) { return (this.offered() && this.stored(kind)) || this.def(kind); },
+  // Flight.start's place for a craft of `kind` at spot sp, the `slot`-th of the players there (a room; 0 alone); null: the
+  // kind's own site (Flight.start's default). Off a site, only with the map and the 3D view (ready).
+  place(sp, kind, slot = 0) {
+    if (!sp || sp.site || !this.ready()) return null;
+    const k = Number.isFinite(+slot) && +slot > 0 ? Math.floor(Math.min(+slot, 1e6)) : 0;
+    let P = null;
+    if (sp.arena) {
+      const air = kind === 'drone' || kind === 'heli';
+      P = GroundMode.placement(sp.arena, 0, k, air ? kind : 'tank');
+      if (P && air && k >= 4) { const b = 50 * Math.floor(k / 4), c = Math.cos(P.yaw), s = -Math.sin(P.yaw); P = Object.assign({}, P, { e: P.e - c * b, z: P.z - s * b }); } // (a battle's pad holds four: a room's next ones 50 m behind)
+    }
+    else if (sp.airfield) P = airfieldPlacement(EARTH.airfields[sp.airfield], k, kind === 'heli' ? 'heli' : 'plane');
+    else if (sp.air) {
+      const c = Math.cos(sp.air.yaw), s = -Math.sin(sp.air.yaw), side = (k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) : 0) * 80;
+      P = { e: sp.air.e - s * side, z: sp.air.z + c * side, yaw: sp.air.yaw, air: { alt: sp.air.alt, speed: sp.air.speed } };
+    } else if (sp.pad) {
+      const f = EARTH.groundPads[sp.pad];
+      if (!f) return null;
+      // (in a room: rockets share the pad; drones three abreast 12 m apart towards the pad's middle, a second row 12 m on,
+      // away from the vehicles; vehicles 14 m abreast in threes, a second row 16 m behind)
+      let u = sp.u || 0, v = sp.v || 0;
+      if (kind === 'drone' || kind === 'heli') { u += Math.floor((k % 6) / 3) * 12 * (u > 20 ? -1 : 1); v += (k % 3) * 12 * (v > 0 ? -1 : 1); }
+      else if (kind !== 'rocket') { u -= Math.floor((k % 6) / 3) * 16; v += (k % 3) * 14; }
+      P = { e: f.e + u * f.c - v * f.s, z: f.z + u * f.s + v * f.c, yaw: f.yaw };
+    }
+    if (!P) return null;
+    P = Object.assign({}, P, { spot: sp.id });
+    if (kind === 'plane' && !P.air) P.soft = true; // (a seaplane still starts on the water)
+    return P;
+  },
+  // A solo launch's place (App.launch, Flight.revert): { place, sp, fell } (fell: the spot chosen needs the map and the 3D
+  // view, so the flight starts at the kind's default instead)
+  solo(kind) {
+    const sp = this.current(kind), d = this.def(kind);
+    if (sp && sp !== d && !sp.site) {
+      const P = this.place(sp, kind, 0);
+      if (P) return { place: P, sp, fell: false };
+      return { place: kind === 'tank' ? GroundMode.soloPlace(kind) : null, sp: d, fell: true };
+    }
+    return { place: kind === 'tank' ? GroundMode.soloPlace(kind) : null, sp: d, fell: false }; // (as ever: Armour on Highland Ridge's north pad)
+  },
+  // A multiplayer sandbox's place for us: the spot we chose (not a kind's own site: the room's own spacing has those), or
+  // null for the room's usual places (mp.js placement)
+  room(kind, slot) {
+    const sp = this.stored(kind);
+    if (!sp || sp.site) return null;
+    return this.place(sp, kind, slot);
+  },
+
+  // ---- the Start button and the picker
+  kindNow() { return typeof Builder !== 'undefined' && Builder.kind ? Builder.kind : 'rocket'; },
+  // (the button beside Launch, and its twin in the stats panel's head that takes its place on a narrow screen: style.css)
+  renderBtn() {
+    for (const b of [$('#btn-start'), $('#btn-start-p')]) {
+      if (!b) continue;
+      const on = this.offered() && !!this.list(this.kindNow()).length;
+      if (b.hidden !== !on) b.hidden = !on;
+      if (!on) continue;
+      const sp = this.current(this.kindNow()), t = sp ? sp.name : '';
+      const s = b.querySelector('.start-text');
+      if (s && s.textContent !== t) s.textContent = t;
+      b.title = `Start: ${t} (pick where this craft starts)`;
+      b.setAttribute('aria-label', `Start: ${t}`);
+    }
+  },
+  open() {
+    if (!this.offered()) return;
+    const kind = this.kindNow(), sp = this.current(kind);
+    this.view = (sp && sp.region) || 'Faroes';
+    $('#start-kicker').textContent = `${typeof MP !== 'undefined' && MP.live ? 'Sandbox room' : 'Sandbox'} · ${(VEHICLE_KINDS[kind] || { name: 'Rocket' }).name}`;
+    $('#start-map').hidden = false;
+    this.renderList();
+    App.afterEarth(() => { this.draw(); this.renderList(); });
+  },
+  close() { $('#start-map').hidden = true; this.renderBtn(); if (typeof Builder !== 'undefined' && Builder.redraw) Builder.redraw(); },
+  pick(id) {
+    const kind = this.kindNow(), sp = this.byId(id);
+    if (!sp || !sp.kinds.includes(kind)) return;
+    if (!sp.site && !this.ready()) { UI.toast('That start needs the Earth map and the 3D view', 'warn'); return; }
+    this.choose(kind, id);
+    this.view = sp.region;
+    if (typeof Sound !== 'undefined') Sound.click();
+    this.draw(); this.renderList(); this.renderBtn();
+  },
+  // the box of region r on a W x H canvas (its height fixed, its width the canvas's shape)
+  box(r, W, H) { const hh = r.h / 2, hw = (hh * W) / H; return { e0: r.e - hw, e1: r.e + hw, z0: r.z - hh, z1: r.z + hh }; },
+  // where spot sp is (e, z) for the map: its place, or its site's middle
+  at(sp, kind) {
+    if (sp.site) return { e: EARTH.sites[sp.site].east, z: 0 };
+    if (sp.air) return { e: sp.air.e, z: sp.air.z };
+    if (sp.airfield) { const P = airfieldPlacement(EARTH.airfields[sp.airfield], 0, kind === 'heli' ? 'heli' : 'plane'); return { e: P.e, z: P.z }; }
+    if (sp.arena) { const P = GroundMode.placement(sp.arena, 0, 0, kind === 'drone' ? 'drone' : 'tank'); return P ? { e: P.e, z: P.z } : { e: 0, z: 0 }; }
+    const f = EARTH.groundPads[sp.pad];
+    return { e: f.e + (sp.u || 0) * f.c - (sp.v || 0) * f.s, z: f.z + (sp.u || 0) * f.s + (sp.v || 0) * f.c };
+  },
+  draw() {
+    const cv = $('#start-canvas');
+    if (!cv || $('#start-map').hidden) return;
+    const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
+    const W = Math.max(200, Math.round(r.width * dpr)), H = Math.max(150, Math.round(r.height * dpr));
+    cv.width = W; cv.height = H;
+    const R = this.REGIONS.find((q) => q.id === this.view) || this.REGIONS[0], M = this.box(R, W, H), ctx = cv.getContext('2d');
+    const key = `${R.id}:${W}x${H}:${Terrain.earthMap.state}`;
+    if (!this.img || this.imgKey !== key) { this.img = spawnMapBake(W, H, M); this.imgKey = key; }
+    ctx.drawImage(this.img, 0, 0);
+    spawnMapGrid(ctx, W, H, M, dpr, 1000);
+    ctx.fillStyle = '#fff'; ctx.font = `700 ${13 * dpr}px "Chakra Petch", sans-serif`; ctx.fillText(R.id.toUpperCase(), 12 * dpr, 20 * dpr);
+    const kind = this.kindNow(), cur = this.current(kind), ok = this.ready();
+    this.hot = [];
+    for (const sp of this.list(kind)) {
+      if (sp.region !== R.id) continue;
+      const q = this.at(sp, kind), x = ((q.e - M.e0) / (M.e1 - M.e0)) * W, y = ((q.z - M.z0) / (M.z1 - M.z0)) * H, sel = sp === cur, can = sp.site || ok, Rr = 9 * dpr;
+      ctx.globalAlpha = can ? 1 : 0.4;
+      ctx.fillStyle = sp.air ? '#62d0ff' : '#ffb547'; ctx.strokeStyle = '#05070d'; ctx.lineWidth = 2 * dpr;
+      ctx.beginPath();
+      if (sp.air) { ctx.moveTo(x, y - Rr); ctx.lineTo(x + Rr, y + Rr * 0.8); ctx.lineTo(x - Rr, y + Rr * 0.8); ctx.closePath(); } else ctx.arc(x, y, Rr, 0, TAU);
+      ctx.fill(); ctx.stroke();
+      if (sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5 * dpr; ctx.beginPath(); ctx.arc(x, y, Rr + 7 * dpr, 0, TAU); ctx.stroke(); }
+      ctx.fillStyle = '#fff'; ctx.font = `700 ${12 * dpr}px "Chakra Petch", sans-serif`; ctx.textAlign = 'center';
+      const label = sp.name.toUpperCase(), hw = ctx.measureText(label).width / 2 + 4 * dpr, below = y - Rr - 22 * dpr < 0;
+      ctx.fillText(label, clamp(x, hw, W - hw), below ? y + Rr + 18 * dpr : y - Rr - 8 * dpr);
+      ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+      if (can) this.hot.push({ id: sp.id, x: x / dpr, y: y / dpr, r: 23 });
+    }
+  },
+  click(ev) {
+    const r = $('#start-canvas').getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    let best = null, bd = Infinity;
+    for (const h of this.hot) { const d = Math.hypot(h.x - x, h.y - y); if (d < h.r && d < bd) { bd = d; best = h; } }
+    if (best) this.pick(best.id);
+  },
+  renderList() {
+    const list = $('#start-list'), kind = this.kindNow(), cur = this.current(kind), ok = this.ready();
+    list.innerHTML = '';
+    for (const R of this.REGIONS) {
+      const L = this.list(kind).filter((sp) => sp.region === R.id);
+      if (!L.length) continue;
+      const h = el('button', { class: 'start-region' + (this.view === R.id ? ' on' : ''), text: R.id });
+      h.addEventListener('click', () => { this.view = R.id; this.draw(); this.renderList(); });
+      list.append(h);
+      for (const sp of L) {
+        const can = sp.site || ok, b = el('button', { class: 'spawn-opt', role: 'radio' });
+        b.dataset.spot = sp.id;
+        b.setAttribute('aria-checked', String(sp === cur));
+        b.disabled = !can;
+        b.append(el('b', { text: sp.name }), el('span', { text: can ? sp.blurb : `${sp.blurb} · needs the Earth map and the 3D view` }));
+        b.addEventListener('click', () => this.pick(sp.id));
+        list.append(b);
+      }
+    }
+  },
+  bind() {
+    const b = $('#btn-start');
+    if (!b) return;
+    b.addEventListener('click', () => this.open());
+    $('#btn-start-p').addEventListener('click', () => this.open());
+    $('#start-done').addEventListener('click', () => this.close());
+    $('#start-map').addEventListener('pointerdown', (e) => { if (e.target.id === 'start-map') this.close(); });
+    $('#start-canvas').addEventListener('pointerdown', (e) => this.click(e));
+    addEventListener('resize', () => { if (!$('#start-map').hidden) this.draw(); });
+  },
+};

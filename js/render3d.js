@@ -2027,6 +2027,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const gvGround = (u) => !!u && (u.kind === 'tank' || (u.gv && isGround(u.kind)));
   function groundPlay(F, v) {
     if (gvGround(v) || gvGround(F.active) || (typeof MP !== 'undefined' && MP.live && MP.ground) || (typeof GroundAI !== 'undefined' && (GroundAI.battle || GroundAI.range))) return true;
+    if (F.active && F.active.kind === 'drone') return true; // (a drone flown alone: the spawn points update starts one beside Highland Ridge's north pad, as Combat.frame's Props.play)
     if (F.vessels) for (const u of F.vessels) if (gvGround(u)) return true;
     return false;
   }
@@ -2627,11 +2628,26 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // the space centre's (the Runway's, and on the map the island's): within 7 km and under 5 km up
     const camAlt = Math.hypot(F.camAbs.x - bodyPos(EARTH, F.time).x, F.camAbs.y - bodyPos(EARTH, F.time).y, F.camAbs.z || 0) - EARTH.radius;
     const scNear = Math.hypot(Math.max(0, Math.abs(e - 1500) - 2200), Math.max(0, Math.abs(z) - 800)) < 7000 && camAlt < 5000 && patch.active;
-    if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true, e, z);
+    if (scNear) propStep(propSet('sc', PROP_SC), F, t0 + budget, propSeat, true, e, z);
     else if (PR.sets.has('sc')) PR.sets.get('sc').frame.visible = false;
+    // (the spawn points update) Shetland's and Scotland's spawn points (their outposts, launch pads and airfield aprons):
+    // within 5 km of their maps and under 5 km up, seated on the drawn ground as the space centre's
+    for (const S0 of PROP_FAR) {
+      const near = EARTH.mapped && camAlt < 5000 && patch.active && Math.hypot(Math.max(0, S0.e0 - e, e - S0.e1), Math.max(0, S0.z0 - z, z - S0.z1)) < 5000;
+      if (near) propStep(propSet(S0.key, S0.ids), F, t0 + budget, propSeat, true, e, z);
+      else if (PR.sets.has(S0.key)) PR.sets.get(S0.key).frame.visible = false;
+    }
     // (measuring only: Render3D.propsCastOff takes the props out of the shadow pass while it is on)
     if (PR.castOff !== !!api.propsCastOff) { PR.castOff = !!api.propsCastOff; for (const s of PR.sets.values()) s.meshes.forEach((m, i) => { if (m) m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; }); }
   }
+  // the space centre's set: the Runway's props, the island's and (the spawn points update) the Faroes' outposts; and the far
+  // sets, each over the box its maps cover (Shetland's round e 17,600-19,300, z -2,500-1,300; Scotland's round e
+  // 17,000-20,200, z 11,700-13,300)
+  const PROP_SC = ['runway', 'isle', 'funningur', 'vidareidi', 'tvoroyri'];
+  const PROP_FAR = [
+    { key: 'sh', ids: ['northRoe', 'bixter', 'lunna', 'shAir'], e0: 17600, e1: 19300, z0: -2500, z1: 1300 },
+    { key: 'gb', ids: ['watten', 'bettyhill', 'gbAir'], e0: 17000, e1: 20200, z0: 11700, z1: 13300 },
+  ];
   const propFlat = () => 0; // (Highland Ridge's sit on the physics' ground: the arena's own mesh is drawn from it)
   // (the space centre's props sit on the ground as drawn: the patch's own there, which is metres off the physics' far out)
   function propSeat(p) {

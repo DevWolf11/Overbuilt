@@ -1470,7 +1470,7 @@ const Combat = (() => {
     // the props anything drives (or flies) into fall over (ours, the AI's and the other players' alike: props.js); and
     // Highland Ridge's are open to old weapons and vessels in ground play only, where they're on show (render3d.js)
     if (typeof Props !== 'undefined') {
-      let gv = v.kind === 'tank' || !!S.gai || !!(GroundAI.battle || GroundAI.range) || (typeof MP !== 'undefined' && MP.live && MP.ground);
+      let gv = v.kind === 'tank' || v.kind === 'drone' || !!S.gai || !!(GroundAI.battle || GroundAI.range) || (typeof MP !== 'undefined' && MP.live && MP.ground); // (a drone flown alone too: the spawn points update starts one beside the tanks' pad)
       if (!gv) for (const o of F.vessels) if (o.gv || (o.gear && o.gear.length)) { gv = true; break; }
       Props.play = gv;
       Props.crushStep(F);

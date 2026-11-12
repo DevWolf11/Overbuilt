@@ -127,12 +127,13 @@
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
+      <button id="btn-start" class="btn start-btn" data-icon="map" aria-label="Start" title="Pick where this craft starts" hidden><span class="start-text"></span></button>
       <button id="btn-launch" class="btn primary launch">Launch</button>
     </div>
   </header>
 
   <section id="stats" class="panel stats" aria-label="Rocket stats">
-    <div class="s-head"><button id="s-name" class="s-name" title="Rename or save a copy">Rocket</button><button id="btn-save" class="btn small save-btn" data-icon="save"><span class="save-text">Save</span></button><button id="btn-stats" class="stats-toggle" aria-expanded="true" aria-controls="stats" aria-label="Show less" title="Show less"></button></div>
+    <div class="s-head"><button id="s-name" class="s-name" title="Rename or save a copy">Rocket</button><button id="btn-save" class="btn small save-btn" data-icon="save"><span class="save-text">Save</span></button><button id="btn-start-p" class="btn small start-btn in-panel" data-icon="map" aria-label="Start" title="Pick where this craft starts" hidden><span class="start-text"></span></button><button id="btn-stats" class="stats-toggle" aria-expanded="true" aria-controls="stats" aria-label="Show less" title="Show less"></button></div>
     <div id="kind-select" class="kind-select" role="radiogroup" aria-label="Vehicle type">
       <button class="kind-btn" role="radio" data-kind="rocket" data-icon="rocket" title="Rocket: launches from the pad"><span>Rocket</span></button>
       <button class="kind-btn" role="radio" data-kind="plane" data-icon="plane" title="Plane: built nose-right, takes off from the runway"><span>Plane</span></button>
@@ -392,6 +393,18 @@
       <div id="spawn-list" class="spawn-list" role="radiogroup" aria-label="Spawn points"></div>
     </div>
     <div class="modal-actions"><button id="spawn-done" class="btn primary">Done</button></div>
+  </div>
+</div>
+
+<div id="start-map" class="modal spawn-modal" hidden>
+  <div class="modal-card spawn-card" role="dialog" aria-modal="true" aria-labelledby="start-title">
+    <div class="modal-kicker" id="start-kicker">Sandbox</div>
+    <h2 class="modal-title" id="start-title">Where to start</h2>
+    <div class="spawn-body">
+      <div class="spawn-wrap"><canvas id="start-canvas" aria-label="Map of the starting points"></canvas></div>
+      <div id="start-list" class="spawn-list start-list" role="radiogroup" aria-label="Starting points"></div>
+    </div>
+    <div class="modal-actions"><button id="start-done" class="btn primary">Done</button></div>
   </div>
 </div>
 

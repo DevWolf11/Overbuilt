@@ -2342,6 +2342,7 @@ const Builder = {
     const t = !live ? 'Launch' : MP.pvp ? (ready ? 'Ready ✓' : 'Ready') : 'Fly';
     if (b.textContent !== t) b.textContent = t;
     b.classList.toggle('on', !!ready);
+    if (typeof Spawns !== 'undefined') Spawns.renderBtn(); // (the sandbox's Start button beside it: mpui.js)
   },
 
   // Nose-to-tail length of a design (along part y).

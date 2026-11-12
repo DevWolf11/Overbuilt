@@ -11,7 +11,8 @@
 // mesh: paint), scattered trees, bushes and rocks. The Runway (EARTH.arenas.runway, any map): sheds, containers, sandbags,
 // blocks and a few trees along the runway's sides. The space centre's island (the real map only): the tank yard (its pad
 // EARTH.groundPads.yard, where Armour starts in a multiplayer sandbox), its driving course, a hamlet, a farm, groves,
-// sheep walls, rocks and bushes.
+// sheep walls, rocks and bushes. Since the spawn points update, ten small maps round the sandbox's spawn points (EARTH.spawns):
+// outposts, launch pads and the airfields' helipads (the real map only).
 //
 // Each prop is made of colliders, each a yawed box, an upright cylinder or a sphere with flags: SHELL (stops shells:
 // Armour.moveShell, and every other shot: combat.js moveShot's bullets, rockets, missiles and bombs), SIGHT (blocks
@@ -46,12 +47,15 @@ const Props = (() => {
     wall: 0xa39d90, wall2: 0x938d82, hedge: 0x3f5a2a, hedge2: 0x4b6431, conifer: 0x5d8a55, broad: 0x7aa05a, broad2: 0x92a84e,
     bush: 0x6d8f4a, rock: 0x7f7c74, rock2: 0x6b6862, bale: 0xc9ab5c, sand: 0xb39d6e, concrete: 0xa7a7a1, apron: 0x8b8c88, paint: 0xd8b13c, crate: 0x8a6b40,
     olive: 0x5f6b45, contB: 0x3f6f8f, contR: 0x9a4434, contG: 0x5f7f45, steel: 0xd6d9dc, rubber: 0x262626, pole: 0x5b4a36,
+    orange: 0xe07a2c, gantry: 0xc9472f, net: 0x4c5a36, mark: 0xeeeee6,
   };
   // The kinds (indices into K): what each is made of, its colliders and its pieces (see make). solid kinds are
   // buildings, walls, boulders, sandbags, crates, containers, tanks and blocks; crush kinds trees, hedges, fences,
   // bushes, bales, poles and tyres.
   const KINDS = ['house', 'barn', 'church', 'ruin', 'shed', 'garage', 'wall', 'hedge', 'fence', 'conifer', 'broadleaf', 'bush',
-    'boulder', 'rock', 'bale', 'pole', 'sandbags', 'crate', 'container', 'fueltank', 'silo', 'block', 'tyres', 'slab'];
+    'boulder', 'rock', 'bale', 'pole', 'sandbags', 'crate', 'container', 'fueltank', 'silo', 'block', 'tyres', 'slab',
+    // (the spawn points update: appended, so every older kind keeps its number and every older map its signature)
+    'hpad', 'apron', 'gantry', 'windsock', 'camonet'];
   const K = {};
   KINDS.forEach((k, i) => (K[k] = i));
   const BUILDING = new Set([K.house, K.barn, K.church, K.ruin, K.shed, K.garage]);
@@ -126,6 +130,9 @@ const Props = (() => {
     else if (k === K.fueltank) box(SH | SI | SO, 0, 1.75, 0, w / 2, 1.6, d / 2);
     else if (k === K.silo) out.push([1, SH | SI | SO, 0, H / 2, 0, w / 2, H / 2, 0]);
     else if (k === K.tyres) box(CR, 0, 0.45, 0, 0.5, 0.45, 0.5);
+    else if (k === K.gantry) box(SH | SI | SO, 0, h / 2, 0, w / 2, h / 2, d / 2); // (its tower; the swing arms reach out over the pad and stop nothing)
+    else if (k === K.windsock) box(CR, 0, 3, 0, 0.2, 3, 0.2);
+    else if (k === K.camonet) box(SI, 0, 2.9, 0, w / 2, 0.15, d / 2); // (a net hides what is under it from above; shells go through)
     return out;
   }
   // a ruin's wall stretches: [x, z, length, height, thickness], from its own dice (p.v): gaps for a door and a
@@ -213,7 +220,33 @@ const Props = (() => {
       cb(P_BOX, 0, 3.4, 0, 0.8, 0.4, 0.8, 0, 0, C.steel);
     } else if (k === K.silo) { cb(P_CYL, 0, (H - 0.3) / 2, 0, w, H + 0.3, w, 0, 0, C.steel); cb(P_SPIRE, 0, H, 0, w * 1.05, 1.2, w * 1.05, 0.4, 0, C.zinc); }
     else if (k === K.tyres) for (let i = 0; i < 3; i++) cb(P_CYL, 0, 0.15 + i * 0.3, 0, 0.95, 0.28, 0.95, 0, 0, C.rubber);
-    else if (k === K.slab) { // (the yard's apron: its eight bays painted, two rows of four, facing east)
+    else if (k === K.hpad) { // (a helipad or drone pad: a concrete square, a yellow ring and a white H, w across)
+      cb(P_BOX, 0, -0.2, 0, w, 0.5, w, 0, 0, C.concrete);
+      cb(P_CYL, 0, 0.08, 0, w * 0.84, 0.06, w * 0.84, 0, 0, C.paint); cb(P_CYL, 0, 0.13, 0, w * 0.84 - 0.9, 0.04, w * 0.84 - 0.9, 0, 0, C.concrete);
+      for (const x of [-0.15, 0.15]) cb(P_BOX, x * w, 0.17, 0, 0.07 * w, 0.04, 0.42 * w, 0, 0, C.mark);
+      cb(P_BOX, 0, 0.17, 0, 0.3 * w, 0.04, 0.07 * w, 0, 0, C.mark);
+    } else if (k === K.apron) cb(P_BOX, 0, -0.25, 0, w, 0.6, d, 0, 0, C.apron); // (plain concrete, w along by d across)
+    else if (k === K.gantry) { // (a launch pad's service tower: a lattice h tall, its swing arms reaching out along -x over the pad)
+      const hw = w / 2 - 0.25, hd = d / 2 - 0.25, n = Math.max(2, Math.round(h / 4));
+      for (const [x, z] of [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd]]) cb(P_BOX, x, h / 2, z, 0.5, h + 0.4, 0.5, 0, 0, C.gantry);
+      for (let i = 1; i <= n; i++) {
+        const y = (i * h) / n;
+        for (const z of [-hd, hd]) cb(P_BOX, 0, y, z, w, 0.3, 0.3, 0, 0, C.gantry);
+        for (const x of [-hw, hw]) cb(P_BOX, x, y, 0, 0.3, 0.3, d, 0, 0, C.gantry);
+        const L = Math.hypot(w, h / n), a = Math.atan2(h / n, w) * (i % 2 ? 1 : -1); // (a brace across each face, zigzagging up)
+        for (const z of [-hd, hd]) cb(P_BOX, 0, y - h / n / 2, z, L, 0.2, 0.2, 0, a, C.steel);
+      }
+      cb(P_BOX, 0, h + 0.3, 0, w + 1, 0.6, d + 1, 0, 0, C.grey); // (its roof)
+      cb(P_CYL, 0, h + 5, 0, 0.3, 9.4, 0.3, 0, 0, C.steel); // (the lightning mast)
+      for (const y of [h * 0.45, h * 0.7, h * 0.92]) cb(P_BOX, -w / 2 - 3.2, y, 0, 6.4, 0.9, 1.6, 0, 0, C.grey); // (the swing arms)
+      cb(P_BOX, w / 2 + 1.2, h * 0.3, 0, 2.4, h * 0.6, 2.4, 0, 0, C.grey); // (the lift shaft at its back)
+    } else if (k === K.windsock) {
+      cb(P_CYL, 0, 3, 0, 0.14, 6, 0.14, 0, 0, C.steel);
+      cb(P_SPIRE, 0.1, 5.6, 0, 0.75, 2.6, 0.75, 0, -Math.PI / 2 + 0.25, C.orange); // (blown out along +x, drooping a little)
+    } else if (k === K.camonet) { // (a camouflage net on four poles, 3 m up)
+      for (const [x, z] of [[-w / 2 + 0.4, -d / 2 + 0.4], [w / 2 - 0.4, -d / 2 + 0.4], [-w / 2 + 0.4, d / 2 - 0.4], [w / 2 - 0.4, d / 2 - 0.4]]) cb(P_BOX, x, 1.4, z, 0.12, 2.9, 0.12, 0, 0, C.wood);
+      cb(P_HEDGE, 0, 2.95, 0, w, 0.12, d, 0, 0, C.net);
+    } else if (k === K.slab) { // (the yard's apron: its eight bays painted, two rows of four, facing east)
       cb(P_BOX, 0, -0.25, 0, w, 0.6, d, 0, 0, C.apron);
       for (const u of [-10, -32]) for (let i = 0; i <= 4; i++) cb(P_BOX, u + 2, 0.06, -28 + i * 14, 14, 0.03, 0.25, 0, 0, C.paint);
       cb(P_BOX, w / 2 - 1.5, 0.06, 0, 0.3, 0.03, d - 6, 0, 0, C.paint);
@@ -498,7 +531,9 @@ const Props = (() => {
   const MAT = {};
   for (const k of ['house', 'church', 'ruin', 'wall', 'boulder', 'rock', 'block', 'silo']) MAT[K[k]] = 'stone';
   for (const k of ['barn', 'shed', 'fence', 'crate', 'pole', 'bale']) MAT[K[k]] = 'wood';
-  for (const k of ['garage', 'container', 'fueltank']) MAT[K[k]] = 'metal';
+  for (const k of ['garage', 'container', 'fueltank', 'gantry']) MAT[K[k]] = 'metal';
+  for (const k of ['hpad', 'apron']) MAT[K[k]] = 'stone';
+  MAT[K.windsock] = 'metal'; MAT[K.camonet] = 'leaf';
   for (const k of ['hedge', 'conifer', 'broadleaf', 'bush']) MAT[K[k]] = 'leaf';
   MAT[K.sandbags] = 'earth'; MAT[K.tyres] = 'metal';
   const matOf = (q) => (q && S.list[q.p] ? MAT[S.list[q.p].k] || 'stone' : 'stone');
@@ -737,10 +772,10 @@ const Props = (() => {
   // were built in) and its place in that map's list; each map's layout has a signature (sig: its kinds and places), and a
   // peer whose layout differs (no Earth map there: another Runway) is not believed. Peers are untrusted: only props that
   // crush, never a solid one, by whole numbers within the layout, fall directions in whole degrees.
-  const MAP_IDS = ['highland', 'runway', 'isle'], ROOM_MAX = 8192, NET_MAX = 32;
+  const MAP_IDS = ['highland', 'runway', 'isle', 'funningur', 'vidareidi', 'tvoroyri', 'northRoe', 'bixter', 'lunna', 'shAir', 'watten', 'bettyhill', 'gbAir'], ROOM_MAX = 8192, NET_MAX = 32; // (append only: a map's code is its place here)
   const ROOM = new Map(), OUT = []; // (ROOM: code * 65536 + index -> [degrees, sig]; OUT: fallen here, not yet sent)
   let SYNC = false;
-  const CRUSHK = new Set([K.hedge, K.fence, K.conifer, K.broadleaf, K.bush, K.bale, K.pole, K.tyres]);
+  const CRUSHK = new Set([K.hedge, K.fence, K.conifer, K.broadleaf, K.bush, K.bale, K.pole, K.tyres, K.windsock]);
   const degOf = (de, dz) => { const a = Math.round((Math.atan2(dz, de) * 180) / Math.PI); return ((a % 360) + 360) % 360; };
   const mapAt = (id) => { for (let i = 0; i < S.maps.length; i++) if (S.maps[i].id === id) return i; return -1; };
   // in a room or not (mp.js: begin, end): either way the room's set and what was waiting to go are dropped
@@ -1165,6 +1200,114 @@ const Props = (() => {
     yield* scatter(box, 40, 0.55, 300, 37, (e, z) => tree(e, z, rnd() < 0.3, 0.8));
   }
 
+  // ---------------------------------------------------------------- the sandbox's spawn points (the spawn points update)
+  // What stands round the places a sandbox flight may start (EARTH.spawns; their levelled pads in EARTH.groundPads, the
+  // real map only): an outpost at each spot where Armour starts (sandbagged positions along its front, garages, stores,
+  // a fuel tank, a camouflage net, a fence round it with a gate, rocks and bushes, a few trees in Scotland; a drone pad
+  // where drones start beside the tanks), a launch pad's concrete, service tower, fuel tanks and bunker, and helipads
+  // with a hut and fuel by the airfields. Each map is its own seed's, far from every other map and every old test path, so
+  // no layout depends on what was built first. A pad's frame: u along its yaw (the way vehicles face), v to its right.
+  const padAt = (f, u, v) => [f.e + u * f.c - v * f.s, f.z + u * f.s + v * f.c];
+  const FQ2 = { w: 0, h: 0, f: null };
+  // keep-outs round pad (or airfield) f: off it and 10 m round it (what stands on it is placed by hand), off the airfields'
+  // strips and other pads, the island's own map, the track and the old paths on Shetland (driving.js's slope)
+  function spotOk(f, more) {
+    const I = Terrain.ISLE;
+    return (e, z, r) => {
+      const de = e - f.e, dz = z - f.z, u = de * f.c + dz * f.s, v = -de * f.s + dz * f.c;
+      if (Math.abs(u) < f.hl + 10 + r && Math.abs(v) < f.hw + 10 + r) return false;
+      if (Math.hypot(e - 17720, z + 620) < 170 + r) return false; // (driving.js's 10° slope on Shetland)
+      if (Math.hypot((e - I.e) / I.a, z / I.b) < 1.15) return false; // (the island's own map)
+      if (Math.abs(z) < 90 + r && e < 3500) return false; // (the track past the runway)
+      const q = Terrain.fieldAt(e, z, FQ2);
+      if (q.w > 0 && q.f !== f) return false; // (an airfield's strip and the ground it levels, another pad)
+      return !more || more(e, z, r, u, v);
+    };
+  }
+  // a fence (or hedge) round the rectangle |u| <= U, |v| <= V of pad f, with a gate gw wide in the middle of its front
+  function* perimeter(f, U, V, gw, hedge) {
+    const P = (u, v) => padAt(f, u, v), sides = [[[U, gw / 2], [U, V]], [[U, V], [-U, V]], [[-U, V], [-U, -V]], [[-U, -V], [U, -V]], [[U, -V], [U, -gw / 2]]];
+    for (const [a, b] of sides) {
+      const [e0, z0] = P(...a), [e1, z1] = P(...b);
+      if (hedge) yield* run(K.hedge, e0, z0, e1, z1, 7, 1.5, 1.9, { c1: rnd() < 0.5 ? C.hedge : C.hedge2 }, 0.15);
+      else yield* run(K.fence, e0, z0, e1, z1, 7.5, 0.3, 1.2, {}, 0.08);
+    }
+  }
+  // what grows round a spot: rocks and bushes in the box round (e, z) half `r` wide, trees by the share given (the Faroes
+  // and Shetland are grassy and treeless; Caithness has its plantations)
+  function* rough(e, z, r, rocks, bushes, trees) {
+    const box = { e0: e - r, e1: e + r, z0: z - r, z1: z + r };
+    yield* scatter(box, rocks, 0, 1, 0, (pe, pz) => { const s = reliefAt(pe, pz); if (s > 0.06 || rnd() < 0.4) rock(pe, pz, s > 0.1 && rnd() < 0.6); });
+    yield* scatter(box, bushes, 0.35, 120, 41, (pe, pz) => bush(pe, pz));
+    if (trees) yield* scatter(box, trees, 0.45, 160, 43, (pe, pz) => tree(pe, pz, rnd() < 0.7, 0.9));
+  }
+  // An outpost on pad `key`: vehicles on its concrete (EARTH.spawns: u -10, v -14, and a room's next ones abreast and
+  // behind), a drone pad (drone: u 8, v 22) to their right, sandbagged positions along the front with a gap to drive out
+  function* outpost(key, drone, trees) {
+    const f = EARTH.groundPads[key], yaw = f.yaw;
+    M.ok = spotOk(f);
+    const put = (k, u, v, dy, w, d, h, o) => { const [e, z] = padAt(f, u, v); return add(k, e, z, yaw + dy, w, d, h, Object.assign({ free: true }, o)); };
+    put(K.apron, -19, 0, 0, 36, 44, 0.3);
+    if (drone) put(K.hpad, 8, 22, 0, 12, 12, 0.2);
+    yield;
+    // the front: two runs of sandbags with a 20 m gap, and short walls back at their ends
+    put(K.sandbags, 30, -24, Math.PI / 2, 26, 0.9, 1.2); put(K.sandbags, 30, 23, Math.PI / 2, 28, 0.9, 1.2);
+    put(K.sandbags, 25.5, -37, 0, 9, 0.9, 1.2); put(K.sandbags, 25.5, 37, 0, 9, 0.9, 1.2);
+    put(K.block, 32, -9, 0, 1.6, 1.6, 1.4); put(K.block, 32, 9, 0, 1.6, 1.6, 1.4);
+    // two garages along the left side, their doors to the vehicles; stores along the right
+    put(K.garage, -22, -35, 0, 12, 10, 5, { c1: rnd.pick([C.olive, C.cream, C.barnG]), c2: C.roofG });
+    put(K.garage, -8, -35, 0, 12, 10, 5, { c1: rnd.pick([C.olive, C.cream, C.barnG]), c2: C.roofG });
+    yield;
+    { const a = put(K.container, -26, 34, 0, 6.1, 2.45, 2.6, { c1: rnd.pick([C.olive, C.contG]) }); if (a && rnd() < 0.6) put(K.container, -26, 34, 0.03, 6.1, 2.45, 2.6, { lift: 2.6 + a.gt - a.g, c1: rnd.pick([C.contB, C.contR, C.olive]) }); }
+    put(K.container, -17, 35, 0, 6.1, 2.45, 2.6, { c1: rnd.pick([C.contB, C.contR, C.contG]) });
+    put(K.fueltank, -6, 35, 0, 8, 2.8, 3.6);
+    put(K.sandbags, -6, 38.5, 0, 10, 0.9, 1.1);
+    put(K.windsock, 20, 34, 0, 0.4, 0.4, 6);
+    // crates under a camouflage net at the front left, by the garages
+    for (let i = 0; i < 5; i++) put(K.crate, 12 + (i % 3) * 1.8, -31 + Math.floor(i / 3) * 1.8, 0.05 * i, 1.5, 1.5, 1.4);
+    put(K.camonet, 14, -30, 0, 10, 8, 3);
+    put(K.tyres, -30, -24, 0, 1, 1, 0.9); put(K.tyres, -30, -21.5, 0, 1, 1, 0.9);
+    yield;
+    yield* perimeter(f, 58, 66, 18, trees > 0 && rnd() < 0.5);
+    yield* rough(f.e, f.z, 200, 160, 70, trees);
+  }
+  // A launch pad on pad `key` (the rocket stands at its middle): its concrete, the service tower 15 m to the right with
+  // its swing arms over the pad, fuel tanks, a blockhouse, a fence round it
+  function* launchPad(key, trees) {
+    const f = EARTH.groundPads[key], yaw = f.yaw;
+    M.ok = spotOk(f);
+    const put = (k, u, v, dy, w, d, h, o) => { const [e, z] = padAt(f, u, v); return add(k, e, z, yaw + dy, w, d, h, Object.assign({ free: true }, o)); };
+    put(K.apron, 0, 0, 0, 48, 48, 0.3);
+    put(K.gantry, 0, 15, -Math.PI / 2, 6, 6, 34);
+    yield;
+    put(K.fueltank, -18, -19, 0, 8, 2.8, 3.6); put(K.fueltank, -18, -13, 0, 8, 2.8, 3.6);
+    put(K.sandbags, -18, -23, 0, 12, 0.9, 1.2);
+    put(K.garage, 19, -19, Math.PI, 9, 7, 3.2, { c1: C.concrete, c2: C.grey });
+    put(K.block, 22, 8, 0, 2.6, 1.0, 1.1); put(K.block, 22, 12, 0, 2.6, 1.0, 1.1);
+    put(K.pole, -22, 22, 0, 0.4, 0.4, 8); put(K.pole, 22, -2, 0, 0.4, 0.4, 8);
+    yield;
+    yield* perimeter(f, 60, 60, 14, false);
+    yield* rough(f.e, f.z, 200, 140, 60, trees);
+  }
+  // By an airfield (EARTH.airfields[key], its frame as a pad's: u along the strip, v across): four helipads in a row
+  // beside it where helicopters start (mp.js airfieldPlacement: 45 m apart, 75 m out), and past their west end the crews'
+  // hut, a fuel bowser in sandbags and crates (the airfield's own hangars, tower, fuel and windsock are render3d's, round
+  // its apron 215 m east of there and further: nothing here comes near them)
+  function* apron(key) {
+    const f = EARTH.airfields[key], yaw = f.yaw;
+    M.ok = (e, z, r) => { const de = e - f.e, dz = z - f.z, v = -de * f.s + dz * f.c; return Math.abs(v) > f.hw + 70 + r; };
+    const put = (k, u, v, dy, w, d, h, o) => { const [e, z] = padAt(f, u, v); return add(k, e, z, yaw + dy, w, d, h, Object.assign({ free: true }, o)); };
+    for (let i = 0; i < 4; i++) put(K.hpad, -f.hl * 0.5 + i * 45, f.hw + 45, 0, 14, 14, 0.2);
+    yield;
+    const u0 = -f.hl * 0.5 - 45, v0 = f.hw + 92;
+    put(K.shed, u0, v0, Math.PI, 8, 6, 3.2, { r2: 1.4, c1: C.cream, c2: C.slate });
+    put(K.fueltank, u0 + 16, v0 + 2, 0, 8, 2.8, 3.6); put(K.sandbags, u0 + 16, v0 + 6, 0, 12, 0.9, 1.2);
+    for (let i = 0; i < 4; i++) put(K.crate, u0 - 8 + (i % 2) * 1.7, v0 - 4 + Math.floor(i / 2) * 1.7, 0.1 * i, 1.5, 1.5, 1.4);
+    put(K.container, u0 - 2, v0 + 9, 0, 6.1, 2.45, 2.6, { c1: C.contB });
+    yield;
+  }
+
+
   // ---------------------------------------------------------------- building the maps, a slice at a time
   // The maps (need: the real Earth map only; box: where its props may stand, which the renderer shows by; seed: its own),
   // in two groups that stand far apart: Highland Ridge, and the space centre's (the runway first, then the island, which
@@ -1174,8 +1317,26 @@ const Props = (() => {
     highland: { need: true, seed: 0x48525731, gen: highland, box: () => EARTH.arenas.highland.box },
     runway: { need: false, seed: 0x52554e57, gen: runway, box: () => ({ e0: 650, e1: 2750, z0: -260, z1: 260 }) },
     isle: { need: true, seed: 0x49534c45, gen: isle, box: () => ({ e0: -600, e1: 3600, z0: -700, z1: 700 }) },
+    // (the spawn points update) the sandbox's outposts, launch pads and airfield aprons: in three groups, the Faroes',
+    // Shetland's and Scotland's, each map in the box round its spot
+    funningur: { need: true, seed: 0x46554e4e, gen: () => outpost('funningur', false, 0), box: () => spotBox('funningur') },
+    vidareidi: { need: true, seed: 0x56494441, gen: () => outpost('vidareidi', false, 0), box: () => spotBox('vidareidi') },
+    tvoroyri: { need: true, seed: 0x54564f52, gen: () => outpost('tvoroyri', false, 0), box: () => spotBox('tvoroyri') },
+    northRoe: { need: true, seed: 0x4e524f45, gen: () => outpost('northRoe', false, 0), box: () => spotBox('northRoe') },
+    bixter: { need: true, seed: 0x42495854, gen: () => outpost('bixter', true, 0), box: () => spotBox('bixter') },
+    lunna: { need: true, seed: 0x4c554e4e, gen: () => launchPad('lunna', 0), box: () => spotBox('lunna') },
+    shAir: { need: true, seed: 0x53484149, gen: () => apron('shetland'), box: () => apronBox('shetland') },
+    watten: { need: true, seed: 0x57415454, gen: () => outpost('watten', true, 40), box: () => spotBox('watten') },
+    bettyhill: { need: true, seed: 0x42455454, gen: () => launchPad('bettyhill', 30), box: () => spotBox('bettyhill') },
+    gbAir: { need: true, seed: 0x47424149, gen: () => apron('scotland'), box: () => apronBox('scotland') },
   };
-  const GROUPS = [['highland'], ['runway', 'isle']];
+  // (a spot's map: the 400 m square round its pad; an airfield's apron: the strip's middle, both sides)
+  function spotBox(key) { const f = EARTH.groundPads[key]; return { e0: f.e - 200, e1: f.e + 200, z0: f.z - 200, z1: f.z + 200 }; }
+  function apronBox(key) {
+    const f = EARTH.airfields[key], C4 = [[-0.5 * f.hl - 80, f.hw + 20], [-0.5 * f.hl + 160, f.hw + 20], [-0.5 * f.hl - 80, f.hw + 130], [-0.5 * f.hl + 160, f.hw + 130]].map(([u, v]) => padAt(f, u, v));
+    return { e0: Math.min(...C4.map((q) => q[0])), e1: Math.max(...C4.map((q) => q[0])), z0: Math.min(...C4.map((q) => q[1])), z1: Math.max(...C4.map((q) => q[1])) };
+  }
+  const GROUPS = [['highland'], ['runway', 'isle'], ['funningur', 'vidareidi', 'tvoroyri'], ['northRoe', 'bixter', 'lunna', 'shAir'], ['watten', 'bettyhill', 'gbAir']];
   function ensure() {
     const mapped = !!(typeof EARTH !== 'undefined' && EARTH.mapped);
     if (S.built && S.mapped === mapped) return;

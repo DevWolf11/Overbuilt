@@ -2,7 +2,8 @@
 //  - a TK-34 in Highland Ridge's village: the set is built and shown with the arena's own ground, every prop's pieces
 //    drawn (instances per piece as Props lays them out), nine draws or fewer for them; a tree knocked over tips over and
 //    ends lying, on the next frames; the crosshair's ray stops on a house in front of it
-//  - the tank yard: a TK-34 on its first bay, the space centre's set shown (the island's props and the Runway's)
+//  - the tank yard: a TK-34 on its first bay, the space centre's set shown (the island's props, the Runway's and the
+//    Faroes' spawn point outposts)
 //  - an old plane on the runway: the island's props shown, Highland Ridge's never built (battery)
 //  - without the Earth map: the Runway arena's props alone
 //  - phones in portrait and a desktop; no console errors
@@ -75,8 +76,8 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   // ---- the tank yard
   await ev(() => { const t = TEMPLATES.tk34, P = Props.yardPlace(1); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: P }); Render3D.skipDraw = true; });
   await page.waitForFunction(setUp, 'sc', { timeout: 600000, polling: 250 });
-  const sc = await ev((want) => { const I = Render3D.propsInfo(); return { slots: I.sc.slots, want: eval(want)(['runway', 'isle']).reduce((a, b) => a + b, 0), drawn: I.sc.drawn, props: I.sc.props, hl: I.hl ? I.hl.shown : false }; }, want.toString());
-  ok(`${tag}: at the tank yard the space centre's set is up (the island's props and the Runway's), Highland Ridge's not shown`, sc.props > 700 && sc.slots === sc.want && sc.drawn > 0 && !sc.hl, sc);
+  const sc = await ev((want) => { const I = Render3D.propsInfo(); return { slots: I.sc.slots, want: eval(want)(['runway', 'isle', 'funningur', 'vidareidi', 'tvoroyri']).reduce((a, b) => a + b, 0), drawn: I.sc.drawn, props: I.sc.props, hl: I.hl ? I.hl.shown : false }; }, want.toString());
+  ok(`${tag}: at the tank yard the space centre's set is up (the island's props, the Runway's and the Faroes' spawn point outposts), Highland Ridge's not shown`, sc.props > 700 && sc.slots === sc.want && sc.drawn > 0 && !sc.hl, sc);
   await draw();
   await ev(() => { Flight.aimYaw = 0; Flight.aimPitch = -0.03; });
   await page.waitForTimeout(1200);
