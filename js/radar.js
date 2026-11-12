@@ -116,7 +116,7 @@ const Radar = (() => {
   // that can't look down) or false. No 5 km fallback: no radar part, nothing seen.
   function sees(L, t, tp, job = 'guide', memo, keep = 0.25) {
     if (!L || L.dead || L.down || !L.parts || !L.parts.length || L.radarOff || !t || !tp || !tp.alive) return false; // (down: a pilot knocked out leaves the set aboard, unread)
-    if (t.kind === 'drone' || (t.ai && t.ai.drone)) return false; // (drones: the counter-drone kit's job, not an aircraft radar's)
+    if ((t.kind === 'drone' && !t.def) || (t.ai && t.ai.drone)) return false; // (real drones: the counter-drone kit's job, not an aircraft radar's; the range's Target drone (a def) is an air target: P5-OLD-1)
     const rl = radars(L);
     if (rl === NONE) return false;
     const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = Math.hypot(dx, dy, dz) || 1;
