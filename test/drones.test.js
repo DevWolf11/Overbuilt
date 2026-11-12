@@ -872,6 +872,19 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
     A11.down.downAt != null && A11.down.kos === 2 && A11.down.said === 2 && !A11.down.armed && A11.back.every((b) => Math.abs(b - 45) < 0.2) && A11.at44.every((x) => x) && A11.at46.every((x) => x) && A11.reset === 0, [A11.down, A11.back, A11.at44, A11.at46]);
   t('11 Range Hostile: an attack Bumble ("Enemy drone inbound!") from 1.6 km (outside every kit\'s reach: P4-AI-3) reaches the player\'s Nest within 75 s and goes off on it; two at most at a time',
     A11.hostile.dw && A11.hostile.said && Math.abs(A11.hostile.dist0 - 1600) < 30 && A11.hostile.boom != null && A11.hostile.boom <= 75 && A11.hostile.miss < 8 && A11.hostile.hurt && A11.most === 2, [A11.hostile, A11.most]);
+  // (review P5-MODES-2) Range Hostile: a tank's own bay drone flown a few metres up is not an aircraft calling in the air
+  // range's fighters (the tank gets them only when it is really airborne); a drone flown alone still does, as before
+  RB(`var M11 = (() => { const out = {}, jets = (F) => F.vessels.filter((o) => o.ai && !o.ai.ground && !o.ai.drone && !o.dead).length;
+    SET.targets = 'hostile';
+    { const { F, d, ok } = launched(); go(F, 1); const R0 = GroundAI.range; if (R0) { R0.waveAt = 1e9; R0.dAt = 1e9; } Combat.S.fighterT = 0; go(F, 2);
+      out.bay = { ok, kind: F.active.kind, carrier: !!d.carrier, up: !d.landed, spawned: Combat.S.spawned, jets: jets(F) }; GroundAI.reset(F); }
+    { const { F, v } = pilot(); go(F, 3, (F) => { v.ctl.z = F.time < 3 ? 1 : 0; }); Combat.S.fighterT = 0; go(F, 2);
+      out.solo = { up: !v.landed, spawned: Combat.S.spawned, jets: jets(F) }; GroundAI.reset(F); }
+    SET.targets = 'off';
+    return out; })();`);
+  const M11 = JSON.parse(RB('JSON.stringify(M11)'));
+  t('11 Range Hostile: a tank\'s bay drone flown up calls in no fighters (P5-MODES-2); a drone flown alone still does',
+    M11.bay.ok && M11.bay.kind === 'drone' && M11.bay.carrier && M11.bay.up && M11.bay.spawned && M11.bay.jets === 0 && M11.solo.up && M11.solo.spawned && M11.solo.jets > 0, M11);
   // SPAA against drones; a tank's gun never stalls on one; the parked carrier is a target
   RB(`var B11 = (() => { const out = {};
     const flyer = (seed) => { Math.random = mulberry32(seed); GroundAI.seed(seed); const { F, v } = pilot(); go(F, 3, (F) => { v.ctl.z = F.time < 3 ? 1 : 0; }); return { F, v }; };

@@ -1448,7 +1448,7 @@ const Combat = (() => {
       if (hostile() && !F.destroyed) {
         const alive = F.vessels.filter((o) => isFighter(o) && !o.ai.down && o.control && !o.dead);
         S.fighterT -= dt;
-        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed)) {
+        if (alive.length < 2 && S.fighterT <= 0 && (v.kind === 'tank' ? flying : !v.landed && !(v.kind === 'drone' && v.carrier))) { // (a tank's own bay drone is the tank's: no jets for it, review P5-MODES-2)
           const b = spawnFighter(F); S.fighterT = 45;
           if (typeof Radar !== 'undefined') Radar.call(F, v, b); // (the range controller's call: "Bandit inbound: 14 km, your 10 o'clock")
         }
