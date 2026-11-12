@@ -196,8 +196,11 @@ const Drone = (() => {
     // a multirotor short of motors spins and sinks (the stick still works: control first)
     const alive = dr.rotors.length;
     dl.spin = dr.lift && dr.mot0 > 0 && dr.mot0 - alive >= (dr.mot0 > 4 ? 2 : 1);
-    // 2. Acro, or a winged drone: the throttle is the pilot's (the lever ramps it), kept off idle in the air
-    if (v.sas === 'acro' || v.aircraft) {
+    // 2. Acro, or a winged drone: the throttle is the pilot's (the lever ramps it), kept off idle in the air. An autopilot
+    // (Home, Land, the unattended hold, a lost link's failsafe, a hop) flies a multirotor by the Level law whatever
+    // mode the pilot left it in (spec §12.5: hover autopilots use the Level law).
+    if ((v.sas === 'acro' && !dl.auto) || v.aircraft) {
+      if (!v.aircraft) dl.hold = null; // (an autopilot taking over holds the height it finds, not Level's last)
       const z = c.z || 0;
       if (z) v.throttle = clamp(v.throttle + z * DRONE.RAMP * dt, 0, 1);
       if (!v.landed) v.throttle = Math.max(v.throttle, DRONE.IDLE);
@@ -239,7 +242,7 @@ const Drone = (() => {
   // turns at the rate the stick asks, carving with a matching bank at speed.
   function turn(v, c, dt) {
     const dl = state(v), F = (v.dr || GPS).fc || GPS, at = v.attitude(), Y = dl.spin ? DRONE.SPIN.YAW : null;
-    if (v.sas === 'acro') return { pitch: -c.v * DRONE.ACRO[0], roll: c.h * DRONE.ACRO[1], yaw: Y != null ? Y : c.r * DRONE.ACRO[2] };
+    if (v.sas === 'acro' && !dl.auto) return { pitch: -c.v * DRONE.ACRO[0], roll: c.h * DRONE.ACRO[1], yaw: Y != null ? Y : c.r * DRONE.ACRO[2] };
     const L = F.lean, S = dl.S || (dl.S = hframe(v)), A = dl.auto, tilt = tiltLayout(), turnIn = tilt ? c.r : c.h, slideIn = tilt ? c.h : c.r;
     const vfT = A ? A.vf : c.v >= 0 ? c.v * F.vmax : c.v * F.vmax * DRONE.BACK;
     const vrT = A ? A.vr : slideIn * F.vmax * DRONE.SLIDE;
@@ -257,7 +260,7 @@ const Drone = (() => {
   // plane's laws (planeTarget: a plane's alone) and never their state (altHold, pitchHold, holdPitch).
   function wingTurn(v, c, dt) {
     const dl = state(v), W = DRONE.WING;
-    if (v.sas === 'acro') return { pitch: -c.v * W.ACRO[0], roll: c.h * W.ACRO[1], yaw: c.r * W.ACRO[2] };
+    if (v.sas === 'acro' && !dl.auto) return { pitch: -c.v * W.ACRO[0], roll: c.h * W.ACRO[1], yaw: c.r * W.ACRO[2] }; // (an autopilot flies its own law)
     if (dl.auto) c = dl.auto.stick || NOSTICK; // (Home or the AI: a stick of their own)
     const at = v.attitude(), alt = v.altitude(), sp = Math.max(v.speed(), 5);
     if (Math.abs(c.v) > 0.02 || dl.wh == null) dl.wh = alt; // (let go: hold the height it was let go at)

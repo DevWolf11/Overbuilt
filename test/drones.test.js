@@ -228,6 +228,27 @@ t('nothing broke and nothing was said (the battery far from 25 %)', B.broken ===
   t('the plane laws\' state stays untouched (altHold, pitchHold, holdPitch undefined); nothing broke', o.state === 'undefined,undefined,undefined' && !o.broken, o.state);
 }
 
+{ // the autopilots fly a drone left in Acro (P4-OF-1): Home, Land, the unattended hold and a GPS controller's lost link
+  // take over by the Level law (a winged drone: its own law), whatever mode the pilot was flying in
+  const acro = (k, what) => { const s = sim(), v = drone(k); ctx.__v = v; R(`__v.dl = { t: 0, at0: { x: __v.x, y: __v.y, z: __v.z }, t0: 0 };`);
+    return JSON.parse(R(`(() => { const v = __v, s = __s; fly(v, s, 0.5, {}); fly(v, s, 5, { z: 1 }); fly(v, s, 4, { v: 1 }); fly(v, s, 5, {});
+      const H = v.dl.at0, d0 = Math.hypot(v.x - H.x, v.y - H.y, v.z - H.z), a0 = agl(v); v.sas = 'acro'; fly(v, s, 0.3, {});
+      if ('${what}' === 'home') Drone.home(s, v); else if ('${what}' === 'land') Drone.land(s, v); else if ('${what}' === 'hold') v.dl.mode = 'hold'; else v.dl.lost = true;
+      fly(v, s, 20, {}, () => !s.broken.length);
+      return JSON.stringify({ d0, d1: Math.hypot(v.x - H.x, v.y - H.y, v.z - H.z), dh: agl(v) - a0, sp: v.speed(), landed: v.landed, broken: s.broken.length }); })()`)); };
+  const mh = acro('mavik', 'home'), ml = acro('mavik', 'lost'), bl = acro('bumble', 'land'), bh = acro('bumble', 'hold');
+  t('in Acro, Home and a GPS lost link fly it back and set it down; Land sets it down; the unattended hold hovers (P4-OF-1)',
+    mh.d1 < 0.5 * mh.d0 && mh.landed && ml.d1 < 0.5 * ml.d0 && ml.landed && bl.landed && !bl.broken && Math.abs(bh.dh) < 3 && bh.sp < 2 && !bh.broken,
+    fx({ mh: mh.d1, ml: ml.d1, bl: bl.landed, bhdh: bh.dh, bhsp: bh.sp }));
+  const s = sim(), v = drone('lancett'); ctx.__v = v;
+  const w = JSON.parse(R(`(() => { const v = __v, s = __s, r = v.radius(); v.x += v.x / r * 150; v.y += v.y / r * 150; v.z += v.z / r * 150;
+    const f = v.axis(1, 0, 0); v.vx = f.x * 28; v.vy = f.y * 28; v.vz = f.z * 28; v.landed = false; v.throttle = 0.6; v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+    fly(v, s, 3, {}); v.sas = 'acro'; const p0 = pos(v); v.dl.mode = 'hold'; let turned = 0, last = path(v);
+    fly(v, s, 40, {}, () => { const h = path(v); turned += Math.abs(wrapD(h - last)); last = h; return !s.broken.length; });
+    return JSON.stringify({ turned, end: dist(pos(v), p0), broken: s.broken.length }); })()`));
+  t('...and a winged drone left in Acro circles where it was left (360° or more in 40 s, within 300 m)', w.turned >= 360 && w.end < 300 && !w.broken, fx(w));
+}
+
 // ================================================================ 5. a motor lost
 {
   const loss = (k) => { const s = sim(), v = drone(k); ctx.__v = v;
