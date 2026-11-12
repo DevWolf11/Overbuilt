@@ -66,10 +66,10 @@ const SCENES = {
   rangefight: { key: 'falcon', place: { e: 6000, z: 0, yaw: 0, air: { alt: 1500, speed: 200 } }, time: 'noon', what: 'a Hostile range fight: two bandits shot down (one burning), one crashing, the sim stepped', load: 'rangefight', sim: true, targets: 'hostile' },
   wrecks8: { key: 'tk34', place: HL, time: 'noon', what: 'eight knocked-out tanks in Highland Ridge (burning, smoking, wisps; baked), the sim stepped', props: ['hl'], pre: 'wrecks8', sim: true },
   // (the whole update, plan §3.3's Phase 5 gate: the busiest picture a player meets. A ground battle in Highland Ridge's
-  // street with the eight wrecks of wrecks8 standing (baked where the tree bakes) and smoking, two Bumbles under the
+  // street with the eight wrecks of wrecks8 standing (baked where the tree bakes), the 3 nearest smoking, two Bumbles under the
   // anti-drone gun's airbursts as in cuas, and a burning plane crossing overhead; the same calls on every tree, as battle's.
   // Judged only by its gpuMs B/A (≤ 1.25): its draws, textures and geometries grow by the drones' and wrecks' own models)
-  combo: { key: 'tk34', place: HL, time: 'noon', what: 'eight smoking wrecks, two drones under airburst fire and a burning plane overhead', props: ['hl'], pre: 'wrecks8', load: 'combo' },
+  combo: { key: 'tk34', place: HL, time: 'noon', what: 'eight wrecks (the 3 nearest burning and smoking, as the game has it), two drones under airburst fire and a burning plane overhead', props: ['hl'], pre: 'wrecks8', load: 'combo' },
 };
 const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'], COMBO = ['combo'];
 const PROFILES = {
@@ -279,12 +279,13 @@ const LOAD = `window.__load = (kind) => {
     for (let i = 0; i < 100; i++) { const p = at(20 + i * 3.6, (i % 3) - 1, (i % 4) - 1.5); Combat.shots.push({ k: 'bullet', tracer: true, b, x: p.x, y: p.y, z: p.z, vx: v.vx + fw.x * 900, vy: v.vy + fw.y * 900, vz: v.vz + fw.z * 900 }); }
     death(at(600, 150, 0), 4, 'air');
   } else if (kind === 'combo') {
-    // the eight wrecks (pre: wrecks8) smoke as wreckFX makes them on the tree that has it: the two burning ones a column
-    // and flames, the three smoking ones a column, the three oldest a wisp; drawn with the same calls on every tree
-    const spots = [[30, -12], [35, 10], [50, -25], [55, 22], [70, -8], [75, 30], [90, -35], [95, 12]];
+    // the eight wrecks (pre: wrecks8) stand; as the game's death.js groundTick has it, only the 3 nearest the camera burn
+    // and smoke (wreckFX): the two burning ones (5 s old) a column puff every 6 frames on High, 12 on Low, and flames, the
+    // third (60 s, smoking) a puff every 20 frames; a few seconds of each, drawn with the same calls on every tree
+    const spots = [[30, -12], [35, 10], [50, -25]];
     for (const [i, [a, s]] of spots.entries()) {
-      const n = i < 2 ? 24 : i < 5 ? 14 : 4;
-      for (let j = 0; j < n; j++) smoke(at(a, s, 2, true), i < 5 ? 'column' : 'black');
+      const n = i < 2 ? (Settings.high ? 24 : 12) : 14;
+      for (let j = 0; j < n; j++) smoke(at(a, s, 2, true), 'column');
       if (i < 2) for (let j = 0; j < 10; j++) flame(at(a, s, 1.5, true));
     }
     window.__load('cuas');
