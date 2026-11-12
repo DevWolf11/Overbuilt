@@ -133,6 +133,16 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   // a TK-34 in Highland Ridge's village, paused (time stands still): the arena's ground, the props, the scenery and the
   // clouds built round it (Combat.frame's ground play, which a paused flight doesn't run, set as it would)
   await ev((HL) => { const t = TEMPLATES.tk34; store.set('rss.flight', null); App.showScene('flight'); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: HL }); Flight.paused = true; Props.play = true; Render3D.bench.pin = true; Render3D.skipDraw = true; }, HL);
+  // (the performance update) the first frame: no world painted whole in it, the Earth a quick map at once and its full
+  // maps lazy while the camera is down by its ground; a slice of the queue keeps to its time
+  const first = await ev(() => {
+    const t0 = performance.now(); Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const ms = performance.now() - t0;
+    const J = Render3D._t.jobs(), E = J.worlds.find((w) => w.name === 'Earth'), slices = [];
+    for (let i = 0; i < 6; i++) slices.push(Render3D._t.runJobs(4));
+    return { ms, earth: E, n: J.n, lazy: J.lazy, slices, worst: Math.max(...slices) };
+  });
+  ok(`${tag}: first flight frame: the Earth gets a quick map at once, not its whole map (${first.ms.toFixed(0)} ms), its full maps queued and lazy down here`, first.earth && first.earth.lo && !first.earth.ready && first.earth.queued && first.n > 0 && first.lazy.some(Boolean), first);
+  ok(`${tag}: ...and a 4 ms slice of the queue keeps to its time (worst ${first.worst.toFixed(1)} ms: a row of the map took ~25 ms on a slowed phone)`, first.worst < 4 + 6, first.slices);
   // (frames run here back to back, as the bench runs them: the planets' maps are painted a slice a frame too)
   const built = await ev(async () => {
     let n = 0, quiet = 0;
@@ -254,6 +264,29 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     return { cut, scale: I.scale, pr: I.pixelRatio, want: Settings.high ? Math.min(devicePixelRatio, 1.75) : 1 };
   });
   ok(`${tag}: slow frames cut the resolution (adaptive), and bench.pin puts it back to the full pixel ratio at once and holds it`, pin.cut < 1 && pin.scale === 1 && pin.pr === pin.want, pin);
+  // (the performance update) a step down that doesn't make the frames faster (the same 50 ms after it: held back by the CPU)
+  // is taken back after 1.5 s and 24 frames, and none is tried again for 20 s; the 3 frames after a change aren't counted
+  const probe = await ev(async () => {
+    Render3D.skipDraw = true; Render3D.bench.pin = false;
+    const seq = [], t0 = performance.now();
+    let n = 0;
+    while (performance.now() - t0 < 5000 && n < 20000) { Render3D.renderFlight(Flight, 0.05, false); const k = Render3D.info().scale; if (seq[seq.length - 1] !== k) seq.push(k); n++; if ((n & 31) === 31) await new Promise((r) => setTimeout(r, 0)); }
+    const P = Render3D._t.perf();
+    Render3D.bench.pin = true; Render3D.renderFlight(Flight, 0.05, false); Render3D.skipDraw = false;
+    return { seq, n, locked: P.lock > performance.now(), scale: P.scale };
+  });
+  ok(`${tag}: adaptive resolution: a step down that didn't help is taken back and held (no resize every 0.6 s: ${probe.seq.join(' → ')} in ${probe.n} frames)`, probe.seq.length >= 2 && probe.seq[probe.seq.length - 1] > Math.min(...probe.seq) && probe.locked && probe.seq.length <= 4, probe);
+  // (the performance update) the sky light: what the rough surfaces get is the cube's irradiance (its formula integrated
+  // here by brute force, cosine-weighted over the sphere) within a few percent, every way round; the ground's program has it
+  const sky = await ev(() => {
+    const N = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [0, 0, 1], [0.6, 0.8, 0], [-0.5, 0.3, 0.81], [0.3, -0.6, -0.74]], out = [];
+    const E = (n) => { const r = [0, 0, 0], M = 160; for (let i = 0; i < M; i++) { const ct = -1 + (2 * (i + 0.5)) / M, st = Math.sqrt(1 - ct * ct); for (let j = 0; j < 2 * M; j++) { const ph = (Math.PI * (j + 0.5)) / M, d = [st * Math.cos(ph), ct, st * Math.sin(ph)], c = d[0] * n[0] + d[1] * n[1] + d[2] * n[2]; if (c <= 0) continue; const L = Render3D._t.env(...d); for (let k = 0; k < 3; k++) r[k] += L[k] * c; } } const w = (2 / M) * (Math.PI / M); return r.map((x) => x * w); };
+    let worst = 0, peak = 0;
+    for (const n0 of N) { const l = Math.hypot(...n0), n = n0.map((x) => x / l), a = Render3D._t.sky(...n), b = E(n); peak = Math.max(peak, ...b); out.push({ n, sky: a.map((x) => +x.toFixed(4)), ref: b.map((x) => +x.toFixed(4)) }); for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(a[k] - b[k])); }
+    return { worst, peak, out, prog: Render3D._t.skyOn() };
+  });
+  ok(`${tag}: the sky light matches the sky cube's irradiance within 4% of its brightest (worst ${(100 * sky.worst / sky.peak).toFixed(1)}%)`, sky.peak > 0 && sky.worst < 0.04 * sky.peak, sky.out);
+  ok(`${tag}: ...and the ground, the trees and the props are drawn with it (their programs carry the sky light's uniforms; craft keep the real cube)`, sky.prog.ground && sky.prog.trees && sky.prog.props !== false && sky.prog.craft === false, sky.prog);
   // propsCastOff: the props' shadow draws go and come back (a paused flight: the same frame each time; the shadow pass's
   // draws counted from the WebGL calls: three's info() leaves them out)
   const pass = (off) => ev((off) => { Render3D.propsCastOff = off; Flight.updateCamera(); Render3D.renderFlight(Flight, 0, true); window.__pass = {}; Render3D.renderFlight(Flight, 0, true); const p = window.__pass; window.__pass = null; return p; }, off);

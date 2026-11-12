@@ -859,6 +859,58 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   gl_FragColor = vec4(c, 1.0); }`,
     })));
     api.envMap = envCube.texture;
+    skyLight();
+  }
+  // The sky light (the performance update): the rough surfaces that fill most of the screen in flight (the ground, trees,
+  // rocks, houses, the props, debris) take their sky light from the env cube's own formula, worked out here on the CPU,
+  // instead of two lookups in three's filtered cube a pixel (getIBLIrradiance, getIBLRadiance: 15-20% of a phone's
+  // frame on the bench). The cube is zonal round two axes, the scene's up (the sky's gradient and its horizon line) and
+  // the Sun (its glare and halo), so its irradiance to second order is a quadratic in n·up plus one in n·sun (Funk-Hecke:
+  // E(t) = h0/4 + h1/2 t + 5 h2/16 P2(t), h_l = 2π ∫ f P_l). Rough radiance is the irradiance / π along the blurred
+  // reflection, as three's roughest level is. Shiny things (craft, water, glass) keep the real cube
+  function skyLight() {
+    const U = S.skyL = { obUp: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, obSunC: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, obSunD: { value: new THREE.Vector3(0, 1, 0) } };
+    S.skyHook = (sh) => {
+      Object.assign(sh.uniforms, U);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <envmap_physical_pars_fragment>', SKY_IBL);
+    };
+  }
+  const SKY_IBL = `#ifdef USE_ENVMAP
+uniform vec3 obUp[ 3 ], obSunC[ 3 ], obSunD;
+vec3 obSky( const in vec3 n ) {
+	float t = n.y, s = dot( n, obSunD );
+	return max( obUp[ 0 ] + obUp[ 1 ] * t + obUp[ 2 ] * ( 1.5 * t * t - 0.5 ) + obSunC[ 0 ] + obSunC[ 1 ] * s + obSunC[ 2 ] * ( 1.5 * s * s - 0.5 ), 0.0 );
+}
+vec3 getIBLIrradiance( const in vec3 normal ) {
+	return obSky( inverseTransformDirection( normal, viewMatrix ) ) * envMapIntensity;
+}
+vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float roughness ) {
+	vec3 reflectVec = normalize( mix( reflect( - viewDir, normal ), normal, roughness * roughness ) );
+	return obSky( inverseTransformDirection( reflectVec, viewMatrix ) ) * ( envMapIntensity * RECIPROCAL_PI );
+}
+#endif`;
+  // the sky light's coefficients for the cube as updateEnv just drew it (its fragment shader, initEnv, in JS)
+  const SKYP = new Float64Array(3);
+  function skyCoeffs() {
+    const L = S.skyL;
+    if (!L) return;
+    const z = envUni.uZen.value, h = envUni.uHor.value, g = envUni.uGround.value, fx = envUni.uFx.value, sk = envUni.uSunK.value;
+    // the gradient and the horizon line, round up: h_l = 2π ∫ c(t) P_l(t) dt, by the midpoint rule (the line is 2° wide)
+    const N = 2048, hl = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < N; i++) {
+      const t = -1 + (2 * (i + 0.5)) / N, P = SKYP;
+      P[0] = 1; P[1] = t; P[2] = 1.5 * t * t - 0.5;
+      const w = t > 0 ? Math.pow(t, 0.6) : Math.pow(Math.min(-t * 3, 1), 0.6), lineK = fx * 0.25 * Math.exp(-Math.abs(t) * 30), o = t > 0 ? z : g;
+      const r = h.r + (o.r - h.r) * w + h.r * lineK, gg = h.g + (o.g - h.g) * w + h.g * lineK, b = h.b + (o.b - h.b) * w + h.b * lineK;
+      for (let l = 0; l < 3; l++) { hl[l * 3] += r * P[l]; hl[l * 3 + 1] += gg * P[l]; hl[l * 3 + 2] += b * P[l]; }
+    }
+    const dt = (2 / N) * 2 * Math.PI, E = [0.25, 0.5, 5 / 16];
+    for (let l = 0; l < 3; l++) L.obUp.value[l].set(hl[l * 3] * dt * E[l], hl[l * 3 + 1] * dt * E[l], hl[l * 3 + 2] * dt * E[l]);
+    // the Sun: k max(t, 0)^n for its glare (n 64) and halo (n 6), exactly: 2π ∫0..1 t^n P_l = 2π (1/(n+1), 1/(n+2), (3/(n+3) − 1/(n+1))/2)
+    const I = (n) => [1 / (n + 1), 1 / (n + 2), (3 / (n + 3) - 1 / (n + 1)) / 2];
+    const a = I(64), c = I(6), kA = sk, kC = fx * sk * 0.06;
+    for (let l = 0; l < 3; l++) { const k = 2 * Math.PI * (kA * a[l] + kC * c[l]) * E[l]; L.obSunC.value[l].set(k, k * 0.95, k * 0.85); }
+    L.obSunD.value.copy(envUni.uSun.value).normalize();
   }
   function updateEnv(zen, hor, ground, sun, sunK, key) {
     // only when the sky changed noticeably, and at most every 0.4 s
@@ -869,6 +921,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     envUni.uZen.value.copy(zen); envUni.uHor.value.copy(hor); envUni.uGround.value.copy(ground); envUni.uSun.value.copy(sun); envUni.uSunK.value = sunK;
     envUni.uFx.value = key === 'studio' ? 0 : 1; // (flight's reflections gain a bright horizon line and a soft halo round the Sun; the studio's cube stays as it was: c + 0·x)
     envCam.update(renderer, envScene);
+    skyCoeffs();
   }
 
   function initSky() {
@@ -919,6 +972,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // jobs: the maps being painted, a slice a frame. Earth's go first; another body's join the queue once it is
   // drawn bigger than a dot (updateBodies), so the worlds most players never get near cost nothing.
   const bodies = [], jobs = [], WAIT = {};
+  // (the deadline of the job slice running now, runJobs; the planet and cloud maps' loops look at it every few dozen
+  // pixels and give the frame back when it has passed, so a slice keeps to its few milliseconds on a slow phone too. A row
+  // of the Earth's map took ~25 ms there, six times the slice. Outside runJobs (finishJob) it is never reached)
+  let jobDue = Infinity;
+  const jobLate = () => performance.now() > jobDue;
   function initBodies() {
     const geo = sphereGeo(160, 80);
     S.sphere = geo;
@@ -945,7 +1003,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         e.mat.clippingPlanes = [e.clip];
         e.mesh = new THREE.Mesh(geo, e.mat);
         e.job = bodyJob(e);
-        if (b === EARTH) { jobs.push(e.job); e.queued = true; }
+        if (b === EARTH) { jobs.push(e.job); e.queued = true; e.job.lazy = true; } // (wanted soon, not yet: updateBodies)
       }
       e.mesh.scale.setScalar(b.radius);
       e.mesh.matrixAutoUpdate = true;
@@ -969,7 +1027,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         e.deck.scale.setScalar(b.radius + e.deckAlt);
         e.deck.renderOrder = 1;
         spaceWorld.add(e.deck);
-        if (b.clouds) { e.cloudJob = cloudJob(e); jobs.push(e.cloudJob); }
+        if (b.clouds) { e.cloudJob = cloudJob(e); e.cloudJob.lazy = true; jobs.push(e.cloudJob); } // (the deck shows from high up: updateBodies)
       }
       bodies.push(e);
     }
@@ -1000,10 +1058,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     });
   }
   // Planet maps are painted from the same terrain field as the near-surface mesh, a few rows per frame.
-  function* bodyJob(e) {
+  // lo: a quick map 2^lo times narrower (1/4^lo of the work) for a world that has to show at once, its full maps following
+  // a slice a frame (updateBodies). The first flight used to paint the whole Earth in one frame: 10 s on a slowed phone
+  function* bodyJob(e, lo = 0) {
     while (e.b === EARTH && Terrain.earthMap.state === 'loading') yield WAIT; // paint the real Earth once it has loaded
     const b = e.b, c = cfgOf(b);
-    const TW = (c.mapped ? 2048 : b.radius >= 50000 ? 1024 : 512) >> (Settings.high ? 0 : 1), TH = TW / 2, no = c.k.length;
+    const TF = (c.mapped ? 2048 : b.radius >= 50000 ? 1024 : 512) >> (Settings.high ? 0 : 1), TW = lo ? Math.max(64, TF >> lo) : TF, TH = TW / 2, no = c.k.length;
     const G = grid(TW, 1, no), hs = new Float32Array(TW * TH), dk = new Float32Array(TW * TH), ns = new Float32Array(TW * TH), cs = new Float32Array(TW * TH);
     const lk = c.mapped ? new Float32Array(TW * TH) : null; // lakes
     const cell = (TAU * c.R) / TW;
@@ -1027,6 +1087,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         hs[i] = height(c, G, x, 0, cont); dk[i] = Terrain.dark(); cs[i] = cont;
         if (lk) lk[i] = Terrain.water.pres;
         ns[i] = vnoise2((x / TW) * 64, (y / TH) * 32, 64, c.seed + 5) * 0.65 + vnoise2((x / TW) * 256, (y / TH) * 128, 256, c.seed + 6) * 0.35;
+        if ((x & 31) === 31 && jobLate()) yield;
       }
     }
     const cv = document.createElement('canvas'); cv.width = TW; cv.height = TH;
@@ -1052,6 +1113,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const l = Math.hypot(gx, gy, 1);
         imn.data[i * 4] = (-gx / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 1] = (-gy / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 2] = (0.5 / l + 0.5) * 255; imn.data[i * 4 + 3] = 255;
         if (imr) { const r = c.mapped ? lerp(90, 255, smoothstep(-5, 5, h)) : sea ? 90 : 255; imr.data[i * 4] = imr.data[i * 4 + 1] = imr.data[i * 4 + 2] = r; imr.data[i * 4 + 3] = 255; }
+        if ((x & 63) === 63 && jobLate()) yield;
       }
       if ((y & 15) === 15) yield;
     }
@@ -1078,7 +1140,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     }
     if (e.deckMat && !b.clouds) e.deckMat.map = tex;
     for (const t of old) if (t && t !== e.mat.map && t !== e.mat.roughnessMap) t.dispose();
-    e.ready = true;
+    if (lo) e.lo = true; else e.ready = true;
   }
   function* cloudJob(e) {
     const TW = Settings.high ? 1024 : 512, TH = TW / 2, cv = document.createElement('canvas');
@@ -1091,6 +1153,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
         const n = fbm3(px * 5 + 3, py * 5, pz * 9, 5, 77) + band + 0.08 * fbm3(px * 30, py * 30, pz * 30, 2, 78);
         const a = smoothstep(0.02, 0.32, n), i = (y * TW + x) * 4;
         im.data[i] = im.data[i + 1] = im.data[i + 2] = 255 - 30 * (1 - a); im.data[i + 3] = 235 * a;
+        if ((x & 31) === 31 && jobLate()) yield;
       }
       if ((y & 7) === 7) yield;
     }
@@ -1101,13 +1164,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     old.dispose();
   }
   // (a job waiting for something, Earth's for its map, goes to the back of the queue)
+  // Lazy jobs (a world's maps nobody sees yet: the other worlds painted ahead of need, the Earth's own map and cloud deck
+  // while the ground hides all but its rim) get 1 ms a frame (0.6 on Low) while nothing more urgent waits; the rest ms.
+  // A phone spent 4 ms of every frame painting planets for the first minute of a flight. (Measuring and the tests,
+  // bench.pin: every job at full speed, as before)
   function runJobs(ms) {
-    if (!jobs.length) { const e = bodies.find((q) => !q.ready && !q.queued && q.job); if (e) { jobs.push(e.job); e.queued = true; } } // idle: the other worlds, one at a time, after Earth's
+    if (!jobs.length) { const e = bodies.find((q) => !q.ready && !q.queued && q.job); if (e) { jobs.push(e.job); e.queued = true; e.job.lazy = true; } } // idle: the other worlds, one at a time, after Earth's
+    if (!jobs.length) return;
+    const u = jobs.findIndex((j) => !j.lazy);
+    if (u > 0) jobs.unshift(jobs.splice(u, 1)[0]);
+    else if (u < 0 && !api.bench.pin) ms = Math.min(ms, Settings.high ? 1 : 0.6);
     const t0 = performance.now();
+    jobDue = t0 + ms;
     for (let idle = 0; jobs.length && idle < jobs.length && performance.now() - t0 < ms;) {
       const r = jobs[0].next();
       if (r.done) { jobs.shift(); idle = 0; } else if (r.value === WAIT) { jobs.push(jobs.shift()); idle++; } else idle = 0;
     }
+    jobDue = Infinity;
   }
   // all at once (queued or not), unless it has to wait
   function finishJob(j) {
@@ -1176,6 +1249,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     terr.holeU = { value: new THREE.Vector4(1, 1, 0, 0) };
     // (one hook for the patch and the arena's own ground, each with its own cut: the same shader, so one program)
     terr.holeHook = (U) => (sh) => {
+      S.skyHook(sh); // (the sky light, skyLight)
       terr.nightHook(sh);
       sh.uniforms.uHole = U;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vHole;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHole = uv;');
@@ -1220,6 +1294,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     br.geo(new THREE.CylinderGeometry(0.22, 0.36, 3.4, 6), 0, 1.7, 0, trunk);
     br.geo(new THREE.IcosahedronGeometry(2.4, 1), 0, 4.8, 0, leaf, 0, 0, 0, 1, 0.85, 1).geo(new THREE.IcosahedronGeometry(1.7, 1), 1.1, 5.9, 0.4, leaf).geo(new THREE.IcosahedronGeometry(1.6, 1), -0.9, 5.6, -0.7, leaf);
     const smat2 = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true });
+    smat2.onBeforeCompile = S.skyHook; // (the sky light: these rough things, rocks, houses and roofs below too)
     const rock = new THREE.IcosahedronGeometry(1, 1), rp = rock.attributes.position;
     for (let i = 0; i < rp.count; i++) {
       V1.fromBufferAttribute(rp, i);
@@ -1233,6 +1308,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const inst = (g) => { const m = new THREE.InstancedMesh(g, smat2, 7000); m.count = 0; m.frustumCulled = false; return m; };
     const gTrees = [aoBake(tr.build(), AO.con, trunk), aoBake(br.build(), AO.brd, trunk)], gFar = [aoBake(trF.build(), AO.con, trunk), aoBake(brF.build(), AO.brd, trunk)]; // (baked darkening: aoBake)
     const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true, vertexColors: true });
+    rockMat.onBeforeCompile = S.skyHook;
     aoBake(rock, AO.stone);
     // villages (walls and roofs) and boats at sea, on Earth
     const unit = aoBake(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), AO.wall);
@@ -1240,6 +1316,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // half the sky light: shaded walls lit by the blue sky alone turned whole cities blue
     const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5, vertexColors: true });
     const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6, vertexColors: true });
+    hmat.onBeforeCompile = roofMat.onBeforeCompile = S.skyHook;
     const boatG = boatGeo(), boatMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0 });
     S.cityU = { uScale: { value: 1 }, uMin: { value: 1.6 }, uAlpha: { value: 0 } };
     const lightMat = smat({ uniforms: S.cityU, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
@@ -2457,6 +2534,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const G = PR.geo;
     for (const [i, f, t] of [[0, AO.box], [1, AO.roof], [2, AO.cyl], [3, AO.roof], [4, AO.con, trunk], [5, AO.brd, trunk], [6, AO.bush], [7, AO.rock], [8, AO.hedge], [9, AO.con, trunk], [10, AO.brd, trunk], [11, AO.bush]]) aoBake(G[i], f, t);
     PR.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, envMapIntensity: 0.55 });
+    PR.mat.onBeforeCompile = S.skyHook; // (the sky light, skyLight)
     return PR.geo;
   }
   // Level of detail (the coordinator's battery pass): trees, bushes, walls and hedges past `near` m from the camera's focus
@@ -2706,18 +2784,22 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     Object.assign(S.clouds, { b, a0, z0, list, n: k, vols, sortAt: -9, sortP: null });
   }
   // The puffs are see-through, so they are drawn far to near: re-sorted a few times a second.
-  const puffKey = new Float32Array(CLOUD_MAX), puffIdx = new Uint32Array(CLOUD_MAX);
+  // (the sort: each puff's distance² as float32 bits, which order as the floats do, times 2^13 plus its index, in one
+  // Float64Array sorted natively, no comparator; the far end first. A third of the cost of the clouds on a phone was the
+  // comparator's calls)
+  const puffKey = new Float32Array(1), puffBits = new Uint32Array(puffKey.buffer), puffOrd = new Float64Array(CLOUD_MAX);
   function sortPuffs(cam) {
     const C0 = S.clouds, L = C0.list, n = C0.n;
     if (!L) { S.puffs.count = 0; return; }
     for (let k = 0; k < n; k++) {
       const o = k * 8, dx = L[o] - cam.x, dy = L[o + 1] - cam.y, dz = L[o + 2] - cam.z;
-      puffKey[k] = dx * dx + dy * dy + dz * dz; puffIdx[k] = k;
+      puffKey[0] = dx * dx + dy * dy + dz * dz;
+      puffOrd[k] = puffBits[0] * 8192 + k;
     }
-    const idx = puffIdx.subarray(0, n).sort((p, q) => puffKey[q] - puffKey[p]);
+    const ord = puffOrd.subarray(0, n).sort();
     const m = S.puffs.instanceMatrix.array, at = S.puffAttr.array;
     for (let j = 0; j < n; j++) {
-      const o = idx[j] * 8, s = L[o + 3], w = j * 16, v = j * 4;
+      const o = (ord[n - 1 - j] % 8192) * 8, s = L[o + 3], w = j * 16, v = j * 4;
       m[w] = s; m[w + 1] = 0; m[w + 2] = 0; m[w + 3] = 0; m[w + 4] = 0; m[w + 5] = s; m[w + 6] = 0; m[w + 7] = 0;
       m[w + 8] = 0; m[w + 9] = 0; m[w + 10] = s; m[w + 11] = 0; m[w + 12] = L[o]; m[w + 13] = L[o + 1]; m[w + 14] = L[o + 2]; m[w + 15] = 1;
       at[v] = L[o + 4]; at[v + 1] = L[o + 5]; at[v + 2] = L[o + 6]; at[v + 3] = L[o + 7];
@@ -2737,7 +2819,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function initSpaceCentre() {
     const g = S.sc = new THREE.Group();
     localWorld.add(g);
-    const stdMat = (o) => new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.85, metalness: 0.05 }, o));
+    const stdMat = (o) => {
+      const m = new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.85, metalness: 0.05 }, o));
+      if (m.roughness >= 0.7) { m.obSky = true; m.onBeforeCompile = S.skyHook; } // (the sky light on the rough ones: runways, roads, concrete, walls)
+      return m;
+    };
     const night = S.nightMats = [];
     const lit = (o) => { const m = stdMat(Object.assign({ emissive: 0xffffff, emissiveIntensity: 0 }, o)); night.push(m); return m; };
     const place = (obj, e, h, z) => { surf(e, h, z, obj.position); obj.rotation.z = -e / EARTH.radius; g.add(obj); obj.castShadow = obj.receiveShadow = true; return obj; };
@@ -3122,10 +3208,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // ignores polygon offset), so paving stays on top of the coarser terrain mesh under it when seen from afar.
   function depthBias(m, k = 3e-4) {
     const s = (1 - k).toFixed(7);
+    const sky = !!m.obSky;
     m.onBeforeCompile = (sh) => {
+      if (sky) S.skyHook(sh);
       sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>\ngl_Position = projectionMatrix * vec4(mvPosition.xyz * ${s}, 1.0);`);
     };
-    m.customProgramCacheKey = () => 'bias' + s;
+    m.customProgramCacheKey = () => 'bias' + s + (sky ? 'sky' : '');
     return m;
   }
   // Scenery keeps off the airfields (their strip and the levelled ground round it, apron and buildings included),
@@ -3981,6 +4069,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // calm: paused or under a dialog, drawn a few times a second (App.frame), which isn't a slow frame
   function renderFlight(F, dt, calm) {
     if (!api.ready || !shown || !F || !F.active) return;
+    if (mode !== 'flight') { perf.skip = 30; perf.n = 0; } // (into flight: its first frames compile and build, not counted)
     mode = 'flight';
     dt = clamp(dt || 0, 0, 0.1);
     clock += dt; frameNo++;
@@ -4232,12 +4321,23 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
       if (e.clip && (b !== cur || !S.cut)) { e.clip.normal.set(0, 0, 1); e.clip.constant = 1e30; }
       if (!e.ready && !e.queued && pr > 2) { jobs.push(e.job); e.queued = true; } // its maps, once it is more than a dot
+      if (!e.ready && e.job && b !== cur) e.job.lazy = pr < 40; // (a disc of a few pixels: no hurry)
+      if (e.cloudJob && b === cur) e.cloudJob.lazy = d - b.radius < 3000; // (the deck: from 3 km up)
       if (e.sunV) e.sunV.copy(S.sunS.position).normalize().transformDirection(camera.matrixWorldInverse);
       if (e.glow) {
         e.glow.position.set(x, y, z);
         e.glow.scale.setScalar(Math.max(b.radius * 9, d * 0.09));
       }
-      if (!b.star && !e.ready && pr > 40 && e.job) finishJob(e.job);
+      // big on the screen and not yet painted: a quick map at once (its full maps first in the queue, a slice a frame)
+      // (the world we are on, within 30 km of its ground: the ground hides all but its rim, so a map an eighth as wide does
+      // and its full maps can wait; seen from further off a quarter as wide, its full maps at full speed: from orbit it
+      // sharpens over the next seconds instead of freezing the first frame)
+      if (!b.star && !e.ready && pr > 40 && e.job) {
+        const low = b === cur && d - b.radius < 30000;
+        if (!e.lo) finishJob(e.quick || (e.quick = bodyJob(e, low ? 3 : 2)));
+        e.job.lazy = low;
+        if (!e.queued) { jobs.push(e.job); e.queued = true; }
+      }
       // atmosphere glow seen from outside
       if (e.atm) {
         e.atm.position.set(x, y, z);
@@ -4961,17 +5061,31 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
   // ------------------------------------------------------------------ quality, sizing, API
   // Adaptive resolution: when frames run long, render fewer pixels (down to 55%) and win them back when
-  // there is time to spare. The HUD is HTML, so it stays sharp either way.
+  // there is time to spare. The HUD is HTML, so it stays sharp either way. A change resizes the canvas (a hitch of its
+  // own on a phone), so: one change in 1.5 s at most, the frames just after one not counted, and a step down kept only if
+  // it made the frames faster (a phone slowed by its CPU, not its pixels, kept blurring all the way down to 55% for
+  // nothing: the step is taken back and none is tried again for 20 s)
   const perf = { ema: 1 / 60, scale: 1, at: 0 };
+  Object.assign(perf, { skip: 0, n: 0, probe: null, lock: 0 });
   function adaptResolution(dt) {
     if (api.bench.pin) { if (perf.scale !== 1) { perf.scale = 1; resize(W, H, DPR); } return; } // (measuring: the pixel ratio held at basePixelRatio())
     if (!(dt > 0)) return;
+    if (perf.skip > 0) { perf.skip--; return; } // (the resize's own hitch; a flight's first frames)
+    const now = performance.now();
     perf.ema += (Math.min(dt, 0.1) - perf.ema) * 0.08;
-    if (clock - perf.at < 0.6) return;
+    if (++perf.n < 24 || now - perf.at < 1500) return; // (the average settled: 24 frames and 1.5 s since the last change)
+    const P = perf.probe;
+    if (P) { perf.probe = null; if (perf.ema > P.ema * 0.95) { scaleTo(P.scale, now); perf.lock = now + 20000; return; } } // (it didn't help: back)
     let k = perf.scale;
-    if (perf.ema > 1 / 42) k = Math.max(0.55, k - 0.08);
-    else if (perf.ema < 1 / 57) k = Math.min(1, k + 0.04);
-    if (k !== perf.scale) { perf.scale = k; perf.at = clock; renderer.setPixelRatio(basePixelRatio() * k); renderer.setSize(W, H, true); }
+    if (perf.ema > 1 / 42) { if (now >= perf.lock) k = Math.max(0.55, +(k - 0.1).toFixed(2)); }
+    else if (perf.ema < 1 / 57) k = Math.min(1, +(k + 0.05).toFixed(2));
+    if (k === perf.scale) return;
+    if (k < perf.scale) perf.probe = { ema: perf.ema, scale: perf.scale };
+    scaleTo(k, now);
+  }
+  function scaleTo(k, now) {
+    perf.scale = k; perf.at = now; perf.n = 0; perf.skip = 3;
+    renderer.setPixelRatio(basePixelRatio() * k); renderer.setSize(W, H, true);
   }
   const basePixelRatio = () => (Settings.high ? Math.min(DPR, 1.75) : 1);
   function applyQuality() {
@@ -5218,7 +5332,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     mode = 'globe';
     clock += dt || 0;
     const b = v.body, R = b.radius, e = bodies.find((q) => q.b === b);
-    if (e && !e.ready && !e.queued && e.job) { jobs.unshift(e.job); e.queued = true; } // (its maps first)
+    if (e && !e.ready && e.job) { e.job.lazy = false; if (!e.queued) { jobs.unshift(e.job); e.queued = true; } } // (its maps first, at full speed)
     runJobs(Settings.high ? 4 : 2.5); // (the flight view, which usually runs them, isn't drawn while the map is open)
     if (e && e.mat && GL.mat.map !== e.mat.map) { GL.mat.map = e.mat.map; GL.mat.normalMap = e.mat.normalMap !== S.flatN ? e.mat.normalMap : null; GL.mat.needsUpdate = true; }
     if (e && !e.mat && e.sunU) { GL.mat.map = e.sunU.uMap.value; GL.mat.emissiveMap = GL.mat.map; GL.mat.emissive.setRGB(1, 1, 1); GL.mat.needsUpdate = true; }
@@ -5309,6 +5423,30 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       };
     },
     _patchChunks: patchChunks, // (test/fx.test.js: run on Node's copy of three)
+    // tests only (the performance update): the sky light at a world direction as the shaders work it out (skyLight), the
+    // env cube's own colour in a direction (initEnv's shader, in JS), the job queue (lazy or not) and the worlds' maps
+    // (quick, full), and one slice of the queue (its time, ms)
+    _t: {
+      sky(x, y, z) {
+        const L = S.skyL, u = L.obUp.value, c = L.obSunC.value, d = L.obSunD.value, t = y, q = x * d.x + y * d.y + z * d.z, P = (v) => 1.5 * v * v - 0.5;
+        return [0, 1, 2].map((i) => { const k = ['x', 'y', 'z'][i]; return Math.max(0, u[0][k] + u[1][k] * t + u[2][k] * P(t) + c[0][k] + c[1][k] * q + c[2][k] * P(q)); });
+      },
+      env(x, y, z) {
+        const U = envUni, zc = U.uZen.value, h = U.uHor.value, g = U.uGround.value, s = U.uSun.value, e = y, fx = U.uFx.value, k = U.uSunK.value;
+        const w = e > 0 ? Math.pow(e, 0.6) : Math.pow(Math.min(-e * 3, 1), 0.6), o = e > 0 ? zc : g, dS = Math.max(x * s.x + y * s.y + z * s.z, 0), line = fx * 0.25 * Math.exp(-Math.abs(e) * 30);
+        const sun = k * Math.pow(dS, 64) + fx * k * 0.06 * Math.pow(dS, 6), W = [1, 0.95, 0.85];
+        return ['r', 'g', 'b'].map((c, i) => h[c] + (o[c] - h[c]) * w + h[c] * line + W[i] * sun);
+      },
+      jobs: () => ({ n: jobs.length, lazy: jobs.map((j) => !!j.lazy), worlds: bodies.filter((e) => !e.b.star).map((e) => ({ name: e.b.name, ready: !!e.ready, lo: !!e.lo, queued: !!e.queued })) }),
+      runJobs(ms) { const t = performance.now(); runJobs(ms); return performance.now() - t; },
+      perf: () => ({ ...perf }),
+      skyOn: () => {
+        const has = (m) => { const p = m && renderer.properties.get(m).currentProgram; return p ? !!p.getUniforms().map.obUp : null; }, sc = S.scen[0];
+        let craft = null;
+        for (const [, e] of vessels) { if (e && e.vm) e.vm.traverse((c) => { if (!craft && c.isMesh && c.visible && c.material && c.material.isMeshStandardMaterial && !c.material.userData.glass) craft = c.material; }); if (craft) break; }
+        return { ground: has(terr.mat), trees: has(sc.trees[0].material), props: PR.mat ? has(PR.mat) : null, craft: has(craft) };
+      },
+    },
     // the props' sets (tests, measurements): shown, filled, instances per piece
     propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.meshes.map((m) => (m ? m.count : 0)), slots: s.first ? s.first[s.first.length - 1] : 0, drawn: s.drawn, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing

@@ -440,8 +440,8 @@ const App = {
     q.value = Settings.get('quality');
     q.addEventListener('change', () => Settings.set('quality', q.value));
     const fps = el('select', { id: 'set-fps' });
-    fps.innerHTML = '<option value="60">60 fps: saves battery, runs cooler</option><option value="0">Unlimited: as fast as the screen refreshes</option>';
-    fps.value = Settings.get('fps') > 0 ? '60' : '0';
+    fps.innerHTML = '<option value="30">30 fps: battery saver, coolest</option><option value="60">60 fps: saves battery, runs cooler</option><option value="0">Unlimited: as fast as the screen refreshes</option>';
+    fps.value = Settings.get('fps') === 30 ? '30' : Settings.get('fps') > 0 ? '60' : '0';
     fps.addEventListener('change', () => Settings.set('fps', +fps.value));
     const hints = el('input', { id: 'set-hints', type: 'checkbox' }); hints.checked = Settings.get('hints');
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
