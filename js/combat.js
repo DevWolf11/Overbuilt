@@ -93,7 +93,7 @@ const Combat = (() => {
       return;
     }
     if (p.def.module) return Armour.moduleDown(v, p, cause, sim); // (a track, a gun's breech, a crew seat: broken, not gone)
-    if (p.def.drone && p.def.drone.warhead && Drone.cookOff(v, p, cause, sim)) return; // (a drone's warhead at 0 hp bursts, drone.js)
+    if (p.def.drone && (p.def.drone.warhead || p.def.weapon) && Drone.cookOff(v, p, cause, sim)) return; // (a drone's payload at 0 hp bursts, and the drone with it: drone.js)
     const n0 = sim.vessels ? sim.vessels.length : 0; // (the pieces it makes are pushed after these)
     let det = false; // (the rare mid-air detonation: today's body, then death.js's)
     if (Death.airRule(v, p, cause)) {
@@ -421,7 +421,7 @@ const Combat = (() => {
       const rd = typeof Radar !== 'undefined' && Radar.mainRadar(v);
       s.act = w.active || 0; s.link = !!(rd && rd.R.guide >= 2);
     }
-    if (!A && w.heat) s.pen = w.heat; // (the big update: a drone's mini missile, a shaped charge on an optical ground seeker)
+    if (!A && w.heat) { s.pen = w.heat; if (v.kind === 'drone') s.drone = 1; } // (the big update: a drone's mini missile, a shaped charge on an optical ground seeker; drone: armour.js's drone jet)
     S.shots.push(s);
     release(v, p);
     if (v === sim.active) { if (w.glide) Sound.separate(); else Sound.missile(); }
@@ -570,7 +570,7 @@ const Combat = (() => {
       // heat seekers see a hot target further (and a cold one, or one seen from the front, much closer);
       // radar needs the craft's own radar to see the target (radar.js: its cone, reach, look-down, not notching) and
       // keeps its lock anywhere within its field; the target the player picked (I, a tap) wins over the nearest the nose
-      const range = rangeOf(v, w), fwd = cur.def.aim ? Aim.aimDir(v, undefined, F) : noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
+      const range = rangeOf(v, w), fwd = cur.def.aim ? Aim.aimDir(v, undefined, F) : v.kind === 'drone' ? Drone.camDir(v, F) : noseDir(v), air = w.seek === 'air', heat = air && !w.radar, sarh = air && w.radar;
       const cands = candidates(v, w.seek, F), ir = (heat || w.seek === 'top') && S.smoke.length > 0; // (smoke hides a target from an IR seeker)
       const RD = typeof Radar !== 'undefined' ? Radar : null, pick = RD ? RD.S.pick : null, rs = (t) => !!RD && RD.sees(v, t, refPos(t), 'guide') === true;
       let best = null, ba = w.cone;

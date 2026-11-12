@@ -1303,7 +1303,8 @@ const MP = {
     // design gone, and never sent again) the bay the spawn names, a real bay part (P4-MP-2)
     const docks = P.design && Array.isArray(P.design.parts) ? P.design.parts.map((r) => r[1]) : (P.bays || []).concat(typeof m.bay === 'string' ? [m.bay] : []);
     const parts = this.partsOfRows(rows), D = parts.length ? { kind: 'drone', parts } : null;
-    if (!D || !docks.some((k) => hasOwn(PARTS, k) && PARTS[k].dock && Drone.fits(D, PARTS[k].dock).ok)) return;
+    const free = !!this.state && this.state.mode === 'sandbox'; // (a sandbox room: a bay takes a drone of any price, as the sender's does)
+    if (!D || !docks.some((k) => hasOwn(PARTS, k) && PARTS[k].dock && Drone.fits(D, PARTS[k].dock, free).ok)) return;
     this.dropExtraGhost(m.f, 0); // (one at a time: an older one, and this one's old ghost, go)
     if (!P.x) P.x = new Map();
     const E = { c, design: { kind: 'drone', parts: rows }, ghost: null, snap: null, recv: performance.now(), asked: 0, gun: {} }; // (recv: silent 15 s from its spawn, it goes)

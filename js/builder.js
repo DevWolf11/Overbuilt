@@ -2558,7 +2558,7 @@ const Builder = {
     const t = hasOwn(TEMPLATES, D.stock) && TEMPLATES[D.stock].kind === 'drone' ? TEMPLATES[D.stock] : null, stock = t ? t.name : 'its stock drone';
     const c = this.droneChoice, des = c && this.choiceDesign(c);
     if (!des) return { name: stock, n: D.n, chosen: null, why: null };
-    const f = Drone.fits(des, D);
+    const f = Drone.fits(des, D, Drone.freeBays()); // (sandbox: any price)
     return f.ok ? { name: des.name, n: D.n, chosen: des.name, why: null } : { name: stock, n: D.n, chosen: des.name, why: f.why };
   },
   // a pick as a design ({ name, kind, parts }), or null (a stock drone this game doesn't have)
@@ -2586,7 +2586,7 @@ const Builder = {
       ...this.designs().filter((x) => x.kind === 'drone').map((x) => ({ choice: { name: x.name, parts: x.parts }, d: x })),
     ];
     for (const { choice, d } of cards) {
-      const ps = partsFromDesign(d.parts), st = Drone.stats(ps), f = Drone.fits({ kind: 'drone', parts: ps }, D);
+      const ps = partsFromDesign(d.parts), st = Drone.stats(ps), f = Drone.fits({ kind: 'drone', parts: ps }, D, Drone.freeBays());
       const span = typeof MP !== 'undefined' && MP.measure ? MP.measure(ps).span : 0, name = String(d.name || 'Drone').slice(0, 40);
       const line = `${st.kg.toFixed(1)} kg · ${span.toFixed(2)} m · ${money(designCost(ps))}`;
       const main = el('button', { class: 'design-main', title: f.ok ? `Carry the ${name}` : f.why },

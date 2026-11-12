@@ -27,6 +27,7 @@ const DRONE = {
   SPIN: { YAW: 3, SINK: 3, THR: 0.6 }, // a multirotor short of motors (a quad down one, a hex or octo down two): it spins, sinks, throttle capped
   WING: { DIVE: 0.7, CLIMB: 0.4, BANK: 0.8, KA: 3, HOLDK: 0.03, VSK: 0.02, PCAP: 0.2, STALL: 1.25, SBANK: 0.5, ACRO: [2, 3, 0.5], RUD: 0.5 },
   ARM_D: 20, ARM_T: 2, FUSE_V: 4, AHEAD: 0.3, // safe-arm (m from launch, s); ground touch that sets it off (m/s); fuse look-ahead (m)
+  JET_V: 4, JET_R: 3,                 // a warhead's jet along the way it flies from this speed (m/s; slower along its nose); how far ahead it still meets a plate (m)
   LINK: { DT: 0.2, LOS_DT: 0.5, LOS_N: 10, LOS_K: 0.35, STATIC: 0.6, LAG: 0.4, LAGMAX: 0.2, LOST: 0.15, LOST_T: 0.5,
           BACK: 0.35, BACK_T: 0.5, HANDBACK: 5, JAM_IN: 0.35, K: { radio: 1, long: 0.6, sat: 0.25, fibre: 0 }, STATION: 3, HOME_UP: 2 },
   BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2, LEAK: 0.1 }, // (LEAK: a cell under half its hp loses this share of its full charge a second per (0.5 − hp fraction): 1 %/s at 40 % hp, 4 %/s at 10 %)
@@ -346,20 +347,51 @@ const Drone = (() => {
       for (let i = 0; i < 4; i++) v = Math.min(vLean(leff), F.vmax - theq(v) / DRONE.KV);
       out.vTop = Math.max(0, v); out.vAcro = vLean(lmax); out.lean = leff;
     }
-    for (const k in PARTS) { const D = PARTS[k].dock; if (!D) continue; const f = fits(parts, D); if (f.ok) out.fits.push(k); else out.why[k] = f.why; }
+    const free = freeBays();
+    for (const k in PARTS) { const D = PARTS[k].dock; if (!D) continue; const f = fits(parts, D, free); if (f.ok) out.fits.push(k); else out.why[k] = f.why; }
     return out;
   }
 
+  // (the drones' balance) The way a drone's camera looks, in the sim (render3d's fpvEye, without the eye): a gimbal
+  // along the heading, level, turned by Flight.gim; an FPV camera along the frame tilted up by its tilt (70° down at a
+  // drop with a bomb selected); with no camera, the frame's +x. The Mini Missiles' seeker looks the same way (Combat's
+  // lock), so what is near the middle of the picture is what it locks.
+  const CAMT = { x: 0, y: 0, z: 0 };
+  function camDir(v, F, out) {
+    out = out || { x: 0, y: 0, z: 0 };
+    const cp = v && v.dr && v.dr.cam, c = cp && cp.def.drone.cam;
+    if (!c) return v.axis(1, 0, 0, out);
+    if (c.gimbal) {
+      const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, f = v.axis(1, 0, 0, CAMT), k = f.x * ux + f.y * uy + f.z * uz;
+      let fx = f.x - ux * k, fy = f.y - uy * k, fz = f.z - uz * k;
+      if (Math.hypot(fx, fy, fz) < 1e-6) { fx = -uy; fy = ux; fz = 0; }
+      const L = Math.hypot(fx, fy, fz) || 1; fx /= L; fy /= L; fz /= L;
+      const rx = fy * uz - fz * uy, ry = fz * ux - fx * uz, rz = fx * uy - fy * ux;
+      const G = (F && F.gim) || { yaw: 0, pitch: 0 }, cy = Math.cos(G.yaw || 0), sy = Math.sin(G.yaw || 0), cpi = Math.cos(G.pitch || 0), spi = Math.sin(G.pitch || 0);
+      const hx = fx * cy + rx * sy, hy = fy * cy + ry * sy, hz = fz * cy + rz * sy;
+      out.x = hx * cpi + ux * spi; out.y = hy * cpi + uy * spi; out.z = hz * cpi + uz * spi;
+      return out;
+    }
+    const sys = typeof Combat !== 'undefined' ? Combat.systems(v)[v.wsel] : null, t = sys && sys.w.kind === 'bomb' ? -1.2217 : c.tilt || 0;
+    return v.axis(Math.cos(t), Math.sin(t), 0, out);
+  }
+  // (the drones' balance) Is a bay's price cap off? In sandbox play (Career.sandbox) and in a sandbox room a bay takes a
+  // drone of any price; career, battles and the rooms' battles keep the cap (F: a flight, for its room's mode)
+  function freeBays(F) {
+    if (typeof MP !== 'undefined' && MP.live && MP.state) return MP.state.mode === 'sandbox';
+    if (F && F.mp) return F.mp.mode === 'sandbox';
+    return typeof Career !== 'undefined' && !!Career.sandbox;
+  }
   // Does a design fit a bay (def.dock)? { ok, why } with the picker's words. A design object ({ kind, parts }) must be a
-  // drone; rows or parts are taken as one.
-  function fits(x, D) {
+  // drone; rows or parts are taken as one. free: no price cap (freeBays): its weight, width, parts and kind still count.
+  function fits(x, D, free) {
     const design = x && !Array.isArray(x) ? x : null, parts = partsOf(design ? design.parts : x);
     if (!D) return { ok: false, why: 'Not a drone bay' };
     if ((design && design.kind !== 'drone') || !parts.length || !hasFC(parts)) return { ok: false, why: 'Not a drone' };
     if (parts.some((p) => p.def.gv || p.def.dock)) return { ok: false, why: 'Armour parts don\'t fly' };
     if (parts.length > DRONE.MAX_PARTS) return { ok: false, why: `Too many parts: ${parts.length} of ${DRONE.MAX_PARTS}` };
     const cost = designCost(parts), kg = parts.reduce((s, p) => s + partKg(p), 0), span = spanOf(parts);
-    if (cost > D.budget) return { ok: false, why: `Too dear: ${money(cost)} of ${money(D.budget)}` };
+    if (cost > D.budget && !free) return { ok: false, why: `Too dear: ${money(cost)} of ${money(D.budget)}` };
     if (kg > D.kg) return { ok: false, why: `Too heavy: ${num(kg)} of ${num(D.kg)} kg` };
     if (span > D.span + 1e-9) return { ok: false, why: `Too wide: ${num(span)} of ${num(D.span)} m` };
     const wing = isWinged(parts);
@@ -878,7 +910,7 @@ const Drone = (() => {
     const D = bay.def.dock, c = C.droneChoice, rows = c ? choiceRows(c) : null;
     const T = typeof TEMPLATES !== 'undefined' && D.stock && hasOwn(TEMPLATES, D.stock) && TEMPLATES[D.stock].kind === 'drone' ? TEMPLATES[D.stock] : null;
     const name = c ? (c.key ? (T && c.key === D.stock ? T.name : typeof TEMPLATES !== 'undefined' && hasOwn(TEMPLATES, c.key) ? TEMPLATES[c.key].name : 'Drone') : c.name) : null;
-    if (rows && fits({ kind: 'drone', parts: rows }, D).ok) return { rows, name: name || 'Drone' };
+    if (rows && fits({ kind: 'drone', parts: rows }, D, freeBays(F)).ok) return { rows, name: name || 'Drone' };
     if (!T) return null;
     if (rows && C._fitSaid !== bay.type) { C._fitSaid = bay.type; say(F, `The ${name} doesn't fit a ${bay.def.name}: launching a ${T.name}`, 'warn'); }
     return { rows: choiceRows({ key: D.stock }), name: T.name };
@@ -1385,12 +1417,18 @@ const Drone = (() => {
     if (why === 'fire' && !dl.arm) { say(F, `Not armed yet: fly ${DRONE.ARM_D} m clear`, 'warn'); return false; }
     if (dl.boom) return false;
     dl.boom = true;
-    const w = p.def.drone.warhead, b = v.body, P = at || headAt(v, p), sp = v.speed(), ax = partAxis(p), nose = v.axis(ax.x, ax.y, 0);
-    const vel = sp >= 15 ? { x: v.vx, y: v.vy, z: v.vz } : { x: nose.x * 15, y: nose.y * 15, z: nose.z * 15 }; // (the jet always points somewhere)
-    const vl = Math.hypot(vel.x, vel.y, vel.z) || 1;
-    const s = { k: 'missile', seek: 'top', b, x: P.x, y: P.y, z: P.z, vx: vel.x, vy: vel.y, vz: vel.z, dx: vel.x / vl, dy: vel.y / vl, dz: vel.z / vl,
-      pen: w.pen, tandem: !!w.tandem, he: w.he, blast: w.blast, dmg: w.dmg, t: 0, life: 9, owner: v, enemy: !!v.ai && !v.ai.ally, spare: v }; // (t 0, spare: its own blast leaves the drone itself to the end)
+    const w = p.def.drone.warhead, b = v.body, sp = v.speed(), ax = partAxis(p), nose = v.axis(ax.x, ax.y, 0);
+    let P = at || headAt(v, p);
+    // (the jet along the way it flew, from 4 m/s: a slow dive's jet still goes down into the roof, not along a nose
+    // pitched forward; slower still, along its nose. The jet always points somewhere)
+    const k = sp >= DRONE.JET_V ? Math.max(15, sp) / sp : 0, vel = k ? { x: v.vx * k, y: v.vy * k, z: v.vz * k } : { x: nose.x * 15, y: nose.y * 15, z: nose.z * 15 };
+    const vl = Math.hypot(vel.x, vel.y, vel.z) || 1, dir = { x: vel.x / vl, y: vel.y / vl, z: vel.z / vl };
+    const s = { k: 'missile', seek: 'top', b, x: P.x, y: P.y, z: P.z, vx: vel.x, vy: vel.y, vz: vel.z, dx: dir.x, dy: dir.y, dz: dir.z,
+      pen: w.pen, tandem: !!w.tandem, he: w.he, blast: w.blast, dmg: w.dmg, t: 0, life: 9, owner: v, enemy: !!v.ai && !v.ai.ally, spare: v, drone: 1 }; // (t 0, spare: its own blast leaves the drone itself to the end; drone: armour.js's drone jet)
     p.ammo = 0;
+    // (a shaped charge set off by what wasn't a plated vehicle's new part (the ground beside one, its bump, a frame
+    // touching first): the jet still meets the plates within JET_R m ahead of it)
+    if (w.pen > 0 && !(hv && hv.plated && hp && hp.def.gv && !hv.wreck)) { const q = jetMeets(v, F, P, dir); if (q) { hv = q.o; hp = q.p; P = q.at; s.x = P.x; s.y = P.y; s.z = P.z; } }
     if (w.pen > 0 && hv && hv.plated && hp && hp.def.gv && !hv.wreck) Armour.legacyHit(s, hv, hp, P, F); // (never with pen 0: legacyHit's HEAT default is 700 mm)
     else Combat.explode(b, P, w.blast, w.dmg, v, F, false, w.he, v);
     const air = airDensity(b, Math.hypot(P.x, P.y, P.z) - b.radius) > 0.01;
@@ -1399,6 +1437,18 @@ const Drone = (() => {
     shatter(v, F, false);
     void why;
     return true;
+  }
+  // the first plated vehicle's new part within JET_R m of P along dir (not the drone's own tank, not a wreck): { o, p, at }
+  function jetMeets(v, F, P, dir) {
+    const r = DRONE.JET_R, a = { x: P.x - dir.x * 0.3, y: P.y - dir.y * 0.3, z: P.z - dir.z * 0.3 }, e = { x: P.x + dir.x * r, y: P.y + dir.y * r, z: P.z + dir.z * r };
+    let best = null, bt = 2;
+    for (const o of F.vessels || []) {
+      if (o === v || o === v.carrier || !o.plated || o.dead || o.wreck || o.foreign || o.body !== v.body || !o.parts.length) continue;
+      if (Math.hypot(o.x - P.x, o.y - P.y, o.z - P.z) > (o.reach || 10) + r + 1) continue;
+      const q = Armour.hitFirst(o, a, e);
+      if (q && q.t < bt && q.p.def.gv) { bt = q.t; best = { o, p: q.p, at: lerp(a, e, q.t) }; }
+    }
+    return best;
   }
   // The drone is gone (its warhead went off or cooked off): no parts left, dead. The flown one ends its flight (a drone
   // from a bay hands back to its tank: Flight.onDestroyed's first line); an unflown one of ours is told to the room; an AI
@@ -1416,19 +1466,54 @@ const Drone = (() => {
     if (v === F.active) { if (!v.carrier) F.crashedAt = F.time || 0; if (F.onDestroyed) F.onDestroyed(); }
     else if (!v.ai) mpDrop(F, v, 'down', whoDid(v, F));
   }
-  // (Combat.destroyPart's third line) A warhead shot to 0 hp: it bursts as high explosive only (no jet), with 0.6 of its
-  // damage, the hitter's blast, and the drone is gone. Shooting a drone near your own tank is a risk. true: handled.
+  // (Combat.destroyPart's third line) A payload shot to 0 hp (a warhead, a grenade dropper or bomb rack with rounds
+  // left, mini missiles on their rail) cooks off, and the drone goes with everything else aboard (die). true: handled.
   function cookOff(v, p, cause, sim) {
     if (!v || v.remote || v.foreign || v.dead) return false;
     const dl = state(v);
-    if (dl.boom) { p.hp = 0; return true; } // (its own detonation's blast: shatter has it)
-    dl.boom = true;
-    const w = p.def.drone.warhead, at = headAt(v, p);
-    p.hp = 0; p.ammo = 0;
-    Combat.explode(v.body, at, w.blast, w.dmg * 0.6, v.lastHitBy || v, sim, true, w.he, v);
-    if (!v.ai && v !== sim.active && Combat.byMe(v.lastHitBy, sim) && typeof Death !== 'undefined') Death.feedback('SHOT DOWN', sim);
-    shatter(v, sim, true);
+    if (dl.boom) { if (p.def.drone.warhead) { p.hp = 0; return true; } return false; } // (its own detonation's blast: shatter has it)
+    if (!payload(p)) return false; // (an empty rack: an ordinary part)
     void cause;
+    return die(v, sim, 'cook', p);
+  }
+  // A payload: a live warhead, or a dropper, rack or rail with rounds left
+  function payload(p) {
+    const d = p.def;
+    if (!d.drone) return false;
+    if (d.drone.warhead) return p.ammo !== 0;
+    return !!d.weapon && (d.weapon.kind === 'bomb' || d.weapon.kind === 'missile') && p.ammo > 0;
+  }
+  // (the drones' balance) A drone dies with its payloads aboard (shot down, its controller burnt out, every rotor gone,
+  // a payload shot, a crash of any kind: Death's air check, crash and impact, destroyPart's cook-off): each one goes
+  // off at once where it is, as high explosive only (no jet: only the fuse's contact makes one), 0.6 of its damage and
+  // all its rounds', credited to whoever brought the drone down (its killer within 20 s, else the drone: its owner's),
+  // and the drone is gone. Never a clean landing (nothing breaks), a dock or a drone gone after its lost timer; a crash
+  // by its own tank keeps the safe-arm rule (it never blows up its own tank). first: the payload hit first, first.
+  // true: it went up (the drone is dead).
+  function die(v, sim, why, first) {
+    if (!v || v.kind !== 'drone' || v.remote || v.foreign || v.dead || !v.parts.length || !sim) return false;
+    const L = v.parts.filter((p) => p !== first && payload(p));
+    if (first && v.parts.includes(first)) L.unshift(first);
+    if (!L.length) return false;
+    const C = v.carrier;
+    if (why === 'crash' && C && !C.dead && Math.hypot(v.x - C.x, v.y - C.y, v.z - C.z) < (C.reach || 5) + (v.reach || 0) + 1) return false; // (by its own tank: safe)
+    const dl = state(v);
+    if (dl.boom) return false;
+    dl.boom = true;
+    const t = sim.time || 0, hit = v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null, by = (v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
+    if (by) v.lastHitBy = by;
+    const b = v.body, air = airDensity(b, v.altitude()) > 0.01;
+    let big = 0, P = null;
+    for (const p of L) {
+      const d = p.def, w = d.drone.warhead || d.weapon, n = d.drone.warhead ? 1 : Math.max(1, p.ammo | 0), at = headAt(v, p);
+      p.ammo = 0;
+      if (d.drone.warhead) p.hp = 0;
+      Combat.explode(b, at, w.blast || 1, (w.dmg || 0) * 0.6 * n, by || v, sim, true, w.he, v);
+      if ((w.blast || 1) > big) { big = w.blast || 1; P = at; }
+    }
+    if (P && why !== 'cook') FX.explosion(b, P, { x: v.vx * 0.2, y: v.vy * 0.2, z: v.vz * 0.2 }, big * 0.7, air); // (a cook-off from a hit flashes as ever)
+    if (!v.ai && v !== sim.active && Combat.byMe(by, sim) && typeof Death !== 'undefined') Death.feedback('SHOT DOWN', sim);
+    shatter(v, sim, !!by);
     return true;
   }
 
@@ -1595,9 +1680,10 @@ const Drone = (() => {
   function gunStep(o, p, h, F) {
     const g = p.def.cuas.gun;
     if (p.broken || o.ko) { p.gunOn = false; p.tgt = null; return; }
-    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; p.tgt = gunPick(o, p, g, pivotOf(o, p, PIV)); }
+    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const n = gunPick(o, p, g, pivotOf(o, p, PIV)); if (n !== p.tgt) { p.tgt = n; p.acq = (g.acq || 0) * (0.5 + prand(p)); } p.cue = !!n && marked(o, n) >= 2; if (p.cue) p.acq = Math.min(p.acq, (g.acq || 0) * 0.5); } // (a new target: acq s to settle on it first; half that, and a steadier track, while a sensor cues it)
     const t = p.tgt && isDrone(p.tgt) ? p.tgt : null;
     if (!t) { p.tgt = null; p.gunOn = false; slew(p, { yaw: p.aimYaw || 0, el: 0 }, g.yaw, g.elr, g.el, h); return; }
+    p.acq = Math.max(0, (p.acq || 0) - h);
     const P = pivotOf(o, p, PIV), rx = t.vx - o.vx, ry = t.vy - o.vy, rz = t.vz - o.vz;
     // the time of flight on the relative velocity, twice, with the round's drag (Combat's moveShot: 1.2e-4·ρ·v² slowing
     // it) and its drop (held up by ½·g·t²: at 1 km a round falls 5 m)
@@ -1605,8 +1691,14 @@ const Drone = (() => {
     const tofOf = (d) => (cd > 1e-9 ? Math.expm1(cd * d) / (cd * g.speed) : d / g.speed);
     let ax = t.x - P.x, ay = t.y - P.y, az = t.z - P.z, tof = tofOf(Math.hypot(ax, ay, az));
     for (let i = 0; i < 2; i++) { const dr = 0.5 * G0 * tof * tof; ax = t.x + rx * tof - P.x + ux * dr; ay = t.y + ry * tof - P.y + uy * dr; az = t.z + rz * tof - P.z + uz * dr; tof = tofOf(Math.hypot(ax, ay, az)); }
-    const err = slew(p, anglesOf(o, p, ax, ay, az, ANG), g.yaw, g.elr, g.el, h);
-    p.gunOn = err <= 0.04 && p.ammo > 0;
+    // (its tracker's error: a fresh offset up to jit rad each way every 0.5 s, from the part's own stream; the full jit
+    // on a drone flying 30 m/s or more, less on a slower one, down to 0.15 of it on one hovering: a fast drone's lead is
+    // hard to judge. A sensor's cue steadies it: cueJ)
+    if ((p._jT = (p._jT || 0) - h) <= 0) { const j = (g.jit || 0) * (p.cue ? g.cueJ ?? 1 : 1) * clamp(Math.hypot(rx, ry, rz) / 30, 0.15, 1); p._jT = 0.5; p._jy = (prand(p) * 2 - 1) * j; p._je = (prand(p) * 2 - 1) * j; }
+    const want = anglesOf(o, p, ax, ay, az, ANG);
+    want.yaw += p._jy || 0; want.el += p._je || 0;
+    const err = slew(p, want, g.yaw, g.elr, g.el, h);
+    p.gunOn = err <= 0.04 && p.ammo > 0 && !(p.acq > 0);
     if (!p.gunOn) return;
     p.cool = (p.cool || 0) - h;
     if (p.cool > 0) return;
@@ -1653,19 +1745,21 @@ const Drone = (() => {
     const L = p.def.cuas.laser;
     if (p.broken || o.ko) { p.gunOn = false; p.tgt = null; p.dwell = 0; laserHeat(p, L, h, false); return; }
     const P = pivotOf(o, p, PIV);
-    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const t = laserPick(o, p, L, P); if (t !== p.tgt) { p.tgt = t; p.dwell = 0; } }
+    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const t = laserPick(o, p, L, P); if (t !== p.tgt) { p.tgt = t; p.dwell = 0; p.acq = (L.acq || 0) * (0.5 + prand(p)); } } // (a new target: 0.5-1.5 × acq s to find and settle on it first)
     const t = p.tgt && isDrone(p.tgt) ? p.tgt : null;
     if (!t) { p.tgt = null; p.gunOn = false; p.dwell = 0; laserHeat(p, L, h, false); slew(p, { yaw: p.aimYaw || 0, el: 0 }, L.yaw, L.elr, L.el, h); return; }
     const err = slew(p, anglesOf(o, p, t.x - P.x, t.y - P.y, t.z - P.z, ANG), L.yaw, L.elr, L.el, h);
-    const on = err <= 0.01 && !p.hot;
+    p.acq = Math.max(0, (p.acq || 0) - h);
+    const on = err <= 0.01 && !p.hot && !(p.acq > 0);
     p.gunOn = on;
     laserHeat(p, L, h, on);
+    if (p.hot) p.dwell = 0; // (out of beam time: what it had burnt cools off with it)
     if (!on) return;
     const r = Math.hypot(t.x - P.x, t.y - P.y, t.z - P.z);
     t.kitAt = F.time || 0; // (as the gun's: P4-AI-4)
     beamOf(o, p, F, t, r);
     p.dwell = (p.dwell || 0) + h;
-    if (p.dwell < L.kill[0] + L.kill[1] * (r / 1500) ** 2) return;
+    if (p.dwell < L.kill[0] + L.kill[1] * (r / L.cued) ** 2) return;
     p.dwell = 0; p.tgt = null; p._pick = 0;
     const part = (t.dr && t.dr.fcPart && t.parts.includes(t.dr.fcPart) ? t.dr.fcPart : null) || t.parts[0];
     if (!part) return;
@@ -1675,7 +1769,7 @@ const Drone = (() => {
   function laserHeat(p, L, h, on) {
     p.heat = clamp((p.heat || 0) + (on ? h / L.on : -h / L.cool), 0, 1);
     if (p.heat >= 1) p.hot = true;
-    else if (p.hot && p.heat <= 0.3) p.hot = false;
+    else if (p.hot && p.heat <= 0) p.hot = false; // (it cools all the way before it burns again)
   }
   // a laser's beam this frame, from its lens to r m along its aim (render3d draws Drone.beams), and a flare where it ends
   // every 0.1 s (a flash that lights nothing)
@@ -1963,17 +2057,17 @@ const Drone = (() => {
     // physics
     groups, pre, turn, wingTurn, stats,
     // bays
-    fits, cleanChoice, choiceRows, build,
+    fits, freeBays, cleanChoice, choiceRows, build,
     // flight
     key, take, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
     // combat
-    step, frame, detonate, cookOff, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
+    step, frame, detonate, cookOff, die, payload, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
     // AI
     spawnAI, aiSteer,
     // HUD
     drawOSD, osdBoxes, drawMarks, alarm, help, fov, left, batt, linkState, jamN, leverText, impactView, tap, hud, _osd: O,
     // helpers
-    isDrone, fcOf, linkOf, charge, list, hframe,
+    isDrone, fcOf, linkOf, charge, list, hframe, camDir,
   };
   return api;
 })();
