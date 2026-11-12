@@ -73,15 +73,19 @@ EARTH.sites = {
   bay: { name: 'Bay', east: -2300 }, // seaplanes start on the water west of the island, facing out to sea
 };
 EARTH.runway = { from: 700, to: 2700 }; // the paved strip
-EARTH.causeway = { from: 3300, to: 17200, shore: 17850 }; // the sea road to Shetland: raised from..to, ashore at `shore`
+// Where the old sea road to Shetland came ashore (removed with the spawn points update: it was ugly and unrealistic): its
+// harbour and port town stand there still, and the hostile range keeps its targets off the line it ran along
+EARTH.shore = 17850;
 // Flattened ground: each flat blends from `height` back to the natural terrain over `blend` metres.
-// Later entries win where they overlap.
+// Later entries win where they overlap. A ramp (top, bot) eases from `top` at its west end down to `bot` at its east
+// end instead of standing level: the headland past the runway's end, where the road runs down a slipway into the sea.
 EARTH.flats = [
   { name: 'spaceCentre', east: 0, half: 220, blend: 600, height: 40 }, // the pad stands on the west coast
-  { name: 'causeway', east: (EARTH.causeway.from + EARTH.causeway.to) / 2, half: (EARTH.causeway.to - EARTH.causeway.from) / 2, blend: 600, height: 12 },
   { name: 'runway', east: 1700, half: 1100, blend: 700, height: 40 },
+  { name: 'headland', east: 3050, half: 250, blend: 120, height: 40, top: 40, bot: -4 }, // (7.5° at its steepest)
 ];
 for (const f of EARTH.flats) f.ang = EARTH.padAngle - f.east / EARTH.radius;
+EARTH.roadEnd = 3240; // where the road from the runway's end runs into the sea (the slipway's foot)
 // Airfields away from the space centre (multiplayer battles spawn there): a strip centred at (e, z), metres along
 // and across the track, pointing along `yaw` as placeOnSurface turns a craft (the nose goes (cos yaw, -sin yaw)
 // in e, z: 0 is east, 90° game north). The ground is flattened to `h` over hl x hw, blending out over `blend`.
@@ -106,8 +110,19 @@ EARTH.groundPads = {
   // the tank yard on the space centre's island (props.js), on the plateau south-east of the runway: where Armour and armed
   // cars start in a multiplayer sandbox, facing east along it to the driving course (past e 1,420, so no site's ground moves)
   yard: { name: 'Tank yard', e: 2050, z: 340, yaw: 0, hl: 50, hw: 35, blend: 30, h: 62.7, pad: true },
+  // (the spawn points update) the sandbox's outposts, helipads and launch pads (EARTH.spawns, below; their props: props.js),
+  // each on flat, dry ground found by probing the real map (slope under 3° over 60 m, nothing wet within 110 m), well off
+  // the airfields, the arenas, the runway and every old test path. Outposts face the gentlest open ground.
+  funningur: { name: 'Funningur outpost', e: 700, z: -900, yaw: 0, hl: 32, hw: 40, blend: 40, h: 60.5, pad: true, spawn: true },
+  vidareidi: { name: 'Viðareiði outpost', e: 1300, z: -1800, yaw: Math.PI * 1.25, hl: 32, hw: 40, blend: 40, h: 44.4, pad: true, spawn: true },
+  tvoroyri: { name: 'Tvøroyri outpost', e: 2800, z: 2200, yaw: -Math.PI / 4, hl: 32, hw: 40, blend: 40, h: 59.2, pad: true, spawn: true },
+  northRoe: { name: 'North Roe outpost', e: 17900, z: -900, yaw: -Math.PI / 2, hl: 32, hw: 40, blend: 40, h: 51.0, pad: true, spawn: true },
+  bixter: { name: 'Bixter outpost', e: 19000, z: 1000, yaw: Math.PI * 0.75, hl: 32, hw: 40, blend: 40, h: 37.0, pad: true, spawn: true },
+  lunna: { name: 'Lunna launch pad', e: 19100, z: -500, yaw: 0, hl: 25, hw: 25, blend: 40, h: 37.6, pad: true, spawn: true },
+  watten: { name: 'Watten outpost', e: 19900, z: 12100, yaw: Math.PI / 2, hl: 32, hw: 40, blend: 40, h: 17.5, pad: true, spawn: true },
+  bettyhill: { name: 'Bettyhill launch pad', e: 17300, z: 12900, yaw: Math.PI / 4, hl: 25, hw: 25, blend: 40, h: 12.9, pad: true, spawn: true },
 };
-{ const y = EARTH.groundPads.yard; y.c = Math.cos(y.yaw); y.s = -Math.sin(y.yaw); }
+for (const k of ['yard', 'funningur', 'vidareidi', 'tvoroyri', 'northRoe', 'bixter', 'lunna', 'watten', 'bettyhill']) { const y = EARTH.groundPads[k]; y.c = Math.cos(y.yaw); y.s = -Math.sin(y.yaw); }
 // The Ground Battle arenas (gmode.js). Highland Ridge, in the rolling hills of North Scotland on the real map: the
 // teams' pads (team 0's on the Faroes side, to the north) face each other 2.4 km apart across three capture zones,
 // and the hilltop zone A overlooks the other two. box: the battle area (out of it is a warning only). clear: its
@@ -140,6 +155,37 @@ EARTH.arenas = {
   },
 };
 for (const a of Object.values(EARTH.arenas)) for (const f of [...a.pads, ...a.berms]) { f.c = Math.cos(f.yaw); f.s = -Math.sin(f.yaw); }
+
+// The sandbox's spawn points (the spawn points update): where a solo flight in Sandbox may start, picked in the hangar
+// (Spawns, mpui.js), and in a multiplayer sandbox room. Each is for some kinds of craft, in a region; `site`: the kind's
+// own launch site, as ever (Flight.start with no place); `pad`: a levelled pad (EARTH.groundPads) with the craft at
+// (u, v) on it (along its yaw, and to the right); `airfield`: an airfield's take-off spot (planes) or its helipad;
+// `arena`: Highland Ridge's north pad, as GroundMode.placement puts the kind there; `air`: an air start (e, z, yaw,
+// alt, speed). `def`: the kinds whose default it is (today's start: nothing chosen starts exactly where it did). Every
+// spot off its kind's site needs the real Earth map and the 3D view (Spawns.place falls back to the default).
+EARTH.spawns = [
+  { id: 'pad', name: 'Launch pad', region: 'Faroes', kinds: ['rocket'], def: ['rocket'], site: 'pad', blurb: 'The space centre\'s pad on the Faroes' },
+  { id: 'runway', name: 'Runway', region: 'Faroes', kinds: ['plane', 'car'], def: ['plane', 'car'], site: 'runway', blurb: 'The west end of the space centre\'s runway' },
+  { id: 'helipad', name: 'Helipad', region: 'Faroes', kinds: ['heli', 'drone'], def: ['heli', 'drone'], site: 'helipad', blurb: 'Beside the space centre\'s pad' },
+  { id: 'yard', name: 'Tank Yard', region: 'Faroes', kinds: ['tank', 'car'], pad: 'yard', u: -10, v: -21, blurb: 'Garages, a fuel depot and a driving course on the island' },
+  { id: 'yardDrone', name: 'Tank Yard drone pad', region: 'Faroes', kinds: ['drone'], pad: 'yard', u: 34, v: 20, blurb: 'On the yard\'s concrete, beside the tanks' },
+  { id: 'funningur', name: 'Funningur', region: 'Faroes', kinds: ['tank', 'car'], pad: 'funningur', u: -10, v: -14, blurb: 'An outpost on Eysturoy, north of the space centre' },
+  { id: 'vidareidi', name: 'Viðareiði', region: 'Faroes', kinds: ['tank', 'car'], pad: 'vidareidi', u: -10, v: -14, blurb: 'An outpost in the far north-east of the islands' },
+  { id: 'tvoroyri', name: 'Tvøroyri', region: 'Faroes', kinds: ['tank', 'car'], pad: 'tvoroyri', u: -10, v: -14, blurb: 'An outpost on Suðuroy, the southern island' },
+  { id: 'northRoe', name: 'North Roe', region: 'Shetland', kinds: ['tank', 'car'], pad: 'northRoe', u: -10, v: -14, blurb: 'An outpost at the north end of Shetland\'s Mainland' },
+  { id: 'bixter', name: 'Bixter', region: 'Shetland', kinds: ['tank', 'car'], pad: 'bixter', u: -10, v: -14, blurb: 'An outpost in the West Mainland, with a drone pad' },
+  { id: 'bixterDrone', name: 'Bixter drone pad', region: 'Shetland', kinds: ['drone'], pad: 'bixter', u: 8, v: 22, blurb: 'Beside the Bixter outpost\'s tanks' },
+  { id: 'shetlandAir', name: 'Shetland airfield', region: 'Shetland', kinds: ['plane', 'heli'], airfield: 'shetland', blurb: 'The Shetland airfield\'s runway, and its helipads beside it' },
+  { id: 'lunna', name: 'Lunna', region: 'Shetland', kinds: ['rocket'], pad: 'lunna', u: 0, v: 0, blurb: 'A launch pad with a service tower on Lunna Ness' },
+  { id: 'highlandN', name: 'Highland Ridge', region: 'Scotland', kinds: ['tank', 'car'], def: ['tank'], arena: 'highland', blurb: 'The north pad of the Tank Range' },
+  { id: 'highlandDrone', name: 'Highland Ridge drone pad', region: 'Scotland', kinds: ['drone'], arena: 'highland', blurb: 'Beside the Tank Range\'s north pad' },
+  { id: 'watten', name: 'Watten', region: 'Scotland', kinds: ['tank', 'car'], pad: 'watten', u: -10, v: -14, blurb: 'An outpost in Caithness, with a drone pad' },
+  { id: 'wattenDrone', name: 'Watten drone pad', region: 'Scotland', kinds: ['drone'], pad: 'watten', u: 8, v: 22, blurb: 'Beside the Watten outpost\'s tanks' },
+  { id: 'scotlandAir', name: 'Scotland airfield', region: 'Scotland', kinds: ['plane', 'heli'], airfield: 'scotland', blurb: 'Wick airfield on the north coast, and its helipads beside it' },
+  { id: 'bettyhill', name: 'Bettyhill', region: 'Scotland', kinds: ['rocket'], pad: 'bettyhill', u: 0, v: 0, blurb: 'A launch pad with a service tower on the Sutherland coast' },
+  { id: 'airFaroes', name: 'Over the Faroes', region: 'Faroes', kinds: ['plane'], air: { e: -3000, z: 0, yaw: 0, alt: 800, speed: 120 }, blurb: 'Flying in from the west, 800 m up' },
+  { id: 'airHighland', name: 'Over Highland Ridge', region: 'Scotland', kinds: ['plane'], air: { e: 17750, z: 10800, yaw: -Math.PI / 2, alt: 1000, speed: 140 }, blurb: 'Flying in from the north, 1 km up' },
+];
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
 
@@ -228,17 +274,23 @@ function terrainHeight(b, ang) {
   const F = b.flats;
   if (!F) return terrainRaw(b, ang);
   // on a flat's own level ground its blend is exactly 0 (lerp gives its height whatever came before), so the
-  // natural ground under the pad, runway or causeway (the real map's is slow to work out) is never needed there
+  // natural ground under the pad or runway (the real map's is slow to work out) is never needed there
   let k = F.length;
   while (--k >= 0 && !(Math.abs(wrapAngle(ang - F[k].ang)) * b.radius <= F[k].half));
-  let h = k >= 0 ? F[k].height : terrainRaw(b, ang);
+  let h = k >= 0 ? flatH(F[k], ang, b.radius) : terrainRaw(b, ang);
   for (let i = k + 1; i < F.length; i++) {
     const f = F[i], d = Math.abs(wrapAngle(ang - f.ang)) * b.radius;
-    if (d < f.half + f.blend) h = lerp(f.height, h, smoothstep(f.half, f.half + f.blend, d));
+    if (d < f.half + f.blend) h = lerp(flatH(f, ang, b.radius), h, smoothstep(f.half, f.half + f.blend, d));
   }
   return h;
 }
-// True on built-up flat ground (pad, runway, causeway), where no trees or rocks grow.
+// a flat's own height at ang: level, or a ramp's (top at its west end easing down to bot at its east end)
+function flatH(f, ang, R) {
+  if (f.top == null) return f.height;
+  const u = -wrapAngle(ang - f.ang) * R; // (metres east of its middle)
+  return lerp(f.top, f.bot, smoothstep(-f.half, f.half, u));
+}
+// True on built-up flat ground (pad, runway), where no trees or rocks grow.
 function clearZone(b, ang) {
   if (!b.flats) return false;
   for (const f of b.flats) if (Math.abs(wrapAngle(ang - f.ang)) * b.radius < f.half + 30) return true;

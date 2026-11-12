@@ -1,5 +1,5 @@
 // Ground driving traces at full precision (17 significant digits, every 0.25 s): the Dune Buggy driving, cornering,
-// braking, reversing, along the causeway and up a 10° slope on Shetland; the Dragonfly and the Lunar Rover rolling;
+// braking, reversing, down the headland road past the runway into the sea and up a 10° slope on Shetland; the Dragonfly and the Lunar Rover rolling;
 // the take-off rolls of the Falcon, the Mustang and the FS-16; and the ground update's running gear (gear.js) on vehicles
 // built from the catalogue's parts (test/lib/tanks.js): pulling away and coasting, a pivot, a hill, braking, an 8×8
 // cornering, a tank on the arena's pad. Each craft is driven as the game drives it: the stick
@@ -60,7 +60,7 @@ const SCENARIOS = {
     return st.go == null || t < st.go + 4;
   } },
   'buggy reverse': { key: 'buggy', secs: 8, script: (v, t) => { v.ctl.v = -1; v.ctl.h = t >= 5 ? -1 : 0; } }, // 5 s straight back, then 3 s full left
-  'buggy causeway': { key: 'buggy', secs: 20, place: onEarth(ctx.EARTH.causeway.from - 300), script: (v) => { v.ctl.v = 1; keepLane(v); } }, // down the ramp from the runway's end and out along the causeway
+  'buggy headland': { key: 'buggy', secs: 20, place: onEarth(2700), script: (v) => { v.ctl.v = 1; keepLane(v); } }, // off the runway's end, down the headland road and its slipway into the sea (the causeway's run until the spawn points update)
   'buggy slope': { key: 'buggy', secs: 10, place: onEarth(SLOPE.e, SLOPE.z, SLOPE.yaw), script: (v, t) => { v.ctl.v = t < 6 ? 1 : 0; } }, // 6 s uphill, then 4 s stopped on it
   'buggy sea': { key: 'buggy', secs: 6, place: onEarth(ctx.EARTH.sites.bay.east), script: (v) => { v.ctl.v = 1; } }, // the sea is solid ground that drags (the bay, where seaplanes start)
   'dragonfly roll': { key: 'dragonfly', secs: 5, setup: (v) => { v.throttle = 0; }, script: (v, t) => { v.ctl.v = 1; v.ctl.h = t >= 3 ? 1 : 0; } }, // rotor idle (Flight.start)

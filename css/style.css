@@ -924,6 +924,35 @@ kbd {
 .spawn-opt span { font-size: 12px; color: var(--muted); line-height: 1.35; }
 .spawn-opt .bonus { color: var(--good); }
 .spawn-opt:disabled { opacity: 0.4; cursor: not-allowed; }
+/* the sandbox's start picker (Spawns, mpui.js): the same card, its list grouped by region (a region's heading shows its map) */
+.start-list { max-height: min(62vh, 560px); overflow-y: auto; padding-right: 2px; }
+.start-region {
+  text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 6px 2px 4px; cursor: pointer; color: var(--muted);
+  font: 700 12px var(--display); letter-spacing: 0.16em; text-transform: uppercase;
+}
+.start-region:first-child { padding-top: 0; }
+.start-region.on, .start-region:hover { color: var(--amber); }
+/* the Start button beside Launch: where the craft starts, by name; under 640 px the top bar has no room for it, and its twin
+   in the stats panel's head (beside Save) takes its place */
+.start-btn { gap: 6px; }
+.start-btn.in-panel { display: none; height: 24px; padding: 0 8px; gap: 4px; font-size: 12px; }
+.start-btn.in-panel .icon svg { width: 14px; height: 14px; }
+.start-btn.in-panel .start-text { max-width: 110px; }
+.start-btn.in-panel .start-text::before { content: none; }
+@media (max-width: 640px) {
+  #btn-start { display: none !important; }
+  .start-btn.in-panel { display: inline-flex; }
+}
+.start-btn .start-text { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.start-btn .start-text::before { content: 'Start: '; color: var(--muted); }
+@media (max-width: 1100px) { /* (the top bar's labels need the room: the name alone, shorter) */
+  .start-btn .start-text { max-width: 96px; }
+  .start-btn .start-text::before { content: none; }
+}
+@media (min-width: 861px) and (max-width: 960px) { /* (the top bar's buttons have their words back here: the icon alone) */
+  #btn-start { width: 38px; min-width: 38px; padding: 0; }
+  #btn-start .start-text { display: none; }
+}
 
 .round.catapult { position: absolute; right: calc(var(--gut-r) + 230px); bottom: calc(76px + var(--safe-b)); width: 92px; height: 92px; font-size: 15px; background: var(--amber); color: #1a1205; border-color: var(--amber); animation: pulse 0.7s ease-in-out infinite alternate; }
 .round.cm { width: 56px; height: 56px; font-size: 13px; color: #ffd08a; border-color: rgba(255, 181, 71, 0.6); }
@@ -934,6 +963,8 @@ kbd {
   .spawn-body { grid-template-columns: 1fr; }
   .spawn-list { flex-direction: row; flex-wrap: wrap; }
   .spawn-opt { flex: 1 1 140px; }
+  .start-list { max-height: none; overflow: visible; }
+  .start-region { flex: 1 1 100%; }
 }
 @media (max-width: 760px) {
   .mp-create { grid-template-columns: 1fr; }

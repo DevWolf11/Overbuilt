@@ -21,6 +21,8 @@ const App = {
     const locked = () => (App.scene === 'flight' && Flight.ended) || MP.modalLocked;
     $('#modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal' && !locked()) UI.closeModal(); });
     addEventListener('keydown', (e) => { if (e.code === 'Escape' && UI.modalOpen && !locked()) { e.preventDefault(); e.stopImmediatePropagation(); UI.closeModal(); } }, true);
+    Spawns.bind(); // (the sandbox's Start button and its picker: mpui.js)
+    addEventListener('keydown', (e) => { if (e.code === 'Escape' && !UI.modalOpen && !$('#start-map').hidden) { e.preventDefault(); e.stopImmediatePropagation(); Spawns.close(); } }, true);
     document.addEventListener('gesturestart', (e) => e.preventDefault());
     // phones kill background tabs without warning: save the flight whenever the page is hidden
     const stash = () => { if (this.scene === 'flight') Flight.save(); };
@@ -63,7 +65,7 @@ const App = {
     if (this.poked) { this.poked = false; this.dirty = true; this.busyUntil = t + 1000; }
     try {
       let in3d = false;
-      const modal = !this.modals[0].hidden || !this.modals[1].hidden;
+      const modal = !this.modals[0].hidden || !this.modals[1].hidden || !this.modals[2].hidden;
       if (this.scene === 'build') {
         in3d = this.preview3D();
         const view = in3d ? 'build3d' : 'build2d', force = this.stale(view, t) || Builder.dirty;
@@ -150,7 +152,7 @@ const App = {
       addEventListener(k, poke, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) this.redraw(); });
     if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => this.redraw()); // (the blueprint's labels)
-    this.modals = [$('#modal'), $('#spawn-map')];
+    this.modals = [$('#modal'), $('#spawn-map'), $('#start-map')];
   },
 
   // the 2D canvas over the 3D view: cleared only when something was drawn on it
@@ -301,8 +303,11 @@ const App = {
       if (s.loose) UI.toast(`${s.loose} loose part(s) left in the hangar`);
       store.set('rss.flight', null);
       this.showScene('flight');
-      const place = Builder.kind === 'tank' ? GroundMode.soloPlace(Builder.kind) : null; // (Armour: Highland Ridge's north pad, as Flight.revert)
+      // where it starts: the spot picked in Sandbox (Spawns, mpui.js), else as ever (Armour: Highland Ridge's north pad, as
+      // Flight.revert)
+      const at = Spawns.solo(Builder.kind), place = at.place;
       Flight.start(Builder.serialize(), place ? { place } : undefined);
+      if (at.fell) UI.toast(`${Spawns.current(Builder.kind).name} needs the Earth map and the 3D view: starting ${at.sp ? 'at the ' + at.sp.name : 'as usual'}`, 'warn');
       if (Builder.kind === 'tank' && !place) UI.toast(this.use3D() ? 'The Earth map isn’t in: Armour starts on the runway, away from the Tank Range' : 'In the 2D view Armour starts on the runway: the Tank Range on Highland Ridge is in 3D', 'warn');
       const k = (id) => Keys.k(id), sp = k('stage');
       const tip = { rocket: `Press STAGE (${sp}) to ignite`, plane: `Press STAGE (${sp}) to start the engine`, car: `Drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}`, heli: `Press STAGE (${sp}) to start the rotor`,

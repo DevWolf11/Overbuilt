@@ -30,7 +30,7 @@ R(`var MET = { shot: 0, contacts: 0 }; { const s = Props.shot, pc = Vessel.proto
   Vessel.prototype.propContacts = function (B, L, dt) { const n = L.length; pc.call(this, B, L, dt); MET.contacts += L.length - n; }; }`);
 const met = () => R(`JSON.stringify([MET.shot, MET.contacts, Props.crushed])`);
 t('the loader brings Gear, Aim, Armour, GroundMode, GroundAI and Props', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
-t('...with every map\'s props built (Highland Ridge, the Runway, the island)', R(`Props.done() && Props.areas().map((m) => m.id).join() === 'highland,runway,isle'`));
+t('...with every map\'s props built (Highland Ridge, the Runway, the island, and the spawn points update\'s ten round the sandbox\'s spawn points)', R(`Props.done() && Props.areas().map((m) => m.id).join() === 'highland,runway,isle,funningur,vidareidi,tvoroyri,northRoe,bixter,lunna,shAir,watten,bettyhill,gbAir'`));
 
 // ---------------------------------------------------------------- old designs: zero calls into the new code
 // 1. the traces script (every template, 12 s, the same stick script), with the weapons' step and frame alongside

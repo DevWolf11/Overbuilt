@@ -824,7 +824,7 @@ const World = {
     this.drawAirfield(ctx, cam, base, S, F, env, dk);
   },
 
-  // Runway, helipad and the causeway road. They run for kilometres, so each piece is placed at its own
+  // Runway, helipad and the road down the headland past the runway. They run for kilometres, so each piece is placed at its own
   // spot on the curved surface instead of in one flat frame.
   drawAirfield(ctx, cam, base, S, F, env, dk) {
     const e = bodyPos(EARTH, F.time), R = EARTH.radius;
@@ -856,13 +856,12 @@ const World = {
         ctx.fillStyle = night ? '#ffe9a8' : dk('#9aa0a8'); ctx.fillRect(-0.15, 0, 0.3, 0.35);
       }
     }
-    // causeway road with railing posts
+    // the road from the runway's end down the headland to the slipway
     if (S > 0.4) {
-      for (let x = EARTH.causeway.from; x < EARTH.causeway.to; x += 25) {
+      for (let x = rw.to; x < EARTH.roadEnd; x += 25) {
         if (!at(x + 12.5)) continue;
         ctx.fillStyle = dk('#34383e'); ctx.fillRect(-12.6, -0.4, 25.2, 0.4);
         ctx.fillStyle = dk('#d9dde2'); ctx.fillRect(-4, -0.06, 8, 0.06);
-        ctx.fillStyle = dk('#8a929c'); ctx.fillRect(-0.1, 0, 0.2, 1); ctx.fillRect(-12.5, 0.85, 25, 0.12);
       }
     }
     // airport hangar and control tower beside the runway
