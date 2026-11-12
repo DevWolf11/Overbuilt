@@ -1640,4 +1640,21 @@ const runD1 = (ab) => {
   ctx.Sound = SND;
 }
 
+// F9 (review P5-MODES-1) a FIRE press while the craft is lost (Flight.fireTap, set on keydown) is spent by Combat's
+// player frame there, never kept: the next craft (Revert to launch, a respawn: one Flight shared) starts with the trigger
+// clear. Before, the Stratobomber reverted after a press over the strip dropped a bomb by itself on its first frame.
+{
+  const v = air('bomber'), F = fsim(v), T = Combat._t;
+  Combat.reset(F); F.time = 5;
+  v.wsel = T.systems(v).findIndex((s) => s.w && s.w.kind === 'bomb');
+  const bombs = () => v.parts.reduce((n, p) => n + (p.def.weapon && p.def.weapon.kind === 'bomb' ? p.ammo : 0), 0) + 100 * Combat.S.shots.filter((s) => s.k === 'bomb').length, n0 = bombs(); // (bombs aboard; one dropped: 100 more)
+  F.destroyed = true; F.fireTap = true; // (V pressed over the strip)
+  T.playerFrame(F, 1 / 60);
+  const kept = F.fireTap;
+  F.destroyed = false; F.firing = false; // (the next flight: the same Flight, no key held)
+  for (let i = 0; i < 6; i++) { F.time += 1 / 60; T.playerFrame(F, 1 / 60); }
+  t('F9 a FIRE press while the craft is lost is spent (fireTap cleared), and the next craft fires nothing by itself (the Stratobomber keeps its bombs)',
+    v.wsel >= 0 && kept === false && bombs() === n0 && n0 > 0, { wsel: v.wsel, kept, n0, n: bombs() });
+}
+
 t.done();

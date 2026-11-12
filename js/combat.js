@@ -541,7 +541,7 @@ const Combat = (() => {
   const noLink = (v) => !!(v && v.kind === 'drone' && v.dl && v.dl.lost);
   function playerFrame(F, dt) {
     const v = F.active;
-    if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; return; }
+    if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; F.fireTap = false; return; } // (a press while lost is spent here, never kept for the next craft: P5-MODES-1)
     const sys = systems(v), cur = sys[v.wsel];
     const cut = noLink(v); // (a drone with its link lost: no command gets through, FIRE included; P4-CTR-1)
     const trig = !!F.firing && !cut, edge = ((trig && !S.wasFiring) || F.fireTap) && !cut, up = !trig && S.wasFiring; // (a tap shorter than a frame still counts)

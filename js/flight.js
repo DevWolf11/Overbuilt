@@ -138,7 +138,7 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
-    this.firing = false; this.mgFiring = false; this.shotYet = false;
+    this.firing = false; this.mgFiring = false; this.shotYet = false; this.fireTap = false; // (a press while the last craft was lost fires nothing here: review P5-MODES-1)
     this.aimReset(); // (a new flight: aimed afresh along the hull, out of the sight)
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
