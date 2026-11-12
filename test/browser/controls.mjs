@@ -401,12 +401,13 @@ if (part(5)) {
   // rebindable, so they give way to a player's own key (Keys.LATE: a player who put Fire on U keeps U firing only)
   const dk = await page.evaluate(() => {
     const clash = []; for (const [id] of Keys.ACTIONS) for (const c of Keys.defaults(id)) for (const o of Keys.conflicts(id, c)) if (Keys.defaults(o).includes(c)) clash.push(`${id}/${o}:${c}`);
-    const late = Keys.clean({ fire: ['KeyU'] });
-    return { clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat') };
+    const late = Keys.clean({ fire: ['KeyU'] }), late2 = Keys.clean({ tacMap: ['KeyU'] });
+    return { lateMap: late2.drone, lateMapC: Keys.conflicts('tacMap', 'KeyU'), clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat') };
   });
   ok('the Drones group: 7 rows (U launches and switches, H the view, 1-4 Level, Acro, Home, Land, J the gimbal\'s thermal), 73 in all, no default key clashes; Fire on U leaves the drone key unbound',
-    dk.rows === 73 && dk.clash.length === 0 && dk.drones.join() === 'drone:any:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dThermal:drone:KeyJ'
-    && dk.lateDrone.length === 0 && dk.lateFire.join() === 'KeyU' && dk.chat.join() === 'KeyT,Enter', dk);
+    dk.rows === 73 && dk.clash.length === 0 && dk.drones.join() === 'drone:bay:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dThermal:drone:KeyJ'
+    && dk.lateDrone.length === 0 && dk.lateFire.join() === 'KeyU' && dk.chat.join() === 'KeyT,Enter'
+    && dk.lateMap.length === 0 && dk.lateMapC.join() === 'drone', dk); // (P4-OF-4: the drone key is read before an Armour's own: a saved Tactical map on U keeps U)
   await page.click(slot('fire', 0));
   const wait = await page.evaluate((q) => document.querySelector(q).textContent, slot('fire', 0));
   await page.keyboard.press('Escape');

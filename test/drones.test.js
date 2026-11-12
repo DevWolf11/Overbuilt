@@ -920,6 +920,9 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   const R1 = JSON.parse(RB('JSON.stringify(R1)'));
   t('P4-OF-2 a Bumble\'s battery hit to 40 % hp leaks about 1 % of its charge a second: 3 s later it still flies on over 90 %, and only "damaged" is said',
     R1.hp > 0.35 && R1.hp < 0.45 && R1.q3 < R1.q0 - 0.01 && R1.q3 > R1.q0 - 0.06 && !R1.out && R1.said.length === 1 && /damaged/.test(R1.said[0]), R1);
+  // P4-OF-4: the drone key is read before an Armour's own keys, so it clashes with them: a saved Tactical map on U keeps U
+  const R2 = JSON.parse(RB(`JSON.stringify({ drone: Keys.clean({ tacMap: ['KeyU'] }).drone, lock: Keys.clean({ lock: ['KeyU'] }).drone, ctx: Keys.INFO.drone.ctx })`));
+  t('P4-OF-4 a player\'s own Armour key on U (Tactical map, Radar lock) leaves the drone key unbound', R2.drone.length === 0 && R2.lock.length === 0, R2);
 }
 
 // ================================================================ 11. the AI: old play (no drone war) as it was before drones

@@ -8,8 +8,9 @@
 // The defaults are the keys the game always had. Contexts say which actions can be live at once: 'any' (every craft),
 // 'plane' and 'rocket' (the plane's autopilot keys, and every other craft's), 'drone' (a drone's own: the big update),
 // 'ground' (aiming a ground vehicle: these take over from the flight keys while it aims, as they always did), 'build'
-// (the hangar). Two actions clash when they share a key and can be live together: the same context, or 'any' beside
-// 'plane', 'rocket' or 'drone'.
+// (the hangar), 'bay' (the drone key: live on every craft and read before a ground vehicle's own keys, so it clashes
+// with every flight context, 'ground' included). Two actions clash when they share a key and can be live together: the
+// same context, 'any' beside 'plane', 'rocket' or 'drone', or 'bay' beside any of the flight contexts.
 const KEY_ACTIONS = [
   ['fwd', 'Flight', 'any', 'Pitch down · drive forward', ['KeyW', 'ArrowUp']],
   ['back', 'Flight', 'any', 'Pitch up · reverse', ['KeyS', 'ArrowDown']],
@@ -61,7 +62,7 @@ const KEY_ACTIONS = [
   ['zeroDown', 'Armour', 'ground', 'Realistic aim: the sight\'s range −100 m', ['PageDown']],
   // (the big update's drones: U launches one from a tank's bay and switches between the drone and its tank; the rest are
   // live while a drone is flown. J is the Armour's spot key, which is never live on a drone)
-  ['drone', 'Drones', 'any', 'Drones: launch one from the bay · switch between the drone and its tank', ['KeyU']],
+  ['drone', 'Drones', 'bay', 'Drones: launch one from the bay · switch between the drone and its tank', ['KeyU']],
   ['dView', 'Drones', 'drone', 'Drone: first-person (FPV) or chase view', ['KeyH']],
   ['dLevel', 'Drones', 'drone', 'Drone: Level (stops and holds its height when you let go)', ['Digit1']],
   ['dAcro', 'Drones', 'drone', 'Drone: Acro (no self-levelling; the throttle is yours)', ['Digit2']],
@@ -136,7 +137,8 @@ const Keys = (() => {
     for (const id in DEF) if (bind[id].join() !== DEF[id].join()) diff[id] = bind[id].slice();
     store.set('rss.keys', diff);
   }
-  const clash = (a, b) => a === b || (a === 'any' && (b === 'plane' || b === 'rocket' || b === 'drone')) || (b === 'any' && (a === 'plane' || a === 'rocket' || a === 'drone'));
+  const clash = (a, b) => a === b || (a === 'any' && (b === 'plane' || b === 'rocket' || b === 'drone')) || (b === 'any' && (a === 'plane' || a === 'rocket' || a === 'drone'))
+    || (a === 'bay' && b !== 'build') || (b === 'bay' && a !== 'build'); // (the drone key is read first, whatever the craft: P4-OF-4)
   const name = (c) => NAMES[c] || (/^Key[A-Z]$/.test(c) ? c.slice(3) : /^Digit\d$/.test(c) ? c.slice(5) : /^Numpad\d$/.test(c) ? `Num ${c.slice(6)}` : c);
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]);
   const kb = (c) => `<kbd>${esc(name(c))}</kbd>`;
