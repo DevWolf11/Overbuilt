@@ -1,9 +1,12 @@
 // A ground battle between two tabs of one browser (the "This device" transport, as a player would test it): A creates a
 // ground battle, B joins, both build (A the money's stock tank, B a Pumo armoured car) and the host skips to the battle.
 // Both start on their own pads on Highland Ridge. A scripted shell from A's gun goes through B's side: the hit, with its
-// module rows, reaches B and hurts its crew. B is knocked out: its hulk stays on A's screen as a wreck, B's team loses
+// module rows, reaches B and hurts its crew. B is knocked out: its hulk stays on A's screen as a wreck that burns and
+// smokes (the big update), B's team loses
 // tickets by B's price, and B comes back through the Respawn panel. A takes zone C, and the battle ends on tickets with
-// the results on both screens. Each player's bytes a second are logged. Screenshots of the lobby, the Respawn panel,
+// the results on both screens. Each player's bytes a second are logged. (The big update) B's Pumo carries a Drone Rack:
+// back in after its knock-out, B launches a drone; A sees it as B's second craft (c) beside B's still tank, shoots it
+// down (it falls on A's screen too), and nothing is booked; the bytes a second with the drone up stay under 20 kB. Screenshots of the lobby, the Respawn panel,
 // the bar in the battle and the results at 390x844 and 1280x720 (SHOTS=<dir>, else test/.cache/shots/).
 //   node test/browser/ground-battle.mjs
 import fs from 'node:fs';
@@ -67,7 +70,11 @@ await B.waitForFunction(() => App.scene === 'build' && Builder.mp, null, { timeo
 r = await A.evaluate(() => ({ kind: Builder.kind, name: Builder.name, kinds: Builder.mp.kinds, spawn: MP.spawnId, map: !$('#spawn-map').hidden }));
 log('A builds', JSON.stringify(r));
 ok('the build phase: Armour on the blueprint (the money\'s stock tank), only Armour and cars, each team its pad, no spawn map', r.kind === 'tank' && r.kinds.join() === 'tank,car' && r.spawn === 'pad0' && !r.map, r);
-await B.evaluate(() => { Builder.loadTemplate('pumo'); Builder.changed(true); });
+// (the big update: a Drone Rack on the Pumo's deck, its drone a Bumble)
+const BUMBLE = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+  ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+  ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+await B.evaluate((rows) => { Builder.loadTemplate('pumo'); Builder.quickAdd('dockRack'); Builder.droneChoice = TEMPLATES.bumble && TEMPLATES.bumble.kind === 'drone' ? { key: 'bumble' } : Drone.cleanChoice({ name: 'Bumble', parts: rows }); Builder.changed(true); }, BUMBLE);
 await B.waitForTimeout(300);
 await A.evaluate(() => MP.advance());
 for (const p of [A, B]) await p.waitForFunction(() => Flight.running && MP.phase === 'battle' && Flight.active && Flight.time > 0.5, null, { timeout: 60000 });
@@ -116,6 +123,18 @@ await A.waitForFunction(() => MP.wrecks.length === 1 && MP.player(2) && !MP.play
 r = await A.evaluate((tk0) => ({ wreck: MP.wrecks[0].v.wreck, inWorld: Flight.vessels.includes(MP.wrecks[0].v), ghost: !!MP.peers.get(2).ghost, tk: MP.state.obj.tk[1], cost: MP.battleCost.get(2), lost: tk0 - MP.state.obj.tk[1], kills: MP.me.kills, score: MP.me.score }), tk0);
 log('A after the knock-out', JSON.stringify(r));
 ok('B knocked out: its hulk stays on A\'s screen as a wreck (not a ghost any more)', r.wreck && r.inWorld && !r.ghost, r);
+// (the big update) ...and there it burns, then smokes, as any wreck does (death.js's wreckFX: its knock-out, g.ko)
+const fire = await A.evaluate(async () => {
+  const g = MP.wrecks[0].v, c = Death._g.burnPoint(g), fl = FX.flame, sm = FX.smoke, n = { f: 0, s: 0 }, near = (at) => !!c && Math.hypot(at.x - c.x, at.y - c.y, at.z - c.z) < 1.5;
+  FX.flame = function (b, at) { if (near(at)) n.f++; return fl.apply(this, arguments); };
+  FX.smoke = function (b, at) { if (near(at)) n.s++; return sm.apply(this, arguments); };
+  const t0 = Flight.time;
+  await new Promise((ok) => { const f = () => (Flight.time > t0 + 2 ? ok() : requestAnimationFrame(f)); f(); });
+  FX.flame = fl; FX.smoke = sm;
+  return { ko: g.ko, ...n, d: Math.round(Flight.dist(Flight.absPos(g), Flight.camAbs)) };
+});
+log('B\'s wreck on A\'s screen', JSON.stringify(fire));
+ok('...and on A\'s screen it burns and smokes as any wreck (knocked out, g.ko: flames and a smoke column from it)', !!fire.ko && fire.f > 3 && fire.s > 0, fire);
 ok('B\'s team loses 30 + price/2,500 tickets, priced by the host from B\'s spawn rows; A scores the kill', r.lost === 30 + Math.round(r.cost / 2500) && r.cost > 0 && r.kills === 1 && r.score === 3, r);
 
 // ---- B's Respawn panel, then back in (its own vehicle)
@@ -145,6 +164,40 @@ r = await B.evaluate(() => { const v = Flight.active, q = mpEZ(v.x, v.y, v.z, {}
 const ra = await A.evaluate(() => ({ wrecks: MP.wrecks.length, inWorld: MP.wrecks.every((w) => Flight.vessels.includes(w.v)) }));
 log('B back in', JSON.stringify(r), 'A wrecks', JSON.stringify(ra));
 ok('B respawns through the panel, back on its pad (its own hulk stays where it was), and A still sees the old wreck', Math.hypot(r.e - padS.e, r.z - padS.z) < 30 && r.hulk && ra.wrecks === 1 && ra.inWorld, [r, ra]);
+
+// ---- (the big update) B launches a drone from the Pumo's Drone Rack: on A's screen it is B's second craft (its own
+// ghost, c), B's tank ghost staying where it is; A shoots it down (it falls there too); nothing is booked
+await B.waitForFunction(() => Flight.active && Flight.active.speed() < 1 && Flight.time - (Flight.active.spawnAt || 0) > 1, null, { timeout: 60000 });
+const up = await B.evaluate(() => { const C = Flight.active, docks = C.docks.length, ok = Drone.launch(Flight, C), d = Flight.active; return { docks, choice: !!C.droneChoice, ok, kind: d.kind, c: d.craft, extra: MP.extra.size }; });
+log('B launches', JSON.stringify(up));
+ok('B launches a drone from its Drone Rack: B flies it, our second craft in the room (c)', up.docks > 0 && up.ok && up.kind === 'drone' && up.c >= 1 && up.extra === 1, up);
+await A.waitForFunction(() => { const P = MP.peers.get(2), E = P && P.x && [...P.x.values()][0], g = E && E.ghost; return !!g && !g.hiddenUntilSnap; }, null, { timeout: 30000 });
+const seenA = () => A.evaluate(() => { const P = MP.peers.get(2), E = P.x && [...P.x.values()][0], g = E && E.ghost, t = P.ghost, U = (o) => { const r = Math.hypot(o.x, o.y, o.z); return { x: o.x / r, y: o.y / r, z: o.z / r }; };
+  const u = t ? U(t) : null, h = g && t ? (g.x - t.x) * u.x + (g.y - t.y) * u.y + (g.z - t.z) * u.z : null;
+  return { c: E && E.c, name: g && g.name, kind: g && g.kind, craft: g && g.craft, tank: t ? [t.x, t.y, t.z] : null, tankKind: t && t.kind, h, extras: MP.extraGhosts().length, main: MP.ghosts().length, inWorld: !!g && Flight.vessels.includes(g) }; });
+const s0 = await seenA();
+const bytesD0 = await Promise.all([A, B].map((p) => p.evaluate(() => ({ i: Net.bytesIn, o: Net.bytesOut, t: performance.now() }))));
+await B.evaluate(() => { const d = Flight.active, r = Math.hypot(d.x, d.y, d.z); for (const k of ['x', 'y', 'z']) d[k] += (d[k] / r) * 30; }); // (up 30 m: B's own craft, as if flown there)
+await A.waitForFunction((y0) => { const E = [...MP.peers.get(2).x.values()][0], g = E && E.ghost, t = MP.peers.get(2).ghost; const r = Math.hypot(t.x, t.y, t.z); return g && (g.x - t.x) * t.x / r + (g.y - t.y) * t.y / r + (g.z - t.z) * t.z / r > 25; }, null, { timeout: 30000 });
+await A.waitForTimeout(6000);
+const bytesD1 = await Promise.all([A, B].map((p) => p.evaluate(() => ({ i: Net.bytesIn, o: Net.bytesOut, t: performance.now() }))));
+const s1 = await seenA();
+const rateD = [0, 1].map((i) => { const s = (bytesD1[i].t - bytesD0[i].t) / 1000; return { in: Math.round((bytesD1[i].i - bytesD0[i].i) / s), out: Math.round((bytesD1[i].o - bytesD0[i].o) / s), s: +s.toFixed(1) }; });
+log('A sees B\'s drone', JSON.stringify([s0, s1]), 'bytes a second with it up', JSON.stringify(rateD));
+ok('A sees B\'s drone as B\'s second craft ("Bob\'s drone", c), beside B\'s tank ghost, which stays where it is (not a ghost of the main craft)',
+  s1.kind === 'drone' && s1.craft === s1.c && s1.name === "Bob's drone" && s1.tankKind === 'tank' && s1.extras === 1 && s1.main === 1 && s1.inWorld && s1.h > 25 && Math.hypot(s1.tank[0] - s0.tank[0], s1.tank[1] - s0.tank[1], s1.tank[2] - s0.tank[2]) < 0.5, [s0, s1]);
+ok('network: with a drone up each player still sends and receives under 20 kB a second', rateD.every((x) => x.in < 20000 && x.out < 20000 && x.out > 100), rateD);
+const before = await A.evaluate(() => ({ tk: MP.state.obj.tk.slice(), kills: MP.me.kills, deaths: MP.player(2).deaths, flying: MP.player(2).flying, feed: MP.state.feed.length }));
+await A.evaluate(() => { const E = [...MP.peers.get(2).x.values()][0], g = E.ghost, fc = g.parts.find((p) => p.def.drone && p.def.drone.fc); window.__toasts = []; const t0 = UI.toast; UI.toast = function (t, k) { window.__toasts.push(t); return t0.apply(this, arguments); }; MP.sendHit(g, fc, 400, 'shot'); });
+await A.waitForFunction(() => !MP.extraGhosts().length, null, { timeout: 30000 });
+const fallA = await A.evaluate(async () => { const h = Flight.vessels.find((o) => o.foreign === 2 && o.kind === 'drone' && o.hulk != null); if (!h) return null;
+  const alt = () => h.groundAltitude(), a0 = alt(), t0 = Flight.time; await new Promise((ok) => { const f = () => (Flight.time > t0 + 0.6 || h.dead ? ok() : requestAnimationFrame(f)); f(); }); return { a0, a1: h.dead ? -1 : alt(), dead: h.dead }; });
+await B.waitForFunction(() => Flight.active && Flight.active.kind !== 'drone' && !MP.extra.size, null, { timeout: 30000 });
+const after = await A.evaluate(() => ({ tk: MP.state.obj.tk.slice(), kills: MP.me.kills, deaths: MP.player(2).deaths, flying: MP.player(2).flying, feed: MP.state.feed.length, toasts: window.__toasts, tank: !!MP.peers.get(2).ghost }));
+const bAfter = await B.evaluate(() => ({ kind: Flight.active.kind, destroyed: Flight.destroyed, extra: MP.extra.size }));
+log('A downs B\'s drone', JSON.stringify({ before, after, fallA, bAfter }));
+ok('A\'s hit downs B\'s drone: it falls on A\'s screen (a hulk of A\'s physics), A is told "Bob\'s drone down!", B is back in its tank', !!fallA && (fallA.dead || fallA.a1 < fallA.a0) && after.toasts.includes("Bob's drone down!") && bAfter.kind === 'tank' && !bAfter.destroyed && bAfter.extra === 0 && after.tank, { fallA, after, bAfter });
+ok('...and nothing is booked: no tickets move, no kill, no death, B still in the fight', JSON.stringify(after.tk) === JSON.stringify(before.tk) && after.kills === before.kills && after.deaths === before.deaths && after.flying && after.feed === before.feed, [before, after]);
 
 // ---- A takes zone C (parked in it on the ground: 20 s alone), then the battle ends on tickets
 await A.evaluate(() => { const v = Flight.active, C = MP.state.obj.zones[0]; v.placeOnSurface(EARTH, siteAngle(EARTH, C.e), VEHICLE_KINDS.tank.launchRot, C.z, -Math.PI / 2); v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); });

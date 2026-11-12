@@ -879,6 +879,7 @@ const Armour = (() => {
       airAt = F.time; airBy = s.owner;
       const a = F.active;
       airList = s.enemy ? (a && a !== s.owner && !a.dead && !a.landed && a.parts.length ? [a] : []) : Combat.candidates(s.owner, 'air', F);
+      if (s.enemy && Combat.S.dr) airList = airList.concat(Drone.ownedAir(F, s.owner)); // (the big update: the player's drones nobody flies now burst them too)
     }
     return airList;
   }
@@ -1209,8 +1210,9 @@ const Armour = (() => {
     if (det) {
       const P = det.st.part ? outPart(v, Aim.pose(v, det.st.part, { x: det.st.part.x, y: det.st.part.y, z: partZ(det.st.part) }, v3()), v3()) : modAt(v, det.st.host, det.st.i, v3());
       if (sim.vessels) Combat.explode(v.body, P, 6 + det.rounds / 10, 1500, v, sim, false, undefined, v);
-      toss(v, sim, det.st);
-    }
+      if (typeof Death !== 'undefined') Death.deathFX(v, sim, 'ammo', 0, P); // (the big update: the death effect, where the rounds went up)
+      v.bits = toss(v, sim, det.st); // (the thrown turret: it ages, settles, chars and sinks with its wreck)
+    } else if (typeof Death !== 'undefined' && !v.tossed) Death.deathFX(v, sim, 'ko'); // (a knock-out without a detonation: a smaller fire and smoke; none for a thrown turret's crew)
     if (v === sim.active && sim.onDestroyed) sim.onDestroyed();
     if (v.ai && !v.ai.down) Combat.aiDown(v, sim);
   }
@@ -1331,11 +1333,11 @@ const Armour = (() => {
     void n;
   }
   // Only what really burns does: engines and fuel cells while on fire, built-in fuel fires and vented ammunition (from
-  // the first module part), and a knocked-out hulk smokes; other broken modules give a thin grey wisp at a third the rate.
+  // the first module part); other broken modules give a thin grey wisp at a third the rate. (A knocked-out hulk's own
+  // fire and smoke column: death.js's wreckFX.)
   function partFX(o, p, n) {
     const first = crewOf(o).anchor === p, now = typeof Flight !== 'undefined' ? Flight.time || 0 : 0;
     if (first) {
-      if (o.ko && (n % (o.ko.x ? 1 : 2) === 0)) { Aim.pose(o, p, { x: p.x, y: p.y, z: partZ(p) }, FXP); outPart(o, FXP, FXP); puffAt(o, FXP, o.ko.x && now - o.ko.t < 40, n); }
       if (o.mfire) for (const f of o.mfire) puffAt(o, modAt(o, f.host, f.i, FXP), true, n);
       if (o.vent && now - o.vent.t < 6) { modAt(o, o.vent.host, o.vent.i, FXP); FX.add({ kind: 'fire', b: o.body, x: FXP.x, y: FXP.y, z: FXP.z, vx: o.vx + (o.x / (len(o.x, o.y, o.z) || 1)) * 12, vy: o.vy + (o.y / (len(o.x, o.y, o.z) || 1)) * 12, vz: o.vz + (o.z / (len(o.x, o.y, o.z) || 1)) * 12, max: 0.6, size: 1.2, grow: 2, color: '#ffb347', alpha: 1 }); }
     }

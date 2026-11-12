@@ -565,11 +565,11 @@ const GHUD = (() => {
     if (S.P && now - S.placeAt < 1000 && S.W === W && S.H === H && S.sight === !!F.sight && S.mk === mk) return S.P;
     S.placeAt = now; S.W = W; S.H = H; S.sight = !!F.sight; S.mk = mk;
     const T = rect('#flight-ui .telemetry'), lc = rect('#flight-ui .left-controls'), bar = rect('#mp-bar') || rect('#gai-bar'), tr = rect('#flight-ui .flight-top-right'), gm = rect('#gmap'), fire = rect('#btn-fire');
-    const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + 14 } : null;
+    const rw = Combat.S.rwrBox && Combat.S.rwr > 1 ? { left: Combat.S.rwrBox.x - Combat.S.rwrBox.R, right: Combat.S.rwrBox.x + Combat.S.rwrBox.R, top: Combat.S.rwrBox.y - Combat.S.rwrBox.R, bottom: Combat.S.rwrBox.y + Combat.S.rwrBox.R + (Combat.S.rwrBox.lines === 2 ? 28 : 14) } : null;
     const ms = M ? { left: M.x - M.R, right: M.x + M.R, top: M.y - M.R, bottom: M.y + M.R + 4 } : null;
     // (and the controls one by one: a custom layout may have moved them out of their column, controls.js)
     const block = [T, lc, bar, tr, gm, rw, ms, rect('#ammo-stack'), rect('#btn-sight'), rect('#btn-mg'), rect('#btn-lock'), rect('#weapon-box .weapon-chip'), rect('#btn-cm'), rect('#btn-brake'), rect('#flight-ui .stage-box'), rect('#flight-ui .throttle-box'), fire,
-      rect('#joy'), rect('#key-hints')].filter(Boolean);
+      rect('#joy'), rect('#key-hints'), rect('#btn-drone')].filter(Boolean); // (the big update: a bay's DRONE button)
     const hit = (a) => block.some((b) => a.x < b.right && a.x + a.w > b.left && a.y < b.bottom && a.y + a.h > b.top) || a.x < 4 || a.y < 4 || a.x + a.w > W - 4 || a.y + a.h > H - 4;
     const small = W < 380 || H < 700, land = H < 500, dw = small ? 104 : 120, dh = small ? 62 : 72, Tb = T ? T.bottom : 80, Tl = T ? T.left : 12, Tr = T ? T.right : 200;
     const tries = [[Tl, Tb + 8], ...(ms ? [[Tl, ms.bottom + 8]] : []), [Tr + 8, T ? T.top : 12], [Tl, Tb + 8 + 60], [lc ? lc.right + 10 : 140, lc ? lc.top : H - 200]];
@@ -655,7 +655,9 @@ const GHUD = (() => {
       let k;
       if (o === v) k = 0;
       else if (o.wreck || o.ko) k = 3;
+      else if (o.remote && o.craft) { const en = foe(o); if (en && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; k = en ? 2 : 1; const p = eZ(o); out.push([p.e, p.z, k, 1]); continue; } // (the big update: a player's drone, as our sensors mark it: a small diamond)
       else if (o.remote) { const en = foe(o); if (en && !(typeof MP.spotted === 'function' ? MP.spotted(o.remote) : typeof MPUI !== 'undefined' && MPUI.spotted(o, v, F))) continue; k = en ? 2 : 1; }
+      else if (o.ai && o.ai.drone) { const en = !friendAI(o); if (en && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; const p = eZ(o); out.push([p.e, p.z, en ? 2 : 1, 1]); continue; } // (the big update: the AI's drones, as a player's: a small diamond once our sensors mark it)
       else if (o.ai) {
         const en = !friendAI(o), d = Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z);
         if (en && (o.ai.ground ? !spotted(F, v, o, d) : d > 3000)) continue; // (an aircraft is seen within 3 km)
@@ -705,7 +707,10 @@ const GHUD = (() => {
     g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.arc(X(me.e), Y(me.z), 22 * dpr, -yaw - 0.35, -yaw + 0.35); g.closePath(); g.fill();
     for (const u of U) {
       g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.6)';
-      g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 3.2 : 2.6) * dpr, 0, TAU); g.fill();
+      g.beginPath();
+      if (u[3]) { const x = X(u[0]), y = Y(u[1]), r = 2.6 * dpr; g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); } // (a drone)
+      else g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 3.2 : 2.6) * dpr, 0, TAU);
+      g.fill();
     }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 1.5 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 5 * dpr, 0, TAU); g.stroke(); }
     for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.beginPath(); g.arc(X(p.e), Y(p.z), 4 * dpr, 0, TAU); g.stroke(); }
@@ -779,7 +784,12 @@ const GHUD = (() => {
     const me = eZ(v);
     g.fillStyle = 'rgba(255, 255, 255, 0.2)';
     g.beginPath(); g.moveTo(X(me.e), Y(me.z)); g.arc(X(me.e), Y(me.z), 60 * dpr, -F.aimYaw - 0.3, -F.aimYaw + 0.3); g.closePath(); g.fill();
-    for (const u of U) { g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath(); g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU); g.fill(); }
+    for (const u of U) {
+      g.fillStyle = u[2] === 0 ? '#ffffff' : u[2] === 1 ? COL.friend : u[2] === 2 ? COL.enemy : 'rgba(170, 170, 170, 0.7)'; g.beginPath();
+      if (u[3]) { const x = X(u[0]), y = Y(u[1]), r = 4 * dpr; g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); } // (a drone)
+      else g.arc(X(u[0]), Y(u[1]), (u[2] === 0 ? 5 : 4) * dpr, 0, TAU);
+      g.fill();
+    }
     if (F.strike) { const p = eZ(F.strike); g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 10 * dpr, 0, TAU); g.moveTo(X(p.e) - 14 * dpr, Y(p.z)); g.lineTo(X(p.e) + 14 * dpr, Y(p.z)); g.moveTo(X(p.e), Y(p.z) - 14 * dpr); g.lineTo(X(p.e), Y(p.z) + 14 * dpr); g.stroke(); }
     for (const L of PG.L) for (const p of L) if (PG.ok(p)) { g.strokeStyle = COL.warn; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(X(p.e), Y(p.z), 8 * dpr, 0, TAU); g.stroke(); }
     tacInfo(F, v);
@@ -979,7 +989,7 @@ const GHUD = (() => {
   return {
     draw, frame,
     place: (W, H) => place(W, H, typeof Flight !== 'undefined' ? Flight : {}),
-    aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam,
+    aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam, resultText, // (a drone's impact view prints the shot's result as the sight does)
     get tacOpen() { return !!S.tacOpen; },
     set redrawDiagram(on) { if (on) S.diagKey = ''; },
     _S: S, // (the tests read where things went)

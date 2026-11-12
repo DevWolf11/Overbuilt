@@ -391,53 +391,65 @@ if (part(4)) {
 // ================================================================ 5. keys
 if (part(5)) {
   const tag = 'keys ', { ctx, page } = await open([1280, 720, false], {}, tag);
-  // the Keys screen from Settings: Fire → H
+  // the Keys screen from Settings: Fire → ;
   await page.evaluate(() => { App.showSettings(); document.querySelector('#set-keys').click(); });
   const slot = (id, i) => `#modal-card .kb-row[data-id="${id}"] .kb-slot[data-slot="${i}"]`;
   const k0 = await page.evaluate(() => ({ title: document.querySelector('#modal-card .modal-title').textContent, groups: [...document.querySelectorAll('#modal-card .kb-h')].map((h) => h.textContent), fire: document.querySelector('#modal-card .kb-row[data-id="fire"] .kb-slot').textContent }));
-  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 8 && k0.fire === 'V', k0);
+  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Drones, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 9 && k0.groups[6] === 'Drones' && k0.fire === 'V', k0);
+  // (the big update's drones) the defaults clash nowhere: U, H, J and the drone digits are free wherever they can be live
+  // together (J is the Armour's spot key, never live on a drone; T stays chat); the drone rows came after keys became
+  // rebindable, so they give way to a player's own key (Keys.LATE: a player who put Fire on U keeps U firing only)
+  const dk = await page.evaluate(() => {
+    const clash = []; for (const [id] of Keys.ACTIONS) for (const c of Keys.defaults(id)) for (const o of Keys.conflicts(id, c)) if (Keys.defaults(o).includes(c)) clash.push(`${id}/${o}:${c}`);
+    const late = Keys.clean({ fire: ['KeyU'] }), late2 = Keys.clean({ tacMap: ['KeyU'] });
+    return { lateMap: late2.drone, lateMapC: Keys.conflicts('tacMap', 'KeyU'), clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat') };
+  });
+  ok('the Drones group: 7 rows (U launches and switches, H the view, 1-4 Level, Acro, Home, Land, J the gimbal\'s thermal), 73 in all, no default key clashes; Fire on U leaves the drone key unbound',
+    dk.rows === 73 && dk.clash.length === 0 && dk.drones.join() === 'drone:bay:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dThermal:drone:KeyJ'
+    && dk.lateDrone.length === 0 && dk.lateFire.join() === 'KeyU' && dk.chat.join() === 'KeyT,Enter'
+    && dk.lateMap.length === 0 && dk.lateMapC.join() === 'drone', dk); // (P4-OF-4: the drone key is read before an Armour's own: a saved Tactical map on U keeps U)
   await page.click(slot('fire', 0));
   const wait = await page.evaluate((q) => document.querySelector(q).textContent, slot('fire', 0));
   await page.keyboard.press('Escape');
   const esc = await page.evaluate((q) => ({ t: document.querySelector(q).textContent, open: UI.modalOpen, cap: !!Keys.capture }), slot('fire', 0));
-  await page.click(slot('fire', 0)); await page.keyboard.press('KeyH');
+  await page.click(slot('fire', 0)); await page.keyboard.press('Semicolon');
   const h = await page.evaluate((q) => ({ t: document.querySelector(q).textContent, keys: Keys.get('fire'), saved: localStorage.getItem('rss.keys') }), slot('fire', 0));
-  ok('a slot waits for a key ("Press a key…"); Esc cancels and the dialog stays; H then binds Fire to H, saved', wait === 'Press a key…' && esc.t === 'V' && esc.open && !esc.cap && h.t === 'H' && h.keys.join() === 'KeyH' && /"fire":\["KeyH"\]/.test(h.saved), { wait, esc, h });
-  // a clash: Stage's first key → H asks; Swap gives Fire Stage's Space
-  await page.click(slot('stage', 0)); await page.keyboard.press('KeyH');
+  ok('a slot waits for a key ("Press a key…"); Esc cancels and the dialog stays; ; then binds Fire to ;, saved', wait === 'Press a key…' && esc.t === 'V' && esc.open && !esc.cap && h.t === ';' && h.keys.join() === 'Semicolon' && /"fire":\["Semicolon"\]/.test(h.saved), { wait, esc, h });
+  // a clash: Stage's first key → ; asks; Swap gives Fire Stage's Space
+  await page.click(slot('stage', 0)); await page.keyboard.press('Semicolon');
   const c1 = await page.evaluate(() => { const b = document.querySelector('#modal-card .kb-conflict'); return { shown: b && !b.hidden, text: b && b.textContent }; });
   await page.evaluate(() => [...document.querySelectorAll('#modal-card .kb-conflict button')].find((x) => /^Swap/.test(x.textContent)).click());
   const c2 = await page.evaluate(() => ({ stage: Keys.get('stage'), fire: Keys.get('fire') }));
-  ok('a key another action has asks: "H is already: Fire (hold)"; Swap gives each the other\'s', c1.shown && /H is already: Fire/.test(c1.text) && c2.stage.join() === 'KeyH' && c2.fire.join() === 'Space', { c1, c2 });
+  ok('a key another action has asks: "; is already: Fire (hold)"; Swap gives each the other\'s', c1.shown && /; is already: Fire/.test(c1.text) && c2.stage.join() === 'Semicolon' && c2.fire.join() === 'Space', { c1, c2 });
   // Clear it there: Fire's second key → Space (Fire has it) is no clash with itself; Stage → Space clashes with Fire; clear it there
   await page.click(slot('stage', 0)); await page.keyboard.press('Space');
   await page.evaluate(() => [...document.querySelectorAll('#modal-card .kb-conflict button')].find((x) => x.textContent === 'Clear it there').click());
   const c3 = await page.evaluate(() => ({ stage: Keys.get('stage'), fire: Keys.get('fire') }));
   // Cancel leaves a clash alone; a second key; Backspace clears a slot
-  await page.click(slot('fire', 0)); await page.keyboard.press('KeyH');
+  await page.click(slot('fire', 0)); await page.keyboard.press('Semicolon');
   await page.click(slot('fire', 1)); await page.keyboard.press('KeyG'); // (G: Gear's, a clash: cancel)
   const c4 = await page.evaluate(() => !document.querySelector('#modal-card .kb-conflict').hidden);
   await page.evaluate(() => [...document.querySelectorAll('#modal-card .kb-conflict button')].find((x) => x.textContent === 'Cancel').click());
   const c4b = await page.evaluate(() => ({ fire: Keys.get('fire'), gear: Keys.get('gear') }));
-  await page.click(slot('fire', 1)); await page.keyboard.press('KeyU');
+  await page.click(slot('fire', 1)); await page.keyboard.press('Quote');
   const c5 = await page.evaluate(() => Keys.get('fire'));
   await page.click(slot('fire', 1)); await page.keyboard.press('Backspace');
   const c6 = await page.evaluate(() => Keys.get('fire'));
   ok('Clear it there takes the key from the other action; Cancel leaves both as they were; a second key is added; Backspace clears its slot',
-    c3.stage.join() === 'Space' && c3.fire.join() === '' && c4 && c4b.fire.join() === 'KeyH' && c4b.gear.join() === 'KeyG' && c5.join() === 'KeyH,KeyU' && c6.join() === 'KeyH', { c3, c4, c4b, c5, c6 });
+    c3.stage.join() === 'Space' && c3.fire.join() === '' && c4 && c4b.fire.join() === 'Semicolon' && c4b.gear.join() === 'KeyG' && c5.join() === 'Semicolon,Quote' && c6.join() === 'Semicolon', { c3, c4, c4b, c5, c6 });
   await page.evaluate(() => { UI.closeModal(); UI.closeModal(); }); // (the Keys screen, then the Settings it went back to)
-  // in flight: H fires, V doesn't; the hints, the help and the manual say H
+  // in flight: ; fires, V doesn't; the hints, the help and the manual say ;
   await fly(page, 'fs16');
   await page.keyboard.down('KeyV'); await frames(page, 2); const fv = await page.evaluate(() => Flight.firing); await page.keyboard.up('KeyV');
-  await page.keyboard.down('KeyH'); await frames(page, 2); const fh = await page.evaluate(() => Flight.firing); await page.keyboard.up('KeyH');
+  await page.keyboard.down('Semicolon'); await frames(page, 2); const fh = await page.evaluate(() => Flight.firing); await page.keyboard.up('Semicolon');
   await frames(page, 2);
   const words = await page.evaluate(() => {
     const d = el('div'); d.innerHTML = Flight.controlsHelp();
     const row = [...d.querySelectorAll('.help-grid > div')].find((x) => /Fire \(hold\)/.test(x.textContent));
     App.showHelp(); const m = document.querySelector('#modal-card').innerHTML; UI.closeModal();
-    return { hints: [...document.querySelectorAll('#key-hints-list > div')].map((x) => [...x.querySelectorAll('kbd')].map((k) => k.textContent).join(' ') + ' ' + x.lastElementChild.textContent).find((t) => /Fire/.test(t)), help: row && row.innerHTML, manual: /<kbd>H<\/kbd><kbd>Tab<\/kbd><span>Fire/.test(m), tip: document.querySelector('#btn-fire').title };
+    return { hints: [...document.querySelectorAll('#key-hints-list > div')].map((x) => [...x.querySelectorAll('kbd')].map((k) => k.textContent).join(' ') + ' ' + x.lastElementChild.textContent).find((t) => /Fire/.test(t)), help: row && row.innerHTML, manual: /<kbd>;<\/kbd><kbd>Tab<\/kbd><span>Fire/.test(m), tip: document.querySelector('#btn-fire').title };
   });
-  ok('in flight Fire is H (V does nothing now); the key hints, the help list, the manual and FIRE\'s tip all say H', !fv && fh && words.hints === 'LMB H Fire' && /^<kbd>H<\/kbd><kbd>Tab<\/kbd>/.test(words.help) && words.manual && words.tip === 'Fire (hold H)', { fv, fh, words });
+  ok('in flight Fire is ; (V does nothing now: H, the first free key before, is a drone\'s now); the key hints, the help list, the manual and FIRE\'s tip all say ;', !fv && fh && words.hints === 'LMB ; Fire' && /^<kbd>;<\/kbd><kbd>Tab<\/kbd>/.test(words.help) && words.manual && words.tip === 'Fire (hold ;)', { fv, fh, words });
   // kept after a reload; the builder's keys too (rotate on U)
   await page.reload(); await page.waitForTimeout(400); await page.evaluate(instrument);
   const kept = await page.evaluate(() => Keys.get('fire').join());
@@ -445,13 +457,25 @@ if (part(5)) {
   const r0 = await page.evaluate(() => Builder.selected.rot);
   await page.keyboard.press('KeyR'); const r1 = await page.evaluate(() => Builder.selected.rot);
   await page.keyboard.press('KeyU'); const r2 = await page.evaluate(() => Builder.selected.rot);
-  ok('kept after a reload; the builder\'s keys too (rotate moved to U: R does nothing, U turns the part; its button\'s tip says U)', kept === 'KeyH' && r1 === r0 && r2 !== r0 && (await page.evaluate(() => document.querySelector('#btn-rotate').title)) === 'Rotate (U)', { kept, r0, r1, r2 });
+  ok('kept after a reload; the builder\'s keys too (rotate moved to U: R does nothing, U turns the part; its button\'s tip says U)', kept === 'Semicolon' && r1 === r0 && r2 !== r0 && (await page.evaluate(() => document.querySelector('#btn-rotate').title)) === 'Rotate (U)', { kept, r0, r1, r2 });
   // reset all: back to today's keys
   await page.evaluate(() => { App.showSettings(); document.querySelector('#set-keys').click(); });
   await page.evaluate(() => { const b = [...document.querySelectorAll('#modal-card .btn.danger')].find((x) => /Reset all/.test(x.textContent)); b.click(); b.click(); });
   const all = await page.evaluate(() => ({ fire: Keys.get('fire').join(), stage: Keys.get('stage').join(), rot: Keys.get('bRotate').join(), saved: localStorage.getItem('rss.keys') }));
   await page.evaluate(() => { UI.closeModal(); UI.closeModal(); });
   ok('Reset all keys (two taps): every key as it was', all.fire === 'KeyV' && all.stage === 'Space' && all.rot === 'KeyR' && all.saved === '{}', all);
+  // (review P5-DOCS-6) the manual names every key that works outside a room: each action but the builder's rebound to F9 in
+  // turn, F9 is in App.showHelp (the in-room lists' catapult, chat and score aside); then back to today's key
+  const man = await page.evaluate(() => {
+    const out = [], room = new Set(['catapult', 'chat', 'score']);
+    for (const [id, group] of Keys.ACTIONS) {
+      if (group === 'Builder' || room.has(id)) continue;
+      Keys.set(id, 0, 'F9'); App.showHelp(); const m = document.querySelector('#modal-card').innerHTML; UI.closeModal(); Keys.reset(id);
+      if (!/<kbd>F9<\/kbd>/.test(m)) out.push(id);
+    }
+    return { out, saved: localStorage.getItem('rss.keys') };
+  });
+  ok('the manual shows the key of every action outside the builder and a room (each rebound to F9 in turn: the globe / solar-system switch N too)', !man.out.length && man.saved === '{}', man);
   await shot(page, 'keys-1280x720');
   await pageErrors(page, tag);
   await ctx.close();
@@ -482,7 +506,7 @@ if (part(5)) {
   const k = await page.evaluate(() => { const c = document.querySelector('#modal-card'), rows = [...c.querySelectorAll('.kb-row')]; return { fit: c.scrollWidth <= c.clientWidth + 1, rows: rows.length, over: rows.filter((r) => r.getBoundingClientRect().right > innerWidth).length }; });
   await shot(page, 'keys-390x844');
   ok('on a phone: Settings has the controls (Touch controls, UI size, Stick size, Aim stick speed, Keys, Edit controls) and the Keys screen fits its width',
-    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 64 && k.over === 0, { s: { w: s.w }, k });
+    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 73 && k.over === 0, { s: { w: s.w }, k });
   await page.evaluate(() => UI.closeModal());
   await pageErrors(page, 'phone keys ');
   await ctx.close();

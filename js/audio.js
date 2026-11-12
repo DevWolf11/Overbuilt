@@ -121,6 +121,44 @@ const Sound = {
     og.gain.setValueAtTime(0.0001, t); og.gain.linearRampToValueAtTime(0.9 * k * fall + 0.02, t + 0.01); og.gain.exponentialRampToValueAtTime(0.001, t + 0.4 + 0.25 * k);
     o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.7 + 0.25 * k);
   },
+  // A death's blast (the damage model's: a craft or a vehicle going up, death.js): a burst of noise through a lowpass
+  // closing to 80 Hz over a 45 -> 25 Hz thump, deeper and longer the bigger it is (size, m). Further off (dist, m) it is
+  // quieter, duller and later (340 m/s); heard to 8 km when it is big (6 m or more), else 3 km. At most three start in a
+  // second (the rest are dropped: a missile shredding a jet is one bang, not ten).
+  blast(size, dist = 0) {
+    const d = Math.max(0, +dist || 0), s = +size || 0;
+    if (!this.ctx || !(s > 0) || d > (s >= 6 ? 8000 : 3000)) return;
+    const now = performance.now(), B = this._blasts || (this._blasts = []);
+    while (B.length && now - B[0] > 1000) B.shift();
+    if (B.length >= 3) return;
+    B.push(now);
+    const k = clamp(s / 4, 0.4, 2), fall = 1 / (1 + d / 400), late = d / 340, dur = 1.2 + 0.8 * k;
+    this.oneOff(dur + late);
+    const ctx = this.ctx, t = ctx.currentTime + late;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(900 * (0.3 + 0.7 * fall), t); f.frequency.exponentialRampToValueAtTime(80, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.01 + 0.5 * k * fall, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t, Math.random()); src.stop(t + dur + 0.05);
+    const o = ctx.createOscillator(), og = ctx.createGain(); // (the thump)
+    o.type = 'sine'; o.frequency.setValueAtTime(45, t); o.frequency.exponentialRampToValueAtTime(25, t + 0.5 + 0.3 * k);
+    og.gain.setValueAtTime(0.0001, t); og.gain.linearRampToValueAtTime(0.02 + 0.6 * k * fall, t + 0.015); og.gain.exponentialRampToValueAtTime(0.001, t + 0.6 + 0.4 * k);
+    o.connect(og); og.connect(this.master); o.start(t); o.stop(t + 0.9 + 0.4 * k);
+  },
+  // A fire's crackle (the damage model's: a part of the player's craft burning, death.js): a 40 ms click of band-passed
+  // noise, each at its own pitch, quiet (0.04), `at` s from now (death.js spaces them 0.15-0.35 s apart).
+  crackle(at = 0) {
+    if (!this.ctx) return;
+    const a = Math.max(0, +at || 0), dur = 0.04;
+    this.oneOff(dur + a);
+    const ctx = this.ctx, t = ctx.currentTime + a;
+    const src = ctx.createBufferSource(); src.buffer = this.noise;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200 + 2000 * Math.random(); f.Q.value = 1.5;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.04, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.master);
+    src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  },
   // the seeker's growl and lock tone: a sine, not the square beep
   tone(f = 1000, dur = 0.12, vol = 0.05) {
     if (!this.ctx) return;
@@ -155,6 +193,38 @@ const Sound = {
     src.start(t);
     this.burst(1.8, 140, 1.1 * k);
     this.burst(0.35, 600, 0.4 * k, 'bandpass');
+  },
+  // (the big update's drones) A hostile drone's buzz: one band-passed noise loop, made on first use, its gain the level
+  // asked (0 stops it: drone.js asks 0.05·(1 − d/250) while one is within 250 m); and a detector's chirp on a new contact
+  // (900 then 1200 Hz, 80 ms each)
+  buzz(level) {
+    if (!this.ctx) return;
+    const k = clamp(+level || 0, 0, 0.2);
+    if (!this.buzzG) {
+      if (!(k > 0)) return;
+      const ctx = this.ctx, src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 6;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(f); f.connect(g); g.connect(this.master); src.start(0, Math.random() * 1.5);
+      this.buzzG = g; this.buzzF = f;
+    }
+    this.glide('bz', this.buzzG.gain, k, 0.1, 1e-4);
+    this.glide('bf', this.buzzF.frequency, 380 + 400 * (k / 0.05), 0.2, 2);
+  },
+  chirp() { this.tone(900, 0.08, 0.06); setTimeout(() => this.tone(1200, 0.08, 0.06), 80); },
+  // an anti-drone laser burning near the camera: a thin high whine (one oscillator, made on first use; 0 stops it)
+  laser(level) {
+    if (!this.ctx) return;
+    const k = clamp(+level || 0, 0, 0.1);
+    if (!this.lasG) {
+      if (!(k > 0)) return;
+      const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.value = 2200; g.gain.value = 0;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 4;
+      o.connect(f); f.connect(g); g.connect(this.master); o.start();
+      this.lasG = g;
+    }
+    this.glide('ls', this.lasG.gain, k, 0.05, 1e-4);
   },
   chime() {
     if (!this.ctx) return;

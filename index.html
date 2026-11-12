@@ -123,7 +123,7 @@
       <button id="btn-templates" class="btn" data-icon="rocket" aria-label="Hangar"><span class="long">Hangar</span></button>
       <button id="btn-3d-build" class="btn toggle view3d-toggle" aria-pressed="false" title="Switch to 3D view (V)" hidden>3D</button>
       <button id="btn-sym" class="btn toggle" data-icon="sym" aria-pressed="true" aria-label="Symmetry" title="Mirror parts across the centre line"><span class="sym-text">Sym<span class="long">metry</span></span></button>
-      <button id="btn-xray" class="btn toggle" data-icon="xray" aria-pressed="false" aria-label="X-ray" title="X-ray: see the crew, ammunition and engine inside the armour (X)" data-k="bXray" data-tip="X-ray: see the crew, ammunition and engine inside the armour ({k})" hidden><span class="long">X-ray</span></button>
+      <button id="btn-xray" class="btn toggle" data-icon="xray" aria-pressed="false" aria-label="X-ray" title="X-ray: see inside: crew, ammunition, engines, radar (X)" data-k="bXray" data-tip="X-ray: see inside: crew, ammunition, engines, radar ({k})" hidden><span class="long">X-ray</span></button>
       <button id="btn-undo" class="btn icon-only" data-icon="undo" aria-label="Undo"></button>
       <button id="btn-redo" class="btn icon-only" data-icon="redo" aria-label="Redo"></button>
       <button id="btn-clear" class="btn" data-icon="trash" aria-label="Clear the rocket"><span class="long">Clear</span></button>
@@ -139,6 +139,7 @@
       <button class="kind-btn" role="radio" data-kind="car" data-icon="car" title="Car: drives from the runway"><span>Car</span></button>
       <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
       <button class="kind-btn" role="radio" data-kind="tank" data-icon="tank" title="Armour: tanks and armoured vehicles, built nose-right"><span>Armour</span></button>
+      <button class="kind-btn" role="radio" data-kind="drone" data-icon="drone" title="Drone: quadcopters and winged munitions, built nose-right, lift off from the helipad"><span>Drone</span></button>
     </div>
     <dl class="stat-grid">
       <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
@@ -147,7 +148,9 @@
       <div id="s-dv-row"><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
       <div id="s-power-row" hidden><dt>Power</dt><dd id="s-power">—</dd></div>
       <div id="s-top-row" hidden><dt>Top speed</dt><dd id="s-top">—</dd></div>
+      <div id="s-link-row" hidden><dt>Link</dt><dd id="s-link">—</dd></div>
       <div id="s-front-row" hidden><dt>Front</dt><dd id="s-front">—</dd></div>
+      <div id="s-radar-row" hidden><dt>Radar</dt><dd id="s-radar">—</dd></div>
     </dl>
     <div id="career-row" class="career-row">
       <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Funds</span><span id="s-funds">$0</span></div>
@@ -158,6 +161,7 @@
       <ol id="s-stage-list" class="stage-list"></ol>
     </details>
     <p id="s-warn" class="warn" hidden></p>
+    <button id="s-fix" class="pill" hidden>Fit a radar</button>
     <p id="s-air" class="air-info" hidden></p>
     <p id="s-ground" class="ground-info" hidden></p>
   </section>
@@ -173,6 +177,7 @@
       </div>
     </div>
     <p id="pi-specs" class="pi-specs"></p>
+    <div id="pi-holds" class="pi-holds" hidden></div>
     <div id="pi-depth" class="pi-block" hidden>
       <div class="pi-row"><span id="pi-z-label" class="pi-label">Depth</span><output id="pi-z-val" class="pi-val" for="pi-z"></output></div>
       <div class="pi-row">
@@ -191,6 +196,9 @@
         <button id="btn-armour" class="btn small icon-only toggle" data-icon="plates" aria-pressed="false" aria-label="Armour view" title="Armour view: every plate in the colour of its thickness against a level shot"></button>
       </div>
       <p id="pi-mm-faces" class="pi-faces"></p>
+    </div>
+    <div id="pi-dock" class="pi-block" hidden>
+      <div class="pi-row"><span class="pi-label">Drones</span><button id="btn-dock" class="btn small pi-dock" title="Pick the drone this bay carries">Carries ▸</button></div>
     </div>
     <div id="pi-turret" class="pi-block" hidden>
       <div class="pi-row"><span class="pi-label">Aim</span><span id="pi-arc" class="pi-arc"></span>
@@ -242,6 +250,8 @@
       <div id="row-crew" hidden><dt>Crew</dt><dd id="t-crew">0/0</dd></div>
       <div id="row-dmg" hidden><dt>Damage</dt><dd id="t-dmg">0%</dd></div>
       <div id="row-g" class="gh" hidden><dt>G-load</dt><dd id="t-g">1.0 g</dd></div>
+      <div id="row-batt" hidden><dt>Battery</dt><dd id="t-batt">100%</dd></div>
+      <div id="row-link" hidden><dt>Link</dt><dd id="t-link">100%</dd></div>
       <div class="gh"><dt>Vertical</dt><dd id="t-vs">0 m/s</dd></div>
       <div class="orbit-row"><dt>Apoapsis</dt><dd><span id="t-ap">—</span><small id="t-apt"></small></dd></div>
       <div class="orbit-row"><dt>Periapsis</dt><dd><span id="t-pe">—</span><small id="t-pet"></small></dd></div>
@@ -257,6 +267,9 @@
     <button id="warp-label" class="warp-label" aria-label="Reset time warp">1×</button>
     <button id="warp-up" class="btn icon-only" data-icon="ff" aria-label="Faster time warp"></button>
   </div>
+
+  <!-- a jammer's owner (the big update): an enemy drone inside its radio radius -->
+  <div id="jam-chip" class="chip jam-chip" role="status" hidden>JAM</div>
 
   <div class="flight-top-right">
     <button id="btn-recover" class="btn primary" hidden>Recover</button>
@@ -299,6 +312,13 @@
       <button class="sas-btn" data-sas="heading" data-plane="1" data-icon="sasHeading" aria-label="Hold heading and altitude" title="Heading (3)" data-k="apHeading" data-tip="Heading ({k})" hidden></button>
       <button class="sas-btn" data-sas="off" data-plane="1" data-icon="sasOff" aria-label="Autopilot off" title="Off (4)" data-k="apOff" data-tip="Off ({k})" hidden></button>
       <button class="sas-btn" data-sas="aim" data-plane="1" data-icon="sasAim" aria-label="Aim: the plane flies to the circle" title="Aim (5)" data-k="apAim" data-tip="Aim ({k})" hidden></button>
+      <!-- a drone's mode pad (the big update): Level, Acro, the view, Home, Land, and Tank for a drone from a bay -->
+      <button class="sas-btn" data-sas="hold" data-drone="1" data-icon="sasLevel" aria-label="Level: stops and holds its height" title="Level (1)" data-k="dLevel" data-tip="Level ({k})" data-aria="Level: stops and holds its height ({k})" hidden></button>
+      <button class="sas-btn" data-sas="acro" data-drone="1" data-icon="sasAcro" aria-label="Acro: no self-levelling" title="Acro (2)" data-k="dAcro" data-tip="Acro ({k})" data-aria="Acro: no self-levelling ({k})" hidden></button>
+      <button class="sas-btn" data-dact="view" data-drone="1" data-icon="eye" aria-label="First-person or chase view" title="View (H)" data-k="dView" data-tip="FPV or chase view ({k})" data-aria="First-person or chase view ({k})" hidden></button>
+      <button class="sas-btn" data-dact="home" data-drone="1" data-icon="home" aria-label="Fly home" title="Home (3)" data-k="dHome" data-tip="Home ({k})" data-aria="Fly home ({k})" hidden></button>
+      <button class="sas-btn" data-dact="land" data-drone="1" data-icon="landPad" aria-label="Land here" title="Land (4)" data-k="dLand" data-tip="Land ({k})" data-aria="Land here ({k})" hidden></button>
+      <button class="sas-btn" data-dact="back" data-drone="bay" data-icon="tank" aria-label="Back to the tank" title="Tank (U)" data-k="drone" data-tip="Back to the tank ({k})" data-aria="Back to the tank ({k})" hidden></button>
     </div>
     <!-- a desktop (no touch controls): the keys for the craft and mode at hand, from the current bindings -->
     <div id="key-hints" class="key-hints panel"><button id="key-hints-toggle" class="kh-head" type="button" aria-expanded="true" aria-controls="key-hints-list">Keys ▾</button><div id="key-hints-list" class="kh-list"></div></div>
@@ -314,6 +334,7 @@
 
   <button id="btn-catapult" class="round catapult" hidden title="Catapult launch (L)" data-k="catapult" data-tip="Catapult launch ({k})">Launch</button>
   <div id="weapon-box" class="weapon-box" hidden>
+    <button id="btn-radar" class="radar-pill" data-k="radarNext" title="Tap: next target (I) · hold: radar on or off" data-tip="Tap: next target ({k}) · hold: radar on or off" aria-label="Radar: next target (I); hold to switch it on or off" data-aria="Radar: next target ({k}); hold to switch it on or off" hidden>RDR</button>
     <button id="btn-weapon" class="weapon-chip" title="Change weapon (Tab)" data-k="weapon" data-tip="Change weapon ({k})"><span id="w-name">GUN</span><span id="w-ammo">0</span></button>
     <button id="btn-fire" class="round fire" aria-label="Fire (hold V)" title="Fire (hold V)" data-k="fire" data-tip="Fire (hold {k})" data-aria="Fire (hold {k})">Fire</button>
     <button id="btn-cm" class="round cm" aria-label="Countermeasures (K)" title="Flares and chaff (K)" data-k="cm" data-aria="Countermeasures ({k})" hidden>CM</button>
@@ -325,6 +346,7 @@
   <button id="btn-lock" class="round gbtn g-lock" hidden aria-label="Radar lock (L)" title="Radar lock (L)" aria-pressed="false" data-k="lock" data-tip="Radar lock ({k})" data-aria="Radar lock ({k})">Lock</button>
   <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder, or the commander's reading)" data-k="zero" data-tip="Sight's range ({k}: from the rangefinder, or the commander's reading)">Zero 800 m</button>
   <div id="ammo-stack" class="ammo-stack" role="group" aria-label="Shells" hidden></div>
+  <button id="btn-drone" class="round gbtn g-drone" hidden data-k="drone" title="Launch a drone (U)" data-tip="Launch a drone ({k})" aria-label="Launch a drone (U)" data-aria="Launch a drone ({k})">DRONE<span class="badge">×3</span></button>
   <canvas id="gmap" class="gmap" hidden aria-label="Minimap: tap for the tactical map"></canvas>
   <div id="gtac" class="gtac" hidden>
     <canvas id="gtac-canvas" class="gtac-canvas" aria-label="Tactical map"></canvas>
@@ -395,8 +417,11 @@
 <script src="js/map.js"></script>
 <script src="js/globe.js"></script>
 <script src="js/combat.js"></script>
+<script src="js/radar.js"></script>
+<script src="js/death.js"></script>
 <script src="js/gmode.js"></script>
 <script src="js/groundai.js"></script>
+<script src="js/drone.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/vendor/peer.min.js"></script>

@@ -297,6 +297,7 @@ const GlobeView = {
       if (o === v || o.body !== b || !o.control) continue;
       const col = o.remote ? MP.mapColor(o) : !o.ai || o.ai.ally ? '#62d0ff' : o.ai.ground && typeof GroundAI !== 'undefined' && GroundAI.battle ? null : '#ff5d5d'; // enemy fighters and range targets in red; other players by team (a Practice Battle: allies blue, the enemy off the map, as in a room)
       if (!col) continue; // (enemy players stay off the map in a battle)
+      if (o.ai && o.ai.drone && !o.ai.ally && !(typeof Drone !== 'undefined' && Drone.marked(v, o))) continue; // (an enemy drone only while seen: by eye at 400 m, or a drone sensor's mark; P4-CTR-6)
       proj(...toGround(o.x, o.y, o.z));
       if (!onScreen()) continue;
       ctx.fillStyle = col; ctx.beginPath(); ctx.arc(P.x, P.y, 3.5 * dpr, 0, TAU); ctx.fill();

@@ -20,22 +20,22 @@ let t = await tabs();
 ok('a rocket shows the rocket parts and More', t.join('|') === 'Command*|Fuel|Engines|Coupling|Aero|Utility|Structure|More…', t.join('|'));
 await ev(() => Builder.setKind('plane'));
 t = await tabs();
-ok('a plane shows cockpits, fuselage, wings, aero engines, gear and weapons', t.join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|More…', t.join('|'));
+ok('a plane shows cockpits, fuselage, wings, aero engines, gear, weapons and radar', t.join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar|More…', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'More…').click());
 t = await tabs();
-ok('More shows every tab, the plane ones first', t.length === 22 && t.slice(0, 6).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons' && t.includes('Command') && t.includes('Hulls') && t[21] === 'Fewer', t.join('|'));
+ok('More shows every tab, the plane ones first', t.length === 27 && t.slice(0, 7).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar' && t.includes('Command') && t.includes('Hulls') && t.includes('Frames') && t[26] === 'Fewer', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Engines').click());
 let items = await ev(() => [...document.querySelectorAll('#palette-items .part-item')].length);
 ok('a rocket engine can still go on a plane', items > 5, items);
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Fewer').click());
 t = await tabs();
-ok('Fewer goes back to the plane tabs (from Engines, to the first)', t[0] === 'Cockpits*' && t.length === 7, t.join('|'));
+ok('Fewer goes back to the plane tabs (from Engines, to the first)', t[0] === 'Cockpits*' && t.length === 8, t.join('|'));
 await ev(() => { Builder.moreCats = false; Builder.setKind('tank'); });
 t = await tabs();
 ok('armour shows hulls, turrets, drive, guns, launchers, crew and kit', t.join('|') === 'Hulls*|Turrets|Drive|Guns|Launchers|Crew & ammo|Kit|More…', t.join('|'));
 const per = await ev((names) => names.map((name) => { [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === name).click();
   return name + ' ' + document.querySelectorAll('#palette-items .part-item').length; }).join(', '), t.slice(0, -1).map((n) => n.replace('*', '')));
-ok('each armour tab holds its parts (the catalogue\'s 71)', per === 'Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 8, Crew & ammo 10, Kit 9', per);
+ok('each armour tab holds its parts (the catalogue\'s 81: the big update\'s 3 drone bays and 7 counter-drone parts too)', per === 'Hulls 7, Turrets 11, Drive 10, Guns 16, Launchers 11, Crew & ammo 10, Kit 16', per);
 await ev(() => { Builder.loadTemplate('sugoi27'); });
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Wings').click());
 const tray = await ev(() => [...document.querySelectorAll('#palette-items > *')].map((e) => (e.classList.contains('tray-group') ? '#' + e.textContent : '.')));
@@ -139,6 +139,35 @@ r = await ev(() => {
   return out;
 });
 ok('every part\'s 3D model fits inside its clash shape', !r.length, r.join(' '));
+// 3d. the big update's drone parts and counter-drone kit clash as boxes (their recipes build inside them): every model, at
+// rest, within 1.5 cm of its part's box (the lathes, the munition body, charges and spools, within their outlines above). The
+// Drone Radar is the Search Radar's antenna, which turns in flight and reaches past its box's depth as that one's does.
+r = await ev(() => {
+  const out = [], inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let n = 0;
+  for (const type in PARTS) {
+    const d = PARTS[type];
+    if (!(d.drone || d.family === 'Drones') || isSurface(d) || d.searchRadar) continue;
+    const p = makePart(type, 0, 0), root = Parts3D.buildPart(p, true), hd = partDepth(p) / 2;
+    root.updateMatrixWorld(true);
+    let worst = 0, meshes = 0;
+    for (const H of root.userData.rig.holders) {
+      inv.copy(H.matrixWorld).invert();
+      H.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return;
+        for (let q = o; q; q = q.parent) if (!q.visible) return;
+        meshes++;
+        m.multiplyMatrices(inv, o.matrixWorld);
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m); worst = Math.max(worst, Math.abs(v.x) - d.w / 2, Math.abs(v.y) - d.h / 2, Math.abs(v.z) - hd); }
+      });
+    }
+    n++;
+    if (worst > 0.015 || !meshes) out.push(`${type} ${meshes ? worst.toFixed(3) : 'no mesh'}`);
+  }
+  return { n, out };
+});
+ok(`every drone part's and counter-drone part's 3D model lies inside its box (${r.n} parts)`, r.n === 41 && !r.out.length, r.out.join(' '));
 await ev(() => App.setPreview3D(false));
 
 // 4. cheap enough to run on every pointer move: snap against a whole jet

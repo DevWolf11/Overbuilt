@@ -1244,7 +1244,7 @@ body.ground .throttle-box .throttle-track { height: clamp(96px, calc(14vh / var(
 
 /* a desktop (touch controls off: body.pc): no stick, no touch buttons; the panels stay (autopilot, throttle, stage, the
    weapon chip, the shell chips, the minimap), and the key hints take the stick's corner */
-body.pc :is(#joy-zone, #flight-ui .rot-controls, #btn-fire, #btn-cm, #btn-catapult, #btn-sight, #btn-mg, #btn-lock) { display: none !important; }
+body.pc :is(#joy-zone, #flight-ui .rot-controls, #btn-fire, #btn-cm, #btn-catapult, #btn-sight, #btn-mg, #btn-lock, #btn-radar) { display: none !important; }
 .key-hints { display: none; padding: 4px 8px 7px; border-radius: 10px; max-width: 330px; }
 body.pc .key-hints { display: block; }
 .kh-head { display: block; padding: 2px 0 3px; border: 0; background: none; cursor: pointer; font: 600 10px var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
@@ -1270,7 +1270,7 @@ body.pc.ground.g-thrust:not(.g-stages) .throttle-box { bottom: calc(24px + var(-
 body.ctl-edit #flight-ui :is(.telemetry, .flight-top-right, #warp, #hint, #map-legend, #flight-alert, .sight-vig, #gai-bar) { opacity: 0.3; }
 body.ctl-edit #joy-zone { outline: 1px dashed rgba(98, 208, 255, 0.4); outline-offset: -1px; background: rgba(98, 208, 255, 0.04); }
 body.ctl-edit :is(#joy, #sas-bar, #flight-ui .air-btns, #flight-ui .roll-btns, #btn-brake, #flight-ui .throttle-box, #flight-ui .stage-box, #btn-fire, #btn-cm, #btn-weapon, #btn-catapult,
-  #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
+  #btn-sight, #btn-mg, #btn-lock, #ammo-stack, #btn-range, #gmap, #key-hints, #btn-radar) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
 body.ctl-edit .ctl-sel { outline: 2px solid var(--amber) !important; outline-offset: 3px; }
 body.ctl-edit .air-btns { display: flex !important; }
 .ctl-edit-bar { position: fixed; z-index: 27; left: 50%; transform: translateX(-50%); top: 36%; width: min(440px, calc(100% - 24px)); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -1311,3 +1311,108 @@ body.ctl-edit .air-btns { display: flex !important; }
 .set-range { display: flex; align-items: center; gap: 10px; }
 .set-range input { flex: 1; min-width: 0; }
 .set-val { font: 500 12px var(--mono); min-width: 40px; text-align: right; color: var(--muted); }
+
+/* The big update's styles, one section per feature: add rules only inside your feature's section. */
+/* == big: damage == */
+/* the end of a life: #flight-alert becomes the strip ("Pilot knocked out · by Bea · tap for options") while the end screen
+   waits for the fall; a tap or a click on it brings the end screen at once (Flight.endNow). It wraps on a narrow phone
+   instead of running off the screen's sides. Where it (or any alert) goes when its own place meets a panel or a control:
+   Flight.placeAlert (inline top, left and width). */
+.flight-alert.lost {
+  pointer-events: auto; cursor: pointer; color: #fff; background: rgba(20, 24, 32, 0.88); border-color: #9aa3ad;
+  white-space: normal; text-align: center; width: max-content; max-width: min(560px, calc(92vw / var(--ui-scale))); line-height: 1.35;
+}
+
+/* == big: radar == */
+/* the builder: the Radar row's value in amber while nothing aboard guides the radar missiles; the Fit a radar button under
+   the warnings (shown while that holds); the part card's host chips ("Holds: Pulse-Doppler Radar ›": a tap selects the
+   set hidden in the nose) */
+.stat-grid dd.warnv { color: var(--amber); }
+#s-fix { margin: 4px 0; color: var(--amber); border-color: var(--amber); align-self: flex-start; }
+.pi-holds { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.pi-holds[hidden] { display: none; }
+.pi-chip {
+  font: 600 11px/1 var(--mono); padding: 6px 10px; border-radius: 999px; cursor: pointer; touch-action: manipulation;
+  color: #5fd7ff; background: rgba(95, 215, 255, 0.1); border: 1px solid rgba(95, 215, 255, 0.5);
+}
+.pi-chip:hover { background: rgba(95, 215, 255, 0.2); }
+
+/* the flight HUD: the RDR pill over the weapon chip (touch only: a desktop has I and O), in the chip's colours. A tap
+   picks the next target, a hold (0.6 s, the ring filling) switches the radar on or off. It sits above the weapon box
+   without moving the chip, FIRE or CM, in the portrait column and the landscape row alike */
+.radar-pill {
+  position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 64px; height: 30px; padding: 0 10px; border-radius: 15px;
+  font: 600 11px var(--mono); letter-spacing: .08em; white-space: nowrap; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: var(--panel); border: 1px solid var(--line-strong); color: #7dffb0; overflow: hidden;
+}
+.radar-pill[hidden] { display: none; }
+.radar-pill::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; border: 2px solid #7dffb0; pointer-events: none;
+  clip-path: inset(0 100% 0 0); transition: clip-path 0s;
+}
+.radar-pill.holding::after { clip-path: inset(0 0 0 0); transition: clip-path 0.6s linear; }
+.radar-pill.off { opacity: .55; color: var(--muted); }
+.radar-pill.out { color: #ff5d5d; }
+body.ground #btn-radar { display: none; }
+
+/* == big: drones == */
+/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide) */
+#kind-select { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 359.98px) { #kind-select .kind-btn { font-size: 8px; } }
+/* the drone's line under the stats: its notes (no camera, more parts than a bay takes) in grey */
+.air-info .s-note { color: var(--muted); }
+/* a short phone building a drone, as building armour: while a part's card is up the kind buttons give way */
+@media (max-width: 760px) and (max-height: 700px) {
+  #build-ui.has-info:has(#kind-select [data-kind="drone"][aria-checked="true"]) #kind-select { display: none; }
+}
+/* its battery ("50 Wh · hover 7.5 min") and top speed ("Level 97 km/h · Acro 160") rows take two columns, a size smaller on a
+   desktop's narrow panel to keep to one line (a phone's wrap at the " · ") */
+.stats.drone #s-dv-row, .stats.drone #s-top-row { grid-column: span 2; }
+@media (min-width: 761px) { .stats.drone :is(#s-dv-row, #s-top-row, #s-link-row) dd { font-size: 14px; } }
+/* folded (a small phone's first look, or ▴): one row, the core of each ("50 Wh", "97 km/h"), no link */
+.stats.drone.collapsed .s-more, .stats.drone.collapsed #s-link-row { display: none; }
+.stats.drone.collapsed :is(#s-dv-row, #s-top-row) { grid-column: auto; }
+/* the part card's bay row ("Carries: Bumble FPV ×3 ▸") and the picker it opens: drones that don't fit are dimmed, with
+   the bay's reason in red; a tick on those that do */
+.pi-dock { flex: 1; min-width: 0; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pick .design-main[disabled] { cursor: default; opacity: 0.6; }
+.dock-pick .design:has(.design-main[disabled]):hover { border-color: var(--line); }
+.dock-ok, .dock-why { font: 600 12px var(--mono); }
+.dock-ok { color: #7dffb0; }
+.dock-why { color: var(--danger); }
+.hangar-hint.dock-foot { margin: 12px 0 0; }
+/* the flight HUD (W4): a drone (body.drone) has no stage box and its mode pad in the autopilot grid; in FPV (body.fpv)
+   the OSD (drone.js, on the canvas) takes the flight data's and the hint's place, except on the map. A Level multirotor's
+   throttle box is the climb lever (body.drone-level): a line at its middle (hold), the motors' output as the fill, ▲ and ▼
+   in place of Max and Cut */
+body.drone .stage-box { display: none !important; }
+body.fpv:not(.mapping) #flight-ui :is(.telemetry, #hint) { display: none; }
+body.drone-level .throttle-track::after { content: ''; position: absolute; left: -1px; right: -1px; top: calc(50% - 1px); height: 2px; background: rgba(255, 255, 255, 0.85); pointer-events: none; }
+body.drone-level .throttle-fill { opacity: 0.55; }
+body.drone-level .throttle-label { white-space: pre; text-align: center; font-size: 11px; line-height: 1.15; padding: 2px 4px; }
+body.drone-level .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; font-size: 14px; touch-action: none; }
+body.drone-level .throttle-box :is(#btn-tmax, #btn-tcut).held { background: rgba(255, 181, 71, 0.22); border-color: var(--amber); color: var(--amber); }
+#row-batt.warn dd { color: var(--amber); }
+#row-batt.danger dd, #row-link.danger dd { color: var(--danger); }
+/* the JAM chip: our jammers hold an enemy drone (top middle, under the time warp) */
+.jam-chip {
+  position: absolute; top: calc(58px + var(--safe-t)); left: 50%; transform: translateX(-50%); pointer-events: none;
+  font: 700 12px var(--mono); letter-spacing: 0.08em; padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  color: #ffd6d6; background: rgba(60, 10, 14, 0.82); border: 1px solid rgba(255, 93, 93, 0.7);
+}
+.jam-chip[hidden] { display: none; }
+/* the DRONE button on the ground HUD (a vehicle with a bay): over the brake in the left column on a phone, left of the shell
+   chips on a phone on its side; greyed when a launch would be refused (moving, or the bays empty); a desktop has U */
+.g-drone { left: calc(var(--gut-l) + 12px); bottom: calc(210px + var(--safe-b)); width: 56px; height: 52px; border-radius: 26px; font-size: 11px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1; padding: 0; }
+.g-drone[hidden] { display: none; }
+.g-drone .badge { font: 600 10px var(--mono); letter-spacing: 0; color: var(--muted); }
+.g-drone.off { opacity: 0.45; }
+.g-drone[aria-pressed="true"] { background: rgba(125, 255, 176, 0.18); border-color: #7dffb0; color: #7dffb0; }
+@media (max-height: 500px) { .g-drone { left: auto; right: calc(var(--gut-r) + 372px); bottom: calc(20px + var(--safe-b)); height: 46px; } }
+body.pc #btn-drone { display: none !important; }
+body.ctl-edit #btn-drone { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
+/* the impact view: the controls fade for its 1.5 s (a tap or a key ends it) */
+body.impactcam #flight-ui :is(.left-controls, .weapon-box, .throttle-box, #gmap, .gbtn) { opacity: 0; pointer-events: none !important; transition: opacity 0.2s; }
+#sight-vig.alarm { display: block; background: radial-gradient(ellipse 80% 80% at 50% 50%, rgba(255, 40, 40, 0) 60%, rgba(255, 40, 40, 0.45) 100%); }
+
+/* == big: graphics == */

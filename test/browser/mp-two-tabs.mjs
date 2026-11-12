@@ -3,7 +3,12 @@
 // in a Skylark. B's ghost of A must match A's craft exactly. Then: the host drops a relayed message over 256 KB, and
 // a forged spawn from B is rebuilt clean on A without breaking anything. Then the part limit: on, B's 1,009-part craft
 // can't fly; the host turns it off and sees it. Then the props: a tree knocked over on B's
-// screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere.
+// screen falls on A's; a third tab joining later gets the room's set; a player's forged "fallen" goes nowhere. Then the
+// big update's deaths on the other screen: B's plane, its pilot knocked out 1 km up, falls on A's screen as A's own hulk
+// and crashes there once, leaving a crash site; B's wing loses a half, which A sees go; B's Dune Buggy knocked out in the
+// sandbox stays on A's screen as a wreck. Then drones (the big update): B's TK-34 with a Drone Rack launches its drone;
+// A's ghost of it is B's drone exactly, a motor torn off it leaves the tank's ghost whole, and docked it goes. Then radar: A's FS-16 locks B's 8 km ahead and B's warning receiver warns;
+// A's radar off stops the warning and its search strobe on B's screen, on again brings the strobe back.
 //   node test/browser/mp-two-tabs.mjs        (screenshot in test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -172,6 +177,116 @@ const forgedFallen = await A.evaluate((n) => { const m = Props.areas().find((q) 
 log('C (joined later) sees', JSON.stringify(onC), '| B\'s forged fallen reached the host:', forgedFallen);
 ok('a third tab joining later gets the room\'s set from the host: the tree already down there', !!onC && Math.abs(onC.fe - knock.fe) < 0.02 && onC.t0 < -1e6 && onC.n === 1, onC);
 ok('...and a player\'s own "fallen" message is dropped by the host (host-only)', !forgedFallen);
+
+// the big update's deaths on the other screen (spec-damage §10.5): B's plane, its pilot knocked out 1 km up, falls on A's
+// screen as a hulk of A's own physics (no longer B's ghost) and crashes there once, leaving a crash site; B's wing loses
+// its right half: A's ghost of it keeps the left half and the right one falls; B's Dune Buggy knocked out in the sandbox
+// stays on A's screen as a wreck
+const flyB = (key, alt) => B.evaluate(([key, alt]) => {
+  UI.closeModal(); Builder.loadTemplate(key); Builder.changed(); MP.launch();
+  return new Promise((done) => { const f = () => { const v = Flight.active; if (!(Flight.running && v && v.name === TEMPLATES[key].name && Flight.time > 0.3)) return requestAnimationFrame(f);
+    if (alt) { const r = Math.hypot(v.x, v.y, v.z), k = (r + alt) / r, n = v.axis(0, 1, 0); v.x *= k; v.y *= k; v.z *= k; v.vx = n.x * 120; v.vy = n.y * 120; v.vz = n.z * 120; v.landed = false; v.throttle = 0.8; }
+    done({ name: v.name, alt: Math.round(v.groundAltitude()) }); }; f(); });
+}, [key, alt]);
+const seenUp = (alt) => A.waitForFunction((alt) => { const P = MP.peers.get(2), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.groundAltitude() > alt; }, alt, { timeout: 60000 });
+await A.evaluate(() => { const W = (window.__dx = { death: [] }), f = FX.death; FX.death = function (b, at, vel, size, kind) { W.death.push({ kind, t: Flight.time }); return f.apply(this, arguments); }; });
+log('B flies', JSON.stringify(await flyB('mustang', 1000)));
+await seenUp(900);
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__py = Death.S.pyres.length; window.__dx.death.length = 0; });
+await B.evaluate(() => { const v = Flight.active; Combat.damage(v, v.control, 1e6, 'shot', Flight, null); });
+await A.waitForFunction(() => window.__g.foreign === 2, null, { timeout: 20000 }).catch(() => {});
+const f1 = await A.evaluate(() => { const g = window.__g, P = MP.peers.get(2); return { foreign: g.foreign, remote: g.remote, ghost: !!(P && P.ghost), inWorld: Flight.vessels.includes(g), down: !!g.down, ghosts: MP.ghosts().includes(g), control: g.control === null || g.parts.some((p) => p.def.control && p.ko), alt: Math.round(g.groundAltitude()), vy: Math.hypot(g.vx, g.vy, g.vz) }; });
+log('A sees B\'s hulk', JSON.stringify(f1));
+ok('B\'s pilot knocked out 1 km up: on A\'s screen a falling hulk of A\'s own (foreign, no longer B\'s ghost), moving', f1.foreign === 2 && !f1.remote && !f1.ghost && f1.inWorld && f1.down && !f1.ghosts && f1.alt > 500 && f1.vy > 20, f1);
+await A.waitForFunction(() => window.__g.dead, null, { timeout: 600000 }).catch(() => {});
+await A.waitForTimeout(500);
+const f2 = await A.evaluate(() => ({ dead: !!window.__g.dead, deaths: window.__dx.death.map((d) => d.kind), pyres: Death.S.pyres.length - window.__py, inWorld: Flight.vessels.includes(window.__g) }));
+log('A after the crash', JSON.stringify(f2));
+ok('...it crashes there once (one fireball, a crash site), and is gone', f2.dead && f2.deaths.filter((k) => k === 'crash').length === 1 && f2.deaths.length === 1 && f2.pyres === 1, f2);
+// half a wing
+log('B flies', JSON.stringify(await flyB('mustang', 1000)));
+await seenUp(900);
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__n0 = Flight.vessels.length; });
+const cut = await B.evaluate(() => { const v = Flight.active, w = v.mainWing; Combat.damage(v, w, 1.1 * Combat.maxHp(w.def), 'shot', Flight, null, 1); return { cut: w.cut, id: w.id, hulk: v.hulk, down: !!v.down }; });
+await A.waitForFunction((id) => { const p = window.__g.parts.find((q) => q.id === id); return p && p.cut === 1; }, cut.id, { timeout: 20000 }).catch(() => {});
+const c1 = await A.evaluate((id) => { const g = window.__g, p = g.parts.find((q) => q.id === id), half = Flight.vessels.slice(window.__n0).filter((o) => o.foreign === 2 && o.parts.some((q) => q.cut === -1 && q.type === p.type));
+  return { cut: p && p.cut, ghost: MP.peers.get(2).ghost === g, halves: half.length, falling: half.map((o) => Math.round(Math.hypot(o.vx, o.vy, o.vz))) }; }, cut.id);
+log('B cut', JSON.stringify(cut), 'A sees', JSON.stringify(c1));
+ok('B\'s wing loses its right half: A\'s ghost of it keeps the left half, and the right one falls there', cut.cut === 1 && c1.cut === 1 && c1.ghost && c1.halves === 1 && c1.falling[0] > 20, { cut, c1 });
+// a Dune Buggy knocked out in the sandbox: a wreck on A's screen
+log('B drives', JSON.stringify(await flyB('buggy', 0)));
+await A.waitForFunction(() => { const P = MP.peers.get(2), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.kind === 'car'; }, null, { timeout: 60000 });
+await A.evaluate(() => { window.__g = MP.peers.get(2).ghost; window.__w0 = MP.wrecks.length; });
+await B.waitForTimeout(1500);
+await B.evaluate(() => { const v = Flight.active; Combat.damage(v, v.parts.find((p) => p.def.control), 1e6, 'shot', Flight, null); });
+await A.waitForFunction(() => MP.wrecks.length > window.__w0, null, { timeout: 20000 }).catch(() => {});
+const k1 = await A.evaluate(() => { const g = window.__g, w = MP.wrecks.find((x) => x.v === g); return { wreck: !!g.wreck, listed: !!w, pid: w && w.pid, ko: g.ko && g.ko.why, inWorld: Flight.vessels.includes(g), ghost: !!MP.peers.get(2).ghost }; });
+const kB = await B.evaluate(() => { const v = Flight.active; return { ko: v.ko && v.ko.why, wreck: !!v.wreck, v: Math.hypot(v.vx, v.vy, v.vz) }; });
+log('B\'s buggy knocked out', JSON.stringify(kB), 'A sees', JSON.stringify(k1));
+ok('B\'s Dune Buggy knocked out in the sandbox (its driver: crew) stops dead and stays on A\'s screen as a wreck', kB.ko === 'crew' && kB.wreck && kB.v === 0 && k1.wreck && k1.listed && k1.pid === 2 && k1.ko === 'crew' && k1.inWorld && !k1.ghost, { kB, k1 });
+
+// drones in a room (the big update, spec-drones §16): B drives a TK-34 with a Drone Rack and launches its drone; A's
+// ghost of it (B's second craft, c) is B's drone exactly (parts, centre of mass, mass); a motor torn off it (its parts
+// message, c) leaves A's ghost of the tank whole; docked, it goes from A's screen and the tank stays
+const BUMBLE = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }],
+  ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }],
+  ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+await B.evaluate((rows) => { UI.closeModal(); Builder.loadTemplate('tk34'); Builder.quickAdd('dockRack'); Builder.droneChoice = TEMPLATES.bumble && TEMPLATES.bumble.kind === 'drone' ? { key: 'bumble' } : Drone.cleanChoice({ name: 'Bumble', parts: rows }); Builder.changed(); MP.launch(); }, BUMBLE);
+await B.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.tk34.name && Flight.time > 1 && Flight.active.speed() < 1, null, { timeout: 120000 });
+const dB = await B.evaluate(() => { const C = Flight.active, docks = C.docks.length, ok = Drone.launch(Flight, C), d = Flight.active;
+  return { docks, ok, c: d.craft, kind: d.kind, parts: d.parts.map((p) => [p.id, p.type, +partZ(p).toFixed(3)]).join(';'), com: [d.com.x, d.com.y, d.com.z || 0].map((x) => +x.toFixed(4)), mass: +d.mass.toFixed(4) }; });
+log('B launches', JSON.stringify({ ...dB, parts: dB.parts.split(';').length }));
+await A.waitForFunction((c) => { const g = MP.ghostOf(2, c); return !!g && !g.hiddenUntilSnap && !!MP.peers.get(2).ghost; }, dB.c, { timeout: 60000 }).catch(() => {});
+const ghD = () => A.evaluate((c) => { const g = MP.ghostOf(2, c), t = MP.peers.get(2).ghost; return g && { name: g.name, kind: g.kind, parts: g.parts.map((p) => [p.id, p.type, +partZ(p).toFixed(3)]).join(';'), com: [g.com.x, g.com.y, g.com.z || 0].map((x) => +x.toFixed(4)), mass: +g.mass.toFixed(4),
+  tank: t && t.parts.length, tankKind: t && t.kind, extras: MP.extraGhosts().length }; }, dB.c);
+const gd1 = await ghD();
+log('A sees', JSON.stringify(gd1 && { ...gd1, parts: gd1.parts.split(';').length }));
+ok('B\'s TK-34 launches its drone from its Drone Rack; A\'s ghost of it ("Bob\'s drone") is B\'s drone: the same parts, centre of mass and mass, beside B\'s tank',
+  dB.docks > 0 && dB.ok && dB.kind === 'drone' && !!gd1 && gd1.name === "Bob's drone" && gd1.parts === dB.parts && JSON.stringify(gd1.com) === JSON.stringify(dB.com) && gd1.mass === dB.mass && gd1.tankKind === 'tank' && gd1.extras === 1, { dB, gd1 });
+const tank0 = gd1 && gd1.tank;
+const torn = await B.evaluate(() => { const d = Flight.active, m = d.parts.filter((p) => p.def.thrust).at(-1); Combat.damage(d, m, 1e6, 'shot', Flight, null); return { id: m.id, gone: !d.parts.includes(m), n: d.parts.length }; });
+await A.waitForFunction(([c, id]) => { const g = MP.ghostOf(2, c); return !!g && !g.parts.some((p) => p.id === id); }, [dB.c, torn.id], { timeout: 30000 }).catch(() => {});
+const gd2 = await ghD();
+log('B\'s drone loses a motor', JSON.stringify(torn), 'A sees', JSON.stringify(gd2 && { ...gd2, parts: gd2.parts.split(';').length }));
+ok('...a motor torn off B\'s drone goes from A\'s ghost of the drone (its parts message, c) and A\'s ghost of the tank stays whole', torn.gone && !!gd2 && gd2.parts.split(';').length === torn.n && gd2.tank === tank0 && tank0 > 0, { torn, gd2 });
+await B.evaluate(() => Drone.dock(Flight, Flight.active));
+await A.waitForFunction((c) => !MP.ghostOf(2, c), dB.c, { timeout: 30000 }).catch(() => {});
+const gd3 = await A.evaluate(() => ({ extras: MP.extraGhosts().length, tank: !!MP.peers.get(2).ghost, tankKind: MP.peers.get(2).ghost && MP.peers.get(2).ghost.kind }));
+const dB3 = await B.evaluate(() => ({ kind: Flight.active.kind, extra: MP.extra.size }));
+log('B docks', JSON.stringify(dB3), 'A sees', JSON.stringify(gd3));
+ok('...B docks it (back in the tank): it goes from A\'s screen (despawn, c), B\'s tank stays', dB3.kind === 'tank' && dB3.extra === 0 && gd3.extras === 0 && gd3.tank && gd3.tankKind === 'tank', { dB3, gd3 });
+
+// radar in a room (the big update, spec-radar §8): A flies an FS-16 8 km behind B's FS-16, its radar missiles chosen;
+// A's radar locks B and B's warning receiver warns (RADAR LOCK, the lock's sender) and hears A's search; A switches its
+// radar off: the lock goes, B is told (rdr) and A's search strobe stops; on again, B hears it again
+log('B flies', JSON.stringify(await flyB('fs16', 3000)));
+await A.evaluate(() => { UI.closeModal(); Builder.loadTemplate('fs16'); Builder.changed(); MP.launch(); });
+await A.waitForFunction(() => Flight.running && Flight.active && Flight.active.name === TEMPLATES.fs16.name, null, { timeout: 60000 });
+const poseB = await B.evaluate(() => { const v = Flight.active, n = v.axis(0, 1, 0); v.vx = n.x * 200; v.vy = n.y * 200; v.vz = n.z * 200; return { x: v.x, y: v.y, z: v.z, q: { ...v.q }, n: { x: n.x, y: n.y, z: n.z } }; });
+await A.evaluate((B) => { const v = Flight.active; v.x = B.x - B.n.x * 8000; v.y = B.y - B.n.y * 8000; v.z = B.z - B.n.z * 8000; v.q = { ...B.q }; v.vx = B.n.x * 200; v.vy = B.n.y * 200; v.vz = B.n.z * 200; v.av = { x: 0, y: 0, z: 0 }; v.landed = false; v.throttle = 0.8;
+  v.wsel = Combat.systems(v).findIndex((s) => s.w.kind === 'missile' && s.w.radar && s.w.seek === 'air'); }, poseB);
+await B.waitForFunction(() => { const P = MP.peers.get(1), g = P && P.ghost; return !!g && !g.hiddenUntilSnap && g.parts.some((p) => p.type === 'radarPD'); }, null, { timeout: 60000 });
+const lockA = await A.waitForFunction(() => { const L = Combat.S.lock; return L && L.remote === 2 ? { d: Math.round(Math.hypot(L.x - Flight.active.x, L.y - Flight.active.y, L.z - Flight.active.z)), held: Radar.has(L), sent: MP.lockSent } : false; }, null, { timeout: 120000 }).then((h) => h.jsonValue()).catch(() => null);
+const warnB = await B.waitForFunction(() => MP.rwr.has(1) && Combat.S.rwr > 1 ? { rwr: Combat.S.rwr, off: !!MP.peers.get(1).radarOff } : false, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+const strobeB = await B.waitForFunction(() => Radar.S.scanners.some((s) => s.ref === MP.peers.get(1).ghost), null, { timeout: 30000 }).then(() => true).catch(() => false);
+log('A locks B', JSON.stringify(lockA), '| B warned', JSON.stringify(warnB), '| B hears A\'s search', strobeB);
+ok('a radar plane\'s lock in a room: A\'s radar holds and locks B 8 km ahead, and B\'s warning receiver warns of it (RADAR LOCK) and hears A\'s search', !!lockA && lockA.held && lockA.sent === 2 && !!warnB && !warnB.off && strobeB, { lockA, warnB, strobeB });
+// drawn: B's warning on screen; A's name tag over B marks it for a tap (radar.js picks it)
+for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = false; });
+await A.waitForTimeout(2500);
+const markA = await A.evaluate(() => { const g = MP.peers.get(2).ghost; return Radar.S.marks.filter((m) => m.ref === g).map((m) => [Math.round(m.x), Math.round(m.y)]); });
+await A.screenshot({ path: SHOTS + 'mp-radar-lock-A.png' }); await B.screenshot({ path: SHOTS + 'mp-radar-lock-B.png' });
+for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = true; });
+log('A\'s tag mark on B', JSON.stringify(markA));
+ok('...A\'s name tag over B is a radar mark (a tap there picks B)', markA.length === 1 && markA[0][0] > 0 && markA[0][0] < 900 && markA[0][1] > 0 && markA[0][1] < 560, markA);
+await A.evaluate(() => Radar.toggle(Flight));
+const offB = await B.waitForFunction(() => !MP.rwr.has(1) && MP.peers.get(1).radarOff === true && !Radar.S.scanners.length ? true : false, null, { timeout: 30000 }).then(() => true).catch(() => false);
+const offA = await A.evaluate(() => ({ off: !!Flight.active.radarOff, lock: !!Combat.S.lock, held: Radar.S.set.size, sent: MP.lockSent }));
+log('A radar off', JSON.stringify(offA), '| B: lock gone, told, strobe gone:', offB);
+ok('...A switches its radar off: no lock and no contacts on A; on B the warning stops, rdr says it is off and its search strobe goes', offB && offA.off && !offA.lock && offA.held === 0 && !offA.sent, offA);
+await A.evaluate(() => Radar.toggle(Flight));
+const onB = await B.waitForFunction(() => MP.peers.get(1).radarOff === false && Radar.S.scanners.some((s) => s.ref === MP.peers.get(1).ghost), null, { timeout: 30000 }).then(() => true).catch(() => false);
+ok('...on again: B hears A\'s search again', onB);
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();

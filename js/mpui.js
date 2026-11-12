@@ -638,29 +638,42 @@ const MPUI = {
       ctx.font = '600 11px "Chakra Petch", system-ui, sans-serif';
       ctx.fillText(MP.nameOf(g.remote), s.x, s.y - 26);
       if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 38); ctx.globalAlpha = 1; }
+      if (!friend && typeof Radar !== 'undefined') Radar.mark(g, s.x, s.y - 14); // (a tap on an enemy's tag picks it: radar.js)
+    }
+    // (the big update) the other players' drones from their tanks' bays: "Ann's drone", only while our eyes or sensors
+    // mark it (Drone.marked: 400 m by eye, a detector, a Drone Radar), a small diamond
+    if (typeof Drone !== 'undefined' && MP.extraGhosts) for (const g of MP.extraGhosts()) {
+      if (g === F.spectate || !F.active || !Drone.marked(F.active, g)) continue;
+      const bp = bodyPos(g.body, F.time), c = g.toWorld(g.com.x, g.com.y, g.com.z || 0), d = Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z);
+      const s = Render3D.project(bp.x + c.x, bp.y + c.y, c.z);
+      if (s.behind) continue;
+      const friend = MP.pvp && !MP.ffa() && MP.teamOf(g.remote) === myTeam, col = !MP.pvp ? '#ffb547' : friend ? '#62d0ff' : '#ff5d5d', k = 4;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y - k - 10); ctx.lineTo(s.x + k, s.y - 10); ctx.lineTo(s.x, s.y + k - 10); ctx.lineTo(s.x - k, s.y - 10); ctx.closePath();
+      if (friend) ctx.fill(); else ctx.stroke();
+      ctx.font = '600 10px "Chakra Petch", system-ui, sans-serif';
+      ctx.fillText(g.name, s.x, s.y - 20);
+      if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 32); ctx.globalAlpha = 1; }
     }
     // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
     if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
-      ctx.fillText(`Watching ${MP.nameOf(F.spectate.remote)} · ${this.switchWord()} to switch`, W / 2, H - 40);
+      ctx.fillText(`Watching ${MP.nameOf(MP.pidOf(F.spectate))} · ${this.switchWord()} to switch`, W / 2, H - 40); // (their craft, or its hulk falling: foreign)
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   },
 
   // Can we see another player's craft? Friends (and everyone in the sandbox) always; enemies within about 6 km by
-  // eye, or further on our own radar if it's ahead of us (stealth shrinks both).
+  // eye (less for a stealthy one), or further while our own radar part holds them (radar.js).
   spotted(g, me, F) {
     if (!MP.pvp || (!MP.ffa() && MP.teamOf(g.remote) === MP.teamOf(Net.me))) return true;
     if (MP.ground) return MP.spotted(g.remote, me); // (a ground battle: sight lines, spotting by the team, gun flashes)
-    const dx = g.x - me.x, dy = g.y - me.y, dz = g.z - me.z, d = Math.hypot(dx, dy, dz), st = Combat.stealthOf(g);
-    if (d < 6000 * (1 - 0.5 * st)) return true;
-    const v = F.active;
-    if (F.destroyed || !v || !v.parts.length) return false;
-    const radar = v.parts.reduce((m, p) => Math.max(m, p.def.radar || 0), 0);
-    if (!radar || d > radar * (1 - st)) return false;
-    const f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
-    return (dx * f.x + dy * f.y + dz * f.z) / d > 0.5; // within 60° of the nose
+    const d = Math.hypot(g.x - me.x, g.y - me.y, g.z - me.z);
+    if (d < 6000 * (1 - 0.5 * Combat.stealthOf(g))) return true;
+    // further only on our own radar: what its last scan held (radar.js: its cone, its reach less their stealth, look-down,
+    // notching, the ground in the way; nothing with the radar off or no radar part aboard)
+    return !F.destroyed && !!F.active && typeof Radar !== 'undefined' && Radar.has(g);
   },
   // A heading-up radar scope under the flight data (wide screens): 8 km round; friends, spotted enemies, bases.
   drawRadar(ctx, W, H, F, me) {

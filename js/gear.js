@@ -366,7 +366,7 @@ const Gear = {
       }
       // a spinning propeller or rotor that touches the ground shatters
       const air = p.def.air;
-      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (p.rpm || 0) > 8 && !water) nB = gearOnce(_gBrk, nB, p);
+      if (air && (air.kind === 'prop' || air.kind === 'rotor') && (p.rpm || 0) > 8 && !water && !(v.dr && v.dr.guarded.has(p.id) && sp < 6)) nB = gearOnce(_gBrk, nB, p); // (vessel.js's guarded drone motor, kept line for line)
     }
     if (nB && (!bouncy || sideHit)) { const list = _gBrk.slice(0, nB); _gBrk.length = 0; sim.breakParts(v, list, 'impact'); return; }
     if (nD && sim.vessels && !bouncy) for (let j = 0; j < nD; j++) Combat.impact(v, _gDentP[j], _gDentR[j], sim);
@@ -659,11 +659,11 @@ const Gear = {
   bump(v, sim) {
     if (typeof Props !== 'undefined' && v.parts.length) gearProps(v, sim);
     const list = sim && sim.vessels;
-    if (!list || list.length < 2 || !v.parts.length) return;
+    if (!list || list.length < 2 || !v.parts.length || v.foreign) return; // (another player's falling pieces on our screen: pictures, they push nothing)
     const rv = gearBoxR(v);
     let A = null, fresh = false;
     for (const o of list) {
-      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body || (o.remote && !o.wreck && !isGround(o.kind))) continue;
+      if (o === v || o.dead || !o.parts || !o.parts.length || o.body !== v.body || (o.remote && !o.wreck && !isGround(o.kind)) || (o.foreign && !o.wreck)) continue; // (nor are they pushed: a peer's hulk falling on us hurts nothing)
       const dx = o.x - v.x, dy = o.y - v.y, dz = o.z - v.z, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > 2500) continue; // (50 m: nothing a vehicle's box reaches)
       const rr = rv + gearBoxR(o);

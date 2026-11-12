@@ -10,6 +10,9 @@ const Render3D = (() => {
   let FOV = 50, TANH = Math.tan((FOV * Math.PI) / 360);
   const PW = 2.2;     // terrain grid spacing exponent: dense under the craft, coarse at the horizon
   const TILE = 12;    // metres per repeat of the ground detail texture
+  const UVP = 12;     // the terrain's UVs wrap every TILE·UVP m (the water's ripples and the far ground variation sample the same
+                      // UVs at 1/4 and 3/4 of the detail's scale: whole repeats, so a patch swap east or west never shifts them)
+  const HAZE_H = 1600; // m: Earth's haze thins by e every HAZE_H (the fog's height falloff, patchFog)
   const TILT = 0.26;  // the light leans a little towards the camera so faces seen head-on get some sun
   let THREE = null, renderer = null, canvas = null, loading = null, supported = null;
   let W = 1, H = 1, DPR = 1, shown = false, mode = 'flight', high = null, clock = 0, frameNo = 0, maxAniso = 1;
@@ -204,6 +207,38 @@ const Render3D = (() => {
       return g;
     }
   }
+  // Baked darkening: the light left at each vertex, f(x, y, z, ny, trunk) in 0..1, multiplied into its colour (a colour
+  // attribute of white made if it has none; instance colours multiply on top), once per geometry (userData.ao). trunk: the
+  // vertex has trunkCol's colour (a tree's trunk, told from its crown by colour, not height: crowns reach below trunk
+  // tops). Scenery and props sit on the ground: darker at the foot, under crowns, under eaves. Positions untouched
+  // (colliders and the arena's ground are Props' and the physics': nothing they meet changes)
+  function aoBake(g, f, trunkCol) {
+    if (g.userData.ao) return g;
+    g.userData.ao = true;
+    const p = g.attributes.position, n = g.attributes.normal;
+    let c = g.attributes.color;
+    if (!c) { c = new THREE.Float32BufferAttribute(new Float32Array(p.count * 3).fill(1), 3); g.setAttribute('color', c); }
+    for (let i = 0; i < p.count; i++) {
+      const t = !!trunkCol && Math.abs(c.getX(i) - trunkCol.r) < 1e-3 && Math.abs(c.getZ(i) - trunkCol.b) < 1e-3;
+      const k = f(p.getX(i), p.getY(i), p.getZ(i), n ? n.getY(i) : 0, t);
+      c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
+    }
+    return g;
+  }
+  // the rules, by piece (y in each piece's own unit space; ny the normal's up; t a trunk's vertex)
+  const AO = {
+    box: (x, y, z, ny) => (ny > 0.9 ? 1 : 0.74 + 0.26 * smoothstep(-0.5, 0.15, y)), // (y −0.5..0.5; its top lit)
+    roof: (x, y) => 0.82 + 0.18 * y, // (a roof or a spire: y 0..1)
+    cyl: (x, y) => 0.78 + 0.22 * smoothstep(-0.5, 0.2, y),
+    con: (x, y, z, ny, t) => (t ? 0.7 + 0.3 * smoothstep(0, 2.6, y) : (0.62 + 0.38 * smoothstep(2, 9.5, y)) * (ny < 0 ? 0.8 : 1)), // (a conifer)
+    brd: (x, y, z, ny, t) => (t ? 0.7 + 0.3 * smoothstep(0, 4.5, y) : (0.6 + 0.4 * (0.5 + 0.5 * ny)) * (0.8 + 0.2 * smoothstep(4, 9, y))), // (a broadleaf tree)
+    bush: (x, y) => 0.65 + 0.35 * smoothstep(0.1, 1.0, y),
+    rock: (x, y) => 0.62 + 0.38 * smoothstep(0, 0.7, y), // (a prop's: y 0..0.9)
+    hedge: (x, y) => 0.7 + 0.3 * smoothstep(-0.5, 0.4, y),
+    wall: (x, y) => 0.78 + 0.22 * smoothstep(0, 0.25, y), // (the scenery's villages: walls y 0..1, roofs, rocks centred ±0.7)
+    pyr: (x, y) => 0.85 + 0.15 * y,
+    stone: (x, y) => 0.62 + 0.38 * smoothstep(-0.7, 0.4, y),
+  };
   const col = (hex) => new THREE.Color(hex);
   function canvasTex(w, h, draw, srgb = true, repeat = false) {
     const cv = document.createElement('canvas');
@@ -241,6 +276,149 @@ const Render3D = (() => {
     return { map, nrm };
   }
 
+  // ------------------------------------------------------------------ three.js chunk patches
+  // patchChunks(THREE): edits to three's own shader chunks, made once, first thing in init (before any material
+  // compiles): the flight Sun's shadow filter (patchShadow) and the haze before tone mapping (patchFog). Each checks the
+  // r159 text it edits and, on any mismatch, leaves its chunk alone, warns once and keeps its flag false
+  // (Render3D.info().patched), so a three.js upgrade fails loudly, never silently. Idempotent. test/fx.test.js runs it on
+  // Node's copy of three (Render3D._patchChunks).
+  const PATCHED = { fog: false, shadow: false };
+  // The shadow filter. Flight draws with three's PCF shadow type (renderFlight switches renderer.shadowMap.type round
+  // the local scene's render; the hangar keeps PCF_SOFT, three's own 16 taps, byte for byte), and patchShadow replaces
+  // the PCF branch of getShadow (17 taps, used by nothing else here) with 4 bilinear taps that fade out over the box's
+  // outer 12%, so a shadow never stops in a hard line. A compile-time switch, not a branch on a uniform: a uniform branch
+  // still carries both filters in every lit shader, and a GPU that runs both sides under a mask (SwiftShader does)
+  // paid 20 taps for 16 and ~2% on every quiet scene. (Unpatched, flight keeps PCF_SOFT: nothing changes.)
+  const SH_P = '\t\tif ( frustumTest ) {\n\t\t#if defined( SHADOWMAP_TYPE_PCF )\n', SH_A = '#elif defined( SHADOWMAP_TYPE_PCF_SOFT )', SH_ON = '/* ob: 4 taps */';
+  const SH_SIG = 'float getShadow( sampler2D shadowMap, vec2 shadowMapSize, float shadowBias, float shadowRadius, vec4 shadowCoord ) {';
+  const SH_4 = `\t\t\t${SH_ON}
+			vec2 ts = vec2( 1.0 ) / shadowMapSize, st = shadowCoord.xy * shadowMapSize - 0.5, fq = fract( st ), q = ( floor( st ) + 0.5 ) * ts;
+			shadow = mix( mix( texture2DCompare( shadowMap, q, shadowCoord.z ), texture2DCompare( shadowMap, q + vec2( ts.x, 0.0 ), shadowCoord.z ), fq.x ),
+				mix( texture2DCompare( shadowMap, q + vec2( 0.0, ts.y ), shadowCoord.z ), texture2DCompare( shadowMap, q + ts, shadowCoord.z ), fq.x ), fq.y );
+			shadow = mix( shadow, 1.0, smoothstep( 0.88, 1.0, max( abs( shadowCoord.x * 2.0 - 1.0 ), abs( shadowCoord.y * 2.0 - 1.0 ) ) ) );
+		`;
+  const chunkOnce = (s, a) => s.indexOf(a) >= 0 && s.indexOf(a) === s.lastIndexOf(a);
+  function patchShadow(C) {
+    const s = C && C.shadowmap_pars_fragment;
+    if (typeof s !== 'string') return warnPatch('shadow', 'no shadowmap_pars_fragment');
+    if (s.includes(SH_ON)) return (PATCHED.shadow = true); // (patched already: a second call changes nothing)
+    // r159's text: in getShadow( …, vec4 shadowCoord ), inside its frustum test, the PCF branch (17 taps, ending in
+    // 1 / 17) right before the soft one, each anchor once
+    const p = s.indexOf(SH_P), a = s.indexOf(SH_A), body = p >= 0 && a > p ? s.slice(p + SH_P.length, a) : '';
+    if (!chunkOnce(s, SH_P) || !chunkOnce(s, SH_A) || !chunkOnce(s, SH_SIG) || s.indexOf(SH_SIG) > p || (body.match(/texture2DCompare/g) || []).length !== 17 || !body.includes('* ( 1.0 / 17.0 );'))
+      return warnPatch('shadow', 'anchors not found');
+    C.shadowmap_pars_fragment = s.slice(0, p + SH_P.length) + SH_4 + s.slice(a);
+    return (PATCHED.shadow = true);
+  }
+  function warnPatch(name, why) {
+    PATCHED[name] = false;
+    console.warn(`Render3D: three.js's ${name} chunks aren't r159's (${why}): left as they are`);
+    return false;
+  }
+  // The haze (spec-graphics §6.1). r159 mixes FogExp2 in after tone mapping and the sRGB encode, with a colour that is
+  // encoded but not tone-mapped, so fully fogged ground could never match the (tone-mapped) sky. patchFog moves the EXP2
+  // fog to the start of tonemapping_fragment, in linear colour, where every fogged built-in includes it right before its
+  // colour-space encode, and makes it a height fog: fogDensity is the extinction (1/m) at the camera, thinning by e every
+  // HAZE_H up (fogH.x) along the ray, the planet's curvature lowering far points (fogH.y), shaped 1 − exp(−τ^1.5) so
+  // fight ranges stay clear and far views haze hard (obFog). Its colour is the sky's own at the horizon in the fragment's
+  // azimuth (obFogCol: fogLin with the sunset side and the Sun's aureole), so ground fogged out melts into the sky behind
+  // it. The linear THREE.Fog (the hangar) keeps three's formula and place. Shared uniforms (FOGX: one write a frame reaches
+  // every material, clones keep typed arrays by reference) go into UniformsLib.fog and every ShaderLib entry with fog. A
+  // ShaderMaterial with fog: true must include fog_pars_fragment; defining OB_NOFOG it fogs itself with obFog/obFogCol
+  // (PART, DECAL).
+  const FOGX = { sun: new Float32Array(4), sunH: new Float32Array(3), sunset: new Float32Array(3), glow: new Float32Array(3), lin: new Float32Array(3), h: new Float32Array(2) };
+  const OB_FOGT_FN = `
+float obFogT( float dens, float d, float h ) {
+	h += ( d * d - h * h ) * fogH.y;
+	float x = clamp( - h * fogH.x, -30.0, 30.0 );
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+	return abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : dens * ( exp( x ) - 1.0 ) / x;
+#else
+	return abs( x ) < 1e-3 ? dens * ( 1.0 + 0.5 * x ) : ( exp( log( max( dens, 1e-30 ) ) + x ) - dens ) / x;
+#endif
+}`;
+  const OB_FOG_FN = `${OB_FOGT_FN}
+float obFogF( float t, float d ) {
+	float v = max( t * d, 0.0 );
+	return 1.0 - exp( - v * sqrt( v ) );
+}
+float obFog( float dens, float d, float h ) { return obFogF( obFogT( dens, d, h ), d ); }`;
+  // (obFogT: the mean density along the ray, dens the extinction at the camera, d the distance, h the height over the
+  // camera. The curvature term: far points sit lower in the view's flat frame than over the planet, 0.8 of the drop.
+  // highp holds e^30; a GPU without highp fragments takes the log-space form, which never leaves the density's own range.
+  // obFogF: the haze for that mean density over d, 1 − exp(−τ^1.5), τ^1.5 as v·√v.)
+  // The built-in materials work out the mean density and the haze's colour a vertex (both change slowly and smoothly over
+  // a triangle; near the ground the mean density is the camera's own, so even a long runway quad gets it right, and where
+  // the colour would go wrong across a big triangle round the camera the haze is nil), and only the distance, the shaping
+  // and the mix a pixel: about the work three's own fog did. Particles, decals and clouds take obFog and obFogCol whole
+  const OB_FOGC_FN = `
+vec3 obFogCol( vec3 dir, vec3 base ) {
+	float az = clamp( dot( dir, fogSunH ) * 0.5 + 0.5, 0.0, 1.0 );
+	float s = max( dot( dir, fogSunV.xyz ), 0.0 ), s2 = s * s, s4 = s2 * s2;
+	return mix( base, fogSunset, fogSunV.w * az * az * sqrt( az ) ) + fogGlow * ( s4 * s4 );
+}`;
+  // (the sky's colour at el = 0 in dir's azimuth, SKY_FS: base its band, the sunset side az^2.5, the aureole s^8, in
+  // products and a root, no pow; dir, fogSunV in view space. fogSunH: the Sun's direction along the ground there (the
+  // scene's up taken out, normalised, renderFlight), so dir·fogSunH is the azimuth's cosine times the elevation's: the
+  // sky's own az at the horizon, where the haze meets it, and a little nearer 0.5 above and below it, at one dot)
+  // The haze a pixel, from the vertex's mean density (vFogT, ×4096: 2^12, so exact) and the pixel's distance. highp: the
+  // haze as ever. A GPU without highp fragments (WebGL1; phones run mediump as half floats: 6.1e-5 the smallest normal,
+  // 65504 the largest) would see the mean density (≤ 6e-5) underflow and the distance (past 256 m: its square) overflow,
+  // a white or NaN screen: there both are taken in units of 4096 m (the density per 4096 m: 0.004-0.25), the distance
+  // capped at 28 (a varying past 65 km on an axis is Infinity in a half float: the haze out there is near whole anyway),
+  // so nothing leaves the half float's range and nothing is NaN.
+  const OB_HAZE_FN = `
+float obHaze() {
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+	return obFogF( vFogT * ( 1.0 / 4096.0 ), length( vFogPos ) );
+#else
+	float v = max( vFogT * min( length( vFogPos * ( 1.0 / 4096.0 ) ), 28.0 ), 0.0 );
+	return 1.0 - exp( - v * sqrt( v ) );
+#endif
+}`;
+  // r159's text of the five chunks (each must match exactly, or nothing is patched)
+  const FOG_R159 = {
+    fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n#endif',
+    fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n#endif',
+    fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\tuniform float fogDensity;\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
+    fog_fragment: '#ifdef USE_FOG\n\t#ifdef FOG_EXP2\n\t\tfloat fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );\n\t#else\n\t\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\t#endif\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
+    tonemapping_fragment: '#if defined( TONE_MAPPING )\n\tgl_FragColor.rgb = toneMapping( gl_FragColor.rgb );\n#endif',
+  };
+  const FOG_OB = {
+    fog_pars_vertex: '#ifdef USE_FOG\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\tvarying vec3 vFogPos, vFogC;\n\t\tvarying float vFogT;\n'
+      + '\t\tuniform float fogDensity; uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOGT_FN + OB_FOGC_FN + '\n\t#endif\n#endif',
+    fog_vertex: '#ifdef USE_FOG\n\tvFogDepth = - mvPosition.z;\n\t#ifdef FOG_EXP2\n\t\tvFogPos = mvPosition.xyz;\n'
+      + '\t\tfloat obD = length( mvPosition.xyz );\n'
+      + '\t\tvFogT = obFogT( fogDensity, obD, dot( mvPosition.xyz, viewMatrix[ 1 ].xyz ) ) * 4096.0;\n'
+      + '\t\tvFogC = obFogCol( mvPosition.xyz / max( obD, 1e-6 ), fogLin );\n\t#endif\n#endif',
+    fog_pars_fragment: '#ifdef USE_FOG\n\tuniform vec3 fogColor;\n\tvarying float vFogDepth;\n\t#ifdef FOG_EXP2\n\t\t#define OB_FOG\n\t\tuniform float fogDensity;\n\t\tvarying vec3 vFogPos, vFogC;\n\t\tvarying float vFogT;\n'
+      + '\t\tuniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow, fogLin; uniform vec2 fogH;' + OB_FOG_FN + OB_FOGC_FN + OB_HAZE_FN
+      + '\n\t#else\n\t\tuniform float fogNear;\n\t\tuniform float fogFar;\n\t#endif\n#endif',
+    fog_fragment: '#if defined( USE_FOG ) && ! defined( FOG_EXP2 )\n\tfloat fogFactor = smoothstep( fogNear, fogFar, vFogDepth );\n\tgl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );\n#endif',
+    tonemapping_fragment: '#if defined( USE_FOG ) && defined( FOG_EXP2 ) && ! defined( OB_NOFOG )\n'
+      + '\tgl_FragColor.rgb = mix( gl_FragColor.rgb, vFogC, obHaze() );\n#endif\n'
+      + FOG_R159.tonemapping_fragment,
+  };
+  const FOG_U = { fogSunV: 'sun', fogSunH: 'sunH', fogSunset: 'sunset', fogGlow: 'glow', fogLin: 'lin', fogH: 'h' };
+  function patchFog(T) {
+    const C = T && T.ShaderChunk, L = T && T.UniformsLib, SL = T && T.ShaderLib;
+    if (!C || !L || !L.fog || !SL) return warnPatch('fog', 'no ShaderChunk, UniformsLib.fog or ShaderLib');
+    const names = Object.keys(FOG_R159);
+    if (typeof C.fog_pars_fragment === 'string' && C.fog_pars_fragment.includes('OB_FOG')) { // (patched already, by this Render3D or another: a second call changes nothing)
+      if (!names.every((k) => C[k] === FOG_OB[k]) || !L.fog.fogSunV) return warnPatch('fog', 'patched by something else');
+      for (const [u, k] of Object.entries(FOG_U)) FOGX[k] = L.fog[u].value; // (the arrays every material already shares)
+      return (PATCHED.fog = true);
+    }
+    const bad = names.filter((k) => C[k] !== FOG_R159[k]);
+    if (bad.length) return warnPatch('fog', bad.join(', ') + ' not as expected');
+    for (const k of names) C[k] = FOG_OB[k];
+    const add = (U) => { for (const [u, k] of Object.entries(FOG_U)) U[u] = { value: FOGX[k] }; };
+    add(L.fog);
+    for (const k of Object.keys(SL)) if (SL[k] && SL[k].uniforms && SL[k].uniforms.fogColor) add(SL[k].uniforms);
+    return (PATCHED.fog = true);
+  }
+  function patchChunks(T) { patchShadow(T.ShaderChunk); patchFog(T); return PATCHED; }
+
   // ------------------------------------------------------------------ shaders
   const LOGV = '#include <common>\n#include <logdepthbuf_pars_vertex>\n';
   const LOGF = '#include <common>\n#include <logdepthbuf_pars_fragment>\n';
@@ -249,7 +427,8 @@ const Render3D = (() => {
   const SKY_VS = `varying vec3 vDir;
 void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
   // uNadir, uKeep: only directions whose cosine from straight down lies in uKeep are drawn (groundCut: the rest is
-  // under the ground, or plain sky, where the haze would add nothing)
+  // under the ground, or plain sky, where the haze would add nothing). At el = 0 it is the fog's colour (obFogCol, the
+  // haze patch: the band, the sunset side and the aureole s^8, not the Sun's own glare), so fogged ground meets it seamlessly
   const SKY_FS = `#include <common>
 uniform vec3 uZen, uHor, uSunset, uGlow, uUp, uSun, uNadir;
 uniform float uDip, uSunsetK, uGlare, uAlpha;
@@ -260,13 +439,14 @@ void main() {
   float cn = dot(d, uNadir);
   if (cn < uKeep.x || cn > uKeep.y) discard;
   float e = dot(d, uUp), el = asin(clamp(e, -1.0, 1.0)) + uDip;
-  vec3 c = mix(uHor, uZen, pow(clamp(el / 1.25, 0.0, 1.0), 0.55));
+  vec3 c = mix(uHor, uZen, pow(clamp(el / 1.25, 0.0, 1.0), 0.62));
+  c += (uHor * 0.08 + 0.01) * uGlare * exp(-max(el, 0.0) * 22.0); // (the bright haze line just over the horizon)
   vec3 hd = d - uUp * e, hs = uSun - uUp * dot(uSun, uUp);
   float az = dot(hd, hs) / max(length(hd) * length(hs), 1e-4) * 0.5 + 0.5;
   c = mix(c, uSunset, uSunsetK * pow(az, 2.5) * (1.0 - smoothstep(-0.05, 0.55, el)));
   c *= mix(1.0, 0.55, smoothstep(0.0, -0.2, el));
-  float s = max(dot(d, uSun), 0.0);
-  c += uGlow * uGlare * (0.9 * pow(s, 1800.0) + 0.22 * pow(s, 90.0) + 0.1 * pow(s, 8.0));
+  float s = max(dot(d, uSun), 0.0), s2 = s * s, s4 = s2 * s2, s8 = s4 * s4;
+  c += uGlow * uGlare * (0.9 * pow(s, 1800.0) + 0.22 * pow(s, 90.0) + 0.1 * s8) + uSunset * uSunsetK * 0.35 * s8; // (+ a warm aureole round a low Sun)
   gl_FragColor = vec4(c, uAlpha);
   ${OUT}
 }`;
@@ -314,8 +494,9 @@ void main() {
   // Cumulus puffs: camera-facing quads with a soft lumpy texture whose baked normals are lit by the Sun,
   // so a cluster of them reads as a lit, billowing volume: bright tops, grey-blue bases.
   // aC: the quad's turn, its cell in the 2x2 atlas, how high it sits in its cloud (0 base .. 1 top), opacity.
+  // Their haze is the ground's (obFog, obFogCol: the same height fog, the sky's horizon colour in their direction)
   const CLOUD_VS = `${LOGV}attribute vec4 aC;
-uniform vec3 uSunV; uniform float uFogD;
+uniform vec3 uSunV; uniform float uFogD; uniform vec2 fogH;${OB_FOG_FN}
 varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
 void main() {
   vec4 c = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
@@ -328,10 +509,11 @@ void main() {
   vShade = aC.z;
   float d = -c.z;
   vA = aC.w * smoothstep(s * 0.3, s * 1.2, d); // right up close a puff would fill the screen: it thins out
-  vFog = 1.0 - exp(-uFogD * uFogD * d * d);
+  vFog = obFog(uFogD, length(c.xyz), dot(c.xyz, viewMatrix[1].xyz));
   #include <logdepthbuf_vertex>
 }`;
   const CLOUD_FS = `${LOGF}uniform sampler2D uMap; uniform vec3 uLit, uShadow, uFogC, uSunV;
+uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow;${OB_FOGC_FN}
 varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
 void main() {
   #include <logdepthbuf_fragment>
@@ -343,7 +525,7 @@ void main() {
   vec3 col = mix(uShadow, uLit, l);
   // looking towards the Sun the whole cloud glows a little (light scattered forwards through it)
   col += uLit * pow(max(dot(vV, uSunV), 0.0), 5.0) * 0.4;
-  col = mix(col, uFogC, vFog);
+  col = mix(col, obFogCol(vV, uFogC), vFog);
   gl_FragColor = vec4(col, a);
   ${OUT}
 }`;
@@ -410,27 +592,179 @@ void main() {
   gl_FragColor = vec4(c * uK, 1.0);
   ${OUT}
 }`;
+  // Every particle but sparks, chunks and timers (updateParticles): one premultiplied mesh sorted back to front, so lit,
+  // textured smoke and additive fire, flashes and rings share one draw. iMisc: x size (m), y style + 8 × atlas cell,
+  // z the quad's turn (rad), w by style: heat (SMOKE, FIRE), the least size in device px (GLOW, STAR), occlusion (DISC:
+  // 1 "over", 0 added light). Styles: 0 DISC, 1 RING, 2 SMOKE, 3 FIRE, 4 GLOW (a big flash), 5 STAR (a muzzle flash),
+  // 6 GLINT. A big soft puff is pulled towards the eye (no straight cut into the ground), keeping its size on screen,
+  // and thins out as the eye nears it; a flash never shrinks under its floor at range nor grows past uGlowMax device
+  // px up close (a blast beside the camera doesn't white the screen out)
   const PART_VS = `${LOGV}#include <fog_pars_vertex>
-attribute vec3 iPos; attribute vec4 iCol; attribute vec2 iSize;
-varying vec2 vUv; varying vec4 vCol; varying float vKind;
+attribute vec4 iPos; attribute vec4 iCol; attribute vec4 iMisc;
+uniform vec3 uSunV, uUpV; uniform float uScale, uGlowMax;
+varying vec2 vUv, vCo; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vW, vFade, vGr;
 void main() {
-  vUv = position.xy; vCol = iCol; vKind = iSize.y;
-  vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
-  mvPosition.xy += position.xy * iSize.x;
+  float cell = floor(iMisc.y / 8.0), st = iMisc.y - 8.0 * cell, cr = cos(iMisc.z), sr = sin(iMisc.z);
+  vec4 mvPosition = modelViewMatrix * vec4(iPos.xyz, 1.0);
+  float d = max(-mvPosition.z, 1e-3), s = iMisc.x, soft = (st > 1.5 && st < 3.5) ? 1.0 : 0.0;
+  if (st > 3.5 && st < 5.5) s = min(max(s, iMisc.w * d / uScale), max(uGlowMax, iMisc.w) * d / uScale); // GLOW, STAR: between their floor and the cap (device px)
+  vec2 q = position.xy, p = vec2(cr * q.x - sr * q.y, sr * q.x + cr * q.y);
+  float pull = soft * min(0.4 * s, 0.5 * max(d - 0.2, 0.0));
+  mvPosition.z += pull;
+  mvPosition.xy += p * s * (d - pull) / d;
   gl_Position = projectionMatrix * mvPosition;
+  vUv = q; vCol = iCol; vStyle = st; vW = iMisc.w;
+  vCo = vec2(mod(cell, 2.0), floor(cell / 2.0)); // (the atlas cell's corner, worked out here from the exact attribute: an
+  // interpolated cell number can come out a hair under its whole value, and mod/floor of it in the fragment shader then
+  // picked another cell over a straight-edged part of a big puff close by)
+  vGr = (iPos.w + dot(vec3(p * s, 0.0), uUpV)) / max(s, 1e-3); // (how high over the ground this corner is, in sizes: iPos.w the centre's height)
+  vFade = mix(1.0, smoothstep(s * 0.25, s, d), soft);
+  if (st > 0.5 && st < 1.5) vFade = clamp(uGlowMax * d / (s * uScale), 0.0, 1.0); // RING: a shock ring sweeping past the eye fades as it outgrows the cap
+  vL = vec3(cr * uSunV.x + sr * uSunV.y, -sr * uSunV.x + cr * uSunV.y, uSunV.z); // the Sun in the turned quad's frame
+  vV = normalize(mvPosition.xyz);
   #include <logdepthbuf_vertex>
   #include <fog_vertex>
 }`;
+  // (OB_FOG: the haze patch's fog, before tone mapping; without it, three's own after it, as before. Added light is
+  // dimmed by the fog, smoke takes its colour. A puff by the ground thins out towards it, so the ground doesn't cut it
+  // off in a straight line)
   const PART_FS = `${LOGF}#include <fog_pars_fragment>
-varying vec2 vUv; varying vec4 vCol; varying float vKind;
+uniform sampler2D uMap; uniform vec3 uSunC, uAmb, uSunV; uniform float uFloor;
+varying vec2 vUv, vCo; varying vec4 vCol; varying vec3 vL, vV; varying float vStyle, vW, vFade, vGr;
+const vec3 SOOT = vec3(0.042, 0.036, 0.033);
+vec3 heatRamp(float h) {
+  vec3 c = mix(vec3(0.20, 0.05, 0.02), vec3(1.6, 0.35, 0.06), smoothstep(0.0, 0.35, h));
+  c = mix(c, vec3(3.0, 1.35, 0.35), smoothstep(0.3, 0.7, h));
+  return mix(c, vec3(4.0, 3.4, 2.4), smoothstep(0.7, 1.0, h));
+}
 void main() {
   #include <logdepthbuf_fragment>
-  float r = length(vUv);
-  if (r > 1.0) discard;
-  float a = vKind > 0.5 ? smoothstep(0.6, 0.8, r) * (1.0 - smoothstep(0.86, 1.0, r)) : pow(1.0 - r * r, 1.7);
-  gl_FragColor = vec4(vCol.rgb, vCol.a * a);
+  float r = length(vUv), a = 0.0, occ = 1.0; vec3 c = vCol.rgb;
+  if (vStyle > 1.5 && vStyle < 3.5) {
+    vec4 t = texture2D(uMap, (vCo + vUv * 0.5 + 0.5) * 0.5);
+    float l = clamp(dot(normalize(t.rgb * 2.0 - 1.0), normalize(vL)) * 0.5 + 0.5, 0.0, 1.0);
+    vec3 lit = max(uAmb + uSunC * l, vec3(uFloor));
+    if (vStyle < 2.5) {
+      c = vCol.rgb * lit + uSunC * vCol.rgb * pow(max(dot(vV, uSunV), 0.0), 6.0) * 0.6 * (1.0 - t.a);
+      c += heatRamp(vW * 0.6) * vW * 1.2 * t.a * t.a; // (fire smoke glows in its dense core at first, fading out with its heat)
+      a = t.a;
+    } else {
+      float hl = vW * (0.55 + 0.65 * t.a);
+      vec3 tint = mix(vec3(1.0), vCol.rgb / max(max(vCol.r, vCol.g), 1e-3), 0.35);
+      occ = max(1.0 - smoothstep(0.08, 0.3, hl), 0.75 * t.a); // (its dense core hides what is behind it: a fireball, not a glow on the sky)
+      c = mix(heatRamp(hl) * tint, SOOT * lit, occ);
+      a = pow(t.a, 0.8);
+    }
+    a *= smoothstep(-0.05, 0.35, vGr);
+    a *= 1.0 - smoothstep(0.62, 0.88, r); // (the atlas's lumps run into its cells' square edges: rounded off here, so a big puff close by never shows a straight cut)
+  } else {
+    if (r > 1.0) discard;
+    if (vStyle < 0.5) { a = pow(1.0 - r * r, 1.7); occ = vW; }
+    else if (vStyle < 1.5) { a = 0.45 * smoothstep(0.7, 0.86, r) * (1.0 - smoothstep(0.88, 1.0, r)); occ = 0.0; }
+    else if (vStyle < 4.5) { a = min(1.0, exp(-3.0 * r * r) + 0.6 * exp(-40.0 * r * r)); c *= 2.2; occ = 0.0; }
+    else if (vStyle < 5.5) { float an = atan(vUv.y, vUv.x);
+      a = min(1.0, exp(-6.0 * r * r) * 0.8 + pow(abs(cos(3.0 * an)), 16.0) * (1.0 - r) * 0.7); c *= 2.0; occ = 0.0; }
+    else { a = pow(1.0 - r * r, 1.7); occ = 0.0; }
+  }
+  a *= vCol.a * vFade;
+  if (a < 0.004) discard;
+#ifdef OB_FOG
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  float ff = obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+#else
+  float ff = obHaze();
+#endif
+  c = mix(c * (1.0 - ff), mix(c, obFogCol(normalize(vFogPos), fogLin), ff), occ);
+#endif
+  gl_FragColor = vec4(c, 1.0);
   ${OUT}
-  #include <fog_fragment>
+#if defined(USE_FOG) && !defined(OB_FOG)
+#ifdef FOG_EXP2
+  float ff0 = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+#else
+  float ff0 = smoothstep(fogNear, fogFar, vFogDepth);
+#endif
+  gl_FragColor.rgb = mix(gl_FragColor.rgb * (1.0 - ff0), mix(gl_FragColor.rgb, fogColor, ff0), occ);
+#endif
+  gl_FragColor = vec4(gl_FragColor.rgb * a, a * occ);
+}`;
+  // Tracers, sparks (and a drone's laser beam): one glowing capsule each from its head (iA) to its tail (iB), in screen
+  // space, never thinner than iF device px however far; iC: HDR colour and core width (m; negative: a beam, as bright
+  // all along, no white-hot head). Tone-mapped and premultiplied: the core covers what is behind it (its colour shows
+  // on the sky), the halo adds light, the head burns white
+  const STREAK_VS = `${LOGV}attribute vec3 iA, iB; attribute vec4 iC; attribute float iF;
+uniform float uScale; uniform vec2 uRes;
+varying vec2 vQ; varying vec3 vC; varying float vBeam;
+void main() {
+  vec4 a = modelViewMatrix * vec4(iA, 1.0), b = modelViewMatrix * vec4(iB, 1.0);
+  const float NZ = -0.1;
+  vBeam = iC.w < 0.0 ? 1.0 : 0.0;
+  if (a.z > NZ && b.z > NZ) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vQ = vec2(0.0); vC = vec3(0.0); return; }
+  if (a.z > NZ) a = mix(b, a, (b.z - NZ) / (b.z - a.z)); else if (b.z > NZ) b = mix(a, b, (a.z - NZ) / (a.z - b.z));
+  vec4 A = projectionMatrix * a, B = projectionMatrix * b;
+  vec2 sa = A.xy / A.w * uRes * 0.5, sb = B.xy / B.w * uRes * 0.5, dir = sb - sa;
+  float len = length(dir); dir = len > 1e-3 ? dir / len : vec2(1.0, 0.0);
+  bool head = position.x < 0.5;
+  vec4 P = head ? A : B;
+  float core = max(iF, abs(iC.w) * uScale / P.w), halo = 2.5 * core;
+  P.xy += (vec2(-dir.y, dir.x) * position.y * halo * 0.5 + dir * (head ? -0.5 : 0.5) * halo) / (uRes * 0.5) * P.w;
+  gl_Position = P; vQ = position.xy; vC = iC.rgb;
+  #include <logdepthbuf_vertex>
+}`;
+  const STREAK_FS = `${LOGF}varying vec2 vQ; varying vec3 vC; varying float vBeam;
+void main() {
+  #include <logdepthbuf_fragment>
+  float t = abs(vQ.y), x = clamp(vQ.x, 0.0, 1.0);
+  float core = 1.0 - smoothstep(0.3, 0.4, t), glow = 0.5 * exp(-6.0 * t * t) * (1.0 - core);
+  float fade = mix(mix(1.0, 0.15, x), 1.0, vBeam), head = exp(-x * 10.0) * (1.0 - vBeam);
+  gl_FragColor = vec4(mix(vC, vec3(2.4, 2.25, 2.0), head), 1.0);
+  ${OUT}
+  vec3 cc = gl_FragColor.rgb;
+  gl_FragColor = vec4(vC * glow * fade, 1.0);
+  ${OUT}
+  float a = 0.9 * core * fade;
+  gl_FragColor = vec4(cc * a + gl_FragColor.rgb, a); // (premultiplied: the core covers what is behind it, so its colour shows even on the sky; the halo adds light)
+}`;
+  // Contact shadows and scorch marks (syncDecals): a flat quad on the ground as drawn, x and y ±0.5 (vUv ±1 across its
+  // ellipse; its instance's third axis the ground's normal), drawn 30 cm nearer the eye (more far off) so the ground
+  // never cuts it. Its opacity and kind ride in the instance matrix's fourth row (an affine matrix's 0, 0, 0): the
+  // opacity, then 0 a soft blob or 1-4 a scorch from that cell of the cumulus atlas (an irregular burnt blotch: a black
+  // core, a brown rim). It fades as the ground under it does into the haze (OB_FOG: the haze package's fog; without it
+  // three's own)
+  const DECAL_VS = `${LOGV}#include <fog_pars_vertex>
+varying vec2 vUv; varying float vO, vK;
+void main() {
+  vUv = position.xy * 2.0; vO = instanceMatrix[0][3]; vK = instanceMatrix[1][3];
+  mat4 im = instanceMatrix; im[0][3] = 0.0; im[1][3] = 0.0;
+  vec4 mvPosition = modelViewMatrix * im * vec4(position, 1.0);
+  float d = max(length(mvPosition.xyz), 1e-3);
+  gl_Position = projectionMatrix * vec4(mvPosition.xyz * (1.0 - min(0.5, (0.3 + 4e-4 * d) / d)), 1.0);
+  #include <logdepthbuf_vertex>
+  #include <fog_vertex>
+}`;
+  const DECAL_FS = `${LOGF}#include <fog_pars_fragment>
+uniform sampler2D uMap;
+varying vec2 vUv; varying float vO, vK;
+void main() {
+  #include <logdepthbuf_fragment>
+  float r2 = dot(vUv, vUv); if (r2 > 1.0) discard;
+  vec3 c = vec3(0.0); float a;
+  if (vK < 0.5) a = vO * (1.0 - smoothstep(0.2, 1.0, r2)); // (dark right under it, gone 40 % past its footprint)
+  else { float cell = floor(vK - 0.5); // (a whole number however the constant varying comes out: 0.9999999 would pick another cell)
+    vec4 t = texture2D(uMap, (vec2(mod(cell, 2.0), floor(cell / 2.0)) + vUv * 0.5 + 0.5) * 0.5, 1.0); // (a mip level coarser: the lumps, not the cloud's finest wisps)
+    a = vO * smoothstep(0.05, 0.5, t.a) * (1.0 - smoothstep(0.75, 1.0, r2)); c = mix(vec3(0.09, 0.06, 0.04), vec3(0.015, 0.012, 0.01), smoothstep(0.3, 0.8, t.a)); }
+#ifdef OB_FOG
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+  a *= 1.0 - obFog(fogDensity, length(vFogPos), dot(vFogPos, viewMatrix[1].xyz));
+#else
+  a *= 1.0 - obHaze();
+#endif
+#elif defined(USE_FOG) && defined(FOG_EXP2)
+  a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+#endif
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(c, a);
+  ${OUT}
 }`;
   const SHEATH_FS = `${LOGF}uniform float uK, uT;
 varying vec3 vN, vV; varying vec2 vUv;
@@ -465,6 +799,7 @@ void main() {
 
   function init() {
     THREE = window.THREE;
+    patchChunks(THREE); // (before any material compiles)
     canvas = document.getElementById('view3d');
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -498,8 +833,12 @@ void main() {
     initTerrain();
     initSpaceCentre();
     initParticles();
+    initDecals();
     initStudio();
     if (typeof Parts3D !== 'undefined') { Parts3D.envMap = api.envMap; Parts3D.init(THREE, renderer); }
+    // the first flight frames drawn (and the first after a quality change) keep the effect meshes on show with nothing
+    // in them, so their programs compile while loading, not at the first explosion (renderFlight counts it down)
+    S.warm = 3;
     api.ready = true;
   }
 
@@ -508,14 +847,15 @@ void main() {
     envCube = new THREE.WebGLCubeRenderTarget(64, { type: renderer.capabilities.isWebGL2 ? THREE.HalfFloatType : THREE.UnsignedByteType });
     envCam = new THREE.CubeCamera(0.1, 100, envCube);
     envScene = new THREE.Scene();
-    envUni = { uZen: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uGround: { value: new THREE.Color() }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunK: { value: 0 } };
+    envUni = { uZen: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uGround: { value: new THREE.Color() }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunK: { value: 0 }, uFx: { value: 0 } };
     S.envS = new THREE.Color(); S.envG = new THREE.Color(); S.envH = new THREE.Color(); // (the flight's, every frame)
     envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, uniforms: envUni, vertexShader: SKY_VS,
-      fragmentShader: `uniform vec3 uZen, uHor, uGround, uSun; uniform float uSunK; varying vec3 vDir;
+      fragmentShader: `uniform vec3 uZen, uHor, uGround, uSun; uniform float uSunK, uFx; varying vec3 vDir;
 void main() { vec3 d = normalize(vDir); float e = d.y;
   vec3 c = e > 0.0 ? mix(uHor, uZen, pow(e, 0.6)) : mix(uHor, uGround, pow(min(-e * 3.0, 1.0), 0.6));
   c += vec3(1.0, 0.95, 0.85) * uSunK * pow(max(dot(d, uSun), 0.0), 64.0);
+  c += uFx * (uHor * 0.25 * exp(-abs(e) * 30.0) + vec3(1.0, 0.95, 0.85) * uSunK * 0.06 * pow(max(dot(d, uSun), 0.0), 6.0));
   gl_FragColor = vec4(c, 1.0); }`,
     })));
     api.envMap = envCube.texture;
@@ -527,6 +867,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (k === envKey) return;
     envKey = k; envTime = clock;
     envUni.uZen.value.copy(zen); envUni.uHor.value.copy(hor); envUni.uGround.value.copy(ground); envUni.uSun.value.copy(sun); envUni.uSunK.value = sunK;
+    envUni.uFx.value = key === 'studio' ? 0 : 1; // (flight's reflections gain a bright horizon line and a soft halo round the Sun; the studio's cube stays as it was: c + 0·x)
     envCam.update(renderer, envScene);
   }
 
@@ -781,6 +1122,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.sun.castShadow = Settings.high;
     S.sun.shadow.mapSize.set(2048, 2048);
     S.sun.shadow.bias = -0.0004; S.sun.shadow.normalBias = 0.03;
+    S.sunV = new THREE.Vector3(0, 1, 0); // the Sun's direction this frame (renderFlight; sunDir there is a shared temporary)
+    for (const k of ['c', 'x', 'y', 'z', 'f', 'a', 'o']) SB[k] = new THREE.Vector3(); // (the shadow box and the stand-ins' state: shadowProxies; f, a, o renderFlight's own)
+    for (const k of ['c', 'ax', 'az', 'lc', 'lx', 'ly', 'lz']) PX[k] = new THREE.Vector3();
+    PX.inv = new THREE.Matrix4();
     S.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
     S.engine = new THREE.PointLight(0xff9a4a, 0, 80, 2);
     localScene.add(S.sun, S.sun.target, S.hemi);
@@ -809,9 +1154,13 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   let patch = {}, patchB = {}, pjob = null, pjobMs = 0, pjobSlice = 0;
   function initTerrain() {
     const det = noiseMaps(256, 24, 4, 208, 255, 6, 3);
+    // (the ground's normal map trilinear only: its grain fades far off anyway (holeHook), and the anisotropic taps it
+    // spent on grazing ground pay for the 48 m variation's sample on High; the colour map keeps its anisotropy)
+    det.nrm.anisotropy = 1;
     const rip = noiseMaps(256, 16, 3, 255, 255, 3.5, 9);
-    rip.nrm.repeat.set(1, 1);
-    S.waterN = rip.nrm;
+    rip.nrm.repeat.set(0.25, 0.25); // (a 48 m tile: the ripple map's 16 cells make ~3 m ripples)
+    rip.nrm.anisotropy = 1; // (trilinear only: the ripples calm far off anyway, and a grazing sea would take up to 8 taps a sample)
+    S.waterN = rip.nrm; S.waterT = 0;
     terr.mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: det.map, normalMap: det.nrm, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, metalness: 0 });
     // cities glow at night: aNight (per vertex) times uNight (how dark it is)
     terr.nightU = { value: 0 };
@@ -831,10 +1180,36 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       sh.uniforms.uHole = U;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vHole;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHole = uv;');
       sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uHole;\nvarying vec2 vHole;')
-        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;');
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;')
+        // less tiling (High): the detail map again at a quarter of its scale (a 48 m repeat), turned 90° and moved off its
+        // own grain, darkening and lightening the ground (WebGL 2: at the mip level its footprint picks, without the
+        // anisotropic taps a second grazing sample would cost: most of its price on the bench); no far shimmer (both): the normal map's grain fades from
+        // 80 m to a quarter by 700 m (spec-graphics §10.3; in this one hook, so the patch and the arena's ground keep one
+        // program; heights untouched)
+        .replace('#include <map_fragment>', `#include <map_fragment>
+#ifdef OB_HI
+\tvec2 obVq = vec2( - vMapUv.y, vMapUv.x ) * 0.25 + vec2( 0.37, 0.61 );
+#if __VERSION__ >= 300
+\tvec2 obVt = obVq * vec2( textureSize( map, 0 ) ), obVx = dFdx( obVt ), obVy = dFdy( obVt );
+\tfloat obV = textureLod( map, obVq, 0.5 * log2( max( max( dot( obVx, obVx ), dot( obVy, obVy ) ), 1e-8 ) ) ).g;
+#else
+\tfloat obV = texture2D( map, obVq ).g;
+#endif
+\tdiffuseColor.rgb *= mix( 1.0, obV * 1.22, 0.55 );
+#endif`)
+        .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;',
+          'mapN.xy *= normalScale * ( 1.0 - 0.75 * smoothstep( 80.0, 700.0, length( vViewPosition ) ) );'));
     };
     terr.mat.onBeforeCompile = terr.holeHook(terr.holeU);
-    terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.25, 0.25), envMapIntensity: 1.2 });
+    if (Settings.high) terr.mat.defines.OB_HI = ''; // (the 48 m variation: High only; the arena's material copies it, applyQuality flips both)
+    terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.45, 0.45), envMapIntensity: 1.2 });
+    // Moving water (spec-graphics §7): the sea, lakes and rivers share the ground's UVs (allocSlot), so the ripple map
+    // drifts across them (its offset, renderFlight); on High a second set 16 m across, turned 90°, drifts the other way
+    // over it (uWaveB); far off the ripples calm down (no glitter shimmer) and the surface roughens, so the Sun's path
+    // widens towards the horizon. Foam and depth stay in the vertex colours
+    S.waveB = { value: new THREE.Vector2() };
+    if (Settings.high) terr.oceanMat.defines.OB_HI = '';
+    terr.oceanMat.onBeforeCompile = waterHook;
     for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
     // scenery: trees (Earth) and rocks, placed per grid cell around the craft
@@ -856,14 +1231,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const trF = new Batch().geo(new THREE.ConeGeometry(2.1, 7.6, 6), 0, 4.6, 0, leaf);
     const brF = new Batch().geo(new THREE.IcosahedronGeometry(2.7, 0), 0, 5, 0, leaf, 0, 0, 0, 1, 0.9, 1);
     const inst = (g) => { const m = new THREE.InstancedMesh(g, smat2, 7000); m.count = 0; m.frustumCulled = false; return m; };
-    const gTrees = [tr.build(), br.build()], gFar = [trF.build(), brF.build()];
-    const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true });
+    const gTrees = [aoBake(tr.build(), AO.con, trunk), aoBake(br.build(), AO.brd, trunk)], gFar = [aoBake(trF.build(), AO.con, trunk), aoBake(brF.build(), AO.brd, trunk)]; // (baked darkening: aoBake)
+    const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true, vertexColors: true });
+    aoBake(rock, AO.stone);
     // villages (walls and roofs) and boats at sea, on Earth
-    const unit = new THREE.BoxGeometry(1, 1, 1); unit.translate(0, 0.5, 0);
-    const pyr = new THREE.ConeGeometry(0.75, 1, 4); pyr.rotateY(Math.PI / 4); pyr.translate(0, 0.5, 0);
+    const unit = aoBake(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), AO.wall);
+    const pyr = new THREE.ConeGeometry(0.75, 1, 4); pyr.rotateY(Math.PI / 4); pyr.translate(0, 0.5, 0); aoBake(pyr, AO.pyr);
     // half the sky light: shaded walls lit by the blue sky alone turned whole cities blue
-    const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5 });
-    const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6 });
+    const hmat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, envMapIntensity: 0.5, vertexColors: true });
+    const roofMat = new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, flatShading: true, envMapIntensity: 0.6, vertexColors: true });
     const boatG = boatGeo(), boatMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0 });
     S.cityU = { uScale: { value: 1 }, uMin: { value: 1.6 }, uAlpha: { value: 0 } };
     const lightMat = smat({ uniforms: S.cityU, vertexShader: GLOW_VS, fragmentShader: GLOW_FS, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
@@ -874,7 +1250,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       set.rocks.count = 0; set.rocks.frustumCulled = false; set.rocks.receiveShadow = true;
       set.walls = new THREE.InstancedMesh(unit, hmat, 7000); set.roofs = new THREE.InstancedMesh(pyr, roofMat, 7000);
       set.boats = new THREE.InstancedMesh(boatG, boatMat, 200);
-      for (const m of [set.walls, set.roofs, set.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = m.receiveShadow = true; }
+      // the buildings and boats cast no shadow themselves: their stand-ins below do, holding only the ones the Sun's
+      // shadow box can reach (shadowProxies), a few dozen of a town's thousands
+      for (const m of [set.walls, set.roofs, set.boats]) { m.count = 0; m.frustumCulled = false; m.castShadow = false; m.receiveShadow = true; }
+      set.wallsS = shadowProxy(unit, hmat, 256); set.roofsS = shadowProxy(pyr, roofMat, 256); set.boatsS = shadowProxy(boatG, boatMat, 32);
+      set.casts = [[set.walls, set.wallsS], [set.roofs, set.roofsS], [set.boats, set.boatsS]]; set.sph = [null, null, null];
+      set.ver = 0; set.sphVer = -1; // (ver: bumped each time the set is filled, so the stand-ins are chosen again; sph: the instances' spheres)
       // city lights: a glowing point on many buildings at night
       const cg = new THREE.BufferGeometry(), CL = 7000;
       cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CL * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -883,7 +1264,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       cg.setDrawRange(0, 0);
       set.cityLights = new THREE.Points(cg, lightMat);
       set.cityLights.frustumCulled = false;
-      set.frame.add(set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats, set.cityLights);
+      set.frame.add(set.trees[0], set.trees[1], set.treesFar[0], set.treesFar[1], set.rocks, set.walls, set.roofs, set.boats, set.cityLights, set.wallsS, set.roofsS, set.boatsS);
       set.frame.visible = false;
       localWorld.add(set.frame);
       return set;
@@ -892,7 +1273,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.scenery = { dirty: true, job: null, ms: 0, slice: 0 };
     // cumulus puffs
     S.cloudU = { uMap: { value: cloudAtlas() }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uLit: { value: new THREE.Color() }, uShadow: { value: new THREE.Color() },
-      uFogC: { value: new THREE.Color() }, uFogD: { value: 0 } };
+      uFogC: { value: new THREE.Color() }, uFogD: { value: 0 },
+      fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunH: { value: FOGX.sunH }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
     S.puffs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smat({ uniforms: S.cloudU, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS, transparent: true, depthWrite: false }), CLOUD_MAX);
     S.puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     S.puffAttr = new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX * 4), 4).setUsage(THREE.DynamicDrawUsage);
@@ -902,8 +1284,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.cloudFrame.add(S.puffs);
     localWorld.add(S.cloudFrame);
     S.cloudFogC = new THREE.Color();
+    S.fogLin = new THREE.Color(); // (the fog's colour this frame, linear: the sky's at the horizon, renderFlight)
+    S.fogUp = new THREE.Vector3(); // (the scene's up in the view's axes, renderFlight)
     S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0 };
   }
+  const WATER_NM = 'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\n\tmapN.xy *= normalScale;';
+  const warned = {};
+  const warnOnce = (k, why) => { if (!warned[k]) { warned[k] = true; console.warn(`Render3D: ${why}`); } };
+  function waterHook(sh) {
+    const nm = THREE.ShaderChunk.normal_fragment_maps;
+    if (!nm.includes(WATER_NM) || !sh.fragmentShader.includes('#include <roughnessmap_fragment>')) { warnOnce('water', 'three.js\'s normal map chunk isn\'t r159\'s: the water keeps still ripples'); return; }
+    sh.uniforms.uWaveB = S.waveB;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;')
+      .replace('#include <normal_fragment_maps>', nm.replace(WATER_NM, `vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+#ifdef OB_HI
+	vec3 mapB = texture2D( normalMap, vec2( - vNormalMapUv.y, vNormalMapUv.x ) * 3.0 + uWaveB ).xyz * 2.0 - 1.0;
+	mapN = normalize( vec3( mapN.xy + vec2( mapB.y, - mapB.x ) * 0.6, mapN.z * mapB.z ) );
+#endif
+	mapN.xy *= normalScale * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, length( vViewPosition ) ) );`))
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix( roughness, 0.22, smoothstep( 200.0, 4000.0, length( vViewPosition ) ) );');
+  }
+  // (mapB: the same map at 3× its scale turned 90°, its slopes turned back into mapN's frame; far off the ripples calm
+  // to 30 % from 300 m to 3 km and the roughness rises to 0.22 by 4 km)
   function allocPatch() {
     pjob = null;
     allocSlot(patch); allocSlot(patchB);
@@ -946,6 +1348,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     patch.inland = new THREE.Mesh(mk(4), terr.oceanMat);
     patch.inland.renderOrder = 1;
     patch.inland.visible = false;
+    // the water's ripples run on the ground's UVs: the very same attribute (no copy, one upload; the three are made and
+    // disposed together, and cullWater edits only the water's indices)
+    patch.ocean.geometry.setAttribute('uv', tg.attributes.uv); patch.inland.geometry.setAttribute('uv', tg.attributes.uv);
     patch.frame.add(patch.mesh, patch.ocean, patch.inland);
     patch.frame.visible = false;
   }
@@ -1056,7 +1461,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     for (let i = 0; i < nc; i++) { sd[i] = Math.sin(sx[i] / (R * kl)); cd[i] = Math.cos(sx[i] / (R * kl)); }
     let al0 = (a0 % TAU) * R * kl;
     if (al0 < 0) al0 += TAU * R * kl;
-    const uo = al0 % TILE, vo = z0 % TILE;
+    const uo = al0 % (TILE * UVP), vo = z0 % (TILE * UVP); // (whole TILE·UVP repeats: the detail map at ×1 samples what it did with % TILE, and the water's 1/4 and 3/4 are seamless east and west)
     for (let j = 0; j < nr; j++) {
       const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
       for (let i = 0; i < nc; i++) {
@@ -1546,7 +1951,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     G.tri = null;
     if (!terr.amat) { // the patch's material with a cut of its own that never cuts: the patch's compiled program, no stall
       const m = terr.mat;
-      terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness });
+      terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness, defines: { ...m.defines } });
       terr.amat.onBeforeCompile = terr.holeHook({ value: new THREE.Vector4(1, 1, 0, 0) });
     }
     AR.mesh = new THREE.Mesh(geo, terr.amat);
@@ -1599,7 +2004,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     // the detail texture's UVs as the patch has them (metres along its rows and columns from its middle, offset by TILE)
     let al0 = (P.a0 % TAU) * R * P.kl;
     if (al0 < 0) al0 += TAU * R * P.kl;
-    const uo = al0 % TILE, vo = P.z0 % TILE, uv = bb.uv;
+    const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP), uv = bb.uv; // (as the patch has them: buildPatch)
     for (let k = 0; k < n; k++) { uv[k * 2] = (wrapAngle(G.va[k] - P.a0) * R * P.kl + uo) / TILE; uv[k * 2 + 1] = (G.vz[k] - P.z0 + vo) / TILE; if ((k & 2047) === 2047 && spent()) yield; }
     // the patch's cut, in its UVs: east is decreasing angle, so the box's east side is the low end of its rows
     const B = AR.A.box, sOf = (e) => wrapAngle(siteAngle(EARTH, e) - P.a0) * R * P.kl;
@@ -1887,6 +2292,98 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
     Object.assign(set, { b, a0, z0, rad });
+    set.ver++; // (its shadow stand-ins are chosen afresh: shadowProxies)
+  }
+
+  // The city's shadow stand-ins. The thousands of buildings and boats of a scenery set cast no shadow themselves; for
+  // each of walls, roofs and boats a stand-in (the same geometry and material, so the same programs) holds copies of the
+  // instances the Sun's shadow box can reach. It is in the scene with count 0, so the colour pass draws nothing of it
+  // (three returns before any GL draw at count 0); the shadow pass sees its count only between onBeforeShadow and
+  // onAfterShadow. (r159's shadow pass tests an object's layers against the view camera's, so a shadow-only layer can't
+  // do this.) Every instance that could touch the shadow map is in, so the map, and the picture, are the same to the byte
+  // as with the buildings casting whole (Render3D.shadowAll, graphics.mjs 2), for a fraction of the shadow pass' vertices.
+  function shadowProxy(geo, mat, cap) {
+    const m = new THREE.InstancedMesh(geo, mat, cap);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3); // (never filled: the full mesh's program, not one more)
+    m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; m.count = 0; m.visible = false;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    m.box = [(bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2, (bb.max.x - bb.min.x) / 2, (bb.max.y - bb.min.y) / 2, (bb.max.z - bb.min.z) / 2];
+    m.nSh = 0;
+    m.onBeforeShadow = () => { m.count = m.nSh; };
+    m.onAfterShadow = () => { m.count = 0; };
+    return m;
+  }
+  // The Sun's shadow box this frame (renderFlight's shadow block fills it: c the point it looks at, x y z the shadow
+  // camera's axes, z towards the Sun, half the half-width) and what the stand-ins were last chosen for (PX). PX.warm:
+  // until three frames have been drawn with them on (and the shadow map drawn), the stand-ins stay on show even when
+  // empty, so their depth programs compile then (as the buildings' own did when they cast whole), not when a building
+  // first comes within the box mid-flight. (Three frames, as S.warm: the shadow pass runs before the frame's lights are
+  // set up, so the very first frame's depth programs are built for no lights, and the next frames' are the ones used.)
+  // renderFlight counts it down, a quality change sets it again
+  const SB = { half: 25 }, PX = { set: null, ver: -1, half: 0, n: [0, 0, 0], warm: 3 };
+  function shadowProxies(set) {
+    const on = S.sun.castShadow && !api.shadowAll && set && set.frame.visible;
+    if (!on) { // (shadowAll, a test switch: the buildings cast whole, as before the stand-ins)
+      if (set) for (const [full, px] of set.casts) { full.castShadow = !!api.shadowAll && S.sun.castShadow; px.nSh = 0; px.visible = false; }
+      PX.set = null;
+      return;
+    }
+    // the box in the set frame's own axes (a rigid frame: lengths and angles as in the scene)
+    set.frame.updateWorldMatrix(true, false);
+    const inv = PX.inv.copy(set.frame.matrixWorld).invert(), half = SB.half, mg = 0.1 * half;
+    const lc = PX.lc.copy(SB.c).applyMatrix4(inv), lx = PX.lx.copy(SB.x).transformDirection(inv), ly = PX.ly.copy(SB.y).transformDirection(inv), lz = PX.lz.copy(SB.z).transformDirection(inv);
+    // chosen again only when the set or its contents changed, the box changed size, or it has moved so far since the
+    // stand-ins were chosen that a point of it may have gone a tenth of its half-width (the margin every test below
+    // allows): its centre's move, plus its turn (the Sun's, or the frame's as the ground turns under the view) at its
+    // farthest point, 4.25 half-widths out (a turn moves a point at most √2 × the larger of two axes' moves × its reach)
+    const capT = api.bench.proxyCap > 0 ? api.bench.proxyCap : 1e9; // (tests: a smaller cap, to see an overflow fall back)
+    if (PX.set === set && PX.ver === set.ver && PX.half === half && PX.cap === capT &&
+      PX.c.distanceTo(lc) + 6.1 * half * Math.max(PX.ax.distanceTo(lx), PX.az.distanceTo(lz)) <= mg) return;
+    const X = half + mg, Z = 4 * half + mg; // (the shadow camera: ±half across, its near and far 4·half either side of c)
+    if (set.sphVer !== set.ver) sphereUp(set);
+    for (let k = 0; k < 3; k++) {
+      const [full, px] = set.casts[k], e = full.instanceMatrix.array, sp = set.sph[k], o = px.instanceMatrix.array, cap = Math.min(px.instanceMatrix.count, capT), [bx, by, bz, hx, hy, hz] = px.box;
+      let n = 0, over = false;
+      for (let i = 0, N = full.count; i < N; i++) {
+        // a bounding sphere first (most of a town is far off), then the instance's own box: its centre, and its half-
+        // extent along each of the shadow camera's axes (exact for any affine matrix: the sum over its three edges of each
+        // one's length along that axis). Kept if it reaches into the box (with the margin) on all three.
+        const q4 = i * 4, ux = sp[q4] - lc.x, uy = sp[q4 + 1] - lc.y, uz = sp[q4 + 2] - lc.z, r = sp[q4 + 3];
+        if (Math.abs(ux * lx.x + uy * lx.y + uz * lx.z) - r > X || Math.abs(ux * ly.x + uy * ly.y + uz * ly.z) - r > X || Math.abs(ux * lz.x + uy * lz.y + uz * lz.z) - r > Z) continue;
+        const j = i * 16, ax = e[j], ay = e[j + 1], az = e[j + 2], bxx = e[j + 4], byy = e[j + 5], bzz = e[j + 6], cx = e[j + 8], cy = e[j + 9], cz = e[j + 10];
+        const dx = e[j + 12] + bx * ax + by * bxx + bz * cx - lc.x, dy = e[j + 13] + bx * ay + by * byy + bz * cy - lc.y, dz = e[j + 14] + bx * az + by * bzz + bz * cz - lc.z;
+        if (Math.abs(dx * lx.x + dy * lx.y + dz * lx.z) - hx * Math.abs(ax * lx.x + ay * lx.y + az * lx.z) - hy * Math.abs(bxx * lx.x + byy * lx.y + bzz * lx.z) - hz * Math.abs(cx * lx.x + cy * lx.y + cz * lx.z) > X) continue;
+        if (Math.abs(dx * ly.x + dy * ly.y + dz * ly.z) - hx * Math.abs(ax * ly.x + ay * ly.y + az * ly.z) - hy * Math.abs(bxx * ly.x + byy * ly.y + bzz * ly.z) - hz * Math.abs(cx * ly.x + cy * ly.y + cz * ly.z) > X) continue;
+        if (Math.abs(dx * lz.x + dy * lz.y + dz * lz.z) - hx * Math.abs(ax * lz.x + ay * lz.y + az * lz.z) - hy * Math.abs(bxx * lz.x + byy * lz.y + bzz * lz.z) - hz * Math.abs(cx * lz.x + cy * lz.y + cz * lz.z) > Z) continue;
+        if (n >= cap) { over = true; break; } // (more than the stand-in holds: this mesh casts whole until the next choice)
+        for (let q = 0; q < 16; q++) o[n * 16 + q] = e[j + q];
+        n++;
+      }
+      if (over) n = 0;
+      full.castShadow = over;
+      px.nSh = n; px.visible = n > 0 || PX.warm > 0;
+      if (n) { px.instanceMatrix.clearUpdateRanges(); px.instanceMatrix.addUpdateRange(0, n * 16); px.instanceMatrix.needsUpdate = true; }
+      PX.n[k] = n;
+    }
+    PX.set = set; PX.ver = set.ver; PX.half = half; PX.cap = capT; PX.c.copy(lc); PX.ax.copy(lx); PX.az.copy(lz);
+  }
+  // each instance's bounding sphere (centre, radius: the sum of its box's half-edges, safe for any affine matrix), once
+  // per filling of the set (~0.2 ms for a city)
+  function sphereUp(set) {
+    for (let k = 0; k < 3; k++) {
+      const [full, px] = set.casts[k], e = full.instanceMatrix.array, N = full.count, [bx, by, bz, hx, hy, hz] = px.box;
+      let sp = set.sph[k];
+      if (!sp || sp.length < N * 4) sp = set.sph[k] = new Float32Array(full.instanceMatrix.count * 4);
+      for (let i = 0; i < N; i++) {
+        const j = i * 16, q4 = i * 4, ax = e[j], ay = e[j + 1], az = e[j + 2], bxx = e[j + 4], byy = e[j + 5], bzz = e[j + 6], cx = e[j + 8], cy = e[j + 9], cz = e[j + 10];
+        sp[q4] = e[j + 12] + bx * ax + by * bxx + bz * cx; sp[q4 + 1] = e[j + 13] + bx * ay + by * byy + bz * cy; sp[q4 + 2] = e[j + 14] + bx * az + by * bzz + bz * cz;
+        // (rounded up a little: the centre and radius are stored in 32 bits)
+        sp[q4 + 3] = (hx * Math.sqrt(ax * ax + ay * ay + az * az) + hy * Math.sqrt(bxx * bxx + byy * byy + bzz * bzz) + hz * Math.sqrt(cx * cx + cy * cy + cz * cz)) * 1.001 + 0.01;
+      }
+    }
+    set.sphVer = set.ver;
   }
   // The new scenery set goes on show; the old one becomes the next to fill.
   function swapScenery() {
@@ -1909,7 +2406,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // stand on) in ground play, and the space centre's (the Runway's and the island's), shown with the camera near it and
   // seated on the ground as drawn there. Each is filled a slice a frame (Props builds its layout a slice at a time too);
   // a crushed prop tips over where it stood (Props.fallen) over 0.7 s.
-  const PR = { geo: null, mat: null, sets: new Map(), mats: null };
+  const PR = { geo: null, mat: null, sets: new Map(), mats: null, castOff: false };
   const PIECES = 9, PCAST = [true, true, true, true, false, false, false, true, true]; // (casts a shadow; trees and bushes don't: every instance is drawn again in the shadow pass, for a shadow box 50 m across)
   function propGeos() {
     if (PR.geo) return PR.geo;
@@ -1956,6 +2453,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const brdF = new Batch().geo(new THREE.CylinderGeometry(0.22, 0.32, 4.4, 3, 1, true), 0, 2.2, 0, trunk).geo(new THREE.IcosahedronGeometry(3.3, 0), 0, 6.9, 0, leaf, 0, 0.3, 0, 1, 0.85, 1).build();
     const bushF = new Batch().geo(new THREE.IcosahedronGeometry(0.85, 0), 0, 0.6, 0, shrub, 0, 0, 0, 1, 0.8, 1).build();
     PR.geo = [box, roof, cyl, spire, con.build(), brd.build(), bush, rock, hedge, conF, brdF, bushF, box];
+    // baked darkening (aoBake): each piece once (the far wall is the near box itself)
+    const G = PR.geo;
+    for (const [i, f, t] of [[0, AO.box], [1, AO.roof], [2, AO.cyl], [3, AO.roof], [4, AO.con, trunk], [5, AO.brd, trunk], [6, AO.bush], [7, AO.rock], [8, AO.hedge], [9, AO.con, trunk], [10, AO.brd, trunk], [11, AO.bush]]) aoBake(G[i], f, t);
     PR.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0, flatShading: true, envMapIntensity: 0.55 });
     return PR.geo;
   }
@@ -2021,7 +2521,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (!cnt[i]) return null;
       const m = new THREE.InstancedMesh(g, PR.mat, cnt[i]);
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cnt[i] * 3), 3);
-      m.frustumCulled = false; m.receiveShadow = true; m.castShadow = i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
+      m.frustumCulled = false; m.receiveShadow = true; m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; m.count = 0; m.visible = false;
+      if (i < PIECES && PCAST[i]) { // (the shadow pass draws only the first nSh: those within reach of the Sun's shadow box, propLod)
+        m.nSh = m.nAll = 0;
+        m.onBeforeShadow = () => { m.count = m.nSh; };
+        m.onAfterShadow = () => { m.count = m.nAll; };
+      }
       s.frame.add(m);
       return m;
     });
@@ -2030,12 +2535,48 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
   // What is drawn, and how, for the camera's focus at (e, z): each prop's slots copied (matrix and colour, worked out
   // already) into the mesh its distance picks, the meshes' counts set. A few thousand copies: once the focus has moved
-  // PROP_LOD.move m, not every frame
-  const LODK = new Int32Array(16);
+  // PROP_LOD.move m, not every frame. On High, in each casting piece's mesh the instances within reach of the Sun's
+  // shadow box (PROP_BOX m to spare: the box's own test, shadowProxies') come first, and the shadow pass draws only
+  // those (nSh, swapped in by onBeforeShadow; the canvas draws all nAll): the rest would only be clipped from the shadow
+  // map, three quarters of the shadow pass's vertices in Highland Ridge's village. Again when the box has moved
+  // PROP_LOD.move m since in the set's frame (the view turning), grown or shrunk 5 %, or the Sun turned 0.5°
+  // (propBoxMoved). Without shadows, or with Render3D.shadowAll (tests), every instance in the order of old
+  const LODK = new Int32Array(16), LODIN = new Int32Array(16), LODAT = new Int32Array(16), LODOUT = new Int32Array(16), PROP_BOX = 60;
+  const PB = { on: false, inv: null, lc: null, lx: null, ly: null, lz: null, bb: null };
+  // the shadow box in the set frame's own axes (into PB); false: no box to sort by
+  function propBox(s) {
+    if (!S.sun || !S.sun.castShadow || api.shadowAll || !SB.c) return false;
+    if (!PB.inv) { PB.inv = new THREE.Matrix4(); for (const k of ['lc', 'lx', 'ly', 'lz']) PB[k] = new THREE.Vector3(); }
+    PB.inv.copy(s.frame.matrixWorld).invert();
+    PB.lc.copy(SB.c).applyMatrix4(PB.inv); PB.lx.copy(SB.x).transformDirection(PB.inv); PB.ly.copy(SB.y).transformDirection(PB.inv); PB.lz.copy(SB.z).transformDirection(PB.inv);
+    return true;
+  }
+  function propBoxMoved(s) {
+    const box = !!(S.sun && S.sun.castShadow && !api.shadowAll);
+    if (box !== s.lodBox) return true;
+    if (!box || !PB.inv) return false;
+    if (Math.abs(SB.half - s.lodHalf) > 0.05 * s.lodHalf || SB.z.dot(s.lodSun) < 0.99996) return true; // (0.5°)
+    PB.inv.copy(s.frame.matrixWorld).invert();
+    return PB.lc.copy(SB.c).applyMatrix4(PB.inv).distanceTo(s.lodC) > PROP_LOD.move;
+  }
+  // slot q's instance (piece mesh mi) within reach of the box (PB) with PROP_BOX m to spare: its geometry's box turned
+  // by its matrix, measured along each of the box's axes (exact for any affine matrix, as shadowProxies' test)
+  function propInBox(M, q, mi, X, Z) {
+    const bb = PB.bb[mi], j = q * 16, ax = M[j], ay = M[j + 1], az = M[j + 2], bx = M[j + 4], by = M[j + 5], bz = M[j + 6], cx = M[j + 8], cy = M[j + 9], cz = M[j + 10];
+    const dx = M[j + 12] + bb[0] * ax + bb[1] * bx + bb[2] * cx - PB.lc.x, dy = M[j + 13] + bb[0] * ay + bb[1] * by + bb[2] * cy - PB.lc.y, dz = M[j + 14] + bb[0] * az + bb[1] * bz + bb[2] * cz - PB.lc.z;
+    for (let k = 0; k < 3; k++) {
+      const l = k === 0 ? PB.lx : k === 1 ? PB.ly : PB.lz, lim = k === 2 ? Z : X;
+      if (Math.abs(dx * l.x + dy * l.y + dz * l.z) - bb[3] * Math.abs(ax * l.x + ay * l.y + az * l.z) - bb[4] * Math.abs(bx * l.x + by * l.y + bz * l.z) - bb[5] * Math.abs(cx * l.x + cy * l.y + cz * l.z) > lim) return false;
+    }
+    return true;
+  }
   function propLod(s, e, z) {
-    const K = Props.K, Q = Settings.high ? PROP_LOD.high : PROP_LOD.low, n2 = Q.near * Q.near, c2 = Q.cull * Q.cull, L = s.props, ms = s.meshes;
-    LODK.fill(0);
-    let drawn = 0;
+    const K = Props.K, Q = Settings.high ? PROP_LOD.high : PROP_LOD.low, n2 = Q.near * Q.near, c2 = Q.cull * Q.cull, L = s.props, ms = s.meshes, N = s.first[L.length];
+    if (!PB.bb) PB.bb = PR.geo.map((g) => { if (!g.boundingBox) g.computeBoundingBox(); const b = g.boundingBox; return [(b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, (b.min.z + b.max.z) / 2, (b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2, (b.max.z - b.min.z) / 2]; });
+    if (!s.lodMi || s.lodMi.length < N) { s.lodMi = new Int8Array(N); s.lodIn = new Uint8Array(N); }
+    const box = propBox(s), X = SB.half + PROP_BOX, Z = 4 * SB.half + PROP_BOX, MI = s.lodMi, IN = s.lodIn;
+    LODK.fill(0); LODIN.fill(0);
+    // where each slot goes, and whether it is within the box's reach (every slot is, without a box: the order of old)
     for (let j = 0; j < L.length; j++) {
       const p = L[j], de = p.e - e, dz = p.z - z, d2 = de * de + dz * dz, k = p.k;
       const small = k === K.bush || k === K.bale || k === K.fence || k === K.pole || k === K.tyres || k === K.crate || k === K.rock;
@@ -2043,16 +2584,31 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       for (let q = s.first[j], qe = s.first[j + 1]; q < qe; q++) {
         let mi = gone ? -1 : s.pc[q];
         if (mi >= 0 && far && FAR_OF[mi] >= 0) mi = FAR_OF[mi];
-        if (mi < 0 || !ms[mi]) { s.where[q] = -1; continue; }
-        const m = ms[mi], i = LODK[mi]++;
-        m.instanceMatrix.array.set(s.M.subarray(q * 16, q * 16 + 16), i * 16);
-        m.instanceColor.array.set(s.C.subarray(q * 3, q * 3 + 3), i * 3);
-        s.where[q] = (mi << 20) | i;
-        drawn++;
+        if (mi < 0 || !ms[mi]) { MI[q] = -1; continue; }
+        MI[q] = mi;
+        const inb = !box || !(mi < PIECES && PCAST[mi]) || propInBox(s.M, q, mi, X, Z);
+        IN[q] = inb ? 1 : 0;
+        LODK[mi]++; if (inb) LODIN[mi]++;
       }
     }
-    for (let i = 0; i < ms.length; i++) { const m = ms[i]; if (!m) continue; m.count = LODK[i]; m.visible = LODK[i] > 0; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
-    s.lodE = e; s.lodZ = z; s.drawn = drawn;
+    for (let i = 0; i < 16; i++) { LODAT[i] = 0; LODOUT[i] = LODIN[i]; }
+    let drawn = 0;
+    for (let q = 0; q < N; q++) {
+      const mi = MI[q];
+      if (mi < 0) { s.where[q] = -1; continue; }
+      const m = ms[mi], i = IN[q] ? LODAT[mi]++ : LODOUT[mi]++;
+      m.instanceMatrix.array.set(s.M.subarray(q * 16, q * 16 + 16), i * 16);
+      m.instanceColor.array.set(s.C.subarray(q * 3, q * 3 + 3), i * 3);
+      s.where[q] = (mi << 20) | i;
+      drawn++;
+    }
+    for (let i = 0; i < ms.length; i++) {
+      const m = ms[i]; if (!m) continue;
+      m.count = LODK[i]; m.visible = LODK[i] > 0; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true;
+      if (m.nAll != null) { m.nAll = LODK[i]; m.nSh = LODIN[i]; }
+    }
+    s.lodE = e; s.lodZ = z; s.drawn = drawn; s.lodBox = box;
+    if (box) { s.lodHalf = SB.half; (s.lodSun || (s.lodSun = new THREE.Vector3())).copy(SB.z); (s.lodC || (s.lodC = new THREE.Vector3())).copy(PB.lc); }
   }
   // how far a fallen prop has tipped by now (it falls faster as it goes: 0.7 s), and how far it ends
   const FALL_T = 0.7;
@@ -2073,6 +2629,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const scNear = Math.hypot(Math.max(0, Math.abs(e - 1500) - 2200), Math.max(0, Math.abs(z) - 800)) < 7000 && camAlt < 5000 && patch.active;
     if (scNear) propStep(propSet('sc', ['runway', 'isle']), F, t0 + budget, propSeat, true, e, z);
     else if (PR.sets.has('sc')) PR.sets.get('sc').frame.visible = false;
+    // (measuring only: Render3D.propsCastOff takes the props out of the shadow pass while it is on)
+    if (PR.castOff !== !!api.propsCastOff) { PR.castOff = !!api.propsCastOff; for (const s of PR.sets.values()) s.meshes.forEach((m, i) => { if (m) m.castShadow = !PR.castOff && i < PIECES && PCAST[i] === true; }); }
   }
   const propFlat = () => 0; // (Highland Ridge's sit on the physics' ground: the arena's own mesh is drawn from it)
   // (the space centre's props sit on the ground as drawn: the patch's own there, which is metres off the physics' far out)
@@ -2097,8 +2655,9 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       arenaUntil = Infinity;
     }
     if (!s.ready || !s.where) { s.frame.visible = false; return; }
-    // what is drawn, and how: again once the focus has moved on
-    if (!(Math.abs(e - s.lodE) < PROP_LOD.move && Math.abs(z - s.lodZ) < PROP_LOD.move)) propLod(s, e, z);
+    placeFrame(s.frame, EARTH, s.a0, F.time); s.frame.updateWorldMatrix(true, false); // (where it is now: propLod's shadow box is measured in its frame)
+    // what is drawn, and how: again once the focus (or the Sun's shadow box) has moved on
+    if (!(Math.abs(e - s.lodE) < PROP_LOD.move && Math.abs(z - s.lodZ) < PROP_LOD.move) || propBoxMoved(s)) propLod(s, e, z);
     // the newly fallen (ours, ghosts', the AI's), tipping over
     const FL = Props.fallen;
     for (; s.fallN < FL.length; s.fallN++) { const p = FL[s.fallN]; if (ids.includes(p.map) && s.jOf.has(p)) s.anim.push(p); }
@@ -2111,7 +2670,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       }
     }
     s.frame.visible = !!show;
-    if (show) placeFrame(s.frame, EARTH, s.a0, F.time);
   }
 
   // Cumulus on a hashed 750 m grid (the row through the flight plane uses the 2D view's clouds): flat,
@@ -2969,64 +3527,299 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   // ------------------------------------------------------------------ particles (FX.list)
+  // One mesh for every particle drawn as a quad (S.fx: smoke, fire, flashes, rings, chaff, plasma), sorted back to front
+  // and blended premultiplied, so lit smoke and additive fire mix in one draw; the debris chunks as 3D bits (S.debris,
+  // the scenery trees' program); tracers, sparks and a drone's laser beams as glowing streaks (S.streak, updateStreaks).
+  // While S.warm counts down (the first flight frames drawn, and after a quality change) the three stay on show with
+  // nothing in them, so their programs are built while loading, not at the first explosion or burst of fire.
+  // FX_N, DBR_N: the most quads and chunks drawn; the streaks hold TRC_N tracers, SPK_N sparks and BEAM_N beams (the
+  // drones' lasers: Drone.beams). SMOKE_K: the Sun's and the sky's light on smoke (tuned so a grey puff at noon reads
+  // about as the unlit one did). GLOW_MAX: a flash's glow never wider on screen than this share of the screen's
+  // shorter side (radius), however near: a blast beside the camera doesn't white the view out
+  const FX_N = 1100, DBR_N = 160, TRC_N = 700, SPK_N = 300, BEAM_N = 8, STREAK_N = TRC_N + SPK_N + BEAM_N;
+  const SMOKE_K = 1.05, GLOW_MAX = 0.25;
+  const PK = {}; // the particles' scratch rows, sort keys and index buffers; the chunks' and streaks' temporaries
   function initParticles() {
-    const mk = (additive) => {
-      const N = 1100, geo = new THREE.InstancedBufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
-      geo.setIndex([0, 1, 2, 0, 2, 3]);
-      const at = (name, n) => geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(N * n), n).setUsage(THREE.DynamicDrawUsage));
-      at('iPos', 3); at('iCol', 4); at('iSize', 2);
-      geo.instanceCount = 0;
-      const m = new THREE.Mesh(geo, smat({
-        uniforms: THREE.UniformsUtils.clone(THREE.UniformsLib.fog), vertexShader: PART_VS, fragmentShader: PART_FS, fog: !additive,
-        transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      }));
-      m.frustumCulled = false; m.renderOrder = additive ? 6 : 5; m.N = N;
-      localWorld.add(m);
-      return m;
-    };
-    S.smoke = mk(false); S.fire = mk(true);
-    S.fxCol = new Map();
+    S.fxCol = new Map(); S.pseed = 1;
+    const at = (g, name, w, N) => g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(N * w), w).setUsage(THREE.DynamicDrawUsage));
+    // the quads
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    at(geo, 'iPos', 4, FX_N); at(geo, 'iCol', 4, FX_N); at(geo, 'iMisc', 4, FX_N);
+    geo.instanceCount = 0;
+    S.partU = { uMap: { value: S.cloudU.uMap.value }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uUpV: { value: new THREE.Vector3(0, 1, 0) }, uSunC: { value: new THREE.Color() }, uAmb: { value: new THREE.Color() },
+      uFloor: { value: 0.05 }, uScale: S.glowU.uScale, uGlowMax: { value: 200 } };
+    S.fx = new THREE.Mesh(geo, smat({
+      uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), S.partU), vertexShader: PART_VS, fragmentShader: PART_FS, defines: { OB_NOFOG: '' }, fog: true,
+      transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    }));
+    S.fx.frustumCulled = false; S.fx.renderOrder = 5; S.fx.visible = false;
+    PK.pos = new Float32Array(FX_N * 4); PK.col = new Float32Array(FX_N * 4); PK.misc = new Float32Array(FX_N * 4); PK.dz = new Float32Array(FX_N);
+    PK.key = new Uint16Array(FX_N); PK.a = new Uint16Array(FX_N); PK.b = new Uint16Array(FX_N); PK.cnt = new Uint32Array(256);
+    PK.cam = { x: 0, y: 0, z: 0 }; PK.fw = { x: 0, y: 0, z: 0 }; PK.rt = { x: 0, y: 0, z: 0 }; PK.up = { x: 0, y: 0, z: 0 }; PK.v = new THREE.Vector3(); PK.loc = {};
+    PK.spk = []; PK.dbr = [];
+    // the chunks: a lumpy icosahedron (each corner pushed in or out by a hash of where it is, so the faces still meet)
+    const dg = new THREE.IcosahedronGeometry(1, 0), dp = dg.attributes.position;
+    for (let i = 0; i < dp.count; i++) {
+      PK.v.fromBufferAttribute(dp, i);
+      const k = 0.75 + 0.5 * hash1(Math.round(PK.v.x * 97) + 131 * Math.round(PK.v.y * 89) + 17161 * Math.round(PK.v.z * 83), 7);
+      dp.setXYZ(i, PK.v.x * k, PK.v.y * k, PK.v.z * k);
+    }
+    dg.computeVertexNormals();
+    dg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(dp.count * 3).fill(1), 3));
+    S.debris = new THREE.InstancedMesh(dg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true }), DBR_N);
+    S.debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    S.debris.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DBR_N * 3), 3).setUsage(THREE.DynamicDrawUsage);
+    S.debris.count = 0; S.debris.frustumCulled = false; S.debris.castShadow = S.debris.receiveShadow = false; S.debris.visible = false;
+    PK.m = new THREE.Matrix4(); PK.q = new THREE.Quaternion(); PK.ax = new THREE.Vector3(); PK.sc = new THREE.Vector3(); PK.at = new THREE.Vector3();
+    // the streaks: x 0 at the head, 1 at the tail; y across
+    const sg = new THREE.InstancedBufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0], 3));
+    sg.setIndex([0, 1, 2, 0, 2, 3]);
+    at(sg, 'iA', 3, STREAK_N); at(sg, 'iB', 3, STREAK_N); at(sg, 'iC', 4, STREAK_N); at(sg, 'iF', 1, STREAK_N);
+    sg.instanceCount = 0;
+    S.streakU = { uScale: S.glowU.uScale, uRes: { value: new THREE.Vector2(1, 1) } };
+    S.streak = new THREE.Mesh(sg, smat({ uniforms: S.streakU, vertexShader: STREAK_VS, fragmentShader: STREAK_FS, transparent: true, depthWrite: false, blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor }));
+    S.streak.frustumCulled = false; S.streak.renderOrder = 7; S.streak.visible = false;
+    localWorld.add(S.fx, S.debris, S.streak);
   }
+  // Contact shadows and scorch marks: one mesh of flat quads on the ground as drawn (DECAL_VS/FS), drawn first among the
+  // see-through things (after the ground, never on water), no shadows. Filled each frame from state by syncDecals: nothing
+  // in the sim reads it. While S.warm counts down it stays on show, empty, so its program is built while loading. Its
+  // quad is the cumulus puffs' own unit plane (no geometry of its own: its attributes ride in the instance matrices)
+  function initDecals() {
+    S.decal = new THREE.InstancedMesh(S.puffs.geometry, smat({
+      vertexShader: DECAL_VS, fragmentShader: DECAL_FS, uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), { uMap: { value: S.cloudU.uMap.value } }),
+      defines: { OB_NOFOG: '' }, fog: true, transparent: true, depthWrite: false,
+    }), DECAL_N);
+    S.decal.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    S.decal.count = 0; S.decal.frustumCulled = false; S.decal.renderOrder = -1; S.decal.visible = false;
+    DK.seen = new WeakSet();
+    localWorld.add(S.decal);
+  }
+  // a particle colour in linear rgb, and its sRGB blue (0..1: a pale flame burns white longer), cached
   function fxColor(hex) {
     let c = S.fxCol.get(hex);
-    if (!c) { const r = C(hex); c = [lin(r[0]), lin(r[1]), lin(r[2])]; S.fxCol.set(hex, c); }
+    if (!c) { const r = C(hex); c = [lin(r[0]), lin(r[1]), lin(r[2]), r[2] / 255]; S.fxCol.set(hex, c); }
     return c;
   }
-  const FLASH = [1, 0.92, 0.7], SMOKY = [0.16, 0.13, 0.11];
+  // the sort: LSD radix on 16-bit keys (far first), one byte a pass, from src into dst (stable)
+  function radix(src, dst, n, shift) {
+    const cnt = PK.cnt, key = PK.key;
+    cnt.fill(0);
+    for (let i = 0; i < n; i++) cnt[(key[src[i]] >> shift) & 255]++;
+    for (let i = 0, s = 0; i < 256; i++) { const c = cnt[i]; cnt[i] = s; s += c; }
+    for (let i = 0; i < n; i++) { const j = src[i]; dst[cnt[(key[j] >> shift) & 255]++] = j; }
+  }
+  const usedRange = (at, n) => { at.clearUpdateRanges(); at.addUpdateRange(0, Math.max(1, n) * at.itemSize); at.needsUpdate = true; };
+  const FLASH = [1, 0.92, 0.7];
+  // Fills the particle mesh (and gathers the sparks and chunks for their own meshes) from FX.list; a big flash near the
+  // camera lends its light to S.engine for the frame (the engine's glow keeps it unless the flash is by the craft)
   function updateParticles(F, env) {
-    const dim = 1 - env.night * 0.6, list = FX.list, t = F.time;
-    let ns = 0, nf = 0;
-    const ps = S.smoke.geometry.attributes, pf = S.fire.geometry.attributes;
-    for (const p of list) {
+    const list = FX.list, t = F.time, night = env.night, dim = 1 - night * 0.6, pr = renderer.getPixelRatio(), uPx = S.glowU.uScale.value;
+    const U = S.partU, kl = SMOKE_K / Math.PI, cam = PK.cam, fw = PK.fw, rt = PK.rt, up = PK.up, pos = PK.pos, col = PK.col, misc = PK.misc, dzs = PK.dz;
+    toSim(camera.position.x, camera.position.y, camera.position.z, cam);
+    const e = camera.matrixWorld.elements; // (the camera's axes in the scene, then in the sim's: right, up, forward)
+    toSim(e[0], e[1], e[2], rt); toSim(e[4], e[5], e[6], up); toSim(-e[8], -e[9], -e[10], fw);
+    U.uSunV.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
+    const fv = F.viewVessel || F.active; // (the local vertical, in the view: puffs by the ground thin out towards it)
+    if (fv) { const r = Math.hypot(fv.x, fv.y, fv.z) || 1; toView(fv.x / r, fv.y / r, fv.z / r, PK.v); U.uUpV.value.copy(PK.v).transformDirection(camera.matrixWorldInverse); }
+    U.uSunC.value.copy(S.sun.color).multiplyScalar(S.sun.intensity * kl);
+    U.uAmb.value.copy(S.hemi.color).multiplyScalar(S.hemi.intensity * kl);
+    U.uGlowMax.value = GLOW_MAX * Math.min(W, H) * pr;
+    const pin = api.bench.pin && !api.skipDraw, aspect = W / H, glowMax = U.uGlowMax.value;
+    let fill = 0, n = 0, lb = null, lbx = 0, lby = 0, best = null, bs = 0, bI = 0, bR = 0, bx = 0, by = 0, bz = 0;
+    const SPK = PK.spk, DBR = PK.dbr;
+    SPK.length = 0; DBR.length = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i], kd = p.kind;
+      if (kd === 'emit') continue; // (the effects API's timers: nothing to draw)
+      if (kd === 'spark') { if (SPK.length < SPK_N) SPK.push(p); continue; }
+      if (kd === 'debris') { if (DBR.length < DBR_N) DBR.push(p); continue; }
+      if (n >= FX_N) continue;
       if (p.jz === undefined) p.jz = (Math.random() - 0.5) * (p.size + p.grow) * 0.3;
-      const bp = bodyPos(p.b, t), k = p.life / p.max, size = p.size + p.grow * k;
-      const x = bp.x + p.x - camAbs.x, y = bp.y + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
-      let add = p.kind !== 'smoke', c = null, a = p.alpha * (1 - k), kind = 0, sz = size;
-      switch (p.kind) {
-        case 'spark': c = fxColor(p.color); a = 1 - k; sz = 0.22; break;
-        case 'flash': c = FLASH; a = 0.9 * (1 - k); break;
-        case 'ring': c = fxColor(p.color); kind = 1; break;
-        case 'fire': if (k > 0.45) { add = false; c = SMOKY; a *= 0.85; } else c = fxColor(p.color); break;
-        case 'glint': c = fxColor(p.color); a *= FX.twinkle(p) * dim; break; // chaff's foil (as FX.draw: dimmer at night)
-        default: c = fxColor(p.color);
+      if (p.ce === undefined) { const h = S.pseed++; p.ro = hash1(h, 1) * TAU; p.sp = (hash1(h, 2) - 0.5) * 2 * (kd === 'fire' ? 0.7 : 0.25); p.ce = (hash1(h, 3) * 4) | 0; }
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const x = lbx + p.x - camAbs.x, y = lby + p.y - camAbs.y, z = (p.z || 0) + p.jz - camAbs.z;
+      const k = p.life / p.max, s = p.size + p.grow * (p.ease ? 1 - (1 - k) * (1 - k) : k);
+      let st = 0, c = null, a = 0, w = 0, r = 1, g = 1, bl = 1, gh = 1e5;
+      if ((kd === 'smoke' || kd === 'fire') && p.size + p.grow >= 1) { // (soft puffs: how high over the ground as drawn, looked up once)
+        if (p.gr === undefined) {
+          p.gr = null;
+          if (!p.b.star && (x - cam.x) * (x - cam.x) + (y - cam.y) * (y - cam.y) + (z - cam.z) * (z - cam.z) < 9e6) { const L = Terrain.locate(p.b, p.x, p.y, p.z, PK.loc); p.gr = p.b.radius + groundAt(p.b, L.a, L.z); }
+        }
+        if (p.gr != null) gh = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) - p.gr;
       }
-      const A = add ? pf : ps, i = add ? nf++ : ns++;
-      if (i >= S.smoke.N) { if (add) nf--; else ns--; continue; }
-      A.iPos.array[i * 3] = x; A.iPos.array[i * 3 + 1] = y; A.iPos.array[i * 3 + 2] = z;
-      const m = add ? 1 : dim;
-      A.iCol.array[i * 4] = c[0] * m; A.iCol.array[i * 4 + 1] = c[1] * m; A.iCol.array[i * 4 + 2] = c[2] * m; A.iCol.array[i * 4 + 3] = clamp(a, 0, 1);
-      A.iSize.array[i * 2] = sz; A.iSize.array[i * 2 + 1] = kind;
-    }
-    for (const [mesh, n] of [[S.smoke, ns], [S.fire, nf]]) {
-      const g = mesh.geometry;
-      g.instanceCount = n;
-      for (const [name, w] of [['iPos', 3], ['iCol', 4], ['iSize', 2]]) {
-        const at = g.attributes[name];
-        at.clearUpdateRanges(); at.addUpdateRange(0, Math.max(1, n) * w); at.needsUpdate = true;
+      switch (kd) {
+        case 'smoke': { // lit and textured; soot greys as it thins; a burning column's base glows at first
+          st = 2; c = (p.fc || (p.fc = fxColor(p.color)));
+          const q = k < 0.2 ? 0 : (k - 0.2) / 0.8, sk = q * q * (3 - 2 * q), m = 1 + 0.3 * sk, o = 0.025 * sk; // (smoothstep(0.2, 1, k))
+          r = c[0] * m + o; g = c[1] * m + o; bl = c[2] * m + o;
+          if (p.heat) { const q = k > 0.2 ? 1 : k / 0.2; w = p.heat * (1 - q * q * (3 - 2 * q)); }
+          a = p.alpha * Math.min(1, k / (p.fin || 0.06)) * Math.pow(1 - k, 1.2);
+          break;
+        }
+        case 'fire': { // hot in the dense core, cooling into lit soot by `cool` of its life
+          st = 3; c = (p.fc || (p.fc = fxColor(p.color)));
+          if (p.h0 === undefined) p.h0 = p.heat != null ? p.heat : 1 + 0.5 * clamp((c[3] - 0.45) / 0.35, 0, 1);
+          w = p.h0 * (1 - smoothstep(0, p.cool || 0.5, k));
+          r = c[0]; g = c[1]; bl = c[2];
+          a = p.alpha * Math.min(1, k / 0.04) * (1 - k);
+          break;
+        }
+        case 'flash': {
+          const big = p.size >= 1.6;
+          st = big ? 4 : 5; w = (big ? clamp(2.5 + (2.5 * p.size) / 4, 3, 14) : 1.5) * pr;
+          r = FLASH[0]; g = FLASH[1]; bl = FLASH[2]; a = 0.9 * (1 - k);
+          if (p.size >= 1.5 && !p.nolight) { // a light candidate: the brightest for its distance (cd over d² + R²)
+            const d2 = (x - cam.x) * (x - cam.x) + (y - cam.y) * (y - cam.y) + (z - cam.z) * (z - cam.z);
+            if (d2 < 640000) {
+              const P = Math.min(p.size / 4, 5), I = 60 * P * P * (1 - k) * (1 - k), R = clamp(12 * P, 15, 120), sc = I / (d2 + R * R);
+              if (sc > bs) { best = p; bs = sc; bI = I; bR = R; bx = x; by = y; bz = z - p.jz; } // (the light at the flash itself, not its draw-order jitter)
+            }
+          }
+          break;
+        }
+        case 'ring': st = 1; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0]; g = c[1]; bl = c[2]; a = p.alpha * (1 - k); break;
+        case 'glint': st = 6; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0] * dim; g = c[1] * dim; bl = c[2] * dim; a = p.alpha * (1 - k) * FX.twinkle(p); break; // chaff's foil (as FX.draw: dimmer at night)
+        case 'plasma': st = 0; w = 0; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0]; g = c[1]; bl = c[2]; a = p.alpha * (1 - k); break; // (reentry's glow: added light, as before)
+        default: st = 0; w = 1; c = (p.fc || (p.fc = fxColor(p.color))); r = c[0] * dim; g = c[1] * dim; bl = c[2] * dim; a = p.alpha * (1 - k);
       }
-      mesh.visible = n > 0;
+      const dz = (x - cam.x) * fw.x + (y - cam.y) * fw.y + (z - cam.z) * fw.z;
+      const i4 = n * 4;
+      pos[i4] = x; pos[i4 + 1] = y; pos[i4 + 2] = z; pos[i4 + 3] = gh;
+      col[i4] = r; col[i4 + 1] = g; col[i4 + 2] = bl; col[i4 + 3] = a < 0 ? 0 : a > 1 ? 1 : a;
+      misc[i4] = s; misc[i4 + 1] = st + 8 * p.ce; misc[i4 + 2] = p.ro + p.sp * p.life; misc[i4 + 3] = w;
+      dzs[n] = dz;
+      n++;
+      if (pin && dz > 0.1) { // the fill (bench, tests): its quad's area on screen, thinned near the eye as the shader does
+        const soft = st === 2 || st === 3, se = st === 4 || st === 5 ? Math.min(Math.max(s, (w * dz) / uPx), (Math.max(glowMax, w) * dz) / uPx) : s;
+        const vx = (x - cam.x) * rt.x + (y - cam.y) * rt.y + (z - cam.z) * rt.z, vy = (x - cam.x) * up.x + (y - cam.y) * up.y + (z - cam.z) * up.z;
+        if (Math.abs(vy) - se < dz * TANH && Math.abs(vx) - se < dz * TANH * aspect) { const q = (se * uPx) / dz; fill += Math.PI * q * q * (soft ? smoothstep(se * 0.25, se, dz) : st === 1 ? Math.min(1, (glowMax * dz) / (se * uPx)) : 1); }
+      }
     }
+    if (pin) api.bench.fill = fill / (W * H * pr * pr);
+    // back to front: far first, then the rows copied into the mesh in that order
+    let dmax = 1;
+    for (let i = 0; i < n; i++) if (dzs[i] > dmax) dmax = dzs[i];
+    const key = PK.key, ia = PK.a, ib = PK.b;
+    for (let i = 0; i < n; i++) { const q = Math.round(65535 * (1 - dzs[i] / dmax)); key[i] = q < 0 ? 0 : q > 65535 ? 65535 : q; ia[i] = i; }
+    radix(ia, ib, n, 0); radix(ib, ia, n, 8);
+    const G = S.fx.geometry, A = G.attributes, ap = A.iPos.array, ac = A.iCol.array, am = A.iMisc.array;
+    for (let j = 0; j < n; j++) {
+      const i = ia[j], i4 = i * 4, j4 = j * 4;
+      ap[j4] = pos[i4]; ap[j4 + 1] = pos[i4 + 1]; ap[j4 + 2] = pos[i4 + 2]; ap[j4 + 3] = pos[i4 + 3];
+      ac[j4] = col[i4]; ac[j4 + 1] = col[i4 + 1]; ac[j4 + 2] = col[i4 + 2]; ac[j4 + 3] = col[i4 + 3];
+      am[j4] = misc[i4]; am[j4 + 1] = misc[i4 + 1]; am[j4 + 2] = misc[i4 + 2]; am[j4 + 3] = misc[i4 + 3];
+    }
+    G.instanceCount = n;
+    usedRange(A.iPos, n); usedRange(A.iCol, n); usedRange(A.iMisc, n);
+    S.fx.visible = n > 0 || S.warm > 0;
+    // the flash's light: when the engine isn't glowing this frame, or the flash is within 150 m of the craft
+    if (best) {
+      const v = F.active;
+      let near = false;
+      if (v && v.body) { const bp = bodyPos(v.body, t); near = Math.hypot(bp.x + v.x - camAbs.x - bx, bp.y + v.y - camAbs.y - by, v.z - camAbs.z - bz) < 150; }
+      if (S.engine.intensity === 0 || near) { S.engine.position.set(bx, by, bz); S.engine.color.setRGB(1, 0.69, 0.4); S.engine.intensity = bI; S.engine.distance = bR; }
+    }
+    updateDebris(t);
+  }
+  // how tall a vessel stands as it lies now: its hull's and wheels' points along the local up (a wreck's, for its sink)
+  function standH(v) {
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, cz = v.com.z || 0;
+    let lo = Infinity, hi = -Infinity;
+    for (const P of [v.hull || [], v.wheelPts || []]) for (const p of P) {
+      const o = qrot(v.q, p.x - v.com.x, p.y - v.com.y, (p.z || 0) - cz), h = o.x * ux + o.y * uy + o.z * uz;
+      lo = Math.min(lo, h - (p.r || 0)); hi = Math.max(hi, h + (p.r || 0));
+    }
+    return hi > lo ? hi - lo : v.bounds.maxY - v.bounds.minY;
+  }
+  // the chunks: tumbling about their own axis until they come to rest, shrinking away at the end of their life
+  function updateDebris(t) {
+    const D = S.debris, L = PK.dbr, M = PK.m, Q = PK.q, ax = PK.ax, sc = PK.sc, at = PK.at, ic = D.instanceColor;
+    let nd = 0, lb = null, lbx = 0, lby = 0;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      if (p.ax === undefined) {
+        const h = S.pseed++, x = hash1(h, 4) - 0.5, y = hash1(h, 5) - 0.5, z = hash1(h, 6) - 0.5, l = Math.hypot(x, y, z) || 1;
+        p.ax = [x / l, y / l, z / l]; p.ro = hash1(h, 1) * TAU; p.sp = (hash1(h, 9) < 0.5 ? -1 : 1) * (4 + 8 * hash1(h, 8));
+      }
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const k = p.life / p.max, s = p.size * (1 - smoothstep(0.8, 1, k)), c = (p.fc || (p.fc = fxColor(p.color)));
+      Q.setFromAxisAngle(ax.set(p.ax[0], p.ax[1], p.ax[2]), p.ro + p.sp * (p.restAt != null ? p.restAt : p.life));
+      M.compose(at.set(lbx + p.x - camAbs.x, lby + p.y - camAbs.y, (p.z || 0) - camAbs.z), Q, sc.set(s, s, s));
+      D.setMatrixAt(nd, M);
+      ic.array[nd * 3] = c[0]; ic.array[nd * 3 + 1] = c[1]; ic.array[nd * 3 + 2] = c[2];
+      nd++;
+    }
+    D.count = nd;
+    usedRange(D.instanceMatrix, nd); usedRange(ic, nd);
+    D.visible = nd > 0 || S.warm > 0;
+  }
+  // Tracers (Combat.shots with a tracer: a main gun's longer and whiter; s.col, s.tw, s.tk where a shot sets its own
+  // colour, core width and length), sparks (their tail from their speed against the craft in view, so sparks off a craft
+  // flying beside it don't smear) and a drone's laser beams (Drone.beams: {b, a, e, col, w}, as bright all along): one
+  // glowing streak each, at least a pixel and a half wide however far (sparks 1.2)
+  // one streak into row n of the streak mesh's attributes (head, tail, colour, core width, floor)
+  function putStreak(A, n, hx, hy, hz, tx, ty, tz, r, g, b, w, fl) {
+    const ia = A.iA.array, ib = A.iB.array, ic = A.iC.array, i3 = n * 3, i4 = n * 4;
+    ia[i3] = hx; ia[i3 + 1] = hy; ia[i3 + 2] = hz; ib[i3] = tx; ib[i3 + 1] = ty; ib[i3 + 2] = tz;
+    ic[i4] = r; ic[i4 + 1] = g; ic[i4 + 2] = b; ic[i4 + 3] = w; A.iF.array[n] = fl;
+    return n + 1;
+  }
+  function updateStreaks(F) {
+    const G = S.streak.geometry, A = G.attributes;
+    renderer.getDrawingBufferSize(S.streakU.uRes.value);
+    const pr = renderer.getPixelRatio(), t = F.time;
+    let n = 0;
+    const B = typeof Drone !== 'undefined' && Array.isArray(Drone.beams) ? Drone.beams : null; // (the drone package's lasers; none before it)
+    if (B) for (let i = 0, m = Math.min(B.length, BEAM_N); i < m; i++) {
+      const q = B[i], a = q && q.a, e = q && q.e;
+      if (!q || !q.b || !a || !e) continue;
+      const bp = bodyPos(q.b, t), ox = bp.x - camAbs.x, oy = bp.y - camAbs.y, cl = Array.isArray(q.col) ? q.col : [1, 0.25, 0.3], w = q.w > 0 ? q.w : 0.06;
+      const v = [e.x + ox, e.y + oy, e.z - camAbs.z, a.x + ox, a.y + oy, a.z - camAbs.z, cl[0], cl[1], cl[2]];
+      if (v.every(Number.isFinite)) n = putStreak(A, n, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], -w, 1.5 * pr);
+    }
+    const shots = typeof Combat !== 'undefined' ? Combat.shots : [];
+    let lb = null, lbx = 0, lby = 0;
+    for (let i = 0, nt = 0; i < shots.length && nt < TRC_N; i++) {
+      const s = shots[i];
+      if ((s.k !== 'bullet' && s.k !== 'shell') || !s.tracer) continue; // (the ground update's shells: tracers too, a main gun's longer and whiter)
+      if (s.b !== lb) { const bp = bodyPos(s.b, t); lb = s.b; lbx = bp.x; lby = bp.y; }
+      let x = lbx + s.x - camAbs.x, y = lby + s.y - camAbs.y, z = s.z - camAbs.z;
+      if (s.ha) { x += s.vx * s.ha; y += s.vy * s.ha; z += s.vz * s.ha; } // (a cheap round holding a substep: where it is by now)
+      const big = s.k === 'shell' && !s.cheap, k = s.tk != null ? s.tk : big ? 0.045 : 0.028, w = s.tw != null ? s.tw : big ? 0.3 : 0.15;
+      const c = Array.isArray(s.col) ? s.col : s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
+      n = putStreak(A, n, x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k, c[0], c[1], c[2], w, 1.5 * pr);
+      nt++;
+    }
+    const L = PK.spk, cv = F.viewVessel || F.active;
+    lb = null;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      if (p.b !== lb) { const bp = bodyPos(p.b, t); lb = p.b; lbx = bp.x; lby = bp.y; }
+      const x = lbx + p.x - camAbs.x, y = lby + p.y - camAbs.y, z = (p.z || 0) - camAbs.z, k = p.life / p.max, c = p.fc || (p.fc = fxColor(p.color)), f = 1 - k;
+      let vx = p.vx, vy = p.vy, vz = p.vz || 0;
+      if (cv && cv.body === p.b) { vx -= cv.vx; vy -= cv.vy; vz -= cv.vz; }
+      let l = Math.sqrt(vx * vx + vy * vy + vz * vz) * 0.035;
+      const m = l > 1e-6 ? Math.max(l, 0.15) / l : 0;
+      if (!m) { vx = 0; vy = 0; vz = 1; l = 0.15; }
+      const kk = m ? 0.035 * m : 0.15;
+      n = putStreak(A, n, x, y, z, x - vx * kk, y - vy * kk, z - vz * kk, c[0] * f, c[1] * f, c[2] * f, 0.05, 1.2 * pr);
+    }
+    G.instanceCount = n;
+    usedRange(A.iA, n); usedRange(A.iB, n); usedRange(A.iC, n); usedRange(A.iF, n);
+    S.streak.visible = n > 0 || S.warm > 0;
+  }
+
+  // (tests: the first n streaks drawn last frame)
+  function streakRows(n) {
+    const A = S.streak.geometry.attributes, out = [];
+    for (let i = 0; i < Math.min(n, S.streak.geometry.instanceCount); i++) out.push({ a: [...A.iA.array.slice(i * 3, i * 3 + 3)], b: [...A.iB.array.slice(i * 3, i * 3 + 3)], c: [...A.iC.array.slice(i * 4, i * 4 + 4)], f: A.iF.array[i] });
+    return out;
   }
 
   // ------------------------------------------------------------------ hangar turntable
@@ -3097,7 +3890,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   const toSim = (x, y, z, out) => qunrot(viewQ, x, y, z, out);
   const T3 = v3(), LOC = {}, CAM_A = v3(), CAM_B = v3();
   // Default camera offsets: beside a rocket (as in the blueprint), behind anything that flies or drives.
-  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18] };
+  const CAM0 = { rocket: [0.5, 0.16], plane: [0, 0.2], heli: [0.25, 0.22], car: [0, 0.22], tank: [0, 0.18], drone: [0, 0.25] };
+  // (the big update) The player's aircraft destroyed and falling (a hulk: the pilot knocked out, shot down): the follow
+  // camera eases back to 1.4x its distance over the first second, the spiral and the trail in view, and holds there
+  // until it hits. From the death's time (Flight.diedAt), else from the first frame it saw the fall.
+  function deathEase(F, v) {
+    if (!(F.destroyed && v === F.active && isAirKind(v.kind) && v.hulk != null && !v.dead)) { fc.died = null; return 1; }
+    if (fc.died == null) fc.died = Number.isFinite(F.diedAt) && F.diedAt <= F.time ? F.diedAt : F.time;
+    return 1 + 0.4 * clamp(F.time - fc.died, 0, 1);
+  }
   function followCam(v, dt, snap) {
     if (!v || !v.parts.length || v.dead) return;
     if (fc.vessel !== v) {
@@ -3131,6 +3932,34 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
     return b.radius + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + lift;
+  }
+  // A drone's camera (the big update): the eye on its camera part's front face (+x, 2 cm out), from the body's centre, and
+  // the way it looks (D) and its up (U), in the sim. FPV: tilted up by the camera's tilt and rolling with the drone (or, with
+  // Settings → Drone view's level horizon, its up the local vertical); a bomb selected, it looks 70° down at the drop. A
+  // gimbal: along the heading, level, then turned by Flight.gim (yaw ±170°, pitch −85..+20°); its up the local vertical.
+  const FPE = v3(), FPD = v3(), FPU = v3(), FPT = v3();
+  function fpvEye(F, v, E, Dv, U) {
+    const cp = v.dr.cam, c = cp.def.drone.cam, R0 = partRect(cp), e = v.toWorld(R0.r + 0.02, (R0.b + R0.t) / 2, partZ(cp));
+    E.x = e.x; E.y = e.y; E.z = e.z;
+    const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    if (c.gimbal) {
+      const f = v.axis(1, 0, 0, FPT), k = f.x * ux + f.y * uy + f.z * uz;
+      let fx = f.x - ux * k, fy = f.y - uy * k, fz = f.z - uz * k;
+      const l = Math.hypot(fx, fy, fz);
+      if (l < 1e-6) { fx = -uy; fy = ux; fz = 0; } // (straight up or down: any level way)
+      const L = Math.hypot(fx, fy, fz) || 1; fx /= L; fy /= L; fz /= L;
+      const rx = fy * uz - fz * uy, ry = fz * ux - fx * uz, rz = fx * uy - fy * ux; // (the level right)
+      const G = F.gim || { yaw: 0, pitch: 0 }, cy = Math.cos(G.yaw), sy = Math.sin(G.yaw), cpi = Math.cos(G.pitch), spi = Math.sin(G.pitch);
+      const hx = fx * cy + rx * sy, hy = fy * cy + ry * sy, hz = fz * cy + rz * sy; // (yaw: + to the right)
+      Dv.x = hx * cpi + ux * spi; Dv.y = hy * cpi + uy * spi; Dv.z = hz * cpi + uz * spi;
+      U.x = ux; U.y = uy; U.z = uz;
+      return;
+    }
+    const sys = typeof Combat !== 'undefined' ? Combat.systems(v)[v.wsel] : null, bomb = !!sys && sys.w.kind === 'bomb';
+    const t = bomb ? -1.2217 : c.tilt || 0, ct = Math.cos(t), st = Math.sin(t);
+    v.axis(ct, st, 0, Dv);
+    if (Settings.get('droneView') === 'fpvLevel') { U.x = ux; U.y = uy; U.z = uz; } // (the horizon held level: the OSD draws the bank)
+    else v.axis(-st, ct, 0, U);
   }
   function aimPivot(v, out) {
     let c = v._piv;
@@ -3166,13 +3995,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
 
     // ---- camera: orbit around the craft, following its heading; never below the ground. Aiming a ground vehicle's guns
     // (F.aimCam): behind and over its turret looking along the aim, the crosshair in the middle (or at the gunner's sight)
-    const AC = !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
+    // (the big update's drones) The impact view first: a warhead gone off, the camera hanging behind where it hit for 1.5 s
+    // (F.impactCam: at and look, from the body's centre), the player already back in the tank
+    const IM = F.impactCam && F.time < F.impactCam.until ? F.impactCam : null;
+    const AC = !IM && !!(F.aimCam && F.aimDir && v === F.active && v.aimed && v.aimed.length), D = F.aimDir;
     // (a plane in Aim, the mouse aim, PR #40: behind the craft and a little over it, looking a moment behind the circle
     // (flyCamDir, Flight.flyCamEase), the view's up the circle's, so a loop goes over the top; the zoom is the follow
     // camera's)
-    const FA = !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
+    const FA = !IM && !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
+    // (the big update) a drone's first-person view (F.fpv): from its camera part, looking along it (FPV: tilted up, rolling
+    // with the drone, or with the horizon held level; a gimbal: along the heading, level, turned and zoomed by the player)
+    const FP = !IM && !AC && !FA && !!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed);
+    if (FP ? FOV !== S.fpvFov && S.fpvFov > 0 : !S.sightOn && FOV !== 50) setFov(FP ? S.fpvFov : 50); // (the drone's camera's field of view, kept across the map's and the hangar's 50°)
     let dist, rx, ry, rz;
-    if (AC) {
+    if (IM) {
+      dist = 0.3; rx = IM.at.x; ry = IM.at.y; rz = IM.at.z;
+      fc.vessel = null;
+    } else if (FP) {
+      dist = 0.3;
+      fpvEye(F, v, FPE, FPD, FPU);
+      rx = FPE.x; ry = FPE.y; rz = FPE.z; S.fpvAt = frameNo;
+      fc.vessel = null;
+    } else if (AC) {
       dist = aimDist(F);
       aimEye(v, S.sightOn, D, dist, T3);
       rx = T3.x; ry = T3.y; rz = T3.z;
@@ -3185,7 +4029,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       followCam(v, dt, false);
       const s = 1 - Math.exp(-dt * 14);
       fc.yaw += (fc.ty - fc.yaw) * s; fc.pitch += (fc.tp - fc.pitch) * s;
-      dist = (H / 2) / F.scale / TANH;
+      dist = ((H / 2) / F.scale / TANH) * deathEase(F, v);
       const cp = Math.cos(fc.pitch), yaw = fc.follow + fc.yaw;
       toSim(dist * Math.sin(yaw) * cp, dist * Math.sin(fc.pitch), dist * Math.cos(yaw) * cp, T3);
       rx = vx + T3.x; ry = vy + T3.y; rz = vz + T3.z;
@@ -3196,13 +4040,15 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
     updateArena(F, b, v);
     if (!b.star) {
-      const need = camFloor(b, rx, ry, rz, r3, AC && S.sightOn ? 0.3 : 2); // (and out of the carriers; a gunner's sight may sit low)
+      const need = camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
     camera.up.set(0, 1, 0);
-    if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    if (IM) { toView(IM.look.x - rx, IM.look.y - ry, IM.look.z - rz, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else if (FP) { toView(FPU.x, FPU.y, FPU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(FPD.x, FPD.y, FPD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
+    else if (AC) { toView(D.x, D.y, D.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else if (FA) { toView(PU.x, PU.y, PU.z, T3); camera.up.set(T3.x, T3.y, T3.z); toView(PD.x, PD.y, PD.z, T3); camera.lookAt(camera.position.x + T3.x, camera.position.y + T3.y, camera.position.z + T3.z); }
     else camera.lookAt(0, 0, 0);
     const sh = flutterShake(F, v, clock); // (a fluttering wing shakes the view)
@@ -3234,7 +4080,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const sx = envV.sx, sy = envV.sy, cT = Math.cos(TILT), sT = Math.sin(TILT);
     toView(sx * cT, sy * cT, sT, T3);
     const sunDir = V2.set(T3.x, T3.y, T3.z);
-    S.sunS.position.copy(sunDir); S.sunS.target.position.set(0, 0, 0);
+    S.sunV.copy(sunDir); // (V2 is a shared temporary: syncCombat and the scenery's builder overwrite it before the shadows below. Read S.sunV)
+    S.sunS.position.copy(S.sunV); S.sunS.target.position.set(0, 0, 0);
     S.ambS.intensity = 0.03 + 0.05 * envC.atmo;
 
     // ---- planets, Sun, far layer; the haze dome only where it can show: over stars or anything else out there (never
@@ -3251,24 +4098,40 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     S.cityU.uAlpha.value = envV.night * 1.3;
     S.sun.intensity = 3.1 * day * (1 - 0.55 * hz) * (b.star ? 1.6 : 1);
     S.sun.color.setRGB(1, lerp(0.97, 0.72, warm), lerp(0.92, 0.5, warm));
-    S.sun.position.copy(sunDir).multiplyScalar(100); S.sun.target.position.set(0, 0, 0);
+    S.sun.position.copy(S.sunV).multiplyScalar(100); S.sun.target.position.set(0, 0, 0);
     const skyAvg = mixC(zen, hor, 0.5, T1), grd = C(b.colors.ground || '#333333');
     const amb = atm > 0 ? (0.35 + 1.1 * atm) * (0.18 + 0.82 * day) : 0.12 + 0.2 * day * smoothstep(R * 0.5, 0, envV.alt);
     setCol3(S.hemi.color, mixC(skyAvg, [200, 210, 225], atm > 0 ? 0.25 : 0.6, T2));
     setCol3(S.hemi.groundColor, grd, 0.25 + 0.75 * day);
     S.hemi.intensity = amb * 1.6;
-    const fogC = mixC(hor, b.colors.fog ? fogOf(b) : hor, b.haze ? 0.6 : 0, T1);
-    setCol3(localScene.fog.color, fogC);
-    const rhoF = b.atmoHeight ? airDensity(b, Math.max(0, camAlt * 0.5)) : 0;
-    localScene.fog.density = rhoF > 0 ? (b.haze ? 3.2e-4 : b === MARS ? 6e-5 : 2.4e-5) * Math.sqrt(rhoF / b.rho0) : 0;
+    // the haze (patchFog): on Earth a height fog, its extinction 6e-5/m at the camera thinning by e every HAZE_H up (fogH),
+    // elsewhere today's 50 % distances (×0.9407: the shaping's 1.5 for the old square) with no height falloff. Its colour
+    // is the sky's at the horizon (SKY_FS at el = 0: the band over uHor), a hazy world's today's mix; the sunset side and
+    // the aureole ride in FOGX (the sky's own Sun, so the two meet without a seam in any direction)
+    const alt = Math.max(0, camAlt), rhoF = b.atmoHeight ? airDensity(b, alt * 0.5) : 0, rr = rhoF > 0 ? Math.sqrt(rhoF / b.rho0) : 0;
+    localScene.fog.density = (!rr ? 0 : b === EARTH ? 6e-5 * Math.exp(-alt / HAZE_H) : (b.haze ? 3.01e-4 : b === MARS ? 5.64e-5 : 2.26e-5) * rr) * api.bench.fogK;
+    FOGX.h[0] = b === EARTH ? 1 / HAZE_H : 0; FOGX.h[1] = b === EARTH ? 0.8 / (2 * R) : 0;
+    const g = U.uGlare.value, fl = S.fogLin;
+    if (b.haze) setCol3(fl, mixC(hor, fogOf(b), 0.6, T1));
+    else { fl.copy(U.uHor.value).multiplyScalar(1 + 0.08 * g); fl.r += 0.01 * g; fl.g += 0.01 * g; fl.b += 0.01 * g; }
     const inCloud = S.clouds.inside; // flying through a cloud: thick, bright murk
     if (inCloud > 0.002) {
-      localScene.fog.density = lerp(localScene.fog.density, 0.004, inCloud);
-      localScene.fog.color.lerp(S.cloudFogC.setRGB(0.72, 0.75, 0.8).multiplyScalar(0.2 + 0.9 * day), inCloud);
+      localScene.fog.density = lerp(localScene.fog.density, 3.76e-3, inCloud); // (50 % at 208 m, as today's 0.004 squared)
+      fl.lerp(S.cloudFogC.setRGB(0.72, 0.75, 0.8).multiplyScalar(0.2 + 0.9 * day), inCloud);
     }
+    const ins = (b.haze ? 0 : 1) * (1 - inCloud), sk = U.uSunsetK.value, sc0 = U.uSunset.value, gw = U.uGlow.value;
+    V1.copy(U.uSun.value).transformDirection(camera.matrixWorldInverse);
+    FOGX.sun[0] = V1.x; FOGX.sun[1] = V1.y; FOGX.sun[2] = V1.z; FOGX.sun[3] = sk * 0.98 * ins; // (0.98: SKY_FS's 1 − smoothstep(−0.05, 0.55, el) at el = 0)
+    const fu = S.fogUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+    V1.addScaledVector(fu, -V1.dot(fu)); const hl = V1.length(); if (hl > 1e-4) V1.multiplyScalar(1 / hl); else V1.set(0, 0, 0); // (the Sun along the ground: none overhead, az 0.5 all round as the sky has it)
+    FOGX.sunH[0] = V1.x; FOGX.sunH[1] = V1.y; FOGX.sunH[2] = V1.z;
+    FOGX.sunset[0] = sc0.r; FOGX.sunset[1] = sc0.g; FOGX.sunset[2] = sc0.b;
+    FOGX.glow[0] = (gw.r * g * 0.1 + sc0.r * sk * 0.35) * ins; FOGX.glow[1] = (gw.g * g * 0.1 + sc0.g * sk * 0.35) * ins; FOGX.glow[2] = (gw.b * g * 0.1 + sc0.b * sk * 0.35) * ins;
+    FOGX.lin[0] = fl.r; FOGX.lin[1] = fl.g; FOGX.lin[2] = fl.b;
+    localScene.fog.color.copy(fl); // (three's fogColor: unused by the haze, kept for readers)
     const eS = S.envS, eG = S.envG;
     setCol3(eS, zen); setCol3(eG, grd, 0.4 * day);
-    updateEnv(U.uHor.value, S.envH.copy(U.uHor.value).lerp(eS, 0.5), eG, sunDir, day * (1 - hz), null);
+    updateEnv(U.uHor.value, S.envH.copy(U.uHor.value).lerp(eS, 0.5), eG, S.sunV, day * (1 - hz), null);
     envUni.uZen.value.copy(eS);
 
     // ---- surface things
@@ -3282,15 +4145,40 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     vaporCone(F, dt);
     updateParticles(F, envV);
     syncCombat(F);
+    updateStreaks(F);
     updateRings(F);
 
-    // ---- shadows fitted around the active craft
+    // ---- shadows: a box round what the camera looks at. Never smaller than the box fitted round the craft (2.5 of its
+    // length, 25 m at least: a Jumbo's stays 175 m); grown with the camera's distance up to 60 m (50 m at least round a
+    // ground vehicle, its turret's camera too), pushed into the view by what it grew, so the craft stays inside and the
+    // shadows reach as far as the view does; the gunner's sight keeps the tight box. Its centre is snapped to whole shadow-map texels against a
+    // point fixed to the ground (the terrain patch's), so shadow edges don't swim as the craft moves. The depth bias
+    // keeps 8 cm whatever the box (today's at 25 m), the normal bias grows with the texel
     if (S.sun.castShadow) {
       const ext = v.parts.length ? Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY) : 10;
-      const half = Math.max(25, ext * 2.5), sc = S.sun.shadow.camera;
-      if (sc.right !== half) { sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.5; sc.far = half * 8; sc.updateProjectionMatrix(); }
-      S.sun.position.copy(sunDir).multiplyScalar(half * 4);
+      const tight = Math.max(25, ext * 2.5), want = AC && S.sightOn ? 0 : Math.max(dist * 1.1, isGround(v.kind) || FP ? 50 : 0); // (a drone's camera: as a ground vehicle's, the ground ahead)
+      const half = Math.max(tight, Math.min(60, want)), sc = S.sun.shadow.camera, e = camera.matrixWorld.elements;
+      SB.f.set(-e[8], 0, -e[10]); // (the view's line along the ground: the scene's y is up at the focus)
+      if (SB.f.lengthSq() > 1e-6) SB.f.normalize();
+      SB.c.copy(SB.f).multiplyScalar(0.5 * (half - tight));
+      // the box's axes as the shadow camera will hold them (three's own lookAt, from the Sun to the target): the snap
+      // below, and the city's shadow stand-ins, which hold what it can reach
+      M1.lookAt(S.sunV, SB.o, sc.up).extractBasis(SB.x, SB.y, SB.z);
+      if (patch.active) {
+        const tx = (2 * half) / S.sun.shadow.mapSize.x;
+        SB.a.copy(patch.frame.position).applyQuaternion(localWorld.quaternion);
+        const dx = SB.c.dot(SB.x) - SB.a.dot(SB.x), dy = SB.c.dot(SB.y) - SB.a.dot(SB.y);
+        SB.c.addScaledVector(SB.x, Math.round(dx / tx) * tx - dx).addScaledVector(SB.y, Math.round(dy / tx) * tx - dy);
+      }
+      if (sc.right !== half) {
+        sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 0.5; sc.far = half * 8; sc.updateProjectionMatrix();
+        S.sun.shadow.bias = -0.01 / half;
+        S.sun.shadow.normalBias = 0.03 * Math.max(1, half / 25);
+      }
+      S.sun.target.position.copy(SB.c); S.sun.position.copy(SB.c).addScaledVector(SB.z, half * 4);
+      SB.half = half;
     }
+    shadowProxies(S.scen[0]);
     S.glowU.uScale.value = (H * renderer.getPixelRatio()) / (2 * TANH);
     S.cityU.uScale.value = S.glowU.uScale.value;
     S.dotU.uScale.value = S.glowU.uScale.value;
@@ -3302,8 +4190,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     renderer.clearDepth();
     // at night and in eclipse the Sun lights nothing, so its shadow map would be drawn for nothing: the last one stays
     renderer.shadowMap.autoUpdate = S.sun.intensity > 0 || !S.sun.shadow.map;
+    // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
+    if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
     if (!api.skipDraw) renderer.render(localScene, camera);
-    renderer.shadowMap.autoUpdate = true; // (the hangar's)
+    if (PX.warm > 0 && PX.set && renderer.shadowMap.autoUpdate && !api.skipDraw && --PX.warm === 0) { // (drawn with the stand-ins on show: their programs compiled, shadowProxies)
+      for (const [, px] of PX.set.casts) px.visible = px.nSh > 0;
+    }
+    renderer.shadowMap.autoUpdate = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; // (the hangar's)
+    if (S.warm > 0 && !api.skipDraw) S.warm--; // (a frame drawn: the warm-up's programs compiled in it, init)
+    // the water's ripples drift (about 1 m/s) on real frame time: still while paused (and in the bench), never boiling
+    // under time warp
+    const wt = (S.waterT += F.paused ? 0 : dt);
+    S.waterN.offset.set((wt * 0.02) % 1, (wt * 0.012) % 1);
+    S.waveB.value.set((-wt * 0.035) % 1, (wt * 0.02) % 1);
   }
 
   // Returns what of the far layer besides the sky is in view (within a margin): 2 another body, a glow, an atmosphere,
@@ -3518,8 +4417,8 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const e = envV, U = S.cloudU, day = e.day, warm = e.sunset;
     U.uLit.value.setRGB(1, lerp(0.97, 0.66, warm), lerp(0.94, 0.42, warm)).multiplyScalar(0.1 + 1.55 * day + 0.6 * warm);
     U.uShadow.value.copy(S.hemi.color).multiplyScalar(0.18 + 0.6 * day);
-    U.uSunV.value.copy(S.sun.position).normalize().transformDirection(camera.matrixWorldInverse);
-    U.uFogC.value.copy(localScene.fog.color); U.uFogD.value = localScene.fog.density;
+    U.uSunV.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
+    U.uFogC.value.copy(S.fogLin); U.uFogD.value = localScene.fog.density;
   }
 
   function updateSpaceCentre(F, b, env, dist) {
@@ -3550,7 +4449,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const have = typeof Parts3D !== 'undefined' && Parts3D.VesselMesh;
     const q = SYNC_Q;
     q.dt = dt; q.time = F.time; q.rho = 0; q.quality = Settings.high ? 'high' : 'low';
-    let glowK = 0;
+    let glowK = 0, baked1 = false;
     const camSim = toSim(camera.position.x, camera.position.y, camera.position.z, CAM_A);
     for (const v of F.vessels) {
       if (!have || !v.parts.length || v.dead) continue;
@@ -3565,11 +4464,28 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       const bp = bodyPos(v.body, F.time), x = bp.x + v.x - camAbs.x, y = bp.y + v.y - camAbs.y, z = v.z - camAbs.z;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1);
       const d = Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z);
-      const vis = (d < 50000 || (ext / d) * (H / (2 * TANH)) > 1) && !(S.sightOn && v === F.active); // (in the gunner's sight we look out of it)
+      const vis = (d < 50000 || (ext / d) * (H / (2 * TANH)) > 1) && !(S.sightOn && v === F.active) && !(F.fpv && v === F.active && v.kind === 'drone' && !F.destroyed); // (in the gunner's sight, or a drone's camera, we look out of it)
       e.root.visible = vis;
       if (!vis) continue;
       e.root.position.set(x, y, z);
       if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
+      if (v.sink > 0) { // (a wreck or a cold piece going: lowered into the ground over its last 6 s, all of it under by the end)
+        if (e.sinkH == null) e.sinkH = isGround(v.kind) ? standH(v) : ext; // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
+        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * (e.sinkH + 1);
+        e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
+      }
+      // (the big update) a wreck drawn for BAKE_S (wall clock, from its first frame drawn as one) is baked to one mesh
+      // (Parts3D's VesselMesh.bake: one draw for its 14-29, and one shadow draw), once the small copies of its textures it
+      // asked for on that first frame have come back from the GPU (bakeReady: no frame waits on the GPU for them); one that
+      // changes (no longer a wreck, parts lost or gained) is taken apart by its sync and baked afresh on a later frame. At
+      // most one a frame (a TK-34 takes 3-20 ms): eight wrecks of one battle bake over eight frames
+      if (!v.wreck) e.wreckAt = null;
+      else if (!e.vm.baked && !e.bakeErr) {
+        try {
+          if (e.wreckAt == null) { e.wreckAt = performance.now(); e.vm.bakeReady(); }
+          else if (!baked1 && performance.now() - e.wreckAt >= BAKE_S * 1000 && e.vm.bakeReady()) baked1 = e.vm.bake(); // (one a frame: a few ms each)
+        } catch (err) { e.bakeErr = true; console.error('Render3D: a wreck could not be baked (drawn as it was)', err); } // (once: never retried)
+      }
       e.root.quaternion.set(v.q.x, v.q.y, v.q.z, v.q.w);
       e.vm.group.position.set(-v.com.x, -v.com.y, -(v.com.z || 0));
       q.rho = airDensity(v.body, v.altitude());
@@ -3577,16 +4493,37 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
     }
     for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    if (S.warm > 0 || S.bakeW) warmBake(F);
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
+    syncDecals(F, dt);
   }
-  // Other players' and the AI's ground vehicles, and wrecks, more than 150 m off: drawn raised or lowered by how far the
-  // ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch swap doesn't
-  // pop them) and never more than 3 m (it's only the picture). Coarse far terrain cells would float or sink them; on an
-  // arena's own ground mesh the two agree and nothing moves. The target is looked up 10 times a second.
+  // The baked wrecks' material (Parts3D.bakeMat) compiled while a flight with a ground vehicle in it loads (S.warm's first
+  // frames), not 6 s after the first kill: a speck with no area drawn with it, as the effect meshes are (initParticles)
+  const BAKE_S = 6;
+  function warmBake(F) {
+    const on = S.warm > 0 && typeof Parts3D !== 'undefined' && !!Parts3D.bakeMat && F.vessels.some((v) => isGround(v.kind));
+    let m = S.bakeW;
+    if (!m) {
+      if (!on) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9), 3));
+      g.setIndex([0, 1, 2]);
+      m = S.bakeW = new THREE.Mesh(g, Parts3D.bakeMat());
+      m.frustumCulled = false; m.receiveShadow = true;
+      localWorld.add(m);
+    }
+    m.visible = on;
+  }
+  // Other players' and the AI's ground vehicles, and wrecks (old cars' too), more than 150 m off: drawn raised or lowered
+  // by how far the ground as drawn (drawnAt) is off the ground they stand on under their centre, eased over 0.3 s (a patch
+  // swap doesn't pop them) and never more than 3 m (it's only the picture). Coarse far terrain cells would float or sink
+  // them; on an arena's own ground mesh the two agree and nothing moves. The target is looked up 10 times a second.
   const RSL = {};
   function reseat(F, v, e, d, dt) {
-    if (!isGround(v.kind) || !(v.gear.length || v.gv)) return;
+    if (!isGround(v.kind) || !(v.gear.length || v.gv || v.wreck)) return; // (an old car's wreck too)
     if (d < 150) { e.rsW = 0; } else if ((e.rsT = (e.rsT || 0) - dt) <= 0) {
       e.rsT = 0.1;
       const L = Terrain.locate(v.body, v.x, v.y, v.z, RSL);
@@ -3597,7 +4534,187 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     const r = Math.hypot(v.x, v.y, v.z) || 1;
     e.root.position.x += (v.x / r) * e.rsO; e.root.position.y += (v.y / r) * e.rsO; e.root.position.z += (v.z / r) * e.rsO;
   }
+
+  // ---- contact shadows and scorch marks (S.decal, initDecals): a soft blob under every vehicle near the ground (AI tanks,
+  // wrecks' bits, parked planes, a hovering helicopter's tightening as it lands), on Low and outside the Sun's shadow box
+  // their only shadow; a scorch under every wreck (deeper after an ammunition detonation, going as it sinks: every screen,
+  // a peer's wreck being a vessel too) and at every dry crash site (Death.S.pyres, copied here when it appears, so the
+  // scorch outlives the pyre: SCORCH_LIFE s). Each lies on the ground as drawn (drawnAt: the arena's own mesh, the patch,
+  // a carrier's deck), tilted to it by two more points 1.5 m east and north; the ground under a vehicle is looked up 10
+  // times a second and met each frame along its up, so a fast one carries its blob along a slope. At most DECAL_N,
+  // nearest first, one draw; never over water, nor on a cliff, nor in the gunner's sight (we look out of that one)
+  const DECAL_N = 48, SCORCH_N = 12, SCORCH_LIFE = 300, BLOB_FAR = 600, SCORCH_FAR = 1500, BLOB_K = 0.7;
+  const DK = { c: [], o: [], scorch: [], seen: null, cell: 0, L: {}, deck: false, E: new Float64Array(6), p: v3(), ax: v3(), ay: v3(), az: v3(), u: v3(), w: v3(), byD: (a, b) => a.d - b.d };
+  // the ground as drawn at body-relative direction (ux, uy, uz) on body b: a carrier's deck, else drawnAt; NaN over water
+  // (DK.deck: whether that was a deck)
+  function decalH(b, x, y, z) {
+    const L = Terrain.locate(b, x, y, z, DK.L), dk = Terrain.deckAt(b, L.a, L.z);
+    DK.deck = dk === dk;
+    if (DK.deck) return dk;
+    if (Terrain.waterAt(b, L.a, L.z)) return NaN;
+    const h = drawnAt(b, L.a, L.z);
+    return b.ocean && h < 0 ? NaN : h;
+  }
+  // The ground plane under body-relative point (x, y, z) into G: a point on it (gx, gy, gz, body-relative) and its normal
+  // (nx, ny, nz, up-facing); G.off over water
+  function decalSeat(b, x, y, z, G) {
+    const r = Math.hypot(x, y, z) || 1, ux = x / r, uy = y / r, uz = z / r, R = b.radius;
+    const h0 = decalH(b, x, y, z);
+    G.off = !(h0 === h0);
+    if (G.off) return G;
+    G.gx = ux * (R + h0); G.gy = uy * (R + h0); G.gz = uz * (R + h0);
+    G.nx = ux; G.ny = uy; G.nz = uz;
+    if (DK.deck) return G; // (a deck is flat)
+    // east (up × world z) and north (east × up), 1.5 m each way, each dropped onto the ground as drawn there (off it, over
+    // water: as high as the middle)
+    const el = Math.hypot(uy, ux) || 1, ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux, E = DK.E;
+    const side = (k, ax, ay, az) => {
+      const px = x + ax * 1.5, py = y + ay * 1.5, pz = z + az * 1.5, pr = Math.hypot(px, py, pz) || 1, h = decalH(b, px, py, pz), s = (R + (h === h ? h : h0)) / pr;
+      E[k] = px * s - G.gx; E[k + 1] = py * s - G.gy; E[k + 2] = pz * s - G.gz;
+    };
+    side(0, ex, ey, 0); side(3, nx, ny, nz);
+    const cx = E[1] * E[5] - E[2] * E[4], cy = E[2] * E[3] - E[0] * E[5], cz = E[0] * E[4] - E[1] * E[3];
+    let cl = Math.hypot(cx, cy, cz);
+    if (!(cl > 1e-9)) return G;
+    if (cx * ux + cy * uy + cz * uz < 0) cl = -cl; // (east × north points down: turned up)
+    G.nx = cx / cl; G.ny = cy / cl; G.nz = cz / cl;
+    return G;
+  }
+  // one quad into the candidates: centre on the plane G met along unit up (ux, uy, uz) from the body's centre, axes u
+  // (along, semi-axis A) and w (across, B) on the plane, opacity a, kind k (in the fourth row: DECAL_VS); d its distance
+  // from the camera. (The quad's x along u, its y along −w, its face along the normal: u × −w = n, so it faces up)
+  function decalPut(n, G, ux, uy, uz, bp, u, w, A, B, a, k, d) {
+    const cu = Math.max(0.2, G.nx * ux + G.ny * uy + G.nz * uz), s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / cu;
+    const c = DK.c[n] || (DK.c[n] = { d: 0, m: new Float64Array(16) }), m = c.m;
+    c.d = d;
+    m[0] = u.x * 2 * A; m[1] = u.y * 2 * A; m[2] = u.z * 2 * A; m[3] = a;
+    m[4] = -w.x * 2 * B; m[5] = -w.y * 2 * B; m[6] = -w.z * 2 * B; m[7] = k;
+    m[8] = G.nx; m[9] = G.ny; m[10] = G.nz; m[11] = 0;
+    m[12] = bp.x + ux * s - camAbs.x; m[13] = bp.y + uy * s - camAbs.y; m[14] = uz * s - camAbs.z; m[15] = 1;
+    return n + 1;
+  }
+  // u: a laid on the plane G (a minus its part along the normal), unit; false if a stands nearly upright
+  function onPlane(G, a, u) {
+    const k = a.x * G.nx + a.y * G.ny + a.z * G.nz;
+    u.x = a.x - G.nx * k; u.y = a.y - G.ny * k; u.z = a.z - G.nz * k;
+    const l = Math.hypot(u.x, u.y, u.z);
+    if (l < 0.3) return false;
+    u.x /= l; u.y /= l; u.z /= l;
+    return true;
+  }
+  // w = u × n: across u on the plane
+  const across = (G, u, w) => { w.x = u.y * G.nz - u.z * G.ny; w.y = u.z * G.nx - u.x * G.nz; w.z = u.x * G.ny - u.y * G.nx; return w; };
+  // (tests: the quads drawn last frame: kind, opacity, centre (sim axes from the focus), length and width)
+  function decalRows() {
+    const D = S.decal, out = [];
+    if (!D) return out;
+    const M = D.instanceMatrix.array;
+    for (let i = 0; i < D.count; i++) {
+      const j = i * 16;
+      out.push({ k: M[j + 7], a: M[j + 3], x: M[j + 12], y: M[j + 13], z: M[j + 14], w: Math.hypot(M[j], M[j + 1], M[j + 2]), d: Math.hypot(M[j + 4], M[j + 5], M[j + 6]), n: [M[j + 8], M[j + 9], M[j + 10]] });
+    }
+    return out;
+  }
+  function syncDecals(F, dt) {
+    const D = S.decal;
+    if (!D) return;
+    const v0 = F.viewVessel || F.active, b = v0.body, t = F.time, bp = bodyPos(b, t);
+    let n = 0;
+    if (!b.star && patch.active) {
+      for (const v of F.vessels) {
+        const e = vessels.get(v);
+        if (!e || e.seen !== frameNo || !e.root.visible || v.dead || v.body !== b || v.kind === 'rocket' || !v.parts.length) continue;
+        n = blobOf(F, v, e, b, bp, dt, n);
+      }
+      n = scorchOf(F, b, bp, n);
+    } else if (DK.scorch.length) scorchOf(F, b, bp, -1); // (only aged and dropped)
+    let m = n;
+    if (n > DECAL_N) { const o = DK.o; o.length = n; for (let i = 0; i < n; i++) o[i] = DK.c[i]; o.sort(DK.byD); m = DECAL_N; }
+    const M = D.instanceMatrix.array;
+    for (let i = 0; i < m; i++) { const c = n > DECAL_N ? DK.o[i] : DK.c[i]; for (let j = 0; j < 16; j++) M[i * 16 + j] = c.m[j]; }
+    D.count = m; D.visible = m > 0 || S.warm > 0;
+    if (m) usedRange(D.instanceMatrix, m);
+  }
+  // a vessel's blob, or a wreck's scorch
+  function blobOf(F, v, e, b, bp, dt, n) {
+    const B = v.bounds, Lx = B.maxX - B.minX, Ly = B.maxY - B.minY, Lz = B.maxZ - B.minZ || 0, wreck = !!v.wreck;
+    // the middle of its box, under which it lies (from the centre of mass, sim axes)
+    const o = qrot(v.q, (B.minX + B.maxX) / 2 - v.com.x, (B.minY + B.maxY) / 2 - v.com.y, (B.minZ + B.maxZ) / 2 - (v.com.z || 0) || 0, DK.p);
+    const px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z, pr = Math.hypot(px, py, pz) || 1, ux = px / pr, uy = py / pr, uz = pz / pr;
+    const d = Math.hypot(bp.x + px - camAbs.x - CAM_A.x, bp.y + py - camAbs.y - CAM_A.y, pz - camAbs.z - CAM_A.z);
+    if (d > (wreck ? SCORCH_FAR : BLOB_FAR)) return n;
+    let G = e.dk;
+    if (!G || (e.dkT = (e.dkT || 0) - dt) <= 0) {
+      e.dkT = 0.1;
+      G = decalSeat(b, px, py, pz, e.dk || (e.dk = {}));
+      G.alt = v.landed ? 0 : v.groundAltitude(); G.r = Math.hypot(v.x, v.y, v.z) || 1;
+      G.s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / Math.max(0.2, G.nx * ux + G.ny * uy + G.nz * uz);
+    }
+    if (G.off) return n;
+    const cu = G.nx * ux + G.ny * uy + G.nz * uz, fly = !isGround(v.kind), sink = Math.min(1, v.sink || 0);
+    let a, k = 0;
+    if (wreck) {
+      if (e.wreckSeen == null || F.time < e.wreckSeen) e.wreckSeen = F.time;
+      if (!e.scell) e.scell = 1 + (DK.cell++ & 3);
+      a = (v.ko && v.ko.x ? 0.8 : 0.55) * (1 - sink) * Math.min(1, F.time - e.wreckSeen);
+      k = e.scell;
+    } else {
+      // how high its lowest point is over the ground: as last looked up, moved by how far it has climbed since and by how
+      // far the ground's plane has (along a slope)
+      const s = (G.nx * G.gx + G.ny * G.gy + G.nz * G.gz) / Math.max(0.2, cu), alt = v.landed ? 0 : Math.max(0, G.alt + (Math.hypot(v.x, v.y, v.z) - G.r) - (s - G.s));
+      // fainter where the Sun's own shadows fall (High, by day, within the shadow box)
+      let box = false;
+      if (Settings.high && S.sun.castShadow && S.sun.intensity > 0) {
+        V1.set(bp.x + px - camAbs.x, bp.y + py - camAbs.y, pz - camAbs.z).applyQuaternion(localWorld.quaternion);
+        box = Math.hypot(V1.x - SB.c.x, V1.z - SB.c.z) < 0.8 * SB.half;
+      }
+      a = (box ? 0.32 : 0.6) * (1 - smoothstep(0.05, fly ? Math.max(4, 1.5 * Math.max(Lx, Ly)) : 2.5, alt)) * smoothstep(0.75, 0.95, cu) * (1 - 0.4 * (envV.night || 0)) * (fly ? 0.6 : 1) * (1 - sink);
+    }
+    if (!(a > 0.004)) return n;
+    // its footprint: the box's support along the longer of its own x and y laid on the ground (u), and across it (w)
+    const ex = v.axis(1, 0, 0, DK.ax), ey = v.axis(0, 1, 0, DK.ay), ez = v.axis(0, 0, 1, DK.az), u = DK.u, w = DK.w;
+    if (!onPlane(G, Lx >= Ly ? ex : ey, u) && !onPlane(G, Lx >= Ly ? ey : ex, u) && !onPlane(G, ez, u)) return n;
+    across(G, u, w);
+    const kk = BLOB_K * (fly ? 0.85 : 1) * (wreck ? 1.35 : 1);
+    const A = kk * (Lx * Math.abs(ex.x * u.x + ex.y * u.y + ex.z * u.z) + Ly * Math.abs(ey.x * u.x + ey.y * u.y + ey.z * u.z) + Lz * Math.abs(ez.x * u.x + ez.y * u.y + ez.z * u.z));
+    const Bw = kk * (Lx * Math.abs(ex.x * w.x + ex.y * w.y + ex.z * w.z) + Ly * Math.abs(ey.x * w.x + ey.y * w.y + ey.z * w.z) + Lz * Math.abs(ez.x * w.x + ez.y * w.y + ez.z * w.z));
+    return decalPut(n, G, ux, uy, uz, bp, u, w, Math.max(A, 0.05), Math.max(Bw, 0.05), a, k, d);
+  }
+  // the crash sites' scorches: each dry pyre copied once (n < 0: only age and drop them)
+  function scorchOf(F, b, bp, n) {
+    const P = typeof Death !== 'undefined' && Death.S ? Death.S.pyres : null, L = DK.scorch, t = F.time;
+    if (P) for (const p of P) {
+      if (p.wet || DK.seen.has(p)) continue;
+      DK.seen.add(p);
+      L.push({ src: p, b: p.b, x: p.x, y: p.y, z: p.z, t: p.t, r: 2.2 * (p.k || 1), cell: (hash1(p.t * 100, 9) * 4) | 0, ang: hash1(p.t * 100, 10) * TAU, G: null, at: -9 });
+      if (L.length > SCORCH_N) L.shift();
+    }
+    // gone: 300 s on, a new flight (its clock back before it, or the crash sites wiped before their time: Death.reset),
+    // or another body in view
+    const end = typeof DEATH !== 'undefined' ? DEATH.pyreEnd : 75, most = typeof DEATH !== 'undefined' ? DEATH.pyres : 6;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const s = L[i], age = t - s.t, wiped = age < end - 0.5 && (!P || (P.length < most && !P.includes(s.src)));
+      if (t < s.t - 1 || age > SCORCH_LIFE || s.b !== b || wiped) L.splice(i, 1);
+    }
+    if (n < 0) return n;
+    for (const s of L) {
+      const age = t - s.t, a = 0.75 * (1 - smoothstep(SCORCH_LIFE - 20, SCORCH_LIFE, age)) * Math.min(1, age / 0.5);
+      if (!(a > 0.004)) continue;
+      const d = Math.hypot(bp.x + s.x - camAbs.x - CAM_A.x, bp.y + s.y - camAbs.y - CAM_A.y, s.z - camAbs.z - CAM_A.z);
+      if (d > SCORCH_FAR + s.r) continue;
+      if (!s.G || clock - s.at > 1) { s.at = clock; s.G = decalSeat(b, s.x, s.y, s.z, s.G || {}); } // (seated afresh now and then: the ground drawn finer as we near)
+      if (s.G.off) continue;
+      const r = Math.hypot(s.x, s.y, s.z) || 1, ux = s.x / r, uy = s.y / r, uz = s.z / r, el = Math.hypot(uy, ux) || 1, ex = uy / el, ey = -ux / el;
+      const ca = Math.cos(s.ang), sa = Math.sin(s.ang), dir = DK.ax;
+      dir.x = ex * ca + ey * uz * sa; dir.y = ey * ca - ex * uz * sa; dir.z = (ex * uy - ey * ux) * sa; // (east turned by ang towards north)
+      if (!onPlane(s.G, dir, DK.u)) continue;
+      across(s.G, DK.u, DK.w);
+      n = decalPut(n, s.G, ux, uy, uz, bp, DK.u, DK.w, s.r, s.r, a, 1 + s.cell, d);
+    }
+    return n;
+  }
   function engineGlow(v, vm, x, y, z) {
+    S.engine.color.setHex(0xff9a4a); // (back from a flash's, updateParticles)
     let ex = 0, ey = 0, ez = 0, ek = 0, ea = 0, eg = 0;
     for (const e of vm.exhaust || []) { ex += e.x * e.k; ey += e.y * e.k; ez += (e.z || 0) * e.k; ek += e.k; ea += e.aft * e.k; eg += e.glow * e.k; }
     if (ek <= 0) return 0;
@@ -3718,7 +4835,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       bd.key.length = 0;
       for (const p of parts) bd.key.push(p.id, p.type, !!p.flip, p.skin || '');
       bd.kind = B.kind || ''; bd.parts = parts; bd.att.length = 0; bv.tinted.clear();
-      bd.anim = !!bd.vm && bd.vm.list.some((r) => r.spins.length && r.anim && r.anim.always); // (a rotodome turns all the time)
+      bd.anim = false; // (a rotodome turns in flight only: the idle hangar draws nothing, for the battery)
     }
     // loose parts (not joined to the craft) are see-through
     let att = bd.att.length === n;
@@ -3847,6 +4964,7 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   // there is time to spare. The HUD is HTML, so it stays sharp either way.
   const perf = { ema: 1 / 60, scale: 1, at: 0 };
   function adaptResolution(dt) {
+    if (api.bench.pin) { if (perf.scale !== 1) { perf.scale = 1; resize(W, H, DPR); } return; } // (measuring: the pixel ratio held at basePixelRatio())
     if (!(dt > 0)) return;
     perf.ema += (Math.min(dt, 0.1) - perf.ema) * 0.08;
     if (clock - perf.at < 0.6) return;
@@ -3861,6 +4979,11 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (hi === high) return;
     high = hi;
     S.sun.castShadow = hi; S.key.castShadow = hi;
+    S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
+    if (hi) terr.oceanMat.defines.OB_HI = ''; else delete terr.oceanMat.defines.OB_HI; // (the water's second ripple set)
+    terr.oceanMat.needsUpdate = true;
+    for (const m of [terr.mat, terr.amat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch and the arena's ground alike, one program)
+    PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
     patch.b = patchB.b = null; patch.ready = patchB.ready = false;
     S.scenery.dirty = true; S.clouds.b = null;
@@ -3937,22 +5060,10 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     placeFrame(RG.frame, EARTH, RG.a0, F.time);
   }
 
-  // ------------------------------------------------------------------ combat: tracers, missiles, bombs and targets
+  // ------------------------------------------------------------------ combat: missiles, bombs and targets (tracers: updateStreaks)
   const CB = { ready: false };
   function initCombat() {
-    CB.ready = true;
-    const N = 700;
-    CB.lineGeo = new THREE.BufferGeometry();
-    CB.lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.lineGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 6), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.lines = new THREE.LineSegments(CB.lineGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    CB.lines.frustumCulled = false; CB.lines.renderOrder = 7; CB.N = N;
-    CB.headGeo = new THREE.BufferGeometry();
-    CB.headGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.headGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    CB.heads = new THREE.Points(CB.headGeo, new THREE.PointsMaterial({ size: 1.1, sizeAttenuation: true, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    CB.heads.frustumCulled = false; CB.heads.renderOrder = 7;
-    localWorld.add(CB.lines, CB.heads);
+    CB.ready = true; // (tracers are the streak mesh's: initParticles, updateStreaks)
     const m = (c, r = 0.5, me = 0.3) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: me });
     CB.mat = { olive: m('#56603f', 0.8, 0.1), dark: m('#2e3338', 0.5, 0.6), grey: m('#7d8790', 0.6, 0.3), concrete: m('#8c8a84', 0.95, 0), white: m('#e9ecef', 0.4, 0.1),
       navy: m('#5b6670', 0.6, 0.35), orange: m('#ff7a1a', 0.5, 0.1), wreck: m('#1d1b19', 0.95, 0), tyre: m('#1b1e22', 0.9, 0), sand: m('#b9a77c', 0.8, 0.05) };
@@ -3985,23 +5096,12 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     if (typeof Combat === 'undefined') return;
     if (!CB.ready) initCombat();
     const t = F.time;
-    // tracers: a streak behind each tracer round, with a bright head
-    const shots = Combat.shots, pa = CB.lineGeo.attributes.position.array, ca = CB.lineGeo.attributes.color.array, ha = CB.headGeo.attributes.position.array, hc = CB.headGeo.attributes.color.array;
-    let n = 0;
+    // stores in flight (tracers are updateStreaks')
+    const shots = Combat.shots;
     const used = { missile: 0, rocket: 0, bomb: 0 };
     for (const s of shots) {
-      const bp = bodyPos(s.b, t);
-      let x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
-      if (s.k === 'bullet' || s.k === 'shell') { // (the ground update's shells: tracers too, a main gun's longer and whiter)
-        if (!s.tracer || n >= CB.N) continue;
-        if (s.ha) { x += s.vx * s.ha; y += s.vy * s.ha; z += s.vz * s.ha; } // (a cheap round holding a substep: where it is by now)
-        const big = s.k === 'shell' && !s.cheap, k = big ? 0.045 : 0.028, c = s.enemy ? [1, 0.35, 0.2] : big ? [1, 0.95, 0.75] : s.blast ? [1, 0.75, 0.35] : [1, 0.85, 0.45];
-        pa.set([x, y, z, x - s.vx * k, y - s.vy * k, z - s.vz * k], n * 6);
-        ca.set([c[0], c[1], c[2], c[0] * 0.15, c[1] * 0.1, c[2] * 0.05], n * 6);
-        ha.set([x, y, z], n * 3); hc.set(c, n * 3);
-        n++;
-        continue;
-      }
+      if (s.k === 'bullet' || s.k === 'shell') continue;
+      const bp = bodyPos(s.b, t), x = bp.x + s.x - camAbs.x, y = bp.y + s.y - camAbs.y, z = s.z - camAbs.z;
       const kk = s.k === 'torp' ? 'bomb' : s.k, pool = CB.pool[kk]; // a torpedo in the water looks like the bomb it was
       if (!pool) continue; // (a kind with no model draws nothing, rather than throw every frame)
       let o = pool[used[kk]];
@@ -4014,9 +5114,6 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       o.quaternion.setFromUnitVectors(V2.set(0, 1, 0), V1);
     }
     for (const k in CB.pool) for (let i = used[k]; i < CB.pool[k].length; i++) CB.pool[k][i].visible = false;
-    CB.lineGeo.setDrawRange(0, n * 2); CB.headGeo.setDrawRange(0, n);
-    for (const g of [CB.lineGeo, CB.headGeo]) { g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; }
-    CB.lines.visible = CB.heads.visible = n > 0;
     // targets: placed on the ground, sea or sky, facing the way they go; wrecks when destroyed
     const seen = new Set();
     for (const e of Combat.targets) {
@@ -4026,17 +5123,19 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
       let o = CB.tg.get(e);
       if (!o || o.userData.kind !== e.kind) { if (o) localWorld.remove(o); o = targetModel(e.kind); o.userData.kind = e.kind; CB.tg.set(e, o); localWorld.add(o); }
       seen.add(e);
-      o.visible = true;
+      o.visible = e.alive || !e.def.air || !!e.fv; // (a drone shot down shows while it falls, nose along its way, and goes when it hits: Combat's fallTarget)
       o.position.set(x, y, z);
-      const fr = surfaceFrame(e.pos.x, e.pos.y, e.pos.z);
+      const fr = surfaceFrame(e.pos.x, e.pos.y, e.pos.z), fv = !e.alive && e.fv, fl = fv ? Math.hypot(fv.x, fv.y, fv.z) : 0;
       let fx, fy, fz;
-      if (e.vel && Math.hypot(e.vel.x, e.vel.y, e.vel.z) > 0.5) { fx = e.vel.x; fy = e.vel.y; fz = e.vel.z; } else { const c = Math.cos(e.heading || 0), s = Math.sin(e.heading || 0); fx = c * fr.east.x - s * fr.north.x; fy = c * fr.east.y - s * fr.north.y; fz = c * fr.east.z - s * fr.north.z; }
+      if (e.vel && Math.hypot(e.vel.x, e.vel.y, e.vel.z) > 0.5) { fx = e.vel.x; fy = e.vel.y; fz = e.vel.z; }
+      else if (fl > 0.5 && Math.abs(fv.x * fr.up.x + fv.y * fr.up.y + fv.z * fr.up.z) < 0.95 * fl) { fx = fv.x; fy = fv.y; fz = fv.z; } // (not straight down: no way to tell its right then)
+      else { const c = Math.cos(e.heading || 0), s = Math.sin(e.heading || 0); fx = c * fr.east.x - s * fr.north.x; fy = c * fr.east.y - s * fr.north.y; fz = c * fr.east.z - s * fr.north.z; }
       const k = fx * fr.up.x + fy * fr.up.y + fz * fr.up.z, up = fr.up;
       if (!e.def.air) { fx -= up.x * k; fy -= up.y * k; fz -= up.z * k; }
       const f = V1.set(fx, fy, fz).normalize(), u = V2.set(up.x, up.y, up.z), r = new THREE.Vector3().crossVectors(f, u).normalize();
       u.crossVectors(r, f);
       M1.makeBasis(f, u, r); o.quaternion.setFromRotationMatrix(M1);
-      if (!e.alive && !o.userData.dead) { o.userData.dead = true; o.traverse((m) => { if (m.isMesh) m.material = CB.mat.wreck; }); o.scale.set(1, 0.55, 1); if (e.def.air) o.visible = false; }
+      if (!e.alive && !o.userData.dead) { o.userData.dead = true; o.traverse((m) => { if (m.isMesh) m.material = CB.mat.wreck; }); o.scale.set(1, 0.55, 1); }
       if (e.alive && o.userData.dead) { localWorld.remove(o); CB.tg.delete(e); } // a fresh one takes its place next frame
       if (e.alive && o.userData.spin) o.userData.spin.rotation.y = t * 1.4;
       if (e.alive && o.userData.turret && e.firing) o.userData.turret.rotation.y = Math.sin(t * 3) * 0.3;
@@ -4155,8 +5254,61 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
   }
 
   Object.assign(api, {
-    // draw calls and triangles in the last frame (for tuning)
-    info() { return renderer ? { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs } : null; },
+    // draw calls and triangles in the last frame (for tuning); scale: adaptive resolution's share of the pixel ratio (1:
+    // all of it); programs: the shader programs alive; patched: which of three's chunks patchChunks edited; proxies: the
+    // city buildings' shadow stand-ins on show (walls, roofs, boats: instances in the shadow pass)
+    info() {
+      if (!renderer) return null;
+      const sc = S.scen && S.scen[0], px = (m) => (m && m.nSh) || 0;
+      return { ...renderer.info.render, memory: { ...renderer.info.memory }, pixelRatio: renderer.getPixelRatio(), t: costs,
+        scale: perf.scale, programs: renderer.info.programs ? renderer.info.programs.length : 0, patched: { fog: PATCHED.fog, shadow: PATCHED.shadow },
+        proxies: sc ? [px(sc.wallsS), px(sc.roofsS), px(sc.boatsS)] : [0, 0, 0] };
+    },
+    // Measuring (test/bench/render-bench.mjs, test/browser/graphics.mjs); never set in play. pin: adaptive resolution
+    // off, the pixel ratio exactly basePixelRatio(); fill: the particles' fill of the last frame drawn, in screens (counted
+    // only while pinned); day, sunset: the Sun's light (0..1) and the sunset's warmth where the craft is; busy: anything
+    // still being built a slice a frame (terrain, scenery, clouds, the arena, props, the planets' maps); fogK: a
+    // multiplier on the fog's density (tests: everything past a kilometre fogged); proxyCap: fewer instances than the
+    // city's shadow stand-ins hold (tests: an overflow falls back to the whole mesh casting; 0: their own capacity)
+    bench: {
+      pin: false,
+      fill: 0,
+      day: () => (S.sun ? clamp(S.sun.intensity / 3.1, 0, 1) : 0),
+      sunset: () => envV.sunset || 0,
+      busy: () => !!(pjob || bandWait || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
+      fogK: 1,
+      proxyCap: 0,
+    },
+    shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
+    propsCastOff: false, // measuring only: the props cast no shadow
+    // tests only: a snapshot of the renderer's insides, made on call (never read by the game)
+    gfx() {
+      if (!renderer) return null;
+      const e = S.engine, sc = S.sun.shadow.camera, st = S.sun.target.position, oc = patch.ocean, ms = patch.mesh, uv = (m) => m && m.geometry.attributes.uv;
+      const defs = (m) => (m ? { ...(m.defines || {}) } : null);
+      return {
+        fxN: typeof FX !== 'undefined' ? FX.list.length : 0, // particles alive
+        fxDraw: S.fx ? S.fx.geometry.instanceCount : 0, // particles drawn last frame (the quads)
+        streakN: S.streak ? S.streak.geometry.instanceCount : 0, // tracers, sparks and beams drawn last frame
+        debrisN: S.debris ? S.debris.count : 0, // chunks drawn last frame
+        streaks: S.streak ? streakRows(8) : [], // (the first few streaks: head, tail, colour and core width, floor)
+        fxShown: S.fx ? [S.fx.visible, S.debris.visible, S.streak.visible] : null, // (the three effect meshes on show)
+        fxLight: S.partU ? { sun: S.partU.uSunC.value.toArray(), amb: S.partU.uAmb.value.toArray(), glowMax: S.partU.uGlowMax.value } : null, // (the light on smoke)
+        decalN: S.decal ? S.decal.count : 0, decals: decalRows(), decalShown: S.decal ? S.decal.visible : false, scorches: DK.scorch.length, // contact shadows and scorch marks drawn last frame ({k, a, x, y, z, w, d}), the crash sites' scorches kept
+        engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
+        waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
+        terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
+        terrProgs: new Set([terr.mat, terr.amat].map((m) => m && renderer.properties.get(m).currentProgram).filter(Boolean)).size, // (the shader programs the patch and the arena's ground were last drawn with: one)
+        waterOffset: S.waterN ? { x: S.waterN.offset.x, y: S.waterN.offset.y, bx: S.waveB.value.x, by: S.waveB.value.y, t: S.waterT } : null, // the ripples' drift
+        fogArrays: { sun: [...FOGX.sun], sunH: [...FOGX.sunH], sunset: [...FOGX.sunset], glow: [...FOGX.glow], lin: [...FOGX.lin], h: [...FOGX.h], density: localScene.fog.density }, // the haze's shared uniforms
+        camAt: (toSim(camera.position.x, camera.position.y, camera.position.z, T3), { x: camAbs.x + T3.x, y: camAbs.y + T3.y, z: camAbs.z + T3.z }), // (the flight camera, in the sim's absolute axes, as project() takes points)
+        sunV: S.sunV ? { x: S.sunV.x, y: S.sunV.y, z: S.sunV.z } : null, sunAt: { x: S.sun.position.x, y: S.sun.position.y, z: S.sun.position.z }, // (the Sun's direction this frame, the light's place)
+        box: { half: sc.right, cx: st.x, cy: st.y, cz: st.z }, // the Sun's shadow box: its half width and centre (view axes)
+        warm: S.warm || 0,
+        scenery: S.scen ? { id: S.scen[0].frame.id, ver: S.scen[0].ver } : null, // (the scenery set on show, and its filling)
+      };
+    },
+    _patchChunks: patchChunks, // (test/fx.test.js: run on Node's copy of three)
     // the props' sets (tests, measurements): shown, filled, instances per piece
     propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.meshes.map((m) => (m ? m.count : 0)), slots: s.first ? s.first[s.first.length - 1] : 0, drawn: s.drawn, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing
@@ -4210,9 +5362,16 @@ void main() { vec3 d = normalize(vDir); float e = d.y;
     },
     // A ground vehicle's gunner sight (on, zoom: 3-8): the flight camera narrows to 50/zoom degrees and sits at the sight,
     // the vehicle's own model hidden; off, back to 50°.
-    setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : 50); },
+    setSight(on, zoom) { S.sightOn = !!on; setFov(on ? 50 / clamp(+zoom || 3, 1, 12) : S.fpvFov || 50); },
+    // (the big update) a drone's camera: its field of view (FPV, a gimbal's zoom), 50° again without it (and a gunner's
+    // sight closing meanwhile goes back to it, not to 50°)
+    setFpv(on, fov) { S.fpvFov = on ? clamp(+fov || 50, 4, 120) : 0; setFov(S.fpvFov || 50); },
+    // the drone camera's way and up as last drawn (sim; shared: copy them), for the OSD's horizon; null when it wasn't
+    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU } : null; },
     // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
+    // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
+    meshOf(v) { const e = vessels.get(v); return e ? e.vm : null; },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
     // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
     arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },

@@ -1,7 +1,8 @@
 // Redraw on demand (battery): the hangar is drawn only when something changes, so a change that forgets to ask for a
 // redraw would leave a stale picture on screen. Every kind of edit, by hand and from code, must show at once in 2D
 // and 3D; the idle 2D and 3D hangar must stop drawing; the home backdrop draws 30 times a second and a paused
-// flight 10; the frame cap gives a 90-144 Hz screen 60 frames' work a second.
+// flight 10; the frame cap gives a 90-144 Hz screen 60 frames' work a second. After a flight where things died (the big
+// update's banners, crash sites and fires), the idle 3D hangar still draws nothing.
 //   node test/browser/redraw.mjs        (screenshots go to test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -120,6 +121,18 @@ ok('2D: the sweep landing redraws once', n === 1, `${n} draws`);
 n = await idle('b2', 600);
 ok('...and then the armour blueprint is idle again', n === 0, `${n} draws`);
 
+// ---- a radar set's peek (the big update): fitted from code, its nose see-through for 1.6 s; the peek's end is exactly
+// one more redraw, and then the blueprint is idle again
+await ev(() => { const t = TEMPLATES.falcon; Builder.loadDesign({ name: 'F', kind: 'plane', parts: templateRows(t).filter((r) => !innerRadar(PARTS[r.type])) }); });
+await frames(4); await page.waitForTimeout(300);
+await ev(() => Builder.quickAdd('radarPD'));
+await frames(4);
+const pk = await ev(() => ({ set: Builder.parts.some((p) => p.type === 'radarPD'), shown: Builder.xrayShown() }));
+n = await idle('b2', 2200);
+ok('2D: a radar set\'s peek ends with one redraw', pk.set && pk.shown && n === 1, `${n} draws ${JSON.stringify(pk)}`);
+n = await idle('b2', 600);
+ok('...and then the blueprint with its set is idle again', n === 0, `${n} draws`);
+
 // ---- the 3D hangar
 await page.keyboard.press('KeyV');
 await page.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 30000 });
@@ -170,6 +183,11 @@ ok('Test turret draws while the turret swings, for 3 s, and sets it back', tt.dr
 await settle3d();
 f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
 ok('...and then the 3D hangar stops drawing again', f1 === f0, `${f1 - f0} renders in 1 s`);
+// a rotodome turns in flight only (the big update): the idle 3D hangar holding one draws nothing
+const roto = await ev(() => { Builder.loadTemplate('skylark'); Builder.quickAdd('rotodome'); Builder.selected = null; Builder.renderInfo(); Render3D.orbitBy(0, 0); return Builder.parts.some((p) => p.type === 'rotodome'); });
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('the idle 3D hangar with a rotodome aboard issues no draw calls', roto && f1 === f0, `${f1 - f0} renders in 1 s`);
 await ev(() => Render3D.resetCamera()); // (the turntable spins again: it draws every frame)
 n = await over('b3', 8);
 ok('the spinning turntable draws every frame', n >= 7, `${n} draws in 8 frames`);
@@ -229,6 +247,19 @@ await ev(() => { UI.closeModal(); App.showHelp(); });
 r = await synth(0, 60);
 ok('a flight under a dialog 10 times a second', near(r.flight, 10, 1), r.flight);
 await ev(() => { UI.closeModal(); Render3D.skipDraw = false; });
+
+// (the big update) back in the 3D hangar after a flight where things died (our pilot knocked out, a banner up, a crash site
+// burning, a crash), the idle hangar still draws nothing: none of it animates there
+await ev(() => { App.toBuild(); store.set('rss.flight', null); Builder.loadTemplate('mustang'); Render3D.skipDraw = true; App.launch(); }); // (the saved flight forgotten: no question)
+await page.waitForFunction(() => App.scene === 'flight' && Flight.running && Flight.active && Flight.time > 0.3, null, { timeout: 60000 });
+await ev(() => { const v = Flight.active; Combat.damage(v, v.control, 1e6, 'shot', Flight, null); Death.feedback('SHOT DOWN', Flight); Death.pyre(v.body, v.toWorld(v.com.x, v.com.y, 0), 5, false, Flight); });
+await page.waitForFunction(() => Flight.active.dead || Flight.time > 8, null, { timeout: 60000 });
+const died = await ev(() => ({ destroyed: Flight.destroyed, dead: !!Flight.active.dead, pyres: Death.S.pyres.length, fx: FX.list.length }));
+await ev(() => { UI.closeModal(); Render3D.skipDraw = false; App.toBuild(); Render3D.orbitBy(0, 0); });
+await page.waitForFunction(() => App.scene === 'build' && App.preview3D(), null, { timeout: 30000 });
+await settle3d();
+f0 = await gl(); await page.waitForTimeout(1000); f1 = await gl();
+ok('after a flight where things died (pilot out, a banner, a crash site, a crash), the idle 3D hangar issues no draw calls', died.destroyed && f1 === f0, `${f1 - f0} renders in 1 s; ${JSON.stringify(died)}`);
 
 ok('no page errors', errs.length === 0, errs.join('\n'));
 ok.done();

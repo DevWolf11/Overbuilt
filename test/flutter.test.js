@@ -20,6 +20,7 @@ const WANT = {
   // the US 3rd/4th-generation look-alikes: full afterburner level low down warns without tearing, and the Mach limit sits
   // a little past each jet's top speed up high (FS-4 about 2.2, FS-16 2.05, FS-15 2.5)
   us4f4Wing: [1600, 2.6], us4f16Wing: [1620, 2.4], us4f16Lerx: [2000, 0], us4f15Wing: [1620, 2.85],
+  drWing: [288, 0], // (the big update's drone wing: 80 m/s; its tail is a control surface)
 };
 const wings = Object.keys(ctx.PARTS).filter((k) => ctx.PARTS[k].wing && !ctx.PARTS[k].wing.control);
 t('every fixed wing has a limit in the table', wings.every((k) => WANT[k]), wings.filter((k) => !WANT[k]).join(','));

@@ -8,6 +8,7 @@ const NEAR_DIST = 6000;  // vessels closer than this to the active one get full 
 // the autopilot's keys: their actions in the binding table (Keys, controls.js), and the mode each sets
 const SAS_KEYS = { sasHold: 'hold', sasPro: 'prograde', sasRetro: 'retrograde', sasOut: 'radialOut', sasIn: 'radialIn', sasTarget: 'target' };
 const PLANE_SAS_KEYS = { apHold: 'hold', apLevel: 'level', apHeading: 'heading', apOff: 'off', apAim: 'aim' };
+const DRONE_KEYS = { dLevel: 'hold', dAcro: 'acro' }; // (the big update: a drone flies Level, sas 'hold', or Acro)
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
 const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
@@ -49,13 +50,22 @@ const Flight = {
     const adj = new Map();
     for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
     const v = new Vessel(ps, adj, EARTH);
-    v.name = design.name || (design.kind === 'tank' ? VEHICLE_KINDS.tank.name : 'Rocket');
+    v.name = design.name || (design.kind === 'tank' || design.kind === 'drone' ? VEHICLE_KINDS[design.kind].name : 'Rocket');
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
     // a new flight of a plane starts in the mode Settings → Planes start in picks: hold, the autopilot, unless another is
     // chosen (level, heading, Off's manual law, or Aim, the mouse aim, in 3D only: else hold)
     if (v.kind === 'plane') { const m = Settings.get('planeStart'); v.sas = m === 'aim' ? (this.aim3D() ? 'aim' : 'hold') : ['level', 'heading', 'manual'].includes(m) ? m : 'hold'; }
+    // (the big update) a drone: no stage to find, its motors on; Level (Settings → Drones start in: Acro for a multirotor);
+    // a winged one with its throttle up for its air start
+    if (v.kind === 'drone') {
+      for (const p of v.parts) if (p.def.thrust) p.active = true;
+      v.stageIdx = v.stages.length;
+      v.sas = !v.aircraft && Settings.get('droneStart') === 'acro' ? 'acro' : 'hold';
+      v.throttle = v.aircraft ? 0.7 : 0;
+    }
+    if (v.docks.length) v.droneChoice = Drone.cleanChoice(design.drone); // (the drone its bays carry: a stock one, or a saved design)
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
@@ -64,14 +74,16 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
-    if (P && P.air) { // an air start: raised over the spot, flying along its nose, gear up
-      const r = v.radius(), up = +P.air.alt || 0, sp = +P.air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
+    const air = P && P.air ? P.air : !P && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad)
+    if (air) { // an air start: raised over the spot, flying along its nose, gear up
+      const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
       v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
       v.vx = f.x * sp; v.vy = f.y * sp; v.vz = f.z * sp;
       v.landed = false;
       if (v.hasRetract) { v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true; }
     }
     if (v.kind === 'heli') v.throttle = 0;
+    if (v.kind === 'drone') v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 }; // (the law's state, drone.js: where it took off, for safe-arm and home)
     this.launchCost = designCost(ps);
     if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
     // a ground vehicle's battlefield props (props.js), laid out now if they aren't yet: part of the launch, not a stall a
@@ -81,14 +93,21 @@ const Flight = {
     this.resetState([v, ...kept], v, opts && opts.time != null ? opts.time : 0);
     if (P && P.catapult && v.kind === 'plane') this.armCatapult(v, P);
     if (P && P.air && v.kind === 'plane' && (v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; })) this.stage(); // (an air start comes with its engines running: stage 1, as STAGE would)
-    const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
-    const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w; // planes lie on their side
-    this.scale = clamp(Math.min((innerHeight * 0.42) / tall, (innerWidth * 0.5) / wide), 1.5, 40);
+    this.scale = this.naturalScale(v);
+    if (v.kind === 'drone') this.setFpv(Settings.get('droneView') !== 'chase', true); // (the big update: a drone starts in the view last picked, FPV by default)
     this.updateDvEstimate();
     this.updateHUD(true);
     if (!this.mp) this.save();
     $('#warp').hidden = !!this.mp;
     Controls.relayout(); // (the custom touch layout, and the stick's place)
+  },
+
+  // The view's scale that frames a craft (planes lie on their side; a drone is small: the camera comes closer)
+  naturalScale(v) {
+    const h = v.bounds.maxY - v.bounds.minY, w = v.bounds.maxX - v.bounds.minX;
+    const tall = v.kind === 'plane' ? w : h, wide = v.kind === 'plane' ? h : w;
+    const W = typeof innerWidth !== 'undefined' ? innerWidth : 800, H = typeof innerHeight !== 'undefined' ? innerHeight : 600;
+    return clamp(Math.min((H * 0.42) / tall, (W * 0.5) / wide), 1.5, v.kind === 'drone' ? DRONE.LAUNCH.SCALE : 40);
   },
 
   resetState(vessels, active, time) {
@@ -102,6 +121,9 @@ const Flight = {
     this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0 };
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
+    this.crashedAt = null; // (the big update: when the active craft crashed in one fireball, death.js; the end screen counts from it)
+    this.carrierDown = null; // (the big update's drones: the tank knocked out under its flown drone, its LAST FLIGHT's)
+    this.endReset(); // (and the last life's end: its strip, its end screen still waiting)
     this.ended = false;
     this.paused = false;
     this.flash = null;
@@ -116,10 +138,11 @@ const Flight = {
     this.viewQ = this.viewFrame(active.x, active.y, active.z);
     this.viewRot = Math.PI / 2 - Math.atan2(active.y, active.x);
     this.machWas = 0;
-    this.firing = false; this.mgFiring = false; this.shotYet = false;
+    this.firing = false; this.mgFiring = false; this.shotYet = false; this.fireTap = false; // (a press while the last craft was lost fires nothing here: review P5-MODES-1)
     this.aimReset(); // (a new flight: aimed afresh along the hull, out of the sight)
     this.spectate = null; // multiplayer: someone else's craft the camera follows after ours is lost
     this.catapult = null; this.wireCaught = false;
+    this.setFpv(false, true); this.clearImpact(); this.droneLift = 0; this.gimbalReset(); // (the big update's drones: chase view, no impact view, the lever and the gimbal at rest)
     Combat.reset(this);
     this.running = true;
     MapView.focusVessel();
@@ -134,7 +157,8 @@ const Flight = {
 
   stop() {
     this.running = false;
-    Sound.engine(0, 0); Sound.wind(0);
+    this.setFpv(false, true); this.clearImpact();
+    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0);
     this.aimReset();
     this.syncAwake();
   },
@@ -174,18 +198,23 @@ const Flight = {
   },
 
   // ------------------------------------------------------------------ save / resume
+  // (the big update) a drone from a bay is never saved: its tank is, with that drone back in its bay (Drone.forSave), and
+  // the tank is the craft flown when the save comes back
   serialize() {
-    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length);
-    return {
+    const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length && !v.carrier);
+    const a = this.active && this.active.carrier ? this.active.carrier : this.active;
+    const out = {
       v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
-      active: keep.indexOf(this.active), flags: this.flags, stats: this.stats,
-      target: this.target ? this.target.id : null, scale: this.scale,
+      active: keep.indexOf(a), flags: this.flags, stats: this.stats,
+      target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
     };
+    return keep.some((v) => v.drone || (v.docks && v.docks.length)) && typeof Drone !== 'undefined' ? Drone.forSave(out, this, keep) : out; // (a bay: its lid saved shut too)
   },
   save() {
-    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length) return;
+    if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length || this.active.dead) return; // (dead: crashed in one piece, death.js)
     if (typeof GroundAI !== 'undefined' && GroundAI.battle) return; // (a Practice Battle's vehicle is lent, and the battle can't be saved: nothing to resume)
+    if (this.carrierDown) return; // (a LAST FLIGHT: the tank is lost, its drone not saved)
     if (this.destroyed && !this.vessels.some((v) => v.control && !v.dead && v !== this.active)) return;
     store.set('rss.flight', this.serialize());
   },
@@ -197,6 +226,7 @@ const Flight = {
     let maxId = 0;
     for (const v of vessels) for (const p of v.parts) maxId = Math.max(maxId, p.id);
     _partSeq = Math.max(_partSeq, maxId + 1);
+    for (const v of vessels) if (v.docks.length && typeof Drone !== 'undefined') v.droneChoice = Drone.cleanChoice(d.design && d.design.drone); // (the drone its bays carry)
     const active = vessels[clamp(d.active, 0, vessels.length - 1)] || vessels[0];
     this.design = d.design;
     this.launchCost = d.launchCost || 0;
@@ -254,6 +284,7 @@ const Flight = {
   setSas(mode) {
     const v = this.active;
     if (!v) return;
+    if (v.kind === 'drone') { this.droneSas(v, mode); return; } // (the big update: Level or Acro)
     if (mode === 'target' && !this.target) { this.toast('Pick a target on the map first'); return; }
     if (v.kind === 'plane' && mode === 'off') mode = 'manual'; // (a plane's Off: the manual law, PR #40)
     if (v.kind === 'plane' && mode === 'aim' && !this.aim3D()) { this.toast('Aim needs the 3D view'); return; }
@@ -264,18 +295,113 @@ const Flight = {
     this.syncSas();
   },
   // Planes get their own autopilot buttons; everything else gets the rocket set.
+  // (the big update) A drone gets its mode pad: Level, Acro, View, Home, Land, and Tank for one from a bay (data-drone).
   syncSas() {
-    const v = this.active, m = v ? (v.sas === 'manual' ? 'off' : v.sas) : 'hold', plane = !!v && v.kind === 'plane';
-    document.querySelectorAll('[data-sas]').forEach((b) => {
-      b.setAttribute('aria-pressed', String(b.dataset.sas === m));
-      b.hidden = plane ? !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : !!b.dataset.plane;
+    const v = this.active, m = v ? (v.sas === 'manual' ? 'off' : v.sas) : 'hold', plane = !!v && v.kind === 'plane', drone = !!v && v.kind === 'drone';
+    document.querySelectorAll('#sas-bar .sas-btn').forEach((b) => {
+      const d = b.dataset.drone, pressed = b.dataset.dact ? b.dataset.dact === 'view' && drone && !!this.fpv : b.dataset.sas === m;
+      if (b.getAttribute('aria-pressed') !== String(pressed)) b.setAttribute('aria-pressed', String(pressed));
+      const hide = plane ? !!d || !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : drone ? !d || (d === 'bay' && !v.carrier) : !!b.dataset.plane || !!d;
+      if (b.hidden !== hide) b.hidden = hide;
     });
     $('#sas-bar').classList.toggle('plane', plane);
+    $('#sas-bar').classList.toggle('drone', drone);
+    if (drone || this._drone) this.syncDroneBody(v); // (an old craft: never, after the first)
   },
 
-  // Flaps in three steps; retractable gear up and down.
+  // ------------------------------------------------------------------ drones (the big update; drone.js has the rest)
+  // Level (sas 'hold': the stick asks for a ground speed, letting go stops it and holds its height) or Acro (the stick
+  // sets rates, nothing levels it, the throttle is the pilot's), for a multirotor or a winged drone alike. Either takes
+  // the drone back from Home, Land or holding (dl.mode 'pilot'). Not on a hulk nobody flies.
+  droneSas(v, mode) {
+    if (this.inert(v) || (mode !== 'hold' && mode !== 'acro')) return;
+    v.sas = mode;
+    if (v.dl) { v.dl.mode = 'pilot'; v.dl.hold = null; v.dl.wh = null; v.dl.autoLand = false; } // (each mode starts from where it is now)
+    this.toast(mode === 'acro' ? 'Acro: the stick turns it and nothing levels it; the throttle is yours'
+      : v.aircraft ? 'Level: the stick banks and dives it; let go and it flies straight and level' : 'Level: the stick flies it; let go and it stops and holds its height');
+    this.syncSas();
+    this.updateHUD(true);
+  },
+  // the body's classes for a drone: drone (its HUD: the stage box goes, the mode pad comes), drone-level (a multirotor in
+  // Level: the throttle box is the climb lever, Max and Cut hold to climb and descend). Written on a change only.
+  syncDroneBody(v) {
+    const drone = !!v && v.kind === 'drone' && !this.destroyed, lvl = drone && this.droneLevel(v), bc = document.body.classList;
+    if (bc.contains('drone') !== drone) bc.toggle('drone', drone);
+    if (bc.contains('drone-level') !== lvl) { bc.toggle('drone-level', lvl); this.droneLift = 0; $('#btn-tmax').textContent = lvl ? '▲' : 'Max'; $('#btn-tcut').textContent = lvl ? '▼' : 'Cut'; this.updateThrottleDom(); }
+    $('#throttle-track').setAttribute('aria-label', lvl ? 'Climb lever: up climbs, down descends, let go to hold the height' : 'Throttle');
+    // the roll buttons' labels: a Level drone's slide (Settings → Drone stick: Tilt, its turn), from the bindings
+    const tilt = Settings.get('droneStick') === 'tilt', what = !lvl ? null : tilt ? 'Turn' : 'Slide';
+    for (const [id, k, side] of [['#rot-left', 'rollL', 'left'], ['#rot-right', 'rollR', 'right']]) {
+      const e = $(id), t = what ? `${what} ${side} (${Keys.k(k)})` : e.dataset.aria.replace('{k}', Keys.k(k));
+      if (e.getAttribute('aria-label') !== t) e.setAttribute('aria-label', t);
+    }
+    this._drone = drone;
+  },
+  // a multirotor flown Level: the climb lever
+  droneLevel(v) { return !!v && v.kind === 'drone' && v.sas !== 'acro' && !v.aircraft; },
+  // First person (FPV) or the chase view. FPV needs the 3D view and a camera aboard; the choice is remembered for the next
+  // drone (Settings → Drone view: FPV keeps its level-horizon kind). quiet: no toast (a start, a switch, a death).
+  setFpv(on, quiet) {
+    const v = this.active;
+    if (on) {
+      if (!v || v.kind !== 'drone') on = false;
+      else if (!(typeof App !== 'undefined' && App.use3D())) { if (!quiet) this.toast('FPV needs the 3D view'); on = false; }
+      else if (!v.dr || !v.dr.cam) { if (!quiet) this.toast('No camera aboard'); on = false; }
+    }
+    on = !!on;
+    if (on && !quiet && this.fpv !== on) this.gimbalReset();
+    this.fpv = on;
+    if (typeof document !== 'undefined' && document.body && document.body.classList.contains('fpv') !== on) document.body.classList.toggle('fpv', on);
+    if (typeof Render3D !== 'undefined' && Render3D.setFpv) Render3D.setFpv(on, on ? Drone.fov(v, this) : 50);
+    if (!quiet) { // (the FPV kind last used, first person or with the horizon held level, kept in rss.droneView while the chase view is picked)
+      const was = Settings.get('droneView');
+      if (was !== 'chase') store.set('rss.droneView', was);
+      Settings.set('droneView', !on ? 'chase' : was !== 'chase' ? was : store.get('rss.droneView', 'fpv') === 'fpvLevel' ? 'fpvLevel' : 'fpv');
+      this.syncSas(); Controls.keyHints(this, true);
+    }
+    return on;
+  },
+  // the gimbal camera: looking along the drone's heading, level (yaw ±170°, pitch −85° to +20°), zoom 1×, 4×, 12×, thermal
+  gimbalReset() { this.gim = { yaw: 0, pitch: 0, zoom: 0, thermal: false, pz: 1 }; },
+  gimbalOn() { const v = this.active; return !!(this.fpv && v && v.kind === 'drone' && v.dr && v.dr.cam && v.dr.cam.def.drone.cam.gimbal); },
+  gimbalBy(dx, dy, k = 0.004) {
+    const g = this.gim, z = [1, 4, 12][g.zoom] || 1;
+    g.yaw = clamp(g.yaw - (dx * k) / z, -2.967, 2.967); g.pitch = clamp(g.pitch - (dy * k) / z, -1.484, 0.349);
+  },
+  gimbalZoom(dir) {
+    const g = this.gim, z = clamp(g.zoom + dir, 0, 2);
+    if (z === g.zoom) return;
+    g.zoom = z; Sound.click();
+    if (typeof Render3D !== 'undefined' && Render3D.setFpv) Render3D.setFpv(true, Drone.fov(this.active, this));
+  },
+  gimbalThermal() {
+    if (!this.gimbalOn()) { this.toast(this.fpv ? 'Thermal needs a gimbal camera' : 'Thermal: in the FPV view, with a gimbal camera'); return; }
+    this.gim.thermal = !this.gim.thermal; Sound.click();
+    this.toast(this.gim.thermal ? 'Thermal on: vehicles show through smoke' : 'Thermal off');
+  },
+  // The impact view (a warhead gone off, drone.js): any key, tap or click ends it at once
+  clearImpact() {
+    if (!this.impactCam) return false;
+    this.impactCam = null;
+    if (typeof document !== 'undefined' && document.body) document.body.classList.remove('impactcam');
+    return true;
+  },
+  // A drone's own keys (the binding table's Drones group, context 'drone'), and the throttle's Full and Cut that a Level
+  // multirotor doesn't have (its lever is Shift/Ctrl). true when the key was one of them.
+  droneKey(e) {
+    const v = this.active, K = (id) => Keys.is(e.code, id);
+    if (K('dHome')) { if (!this.inert(v)) Drone.home(this, v); return true; }
+    if (K('dLand')) { if (!this.inert(v)) Drone.land(this, v); return true; }
+    if (K('dView')) { this.setFpv(!this.fpv); return true; }
+    if (K('dThermal')) { this.gimbalThermal(); return true; }
+    if ((K('thrFull') || K('thrCut')) && this.droneLevel(v)) return true; // (Level: the lever, not a throttle)
+    if (K('camera') && this.gimbalOn()) { this.gimLook = performance.now(); return true; } // (held: the mouse looks round; a tap centres it)
+    return false;
+  },
+  // Flaps in three steps; retractable gear up and down. (the big update) Neither moves on a hulk nobody flies (inert)
   cycleFlaps() {
     const v = this.active;
+    if (this.inert(v)) return;
     if (!v || !v.hasFlaps) { this.toast('No flaps on this craft'); return; }
     v.flaps = v.flaps >= 1 ? 0 : v.flaps + 0.5;
     Sound.click();
@@ -283,6 +409,7 @@ const Flight = {
   },
   toggleGear() {
     const v = this.active;
+    if (this.inert(v)) return;
     if (!v || !v.hasRetract) { this.toast('No retractable gear on this craft'); return; }
     if (!v.gearUp && v.wheelsDown) { this.toast('Can’t raise the gear on the ground'); return; }
     v.gearUp = !v.gearUp;
@@ -295,23 +422,27 @@ const Flight = {
   // attached to them along (the engines and stores on a wing), unless the craft itself hangs off them.
   // cause: 'g' (too much load), 'speed' (flutter, past a wing's speed limit), 'impact', or a hit.
   ripParts(v, parts, cause = 'g') {
-    const ctrl = v.control;
+    if (v.dead) return; // (the big update: a craft that crashed this step goes in one piece, its queued g-rips with it)
+    const ctrl = v.control, keep = ctrl || v.keepPart; // (keep: a knocked-out pilot's cockpit stays with the hulk too)
     for (const p of parts) {
       const go = new Set([p.id]);
-      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(ctrl)) for (const q of br) go.add(q.id); }
+      for (const c of v.parts) if (c.att === p.id) { const br = [c, ...attachedTo(v.parts, [c])]; if (!br.includes(keep)) for (const q of br) go.add(q.id); }
       for (const id of go) for (const n of [...(v.adj.get(id) || [])]) if (!go.has(n)) { v.adj.get(id).delete(n); v.adj.get(n) && v.adj.get(n).delete(id); }
       const zs = partZs(p), vel = { x: v.vx, y: v.vy, z: v.vz };
+      const k = v.kind === 'drone' ? clamp(Math.max(p.def.w, p.def.h) / 2, 0.15, 1) : 1; // (the big update, plan I5: a drone's motor torn off throws as little as it is)
       for (const z of zs) {
         const wp = v.toWorld(p.x, p.y, z);
-        FX.sparks(v.body, wp, vel, 14 / zs.length);
-        FX.puff(v.body, wp, vel, 8 / zs.length, '#cfd5dc');
+        FX.sparks(v.body, wp, vel, k < 1 ? Math.ceil((14 * k) / zs.length) : 14 / zs.length);
+        FX.puff(v.body, wp, vel, k < 1 ? Math.ceil((8 * k) / zs.length) : 8 / zs.length, '#cfd5dc');
       }
     }
     if (v === this.active) {
-      const name = parts[0].def.name, at = v.overMach ? `Mach ${v.mach.toFixed(2)}` : `${Math.round(v.speed() * 3.6)} km/h`;
-      this.toast(cause === 'g' ? `${name} torn off at ${v.gForce.toFixed(1)} g!` : cause === 'speed' ? `Flutter tore the ${name} off at ${at}!`
-        : `${name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
-      Sound.explode(); haptic([60, 40, 80]);
+      const name = parts[0].def.name, at = v.overMach ? `Mach ${v.mach.toFixed(2)}` : `${Math.round(v.speed() * 3.6)} km/h`, hit = cause !== 'g' && cause !== 'speed' && cause !== 'impact';
+      if (!(hit && typeof Death !== 'undefined' && Death.lose(v, this, { name, k: 'off', text: `${name} shot off!`, bang: true }))) { // (a hit window's losses: one toast at its end, death.js)
+        this.toast(cause === 'g' ? `${name} torn off at ${v.gForce.toFixed(1)} g!` : cause === 'speed' ? `Flutter tore the ${name} off at ${at}!`
+          : `${name} ${cause === 'impact' ? 'knocked' : 'shot'} off!`, 'warn');
+        Sound.explode(); haptic([60, 40, 80]);
+      }
     }
     const pieces = v.splitComponents();
     for (const piece of pieces) { piece.isDebris = !piece.control; this.vessels.push(piece); }
@@ -327,11 +458,29 @@ const Flight = {
     this.updateHUD(true);
   },
 
-  switchTo(v) {
+  // force: in a room's battle too (only drone.js passes it, for a tank and its own drone); quiet: no "Controlling" toast.
+  // (the big update) Between a tank and its drone: the craft left behind is a tank parked (its controls let go, braked,
+  // its crew and kit at work) or a drone holding where it is (unless homing or landing); the one taken is unparked, and
+  // each keeps the view's scale it had; a drone is flown in the view last picked for drones.
+  switchTo(v, force, quiet) {
     if (!v || v === this.active || !v.control || v.ai || v.remote) return;
-    if (this.mp && this.mp.mode === 'pvp') return; // one craft, one life
+    // a tap on our bay's drone, or from it on its tank: as the drone key does it (Level takes it, never with its link
+    // lost; back to the tank, or a LAST FLIGHT's end: P4-BAY-1)
+    if (!force && typeof Drone !== 'undefined' && v.kind === 'drone' && v.carrier && v.carrier.drone === v) { Drone.take(this, v); return; }
+    if (!force && typeof Drone !== 'undefined' && this.active && this.active.carrier === v) { Drone.back(this); return; }
+    if (this.mp && this.mp.mode === 'pvp' && !force) return; // one craft, one life
+    const was = this.active, bay = !!(v.carrier || v.parked || (was && (was.carrier || was.drone))); // (an old craft: never)
+    if (bay && was) {
+      was._scale = this.scale;
+      was.ctl.v = was.ctl.h = was.ctl.r = 0;
+      if (was.kind === 'drone') was.ctl.z = 0;
+      if (was.drone === v) { was.brake = true; was.parked = true; was.throttle = 0; } // (the tank: parked)
+      else if (was.carrier && was.dl) { if (was.dl.mode !== 'home' && was.dl.mode !== 'land') was.dl.mode = 'hold'; was.dl.holdAt = null; } // (the drone: it holds)
+    }
     this.active = v;
     this.destroyed = false;
+    if (bay) { v.parked = false; if (v._scale != null) this.scale = v._scale; }
+    this.setFpv(bay && v.kind === 'drone' && Settings.get('droneView') !== 'chase', true); this.droneLift = 0; // (the big update: out of a drone's camera, or into its own)
     this.syncAwake();
     this.prediction = null;
     MapView.focusVessel();
@@ -339,7 +488,8 @@ const Flight = {
     this.updatePrediction();
     this.updateDvEstimate();
     this.updateHUD(true);
-    this.toast(`Controlling ${v.name}`);
+    if (bay) Controls.relayout(); // (the air and ground HUDs swap)
+    if (!quiet) this.toast(`Controlling ${v.name}`);
   },
 
   // ------------------------------------------------------------------ actions
@@ -355,7 +505,8 @@ const Flight = {
     for (const p of parts) {
       if (p.def.thrust) {
         chutesOnly = false;
-        if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
+        if (this.partOut(p)) this.toast(`${p.def.name} is out`); // (an engine shot dead stays dead: the damage model's)
+        else if (v.hasFuelFor(p)) { p.active = true; used = true; } else this.toast(`${p.def.name}: no fuel`);
       } else if (p.def.chute) {
         if (this.deployChute(v, p)) used = true;
       } else chutesOnly = false;
@@ -409,6 +560,9 @@ const Flight = {
   },
 
   breakParts(v, parts, cause) {
+    // (the big update) a crash meets the damage model first (death.js): a hulk, or any aircraft whose cockpit breaks,
+    // goes up in one fireball; a ground vehicle's cab or hull is knocked out and stays. What it leaves goes on as ever.
+    if (cause === 'impact' && typeof Death !== 'undefined') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; }
     const air = airDensity(v.body, v.altitude()) > 0.01;
     const kv = cause === 'heat' ? 0.9 : 0.2;
     for (const p of parts) {
@@ -416,6 +570,13 @@ const Flight = {
       v.parts = v.parts.filter((q) => q !== p);
       for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id);
       v.adj.delete(p.id);
+    }
+    // (radar) the sets inside the parts that blew up go with them, unseen: no flash of their own, no lone debris
+    const kids = v.parts.filter((q) => innerRadar(q.def) && !parts.includes(q) && parts.some((h) => h.id === q.att));
+    for (const q of kids) {
+      v.parts = v.parts.filter((o) => o !== q);
+      for (const n of v.adj.get(q.id) || []) v.adj.get(n) && v.adj.get(n).delete(q.id);
+      v.adj.delete(q.id);
     }
     if (v === this.active || this.dist(this.absPos(v), this.camAbs) < 3000) { Sound.explode(); haptic([40, 30, 60]); }
     if (!v.parts.length) { v.dead = true; if (v === this.active) this.onDestroyed(); return; }
@@ -427,20 +588,30 @@ const Flight = {
     else if (!hadControl) v.isDebris = true;
   },
 
+  // The craft is lost (destroyed, knocked out, its pilot knocked out, shot down, crashed). No end screen over the fall
+  // (the big update, death.js): #flight-alert becomes the strip, "Pilot knocked out · by Bea · tap for options", and the
+  // end screen (this one's, a room's, the Practice Battle's) waits through afterFall: an aircraft's comes 1.2 s after
+  // its crash, at most 10 s after the death; a tap on the strip brings it at once.
   onDestroyed() {
+    if (this.active && this.active.carrier && typeof Drone !== 'undefined' && Drone.lost(this, this.active, 'down')) return; // (a drone from a bay: back to its tank, drone.js)
     if (this.destroyed) return;
     this.destroyed = true;
+    const v = this.active;
+    this.diedAt = this.time; this.endPending = true; this.endAsk = false;
+    this.deathText = this.deathLine(v);
+    if (this.fpv) this.setFpv(false, true); // (the big update: a drone lost is watched falling, from behind)
+    if (v && v.down && !v.dead) haptic([80, 50, 140]); // (an aircraft shot down or its pilot out: a crash's and a knock-out's buzz is death.js's deathFX)
     this.setSight(false); this.unlockPointer(); // (out of the gunner's sight, the mouse let go)
     this.syncAwake();
-    $('#flight-alert').hidden = true; // (the HUD stops updating once nothing is left)
+    this.strip(true);
     this.warpIdx = 0;
     if (this.catapult) this.catapult.state = 'done';
     if (this.mp && MP.onLocalDestroyed()) { this.updateHUD(true); return; }
     if (GroundAI.battle && GroundAI.onDestroyed(this)) return; // (the Practice Battle: its own respawn, keeping its AI)
     const ground = !!this._bodyGround; // (as it was: a knocked-out vehicle's HUD goes back to the flight's)
-    setTimeout(() => {
+    this.endAfter(Silly.on('ghostCam') ? 5000 : 1600, () => { // leave time to enjoy the view
       if (!this.running || this.ended || !this.destroyed) return;
-      const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active);
+      const others = this.vessels.filter((x) => x.control && !x.dead && !x.ai && !x.remote && x !== this.active && !x.carrier); // (a bay's drone isn't a craft of its own)
       if (!others.length) { this.ended = true; store.set('rss.flight', null); this.syncAwake(); }
       const acts = [
         { label: 'Back to hangar', onClick: () => App.toBuild() },
@@ -448,12 +619,196 @@ const Flight = {
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
       UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: ground ? 'Knocked out' : 'Vessel destroyed', body: this.summaryHTML('', ground), actions: acts });
-    }, Silly.on('ghostCam') ? 5000 : 1600); // leave time to enjoy the view
+    });
+  },
+  // What the strip says happened: a ground vehicle's ammunition gone up, knocked out (wrecked in a crash of its own);
+  // an aircraft's pilot knocked out, shot down (down, or credited to someone), crashed (by itself); a drone lost; and who
+  // did it: the credited killer (doomBy), else the last hitter within 20 s, by name (a room's player by theirs), 24 letters
+  deathLine(v) {
+    const t = this.time || 0, hit = v && v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null;
+    const by = (v && v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
+    let what = 'Destroyed';
+    if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
+    else if (v && isAirKind(v.kind)) {
+      what = v.kind === 'drone' ? 'Drone lost' : v.hulkWhy === 'pilot' ? 'Pilot knocked out' : v.down || (v.hulk != null && v.doomBy) ? 'Shot down'
+        : this.crashedAt != null ? 'Crashed' : by ? 'Shot down' : 'Destroyed';
+    }
+    let name = '';
+    if (by) name = String((by.remote && typeof MP !== 'undefined' ? MP.nameOf(by.remote) : by.name || (by.def && by.def.name)) || '').slice(0, 24);
+    return name ? `${what} · by ${name}` : what;
+  },
+  // The strip (#flight-alert, class lost): what happened, and how to go on (a tap or a click on it: endNow). Shown from
+  // the death while the end screen waits (not under a dialog, nor while watching someone else in a room); off: gone.
+  strip(on) {
+    const al = $('#flight-alert');
+    if (!on) { if (al.classList.contains('lost')) { al.classList.remove('lost'); al.hidden = true; } return; }
+    al.classList.remove('critical'); al.classList.add('lost');
+    const txt = `${this.deathText || 'Destroyed'} · ${Controls.touch ? 'tap for options' : 'Esc for options'}`;
+    if (al.textContent !== txt) al.textContent = txt;
+    const show = !!this.endPending && !UI.modalOpen && !this.spectate;
+    if (al.hidden === show) al.hidden = !show;
+    if (show) this.placeAlert(al);
+  },
+  // Where the alert line goes (#flight-alert: a warning, or the strip once lost). Its own place, top middle under the
+  // panels, when that is clear (a desktop's); else the nearest height at which it clears every control and panel on the
+  // screen and what the canvas draws there (the warning receiver's lines and scope, a room's scope, the ground HUD's
+  // diagram and scope), in the gap they leave, on more lines when the gap is narrow, never lower than the top half (Aim's
+  // circle rests in the middle; the strip of a craft lost may go lower: no circle then). On a phone in portrait its own place runs over the flight data (an over-g's always
+  // did), on its side over the weapon buttons. Measured when it shows, when its words (not their figures), the screen or
+  // the HUD's size change, when the flight data or a bar changes size, and once a second while it shows; never while
+  // it is hidden.
+  placeAlert(al) {
+    if (!al || al.hidden || typeof document === 'undefined' || typeof innerWidth === 'undefined' || !al.getBoundingClientRect) return;
+    const W = innerWidth, H = innerHeight, z = (typeof Controls !== 'undefined' && Controls.z) || 1, now = performance.now();
+    const P = this._alP || (this._alP = { key: '', at: -1e9, how: '' });
+    if (!P.ro && typeof ResizeObserver === 'function') { // (the flight data grows a row, the room's bar a line: placed again at once)
+      P.ro = new ResizeObserver(() => { if (!al.hidden && P.key) { P.key = ''; this.placeAlert(al); } });
+      for (const q of ['#flight-ui .telemetry', '#mp-bar', '#gai-bar']) { const e = document.querySelector(q); if (e) P.ro.observe(e); }
+    }
+    const key = `${al.className}|${al.textContent.replace(/[\d.,]+/g, '0')}|${W}|${H}|${z}`;
+    if (key === P.key && now - P.at < 1000) return;
+    P.key = key; P.at = now;
+    // (mw: the width it may take, wrapping, 0: on one line; null: as the style sheet has it)
+    const st = al.style, put = (t, x, mw) => {
+      st.top = t == null ? '' : `${t / z}px`; st.left = x == null ? '' : `${x / z}px`;
+      st.maxWidth = mw ? `${mw / z}px` : mw === 0 ? 'none' : ''; st.whiteSpace = mw ? 'normal' : mw === 0 ? 'nowrap' : '';
+      st.width = mw ? 'max-content' : ''; st.textAlign = mw ? 'center' : '';
+    };
+    const box = () => { const r = al.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
+    put(null, null, null); // (its own place, to measure)
+    const A = box();
+    if (!A) return;
+    const all = this.alertClear(W, H), hard = all.filter((o) => !o.soft), at = (R, obs) => obs.some((o) => R.l < o.r + o.p && R.r > o.l - o.p && R.t < o.b + o.p && R.b > o.t - o.p);
+    if (!at(A, all) && A.l >= 0 && A.r <= W) { P.how = 'own'; return; }
+    put(null, null, 0);
+    // (hi: the lowest its bottom may go: the top half while flying, for Aim's circle; the strip once lost, with no circle
+    // to keep clear, anywhere above the bottom controls: on a small phone a killer's name left it no room up there,
+    // review P2-HUD-1)
+    const L = box() || A, w = L.r - L.l + 24, h = L.b - L.t, hi = this.destroyed && al.classList.contains('lost') ? H - 8 : H / 2 - 30; // (on one line; 24: room for its figures to grow)
+    const line = Math.max(12, (parseFloat(getComputedStyle(al).lineHeight) || 17) * z), padX = 34 * z;
+    // the nearest place clear of obs: on its one line, else on two or three in the widest gap of at least 150 px at a
+    // height that holds it (its lines guessed from its line's width; the best dozen by nearness, fewer lines and the
+    // middle tried, measured)
+    const search = (obs) => {
+      const gaps = (t, b) => { // (the gaps obs leave along a band)
+        const xs = obs.filter((o) => t < o.b + o.p && b > o.t - o.p).map((o) => [o.l - o.p, o.r + o.p]).sort((a, c) => a[0] - c[0]), out = [];
+        let x = 8;
+        for (const [a, c] of xs) { if (a > x) out.push([x, a]); x = Math.max(x, c); }
+        if (W - 8 > x) out.push([x, W - 8]);
+        return out;
+      };
+      const fit = (t, hh, ww) => { // (the centre nearest the middle for a box ww wide)
+        let best = null;
+        for (const [a, c] of gaps(t, t + hh)) { if (c - a < ww) continue; const x = clamp(W / 2, a + ww / 2, c - ww / 2); if (best == null || Math.abs(x - W / 2) < Math.abs(best - W / 2)) best = x; }
+        return best;
+      };
+      const tops = (hs) => [...new Set([A.t, ...obs.flatMap((o) => [o.b + o.p + 1, ...hs.map((hh) => o.t - o.p - 1 - hh)])].map(Math.round))]
+        .filter((t) => t >= 8 && t + h <= hi).sort((a, c) => Math.abs(a - A.t) - Math.abs(c - A.t));
+      for (const t of tops([h])) { const x = fit(t, h, w); if (x != null) { put(t, x, 0); return 'line'; } }
+      const cand = [];
+      for (const t of tops([h + line, h + 2 * line])) {
+        const g = gaps(t, t + h).filter(([a, c]) => c - a >= 150).sort((p, q) => q[1] - q[0] - (p[1] - p[0]))[0];
+        if (!g) continue;
+        const gw = g[1] - g[0], n = Math.ceil((w - 24 - padX) / Math.max(1, gw - padX)), x = (g[0] + g[1]) / 2;
+        if (n > 3 || t + h + (n - 1) * line > hi || fit(t, h + (n - 1) * line, gw) == null) continue;
+        cand.push({ t, x, gw, k: Math.abs(t - A.t) + 60 * (n - 1) + 0.5 * Math.abs(x - W / 2) }); // (near its own place, on few lines, near the middle)
+      }
+      cand.sort((p, q) => p.k - q.k);
+      for (const c of cand.slice(0, 12)) {
+        put(c.t, c.x, c.gw);
+        const R = box();
+        if (R && !at(R, obs) && R.b <= hi) return 'wrap';
+      }
+      return '';
+    };
+    // clear of everything; else of all but a toast (passing); else of the controls and panels alone (the warning
+    // receiver's lines, up for a whole engagement, may then show under it: a small phone in portrait has no room for all
+    // of them; a phone on its side keeps them clear, review P5-COMBO-4)
+    const noToast = all.filter((o) => o.soft !== 'toast');
+    const how = search(all) || (noToast.length < all.length && search(noToast)) || (hard.length < noToast.length && search(hard));
+    if (how) { P.how = how; return; }
+    put(null, null, null); P.how = 'none'; // (no room anywhere: its own place, as ever)
+  },
+  // What the alert line keeps clear of (screen px boxes, p: the gap kept): this HUD's controls and the panels, the first
+  // toast's slot (it would cover the line), and what the canvas draws (the warning receiver's lines and scope while
+  // alive, a room's scope, the ground HUD's diagram and scope: drawn lines, no gap)
+  alertClear(W, H) {
+    const out = [], add = (e) => { if (!e || e.hidden) return; const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) out.push({ l: r.left, t: r.top, r: r.right, b: r.bottom, p: 6 }); };
+    const C = typeof Controls !== 'undefined' && Controls.CTL, hud = C ? Controls.hud() : 'air';
+    if (C) for (const k in C) if (k !== 'joy' && (C[k][2] === 'both' || C[k][2] === hud)) add(document.querySelector(C[k][0]));
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q));
+    const T = document.querySelector('#toasts'), tr = T && T.getBoundingClientRect();
+    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: 'toast' });
+    const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
+    // (the scope is drawn whenever rwrBox is set: a threat display's, or a radar's with any warning receiver or none,
+    // review P5-COMBO-1; the warning's lines only with a warning receiver)
+    const R = !this.destroyed && Combat.S.rwrBox;
+    if (R && R.W === W && R.H === H) { if (Combat.S.rwr > 0) box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1 || R.rad) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
+    const M = this.mp && typeof MPUI !== 'undefined' && W >= 761 && MPUI.scope;
+    if (M) ball(M.x, M.y, M.R, 4);
+    const G = this._bodyGround && typeof GHUD !== 'undefined' && GHUD._S && GHUD._S.P;
+    if (G && G.diag) box(G.diag.x, G.diag.y, G.diag.x + G.diag.w, G.diag.y + G.diag.h + 18);
+    if (G && G.scope) ball(G.scope.x, G.scope.y, G.scope.R);
+    return out;
+  },
+  // The end screen's timers (this one's, GroundAI's Practice Battle panel, a room's: mp.js) go through afterFall(cb):
+  // cb runs once the craft has stopped falling (a hulk that hasn't crashed or landed yet) and 1.2 s after a crash, at
+  // most 10 s (sim time) after the death; polled every 250 ms. Each waits (in turn, together when the fall is over), so a
+  // second timer never drops the first. Out of the flight (left, reverted): at once, as the timers it replaces did
+  // (each checks for itself).
+  afterFall(cb) {
+    if (typeof cb !== 'function') return;
+    this.endCbs = (this.endCbs || []).concat(cb); // (a new list: never one shared through a prototype)
+    if (this.endAsk) { this.endNow(); return; } // (the strip was tapped before the timer came)
+    if (!this._fallT) this.fallPoll();
+  },
+  fallPoll() {
+    this._fallT = null;
+    if (!this.endCbs || !this.endCbs.length) return;
+    if (this.fallDone()) { this.endGo(); return; }
+    this._fallT = setTimeout(() => this.fallPoll(), 250);
+  },
+  // what waited for the fall, now (the strip gone)
+  endGo() {
+    clearTimeout(this._fallT); this._fallT = null;
+    const cbs = this.endCbs || [];
+    this.endCbs = []; this.endPending = false; this.strip(false);
+    for (const cb of cbs) cb();
+  },
+  fallDone() {
+    const v = this.active, t = this.time || 0, D = typeof DEATH !== 'undefined' ? DEATH : { endAfter: 1.2, endMax: 10 };
+    if (!this.running || this.diedAt == null || t - this.diedAt >= D.endMax || t < this.diedAt) return true;
+    const falling = !!v && v.hulk != null && !v.dead && v.parts.length > 0 && !v.landed && !v.splashed;
+    const crashed = this.crashedAt != null && t >= this.crashedAt && t - this.crashedAt < D.endAfter;
+    return !falling && !crashed;
+  },
+  // The strip tapped (or clicked): the end screen now. Before its timer has come (the first 1.6 s), this one's runs at
+  // once; a room's or the Practice Battle's runs the moment its timer comes (endAsk).
+  endNow() {
+    if (!this.destroyed) return;
+    const go = this._endGo;
+    if (this.endCbs && this.endCbs.length) { this.endGo(); return; }
+    if (go) { clearTimeout(this._endT); this._endT = null; this._endGo = null; this.endPending = false; this.strip(false); go(); return; }
+    this.endAsk = true;
+  },
+  // this flight's own end screen: after ms, then through afterFall
+  endAfter(ms, go) {
+    clearTimeout(this._endT);
+    this._endGo = go;
+    this._endT = setTimeout(() => { this._endT = null; this._endGo = null; this.afterFall(go); }, ms);
+  },
+  // a new flight (resetState): no strip, nothing waiting
+  endReset() {
+    clearTimeout(this._fallT); clearTimeout(this._endT);
+    this._fallT = this._endT = null; this._endGo = null; this.endCbs = [];
+    this.diedAt = null; this.endPending = false; this.endAsk = false; this.deathText = '';
+    this.strip(false);
   },
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3; // (a Practice Battle's vehicles are free: nothing to recover)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
+      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies)
   },
 
   recover() {
@@ -541,6 +896,7 @@ const Flight = {
   controlsHelp() {
     if (this.groundAim) return this.groundHelp(); // (aiming a ground vehicle: its own list)
     if (this.running && this._bodyGround) return this.driveHelp(); // (one with nothing to aim, or in the 2D view: the keys it has)
+    if (this.running && this.active && this.active.kind === 'drone') return this.droneHelp(); // (the big update: a drone's own)
     const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids);
     return `<div class="help-grid">
       <div>${P('fwd', 'back')}<span>Pitch: nose down / up (cars and Armour drive forward / back)</span></div>
@@ -552,7 +908,7 @@ const Flight = {
       <div>${Keys.run(['sasHold', 'sasPro', 'sasRetro', 'sasOut', 'sasIn', 'sasTarget'])}<span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
       <div>${Keys.run(['apHold', 'apLevel', 'apHeading', 'apOff', 'apAim'])}<span>Plane autopilot: hold attitude, level (holds altitude), heading, off (you fly it: the stick asks for g, it stays trimmed), aim</span></div>
       <div><span class="tap">Mouse</span><span>Planes in Aim (${Keys.k('apAim')}): move the circle, the plane flies its nose there (click the view to capture the mouse, <kbd>Esc</kbd> lets it go; on touch the stick moves it, a drag on the view looks round, a double tap puts it on the nose); the keys still fly it, within the autopilot's limits, the circle following · hold ${K('camera')} to look round, tap it to put the circle on the nose · left click fires</span></div>
-      <div>${K('map')}<span>Map view (tap a planet to target it)</span></div>
+      <div>${K('map')}<span>Map view (tap a planet to target it; ${K('mapView')} switches between the globe and the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -560,6 +916,7 @@ const Flight = {
       <div>${f('flaps', 'gear')}<span>Planes: flaps (three steps), retractable gear up / down</span></div>
       <div>${K('camera')}<span>Reset the camera (drag to look around); in Aim, hold to look round, tap to put the circle on the nose</span></div>
       <div>${f('fire', 'weapon')}<span>Fire (hold) / change weapon · ${K('cm')} flares and chaff</span></div>
+      <div>${f('radarNext', 'radarPower')}<span>Radar: the next target (Shift: back) / on or off · touch: tap a target, or tap RDR; hold RDR for on/off</span></div>
       ${this.mp ? `<div>${K('catapult')}<span>Carrier catapult: launch</span></div><div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       <div><span class="tap">Tap a part</span><span>Toggle an engine, fire a separator, open a parachute</span></div>
     </div>`;
@@ -574,7 +931,8 @@ const Flight = {
       <div>${K('brake')}<span>Hold to brake</span></div>
       <div>${K('stage')}<span>Activate next stage (a booster)</span></div>
       <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
-      <div>${K('map')}<span>Map view</span></div>
+      ${this.bayLine()}
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -604,6 +962,7 @@ const Flight = {
       <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
       <div>${K('lock')}<span>Radar lock (with a tracking radar)</span></div>
       <div>${K('spot')}<span>Spot the enemy under the crosshair for your team</span></div>
+      ${this.bayLine()}
       <div>${K('tacMap')}<span>Tactical map (tap it to set a rocket-artillery strike, or to ping; Esc shuts it)</span></div>
       <div>${K('camera')}<span>Hold: look round, the turret holds · tap: aim straight ahead</span></div>
       <div>${K('zero')}<span>Realistic aim: set the sight to the rangefinder's range (or the commander's reading) · ${f('zeroUp', 'zeroDown')} step it 100 m (or, with the mouse free, the wheel at the sight's right edge)</span></div>
@@ -611,6 +970,38 @@ const Flight = {
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Esc</kbd>${K('menu')}<span>Menu (Esc also lets the mouse go)</span></div>
       ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped on the ground)</span></div>`}
+      ${T ? '' : touch}
+    </div>${T ? '</details>' : ''}`;
+  },
+
+  // (the big update) the U line: in the manual always, in flight for a vehicle with a drone bay aboard
+  bayLine() {
+    const v = this.running ? this.active : null;
+    return !this.running || (v && v.docks && v.docks.length) ? `<div>${Keys.kbd('drone')}<span>Launch a drone (Drone Rack, Hangar or Launch Tubes aboard) · ${Keys.k('drone')} again: back to the tank</span></div>` : '';
+  },
+  // A drone (the big update): the same list as README's Drones block and the manual's. On touch the touch line first and
+  // the keys folded away under "Keys", as groundHelp's.
+  droneHelp() {
+    const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch, k = (id) => Keys.k(id);
+    const tilt = Settings.get('droneStick') === 'tilt'; // (the Tilt layout: the stick sideways and A/D slide, the side buttons and Q/E turn; UX-P4-4, UX-P4-5)
+    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
+    return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
+      <div>${P('fwd', 'back')}<span>Level: fly forward / back (let go: it stops and hovers) · Acro: pitch</span></div>
+      <div>${P('left', 'right')}<span>Level: ${tilt ? 'slide left / right' : 'turn (carving at speed)'} · Acro: roll · winged drones bank to turn</span></div>
+      <div>${f('rollL', 'rollR')}<span>Level: ${tilt ? 'turn (carving at speed)' : 'slide left / right'} · Acro: yaw</span></div>
+      <div>${f('thrUp', 'thrDown')}<span>Level: climb / descend (let go: it holds its height over the ground) · Acro and winged drones: throttle up / down</span></div>
+      <div>${f('thrFull', 'thrCut')}<span>Acro and winged drones: full throttle / cut</span></div>
+      <div>${f('dLevel', 'dAcro')}<span>Level (stops and holds its height when you let go) / Acro (no self-levelling; the throttle is yours)</span></div>
+      <div>${f('dHome', 'dLand')}<span>Fly home (to its bay, or where it took off) / land here</span></div>
+      <div>${K('dView')}<span>First-person (FPV) or chase view (Settings → Drone view: first person, first person with a level horizon, or chase)</span></div>
+      <div>${K('drone')}<span>A drone from a bay: back to the tank (it hovers where you left it) · near its bay: dock</span></div>
+      <div>${f('fire', 'weapon')}<span>Fire: drop, launch or set off the charge / change weapon</span></div>
+      <div>${K('camera')}<span>Chase view: reset the camera · gimbal camera: hold and move the mouse (or hold the right button) to look round, tap to centre</span></div>
+      <div><kbd>Wheel</kbd><span>Zoom (a gimbal camera: 1×, 4×, 12×)</span></div>
+      <div>${K('dThermal')}<span>Gimbal camera: thermal (vehicles show through smoke)</span></div>
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
+      <div><kbd>Esc</kbd>${K('menu')}<span>Menu</span></div>
+      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       ${T ? '' : touch}
     </div>${T ? '</details>' : ''}`;
   },
@@ -640,7 +1031,7 @@ const Flight = {
           if (v.remote || v.kin || v.wreck) continue; // other players' craft: their owners fly them (ground AI moves itself; wrecks stay put)
           if (v === this.active) { near.push(v); continue; }
           const d = this.dist(this.absPos(v), ap);
-          if (d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt)) near.push(v);
+          if (this.stepsNear(v, d)) near.push(v);
           else if (!v.landed) far.push(v);
         }
         // (frame times come in a hair over 1/60 s, 16.7 or 16.8 ms: a step may run up to 5% long rather than add a third)
@@ -668,7 +1059,7 @@ const Flight = {
       if (this.mp) { MP.afterUpdate(); MP.syncMissiles(); }
     }
     const v = this.active;
-    if (v && v.parts.length && !this.paused) {
+    if (v && v.parts.length && !v.dead && !this.paused) { // (dead: crashed in one piece, death.js: quiet, as when every part broke)
       const maxT = v.parts.reduce((s, p) => s + (p.def.thrust || 0) * 1000, 0);
       const air = clamp(airDensity(v.body, v.altitude()) / 0.6, 0, 1);
       if (v.gear.length && !maxT) { // (running gear: the engine's note rises with the power it gives, idling at 0.3)
@@ -704,6 +1095,13 @@ const Flight = {
     if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
   },
 
+  // Who gets the full physics (the rest go on rails while airborne, or sleep): anything within 6 km of the active craft,
+  // anything flown in the air, and (the big update) a falling hulk out to 12 km (an aircraft shot down, its pieces: it
+  // falls and crashes, instead of vanishing on rails a few km off). d: its distance from the active craft.
+  // A tank parked while its drone flies is always stepped, however far the drone (its kit, repairs and the AI's targeting
+  // go on: plan I14).
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier); },
+
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
   readControls(dt) {
@@ -720,9 +1118,13 @@ const Flight = {
       v.ctl.h = clamp(v.ctl.h + w * Math.sin(t * 0.7 + 2), -1, 1);
       v.ctl.r = clamp(v.ctl.r + w * 0.6 * Math.sin(t * 0.9 + 4), -1, 1);
     }
+    if (this.inert(v)) { v.ctl.v = v.ctl.h = v.ctl.r = 0; if (v.kind === 'drone') v.ctl.z = 0; v.brake = !!v.ko; return; } // (nobody at the controls: a knocked-out vehicle brakes)
     const ga = this.groundAim, shiftSight = ga && !this.thrusty(v); // (aiming with no thrust parts: Shift is the sight)
     const dT = key('thrUp', shiftSight ? 'sight' : null) - key('thrDown');
-    if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
+    if (v.kind === 'drone') { // (the big update) Level: Shift/Ctrl and the touch lever are the climb lever (drone.js's law sets the throttle); Acro and winged drones: the throttle, ramped
+      if (this.droneLevel(v)) v.ctl.z = clamp(dT + (this.droneLift || 0), -1, 1);
+      else { v.ctl.z = 0; if (dT) this.setThrottle(v.throttle + dT * dt * DRONE.RAMP); }
+    } else if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
     v.brake = !!key('brake') || this.touchBrake;
     this.firing = !!key('fire') || !!this.touchFire || (this.mouseAim() && this.mouseFire);
     this.mgFiring = ga && (!!key('mg') || !!this.touchMG);
@@ -731,6 +1133,7 @@ const Flight = {
       const q = key('aimR') - key('aimL');
       if (q) this.aimYaw = wrapAngle(this.aimYaw - q * 1.0472 * dt);
     }
+    if (v.kind === 'drone' && typeof Drone.lagged === 'function') Drone.lagged(v, v.ctl, this); // (a weak link: the inputs arrive late, drone.js)
   },
   // ------------------------------------------------------------------ ground vehicles: aim mode (§8)
   // Every frame, before the controls: body.ground (the ground HUD's layout) for a ground vehicle with running gear or the
@@ -1010,7 +1413,7 @@ const Flight = {
         ctx.stroke();
         ctx.fillStyle = c; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, TAU); ctx.fill();
       };
-      cross(4, 'rgba(8, 11, 16, 0.55)', 3); cross(2, X.armed ? '#7dffb0' : '#9fe3ff', 1.8);
+      cross(4, 'rgba(8, 11, 16, 0.55)', 3); cross(2, X.armed ? (typeof Radar !== 'undefined' && Radar.S.gunIn ? '#ffd23f' : '#7dffb0') : '#9fe3ff', 1.8); // (yellow: the radar holds the gun's target inside 900 m)
     }
     if (!c.behind) {
       ctx.strokeStyle = 'rgba(8, 11, 16, 0.55)'; ctx.lineWidth = 4;
@@ -1040,8 +1443,13 @@ const Flight = {
     if (m < 0.97 || m >= 1) this.machWas = m;
   },
 
+  // (the big update) the active craft destroyed with nobody at its controls: a knocked-out ground vehicle, a falling
+  // hulk without its pilot, an aircraft shot down. The stick, the throttle and its parts do nothing
+  inert(v) { return !!v && this.destroyed && (!!v.ko || (v.hulk != null && !v.control) || !!v.down); },
+  // an engine (or cockpit) shot dead, kept aboard at 0: the damage model's (Death.partDead; no death.js, none is)
+  partOut(p) { return typeof Death !== 'undefined' && Death.partDead(p); },
   setThrottle(t) {
-    if (!this.active) return;
+    if (!this.active || this.inert(this.active)) return;
     this.active.throttle = clamp(t, 0, 1);
     this.updateThrottleDom();
   },
@@ -1342,6 +1750,7 @@ const Flight = {
       if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
         const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
         for (const s of [-1, 1]) {
+          if (s === v.mainWing.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
           if (Math.random() > 0.35 + 0.6 * k) continue;
           const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
           FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
@@ -1426,12 +1835,15 @@ const Flight = {
       this.keys.add(e.code);
       if (e.repeat) return;
       const K = (id) => Keys.is(e.code, id);
+      if (this.impactCam && this.clearImpact()) return; // (a drone's impact view: any key ends it)
       if (!K('sight')) this._shiftTap = false; // (Shift+Tab: a modifier, not the sight)
       if (K('fire')) this.fireTap = true;
+      if (K('drone')) { if (typeof Drone !== 'undefined') Drone.key(this); return; } // (the big update: launch a drone from a bay, or switch between it and its tank)
       if (this.groundAim && this.groundKey(e)) return; // (aiming a ground vehicle: its own keys first)
       if (this.flyAim && K('camera')) { this.flyLookStart(); return; } // (a plane in Aim: C held looks round)
-      const sas = this.active && this.active.kind === 'plane' ? PLANE_SAS_KEYS : SAS_KEYS;
+      const kind = this.active && this.active.kind, sas = kind === 'plane' ? PLANE_SAS_KEYS : kind === 'drone' ? DRONE_KEYS : SAS_KEYS;
       for (const id in sas) if (K(id)) { this.setSas(sas[id]); return; }
+      if (kind === 'drone' && this.droneKey(e)) return; // (a drone's Home, Land, view and thermal)
       if (e.code === 'Escape') this.openMenu(); // (Esc always: not a binding)
       else if (K('stage')) this.stage();
       else if (K('map')) this.toggleMap();
@@ -1443,17 +1855,20 @@ const Flight = {
       else if (K('prevCraft') || K('nextCraft')) this.cycleVessel(K('nextCraft') ? 1 : -1);
       else if (K('weapon')) { Combat.cycle(this, e.shiftKey ? -1 : 1); this.updateHUD(true); }
       else if (K('menu')) this.openMenu();
-      else if (K('recover')) { if (this.canRecover()) this.recover(); }
+      else if (K('recover')) { if (this.canRecover()) this.recover(); else if (this.active && this.active.drone && !this.active.drone.dead && !this.mp) this.toast('Bring the drone home first'); }
       else if (K('camera')) { if (App.use3D()) Render3D.resetCamera(); }
       else if (K('flaps')) this.cycleFlaps();
       else if (K('gear')) this.toggleGear();
       else if (K('cm')) this.countermeasures();
+      else if (K('radarNext')) { if (typeof Radar !== 'undefined') Radar.next(this, e.shiftKey ? -1 : 1); } // (I, Shift+I back: no-ops without a radar or a target)
+      else if (K('radarPower')) { if (typeof Radar !== 'undefined') { Radar.toggle(this); this.updateHUD(true); } } // (O: the radar off, silent, or on)
       else if (K('catapult')) this.launchCatapult();
     });
     addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (Keys.is(e.code, 'camera') && this.freeLook) this.endFreeLook();
       if (Keys.is(e.code, 'camera') && this.flyLook) this.flyLookEnd();
+      if (Keys.is(e.code, 'camera') && this.gimLook != null) { if (performance.now() - this.gimLook < 250) this.gimbalReset(); this.gimLook = null; } // (a drone's gimbal: a tap of C centres it)
       // Shift (a modifier bound to the sight) on its own toggles the gunner's sight, on its way up (with a key pressed
       // meanwhile it was a modifier)
       if (Keys.is(e.code, 'sight') && Keys.mod(e.code) && this._shiftTap) { this._shiftTap = false; if (App.scene === 'flight' && this.groundAim && !UI.modalOpen) this.setSight(!this.sight); }
@@ -1463,6 +1878,7 @@ const Flight = {
       this.mouseFire = false; this.touchMG = false; this._shiftTap = this._capBtn = false; if (this.sightHold) { this.sightHold = false; this.setSight(false); }
       if (this.freeLook) { this.freeLook = false; this.aimYaw = this.freeYaw; this.aimPitch = this.freePitch; } // (C let go in another window: back to the guns' aim)
       this.flyLook = null; this.flyLookBack = false; // (and a plane's view back on its circle)
+      this.gimLook = null; this.droneLift = 0; // (a drone's climb lever springs back)
     });
     document.addEventListener('visibilitychange', () => { if (this.running) this.syncAwake(); });
     // pointer lock (aim mode, a mouse): the game's own release says nothing; one the player makes (Esc) opens the menu
@@ -1484,11 +1900,13 @@ const Flight = {
       if (App.scene !== 'flight') return;
       e.preventDefault();
       if (this.groundAim && !this.mapMode && GHUD.wheel(this, e)) return; // (the sight's zoom steps, or its range ladder)
+      if (!this.mapMode && this.gimbalOn()) { this._gw = (this._gw || 0) + e.deltaY; if (Math.abs(this._gw) >= 60) { this.gimbalZoom(this._gw < 0 ? 1 : -1); this._gw = 0; } return; } // (a drone's gimbal: 1×, 4×, 12×)
       this.zoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
     }, { passive: false });
 
     c.addEventListener('pointerdown', (e) => {
       if (App.scene !== 'flight') return;
+      if (this.impactCam && this.clearImpact()) return; // (a drone's impact view: a tap ends it)
       // aiming with a mouse: the first click captures it (and doesn't fire); captured, the buttons fire (left) and hold the
       // sight (right); without the capture (refused, or none on this device) a left drag aims and the right button holds
       // the sight; nothing orbits
@@ -1503,7 +1921,7 @@ const Flight = {
       if (this.pointers.size === 2) this.pinch = this.pinchInfo();
       if (this.groundAim) GHUD.press(this, e, this.pointers.size === 1); // (a long press on an enemy's tag spots it)
     });
-    c.addEventListener('contextmenu', (e) => { if (this.mouseAim()) e.preventDefault(); }); // (the right button holds the sight)
+    c.addEventListener('contextmenu', (e) => { if (this.mouseAim() || this.gimbalOn()) e.preventDefault(); }); // (the right button holds the sight, or turns a drone's gimbal)
     c.addEventListener('pointermove', (e) => {
       if (App.scene !== 'flight') return;
       if (this._locked && this.mouseAim() && e.pointerType === 'mouse') { // (captured: the mouse's own movement aims; clientX/Y stand still)
@@ -1515,6 +1933,8 @@ const Flight = {
         this.mouseButtons(e.buttons);
         if (e.buttons & 1 && !this.pointers.has(e.pointerId) && !this.mapMode) { try { c.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() }); return; }
       }
+      // a drone's gimbal camera, with a mouse: C held, or the right button, turns it (no button needed for C)
+      if (e.pointerType === 'mouse' && !this.mapMode && this.gimbalOn() && (this.gimLook != null || e.buttons & 2)) { this.gimbalBy(e.movementX || 0, e.movementY || 0, 0.003); return; }
       const p = this.pointers.get(e.pointerId);
       if (!p) return;
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -1526,10 +1946,11 @@ const Flight = {
         this.pinch = now;
       } else if (this.pointers.size === 1 && this.mapMode) this.mapPan(dx, dy);
       else if (this.pointers.size === 1 && this.flyAim && e.pointerType !== 'mouse') this.flyLookDrag(dx, dy); // (a plane in Aim, a finger: look round; only the stick moves the circle)
+      else if (this.pointers.size === 1 && this.fpv) { if (this.gimbalOn()) this.gimbalBy(dx, dy); } // (a drone's FPV: a drag turns a gimbal camera, else nothing)
       else if (this.pointers.size === 1 && this.mouseAim()) { this.aimBy(dx, dy, (e.pointerType === 'mouse' ? 0.0035 : 0.006) * (Settings.get('aimSens') || 1)); if (this.groundAim) GHUD.dragged(p, e); }
       else if (this.pointers.size === 1 && App.use3D()) Render3D.orbitBy(dx, dy);
     });
-    c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D() && !this.mouseAim()) Render3D.resetCamera(); });
+    c.addEventListener('dblclick', () => { if (App.scene === 'flight' && !this.mapMode && App.use3D() && !this.mouseAim()) { if (this.fpv) this.gimbalReset(); else Render3D.resetCamera(); } });
     const up = (e) => {
       if (App.scene !== 'flight') return;
       // (captured: no tap, no drag; the click that asked for the capture may end after it came, and goes from the list)
@@ -1541,6 +1962,7 @@ const Flight = {
       if (this.flyAim && e.pointerType !== 'mouse' && !this.pointers.size) this.flyLookRelease(); // (the view glides back onto the circle)
       if (!p || e.type === 'pointercancel') return;
       const moved = Math.hypot(e.clientX - p.sx, e.clientY - p.sy);
+      if (this.fpv && moved < 10 && this.pointers.size === 0 && Drone.tap(this, e.clientX, e.clientY, performance.now() - p.t)) return; // (a drone's ZOOM pill: a tap steps the zoom, a long press is thermal)
       if (!(moved < 10 && performance.now() - p.t < 450 && this.pointers.size === 0)) return;
       // a plane in Aim, a finger: a double tap puts the circle on the nose (a single tap waits to see it isn't one)
       if (this.flyAim && e.pointerType !== 'mouse') {
@@ -1555,6 +1977,11 @@ const Flight = {
         this._tap1 = { t: now, x, y };
         this._tapT = setTimeout(() => { this._tap1 = null; if (App.scene === 'flight' && this.running && !Controls.editing) this.tapAt(x, y); }, 330);
         return;
+      }
+      if (this.fpv && e.pointerType !== 'mouse') { // (a drone's FPV, a finger: a double tap centres the gimbal; a tap on the OSD's ZOOM pill steps it)
+        const now = performance.now(), L = this._ftap;
+        this._ftap = { t: now, x: e.clientX, y: e.clientY };
+        if (L && now - L.t < 330 && Math.hypot(e.clientX - L.x, e.clientY - L.y) < 40) { this._ftap = null; this.gimbalReset(); haptic(12); return; }
       }
       this.tapAt(e.clientX, e.clientY);
     };
@@ -1595,27 +2022,72 @@ const Flight = {
     fire.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#btn-weapon').addEventListener('click', () => { Combat.cycle(this); this.updateHUD(true); });
     $('#btn-cm').addEventListener('click', () => this.countermeasures());
+    // the RDR pill: a tap picks the next target, a hold (0.6 s, its ring filling) switches the radar on or off
+    // (the hold is timed by the touches' own time stamps, and the timer's switch waits for any lift already queued, so a
+    // busy frame never turns a tap into a hold or a hold into a tap)
+    const rdr = $('#btn-radar');
+    let rdrT = null, rdrAt = 0, rdrDown = false;
+    const rdrOff = () => { clearTimeout(rdrT); rdrT = null; rdrDown = false; rdr.classList.remove('holding'); };
+    const rdrPower = () => { rdrOff(); if (typeof Radar !== 'undefined') Radar.toggle(this); haptic(20); this.updateHUD(true); };
+    rdr.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); rdr.setPointerCapture && rdr.setPointerCapture(e.pointerId);
+      rdrOff(); rdrDown = true; rdrAt = e.timeStamp; rdr.classList.add('holding');
+      rdrT = setTimeout(() => { rdrT = setTimeout(() => { if (rdrDown) rdrPower(); }, 0); }, 600);
+    });
+    rdr.addEventListener('pointerup', (e) => {
+      if (!rdrDown) return; // (held: already switched)
+      const held = e.timeStamp - rdrAt >= 600;
+      if (held) { rdrPower(); return; }
+      rdrOff();
+      if (typeof Radar !== 'undefined') { Radar.next(this, 1); haptic(10); }
+    });
+    for (const ev of ['pointercancel', 'lostpointercapture']) rdr.addEventListener(ev, rdrOff);
+    rdr.addEventListener('contextmenu', (e) => e.preventDefault());
     $('#btn-catapult').addEventListener('click', () => this.launchCatapult());
     $('#btn-stage').addEventListener('click', () => this.stage());
     $('#btn-flaps').addEventListener('click', () => this.cycleFlaps());
     $('#btn-gear').addEventListener('click', () => this.toggleGear());
     $('#btn-map').addEventListener('click', () => { if (this.groundAim && !this.mapMode) GHUD.tactical(!GHUD.tacOpen); else this.toggleMap(); }); // (a ground vehicle's MAP is the tactical map, as M is; the globe is a button on it)
     $('#btn-menu').addEventListener('click', () => this.openMenu());
+    $('#flight-alert').addEventListener('click', () => { if (this.destroyed && this.endPending) this.endNow(); }); // (the strip: the end screen now)
     $('#btn-recover').addEventListener('click', () => this.recover());
     $('#warp-up').addEventListener('click', () => this.setWarp(this.warpIdx + 1));
     $('#warp-down').addEventListener('click', () => this.setWarp(this.warpIdx - 1));
     $('#warp-label').addEventListener('click', () => this.setWarp(0));
-    $('#btn-tmax').addEventListener('click', () => this.setThrottle(1));
-    $('#btn-tcut').addEventListener('click', () => this.setThrottle(0));
+    $('#btn-tmax').addEventListener('click', () => { if (!this.droneLevel(this.active)) this.setThrottle(1); });
+    $('#btn-tcut').addEventListener('click', () => { if (!this.droneLevel(this.active)) this.setThrottle(0); });
+    // (the big update) a Level multirotor's ▲ and ▼: held, the lever up or down; let go, it springs back to hold
+    for (const [id, z] of [['#btn-tmax', 1], ['#btn-tcut', -1]]) {
+      const b = $(id), off = () => { if (this.droneHeld === b) { this.droneHeld = null; this.droneLift = 0; } b.classList.remove('held'); };
+      b.addEventListener('pointerdown', (e) => { if (!this.droneLevel(this.active)) return; e.preventDefault(); b.setPointerCapture && b.setPointerCapture(e.pointerId); this.droneHeld = b; this.droneLift = z; b.classList.add('held'); });
+      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, off);
+    }
+    $('#btn-drone').addEventListener('click', () => { if (typeof Drone !== 'undefined') { Drone.key(this); this.updateHUD(true); } });
+    document.querySelectorAll('#sas-bar [data-dact]').forEach((b) => b.addEventListener('click', () => {
+      const v = this.active, a = b.dataset.dact;
+      if (!v || v.kind !== 'drone') return;
+      if (a === 'view') this.setFpv(!this.fpv);
+      else if (a === 'back') Drone.key(this);
+      else if (this.inert(v)) return;
+      else if (a === 'home') Drone.home(this, v);
+      else if (a === 'land') Drone.land(this, v);
+    }));
     $('#btn-center').addEventListener('click', () => { if (GlobeView.active) GlobeView.center(); else { MapView.focusVessel(); MapView.fit(this); MapView.focusVessel(); } });
     $('#btn-mapview').addEventListener('click', () => this.setMapView(GlobeView.active ? 'system' : 'globe'));
     document.querySelectorAll('[data-sas]').forEach((b) => b.addEventListener('click', () => this.setSas(b.dataset.sas)));
     const track = $('#throttle-track');
-    const setFromY = (e) => { const r = track.getBoundingClientRect(); this.setThrottle(1 - (e.clientY - r.top) / r.height); };
+    // (the big update) a Level multirotor's climb lever: above the middle climbs, below descends, the middle (±5%) holds;
+    // let go and it springs back to the middle
+    const setFromY = (e) => {
+      const r = track.getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
+      if (this.droneLevel(this.active)) { const z = clamp((0.5 - y) * 2.2, -1, 1); this.droneLift = Math.abs(0.5 - y) <= 0.05 ? 0 : z; return; }
+      this.setThrottle(1 - y);
+    };
+    const trackOff = () => { this.dragThrottle = false; this.droneLift = 0; };
     track.addEventListener('pointerdown', (e) => { track.setPointerCapture(e.pointerId); setFromY(e); this.dragThrottle = true; });
     track.addEventListener('pointermove', (e) => { if (this.dragThrottle) setFromY(e); });
-    track.addEventListener('pointerup', () => { this.dragThrottle = false; });
-    track.addEventListener('pointercancel', () => { this.dragThrottle = false; });
+    track.addEventListener('pointerup', trackOff);
+    track.addEventListener('pointercancel', trackOff);
     GHUD.bind(); // (the ground controls: sight, MG, lock, the ammo chips, aiming by sliding on FIRE)
   },
   // the mouse's buttons in aim mode (e.buttons: 1 left, 2 right): captured, the left fires (a press shorter than a frame,
@@ -1661,8 +2133,9 @@ const Flight = {
   },
 
   cycleVessel(dir) {
+    if (this.active && this.active.carrier && !this.destroyed && typeof Drone !== 'undefined') { Drone.key(this); return; } // (a bay's drone: back to its tank, or dock)
     if (this.mp && (this.destroyed || this.mp.mode === 'pvp')) return; // (spectating: mpui.js)
-    const list = this.vessels.filter((v) => v.control && !v.dead && !v.ai && !v.remote);
+    const list = this.vessels.filter((v) => v.control && !v.dead && !v.ai && !v.remote && !v.carrier); // (a bay's drone is U's)
     if (list.length < 2) { this.toast('No other vessels to switch to'); return; }
     const i = list.indexOf(this.active);
     this.switchTo(list[(i + dir + list.length) % list.length]);
@@ -1674,6 +2147,11 @@ const Flight = {
   },
 
   zoomBy(f, cx, cy) {
+    if (!this.mapMode && this.gimbalOn()) { // (a pinch on a drone's gimbal camera steps its zoom)
+      this.gim.pz *= f;
+      if (this.gim.pz > 1.35 || this.gim.pz < 0.74) { this.gimbalZoom(this.gim.pz > 1 ? 1 : -1); this.gim.pz = 1; }
+      return;
+    }
     if (this.groundAim && this.sight && !this.mapMode) { // (a pinch in the sight steps its zoom: 3 and 6 on touch)
       this._pz = (this._pz || 1) * f;
       if (this._pz > 1.35 || this._pz < 0.74) { this.setSight(true, this._pz > 1 ? 6 : 3); this._pz = 1; }
@@ -1682,7 +2160,7 @@ const Flight = {
     if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
     // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
     const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
-    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, 80);
+    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
   },
 
   toggleMap() {
@@ -1724,6 +2202,7 @@ const Flight = {
       return;
     }
     if (this.destroyed) { if (this.mp && !this.mp.solo && MP.pvp) MPUI.spectate(1); return; } // (shot down: a tap watches the next player)
+    if (!this.groundAim && typeof Radar !== 'undefined' && Radar.tap(this, cx, cy)) return; // (a tap on the radar scope or a target's marker picks a target)
     if (App.use3D()) {
       const hit = Render3D.pickPart(cx, cy);
       if (!hit || !hit.part) return;
@@ -1749,6 +2228,8 @@ const Flight = {
   },
 
   usePart(v, p) {
+    if (v.down || this.inert(v)) return; // (a hulk shot down: nobody aboard to work its parts)
+    if (p.def.thrust && this.partOut(p)) { this.toast(`${p.def.name} is out`); return; } // (an engine shot dead won't relight)
     if (v.activatePart(p, this)) {
       this.flash = { id: p.id, t: performance.now() };
       Sound.click();
@@ -1759,9 +2240,12 @@ const Flight = {
 
   // ------------------------------------------------------------------ HUD
   updateThrottleDom() {
-    const t = this.active ? this.active.throttle : 0;
+    const v = this.active, t = v ? v.throttle : 0;
     $('#throttle-fill').style.height = `${t * 100}%`;
-    $('#throttle-label').textContent = `${Math.round(t * 100)}%`;
+    // (the big update) a Level multirotor's lever: the motors' output as the fill, and what the lever asks: ▲ climbing at,
+    // HOLD the height it holds over the ground, ▼ descending at
+    const txt = v && v.kind === 'drone' && Flight.droneLevel(v) ? Drone.leverText(v) : `${Math.round(t * 100)}%`, L = $('#throttle-label');
+    if (L.textContent !== txt) L.textContent = txt;
   },
 
   hint() {
@@ -1798,6 +2282,7 @@ const Flight = {
 
   vehicleHint(v) {
     const T = Controls.touch, k = (id) => Keys.k(id), ws = `${k('fwd')}/${k('back')}`, ad = `${k('left')}/${k('right')}`; // (the keys as bound: W/S, A/D by default)
+    if (v.kind === 'drone') return Drone.help(this) || ''; // (the big update: a drone's first moments)
     if (this._bodyGround) { // (a ground vehicle with tracks, armoured wheels or the ground update's guns)
       if (this.time > 15 || this.mp || this.shotYet) return ''; // (P4 play-test: not for 30 s, over the kill banner and the targets' labels on a phone)
       if (this.groundAim) return T ? 'Left thumb drives. Drag the view, or slide on FIRE, to aim. Binoculars: the gunner’s sight.'
@@ -1918,9 +2403,15 @@ const Flight = {
     $('#row-hdg').hidden = !hdg;
     if (hdg) { const c = this.compass(v); set('t-hdg', `${String(Math.round(c) % 360).padStart(3, '0')}° ${COMPASS[Math.round(c / 22.5) % 16]}`); }
     const integ = Combat.integrity(v); // the share of the craft's health that's gone
-    $('#row-dmg').hidden = integ > 0.995 && !v.ko;
-    if (v.ko) { set('t-dmg', 'Knocked out'); $('#row-dmg').classList.add('danger'); } // (P4 play-test: not "8%" with its turret thrown)
-    else if (integ <= 0.995) { set('t-dmg', `${Math.max(1, Math.round((1 - integ) * 100))}%`); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
+    // (the big update) an aircraft's fire (death.js): only once it has been hurt at all (an old flight without hits asks nothing)
+    const hurt = integ <= 0.995, air = isAirKind(v.kind) && typeof Death !== 'undefined', fire = hurt && air ? Death.burning(v) : null;
+    const pct = `${Math.max(1, Math.round((1 - integ) * 100))}%`;
+    // (the row is narrow: "Pilot knocked out" took two lines on a phone and a desktop alike; the strip says it in full)
+    const dmg = v.ko ? 'Knocked out' : v.down ? (v.hulkWhy === 'pilot' && v.kind !== 'drone' ? 'Pilot KO' : 'Shot down') // (P4 play-test: not "8%" with its turret thrown)
+      : v.hulk != null && air ? `Crippled · ${pct}` : fire ? `On fire · ${pct}` : null;
+    $('#row-dmg').hidden = !hurt && !dmg;
+    if (dmg) { set('t-dmg', dmg); $('#row-dmg').classList.add('danger'); }
+    else if (hurt) { set('t-dmg', pct); $('#row-dmg').classList.toggle('danger', integ < 0.6); }
     const gload = v.kind === 'plane' && !v.landed && v.airspeed > 20;
     $('#row-g').hidden = !gload;
     const st = this.structAlert(v);
@@ -1929,13 +2420,29 @@ const Flight = {
       set('t-g', gr ? `${v.nz.toFixed(1)} / ${gr.toFixed(gr < 10 ? 1 : 0)} g` : `${v.gForce.toFixed(1)} g`);
       $('#row-g').classList.toggle('danger', !!(st && st.kind === 'g'));
     }
-    // over-g or overspeed: the wings are at risk (near a wing's speed limit, or past it and fluttering apart)
-    const al = $('#flight-alert');
-    al.hidden = !st;
-    if (st) {
-      const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
-      set('flight-alert', st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`);
-      al.classList.toggle('critical', st.level > 1);
+    // over-g or overspeed: the wings are at risk (near a wing's speed limit, or past it and fluttering apart). (the big
+    // update) An aircraft's fire and a leaking tank too, in order: breaking (over-g or overspeed at level 2) > a fire >
+    // the level-1 warnings > a fuel leak. Once lost, it is the strip (what happened, tap for options) while the end
+    // screen waits, and nothing else.
+    if (this.destroyed) {
+      if (this.endPending && !(this.endCbs && this.endCbs.length) && !this._endGo && this.diedAt != null && this.time - this.diedAt > DEATH.endMax + 2) this.endPending = false; // (no end screen came for it: nothing to tap for)
+      this.strip(true);
+    } else {
+      const al = $('#flight-alert'), leak = hurt && air && !fire && v.parts.some(Death.leaking);
+      let msg = null, crit = false;
+      const struct = () => {
+        const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
+        return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
+      };
+      const dm = v.carrier && typeof Drone !== 'undefined' ? Drone.alertText(this) : null; // (a drone from a bay: its LAST FLIGHT, its tank hit; plan I6)
+      if (dm) { msg = dm; crit = true; }
+      else if (st && st.level > 1) { msg = struct(); crit = true; }
+      else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
+      else if (st) msg = struct();
+      else if (leak) msg = v.kind === 'drone' ? 'Battery damaged' : 'Fuel leak';
+      if (al.classList.contains('lost')) al.classList.remove('lost');
+      al.hidden = !msg;
+      if (msg) { set('flight-alert', msg); al.classList.toggle('critical', crit); this.placeAlert(al); }
     }
     // orbital readouts mean little for a car or a plane low in the air
     const orbital = rocket || !b.atmoHeight || alt > b.atmoHeight * 0.7;
@@ -2000,21 +2507,26 @@ const Flight = {
       : v.wheels.some((p) => p.def.wheel.drive) && (v.kind === 'car' || v.kind === 'rocket') ? `Drive with ${kk('fwd')}/${kk('back')}, steer ${kk('left')}/${kk('right')} · hold ${kk('brake')} to brake` : 'Tap parts to use them');
     $('#btn-brake').hidden = !v.wheels.length && !v.airbrakes.length && !v.gear.length; // (running gear brakes too)
     const ws = Combat.status(v);
-    $('#weapon-box').hidden = !ws || this.destroyed;
+    // a radar aboard: the RDR pill (touch), and the weapon box shows for it even on a craft with nothing to fire
+    const rdr = typeof Radar !== 'undefined' && Radar.aboard(v) && !this.destroyed && !this.groundAim;
+    $('#weapon-box').hidden = (!ws && !rdr) || this.destroyed;
     $('#btn-cm').hidden = !(ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0)) || this.destroyed; // (a ground vehicle's smoke grenades: SMOKE)
-    $('#btn-fire').hidden = !!(ws && ws.cmOnly); // (only flares or chaff on board: nothing to fire)
+    $('#btn-fire').hidden = !!(ws && ws.cmOnly) || (!ws && rdr); // (only flares or chaff on board: nothing to fire)
+    if (rdr || this._rdr) this.radarPill(v, ws, rdr); // (an old craft: never)
+    if (v.kind === 'drone' || (v.docks && v.docks.length) || (v.cuas && v.cuas.length) || this._dhud) this.droneHUD(v, gnd); // (the big update's drones, a jammer's JAM chip included: an old craft never comes here)
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
-      set('w-name', ws.name + (ws.n > 1 ? ' ▸' : ''));
+      set('w-name', (ws.radar && ws.radar !== 'ok' ? '⊘ ' : '') + ws.name + (ws.n > 1 ? ' ▸' : '')); // (⊘: radar missiles with no radar to guide them)
       const fl = ws.flares || (ws.cmOnly && ws.fl) ? `✦${ws.flares}` : '', ch = ws.chaff || (ws.cmOnly && ws.ch) ? `≋${ws.chaff}` : '';
       const cm = fl && ch ? `${fl} ${ch}` : fl || ch; // flares and chaff left (0 shown when they are all a craft has)
       set('w-ammo', [ws.ammo, cm, ws.stealth > 0.05 ? `◈${Math.round(ws.stealth * 100)}%` : '', ws.kills ? `${ws.kills} ✕` : ''].filter((s) => s !== '' && s != null).join(' · '));
       $('#btn-weapon').classList.toggle('lock', ws.lock);
     }
-    $('#btn-flaps').hidden = !v.hasFlaps;
+    const nobody = this.inert(v); // (a hulk nobody flies: no flaps or gear to work)
+    $('#btn-flaps').hidden = !v.hasFlaps || nobody;
     set('btn-flaps', v.flaps ? `Flaps ${Math.round(v.flaps * 100)}%` : 'Flaps');
     $('#btn-flaps').classList.toggle('on', v.flaps > 0);
-    $('#btn-gear').hidden = !v.hasRetract;
+    $('#btn-gear').hidden = !v.hasRetract || nobody;
     set('btn-gear', v.gearUp ? 'Gear up' : 'Gear down');
     $('#btn-gear').classList.toggle('on', !v.gearUp);
     $('#btn-stage').disabled = !next || this.destroyed;
@@ -2025,6 +2537,48 @@ const Flight = {
     if (gnd || this._gsync) { this._gsync = gnd; GHUD.sync(this, ws); } // (the ground controls; once more as they go)
     Controls.keyHints(this, false, ws); // (a desktop's key hints: rebuilt only when what they say changes)
     if (force) { this.updateThrottleDom(); this.syncSas(); }
+  },
+
+  // (the big update) A drone's telemetry rows (battery, link: the chase view's; FPV has them on its OSD), the JAM chip, the
+  // stage box gone, the climb lever's label; a carrier's DRONE button (drones left, ▸ while one is up, greyed when a
+  // launch would be refused for speed or an empty bay). Each written on a change only.
+  droneHUD(v, gnd) {
+    const drone = v.kind === 'drone' && !this.destroyed, hide = (e, h) => { if (e.hidden !== h) e.hidden = h; }, set = (e, t) => { if (e.textContent !== t) e.textContent = t; };
+    const rb = $('#row-batt'), rl = $('#row-link');
+    hide(rb, !drone); hide(rl, !drone);
+    if (drone) {
+      const B = Drone.batt(v, this), L = Drone.linkState(v);
+      set($('#t-batt'), B.text); rb.classList.toggle('danger', B.q <= DRONE.BATT.CRIT); rb.classList.toggle('warn', B.q <= DRONE.BATT.WARN && B.q > DRONE.BATT.CRIT);
+      set($('#t-link'), L.text); rl.classList.toggle('danger', L.bad);
+      if (this.droneLevel(v)) this.updateThrottleDom();
+    }
+    const n = Drone.jamN(this), jc = $('#jam-chip'), jt = n > 0 && !this.destroyed ? `JAM · ${n} drone${n > 1 ? 's' : ''}` : '';
+    hide(jc, !jt); if (jt) set(jc, jt);
+    const b = $('#btn-drone'), dk = gnd && v.docks.length > 0 && !this.destroyed;
+    hide(b, !dk);
+    if (dk) {
+      const up = !!(v.drone && !v.drone.dead), left = Drone.left(v), t = up ? '▸ DRONE' : 'DRONE', badge = up ? '' : `×${left}`;
+      if (b.firstChild.textContent !== t) b.firstChild.textContent = t;
+      set(b.querySelector('.badge'), badge);
+      const off = !up && (left <= 0 || v.speed() > DRONE.LAUNCH.V);
+      if (b.classList.contains('off') !== off) b.classList.toggle('off', off);
+      b.setAttribute('aria-pressed', String(up));
+    }
+    this._dhud = drone || dk || n > 0;
+  },
+  // The RDR pill (touch: a desktop hides it and has I and O) and what the weapon box shows for a radar: its words
+  // ('RDR PD', 'RDR OFF', 'RDR OUT'), dimmed while off, red when knocked out; on a craft with a radar and nothing to
+  // fire, the box holds the pill alone. Written only on change; an old craft never comes here (rdr false and _rdr unset).
+  radarPill(v, ws, rdr) {
+    const b = $('#btn-radar'), chip = $('#btn-weapon'), t = rdr ? Radar.pill(v) : '';
+    if (b.hidden !== !rdr) b.hidden = !rdr;
+    if (rdr && b.textContent !== t) b.textContent = t;
+    const off = rdr && !!v.radarOff, out = rdr && t === 'RDR OUT';
+    if (b.classList.contains('off') !== off) b.classList.toggle('off', off);
+    if (b.classList.contains('out') !== out) b.classList.toggle('out', out);
+    const noChip = !ws && rdr;
+    if (chip.hidden !== noChip) chip.hidden = noChip;
+    this._rdr = rdr;
   },
 
   // ------------------------------------------------------------------ rendering

@@ -14,7 +14,7 @@ const t = G.checks('ground: §contract (Phase 1)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 
 // ---------------------------------------------------------------- counters on every function of the new systems
-const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props']; // (Props: the battlefields' solid scenery, props.js)
+const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props', 'Drone']; // (Props: the battlefields' solid scenery, props.js; Drone: the big update's drones, drone.js)
 const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringify(SYSTEMS)}) {
   if (typeof this[name] === 'undefined') continue;
   const o = this[name];
@@ -48,18 +48,19 @@ var oldRun = (v, F, secs, script) => {
   for (let i = 0; i < secs / dt; i++) {
     script(v, i * dt, F, i);
     v.physicsStep(dt, F); Combat.step(dt, F); F.time += dt;
-    if (i % 4 === 0) Combat.frame(F, dt * 4);
+    if (i % 4 === 0) { Combat.frame(F, dt * 4); if (Combat.S.dr) DRON++; } // (the big update's drone gate: shut for every old flight)
     most = Math.max(most, Combat.S.shots.length);
     if (v.dead || !v.parts.length) break;
   }
 };
 var dice = (seed) => { let s = seed >>> 0; Math.random = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+var KOS = 0, DRON = 0;
 var where = (v) => JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length, v.dead, Combat.S.shots.map((s) => [s.k, s.x, s.y, s.z])]);`;
 R(OLDRUN);
 const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
 RB(OLDRUN);
 // (every old template: the ground update's own stock vehicles, which carry its parts, are left out of these proofs)
-const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv));
+const OLD = Object.keys(ctx.TEMPLATES).filter((k) => !ctx.TEMPLATES[k].parts.some((r) => ctx.PARTS[r[0]] && ctx.PARTS[r[0]].gv) && (ctx.TEMPLATES[k].kind || 'rocket') !== 'drone'); // (nor the big update's drones)
 ctx.__OLD = OLD;
 let traced = 0;
 const same = [];
@@ -81,6 +82,7 @@ for (const key of OLD) {
       v.ctl.v = tt > 2 && tt < 4 ? -0.6 : 0; v.ctl.h = tt > 4 && tt < 5 ? 1 : tt > 7 && tt < 8 ? -0.7 : 0; v.ctl.r = tt > 9 && tt < 10 ? 0.5 : 0;
       if (v.kind !== 'plane' && tt > 6 && v.stageIdx < v.stages.length && i % 240 === 0) { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; }
       F.firing = tt > 3 && tt < 4;
+      if ((isAirKind(v.kind) || isGround(v.kind)) && tt > 10.5 && v.control && !v.koDone) { v.koDone = true; Combat.damage(v, v.control, 1e6, 'shot', F); if (v.down || v.ko) KOS++; } // (the big update: the pilot knocked out, the craft falls limp; a car's driver knocked out, its hulk a wreck)
     });
     return where(v);
   })()`;
@@ -89,9 +91,9 @@ for (const key of OLD) {
   if (a !== b) same.push(key);
   traced++;
 }
-t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other five systems; Props asked (its shots, its contacts, the crush pass), and nothing met`,
-  quiet() === '{}' && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
-t('...and every craft and every round in flight ends exactly where it does in a game with no props at all', !same.length && traced > 30, same);
+t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other six systems (Drone too: Combat.S.dr never opens); Props asked (its shots, its contacts, the crush pass), and nothing met`,
+  quiet() === '{}' && R('DRON') === 0 && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
+t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s, cars their drivers)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
@@ -124,21 +126,37 @@ for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'pl
   Combat.netShot(g, { k: 'rocket', b: 'earth', P: [v.x, v.y, v.z], V: [10, 0, 0], D: [1, 0, 0] });
   Combat.netFlares(g, { P: [v.x, v.y, v.z], V: [0, 0, 0], chaff: 1 });
   for (const p of v.parts.slice()) if (v.parts.includes(p)) Combat.damage(v, p, 1e6, 'shot', F);
+  for (let i = 0; i < 300; i++) { F.time += 1 / 30; Combat.frame(F, 1 / 30); } // (the big update: 10 s of the damage model's ticks over what is left)
   Combat.reset(F); fp++;
 }`);
-t(`the combat fingerprint's operations (${R('fp')} craft): no calls into the other five systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
+t(`the combat fingerprint's operations (${R('fp')} craft), every part then shot to 0 (the damage model's air rule) and 10 s of its ticks: no calls into the other six systems, no prop met`, quiet() === '{}' && met() === '[0,0,0]', [quiet(), met()]);
 
 // 3. a buggy drive on the runway: away, round a corner, back, braked to a stop
 ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
 R(`var bug = __v; Combat.reset({});
 oldRun(bug, simOf(bug), 14, (v, tt) => { v.ctl.v = tt < 6 ? 1 : tt < 9 ? 0 : tt < 11 ? -1 : 0; v.ctl.h = tt > 4 && tt < 6 ? 1 : 0; v.brake = tt > 11; });
 var bugSaved = Vessel.restore(JSON.parse(JSON.stringify(bug.serialize())));`);
-t('a buggy drive (and its saved flight): no calls into the other five systems, no prop met', quiet() === '{}' && met() === '[0,0,0]' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), [quiet(), met()]);
+t('a buggy drive (and its saved flight): no calls into the other six systems, no prop met', quiet() === '{}' && met() === '[0,0,0]' && R('bug.speed() < 1 && bugSaved.parts.length === bug.parts.length'), [quiet(), met()]);
+// 3b. (the big update) the buggy's cab shot to 0 as it drives: the driver knocked out (death.js's groundKO), the hulk
+// coasting to a stop and a wreck, then 6 s of frames (the damage model's ticks: its wreck's fire and smoke); and a buggy
+// driven nose first into the runway at 30 m/s through the crash hook as Flight.breakParts calls it (Death.impact)
+ctx.__v = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car'); ctx.__c = G.craft(ctx, R('templateRows(TEMPLATES.buggy)'), 'car');
+R(`var deadRun = (v, F, secs, script) => { for (let i = 0; i < secs * 120; i++) { if (script) script(v, i / 120); if (!v.wreck && !v.dead) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; if (i % 2 === 0) Combat.frame(F, 1 / 60); } };
+var bko = __v, bkF = simOf(bko); Combat.reset({});
+deadRun(bko, bkF, 2, (v) => { v.ctl.v = 1; });
+Combat.damage(bko, bko.parts.find((p) => p.type === 'cab'), 1e6, 'shot', bkF);
+deadRun(bko, bkF, 6, (v) => { v.ctl.v = 0; });
+var bcr = __c, bcF = simOf(bcr), bcB = bcF.breakParts; bcF.breakParts = function (v, parts, cause) { if (cause === 'impact') { parts = Death.impact(v, parts, this); if (!parts || !parts.length) return; } return bcB.call(this, v, parts, cause); };
+{ const r = Math.hypot(bcr.x, bcr.y, bcr.z), u = { x: bcr.x / r, y: bcr.y / r, z: bcr.z / r }; bcr.q = qmul(bcr.q, qaxis(0, 0, 1, -Math.PI / 2)); bcr.x += u.x * 6; bcr.y += u.y * 6; bcr.z += u.z * 6; bcr.vx = -u.x * 30; bcr.vy = -u.y * 30; bcr.vz = -u.z * 30; bcr.landed = false; }
+deadRun(bcr, bcF, 2);`);
+t('...the buggy\'s driver shot (knocked out, a wreck, 6 s of its fire and smoke) and a buggy crashed nose first at 30 m/s (knocked out where it hit): no calls into the other six systems, no prop met',
+  quiet() === '{}' && met() === '[0,0,0]' && R(`bko.ko && bko.ko.why === 'crew' && bko.wreck && bcr.ko && bcr.ko.why === 'hull' && bcr.wreck`), [quiet(), met(), R('[bko.ko, bko.wreck, bcr.ko, bcr.wreck]')]);
 
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
 t('rows and costs of every old template: no calls', quiet() === '{}', quiet());
-t('old vessels carry the new fields\' defaults (no gear, no groups, not plated)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)`));
+t('old vessels carry the new fields\' defaults (no gear, no groups, not plated; no counter-drone kit, no bays, no drone groups)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)
+  && bug.cuas === NO_GEAR && bug.docks === NO_GEAR && bug.dr === null && !bug.cdLow`));
 
 // 5. multiplayer: an old craft's spawn rows out and back, and its ghost
 const mp = G.load({ mp: true, earth: false });
@@ -163,7 +181,10 @@ t('spawning and ghosting every old template: no calls', calls(mp) === '{}', call
 t('isGround: cars and armour, nothing else', R(`isGround('car') && isGround('tank') && !isGround('plane') && !isGround('heli') && !isGround('rocket') && !isGround(undefined)`));
 t('the Armour kind: launches from the runway at rot 0 with its seven tabs', R(`(() => { const K = VEHICLE_KINDS.tank; return K.name === 'Armour' && K.site === 'runway' && K.launchRot === 0
   && K.cats.join() === 'hulls,turrets,drive,guns,launchers,crew,kit' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)); })()`));
-t('21 part categories, the seven new ones after Ground', R(`PART_CATEGORIES.length === 21 && PART_CATEGORIES.map((c) => c.id).slice(13).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'`));
+t('26 part categories, the seven new ones after Ground (then the big update\'s four drone tabs, and its Radar last)', R(`PART_CATEGORIES.length === 26 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'
+  && PART_CATEGORIES.map((c) => c.id).slice(21, 25).join() === 'drFrame,drPower,drLink,drPay' && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
+t('the Drone kind: launches from the helipad at rot 0 with its four tabs', R(`(() => { const K = VEHICLE_KINDS.drone; return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0
+  && K.cats.join() === 'drFrame,drPower,drLink,drPay' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)) && !isGround('drone') && isAirKind('drone'); })()`));
 t('PILOT.tank and a car-like drive frame', R(`!!PILOT.tank && PILOT.tank.F.x === 1 && PILOT.tank.U.y === 1`));
 
 // ---------------------------------------------------------------- test parts (shaped like the catalogue's; §3.1, §3.5)
@@ -210,7 +231,14 @@ t('massPerMm: composite weighs 0.45 of steel; a round turret by bearing', near(R
 t('armourMassT and armourCostDelta: thicker plate, more steel and money ($400 a tonne; $900 composite)', R(`near(armourMassT(PARTS.tstTurret, 150), 11 + massPerMm(PARTS.tstTurret) * 50)
   && armourCostDelta(PARTS.tstTurret, 150) === Math.round(massPerMm(PARTS.tstTurret) * 50 * 400) && armourCostDelta(PARTS.tstTurret, 100) === 0 && armourCostDelta(PARTS.tstTurret, 40) < 0
   && armourCostDelta(PARTS.tstCast, 160) === Math.round(massPerMm(PARTS.tstCast) * 70 * 900) && armourCostDelta(PARTS.tstHull, 'junk') === 0 && armourCostDelta(PARTS.cab, 50) === 0`));
-t('old parts: partKg and designCost unchanged for every template (no mm anywhere)', R(`Object.keys(TEMPLATES).every((k) => {
+// (the one stock design with armour dialled: the MA-1C Abrahm's turret at 480 mm, thinned to carry its drone kit within
+// its ring's 20 t; drones.test.js and core.test.js pin it)
+const DIALLED = { ma1c: { turretWedge: 480 } };
+ctx.__DIAL = DIALLED;
+t('the MA-1C alone has armour dialled (its turret 480 mm, $374 and 416 kg less than at 500 mm), written to its rows', R(`(() => { const ps = partsFromDesign(templateRows(TEMPLATES.ma1c)), d = ps.filter((p) => p.mm !== undefined);
+  return d.length === 1 && d[0].type === 'turretWedge' && d[0].mm === 480 && designRows(ps).filter((q) => 'mm' in q).length === 1
+    && designCost(ps) === ps.reduce((s, p) => s + p.def.cost, 0) + armourCostDelta(PARTS.turretWedge, 480) && armourCostDelta(PARTS.turretWedge, 480) === -374; })()`));
+t('old parts: partKg and designCost unchanged for every other template (no mm anywhere)', R(`Object.keys(TEMPLATES).filter((k) => !__DIAL[k]).every((k) => {
   const ps = partsFromDesign(templateRows(TEMPLATES[k]));
   return ps.every((p) => p.mm === undefined && partKg(p) === p.def.mass * 1000 + p.fuel + (p.store || 0)) && designCost(ps) === ps.reduce((s, p) => s + p.def.cost, 0)
     && designRows(ps).every((q) => !('mm' in q));
@@ -232,8 +260,8 @@ var oldCode = (d) => {
   let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return (ext ? 'RSS2.' : 'RSS1.') + btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
 };`);
-t('every template keeps its RSS1/RSS2 code, byte for byte', R(`Object.keys(TEMPLATES).every((k) => { const d = { name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, parts: designRows(partsFromDesign(templateRows(TEMPLATES[k]))) };
-  const c = Codes.designCode(d); return c === oldCode(d) && /^RSS[12]\\./.test(c); })`));
+t('every template keeps its RSS1/RSS2 code, byte for byte (the MA-1C, dialled, an RSS3 code)', R(`Object.keys(TEMPLATES).every((k) => { const d = { name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, parts: designRows(partsFromDesign(templateRows(TEMPLATES[k]))) };
+  const c = Codes.designCode(d); return __DIAL[k] ? /^RSS3\\./.test(c) : c === oldCode(d) && /^RSS[12]\\./.test(c); })`));
 R(`var tps = partsFromDesign(TANK); tps[0].mm = 60; tps[5].mm = 150; var trows = designRows(tps), tmass = kg(tps);`);
 t('designRows writes mm only where it was dialled', R(`trows[0].mm === 60 && trows[5].mm === 150 && trows.filter((q) => 'mm' in q).length === 2`));
 t('rows -> parts: the same mass (the thicker plates included)', R(`near(kg(partsFromDesign(trows)), tmass) && tmass > kg(partsFromDesign(TANK)) + 5000`), R('[tmass, kg(partsFromDesign(TANK))]'));
@@ -531,6 +559,55 @@ t('the pv rows carry a turret ring (its yaw) and nothing new for old craft', G.r
   const old = pv(b), want = b.parts.filter((p) => { const d = p.def; return d.wing || d.thrust || d.weapon || d.chute || (d.wheel && d.wheel.retract); }).map((p) => p.id).join();
   return !!ring && ring[6] === 0.5 && old.map((r) => r[0]).join() === want;
 })()`));
+// (the big update, NET_VERSION 11: a cut wing's pv column, a burning part's hp column, a falling hulk's down.fall, a
+// wreck's down.w in every mode, a hit row's wing side) an old craft's messages exactly as before: a buggy hit about
+// sends its part states in 12 columns and its health as [id, %]; an intact plane shot down in the air sends
+// { t, by, P } and nothing first; hits on an old buggy are [id, damage] rows; no calls into the new systems
+t('old craft send their messages as before the big update: a buggy\'s hp rows ([id, %]; part states it has none), a Mustang\'s pv rows (12 columns) and hp rows, an intact plane\'s down {t, by, P} (no last word first), hit rows [id, damage]', G.run(mp, `(() => {
+  for (const k in CALLS) delete CALLS[k]; // (the ring check above built a tank)
+  const C0 = globalThis.Combat, T0 = globalThis.setTimeout, timers = [];
+  globalThis.Combat = { hpFrac: (p) => (p.hp == null ? 1 : Math.max(0, p.hp) / 1000), maxHp: () => 1000, S: { kills: 0 } }; globalThis.setTimeout = (fn, ms) => { timers.push(ms); return 0; };
+  const bp = partsFromDesign(templateRows(TEMPLATES.buggy)), b = new Vessel(bp, buildAdjacency(bp), EARTH); b.kind = 'car'; b.rebuildGroups();
+  b.parts.forEach((p, i) => { if (i % 2) p.hp = 1000 - 150 * i; }); // (hit about: some parts hurt, some not)
+  const send = (v) => { Flight.active = v; Flight.destroyed = false; MP.sent = { s: 1e12, pv: -1e9, hp: -1e9, hpSig: '' }; MP.lastParts = v.parts.length; Net.out = []; MP.afterUpdate();
+    const f = (t) => { const m = Net.out.find(([q]) => q.t === t); return m ? m[0].list : []; }; return [f('pv'), f('hp')]; };
+  const [pvB, hp] = send(b), pp = partsFromDesign(templateRows(TEMPLATES.mustang)), pl = new Vessel(pp, buildAdjacency(pp), EARTH); pl.kind = 'plane'; pl.rebuildGroups();
+  pl.parts.forEach((p, i) => { if (i % 3 === 0) p.hp = 900 - 40 * i; }); const [pv, hpP] = send(pl);
+  const okPv = !pvB.length && pv.length > 3 && pv.every((r) => r.length === 12) && hpP.every((r) => r.length === 2);
+  const okHp = hp.length > 0 && JSON.stringify(hp) === JSON.stringify(b.parts.filter((p) => p.hp != null).map((p) => [p.id, Math.round(Combat.hpFrac(p) * 100)]));
+  pl.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.runway.east), VEHICLE_KINDS.plane.launchRot); { const r = Math.hypot(pl.x, pl.y, pl.z); for (const k of ['x', 'y', 'z']) pl[k] += (pl[k] / r) * 1000; } pl.landed = false;
+  pl.vx = 80; pl.lastHitBy = { remote: 5 }; pl.lastHitAt = 5; Flight.time = 10; Flight.active = pl; Flight.destroyed = true; MP.lastParts = pl.parts.length - 1; Net.out = [];
+  MP.onLocalDestroyed(); const out = Net.out.map(([m]) => m), dn = out[0];
+  const okDown = out.length === 1 && dn.t === 'down' && Object.keys(dn).join() === 't,by,P' && dn.by === 5 && timers.join() === '1600';
+  const gp = partsFromDesign(templateRows(TEMPLATES.buggy)), g = new Vessel(gp, buildAdjacency(gp), EARTH); g.kind = 'car'; g.rebuildGroups(); g.remote = 5; Net.out = [];
+  MP.sendHits(g, [[g.parts[0], 50], [g.parts[1], 12.34]], 'shot'); MP.sendHit(g, g.parts[2], 7, 'shot'); const hits = Net.out.map(([m]) => JSON.stringify(m));
+  const okHit = hits.length === 2 && hits[0] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[0].id, 50], [g.parts[1].id, 12.3]], k: 'shot' }) && hits[1] === JSON.stringify({ t: 'hit', to: 5, list: [[g.parts[2].id, 7]], k: 'shot' });
+  globalThis.Combat = C0; globalThis.setTimeout = T0; Flight.destroyed = false; Flight.time = undefined;
+  return okPv && okHp && okDown && okHit || JSON.stringify([okPv, okHp, okDown, okHit, out, hits]);
+})()`) === true);
+t('...and none of it calls into the new systems', calls(mp) === '{}', calls(mp));
+// (the big update's drones, NET_VERSION 11) a tank with its drone up, flown from the tank or from the drone: the tank's
+// own messages byte for byte as with no drone (c = 0 carries no c); the drone's (its spawn, s, pv, hp) carry c, last
+t('a tank with its drone up sends its own messages byte for byte as with none (flown from the tank or from the drone); the drone\'s all carry c last', G.run(mp, `(() => {
+  const C0 = globalThis.Combat; globalThis.Combat = { hpFrac: (p) => (p.hp == null ? 1 : Math.max(0, p.hp) / 1000), maxHp: () => 1000, S: { kills: 0 } };
+  const tp = partsFromDesign(templateRows(TEMPLATES.tk34)), tk = new Vessel(tp, buildAdjacency(tp), EARTH); tk.kind = 'tank'; tk.rebuildGroups();
+  tk.parts.forEach((p, i) => { if (i % 2) p.hp = 900 - 50 * i; }); tk.parts.find((p) => p.def.ring).aimYaw = 0.3;
+  const B = [['drFrameS', 0, 0], ['drFC', 0, 0.0375, 0, { att: 0 }], ['drCam', 0.155, 0.0425, 0, { att: 0 }], ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }],
+    ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }]]
+    .map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) }));
+  const d = Drone.build(B, 'Bumble'); d.x = tk.x; d.y = tk.y + 20; d.z = tk.z; d.parts.find((p) => p.def.thrust).firing = 0.437; d.parts[1].hp = 5; // (hurt: it sends its health)
+  const cap = (fly, up) => { MP.extra.clear(); MP.mainDown = false; Flight.active = tk; Flight.destroyed = false; Net.out = [];
+    if (up) { MP.nextC = 1; MP.sendExtra(d); MP.extra.get(1).sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; if (fly) { d.carrier = tk; Flight.active = d; } }
+    MP.sent = { s: -1e9, pv: -1e9, hp: -1e9, hpSig: '' }; MP.lastParts = tk.parts.length - 1; MP.afterUpdate(); d.carrier = undefined;
+    return Net.out.map(([m]) => m); };
+  const none = cap(false, false), withUp = cap(false, true), flown = cap(true, true), main = (L) => JSON.stringify(L.filter((m) => !('c' in m)));
+  const extra = flown.filter((m) => 'c' in m), types = extra.map((m) => m.t).join();
+  MP.extra.clear(); globalThis.Combat = C0;
+  const ok = none.length >= 4 && main(none) === JSON.stringify(none) && main(withUp) === JSON.stringify(none) && main(flown) === JSON.stringify(none)
+    && types === 'spawn,s,pv,hp' && extra.every((m) => m.c === 1 && Object.keys(m).at(-1) === 'c') && extra[2].list.some((r) => r[2] === 0.4);
+  return ok || JSON.stringify([none.map((m) => m.t), withUp.map((m) => m.t + (m.c || '')), flown.map((m) => m.t + (m.c || '')), types]);
+})()`) === true);
+G.run(mp, 'for (const k in CALLS) delete CALLS[k];'); // (the drone above was built through Drone)
 
 // ================================================================ §physics (Phase 2A): the running gear (gear.js)
 // The five vehicles of spec §4.4, built from the catalogue's own parts (test/lib/tanks.js), on the real map (the arena's

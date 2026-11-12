@@ -8,6 +8,14 @@ const Parts3D = (() => {
   const models = new Map(), textures = new Map();
   const PX_PER_M = 64;
   const CREASE = 0.45; // radians: sharper turns in a revolved outline get a hard edge
+  // Canopy glass gives back more of the sky the flatter it is seen: see-through face on, towards a mirror at the edge (a
+  // Fresnel term on its opacity, relative to it, so X-ray's faint glass stays faint). Every glass material shares the
+  // one program (spec-graphics §10.2)
+  const glassHook = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>',
+      'diffuseColor.a = min( 1.0, diffuseColor.a * ( 1.0 + 0.6 * pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 4.0 ) ) );\n#include <opaque_fragment>');
+  };
+  const glassKey = () => 'obGlass';
 
   // Material kinds. Every part instance gets its own materials, so heat glow and transparency are per part.
   const KINDS = {
@@ -37,7 +45,7 @@ const Parts3D = (() => {
     nozzle: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     intake: { color: '#15181c', roughness: 0.6, metalness: 0.5, double: true },
     dish: { color: PAL.steelLight, roughness: 0.3, metalness: 0.6, double: true },
-    glass: { color: '#1d3a5c', roughness: 0.05, metalness: 0.2, opacity: 0.75, env: 1 },
+    glass: { color: '#1d3a5c', roughness: 0.05, metalness: 0.2, opacity: 0.75, env: 1.3 },
     goldglass: { color: '#a5803a', roughness: 0.06, metalness: 0.75, opacity: 0.88, env: 1.2 },
     darkgrey: { color: '#3f464e', roughness: 0.55, metalness: 0.4 },
     cluster: { color: '#8d949c', roughness: 0.55, metalness: 0.3 },
@@ -57,9 +65,15 @@ const Parts3D = (() => {
     plate: { map: true, roughness: 0.78, metalness: 0.14, env: 0.55, own: true }, // armour plate: its 2D art, matt (own: its finish, not the hull's)
     plate2: { map: true, roughness: 0.78, metalness: 0.14, env: 0.55, own: true, double: true }, // (an open-topped one, seen inside too)
     armour: { color: GV_BASE, roughness: 0.78, metalness: 0.14, env: 0.55 }, // fittings in the armour's paint
+    // the big update's drones: carbon legs and guards, a status LED, rubber feet, a laser's lens (a dark red mirror)
+    carbon: { color: '#2b2f34', roughness: 0.5, metalness: 0.35 },
+    vcMetal: { vertexColors: true, roughness: 0.35, metalness: 0.65 }, // (a motor: its bell, ring, shaft and nut in their colours, one mesh)
+    led: { basic: '#7dffb0' },
+    red: { color: '#c23b2c', roughness: 0.8, metalness: 0.05 },
+    lens: { color: '#3a0d14', roughness: 0.06, metalness: 0.55, env: 1.5 },
   };
   const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
-  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate' };
+  const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate', radarset: 'metal' };
   const RECIPE = PART_RECIPE;
   // Paint (SKINS): the solid kinds that are a part's body colour (the textured kinds get the skin painted
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
@@ -69,7 +83,7 @@ const Parts3D = (() => {
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
-  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5', 'awheel']);
+  const ZMIRROR = new Set(['tailRotor', 'drone', 'prop', 'wheel', 'gear', 'us5', 'awheel', 'droneMotor']); // (a drone's motors on the left turn the other way, as real ones do)
   const FLAT_DEPTH = PART_FLAT_DEPTH;
   const PLUMES = {
     kero: [[255, 214, 140], [255, 140, 40], [255, 70, 20]],
@@ -92,7 +106,7 @@ const Parts3D = (() => {
 
   const noop = () => {};
   const pow2 = (v) => Math.min(512, Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, v)))));
-  const texSize = (d) => [pow2(d.w * PX_PER_M), pow2(d.h * PX_PER_M)];
+  const texSize = (d) => { const k = d.drone ? 8 : 1; return [pow2(d.w * PX_PER_M * k), pow2(d.h * PX_PER_M * k)]; }; // (a drone's parts are small: 8 times the pixels a metre)
   const dummy = (d, flip, skin) => ({ def: d, type: d.type, x: 0, y: 0, flip: !!flip, skin: skin || null, deployed: 0, used: false, firing: 0, temp: AMBIENT_T, spin: 0, deflect: 0 });
   const lin = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
   // A skin by id for this part (null: its own look, also for an id we don't know); its tip stripes as the 2D
@@ -656,9 +670,11 @@ const Parts3D = (() => {
   // part's texture (paint(): the side view top left, the plan top right, the front bottom left, the back bottom right):
   // the sides the side view, faces looking up the plan, forward or back the ends, a belly the grime at the side's foot.
   // An open plate (def.armour.open: an open-topped turret) is left out.
-  function plated(d) {
-    const w = d.w, h = d.h, D = d.depth || Math.min(w, 1), zh = D / 2, P = (d.outline || BOX_OUTLINE).map(([fx, fy]) => [fx * w, fy * h]);
-    const open = (d.armour && d.armour.open) || [], pos = [], nor = [], uv = [], idx = [], e = 0.006;
+  // o (the big update's kit and bays): { pts, zh, open }, part of it only: a convex outline of its own (part space), half
+  // as deep as zh, the edges open; mapped onto the part's views as the whole part is.
+  function plated(d, o) {
+    const w = d.w, h = d.h, D = d.depth || Math.min(w, 1), zh = (o && o.zh) || D / 2, P = (o && o.pts) || (d.outline || BOX_OUTLINE).map(([fx, fy]) => [fx * w, fy * h]);
+    const open = (o && o.open) || (d.armour && d.armour.open) || [], pos = [], nor = [], uv = [], idx = [], e = 0.006;
     const q4 = (u, lo) => lo + 0.5 * clamp(u + 0.5, e, 1 - e); // (a share across a view -> its quarter of the texture)
     const V = {
       side: (x, y) => [q4(x / w, 0), q4(y / h, 0.5)], plan: (x, y, z) => [q4(x / w, 0.5), q4(z / D, 0.5)],
@@ -960,7 +976,12 @@ const Parts3D = (() => {
 
     ecm(d) { // a capsule on a pylon with antenna blades and emitter windows
       const w = d.w, h = d.h, b = -h / 2, t = h / 2, cx = w * 0.12, rw = w * 0.66;
-      const pod = new THREE.LatheGeometry([[0, b + h * 0.04], [0.7, b + h * 0.1], [1, b + h * 0.2], [1, t - h * 0.2], [0.7, t - h * 0.1], [0, t - h * 0.04]].map(([r, y]) => v2((r * rw) / 2, y)), 20).translate(cx, 0, 0);
+      const prof = [[0, b + h * 0.04], [0.7, b + h * 0.1], [1, b + h * 0.2], [1, t - h * 0.2], [0.7, t - h * 0.1], [0, t - h * 0.04]].map(([r, y]) => v2((r * rw) / 2, y));
+      if (d.style === 'radar') { // a radar pod: the same capsule, its front fifth a white radome, no emitters or blades
+        const lathe = (pts) => new THREE.LatheGeometry(pts, 20).translate(cx, 0, 0);
+        return node([[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark'], [lathe(prof.slice(0, 4)), 'mil'], [lathe(prof.slice(3)), 'white']]);
+      }
+      const pod = new THREE.LatheGeometry(prof, 20).translate(cx, 0, 0);
       const list = [[box(cx + w / 2, h * 0.36, 0.1, (cx - w / 2) / 2, 0, 0), 'steelDark'], [pod, 'mil'],
         [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, t - h * 0.24, 0), 'ink'], [new THREE.CylinderGeometry(rw * 0.505, rw * 0.505, h * 0.08, 20).translate(cx, b + h * 0.24, 0), 'ink']];
       for (const y of [-h * 0.15, h * 0.1]) list.push([box(0.2, 0.16, 0.03, cx + rw / 2 + 0.09, y, 0), 'steelDark']);
@@ -1309,7 +1330,205 @@ const Parts3D = (() => {
         for (let i = 0; i <= 4; i++) list.push(box(0.06, h, D, -w / 2 + 0.03 + ((w - 0.06) * i) / 4, 0, 0));
         return node([[merge(list), 'armour']]);
       }
+      if (st === 'jam' || st === 'jamL' || st === 'det') { // (the big update's jammers and drone detector: a plated case, antennas or a mast and its dome)
+        const L = drLayout(d), C = L.cs, list = [[plated(d, { pts: [[C.x0, C.y0], [C.x1, C.y0], [C.x1, C.y1], [C.x0, C.y1]], zh: C.hz }), 'plate']], dark = [];
+        if (L.ants) for (const A of L.ants) dark.push(new THREE.CylinderGeometry(A.base, A.base, 0.06, 14).translate(A.x, A.y0 + 0.03, A.z), rod([A.x, A.y0 + 0.06, A.z], [A.x, A.y1 - A.r, A.z], A.r, 10), new THREE.SphereGeometry(A.r * 1.15, 12, 8).translate(A.x, A.y1 - A.r, A.z));
+        if (L.mast) {
+          const M = L.dome;
+          dark.push(rod([0, L.mast.y0, 0], [0, M.y, 0], L.mast.r, 10));
+          list.push([new THREE.SphereGeometry(1, 28, 14).scale(M.rx, M.ry, M.rx).translate(0, M.y, 0), 'white'], [new THREE.CylinderGeometry(M.rx * 1.01, M.rx * 1.01, M.band, 28).translate(0, M.y, 0), 'ink']);
+        }
+        list.push([merge(dark), 'steelDark']);
+        return node(list);
+      }
       return node([[plated(d), 'plate']]);
+    },
+    // ---- the big update's drones and counter-drone kit, built from parts.js drLayout (the numbers the 2D art is drawn
+    // from), each inside its part's box
+    // A frame: its plates, standoffs, arms and pads in one mesh, the 2D art laid on from the side (carbon, or its paint).
+    droneFrame(d) {
+      const L = drLayout(d), A = L.arm, P = L.plate, T = L.top, ym = (A.y0 + A.y1) / 2, ha = A.y1 - A.y0, gs = [];
+      gs.push(box(P.x1 - P.x0, P.y1 - P.y0, P.hz * 2, 0, (P.y0 + P.y1) / 2, 0), box(T.x1 - T.x0, T.y1 - T.y0, T.hz * 2, 0, (T.y0 + T.y1) / 2, 0));
+      for (const [x, z] of L.posts) gs.push(new THREE.CylinderGeometry(L.pr, L.pr, T.y0 - P.y1, 8).translate(x, (P.y1 + T.y0) / 2, z));
+      for (const [x, z] of L.tips) { const len = Math.hypot(x, z); gs.push(new THREE.BoxGeometry(len, ha, A.wa).translate(len / 2, ym, 0).rotateY(-Math.atan2(z, x))); }
+      for (const q of L.pads) gs.push(new THREE.CylinderGeometry(q.r, q.r, ha, 20).translate(q.x, ym, q.z));
+      const g = projUV(merge(gs), d), N = g.attributes.normal, U = g.attributes.uv, vm = ym / d.h + 0.5;
+      for (let i = 0; i < N.count; i++) if (Math.abs(N.getY(i)) > 0.7) U.setY(i, vm); // (faces looking up or down take the carbon of the arms' band, not the side view's edge)
+      return node([[g, 'hull']]);
+    },
+    // A motor: its bell, shaft and nut, the prop on a spinning node (DR_SPIN times the physics' spin) with its blur disc;
+    // a ducted fan's ring and stator struts round it; a pusher's prop at its -y end, behind the body it mounts on.
+    droneMotor(d) {
+      const L = drLayout(d), B = L.bell, P = L.prop, N = L.nut, w = d.w, h = d.h, up = P.y > B.y1, metal = [], list = [];
+      const lathe = (pts, seg = 24) => new THREE.LatheGeometry(pts.map(([r, y]) => v2(Math.max(0.0004, r), y)), seg);
+      const tone = (g, hex) => { const c = lin(hex), n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) a.set(c, i * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+      const r = B.r, y0 = B.y0, y1 = B.y1, hb = y1 - y0;
+      metal.push(tone(up ? lathe([[0, y0], [r * 0.92, y0], [r, y0 + hb * 0.08], [r, y1 - hb * 0.18], [r * 0.82, y1], [0, y1]]) : lathe([[0, y0], [r * 0.82, y0], [r, y0 + hb * 0.18], [r, y1 - hb * 0.08], [r * 0.92, y1], [0, y1]]), '#4b535c'));
+      metal.push(tone(new THREE.CylinderGeometry(r * 1.01, r * 1.01, hb * 0.12, 24, 1, true).translate(0, up ? y1 - hb * 0.25 : y0 + hb * 0.25, 0), PAL.orange)); // its ring by the prop (as the 2D art's)
+      const ys = up ? y1 : y0;
+      metal.push(tone(new THREE.CylinderGeometry(L.shaft, L.shaft, Math.abs(P.y - ys), 10).translate(0, (P.y + ys) / 2, 0), '#9aa3ad'));
+      metal.push(tone(N.y1 > N.y0 ? lathe([[N.r, N.y0], [0, N.y1]], 16) : lathe([[0, N.y1], [N.r, N.y0]], 16), '#b9c1c9')); // the nut (a pusher's spinner)
+      if (L.duct) { // the ring (open through the middle) and the struts holding the motor in it
+        const U = L.duct, k = h * 0.12;
+        list.push([lathe([[U.ri, U.y0], [U.ro * 0.97, U.y0], [U.ro, U.y0 + k], [U.ro, U.y1 - k], [U.ro * 0.97, U.y1], [U.ri * 0.98, U.y1], [U.ri, U.y1 - k * 0.6], [U.ri, U.y0]], 40), 'darkgrey']);
+        for (let i = 0; i < L.struts; i++) metal.push(tone(box(U.ri - r * 0.9, h * 0.05, w * 0.025, (U.ri + r * 0.9) / 2, y0 + hb * 0.4, 0).rotateY((i * TAU) / L.struts + 0.3), '#2b2f34'));
+      }
+      list.push([merge(metal), 'vcMetal'], [new THREE.CircleGeometry(P.r, 40).rotateX(-Math.PI / 2).translate(0, P.y, 0), 'disc']);
+      const blades = [];
+      for (let i = 0; i < P.n; i++) blades.push(bladeGeo(0.05 * w, P.r, P.c, P.c * 0.55, 0.012 * w, 0.5, 0.2, 'xz', lin('#23272c'), lin(PAL.hazard), 0.14 * P.r).rotateY((i * TAU) / P.n));
+      return node(list, [{ role: 'spin', axis: 'y', pos: [0, P.y, 0], pieces: [[merge(blades), 'vc']], subs: [] }], { anim: { rate: 200, mul: DR_SPIN, disc: [10, 40, 0.25] } });
+    },
+    // A box: its case (the 2D art laid on), and what stands on it or hangs under it: whips, a GPS puck, a strap, cooling
+    // fins and an exhaust, a blade antenna, a satellite dome, a lens; a gimbal's fork (aim: it turns) and ball (aimTilt:
+    // it tilts); a dropper's grenades and a rack's bombs (stores: hidden as they go)
+    droneBox(d) {
+      const L = drLayout(d), C = L.cs, list = [], subs = [], ink = [];
+      const lathe = (pts, x = 0, z = 0, seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => v2(Math.max(0.0004, r), y)), seg).translate(x, 0, z);
+      const bv = Math.min(0.004, (C.x1 - C.x0) * 0.1, (C.y1 - C.y0) * 0.1, C.hz * 0.2);
+      list.push([projUV(extrudeGeo([[C.x0, C.y0, C.x1, C.y0, C.x1, C.y1, C.x0, C.y1]], C.hz * 2, bv), d, true), 'hull']);
+      if (L.whips) for (const [a, c] of L.whips) ink.push(rod(a, c, L.wr, 6));
+      if (L.led) list.push([box(L.led.s, L.led.s * 0.5, L.led.s, L.led.x, L.led.y + L.led.s * 0.25, L.led.z), 'led']);
+      if (L.puck) { const K = L.puck; ink.push(rod([K.x, K.m, 0], [K.x, K.y0, 0], L.wr * 1.4, 6)); list.push([new THREE.CylinderGeometry(K.r, K.r, K.y1 - K.y0, 20).translate(K.x, (K.y0 + K.y1) / 2, 0), 'white']); }
+      if (L.strap) { const S = L.strap; ink.push(box(S.x1 - S.x0, S.y1 - S.y0, S.hz * 2, (S.x0 + S.x1) / 2, (S.y0 + S.y1) / 2, 0)); }
+      if (L.fins) list.push([merge(L.fins.map((F) => box(F.x1 - F.x0, F.y1 - F.y0, F.hz * 2, (F.x0 + F.x1) / 2, (F.y0 + F.y1) / 2, 0))), 'steelLight']);
+      if (L.pipe) { const E = L.pipe; list.push([new THREE.CylinderGeometry(E.r, E.r, E.x1 - E.x0, 12).rotateZ(Math.PI / 2).translate((E.x0 + E.x1) / 2, E.y, E.z), 'nozzle']); }
+      if (L.blade) ink.push(extrudeGeo([L.blade.pts.flat()], L.blade.hz * 2, 0));
+      if (L.dome) { const M = L.dome; list.push([new THREE.SphereGeometry(M.r, 24, 10, 0, TAU, 0, Math.PI / 2).scale(1, M.hgt / M.r, 1).translate(0, M.y, 0), 'white']); }
+      if (L.lens) {
+        const K = L.lens;
+        ink.push(new THREE.CylinderGeometry(K.r, K.r, K.x1 - K.x0, 18).rotateZ(Math.PI / 2).translate((K.x0 + K.x1) / 2, 0, 0));
+        list.push([new THREE.CylinderGeometry(K.gr, K.gr, K.g1 - K.g0, 18).rotateZ(Math.PI / 2).translate((K.g0 + K.g1) / 2, 0, 0), 'glass']);
+      }
+      if (L.gim) { // the fork turns about the mount's middle (aim), the ball tilts in it (aimTilt)
+        const G = L.gim, K = G.lens, yo = G.y;
+        const fork = [new THREE.CylinderGeometry(G.post, G.post, G.y - G.bar, 10).translate(0, (G.y + G.bar) / 2 - yo, 0), box(G.R, G.bt * 2, (G.arm + G.at / 2) * 2, 0, G.bar - yo, 0)];
+        for (const s of [-1, 1]) fork.push(box(G.R * 0.7, G.bar - G.yc + G.R * 0.2, G.at, 0, (G.bar + G.yc - G.R * 0.2) / 2 - yo, s * G.arm));
+        const ball = node([[new THREE.SphereGeometry(G.R, 20, 14), 'darkgrey'], [new THREE.CylinderGeometry(K.r, K.r, K.x1 - K.x0, 14).rotateZ(Math.PI / 2).translate((K.x0 + K.x1) / 2, 0, 0), 'ink'],
+          [new THREE.CylinderGeometry(K.gr, K.gr, K.g1 - K.x1, 14).rotateZ(Math.PI / 2).translate((K.x1 + K.g1) / 2, 0, 0), 'glass']], null, { role: 'aimTilt', pos: [0, G.yc - yo, 0] });
+        subs.push(node([[merge(fork), 'ink']], [ball], { role: 'aim', pos: [0, yo, 0] }));
+      }
+      if (L.stores) for (const S of L.stores) { // nose down
+        const H = S.y1 - S.y0, R = S.r, y0 = S.y0, y1 = S.y1, s = [];
+        s.push([lathe(S.bomb ? [[0, y0], [0.55 * R, y0 + 0.05 * H], [0.85 * R, y0 + 0.15 * H], [R, y0 + 0.35 * H], [R, y0 + 0.55 * H], [0.45 * R, y0 + 0.8 * H], [0.4 * R, y1], [0, y1]]
+          : [[0, y0], [0.6 * R, y0], [R, y0 + 0.3 * H], [R, y0 + 0.75 * H], [0.45 * R, y0 + 0.9 * H], [0.45 * R, y1], [0, y1]], S.x), 'olive'],
+        [new THREE.CylinderGeometry(R * 1.02, R * 1.02, H * 0.05, 16).translate(S.x, y0 + H * (S.bomb ? 0.245 : 0.475), 0), 'hazard']);
+        if (S.bomb) s.push([merge([0, 1].map((k) => box(R * 3, H * 0.2, 0.004, 0, y0 + H * 0.85, 0).rotateY(Math.PI / 4 + (k * Math.PI) / 2).translate(S.x, 0, 0))), 'steelDark']);
+        subs.push(node(s, null, { role: 'store' }));
+      }
+      if (ink.length) list.push([merge(ink), 'ink']);
+      return node(list, subs);
+    },
+    // Legs: a plate, four struts splaying down to two skids, rubber feet (thin boxes, carbon)
+    droneLegs(d) {
+      const L = drLayout(d), P = L.plate, w = d.w, gs = [box(P.x1 - P.x0, P.y1 - P.y0, P.hz * 2, 0, (P.y0 + P.y1) / 2, 0)], feet = [];
+      for (const [a, c] of L.struts) gs.push(beam(a, c, L.st));
+      for (const S of L.skids) {
+        gs.push(box(S.x1 - S.x0, S.y1 - S.y0, S.hz * 2, (S.x0 + S.x1) / 2, (S.y0 + S.y1) / 2, S.z));
+        for (const sx of [-1, 1]) feet.push(box(0.04 * w, (S.y1 - S.y0) * 1.04, S.hz * 2.1, sx * 0.4 * w, (S.y0 + S.y1) / 2, S.z));
+      }
+      return node([[merge(gs), 'carbon'], [merge(feet), 'red']]);
+    },
+    // A prop guard: a hoop and three struts (carbon)
+    droneGuard(d) {
+      const L = drLayout(d), R = L.ring, gs = [new THREE.LatheGeometry([[R.r0, R.y0], [R.r1, R.y0], [R.r1, R.y1], [R.r0, R.y1], [R.r0, R.y0]].map(([r, y]) => v2(r, y)), 40)];
+      for (const [a, c] of L.struts) gs.push(beam(a, c, L.st));
+      return node([[merge(gs), 'carbon']]);
+    },
+    // Mini missiles: the rail and its hangers, and two missiles (stores) with their tail fins and canards
+    droneMissile(d) {
+      const L = drLayout(d), Rl = L.rail, M = L.msl, h = d.h, hang = [], subs = [];
+      for (const z of M.zs) for (const yh of L.hang) hang.push(box(M.x - M.r * 0.6 - Rl.x1, 0.06 * h, 0.4 * M.r, (Rl.x1 + M.x - M.r * 0.6) / 2, yh, z));
+      for (const z of M.zs) {
+        const y0 = M.y0, y1 = M.y1, H = y1 - y0, r = M.r, cy = y1 - 0.27 * h + 0.025 * h;
+        const body = new THREE.LatheGeometry([[0, y0], [r * 0.85, y0], [r, y0 + 0.03 * H], [r, y1 - 3 * r], [r * 0.6, y1 - 0.8 * r], [0, y1]].map(([a, b]) => v2(Math.max(0.0004, a), b)), 16);
+        const fins = [];
+        for (const k of [0, 1]) fins.push(box(2 * (r + M.fin), M.fl, 0.004, 0, y0 + M.fl / 2, 0).rotateY(Math.PI / 4 + (k * Math.PI) / 2), box(2 * (r + M.can), 0.05 * h, 0.003, 0, cy, 0).rotateY(Math.PI / 4 + (k * Math.PI) / 2));
+        fins.push(new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.025 * h, 16).translate(0, y1 - 0.3 * h + 0.0125 * h, 0));
+        subs.push(node([[body.translate(M.x, 0, z), 'olive'], [merge(fins).translate(M.x, 0, z), 'steelDark']], null, { role: 'store' }));
+      }
+      return node([[box(Rl.x1 - Rl.x0, Rl.y1 - Rl.y0, Rl.hz * 2, (Rl.x0 + Rl.x1) / 2, (Rl.y0 + Rl.y1) / 2, 0), 'mil'], [merge(hang), 'steelDark']], subs);
+    },
+
+    // A drone bay: a rack (a plated tray, corner posts, its folded quads and a mesh lid hinged at the back), a hangar (an
+    // open plated box, its drone inside and two doors hinged along its sides) or launch tubes (a cradle and two canisters,
+    // each with a cap hinged at its top). The lid, doors and caps open with p.deployed (the launch); the drones aboard show
+    // while they are (p.docked).
+    dock(d) {
+      const L = drLayout(d), st = d.style, w = d.w, list = [], subs = [];
+      const bxg = (Q) => box(Q.x1 - Q.x0, Q.y1 - Q.y0, Q.hz * 2, (Q.x0 + Q.x1) / 2, (Q.y0 + Q.y1) / 2, Q.z || 0);
+      const pbox = (Q, open) => plated(d, { pts: [[Q.x0, Q.y0], [Q.x1, Q.y0], [Q.x1, Q.y1], [Q.x0, Q.y1]], zh: Q.hz, open });
+      const quad = (q, spread) => { // a small drone: its body, arms (folded along it on a rack, spread in a hangar), motors
+        const L2 = q.len / 2, H = q.hgt, dark = [], mot = [];
+        if (spread) {
+          dark.push(box(L2 * 0.5, H * 0.35, q.hz * 0.5, q.x, q.y + H * 0.42, 0));
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) { dark.push(beam([q.x, q.y + H * 0.45, 0], [q.x + sx * L2 * 0.82, q.y + H * 0.45, sz * q.hz * 0.82], H * 0.08)); mot.push(new THREE.CylinderGeometry(L2 * 0.1, L2 * 0.1, H * 0.2, 14).translate(q.x + sx * L2 * 0.82, q.y + H * 0.55, sz * q.hz * 0.82)); }
+          for (const sz of [-1, 1]) dark.push(box(L2 * 1.2, H * 0.05, H * 0.05, q.x, q.y + H * 0.025, sz * q.hz * 0.4), beam([q.x, q.y + H * 0.25, sz * q.hz * 0.12], [q.x, q.y + H * 0.05, sz * q.hz * 0.4], H * 0.04));
+        } else {
+          dark.push(box(L2 * 0.84, H * 0.85, q.hz * 0.7, q.x, q.y + H * 0.425, 0));
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) { dark.push(box(L2 * 0.95, H * 0.25, q.hz * 0.12, q.x + sx * L2 * 0.5, q.y + H * 0.325, sz * q.hz * 0.55)); mot.push(new THREE.CylinderGeometry(L2 * 0.14, L2 * 0.14, H * 0.25, 14).translate(q.x + sx * L2 * 0.8, q.y + H * 0.575, sz * q.hz * 0.55)); }
+        }
+        return node([[merge(dark), 'darkgrey'], [merge(mot), 'gunmetal']], null, { role: 'dock' });
+      };
+      if (st === 'dockT') {
+        const T = L.tubes, len = T.x1 - T.x0, can = [], bands = [], fr = [bxg(L.cradle)];
+        for (const sx of L.saddles) fr.push(box(0.08, T.y - L.cradle.y1, L.cradle.hz * 2, sx, (T.y + L.cradle.y1) / 2, 0));
+        for (const z of T.zs) {
+          can.push(new THREE.CylinderGeometry(T.r, T.r, len, 28).rotateZ(Math.PI / 2).translate((T.x0 + T.x1) / 2, T.y, z));
+          for (const bx0 of T.bands) bands.push(new THREE.CylinderGeometry(T.r + 0.006, T.r + 0.006, 0.03, 28).rotateZ(Math.PI / 2).translate(bx0, T.y, z));
+          subs.push(node([[new THREE.CylinderGeometry(T.r * 0.98, T.r * 0.98, T.cap, 28).rotateZ(Math.PI / 2).translate(T.cap / 2, -T.r, 0), 'darkgrey']], null, { role: 'hinge', axis: 'z', open: T.open, pos: [T.x1, T.y + T.r, z] }));
+        }
+        list.push([merge(fr), 'armour'], [merge(can), 'olive'], [merge(bands), 'steelDark']);
+        return node(list, subs);
+      }
+      if (st === 'dockH') {
+        const Dr = L.doors;
+        list.push([pbox(L.walls, [2]), 'plate2']);
+        for (const q of L.quads) subs.push(quad(q, true));
+        for (const s of [1, -1]) subs.push(node([[box(Dr.len, Dr.th, Dr.half, 0, 0, -s * Dr.half / 2), 'armour'], [new THREE.CylinderGeometry(Dr.th * 0.4, Dr.th * 0.4, Dr.len, 12).rotateZ(Math.PI / 2), 'steelDark']], null,
+          { role: 'hinge', axis: 'x', open: s * Dr.open, pos: [0, Dr.y, s * (Dr.half + 0.01)] }));
+        return node(list, subs);
+      }
+      const Ld = L.lid, frame = [], mesh = [];
+      list.push([pbox(L.tray), 'plate'], [merge(L.posts.map(bxg)), 'armour']);
+      for (const q of L.quads) subs.push(quad(q, false));
+      frame.push(box(Ld.len, Ld.th, 0.03, Ld.len / 2, 0, Ld.hz - 0.015), box(Ld.len, Ld.th, 0.03, Ld.len / 2, 0, -Ld.hz + 0.015), box(0.03, Ld.th, Ld.hz * 2, 0.015, 0, 0), box(0.03, Ld.th, Ld.hz * 2, Ld.len - 0.015, 0, 0));
+      for (let x = 0.08; x < Ld.len - 0.04; x += 0.08) mesh.push(box(0.008, Ld.th * 0.4, Ld.hz * 2 - 0.04, x, 0, 0));
+      for (let z = -Ld.hz + 0.08; z < Ld.hz - 0.04; z += 0.08) mesh.push(box(Ld.len - 0.04, Ld.th * 0.4, 0.008, Ld.len / 2, 0, z));
+      subs.push(node([[merge(frame), 'armour'], [merge(mesh), 'steelDark']], null, { role: 'hinge', axis: 'z', open: Ld.open, pos: [Ld.x, Ld.y, 0] }));
+      return node(list, subs);
+    },
+    // The anti-drone gun (a remote weapon station) and the anti-drone laser: a base, a yaw node and a pitch node posed by
+    // the generic rig update (yaw about x, pitch about z, as on a gun at rot 3). They sit upright (rot 0), so the nodes
+    // ride in a frame turned as a rot-3 part is (its +y forward, its -x up): their p.aimYaw turns the gun about the part's
+    // +y from its +x towards +z, p.aimEl lifts it, and the barrel points along (cos el cos yaw, sin el, cos el sin yaw).
+    // Pieces are made in part space round their node's origin and turned into that frame (inA).
+    rws(d) {
+      const R = drLayout(d).rws, inA = (g) => g.rotateZ(Math.PI / 2), bq = (Q) => box(Q.x1 - Q.x0, Q.y1 - Q.y0, Q.hz * 2, (Q.x0 + Q.x1) / 2, (Q.y0 + Q.y1) / 2, Q.z || 0), Bz = R.barrel, S = R.sight;
+      const gun = [bq(R.gun), new THREE.CylinderGeometry(Bz.r, Bz.r, Bz.x1 - Bz.x0, 14).rotateZ(Math.PI / 2).translate((Bz.x0 + Bz.x1) / 2, 0, 0),
+        new THREE.CylinderGeometry(Bz.r * 1.5, Bz.r * 1.5, R.brake, 14).rotateZ(Math.PI / 2).translate(Bz.x1 - R.brake / 2, 0, 0)];
+      const pitch = node([[inA(merge(gun)), 'gunmetal'], [inA(bq(S)), 'ink'], [inA(box(0.012, (S.y1 - S.y0) * 0.5, S.hz * 1.2, S.x1 - 0.004, (S.y0 + S.y1) / 2, S.z)), 'glass']], null, { role: 'pitch', pos: [-R.T, 0, 0] });
+      const yaw = node([[inA(merge([bq(R.house), ...R.plates.map(bq), bq(R.mag)])), 'armour']], [pitch], { role: 'yaw' });
+      return node([[new THREE.CylinderGeometry(R.ring, R.ring * 1.06, R.yb + d.h / 2, 32).translate(R.xc, (R.yb - d.h / 2) / 2, 0), 'steelDark']], [node([], [yaw], { rot: [0, 0, -Math.PI / 2], pos: [R.xc, R.yb, 0] })]);
+    },
+    laserT(d) {
+      const R = drLayout(d).las, inA = (g) => g.rotateZ(Math.PI / 2), Dm = R.drum, Ls = R.lens, A = R.arm, len = Ls.x1 - Dm.x1;
+      const steel = R.fins.map((fx) => new THREE.CylinderGeometry(Dm.r * 1.08, Dm.r * 1.08, 0.024, 32).rotateZ(Math.PI / 2).translate(fx, 0, 0));
+      steel.push(new THREE.LatheGeometry([[Ls.r, 0], [Ls.r * 1.12, 0], [Ls.r * 1.12, len], [Ls.r, len]].map(([r, y]) => v2(r, y)), 32).rotateZ(-Math.PI / 2).translate(Dm.x1, 0, 0)); // the lens's rim
+      steel.push(new THREE.CylinderGeometry(0.05, 0.05, (A.z - A.hz) * 2, 16).rotateX(Math.PI / 2)); // the trunnions, out to the arms
+      const pitch = node([[inA(new THREE.CylinderGeometry(Dm.r, Dm.r, Dm.x1 - Dm.x0, 32).rotateZ(Math.PI / 2).translate((Dm.x0 + Dm.x1) / 2, 0, 0)), 'armour'], [inA(merge(steel)), 'steelDark'],
+        [inA(new THREE.CylinderGeometry(Ls.r, Ls.r, 0.02, 32).rotateZ(Math.PI / 2).translate(Ls.x1 - 0.012, 0, 0)), 'lens']], null, { role: 'pitch', pos: [-R.T, 0, 0] });
+      const yaw = node([[inA(merge([new THREE.CylinderGeometry(R.ring * 0.8, R.ring * 0.8, d.h * 0.06, 32).translate(0, d.h * 0.03, 0),
+        ...[1, -1].map((s) => box(A.x1 - A.x0, A.y1 - A.y0, A.hz * 2, 0, (A.y0 + A.y1) / 2, s * A.z))])), 'armour']], [pitch], { role: 'yaw' });
+      return node([[new THREE.CylinderGeometry(R.ring, R.ring * 1.06, R.yb + d.h / 2, 32).translate(0, (R.yb - d.h / 2) / 2, 0), 'steelDark']], [node([], [yaw], { rot: [0, 0, -Math.PI / 2], pos: [0, R.yb, 0] })]);
+    },
+    // The roof cage: four corner posts on feet, a frame round the top and slats across it (one mesh, in the armour's paint)
+    cage(d) {
+      const L = drLayout(d), w = d.w, h = d.h, D = d.depth || w, s = L.s, t = h / 2, gs = [];
+      for (const [x, z] of L.posts) gs.push(box(s, h, s, x, 0, z), box(s * 1.5, s * 0.4, s * 1.5, Math.sign(x) * (w / 2 - s * 0.75), -t + s * 0.2, Math.sign(z) * (D / 2 - s * 0.75)));
+      for (const sz of [-1, 1]) gs.push(box(w, s * 0.65, s, 0, t - s * 0.325, sz * (D / 2 - s / 2)));
+      for (const sx of [-1, 1]) gs.push(box(s, s * 0.65, D - 2 * s, sx * (w / 2 - s / 2), t - s * 0.325, 0));
+      for (let i = 0; i <= L.slats; i++) gs.push(box(s * 0.6, s * 0.7, D - 2 * s, -w / 2 + s + ((w - 3 * s) * i) / L.slats + s * 0.3, t - s * 0.55, 0));
+      return node([[merge(gs), 'armour']]);
     },
   };
 
@@ -1616,7 +1835,7 @@ const Parts3D = (() => {
     if (k.camo && S && S.camo) { m.map = camoMap(S, camoAt(at, S)); m.roughness = S.rough != null ? S.rough : k.roughness; m.metalness = S.metal != null ? S.metal : k.metalness; }
     if (k.vertexColors) m.vertexColors = true;
     if (k.double) m.side = THREE.DoubleSide;
-    if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; }
+    if (k.opacity) { m.transparent = true; m.opacity = k.opacity; m.userData.glass = true; m.onBeforeCompile = glassHook; m.customProgramCacheKey = glassKey; }
     if (api.envMap) m.envMap = api.envMap;
     m.userData.op = m.opacity;
     m.userData.c0 = m.color.clone();
@@ -1762,6 +1981,7 @@ void main() {
       if (s.role === 'spin') { rig.spins.push(g); rig.axis = s.axis; } else if (s.role === 'spinRev') (rig.revs = rig.revs || []).push(g); else if (s.role === 'droop') rig.droops.push(g);
       else if (s.role === 'store') { (rig.stores = rig.stores || []).push(g); if (s.per) rig.per = s.per; } // missiles and bombs, hidden as they're fired (per: rounds to a store)
       else if (s.role === 'hinge') { (rig.hinges = rig.hinges || []).push(g); g.userData.hinge = [s.axis || 'y', s.open || 0]; } // a door: opens with p.deployed
+      else if (s.role === 'dock') (rig.docks = rig.docks || []).push(g); // (a drone bay's drones, shown while aboard: p.docked)
       else if (s.role === 'ruMove') { g.userData.move = s.move; g.userData.side = obj.userData.side || 0; if (s.axis) g.userData.axis = new THREE.Vector3(...s.axis); (rig.ruMove = rig.ruMove || []).push(g); }
       else if (s.role) rig[s.role] = g;
       obj.add(g);
@@ -1936,11 +2156,61 @@ void main() {
   function freeRig(rig) {
     rig.root.removeFromParent();
     dropPylons(rig);
+    if (rig.cutGeos) for (const g of rig.cutGeos) g.dispose(); // (a cut wing's own halves, cutRig)
     if (rig.twin) rig.twin.removeFromParent();
     for (const m of rig.matList) { if (m.userData.own && m.map) m.map.dispose(); m.dispose(); } // (a belt's or wheels' own copy of their texture)
     if (rig.modsMat) rig.modsMat.dispose();
     if (rig.disc) rig.disc.dispose();
     for (const P of rig.plumes) for (const m of P.mats) m.dispose();
+  }
+
+  // (the big update's damage model) Half a wing shot off (p.cut: 1, its +z half gone; -1, its -z half): every mesh of
+  // the rig shows the half that is left, a copy of its geometry keeping the triangles whose middle, in the part's own
+  // frame, lies on that side. The copies are the rig's (freeRig disposes them); the shared model is untouched. Works for
+  // every wing recipe (extruded foils, lofted plans, a swing wing's halves). The 2D flight view is a side view: as ever.
+  let _cutInv = null, _cutM = null;
+  function halfGeo(g, M, cut) {
+    const P = g.attributes.position, I = g.index, n = I ? I.count : P.count, e = M.elements, keep = [];
+    const zOf = (i) => e[2] * P.getX(i) + e[6] * P.getY(i) + e[10] * P.getZ(i) + e[14];
+    for (let t = 0; t + 2 < n; t += 3) {
+      const a = I ? I.getX(t) : t, b = I ? I.getX(t + 1) : t + 1, c = I ? I.getX(t + 2) : t + 2;
+      if ((zOf(a) + zOf(b) + zOf(c)) * cut < 0) keep.push(t);
+    }
+    const out = new THREE.BufferGeometry(), get = ['getX', 'getY', 'getZ', 'getW'];
+    for (const k of Object.keys(g.attributes)) { // (own copies, de-indexed: disposing them never touches the shared model's buffers)
+      const A = g.attributes[k], sz = A.itemSize, arr = new Float32Array(keep.length * 3 * sz);
+      let o = 0;
+      for (const t of keep) for (let j = 0; j < 3; j++) { const i = I ? I.getX(t + j) : t + j; for (let c = 0; c < sz; c++) arr[o++] = A[get[c]](i); }
+      out.setAttribute(k, new THREE.BufferAttribute(arr, sz)); // (getX gives the value itself, a normalised one too)
+    }
+    if (g.groups && g.groups.length) { // (one material per group, the runs kept in order)
+      let cur = null;
+      keep.forEach((t, i) => {
+        const gr = g.groups.find((q) => t >= q.start && t < q.start + q.count), mi = gr ? gr.materialIndex : 0;
+        if (cur && cur.mi === mi) cur.count += 3; else { if (cur) out.addGroup(cur.start, cur.count, cur.mi); cur = { start: i * 3, count: 3, mi }; }
+      });
+      if (cur) out.addGroup(cur.start, cur.count, cur.mi);
+    }
+    out.computeBoundingSphere();
+    return out;
+  }
+  function cutRig(rig, cut) {
+    if (!_cutInv) { _cutInv = new THREE.Matrix4(); _cutM = new THREE.Matrix4(); }
+    rig.cut = cut || 0;
+    const old = rig.cutGeos || [];
+    rig.cutGeos = [];
+    rig.root.updateMatrixWorld(true);
+    _cutInv.copy(rig.root.matrixWorld).invert();
+    rig.root.traverse((m) => {
+      if (!m.isMesh || m.isInstancedMesh || !m.geometry || !m.geometry.attributes || !m.geometry.attributes.position) return;
+      const g0 = m.userData.geo0 || m.geometry;
+      if (!rig.cut) { m.geometry = g0; delete m.userData.geo0; return; }
+      _cutM.multiplyMatrices(_cutInv, m.matrixWorld);
+      m.userData.geo0 = g0;
+      m.geometry = halfGeo(g0, _cutM, rig.cut);
+      rig.cutGeos.push(m.geometry);
+    });
+    for (const g of old) g.dispose();
   }
 
   // A part's place, depth and quarter turn (they change as it is dragged around): a single part at its
@@ -2008,7 +2278,7 @@ void main() {
     vm.ghost = !!(v.gv && (v.remote || v.kin) && !v.wreck && v.q && v.av);
     if (vm.ghost) { qunrot(v.q, v.vx || 0, v.vy || 0, v.vz || 0, _gv); vm.gvF = _gv.x; qunrot(v.q, v.av.x, v.av.y, v.av.z, _gv); vm.gwy = _gv.y; }
     const w = !!v.wreck;
-    if (w !== !!vm.wreck) { vm.wreck = w; for (const r of vm.list) if (r.gv) char(r, w); }
+    if (w !== !!vm.wreck) { vm.wreck = w; for (const r of vm.list) char(r, w); } // (every part of a wreck, old ones too: no old vessel was ever a wreck)
   }
   // a wreck's paint: charred (its colours a third as bright, hardly any shine), or back
   function char(rig, on) {
@@ -2057,11 +2327,15 @@ void main() {
     }
     for (const mesh of rig.meshes) mesh.castShadow = a >= 1 && !rig.small;
   }
+  // (the big update: an aircraft's radar set takes X-ray's cyan, and the body holding one, rig.rhost, goes see-through;
+  // every other part from before as it was)
   function xrayRig(rig, on, parts) {
-    const d = rig.part.def;
-    if (!d.gv || !!rig.xray === on) return;
+    const d = rig.part.def, set = innerRadar(d);
+    if (!d.gv && !set && !rig.rhost && !rig.xray) return;
+    on = on && (!!d.gv || set || !!rig.rhost);
+    if (!!rig.xray === on) return;
     rig.xray = on;
-    if (d.inner) { const c = shared.color.set(GV_MOD[gvModKind(d)]); for (const m of rig.matList) if (m.isMeshStandardMaterial) m.color.copy(on ? c : m.userData.c0); }
+    if (d.inner) { const c = shared.color.set(d.gv ? GV_MOD[gvModKind(d)] : '#4fd2ff'); for (const m of rig.matList) if (m.isMeshStandardMaterial) m.color.copy(on ? c : m.userData.c0); }
     fade(rig);
     if (on && d.mods && parts) modsMesh(rig, parts);
     if (rig.modsMesh) rig.modsMesh.visible = on;
@@ -2095,6 +2369,308 @@ void main() {
       rig.modsMesh.raycast = noop;
       rig.root.add(rig.modsMesh);
     } else rig.modsMesh.geometry = g;
+  }
+
+  // ------------------------------------------------------------------ the bake (the big update: a wreck in one draw)
+  // A wreck that has stood for 6 s (render3d's syncVessels) is drawn as one mesh: every visible mesh of its rigs with a
+  // standard material (their twin holders, radial copies and pylons too) merged in the vessel's group's frame, under one
+  // shared matt material, each vertex coloured with its material's colour (charred already) times its own vertex colour
+  // times its texture as it lies round it: the mean of the picture over the triangles that meet at the vertex (read from
+  // a 64 px mip level of the texture), so a hull keeps its paint, an engine deck its tone and a cab its colour, and only
+  // the fine pattern goes (it is charred). Sprites, plumes, lines, lamps (basic materials) and shader materials are
+  // dropped. The merge keeps the meshes' indices (each vertex shaded once, as before: a tank's 5-12 thousand triangles
+  // cost the GPU what they did) and turns their 14-29 draws, and as many shadow draws, into one each. A mirrored mesh has
+  // its triangles turned back; a two-sided one is put in twice, once each way round. BAKE: the shared material, the
+  // pictures read (by image), the renderer, scratch.
+  const BAKE = { mat: null, pics: new WeakMap(), wait: [], cv: null, lin: null, N: null, T: null, s: new Float32Array(3), R: null, fb: null,
+    B: [1 / 3, 1 / 3, 1 / 3, 2 / 3, 1 / 6, 1 / 6, 1 / 6, 2 / 3, 1 / 6, 1 / 6, 1 / 6, 2 / 3] }; // (B: the four points a triangle is sampled at)
+  function bakeMat() {
+    let m = BAKE.mat;
+    if (!m) m = BAKE.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.05, envMap: api.envMap, envMapIntensity: 0.2 });
+    if (m.envMap !== api.envMap) { m.envMap = api.envMap; m.needsUpdate = true; }
+    return m;
+  }
+  // A texture's picture for the bake, read once per image, at most 64 px a side: its own mip level of that size (filtered
+  // down when it was uploaded) read back from the GPU, else its canvas drawn down. bakeAsk starts the GPU read without
+  // waiting (into a pixel buffer, behind a fence, collected by bakePoll on a later frame), so no frame stalls on the GPU;
+  // bakePic then has it (the picture; null: none to read; undefined: not read yet). bakeNow reads at once (waiting on the
+  // GPU if it must), for a bake asked for before its pictures came in.
+  function bakePic(t) {
+    const img = t && t.image;
+    if (!img || !(img.width > 0) || !(img.height > 0)) return null;
+    return BAKE.pics.get(img);
+  }
+  // the WebGL2 context and the texture's GL object and mip level to read (l, w x h), or null
+  function bakeSrc(t) {
+    const R = BAKE.R, p = R && R.properties && R.properties.get(t), tex = p && p.__webglTexture, gl = R && R.getContext && R.getContext();
+    if (!tex || !gl || typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return null;
+    const W = t.image.width, H = t.image.height, mips = t.generateMipmaps && t.minFilter !== THREE.LinearFilter && t.minFilter !== THREE.NearestFilter;
+    const l = Math.max(0, Math.ceil(Math.log2(Math.max(W, H) / 64)));
+    return l > 0 && !mips ? null : { gl, tex, l, w: Math.max(1, W >> l), h: Math.max(1, H >> l) };
+  }
+  // the level read into px (a Uint8Array: now, checked) or, with buf, into that pixel buffer (queued: no call here waits
+  // on the GPU, so nothing is checked; bakePoll throws away a read that came back empty); false if it couldn't be read
+  function bakeRead(S, px, buf) {
+    const gl = S.gl, dr = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING), rd = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING), fb = BAKE.fb || (BAKE.fb = gl.createFramebuffer());
+    let ok = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    try {
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, S.tex, S.l);
+      if (buf) { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf); gl.readPixels(0, 0, S.w, S.h, gl.RGBA, gl.UNSIGNED_BYTE, 0); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); ok = true; }
+      else if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) { gl.readPixels(0, 0, S.w, S.h, gl.RGBA, gl.UNSIGNED_BYTE, px); ok = gl.getError() === gl.NO_ERROR; }
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+    } finally { gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dr); gl.bindFramebuffer(gl.READ_FRAMEBUFFER, rd); } // (as three left them: its state cache stays true)
+    return ok;
+  }
+  // Start reading t's picture (a texture never drawn yet is uploaded first); where it can't be read without waiting, it is
+  // read now
+  function bakeAsk(t) {
+    const img = t && t.image;
+    if (bakePic(t) !== undefined || BAKE.wait.some((q) => q.img === img)) return;
+    let S = bakeSrc(t);
+    if (!S && BAKE.R && BAKE.R.initTexture && !(BAKE.R.properties.get(t) || {}).__webglTexture) { BAKE.R.initTexture(t); S = bakeSrc(t); } // (never drawn yet: uploaded now)
+    if (!S) { bakeNow(t); return; } // (no WebGL2 or no mip level to read: the canvas, now)
+    const gl = S.gl, buf = gl.createBuffer();
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf); gl.bufferData(gl.PIXEL_PACK_BUFFER, S.w * S.h * 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    if (!bakeRead(S, null, buf)) { gl.deleteBuffer(buf); bakeNow(t); return; }
+    BAKE.wait.push({ img, t, S, buf, sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0) });
+    gl.flush();
+  }
+  // collect the reads the GPU has finished
+  function bakePoll() {
+    for (let i = BAKE.wait.length - 1; i >= 0; i--) {
+      const q = BAKE.wait[i], gl = q.S.gl, st = gl.clientWaitSync(q.sync, 0, 0);
+      if (st !== gl.ALREADY_SIGNALED && st !== gl.CONDITION_SATISFIED && st !== gl.WAIT_FAILED) continue;
+      const px = new Uint8Array(q.S.w * q.S.h * 4);
+      if (st !== gl.WAIT_FAILED) { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, q.buf); gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+      gl.deleteSync(q.sync); gl.deleteBuffer(q.buf);
+      BAKE.wait.splice(i, 1);
+      let seen = false;
+      for (let k = 3; k < px.length && !seen; k += 4) seen = px[k] > 0; // (nothing came back: the level couldn't be read)
+      if (st === gl.WAIT_FAILED || !seen) bakeNow(q.t); else BAKE.pics.set(q.img, bakeLevels(q.t, px, q.S.w, q.S.h, true));
+    }
+  }
+  // t's picture read now: from the GPU (waiting for it), else its canvas drawn down
+  function bakeNow(t) {
+    const img = t && t.image;
+    let P = bakePic(t);
+    if (P !== undefined) return P;
+    P = null;
+    if (BAKE.R && BAKE.R.initTexture && !(BAKE.R.properties.get(t) || {}).__webglTexture) try { BAKE.R.initTexture(t); } catch (e) { /* (the canvas, below) */ }
+    try { const S = bakeSrc(t), px = S && new Uint8Array(S.w * S.h * 4); if (S && bakeRead(S, px)) P = bakeLevels(t, px, S.w, S.h, true); } catch (e) { P = null; }
+    if (!P) {
+      try {
+        const w = Math.min(64, img.width), h = Math.min(64, img.height), cv = BAKE.cv || (BAKE.cv = document.createElement('canvas'));
+        if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+        const c = cv.getContext('2d', { willReadFrequently: true });
+        c.clearRect(0, 0, w, h); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+        c.drawImage(img, 0, 0, w, h);
+        P = bakeLevels(t, c.getImageData(0, 0, w, h).data, w, h, !t.flipY); // (a canvas' rows run down; flipY puts its top row at v = 1)
+      } catch (e) { P = null; } // (a picture that can't be read: the material's colour alone)
+    }
+    BAKE.pics.set(img, P);
+    return P;
+  }
+  // A picture from its pixels (RGBA bytes, rows from v = 0 up if up): linear RGB as drawn, with its smaller levels (2x2
+  // means, down to 1 px) for wide footprints, and the mean over its opaque pixels
+  function bakeLevels(t, px, w, h, up) {
+    if (!BAKE.lin) { BAKE.lin = new Float32Array(256); for (let i = 0; i < 256; i++) { const c = i / 255; BAKE.lin[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); } }
+    const L = BAKE.lin, srgb = t.colorSpace === THREE.SRGBColorSpace, d = new Float32Array(w * h * 3), mean = [0, 0, 0];
+    let a = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = ((up ? y : h - 1 - y) * w + x) * 4, j = (y * w + x) * 3, al = px[i + 3] / 255;
+      for (let k = 0; k < 3; k++) { const c = srgb ? L[px[i + k]] : px[i + k] / 255; d[j + k] = c; mean[k] += c * al; }
+      a += al;
+    }
+    const lv = [{ w, h, d }];
+    for (let q = lv[0]; q.w > 1 || q.h > 1; q = lv[lv.length - 1]) {
+      const W2 = Math.max(1, q.w >> 1), H2 = Math.max(1, q.h >> 1), d2 = new Float32Array(W2 * H2 * 3);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) for (let k = 0; k < 3; k++) {
+        const x0 = Math.min(q.w - 1, 2 * x), x1 = Math.min(q.w - 1, 2 * x + 1), y0 = Math.min(q.h - 1, 2 * y), y1 = Math.min(q.h - 1, 2 * y + 1);
+        d2[(y * W2 + x) * 3 + k] = (q.d[(y0 * q.w + x0) * 3 + k] + q.d[(y0 * q.w + x1) * 3 + k] + q.d[(y1 * q.w + x0) * 3 + k] + q.d[(y1 * q.w + x1) * 3 + k]) / 4;
+      }
+      lv.push({ w: W2, h: H2, d: d2 });
+    }
+    const top = lv[lv.length - 1].d;
+    return { lv, mean: a > 0 ? mean.map((x) => x / a) : [top[0], top[1], top[2]] };
+  }
+  // The picture's colour at uv (u, v) into BAKE.s, from level l: through the texture's transform (BAKE.T) and wrapping,
+  // bilinear
+  const bakeWrap = (x, mode) => (mode === THREE.RepeatWrapping ? x - Math.floor(x) : mode === THREE.MirroredRepeatWrapping ? 1 - Math.abs(1 - (x - 2 * Math.floor(x / 2))) : x < 0 ? 0 : x > 1 ? 1 : x);
+  const bakeCell = (i, n, rep) => (rep ? ((i % n) + n) % n : i < 0 ? 0 : i >= n ? n - 1 : i);
+  function bakeAt(P, l, t, u, v) {
+    const q = P.lv[Math.min(l, P.lv.length - 1)], m = BAKE.T, W = q.w, H = q.h, d = q.d, s = BAKE.s, rs = t.wrapS === THREE.RepeatWrapping, rt = t.wrapT === THREE.RepeatWrapping;
+    const x = bakeWrap(m[0] * u + m[3] * v + m[6], t.wrapS) * W - 0.5, y = bakeWrap(m[1] * u + m[4] * v + m[7], t.wrapT) * H - 0.5;
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+    const xa = bakeCell(x0, W, rs), xb = bakeCell(x0 + 1, W, rs), ya = bakeCell(y0, H, rt) * W, yb = bakeCell(y0 + 1, H, rt) * W;
+    const a = (ya + xa) * 3, b = (ya + xb) * 3, c = (yb + xa) * 3, e = (yb + xb) * 3;
+    for (let k = 0; k < 3; k++) s[k] = (d[a + k] * (1 - fx) + d[b + k] * fx) * (1 - fy) + (d[c + k] * (1 - fx) + d[e + k] * fx) * fy;
+    return s;
+  }
+  const bakeStd = (m) => !!m && m.isMeshStandardMaterial && m.visible !== false && !(m.opacity <= 0);
+  // A material's colour in the bake (null: not baked) and its picture: the colour times the picture's mean, unless pic
+  function bakeColour(m, pic) {
+    if (!bakeStd(m)) return null;
+    const c = [m.color.r, m.color.g, m.color.b], P = !pic && m.map ? bakeNow(m.map) : null;
+    if (P) { c[0] *= P.mean[0]; c[1] *= P.mean[1]; c[2] *= P.mean[2]; }
+    return c;
+  }
+  // An attribute's numbers as one array with a stride (the attribute's own when it is plain, else a copy)
+  function bakeArr(A, n) {
+    if (!A) return null;
+    if (!A.isInterleavedBufferAttribute && !A.normalized && A.array) return { a: A.array, s: A.itemSize };
+    const a = new Float32Array(A.count * n), get = ['getX', 'getY', 'getZ', 'getW'];
+    for (let i = 0; i < A.count; i++) for (let k = 0; k < n; k++) a[i * n + k] = k < A.itemSize ? A[get[k]](i) : 1;
+    return { a, s: n };
+  }
+  // The meshes a bake takes from a rig, with their transforms into the vessel's group: the product of their own matrices
+  // from the rig's root down (its root, radial copy and pylons hang straight off the group), so the group's place in the
+  // world never enters. Hidden ones (a retracted wheel, a fired store, an inner part, a plume) are left out.
+  function bakeList(rig, out) {
+    const walk = (o, M, radial, side) => {
+      if (!o.visible) return;
+      if (o.matrixAutoUpdate) o.updateMatrix();
+      const W = new THREE.Matrix4().multiplyMatrices(M, o.matrix), s = o.userData.side || side;
+      if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.position) {
+        const m = o.material;
+        if (Array.isArray(m) ? m.some(bakeStd) : bakeStd(m)) out.push({ o, M: W, part: rig.part, radial, side: s });
+      }
+      for (const c of o.children) walk(c, W, radial, s);
+    };
+    const I = new THREE.Matrix4();
+    walk(rig.root, I, false, 0);
+    if (rig.twin) walk(rig.twin, I, true, 0);
+    if (rig.pylons) walk(rig.pylons, I, false, 0);
+  }
+  // A textured mesh's picture at each of its vertices (rgb, flat): the mean over the triangles that meet there (each the
+  // mean of its own patch of the picture: four samples from the level whose texels are about a quarter of the patch wide,
+  // weighted by its area); null if it has no picture to read or no uv
+  function bakeTex(J) {
+    const m = J.it.o.material, t = m.map, g = J.it.o.geometry, P = t && bakeNow(t), UV = g.attributes.uv;
+    if (!P || !UV) return null;
+    if (t.matrixAutoUpdate) t.updateMatrix();
+    const M = (BAKE.T = t.matrix.elements), sc = Math.abs(M[0] * M[4] - M[1] * M[3]) * P.lv[0].w * P.lv[0].h; // (texels of level 0 a unit of uv area)
+    const n = g.attributes.position.count, out = new Float32Array(n * 3), wt = new Float32Array(n), I = g.index, ua = bakeArr(UV, 2), pa = bakeArr(g.attributes.position, 3);
+    const U = ua.a, us = ua.s, X = pa.a, ps = pa.s, B = BAKE.B;
+    for (let t3 = J.r0; t3 < J.r0 + J.cnt; t3 += 3) {
+      const a = I ? I.getX(t3) : t3, b = I ? I.getX(t3 + 1) : t3 + 1, c = I ? I.getX(t3 + 2) : t3 + 2;
+      const ux = X[b * ps] - X[a * ps], uy = X[b * ps + 1] - X[a * ps + 1], uz = X[b * ps + 2] - X[a * ps + 2], wx = X[c * ps] - X[a * ps], wy = X[c * ps + 1] - X[a * ps + 1], wz = X[c * ps + 2] - X[a * ps + 2];
+      const ar = Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx) + 1e-9;
+      const ua0 = U[a * us], va0 = U[a * us + 1], ub = U[b * us], vb = U[b * us + 1], uc = U[c * us], vc = U[c * us + 1];
+      const tex = Math.abs((ub - ua0) * (vc - va0) - (uc - ua0) * (vb - va0)) * 0.5 * sc, l = tex > 4 ? Math.floor(Math.log2(Math.sqrt(tex) / 2)) : 0;
+      let r = 0, gg = 0, bb = 0;
+      for (let q = 0; q < 12; q += 3) {
+        const s = bakeAt(P, l, t, B[q] * ua0 + B[q + 1] * ub + B[q + 2] * uc, B[q] * va0 + B[q + 1] * vb + B[q + 2] * vc);
+        r += s[0]; gg += s[1]; bb += s[2];
+      }
+      r *= ar / 4; gg *= ar / 4; bb *= ar / 4;
+      out[a * 3] += r; out[a * 3 + 1] += gg; out[a * 3 + 2] += bb; wt[a] += ar;
+      out[b * 3] += r; out[b * 3 + 1] += gg; out[b * 3 + 2] += bb; wt[b] += ar;
+      out[c * 3] += r; out[c * 3 + 1] += gg; out[c * 3 + 2] += bb; wt[c] += ar;
+    }
+    for (let v = 0; v < n; v++) {
+      if (wt[v] > 0) { out[v * 3] /= wt[v]; out[v * 3 + 1] /= wt[v]; out[v * 3 + 2] /= wt[v]; } else { out[v * 3] = P.mean[0]; out[v * 3 + 1] = P.mean[1]; out[v * 3 + 2] = P.mean[2]; }
+    }
+    return out;
+  }
+  // The merged geometry of bakeList's meshes and, per run of triangles, the part, side and radial flag they came from (for
+  // picking). A mesh with several materials is taken triangle by triangle (no vertex shared across two colours).
+  function bakeGeometry(list) {
+    if (!BAKE.N) BAKE.N = new THREE.Matrix3();
+    const jobs = [];
+    let nv = 0, ni = 0;
+    for (const it of list) {
+      const g = it.o.geometry, P = g.attributes.position, I = g.index, mats = it.o.material;
+      const n0 = I ? I.count : P.count, r0 = Math.max(0, g.drawRange.start || 0), r1 = Math.min(n0, r0 + (isFinite(g.drawRange.count) ? g.drawRange.count : n0));
+      if (Array.isArray(mats)) { // (per group: its own material)
+        const tris = [];
+        for (const gr of g.groups.length ? g.groups : [{ start: 0, count: n0, materialIndex: 0 }]) {
+          const m = mats[gr.materialIndex], col = bakeColour(m);
+          if (!col) continue;
+          const a = Math.max(r0, gr.start), b = Math.min(r1, gr.start + gr.count);
+          for (let t = a; t + 2 < b; t += 3) tris.push(t, col, !!m.vertexColors);
+        }
+        if (!tris.length) continue;
+        const two = mats.some((m) => bakeStd(m) && m.side === THREE.DoubleSide) ? 2 : 1;
+        jobs.push({ it, flat: true, tris, two });
+        nv += tris.length * two; ni += tris.length * two; // (three entries a triangle: three vertices, three indices)
+      } else {
+        const cnt = Math.max(0, r1 - r0 - ((r1 - r0) % 3)), two = mats.side === THREE.DoubleSide ? 2 : 1;
+        if (!cnt) continue;
+        const J = { it, r0, cnt, two, back: mats.side === THREE.BackSide, vc: !!mats.vertexColors };
+        J.tex = mats.map ? bakeTex(J) : null;
+        J.col = bakeColour(mats, !!J.tex);
+        jobs.push(J);
+        nv += (I ? P.count : cnt) * two; ni += cnt * two;
+      }
+    }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3), idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni), at = [];
+    let v = 0, k = 0;
+    for (const J of jobs) {
+      const it = J.it, g = it.o.geometry, I = g.index, pa = bakeArr(g.attributes.position, 3), na = bakeArr(g.attributes.normal, 3), ca = J.flat || J.vc ? bakeArr(g.attributes.color, 3) : null;
+      const X = pa.a, ps = pa.s, Nn = na && na.a, ns = na && na.s, C = ca && ca.a, cs = ca && ca.s, TX = J.tex;
+      const e = it.M.elements, n = BAKE.N.getNormalMatrix(it.M).elements, mirror = it.M.determinant() < 0, k0 = k;
+      // vertex i of the source at v: its place, normal (reversed for a back copy) and colour (c: its material's, vc: times
+      // its own vertex colour; times the picture round it, TX)
+      const put = (i, rev, c, vc) => {
+        const x = X[i * ps], y = X[i * ps + 1], z = X[i * ps + 2], o = v * 3;
+        pos[o] = e[0] * x + e[4] * y + e[8] * z + e[12]; pos[o + 1] = e[1] * x + e[5] * y + e[9] * z + e[13]; pos[o + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+        if (Nn) {
+          const a = Nn[i * ns], b = Nn[i * ns + 1], d = Nn[i * ns + 2], nx = n[0] * a + n[3] * b + n[6] * d, ny = n[1] * a + n[4] * b + n[7] * d, nz = n[2] * a + n[5] * b + n[8] * d;
+          const s = (rev ? -1 : 1) / (Math.hypot(nx, ny, nz) || 1);
+          nor[o] = nx * s; nor[o + 1] = ny * s; nor[o + 2] = nz * s;
+        }
+        let r = c[0], gg = c[1], b = c[2];
+        if (vc && C) { r *= C[i * cs]; gg *= C[i * cs + 1]; b *= C[i * cs + 2]; }
+        if (TX) { r *= TX[i * 3]; gg *= TX[i * 3 + 1]; b *= TX[i * 3 + 2]; }
+        col[o] = r; col[o + 1] = gg; col[o + 2] = b;
+        return v++;
+      };
+      for (let w = 0; w < J.two; w++) {
+        // back: this copy faces the other way (a two-sided mesh's second, or a back-sided one): reversed, as its normals;
+        // a mirrored transform reverses the triangles once more
+        const back = J.flat ? w === 1 : J.back !== (w === 1), turn = mirror !== back, v0 = v, j0 = k;
+        if (J.flat) {
+          for (let q = 0; q < J.tris.length; q += 3) {
+            const t = J.tris[q], c = J.tris[q + 1], vc = J.tris[q + 2];
+            const a = put(I ? I.getX(t) : t, back, c, vc), b = put(I ? I.getX(t + 1) : t + 1, back, c, vc), d = put(I ? I.getX(t + 2) : t + 2, back, c, vc);
+            idx[k++] = a; idx[k++] = turn ? d : b; idx[k++] = turn ? b : d;
+          }
+        } else if (I) {
+          const cntV = g.attributes.position.count;
+          for (let i = 0; i < cntV; i++) put(i, back, J.col, J.vc);
+          for (let t = J.r0; t < J.r0 + J.cnt; t += 3) {
+            const a = I.getX(t), b = I.getX(t + 1), d = I.getX(t + 2);
+            idx[k++] = v0 + a; idx[k++] = v0 + (turn ? d : b); idx[k++] = v0 + (turn ? b : d);
+          }
+        } else {
+          for (let t = J.r0; t < J.r0 + J.cnt; t += 3) {
+            const a = put(t, back, J.col, J.vc), b = put(t + 1, back, J.col, J.vc), d = put(t + 2, back, J.col, J.vc);
+            idx[k++] = a; idx[k++] = turn ? d : b; idx[k++] = turn ? b : d;
+          }
+        }
+        if (!Nn) bakeNormals(pos, nor, idx, v0, v, j0, k); // (wound as drawn, so a reversed copy's come out reversed)
+      }
+      at.push({ from: k0 / 3, end: k / 3, part: it.part, side: it.side, radial: it.radial });
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    geo.computeBoundingSphere();
+    return { geo, at };
+  }
+  // a run's normals from its triangles as wound (vertices v0..v1, indices j0..j1), where its geometry has none (as three's
+  // computeVertexNormals)
+  function bakeNormals(pos, nor, idx, v0, v1, j0, j1) {
+    for (let j = j0; j < j1; j += 3) {
+      const a = idx[j] * 3, b = idx[j + 1] * 3, c = idx[j + 2] * 3;
+      const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2], wx = pos[c] - pos[a], wy = pos[c + 1] - pos[a + 1], wz = pos[c + 2] - pos[a + 2];
+      const fx = uy * wz - uz * wy, fy = uz * wx - ux * wz, fz = ux * wy - uy * wx;
+      for (const q of [a, b, c]) { nor[q] += fx; nor[q + 1] += fy; nor[q + 2] += fz; }
+    }
+    for (let q = v0 * 3; q < v1 * 3; q += 3) { const l = Math.hypot(nor[q], nor[q + 1], nor[q + 2]) || 1; nor[q] /= l; nor[q + 1] /= l; nor[q + 2] /= l; }
   }
 
   class VesselMesh {
@@ -2131,7 +2707,7 @@ void main() {
     add(p) {
       const obj = buildPart(p, this.builder, this.radial), rig = obj.userData.rig;
       if (this.xray) xrayRig(rig, true, null);
-      if (this.wreck && rig.gv) char(rig, true);
+      if (this.wreck) char(rig, true);
       this.items.set(p, rig);
       this.list.push(rig);
       this.group.add(obj);
@@ -2142,6 +2718,7 @@ void main() {
 
     // Drops parts that are gone (separation, explosions) and disposes their materials.
     prune(stamp) {
+      if (this.baked) return; // (baked: no rigs left)
       for (let i = this.list.length - 1; i >= 0; i--) {
         const rig = this.list[i];
         if (rig.seen === stamp) continue;
@@ -2152,7 +2729,58 @@ void main() {
       this.pickables = this.list.flatMap((r) => r.meshes);
     }
 
+    // (the big update) Whether a bake could go ahead without waiting on the GPU: the pictures of its textured meshes read
+    // (bakeAsk starts the reads it still needs; they come in on later frames). render3d asks when a wreck is first drawn
+    // and again from 6 s, and bakes once it says yes.
+    bakeReady() {
+      if (this.baked || this.builder || this.xray) return false;
+      bakePoll();
+      const list = [];
+      for (const rig of this.list) bakeList(rig, list);
+      let ok = true;
+      for (const it of list) for (const m of [].concat(it.o.material)) {
+        if (!bakeStd(m) || !m.map || bakePic(m.map) !== undefined) continue;
+        bakeAsk(m.map);
+        if (bakePic(m.map) === undefined) ok = false;
+      }
+      return ok;
+    }
+    // (the big update) A wreck as one mesh (see bakeGeometry): its rigs merged, then freed. render3d calls it once a
+    // wreck has stood for 6 s; never in the hangar or X-ray. False: refused (not a wreck as last synced, or baked).
+    bake() {
+      if (this.baked || this.builder || this.xray || !this.wreck) return false;
+      const list = [];
+      for (const rig of this.list) bakeList(rig, list);
+      const { geo, at } = bakeGeometry(list), mesh = new THREE.Mesh(geo, bakeMat());
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData.baked = true;
+      this.bakeN = this.list.length;
+      for (const rig of this.list) freeRig(rig);
+      this.list.length = 0;
+      this.items.clear();
+      this.pickables.length = 0;
+      this.exhaust.length = 0;
+      this.pylonSig = null; // (pylons built afresh if it is ever taken apart again)
+      this.baked = mesh;
+      this.bakeAt = at;
+      this.group.add(mesh);
+      return true;
+    }
+    // Back to rigs (sync builds them again): a baked vessel that is no longer a wreck, or has lost or gained parts
+    unbake() {
+      const m = this.baked;
+      if (!m) return;
+      m.removeFromParent();
+      m.geometry.dispose();
+      this.baked = null;
+      this.bakeAt = null;
+    }
+
     sync(v, o) {
+      if (this.baked) { // (while baked nothing is drawn afresh: the mesh is the wreck as it stood)
+        if (v.wreck && v.parts.length === this.bakeN) { bakeMat(); return; }
+        this.unbake();
+      }
       o = o || {};
       const parts = v.parts, dt = o.dt > 0 ? Math.min(o.dt, 0.25) : 0, time = o.time || 0, rho = o.rho > 0 ? o.rho : 0, high = o.quality !== 'low' && o.quality !== false;
       const stamp = ++this.stamp;
@@ -2160,13 +2788,14 @@ void main() {
       gvState(this, v, this.builder ? api.tgOf : null);
       let rotor = 0;
       for (let i = 0; i < parts.length; i++) {
-        const p = parts[i];
-        (this.items.get(p) || this.add(p)).seen = stamp;
+        const p = parts[i], rig = this.items.get(p) || this.add(p);
+        rig.seen = stamp;
+        if ((p.cut || 0) !== (rig.cut || 0)) cutRig(rig, p.cut); // (half a wing shot off: death.js)
         if (p.def.air && p.def.air.kind === 'rotor' && p.firing > rotor) rotor = p.firing;
       }
       if (this.list.length > parts.length) this.prune(stamp);
       this.pylons(parts);
-      if (this.builder && this.xray !== !!api.xray) this.setXray(api.xray);
+      if (this.builder) this.setXray(api.xray); // (returns at once when nothing changed; a set's host found once its rig is built)
       if (this.xray) for (const r of this.list) if (r.part.def.mods) modsMesh(r, parts);
       if (api.envMap !== this.env) {
         this.env = api.envMap;
@@ -2185,8 +2814,12 @@ void main() {
       if (rig.spins.length) {
         let s = p.spin;
         if (typeof s !== 'number' || !isFinite(s)) { // no spin bookkeeping: turn props and rotors with the throttle
-          rig.fspin += (A.always ? 1 : A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
+          rig.fspin += (A.always && !this.builder ? 1 : A.tail ? rotor : p.firing > 0 ? p.firing : 0) * (A.rate || 0) * dt;
           s = rig.fspin;
+        } else if (A.mul) { // (a drone's motor: its prop turns A.mul times as fast as the physics' spin, which wraps at a full turn)
+          let k = rig.s0 == null ? 0 : s - rig.s0;
+          if (k > Math.PI) k -= TAU; else if (k < -Math.PI) k += TAU;
+          rig.s0 = s; rig.fspin = (rig.fspin + k * A.mul) % (TAU * 4096); s = rig.fspin;
         }
         const ds = rig.last == null ? 0 : Math.abs(s - rig.last);
         rig.last = s;
@@ -2210,6 +2843,8 @@ void main() {
       }
       if (rig.lid) rig.lid.visible = !(p.deployed > 0 || p.used);
       if (rig.hinges) { const k = clamp(p.deployed || 0, 0, 1); for (const g of rig.hinges) g.rotation[g.userData.hinge[0]] = g.userData.hinge[1] * k; }
+      if (rig.docks && p.docked !== rig.shownDk) { rig.shownDk = p.docked; const n = p.docked == null ? Infinity : p.docked; rig.docks.forEach((g, i) => { g.visible = i < n; }); } // (a bay's drones still aboard)
+      if (rig.aim) { rig.aim.rotation.y = -(p.aimYaw || 0); if (rig.aimTilt) rig.aimTilt.rotation.z = p.aimEl || 0; } // (a gimbal camera: yaw about +y from +x towards +z, then up)
       if (rig.canopy) {
         const k = p.deployed || 0, c = rig.canopy.g;
         c.visible = k > 0 && !p.used;
@@ -2260,12 +2895,12 @@ void main() {
     // pair it was (side ±1, else 0). A rocket's radial copies of its legs and fins are only for show, so
     // they don't count unless `radial`.
     pickHit(raycaster, skip, radial) {
-      const hits = raycaster.intersectObjects(this.pickables, false), dir = raycaster.ray.direction;
+      const hits = raycaster.intersectObjects(this.baked ? [this.baked] : this.pickables, false), dir = raycaster.ray.direction;
       for (const h of hits) {
-        const o = h.object, part = o.userData.part;
-        if (!part || (skip && skip.has(part)) || (!radial && o.userData.radial) || !shown(o)) continue;
-        let side = 0;
-        for (let a = o; a && a !== this.group; a = a.parent) if (a.userData.side) { side = a.userData.side; break; }
+        const o = h.object, B = o === this.baked ? this.bakedRun(h.faceIndex) : null, part = B ? B.part : o.userData.part; // (baked: the part a triangle came from)
+        if (!part || (skip && skip.has(part)) || (!radial && (B ? B.radial : o.userData.radial)) || !shown(o)) continue;
+        let side = B ? B.side : 0;
+        if (!B) for (let a = o; a && a !== this.group; a = a.parent) if (a.userData.side) { side = a.userData.side; break; }
         const inv = new THREE.Matrix4().copy(this.group.matrixWorld).invert();
         const n = h.face ? h.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(o.matrixWorld)) : dir.clone().negate();
         if (n.dot(dir) > 0) n.negate(); // (the inside of an open or two-sided shape)
@@ -2274,8 +2909,22 @@ void main() {
       return null;
     }
     pick(raycaster, skip) {
+      if (this.xray && !this.baked) { // (X-ray: a radar set seen through its nose is what a tap there means)
+        for (const h of raycaster.intersectObjects(this.pickables, false)) {
+          const part = h.object.userData.part;
+          if (part && innerRadar(part.def) && !(skip && skip.has(part)) && shown(h.object)) return part;
+        }
+      }
       const h = this.pickHit(raycaster, skip, true);
       return h ? h.part : null;
+    }
+    // the baked run a triangle of the baked mesh belongs to ({part, side, radial}), or null
+    bakedRun(t) {
+      const A = this.bakeAt;
+      if (!A || !(t >= 0)) return null;
+      let lo = 0, hi = A.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (A[m].end <= t) lo = m + 1; else hi = m; }
+      return A[lo] && t >= A[lo].from && t < A[lo].end ? A[lo] : null;
     }
 
     // Builder: a glow over a part's paint (selection, hover, a spot it can't go), or none (k = 0).
@@ -2295,15 +2944,20 @@ void main() {
     // Builder: X-ray. The ground update's armour goes see-through, what is inside it (inner parts, in their kind's colour;
     // built-in crew, stores, fuel and troops, as balls) shows; other parts are as they were. Builder meshes follow
     // Parts3D.xray by themselves (sync).
+    // With radar sets aboard, the bodies holding them (their att) go see-through too: worked out again when they change.
     setXray(on) {
       on = !!on;
-      if (this.xray === on) return;
-      this.xray = on;
+      let hosts = null;
+      for (const r of this.list) if (innerRadar(r.part.def)) (hosts || (hosts = new Set())).add(r.part.att);
+      const sig = hosts ? [...hosts].join(',') : '';
+      if (this.xray === on && sig === (this.rsig || '')) return; // (no sets: as before)
+      this.xray = on; this.rsig = sig;
       const parts = this.list.map((r) => r.part);
-      for (const r of this.list) xrayRig(r, on, parts);
+      for (const r of this.list) { if (hosts || r.rhost) r.rhost = !!hosts && hosts.has(r.part.id); xrayRig(r, on, parts); }
     }
 
     dispose() {
+      this.unbake(); // (the baked mesh's own geometry; its material is shared)
       for (const rig of this.list) freeRig(rig);
       this.list.length = 0;
       this.items.clear();
@@ -2320,11 +2974,13 @@ void main() {
     init(three, renderer) {
       THREE = three || window.THREE || null;
       if (renderer && renderer.capabilities) aniso = renderer.capabilities.getMaxAnisotropy();
+      BAKE.R = renderer || null; // (the bake reads its textures' small mip levels back)
     },
     textureFor,
     wingAt,
     buildPart: (p) => buildPart(p, false),
     VesselMesh,
+    bakeMat: () => bakeMat(), // (the baked wrecks' one material: render3d compiles its program while a flight loads)
     ghost,
     place,
     tint,

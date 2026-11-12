@@ -9,9 +9,10 @@ const vm = require('vm'), fs = require('fs'), path = require('path');
 const ROOT = path.resolve(process.env.ROOT || path.join(__dirname, '..', '..'));
 const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 
-// opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t),
-// flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground (gmode.js and groundai.js, which
-// combat, flight and mp also bring), props (every map's props built: Props.buildAll)
+// opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t, then
+// radar.js and death.js when present), flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground
+// (gmode.js and groundai.js, which combat, flight and mp also bring), props (every map's props built: Props.buildAll),
+// drone (false: no drone.js, as before the big update's drones)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -29,7 +30,7 @@ function load(opts = {}) {
   run(src(root, 'vessel.js'), 'vessel.js');
   // the ground update's systems (each only if present, so ROOT can point at a checkout from before it)
   const has = (f) => fs.existsSync(path.join(root, 'js', f));
-  for (const f of ['gear.js', 'aim.js', 'armour.js']) if (has(f)) run(src(root, f), f);
+  for (const f of ['gear.js', 'aim.js', 'armour.js', 'drone.js']) if (has(f) && !(f === 'drone.js' && opts.drone === false)) run(src(root, f), f); // (the big update's drones: drone.js after armour.js; drone: false leaves it out, for old play's proof)
   if (opts.flight && opts.mp) throw new Error('load(): flight and mp stub each other out; load them in separate contexts');
   run('var Sound = new Proxy({}, { get: () => () => {} });');
   if (opts.flight) { // world.js brings the real Settings and FX
@@ -38,7 +39,8 @@ function load(opts = {}) {
     if (has('controls.js')) run(src(root, 'controls.js') + '\nthis.Keys = Keys; this.Controls = Controls;', 'controls.js'); // (the key bindings: flight.js's hints and help read them)
   } else {
     run(`var Settings = { get: (k) => ({ targets: 'hostile', high: false })[k] };
-      var FX = { add() {}, explosion() {}, sparks() {}, puff() {}, splash() {}, clear() {}, list: [] };`);
+      var FX = { add() {}, explosion() {}, sparks() {}, puff() {}, splash() {}, clear() {}, list: [],
+        death() {}, flame() {}, smoke() {}, trail() {}, seed() {}, rnd() { return 0.5; }, q() { return 1; }, nq(n) { return n; }, dir() { return { x: 0, y: 0, z: 1 }; } };`);
   }
   if (opts.combat) {
     // expose the internals the tests poke at on Combat._t
@@ -53,6 +55,10 @@ function load(opts = {}) {
       .filter((n) => new RegExp(`function ${n}\\b|const ${n} =`).test(cs));
     cs = cs.replace(ret, `  return {\n    _t: { ${names.join(', ')} }, S, step,`);
     run(cs + '\nthis.Combat = Combat;', 'combat.js');
+    // the big update's radar and damage model, right after combat.js (each only if present, so ROOT can point at a
+    // checkout from before it; mp-only contexts load neither)
+    if (has('radar.js')) run(src(root, 'radar.js') + '\nthis.Radar = Radar;', 'radar.js');
+    if (has('death.js')) run(src(root, 'death.js') + '\nthis.Death = Death;', 'death.js');
   }
   // (combat.js, flight.js and mp.js call these, behind gates every old design keeps shut)
   const gm = opts.combat || opts.mp || opts.ground || opts.flight;
@@ -78,7 +84,8 @@ function load(opts = {}) {
   if (opts.props) run('Props.buildAll();');
   // top-level const/let/class bindings aren't properties of the context: copy the common ones over
   for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain',
-    'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props'])
+    'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props',
+    'AIR_KINDS', 'Death', 'DEATH', 'FIRE', 'Radar', 'Drone', 'DRONE', 'DRONE_LEGACY'])
     run(`if (typeof ${k} !== 'undefined') this.${k} = ${k};`);
   return ctx;
 }
@@ -110,7 +117,7 @@ function sim() {
   return { time: 0, target: null, toasts: [], broken: [], vessels: [], camAbs: { x: 0, y: 0, z: 0 },
     toast(t) { this.toasts.push(t); },
     ripParts(v, parts) {
-      this.broken.push('rip:' + parts.map((p) => p.type).join(',') + '@' + v.gForce.toFixed(1) + 'g');
+      this.broken.push('rip:' + parts.map((p) => p.type).join(',') + '@' + (v.gForce || 0).toFixed(1) + 'g'); // (a piece never stepped, the air rule's falling half: no g yet)
       for (const p of parts) { for (const n of v.adj.get(p.id) || []) v.adj.get(n) && v.adj.get(n).delete(p.id); v.adj.get(p.id).clear(); }
       v.splitComponents(); v.rebuildGroups();
     },

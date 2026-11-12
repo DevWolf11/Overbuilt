@@ -11,10 +11,13 @@ const Settings = {
   // instructor pulls out of a dive by itself at the last moment (off by default after PR #45's play-test: v.aimPull). The controls (controls.js): touchUI
   // ('auto': a touch screen's own; 'on', 'off'), uiSize (the HUD's size ×, 0.5-1.5, over 1 as far as it fits: Controls.fit),
   // stickSize (the stick's ×, 0.75-1.5),
-  // stickSens (Aim's stick speed ×, 0.5-2), aimInvert (the Aim stick upside down), haptics (the stick's ticks)
+  // stickSens (Aim's stick speed ×, 0.5-2), aimInvert (the Aim stick upside down), haptics (the stick's ticks). The big
+  // update's drones: droneStick ('turn': the stick's sideways turns it, Q/E slide; 'tilt': the other way round), droneStart
+  // (the mode a multirotor starts in: 'level' or 'acro'), droneView (the view a drone starts in, the last one H picked:
+  // 'fpv' first person, 'fpvLevel' first person with the horizon held level, 'chase')
   data: Object.assign({ quality: 'high', hints: true, volume: 0.8, markers: true, build3d: false, targets: 'practice', fps: typeof isTouch !== 'undefined' && isTouch ? 60 : 0,
     aimAssist: typeof isTouch !== 'undefined' && isTouch, aimMode: 'arcade', aimSens: 1, planeStart: 'hold', aimPull: false,
-    touchUI: 'auto', uiSize: 1, stickSize: 1, stickSens: 1, aimInvert: false, haptics: true }, store.get('rss.settings', {})),
+    touchUI: 'auto', uiSize: 1, stickSize: 1, stickSens: 1, aimInvert: false, haptics: true, droneStick: 'turn', droneStart: 'level', droneView: 'fpv' }, store.get('rss.settings', {})),
   get(k) { return this.data[k]; },
   set(k, v) { this.data[k] = v; store.set('rss.settings', this.data); },
   get high() { return this.data.quality !== 'low'; },
@@ -39,6 +42,78 @@ function randDir() {
   return { x: s * Math.cos(a), y: s * Math.sin(a), z };
 }
 
+// The effects API's helpers (FX.death, smoke, flame and trail below). Pictures only: they draw from FX.rnd, their own
+// stream, never Math.random, so no seeded test or simulation can shift. Old particles set none of the fields they add
+// (rise, drag, floor, trail, trailT, hot, pop, heat, ease, fin, nolight), so their update and draw are unchanged.
+// FX.smoke's presets: colour, size → grow (× k), life on High / Low (× 0.85-1.15), α, rise (m/s², up), drag (1/s),
+// heat (the renderer's glow at birth) and fade-in (a fraction of the life)
+const SMOKE = {
+  black: { c: '#26272b', size: 1.0, grow: 5, life: 3.5, lo: 2.5, a: 0.7, rise: 2.5, drag: 1.2, heat: 0.3, fin: 0.06 }, // fire smoke, burning trails
+  grey: { c: '#7b7f86', size: 0.8, grow: 4, life: 3.0, lo: 2.2, a: 0.5, rise: 2.0, drag: 1.2, heat: 0, fin: 0.06 }, // damage, a cold hulk
+  white: { c: '#e8edf2', size: 0.7, grow: 4, life: 2.5, lo: 1.8, a: 0.35, rise: 0.5, drag: 1.6, heat: 0, fin: 0.06 }, // a fuel or coolant leak
+  dust: { c: '#9a8f7c', size: 0.8, grow: 3, life: 1.6, lo: 1.2, a: 0.55, rise: 0.3, drag: 2.2, heat: 0, fin: 0.06 },
+  column: { c: '#303236', size: 2.5, grow: 12, life: 9, lo: 6, a: 0.55, rise: 3.0, drag: 0.8, heat: 0, fin: 0.1 }, // wrecks, pyres
+  steam: { c: '#f2f5f8', size: 1.2, grow: 6, life: 3.0, lo: 2.2, a: 0.4, rise: 3.0, drag: 1.2, heat: 0, fin: 0.06 }, // a hulk in water
+};
+// FX.death's stages by kind (High counts; Low takes FX.nq of each, never of the flash, the ring or the pops):
+// F, L: the flash (size × s, life); ring: a shock ring when s is over this; fb, bias, fs, rise: the fireball (count, the
+// least share of each direction along up, size × s, buoyancy), flat: its spread along the ground ×, noUp: without the
+// 2 m/s up, lift: born this far up; deb, db: debris chunks (count, bias); spk: sparks (on the fireball's bias); dust: the
+// dust skirt (on the ground, not in water); W, Ws: the splash and the steam in water; col, cc, ch: the smoke column
+// (count, colour, heat), airOnly: a column only in air; pops: the cook-off pops' times (s)
+const DEATH_FX = {
+  ammo: { F: 4, L: 0.32, ring: 0, fb: 16, bias: -1, fs: 0.55, rise: 6, deb: 10, db: 0.25, spk: 14, dust: 10, W: 20, Ws: 4, col: 12, cc: '#2a2c30', ch: 0.3, pops: [0.15, 0.42, 0.8] },
+  crash: { F: 3.5, L: 0.3, ring: 3, fb: 20, bias: -0.2, fs: 0.55, rise: 6, flat: 1.4, deb: 8, db: 0.1, spk: 14, dust: 10, W: 20, Ws: 4, col: 12, cc: '#2a2c30', ch: 0.3 },
+  air: { F: 4, L: 0.3, ring: 0, fb: 22, bias: -1, fs: 0.55, rise: 6, noUp: true, deb: 10, db: 0.25, spk: 16, col: 14, cc: '#3b3e44', ch: 0.3, airOnly: true },
+  fuel: { F: 2.5, L: 0.25, fb: 14, bias: -1, fs: 0.55, rise: 7, deb: 4, db: 0.25, spk: 8, W: 10, Ws: 2, col: 8, cc: '#34363a', ch: 0.3, pops: [0.3] },
+  ko: { F: 1.5, L: 0.18, fb: 5, bias: 0.3, fs: 0.3, rise: 6, lift: 0.5, spk: 8, W: 4, Ws: 1, col: 6, cc: '#5a5e66', ch: 0 },
+  thud: { bias: -0.2, spk: 6, dust: 6, W: 4, Ws: 1 },
+};
+const fxOwn = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+// what a burning chunk leaves behind it, a tenth of its speed kept: a lick of fire while hot and young, else dark smoke
+// (review P2-VIS-2) a chunk with land (FX.death's on the ground, not in water) stops on the ground under it, its
+// centre half its size up (the physics' ground: Highland Ridge's mesh is drawn from it), not on a sphere through the
+// blast (floor: it floated on slopes and sank into flat ground). The ground is looked up again only once the chunk has
+// moved 2 m from where it was last looked up (exact: now), so a chunk costs a few looks in its life
+const LANDL = {};
+function landR(p, exact) {
+  const dx = p.x - p.gx, dy = p.y - p.gy, dz = p.z - p.gz;
+  if (exact || p.gr === undefined || dx * dx + dy * dy + dz * dz > 4) {
+    Terrain.locate(p.b, p.x, p.y, p.z, LANDL);
+    p.gr = p.b.radius + Terrain.surfaceAt(p.b, LANDL.a, LANDL.z) + 0.5 * p.size; p.gx = p.x; p.gy = p.y; p.gz = p.z;
+  }
+  return p.gr;
+}
+function trailOf(p) {
+  if (p.hot && p.life < 0.5) return { kind: 'fire', b: p.b, x: p.x, y: p.y, z: p.z, vx: p.vx * 0.1, vy: p.vy * 0.1, vz: p.vz * 0.1, max: 0.35, size: 0.3 + p.size * 0.6, grow: 0.8, color: '#ff9a3c', alpha: 1 };
+  return { kind: 'smoke', b: p.b, x: p.x, y: p.y, z: p.z, vx: p.vx * 0.1, vy: p.vy * 0.1, vz: p.vz * 0.1, max: 0.9 + 0.5 * FX.rnd(),
+    size: 0.25 + p.size * 0.6, grow: 1.6 + p.size * 2, color: '#3a3a3c', alpha: 0.55, rise: 0.5, ease: 1 };
+}
+// a cook-off pop (an 'emit' particle running out): flames, sparks and a flash where it is, sized by p.pop, into born
+function popOf(p, born) {
+  const s = p.pop, b = p.b;
+  for (let i = 0, n = FX.nq(3); i < n; i++) {
+    const d = FX.dir(), sp = 4 + 6 * FX.rnd();
+    born.push({ kind: 'fire', b, x: p.x, y: p.y, z: p.z, vx: p.vx + d.x * sp, vy: p.vy + d.y * sp, vz: p.vz + d.z * sp, max: 0.4 + 0.3 * FX.rnd(),
+      size: 0.3 * s, grow: 0.8 * s, color: '#ffd27a', alpha: 1, rise: 4 });
+  }
+  for (let i = 0, n = FX.nq(4); i < n; i++) {
+    const d = FX.dir(), sp = 10 + 20 * FX.rnd();
+    born.push({ kind: 'spark', b, x: p.x, y: p.y, z: p.z, vx: p.vx + d.x * sp, vy: p.vy + d.y * sp, vz: p.vz + d.z * sp, max: 0.3 + 0.3 * FX.rnd(), size: 0.15, grow: 0, color: '#ffd27a', alpha: 1 });
+  }
+  const f = { kind: 'flash', b, x: p.x, y: p.y, z: p.z, vx: p.vx, vy: p.vy, vz: p.vz, max: 0.12, size: 0.8 * s, grow: 1.6 * s, color: '#fff3c4', alpha: 1 };
+  if (p.nolight) f.nolight = true;
+  born.push(f);
+}
+// FX.splash's spray drawn from FX.rnd: count drops thrown up around n (the surface's normal) at p
+function splashR(body, p, n, count) {
+  for (let i = 0; i < count; i++) {
+    const s = 4 + FX.rnd() * 10, d = FX.dir(), j = 4;
+    FX.add({ kind: 'smoke', b: body, x: p.x, y: p.y, z: p.z, vx: n.x * s + d.x * j, vy: n.y * s + d.y * j, vz: n.z * s + d.z * j,
+      max: 0.8 + FX.rnd(), size: 0.4, grow: 2.5, color: '#e6f3ff', alpha: 0.8, heavy: true });
+  }
+}
+
 const FX = {
   list: [],
   max() { return Settings.high ? 900 : 350; },
@@ -51,6 +126,19 @@ const FX = {
   clear() { this.list.length = 0; },
   // a chaff cloud's foil ('glint'): each strip flashes as it turns in the light, by its own age (the same at any frame rate)
   twinkle(p) { const s = Math.sin(p.tw + p.life * p.tf); return 0.15 + 0.85 * s * s * s * s; },
+  // ---- the effects API (the damage model's and the drones' explosions, fire and smoke). Its own random stream
+  // (mulberry32, seeded at load), never Math.random; counts halved on Low (q, nq).
+  _s: 0x2545f491, _born: [],
+  seed(n) { this._s = n >>> 0; },
+  rnd() { let t = (this._s = (this._s + 0x6d2b79f5) >>> 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; },
+  q() { return Settings.high ? 1 : 0.5; },
+  nq(n) { return Math.ceil(n * this.q()); },
+  // a random unit vector; with up, at least `bias` of it along up
+  dir(up, bias = -1) {
+    const z = this.rnd() * 2 - 1, a = this.rnd() * TAU, s = Math.sqrt(1 - z * z), d = { x: s * Math.cos(a), y: s * Math.sin(a), z };
+    if (up) { const k = d.x * up.x + d.y * up.y + d.z * up.z; if (k < bias) { const f = (bias - k) * 1.5; d.x += up.x * f; d.y += up.y * f; d.z += up.z * f; const n = Math.hypot(d.x, d.y, d.z); d.x /= n; d.y /= n; d.z /= n; } }
+    return d;
+  },
   // p and v are {x, y, z} relative to the body; bursts fly out in every direction.
   puff(body, p, v, n, color) {
     for (let i = 0; i < n; i++) {
@@ -87,21 +175,113 @@ const FX = {
         max: 0.8 + Math.random(), size: 0.4, grow: 2.5, color: '#e6f3ff', alpha: 0.8, heavy: true });
     }
   },
+  // The staged death effect at p (body-relative, moving at v), size metres across (× 3 in Hollywood): a flash, a shock
+  // ring, a fireball, burning debris chunks, sparks, a dust skirt (or a splash and steam in water), a smoke column and
+  // cook-off pops, by kind ('ammo' or 'det', 'crash', 'air', 'fuel', 'ko', 'thud'; anything else is 'ko'; DEATH_FX).
+  // air (left out: the air's density there over 0.01) gives the 'air' kind its column. opt: ground (default: any kind
+  // but 'air': p is on the ground, so debris stops 0.3·size under it and dust rises; pass false for a death in the
+  // air), water, up (default: away from the body's centre), light (false: the flash lights nothing). A size that isn't
+  // over 0 (or isn't a number) shows nothing.
+  death(body, p, v, size, kind, air, opt) {
+    if (!(size > 0)) return;
+    const K = DEATH_FX[kind === 'det' ? 'ammo' : fxOwn(DEATH_FX, kind) ? kind : 'ko'], o = opt || {}, b = body;
+    if (Silly.on('hollywood')) size *= 3;
+    const s = size, rs = Math.sqrt(s), r0 = Math.hypot(p.x, p.y, p.z) || 1, u = o.up || { x: p.x / r0, y: p.y / r0, z: p.z / r0 };
+    if (air === undefined) air = airDensity(body, r0 - body.radius) > 0.01;
+    const ground = o.ground !== undefined ? !!o.ground : K !== DEATH_FX.air, water = !!o.water, nolight = o.light === false;
+    if (K.F) {
+      const f = { kind: 'flash', b, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, max: K.L, size: K.F * s, grow: 2 * K.F * s, color: '#fff3c4', alpha: 1 };
+      if (nolight) f.nolight = true;
+      this.add(f);
+    }
+    if (K.ring !== undefined && s > K.ring) this.add({ kind: 'ring', b, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, max: 0.6, size: s, grow: 14 * s, color: '#ffe2a8', alpha: 0.6 });
+    for (let i = 0, n = K.fb ? this.nq(K.fb) : 0, h = K.lift || 0, w = K.noUp ? 0 : 2; i < n; i++) {
+      const d = this.dir(u, K.bias), sp = (3 + 6 * this.rnd()) * rs;
+      if (K.flat) { const k = d.x * u.x + d.y * u.y + d.z * u.z, f = K.flat - 1; d.x += (d.x - u.x * k) * f; d.y += (d.y - u.y * k) * f; d.z += (d.z - u.z * k) * f; }
+      this.add({ kind: 'fire', b, x: p.x + u.x * h, y: p.y + u.y * h, z: p.z + u.z * h, vx: v.x + d.x * sp + u.x * w, vy: v.y + d.y * sp + u.y * w, vz: v.z + d.z * sp + u.z * w,
+        max: 0.8 + this.rnd(), size: K.fs * s, grow: 1.4 * s, color: i % 3 ? '#ff9a3c' : '#ffd27a', alpha: 1, rise: K.rise, drag: 2, ease: 1 });
+    }
+    for (let i = 0, n = K.deb ? this.nq(K.deb) : 0; i < n; i++) { // (the first half burning, trailing fire then smoke)
+      const d = this.dir(u, K.db), sp = 8 + 16 * this.rnd(), hot = i < n / 2;
+      this.add({ kind: 'debris', b, x: p.x, y: p.y, z: p.z, vx: v.x + d.x * sp, vy: v.y + d.y * sp, vz: v.z + d.z * sp, max: 2 + 1.5 * this.rnd(), size: (0.12 + 0.3 * this.rnd()) * rs, grow: 0,
+        color: '#2a2622', alpha: 1, heavy: true, drag: 0.15, floor: ground ? r0 - 0.3 * s : 0, land: ground && !water, trail: Settings.high ? 0.15 : 0.3, trailT: hot ? 1.2 : 0, hot });
+    }
+    for (let i = 0, n = K.spk ? this.nq(K.spk) : 0; i < n; i++) {
+      const d = this.dir(u, K.bias), sp = 10 + 24 * this.rnd();
+      this.add({ kind: 'spark', b, x: p.x, y: p.y, z: p.z, vx: v.x + d.x * sp, vy: v.y + d.y * sp, vz: v.z + d.z * sp, max: 0.3 + 0.5 * this.rnd(), size: 0.15, grow: 0, color: '#ffd27a', alpha: 1 });
+    }
+    const q = { x: 0, y: 0, z: 0 };
+    if (water) { // a splash and steam in place of the dust
+      if (K.W) splashR(body, p, u, this.nq(K.W));
+      for (let i = 0, n = K.Ws ? this.nq(K.Ws) : 0; i < n; i++) {
+        const w = 1 + 2 * this.rnd();
+        q.x = v.x * 0.3 + u.x * w; q.y = v.y * 0.3 + u.y * w; q.z = v.z * 0.3 + u.z * w;
+        this.smoke(body, p, q, 'steam', s / 3);
+      }
+    } else if (ground) for (let i = 0, n = K.dust ? this.nq(K.dust) : 0; i < n; i++) { // the dust skirt, out along the ground
+      const d = this.dir(), k = d.x * u.x + d.y * u.y + d.z * u.z, gx = d.x - u.x * k, gy = d.y - u.y * k, gz = d.z - u.z * k, w = (6 + 8 * this.rnd()) / (Math.hypot(gx, gy, gz) || 1);
+      q.x = gx * w; q.y = gy * w; q.z = gz * w;
+      this.smoke(body, p, q, 'dust', s / 2);
+    }
+    // (on the ground the puffs stand in a column, f from its foot to its top: the higher ones thrown up faster and
+    // wider, all rising on, so it climbs and widens; in the air they stay one cloud)
+    if (!K.airOnly || air) for (let i = 0, n = K.col ? this.nq(K.col) : 0, j = 0.3 * s; i < n; i++) {
+      const f = (i + 0.5) / n, w = (ground ? 1 + 8 * f + 1.5 * this.rnd() : 1.5 + 2.5 * this.rnd()) * 0.5 * rs, d = this.dir();
+      this.add({ kind: 'smoke', b, x: p.x + (2 * this.rnd() - 1) * j, y: p.y + (2 * this.rnd() - 1) * j, z: p.z + (2 * this.rnd() - 1) * j,
+        vx: v.x * 0.3 + u.x * w + d.x * 2, vy: v.y * 0.3 + u.y * w + d.y * 2, vz: v.z * 0.3 + u.z * w + d.z * 2, max: (4 + 3 * this.rnd()) * (Settings.high ? 1 : 0.7),
+        size: ground ? 0.5 * s * (0.5 + 0.5 * f) : 0.7 * s, grow: ground ? 1.6 * s * (0.35 + 0.65 * f) : 3.2 * s, color: K.cc, alpha: 0.6, rise: 1.4, drag: ground ? 0.5 : 1.2, ease: 1, fin: 0.15, heat: K.ch });
+    }
+    if (K.pops) for (const t of K.pops) { // timers that burst as they run out (popOf)
+      const d = this.dir(), j = 0.4 * s * this.rnd(), e = { kind: 'emit', b, x: p.x + d.x * j, y: p.y + d.y * j, z: p.z + d.z * j, vx: v.x * 0.3, vy: v.y * 0.3, vz: v.z * 0.3,
+        max: t, size: 0, grow: 0, color: '#fff3c4', alpha: 0, pop: s };
+      if (nolight) e.nolight = true;
+      this.add(e);
+    }
+  },
+  // one tongue of flame (a burning engine, a hatch, a pyre), k × its size
+  flame(body, p, v, k = 1) {
+    const r = this.rnd();
+    this.add({ kind: 'fire', b: body, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, max: 0.5 + 0.3 * r, size: 0.7 * k, grow: 1.3 * k,
+      color: r < 0.3 ? '#ffd27a' : '#ff9a3c', alpha: 1, rise: 6 });
+  },
+  // one puff of a preset (SMOKE; anything else is 'grey'), k × its size
+  smoke(body, p, v, preset, k = 1) {
+    const P = SMOKE[fxOwn(SMOKE, preset) ? preset : 'grey'], r = this.rnd();
+    this.add({ kind: 'smoke', b: body, x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, max: (Settings.high ? P.life : P.lo) * (0.85 + 0.3 * r),
+      size: P.size * k, grow: P.grow * k, color: P.c, alpha: P.a, rise: P.rise, drag: P.drag, heat: P.heat, ease: 1, fin: P.fin });
+  },
+  // n puffs of a preset laid back along the path a craft at p, moving at v, flew in dt (p − v·dt·i/n), each keeping
+  // 0.15 of v: a burning or leaking craft's trail stays where it was laid
+  trail(body, p, v, preset, n, dt) {
+    const w = { x: v.x * 0.15, y: v.y * 0.15, z: v.z * 0.15 }, q = { x: 0, y: 0, z: 0 };
+    for (let i = 0; i < n; i++) { const f = (dt * i) / n; q.x = p.x - v.x * f; q.y = p.y - v.y * f; q.z = p.z - v.z * f; this.smoke(body, q, w, preset, 1); }
+  },
+  // In place (the list keeps its identity and order). An old particle moves exactly as it always has: the kind's drag,
+  // gravity on heavy ones and sparks. New fields: drag (its own), rise (buoyancy), floor (a radius it stops dead at,
+  // ending its trail), trail/trailT (puffs behind it, trailOf) and pop (a burst as it runs out, popOf); what they add
+  // joins after the loop, under the cap.
   update(dt, F) {
-    const keep = [];
-    for (const p of this.list) {
+    const L = this.list, born = this._born;
+    let w = 0;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
       p.life += dt;
-      if (p.life >= p.max) continue;
-      const k = Math.exp(-(p.kind === 'fire' ? 2.5 : p.kind === 'spark' ? 0.6 : 1.6) * dt);
+      if (p.life >= p.max) { if (p.pop) popOf(p, born); continue; }
+      const k = Math.exp(-(p.drag != null ? p.drag : p.kind === 'fire' ? 2.5 : p.kind === 'spark' ? 0.6 : 1.6) * dt);
       p.vx *= k; p.vy *= k; p.vz *= k;
-      if (p.heavy || p.kind === 'spark') {
-        const r = Math.hypot(p.x, p.y, p.z) || 1, g = (p.b.mu / (r * r)) * dt;
+      const fall = p.heavy || p.kind === 'spark';
+      if (fall || p.rise) {
+        const r = Math.hypot(p.x, p.y, p.z) || 1, g = ((fall ? p.b.mu / (r * r) : 0) - (p.rise || 0)) * dt;
         p.vx -= (p.x / r) * g; p.vy -= (p.y / r) * g; p.vz -= (p.z / r) * g;
       }
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-      keep.push(p);
+      if (p.floor) { const r = Math.hypot(p.x, p.y, p.z), fl = p.land ? landR(p, false) : p.floor; if (r < fl && (!p.land || p.restAt != null || r < landR(p, true))) { const f = (p.land ? p.gr : fl) / r; p.x *= f; p.y *= f; p.z *= f; p.vx = p.vy = p.vz = 0; p.trailT = 0; if (p.restAt == null) p.restAt = p.life; } }
+      if (p.trail && p.life < p.trailT) for (p.tt = (p.tt || 0) + dt; p.tt >= p.trail; p.tt -= p.trail) born.push(trailOf(p));
+      L[w++] = p;
     }
-    this.list = keep;
+    L.length = w;
+    for (let i = 0; i < born.length; i++) this.add(born[i]);
+    born.length = 0;
   },
   draw(ctx, cam, S, time, night) {
     const dim = 1 - night * 0.55;
@@ -110,7 +290,7 @@ const FX = {
       const x = bp.x + p.x - cam.x, y = bp.y + p.y - cam.y;
       const k = p.life / p.max;
       const size = p.size + p.grow * k;
-      if (size * S < 0.35 && p.kind !== 'spark' && p.kind !== 'glint') continue;
+      if (size * S < 0.35 && p.kind !== 'spark' && p.kind !== 'glint' && p.kind !== 'debris') continue; // (glint and debris keep a size of their own at least)
       switch (p.kind) {
         case 'spark': {
           ctx.globalAlpha = 1 - k;
@@ -148,6 +328,8 @@ const FX = {
           ctx.globalCompositeOperation = 'source-over';
           break;
         }
+        case 'debris': { ctx.globalAlpha = 1 - Math.max(0, k - 0.8) / 0.2; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(x, y, Math.max(p.size, 0.6 / S), 0, TAU); ctx.fill(); break; }
+        case 'emit': break; // (a timer: nothing to draw)
         default: {
           ctx.globalAlpha = p.alpha * (1 - k) * (p.kind === 'fire' ? 1 : dim);
           ctx.fillStyle = p.kind === 'fire' && k > 0.45 ? '#6f6258' : p.color;

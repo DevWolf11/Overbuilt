@@ -83,7 +83,7 @@ const GroundMode = (() => {
         o.air = { alt: S && S.air && fin(+S.air.alt) ? +S.air.alt : AIR.alt, speed: S && S.air && fin(+S.air.speed) ? +S.air.speed : AIR.speed };
         return o;
       }
-      if (kind === 'heli') {
+      if (kind === 'heli' || kind === 'drone') { // (the big update: a drone flown alone stands where a helicopter would)
         const h = k % 4;
         return f.hw >= HELI + 15 ? at(f, -Math.floor(h / 2) * HELI_STEP[0], (h % 2 ? -1 : 1) * HELI) : at(f, -HELI - h * HELI_STEP[1], 0);
       }
@@ -174,14 +174,15 @@ const GroundMode = (() => {
     },
 
     // A vehicle of `team` knocked out: its team loses 30 + round(cost / 2500) tickets (an expensive vehicle costs more),
-    // x1.5 (rounded) for an aircraft (air: true, or the kind 'plane' or 'heli'). Applied to obj (never below 0);
-    // returns the tickets the death costs (the full price, even when the team had fewer left), 0 for no such team.
+    // x1.5 (rounded) for an aircraft (air: true, or the kind 'plane' or 'heli'); a drone flown alone (air: 'drone', the
+    // big update) 10 + round(cost / 2500), a $1,920 FPV 11. Applied to obj (never below 0); returns the tickets the death
+    // costs (the full price, even when the team had fewer left), 0 for no such team.
     death(obj, team, cost, air) {
       const t = teamOf(team);
       if (!obj || !Array.isArray(obj.tk) || t < 0) return 0;
       const c = fin(+cost) ? Math.min(1e7, Math.max(0, +cost)) : 0;
       const isAir = air === true || air === 1 || air === 'plane' || air === 'heli';
-      const n = Math.round((30 + Math.round(c / 2500)) * (isAir ? 1.5 : 1));
+      const n = air === 'drone' ? 10 + Math.round(c / 2500) : Math.round((30 + Math.round(c / 2500)) * (isAir ? 1.5 : 1));
       obj.tk[t] = Math.max(0, obj.tk[t] - n);
       return n;
     },
