@@ -721,9 +721,11 @@ const Flight = {
       }
       return '';
     };
-    // clear of everything; else of the controls and panels alone (a toast or the warning receiver's lines, both passing,
-    // may then show over it for a while: a small phone in portrait has no room for all of them)
-    const how = search(all) || (hard.length < all.length && search(hard));
+    // clear of everything; else of all but a toast (passing); else of the controls and panels alone (the warning
+    // receiver's lines, up for a whole engagement, may then show under it: a small phone in portrait has no room for all
+    // of them; a phone on its side keeps them clear, review P5-COMBO-4)
+    const noToast = all.filter((o) => o.soft !== 'toast');
+    const how = search(all) || (noToast.length < all.length && search(noToast)) || (hard.length < noToast.length && search(hard));
     if (how) { P.how = how; return; }
     put(null, null, null); P.how = 'none'; // (no room anywhere: its own place, as ever)
   },
@@ -736,10 +738,12 @@ const Flight = {
     if (C) for (const k in C) if (k !== 'joy' && (C[k][2] === 'both' || C[k][2] === hud)) add(document.querySelector(C[k][0]));
     for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#warp', '#gmap', '#mp-bar', '#gai-bar', '#mp-feed', '#hint', '#flight-ui .rot-controls']) add(document.querySelector(q));
     const T = document.querySelector('#toasts'), tr = T && T.getBoundingClientRect();
-    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: true });
+    if (tr && tr.width > 0) out.push({ l: tr.left, t: tr.top, r: tr.right, b: tr.top + 36, p: 4, soft: 'toast' });
     const box = (l, t, r, b, soft) => out.push({ l, t, r, b, p: 0, soft }), ball = (x, y, R, b = 14) => box(x - R, y - R, x + R, y + R + b);
-    const R = !this.destroyed && Combat.S.rwr > 0 && Combat.S.rwrBox;
-    if (R && R.W === W && R.H === H) { box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
+    // (the scope is drawn whenever rwrBox is set: a threat display's, or a radar's with any warning receiver or none,
+    // review P5-COMBO-1; the warning's lines only with a warning receiver)
+    const R = !this.destroyed && Combat.S.rwrBox;
+    if (R && R.W === W && R.H === H) { if (Combat.S.rwr > 0) box(W / 2 - 150, R.ty - 22, W / 2 + 150, R.ty + 44, true); if (Combat.S.rwr > 1 || R.rad) ball(R.x, R.y, R.R, R.lines === 2 ? 28 : 14); }
     const M = this.mp && typeof MPUI !== 'undefined' && W >= 761 && MPUI.scope;
     if (M) ball(M.x, M.y, M.R, 4);
     const G = this._bodyGround && typeof GHUD !== 'undefined' && GHUD._S && GHUD._S.P;
