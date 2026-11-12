@@ -604,7 +604,8 @@ const Armour = (() => {
     what(R, e.i < 0 ? whatOf(e.f.p.def) : WHAT[e.f.p.def.mods[e.i].k]);
   }
   function postPen(v, h, at, dx, dy, dz, res, SH, T, R, sx, hesh, legacy) {
-    const L = hesh ? 0 : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
+    const J = legacy ? dj : null; // (a drone's charge: its own way in, below)
+    const L = hesh ? 0 : J ? J.L : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
     cands(v, at, Math.max(L, 2.5) + 0.5);
     // the way in: everything it crosses takes dmg·(1 - 0.5·s/L); an engine takes 30 mm out of it, ammunition 10. It
     // leaves through the far face of what it went into only if what it has left beats that face.
@@ -628,8 +629,11 @@ const Armour = (() => {
     }
     // fragments off the inside of the plate, in a cone along its path: n × clamp(left/40 + 0.5, 0.5, 1.5); none through an
     // open face (an open roof: no plate there to throw them)
-    const nf = faceMm(h.p, h.edge, h.u) <= 0 ? 0 : hesh ? T.n : Math.round((T.n || 0) * clamp(res0 / 40 + 0.5, 0.5, 1.5));
-    spall(v, at, dx, dy, dz, nf, T.cone || 20, R);
+    const nf = faceMm(h.p, h.edge, h.u) <= 0 ? 0 : J ? J.n : hesh ? T.n : Math.round((T.n || 0) * clamp(res0 / 40 + 0.5, 0.5, 1.5));
+    spall(v, at, dx, dy, dz, nf, J ? J.cone : T.cone || 20, R);
+    // (a drone's charge, through: the spall and the blast that follow it in fill the space behind the plate, every
+    // module within J.r of a point J.at in taking burst·(1 - d/r)^1.2, a fuel cell shielding what lies behind it)
+    if (J) burstIn(v, at.x + dx * J.at, at.y + dy * J.at, at.z + dz * J.at, SH.dmg * J.burst, J.r, R, at);
     // an APHE shell bursts 1.2 m in (or where it stopped), every module in reach taking burst·(1 - d/r)^1.2 (a fuel cell
     // in between shields what lies behind it)
     if (T.fuse && SH.burst) {
@@ -678,7 +682,8 @@ const Armour = (() => {
       }
     }
   }
-  // is there a fuel cell (a placed one) between the burst (local to candidate j) and its target there?
+  // is there a fuel cell (a placed one) between the burst (local to candidate j) and its target there? (a drone's
+  // charge's burst: or an engine)
   function shielded(v, j, ti, lx, ly, lz, tx, ty, tz) {
     const f = CAND[j], m = f.m;
     // the target back in the sim: O + Mᵀ·(local - o)
@@ -687,7 +692,7 @@ const Armour = (() => {
     const ux = m[0] * bx + m[3] * by + m[6] * bz, uy = m[1] * bx + m[4] * by + m[7] * bz, uz = m[2] * bx + m[5] * by + m[8] * bz; // (burst - O, sim)
     for (let k = 0; k < candN; k++) {
       const g = CAND[k];
-      if (k === j && ti < 0 || g.p.def.module !== 'fuel') continue;
+      if (k === j && ti < 0 || !(g.p.def.module === 'fuel' || (dj && g.p.def.module === 'engine'))) continue; // (a drone's charge: the engine block shields too)
       const n = g.m;
       PA.x = g.o.x + n[0] * ux + n[1] * uy + n[2] * uz; PA.y = g.o.y + n[3] * ux + n[4] * uy + n[5] * uz; PA.z = g.o.z + n[6] * ux + n[7] * uy + n[8] * uz;
       PB.x = g.o.x + n[0] * sx + n[1] * sy + n[2] * sz; PB.y = g.o.y + n[3] * sx + n[4] * sy + n[5] * sz; PB.z = g.o.z + n[6] * sx + n[7] * sy + n[8] * sz;
@@ -1103,6 +1108,12 @@ const Armour = (() => {
   // alone. A penetration does the round's damage ×3 along a 1.5 m path, otherwise 5%. Returns false: the round is spent
   // (on a wreck, with sparks and nothing more).
   const LG = { type: 'ball', pen: 0, cal: 0, dmg: 0, tandem: false }, LS = { legacy: LG, vx: 0, vy: 0, vz: 0, n: 0, pen: 0, v0: 0, ric: false, tandem: false, t: 9 };
+  // (the drones' balance) A drone's shaped charge (drone.js detonate's stand-in, a drone's mini missile: s.drone) through
+  // a plate does more than an old weapon's jet: its way in goes L m (not 1.5), it throws n fragments in a cone° cone
+  // (not the HEAT round's 6 in 10°), and its blast follows it in: burst × its damage, at m in, r m round (postPen).
+  // Old weapons never set s.drone: their hits are as before.
+  const DRONE_JET = { L: 2.5, n: 12, cone: 30, burst: 0.5, at: 0.6, r: 1.5 };
+  let dj = null;
   function legacyHit(s, v, p, at, F) {
     if (v.wreck) { FX.sparks(v.body, at, { x: v.vx, y: v.vy, z: v.vz }, 3); return false; }
     const b = s.b, spare = s.t < 0.6 ? s.spare : undefined, gm = s.k === 'missile' && !s.glide && !s.air && (s.seek === 'ground' || s.saclos || s.top || s.seek === 'saclos' || s.seek === 'top');
@@ -1115,7 +1126,9 @@ const Armour = (() => {
     const k = 1 / spd, R1 = 2 * (v.reach || 10) + 1;
     TA.x = at.x - s.vx * k * 0.05; TA.y = at.y - s.vy * k * 0.05; TA.z = at.z - s.vz * k * 0.05;
     TE.x = at.x + s.vx * k * R1; TE.y = at.y + s.vy * k * R1; TE.z = at.z + s.vz * k * R1;
-    const R = resolve(LS, v, hitAll(v, TA, TE, HR), F);
+    dj = s.drone ? DRONE_JET : null;
+    let R;
+    try { R = resolve(LS, v, hitAll(v, TA, TE, HR), F); } finally { dj = null; }
     if (s.blast) R.burst = { at, blast: s.blast, dmg: s.dmg, he: s.he, quiet: s.k === 'bullet' }; // (then its blast: apply's burst, so the HUD hears what it did)
     apply(v, R, F, s.owner, s);
     return false;
@@ -1374,7 +1387,7 @@ const Armour = (() => {
 
   return {
     fb, hot: false,
-    hitAll, hitFirst, moveShell, netShell, coarseH, resolve, apply, legacyHit, blastK, moduleDown, modDamage, knockOut, crewOf, has, repairStep, partFX, summary,
+    DRONE_JET, hitAll, hitFirst, moveShell, netShell, coarseH, resolve, apply, legacyHit, blastK, moduleDown, modDamage, knockOut, crewOf, has, repairStep, partFX, summary,
     hurt, toss, tally, tallyMods,
     seed(n) { vs = mix(n | 0); }, // (the victim's dice: tests)
     _t: { faceMm, effOf, penAt, own, ownOut, crewList, thinnest, frontOf, simOwn, recOwn, recsOf, EZ, ESIDE, ETOP, EBOT }, // (for the tests)
