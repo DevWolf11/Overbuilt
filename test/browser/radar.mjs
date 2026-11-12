@@ -233,6 +233,7 @@ const fly = (n) => {
     o.q = { ...v.q }; o.vx = -v.vx * 0.9; o.vy = -v.vy * 0.9; o.vz = -v.vz * 0.9; o.ai.hold = true;
   }
   Combat.S.targets.length = 0; Combat.S.spawned = true; Combat.S.rwrBox = null;
+  Radar.S.rc = []; // (the range's target drones are radar contacts (P5-OLD-1): those seen before they were cleared would fade on the scope for 1.5 s)
 };
 // a lock on the first bandit with the radar missiles chosen (as if held for the lock time)
 const lockOn = () => {
