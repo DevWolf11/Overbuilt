@@ -486,7 +486,8 @@ const Drone = (() => {
     const k = (id) => Keys.k(id), T = typeof Controls !== 'undefined' && Controls.touch;
     if (v.aircraft) return T ? 'The stick banks and dives it; let go and it flies straight and level. The throttle box is its speed.' : `${k('left')}/${k('right')} bank it, ${k('fwd')} dives; let go and it flies level. ${k('thrUp')}/${k('thrDown')}: throttle.`;
     if (v.sas === 'acro') return T ? 'Acro: the stick turns it, nothing levels it; the throttle box is the throttle.' : `Acro: the keys turn it, nothing levels it; ${k('thrUp')}/${k('thrDown')} throttle. ${k('dLevel')}: back to Level.`;
-    return T ? 'Drag the throttle box up to climb. The stick flies it; let go and it stops and hovers.' : `Hold ${k('thrUp')} to climb. ${k('fwd')}/${k('back')} fly it, ${k('left')}/${k('right')} turn; let go and it stops and hovers. ${k('dView')}: the view.`;
+    const tilt = typeof Settings !== 'undefined' && Settings.get('droneStick') === 'tilt'; // (the Tilt layout: A/D slide, Q/E turn; UX-P4-5)
+    return T ? 'Drag the throttle box up to climb. The stick flies it; let go and it stops and hovers.' : `Hold ${k('thrUp')} to climb. ${k('fwd')}/${k('back')} fly it, ${tilt ? `${k('left')}/${k('right')} slide, ${k('rollL')}/${k('rollR')} turn` : `${k('left')}/${k('right')} turn`}; let go and it stops and hovers. ${k('dView')}: the view.`;
   }
   // The impact view (the combat section calls it when the active drone's warhead goes off): the camera hangs 12 m back
   // along the way it flew and 4 m up, looking at the blast, for IMPACT s; the HUD's controls fade (body.impactcam)
@@ -537,9 +538,22 @@ const Drone = (() => {
     }
     return null;
   }
+  // the spot nearest x0 (a left edge; 20 px steps either way) for a w × h block found by clearAt from y (dir 1 down, −1
+  // up) that is on the screen, clear of every blocker and passes ok(box); null when none is
+  function spotNear(x0, y, w, h, B, dir, W, H, ok) {
+    for (let i = 0, n = 2 * Math.ceil(W / 20); i <= n; i++) {
+      const x = Math.round(x0 + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 20);
+      if (x < 12 || x + w > W - 12) continue;
+      const yy = clearAt(x, y, w, h, B, dir, H), a = { l: x, t: yy, r: x + w, b: yy + h };
+      if (yy >= 0 && yy + h <= H && !B.some((b) => meets(a, b)) && (!ok || ok(a))) return { x, y: yy };
+    }
+    return null;
+  }
+  const onClear = (a, B, W, H) => a.l >= 0 && a.t >= 0 && a.r <= W && a.b <= H && !B.some((b) => meets(a, b));
   function placeOSD(W, H, F) {
-    const now = performance.now(), rb = Combat.S.rwrBox;
-    const rk = `${rb ? `${rb.x}|${rb.y}|${rb.R}|${rb.ty}|${rb.lines || 1}` : ''}|${O.fw}|${O.sw}|${O.mw}`;
+    const now = performance.now(), rb = Combat.S.rwrBox, v = F.active;
+    const level = Settings.get('droneView') === 'fpvLevel' && !!(v && v.dr && !(v.dr.cam && v.dr.cam.def.drone.cam.gimbal));
+    const rk = `${rb ? `${rb.x}|${rb.y}|${rb.R}|${rb.ty}|${rb.lines || 1}` : ''}|${O.fw}|${O.sw}|${O.mw}|${level}`;
     if (O.P && now - O.at < 1000 && O.W === W && O.H === H && O.rk === rk) return O.P;
     O.at = now; O.W = W; O.H = H; O.rk = rk;
     const touch = typeof Controls !== 'undefined' && Controls.touch, tr = rectOf('#flight-ui .flight-top-right'), warp = rectOf('#warp'), jam = rectOf('#jam-chip');
@@ -551,13 +565,33 @@ const Drone = (() => {
     const bottom = ['#sas-bar', '#weapon-box', '#flight-ui .throttle-box', '#flight-ui .left-controls', '#key-hints', '#hint', '#flight-ui .roll-btns', '#joy-zone'].map(rectOf).filter(Boolean);
     const all = top.concat(bottom), y0 = touch && tr ? tr.b + 8 : 10;
     const sw = O.sw || 160, sh = 3 * 17 + 4, mw = O.mw || 100, mh = 2 * 17 + 4;
-    const sy = clearAt(12, y0, sw, sh, all, 1, H);
-    const mx = Math.round(W / 2 - mw / 2), my = clearAt(mx, y0, mw, mh, all.concat([{ l: 12, t: sy, r: 12 + sw, b: sy + sh }]), 1, H);
-    const sas = rectOf('#sas-bar'), wb = rectOf('#weapon-box'), fy0 = Math.min(sas ? sas.t : H, wb ? wb.t : H) - 12 - 17, fw = O.fw || 200;
-    let fx = clearX(W / 2, fy0, fw, 17, all, W), fy = fy0; // (centred over the pad and the weapon box; slid aside, else up, to clear the throttle)
-    if (fx == null) { fx = Math.round(W / 2 - fw / 2); fy = clearAt(fx, fy0, fw, 17, all, -1, H); }
+    const sy = clearAt(12, y0, sw, sh, all, 1, H), sBox = { l: 12, t: sy, r: 12 + sw, b: sy + sh };
+    // the cross in the middle stays clear of every block (P4-OF-5, UX-P4-3)
+    const cross = { l: W / 2 - 18, r: W / 2 + 18, t: H / 2 - 18, b: H / 2 + 18 }, above = (a) => a.b <= cross.t;
+    // the mode: in the middle under the top's panels, else the nearest spot aside still above the cross
+    const mB = all.concat([sBox]);
+    let mx = Math.round(W / 2 - mw / 2), my = clearAt(mx, y0, mw, mh, mB, 1, H);
+    if (!onClear({ l: mx, t: my, r: mx + mw, b: my + mh }, mB.concat([cross]), W, H)) { const q = spotNear(mx, y0, mw, mh, mB, 1, W, H, above); if (q) { mx = q.x; my = q.y; } }
+    const mBox = { l: mx, t: my, r: mx + mw, b: my + mh };
+    // the level view's bank arc (its ticks reach ±70 px and 52 px down from its top): under the mode, above the cross
+    const aw = 140, ah = 52, ax = Math.round(W / 2 - aw / 2), aB = mB.concat([mBox]);
+    let ay = clearAt(ax, y0, aw, ah, aB, 1, H);
+    if (ay + ah > cross.t - 4 || ay < 0) ay = Math.max(0, cross.t - 4 - ah); // (no room: just over the cross)
+    const aBox = { l: ax, t: ay, r: ax + aw, b: ay + ah };
+    // the flight line: centred over the pad and the weapon box; else up from there (not above the top's panels); else slid
+    // aside; else under the cross; else the nearest spot up; never off the screen
+    const fB = all.concat([sBox, mBox, cross], level ? [aBox] : []);
+    const sas = rectOf('#sas-bar'), wb = rectOf('#weapon-box'), fy0 = Math.min(sas ? sas.t : H, wb ? wb.t : H) - 12 - 17, fw = O.fw || 200, fc = Math.round(W / 2 - fw / 2);
+    const box = (x, y) => ({ l: x, t: y, r: x + fw, b: y + 17 });
+    let fx = fc, fy = fy0;
+    if (!onClear(box(fx, fy), fB, W, H)) {
+      const up = clearAt(fc, fy0, fw, 17, fB, -1, H), sx = clearX(W / 2, fy0, fw, 17, fB, W);
+      let q = up >= y0 && onClear(box(fc, up), fB, W, H) ? { x: fc, y: up } : sx != null && onClear(box(sx, fy0), fB, W, H) ? { x: sx, y: fy0 } : null;
+      q = q || spotNear(fc, cross.b + 6, fw, 17, fB, 1, W, H) || spotNear(fc, fy0, fw, 17, fB, -1, W, H);
+      if (q) { fx = q.x; fy = q.y; } else fy = clamp(fy0, 0, H - 17);
+    }
     const zw = 84, zh = 30, zx = W - 12 - zw, zy = clearAt(zx, fy - zh - 10, zw, zh, all, -1, H);
-    O.P = { s: { x: 12, y: sy, w: sw, h: sh }, m: { x: mx, y: my, w: mw, h: mh }, f: { x: fx, y: fy, w: fw, h: 17 }, z: { x: zx, y: zy, w: zw, h: zh } };
+    O.P = { s: { x: 12, y: sy, w: sw, h: sh }, m: { x: mx, y: my, w: mw, h: mh }, f: { x: fx, y: fy, w: fw, h: 17 }, z: { x: zx, y: zy, w: zw, h: zh }, a: level ? { x: ax, y: ay, w: aw, h: ah } : null, c: cross };
     return O.P;
   }
   // a block of lines ([text, colour]) drawn into its own small canvas, again only when its words change
@@ -585,7 +619,7 @@ const Drone = (() => {
       const hp = C.dead ? 0 : Math.round((typeof Combat !== 'undefined' ? Combat.integrity(C) : 1) * 100), d = Math.hypot(v.x - C.x, v.y - C.y, v.z - C.z);
       st.push([`TANK ${C.dead || C.ko || C.wreck ? 'KO' : `${hp}%`} · ${km(d)}`, F.time - hud.hitAt < 3 || F.carrierDown ? RED : WHITE]); // (knocked out: its LAST FLIGHT)
     }
-    const last = F.carrierDown && Number.isFinite(dl.lastEnd) ? `LAST FLIGHT ${clock(dl.lastEnd - F.time)}` : null;
+    const last = F.carrierDown && Number.isFinite(dl.lastEnd) ? `LAST FLIGHT ${clock(Math.ceil(dl.lastEnd - F.time))}` : null; // (rounded up, as the alert line's seconds: UX-P4-6)
     const mode = dl.lost ? 'LINK LOST' : last || (dl.mode === 'home' ? 'HOME' : dl.mode === 'land' || dl.autoLand ? 'LAND' : v.sas === 'acro' ? 'ACRO' : 'LEVEL');
     const m = [[mode, dl.lost || last ? RED : WHITE]];
     if (v.dr && v.dr.warheads.length) m.push(dl.arm ? ['ARMED', RED] : ['SAFE', GREY]);
@@ -664,7 +698,7 @@ const Drone = (() => {
       }
     }
     if (level) { // (the horizon held level: the drone's bank as a tick on an arc at the top)
-      const b = clamp(v.attitude().bank, -1.2, 1.2), ay = P.m.y + P.m.h + 40, R0 = 70;
+      const b = clamp(v.attitude().bank, -1.2, 1.2), R0 = 70, ay = P.a ? P.a.y + R0 + 4 : P.m.y + P.m.h + R0 + 12; // (its spot from placeOSD: clear of the words, above the cross)
       ctx.moveTo(cx + R0 * Math.sin(-0.8), ay - R0 * Math.cos(-0.8)); ctx.arc(cx, ay, R0, -Math.PI / 2 - 0.8, -Math.PI / 2 + 0.8);
       ctx.moveTo(cx + (R0 - 8) * Math.sin(b), ay - (R0 - 8) * Math.cos(b)); ctx.lineTo(cx + (R0 + 4) * Math.sin(b), ay - (R0 + 4) * Math.cos(b));
     }
@@ -805,19 +839,22 @@ const Drone = (() => {
     }
     if (A.docks && A.docks.length) {
       const d = A.drone;
-      if (live(d) && F.vessels.includes(d)) {
-        const dl = state(d);
-        if (dl.lost) { say(F, 'No link to the drone', 'warn'); return false; }
-        if (dl.mode === 'home' || dl.mode === 'land') d.sas = 'hold'; // (homing stops: Level takes over)
-        dl.mode = 'pilot'; dl.autoLand = false;
-        F.switchTo(d, true, true);
-        say(F, `${d.name} · ${keyName('drone')}: back to the tank`);
-        return true;
-      }
+      if (live(d) && F.vessels.includes(d)) return take(F, d);
       return launch(F, A);
     }
     say(F, 'No drone bay aboard');
     return false;
+  }
+  // Take a bay's drone again, by U or a tap on it (Flight.switchTo hands a tap here): Level, homing stopped; not while its
+  // link is lost (spec §12.1)
+  function take(F, d) {
+    const dl = state(d);
+    if (dl.lost) { say(F, 'No link to the drone', 'warn'); return false; }
+    if (dl.mode === 'home' || dl.mode === 'land') d.sas = 'hold'; // (homing stops: Level takes over)
+    dl.mode = 'pilot'; dl.autoLand = false;
+    F.switchTo(d, true, true);
+    say(F, `${d.name} · ${keyName('drone')}: back to the tank`);
+    return true;
   }
 
   // The bay's drone (spec §12.2): the tank's chosen design when it fits that bay, else the bay's stock drone (said once
@@ -1015,7 +1052,13 @@ const Drone = (() => {
     if (d) mpDrop(F, d, 'down', whoDid(d, F)); // (shot down, gone off or still flying: the room hears it once, MP.dropExtra)
     if (C.drone === d) C.drone = null;
     if (F.active !== C) F.switchTo(C, true, true);
-    if (F.active !== C) F.active = C; // (a tank with no controls left: its death all the same)
+    if (F.active !== C) { // (a tank with no controls left, which switchTo refuses: the same hand-over by hand, its death all the same; P4-BAY-2)
+      const a = F.active;
+      if (a && a.ctl) { a.ctl.v = a.ctl.h = a.ctl.r = 0; if (a.kind === 'drone') a.ctl.z = 0; }
+      if (a && a.carrier && a.dl && a.dl.mode !== 'home' && a.dl.mode !== 'land') { a.dl.mode = 'hold'; a.dl.holdAt = null; }
+      F.active = C;
+      if (typeof Controls !== 'undefined' && Controls.relayout) Controls.relayout(); // (the air and ground HUDs swap)
+    }
     if (F.setFpv) F.setFpv(false, true);
     if (C._scale != null) F.scale = C._scale;
     F.destroyed = false;
@@ -1028,6 +1071,7 @@ const Drone = (() => {
     if (!data || !Array.isArray(data.vessels) || !Array.isArray(keep)) return data;
     keep.forEach((C, i) => {
       const d = C && C.drone, row = data.vessels[i];
+      if (C && C.docks && row && Array.isArray(row.parts)) for (const p of C.docks) { const r = row.parts.find((q) => q && q.id === p.id); if (r && r.deployed) r.deployed = 0; } // (a bay's lid saved shut: a launch's 1.5 s open is never restored; P4-BAY-4)
       if (!live(d) || !d.bay || !row || !Array.isArray(row.parts)) return;
       const r = row.parts.find((q) => q && q.id === d.bay.id), n = d.bay.def.dock.n;
       if (r) r.docked = Math.min(n, (r.docked == null ? n : r.docked) + 1);
@@ -1213,8 +1257,14 @@ const Drone = (() => {
       const down = d.dead || d.down || d.hulk != null || !d.control || !d.parts.length, flat = !down && d.dl && d.dl.flat;
       if (!down && !flat) continue;
       C.drone = null;
-      if (down && !d.dead) mpDrop(F, d, 'down', whoDid(d, F));
+      if (down) mpDrop(F, d, 'down', whoDid(d, F)); // (dead in one go too: a crash, every part broken; P4-BAY-3)
       if (C === A || (A && A.carrier === C)) say(F, `The ${d.name} was ${d.down || d.hulk != null ? 'shot down' : flat ? 'lost: its battery went flat' : 'lost'}`, 'warn');
+    }
+    // a drone of ours in the room that no tank watches any more (its battery went flat, so its tank let it go) and that
+    // then comes down: the room hears it (MP.dropExtra once; P4-MP-1)
+    if (F.mp && typeof MP !== 'undefined' && MP.extra && MP.extra.size) for (const E of [...MP.extra.values()]) {
+      const d = E && E.v;
+      if (d && d !== F.active && (d.dead || d.down || d.hulk != null || !d.control || !d.parts.length)) mpDrop(F, d, 'down', whoDid(d, F));
     }
     // the LAST FLIGHT: the poll, and its end
     const C = A && A.carrier;
@@ -1325,7 +1375,7 @@ const Drone = (() => {
     const air = airDensity(b, Math.hypot(P.x, P.y, P.z) - b.radius) > 0.01;
     FX.explosion(b, P, { x: v.vx * 0.2, y: v.vy * 0.2, z: v.vz * 0.2 }, w.blast * 0.7, air);
     if (v === F.active && !v.ai) { impactView(F, v, P); dl.impact = true; }
-    shatter(v, F);
+    shatter(v, F, false);
     void why;
     return true;
   }
@@ -1333,12 +1383,15 @@ const Drone = (() => {
   // from a bay hands back to its tank: Flight.onDestroyed's first line); an unflown one of ours is told to the room; an AI
   // one is shot down (its kill its last hitter's). One flash only (detonate's or explode's), not one per part: a
   // breakParts of every part would draw ten explosions for a drone a hand across.
-  function shatter(v, F) {
+  function shatter(v, F, shot) {
     v.parts = [];
     if (v.adj && v.adj.clear) v.adj.clear();
     v.dead = true; v.throttle = 0; v.thrust = 0;
     if (v.carrier && v.carrier.drone === v && v !== F.active) v.carrier.drone = null;
-    if (v.ai && v.ai.drone && !v.ai.down && typeof Combat !== 'undefined' && Combat.aiDown) Combat.aiDown(v, F);
+    if (v.ai && v.ai.drone && !v.ai.down && typeof Combat !== 'undefined' && Combat.aiDown) {
+      if (!shot) v.lastHitBy = v.doomBy = null; // (its own warhead went off, on its target or where it fell: nobody shot it down, whoever scratched it once; P4-CTR-3)
+      Combat.aiDown(v, F);
+    }
     if (v === F.active) { if (!v.carrier) F.crashedAt = F.time || 0; if (F.onDestroyed) F.onDestroyed(); }
     else if (!v.ai) mpDrop(F, v, 'down', whoDid(v, F));
   }
@@ -1353,7 +1406,7 @@ const Drone = (() => {
     p.hp = 0; p.ammo = 0;
     Combat.explode(v.body, at, w.blast, w.dmg * 0.6, v.lastHitBy || v, sim, true, w.he, v);
     if (!v.ai && v !== sim.active && Combat.byMe(v.lastHitBy, sim) && typeof Death !== 'undefined') Death.feedback('SHOT DOWN', sim);
-    shatter(v, sim);
+    shatter(v, sim, true);
     void cause;
     return true;
   }
@@ -1888,7 +1941,7 @@ const Drone = (() => {
     // bays
     fits, cleanChoice, choiceRows, build,
     // flight
-    key, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
+    key, take, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
     // combat
     step, frame, detonate, cookOff, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
     // AI

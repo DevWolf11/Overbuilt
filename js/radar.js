@@ -323,7 +323,7 @@ const Radar = (() => {
   }
 
   // ---------------------------------------------------------------- commands
-  const nameOf = (o) => (o.def ? 'Target drone' : o.remote ? o.name || 'Player' : 'Bandit');
+  const nameOf = (o) => (o.def ? 'Target drone' : o.remote ? o.name || 'Player' : o.kind === 'drone' ? o.name || 'Drone' : 'Bandit'); // (an AI drone is never a bandit: P4-CTR-8)
   function nose0(v) { const a = v.pilot.F; return v.axis(a.x, a.y, a.z); }
   // I (Shift+I back), a tap on the scope: the next target in sight, by angle off the nose; past either end, auto
   function next(F, dir = 1) {

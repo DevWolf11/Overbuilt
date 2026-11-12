@@ -923,6 +923,102 @@ t('a bay\'s anti-drone gun is loaded (200 rounds) and a tank\'s kit is listed (c
   // P4-OF-4: the drone key is read before an Armour's own keys, so it clashes with them: a saved Tactical map on U keeps U
   const R2 = JSON.parse(RB(`JSON.stringify({ drone: Keys.clean({ tacMap: ['KeyU'] }).drone, lock: Keys.clean({ lock: ['KeyU'] }).drone, ctx: Keys.INFO.drone.ctx })`));
   t('P4-OF-4 a player\'s own Armour key on U (Tactical map, Radar lock) leaves the drone key unbound', R2.drone.length === 0 && R2.lock.length === 0, R2);
+  // P4-BAY-1: a tap on our hovering bay drone (Flight.tapAt -> switchTo) takes it as U does: Level flies it; never with its link lost
+  RB(`var R3 = (() => { const { F, C, d } = launched(); go(F, 1); putAt(d, 40, 20); d.dl.hold = null; go(F, 1); Drone.key(F); go(F, 0.5);
+    F.switchTo(d); const took = F.active === d, mode = d.dl.mode, p0 = { x: d.x, y: d.y, z: d.z };
+    go(F, 2, () => { d.ctl.v = 1; }); const moved = Math.hypot(d.x - p0.x, d.y - p0.y, d.z - p0.z);
+    F.switchTo(C, true, true); d.dl.lost = true; d.dl.mode = 'hold'; F.switchTo(d); const tookLost = F.active === d, said = F.log.slice(-1)[0];
+    return { took, mode, moved, tookLost, said }; })();`);
+  const R3 = JSON.parse(RB('JSON.stringify(R3)'));
+  t('P4-BAY-1 a tap on the bay\'s hovering drone takes it in Level (2 s of full stick flies it on), and is refused with its link lost', R3.took && R3.mode === 'pilot' && R3.moved > 5 && !R3.tookLost && R3.said === 'No link to the drone', R3);
+  // P4-BAY-2: a LAST FLIGHT ended on a tank with no controls left (its crew out): the drone is left on hold, its stick let go, the HUDs swapped
+  RB(`var R4 = (() => { const { F, C, d } = launched(); go(F, 1); putAt(d, 80, 25); d.dl.hold = null; go(F, 1);
+    let rl = 0; const rl0 = Controls.relayout; Controls.relayout = () => { rl++; };
+    try { Armour.knockOut(C, F, 'crew'); go(F, 0.2); const lf = F.carrierDown === C, ctl = !!C.control; go(F, 1, () => { d.ctl.v = 1; }); const r0 = rl; Drone.key(F);
+      return { lf, ctl, tank: F.active === C, mode: d.dl.mode, v: d.ctl.v, rl: rl - r0 }; } finally { Controls.relayout = rl0; } })();`);
+  const R4 = JSON.parse(RB('JSON.stringify(R4)'));
+  t('P4-BAY-2 a LAST FLIGHT ended over a tank whose crew is out: the tank active, the drone on hold with its stick let go, the HUDs swapped', R4.lf && !R4.ctl && R4.tank && R4.mode === 'hold' && R4.v === 0 && R4.rl >= 1, R4);
+  // P4-BAY-3, P4-MP-1: a drone of ours left unattended in a room that dies in one go (a crash), or whose battery goes flat and then
+  // crashes, is told to the room (MP.dropExtra 'down'), and leaves MP.extra
+  RB(`var mpRec = (calls) => new Proxy({ extra: new Map(), shared: false, mainDown: false, hulk: null, wrecks: [],
+      sendExtra(v) { v.craft = 1; this.extra.set(1, { v, c: 1 }); return true; },
+      dropExtra(v, how) { for (const [c, E] of this.extra) if (E.v === v) { this.extra.delete(c); calls.push(how); return true; } return false; },
+      announceDown() { this.mainDown = true; }, onLocalDestroyed() { return true; }, enemy() { return false; }, hostile() { return false; } },
+    { get: (t, k) => (k in t ? t[k] : typeof k === 'string' ? () => [] : undefined) });
+  var R5 = (() => { const out = {};
+    for (const how of ['crash', 'flat']) {
+      const calls = []; this.MP = mpRec(calls);
+      try { const F = world(); F.mp = { mode: 'sandbox', solo: false }; const C = F.start(nest()); go(F, 1.5); Drone.key(F); const d = F.active;
+        go(F, 1); putAt(d, 60, how === 'crash' ? 6 : 60); d.dl.hold = null; go(F, 0.5); Drone.key(F); go(F, 0.5);
+        if (how === 'crash') { const U = up(d); d.vx = -U.x * 40; d.vy = -U.y * 40; d.vz = -U.z * 40; } else for (const p of d.dr.cells) p.fuel = 0;
+        go(F, how === 'crash' ? 5 : 25);
+        out[how] = { tank: F.active === C, dead: !!d.dead, told: calls.filter((c) => c === 'down').length, left: MP.extra.size }; } finally { delete this.MP; }
+    }
+    return out; })();`);
+  const R5 = JSON.parse(RB('JSON.stringify(R5)'));
+  t('P4-BAY-3, P4-MP-1 an unattended drone in a room that crashes, or goes flat and then crashes, is told to the room once ("down") and leaves MP.extra',
+    ['crash', 'flat'].every((k) => R5[k].tank && R5[k].dead && R5[k].told === 1 && R5[k].left === 0), R5);
+  // P4-BAY-4: a save in the 1.5 s after a launch keeps the bay's lid shut
+  RB(`var R6 = (() => { const { F, C } = launched(); go(F, 0.5); const live = bayOf(C).deployed, data = F.serialize(), row = data.vessels[data.active].parts.find((p) => p.id === bayOf(C).id);
+    return { live, saved: row.deployed }; })();`);
+  const R6 = JSON.parse(RB('JSON.stringify(R6)'));
+  t('P4-BAY-4 a save 0.5 s after a launch (its lid still up) saves the lid shut', R6.live === 1 && !R6.saved, R6);
+  // P4-CTR-1: FIRE does nothing on a drone whose link is lost (a jammer 60 m off): no burst, no grenade
+  RB(`var R7 = (() => { const out = {};
+    const jamFoe = (F, e) => { const o = mk(kit('ms4', [{ type: 'cdJam', x: -1.6, y: 2.0, rot: 0, flip: false, att: 0 }]), { e: NPAD.e + e, z: NPAD.z }); o.ai = { ground: true, team: 1 }; F.vessels.push(o); return o; };
+    const press = (F, v, kind) => { F.firing = true; F.fireTap = true; Combat.S.wasFiring = false; v.wsel = Combat.systems(v).findIndex((s) => s.w.kind === kind); Combat._t.playerFrame(F, 1 / 60); F.firing = false; };
+    { const { F, v } = pilot(); go(F, 0.2); const U = up(v); fling(v, add3({ x: v.x, y: v.y, z: v.z }, U, 60), { x: 0, y: 0, z: 0 }, 0); arm(v); v.sas = 'hold'; v.dl.hold = null; go(F, 0.1);
+      jamFoe(F, 60); go(F, 1.2); const lost = !!v.dl.lost; press(F, v, 'warhead'); out.warhead = { lost, boom: !!v.dl.boom }; }
+    { const rows = rowsOf('bumble').filter((r) => r.type !== 'drCharge').concat([{ type: 'drGrenade', x: 0, y: -0.075, rot: 0, flip: false, att: 0 }]);
+      const { F, v } = pilot(rows, 'Dropper'); go(F, 0.2); const U = up(v); fling(v, add3({ x: v.x, y: v.y, z: v.z }, U, 60), { x: 0, y: 0, z: 0 }, 0); v.sas = 'hold'; v.dl.hold = null; go(F, 0.1);
+      jamFoe(F, 60); go(F, 1.2); const lost = !!v.dl.lost, g = v.parts.find((p) => p.def.weapon && p.def.weapon.kind === 'bomb'), a0 = g.ammo; press(F, v, 'bomb'); out.drop = { lost, used: a0 - g.ammo }; }
+    return out; })();`);
+  const R7 = JSON.parse(RB('JSON.stringify(R7)'));
+  t('P4-CTR-1 with its link lost, FIRE neither sets off an armed warhead nor drops a grenade', R7.warhead.lost && !R7.warhead.boom && R7.drop.lost && R7.drop.used === 0, R7);
+  // P4-CTR-2: a ZSY-23 with its Drone Radar shot out loses a Bumble hovering 20 m up in the clutter, as with none
+  RB(`var R8 = (() => { const F = world(), C = F.start(kit('zsy23', [{ type: 'cdRadar', x: 0, y: 3.4, rot: 0, flip: false, att: 0 }])); go(F, 1);
+    const R = C.parts.find((p) => p.def.searchRadar && p.def.searchRadar.low); R.broken = true; R.hp = 0; const b = hostile(F, 'bumble', 900, 20); go(F, 0.5);
+    Aim.lockKey(C); let locked = null; go(F, 4, (F) => { C.aimP = { x: b.x, y: b.y, z: b.z }; if (locked == null && C.trk && C.trk.lock === b) locked = F.time; }); return { locked }; })();`);
+  const R8 = JSON.parse(RB('JSON.stringify(R8)'));
+  t('P4-CTR-2 a broken Drone Radar lifts no clutter: the tracking radar never locks the low Bumble', R8.locked == null, R8);
+  // P4-CTR-3: an AI kamikaze scratched 25 s before it bursts on our tank is no kill of ours
+  RB(`var R9 = (() => { const F = world(), C = F.start(designOf('tk34')); go(F, 1); const b = hostile(F, 'bumble', 200, 30); arm(b); b.ai.passive = false; go(F, 0.2);
+    Combat.damage(b, b.parts.find((p) => p.def.thrust), 1, 'shot', F, C); go(F, 25); const k0 = Combat.S.kills, n0 = F.log.length;
+    const T = topOf2(C, C.parts[0]), U = up(C); fling(b, add3(add3(T, deckOff(C), 1), U, 5), { x: -U.x, y: -U.y, z: -U.z }, 25); b.dl.prev = null; go(F, 0.8);
+    return { boom: !!(b.dl && b.dl.boom), kills: Combat.S.kills - k0, said: F.log.slice(n0).filter((m) => /drone down/.test(m)) }; })();`);
+  const R9 = JSON.parse(RB('JSON.stringify(R9)'));
+  t('P4-CTR-3 a kamikaze that bursts on our tank (scratched 25 s before) is no kill and no "Enemy drone down!"', R9.boom && R9.kills === 0 && !R9.said.length, R9);
+  // P4-CTR-4: our parked tank's anti-drone gun downing a hostile drone while we fly the tank's drone: our kill
+  RB(`var R10 = (() => { const F = world(), d0 = nest(); d0.parts = d0.parts.concat([{ type: 'cdGun', x: -0.9, y: 1.95, rot: 0, flip: false, att: 0 }]); const C = F.start(d0); go(F, 1.5);
+    Drone.key(F); const d = F.active; go(F, 0.6); putAt(d, -60, 25); go(F, 0.5); const k0 = Combat.S.kills; const b = hostile(F, 'bumble', 300, 30);
+    go(F, 8, () => !(b.dead || b.ai.down)); return { flying: F.active === d, down: !!(b.dead || b.ai.down), byTank: b.lastHitBy === C, kills: Combat.S.kills - k0 }; })();`);
+  const R10 = JSON.parse(RB('JSON.stringify(R10)'));
+  t('P4-CTR-4 the parked tank\'s anti-drone gun downing a drone while we fly its drone counts as our kill', R10.flying && R10.down && R10.byTank && R10.kills === 1, R10);
+  // P4-CTR-8 and P4-CTR-5: an AI drone picked with I is named as a drone, never a Bandit; the gun's LEAD shows it only when seen
+  RB(`var R11 = (() => { const F = world(), v = F.start(designOf('fs16')); go(F, 0.5); const b = hostile(F, 'bumble', 300, 30); go(F, 0.5);
+    const n0 = F.log.length; Radar.S.pick = null; Radar.next(F, 1); return { pick: Radar.S.pick === b, said: F.log.slice(n0) }; })();`);
+  const R11 = JSON.parse(RB('JSON.stringify(R11)'));
+  t('P4-CTR-8 an AI drone picked with I is announced by its name, not as a Bandit', R11.pick && R11.said.length === 1 && !/Bandit/.test(R11.said[0]), R11);
+  RB(`var R12 = (() => { const $0 = this.$, R3D = this.Render3D, out = {};
+    const rec = () => { const calls = []; return { calls, ctx: new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === 'fillText' ? (s) => calls.push(String(s)) : k === 'measureText' ? () => ({ width: 10 }) : () => {}), set: (t, k, v) => { t[k] = v; return true; } }) }; };
+    this.$ = () => null; this.Render3D = { ready: true, project: () => ({ x: 400, y: 300, behind: false }), projectTo: (x, y, z, o) => Object.assign(o, { x: 400, y: 300, behind: false }) };
+    try { for (const de of [300, 1500]) { const F = world(), v = F.start(designOf('fs16')); go(F, 0.5); hostile(F, 'bumble', de, 40); go(F, 0.5);
+      v.wsel = Combat.systems(v).findIndex((s) => s.w.kind === 'gun'); const R = rec(); Combat.drawHUD(R.ctx, 800, 600, 1, F); out[de] = R.calls.filter((s) => /LEAD/.test(s)).length; } }
+    finally { this.$ = $0; if (R3D === undefined) delete this.Render3D; else this.Render3D = R3D; }
+    return out; })();`);
+  const R12 = JSON.parse(RB('JSON.stringify(R12)'));
+  t('P4-CTR-5 the gun\'s LEAD marker shows an AI drone 300 m off (seen) and not one 1.5 km off that nothing sees', R12[300] === 1 && R12[1500] === 0, R12);
+  // UX-P4-4, UX-P4-5: the help names the side buttons as drawn (no ◀ ▶) and follows Settings → Drone stick (Tilt: A/D and the stick slide, Q/E and the buttons turn)
+  RB(`var R13 = (() => { const g = Settings.get, T0 = Controls.touch, out = {}, txt = (h) => h.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ');
+    try { for (const st of ['turn', 'tilt']) { Settings.get = (k) => (k === 'droneStick' ? st : g.call(Settings, k));
+      const { F } = solo('bumble'); Controls.touch = false; const keys = txt(Flight.droneHelp.call(F)), hint = Drone.help(F); Controls.touch = true; const touch = txt(Flight.droneHelp.call(F));
+      out[st] = { ad: (keys.match(/Level: (turn|slide)[^·]*· Acro: roll/) || [''])[0], qe: (keys.match(/Level: (turn|slide)[^·]*· Acro: yaw/) || [''])[0], hint, glyph: /◀|▶/.test(keys + touch), buttons: (touch.match(/round arrow buttons by the stick (turn|slide)/) || [])[1] }; } }
+    finally { Settings.get = g; Controls.touch = T0; }
+    return out; })();`);
+  const R13 = JSON.parse(RB('JSON.stringify(R13)'));
+  t('UX-P4-4, UX-P4-5 the drone help follows the stick layout (Turn: A/D turn, Q/E and the round arrow buttons slide; Tilt: the reverse) and names no ◀ ▶',
+    /Level: turn/.test(R13.turn.ad) && /Level: slide/.test(R13.turn.qe) && R13.turn.buttons === 'slide' && /A\/D turn/.test(R13.turn.hint)
+    && /Level: slide/.test(R13.tilt.ad) && /Level: turn/.test(R13.tilt.qe) && R13.tilt.buttons === 'turn' && /A\/D slide, Q\/E turn/.test(R13.tilt.hint) && !R13.turn.glyph && !R13.tilt.glyph, R13);
 }
 
 // ================================================================ 11. the AI: old play (no drone war) as it was before drones

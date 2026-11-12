@@ -82,7 +82,7 @@ The keys below are the defaults: **Settings → Keys** rebinds any of them (two 
 | Menu · recover | `Esc` (it also lets the mouse go) or `P` · `R` when stopped | Menu button · Recover |
 | Launch a drone · back to the tank | `U` (a Drone Rack, Hangar or Launch Tubes aboard) · `U` again: back to the tank (over its bay: dock) | DRONE · Tank on the drone's pad |
 | **Drones** | | |
-| Fly | Level: `W` / `S` forward and back (let go: it stops and hovers), `A` / `D` turn, `Q` / `E` slide (Settings → Drone stick: Tilt swaps turning and sliding) · Acro: `W` / `S` pitch, `A` / `D` roll, `Q` / `E` yaw · winged drones bank to turn | The stick · hold ◀ ▶ |
+| Fly | Level: `W` / `S` forward and back (let go: it stops and hovers), `A` / `D` turn, `Q` / `E` slide (Settings → Drone stick: Tilt swaps turning and sliding) · Acro: `W` / `S` pitch, `A` / `D` roll, `Q` / `E` yaw · winged drones bank to turn | The stick · hold the round arrow buttons by it to slide (Tilt: to turn) |
 | Climb / descend (Level) · throttle (Acro, winged) | `Shift` / `Ctrl` (let go: it holds the height) · `Shift` / `Ctrl`, `Z` full, `X` cut | The throttle box is the climb lever: drag up or down, it springs back to hold (▲ ▼ hold too) · in Acro it is the throttle |
 | Level · Acro | `1` (stops and holds its height when you let go) · `2` (no self-levelling; the throttle is yours) | Level · Acro on the drone's pad |
 | Home · land | `3` (to its bay, or where it took off) · `4` (here) | Home · Land |

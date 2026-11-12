@@ -75,7 +75,7 @@ const layout = () => {
   const r = (q) => { const e = document.querySelector(q); if (!e || e.hidden) return null; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
   const P = Drone._osd.last, box = (p) => p && { l: p.x, t: p.y, r: p.x + p.w, b: p.y + p.h };
   const rb = Combat.S.rwrBox;
-  return { W: innerWidth, H: innerHeight, osd: P && { status: box(P.s), mode: box(P.m), line: box(P.f) },
+  return { W: innerWidth, H: innerHeight, osd: P && { status: box(P.s), mode: box(P.m), line: box(P.f) }, cross: P && P.c, arc: P && box(P.a),
     rwr: rb && { l: rb.x - rb.R, r: rb.x + rb.R, t: rb.y - rb.R, b: rb.y + rb.R + (rb.lines === 2 ? 28 : 14) },
     ctl: { top: r('#flight-ui .flight-top-right'), pad: r('#sas-bar'), joy: r('#joy'), zone: r('#joy-zone'), thr: r('#flight-ui .throttle-box'), weap: r('#weapon-box'),
       alert: r('#flight-alert'), jam: r('#jam-chip'), warp: r('#warp'), keys: r('#key-hints'), roll: r('#flight-ui .roll-btns') },
@@ -93,7 +93,9 @@ function judge(tag, L) {
   for (const [k, a] of Object.entries(L.lever || {})) for (const [c, q] of [['chip', L.chip], ['fire', L.fire]]) if (meets(a, q)) clash.push(`lever ${k}/${c}`); // (the lever's ▲, ▼ and words clear of the weapon chip and FIRE)
   const o = L.osd || {};
   for (const [x, y] of [['status', 'mode'], ['status', 'line'], ['mode', 'line']]) if (meets(o[x], o[y])) clash.push(`${x}/${y}`);
-  ok(`${tag} (${L.W}×${L.H}): the OSD's status, mode and flight line on the screen, clear of the controls, the panels and each other`, !clash.length && !off.length, JSON.stringify({ clash, off, osd: L.osd, ctl: L.ctl }));
+  for (const k of ['status', 'mode', 'line']) { if (meets(o[k], L.cross)) clash.push(`${k}/cross`); if (meets(o[k], L.arc)) clash.push(`${k}/bank arc`); } // (P4-OF-5, UX-P4-1, UX-P4-3)
+  if (L.arc && (meets(L.arc, L.cross) || L.arc.t < 0)) clash.push('bank arc/cross');
+  ok(`${tag} (${L.W}×${L.H}): the OSD's status, mode and flight line on the screen, clear of the controls, the panels, the centre cross${L.arc ? ', the bank arc' : ''} and each other`, !clash.length && !off.length, JSON.stringify({ clash, off, osd: L.osd, arc: L.arc, ctl: L.ctl }));
 }
 // the OSD's canvas calls in one frame: the real drawOSD on a counting stand-in of the HUD's context
 const osdCalls = () => {
@@ -122,6 +124,12 @@ for (const [w, h, touch, ui] of [[360, 640, true], [375, 667, true], [390, 844, 
   const calls = await page.evaluate(osdCalls);
   ok(`${tag}the OSD draws in at most 40 canvas calls a frame`, calls > 0 && calls <= 40, calls);
   await shot(page, `fpv-${w}x${h}${ui ? `-ui${ui * 100}` : ''}`);
+  // the level-horizon view: its bank arc under the mode block, above the cross, clear of every word (UX-P4-1)
+  await page.evaluate(() => { Settings.set('droneView', 'fpvLevel'); Drone._osd.at = -1e9; });
+  await frames(page, 2);
+  judge(tag + 'FPV level horizon', await page.evaluate(layout));
+  await shot(page, `fpvlevel-${w}x${h}${ui ? `-ui${ui * 100}` : ''}`);
+  await page.evaluate(() => { Settings.set('droneView', 'fpv'); Drone._osd.at = -1e9; });
   await page.evaluate(() => Flight.setFpv(false));
   await frames(page, 3); await page.waitForTimeout(400);
   const ch = await page.evaluate(() => ({ fpv: Flight.fpv, cls: document.body.className, tele: getComputedStyle(document.querySelector('#flight-ui .telemetry')).display, batt: !document.querySelector('#row-batt').hidden && document.querySelector('#t-batt').textContent, link: !document.querySelector('#row-link').hidden && document.querySelector('#t-link').textContent, view: Settings.get('droneView') }));
@@ -288,8 +296,8 @@ for (const [w, h, touch] of [[360, 640, true], [390, 844, true], [844, 390, true
 }
 
 // ================================================================ 5. a drone with a warning receiver: the OSD clear of its scope
-for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
-  const tag = `rwr ${w}×${h} `, { ctx, page } = await open([w, h, touch], tag);
+for (const [w, h, touch, busy] of [[390, 844, true], [1280, 720, false], [844, 390, true, true]]) { // (busy: the alert line and the JAM chip on too: P4-OF-5)
+  const tag = `rwr ${w}×${h}${busy ? ' alert JAM' : ''} `, { ctx, page } = await open([w, h, touch], tag);
   ROWS.rwr = ROWS.bumble.concat([['rwrPlus', -0.05, 0.1, 0, { att: 0 }]]);
   await fly(page, 'rwr');
   await page.evaluate(() => {
@@ -301,12 +309,13 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
     };
     Combat.S.shots.push(mk(15000, -120, true), mk(0, 15000, false));
   });
+  if (busy) await page.evaluate(() => { const v = Flight.active, cell = v.dr.cells[0]; Combat.damage(v, cell, 0.6 * Combat.maxHp(cell.def), 'shot', Flight, null); Drone.jamN = () => 1; Flight.updateHUD(true); });
   await page.waitForFunction(() => Combat.S.rwrBox, null, { timeout: 30000 });
   await page.waitForTimeout(1300); await frames(page, 2);
   const L = await page.evaluate(layout);
-  ok(`${tag}a warning receiver's scope is drawn (Combat.S.rwrBox)`, !!L.rwr, L.rwr);
+  ok(`${tag}a warning receiver's scope is drawn (Combat.S.rwrBox)${busy ? ', the alert line ("Battery damaged") and the JAM chip on show' : ''}`, !!L.rwr && (!busy || (!!L.ctl.alert && !!L.ctl.jam)), [L.rwr, L.ctl.alert, L.ctl.jam]);
   judge(tag + 'FPV with an RWR', L);
-  await shot(page, `rwr-${w}x${h}`);
+  await shot(page, `rwr-${w}x${h}${busy ? '-busy' : ''}`);
   await pageErrors(page, tag);
   await ctx.close();
 }
@@ -356,9 +365,11 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   await page.waitForFunction((t3) => Flight.time > t3 + 1.2, t3, { timeout: 120000 });
   await frames(page, 3);
   const C = await page.evaluate(() => { const al = document.querySelector('#flight-alert'), b = al.getBoundingClientRect(), d = Flight.active;
-    return { kind: d.kind, lf: !!Flight.carrierDown, alert: al.hidden ? '' : al.textContent, box: { l: b.left, t: b.top, r: b.right, b: b.bottom }, mode: Drone._osd.blocks.m && Drone._osd.blocks.m.key, destroyed: Flight.destroyed }; });
-  ok(`${tag}the tank knocked out under its drone: a LAST FLIGHT ("Your tank is knocked out! Last flight: 19 s" on the alert line, on the screen; LAST FLIGHT 0:1x on the OSD), the drone still flown`,
-    C.kind === 'drone' && C.lf && !C.destroyed && /^Your tank is knocked out! Last flight: (19|20) s$/.test(C.alert) && C.box.l >= 0 && C.box.r <= w && C.box.t >= 0 && /LAST FLIGHT 0:1\d/.test(C.mode || ''), C);
+    const now = () => { Drone._osd.wt = -1e9; Drone.drawOSD(App.ctx, App.W, App.H, App.dpr, Flight); return { a: Drone.alertText(Flight), m: Drone._osd.blocks.m && Drone._osd.blocks.m.key }; }; // (both read in one frame: UX-P4-6)
+    return { kind: d.kind, lf: !!Flight.carrierDown, alert: al.hidden ? '' : al.textContent, box: { l: b.left, t: b.top, r: b.right, b: b.bottom }, mode: Drone._osd.blocks.m && Drone._osd.blocks.m.key, destroyed: Flight.destroyed, same: now() }; });
+  const secs = (t, re) => { const m = re.exec(t || ''); return m ? +m[1] : NaN; }, sa = secs(C.same.a, /Last flight: (\d+) s/), so = secs(C.same.m, /LAST FLIGHT 0:(\d\d)/);
+  ok(`${tag}the tank knocked out under its drone: a LAST FLIGHT ("Your tank is knocked out! Last flight: 19 s" on the alert line, on the screen; LAST FLIGHT 0:19 on the OSD: the same seconds), the drone still flown`,
+    C.kind === 'drone' && C.lf && !C.destroyed && /^Your tank is knocked out! Last flight: (19|20) s$/.test(C.alert) && C.box.l >= 0 && C.box.r <= w && C.box.t >= 0 && /LAST FLIGHT 0:(1\d|20)/.test(C.mode || '') && sa === so, Object.assign(C, { sa, so }));
   await shot(page, `bay-lastflight-${w}x${h}`);
   // U ends it: the tank's end (the strip)
   if (touch) await page.tap('#sas-bar [data-drone="bay"]'); else await page.keyboard.press('KeyU');
@@ -379,6 +390,23 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   await frames(page, 3);
   const pl = await page.evaluate(() => ({ cls: document.body.className, drone: [...document.querySelectorAll('#sas-bar [data-drone]')].some((b) => !b.hidden), rows: !document.querySelector('#row-batt').hidden || !document.querySelector('#row-link').hidden, btn: !document.querySelector('#btn-drone').hidden, fov: Drone.fov(Flight.active, Flight), tmax: document.querySelector('#btn-tmax').textContent }));
   ok('an old plane: no drone buttons, rows, classes or DRONE button; Max stays Max', !/drone|fpv/.test(pl.cls) && !pl.drone && !pl.rows && !pl.btn && pl.tmax === 'Max', pl);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ 8. a jammer-only tank (the stock MA-1C, no bay): the JAM chip while its jammer holds an enemy drone (UX-P4-2)
+{
+  const tag = 'jam 390×844 ', { ctx, page } = await open([390, 844, true], tag, { targets: 'off' });
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async () => { await Render3D.load(); App.toBuild(); Builder.loadTemplate('ma1c'); store.set('rss.flight', null); App.showScene('flight'); Flight.start(Builder.serialize(), { place: GroundMode.soloPlace('tank') }); });
+  await page.waitForFunction(() => Flight.running && Render3D.ready, null, { timeout: 90000 });
+  const t0 = await page.evaluate(() => Flight.time);
+  await page.waitForFunction((t) => Flight.time > t + 1, t0, { timeout: 120000 });
+  await page.evaluate(() => { const C = Flight.active, d = Drone.spawnAI(Flight, 'mavik', { e: 0, z: 0, h: 0 }, 1, { passive: true }), r = C.radius(), U = { x: C.x / r, y: C.y / r, z: C.z / r }, R = C.axis(0, 0, 1);
+    d.x = C.x + U.x * 60 + R.x * 100; d.y = C.y + U.y * 60 + R.y * 100; d.z = C.z + U.z * 60 + R.z * 100; d.vx = C.vx; d.vy = C.vy; d.vz = C.vz; d.landed = false; d.ai.at = null; d.dl.hold = 60; d.dl.at0 = { x: d.x, y: d.y, z: d.z }; });
+  const J = await page.evaluate(() => new Promise((done) => { const t0 = Flight.time, e = document.querySelector('#jam-chip'), A = { kit: Flight.active.cuas.map((p) => p.type), docks: Flight.active.docks.length, n: 0, shown: 0, text: '' };
+    const f = () => { A.n = Math.max(A.n, Drone.hud.jamN | 0); if (!e.hidden) { A.shown++; A.text = e.textContent; } if (Flight.time - t0 > 1.2) done(A); else requestAnimationFrame(f); }; requestAnimationFrame(f); }));
+  ok(`${tag}the MA-1C (a Drone Jammer, no bay) with an enemy drone in its jammer's reach shows the JAM chip ("JAM · 1 drone")`, !J.docks && J.kit.includes('cdJam') && J.n >= 1 && J.shown > 0 && J.text === 'JAM · 1 drone', J);
   await pageErrors(page, tag);
   await ctx.close();
 }

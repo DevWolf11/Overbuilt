@@ -33,8 +33,9 @@ const Combat = (() => {
   const len = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
   // (the big update) one credit rule for "the player did it": the player's craft, or one it carries (a drone launched
   // from it: o.carrier, undefined on every other craft), so a kill finished after the drone that started it died still
-  // counts. And the AI fighters (bandits): every AI aircraft that is neither the ground AI's nor a drone.
-  function byMe(o, sim) { return !!o && !!sim && !!sim.active && (o === sim.active || (!!o.carrier && o.carrier === sim.active)); }
+  // counts; and the tank that carries the drone flown (its counter-drone kit at work while its drone is up: P4-CTR-4).
+  // And the AI fighters (bandits): every AI aircraft that is neither the ground AI's nor a drone.
+  function byMe(o, sim) { const A = sim && sim.active; return !!o && !!A && (o === A || (!!o.carrier && o.carrier === A) || (!!A.carrier && o === A.carrier)); }
   function isFighter(o) { return !!o.ai && !o.ai.ground && !o.ai.drone; }
   // which half of an aircraft's plain wing a hit at `at` (body coordinates) lands on: 1 for +z, -1 for -z (else undefined)
   function wingSide(v, p, at) { return isAirKind(v.kind) && p.def.wing && !p.def.wing.control ? Math.sign(v.toLocal(at.x, at.y, at.z).z - partZc(p)) || 1 : undefined; }
@@ -253,7 +254,11 @@ const Combat = (() => {
         if (mods) Armour.tallyMods(v, mods);
         if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
         if (mods) Armour.hot = false;
-        if (hits && (hits.length || (mods && mods.length))) { if (mods) MP.sendHits(v, hits, 'blast', mods, null, true); else MP.sendHits(v, hits, 'blast'); }
+        if (hits && (hits.length || (mods && mods.length))) {
+          // (a drone's own burst: toward it, so the hit marker points at the drone, not its owner's tank far off; P4-MP-3)
+          const bl = spare && spare.kind === 'drone' ? len(at.x - v.x, at.y - v.y, at.z - v.z) : 0, dd = bl > 0.1 ? [(at.x - v.x) / bl, (at.y - v.y) / bl, (at.z - v.z) / bl] : null;
+          if (mods) MP.sendHits(v, hits, 'blast', mods, dd, true); else MP.sendHits(v, hits, 'blast', null, dd);
+        }
       }
     } finally { flushRips(); }
     if (mpOn()) return; // (no targets in multiplayer)
@@ -533,11 +538,13 @@ const Combat = (() => {
   }
 
   // ---------------------------------------------------------------- the player's trigger and lock
+  const noLink = (v) => !!(v && v.kind === 'drone' && v.dl && v.dl.lost);
   function playerFrame(F, dt) {
     const v = F.active;
     if (!v || !v.parts.length || F.destroyed) { S.lock = S.cand = null; return; }
     const sys = systems(v), cur = sys[v.wsel];
-    const trig = !!F.firing, edge = (trig && !S.wasFiring) || F.fireTap, up = !trig && S.wasFiring; // (a tap shorter than a frame still counts)
+    const cut = noLink(v); // (a drone with its link lost: no command gets through, FIRE included; P4-CTR-1)
+    const trig = !!F.firing && !cut, edge = ((trig && !S.wasFiring) || F.fireTap) && !cut, up = !trig && S.wasFiring; // (a tap shorter than a frame still counts)
     S.wasFiring = trig; F.fireTap = false;
     if (!cur) { S.lock = S.cand = null; S.rip = null; return; }
     const w = cur.w;
@@ -659,7 +666,7 @@ const Combat = (() => {
     const v = F.active;
     if (v && !v.remote) doorStep(v, h);
     // guns and rocket pods fire while the trigger is held (rocket artillery also on its own once tapped: S.rip)
-    let cur = v && v.parts.length && !F.destroyed && (F.firing || S.rip) ? systems(v)[v.wsel] : null;
+    let cur = v && v.parts.length && !F.destroyed && !noLink(v) && (F.firing || S.rip) ? systems(v)[v.wsel] : null;
     const rip = cur && S.rip && S.rip.key === cur.key ? S.rip : null;
     if (cur && (rip ? (F.firing ? rip.mute : !rip.on) : !F.firing)) cur = null;
     if (cur && cur.w.kind === 'gun') for (const p of cur.parts) fireGun(v, p, h, false, F);
@@ -1647,6 +1654,7 @@ const Combat = (() => {
       for (const c of candidates(v, 'air', F)) {
         const d = len(c.x - v.x, c.y - v.y, c.z - v.z);
         if (d > 2000 && !(RD && RD.has(c.ref))) continue;
+        if (c.ref.kind === 'drone' && !(RD && RD.eye(v, c.ref, d))) continue; // (a real drone only when seen: 400 m by eye, or a drone sensor's mark; P4-CTR-5)
         if (pick && c.ref === pick && d < lim) { pk = c.ref; pd = d; }
         if (d < bd) { bd = d; best = c.ref; }
       }

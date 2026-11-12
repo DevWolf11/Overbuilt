@@ -209,7 +209,7 @@ const Flight = {
       target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
     };
-    return keep.some((v) => v.drone) && typeof Drone !== 'undefined' ? Drone.forSave(out, this, keep) : out;
+    return keep.some((v) => v.drone || (v.docks && v.docks.length)) && typeof Drone !== 'undefined' ? Drone.forSave(out, this, keep) : out; // (a bay: its lid saved shut too)
   },
   save() {
     if (this.mp || !this.running || this.ended || !this.active || !this.active.parts.length || this.active.dead) return; // (dead: crashed in one piece, death.js)
@@ -464,6 +464,10 @@ const Flight = {
   // each keeps the view's scale it had; a drone is flown in the view last picked for drones.
   switchTo(v, force, quiet) {
     if (!v || v === this.active || !v.control || v.ai || v.remote) return;
+    // a tap on our bay's drone, or from it on its tank: as the drone key does it (Level takes it, never with its link
+    // lost; back to the tank, or a LAST FLIGHT's end: P4-BAY-1)
+    if (!force && typeof Drone !== 'undefined' && v.kind === 'drone' && v.carrier && v.carrier.drone === v) { Drone.take(this, v); return; }
+    if (!force && typeof Drone !== 'undefined' && this.active && this.active.carrier === v) { Drone.back(this); return; }
     if (this.mp && this.mp.mode === 'pvp' && !force) return; // one craft, one life
     const was = this.active, bay = !!(v.carrier || v.parked || (was && (was.carrier || was.drone))); // (an old craft: never)
     if (bay && was) {
@@ -975,11 +979,12 @@ const Flight = {
   // the keys folded away under "Keys", as groundHelp's.
   droneHelp() {
     const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch, k = (id) => Keys.k(id);
-    const touch = '<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways turns: Settings → Drone stick swaps turning and sliding); the ◀ ▶ buttons slide it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>';
+    const tilt = Settings.get('droneStick') === 'tilt'; // (the Tilt layout: the stick sideways and A/D slide, the side buttons and Q/E turn; UX-P4-4, UX-P4-5)
+    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
     return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div>${P('fwd', 'back')}<span>Level: fly forward / back (let go: it stops and hovers) · Acro: pitch</span></div>
-      <div>${P('left', 'right')}<span>Level: turn (carving at speed) · Acro: roll · winged drones bank to turn</span></div>
-      <div>${f('rollL', 'rollR')}<span>Level: slide left / right · Acro: yaw</span></div>
+      <div>${P('left', 'right')}<span>Level: ${tilt ? 'slide left / right' : 'turn (carving at speed)'} · Acro: roll · winged drones bank to turn</span></div>
+      <div>${f('rollL', 'rollR')}<span>Level: ${tilt ? 'turn (carving at speed)' : 'slide left / right'} · Acro: yaw</span></div>
       <div>${f('thrUp', 'thrDown')}<span>Level: climb / descend (let go: it holds its height over the ground) · Acro and winged drones: throttle up / down</span></div>
       <div>${f('thrFull', 'thrCut')}<span>Acro and winged drones: full throttle / cut</span></div>
       <div>${f('dLevel', 'dAcro')}<span>Level (stops and holds its height when you let go) / Acro (no self-levelling; the throttle is yours)</span></div>
@@ -2504,7 +2509,7 @@ const Flight = {
     $('#btn-cm').hidden = !(ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0)) || this.destroyed; // (a ground vehicle's smoke grenades: SMOKE)
     $('#btn-fire').hidden = !!(ws && ws.cmOnly) || (!ws && rdr); // (only flares or chaff on board: nothing to fire)
     if (rdr || this._rdr) this.radarPill(v, ws, rdr); // (an old craft: never)
-    if (v.kind === 'drone' || (v.docks && v.docks.length) || this._dhud) this.droneHUD(v, gnd); // (the big update's drones: an old craft never comes here)
+    if (v.kind === 'drone' || (v.docks && v.docks.length) || (v.cuas && v.cuas.length) || this._dhud) this.droneHUD(v, gnd); // (the big update's drones, a jammer's JAM chip included: an old craft never comes here)
     $('#btn-catapult').hidden = !(this.catapult && this.catapult.state === 'hold' && !this.destroyed);
     if (ws) {
       set('w-name', (ws.radar && ws.radar !== 'ok' ? '⊘ ' : '') + ws.name + (ws.n > 1 ? ' ▸' : '')); // (⊘: radar missiles with no radar to guide them)

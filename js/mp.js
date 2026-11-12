@@ -1110,6 +1110,7 @@ const MP = {
     const c = this.nextC;
     this.nextC = (c % 3) + 1;
     const msg = { t: 'spawn', name: v.name, kind: 'drone', parts: this.spawnRows(v), c };
+    if (v.bay && hasOwn(PARTS, v.bay.type)) msg.bay = v.bay.type; // (its bay's kind: a player who never saw our tank, or saw it go down, still builds it: P4-MP-2)
     v.craft = c;
     this.extra.set(c, { v, c, msg, sent: { s: 0, pv: 0, hp: 0, hpSig: '' }, lastParts: v.parts.length });
     Net.send(msg);
@@ -1280,6 +1281,7 @@ const MP = {
     const P = this.peer(m.f);
     this.dropGhost(m.f, false);
     P.design = { kind: typeof m.kind === 'string' && hasOwn(VEHICLE_KINDS, m.kind) ? m.kind : 'plane', parts }; // (never the raw message)
+    P.bays = parts.map((r) => r[1]).filter((k) => hasOwn(PARTS, k) && PARTS[k].dock); // (kept past its down: its LAST FLIGHT's drone still comes from one)
     P.snap = null;
     P.fresh = true; // (a new craft: a wreck its first snapshot puts it on top of starts sinking, as on its owner's screen)
     P.radarOff = false; // (a new craft starts with its radar on: its owner says otherwise with 'rdr')
@@ -1296,9 +1298,12 @@ const MP = {
     const c = mpC(m);
     if (c <= 0 || m.kind !== 'drone' || typeof Drone === 'undefined') return;
     const rows = mpSpawnRows(m.parts, DRONE.MAX_PARTS), P = this.peers.get(m.f);
-    if (!rows || !rows.length || !P || !P.design || !Array.isArray(P.design.parts)) return;
+    if (!rows || !rows.length || !P) return;
+    // the bays it may come from: the owner's tank's, when we know it; else (a late joiner, or the tank's down seen: its
+    // design gone, and never sent again) the bay the spawn names, a real bay part (P4-MP-2)
+    const docks = P.design && Array.isArray(P.design.parts) ? P.design.parts.map((r) => r[1]) : (P.bays || []).concat(typeof m.bay === 'string' ? [m.bay] : []);
     const parts = this.partsOfRows(rows), D = parts.length ? { kind: 'drone', parts } : null;
-    if (!D || !P.design.parts.some((r) => hasOwn(PARTS, r[1]) && PARTS[r[1]].dock && Drone.fits(D, PARTS[r[1]].dock).ok)) return;
+    if (!D || !docks.some((k) => hasOwn(PARTS, k) && PARTS[k].dock && Drone.fits(D, PARTS[k].dock).ok)) return;
     this.dropExtraGhost(m.f, 0); // (one at a time: an older one, and this one's old ghost, go)
     if (!P.x) P.x = new Map();
     const E = { c, design: { kind: 'drone', parts: rows }, ghost: null, snap: null, recv: performance.now(), asked: 0, gun: {} }; // (recv: silent 15 s from its spawn, it goes)

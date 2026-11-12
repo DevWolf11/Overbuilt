@@ -831,12 +831,42 @@ async function groundDrones() {
     X(`seen.every((m) => !m.ids.includes(2)) && near === true && far === false`), X('[seen, near, far]'));
 }
 
+// the Phase 4 review's fixes (each fails before its fix)
+async function roomDronesReview() {
+  const mk = async () => { const Q = G.load({ mp: true, combat: true }), X = (code) => G.run(Q, code); X(ROOM); await X(`MP.host('sandbox', 'local')`); X(DRONE_HELP); return X; };
+  // P4-MP-2: a drone's spawn names its bay, so a player who never saw (or saw go down) the owner's tank still builds it;
+  // with neither the tank's design nor a real bay named, it is refused as before
+  const A = await mk();
+  A(`MP.addPlayer(2, 'Bea'); __design = { name: 'Nest', kind: 'tank', parts: templateRows(TEMPLATES.tk34).concat([{ type: 'dockRack', x: -2.1, y: 1.925, rot: 0, flip: false, att: 0 }]) };
+    MP.startFlight(false); var me = Flight.active, d = Drone.build(BUMBLE, 'Bumble'); d.x = me.x; d.y = me.y; d.z = me.z; up(d, 25); d.carrier = me; d.bay = me.docks[0]; me.drone = d; Flight.vessels.push(d);
+    Net.out = []; MP.sendExtra(d); var sp = sent('spawn').map(([m]) => m)[0];`);
+  const B = await mk();
+  B(`Net.isHost = false; Net.me = 4; MP.addPlayer(1, 'Ann'); __design = { name: 'Bird', kind: 'tank', parts: templateRows(TEMPLATES.tk34) }; MP.startFlight(false);
+    var dw = twin(dRows, 'drone', 1, RW + 330, 30);
+    emit({ t: 'spawn', f: 1, name: 'Bumble', kind: 'drone', parts: dRows, c: 1 }); emit(snapOf(dw, 1, 1)); MP.beforeUpdate(0.016); var bare = !!MP.ghostOf(1, 1);
+    emit({ t: 'spawn', f: 1, name: 'Bumble', kind: 'drone', parts: dRows, c: 2, bay: 'drFrameS' }); emit(snapOf(dw, 1, 2)); MP.beforeUpdate(0.016); var forged = !!MP.ghostOf(1, 2);
+    emit({ t: 'spawn', f: 1, name: 'Bumble', kind: 'drone', parts: dRows, c: 3, bay: 'dockRack' }); emit(snapOf(dw, 1, 3)); MP.beforeUpdate(0.016); var named = !!MP.ghostOf(1, 3);`);
+  t('drones (P4-MP-2): our drone\'s spawn names its bay; a player who never saw our tank builds a drone whose spawn names a real bay, not one with none or a forged one',
+    A(`sp && sp.c === d.craft && sp.bay === 'dockRack'`) && B('!bare && !forged && named'), [A('sp && sp.bay'), B('[bare, forged, named]')]);
+  // P4-MP-3: our drone bursting 3 m over a peer's tank sends the blast's hits with their direction (toward the burst)
+  const C = await mk();
+  C(`MP.addPlayer(2, 'Bea'); __design = { name: 'Nest', kind: 'tank', parts: templateRows(TEMPLATES.tk34).concat([{ type: 'dockRack', x: -2.1, y: 1.925, rot: 0, flip: false, att: 0 }]) };
+    MP.startFlight(false); var me = Flight.active, tw = twin(tankRows, 'tank', 2, RW + 600, 0); emit({ t: 'spawn', f: 2, name: 'Bea', kind: 'tank', parts: tankRows }); emit(snapOf(tw, 2)); MP.beforeUpdate(0.016);
+    var g = MP.peers.get(2).ghost, d = Drone.build(BUMBLE, 'Bumble'); d.x = g.x; d.y = g.y; d.z = g.z; up(d, 3); d.carrier = me; d.bay = me.docks[0]; me.drone = d; Flight.vessels.push(d); MP.sendExtra(d); Flight.active = d;
+    Net.out = []; Drone.detonate(d, Flight, { x: d.x, y: d.y, z: d.z }, null, null, 'fuse');
+    var H = sent('hit').map(([m]) => m), toB = (() => { const x = d.x - g.x, y = d.y - g.y, z = d.z - g.z, l = Math.hypot(x, y, z); return [x / l, y / l, z / l]; })();
+    var cosB = H.map((m) => (m.d ? m.d[0] * toB[0] + m.d[1] * toB[1] + m.d[2] * toB[2] : null));`);
+  t('drones (P4-MP-3): our drone\'s burst over a peer\'s tank sends its hits pointing at the burst (their hit marker shows the drone, not our tank)',
+    C('H.length > 0 && cosB.every((c) => c != null && c > 0.95)'), C('[H.length, cosB]'));
+}
+
 (async () => {
   await groundBattle();
   await roomDeaths();
   await roomWrecks();
   await roomDrones();
   await groundDrones();
+  await roomDronesReview();
   // ---- the air battle and the sandbox, step by step, exactly as before the ground update (test/lib/mptrace.js:
   // state, messages, toasts, flights and their options, the builder's battle settings, at every step)
   t('an air battle and a sandbox go exactly as before (every state, message, toast and flight: baseline mp-air)', !check('mp-air', await require('./lib/mptrace.js')(G)));

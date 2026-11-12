@@ -1353,7 +1353,7 @@ function aimClear(b, o, p, d) {
 // (the big update: never a drone to radar L's vessel v with a working Drone Radar aboard, v.cdLow)
 function aimNotch(t, tp, o, v) {
   if (!t.parts || !t.groundAltitude) return false; // (a target drone flies high)
-  if (v && v.cdLow && t.kind === 'drone') return false;
+  if (v && v.cdLow && t.kind === 'drone' && v.parts.some((p) => p.def.searchRadar && p.def.searchRadar.low && !p.broken)) return false; // (asked live: a Drone Radar shot out since the last rebuild lifts nothing; P4-CTR-2)
   const dx = tp.x - o.x, dy = tp.y - o.y, dz = tp.z - o.z, d = Math.hypot(dx, dy, dz) || 1;
   return Math.abs((tp.vx * dx + tp.vy * dy + tp.vz * dz) / d) < 40 && t.groundAltitude() < 40;
 }
