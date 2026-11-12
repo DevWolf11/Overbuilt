@@ -2278,7 +2278,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 ### 6. Offline / PWA
 
 **sw.js** (31 lines):
-- `CACHE = 'overbuilt-v36'` (:3; v36 the performance update; v35 the big update, which added `js/radar.js` and `js/death.js` after combat.js and `js/drone.js` after groundai.js; v34 the relay fix, PR #46; v28 the controls update, which added `js/controls.js` after world.js; v21 was PR #35, v22 PR #36, the look-alike jets, v23 PR #37, the warning receivers, v24 PR #38, the ground update, v27 PR #40, Aim and the handling retune). PR #38 added six files to `SHELL`: gear.js, aim.js and armour.js after vessel.js, gmode.js and groundai.js after combat.js, ghud.js after mpui.js.
+- `CACHE = 'overbuilt-v37'` (:3; v37 the balance and spawn points update; v36 the performance update; v35 the big update, which added `js/radar.js` and `js/death.js` after combat.js and `js/drone.js` after groundai.js; v34 the relay fix, PR #46; v28 the controls update, which added `js/controls.js` after world.js; v21 was PR #35, v22 PR #36, the look-alike jets, v23 PR #37, the warning receivers, v24 PR #38, the ground update, v27 PR #40, Aim and the handling retune). PR #38 added six files to `SHELL`: gear.js, aim.js and armour.js after vessel.js, gmode.js and groundai.js after combat.js, ghud.js after mpui.js.
 - `SHELL` (:4-12) lists `./`, index.html, the CSS, the manifest, `icons/icon.svg` and `icons/icon-tab.svg`, every js file **including `js/vendor/three.min.js`** and peer.min.js, and all 8 `assets/earth-*` files.
 - **install** (:13-16): `addAll` with `cache:'reload'` requests (bypassing the HTTP cache), then `skipWaiting()`.
 - **activate** (:17-19): deletes every cache whose name isn't `CACHE`, then `clients.claim()`.

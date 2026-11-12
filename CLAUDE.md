@@ -136,6 +136,7 @@ Plain `<script>` files share one global scope. They load in this order (index.ht
 - **Drawing is on demand (PR #35).** `App.frame` only redraws a still view when it is stale (`App.stale`/`App.drew`, a 500 ms safety heartbeat). Code that changes what the hangar shows without player input must call `Builder.redraw()` (or go through `changed()`/`renderInfo()`); `test/browser/redraw.mjs` guards this. Physics must stay frame-rate independent: the 60 fps cap (`Settings.fps`) only skips frames.
 - **Battery matters to the owner** (phones and tablets heat up). Don't add work that doesn't change what the player sees; measure CPU and GPU before and after (headless Chromium with the CDP profiler and WebGL call counts), and keep pictures byte-identical where possible.
 - **Known loose ends:** handbook §7. The ground update has its own chapter: handbook §8.
+- **The owner's future updates** are listed in `docs/ROADMAP.md` (things asked for but not yet built). When one ships, move it to the History table below and delete it there.
 
 ## History (what has been built, PR by PR)
 
