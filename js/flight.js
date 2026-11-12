@@ -908,7 +908,7 @@ const Flight = {
       <div>${Keys.run(['sasHold', 'sasPro', 'sasRetro', 'sasOut', 'sasIn', 'sasTarget'])}<span>Autopilot: hold, prograde, retrograde, radial out/in, target</span></div>
       <div>${Keys.run(['apHold', 'apLevel', 'apHeading', 'apOff', 'apAim'])}<span>Plane autopilot: hold attitude, level (holds altitude), heading, off (you fly it: the stick asks for g, it stays trimmed), aim</span></div>
       <div><span class="tap">Mouse</span><span>Planes in Aim (${Keys.k('apAim')}): move the circle, the plane flies its nose there (click the view to capture the mouse, <kbd>Esc</kbd> lets it go; on touch the stick moves it, a drag on the view looks round, a double tap puts it on the nose); the keys still fly it, within the autopilot's limits, the circle following · hold ${K('camera')} to look round, tap it to put the circle on the nose · left click fires</span></div>
-      <div>${K('map')}<span>Map view (tap a planet to target it)</span></div>
+      <div>${K('map')}<span>Map view (tap a planet to target it; ${K('mapView')} switches between the globe and the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -932,7 +932,7 @@ const Flight = {
       <div>${K('stage')}<span>Activate next stage (a booster)</span></div>
       <div>${K('cm')}<span>Smoke (and flares or chaff)</span></div>
       ${this.bayLine()}
-      <div>${K('map')}<span>Map view</span></div>
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (pinch on touch)</span></div>
@@ -999,7 +999,7 @@ const Flight = {
       <div>${K('camera')}<span>Chase view: reset the camera · gimbal camera: hold and move the mouse (or hold the right button) to look round, tap to centre</span></div>
       <div><kbd>Wheel</kbd><span>Zoom (a gimbal camera: 1×, 4×, 12×)</span></div>
       <div>${K('dThermal')}<span>Gimbal camera: thermal (vehicles show through smoke)</span></div>
-      <div>${K('map')}<span>Map view</span></div>
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
       <div><kbd>Esc</kbd>${K('menu')}<span>Menu</span></div>
       ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
       ${T ? '' : touch}
