@@ -2,7 +2,7 @@
 
 Build any machine from parts, then take it anywhere and do anything with it. The game mixes the rocketry of *Spaceflight Simulator* and *Kerbal Space Program*, the free-form aircraft building of *SimplePlanes*, and the combat of *War Thunder*. It is free, and it runs in a browser on a PC, a phone or a tablet, with nothing to install.
 
-You attach parts together on a blueprint, in 2D or in 3D: rockets, planes, helicopters, cars and armour (tanks, tank destroyers, armoured cars, SPAA, infantry vehicles, missile carriers, rocket artillery and SAM launchers), with engines, wings, tracks, turrets, weapons and paint wherever you want them. Then you fly or drive them in a full 3D world. Earth is the real one, shrunk to 1/20 scale, and the space centre sits on the Faroe Islands. From there you can:
+You attach parts together on a blueprint, in 2D or in 3D: rockets, planes, helicopters, cars, drones and armour (tanks, tank destroyers, armoured cars, SPAA, infantry vehicles, missile carriers, rocket artillery and SAM launchers), with engines, wings, tracks, turrets, weapons and paint wherever you want them. Then you fly or drive them in a full 3D world. Earth is the real one, shrunk to 1/20 scale, and the space centre sits on the Faroe Islands. From there you can:
 - launch from the pad, reach orbit and explore a small solar system: land on the Moon, drive a rover, parachute onto Mars, dive past the Sun, and bring the crew home through a fiery reentry;
 - fly planes that bank and turn over the islands and break the sound barrier, drive the causeway across the sea to Shetland, or hover a helicopter;
 - drive a tank you built yourself onto Highland Ridge in North Scotland, where shells bounce off sloped plate, crews get knocked out and ammunition cooks off, in the spirit of War Thunder's ground battles;
@@ -12,7 +12,7 @@ It runs in any modern browser on desktop and mobile. There is no build step: ope
 
 ## Play
 
-- **Online:** https://devwolf11.github.io/Overbuilt/ (deployed from `main` by `.github/workflows/pages.yml`). On a phone, use "Add to Home Screen" to install it and play offline.
+- **Online:** https://devwolf11.github.io/Overbuilt/ (GitHub Pages, deployed from `main` on every push). On a phone, use "Add to Home Screen" to install it and play offline.
 - **Locally:** serve the folder (`npx serve .`). Offline play and installing need the HTTPS site above, because the service worker only registers over `https:`. Double-clicking `index.html` works too, but browsers don't let a page opened from disk read the Earth map, so Earth falls back to generated terrain.
 - **Single file:** `node tools/build-single.mjs` writes `dist/overbuilt.html`, the whole game in one HTML file you can send to someone.
 
@@ -223,7 +223,6 @@ js/main.js            app shell, home screen, menus and the main loop
 sw.js, manifest.webmanifest, icons/   offline support and install icons
 assets/earth-*         the real Earth (heights, colours, night lights, lakes, towns, regions, rivers and roads), baked by tools/bake-earth.py
 tools/build-single.mjs bundles everything into dist/overbuilt.html
-.github/workflows/pages.yml  publishes the game to GitHub Pages on every push to main
 test/                  headless and browser test suites with baselines (node test/run.mjs; see test/README.md), plus test/tools/arena-probe.js and test/bench/ground-bench.mjs
 docs/HANDBOOK.md       how every subsystem works, for anyone changing the code
 CLAUDE.md              working notes for Claude Code sessions on this repo
