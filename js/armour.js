@@ -511,10 +511,11 @@ const Armour = (() => {
         else { R.r = 'nopen'; R.k = 'np'; add(R.rows, p, 0.03 * dmg); }
         break;
       }
-      if (pen >= eff) { R.r = 'pen'; R.k = 'pen'; add(R.rows, p, 0.1 * dmg); postPen(v, h, at, dx, dy, dz, pen - eff, SH, T, R, sx, false, s.legacy); }
+      if (pen >= eff) { R.r = 'pen'; R.k = 'pen'; add(R.rows, p, 0.1 * dmg); if (dj) add(R.rows, p, dj.host * Combat.maxHp(D) * dmg / 500); postPen(v, h, at, dx, dy, dz, pen - eff, SH, T, R, sx, false, s.legacy); } // (a drone's charge: the plate it went through takes host of its strength)
       else {
         R.r = 'nopen'; R.k = 'np'; add(R.rows, p, (s.legacy ? 0.05 : 0.03) * dmg);
-        if (pen >= 0.8 * eff && rnd() < 0.3) { cands(v, at, 3); spall(v, at, dx, dy, dz, 2, T.cone || 20, R); } // (a near thing: two fragments off the inside)
+        if (dj) { add(R.rows, p, dj.np * Combat.maxHp(D) * dmg / 500); if (dj.npn) { cands(v, at, 3); spall(v, at, dx, dy, dz, dj.npn, T.cone || 20, R); } } // (a drone's charge that didn't get through: the plate takes np of its strength, and the blow knocks npn fragments off the inside)
+        else if (pen >= 0.8 * eff && rnd() < 0.3) { cands(v, at, 3); spall(v, at, dx, dy, dz, 2, T.cone || 20, R); } // (a near thing: two fragments off the inside)
       }
       break;
     }
@@ -633,7 +634,7 @@ const Armour = (() => {
     spall(v, at, dx, dy, dz, nf, J ? J.cone : T.cone || 20, R);
     // (a drone's charge, through: the spall and the blast that follow it in fill the space behind the plate, every
     // module within J.r of a point J.at in taking burst·(1 - d/r)^1.2, a fuel cell shielding what lies behind it)
-    if (J) burstIn(v, at.x + dx * J.at, at.y + dy * J.at, at.z + dz * J.at, SH.dmg * J.burst, J.r, R, at);
+    if (J && J.burst) burstIn(v, at.x + dx * J.at, at.y + dy * J.at, at.z + dz * J.at, SH.dmg * J.burst, J.r, R, at);
     // an APHE shell bursts 1.2 m in (or where it stopped), every module in reach taking burst·(1 - d/r)^1.2 (a fuel cell
     // in between shields what lies behind it)
     if (T.fuse && SH.burst) {
@@ -1111,8 +1112,18 @@ const Armour = (() => {
   // (the drones' balance) A drone's shaped charge (drone.js detonate's stand-in, a drone's mini missile: s.drone) through
   // a plate does more than an old weapon's jet: its way in goes L m (not 1.5), it throws n fragments in a cone° cone
   // (not the HEAT round's 6 in 10°), and its blast follows it in: burst × its damage, at m in, r m round (postPen).
+  // The plate itself suffers too (the second balance pass: an MA-1 shrugged drones off, its engine block and blow-out
+  // bustle soaking what got in, and a front hit never added up to anything): through it, the plate's part (a hull or a
+  // turret) takes host of its own strength, so a second hit through the same one knocks the vehicle out; stopped by it,
+  // np of it, and npn fragments knocked off the inside, so three or four on the front add up. Both scale with the
+  // charge's damage (over 500: a Shaped Charge's).
+  // A drone that flew its own attack (drone.js autoFlown: the computer's, a player's lock-on; s.drone 2) is weaker:
+  // DRONE_JET_AI (an old weapon's way in, 6 fragments, no burst behind the plate, nothing to the plate) unless its dice
+  // made it lethal (s.lethal, DRONE.AUTO.KILL of them): then the hand-flown jet, and the plate it goes through wrecked.
   // Old weapons never set s.drone: their hits are as before.
-  const DRONE_JET = { L: 2.5, n: 12, cone: 30, burst: 0.5, at: 0.6, r: 1.5 };
+  const DRONE_JET = { L: 2.5, n: 12, cone: 30, burst: 0.5, at: 0.6, r: 1.5, host: 0.55, np: 0.45, npn: 6 };
+  const DRONE_JET_AI = { L: 1.5, n: 6, cone: 20, burst: 0, at: 0.6, r: 1.5, host: 0, np: 0, npn: 0 };
+  const DRONE_JET_LETHAL = { ...DRONE_JET, host: 1 };
   let dj = null;
   function legacyHit(s, v, p, at, F) {
     if (v.wreck) { FX.sparks(v.body, at, { x: v.vx, y: v.vy, z: v.vz }, 3); return false; }
@@ -1126,7 +1137,7 @@ const Armour = (() => {
     const k = 1 / spd, R1 = 2 * (v.reach || 10) + 1;
     TA.x = at.x - s.vx * k * 0.05; TA.y = at.y - s.vy * k * 0.05; TA.z = at.z - s.vz * k * 0.05;
     TE.x = at.x + s.vx * k * R1; TE.y = at.y + s.vy * k * R1; TE.z = at.z + s.vz * k * R1;
-    dj = s.drone ? DRONE_JET : null;
+    dj = s.drone === 2 ? (s.lethal ? DRONE_JET_LETHAL : DRONE_JET_AI) : s.drone ? DRONE_JET : null;
     let R;
     try { R = resolve(LS, v, hitAll(v, TA, TE, HR), F); } finally { dj = null; }
     if (s.blast) R.burst = { at, blast: s.blast, dmg: s.dmg, he: s.he, quiet: s.k === 'bullet' }; // (then its blast: apply's burst, so the HUD hears what it did)

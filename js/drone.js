@@ -28,6 +28,12 @@ const DRONE = {
   WING: { DIVE: 0.7, CLIMB: 0.4, BANK: 0.8, KA: 3, HOLDK: 0.03, VSK: 0.02, PCAP: 0.2, STALL: 1.25, SBANK: 0.5, ACRO: [2, 3, 0.5], RUD: 0.5 },
   ARM_D: 20, ARM_T: 2, FUSE_V: 4, AHEAD: 0.3, // safe-arm (m from launch, s); ground touch that sets it off (m/s); fuse look-ahead (m)
   JET_V: 4, JET_R: 3,                 // a warhead's jet along the way it flies from this speed (m/s; slower along its nose); how far ahead it still meets a plate (m)
+  // (the drones' second balance pass) a drone that flies its own attack (autoFlown: the computer's, a player's lock-on):
+  // KILL, the share of its charges that land as a hand-flown one's and wreck the plate they go through (the rest are
+  // armour.js's DRONE_JET_AI); GUN_J, the anti-drone gun's tracker error on it (×); LASER_K, the laser's time to burn it
+  // (×: past 1.2 no burn fits the beam); JAM, how far a jammer reaches it (×). About 35 in 100 get through one gun, a
+  // laser or a jammer (a hand-flown one about half), and about one good-spot hit in four destroys a tank
+  AUTO: { KILL: 0.25, GUN_J: 1.3, LASER_K: 1.1, JAM: 0.5 },
   LINK: { DT: 0.2, LOS_DT: 0.5, LOS_N: 10, LOS_K: 0.35, STATIC: 0.6, LAG: 0.4, LAGMAX: 0.2, LOST: 0.15, LOST_T: 0.5,
           BACK: 0.35, BACK_T: 0.5, HANDBACK: 5, JAM_IN: 0.005, LOSE: 0.25, HOLD: 2.5, K: { radio: 1, long: 0.6, sat: 0.25, fibre: 0 }, STATION: 3, HOME_UP: 2 },
           // (the drones' balance) a jammer cuts a link's quality from its reach R down to JAM_IN·R (smoothstep), so it is lost
@@ -1204,7 +1210,7 @@ const Drone = (() => {
           q = dl.snapped ? 0 : 1;
         } else if (L.kind === 'sat') q = d <= L.range ? 1 : 0;
         else q = (1 - smoothstep(0.8 * L.range, L.range, d)) * losK(v, dl, P, t);
-        const kj = K[L.kind] || 0;
+        const kj = (K[L.kind] || 0) * (autoAtk(v) ? DRONE.AUTO.JAM : 1); // (an auto-flown drone: the jammers reach AUTO.JAM as far)
         if (q > 0 && kj > 0) for (const j of J) {
           const Rj = j.R * kj, dj = Math.hypot(v.x - j.at.x, v.y - j.at.y, v.z - j.at.z);
           if (dj >= Rj || !jamFoe(j.o, v)) continue;
@@ -1412,6 +1418,14 @@ const Drone = (() => {
   }
   const lerp = (a, e, t) => ({ x: a.x + (e.x - a.x) * t, y: a.y + (e.y - a.y) * t, z: a.z + (e.z - a.z) * t });
 
+  // (the drones' second balance pass) A drone that flies its own attack: the computer's (the drone war's) or a player's
+  // on its auto lock-on (dl.lockOn, set until the impact). It is balanced apart from one a player flies by hand
+  // (DRONE.AUTO): the kit meets it differently (the gun's aim, the laser's burn, a jammer's reach: about 35 in 100 get
+  // through, a hand-flown one about half), and its charge is armour.js's DRONE_JET_AI unless its dice make it lethal
+  // (s.drone 2, s.lethal: about one good-spot hit in four destroys a tank, where a hand-flown one takes one or two).
+  function autoFlown(v) { return !!v && ((!!v.ai && !!v.ai.drone) || (!!v.dl && !!v.dl.lockOn)); }
+  // ...on an attack: the kit's AUTO numbers (not for the Tank Range's passive practice drones: the drill's targets)
+  const autoAtk = (v) => autoFlown(v) && !(v.ai && v.ai.passive);
   // The drone's warhead goes off at `at` (null: where the warhead is), having met hv's part hp (null: anything else).
   // A shaped charge on a plated vessel's new part is HEAT along the dive, then its burst (Armour.legacyHit); everything
   // else (frag, an old craft, the ground, a prop, mid-air) is a blast (Combat.explode). Then a flash, and the drone is
@@ -1431,7 +1445,8 @@ const Drone = (() => {
     const k = sp >= DRONE.JET_V ? Math.max(15, sp) / sp : 0, vel = k ? { x: v.vx * k, y: v.vy * k, z: v.vz * k } : { x: nose.x * 15, y: nose.y * 15, z: nose.z * 15 };
     const vl = Math.hypot(vel.x, vel.y, vel.z) || 1, dir = { x: vel.x / vl, y: vel.y / vl, z: vel.z / vl };
     const s = { k: 'missile', seek: 'top', b, x: P.x, y: P.y, z: P.z, vx: vel.x, vy: vel.y, vz: vel.z, dx: dir.x, dy: dir.y, dz: dir.z,
-      pen: w.pen, tandem: !!w.tandem, he: w.he, blast: w.blast, dmg: w.dmg, t: 0, life: 9, owner: v, enemy: !!v.ai && !v.ai.ally, spare: v, drone: 1 }; // (t 0, spare: its own blast leaves the drone itself to the end; drone: armour.js's drone jet)
+      pen: w.pen, tandem: !!w.tandem, he: w.he, blast: w.blast, dmg: w.dmg, t: 0, life: 9, owner: v, enemy: !!v.ai && !v.ai.ally, spare: v, drone: autoFlown(v) ? 2 : 1 }; // (t 0, spare: its own blast leaves the drone itself to the end; drone: armour.js's drone jet, 2: an auto-flown drone's, DRONE_JET_AI)
+    if (s.drone === 2) s.lethal = (typeof Death !== 'undefined' && Death.dice ? Death.dice(p, 41) : 1) < DRONE.AUTO.KILL; // (an auto-flown drone's charge: one in AUTO.KILL lands as a hand-flown one's would and wrecks the plate it goes through, from a hash of its warhead's id)
     p.ammo = 0;
     // (a shaped charge set off by what wasn't a plated vehicle's new part (the ground beside one, its bump, a frame
     // touching first): the jet still meets the plates within JET_R m ahead of it)
@@ -1688,7 +1703,7 @@ const Drone = (() => {
   function gunStep(o, p, h, F) {
     const g = p.def.cuas.gun;
     if (p.broken || o.ko) { p.gunOn = false; p.tgt = null; return; }
-    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const n = gunPick(o, p, g, pivotOf(o, p, PIV)); if (n !== p.tgt) { p.tgt = n; p.acq = (g.acq || 0) * (0.5 + prand(p)); } p.cue = !!n && marked(o, n) >= 2; if (p.cue) p.acq = Math.min(p.acq, (g.acq || 0) * 0.5); } // (a new target: acq s to settle on it first; half that, and a steadier track, while a sensor cues it)
+    if ((p._pick = (p._pick || 0) - h) <= 0) { p._pick = 0.1; const n = gunPick(o, p, g, pivotOf(o, p, PIV)); if (n !== p.tgt) { p.tgt = n; p._jT = 0; p.onT = 0; p.acq = (g.acq || 0) * (0.5 + prand(p)); } p.cue = !!n && marked(o, n) >= 2; if (p.cue) p.acq = Math.min(p.acq, (g.acq || 0) * 0.5); } // (a new target: acq s to settle on it first; half that while a sensor cues it)
     const t = p.tgt && isDrone(p.tgt) ? p.tgt : null;
     if (!t) { p.tgt = null; p.gunOn = false; slew(p, { yaw: p.aimYaw || 0, el: 0 }, g.yaw, g.elr, g.el, h); return; }
     p.acq = Math.max(0, (p.acq || 0) - h);
@@ -1699,15 +1714,21 @@ const Drone = (() => {
     const tofOf = (d) => (cd > 1e-9 ? Math.expm1(cd * d) / (cd * g.speed) : d / g.speed);
     let ax = t.x - P.x, ay = t.y - P.y, az = t.z - P.z, tof = tofOf(Math.hypot(ax, ay, az));
     for (let i = 0; i < 2; i++) { const dr = 0.5 * G0 * tof * tof; ax = t.x + rx * tof - P.x + ux * dr; ay = t.y + ry * tof - P.y + uy * dr; az = t.z + rz * tof - P.z + uz * dr; tof = tofOf(Math.hypot(ax, ay, az)); }
-    // (its tracker's error: a fresh offset up to jit rad each way every 0.5 s, from the part's own stream; the full jit
-    // on a drone flying 30 m/s or more, less on a slower one, down to 0.15 of it on one hovering: a fast drone's lead is
-    // hard to judge. A sensor's cue steadies it: cueJ)
-    if ((p._jT = (p._jT || 0) - h) <= 0) { const j = (g.jit || 0) * (p.cue ? g.cueJ ?? 1 : 1) * clamp(Math.hypot(rx, ry, rz) / 30, 0.15, 1); p._jT = 0.5; p._jy = (prand(p) * 2 - 1) * j; p._je = (prand(p) * 2 - 1) * j; }
+    // (its tracker's error: a fresh offset up to jit rad each way every 0.5 s, from the part's own stream, as wide on a
+    // drone creeping in as on one racing; but once it has fired walk[2] s at one hanging about (slower than walk[3] m/s),
+    // its bursts walk in, down to walk[1] of it over walk[0] s more (the drones' second balance pass: it was down to 0.15
+    // of it on any slow drone at once, so a drone flown in carefully, as a player lines a tank up or stops a moment to
+    // look, was shot down nine times in ten; one that loiters in its reach still goes down). × cueJ while a sensor cues
+    // it (1 now: a cue finds it sooner and further out, no steadier; it was 0.92); × AUTO.GUN_J on an auto-flown attacker)
+    if ((p._jT = (p._jT || 0) - h) <= 0) {
+      const W = g.walk, k = W ? W[1] + (1 - W[1]) * Math.exp(-Math.max(0, (p.onT || 0) - W[2]) / W[0]) : 1, j = (g.jit || 0) * k * (p.cue ? g.cueJ ?? 1 : 1) * (autoAtk(t) ? DRONE.AUTO.GUN_J : 1);
+      p._jT = 0.5; p._jy = (prand(p) * 2 - 1) * j; p._je = (prand(p) * 2 - 1) * j; }
     const want = anglesOf(o, p, ax, ay, az, ANG);
     want.yaw += p._jy || 0; want.el += p._je || 0;
     const err = slew(p, want, g.yaw, g.elr, g.el, h);
     p.gunOn = err <= 0.04 && p.ammo > 0 && !(p.acq > 0);
     if (!p.gunOn) return;
+    if (g.walk && Math.hypot(rx, ry, rz) < g.walk[3]) p.onT = (p.onT || 0) + h; // (how long it has fired at this one while it hung about, slower than walk[3] m/s: walk)
     p.cool = (p.cool || 0) - h;
     if (p.cool > 0) return;
     p.cool = Math.max(p.cool, -h) + 1 / g.rate;
@@ -1767,7 +1788,7 @@ const Drone = (() => {
     t.kitAt = F.time || 0; // (as the gun's: P4-AI-4)
     beamOf(o, p, F, t, r);
     p.dwell = (p.dwell || 0) + h;
-    if (p.dwell < L.kill[0] + L.kill[1] * (r / L.cued) ** 2) return;
+    if (p.dwell < (L.kill[0] + L.kill[1] * (r / L.cued) ** 2) * (autoAtk(t) ? DRONE.AUTO.LASER_K : 1)) return; // (an auto-flown drone: AUTO.LASER_K times as long)
     p.dwell = 0; p.tgt = null; p._pick = 0;
     const part = (t.dr && t.dr.fcPart && t.parts.includes(t.dr.fcPart) ? t.dr.fcPart : null) || t.parts[0];
     if (!part) return;
@@ -2069,7 +2090,7 @@ const Drone = (() => {
     // flight
     key, take, launch, back, home, land, lost, lastFlight, endLastFlight, forSave, dock, lagged, station, foe, alertText,
     // combat
-    step, frame, detonate, cookOff, die, payload, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
+    step, frame, detonate, autoFlown, cookOff, die, payload, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
     // AI
     spawnAI, aiSteer,
     // HUD
