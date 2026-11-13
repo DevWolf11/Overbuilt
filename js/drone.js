@@ -2130,7 +2130,7 @@ const Drone = (() => {
   // flies the attack itself: up to LOCK.ALT m over the ground, toward it at LOCK.CRUISE m/s, and LOCK.TERM m out the
   // dive onto its roof, led for its motion (the AI drones' own dive: diveSteer). The pilot keeps control first: any stick
   // or lever, a mode (Level, Acro, Home, Land) or 5 again lets go of it; so does a lost link (fibre never loses one), the
-  // camera shot off, the target knocked out, a wreck or gone, or switching to the tank. dl.lockOn = { t, st } while it
+  // camera shot off, the target knocked out, a wreck or gone, or back in its tank. dl.lockOn = { t, st } while it
   // flies (st: 'cruise' or 'terminal'); null otherwise. Never on an AI drone, a ghost or a winged drone.
   // the vehicles a drone may lock: ground vehicles at work, not its own tank, an ally or a teammate
   function lockable(v, o) {
@@ -2184,7 +2184,7 @@ const Drone = (() => {
   function lockCheck(v, dl, c, sim) {
     const o = dl.lockOn.t, F = sim && sim.vessels ? sim : null;
     const dive = dl.lockOn.st === 'terminal'; // (in its dive it is committed: the drone's own lock flies the last 200 m, link or camera lost or not)
-    const why = v.ai || v.remote ? '' : dl.lost && !dive ? 'Lock lost: no link' : (dl.mode !== 'pilot' && !(dive && dl.lost)) || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
+    const why = v.ai || v.remote ? '' : dl.lost && !dive ? 'Lock lost: no link' : (dl.mode !== 'pilot' && !(dive && dl.lost)) || (F && v.carrier && F.active === v.carrier) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
       : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !dive && slipped(v, dl) ? 'Lock lost: the picture broke up' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
     if (why != null) unlock(F || sim, v, why);
     return !!dl.lockOn;
@@ -2192,7 +2192,7 @@ const Drone = (() => {
   // before its dive, under a jammer: does the tracker lose the picture this look? (4 looks a second, on the drone's clock)
   function slipped(v, dl) {
     const K = dl.lockOn, L = DRONE.LOCK;
-    if (dl.q == null || dl.q >= L.Q) return false;
+    if (!dl.jam || dl.q == null || dl.q >= L.Q) return false; // (a jammer's doing only: a hill or the link's edge loses the link, not the picture)
     if (K.look != null && dl.t - K.look < 0.25 && dl.t >= K.look) return false;
     K.look = dl.t;
     return prand(v.dr.fcPart || v.parts[0]) < L.SLIP;
