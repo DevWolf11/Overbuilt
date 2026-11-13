@@ -137,6 +137,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   // maps lazy while the camera is down by its ground; a slice of the queue keeps to its time
   const first = await ev(() => {
     // (a few frames: the patch round the tank comes first; the frame the Earth's maps start in is timed)
+    Render3D.setVisible(true); // (the view on show, as App.frame has it in flight)
     let ms = 0, J = null, E = null;
     for (let i = 0; i < 20 && !(E && (E.lo || E.ready)); i++) {
       const t0 = performance.now(); Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); ms = performance.now() - t0;

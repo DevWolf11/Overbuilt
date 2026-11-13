@@ -1519,6 +1519,7 @@ const Drone = (() => {
       if ((w.blast || 1) > big) { big = w.blast || 1; P = at; }
     }
     if (P && why !== 'cook') FX.explosion(b, P, { x: v.vx * 0.2, y: v.vy * 0.2, z: v.vz * 0.2 }, big * 0.7, air); // (a cook-off from a hit flashes as ever)
+    if (P && !v.ai && typeof MP !== 'undefined' && MP.shared) MP.sendBoom(b, P, Math.max(big, 3)); // (the room sees it go up: Combat.explode sends only blasts of 8 m and more)
     if (!v.ai && v !== sim.active && Combat.byMe(by, sim) && typeof Death !== 'undefined') Death.feedback('SHOT DOWN', sim);
     shatter(v, sim, !!by);
     return true;

@@ -188,15 +188,19 @@ ok('A sees B\'s drone as B\'s second craft ("Bob\'s drone", c), beside B\'s tank
   s1.kind === 'drone' && s1.craft === s1.c && s1.name === "Bob's drone" && s1.tankKind === 'tank' && s1.extras === 1 && s1.main === 1 && s1.inWorld && s1.h > 25 && Math.hypot(s1.tank[0] - s0.tank[0], s1.tank[1] - s0.tank[1], s1.tank[2] - s0.tank[2]) < 0.5, [s0, s1]);
 ok('network: with a drone up each player still sends and receives under 20 kB a second', rateD.every((x) => x.in < 20000 && x.out < 20000 && x.out > 100), rateD);
 const before = await A.evaluate(() => ({ tk: MP.state.obj.tk.slice(), kills: MP.me.kills, deaths: MP.player(2).deaths, flying: MP.player(2).flying, feed: MP.state.feed.length }));
-await A.evaluate(() => { const E = [...MP.peers.get(2).x.values()][0], g = E.ghost, fc = g.parts.find((p) => p.def.drone && p.def.drone.fc); window.__toasts = []; const t0 = UI.toast; UI.toast = function (t, k) { window.__toasts.push(t); return t0.apply(this, arguments); }; MP.sendHit(g, fc, 400, 'shot'); });
+await A.evaluate(() => { const E = [...MP.peers.get(2).x.values()][0], g = E.ghost, fc = g.parts.find((p) => p.def.drone && p.def.drone.fc); window.__toasts = []; window.__booms = []; const nb = Combat.netBoom; Combat.netBoom = function (b, at, r) { window.__booms.push({ d: Math.hypot(at.x - g.x, at.y - g.y, at.z - g.z), r }); return nb.apply(this, arguments); }; const t0 = UI.toast; UI.toast = function (t, k) { window.__toasts.push(t); return t0.apply(this, arguments); }; MP.sendHit(g, fc, 400, 'shot'); });
 await A.waitForFunction(() => !MP.extraGhosts().length, null, { timeout: 30000 });
+// (the spawn points and balance update: a drone's payload goes off when it dies, so B's Bumble, its shaped charge aboard,
+// bursts where A shot it and A sees the burst (MP.sendBoom); a drone with nothing aboard falls as a hulk as before)
+await A.waitForFunction(() => window.__booms.length > 0 || Flight.vessels.some((o) => o.foreign === 2 && o.kind === 'drone' && o.hulk != null), null, { timeout: 30000 }).catch(() => {});
+const boomA = await A.evaluate(() => window.__booms.slice());
 const fallA = await A.evaluate(async () => { const h = Flight.vessels.find((o) => o.foreign === 2 && o.kind === 'drone' && o.hulk != null); if (!h) return null;
   const alt = () => h.groundAltitude(), a0 = alt(), t0 = Flight.time; await new Promise((ok) => { const f = () => (Flight.time > t0 + 0.6 || h.dead ? ok() : requestAnimationFrame(f)); f(); }); return { a0, a1: h.dead ? -1 : alt(), dead: h.dead }; });
 await B.waitForFunction(() => Flight.active && Flight.active.kind !== 'drone' && !MP.extra.size, null, { timeout: 30000 });
 const after = await A.evaluate(() => ({ tk: MP.state.obj.tk.slice(), kills: MP.me.kills, deaths: MP.player(2).deaths, flying: MP.player(2).flying, feed: MP.state.feed.length, toasts: window.__toasts, tank: !!MP.peers.get(2).ghost }));
 const bAfter = await B.evaluate(() => ({ kind: Flight.active.kind, destroyed: Flight.destroyed, extra: MP.extra.size }));
 log('A downs B\'s drone', JSON.stringify({ before, after, fallA, bAfter }));
-ok('A\'s hit downs B\'s drone: it falls on A\'s screen (a hulk of A\'s physics), A is told "Bob\'s drone down!", B is back in its tank', !!fallA && (fallA.dead || fallA.a1 < fallA.a0) && after.toasts.includes("Bob's drone down!") && bAfter.kind === 'tank' && !bAfter.destroyed && bAfter.extra === 0 && after.tank, { fallA, after, bAfter });
+ok('A\'s hit downs B\'s drone: its charge goes off where it was on A\'s screen (a burst within 30 m of it; or, with nothing aboard, a hulk of A\'s physics falling), A is told "Bob\'s drone down!", B is back in its tank', (boomA.some((x) => x.d < 30) || (!!fallA && (fallA.dead || fallA.a1 < fallA.a0))) && after.toasts.includes("Bob's drone down!") && bAfter.kind === 'tank' && !bAfter.destroyed && bAfter.extra === 0 && after.tank, { boomA, fallA, after, bAfter });
 ok('...and nothing is booked: no tickets move, no kill, no death, B still in the fight', JSON.stringify(after.tk) === JSON.stringify(before.tk) && after.kills === before.kills && after.deaths === before.deaths && after.flying && after.feed === before.feed, [before, after]);
 
 // ---- A takes zone C (parked in it on the ground: 20 s alone), then the battle ends on tickets
