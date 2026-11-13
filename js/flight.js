@@ -299,9 +299,9 @@ const Flight = {
   syncSas() {
     const v = this.active, m = v ? (v.sas === 'manual' ? 'off' : v.sas) : 'hold', plane = !!v && v.kind === 'plane', drone = !!v && v.kind === 'drone';
     document.querySelectorAll('#sas-bar .sas-btn').forEach((b) => {
-      const d = b.dataset.drone, pressed = b.dataset.dact ? b.dataset.dact === 'view' && drone && !!this.fpv : b.dataset.sas === m;
+      const d = b.dataset.drone, pressed = b.dataset.dact ? (b.dataset.dact === 'view' && drone && !!this.fpv) || (b.dataset.dact === 'lock' && drone && !!(v.dl && v.dl.lockOn)) : b.dataset.sas === m;
       if (b.getAttribute('aria-pressed') !== String(pressed)) b.setAttribute('aria-pressed', String(pressed));
-      const hide = plane ? !!d || !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : drone ? !d || (d === 'bay' && !v.carrier) : !!b.dataset.plane || !!d;
+      const hide = plane ? !!d || !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : drone ? !d || (d === 'bay' && !v.carrier) || (b.dataset.dact === 'lock' && (!v.dr || !!v.dr.wing || !v.dr.cam)) : !!b.dataset.plane || !!d;
       if (b.hidden !== hide) b.hidden = hide;
     });
     $('#sas-bar').classList.toggle('plane', plane);
@@ -316,6 +316,7 @@ const Flight = {
   droneSas(v, mode) {
     if (this.inert(v) || (mode !== 'hold' && mode !== 'acro')) return;
     v.sas = mode;
+    if (v.dl && v.dl.lockOn) Drone.unlock(this, v);
     if (v.dl) { v.dl.mode = 'pilot'; v.dl.hold = null; v.dl.wh = null; v.dl.autoLand = false; } // (each mode starts from where it is now)
     this.toast(mode === 'acro' ? 'Acro: the stick turns it and nothing levels it; the throttle is yours'
       : v.aircraft ? 'Level: the stick banks and dives it; let go and it flies straight and level' : 'Level: the stick flies it; let go and it stops and holds its height');
@@ -392,6 +393,7 @@ const Flight = {
     const v = this.active, K = (id) => Keys.is(e.code, id);
     if (K('dHome')) { if (!this.inert(v)) Drone.home(this, v); return true; }
     if (K('dLand')) { if (!this.inert(v)) Drone.land(this, v); return true; }
+    if (K('dLock')) { if (!this.inert(v)) Drone.lockOn(this, v); return true; }
     if (K('dView')) { this.setFpv(!this.fpv); return true; }
     if (K('dThermal')) { this.gimbalThermal(); return true; }
     if ((K('thrFull') || K('thrCut')) && this.droneLevel(v)) return true; // (Level: the lever, not a throttle)
@@ -984,7 +986,7 @@ const Flight = {
   droneHelp() {
     const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch, k = (id) => Keys.k(id);
     const tilt = Settings.get('droneStick') === 'tilt'; // (the Tilt layout: the stick sideways and A/D slide, the side buttons and Q/E turn; UX-P4-4, UX-P4-5)
-    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
+    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land, Lock (lock on to the vehicle in the middle of the picture: the drone flies the attack itself; any stick takes it back) and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
     return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div>${P('fwd', 'back')}<span>Level: fly forward / back (let go: it stops and hovers) · Acro: pitch</span></div>
       <div>${P('left', 'right')}<span>Level: ${tilt ? 'slide left / right' : 'turn (carving at speed)'} · Acro: roll · winged drones bank to turn</span></div>
@@ -993,6 +995,7 @@ const Flight = {
       <div>${f('thrFull', 'thrCut')}<span>Acro and winged drones: full throttle / cut</span></div>
       <div>${f('dLevel', 'dAcro')}<span>Level (stops and holds its height when you let go) / Acro (no self-levelling; the throttle is yours)</span></div>
       <div>${f('dHome', 'dLand')}<span>Fly home (to its bay, or where it took off) / land here</span></div>
+      <div>${K('dLock')}<span>Lock on: the vehicle nearest the middle of the picture (a camera aboard, a multirotor); the drone flies the attack itself, climbing to 30 m, closing in and diving onto its roof. Any stick, a mode or ${k('dLock')} again takes it back; a lost link breaks the lock</span></div>
       <div>${K('dView')}<span>First-person (FPV) or chase view (Settings → Drone view: first person, first person with a level horizon, or chase)</span></div>
       <div>${K('drone')}<span>A drone from a bay: back to the tank (it hovers where you left it) · near its bay: dock</span></div>
       <div>${f('fire', 'weapon')}<span>Fire: drop, launch or set off the charge / change weapon</span></div>
@@ -2071,6 +2074,7 @@ const Flight = {
       else if (this.inert(v)) return;
       else if (a === 'home') Drone.home(this, v);
       else if (a === 'land') Drone.land(this, v);
+      else if (a === 'lock') Drone.lockOn(this, v);
     }));
     $('#btn-center').addEventListener('click', () => { if (GlobeView.active) GlobeView.center(); else { MapView.focusVessel(); MapView.fit(this); MapView.focusVessel(); } });
     $('#btn-mapview').addEventListener('click', () => this.setMapView(GlobeView.active ? 'system' : 'globe'));

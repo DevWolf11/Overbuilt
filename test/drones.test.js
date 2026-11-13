@@ -1250,4 +1250,84 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   t(`13 ...its laser stops the first of two 3 s apart some of the time (${l2.first}%: about half, on the tool's 60 runs), and the second gets through 75% or more (stopped ${l2.second}%)`, l2.first >= 10 && l2.first <= 90 && l2.second <= 25, l2);
 }
 
+// ================================================================ 14. lock-on (5, the pad's Lock): the drone flies the attack itself
+// A player's multirotor with a camera marks the vehicle nearest the middle of its picture and flies the attack: up to
+// 30 m, in at 25 m/s, and 200 m out the AI drones' own dive onto its roof (diveSteer, led for its motion). Any stick, a
+// lost link or the target gone lets go. (A drone d m east of a tank, h m up, pitched so its camera looks at the tank as
+// a pilot flying at it would.)
+{
+  const B = G.load({ combat: true, ground: true, props: true, flight: true }), RB = (c) => G.run(B, c);
+  RB(`Math.random = mulberry32(4242);
+    var SET = { targets: 'off', droneView: 'fpv', droneStick: 'turn' }, get0 = Settings.get.bind(Settings);
+    Settings.get = (k) => (k in SET ? SET[k] : get0(k));
+    Flight.running = true;
+    var MapView = { focusVessel() {} }; Controls.relayout = () => {}; Controls.keyHints = () => {};
+    var App = { use3D: () => true, showScene() {}, afterEarth(f) { f(); }, scene: 'flight' };
+    var designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: templateRows(TEMPLATES[key]) });
+    var NPAD = GroundMode.placement('highland', 0, 0, 'tank');
+    var mk = (design, P) => { const ps = partsFromDesign(design.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map();
+      for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); }
+      const v = new Vessel(parts, adj, EARTH); v.name = design.name; v.kind = design.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups();
+      P = P || NPAD; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), 0, P.z, P.yaw || 0); return v; };
+    var world = () => { const F = Object.create(Flight);
+      Object.assign(F, { time: 0, target: null, log: [], broken: [], vessels: [], active: null, firing: false, mgFiring: false, groundAim: false, warpIdx: 0, mp: null, scale: 12,
+        running: true, destroyed: false, camAbs: { x: 0, y: 0, z: 0 }, launchCost: 0, flags: {}, stats: { maxAlt: 0, maxSpeed: 0, maxG: 0 }, design: null, deaths: 0, ends: 0, carrierDown: null, crashedAt: null,
+        toast(m) { this.log.push(m); }, award(f) { this.flags[f] = true; }, syncAwake() {}, syncSas() {}, updatePrediction() {}, updateDvEstimate() {}, updateHUD() {}, strip() {}, setSight() {}, unlockPointer() {},
+        endAfter() { this.ends++; }, cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); } });
+      return F; };
+    var go = (F, secs, each) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { if (each && each(F, f) === false) return f;
+      for (let i = 0; i < 2; i++) { for (const v of F.vessels.slice()) if (!v.remote && !v.wreck && !v.kin && !v.dead && v.parts.length && !(v !== F.active && v.landed && v.restTime > 2)) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+      Combat.frame(F, 1 / 60); F.cleanup(); } return Math.round(secs * 60); };
+    // a drone d m west of tank T, h m up, its nose (and camera) toward T
+    var strike = (key, tk, d, h, opts) => { opts = opts || {};
+      const F = world(), T = mk(designOf(tk), { e: NPAD.e + 300, z: NPAD.z, yaw: opts.yaw || 0 }); T.ai = { ground: true, team: 1 };
+      const v = mk(designOf(key), { e: NPAD.e + 300 + d, z: NPAD.z + (opts.dz || 0), yaw: Math.PI / 2 * 0 });
+      F.vessels = [v, T]; F.active = v; Combat.reset(F);
+      for (const p of v.parts) if (p.def.thrust) p.active = true; v.stageIdx = v.stages.length; v.sas = 'hold'; v.throttle = 0; v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+      go(F, 1);
+      const r = Math.hypot(v.x, v.y, v.z); v.x += v.x / r * h; v.y += v.y / r * h; v.z += v.z / r * h; v.landed = false; v.vx = v.vy = v.vz = 0; v.dl.hold = null;
+      // point the nose at the tank: yaw so +x is along the horizontal to T
+      const U = { x: v.x / Math.hypot(v.x, v.y, v.z), y: v.y / Math.hypot(v.x, v.y, v.z), z: v.z / Math.hypot(v.x, v.y, v.z) };
+      for (let k = 0; k < 64; k++) { const f = v.axis(1, 0, 0), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, kk = dx * U.x + dy * U.y + dz * U.z, hx = dx - U.x * kk, hy = dy - U.y * kk, hz = dz - U.z * kk, hl = Math.hypot(hx, hy, hz);
+        const fk = f.x * U.x + f.y * U.y + f.z * U.z, fx = f.x - U.x * fk, fy = f.y - U.y * fk, fz = f.z - U.z * fk, fl = Math.hypot(fx, fy, fz);
+        const c = (fx * hx + fy * hy + fz * hz) / (fl * hl), s = ((fy * hz - fz * hy) * U.x + (fz * hx - fx * hz) * U.y + (fx * hy - fy * hx) * U.z) / (fl * hl), a = Math.atan2(s, c);
+        if (Math.abs(a) < 1e-4) break; v.q = qnorm(qmul(qaxis(U.x, U.y, U.z, a), v.q)); }
+      // and pitch it so the camera looks at T (a pilot flying at it does: an FPV leans forward)
+      const pitchTo = () => { for (let k = 0; k < 40; k++) { const D = Drone.camDir(v, F), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, L = Math.hypot(dx, dy, dz), Z = v.axis(0, 0, 1);
+        const cx = D.y * dz / L - D.z * dy / L, cy = D.z * dx / L - D.x * dz / L, cz = D.x * dy / L - D.y * dx / L, s = cx * Z.x + cy * Z.y + cz * Z.z;
+        if (Math.abs(s) < 1e-4) break; v.q = qnorm(qmul(qaxis(Z.x, Z.y, Z.z, Math.asin(Math.max(-1, Math.min(1, s)))), v.q)); } };
+      pitchTo();
+      const ok = opts.noLock ? false : Drone.lockOn(F, v);
+      const out = { ok, said: F.log.slice(), st: [], end: null };
+      let t0 = F.time, minD = Infinity;
+      go(F, opts.secs || 60, (F, f) => { if (opts.each) opts.each(F, v, T, f);
+        const dd = Math.hypot(v.x - T.x, v.y - T.y, v.z - T.z); minD = Math.min(minD, dd);
+        if (f % 60 === 0) out.st.push([Math.round(F.time - t0), Math.round(dd), Math.round(v.altitude() - v.groundHeight()), v.dl && v.dl.lockOn ? v.dl.lockOn.st : '-', Math.round(v.speed())]);
+        if (v.dead || !F.vessels.includes(v)) { out.end = 'gone'; return false; } });
+      out.minD = Math.round(minD * 10) / 10; out.dead = !!v.dead; out.T = { ko: !!T.ko, dead: !!T.dead, wreck: !!T.wreck, hp: Math.round((Combat.integrity ? Combat.integrity(T) : 1) * 100) };
+      out.log = F.log.slice(out.said.length); out.lock = !!(v.dl && v.dl.lockOn); out.t = Math.round((F.time - t0) * 10) / 10;
+      return out; };`);
+  const run = (args) => JSON.parse(RB(`JSON.stringify(strike(${args}))`));
+  const a = run("'bumble', 'tk34', 150, 10"), b = run("'bumble', 'ms4', 600, 40");
+  const path = (o) => o.st.filter((x, i) => i % 3 === 0).map((x) => x.join(':')).join(' ');
+  t(`14 a Bumble locks a TK-34 150 m off ("Locked: TK-34") and dives onto it by itself: its charge goes off within 3.5 m (${a.minD} m, ${a.t} s)`,
+    a.ok && a.said[0].startsWith('Locked: TK-34') && a.end === 'gone' && a.minD <= 3.5 && a.t < 12, path(a));
+  t(`14 ...an MS-4 600 m off from 40 m up: it cruises at 30 m (±4) over the ground, dives from 200 m and hits (${b.minD} m, ${b.t} s)`,
+    b.ok && b.end === 'gone' && b.minD <= 3.5 && b.st.filter((x) => x[3] === 'cruise' && x[0] >= 6).every((x) => Math.abs(x[2] - 30) <= 4) && b.st.some((x) => x[3] === 'terminal' && x[1] < 200 && x[1] > 150), path(b));
+  // the pilot first: a stick, the target knocked out, a lost link
+  const c = run("'bumble', 'ms4', 600, 40, { secs: 4, each: (F, v, T, f) => { if (f === 120) v.ctl.v = 0.5; else if (f > 120) v.ctl.v = 0.5; } }");
+  t(`14 any stick lets go of the lock ("Lock released: you have it") and the stick flies it`, c.ok && !c.lock && c.log.includes('Lock released: you have it') && c.end == null, c.log);
+  const d = run("'bumble', 'ms4', 600, 40, { secs: 4, each: (F, v, T, f) => { if (f === 90) T.ko = true; } }");
+  t(`14 the target knocked out: "Target gone", the lock lets go and the drone hovers where it is`, d.ok && !d.lock && d.log.includes('Target gone') && d.st[d.st.length - 1][4] <= 3, [d.log, d.st.slice(-2)]);
+  const e = run("'bumble', 'ms4', 600, 40, { secs: 3, each: (F, v, T, f) => { if (f === 30) { const r = Math.hypot(v.x, v.y, v.z), u = { x: v.y / r, y: -v.x / r, z: 0 }; v.dl.at0 = { x: v.x + u.x * 3000, y: v.y + u.y * 3000, z: v.z }; } } }");
+  t(`14 a lost link (its 2.5 km radio 3 km from its station) breaks the lock ("Lock lost: no link")`, e.ok && !e.lock && e.log.includes('Lock lost: no link'), e.log);
+  // refused: nothing near the middle, a winged drone, no camera
+  RB(`var noLock = (key, drop) => { const F = world(), v = mk(designOf(key), { e: NPAD.e, z: NPAD.z }); F.vessels = [v]; F.active = v; Combat.reset(F);
+    if (drop) { v.parts = v.parts.filter((p) => p.type !== drop); v.rebuildGroups(); }
+    const ok = Drone.lockOn(F, v); return { ok, said: F.log.slice(), lock: !!(v.dl && v.dl.lockOn) }; };`);
+  const g = JSON.parse(RB(`JSON.stringify([noLock('bumble'), noLock('lancett'), noLock('bumble', 'drCam')])`));
+  t(`14 refused: no vehicle near the middle of the picture, a winged drone, a drone without a camera (each says why)`,
+    !g[0].ok && /Nothing to lock/.test(g[0].said[0]) && !g[1].ok && /multirotors/.test(g[1].said[0]) && !g[2].ok && /needs a camera/.test(g[2].said[0]) && g.every((x) => !x.lock), g);
+}
+
 t.done();

@@ -1,4 +1,4 @@
-// A drone in flight (the big update, spec-drones §8, §14, §19.4): a Bumble FPV flown alone from the helipad on phones
+// A drone in flight (the big update, spec-drones §8, §14, §19.4; lock-on after it): a Bumble FPV flown alone from the helipad on phones
 // (360×640, 375×667, 390×844, 844×390; UI size 150%) and desktops (1280×720, 1920×1080; UI size 75%):
 //  - it starts in first person (FPV), its own mesh hidden, at the camera's field of view; H and the pad's eye swap to the
 //    chase view and back; the choice is kept for the next drone;
@@ -8,7 +8,7 @@
 //    while the link is weak (q under 0.6);
 //  - the climb lever: a drag up climbs, let go it springs back and holds the height; ▲ held climbs; Level ignores Full and
 //    Cut; Acro (2) makes the box the throttle again and Z full works; 1 back to Level; the mode pad's buttons and pressed
-//    states; the keys' hints, the help and the manual from the bindings (73 rows, the Drones group);
+//    states; the keys' hints, the help and the manual from the bindings (74 rows, the Drones group);
 //  - a gimbal camera (a Mavik Scout): the wheel zooms 1×, 4×, 12× (60°, 15°, 5°), C held and the mouse look round, a tap of
 //    C centres it, J toggles thermal (and opens no chat); the impact view (any key ends it);
 //  - a drone from a tank's bay (a TK-34 with a Drone Rack until the BMK-2D's template comes): U or DRONE launches it, flown
@@ -162,7 +162,7 @@ for (const [w, h, touch, ui] of [[360, 640, true], [375, 667, true], [390, 844, 
   ok('the lever\'s middle (±5%) holds: no climb', mid === 0, mid);
   // the mode pad: five buttons (no Tank: not from a bay), Level and the eye pressed; Acro presses Acro and the box is a throttle
   const pad = await page.evaluate(() => [...document.querySelectorAll('#sas-bar .sas-btn')].filter((b) => !b.hidden).map((b) => `${b.dataset.sas || b.dataset.dact}${b.getAttribute('aria-pressed') === 'true' ? '*' : ''}`).join());
-  ok('the mode pad: Level*, Acro, View*, Home, Land (no Tank for a drone flown alone; nothing of the rocket\'s or the plane\'s)', pad === 'hold*,acro,view*,home,land', pad);
+  ok('the mode pad: Level*, Acro, View*, Home, Land, Lock (no Tank for a drone flown alone; nothing of the rocket\'s or the plane\'s)', pad === 'hold*,acro,view*,home,land,lock', pad);
   await page.evaluate(() => document.querySelector('#sas-bar [data-sas="acro"]').click());
   await frames(page, 2);
   const acro = await page.evaluate(() => ({ sas: Flight.active.sas, cls: document.body.className, tmax: document.querySelector('#btn-tmax').textContent, label: document.querySelector('#throttle-label').textContent, pad: [...document.querySelectorAll('#sas-bar .sas-btn')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.sas || b.dataset.dact).join() }));
@@ -466,6 +466,46 @@ for (const [w, h, ui, view] of [[844, 390, 1, 'fpvLevel'], [360, 640, 0.75, 'fpv
   ok(`${tag}the KNOCKED OUT banner clear of the OSD's blocks, its centre cross and the alert line (LAST FLIGHT); the alert line clear of the OSD's blocks${view === 'fpvLevel' ? ' and its bank arc' : ''}`,
     L.kind === 'drone' && L.lf && /Last flight/.test(L.text || '') && !!L.ban && (view !== 'fpvLevel' || !!(L.osd && L.osd.arc)) && !clash.length, Object.assign(L, { clash }));
   await shot(page, `lastflight-banner-${w}x${h}-${view}`);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ 11. lock-on (5, the pad's Lock): a TK-34 150 m ahead of a Bumble 20 m up, pitched so its
+// camera looks at it; the key (desktop) or the pad's Lock (phone) locks it: LOCKED on the OSD, the pad's Lock pressed, red
+// brackets drawn round it; the drone flies at it by itself; a stick takes it back ("Lock released"); the help lists 5
+for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
+  const tag = `lock-on ${w}×${h} `, { ctx, page } = await open([w, h, touch], tag);
+  await fly(page, 'bumble');
+  await page.evaluate(() => {
+    const v = Flight.active, d = { name: TEMPLATES.tk34.name, kind: 'tank', parts: templateRows(TEMPLATES.tk34) };
+    const ps = partsFromDesign(d.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map();
+    for (const p of parts) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
+    const T = new Vessel(parts, adj, EARTH); T.name = d.name; T.kind = 'tank'; T.stages = computeStages(parts, adj, ctrl.id); T.rebuildGroups();
+    const f = v.axis(1, 0, 0), r = Math.hypot(v.x, v.y, v.z), U = { x: v.x / r, y: v.y / r, z: v.z / r }, k = f.x * U.x + f.y * U.y + f.z * U.z, hx = f.x - U.x * k, hy = f.y - U.y * k, hz = f.z - U.z * k, hl = Math.hypot(hx, hy, hz);
+    const L = Terrain.locate(EARTH, v.x + hx / hl * 150, v.y + hy / hl * 150, v.z + hz / hl * 150, {});
+    T.placeOnSurface(EARTH, L.a, 0, L.z, 0); Flight.vessels.push(T); window.__T = T;
+    for (let i = 0; i < 40; i++) { const D = Drone.camDir(v, Flight), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, l = Math.hypot(dx, dy, dz), Z = v.axis(0, 0, 1);
+      const s = (D.y * dz - D.z * dy) / l * Z.x + (D.z * dx - D.x * dz) / l * Z.y + (D.x * dy - D.y * dx) / l * Z.z; if (Math.abs(s) < 1e-4) break; v.q = qnorm(qmul(qaxis(Z.x, Z.y, Z.z, Math.asin(Math.max(-1, Math.min(1, s)))), v.q)); }
+    v.av = { x: 0, y: 0, z: 0 };
+  });
+  if (touch) await page.click('#sas-bar [data-dact="lock"]'); else { await page.click('#view3d', { position: { x: 640, y: 300 } }).catch(() => {}); await page.keyboard.press('Digit5'); }
+  await frames(page, 4);
+  const A = await page.evaluate(() => { const v = Flight.active, b = document.querySelector('#sas-bar [data-dact="lock"]');
+    Drone._osd.wt = -1e9; Drone.drawOSD(App.ctx, App.W, App.H, App.dpr, Flight);
+    return { lock: !!(v.dl.lockOn && v.dl.lockOn.t === window.__T), st: v.dl.lockOn && v.dl.lockOn.st, pressed: b && b.getAttribute('aria-pressed'), shown: b && !b.hidden, mode: Drone._osd.w && Drone._osd.w.m[0][0], hint: (document.querySelector('#key-hints') || {}).textContent || '', t: Flight.time, d: Math.hypot(window.__T.x - v.x, window.__T.y - v.y, window.__T.z - v.z) }; });
+  ok(`${tag}${touch ? 'the pad\'s Lock' : '5'} locks the TK-34 in the middle of the picture: LOCKED on the OSD, the pad's Lock pressed${touch ? '' : ', the key hints say Let go'}`,
+    A.lock && A.st === 'cruise' && A.pressed === 'true' && A.shown && A.mode === 'LOCKED' && (touch || /Let go/.test(A.hint)), A);
+  await shot(page, `lock-${w}x${h}`);
+  await page.waitForFunction((t) => Flight.time > t + 2, A.t, { timeout: 120000 });
+  const B = await page.evaluate(() => { const v = Flight.active; return { lock: !!v.dl.lockOn, d: Math.hypot(window.__T.x - v.x, window.__T.y - v.y, window.__T.z - v.z), v: v.speed() }; });
+  ok(`${tag}...and flies at it by itself (${Math.round(A.d)} → ${Math.round(B.d)} m in 2 s, ${Math.round(B.v)} m/s)`, B.lock && B.d < A.d - 15, { A, B });
+  if (touch) await page.evaluate(() => { Flight.active.ctl.v = 0.6; }); else await page.keyboard.down('KeyW');
+  await frames(page, 4);
+  if (!touch) await page.keyboard.up('KeyW');
+  const C = await page.evaluate(() => ({ lock: !!Flight.active.dl.lockOn, toast: [...document.querySelectorAll('.toast, #toast, .toasts > *')].map((e) => e.textContent).join(' | '), pressed: document.querySelector('#sas-bar [data-dact="lock"]').getAttribute('aria-pressed') }));
+  ok(`${tag}a stick takes it back: the lock lets go ("Lock released"), Lock no longer pressed`, !C.lock && C.pressed === 'false', C);
+  const help = await page.evaluate(() => /Lock on: the vehicle nearest the middle/.test(Flight.controlsHelp()));
+  ok(`${tag}the help lists lock-on from the bindings`, help);
   await pageErrors(page, tag);
   await ctx.close();
 }

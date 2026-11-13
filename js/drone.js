@@ -36,6 +36,10 @@ const DRONE = {
   BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2, LEAK: 0.1 }, // (LEAK: a cell under half its hp loses this share of its full charge a second per (0.5 − hp fraction): 1 %/s at 40 % hp, 4 %/s at 10 %)
   HOME: { ALT: 30, V: 12, SLOW: 15, DESC: 1.5, DOCK_R: 1.5, DOCK_H: 2, DOCK_V: 3, NEAR_R: 3, NEAR_H: 6, CIRCLE: 60, CIRCLE_H: 80 },
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
+  // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
+  // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
+  // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back.
+  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 25, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9 },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)
@@ -183,6 +187,7 @@ const Drone = (() => {
     const dr = v.dr, c = v.ctl, F = dr.fc, alt = v.altitude(), S = (dl.S = hframe(v, dl.S));
     dl.auto = null; dl.spin = false;
     battery(v, dl, sim);
+    if (dl.lockOn && (dl.lost || dl.hop > 0 || dl.mode !== 'pilot')) lockCheck(v, dl, c, sim); // (a lock the overrides below take over from lets go)
     if (!dl.lost) { const H = dl.held || (dl.held = { v: 0, h: 0, r: 0, z: 0 }); H.v = c.v || 0; H.h = c.h || 0; H.r = c.r || 0; H.z = c.z || 0; } // (the stick as the link last carried it)
     const hold = dl.lost && !(dl.lostT >= DRONE.LINK.HOLD) && (v.ai ? !!v.ai.drone : dl.mode === 'pilot' && !!dl.held); // (a lost link, its failsafe not yet acting)
     // 1. overrides (each zeroes the stick, so a key held at a switch never flies the drone off)
@@ -200,6 +205,7 @@ const Drone = (() => {
       const agl = alt - groundUnder(v, dl, S);
       dl.auto = dl.mode === 'home' ? homeAuto(v, dl, S, sim) : dl.mode === 'land' ? landAuto(S, agl) : dr.wing ? circleSteer(v, dl, S) : holdAuto(S);
     } else if (v.ai && v.ai.drone) { zero(c); dl.auto = api.aiSteer(v, sim, dt) || holdAuto(S); }
+    else if (dl.lockOn && lockCheck(v, dl, c, sim)) { zero(c); dl.auto = lockSteer(v, dl, S, alt - groundUnder(v, dl, S)); } // (lock-on: the attack flies itself until the pilot takes it back)
     // a multirotor short of motors spins and sinks (the stick still works: control first)
     const alive = dr.rotors.length;
     dl.spin = dr.lift && dr.mot0 > 0 && dr.mot0 - alive >= (dr.mot0 > 4 ? 2 : 1);
@@ -673,7 +679,7 @@ const Drone = (() => {
       st.push([`TANK ${C.dead || C.ko || C.wreck ? 'KO' : `${hp}%`} · ${km(d)}`, F.time - hud.hitAt < 3 || F.carrierDown ? RED : WHITE]); // (knocked out: its LAST FLIGHT)
     }
     const last = F.carrierDown && Number.isFinite(dl.lastEnd) ? `LAST FLIGHT ${clock(Math.ceil(dl.lastEnd - F.time))}` : null; // (rounded up, as the alert line's seconds: UX-P4-6)
-    const mode = dl.lost ? 'LINK LOST' : last || (dl.mode === 'home' ? 'HOME' : dl.mode === 'land' || dl.autoLand ? 'LAND' : v.sas === 'acro' ? 'ACRO' : 'LEVEL');
+    const mode = dl.lost ? 'LINK LOST' : last || (dl.lockOn ? (dl.lockOn.st === 'terminal' ? 'DIVE' : 'LOCKED') : dl.mode === 'home' ? 'HOME' : dl.mode === 'land' || dl.autoLand ? 'LAND' : v.sas === 'acro' ? 'ACRO' : 'LEVEL');
     const m = [[mode, dl.lost || last ? RED : WHITE]];
     if (v.dr && v.dr.warheads.length) m.push(dl.arm ? ['ARMED', RED] : ['SAFE', GREY]);
     const agl = Math.max(0, v.altitude() - v.groundHeight()), vs = v.vSpeed();
@@ -722,6 +728,7 @@ const Drone = (() => {
     }
     const v = F.active;
     hud.zoomBox = null;
+    if (v && v.kind === 'drone' && v.dl && v.dl.lockOn && !F.destroyed && !F.mapMode) drawLock(ctx, W, H, dpr, F, v); // (lock-on: its target's brackets, FPV or chase)
     if (!v || v.kind !== 'drone' || !F.fpv || F.destroyed || F.mapMode) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const P = placeOSD(W, H, F), cx = W / 2, cy = H / 2;
@@ -792,6 +799,30 @@ const Drone = (() => {
       hud.zoomBox = z;
       O.calls += 1;
     }
+  }
+  // Lock-on's mark: red brackets round the locked vehicle (sized to it), its distance under them, LOCK or DIVE; off the
+  // screen, a red arrow at the edge toward it
+  function drawLock(ctx, W, H, dpr, F, v) {
+    const o = v.dl.lockOn.t;
+    if (!o || typeof Render3D === 'undefined' || !Render3D.projectTo) return;
+    const bp = bodyPos(v.body, F.time), s = Render3D.projectTo(bp.x + o.x, bp.y + o.y, o.z, PRJ), d = Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineWidth = 2; ctx.strokeStyle = RED; ctx.fillStyle = RED; ctx.font = OSDF; ctx.textAlign = 'center';
+    const dive = v.dl.lockOn.st === 'terminal';
+    if (s.behind || s.x < 10 || s.x > W - 10 || s.y < 10 || s.y > H - 10) {
+      let ex = s.x - W / 2, ey = s.y - H / 2;
+      if (s.behind) { ex = -ex; ey = -ey; }
+      const a = Math.atan2(ey, ex), k = Math.min((W / 2 - 24) / Math.max(Math.abs(Math.cos(a)), 1e-3), (H / 2 - 24) / Math.max(Math.abs(Math.sin(a)), 1e-3));
+      const x = W / 2 + Math.cos(a) * k, y = H / 2 + Math.sin(a) * k;
+      ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 11, y + Math.sin(a) * 11); ctx.lineTo(x + Math.cos(a + 2.5) * 9, y + Math.sin(a + 2.5) * 9); ctx.lineTo(x + Math.cos(a - 2.5) * 9, y + Math.sin(a - 2.5) * 9); ctx.closePath(); ctx.fill();
+      return;
+    }
+    const f = H / 2 / Math.tan(((F.fpv ? fov(v, F) : 60) * Math.PI) / 360), size = Math.max((o.bounds ? o.bounds.maxX - o.bounds.minX : 6), 4);
+    const r = clamp((size * f) / Math.max(d, 1) / 2 + 6, 12, 90), c = r * 0.4;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { const x = s.x + sx * r, y = s.y + sy * r; ctx.moveTo(x, y - sy * c); ctx.lineTo(x, y); ctx.lineTo(x - sx * c, y); }
+    ctx.stroke();
+    ctx.fillText(`${dive ? 'DIVE' : 'LOCK'} ${km(d)}`, s.x, s.y + r + 16);
   }
   function pill(t, w, h, dpr) {
     const key = t + dpr;
@@ -2028,22 +2059,30 @@ const Drone = (() => {
     }
     if (a.state === 'climb') return { vf: 0, vr: 0, vz: clamp((AIK.ALT - agl) * DRONE.HOLD + 1, 1, fc.vz), yawTo: S.head };
     const t = a.tgt;
-    if (t && a.state === 'terminal') { // the dive: on its roof, led for its motion over the time it takes to get there
-      const r = Math.hypot(t.x, t.y, t.z) || 1, sp = AIK.K * fc.vmax;
-      let tgo = Math.hypot(t.x - v.x, t.y - v.y, t.z - v.z) / sp;
-      const P = { x: t.x + (t.x / r) * AIK.TOP, y: t.y + (t.y / r) * AIK.TOP, z: t.z + (t.z / r) * AIK.TOP };
-      for (let i = 0; i < 2; i++) { // (where it will be: twice round, the time to it from where it will be)
-        const qx = P.x + (t.vx || 0) * tgo - v.x, qy = P.y + (t.vy || 0) * tgo - v.y, qz = P.z + (t.vz || 0) * tgo - v.z;
-        tgo = Math.hypot(qx, qy, qz) / sp;
-      }
-      const L = flat(v, S, P.x + (t.vx || 0) * tgo - v.x, P.y + (t.vy || 0) * tgo - v.y, P.z + (t.vz || 0) * tgo - v.z), D = Math.hypot(L.h, L.up) || 1e-3;
-      return { vf: (L.f / D) * sp, vr: (L.r / D) * sp, vz: (L.up / D) * sp, yawTo: L.h > 2 ? S.head + Math.atan2(L.r, L.f) : S.head };
-    }
+    if (t && a.state === 'terminal') return diveSteer(v, S, t, AIK.K * fc.vmax);
     // cruise: toward where the target will be in LEAD s (or the zone), CRUISE m/s at most, ALT m up, nose toward it
     const G = t ? { x: t.x + (t.vx || 0) * AIK.LEAD, y: t.y + (t.vy || 0) * AIK.LEAD, z: t.z + (t.vz || 0) * AIK.LEAD } : a.goal;
     if (!G) return { vf: 0, vr: 0, vz: hold(AIK.ALT), yawTo: S.head };
-    const L = flat(v, S, G.x - v.x, G.y - v.y, G.z - v.z), d = L.h || 1e-3, sp = Math.min(fc.vmax, a.cruise || AIK.CRUISE, d * 0.5);
-    return { vf: (L.f / d) * sp, vr: (L.r / d) * sp, vz: hold(AIK.ALT), yawTo: d > 5 ? S.head + Math.atan2(L.r, L.f) : S.head };
+    return cruiseSteer(v, S, G, Math.min(fc.vmax, a.cruise || AIK.CRUISE), hold(AIK.ALT));
+  }
+  // The dive (an AI drone's terminal, and a lock-on's): at sp m/s onto t's roof (TOP m over its middle), led for its
+  // motion over the time it takes to get there
+  function diveSteer(v, S, t, sp) {
+    const r = Math.hypot(t.x, t.y, t.z) || 1;
+    let tgo = Math.hypot(t.x - v.x, t.y - v.y, t.z - v.z) / sp;
+    const P = { x: t.x + (t.x / r) * AIK.TOP, y: t.y + (t.y / r) * AIK.TOP, z: t.z + (t.z / r) * AIK.TOP };
+    for (let i = 0; i < 2; i++) { // (where it will be: twice round, the time to it from where it will be)
+      const qx = P.x + (t.vx || 0) * tgo - v.x, qy = P.y + (t.vy || 0) * tgo - v.y, qz = P.z + (t.vz || 0) * tgo - v.z;
+      tgo = Math.hypot(qx, qy, qz) / sp;
+    }
+    const L = flat(v, S, P.x + (t.vx || 0) * tgo - v.x, P.y + (t.vy || 0) * tgo - v.y, P.z + (t.vz || 0) * tgo - v.z), D = Math.hypot(L.h, L.up) || 1e-3;
+    return { vf: (L.f / D) * sp, vr: (L.r / D) * sp, vz: (L.up / D) * sp, yawTo: L.h > 2 ? S.head + Math.atan2(L.r, L.f) : S.head };
+  }
+  // The cruise toward G (a point): at most top m/s (slowing to half its distance a second near it), climbing or sinking at
+  // vz, the nose toward it
+  function cruiseSteer(v, S, G, top, vz) {
+    const L = flat(v, S, G.x - v.x, G.y - v.y, G.z - v.z), d = L.h || 1e-3, sp = Math.min(top, d * 0.5);
+    return { vf: (L.f / d) * sp, vr: (L.r / d) * sp, vz, yawTo: d > 5 ? S.head + Math.atan2(L.r, L.f) : S.head };
   }
   // (Drone.frame, after the bays') The AI drones' upkeep: a passive one's battery kept full (a practice target: it flies
   // till it is shot down); one landed 3 s, or lost 60 s, goes with a puff. A hulk is death.js's alone (plan I13).
@@ -2056,6 +2095,79 @@ const Drone = (() => {
       dl.restT = v.landed ? (dl.restT || 0) + dt : 0;
       if (dl.restT >= DRONE.REST_GONE || (dl.lost && dl.lostT >= DRONE.LOST_GONE)) gone(F, v);
     }
+  }
+
+  // ================================================================ lock-on (the drones' auto attack)
+  // A player's multirotor with a camera marks a vehicle near the middle of its picture (5, the pad's Lock: lockOn) and
+  // flies the attack itself: up to LOCK.ALT m over the ground, toward it at LOCK.CRUISE m/s, and LOCK.TERM m out the
+  // dive onto its roof, led for its motion (the AI drones' own dive: diveSteer). The pilot keeps control first: any stick
+  // or lever, a mode (Level, Acro, Home, Land) or 5 again lets go of it; so does a lost link (fibre never loses one), the
+  // camera shot off, the target knocked out, a wreck or gone, or switching to the tank. dl.lockOn = { t, st } while it
+  // flies (st: 'cruise' or 'terminal'); null otherwise. Never on an AI drone, a ghost or a winged drone.
+  // the vehicles a drone may lock: ground vehicles at work, not its own tank, an ally or a teammate
+  function lockable(v, o) {
+    if (!o || o === v || o === v.carrier || o.kind === 'drone' || o.isDebris || o.hulk != null || !working(o)) return false;
+    if (!(isGround(o.kind) || o.gv || (o.gear && o.gear.length))) return false;
+    if (o.ai && (o.ai.ally || o.ai.down)) return false;
+    if (o.remote) return typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, o.remote);
+    return true;
+  }
+  // the vehicle nearest the camera's middle (within LOCK.CONE of half the picture, LOCK.RANGE, a clear line), else null
+  const LKD = { x: 0, y: 0, z: 0 }, LKE = { x: 0, y: 0, z: 0 };
+  function lockPick(F, v) {
+    const L = DRONE.LOCK, D = camDir(v, F, LKD), c = Math.cos(Math.min(L.CMAX, (L.CONE * fov(v, F) * Math.PI) / 360));
+    let best = null, bk = c;
+    for (const o of F.vessels) {
+      if (!lockable(v, o) || o.body !== v.body) continue;
+      const dx = o.x - v.x, dy = o.y - v.y, dz = o.z - v.z, d = Math.hypot(dx, dy, dz);
+      if (d > L.RANGE || d < 1) continue;
+      const k = (dx * D.x + dy * D.y + dz * D.z) / d;
+      if (k > bk && clearSky(v.body, v, eyeOf(o, LKE))) { bk = k; best = o; }
+    }
+    return best;
+  }
+  // 5, or the pad's Lock: mark the vehicle in the middle of the picture, or let go of the one marked
+  function lockOn(F, v) {
+    if (!v || v.kind !== 'drone' || v.ai || v.remote || !v.dr) return false;
+    const dl = state(v);
+    if (dl.lockOn) { unlock(F, v, 'Lock released: you have it'); return true; }
+    if (v.dr.wing) { say(F, 'Lock-on is for multirotors: dive a winged drone yourself', 'warn'); return false; }
+    if (!v.dr.cam) { say(F, 'Lock-on needs a camera', 'warn'); return false; }
+    if (dl.lost) { say(F, 'No link to the drone', 'warn'); return false; }
+    const o = lockPick(F, v);
+    if (!o) { say(F, 'Nothing to lock: put a vehicle in the middle of the picture', 'warn'); return false; }
+    if (dl.mode === 'home' || dl.mode === 'land') v.sas = 'hold';
+    dl.mode = 'pilot'; dl.autoLand = false; dl.hold = null;
+    dl.lockOn = { t: o, st: 'cruise' };
+    if (typeof Sound !== 'undefined' && Sound.click) Sound.click();
+    if (typeof haptic === 'function') haptic(15);
+    say(F, `Locked: ${o.name || 'vehicle'} · any stick or ${keyName('dLock')} takes it back`);
+    if (F.syncSas) F.syncSas();
+    return true;
+  }
+  function unlock(F, v, why) {
+    const dl = v && v.dl;
+    if (!dl || !dl.lockOn) return;
+    dl.lockOn = null; dl.hold = null;
+    if (why && F && F.active === v) say(F, why, why.startsWith('Lock released') ? undefined : 'warn');
+    if (F && F.syncSas) F.syncSas();
+  }
+  // (pre, every step) does the lock still hold? The reasons it lets go, said once
+  function lockCheck(v, dl, c, sim) {
+    const o = dl.lockOn.t, F = sim && sim.vessels ? sim : null;
+    const why = v.ai || v.remote ? '' : dl.lost ? 'Lock lost: no link' : dl.mode !== 'pilot' || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
+      : !v.dr.cam || !v.parts.includes(v.dr.cam) ? 'Lock lost: no camera' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
+    if (why != null) unlock(F || sim, v, why);
+    return !!dl.lockOn;
+  }
+  // the autopilot's target this step while the lock flies it (pre's dl.auto)
+  function lockSteer(v, dl, S, agl) {
+    const L = DRONE.LOCK, K = dl.lockOn, t = K.t, fc = v.dr.fc || GPS, h = flat(v, S, t.x - v.x, t.y - v.y, t.z - v.z).h;
+    if (K.st === 'cruise' && h < L.TERM) K.st = 'terminal';
+    else if (K.st === 'terminal' && h > L.LEAVE) K.st = 'cruise';
+    if (K.st === 'terminal') return diveSteer(v, S, t, L.DIVE * fc.vmax);
+    const G = { x: t.x + (t.vx || 0) * AIK.LEAD, y: t.y + (t.vy || 0) * AIK.LEAD, z: t.z + (t.vz || 0) * AIK.LEAD };
+    return cruiseSteer(v, S, G, Math.min(fc.vmax, L.CRUISE), clamp((L.ALT - agl) * DRONE.HOLD, -DRONE.VHOLD, fc.vz));
   }
 
   // ================================================================ MP
@@ -2072,6 +2184,8 @@ const Drone = (() => {
     step, frame, detonate, cookOff, die, payload, netFire, threats, marked, seeR, spotR, ownedAir, beams, emits,
     // AI
     spawnAI, aiSteer,
+    // lock-on
+    lockOn, unlock, lockPick, lockable,
     // HUD
     drawOSD, osdBoxes, drawMarks, alarm, help, fov, left, batt, linkState, jamN, leverText, impactView, tap, hud, _osd: O,
     // helpers

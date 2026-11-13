@@ -3,7 +3,6 @@
 Things the owner wants in later updates, not the current one. Newest at the bottom of each list. When one ships, move it to CLAUDE.md's History table and delete it here.
 
 ## Drones
-- **Auto drones: lock-on attack.** Mark a vehicle (tap it, or a key while it's in the camera) and the drone flies the attack itself: it climbs, closes in and dives onto the roof, leading for the target's motion. The stick takes control back at any moment. A jammed or lost link breaks the lock (not on fibre). Needs a camera part. The AI drones' attack code already does most of it (drone.js `aiSteer`: climb, cruise, terminal dive).
 - **Friendly AI drones and waypoints.** Send a drone to a point, or let it patrol and attack on its own, while you drive the tank.
 
 ## Planes

@@ -68,6 +68,7 @@ const KEY_ACTIONS = [
   ['dAcro', 'Drones', 'drone', 'Drone: Acro (no self-levelling; the throttle is yours)', ['Digit2']],
   ['dHome', 'Drones', 'drone', 'Drone: fly home (to its bay, or where it took off)', ['Digit3']],
   ['dLand', 'Drones', 'drone', 'Drone: land here', ['Digit4']],
+  ['dLock', 'Drones', 'drone', 'Drone: lock on to the vehicle in the middle of the picture and fly the attack (again, or any stick: let go)', ['Digit5']],
   ['dThermal', 'Drones', 'drone', 'Drone camera: thermal on or off (gimbal)', ['KeyJ']],
   ['fire', 'Weapons', 'any', 'Fire (hold)', ['KeyV']],
   ['weapon', 'Weapons', 'any', 'Change weapon (with Shift: back)', ['Tab']],
@@ -112,7 +113,7 @@ const Keys = (() => {
   }
   // Rows added after keys could be rebound (PR #40): a player may have given their default key to another action before
   // the row existed. A new row's default gives way to the player's own key (below). Add every later row here.
-  const LATE = ['radarNext', 'radarPower', 'drone', 'dView', 'dLevel', 'dAcro', 'dHome', 'dLand', 'dThermal'];
+  const LATE = ['radarNext', 'radarPower', 'drone', 'dView', 'dLevel', 'dAcro', 'dHome', 'dLand', 'dThermal', 'dLock'];
   // the player's own keys from rss.keys: only actions that exist, at most two keys each, real key codes (never Esc)
   function clean(raw) {
     const out = {}, own = raw && typeof raw === 'object' ? raw : null;
@@ -467,7 +468,7 @@ const Controls = (() => {
       const weap = !!ws && !ws.cmOnly, cm = !!ws && (ws.flares > 0 || ws.chaff > 0 || ws.smoke > 0);
       const dk = !!v && !!v.docks && v.docks.length > 0; // (a drone bay aboard: U launches)
       const mode = !v ? '' : F.groundAim ? `g${Aim.realistic() ? 'r' : ''}${Aim.kit(v).track ? 'l' : ''}${dk ? 'u' : ''}` : F._bodyGround ? `d${dk ? 'u' : ''}` : v.kind === 'plane' ? (F.flyAim ? 'pa' : 'p') + (v.hasFlaps || v.hasRetract ? 'f' : '')
-        : v.kind === 'drone' ? `D${v.aircraft ? 'w' : ''}${v.sas}${F.fpv ? 'f' : ''}${v.carrier ? 'b' : ''}${F.fpv && v.dr && v.dr.cam && v.dr.cam.def.drone.cam.gimbal ? 'g' : ''}` : v.kind;
+        : v.kind === 'drone' ? `D${v.aircraft ? 'w' : ''}${v.sas}${F.fpv ? 'f' : ''}${v.carrier ? 'b' : ''}${v.dl && v.dl.lockOn ? 'L' : ''}${v.dr && v.dr.cam ? 'c' : ''}${F.fpv && v.dr && v.dr.cam && v.dr.cam.def.drone.cam.gimbal ? 'g' : ''}` : v.kind;
       const rdr = !!(v && !F.destroyed && typeof Radar !== 'undefined' && Radar.aboard(v)); // (a radar aboard: its keys)
       const key = `${mode}|${weap}|${cm}|${cat}|${!!F.mp}|${open}|${Keys.version}|${rdr}${v && v.kind === 'drone' ? '|' + Settings.get('droneStick') : ''}${dk && typeof Drone !== 'undefined' ? '|' + Drone.left(v) + (v.drone && !v.drone.dead ? 'u' : '') : ''}`;
       if (key === S.hintKey && !force) return;
@@ -496,6 +497,7 @@ const Controls = (() => {
         if (lvl) r.push(row(f('fwd', 'back'), 'Forward, back'), row(f('left', 'right'), tilt ? 'Slide' : 'Turn'), row(f('rollL', 'rollR'), tilt ? 'Turn' : 'Slide'), row(f('thrUp', 'thrDown'), 'Climb, descend'));
         else r.push(row(f('fwd', 'back'), 'Pitch'), row(f('left', 'right'), 'Roll'), row(f('rollL', 'rollR'), 'Yaw'), row(f('thrUp', 'thrDown'), 'Throttle'), row(f('thrFull', 'thrCut'), 'Full, cut'));
         r.push(row(f('dLevel', 'dAcro'), 'Level, Acro'), row(f('dHome'), 'Home'), row(f('dLand'), 'Land'), row(f('dView'), F.fpv ? 'Chase view' : 'FPV view'));
+        if (!v.aircraft && v.dr && v.dr.cam) r.push(row(f('dLock'), v.dl && v.dl.lockOn ? 'Let go' : 'Lock on'));
         if (v.carrier) r.push(row(f('drone'), 'Tank'));
         if (weap) r.push(row(f('fire'), 'Fire'), row(f('weapon'), 'Weapon'));
         if (mode.endsWith('g')) r.push(row(f('camera'), 'Look (hold)'), row(f('dThermal'), 'Thermal'));
