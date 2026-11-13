@@ -1248,14 +1248,18 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // ...and where an arena's own ground is drawn (arenaBand), the patch is cut away: a rectangle in its UVs (u0, v0, u1,
     // v1; none while it is (1, 1, 0, 0))
     terr.holeU = { value: new THREE.Vector4(1, 1, 0, 0) };
-    // (one hook for the patch and the arena's own ground, each with its own cut: the same shader, so one program)
-    terr.holeHook = (U) => (sh) => {
+    // ...and a second rectangle where the near ground is drawn round the craft (nearCommit; none while (1, 1, 0, 0))
+    terr.holeU2 = { value: new THREE.Vector4(1, 1, 0, 0) };
+    // (one hook for the patch, the arena's own ground and the near ground, each with its own cuts: the same shader, so one
+    // program. The near ground is cut where the arena's ground is drawn, the arena's ground nowhere)
+    terr.noHole = () => ({ value: new THREE.Vector4(1, 1, 0, 0) });
+    terr.holeHook = (U, U2 = terr.noHole()) => (sh) => {
       S.skyHook(sh); // (the sky light, skyLight)
       terr.nightHook(sh);
-      sh.uniforms.uHole = U;
+      sh.uniforms.uHole = U; sh.uniforms.uHole2 = U2;
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vHole;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHole = uv;');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uHole;\nvarying vec2 vHole;')
-        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif (vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) discard;')
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec4 uHole, uHole2;\nvarying vec2 vHole;')
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n\tif ((vHole.x > uHole.x && vHole.x < uHole.z && vHole.y > uHole.y && vHole.y < uHole.w) || (vHole.x > uHole2.x && vHole.x < uHole2.z && vHole.y > uHole2.y && vHole.y < uHole2.w)) discard;')
         // less tiling (High): the detail map again at a quarter of its scale (a 48 m repeat), turned 90° and moved off its
         // own grain, darkening and lightening the ground (WebGL 2: at the mip level its footprint picks, without the
         // anisotropic taps a second grazing sample would cost: most of its price on the bench); no far shimmer (both): the normal map's grain fades from
@@ -1275,7 +1279,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;',
           'mapN.xy *= normalScale * ( 1.0 - 0.75 * smoothstep( 80.0, 700.0, length( vViewPosition ) ) );'));
     };
-    terr.mat.onBeforeCompile = terr.holeHook(terr.holeU);
+    terr.mat.onBeforeCompile = terr.holeHook(terr.holeU, terr.holeU2);
     if (Settings.high) terr.mat.defines.OB_HI = ''; // (the 48 m variation: High only; the arena's material copies it, applyQuality flips both)
     terr.oceanMat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 0.08, metalness: 0.1, normalMap: rip.nrm, normalScale: new THREE.Vector2(0.45, 0.45), envMapIntensity: 1.2 });
     // Moving water (spec-graphics §7): the sea, lakes and rivers share the ground's UVs (allocSlot), so the ripple map
@@ -1414,7 +1418,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
       return g;
     };
-    const tg = mk(3, idx);
+    const tg = mk(3); // (the ground's own copy too: the cells under the near ground are left out of it, cullGround)
+    patch.idx0 = idx; patch.cull = null;
     tg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(N * 2), 2).setUsage(THREE.DynamicDrawUsage));
     tg.setAttribute('aNight', new THREE.BufferAttribute(new Float32Array(N), 1).setUsage(THREE.DynamicDrawUsage)); // city lights
     patch.mesh = new THREE.Mesh(tg, terr.mat);
@@ -1676,7 +1681,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // A whole patch at once, when there is nothing usable on show (another body, a jump across the map).
   function buildPatchNow(b, a0, z0, span, camAlt) {
     pjob = null;
-    if (bandWait) { bandWait = false; AR.bjob = null; } // (the patch waiting for the arena's seam is overwritten)
+    if (bandWait) { bandWait = false; AR.bjob = null; AR.bDone = false; NF.waits = false; NF.ready = null; } // (the patch waiting for the arena's and the near ground's seams is overwritten)
     const job = patchJob(patchB, b, a0, z0, span, camAlt);
     while (!job.next().done);
     swapPatch();
@@ -1695,10 +1700,13 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const tx = (s - sx[i]) / (sx[i + 1] - sx[i]), tz = (z - sz[j]) / (sz[j + 1] - sz[j]), h = patch.h, k = j * nc + i;
     return lerp(lerp(h[k], h[k + 1], tx), lerp(h[k + nc], h[k + nc + 1], tx), tz);
   }
-  // The ground as drawn (not the sea over it): an arena's own mesh inside its footprint, else the patch with the arenas'
-  // berms added (the patch leaves them to the arena mesh); off the patch, the ground the physics has.
+  // The ground as drawn (not the sea over it): an arena's own mesh inside its footprint, the near ground round the craft
+  // inside its cut (the physics' own heights, berms and all), else the patch with the arenas' berms added (the patch
+  // leaves them to the arena mesh); off the patch, the ground the physics has.
   function drawnAt(b, a, z) {
     if (b === EARTH) { const h = arenaAt(a, z); if (h != null) return h; }
+    const hn = nearAt(b, a, z);
+    if (hn != null) return hn;
     const h = meshHeight(b, a, z);
     if (h == null) return Terrain.heightAt(b, a, z);
     return b === EARTH ? h + Terrain.bermAt(-wrapAngle(a - EARTH.padAngle) * b.radius, z) : h;
@@ -1706,6 +1714,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   function groundAt(b, a, z) {
     if (b.star) return 0;
     let h = b === EARTH ? arenaAt(a, z) : null;
+    if (h == null) h = nearAt(b, a, z);
     if (h == null) h = meshHeight(b, a, z);
     if (h == null) h = h3dAt(cfgOf(b), a, z);
     return b.ocean ? Math.max(h, 0) : h;
@@ -1740,8 +1749,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // however slow the device; their few big allocations each have a step of their own
   let arenaUntil = Infinity;
   const spent = () => performance.now() >= arenaUntil;
-  const AR = { A: null, hi: null, job: null, ms: 0, slice: 0, step: 0, nStep: 0, stepAt: '', geo: null, mesh: null, frame: null, on: false, gen: -1, a0: 0, k: 0, bjob: null, bP: null, bms: 0, bb: null };
-  let patchGen = 0, bandWait = false; // (counts patch swaps: the arena's seam follows the patch on show; a done patch waiting for its seam)
+  const AR = { A: null, hi: null, job: null, ms: 0, slice: 0, step: 0, nStep: 0, stepAt: '', geo: null, mesh: null, frame: null, on: false, gen: -1, a0: 0, k: 0, bjob: null, bP: null, bms: 0, bb: null, bDone: false };
+  let patchGen = 0, bandWait = false; // (counts patch swaps: the arena's seam follows the patch on show; a done patch waiting for its seams: the arena's, the near ground's, seamSync)
   // The quadtree and its vertices (pure: no GPU), a few heights at a time. hi: the quality (tol 0.1 m, else 0.13).
   function* arenaGeoJob(A, hi) {
     const c = cfgOf(EARTH), R = EARTH.radius, EM = Terrain.earthMap, W = EM.W, HH = EM.H, B = A.box, tol = hi ? 0.1 : 0.13;
@@ -2030,7 +2039,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (!terr.amat) { // the patch's material with a cut of its own that never cuts: the patch's compiled program, no stall
       const m = terr.mat;
       terr.amat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness, defines: { ...m.defines } });
-      terr.amat.onBeforeCompile = terr.holeHook({ value: new THREE.Vector4(1, 1, 0, 0) });
+      terr.amat.onBeforeCompile = terr.holeHook(terr.noHole());
     }
     AR.mesh = new THREE.Mesh(geo, terr.amat);
     AR.mesh.receiveShadow = true;
@@ -2130,7 +2139,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const A = !api.arenaOff && b === EARTH && patch.active && patch.ready && patch.b === b ? arenaNear(F, v) : null;
     AR.on = false;
     if (A && (AR.A !== A || AR.hi !== Settings.high)) arenaReset(A, F, b);
-    if (!A) { AR.bjob = null; if (bandWait) upNow(F, b); arenaHide(); return; }
+    if (!A) { AR.bjob = null; AR.bDone = false; arenaHide(); return; } // (a patch waiting goes up in seamSync)
     const t0 = performance.now(), budget = Settings.high ? 3 : 2;
     arenaUntil = t0 + budget;
     if (!AR.mesh) {
@@ -2146,7 +2155,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       if (!AR.mesh) { arenaHide(); return; }
       note('arena', AR.ms); note('arenaSlice', AR.slice);
     }
-    if (!AR.bjob && !bandWait && AR.gen !== patchGen) { AR.bjob = arenaBandJob(patch, AR.bb); AR.bP = patch; AR.bVer = patch.ver; AR.bms = 0; }
+    if (!AR.bjob && !bandWait && !AR.bDone && AR.gen !== patchGen) { AR.bjob = arenaBandJob(patch, AR.bb); AR.bP = patch; AR.bVer = patch.ver; AR.bms = 0; }
     if (AR.bjob) {
       const t1 = performance.now();
       let done = false;
@@ -2155,8 +2164,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       AR.bms += performance.now() - t1;
       if (done) {
         AR.bjob = null;
-        if (bandWait && AR.bP === patchB) upNow(F, b);
         if (AR.bP === patch && AR.bVer === patch.ver) { arenaBandApply(AR.bb); AR.gen = patchGen; note('arenaBand', AR.bms); }
+        else if (bandWait && AR.bP === patchB) AR.bDone = true; // (applied as the patch it waits for goes up: seamSync)
       }
     }
     if (AR.gen !== patchGen) { arenaHide(); return; } // (its seam isn't ready for the patch on show: the patch whole meanwhile)
@@ -2168,8 +2177,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // A patch job done near an arena on show: the new patch waits for the arena's seam against it (true), else goes up now
   function arenaWaits(P) {
     if (!AR.on || !AR.mesh) return false;
-    AR.bjob = arenaBandJob(P, AR.bb); AR.bP = P; AR.bVer = P.ver; AR.bms = 0;
-    return (bandWait = true);
+    AR.bjob = arenaBandJob(P, AR.bb); AR.bP = P; AR.bVer = P.ver; AR.bms = 0; AR.bDone = false;
+    return true;
   }
   // the patch that waited goes up now, shown at once if the one it replaces was (no frame without ground)
   function upNow(F, b) {
@@ -2180,8 +2189,569 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // A fresh start (another arena, or the quality changed): the old mesh goes
   function arenaReset(A, F, b) {
     if (AR.mesh) { AR.frame.remove(AR.mesh); AR.mesh.geometry.dispose(); AR.mesh = null; }
-    if (bandWait) upNow(F, b);
+    AR.bDone = false; // (a patch waiting for this arena's seam goes up in seamSync)
     AR.A = A; AR.hi = Settings.high; AR.job = null; AR.bjob = null; AR.geo = null; AR.on = false; AR.gen = -1; AR.ms = AR.slice = AR.step = AR.nStep = 0;
+  }
+
+  // ------------------------------------------------------------------ the near ground: what you see is what you hit, everywhere
+  // The terrain patch's cells grow with distance (1.5 m under the craft when it is built, 30 m 100 m off, 60 m at 300 m)
+  // and the craft moves up to 1.2% of its span (about 400 m on the ground) before the next one, so outside Highland Ridge
+  // the ground drawn round a craft is metres off the ground the physics has (2 m lattice of exact heights, bilinear,
+  // terrain.js latticeAt): tanks and landed planes sank into drawn hills and hovered over drawn dips. Round the focus
+  // craft, whenever it is on or near the ground (a ground vehicle, or anything within NEAR.on m of the ground), the patch
+  // is cut away (its second hole, terr.holeU2) and the ground is drawn by a mesh of its own on the physics' own lattice,
+  // its vertices the physics' own node heights (the same sums as Terrain's cell(): tileHeights), so on it the two agree to
+  // the lattice's twist (a few mm; a few cm where 4 m cells skip a node). It is a window of square tiles 32 m across (16
+  // lattice cells), centred on the craft's tile and following it a tile at a time: 4 m cells (every other node) over the
+  // whole window, 2 m cells (every node) over its middle tiles (NEAR.q), the fine tiles' odd nodes on their outer edges
+  // put on the coarse tiles' edges (no crack). Over its outer 32 m it blends into the patch's drawn ground and normals,
+  // then runs 4 m on tucked 0.4 m under it, so the seam has neither a crack nor two surfaces fighting; its colours, night
+  // glow and texture UVs are the patch's own at each vertex (patchTri: on the patch's own triangle), so it looks just as
+  // the patch would, and it shares the patch's compiled program. Near a clear arena whose own ground is on show it is
+  // the patch's ground from that mesh's rim (NEAR.ar) and cut where it is drawn (the arena's hole), so the two hand over
+  // without a seam. Built a slice a frame (nearJob: tiles nearest first, the heights cached per tile for as long as the
+  // window may come back), swapped in whole (nearCommit: one frame, the hole with it), worked out again against each new
+  // patch before that goes up (nearWaits, seamSync). It fades in and out over NEAR.fade swaps (all of it the patch's
+  // ground at the first), so nothing pops as a plane comes down to it or climbs away; a plane at altitude pays nothing.
+  const NEAR = {
+    T: 16,                              // lattice cells a tile's side (the physics' 2 m: terrain.js GS)
+    q: { hi: [11, 5], lo: [9, 3] },     // tiles a side: the whole window (4 m cells), its fine middle (2 m)
+    edge: 2, blend: 16, tuck: 0.4,      // lattice cells round the rim tucked under the patch, the blend inside them; m tucked
+    on: 150, off: 250,                  // m over the ground: shown under `on`, kept up to `off`
+    fast: [120, 160],                   // m/s over the ground: followed under the first, given up over the second
+    ar: [300, 340],                     // m from a clear arena's box (its ground on show): the patch's own to the first
+    fade: 3,                            // swaps a fade in or out takes
+    hys: 4,                             // lattice cells the focus strays out of the middle tile before the window follows
+    anchor: 2000,                       // m the window may move off its frame's origin before the frame moves (float32 positions)
+  };
+  const GS = Terrain.GS;
+  let nearUntil = Infinity;
+  const nspent = () => performance.now() >= nearUntil;
+  const NF = {
+    b: null, c: null, n: 0, hi: null, NT: 0, NF: 0, tiles: new Map(), pool: 0, fseq: 0,
+    job: null, tg: null, ready: null, waits: false, cur: null, shown: false, want: false,
+    frame: null, mesh: [null, null], H: [null, null], sv: [null, null], hole: [1, 1, 0, 0],
+    evals: 0, pids: 0, size: 0, rT: 0, cms: [], idx: [null, null], sb: [null, null], vis: [null, null], visN: [-1, -1], drawn: [0, 0], ms: 0, slice: 0, step: 0, commits: 0, sp: 0, fa: NaN, fz: NaN, ft: 0, anc: null, ancN: 0,
+  };
+  const nkey = (TI, TJ) => TI * 131072 + TJ;
+  const slotOf = (TI, TJ, N) => (((TI % N) + N) % N) + N * (((TJ % N) + N) % N);
+  function nearTile() {
+    const N = (NEAR.T + 1) ** 2;
+    return { TI: 0, TJ: 0, lv: 0, h: new Float32Array(N).fill(NaN), pP: null, pver: -1, plv: 0, hp: new Float32Array(N), col: new Float32Array(N * 3),
+      pn: new Float32Array(N * 3), night: new Float32Array(N), uv: new Float32Array(N * 2), fk: '', fver: 0, fh: new Float32Array(N), fp: new Float32Array(N * 3),
+      fn: new Float32Array(N * 3), snap: 0, hmin: 0, hmax: 0 };
+  }
+  // The tile at (TI, TJ) (lattice nodes TI·T..TI·T+T across, TJ·T.. deep), from the cache or a fresh one: a tile in neither
+  // the window being built nor the one on show is reused, the farthest first
+  function nearTileAt(TI, TJ, tg) {
+    const k = nkey(TI, TJ);
+    let t = NF.tiles.get(k);
+    if (t) return t;
+    const NT = NF.NT, cap = NT * NT + 4 * NT;
+    if (NF.pool < cap) { t = nearTile(); NF.pool++; } else {
+      const cI = tg.ti0 + (NT - 1) / 2, cJ = tg.tj0 + (NT - 1) / 2, C = NF.cur, inW = (W, q) => W && q.TI >= W.ti0 && q.TI < W.ti0 + NT && q.TJ >= W.tj0 && q.TJ < W.tj0 + NT;
+      let best = null, bd = -Infinity;
+      for (const q of NF.tiles.values()) {
+        if (inW(tg, q)) continue;
+        const d = (q.TI - cI) ** 2 + (q.TJ - cJ) ** 2 + (inW(C, q) ? -1e6 : 0);
+        if (d > bd) { bd = d; best = q; }
+      }
+      t = best;
+      NF.tiles.delete(nkey(t.TI, t.TJ));
+      t.lv = 0; t.h.fill(NaN); t.pP = null; t.pver = -1; t.plv = 0; t.fk = '';
+    }
+    t.TI = TI; t.TJ = TJ;
+    NF.tiles.set(k, t);
+    return t;
+  }
+  // A tile's heights at the physics' own lattice nodes, exactly as Terrain's cell() works each out (h3dAt: setCol, setRow
+  // and height at a node, here on a grid of the tile's own rows and columns, the same sums in the same order): lv 1 the
+  // even nodes (4 m apart), 2 every node. c: the body's terrain, n: the lattice's nodes round it, G: a grid(T+1, T+1)
+  function* tileHeights(t, lv, c, n, G, ev) {
+    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, TAU2 = Math.PI * 2;
+    for (let ii = 0; ii < N1; ii += st) { const ia = t.TI * T + ii, iw = ((ia % n) + n) % n; setCol(c, G, ii, (iw * TAU2) / n, 0, true); }
+    for (let jj = 0; jj < N1; jj += st) setRow(c, G, jj, (t.TJ * T + jj) * GS, 0);
+    for (let jj = 0; jj < N1; jj += st) {
+      for (let ii = 0, k = jj * N1; ii < N1; ii += st) {
+        if (t.h[k + ii] === t.h[k + ii]) continue;
+        t.h[k + ii] = height(c, G, ii, jj, contAt(c, G.ang[ii], G.phi[jj]));
+        ev.n++;
+        // (a height is 15-20 µs, 4x that on a slow phone: the slice is looked at after each; after a pause the grid is set
+        // up again, since nearGeo may have used it meanwhile)
+        if (ev.yield && nspent()) { yield; for (let q = 0; q < N1; q += st) { const ia = t.TI * T + q, iw = ((ia % n) + n) % n; setCol(c, G, q, (iw * TAU2) / n, 0, true); } for (let q = 0; q < N1; q += st) setRow(c, G, q, (t.TJ * T + q) * GS, 0); }
+      }
+    }
+    t.lv = Math.max(t.lv, lv);
+  }
+  // The patch as drawn at (a, z), on its own triangle (as its index splits each cell): height, colour (linear), normal
+  // (its frame), night glow into o; false off it
+  function patchTri(P, a, z, o) {
+    const s = wrapAngle(a - P.a0) * P.b.radius * P.kl, zz = z - P.z0, sx = P.sx, sz = P.sz;
+    if (Math.abs(s) >= P.span * 0.999 || Math.abs(zz) >= P.span * 0.999) return false;
+    const i = bsearch(sx, s), j = bsearch(sz, zz), nc = P.nc, k = j * nc + i;
+    const tx = (s - sx[i]) / (sx[i + 1] - sx[i]), tz = (zz - sz[j]) / (sz[j + 1] - sz[j]);
+    let k0, k1, k2, w1, w2;
+    if (tx + tz <= 1) { k0 = k; k1 = k + 1; k2 = k + nc; w1 = tx; w2 = tz; } else { k0 = k + nc + 1; k1 = k + nc; k2 = k + 1; w1 = 1 - tx; w2 = 1 - tz; }
+    const w0 = 1 - w1 - w2, h = P.h, g = P.mesh.geometry.attributes, col = g.color.array, nor = g.normal.array, nt = g.aNight.array;
+    o.h = h[k0] * w0 + h[k1] * w1 + h[k2] * w2;
+    for (let q = 0; q < 3; q++) {
+      o.c[q] = col[k0 * 3 + q] * w0 + col[k1 * 3 + q] * w1 + col[k2 * 3 + q] * w2;
+      o.n[q] = nor[k0 * 3 + q] * w0 + nor[k1 * 3 + q] * w1 + nor[k2 * 3 + q] * w2;
+    }
+    o.night = nt[k0] * w0 + nt[k1] * w1 + nt[k2] * w2;
+    return true;
+  }
+  const PT = { h: 0, c: [0, 0, 0], n: [0, 0, 0], night: 0 };
+  // A tile's look from patch P at each of its vertices (lv: which): drawn height, colour, normal, night glow, and the
+  // detail texture's UVs as the patch has them. Off the patch (it reaches tens of km: never near the craft) its own height
+  // and a plain up
+  function* tilePatch(t, lv, P) {
+    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, n = NF.n, R = P.b.radius, TAU2 = Math.PI * 2;
+    let al0 = (P.a0 % TAU2) * R * P.kl;
+    if (al0 < 0) al0 += TAU2 * R * P.kl;
+    const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP);
+    for (let jj = 0; jj < N1; jj += st) {
+      const z = (t.TJ * T + jj) * GS;
+      for (let ii = 0; ii < N1; ii += st) {
+        const k = jj * N1 + ii, a = ((t.TI * T + ii) * TAU2) / n;
+        if (patchTri(P, a, z, PT)) {
+          t.hp[k] = PT.h; t.night[k] = PT.night;
+          for (let q = 0; q < 3; q++) { t.col[k * 3 + q] = PT.c[q]; t.pn[k * 3 + q] = PT.n[q]; }
+        } else { t.hp[k] = t.h[k]; t.night[k] = 0; t.col[k * 3] = t.col[k * 3 + 1] = t.col[k * 3 + 2] = 0.2; t.pn[k * 3] = t.pn[k * 3 + 2] = 0; t.pn[k * 3 + 1] = 1; }
+        t.uv[k * 2] = (wrapAngle(a - P.a0) * R * P.kl + uo) / TILE; t.uv[k * 2 + 1] = (z - P.z0 + vo) / TILE;
+      }
+      if (nspent()) yield; // (a row at a time: a fine tile is a few ms on a slow phone)
+    }
+    t.pP = P; t.pver = P.ver; t.plv = lv;
+  }
+  // a lattice node's height from the cache (NaN where not worked out)
+  function nodeH(ia, iz) {
+    const T = NEAR.T, TI = Math.floor(ia / T), TJ = Math.floor(iz / T), t = NF.tiles.get(nkey(TI, TJ));
+    return t ? t.h[(iz - TJ * T) * (T + 1) + ia - TI * T] : NaN;
+  }
+  // A tile's vertices as the window tg draws them (lv: fine or coarse; snap: the fine window's edges it lies on, bits
+  // left, right, near, far, whose odd nodes go on the coarse neighbours' edges): height (the physics' own, blended into
+  // the patch's over the rim, by the arena's rim, and by the fade, tucked at the very rim), position in the frame at the
+  // window's anchor, and normal (its own from the lattice's slopes, the patch's as it blends)
+  function* tileFinal(t, lv, tg, snap) {
+    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, n = NF.n, R = NF.b.radius, TAU2 = Math.PI * 2, NT = NF.NT;
+    const IA0 = tg.ti0 * T, IA1 = (tg.ti0 + NT) * T, IZ0 = tg.tj0 * T, IZ1 = (tg.tj0 + NT) * T, { edge, blend, tuck } = NEAR;
+    const A = tg.anc, P = tg.P, dl = P.a0 - A.a, cs = Math.cos(dl), sn = Math.sin(dl), g = tg.gs / NEAR.fade, B = tg.box, dA0 = (R * TAU2) / n;
+    const hh = (ii, jj) => (ii >= 0 && ii < N1 && jj >= 0 && jj < N1 ? t.h[jj * N1 + ii] : nodeH(t.TI * T + ii, t.TJ * T + jj));
+    let hmin = Infinity, hmax = -Infinity;
+    for (let jj = 0; jj < N1; jj += st) {
+      const iz = t.TJ * T + jj, z = iz * GS, ph = z / R, cp = Math.cos(ph), sp = Math.sin(ph), dA = dA0 * Math.max(cp, 0.05);
+      for (let ii = 0; ii < N1; ii += st) {
+        const k = jj * N1 + ii, ia = t.TI * T + ii, a = (ia * TAU2) / n, d = a - A.a, sd = Math.sin(d), cd = Math.cos(d);
+        const dE = Math.min(ia - IA0, IA1 - ia, iz - IZ0, IZ1 - iz);
+        let w = Math.max(g, 1 - smoothstep(edge, edge + blend, dE));
+        if (B && w < 1) {
+          const e = -wrapAngle(a - EARTH.padAngle) * R;
+          w = Math.max(w, 1 - smoothstep(NEAR.ar[0], NEAR.ar[1], Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1))));
+        }
+        const h0 = t.h[k], h = h0 + (t.hp[k] - h0) * w - tuck * (1 - smoothstep(0, edge, dE)), r = R + h;
+        t.fh[k] = h; if (h < hmin) hmin = h; if (h > hmax) hmax = h;
+        t.fp[k * 3] = -r * cp * sd; t.fp[k * 3 + 1] = r * cp * cd - R - A.y; t.fp[k * 3 + 2] = r * sp - A.zz;
+        // its own normal: the slopes along the lattice (2 m steps on a fine tile, 4 m on a coarse one or where the finer
+        // nodes aren't worked out; one-sided at the window's rim, under the patch's own there)
+        let sa = 0, sz = 0;
+        for (let q = st; q <= 2; q++) { const p = hh(ii + q, jj), m = hh(ii - q, jj); if (p === p && m === m) { sa = (p - m) / (2 * q * dA); break; } if (q === 2) { sa = p === p ? (p - h0) / (2 * dA) : m === m ? (h0 - m) / (2 * dA) : 0; } }
+        for (let q = st; q <= 2; q++) { const p = hh(ii, jj + q), m = hh(ii, jj - q); if (p === p && m === m) { sz = (p - m) / (2 * q * GS); break; } if (q === 2) { sz = p === p ? (p - h0) / (2 * GS) : m === m ? (h0 - m) / (2 * GS) : 0; } }
+        // up (-cp sd, cp cd, sp), along a (-cd, -sd, 0), along z (sp sd, -sp cd, cp): n = up - sa·(along a) - sz·(along z)
+        let nx = -cp * sd + sa * cd - sz * sp * sd, ny = cp * cd + sa * sd + sz * sp * cd, nz = sp - sz * cp;
+        if (w > 0) {
+          const pn = t.pn, px = pn[k * 3] * cs - pn[k * 3 + 1] * sn, py = pn[k * 3] * sn + pn[k * 3 + 1] * cs, pz = pn[k * 3 + 2]; // (into the window's frame)
+          const l0 = Math.hypot(nx, ny, nz) || 1, l1 = Math.hypot(px, py, pz) || 1;
+          nx = (nx / l0) * (1 - w) + (px / l1) * w; ny = (ny / l0) * (1 - w) + (py / l1) * w; nz = (nz / l0) * (1 - w) + (pz / l1) * w;
+        }
+        const l = Math.hypot(nx, ny, nz) || 1;
+        t.fn[k * 3] = nx / l; t.fn[k * 3 + 1] = ny / l; t.fn[k * 3 + 2] = nz / l;
+      }
+      if (nspent()) yield;
+    }
+    // the fine window's outer edges: each odd node on the chord between its even neighbours, as the coarse tile beside
+    // draws that edge
+    t.snap = snap;
+    if (snap) for (let side = 0; side < 4; side++) {
+      if (!(snap & (1 << side))) continue;
+      for (let s = 1; s < N1; s += 2) {
+        const ii = side === 0 ? 0 : side === 1 ? T : s, jj = side === 2 ? 0 : side === 3 ? T : s;
+        const k = jj * N1 + ii, du = side < 2 ? N1 : 1, k0 = k - du, k1 = k + du;
+        t.fh[k] = (t.fh[k0] + t.fh[k1]) / 2;
+        for (let q = 0; q < 3; q++) { t.fp[k * 3 + q] = (t.fp[k0 * 3 + q] + t.fp[k1 * 3 + q]) / 2; t.fn[k * 3 + q] = t.fn[k0 * 3 + q] + t.fn[k1 * 3 + q]; }
+        const l = Math.hypot(t.fn[k * 3], t.fn[k * 3 + 1], t.fn[k * 3 + 2]) || 1;
+        for (let q = 0; q < 3; q++) t.fn[k * 3 + q] /= l;
+      }
+    }
+    t.hmin = hmin; t.hmax = hmax;
+    t.fver = ++NF.fseq;
+  }
+  // Which tiles of window tg are fine, and which of the fine window's edges a fine one lies on (bits: -a, +a, -z, +z)
+  const nearFine = (tg, TI, TJ) => TI >= tg.fi0 && TI < tg.fi0 + NF.NF && TJ >= tg.fj0 && TJ < tg.fj0 + NF.NF;
+  const nearSnap = (tg, TI, TJ) => (TI === tg.fi0 ? 1 : 0) | (TI === tg.fi0 + NF.NF - 1 ? 2 : 0) | (TJ === tg.fj0 ? 4 : 0) | (TJ === tg.fj0 + NF.NF - 1 ? 8 : 0);
+  // Everything window tg needs, a slice at a time: the heights (tiles nearest the middle first), then the patch's look
+  // at each vertex, then the vertices as drawn; done, it is ready to go up (nearCommit)
+  function* nearJob(tg) {
+    const NT = NF.NT, T = NEAR.T, cI = tg.ti0 + (NT - 1) / 2, cJ = tg.tj0 + (NT - 1) / 2, list = [];
+    for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) list.push(tg.ti0 + p, tg.tj0 + q);
+    const ord = [...Array(NT * NT).keys()].sort((x, y) => (list[2 * x] - cI) ** 2 + (list[2 * x + 1] - cJ) ** 2 - (list[2 * y] - cI) ** 2 - (list[2 * y + 1] - cJ) ** 2);
+    const G = grid(T + 1, T + 1, NF.c.k.length), ev = { n: 0, yield: true };
+    NF.ph = 'heights';
+    for (const o of ord) {
+      const TI = list[2 * o], TJ = list[2 * o + 1], t = nearTileAt(TI, TJ, tg), lv = nearFine(tg, TI, TJ) ? 2 : 1;
+      if (t.lv < lv) yield* tileHeights(t, lv, NF.c, NF.n, G, ev);
+      if (nspent()) yield;
+    }
+    NF.evals += ev.n;
+    yield;
+    NF.ph = 'patch';
+    for (const o of ord) {
+      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ)), lv = nearFine(tg, TI, TJ) ? 2 : 1;
+      if (t.pP !== tg.P || t.pver !== tg.pver || t.plv < lv) { yield* tilePatch(t, lv, tg.P); if (nspent()) yield; }
+    }
+    NF.ph = 'final';
+    for (const o of ord) {
+      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ)), fine = nearFine(tg, TI, TJ), snap = fine ? nearSnap(tg, TI, TJ) : 0;
+      // (what its vertices depend on: its level and fine edges, how near the window's rim it is (two tiles in, the blend
+      // is over), and the window's own: patch, arena, fade, frame)
+      const rim = Math.min(TI - tg.ti0, tg.ti0 + NT - 1 - TI, 2) + 3 * Math.min(TJ - tg.tj0, tg.tj0 + NT - 1 - TJ, 2), side = rim < 8 ? `${TI - tg.ti0},${TJ - tg.tj0}` : '';
+      const fk = `${fine ? 2 : 1}:${snap}:${side}:${tg.key}`;
+      if (t.fk !== fk) { t.fk = ''; yield* tileFinal(t, fine ? 2 : 1, tg, snap); t.fk = fk; if (nspent()) yield; }
+    }
+    return true;
+  }
+  // The GPU side: two meshes in a frame at the window's anchor, the coarse one's NT² tiles of 9 × 9 vertices and the fine
+  // one's NF² of 17 × 17, each tile in the slot its place modulo the window takes, so a move rewrites only the tiles it
+  // brings in and those whose look changes; a coarse slot under a fine tile is folded to a point (nothing drawn)
+  function nearAlloc() {
+    if (NF.mesh[0]) { for (const m of NF.mesh) { NF.frame.remove(m); m.geometry.dispose(); } }
+    NF.size = NF.NT * 100 + NF.NF;
+    if (!terr.nmat) { // the patch's material with the arena's cut (its ground drawn there) and none of its own: the patch's program
+      const m = terr.mat;
+      terr.nmat = new THREE.MeshStandardMaterial({ vertexColors: true, map: m.map, normalMap: m.normalMap, normalScale: m.normalScale, roughness: m.roughness, metalness: m.metalness, defines: { ...m.defines } });
+      terr.nmat.onBeforeCompile = terr.holeHook(terr.holeU);
+    }
+    if (!NF.frame) { NF.frame = new THREE.Group(); NF.frame.visible = false; localWorld.add(NF.frame); }
+    const T = NEAR.T;
+    for (const fine of [0, 1]) {
+      const N = fine ? NF.NF : NF.NT, s = fine ? T + 1 : T / 2 + 1, nv = s * s, V = N * N * nv, idx = new (V < 65536 ? Uint16Array : Uint32Array)(N * N * (s - 1) * (s - 1) * 6);
+      let k = 0;
+      for (let q = 0; q < N * N; q++) for (let j = 0; j < s - 1; j++) for (let i = 0; i < s - 1; i++) {
+        const a = q * nv + j * s + i, b = a + 1, c = a + s, d = c + 1;
+        idx[k++] = a; idx[k++] = b; idx[k++] = c; idx[k++] = b; idx[k++] = d; idx[k++] = c;
+      }
+      const geo = new THREE.BufferGeometry(), dyn = (n) => new THREE.BufferAttribute(new Float32Array(V * n), n).setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('position', dyn(3)); geo.setAttribute('normal', dyn(3)); geo.setAttribute('color', dyn(3)); geo.setAttribute('uv', dyn(2)); geo.setAttribute('aNight', dyn(1));
+      geo.setIndex(new THREE.BufferAttribute(idx.slice(), 1).setUsage(THREE.DynamicDrawUsage)); // (the tiles in view only: nearCull)
+      geo.setDrawRange(0, 0);
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+      const m = new THREE.Mesh(geo, terr.nmat);
+      m.receiveShadow = true;
+      NF.frame.add(m);
+      NF.mesh[fine] = m; NF.H[fine] = new Float32Array(V).fill(NaN); NF.sv[fine] = new Float64Array(N * N).fill(-2);
+      NF.idx[fine] = new THREE.BufferAttribute(idx, 1); NF.sb[fine] = new Float32Array(N * N * 4).fill(-1); NF.vis[fine] = new Uint8Array(N * N); NF.visN[fine] = -1;
+    }
+  }
+  // a tile's vertices into its slot (fine or coarse), and its heights for nearAt; or the coarse slot folded away
+  function nearUpload(t, fine, s) {
+    const T = NEAR.T, N1 = T + 1, st = fine ? 1 : 2, ns = fine ? N1 : T / 2 + 1, base = s * ns * ns, at = NF.mesh[fine].geometry.attributes, H = NF.H[fine];
+    const P = at.position.array, Nn = at.normal.array, C = at.color.array, U = at.uv.array, Ng = at.aNight.array;
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (let jj = 0, v = base; jj < N1; jj += st) for (let ii = 0; ii < N1; ii += st, v++) {
+      const k = jj * N1 + ii;
+      for (let q = 0; q < 3; q++) { P[v * 3 + q] = t.fp[k * 3 + q]; Nn[v * 3 + q] = t.fn[k * 3 + q]; C[v * 3 + q] = t.col[k * 3 + q]; }
+      U[v * 2] = t.uv[k * 2]; U[v * 2 + 1] = t.uv[k * 2 + 1]; Ng[v] = t.night[k]; H[v] = t.fh[k];
+      const x = t.fp[k * 3], y = t.fp[k * 3 + 1], z = t.fp[k * 3 + 2];
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    const sb = NF.sb[fine]; // (the tile's bounding sphere, for nearCull)
+    sb[s * 4] = (x0 + x1) / 2; sb[s * 4 + 1] = (y0 + y1) / 2; sb[s * 4 + 2] = (z0 + z1) / 2; sb[s * 4 + 3] = Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2 + 1;
+    NF.visN[fine] = -1; // (what is in view is looked at again)
+    // (a snapped odd node takes the mean of its neighbours' colour and glow too, as the coarse edge beside draws them)
+    if (fine && t.snap) for (let side = 0; side < 4; side++) {
+      if (!(t.snap & (1 << side))) continue;
+      for (let s2 = 1; s2 < N1; s2 += 2) {
+        const ii = side === 0 ? 0 : side === 1 ? T : s2, jj = side === 2 ? 0 : side === 3 ? T : s2, du = side < 2 ? N1 : 1, v = base + jj * N1 + ii;
+        for (let q = 0; q < 3; q++) C[v * 3 + q] = (C[(v - du) * 3 + q] + C[(v + du) * 3 + q]) / 2;
+        Ng[v] = (Ng[v - du] + Ng[v + du]) / 2;
+      }
+    }
+  }
+  function nearFold(s) {
+    const ns = NEAR.T / 2 + 1, base = s * ns * ns, at = NF.mesh[0].geometry.attributes;
+    at.position.array.fill(0, base * 3, (base + ns * ns) * 3); NF.H[0].fill(NaN, base, base + ns * ns);
+    NF.sb[0][s * 4 + 3] = -1; NF.visN[0] = -1; // (never in view)
+  }
+  // Window tg goes up: the tiles that changed into their slots (one frame), its hole cut in the patch, the frame and bounds
+  function nearCommit(tg) {
+    const tc = performance.now();
+    const NT = NF.NT, T = NEAR.T, dirty = [[], []];
+    if (NF.size !== NT * 100 + NF.NF) nearAlloc(); // (made when first needed, again at a new quality's sizes)
+    let hmin = Infinity, hmax = -Infinity;
+    for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) {
+      const TI = tg.ti0 + p, TJ = tg.tj0 + q, t = NF.tiles.get(nkey(TI, TJ)), fine = nearFine(tg, TI, TJ), s0 = slotOf(TI, TJ, NT);
+      hmin = Math.min(hmin, t.hmin); hmax = Math.max(hmax, t.hmax);
+      if (fine) {
+        const s1 = slotOf(TI, TJ, NF.NF);
+        if (NF.sv[1][s1] !== t.fver) { nearUpload(t, 1, s1); NF.sv[1][s1] = t.fver; dirty[1].push(s1); }
+        if (NF.sv[0][s0] !== -1) { nearFold(s0); NF.sv[0][s0] = -1; dirty[0].push(s0); }
+      } else if (NF.sv[0][s0] !== t.fver) { nearUpload(t, 0, s0); NF.sv[0][s0] = t.fver; dirty[0].push(s0); }
+    }
+    for (const fine of [0, 1]) {
+      const at = NF.mesh[fine].geometry.attributes, ns = fine ? T + 1 : T / 2 + 1, nv = ns * ns, D = dirty[fine], N = fine ? NF.NF : NT;
+      if (!D.length) continue;
+      for (const [name, k] of [['position', 3], ['normal', 3], ['color', 3], ['uv', 2], ['aNight', 1]]) {
+        const A = at[name];
+        A.clearUpdateRanges();
+        if (D.length < (N * N) / 3) for (const s of D) A.addUpdateRange(s * nv * k, nv * k); // (else the whole buffer)
+        A.needsUpdate = true;
+      }
+    }
+    // the patch's cut: the window less its tucked rim, in the patch's UVs
+    const P = tg.P, R = NF.b.radius, n = NF.n, TAU2 = Math.PI * 2, e = NEAR.edge;
+    let al0 = (P.a0 % TAU2) * R * P.kl;
+    if (al0 < 0) al0 += TAU2 * R * P.kl;
+    const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP), uOf = (ia) => (wrapAngle((ia * TAU2) / n - P.a0) * R * P.kl + uo) / TILE, vOf = (iz) => (iz * GS - P.z0 + vo) / TILE;
+    const IA0 = tg.ti0 * T + e, IA1 = (tg.ti0 + NT) * T - e, IZ0 = tg.tj0 * T + e, IZ1 = (tg.tj0 + NT) * T - e;
+    NF.hole[0] = uOf(IA0); NF.hole[1] = vOf(IZ0); NF.hole[2] = uOf(IA1); NF.hole[3] = vOf(IZ1);
+    // the frame at the anchor, the meshes' bounds round the window's middle
+    const A = tg.anc;
+    for (const m of NF.mesh) m.position.set(0, A.y, A.zz);
+    const cia = (tg.ti0 + NT / 2) * T, ciz = (tg.tj0 + NT / 2) * T, d = (cia * TAU2) / n - A.a, ph = (ciz * GS) / R, r = R + (hmin + hmax) / 2;
+    for (const m of NF.mesh) {
+      m.geometry.boundingSphere.center.set(-r * Math.cos(ph) * Math.sin(d), r * Math.cos(ph) * Math.cos(d) - R - A.y, r * Math.sin(ph) - A.zz);
+      m.geometry.boundingSphere.radius = NT * T * GS * 0.72 + (hmax - hmin) / 2 + 2;
+    }
+    NF.cur = tg; NF.commits++;
+    const dc = performance.now() - tc;
+    note('nearCommit', dc); NF.cms.push(+dc.toFixed(2)); if (NF.cms.length > 32) NF.cms.shift(); // (the last 32 swaps' times: nearInfo)
+  }
+  // the near ground on show, or put away (the patch whole again)
+  function nearShow(F, on) {
+    NF.shown = !!on;
+    cullGround(patch, on ? NF.hole : null);
+    if (!NF.frame) return;
+    NF.frame.visible = NF.shown;
+    if (on) { terr.holeU2.value.set(NF.hole[0], NF.hole[1], NF.hole[2], NF.hole[3]); placeFrame(NF.frame, NF.b, NF.cur.anc.a, F.time); } else if (terr.holeU2) terr.holeU2.value.set(1, 1, 0, 0);
+  }
+  // Only the tiles in view are drawn: each frame, just before the local scene is drawn, each slot's bounding sphere is
+  // tested against the view (in the mesh's own frame), and when the set in view changed the index is rewritten to hold
+  // theirs alone (in portrait a phone sees a quarter of the window, a desktop about a third: the near ground's vertex work
+  // is the GPU cost it adds, chiefly on a phone)
+  const NC = { f: null, m: null, sp: null };
+  function nearCull() {
+    if (!NF.shown || !NF.mesh[0]) return;
+    if (!NC.f) { NC.f = new THREE.Frustum(); NC.m = new THREE.Matrix4(); NC.sp = new THREE.Sphere(); }
+    localWorld.updateMatrix(); NF.frame.updateMatrix();
+    for (const fine of [0, 1]) {
+      const m = NF.mesh[fine], sb = NF.sb[fine], vis = NF.vis[fine], N = sb.length / 4;
+      m.updateMatrix();
+      NC.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(localWorld.matrix).multiply(NF.frame.matrix).multiply(m.matrix);
+      NC.f.setFromProjectionMatrix(NC.m);
+      let changed = NF.visN[fine] < 0, nv = 0;
+      for (let q = 0; q < N; q++) {
+        const r = sb[q * 4 + 3];
+        let on = 0;
+        if (r > 0) { NC.sp.center.set(sb[q * 4], sb[q * 4 + 1], sb[q * 4 + 2]); NC.sp.radius = r + 2; on = NC.f.intersectsSphere(NC.sp) ? 1 : 0; }
+        if (on !== vis[q]) { vis[q] = on; changed = true; }
+        nv += on;
+      }
+      if (!changed) continue;
+      const ix = m.geometry.index, a = ix.array, I = NF.idx[fine].array, B = I.length / N;
+      let n = 0;
+      for (let q = 0; q < N; q++) if (vis[q]) { a.set(I.subarray(q * B, q * B + B), n); n += B; }
+      m.geometry.setDrawRange(0, n);
+      ix.clearUpdateRanges(); ix.addUpdateRange(0, Math.max(1, n)); ix.needsUpdate = true;
+      NF.visN[fine] = nv; NF.drawn[fine] = n / 3;
+    }
+  }
+  // The patch's cells wholly inside the near ground's cut (hole, in its UVs; null: none) left out of its ground's index,
+  // so they aren't drawn at all rather than drawn and thrown away pixel by pixel (the cut's shader test still trims the
+  // cells across its edge). Its UVs run with its columns and rows, so those cells are a block of them.
+  function cullGround(P, hole) {
+    if (!P.mesh || !P.idx0) return;
+    let c = null;
+    if (hole && P.ready && P.b) {
+      const R = P.b.radius, TAU2 = Math.PI * 2;
+      let al0 = (P.a0 % TAU2) * R * P.kl;
+      if (al0 < 0) al0 += TAU2 * R * P.kl;
+      const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP), sx = P.sx, sz = P.sz;
+      const s0 = hole[0] * TILE - uo, s1 = hole[2] * TILE - uo, z0 = hole[1] * TILE - vo, z1 = hole[3] * TILE - vo; // (back to the patch's offsets)
+      const ia = bsearch(sx, s0) + 1, ib = bsearch(sx, s1) - 1, ja = bsearch(sz, z0) + 1, jb = bsearch(sz, z1) - 1; // (cells i..i+1 within s0..s1)
+      if (ib >= ia && jb >= ja) c = [ia, ib, ja, jb];
+    }
+    const C = P.cull;
+    if (c ? C && C[0] === c[0] && C[1] === c[1] && C[2] === c[2] && C[3] === c[3] : !C) return;
+    const g = P.mesh.geometry, ix = g.index, a = ix.array, I0 = P.idx0, nc = P.nc, row = (nc - 1) * 6;
+    let n, from;
+    if (!c) { a.set(I0); n = I0.length; from = 0; } else {
+      const [ia, ib, ja, jb] = c;
+      from = ja * row; n = from;
+      a.set(I0.subarray(0, from));
+      for (let j = ja; j <= jb; j++) {
+        const r = j * row;
+        a.set(I0.subarray(r, r + ia * 6), n); n += ia * 6;
+        a.set(I0.subarray(r + (ib + 1) * 6, r + row), n); n += row - (ib + 1) * 6;
+      }
+      a.set(I0.subarray((jb + 1) * row), n); n += I0.length - (jb + 1) * row;
+    }
+    P.cull = c;
+    g.setDrawRange(0, n);
+    ix.clearUpdateRanges(); ix.addUpdateRange(from, Math.max(1, n - from)); ix.needsUpdate = true;
+  }
+  // A fresh start (another body, or the quality changed)
+  function nearReset(b) {
+    NF.tiles.clear(); NF.pool = 0; NF.job = null; NF.tg = null; NF.ready = null; NF.waits = false; NF.cur = null; NF.anc = null;
+    NF.b = b; NF.c = b ? cfgOf(b) : null; NF.n = b ? Math.max(8, Math.round((Math.PI * 2 * b.radius) / GS)) : 0;
+    const hi = Settings.high, [NT, NFn] = NEAR.q[hi ? 'hi' : 'lo'];
+    NF.hi = hi; NF.NT = NT; NF.NF = NFn;
+    if (NF.sv[0]) { NF.sv[0].fill(-2); NF.sv[1].fill(-2); } // (every slot written afresh at the next swap)
+  }
+  // A patch job done with the near ground on show: the patch waits for the near ground worked out against it (true)
+  function nearWaits(P) {
+    if (!NF.shown || !NF.cur) return false;
+    NF.waits = true; NF.job = null; NF.ready = null;
+    return true;
+  }
+  // Is the focus on or near the ground (and slow enough to follow)? a ground vehicle always; else within NEAR.on m of the
+  // ground (kept to NEAR.off)
+  function nearWanted(F, b, v) {
+    if (api.nearOff || b.star || !patch.active || !patch.ready || patch.b !== b) return false;
+    const L = focusSpot(F, b);
+    const n = Math.max(8, Math.round((Math.PI * 2 * b.radius) / GS));
+    let fa = ((L.a % (Math.PI * 2)) / (Math.PI * 2)) * n;
+    if (fa < 0) fa += n;
+    const fz = L.z / GS, dt = F.time - NF.ft;
+    // its speed over the ground (lattice cells a second, smoothed): a jump (a teleport, a new flight) starts afresh
+    if (dt > 0 && dt < 1 && NF.fa === NF.fa) {
+      let dfa = fa - NF.fa; dfa -= n * Math.round(dfa / n);
+      const sp = (Math.hypot(dfa * Math.max(0.05, Math.cos(L.z / b.radius)), fz - NF.fz) * GS) / dt;
+      NF.sp += (sp - NF.sp) * Math.min(1, dt * 4);
+    } else if (dt !== 0) NF.sp = 0;
+    NF.fa = fa; NF.fz = fz; NF.ft = F.time;
+    if (NF.sp > (NF.want ? NEAR.fast[1] : NEAR.fast[0])) return false;
+    if (!(v && isGround(v.kind))) {
+      const h = Terrain.heightAt(b, L.a, L.z);
+      if (b.ocean && h < -3) return false; // (over the sea, or on a carrier's deck: the sea floor is all there is under it)
+      if (!(L.r - b.radius - (b.ocean ? Math.max(h, 0) : h) < (NF.want ? NEAR.off : NEAR.on))) return false;
+    }
+    // inside a clear arena whose own ground is on show (or being built: it will be), that is the ground: nothing for us
+    if (b === EARTH && AR.A && (AR.on || AR.job || AR.mesh)) {
+      const B = AR.A.box, e = -wrapAngle(L.a - EARTH.padAngle) * b.radius, m = NEAR.ar[0] - (NF.NT * NEAR.T * GS) / 2 - 20;
+      if (e > B.e0 - m && e < B.e1 + m && L.z > B.z0 - m && L.z < B.z1 + m) return false;
+    }
+    return true;
+  }
+  // Every flight frame, after the patch and the arena: follow the focus a tile at a time, build a slice, show what is
+  // ready; then the patch waiting for its seams goes up (seamSync)
+  function updateNear(F, b, v) {
+    const t0 = performance.now();
+    NF.rT = F.time; // (the time drawn: rayGround)
+    if (NF.b !== b || NF.hi !== Settings.high) { nearShow(F, false); nearReset(b); }
+    const want = nearWanted(F, b, v);
+    if (want !== NF.want) { NF.want = want; S.scenery.dirty = true; } // (trees and houses seat on the ground drawn: sceneryJob)
+    const C = NF.cur;
+    // what is on show stays only while it was worked out against the patch on show
+    const fresh = C && C.P === patch && C.pver === patch.ver && patch.active;
+    if (!want && (!C || C.gs >= NEAR.fade || !fresh || api.nearOff)) { // (nearOff, tests: at once)
+      nearShow(F, false); NF.cur = null; NF.job = null; NF.tg = null; NF.ready = null; NF.waits = false;
+      seamSync(F, b);
+      return;
+    }
+    const T = NEAR.T, NT = NF.NT, n = NF.n;
+    // the window: centred on the focus's tile, kept while the focus stays within NEAR.hys cells of its middle tile
+    let fa = NF.fa;
+    const ref = C ? (C.ti0 + NT / 2) * T : NF.tg ? (NF.tg.ti0 + NT / 2) * T : fa;
+    fa += n * Math.round((ref - fa) / n);
+    const fz = NF.fz;
+    let ci = Math.floor(fa / T), cj = Math.floor(fz / T);
+    const W = C || NF.tg;
+    if (W && (NF.waits || !want)) { ci = W.ti0 + (NT - 1) / 2; cj = W.tj0 + (NT - 1) / 2; } // (waiting for a patch, or fading out: where it is)
+    else if (W) {
+      const mi = W.ti0 + (NT - 1) / 2, mj = W.tj0 + (NT - 1) / 2;
+      if (fa > mi * T - NEAR.hys && fa < (mi + 1) * T + NEAR.hys && fz > mj * T - NEAR.hys && fz < (mj + 1) * T + NEAR.hys) { ci = mi; cj = mj; }
+    }
+    // far off what is on show (a jump): put it away and start again, faded in
+    if (C && (Math.abs(ci - (C.ti0 + (NT - 1) / 2)) > NT || Math.abs(cj - (C.tj0 + (NT - 1) / 2)) > NT)) { nearShow(F, false); NF.cur = null; }
+    const cur = NF.cur, gs = !cur || !fresh ? NEAR.fade : NF.waits ? cur.gs : want ? Math.max(0, cur.gs - 1) : Math.min(NEAR.fade, cur.gs + 1);
+    const P = NF.waits ? patchB : patch, R = b.radius;
+    const box = b === EARTH && AR.on && AR.A ? AR.A.box : null;
+    // the frame's anchor: kept while the window is within NEAR.anchor m of it
+    const ca = ((ci + 0.5) * T * Math.PI * 2) / n, cz = (cj + 0.5) * T * GS;
+    if (!NF.anc || Math.hypot(wrapAngle(ca - NF.anc.a) * R * Math.max(0.05, Math.cos(cz / R)), cz - NF.anc.z) > NEAR.anchor) {
+      NF.anc = { a: ca, z: cz, y: R * Math.cos(cz / R) - R, zz: R * Math.sin(cz / R), id: ++NF.ancN };
+    }
+    const ti0 = ci - (NT - 1) / 2, tj0 = cj - (NT - 1) / 2, fi0 = ci - (NF.NF - 1) / 2, fj0 = cj - (NF.NF - 1) / 2;
+    // (on show as wanted, nothing waiting or building: the common frame, nothing to work out)
+    if (cur && fresh && want && !NF.job && !NF.ready && !NF.waits && cur.gs === 0 && cur.ti0 === ti0 && cur.tj0 === tj0 && cur.anc === NF.anc && cur.P === patch && !!cur.box === !!box) {
+      nearShow(F, true);
+      seamSync(F, b);
+      note('nearFrame', performance.now() - t0);
+      return;
+    }
+    const key = `${ti0},${tj0}|${P.nid || (P.nid = ++NF.pids)}.${P.ver}|${box ? 1 : 0}|${gs}|${NF.anc.id}`;
+    // (on show already as wanted: nothing to build)
+    const done = cur && fresh && cur.key === key && cur.P === P;
+    if (!done && !NF.ready && (!NF.tg || NF.tg.key !== key || NF.tg.P !== P)) {
+      NF.tg = { b, ti0, tj0, fi0, fj0, P, pver: P.ver, box, gs, anc: NF.anc, key };
+      NF.job = nearJob(NF.tg);
+    }
+    if (NF.job) {
+      // a few milliseconds a frame; more while nothing is on show yet, or while the focus is out of the fine window on show
+      const lag = !cur || !fresh || !nearFine(cur, Math.floor(fa / T), Math.floor(fz / T));
+      const budget = (Settings.high ? 3 : 2) + (lag ? 3 : 0), t1 = performance.now();
+      nearUntil = t1 + budget;
+      let r = null;
+      while (performance.now() - t1 < budget) {
+        const ts = performance.now();
+        r = NF.job.next();
+        const dts = performance.now() - ts;
+        if (dts > NF.step) { NF.step = dts; NF.stepAt = NF.ph; }
+        if (r.done) break;
+      }
+      nearUntil = Infinity;
+      const dt = performance.now() - t1;
+      NF.ms += dt; NF.slice = Math.max(NF.slice, dt);
+      if (r && r.done) {
+        NF.job = null;
+        const tg = NF.tg;
+        NF.tg = null;
+        note('near', NF.ms); note('nearSlice', NF.slice); NF.ms = 0; NF.slice = 0;
+        if (tg.P === patch && tg.pver === patch.ver) nearCommit(tg);
+        else if (tg.P === patchB && NF.waits) NF.ready = tg; // (goes up with the patch it waits for: seamSync)
+      }
+    }
+    const show = NF.cur && NF.cur.P === patch && NF.cur.pver === patch.ver && patch.active;
+    if (show && !(NF.cur.gs >= NEAR.fade && !want)) nearShow(F, true); else nearShow(F, false);
+    seamSync(F, b);
+    note('nearFrame', performance.now() - t0);
+  }
+  // The patch that waited for its seams goes up once neither the arena's nor the near ground's is still being worked out,
+  // and both go up with it, in the same frame
+  function seamSync(F, b) {
+    if (!bandWait) return;
+    if (AR.bjob && AR.bP === patchB) return;
+    if (NF.waits && !NF.ready) return;
+    upNow(F, b);
+    if (AR.bDone && AR.bP === patch && AR.bVer === patch.ver) { arenaBandApply(AR.bb); AR.gen = patchGen; note('arenaBand', AR.bms); }
+    AR.bDone = false;
+    const r = NF.ready;
+    NF.ready = null; NF.waits = false;
+    if (r && r.P === patch && r.pver === patch.ver) { nearCommit(r); nearShow(F, NF.want || r.gs < NEAR.fade); } else nearShow(F, false);
+  }
+  // The near ground as drawn at (a, z) on body b, where it is drawn (inside its cut), else null: its own triangles' height
+  function nearAt(b, a, z) {
+    if (!NF.shown || b !== NF.b || !NF.cur) return null;
+    const C = NF.cur, T = NEAR.T, n = NF.n, e = NEAR.edge, TAU2 = Math.PI * 2;
+    let fa = ((a % TAU2) / TAU2) * n;
+    if (fa < 0) fa += n;
+    fa += n * Math.round(((C.ti0 + NF.NT / 2) * T - fa) / n);
+    const fz = z / GS;
+    if (fa < C.ti0 * T + e || fa > (C.ti0 + NF.NT) * T - e || fz < C.tj0 * T + e || fz > (C.tj0 + NF.NT) * T - e) return null;
+    const TI = Math.floor(fa / T), TJ = Math.floor(fz / T), fine = nearFine(C, TI, TJ) ? 1 : 0, st = fine ? 1 : 2, ns = fine ? T + 1 : T / 2 + 1;
+    const H = NF.H[fine], base = slotOf(TI, TJ, fine ? NF.NF : NF.NT) * ns * ns;
+    const lx = (fa - TI * T) / st, lz = (fz - TJ * T) / st, i = Math.min(Math.floor(lx), ns - 2), j = Math.min(Math.floor(lz), ns - 2), tx = lx - i, tz = lz - j, k = base + j * ns + i;
+    return tx + tz <= 1 ? H[k] + (H[k + 1] - H[k]) * tx + (H[k + ns] - H[k]) * tz : H[k + ns + 1] + (H[k + ns] - H[k + ns + 1]) * (1 - tx) + (H[k + 1] - H[k + ns + 1]) * (1 - tz);
   }
 
   // Grid offsets within n cells, nearest first (cached per n).
@@ -2199,6 +2769,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // Fills a scenery set, yielding every couple of hundred plots (sceneryJob runs it a slice a frame).
   function* sceneryJob(set, b, a0, z0, rad) {
     const R = b.radius, c = cfgOf(b), hi = Settings.high, nearR = hi ? 380 : 260;
+    // (with the near ground on show round the craft, what stands within its reach until the next rebuild sits on the
+    // lower of the patch and the physics' ground: on the near ground's or sunk into the patch's, never floating over either)
+    const nfR = NF.want && NF.b === b ? NF.NT * NEAR.T * GS * 0.75 + rad * 0.25 : 0, kl0 = latK(z0, R);
+    const seat = (a, z, h) => (nfR > 0 && Math.hypot(wrapAngle(a - a0) * R * kl0, z - z0) < nfR ? Math.min(h, h3dAt(c, a, z)) : h);
     let nt = [0, 0], nf = [0, 0], nr = 0, work = 0;
     const place = (mesh, idx, a, z, h, sXZ, sY, yaw, color, sZ = sXZ) => {
       const d = (a - a0), cp = Math.cos(z / R), sp = Math.sin(z / R), r = R + h;
@@ -2239,9 +2813,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         if (c.mapped && offFeature(a, z, 5)) continue;
         const kind = hashI(ix, q, 45) < 0.55 ? 0 : 1, far = dd > nearR, cnt = far ? nf : nt, i = cnt[kind];
         if (i >= max) continue;
+        const hs = seat(a, z, h);
         const s = 0.7 + 0.7 * hashI(ix, q, 46), g = hashI(ix, q, 47);
         tmpC.setRGB(lin(lerp(58, 92, g)) * 1.15, lin(lerp(96, 130, g)), lin(lerp(52, 64, g)));
-        place((far ? set.treesFar : set.trees)[kind], i, a, z, h - 0.4, s, s * (0.85 + 0.3 * hashI(ix, q, 48)), hashI(ix, q, 49) * TAU, tmpC);
+        place((far ? set.treesFar : set.trees)[kind], i, a, z, hs - 0.4, s, s * (0.85 + 0.3 * hashI(ix, q, 48)), hashI(ix, q, 49) * TAU, tmpC);
         cnt[kind]++;
       }
     }
@@ -2279,8 +2854,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           const a = ca + X / (R * kl), z = cz + Z;
           if (Math.hypot(wrapAngle(a - a0) * R * kl, z - z0) > rad) continue;
           if (offTrack(b, a, z) < 60 || Terrain.apronW(-wrapAngle(a - EARTH.padAngle) * R, z) > 0 || keepClear(-wrapAngle(a - EARTH.padAngle) * R, z)) continue; // (Tórshavn is by the runway)
-          const h = meshHeight(b, a, z);
-          if (h == null || h < 1.5 || offFeature(a, z, 7, true)) continue;
+          const h0 = meshHeight(b, a, z);
+          if (h0 == null || h0 < 1.5 || offFeature(a, z, 7, true)) continue;
+          const h = seat(a, z, h0);
           const core = Math.pow(dens, 3), cbd = 1 - smoothstep(rc * 0.03, rc * 0.14, dc), tall = big && H(103) < (mega ? 0.22 : 0.12) * cbd; // towers only in a downtown
           const hb = tall ? 25 + (mega ? 110 : 50) * core * (0.3 + 0.7 * H(104)) : 4 + (big ? 13 : 8) * H(104) * (0.4 + dens);
           const w = tall ? 14 + 12 * H(105) : 9 + 14 * H(105), d = tall ? 14 + 12 * H(106) : 8 + 12 * H(106), yaw = yaw0 + (H(107) - 0.5) * 0.12;
@@ -2316,8 +2892,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         for (let k = 0; k < n && nh < hMax; k++) {
           const H = (s) => hashI(ix * 31 + k, q, s);
           const r = spread * Math.sqrt(H(66)), t = H(67) * TAU, hz = cz + r * Math.sin(t), ha = a + (r * Math.cos(t)) / (R * kl);
-          const h = meshHeight(b, ha, hz);
-          if (h == null || h < 2.5 || offTrack(b, ha, hz) < 15 || keepClear(-wrapAngle(ha - EARTH.padAngle) * R, hz) || (c.mapped && offFeature(ha, hz, 6))) continue;
+          const h0 = meshHeight(b, ha, hz);
+          if (h0 == null || h0 < 2.5 || offTrack(b, ha, hz) < 15 || keepClear(-wrapAngle(ha - EARTH.padAngle) * R, hz) || (c.mapped && offFeature(ha, hz, 6))) continue;
+          const h = seat(ha, hz, h0);
           if (nw >= set.walls.instanceMatrix.count || nh >= set.roofs.instanceMatrix.count) break;
           const w = 6 + 5 * H(68), d = 5 + 3 * H(69), hh = H(70) < 0.18 ? 6.5 : 3.6, yaw = yaw0 + Math.round(H(71) * 3) * (Math.PI / 2) + (H(72) - 0.5) * 0.4;
           place(set.walls, nw, ha, hz, h - 0.3, w, hh + 0.3, yaw, wallC[Math.floor(H(73) * wallC.length)], d);
@@ -2353,9 +2930,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         if (Math.hypot((along - a0 * R) * kl, z - z0) > rr) continue;
         const a = along / R;
         if (offTrack(b, a, z) < 4 || (b === EARTH && keepClear(-wrapAngle(a - EARTH.padAngle) * R, z))) continue;
-        const h = meshHeight(b, a, z);
-        if (h == null || (b.ocean && h < 2)) continue;
-        const s = 0.4 + 3.6 * Math.pow(hashI(ix, q, 54), 4), g = 0.75 + 0.4 * hashI(ix, q, 55);
+        const hm = meshHeight(b, a, z);
+        if (hm == null || (b.ocean && hm < 2)) continue;
+        const h = seat(a, z, hm), s = 0.4 + 3.6 * Math.pow(hashI(ix, q, 54), 4), g = 0.75 + 0.4 * hashI(ix, q, 55);
         tmpC.setRGB(lin(rockC[0]) * g, lin(rockC[1]) * g, lin(rockC[2]) * g);
         place(set.rocks, nr, a, z, h - s * 0.25, s, s * (0.6 + 0.5 * hashI(ix, q, 56)), hashI(ix, q, 57) * TAU, tmpC);
         nr++;
@@ -4145,6 +4722,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const near = !b.star && camAlt < Math.max(60000, 0.35 * R);
     updatePatch(F, b, near, Math.max(camAlt, 1), dist);
     updateArena(F, b, v);
+    updateNear(F, b, v); // (and then the patch waiting for its seams goes up: seamSync)
     if (!b.star) {
       const need = camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
@@ -4298,6 +4876,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     renderer.shadowMap.autoUpdate = S.sun.intensity > 0 || !S.sun.shadow.map;
     // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
     if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
+    nearCull(); // (the near ground's tiles in view)
     if (!api.skipDraw) renderer.render(localScene, camera);
     if (PX.warm > 0 && PX.set && renderer.shadowMap.autoUpdate && !api.skipDraw && --PX.warm === 0) { // (drawn with the stand-ins on show: their programs compiled, shadowProxies)
       for (const [, px] of PX.set.casts) px.visible = px.nSh > 0;
@@ -4431,7 +5010,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       if (done) {
         pjob = null;
         note('patch', pjobMs); note('patchSlice', pjobSlice);
-        if (!arenaWaits(patchB)) swapPatch(); // (near an arena: up with its seam, a few frames on)
+        const wa = arenaWaits(patchB), wn = nearWaits(patchB); // (near an arena or with the near ground on show: up with their seams, a few frames on: seamSync)
+        if (wa || wn) bandWait = true; else swapPatch();
       }
     }
     patch.active = true;
@@ -5113,7 +5693,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
     if (hi) terr.oceanMat.defines.OB_HI = ''; else delete terr.oceanMat.defines.OB_HI; // (the water's second ripple set)
     terr.oceanMat.needsUpdate = true;
-    for (const m of [terr.mat, terr.amat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch and the arena's ground alike, one program)
+    for (const m of [terr.mat, terr.amat, terr.nmat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch, the arena's ground and the near ground alike, one program)
     PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
     patch.b = patchB.b = null; patch.ready = patchB.ready = false;
@@ -5406,7 +5986,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       fill: 0,
       day: () => (S.sun ? clamp(S.sun.intensity / 3.1, 0, 1) : 0),
       sunset: () => envV.sunset || 0,
-      busy: () => !!(pjob || bandWait || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
+      busy: () => !!(pjob || bandWait || NF.job || NF.ready || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
       fogK: 1,
       proxyCap: 0,
     },
@@ -5428,8 +6008,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         decalN: S.decal ? S.decal.count : 0, decals: decalRows(), decalShown: S.decal ? S.decal.visible : false, scorches: DK.scorch.length, // contact shadows and scorch marks drawn last frame ({k, a, x, y, z, w, d}), the crash sites' scorches kept
         engine: { i: e.intensity, x: e.position.x, y: e.position.y, z: e.position.z }, // the borrowed point light
         waterUvShared: !!(uv(oc) && uv(oc) === uv(ms)),
-        terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), oceanDefines: defs(terr.oceanMat),
-        terrProgs: new Set([terr.mat, terr.amat].map((m) => m && renderer.properties.get(m).currentProgram).filter(Boolean)).size, // (the shader programs the patch and the arena's ground were last drawn with: one)
+        terrDefines: defs(terr.mat), amatDefines: defs(terr.amat), nmatDefines: defs(terr.nmat), oceanDefines: defs(terr.oceanMat),
+        terrProgs: new Set([terr.mat, terr.amat, NF.shown ? terr.nmat : null].map((m) => m && renderer.properties.get(m).currentProgram).filter(Boolean)).size, // (the shader programs the patch, the arena's ground and the near ground on show were last drawn with: one)
         waterOffset: S.waterN ? { x: S.waterN.offset.x, y: S.waterN.offset.y, bx: S.waveB.value.x, by: S.waveB.value.y, t: S.waterT } : null, // the ripples' drift
         fogArrays: { sun: [...FOGX.sun], sunH: [...FOGX.sunH], sunset: [...FOGX.sunset], glow: [...FOGX.glow], lin: [...FOGX.lin], h: [...FOGX.h], density: localScene.fog.density }, // the haze's shared uniforms
         camAt: (toSim(camera.position.x, camera.position.y, camera.position.z, T3), { x: camAbs.x + T3.x, y: camAbs.y + T3.y, z: camAbs.z + T3.z }), // (the flight camera, in the sim's absolute axes, as project() takes points)
@@ -5468,6 +6048,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     propsInfo() { const o = {}; for (const [k, s] of PR.sets) o[k] = { shown: s.frame.visible, ready: s.ready, job: !!s.job, n: s.meshes.map((m) => (m ? m.count : 0)), slots: s.first ? s.first[s.first.length - 1] : 0, drawn: s.drawn, props: s.props ? s.props.length : 0, anim: s.anim.length }; return o; },
     skipDraw: false, // tests: run every frame's work but draw nothing
     arenaOff: false, // tests and measurements: the plain terrain patch even near an arena
+    nearOff: false, // tests and measurements: no near ground (the patch alone round the craft, as before it)
     get supported() {
       if (supported == null) {
         try {
@@ -5533,6 +6114,66 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // (onStep: called after each step, every slice spent at once: each step as little as a step can be)
     arenaGeo(id, hi = true, onStep) { const u = arenaUntil, job = arenaGeoJob(EARTH.arenas[id], hi); let r; arenaUntil = onStep ? -Infinity : Infinity; try { while (!(r = job.next()).done) if (onStep) onStep(); } finally { arenaUntil = u; } return r.value; },
     arenaGeoAt: geoAt,
+    // the near ground: { want, shown, gs (the fade: 0 its own, NEAR.fade the patch's), window, tiles, evals, vertices, triangles,
+    // commits, ms } (tests and tuning)
+    nearInfo() {
+      const C = NF.cur, tri = (m) => (m ? m.geometry.index.count / 3 : 0);
+      return { want: NF.want, shown: NF.shown, gs: C ? C.gs : null, fade: NEAR.fade, building: !!NF.job, waiting: NF.waits, window: C ? { ti0: C.ti0, tj0: C.tj0, fi0: C.fi0, fj0: C.fj0, NT: NF.NT, NF: NF.NF } : null,
+        tiles: NF.tiles.size, evals: NF.evals, commits: NF.commits, stepAt: NF.stepAt, speed: +NF.sp.toFixed(1), vertices: NF.mesh[0] ? NF.mesh[0].geometry.attributes.position.count + NF.mesh[1].geometry.attributes.position.count : 0,
+        triangles: tri(NF.mesh[0]) + tri(NF.mesh[1]), drawn: NF.drawn[0] + NF.drawn[1], hole: NF.shown ? [...NF.hole] : null, ms: costs.near || null, slice: costs.nearSlice || null, commit: costs.nearCommit || null, commits32: [...NF.cms], frame: costs.nearFrame || null, step: +NF.step.toFixed(2) };
+    },
+    // The near ground's own heights for a window round (a, z) on body b, built at once (no GPU, no patch: the Node tools),
+    // and read as its triangles draw them (nearGeoAt: null outside the window). hi: the quality's window
+    nearGeo(b, a, z, hi = true) {
+      const T = NEAR.T, [NT, NFn] = NEAR.q[hi ? 'hi' : 'lo'], c = cfgOf(b), n = Math.max(8, Math.round((Math.PI * 2 * b.radius) / GS)), tiles = new Map();
+      let fa = ((a % (Math.PI * 2)) / (Math.PI * 2)) * n;
+      if (fa < 0) fa += n;
+      const ci = Math.floor(fa / T), cj = Math.floor(z / GS / T), ti0 = ci - (NT - 1) / 2, tj0 = cj - (NT - 1) / 2, fi0 = ci - (NFn - 1) / 2, fj0 = cj - (NFn - 1) / 2;
+      const G = grid(T + 1, T + 1, c.k.length), ev = { n: 0, yield: false };
+      for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) {
+        const TI = ti0 + p, TJ = tj0 + q, t = { TI, TJ, lv: 0, h: new Float32Array((T + 1) ** 2).fill(NaN) }, fine = TI >= fi0 && TI < fi0 + NFn && TJ >= fj0 && TJ < fj0 + NFn;
+        const job = tileHeights(t, fine ? 2 : 1, c, n, G, ev);
+        while (!job.next().done);
+        tiles.set(nkey(TI, TJ), t);
+      }
+      return { b, n, T, NT, NF: NFn, ti0, tj0, fi0, fj0, tiles, evals: ev.n };
+    },
+    nearGeoAt(g, a, z) {
+      const T = g.T, n = g.n;
+      let fa = ((a % (Math.PI * 2)) / (Math.PI * 2)) * n;
+      if (fa < 0) fa += n;
+      fa += n * Math.round(((g.ti0 + g.NT / 2) * T - fa) / n);
+      const fz = z / GS, TI = Math.floor(fa / T), TJ = Math.floor(fz / T), t = g.tiles.get(nkey(TI, TJ));
+      if (!t) return null;
+      const fine = TI >= g.fi0 && TI < g.fi0 + g.NF && TJ >= g.fj0 && TJ < g.fj0 + g.NF, st = fine ? 1 : 2, N1 = T + 1;
+      const lx = (fa - TI * T) / st, lz = (fz - TJ * T) / st, i = Math.min(Math.floor(lx), T / st - 1), j = Math.min(Math.floor(lz), T / st - 1), tx = lx - i, tz = lz - j;
+      const H = (p, q) => t.h[(q * st) * N1 + p * st], h00 = H(i, j), h10 = H(i + 1, j), h01 = H(i, j + 1), h11 = H(i + 1, j + 1);
+      return tx + tz <= 1 ? h00 + (h10 - h00) * tx + (h01 - h00) * tz : h11 + (h01 - h11) * (1 - tx) + (h10 - h11) * (1 - tz);
+    },
+    // Tests: the ground as drawn at (a, z) on body b, found as the eye finds it: a ray straight down through the ground
+    // meshes on show (the near ground, the arena's, the terrain patch), each where its shader doesn't cut it away; null
+    // where it meets none. (Its height over the sea-level sphere, m)
+    rayGround(b, a, z) {
+      if (!api.ready || mode !== 'flight') return null;
+      const bp = bodyPos(b, NF.rT), R = b.radius, ph = z / R, ux = Math.cos(ph) * Math.cos(a), uy = Math.cos(ph) * Math.sin(a), uz = Math.sin(ph);
+      localWorld.updateMatrixWorld(true);
+      const o = new THREE.Vector3(bp.x + (R + 3000) * ux - camAbs.x, bp.y + (R + 3000) * uy - camAbs.y, (R + 3000) * uz - camAbs.z).applyMatrix4(localWorld.matrixWorld);
+      const d = new THREE.Vector3(-ux, -uy, -uz).transformDirection(localWorld.matrixWorld);
+      const ray = new THREE.Raycaster(o, d, 0, 6000), list = [], keep = [];
+      for (let f = 0; f < 2; f++) if (NF.mesh[f]) { const g = NF.mesh[f].geometry; keep.push([g, g.index, g.drawRange.count]); g.index = NF.idx[f]; g.drawRange.count = Infinity; } // (every tile, in view or not)
+      try {
+      for (const m of [NF.mesh[0], NF.mesh[1], AR.mesh, patch.mesh]) if (m && m.parent && m.parent.visible) list.push(m);
+      const inside = (uv, H) => uv && uv.x > H.x && uv.x < H.z && uv.y > H.y && uv.y < H.w;
+      for (const hit of ray.intersectObjects(list, false)) {
+        const m = hit.object;
+        if (m === patch.mesh && (inside(hit.uv, terr.holeU.value) || inside(hit.uv, terr.holeU2.value))) continue;
+        if ((m === NF.mesh[0] || m === NF.mesh[1]) && inside(hit.uv, terr.holeU.value)) continue;
+        const inv = new THREE.Matrix4().copy(localWorld.matrixWorld).invert(), p = hit.point.clone().applyMatrix4(inv);
+        return Math.hypot(p.x + camAbs.x - bp.x, p.y + camAbs.y - bp.y, p.z + camAbs.z) - R;
+      }
+      return null;
+      } finally { for (const [g, ix, c] of keep) { g.index = ix; g.drawRange.count = c; } }
+    },
     // The camera's line of sight through the middle of the screen, from the last flight frame: out.o where it starts and
     // out.d its way (unit), body-relative sim coordinates. (null before a flight frame is drawn.)
     aimRay(out) {
