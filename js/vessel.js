@@ -33,6 +33,9 @@ const PLANE_Q = 1.3, PLANE_R = 0.6, PLANE_STOP = 0.4;
 const AIM_K = 4, AIM_KB = 1.5, AIM_B0 = 0.08, AIM_PUSH = -3, AIM_SLIPMAX = 0.08, AIM_SLIP = 2.5, AIM_TAU = 0.8;
 const AIM_JUMP = 0.03; // (rad: the circle moved further than this between two steps jumped (a flick), it isn't moving: no turn to follow; was 0.08, and a 3° flick read as a circle racing at 360°/s, banked the plane 38° and swung the nose 3° past)
 const AIM_LOW0 = 120, AIM_LOW1 = 300; // (m over the ground: under the first, a circle on the horizon flies the flight path at it, a low pass; over the second, the nose)
+// (the sine of the most a circle may be under the horizon and still be on it, 0.29°: further under, it is on the ground, and
+// nothing holds the plane off it: no look ahead over the ground, and the nose, not the flight path, goes on it)
+const AIM_GROUND = 0.005;
 const DOWNWASH = 0.35, TAIL_THROW = 1.3, PLANE_GK = 1.5, PLANE_AK = 4, PLANE_AL = 0.3; // (GK, AK: how fast the g and the AoA may come on below their limits, per second; AL: the AoA limit's lead, s. AK 2.5 until PR #44, when the AoA limit held a pull back long before the limit. A quicker GK, tried then, porpoised the bomber, the airliners and the FS-16 about their g limit; a shorter AL and a bolder stop (PLANE_STOP) let a slow Sugoi-27's nose run 12° past the stall in Off)
 // Where a part's mass sits across (z), one entry per copy: each side of a twin pair, or an axle's two wheels
 // (track apart, either side of the part's depth).
@@ -899,19 +902,22 @@ class Vessel {
     return clamp((q * this.clS * k) / (this.mass * G0), 1.05, n);
   }
   // The lowest the instructor lets the flight path point (rad; -π/2: anywhere):
-  //  - flying about level (the circle no more than 4° under the horizon), over the ground and anything rising ahead along
-  //    the track (1, 2, 4 and 6 s out, looked at 5 times a second), clear of it by most of the height it is flying at, 15 to
-  //    40 m (so a low pass stays low, and it climbs over a hill); a circle put on the ground is dived at;
-  //  - with aimPull (Settings → Aim pulls out of dives, off by default: PR #45's play-test found it annoying, the plane
-  //    pulling off a target it was diving at), and coming in to land: no steeper than it can still pull out of, at the
-  //    last moment: the height a pull-out takes at the g it can make now, V²(1 - cos γ)/(g(n - 1)), counting on 75% of that
-  //    g and with 30% to spare, after rolling the wings level and the g coming on, kept above 25 m (but on a landing's
-  //    shallow approach, under 10°); without it a circle held on the ground is flown into, as War Thunder's would be;
-  //  - near its wings' speed limit (past 96% of it), shallower and shallower, level at the limit;
+  //  - with the circle on or over the horizon (no more than AIM_GROUND under it), over the ground and anything rising ahead
+  //    along the track (1, 2, 4 and 6 s out, looked at 5 times a second), clear of it by most of the height it is flying
+  //    at, 15 to 40 m (so a low pass stays low, and it climbs over a hill);
+  //  - a circle under the horizon is on the ground, and is dived at and flown into, as War Thunder's would be: nothing
+  //    holds the plane off it, nor its speed: past its wings' speed limit they flutter and tear, after the Overspeed
+  //    warning, as in a dive flown by hand (until the owner's ask after PR #50 the look ahead held it 15-40 m up for any
+  //    circle within 4° of the horizon, the nose 2-7° over a target a low pass was diving at; past 96% of the wings' speed
+  //    limit the path was held shallower and shallower, level at the limit, a glider's nose 20-60° off a steep circle; and
+  //    Settings → Aim pulls out of dives, PR #45's aimPull, off by default, could pull it out at the last moment: all gone);
   //  - coming in to land (the circle under the horizon, and its retractable gear down under 2.5 times its stall speed, or
-  //    fixed gear under 1.6 times), down to the runway, flaring the last 25 m.
+  //    fixed gear under 1.6 times), down to the runway: no steeper than it can still level off from at the last moment
+  //    (the height that takes at the g it can make now, V²(1 - cos γ)/(g(n - 1)), counting on 75% of that g and with 30%
+  //    to spare, after rolling the wings level and the g coming on, kept above 25 m; not on its shallow approach, under
+  //    10°), flaring the last 25 m.
   // (Until PR #44 the look ahead held for any circle, and over flat ground alone it allowed no more than about 25° of dive
-  // from 600 m at 720 km/h (about 65° now); the pull-out kept 30 m; and the speed limit's floor came on from 92%.)
+  // from 600 m at 720 km/h; the pull-out kept 30 m; and the speed limit's floor came on from 92%.)
   aimFloor(dt, at) {
     const h = (this._aimH = this.groundAltitude()), sp = Math.max(1, this.speed()), sinG = clamp(this.vSpeed() / sp, -1, 1);
     const vst = this.clS > 0 ? Math.sqrt((2 * this.mass * G0) / (Math.max(airDensity(this.body, this.altitude()), 0.01) * this.clS)) : 0;
@@ -931,15 +937,13 @@ class Vessel {
     }
     const c = landing ? 0 : clamp(0.8 * h, 15, 40);
     let floor = -Math.PI / 2;
-    if (landing || el > -0.07) for (let i = 0; i < 4; i++) floor = Math.max(floor, Math.atan2(L.rise[i] + c - h, L.d[i]));
-    if (sinG < 0 && (this.aimPull || landing) && !(landing && sinG > -0.17)) { // (a landing's shallow approach: the flare's, below)
+    if (landing || el > -AIM_GROUND) for (let i = 0; i < 4; i++) floor = Math.max(floor, Math.atan2(L.rise[i] + c - h, L.d[i]));
+    if (landing && sinG <= -0.17) { // (a landing's shallow approach: the flare's, below)
       const n = 1 + 0.75 * (this.aimG(sp) - 1), tr = Math.abs(at.bank) / Math.max(0.3, this.rollRate()) + 0.6; // (n: 75% of the g it has over 1, as a tail, a store or a swept wing may hold it to less; tr: rolling level, and the g coming on)
       const room = h - Math.max(0, L.rise[0], L.rise[1]) - 25 + sp * sinG * tr, x = room > 0 ? (room * G0 * (n - 1)) / (1.3 * sp * sp) : 0;
       floor = Math.max(floor, x >= 2 ? -Math.PI / 2 : -Math.acos(1 - x));
     }
     if (landing) floor = Math.max(floor, -lerp(0.01, 0.12, smoothstep(2, 25, h)));
-    const ow = this.overWarn || 0;
-    if (ow > 0.96 && sinG < 0) floor = Math.max(floor, -(Math.PI / 2) * (1 - smoothstep(0.96, 1, ow)));
     // (and a ceiling, aimCeil: running out of speed, under 1.3 times the stall speed and slowing, the path comes down
     // towards level before the plane stalls and slides back on its tail)
     const dv = this._aimV0 != null ? (sp - this._aimV0) / Math.max(dt, 1e-3) : 0;
@@ -1004,7 +1008,10 @@ class Vessel {
     // (only low down, where a circle on the horizon is a low pass to hold: higher up the nose, and the cross with it, goes on
     // the circle itself, as War Thunder's does; the play-test after PR #42: flying the path there left the nose 3-5° over
     // the circle at cruise, 10-13° slow, and a small flick down was never reached)
-    const elD = Math.asin(clamp(dot3(D, Z), -1, 1)), kv = (this._landing ? 1 : (1 - smoothstep(0.015, 0.06, Math.abs(elD))) * (1 - smoothstep(0.3, 0.7, Math.abs(at.bank))) * (1 - smoothstep(0.02, 0.08, len3(W))) * (1 - smoothstep(AIM_LOW0, AIM_LOW1, this._aimH))) * dot3(O, Z);
+    // (and only for a circle on the horizon or a little over it: one under it, on the ground, gets the nose and the cross,
+    // a target strafed from low down; until the owner's ask after PR #50 one up to 3.4° under it got the path, the cross
+    // a few degrees over the target)
+    const elD = Math.asin(clamp(dot3(D, Z), -1, 1)), kv = (this._landing ? 1 : (1 - (elD >= 0 ? smoothstep(0.015, 0.06, elD) : smoothstep(AIM_GROUND, 3 * AIM_GROUND, -elD))) * (1 - smoothstep(0.3, 0.7, Math.abs(at.bank))) * (1 - smoothstep(0.02, 0.08, len3(W))) * (1 - smoothstep(AIM_LOW0, AIM_LOW1, this._aimH))) * dot3(O, Z);
     const Tn = T.Tn;
     Tn.x = D.x + Z.x * kv - O.x; Tn.y = D.y + Z.y * kv - O.y; Tn.z = D.z + Z.z * kv - O.z; norm3(Tn);
     const sinP = dot3(Tn, Z), el = sinP < Math.sin(floor) ? floor : sinP > Math.sin(this.aimCeil) ? this.aimCeil : null;
