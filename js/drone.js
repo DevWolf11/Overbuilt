@@ -45,10 +45,10 @@ const DRONE = {
   // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
   // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
   // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back. Before the dive, with
-  // its link under Q (a jammer breaking the picture up), the tracker may slip: SLIP a look (22%), 4 looks a second (the drone's
+  // its link under Q (a jammer breaking the picture up), the tracker may slip: SLIP a look (37%), 4 looks a second (the drone's
   // own stream: prand of its controller); the kit meets it as AUTO says (not AUTO's: its steady line no
   // harder to hit than a hand-flown drone's, its link no harder to jam).
-  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, SLIP: 0.22, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
+  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, SLIP: 0.37, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)
