@@ -45,12 +45,12 @@ const GroundAI = (() => {
   const LOOP = { e: 18450, z: 14810, r: 191, n: 16 }; // (its south point is zone B's middle)
   const DRONES = { e: 17750, z: 12400, r: [600, 900], alt: [400, 600] }; // circling 1.5 km north of the pad
   // (the big update) The drone war: a player who brings a drone bay or counter-drone kit to the range or a Practice
-  // Battle (GroundAI.dw) meets drones. Practice: two passive Bumbles circling 400 m ahead of the north pad; Hostile, an
+  // Battle (GroundAI.dw) meets drones. Practice: two passive Bumbles circling 140-220 m ahead of the north pad (the drones' balance: within the anti-drone gun's own 250 m; they were 400 m out); Hostile, an
   // attack Bumble every 60 s, two at most, from the south pad's way 1.6 km off (outside every counter-drone kit's reach,
   // the laser's cued 1.5 km included, so the kit meets it on its way in), at its top speed; a Practice Battle's enemy fields a BMK-2D Nest (it
   // launches a Bumble when it sees an enemy within 1.4 km, every 60 s, one up at a time, three a life) and a
   // counter-drone vehicle for the money. Old play never sets it.
-  const DW = { e: 17750, z: 14200, key: 'bumble', every: 60, most: 2, from: 1600, fast: 30, see: 1400, cuas: { 45000: 'zsy23', 75000: 'gepardo', 120000: 'ma1c' } };
+  const DW = { e: 17750, z: 13980, key: 'bumble', every: 60, most: 2, from: 1600, fast: 30, see: 1400, cuas: { 45000: 'zsy23', 75000: 'gepardo', 120000: 'ma1c' } };
 
   const S = {
     ai: [], wrecks: [], dead: [], units: [], obs: [], range: null, b: null, F: null, chkT: 0, calls: 0, barT: 0, bar: null, barKey: '', warp: false, fresh: 0,
@@ -883,7 +883,7 @@ const GroundAI = (() => {
   // a range practice drone, circling DW's spot (i: which of the two: half a lap apart)
   function practiceDrone(F, i) {
     const t = (i / 2) * TAU;
-    return typeof Drone === 'undefined' ? null : Drone.spawnAI(F, DW.key, { e: DW.e + Math.cos(t) * 60, z: DW.z + Math.sin(t) * 60, h: 50, yaw: S.rnd() * TAU }, 1, { passive: true, at: { e: DW.e, z: DW.z } });
+    return typeof Drone === 'undefined' ? null : Drone.spawnAI(F, DW.key, { e: DW.e + Math.cos(t) * 40, z: DW.z + Math.sin(t) * 40, h: 50, yaw: S.rnd() * TAU }, 1, { passive: true, at: { e: DW.e, z: DW.z } });
   }
   // The range's drones: practice ones shot down (or lost) back 45 s later, the player's knock-outs counted as the old
   // target drones' are; in Hostile, an attack Bumble every 60 s (two at most), from the south pad's way, 900 m off

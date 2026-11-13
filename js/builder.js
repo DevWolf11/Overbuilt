@@ -134,7 +134,7 @@ const TEMPLATES = {
       ['wing', -0.85, 3.6], ['elevator', -0.6, 0.75], ['vtail', -1.6, 1.0], ['floats', 1.5, 4.3]],
   },
   buggy: {
-    name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with W/S, steer with A/D. The causeway leads across the sea to Shetland.',
+    name: 'Dune Buggy', kind: 'car', tier: 0, blurb: 'Drive with W/S, steer with A/D. Down the runway, along the headland road, or off across the islands.',
     parts: [['chassis', 0, 1.25], ['cab', -0.4, 2.25], ['carWheel', 1.4, 0.4], ['carWheel', -1.4, 0.4]],
   },
   dragonfly: {
@@ -2342,6 +2342,7 @@ const Builder = {
     const t = !live ? 'Launch' : MP.pvp ? (ready ? 'Ready ✓' : 'Ready') : 'Fly';
     if (b.textContent !== t) b.textContent = t;
     b.classList.toggle('on', !!ready);
+    if (typeof Spawns !== 'undefined') Spawns.renderBtn(); // (the sandbox's Start button beside it: mpui.js)
   },
 
   // Nose-to-tail length of a design (along part y).
@@ -2558,7 +2559,7 @@ const Builder = {
     const t = hasOwn(TEMPLATES, D.stock) && TEMPLATES[D.stock].kind === 'drone' ? TEMPLATES[D.stock] : null, stock = t ? t.name : 'its stock drone';
     const c = this.droneChoice, des = c && this.choiceDesign(c);
     if (!des) return { name: stock, n: D.n, chosen: null, why: null };
-    const f = Drone.fits(des, D);
+    const f = Drone.fits(des, D, Drone.freeBays()); // (sandbox: any price)
     return f.ok ? { name: des.name, n: D.n, chosen: des.name, why: null } : { name: stock, n: D.n, chosen: des.name, why: f.why };
   },
   // a pick as a design ({ name, kind, parts }), or null (a stock drone this game doesn't have)
@@ -2586,7 +2587,7 @@ const Builder = {
       ...this.designs().filter((x) => x.kind === 'drone').map((x) => ({ choice: { name: x.name, parts: x.parts }, d: x })),
     ];
     for (const { choice, d } of cards) {
-      const ps = partsFromDesign(d.parts), st = Drone.stats(ps), f = Drone.fits({ kind: 'drone', parts: ps }, D);
+      const ps = partsFromDesign(d.parts), st = Drone.stats(ps), f = Drone.fits({ kind: 'drone', parts: ps }, D, Drone.freeBays());
       const span = typeof MP !== 'undefined' && MP.measure ? MP.measure(ps).span : 0, name = String(d.name || 'Drone').slice(0, 40);
       const line = `${st.kg.toFixed(1)} kg · ${span.toFixed(2)} m · ${money(designCost(ps))}`;
       const main = el('button', { class: 'design-main', title: f.ok ? `Carry the ${name}` : f.why },
@@ -2715,7 +2716,7 @@ const Builder = {
     // (the big update) drone bays and counter-drone kit
     if (d.dock) { const D = d.dock; out.push(`Carries ${D.n} drone${D.n > 1 ? 's' : ''}: up to ${D.kg} kg, ${D.span} m, ${money(D.budget)}${D.n > 1 ? ' each' : ''}`); }
     const C = d.cuas;
-    if (C && C.jam) out.push(`Jams radios: they break up inside ${C.jam} m and are lost inside ${Math.round(C.jam * (typeof DRONE !== 'undefined' ? DRONE.LINK.JAM_IN : 0.35))} m`);
+    if (C && C.jam) out.push(`Jams radios: they break up inside ${C.jam} m and are lost inside ${Math.round(C.jam * (typeof DRONE !== 'undefined' ? DRONE.LINK.LOSE : 0.32))} m`);
     if (C && C.detect) out.push(`Hears drones out to ${+(C.detect / 1000).toFixed(1)} km`);
     if (C && C.gun) out.push(`${C.gun.range} m alone, ${C.gun.cued} m with a sensor`, `${C.gun.rate} rounds/s`, `${C.gun.ammo} rounds`, 'airburst');
     if (C && C.laser) out.push(`${C.laser.range} m alone, ${C.laser.cued} m with a sensor`, `${C.laser.on} s of beam, ${C.laser.cool} s to cool`);

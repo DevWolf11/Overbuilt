@@ -74,7 +74,7 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
-    const air = P && P.air ? P.air : !P && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad)
+    const air = P && P.air ? P.air : (!P || P.spot) && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad, or a sandbox spawn point's drone pad)
     if (air) { // an air start: raised over the spot, flying along its nose, gear up
       const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
       v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
@@ -168,7 +168,7 @@ const Flight = {
     if (GroundAI.battle && GroundAI.revert(this)) return; // (a Practice Battle: back on its pad, the AI kept)
     Career.earn(this.launchCost);
     store.set('rss.flight', null);
-    const place = this.design.kind === 'tank' ? GroundMode.soloPlace(this.design.kind) : null; // (Armour starts on its range: back there)
+    const k = this.design.kind, place = typeof Spawns !== 'undefined' ? Spawns.solo(k).place : k === 'tank' ? GroundMode.soloPlace(k) : null; // (back where it starts: the spot picked in Sandbox, else as ever, Armour on its range)
     this.start(this.design, place ? { place } : undefined);
   },
 
@@ -1794,7 +1794,7 @@ const Flight = {
   },
 
   // Tracks and armoured wheels throw dust behind them over 4 m/s, more the faster (a third as much on low quality),
-  // within 300 m of the camera, not on the paved runway or causeway. The puffs build up and go out at most 10 times a
+  // within 300 m of the camera, not on the paved runway or its road. The puffs build up and go out at most 10 times a
   // second a vehicle (each costs a few ground lookups), from each side's rear in turn.
   trackDust(v, dt) {
     const sp = v.speed(), f = this.viewVessel;
@@ -2312,7 +2312,7 @@ const Flight = {
       return '';
     }
     if (v.kind === 'car') {
-      if (sp < 1 && !this.flags.drive1k) return T ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The causeway leads 18 km out across the sea to Shetland.' : `${ws} to drive, ${ad} to steer, hold ${k('brake')} to brake. The causeway leads 18 km out across the sea to Shetland.`;
+      if (sp < 1 && !this.flags.drive1k) return T ? 'Push the stick up to drive, sideways to steer; hold Brake to stop. The road past the runway runs down the headland to a slipway.' : `${ws} to drive, ${ad} to steer, hold ${k('brake')} to brake. The road past the runway runs down the headland to a slipway.`;
       return '';
     }
     if (v.kind === 'heli') {

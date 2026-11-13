@@ -196,7 +196,20 @@ for (const [k, p] of Object.entries(P)) for (let u = -p.hl; u <= p.hl; u += 5) f
   const e = p.e + u * p.c - v * p.s, z = p.z + u * p.s + v * p.c, h = S(e, z);
   if (Math.abs(h - p.h) > 0.05 || WET(e, z)) padOff.push(`${k} (${e.toFixed(0)}, ${z.toFixed(0)}) ${h.toFixed(3)}`);
 }
-t('the pads are level to ±5 cm over their 160 x 70 m and dry (and the tank yard\'s over its 100 x 70 m)', Object.keys(P).join() === 'highlandN,highlandS,yard' && !padOff.length, show(padOff));
+t('the pads are level to ±5 cm over their 160 x 70 m and dry (and the tank yard\'s over its 100 x 70 m, and the spawn points update\'s eight: six outposts\' 64 x 80 m and two launch pads\' 50 x 50 m)', Object.keys(P).join() === 'highlandN,highlandS,yard,funningur,vidareidi,tvoroyri,northRoe,bixter,lunna,watten,bettyhill' && !padOff.length, show(padOff));
+{ // (the spawn points update) each new pad levelled at its own ground's height, measured without it (to 5 cm), well off the
+  // airfields, the arenas, the runway and the old Shetland slope path
+  const bare = G.load(), Pb = bare.EARTH.groundPads, far = [];
+  for (const k of Object.keys(Pb).filter((k) => Pb[k].spawn)) delete Pb[k];
+  const sp = Object.entries(P).filter(([, p]) => p.spawn), meas = sp.map(([k, p]) => [k, bare.Terrain.surfaceAt(bare.EARTH, bare.siteAngle(bare.EARTH, p.e), p.z)]);
+  for (const [k, p] of sp) {
+    for (const f of Object.values(EARTH.airfields)) { const de = p.e - f.e, dz = p.z - f.z, u = Math.abs(de * f.c + dz * f.s), v = Math.abs(-de * f.s + dz * f.c); if (u < f.hl + f.blend + 150 && v < f.hw + f.blend + 150) far.push(k + ' airfield'); }
+    const B = H.box; if (p.e > B.e0 - 400 && p.e < B.e1 + 400 && p.z > B.z0 - 400 && p.z < B.z1 + 400) far.push(k + ' arena');
+    if (Math.abs(p.z) < 400 && p.e < 3500) far.push(k + ' track');
+    if (Math.hypot(p.e - 17720, p.z + 620) < 250) far.push(k + ' slope');
+  }
+  t('...the spawn points\' pads each levelled at its own ground\'s height (within 5 cm of the ground there without it), well off the airfields, Highland Ridge, the track and the Shetland slope test path', sp.length === 8 && meas.every(([k, h]) => Math.abs(h - P[k].h) < 0.05) && !far.length, { meas: meas.map(([k, h]) => k + ' ' + h.toFixed(2) + '/' + P[k].h), far });
+}
 t('each pad is levelled at its own ground\'s height (25.1 and 51.3 m), facing the other', P.highlandN.h === 25.1 && P.highlandS.h === 51.3 && P.highlandN.yaw === -Math.PI / 2 && P.highlandS.yaw === Math.PI / 2
   && T.fieldAt(17750, 13800).f === P.highlandN && T.fieldAt(17750, 16200).f === P.highlandS);
 // the berms: 2.4 m high where they stand, nothing elsewhere, physics standing on them, and none without the map
@@ -272,15 +285,19 @@ function groundSample(c) { // c: a loaded game; -> { map | nomap: ['heightAt:sur
     wick: wick.length + ':' + hash(wick.map(([e, z]) => Tc.heightAt(Ec, ang(e), z))) + ':' + hash(wick.map(([e, z]) => Tc.surfaceAt(Ec, ang(e), z))) };
 }
 // ---- end ground sample
-const REF = { // (node test/catalogue.test.js --print, with ROOT at a checkout of 2e9884a)
-  map: ['8b991bcd:61e2bffe', '9b8c3c29:5516ca67', 'cb065937:5a4ef780', 'bb9114a7:5dd9846b', '06ade9c5:30381140', '138b09cc:93640bf5', '294a33c6:117857d0', '7c7cfbbb:3d81be7c'],
-  nomap: ['6adc1f5a:a262d8e0', '6f2b3f55:20bfe9f7'],
-  field: 'f0362d73', nomapField: 'f0362d73', wick: '4424:8e0213a7:8e0213a7',
+const REF = { // (node test/catalogue.test.js --print, with ROOT at a checkout of 2e9884a; the spawn points update re-recorded
+  // the four map blocks round the Faroes and Shetland and the two without the map, where the causeway's flat stood and the
+  // headland's ramp now ends the track; the second map block (round the arena: Watten's and Bettyhill's pads) and the
+  // map's field hash (the North Roe and Watten pads lie within the airfields' sample squares) for the spawn points' pads.
+  // The arena's own block, the anywhere block, Wick's strip and the fields without the map are as they were)
+  map: ['8b991bcd:61e2bffe', '234c051e:638b7c9c', '0b38965a:a196aee5', '6414a516:9f6250df', '6d4facb1:0906e3e8', '4e3424e4:93640bf5', '294a33c6:117857d0', '7c7cfbbb:3d81be7c'],
+  nomap: ['156015f7:542418f9', 'a6303fb7:e1ef9dfd'],
+  field: '6e950b26', nomapField: 'f0362d73', wick: '4424:8e0213a7:8e0213a7',
 };
 const now = groundSample(G.load()), nowNo = groundSample(nomap);
 t('heightAt and surfaceAt are bit for bit as before at 2,000 points outside the arena (8 blocks of 250)', now.map.join() === REF.map.join(), now.map.filter((h, i) => h !== REF.map[i]).length + ' blocks differ');
 t('...and at 500 points anywhere without the Earth map, the arena included', nowNo.nomap.join() === REF.nomap.join());
-t('fieldAt is as before round every airfield and site (with and without the map)', now.field === REF.field && nowNo.field === REF.nomapField);
+t('fieldAt is as before round every airfield and site (with and without the map; with it, as recorded since the spawn points update levelled its pads)', now.field === REF.field && nowNo.field === REF.nomapField);
 t('...and the ground over the whole of the Scotland airfield\'s strip and blend (4,424 points), its end in the arena\'s fade included', now.wick === REF.wick, now.wick);
 
 t.done();

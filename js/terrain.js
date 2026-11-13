@@ -53,14 +53,12 @@ const LOOK = {
   jupiter: { kind: 'jupiter', cont: 30, det: [2, 0], relief: 1 },
   europa: { kind: 'europa', cont: 80, det: [3, 1], cr: [[900, 0.08, 0.2]], relief: 3 },
 };
-// Earth: built-up ground around the space centre, runway and causeway (metres east of the pad, z)
+// Earth: built-up ground around the space centre and runway (metres east of the pad, z)
 const APRONS = [{ e0: 820, e1: 1330, z0: -165, z1: -18, bl: 170 }];
 function trackHalf(e) {
   let h = 25;
   h = lerp(h, 260, 1 - smoothstep(300, 520, Math.abs(e)));
-  h = lerp(h, 45, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
-  const cw = EARTH.causeway, half = (cw.to - cw.from) / 2;
-  return lerp(h, 14, 1 - smoothstep(half, half + 300, Math.abs(e - (cw.from + cw.to) / 2)));
+  return lerp(h, 45, 1 - smoothstep(1100, 1250, Math.abs(e - 1700)));
 }
 function trackBlend(e) {
   let b = 150;
@@ -127,11 +125,11 @@ function cliffW(lon, lat) {
   }
   return w;
 }
-// Low land jumps up from the sea (about 45° on the map's 240 m cells) and settles back by 80 m. Where the
-// causeway comes ashore on Shetland there is a harbour instead (e, z: metres along and across the track).
+// Low land jumps up from the sea (about 45° on the map's 240 m cells) and settles back by 80 m. Where the old
+// causeway came ashore on Shetland (EARTH.shore) there is a harbour instead (e, z: metres along and across the track).
 function cliffs(h, w, e, z) {
   if (w <= 0 || h < -3) return h;
-  w *= smoothstep(300, 900, Math.hypot(e - EARTH.causeway.shore, z));
+  w *= smoothstep(300, 900, Math.hypot(e - EARTH.shore, z));
   return h + 26 * w * smoothstep(-3, 5, h) * (1 - smoothstep(25, 80, h));
 }
 const cliffAt = (a, z) => { const g = toGeo(a, z / EARTH.radius); return cliffW(g.lon * DEG, g.lat * DEG); };

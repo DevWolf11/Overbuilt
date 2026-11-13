@@ -931,6 +931,10 @@ const MP = {
   placement(spawnId, kind, design) {
     if (!spawnId) { // sandbox: the usual pad, runway or helipad, a little apart so craft don't start inside each other
       const slot = Math.max(0, this.state.players.map((p) => p.pid).sort((a, b) => a - b).indexOf(Net.me));
+      // (the spawn points update: a spot we picked in the hangar, Spawns in mpui.js; ours alone, so nothing a peer sends
+      // is taken for a place: they see where we are, as ever)
+      const mine = typeof Spawns !== 'undefined' ? Spawns.room(kind, slot) : null;
+      if (mine) return mine;
       // (Armour and cars armed by the ground update: the tank yard on the space centre's island, side by side facing the
       // open ground (props.js yardPlace), when the map is in and the view is 3D. An old car's gun, flares or chaff keep it
       // on the runway, as before.)
@@ -1303,7 +1307,8 @@ const MP = {
     // design gone, and never sent again) the bay the spawn names, a real bay part (P4-MP-2)
     const docks = P.design && Array.isArray(P.design.parts) ? P.design.parts.map((r) => r[1]) : (P.bays || []).concat(typeof m.bay === 'string' ? [m.bay] : []);
     const parts = this.partsOfRows(rows), D = parts.length ? { kind: 'drone', parts } : null;
-    if (!D || !docks.some((k) => hasOwn(PARTS, k) && PARTS[k].dock && Drone.fits(D, PARTS[k].dock).ok)) return;
+    const free = !!this.state && this.state.mode === 'sandbox'; // (a sandbox room: a bay takes a drone of any price, as the sender's does)
+    if (!D || !docks.some((k) => hasOwn(PARTS, k) && PARTS[k].dock && Drone.fits(D, PARTS[k].dock, free).ok)) return;
     this.dropExtraGhost(m.f, 0); // (one at a time: an older one, and this one's old ghost, go)
     if (!P.x) P.x = new Map();
     const E = { c, design: { kind: 'drone', parts: rows }, ghost: null, snap: null, recv: performance.now(), asked: 0, gun: {} }; // (recv: silent 15 s from its spawn, it goes)

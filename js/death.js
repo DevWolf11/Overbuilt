@@ -281,6 +281,7 @@ const Death = (() => {
     if (v.hulk == null) { v.hulk = t; v.doomBy = v.lastHitBy && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null; }
     if (why === 'tailrotor') v.tailLost = true;
     const fresh = v.hulkWhy !== why || (down && !v.down);
+    if (down && !v.down && v.kind === 'drone' && typeof Drone !== 'undefined' && Drone.die(v, sim, why)) return; // (a drone shot down goes up with its payloads, where it is: drone.js)
     if (v.hulkWhy !== why) { v.hulkWhy = why; if (CRIPPLED[why] && !lose(v, sim, { name: CRIP_NAME[why][0], k: CRIP_NAME[why][1], text: CRIPPLED[why] })) toastMe(v, sim, CRIPPLED[why]); }
     if (down && !v.down) {
       v.down = true; v.isDebris = true; v.throttle = 0;
@@ -434,6 +435,7 @@ const Death = (() => {
   // nothing); so does any aircraft whose cockpit breaks (not in Hollywood: there it blows up part by part, as ever).
   // Gear or a wing tip broken on landing: today's breakage, part by part.
   function impactAir(v, parts, sim) {
+    if (v.kind === 'drone' && typeof Drone !== 'undefined' && Drone.die(v, sim, 'crash')) return null; // (a drone that crashes with payloads aboard: they go off, drone.js)
     const ctrl = parts.some((p) => p.def.control);
     if (v.hulk != null && (!v.control || ctrl || v.speed() > 40)) { crash(v, sim); return null; }
     if (ctrl && !hollywood()) { crash(v, sim); return null; }
@@ -446,6 +448,7 @@ const Death = (() => {
   // craft is destroyed now (if it wasn't), and the end screen counts from here (crashedAt).
   function crash(v, sim) {
     if (v.dead) return;
+    if (v.kind === 'drone' && typeof Drone !== 'undefined' && Drone.die(v, sim, 'crash')) return; // (its payloads go off where it ends: drone.js)
     const c = v.toWorld(v.com.x, v.com.y, v.com.z || 0), hot = hotOf(v), size = airSize(v);
     const L = Terrain.locate(v.body, c.x, c.y, c.z, {}), wet = !!Terrain.waterAt(v.body, L.a, L.z);
     // (review P2-AIR-R3) on what it hit: the point under its centre on the ground (the sea, a deck), when it is within
