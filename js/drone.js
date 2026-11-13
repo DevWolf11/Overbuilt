@@ -45,7 +45,7 @@ const DRONE = {
   // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
   // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
   // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back.
-  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 25, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9 },
+  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9 },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)
@@ -193,11 +193,13 @@ const Drone = (() => {
     const dr = v.dr, c = v.ctl, F = dr.fc, alt = v.altitude(), S = (dl.S = hframe(v, dl.S));
     dl.auto = null; dl.spin = false;
     battery(v, dl, sim);
-    if (dl.lockOn && (dl.lost || dl.hop > 0 || dl.mode !== 'pilot')) lockCheck(v, dl, c, sim); // (a lock the overrides below take over from lets go)
+    const diving = !!dl.lockOn && dl.lockOn.st === 'terminal' && !v.ai && !v.remote; // (a lock-on in its dive: committed, past a lost link)
+    if (dl.lockOn && ((dl.lost && !diving) || dl.hop > 0 || dl.mode !== 'pilot')) lockCheck(v, dl, c, sim); // (a lock the overrides below take over from lets go)
     if (!dl.lost) { const H = dl.held || (dl.held = { v: 0, h: 0, r: 0, z: 0 }); H.v = c.v || 0; H.h = c.h || 0; H.r = c.r || 0; H.z = c.z || 0; } // (the stick as the link last carried it)
     const hold = dl.lost && !(dl.lostT >= DRONE.LINK.HOLD) && (v.ai ? !!v.ai.drone : dl.mode === 'pilot' && !!dl.held); // (a lost link, its failsafe not yet acting)
     // 1. overrides (each zeroes the stick, so a key held at a switch never flies the drone off)
-    if (dl.hop > 0) { // (a bay's hop: up off the deck to LAUNCH.HOP m over it, quick, then held there)
+    if (diving && dl.lockOn && lockCheck(v, dl, c, sim)) { zero(c); dl.auto = lockSteer(v, dl, S, alt - groundUnder(v, dl, S)); } // (the committed dive, ahead of a lost link's hold and failsafe)
+    else if (dl.hop > 0) { // (a bay's hop: up off the deck to LAUNCH.HOP m over it, quick, then held there)
       dl.hop -= dt; zero(c);
       dl.auto = { vf: 0, vr: 0, vz: dl.hopAlt != null ? clamp((dl.hopAlt - alt) * 4, -DRONE.VHOLD, F.vz + 2) : 4, yawTo: S.head, hop: true };
     }
@@ -2176,8 +2178,9 @@ const Drone = (() => {
   // (pre, every step) does the lock still hold? The reasons it lets go, said once
   function lockCheck(v, dl, c, sim) {
     const o = dl.lockOn.t, F = sim && sim.vessels ? sim : null;
-    const why = v.ai || v.remote ? '' : dl.lost ? 'Lock lost: no link' : dl.mode !== 'pilot' || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
-      : !v.dr.cam || !v.parts.includes(v.dr.cam) ? 'Lock lost: no camera' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
+    const dive = dl.lockOn.st === 'terminal'; // (in its dive it is committed: the drone's own lock flies the last 200 m, link or camera lost or not)
+    const why = v.ai || v.remote ? '' : dl.lost && !dive ? 'Lock lost: no link' : (dl.mode !== 'pilot' && !(dive && dl.lost)) || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
+      : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
     if (why != null) unlock(F || sim, v, why);
     return !!dl.lockOn;
   }

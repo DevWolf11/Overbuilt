@@ -94,7 +94,7 @@ function cuas(ctx) {
         // (a quad shot down to fewer motors than it can fly on spins and sinks (dl.spin): it falls on, unflown, as a pilot's would)
         if (v.dl && v.dl.spin) { d.drop = F.time; d.hurt = true; d.dropR = Math.round(near); v.throttle = Math.min(v.throttle, DRONE.SPIN.THR); continue; }
         if (v.dl && v.dl.lockOn && v.dl.lost) v.dl.lockOn = null;
-        if (ap.auto) { if (!v.dl.lockOn) { d.fate = 'unlocked'; d.t = F.time - T0; } continue; } // (the lock flies it: nothing scripted)
+        if (ap.auto) { if (!v.dl.lockOn) { d.fate = v.lastHitBy ? 'down' : v.dl.jam || v.dl.lost ? 'jammed' : 'unlocked'; d.t = F.time - T0; } continue; } // (the lock flies it: nothing scripted; let go of by a hit (its camera shot off) or a jammer before its dive, it is the kit's)
         const aim = d.phase ? T : d.W, dx = aim.x - v.x, dy = aim.y - v.y, dz = aim.z - v.z, l = Math.hypot(dx, dy, dz);
         if (!d.phase && l < 8) d.phase = 1;
         if (d.phase && near < 4) { d.fate = 'through'; d.t = F.time - T0; continue; }
