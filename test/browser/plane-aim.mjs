@@ -186,7 +186,7 @@ function judge(tag, L) {
 // starts in hold by default, an old settings file's PR #40 planeAim (on) no longer starts it in Aim; the setting offers the
 // five modes of the autopilot bar and starts a new flight in the one picked
 {
-  const { ctx, page } = await open([1280, 720, false], { planeStart: undefined, planeAim: true }, 'start mode ');
+  const { ctx, page } = await open([1280, 720, false], { planeStart: undefined, planeAim: true, aimPull: true }, 'start mode ');
   await fly(page);
   const d = await state(page);
   const opts = await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-plane-start'), r = { o: [...s.options].map((x) => x.value), v: s.value }; UI.closeModal(); return r; });
@@ -201,15 +201,32 @@ function judge(tag, L) {
     d.sas === 'hold' && d.pressed.join() === 'hold' && !d.flyAim && opts.v === 'hold' && opts.o.join() === 'hold,level,heading,manual,aim' && modes.every(([m, sas, p, fa]) => sas === m && p === (m === 'manual' ? 'off' : m) && fa === (m === 'aim')),
     { d: { sas: d.sas, pressed: d.pressed, flyAim: d.flyAim }, opts, modes });
   await shot(page, 'start-hold');
-  // Settings → Aim pulls out of dives (PR #45): off by default, and the plane in Aim follows it as soon as it's changed
-  const pull0 = await page.evaluate(() => { App.showSettings(); const c = document.querySelector('#set-aim-pull'), r = c ? c.checked : null; UI.closeModal(); return r; });
+  // Settings → Aim pulls out of dives (PR #45) is gone (the owner's ask after PR #50), and a saved aimPull (this profile's
+  // settings file has one, on) is ignored: a circle on the ground is dived at and flown into, the nose on it
+  const row = await page.evaluate(() => { App.showSettings(); const r = !!document.querySelector('#set-aim-pull') || /pulls out of dives/i.test(document.querySelector('.modal, #modal, body').textContent); UI.closeModal(); return r; });
   await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-plane-start'); s.value = 'aim'; s.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); });
-  await fly(page);
-  const inAim0 = await page.waitForFunction(() => Flight.flyAim && Flight.active.aimPull === false, null, { timeout: 20000 }).then(() => true, () => false);
-  await page.evaluate(() => { App.showSettings(); const c = document.querySelector('#set-aim-pull'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); UI.closeModal(); });
-  const inAim1 = await page.waitForFunction(() => Flight.active.aimPull === true, null, { timeout: 20000 }).then(() => true, () => false);
-  const saved = await page.evaluate(() => Settings.get('aimPull'));
-  ok('Settings → Aim pulls out of dives is off by default (the dive is the player\'s to pull out of), and turning it on reaches the plane in Aim at once', pull0 === false && inAim0 && inAim1 && saved === true, { pull0, inAim0, inAim1, saved });
+  await page.evaluate(async () => {
+    App.toBuild(); Builder.loadTemplate('fs16'); store.set('rss.flight', null); App.showScene('flight');
+    Flight.start(Builder.serialize(), { place: { e: 0, z: 0, yaw: 0, air: { alt: 250, speed: 200 } } });
+  });
+  await page.waitForFunction(() => Flight.running && Flight.active && Flight.flyAim && Flight.time > 0.3, null, { timeout: 60000 });
+  const dive = await page.evaluate(() => new Promise((done) => {
+    Render3D.skipDraw = true;
+    const v = Flight.active, F = surfaceFrame(v.x, v.y, v.z), P = v.pilot, n = v.axis(P.F.x, P.F.y, P.F.z);
+    const e = n.x * F.east.x + n.y * F.east.y + n.z * F.east.z, nn = n.x * F.north.x + n.y * F.north.y + n.z * F.north.z, l = Math.hypot(e, nn), a = 15 / 57.2958;
+    Flight.flyF.x = (e / l) * Math.cos(a); Flight.flyF.y = -Math.sin(a); Flight.flyF.z = (nn / l) * Math.cos(a); // (local: east, up, north)
+    const errs = [], u = Flight.update;
+    Flight.update = function (...x) {
+      const r = u.apply(this, x), w = this.active;
+      if (!w || !this.flyDir) return r;
+      const m = w.axis(P.F.x, P.F.y, P.F.z), D = this.flyDir, h = w.groundAltitude(), G = surfaceFrame(w.x, w.y, w.z);
+      errs.push({ t: this.time, h, e: Math.acos(Math.max(-1, Math.min(1, m.x * D.x + m.y * D.y + m.z * D.z))) * 57.2958, el: Math.asin(D.x * G.up.x + D.y * G.up.y + D.z * G.up.z) * 57.2958 });
+      if (h < 15 || w.dead || this.destroyed || this.time > 20) { Flight.update = u; Render3D.skipDraw = false; const t1 = errs[errs.length - 1].t; done({ pull: w.aimPull, h, last: errs.filter((q) => q.t > t1 - 1).reduce((a, q) => Math.max(a, q.e), 0), el: errs[errs.length - 1].el, t: t1 }); }
+      return r;
+    };
+  }));
+  ok('Settings → Aim pulls out of dives is gone and a saved one ignored: in Aim, a circle 15° under the horizon from 250 m is dived at, the nose within 1° of it the last second before it is 15 m off the ground, the circle still where it was put',
+    !row && dive.pull === undefined && dive.h < 15 && dive.last < 1 && Math.abs(dive.el + 15) < 0.5, { row, ...dive });
   await pageErrors(page, 'start mode ');
   await ctx.close();
 }

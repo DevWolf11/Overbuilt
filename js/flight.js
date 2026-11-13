@@ -74,7 +74,7 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
-    const air = P && P.air ? P.air : (!P || P.spot) && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad, or a sandbox spawn point's drone pad)
+    const air = P && P.air ? P.air : v.kind === 'drone' && v.dr && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air wherever it starts, the helipad, a spawn point's drone pad, a room's or a battle's place; it sat on the ground at a room's and a battle's)
     if (air) { // an air start: raised over the spot, flying along its nose, gear up
       const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
       v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
@@ -299,9 +299,9 @@ const Flight = {
   syncSas() {
     const v = this.active, m = v ? (v.sas === 'manual' ? 'off' : v.sas) : 'hold', plane = !!v && v.kind === 'plane', drone = !!v && v.kind === 'drone';
     document.querySelectorAll('#sas-bar .sas-btn').forEach((b) => {
-      const d = b.dataset.drone, pressed = b.dataset.dact ? b.dataset.dact === 'view' && drone && !!this.fpv : b.dataset.sas === m;
+      const d = b.dataset.drone, pressed = b.dataset.dact ? (b.dataset.dact === 'view' && drone && !!this.fpv) || (b.dataset.dact === 'lock' && drone && !!(v.dl && v.dl.lockOn)) : b.dataset.sas === m;
       if (b.getAttribute('aria-pressed') !== String(pressed)) b.setAttribute('aria-pressed', String(pressed));
-      const hide = plane ? !!d || !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : drone ? !d || (d === 'bay' && !v.carrier) : !!b.dataset.plane || !!d;
+      const hide = plane ? !!d || !PLANE_SAS.has(b.dataset.sas) || (b.dataset.sas === 'aim' && !this.aim3D()) : drone ? !d || (d === 'bay' && !v.carrier) || (b.dataset.dact === 'lock' && (!v.dr || !!v.dr.wing || !v.dr.cam)) : !!b.dataset.plane || !!d;
       if (b.hidden !== hide) b.hidden = hide;
     });
     $('#sas-bar').classList.toggle('plane', plane);
@@ -316,6 +316,7 @@ const Flight = {
   droneSas(v, mode) {
     if (this.inert(v) || (mode !== 'hold' && mode !== 'acro')) return;
     v.sas = mode;
+    if (v.dl && v.dl.lockOn) Drone.unlock(this, v);
     if (v.dl) { v.dl.mode = 'pilot'; v.dl.hold = null; v.dl.wh = null; v.dl.autoLand = false; } // (each mode starts from where it is now)
     this.toast(mode === 'acro' ? 'Acro: the stick turns it and nothing levels it; the throttle is yours'
       : v.aircraft ? 'Level: the stick banks and dives it; let go and it flies straight and level' : 'Level: the stick flies it; let go and it stops and holds its height');
@@ -392,6 +393,7 @@ const Flight = {
     const v = this.active, K = (id) => Keys.is(e.code, id);
     if (K('dHome')) { if (!this.inert(v)) Drone.home(this, v); return true; }
     if (K('dLand')) { if (!this.inert(v)) Drone.land(this, v); return true; }
+    if (K('dLock')) { if (!this.inert(v)) Drone.lockOn(this, v); return true; }
     if (K('dView')) { this.setFpv(!this.fpv); return true; }
     if (K('dThermal')) { this.gimbalThermal(); return true; }
     if ((K('thrFull') || K('thrCut')) && this.droneLevel(v)) return true; // (Level: the lever, not a throttle)
@@ -984,7 +986,7 @@ const Flight = {
   droneHelp() {
     const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch, k = (id) => Keys.k(id);
     const tilt = Settings.get('droneStick') === 'tilt'; // (the Tilt layout: the stick sideways and A/D slide, the side buttons and Q/E turn; UX-P4-4, UX-P4-5)
-    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
+    const touch = `<div><span class="tap">Touch</span><span>The stick flies it (forward and back go, sideways ${tilt ? 'slides' : 'turns'}: Settings → Drone stick swaps turning and sliding); the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, let go and it springs back and holds the height (▲ and ▼ hold too); the pad: Level, Acro, the view, Home, Land, Lock (lock on to the vehicle in the middle of the picture: the drone flies the attack itself; any stick takes it back) and back to the tank; a gimbal camera: drag the view to look round, double-tap to centre it, tap ZOOM to zoom, hold it for thermal</span></div>`;
     return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
       <div>${P('fwd', 'back')}<span>Level: fly forward / back (let go: it stops and hovers) · Acro: pitch</span></div>
       <div>${P('left', 'right')}<span>Level: ${tilt ? 'slide left / right' : 'turn (carving at speed)'} · Acro: roll · winged drones bank to turn</span></div>
@@ -993,6 +995,7 @@ const Flight = {
       <div>${f('thrFull', 'thrCut')}<span>Acro and winged drones: full throttle / cut</span></div>
       <div>${f('dLevel', 'dAcro')}<span>Level (stops and holds its height when you let go) / Acro (no self-levelling; the throttle is yours)</span></div>
       <div>${f('dHome', 'dLand')}<span>Fly home (to its bay, or where it took off) / land here</span></div>
+      <div>${K('dLock')}<span>Lock on: the vehicle nearest the middle of the picture (a camera aboard, a multirotor); the drone flies the attack itself, climbing to 30 m, closing in and diving onto its roof. Any stick, a mode or ${k('dLock')} again takes it back; a lost link breaks the lock</span></div>
       <div>${K('dView')}<span>First-person (FPV) or chase view (Settings → Drone view: first person, first person with a level horizon, or chase)</span></div>
       <div>${K('drone')}<span>A drone from a bay: back to the tank (it hovers where you left it) · near its bay: dock</span></div>
       <div>${f('fire', 'weapon')}<span>Fire: drop, launch or set off the charge / change weapon</span></div>
@@ -1287,7 +1290,6 @@ const Flight = {
     this.flyCamDir = toSim(C.f, this._camD || (this._camD = v3())); this.flyCamUp = toSim(C.u, this._camU || (this._camU = v3()));
     const D = v.aimDir || (v.aimDir = v3()); // (the vessel's own copy: the physics steps read it)
     D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
-    v.aimPull = !!Settings.get('aimPull'); // (Settings → Aim pulls out of dives: off by default, the dive is the player's to pull out of)
   },
   // The camera's own way (local, like flyF/flyU): it eases after the circle as War Thunder's does (the play-test after
   // PR #40: locked to the circle, the view jerked with every flick), most of the way in under half a second and slowing
@@ -1746,14 +1748,18 @@ const Flight = {
           }
         }
       }
-      // condensation streaks from the wingtips when pulling hard in moist low air
+      // condensation streaks from the wingtips when pulling hard in moist low air: off each tip as the 3D model has it
+      // (Parts3D.wingTip: swept, cranked, a swing wing's sweep, winglets; until the owner's report after PR #50 the part's
+      // middle at 97% of the half span, a swept wing's streak metres ahead of its tip), each puff put back by the step
+      // FX.update is about to move it (smoke's drag, 1.6/s) so it is drawn at the tip this frame, not a frame's flight ahead
       if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
-        const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
+        const w = v.mainWing, half = w.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1), lead = 0.97 * Math.exp(-1.6 * dt) * dt;
+        const tipOf = typeof Parts3D !== 'undefined' && Parts3D.wingTip;
         for (const s of [-1, 1]) {
-          if (s === v.mainWing.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
+          if (s === w.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
           if (Math.random() > 0.35 + 0.6 * k) continue;
-          const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
-          FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
+          const tp = tipOf ? tipOf(w, s) : null, wp = tp ? v.toWorld(tp.x, tp.y, tp.z) : v.toWorld(w.x, w.y, partZc(w) + s * half * 0.97);
+          FX.add({ kind: 'smoke', b: v.body, x: wp.x - v.vx * lead, y: wp.y - v.vy * lead, z: wp.z - v.vz * lead, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
             max: 0.5 + 0.6 * k, size: 0.25, grow: 0.9, color: '#f4f8ff', alpha: 0.5 + 0.35 * k });
         }
       }
@@ -2071,6 +2077,7 @@ const Flight = {
       else if (this.inert(v)) return;
       else if (a === 'home') Drone.home(this, v);
       else if (a === 'land') Drone.land(this, v);
+      else if (a === 'lock') Drone.lockOn(this, v);
     }));
     $('#btn-center').addEventListener('click', () => { if (GlobeView.active) GlobeView.center(); else { MapView.focusVessel(); MapView.fit(this); MapView.focusVessel(); } });
     $('#btn-mapview').addEventListener('click', () => this.setMapView(GlobeView.active ? 'system' : 'globe'));

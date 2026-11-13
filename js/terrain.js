@@ -734,5 +734,6 @@ return {
   water: EW, inlandAt, regionAt, citiesNear, cityRadius, DEG, SITE, ISLE, toGeo, toSim, bearingAt, treelessAt, cliffAt,
   hashI, vnoise2, vnoise3, fbm3, cfgOf, grid, setCol, setRow, contAt, height, h3dAt, trackHalf, trackBlend, apronW,
   dark: () => crDark, heightAt, surfaceAt, waterAt: waterAt3, locate, normalAt, fieldAt, deckAt, arenaW, bermAt, BERM,
+  GS, // (the physics' lattice step, m: render3d's near ground is drawn on its nodes)
 };
 })();

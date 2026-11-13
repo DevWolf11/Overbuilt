@@ -6,6 +6,7 @@
 //    Revert starts there again; another kind keeps its own (a rocket still on the pad)
 //  - each new spot's props set up and drawn round it (SHOTS=<dir>: screenshots of Watten, Bixter's drone pad, Lunna's
 //    launch pad, Funningur, the Shetland airfield's helipads and the headland's slipway, phone and desktop)
+//  - a winged drone starts in the air at every drone spot, a room's place and a battle's, and flies on
 //  - no console errors
 //   node test/browser/spawns.mjs
 import fs from 'node:fs';
@@ -104,6 +105,27 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
       await page.waitForTimeout(3500);
       await shot(id);
     }
+  }
+  // a winged drone (the Lancett can't take off) starts in the air wherever it starts: every drone spot, a room's place
+  // beside the helipad (no spot) and a ground battle's drone place; still flying 3 s on (it sat on the ground at a room's
+  // and a battle's, and broke trying to take off)
+  if (w > 640) {
+    const air = await ev(async () => {
+      const t = TEMPLATES.lancett, out = [];
+      const places = Spawns.list('drone').map((sp) => [sp.id, Spawns.place(sp, 'drone', 0)]).concat([['room helipad', { e: EARTH.sites.helipad.east + 35, z: 0, yaw: 0, soft: true }], ['battle', GroundMode.placement('highland', 0, 1, 'drone')]]);
+      Render3D.skipDraw = true;
+      for (const [id, P] of places) {
+        store.set('rss.flight', null); App.showScene('flight');
+        Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, P ? { place: P } : undefined);
+        const v = Flight.active, a0 = v.altitude() - v.groundHeight(), s0 = v.speed(), t0 = Flight.time;
+        await new Promise((done) => { const f = () => (Flight.time > t0 + 3 || Flight.destroyed ? done() : setTimeout(f, 50)); f(); });
+        const u = Flight.active;
+        out.push({ id, a0: Math.round(a0), s0: Math.round(s0), agl: Math.round(u.altitude() - u.groundHeight()), landed: !!u.landed, gone: !!Flight.destroyed || u.dead || u.parts.length < v.parts.length });
+      }
+      return out;
+    });
+    ok(`${tag}: a winged drone (Lancett) starts 120 m up at 26 m/s at every drone spot, a room's place and a battle's, and is still flying 3 s on`,
+      air.length >= 7 && air.every((r) => r.a0 >= 100 && r.s0 >= 20 && r.agl > 60 && !r.landed && !r.gone), air);
   }
   // the headland past the runway: the road down to the slipway, the sea beyond (no causeway)
   await ev((shots) => { const t = TEMPLATES.buggy; store.set('rss.flight', null); App.showScene('flight'); Flight.start({ name: t.name, kind: t.kind, parts: templateRows(t) }, { place: { e: 2950, z: 0, yaw: 0 } }); Render3D.skipDraw = !shots; }, !!SHOTS);

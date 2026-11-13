@@ -666,7 +666,8 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     { const { F, v } = pilot(); const C = park(F, designOf('ma1'), 40); go(F, 1); const U = up(C), f = C.axis(1, 0, 0), c0 = crewHp(C);
       const P = add3(add3({ x: C.x, y: C.y, z: C.z }, f, (C.reach || 5) + 8), U, 0.6); arm(v); Armour.fb.shot = null;
       fling(v, P, { x: -f.x, y: -f.y, z: -f.z }, 25); go(F, 0.8, () => (v.dead ? false : undefined));
-      out.front = { r: Armour.fb.shot && Armour.fb.shot.r, boom: !!v.dl.boom, crew: Math.round(c0 - crewHp(C)) }; }
+      const plate = C.parts.filter((p) => p.def.control).reduce((a, p) => a + Combat.maxHp(p.def) - (p.hp == null ? Combat.maxHp(p.def) : p.hp), 0);
+      out.front = { r: Armour.fb.shot && Armour.fb.shot.r, boom: !!v.dl.boom, crew: Math.round(c0 - crewHp(C)), plate: Math.round(plate) }; }
     // 40 dives into a roof cage over an MA-1's turret: plain shaped charges, then tandem
     const caged = () => { const T = PARTS.turretWedge; return kit('ma1', [{ type: 'cdCage', x: -0.3, y: 2.495 + T.h / 2 + 0.375 + 0.01, rot: 0, flip: false, att: 5 }], 'Caged MA-1'); };
     for (const [key, rows] of [['plain', rowsOf('bumble')], ['tandem', rowsOf('bumble').map((r) => (r.type === 'drCharge' ? { ...r, type: 'drChargeT' } : r))]]) {
@@ -684,7 +685,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     return out; })();`);
   const W7 = JSON.parse(RB('JSON.stringify(W7)'));
   t('7 a Bumble diving at 30 m/s onto the TK-34\'s engine deck: its shaped charge goes through, into the engine', W7.deck.boom && W7.deck.dead && W7.deck.r === 'pen' && W7.deck.what.includes('ENGINE'), W7.deck);
-  t('7 ...level at 25 m/s into the MA-1\'s front: it goes off, and doesn\'t get through (no crew hurt)', W7.front.boom && W7.front.r !== 'pen' && W7.front.crew === 0, W7.front);
+  t('7 ...level at 25 m/s into the MA-1\'s front: it goes off and doesn\'t get through, but the plate takes about half its strength (the second balance pass: three or four such hits knock it out)', W7.front.boom && W7.front.r !== 'pen' && W7.front.plate >= 500 && W7.front.plate < 1300, W7.front);
   t('7 40 dives into a roof cage over an MA-1\'s turret: 35-65 % of the plain shaped charges crushed, no tandem charge', W7.plain.met === 40 && W7.plain.n === 40 && W7.plain.crushed >= 14 && W7.plain.crushed <= 26 && W7.tandem.met === 40 && W7.tandem.crushed === 0, [W7.plain, W7.tandem]);
   t('7 a frag charge bursting on the ZSY-23\'s open top hurts its crew', W7.frag.boom && W7.frag.crew > 0, W7.frag);
 
@@ -872,9 +873,9 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   // airbursts; the laser 450 m alone and 700 m cued, 3 s to find one, a burn of 2.5 + 3.5·(d / 700 m)² s inside 3 s of
   // beam, then 8 s to cool all the way)
   RB(`var W10 = (() => { const out = {}, pick = (r) => ({ at: r.at, on: r.on, fired: r.fired });
-    out.g200 = pick(engage(gunTank(), 200, 30, 12));
+    out.g200 = pick(engage(gunTank(), 200, 30, 35));
     out.g350 = pick(engage(gunTank(), 350, 30, 8));
-    out.g450 = pick(engage(gunTank([DET]), 450, 40, 20));
+    out.g450 = pick(engage(gunTank([DET]), 450, 40, 40));
     out.fib = pick(engage(gunTank([DET]), 450, 40, 8, rowsOf('bumbleF')));
     out.fibR = pick(engage(gunTank([RAD]), 450, 40, 20, rowsOf('bumbleF')));
     // ground vehicles: an enemy MS-4 300 m off draws nothing
@@ -884,7 +885,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     // the laser at 200 m (from the beam first on target to the kill), and at 450 m: its 3 s of beam too short, it cools, and
     // the drone hovers on
     const laserT = (more) => kit('tk34', [{ type: 'cdLaser', x: -1.6, y: 2.0, rot: 0, flip: false, att: 0 }].concat(more || []), 'Laser tank');
-    const L2 = engage(laserT(), 200, 30, 10), L4 = engage(laserT(), 430, 30, 16);
+    const L2 = engage(laserT(), 150, 30, 10), L4 = engage(laserT(), 430, 30, 16);
     out.l200 = { on: L2.on, at: L2.at, k: L2.at - L2.on }; out.l430 = { on: L4.on, at: L4.at };
     // the beam: 3 s on, then off until cooled all the way (8 s: a drone that can't be burnt)
     { const r = engage(laserT(), 200, 30, 0.1); const { F, C, b, g } = r; const dmg = Combat.damage; Combat.damage = function (v, p, a, c, ...rest) { if (c === 'laser') return; return dmg.call(this, v, p, a, c, ...rest); };
@@ -897,18 +898,20 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
       go(F, 6, () => { if (g.gunOn) on++; }); out.smoke = { on, down: downed(b) }; }
     return out; })();`);
   const W10 = JSON.parse(RB('JSON.stringify(W10)'));
-  t('10 the anti-drone gun against a Bumble hovering 200 m off: it waits 1-3 s to find it, then downs it within 10 s', W10.g200.on != null && W10.g200.on >= 1 && W10.g200.on <= 3.2 && W10.g200.at != null && W10.g200.at <= 10, W10.g200);
-  t('10 ...at 350 m with no sensor: it never fires; with a Drone Detector at 450 m (cued): it fires and downs it within 20 s', W10.g350.fired === 0 && W10.g450.at != null && W10.g450.at <= 20 && W10.g450.fired > 0, [W10.g350, W10.g450]);
+  // (the second balance pass: these hostile Bumbles are the computer's, so the kit's AUTO numbers: the gun's aim ×1.3, the
+  // laser's burn ×1.1; and the gun walks its bursts in only after 10 s on one drone, so one hovering lasts longer)
+  t('10 the anti-drone gun against a Bumble hovering 200 m off: it waits 1-3 s to find it, then downs it within 30 s', W10.g200.on != null && W10.g200.on >= 1 && W10.g200.on <= 3.2 && W10.g200.at != null && W10.g200.at <= 30, W10.g200);
+  t('10 ...at 350 m with no sensor: it never fires; with a Drone Detector at 450 m (cued): it fires and downs it within 35 s', W10.g350.fired === 0 && W10.g450.at != null && W10.g450.at <= 35 && W10.g450.fired > 0, [W10.g350, W10.g450]);
   t('10 ...a fibre Bumble at 450 m is silent to the detector (never cued, never fired at); a Drone Radar cues it', W10.fib.fired === 0 && W10.fibR.fired > 0, [W10.fib, W10.fibR]);
   t('10 ...it holds its fire at ground vehicles, fires with its own tank on the ground, and broken does nothing', W10.ground.fired === 0 && W10.ground.landed && W10.g200.fired > 0 && W10.broken.fired === 0 && W10.broken.at == null, [W10.ground, W10.broken]);
-  t('10 the laser: 2.6-3.0 s of beam on a Bumble at 200 m; at 430 m its beam runs out first and the drone flies on', W10.l200.k >= 2.6 && W10.l200.k <= 3.0 && W10.l430.on != null && W10.l430.at == null, [W10.l200, W10.l430]);
+  t('10 the laser: 2.8-3.0 s of beam on a computer\'s Bumble at 150 m ((2.5 + 3.5·(d / 700 m)²) × 1.1); at 430 m its beam runs out first and the drone flies on', W10.l200.k >= 2.8 && W10.l200.k <= 3.0 && W10.l430.on != null && W10.l430.at == null, [W10.l200, W10.l430]);
   t('10 ...its beam runs hot after 3 s on (a little more: it cools while it finds the drone again), and is back on only once cooled all the way (8 s)', W10.heat.on >= 2.95 && W10.heat.on <= 4.5 && Math.abs(W10.heat.cool - 8) < 0.15, W10.heat);
   t('10 ...smoke between holds it off', W10.smoke.on === 0 && !W10.smoke.down, W10.smoke);
   // the stock counter-drone and bay templates (§18) against the same numbers: the MA-1C Abrahm (its gun on its cage's roof,
   // turning with the turret) and the BMK-2D Nest (three Bumbles on its rear deck)
   RB(`var W9 = (() => { const out = {}, pick = (r) => ({ at: r.at, on: r.on, fired: r.fired });
-    out.g200 = pick(engage(designOf('ma1c'), 200, 30, 12));
-    out.g450 = pick(engage(designOf('ma1c'), 450, 40, 20));
+    out.g200 = pick(engage(designOf('ma1c'), 200, 30, 35));
+    out.g450 = pick(engage(designOf('ma1c'), 380, 40, 40));
     out.fib = pick(engage(designOf('ma1c'), 450, 40, 8, rowsOf('bumbleF')));
     { const F = world(), C = F.start(designOf('ma1c')); go(F, 1); F.vessels.push(enemy()); const g = C.cuas.find((p) => p.def.cuas.gun), a0 = g.ammo; go(F, 4); out.ground = a0 - g.ammo;
       out.kit = C.cuas.map((p) => p.type).sort().join() + '|' + !!C.parts.find((p) => p.def.cage) + '|' + (C.tg || []).length; }
@@ -916,7 +919,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
       out.nest = { ok, n0, n1: Drone.left(C), name: d.name, kind: d.kind, mine: d.carrier === C, fpv: F.fpv, h }; }
     return out; })();`);
   const W9 = JSON.parse(RB('JSON.stringify(W9)'));
-  t('10 the stock MA-1C Abrahm: its gun downs a Bumble hovering 200 m off within 10 s, and one 450 m off (its detector cues it) within 20 s', W9.g200.at != null && W9.g200.at <= 10 && W9.g450.at != null && W9.g450.at <= 20, [W9.g200, W9.g450]);
+  t('10 the stock MA-1C Abrahm: its gun downs a Bumble hovering 200 m off within 30 s, and one 380 m off (its detector cues it; one hovering 450 m off now outlasts its 150 rounds) within 35 s', W9.g200.at != null && W9.g200.at <= 30 && W9.g450.at != null && W9.g450.at <= 35, [W9.g200, W9.g450]);
   t('10 ...a fibre Bumble 450 m off is silent to it; it holds its fire at an enemy tank; its kit: the gun, jammer and detector, the cage, one turret', W9.fib.fired === 0 && W9.ground === 0 && W9.kit === 'cdDetect,cdGun,cdJam|true|1', [W9.fib, W9.ground, W9.kit]);
   t('9 the stock BMK-2D Nest: U launches a Bumble FPV of its three, 4-6 m over its deck within 1 s, flown in first person', W9.nest.ok && W9.nest.n0 === 3 && W9.nest.n1 === 2 && W9.nest.name === 'Bumble FPV' && W9.nest.kind === 'drone' && W9.nest.mine && W9.nest.fpv === true && W9.nest.h >= 4 && W9.nest.h <= 6, W9.nest);
   // cdLow: a SPAA's tracking radar on a Bumble hovering 20 m up
@@ -1105,7 +1108,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   // P4-CTR-4: our parked tank's anti-drone gun downing a hostile drone while we fly the tank's drone: our kill
   RB(`var R10 = (() => { const F = world(), d0 = nest(); d0.parts = d0.parts.concat([{ type: 'cdGun', x: -0.9, y: 1.95, rot: 0, flip: false, att: 0 }]); const C = F.start(d0); go(F, 1.5);
     Drone.key(F); const d = F.active; go(F, 0.6); putAt(d, -60, 25); go(F, 0.5); const k0 = Combat.S.kills; const b = hostile(F, 'bumble', 200, 30);
-    go(F, 12, () => !(b.dead || b.ai.down)); return { flying: F.active === d, down: !!(b.dead || b.ai.down), byTank: b.lastHitBy === C, kills: Combat.S.kills - k0 }; })();`);
+    go(F, 35, () => !(b.dead || b.ai.down)); return { flying: F.active === d, down: !!(b.dead || b.ai.down), byTank: b.lastHitBy === C, kills: Combat.S.kills - k0 }; })();`);
   const R10 = JSON.parse(RB('JSON.stringify(R10)'));
   t('P4-CTR-4 the parked tank\'s anti-drone gun downing a drone while we fly its drone counts as our kill', R10.flying && R10.down && R10.byTank && R10.kills === 1, R10);
   // P4-CTR-8 and P4-CTR-5: an AI drone picked with I is named as a drone, never a Bandit; the gun's LEAD shows it only when seen
@@ -1248,6 +1251,116 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   const g = Q.summary(Q.measure(H, 'gun', 12, 600)), gd = Q.summary(Q.measure(H, 'gunDet', 12, 600)), l2 = Q.summary(Q.measure(H, 'laser2', 10, 600)); // (from 600 m: past the kit's reach)
   t(`13 a Bumble at 30 m/s from 600 m at a TK-34: its anti-drone gun alone stops it 25-70% (${g.first}), with a Drone Detector more often (${gd.first})`, g.first >= 25 && g.first <= 70 && gd.first >= g.first && gd.first <= 85, [g, gd]);
   t(`13 ...its laser stops the first of two 3 s apart some of the time (${l2.first}%: about half, on the tool's 60 runs), and the second gets through 75% or more (stopped ${l2.second}%)`, l2.first >= 10 && l2.first <= 90 && l2.second <= 25, l2);
+  // (the second balance pass) the gun no better against a drone flown in slowly: a Level pilot slowing to 15 m/s to line the
+  // tank up 250 m out was shot down 65% of the time, 80% cued; one stopping 3 s to look 85%, 98% cued: now about half
+  // (two in three cued)
+  const gl = Q.summary(Q.measure(H, 'gun', 12, 600, 'level')), gk = Q.summary(Q.measure(H, 'gun', 12, 600, 'look'));
+  t(`13 a Bumble flown in as a Level pilot does (slowing to 15 m/s 250 m out to line the tank up): the gun stops it 15-80% (${gl.first}); one that stops 3 s inside its reach to look, 25-85% (${gk.first})`,
+    gl.first >= 15 && gl.first <= 80 && gk.first >= 25 && gk.first <= 85, [gl, gk]);
+  // hits to kill a modern tank (drones one after another, 4 s apart): good spots (the roofs, the turret's back and ring, the
+  // side above the tracks) in one or two, poor ones (the glacis, the turret's face) in three or four; an MA-1 never died of
+  // poor-spot hits before (0 of 30 within 8)
+  const kg = S.killTable(S.kills(H, 'bumble', 'ma1', S.GOOD, 10)), kp = S.killTable(S.kills(H, 'bumble', 'ma1', S.POOR, 10)), k72 = S.killTable(S.kills(H, 'bumble', 'tk72', S.POOR, 8));
+  t(`13 an MA-1: good-spot Bumbles destroy it within two hits 60% or more (${kg.k2}%; median ${kg.med}); poor-spot ones within four 40% or more (${kp.k4}%; median ${kp.med}, 3-5), most of them disabling something (${kp.dis}%)`,
+    kg.k2 >= 60 && kg.med <= 2 && kp.k4 >= 40 && kp.med >= 3 && kp.med <= 5 && kp.dis >= 50, [kg, kp]);
+  t(`13 ...a TK-72: poor-spot hits (its bricks too) within four 40% or more (${k72.k4}%; median ${k72.med})`, k72.k4 >= 40 && k72.med <= 5, k72);
+  // the computer's drones (and a player's on its auto lock-on: Drone.autoFlown) are weaker: about one good-spot hit in four
+  // destroys a tank (a lethal one from Death.dice on its warhead: DRONE.AUTO.KILL)
+  G.run(H, `var AU = (() => { const out = {}; const lh = Armour.legacyHit, seen = []; Armour.legacyHit = function (s, ...r) { seen.push([s.drone, !!s.lethal]); return lh.call(this, s, ...r); };
+    try { out.hand = strike('bumble', 'ma1', 'turretTop', 4001, false).out; out.h = seen.slice(); seen.length = 0;
+      out.lock = strike('bumble', 'ma1', 'turretTop', 4001, 'lock').out; out.l = seen.slice(); seen.length = 0; } finally { Armour.legacyHit = lh; }
+    const d = Drone.build(templateRows(TEMPLATES.bumble), 'x'); out.pred = [Drone.autoFlown(d), (d.dl = { lockOn: { t: 1 } }, Drone.autoFlown(d)), (d.dl = { lockOn: null }, d.ai = { drone: true }, Drone.autoFlown(d)), Drone.autoFlown(null)];
+    return out; })();`);
+  const AU = JSON.parse(G.run(H, 'JSON.stringify(AU)'));
+  t('13 Drone.autoFlown: a computer drone or a player\'s on its lock-on (dl.lockOn); its charge is armour.js\'s auto-flown one (s.drone 2), a hand-flown one\'s the full jet (1)',
+    JSON.stringify(AU.pred) === '[false,true,true,false]' && AU.h.length && AU.h.every((x) => x[0] === 1) && AU.l.length && AU.l.every((x) => x[0] === 2), AU);
+  const ag = S.table([].concat(...['turretTop', 'deck', 'bustle', 'ring'].map((k) => S.spot(H, 'bumble', 'ma1', k, 10, true)))), lg = S.table([].concat(...['turretTop', 'deck', 'bustle', 'ring'].map((k) => S.spot(H, 'bumble', 'tk72', k, 10, 'lock'))));
+  t(`13 a computer drone's good-spot hit on an MA-1 destroys it 10-45% of the time (${ag.kod}%), a lock-on drone's on a TK-72 15-50% (${lg.kod}%; by hand ~70%)`, ag.kod >= 10 && ag.kod <= 45 && lg.kod >= 15 && lg.kod <= 50, [ag.kod, lg.kod]);
+  // ...and the kit meets them apart (DRONE.AUTO): about 35 in 100 of the drone war's attack Bumbles get through one gun, a
+  // laser or a jammer (every one with none: unchanged)
+  const ab = Q.summary(Q.measure(H, 'ai:bare', 4)), ag2 = Q.summary(Q.measure(H, 'ai:gun', 10)), aj = Q.summary(Q.measure(H, 'ai:jam', 10));
+  t(`13 the drone war's attack Bumble: every one reaches a tank with no kit (${ab.through}%); 10-70% get through an anti-drone gun (${ag2.through}%) and a jammer (${aj.through}%: none did before)`,
+    ab.through === 100 && ag2.through >= 10 && ag2.through <= 70 && aj.through >= 10 && aj.through <= 70, [ab, ag2, aj]);
+}
+
+// ================================================================ 14. lock-on (5, the pad's Lock): the drone flies the attack itself
+// A player's multirotor with a camera marks the vehicle nearest the middle of its picture and flies the attack: up to
+// 30 m, in at 25 m/s, and 200 m out the AI drones' own dive onto its roof (diveSteer, led for its motion). Any stick, a
+// lost link or the target gone lets go. (A drone d m east of a tank, h m up, pitched so its camera looks at the tank as
+// a pilot flying at it would.)
+{
+  const B = G.load({ combat: true, ground: true, props: true, flight: true }), RB = (c) => G.run(B, c);
+  RB(`Math.random = mulberry32(4242);
+    var SET = { targets: 'off', droneView: 'fpv', droneStick: 'turn' }, get0 = Settings.get.bind(Settings);
+    Settings.get = (k) => (k in SET ? SET[k] : get0(k));
+    Flight.running = true;
+    var MapView = { focusVessel() {} }; Controls.relayout = () => {}; Controls.keyHints = () => {};
+    var App = { use3D: () => true, showScene() {}, afterEarth(f) { f(); }, scene: 'flight' };
+    var designOf = (key) => ({ name: TEMPLATES[key].name, kind: TEMPLATES[key].kind, parts: templateRows(TEMPLATES[key]) });
+    var NPAD = GroundMode.placement('highland', 0, 0, 'tank');
+    var mk = (design, P) => { const ps = partsFromDesign(design.parts), adjAll = buildAdjacency(ps), ctrl = findControlPart(ps), keep = componentOf(ctrl.id, adjAll), parts = ps.filter((p) => keep.has(p.id)), adj = new Map();
+      for (const p of parts) { if (p.att != null && !keep.has(p.att)) p.att = null; adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id)))); }
+      const v = new Vessel(parts, adj, EARTH); v.name = design.name; v.kind = design.kind; v.stages = computeStages(parts, adj, ctrl.id); v.rebuildGroups();
+      P = P || NPAD; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), 0, P.z, P.yaw || 0); return v; };
+    var world = () => { const F = Object.create(Flight);
+      Object.assign(F, { time: 0, target: null, log: [], broken: [], vessels: [], active: null, firing: false, mgFiring: false, groundAim: false, warpIdx: 0, mp: null, scale: 12,
+        running: true, destroyed: false, camAbs: { x: 0, y: 0, z: 0 }, launchCost: 0, flags: {}, stats: { maxAlt: 0, maxSpeed: 0, maxG: 0 }, design: null, deaths: 0, ends: 0, carrierDown: null, crashedAt: null,
+        toast(m) { this.log.push(m); }, award(f) { this.flags[f] = true; }, syncAwake() {}, syncSas() {}, updatePrediction() {}, updateDvEstimate() {}, updateHUD() {}, strip() {}, setSight() {}, unlockPointer() {},
+        endAfter() { this.ends++; }, cleanup() { this.vessels = this.vessels.filter((v) => !v.dead && v.parts.length); } });
+      return F; };
+    var go = (F, secs, each) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { if (each && each(F, f) === false) return f;
+      for (let i = 0; i < 2; i++) { for (const v of F.vessels.slice()) if (!v.remote && !v.wreck && !v.kin && !v.dead && v.parts.length && !(v !== F.active && v.landed && v.restTime > 2)) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
+      Combat.frame(F, 1 / 60); F.cleanup(); } return Math.round(secs * 60); };
+    // a drone d m west of tank T, h m up, its nose (and camera) toward T
+    var strike = (key, tk, d, h, opts) => { opts = opts || {};
+      const F = world(), T = mk(designOf(tk), { e: NPAD.e + 300, z: NPAD.z, yaw: opts.yaw || 0 }); T.ai = { ground: true, team: 1 };
+      const v = mk(designOf(key), { e: NPAD.e + 300 + d, z: NPAD.z + (opts.dz || 0), yaw: Math.PI / 2 * 0 });
+      F.vessels = [v, T]; F.active = v; Combat.reset(F);
+      for (const p of v.parts) if (p.def.thrust) p.active = true; v.stageIdx = v.stages.length; v.sas = 'hold'; v.throttle = 0; v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 };
+      go(F, 1);
+      const r = Math.hypot(v.x, v.y, v.z); v.x += v.x / r * h; v.y += v.y / r * h; v.z += v.z / r * h; v.landed = false; v.vx = v.vy = v.vz = 0; v.dl.hold = null;
+      // point the nose at the tank: yaw so +x is along the horizontal to T
+      const U = { x: v.x / Math.hypot(v.x, v.y, v.z), y: v.y / Math.hypot(v.x, v.y, v.z), z: v.z / Math.hypot(v.x, v.y, v.z) };
+      for (let k = 0; k < 64; k++) { const f = v.axis(1, 0, 0), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, kk = dx * U.x + dy * U.y + dz * U.z, hx = dx - U.x * kk, hy = dy - U.y * kk, hz = dz - U.z * kk, hl = Math.hypot(hx, hy, hz);
+        const fk = f.x * U.x + f.y * U.y + f.z * U.z, fx = f.x - U.x * fk, fy = f.y - U.y * fk, fz = f.z - U.z * fk, fl = Math.hypot(fx, fy, fz);
+        const c = (fx * hx + fy * hy + fz * hz) / (fl * hl), s = ((fy * hz - fz * hy) * U.x + (fz * hx - fx * hz) * U.y + (fx * hy - fy * hx) * U.z) / (fl * hl), a = Math.atan2(s, c);
+        if (Math.abs(a) < 1e-4) break; v.q = qnorm(qmul(qaxis(U.x, U.y, U.z, a), v.q)); }
+      // and pitch it so the camera looks at T (a pilot flying at it does: an FPV leans forward)
+      const pitchTo = () => { for (let k = 0; k < 40; k++) { const D = Drone.camDir(v, F), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, L = Math.hypot(dx, dy, dz), Z = v.axis(0, 0, 1);
+        const cx = D.y * dz / L - D.z * dy / L, cy = D.z * dx / L - D.x * dz / L, cz = D.x * dy / L - D.y * dx / L, s = cx * Z.x + cy * Z.y + cz * Z.z;
+        if (Math.abs(s) < 1e-4) break; v.q = qnorm(qmul(qaxis(Z.x, Z.y, Z.z, Math.asin(Math.max(-1, Math.min(1, s)))), v.q)); } };
+      pitchTo();
+      const ok = opts.noLock ? false : Drone.lockOn(F, v);
+      const out = { ok, said: F.log.slice(), st: [], end: null };
+      let t0 = F.time, minD = Infinity;
+      go(F, opts.secs || 60, (F, f) => { if (opts.each) opts.each(F, v, T, f);
+        const dd = Math.hypot(v.x - T.x, v.y - T.y, v.z - T.z); minD = Math.min(minD, dd);
+        if (f % 60 === 0) out.st.push([Math.round(F.time - t0), Math.round(dd), Math.round(v.altitude() - v.groundHeight()), v.dl && v.dl.lockOn ? v.dl.lockOn.st : '-', Math.round(v.speed())]);
+        if (v.dead || !F.vessels.includes(v)) { out.end = 'gone'; return false; } });
+      out.minD = Math.round(minD * 10) / 10; out.dead = !!v.dead; out.T = { ko: !!T.ko, dead: !!T.dead, wreck: !!T.wreck, hp: Math.round((Combat.integrity ? Combat.integrity(T) : 1) * 100) };
+      out.log = F.log.slice(out.said.length); out.lock = !!(v.dl && v.dl.lockOn); out.t = Math.round((F.time - t0) * 10) / 10;
+      return out; };`);
+  const run = (args) => JSON.parse(RB(`JSON.stringify(strike(${args}))`));
+  const a = run("'bumble', 'tk34', 150, 10"), b = run("'bumble', 'ms4', 600, 40");
+  const path = (o) => o.st.filter((x, i) => i % 3 === 0).map((x) => x.join(':')).join(' ');
+  t(`14 a Bumble locks a TK-34 150 m off ("Locked: TK-34") and dives onto it by itself: its charge goes off within 3.5 m (${a.minD} m, ${a.t} s)`,
+    a.ok && a.said[0].startsWith('Locked: TK-34') && a.end === 'gone' && a.minD <= 3.5 && a.t < 12, path(a));
+  t(`14 ...an MS-4 600 m off from 40 m up: it cruises at 30 m (±4) over the ground, dives from 200 m and hits (${b.minD} m, ${b.t} s)`,
+    b.ok && b.end === 'gone' && b.minD <= 3.5 && b.st.filter((x) => x[3] === 'cruise' && x[0] >= 6).every((x) => Math.abs(x[2] - 30) <= 4) && b.st.some((x) => x[3] === 'terminal' && x[1] < 200 && x[1] > 150), path(b));
+  // the pilot first: a stick, the target knocked out, a lost link
+  const c = run("'bumble', 'ms4', 600, 40, { secs: 4, each: (F, v, T, f) => { if (f === 120) v.ctl.v = 0.5; else if (f > 120) v.ctl.v = 0.5; } }");
+  t(`14 any stick lets go of the lock ("Lock released: you have it") and the stick flies it`, c.ok && !c.lock && c.log.includes('Lock released: you have it') && c.end == null, c.log);
+  const d = run("'bumble', 'ms4', 600, 40, { secs: 4, each: (F, v, T, f) => { if (f === 90) T.ko = true; } }");
+  t(`14 the target knocked out: "Target gone", the lock lets go and the drone hovers where it is`, d.ok && !d.lock && d.log.includes('Target gone') && d.st[d.st.length - 1][4] <= 3, [d.log, d.st.slice(-2)]);
+  const e = run("'bumble', 'ms4', 600, 40, { secs: 3, each: (F, v, T, f) => { if (f === 30) { const r = Math.hypot(v.x, v.y, v.z), u = { x: v.y / r, y: -v.x / r, z: 0 }; v.dl.at0 = { x: v.x + u.x * 3000, y: v.y + u.y * 3000, z: v.z }; } } }");
+  t(`14 a lost link (its 2.5 km radio 3 km from its station) breaks the lock ("Lock lost: no link")`, e.ok && !e.lock && e.log.includes('Lock lost: no link'), e.log);
+  // refused: nothing near the middle, a winged drone, no camera
+  RB(`var noLock = (key, drop) => { const F = world(), v = mk(designOf(key), { e: NPAD.e, z: NPAD.z }); F.vessels = [v]; F.active = v; Combat.reset(F);
+    if (drop) { v.parts = v.parts.filter((p) => p.type !== drop); v.rebuildGroups(); }
+    const ok = Drone.lockOn(F, v); return { ok, said: F.log.slice(), lock: !!(v.dl && v.dl.lockOn) }; };`);
+  const g = JSON.parse(RB(`JSON.stringify([noLock('bumble'), noLock('lancett'), noLock('bumble', 'drCam')])`));
+  t(`14 refused: no vehicle near the middle of the picture, a winged drone, a drone without a camera (each says why)`,
+    !g[0].ok && /Nothing to lock/.test(g[0].said[0]) && !g[1].ok && /multirotors/.test(g[1].said[0]) && !g[2].ok && /needs a camera/.test(g[2].said[0]) && g.every((x) => !x.lock), g);
 }
 
 t.done();
