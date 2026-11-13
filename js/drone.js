@@ -44,8 +44,10 @@ const DRONE = {
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
   // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
   // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
-  // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back.
-  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9 },
+  // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back. Before the dive a link
+  // under Q (a jammer's breaking it up) loses the target; the kit meets it as AUTO says (not AUTO's: its steady line no
+  // harder to hit than a hand-flown drone's, its link no harder to jam).
+  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.5, AUTO: { GUN_J: 1, LASER_K: 1, JAM: 1 } },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)
@@ -1243,7 +1245,7 @@ const Drone = (() => {
           q = dl.snapped ? 0 : 1;
         } else if (L.kind === 'sat') q = d <= L.range ? 1 : 0;
         else q = (1 - smoothstep(0.8 * L.range, L.range, d)) * losK(v, dl, P, t);
-        const kj = (K[L.kind] || 0) * (autoAtk(v) ? DRONE.AUTO.JAM : 1); // (an auto-flown drone: the jammers reach AUTO.JAM as far)
+        const kj = (K[L.kind] || 0) * autoK(v, 'JAM'); // (an auto-flown drone: the jammers reach AUTO.JAM as far)
         if (q > 0 && kj > 0) for (const j of J) {
           const Rj = j.R * kj, dj = Math.hypot(v.x - j.at.x, v.y - j.at.y, v.z - j.at.z);
           if (dj >= Rj || !jamFoe(j.o, v)) continue;
@@ -1459,6 +1461,8 @@ const Drone = (() => {
   function autoFlown(v) { return !!v && ((!!v.ai && !!v.ai.drone) || (!!v.dl && !!v.dl.lockOn)); }
   // ...on an attack: the kit's AUTO numbers (not for the Tank Range's passive practice drones: the drill's targets)
   const autoAtk = (v) => autoFlown(v) && !(v.ai && v.ai.passive);
+  // the counter-drone kit's factor k (AUTO's keys) against v: the computer's drones AUTO's, a lock-on's LOCK.AUTO's, else 1
+  const autoK = (v, k) => (!autoAtk(v) ? 1 : v.ai && v.ai.drone ? DRONE.AUTO[k] : DRONE.LOCK.AUTO[k]);
   // The drone's warhead goes off at `at` (null: where the warhead is), having met hv's part hp (null: anything else).
   // A shaped charge on a plated vessel's new part is HEAT along the dive, then its burst (Armour.legacyHit); everything
   // else (frag, an old craft, the ground, a prop, mid-air) is a blast (Combat.explode). Then a flash, and the drone is
@@ -1754,7 +1758,7 @@ const Drone = (() => {
     // look, was shot down nine times in ten; one that loiters in its reach still goes down). × cueJ while a sensor cues
     // it (1 now: a cue finds it sooner and further out, no steadier; it was 0.92); × AUTO.GUN_J on an auto-flown attacker)
     if ((p._jT = (p._jT || 0) - h) <= 0) {
-      const W = g.walk, k = W ? W[1] + (1 - W[1]) * Math.exp(-Math.max(0, (p.onT || 0) - W[2]) / W[0]) : 1, j = (g.jit || 0) * k * (p.cue ? g.cueJ ?? 1 : 1) * (autoAtk(t) ? DRONE.AUTO.GUN_J : 1);
+      const W = g.walk, k = W ? W[1] + (1 - W[1]) * Math.exp(-Math.max(0, (p.onT || 0) - W[2]) / W[0]) : 1, j = (g.jit || 0) * k * (p.cue ? g.cueJ ?? 1 : 1) * autoK(t, 'GUN_J');
       p._jT = 0.5; p._jy = (prand(p) * 2 - 1) * j; p._je = (prand(p) * 2 - 1) * j; }
     const want = anglesOf(o, p, ax, ay, az, ANG);
     want.yaw += p._jy || 0; want.el += p._je || 0;
@@ -1821,7 +1825,7 @@ const Drone = (() => {
     t.kitAt = F.time || 0; // (as the gun's: P4-AI-4)
     beamOf(o, p, F, t, r);
     p.dwell = (p.dwell || 0) + h;
-    if (p.dwell < (L.kill[0] + L.kill[1] * (r / L.cued) ** 2) * (autoAtk(t) ? DRONE.AUTO.LASER_K : 1)) return; // (an auto-flown drone: AUTO.LASER_K times as long)
+    if (p.dwell < (L.kill[0] + L.kill[1] * (r / L.cued) ** 2) * autoK(t, 'LASER_K')) return; // (an auto-flown drone: AUTO.LASER_K times as long)
     p.dwell = 0; p.tgt = null; p._pick = 0;
     const part = (t.dr && t.dr.fcPart && t.parts.includes(t.dr.fcPart) ? t.dr.fcPart : null) || t.parts[0];
     if (!part) return;
@@ -2180,7 +2184,7 @@ const Drone = (() => {
     const o = dl.lockOn.t, F = sim && sim.vessels ? sim : null;
     const dive = dl.lockOn.st === 'terminal'; // (in its dive it is committed: the drone's own lock flies the last 200 m, link or camera lost or not)
     const why = v.ai || v.remote ? '' : dl.lost && !dive ? 'Lock lost: no link' : (dl.mode !== 'pilot' && !(dive && dl.lost)) || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
-      : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
+      : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !dive && dl.q != null && dl.q < DRONE.LOCK.Q ? 'Lock lost: the picture broke up' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
     if (why != null) unlock(F || sim, v, why);
     return !!dl.lockOn;
   }
