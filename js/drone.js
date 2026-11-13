@@ -42,13 +42,14 @@ const DRONE = {
   BATT: { WARN: 0.25, CRIT: 0.10, AUTO: 0.05, AUTO_T: 2, AUTO_V: 2, LEAK: 0.1 }, // (LEAK: a cell under half its hp loses this share of its full charge a second per (0.5 − hp fraction): 1 %/s at 40 % hp, 4 %/s at 10 %)
   HOME: { ALT: 30, V: 12, SLOW: 15, DESC: 1.5, DOCK_R: 1.5, DOCK_H: 2, DOCK_V: 3, NEAR_R: 3, NEAR_H: 6, CIRCLE: 60, CIRCLE_H: 80 },
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
-  // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
-  // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
+  // lock-on (5, the pad's Lock): the vehicle nearest the middle of the picture within CONE × half its width (at most CMAX
+  // rad: 42° for an FPV camera, whose picture looks 25° up at a hover, so a tank below it is in reach; 25° for a gimbal at
+  // 1×, 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
   // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back. Before the dive, with
   // its link under Q (a jammer breaking the picture up), the tracker may slip: SLIP a look (37%), 4 looks a second (the drone's
   // own stream: prand of its controller); the kit meets it as AUTO says (not AUTO's: its steady line no
   // harder to hit than a hand-flown drone's, its link no harder to jam).
-  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, SLIP: 0.37, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
+  LOCK: { CONE: 0.85, CMAX: 0.75, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, SLIP: 0.37, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)

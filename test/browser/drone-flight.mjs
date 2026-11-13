@@ -470,8 +470,8 @@ for (const [w, h, ui, view] of [[844, 390, 1, 'fpvLevel'], [360, 640, 0.75, 'fpv
   await ctx.close();
 }
 
-// ================================================================ 11. lock-on (5, the pad's Lock): a TK-34 150 m ahead of a Bumble 20 m up, pitched so its
-// camera looks at it; the key (desktop) or the pad's Lock (phone) locks it: LOCKED on the OSD, the pad's Lock pressed, red
+// ================================================================ 11. lock-on (5, the pad's Lock): a TK-34 150 m ahead of a Bumble hovering 20 m up (its FPV
+// camera looking 25° up, the tank below the middle of the picture); the key (desktop) or the pad's Lock (phone) locks it: LOCKED on the OSD, the pad's Lock pressed, red
 // brackets drawn round it; the drone flies at it by itself; a stick takes it back ("Lock released"); the help lists 5
 for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
   const tag = `lock-on ${w}×${h} `, { ctx, page } = await open([w, h, touch], tag);
@@ -484,24 +484,22 @@ for (const [w, h, touch] of [[390, 844, true], [1280, 720, false]]) {
     const f = v.axis(1, 0, 0), r = Math.hypot(v.x, v.y, v.z), U = { x: v.x / r, y: v.y / r, z: v.z / r }, k = f.x * U.x + f.y * U.y + f.z * U.z, hx = f.x - U.x * k, hy = f.y - U.y * k, hz = f.z - U.z * k, hl = Math.hypot(hx, hy, hz);
     const L = Terrain.locate(EARTH, v.x + hx / hl * 150, v.y + hy / hl * 150, v.z + hz / hl * 150, {});
     T.placeOnSurface(EARTH, L.a, 0, L.z, 0); Flight.vessels.push(T); window.__T = T;
-    for (let i = 0; i < 40; i++) { const D = Drone.camDir(v, Flight), dx = T.x - v.x, dy = T.y - v.y, dz = T.z - v.z, l = Math.hypot(dx, dy, dz), Z = v.axis(0, 0, 1);
-      const s = (D.y * dz - D.z * dy) / l * Z.x + (D.z * dx - D.x * dz) / l * Z.y + (D.x * dy - D.y * dx) / l * Z.z; if (Math.abs(s) < 1e-4) break; v.q = qnorm(qmul(qaxis(Z.x, Z.y, Z.z, Math.asin(Math.max(-1, Math.min(1, s)))), v.q)); }
-    v.av = { x: 0, y: 0, z: 0 };
+    v.av = { x: 0, y: 0, z: 0 }; // (hovering level, its FPV camera looking 25° up: the tank below the middle of the picture, still in reach)
   });
   if (touch) await page.click('#sas-bar [data-dact="lock"]'); else { await page.click('#view3d', { position: { x: 640, y: 300 } }).catch(() => {}); await page.keyboard.press('Digit5'); }
   await frames(page, 4);
   const A = await page.evaluate(() => { const v = Flight.active, b = document.querySelector('#sas-bar [data-dact="lock"]');
     Drone._osd.wt = -1e9; Drone.drawOSD(App.ctx, App.W, App.H, App.dpr, Flight);
     return { lock: !!(v.dl.lockOn && v.dl.lockOn.t === window.__T), st: v.dl.lockOn && v.dl.lockOn.st, pressed: b && b.getAttribute('aria-pressed'), shown: b && !b.hidden, mode: Drone._osd.w && Drone._osd.w.m[0][0], hint: (document.querySelector('#key-hints') || {}).textContent || '', t: Flight.time, d: Math.hypot(window.__T.x - v.x, window.__T.y - v.y, window.__T.z - v.z) }; });
-  ok(`${tag}${touch ? 'the pad\'s Lock' : '5'} locks the TK-34 in the middle of the picture: LOCKED on the OSD, the pad's Lock pressed${touch ? '' : ', the key hints say Let go'}`,
-    A.lock && A.st === 'cruise' && A.pressed === 'true' && A.shown && A.mode === 'LOCKED' && (touch || /Let go/.test(A.hint)), A);
+  ok(`${tag}${touch ? 'the pad\'s Lock' : '5'} locks the TK-34 below the middle of the picture (150 m: inside the dive's 200 m, so DIVE on the OSD at once), the pad's Lock pressed${touch ? '' : ', the key hints say Let go'}`,
+    A.lock && A.st === 'terminal' && A.pressed === 'true' && A.shown && A.mode === 'DIVE' && (touch || /Let go/.test(A.hint)), A);
   await shot(page, `lock-${w}x${h}`);
-  await page.waitForFunction((t) => Flight.time > t + 2, A.t, { timeout: 120000 });
+  await page.waitForFunction((t) => Flight.time > t + 3, A.t, { timeout: 120000 });
   const B = await page.evaluate(() => { const v = Flight.active; return { lock: !!v.dl.lockOn, d: Math.hypot(window.__T.x - v.x, window.__T.y - v.y, window.__T.z - v.z), v: v.speed() }; });
-  ok(`${tag}...and flies at it by itself (${Math.round(A.d)} → ${Math.round(B.d)} m in 2 s, ${Math.round(B.v)} m/s)`, B.lock && B.d < A.d - 15, { A, B });
-  if (touch) await page.evaluate(() => { Flight.active.ctl.v = 0.6; }); else await page.keyboard.down('KeyW');
-  await frames(page, 4);
-  if (!touch) await page.keyboard.up('KeyW');
+  ok(`${tag}...and flies at it by itself (${Math.round(A.d)} → ${Math.round(B.d)} m in 3 s, ${Math.round(B.v)} m/s)`, B.lock && B.d < A.d - 15, { A, B });
+  await page.keyboard.down('KeyW'); // (the stick: a key, as the input loop writes the stick from the keys and the touch stick every frame)
+  await frames(page, 6);
+  await page.keyboard.up('KeyW');
   const C = await page.evaluate(() => ({ lock: !!Flight.active.dl.lockOn, toast: [...document.querySelectorAll('.toast, #toast, .toasts > *')].map((e) => e.textContent).join(' | '), pressed: document.querySelector('#sas-bar [data-dact="lock"]').getAttribute('aria-pressed') }));
   ok(`${tag}a stick takes it back: the lock lets go ("Lock released"), Lock no longer pressed`, !C.lock && C.pressed === 'false', C);
   const help = await page.evaluate(() => /Lock on: the vehicle nearest the middle/.test(Flight.controlsHelp()));
