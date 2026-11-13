@@ -11,7 +11,7 @@
 //   node test/tools/cuas-run.js            # every kit, 60 runs each
 //   node test/tools/cuas-run.js 100 gun    # 100 runs of the named kits (jam, gun, gunDet, laser, laser2, gun2, ma1c, ma1c2, ma1cF, ma1cF2)
 //   node test/tools/cuas-run.js 40 gun --ap=level,look   # ...flown in as a player flies (APPROACH: straight level look acro
-//                                                        # weave side high lock); the drone hand-flown, the kit's tank the
+//                                                        # weave side high lock auto); the drone hand-flown, the kit's tank the
 //                                                        # enemy AI's (lock: a player's drone on its lock-on, Drone.autoFlown)
 //   node test/tools/cuas-run.js 30 ai:gun ai:jam          # the computer's attack Bumble (the Tank Range's Hostile drone, from a
 //                                                        # random bearing 1.6 km out) at the kit (ai:bare: none)
@@ -51,6 +51,9 @@ function cuas(ctx) {
     side: { sp: [28, 32], h: [20, 40], side: [70, 110] },
     high: { sp: [30, 35], h: [120, 150], wd: [50, 80], wh: 120, dsp: 42 },
     lock: { sp: [28, 32], h: [30, 60], wd: [60, 150], lock: true },
+    // (auto: the real lock-on, Drone.lockOn's own flight (lockSteer: 30 m up, in at 25 m/s, the dive from 200 m), the drone
+    // flown (F.active) with nothing on the stick)
+    auto: { sp: [28, 32], h: [30, 60], wd: [60, 150], auto: true },
   };
   // n drones (gap s apart, from the same bearing; gap 0: together, 25° apart), at the kit, flown in as apk; each one's fate
   var attack = (kit, s, n, gap, dk, from, apk) => { from = from || 1500;
@@ -70,12 +73,14 @@ function cuas(ctx) {
       for (const d of D) {
         if (d.fate) continue;
         live++;
-        if (!d.v) { if (F.time >= d.start) { d.v = foeDrone(F, d.P0, dk, true); if (ap.lock) d.v.dl.lockOn = { t: C }; } else continue; }
+        if (!d.v) { if (F.time >= d.start) { d.v = foeDrone(F, d.P0, dk, true); if (ap.lock) d.v.dl.lockOn = { t: C };
+          if (ap.auto) { d.v.sas = 'hold'; d.v.dl.lockOn = { t: C, st: 'cruise' }; F.active = d.v; } } else continue; }
         const v = d.v;
         d.r = Math.round(Math.hypot(T.x - v.x, T.y - v.y, T.z - v.z));
         if (d.on == null && C.cuas.some((p) => p.gunOn)) d.on = d.r;
         const near = Math.hypot(T.x - v.x, T.y - v.y, T.z - v.z);
         if (d.lostR == null && v.dl && v.dl.lost && v.dl.jam) d.lostR = Math.round(near);
+        if (ap.auto && (near < 4 || (v.dl && v.dl.boom && near < 8))) { d.fate = 'through'; d.t = F.time - T0; continue; } // (the lock-on's dive arrived)
         if (d.drop != null) { // (its failsafe acting: it falls on, unflown; it gets through if it ends on the tank)
           if (near < 4 || (v.dl && v.dl.boom && near < 8)) { d.fate = 'through'; d.t = F.time - T0; }
           else if (v.dead || v.landed || F.time - d.drop > 8) { d.fate = d.hurt ? 'down' : d.why || 'jammed'; d.t = F.time - T0; }
@@ -89,6 +94,7 @@ function cuas(ctx) {
         // (a quad shot down to fewer motors than it can fly on spins and sinks (dl.spin): it falls on, unflown, as a pilot's would)
         if (v.dl && v.dl.spin) { d.drop = F.time; d.hurt = true; d.dropR = Math.round(near); v.throttle = Math.min(v.throttle, DRONE.SPIN.THR); continue; }
         if (v.dl && v.dl.lockOn && v.dl.lost) v.dl.lockOn = null;
+        if (ap.auto) { if (!v.dl.lockOn) { d.fate = 'unlocked'; d.t = F.time - T0; } continue; } // (the lock flies it: nothing scripted)
         const aim = d.phase ? T : d.W, dx = aim.x - v.x, dy = aim.y - v.y, dz = aim.z - v.z, l = Math.hypot(dx, dy, dz);
         if (!d.phase && l < 8) d.phase = 1;
         if (d.phase && near < 4) { d.fate = 'through'; d.t = F.time - T0; continue; }
