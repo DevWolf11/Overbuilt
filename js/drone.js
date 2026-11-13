@@ -44,10 +44,11 @@ const DRONE = {
   LAUNCH: { V: 3, TILT: 60, HOP: 5, HOP_T: 0.6, SCALE: 400, ZOOM: 800 },
   // lock-on (5, the pad's Lock): a vehicle within CONE × half the picture's width of its middle (at most CMAX rad: 26°
   // for an FPV camera, 21° for a gimbal at 1×, under 2° zoomed 12×), RANGE m off, with a clear line, is marked; the drone cruises to it at CRUISE m/s ALT m over the ground, and TERM m out (horizontally) dives at DIVE ×
-  // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back. Before the dive a link
-  // under Q (a jammer's breaking it up) loses the target; the kit meets it as AUTO says (not AUTO's: its steady line no
+  // its top speed onto its roof (back to the cruise past LEAVE m). Any stick or lever takes it back. Before the dive, with
+  // its link under Q (a jammer breaking the picture up), the tracker may slip: SLIP a look, 4 looks a second (the drone's
+  // own stream: prand of its controller); the kit meets it as AUTO says (not AUTO's: its steady line no
   // harder to hit than a hand-flown drone's, its link no harder to jam).
-  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
+  LOCK: { CONE: 0.7, CMAX: 0.45, RANGE: 1500, CRUISE: 30, ALT: 30, TERM: 200, LEAVE: 300, DIVE: 0.9, Q: 0.4, SLIP: 0.08, AUTO: { GUN_J: 1.15, LASER_K: 1.05, JAM: 1 } },
   LAST: 20, LOST_GONE: 60, REST_GONE: 3, EYE: 400, MARKS: 8, BUZZ: 250, MAX_PARTS: 40, IMPACT: 1.5,
 };
 // the old Drone Core (parts.js) on a drone-kind craft: a GPS controller with a satellite link (its def untouched)
@@ -2184,9 +2185,17 @@ const Drone = (() => {
     const o = dl.lockOn.t, F = sim && sim.vessels ? sim : null;
     const dive = dl.lockOn.st === 'terminal'; // (in its dive it is committed: the drone's own lock flies the last 200 m, link or camera lost or not)
     const why = v.ai || v.remote ? '' : dl.lost && !dive ? 'Lock lost: no link' : (dl.mode !== 'pilot' && !(dive && dl.lost)) || (F && F.active !== v) ? '' : sticky(c) || Math.abs(c.z || 0) > 0.02 ? 'Lock released: you have it'
-      : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !dive && dl.q != null && dl.q < DRONE.LOCK.Q ? 'Lock lost: the picture broke up' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
+      : !dive && (!v.dr.cam || !v.parts.includes(v.dr.cam)) ? 'Lock lost: no camera' : !dive && slipped(v, dl) ? 'Lock lost: the picture broke up' : !lockable(v, o) || (F && !F.vessels.includes(o)) ? 'Target gone' : null;
     if (why != null) unlock(F || sim, v, why);
     return !!dl.lockOn;
+  }
+  // before its dive, under a jammer: does the tracker lose the picture this look? (4 looks a second, on the drone's clock)
+  function slipped(v, dl) {
+    const K = dl.lockOn, L = DRONE.LOCK;
+    if (dl.q == null || dl.q >= L.Q) return false;
+    if (K.look != null && dl.t - K.look < 0.25 && dl.t >= K.look) return false;
+    K.look = dl.t;
+    return prand(v.dr.fcPart || v.parts[0]) < L.SLIP;
   }
   // the autopilot's target this step while the lock flies it (pre's dl.auto)
   function lockSteer(v, dl, S, agl) {
