@@ -496,6 +496,31 @@ const Parts3D = (() => {
     const le = h / 4 - back * k + c / 4;
     return { s, le, te: le - c, c, x: -k * half * Math.sin(dih), t: (d.w / 2) * (1 - 0.4 * k), tip };
   }
+  // A wing's tip on side sg (+1: the +z half, a plane's right wing), in part space: the middle of its tip chord on the chord
+  // line, as wingGeo builds it (swept, tapered, cranked, drawn to a plan, its dihedral; a swing wing's half turned back by
+  // the part's own sweep about its root; winglets: the winglet's top; a biplane: the top wing's), turned with the part. The
+  // flight's wingtip vapour trails come off it (until the owner's report after PR #50 they came off the part's middle
+  // along the fuselage, at 97% of the half span: ahead of a swept wing's tip, behind a forward-swept one's). Plain maths,
+  // no three.js, so it works before init.
+  function wingTip(p, sg) {
+    const d = p.def, wd = d.wing || {}, h = d.h, half = (wd.span || 5) / 2;
+    const dih = wd.dihedral != null && Math.abs(wd.dihedral) > 0.03 ? wd.dihedral : 0, cd = Math.cos(dih), sd = Math.sin(dih);
+    let x, y, z;
+    if (wd.swing) { // (built at its first sweep, each half pivoting at (0, h/4) by the sweep it has now: Parts3D's swingP/swingN)
+      const s0 = wd.swing[0], c = h * (1 - (wd.taper != null ? wd.taper : 0.45)), y0 = h / 4 - Math.tan(s0) * half + c / 4 - c / 2 - h / 4;
+      const a = sg * ((p.sweep != null ? p.sweep : s0) - s0), z0 = sg * half * cd;
+      x = -half * sd; y = h / 4 + y0 * Math.cos(a) - z0 * Math.sin(a); z = y0 * Math.sin(a) + z0 * Math.cos(a);
+    } else if (wd.winglets && !wd.plan && !wd.crank) { // (the winglet's top, as wingGeo's fins)
+      const back = wd.sweep ? Math.tan(wd.sweep) * half : 0.08 * half, c = wd.planform === 'ellipse' ? h * 0.2 : h * (1 - (wd.taper != null ? wd.taper : 0.45)), hw = h * 0.55;
+      x = -half * sd - hw; y = h / 4 - back + c / 4 - hw * 0.6 - c * 0.225; z = sg * half * cd;
+    } else {
+      const W = wingAt(d, sg * 1e6); // (past the tip: its last section)
+      x = W.x; y = (W.le + W.te) / 2; z = sg * W.tip;
+    }
+    if (d.shape === 'biplane' && wd.gap) x -= wd.gap / 2; // (the top wing: up is -x)
+    const q = partPt(p, x, y);
+    return { x: q.x, y: q.y, z: partZ(p) + z };
+  }
   // A cranked wing's chord line at span fraction s (along the panels): its height x (up is -x), how far across z, the
   // panel's dihedral d and how much longer the chord is there (ext, a fraction: the outer panel's dog-tooth).
   function crankAt(wd, half, s, outer) {
@@ -2978,6 +3003,7 @@ void main() {
     },
     textureFor,
     wingAt,
+    wingTip,
     buildPart: (p) => buildPart(p, false),
     VesselMesh,
     bakeMat: () => bakeMat(), // (the baked wrecks' one material: render3d compiles its program while a flight loads)

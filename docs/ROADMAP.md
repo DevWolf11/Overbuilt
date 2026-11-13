@@ -6,10 +6,6 @@ Things the owner wants in later updates, not the current one. Newest at the bott
 - **Auto drones: lock-on attack.** Mark a vehicle (tap it, or a key while it's in the camera) and the drone flies the attack itself: it climbs, closes in and dives onto the roof, leading for the target's motion. The stick takes control back at any moment. A jammed or lost link breaks the lock (not on fibre). Needs a camera part. The AI drones' attack code already does most of it (drone.js `aiSteer`: climb, cruise, terminal dive).
 - **Friendly AI drones and waypoints.** Send a drone to a point, or let it patrol and attack on its own, while you drive the tank.
 
-## Planes
-- **Wingtip vapour trails in the wrong place.** The trails off the wingtips when you pull a turn are drawn at the wrong spot on wings that sit ahead of or behind the craft's middle: they come off in front of the tip or behind it, not from the tip itself. They should follow the actual tip of each wing whatever its position along the fuselage.
-- **Aim's pull-out over the sea.** With Settings → Aim pulls out of dives on (it's off by default), a 30° dive at open sea from 400 m pulls the fast jets out only 6-14 m off the water (the FS-35 6 m, the FS-4 8 m), the light planes 17-25 m. Pull the jets out higher, at least 15 m (test/planes.test.js has the scenario).
-
 ## World and graphics
 - **Better clouds.** The cumulus clouds, improved in look (and kept as cheap as now on phones).
 - **Terrain collision that matches what you see.** Outside Highland Ridge (which already has its own ground mesh built from the physics' heights), the ground a plane or tank touches doesn't line up exactly with the ground drawn: craft can sink into a drawn hill or hover over a drawn dip. The drawn ground and the physics' ground should be the same surface everywhere.

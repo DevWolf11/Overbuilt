@@ -471,9 +471,6 @@ const App = {
     pa.innerHTML = `<option value="hold">Hold: the autopilot holds pitch and bank</option><option value="level">Level: holds the altitude</option><option value="heading">Heading: holds heading and altitude</option><option value="manual">Off: you fly it</option><option value="aim">Aim: it flies to the circle (${isTouch ? 'the stick' : 'the mouse'})</option>`;
     pa.value = ['level', 'heading', 'manual', 'aim'].includes(Settings.get('planeStart')) ? Settings.get('planeStart') : 'hold';
     pa.addEventListener('change', () => Settings.set('planeStart', pa.value));
-    // Aim pulling out of a dive by itself at the last moment (off by default: the dive is the player's to pull out of)
-    const pull = el('input', { id: 'set-aim-pull', type: 'checkbox' }); pull.checked = !!Settings.get('aimPull');
-    pull.addEventListener('change', () => Settings.set('aimPull', pull.checked));
     // (the big update) drones: the stick's layout, the mode a multirotor starts in, the view a drone starts in
     const sel = (id, key, opts, def) => {
       const e = el('select', { id });
@@ -511,7 +508,7 @@ const App = {
     wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
       head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
       el('div', { class: 'setting-actions' }, keys, lay),
-      head('Flying and aiming'), row('Planes start in', pa), row('Aim pulls out of dives', pull), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens), // (a finger's drag too: fine aim in a phone's 6x sight)
+      head('Flying and aiming'), row('Planes start in', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens), // (a finger's drag too: fine aim in a phone's 6x sight)
       head('Drones'), row('Drone stick', dStick), row('Drones start in', dStart), row('Drone view', dView));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {

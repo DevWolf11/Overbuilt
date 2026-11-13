@@ -1287,7 +1287,6 @@ const Flight = {
     this.flyCamDir = toSim(C.f, this._camD || (this._camD = v3())); this.flyCamUp = toSim(C.u, this._camU || (this._camU = v3()));
     const D = v.aimDir || (v.aimDir = v3()); // (the vessel's own copy: the physics steps read it)
     D.x = this.flyDir.x; D.y = this.flyDir.y; D.z = this.flyDir.z;
-    v.aimPull = !!Settings.get('aimPull'); // (Settings → Aim pulls out of dives: off by default, the dive is the player's to pull out of)
   },
   // The camera's own way (local, like flyF/flyU): it eases after the circle as War Thunder's does (the play-test after
   // PR #40: locked to the circle, the view jerked with every flick), most of the way in under half a second and slowing
@@ -1746,14 +1745,18 @@ const Flight = {
           }
         }
       }
-      // condensation streaks from the wingtips when pulling hard in moist low air
+      // condensation streaks from the wingtips when pulling hard in moist low air: off each tip as the 3D model has it
+      // (Parts3D.wingTip: swept, cranked, a swing wing's sweep, winglets; until the owner's report after PR #50 the part's
+      // middle at 97% of the half span, a swept wing's streak metres ahead of its tip), each puff put back by the step
+      // FX.update is about to move it (smoke's drag, 1.6/s) so it is drawn at the tip this frame, not a frame's flight ahead
       if (v.aircraft && v.mainWing && v.gForce > 3 && v.airspeed > 70 && rho > 0.3 && Settings.high && !v.wheelsDown) {
-        const half = v.mainWing.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1);
+        const w = v.mainWing, half = w.def.wing.span / 2, k = clamp((v.gForce - 3) / 4, 0, 1), lead = 0.97 * Math.exp(-1.6 * dt) * dt;
+        const tipOf = typeof Parts3D !== 'undefined' && Parts3D.wingTip;
         for (const s of [-1, 1]) {
-          if (s === v.mainWing.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
+          if (s === w.cut) continue; // (half the wing shot off: no tip there; before the dice, so a whole wing's draws are as ever)
           if (Math.random() > 0.35 + 0.6 * k) continue;
-          const wp = v.toWorld(v.mainWing.x, v.mainWing.y, partZc(v.mainWing) + s * half * 0.97);
-          FX.add({ kind: 'smoke', b: v.body, x: wp.x, y: wp.y, z: wp.z, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
+          const tp = tipOf ? tipOf(w, s) : null, wp = tp ? v.toWorld(tp.x, tp.y, tp.z) : v.toWorld(w.x, w.y, partZc(w) + s * half * 0.97);
+          FX.add({ kind: 'smoke', b: v.body, x: wp.x - v.vx * lead, y: wp.y - v.vy * lead, z: wp.z - v.vz * lead, vx: v.vx * 0.97, vy: v.vy * 0.97, vz: v.vz * 0.97,
             max: 0.5 + 0.6 * k, size: 0.25, grow: 0.9, color: '#f4f8ff', alpha: 0.5 + 0.35 * k });
         }
       }
