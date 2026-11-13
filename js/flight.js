@@ -74,7 +74,7 @@ const Flight = {
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
-    const air = P && P.air ? P.air : (!P || P.spot) && v.kind === 'drone' && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air over the helipad, or a sandbox spawn point's drone pad)
+    const air = P && P.air ? P.air : v.kind === 'drone' && v.dr && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air wherever it starts, the helipad, a spawn point's drone pad, a room's or a battle's place; it sat on the ground at a room's and a battle's)
     if (air) { // an air start: raised over the spot, flying along its nose, gear up
       const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
       v.x += (v.x / r) * up; v.y += (v.y / r) * up; v.z += (v.z / r) * up;
