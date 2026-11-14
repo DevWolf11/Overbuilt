@@ -35,6 +35,7 @@ const SEA = { e: -1344, z: 3967, yaw: 0, air: { alt: 120, speed: 170 } };
 const TOWN = { e: 35000, z: 25000, yaw: 0.4 };
 const HL = { e: 18190, z: 15040, yaw: 0 }; // Highland Ridge's village, a TK-34 in the street
 const LAND = { e: 20000, z: 38000, yaw: 5.3124 };
+const COAST = { e: -470, z: 60, yaw: Math.PI }; // (the water's depth: a Buggy on the space centre island's west coast, facing the sea)
 
 // the scenes: craft (a template key), place (a spawn as Flight.start takes it; none: its kind's site), time, what it
 // stresses; load: scripted effects; props: the props sets it shows (and waits for); hangar: the 3D builder instead
@@ -42,6 +43,12 @@ const SCENES = {
   runway: { key: 'falcon', time: 'noon', what: 'space centre, shadows, glass, the shadow filter' },
   lowland: { key: 'falcon', place: { ...LAND, air: { alt: 250, speed: 180 } }, time: 'noon', what: 'terrain, trees, fog, clouds, anti-tiling', land: true },
   sea: { key: 'falcon', place: SEA, time: 'noon', what: 'water', sea: true },
+  // (the water's depth: the coast and the open sea; named with --scenes, as the drone package's are)
+  coast: { key: 'buggy', place: COAST, time: 'noon', what: 'the space centre island\'s west coast: the shallows, the surf, the sea floor', wet: true },
+  slipway: { key: 'buggy', place: { e: 3170, z: 0, yaw: 0 }, time: 'noon', what: 'the headland\'s slipway into the sea', wet: true },
+  lake: { key: 'falcon', place: { e: 22700, z: 34650, yaw: 0, air: { alt: 120, speed: 170 } }, time: 'noon', what: 'a loch in Caithness, 120 m up', wet: true },
+  sea300: { key: 'falcon', place: { ...SEA, air: { alt: 300, speed: 170 } }, time: 'noon', what: 'the open sea, 300 m up', sea: true },
+  sea3k: { key: 'falcon', place: { ...SEA, air: { alt: 3000, speed: 200 } }, time: 'noon', what: 'the open sea, 3 km up', sea: true },
   town: { key: 'buggy', place: TOWN, time: 'noon', what: 'the city shadow cut', town: true },
   alt10k: { key: 'falcon', place: { ...LAND, air: { alt: 10000, speed: 240 } }, time: 'noon', what: 'sky, haze from altitude' },
   highland: { key: 'tk34', place: HL, time: 'noon', what: 'arena mesh, props, shadow box, blobs', props: ['hl'] },
@@ -85,7 +92,8 @@ const A_DIR = opt('base', null) ? path.resolve(opt('base')) : null, B_DIR = ROOT
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'high,low').split(',');
 const FRAMES = +opt('frames', 2), ROUNDS = +opt('rounds', 16), FOV = +opt('fov', 100), CPU_FRAMES = 12;
 const SAVE = opt('save', null), SHOTS = opt('shots', null);
-let LIST = opt('scenes', Object.keys(SCENES).filter((k) => !SCENES[k].drone && !SIM.includes(k)).join(',')).split(',');
+const WET = ['coast', 'slipway', 'lake', 'sea300', 'sea3k']; // (the water's depth's scenes: named with --scenes only)
+let LIST = opt('scenes', Object.keys(SCENES).filter((k) => !SCENES[k].drone && !SIM.includes(k) && !WET.includes(k)).join(',')).split(',');
 for (const k of [...PROF.filter((p) => !PROFILES[p]), ...LIST.filter((s) => !SCENES[s]), ...QUAL.filter((q) => !['high', 'low'].includes(q))]) throw new Error('unknown profile, scene or quality: ' + k);
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
 const commit = (dir) => { try { const c = execSync('git rev-parse --short HEAD', { cwd: dir, encoding: 'utf8' }).trim(); const d = execSync('git status --porcelain -- js', { cwd: dir, encoding: 'utf8' }).trim(); return c + (d ? '+dirty' : ''); } catch { return '?'; } };
@@ -351,6 +359,7 @@ async function cond(T, name) {
     if (Render3D.bench) { out.benchDay = +Render3D.bench.day().toFixed(3); out.benchSunset = +Render3D.bench.sunset().toFixed(3); }
     let ok = S.time === 'dusk' ? Math.abs(E.sunset - 0.7) < 0.1 : E.day > 0.95;
     if (S.sea) { const L = Terrain.locate(v.body, v.x, v.y, v.z, {}), f = v.axis(0, 1, 0); out.water = Terrain.waterAt(v.body, L.a, L.z); out.sunAhead = +(f.x * E.sx + f.y * E.sy).toFixed(2); ok = ok && out.water && out.sunAhead > 0.3; }
+    if (S.wet) { const f = Flight.active, L = Terrain.locate(f.body, f.x, f.y, f.z, {}); let w = 0; for (let i = 0; i < 16; i++) { const k = (i * Math.PI) / 8, a2 = L.a + (Math.cos(k) * 300) / f.body.radius, z2 = L.z + Math.sin(k) * 300; if (Terrain.waterAt(f.body, a2, z2)) w++; } out.wet = w; ok = ok && w > 0; } // (water within 300 m)
     if (S.land) { const L = Terrain.locate(v.body, v.x, v.y, v.z, {}); out.land = !Terrain.waterAt(v.body, L.a, L.z); ok = ok && out.land; }
     if (S.town) { const L = Terrain.locate(v.body, v.x, v.y, v.z, {}); out.urban = +Terrain.urbanAt(L.a, L.z).toFixed(2); ok = ok && out.urban > 0.8; }
     if (S.props) { const I = Render3D.propsInfo(); out.props = S.props.map((k) => !!(I[k] && I[k].shown && I[k].ready)); ok = ok && out.props.every(Boolean); }

@@ -41,8 +41,15 @@ const Render3D = (() => {
     venC: C('#f4e2b4'), jupA: C('#e6d1ae'), jupB: C('#c08d5c'), jupC: C('#9c6b45'), jupD: C('#d9b88a'), spot: C('#c2603f'),
     eurA: C('#e5eff4'), eurB: C('#c8d6de'), linea: C('#9b6a4c'),
   };
+  // The water's depth (waterHook): sig, how much of the light from below the water takes per metre of it, evenly (the
+  // rest is the water's own colour); tint, how much more it takes of red, green and blue per metre (underTint, on the
+  // ground's colour under it); veil, the most things sinking away are drawn through (render only: S.sinks)
+  const WATER = { sig: 0.09, tint: [0.16, 0.035, 0.012], river: 1.5, sinks: 4 };
   const T1 = [0, 0, 0], T2 = [0, 0, 0], BIO = [0, 0, 0], BIOL = [0, 0, 0];
-  const FOAM = [238, 246, 250], ASPHALT = [74, 77, 82], URBAN = [132, 126, 116], HEDGE = [70, 96, 52], LAKE_S = [52, 128, 150], LAKE_D = [22, 70, 104];
+  // the sea's own colour (the light it scatters back) d m deep: turquoise over the sand of the shallows (the floor's light
+  // in it), blue-green, then deep blue offshore and on the far cells (far: patchJob's), as the water was before its depth
+  const seaBody = (d, far, out) => mixC(mixC(SEA_SHAL, SEA_BODY, smoothstep(1, 24, d), out), SEA_DEEP, Math.max(smoothstep(12, 50, d), far), out);
+  const SEA_SHAL = C('#1f7584'), SEA_BODY = C('#145a74'), SEA_DEEP = C('#0f3d6e'), LAKE_B = [16, 52, 64], FOAM = [238, 246, 250], ASPHALT = [74, 77, 82], URBAN = [132, 126, 116], HEDGE = [70, 96, 52], LAKE_S = [52, 128, 150], LAKE_D = [22, 70, 104];
   const AIRGRASS = [96, 132, 66], FQP = { w: 0, h: 0, f: null }; // an airfield's mown grass
   const FIELDS = [[196, 176, 104], [118, 158, 72], [140, 112, 76], [160, 186, 104], [96, 132, 64], [184, 160, 92]];
   const FIELD_AVG = [0, 1, 2].map((q) => FIELDS.reduce((s, f) => s + f[q], 0) / FIELDS.length);
@@ -61,6 +68,16 @@ const Render3D = (() => {
   }
   // how green the ground is (0 desert, ice, rock .. 1 forest), for trees
   const vegOf = (c) => lerp(0.8, (1 - smoothstep(0.22, 0.45, lum(c))) * (c[1] >= c[0] * 0.92 ? 1 : 0.35), BIOW);
+  // The sea floor (h < 0), seen through clear water now (the water's depth: waterHook): wet sand at the waterline, clean
+  // sand down to a few metres, then darker weedy ground in patches and rock outcrops by 30 m; rock, not sand, under the
+  // cliffs. (The water itself takes the colour away with depth: the tint in groundPaint, then the water's own shader.)
+  const SEA_ROCK = C('#5a5a52');
+  function seabed(h, n, cliff, out) {
+    mixC(P.wet, P.sand, smoothstep(-0.3, -2.5, h), out);
+    mixC(out, P.seabed, smoothstep(-4, -26, h) * (0.55 + 0.45 * n), out);
+    mixC(out, SEA_ROCK, smoothstep(-5, -24, h) * smoothstep(0.5, 0.75, n) * 0.6, out);
+    return cliff > 0 ? mixC(out, mixC(P.seabed, P.basalt, 0.5, T1), cliff * 0.9, out) : out;
+  }
   function paint(c, h, n, cont, dark, slope, lat, tex, out) {
     const p = c.pal, al = Math.abs(lat);
     switch (c.kind) {
@@ -73,7 +90,7 @@ const Render3D = (() => {
             if (BIOW < 1) mixC(mixC(P.grassB, P.arid, 0.25, T2), BIOL, BIOW, BIOL); // land the photo shows as sea
             return mixC(out, BIOL, smoothstep(-5, 5, h), out);
           }
-          if (h < 0) mixC(P.wet, P.seabed, Math.max(smoothstep(-2, -40, h), CLIFF * 0.9), out); // (rock, not sand, under the cliffs)
+          if (h < 0) seabed(h, n, CLIFF, out); // (rock, not sand, under the cliffs)
           else {
             mixC(P.grassA, P.grassB, clamp(n * 1.2 - 0.1, 0, 1), out);
             mixC(out, BIOL, 0.72 * BIOW, out);
@@ -86,11 +103,12 @@ const Render3D = (() => {
             mixC(out, P.snow, Math.max(smoothstep(0.62, 0.8, lum(BIOL)) * (1 - smoothstep(0.08, 0.2, sat)) * BIOW, smoothstep(1050, 1300, h)), out);
           }
           if (!tex && h >= 0) mixC(out, CLIFF > 0 ? mixC(P.rockE, P.basalt, CLIFF, T1) : P.rockE, Math.max(smoothstep(0.28, 0.55, slope), CLIFF * smoothstep(0.1, 0.3, slope) * smoothstep(1, 5, h)), out);
+          else if (!tex) mixC(out, P.basalt, smoothstep(0.3, 0.6, slope) * 0.7, out); // (steep sea floor: rock)
           return out;
         }
         if (h < 0) {
           if (tex) mixC(P.oceanD, P.oceanS, smoothstep(-160, -8, h), out);
-          else mixC(P.wet, P.seabed, smoothstep(-2, -40, h), out);
+          else seabed(h, n, 0, out);
         } else if (h < 4) mixC(P.wet, P.sand, h / 4, out);
         else {
           mixC(P.grassA, P.grassB, clamp(n * 1.2 - 0.1, 0, 1), out);
@@ -725,6 +743,23 @@ void main() {
   float a = 0.9 * core * fade;
   gl_FragColor = vec4(cc * a + gl_FragColor.rgb, a); // (premultiplied: the core covers what is behind it, so its colour shows even on the sky; the halo adds light)
 }`;
+  // A sinking thing's colour through the water over it (its veil's first pass, multiplied in: S.veils): red goes first, then
+  // green, along the eye's path through the water (uD, its top's depth, over the cosine the eye looks down at) and the
+  // Sun's down to it, as underTint takes the sea floor's; the veil's water (OB_VEIL) is drawn over it next
+  const VEILM_VS = `${LOGV}varying vec3 vN, vV;
+void main() {
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vN = normalMatrix * normal; vV = - mvPosition.xyz;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <logdepthbuf_vertex>
+}`;
+  const VEILM_FS = `${LOGF}uniform vec3 uTint; uniform float uD, uSig;
+varying vec3 vN, vV;
+void main() {
+  #include <logdepthbuf_fragment>
+  float c = clamp(dot(normalize(vN), normalize(vV)), 0.04, 1.0);
+  gl_FragColor = vec4(pow(exp(- uTint * (uD / c + uD) - uSig * uD), vec3(1.0 / 2.2)), 1.0);
+}`;
   // Contact shadows and scorch marks (syncDecals): a flat quad on the ground as drawn, x and y ±0.5 (vUv ±1 across its
   // ellipse; its instance's third axis the ground's normal), drawn 30 cm nearer the eye (more far off) so the ground
   // never cuts it. Its opacity and kind ride in the instance matrix's fourth row (an affine matrix's 0, 0, 0): the
@@ -1287,8 +1322,16 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // over it (uWaveB); far off the ripples calm down (no glitter shimmer) and the surface roughens, so the Sun's path
     // widens towards the horizon. Foam and depth stay in the vertex colours
     S.waveB = { value: new THREE.Vector2() };
+    S.veil0 = { value: new THREE.Vector4() }; // (the water's own veil uniform: unused, OB_VEIL off)
     if (Settings.high) terr.oceanMat.defines.OB_HI = '';
     terr.oceanMat.onBeforeCompile = waterHook;
+    // Water with depth (waterHook, OB_DEEP): the water takes the light from the ground under it by how much of it the eye
+    // looks through, so the floor shows through clear shallows and deep water is the water's own colour; Fresnel makes
+    // it a mirror at a glance; surf foam and a line where it meets the shore. On a three.js whose chunks aren't r159's the
+    // water is drawn as before (patchJob then puts its alpha in its colours, as it did)
+    S.deepW = deepOK();
+    if (S.deepW) terr.oceanMat.defines.OB_DEEP = '';
+    else warnOnce('deep', 'three.js\'s chunks aren\'t r159\'s: the water is drawn without its depth');
     for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
     // scenery: trees (Earth) and rocks, placed per grid cell around the craft
@@ -1373,18 +1416,90 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   const WATER_NM = 'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\n\tmapN.xy *= normalScale;';
   const warned = {};
   const warnOnce = (k, why) => { if (!warned[k]) { warned[k] = true; console.warn(`Render3D: ${why}`); } };
+  // r159's text the water's depth replaces or reads (deepOK checks it once, at init)
+  const WATER_OPQ = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );';
+  function deepOK() {
+    const C = THREE.ShaderChunk;
+    return C.normal_fragment_maps.includes(WATER_NM) && C.opaque_fragment.includes(WATER_OPQ) && C.normal_fragment_begin.includes('vec3 nonPerturbedNormal = normal;')
+      && C.begin_vertex.includes('vec3 transformed') && C.envmap_physical_pars_fragment.indexOf('vec3 getIBLIrradiance') > 0 && C.envmap_physical_pars_fragment.indexOf('vec3 getIBLRadiance') > C.envmap_physical_pars_fragment.indexOf('vec3 getIBLIrradiance');
+  }
+  // The water's sky light (OB_DEEP): the light its own colour scatters from the sky worked out as the ground's is (the sky
+  // light's formula, SKY_IBL), not looked up in the filtered cube; its reflection keeps the real cube (three's radiance).
+  // One cube lookup a water pixel less pays for its depth (spec: within +3% of a phone's frame at the coast)
+  const waterEnv = () => {
+    const E = THREE.ShaderChunk.envmap_physical_pars_fragment, i0 = E.indexOf('vec3 getIBLIrradiance'), i1 = E.indexOf('vec3 getIBLRadiance');
+    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + E.slice(i1);
+  };
+  // The water's depth, a pixel (OB_DEEP): vWat.x the water's depth under it (m; below 0 the ground stands over it, hidden),
+  // .y the surf (patchJob), .z how much water there is (a lake's edge, a river's). The light from below is the ground drawn
+  // under the water times exp(-sig·path), the path the depth over the cosine the eye looks down at; the rest is the water's
+  // own colour (its vertex colour, lit: the light it scatters); foam on the surf, broken up by the ripples, and a line where
+  // it is no deeper than 30 cm; Fresnel on the rippled surface lets less through at a glance. Blended as any see-through
+  // thing (alpha, after the tone mapping): the colour is what the water gives (its light, the reflection) over how much
+  // of the pixel it covers, and a bright reflection (the Sun's glints) covers it whole, or the tone mapping would cap it.
+  // A veil (OB_VEIL: S.sinks) is a patch of the same water over something sinking away, drawn only where that thing is
+  // (the stencil): its depth uVeil.x, the thing's own, and at least uVeil.y of the water's colour (it fades away at the end)
+  const WATER_DEEP = `
+#ifdef OB_DEEP
+#ifdef OB_HI
+	vec3 obV = normalize( vViewPosition );
+	float obCos = clamp( dot( nonPerturbedNormal, obV ), 0.0, 1.0 );
+#else
+	float obCos = vWatL.x; // (Low: the eye's angle and the Fresnel a vertex, waterHook)
+#endif
+	float obDep = max( vWat.x, 0.0 ), obAl = 1.0, obFo = 0.0;
+#ifdef OB_VEIL
+	obDep = uVeil.x;
+#endif
+	float obT = OB_SIG * obDep / max( obCos, 0.04 );
+	// (deep water, or seen at a glance through enough of it, with no surf: the floor can't show (under 0.3 % of its
+	// light) and it is the water's own colour, as the open sea is; most of the sea's pixels skip the rest)
+	if ( obT < 6.0 || vWat.y > 0.0 ) {
+		float obAw = 1.0 - exp( - obT );
+#ifdef OB_VEIL
+		obAw = max( obAw, uVeil.y );
+#else
+		float obS = max( vWat.y, 0.7 * ( 1.0 - smoothstep( 0.03, 0.3, vWat.x ) ) * step( 0.0, vWat.x ) );
+		obFo = 0.6 * obS * smoothstep( 1.0 - obS, 1.5 - obS, obRip );
+#endif
+		obAl = 1.0 - ( 1.0 - obAw ) * ( 1.0 - obFo );
+		diffuseColor.rgb = ( diffuseColor.rgb * obAw * ( 1.0 - obFo ) + vec3( 0.88, 0.92, 0.94 ) * obFo ) / max( obAl, 1e-3 );
+	}
+#ifdef OB_HI
+	float obF1 = 1.0 - clamp( dot( normal, obV ), 0.0, 1.0 ), obF2 = obF1 * obF1;
+	float obFr = 0.02 + 0.98 * obF2 * obF2 * obF1;
+#else
+	float obFr = vWatL.y;
+#endif
+#endif`;
   function waterHook(sh) {
     const nm = THREE.ShaderChunk.normal_fragment_maps;
     if (!nm.includes(WATER_NM) || !sh.fragmentShader.includes('#include <roughnessmap_fragment>')) { warnOnce('water', 'three.js\'s normal map chunk isn\'t r159\'s: the water keeps still ripples'); return; }
+    const deep = S.deepW && 'OB_DEEP' in sh.defines;
     sh.uniforms.uWaveB = S.waveB;
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;')
+    if (deep) {
+      sh.uniforms.uVeil = this && this.userData && this.userData.veil ? this.userData.veil : S.veil0; // (a veil's own: its material's)
+      Object.assign(sh.uniforms, S.skyL);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <envmap_physical_pars_fragment>', waterEnv());
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aWater;\nvarying vec3 vWat;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif').replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvWat = aWater;')
+        .replace('#include <logdepthbuf_vertex>', `#include <logdepthbuf_vertex>
+#ifndef OB_HI
+	float obC = clamp( dot( normalize( vNormal ), normalize( - mvPosition.xyz ) ), 0.0, 1.0 ), obF1 = 1.0 - obC, obF2 = obF1 * obF1;
+	vWatL = vec2( obC, 0.02 + 0.98 * obF2 * obF2 * obF1 ); // (Low: the eye's angle to the water and its Fresnel, a vertex: on the unrippled surface)
+#endif`);
+    }
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;' + (deep ? `\nvarying vec3 vWat;\nuniform vec4 uVeil;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif\n#define OB_SIG ${WATER.sig.toFixed(4)}` : ''))
       .replace('#include <normal_fragment_maps>', nm.replace(WATER_NM, `vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
 #ifdef OB_HI
 	vec3 mapB = texture2D( normalMap, vec2( - vNormalMapUv.y, vNormalMapUv.x ) * 3.0 + uWaveB ).xyz * 2.0 - 1.0;
 	mapN = normalize( vec3( mapN.xy + vec2( mapB.y, - mapB.x ) * 0.6, mapN.z * mapB.z ) );
 #endif
-	mapN.xy *= normalScale * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, length( vViewPosition ) ) );`))
+	float obRip = clamp( 0.5 + 0.9 * ( mapN.x - mapN.y ), 0.0, 1.0 );
+	mapN.xy *= normalScale * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, length( vViewPosition ) ) );`) + (deep ? WATER_DEEP : ''))
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix( roughness, 0.22, smoothstep( 200.0, 4000.0, length( vViewPosition ) ) );');
+    if (deep) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `vec3 obC = totalDiffuse * obAl * ( 1.0 - obFr ) + totalSpecular * ( 1.0 - obFo ) + totalEmissiveRadiance;
+	float obA = 1.0 - ( 1.0 - obAl ) * ( 1.0 - obFr ) * ( 1.0 - clamp( dot( totalSpecular, vec3( 0.3, 0.6, 0.1 ) ) * 1.5 - 0.1, 0.0, 1.0 ) );
+	gl_FragColor = vec4( obC / max( obA, 1e-3 ), obA * vWat.z );`);
   }
   // (mapB: the same map at 3× its scale turned 90°, its slopes turned back into mapN's frame; far off the ripples calm
   // to 30 % from 300 m to 3 km and the roughness rises to 0.22 by 4 km)
@@ -1416,6 +1531,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * cols), cols).setUsage(THREE.DynamicDrawUsage));
       g.setIndex(new THREE.BufferAttribute(ix || idx.slice(), 1).setUsage(ix ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage));
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+      // (the water's: its depth under each vertex, m (signed: below 0 the ground stands over it), the surf's foam and how
+      // much water there is (a lake's or a river's edge): waterHook)
+      if (cols === 4) g.setAttribute('aWater', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
       return g;
     };
     const tg = mk(3); // (the ground's own copy too: the cells under the near ground are left out of it, cullGround)
@@ -1496,7 +1614,17 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (b === EARTH && h > 6 && ea > 560 && ea < EARTH.roadEnd) { // concrete shoulders along the runway and the road down the headland
       mixC(out, P.concrete, (1 - smoothstep(half - 4, half + 3, Math.abs(Z))) * 0.85 * (1 - smoothstep(30, 120, cell)), out);
     }
+    const wd = b.ocean && h < 0 ? -h : wp > 0.5 && wl > h ? wl - h : 0; // (the water over this ground: the sea's, a lake's)
+    if (wd > 0) underTint(out, wd);
     return night;
+  }
+  // Ground under water as it looks from above through it: red goes first, then green (per metre of water down and back
+  // up, beyond what the water's own shader takes evenly: WATER.sig), so sand under a few metres turns turquoise and the
+  // deeper floor teal. On the ground's own colour, so the patch, the near ground and the arena's ground agree.
+  function underTint(out, d) {
+    const q = Math.min(d, 30), s = WATER.sig * q; // (and the Sun's light down to it: evenly)
+    for (let k = 0; k < 3; k++) out[k] *= Math.pow(Math.exp(-WATER.tint[k] * 2 * q - s), 1 / 2.2);
+    return out;
   }
   // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame);
   // camAlt: the camera's height, for how far out the sea can be cut down to what shows (cullWater).
@@ -1580,8 +1708,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     tg.boundingSphere.radius = span * 1.6 + c.hmax;
     patch.ocean.visible = !!b.ocean;
     if (b.ocean) {
-      const og = patch.ocean.geometry, op = og.attributes.position.array, on = og.attributes.normal.array, oc = og.attributes.color.array;
-      const deep = C('#0f3d6e'), shal = C('#2b8bb8');
+      const og = patch.ocean.geometry, op = og.attributes.position.array, on = og.attributes.normal.array, oc = og.attributes.color.array, ow = og.attributes.aWater.array;
+      const deep = SEA_DEEP, shal = C('#2b8bb8');
       for (let j = 0; j < nr; j++) {
         const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
         for (let i = 0; i < nc; i++) {
@@ -1589,14 +1717,20 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           op[k * 3] = R * ux; op[k * 3 + 1] = R * uy - R; op[k * 3 + 2] = R * sp;
           on[k * 3] = ux; on[k * 3 + 1] = uy; on[k * 3 + 2] = sp;
           const far = b === EARTH ? smoothstep(60, 400, Math.max(G.dx[i], G.dz[j])) : 0, t = Math.max(smoothstep(0, 30, -hs[k]), far);
-          mixC(shal, deep, t, out);
           const foam = (1 - smoothstep(3, 16, Math.max(0, -hs[k]) / tn[k])) * (1 - smoothstep(0.2, 1.2, hs[k])) * (1 - far) * 0.85; // surf at the waterline
+          if (S.deepW) { // (the water's depth, waterHook: the colour of the water itself, deepening offshore; foam and depth apart)
+            seaBody(-hs[k], far, out);
+            ow[k * 3] = -hs[k]; ow[k * 3 + 1] = foam; ow[k * 3 + 2] = 1;
+            oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = 1;
+            continue;
+          }
+          mixC(shal, deep, t, out);
           if (foam > 0) mixC(out, FOAM, foam, out);
           oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = Math.max(0.6 + 0.34 * t, foam);
         }
         if ((j & 7) === 7) yield;
       }
-      for (const a of ['position', 'normal', 'color']) og.attributes[a].needsUpdate = true;
+      for (const a of ['position', 'normal', 'color', 'aWater']) og.attributes[a].needsUpdate = true;
       og.boundingSphere.radius = span * 1.6;
       // the sea runs on under the land, out of sight wherever a triangle's corners all stand well above it: those are
       // left out, within half the horizon. "Well above": 1.5 m, and more far off, where a pixel spans more ground (the
@@ -1611,7 +1745,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // lakes and rivers: a water surface at their own level where there is water, tucked under the ground elsewhere
     let inland = false;
     if (c.mapped) {
-      const ig = patch.inland.geometry, ip = ig.attributes.position.array, inr = ig.attributes.normal.array, ic = ig.attributes.color.array;
+      const ig = patch.inland.geometry, ip = ig.attributes.position.array, inr = ig.attributes.normal.array, ic = ig.attributes.color.array, iw = ig.attributes.aWater.array;
       for (let j = 0; j < nr; j++) {
         const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
         for (let i = 0; i < nc; i++) {
@@ -1626,11 +1760,15 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           inr[k * 3] = ux; inr[k * 3 + 1] = uy; inr[k * 3 + 2] = sp;
           const t = smoothstep(0, 14, (lv === lv ? lv : 0) - hs[k]);
           mixC(LAKE_S, LAKE_D, t, out);
+          // (the water's depth, waterHook: a lake's from its floor; a river's at least WATER.river, its bed not being
+          // carved in the ground; none where it is tucked away)
+          iw[k * 3] = lv === lv ? Math.max(lv - hs[k], lk[k] > 0.5 ? -9 : Math.min(WATER.river, (lv - hs[k] + 0.3) * 4)) : -6; iw[k * 3 + 1] = 0; iw[k * 3 + 2] = on ? wp[k] : 0;
+          if (S.deepW) mixC(LAKE_D, LAKE_B, smoothstep(4, 30, (lv === lv ? lv : 0) - hs[k]) * 0.5, out);
           ic[k * 4] = lin(out[0]); ic[k * 4 + 1] = lin(out[1]); ic[k * 4 + 2] = lin(out[2]); ic[k * 4 + 3] = on ? wp[k] * (0.55 + 0.37 * t) * smoothstep(0.1, 1.2, wl[k] - hs[k]) : 0;
         }
         if ((j & 7) === 7) yield;
       }
-      for (const a of ['position', 'normal', 'color']) ig.attributes[a].needsUpdate = true;
+      for (const a of ['position', 'normal', 'color', 'aWater']) ig.attributes[a].needsUpdate = true;
       ig.boundingSphere.radius = span * 1.6 + c.hmax;
       cullWater(patch, ig);
     }
@@ -1640,7 +1778,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     let minH = 0;
     for (let k = 0; k < hs.length; k++) if (hs[k] < minH) minH = hs[k];
     const cell = Math.max(sx[nc - 1] - sx[nc - 2], sz[nr - 1] - sz[nr - 2]);
-    Object.assign(patch, { b, a0, z0, kl, span, minH, sag: (cell * cell) / (8 * R), at: clock, ready: true });
+    Object.assign(patch, { b, a0, z0, kl, uo, vo, span, minH, sag: (cell * cell) / (8 * R), at: clock, ready: true });
   }
   // Cut a water sheet's index down to the triangles with a corner in sight (patch.hide: 1 where a vertex is not),
   // in the same order (triangles under the ground never passed the depth test, so the picture is the same).
@@ -4877,6 +5015,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
     if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
     nearCull(); // (the near ground's tiles in view)
+    if (api.bench.ground === false || api.bench.water === false || api.bench.oldWater || S.wBench) benchWater(); // (measuring only)
     if (!api.skipDraw) renderer.render(localScene, camera);
     if (PX.warm > 0 && PX.set && renderer.shadowMap.autoUpdate && !api.skipDraw && --PX.warm === 0) { // (drawn with the stand-ins on show: their programs compiled, shadowProxies)
       for (const [, px] of PX.set.casts) px.visible = px.nSh > 0;
@@ -5167,9 +5306,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       e.root.position.set(x, y, z);
       if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
       if (v.sink > 0) { // (a wreck or a cold piece going: lowered into the ground over its last 6 s, all of it under by the end)
-        if (e.sinkH == null) e.sinkH = isGround(v.kind) ? standH(v) : ext; // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
-        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * (e.sinkH + 1);
+        if (e.sinkH == null) { e.sinkH = isGround(v.kind) ? standH(v) : ext; e.wet = wetUnder(v); if (e.wet) e.topH = 0.5 * standH(v); } // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
+        const r = Math.hypot(v.x, v.y, v.z) || 1, u = Math.min(1, v.sink), s = e.wet ? sinkDrop(e, u) : u * (e.sinkH + 1);
         e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
+        if (e.wet) sinkVeil(e, v, r, s, u, d, ext); // (in water: down through it, drawn through the water by its own depth)
       }
       // (the big update) a wreck drawn for BAKE_S (wall clock, from its first frame drawn as one) is baked to one mesh
       // (Parts3D's VesselMesh.bake: one draw for its 14-29, and one shadow draw), once the small copies of its textures it
@@ -5189,11 +5329,168 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       e.vm.sync(v, q);
       if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
     }
-    for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    for (const [v, e] of vessels) {
+      if (e.seen !== frameNo && sinkGhost(F, v, e, camSim)) continue; // (an aircraft that crashed into the water, drawn sinking)
+      if (e.seen !== frameNo) { unveil(e); localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    }
+    sinkSlots(F);
     if (S.warm > 0 || S.bakeW) warmBake(F);
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
     syncDecals(F, dt);
+  }
+  // Measuring the water (bench.ground false: the ground hidden, what is under the water seen; bench.water false: the water
+  // hidden; bench.oldWater: the water drawn with its shader as it was before its depth, for the cost of it alone). A test
+  // hook only: on the next frame after they are all cleared again, everything is as it was
+  function benchWater() {
+    const B = api.bench, ow = !!B.oldWater && S.deepW;
+    S.wBench = B.ground === false || B.water === false || ow;
+    for (const m of [terr.mat, terr.nmat, terr.amat]) if (m) m.visible = B.ground !== false;
+    if (ow && !S.oldWater) { const m = (S.oldWater = terr.oceanMat.clone()); m.onBeforeCompile = waterHook; m.defines = { ...terr.oceanMat.defines }; delete m.defines.OB_DEEP; }
+    if (S.oldWater) { const m = ow ? S.oldWater : terr.oceanMat; for (const P of [patch, patchB]) if (P.ocean) { P.ocean.material = m; P.inland.material = m; } if (!ow) { S.oldWater.dispose(); S.oldWater = null; } }
+    terr.oceanMat.visible = B.water !== false;
+    if (S.oldWater) S.oldWater.visible = B.water !== false;
+  }
+  // ------------------------------------------------------------------ things sinking away through the water
+  // Render only: when they go is the sim's (death.js: junk, ground wrecks), and nothing here is read back. A wreck or a
+  // cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most SINK_MAX m, slowly
+  // at first), and an aircraft that crashed into the water (v.dead, death.js's crash) is drawn sinking for SINK_GHOST s of
+  // the sim's time (sinkGhost: its mesh kept, as it was when it hit). Each is drawn through the water by its own depth,
+  // not the bottom's: its pixels are marked in the stencil (its slot, 1..WATER.sinks, nearest first), the water isn't
+  // drawn there, and a veil of the same water (OB_VEIL) is drawn there instead, over it, absorbing by the depth of its
+  // top (sinkVeil), wholly the water's colour by the end. No sinking thing, no stencil: the water draws as without them.
+  const SINK_MAX = 16, SINK_GHOST = 8, LOCW = {}, VP = v3(), sinkCand = [];
+  // the water at a vessel (its surface's level and the bottom's, m), or null over dry ground or a deck
+  function wetUnder(v) {
+    const b = v.body;
+    if (!b || !b.radius) return null;
+    const L = Terrain.locate(b, v.x, v.y, v.z, LOCW);
+    if (!Terrain.waterAt(b, L.a, L.z)) return null;
+    return { level: Terrain.surfaceAt(b, L.a, L.z), bed: Terrain.heightAt(b, L.a, L.z) };
+  }
+  // how far down (m) a thing sinking in water is drawn, u its sink 0..1: to the bottom (a little into it) or SINK_MAX m,
+  // at least all of it under, slowly at first as it fills
+  const sinkDrop = (e, u) => Math.max(e.sinkH + 1, Math.min(e.wet.level - e.wet.bed + 0.5 * e.sinkH, SINK_MAX)) * Math.pow(u, 1.5);
+  // a sinking thing's veil this frame: how deep its top lies (m), how much of the water's colour at least, where it is
+  // (its centre, from the focus, sim axes), how big and how far from the eye (d); sinkSlots picks the nearest
+  function sinkVeil(e, v, r, s, u, d, ext) {
+    const depth = e.wet.level - (r - v.body.radius - s);
+    if (depth <= -(e.topH || 0)) return; // (still all over the water)
+    const V = e.veil || (e.veil = { x: 0, y: 0, z: 0, ux: 0, uy: 0, uz: 0, dep: 0, min: 0, rad: 0, d: 0, lvl: 0, bed: 0, b: null });
+    V.x = e.root.position.x; V.y = e.root.position.y; V.z = e.root.position.z; V.ux = v.x / r; V.uy = v.y / r; V.uz = v.z / r;
+    V.dep = Math.max(0, depth - 0.8 * (e.topH || 0)); V.min = smoothstep(0.75, 1, u); V.rad = 0.6 * ext + 1.5; V.d = d; V.b = v.body;
+    V.lvl = e.wet.level; V.bed = e.wet.bed;
+    sinkCand.push(e);
+  }
+  // An aircraft that crashed into the water (dead, in one piece, drawn the frame before, its centre within its own size of
+  // the surface, over water): its mesh is kept and drawn sinking for SINK_GHOST s of the sim's time, at most 3 at once; a
+  // new flight (Flight's flags object renewed) or the time going back ends it. true: it is drawn this frame
+  function sinkGhost(F, v, e, camSim) {
+    if (!e.ghost) {
+      if (!(v.dead && v.parts.length && v.body && isAirKind(v.kind) && v.kind !== 'rocket' && !v.wreck && !v.remote && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
+      let n = 0;
+      for (const o of vessels.values()) if (o.ghost) n++;
+      if (n >= 3) return false;
+      const w = wetUnder(v);
+      if (!w) return false;
+      const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1), r = Math.hypot(v.x, v.y, v.z);
+      if (r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
+      e.ghost = { t0: F.time, flags: F.flags, ext }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+    }
+    const G = e.ghost, u = (F.time - G.t0) / SINK_GHOST;
+    if (!(u >= 0 && u < 1) || F.flags !== G.flags) return false;
+    e.seen = frameNo;
+    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, s = sinkDrop(e, u);
+    const x = bp.x + v.x - camAbs.x - (v.x / r) * s, y = bp.y + v.y - camAbs.y - (v.y / r) * s, z = v.z - camAbs.z - (v.z / r) * s;
+    e.root.position.set(x, y, z);
+    sinkVeil(e, v, r, s, u, Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z), G.ext);
+    return true;
+  }
+  // The stencil and the veils, after syncVessels' loop: the nearest WATER.sinks candidates take slots 1.. (their meshes
+  // write it), the water skips every marked pixel while any slot is taken, and each slot's veil lies on the water over
+  // its thing. With no deep water (S.deepW false: the old water) there are none: a sinking thing is hidden as before
+  function sinkSlots(F) {
+    const C = sinkCand, n = S.deepW ? Math.min(C.length, WATER.sinks) : 0;
+    if (C.length > 1) C.sort((a, b) => a.veil.d - b.veil.d);
+    for (const e of vessels.values()) if (e.slot) { const i = C.indexOf(e); if (!(i >= 0 && i < n)) unveil(e); }
+    for (let i = 0; i < n; i++) veilOn(F, C[i], i + 1);
+    if (S.veils) for (let i = n; i < S.veils.length; i++) S.veils[i].visible = false;
+    if (S.warm > 0 && S.deepW && !n) { const q = veilMesh(1); q.geometry.attributes.position.array.fill(0); q.geometry.attributes.position.needsUpdate = true; q.visible = true; } // (its program built while loading: nothing drawn)
+    const m = terr.oceanMat, on = n > 0;
+    if (m.stencilWrite !== on) Object.assign(m, { stencilWrite: on, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: 0, stencilFuncMask: 0xff });
+    C.length = 0;
+  }
+  // a vessel's meshes write `ref` into the stencil where they are drawn (0: they stop); a baked wreck's mesh gets a
+  // material of its own for it (the baked one is shared), given back when it stops
+  function markStencil(e, ref) {
+    e.root.traverse((o) => {
+      if (!o.material || !(o.isMesh || o.isSprite || o.isLine || o.isPoints)) return;
+      if (ref && o.userData.baked && !o.userData.veilOwn) { o.material = o.material.clone(); o.userData.veilOwn = true; }
+      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
+        q.stencilWrite = ref > 0; q.stencilRef = ref; q.stencilFunc = THREE.AlwaysStencilFunc; q.stencilZPass = THREE.ReplaceStencilOp; q.stencilWriteMask = 0xff;
+      }
+      if (!ref && o.userData.veilOwn) { o.material.dispose(); o.material = Parts3D.bakeMat(); o.userData.veilOwn = false; }
+    });
+  }
+  function unveil(e) {
+    if (!e.slot) return;
+    markStencil(e, 0);
+    e.slot = 0;
+  }
+  // slot k's veil (made on first use: the water's material with OB_VEIL and the slot's stencil test; drawn after the water)
+  function veilMesh(k) {
+    const L = S.veils || (S.veils = []);
+    while (L.length < k) {
+      const i = L.length + 1, g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(12), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(8), 2));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(16), 4));
+      g.setAttribute('aWater', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+      g.setIndex([0, 1, 2, 2, 1, 3]);
+      const m = terr.oceanMat.clone();
+      m.defines = { ...terr.oceanMat.defines, OB_VEIL: '' }; m.onBeforeCompile = waterHook; // (a clone has three's empty hook)
+      m.userData = { veil: { value: new THREE.Vector4() } };
+      Object.assign(m, { stencilWrite: true, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: i, stencilFuncMask: 0xff, depthWrite: false });
+      const q = new THREE.Mesh(g, m);
+      q.renderOrder = 2.5; q.frustumCulled = false; q.visible = false;
+      const mu = new THREE.Mesh(g, smat({ uniforms: { uD: { value: 0 }, uSig: { value: WATER.sig }, uTint: { value: new THREE.Vector3(...WATER.tint) } }, vertexShader: VEILM_VS, fragmentShader: VEILM_FS,
+        transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, stencilWrite: true, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: i, stencilFuncMask: 0xff }));
+      mu.renderOrder = 2; mu.frustumCulled = false;
+      q.add(mu); q.userData.mul = mu; // (the first pass: the same quad, multiplied in, shown with it)
+      localWorld.add(q);
+      L.push(q);
+    }
+    return L[k - 1];
+  }
+  // a veil on the water over its thing: centred where the eye's line to the thing's centre meets the water, as wide as the
+  // thing seen through the water there (the eye's height over the water, ch, and the centre's depth under it, D: the
+  // thing seen at ch / (ch + D) of its size), with the patch's own UVs (the ripples run on across its edge) and the
+  // water's own colour there
+  function veilOn(F, e, k) {
+    if (e.slot !== k) { if (e.slot) markStencil(e, 0); e.slot = k; }
+    markStencil(e, k); // (every frame: a rig's materials can be made afresh)
+    const V = e.veil, q = veilMesh(k), g = q.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array, Cl = g.attributes.color.array;
+    const c = camera.position, cs = toSim(c.x, c.y, c.z, VP), b = V.b, R = b.radius + V.lvl;
+    const bp = bodyPos(b, F.time), ax = camAbs.x - bp.x, ay = camAbs.y - bp.y, az = camAbs.z;
+    const ch = Math.hypot(ax + cs.x, ay + cs.y, az + cs.z) - R, D = Math.max(0, R - Math.hypot(ax + V.x, ay + V.y, az + V.z));
+    const f = ch > 0 ? ch / (ch + D) : 1, qx = cs.x + (V.x - cs.x) * f, qy = cs.y + (V.y - cs.y) * f, qz = cs.z + (V.z - cs.z) * f;
+    const rad = (V.rad + 1) * Math.max(f, 0.3) + 1.5, ux = V.ux, uy = V.uy, uz = V.uz;
+    // a square on the water there, along east and north at the thing, its corners on the water's sphere
+    const el = Math.hypot(ux, uy) || 1, ex = -uy / el, ey = ux / el, nx = -uz * ey, ny = uz * ex, nz = ux * ey - uy * ex;
+    for (let i = 0; i < 4; i++) {
+      const se = i & 1 ? rad : -rad, sn = i & 2 ? rad : -rad;
+      const wx = qx + ex * se + nx * sn + ax, wy = qy + ey * se + ny * sn + ay, wz = qz + nz * sn + az, wr = Math.hypot(wx, wy, wz) || 1, k2 = R / wr;
+      P[i * 3] = wx * k2 - ax; P[i * 3 + 1] = wy * k2 - ay; P[i * 3 + 2] = wz * k2 - az;
+      N[i * 3] = wx / wr; N[i * 3 + 1] = wy / wr; N[i * 3 + 2] = wz / wr;
+      if (patch.b === b) { const L = Terrain.locate(b, wx, wy, wz, LOCW); U[i * 2] = (wrapAngle(L.a - patch.a0) * b.radius * patch.kl + patch.uo) / TILE; U[i * 2 + 1] = (L.z - patch.z0 + patch.vo) / TILE; }
+    }
+    const dep = V.lvl - V.bed, col = b.ocean && V.lvl === 0 ? seaBody(dep, 0, T1) : mixC(LAKE_D, LAKE_B, smoothstep(4, 30, dep) * 0.5, T1);
+    for (let i = 0; i < 4; i++) { Cl[i * 4] = lin(col[0]); Cl[i * 4 + 1] = lin(col[1]); Cl[i * 4 + 2] = lin(col[2]); Cl[i * 4 + 3] = 1; }
+    for (const a of ['position', 'normal', 'uv', 'color']) g.attributes[a].needsUpdate = true;
+    q.material.userData.veil.value.set(V.dep, V.min, 0, 0);
+    q.userData.mul.material.uniforms.uD.value = V.dep;
+    q.visible = true;
   }
   // The baked wrecks' material (Parts3D.bakeMat) compiled while a flight with a ground vehicle in it loads (S.warm's first
   // frames), not 6 s after the first kill: a speck with no area drawn with it, as the effect meshes are (initParticles)
@@ -5693,6 +5990,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
     if (hi) terr.oceanMat.defines.OB_HI = ''; else delete terr.oceanMat.defines.OB_HI; // (the water's second ripple set)
     terr.oceanMat.needsUpdate = true;
+    if (S.veils) for (const q of S.veils) { const m = q.material; if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the veils over sinking things: the water's own)
     for (const m of [terr.mat, terr.amat, terr.nmat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch, the arena's ground and the near ground alike, one program)
     PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
@@ -5989,6 +6287,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       busy: () => !!(pjob || bandWait || NF.job || NF.ready || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
       fogK: 1,
       proxyCap: 0,
+      ground: true, water: true, oldWater: false, // (the water's depth: benchWater)
     },
     shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
     propsCastOff: false, // measuring only: the props cast no shadow
@@ -6108,6 +6407,13 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
     meshOf(v) { const e = vessels.get(v); return e ? e.vm : null; },
+    // the water's depth (tests): on (OB_DEEP), the sea's stencil test on, the veils on show, and each vessel drawn sinking
+    // through water: its slot, its top's depth and the least of the water's colour over it, how far it is drawn down, a ghost
+    waterInfo() {
+      const sinks = [];
+      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
+      return { deep: !!S.deepW, stencil: !!(terr.oceanMat && terr.oceanMat.stencilWrite), veils: S.veils ? S.veils.filter((q) => q.visible).length : 0, sinks };
+    },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
     // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
     arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },
