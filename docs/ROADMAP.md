@@ -11,4 +11,3 @@ Things the owner wants in later updates, not the current one. Newest at the bott
 
 ## On file from earlier updates
 - **Performance:** drop the logarithmic depth buffer, which stops phone GPUs skipping hidden pixels early (needs another way to keep depth precise from a cockpit to planet scale), and draw smoke at half resolution in heavy battles.
-- **Phone HUD nits** (portrait): the engine-fire warning can cover a locked bandit's tag; a far radar contact's tag can be cut off at the left edge; from right behind, your own burning engine looks like a pale orange cloud instead of dark smoke.

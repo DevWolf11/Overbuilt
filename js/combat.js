@@ -1569,16 +1569,20 @@ const Combat = (() => {
     return o;
   }
   // (review FEEL-3) A marker's label kept out from under the HUD's top panels (the flight data, the buttons top right, a
-  // room's bar, the battle bar: screen px, looked up once a second): where asked (text centred at x, its baseline y), else
-  // mirrored to the marker's other side (it at mx, my, r across), else beside it on the right, else on the left; where
-  // asked when none is clear. A bandit dead ahead sits at the flight data's height on a phone in portrait.
-  const LP = { at: -1e9, W: 0, H: 0, boxes: [] };
+  // room's bar, the battle bar: screen px, looked up once a second) and the alert line (an engine fire's warning, an
+  // over-g: looked up again as soon as it shows, moves or changes): where asked (text centred at x, its baseline y), else
+  // mirrored to the marker's other side (it at mx, my, r across), else beside it on the right, else on the left, else
+  // where asked or mirrored slid sideways onto the screen; where asked, kept on the screen, when none is clear. A bandit
+  // dead ahead sits at the flight data's height on a phone in portrait, and under the alert line when an engine burns;
+  // a far contact at the screen's edge has its label slid in, never cut off.
+  const LP = { at: -1e9, W: 0, H: 0, key: '', boxes: [] };
   function labelPanels(W, H) {
-    const now = performance.now();
-    if (now - LP.at < 1000 && now >= LP.at && LP.W === W && LP.H === H) return LP.boxes;
-    LP.at = now; LP.W = W; LP.H = H; LP.boxes = [];
+    const now = performance.now(), al = typeof document !== 'undefined' ? document.getElementById('flight-alert') : null;
+    const key = !al || al.hidden ? '' : `${al.className}|${al.style.top}|${al.style.left}|${al.style.maxWidth}|${al.textContent.length}`;
+    if (now - LP.at < 1000 && now >= LP.at && LP.W === W && LP.H === H && LP.key === key) return LP.boxes;
+    LP.at = now; LP.W = W; LP.H = H; LP.key = key; LP.boxes = [];
     if (typeof document === 'undefined') return LP.boxes;
-    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar']) {
+    for (const q of ['#flight-ui .telemetry', '#flight-ui .flight-top-right', '#mp-bar', '#gai-bar', '#flight-alert']) {
       const e = document.querySelector(q);
       if (!e || e.hidden) continue;
       const r = e.getBoundingClientRect();
@@ -1587,19 +1591,23 @@ const Combat = (() => {
     return LP.boxes;
   }
   const LB = []; // (the labels moved this frame: a second one keeps off the first; cleared by noHUD)
+  const LC = []; // (the places hudLabel tries, in order)
   function hudLabel(ctx, t, x, y, mx, my, r, W, H) {
     const B = labelPanels(W, H);
-    if (!B.length) { ctx.fillText(t, x, y); return; }
     const w = ctx.measureText(t).width, h = 11, hit = (cx, by) => (b) => cx - w / 2 - 3 < b.right && cx + w / 2 + 3 > b.left && by - h - 2 < b.bottom && by + 3 > b.top;
     const clear = (cx, by) => cx - w / 2 >= 2 && cx + w / 2 <= W - 2 && by - h >= 0 && by <= H && !B.some(hit(cx, by)) && !LB.some(hit(cx, by));
-    const R = mx + r + 6 + w / 2, L = mx - r - 6 - w / 2;
-    for (const [cx, by] of [[x, y], [x, 2 * my - y + h], [R, my + 4], [L, my + 4], [R, my + 18], [L, my + 18], [R, my - 10], [L, my - 10]]) {
+    const R = mx + r + 6 + w / 2, L = mx - r - 6 - w / 2, sx = clamp(x, w / 2 + 2, W - w / 2 - 2), my2 = 2 * my - y + h, C = LC;
+    C.length = 0;
+    C.push(x, y, x, my2, R, my + 4, L, my + 4, R, my + 18, L, my + 18, R, my - 10, L, my - 10, sx, y, sx, my2);
+    for (let k = 1; k <= 4; k++) C.push(sx, my2 + 14 * k, sx, y - 14 * k, R, my + 18 + 14 * k, L, my + 18 + 14 * k); // (further off, past another label or the warning)
+    for (let i = 0; i < C.length; i += 2) {
+      const cx = C[i], by = C[i + 1];
       if (!clear(cx, by)) continue;
       ctx.fillText(t, cx, by);
       if (LB.length < 16) LB.push({ left: cx - w / 2, right: cx + w / 2, top: by - h, bottom: by + 3 });
       return;
     }
-    ctx.fillText(t, x, y);
+    ctx.fillText(t, sx, clamp(y, h, H - 3));
   }
   // a frame with no HUD over the 3D view (the 2D view draws none): no scope nor markers to tap (drawHUD starts with it too)
   function noHUD() {
@@ -1634,7 +1642,7 @@ const Combat = (() => {
         ctx.moveTo(s.x + k, s.y + k - 3); ctx.lineTo(s.x + k, s.y + k); ctx.lineTo(s.x + k - 3, s.y + k);
         ctx.moveTo(s.x - k + 3, s.y + k); ctx.lineTo(s.x - k, s.y + k); ctx.lineTo(s.x - k, s.y + k - 3);
         ctx.stroke();
-        if (d < 5000) { const tx = `${t.def.name} ${fmt.dist(d)}`, hw = tx.length * 3.4 + 4; ctx.fillStyle = col; ctx.fillText(tx, F.groundAim ? clamp(s.x, hw, W - hw) : s.x, s.y + k + 13); } // (a ground vehicle's: kept on the screen)
+        if (d < 5000) { const tx = `${t.def.name} ${fmt.dist(d)}`, hw = tx.length * 3.4 + 4; ctx.fillStyle = col; ctx.fillText(tx, clamp(s.x, hw, W - hw), s.y + k + 13); } // (kept on the screen: a target at its edge isn't cut off)
       }
       ctx.globalAlpha = 1;
     }
