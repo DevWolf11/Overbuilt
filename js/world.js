@@ -69,6 +69,7 @@ const DEATH_FX = {
   ko: { F: 1.5, L: 0.18, fb: 5, bias: 0.3, fs: 0.3, rise: 6, lift: 0.5, spk: 8, W: 4, Ws: 1, col: 6, cc: '#5a5e66', ch: 0 },
   thud: { bias: -0.2, spk: 6, dust: 6, W: 4, Ws: 1 },
 };
+const TRAIL_GLOW = 12; // m behind its flame a burning craft's smoke stops glowing (FX.trail)
 const fxOwn = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 // what a burning chunk leaves behind it, a tenth of its speed kept: a lick of fire while hot and young, else dark smoke
 // (review P2-VIS-2) a chunk with land (FX.death's on the ground, not in water) stops on the ground under it, its
@@ -251,10 +252,17 @@ const FX = {
       size: P.size * k, grow: P.grow * k, color: P.c, alpha: P.a, rise: P.rise, drag: P.drag, heat: P.heat, ease: 1, fin: P.fin });
   },
   // n puffs of a preset laid back along the path a craft at p, moving at v, flew in dt (p − v·dt·i/n), each keeping
-  // 0.15 of v: a burning or leaking craft's trail stays where it was laid
+  // 0.15 of v: a burning or leaking craft's trail stays where it was laid. A fire's puffs glow only while they are
+  // within TRAIL_GLOW m of the flame (gh: s their glow lasts, FX.update; at rest as any fire smoke, its first fifth):
+  // seen from right behind, a burning jet's trail was a pale orange cloud, its first hundred metres all still glowing
   trail(body, p, v, preset, n, dt) {
-    const w = { x: v.x * 0.15, y: v.y * 0.15, z: v.z * 0.15 }, q = { x: 0, y: 0, z: 0 };
-    for (let i = 0; i < n; i++) { const f = (dt * i) / n; q.x = p.x - v.x * f; q.y = p.y - v.y * f; q.z = p.z - v.z * f; this.smoke(body, q, w, preset, 1); }
+    const w = { x: v.x * 0.15, y: v.y * 0.15, z: v.z * 0.15 }, q = { x: 0, y: 0, z: 0 }, sp = Math.hypot(v.x, v.y, v.z) * 0.85, L = this.list;
+    for (let i = 0; i < n; i++) {
+      const f = (dt * i) / n; q.x = p.x - v.x * f; q.y = p.y - v.y * f; q.z = p.z - v.z * f;
+      this.smoke(body, q, w, preset, 1);
+      const o = L[L.length - 1];
+      if (o && o.heat && sp * o.max * 0.2 > TRAIL_GLOW) { o.gh = TRAIL_GLOW / sp; o.h1 = o.heat; }
+    }
   },
   // In place (the list keeps its identity and order). An old particle moves exactly as it always has: the kind's drag,
   // gravity on heavy ones and sparks. New fields: drag (its own), rise (buoyancy), floor (a radius it stops dead at,
@@ -277,6 +285,7 @@ const FX = {
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       if (p.floor) { const r = Math.hypot(p.x, p.y, p.z), fl = p.land ? landR(p, false) : p.floor; if (r < fl && (!p.land || p.restAt != null || r < landR(p, true))) { const f = (p.land ? p.gr : fl) / r; p.x *= f; p.y *= f; p.z *= f; p.vx = p.vy = p.vz = 0; p.trailT = 0; if (p.restAt == null) p.restAt = p.life; } }
       if (p.trail && p.life < p.trailT) for (p.tt = (p.tt || 0) + dt; p.tt >= p.trail; p.tt -= p.trail) born.push(trailOf(p));
+      if (p.gh) p.heat = p.h1 * Math.max(0, 1 - p.life / p.gh); // (a burning craft's trail: its glow over its first metres, FX.trail)
       L[w++] = p;
     }
     L.length = w;
