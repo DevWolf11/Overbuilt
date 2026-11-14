@@ -3,10 +3,16 @@
 //  - a TK-34 on the slope test path's hillside and at Bixter's outpost: the near ground goes up (faded in, one shader
 //    program with the patch and the arena's ground), and the ground drawn there, found as the eye finds it (a ray straight
 //    down through the ground meshes on show, each where its shader doesn't cut it away: Render3D.rayGround), is the
-//    physics' (Terrain.heightAt) within 5 cm at the 95th percentile and 15 cm at worst out to 100 m (5 cm within 30 m:
-//    2 m cells), where the patch alone (Render3D.nearOff) is 0.5-9 m off; Render3D.drawnGround reads what is drawn
-//  - driving 300 m (the tank moved along the ground frame by frame): the window follows a tile at a time, its share of
-//    a frame within its budget at the 99th percentile, and the ground under the tank is still the physics'
+//    physics' (Terrain.heightAt) within 5 cm at worst within 64 m of the tank on High, 32 m on Low (its cells as fine as
+//    that takes), and within 25 cm at the 95th percentile and 60 cm at worst out to 100 m (coarser cells past that),
+//    where the patch alone (Render3D.nearOff) is 0.5-9 m off; Render3D.drawnGround reads what is drawn
+//  - what it costs a GPU (Render3D.groundFill: the ground's pixels and the 2 x 2 pixel quads its triangles touch, all of
+//    which a GPU shades), in the view behind the tank: the patch and the near ground together shade at most 10% more
+//    than the patch alone (4-6% here; with 2 m and 4 m cells everywhere it was 16%, their slivers filling 80% of their
+//    quads), the near ground's triangles filling at least 85% of the quads they touch
+//  - driving 300 m (the tank moved along the ground frame by frame): the window follows a tile at a time (its cells
+//    chosen again round the tank every 8 m), its share of a frame within its budget at the 99th percentile, and the ground
+//    round the tank is still the physics'
 //  - a Skylark landed on that hillside: the ground under its wheels is the physics' (its gear on the ground drawn)
 //  - a Falcon 1 km up: no near ground built or shown, the patch whole (a plane at altitude pays nothing)
 //  - at Watten, 1.4 km from Highland Ridge in ground play: the arena's ground and the near ground both on show, each with
@@ -61,24 +67,29 @@ for (const [w, h, q, tag] of [[1280, 720, 'high', 'desktop High'], [390, 844, 'l
   await openGame(page, srv.url, { quality: q });
   await page.waitForFunction(mapIn, null, { timeout: 180000 });
   const NEAR = 'Render3D.nearInfo().shown && Render3D.nearInfo().gs === 0';
-  const lim = q === 'high' ? 0.15 : 0.15;
+  const acc = q === 'high' ? 64 : 32; // (m round the craft where the ground drawn keeps to the physics' within 5 cm)
+  const FILL = async () => { await settle('true', true, 2); return ev(() => Render3D.groundFill()); };
 
   // ---- a tank on a hillside, and at an outpost
   for (const [name, e, z] of [['the slope path\'s hillside', 17720, -620], ['Bixter\'s outpost', 19000, 1000]]) {
     await ev(START, ['tk34', e, z, 0.5]);
-    const s1 = await settle(NEAR);
+    const s1 = await settle(NEAR, false, 20000); // (the first scene waits for the whole world to be built: thousands of slices on a busy machine)
     await settle('true', true, 2); // (two frames drawn: the programs the ground was drawn with)
     const I = await ev(() => Render3D.nearInfo()), G = await ev(() => Render3D.gfx());
-    const m = await ev(MEASURE, [100, 300, 240]), fine = await ev(MEASURE, [30, 30, 60]);
-    ok(`${tag}, ${name}: the near ground is up (${s1.n} frames), ${I.window.NT}² tiles and ${I.window.NF}² fine, ${I.vertices} vertices; one shader program with the patch`, s1.ok && I.shown && I.gs === 0 && G.terrProgs === 1, { I, progs: G.terrProgs });
-    ok(`${tag}, ${name}: the ground drawn is the physics' out to 100 m (p95 ${m.near.p95} m, worst ${m.near.max} m; within 30 m worst ${fine.near.max} m), and drawnGround reads what is drawn there (worst ${m.read.max} m)`,
-      m.near.p95 < 0.05 && m.near.max < lim && fine.near.max < 0.05 && m.read.max < 0.02, m);
+    const m = await ev(MEASURE, [100, 300, 240]), fine = await ev(MEASURE, [acc, acc, 120]);
+    ok(`${tag}, ${name}: the near ground is up (${s1.n} frames), ${I.window.NT}² tiles and ${I.window.NF}² worked out at every node, ${I.vertices} vertices, cells ${JSON.stringify(I.cells)} (m: tiles); one shader program with the patch`, s1.ok && I.shown && I.gs === 0 && G.terrProgs === 1, { I, progs: G.terrProgs });
+    ok(`${tag}, ${name}: the ground drawn is the physics' within ${acc} m (p95 ${fine.near.p95} m, worst ${fine.near.max} m) and near it out to 100 m (p95 ${m.near.p95} m, worst ${m.near.max} m), and drawnGround reads what is drawn there (worst ${m.read.max} m)`,
+      fine.near.max < 0.05 && m.near.p95 < 0.25 && m.near.max < 0.6 && m.read.max < 0.02, { fine, m });
+    const f1 = await FILL(), v0 = await ev(() => [Flight.aimYaw, Flight.aimPitch, Flight.scale]); // (in the view the flight starts with: behind the tank)
     if (name.startsWith('the slope')) { await view(0.9, -0.1, 0.55); await shot('tank-hill-on'); }
     await ev(() => { Render3D.nearOff = true; });
     await settle('!Render3D.nearInfo().shown');
+    if (name.startsWith('the slope')) { await shot('tank-hill-off'); await ev(([y, p, sc]) => { Flight.aimYaw = y; Flight.aimPitch = p; Flight.scale = sc; }, v0); }
+    const f0 = await FILL();
+    ok(`${tag}, ${name}: the ground costs a GPU at most 10% more than the patch alone (${f1.frags} fragments shaded against ${f0.frags}: ${(f1.frags / f0.frags).toFixed(3)}), the near ground's triangles filling ${f1.near.frags ? ((f1.near.px / f1.near.frags) * 100).toFixed(0) : '-'}% of the 2 x 2 quads they touch`,
+      f1.frags <= f0.frags * 1.1 && f1.near.px >= 0.85 * f1.near.frags, { f1, f0 });
     const m0 = await ev(MEASURE, [100, 300, 240]);
     ok(`${tag}, ${name}: without it (the patch alone) the ground drawn is off by ${m0.near.p95} m (p95) and ${m0.near.max} m at worst within 100 m, ${m0.all.max} m within 300 m`, m0.near.max > 0.2, m0);
-    if (name.startsWith('the slope')) await shot('tank-hill-off');
     await ev(() => { Render3D.nearOff = false; });
   }
 
@@ -102,10 +113,10 @@ for (const [w, h, q, tag] of [[1280, 720, 'high', 'desktop High'], [390, 844, 'l
       return { commits: I.commits - c0, mean: +(sl.reduce((x, y) => x + y, 0) / sl.length).toFixed(2), p99: sl[Math.floor(sl.length * 0.99)], worst: sl[sl.length - 1], over: sl.filter((x) => x > budget + 4).length, swaps: I.commits32, step: I.step, stepAt: I.stepAt, shown: I.shown, speed: I.speed, budget };
     });
     await settle(NEAR);
-    const m = await ev(MEASURE, [60, 60, 80]);
+    const m = await ev(MEASURE, [acc, acc, 80]);
     // (one frame in a hundred may run long: this machine stalls now and then, the near ground or not, a GC or the host)
-    ok(`${tag}: driven 300 m, the near ground follows (${d.commits} swaps), its share of a frame ${d.mean} ms on average and within its budget (99th percentile ${d.p99} ms, ${d.over} of 600 frames over by 4 ms; worst ${d.worst} ms), and the ground under the tank is the physics' (worst ${m.near.max} m within 60 m)`,
-      d.commits >= 8 && d.shown && d.p99 < d.budget + 4 && d.over <= 6 && m.near.max < lim, d);
+    ok(`${tag}: driven 300 m, the near ground follows (${d.commits} swaps), its share of a frame ${d.mean} ms on average and within its budget (99th percentile ${d.p99} ms, ${d.over} of 600 frames over by 4 ms; worst ${d.worst} ms), and the ground round the tank is the physics' (worst ${m.near.max} m within ${acc} m)`,
+      d.commits >= 8 && d.shown && d.p99 < d.budget + 4 && d.over <= 6 && m.near.max < 0.05, d);
   }
 
   // ---- a light plane landed on the hillside
@@ -134,8 +145,8 @@ for (const [w, h, q, tag] of [[1280, 720, 'high', 'desktop High'], [390, 844, 'l
   {
     await ev(START, ['tk34', 19900, 12100, 0]);
     const s = await settle(NEAR + ' && Render3D.arenaInfo().on', false, 30000);
-    const m = await ev(MEASURE, [100, 100, 120]), A = await ev(() => { const a = siteAngle(EARTH, 17750); return { arena: Math.abs(Render3D.rayGround(EARTH, a, 14500) - Terrain.heightAt(EARTH, a, 14500)), on: Render3D.arenaInfo().on }; });
-    ok(`${tag}: at Watten both the arena's ground and the near ground are on show (${s.n} frames), each the physics' (near: worst ${m.near.max} m; in the arena ${A.arena.toFixed(3)} m)`, s.ok && A.on && m.near.max < lim && A.arena < 0.3, { m, A });
+    const m = await ev(MEASURE, [acc, 100, 160]), A = await ev(() => { const a = siteAngle(EARTH, 17750); return { arena: Math.abs(Render3D.rayGround(EARTH, a, 14500) - Terrain.heightAt(EARTH, a, 14500)), on: Render3D.arenaInfo().on }; });
+    ok(`${tag}: at Watten both the arena's ground and the near ground are on show (${s.n} frames), each the physics' (near: worst ${m.near.max} m within ${acc} m, ${m.all.max} m within 100 m; in the arena ${A.arena.toFixed(3)} m)`, s.ok && A.on && m.near.max < 0.05 && m.all.max < 0.6 && A.arena < 0.3, { m, A });
     // the box's east edge is e 19,100: drive to 120 m past it, then onto it
     const edge = [];
     for (const e of [19400, 19220, 19100]) {
