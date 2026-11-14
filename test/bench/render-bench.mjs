@@ -44,6 +44,10 @@ const SCENES = {
   sea: { key: 'falcon', place: SEA, time: 'noon', what: 'water', sea: true },
   town: { key: 'buggy', place: TOWN, time: 'noon', what: 'the city shadow cut', town: true },
   alt10k: { key: 'falcon', place: { ...LAND, air: { alt: 10000, speed: 240 } }, time: 'noon', what: 'sky, haze from altitude' },
+  // (the clouds update: among the cumulus, where they fill most of the sky: just under their bases and at their middle)
+  clouds1k: { key: 'falcon', place: { ...LAND, air: { alt: 1200, speed: 180 } }, time: 'noon', what: 'cumulus overhead and round the horizon: the puffs\' fill and light', land: true },
+  clouds2k: { key: 'falcon', place: { ...LAND, air: { alt: 2200, speed: 180 } }, time: 'noon', what: 'flying among the cumulus: near clouds big on screen', land: true },
+  cloudsdusk: { key: 'falcon', place: { ...LAND, air: { alt: 2200, speed: 180 } }, time: 'dusk', t: 136000, what: 'the cumulus at sunset', land: true },
   highland: { key: 'tk34', place: HL, time: 'noon', what: 'arena mesh, props, shadow box, blobs', props: ['hl'] },
   battle: { key: 'tk34', place: HL, time: 'noon', what: 'particles, debris, lights, tracers, sorting', props: ['hl'], load: 'battle' },
   dogfight: { key: 'falcon', place: { ...LAND, air: { alt: 3000, speed: 200 } }, time: 'noon', what: 'trails, tracers, an air death', load: 'dogfight' },
@@ -71,7 +75,7 @@ const SCENES = {
   // Judged only by its gpuMs B/A (≤ 1.25): its draws, textures and geometries grow by the drones' and wrecks' own models)
   combo: { key: 'tk34', place: HL, time: 'noon', what: 'eight wrecks (the 3 nearest burning and smoking, as the game has it), two drones under airburst fire and a burning plane overhead', props: ['hl'], pre: 'wrecks8', load: 'combo' },
 };
-const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'], COMBO = ['combo'];
+const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk', 'clouds1k', 'clouds2k', 'cloudsdusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'], COMBO = ['combo'];
 const PROFILES = {
   phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true }, throttle: 4 },
   desktop: { context: { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 }, throttle: 1 },
@@ -200,7 +204,7 @@ async function startScene(T, name) {
     Render3D.setVisible(true);
     window.__perf.scale = 1; Render3D.resize(innerWidth, innerHeight, devicePixelRatio);
     return { ok: true, scale: window.__perf.scale };
-  }, [S, S.time === 'dusk' ? T_DUSK : T_NOON, FOV]);
+  }, [S, S.t || (S.time === 'dusk' ? T_DUSK : T_NOON), FOV]);
 }
 // One frame drawn (or not) the way renderFlight/renderBuilder are driven here. In the page.
 // A scene with sim (window.__sim, from its effects on): the simulation's step first, as App.frame runs it (Flight.update:
