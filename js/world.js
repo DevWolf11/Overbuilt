@@ -31,24 +31,27 @@ function hash1(i, seed = 0) {
 // (World.drawClouds), so both show the same clouds: the cloud of cell (i, q) of a 750 m grid, or null where the sky is
 // clear. i runs along the 2D view's track (the angle round the body × R / 750), q across it (z / 750); the row q = 0 is
 // the flight plane, seeded as the 2D clouds always were (hash1(i, s)), the rest hashI(i, q, s·7 + 3). The cells that
-// hold a cloud are the old ones (38 % of cells), their widths in the same order a sixth wider (360-1200 m, for as
-// much of the sky as the old heaps of puffs covered). What changed: a cloud's base is its
-// area's condensation level (a smooth field some 40 km across, 1.15-2.25 km up; each cloud within 60 m of it), so
+// hold a cloud are the old ones (38 % of cells; off the flight plane a few more, `extra`, on High only), their widths
+// in the same order a quarter wider (380-1260 m, for as much of the sky as the old heaps of puffs covered). What
+// changed: a cloud's base is its area's condensation level (a smooth field some 40 km across, 1-2.3 km up; each
+// cloud within 60 m of it), so
 // neighbouring clouds share one flat base, where each had its own anywhere from 1.4 to 3.6 km; and its height and kind
-// follow two more smooth fields: fair-weather cumulus (flat, a third to two thirds as tall as wide), taller where the
+// follow two more smooth fields: fair-weather cumulus (a third to a whole width tall), taller where the
 // air is unstable, now and then a towering one (up to 2.2 times as tall as wide), and patches of wide, flat
 // stratocumulus that run together. o: { base, wdt, ht, zc (across, in cells, from the cell's middle), kind 0 cumulus, 1
-// towering, 2 stratocumulus, strat (how much) }
+// towering, 2 stratocumulus, strat (how much), extra }
 const CUMULUS_STEP = 750;
 function cumulusCell(i, q, o = {}) {
   const row0 = q === 0, hh = (s) => (row0 ? hash1(i, s) : Terrain.hashI(i, q, s * 7 + 3));
-  if (hh(21) > 0.62) return null;
+  const h21 = hh(21);
+  if (h21 > (row0 ? 0.62 : 0.7)) return null; // (off the flight plane a few more: the 3D sky as full as the old one's heaps)
+  o.extra = h21 > 0.62; // (one of those few more: Low leaves them out, render3d's cumulusJob)
   const vn = Terrain.vnoise2, conv = vn(i / 37 + 5.3, q / 37 + 1.7, 0, 912), strat = smoothstep(0.58, 0.74, vn(i / 29 + 2.1, q / 29 + 8.6, 0, 913));
-  let wdt = 360 + hh(23) * 840, hr = (0.3 + 0.36 * hh(30)) * (0.7 + 0.75 * conv), kind = 0; // (the old cells and their order of size, a sixth wider: about as much sky covered as the old heaps of puffs)
+  let wdt = 380 + hh(23) * 880, hr = (0.45 + 0.45 * hh(30)) * (0.75 + 0.75 * conv), kind = 0; // (the old cells and their order of size, a quarter wider)
   if (strat < 0.05 && conv > 0.52 && hh(34) > 0.9) { kind = 1; wdt = 600 + 450 * hh(23); hr = 1.2 + 1.0 * hh(35); } // (towering cumulus)
   else if (strat > 0.5) kind = 2;
   wdt *= 1 + 0.9 * strat; hr += (0.16 + 0.08 * hh(30) - hr) * strat; // (stratocumulus: wide and flat, running together)
-  o.base = 1150 + 1100 * vn(i / 53 + 3.7, q / 53 + 9.1, 0, 911) - 250 * strat + (hh(22) - 0.5) * 120;
+  o.base = 1000 + 1300 * vn(i / 53 + 3.7, q / 53 + 9.1, 0, 911) - 250 * strat + (hh(22) - 0.5) * 120;
   o.wdt = wdt; o.ht = wdt * hr; o.zc = row0 ? 0 : q + (hh(27) - 0.5) * 0.6; o.kind = kind; o.strat = strat;
   return o;
 }

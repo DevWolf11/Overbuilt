@@ -507,9 +507,9 @@ void main() {
   // cloud (nd), and the fades from the eye (lod: the detail out from .. to, every puff out from .. to: the edge of the
   // field, as far off as the old field's hard edge was)
   const CLOUD_K = [0.025, 1.2, 0.5, 0]; // (w: the fade in once the atlas is baked, updateClouds)
-  const CLOUD_SUN = 0.85, CLOUD_AMB = 0.45;
+  const CLOUD_SUN = 1.0, CLOUD_AMB = 0.45;
   const CIRRUS_TILE = 26000, CIRRUS_H = 9000; // (cirrus: its streaks repeat every 26 km, 9 km up; SKY_FS, renderFlight) // (the Sun's light on the clouds over its light on the ground; the sky's irradiance to a white cloud's light, about 1 / π)
-  const CLOUD_Q = [{ lay: 12500, det: 5300, mid: 4500, stay: 1, grow: 0.45, nd: 2, lod: [2500, 3500, 7000, 9000] }, { lay: 18500, det: 7800, mid: 10000, far2: 12500, stay: 2, grow: 0.18, nd: 5, lod: [4500, 6000, 13000, 15000] }];
+  const CLOUD_Q = [{ lay: 13500, det: 4000, mid: 4000, stay: 2, grow: 0.1, nc: 2, nd: 1, farG: 0.5, farS: 0.8, lod: [2000, 3000, 8000, 10000] }, { lay: 18500, det: 7800, mid: 7000, far2: 10000, stay: 2, grow: 0.22, nc: 4, nd: 3, farG: 0.35, farS: 0.8, lod: [4500, 6000, 13000, 15000] }];
   const CLOUD_IN = 1800; // (how far past a puff's reach it is still laid out: the way the eye goes before the field is rebuilt round it, and then some)
   // Cumulus puffs (the clouds update): upright octagons facing the eye, each a puff from a 4x4 atlas (cumulusAtlas: a
   // baked normal, the puff's thickness and its density), lit as a little volume in a cloud:
@@ -530,9 +530,9 @@ void main() {
   // puffs' fade out), half width (m), height (m).
   // Their haze is the ground's (obFog, obFogCol: the same height fog, the sky's horizon colour in their direction)
   const CLOUD_VS = `${LOGV}attribute vec4 aP, aC, aD, aE;
-uniform vec3 uSunQ, uFogC; uniform vec4 uLod, uK, uMid; uniform float uFogD, uDet; uniform vec2 fogH;
+uniform vec3 uSunQ, uFogC; uniform vec4 uLod, uK, uMid; uniform float uFogD, uDet; uniform vec2 fogH, uFar;
 uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow;${OB_FOG_FN}${OB_FOGC_FN}
-varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB;
+varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB, vF;
 void main() {
   vec4 c = modelViewMatrix * vec4(aP.xyz, 1.0);
   vec3 up = normalize(modelViewMatrix[1].xyz);
@@ -542,15 +542,20 @@ void main() {
   // of the third and fourth core puffs and how much the first two grow as they go; the second's reach and how much the
   // first grows as it goes)
   float d = length(c.xyz), el = dot(c.xyz, up) / d, dh = d * sqrt(max(1.0 - el * el, 0.0)), go = aE.y > 0.0 ? smoothstep(aE.y * 0.75, aE.y, dh) : 0.0;
-  // looking up at a cloud (lk) its turrets are behind its base: they shrink away and its core grows over them (one body
+  // looking straight up at a cloud (lup) its turrets are behind its base: they shrink away and its core grows over them (one body
   // with one base, not balls stacked); looking down at one (ld) its core spreads (the lumpy mass of its tops). At the
-  // field's edge a puff shrinks as it fades (no ghost discs)
-  float lk = smoothstep(0.35, 0.9, el), ld = smoothstep(0.1, 0.5, -el), edge = smoothstep(uLod.z, uLod.w, dh), det = aE.y > 0.0 && aE.y <= uLod.y + 1.0 ? 1.0 : 0.0;
-  go = max(go, det * lk);
-  float s = aP.w * (aE.y > 0.0 && aE.y <= uMid.x ? 1.0 - go : 1.0 + 0.2 * smoothstep(uLod.x, uLod.y, dh) + uMid.y * smoothstep(uMid.x * 0.75, uMid.x, dh)
-    + (aE.y > 0.0 ? -go : uMid.w * smoothstep(uMid.z * 0.75, uMid.z, dh))) * (1.0 + (0.2 * lk + 0.2 * ld) * (1.0 - det)) * (1.0 - 0.6 * edge), sq = aC.z * (1.0 - 0.4 * lk), hb = aD.w * (1.0 - 0.6 * lk); // (and from below, flatter, its puffs drawn down onto its base: one base, not a ball)
+  // field's edge a puff shrinks as it fades (no ghost discs); a puff that goes shrinks to 40 % as it fades, so neither a
+  // ghost disc nor a lone dot is left; from above everything spreads a little, into clustered tops; and far off (2.5-8 km)
+  // the core puffs grow by half again: far clouds, near the horizon, are most of the sky's cover from low down
+  float lk = smoothstep(0.35, 0.9, el), lup = smoothstep(0.55, 0.95, el), ld = smoothstep(0.1, 0.5, -el), edge = smoothstep(uLod.z, uLod.w, dh), det = aE.y > 0.0 && aE.y <= uLod.y + 1.0 ? 1.0 : 0.0;
+  go = max(go, det * lup); // (only nearly overhead: elsewhere a cloud's turrets are its sunlit sides)
+  float far = smoothstep(2500.0, 7000.0, dh) * (1.0 - det);
+  float s = aP.w * (aE.y > 0.0 && aE.y <= uMid.x ? 1.0 - 0.6 * go : 1.0 + 0.2 * smoothstep(uLod.x, uLod.y, dh) + uMid.y * smoothstep(uMid.x * 0.75, uMid.x, dh)
+    + (aE.y > 0.0 ? -0.6 * go : uMid.w * smoothstep(uMid.z * 0.75, uMid.z, dh))) * (1.0 + 0.2 * lup * (1.0 - det) + ld * (0.45 - 0.15 * det) + uFar.x * far) * (1.0 - 0.6 * edge), sq = aC.z * (1.0 - 0.25 * lup), hb = aD.w * (1.0 - 0.6 * lup); // (and from below, flatter, its puffs drawn down onto its base: one base, not a ball)
   c.xyz -= up * (aD.w - hb);
-  vA = aC.w * uK.w * (1.0 - smoothstep(0.75, 1.0, go)) * (1.0 - smoothstep(0.4, 1.0, edge)) * smoothstep(s * 0.3, s * 1.2, -c.z); // (right up close a puff would fill the screen: it thins out)
+  // far off the core puffs move apart along the ground as they grow (a far cloud a wide heap, not puffs piled on one another)
+  c.xyz += mat3(modelViewMatrix) * vec3(aD.x, 0.0, aD.z) * (aE.z * uFar.y * far);
+  vA = aC.w * uK.w * (1.0 - smoothstep(0.1, 0.55, go)) * (1.0 - smoothstep(0.2, 0.75, edge)) * smoothstep(s * 0.6, s * 2.0, -c.z); // (right up close a puff would fill the screen: it thins out)
   if (vA < 0.003) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; } // (out of the clip box: no pixels)
   // upright: the quad's up is the cloud's up as seen (the bases stay flat and the tops heaped as the view banks), tilted a little
   float lu = length(up.xy), ct = cos(aC.x), st = sin(aC.x);
@@ -589,29 +594,30 @@ void main() {
   float Ae = dot(e, e), Be = dot(o, e);
   o += e * ((sqrt(max(Be * Be - Ae * (oo - 1.0), 0.0)) - Be) / Ae * 0.85);
   // looking up at it, the face is its bottom: under the corner, on the ellipsoid's underside (one grey base, its rim lit)
-  o = mix(o, vec3(o.x * 0.35, -0.85, o.z * 0.35), lk); // (its middle's light all over, so its puffs meet without a seam)
+  o = mix(o, vec3(o.x * 0.35, -0.6, o.z * 0.35), lup); // (its middle's light all over, so its puffs meet without a seam)
   oo = dot(o, o);
   float tu = o.y / aE.x * inversesqrt(max(o.x * o.x + o.y * o.y / (aE.x * aE.x) + o.z * o.z, 1e-6));
   float A = dot(L, L), B = dot(o, L), od = (sqrt(max(B * B - A * (oo - 1.0), 0.0)) - B) / A * aE.z * uK.x, h = hb + under + dot(off, up.xy);
   // vS: that light, the height over the cloud's base (the flat base: a pixel), the base's softness, less sky light low in it
-  vS = vec4(max((exp(-od) + 0.6 * exp(-0.25 * od) + 0.4 * exp(-0.06 * od)) * 0.5, 0.14), h, soft, 0.55 + 0.45 * smoothstep(0.0, 0.75, (h - under) / aE.w));
+  vS = vec4(max((exp(-od) + 0.6 * exp(-0.25 * od) + 0.4 * exp(-0.06 * od)) * 0.5, 0.3), h, soft, 0.75 + 0.25 * smoothstep(0.0, 0.75, (h - under) / aE.w));
   // the phase (a two-lobed Henyey-Greenstein: g 0.6 forwards, the silver lining round a cloud in front of the Sun, and
   // -0.2 back; 1 on average over the sphere; / 1.35 for the pixel's own Beer's law), how much powder (none looking towards
   // the Sun), the haze, the face's look up; and the haze's colour. A corner's, all slow across a puff (as three's own fog)
   float cv = dot(v, uSunQ), f1 = 1.36 - 1.2 * cv, f2 = 1.04 + 0.4 * cv;
   vX = vec4((0.448 * inversesqrt(f1) / f1 + 0.288 * inversesqrt(f2) / f2) * (1.0 / 1.35), uK.z * (1.0 - smoothstep(-0.2, 0.6, cv)), obFog(uFogD, d, dot(c.xyz, viewMatrix[1].xyz)), tu);
-  vFogC = obFogCol(v, uFogC); vK = 1.0 - 0.95 * lk;
+  vFogC = obFogCol(v, uFogC); vK = 1.0 - 0.95 * lup;
   // looking up at a cloud, the lowest part of every puff is its underside, in the base's shade: puffs at different depths
   // meet the flat base on different lines of the screen, and what shows between those lines is the underside, not a
   // sunlit band (vB: how much; a corner's, by its height over the base)
   vB = (1.0 - smoothstep(0.0, 0.5 * aE.w, h - under)) * smoothstep(0.03, 0.2, el);
+  vF = far; // (far off a puff's soft fringe firms up: a far cloud's outline, not a haze round it)
   // close up (the puff over a sixth of the view's height), on High: finer billows than the atlas holds (vD: where in the
   // detail noise, how much; each puff its own patch of it)
-  vD = vec3((q * vec2(sign(aC.y), sq)) * 2.2 + fract(aP.xz * 0.0137), uDet * smoothstep(0.1, 0.35, s / d) * (1.0 - lk)); // (not on a base seen from below: it is smooth)
+  vD = vec3((q * vec2(sign(aC.y), sq)) * 2.2 + fract(aP.xz * 0.0137), uDet * smoothstep(0.1, 0.35, s / d) * (1.0 - lup)); // (not on a base seen from below: it is smooth)
   #include <logdepthbuf_vertex>
 }`;
   const CLOUD_FS = `${LOGF}uniform sampler2D uAtlas, uCi; uniform vec3 uSunC, uAmb[3]; uniform vec4 uK;
-varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB;
+varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB, vF;
 void main() {
   #include <logdepthbuf_fragment>
   vec4 t = texture2D(uAtlas, vUv);
@@ -622,7 +628,7 @@ void main() {
     t.b = clamp(t.b - nd * 0.5 * vD.z, 0.0, 1.0);
   }
 #endif
-  float a = t.a * vA * smoothstep(0.0, vS.z, vS.y); // (nothing under the cloud's base)
+  float a = mix(t.a, sqrt(t.a), 0.5 + 0.5 * vF) * vA * smoothstep(0.0, vS.z, vS.y); // (nothing under the cloud's base)
   if (a < 0.006) discard;
   vec2 nq = t.rg * 2.0 - 1.0;
   vec3 n = vec3(nq, sqrt(max(1.0 - dot(nq, nq), 0.0)));
@@ -632,13 +638,14 @@ void main() {
   float dp = t.b * (1.0 - dot(n, vL)) * uK.y * vK;
 #ifdef OB_LO
   // (Low: Beer's law into the puff and the powder effect as rational stand-ins for the exponentials, a third of the work)
-  float sun = vS.x * (1.0 / (1.0 + dp + 0.5 * dp * dp) + 0.35 / (1.0 + 0.3 * dp)) * (1.0 - vX.y / (1.0 + 6.0 * t.b + 18.0 * t.b * t.b)) * vX.x * (1.0 - 0.6 * vB);
+  float sun = vS.x * (1.0 / (1.0 + dp + 0.5 * dp * dp) + 0.35 / (1.0 + 0.3 * dp)) * (1.0 - vX.y / (1.0 + 6.0 * t.b + 18.0 * t.b * t.b)) * vX.x * (1.0 - 0.3 * vB);
 #else
-  float sun = vS.x * (exp(-dp) + 0.35 * exp(-0.3 * dp)) * (1.0 - vX.y * exp(-t.b * 6.0)) * vX.x * (1.0 - 0.6 * vB);
+  float sun = vS.x * (exp(-dp) + 0.35 * exp(-0.3 * dp)) * (1.0 - vX.y * exp(-t.b * 6.0)) * vX.x * (1.0 - 0.3 * vB);
 #endif
   // the sky: its irradiance on the face (quadratic in how far it looks up: the cloud's face, a third the puff's own)
-  float tu = mix(mix(vX.w, dot(n, vUp), 0.3 * vK), -0.9, vB);
+  float tu = mix(mix(vX.w, dot(n, vUp), 0.3 * vK), -0.2, vB); // (an underside: lit by the sky round it and the ground under it)
   vec3 amb = max(uAmb[0] + uAmb[1] * tu + uAmb[2] * (1.5 * tu * tu - 0.5), 0.0) * vS.w;
+  amb = mix(amb, vec3(dot(amb, vec3(0.2126, 0.7152, 0.0722))), 0.45); // (light scattered many times in a cloud is whiter than the sky that lit it)
   gl_FragColor = vec4(mix(uSunC * sun + amb, vFogC, vX.z), a);
   ${OUT}
 }`;
@@ -651,7 +658,7 @@ void main() {
   // octagon's corners). A DataTexture: no canvas, so no premultiplied alpha rounding the normals at thin edges. Baked a
   // slice a frame (updateClouds: some 50 ms of JS on a desktop, four times that on a phone, too much for one frame); the
   // clouds fade in over a second once it is done (uK.w).
-  function cumulusLobes(cell) {
+  function cumulusLobesRaw(cell) {
     const H = (k, s) => hashI(cell, k, s + 101), L = [];
     const ring = (cx, cy, m, a0, a1, d0, d1, r0, r1, sq, k0) => { // m lobes round (cx, cy) from angle a0 to a1 (from straight up)
       for (let k = 0; k < m; k++) {
@@ -673,6 +680,19 @@ void main() {
     }
     return L;
   }
+  // A puff's lobes filling its cell: scaled about the middle until the heap reaches r 0.44 (the octagon's inner circle),
+  // so the quad holds as little clear sky as it can: as much cloud on screen for 40-60 % fewer pixels. CUMULUS_FIT[cell]:
+  // the scale's inverse, by which cumulusJob makes the puff's quad smaller to keep its cloud the size it was
+  const CUMULUS_FIT = new Float32Array(16);
+  function cumulusLobes(cell) {
+    const L = cumulusLobesRaw(cell);
+    let ext = 0;
+    for (const [lx, ly, lr, sq] of L) ext = Math.max(ext, Math.hypot(lx - 0.5, (ly - 0.5)) + lr * Math.max(1, 1 / sq) * 1.1);
+    const k = clamp(0.44 / ext, 1, 1.8);
+    CUMULUS_FIT[cell] = 1 / k;
+    return L.map(([lx, ly, lr, sq]) => [0.5 + (lx - 0.5) * k, 0.5 + (ly - 0.5) * k, lr * k, sq]);
+  }
+  for (let c = 0; c < 16; c++) cumulusLobes(c); // (CUMULUS_FIT ready before any layout)
   function* cumulusAtlas(out) {
     const N = 128, W = 4 * N, data = new Uint8Array(W * W * 4), h = new Float32Array(N * N), w = new Float32Array(N * N), LB = new Float64Array(64 * 4), rim = new Float32Array(N * N);
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const u = (x + 0.5) / N - 0.5, v = (y + 0.5) / N - 0.5; rim[y * N + x] = 1 - smoothstep(0.41, 0.46, Math.sqrt(u * u + v * v)); } // (nothing past the octagon's inner circle)
@@ -1567,7 +1587,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // where the cloud's face is nearest the eye, for the light worked out at the corners), their rows interleaved in
     // one buffer that sortPuffs fills far to near. uMap: the smoke's and the decals' atlas (cloudAtlas), uAtlas the puffs'
     S.cloudU = { uMap: { value: cloudAtlas() }, uAtlas: { value: null }, uSunQ: { value: new THREE.Vector3(0, 1, 0) }, uSunC: { value: new THREE.Color() },
-      uAmb: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, uLod: { value: new THREE.Vector4() }, uDet: { value: 0 }, uCi: { value: S.skyU.uCi.value }, uMid: { value: new THREE.Vector4(1, 0, 1, 0) }, uK: { value: new THREE.Vector4(...CLOUD_K) },
+      uAmb: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, uLod: { value: new THREE.Vector4() }, uDet: { value: 0 }, uFar: { value: new THREE.Vector2() }, uCi: { value: S.skyU.uCi.value }, uMid: { value: new THREE.Vector4(1, 0, 1, 0) }, uK: { value: new THREE.Vector4(...CLOUD_K) },
       uFogC: { value: new THREE.Color() }, uFogD: { value: 0 },
       fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunH: { value: FOGX.sunH }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
     const og = new THREE.InstancedBufferGeometry(), ov = [0, 0, 0], ou = [0.5, 0.5], oi = [], orad = 0.5 / Math.cos(Math.PI / 8);
@@ -3587,8 +3607,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       const dc = Math.hypot(p, qq);
       if (dc > n) continue;
       const q = iq + qq, i = ia + p;
-      if (!cumulusCell(i, q, c)) continue;
-      const wdt = c.wdt, ht = c.ht, rx = wdt / 2, ry = ht / 2, ang = (i * step) / R, zc = c.zc * step, kind = c.kind;
+      if (!cumulusCell(i, q, c) || (c.extra && !Settings.high)) continue; // (Low: the old cells only)
+      const wdt = c.wdt, ht = c.ht, rx = wdt * 0.62, ry = ht / 2, ang = (i * step) / R, zc = c.zc * step, kind = c.kind;
       at(ang, zc, c.base + ry, C3);
       vols.push([C3[0], C3[1], C3[2], rx * 0.92, ry * 1.05, rx, ry]); // (to fly through: the murk; its radii for the murk's light)
       const g = (j, s) => (q === 0 ? hash1(i * 7 + j, s) : hashI(i * 7 + j, q, s));
@@ -3596,7 +3616,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       // half width)
       const near = Math.hypot(wrapAngle(ang - a0) * R, zc - z0) - rx * 0.9;
       if (near > Q.lod[3] + CLOUD_IN) continue; // (none of it can be seen before the next rebuild)
-      const nc = kind === 1 ? 2 + Math.round(ht / (wdt * 0.55)) : 3 + (wdt > 760 ? 1 : 0), inMid = near <= Q.mid + CLOUD_IN;
+      const nc = kind === 1 ? Math.min(2 + Math.round(ht / (wdt * 0.55)), Q.nc + 1) : Math.min(3 + (wdt > 760 ? 1 : 0), Q.nc), inMid = near <= Q.mid + CLOUD_IN; // (Q.nc: Low lays out fewer, bigger core puffs: CLOUD_VS grows them by uMid.y)
       const nd = near <= Q.det ? Math.round(Q.nd * clamp((wdt * (ht + 150)) / 260000, 0.5, kind === 1 ? 2.2 : 1.5)) : 0;
       const ax = g(0, 40) * Math.PI, ca = Math.cos(ax), sa = Math.sin(ax);
       for (let j = 0; j < nc + nd && k < CLOUD_MAX; j++) {
@@ -3609,17 +3629,18 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           along = (g(j, 41) - 0.5) * 0.3 * rx; across = (g(j, 42) - 0.5) * 0.3 * rx; hb = ht * (0.12 + 0.68 * f); s = wdt * (0.82 - 0.22 * f); sq = 0.9;
           cell = f > 0.7 ? Math.floor(g(j, 43) * 8) : 8 + Math.floor(g(j, 43) * 6);
         } else if (!det) { // the core: big billows along the cloud, low in it (its base cuts them flat)
-          along = ((m + 0.5) / nc - 0.5) * (kind === 2 ? 1.5 : 1.15) * rx + (g(j, 41) - 0.5) * 0.25 * rx; across = (g(j, 42) - 0.5) * 0.55 * rx;
+          along = ((m + 0.5) / nc - 0.5) * (kind === 2 ? 1.5 : nc < 3 ? 1.6 : 1.25) * rx + (g(j, 41) - 0.5) * 0.25 * rx; across = (g(j, 42) - 0.5) * 0.55 * rx; // (spread along it: as much sky for as few pixels)
           hb = ht * 0.12 * g(j, 44); // (a dome on the base: the base cuts the billow at its widest)
-          s = wdt * (kind === 2 ? 0.42 + 0.16 * g(j, 48) : 0.55 + 0.22 * g(j, 48)); sq = clamp((2 * (ht * (0.95 + 0.15 * g(j, 49)) - hb)) / s, 0.45, 1.2);
-          cell = 8 + Math.floor(g(j, 43) * (kind === 2 ? 8 : 6)); // (stratocumulus's billows include the flat ones, 14-15)
+          s = wdt * (kind === 2 ? 0.42 + 0.16 * g(j, 48) : 0.55 + 0.22 * g(j, 48)); sq = clamp((2 * (ht * (0.95 + 0.15 * g(j, 49)) - hb)) / s, 0.45, 1.3);
+          cell = kind === 2 ? 8 + Math.floor(g(j, 43) * 8) : g(j, 52) < 0.5 ? Math.floor(g(j, 43) * 8) : 8 + Math.floor(g(j, 43) * 6); // (half cauliflower, half billows; stratocumulus's billows include the flat ones, 14-15)
         } else { // the detail: turrets on its upper side (a towering one's up its column, most at its crown)
-          const th = g(j, 46) * TAU, el = kind === 1 ? 0 : (0.15 + 0.75 * Math.sqrt(g(j, 47))) * (Math.PI / 2), rr = kind === 1 ? 0.5 : 0.3 + 0.5 * Math.cos(el); // (spread over its top: lumpy from above too)
+          const th = g(j, 46) * TAU, el = kind === 1 ? 0 : (0.15 + 0.75 * Math.sqrt(g(j, 47))) * (Math.PI / 2), rr = kind === 1 ? 0.4 : 0.15 + 0.35 * Math.cos(el); // (spread over its top, on its body: lumpy from above too, never a speck beside it)
           along = rr * rx * Math.cos(th); across = rr * rx * Math.sin(th);
-          hb = kind === 1 ? ht * (0.25 + 0.7 * Math.sqrt(g(j, 47))) : ht * (0.3 + 0.4 * Math.sin(el));
-          sq = 0.85 + 0.15 * g(j, 50); s = Math.min(wdt * (0.28 + 0.18 * g(j, 48)), kind === 1 ? wdt : (2 * (ht * 1.12 - hb)) / sq);
+          hb = kind === 1 ? ht * (0.25 + 0.65 * Math.sqrt(g(j, 47))) : ht * (0.22 + 0.36 * Math.sin(el)); // (set into the body, not floating over it)
+          sq = 0.85 + 0.15 * g(j, 50); s = Math.max(Math.min(wdt * (0.28 + 0.18 * g(j, 48)), kind === 1 ? wdt : (2 * (ht * 1.12 - hb)) / sq), wdt * 0.34); // (never a speck: at least a third of the cloud)
           cell = Math.floor(g(j, 43) * 8);
         }
+        s *= CUMULUS_FIT[cell]; // (the quad fitted to its heap: CUMULUS_FIT)
         const ox = along * ca - across * sa, oz = (along * sa + across * ca) * 0.85;
         at(ang - ox / R, zc + oz, c.base + hb, P3);
         const o = k * 16;
@@ -5367,7 +5388,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     U.uSunQ.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
     U.uSunC.value.copy(S.sun.color).multiplyScalar(S.sun.intensity * CLOUD_SUN);
     for (let l = 0; l < 3; l++) if (sk) U.uAmb.value[l].copy(sk[l]).multiplyScalar(CLOUD_AMB);
-    U.uLod.value.set(Q.lod[0], Q.lod[1], Q.lod[2], Q.lod[3]); U.uDet.value = Settings.high ? 1 : 0;
+    U.uLod.value.set(Q.lod[0], Q.lod[1], Q.lod[2], Q.lod[3]); U.uDet.value = Settings.high ? 1 : 0; U.uFar.value.set(Q.farG, Q.farS);
     const pm = S.puffs.material, lo = !Settings.high; // (Low: the cheaper pixels, OB_LO)
     if (('OB_LO' in pm.defines) !== lo) { if (lo) pm.defines.OB_LO = ''; else delete pm.defines.OB_LO; pm.needsUpdate = true; } U.uMid.value.set(Q.mid, Q.grow, Q.far2 || 1, Q.far2 ? 0.4 : 0);
     U.uFogC.value.copy(S.fogLin); U.uFogD.value = localScene.fog.density;
@@ -5417,7 +5438,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     let ox = (p.x - v[0]) / rx, oy = (p.y - v[1]) / ry, oz = (p.z - v[2]) / rx, oo = ox * ox + oy * oy + oz * oz;
     if (oo > 0.81) { const k = 0.9 / Math.sqrt(oo); ox *= k; oy *= k; oz *= k; oo = 0.81; }
     const Lx = sf.x, Ly = sf.y / (ry / rx), Lz = sf.z, A = Lx * Lx + Ly * Ly + Lz * Lz, B = ox * Lx + oy * Ly + oz * Lz;
-    const od = ((Math.sqrt(Math.max(B * B - A * (oo - 1), 0)) - B) / A) * rx * CLOUD_K[0], T = Math.max((Math.exp(-od) + 0.6 * Math.exp(-0.25 * od) + 0.4 * Math.exp(-0.06 * od)) * 0.5, 0.14);
+    const od = ((Math.sqrt(Math.max(B * B - A * (oo - 1), 0)) - B) / A) * rx * CLOUD_K[0], T = Math.max((Math.exp(-od) + 0.6 * Math.exp(-0.25 * od) + 0.4 * Math.exp(-0.06 * od)) * 0.5, 0.3);
     const lo = 0.55 + 0.45 * smoothstep(-1, 0.5, oy), a = U.uAmb.value[0];
     c.copy(U.uSunC.value).multiplyScalar(T * 0.6);
     c.r += a.x * lo; c.g += a.y * lo; c.b += a.z * lo;
@@ -6374,8 +6395,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         const el = Math.hypot(e.x, e.y, e.z), n = { x: e.x / el, y: e.y / el, z: e.z / el };
         for (let k = 0; k < F.n; k++) {
           const L = F.list, o = k * 16, p = at(L[o], L[o + 1], L[o + 2]), dx = p.x - e.x, dy = p.y - e.y, dz = p.z - e.z, u = dx * n.x + dy * n.y + dz * n.z;
-          const dh = Math.sqrt(Math.max(dx * dx + dy * dy + dz * dz - u * u, 0)), g = L[o + 13], go = g > 0 ? ss(g * 0.75, g, dh) : 0, edge = ss(lod.z, lod.w, dh), a = L[o + 7] * (1 - ss(0.75, 1, go)) * (1 - ss(0.4, 1, edge));
-          if (a > 0.002) out.set(`${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}`, +(a * (1 - 0.85 * go) * (1 - 0.6 * edge)).toFixed(4)); // (its opacity times its shrinking)
+          const dh = Math.sqrt(Math.max(dx * dx + dy * dy + dz * dz - u * u, 0)), g = L[o + 13], go = g > 0 ? ss(g * 0.75, g, dh) : 0, edge = ss(lod.z, lod.w, dh), a = L[o + 7] * (1 - ss(0.1, 0.55, go)) * (1 - ss(0.2, 0.75, edge));
+          if (a > 0.002) out.set(`${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}`, +(a * (1 - 0.6 * go) * (1 - 0.6 * edge)).toFixed(4)); // (its opacity times its shrinking)
         }
         return { n: F.n, seen: [...out], eye: e, vols: F.vols.map((v) => ({ ...at(v[0], v[1], v[2]), rx: v[5], ry: v[6] })) };
       },
