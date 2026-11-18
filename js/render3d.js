@@ -525,7 +525,7 @@ void main() {
   // cloud (nd), and the fades from the eye (lod: the detail out from .. to, every puff out from .. to: the edge of the
   // field, as far off as the old field's hard edge was)
   const CLOUD_K = [0.025, 1.2, 0.5, 0]; // (w: the fade in once the atlas is baked, updateClouds)
-  const CLOUD_SUN = 1.0, CLOUD_AMB = 0.45;
+  const CLOUD_SUN = 1.0, CLOUD_AMB = 0.45, CLOUD_MOON = 0.3; // (the Moon: a full Moon high up lights the clouds a tenth as much as the Sun at noon)
   const CIRRUS_TILE = 26000, CIRRUS_H = 9000; // (cirrus: its streaks repeat every 26 km, 9 km up; SKY_FS, renderFlight) // (the Sun's light on the clouds over its light on the ground; the sky's irradiance to a white cloud's light, about 1 / π)
   const CLOUD_Q = [{ lay: 13500, det: 4000, mid: 4000, stay: 2, grow: 0.1, nc: 2, nd: 1, farG: 0.5, farS: 0.8, lod: [2000, 3000, 8000, 10000] }, { lay: 18500, det: 7800, mid: 7000, far2: 10000, stay: 2, grow: 0.22, nc: 4, nd: 3, farG: 0.35, farS: 0.8, lod: [4500, 6000, 13000, 15000] }];
   const CLOUD_IN = 1800; // (how far past a puff's reach it is still laid out: the way the eye goes before the field is rebuilt round it, and then some)
@@ -617,7 +617,8 @@ void main() {
   float tu = o.y / aE.x * inversesqrt(max(o.x * o.x + o.y * o.y / (aE.x * aE.x) + o.z * o.z, 1e-6));
   float A = dot(L, L), B = dot(o, L), od = (sqrt(max(B * B - A * (oo - 1.0), 0.0)) - B) / A * aE.z * uK.x, h = hb + under + dot(off, up.xy);
   // vS: that light, the height over the cloud's base (the flat base: a pixel), the base's softness, less sky light low in it
-  vS = vec4(max((exp(-od) + 0.6 * exp(-0.25 * od) + 0.4 * exp(-0.06 * od)) * 0.5, 0.3), h, soft, 0.75 + 0.25 * smoothstep(0.0, 0.75, (h - under) / aE.w));
+  // (the floor: a cloud never charcoal under a high Sun; with the light low, at dusk or by a low Moon, its far side may fall into shadow)
+  vS = vec4(max((exp(-od) + 0.6 * exp(-0.25 * od) + 0.4 * exp(-0.06 * od)) * 0.5, mix(0.16, 0.3, smoothstep(0.05, 0.4, dot(uSunQ, up)))), h, soft, 0.75 + 0.25 * smoothstep(0.0, 0.75, (h - under) / aE.w));
   // the phase (a two-lobed Henyey-Greenstein: g 0.6 forwards, the silver lining round a cloud in front of the Sun, and
   // -0.2 back; 1 on average over the sphere; / 1.35 for the pixel's own Beer's law), how much powder (none looking towards
   // the Sun), the haze, the face's look up; and the haze's colour. A corner's, all slow across a puff (as three's own fog)
@@ -634,16 +635,16 @@ void main() {
   vD = vec3((q * vec2(sign(aC.y), sq)) * 2.2 + fract(aP.xz * 0.0137), uDet * smoothstep(0.1, 0.35, s / d) * (1.0 - lup)); // (not on a base seen from below: it is smooth)
   #include <logdepthbuf_vertex>
 }`;
-  const CLOUD_FS = `${LOGF}uniform sampler2D uAtlas, uCi; uniform vec3 uSunC, uAmb[3]; uniform vec4 uK;
+  const CLOUD_FS = `${LOGF}uniform sampler2D uAtlas, uCi; uniform vec3 uSunC, uAmb[3], uNight; uniform vec4 uK; uniform float uNw;
 varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB, vF;
 void main() {
   #include <logdepthbuf_fragment>
   vec4 t = texture2D(uAtlas, vUv);
 #ifndef OB_LO
-  if (vD.z > 0.01) { // (close up: the cirrus' patches, G, as fine billows: they eat into the puff's thin edge and shade its crevices)
-    float nd = texture2D(uCi, vD.xy).g - 0.5;
-    t.a = mix(t.a, t.a * clamp(1.0 + nd * 1.6 * (1.0 - t.a * 0.6), 0.0, 1.0), vD.z); // (only ever thinner: never past the puff's own edge)
-    t.b = clamp(t.b - nd * 0.5 * vD.z, 0.0, 1.0);
+  if (vD.z > 0.01) { // (close up: the cirrus' patches, G, as fine billows eaten into the puff's soft edge: the ramp stays soft, so puffs still melt into one cloud)
+    float nd = texture2D(uCi, vD.xy).g - 0.5, ea = 1.0 - t.a;
+    t.a = mix(t.a, t.a * clamp(1.0 + nd * 2.2 * ea, 0.0, 1.0), vD.z); // (only ever thinner, and only where it is thin: never past the puff's own edge)
+    t.b = clamp(t.b - nd * 0.5 * vD.z * ea, 0.0, 1.0); // (the edge's, not the middle's: no grain inside)
   }
 #endif
   float a = mix(t.a, sqrt(t.a), 0.5 + 0.5 * vF) * vA * smoothstep(0.0, vS.z, vS.y); // (nothing under the cloud's base)
@@ -653,7 +654,7 @@ void main() {
   // the Sun: through the cloud to here (vS.x), then into the puff through its thickness turned from the Sun (Beer's law
   // and a multiple-scattering tail), less at thin edges with the Sun behind the eye (the powder effect: the light that got
   // in went on through), times the phase
-  float dp = t.b * (1.0 - dot(n, vL)) * uK.y * vK;
+  float dp = t.b * (1.0 - mix(vL.z, dot(n, vL), uNw)) * uK.y * vK; // (uNw: the puff's own normal, weak by night: the cloud's light, not a ball's)
 #ifdef OB_LO
   // (Low: Beer's law into the puff and the powder effect as rational stand-ins for the exponentials, a third of the work)
   float sun = vS.x * (1.0 / (1.0 + dp + 0.5 * dp * dp) + 0.35 / (1.0 + 0.3 * dp)) * (1.0 - vX.y / (1.0 + 6.0 * t.b + 18.0 * t.b * t.b)) * vX.x * (1.0 - 0.3 * vB);
@@ -664,6 +665,7 @@ void main() {
   float tu = mix(mix(vX.w, dot(n, vUp), 0.3 * vK), -0.2, vB); // (an underside: lit by the sky round it and the ground under it)
   vec3 amb = max(uAmb[0] + uAmb[1] * tu + uAmb[2] * (1.5 * tu * tu - 0.5), 0.0) * vS.w;
   amb = mix(amb, vec3(dot(amb, vec3(0.2126, 0.7152, 0.0722))), 0.45); // (light scattered many times in a cloud is whiter than the sky that lit it)
+  amb += uNight * (0.3 + 0.7 * clamp(0.5 + 0.5 * tu, 0.0, 1.0)); // (a moonless night: starlight and airglow from above, its tops a little lighter than its base)
   gl_FragColor = vec4(mix(uSunC * sun + amb, vFogC, vX.z), a);
   ${OUT}
 }`;
@@ -711,11 +713,14 @@ void main() {
     return L.map(([lx, ly, lr, sq]) => [0.5 + (lx - 0.5) * k, 0.5 + (ly - 0.5) * k, lr * k, sq]);
   }
   for (let c = 0; c < 16; c++) cumulusLobes(c); // (CUMULUS_FIT ready before any layout)
-  function* cumulusAtlas(out) {
-    const N = 128, W = 4 * N, data = new Uint8Array(W * W * 4), h = new Float32Array(N * N), w = new Float32Array(N * N), LB = new Float64Array(64 * 4), rim = new Float32Array(N * N);
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const u = (x + 0.5) / N - 0.5, v = (y + 0.5) / N - 0.5; rim[y * N + x] = 1 - smoothstep(0.41, 0.46, Math.sqrt(u * u + v * v)); } // (nothing past the octagon's inner circle)
+  function* cumulusAtlas(out, N = 128) {
+    const hi = N > 128, W = 4 * N, step = hi ? 255 : 2047, late = (i) => (i & step) === step && (!hi || jobLate()); // (the sharp one runs as a job: it gives the frame back when the slice is spent)
+    const data = new Uint8Array(W * W * 4), h = new Float32Array(N * N), w = new Float32Array(N * N), LB = new Float64Array(64 * 4), rim = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { const u = (x + 0.5) / N - 0.5, v = (y + 0.5) / N - 0.5; rim[y * N + x] = 1 - smoothstep(0.41, 0.46, Math.sqrt(u * u + v * v)); } if (hi && jobLate()) yield; } // (nothing past the octagon's inner circle)
     // value noise at frequency f over the cell from a lattice of hashes made once a cell (the same as vnoise2(u·f, v·f, 0, s))
     const lat = (f, s) => { const n = f + 2, t = new Float32Array(n * n); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) t[j * n + i] = hashI(i, j, s); return { f, n, t }; };
+    const latS = (f, s) => { const n = f + 2; return { f, n, t: new Float32Array(n * n), s, j: 0 }; }; // (the sharp atlas: its lattices filled a row at a time, giving the frame back between rows)
+    function* fill(L) { for (; L.j < L.n; L.j++) { for (let i = 0; i < L.n; i++) L.t[L.j * L.n + i] = hashI(i, L.j, L.s); if (jobLate()) yield; } }
     const vn = (L, u, v) => {
       const x = u * L.f, y = v * L.f, ix = Math.floor(x), iy = Math.floor(y), n = L.n, t = L.t, k = iy * n + ix;
       let fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
@@ -724,7 +729,8 @@ void main() {
     };
     for (let cell = 0; cell < 16; cell++) {
       const ox = (cell & 3) * N, oy = (cell >> 2) * N, L = cumulusLobes(cell), nl = L.length, sd = 400 + cell * 7;
-      const B1 = lat(11, sd), B2 = lat(23, sd + 1), W1 = lat(34, sd + 2), W2 = lat(71, sd + 3);
+      const mk = hi ? latS : lat, B1 = mk(11, sd), B2 = mk(23, sd + 1), W1 = mk(34, sd + 2), W2 = mk(71, sd + 3), B3 = hi ? mk(47, sd + 4) : null, W3 = hi ? mk(141, sd + 5) : null;
+      if (hi) for (const L of [B1, B2, W1, W2, B3, W3]) yield* fill(L);
       for (let k = 0; k < nl; k++) { LB[k * 4] = L[k][0]; LB[k * 4 + 1] = L[k][1]; LB[k * 4 + 2] = L[k][2] * L[k][2]; LB[k * 4 + 3] = 1 / L[k][3]; }
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const u = (x + 0.5) / N, v = (y + 0.5) / N;
@@ -735,21 +741,22 @@ void main() {
           if (f > sf) sf = f;
         }
         const i = y * N + x;
-        if (sf <= 0) { h[i] = 0; w[i] = 0; continue; } // (clear: nothing reaches here)
-        h[i] = Math.sqrt(Math.sqrt(s4)) * (0.93 + 0.14 * (vn(B1, u, v) * 0.65 + vn(B2, u, v) * 0.35)); // fine billows on the heap
-        w[i] = sf * sf * (vn(W1, u, v) * 0.6 + vn(W2, u, v) * 0.4); // wisps round the edge
-        if ((i & 2047) === 2047) yield;
+        if (sf <= 0) { h[i] = 0; w[i] = 0; if (late(i)) yield; continue; } // (clear: nothing reaches here)
+        h[i] = Math.sqrt(Math.sqrt(s4)) * (hi ? 0.925 + 0.15 * (vn(B1, u, v) * 0.55 + vn(B2, u, v) * 0.3 + vn(B3, u, v) * 0.15) : 0.93 + 0.14 * (vn(B1, u, v) * 0.65 + vn(B2, u, v) * 0.35)); // fine billows on the heap (the sharp atlas: a third, finer octave)
+        w[i] = sf * sf * (hi ? vn(W1, u, v) * 0.45 + vn(W2, u, v) * 0.35 + vn(W3, u, v) * 0.2 : vn(W1, u, v) * 0.6 + vn(W2, u, v) * 0.4); // wisps round the edge
+        if (late(i)) yield;
       }
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
         const i = y * N + x, xl = x > 0 ? i - 1 : i, xr = x < N - 1 ? i + 1 : i, yd = y > 0 ? i - N : i, yu = y < N - 1 ? i + N : i;
         let gx = ((h[xr] - h[xl]) * N) / 2, gy = ((h[yu] - h[yd]) * N) / 2;
         const g2 = gx * gx + gy * gy;
-        if (g2 > 25) { const k = 5 / Math.sqrt(g2); gx *= k; gy *= k; } // (the rim of a lobe: near flat to the eye, not a spike)
+        const gm = hi ? 6 : 5; // (the gradient in cells of the cell: N/2 per unit either way)
+        if (g2 > gm * gm) { const k = gm / Math.sqrt(g2); gx *= k; gy *= k; } // (the rim of a lobe: near flat to the eye, not a spike)
         const l = Math.sqrt(gx * gx + gy * gy + 1), dens = h[i] + 0.05 * w[i] - 0.016, o = ((oy + y) * W + ox + x) * 4;
         data[o] = Math.round(((-gx / l) * 0.5 + 0.5) * 255); data[o + 1] = Math.round(((-gy / l) * 0.5 + 0.5) * 255);
         data[o + 2] = Math.round(Math.min(h[i] / 0.3, 1) * 255);
-        data[o + 3] = dens > 0 ? Math.round(255 * smoothstep(0, 0.13, dens) * rim[i]) : 0;
-        if ((i & 4095) === 4095) yield;
+        data[o + 3] = dens > 0 ? Math.round(255 * smoothstep(0, 0.13, dens) * rim[i]) : 0; // (a soft edge ramp at either size: puffs melt into one cloud)
+        if (late(i)) yield;
       }
     }
     const t = new THREE.DataTexture(data, W, W, THREE.RGBAFormat);
@@ -757,6 +764,7 @@ void main() {
     t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
     t.needsUpdate = true;
     out.tex = t;
+    if (hi) return; // (the sharp atlas: the cumulus only; the cirrus comes with the first)
     // the cirrus (SKY_FS): R its streaks (fibres along u, a little hooked), G its patches; it tiles
     const CN = 256, cd = new Uint8Array(CN * CN * 4), pv = (x, y, p, sd) => vnoise2(x, y, p, sd, p);
     for (let y = 0; y < CN; y++) {
@@ -1630,7 +1638,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // where the cloud's face is nearest the eye, for the light worked out at the corners), their rows interleaved in
     // one buffer that sortPuffs fills far to near. uMap: the smoke's and the decals' atlas (cloudAtlas), uAtlas the puffs'
     S.cloudU = { uMap: { value: cloudAtlas() }, uAtlas: { value: null }, uSunQ: { value: new THREE.Vector3(0, 1, 0) }, uSunC: { value: new THREE.Color() },
-      uAmb: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, uLod: { value: new THREE.Vector4() }, uDet: { value: 0 }, uFar: { value: new THREE.Vector2() }, uCi: { value: S.skyU.uCi.value }, uMid: { value: new THREE.Vector4(1, 0, 1, 0) }, uK: { value: new THREE.Vector4(...CLOUD_K) },
+      uAmb: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, uLod: { value: new THREE.Vector4() }, uDet: { value: 0 }, uFar: { value: new THREE.Vector2() }, uNight: { value: new THREE.Vector3() }, uNw: { value: 1 }, uCi: { value: S.skyU.uCi.value }, uMid: { value: new THREE.Vector4(1, 0, 1, 0) }, uK: { value: new THREE.Vector4(...CLOUD_K) },
       uFogC: { value: new THREE.Color() }, uFogD: { value: 0 },
       fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunH: { value: FOGX.sunH }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
     const og = new THREE.InstancedBufferGeometry(), ov = [0, 0, 0], ou = [0.5, 0.5], oi = [], orad = 0.5 / Math.cos(Math.PI / 8);
@@ -1653,7 +1661,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.cloudFrame = new THREE.Group();
     S.cloudFrame.add(S.puffs);
     localWorld.add(S.cloudFrame);
-    S.cloudFogC = new THREE.Color();
+    S.cloudFogC = new THREE.Color(); S.cloudLV = new THREE.Vector3(0, 1, 0); // (the clouds' light's direction this frame, the Sun's and the Moon's: updateClouds)
     S.fogLin = new THREE.Color(); // (the fog's colour this frame, linear: the sky's at the horizon, renderFlight)
     S.fogUp = new THREE.Vector3(); // (the scene's up in the view's axes, renderFlight)
     S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0, atlas: cumulusAtlas(CL), at0: null, on: false, fade: 0 };
@@ -5709,6 +5717,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       while (C0.atlas && performance.now() - t0 < (Settings.high ? 2 : 1.5)) if (C0.atlas.next().done) { C0.atlas = null; S.cloudU.uAtlas.value = CL.tex; S.skyU.uCi.value = S.cloudU.uCi.value = CL.ci; C0.at0 = clock; }
       if (C0.atlas) { S.cloudFrame.visible = false; return; }
     }
+    if (Settings.high && (!CLH.tex || S.cloudU.uAtlas.value !== CLH.tex)) sharpAtlas();
     C0.fade = clamp((clock - C0.at0) / 1, 0, 1); S.cloudU.uK.value.w = C0.fade * (1 - smoothstep(10000, 12000, camAlt)); // (in over a second once baked; out as the eye climbs to 12 km, where the deck has come in)
     const R = b.radius, drift = F.time * 0.000002, L = focusSpot(F, b), a = L.a - drift, z = L.z;
     const moved = C0.b === b ? Math.hypot(wrapAngle(a - C0.a0) * R, z - C0.z0) : Infinity;
@@ -5734,8 +5743,22 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // the light: the Sun's (its colour and strength on the ground, CLOUD_VS takes it through the cloud), the sky's (its
     // irradiance as the sky light has it, skyCoeffs: the env cube's own formula), the haze's
     const U = S.cloudU, Q = CLOUD_Q[Settings.high ? 1 : 0], sk = S.skyL && S.skyL.obUp.value;
-    U.uSunQ.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
-    U.uSunC.value.copy(S.sun.color).multiplyScalar(S.sun.intensity * CLOUD_SUN);
+    // the light: the Sun's, and at night the Moon's through the same path (cool and dim, as bright as the Moon is full and
+    // high), along the two lights' weighted direction; so tops catch it and sides fall into shadow. Continuous through
+    // dusk: the Sun's fades (day) as the Moon's comes in
+    // (the Sun's strength by its height alone: envAt's day also takes the planet's shadow cylinder, which steps at sunset;
+    // the clouds, high up, keep the light smoothly into the night. Clouds are Earth's only, which has no haze)
+    const day = smoothstep(-0.15, 0.07, envV.elev), mo = cloudMoon(F, b), ws = 3.1 * day * CLOUD_SUN, wm = CLOUD_MOON * mo.k * (1 - day);
+    S.cloudLV.copy(S.sunV).multiplyScalar(ws).addScaledVector(mo.v, wm);
+    if (S.cloudLV.lengthSq() < 1e-12) S.cloudLV.copy(S.sunV); else S.cloudLV.normalize();
+    U.uSunQ.value.copy(S.cloudLV).transformDirection(camera.matrixWorldInverse);
+    U.uSunC.value.copy(S.sun.color).multiplyScalar(ws);
+    U.uSunC.value.r += 0.62 * wm; U.uSunC.value.g += 0.7 * wm; U.uSunC.value.b += 0.9 * wm;
+    U.uNight.value.set(0.0045, 0.0055, 0.0085).multiplyScalar(1 - day);
+    // the puff's own normal in that light: all of it with the Sun up (its relief), 0.8 with the Sun under the horizon,
+    // and a third by the Moon, where without the sky's light to fill it each puff would be shaded as a ball: the cloud's
+    // light then comes from where the puff sits in it (vS.x)
+    U.uNw.value = 0.35 + (0.45 + 0.2 * smoothstep(-0.02, 0.15, envV.elev)) * (ws / (ws + wm + 1e-6));
     for (let l = 0; l < 3; l++) if (sk) U.uAmb.value[l].copy(sk[l]).multiplyScalar(CLOUD_AMB);
     U.uLod.value.set(Q.lod[0], Q.lod[1], Q.lod[2], Q.lod[3]); U.uDet.value = Settings.high ? 1 : 0; U.uFar.value.set(Q.farG, Q.farS);
     const pm = S.puffs.material, lo = !Settings.high; // (Low: the cheaper pixels, OB_LO)
@@ -5744,8 +5767,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // inside a cloud the world turns to murk (the fog, next frame) in the cloud's own light there: the Sun's through the
     // cloud to the eye (CLOUD_VS's law), less low in it, and the sky's
     let inside = 0, vin = null;
-    for (const v of C0.vols) {
-      const dx = (V1.x - v[0]) / v[3], dy = (V1.y - v[1]) / v[4], dz = (V1.z - v[2]) / v[3], d = dx * dx + dy * dy + dz * dz;
+    for (let k = 0, vs = C0.vols, nv = vs.length; k < nv; k++) { // (indexed: no iterator, however the function is compiled)
+      const v = vs[k], dx = (V1.x - v[0]) / v[3], dy = (V1.y - v[1]) / v[4], dz = (V1.z - v[2]) / v[3], d = dx * dx + dy * dy + dz * dz;
       if (d < 1 && 1 - d > inside) { inside = 1 - d; vin = v; }
     }
     C0.inside += (Math.min(1, inside * 2.5) - C0.inside) * 0.15;
@@ -5758,6 +5781,16 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       mk.quaternion.copy(camera.quaternion); mk.scale.set(hh * 2 * camera.aspect, hh * 2, 1);
       S.murkU.uC.value.copy(S.cloudFogC); S.murkU.uA.value = ma;
     }
+  }
+  // High: the sharp atlas, 256 px a cell, baked behind as a job (lazy: 1 ms a frame) once the first is up, then swapped
+  // in at once, the first let go (Low keeps the first). Its own function, so the swap's one-off path leaves updateClouds'
+  // compiled code alone
+  function sharpAtlas() {
+    if (!CLH.tex) { if (!CLH.job) { CLH.job = cumulusAtlas(CLH, 256); CLH.job.lazy = true; jobs.push(CLH.job); } return; }
+    const old = S.cloudU.uAtlas.value, t0 = performance.now();
+    S.cloudU.uAtlas.value = CLH.tex; renderer.initTexture(CLH.tex); CLH.job = null;
+    if (old && old !== CLH.tex) old.dispose();
+    note('cloudAtlas256', performance.now() - t0); // (the upload: Render3D.info().t)
   }
   // Cirrus (the clouds update): Earth's thin layer CIRRUS_H up, on High only, while the eye is a kilometre or more under
   // it and its streaks are baked (with the puffs' atlas). Its plane's axes (east, north) and the eye's place on it (the
@@ -5780,10 +5813,25 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   }
   // The light in a cloud at p (the cloud frame), as CLOUD_VS has it for a puff there: the Sun's through the cloud
   // (Beer's law in three octaves, an even phase) and the sky's (its mean, less low in the cloud). The murk's colour.
-  const CL = { c: null, m: null, tex: null, ci: null, t: null };
+  const CL = { c: null, m: null, tex: null, ci: null, t: null }, CLH = { tex: null, job: null }; // (CLH: the sharp atlas, High)
+  // The Moon from the eye: its direction (the view's world axes, as S.sunV) and how much light it gives (its lit share,
+  // by the Sun-Moon-Earth angle, times how far over the horizon it is)
+  const MN = { v: null, k: 0 };
+  function cloudMoon(F, b) {
+    const v = MN.v || (MN.v = new THREE.Vector3());
+    if (b !== EARTH) { MN.k = 0; return MN; }
+    const mp = bodyPos(MOON, F.time), mx = mp.x, my = mp.y, ep = bodyPos(EARTH, F.time), ex = ep.x, ey = ep.y;
+    let dx = mx - camAbs.x, dy = my - camAbs.y, dz = -camAbs.z;
+    const dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    const el = dx * envV.ux + dy * envV.uy + dz * envV.uz; // (its height over the horizon, as a sine)
+    const sl = Math.hypot(mx, my) || 1, el2 = Math.hypot(ex - mx, ey - my) || 1, cph = (-mx * (ex - mx) - my * (ey - my)) / (sl * el2);
+    MN.k = 0.5 * (1 + cph) * smoothstep(-0.03, 0.1, el);
+    toView(dx, dy, dz, T3); v.set(T3.x, T3.y, T3.z).normalize();
+    return MN;
+  }
   function cloudLight(v, p, U) {
     const c = CL.c || (CL.c = new THREE.Color()), m = CL.m || (CL.m = new THREE.Matrix4());
-    const sf = V2.copy(S.sunV).transformDirection(m.copy(S.cloudFrame.matrixWorld).invert()), rx = v[5], ry = v[6];
+    const sf = V2.copy(S.cloudLV).transformDirection(m.copy(S.cloudFrame.matrixWorld).invert()), rx = v[5], ry = v[6];
     let ox = (p.x - v[0]) / rx, oy = (p.y - v[1]) / ry, oz = (p.z - v[2]) / rx, oo = ox * ox + oy * oy + oz * oz;
     if (oo > 0.81) { const k = 0.9 / Math.sqrt(oo); ox *= k; oy *= k; oz *= k; oo = 0.81; }
     const Lx = sf.x, Ly = sf.y / (ry / rx), Lz = sf.z, A = Lx * Lx + Ly * Ly + Lz * Lz, B = ox * Lx + oy * Ly + oz * Lz;
@@ -6879,6 +6927,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         return { on: C0.on, n: C0.n, drawn: S.puffs.visible ? S.puffs.geometry.instanceCount : 0, vols: C0.vols.length, job: !!C0.job, baking: !!C0.atlas,
           atlas: A && A.image ? { w: A.image.width, h: A.image.height, cells: 16 } : null, fade: C0.fade,
           sunQ: v3(U.uSunQ.value), sunC: U.uSunC.value.toArray(), amb: U.uAmb.value.map(v3), lod: U.uLod.value.toArray(), k: U.uK.value.toArray(),
+          night: U.uNight.value.toArray(), nw: U.uNw.value, lightV: v3(S.cloudLV), moon: MN.v ? { v: v3(MN.v), k: MN.k } : null,
           sky: S.skyL ? S.skyL.obUp.value.map(v3) : null, sunV: S.sunV ? v3(S.sunV) : null, sunAlong: S.sunV ? V1.copy(U.uSunQ.value).transformDirection(camera.matrixWorld).dot(S.sunV) : null, // (the puffs' Sun, back in the world, against the Sun's direction: 1)
           sun: S.sun.color.toArray().map((c) => c * S.sun.intensity), inside: C0.inside, murk: S.cloudFogC.toArray(), veil: S.murk.visible ? { c: S.murkU.uC.value.toArray(), a: S.murkU.uA.value } : null, fogD: localScene.fog.density, verts: S.puffs.geometry.attributes.position.count };
       },

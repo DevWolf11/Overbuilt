@@ -623,12 +623,19 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     Flight.time = 130000 + 6000;
     Render3D.skipDraw = true; for (let i = 0; i < 40; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false;
     const dusk = Render3D._t.clouds();
+    // into the night: the clouds' light every 2000 s from dusk to the Moon high (no jump at sunset), the Moon's own, and a
+    // moonless night's starlight
+    const run = [];
+    for (let t = 136000; t <= 200000; t += 2000) { Flight.time = t; Render3D.skipDraw = true; for (let i = 0; i < 4; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } const c = Render3D._t.clouds(); run.push(c.sunC[0] * 0.2126 + c.sunC[1] * 0.7152 + c.sunC[2] * 0.0722); }
+    const moon = Render3D._t.clouds();
+    Flight.time = 240000; Render3D.skipDraw = true; for (let i = 0; i < 4; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false;
+    const dark = Render3D._t.clouds();
     Flight.time = 70500;
     await window.__rebuild();
-    return { draws, noon, cells, same: [same(f0, f1), same(f0, f2), same(f0, f3)], f0n: f0.seen.length, inside, fog, dusk };
+    return { draws, noon, cells, same: [same(f0, f1), same(f0, f2), same(f0, f3)], f0n: f0.seen.length, inside, fog, dusk, run, moon, dark };
   }, { e: 20000, z: 38000, yaw: 5.3124 });
   const N = c14.noon, Dk = c14.dusk;
-  ok(`${tag}: the clouds' atlas is baked (${N.atlas && N.atlas.w}×${N.atlas && N.atlas.h}, 16 puffs: each dense in its middle, clear past the octagon, its normals lumpy) and they have faded in`, N.atlas && N.atlas.w === 512 && !N.baking && N.fade === 1 && c14.cells.every((c) => c.mid > 200 && c.out === 0 && c.sd > 8), c14.cells.map((c) => [c.mid, c.out, Math.round(c.sd)]));
+  ok(`${tag}: the clouds' atlas is baked, on High the sharp one swapped in (${N.atlas && N.atlas.w}×${N.atlas && N.atlas.h}: 16 puffs of 256 px, each dense in its middle, clear past the octagon, its normals lumpy) and they have faded in`, N.atlas && N.atlas.w === 1024 && !N.baking && N.fade === 1 && c14.cells.every((c) => c.mid > 200 && c.out === 0 && c.sd > 8), c14.cells.map((c) => [c.mid, c.out, Math.round(c.sd)]));
   ok(`${tag}: the cumulus are drawn (${N.drawn} puffs, one draw of octagons with a middle corner: ${N.verts} corners each), about as many as before (at most 4,300 on High: the old field had 3,882 here; each is quicker to sort)`, N.on && N.drawn > 500 && N.drawn === N.n && N.verts === 9 && N.n <= 4300, { n: N.n, drawn: N.drawn, draws: c14.draws });
   ok(`${tag}: their Sun is the Sun (along its direction: 1 − cos ${(1 - N.sunAlong).toExponential(1)}), its light the light on the ground, their sky light the sky light's own (skyCoeffs, ×0.45)`,
     1 - N.sunAlong < 1e-6 && N.sunC.every((c, i) => Math.abs(c - N.sun[i]) < 1e-4) && N.amb.every((a, l) => a.every((c, i) => Math.abs(c - N.sky[l][i] * 0.45) < 1e-5)) && N.sky[0][2] > N.sky[0][0], { sunC: N.sunC, amb: N.amb[0], sky: N.sky[0] });
@@ -636,6 +643,9 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   ok(`${tag}: no pop when the field is rebuilt round the eye: laid out 1.4 km off either way it draws the same ${c14.f0n} puffs, each as opaque (and the same field twice is the same)`, c14.f0n > 500 && c14.same.every((s) => s.d === 0 && s.a === s.b), c14.same);
   ok(`${tag}: flying through a cloud: a veil over the whole view in the cloud's own light (inside ${c14.inside.inside.toFixed(2)}, the veil ${c14.inside.veil && c14.inside.veil.a.toFixed(2)}), the haze no thicker than outside (${c14.inside.fogD.toExponential(2)} against ${N.fogD.toExponential(2)})`,
     c14.inside.inside > 0.6 && c14.inside.veil && c14.inside.veil.a > 0.5 && c14.inside.veil.c.every((x, i) => Math.abs(x - c14.inside.murk[i]) < 1e-6) && c14.inside.fogD <= N.fogD * 1.5, { murk: c14.inside.murk, veil: c14.inside.veil });
+  { const R = c14.run, jump = Math.max(...R.slice(1).map((x, i) => Math.abs(x - R[i]))), M = c14.moon, D = c14.dark, along = M.moon ? M.lightV[0] * M.moon.v[0] + M.lightV[1] * M.moon.v[1] + M.lightV[2] * M.moon.v[2] : 0;
+    ok(`${tag}: by night the clouds take the Moon's light (cool and dim: ${M.sunC.map((x) => x.toFixed(3))}, along the Moon: cos ${along.toFixed(4)}), a moonless night only starlight (${D.night.map((x) => x.toFixed(4))}), and dusk runs into night without a jump (the largest step in 2000 s: ${jump.toFixed(3)} of ${R[0].toFixed(2)})`,
+      M.moon && M.moon.k > 0.3 && M.sunC[2] > M.sunC[0] && M.sunC[0] < 0.5 && along > 0.9999 && D.sunC.every((x) => x < 1e-3) && D.night.every((x) => x > 0 && x < 0.02) && jump < 0.25 * R[0], { run: R.map((x) => +x.toFixed(3)), moon: M.moon }); }
   if (SHOTS) await shot('clouds');
 
   // the globe, then the hangar: the console stays clean
