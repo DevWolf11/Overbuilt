@@ -43,6 +43,11 @@
 //     towards it (today's fog, after the tone mapping, missed it by far more); the haze's shared uniforms are written each
 //     frame (the sky's own Sun and sunset), patched.fog: the chunk patch is in
 // 11. the idle 3D hangar after a flight: nothing drawn in a second
+// 14. the clouds (a Falcon 2 km up among the cumulus at noon): the puffs' atlas baked (16 puffs, dense in the middle,
+//     clear past the octagon, lumpy normals) and faded in; octagons with a middle corner, no more puffs than before; their
+//     Sun the Sun, their light the ground's, their sky light the sky light's; warmer and dimmer at dusk; no pop: a field
+//     laid out 1.4 km off draws the same puffs as opaque; flying through one, a veil in the murk's colour over the whole
+//     view, the haze no thicker (the ground under a cloud's edge isn't greyed out)
 // The console stays clean through flight, hangar and globe.
 //   node test/browser/graphics.mjs       (SHOTS=<dir> saves screenshots there: graphics-*.png)
 import fs from 'node:fs';
@@ -571,6 +576,67 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
   ok(`${tag}: at dusk, away from the Sun, fogged ground 2 px under the horizon matches the sky 2 px over it within 4/255 (${h10.away.ground} | ${h10.away.sky}; r159's fog after the tone mapping missed it by tens)`, !h10.away.behind && h10.away.d <= 4, h10.away);
   ok(`${tag}: at dusk, towards the Sun (20° off it), fogged ground under the horizon matches the sky over it within 8/255 (${h10.towards.ground} | ${h10.towards.sky})`, !h10.towards.behind && h10.towards.d <= 8, h10.towards);
   if (SHOTS) await shot('haze-dusk');
+
+  // ---- 14. the clouds (the clouds update): a Falcon 2 km up over Scotland's lowland at noon, among the cumulus, then dusk
+  const c14 = await ev(async (LAND) => {
+    const tp = TEMPLATES.falcon; store.set('rss.flight', null);
+    Flight.start({ name: tp.name, kind: tp.kind, parts: templateRows(tp) }, { place: { ...LAND, air: { alt: 2000, speed: 180 } } }); Flight.paused = true; Flight.time = 70500; Props.play = false;
+    await window.__rebuild();
+    const draws = window.__draws(), noon = Render3D._t.clouds();
+    // the atlas: 16 puffs, each dense in its middle, nothing past the octagon's inner circle, its normals turned (lumps)
+    const cells = [];
+    for (let c = 0; c < 16; c++) {
+      const { n, px } = Render3D._t.atlasCell(c);
+      let mid = 0, out = 0, nx = 0, nx2 = 0, k = 0;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const o = (y * n + x) * 4, u = (x + 0.5) / n - 0.5, v = (y + 0.5) / n - 0.5, r = Math.hypot(u, v);
+        if (r < 0.06) mid = Math.max(mid, px[o + 3]);
+        if (r > 0.465) out = Math.max(out, px[o + 3]);
+        if (px[o + 3] > 128) { nx += px[o]; nx2 += px[o] * px[o]; k++; }
+      }
+      cells.push({ mid, out, sd: Math.sqrt(nx2 / k - (nx / k) ** 2) });
+    }
+    // no pop: a field laid out round a spot 1.4 km from the eye (as the next rebuild would be, the eye 1.5 km on) draws
+    // the same puffs, as opaque, as one laid out round the eye; and the same field laid out twice is the same
+    const f0 = Render3D._t.cloudField(0, 0), f1 = Render3D._t.cloudField(1400, 0), f2 = Render3D._t.cloudField(0, -1400), f3 = Render3D._t.cloudField(0, 0);
+    const same = (a, b) => { // (each puff of one matched to the nearest of the other: the same place to the 0.1 m its key is rounded to, the same opacity within 1e-3)
+      const P = (k) => k.split(',').map(Number), B = b.seen.map(([k, x]) => [P(k), x]), used = new Set();
+      let d = 0;
+      for (const [k, x] of a.seen) {
+        const p = P(k); let best = -1, bd = 0.31;
+        for (let i = 0; i < B.length; i++) { if (used.has(i)) continue; const q = B[i][0], e = Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]) + Math.abs(q[2] - p[2]); if (e <= bd) { bd = e; best = i; } }
+        if (best < 0 || Math.abs(B[best][1] - x) > 1e-3) d++; else used.add(best);
+      }
+      return { d, a: a.seen.length, b: b.seen.length };
+    };
+    // inside a cloud: the murk is the cloud's light there, a veil over the whole view takes its colour, the haze stays as it was (the craft, and the camera close
+    // behind it, in the middle of the nearest big cloud)
+    const v = Flight.active;
+    let vol = null;
+    for (const c of f0.vols) { const d = Math.hypot(c.x - v.x, c.y - v.y, c.z - v.z); if (c.rx > 300 && c.ry > 120 && (!vol || d < vol.d)) vol = { ...c, d }; }
+    const at = { x: v.x, y: v.y, z: v.z };
+    v.x = vol.x; v.y = vol.y; v.z = vol.z;
+    Render3D.skipDraw = true; for (let i = 0; i < 60; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false;
+    const inside = Render3D._t.clouds(), fog = Render3D.gfx().fogArrays.lin;
+    v.x = at.x; v.y = at.y; v.z = at.z;
+    // dusk: the light warms and dims, the sky's light with it
+    Flight.time = 130000 + 6000;
+    Render3D.skipDraw = true; for (let i = 0; i < 40; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false;
+    const dusk = Render3D._t.clouds();
+    Flight.time = 70500;
+    await window.__rebuild();
+    return { draws, noon, cells, same: [same(f0, f1), same(f0, f2), same(f0, f3)], f0n: f0.seen.length, inside, fog, dusk };
+  }, { e: 20000, z: 38000, yaw: 5.3124 });
+  const N = c14.noon, Dk = c14.dusk;
+  ok(`${tag}: the clouds' atlas is baked (${N.atlas && N.atlas.w}×${N.atlas && N.atlas.h}, 16 puffs: each dense in its middle, clear past the octagon, its normals lumpy) and they have faded in`, N.atlas && N.atlas.w === 512 && !N.baking && N.fade === 1 && c14.cells.every((c) => c.mid > 200 && c.out === 0 && c.sd > 8), c14.cells.map((c) => [c.mid, c.out, Math.round(c.sd)]));
+  ok(`${tag}: the cumulus are drawn (${N.drawn} puffs, one draw of octagons with a middle corner: ${N.verts} corners each), about as many as before (at most 4,300 on High: the old field had 3,882 here; each is quicker to sort)`, N.on && N.drawn > 500 && N.drawn === N.n && N.verts === 9 && N.n <= 4300, { n: N.n, drawn: N.drawn, draws: c14.draws });
+  ok(`${tag}: their Sun is the Sun (along its direction: 1 − cos ${(1 - N.sunAlong).toExponential(1)}), its light the light on the ground, their sky light the sky light's own (skyCoeffs, ×0.45)`,
+    1 - N.sunAlong < 1e-6 && N.sunC.every((c, i) => Math.abs(c - N.sun[i]) < 1e-4) && N.amb.every((a, l) => a.every((c, i) => Math.abs(c - N.sky[l][i] * 0.45) < 1e-5)) && N.sky[0][2] > N.sky[0][0], { sunC: N.sunC, amb: N.amb[0], sky: N.sky[0] });
+  ok(`${tag}: at dusk their light warms and dims (the Sun's red over blue ${(N.sunC[0] / N.sunC[2]).toFixed(2)} → ${(Dk.sunC[0] / Dk.sunC[2]).toFixed(2)}, the sky's ${N.amb[0][1].toFixed(3)} → ${Dk.amb[0][1].toFixed(3)})`, Dk.sunC[0] / Dk.sunC[2] > (N.sunC[0] / N.sunC[2]) * 1.3 && Dk.amb[0][1] < N.amb[0][1], { noon: [N.sunC, N.amb[0]], dusk: [Dk.sunC, Dk.amb[0]] });
+  ok(`${tag}: no pop when the field is rebuilt round the eye: laid out 1.4 km off either way it draws the same ${c14.f0n} puffs, each as opaque (and the same field twice is the same)`, c14.f0n > 500 && c14.same.every((s) => s.d === 0 && s.a === s.b), c14.same);
+  ok(`${tag}: flying through a cloud: a veil over the whole view in the cloud's own light (inside ${c14.inside.inside.toFixed(2)}, the veil ${c14.inside.veil && c14.inside.veil.a.toFixed(2)}), the haze no thicker than outside (${c14.inside.fogD.toExponential(2)} against ${N.fogD.toExponential(2)})`,
+    c14.inside.inside > 0.6 && c14.inside.veil && c14.inside.veil.a > 0.5 && c14.inside.veil.c.every((x, i) => Math.abs(x - c14.inside.murk[i]) < 1e-6) && c14.inside.fogD <= N.fogD * 1.5, { murk: c14.inside.murk, veil: c14.inside.veil });
+  if (SHOTS) await shot('clouds');
 
   // the globe, then the hangar: the console stays clean
   await ev(() => { Flight.paused = false; Flight.toggleMap(); });
