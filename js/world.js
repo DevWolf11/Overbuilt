@@ -31,7 +31,8 @@ function hash1(i, seed = 0) {
 // (World.drawClouds), so both show the same clouds: the cloud of cell (i, q) of a 750 m grid, or null where the sky is
 // clear. i runs along the 2D view's track (the angle round the body × R / 750), q across it (z / 750); the row q = 0 is
 // the flight plane, seeded as the 2D clouds always were (hash1(i, s)), the rest hashI(i, q, s·7 + 3). The cells that
-// hold a cloud and their widths are the old ones (38 % of cells, 300-1050 m). What changed: a cloud's base is its
+// hold a cloud are the old ones (38 % of cells), their widths in the same order a sixth wider (360-1200 m, for as
+// much of the sky as the old heaps of puffs covered). What changed: a cloud's base is its
 // area's condensation level (a smooth field some 40 km across, 1.15-2.25 km up; each cloud within 60 m of it), so
 // neighbouring clouds share one flat base, where each had its own anywhere from 1.4 to 3.6 km; and its height and kind
 // follow two more smooth fields: fair-weather cumulus (flat, a third to two thirds as tall as wide), taller where the
@@ -43,7 +44,7 @@ function cumulusCell(i, q, o = {}) {
   const row0 = q === 0, hh = (s) => (row0 ? hash1(i, s) : Terrain.hashI(i, q, s * 7 + 3));
   if (hh(21) > 0.62) return null;
   const vn = Terrain.vnoise2, conv = vn(i / 37 + 5.3, q / 37 + 1.7, 0, 912), strat = smoothstep(0.58, 0.74, vn(i / 29 + 2.1, q / 29 + 8.6, 0, 913));
-  let wdt = 300 + hh(23) * 750, hr = (0.26 + 0.32 * hh(30)) * (0.65 + 0.75 * conv), kind = 0;
+  let wdt = 360 + hh(23) * 840, hr = (0.3 + 0.36 * hh(30)) * (0.7 + 0.75 * conv), kind = 0; // (the old cells and their order of size, a sixth wider: about as much sky covered as the old heaps of puffs)
   if (strat < 0.05 && conv > 0.52 && hh(34) > 0.9) { kind = 1; wdt = 600 + 450 * hh(23); hr = 1.2 + 1.0 * hh(35); } // (towering cumulus)
   else if (strat > 0.5) kind = 2;
   wdt *= 1 + 0.9 * strat; hr += (0.16 + 0.08 * hh(30) - hr) * strat; // (stratocumulus: wide and flat, running together)

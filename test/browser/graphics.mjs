@@ -46,7 +46,8 @@
 // 14. the clouds (a Falcon 2 km up among the cumulus at noon): the puffs' atlas baked (16 puffs, dense in the middle,
 //     clear past the octagon, lumpy normals) and faded in; octagons with a middle corner, no more puffs than before; their
 //     Sun the Sun, their light the ground's, their sky light the sky light's; warmer and dimmer at dusk; no pop: a field
-//     laid out 1.4 km off draws the same puffs as opaque; flying through one, the fog takes the murk's colour
+//     laid out 1.4 km off draws the same puffs as opaque; flying through one, a veil in the murk's colour over the whole
+//     view, the haze no thicker (the ground under a cloud's edge isn't greyed out)
 // The console stays clean through flight, hangar and globe.
 //   node test/browser/graphics.mjs       (SHOTS=<dir> saves screenshots there: graphics-*.png)
 import fs from 'node:fs';
@@ -608,7 +609,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }
       return { d, a: a.seen.length, b: b.seen.length };
     };
-    // inside a cloud: the murk is the cloud's light there, the fog takes its colour (the craft, and the camera close
+    // inside a cloud: the murk is the cloud's light there, a veil over the whole view takes its colour, the haze stays as it was (the craft, and the camera close
     // behind it, in the middle of the nearest big cloud)
     const v = Flight.active;
     let vol = null;
@@ -633,7 +634,8 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     1 - N.sunAlong < 1e-6 && N.sunC.every((c, i) => Math.abs(c - N.sun[i] * 0.85) < 1e-4) && N.amb.every((a, l) => a.every((c, i) => Math.abs(c - N.sky[l][i] * 0.45) < 1e-5)) && N.sky[0][2] > N.sky[0][0], { sunC: N.sunC, amb: N.amb[0], sky: N.sky[0] });
   ok(`${tag}: at dusk their light warms and dims (the Sun's red over blue ${(N.sunC[0] / N.sunC[2]).toFixed(2)} → ${(Dk.sunC[0] / Dk.sunC[2]).toFixed(2)}, the sky's ${N.amb[0][1].toFixed(3)} → ${Dk.amb[0][1].toFixed(3)})`, Dk.sunC[0] / Dk.sunC[2] > (N.sunC[0] / N.sunC[2]) * 1.3 && Dk.amb[0][1] < N.amb[0][1], { noon: [N.sunC, N.amb[0]], dusk: [Dk.sunC, Dk.amb[0]] });
   ok(`${tag}: no pop when the field is rebuilt round the eye: laid out 1.4 km off either way it draws the same ${c14.f0n} puffs, each as opaque (and the same field twice is the same)`, c14.f0n > 500 && c14.same.every((s) => s.d === 0 && s.a === s.b), c14.same);
-  ok(`${tag}: flying through a cloud: the murk in its own light (inside ${c14.inside.inside.toFixed(2)}, the fog's colour the murk's: ${c14.fog.map((x) => x.toFixed(3))})`, c14.inside.inside > 0.6 && c14.fog.every((x, i) => Math.abs(x - c14.inside.murk[i]) < 0.06 * Math.max(0.2, c14.inside.murk[i])), { murk: c14.inside.murk, fog: c14.fog });
+  ok(`${tag}: flying through a cloud: a veil over the whole view in the cloud's own light (inside ${c14.inside.inside.toFixed(2)}, the veil ${c14.inside.veil && c14.inside.veil.a.toFixed(2)}), the haze no thicker than outside (${c14.inside.fogD.toExponential(2)} against ${N.fogD.toExponential(2)})`,
+    c14.inside.inside > 0.6 && c14.inside.veil && c14.inside.veil.a > 0.5 && c14.inside.veil.c.every((x, i) => Math.abs(x - c14.inside.murk[i]) < 1e-6) && c14.inside.fogD <= N.fogD * 1.5, { murk: c14.inside.murk, veil: c14.inside.veil });
   if (SHOTS) await shot('clouds');
 
   // the globe, then the hangar: the console stays clean
