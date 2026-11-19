@@ -913,7 +913,79 @@ const Ship = (() => {
     moorCheck(F, dt); // (who moors on the swell, who wakes)
     bump(F); // [WP6]
   }
-  function fx(v, dt, F) {} // spray and funnel smoke [WP2]
+  // Spray, funnel smoke and the screws' wash (Flight.emitParticles, for a hydro vessel; render3d draws the swell and the
+  // wakes) [WP2]. Bow spray: white spray thrown out both sides of the stem where it meets the water, SPRAY.k a second for
+  // each m/s over SPRAY.v0 (at most SPRAY.max), half again and more as the bow slams down into a sea, none with the bow out
+  // of the water (a boat on the plane throws hers further aft, at her chines: from the forward third of her waterline);
+  // funnel smoke from funnel parts (grey for diesels, faint for turbines, more as the engines are pushed); a burst of white
+  // water at the stern when the telegraph is rung. Within SPRAY.near of the view's craft, half on Low; FX's own caps.
+  const FXW = { v: null }, FXP = { x: 0, y: 0, z: 0 };
+  function fxShape(v) {
+    const sh = v.sh;
+    if (sh._fx && sh._fx.n === v.parts.length) return sh._fx;
+    const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
+    let bow = null, bf = -Infinity, stern = null, sf = Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const p of sh.hulls) {
+      const H = shullOf(p.def), d = p.def, x = H.x1 - 0.12 * (H.x1 - H.x0), q = partPt(p, x, H.wl), f = q.x * Fd.x + q.y * Fd.y;
+      if (f > bf) { bf = f; bow = { x: q.x, y: q.y, z: partZ(p), p }; }
+      const s = partPt(p, H.x0, H.wl), g = s.x * Fd.x + s.y * Fd.y;
+      if (g < sf) { sf = g; stern = { x: s.x, y: s.y, z: partZ(p) }; }
+      for (const R of H.rings) { z0 = Math.min(z0, partZ(p) - R.bw); z1 = Math.max(z1, partZ(p) + R.bw); }
+    }
+    const funnels = v.parts.filter((p) => p.def.funnel || p.def.style === 'funnel'), eng = sh.engines[0];
+    return (sh._fx = { n: v.parts.length, bow, stern, beam: Number.isFinite(z1 - z0) ? z1 - z0 : 2, funnels, fuel: eng && eng.def.engine ? eng.def.engine.fuel : 'diesel', tel: sh.tel, spray: 0, smoke: 0 });
+  }
+  function fx(v, dt, F) {
+    const sh = v.sh;
+    if (!sh || !sh.hulls || !sh.hulls.length || !(dt > 0) || typeof FX === 'undefined' || v.dead || !v.body || !v.body.radius) return;
+    const f = F && (F.viewVessel || F.active);
+    if (!f || f.body !== v.body || Math.hypot(v.x - f.x, v.y - f.y, v.z - f.z) > SHIP.SPRAY.near) return;
+    const X = fxShape(v), b = v.body, R = b.radius, r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0, q = FX.q();
+    const V = v.speed(), wet = sh.fsub > 0.02 || v.splashed, k = clamp(X.beam / 7, 0.3, 3); // (k: spray to her size)
+    // the screws' wash when the telegraph is rung
+    if (X.tel !== sh.tel) {
+      X.tel = sh.tel;
+      if (wet) for (const p of sh.thrust) {
+        const w = v.toWorld(p.x, p.y, partZ(p)), r = Math.hypot(w.x, w.y, w.z) || 1, s = (R + (sh.level || 0)) / r;
+        FXP.x = w.x * s; FXP.y = w.y * s; FXP.z = w.z * s;
+        FX.puff(b, FXP, { x: v.vx, y: v.vy, z: v.vz }, Math.ceil(6 * q), '#f2f7fb');
+      }
+    }
+    // bow spray
+    if (wet && X.bow && V > SHIP.SPRAY.v0) {
+      const B = X.bow, w = v.toWorld(B.x, B.y, B.z), rw = Math.hypot(w.x, w.y, w.z) || 1, lift = rw - R - (sh.level || 0);
+      let eta = 0;
+      if (b === EARTH) { const L = Terrain.locate(b, w.x, w.y, w.z, FXW), o = wave(-wrapAngle(L.a - EARTH.padAngle) * R, -L.z, seaT(F)); eta = o[0] * (sh.fade == null ? 1 : sh.fade); }
+      if (Math.abs(lift - eta) < 1.5 * k) {
+        const av = v.av || { x: 0, y: 0, z: 0 }, dx = w.x - v.x, dy = w.y - v.y, dz = w.z - v.z;
+        const uyv = (v.vx + av.y * dz - av.z * dy) * ux + (v.vy + av.z * dx - av.x * dz) * uy + (v.vz + av.x * dy - av.y * dx) * uz; // (the bow's speed up and down)
+        const slam = clamp(-uyv * 0.5, 0, 2), rate = Math.min(15, clamp((V - SHIP.SPRAY.v0) * SHIP.SPRAY.k, 0, SHIP.SPRAY.max) * (0.6 + slam)) * q; // (a pair each: at most 30 a second)
+        X.spray += rate * dt;
+        const side = v.axis(0, 0, 1), fw = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
+        while (X.spray >= 1) {
+          X.spray -= 1;
+          for (const sg of [-1, 1]) {
+          const s = (2 + Math.random() * 4) * Math.min(1.5, V / 12), up = 2 + Math.random() * 3 + slam * 2;
+          const hw = X.beam * 0.18;
+          FX.add({ kind: 'smoke', b, x: w.x + side.x * sg * hw, y: w.y + side.y * sg * hw, z: w.z + side.z * sg * hw,
+            vx: v.vx * 0.7 + side.x * sg * s + ux * up - fw.x * 1.5, vy: v.vy * 0.7 + side.y * sg * s + uy * up - fw.y * 1.5, vz: v.vz * 0.7 + side.z * sg * s + uz * up - fw.z * 1.5,
+            max: 0.8 + Math.random() * 0.7, size: 0.4 * k, grow: 2 * k, color: '#eef5fb', alpha: 0.5, heavy: true });
+          }
+        }
+      } else X.spray = 0;
+    }
+    // funnel smoke
+    if (X.funnels.length) {
+      const dem = Math.abs(SHIP.TEL[clamp((sh.tel | 0) + 3, 0, SHIP.TEL.length - 1)] || 0), turb = X.fuel === 'turbine';
+      X.smoke += (2 + 6 * dem) * q * X.funnels.length * dt;
+      while (X.smoke >= 1) {
+        X.smoke -= 1;
+        const p = X.funnels[(X.fi = ((X.fi || 0) + 1) % X.funnels.length)], t = partPt(p, 0, p.def.h / 2), w = v.toWorld(t.x, t.y, partZ(p)), up = 3 + 4 * dem, j = 0.6;
+        FX.add({ kind: 'smoke', b, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9 + ux * up + (Math.random() - 0.5) * j, vy: v.vy * 0.9 + uy * up + (Math.random() - 0.5) * j, vz: v.vz * 0.9 + uz * up + (Math.random() - 0.5) * j,
+          max: 2.5 + Math.random() * 2, size: Math.max(0.6, p.def.w * 0.5), grow: Math.max(2, p.def.w * 2.2), color: turb ? '#b9bdc2' : '#55595e', alpha: turb ? 0.14 : 0.32 + 0.2 * dem });
+      }
+    }
+  }
 
   // ==== hud ====
   // [WP3, WP12]

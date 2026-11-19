@@ -1619,7 +1619,7 @@ const LATHE_SHAPES = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb
 const PART_RECIPE = { chute: 'chute', fin: 'extrude', vtail: 'vtail', leg: 'leg', rcs: 'rcs', girder: 'girder', chassis: 'chassis', cab: 'cab',
   wing: 'wing', elevator: 'wing', prop: 'prop', rotor: 'rotor', tailrotor: 'tailRotor', wheel: 'wheel', gear: 'gear', airbrake: 'airbrake',
   gun: 'gun', gunpod: 'store', rocketpod: 'store', missile: 'store', bomb: 'store', biplane: 'biplane', rotodome: 'rotodome', skid: 'skid', ecm: 'ecm',
-  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body',
+  turret: 'turret', dronecore: 'drone', ruLoft: 'ruLoft', us4body: 'us4body', shull: 'shipHull', // (shipHull: the ships update's hull loft)
   ttrack: 'trackUnit', twheel: 'awheel', tgun: 'tankGun', tlaunch: 'launcher', tradar: 'radarAnt', tkit: 'kit',
   // (the drones' frames, motors, boxes, legs, guards and missile rails: built from drLayout inside their boxes, and
   // clashing as boxes)
@@ -1764,7 +1764,7 @@ function clashShape(d, flip) {
   let S = CLASH_SHAPES.get(key);
   if (S) return S;
   const r = d.body3d || (d.shape === 'sep' && d.side ? 'box' : PART_RECIPE[d.shape] || (LATHE_SHAPES.has(d.shape) ? 'lathe' : 'extrude'));
-  const keep = CLASH_BOXED.has(d.type), round = r === 'lathe' && !keep, flat = r === 'extrude' && !d.fin && !d.leg && !keep, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body') && !d.wheel && !isSurface(d) && !keep;
+  const keep = CLASH_BOXED.has(d.type), round = r === 'lathe' && !keep, flat = r === 'extrude' && !d.fin && !d.leg && !keep, loft = (r === 'us5' || r === 'ruLoft' || r === 'us4body' || r === 'shipHull') && !d.wheel && !isSurface(d) && !keep;
   let polys = round || flat || loft ? partOutline(d, flip) : [];
   if (round && PART_PROFILE[d.shape]) { const c = pathRecorder(); partPath(c, outlineDummy(d, flip)); polys = polys.concat(c.polys.filter((q) => q.length >= 6)); }
   if (!polys.length) S = { box: true, round: false, polys: [[-d.w / 2, -d.h / 2, d.w / 2, -d.h / 2, d.w / 2, d.h / 2, -d.w / 2, d.h / 2]], ys: [-d.h / 2, d.h / 2], depth: 0, pad: 0 };
@@ -5341,6 +5341,7 @@ function gvKit(ctx, p, lw) {
   ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
   if (d.inner) { ctx.fillStyle = '#2b3035'; ctx.fillRect(l, b, w, h); } // (the compartment round it, so its 3D box is not bare)
   if (DR_KIT.has(st)) { drKit(ctx, p, lw); return; } // (the big update's counter-drone kit and drone bays)
+  if (SH_KIT.has(st)) { shKit(ctx, p, lw); return; } // [WP2] (the ships update's wheelhouse, propeller and rudder)
   switch (st) {
     case 'engine': {
       const turb = d.engine && d.engine.fuel === 'turbine';
@@ -5566,6 +5567,7 @@ function gvPlan(ctx, p, lw) {
     else if (st === 'cell') { ctx.fillStyle = '#4c5a3a'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2c3036'; ctx.beginPath(); ctx.arc(r - w * 0.2, 0, Math.min(w, D) * 0.1, 0, TAU); ctx.fill(); }
     else if (st === 'seat' || st === 'troops') { ctx.fillStyle = '#353a33'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2b2a26'; const k = st === 'troops' ? 3 : 1; for (let i = 0; i < k; i++) for (const s of k > 1 ? [-1, 1] : [0]) { ctx.beginPath(); ctx.arc(l + (w * (i + 0.5)) / k, s * D * 0.25, Math.min(0.12, w * 0.15), 0, TAU); ctx.fill(); } }
     else if (DR_KIT.has(st)) drKitPlan(ctx, p, lw); // (the big update's counter-drone kit and drone bays)
+    else if (SH_KIT.has(st)) shKitPlan(ctx, p, lw); // [WP2] (the ships update's kit)
     else if (st === 'loader') { ctx.fillStyle = '#3b3f38'; ctx.fillRect(l, n, w, D); ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.46, 0, TAU); ctx.fillStyle = '#5b4a2a'; ctx.fill(); ctx.fillStyle = '#c9a24a'; for (let i = 0; i < 22; i++) { const a = (i / 22) * TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * w * 0.36, Math.sin(a) * D * 0.36, 0.05, 0, TAU); ctx.fill(); } }
     return;
   }
@@ -5603,6 +5605,7 @@ function gvPlan(ctx, p, lw) {
   }
 }
 function gvEnd(ctx, p, lw, end) {
+  if (SH_KIT.has(p.def.style)) { shKitEnd(ctx, p, lw, end); return; } // [WP2] (the ships update's kit)
   const d = p.def, w = d.w, h = d.h, D = d.depth || w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2, ty = d.type;
   ctx.fillStyle = gvFill(ctx, b, t, n, f); ctx.fillRect(n - 0.2, b - 0.2, D + 0.4, h + 0.4);
   gvShade(ctx, n, f, b, t);
@@ -6334,9 +6337,9 @@ function shullPts(p, add) {
   }
 }
 
-// ==== ships: hull art (shullPath, shullDraw: the 2D outline, and a plain first art the sea package replaces) ====
-// The side outline (also the clash shape, and the 3D extrusion until the hull's own loft): the keel from stern to bow,
-// up the stem, the deck back aft, down the transom
+// ==== ships: hull art (shullPath, shullDraw; the slice's ship kit: the wheelhouse, propeller and rudder) [WP2] ====
+// The side outline (also the clash shape: clashShape lofts it across the beam): the keel from stern to bow, up the
+// stem, the deck back aft, down the transom
 function shullPath(ctx, p) {
   const R = shullOf(p.def).rings, x = p.x, y = p.y;
   ctx.moveTo(x + R[0].x, y + R[0].yk);
@@ -6344,14 +6347,190 @@ function shullPath(ctx, p) {
   for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(x + R[i].x, y + R[i].yd);
   ctx.closePath();
 }
-// the plating (its paint, else haze grey) above a black boot-top, antifouling red below the design waterline
+// A ship's colours: haze grey (a part's paint over it), the deck's grey, the boot-top's black and the antifouling's red;
+// the boot-top's height by the hull's joint class (as the 3D loft's bands, parts3d shipHull)
+const SH_HAZE = '#8b9298', SH_DECK = '#5e6266', SH_BOOT = '#1d2024', SH_RED = '#7a2a22', SH_GLASS = '#1b3446';
+const shBase = () => (PartPaint.skin ? PartPaint.skin.base : SH_HAZE);
+const shTone = (k) => shade(shBase(), k);
+function shullBand(d) { const c = d.shull.cls; return c === 'S' ? 0.25 : c === 'M' ? 0.4 : 0.8; }
+// the outline's foremost x at height yy (part frame): the stem above the forefoot, the rising keel below it (null: none)
+function shullStem(R, yy) {
+  const n = R.length, f = R[n - 1];
+  if (yy > f.yd) return null;
+  if (yy >= f.yk) return f.x;
+  for (let i = n - 1; i > 0; i--) { const a = R[i - 1], b = R[i]; if ((a.yk - yy) * (b.yk - yy) <= 0 && a.yk !== b.yk) return a.x + ((b.x - a.x) * (yy - a.yk)) / (b.yk - a.yk); }
+  return null;
+}
+// The plating in its paint (haze grey unless painted), lighter up to the deck edge; plate seams along the sheer and
+// welded frames every 4 m; the black boot-top band round the design waterline and the antifouling red under it; the
+// deck edge and a rubbing strake under it; on a bow (a closed fore end) the hawse pipe and its anchor, and draft marks
+// up the stem; on a closed stern the transom's edge and its marks. X-ray: the plating faint, the outline and the
+// waterline; the armour view: the outline in the plating's thickness colour.
 function shullDraw(ctx, p, lw) {
-  const H = shullOf(p.def), d = p.def, x = p.x, y = p.y, l = x - d.w / 2, wl = y + H.wl, bt = d.shull.cls === 'S' ? 0.25 : d.shull.cls === 'M' ? 0.4 : 0.8;
-  ctx.beginPath(); shullPath(ctx, p);
-  ctx.fillStyle = PartPaint.skin ? hullGradient(ctx, l, l + d.w) : '#8a9096'; ctx.fill();
-  ctx.save(); ctx.clip();
-  ctx.fillStyle = '#7a2a22'; ctx.fillRect(l, y - d.h, d.w, wl - (y - d.h));
-  ctx.fillStyle = '#1d2024'; ctx.fillRect(l, wl - bt / 2, d.w, bt);
+  const H = shullOf(p.def), d = p.def, S = d.shull, E = S.ends || {}, R = H.rings, n = R.length, x = p.x, y = p.y, wl = y + H.wl, bt = shullBand(d);
+  const l = x + H.x0, r = x + H.x1, lo = y - d.h / 2 - 0.1, hi = y + d.h / 2 + 0.1, X = PartPaint.xray, a0 = ctx.globalAlpha, sk = PartPaint.skin;
+  if (X) ctx.globalAlpha = a0 * 0.25;
+  ctx.save();
+  ctx.beginPath(); shullPath(ctx, p); ctx.clip();
+  ctx.fillStyle = sk && (sk.camo || sk.paint) ? skinFill(ctx, l, r) : shBase(); ctx.fillRect(l, lo, r - l, hi - lo);
+  if (!PartPaint.flat) { // (light from above: the topsides brighter toward the deck edge)
+    const g = ctx.createLinearGradient(0, wl, 0, y + d.h / 2);
+    g.addColorStop(0, 'rgba(0,0,0,0.16)'); g.addColorStop(0.7, 'rgba(255,255,255,0.03)'); g.addColorStop(1, 'rgba(255,255,255,0.12)');
+    ctx.fillStyle = g; ctx.fillRect(l, wl, r - l, hi - wl);
+  }
+  // the antifouling and the boot-top
+  ctx.fillStyle = SH_RED; ctx.fillRect(l, lo, r - l, wl - bt / 2 - lo);
+  ctx.fillStyle = SH_BOOT; ctx.fillRect(l, wl - bt / 2, r - l, bt);
+  // plate seams: strakes along the sheer (1.1 m apart, down from the deck) and welded frames every 4 m
+  const lw2 = Math.max(lw * 0.45, 0.012), frames = [];
+  for (let fx = Math.ceil((H.x0 + 0.5) / 4) * 4; fx < H.x1 - 0.5; fx += 4) frames.push(x + fx);
+  ctx.lineWidth = lw2; ctx.strokeStyle = 'rgba(10,14,18,0.28)'; ctx.beginPath();
+  for (let k = 1; k < 8; k++) for (let i = 0; i < n; i++) { const yy = y + R[i].yd - k * 1.1; if (i) ctx.lineTo(x + R[i].x, yy); else ctx.moveTo(x + R[i].x, yy); }
+  for (const fx of frames) { ctx.moveTo(fx, lo); ctx.lineTo(fx, hi); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.beginPath(); // (each frame's lit lip)
+  for (const fx of frames) { ctx.moveTo(fx + lw2, wl + bt / 2); ctx.lineTo(fx + lw2, hi); }
+  ctx.stroke();
+  // the deck edge (a dark line along the sheer) and a rubbing strake under it
+  const sheer = (off, wd, col) => { ctx.lineWidth = wd; ctx.strokeStyle = col; ctx.beginPath(); for (let i = 0; i < n; i++) { const yy = y + R[i].yd - off; if (i) ctx.lineTo(x + R[i].x, yy); else ctx.moveTo(x + R[i].x, yy); } ctx.stroke(); };
+  const sk0 = Math.min(0.55, 0.12 + bt * 0.6);
+  sheer(sk0 + bt * 0.05, bt * 0.16, 'rgba(10,14,18,0.35)');
+  sheer(sk0, bt * 0.12, shTone(0.18));
+  sheer(0.03, Math.max(0.05, bt * 0.15), 'rgba(12,15,19,0.75)');
+  const k = bt / 0.4; // (fittings to the hull's scale: 1 on the M class)
+  if (E.fore === 'closed') {
+    // the hawse pipe, a little aft of the stem and under the deck edge, and its anchor stowed in it
+    const yh = y + R[n - 1].yd - 0.75 * k, sx = shullStem(R, yh - y);
+    if (sx != null) {
+      const hx = x + sx - 1.1 * k;
+      ctx.beginPath(); ctx.ellipse(hx, yh, 0.26 * k, 0.19 * k, 0.2, 0, TAU); ctx.fillStyle = shTone(-0.25); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(hx, yh, 0.18 * k, 0.13 * k, 0.2, 0, TAU); ctx.fillStyle = '#0d0f12'; ctx.fill();
+      ctx.lineWidth = 0.07 * k; ctx.strokeStyle = '#2b2f34'; ctx.beginPath(); ctx.moveTo(hx, yh - 0.1 * k); ctx.lineTo(hx + 0.05 * k, yh - 0.62 * k); ctx.stroke(); // the anchor's shank
+      ctx.beginPath(); ctx.moveTo(hx - 0.22 * k, yh - 0.5 * k); ctx.quadraticCurveTo(hx + 0.05 * k, yh - 0.82 * k, hx + 0.3 * k, yh - 0.48 * k); ctx.stroke(); // and its flukes
+      ctx.lineWidth = lw2; ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.ellipse(hx, yh, 0.27 * k, 0.2 * k, 0.2, Math.PI * 0.9, Math.PI * 1.6); ctx.stroke();
+    }
+  }
+  // draft marks: short white bars every half metre up from the keel to a metre over the waterline, by the stem and the
+  // transom (longer ones at whole metres)
+  ctx.fillStyle = 'rgba(236,240,242,0.85)';
+  let ymin = Infinity;
+  for (const q of R) ymin = Math.min(ymin, q.yk);
+  for (let yy = Math.ceil(ymin * 2) / 2; yy <= H.wl + 1.01; yy += 0.5) {
+    const big = Math.abs(yy - Math.round(yy)) < 1e-6, kk = Math.min(k, 1.6), bw = (big ? 0.34 : 0.2) * kk, bh = 0.07 * kk;
+    if (E.fore === 'closed') { const sx = shullStem(R, yy + 0.06); if (sx != null) ctx.fillRect(x + sx - 0.45 * k - bw, y + yy, bw, bh); }
+    if (E.aft === 'closed' && yy > R[0].yk + 0.1) ctx.fillRect(l + 0.25 * k, y + yy, bw, bh);
+  }
+  if (E.aft === 'closed') { ctx.fillStyle = 'rgba(10,14,18,0.3)'; ctx.fillRect(l, lo, 0.12 * k, hi - lo); } // the transom's edge
   ctx.restore();
-  ctx.beginPath(); shullPath(ctx, p); ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.stroke();
+  ctx.globalAlpha = a0;
+  ctx.beginPath(); shullPath(ctx, p);
+  if (X) {
+    ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(170,205,240,0.9)'; ctx.stroke();
+    ctx.save(); ctx.beginPath(); shullPath(ctx, p); ctx.clip(); ctx.setLineDash([lw * 4, lw * 3]); ctx.beginPath(); ctx.moveTo(l, wl); ctx.lineTo(r, wl); ctx.strokeStyle = 'rgba(80,170,255,0.9)'; ctx.stroke(); ctx.restore();
+    ctx.beginPath(); shullPath(ctx, p);
+  } else { ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.stroke(); }
+  if (PartPaint.armour && d.armour) { const mm = p.mm != null ? p.mm : d.armour.mm; ctx.lineWidth = lw * 2.5; ctx.strokeStyle = gvMmColour(mm); ctx.stroke(); }
+}
+// ---- the slice's ship kit (gvKit's tkit styles, dispatched from there: SH_KIT): the wheelhouse (a deckhouse with a raked
+// front, windows round its upper half), the propeller (seen edge on: its hub, shaft and two blades) and the rudder (a
+// spade on its stock, the leading edge forward, under the waterline in antifouling red)
+const SH_KIT = new Set(['bridge', 'screw', 'rudder']);
+// the wheelhouse's side outline (part frame, convex, counter-clockwise): the raked windows at the front (+x)
+function shBridgePts(d) { const w = d.w, h = d.h; return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, -h / 2 + h * 0.5], [w / 2 - w * 0.13, h / 2], [-w / 2, h / 2]]; }
+// the rudder's blade (part frame): its leading edge (forward, +x), trailing edge, the blade's top and bottom; the stock
+// (at xs, radius rs) up from the blade's top; t, its thickness
+function shRudderLay(d) { const w = d.w, h = d.h; return { le: w / 2, te: -w / 2, top: h / 2 - Math.min(0.35, h * 0.2), bot: -h / 2, xs: w / 2 - w * 0.28, rs: Math.min(0.08, w * 0.06), t: d.depth || 0.15 }; }
+// n window panes from x0 to x1, y0 to y1 (frames between them, a glint across)
+function shWindows(ctx, x0, x1, y0, y1, n) {
+  const gw = (x1 - x0) / n, fr = Math.min(0.08, gw * 0.14);
+  for (let i = 0; i < n; i++) {
+    const a = x0 + gw * i + fr / 2, b = a + gw - fr;
+    let g = SH_GLASS;
+    if (!PartPaint.flat) { g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, '#132430'); g.addColorStop(0.6, SH_GLASS); g.addColorStop(1, '#5b7f96'); }
+    ctx.fillStyle = g; ctx.fillRect(a, y0, b - a, y1 - y0);
+  }
+  ctx.fillStyle = 'rgba(200,230,255,0.22)';
+  ctx.beginPath(); ctx.moveTo(x0 + (x1 - x0) * 0.2, y1); ctx.lineTo(x0 + (x1 - x0) * 0.32, y1); ctx.lineTo(x0 + (x1 - x0) * 0.24, y0); ctx.lineTo(x0 + (x1 - x0) * 0.12, y0); ctx.closePath(); ctx.fill();
+}
+function shKit(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, st = d.style;
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  if (st === 'bridge') {
+    const P = shBridgePts(d).map(([u, v]) => [x + u, y + v]), sk = PartPaint.skin;
+    gvPoly(ctx, P); ctx.fillStyle = sk && (sk.camo || sk.paint) ? skinFill(ctx, l, r) : shBase(); ctx.fill();
+    ctx.save(); ctx.clip();
+    if (!PartPaint.flat) { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0.1)'); ctx.fillStyle = g; ctx.fillRect(l, b, w, h); }
+    shWindows(ctx, l + w * 0.22, r - w * 0.2, t - h * 0.36, t - h * 0.1, 4); // the window band down the side
+    ctx.fillStyle = SH_GLASS; // the raked front's windows, seen edge on
+    ctx.beginPath(); ctx.moveTo(r - w * 0.005, b + h * 0.6); ctx.lineTo(r - w * 0.13 * 0.86, t - h * 0.07); ctx.lineTo(r - w * 0.15, t - h * 0.07); ctx.lineTo(r - w * 0.03, b + h * 0.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = shTone(-0.32); ctx.fillRect(l, t - h * 0.06, w, h * 0.06); // the roof's edge (a visor over the windows)
+    ctx.fillStyle = shTone(-0.12); ctx.fillRect(l, b + h * 0.48, w, h * 0.035); // the deck level inside: a moulding round it
+    // a door aft, two portholes, a ladder up the back
+    ctx.fillStyle = shTone(-0.2); ctx.fillRect(l + w * 0.06, b + 0.05, w * 0.13, h * 0.42); ctx.strokeRect(l + w * 0.06, b + 0.05, w * 0.13, h * 0.42);
+    ctx.fillStyle = '#20262b'; ctx.fillRect(l + w * 0.165, b + h * 0.22, 0.05, 0.12);
+    for (const fx of [0.38, 0.56]) { ctx.beginPath(); ctx.arc(l + w * fx, b + h * 0.3, Math.min(0.14, h * 0.05), 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); ctx.lineWidth = lw * 0.9; ctx.strokeStyle = shTone(-0.35); ctx.stroke(); }
+    ctx.lineWidth = Math.max(lw, 0.03); ctx.strokeStyle = shTone(-0.3); ctx.beginPath();
+    for (const fx of [0.015, 0.045]) { ctx.moveTo(l + w * fx, b); ctx.lineTo(l + w * fx, t); }
+    for (let yy = b + 0.25; yy < t; yy += 0.3) { ctx.moveTo(l + w * 0.015, yy); ctx.lineTo(l + w * 0.045, yy); }
+    ctx.stroke();
+    ctx.restore();
+    ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK; gvPoly(ctx, P); ctx.stroke();
+    return;
+  }
+  if (st === 'screw') { // seen edge on from the side: the shaft forward (+x), the boss, a blade up and a blade down
+    const R = h / 2, hb = Math.min(0.2, w * 0.32);
+    ctx.fillStyle = '#6b7178'; ctx.fillRect(x + w * 0.05, y - hb * 0.45, w * 0.45, hb * 0.9); ctx.strokeRect(x + w * 0.05, y - hb * 0.45, w * 0.45, hb * 0.9); // the shaft
+    let g = '#b08d57';
+    if (!PartPaint.flat) { g = ctx.createLinearGradient(x - w * 0.3, 0, x + w * 0.3, 0); g.addColorStop(0, '#7c6038'); g.addColorStop(0.5, '#d1ad6c'); g.addColorStop(1, '#8e6e40'); }
+    for (const s of [1, -1]) { // the blades, skewed back, bronze
+      ctx.beginPath(); ctx.moveTo(x + w * 0.16, y + s * hb * 0.6);
+      ctx.bezierCurveTo(x + w * 0.38, y + s * R * 0.45, x + w * 0.1, y + s * R * 0.95, x - w * 0.12, y + s * R * 0.97);
+      ctx.bezierCurveTo(x - w * 0.34, y + s * R * 0.8, x - w * 0.22, y + s * R * 0.3, x - w * 0.14, y + s * hb * 0.6); ctx.closePath();
+      ctx.fillStyle = g; ctx.fill(); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.ellipse(x - w * 0.02, y, w * 0.26, hb, 0, 0, TAU); ctx.fillStyle = '#a38250'; ctx.fill(); ctx.stroke(); // the boss
+    ctx.beginPath(); ctx.moveTo(x - w * 0.27, y - hb * 0.6); ctx.quadraticCurveTo(x - w * 0.5, y, x - w * 0.27, y + hb * 0.6); ctx.closePath(); ctx.fillStyle = '#8e6e40'; ctx.fill(); ctx.stroke(); // its cone
+    return;
+  }
+  if (st === 'rudder') {
+    const L = shRudderLay(d), yt = y + L.top, yb = y + L.bot;
+    ctx.fillStyle = '#5a5f66'; ctx.fillRect(x + L.xs - L.rs, yt - 0.02, L.rs * 2, t - yt + 0.02); ctx.strokeRect(x + L.xs - L.rs, yt - 0.02, L.rs * 2, t - yt + 0.02); // the stock
+    ctx.beginPath(); ctx.moveTo(x + L.le - w * 0.04, yt); ctx.lineTo(x + L.te, yt);
+    ctx.lineTo(x + L.te + w * 0.04, yb + h * 0.04); ctx.quadraticCurveTo(x + L.te + w * 0.06, yb, x + L.te + w * 0.16, yb);
+    ctx.lineTo(x + L.le - w * 0.18, yb); ctx.quadraticCurveTo(x + L.le, yb, x + L.le, yb + h * 0.12); ctx.lineTo(x + L.le, yt - h * 0.06);
+    ctx.quadraticCurveTo(x + L.le, yt, x + L.le - w * 0.04, yt); ctx.closePath();
+    ctx.fillStyle = SH_RED; ctx.fill(); ctx.stroke();
+    ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.moveTo(x + L.xs, yt); ctx.lineTo(x + L.xs, yb + h * 0.05); ctx.stroke(); // the stock inside it
+    ctx.fillStyle = shTone(-0.1); ctx.fillRect(x + L.xs - L.rs * 2, yt - 0.01, L.rs * 4, 0.06); // its collar
+  }
+}
+// the wheelhouse's roof (gvPlan, from above: x along, z across) and its ends (gvEnd: end 1 the front, with the windows
+// across it; -1 the back, a door and portholes); the propeller and rudder are not plated (no other views)
+function shKitPlan(ctx, p, lw) {
+  const d = p.def, w = d.w, D = d.depth || w, l = -w / 2, r = w / 2, n = -D / 2, f = D / 2;
+  ctx.fillStyle = shBase(); ctx.fillRect(l - 0.2, n - 0.2, w + 0.4, D + 0.4);
+  if (d.style !== 'bridge') return;
+  ctx.fillStyle = shTone(-0.28); ctx.fillRect(l, n, w, 0.12); ctx.fillRect(l, f - 0.12, w, 0.12); ctx.fillRect(r - 0.12, n, 0.12, D); // the roof's edge
+  ctx.fillStyle = SH_DECK; ctx.fillRect(l + 0.25, n + 0.25, w * 0.55, D - 0.5); // a walkway of deck grey
+  ctx.beginPath(); ctx.arc(l + w * 0.42, 0, Math.min(0.32, D * 0.07), 0, TAU); ctx.fillStyle = shTone(-0.35); ctx.fill(); // the mast's step
+  gvHatch(ctx, lw, l + w * 0.15, D * 0.25, Math.min(0.28, D * 0.06), -0.12);
+  ctx.fillStyle = '#e8e2d0'; ctx.fillRect(l + w * 0.12, -D * 0.38, w * 0.2, D * 0.12); // a life-raft canister
+}
+function shKitEnd(ctx, p, lw, end) {
+  const d = p.def, w = d.w, h = d.h, D = d.depth || w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2;
+  ctx.fillStyle = shBase(); ctx.fillRect(n - 0.2, b - 0.2, D + 0.4, h + 0.4);
+  if (d.style !== 'bridge') return;
+  if (!PartPaint.flat) { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0.1)'); ctx.fillStyle = g; ctx.fillRect(n, b, D, h); }
+  ctx.fillStyle = shTone(-0.12); ctx.fillRect(n, b + h * 0.48, D, h * 0.035);
+  if (end > 0) {
+    // the raked front holds the upper half of this view: the windows across it, a wiper over each middle one
+    shWindows(ctx, n + D * 0.06, f - D * 0.06, b + h * 0.58, t - h * 0.1, 5);
+    ctx.lineWidth = Math.max(lw, 0.02); ctx.strokeStyle = 'rgba(20,24,28,0.7)'; ctx.beginPath();
+    for (const fz of [-0.18, 0, 0.18]) { ctx.moveTo(fz * D, b + h * 0.62); ctx.lineTo(fz * D + 0.25, b + h * 0.78); }
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = shTone(-0.2); ctx.fillRect(-D * 0.1, b + 0.05, D * 0.2, h * 0.68); ctx.lineWidth = lw; ctx.strokeStyle = GV_INK; ctx.strokeRect(-D * 0.1, b + 0.05, D * 0.2, h * 0.68);
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * D * 0.3, t - h * 0.28, Math.min(0.15, h * 0.05), 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); ctx.strokeStyle = shTone(-0.35); ctx.stroke(); }
+  }
+  ctx.fillStyle = shTone(-0.32); ctx.fillRect(n, t - h * 0.06, D, h * 0.06);
 }

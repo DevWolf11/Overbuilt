@@ -71,6 +71,11 @@ const Parts3D = (() => {
     led: { basic: '#7dffb0' },
     red: { color: '#c23b2c', roughness: 0.8, metalness: 0.05 },
     lens: { color: '#3a0d14', roughness: 0.06, metalness: 0.55, env: 1.5 },
+    // the ships update's: a hull's loft in its colours (paint, boot-top, antifouling, deck), or a camouflage over them; a
+    // rudder's antifouling red
+    shipHull: { vertexColors: true, roughness: 0.62, metalness: 0.18 },
+    shipHullCamo: { vertexColors: true, roughness: 0.62, metalness: 0.18, camo: true },
+    antifoul: { color: '#7a2a22', roughness: 0.8, metalness: 0.05 },
   };
   const LATHE = LATHE_SHAPES; // (parts.js: the clash test shapes parts the way these recipes build them)
   const LATHE_KIND = { probe: 'gold', probeL: 'gold', engine: 'metal', spike: 'metal', ion: 'metal', shield: 'shield', sep: 'sep', tcast: 'plate', tring: 'plate', radarset: 'metal' };
@@ -79,7 +84,7 @@ const Parts3D = (() => {
   // in); fittings, glass, tyres, nozzles and hazard stripes keep theirs. Wings bake their colours into the
   // geometry, so theirs is made per skin.
   const BODY_KINDS = new Set(['white', 'missile', 'sand', 'mil', 'olive', 'cluster', 'guided', 'darkgrey', 'electric', 'skidTube', 'us4frame', 'armour']);
-  const SKIN_GEO = new Set(['wing', 'biplane']);
+  const SKIN_GEO = new Set(['wing', 'biplane', 'shipHull']); // (a ship's hull: its paint in its vertex colours, by its bands)
   // Models that aren't the same both sides (a tail rotor's stub, a drone's aerial, the bubble's pilot, a
   // prop's twist, a wheel's hub cap): on the left (-z) a single one is the mirror image, so a prop there
   // turns the other way, as in the physics.
@@ -764,6 +769,163 @@ const Parts3D = (() => {
     return t;
   }
 
+  // ------------------------------------------------------------------ the ships update's hulls and kit [WP2]
+  // A hull segment's loft (parts.js shullOf: the very rings that are its 2D outline, its clash shape, where it is hit and
+  // what floats): two triangles per ring edge between neighbouring rings, the deck the ring's top edge, each end closed by
+  // a fan (a transom or the stem's last section; a joint's end too, so the hull is a closed solid and the flat water
+  // never shows inside it). Normals smooth round the bilge and along the hull, hard at a chine, the keel of a V and the
+  // deck edge (a ring corner turning more than 40°). Coloured by height against the design waterline, the triangles cut
+  // at the boot-top's edges so its bands are sharp: the paint above, the boot-top black round the waterline, antifouling
+  // red under it, the deck in deck grey. No texture (a camouflage: its pattern laid on in metres, vcCamo).
+  const SH_CREASE = Math.cos((40 * Math.PI) / 180);
+  function shipHullGeo(d, S) {
+    const H = shullOf(d), R = H.rings, n = R.length, K = H.K, bt = shullBand(d), lo = H.wl - bt / 2, hi = H.wl + bt / 2, camo = !!(S && S.camo);
+    const C = { paint: camo ? [1, 1, 1] : lin(S ? S.base : SH_HAZE), deck: lin(SH_DECK).map((c) => c * 0.8), boot: lin(SH_BOOT), red: lin(SH_RED) };
+    const pos = [], acc = [], faces = []; // (vertices; their normals summed from the faces round them; faces [a, b, c, deck, cap normal])
+    const vtx = (x, y, z) => { pos.push(x, y, z); acc.push(0, 0, 0); return pos.length / 3 - 1; };
+    // each ring's vertices: one per corner, two where it creases (ids[i][j] = [the id the edge before it uses, the one after])
+    const ids = R.map((r) => {
+      const P = r.P, out = [];
+      for (let j = 0; j < K; j++) {
+        const a = (j + K - 1) % K, c = (j + 1) % K;
+        const ux = P[2 * j] - P[2 * a], uz = P[2 * j + 1] - P[2 * a + 1], vx = P[2 * c] - P[2 * j], vz = P[2 * c + 1] - P[2 * j + 1];
+        const L = Math.hypot(ux, uz) * Math.hypot(vx, vz), deckEdge = j === K / 2 - 0.5 || j === K / 2 + 0.5; // (corners 7 and 8: the deck's edges)
+        const crease = deckEdge || (L > 1e-12 && (ux * vx + uz * vz) / L < SH_CREASE);
+        const id = vtx(r.x, P[2 * j], P[2 * j + 1]);
+        out.push(crease ? [id, vtx(r.x, P[2 * j], P[2 * j + 1])] : [id, id]);
+      }
+      return out;
+    });
+    const D0 = (K - 1) / 2; // (the deck: the edge from corner 7 to 8)
+    const face = (a, b, c, deck, out) => { // a triangle facing away from out (a point inside), its normal into its corners
+      const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+      const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az, vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * nx + ny * ny + nz * nz < 1e-14) return;
+      const mx = (ax + pos[b * 3] + pos[c * 3]) / 3 - out[0], my = (ay + pos[b * 3 + 1] + pos[c * 3 + 1]) / 3 - out[1], mz = (az + pos[b * 3 + 2] + pos[c * 3 + 2]) / 3 - out[2];
+      if (nx * mx + ny * my + nz * mz < 0) { const t = b; b = c; c = t; nx = -nx; ny = -ny; nz = -nz; }
+      for (const q of [a, b, c]) { acc[q * 3] += nx; acc[q * 3 + 1] += ny; acc[q * 3 + 2] += nz; }
+      faces.push([a, b, c, deck]);
+    };
+    for (let i = 0; i + 1 < n; i++) {
+      const A = ids[i], B = ids[i + 1], o = [(R[i].x + R[i + 1].x) / 2, (R[i].cy + R[i + 1].cy) / 2, 0];
+      for (let j = 0; j < K; j++) {
+        const j1 = (j + 1) % K, deck = j === D0;
+        face(A[j][1], A[j1][0], B[j1][0], deck, o); face(A[j][1], B[j1][0], B[j][1], deck, o);
+      }
+    }
+    for (const [i, s] of [[0, -1], [n - 1, 1]]) { // the ends: a fan round the ring's centroid, flat
+      const r = R[i], c = vtx(r.x, r.cy, 0), e = [];
+      for (let j = 0; j < K; j++) e.push(vtx(r.x, r.P[2 * j], r.P[2 * j + 1]));
+      for (let j = 0; j < K; j++) face(c, e[j], e[(j + 1) % K], false, [r.x - s, r.cy, 0]);
+    }
+    // the triangles cut at the boot-top's edges, each piece in its band's colour (the deck in its own)
+    const P = [], N = [], Col = [], U = camo ? [] : null, T = CAMO_M;
+    const nrm = (q) => { const x = acc[q * 3], y = acc[q * 3 + 1], z = acc[q * 3 + 2], L = Math.hypot(x, y, z) || 1; return [x / L, y / L, z / L]; };
+    const cut = (poly, y0, keepAbove) => { // Sutherland-Hodgman against the level y0: [{ p: [x, y, z], n }]
+      const out = [];
+      for (let k = 0; k < poly.length; k++) {
+        const a = poly[k], b = poly[(k + 1) % poly.length], ia = keepAbove ? a.p[1] >= y0 : a.p[1] <= y0, ib = keepAbove ? b.p[1] >= y0 : b.p[1] <= y0;
+        if (ia) out.push(a);
+        if (ia !== ib) { const t = (y0 - a.p[1]) / (b.p[1] - a.p[1]), L = (u, v) => u.map((q, m) => q + (v[m] - q) * t); out.push({ p: L(a.p, b.p), n: L(a.n, b.n) }); }
+      }
+      return out;
+    };
+    let ytop = -Infinity, ybot = Infinity;
+    for (const r of R) { ytop = Math.max(ytop, r.yd); ybot = Math.min(ybot, r.yk); }
+    const emit = (poly, col, shade) => { // (shade: the topsides a little lighter up to the deck edge, the bottom a little darker to the keel)
+      for (let k = 1; k + 1 < poly.length; k++) for (const q of [poly[0], poly[k], poly[k + 1]]) {
+        const y = q.p[1], f = shade > 0 ? 0.9 + 0.14 * clamp((y - hi) / Math.max(0.1, ytop - hi), 0, 1) : shade < 0 ? 0.82 + 0.18 * clamp((y - ybot) / Math.max(0.1, lo - ybot), 0, 1) : 1;
+        P.push(q.p[0], y, q.p[2]); N.push(...q.n); Col.push(col[0] * f, col[1] * f, col[2] * f);
+        if (U) U.push(q.p[0] / T, (q.p[1] + Math.abs(q.p[2])) / T);
+      }
+    };
+    for (const [a, b, c, deck] of faces) {
+      const poly = [a, b, c].map((q) => ({ p: [pos[q * 3], pos[q * 3 + 1], pos[q * 3 + 2]], n: nrm(q) }));
+      if (deck) { emit(poly, C.deck, 0); continue; }
+      let y0 = Infinity, y1 = -Infinity;
+      for (const q of poly) { y0 = Math.min(y0, q.p[1]); y1 = Math.max(y1, q.p[1]); }
+      if (y0 >= hi) { emit(poly, C.paint, 1); continue; }
+      if (y1 <= lo) { emit(poly, C.red, -1); continue; }
+      emit(cut(poly, hi, true), C.paint, 1); emit(cut(poly, lo, false), C.red, -1); emit(cut(cut(poly, hi, false), lo, true), C.boot, 0);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(Col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(U || new Array((P.length / 3) * 2).fill(0), 2));
+    return g;
+  }
+  // A prism of a convex outline in the x-z plane (pts [[x, z], ...]) from y0 to y1, closed at both ends
+  function prismY(pts, y0, y1) {
+    const pos = [], nor = [], idx = [], m = pts.length;
+    let cx = 0, cz = 0;
+    for (const [x, z] of pts) { cx += x / m; cz += z / m; }
+    for (let k = 0; k < m; k++) { // the walls, each edge its own quad (flat)
+      const [x0, z0] = pts[k], [x1, z1] = pts[(k + 1) % m], L = Math.hypot(x1 - x0, z1 - z0) || 1;
+      let nx = (z1 - z0) / L, nz = -(x1 - x0) / L;
+      if (nx * ((x0 + x1) / 2 - cx) + nz * ((z0 + z1) / 2 - cz) < 0) { nx = -nx; nz = -nz; }
+      const i0 = pos.length / 3;
+      pos.push(x0, y0, z0, x1, y0, z1, x1, y1, z1, x0, y1, z0);
+      for (let q = 0; q < 4; q++) nor.push(nx, 0, nz);
+      idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
+    }
+    for (const [y, s] of [[y0, -1], [y1, 1]]) {
+      const i0 = pos.length / 3;
+      for (const [x, z] of pts) { pos.push(x, y, z); nor.push(0, s, 0); }
+      for (let k = 1; k + 1 < m; k++) idx.push(i0, i0 + k, i0 + k + 1);
+    }
+    const g = geo(pos, nor, null, idx);
+    // (each triangle turned to face its normal)
+    const I = g.index.array, A = g.attributes.position.array, Nn = g.attributes.normal.array;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t], b = I[t + 1], c = I[t + 2];
+      const ux = A[b * 3] - A[a * 3], uy = A[b * 3 + 1] - A[a * 3 + 1], uz = A[b * 3 + 2] - A[a * 3 + 2], vx = A[c * 3] - A[a * 3], vy = A[c * 3 + 1] - A[a * 3 + 1], vz = A[c * 3 + 2] - A[a * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * Nn[a * 3] + ny * Nn[a * 3 + 1] + nz * Nn[a * 3 + 2] < 0) { I[t + 1] = c; I[t + 2] = b; }
+    }
+    return g;
+  }
+  // the slice's ship kit (BUILD.kit by style): the wheelhouse, the propeller and the rudder
+  function shipKit(d) {
+    const w = d.w, h = d.h, D = d.depth || w, st = d.style;
+    if (st === 'bridge') { // its raked outline's prism (its 2D art on every face) and glass over the windows
+      const pts = shBridgePts(d), list = [[plated(d, { pts, zh: D / 2 }), 'plate']], t = h / 2;
+      const zg = D / 2 + 0.006, y0 = t - h * 0.36, y1 = t - h * 0.1, x0 = -w / 2 + w * 0.22, x1 = w / 2 - w * 0.2;
+      const glass = [];
+      for (const s of [-1, 1]) glass.push(geo([x0, y0, s * zg, x1, y0, s * zg, x1, y1, s * zg, x0, y1, s * zg], [0, 0, s, 0, 0, s, 0, 0, s, 0, 0, s], null, s > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]));
+      const [fx0, fy0] = pts[2], [fx1, fy1] = pts[3], L = Math.hypot(fx1 - fx0, fy1 - fy0), nx = (fy1 - fy0) / L, ny = -(fx1 - fx0) / L;
+      const ga = 0.18, gb = 0.88, zf = D / 2 - D * 0.06, ax = fx0 + (fx1 - fx0) * ga + nx * 0.006, ay = fy0 + (fy1 - fy0) * ga + ny * 0.006, bx = fx0 + (fx1 - fx0) * gb + nx * 0.006, by = fy0 + (fy1 - fy0) * gb + ny * 0.006;
+      glass.push(geo([ax, ay, zf, bx, by, zf, bx, by, -zf, ax, ay, -zf], [nx, ny, 0, nx, ny, 0, nx, ny, 0, nx, ny, 0], null, [0, 2, 1, 0, 3, 2]));
+      list.push([merge(glass), 'glass']);
+      return node(list);
+    }
+    if (st === 'screw') { // the boss and cone along x, four bronze blades round it (turning about x: rig.shScrew), the shaft forward
+      const R = h / 2 - 0.01, hb = Math.min(0.2, w * 0.32), bronze = lin('#b08d57'), blades = [];
+      for (let i = 0; i < 4; i++) blades.push(bladeGeo(hb * 0.8, R, Math.min(0.62, R * 0.62), Math.min(0.5, R * 0.48), Math.min(0.05, w * 0.08), 0.75, 0.35, 'xz', bronze, bronze, 0.01).rotateY((i * TAU) / 4));
+      const bl = merge(blades).rotateZ(-Math.PI / 2); // (the blades' axis y turned onto x)
+      const boss = new THREE.LatheGeometry([[0.001, -w * 0.5], [hb * 0.55, -w * 0.38], [hb, -w * 0.18], [hb, w * 0.12], [hb * 0.7, w * 0.2]].map(([r, y]) => v2(r, y)), 20).rotateZ(-Math.PI / 2);
+      const shaft = new THREE.CylinderGeometry(hb * 0.45, hb * 0.45, w * 0.32, 14).rotateZ(Math.PI / 2).translate(w * 0.34, 0, 0);
+      const n0 = boss.attributes.position.count, c = new Float32Array(n0 * 3);
+      for (let i = 0; i < n0; i++) c.set(bronze, i * 3);
+      boss.setAttribute('color', new THREE.BufferAttribute(c, 3));
+      return node([[shaft, 'steel']], [{ role: 'shScrew', pos: [0, 0, 0], pieces: [[merge([bl, boss]), 'vcMetal']], subs: [] }]);
+    }
+    if (st === 'rudder') { // the blade (a symmetric foil, chord along x, the leading edge forward) and its stock, turning about the stock (rig.shRud)
+      const L = shRudderLay(d), c = L.le - L.te, sec = [];
+      for (const [f, t] of FOIL) sec.push([L.le - f * c - L.xs, (t * L.t) / 2 * 0.98]);
+      const blade = prismY(sec, L.bot, L.top), stock = new THREE.CylinderGeometry(L.rs, L.rs, h / 2 - L.top + 0.02, 12).translate(0, (h / 2 + L.top) / 2 - 0.01, 0);
+      return node([], [{ role: 'shRud', pos: [L.xs, 0, 0], pieces: [[blade, 'antifoul'], [stock, 'steelDark']], subs: [] }]);
+    }
+    return null;
+  }
+  // the ship kit's motion: a propeller turning with its shaft (p.rpm, rev/min; the port one the other way), a rudder over
+  // to its angle (p.rud, °: the trailing edge to starboard, +z, for a positive angle). Either may be missing (still).
+  function shipAnim(rig, p, dt) {
+    if (rig.shScrew) { const rpm = Number.isFinite(p.rpm) ? p.rpm : 0; if (rpm) rig.shScrew.rotation.x = (rig.shScrew.rotation.x + (partZ(p) < 0 ? -1 : 1) * (rpm / 60) * TAU * dt) % TAU; }
+    if (rig.shRud) { const a = Number.isFinite(p.rud) ? clamp(p.rud, -60, 60) : 0; rig.shRud.rotation.y = (a * Math.PI) / 180; }
+  }
+
   // ------------------------------------------------------------------ models by recipe
   const y0 = (h, f) => -h / 2 + h * f; // a height up a part, as a fraction
   const BUILD = {
@@ -1366,7 +1528,13 @@ const Parts3D = (() => {
         list.push([merge(dark), 'steelDark']);
         return node(list);
       }
+      if (SH_KIT.has(st)) return shipKit(d); // [WP2] (the ships update's wheelhouse, propeller and rudder)
       return node([[plated(d), 'plate']]);
+    },
+    // [WP2] a ship's hull segment, lofted from its rings (shipHullGeo); a skin is baked into its colours (SKIN_GEO)
+    shipHull(d, flip, skin) {
+      const S = skinFor(skin, d);
+      return node([[shipHullGeo(d, S), S && S.camo ? 'shipHullCamo' : 'shipHull']]);
     },
     // ---- the big update's drones and counter-drone kit, built from parts.js drLayout (the numbers the 2D art is drawn
     // from), each inside its part's box
@@ -2339,6 +2507,7 @@ void main() {
       for (const g of rig.spins) g.rotation.z = rig.gs;
     }
     if (rig.recoil) { const x = rig.kick * recoilK(p.shotAt != null ? time - p.shotAt : -1); if (x !== rig.rx) { rig.rx = x; rig.recoil.position.y = -x; } }
+    if (rig.shScrew || rig.shRud) shipAnim(rig, p, dt); // [WP2] (the ships update's propellers and rudders)
     if (rig.antenna && !vm.builder && !p.broken) rig.antenna.rotation.y = (rig.antenna.rotation.y + ((((d.searchRadar && d.searchRadar.rpm) || 60) * TAU) / 60) * dt) % TAU;
   }
   // A rig's see-through: the builder's (loose parts) times X-ray's (armour at 0.3)
