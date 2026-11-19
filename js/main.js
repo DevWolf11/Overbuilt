@@ -240,38 +240,22 @@ const App = {
     $('#home-settings').addEventListener('click', () => this.showSettings());
     $('#home-help').addEventListener('click', () => this.showHelp());
     $('#home-dv').addEventListener('click', () => this.showDeltaV());
-    $('#home-mode').addEventListener('click', () => this.chooseMode());
     $('#btn-home').addEventListener('click', () => { if (MP.active) MPUI.leave(); else this.toHome(); });
     $('#home-mp').addEventListener('click', () => MPUI.open());
-    document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
-      Career.setMode(b.dataset.mode);
-      this.toHome();
-      Builder.buildPalette(); Builder.changed(true);
-      if (!store.get('rss.seenHelp', false)) { store.set('rss.seenHelp', true); setTimeout(() => this.showHelp(), 250); }
-    }));
+    // a first run: how to fly, once (it came after picking a mode when there were modes to pick)
+    if (!store.get('rss.seenHelp', false)) { store.set('rss.seenHelp', true); setTimeout(() => this.showHelp(), 250); }
   },
 
   toHome() {
     if (this.scene === 'flight') { Flight.save(); Flight.stop(); }
     if (MP.active) { MP.end(); return; } // (MP.end comes back here once the room is closed)
     this.showScene('home');
-    const first = !Career.mode;
-    $('#home-modes').hidden = !first;
-    $('#home-main').hidden = first;
     const saved = store.get('rss.flight', null);
     $('#home-resume').hidden = !(saved && saved.vessels && saved.vessels.length);
     if (saved && saved.vessels && saved.vessels.length) {
       const av = saved.vessels[clamp(saved.active || 0, 0, saved.vessels.length - 1)];
       $('#home-resume-sub').textContent = `${av.name} · ${BODY_BY_ID[av.body] ? BODY_BY_ID[av.body].name : ''} · T+ ${fmt.clock(saved.time || 0)}`;
     }
-    const p = Career.progress();
-    $('#home-mode-label').textContent = Career.sandbox ? 'Sandbox' : 'Career';
-    $('#home-mode-sub').textContent = Career.sandbox ? 'Every part, unlimited funds' : `${money(Career.data.funds)} · Tier ${Career.data.tier} · ${p.done}/${p.total} missions`;
-  },
-
-  chooseMode() {
-    $('#home-modes').hidden = false;
-    $('#home-main').hidden = true;
   },
 
   renderHome(dt) {
@@ -297,8 +281,6 @@ const App = {
     if (!Builder.ctrl) { UI.toast('Add a Command Pod or Probe Core first'); return; }
     if (MP.live) { MP.launch(); return; } // in a room: fly into the shared world (or, in a battle, mark ready)
     const s = Builder.statsData;
-    if (s.locked.length) { UI.toast('This rocket uses parts you haven’t unlocked yet'); return; }
-    if (!Career.canAfford(s.cost)) { UI.toast(`Not enough funds: this rocket costs ${money(s.cost)}`); return; }
     const go = () => this.afterEarth(() => {
       if (s.loose) UI.toast(`${s.loose} loose part(s) left in the hangar`);
       store.set('rss.flight', null);
@@ -374,45 +356,6 @@ const App = {
       </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}<h3 class="summary-h">Drones</h3>${Flight.droneHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
-  },
-
-  showResearch() {
-    const wrap = el('div', { class: 'tiers' });
-    TIERS.forEach((t, i) => {
-      const owned = Career.sandbox || i <= Career.data.tier;
-      const next = !Career.sandbox && i === Career.data.tier + 1;
-      const parts = Object.values(PARTS).filter((p) => p.tier === i && !p.retired).map((p) => p.name).join(', ');
-      const row = el('div', { class: 'tier' + (owned ? ' owned' : '') },
-        el('div', { class: 'tier-head' }, el('span', { class: 'tier-num', text: `Tier ${i}` }), el('span', { class: 'tier-name', text: t.name }),
-          el('span', { class: 'tier-cost', text: owned ? 'Unlocked' : money(t.cost) })),
-        el('p', { class: 'tier-parts', text: parts }));
-      if (next) {
-        const b = el('button', { class: 'btn primary small', text: `Unlock for ${money(t.cost)}` });
-        b.disabled = Career.data.funds < t.cost;
-        b.addEventListener('click', () => {
-          if (Career.buyTier()) { UI.toast(`${t.name} unlocked`); Sound.chime(); UI.closeModal(); Builder.buildPalette(); Builder.changed(true); this.showResearch(); }
-        });
-        row.append(b);
-      }
-      wrap.append(row);
-    });
-    UI.modal({ kicker: Career.sandbox ? 'Sandbox: everything unlocked' : `Funds ${money(Career.data.funds)}`, title: 'Research & Development', body: wrap, actions: [{ label: 'Close' }] });
-  },
-
-  showMissions() {
-    const wrap = el('div', { class: 'missions' });
-    let lastBody = null;
-    for (const m of MISSIONS) {
-      const group = m.body ? m.body.name : 'Earth';
-      if (group !== lastBody) { wrap.append(el('h3', { class: 'summary-h', text: group })); lastBody = group; }
-      const done = Career.isDone(m.id);
-      wrap.append(el('div', { class: 'mission' + (done ? ' done' : '') },
-        el('span', { class: 'mission-check', text: done ? '✓' : '' }),
-        el('div', { class: 'mission-text' }, el('b', { text: m.title }), el('span', { text: m.desc })),
-        el('span', { class: 'mission-reward', text: Career.sandbox ? '' : money(m.reward) })));
-    }
-    const p = Career.progress();
-    UI.modal({ kicker: `${p.done} of ${p.total} complete`, title: 'Missions', body: wrap, actions: [{ label: 'Close' }] });
   },
 
   showDeltaV() {
@@ -517,14 +460,7 @@ const App = {
         else document.documentElement.requestFullscreen().catch(() => UI.toast('Fullscreen isn’t available here'));
       } catch (e) { UI.toast('Fullscreen isn’t available here'); }
     });
-    const reset = el('button', { class: 'btn small danger', text: 'Reset career progress' });
-    reset.addEventListener('click', () => {
-      if (reset.dataset.armed) {
-        Career.reset(); store.set('rss.flight', null);
-        UI.closeModal(); UI.toast('Career progress reset'); Builder.buildPalette(); Builder.changed(true); this.toHome();
-      } else { reset.dataset.armed = '1'; reset.textContent = 'Tap again to reset everything'; }
-    });
-    wrap.append(el('div', { class: 'setting-actions' }, fs, reset));
+    wrap.append(el('div', { class: 'setting-actions' }, fs));
     UI.modal({ kicker: 'Settings', title: 'Options', body: wrap, actions: [{ label: 'Done', primary: true }] });
     // the secret: tap the title seven times
     if (Silly.unlocked) { wrap.append(this.sillySettings()); return; }
@@ -544,7 +480,7 @@ const App = {
   sillySettings() {
     const box = el('div', { class: 'silly' },
       el('div', { class: 'silly-head', text: 'Silly settings' }),
-      el('p', { class: 'muted small', text: 'Unofficial, unbalanced and mostly unsafe. They work in career too; we won’t tell.' }));
+      el('p', { class: 'muted small', text: 'Unofficial, unbalanced and mostly unsafe. Battles switch them off; sandbox rooms don’t, and we won’t tell.' }));
     const boxes = [];
     for (const [k, label, desc] of Silly.list) {
       const cb = el('input', { type: 'checkbox', 'data-silly': k });

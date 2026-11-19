@@ -1732,8 +1732,6 @@ class Vessel {
     return { fuel, cap };
   }
 
-  value() { return designCost(this.parts); }
-
   // Split off every part not connected to the control part (or the first part).
   splitComponents() {
     const ctrl = this.keepPart || this.parts[0];

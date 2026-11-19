@@ -1,5 +1,5 @@
 'use strict';
-// Flight scene: simulation loop, time warp, camera, HUD, controls, missions and saving.
+// Flight scene: simulation loop, time warp, camera, HUD, controls, milestones and saving.
 
 const WARPS = [1, 2, 4, 8, 25, 100, 500, 2500, 10000, 50000, 250000, 1000000];
 const PHYS_WARP_MAX = 3; // index of the last physics warp (8x)
@@ -11,7 +11,18 @@ const PLANE_SAS_KEYS = { apHold: 'hold', apLevel: 'level', apHeading: 'heading',
 const DRONE_KEYS = { dLevel: 'hold', dAcro: 'acro' }; // (the big update: a drone flies Level, sas 'hold', or Acro)
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
-const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
+const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' }; // (the milestones that toast as they happen)
+// every milestone's name, for the flight's summary (the flags award() raises; those without a name aren't listed)
+const MILESTONES = (() => {
+  const n = { liftoff: 'Liftoff', alt1k: 'First Hop', space: 'Edge of Space', recoveredSpace: 'Safe Return', 'orbit:earth': 'Into Orbit',
+    splashdown: 'Splashdown', drive1k: 'Road Trip', tankRange: 'Tank Range', takeoff: 'Wheels Up', hover: 'Hover', runwayLanding: 'Greaser',
+    flyHigh: 'High Flyer', supersonic: 'Sound Barrier', mach2: 'Mach 2', seaplane: 'Seaplane', escapeSun: 'Interstellar', sunDive: 'Icarus' };
+  for (const b of [MOON, VENUS, MARS, MERCURY, PHOBOS, JUPITER, EUROPA]) {
+    n[`soi:${b.id}`] = `${b.name} Flyby`; n[`orbit:${b.id}`] = `${b.name} Orbit`;
+    if (b !== JUPITER) { n[`land:${b.id}`] = `${b.name} Landing`; n[`home:${b.id}`] = `Return from ${b.name}`; }
+  }
+  return n;
+})();
 
 const Flight = {
   running: false,
@@ -84,8 +95,6 @@ const Flight = {
     }
     if (v.kind === 'heli') v.throttle = 0;
     if (v.kind === 'drone') v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 }; // (the law's state, drone.js: where it took off, for safe-arm and home)
-    this.launchCost = designCost(ps);
-    if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
     // a ground vehicle's battlefield props (props.js), laid out now if they aren't yet: part of the launch, not a stall a
     // frame or two into the drive
     if (typeof Props !== 'undefined' && (v.gv || v.gear.length)) Props.needNear(v.x, v.y, v.z);
@@ -166,7 +175,6 @@ const Flight = {
   revert() {
     if (this.mp) { MP.respawn(); return; }
     if (GroundAI.battle && GroundAI.revert(this)) return; // (a Practice Battle: back on its pad, the AI kept)
-    Career.earn(this.launchCost);
     store.set('rss.flight', null);
     const k = this.design.kind, place = typeof Spawns !== 'undefined' ? Spawns.solo(k).place : k === 'tank' ? GroundMode.soloPlace(k) : null; // (back where it starts: the spot picked in Sandbox, else as ever, Armour on its range)
     this.start(this.design, place ? { place } : undefined);
@@ -204,7 +212,7 @@ const Flight = {
     const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length && !v.carrier);
     const a = this.active && this.active.carrier ? this.active.carrier : this.active;
     const out = {
-      v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
+      v: 2, time: this.time, design: this.design,
       active: keep.indexOf(a), flags: this.flags, stats: this.stats,
       target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
@@ -229,7 +237,6 @@ const Flight = {
     for (const v of vessels) if (v.docks.length && typeof Drone !== 'undefined') v.droneChoice = Drone.cleanChoice(d.design && d.design.drone); // (the drone its bays carry)
     const active = vessels[clamp(d.active, 0, vessels.length - 1)] || vessels[0];
     this.design = d.design;
-    this.launchCost = d.launchCost || 0;
     this.resetState(vessels, active, d.time || 0);
     this.flags = d.flags || {};
     this.stats = d.stats || this.stats;
@@ -818,17 +825,15 @@ const Flight = {
   recover() {
     if (!this.canRecover()) return;
     const v = this.active;
-    const refund = Math.round(v.value() * 0.9);
     if (this.flags.space) this.award('recoveredSpace');
     for (const b of BODIES) if (this.flags[`land:${b.id}`]) this.award(`home:${b.id}`);
     if (v.splashed) this.award('splashdown');
-    Career.earn(refund);
     this.ended = true;
     this.setPaused(true);
     store.set('rss.flight', null);
     UI.modal({
       kicker: 'Recovered', title: Object.keys(this.flags).some((k) => k.startsWith('home:')) ? 'Welcome home' : this._bodyGround ? (GroundAI.range ? 'Off the range' : 'Back to the hangar') : 'Mission complete',
-      body: this.summaryHTML(Career.sandbox ? '' : `<p class="refund">Recovered parts refunded: <b>${money(refund)}</b></p>`),
+      body: this.summaryHTML(),
       actions: [
         { label: 'Fly again', onClick: () => this.revert() },
         { label: 'Back to hangar', primary: true, onClick: () => App.toBuild() },
@@ -837,10 +842,7 @@ const Flight = {
   },
 
   summaryHTML(extra = '', ground = !!this._bodyGround) {
-    const got = Object.keys(this.flags).map((f) => {
-      const m = MISSIONS.find((x) => x.flag === f);
-      return m ? m.title : FLAG_NAMES[f];
-    }).filter(Boolean);
+    const got = Object.keys(this.flags).map((f) => MILESTONES[f]).filter(Boolean);
     const list = got.length ? got.map((a) => `<li>${a}</li>`).join('') : '<li class="muted">None this flight</li>';
     if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
       const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
@@ -1631,12 +1633,7 @@ const Flight = {
   award(flag) {
     if (this.flags[flag]) return;
     this.flags[flag] = true;
-    const done = this.mp ? [] : Career.onFlag(flag);
-    for (const m of done) {
-      this.toast(Career.sandbox ? m.title : `${m.title} · +${money(m.reward)}`, 'achievement');
-      Sound.chime();
-    }
-    if (!done.length && FLAG_NAMES[flag]) this.toast(FLAG_NAMES[flag], 'achievement');
+    if (FLAG_NAMES[flag]) this.toast(FLAG_NAMES[flag], 'achievement');
   },
 
   // A craft's height over the ground below, worked out once a frame: the milestones, engine dust, rotor wash,
@@ -2285,7 +2282,7 @@ const Flight = {
       if (this.target && this.window && this.window.wait <= 120 && !(this.approach && this.approach.encounter)) return 'Window open: burn prograde until the map shows an encounter.';
       const chute = v.parts.find((p) => p.def.chute && !p.deployed && !p.used);
       if (chute && alt < 9000 && (v.speed() < 250 || (v.dynP || 0) < 12000) && !v.landed && v.vSpeed() < 0) return 'Deploy the parachute now (STAGE).';
-      if (this.canRecover()) return 'Safely down. Tap Recover to finish the mission.';
+      if (this.canRecover()) return 'Safely down. Tap Recover to finish the flight.';
     }
     if (b !== EARTH && !b.star && v.landed && this.flags[`land:${b.id}`]) return `You landed on ${b.name}. Plan your trip home from the map.`;
     if (b !== EARTH && !b.star && o && !o.degenerate && o.e >= 1 && !v.landed) return `Burn retrograde (${Keys.k('sasRetro')}) near periapsis to be captured by ${b.name}.`;

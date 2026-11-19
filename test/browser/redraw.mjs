@@ -236,7 +236,7 @@ await ev(() => { App.toBuild(); Render3D.resetCamera(); });
 await frames(2);
 r = await synth(0, 60, 0.5);
 ok('the spinning turntable draws every frame', r.b3 === 30, r.b3);
-await ev(() => App.showResearch());
+await ev(() => App.showDeltaV());
 r = await synth(0, 60, 0.5);
 ok('...and 10 times a second under a dialog', near(r.b3, 5, 1), r.b3);
 await ev(() => UI.closeModal());

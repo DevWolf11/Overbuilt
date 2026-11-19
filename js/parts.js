@@ -1432,7 +1432,8 @@ for (const k in PARTS) {
   if (d.solid) d.cost = d.cost || 2000;
 }
 
-// Tech tiers for career mode.
+// The tech tiers a part's (and a template's) `tier` counts in, basic to advanced: data, as each part's `cost` is (a
+// multiplayer battle's budget prices a design by it); nothing is locked by tier.
 const TIERS = [
   { name: 'Basic rocketry', cost: 0 },
   { name: 'Orbital flight', cost: 20000 },

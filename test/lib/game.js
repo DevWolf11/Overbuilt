@@ -73,7 +73,7 @@ function load(opts = {}) {
   else run('this.RAIDER = RAIDER;');
   if (opts.flight) run(src(root, 'flight.js') + '\nthis.Flight = Flight;', 'flight.js');
   if (opts.mp) {
-    run(src(root, 'career.js').match(/function money[^\n]*/)[0], 'career.js (money)');
+    if (has('career.js')) run(src(root, 'career.js').match(/function money[^\n]*/)[0], 'career.js (money)'); // (money is util.js's since career mode went; a checkout from before had it here)
     run(`var Net = { names: new Map(), isHost: false, me: 1, send(m, to) { (this.out = this.out || []).push([m, to]); } };
       var UI = { toast(t, k) { (this.toasts = this.toasts || []).push(t); } };
       var Flight = { running: false, mp: null, vessels: [] };
