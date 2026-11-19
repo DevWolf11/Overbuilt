@@ -422,6 +422,43 @@ for (const [W, H] of PART === 'builder' || (ONLY && !ONLY.includes('lock')) ? []
   if (meets(lk, bd)) clash.push('LOCK/Bandit');
   ok(tag + `"${L.lb.LOCK && L.lb.LOCK.t}" and "${L.lb.Bandit && L.lb.Bandit.t}" drawn clear of the flight data, the buttons top right and each other`, !!lk && !!bd && !clash.length && [lk, bd].every((a) => a.l >= 0 && a.r <= W), { clash, L });
   await page.screenshot({ path: SHOTS + `radar-lock-label-${W}x${H}.png` });
+  // (the roadmap's phone HUD nits) a: our engine on fire, its warning up (#flight-alert); the bandit put where its LOCK
+  // tag's own place (20 px over it) is the warning's middle: both tags drawn clear of the warning, on the screen. b: the
+  // bandit 14 km off, held by the radar alone, at the screen's left edge, at the flight data's height and lower: its tag
+  // slid onto the screen, never cut off. The flight paused (the picture still, the HUD drawn 10 times a second)
+  const N = await page.evaluate(async () => {
+    const v = Flight.active, e = v.parts.find((p) => p.def.thrust);
+    Death.ignite(v, e, 1, null, Flight); e.burn = 1e6;
+    const fr = (n) => new Promise((ok) => { let i = 0; const g = () => (++i >= n ? ok() : requestAnimationFrame(g)); requestAnimationFrame(g); });
+    for (let i = 0; i < 600 && ($('#flight-alert').hidden || !$('#flight-alert').textContent); i++) await fr(1);
+    await new Promise((r) => setTimeout(r, 1300)); await fr(2); // (the warning placed: looked at once a second)
+    Flight.paused = true; await fr(3);
+    const rc = (q) => { const r = $(q).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }, A = rc('#flight-alert'), tel = rc('#flight-ui .telemetry');
+    const o = Flight.vessels.find((q) => q !== v && Combat.isFighter(q)), f = v.axis(0, 1, 0), rt = v.axis(0, 0, 1), r0 = Math.hypot(v.x, v.y, v.z), up = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+    // (the bandit d m ahead, u up and s right, put where it shows at screen point (X, Y): Newton's steps on project)
+    const place = (d, u, s2) => { o.x = v.x + f.x * d + up.x * u + rt.x * s2; o.y = v.y + f.y * d + up.y * u + rt.y * s2; o.z = v.z + f.z * d + up.z * u + rt.z * s2; o.vx = v.vx; o.vy = v.vy; o.vz = v.vz; };
+    const scr = (d, u, s2) => { const B = bodyPos(v.body, Flight.time); return Render3D.project(B.x + v.x + f.x * d + up.x * u + rt.x * s2, B.y + v.y + f.y * d + up.y * u + rt.y * s2, v.z + f.z * d + up.z * u + rt.z * s2); };
+    const aim = (d, X, Y) => { let u = 0, s2 = 0; for (let i = 0; i < 40; i++) { const p = scr(d, u, s2), pu = scr(d, u + 20, s2), ps = scr(d, u, s2 + 20); u += ((Y - p.y) / (pu.y - p.y || -1e-3)) * 20; s2 += ((X - p.x) / (ps.x - p.x || 1e-3)) * 20; } place(d, u, s2); return scr(d, u, s2); };
+    // (the tags drawn in a frame after the move: the HUD of a paused flight is drawn 10 times a second, slower here)
+    const tags = async (want) => { window.__lb = {}; App.redraw(); for (let i = 0; i < 300 && !want.every((k) => window.__lb[k]); i++) await new Promise((r) => setTimeout(r, 50)); await fr(2); window.__lb = {}; App.redraw(); for (let i = 0; i < 300 && !want.every((k) => window.__lb[k]); i++) await new Promise((r) => setTimeout(r, 50)); return { ...window.__lb }; };
+    const m = aim(6000, (A.l + A.r) / 2, (A.t + A.b) / 2 + 20), a = await tags(['LOCK', 'Bandit']);
+    const out = { A, tel, marker: { x: m.x, y: m.y }, a, b: [] };
+    // b: the lock let go, the bandit far off (the radar's alone), its marker 30 px off the left edge to 30 px in
+    Combat.S.lock = Combat.S.cand = null; Combat.S.lockT = 0; Radar.S.pick = null;
+    for (const Y of [tel.b - 20, tel.b + 30, innerHeight * 0.45]) for (const X of [-30, -6, 12, 30]) {
+      const p = aim(14000, X, Y), t = await tags(['Bandit']);
+      out.b.push({ X: Math.round(p.x), Y: Math.round(p.y), has: Radar.has(o), tag: t.Bandit || null });
+    }
+    Flight.paused = false;
+    return out;
+  });
+  const own = N.a.LOCK && { l: N.marker.x - (N.a.LOCK.r - N.a.LOCK.l) / 2, r: N.marker.x + (N.a.LOCK.r - N.a.LOCK.l) / 2, t: N.marker.y - 20 - 11, b: N.marker.y - 20 + 3 };
+  const tb = (q) => q && { l: q.l, r: q.r, t: q.t0, b: q.b };
+  ok(tag + `our engine on fire ("${await page.evaluate(() => $('#flight-alert').textContent)}"): the locked bandit's tags, whose own place is under the warning, drawn clear of it and on the screen`,
+    !!own && meets(own, N.A) && !!N.a.LOCK && !!N.a.Bandit && !meets(tb(N.a.LOCK), N.A) && !meets(tb(N.a.Bandit), N.A) && [N.a.LOCK, N.a.Bandit].every((q) => q.l >= 0 && q.r <= W && q.t0 >= 0 && q.b <= H), N);
+  await page.screenshot({ path: SHOTS + `radar-fire-lock-${W}x${H}.png` });
+  ok(tag + `a far bandit the radar holds at the screen's left edge: its tag on the screen wherever its marker is (${N.b.map((q) => `${q.X},${q.Y}: ${q.tag ? Math.round(q.tag.l) + '..' + Math.round(q.tag.r) : '-'}`).join('; ')})`,
+    N.b.length === 12 && N.b.every((q) => q.has && q.tag && q.tag.l >= 0 && q.tag.r <= W && q.tag.t0 >= 0), N.b);
   await ctx.close();
 }
 ok('no page errors', !errs.length, errs.join('\n'));

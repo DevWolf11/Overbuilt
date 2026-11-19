@@ -27,6 +27,34 @@ function hash1(i, seed = 0) {
   const s = Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453;
   return s - Math.floor(s);
 }
+// The cumulus field (the clouds update), one source for the 3D clouds (render3d's cumulusJob) and the 2D view's
+// (World.drawClouds), so both show the same clouds: the cloud of cell (i, q) of a 750 m grid, or null where the sky is
+// clear. i runs along the 2D view's track (the angle round the body × R / 750), q across it (z / 750); the row q = 0 is
+// the flight plane, seeded as the 2D clouds always were (hash1(i, s)), the rest hashI(i, q, s·7 + 3). The cells that
+// hold a cloud are the old ones (38 % of cells; off the flight plane a few more, `extra`, on High only), their widths
+// in the same order a quarter wider (380-1260 m, for as much of the sky as the old heaps of puffs covered). What
+// changed: a cloud's base is its area's condensation level (a smooth field some 40 km across, 1-2.3 km up; each
+// cloud within 60 m of it), so
+// neighbouring clouds share one flat base, where each had its own anywhere from 1.4 to 3.6 km; and its height and kind
+// follow two more smooth fields: fair-weather cumulus (a third to a whole width tall), taller where the
+// air is unstable, now and then a towering one (up to 2.2 times as tall as wide), and patches of wide, flat
+// stratocumulus that run together. o: { base, wdt, ht, zc (across, in cells, from the cell's middle), kind 0 cumulus, 1
+// towering, 2 stratocumulus, strat (how much), extra }
+const CUMULUS_STEP = 750;
+function cumulusCell(i, q, o = {}) {
+  const row0 = q === 0, hh = (s) => (row0 ? hash1(i, s) : Terrain.hashI(i, q, s * 7 + 3));
+  const h21 = hh(21);
+  if (h21 > (row0 ? 0.62 : 0.7)) return null; // (off the flight plane a few more: the 3D sky as full as the old one's heaps)
+  o.extra = h21 > 0.62; // (one of those few more: Low leaves them out, render3d's cumulusJob)
+  const vn = Terrain.vnoise2, conv = vn(i / 37 + 5.3, q / 37 + 1.7, 0, 912), strat = smoothstep(0.58, 0.74, vn(i / 29 + 2.1, q / 29 + 8.6, 0, 913));
+  let wdt = 380 + hh(23) * 880, hr = (0.45 + 0.45 * hh(30)) * (0.75 + 0.75 * conv), kind = 0; // (the old cells and their order of size, a quarter wider)
+  if (strat < 0.05 && conv > 0.52 && hh(34) > 0.9) { kind = 1; wdt = 600 + 450 * hh(23); hr = 1.2 + 1.0 * hh(35); } // (towering cumulus)
+  else if (strat > 0.5) kind = 2;
+  wdt *= 1 + 0.9 * strat; hr += (0.16 + 0.08 * hh(30) - hr) * strat; // (stratocumulus: wide and flat, running together)
+  o.base = 1000 + 1300 * vn(i / 53 + 3.7, q / 53 + 9.1, 0, 911) - 250 * strat + (hh(22) - 0.5) * 120;
+  o.wdt = wdt; o.ht = wdt * hr; o.zc = row0 ? 0 : q + (hh(27) - 0.5) * 0.6; o.kind = kind; o.strat = strat;
+  return o;
+}
 function luminance(rgbStr) {
   const m = rgbStr.match(/\d+/g);
   if (!m) return 0;
@@ -69,6 +97,7 @@ const DEATH_FX = {
   ko: { F: 1.5, L: 0.18, fb: 5, bias: 0.3, fs: 0.3, rise: 6, lift: 0.5, spk: 8, W: 4, Ws: 1, col: 6, cc: '#5a5e66', ch: 0 },
   thud: { bias: -0.2, spk: 6, dust: 6, W: 4, Ws: 1 },
 };
+const TRAIL_GLOW = 12; // m behind its flame a burning craft's smoke stops glowing (FX.trail)
 const fxOwn = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 // what a burning chunk leaves behind it, a tenth of its speed kept: a lick of fire while hot and young, else dark smoke
 // (review P2-VIS-2) a chunk with land (FX.death's on the ground, not in water) stops on the ground under it, its
@@ -251,10 +280,17 @@ const FX = {
       size: P.size * k, grow: P.grow * k, color: P.c, alpha: P.a, rise: P.rise, drag: P.drag, heat: P.heat, ease: 1, fin: P.fin });
   },
   // n puffs of a preset laid back along the path a craft at p, moving at v, flew in dt (p − v·dt·i/n), each keeping
-  // 0.15 of v: a burning or leaking craft's trail stays where it was laid
+  // 0.15 of v: a burning or leaking craft's trail stays where it was laid. A fire's puffs glow only while they are
+  // within TRAIL_GLOW m of the flame (gh: s their glow lasts, FX.update; at rest as any fire smoke, its first fifth):
+  // seen from right behind, a burning jet's trail was a pale orange cloud, its first hundred metres all still glowing
   trail(body, p, v, preset, n, dt) {
-    const w = { x: v.x * 0.15, y: v.y * 0.15, z: v.z * 0.15 }, q = { x: 0, y: 0, z: 0 };
-    for (let i = 0; i < n; i++) { const f = (dt * i) / n; q.x = p.x - v.x * f; q.y = p.y - v.y * f; q.z = p.z - v.z * f; this.smoke(body, q, w, preset, 1); }
+    const w = { x: v.x * 0.15, y: v.y * 0.15, z: v.z * 0.15 }, q = { x: 0, y: 0, z: 0 }, sp = Math.hypot(v.x, v.y, v.z) * 0.85, L = this.list;
+    for (let i = 0; i < n; i++) {
+      const f = (dt * i) / n; q.x = p.x - v.x * f; q.y = p.y - v.y * f; q.z = p.z - v.z * f;
+      this.smoke(body, q, w, preset, 1);
+      const o = L[L.length - 1];
+      if (o && o.heat && sp * o.max * 0.2 > TRAIL_GLOW) { o.gh = TRAIL_GLOW / sp; o.h1 = o.heat; }
+    }
   },
   // In place (the list keeps its identity and order). An old particle moves exactly as it always has: the kind's drag,
   // gravity on heavy ones and sparks. New fields: drag (its own), rise (buoyancy), floor (a radius it stops dead at,
@@ -277,6 +313,7 @@ const FX = {
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       if (p.floor) { const r = Math.hypot(p.x, p.y, p.z), fl = p.land ? landR(p, false) : p.floor; if (r < fl && (!p.land || p.restAt != null || r < landR(p, true))) { const f = (p.land ? p.gr : fl) / r; p.x *= f; p.y *= f; p.z *= f; p.vx = p.vy = p.vz = 0; p.trailT = 0; if (p.restAt == null) p.restAt = p.life; } }
       if (p.trail && p.life < p.trailT) for (p.tt = (p.tt || 0) + dt; p.tt >= p.trail; p.tt -= p.trail) born.push(trailOf(p));
+      if (p.gh) p.heat = p.h1 * Math.max(0, 1 - p.life / p.gh); // (a burning craft's trail: its glow over its first metres, FX.trail)
       L[w++] = p;
     }
     L.length = w;
@@ -748,26 +785,34 @@ const World = {
     if (d - b.radius - 9000 > diag) return;
     const camAng = Math.atan2(-ry, -rx);
     const span = Math.min(Math.PI, (diag * 1.2 + 4000) / b.radius);
-    const step = 750;
+    const step = CUMULUS_STEP;
     const drift = F.time * 0.000002;
     const i0 = Math.floor(((camAng - span - drift) * b.radius) / step), i1 = Math.ceil(((camAng + span - drift) * b.radius) / step);
     if (i1 - i0 > 600) return;
     ctx.setTransform(...base);
-    const shade = Math.round(255 - 150 * env.night);
+    // the 3D view's clouds in the flight plane (cumulusCell, row 0): the same base, width and height; lobes heaped over a
+    // flat base, lit on top and grey underneath (dark at night)
+    const lit = 1 - 0.62 * env.night, warm = clamp(1 - Math.abs(env.elev - 0.03) / 0.28, 0, 1) * (1 - env.night);
+    const top = `rgb(${Math.round(255 * lit)},${Math.round(255 * lit * (1 - 0.22 * warm))},${Math.round(255 * lit * (1 - 0.4 * warm))})`;
+    const bot = `rgb(${Math.round(168 * lit)},${Math.round(176 * lit)},${Math.round(192 * lit)})`;
+    const c = this._cu || (this._cu = {});
     for (let i = i0; i <= i1; i++) {
-      if (hash1(i, 21) > 0.62) continue;
-      const ang = (i * step) / b.radius + drift;
-      const alt = 2200 + hash1(i, 22) * 4500;
-      const wdt = 260 + hash1(i, 23) * 700;
+      if (!cumulusCell(i, 0, c)) continue;
+      const wdt = c.wdt, ht = c.ht;
       if (wdt * S < 3) continue;
-      const cx = rx + (b.radius + alt) * Math.cos(ang), cy = ry + (b.radius + alt) * Math.sin(ang);
-      ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang - Math.PI / 2);
-      ctx.globalAlpha = 0.72;
-      ctx.fillStyle = `rgb(${shade},${shade},${Math.min(255, shade + 8)})`;
-      for (let k = 0; k < 4; k++) {
-        const ox = (hash1(i * 7 + k, 24) - 0.5) * wdt * 0.8, oy = hash1(i * 7 + k, 25) * wdt * 0.12;
-        ctx.beginPath(); ctx.ellipse(ox, oy, wdt * (0.22 + 0.15 * hash1(i * 7 + k, 26)), wdt * 0.11, 0, 0, TAU); ctx.fill();
+      const ang = (i * step) / b.radius + drift, r = b.radius + c.base;
+      ctx.save(); ctx.translate(rx + r * Math.cos(ang), ry + r * Math.sin(ang)); ctx.rotate(ang - Math.PI / 2);
+      ctx.beginPath(); ctx.rect(-wdt, 0, wdt * 2, ht * 1.6); ctx.clip(); // (the flat base)
+      ctx.beginPath();
+      const n = c.kind === 1 ? 6 : 4;
+      for (let k = 0; k < n; k++) {
+        const u = hash1(i * 7 + k, 24), lx = (u - 0.5) * wdt * (c.kind === 1 ? 0.35 : 0.62), ly = ht * (c.kind === 1 ? 0.12 + 0.72 * (k / (n - 1)) : 0.3 + 0.25 * hash1(i * 7 + k, 25));
+        const er = wdt * (0.2 + 0.12 * hash1(i * 7 + k, 26)), ey = Math.min(er, ht * (c.kind === 1 ? 0.3 : 0.62));
+        ctx.moveTo(lx + er, ly); ctx.ellipse(lx, ly, er, ey, 0, 0, TAU);
       }
+      const g = ctx.createLinearGradient(0, 0, 0, ht);
+      g.addColorStop(0, bot); g.addColorStop(0.45, top); g.addColorStop(1, top);
+      ctx.globalAlpha = 0.82; ctx.fillStyle = g; ctx.fill();
       ctx.restore();
     }
     ctx.globalAlpha = 1;

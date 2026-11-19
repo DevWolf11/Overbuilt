@@ -610,8 +610,8 @@ const MPUI = {
       ctx.beginPath(); ctx.moveTo(s.x, s.y - k - 14); ctx.lineTo(s.x + k, s.y - 14); ctx.lineTo(s.x, s.y + k - 14); ctx.lineTo(s.x - k, s.y - 14); ctx.closePath();
       if (friend) ctx.fill(); else ctx.stroke();
       ctx.font = '600 11px "Chakra Petch", system-ui, sans-serif';
-      ctx.fillText(MP.nameOf(g.remote), s.x, s.y - 26);
-      if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 38); ctx.globalAlpha = 1; }
+      mpTag(ctx, MP.nameOf(g.remote), s.x, s.y - 26, W);
+      if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; mpTag(ctx, fmt.dist(d), s.x, s.y - 38, W); ctx.globalAlpha = 1; }
       if (!friend && typeof Radar !== 'undefined') Radar.mark(g, s.x, s.y - 14); // (a tap on an enemy's tag picks it: radar.js)
     }
     // (the big update) the other players' drones from their tanks' bays: "Ann's drone", only while our eyes or sensors
@@ -626,8 +626,8 @@ const MPUI = {
       ctx.beginPath(); ctx.moveTo(s.x, s.y - k - 10); ctx.lineTo(s.x + k, s.y - 10); ctx.lineTo(s.x, s.y + k - 10); ctx.lineTo(s.x - k, s.y - 10); ctx.closePath();
       if (friend) ctx.fill(); else ctx.stroke();
       ctx.font = '600 10px "Chakra Petch", system-ui, sans-serif';
-      ctx.fillText(g.name, s.x, s.y - 20);
-      if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; ctx.fillText(fmt.dist(d), s.x, s.y - 32); ctx.globalAlpha = 1; }
+      mpTag(ctx, g.name, s.x, s.y - 20, W);
+      if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; mpTag(ctx, fmt.dist(d), s.x, s.y - 32, W); ctx.globalAlpha = 1; }
     }
     // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
     if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
@@ -840,6 +840,8 @@ const MPUI = {
 
 // (DOM writes only on change, for what updates a few times a second)
 function mpSet(e, k, v) { if (e[k] !== v) e[k] = v; }
+// a tag's text centred at x (its baseline y), slid sideways to stay on a W px wide screen: a player's name at the edge isn't cut off
+function mpTag(ctx, t, x, y, W) { const w = ctx.measureText(t).width / 2 + 2; ctx.fillText(t, w * 2 < W ? clamp(x, w, W - w) : x, y); }
 // a bar filled to |f| (0..1), ours (f >= 0) or theirs
 function mpBar(e, f) {
   const t = `scaleX(${Math.min(1, Math.abs(f)).toFixed(2)})`, c = f >= 0 ? 'us' : 'them';

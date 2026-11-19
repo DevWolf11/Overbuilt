@@ -16,6 +16,10 @@
 //     shows over the fall and clears every control and panel on the 8 screens of controls.mjs; untouched, the end screen
 //     opens 1.2 s (± 0.3) after the crash (300 m up, in a dive), or 10 s after the death if the hulk still glides then
 //     (1 km up); a tap (a click) on the strip opens it at once.
+//  6. our own FS-16's engine on fire at 220 m/s, seen from right behind (the roadmap's phone HUD nit: its trail was a pale
+//     orange cloud): the flames go on at the engine, but its black smoke glows only within 12 m of the flame (FX.trail's gh;
+//     20 m of the engine at most, the puffs laid back along a tick's path),
+//     never 140 m of it as it did; the trail behind is dark (screenshot deaths-own-fire).
 // The 8 baked wrecks' draw calls (spec item 6) are ground-models.mjs's (§5b: eight baked wrecks cost at most 8 draws).
 // SHOTS=<dir> saves screenshots there (deaths-*.png; else test/.cache/shots/); ONLY=1,3 runs those sections alone.
 //   node test/browser/deaths.mjs
@@ -307,6 +311,24 @@ async function endScreen(P) {
   await ev(() => UI.closeModal());
 }
 
+// ---------------------------------------------------------------------------------------------- 6: our own fire from behind
+async function ownFire(P) {
+  const { ev, page, until, shot, tag } = P;
+  await ev(() => { Settings.set('targets', 'off'); return window.__fly('fs16', 3000, 220); });
+  await page.waitForFunction(() => Render3D.ready && Flight.running && Flight.active && Flight.time > 0.5, null, { timeout: 180000 });
+  const lit = await ev(() => { const v = Flight.active, e = v.parts.find((p) => p.def.thrust); Flight.aimYaw = 0; Flight.aimPitch = 0; window.__eng = e; window.__to = Flight.time; return Death.ignite(v, e, 1, null, Flight); });
+  await until(2.5);
+  // every black puff of our trail still glowing, and how far it is from the engine; the flames there
+  const g = await ev(() => {
+    const v = Flight.active, E = window.__eng, c = v.toWorld(E.x, E.y, 0), puffs = FX.list.filter((p) => p.kind === 'smoke' && p.color === '#26272b');
+    const hot = puffs.filter((p) => p.heat > 0), far = (p) => Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z);
+    return { burning: E.burn > 0, speed: Math.round(v.speed()), puffs: puffs.length, glowing: hot.length, farthest: +Math.max(0, ...hot.map(far)).toFixed(1), flames: FX.list.filter((p) => p.kind === 'fire').length, trail: +Math.max(0, ...puffs.map(far)).toFixed(0) };
+  });
+  ok(`${tag}: our own engine on fire (${g.speed} m/s): ${g.flames} flames at it, a ${g.trail} m black trail of ${g.puffs} puffs, of which only those near the engine glow (${g.glowing}, the farthest ${g.farthest} m: 12 m behind the flame, laid back along a tick's path; it was 140 m: the trail behind dark from right behind)`,
+    lit && g.burning && g.flames > 0 && g.puffs > 20 && g.trail > 100 && g.farthest <= 20, g);
+  await shot('own-fire');
+}
+
 // ---------------------------------------------------------------------------------------------- the runs
 const DESK = [[1280, 720], [1920, 1080]], PHONE = [[360, 640], [375, 667], [390, 844], [430, 932], [768, 1024], [844, 390]];
 {
@@ -314,6 +336,7 @@ const DESK = [[1280, 720], [1920, 1080]], PHONE = [[360, 640], [375, 667], [390,
   if (part(1) || part(4) || part(5)) await ground(P, true);
   if (part(2)) await bandit(P);
   if (part(3)) { await strip(P, DESK); await endScreen(P); }
+  if (part(6)) await ownFire(P);
   await pageErrs(P);
   await P.ctx.close();
 }
@@ -322,6 +345,7 @@ const DESK = [[1280, 720], [1920, 1080]], PHONE = [[360, 640], [375, 667], [390,
   P.touch = true;
   if (part(1) || part(4) || part(5)) await ground(P, false);
   if (part(3)) { await strip(P, PHONE.slice(2, 3).concat(PHONE.filter((s) => s[0] !== 390))); await endScreen(P); }
+  if (part(6)) await ownFire(P);
   await pageErrs(P);
   await P.ctx.close();
 }

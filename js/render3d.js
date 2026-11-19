@@ -41,8 +41,15 @@ const Render3D = (() => {
     venC: C('#f4e2b4'), jupA: C('#e6d1ae'), jupB: C('#c08d5c'), jupC: C('#9c6b45'), jupD: C('#d9b88a'), spot: C('#c2603f'),
     eurA: C('#e5eff4'), eurB: C('#c8d6de'), linea: C('#9b6a4c'),
   };
+  // The water's depth (waterHook): sig, how much of the light from below the water takes per metre of it, evenly (the
+  // rest is the water's own colour); tint, how much more it takes of red, green and blue per metre (underTint, on the
+  // ground's colour under it); veil, the most things sinking away are drawn through (render only: S.sinks)
+  const WATER = { sig: 0.09, tint: [0.16, 0.035, 0.012], river: 1.5, sinks: 4 };
   const T1 = [0, 0, 0], T2 = [0, 0, 0], BIO = [0, 0, 0], BIOL = [0, 0, 0];
-  const FOAM = [238, 246, 250], ASPHALT = [74, 77, 82], URBAN = [132, 126, 116], HEDGE = [70, 96, 52], LAKE_S = [52, 128, 150], LAKE_D = [22, 70, 104];
+  // the sea's own colour (the light it scatters back) d m deep: turquoise over the sand of the shallows (the floor's light
+  // in it), blue-green, then deep blue offshore and on the far cells (far: patchJob's), as the water was before its depth
+  const seaBody = (d, far, out) => mixC(mixC(SEA_SHAL, SEA_BODY, smoothstep(1, 24, d), out), SEA_DEEP, Math.max(smoothstep(12, 50, d), far), out);
+  const SEA_SHAL = C('#1f7584'), SEA_BODY = C('#145a74'), SEA_DEEP = C('#0f3d6e'), LAKE_B = [16, 52, 64], FOAM = [238, 246, 250], ASPHALT = [74, 77, 82], URBAN = [132, 126, 116], HEDGE = [70, 96, 52], LAKE_S = [52, 128, 150], LAKE_D = [22, 70, 104];
   const AIRGRASS = [96, 132, 66], FQP = { w: 0, h: 0, f: null }; // an airfield's mown grass
   const FIELDS = [[196, 176, 104], [118, 158, 72], [140, 112, 76], [160, 186, 104], [96, 132, 64], [184, 160, 92]];
   const FIELD_AVG = [0, 1, 2].map((q) => FIELDS.reduce((s, f) => s + f[q], 0) / FIELDS.length);
@@ -61,6 +68,16 @@ const Render3D = (() => {
   }
   // how green the ground is (0 desert, ice, rock .. 1 forest), for trees
   const vegOf = (c) => lerp(0.8, (1 - smoothstep(0.22, 0.45, lum(c))) * (c[1] >= c[0] * 0.92 ? 1 : 0.35), BIOW);
+  // The sea floor (h < 0), seen through clear water now (the water's depth: waterHook): wet sand at the waterline, clean
+  // sand down to a few metres, then darker weedy ground in patches and rock outcrops by 30 m; rock, not sand, under the
+  // cliffs. (The water itself takes the colour away with depth: the tint in groundPaint, then the water's own shader.)
+  const SEA_ROCK = C('#5a5a52');
+  function seabed(h, n, cliff, out) {
+    mixC(P.wet, P.sand, smoothstep(-0.3, -2.5, h), out);
+    mixC(out, P.seabed, smoothstep(-4, -26, h) * (0.55 + 0.45 * n), out);
+    mixC(out, SEA_ROCK, smoothstep(-5, -24, h) * smoothstep(0.5, 0.75, n) * 0.6, out);
+    return cliff > 0 ? mixC(out, mixC(P.seabed, P.basalt, 0.5, T1), cliff * 0.9, out) : out;
+  }
   function paint(c, h, n, cont, dark, slope, lat, tex, out) {
     const p = c.pal, al = Math.abs(lat);
     switch (c.kind) {
@@ -73,7 +90,7 @@ const Render3D = (() => {
             if (BIOW < 1) mixC(mixC(P.grassB, P.arid, 0.25, T2), BIOL, BIOW, BIOL); // land the photo shows as sea
             return mixC(out, BIOL, smoothstep(-5, 5, h), out);
           }
-          if (h < 0) mixC(P.wet, P.seabed, Math.max(smoothstep(-2, -40, h), CLIFF * 0.9), out); // (rock, not sand, under the cliffs)
+          if (h < 0) seabed(h, n, CLIFF, out); // (rock, not sand, under the cliffs)
           else {
             mixC(P.grassA, P.grassB, clamp(n * 1.2 - 0.1, 0, 1), out);
             mixC(out, BIOL, 0.72 * BIOW, out);
@@ -86,11 +103,12 @@ const Render3D = (() => {
             mixC(out, P.snow, Math.max(smoothstep(0.62, 0.8, lum(BIOL)) * (1 - smoothstep(0.08, 0.2, sat)) * BIOW, smoothstep(1050, 1300, h)), out);
           }
           if (!tex && h >= 0) mixC(out, CLIFF > 0 ? mixC(P.rockE, P.basalt, CLIFF, T1) : P.rockE, Math.max(smoothstep(0.28, 0.55, slope), CLIFF * smoothstep(0.1, 0.3, slope) * smoothstep(1, 5, h)), out);
+          else if (!tex) mixC(out, P.basalt, smoothstep(0.3, 0.6, slope) * 0.7, out); // (steep sea floor: rock)
           return out;
         }
         if (h < 0) {
           if (tex) mixC(P.oceanD, P.oceanS, smoothstep(-160, -8, h), out);
-          else mixC(P.wet, P.seabed, smoothstep(-2, -40, h), out);
+          else seabed(h, n, 0, out);
         } else if (h < 4) mixC(P.wet, P.sand, h / 4, out);
         else {
           mixC(P.grassA, P.grassB, clamp(n * 1.2 - 0.1, 0, 1), out);
@@ -430,9 +448,11 @@ void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix 
   // under the ground, or plain sky, where the haze would add nothing). At el = 0 it is the fog's colour (obFogCol, the
   // haze patch: the band, the sunset side and the aureole s^8, not the Sun's own glare), so fogged ground meets it seamlessly
   const SKY_FS = `#include <common>
-uniform vec3 uZen, uHor, uSunset, uGlow, uUp, uSun, uNadir;
-uniform float uDip, uSunsetK, uGlare, uAlpha;
-uniform vec2 uKeep;
+uniform vec3 uZen, uHor, uSunset, uGlow, uUp, uSun, uNadir, uCiC, uCiE, uCiN;
+uniform float uDip, uSunsetK, uGlare, uAlpha, uCiA;
+uniform vec2 uKeep, uCiP;
+uniform vec4 uCiO;
+uniform sampler2D uCi;
 varying vec3 vDir;
 void main() {
   vec3 d = normalize(vDir);
@@ -447,6 +467,11 @@ void main() {
   c *= mix(1.0, 0.55, smoothstep(0.0, -0.2, el));
   float s = max(dot(d, uSun), 0.0), s2 = s * s, s4 = s2 * s2, s8 = s4 * s4;
   c += uGlow * uGlare * (0.9 * pow(s, 1800.0) + 0.22 * pow(s, 90.0) + 0.1 * s8) + uSunset * uSunsetK * 0.35 * s8; // (+ a warm aureole round a low Sun)
+  if (uCiA > 0.0 && e > 0.0) { // (the clouds update) cirrus: a thin layer uCiP.x m overhead, its streaks times its patches, thinning to the horizon
+    vec2 q = vec2(dot(d, uCiE), dot(d, uCiN)) * (uCiP.x / max(e, 0.03)) * uCiP.y;
+    float ci = texture2D(uCi, q + uCiO.xy).r * texture2D(uCi, mat2(0.8, 0.6, -0.6, 0.8) * q * 0.55 + uCiO.zw).g;
+    c = mix(c, uCiC, ci * uCiA * smoothstep(0.0, 0.2, e));
+  }
   gl_FragColor = vec4(c, uAlpha);
   ${OUT}
 }`;
@@ -491,45 +516,273 @@ void main() {
   ${OUT}
 }`;
   const CLOUD_MAX = 6000;
-  // Cumulus puffs: camera-facing quads with a soft lumpy texture whose baked normals are lit by the Sun,
-  // so a cluster of them reads as a lit, billowing volume: bright tops, grey-blue bases.
-  // aC: the quad's turn, its cell in the 2x2 atlas, how high it sits in its cloud (0 base .. 1 top), opacity.
+  // uK: the clouds' extinction per metre on the way to the Sun, into a puff (per unit of its baked thickness), the powder
+  // effect's strength. CLOUD_Q by quality (Low, High): the cells looked at round the field's middle (lay, m: a cloud is
+  // laid out if its nearest puff is within lod[3] + CLOUD_IN of the middle), the clouds whose
+  // detail puffs are laid out (det: within this of the middle, the detail's fade plus the way the eye can go before the
+  // field is rebuilt round it), the reach of a cloud's other core puffs (mid) past those that stay (stay: 1 or 2; grow:
+  // how much they grow as the others go; far2: the second's reach, past which the first stays alone), detail puffs per mid-sized
+  // cloud (nd), and the fades from the eye (lod: the detail out from .. to, every puff out from .. to: the edge of the
+  // field, as far off as the old field's hard edge was)
+  const CLOUD_K = [0.025, 1.2, 0.5, 0]; // (w: the fade in once the atlas is baked, updateClouds)
+  const CLOUD_SUN = 1.0, CLOUD_AMB = 0.45, CLOUD_MOON = 0.3; // (the Moon: a full Moon high up lights the clouds a tenth as much as the Sun at noon)
+  const CIRRUS_TILE = 26000, CIRRUS_H = 9000; // (cirrus: its streaks repeat every 26 km, 9 km up; SKY_FS, renderFlight) // (the Sun's light on the clouds over its light on the ground; the sky's irradiance to a white cloud's light, about 1 / π)
+  const CLOUD_Q = [{ lay: 13500, det: 4000, mid: 4000, stay: 2, grow: 0.1, nc: 2, nd: 1, farG: 0.5, farS: 0.8, lod: [2000, 3000, 8000, 10000] }, { lay: 18500, det: 7800, mid: 7000, far2: 10000, stay: 2, grow: 0.22, nc: 4, nd: 3, farG: 0.35, farS: 0.8, lod: [4500, 6000, 13000, 15000] }];
+  const CLOUD_IN = 1800; // (how far past a puff's reach it is still laid out: the way the eye goes before the field is rebuilt round it, and then some)
+  // Cumulus puffs (the clouds update): upright octagons facing the eye, each a puff from a 4x4 atlas (cumulusAtlas: a
+  // baked normal, the puff's thickness and its density), lit as a little volume in a cloud:
+  // - the Sun's light reaches the puff through the cloud: Beer's law along the way out of the cloud's ellipsoid towards
+  //   the Sun from the puff's place in it (worked out a puff, in the vertex shader), with a multiple-scattering tail
+  //   (octaves of ever weaker extinction), so the side away from the Sun and the base are in the cloud's own shadow;
+  // - and into the puff to the pixel, through its thickness turned from the Sun (the same law), so each lobe is round;
+  // - a two-lobed Henyey-Greenstein phase: a cloud in front of the Sun glows at its thin edges (the silver lining) and
+  //   stays dark in its thick middle; the powder effect darkens thin edges with the Sun behind the eye;
+  // - the sky's own light (skyCoeffs' irradiance, the env cube's formula: blue from above, the ground's from below,
+  //   warm at sunset, grey-blue at night), less of it low in the cloud;
+  // - nothing under the cloud's base (one flat base a cloud, worked out a vertex: the quad is a plane);
+  // - and the detail puffs fading out with distance as the core puffs grow, the far ones fading out before the edge of
+  //   the field (uLod), so nothing pops when the field is rebuilt round the eye or a cloud changes its level of detail.
+  // Instance rows (16 floats, cumulusJob): aP centre (the cloud frame), width (m); aC tilt (rad), atlas cell + 0.5 (its
+  // sign: mirrored), height over width, opacity; aD the offset in the cloud over its radii (x, y, z), height of the middle over the cloud's base (m); aE the
+  // cloud's height over its width, the distance it is gone by (0: it stays; the detail's and the third and fourth core
+  // puffs' fade out), half width (m), height (m).
   // Their haze is the ground's (obFog, obFogCol: the same height fog, the sky's horizon colour in their direction)
-  const CLOUD_VS = `${LOGV}attribute vec4 aC;
-uniform vec3 uSunV; uniform float uFogD; uniform vec2 fogH;${OB_FOG_FN}
-varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
+  const CLOUD_VS = `${LOGV}attribute vec4 aP, aC, aD, aE;
+uniform vec3 uSunQ, uFogC; uniform vec4 uLod, uK, uMid; uniform float uFogD, uDet; uniform vec2 fogH, uFar;
+uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow;${OB_FOG_FN}${OB_FOGC_FN}
+varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB, vF;
 void main() {
-  vec4 c = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-  float s = length(instanceMatrix[0].xyz), cr = cos(aC.x), sr = sin(aC.x);
-  vec4 mv = c + vec4(vec2(cr * position.x - sr * position.y, sr * position.x + cr * position.y) * s, 0.0, 0.0);
+  vec4 c = modelViewMatrix * vec4(aP.xyz, 1.0);
+  vec3 up = normalize(modelViewMatrix[1].xyz);
+  // a puff that goes with distance (along the ground: as the field is laid out, so from high up the clouds below keep
+  // their detail) shrinks into its cloud over the last quarter of its reach (aE.y), fading only at the very end (a fading
+  // puff is a ghost; a shrinking one is a lump the cloud loses); those that go last grow as the rest go (uMid: the reach
+  // of the third and fourth core puffs and how much the first two grow as they go; the second's reach and how much the
+  // first grows as it goes)
+  float d = length(c.xyz), el = dot(c.xyz, up) / d, dh = d * sqrt(max(1.0 - el * el, 0.0)), go = aE.y > 0.0 ? smoothstep(aE.y * 0.75, aE.y, dh) : 0.0;
+  // looking straight up at a cloud (lup) its turrets are behind its base: they shrink away and its core grows over them (one body
+  // with one base, not balls stacked); looking down at one (ld) its core spreads (the lumpy mass of its tops). At the
+  // field's edge a puff shrinks as it fades (no ghost discs); a puff that goes shrinks to 40 % as it fades, so neither a
+  // ghost disc nor a lone dot is left; from above everything spreads a little, into clustered tops; and far off (2.5-8 km)
+  // the core puffs grow by half again: far clouds, near the horizon, are most of the sky's cover from low down
+  float lk = smoothstep(0.35, 0.9, el), lup = smoothstep(0.55, 0.95, el), ld = smoothstep(0.1, 0.5, -el), edge = smoothstep(uLod.z, uLod.w, dh), det = aE.y > 0.0 && aE.y <= uLod.y + 1.0 ? 1.0 : 0.0;
+  go = max(go, det * lup); // (only nearly overhead: elsewhere a cloud's turrets are its sunlit sides)
+  float far = smoothstep(2500.0, 7000.0, dh) * (1.0 - det);
+  float s = aP.w * (aE.y > 0.0 && aE.y <= uMid.x ? 1.0 - 0.6 * go : 1.0 + 0.2 * smoothstep(uLod.x, uLod.y, dh) + uMid.y * smoothstep(uMid.x * 0.75, uMid.x, dh)
+    + (aE.y > 0.0 ? -0.6 * go : uMid.w * smoothstep(uMid.z * 0.75, uMid.z, dh))) * (1.0 + 0.2 * lup * (1.0 - det) + ld * (0.45 - 0.15 * det) + uFar.x * far) * (1.0 - 0.6 * edge), sq = aC.z * (1.0 - 0.25 * lup), hb = aD.w * (1.0 - 0.6 * lup); // (and from below, flatter, its puffs drawn down onto its base: one base, not a ball)
+  c.xyz -= up * (aD.w - hb);
+  // far off the core puffs move apart along the ground as they grow (a far cloud a wide heap, not puffs piled on one another)
+  c.xyz += mat3(modelViewMatrix) * vec3(aD.x, 0.0, aD.z) * (aE.z * uFar.y * far);
+  vA = aC.w * uK.w * (1.0 - smoothstep(0.1, 0.55, go)) * (1.0 - smoothstep(0.2, 0.75, edge)) * smoothstep(s * 0.6, s * 2.0, -c.z); // (right up close a puff would fill the screen: it thins out)
+  if (vA < 0.003) { gl_Position = vec4(0.0, 0.0, -2.0, 1.0); return; } // (out of the clip box: no pixels)
+  // upright: the quad's up is the cloud's up as seen (the bases stay flat and the tops heaped as the view banks), tilted a little
+  float lu = length(up.xy), ct = cos(aC.x), st = sin(aC.x);
+  vec2 ey = lu > 1e-4 ? up.xy / lu : vec2(0.0, 1.0);
+  ey = vec2(ct * ey.x - st * ey.y, st * ey.x + ct * ey.y);
+  vec2 ex = vec2(ey.y, -ey.x) * sign(aC.y), q = position.xy;
+  // what is under the cloud's base is never drawn: a corner under it moves up its quad onto the base's soft edge (its
+  // texture with it), so a core puff standing on the base is drawn as half an octagon (unless the view looks steeply up
+  // or down, where the pixels' own cut does it). Looking up at a cloud the cut slides down (under) and softens, and its
+  // lumps flatten (vK): from below its base is a dark, soft-edged disc, not a ruled line under a heap of balls; looking
+  // down at one it slides to the puff's foot: from above the base is the round near edge of a cloud, not a loaf's
+  float soft = max(max(12.0, s * 0.08), d * 0.004) + s * sq * 0.2 * lk, hy = dot(ey, up.xy) * s * sq; // (a few pixels far off: no stairs)
+  float under = s * sq * (0.25 * lk + 0.35 * smoothstep(0.15, 0.5, -el));
+  float h0 = hb + under + dot(ex, up.xy) * s * q.x + hy * q.y;
+  if (h0 < -soft && hy > 0.3 * s * sq) q.y = min(q.y + (-soft - h0) / hy, 0.5);
+  vec2 off = ex * (q.x * s) + ey * (q.y * s * sq);
+  vec4 mv = c + vec4(off, 0.0, 0.0);
   gl_Position = projectionMatrix * mv;
-  vV = normalize(mv.xyz);
-  vUv = vec2(mod(aC.y, 2.0), floor(aC.y / 2.0)) * 0.5 + uv * 0.5;
-  vL = normalize(vec3(cr * uSunV.x + sr * uSunV.y, -sr * uSunV.x + cr * uSunV.y, uSunV.z)); // the Sun in the quad's turned frame
-  vShade = aC.z;
-  float d = -c.z;
-  vA = aC.w * smoothstep(s * 0.3, s * 1.2, d); // right up close a puff would fill the screen: it thins out
-  vFog = obFog(uFogD, length(c.xyz), dot(c.xyz, viewMatrix[1].xyz));
+  vec3 v = normalize(mv.xyz);
+  float cell = floor(abs(aC.y));
+  vUv = (vec2(mod(cell, 4.0), floor(cell * 0.25)) + q + 0.5) * 0.25;
+  vL = vec3(dot(uSunQ.xy, ex), dot(uSunQ.xy, ey), uSunQ.z); // the Sun and the cloud's up in the quad's frame
+  vUp = vec3(dot(up.xy, ex), dot(up.xy, ey), up.z);
+  // the cloud's light, worked out at each corner from where it is in the cloud (so it runs on unbroken from puff to puff:
+  // one cloud, not a heap of balls), on the cloud's face where the view ray through the corner comes out towards the
+  // eye: the Sun's, along the way out of the cloud's ellipsoid towards the Sun (in half widths, the Sun's height scaled
+  // by the cloud's shape) times the extinction, by Beer's law in three octaves; and how far the face there looks up (the
+  // sky's light). In the cloud frame: the Sun, the corner's offset and the way to the eye
+  mat3 R = mat3(modelViewMatrix);
+  vec3 sf = uSunQ * R, of = vec3(off, 0.0) * R, L = vec3(sf.x, sf.y / aE.x, sf.z);
+  vec3 o = aD.xyz + vec3(of.x, of.y / aE.x, of.z) / aE.z, e = -mv.xyz * R;
+  e.y /= aE.x;
+  float oo = dot(o, o);
+  if (oo > 0.81) { o *= 0.9 * inversesqrt(oo); oo = 0.81; }
+  // out along the view ray to the cloud's face (the eye sees its face, not its middle), a little inside it
+  float Ae = dot(e, e), Be = dot(o, e);
+  o += e * ((sqrt(max(Be * Be - Ae * (oo - 1.0), 0.0)) - Be) / Ae * 0.85);
+  // looking up at it, the face is its bottom: under the corner, on the ellipsoid's underside (one grey base, its rim lit)
+  o = mix(o, vec3(o.x * 0.35, -0.6, o.z * 0.35), lup); // (its middle's light all over, so its puffs meet without a seam)
+  oo = dot(o, o);
+  float tu = o.y / aE.x * inversesqrt(max(o.x * o.x + o.y * o.y / (aE.x * aE.x) + o.z * o.z, 1e-6));
+  float A = dot(L, L), B = dot(o, L), od = (sqrt(max(B * B - A * (oo - 1.0), 0.0)) - B) / A * aE.z * uK.x, h = hb + under + dot(off, up.xy);
+  // vS: that light, the height over the cloud's base (the flat base: a pixel), the base's softness, less sky light low in it
+  // (the floor: a cloud never charcoal under a high Sun; with the light low, at dusk or by a low Moon, its far side may fall into shadow)
+  vS = vec4(max((exp(-od) + 0.6 * exp(-0.25 * od) + 0.4 * exp(-0.06 * od)) * 0.5, mix(0.16, 0.3, smoothstep(0.05, 0.4, dot(uSunQ, up)))), h, soft, 0.75 + 0.25 * smoothstep(0.0, 0.75, (h - under) / aE.w));
+  // the phase (a two-lobed Henyey-Greenstein: g 0.6 forwards, the silver lining round a cloud in front of the Sun, and
+  // -0.2 back; 1 on average over the sphere; / 1.35 for the pixel's own Beer's law), how much powder (none looking towards
+  // the Sun), the haze, the face's look up; and the haze's colour. A corner's, all slow across a puff (as three's own fog)
+  float cv = dot(v, uSunQ), f1 = 1.36 - 1.2 * cv, f2 = 1.04 + 0.4 * cv;
+  vX = vec4((0.448 * inversesqrt(f1) / f1 + 0.288 * inversesqrt(f2) / f2) * (1.0 / 1.35), uK.z * (1.0 - smoothstep(-0.2, 0.6, cv)), obFog(uFogD, d, dot(c.xyz, viewMatrix[1].xyz)), tu);
+  vFogC = obFogCol(v, uFogC); vK = 1.0 - 0.95 * lup;
+  // looking up at a cloud, the lowest part of every puff is its underside, in the base's shade: puffs at different depths
+  // meet the flat base on different lines of the screen, and what shows between those lines is the underside, not a
+  // sunlit band (vB: how much; a corner's, by its height over the base)
+  vB = (1.0 - smoothstep(0.0, 0.5 * aE.w, h - under)) * smoothstep(0.03, 0.2, el);
+  vF = far; // (far off a puff's soft fringe firms up: a far cloud's outline, not a haze round it)
+  // close up (the puff over a sixth of the view's height), on High: finer billows than the atlas holds (vD: where in the
+  // detail noise, how much; each puff its own patch of it)
+  vD = vec3((q * vec2(sign(aC.y), sq)) * 2.2 + fract(aP.xz * 0.0137), uDet * smoothstep(0.1, 0.35, s / d) * (1.0 - lup)); // (not on a base seen from below: it is smooth)
   #include <logdepthbuf_vertex>
 }`;
-  const CLOUD_FS = `${LOGF}uniform sampler2D uMap; uniform vec3 uLit, uShadow, uFogC, uSunV;
-uniform vec4 fogSunV; uniform vec3 fogSunH, fogSunset, fogGlow;${OB_FOGC_FN}
-varying vec2 vUv; varying vec3 vL, vV; varying float vShade, vA, vFog;
+  const CLOUD_FS = `${LOGF}uniform sampler2D uAtlas, uCi; uniform vec3 uSunC, uAmb[3], uNight; uniform vec4 uK; uniform float uNw;
+varying vec2 vUv; varying vec3 vL, vUp, vFogC, vD; varying vec4 vS, vX; varying float vA, vK, vB, vF;
 void main() {
   #include <logdepthbuf_fragment>
-  vec4 t = texture2D(uMap, vUv);
-  float a = t.a * vA;
-  if (a < 0.008) discard;
-  vec3 n = normalize(t.rgb * 2.0 - 1.0);
-  float l = clamp(dot(n, vL) * 0.6 + 0.4, 0.0, 1.0) * mix(0.3, 1.0, vShade); // the lit side, and less light low in the cloud
-  vec3 col = mix(uShadow, uLit, l);
-  // looking towards the Sun the whole cloud glows a little (light scattered forwards through it)
-  col += uLit * pow(max(dot(vV, uSunV), 0.0), 5.0) * 0.4;
-  col = mix(col, obFogCol(vV, uFogC), vFog);
-  gl_FragColor = vec4(col, a);
+  vec4 t = texture2D(uAtlas, vUv);
+#ifndef OB_LO
+  if (vD.z > 0.01) { // (close up: the cirrus' patches, G, as fine billows eaten into the puff's soft edge: the ramp stays soft, so puffs still melt into one cloud)
+    float nd = texture2D(uCi, vD.xy).g - 0.5, ea = 1.0 - t.a;
+    t.a = mix(t.a, t.a * clamp(1.0 + nd * 2.2 * ea, 0.0, 1.0), vD.z); // (only ever thinner, and only where it is thin: never past the puff's own edge)
+    t.b = clamp(t.b - nd * 0.5 * vD.z * ea, 0.0, 1.0); // (the edge's, not the middle's: no grain inside)
+  }
+#endif
+  float a = mix(t.a, sqrt(t.a), 0.5 + 0.5 * vF) * vA * smoothstep(0.0, vS.z, vS.y); // (nothing under the cloud's base)
+  if (a < 0.006) discard;
+  vec2 nq = t.rg * 2.0 - 1.0;
+  vec3 n = vec3(nq, sqrt(max(1.0 - dot(nq, nq), 0.0)));
+  // the Sun: through the cloud to here (vS.x), then into the puff through its thickness turned from the Sun (Beer's law
+  // and a multiple-scattering tail), less at thin edges with the Sun behind the eye (the powder effect: the light that got
+  // in went on through), times the phase
+  float dp = t.b * (1.0 - mix(vL.z, dot(n, vL), uNw)) * uK.y * vK; // (uNw: the puff's own normal, weak by night: the cloud's light, not a ball's)
+#ifdef OB_LO
+  // (Low: Beer's law into the puff and the powder effect as rational stand-ins for the exponentials, a third of the work)
+  float sun = vS.x * (1.0 / (1.0 + dp + 0.5 * dp * dp) + 0.35 / (1.0 + 0.3 * dp)) * (1.0 - vX.y / (1.0 + 6.0 * t.b + 18.0 * t.b * t.b)) * vX.x * (1.0 - 0.3 * vB);
+#else
+  float sun = vS.x * (exp(-dp) + 0.35 * exp(-0.3 * dp)) * (1.0 - vX.y * exp(-t.b * 6.0)) * vX.x * (1.0 - 0.3 * vB);
+#endif
+  // the sky: its irradiance on the face (quadratic in how far it looks up: the cloud's face, a third the puff's own)
+  float tu = mix(mix(vX.w, dot(n, vUp), 0.3 * vK), -0.2, vB); // (an underside: lit by the sky round it and the ground under it)
+  vec3 amb = max(uAmb[0] + uAmb[1] * tu + uAmb[2] * (1.5 * tu * tu - 0.5), 0.0) * vS.w;
+  amb = mix(amb, vec3(dot(amb, vec3(0.2126, 0.7152, 0.0722))), 0.45); // (light scattered many times in a cloud is whiter than the sky that lit it)
+  amb += uNight * (0.3 + 0.7 * clamp(0.5 + 0.5 * tu, 0.0, 1.0)); // (a moonless night: starlight and airglow from above, its tops a little lighter than its base)
+  gl_FragColor = vec4(mix(uSunC * sun + amb, vFogC, vX.z), a);
   ${OUT}
 }`;
-  // Four lumpy puffs in a 2x2 atlas: alpha is the density, RGB the normal of that density seen as a height.
+  // The cumulus puffs' atlas (the clouds update), baked once: 16 puffs of 128 px in a 4x4 grid, v up (the puffs stand
+  // upright, CLOUD_VS). Each is a heap of round lobes, their heights (sphere caps) joined smoothly (a 4-norm, no creases),
+  // with two octaves of billows on them and wisps at the edge. Cells 0-7 are cauliflower turrets (a body with lobes heaped
+  // on its upper side) for a cloud's outside, 8-13 rounder billows for its body, 14-15 flat lenses for stratocumulus.
+  // R, G: the normal of the heap seen as a height (B is its z, worked out in the shader); B: its thickness (0..1, the
+  // light's way in); A: its density, 1 - exp(-k h) of the thickness with a soft, wispy fringe, nothing past r 0.46 (the
+  // octagon's corners). A DataTexture: no canvas, so no premultiplied alpha rounding the normals at thin edges. Baked a
+  // slice a frame (updateClouds: some 50 ms of JS on a desktop, four times that on a phone, too much for one frame); the
+  // clouds fade in over a second once it is done (uK.w).
+  function cumulusLobesRaw(cell) {
+    const H = (k, s) => hashI(cell, k, s + 101), L = [];
+    const ring = (cx, cy, m, a0, a1, d0, d1, r0, r1, sq, k0) => { // m lobes round (cx, cy) from angle a0 to a1 (from straight up)
+      for (let k = 0; k < m; k++) {
+        const a = a0 + ((k + 0.5 + (H(k0 + k, 1) - 0.5) * 0.6) / m) * (a1 - a0), dd = d0 + (d1 - d0) * H(k0 + k, 2);
+        L.push([cx + Math.sin(a) * dd, cy + Math.cos(a) * dd * sq, r0 + (r1 - r0) * H(k0 + k, 3), 1]);
+      }
+    };
+    if (cell < 8) { // a turret: a body crowned with lobes, and smaller bumps on them
+      L.push([0.5 + (H(0, 1) - 0.5) * 0.05, 0.37, 0.19 + 0.03 * H(0, 3), 1]);
+      ring(0.5, 0.37, 7 + Math.floor(H(0, 4) * 3), -1.95, 1.95, 0.16, 0.22, 0.085, 0.135, 0.95, 1);
+      ring(0.5, 0.37, 5, -1.3, 1.3, 0.28, 0.31, 0.045, 0.07, 0.95, 20);
+    } else if (cell < 14) { // a dome's billow: a broad body with lobes round its upper two thirds (a core puff's lower half is under its cloud's base)
+      L.push([0.5, 0.47, 0.27 + 0.03 * H(0, 3), 1]);
+      ring(0.5, 0.47, 8 + Math.floor(H(0, 4) * 3), -2.2, 2.2, 0.2, 0.27, 0.08, 0.13, 0.9, 1);
+      ring(0.5, 0.47, 4, -1.1, 1.1, 0.33, 0.35, 0.04, 0.06, 0.9, 20);
+    } else { // a lens: lobes along a line, flattened
+      const m = 7 + Math.floor(H(0, 4) * 3);
+      for (let k = 0; k < m; k++) L.push([0.12 + (0.76 * (k + 0.5)) / m + (H(k, 1) - 0.5) * 0.04, 0.47 + (H(k, 2) - 0.5) * 0.07, 0.1 + 0.06 * H(k, 3) * Math.sin((Math.PI * (k + 0.5)) / m), 0.62]);
+    }
+    return L;
+  }
+  // A puff's lobes filling its cell: scaled about the middle until the heap reaches r 0.44 (the octagon's inner circle),
+  // so the quad holds as little clear sky as it can: as much cloud on screen for 40-60 % fewer pixels. CUMULUS_FIT[cell]:
+  // the scale's inverse, by which cumulusJob makes the puff's quad smaller to keep its cloud the size it was
+  const CUMULUS_FIT = new Float32Array(16);
+  function cumulusLobes(cell) {
+    const L = cumulusLobesRaw(cell);
+    let ext = 0;
+    for (const [lx, ly, lr, sq] of L) ext = Math.max(ext, Math.hypot(lx - 0.5, (ly - 0.5)) + lr * Math.max(1, 1 / sq) * 1.1);
+    const k = clamp(0.44 / ext, 1, 1.8);
+    CUMULUS_FIT[cell] = 1 / k;
+    return L.map(([lx, ly, lr, sq]) => [0.5 + (lx - 0.5) * k, 0.5 + (ly - 0.5) * k, lr * k, sq]);
+  }
+  for (let c = 0; c < 16; c++) cumulusLobes(c); // (CUMULUS_FIT ready before any layout)
+  function* cumulusAtlas(out, N = 128) {
+    const hi = N > 128, W = 4 * N, step = hi ? 255 : 2047, late = (i) => (i & step) === step && (!hi || jobLate()); // (the sharp one runs as a job: it gives the frame back when the slice is spent)
+    const data = new Uint8Array(W * W * 4), h = new Float32Array(N * N), w = new Float32Array(N * N), LB = new Float64Array(64 * 4), rim = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) { for (let x = 0; x < N; x++) { const u = (x + 0.5) / N - 0.5, v = (y + 0.5) / N - 0.5; rim[y * N + x] = 1 - smoothstep(0.41, 0.46, Math.sqrt(u * u + v * v)); } if (hi && jobLate()) yield; } // (nothing past the octagon's inner circle)
+    // value noise at frequency f over the cell from a lattice of hashes made once a cell (the same as vnoise2(u·f, v·f, 0, s))
+    const lat = (f, s) => { const n = f + 2, t = new Float32Array(n * n); for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) t[j * n + i] = hashI(i, j, s); return { f, n, t }; };
+    const latS = (f, s) => { const n = f + 2; return { f, n, t: new Float32Array(n * n), s, j: 0 }; }; // (the sharp atlas: its lattices filled a row at a time, giving the frame back between rows)
+    function* fill(L) { for (; L.j < L.n; L.j++) { for (let i = 0; i < L.n; i++) L.t[L.j * L.n + i] = hashI(i, L.j, L.s); if (jobLate()) yield; } }
+    const vn = (L, u, v) => {
+      const x = u * L.f, y = v * L.f, ix = Math.floor(x), iy = Math.floor(y), n = L.n, t = L.t, k = iy * n + ix;
+      let fx = x - ix, fy = y - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      const a = t[k], b = t[k + 1], c = t[k + n], d = t[k + n + 1];
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    };
+    for (let cell = 0; cell < 16; cell++) {
+      const ox = (cell & 3) * N, oy = (cell >> 2) * N, L = cumulusLobes(cell), nl = L.length, sd = 400 + cell * 7;
+      const mk = hi ? latS : lat, B1 = mk(11, sd), B2 = mk(23, sd + 1), W1 = mk(34, sd + 2), W2 = mk(71, sd + 3), B3 = hi ? mk(47, sd + 4) : null, W3 = hi ? mk(141, sd + 5) : null;
+      if (hi) for (const L of [B1, B2, W1, W2, B3, W3]) yield* fill(L);
+      for (let k = 0; k < nl; k++) { LB[k * 4] = L[k][0]; LB[k * 4 + 1] = L[k][1]; LB[k * 4 + 2] = L[k][2] * L[k][2]; LB[k * 4 + 3] = 1 / L[k][3]; }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const u = (x + 0.5) / N, v = (y + 0.5) / N;
+        let s4 = 0, sf = 0;
+        for (let k = 0; k < nl * 4; k += 4) {
+          const dx = u - LB[k], dy = (v - LB[k + 1]) * LB[k + 3], r2 = dx * dx + dy * dy, q = LB[k + 2] - r2, f = 1 - r2 / (1.82 * LB[k + 2]); // (f: a soft halo 35 % wider than the lobe)
+          if (q > 0) s4 += q * q;
+          if (f > sf) sf = f;
+        }
+        const i = y * N + x;
+        if (sf <= 0) { h[i] = 0; w[i] = 0; if (late(i)) yield; continue; } // (clear: nothing reaches here)
+        h[i] = Math.sqrt(Math.sqrt(s4)) * (hi ? 0.925 + 0.15 * (vn(B1, u, v) * 0.55 + vn(B2, u, v) * 0.3 + vn(B3, u, v) * 0.15) : 0.93 + 0.14 * (vn(B1, u, v) * 0.65 + vn(B2, u, v) * 0.35)); // fine billows on the heap (the sharp atlas: a third, finer octave)
+        w[i] = sf * sf * (hi ? vn(W1, u, v) * 0.45 + vn(W2, u, v) * 0.35 + vn(W3, u, v) * 0.2 : vn(W1, u, v) * 0.6 + vn(W2, u, v) * 0.4); // wisps round the edge
+        if (late(i)) yield;
+      }
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const i = y * N + x, xl = x > 0 ? i - 1 : i, xr = x < N - 1 ? i + 1 : i, yd = y > 0 ? i - N : i, yu = y < N - 1 ? i + N : i;
+        let gx = ((h[xr] - h[xl]) * N) / 2, gy = ((h[yu] - h[yd]) * N) / 2;
+        const g2 = gx * gx + gy * gy;
+        const gm = hi ? 6 : 5; // (the gradient in cells of the cell: N/2 per unit either way)
+        if (g2 > gm * gm) { const k = gm / Math.sqrt(g2); gx *= k; gy *= k; } // (the rim of a lobe: near flat to the eye, not a spike)
+        const l = Math.sqrt(gx * gx + gy * gy + 1), dens = h[i] + 0.05 * w[i] - 0.016, o = ((oy + y) * W + ox + x) * 4;
+        data[o] = Math.round(((-gx / l) * 0.5 + 0.5) * 255); data[o + 1] = Math.round(((-gy / l) * 0.5 + 0.5) * 255);
+        data[o + 2] = Math.round(Math.min(h[i] / 0.3, 1) * 255);
+        data[o + 3] = dens > 0 ? Math.round(255 * smoothstep(0, 0.13, dens) * rim[i]) : 0; // (a soft edge ramp at either size: puffs melt into one cloud)
+        if (late(i)) yield;
+      }
+    }
+    const t = new THREE.DataTexture(data, W, W, THREE.RGBAFormat);
+    t.colorSpace = THREE.NoColorSpace; // (normals, not colours)
+    t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+    t.needsUpdate = true;
+    out.tex = t;
+    if (hi) return; // (the sharp atlas: the cumulus only; the cirrus comes with the first)
+    // the cirrus (SKY_FS): R its streaks (fibres along u, a little hooked), G its patches; it tiles
+    const CN = 256, cd = new Uint8Array(CN * CN * 4), pv = (x, y, p, sd) => vnoise2(x, y, p, sd, p);
+    for (let y = 0; y < CN; y++) {
+      for (let x = 0; x < CN; x++) {
+        const v = y / CN, u = x / CN + 0.05 * (pv((x / CN) * 3, v * 3, 3, 731) - 0.5);
+        let f = 0, a = 0.5, fx = 5, fy = 36;
+        for (let o = 0; o < 4; o++) { f += a * vnoise2(u * fx, v * fy, fx, 740 + o, fy); fx *= 2; fy *= 2; a *= 0.5; }
+        const g = pv((x / CN) * 4, v * 4, 4, 750) * 0.6 + pv((x / CN) * 9, v * 9, 9, 751) * 0.4, o = (y * CN + x) * 4;
+        cd[o] = Math.round(255 * smoothstep(0.47, 0.8, f / 0.9375)); cd[o + 1] = Math.round(255 * smoothstep(0.38, 0.68, g)); cd[o + 3] = 255;
+      }
+      if ((y & 15) === 15) yield;
+    }
+    const ct = new THREE.DataTexture(cd, CN, CN, THREE.RGBAFormat);
+    ct.wrapS = ct.wrapT = THREE.RepeatWrapping; ct.magFilter = THREE.LinearFilter; ct.minFilter = THREE.LinearMipmapLinearFilter; ct.generateMipmaps = true; ct.needsUpdate = true;
+    out.ci = ct;
+  }
+  // Four lumpy puffs in a 2x2 atlas: alpha is the density, RGB the normal of that density seen as a height. (Smoke and
+  // the contact shadows' decals; the cumulus have their own, cumulusAtlas)
   function cloudAtlas() {
     const N = 128, cv = document.createElement('canvas');
     cv.width = cv.height = 2 * N;
@@ -724,6 +977,23 @@ void main() {
   ${OUT}
   float a = 0.9 * core * fade;
   gl_FragColor = vec4(cc * a + gl_FragColor.rgb, a); // (premultiplied: the core covers what is behind it, so its colour shows even on the sky; the halo adds light)
+}`;
+  // A sinking thing's colour through the water over it (its veil's first pass, multiplied in: S.veils): red goes first, then
+  // green, along the eye's path through the water (uD, its top's depth, over the cosine the eye looks down at) and the
+  // Sun's down to it, as underTint takes the sea floor's; the veil's water (OB_VEIL) is drawn over it next
+  const VEILM_VS = `${LOGV}varying vec3 vN, vV;
+void main() {
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  vN = normalMatrix * normal; vV = - mvPosition.xyz;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <logdepthbuf_vertex>
+}`;
+  const VEILM_FS = `${LOGF}uniform vec3 uTint; uniform float uD, uSig;
+varying vec3 vN, vV;
+void main() {
+  #include <logdepthbuf_fragment>
+  float c = clamp(dot(normalize(vN), normalize(vV)), 0.04, 1.0);
+  gl_FragColor = vec4(pow(exp(- uTint * (uD / c + uD) - uSig * uD), vec3(1.0 / 2.2)), 1.0);
 }`;
   // Contact shadows and scorch marks (syncDecals): a flat quad on the ground as drawn, x and y ±0.5 (vUv ±1 across its
   // ellipse; its instance's third axis the ground's normal), drawn 30 cm nearer the eye (more far off) so the ground
@@ -930,11 +1200,14 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       uZen: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uSunset: { value: new THREE.Color('#ff8a4a') }, uGlow: { value: new THREE.Color(1, 0.93, 0.8) },
       uUp: { value: new THREE.Vector3(0, 1, 0) }, uSun: { value: new THREE.Vector3(0, 1, 0) }, uDip: { value: 0 }, uSunsetK: { value: 0 }, uGlare: { value: 0 }, uAlpha: { value: 1 },
       uNadir: { value: new THREE.Vector3(0, -1, 0) }, uKeep: { value: new THREE.Vector2(-2, 2) },
+      uCi: { value: null }, uCiA: { value: 0 }, uCiC: { value: new THREE.Color() }, uCiE: { value: new THREE.Vector3(1, 0, 0) }, uCiN: { value: new THREE.Vector3(0, 0, -1) },
+      uCiP: { value: new THREE.Vector2(9000, 1 / CIRRUS_TILE) }, uCiO: { value: new THREE.Vector4() }, // (cirrus: CLOUD_VS's neighbours, the clouds update)
     };
+    U.uCi.value = new THREE.DataTexture(new Uint8Array(4), 1, 1); U.uCi.value.needsUpdate = true; // (none until it is baked with the puffs' atlas)
     const dome = new THREE.SphereGeometry(1000, 48, 24);
     S.sky = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: U, vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthTest: false, depthWrite: false }));
     S.sky.renderOrder = -10; S.sky.frustumCulled = false;
-    S.haze = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: Object.assign({}, U, { uAlpha: { value: 0 }, uKeep: { value: new THREE.Vector2(-2, 2) } }), vertexShader: SKY_VS, fragmentShader: SKY_FS,
+    S.haze = new THREE.Mesh(dome, new THREE.ShaderMaterial({ uniforms: Object.assign({}, U, { uAlpha: { value: 0 }, uKeep: { value: new THREE.Vector2(-2, 2) }, uCiA: { value: 0 } }), vertexShader: SKY_VS, fragmentShader: SKY_FS,
       side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true }));
     S.haze.renderOrder = 50; S.haze.frustumCulled = false;
     spaceScene.add(S.sky, S.haze);
@@ -1287,8 +1560,16 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // over it (uWaveB); far off the ripples calm down (no glitter shimmer) and the surface roughens, so the Sun's path
     // widens towards the horizon. Foam and depth stay in the vertex colours
     S.waveB = { value: new THREE.Vector2() };
+    S.veil0 = { value: new THREE.Vector4() }; // (the water's own veil uniform: unused, OB_VEIL off)
     if (Settings.high) terr.oceanMat.defines.OB_HI = '';
     terr.oceanMat.onBeforeCompile = waterHook;
+    // Water with depth (waterHook, OB_DEEP): the water takes the light from the ground under it by how much of it the eye
+    // looks through, so the floor shows through clear shallows and deep water is the water's own colour; Fresnel makes
+    // it a mirror at a glance; surf foam and a line where it meets the shore. On a three.js whose chunks aren't r159's the
+    // water is drawn as before (patchJob then puts its alpha in its colours, as it did)
+    S.deepW = deepOK();
+    if (S.deepW) terr.oceanMat.defines.OB_DEEP = '';
+    else warnOnce('deep', 'three.js\'s chunks aren\'t r159\'s: the water is drawn without its depth');
     for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
     // scenery: trees (Earth) and rocks, placed per grid cell around the craft
@@ -1353,38 +1634,125 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     };
     S.scen = [mkSet(), mkSet()];
     S.scenery = { dirty: true, job: null, ms: 0, slice: 0 };
-    // cumulus puffs
-    S.cloudU = { uMap: { value: cloudAtlas() }, uSunV: { value: new THREE.Vector3(0, 1, 0) }, uLit: { value: new THREE.Color() }, uShadow: { value: new THREE.Color() },
+    // cumulus puffs (CLOUD_VS): one draw of octagons (a square's corners cut: 17 % fewer pixels; a corner in the middle too,
+    // where the cloud's face is nearest the eye, for the light worked out at the corners), their rows interleaved in
+    // one buffer that sortPuffs fills far to near. uMap: the smoke's and the decals' atlas (cloudAtlas), uAtlas the puffs'
+    S.cloudU = { uMap: { value: cloudAtlas() }, uAtlas: { value: null }, uSunQ: { value: new THREE.Vector3(0, 1, 0) }, uSunC: { value: new THREE.Color() },
+      uAmb: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] }, uLod: { value: new THREE.Vector4() }, uDet: { value: 0 }, uFar: { value: new THREE.Vector2() }, uNight: { value: new THREE.Vector3() }, uNw: { value: 1 }, uCi: { value: S.skyU.uCi.value }, uMid: { value: new THREE.Vector4(1, 0, 1, 0) }, uK: { value: new THREE.Vector4(...CLOUD_K) },
       uFogC: { value: new THREE.Color() }, uFogD: { value: 0 },
       fogH: { value: FOGX.h }, fogSunV: { value: FOGX.sun }, fogSunH: { value: FOGX.sunH }, fogSunset: { value: FOGX.sunset }, fogGlow: { value: FOGX.glow } }; // (the haze's shared arrays: patchFog)
-    S.puffs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smat({ uniforms: S.cloudU, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS, transparent: true, depthWrite: false }), CLOUD_MAX);
-    S.puffs.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    S.puffAttr = new THREE.InstancedBufferAttribute(new Float32Array(CLOUD_MAX * 4), 4).setUsage(THREE.DynamicDrawUsage);
-    S.puffs.geometry.setAttribute('aC', S.puffAttr);
-    S.puffs.count = 0; S.puffs.frustumCulled = false; S.puffs.renderOrder = 3;
+    const og = new THREE.InstancedBufferGeometry(), ov = [0, 0, 0], ou = [0.5, 0.5], oi = [], orad = 0.5 / Math.cos(Math.PI / 8);
+    for (let k = 0; k < 8; k++) { const a = Math.PI / 8 + (k * Math.PI) / 4, x = orad * Math.cos(a), y = orad * Math.sin(a); ov.push(x, y, 0); ou.push(x + 0.5, y + 0.5); oi.push(0, 1 + k, 1 + ((k + 1) & 7)); }
+    og.setIndex(oi); og.setAttribute('position', new THREE.Float32BufferAttribute(ov, 3)); og.setAttribute('uv', new THREE.Float32BufferAttribute(ou, 2));
+    S.puffBuf = new THREE.InstancedInterleavedBuffer(new Float32Array(CLOUD_MAX * 16), 16).setUsage(THREE.DynamicDrawUsage);
+    ['aP', 'aC', 'aD', 'aE'].forEach((k, i) => og.setAttribute(k, new THREE.InterleavedBufferAttribute(S.puffBuf, 4, i * 4)));
+    og.instanceCount = 0;
+    S.puffs = new THREE.Mesh(og, smat({ uniforms: S.cloudU, vertexShader: CLOUD_VS, fragmentShader: CLOUD_FS, transparent: true, depthWrite: false }));
+    S.puffs.frustumCulled = false; S.puffs.renderOrder = 3; S.puffs.visible = false;
+    // the murk inside a cloud (updateClouds): a sheet 120 m ahead of the eye over the whole view, in the cloud's light
+    // there, after the clouds and over the sky (the fog greys only what is fogged: the ground went grey while the sky and
+    // the clouds round about stayed sharp); the craft, nearer, stays clear of it. Drawn only inside a cloud
+    S.murkU = { uC: { value: new THREE.Color() }, uA: { value: 0 } };
+    S.murk = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), smat({ uniforms: S.murkU, transparent: true, depthWrite: false,
+      vertexShader: `${LOGV}void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n  #include <logdepthbuf_vertex>\n}`,
+      fragmentShader: `${LOGF}uniform vec3 uC; uniform float uA;\nvoid main() {\n  #include <logdepthbuf_fragment>\n  gl_FragColor = vec4(uC, uA);\n  ${OUT}\n}` }));
+    S.murk.frustumCulled = false; S.murk.renderOrder = 3.5; S.murk.visible = false;
+    localScene.add(S.murk);
     S.cloudFrame = new THREE.Group();
     S.cloudFrame.add(S.puffs);
     localWorld.add(S.cloudFrame);
-    S.cloudFogC = new THREE.Color();
+    S.cloudFogC = new THREE.Color(); S.cloudLV = new THREE.Vector3(0, 1, 0); // (the clouds' light's direction this frame, the Sun's and the Moon's: updateClouds)
     S.fogLin = new THREE.Color(); // (the fog's colour this frame, linear: the sky's at the horizon, renderFlight)
     S.fogUp = new THREE.Vector3(); // (the scene's up in the view's axes, renderFlight)
-    S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0 };
+    S.clouds = { a0: null, b: null, list: null, n: 0, vols: [], job: null, sortAt: -9, inside: 0, atlas: cumulusAtlas(CL), at0: null, on: false, fade: 0 };
   }
   const WATER_NM = 'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;\n\tmapN.xy *= normalScale;';
   const warned = {};
   const warnOnce = (k, why) => { if (!warned[k]) { warned[k] = true; console.warn(`Render3D: ${why}`); } };
+  // r159's text the water's depth replaces or reads (deepOK checks it once, at init)
+  const WATER_OPQ = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );';
+  function deepOK() {
+    const C = THREE.ShaderChunk;
+    return C.normal_fragment_maps.includes(WATER_NM) && C.opaque_fragment.includes(WATER_OPQ) && C.normal_fragment_begin.includes('vec3 nonPerturbedNormal = normal;')
+      && C.begin_vertex.includes('vec3 transformed') && C.envmap_physical_pars_fragment.indexOf('vec3 getIBLIrradiance') > 0 && C.envmap_physical_pars_fragment.indexOf('vec3 getIBLRadiance') > C.envmap_physical_pars_fragment.indexOf('vec3 getIBLIrradiance');
+  }
+  // The water's sky light (OB_DEEP): the light its own colour scatters from the sky worked out as the ground's is (the sky
+  // light's formula, SKY_IBL), not looked up in the filtered cube; its reflection keeps the real cube (three's radiance).
+  // One cube lookup a water pixel less pays for its depth (spec: within +3% of a phone's frame at the coast)
+  const waterEnv = () => {
+    const E = THREE.ShaderChunk.envmap_physical_pars_fragment, i0 = E.indexOf('vec3 getIBLIrradiance'), i1 = E.indexOf('vec3 getIBLRadiance');
+    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + E.slice(i1);
+  };
+  // The water's depth, a pixel (OB_DEEP): vWat.x the water's depth under it (m; below 0 the ground stands over it, hidden),
+  // .y the surf (patchJob), .z how much water there is (a lake's edge, a river's). The light from below is the ground drawn
+  // under the water times exp(-sig·path), the path the depth over the cosine the eye looks down at; the rest is the water's
+  // own colour (its vertex colour, lit: the light it scatters); foam on the surf, broken up by the ripples, and a line where
+  // it is no deeper than 30 cm; Fresnel on the rippled surface lets less through at a glance. Blended as any see-through
+  // thing (alpha, after the tone mapping): the colour is what the water gives (its light, the reflection) over how much
+  // of the pixel it covers, and a bright reflection (the Sun's glints) covers it whole, or the tone mapping would cap it.
+  // A veil (OB_VEIL: S.sinks) is a patch of the same water over something sinking away, drawn only where that thing is
+  // (the stencil): its depth uVeil.x, the thing's own, and at least uVeil.y of the water's colour (it fades away at the end)
+  const WATER_DEEP = `
+#ifdef OB_DEEP
+#ifdef OB_HI
+	vec3 obV = normalize( vViewPosition );
+	float obCos = clamp( dot( nonPerturbedNormal, obV ), 0.0, 1.0 );
+#else
+	float obCos = vWatL.x; // (Low: the eye's angle and the Fresnel a vertex, waterHook)
+#endif
+	float obDep = max( vWat.x, 0.0 ), obAl = 1.0, obFo = 0.0;
+#ifdef OB_VEIL
+	obDep = uVeil.x;
+#endif
+	float obT = OB_SIG * obDep / max( obCos, 0.04 );
+	// (deep water, or seen at a glance through enough of it, with no surf: the floor can't show (under 0.3 % of its
+	// light) and it is the water's own colour, as the open sea is; most of the sea's pixels skip the rest)
+	if ( obT < 6.0 || vWat.y > 0.0 ) {
+		float obAw = 1.0 - exp( - obT );
+#ifdef OB_VEIL
+		obAw = max( obAw, uVeil.y );
+#else
+		float obS = max( vWat.y, 0.7 * ( 1.0 - smoothstep( 0.03, 0.3, vWat.x ) ) * step( 0.0, vWat.x ) );
+		obFo = 0.6 * obS * smoothstep( 1.0 - obS, 1.5 - obS, obRip );
+#endif
+		obAl = 1.0 - ( 1.0 - obAw ) * ( 1.0 - obFo );
+		diffuseColor.rgb = ( diffuseColor.rgb * obAw * ( 1.0 - obFo ) + vec3( 0.88, 0.92, 0.94 ) * obFo ) / max( obAl, 1e-3 );
+	}
+#ifdef OB_HI
+	float obF1 = 1.0 - clamp( dot( normal, obV ), 0.0, 1.0 ), obF2 = obF1 * obF1;
+	float obFr = 0.02 + 0.98 * obF2 * obF2 * obF1;
+#else
+	float obFr = vWatL.y;
+#endif
+#endif`;
   function waterHook(sh) {
     const nm = THREE.ShaderChunk.normal_fragment_maps;
     if (!nm.includes(WATER_NM) || !sh.fragmentShader.includes('#include <roughnessmap_fragment>')) { warnOnce('water', 'three.js\'s normal map chunk isn\'t r159\'s: the water keeps still ripples'); return; }
+    const deep = S.deepW && 'OB_DEEP' in sh.defines;
     sh.uniforms.uWaveB = S.waveB;
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;')
+    if (deep) {
+      sh.uniforms.uVeil = this && this.userData && this.userData.veil ? this.userData.veil : S.veil0; // (a veil's own: its material's)
+      Object.assign(sh.uniforms, S.skyL);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <envmap_physical_pars_fragment>', waterEnv());
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aWater;\nvarying vec3 vWat;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif').replace('#include <begin_vertex>', '#include <begin_vertex>\n\tvWat = aWater;')
+        .replace('#include <logdepthbuf_vertex>', `#include <logdepthbuf_vertex>
+#ifndef OB_HI
+	float obC = clamp( dot( normalize( vNormal ), normalize( - mvPosition.xyz ) ), 0.0, 1.0 ), obF1 = 1.0 - obC, obF2 = obF1 * obF1;
+	vWatL = vec2( obC, 0.02 + 0.98 * obF2 * obF2 * obF1 ); // (Low: the eye's angle to the water and its Fresnel, a vertex: on the unrippled surface)
+#endif`);
+    }
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;' + (deep ? `\nvarying vec3 vWat;\nuniform vec4 uVeil;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif\n#define OB_SIG ${WATER.sig.toFixed(4)}` : ''))
       .replace('#include <normal_fragment_maps>', nm.replace(WATER_NM, `vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
 #ifdef OB_HI
 	vec3 mapB = texture2D( normalMap, vec2( - vNormalMapUv.y, vNormalMapUv.x ) * 3.0 + uWaveB ).xyz * 2.0 - 1.0;
 	mapN = normalize( vec3( mapN.xy + vec2( mapB.y, - mapB.x ) * 0.6, mapN.z * mapB.z ) );
 #endif
-	mapN.xy *= normalScale * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, length( vViewPosition ) ) );`))
+	float obRip = clamp( 0.5 + 0.9 * ( mapN.x - mapN.y ), 0.0, 1.0 );
+	mapN.xy *= normalScale * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, length( vViewPosition ) ) );`) + (deep ? WATER_DEEP : ''))
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix( roughness, 0.22, smoothstep( 200.0, 4000.0, length( vViewPosition ) ) );');
+    if (deep) sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `vec3 obC = totalDiffuse * obAl * ( 1.0 - obFr ) + totalSpecular * ( 1.0 - obFo ) + totalEmissiveRadiance;
+	float obA = 1.0 - ( 1.0 - obAl ) * ( 1.0 - obFr ) * ( 1.0 - clamp( dot( totalSpecular, vec3( 0.3, 0.6, 0.1 ) ) * 1.5 - 0.1, 0.0, 1.0 ) );
+	gl_FragColor = vec4( obC / max( obA, 1e-3 ), obA * vWat.z );`);
   }
   // (mapB: the same map at 3× its scale turned 90°, its slopes turned back into mapN's frame; far off the ripples calm
   // to 30 % from 300 m to 3 km and the roughness rises to 0.22 by 4 km)
@@ -1416,6 +1784,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * cols), cols).setUsage(THREE.DynamicDrawUsage));
       g.setIndex(new THREE.BufferAttribute(ix || idx.slice(), 1).setUsage(ix ? THREE.StaticDrawUsage : THREE.DynamicDrawUsage));
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+      // (the water's: its depth under each vertex, m (signed: below 0 the ground stands over it), the surf's foam and how
+      // much water there is (a lake's or a river's edge): waterHook)
+      if (cols === 4) g.setAttribute('aWater', new THREE.BufferAttribute(new Float32Array(N * 3), 3).setUsage(THREE.DynamicDrawUsage));
       return g;
     };
     const tg = mk(3); // (the ground's own copy too: the cells under the near ground are left out of it, cullGround)
@@ -1496,7 +1867,17 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (b === EARTH && h > 6 && ea > 560 && ea < EARTH.roadEnd) { // concrete shoulders along the runway and the road down the headland
       mixC(out, P.concrete, (1 - smoothstep(half - 4, half + 3, Math.abs(Z))) * 0.85 * (1 - smoothstep(30, 120, cell)), out);
     }
+    const wd = b.ocean && h < 0 ? -h : wp > 0.5 && wl > h ? wl - h : 0; // (the water over this ground: the sea's, a lake's)
+    if (wd > 0) underTint(out, wd);
     return night;
+  }
+  // Ground under water as it looks from above through it: red goes first, then green (per metre of water down and back
+  // up, beyond what the water's own shader takes evenly: WATER.sig), so sand under a few metres turns turquoise and the
+  // deeper floor teal. On the ground's own colour, so the patch, the near ground and the arena's ground agree.
+  function underTint(out, d) {
+    const q = Math.min(d, 30), s = WATER.sig * q; // (and the Sun's light down to it: evenly)
+    for (let k = 0; k < 3; k++) out[k] *= Math.pow(Math.exp(-WATER.tint[k] * 2 * q - s), 1 / 2.2);
+    return out;
   }
   // Fill a patch slot centred on (a0, z0), yielding every row or so (patchJob runs it a slice a frame);
   // camAlt: the camera's height, for how far out the sea can be cut down to what shows (cullWater).
@@ -1580,8 +1961,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     tg.boundingSphere.radius = span * 1.6 + c.hmax;
     patch.ocean.visible = !!b.ocean;
     if (b.ocean) {
-      const og = patch.ocean.geometry, op = og.attributes.position.array, on = og.attributes.normal.array, oc = og.attributes.color.array;
-      const deep = C('#0f3d6e'), shal = C('#2b8bb8');
+      const og = patch.ocean.geometry, op = og.attributes.position.array, on = og.attributes.normal.array, oc = og.attributes.color.array, ow = og.attributes.aWater.array;
+      const deep = SEA_DEEP, shal = C('#2b8bb8');
       for (let j = 0; j < nr; j++) {
         const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
         for (let i = 0; i < nc; i++) {
@@ -1589,14 +1970,20 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           op[k * 3] = R * ux; op[k * 3 + 1] = R * uy - R; op[k * 3 + 2] = R * sp;
           on[k * 3] = ux; on[k * 3 + 1] = uy; on[k * 3 + 2] = sp;
           const far = b === EARTH ? smoothstep(60, 400, Math.max(G.dx[i], G.dz[j])) : 0, t = Math.max(smoothstep(0, 30, -hs[k]), far);
-          mixC(shal, deep, t, out);
           const foam = (1 - smoothstep(3, 16, Math.max(0, -hs[k]) / tn[k])) * (1 - smoothstep(0.2, 1.2, hs[k])) * (1 - far) * 0.85; // surf at the waterline
+          if (S.deepW) { // (the water's depth, waterHook: the colour of the water itself, deepening offshore; foam and depth apart)
+            seaBody(-hs[k], far, out);
+            ow[k * 3] = -hs[k]; ow[k * 3 + 1] = foam; ow[k * 3 + 2] = 1;
+            oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = 1;
+            continue;
+          }
+          mixC(shal, deep, t, out);
           if (foam > 0) mixC(out, FOAM, foam, out);
           oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = Math.max(0.6 + 0.34 * t, foam);
         }
         if ((j & 7) === 7) yield;
       }
-      for (const a of ['position', 'normal', 'color']) og.attributes[a].needsUpdate = true;
+      for (const a of ['position', 'normal', 'color', 'aWater']) og.attributes[a].needsUpdate = true;
       og.boundingSphere.radius = span * 1.6;
       // the sea runs on under the land, out of sight wherever a triangle's corners all stand well above it: those are
       // left out, within half the horizon. "Well above": 1.5 m, and more far off, where a pixel spans more ground (the
@@ -1611,7 +1998,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // lakes and rivers: a water surface at their own level where there is water, tucked under the ground elsewhere
     let inland = false;
     if (c.mapped) {
-      const ig = patch.inland.geometry, ip = ig.attributes.position.array, inr = ig.attributes.normal.array, ic = ig.attributes.color.array;
+      const ig = patch.inland.geometry, ip = ig.attributes.position.array, inr = ig.attributes.normal.array, ic = ig.attributes.color.array, iw = ig.attributes.aWater.array;
       for (let j = 0; j < nr; j++) {
         const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
         for (let i = 0; i < nc; i++) {
@@ -1626,11 +2013,15 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
           inr[k * 3] = ux; inr[k * 3 + 1] = uy; inr[k * 3 + 2] = sp;
           const t = smoothstep(0, 14, (lv === lv ? lv : 0) - hs[k]);
           mixC(LAKE_S, LAKE_D, t, out);
+          // (the water's depth, waterHook: a lake's from its floor; a river's at least WATER.river, its bed not being
+          // carved in the ground; none where it is tucked away)
+          iw[k * 3] = lv === lv ? Math.max(lv - hs[k], lk[k] > 0.5 ? -9 : Math.min(WATER.river, (lv - hs[k] + 0.3) * 4)) : -6; iw[k * 3 + 1] = 0; iw[k * 3 + 2] = on ? wp[k] : 0;
+          if (S.deepW) mixC(LAKE_D, LAKE_B, smoothstep(4, 30, (lv === lv ? lv : 0) - hs[k]) * 0.5, out);
           ic[k * 4] = lin(out[0]); ic[k * 4 + 1] = lin(out[1]); ic[k * 4 + 2] = lin(out[2]); ic[k * 4 + 3] = on ? wp[k] * (0.55 + 0.37 * t) * smoothstep(0.1, 1.2, wl[k] - hs[k]) : 0;
         }
         if ((j & 7) === 7) yield;
       }
-      for (const a of ['position', 'normal', 'color']) ig.attributes[a].needsUpdate = true;
+      for (const a of ['position', 'normal', 'color', 'aWater']) ig.attributes[a].needsUpdate = true;
       ig.boundingSphere.radius = span * 1.6 + c.hmax;
       cullWater(patch, ig);
     }
@@ -1640,7 +2031,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     let minH = 0;
     for (let k = 0; k < hs.length; k++) if (hs[k] < minH) minH = hs[k];
     const cell = Math.max(sx[nc - 1] - sx[nc - 2], sz[nr - 1] - sz[nr - 2]);
-    Object.assign(patch, { b, a0, z0, kl, span, minH, sag: (cell * cell) / (8 * R), at: clock, ready: true });
+    Object.assign(patch, { b, a0, z0, kl, uo, vo, span, minH, sag: (cell * cell) / (8 * R), at: clock, ready: true });
   }
   // Cut a water sheet's index down to the triangles with a corner in sight (patch.hide: 1 where a vertex is not),
   // in the same order (triangles under the ground never passed the depth test, so the picture is the same).
@@ -2200,22 +2591,33 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // terrain.js latticeAt): tanks and landed planes sank into drawn hills and hovered over drawn dips. Round the focus
   // craft, whenever it is on or near the ground (a ground vehicle, or anything within NEAR.on m of the ground), the patch
   // is cut away (its second hole, terr.holeU2) and the ground is drawn by a mesh of its own on the physics' own lattice,
-  // its vertices the physics' own node heights (the same sums as Terrain's cell(): tileHeights), so on it the two agree to
-  // the lattice's twist (a few mm; a few cm where 4 m cells skip a node). It is a window of square tiles 32 m across (16
-  // lattice cells), centred on the craft's tile and following it a tile at a time: 4 m cells (every other node) over the
-  // whole window, 2 m cells (every node) over its middle tiles (NEAR.q), the fine tiles' odd nodes on their outer edges
-  // put on the coarse tiles' edges (no crack). Over its outer 32 m it blends into the patch's drawn ground and normals,
-  // then runs 4 m on tucked 0.4 m under it, so the seam has neither a crack nor two surfaces fighting; its colours, night
-  // glow and texture UVs are the patch's own at each vertex (patchTri: on the patch's own triangle), so it looks just as
-  // the patch would, and it shares the patch's compiled program. Near a clear arena whose own ground is on show it is
-  // the patch's ground from that mesh's rim (NEAR.ar) and cut where it is drawn (the arena's hole), so the two hand over
+  // its vertices the physics' own node heights (the same sums as Terrain's cell(): tileHeights). It is a window of square
+  // tiles 32 m across (16 lattice cells), centred on the craft's tile and following it a tile at a time. Each tile is
+  // drawn with the coarsest cells that keep to the nodes worked out under it (nearClass, tileLayout; the whole tile, or
+  // each 16 m quarter): within NEAR.acc of the craft (64 m on High, 32 m on Low) within 4 cm of every node (every node
+  // in the window's middle tiles, every other one round them), so a flat runway takes 32 m cells and a bumpy hillside
+  // 2-4 m ones; past that, 8 m cells at the least, coarser where they keep within 15-40 cm. 2 m or 4 m cells seen at a
+  // grazing angle 40 m off and more are slivers a pixel high, and a GPU shades every pixel of each 2 × 2 quad a triangle
+  // touches: that was the near ground's cost (groundFill measures it). Where a block meets a coarser one, its vertices on
+  // that edge go on the coarser one's chords (tileDraw), so no crack opens. Over its outer 32 m it
+  // blends into the patch's drawn ground and normals, then runs 4 m on tucked 0.4 m under it (the rim's tiles keep a row
+  // of vertices where the tuck ends), so the seam has neither a crack nor two surfaces fighting; its colours, night glow
+  // and texture UVs are the patch's own at each node (patchTri: on the patch's own triangle), so it looks just as the
+  // patch would, and it shares the patch's compiled program. Near a clear arena whose own ground is on show it is the
+  // patch's ground from that mesh's rim (NEAR.ar) and cut where it is drawn (the arena's hole), so the two hand over
   // without a seam. Built a slice a frame (nearJob: tiles nearest first, the heights cached per tile for as long as the
   // window may come back), swapped in whole (nearCommit: one frame, the hole with it), worked out again against each new
   // patch before that goes up (nearWaits, seamSync). It fades in and out over NEAR.fade swaps (all of it the patch's
   // ground at the first), so nothing pops as a plane comes down to it or climbs away; a plane at altitude pays nothing.
   const NEAR = {
     T: 16,                              // lattice cells a tile's side (the physics' 2 m: terrain.js GS)
-    q: { hi: [11, 5], lo: [9, 3] },     // tiles a side: the whole window (4 m cells), its fine middle (2 m)
+    q: { hi: [11, 5], lo: [9, 3] },     // tiles a side: the whole window, its middle whose every node is worked out (2 m)
+    acc: { hi: 64, lo: 32 },            // m from the craft within which the ground drawn keeps to every node within tol
+    qs: 8, qkeep: 5,                    // the point the cells are chosen round: the focus to every 8th node (16 m), kept until it is 5 off
+    slack: 16,                          // m the focus may be off that point (5 nodes each way, and a job's frames)
+    tol: 0.04, ctol: 0.04,              // m, and linear colour: how far the cells drawn there may stray from the nodes
+    far: [[40, 4, 0.15], [Infinity, 4, 0.4]], // past acc: [up to m further, the least step (lattice cells), the tolerance for coarser]
+    rim: 8,                             // the rim's step (16 m cells), with a row of vertices where the tuck ends
     edge: 2, blend: 16, tuck: 0.4,      // lattice cells round the rim tucked under the patch, the blend inside them; m tucked
     on: 150, off: 250,                  // m over the ground: shown under `on`, kept up to `off`
     fast: [120, 160],                   // m/s over the ground: followed under the first, given up over the second
@@ -2227,19 +2629,21 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   const GS = Terrain.GS;
   let nearUntil = Infinity;
   const nspent = () => performance.now() >= nearUntil;
+  const NCAP = 4 * (NEAR.T / 2 + 1) ** 2, NICAP = NEAR.T * NEAR.T * 6; // (a slot's vertices and indices at most: a tile at 2 m in four blocks)
   const NF = {
     b: null, c: null, n: 0, hi: null, NT: 0, NF: 0, tiles: new Map(), pool: 0, fseq: 0,
     job: null, tg: null, ready: null, waits: false, cur: null, shown: false, want: false,
-    frame: null, mesh: [null, null], H: [null, null], sv: [null, null], hole: [1, 1, 0, 0],
-    evals: 0, pids: 0, size: 0, rT: 0, cms: [], idx: [null, null], sb: [null, null], vis: [null, null], visN: [-1, -1], drawn: [0, 0], ms: 0, slice: 0, step: 0, commits: 0, sp: 0, fa: NaN, fz: NaN, ft: 0, anc: null, ancN: 0,
+    frame: null, mesh: null, H: null, sv: null, lay: null, lb: null, nv: null, ni: null, idx: null, hole: [1, 1, 0, 0],
+    evals: 0, pids: 0, size: 0, rT: 0, cms: [], sb: null, vis: null, visN: -1, drawn: 0, ms: 0, slice: 0, step: 0, commits: 0, sp: 0, fa: NaN, fz: NaN, ft: 0, anc: null, ancN: 0,
   };
   const nkey = (TI, TJ) => TI * 131072 + TJ;
   const slotOf = (TI, TJ, N) => (((TI % N) + N) % N) + N * (((TJ % N) + N) % N);
   function nearTile() {
-    const N = (NEAR.T + 1) ** 2;
-    return { TI: 0, TJ: 0, lv: 0, h: new Float32Array(N).fill(NaN), pP: null, pver: -1, plv: 0, hp: new Float32Array(N), col: new Float32Array(N * 3),
+    const N = NCAP;
+    return { TI: 0, TJ: 0, h: new Float32Array(N).fill(NaN), nk: 0, pP: null, pver: -1, pok: new Uint8Array(N), hp: new Float32Array(N), col: new Float32Array(N * 3),
       pn: new Float32Array(N * 3), night: new Float32Array(N), uv: new Float32Array(N * 2), fk: '', fver: 0, fh: new Float32Array(N), fp: new Float32Array(N * 3),
-      fn: new Float32Array(N * 3), snap: 0, hmin: 0, hmax: 0 };
+      fn: new Float32Array(N * 3), hmin: 0, hmax: 0, lk: '', ds: 0, blk: null, bk: '', dk: '', dver: 0, dnv: 0, pokN: 0,
+      dh: new Float32Array(N), dp: new Float32Array(N * 3), dn: new Float32Array(N * 3), dc: new Float32Array(N * 3), du: new Float32Array(N * 2), dg: new Float32Array(N), di: new Uint16Array(NICAP), dni: 0 };
   }
   // The tile at (TI, TJ) (lattice nodes TI·T..TI·T+T across, TJ·T.. deep), from the cache or a fresh one: a tile in neither
   // the window being built nor the one on show is reused, the farthest first
@@ -2258,30 +2662,183 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       }
       t = best;
       NF.tiles.delete(nkey(t.TI, t.TJ));
-      t.lv = 0; t.h.fill(NaN); t.pP = null; t.pver = -1; t.plv = 0; t.fk = '';
+      t.h.fill(NaN); t.nk = 0; t.pP = null; t.pver = -1; t.pok.fill(0); t.pokN = 0; t.fk = ''; t.lk = ''; t.dk = ''; t.ds = 0; t.blk = null; t.bk = '';
     }
     t.TI = TI; t.TJ = TJ;
     NF.tiles.set(k, t);
     return t;
   }
   // A tile's heights at the physics' own lattice nodes, exactly as Terrain's cell() works each out (h3dAt: setCol, setRow
-  // and height at a node, here on a grid of the tile's own rows and columns, the same sums in the same order): lv 1 the
-  // even nodes (4 m apart), 2 every node. c: the body's terrain, n: the lattice's nodes round it, G: a grid(T+1, T+1)
-  function* tileHeights(t, lv, c, n, G, ev) {
-    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, TAU2 = Math.PI * 2;
-    for (let ii = 0; ii < N1; ii += st) { const ia = t.TI * T + ii, iw = ((ia % n) + n) % n; setCol(c, G, ii, (iw * TAU2) / n, 0, true); }
-    for (let jj = 0; jj < N1; jj += st) setRow(c, G, jj, (t.TJ * T + jj) * GS, 0);
-    for (let jj = 0; jj < N1; jj += st) {
-      for (let ii = 0, k = jj * N1; ii < N1; ii += st) {
-        if (t.h[k + ii] === t.h[k + ii]) continue;
-        t.h[k + ii] = height(c, G, ii, jj, contAt(c, G.ang[ii], G.phi[jj]));
-        ev.n++;
+  // and height at a node, here on a grid of the tile's own rows and columns, the same sums in the same order): the nodes
+  // at columns xs and rows zs (lattice cells into the tile) not worked out yet. c: the body's terrain, n: the lattice's
+  // nodes round it, G: a grid(T+1, T+1)
+  function* tileHeights(t, xs, zs, c, n, G, ev) {
+    const T = NEAR.T, N1 = T + 1, TAU2 = Math.PI * 2;
+    const cols = () => { for (const ii of xs) { const ia = t.TI * T + ii, iw = ((ia % n) + n) % n; setCol(c, G, ii, (iw * TAU2) / n, 0, true); } for (const jj of zs) setRow(c, G, jj, (t.TJ * T + jj) * GS, 0); };
+    cols();
+    for (const jj of zs) {
+      for (const ii of xs) {
+        const k = jj * N1 + ii;
+        if (t.h[k] === t.h[k]) continue;
+        t.h[k] = height(c, G, ii, jj, contAt(c, G.ang[ii], G.phi[jj]));
+        t.nk++; ev.n++;
         // (a height is 15-20 µs, 4x that on a slow phone: the slice is looked at after each; after a pause the grid is set
         // up again, since nearGeo may have used it meanwhile)
-        if (ev.yield && nspent()) { yield; for (let q = 0; q < N1; q += st) { const ia = t.TI * T + q, iw = ((ia % n) + n) % n; setCol(c, G, q, (iw * TAU2) / n, 0, true); } for (let q = 0; q < N1; q += st) setRow(c, G, q, (t.TJ * T + q) * GS, 0); }
+        if (ev.yield && nspent()) { yield; cols(); }
       }
     }
-    t.lv = Math.max(t.lv, lv);
+  }
+  // are the nodes at columns xs and rows zs of tile t all worked out?
+  function tileHas(t, xs, zs) { for (const jj of zs) for (const ii of xs) if (t.h[jj * (NEAR.T + 1) + ii] !== t.h[jj * (NEAR.T + 1) + ii]) return false; return true; }
+  // The lattice cells into a tile of every st-th node from o to o + n, and of the rim's tuck row on the sides in m
+  // (bits: low, high), in order (cached: one array per kind, so two blocks with the same nodes along an edge share it)
+  const NODES = new Map();
+  function nodesOf(st, m, o = 0, n = NEAR.T) {
+    const key = `${st}.${m}.${o}.${n}`;
+    let r = NODES.get(key);
+    if (r) return r;
+    const T = NEAR.T, s = new Set();
+    for (let i = o; i <= o + n; i += st) s.add(i);
+    if (m & 1) s.add(NEAR.edge);
+    if (m & 2) s.add(T - NEAR.edge);
+    r = [...s].sort((x, y) => x - y);
+    r.k = key;
+    NODES.set(key, r);
+    return r;
+  }
+  // What tile (TI, TJ) of window tg (NT tiles a side, its middle NFn) is, by how near its nearest point comes to the
+  // focus (tg.qa, tg.qz: lattice nodes, every 8th; a window is worked out again when the focus is 5 nodes off it: up to
+  // NEAR.slack off it, with the frames a job takes): ks, the nodes worked out under it (every node in the window's
+  // middle, every other one round it, every 4th further out and on the rim);
+  // the steps it may be drawn with (ds0 the least, 16 the most: one cell); tol and ctol, how far the cells drawn may
+  // stray from those nodes (m, and linear colour); on the rim (ia, iz: its sides on the window's edge, bits low, high)
+  // its fixed step and the tuck's row. k: the class as a key
+  function nearClass(tg, TI, TJ, NT, NFn, hi) {
+    const T = NEAR.T, dI = TI - (tg.ti0 + (NT - 1) / 2), dJ = TJ - (tg.tj0 + (NT - 1) / 2);
+    const gap = (f, I) => Math.max(0, I * T - f, f - (I + 1) * T) * GS, d = Math.max(0, Math.hypot(gap(tg.qa, TI), gap(tg.qz, TJ)) - NEAR.slack);
+    const ia = (TI === tg.ti0 ? 1 : 0) | (TI === tg.ti0 + NT - 1 ? 2 : 0), iz = (TJ === tg.tj0 ? 1 : 0) | (TJ === tg.tj0 + NT - 1 ? 2 : 0);
+    if (ia || iz) return { ks: 4, ia, iz, ds0: NEAR.rim, ds1: NEAR.rim, tol: 0, ctol: 0, k: `r${ia}${iz}` };
+    // (the nodes worked out go by the window alone, so they change only when it moves: every one in its middle, every
+    // other one in the ring round it, which holds wherever the focus may be within acc of it, every 4th further out)
+    const ring = Math.max(Math.abs(dI), Math.abs(dJ)), m = (NFn - 1) / 2, ks = ring <= m ? 1 : ring <= m + 1 ? 2 : 4, acc = NEAR.acc[hi ? 'hi' : 'lo'];
+    if (d < acc) return { ks, ia: 0, iz: 0, ds0: ks, ds1: 16, tol: NEAR.tol, ctol: NEAR.ctol, k: `a${ks}` };
+    const f = NEAR.far.find((q) => d < acc + q[0]);
+    return { ks, ia: 0, iz: 0, ds0: Math.max(f[1], ks), ds1: 16, tol: f[2], ctol: Infinity, k: `f${ks}.${f[1]}` };
+  }
+  // is tile (TI, TJ) in window tg's middle (every node worked out)?
+  const nearFine = (tg, TI, TJ) => TI >= tg.fi0 && TI < tg.fi0 + NF.NF && TJ >= tg.fj0 && TJ < tg.fj0 + NF.NF;
+  // Do cells of step st over the block of tile t from (ox, oz), n lattice cells a side, keep its nodes at every ks-th
+  // (heights H, colours C if given; triangles as drawn) within tol and ctol?
+  function cellsKeep(t, ox, oz, n, st, ks, H, C, tol, ctol) {
+    const N1 = NEAR.T + 1, cc = C && ctol < Infinity;
+    for (let jj = oz; jj <= oz + n; jj += ks) for (let ii = ox; ii <= ox + n; ii += ks) {
+      const li = ii - ox, lj = jj - oz;
+      if (li % st === 0 && lj % st === 0) continue;
+      const i0 = ox + Math.min(li - (li % st), n - st), j0 = oz + Math.min(lj - (lj % st), n - st), tx = (ii - i0) / st, tz = (jj - j0) / st;
+      let k0, k1, k2, w1, w2;
+      if (tx + tz <= 1) { k0 = j0 * N1 + i0; k1 = k0 + st; k2 = k0 + st * N1; w1 = tx; w2 = tz; } else { k0 = (j0 + st) * N1 + i0 + st; k1 = k0 - st; k2 = k0 - st * N1; w1 = 1 - tx; w2 = 1 - tz; }
+      const w0 = 1 - w1 - w2, k = jj * N1 + ii;
+      if (!(Math.abs(H[k0] * w0 + H[k1] * w1 + H[k2] * w2 - H[k]) <= tol)) return false;
+      if (cc) for (let q = 0; q < 3; q++) if (Math.abs(C[k0 * 3 + q] * w0 + C[k1 * 3 + q] * w1 + C[k2 * 3 + q] * w2 - C[k * 3 + q]) > ctol) return false;
+    }
+    return true;
+  }
+  // The cells tile t of class c is drawn with (heights H, colours C): the whole tile with the coarsest step that keeps its
+  // nodes, 32 m or 16 m cells, else each 16 m quarter with its own (8 m down to the nodes worked out); t.blk: its blocks
+  // ({ ox, oz, xs, zs }: their nodes along each axis, lattice cells into the tile), t.ds its finest step. true when
+  // that changed
+  function tileLayout(t, c, H, C) {
+    const T = NEAR.T, h = T / 2, lo = Math.max(c.ds0, c.ks);
+    let blk = null, ds = lo;
+    for (let st = c.ds1; st >= Math.max(lo, h) && !blk; st >>= 1) if (st === lo || cellsKeep(t, 0, 0, T, st, c.ks, H, C, c.tol, c.ctol)) { blk = [{ ox: 0, oz: 0, xs: nodesOf(st, c.ia), zs: nodesOf(st, c.iz) }]; ds = st; }
+    if (!blk) {
+      const q = [0, 0, 0, 0];
+      for (let b = 0; b < 4; b++) {
+        q[b] = lo;
+        for (let st = h; st > lo; st >>= 1) if (cellsKeep(t, (b & 1) * h, (b >> 1) * h, h, st, c.ks, H, C, c.tol, c.ctol)) { q[b] = st; break; }
+      }
+      ds = Math.min(...q);
+      blk = q[0] === q[1] && q[0] === q[2] && q[0] === q[3] ? [{ ox: 0, oz: 0, xs: nodesOf(q[0], c.ia), zs: nodesOf(q[0], c.iz) }]
+        : q.map((st, b) => ({ ox: (b & 1) * h, oz: (b >> 1) * h, xs: nodesOf(st, 0, (b & 1) * h, h), zs: nodesOf(st, 0, (b >> 1) * h, h) }));
+    }
+    const bk = blk.map((b) => `${b.xs.k}/${b.zs.k}`).join(' ');
+    if (t.bk === bk) return false;
+    t.blk = blk; t.bk = bk; t.ds = ds;
+    return true;
+  }
+  // the block of t (its blocks, if a tile) holding the point (x, z) lattice cells into the tile, or null
+  const blockAt = (t, x, z) => { if (!t || !t.blk) return null; for (const b of t.blk) if (x >= b.xs[0] && x <= b.xs[b.xs.length - 1] && z >= b.zs[0] && z <= b.zs[b.zs.length - 1]) return b; return null; };
+  // Tile t's vertices as drawn, block by block: its nodes (heights H; full: every attribute, from its final look), but
+  // a vertex on an edge whose other side (another block of it, or of a neighbour: nb, -a, +a, -z, +z; null outside the
+  // window) has no node there goes on that side's chord, as that side draws the edge (its ends themselves where they
+  // are drawn), so no crack opens (the nodes along an edge are nested: a coarser step's are a finer one's, the rim's
+  // tuck row on both sides or neither); and its triangles (local)
+  function tileDraw(t, nb, H, full) {
+    const T = NEAR.T, N1 = T + 1, h = T / 2, split = t.blk.length > 1;
+    // (the node list along the line through (x, z) of the block on the side (dx, dz) of it, or null)
+    const side = (x, z, dx, dz, along) => {
+      let o = t, px = x + dx * 0.5, pz = z + dz * 0.5;
+      if (px < 0) { o = nb[0]; px += T; } else if (px > T) { o = nb[1]; px -= T; } else if (pz < 0) { o = nb[2]; pz += T; } else if (pz > T) { o = nb[3]; pz -= T; }
+      const b = blockAt(o, px, pz);
+      return b ? (along ? b.zs : b.xs) : null;
+    };
+    // (the point (x, z) as drawn: the nodes and weights it is made of, W the list it goes into)
+    const resolve = (x, z, w, W) => {
+      for (let e = 0; e < 2; e++) { // (e 0: the line x = const, along z; 1: z = const, along x)
+        const c = e === 0 ? x : z, y = e === 0 ? z : x;
+        if (!(c === 0 || c === T || (split && c === h))) continue;
+        for (const sd of [-1, 1]) {
+          const ot = e === 0 ? side(x, z, sd, 0, true) : side(x, z, 0, sd, false);
+          if (!ot || ot.includes(y)) continue;
+          let m = 0;
+          while (m + 1 < ot.length - 1 && ot[m + 1] <= y) m++;
+          if (!(ot[m] < y && ot[m + 1] > y)) continue;
+          const s0 = (y - ot[m]) / (ot[m + 1] - ot[m]);
+          if (e === 0) { resolve(x, ot[m], w * (1 - s0), W); resolve(x, ot[m + 1], w * s0, W); } else { resolve(ot[m], z, w * (1 - s0), W); resolve(ot[m + 1], z, w * s0, W); }
+          return;
+        }
+      }
+      W.push(z * N1 + x, w);
+    };
+    const RW = [];
+    let v = 0, n = 0;
+    for (const b of t.blk) {
+      const xs = b.xs, zs = b.zs, nx = xs.length, nz = zs.length, v0 = v;
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++, v++) {
+        RW.length = 0;
+        if (i === 0 || j === 0 || i === nx - 1 || j === nz - 1) resolve(xs[i], zs[j], 1, RW); else RW.push(zs[j] * N1 + xs[i], 1);
+        let hh = 0;
+        for (let r = 0; r < RW.length; r += 2) hh += H[RW[r]] * RW[r + 1];
+        t.dh[v] = hh;
+        if (!full) continue;
+        for (let q = 0; q < 3; q++) { t.dp[v * 3 + q] = 0; t.dn[v * 3 + q] = 0; t.dc[v * 3 + q] = 0; }
+        t.du[v * 2] = t.du[v * 2 + 1] = 0; t.dg[v] = 0;
+        for (let r = 0; r < RW.length; r += 2) {
+          const k = RW[r], w = RW[r + 1];
+          for (let q = 0; q < 3; q++) { t.dp[v * 3 + q] += t.fp[k * 3 + q] * w; t.dn[v * 3 + q] += t.fn[k * 3 + q] * w; t.dc[v * 3 + q] += t.col[k * 3 + q] * w; }
+          t.du[v * 2] += t.uv[k * 2] * w; t.du[v * 2 + 1] += t.uv[k * 2 + 1] * w; t.dg[v] += t.night[k] * w;
+        }
+        if (RW.length > 2) { const l = Math.hypot(t.dn[v * 3], t.dn[v * 3 + 1], t.dn[v * 3 + 2]) || 1; for (let q = 0; q < 3; q++) t.dn[v * 3 + q] /= l; }
+      }
+      for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+        const a = v0 + j * nx + i, b2 = a + 1, c = a + nx, d = c + 1;
+        t.di[n++] = a; t.di[n++] = b2; t.di[n++] = c; t.di[n++] = b2; t.di[n++] = d; t.di[n++] = c;
+      }
+      b.v0 = v0;
+    }
+    t.dnv = v; t.dni = n;
+  }
+  // The drawn ground's height at (lx, lz) lattice cells into a tile drawn as blocks blk (heights H from base), as its
+  // triangles draw it
+  function layAt(blk, H, base, lx, lz) {
+    let B = blk[0];
+    for (const b of blk) if (lx >= b.xs[0] && lx <= b.xs[b.xs.length - 1] && lz >= b.zs[0] && lz <= b.zs[b.zs.length - 1]) { B = b; break; }
+    const xs = B.xs, zs = B.zs, nx = xs.length;
+    let i = 0, j = 0;
+    while (i < nx - 2 && xs[i + 1] <= lx) i++;
+    while (j < zs.length - 2 && zs[j + 1] <= lz) j++;
+    const tx = (lx - xs[i]) / (xs[i + 1] - xs[i]), tz = (lz - zs[j]) / (zs[j + 1] - zs[j]), k = base + B.v0 + j * nx + i;
+    return tx + tz <= 1 ? H[k] + (H[k + 1] - H[k]) * tx + (H[k + nx] - H[k]) * tz : H[k + nx + 1] + (H[k + nx] - H[k + nx + 1]) * (1 - tx) + (H[k + 1] - H[k + nx + 1]) * (1 - tz);
   }
   // The patch as drawn at (a, z), on its own triangle (as its index splits each cell): height, colour (linear), normal
   // (its frame), night glow into o; false off it
@@ -2302,61 +2859,78 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     return true;
   }
   const PT = { h: 0, c: [0, 0, 0], n: [0, 0, 0], night: 0 };
-  // A tile's look from patch P at each of its vertices (lv: which): drawn height, colour, normal, night glow, and the
-  // detail texture's UVs as the patch has them. Off the patch (it reaches tens of km: never near the craft) its own height
-  // and a plain up
-  function* tilePatch(t, lv, P) {
-    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, n = NF.n, R = P.b.radius, TAU2 = Math.PI * 2;
+  // A tile's look from patch P at each node worked out (and not looked at yet against this patch): drawn height,
+  // colour, normal, night glow, and the detail texture's UVs as the patch has them. Off the patch (it reaches tens of
+  // km: never near the craft) its own height and a plain up
+  function* tilePatch(t, P) {
+    const T = NEAR.T, N1 = T + 1, n = NF.n, R = P.b.radius, TAU2 = Math.PI * 2;
+    if (t.pP !== P || t.pver !== P.ver) { t.pok.fill(0); t.pP = P; t.pver = P.ver; t.pokN = 0; }
+    if (t.pokN === t.nk) return; // (every node worked out already looked at)
     let al0 = (P.a0 % TAU2) * R * P.kl;
     if (al0 < 0) al0 += TAU2 * R * P.kl;
     const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP);
-    for (let jj = 0; jj < N1; jj += st) {
+    for (let jj = 0; jj < N1; jj++) {
       const z = (t.TJ * T + jj) * GS;
-      for (let ii = 0; ii < N1; ii += st) {
-        const k = jj * N1 + ii, a = ((t.TI * T + ii) * TAU2) / n;
+      let any = false;
+      for (let ii = 0; ii < N1; ii++) {
+        const k = jj * N1 + ii;
+        if (t.pok[k] || t.h[k] !== t.h[k]) continue;
+        const a = ((t.TI * T + ii) * TAU2) / n;
         if (patchTri(P, a, z, PT)) {
           t.hp[k] = PT.h; t.night[k] = PT.night;
           for (let q = 0; q < 3; q++) { t.col[k * 3 + q] = PT.c[q]; t.pn[k * 3 + q] = PT.n[q]; }
         } else { t.hp[k] = t.h[k]; t.night[k] = 0; t.col[k * 3] = t.col[k * 3 + 1] = t.col[k * 3 + 2] = 0.2; t.pn[k * 3] = t.pn[k * 3 + 2] = 0; t.pn[k * 3 + 1] = 1; }
         t.uv[k * 2] = (wrapAngle(a - P.a0) * R * P.kl + uo) / TILE; t.uv[k * 2 + 1] = (z - P.z0 + vo) / TILE;
+        t.pok[k] = 1; t.pokN++; any = true;
       }
-      if (nspent()) yield; // (a row at a time: a fine tile is a few ms on a slow phone)
+      if (any && nspent()) yield; // (a row at a time: a fine tile is a few ms on a slow phone)
     }
-    t.pP = P; t.pver = P.ver; t.plv = lv;
   }
   // a lattice node's height from the cache (NaN where not worked out)
   function nodeH(ia, iz) {
     const T = NEAR.T, TI = Math.floor(ia / T), TJ = Math.floor(iz / T), t = NF.tiles.get(nkey(TI, TJ));
     return t ? t.h[(iz - TJ * T) * (T + 1) + ia - TI * T] : NaN;
   }
-  // A tile's vertices as the window tg draws them (lv: fine or coarse; snap: the fine window's edges it lies on, bits
-  // left, right, near, far, whose odd nodes go on the coarse neighbours' edges): height (the physics' own, blended into
-  // the patch's over the rim, by the arena's rim, and by the fade, tucked at the very rim), position in the frame at the
-  // window's anchor, and normal (its own from the lattice's slopes, the patch's as it blends)
-  function* tileFinal(t, lv, tg, snap) {
-    const T = NEAR.T, N1 = T + 1, st = lv === 2 ? 1 : 2, n = NF.n, R = NF.b.radius, TAU2 = Math.PI * 2, NT = NF.NT;
+  const FT = { sd: new Float64Array(NEAR.T + 1), cd: new Float64Array(NEAR.T + 1), e: new Float64Array(NEAR.T + 1) };
+  // A tile's nodes worked out as the window tg draws them: height (the physics' own, blended into the patch's over the
+  // rim, by the arena's rim, and by the fade, tucked at the very rim), position in the frame at the window's anchor, and
+  // normal (its own from the lattice's slopes between the nearest nodes worked out, the patch's as it blends)
+  function* tileFinal(t, tg) {
+    const T = NEAR.T, N1 = T + 1, n = NF.n, R = NF.b.radius, TAU2 = Math.PI * 2, NT = NF.NT;
     const IA0 = tg.ti0 * T, IA1 = (tg.ti0 + NT) * T, IZ0 = tg.tj0 * T, IZ1 = (tg.tj0 + NT) * T, { edge, blend, tuck } = NEAR;
     const A = tg.anc, P = tg.P, dl = P.a0 - A.a, cs = Math.cos(dl), sn = Math.sin(dl), g = tg.gs / NEAR.fade, B = tg.box, dA0 = (R * TAU2) / n;
     const hh = (ii, jj) => (ii >= 0 && ii < N1 && jj >= 0 && jj < N1 ? t.h[jj * N1 + ii] : nodeH(t.TI * T + ii, t.TJ * T + jj));
+    // (the slope along one axis at a node: between the nearest nodes worked out each side, within 4 cells; one-sided
+    // where only one side has one, e.g. the window's rim)
+    const slope = (ii, jj, du, dv, h0, L) => {
+      let p = NaN, m = NaN, qp = 0, qm = 0;
+      for (let q = 1; q <= 4 && (p !== p || m !== m); q++) {
+        if (p !== p) { p = hh(ii + du * q, jj + dv * q); qp = q; }
+        if (m !== m) { m = hh(ii - du * q, jj - dv * q); qm = q; }
+      }
+      return p === p && m === m ? (p - m) / ((qp + qm) * L) : p === p ? (p - h0) / (qp * L) : m === m ? (h0 - m) / (qm * L) : 0;
+    };
     let hmin = Infinity, hmax = -Infinity;
-    for (let jj = 0; jj < N1; jj += st) {
+    const SD = FT.sd, CD = FT.cd, AE = FT.e; // (each column's turn off the anchor, and its distance east of the pad)
+    for (let ii = 0; ii < N1; ii++) { const a = ((t.TI * T + ii) * TAU2) / n, d = a - A.a; SD[ii] = Math.sin(d); CD[ii] = Math.cos(d); AE[ii] = B ? -wrapAngle(a - EARTH.padAngle) * R : 0; }
+    for (let jj = 0; jj < N1; jj++) {
       const iz = t.TJ * T + jj, z = iz * GS, ph = z / R, cp = Math.cos(ph), sp = Math.sin(ph), dA = dA0 * Math.max(cp, 0.05);
-      for (let ii = 0; ii < N1; ii += st) {
-        const k = jj * N1 + ii, ia = t.TI * T + ii, a = (ia * TAU2) / n, d = a - A.a, sd = Math.sin(d), cd = Math.cos(d);
+      let any = false;
+      for (let ii = 0; ii < N1; ii++) {
+        const k = jj * N1 + ii, h0 = t.h[k];
+        if (h0 !== h0) continue;
+        any = true;
+        const ia = t.TI * T + ii, sd = SD[ii], cd = CD[ii];
         const dE = Math.min(ia - IA0, IA1 - ia, iz - IZ0, IZ1 - iz);
         let w = Math.max(g, 1 - smoothstep(edge, edge + blend, dE));
         if (B && w < 1) {
-          const e = -wrapAngle(a - EARTH.padAngle) * R;
+          const e = AE[ii];
           w = Math.max(w, 1 - smoothstep(NEAR.ar[0], NEAR.ar[1], Math.hypot(Math.max(B.e0 - e, 0, e - B.e1), Math.max(B.z0 - z, 0, z - B.z1))));
         }
-        const h0 = t.h[k], h = h0 + (t.hp[k] - h0) * w - tuck * (1 - smoothstep(0, edge, dE)), r = R + h;
+        const h = h0 + (t.hp[k] - h0) * w - tuck * (1 - smoothstep(0, edge, dE)), r = R + h;
         t.fh[k] = h; if (h < hmin) hmin = h; if (h > hmax) hmax = h;
         t.fp[k * 3] = -r * cp * sd; t.fp[k * 3 + 1] = r * cp * cd - R - A.y; t.fp[k * 3 + 2] = r * sp - A.zz;
-        // its own normal: the slopes along the lattice (2 m steps on a fine tile, 4 m on a coarse one or where the finer
-        // nodes aren't worked out; one-sided at the window's rim, under the patch's own there)
-        let sa = 0, sz = 0;
-        for (let q = st; q <= 2; q++) { const p = hh(ii + q, jj), m = hh(ii - q, jj); if (p === p && m === m) { sa = (p - m) / (2 * q * dA); break; } if (q === 2) { sa = p === p ? (p - h0) / (2 * dA) : m === m ? (h0 - m) / (2 * dA) : 0; } }
-        for (let q = st; q <= 2; q++) { const p = hh(ii, jj + q), m = hh(ii, jj - q); if (p === p && m === m) { sz = (p - m) / (2 * q * GS); break; } if (q === 2) { sz = p === p ? (p - h0) / (2 * GS) : m === m ? (h0 - m) / (2 * GS) : 0; } }
+        const sa = slope(ii, jj, 1, 0, h0, dA), sz = slope(ii, jj, 0, 1, h0, GS);
         // up (-cp sd, cp cd, sp), along a (-cd, -sd, 0), along z (sp sd, -sp cd, cp): n = up - sa·(along a) - sz·(along z)
         let nx = -cp * sd + sa * cd - sz * sp * sd, ny = cp * cd + sa * sd + sz * sp * cd, nz = sp - sz * cp;
         if (w > 0) {
@@ -2367,64 +2941,57 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
         const l = Math.hypot(nx, ny, nz) || 1;
         t.fn[k * 3] = nx / l; t.fn[k * 3 + 1] = ny / l; t.fn[k * 3 + 2] = nz / l;
       }
-      if (nspent()) yield;
-    }
-    // the fine window's outer edges: each odd node on the chord between its even neighbours, as the coarse tile beside
-    // draws that edge
-    t.snap = snap;
-    if (snap) for (let side = 0; side < 4; side++) {
-      if (!(snap & (1 << side))) continue;
-      for (let s = 1; s < N1; s += 2) {
-        const ii = side === 0 ? 0 : side === 1 ? T : s, jj = side === 2 ? 0 : side === 3 ? T : s;
-        const k = jj * N1 + ii, du = side < 2 ? N1 : 1, k0 = k - du, k1 = k + du;
-        t.fh[k] = (t.fh[k0] + t.fh[k1]) / 2;
-        for (let q = 0; q < 3; q++) { t.fp[k * 3 + q] = (t.fp[k0 * 3 + q] + t.fp[k1 * 3 + q]) / 2; t.fn[k * 3 + q] = t.fn[k0 * 3 + q] + t.fn[k1 * 3 + q]; }
-        const l = Math.hypot(t.fn[k * 3], t.fn[k * 3 + 1], t.fn[k * 3 + 2]) || 1;
-        for (let q = 0; q < 3; q++) t.fn[k * 3 + q] /= l;
-      }
+      if (any && nspent()) yield;
     }
     t.hmin = hmin; t.hmax = hmax;
     t.fver = ++NF.fseq;
   }
-  // Which tiles of window tg are fine, and which of the fine window's edges a fine one lies on (bits: -a, +a, -z, +z)
-  const nearFine = (tg, TI, TJ) => TI >= tg.fi0 && TI < tg.fi0 + NF.NF && TJ >= tg.fj0 && TJ < tg.fj0 + NF.NF;
-  const nearSnap = (tg, TI, TJ) => (TI === tg.fi0 ? 1 : 0) | (TI === tg.fi0 + NF.NF - 1 ? 2 : 0) | (TJ === tg.fj0 ? 4 : 0) | (TJ === tg.fj0 + NF.NF - 1 ? 8 : 0);
-  // Everything window tg needs, a slice at a time: the heights (tiles nearest the middle first), then the patch's look
-  // at each vertex, then the vertices as drawn; done, it is ready to go up (nearCommit)
+  // Everything window tg needs, a slice at a time: each tile's class (nearClass), the heights it needs (tiles nearest the
+  // middle first), then the patch's look at each node, then the nodes as drawn, the steps the tiles are drawn with and
+  // their vertices; done, it is ready to go up (nearCommit). Each step is skipped for a tile whose inputs are unchanged
   function* nearJob(tg) {
-    const NT = NF.NT, T = NEAR.T, cI = tg.ti0 + (NT - 1) / 2, cJ = tg.tj0 + (NT - 1) / 2, list = [];
-    for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) list.push(tg.ti0 + p, tg.tj0 + q);
-    const ord = [...Array(NT * NT).keys()].sort((x, y) => (list[2 * x] - cI) ** 2 + (list[2 * x + 1] - cJ) ** 2 - (list[2 * y] - cI) ** 2 - (list[2 * y + 1] - cJ) ** 2);
+    const NT = NF.NT, T = NEAR.T, cI = tg.ti0 + (NT - 1) / 2, cJ = tg.tj0 + (NT - 1) / 2, list = [], cls = [];
+    for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) { list.push(tg.ti0 + p, tg.tj0 + q); cls.push(nearClass(tg, tg.ti0 + p, tg.tj0 + q, NT, NF.NF, NF.hi)); }
+    const dd = (x) => (list[2 * x] - cI) ** 2 + (list[2 * x + 1] - cJ) ** 2, ord = NF.ord && NF.ord.length === NT * NT ? NF.ord : (NF.ord = [...Array(NT * NT).keys()].sort((x, y) => dd(x) - dd(y))); // (the same order for every window of a size)
     const G = grid(T + 1, T + 1, NF.c.k.length), ev = { n: 0, yield: true };
     NF.ph = 'heights';
     for (const o of ord) {
-      const TI = list[2 * o], TJ = list[2 * o + 1], t = nearTileAt(TI, TJ, tg), lv = nearFine(tg, TI, TJ) ? 2 : 1;
-      if (t.lv < lv) yield* tileHeights(t, lv, NF.c, NF.n, G, ev);
+      const c = cls[o], t = nearTileAt(list[2 * o], list[2 * o + 1], tg), xs = nodesOf(c.ks, c.ia), zs = nodesOf(c.ks, c.iz);
+      if (!tileHas(t, xs, zs)) yield* tileHeights(t, xs, zs, NF.c, NF.n, G, ev);
       if (nspent()) yield;
     }
     NF.evals += ev.n;
     yield;
+    const at = (TI, TJ) => (TI >= tg.ti0 && TI < tg.ti0 + NT && TJ >= tg.tj0 && TJ < tg.tj0 + NT ? NF.tiles.get(nkey(TI, TJ)) : null);
     NF.ph = 'patch';
-    for (const o of ord) {
-      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ)), lv = nearFine(tg, TI, TJ) ? 2 : 1;
-      if (t.pP !== tg.P || t.pver !== tg.pver || t.plv < lv) { yield* tilePatch(t, lv, tg.P); if (nspent()) yield; }
-    }
+    for (const o of ord) { yield* tilePatch(NF.tiles.get(nkey(list[2 * o], list[2 * o + 1])), tg.P); if (nspent()) yield; }
     NF.ph = 'final';
     for (const o of ord) {
-      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ)), fine = nearFine(tg, TI, TJ), snap = fine ? nearSnap(tg, TI, TJ) : 0;
-      // (what its vertices depend on: its level and fine edges, how near the window's rim it is (two tiles in, the blend
-      // is over), and the window's own: patch, arena, fade, frame)
-      const rim = Math.min(TI - tg.ti0, tg.ti0 + NT - 1 - TI, 2) + 3 * Math.min(TJ - tg.tj0, tg.tj0 + NT - 1 - TJ, 2), side = rim < 8 ? `${TI - tg.ti0},${TJ - tg.tj0}` : '';
-      const fk = `${fine ? 2 : 1}:${snap}:${side}:${tg.key}`;
-      if (t.fk !== fk) { t.fk = ''; yield* tileFinal(t, fine ? 2 : 1, tg, snap); t.fk = fk; if (nspent()) yield; }
+      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ));
+      // (what its nodes depend on: the nodes worked out under it and round it (its slopes), how near the window's rim it is
+      // (two tiles in, the blend is over), and the window's own: patch, arena, fade, frame)
+      const side = [TI - tg.ti0, tg.ti0 + NT - 1 - TI, TJ - tg.tj0, tg.tj0 + NT - 1 - TJ].map((q) => Math.min(q, 2)).join('');
+      const nk = (q) => (q ? q.nk : 0), fk = `${t.nk}.${nk(NF.tiles.get(nkey(TI - 1, TJ)))}.${nk(NF.tiles.get(nkey(TI + 1, TJ)))}.${nk(NF.tiles.get(nkey(TI, TJ - 1)))}.${nk(NF.tiles.get(nkey(TI, TJ + 1)))}:${side}:${tg.fkey}`;
+      if (t.fk !== fk) { t.fk = ''; yield* tileFinal(t, tg); t.fk = fk; if (nspent()) yield; }
+    }
+    NF.ph = 'layout';
+    for (let o = 0; o < NT * NT; o++) {
+      const t = NF.tiles.get(nkey(list[2 * o], list[2 * o + 1])), c = cls[o], lk = `${t.fver}:${c.k}:${c.ds0}:${c.tol}`;
+      if (t.lk !== lk) { tileLayout(t, c, t.fh, t.col); t.lk = lk; }
+    }
+    NF.ph = 'draw';
+    for (const o of ord) {
+      const TI = list[2 * o], TJ = list[2 * o + 1], t = NF.tiles.get(nkey(TI, TJ)), nb = [at(TI - 1, TJ), at(TI + 1, TJ), at(TI, TJ - 1), at(TI, TJ + 1)];
+      const dk = t.lk + ':' + t.bk + ':' + (nb[0] ? nb[0].bk : '-') + ',' + (nb[1] ? nb[1].bk : '-') + ',' + (nb[2] ? nb[2].bk : '-') + ',' + (nb[3] ? nb[3].bk : '-');
+      if (t.dk !== dk) { tileDraw(t, nb, t.fh, true); t.dk = dk; t.dver = ++NF.fseq; if (nspent()) yield; }
     }
     return true;
   }
-  // The GPU side: two meshes in a frame at the window's anchor, the coarse one's NT² tiles of 9 × 9 vertices and the fine
-  // one's NF² of 17 × 17, each tile in the slot its place modulo the window takes, so a move rewrites only the tiles it
-  // brings in and those whose look changes; a coarse slot under a fine tile is folded to a point (nothing drawn)
+  // The GPU side: one mesh in a frame at the window's anchor, NT² slots of up to 17 × 17 vertices, each tile in the
+  // slot its place modulo the window takes, so a move rewrites only the tiles it brings in and those whose look or cells
+  // change; each slot's triangles kept apart (NF.idx), and the index drawn holds those of the slots in view (nearCull)
   function nearAlloc() {
-    if (NF.mesh[0]) { for (const m of NF.mesh) { NF.frame.remove(m); m.geometry.dispose(); } }
+    if (NF.mesh) { NF.frame.remove(NF.mesh); NF.mesh.geometry.dispose(); }
     NF.size = NF.NT * 100 + NF.NF;
     if (!terr.nmat) { // the patch's material with the arena's cut (its ground drawn there) and none of its own: the patch's program
       const m = terr.mat;
@@ -2432,78 +2999,53 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       terr.nmat.onBeforeCompile = terr.holeHook(terr.holeU);
     }
     if (!NF.frame) { NF.frame = new THREE.Group(); NF.frame.visible = false; localWorld.add(NF.frame); }
-    const T = NEAR.T;
-    for (const fine of [0, 1]) {
-      const N = fine ? NF.NF : NF.NT, s = fine ? T + 1 : T / 2 + 1, nv = s * s, V = N * N * nv, idx = new (V < 65536 ? Uint16Array : Uint32Array)(N * N * (s - 1) * (s - 1) * 6);
-      let k = 0;
-      for (let q = 0; q < N * N; q++) for (let j = 0; j < s - 1; j++) for (let i = 0; i < s - 1; i++) {
-        const a = q * nv + j * s + i, b = a + 1, c = a + s, d = c + 1;
-        idx[k++] = a; idx[k++] = b; idx[k++] = c; idx[k++] = b; idx[k++] = d; idx[k++] = c;
-      }
-      const geo = new THREE.BufferGeometry(), dyn = (n) => new THREE.BufferAttribute(new Float32Array(V * n), n).setUsage(THREE.DynamicDrawUsage);
-      geo.setAttribute('position', dyn(3)); geo.setAttribute('normal', dyn(3)); geo.setAttribute('color', dyn(3)); geo.setAttribute('uv', dyn(2)); geo.setAttribute('aNight', dyn(1));
-      geo.setIndex(new THREE.BufferAttribute(idx.slice(), 1).setUsage(THREE.DynamicDrawUsage)); // (the tiles in view only: nearCull)
-      geo.setDrawRange(0, 0);
-      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
-      const m = new THREE.Mesh(geo, terr.nmat);
-      m.receiveShadow = true;
-      NF.frame.add(m);
-      NF.mesh[fine] = m; NF.H[fine] = new Float32Array(V).fill(NaN); NF.sv[fine] = new Float64Array(N * N).fill(-2);
-      NF.idx[fine] = new THREE.BufferAttribute(idx, 1); NF.sb[fine] = new Float32Array(N * N * 4).fill(-1); NF.vis[fine] = new Uint8Array(N * N); NF.visN[fine] = -1;
-    }
+    const N = NF.NT * NF.NT, V = N * NCAP;
+    const geo = new THREE.BufferGeometry(), dyn = (n) => new THREE.BufferAttribute(new Float32Array(V * n), n).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', dyn(3)); geo.setAttribute('normal', dyn(3)); geo.setAttribute('color', dyn(3)); geo.setAttribute('uv', dyn(2)); geo.setAttribute('aNight', dyn(1));
+    geo.setIndex(new THREE.BufferAttribute(new (V < 65536 ? Uint16Array : Uint32Array)(N * NICAP), 1).setUsage(THREE.DynamicDrawUsage)); // (the tiles in view only: nearCull)
+    geo.setDrawRange(0, 0);
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    const m = new THREE.Mesh(geo, terr.nmat);
+    m.receiveShadow = true;
+    NF.frame.add(m);
+    NF.mesh = m; NF.H = new Float32Array(V).fill(NaN); NF.sv = new Float64Array(N).fill(-2); NF.lay = new Array(N).fill(null); NF.lb = new Array(N).fill(null); NF.nv = new Uint16Array(N); NF.ni = new Uint16Array(N);
+    NF.idx = new (V < 65536 ? Uint16Array : Uint32Array)(N * NICAP); NF.sb = new Float32Array(N * 4).fill(-1); NF.vis = new Uint8Array(N); NF.visN = -1;
   }
-  // a tile's vertices into its slot (fine or coarse), and its heights for nearAt; or the coarse slot folded away
-  function nearUpload(t, fine, s) {
-    const T = NEAR.T, N1 = T + 1, st = fine ? 1 : 2, ns = fine ? N1 : T / 2 + 1, base = s * ns * ns, at = NF.mesh[fine].geometry.attributes, H = NF.H[fine];
-    const P = at.position.array, Nn = at.normal.array, C = at.color.array, U = at.uv.array, Ng = at.aNight.array;
+  // a tile's vertices and triangles into slot s, and its heights and nodes for nearAt
+  function nearUpload(t, s) {
+    const at = NF.mesh.geometry.attributes, base = s * NCAP, nv = t.dnv;
+    at.position.array.set(t.dp.subarray(0, nv * 3), base * 3); at.normal.array.set(t.dn.subarray(0, nv * 3), base * 3);
+    at.color.array.set(t.dc.subarray(0, nv * 3), base * 3); at.uv.array.set(t.du.subarray(0, nv * 2), base * 2);
+    at.aNight.array.set(t.dg.subarray(0, nv), base); NF.H.set(t.dh.subarray(0, nv), base);
+    const I = NF.idx, i0 = s * NICAP;
+    for (let q = 0; q < t.dni; q++) I[i0 + q] = base + t.di[q];
+    NF.nv[s] = nv; NF.ni[s] = t.dni; NF.lay[s] = t; NF.lb[s] = t.blk;
     let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-    for (let jj = 0, v = base; jj < N1; jj += st) for (let ii = 0; ii < N1; ii += st, v++) {
-      const k = jj * N1 + ii;
-      for (let q = 0; q < 3; q++) { P[v * 3 + q] = t.fp[k * 3 + q]; Nn[v * 3 + q] = t.fn[k * 3 + q]; C[v * 3 + q] = t.col[k * 3 + q]; }
-      U[v * 2] = t.uv[k * 2]; U[v * 2 + 1] = t.uv[k * 2 + 1]; Ng[v] = t.night[k]; H[v] = t.fh[k];
-      const x = t.fp[k * 3], y = t.fp[k * 3 + 1], z = t.fp[k * 3 + 2];
+    for (let v = 0, P = t.dp; v < nv; v++) {
+      const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
       if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
     }
-    const sb = NF.sb[fine]; // (the tile's bounding sphere, for nearCull)
+    const sb = NF.sb; // (the tile's bounding sphere, for nearCull)
     sb[s * 4] = (x0 + x1) / 2; sb[s * 4 + 1] = (y0 + y1) / 2; sb[s * 4 + 2] = (z0 + z1) / 2; sb[s * 4 + 3] = Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2 + 1;
-    NF.visN[fine] = -1; // (what is in view is looked at again)
-    // (a snapped odd node takes the mean of its neighbours' colour and glow too, as the coarse edge beside draws them)
-    if (fine && t.snap) for (let side = 0; side < 4; side++) {
-      if (!(t.snap & (1 << side))) continue;
-      for (let s2 = 1; s2 < N1; s2 += 2) {
-        const ii = side === 0 ? 0 : side === 1 ? T : s2, jj = side === 2 ? 0 : side === 3 ? T : s2, du = side < 2 ? N1 : 1, v = base + jj * N1 + ii;
-        for (let q = 0; q < 3; q++) C[v * 3 + q] = (C[(v - du) * 3 + q] + C[(v + du) * 3 + q]) / 2;
-        Ng[v] = (Ng[v - du] + Ng[v + du]) / 2;
-      }
-    }
-  }
-  function nearFold(s) {
-    const ns = NEAR.T / 2 + 1, base = s * ns * ns, at = NF.mesh[0].geometry.attributes;
-    at.position.array.fill(0, base * 3, (base + ns * ns) * 3); NF.H[0].fill(NaN, base, base + ns * ns);
-    NF.sb[0][s * 4 + 3] = -1; NF.visN[0] = -1; // (never in view)
+    NF.visN = -1; // (what is in view is looked at again)
   }
   // Window tg goes up: the tiles that changed into their slots (one frame), its hole cut in the patch, the frame and bounds
   function nearCommit(tg) {
     const tc = performance.now();
-    const NT = NF.NT, T = NEAR.T, dirty = [[], []];
+    const NT = NF.NT, T = NEAR.T, dirty = [];
     if (NF.size !== NT * 100 + NF.NF) nearAlloc(); // (made when first needed, again at a new quality's sizes)
     let hmin = Infinity, hmax = -Infinity;
     for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) {
-      const TI = tg.ti0 + p, TJ = tg.tj0 + q, t = NF.tiles.get(nkey(TI, TJ)), fine = nearFine(tg, TI, TJ), s0 = slotOf(TI, TJ, NT);
+      const TI = tg.ti0 + p, TJ = tg.tj0 + q, t = NF.tiles.get(nkey(TI, TJ)), s = slotOf(TI, TJ, NT);
       hmin = Math.min(hmin, t.hmin); hmax = Math.max(hmax, t.hmax);
-      if (fine) {
-        const s1 = slotOf(TI, TJ, NF.NF);
-        if (NF.sv[1][s1] !== t.fver) { nearUpload(t, 1, s1); NF.sv[1][s1] = t.fver; dirty[1].push(s1); }
-        if (NF.sv[0][s0] !== -1) { nearFold(s0); NF.sv[0][s0] = -1; dirty[0].push(s0); }
-      } else if (NF.sv[0][s0] !== t.fver) { nearUpload(t, 0, s0); NF.sv[0][s0] = t.fver; dirty[0].push(s0); }
+      if (NF.sv[s] !== t.dver || NF.lay[s] !== t) { nearUpload(t, s); NF.sv[s] = t.dver; dirty.push(s); }
     }
-    for (const fine of [0, 1]) {
-      const at = NF.mesh[fine].geometry.attributes, ns = fine ? T + 1 : T / 2 + 1, nv = ns * ns, D = dirty[fine], N = fine ? NF.NF : NT;
-      if (!D.length) continue;
+    if (dirty.length) {
+      const at = NF.mesh.geometry.attributes, N = NT * NT;
       for (const [name, k] of [['position', 3], ['normal', 3], ['color', 3], ['uv', 2], ['aNight', 1]]) {
         const A = at[name];
         A.clearUpdateRanges();
-        if (D.length < (N * N) / 3) for (const s of D) A.addUpdateRange(s * nv * k, nv * k); // (else the whole buffer)
+        if (dirty.length < N / 3) for (const s of dirty) A.addUpdateRange(s * NCAP * k, NF.nv[s] * k); // (else the whole buffer)
         A.needsUpdate = true;
       }
     }
@@ -2514,14 +3056,12 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const uo = al0 % (TILE * UVP), vo = P.z0 % (TILE * UVP), uOf = (ia) => (wrapAngle((ia * TAU2) / n - P.a0) * R * P.kl + uo) / TILE, vOf = (iz) => (iz * GS - P.z0 + vo) / TILE;
     const IA0 = tg.ti0 * T + e, IA1 = (tg.ti0 + NT) * T - e, IZ0 = tg.tj0 * T + e, IZ1 = (tg.tj0 + NT) * T - e;
     NF.hole[0] = uOf(IA0); NF.hole[1] = vOf(IZ0); NF.hole[2] = uOf(IA1); NF.hole[3] = vOf(IZ1);
-    // the frame at the anchor, the meshes' bounds round the window's middle
-    const A = tg.anc;
-    for (const m of NF.mesh) m.position.set(0, A.y, A.zz);
+    // the frame at the anchor, the mesh's bounds round the window's middle
+    const A = tg.anc, m = NF.mesh;
+    m.position.set(0, A.y, A.zz);
     const cia = (tg.ti0 + NT / 2) * T, ciz = (tg.tj0 + NT / 2) * T, d = (cia * TAU2) / n - A.a, ph = (ciz * GS) / R, r = R + (hmin + hmax) / 2;
-    for (const m of NF.mesh) {
-      m.geometry.boundingSphere.center.set(-r * Math.cos(ph) * Math.sin(d), r * Math.cos(ph) * Math.cos(d) - R - A.y, r * Math.sin(ph) - A.zz);
-      m.geometry.boundingSphere.radius = NT * T * GS * 0.72 + (hmax - hmin) / 2 + 2;
-    }
+    m.geometry.boundingSphere.center.set(-r * Math.cos(ph) * Math.sin(d), r * Math.cos(ph) * Math.cos(d) - R - A.y, r * Math.sin(ph) - A.zz);
+    m.geometry.boundingSphere.radius = NT * T * GS * 0.72 + (hmax - hmin) / 2 + 2;
     NF.cur = tg; NF.commits++;
     const dc = performance.now() - tc;
     note('nearCommit', dc); NF.cms.push(+dc.toFixed(2)); if (NF.cms.length > 32) NF.cms.shift(); // (the last 32 swaps' times: nearInfo)
@@ -2536,34 +3076,31 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   }
   // Only the tiles in view are drawn: each frame, just before the local scene is drawn, each slot's bounding sphere is
   // tested against the view (in the mesh's own frame), and when the set in view changed the index is rewritten to hold
-  // theirs alone (in portrait a phone sees a quarter of the window, a desktop about a third: the near ground's vertex work
-  // is the GPU cost it adds, chiefly on a phone)
+  // theirs alone (in portrait a phone sees about a quarter of the window, a desktop about a third)
   const NC = { f: null, m: null, sp: null };
   function nearCull() {
-    if (!NF.shown || !NF.mesh[0]) return;
+    if (!NF.shown || !NF.mesh) return;
     if (!NC.f) { NC.f = new THREE.Frustum(); NC.m = new THREE.Matrix4(); NC.sp = new THREE.Sphere(); }
     localWorld.updateMatrix(); NF.frame.updateMatrix();
-    for (const fine of [0, 1]) {
-      const m = NF.mesh[fine], sb = NF.sb[fine], vis = NF.vis[fine], N = sb.length / 4;
-      m.updateMatrix();
-      NC.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(localWorld.matrix).multiply(NF.frame.matrix).multiply(m.matrix);
-      NC.f.setFromProjectionMatrix(NC.m);
-      let changed = NF.visN[fine] < 0, nv = 0;
-      for (let q = 0; q < N; q++) {
-        const r = sb[q * 4 + 3];
-        let on = 0;
-        if (r > 0) { NC.sp.center.set(sb[q * 4], sb[q * 4 + 1], sb[q * 4 + 2]); NC.sp.radius = r + 2; on = NC.f.intersectsSphere(NC.sp) ? 1 : 0; }
-        if (on !== vis[q]) { vis[q] = on; changed = true; }
-        nv += on;
-      }
-      if (!changed) continue;
-      const ix = m.geometry.index, a = ix.array, I = NF.idx[fine].array, B = I.length / N;
-      let n = 0;
-      for (let q = 0; q < N; q++) if (vis[q]) { a.set(I.subarray(q * B, q * B + B), n); n += B; }
-      m.geometry.setDrawRange(0, n);
-      ix.clearUpdateRanges(); ix.addUpdateRange(0, Math.max(1, n)); ix.needsUpdate = true;
-      NF.visN[fine] = nv; NF.drawn[fine] = n / 3;
+    const m = NF.mesh, sb = NF.sb, vis = NF.vis, N = sb.length / 4;
+    m.updateMatrix();
+    NC.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(localWorld.matrix).multiply(NF.frame.matrix).multiply(m.matrix);
+    NC.f.setFromProjectionMatrix(NC.m);
+    let changed = NF.visN < 0, nv = 0;
+    for (let q = 0; q < N; q++) {
+      const r = sb[q * 4 + 3];
+      let on = 0;
+      if (r > 0) { NC.sp.center.set(sb[q * 4], sb[q * 4 + 1], sb[q * 4 + 2]); NC.sp.radius = r + 2; on = NC.f.intersectsSphere(NC.sp) ? 1 : 0; }
+      if (on !== vis[q]) { vis[q] = on; changed = true; }
+      nv += on;
     }
+    if (!changed) return;
+    const ix = m.geometry.index, a = ix.array, I = NF.idx;
+    let n = 0;
+    for (let q = 0; q < N; q++) if (vis[q] && NF.ni[q]) { a.set(I.subarray(q * NICAP, q * NICAP + NF.ni[q]), n); n += NF.ni[q]; }
+    m.geometry.setDrawRange(0, n);
+    ix.clearUpdateRanges(); ix.addUpdateRange(0, Math.max(1, n)); ix.needsUpdate = true;
+    NF.visN = nv; NF.drawn = n / 3;
   }
   // The patch's cells wholly inside the near ground's cut (hole, in its UVs; null: none) left out of its ground's index,
   // so they aren't drawn at all rather than drawn and thrown away pixel by pixel (the cut's shader test still trims the
@@ -2605,7 +3142,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     NF.b = b; NF.c = b ? cfgOf(b) : null; NF.n = b ? Math.max(8, Math.round((Math.PI * 2 * b.radius) / GS)) : 0;
     const hi = Settings.high, [NT, NFn] = NEAR.q[hi ? 'hi' : 'lo'];
     NF.hi = hi; NF.NT = NT; NF.NF = NFn;
-    if (NF.sv[0]) { NF.sv[0].fill(-2); NF.sv[1].fill(-2); } // (every slot written afresh at the next swap)
+    if (NF.sv) { NF.sv.fill(-2); NF.lay.fill(null); NF.lb.fill(null); } // (every slot written afresh at the next swap)
   }
   // A patch job done with the near ground on show: the patch waits for the near ground worked out against it (true)
   function nearWaits(P) {
@@ -2682,18 +3219,24 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       NF.anc = { a: ca, z: cz, y: R * Math.cos(cz / R) - R, zz: R * Math.sin(cz / R), id: ++NF.ancN };
     }
     const ti0 = ci - (NT - 1) / 2, tj0 = cj - (NT - 1) / 2, fi0 = ci - (NF.NF - 1) / 2, fj0 = cj - (NF.NF - 1) / 2;
+    // (the point the tiles' cells are chosen round: the focus to every 8th node, 16 m, kept until the focus is 5 nodes off
+    // it; held while waiting or fading out)
+    const Q = NEAR.qs;
+    let qa = Math.round(fa / Q) * Q, qz = Math.round(fz / Q) * Q;
+    if (W && (NF.waits || !want || (Math.abs(fa - W.qa) <= NEAR.qkeep && Math.abs(fz - W.qz) <= NEAR.qkeep))) { qa = W.qa; qz = W.qz; }
     // (on show as wanted, nothing waiting or building: the common frame, nothing to work out)
-    if (cur && fresh && want && !NF.job && !NF.ready && !NF.waits && cur.gs === 0 && cur.ti0 === ti0 && cur.tj0 === tj0 && cur.anc === NF.anc && cur.P === patch && !!cur.box === !!box) {
+    if (cur && fresh && want && !NF.job && !NF.ready && !NF.waits && cur.gs === 0 && cur.ti0 === ti0 && cur.tj0 === tj0 && cur.qa === qa && cur.qz === qz && cur.anc === NF.anc && cur.P === patch && !!cur.box === !!box) {
       nearShow(F, true);
       seamSync(F, b);
       note('nearFrame', performance.now() - t0);
       return;
     }
-    const key = `${ti0},${tj0}|${P.nid || (P.nid = ++NF.pids)}.${P.ver}|${box ? 1 : 0}|${gs}|${NF.anc.id}`;
-    // (on show already as wanted: nothing to build)
+    const fkey = `${P.nid || (P.nid = ++NF.pids)}.${P.ver}|${box ? 1 : 0}|${gs}|${NF.anc.id}`, wkey = `${ti0},${tj0}|${fkey}`, key = `${wkey}|${qa},${qz}`;
+    // (on show already as wanted: nothing to build; a job under way for this window but another point the cells are
+    // chosen round runs on: a fast craft would otherwise restart it every few frames)
     const done = cur && fresh && cur.key === key && cur.P === P;
-    if (!done && !NF.ready && (!NF.tg || NF.tg.key !== key || NF.tg.P !== P)) {
-      NF.tg = { b, ti0, tj0, fi0, fj0, P, pver: P.ver, box, gs, anc: NF.anc, key };
+    if (!done && !NF.ready && (!NF.tg || NF.tg.P !== P || (NF.tg.key !== key && !(NF.job && NF.tg.wkey === wkey)))) {
+      NF.tg = { b, ti0, tj0, fi0, fj0, qa, qz, P, pver: P.ver, box, gs, anc: NF.anc, key, wkey, fkey };
       NF.job = nearJob(NF.tg);
     }
     if (NF.job) {
@@ -2740,6 +3283,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (r && r.P === patch && r.pver === patch.ver) { nearCommit(r); nearShow(F, NF.want || r.gs < NEAR.fade); } else nearShow(F, false);
   }
   // The near ground as drawn at (a, z) on body b, where it is drawn (inside its cut), else null: its own triangles' height
+  // The near ground as drawn at (a, z) on body b, where it is drawn (inside its cut), else null: its own triangles' height
   function nearAt(b, a, z) {
     if (!NF.shown || b !== NF.b || !NF.cur) return null;
     const C = NF.cur, T = NEAR.T, n = NF.n, e = NEAR.edge, TAU2 = Math.PI * 2;
@@ -2748,10 +3292,67 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     fa += n * Math.round(((C.ti0 + NF.NT / 2) * T - fa) / n);
     const fz = z / GS;
     if (fa < C.ti0 * T + e || fa > (C.ti0 + NF.NT) * T - e || fz < C.tj0 * T + e || fz > (C.tj0 + NF.NT) * T - e) return null;
-    const TI = Math.floor(fa / T), TJ = Math.floor(fz / T), fine = nearFine(C, TI, TJ) ? 1 : 0, st = fine ? 1 : 2, ns = fine ? T + 1 : T / 2 + 1;
-    const H = NF.H[fine], base = slotOf(TI, TJ, fine ? NF.NF : NF.NT) * ns * ns;
-    const lx = (fa - TI * T) / st, lz = (fz - TJ * T) / st, i = Math.min(Math.floor(lx), ns - 2), j = Math.min(Math.floor(lz), ns - 2), tx = lx - i, tz = lz - j, k = base + j * ns + i;
-    return tx + tz <= 1 ? H[k] + (H[k + 1] - H[k]) * tx + (H[k + ns] - H[k]) * tz : H[k + ns + 1] + (H[k + ns] - H[k + ns + 1]) * (1 - tx) + (H[k + 1] - H[k + ns + 1]) * (1 - tz);
+    const TI = Math.min(Math.floor(fa / T), C.ti0 + NF.NT - 1), TJ = Math.min(Math.floor(fz / T), C.tj0 + NF.NT - 1), s = slotOf(TI, TJ, NF.NT);
+    return NF.lb[s] ? layAt(NF.lb[s], NF.H, s * NCAP, fa - TI * T, fz - TJ * T) : null;
+  }
+
+  // Tests and tuning: what the ground drawn in the last flight frame costs a GPU, worked out on the CPU: the triangles of
+  // the patch's ground and the near ground in view (clipped to the near plane, back faces dropped), the pixels they
+  // cover and the 2 × 2 pixel quads they touch (a GPU shades all four pixels of every quad a triangle touches: a sliver a
+  // pixel high wastes most of them), at the drawing buffer's size. { patch, near: { tris, px, frags }, frags, eff }
+  function groundFill() {
+    const W = renderer.domElement.width, H = renderer.domElement.height, PV = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), M = new THREE.Matrix4();
+    const out = { frags: 0, px: 0 };
+    for (const [name, m] of [['patch', patch.mesh], ['near', NF.mesh]]) {
+      const st = (out[name] = { tris: 0, px: 0, frags: 0, cut: 0 }), uv = m.geometry.attributes.uv && m.geometry.attributes.uv.array, H2 = name === 'patch' && NF.shown ? terr.holeU2.value : null;
+      let on = !!m;
+      for (let o = m; o; o = o.parent) if (!o.visible) on = false;
+      if (!on) continue;
+      m.updateMatrixWorld(); M.multiplyMatrices(PV, m.matrixWorld);
+      const e = M.elements, g = m.geometry, ix = g.index.array, pos = g.attributes.position.array, n1 = Math.min(ix.length, g.drawRange.start + g.drawRange.count);
+      const clip = (k) => { const x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2]; return [e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14], e[3] * x + e[7] * y + e[11] * z + e[15]]; };
+      for (let t = g.drawRange.start; t < n1; t += 3) {
+        let P = [clip(ix[t]), clip(ix[t + 1]), clip(ix[t + 2])];
+        let out1 = false;
+        for (let c = 0; c < 2 && !out1; c++) for (const sg of [-1, 1]) if (P.every((q) => sg * q[c] > q[3])) out1 = true;
+        if (out1) continue;
+        const dd = (q) => q[2] + q[3];
+        if (P.some((q) => dd(q) < 0)) { // (clipped to the near plane)
+          if (P.every((q) => dd(q) < 0)) continue;
+          const o = [];
+          for (let i = 0; i < 3; i++) { const A = P[i], B = P[(i + 1) % 3], da = dd(A), db = dd(B); if (da >= 0) o.push(A); if ((da >= 0) !== (db >= 0)) { const f = da / (da - db); o.push(A.map((x, j) => x + (B[j] - x) * f)); } }
+          P = o;
+        }
+        const X = P.map((q) => (q[0] / q[3] * 0.5 + 0.5) * W), Y = P.map((q) => (0.5 - q[1] / q[3] * 0.5) * H);
+        let ar = 0;
+        for (let i = 0; i < X.length; i++) { const j = (i + 1) % X.length; ar += X[i] * Y[j] - X[j] * Y[i]; }
+        if (ar >= 0) continue; // (a back face)
+        st.tris++;
+        const px0 = st.px, cut = H2 && uv && [ix[t], ix[t + 1], ix[t + 2]].some((k) => uv[k * 2] > H2.x && uv[k * 2] < H2.z && uv[k * 2 + 1] > H2.y && uv[k * 2 + 1] < H2.w);
+        // its pixels and quads, a pair of rows at a time (the span of each row at the pixels' centres)
+        const y0 = Math.max(0, Math.floor(Math.min(...Y) - 0.5)) & ~1, y1 = Math.min(H - 1, Math.ceil(Math.max(...Y)));
+        const span = (yc) => {
+          let lo = Infinity, hi = -Infinity;
+          for (let i = 0; i < X.length; i++) {
+            const j = (i + 1) % X.length, ya = Y[i], yb = Y[j];
+            if ((ya <= yc && yb >= yc) || (yb <= yc && ya >= yc)) { if (ya === yb) { lo = Math.min(lo, X[i], X[j]); hi = Math.max(hi, X[i], X[j]); } else { const x = X[i] + ((yc - ya) / (yb - ya)) * (X[j] - X[i]); lo = Math.min(lo, x); hi = Math.max(hi, x); } }
+          }
+          const p0 = Math.max(0, Math.ceil(lo - 0.5)), p1 = Math.min(W - 1, Math.floor(hi - 0.5));
+          return p1 >= p0 ? [p0, p1] : null;
+        };
+        for (let y = y0; y <= y1; y += 2) {
+          const a = span(y + 0.5), b = y + 1 < H ? span(y + 1.5) : null;
+          if (a) st.px += a[1] - a[0] + 1;
+          if (b) st.px += b[1] - b[0] + 1;
+          const qa = a && [a[0] >> 1, a[1] >> 1], qb = b && [b[0] >> 1, b[1] >> 1];
+          st.frags += 4 * (qa && qb ? (qa[1] < qb[0] || qb[1] < qa[0] ? qa[1] - qa[0] + qb[1] - qb[0] + 2 : Math.max(qa[1], qb[1]) - Math.min(qa[0], qb[0]) + 1) : qa ? qa[1] - qa[0] + 1 : qb ? qb[1] - qb[0] + 1 : 0);
+        }
+        if (cut) st.cut += st.px - px0; // (the patch's cells across the near ground's cut: drawn, the part inside thrown away)
+      }
+      out.frags += st.frags; out.px += st.px;
+    }
+    out.eff = out.frags ? +(out.px / out.frags).toFixed(3) : null;
+    return out;
   }
 
   // Grid offsets within n cells, nearest first (cached per n).
@@ -3344,38 +3945,69 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     s.frame.visible = !!show;
   }
 
-  // Cumulus on a hashed 750 m grid (the row through the flight plane uses the 2D view's clouds): flat,
-  // darker bases 1.4–3.6 km up with puffs heaped above them; fewer, bigger puffs far off. Built a slice a
-  // frame into a list (x, y, z, size, turn, atlas cell, height in the cloud, opacity per puff) that
-  // sortPuffs copies into the quads, far ones first.
-  function* cumulusJob(b, a0, z0) {
-    const R = b.radius, step = 750, hi = Settings.high, n = Math.ceil((hi ? 15000 : 9000) / step), nearN = 5000 / step;
-    const ia = Math.floor((a0 * R) / step), iq = Math.round(z0 / step), list = new Float32Array(CLOUD_MAX * 8), vols = [];
+  // Cumulus on a hashed 750 m grid (cumulusCell, world.js: the row through the flight plane is the 2D view's clouds),
+  // built a slice a frame into a list of puff rows (CLOUD_VS has their layout) that sortPuffs copies far to near. A
+  // cloud is its core puffs (3-4 big billows low in it, cut flat at its base; a towering one's stacked up its column),
+  // and, within det of the field's middle, its detail: turrets heaped on its upper side, more on a big cloud. Nothing
+  // here depends on where the field's middle is but which clouds and detail are in it, and the shader fades out what
+  // is near the edge of either, so a rebuild round the eye changes nothing on screen. Also each cloud's ellipsoid
+  // (vols: to fly through, and the murk's light)
+  function* cumulusJob(b, a0, z0, out = S.clouds) {
+    const R = b.radius, step = CUMULUS_STEP, Q = CLOUD_Q[Settings.high ? 1 : 0], n = Math.ceil(Q.lay / step);
+    const ia = Math.floor((a0 * R) / step), iq = Math.round(z0 / step), list = new Float32Array(CLOUD_MAX * 16), vols = [], c = {};
     let k = 0, work = 0;
+    const at = (ang, z, h, o) => { const d = ang - a0, r = R + h, cz = Math.cos(z / R); o[0] = -r * cz * Math.sin(d); o[1] = r * cz * Math.cos(d) - R; o[2] = r * Math.sin(z / R); return o; };
+    const C3 = [0, 0, 0], P3 = [0, 0, 0];
     for (let qq = -n; qq <= n; qq++) for (let p = -n; p <= n; p++) {
-      if ((++work & 63) === 0) yield;
-      const q = iq + qq, i = ia + p, row0 = q === 0;
-      const hh = (s) => (row0 ? hash1(i, s) : hashI(i, q, s * 7 + 3));
-      if (hh(21) > 0.62) continue;
+      if ((++work & 15) === 0) yield;
       const dc = Math.hypot(p, qq);
       if (dc > n) continue;
-      const far = dc > nearN, np = far ? (hi ? 4 : 3) : hi ? 14 : 8;
-      const base = 1400 + hh(22) * 2200, wdt = 300 + hh(23) * 750, ht = wdt * (0.35 + 0.35 * hh(30));
-      const ang = (i * step) / R, zc = row0 ? 0 : (q + (hh(27) - 0.5) * 0.6) * step;
-      const rc = R + base + ht * 0.45, d0 = ang - a0, c0 = Math.cos(zc / R);
-      vols.push([-rc * c0 * Math.sin(d0), rc * c0 * Math.cos(d0) - R, rc * Math.sin(zc / R), wdt * 0.5, ht * 0.6]); // to fly through
-      for (let j = 0; j < np && k < CLOUD_MAX; j++) {
-        const g = (s) => (row0 ? hash1(i * 7 + j, s) : hashI(i * 7 + j, q, s));
-        const t = Math.pow(g(25), 1.6), y = t * ht * 0.85; // more puffs low down, a narrowing heap above
-        const rr = (1 - 0.65 * t) * wdt * 0.5 * Math.sqrt(g(24)), th = g(28) * TAU, ox = rr * Math.cos(th), oz = rr * Math.sin(th) * 0.8;
-        const s = wdt * (0.42 + 0.3 * g(26)) * (1 - 0.35 * t) * (far ? 1.5 : 1);
-        const a = ang - ox / R, z = zc + oz, d = a - a0, r = R + base + y + s * 0.18, cz = Math.cos(z / R), o = k * 8;
-        list[o] = -r * cz * Math.sin(d); list[o + 1] = r * cz * Math.cos(d) - R; list[o + 2] = r * Math.sin(z / R); list[o + 3] = s;
-        list[o + 4] = g(29) * TAU; list[o + 5] = Math.floor(g(31) * 4); list[o + 6] = clamp(t * 1.15 + (g(32) - 0.5) * 0.2, 0, 1); list[o + 7] = 0.75 + 0.25 * g(33);
+      const q = iq + qq, i = ia + p;
+      if (!cumulusCell(i, q, c) || (c.extra && !Settings.high)) continue; // (Low: the old cells only)
+      const wdt = c.wdt, ht = c.ht, rx = wdt * 0.62, ry = ht / 2, ang = (i * step) / R, zc = c.zc * step, kind = c.kind;
+      at(ang, zc, c.base + ry, C3);
+      vols.push([C3[0], C3[1], C3[2], rx * 0.92, ry * 1.05, rx, ry]); // (to fly through: the murk; its radii for the murk's light)
+      const g = (j, s) => (q === 0 ? hash1(i * 7 + j, s) : hashI(i * 7 + j, q, s));
+      // (what of it is laid out goes by how near the field's middle its nearest puff can be: its middle's distance less its
+      // half width)
+      const near = Math.hypot(wrapAngle(ang - a0) * R, zc - z0) - rx * 0.9;
+      if (near > Q.lod[3] + CLOUD_IN) continue; // (none of it can be seen before the next rebuild)
+      const nc = kind === 1 ? Math.min(2 + Math.round(ht / (wdt * 0.55)), Q.nc + 1) : Math.min(3 + (wdt > 760 ? 1 : 0), Q.nc), inMid = near <= Q.mid + CLOUD_IN; // (Q.nc: Low lays out fewer, bigger core puffs: CLOUD_VS grows them by uMid.y)
+      const nd = near <= Q.det ? Math.round(Q.nd * clamp((wdt * (ht + 150)) / 260000, 0.5, kind === 1 ? 2.2 : 1.5)) : 0;
+      const ax = g(0, 40) * Math.PI, ca = Math.cos(ax), sa = Math.sin(ax);
+      for (let j = 0; j < nc + nd && k < CLOUD_MAX; j++) {
+        const det = j >= nc, m = det ? j - nc : j, stay = !det && (kind === 1 ? m === 0 || (Q.stay > 1 && m === nc - 1) : m < Q.stay); // (one or two core puffs stay at any distance: a tower's foot and crown)
+        const second = stay && Q.far2 && m === 1 && kind !== 1; // (High: the second core puff goes at far2)
+        if ((!det && !stay && !inMid) || (second && near > Q.far2 + CLOUD_IN)) continue;
+        let along, across, hb, s, sq, cell;
+        if (!det && kind === 1) { // a towering cloud's column, narrowing up
+          const f = nc > 1 ? m / (nc - 1) : 0;
+          along = (g(j, 41) - 0.5) * 0.3 * rx; across = (g(j, 42) - 0.5) * 0.3 * rx; hb = ht * (0.12 + 0.68 * f); s = wdt * (0.82 - 0.22 * f); sq = 0.9;
+          cell = f > 0.7 ? Math.floor(g(j, 43) * 8) : 8 + Math.floor(g(j, 43) * 6);
+        } else if (!det) { // the core: big billows along the cloud, low in it (its base cuts them flat)
+          along = ((m + 0.5) / nc - 0.5) * (kind === 2 ? 1.5 : nc < 3 ? 1.6 : 1.25) * rx + (g(j, 41) - 0.5) * 0.25 * rx; across = (g(j, 42) - 0.5) * 0.55 * rx; // (spread along it: as much sky for as few pixels)
+          hb = ht * 0.12 * g(j, 44); // (a dome on the base: the base cuts the billow at its widest)
+          s = wdt * (kind === 2 ? 0.42 + 0.16 * g(j, 48) : 0.55 + 0.22 * g(j, 48)); sq = clamp((2 * (ht * (0.95 + 0.15 * g(j, 49)) - hb)) / s, 0.45, 1.3);
+          cell = kind === 2 ? 8 + Math.floor(g(j, 43) * 8) : g(j, 52) < 0.5 ? Math.floor(g(j, 43) * 8) : 8 + Math.floor(g(j, 43) * 6); // (half cauliflower, half billows; stratocumulus's billows include the flat ones, 14-15)
+        } else { // the detail: turrets on its upper side (a towering one's up its column, most at its crown)
+          const th = g(j, 46) * TAU, el = kind === 1 ? 0 : (0.15 + 0.75 * Math.sqrt(g(j, 47))) * (Math.PI / 2), rr = kind === 1 ? 0.4 : 0.15 + 0.35 * Math.cos(el); // (spread over its top, on its body: lumpy from above too, never a speck beside it)
+          along = rr * rx * Math.cos(th); across = rr * rx * Math.sin(th);
+          hb = kind === 1 ? ht * (0.25 + 0.65 * Math.sqrt(g(j, 47))) : ht * (0.22 + 0.36 * Math.sin(el)); // (set into the body, not floating over it)
+          sq = 0.85 + 0.15 * g(j, 50); s = Math.max(Math.min(wdt * (0.28 + 0.18 * g(j, 48)), kind === 1 ? wdt : (2 * (ht * 1.12 - hb)) / sq), wdt * 0.34); // (never a speck: at least a third of the cloud)
+          cell = Math.floor(g(j, 43) * 8);
+        }
+        s *= CUMULUS_FIT[cell]; // (the quad fitted to its heap: CUMULUS_FIT)
+        const ox = along * ca - across * sa, oz = (along * sa + across * ca) * 0.85;
+        at(ang - ox / R, zc + oz, c.base + hb, P3);
+        const o = k * 16;
+        list[o] = P3[0]; list[o + 1] = P3[1]; list[o + 2] = P3[2]; list[o + 3] = s;
+        list[o + 4] = (g(j, 29) - 0.5) * 0.4; list[o + 5] = (cell + 0.5) * (g(j, 31) < 0.5 ? -1 : 1); list[o + 6] = sq; list[o + 7] = det ? 0.86 + 0.12 * g(j, 33) : 0.94 + 0.06 * g(j, 33);
+        list[o + 8] = (P3[0] - C3[0]) / rx; list[o + 9] = (P3[1] - C3[1]) / ry; list[o + 10] = (P3[2] - C3[2]) / rx; list[o + 11] = hb + (g(j, 51) - 0.5) * Math.min(8, ht * 0.03); // (each puff's base a little up or down: not a ruled line)
+        list[o + 12] = ry / rx; list[o + 13] = det ? Q.lod[1] : second ? Q.far2 : stay ? 0 : Q.mid; list[o + 14] = rx; list[o + 15] = ht;
         k++;
       }
     }
-    Object.assign(S.clouds, { b, a0, z0, list, n: k, vols, sortAt: -9, sortP: null });
+    Object.assign(out, { b, a0, z0, list, n: k, vols, sortAt: -9, sortP: null });
   }
   // The puffs are see-through, so they are drawn far to near: re-sorted a few times a second.
   // (the sort: each puff's distance² as float32 bits, which order as the floats do, times 2^13 plus its index, in one
@@ -3383,24 +4015,21 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // comparator's calls)
   const puffKey = new Float32Array(1), puffBits = new Uint32Array(puffKey.buffer), puffOrd = new Float64Array(CLOUD_MAX);
   function sortPuffs(cam) {
-    const C0 = S.clouds, L = C0.list, n = C0.n;
-    if (!L) { S.puffs.count = 0; return; }
+    const C0 = S.clouds, L = C0.list, n = C0.n, g = S.puffs.geometry;
+    if (!L) { g.instanceCount = 0; return; }
     for (let k = 0; k < n; k++) {
-      const o = k * 8, dx = L[o] - cam.x, dy = L[o + 1] - cam.y, dz = L[o + 2] - cam.z;
+      const o = k * 16, dx = L[o] - cam.x, dy = L[o + 1] - cam.y, dz = L[o + 2] - cam.z;
       puffKey[0] = dx * dx + dy * dy + dz * dz;
       puffOrd[k] = puffBits[0] * 8192 + k;
     }
-    const ord = puffOrd.subarray(0, n).sort();
-    const m = S.puffs.instanceMatrix.array, at = S.puffAttr.array;
-    for (let j = 0; j < n; j++) {
-      const o = (ord[n - 1 - j] % 8192) * 8, s = L[o + 3], w = j * 16, v = j * 4;
-      m[w] = s; m[w + 1] = 0; m[w + 2] = 0; m[w + 3] = 0; m[w + 4] = 0; m[w + 5] = s; m[w + 6] = 0; m[w + 7] = 0;
-      m[w + 8] = 0; m[w + 9] = 0; m[w + 10] = s; m[w + 11] = 0; m[w + 12] = L[o]; m[w + 13] = L[o + 1]; m[w + 14] = L[o + 2]; m[w + 15] = 1;
-      at[v] = L[o + 4]; at[v + 1] = L[o + 5]; at[v + 2] = L[o + 6]; at[v + 3] = L[o + 7];
+    const ord = puffOrd.subarray(0, n).sort(), A = C0.u32 || (C0.u32 = new Uint32Array(S.puffBuf.array.buffer)), B = C0.l32 && C0.l32.buffer === L.buffer ? C0.l32 : (C0.l32 = new Uint32Array(L.buffer));
+    for (let j = 0; j < n; j++) { // (the rows copied as their bits: 40 % quicker than as floats)
+      const o = (ord[n - 1 - j] % 8192) * 16, w = j * 16;
+      for (let e = 0; e < 16; e++) A[w + e] = B[o + e];
     }
-    S.puffs.count = n;
-    S.puffs.instanceMatrix.needsUpdate = true;
-    S.puffAttr.needsUpdate = true;
+    g.instanceCount = n;
+    S.puffBuf.clearUpdateRanges(); S.puffBuf.addUpdateRange(0, Math.max(1, n * 16)); // (only the rows in use go up)
+    S.puffBuf.needsUpdate = true;
   }
 
   // ------------------------------------------------------------------ space centre (Earth)
@@ -4271,9 +4900,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // Contact shadows and scorch marks: one mesh of flat quads on the ground as drawn (DECAL_VS/FS), drawn first among the
   // see-through things (after the ground, never on water), no shadows. Filled each frame from state by syncDecals: nothing
   // in the sim reads it. While S.warm counts down it stays on show, empty, so its program is built while loading. Its
-  // quad is the cumulus puffs' own unit plane (no geometry of its own: its attributes ride in the instance matrices)
+  // quad is a unit plane (its attributes ride in the instance matrices; it shared the cumulus puffs' until they became
+  // octagons)
   function initDecals() {
-    S.decal = new THREE.InstancedMesh(S.puffs.geometry, smat({
+    S.decal = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smat({
       vertexShader: DECAL_VS, fragmentShader: DECAL_FS, uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), { uMap: { value: S.cloudU.uMap.value } }),
       defines: { OB_NOFOG: '' }, fog: true, transparent: true, depthWrite: false,
     }), DECAL_N);
@@ -4751,6 +5381,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     U.uDip.value = envC.alt > 0 && !b.star ? Math.acos(clamp(R / (R + envC.alt), -1, 1)) : 0;
     U.uSunsetK.value = envC.sunset * 0.8;
     U.uGlare.value = envC.day * (0.25 + 0.75 * envC.atmo) * (b.star ? 0 : 1);
+    cirrus(F, b, U, envC);
     S.sky.position.copy(camera.position); S.haze.position.copy(camera.position);
     S.haze.material.uniforms.uAlpha.value = envC.atmo > 0 ? clamp(Math.pow(envC.atmo, 0.6) * (0.25 + 0.6 * envC.day), 0, 0.85) : 0;
     S.haze.visible = S.haze.material.uniforms.uAlpha.value > 0.003;
@@ -4798,12 +5429,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const g = U.uGlare.value, fl = S.fogLin;
     if (b.haze) setCol3(fl, mixC(hor, fogOf(b), 0.6, T1));
     else { fl.copy(U.uHor.value).multiplyScalar(1 + 0.08 * g); fl.r += 0.01 * g; fl.g += 0.01 * g; fl.b += 0.01 * g; }
-    const inCloud = S.clouds.inside; // flying through a cloud: thick, bright murk
-    if (inCloud > 0.002) {
-      localScene.fog.density = lerp(localScene.fog.density, 3.76e-3, inCloud); // (50 % at 208 m, as today's 0.004 squared)
-      fl.lerp(S.cloudFogC.setRGB(0.72, 0.75, 0.8).multiplyScalar(0.2 + 0.9 * day), inCloud);
-    }
-    const ins = (b.haze ? 0 : 1) * (1 - inCloud), sk = U.uSunsetK.value, sc0 = U.uSunset.value, gw = U.uGlow.value;
+    // flying through a cloud: the murk is a veil over the whole view in the cloud's own light (updateClouds: S.murk), not a
+    // thicker haze (which greyed out the ground for kilometres while the sky and the clouds round about stayed sharp)
+    const ins = b.haze ? 0 : 1, sk = U.uSunsetK.value, sc0 = U.uSunset.value, gw = U.uGlow.value;
     V1.copy(U.uSun.value).transformDirection(camera.matrixWorldInverse);
     FOGX.sun[0] = V1.x; FOGX.sun[1] = V1.y; FOGX.sun[2] = V1.z; FOGX.sun[3] = sk * 0.98 * ins; // (0.98: SKY_FS's 1 − smoothstep(−0.05, 0.55, el) at el = 0)
     const fu = S.fogUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
@@ -4877,6 +5505,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // flight's shadow filter: three's PCF type, its branch patched to 4 taps and a faded edge (patchShadow)
     if (PATCHED.shadow) renderer.shadowMap.type = THREE.PCFShadowMap;
     nearCull(); // (the near ground's tiles in view)
+    if (api.bench.ground === false || api.bench.water === false || api.bench.oldWater || S.wBench) benchWater(); // (measuring only)
     if (!api.skipDraw) renderer.render(localScene, camera);
     if (PX.warm > 0 && PX.set && renderer.shadowMap.autoUpdate && !api.skipDraw && --PX.warm === 0) { // (drawn with the stand-ins on show: their programs compiled, shadowProxies)
       for (const [, px] of PX.set.casts) px.visible = px.nSh > 0;
@@ -5080,9 +5709,16 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   }
 
   function updateClouds(F, b, camAlt) {
-    const C0 = S.clouds, on = b === EARTH && camAlt < 12000 && patch.active;
+    const C0 = S.clouds, on = (C0.on = b === EARTH && camAlt < 12000 && patch.active);
     S.cloudFrame.visible = on;
-    if (!on) { C0.job = null; C0.inside = 0; return; }
+    if (!on) { C0.job = null; C0.inside = 0; S.murk.visible = false; return; }
+    if (C0.atlas) { // (the puffs' atlas, a slice a frame; then the clouds fade in)
+      const t0 = performance.now();
+      while (C0.atlas && performance.now() - t0 < (Settings.high ? 2 : 1.5)) if (C0.atlas.next().done) { C0.atlas = null; S.cloudU.uAtlas.value = CL.tex; S.skyU.uCi.value = S.cloudU.uCi.value = CL.ci; C0.at0 = clock; }
+      if (C0.atlas) { S.cloudFrame.visible = false; return; }
+    }
+    if (Settings.high && (!CLH.tex || S.cloudU.uAtlas.value !== CLH.tex)) sharpAtlas();
+    C0.fade = clamp((clock - C0.at0) / 1, 0, 1); S.cloudU.uK.value.w = C0.fade * (1 - smoothstep(10000, 12000, camAlt)); // (in over a second once baked; out as the eye climbs to 12 km, where the deck has come in)
     const R = b.radius, drift = F.time * 0.000002, L = focusSpot(F, b), a = L.a - drift, z = L.z;
     const moved = C0.b === b ? Math.hypot(wrapAngle(a - C0.a0) * R, z - C0.z0) : Infinity;
     if (moved > 6000) { // a new body or a jump: all at once
@@ -5103,19 +5739,107 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.cloudFrame.worldToLocal(V1);
     // (re-sorted only once the camera has moved a metre among them: a new list has no sortP)
     if (clock - C0.sortAt > 0.2 && !(C0.sortP && V1.distanceToSquared(C0.sortP) < 1)) { C0.sortAt = clock; sortPuffs(V1); (C0.sortP || (C0.sortP = tmpV())).copy(V1); }
-    // inside a cloud the world turns to white murk (the fog, next frame)
-    let inside = 0;
-    for (const v of C0.vols) {
-      const dx = (V1.x - v[0]) / v[3], dy = (V1.y - v[1]) / v[4], dz = (V1.z - v[2]) / v[3], d = dx * dx + dy * dy + dz * dz;
-      if (d < 1) inside = Math.max(inside, 1 - d);
+    S.puffs.visible = S.puffs.geometry.instanceCount > 0;
+    // the light: the Sun's (its colour and strength on the ground, CLOUD_VS takes it through the cloud), the sky's (its
+    // irradiance as the sky light has it, skyCoeffs: the env cube's own formula), the haze's
+    const U = S.cloudU, Q = CLOUD_Q[Settings.high ? 1 : 0], sk = S.skyL && S.skyL.obUp.value;
+    // the light: the Sun's, and at night the Moon's through the same path (cool and dim, as bright as the Moon is full and
+    // high), along the two lights' weighted direction; so tops catch it and sides fall into shadow. Continuous through
+    // dusk: the Sun's fades (day) as the Moon's comes in
+    // (the Sun's strength by its height alone: envAt's day also takes the planet's shadow cylinder, which steps at sunset;
+    // the clouds, high up, keep the light smoothly into the night. Clouds are Earth's only, which has no haze)
+    const day = smoothstep(-0.15, 0.07, envV.elev), mo = cloudMoon(F, b), ws = 3.1 * day * CLOUD_SUN, wm = CLOUD_MOON * mo.k * (1 - day);
+    S.cloudLV.copy(S.sunV).multiplyScalar(ws).addScaledVector(mo.v, wm);
+    if (S.cloudLV.lengthSq() < 1e-12) S.cloudLV.copy(S.sunV); else S.cloudLV.normalize();
+    U.uSunQ.value.copy(S.cloudLV).transformDirection(camera.matrixWorldInverse);
+    U.uSunC.value.copy(S.sun.color).multiplyScalar(ws);
+    U.uSunC.value.r += 0.62 * wm; U.uSunC.value.g += 0.7 * wm; U.uSunC.value.b += 0.9 * wm;
+    U.uNight.value.set(0.0045, 0.0055, 0.0085).multiplyScalar(1 - day);
+    // the puff's own normal in that light: all of it with the Sun up (its relief), 0.8 with the Sun under the horizon,
+    // and a third by the Moon, where without the sky's light to fill it each puff would be shaded as a ball: the cloud's
+    // light then comes from where the puff sits in it (vS.x)
+    U.uNw.value = 0.35 + (0.45 + 0.2 * smoothstep(-0.02, 0.15, envV.elev)) * (ws / (ws + wm + 1e-6));
+    for (let l = 0; l < 3; l++) if (sk) U.uAmb.value[l].copy(sk[l]).multiplyScalar(CLOUD_AMB);
+    U.uLod.value.set(Q.lod[0], Q.lod[1], Q.lod[2], Q.lod[3]); U.uDet.value = Settings.high ? 1 : 0; U.uFar.value.set(Q.farG, Q.farS);
+    const pm = S.puffs.material, lo = !Settings.high; // (Low: the cheaper pixels, OB_LO)
+    if (('OB_LO' in pm.defines) !== lo) { if (lo) pm.defines.OB_LO = ''; else delete pm.defines.OB_LO; pm.needsUpdate = true; } U.uMid.value.set(Q.mid, Q.grow, Q.far2 || 1, Q.far2 ? 0.4 : 0);
+    U.uFogC.value.copy(S.fogLin); U.uFogD.value = localScene.fog.density;
+    // inside a cloud the world turns to murk (the fog, next frame) in the cloud's own light there: the Sun's through the
+    // cloud to the eye (CLOUD_VS's law), less low in it, and the sky's
+    let inside = 0, vin = null;
+    for (let k = 0, vs = C0.vols, nv = vs.length; k < nv; k++) { // (indexed: no iterator, however the function is compiled)
+      const v = vs[k], dx = (V1.x - v[0]) / v[3], dy = (V1.y - v[1]) / v[4], dz = (V1.z - v[2]) / v[3], d = dx * dx + dy * dy + dz * dz;
+      if (d < 1 && 1 - d > inside) { inside = 1 - d; vin = v; }
     }
     C0.inside += (Math.min(1, inside * 2.5) - C0.inside) * 0.15;
-    // sunlit tops, sky-tinted shadows, warmer at sunset, dark at night
-    const e = envV, U = S.cloudU, day = e.day, warm = e.sunset;
-    U.uLit.value.setRGB(1, lerp(0.97, 0.66, warm), lerp(0.94, 0.42, warm)).multiplyScalar(0.1 + 1.55 * day + 0.6 * warm);
-    U.uShadow.value.copy(S.hemi.color).multiplyScalar(0.18 + 0.6 * day);
-    U.uSunV.value.copy(S.sunV).transformDirection(camera.matrixWorldInverse);
-    U.uFogC.value.copy(S.fogLin); U.uFogD.value = localScene.fog.density;
+    if (vin) S.cloudFogC.copy(cloudLight(vin, V1, U));
+    const mk = S.murk, ma = C0.inside > 0.002 ? 0.93 * smoothstep(0, 1, C0.inside) : 0;
+    mk.visible = ma > 0;
+    if (ma > 0) { // (the sheet 120 m ahead, square on, a little wider than the view)
+      const hh = 120 * TANH * 1.3;
+      mk.position.copy(camera.position).addScaledVector(V2.set(0, 0, -1).applyQuaternion(camera.quaternion), 120);
+      mk.quaternion.copy(camera.quaternion); mk.scale.set(hh * 2 * camera.aspect, hh * 2, 1);
+      S.murkU.uC.value.copy(S.cloudFogC); S.murkU.uA.value = ma;
+    }
+  }
+  // High: the sharp atlas, 256 px a cell, baked behind as a job (lazy: 1 ms a frame) once the first is up, then swapped
+  // in at once, the first let go (Low keeps the first). Its own function, so the swap's one-off path leaves updateClouds'
+  // compiled code alone
+  function sharpAtlas() {
+    if (!CLH.tex) { if (!CLH.job) { CLH.job = cumulusAtlas(CLH, 256); CLH.job.lazy = true; jobs.push(CLH.job); } return; }
+    const old = S.cloudU.uAtlas.value, t0 = performance.now();
+    S.cloudU.uAtlas.value = CLH.tex; renderer.initTexture(CLH.tex); CLH.job = null;
+    if (old && old !== CLH.tex) old.dispose();
+    note('cloudAtlas256', performance.now() - t0); // (the upload: Render3D.info().t)
+  }
+  // Cirrus (the clouds update): Earth's thin layer CIRRUS_H up, on High only, while the eye is a kilometre or more under
+  // it and its streaks are baked (with the puffs' atlas). Its plane's axes (east, north) and the eye's place on it (the
+  // body's angle and depth, drifting with the clouds), its light: the Sun's while the Sun is up 9 km up (long after it
+  // has set on the ground), warm with it, and the sky's
+  function cirrus(F, b, U, env) {
+    const h = CIRRUS_H - env.alt;
+    U.uCiA.value = b === EARTH && Settings.high && S.clouds && !S.clouds.atlas && CL.ci ? 0.62 * smoothstep(1000, 3000, h) : 0;
+    if (!U.uCiA.value) return;
+    const R = b.radius, L = focusSpot(F, b), drift = F.time * 0.000002, ux = env.ux, uy = env.uy, uz = env.uz;
+    toView(-ux * uz, -uy * uz, 1 - uz * uz, T3); U.uCiN.value.set(-T3.x, -T3.y, -T3.z).normalize(); // (north: −z along the ground)
+    U.uCiE.value.crossVectors(U.uCiN.value, U.uUp.value).normalize();
+    const e = (-(L.a - drift) * R * Math.max(0.2, Math.cos(L.z / R))) / CIRRUS_TILE, n = -L.z / CIRRUS_TILE, fr = (x) => x - Math.floor(x);
+    U.uCiP.value.set(h, 1 / CIRRUS_TILE);
+    U.uCiO.value.set(fr(e), fr(n), fr((0.8 * e - 0.6 * n) * 0.55), fr((0.6 * e + 0.8 * n) * 0.55));
+    const dip = Math.sqrt((2 * CIRRUS_H) / R), lit = smoothstep(-dip - 0.04, -dip + 0.06, env.elev), k = Math.max(env.day, lit);
+    const t = CL.t || (CL.t = new THREE.Color());
+    U.uCiC.value.copy(S.sun.color).multiplyScalar(0.62 * k).add(t.copy(U.uZen.value).multiplyScalar(0.5));
+    U.uCiC.value.lerp(t.copy(U.uSunset.value).multiplyScalar(0.9), clamp(lit - env.day, 0, 1) * 0.6); // (after sunset on the ground: lit from below, rosy)
+  }
+  // The light in a cloud at p (the cloud frame), as CLOUD_VS has it for a puff there: the Sun's through the cloud
+  // (Beer's law in three octaves, an even phase) and the sky's (its mean, less low in the cloud). The murk's colour.
+  const CL = { c: null, m: null, tex: null, ci: null, t: null }, CLH = { tex: null, job: null }; // (CLH: the sharp atlas, High)
+  // The Moon from the eye: its direction (the view's world axes, as S.sunV) and how much light it gives (its lit share,
+  // by the Sun-Moon-Earth angle, times how far over the horizon it is)
+  const MN = { v: null, k: 0 };
+  function cloudMoon(F, b) {
+    const v = MN.v || (MN.v = new THREE.Vector3());
+    if (b !== EARTH) { MN.k = 0; return MN; }
+    const mp = bodyPos(MOON, F.time), mx = mp.x, my = mp.y, ep = bodyPos(EARTH, F.time), ex = ep.x, ey = ep.y;
+    let dx = mx - camAbs.x, dy = my - camAbs.y, dz = -camAbs.z;
+    const dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    const el = dx * envV.ux + dy * envV.uy + dz * envV.uz; // (its height over the horizon, as a sine)
+    const sl = Math.hypot(mx, my) || 1, el2 = Math.hypot(ex - mx, ey - my) || 1, cph = (-mx * (ex - mx) - my * (ey - my)) / (sl * el2);
+    MN.k = 0.5 * (1 + cph) * smoothstep(-0.03, 0.1, el);
+    toView(dx, dy, dz, T3); v.set(T3.x, T3.y, T3.z).normalize();
+    return MN;
+  }
+  function cloudLight(v, p, U) {
+    const c = CL.c || (CL.c = new THREE.Color()), m = CL.m || (CL.m = new THREE.Matrix4());
+    const sf = V2.copy(S.cloudLV).transformDirection(m.copy(S.cloudFrame.matrixWorld).invert()), rx = v[5], ry = v[6];
+    let ox = (p.x - v[0]) / rx, oy = (p.y - v[1]) / ry, oz = (p.z - v[2]) / rx, oo = ox * ox + oy * oy + oz * oz;
+    if (oo > 0.81) { const k = 0.9 / Math.sqrt(oo); ox *= k; oy *= k; oz *= k; oo = 0.81; }
+    const Lx = sf.x, Ly = sf.y / (ry / rx), Lz = sf.z, A = Lx * Lx + Ly * Ly + Lz * Lz, B = ox * Lx + oy * Ly + oz * Lz;
+    const od = ((Math.sqrt(Math.max(B * B - A * (oo - 1), 0)) - B) / A) * rx * CLOUD_K[0], T = Math.max((Math.exp(-od) + 0.6 * Math.exp(-0.25 * od) + 0.4 * Math.exp(-0.06 * od)) * 0.5, 0.3);
+    const lo = 0.55 + 0.45 * smoothstep(-1, 0.5, oy), a = U.uAmb.value[0];
+    c.copy(U.uSunC.value).multiplyScalar(T * 0.6);
+    c.r += a.x * lo; c.g += a.y * lo; c.b += a.z * lo;
+    return c;
   }
 
   function updateSpaceCentre(F, b, env, dist) {
@@ -5167,9 +5891,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       e.root.position.set(x, y, z);
       if (v.remote || v.ai || v.wreck) reseat(F, v, e, d, dt); // (a far ground vehicle sits on the ground as drawn)
       if (v.sink > 0) { // (a wreck or a cold piece going: lowered into the ground over its last 6 s, all of it under by the end)
-        if (e.sinkH == null) e.sinkH = isGround(v.kind) ? standH(v) : ext; // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
-        const r = Math.hypot(v.x, v.y, v.z) || 1, s = Math.min(1, v.sink) * (e.sinkH + 1);
+        if (e.sinkH == null) { e.sinkH = isGround(v.kind) ? standH(v) : ext; e.wet = wetUnder(v); if (e.wet) e.topH = 0.5 * standH(v); } // (review P2-GND-1: how tall it stands as it lies, on its side or roof too)
+        const r = Math.hypot(v.x, v.y, v.z) || 1, u = Math.min(1, v.sink), s = e.wet ? sinkDrop(e, u) : u * (e.sinkH + 1);
         e.root.position.x -= (v.x / r) * s; e.root.position.y -= (v.y / r) * s; e.root.position.z -= (v.z / r) * s;
+        if (e.wet) sinkVeil(e, v, r, s, u, d, ext); // (in water: down through it, drawn through the water by its own depth)
       }
       // (the big update) a wreck drawn for BAKE_S (wall clock, from its first frame drawn as one) is baked to one mesh
       // (Parts3D's VesselMesh.bake: one draw for its 14-29, and one shadow draw), once the small copies of its textures it
@@ -5189,11 +5914,168 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       e.vm.sync(v, q);
       if (v === F.active) glowK = engineGlow(v, e.vm, x, y, z);
     }
-    for (const [v, e] of vessels) if (e.seen !== frameNo) { localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    for (const [v, e] of vessels) {
+      if (e.seen !== frameNo && sinkGhost(F, v, e, camSim)) continue; // (an aircraft that crashed into the water, drawn sinking)
+      if (e.seen !== frameNo) { unveil(e); localWorld.remove(e.root); e.vm.dispose(); vessels.delete(v); }
+    }
+    sinkSlots(F);
     if (S.warm > 0 || S.bakeW) warmBake(F);
     if (!glowK) S.engine.intensity = 0;
     sheath(F);
     syncDecals(F, dt);
+  }
+  // Measuring the water (bench.ground false: the ground hidden, what is under the water seen; bench.water false: the water
+  // hidden; bench.oldWater: the water drawn with its shader as it was before its depth, for the cost of it alone). A test
+  // hook only: on the next frame after they are all cleared again, everything is as it was
+  function benchWater() {
+    const B = api.bench, ow = !!B.oldWater && S.deepW;
+    S.wBench = B.ground === false || B.water === false || ow;
+    for (const m of [terr.mat, terr.nmat, terr.amat]) if (m) m.visible = B.ground !== false;
+    if (ow && !S.oldWater) { const m = (S.oldWater = terr.oceanMat.clone()); m.onBeforeCompile = waterHook; m.defines = { ...terr.oceanMat.defines }; delete m.defines.OB_DEEP; }
+    if (S.oldWater) { const m = ow ? S.oldWater : terr.oceanMat; for (const P of [patch, patchB]) if (P.ocean) { P.ocean.material = m; P.inland.material = m; } if (!ow) { S.oldWater.dispose(); S.oldWater = null; } }
+    terr.oceanMat.visible = B.water !== false;
+    if (S.oldWater) S.oldWater.visible = B.water !== false;
+  }
+  // ------------------------------------------------------------------ things sinking away through the water
+  // Render only: when they go is the sim's (death.js: junk, ground wrecks), and nothing here is read back. A wreck or a
+  // cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most SINK_MAX m, slowly
+  // at first), and an aircraft that crashed into the water (v.dead, death.js's crash) is drawn sinking for SINK_GHOST s of
+  // the sim's time (sinkGhost: its mesh kept, as it was when it hit). Each is drawn through the water by its own depth,
+  // not the bottom's: its pixels are marked in the stencil (its slot, 1..WATER.sinks, nearest first), the water isn't
+  // drawn there, and a veil of the same water (OB_VEIL) is drawn there instead, over it, absorbing by the depth of its
+  // top (sinkVeil), wholly the water's colour by the end. No sinking thing, no stencil: the water draws as without them.
+  const SINK_MAX = 16, SINK_GHOST = 8, LOCW = {}, VP = v3(), sinkCand = [];
+  // the water at a vessel (its surface's level and the bottom's, m), or null over dry ground or a deck
+  function wetUnder(v) {
+    const b = v.body;
+    if (!b || !b.radius) return null;
+    const L = Terrain.locate(b, v.x, v.y, v.z, LOCW);
+    if (!Terrain.waterAt(b, L.a, L.z)) return null;
+    return { level: Terrain.surfaceAt(b, L.a, L.z), bed: Terrain.heightAt(b, L.a, L.z) };
+  }
+  // how far down (m) a thing sinking in water is drawn, u its sink 0..1: to the bottom (a little into it) or SINK_MAX m,
+  // at least all of it under, slowly at first as it fills
+  const sinkDrop = (e, u) => Math.max(e.sinkH + 1, Math.min(e.wet.level - e.wet.bed + 0.5 * e.sinkH, SINK_MAX)) * Math.pow(u, 1.5);
+  // a sinking thing's veil this frame: how deep its top lies (m), how much of the water's colour at least, where it is
+  // (its centre, from the focus, sim axes), how big and how far from the eye (d); sinkSlots picks the nearest
+  function sinkVeil(e, v, r, s, u, d, ext) {
+    const depth = e.wet.level - (r - v.body.radius - s);
+    if (depth <= -(e.topH || 0)) return; // (still all over the water)
+    const V = e.veil || (e.veil = { x: 0, y: 0, z: 0, ux: 0, uy: 0, uz: 0, dep: 0, min: 0, rad: 0, d: 0, lvl: 0, bed: 0, b: null });
+    V.x = e.root.position.x; V.y = e.root.position.y; V.z = e.root.position.z; V.ux = v.x / r; V.uy = v.y / r; V.uz = v.z / r;
+    V.dep = Math.max(0, depth - 0.8 * (e.topH || 0)); V.min = smoothstep(0.75, 1, u); V.rad = 0.6 * ext + 1.5; V.d = d; V.b = v.body;
+    V.lvl = e.wet.level; V.bed = e.wet.bed;
+    sinkCand.push(e);
+  }
+  // An aircraft that crashed into the water (dead, in one piece, drawn the frame before, its centre within its own size of
+  // the surface, over water): its mesh is kept and drawn sinking for SINK_GHOST s of the sim's time, at most 3 at once; a
+  // new flight (Flight's flags object renewed) or the time going back ends it. true: it is drawn this frame
+  function sinkGhost(F, v, e, camSim) {
+    if (!e.ghost) {
+      if (!(v.dead && v.parts.length && v.body && isAirKind(v.kind) && v.kind !== 'rocket' && !v.wreck && !v.remote && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
+      let n = 0;
+      for (const o of vessels.values()) if (o.ghost) n++;
+      if (n >= 3) return false;
+      const w = wetUnder(v);
+      if (!w) return false;
+      const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1), r = Math.hypot(v.x, v.y, v.z);
+      if (r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
+      e.ghost = { t0: F.time, flags: F.flags, ext }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+    }
+    const G = e.ghost, u = (F.time - G.t0) / SINK_GHOST;
+    if (!(u >= 0 && u < 1) || F.flags !== G.flags) return false;
+    e.seen = frameNo;
+    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, s = sinkDrop(e, u);
+    const x = bp.x + v.x - camAbs.x - (v.x / r) * s, y = bp.y + v.y - camAbs.y - (v.y / r) * s, z = v.z - camAbs.z - (v.z / r) * s;
+    e.root.position.set(x, y, z);
+    sinkVeil(e, v, r, s, u, Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z), G.ext);
+    return true;
+  }
+  // The stencil and the veils, after syncVessels' loop: the nearest WATER.sinks candidates take slots 1.. (their meshes
+  // write it), the water skips every marked pixel while any slot is taken, and each slot's veil lies on the water over
+  // its thing. With no deep water (S.deepW false: the old water) there are none: a sinking thing is hidden as before
+  function sinkSlots(F) {
+    const C = sinkCand, n = S.deepW ? Math.min(C.length, WATER.sinks) : 0;
+    if (C.length > 1) C.sort((a, b) => a.veil.d - b.veil.d);
+    for (const e of vessels.values()) if (e.slot) { const i = C.indexOf(e); if (!(i >= 0 && i < n)) unveil(e); }
+    for (let i = 0; i < n; i++) veilOn(F, C[i], i + 1);
+    if (S.veils) for (let i = n; i < S.veils.length; i++) S.veils[i].visible = false;
+    if (S.warm > 0 && S.deepW && !n) { const q = veilMesh(1); q.geometry.attributes.position.array.fill(0); q.geometry.attributes.position.needsUpdate = true; q.visible = true; } // (its program built while loading: nothing drawn)
+    const m = terr.oceanMat, on = n > 0;
+    if (m.stencilWrite !== on) Object.assign(m, { stencilWrite: on, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: 0, stencilFuncMask: 0xff });
+    C.length = 0;
+  }
+  // a vessel's meshes write `ref` into the stencil where they are drawn (0: they stop); a baked wreck's mesh gets a
+  // material of its own for it (the baked one is shared), given back when it stops
+  function markStencil(e, ref) {
+    e.root.traverse((o) => {
+      if (!o.material || !(o.isMesh || o.isSprite || o.isLine || o.isPoints)) return;
+      if (ref && o.userData.baked && !o.userData.veilOwn) { o.material = o.material.clone(); o.userData.veilOwn = true; }
+      for (const q of Array.isArray(o.material) ? o.material : [o.material]) {
+        q.stencilWrite = ref > 0; q.stencilRef = ref; q.stencilFunc = THREE.AlwaysStencilFunc; q.stencilZPass = THREE.ReplaceStencilOp; q.stencilWriteMask = 0xff;
+      }
+      if (!ref && o.userData.veilOwn) { o.material.dispose(); o.material = Parts3D.bakeMat(); o.userData.veilOwn = false; }
+    });
+  }
+  function unveil(e) {
+    if (!e.slot) return;
+    markStencil(e, 0);
+    e.slot = 0;
+  }
+  // slot k's veil (made on first use: the water's material with OB_VEIL and the slot's stencil test; drawn after the water)
+  function veilMesh(k) {
+    const L = S.veils || (S.veils = []);
+    while (L.length < k) {
+      const i = L.length + 1, g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(12), 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(8), 2));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(16), 4));
+      g.setAttribute('aWater', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+      g.setIndex([0, 1, 2, 2, 1, 3]);
+      const m = terr.oceanMat.clone();
+      m.defines = { ...terr.oceanMat.defines, OB_VEIL: '' }; m.onBeforeCompile = waterHook; // (a clone has three's empty hook)
+      m.userData = { veil: { value: new THREE.Vector4() } };
+      Object.assign(m, { stencilWrite: true, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: i, stencilFuncMask: 0xff, depthWrite: false });
+      const q = new THREE.Mesh(g, m);
+      q.renderOrder = 2.5; q.frustumCulled = false; q.visible = false;
+      const mu = new THREE.Mesh(g, smat({ uniforms: { uD: { value: 0 }, uSig: { value: WATER.sig }, uTint: { value: new THREE.Vector3(...WATER.tint) } }, vertexShader: VEILM_VS, fragmentShader: VEILM_FS,
+        transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, stencilWrite: true, stencilWriteMask: 0, stencilFunc: THREE.EqualStencilFunc, stencilRef: i, stencilFuncMask: 0xff }));
+      mu.renderOrder = 2; mu.frustumCulled = false;
+      q.add(mu); q.userData.mul = mu; // (the first pass: the same quad, multiplied in, shown with it)
+      localWorld.add(q);
+      L.push(q);
+    }
+    return L[k - 1];
+  }
+  // a veil on the water over its thing: centred where the eye's line to the thing's centre meets the water, as wide as the
+  // thing seen through the water there (the eye's height over the water, ch, and the centre's depth under it, D: the
+  // thing seen at ch / (ch + D) of its size), with the patch's own UVs (the ripples run on across its edge) and the
+  // water's own colour there
+  function veilOn(F, e, k) {
+    if (e.slot !== k) { if (e.slot) markStencil(e, 0); e.slot = k; }
+    markStencil(e, k); // (every frame: a rig's materials can be made afresh)
+    const V = e.veil, q = veilMesh(k), g = q.geometry, P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array, Cl = g.attributes.color.array;
+    const c = camera.position, cs = toSim(c.x, c.y, c.z, VP), b = V.b, R = b.radius + V.lvl;
+    const bp = bodyPos(b, F.time), ax = camAbs.x - bp.x, ay = camAbs.y - bp.y, az = camAbs.z;
+    const ch = Math.hypot(ax + cs.x, ay + cs.y, az + cs.z) - R, D = Math.max(0, R - Math.hypot(ax + V.x, ay + V.y, az + V.z));
+    const f = ch > 0 ? ch / (ch + D) : 1, qx = cs.x + (V.x - cs.x) * f, qy = cs.y + (V.y - cs.y) * f, qz = cs.z + (V.z - cs.z) * f;
+    const rad = (V.rad + 1) * Math.max(f, 0.3) + 1.5, ux = V.ux, uy = V.uy, uz = V.uz;
+    // a square on the water there, along east and north at the thing, its corners on the water's sphere
+    const el = Math.hypot(ux, uy) || 1, ex = -uy / el, ey = ux / el, nx = -uz * ey, ny = uz * ex, nz = ux * ey - uy * ex;
+    for (let i = 0; i < 4; i++) {
+      const se = i & 1 ? rad : -rad, sn = i & 2 ? rad : -rad;
+      const wx = qx + ex * se + nx * sn + ax, wy = qy + ey * se + ny * sn + ay, wz = qz + nz * sn + az, wr = Math.hypot(wx, wy, wz) || 1, k2 = R / wr;
+      P[i * 3] = wx * k2 - ax; P[i * 3 + 1] = wy * k2 - ay; P[i * 3 + 2] = wz * k2 - az;
+      N[i * 3] = wx / wr; N[i * 3 + 1] = wy / wr; N[i * 3 + 2] = wz / wr;
+      if (patch.b === b) { const L = Terrain.locate(b, wx, wy, wz, LOCW); U[i * 2] = (wrapAngle(L.a - patch.a0) * b.radius * patch.kl + patch.uo) / TILE; U[i * 2 + 1] = (L.z - patch.z0 + patch.vo) / TILE; }
+    }
+    const dep = V.lvl - V.bed, col = b.ocean && V.lvl === 0 ? seaBody(dep, 0, T1) : mixC(LAKE_D, LAKE_B, smoothstep(4, 30, dep) * 0.5, T1);
+    for (let i = 0; i < 4; i++) { Cl[i * 4] = lin(col[0]); Cl[i * 4 + 1] = lin(col[1]); Cl[i * 4 + 2] = lin(col[2]); Cl[i * 4 + 3] = 1; }
+    for (const a of ['position', 'normal', 'uv', 'color']) g.attributes[a].needsUpdate = true;
+    q.material.userData.veil.value.set(V.dep, V.min, 0, 0);
+    q.userData.mul.material.uniforms.uD.value = V.dep;
+    q.visible = true;
   }
   // The baked wrecks' material (Parts3D.bakeMat) compiled while a flight with a ground vehicle in it loads (S.warm's first
   // frames), not 6 s after the first kill: a speck with no area drawn with it, as the effect meshes are (initParticles)
@@ -5693,6 +6575,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.warm = 3; // (new defines, new programs: compiled over the next frames drawn, init)
     if (hi) terr.oceanMat.defines.OB_HI = ''; else delete terr.oceanMat.defines.OB_HI; // (the water's second ripple set)
     terr.oceanMat.needsUpdate = true;
+    if (S.veils) for (const q of S.veils) { const m = q.material; if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the veils over sinking things: the water's own)
     for (const m of [terr.mat, terr.amat, terr.nmat]) if (m) { if (hi) m.defines.OB_HI = ''; else delete m.defines.OB_HI; m.needsUpdate = true; } // (the ground's 48 m variation: the patch, the arena's ground and the near ground alike, one program)
     PX.warm = 3; // (and the shadow stand-ins', shadowProxies)
     allocPatch();
@@ -5986,9 +6869,10 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       fill: 0,
       day: () => (S.sun ? clamp(S.sun.intensity / 3.1, 0, 1) : 0),
       sunset: () => envV.sunset || 0,
-      busy: () => !!(pjob || bandWait || NF.job || NF.ready || (S.scenery && S.scenery.job) || (S.clouds && S.clouds.job) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
+      busy: () => !!(pjob || bandWait || NF.job || NF.ready || (S.scenery && S.scenery.job) || (S.clouds && (S.clouds.job || (S.clouds.on && (S.clouds.atlas || S.clouds.fade < 1)))) || jobs.length || AR.job || AR.bjob || [...PR.sets.values()].some((s) => s.job)),
       fogK: 1,
       proxyCap: 0,
+      ground: true, water: true, oldWater: false, // (the water's depth: benchWater)
     },
     shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
     propsCastOff: false, // measuring only: the props cast no shadow
@@ -6037,6 +6921,43 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       jobs: () => ({ n: jobs.length, lazy: jobs.map((j) => !!j.lazy), worlds: bodies.filter((e) => !e.b.star).map((e) => ({ name: e.b.name, ready: !!e.ready, lo: !!e.lo, queued: !!e.queued })) }),
       runJobs(ms) { const t = performance.now(); runJobs(ms); return performance.now() - t; },
       perf: () => ({ ...perf }),
+      // the clouds (the clouds update): the field, the atlas, the light they are drawn in this frame, the murk's colour
+      clouds() {
+        const C0 = S.clouds, U = S.cloudU, A = U.uAtlas.value, v3 = (v) => [v.x, v.y, v.z];
+        return { on: C0.on, n: C0.n, drawn: S.puffs.visible ? S.puffs.geometry.instanceCount : 0, vols: C0.vols.length, job: !!C0.job, baking: !!C0.atlas,
+          atlas: A && A.image ? { w: A.image.width, h: A.image.height, cells: 16 } : null, fade: C0.fade,
+          sunQ: v3(U.uSunQ.value), sunC: U.uSunC.value.toArray(), amb: U.uAmb.value.map(v3), lod: U.uLod.value.toArray(), k: U.uK.value.toArray(),
+          night: U.uNight.value.toArray(), nw: U.uNw.value, lightV: v3(S.cloudLV), moon: MN.v ? { v: v3(MN.v), k: MN.k } : null,
+          sky: S.skyL ? S.skyL.obUp.value.map(v3) : null, sunV: S.sunV ? v3(S.sunV) : null, sunAlong: S.sunV ? V1.copy(U.uSunQ.value).transformDirection(camera.matrixWorld).dot(S.sunV) : null, // (the puffs' Sun, back in the world, against the Sun's direction: 1)
+          sun: S.sun.color.toArray().map((c) => c * S.sun.intensity), inside: C0.inside, murk: S.cloudFogC.toArray(), veil: S.murk.visible ? { c: S.murkU.uC.value.toArray(), a: S.murkU.uA.value } : null, fogD: localScene.fog.density, verts: S.puffs.geometry.attributes.position.count };
+      },
+      // the atlas's texels (RGBA, its rows bottom up) in cell c (0-15), as baked
+      atlasCell(c) {
+        const A = S.cloudU.uAtlas.value, N = A && A.image.width / 4, out = [];
+        if (!A) return null;
+        for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const o = (((c >> 2) * N + y) * A.image.width + (c & 3) * N + x) * 4; out.push(A.image.data[o], A.image.data[o + 1], A.image.data[o + 2], A.image.data[o + 3]); }
+        return { n: N, px: out };
+      },
+      // the puffs a field laid out round a spot (da, dz) metres from the eye (as the next rebuild would be) would draw, as
+      // seen from the eye now: each one's place (the body's frame, as drawn: drift and all, 0.1 m) and its alpha times how
+      // far it has shrunk, by distance along the ground as CLOUD_VS has it (all but the thinning right up close and the
+      // look up, the same for any field); and its clouds' ellipsoids. The
+      // tests: a rebuild round the eye changes nothing on screen
+      cloudField(da = 0, dz = 0) {
+        const b = S.clouds.b, R = b.radius, F = {}, dr = Flight.time * 0.000002, L0 = focusSpot(Flight, b);
+        const j = cumulusJob(b, L0.a - dr + da / R, L0.z + dz, F);
+        while (!j.next().done);
+        const bp = bodyPos(b, Flight.time), T = toSim(camera.position.x, camera.position.y, camera.position.z, {}), e = { x: camAbs.x + T.x - bp.x, y: camAbs.y + T.y - bp.y, z: camAbs.z + T.z - (bp.z || 0) };
+        const lod = S.cloudU.uLod.value, ss = (a, c, x) => { const t = clamp((x - a) / (c - a), 0, 1); return t * t * (3 - 2 * t); }, out = new Map();
+        const a0 = F.a0 + dr, c2 = Math.cos(a0 - Math.PI / 2), s2 = Math.sin(a0 - Math.PI / 2), at = (x, y, z) => ({ x: R * Math.cos(a0) + c2 * x - s2 * y, y: R * Math.sin(a0) + s2 * x + c2 * y, z });
+        const el = Math.hypot(e.x, e.y, e.z), n = { x: e.x / el, y: e.y / el, z: e.z / el };
+        for (let k = 0; k < F.n; k++) {
+          const L = F.list, o = k * 16, p = at(L[o], L[o + 1], L[o + 2]), dx = p.x - e.x, dy = p.y - e.y, dz = p.z - e.z, u = dx * n.x + dy * n.y + dz * n.z;
+          const dh = Math.sqrt(Math.max(dx * dx + dy * dy + dz * dz - u * u, 0)), g = L[o + 13], go = g > 0 ? ss(g * 0.75, g, dh) : 0, edge = ss(lod.z, lod.w, dh), a = L[o + 7] * (1 - ss(0.1, 0.55, go)) * (1 - ss(0.2, 0.75, edge));
+          if (a > 0.002) out.set(`${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)}`, +(a * (1 - 0.6 * go) * (1 - 0.6 * edge)).toFixed(4)); // (its opacity times its shrinking)
+        }
+        return { n: F.n, seen: [...out], eye: e, vols: F.vols.map((v) => ({ ...at(v[0], v[1], v[2]), rx: v[5], ry: v[6] })) };
+      },
       skyOn: () => {
         const has = (m) => { const p = m && renderer.properties.get(m).currentProgram; return p ? !!p.getUniforms().map.obUp : null; }, sc = S.scen[0];
         let craft = null;
@@ -6108,35 +7029,52 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
     meshOf(v) { const e = vessels.get(v); return e ? e.vm : null; },
+    // the water's depth (tests): on (OB_DEEP), the sea's stencil test on, the veils on show, and each vessel drawn sinking
+    // through water: its slot, its top's depth and the least of the water's colour over it, how far it is drawn down, a ghost
+    waterInfo() {
+      const sinks = [];
+      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
+      return { deep: !!S.deepW, stencil: !!(terr.oceanMat && terr.oceanMat.stencilWrite), veils: S.veils ? S.veils.filter((q) => q.visible).length : 0, sinks };
+    },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
     // builds its quadtree at once (no GPU: test/tools/arena-probe.js) and arenaGeoAt reads it
     arenaInfo() { const G = AR.geo; return { on: AR.on, built: !!AR.mesh, building: !!AR.job, vertices: G ? G.n : 0, band: G ? G.nb : 0, triangles: AR.mesh ? AR.mesh.geometry.index.count / 3 : 0, leaves: G ? G.leaves : 0, evals: G ? G.evals : 0, ms: costs.arena || null, step: +(AR.step || 0).toFixed(1), stepAt: AR.stepAt || '' }; },
     // (onStep: called after each step, every slice spent at once: each step as little as a step can be)
     arenaGeo(id, hi = true, onStep) { const u = arenaUntil, job = arenaGeoJob(EARTH.arenas[id], hi); let r; arenaUntil = onStep ? -Infinity : Infinity; try { while (!(r = job.next()).done) if (onStep) onStep(); } finally { arenaUntil = u; } return r.value; },
     arenaGeoAt: geoAt,
-    // the near ground: { want, shown, gs (the fade: 0 its own, NEAR.fade the patch's), window, tiles, evals, vertices, triangles,
-    // commits, ms } (tests and tuning)
+    // the near ground: { want, shown, gs (the fade: 0 its own, NEAR.fade the patch's), window, tiles, evals, vertices and
+    // triangles (the window's), drawn (triangles in view), cells (the window's tiles by the size of the cells they are
+    // drawn with, m), commits, ms } (tests and tuning)
+    // the ground's cost on a GPU in the last flight frame, worked out on the CPU (groundFill: shaded fragments by quads)
+    groundFill() { return api.ready && mode === 'flight' && camera ? groundFill() : null; },
     nearInfo() {
-      const C = NF.cur, tri = (m) => (m ? m.geometry.index.count / 3 : 0);
+      const C = NF.cur, cells = {};
+      let nv = 0, ni = 0;
+      if (C && NF.nv) for (let s = 0; s < NF.nv.length; s++) { nv += NF.nv[s]; ni += NF.ni[s]; const t = NF.lay[s]; if (t) cells[t.ds * GS] = (cells[t.ds * GS] || 0) + 1; }
       return { want: NF.want, shown: NF.shown, gs: C ? C.gs : null, fade: NEAR.fade, building: !!NF.job, waiting: NF.waits, window: C ? { ti0: C.ti0, tj0: C.tj0, fi0: C.fi0, fj0: C.fj0, NT: NF.NT, NF: NF.NF } : null,
-        tiles: NF.tiles.size, evals: NF.evals, commits: NF.commits, stepAt: NF.stepAt, speed: +NF.sp.toFixed(1), vertices: NF.mesh[0] ? NF.mesh[0].geometry.attributes.position.count + NF.mesh[1].geometry.attributes.position.count : 0,
-        triangles: tri(NF.mesh[0]) + tri(NF.mesh[1]), drawn: NF.drawn[0] + NF.drawn[1], hole: NF.shown ? [...NF.hole] : null, ms: costs.near || null, slice: costs.nearSlice || null, commit: costs.nearCommit || null, commits32: [...NF.cms], frame: costs.nearFrame || null, step: +NF.step.toFixed(2) };
+        tiles: NF.tiles.size, evals: NF.evals, commits: NF.commits, stepAt: NF.stepAt, speed: +NF.sp.toFixed(1), vertices: nv, triangles: ni / 3, cells,
+        drawn: NF.drawn, hole: NF.shown ? [...NF.hole] : null, ms: costs.near || null, slice: costs.nearSlice || null, commit: costs.nearCommit || null, commits32: [...NF.cms], frame: costs.nearFrame || null, step: +NF.step.toFixed(2) };
     },
-    // The near ground's own heights for a window round (a, z) on body b, built at once (no GPU, no patch: the Node tools),
-    // and read as its triangles draw them (nearGeoAt: null outside the window). hi: the quality's window
+    // The near ground for a window round (a, z) on body b with the focus there, built at once (no GPU, no patch: the Node
+    // tools): its tiles' heights as the window works them out, each tile's cells chosen and its vertices put on its
+    // coarser neighbours' edges as the page does, on the physics' own heights (no blend, no tuck: the patch's), read as its
+    // triangles draw them (nearGeoAt: null outside the window). hi: the quality's window. Each tile: h (the nodes worked
+    // out, NaN elsewhere), ds (its finest step), blk (its blocks of cells) and dh (its vertices' heights as drawn)
     nearGeo(b, a, z, hi = true) {
       const T = NEAR.T, [NT, NFn] = NEAR.q[hi ? 'hi' : 'lo'], c = cfgOf(b), n = Math.max(8, Math.round((Math.PI * 2 * b.radius) / GS)), tiles = new Map();
       let fa = ((a % (Math.PI * 2)) / (Math.PI * 2)) * n;
       if (fa < 0) fa += n;
-      const ci = Math.floor(fa / T), cj = Math.floor(z / GS / T), ti0 = ci - (NT - 1) / 2, tj0 = cj - (NT - 1) / 2, fi0 = ci - (NFn - 1) / 2, fj0 = cj - (NFn - 1) / 2;
-      const G = grid(T + 1, T + 1, c.k.length), ev = { n: 0, yield: false };
+      const ci = Math.floor(fa / T), cj = Math.floor(z / GS / T), ti0 = ci - (NT - 1) / 2, tj0 = cj - (NT - 1) / 2, fi0 = ci - (NFn - 1) / 2, fj0 = cj - (NFn - 1) / 2, tg = { ti0, tj0, qa: Math.round(fa / NEAR.qs) * NEAR.qs, qz: Math.round(z / GS / NEAR.qs) * NEAR.qs };
+      const G = grid(T + 1, T + 1, c.k.length), ev = { n: 0, yield: false }, cls = new Map();
       for (let q = 0; q < NT; q++) for (let p = 0; p < NT; p++) {
-        const TI = ti0 + p, TJ = tj0 + q, t = { TI, TJ, lv: 0, h: new Float32Array((T + 1) ** 2).fill(NaN) }, fine = TI >= fi0 && TI < fi0 + NFn && TJ >= fj0 && TJ < fj0 + NFn;
-        const job = tileHeights(t, fine ? 2 : 1, c, n, G, ev);
+        const TI = ti0 + p, TJ = tj0 + q, k = nearClass(tg, TI, TJ, NT, NFn, hi), t = { TI, TJ, h: new Float32Array(NCAP).fill(NaN), nk: 0, ds: 0, blk: null, bk: '', dh: new Float32Array(NCAP), di: new Uint16Array(NICAP), dni: 0, dnv: 0 };
+        const job = tileHeights(t, nodesOf(k.ks, k.ia), nodesOf(k.ks, k.iz), c, n, G, ev);
         while (!job.next().done);
-        tiles.set(nkey(TI, TJ), t);
+        tiles.set(nkey(TI, TJ), t); cls.set(t, k);
       }
-      return { b, n, T, NT, NF: NFn, ti0, tj0, fi0, fj0, tiles, evals: ev.n };
+      for (const t of tiles.values()) tileLayout(t, cls.get(t), t.h, null);
+      for (const t of tiles.values()) tileDraw(t, [tiles.get(nkey(t.TI - 1, t.TJ)), tiles.get(nkey(t.TI + 1, t.TJ)), tiles.get(nkey(t.TI, t.TJ - 1)), tiles.get(nkey(t.TI, t.TJ + 1))], t.h, false);
+      return { b, n, T, NT, NF: NFn, ti0, tj0, fi0, fj0, tiles, evals: ev.n, acc: NEAR.acc[hi ? 'hi' : 'lo'] };
     },
     nearGeoAt(g, a, z) {
       const T = g.T, n = g.n;
@@ -6144,11 +7082,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       if (fa < 0) fa += n;
       fa += n * Math.round(((g.ti0 + g.NT / 2) * T - fa) / n);
       const fz = z / GS, TI = Math.floor(fa / T), TJ = Math.floor(fz / T), t = g.tiles.get(nkey(TI, TJ));
-      if (!t) return null;
-      const fine = TI >= g.fi0 && TI < g.fi0 + g.NF && TJ >= g.fj0 && TJ < g.fj0 + g.NF, st = fine ? 1 : 2, N1 = T + 1;
-      const lx = (fa - TI * T) / st, lz = (fz - TJ * T) / st, i = Math.min(Math.floor(lx), T / st - 1), j = Math.min(Math.floor(lz), T / st - 1), tx = lx - i, tz = lz - j;
-      const H = (p, q) => t.h[(q * st) * N1 + p * st], h00 = H(i, j), h10 = H(i + 1, j), h01 = H(i, j + 1), h11 = H(i + 1, j + 1);
-      return tx + tz <= 1 ? h00 + (h10 - h00) * tx + (h01 - h00) * tz : h11 + (h01 - h11) * (1 - tx) + (h10 - h11) * (1 - tz);
+      return t ? layAt(t.blk, t.dh, 0, fa - TI * T, fz - TJ * T) : null;
     },
     // Tests: the ground as drawn at (a, z) on body b, found as the eye finds it: a ray straight down through the ground
     // meshes on show (the near ground, the arena's, the terrain patch), each where its shader doesn't cut it away; null
@@ -6160,14 +7094,19 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       const o = new THREE.Vector3(bp.x + (R + 3000) * ux - camAbs.x, bp.y + (R + 3000) * uy - camAbs.y, (R + 3000) * uz - camAbs.z).applyMatrix4(localWorld.matrixWorld);
       const d = new THREE.Vector3(-ux, -uy, -uz).transformDirection(localWorld.matrixWorld);
       const ray = new THREE.Raycaster(o, d, 0, 6000), list = [], keep = [];
-      for (let f = 0; f < 2; f++) if (NF.mesh[f]) { const g = NF.mesh[f].geometry; keep.push([g, g.index, g.drawRange.count]); g.index = NF.idx[f]; g.drawRange.count = Infinity; } // (every tile, in view or not)
+      if (NF.mesh) { // (every tile, in view or not)
+        const g = NF.mesh.geometry, N = NF.ni.length, all = new g.index.array.constructor(N * NICAP);
+        let k = 0;
+        for (let s = 0; s < N; s++) { all.set(NF.idx.subarray(s * NICAP, s * NICAP + NF.ni[s]), k); k += NF.ni[s]; }
+        keep.push([g, g.index, g.drawRange.count]); g.index = new THREE.BufferAttribute(all.subarray(0, k), 1); g.drawRange.count = Infinity;
+      }
       try {
-      for (const m of [NF.mesh[0], NF.mesh[1], AR.mesh, patch.mesh]) if (m && m.parent && m.parent.visible) list.push(m);
+      for (const m of [NF.mesh, AR.mesh, patch.mesh]) if (m && m.parent && m.parent.visible) list.push(m);
       const inside = (uv, H) => uv && uv.x > H.x && uv.x < H.z && uv.y > H.y && uv.y < H.w;
       for (const hit of ray.intersectObjects(list, false)) {
         const m = hit.object;
         if (m === patch.mesh && (inside(hit.uv, terr.holeU.value) || inside(hit.uv, terr.holeU2.value))) continue;
-        if ((m === NF.mesh[0] || m === NF.mesh[1]) && inside(hit.uv, terr.holeU.value)) continue;
+        if (m === NF.mesh && inside(hit.uv, terr.holeU.value)) continue;
         const inv = new THREE.Matrix4().copy(localWorld.matrixWorld).invert(), p = hit.point.clone().applyMatrix4(inv);
         return Math.hypot(p.x + camAbs.x - bp.x, p.y + camAbs.y - bp.y, p.z + camAbs.z) - R;
       }
