@@ -938,7 +938,10 @@ const Spawns = {
       if (P && air && k >= 4) { const b = 50 * Math.floor(k / 4), c = Math.cos(P.yaw), s = -Math.sin(P.yaw); P = Object.assign({}, P, { e: P.e - c * b, z: P.z - s * b }); } // (a battle's pad holds four: a room's next ones 50 m behind)
     }
     else if (sp.airfield) P = airfieldPlacement(EARTH.airfields[sp.airfield], k, kind === 'heli' ? 'heli' : 'plane');
-    else if (sp.air) {
+    else if (sp.sea) { // (the ships update: a spot on the water; a room's next ships abreast of it, 120 m apart, either side in turn, or all to one: sea.side)
+      const c = Math.cos(sp.sea.yaw), s = -Math.sin(sp.sea.yaw), side = (sp.sea.side ? sp.sea.side * k : k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) : 0) * 120;
+      P = { e: sp.sea.e - s * side, z: sp.sea.z + c * side, yaw: sp.sea.yaw };
+    } else if (sp.air) {
       const c = Math.cos(sp.air.yaw), s = -Math.sin(sp.air.yaw), side = (k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) : 0) * 80;
       P = { e: sp.air.e - s * side, z: sp.air.z + c * side, yaw: sp.air.yaw, air: { alt: sp.air.alt, speed: sp.air.speed } };
     } else if (sp.pad) {
@@ -1010,12 +1013,19 @@ const Spawns = {
     if (typeof Sound !== 'undefined') Sound.click();
     this.draw(); this.renderList(); this.renderBtn();
   },
-  // the box of region r on a W x H canvas (its height fixed, its width the canvas's shape)
-  box(r, W, H) { const hh = r.h / 2, hw = (hh * W) / H; return { e0: r.e - hw, e1: r.e + hw, z0: r.z - hh, z1: r.z + hh }; },
+  // the box of region r on a W x H canvas (its height fixed, its width the canvas's shape); pts: spots it must hold (the ships
+  // update: a carrier lies off a region's old view), the view grown round its middle until each is 1 km inside
+  box(r, W, H, pts) {
+    let hh = r.h / 2;
+    for (const q of pts || []) hh = Math.max(hh, Math.abs(q.z - r.z) + 1000, ((Math.abs(q.e - r.e) + 1000) * H) / W);
+    const hw = (hh * W) / H;
+    return { e0: r.e - hw, e1: r.e + hw, z0: r.z - hh, z1: r.z + hh };
+  },
   // where spot sp is (e, z) for the map: its place, or its site's middle
   at(sp, kind) {
     if (sp.site) return { e: EARTH.sites[sp.site].east, z: 0 };
     if (sp.air) return { e: sp.air.e, z: sp.air.z };
+    if (sp.sea) return { e: sp.sea.e, z: sp.sea.z };
     if (sp.airfield) { const P = airfieldPlacement(EARTH.airfields[sp.airfield], 0, kind === 'heli' ? 'heli' : 'plane'); return { e: P.e, z: P.z }; }
     if (sp.arena) { const P = GroundMode.placement(sp.arena, 0, 0, kind === 'drone' ? 'drone' : 'tank'); return P ? { e: P.e, z: P.z } : { e: 0, z: 0 }; }
     const f = EARTH.groundPads[sp.pad];
@@ -1027,13 +1037,14 @@ const Spawns = {
     const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
     const W = Math.max(200, Math.round(r.width * dpr)), H = Math.max(150, Math.round(r.height * dpr));
     cv.width = W; cv.height = H;
-    const R = this.REGIONS.find((q) => q.id === this.view) || this.REGIONS[0], M = this.box(R, W, H), ctx = cv.getContext('2d');
-    const key = `${R.id}:${W}x${H}:${Terrain.earthMap.state}`;
+    const kind = this.kindNow(), R = this.REGIONS.find((q) => q.id === this.view) || this.REGIONS[0];
+    const M = this.box(R, W, H, kind === 'ship' ? this.list(kind).filter((sp) => sp.region === R.id).map((sp) => this.at(sp, kind)) : null), ctx = cv.getContext('2d'); // (ships' spots only: every other kind's view as it was)
+    const key = `${R.id}:${W}x${H}:${Terrain.earthMap.state}:${Math.round(M.z1 - M.z0)}`;
     if (!this.img || this.imgKey !== key) { this.img = spawnMapBake(W, H, M); this.imgKey = key; }
     ctx.drawImage(this.img, 0, 0);
     spawnMapGrid(ctx, W, H, M, dpr, 1000);
     ctx.fillStyle = '#fff'; ctx.font = `700 ${13 * dpr}px "Chakra Petch", sans-serif`; ctx.fillText(R.id.toUpperCase(), 12 * dpr, 20 * dpr);
-    const kind = this.kindNow(), cur = this.current(kind), ok = this.ready();
+    const cur = this.current(kind), ok = this.ready();
     this.hot = [];
     for (const sp of this.list(kind)) {
       if (sp.region !== R.id) continue;

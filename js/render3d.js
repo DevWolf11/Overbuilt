@@ -5273,6 +5273,13 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (Settings.get('droneView') === 'fpvLevel') { U.x = ux; U.y = uy; U.z = uz; } // (the horizon held level: the OSD draws the bank)
     else v.axis(-st, ct, 0, U);
   }
+  // [WP3] (the ships update) a ship's bridge view: the eye 1.2 m over her control part (the wheelhouse), at its fore edge,
+  // looking along the bow (+x) and rolling and pitching with her
+  function bridgeEye(v, E, Dv, U) {
+    const c = v.control, R0 = partRect(c), e = v.toWorld(R0.r, R0.t + 1.2, partZ(c));
+    E.x = e.x; E.y = e.y; E.z = e.z;
+    v.axis(1, 0, 0, Dv); v.axis(0, 1, 0, U);
+  }
   function aimPivot(v, out) {
     let c = v._piv;
     if (!c || v._pivTg !== v.tg) {
@@ -5318,7 +5325,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const FA = !IM && !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
     // (the big update) a drone's first-person view (F.fpv): from its camera part, looking along it (FPV: tilted up, rolling
     // with the drone, or with the horizon held level; a gimbal: along the heading, level, turned and zoomed by the player)
-    const FP = !IM && !AC && !FA && !!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed);
+    const FP = !IM && !AC && !FA && (!!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed)
+      || !!(F.bridge && v === F.active && v.sh && !F.destroyed && v.control)); // [WP3] (the ships update: a ship's bridge view, bridgeEye)
     if (FP ? FOV !== S.fpvFov && S.fpvFov > 0 : !S.sightOn && FOV !== 50) setFov(FP ? S.fpvFov : 50); // (the drone's camera's field of view, kept across the map's and the hangar's 50°)
     let dist, rx, ry, rz;
     if (IM) {
@@ -5326,7 +5334,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       fc.vessel = null;
     } else if (FP) {
       dist = 0.3;
-      fpvEye(F, v, FPE, FPD, FPU);
+      if (v.kind === 'drone') fpvEye(F, v, FPE, FPD, FPU); else bridgeEye(v, FPE, FPD, FPU); // [WP3]
       rx = FPE.x; ry = FPE.y; rz = FPE.z; S.fpvAt = frameNo;
       fc.vessel = null;
     } else if (AC) {

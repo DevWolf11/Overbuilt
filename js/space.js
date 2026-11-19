@@ -185,6 +185,17 @@ EARTH.spawns = [
   { id: 'bettyhill', name: 'Bettyhill', region: 'Scotland', kinds: ['rocket'], pad: 'bettyhill', u: 0, v: 0, blurb: 'A launch pad with a service tower on the Sutherland coast' },
   { id: 'airFaroes', name: 'Over the Faroes', region: 'Faroes', kinds: ['plane'], air: { e: -3000, z: 0, yaw: 0, alt: 800, speed: 120 }, blurb: 'Flying in from the west, 800 m up' },
   { id: 'airHighland', name: 'Over Highland Ridge', region: 'Scotland', kinds: ['plane'], air: { e: 17750, z: 10800, yaw: -Math.PI / 2, alt: 1000, speed: 140 }, blurb: 'Flying in from the north, 1 km up' },
+  // (the ships update) ships: the bay (the kind's own site: afloat, bow out to sea), and `sea` spots on the water (e, z, the
+  // bow along yaw), a room's next ships abreast 120 m apart (Spawns.place), either side in turn, or all to one (side: -1,
+  // to port: away from a carrier). Each in 19 m of water or more under a 160 m by 24 m box round every one of a room's
+  // first six places, past any stock ship's draft + 2 m (test/spawns.test.js)
+  { id: 'bay', name: 'The bay', region: 'Faroes', kinds: ['ship'], def: ['ship'], site: 'bay', blurb: 'West of the space centre\'s island, bow out to sea' },
+  { id: 'slipway', name: 'Off the slipway', region: 'Faroes', kinds: ['ship'], sea: { e: 3540, z: 0, yaw: 0 }, blurb: 'Off the headland past the runway, heading east for Shetland' },
+  { id: 'carrierW', name: 'Off Carrier West', region: 'Faroes', kinds: ['ship'], sea: { e: -7000, z: 2200, yaw: 0, side: -1 }, blurb: 'Abeam of the western carrier, 300 m off' },
+  { id: 'shetlandHbr', name: 'Off Shetland harbour', region: 'Shetland', kinds: ['ship'], sea: { e: 17420, z: 150, yaw: Math.PI }, blurb: 'Off the port town, bow out to sea' },
+  { id: 'carrierE', name: 'Off Carrier East', region: 'Shetland', kinds: ['ship'], sea: { e: 24000, z: 1800, yaw: Math.PI, side: -1 }, blurb: 'Abeam of the eastern carrier, 300 m off' },
+  { id: 'caithness', name: 'Off Caithness', region: 'Scotland', kinds: ['ship'], sea: { e: 17700, z: 11000, yaw: Math.PI / 2 }, blurb: 'Off the north coast of Scotland, heading north' },
+  { id: 'carrierS', name: 'Off Carrier South', region: 'Scotland', kinds: ['ship'], sea: { e: 22269, z: 13691, yaw: Math.PI * 0.72, side: -1 }, blurb: 'Abeam of the southern carrier, 300 m off' },
 ];
 
 function siteAngle(b, east) { return b.padAngle - east / b.radius; }
