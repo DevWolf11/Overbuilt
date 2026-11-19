@@ -91,7 +91,8 @@ r = await inSight(page);
 ok('the ship stays in sight as she grows (every part on the bare blueprint)', r.vis === r.n, JSON.stringify(r));
 // the waterline: drawn across her at her draft (the pixel under the line amidships is blue, the one well above it not)
 const wlPix = () => ev(() => {
-  const S = Builder.statsData.ship, x = (S.x0 + S.x1) / 2 + 0.5, W = Builder.waterline3d(), y = W.a + W.bx * x;
+  const S = Builder.statsData.ship, x = S.x0 + 0.3 * (S.x1 - S.x0), // (clear of the centre-of-mass marker)
+    W = Builder.waterline3d(), y = W.a + W.bx * x;
   const d = Builder.toDisp(x, y), c = App.canvas.getBoundingClientRect(), k = Builder.cam.scale, dpr = App.canvas.width / c.width;
   const sx = (c.width / 2 + (d.x - Builder.cam.x) * k) * dpr, sy = (c.height / 2 - (d.y - Builder.cam.y) * k) * dpr;
   const px = (yy) => [...App.ctx.getImageData(Math.round(sx), Math.round(yy), 1, 1).data];

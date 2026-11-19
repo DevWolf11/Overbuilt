@@ -1062,13 +1062,7 @@ const Ship = (() => {
   }
   // The water's resistance at V m/s (§4.3: ITTC-57 friction on the wetted hull with its form factors, and wave-making on
   // the weight the water still carries once the strip planing lift has taken its share), at the still-water float; fA: the
-  // foils' area in the water (rudders, hydrofoils: their profile drag, §4.4's cd0, straight ahead)
-  function cwr(Fn) {
-    const X = SHIP.CWR_FN, Y = SHIP.CWR;
-    if (Fn >= X[X.length - 1]) return Y[Y.length - 1];
-    for (let i = 1; i < X.length; i++) if (Fn <= X[i]) return Y[i - 1] + ((Y[i] - Y[i - 1]) * (Fn - X[i - 1])) / (X[i] - X[i - 1]);
-    return 0;
-  }
+  // foils' area in the water (rudders, hydrofoils: their profile drag, §4.4's cd0, straight ahead). (cwr: the core's own)
   function resistance(M, H, V, fA = 0) {
     if (!(V > 0) || !(H.Lwl > 0)) return 0;
     const rho = SHIP.RHO, g = gSea(), L = H.Lwl, Re = (V * L) / SHIP.NU;

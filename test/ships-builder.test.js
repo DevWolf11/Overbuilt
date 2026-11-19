@@ -3,8 +3,8 @@
 // slice ship's numbers and the stats object's shape; Ship.spotOf on an empty, a hulled and a full design (hull segments
 // end to end, the bow forward and the stern aft, a midsection in behind the bow, the deck, inside, screws and rudders under
 // the stern, the refusals); the slice ship built by taps alone and joined as Ship.groups joins her; every warning, each
-// from a design with that fault. Last, once the hydro core floats her (WP1: Ship.forces), the flight agrees with the
-// builder: draught ±10 %, GM ±0.15 m, top speed ±12 % (skipped, and said so, while the core is a stub).
+// from a design with that fault. Last, the flight (the hydro core, WP1) agrees with the
+// builder: draught ±10 %, GM ±0.15 m, top speed ±12 %.
 //   node test/ships-builder.test.js
 const G = require('./lib/game.js');
 const ctx = G.load({ earth: false });
@@ -152,9 +152,9 @@ const cases = [
 for (const [name, code, re] of cases) { const w = W(code); t(`warning: ${name}`, re.test(w), w); }
 t('none of them ever says the rocket\'s "No engine fires in stage 1" (that is the builder\'s, never reached for a ship)', !cases.some(([, code]) => /stage 1/.test(W(code))));
 
-// ================================================================ 6. the flight agrees (once the hydro core floats her: WP1)
+// ================================================================ 6. the flight agrees (the hydro core, WP1, floats her)
 // The slice ship off the bay in a calm sea: settled 40 s, then her draught and GM (Ship.stab) averaged over 10 s; then the
-// telegraph at Flank (v.sh.tel 4) for 180 s and her speed over the last 20 s. Skipped, saying so, while the core is a stub.
+// telegraph at Flank (v.sh.tel 4) for 180 s and her speed over the last 20 s.
 {
   const live = G.load({});
   const L2 = (c) => G.run(live, c);
@@ -166,13 +166,13 @@ t('none of them ever says the rocket\'s "No engine fires in stage 1" (that is th
     var mean = (secs, f) => { let n = 0, m = 0; steps(__v, __s, secs, () => { const x = f(); if (Number.isFinite(x)) { m += x; n++; } }); return n ? m / n : null; };`);
   L2('steps(__v, __s, 2)');
   const on = L2('!!(__v.sh && __v.sh.B > 0 && __v.afloat)');
-  if (!on) console.log('skip the flight\'s agreement with the builder (draught ±10 %, GM ±0.15 m, top speed ±12 %): the hydro core (WP1) does not float her yet');
-  else {
+  t('the hydro core floats her (Ship.forces: buoyancy, afloat)', on);
+  if (on) {
     const st = L2(`(() => { const s = Ship.stats(__v.parts); return { draft: s.draft, GM: s.GM, top: s.top }; })()`);
     L2('steps(__v, __s, 38)');
     const fl = L2(`({ draft: mean(10, () => __v.draft), GM: mean(10, () => Ship.stab(__v)) })`);
     t(`the flight floats her at the builder's draught ±10 % (builder ${st.draft.toFixed(2)} m, flight ${fl.draft.toFixed(2)} m, calm, 10 s mean)`, pct(fl.draft, st.draft) < 0.1, { st, fl });
-    if (fl.GM != null) t(`...and the builder's GM ±0.15 m (builder ${st.GM.toFixed(2)} m, flight ${fl.GM.toFixed(2)} m)`, Math.abs(fl.GM - st.GM) <= 0.15, { st, fl });
+    t(`...and the builder's GM ±0.15 m (builder ${st.GM.toFixed(2)} m, flight ${fl.GM.toFixed(2)} m)`, Math.abs(fl.GM - st.GM) <= 0.15, { st, fl });
     L2('__v.sh.tel = 4; __v.sas = "hold"; steps(__v, __s, 160)');
     const v1 = L2('mean(20, () => __v.speed())');
     t(`full ahead she makes the builder's top speed ±12 % (builder ~${(st.top * 1.9438).toFixed(1)} kn, flight ${(v1 * 1.9438).toFixed(1)} kn over 160-180 s)`, pct(v1, st.top) < 0.12, { st, v1 });
