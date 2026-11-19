@@ -14,6 +14,7 @@ const App = {
     Builder.init(this.canvas);
     Flight.init(this.canvas);
     Controls.init(); // (the floating stick, touch or desktop controls, the HUD's size, the custom layout, key tips)
+    if (typeof Ship !== 'undefined') Ship.setSea(Settings.get('sea') || 'moderate'); // (the ships update: the sea state, Settings → Sea)
     this.init3D();
     this.homeTime = 0;
     this.bindHome();
@@ -311,7 +312,8 @@ const App = {
       if (Builder.kind === 'tank' && !place) UI.toast(this.use3D() ? 'The Earth map isn’t in: Armour starts on the runway, away from the Tank Range' : 'In the 2D view Armour starts on the runway: the Tank Range on Highland Ridge is in 3D', 'warn');
       const k = (id) => Keys.k(id), sp = k('stage');
       const tip = { rocket: `Press STAGE (${sp}) to ignite`, plane: `Press STAGE (${sp}) to start the engine`, car: `Drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}`, heli: `Press STAGE (${sp}) to start the rotor`,
-        tank: Controls.touch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : `Drive with ${k('fwd')}/${k('back')}, turn with ${k('left')}/${k('right')}, aim with the mouse` }[Builder.kind];
+        tank: Controls.touch ? 'Left thumb drives; drag the view, or slide on FIRE, to aim' : `Drive with ${k('fwd')}/${k('back')}, turn with ${k('left')}/${k('right')}, aim with the mouse`,
+        ship: Controls.touch ? 'The lever is her engine telegraph, the stick her rudder' : `${k('fwd')}/${k('back')} ring the telegraph, ${k('left')}/${k('right')} the rudder` }[Builder.kind]; // (the ships update)
       if (Settings.get('hints') && tip) UI.toast(tip);
       // radar: an old jet whose radar missiles have nothing to guide them (always said: the weapon chip says it too, and
       // a toast with the same words shows once); a craft's first flight with a radar, how to use it (once ever)
@@ -369,9 +371,10 @@ const App = {
         <li><b>Cars and helicopters.</b> Cars drive with ${k('fwd')}/${k('back')} and steer with ${k('left')}/${k('right')}. Helicopters lift off as you raise the throttle (${k('thrUp')}); the stick tilts them to fly that way and they level out when you let go, ${k('rollL')}/${k('rollR')} turn. Hold ${k('brake')} (or Brake) to stop on the ground.</li>
         <li><b>Armour (tanks, SPAA, launchers).</b> ${k('fwd')}/${k('back')} drive, ${k('left')}/${k('right')} turn: tracks turn on the spot. The camera looks where you aim and the turret follows at its own pace; the small circle shows where the gun points as it catches up, and fills as it reloads. Click the view to capture the mouse: it aims, left click fires, the right button (or ${k('sight')}) is the gunner's sight. ${Keys.k('shell1')}–${Keys.k('shell4')} choose the next shell, ${k('mg')} the machine guns, ${k('cm')} smoke. On a phone the left thumb drives, the right thumb fires on FIRE and aims by sliding on it or dragging the view.</li>
         <li><b>Drones.</b> Build one from the Drone kind's four tabs: a frame, a flight controller, motors (symmetry places them in pairs), a battery, a link and a camera; a shaped charge makes it a kamikaze. It starts in first person (FPV), ${k('dView')} for the chase view. Level (${k('dLevel')}) ${T ? `the stick flies it, sideways ${tilt ? 'slides' : 'turns'} it, the round arrow buttons by the stick ${tilt ? 'turn' : 'slide'} it; the throttle box is the climb lever: drag up to climb, down to descend, and let go: it springs back and holds the height` : `${k('fwd')}/${k('back')} fly it forward and back, ${k('left')}/${k('right')} ${tilt ? 'slide' : 'turn'} it, ${k('rollL')}/${k('rollR')} ${tilt ? 'turn' : 'slide'} it, ${k('thrUp')}/${k('thrDown')} climb and descend`} (Settings → Drone stick: Tilt swaps turning and sliding); let go and it stops and hovers. Acro (${k('dAcro')}) is for experts: the stick sets rates, nothing levels it and the throttle is yours. ${k('dHome')} flies it home, ${k('dLand')} lands it, and ${k('dLock')} locks on to the vehicle in the middle of the picture: the drone flies the attack itself, up to 30 m, in and down onto its roof, until any stick takes it back. The battery drains with thrust (warnings at 25% and 10%); a radio link reaches only so far and jammers cut it (a cheap FPV falls, a GPS one flies home); a fibre spool can't be jammed. From a tank: a Drone Rack, Hangar or Launch Tubes carry drones; ${k('drone')} launches one and switches between it and the tank (the tank parks, its crew keeps working), Home docks it again. Tanks answer drones with jammers, a detector, a drone radar, an anti-drone gun, a laser and a roof cage.</li>
+        <li><b>Ships.</b> Build one from the Ship kind's tabs: hull segments end to end (a bow, midsections, a stern), a wheelhouse, engines inside, screws and rudders under the stern; guns go on as a tank's. She starts in the bay, afloat and bow out to sea. ${T ? 'The lever on the left is her engine telegraph: drag it up to ring ahead (Flank at the top, Stop just under the middle, astern below; FLANK and STOP ring them at once); the stick is her rudder' : `${k('fwd')}/${k('back')} ring the engine telegraph a step at a time (Stop, Slow, Half, Full, Flank ahead; Slow, Half, Full astern), ${k('thrFull')} flank speed, ${k('thrCut')} all stop; ${k('left')}/${k('right')} put the rudder over`}: ships are heavy, so speed builds and dies slowly. Let go of the rudder and she holds her new heading (${k('sHold')}: hand steering instead). Her speed is in knots. Armed, her guns aim and fire as a tank's. ${k('sView')} is the bridge view; ${k('sCiws')} lets her CIWS fire by itself, ${k('sDc')} tells damage control what to fight first. Settings → Sea sets the swell: calm, moderate or rough.</li>
         <li><b>Camera.</b> Drag to look around, scroll or pinch to zoom, ${k('camera')} to reset. It follows behind planes, cars and helicopters and beside rockets; in Aim it follows the circle a moment behind${T ? ', and a drag looks round (only the stick moves the circle)' : ', and a drag moves the circle instead: hold ' + k('camera') + ' to look round'}. On touch screens the stick flies the craft: put your left thumb down anywhere in the bottom-left corner and it comes to you (in Aim it moves the circle).</li>
         <li><b>Your controls.</b> Settings → Keys rebinds every key (two per action); Settings → Edit controls moves, sizes and fades the touch controls (also from the pause menu on a phone); UI size (also in Edit controls) makes the whole HUD bigger or smaller, as far as it fits; Touch controls switches between the phone's controls and a desktop's key hints.</li>
-      </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}<h3 class="summary-h">Drones</h3>${Flight.droneHelp()}`,
+      </ol>${Flight.controlsHelp()}<h3 class="summary-h">Armour and armed cars</h3>${Flight.groundHelp()}<h3 class="summary-h">Drones</h3>${Flight.droneHelp()}<h3 class="summary-h">Ships</h3>${Flight.shipHelp()}`,
       actions: [{ label: 'Got it', primary: true }],
     });
   },
@@ -482,6 +485,9 @@ const App = {
     const dStick = sel('set-drone-stick', 'droneStick', [['turn', `Turn: sideways turns, ${Keys.k('rollL')}/${Keys.k('rollR')} slide`], ['tilt', `Tilt: sideways slides, ${Keys.k('rollL')}/${Keys.k('rollR')} turn`]], 'turn');
     const dStart = sel('set-drone-start', 'droneStart', [['level', 'Level: stops and holds its height'], ['acro', 'Acro: no self-levelling']], 'level');
     const dView = sel('set-drone-view', 'droneView', [['fpv', 'First person'], ['fpvLevel', 'First person, level horizon'], ['chase', 'Chase']], 'fpv');
+    // (the ships update) the sea state: the swell ships ride (ship.js waves); a room's host's decides there
+    const seaS = sel('set-sea', 'sea', [['calm', 'Calm: a gentle swell'], ['moderate', 'Moderate: a metre of swell'], ['rough', 'Rough: big seas, small boats struggle']], 'moderate');
+    seaS.addEventListener('change', () => { if (typeof Ship !== 'undefined') Ship.setSea(seaS.value); });
     const head = (t) => el('h3', { class: 'summary-h set-h', text: t });
     // the controls (controls.js): touch controls or a desktop's key hints, the HUD's size, the floating stick, the keys and the layout
     const tu = el('select', { id: 'set-touch-ui' });
@@ -509,7 +515,8 @@ const App = {
       head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
       el('div', { class: 'setting-actions' }, keys, lay),
       head('Flying and aiming'), row('Planes start in', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens), // (a finger's drag too: fine aim in a phone's 6x sight)
-      head('Drones'), row('Drone stick', dStick), row('Drones start in', dStart), row('Drone view', dView));
+      head('Drones'), row('Drone stick', dStick), row('Drones start in', dStart), row('Drone view', dView),
+      head('Ships'), row('Sea', seaS));
     const fs = el('button', { class: 'btn small', text: 'Toggle fullscreen' });
     fs.addEventListener('click', () => {
       try {

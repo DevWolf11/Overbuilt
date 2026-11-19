@@ -1458,3 +1458,33 @@ body.impactcam #flight-ui :is(.left-controls, .weapon-box, .throttle-box, #gmap,
 #sight-vig.alarm { display: block; background: radial-gradient(ellipse 80% 80% at 50% 50%, rgba(255, 40, 40, 0) 60%, rgba(255, 40, 40, 0.45) 100%); }
 
 /* == big: graphics == */
+
+/* == ships: the helm (the ships update, WP3) == */
+/* a ship sails with the ground HUD (body.ground: her guns aim as a tank's) and body.ship over it: the throttle box is her
+   engine-order telegraph (Flight.telDom: eight detents, the line at Stop three-sevenths up, the fill from Stop to the rung
+   order, astern in blue; FLANK and STOP over and under its label), the stick her rudder */
+body.ship .throttle-ticks { background: repeating-linear-gradient(to top, transparent 0, transparent calc(100% / 7 - 1px), rgba(5, 9, 18, 0.55) calc(100% / 7 - 1px), rgba(5, 9, 18, 0.55) calc(100% / 7)); }
+body.ship .throttle-track::after { content: ''; position: absolute; left: -1px; right: -1px; top: calc(400% / 7 - 1px); height: 2px; background: rgba(255, 255, 255, 0.85); pointer-events: none; }
+body.ship .throttle-fill.astern { background: linear-gradient(to bottom, #2f86b8, var(--cyan)); }
+body.ship .throttle-label { white-space: pre; text-align: center; font-size: 11px; line-height: 1.15; padding: 2px 4px; min-width: 44px; }
+body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-left: 6px; padding-right: 6px; font-size: 12px; }
+@media (max-width: 760px) { body.ship.g-thrust:not(.g-stages) .throttle-box { bottom: calc(150px + var(--safe-b)); } } /* (no brake to stand over: just over the stick) */
+/* the helm panel (Ship.hud), under the flight data: the telegraph's rungs and order, the helm's mode, the rudder bar */
+.ship-helm { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font: 500 11px var(--mono); display: grid; gap: 4px; }
+.ship-helm[hidden] { display: none; }
+.sh-rungs { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.sh-rungs i { height: 7px; border-radius: 2px; background: rgba(150, 185, 230, 0.16); }
+.sh-rungs i.stop { background: rgba(219, 228, 240, 0.45); }
+.sh-rungs i.on { background: var(--amber); }
+.sh-rungs i.on.astern { background: var(--cyan); }
+.sh-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; }
+.sh-order { font: 700 12px var(--display); letter-spacing: 0.04em; color: var(--amber); }
+.sh-order.astern { color: var(--cyan); }
+.sh-mode { color: var(--muted); font-size: 10px; letter-spacing: 0.06em; }
+.sh-mode.on { color: #7dffb0; }
+.sh-rud { display: flex; align-items: center; gap: 6px; }
+.sh-bar { position: relative; flex: 1; height: 8px; border-radius: 4px; background: rgba(150, 185, 230, 0.12); border: 1px solid var(--line); }
+.sh-bar::after { content: ''; position: absolute; left: calc(50% - 0.5px); top: -2px; bottom: -2px; width: 1px; background: rgba(219, 228, 240, 0.6); }
+.sh-fill { position: absolute; top: 0; bottom: 0; background: var(--amber); border-radius: 3px; }
+.sh-cmd { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; }
+.sh-ang { min-width: 54px; text-align: right; white-space: nowrap; }

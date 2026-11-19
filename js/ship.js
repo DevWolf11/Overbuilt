@@ -1458,10 +1458,67 @@ const Ship = (() => {
   }
 
   // ==== hud ====
-  // [WP3, WP12]
-  function hud(F) {}
-  function help(F) { return ''; } // the ship's controls, from the bindings
-  function keys(F, e, down) { return false; } // a key for the ship (true: taken)
+  // [WP3, WP12] The helm panel (WP3): under the flight data, in the telemetry panel itself, so it sits wherever that does
+  // (top left on a desktop and a phone alike, and zoomed with the HUD: nothing new to fit round the thumbs). Three lines:
+  // the telegraph's eight rungs (astern on the left, Stop, ahead to Flank on the right) with the rung one lit and its
+  // order; the rudder bar (±HUD.RUD°: the commanded angle a hollow mark, the rudders' own angle the fill) and its angle;
+  // and the helm's mode, HOLD and the heading it holds, or HAND (hand steering). Speed in knots and the heading are the
+  // flight data's own rows (Flight.updateHUD). Built once, on the first ship; each piece written only when it changes
+  // (a key of what it shows), from Flight.updateHUD's tick (12 a second) and at once when the telegraph is rung.
+  // The helm's state it reads (ship.js core's, Flight's inputs): sh.tel (-3..4), sh.rud (the commanded rudder, ° to
+  // starboard), each rudder part's p.rud (its angle now, °; none yet: the command), v.sas ('hold' | 'manual') and sh.hold
+  // (the heading held, rad clockwise from game north as Ship.heading; null: none caught yet).
+  const HUD = { el: null, key: '', RUD: 35 };
+  function hudEl() {
+    if (HUD.el || typeof document === 'undefined') return HUD.el;
+    const tel = document.querySelector('#flight-ui .telemetry');
+    if (!tel) return null;
+    const box = document.createElement('div');
+    box.id = 'ship-helm'; box.className = 'ship-helm'; box.hidden = true;
+    box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Helm');
+    box.innerHTML = '<div class="sh-tel"><span class="sh-rungs" aria-hidden="true">' + '<i></i>'.repeat(8) + '</span></div>'
+      + '<div class="sh-line"><b class="sh-order" role="status">Stop</b><span class="sh-mode"></span></div>'
+      + '<div class="sh-rud"><span class="sh-bar" aria-hidden="true"><i class="sh-fill"></i><i class="sh-cmd"></i></span><span class="sh-ang">0°</span></div>';
+    tel.append(box);
+    HUD.el = box; HUD.rungs = [...box.querySelectorAll('.sh-rungs i')]; HUD.order = box.querySelector('.sh-order'); HUD.mode = box.querySelector('.sh-mode');
+    HUD.fill = box.querySelector('.sh-fill'); HUD.cmd = box.querySelector('.sh-cmd'); HUD.ang = box.querySelector('.sh-ang');
+    return box;
+  }
+  // a heading (rad clockwise from game north, Ship.heading's) as the compass reads it (Flight.compass's rule: real north on
+  // the real Earth: its game east and north shares, sin and cos)
+  function bearing(v, h) {
+    if (v.body !== EARTH || !EARTH.mapped) return ((((h * 180) / Math.PI) % 360) + 360) % 360;
+    return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
+  }
+  function hud(F) {
+    const v = F && F.active, sh = v && isSea(v.kind) && !F.destroyed && !v.dead ? v.sh : null, E = hudEl();
+    if (!E) return;
+    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; return; }
+    const tel = clamp(Math.round(sh.tel) || 0, -3, 4), R = HUD.RUD;
+    let act = 0, n = 0;
+    for (const p of sh.rudders) if (Number.isFinite(p.rud) && !p.broken) { act += p.rud; n++; }
+    const cmd = Number.isFinite(sh.rud) ? clamp(sh.rud, -R, R) : 0, now = n ? clamp(act / n, -R, R) : cmd;
+    const hand = v.sas === 'manual', hold = !hand && Number.isFinite(sh.hold) ? String(Math.round(bearing(v, sh.hold)) % 360).padStart(3, '0') : '';
+    const key = `${tel}|${Math.round(cmd)}|${Math.round(now)}|${hand}|${hold}|${sh.rudders.length}`;
+    if (E.hidden) E.hidden = false;
+    if (key === HUD.key) return;
+    HUD.key = key;
+    HUD.rungs.forEach((r, i) => { const c = i === tel + 3 ? 'on' + (tel < 0 ? ' astern' : '') : i === 3 ? 'stop' : ''; if (r.className !== c) r.className = c; });
+    HUD.order.textContent = Flight.telWord ? Flight.telWord(tel) : SHIP.TEL_NAMES[tel + 3];
+    HUD.order.classList.toggle('astern', tel < 0);
+    HUD.mode.textContent = hand ? 'HAND' : hold ? `HOLD ${hold}°` : 'HOLD';
+    HUD.mode.classList.toggle('on', !hand);
+    // (the bar: its middle is amidships; the fill runs from there to the rudders' angle, the mark is the command)
+    const pc = (a) => 50 + (a / R) * 50;
+    HUD.fill.style.left = `${Math.min(50, pc(now)).toFixed(1)}%`; HUD.fill.style.width = `${Math.abs(pc(now) - 50).toFixed(1)}%`;
+    HUD.cmd.style.left = `${pc(cmd).toFixed(1)}%`;
+    const a = Math.round(now);
+    HUD.ang.textContent = !sh.rudders.length ? 'no rudder' : a === 0 ? '0°' : `${Math.abs(a)}° ${a > 0 ? 'stbd' : 'port'}`;
+  }
+  // the ship's controls, from the bindings (Flight.shipHelp's list: README's Ships block and the manual's)
+  function help(F) { return F && typeof F.shipHelp === 'function' ? F.shipHelp() : ''; }
+  // a key for the ship (true: taken): Flight.shipKey's (flank, stop, the heading hold, CIWS, damage control, the bridge view)
+  function keys(F, e, down) { return !!(down && F && typeof F.shipKey === 'function' && F.shipKey(e)); }
 
   // ==== ai ====
   // [WP10]

@@ -9,6 +9,9 @@ const NEAR_DIST = 6000;  // vessels closer than this to the active one get full 
 const SAS_KEYS = { sasHold: 'hold', sasPro: 'prograde', sasRetro: 'retrograde', sasOut: 'radialOut', sasIn: 'radialIn', sasTarget: 'target' };
 const PLANE_SAS_KEYS = { apHold: 'hold', apLevel: 'level', apHeading: 'heading', apOff: 'off', apAim: 'aim' };
 const DRONE_KEYS = { dLevel: 'hold', dAcro: 'acro' }; // (the big update: a drone flies Level, sas 'hold', or Acro)
+const NO_SAS_KEYS = {}; // (the ships update: a ship's helm keys are Flight.shipKey's)
+// (the ships update) how a ship was lost, v.fate (ship.js's doom: Ship.doom(v, sim, why) sets it), in the strip and the end screen
+const SHIP_FATES = { sunk: 'Sunk', capsized: 'Capsized', magazine: 'Lost to a magazine explosion', action: 'Out of action' };
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
 const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
@@ -50,7 +53,7 @@ const Flight = {
     const adj = new Map();
     for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
     const v = new Vessel(ps, adj, EARTH);
-    v.name = design.name || (design.kind === 'tank' || design.kind === 'drone' ? VEHICLE_KINDS[design.kind].name : 'Rocket');
+    v.name = design.name || (design.kind === 'tank' || design.kind === 'drone' || design.kind === 'ship' ? VEHICLE_KINDS[design.kind].name : 'Rocket');
     v.kind = VEHICLE_KINDS[design.kind] ? design.kind : 'rocket';
     v.stages = computeStages(ps, adj, ctrl.id);
     v.rebuildGroups();
@@ -65,15 +68,16 @@ const Flight = {
       v.sas = !v.aircraft && Settings.get('droneStart') === 'acro' ? 'acro' : 'hold';
       v.throttle = v.aircraft ? 0.7 : 0;
     }
+    if (v.kind === 'ship') v.sas = 'hold'; // (the ships update: the helm holds her heading when the rudder is let go; Ships: hold toggles hand steering)
     if (v.docks.length) v.droneChoice = Drone.cleanChoice(design.drone); // (the drone its bays carry: a stock one, or a saved design)
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
-    // a plane on floats and no wheels starts on the water, nose out to sea
-    const sea = v.kind === 'plane' && v.parts.some((p) => p.def.float) && !v.wheels.length;
+    // a plane on floats and no wheels starts on the water, nose out to sea (and a ship, the ships update: her site is the bay)
+    const sea = v.kind === 'plane' && v.parts.some((p) => p.def.float) && !v.wheels.length, bay = sea || K.site === 'bay';
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
-    else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, sea ? Math.PI : 0);
+    else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, bay ? Math.PI : 0);
     const air = P && P.air ? P.air : v.kind === 'drone' && v.dr && v.dr.wing ? { alt: 120, speed: 26 } : null; // (a winged drone can't take off: it starts in the air wherever it starts, the helipad, a spawn point's drone pad, a room's or a battle's place; it sat on the ground at a room's and a battle's)
     if (air) { // an air start: raised over the spot, flying along its nose, gear up
       const r = v.radius(), up = +air.alt || 0, sp = +air.speed || 0, f = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
@@ -82,6 +86,9 @@ const Flight = {
       v.landed = false;
       if (v.hasRetract) { v.gearUp = true; for (const p of v.wheels) if (p.def.wheel.retract) p.retracted = true; }
     }
+    // (the ships update) a craft that floats, started on the water: afloat at her marks there, still, the telegraph at Stop
+    // (ship.js; a spot too shallow is moved out to sea). An air start stays in the air.
+    if (!air && v.hydro && typeof Ship !== 'undefined' && Ship.overWater(v)) Ship.launch(v, P);
     if (v.kind === 'heli') v.throttle = 0;
     if (v.kind === 'drone') v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 }; // (the law's state, drone.js: where it took off, for safe-arm and home)
     this.launchCost = designCost(ps);
@@ -340,12 +347,110 @@ const Flight = {
     }
     this._drone = drone;
   },
+
+  // ------------------------------------------------------------------ ships (the ships update; ship.js has the rest)
+  // The helm's inputs, Flight's side of it: the engine-order telegraph (v.sh.tel, -3 Full astern … 0 Stop … 4 Flank),
+  // rung a step at a time by W/S (and the throttle keys; held: another step after SHIP.TEL_HOLD s, then every
+  // TEL_REPEAT s), set at once by Z (Flank), X (Stop) and the touch lever; the rudder is the stick, v.ctl.h (−1 port …
+  // +1 starboard, readControls as a car's steering); v.sas 'hold' (the helm holds her heading when the rudder is let go)
+  // or 'manual' (hand steering). Ship.pre (ship.js core) turns ctl.h and sas into the rudder (sh.rud, sh.hold) and the
+  // telegraph into her engines' demand; for a ship readControls keeps ctl.v at 0, so its own stepping of the telegraph
+  // from ctl.v (for a craft driven that way) never rings a second step. A ship with no hull aboard (no v.sh) has no helm.
+  helmOf(v) { return !!v && v.kind === 'ship' && !!v.sh && !v.dead ? v.sh : null; },
+  // (a key's press rings its step at once, shipKey, however short the tap; held, readControls rings on: helmKeys)
+  helmKeys(v, dir, dt) {
+    const H = this._helm || (this._helm = { dir: 0, t: 0 });
+    dir = Math.sign(dir);
+    if (!this.helmOf(v) || this.paused) { H.dir = dir; return; }
+    if (dir !== H.dir) { H.dir = dir; H.t = 0; return; } // (the press rang its step; another key, or none, starts afresh)
+    if (!dir) return;
+    H.t += dt;
+    if (H.t >= SHIP.TEL_HOLD) { H.t -= SHIP.TEL_REPEAT; this.setTel(v, v.sh.tel + dir); } // (held: another step, and on)
+  },
+  // ring the telegraph to t (a click, a buzz; drag: the lever's own, a lighter one)
+  setTel(v, t, drag) {
+    const sh = this.helmOf(v);
+    if (!sh || this.inert(v)) return;
+    t = clamp(Math.round(t), -3, 4);
+    if (!(t === t) || t === sh.tel) return;
+    sh.tel = t;
+    Sound.click(); haptic(drag ? 6 : 12);
+    this.updateThrottleDom();
+    if (typeof Ship !== 'undefined') Ship.hud(this);
+  },
+  // the telegraph's words, short: one or two lines for the lever's label
+  telWord(t, short) {
+    const n = SHIP.TEL_NAMES[clamp(Math.round(t), -3, 4) + 3] || 'Stop';
+    if (!short) return t > 0 && t < 4 ? `${n} ahead` : n;
+    return t < 0 ? n.replace(' ', '\n') : t > 0 && t < 4 ? `${n}\nahead` : n;
+  },
+  // the throttle box as the telegraph lever, eight detents (Stop three-sevenths up, the line across it): the fill runs from
+  // Stop to the rung order (up ahead, down astern), the order as its label
+  telDom(v) {
+    const t = v.sh.tel, f = $('#throttle-fill'), L = $('#throttle-label'), txt = this.telWord(t, true);
+    const lo = `${(((Math.min(t, 0) + 3) / 7) * 100).toFixed(1)}%`, h = `${((Math.abs(t) / 7) * 100).toFixed(1)}%`;
+    if (f.style.bottom !== lo) f.style.bottom = lo;
+    if (f.style.height !== h) f.style.height = h;
+    if (L.textContent !== txt) L.textContent = txt;
+    f.classList.toggle('astern', t < 0);
+  },
+  // body.ship (the ground HUD's ship layer, style.css): the lever's buttons and label are the telegraph's, and back
+  syncShipBody(on) {
+    this._bodyShip = on;
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('ship', on);
+    const lvl = document.body.classList.contains('drone-level'), mx = $('#btn-tmax'), ct = $('#btn-tcut');
+    mx.textContent = on ? 'Flank' : lvl ? '▲' : 'Max'; ct.textContent = on ? 'Stop' : lvl ? '▼' : 'Cut';
+    mx.title = on ? `Flank speed (${Keys.k('thrFull')})` : ''; ct.title = on ? `All stop (${Keys.k('thrCut')})` : '';
+    $('#throttle-track').setAttribute('aria-label', on ? 'Engine-order telegraph: up rings ahead, down astern, Stop just under the middle' : lvl ? 'Climb lever: up climbs, down descends, let go to hold the height' : 'Throttle');
+    $('#throttle-fill').classList.remove('astern'); $('#throttle-fill').style.bottom = '';
+    this.updateThrottleDom();
+  },
+  // A ship's own keys (true: taken): Z flank, X stop, the heading hold, the CIWS, damage control's priority, the bridge view
+  shipKey(e) {
+    const v = this.active, K = (id) => Keys.is(e.code, id), sh = this.helmOf(v);
+    if (!v || this.destroyed) return false;
+    if (K('thrFull') || K('thrCut')) { if (sh) this.setTel(v, K('thrFull') ? 4 : 0); return true; }
+    const up = K('fwd') || K('thrUp'), dn = K('back') || K('thrDown');
+    if (up !== dn) { // (W/S and the throttle keys: a step now; held, helmKeys rings on after SHIP.TEL_HOLD s)
+      if (sh) { this.setTel(v, sh.tel + (up ? 1 : -1)); const H = this._helm || (this._helm = { dir: 0, t: 0 }); H.dir = up ? 1 : -1; H.t = 0; }
+      return true;
+    }
+    if (K('sView')) { this.setBridge(!this.bridge); return true; }
+    if (!sh || this.inert(v)) return false;
+    if (K('sHold')) {
+      v.sas = v.sas === 'manual' ? 'hold' : 'manual'; sh.hold = null;
+      this.toast(v.sas === 'manual' ? 'Hand steering: the rudder centres when you let go' : 'Heading hold: let go of the rudder and she holds her heading');
+    } else if (K('sCiws')) {
+      sh.ciwsOn = !sh.ciwsOn;
+      this.toast(!v.ciws.length ? 'No CIWS aboard' : sh.ciwsOn ? 'CIWS: firing by itself at anything coming in' : 'CIWS: holding fire');
+    } else if (K('sDc')) {
+      const P = ['auto', 'flood', 'fire'], i = (P.indexOf(sh.dcPri) + 1) % P.length;
+      sh.dcPri = P[i];
+      this.toast(`Damage control: ${['anything first', 'flooding first', 'fires first'][i]}`);
+    } else return false;
+    Sound.click(); this.updateHUD(true);
+    return true;
+  },
+  // The bridge view (Ships: H): the eye over her wheelhouse, looking along the bow and rolling with her (render3d's
+  // first-person path, at 60°); off with any other view change (setFpv). Not while her guns aim (the aim camera has it).
+  setBridge(on) {
+    const v = this.active;
+    if (on && !(v && isSea(v.kind) && v.sh)) on = false;
+    else if (on && !(typeof App !== 'undefined' && App.use3D())) { this.toast('The bridge view needs the 3D view'); on = false; }
+    else if (on && this.groundAim) { this.toast('Her guns have the camera: the bridge view is for sailing'); on = false; }
+    this.bridge = !!on;
+    if (typeof Render3D !== 'undefined' && Render3D.setFpv) Render3D.setFpv(this.bridge, this.bridge ? 60 : 50);
+    Controls.keyHints(this, true);
+    return this.bridge;
+  },
   // a multirotor flown Level: the climb lever
   droneLevel(v) { return !!v && v.kind === 'drone' && v.sas !== 'acro' && !v.aircraft; },
   // First person (FPV) or the chase view. FPV needs the 3D view and a camera aboard; the choice is remembered for the next
   // drone (Settings → Drone view: FPV keeps its level-horizon kind). quiet: no toast (a start, a switch, a death).
   setFpv(on, quiet) {
     const v = this.active;
+    this.bridge = false; // (the ships update: a ship's bridge view shares the renderer's camera: any view change leaves it)
     if (on) {
       if (!v || v.kind !== 'drone') on = false;
       else if (!(typeof App !== 'undefined' && App.use3D())) { if (!quiet) this.toast('FPV needs the 3D view'); on = false; }
@@ -622,7 +727,8 @@ const Flight = {
         { label: 'Revert to launch', primary: !others.length, onClick: () => this.revert() },
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
-      UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: ground ? 'Knocked out' : 'Vessel destroyed', body: this.summaryHTML('', ground), actions: acts });
+      const sea = !!v && isSea(v.kind), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…)
+      UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: fate || (ground ? 'Knocked out' : 'Vessel destroyed'), body: this.summaryHTML('', ground), actions: acts });
     });
   },
   // What the strip says happened: a ground vehicle's ammunition gone up, knocked out (wrecked in a crash of its own);
@@ -632,7 +738,8 @@ const Flight = {
     const t = this.time || 0, hit = v && v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null;
     const by = (v && v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
     let what = 'Destroyed';
-    if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
+    if (v && isSea(v.kind)) what = SHIP_FATES[v.fate] || 'Destroyed'; // (the ships update: what ship.js's fate says, v.fate)
+    else if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
     else if (v && isAirKind(v.kind)) {
       what = v.kind === 'drone' ? 'Drone lost' : v.hulkWhy === 'pilot' ? 'Pilot knocked out' : v.down || (v.hulk != null && v.doomBy) ? 'Shot down'
         : this.crashedAt != null ? 'Crashed' : by ? 'Shot down' : 'Destroyed';
@@ -811,8 +918,8 @@ const Flight = {
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
-      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed || (v.hydro && v.afloat && isSea(v.kind))) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
+      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies; the ships update: a ship stopped afloat)
   },
 
   recover() {
@@ -844,10 +951,11 @@ const Flight = {
     const list = got.length ? got.map((a) => `<li>${a}</li>`).join('') : '<li class="muted">None this flight</li>';
     if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
       const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
+      const sea = !!this.active && isSea(this.active.kind) && typeof SHIP !== 'undefined'; // (the ships update: sailed, in knots)
       return `<dl class="summary">
       <div><dt>Time</dt><dd>${fmt.clock(this.time)}</dd></div>${kos}
-      <div><dt>Driven</dt><dd>${fmt.dist(this.driven || 0)}</dd></div>
-      <div><dt>Top speed</dt><dd>${Math.round(this.stats.maxSpeed * 3.6)} km/h</dd></div>
+      <div><dt>${sea ? 'Sailed' : 'Driven'}</dt><dd>${fmt.dist(this.driven || 0)}</dd></div>
+      <div><dt>Top speed</dt><dd>${sea ? `${Math.round(this.stats.maxSpeed * SHIP.KN)} kn` : `${Math.round(this.stats.maxSpeed * 3.6)} km/h`}</dd></div>
     </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
     }
     return `<dl class="summary">
@@ -898,6 +1006,7 @@ const Flight = {
   // The keys as they are bound now (Keys, controls.js): the same lists as README's Controls table (its defaults) and the
   // manual's (App.showHelp). On touch controls the touch line comes first and the keys fold away under "Keys".
   controlsHelp() {
+    if (this.running && this.active && isSea(this.active.kind)) return this.shipHelp(); // (the ships update: a ship's helm, then her guns as a tank's)
     if (this.groundAim) return this.groundHelp(); // (aiming a ground vehicle: its own list)
     if (this.running && this._bodyGround) return this.driveHelp(); // (one with nothing to aim, or in the 2D view: the keys it has)
     if (this.running && this.active && this.active.kind === 'drone') return this.droneHelp(); // (the big update: a drone's own)
@@ -974,6 +1083,34 @@ const Flight = {
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are shot down: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Esc</kbd>${K('menu')}<span>Menu (Esc also lets the mouse go)</span></div>
       ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped on the ground)</span></div>`}
+      ${T ? '' : touch}
+    </div>${T ? '</details>' : ''}`;
+  },
+
+  // A ship (the ships update): the same list as README's Ships block and the manual's. The helm first, then her guns, which
+  // aim and fire as a tank's (the Armour keys while she aims). On touch the touch line first and the keys folded away.
+  shipHelp() {
+    const K = (id) => Keys.kbd(id), P = (a, b) => Keys.pair(a, b), f = (...ids) => Keys.firsts(...ids), T = Controls.touch;
+    const touch = '<div><span class="tap">Touch</span><span>Left thumb: the stick is the rudder (sideways; let go and she holds her heading). The lever over it is the engine telegraph: drag it to a step, Flank at the top, Stop just under the middle, astern below; FLANK and STOP ring them at once. Right thumb: her guns as a tank\'s: FIRE, drag the view or slide on FIRE to aim, the binoculars for the sight, the shell chips and the weapon chip</span></div>';
+    return `${T ? `<div class="help-grid">${touch}</div><details class="help-keys"><summary>Keys, with a keyboard</summary>` : ''}<div class="help-grid">
+      <div>${P('fwd', 'back')}<span>Ring the engine telegraph a step ahead / astern (hold to keep ringing): Full astern, Half, Slow, Stop, Slow ahead, Half, Full, Flank</span></div>
+      <div>${P('left', 'right')}<span>Rudder to port / starboard (let go: she holds her new heading)</span></div>
+      <div>${f('thrFull', 'thrCut')}<span>Flank speed / all stop</span></div>
+      <div>${K('sHold')}<span>Heading hold on or off (off: hand steering, the rudder centres when you let go)</span></div>
+      <div>${K('sView')}<span>Bridge view or chase view (while her guns aren't aiming)</span></div>
+      <div><span class="tap">Mouse</span><span>Her guns aim and fire as a tank's: click the view to capture the mouse, left click fires, the right button (or ${Keys.k('sight')}) is the sight; ${f('aimL', 'aimR')} turn the aim</span></div>
+      <div>${Keys.run(['shell1', 'shell2', 'shell3', 'shell4'])}<span>Choose the next shell (twice: unload and load it now) · ${K('weapon')} change weapon · ${K('fire')} fire</span></div>
+      <div>${K('cm')}<span>Decoys, chaff and smoke</span></div>
+      <div>${K('sCiws')}<span>CIWS and point defence fire by themselves (on/off)</span></div>
+      <div>${K('sDc')}<span>Damage control first on: anything, flooding, fires</span></div>
+      <div>${f('lock', 'spot', 'tacMap')}<span>Radar lock · spot the enemy under the crosshair · tactical map</span></div>
+      <div>${K('camera')}<span>Reset the camera (drag to look around); aiming, hold to look round</span></div>
+      ${this.bayLine()}
+      <div>${K('map')}<span>Map view (${K('mapView')}: the globe or the solar system)</span></div>
+      ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
+      <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are sunk: watch another player' : 'Switch between your vessels'}</span></div>
+      <div><kbd>Esc</kbd>${K('menu')}<span>Menu (Esc also lets the mouse go)</span></div>
+      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped, afloat or aground)</span></div>`}
       ${T ? '' : touch}
     </div>${T ? '</details>' : ''}`;
   },
@@ -1115,7 +1252,7 @@ const Flight = {
     const v = this.active;
     if (!v) return;
     const st = this.stick, sv = this.flyAim ? 0 : st.v, sh = this.flyAim ? 0 : st.h;
-    v.ctl.v = clamp(key('fwd') - key('back') + sv, -1, 1);
+    v.ctl.v = v.kind === 'ship' ? 0 : clamp(key('fwd') - key('back') + sv, -1, 1); // (a ship: W/S ring her telegraph here, shipKey and helmKeys, so Ship.pre's own stepping from ctl.v never doubles them; her stick is her rudder alone)
     v.ctl.h = clamp(key('right') - key('left') + sh, -1, 1);
     v.ctl.r = clamp(key('rollR') - key('rollL') + st.r, -1, 1);
     if (Silly.on('drunk')) { // the stick wanders off on its own, in waves
@@ -1130,7 +1267,8 @@ const Flight = {
     if (v.kind === 'drone') { // (the big update) Level: Shift/Ctrl and the touch lever are the climb lever (drone.js's law sets the throttle); Acro and winged drones: the throttle, ramped
       if (this.droneLevel(v)) v.ctl.z = clamp(dT + (this.droneLift || 0), -1, 1);
       else { v.ctl.z = 0; if (dT) this.setThrottle(v.throttle + dT * dt * DRONE.RAMP); }
-    } else if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
+    } else if (v.kind === 'ship') this.helmKeys(v, key('fwd') - key('back') + dT, dt); // (the ships update: W/S, and the throttle keys, ring the telegraph a step at a time)
+    else if (dT) this.setThrottle(v.throttle + dT * dt * 0.9);
     v.brake = !!key('brake') || this.touchBrake;
     this.firing = !!key('fire') || !!this.touchFire || (this.mouseAim() && this.mouseFire);
     this.mgFiring = ga && (!!key('mg') || !!this.touchMG);
@@ -1148,9 +1286,12 @@ const Flight = {
   // what it is on (GHUD.aimUpdate: a full look 20 times a second, the point carried along the ray between).
   groundTick(dt) {
     const v = this.active, ok = !!v && v.parts.length > 0 && !v.dead;
-    const gr = ok && isGround(v.kind) && (v.gear.length > 0 || v.gv);
+    // (the ships update: a ship has the ground HUD too, body.ship over it: her guns aim as a tank's, the throttle box is her
+    // engine-order telegraph, the stick her rudder)
+    const sea = ok && isSea(v.kind), gr = ok && ((isGround(v.kind) && (v.gear.length > 0 || v.gv)) || sea);
+    if (sea !== !!this._bodyShip) this.syncShipBody(sea);
     if (gr !== !!this._bodyGround) { this._bodyGround = gr; document.body.classList.toggle('ground', gr); Controls.relayout(); } // (the custom layout's other HUD)
-    const th = gr && this.thrusty(v), sg = gr && v.stageIdx < v.stages.length; // (a throttle with thrust parts aboard; a Stage pill while stages remain)
+    const th = gr && (this.thrusty(v) || (sea && !!v.sh)), sg = gr && v.stageIdx < v.stages.length; // (a throttle with thrust parts aboard, or a ship's telegraph; a Stage pill while stages remain)
     if (th !== !!this._gth) { this._gth = th; document.body.classList.toggle('g-thrust', th); }
     if (sg !== !!this._gst) { this._gst = sg; document.body.classList.toggle('g-stages', sg); }
     const aimed = gr || (ok && isGround(v.kind)) ? v.aimed.length > 0 : false, has3d = aimed && App.use3D();
@@ -1191,6 +1332,7 @@ const Flight = {
     this.setSight(false); this.unlockPointer();
     this._aimV = null; this._warn2d = false; this.strike = null; this.zoom = 3;
     if (this._bodyGround || this._gth || this._gst) { this._bodyGround = this._gth = this._gst = false; document.body.classList.remove('ground', 'g-thrust', 'g-stages'); }
+    if (this._bodyShip) this.syncShipBody(false);
     if (typeof GHUD !== 'undefined') GHUD.tactical(false);
   },
   // the crosshair straight ahead along v's hull, level
@@ -1691,6 +1833,7 @@ const Flight = {
         this.driven += sp * dtm;
         if (this.driven > 1000) this.award('drive1k');
       }
+      if (isSea(v.kind) && !v.landed && sp > 0.5) this.driven += sp * dtm; // (the ships update: how far she sailed, for the end screen)
     }
     if (settled) for (const p of v.parts) if (p.def.chute && p.deployed > 0 && !p.used) p.used = true; // canopy collapses
   },
@@ -1853,8 +1996,9 @@ const Flight = {
       if (K('drone')) { if (typeof Drone !== 'undefined') Drone.key(this); return; } // (the big update: launch a drone from a bay, or switch between it and its tank)
       if (this.groundAim && this.groundKey(e)) return; // (aiming a ground vehicle: its own keys first)
       if (this.flyAim && K('camera')) { this.flyLookStart(); return; } // (a plane in Aim: C held looks round)
-      const kind = this.active && this.active.kind, sas = kind === 'plane' ? PLANE_SAS_KEYS : kind === 'drone' ? DRONE_KEYS : SAS_KEYS;
+      const kind = this.active && this.active.kind, sas = kind === 'plane' ? PLANE_SAS_KEYS : kind === 'drone' ? DRONE_KEYS : kind === 'ship' ? NO_SAS_KEYS : SAS_KEYS; // (a ship: her own helm keys, below; never a rocket's autopilot)
       for (const id in sas) if (K(id)) { this.setSas(sas[id]); return; }
+      if (kind === 'ship' && this.shipKey(e)) return; // (the ships update: flank, stop, heading hold, CIWS, damage control, the bridge view)
       if (kind === 'drone' && this.droneKey(e)) return; // (a drone's Home, Land, view and thermal)
       if (e.code === 'Escape') this.openMenu(); // (Esc always: not a binding)
       else if (K('stage')) this.stage();
@@ -2066,8 +2210,8 @@ const Flight = {
     $('#warp-up').addEventListener('click', () => this.setWarp(this.warpIdx + 1));
     $('#warp-down').addEventListener('click', () => this.setWarp(this.warpIdx - 1));
     $('#warp-label').addEventListener('click', () => this.setWarp(0));
-    $('#btn-tmax').addEventListener('click', () => { if (!this.droneLevel(this.active)) this.setThrottle(1); });
-    $('#btn-tcut').addEventListener('click', () => { if (!this.droneLevel(this.active)) this.setThrottle(0); });
+    $('#btn-tmax').addEventListener('click', () => { const v = this.active; if (this.helmOf(v)) this.setTel(v, 4); else if (!this.droneLevel(v)) this.setThrottle(1); }); // (a ship's FLANK)
+    $('#btn-tcut').addEventListener('click', () => { const v = this.active; if (this.helmOf(v)) this.setTel(v, 0); else if (!this.droneLevel(v)) this.setThrottle(0); }); // (and STOP)
     // (the big update) a Level multirotor's ▲ and ▼: held, the lever up or down; let go, it springs back to hold
     for (const [id, z] of [['#btn-tmax', 1], ['#btn-tcut', -1]]) {
       const b = $(id), off = () => { if (this.droneHeld === b) { this.droneHeld = null; this.droneLift = 0; } b.classList.remove('held'); };
@@ -2094,6 +2238,7 @@ const Flight = {
     const setFromY = (e) => {
       const r = track.getBoundingClientRect(), y = (e.clientY - r.top) / r.height;
       if (this.droneLevel(this.active)) { const z = clamp((0.5 - y) * 2.2, -1, 1); this.droneLift = Math.abs(0.5 - y) <= 0.05 ? 0 : z; return; }
+      if (this.helmOf(this.active)) { this.setTel(this.active, Math.round(clamp(1 - y, 0, 1) * 7) - 3, true); return; } // (the ships update: a ship's telegraph lever, eight detents, Flank at the top)
       this.setThrottle(1 - y);
     };
     const trackOff = () => { this.dragThrottle = false; this.droneLift = 0; };
@@ -2253,6 +2398,7 @@ const Flight = {
 
   // ------------------------------------------------------------------ HUD
   updateThrottleDom() {
+    if (this._bodyShip && this.helmOf(this.active)) { this.telDom(this.active); return; } // (the ships update: the telegraph lever, while body.ship is on)
     const v = this.active, t = v ? v.throttle : 0;
     $('#throttle-fill').style.height = `${t * 100}%`;
     // (the big update) a Level multirotor's lever: the motors' output as the fill, and what the lever asks: ▲ climbing at,
@@ -2296,6 +2442,12 @@ const Flight = {
   vehicleHint(v) {
     const T = Controls.touch, k = (id) => Keys.k(id), ws = `${k('fwd')}/${k('back')}`, ad = `${k('left')}/${k('right')}`; // (the keys as bound: W/S, A/D by default)
     if (v.kind === 'drone') return Drone.help(this) || ''; // (the big update: a drone's first moments)
+    if (isSea(v.kind)) { // (the ships update: her helm, for her first moments)
+      const sh = v.sh;
+      if (!sh || this.time > 30 || this.mp || this.shotYet || (sh.tel !== 0 && this.time > 12)) return '';
+      if (sh.tel === 0) return T ? 'The lever on the left is her engine telegraph: push it up to ring ahead. The stick is the rudder.' : `${k('fwd')} rings the telegraph ahead a step at a time (${k('thrFull')}: flank, ${k('thrCut')}: stop), ${ad} put the rudder over.`;
+      return T ? 'Let go of the stick and she holds her new heading.' : `Let go of ${ad} and she holds her new heading (${k('sHold')}: hand steering).`;
+    }
     if (this._bodyGround) { // (a ground vehicle with tracks, armoured wheels or the ground update's guns)
       if (this.time > 15 || this.mp || this.shotYet) return ''; // (P4 play-test: not for 30 s, over the kill banner and the targets' labels on a phone)
       if (this.groundAim) return T ? 'Left thumb drives. Drag the view, or slide on FIRE, to aim. Binoculars: the gunner’s sight.'
@@ -2395,7 +2547,8 @@ const Flight = {
     const rocket = v.kind === 'rocket', gnd = !!this._bodyGround;
     // (a ground vehicle's speed says which way it goes: ▲ forward, ▼ in reverse)
     const fw = gnd ? v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z, this._fw || (this._fw = v3())) : null, sgn = fw && v.speed() > 0.3 ? (v.vx * fw.x + v.vy * fw.y + v.vz * fw.z < 0 ? ' ▼' : ' ▲') : '';
-    set('t-speed', rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h${sgn}`);
+    const kn = isSea(v.kind) && typeof SHIP !== 'undefined' ? SHIP.KN : 0; // (the ships update: a ship's displays speak knots)
+    set('t-speed', rocket ? fmt.speed(v.speed()) : kn ? `${Math.round(v.speed() * kn).toLocaleString('en-US')} kn${sgn}` : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h${sgn}`);
     const crew = gnd && v.gv ? Armour.crewOf(v) : null;
     const rc = $('#row-crew'), noCrew = !(crew && crew.crew.length);
     if (rc.hidden !== noCrew) rc.hidden = noCrew; // (only on a change: an old craft's HUD tick writes nothing new)
@@ -2444,7 +2597,7 @@ const Flight = {
       const al = $('#flight-alert'), leak = hurt && air && !fire && v.parts.some(Death.leaking);
       let msg = null, crit = false;
       const struct = () => {
-        const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
+        const fast = v.overMach ? `M ${v.mach.toFixed(2)}` : rocket ? fmt.speed(v.speed()) : kn ? `${Math.round(v.speed() * kn)} kn` : `${Math.round(v.speed() * 3.6).toLocaleString('en-US')} km/h`;
         return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
       };
       const dm = v.carrier && typeof Drone !== 'undefined' ? Drone.alertText(this) : null; // (a drone from a bay: its LAST FLIGHT, its tank hit; plan I6)
@@ -2548,6 +2701,7 @@ const Flight = {
     $('#hint').hidden = !h;
     set('hint-text', h);
     if (gnd || this._gsync) { this._gsync = gnd; GHUD.sync(this, ws); } // (the ground controls; once more as they go)
+    if ((kn || this._shud) && typeof Ship !== 'undefined') { this._shud = !!kn; Ship.hud(this); } // (the ships update: the helm panel; once more as it goes)
     Controls.keyHints(this, false, ws); // (a desktop's key hints: rebuilt only when what they say changes)
     if (force) { this.updateThrottleDom(); this.syncSas(); }
   },

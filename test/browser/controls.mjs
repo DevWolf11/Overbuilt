@@ -7,13 +7,14 @@
 //    nothing, past it an expo curve (fine near the middle, full at the edge); in Off the stick flies the plane directly;
 //    held still, nothing in its DOM is written.
 //  - The HUD's size (--ui-scale) on 360×640, 375×667, 390×844, 430×932, 768×1024, 844×390, 1280×720 and 1920×1080: for a
-//    plane in Aim and in Off, a rocket on the pad and a tank, every control and panel on the screen and clear of the others
-//    (and of Aim's circle); the scale in its bands; the UI size setting scales it, within a phone's limit.
+//    plane in Aim and in Off, a rocket on the pad, a tank and a ship (the ships update: the Cyclon at the bay, her telegraph
+//    lever and helm panel), every control and panel on the screen and clear of the others (and of Aim's circle); the scale
+//    in its bands; the UI size setting scales it, within a phone's limit.
 //  - The layout editor (from Settings and the pause menu): a control dragged moves, sized and faded by the sliders, snaps to
 //    an edge, is saved per orientation and comes back after a reload; Reset to default; a forged saved layout is cleaned
 //    (unknown keys, nonsense, a place off the screen ignored).
-//  - A desktop (no touch controls): no stick or touch buttons, the key hints for the craft from the current bindings,
-//    collapsible; the Touch controls switch turns them round both ways.
+//  - A desktop (no touch controls): no stick or touch buttons, the key hints for the craft from the current bindings (a
+//    ship's helm too), collapsible; the Touch controls switch turns them round both ways.
 //  - UI size held to what fits (also the editor's UI size slider): smaller as asked; at 150% a phone's controls no longer
 //    run into each other or the flight data (portrait and on its side, a plane and a tank); the stick and the editor's drag
 //    follow the finger at any size.
@@ -86,12 +87,12 @@ const angD = (a, b) => Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y 
 // ---- where everything is: every control and panel of the HUD in sight, and Aim's circle
 const layout = () => {
   const rect = (q) => { const e = typeof q === 'string' ? document.querySelector(q) : q; if (!e || e.hidden) return null; const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width && r.height && cs.display !== 'none' && cs.visibility !== 'hidden' ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
-  const ground = document.body.classList.contains('ground'), P = GHUD._S.P || {};
+  const ground = document.body.classList.contains('ground'), P = GHUD._S.P || {}; // (the damage diagram: drawn while aiming only, GHUD.draw; its place kept from the last time)
   const items = { stick: rect('#joy'), rollL: rect('#rot-left'), rollR: rect('#rot-right'), brake: rect('#btn-brake'), flaps: rect('#btn-flaps'), gear: rect('#btn-gear'),
     fire: rect('#btn-fire'), cm: rect('#btn-cm'), chip: rect('#btn-weapon'), catapult: rect('#btn-catapult'), throttle: rect('#flight-ui .throttle-box'),
     stage: ground ? rect('#btn-stage') : rect('#flight-ui .stage-box'), telemetry: rect('#flight-ui .telemetry'), topRight: rect('#flight-ui .flight-top-right'), warp: rect('#warp'), keys: rect('#key-hints'),
     sight: rect('#btn-sight'), mg: rect('#btn-mg'), lock: rect('#btn-lock'), range: rect('#btn-range'), shells: rect('#ammo-stack'), map: rect('#gmap'), gai: rect('#gai-bar'),
-    diagram: ground && P.diag ? { l: P.diag.x, t: P.diag.y, r: P.diag.x + P.diag.w, b: P.diag.y + P.diag.h } : null };
+    diagram: ground && Flight.groundAim && P.diag ? { l: P.diag.x, t: P.diag.y, r: P.diag.x + P.diag.w, b: P.diag.y + P.diag.h } : null };
   if (!ground) document.querySelectorAll('#sas-bar [data-sas]').forEach((x) => { const r = rect(x); if (r) items['sas-' + x.dataset.sas] = r; });
   let circle = null;
   if (Flight.flyAim && Flight.flyDir) {
@@ -222,15 +223,19 @@ const SIZES = [[360, 640, true], [375, 667, true], [390, 844, true], [430, 932, 
 const zs = {};
 for (const vp of part(2) ? SIZES : []) {
   const tag = `${vp[0]}×${vp[1]}${vp[2] ? '' : ' desktop'}`, { ctx, page } = await open(vp, {}, tag + ' ');
-  for (const [what, key, sas] of [['a plane in Aim', 'fs16'], ['a plane in Off', 'fs16', 'off'], ['a rocket on the pad', 'orbiter'], ['a tank', 'tk34']]) {
+  for (const [what, key, sas] of [['a plane in Aim', 'fs16'], ['a plane in Off', 'fs16', 'off'], ['a rocket on the pad', 'orbiter'], ['a tank', 'tk34'], ['a ship', 'cyclon']]) {
     await fly(page, key, sas);
     await page.waitForTimeout(1300); // (the ground HUD's places: looked up once a second)
     await frames(page, 2);
     const L = await page.evaluate(layout);
     zs[tag] = L.z;
-    const need = L.pc ? ['telemetry', 'keys'] : what === 'a tank' ? ['stick', 'fire', 'sight', 'map', 'shells'] : what === 'a rocket on the pad' ? ['stick', 'throttle', 'stage', 'sas-hold'] : ['stick', 'fire', 'throttle', 'stage', 'sas-aim'];
+    const need = what === 'a ship' ? (L.pc ? ['telemetry', 'keys', 'throttle'] : ['stick', 'throttle', 'telemetry', 'map']) : L.pc ? ['telemetry', 'keys'] : what === 'a tank' ? ['stick', 'fire', 'sight', 'map', 'shells'] : what === 'a rocket on the pad' ? ['stick', 'throttle', 'stage', 'sas-hold'] : ['stick', 'fire', 'throttle', 'stage', 'sas-aim'];
     judge(`${tag}, ${what}`, L, need);
-    const name = `${what === 'a plane in Aim' ? 'aim' : what === 'a plane in Off' ? 'off' : what === 'a tank' ? 'tank' : 'rocket'}-${vp[0]}x${vp[1]}`;
+    if (what === 'a ship') { // (the ships update: her helm panel inside the flight data, on the screen)
+      const hp = await page.evaluate(() => { const h = document.querySelector('#ship-helm').getBoundingClientRect(), t = document.querySelector('#flight-ui .telemetry').getBoundingClientRect(); return { h: h.height, in: h.height > 20 && h.left >= t.left - 0.5 && h.right <= t.right + 0.5 && h.bottom <= t.bottom + 0.5 && h.bottom <= innerHeight }; });
+      ok(`${tag}, a ship: her helm panel shown inside the flight data`, hp.in, hp);
+    }
+    const name = `${what === 'a plane in Aim' ? 'aim' : what === 'a plane in Off' ? 'off' : what === 'a tank' ? 'tank' : what === 'a ship' ? 'ship' : 'rocket'}-${vp[0]}x${vp[1]}`;
     if (vp[0] === 390 || vp[0] === 768 || vp[0] === 1280 || vp[0] === 1920 || vp[0] === 360 || vp[0] === 844 || vp[0] === 430 || vp[0] === 375) await shot(page, name);
   }
   await pageErrors(page, tag + ' ');
@@ -369,6 +374,12 @@ if (part(4)) {
   const th = await page.evaluate(hintRows);
   ok('a tank\'s key hints: drive, turn, aim, fire, the sight, the MG, shells 1–4, smoke', ['Drive', 'Turn', 'Aim', 'Fire', 'Sight', 'MG', 'Shells', 'Smoke'].every((w) => th.some((t) => t.includes(w))), th);
   await shot(page, 'pc-tank-1280x720');
+  // (the ships update) a ship: her helm's keys (the telegraph, the rudder, flank and stop, hand steering, damage control, the bridge view)
+  await fly(page, 'cyclon');
+  await page.waitForTimeout(400);
+  const sh = await page.evaluate(hintRows);
+  ok('a ship\'s key hints: W S the telegraph, A D the rudder, Z X flank and stop, 5 hand steering, 7 damage control, H the bridge view', ['W S Telegraph', 'A D Rudder', 'Z X Flank, stop', '5 Hand steer', '7 Damage control', 'H Bridge view'].every((w) => sh.includes(w)), sh);
+  await shot(page, 'pc-ship-1280x720');
   // Touch controls: On brings the stick and FIRE back on a desktop (a touchscreen laptop), and the hints go
   await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-touch-ui'); s.value = 'on'; s.dispatchEvent(new Event('change')); UI.closeModal(); });
   await fly(page, 'fs16'); await frames(page, 2);
@@ -395,17 +406,21 @@ if (part(5)) {
   await page.evaluate(() => { App.showSettings(); document.querySelector('#set-keys').click(); });
   const slot = (id, i) => `#modal-card .kb-row[data-id="${id}"] .kb-slot[data-slot="${i}"]`;
   const k0 = await page.evaluate(() => ({ title: document.querySelector('#modal-card .modal-title').textContent, groups: [...document.querySelectorAll('#modal-card .kb-h')].map((h) => h.textContent), fire: document.querySelector('#modal-card .kb-row[data-id="fire"] .kb-slot').textContent }));
-  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Drones, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 9 && k0.groups[6] === 'Drones' && k0.fire === 'V', k0);
+  ok('Settings → Keys: every action in its group (Flight, Planes, Rockets, Weapons, Camera, Armour, Drones, Ships, Multiplayer, Builder) with today\'s keys', k0.title === 'Keys' && k0.groups.length === 10 && k0.groups[6] === 'Drones' && k0.groups[7] === 'Ships' && k0.fire === 'V', k0);
   // (the big update's drones) the defaults clash nowhere: U, H, J and the drone digits are free wherever they can be live
   // together (J is the Armour's spot key, never live on a drone; T stays chat); the drone rows came after keys became
   // rebindable, so they give way to a player's own key (Keys.LATE: a player who put Fire on U keeps U firing only)
   const dk = await page.evaluate(() => {
     const clash = []; for (const [id] of Keys.ACTIONS) for (const c of Keys.defaults(id)) for (const o of Keys.conflicts(id, c)) if (Keys.defaults(o).includes(c)) clash.push(`${id}/${o}:${c}`);
     const late = Keys.clean({ fire: ['KeyU'] }), late2 = Keys.clean({ tacMap: ['KeyU'] });
-    return { lateMap: late2.drone, lateMapC: Keys.conflicts('tacMap', 'KeyU'), clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat') };
+    const ships = Keys.ACTIONS.filter((r) => r[1] === 'Ships').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateShip = Keys.clean({ shell1: ['Digit5'], dView: ['KeyH'] });
+    return { lateMap: late2.drone, lateMapC: Keys.conflicts('tacMap', 'KeyU'), clash, rows: Keys.ACTIONS.length, drones: Keys.ACTIONS.filter((r) => r[1] === 'Drones').map((r) => `${r[0]}:${r[2]}:${r[4].join('+')}`), lateDrone: late.drone, lateFire: late.fire, thermal: Keys.INFO.dThermal.ctx, chat: Keys.defaults('chat'),
+      ships, lateHold: lateShip.sHold, lateView: lateShip.sView, shipAny: Keys.conflicts('sHold', 'KeyW').join(), shipGround: Keys.conflicts('sView', 'KeyY').join(), shipDrone: Keys.conflicts('sView', 'KeyH').join() };
   });
-  ok('the Drones group: 8 rows (U launches and switches, H the view, 1-4 Level, Acro, Home, Land, 5 lock-on, J the gimbal\'s thermal), 74 in all, no default key clashes; Fire on U leaves the drone key unbound',
-    dk.rows === 74 && dk.clash.length === 0 && dk.drones.join() === 'drone:bay:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dLock:drone:Digit5,dThermal:drone:KeyJ'
+  ok('the Ships group (the ships update): 4 rows, live on a ship (5 the heading hold, 6 the CIWS, 7 damage control, H the bridge view); they clash with the flight keys and, a ship aiming, the Armour keys, never a drone\'s; a player\'s own 5 for a shell leaves the hold unbound, a drone\'s H keeps the bridge view\'s',
+    dk.ships.join() === 'sHold:ship:Digit5,sCiws:ship:Digit6,sDc:ship:Digit7,sView:ship:KeyH' && dk.lateHold.length === 0 && dk.lateView.join() === 'KeyH' && dk.shipAny === 'fwd' && dk.shipGround === 'zero' && dk.shipDrone === '', dk);
+  ok('the Drones group: 8 rows (U launches and switches, H the view, 1-4 Level, Acro, Home, Land, 5 lock-on, J the gimbal\'s thermal), 78 in all (the Ships group\'s 4 too), no default key clashes; Fire on U leaves the drone key unbound',
+    dk.rows === 78 && dk.clash.length === 0 && dk.drones.join() === 'drone:bay:KeyU,dView:drone:KeyH,dLevel:drone:Digit1,dAcro:drone:Digit2,dHome:drone:Digit3,dLand:drone:Digit4,dLock:drone:Digit5,dThermal:drone:KeyJ'
     && dk.lateDrone.length === 0 && dk.lateFire.join() === 'KeyU' && dk.chat.join() === 'KeyT,Enter'
     && dk.lateMap.length === 0 && dk.lateMapC.join() === 'drone', dk); // (P4-OF-4: the drone key is read before an Armour's own: a saved Tactical map on U keeps U)
   await page.click(slot('fire', 0));
@@ -506,7 +521,7 @@ if (part(5)) {
   const k = await page.evaluate(() => { const c = document.querySelector('#modal-card'), rows = [...c.querySelectorAll('.kb-row')]; return { fit: c.scrollWidth <= c.clientWidth + 1, rows: rows.length, over: rows.filter((r) => r.getBoundingClientRect().right > innerWidth).length }; });
   await shot(page, 'keys-390x844');
   ok('on a phone: Settings has the controls (Touch controls, UI size, Stick size, Aim stick speed, Keys, Edit controls) and the Keys screen fits its width',
-    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && k.fit && k.rows === 74 && k.over === 0, { s: { w: s.w }, k });
+    s.w && /Touch controls/.test(s.text) && /UI size/.test(s.text) && /Stick size/.test(s.text) && /Aim stick speed/.test(s.text) && /Sea/.test(s.text) && k.fit && k.rows === 78 && k.over === 0, { s: { w: s.w }, k });
   await page.evaluate(() => UI.closeModal());
   await pageErrors(page, 'phone keys ');
   await ctx.close();
@@ -550,6 +565,13 @@ if (part(6)) {
     judge(`390×844, a tank, UI size ${v * 100}% (scale ${await page.evaluate(() => Controls.z)})`, await page.evaluate(layout), ['stick', 'fire', 'sight', 'map', 'shells']);
   }
   await shot(page, 'uisize150-tank-390x844');
+  // (the ships update) a ship, smaller and larger: her lever and helm panel clear of the rest
+  await fly(page, 'cyclon');
+  for (const v of [0.6, 1.5]) {
+    await set(v); await page.waitForTimeout(1300); await frames(page, 2);
+    judge(`390×844, a ship, UI size ${v * 100}% (scale ${await page.evaluate(() => Controls.z)})`, await page.evaluate(layout), ['stick', 'throttle', 'telemetry', 'map']);
+  }
+  await shot(page, 'uisize150-ship-390x844');
   // a phone on its side: flaps and gear used to meet the flight data at 150%
   await set(1.5); await fly(page, 'fs16');
   await page.setViewportSize({ width: 844, height: 390 }); await page.evaluate(() => Controls.resize());
