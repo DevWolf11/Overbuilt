@@ -1391,6 +1391,15 @@ body.ground #btn-radar { display: none; }
    update's Ship a seventh */
 #kind-select { grid-template-columns: repeat(7, 1fr); }
 @media (max-width: 359.98px) { #kind-select .kind-btn { font-size: 8px; } }
+/* [WP4] a desktop's side panel (236 px) has no room for seven abreast (Ship ran off its edge): two rows, four and three */
+@media (min-width: 761px) { #kind-select { grid-template-columns: repeat(4, 1fr); } }
+/* [WP4] folded on a narrow phone, the seven in one slim row: their words alone, a size smaller (with the icons beside them
+   the row ran out of the panel and Ship went off its edge) */
+@media (max-width: 400px) {
+  .stats.collapsed #kind-select { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .stats.collapsed #kind-select .kind-btn { font-size: 8px; letter-spacing: 0; padding: 3px 0; }
+  .stats.collapsed #kind-select .kind-btn .icon { display: none; }
+}
 /* the drone's line under the stats: its notes (no camera, more parts than a bay takes) in grey */
 .air-info .s-note { color: var(--muted); }
 /* a short phone building a drone, as building armour: while a part's card is up the kind buttons give way */

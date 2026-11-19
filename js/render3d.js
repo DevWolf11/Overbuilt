@@ -6480,6 +6480,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.design.updateMatrixWorld();
     builderMarkers(B, dist);
     builderArcs(B);
+    builderWater(B); // [WP4] (the ships update: a ship's waterline)
     // lights and shadow box sized to the craft
     S.key.position.set(tx + size * 1.2, ty + size * 2.2, size * 1.6);
     S.key.target.position.set(tx, ty * 0.5, 0);
@@ -6511,6 +6512,22 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     g.position.set(A.c.x, A.c.y + 0.03, A.c.z || 0);
     S.design.add(g);
     S.arcs = g;
+  }
+  // [WP4] (the ships update) building a ship: a pale blue sheet at the waterline she floats at (B.waterline3d: the sea plane
+  // in part space, a little past her length and beam; red when she sinks); made again only when it moves
+  function builderWater(B) {
+    const W = B.waterline3d ? B.waterline3d() : null, key = W ? [W.x0, W.x1, W.z0, W.z1, W.a, W.bx, W.bz].map((v) => v.toFixed(3)).join() + W.bad : '';
+    if (key === S.wlKey) return;
+    S.wlKey = key;
+    if (S.wl) { S.design.remove(S.wl); S.wl.geometry.dispose(); S.wl = null; }
+    if (!W) return;
+    if (!S.wlMat) S.wlMat = [0x4fb6ff, 0xff5d5d].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    const g = new THREE.BufferGeometry(), y = (x, z) => W.a + W.bx * x + W.bz * z;
+    g.setAttribute('position', new THREE.Float32BufferAttribute([W.x0, y(W.x0, W.z0), W.z0, W.x1, y(W.x1, W.z0), W.z0, W.x1, y(W.x1, W.z1), W.z1, W.x0, y(W.x0, W.z1), W.z1], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    S.wl = new THREE.Mesh(g, S.wlMat[W.bad ? 1 : 0]);
+    S.wl.renderOrder = 5;
+    S.design.add(S.wl);
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.

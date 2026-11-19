@@ -704,12 +704,12 @@ const Builder = {
     this.savedAs = null;
     this.loadDesign({ name: t.name, kind: t.kind, parts: templateRows(t) });
   },
-  // Symmetry. Planes, armour and drones mirror left and right (across the blueprint), rockets turn half round the stack,
+  // Symmetry. Planes, armour, drones and ships mirror left and right (across the blueprint), rockets turn half round the stack,
   // cars and helicopters mirror front and back. The pose of the mirror copy of a part, or null when it sits on
   // the mirror line (or is a pair or a wing already).
   mirrorOf(q) {
     const def = PARTS[q.type], rot = q.rot || 0, z = partZ({ def, z: q.z });
-    if (this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
+    if (this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') return def.twinZ || zLocked(def) || Math.abs(z) < 0.01 ? null : { x: q.x, y: q.y, z: -z, rot };
     const zz = this.kind === 'rocket' && !def.twinZ ? -z : z;
     if (Math.abs(q.x) < 0.01 && Math.abs(zz - z) < 0.01) return null;
     return { x: -q.x, y: q.y, z: zz, rot: mirrorRot(rot) };
@@ -773,6 +773,9 @@ const Builder = {
     };
     this.statsData.radar = radarSummary(ps); // (the radar row and the Fit button)
     this.statsData.drone = this.kind === 'drone' && typeof Drone !== 'undefined' ? Drone.stats(ps) : null; // (the big update: a drone's numbers)
+    // (the ships update) a ship's float, speed and stability: the parts joined to the bridge, or with no bridge yet, all of
+    // them (the hull's waterline shows as soon as a segment is down)
+    this.statsData.ship = this.kind === 'ship' && typeof Ship !== 'undefined' ? Ship.stats(this.ctrl ? ps : this.parts) : null;
     this.groundStats(ps, adj);
     this.renderTools();
     this.renderStats();
@@ -831,6 +834,8 @@ const Builder = {
   // The blueprint's unit of size: 1 m, and 0.1 m for a drone (the big update: a motor is 20 cm), so its zoom, grid, snap
   // reach and nudges are a tenth of a craft's. Every other kind is unchanged.
   unit() { return this.kind === 'drone' ? 0.1 : 1; },
+  // The fit's closest zoom out (px a metre): 5, and 1.2 for a ship (the ships update: a 152 m destroyer fits a 360 px phone)
+  zoomMin() { return this.kind === 'ship' ? 1.2 : 5; },
   // The parts under a blueprint point, the one drawn on top first (the near side, then pods, wings and
   // tail surfaces, the hull, then legs, fins and wheels), so a wing through the fuselage can be picked where
   // they cross; parts at different depths behind one another follow.
@@ -858,7 +863,7 @@ const Builder = {
     }
     const area = this.viewArea(), u = this.unit(); // (a drone is a tenth the size: a tenth of the margin, ten times the zoom)
     const scale = Math.min(area.w / (r - l + 6 * u), area.h / (t - b + 4 * u));
-    this.cam.scale = clamp(scale, 5, 60 / u);
+    this.cam.scale = clamp(scale, this.zoomMin(), 60 / u);
     this.cam.x = (l + r) / 2 - (area.cx - innerWidth / 2) / this.cam.scale;
     this.cam.y = (b + t) / 2 + (area.cy - innerHeight / 2) / this.cam.scale;
   },
@@ -873,9 +878,13 @@ const Builder = {
     let left = 0;
     if (innerWidth > 760) left = $('#stats').getBoundingClientRect().right;
     let right = innerWidth;
-    if (this.kind === 'tank' || this.kind === 'drone') { // (P4 play-test) Armour (and drones): clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
+    if (this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') { // (P4 play-test) Armour (and drones, ships): clear of the Select/Grid/Fit column on the right (a tank's long gun went under it)
       const f = $('.fit-col').getBoundingClientRect();
-      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) right = f.left - 6;
+      if (f.width > 0 && f.top < bottom && f.bottom > top && f.left > left + 120) {
+        // (the ships update) a ship is long and low: above the column, the whole width, while that leaves her room enough
+        if (this.kind === 'ship' && f.top - 6 - top >= 0.45 * (bottom - top)) bottom = f.top - 6;
+        else right = f.left - 6;
+      }
     }
     const a = { w: right - left, h: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
     if (this.keepArea && !$('#build-ui').hidden) this.area = a;
@@ -1183,7 +1192,7 @@ const Builder = {
     const m = p.mirror;
     const H = this.hosts();
     if (this.kidsOf([p, m].filter(Boolean), H).length) { // with what hangs on it (and its twin, turned the mirrored way)
-      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' ? 1 : -1]] : [[p, 1]], H);
+      this.turnGroups(m ? [[p, 1], [m, this.kind === 'plane' || this.kind === 'tank' || this.kind === 'ship' ? 1 : -1]] : [[p, 1]], H);
       return;
     }
     const k = ((p.rot || 0) + 1) & 3, ignore = [p, m].filter(Boolean);
@@ -1577,6 +1586,15 @@ const Builder = {
       if (s && s.why) { UI.toast(s.why); return; }
       spot = s;
     }
+    if (this.kind === 'ship' && typeof Ship !== 'undefined') { // (the ships update) hull segments end to end, the rest on, in and under them (Ship.spotOf)
+      const s = Ship.spotOf(type, this.parts, { x: centre.x, y: centre.y, sym: this.symmetry, rot });
+      if (s && s.why) { UI.toast(s.why); return; }
+      if (s && s.shift) { // (a midsection in behind the bow: the bow, and what is on it, forward first)
+        if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
+        if (!this.shift(s.shift.parts, s.shift.dx, s.shift.dy)) { UI.toast('No room there. Drag the part into place instead.'); return; }
+      }
+      spot = s;
+    }
     // (armour with a hull or turret already: a part with nowhere of its kind left goes nowhere odd either)
     if (!spot && this.kind === 'tank' && def.place && this.parts.some((p) => p.def.place === 'hull' || p.def.place === 'ring')) { UI.toast('No room for it there. Drag the part into place instead.'); return; }
     // a spot that fits, with the part it hangs on (a wing for pods), at the first free depth there
@@ -1627,7 +1645,7 @@ const Builder = {
     if (!spot && this.parts.length) { const s = this.snap(type, centre, [], rot, Infinity); spot = s.ok && s.attached ? s : null; }
     if (!spot) { UI.toast('No room there. Drag the part into place instead.'); return; }
     this.addPart(type, spot.x, spot.y, spot.rot ?? rot, { z: spot.z, att: spot.att, host: spot.host });
-    if ((this.kind === 'tank' || this.kind === 'drone') && !this.in3D()) this.keepInView(); // (the tank seen taking shape, not under the part's card)
+    if ((this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') && !this.in3D()) this.keepInView(this.kind === 'ship'); // (the tank seen taking shape, not under the part's card)
   },
   // Where a tapped part goes on a drone (droneSpotOf, above): a pose, { why } for a toast, or null (today's rules).
   droneSpot(type, at) { return droneSpotOf(type, this.parts, at); },
@@ -1673,16 +1691,21 @@ const Builder = {
   },
 
   // Fit the view if any part is outside the room the panels leave it (on a phone: above the part's card). 2D.
-  keepInView() {
+  // (the ships update) centred: also when the craft has grown well off the middle of the view (a ship grows a segment at a
+  // time, bow forward and stern aft, and was left at one side with the other empty)
+  keepInView(centred) {
     this.area = null;
     const a = this.viewArea(), x0 = a.cx - a.w / 2, y0 = a.cy - a.h / 2, c = this.canvas.getBoundingClientRect(), k = this.cam.scale;
+    let l = Infinity, r = -Infinity;
     for (const p of this.parts) {
       const R = partRect(p);
       for (const [x, y] of [[R.l, R.b], [R.r, R.b], [R.l, R.t], [R.r, R.t]]) {
         const d = this.toDisp(x, y), sx = c.left + c.width / 2 + (d.x - this.cam.x) * k, sy = c.top + c.height / 2 - (d.y - this.cam.y) * k;
         if (sx < x0 || sx > x0 + a.w || sy < y0 || sy > y0 + a.h) { this.fitView(); return; }
+        l = Math.min(l, sx); r = Math.max(r, sx);
       }
     }
+    if (centred && r > l && Math.abs((l + r) / 2 - a.cx) > 0.15 * a.w) this.fitView();
   },
 
   // ---------------------------------------------------------------- armour (the ground update)
@@ -1693,7 +1716,7 @@ const Builder = {
     // a radar that looks one way faces the craft's nose (planes and rockets unturned, helicopters, cars and Armour a
     // quarter turn); a tail set faces back
     if (def && def.radarSet && def.radarSet.cone < 180) { const F = (PILOT[kind] || PILOT.rocket).F, r = F.x > 0.5 ? 3 : F.x < -0.5 ? 1 : F.y < -0.5 ? 2 : 0; return (r + (def.radarSet.warn ? 2 : 0)) & 3; }
-    return def && def.aim && isGround(kind) ? 3 : 0;
+    return def && def.aim && (isGround(kind) || isSea(kind)) ? 3 : 0; // (a ship's guns as a tank's)
   },
   // A hull's or turret's side outline in part space, turned as the part is (counter-clockwise): def.outline, else its box.
   outlineOf(p) {
@@ -1924,7 +1947,7 @@ const Builder = {
   // (each null while it can't say), and the turrets' traverse and depression sweep, 150 ms after the last edit. Other
   // craft never come here.
   groundStats(ps, adj) {
-    const on = this.kind === 'tank' || (this.kind === 'car' && ps.some((p) => p.def.gv));
+    const on = this.kind === 'tank' || this.kind === 'ship' || (this.kind === 'car' && ps.some((p) => p.def.gv)); // (a ship's turrets: their arcs and the guns' dip, as a tank's)
     clearTimeout(this.sweepT);
     this.tg = on ? Aim.groupsOfParts(ps, adj) : null;
     this.tgOf = on ? new Map() : null;
@@ -2306,7 +2329,7 @@ const Builder = {
   // Hopper a new player meets, a plane): a new, empty design of that kind, the old one a tap of Undo away; the player's
   // own unsaved work is asked about first.
   pickKind(kind) {
-    const own = { tank: (d) => d.gv, drone: (d) => d.drone || d.type === 'droneCore' }[kind];
+    const own = { tank: (d) => d.gv, drone: (d) => d.drone || d.type === 'droneCore', ship: (d) => d.ship }[kind];
     if (!own || this.kind === kind || !this.parts.length || this.parts.some((p) => own(p.def))) { this.setKind(kind); this.droneTip(); return; }
     const K = VEHICLE_KINDS[kind].name, was = this.name, fresh = () => {
       this.parts = []; this.selected = null; this.savedAs = null; this.name = K;
@@ -2318,6 +2341,7 @@ const Builder = {
     UI.modal({
       title: `A new ${K} design?`,
       body: el('p', { text: kind === 'tank' ? `The ${was} has no armour parts. A tank starts from a hull on an empty blueprint; Undo brings these parts back.`
+        : kind === 'ship' ? `The ${was} has no ship parts. A ship starts from a hull: add a bow, a midsection and a stern on an empty blueprint; Undo brings these parts back.`
         : `The ${was} has no drone parts. A drone starts from a frame on an empty blueprint; Undo brings these parts back.` }),
       actions: [{ label: 'Keep these parts', onClick: () => this.setKind(kind) }, { label: `New ${K} design`, primary: true, onClick: fresh }],
     });
@@ -2330,11 +2354,12 @@ const Builder = {
   },
   // Planes, armour and drones mirror left and right and keep their own symmetry settings (on unless switched off); the
   // others share one. True if it just changed.
-  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : kind === 'drone' ? 'rss.symmetryDrone' : 'rss.symmetry'; },
+  symKey(kind) { return kind === 'plane' ? 'rss.symmetryPlane' : kind === 'tank' ? 'rss.symmetryTank' : kind === 'drone' ? 'rss.symmetryDrone' : kind === 'ship' ? 'rss.symmetryShip' : 'rss.symmetry'; },
   kindSymmetry(kind) {
     const want = store.get(this.symKey(kind), true), b = $('#btn-sym');
     b.title = kind === 'plane' ? 'Symmetry: parts out on one wing get a twin on the other' : kind === 'rocket' ? 'Symmetry: parts get a twin on the other side of the stack'
-      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : kind === 'drone' ? 'Symmetry: mirror left and right (motors go on in pairs)' : 'Symmetry: parts get a twin front and back';
+      : kind === 'tank' ? 'Symmetry: parts get a twin on the other side' : kind === 'drone' ? 'Symmetry: mirror left and right (motors go on in pairs)'
+      : kind === 'ship' ? 'Symmetry: parts get a twin on the other side (propellers and rudders go on in pairs)' : 'Symmetry: parts get a twin front and back';
     if (want === this.symmetry) return false;
     this.symmetry = want;
     b.setAttribute('aria-pressed', String(want));
@@ -2368,13 +2393,18 @@ const Builder = {
     set('#s-name', this.name);
     set('#s-mass', fmt.mass(s.mass));
     set('#s-thrust', `${Math.round(s.thrust / 1000).toLocaleString('en-US')} kN`);
-    const kind = this.kind, rocket = kind === 'rocket', tank = kind === 'tank';
+    const kind = this.kind, rocket = kind === 'rocket', tank = kind === 'tank', ship = kind === 'ship';
     set('#s-twr', s.thrust ? s.twr.toFixed(2) : '—');
     set('#s-twr-label', rocket ? 'TWR' : 'T/W');
-    $('#s-twr-row').hidden = kind === 'car' || tank;
+    $('#s-twr-row').hidden = kind === 'car' || tank || ship;
     // armour: mass, power to weight, top speed and the front's thickness instead of thrust, T/W, fuel and stages
-    for (const id of ['#s-thrust-row', '#s-dv-row', '#s-stage-box']) $(id).hidden = tank;
+    for (const id of ['#s-thrust-row', '#s-dv-row', '#s-stage-box']) $(id).hidden = tank || ship;
     for (const id of ['#s-power-row', '#s-top-row', '#s-front-row']) $(id).hidden = !tank;
+    // (the ships update) a ship: displacement, draught, stability and top speed in knots in their place
+    for (const id of ['#s-disp-row', '#s-draught-row', '#s-stab-row']) $(id).hidden = !ship;
+    $('#s-mass-row').hidden = ship;
+    $('#stats').classList.toggle('ship', ship);
+    if (ship) this.renderShipStats(s.ship);
     if (tank) {
       const G = s.ground || {}, ps0 = this.parts.filter((p) => this.attached.has(p.id)), hpt = G.gear ? G.gear.hpt : this.hptOf(ps0);
       set('#s-power', hpt > 0 ? `${Math.round(hpt)} hp/t` : '—');
@@ -2398,7 +2428,10 @@ const Builder = {
       const btns = $('#career-row .cr-btns'); if (btns) btns.hidden = !!this.mp; // (no research or missions in a battle)
     }
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
-    if (!this.ctrl) warn.push(tank ? 'Add a hull: it holds the crew.' : kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : drone ? 'Add a flight controller (Frames).' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
+    if (ship) { // (the ships update: her hull's warnings show from the first segment, bridge or none; no rocket staging words)
+      if (!this.ctrl) warn.push('Add a bridge (Superstructure): she is steered from it.');
+      if (typeof Ship !== 'undefined') Ship.warnings(this.ctrl ? ps : this.parts, s.ship, warn);
+    } else if (!this.ctrl) warn.push(tank ? 'Add a hull: it holds the crew.' : kind === 'car' ? 'Add a Driver Cab (or any command part) to drive.' : drone ? 'Add a flight controller (Frames).' : 'Add a command part (pod, probe, cockpit or cab) to fly.');
     else if (kind === 'plane') {
       const com = this.com, col = this.col, L = Math.max(4, s.air.length);
       if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
@@ -2434,7 +2467,7 @@ const Builder = {
     this.renderRadar(s.radar, ps);
     // lopsided: engines or weight off to one side, or something hanging past a wing tip
     if (this.ctrl && this.cot && Math.abs(this.cot.z) > 0.3) warn.push(`The engines push ${Math.abs(this.cot.z).toFixed(1)} m off the centre line, so it will swing to one side. Turn on symmetry or balance them.`);
-    if (this.ctrl && this.com && Math.abs(this.com.z) > 0.15) warn.push('More weight on one side than the other: it will lean that way.');
+    if (this.ctrl && this.com && Math.abs(this.com.z) > 0.15 && !ship) warn.push('More weight on one side than the other: it will lean that way.'); // (a ship's list is her own warning)
     const onPs = new Map(ps.map((p) => [p.id, p]));
     if (ps.some((p) => { const h = onPs.get(p.att); return h && h.def.wing && !isSurface(p.def) && Math.abs(partZ(p)) - partDepth(p) / 2 > h.def.wing.span / 2; })) warn.push('Something hangs past a wing tip.');
     if (s.loose) warn.push(`${s.loose} part${s.loose > 1 ? 's' : ''} not attached. They stay behind.`);
@@ -2443,7 +2476,7 @@ const Builder = {
     else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
-    const gl = s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
+    const gl = ship ? this.shipLine(s.ship) : s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
     gEl.hidden = !gl;
     if (gl) gEl.textContent = gl;
     const a = s.air, airLine = kind === 'plane' && a.stall > 0;
@@ -2503,6 +2536,52 @@ const Builder = {
     else if (wing) set('#s-top', `~${Math.round(D.vTop * 3.6)} km/h`);
     else parts('#s-top', 'Level ', `${Math.round(D.vTop * 3.6)} km/h`, ` · Acro ${Math.round(D.vAcro * 3.6)}`);
     set('#s-link', D && D.link ? this.linkText(D.link) : '—');
+  },
+  // (the ships update) a ship's rows (Ship.stats): displacement, draught, stability (GM: red when she'd capsize, amber when
+  // she'd roll heavily) and top speed in knots
+  renderShipStats(S) {
+    const set = (id, t) => { $(id).textContent = t; }, up = !!S && S.hull && !S.sinks;
+    const t = (kg) => { const v = kg / 1000; return v < 10 ? `${v.toFixed(1)}\u00a0t` : `${Math.round(v).toLocaleString('en-US')}\u00a0t`; };
+    $('#s-top-row').hidden = false;
+    set('#s-disp', S && S.mass > 0 ? t(S.mass) : '—');
+    set('#s-draught', up ? `${S.draft.toFixed(1)}\u00a0m` : S && S.sinks ? 'sinks' : '—');
+    $('#s-draught').className = S && S.sinks ? 'bad' : '';
+    set('#s-gm', up ? `GM\u00a0${S.GM < 0 ? '−' : ''}${Math.abs(S.GM).toFixed(Math.abs(S.GM) < 10 ? 1 : 0)}\u00a0m` : '—');
+    $('#s-gm').className = up && (S.capsize || S.GM < 0) ? 'bad' : up && S.GM < SHIP.BUILD.gmLow ? 'warnv' : '';
+    set('#s-top', up && S.top > 0 ? `~${Math.round(S.top * SHIP.KN)}\u00a0kn` : '—');
+  },
+  // the line under a ship's warnings: her freeboard, compartments (and how many lie open), her engines' power, her turning
+  // circle and a trim worth knowing
+  shipLine(S) {
+    if (!S || !S.hull) return '';
+    const out = S.sinks ? [] : [`freeboard ${Math.max(0, S.freeboard).toFixed(1)} m`];
+    out.push(`${S.comps} compartment${S.comps === 1 ? '' : 's'}${S.open ? ` (${S.open} open)` : ''}`);
+    if (S.kw > 0) out.push(`${Math.round(S.kw).toLocaleString('en-US')} kW`);
+    if (S.turn > 0 && S.top > 0) out.push(`turns in ~${Math.round(S.turn / 10) * 10} m`);
+    if (Math.abs(S.trim) >= 0.5 && !S.sinks) out.push(`trim ${Math.abs(S.trim).toFixed(1)}° by the ${S.trim > 0 ? 'bow' : 'stern'}`);
+    return out.join(' · ');
+  },
+  // a ship's waterline (the blueprint draws it across her, Render3D as a sheet in 3D): the sea plane she floats at in part
+  // space (y = a + bx·x + bz·z) a little past her length and beam, red when she sinks; null for any other kind or no hull
+  waterline3d() {
+    const S = this.kind === 'ship' && this.statsData && this.statsData.ship;
+    if (!S || !S.hull) return null;
+    const L = S.x1 - S.x0, m = Math.max(2, 0.12 * L), mz = S.hb + Math.max(1.5, 0.25 * Math.min(L, 4 * S.hb));
+    return { x0: S.x0 - m, x1: S.x1 + m, z0: -mz, z1: mz, a: S.plane.a, bx: S.plane.bx, bz: S.plane.bz, bad: !!S.sinks };
+  },
+  // ...and in 2D: a blue line across the blueprint at her waterline, the water under it faintly blue (part space)
+  drawWaterline(ctx, lw) {
+    const W = this.waterline3d();
+    if (!W) return;
+    const S = this.statsData.ship, y = (x) => W.a + W.bx * x, low = S.keel - Math.max(0.5, 0.03 * (S.x1 - S.x0));
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(W.x0, y(W.x0)); ctx.lineTo(W.x1, y(W.x1)); ctx.lineTo(W.x1, low); ctx.lineTo(W.x0, low); ctx.closePath();
+    ctx.fillStyle = W.bad ? 'rgba(255,93,93,0.10)' : 'rgba(79,182,255,0.14)'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(W.x0, y(W.x0)); ctx.lineTo(W.x1, y(W.x1));
+    ctx.strokeStyle = W.bad ? '#ff5d5d' : '#4fb6ff'; ctx.lineWidth = 2 * lw;
+    if (W.bad) ctx.setLineDash([6 * lw, 4 * lw]);
+    ctx.stroke();
+    ctx.restore();
   },
   // a drone link in words: "Radio 2.5 km", "Long-range 8 km", "Fibre 5 km · can't be jammed", "Satellite · 0.25 s lag"
   linkText(L) {
@@ -2749,7 +2828,7 @@ const Builder = {
     const z = partZ(p), a = Math.abs(z).toFixed(2);
     if (p.def.twinZ) return `±${a} m`;
     if (Math.abs(z) < 0.005) return 'centre';
-    return this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
+    return this.kind === 'plane' || this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship' ? `${z > 0 ? 'right' : 'left'} ${a} m` : `${z > 0 ? '+' : '−'}${a} m`;
   },
   // The paint row: a swatch per skin (and the part's own look), lit for the paint the selection wears.
   renderPaint() {
@@ -2788,7 +2867,7 @@ const Builder = {
     // that won't go, the panel a little shorter (it scrolls): the stats and the kind buttons are never covered
     if (innerWidth <= 760) {
       const top = $('#stats').getBoundingClientRect().bottom + 8;
-      if ((this.kind === 'tank' || this.kind === 'drone') && i.top - 8 - f.height < top) { // (and a drone's: the big update)
+      if ((this.kind === 'tank' || this.kind === 'drone' || this.kind === 'ship') && i.top - 8 - f.height < top) { // (and a drone's: the big update; a ship's)
         fit.classList.add('row'); f = fit.getBoundingClientRect();
         if (i.top - 8 - f.height < top) { info.style.maxHeight = `${Math.max(120, Math.floor(i.bottom - top - f.height - 8))}px`; info.style.overflowY = 'auto'; i = info.getBoundingClientRect(); }
       }
@@ -3267,7 +3346,7 @@ const Builder = {
   zoomAt(f, sx, sy) {
     this.redraw();
     const before = this.screenToDisp(sx, sy);
-    this.cam.scale = clamp(this.cam.scale * f, 3, 90 / this.unit());
+    this.cam.scale = clamp(this.cam.scale * f, Math.min(3, this.zoomMin()), 90 / this.unit());
     const after = this.screenToDisp(sx, sy);
     this.cam.x += before.x - after.x;
     this.cam.y += before.y - after.y;
@@ -3522,6 +3601,7 @@ const Builder = {
         ctx.globalAlpha = 1;
       }
     } finally { PartPaint.xray = null; PartPaint.armour = false; }
+    if (this.kind === 'ship') this.drawWaterline(ctx, lw); // (the ships update: where she floats)
     this.arcLabels = null;
     if (this.tg) this.drawArcs(ctx, lw, XY);
     if (d && d.part && d.ghost && !d.ghost.ok) {
