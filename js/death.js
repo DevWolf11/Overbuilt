@@ -32,6 +32,18 @@ const DEATH = {
   hitWin: 8,                                 // s: our last hit on a ghost lets its losses show on our HUD
   trail: { space: [7, 14], nmax: [4, 2], near: 3000, far: 8000, full: 4 }, // m between puffs (High, Low); puffs a tick (High, Low); m full rate; m reduced; trails at full rate
 };
+// Crashes into the sea (the crash section's sea rule): to the physics the sea is a solid floor, so a crash on it used to
+// leave the wreck dead still on the surface, sinking slowly where it stopped. Now one that hits fast ploughs in and goes
+// under at once; the renderer draws the plunge (seaPose), the sim is done with it at the crash
+const SEA = {
+  fast: 45,                                  // m/s: a crash into the water this fast ploughs in and sinks at once; slower, it floats a moment and sinks
+  total: 90,                                 // m/s: an aircraft breaking anything on the water this fast is lost whole (the water is concrete at that speed)
+  tau: 0.22, tauD: 0.3,                      // s: how fast the water takes its way along (200 m/s ploughs 44 m) and its way down (a 100 m/s dive 30 m more)
+  sinkV: 9, tauS: 0.5,                       // m/s it sinks once under, reached over about tauS s
+  life: 4.5, slow: 8,                        // s a fast plunge is drawn, from the crash to gone; a slow one's float and sink
+  tilt: 1.1,                                 // rad: at most this much further nose-down along its path as it slows in the water
+  float: 15,                                 // s a piece with nobody in it floats at rest on the water before it sinks (90 on land)
+};
 const FIRE = {
   lit30: { eng: 0.4, fuel: 0.3 },            // odds a hit taking an engine / a fuel part (> 50 kg) from ≥ 30 % to under 30 % lights it
   lit0: { eng: 0.6, fuel: 0.5 },             // odds an engine at 0 hp burns; a fuel part (> 50 kg) torn off burns as it falls
@@ -439,6 +451,7 @@ const Death = (() => {
     const ctrl = parts.some((p) => p.def.control);
     if (v.hulk != null && (!v.control || ctrl || v.speed() > 40)) { crash(v, sim); return null; }
     if (ctrl && !hollywood()) { crash(v, sim); return null; }
+    if (!hollywood() && v.speed() >= SEA.total && seaAt(v)) { crash(v, sim); return null; } // (the sea rule: anything broken on the water at this speed takes the whole craft)
     return parts;
   }
   // The end of an aircraft (or a piece of one): one fireball where it is, a small 'thud' for a cold piece (no fuel, no
@@ -455,7 +468,7 @@ const Death = (() => {
     // the craft's reach of it (a banked jumbo's centre is 14 m up when a wing tip touches); one too old to fall any
     // longer goes up where it is
     const gr = v.body.radius + Terrain.surfaceAt(v.body, L.a, L.z), up = L.r - gr;
-    if (up < (v.reach || 0) + 2) { const f = gr / L.r; c.x *= f; c.y *= f; c.z *= f; }
+    if (up < (v.reach || 0) + 2) { const f = gr / L.r; c.x *= f; c.y *= f; c.z *= f; if (wet) sea(v, sim, L, c); } // (in the water: it goes under, sea)
     deathFX(v, sim, hot ? 'crash' : 'thud', size, c, { water: wet });
     if (hot && size >= 2.5) pyre(v.body, c, size, wet, sim);
     v.dead = true; v.throttle = 0; v.thrust = 0;
@@ -469,12 +482,95 @@ const Death = (() => {
     while (S.pyres.length > DEATH.pyres) S.pyres.shift();
   }
 
+  // ---------------------------------------------------------------- the sea
+  // To the physics the sea (a lake, a river) is a solid floor (vessel.js ground()), so a crash on it used to leave the
+  // wreck dead still on the surface, drawn sinking slowly where it stopped. Now whatever crashes into the water (crash:
+  // an aircraft, a hulk, a piece of one; impactGround: a ground vehicle; seaTick: anything with nobody in it skimming
+  // the water) goes under: v.sea records how it went in, and the sim is done with it there (dead: the flight's cleanup
+  // drops it). The renderer draws it going down (seaPose; render3d's sinkGhost): one that hit fast (SEA.fast) ploughs
+  // on along its path a short way as the water takes its speed, noses down, goes under at once and sinks fast to the
+  // sea bed or out of sight, gone SEA.life s after the crash; a slower one floats a moment and sinks over 8 s as before.
+  // A piece with nobody in it floating at rest sinks after SEA.float s (junkLife). A ship (v.hydro) floats on ship.js's
+  // water and never meets any of this. v.sea: { t, fast, vh, vd, hx, hy, hz, lvl, bed } (when, how fast along and down,
+  // its way along (unit, sim axes), the water's surface and its bed under it, m).
+  // The water under a craft it is down on (its centre over water, no deck there, within its reach + 2 m of the
+  // surface): { L (where: Terrain.locate's, shared), c (its centre), lvl (the water's surface, m) }, or null
+  const SEAL = {};
+  function seaAt(v) {
+    if (v.hydro || !v.body || !v.body.radius || typeof Terrain === 'undefined') return null;
+    const b = v.body, c = v.toWorld(v.com.x, v.com.y, v.com.z || 0), L = Terrain.locate(b, c.x, c.y, c.z, SEAL);
+    if (!Terrain.waterAt(b, L.a, L.z)) return null;
+    const lvl = Terrain.surfaceAt(b, L.a, L.z);
+    if (L.r - b.radius - lvl > (v.reach || 0) + 2) return null;
+    return { L, c, lvl };
+  }
+  // v goes into the water at L (Terrain.locate's, its centre c on the surface): its plunge recorded (v.sea, for the
+  // renderer), from its velocity now (a crash's comes before the water pushes back)
+  function sea(v, sim, L, c) {
+    const r = Math.hypot(c.x, c.y, c.z) || 1, ux = c.x / r, uy = c.y / r, uz = c.z / r;
+    const vx = v.vx || 0, vy = v.vy || 0, vz = v.vz || 0, vu = vx * ux + vy * uy + vz * uz;
+    const hx = vx - ux * vu, hy = vy - uy * vu, hz = vz - uz * vu, vh = Math.hypot(hx, hy, hz), k = vh > 1e-6 ? 1 / vh : 0;
+    v.sea = { t: sim.time || 0, fast: Math.hypot(vx, vy, vz) >= SEA.fast, vh, vd: Math.max(0, -vu), hx: hx * k, hy: hy * k, hz: hz * k,
+      lvl: Terrain.surfaceAt(v.body, L.a, L.z), bed: Terrain.heightAt(v.body, L.a, L.z) };
+    if (v.sea.fast) plume(v, c, ux, uy, uz);
+    return v.sea;
+  }
+  // A fast plunge's plume: white water thrown up and on along its way (on top of the death effect's splash), bigger
+  // the bigger and faster it went in; at most 18 particles (Low: FX.nq of them). A picture only (FX.rnd)
+  const PL = { x: 0, y: 0, z: 0 };
+  function plume(v, c, ux, uy, uz) {
+    const S0 = v.sea, k = clamp(Math.hypot(S0.vh, S0.vd) / 200, 0.2, 1), s = clamp(isGround(v.kind) ? groundSize(v) : airSize(v), 1, 9), rs = Math.sqrt(s);
+    for (let i = 0, n = FX.nq(Math.round(8 + 10 * k)); i < n; i++) {
+      const up = (10 + 30 * k * FX.rnd()) * (0.7 + 0.15 * rs), on = S0.vh * (0.04 + 0.12 * FX.rnd()), d = FX.dir(), j = 3 * rs;
+      PL.x = ux * up + S0.hx * on + d.x * j; PL.y = uy * up + S0.hy * on + d.y * j; PL.z = uz * up + S0.hz * on + d.z * j;
+      FX.add({ kind: 'smoke', b: v.body, x: c.x, y: c.y, z: c.z, vx: PL.x, vy: PL.y, vz: PL.z, max: 1.4 + 1.2 * FX.rnd(), size: 0.5 * rs, grow: 2.2 * s, color: '#eef6ff', alpha: 0.85, heavy: true });
+    }
+  }
+  // Where a plunge has taken its thing t s after it went in (rec: v.sea): a, m on along its way (h); d, m down from
+  // where it went in (fast: its dive carried on, and sinking at SEA.sinkV; slow: null, the renderer's float-and-sink); k, rad
+  // further nose-down about (h × down); u, 0..1 of its time (SEA.life fast, SEA.slow slow); null when it is gone (or the
+  // time is before it). Pure: the renderer's, and the tests'
+  const SP = { a: 0, d: 0, k: 0, u: 0 };
+  function seaPose(rec, t, o = SP) {
+    if (!rec || !(t >= 0)) return null;
+    const life = rec.fast ? SEA.life : SEA.slow;
+    if (t >= life) return null;
+    const ea = Math.exp(-t / SEA.tau), ed = Math.exp(-t / SEA.tauD);
+    o.a = rec.vh * SEA.tau * (1 - ea);
+    o.u = t / life;
+    if (!rec.fast) { o.d = null; o.k = 0; return o; }
+    const es = Math.exp(-t / SEA.tauS);
+    o.d = rec.vd * SEA.tauD * (1 - ed) + SEA.sinkV * (t - SEA.tauS * (1 - es));
+    const th0 = Math.atan2(rec.vd, rec.vh), th = Math.atan2(rec.vd * ed + SEA.sinkV * (1 - es), rec.vh * ea); // (its way's angle below the level, then and now)
+    o.k = clamp(th - th0, 0, SEA.tilt);
+    return o;
+  }
+  // tick()'s sea rule for a piece with nobody in it on the water (splashed: a hulk, a piece shot or broken off, a spent
+  // stage): fast, it goes under now (a hulk in its fireball, crash; anything else with a splash); slower, it is junk
+  // that floats SEA.float s at rest and sinks (junkLife). true: it went under
+  function seaTick(o, F, t) {
+    if (o.hydro || o.kin || o.tossed) return false;
+    if (o.speed() >= SEA.fast) {
+      const w = seaAt(o);
+      if (!w) return false;
+      if (o.hulk != null) { crash(o, F); return !!o.dead; }
+      sea(o, F, w.L, w.c);
+      deathFX(o, F, 'thud', clamp(airSize(o), 1.2, 4), w.c, { water: true });
+      o.dead = true; o.throttle = 0;
+      for (const p of o.parts) if (p.def.thrust) { p.active = false; p.firing = 0; } // (a spent stage still burning: no plume under the water)
+      return true;
+    }
+    if (o.hulk == null && o.junkAt == null && seaAt(o)) o.junkAt = t; // (it floats a while, then sinks: junkLife)
+    return false;
+  }
+
   // tick()'s second part: hulks at rest or too old, a crippled craft landed safely, junk, then the crash sites.
   function hulkTick(F, e, n) {
     const t = F.time || 0;
     let still = null; // (junk at rest, not yet sinking: the cap's)
     if (F.vessels) for (const o of F.vessels) {
       if (o.dead || o.remote || o.wreck) continue; // (a peer's craft is its owner's; a wreck the ground's)
+      if (o.splashed && !o.control && seaTick(o, F, t)) continue; // (the sea rule: nobody in it, on the water)
       if (o.hulk != null) hulkLife(o, F, e, t);
       else if (o.junkAt != null && !o.tossed && junkLife(o, t)) (still || (still = [])).push(o);
     }
@@ -494,12 +590,12 @@ const Death = (() => {
       if (o.restH >= DEATH.doomRest) { o.hulk = null; o.doomBy = null; o.restH = 0; }
     }
   }
-  // a junk piece's life: still (on the ground or afloat, under 1 m/s) for 90 s, then 6 s sinking (v.sink 0..1, the
+  // a junk piece's life: still (on the ground or afloat, under 1 m/s) for 90 s (15 afloat), then 6 s sinking (v.sink 0..1, the
   // renderer lowers it), then gone. true: at rest and not yet sinking
   function junkLife(o, t) {
     if (o.sinkAt == null) {
       if ((o.landed || o.splashed) && o.speed() < 1) { if (o.restAt == null) o.restAt = t; } else o.restAt = null;
-      if (o.restAt != null && t - o.restAt > DEATH.junkRest) o.sinkAt = t;
+      if (o.restAt != null && t - o.restAt > (o.splashed ? SEA.float : DEATH.junkRest)) o.sinkAt = t; // (afloat: SEA.float, the sea rule)
     }
     if (o.sinkAt != null) { o.sink = clamp((t - o.sinkAt) / DEATH.sink, 0, 1); if (o.sink >= 1) o.dead = true; return false; }
     return o.restAt != null;
@@ -605,6 +701,17 @@ const Death = (() => {
   // old breakage.
   function impactGround(v, parts, sim) {
     if (hollywood() || !parts.some((p) => p.def.control)) return parts;
+    // (the sea rule) into the water fast: knocked out and gone under (dead before the knock-out books it, so no wreck
+    // stands on the surface on anyone's screen: mp.js's down sends none for a craft that is gone)
+    const w = !v.tossed && v.speed() >= SEA.fast ? seaAt(v) : null;
+    if (w) {
+      sea(v, sim, w.L, w.c);
+      v.dead = true;
+      if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull');
+      deathFX(v, sim, 'thud', groundSize(v), w.c, { water: true });
+      v.throttle = 0;
+      return null;
+    }
     if (!v.tossed) { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull'); }
     for (const p of parts) if (p.def.control) p.hp = Math.min(p.hp ?? 0, 0);
     layDown(v); // (review P2-GND-1: one standing on its nose or tail is laid down first)
@@ -855,6 +962,7 @@ const Death = (() => {
     airHit, airRule, airPart, detonated, cutWing, airCheck, afterAir,
     ignite, burning, leaking, partFX,
     impact, tick, reset, crash, pyre, limp, // (the crash section's: crash, crash sites, who flies no more)
+    seaAt, sea, seaPose, // (the crash section's sea rule: what went into the water, and where the renderer draws it going down)
     groundPart,
     groundKO, settle, groundPieces, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
     clearSpawn, // (multiplayer's: a spawn on top of a wreck sinks it, mp.js)

@@ -5937,14 +5937,18 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (S.oldWater) S.oldWater.visible = B.water !== false;
   }
   // ------------------------------------------------------------------ things sinking away through the water
-  // Render only: when they go is the sim's (death.js: junk, ground wrecks), and nothing here is read back. A wreck or a
-  // cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most SINK_MAX m, slowly
-  // at first), and an aircraft that crashed into the water (v.dead, death.js's crash) is drawn sinking for SINK_GHOST s of
-  // the sim's time (sinkGhost: its mesh kept, as it was when it hit). Each is drawn through the water by its own depth,
-  // not the bottom's: its pixels are marked in the stencil (its slot, 1..WATER.sinks, nearest first), the water isn't
-  // drawn there, and a veil of the same water (OB_VEIL) is drawn there instead, over it, absorbing by the depth of its
-  // top (sinkVeil), wholly the water's colour by the end. No sinking thing, no stencil: the water draws as without them.
-  const SINK_MAX = 16, SINK_GHOST = 8, LOCW = {}, VP = v3(), sinkCand = [];
+  // Render only: when they go is the sim's (death.js: junk, ground wrecks, the sea rule), and nothing here is read back.
+  // A wreck or a cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most
+  // SINK_MAX m, slowly at first), and a craft that crashed into the water (v.dead, death.js's crash and sea rule) is
+  // drawn going down (sinkGhost: its mesh kept, as it was when it hit): one with v.sea (death.js's record of how it went
+  // in) by Death.seaPose, ploughing on along its way, nosing down and sinking fast when it hit fast, floating a moment
+  // and sinking over SEA.slow s when it didn't; an aircraft without one (no death.js) sinking for SINK_GHOST s of the
+  // sim's time. Each is drawn through the water by its own depth, not the bottom's: its pixels are marked in the stencil
+  // (its slot, 1..WATER.sinks, nearest first), the water isn't drawn there, and a veil of the same water (OB_VEIL) is
+  // drawn there instead, over it, absorbing by the depth of its top (sinkVeil), wholly the water's colour by the end.
+  // No sinking thing, no stencil: the water draws as without them. (Sea crash fix: SINK_MAX 16 -> 60, so what sinks goes
+  // to the sea bed or out of sight instead of hanging 16 m down; v.sea's plunge; up to SINK_SEA of them at once.)
+  const SINK_MAX = 60, SINK_GHOST = 8, SINK_SEA = 6, LOCW = {}, VP = v3(), sinkCand = [], SQ = { x: 0, y: 0, z: 0, w: 1 }, QO = { x: 0, y: 0, z: 0, w: 1 }, GQ = { dt: 0, time: 0, rho: 0, quality: 'high' };
   // the water at a vessel (its surface's level and the bottom's, m), or null over dry ground or a deck
   function wetUnder(v) {
     const b = v.body;
@@ -5967,27 +5971,53 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     V.lvl = e.wet.level; V.bed = e.wet.bed;
     sinkCand.push(e);
   }
-  // An aircraft that crashed into the water (dead, in one piece, drawn the frame before, its centre within its own size of
-  // the surface, over water): its mesh is kept and drawn sinking for SINK_GHOST s of the sim's time, at most 3 at once; a
-  // new flight (Flight's flags object renewed) or the time going back ends it. true: it is drawn this frame
+  // A craft that crashed into the water (dead, in one piece, drawn the frame before): one death.js sent under (v.sea: any
+  // kind, a peer's too) is drawn by Death.seaPose for its time, at most SINK_SEA at once; else an aircraft (not a
+  // rocket, a peer's or a wreck) with its centre within its own size of the surface, over water, sinks for SINK_GHOST s
+  // of the sim's time, at most 3 at once. A new flight (Flight's flags object renewed) or the time going back ends it.
+  // true: it is drawn this frame
   function sinkGhost(F, v, e, camSim) {
     if (!e.ghost) {
-      if (!(v.dead && v.parts.length && v.body && isAirKind(v.kind) && v.kind !== 'rocket' && !v.wreck && !v.remote && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
+      const rec = v.sea && typeof Death !== 'undefined' && Death.seaPose ? v.sea : null;
+      if (!(v.dead && v.parts.length && v.body && (rec || (isAirKind(v.kind) && v.kind !== 'rocket' && !v.remote)) && !v.wreck && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
       let n = 0;
-      for (const o of vessels.values()) if (o.ghost) n++;
-      if (n >= 3) return false;
-      const w = wetUnder(v);
+      for (const o of vessels.values()) if (o.ghost && !!o.ghost.rec === !!rec) n++;
+      if (n >= (rec ? SINK_SEA : 3)) return false;
+      const w = rec ? { level: rec.lvl, bed: rec.bed } : wetUnder(v);
       if (!w) return false;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1), r = Math.hypot(v.x, v.y, v.z);
-      if (r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
-      e.ghost = { t0: F.time, flags: F.flags, ext }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+      if (!rec && r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
+      e.ghost = { t0: rec ? rec.t : F.time, flags: F.flags, ext, rec }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+      GQ.time = F.time; GQ.quality = Settings.high ? 'high' : 'low';
+      try { e.vm.sync(v, GQ); } catch (err) { console.error('Render3D: a craft going under could not be drawn afresh', err); } // (once, as it went in: its engines out, so no plume is drawn on down through the water)
     }
-    const G = e.ghost, u = (F.time - G.t0) / SINK_GHOST;
-    if (!(u >= 0 && u < 1) || F.flags !== G.flags) return false;
-    e.seen = frameNo;
-    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, s = sinkDrop(e, u);
-    const x = bp.x + v.x - camAbs.x - (v.x / r) * s, y = bp.y + v.y - camAbs.y - (v.y / r) * s, z = v.z - camAbs.z - (v.z / r) * s;
+    const G = e.ghost, R0 = G.rec;
+    if (F.flags !== G.flags) return false;
+    let u, s, a = 0, k = 0;
+    if (R0) {
+      const P = Death.seaPose(R0, F.time - G.t0);
+      if (!P) return false;
+      u = P.u; a = P.a; k = P.k;
+      s = P.d == null ? sinkDrop(e, u) : Math.min(P.d, Math.max(e.sinkH + 1, Math.min(e.wet.level - e.wet.bed + 0.5 * e.sinkH, SINK_MAX))); // (fast: down at once, to the bed or out of sight)
+    } else {
+      u = (F.time - G.t0) / SINK_GHOST;
+      if (!(u >= 0 && u < 1)) return false;
+      s = sinkDrop(e, u);
+    }
+    e.seen = frameNo; e.seaA = a; e.seaS = s; // (waterInfo's: how far on and down it is drawn)
+    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    const hx = R0 ? R0.hx * a : 0, hy = R0 ? R0.hy * a : 0, hz = R0 ? R0.hz * a : 0; // (on along its way)
+    const x = bp.x + v.x - camAbs.x - ux * s + hx, y = bp.y + v.y - camAbs.y - uy * s + hy, z = v.z - camAbs.z - uz * s + hz;
     e.root.position.set(x, y, z);
+    if (R0) { // (nosing down along its way: turned k about its way × down, from the pose it hit in)
+      let q = v.q;
+      if (k > 0) {
+        const ax = uy * R0.hz - uz * R0.hy, ay = uz * R0.hx - ux * R0.hz, az = ux * R0.hy - uy * R0.hx; // (up × h = h × down)
+        const L = Math.hypot(ax, ay, az);
+        if (L > 1e-6) { const h = 0.5 * k, sn = Math.sin(h) / L; SQ.w = Math.cos(h); SQ.x = ax * sn; SQ.y = ay * sn; SQ.z = az * sn; q = qmul(SQ, v.q, QO); }
+      }
+      e.root.quaternion.set(q.x, q.y, q.z, q.w);
+    }
     sinkVeil(e, v, r, s, u, Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z), G.ext);
     return true;
   }
@@ -7033,7 +7063,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // through water: its slot, its top's depth and the least of the water's colour over it, how far it is drawn down, a ghost
     waterInfo() {
       const sinks = [];
-      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
+      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, sea: !!(e.ghost && e.ghost.rec), on: e.ghost && e.ghost.rec ? +(e.seaA || 0).toFixed(1) : null, down: e.ghost && e.ghost.rec ? +(e.seaS || 0).toFixed(1) : null, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
       return { deep: !!S.deepW, stencil: !!(terr.oceanMat && terr.oceanMat.stencilWrite), veils: S.veils ? S.veils.filter((q) => q.visible).length : 0, sinks };
     },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)

@@ -9,7 +9,9 @@
 //  4. a wreck sinking away (death.js's junk: a Falcon floating 35 m off, v.sink) goes down through the water: its top
 //     below the surface, it still shows (its pixels against the same frame with it hidden) at a third and at half of its
 //     sink, much less by the end; it takes a stencil slot and the sea's stencil test is on only while it does
-//  5. an aircraft that crashes into the water is drawn sinking for SINK_GHOST s of the sim's time, then goes
+//  5. an aircraft that crashes into the water is drawn sinking for SINK_GHOST s of the sim's time, then goes; 5b. one
+//     death.js's sea rule sent under at 150 m/s (v.sea) is drawn ploughing on and going under at once, deep within 2 s,
+//     gone at SEA.life; a slow one floats and sinks for SEA.slow s
 //  6. junk sinking on dry ground takes no slot and leaves the water alone; no new shader program at the first sinking
 //     thing (the veils' programs built while the flight loaded)
 //  7. no change inland: in Highland Ridge's village, the water's depth (against the old water shader, bench.oldWater)
@@ -134,6 +136,36 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     });
     ok(`${T}: an aircraft that crashes into the water is drawn sinking (3 s on: ${s5.at3.shows.n} px of it, ${s5.at3.info.sinks[0] && s5.at3.info.sinks[0].dep} m under), and is gone after 8 s`,
       s5.at0.mesh && s5.at0.info.sinks.some((s) => s.ghost) && s5.at3.shows.n > 100 && s5.at3.info.sinks[0].dep > 0.3 && !s5.at9.mesh && s5.at9.info.sinks.length === 0 && !s5.at9.info.stencil, s5);
+    // ---- 5b. (the sea rule, death.js) a crash into the sea at 150 m/s, 25° down (v.sea): drawn ploughing on and going
+    // under at once, deep within 2 s, gone at SEA.life; a slow one (v.sea, not fast) floats and sinks for SEA.slow s
+    const s5b = await ev(async (SEA) => {
+      await window.__start('falcon', SEA, [60, 1.2]);
+      const R_SEA = (0, eval)('SEA'); // (death.js's constants: the parameter's name hides them here)
+      const plunge = (V, dive) => {
+        const w = window.__junk(null); Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true);
+        const r = Math.hypot(w.x, w.y, w.z), U = { x: w.x / r, y: w.y / r, z: w.z / r }, f = w.axis(0, 1, 0), k = f.x * U.x + f.y * U.y + f.z * U.z, h = { x: f.x - U.x * k, y: f.y - U.y * k, z: f.z - U.z * k }, n = Math.hypot(h.x, h.y, h.z), th = (dive * Math.PI) / 180;
+        w.vx = (h.x / n) * V * Math.cos(th) - U.x * V * Math.sin(th); w.vy = (h.y / n) * V * Math.cos(th) - U.y * V * Math.sin(th); w.vz = (h.z / n) * V * Math.cos(th) - U.z * V * Math.sin(th);
+        const c = w.toWorld(w.com.x, w.com.y, w.com.z || 0), L = Terrain.locate(w.body, c.x, c.y, c.z, {});
+        Death.sea(w, Flight, L, c); w.dead = true;
+        return w;
+      };
+      const at = (w) => { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const I = Render3D.waterInfo(); return { mesh: !!Render3D.meshOf(w), s: I.sinks.find((q) => q.sea) || null, stencil: I.stencil }; };
+      const t0 = Flight.time, out = {};
+      const w = plunge(150, 25); out.fast = !!w.sea.fast;
+      for (const dt of [0.05, 0.5, 2]) { Flight.time = t0 + dt; out[dt] = at(w); }
+      Flight.time = t0 + R_SEA.life + 0.05; out.end = at(w);
+      Flight.vessels.splice(Flight.vessels.indexOf(w), 1); Flight.time = t0;
+      const g = plunge(8, 30); out.slowFast = !!g.sea.fast;
+      Flight.time = t0 + 3; out.slow3 = at(g);
+      Flight.time = t0 + R_SEA.slow + 0.05; out.slowEnd = at(g);
+      Flight.vessels.splice(Flight.vessels.indexOf(g), 1); Flight.time = t0;
+      return out;
+    }, SEA);
+    const q05 = s5b[0.5].s, q2 = s5b[2].s;
+    ok(`${T}: a crash into the sea at 150 m/s is drawn ploughing on and going under at once: at 0.5 s ${q05 && q05.on} m on, ${q05 && q05.down} m down (its top ${q05 && q05.dep} m under); at 2 s ${q2 && q2.down} m down`,
+      s5b.fast && s5b[0.05].mesh && !!q05 && q05.on > 20 && q05.down > 8 && q05.dep > 2 && q05.slot >= 1 && !!q2 && q2.down > 25 && s5b[2].stencil, s5b);
+    ok(`${T}: ...and is gone at SEA.life (no mesh, nothing sinking, no stencil); a slow one floats and sinks, drawn at 3 s, gone after SEA.slow`,
+      !s5b.end.mesh && !s5b.end.s && !s5b.end.stencil && !s5b.slowFast && s5b.slow3.mesh && !!s5b.slow3.s && s5b.slow3.s.on < 3 && !s5b.slowEnd.mesh && !s5b.slowEnd.s, { end: s5b.end, slow3: s5b.slow3, slowEnd: s5b.slowEnd });
     // ---- 6. junk sinking on dry ground: no slot, the water alone
     const s6 = await ev(async (LAND) => {
       await window.__start('falcon', LAND, [40, 0.5]);
