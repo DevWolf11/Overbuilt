@@ -1390,17 +1390,19 @@ const PARTS = {
   // family: its tray group (Boats, Escorts, Destroyers, Naval). Real ships appear in comments only.
   // ==== shHull ====
   // (the M class: a 32 m patrol boat's segments, after the Cyclone class; the joint section deck +2.0, keel -2.0, beam
-  // 7.0 m, waterline -0.4 in a midsection's frame. The bow's centre sits 0.3 m higher than a midsection's: bottoms level)
-  hbBowM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Bow', w: 10, h: 4.6, depth: 7.0, mass: 9, shape: 'shull', hull: true,
+  // 7.0 m, waterline -0.4 in a midsection's frame. The bow's centre sits 0.3 m higher than a midsection's: bottoms level.
+  // [WP1] Their masses take in the fuel, stores and fitting-out (24, 22, 15 t, were 9, 8, 5.5): the Cyclon's slice is 110 t,
+  // as the spec's Cyclon, and makes 33 knots on her two diesels; at 57 t she planed at 49)
+  hbBowM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Bow', w: 10, h: 4.6, depth: 7.0, mass: 24, shape: 'shull', hull: true,
     shull: { cls: 'M', wl: -0.7, st: [[-5, 1.7, -2.3, 3.5, 3.45, 1.2], [-2, 1.85, -2.3, 3.3, 3.15, 1.1], [1, 2.0, -2.05, 2.6, 2.2, 1.0], [3.5, 2.15, -1.2, 1.4, 0.8, 1.0], [5, 2.3, 0.2, 0.15, 0.05, 1]],
       ends: { aft: 'joint', fore: 'closed' }, plane: true, k: 0.15, pump: 0.01 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2200, breakSpeed: 6,
     tier: 1, cost: 2000, desc: 'The front of a patrol boat: a hard chine and a flared bow that throws the spray aside. Put it on the front of a Patrol Midsection.' },
-  hbMidM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Midsection', w: 8, h: 4.0, depth: 7.0, mass: 8, shape: 'shull', hull: true,
+  hbMidM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Midsection', w: 8, h: 4.0, depth: 7.0, mass: 22, shape: 'shull', hull: true,
     shull: { cls: 'M', wl: -0.4, st: [[-4, 2.0, -2.0, 3.5, 3.45, 1.2], [4, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'joint', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2000, breakSpeed: 6,
     tier: 1, cost: 1600, desc: 'An 8 m length of aluminium patrol-boat hull, a watertight compartment of its own. Fast enough to start lifting onto the plane. Add as many as you like between a bow and a stern.' },
-  hbSternM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Stern', w: 6, h: 4.0, depth: 7.0, mass: 5.5, shape: 'shull', hull: true,
+  hbSternM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Stern', w: 6, h: 4.0, depth: 7.0, mass: 15, shape: 'shull', hull: true,
     shull: { cls: 'M', wl: -0.4, st: [[-3, 2.0, -1.7, 3.3, 3.2, 1.6], [3, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'closed', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 1500, breakSpeed: 6,
     tier: 1, cost: 1200, desc: 'The back of a patrol boat, closed by a flat transom: propellers, waterjets and rudders hang under it.' },
@@ -1418,7 +1420,7 @@ const PARTS = {
     screw: { D: 2.2, eta: 0.62 },
     tier: 1, cost: 900, desc: 'A 2.2 m propeller on its shaft. Hang it under the stern, well below the waterline: out of the water it pushes nothing.' },
   rudderM: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Rudder', w: 1.4, h: 1.8, depth: 0.15, mass: 1, shape: 'tkit', style: 'rudder', hp: 300,
-    foil: { kind: 'rudder', area: 2.5, ar: 1.3, n: 'z', max: 35, chord: 1.4, load: 300 },
+    foil: { kind: 'rudder', area: 0.8, ar: 1.3, n: 'z', max: 35, chord: 1.4, load: 300 }, // (area: the blade's, behind its stock and horn: [WP1] 2.5 turned a 110 t boat in 2.4 lengths at 34 kn and heeled her 30°)
     tier: 1, cost: 500, desc: 'A rudder for boats and small ships, turning 35° each way. Put it just behind a propeller: the screw\'s wash steers her even at low speed.' },
   // ==== shArms ====
   // ==== shKit ====
