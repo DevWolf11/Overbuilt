@@ -720,18 +720,19 @@ Other helpers:
 **2D fallback**: `App.use3D()` (`main.js:146`) is false without WebGL, or with the `retro2d` silly setting. `Flight.render` then calls `World.render` (`world.js:317`), which uses `F.scale`, `viewRot`, `camAbs`, `v.rot` (the planar projection of `q`, `vessel.js:154`) and `com.x/y`. The physics is the same 3D simulation either way.
 
 **Saving**:
-- `serialize` (`:145`) writes `{v:2, time, design, active, flags, stats, target, scale, vessels}` (an older save's `launchCost` is ignored) to `store['rss.flight']`. It skips AI craft, dead craft and uncontrolled debris.
+- `serialize` (`:145`) writes `{v:2, time, design, active, flags, fresh, stats, target, scale, vessels}` (`fresh`: the milestones new this flight; an older save's `launchCost` is ignored) to `store['rss.flight']`. It skips AI craft, dead craft and uncontrolled debris.
 - It saves every 10 s, on Save & exit, and on `visibilitychange`/`pagehide`. Nothing is saved in multiplayer, nor in a Practice Battle (`:179`, PR #38: its vehicle is lent, and the save `start` makes is cleared).
 - It is cleared on revert, recover, a new launch, or destruction with no other controllable craft left.
 - `restore` (`:159`) bumps `_partSeq` past the restored ids.
 - Recover (`canRecover`, `:442`): landed or splashed on Earth, speed < 1.2, not in a Practice Battle. It ends the flight with the summary (no refund since career mode went). A ground vehicle's end screens say "Knocked out" / "Off the range" with its knock-outs, best shot and distance driven (`summaryHTML`).
 
-**Milestones**: `checkMilestones` (`:823`) raises flags: `liftoff`, `alt1k`, `space`, `soi:/orbit:/land:<id>` (an orbit needs `rp > R+warpAlt` and `ra < soi`), `sunDive`, `escapeSun`, `takeoff`, `flyHigh`, `runwayLanding`, `supersonic`, `mach2`, `seaplane`, `hover`, `drive1k`. Recover adds `recoveredSpace`, `home:<id>` and `splashdown`; the Tank Range adds `tankRange` (groundai.js `score`). `award` sets the flag and toasts `FLAG_NAMES` (Liftoff and Splashdown only); the hints read the flags, and `summaryHTML` lists every flag `MILESTONES` names (§5).
+**Milestones**: `checkMilestones` (`:823`) raises flags: `liftoff`, `alt1k`, `space`, `soi:/orbit:/land:<id>` (an orbit needs `rp > R+warpAlt` and `ra < soi`), `sunDive`, `escapeSun`, `takeoff`, `flyHigh`, `runwayLanding`, `supersonic`, `mach2`, `seaplane`, `hover`, `drive1k`. Recover adds `recoveredSpace`, `home:<id>` and `splashdown`; the Tank Range adds `tankRange` (groundai.js `score`). `award` sets the flag; a named milestone (`MILESTONES`) toasts and goes in `summaryHTML`'s list only the first time ever, unless `repeatMs` (§5); the hints read the flags.
 
 ### 5. Milestones, money, and the career mode that was removed
 
 Career mode (career.js: `MISSIONS`, `Career` with its funds, tech tiers, R&D and mission rewards, launch costs and recovery refunds) was removed at the owner's request: every solo flight is what Sandbox was (every part, no money, nothing locked), and a first run no longer asks for a mode. An old profile's `rss.career` is never read and never deleted.
-- What stayed: the milestone flags (above), which the hints, the recover title ("Welcome home" after a `home:<id>`) and the summary's Milestones list use. `MILESTONES` (flight.js:15) names them as the missions were titled (First Hop, Edge of Space, Into Orbit, `<Body> Flyby`/`Orbit`/`Landing`, `Return from <Body>`, Interstellar, Icarus, …), so the summary lists what it always listed; only `FLAG_NAMES`'s Liftoff and Splashdown toast as they happen (a mission's toast came once ever, when it was first done).
+- What stayed: the milestone flags (above), which the hints and the recover title ("Welcome home" after a `home:<id>`) read every flight. `MILESTONES` (flight.js:15) names them as the missions were titled (Liftoff, First Hop, Edge of Space, Into Orbit, `<Body> Flyby`/`Orbit`/`Landing`, `Return from <Body>`, Interstellar, Icarus, …).
+- **Each milestone once** (the owner: "milestones often look dumb especially if you already did them"): `Achieved` (flight.js) remembers what the player has reached in `rss.milestones` (a known flag → true; cleaned on load, junk dropped and written back; held in memory too, so a storage that fails still says each once a session). The first time it is read and absent it is seeded from an old `rss.career`'s `done` missions (their ids mapped to flags: `recoverSpace`, `orbitEarth` and `splash` differ), read only. `award` raises the flag every flight as before, but toasts the milestone's name (with a chime) and marks it in `F.fresh` (saved with the flight) only the first time ever, or every time with Settings → Repeat milestones every flight (`repeatMs`, off by default). The summary lists `F.fresh` only, and with nothing new it has no Milestones heading at all. Rooms follow the same rule (and count toward the record).
 - `TIERS` and every part's `tier` and `cost` stay as data (chapter 1).
 - **Money is a multiplayer battle's alone**: `Budget` (util.js) holds `funds` (null: none) with `on` and `over(cost)`. `MP.borrow()` (when a room begins) keeps the player's blueprint in `MP.borrowed` and clears the budget, `MP.setMoney(budget)` sets it for the chosen spawn (`enterBuild`, `MPUI` on a spawn pick; null in a sandbox room), and `MP.giveBack()` (when the room ends) clears it and loads the blueprint back. While `Budget.on` the builder shows prices (the tray, the part panel, the hangar's cards), the `#budget-row` (Cost / Budget, red when over) and `MP.designProblems`' over-budget warning; otherwise none of it. `Builder.save` holds off while `MP.borrowed` is set. `money(n)` is util.js's.
 - `Drone.freeBays` (chapter 10): solo play is sandbox, so a bay takes a drone of any price outside a battle room.
@@ -2133,6 +2134,7 @@ The **home background** (`renderHome`, :251-259) is the 2D solar-system map runn
 | Targets select (:408) | `targets` `practice`/`hostile`/`off` | combat.js:28 (forced `off` in multiplayer) |
 | Flight hints checkbox (:404) | `hints` | `Flight.hint()` (flight.js:1215), launch tip (main.js:282) |
 | Prograde markers checkbox (:406) | `markers` | world.js:803, :823 (not while aiming a ground vehicle) |
+| Repeat milestones every flight checkbox (after the career removal) | `repeatMs` (default off) | `Flight.award` and `summaryHTML` (off: each milestone toasts and is listed once ever, `Achieved`; chapter 2 §5) |
 | Planes start in select (after PR #42) | `planeStart` `hold` (default)/`level`/`heading`/`manual`/`aim` | `Flight.start` (`v.sas`; Aim only with `aim3D()`, else hold) |
 | Aim assist (ground) checkbox (PR #38) | `aimAssist` | `Aim.assist` (aim.js:537) |
 | Ground aim (solo) select | `aimMode` `arcade`/`realistic` | `Aim.realistic` (aim.js:355; a room's lobby setting wins) |
@@ -2281,6 +2283,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | Key | Read/written in | Contents |
 |---|---|---|
 | `rss.settings` | world.js:7-9 | Settings object (§2) |
+| `rss.milestones` | flight.js `Achieved` | The milestones reached `{flag: true}`, known flags only; seeded once from `rss.career.done` (chapter 2 §5). |
 | `rss.career` | none | The removed career mode's progress. No longer read or written; an old profile keeps it, unread (chapter 2 §5). |
 | `rss.design` | builder.js:347, 358; mp.js:219, 228 | Current blueprint `{name, kind, parts, savedAs}`. Not written while a room borrows the builder (`MP.borrowed`). |
 | `rss.hangar` | builder.js:1425, 1448, 1606 | Up to 100 named designs `{name, kind, parts, savedAt}`, newest first |
@@ -2288,7 +2291,7 @@ All go through `store` as JSON; there is no other persistence (`BroadcastChannel
 | `rss.symmetry` / `rss.symmetryPlane` | builder.js:332, 1230-1232, 1811 | Symmetry toggle for non-planes / planes |
 | `rss.grid` | builder.js:333, 1001 | 2D quarter-metre grid snap |
 | `rss.statsFolded` | builder.js:1826-1827 | Stats panel collapsed |
-| `rss.flight` | flight.js:115, 157, 402, 427; main.js:235-300, 423 | Saved flight `{v:2, time, design, active, flags, stats, target, scale, vessels:[…]}` (an older one's `launchCost` is ignored), or null. Cleared on launch, revert, recovery and total loss. |
+| `rss.flight` | flight.js:115, 157, 402, 427; main.js:235-300, 423 | Saved flight `{v:2, time, design, active, flags, fresh, stats, target, scale, vessels:[…]}` (an older one's `launchCost` is ignored), or null. Cleared on launch, revert, recovery and total loss. |
 | `rss.seenHelp` | main.js:224 | The first-run help has been shown |
 | `rss.xray` | builder.js:484, 1859 | The builder's X-ray for Armour (PR #38; on unless switched off) |
 | `rss.xrayAir` | builder.js:489, `setXray` | The builder's X-ray for aircraft holding a radar set (the big update; off unless switched on) |

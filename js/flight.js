@@ -11,8 +11,7 @@ const PLANE_SAS_KEYS = { apHold: 'hold', apLevel: 'level', apHeading: 'heading',
 const DRONE_KEYS = { dLevel: 'hold', dAcro: 'acro' }; // (the big update: a drone flies Level, sas 'hold', or Acro)
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
-const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' }; // (the milestones that toast as they happen)
-// every milestone's name, for the flight's summary (the flags award() raises; those without a name aren't listed)
+// every milestone's name: the flags award() raises that toast and go in the flight's summary (the rest only steer hints)
 const MILESTONES = (() => {
   const n = { liftoff: 'Liftoff', alt1k: 'First Hop', space: 'Edge of Space', recoveredSpace: 'Safe Return', 'orbit:earth': 'Into Orbit',
     splashdown: 'Splashdown', drive1k: 'Road Trip', tankRange: 'Tank Range', takeoff: 'Wheels Up', hover: 'Hover', runwayLanding: 'Greaser',
@@ -23,6 +22,36 @@ const MILESTONES = (() => {
   }
   return n;
 })();
+// The milestones the player has reached (rss.milestones: a known flag -> true), so each toasts and is listed once ever,
+// unless Settings → Repeat milestones every flight (repeatMs). Cleaned on load; the first time, seeded from an old career
+// save's done missions (rss.career, read only: never written or deleted), so a returning player isn't congratulated again.
+// Held in memory too, so a storage that fails (a private window, the Node tests) still says each once a session.
+const Achieved = {
+  KEY: 'rss.milestones',
+  got: null,
+  OLD: { recoverSpace: 'recoveredSpace', orbitEarth: 'orbit:earth', splash: 'splashdown' }, // (the missions whose id wasn't their flag)
+  clean(m) {
+    const out = {};
+    if (m && typeof m === 'object' && !Array.isArray(m)) for (const k of Object.keys(m)) if (hasOwn(MILESTONES, k) && m[k] === true) out[k] = true;
+    return out;
+  },
+  load() {
+    if (this.got) return this.got;
+    const raw = store.get(this.KEY, null);
+    if (raw == null) { // never written: seed it from career's record, once
+      const c = store.get('rss.career', null), done = c && typeof c === 'object' && c.done && typeof c.done === 'object' && !Array.isArray(c.done) ? c.done : {};
+      const seed = {};
+      for (const id of Object.keys(done)) { const f = hasOwn(this.OLD, id) ? this.OLD[id] : id; if (done[id] && hasOwn(MILESTONES, f)) seed[f] = true; }
+      this.got = seed; store.set(this.KEY, seed);
+    } else {
+      this.got = this.clean(raw);
+      if (JSON.stringify(this.got) !== JSON.stringify(raw)) store.set(this.KEY, this.got); // (junk dropped)
+    }
+    return this.got;
+  },
+  has(f) { return !!this.load()[f]; },
+  add(f) { this.load()[f] = true; store.set(this.KEY, this.got); },
+};
 
 const Flight = {
   running: false,
@@ -127,6 +156,7 @@ const Flight = {
     this.mapMode = false;
     FX.clear();
     this.flags = {};
+    this.fresh = {}; // (the milestones this flight reached that the summary lists: new ones, or every one with repeatMs)
     this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0 };
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
@@ -213,7 +243,7 @@ const Flight = {
     const a = this.active && this.active.carrier ? this.active.carrier : this.active;
     const out = {
       v: 2, time: this.time, design: this.design,
-      active: keep.indexOf(a), flags: this.flags, stats: this.stats,
+      active: keep.indexOf(a), flags: this.flags, fresh: this.fresh, stats: this.stats,
       target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
     };
@@ -239,6 +269,7 @@ const Flight = {
     this.design = d.design;
     this.resetState(vessels, active, d.time || 0);
     this.flags = d.flags || {};
+    this.fresh = d.fresh && typeof d.fresh === 'object' && !Array.isArray(d.fresh) ? Achieved.clean(d.fresh) : {};
     this.stats = d.stats || this.stats;
     this.target = d.target ? BODY_BY_ID[d.target] : null;
     this.scale = d.scale || 12;
@@ -842,21 +873,22 @@ const Flight = {
   },
 
   summaryHTML(extra = '', ground = !!this._bodyGround) {
-    const got = Object.keys(this.flags).map((f) => MILESTONES[f]).filter(Boolean);
-    const list = got.length ? got.map((a) => `<li>${a}</li>`).join('') : '<li class="muted">None this flight</li>';
+    // the milestones this flight reached for the first time (or all of them with repeatMs); none: no heading at all
+    const got = Object.keys(this.fresh || {}).map((f) => MILESTONES[f]).filter(Boolean);
+    const ms = got.length ? `<h3 class="summary-h">Milestones</h3><ul class="milestones">${got.map((a) => `<li>${a}</li>`).join('')}</ul>` : '';
     if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
       const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
       return `<dl class="summary">
       <div><dt>Time</dt><dd>${fmt.clock(this.time)}</dd></div>${kos}
       <div><dt>Driven</dt><dd>${fmt.dist(this.driven || 0)}</dd></div>
       <div><dt>Top speed</dt><dd>${Math.round(this.stats.maxSpeed * 3.6)} km/h</dd></div>
-    </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
+    </dl>${extra}${ms}`;
     }
     return `<dl class="summary">
       <div><dt>Flight time</dt><dd>${fmt.clock(this.time)}</dd></div>
       <div><dt>Farthest</dt><dd>${fmt.dist(this.stats.maxAlt)}</dd></div>
       <div><dt>Top speed</dt><dd>${fmt.speed(this.stats.maxSpeed)}</dd></div>
-    </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
+    </dl>${extra}${ms}`;
   },
 
   openMenu() {
@@ -1633,7 +1665,14 @@ const Flight = {
   award(flag) {
     if (this.flags[flag]) return;
     this.flags[flag] = true;
-    if (FLAG_NAMES[flag]) this.toast(FLAG_NAMES[flag], 'achievement');
+    // a milestone toasts and goes in the summary the first time ever (with a chime), and again only with repeatMs
+    if (!hasOwn(MILESTONES, flag)) return;
+    const first = !Achieved.has(flag);
+    if (first) Achieved.add(flag);
+    else if (!Settings.get('repeatMs')) return;
+    (this.fresh || (this.fresh = {}))[flag] = true;
+    this.toast(MILESTONES[flag], 'achievement');
+    if (first) Sound.chime();
   },
 
   // A craft's height over the ground below, worked out once a frame: the milestones, engine dust, rotor wash,

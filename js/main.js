@@ -395,6 +395,8 @@ const App = {
     hints.addEventListener('change', () => Settings.set('hints', hints.checked));
     const marks = el('input', { id: 'set-markers', type: 'checkbox' }); marks.checked = Settings.get('markers');
     marks.addEventListener('change', () => Settings.set('markers', marks.checked));
+    const reMs = el('input', { id: 'set-repeat-ms', type: 'checkbox' }); reMs.checked = !!Settings.get('repeatMs'); // (off: each milestone once ever)
+    reMs.addEventListener('change', () => Settings.set('repeatMs', reMs.checked));
     const tg = el('select', { id: 'set-targets' });
     tg.innerHTML = '<option value="practice">Practice: targets don’t fight back</option><option value="hostile">Hostile: AA, SAMs and enemy fighters</option><option value="off">Off: no targets</option>';
     tg.value = Settings.get('targets');
@@ -448,7 +450,7 @@ const App = {
     keys.addEventListener('click', () => Controls.keysScreen({ onClose: () => this.showSettings() }));
     const lay = el('button', { id: 'set-layout', class: 'btn small', text: 'Edit controls…' });
     lay.addEventListener('click', () => { UI.closeModal(); Controls.edit({ done: () => this.showSettings() }); });
-    wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks),
+    wrap.append(row('Volume', vol), row('Graphics', q), row('Frame rate', fps), row('Targets near the islands', tg), row('Flight hints', hints), row('Prograde markers', marks), row('Repeat milestones every flight', reMs),
       head('Controls'), row('Touch controls', tu), row('UI size', uiSize), row('Stick size', stSize), row('Aim stick speed', stSens), row('Aim stick: invert up and down', inv), row('Stick haptics', hap),
       el('div', { class: 'setting-actions' }, keys, lay),
       head('Flying and aiming'), row('Planes start in', pa), row('Aim assist (ground)', assist), row('Ground aim (solo)', am), row(isTouch ? 'Aim speed (drag)' : 'Mouse aim speed', sens), // (a finger's drag too: fine aim in a phone's 6x sight)
