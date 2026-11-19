@@ -121,6 +121,25 @@ ok('2D: the sweep landing redraws once', n === 1, `${n} draws`);
 n = await idle('b2', 600);
 ok('...and then the armour blueprint is idle again', n === 0, `${n} draws`);
 
+// ---- a ship's waterline (the ships update): an edit from code that weighs her down moves the blue line at once (looked
+// for past her stern, where only the line is drawn), and then the blueprint is idle again
+const wlRow = () => ev(() => {
+  const W = Builder.waterline3d(), S = Builder.statsData.ship, x = S.x0 - 0.5 * (S.x0 - W.x0), c = App.canvas.getBoundingClientRect(), k = Builder.cam.scale, dpr = App.canvas.width / c.width;
+  const sx = Math.round((c.width / 2 + (x - Builder.cam.x) * k) * dpr), d = App.ctx.getImageData(sx, 0, 1, App.canvas.height).data;
+  let best = -1, at = -1;
+  for (let y = 0; y < App.canvas.height; y++) { const b = d[4 * y + 2] - d[4 * y]; if (b > best) { best = b; at = y; } }
+  return { at, best, want: Math.round((c.height / 2 - (W.a + W.bx * x - Builder.cam.y) * k) * dpr) };
+});
+await ev(() => { Builder.loadTemplate('cyclon'); Builder.selected = null; Builder.renderInfo(); });
+await frames(4); await page.waitForTimeout(300);
+const wl0 = await wlRow();
+await ev(() => { const h = Builder.parts.find((p) => p.type === 'hbMidM'); for (let i = 0; i < 12; i++) Builder.addPart('dieselM', h.x - 2 + 4 * (i % 2), partRect(h).t + 1.1 + 2.2 * Math.floor(i / 2), 0, { att: h }); Builder.selected = null; Builder.renderInfo(); }); // (84 t more)
+await frames(3);
+const wl1 = await wlRow();
+ok('2D: the waterline moves at once when an edit from code weighs her down', wl1.best > 100 && Math.abs(wl1.at - wl1.want) <= 3 && Math.abs(wl1.at - wl0.at) >= 5, JSON.stringify({ wl0, wl1 }));
+n = await idle('b2', 600);
+ok('...and then the ship\'s blueprint is idle again', n === 0, `${n} draws`);
+
 // ---- a radar set's peek (the big update): fitted from code, its nose see-through for 1.6 s; the peek's end is exactly
 // one more redraw, and then the blueprint is idle again
 await ev(() => { const t = TEMPLATES.falcon; Builder.loadDesign({ name: 'F', kind: 'plane', parts: templateRows(t).filter((r) => !innerRadar(PARTS[r.type])) }); });
