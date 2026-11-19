@@ -141,6 +141,7 @@ const PILOT = {
   car: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.9, 1.2, 1.2]),
   tank: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.25, 0.25, 0.25]), // (in the air only: running gear never lets the stick turn the hull)
   drone: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [4.5, 4.5, 3]), // (the big update's drones: a helicopter's frame at the Acro rates; drone.js flies them)
+  ship: pilotFrame([1, 0, 0], [0, 1, 0], ['pitch', 'roll', 'yaw'], [0.25, 0.25, 0.25]), // (the ships update: as the tank's, only reaction wheels in the air use it; the helm steers a ship, ship.js)
 };
 // How wheeled craft sit on the ground: planes on their belly side (+x), everything else on -y.
 const DRIVE = { plane: pilotFrame([0, 1, 0], [-1, 0, 0]), other: pilotFrame([1, 0, 0], [0, 1, 0]) };
@@ -234,6 +235,9 @@ class Vessel {
     // the ground update's (rebuildGroups sets them; these defaults keep a vessel stepped before it safe)
     this.gv = false; this.gear = this.aimed = NO_GEAR; this.tg = this.tgOf = null; this.plated = false;
     this.cuas = this.docks = NO_GEAR; this.cdLow = false; this.dr = null; // (the big update's drones: counter-drone kit, bays, a drone's groups)
+    // (the ships update's: hydro, it floats (a hull part aboard, or split off one that did); sh, its groups and state
+    // (ship.js); hF, hT, the water's force and torque this step (part axes); ciws, its close-in guns)
+    this.hydro = false; this.sh = null; this.hF = null; this.hT = null; this.ciws = NO_GEAR;
     this.recompute(true);
   }
 
@@ -339,6 +343,7 @@ class Vessel {
     this.docks = this.gv ? this.parts.filter((p) => p.def.dock) : NO_GEAR;
     this.cdLow = this.gv && this.parts.some((p) => p.def.searchRadar && p.def.searchRadar.low && !p.broken);
     for (const p of this.cuas) if (p.def.cuas.gun && p.ammo == null) p.ammo = p.def.cuas.gun.ammo; // (an anti-drone gun's rounds, saved as every part's)
+    this.ciws = this.gv ? this.parts.filter((p) => p.def.ciws) : NO_GEAR; // (the ships update: close-in guns that fire by themselves, any kind)
     if (this.gv) Aim.groups(this); else { this.aimed = NO_GEAR; this.tg = this.tgOf = null; }
     let top = null; // the nose: the part furthest up the centreline (not a pod or a store out on a wing, nor a radar set inside it)
     for (const p of this.parts) if (!innerRadar(p.def) && partZs(p).length === 1 && Math.abs(partZc(p)) < partDepth(p) / 2 && (!top || partRect(p).t > partRect(top).t)) top = p;
@@ -352,7 +357,7 @@ class Vessel {
     this.hasFlaps = this.wings.some((p) => p.def.wing.flaps);
     this.hasRetract = this.wheels.some((p) => p.def.wheel.retract);
     this.noseSharp = !!(top && top.def.sharp);
-    this.aircraft = this.wings.length > 0 && this.kind !== 'tank';
+    this.aircraft = this.wings.length > 0 && this.kind !== 'tank' && this.kind !== 'ship'; // (a ship with wings is never flown as a plane)
     this.mainWing = this.wings.reduce((m, p) => (!p.def.wing.control && (!m || p.def.wing.area > m.def.wing.area) ? p : m), null);
     // (a plane's wing with vortex lift lifts most a little past its own stall: that angle, and that lift)
     const plane = this.kind === 'plane', mwA = this.mainWing && wingAero(this.mainWing.def, plane);
@@ -365,6 +370,10 @@ class Vessel {
     this.rotors = this.parts.filter((p) => p.def.air && p.def.air.kind === 'rotor');
     this.tailRotors = this.parts.filter((p) => p.def.shape === 'tailrotor');
     if (this.kind === 'drone') Drone.groups(this); else this.dr = null; // (a drone's controller, links, cameras, battery, motors: drone.js)
+    // (the ships update) a hull part aboard, or split off a craft that floated: it floats (ship.js: its rings, compartments,
+    // screws and rudders). Without one the sea stays the old solid floor and nothing in ship.js runs
+    this.hydro = this.parts.some((p) => p.def.hull) || !!this.hydroFrom;
+    if (this.hydro && typeof Ship !== 'undefined') Ship.groups(this); else this.sh = null;
     this.recompute(false);
     this.computeAreas();
     this.computeHull();
@@ -415,6 +424,7 @@ class Vessel {
     };
     for (const p of this.parts) {
       if (innerRadar(p.def)) continue; // (a radar set inside a nose: no corners of its own)
+      if (p.def.shull) { shullPts(p, add); continue; } // (the ships update's hull segments: their rings' keel, deck edges and waterline)
       if (p.def.wheel) {
         const g = wheelGeom(p);
         for (const z of massZs(p)) wheels.push({ p, x: g.x, y: g.y, z, r: g.r, retract: !!p.def.wheel.retract });
@@ -1742,6 +1752,7 @@ class Vessel {
       v.isDebris = !v.control;
       v.name = v.control ? `${this.name} (${v.control.def.name})` : 'Debris';
       v.stages = remaining.map((st) => st.filter((id) => ids.has(id))).filter((st) => st.length);
+      if (this.hydro) v.hydroFrom = true; // (the ships update: a piece of a craft that floated sinks or floats in the water, never on a solid sea)
       v.rebuildGroups();
       out.push(v);
     }
@@ -1749,6 +1760,7 @@ class Vessel {
     for (const set of this.adj.values()) for (const id of [...set]) if (!this.adj.has(id)) set.delete(id);
     const mine = new Set(this.parts.map((p) => p.id));
     this.stages = [...this.stages.slice(0, this.stageIdx + 1), ...remaining.map((st) => st.filter((id) => mine.has(id))).filter((st) => st.length)];
+    if (this.hydro) this.hydroFrom = true; // (and so does what is left of it, its hull shot away or not)
     this.rebuildGroups();
     return out;
   }

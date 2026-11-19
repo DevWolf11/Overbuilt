@@ -23,7 +23,7 @@ t = await tabs();
 ok('a plane shows cockpits, fuselage, wings, aero engines, gear, weapons and radar', t.join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar|More…', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'More…').click());
 t = await tabs();
-ok('More shows every tab, the plane ones first', t.length === 27 && t.slice(0, 7).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar' && t.includes('Command') && t.includes('Hulls') && t.includes('Frames') && t[26] === 'Fewer', t.join('|'));
+ok('More shows every tab, the plane ones first', t.length === 32 && t.slice(0, 7).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar' && t.includes('Command') && t.includes('Hulls') && t.includes('Frames') && t.includes('Ship hulls') && t[31] === 'Fewer', t.join('|')); // (the ships update's five tabs too)
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Engines').click());
 let items = await ev(() => [...document.querySelectorAll('#palette-items .part-item')].length);
 ok('a rocket engine can still go on a plane', items > 5, items);
@@ -192,7 +192,7 @@ ok(`dragging a big lofted part about its own jet: ${r.toFixed(2)} ms a move`, r 
   watch(ph, errs);
   await openGame(ph, srv.url, { build3d: false });
   await ph.evaluate(() => App.toBuild());
-  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli', 'tank']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
+  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli', 'tank', 'ship']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
   ok('phone portrait: More is in sight for every kind of craft', r.every(Boolean), JSON.stringify(r));
 }
 

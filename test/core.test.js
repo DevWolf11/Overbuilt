@@ -51,9 +51,19 @@ const GROUND = { // key: [name, money tier it fits ($)]
   bmk2d: ['BMK-2D Nest', 45000], ma1c: ['MA-1C Abrahm', 120000],
 };
 W.__G = GROUND;
-const keys = Object.keys(W.TEMPLATES), gv = keys.filter((k) => W.TEMPLATES[k].parts.some((r) => W.PARTS[r[0]] && W.PARTS[r[0]].gv));
-g('58 templates; the eighteen ground ones last (after the jets and the drones), under their own names', keys.length === 58 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(keys.slice(-18)) === JSON.stringify(gv)
-  && gv.every((k) => W.TEMPLATES[k].name === GROUND[k][0]), gv.map((k) => W.TEMPLATES[k].name).join(', '));
+// (the ships update's ships carry gv parts too: they come after the ground block, and are not ground vehicles)
+const SHIPS = { cyclon: ['Cyclon Patrol Boat', 45000] }; // key: [name, money tier it fits ($)]
+const keys = Object.keys(W.TEMPLATES), ships = keys.filter((k) => W.TEMPLATES[k].kind === 'ship'), gv = keys.filter((k) => W.TEMPLATES[k].parts.some((r) => W.PARTS[r[0]] && W.PARTS[r[0]].gv) && !ships.includes(k));
+g('59 templates; the eighteen ground ones (after the jets and the drones), then the ships last, under their own names', keys.length === 59 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(ships) === JSON.stringify(Object.keys(SHIPS))
+  && JSON.stringify(keys.slice(-(18 + ships.length))) === JSON.stringify([...gv, ...ships]) && gv.every((k) => W.TEMPLATES[k].name === GROUND[k][0]) && ships.every((k) => W.TEMPLATES[k].name === SHIPS[k][0]),
+  gv.concat(ships).map((k) => W.TEMPLATES[k].name).join(', '));
+W.__SHIPS = ships;
+g('the ships: kind ship, not military, a blurb; tier the highest of their parts\'; every part joined to the control part, no clashes; each fits its money tier; hydro with its hull joined end to end, no open end', RW(`__SHIPS.every((k) => {
+  const T = TEMPLATES[k], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), ctrl = findControlPart(ps), v = new Vessel(ps, adj, EARTH);
+  v.kind = T.kind; v.rebuildGroups();
+  let clash = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) clash++;
+  return T.kind === 'ship' && !T.military && T.blurb.length > 40 && T.tier === Math.max(...ps.map((p) => p.def.tier || 0)) && ctrl && componentOf(ctrl.id, adj).size === ps.length && !clash
+    && designCost(ps) <= ${JSON.stringify(Object.fromEntries(Object.entries(SHIPS).map(([k, v]) => [k, v[1]])))}[k] && v.hydro && v.sh.open.length === 0 && v.sh.joins.length === v.sh.hulls.length - 1 && v.sh.comps.length === v.sh.hulls.length; })`));
 g('seventeen are Armour (kind tank), the Desert Technical a car; none of them military; each with a blurb', gv.filter((k) => W.TEMPLATES[k].kind === 'tank').length === 17 && W.TEMPLATES.technical.kind === 'car'
   && gv.every((k) => !W.TEMPLATES[k].military && W.TEMPLATES[k].blurb.length > 40));
 // (P4 review) a blurb says what the vehicle does: most of the MA-1's rounds (34 of 50) sit behind blow-out panels, not all

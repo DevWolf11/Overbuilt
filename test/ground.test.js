@@ -14,7 +14,7 @@ const t = G.checks('ground: §contract (Phase 1)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
 
 // ---------------------------------------------------------------- counters on every function of the new systems
-const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props', 'Drone']; // (Props: the battlefields' solid scenery, props.js; Drone: the big update's drones, drone.js)
+const SYSTEMS = ['Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props', 'Drone', 'Ship']; // (Props: the battlefields' solid scenery, props.js; Drone: the big update's drones, drone.js; Ship: the ships update's, ship.js)
 const wrap = (c) => G.run(c, `var CALLS = {}; for (const name of ${JSON.stringify(SYSTEMS)}) {
   if (typeof this[name] === 'undefined') continue;
   const o = this[name];
@@ -29,7 +29,7 @@ R(`var MET = { shot: 0, contacts: 0 }; { const s = Props.shot, pc = Vessel.proto
   Props.shot = function (a, b) { const q = s.call(this, a, b); if (q >= 0) MET.shot++; return q; };
   Vessel.prototype.propContacts = function (B, L, dt) { const n = L.length; pc.call(this, B, L, dt); MET.contacts += L.length - n; }; }`);
 const met = () => R(`JSON.stringify([MET.shot, MET.contacts, Props.crushed])`);
-t('the loader brings Gear, Aim, Armour, GroundMode, GroundAI and Props', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
+t('the loader brings Gear, Aim, Armour, GroundMode, GroundAI, Props, Drone and Ship', SYSTEMS.every((n) => !!ctx[n]), SYSTEMS.filter((n) => !ctx[n]).join());
 t('...with every map\'s props built (Highland Ridge, the Runway, the island, and the spawn points update\'s ten round the sandbox\'s spawn points)', R(`Props.done() && Props.areas().map((m) => m.id).join() === 'highland,runway,isle,funningur,vidareidi,tvoroyri,northRoe,bixter,lunna,shAir,watten,bettyhill,gbAir'`));
 
 // ---------------------------------------------------------------- old designs: zero calls into the new code
@@ -48,13 +48,13 @@ var oldRun = (v, F, secs, script) => {
   for (let i = 0; i < secs / dt; i++) {
     script(v, i * dt, F, i);
     v.physicsStep(dt, F); Combat.step(dt, F); F.time += dt;
-    if (i % 4 === 0) { Combat.frame(F, dt * 4); if (Combat.S.dr) DRON++; } // (the big update's drone gate: shut for every old flight)
+    if (i % 4 === 0) { Combat.frame(F, dt * 4); if (Combat.S.dr) DRON++; if (Combat.S.sea || Combat.S.pd || Ship.D.length) SEAN++; } // (the big update's drone gate, and the ships update's sea, point-defence and deck gates: shut for every old flight)
     most = Math.max(most, Combat.S.shots.length);
     if (v.dead || !v.parts.length) break;
   }
 };
 var dice = (seed) => { let s = seed >>> 0; Math.random = () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), s | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-var KOS = 0, DRON = 0;
+var KOS = 0, DRON = 0, SEAN = 0;
 var where = (v) => JSON.stringify([v.x, v.y, v.z, v.vx, v.vy, v.vz, v.q, v.av, v.parts.length, v.dead, Combat.S.shots.map((s) => [s.k, s.x, s.y, s.z])]);`;
 R(OLDRUN);
 const bare = G.load({ combat: true, ground: true }), RB = (c) => G.run(bare, c); // (no props built: the game as it was)
@@ -91,8 +91,8 @@ for (const key of OLD) {
   if (a !== b) same.push(key);
   traced++;
 }
-t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other six systems (Drone too: Combat.S.dr never opens); Props asked (its shots, its contacts, the crush pass), and nothing met`,
-  quiet() === '{}' && R('DRON') === 0 && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
+t(`the traces script with weapons (${traced} templates, up to ${R('most')} rounds in flight): no calls into the other seven systems (Drone too: Combat.S.dr never opens; Ship too: Combat.S.sea and S.pd never open, no deck); Props asked (its shots, its contacts, the crush pass), and nothing met`,
+  quiet() === '{}' && R('DRON') === 0 && R('SEAN') === 0 && R('most') > 0 && R(`CALLS['Props.shot'] > 1000 && CALLS['Props.solidAt'] > 1000 && CALLS['Props.crushStep'] > 100`) && met() === '[0,0,0]', [quiet(), met(), calls()]);
 t('...and every craft and every round in flight ends exactly where it does in a game with no props at all (aircraft with their pilots knocked out at 10.5 s, cars their drivers)', !same.length && traced > 30 && R('KOS') === RB('KOS') && R('KOS') > 20, [same, R('KOS')]);
 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
@@ -155,8 +155,9 @@ t('...the buggy\'s driver shot (knocked out, a wreck, 6 s of its fire and smoke)
 // 4. designs, codes and costs of every template
 R(`for (const k of __OLD) { const ps = partsFromDesign(templateRows(TEMPLATES[k])); designRows(ps); designCost(ps); designCost(templateRows(TEMPLATES[k])); }`);
 t('rows and costs of every old template: no calls', quiet() === '{}', quiet());
-t('old vessels carry the new fields\' defaults (no gear, no groups, not plated; no counter-drone kit, no bays, no drone groups)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)
-  && bug.cuas === NO_GEAR && bug.docks === NO_GEAR && bug.dr === null && !bug.cdLow`));
+t('old vessels carry the new fields\' defaults (no gear, no groups, not plated; no counter-drone kit, no bays, no drone groups; the ships update\'s: not hydro, no ship groups, no water forces, no CIWS)', R(`!bug.gv && bug.gear === NO_GEAR && bug.aimed === NO_GEAR && bug.tg === null && bug.tgOf === null && !bug.plated && Object.isFrozen(NO_GEAR)
+  && bug.cuas === NO_GEAR && bug.docks === NO_GEAR && bug.dr === null && !bug.cdLow
+  && bug.hydro === false && bug.sh === null && bug.hF === null && bug.hT === null && bug.ciws === NO_GEAR && !('hydroFrom' in bug) && !bugSaved.hydro`));
 
 // 5. multiplayer: an old craft's spawn rows out and back, and its ghost
 const mp = G.load({ mp: true, earth: false });
@@ -181,11 +182,16 @@ t('spawning and ghosting every old template: no calls', calls(mp) === '{}', call
 t('isGround: cars and armour, nothing else', R(`isGround('car') && isGround('tank') && !isGround('plane') && !isGround('heli') && !isGround('rocket') && !isGround(undefined)`));
 t('the Armour kind: launches from the runway at rot 0 with its seven tabs', R(`(() => { const K = VEHICLE_KINDS.tank; return K.name === 'Armour' && K.site === 'runway' && K.launchRot === 0
   && K.cats.join() === 'hulls,turrets,drive,guns,launchers,crew,kit' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)); })()`));
-t('26 part categories, the seven new ones after Ground (then the big update\'s four drone tabs, and its Radar last)', R(`PART_CATEGORIES.length === 26 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'
-  && PART_CATEGORIES.map((c) => c.id).slice(21, 25).join() === 'drFrame,drPower,drLink,drPay' && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
+t('31 part categories, the seven new ones after Ground (then the big update\'s four drone tabs, the ships update\'s five, and the big update\'s Radar last)', R(`PART_CATEGORIES.length === 31 && PART_CATEGORIES.map((c) => c.id).slice(13, 21).join() === 'ground,hulls,turrets,drive,guns,launchers,crew,kit'
+  && PART_CATEGORIES.map((c) => c.id).slice(21, 25).join() === 'drFrame,drPower,drLink,drPay' && PART_CATEGORIES.map((c) => c.id).slice(25, 30).join() === 'shHull,shSuper,shDrive,shArms,shKit'
+  && PART_CATEGORIES[PART_CATEGORIES.length - 1].id === 'radar'`));
 t('the Drone kind: launches from the helipad at rot 0 with its four tabs', R(`(() => { const K = VEHICLE_KINDS.drone; return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0
   && K.cats.join() === 'drFrame,drPower,drLink,drPay' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c)) && !isGround('drone') && isAirKind('drone'); })()`));
 t('PILOT.tank and a car-like drive frame', R(`!!PILOT.tank && PILOT.tank.F.x === 1 && PILOT.tank.U.y === 1`));
+t('the Ship kind (the ships update): launches from the bay at rot 0 with its five tabs, a sea kind (not ground, not air), a tank\'s pilot frame', R(`(() => { const K = VEHICLE_KINDS.ship;
+  return K.name === 'Ship' && K.site === 'bay' && !!EARTH.sites.bay && K.launchRot === 0 && K.cats.join() === 'shHull,shSuper,shDrive,shArms,shKit' && K.cats.every((c) => PART_CATEGORIES.some((q) => q.id === c))
+    && isSea('ship') && !isSea('tank') && !isSea('plane') && !isSea(undefined) && !isGround('ship') && !isAirKind('ship') && SEA_KINDS.size === 1
+    && PILOT.ship.F.x === 1 && PILOT.ship.U.y === 1; })()`));
 
 // ---------------------------------------------------------------- test parts (shaped like the catalogue's; §3.1, §3.5)
 R(`var TST = {

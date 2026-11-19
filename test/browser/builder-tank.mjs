@@ -292,7 +292,7 @@ for (const [w, h] of [[390, 844], [375, 667], [844, 390], [1280, 720]]) {
   const pg = w === 390 ? page : await phone(w, h);
   if (w === 1280) await pg.setViewportSize({ width: w, height: h });
   const f = await fits(pg);
-  ok(`${w} × ${h}: every kind button fits its label (six: Drone after Armour)`, f.length === 6 && f[5][0] === 'drone' && f.every(([, s, c]) => s <= c), JSON.stringify(f));
+  ok(`${w} × ${h}: every kind button fits its label (seven: Drone after Armour, then the ships update's Ship)`, f.length === 7 && f[5][0] === 'drone' && f[6][0] === 'ship' && f.every(([, s, c]) => s <= c), JSON.stringify(f));
   if (pg !== page) await pg.close();
 }
 

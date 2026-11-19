@@ -12,7 +12,7 @@ const src = (root, f) => fs.readFileSync(path.join(root, 'js', f), 'utf8');
 // opts: root, earth (the real Earth map, default true), combat (combat.js with its internals on Combat._t, then
 // radar.js and death.js when present), flight (world.js and flight.js), mp (mp.js with Net/UI/Flight stubs), ground
 // (gmode.js and groundai.js, which combat, flight and mp also bring), props (every map's props built: Props.buildAll),
-// drone (false: no drone.js, as before the big update's drones)
+// drone (false: no drone.js, as before the big update's drones), ship (false: no ship.js, as before the ships update)
 function load(opts = {}) {
   const root = opts.root || ROOT;
   const ctx = { console, Math: Object.create(Math), performance: { now: () => 0 } };
@@ -31,6 +31,7 @@ function load(opts = {}) {
   // the ground update's systems (each only if present, so ROOT can point at a checkout from before it)
   const has = (f) => fs.existsSync(path.join(root, 'js', f));
   for (const f of ['gear.js', 'aim.js', 'armour.js', 'drone.js']) if (has(f) && !(f === 'drone.js' && opts.drone === false)) run(src(root, f), f); // (the big update's drones: drone.js after armour.js; drone: false leaves it out, for old play's proof)
+  if (has('ship.js') && opts.ship !== false) run(src(root, 'ship.js'), 'ship.js'); // (the ships update: ship.js after drone.js, as the page has it; ship: false leaves it out, for old play's proof)
   if (opts.flight && opts.mp) throw new Error('load(): flight and mp stub each other out; load them in separate contexts');
   run('var Sound = new Proxy({}, { get: () => () => {} });');
   if (opts.flight) { // world.js brings the real Settings and FX
@@ -85,7 +86,7 @@ function load(opts = {}) {
   // top-level const/let/class bindings aren't properties of the context: copy the common ones over
   for (const k of ['PARTS', 'SKINS', 'EARTH', 'MOON', 'BODIES', 'Vessel', 'VEHICLE_KINDS', 'PILOT', 'PART_Z_MAX', 'Terrain',
     'SHELLS', 'SHELL_TYPES', 'GROUND_KINDS', 'GROUND_STOCK', 'NO_GEAR', 'Gear', 'Aim', 'Armour', 'GroundMode', 'GroundAI', 'Props',
-    'AIR_KINDS', 'Death', 'DEATH', 'FIRE', 'Radar', 'Drone', 'DRONE', 'DRONE_LEGACY'])
+    'AIR_KINDS', 'Death', 'DEATH', 'FIRE', 'Radar', 'Drone', 'DRONE', 'DRONE_LEGACY', 'Ship', 'SHIP', 'SEA_KINDS', 'isSea', 'shullOf'])
     run(`if (typeof ${k} !== 'undefined') this.${k} = ${k};`);
   return ctx;
 }

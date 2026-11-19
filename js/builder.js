@@ -483,6 +483,16 @@ const TEMPLATES = {
     paint: { hullMBT: 'woodland', trackMBT: 'woodland', ringP: 'woodland', turretWedge: 'woodland', gun120: 'woodland', smokeL: 'woodland', skirts: 'woodland',
       cdCage: 'woodland', cdGun: 'woodland', cdJam: 'woodland', cdDetect: 'woodland' },
   },
+  // ---- the ships update's ships (kind 'ship', after the ground block): built bow-right as Armour is, hull segments end to
+  // end along x (their bottoms level), the superstructure on the deck, engines inside, screws and rudders under the stern
+  cyclon: { // (a Cyclone-class patrol ship, in the update's first slice: hull, wheelhouse, two diesels, two screws and two rudders, unarmed)
+    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 1,
+    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. Ring the telegraph up to Flank and she runs at over 30 knots.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
+      ['dieselM', -6, -0.8, 0, { z: -1.4, att: 1 }], ['dieselM', -6, -0.8, 0, { z: 1.4, att: 1 }],
+      ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
+      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }]],
+  },
 };
 
 // A template's parts as design rows (extras: z, att, skin, mm).
@@ -511,14 +521,14 @@ function templateRows(t) {
   });
 }
 // The tab each kind of craft opens on.
-const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls', drone: 'drFrame' };
+const KIND_TAB = { rocket: 'command', plane: 'cabins', car: 'ground', heli: 'airEng', tank: 'hulls', drone: 'drFrame', ship: 'shHull' };
 
 // The tray's order: the stock parts as they come, then each look-alike jet's parts together, the jets by
 // generation as TEMPLATES lists them. A part belongs to the jet its name gives (FS-22 Wing), else to the first
 // jet that carries it (the IRST ball to the MyG-29). A retired part (def.retired: the small turret) is left out: old
 // designs keep it, but the tray no longer offers it. The armour parts go by their era (def.family), oldest first.
 // Worked out once.
-const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones']; // (Drones: the bays and counter-drone kit, last in Launchers and Kit)
+const PART_ERAS = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones', 'Boats', 'Escorts', 'Destroyers', 'Naval']; // (Drones: the bays and counter-drone kit, last in Launchers and Kit; then the ships update's, by size)
 // (the groups parts name for themselves, def.tray, in this order: the radar's, then the Drone kind's four tabs')
 const TRAY_ORDER = ['Inside a nose', 'Outside', 'Controllers', 'Multirotor', 'Fixed wing', 'Motors', 'Batteries', 'Links', 'Cameras', 'Warheads', 'Drops', 'Missiles'];
 let PART_FAMILIES = null;
@@ -3007,11 +3017,11 @@ const Builder = {
       }
       wrap.append(list);
     }
-    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters', drone: 'Drones' };
+    const groups = { rocket: 'Example rockets', plane: 'Planes', military: 'Military aircraft', car: 'Cars', tank: 'Ground forces', heli: 'Helicopters', drone: 'Drones', ship: 'Ships' };
     // (P4 play-test: building Armour, its stock vehicles first, not five screens down; a drone, the stock drones)
     const order = this.kind === 'tank' || this.kind === 'drone' ? [this.kind, ...Object.keys(groups).filter((k) => k !== this.kind)] : Object.keys(groups);
     for (const kind of order) {
-      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.military ? 'military' : t.kind || 'rocket') === kind; });
+      const keys = Object.keys(TEMPLATES).filter((k) => { const t = TEMPLATES[k]; return (t.kind === 'tank' ? 'tank' : t.kind === 'ship' ? 'ship' : t.military ? 'military' : t.kind || 'rocket') === kind; }); // (a warship is a ship, never a military aircraft)
       if (!keys.length) continue;
       wrap.append(el('h3', { class: 'summary-h', text: groups[kind] }));
       if (kind === 'tank') wrap.append(el('p', { class: 'hangar-hint', text: 'Open one, turn on X-ray, and see how it’s built.' }));

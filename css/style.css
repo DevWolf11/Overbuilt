@@ -1387,14 +1387,16 @@ body.ctl-edit .air-btns { display: flex !important; }
 body.ground #btn-radar { display: none; }
 
 /* == big: drones == */
-/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide) */
-#kind-select { grid-template-columns: repeat(6, 1fr); }
+/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide); the ships
+   update's Ship a seventh */
+#kind-select { grid-template-columns: repeat(7, 1fr); }
 @media (max-width: 359.98px) { #kind-select .kind-btn { font-size: 8px; } }
 /* the drone's line under the stats: its notes (no camera, more parts than a bay takes) in grey */
 .air-info .s-note { color: var(--muted); }
 /* a short phone building a drone, as building armour: while a part's card is up the kind buttons give way */
 @media (max-width: 760px) and (max-height: 700px) {
   #build-ui.has-info:has(#kind-select [data-kind="drone"][aria-checked="true"]) #kind-select { display: none; }
+  #build-ui.has-info:has(#kind-select [data-kind="ship"][aria-checked="true"]) #kind-select { display: none; } /* (and a ship, the ships update) */
 }
 /* its battery ("50 Wh · hover 7.5 min") and top speed ("Level 97 km/h · Acro 160") rows take two columns, a size smaller on a
    desktop's narrow panel to keep to one line (a phone's wrap at the " · ") */

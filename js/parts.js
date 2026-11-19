@@ -30,6 +30,13 @@ const PART_CATEGORIES = [
   { id: 'drPower', name: 'Motors & power' },
   { id: 'drLink', name: 'Links & sensors' },
   { id: 'drPay', name: 'Payloads' },
+  // the ships update's five tabs (the Ship kind's; after the drones', so the ground and drone tabs keep their places, and
+  // before Radar, which stays last)
+  { id: 'shHull', name: 'Ship hulls' },
+  { id: 'shSuper', name: 'Superstructure' },
+  { id: 'shDrive', name: 'Propulsion' },
+  { id: 'shArms', name: 'Naval weapons' },
+  { id: 'shKit', name: 'Ship kit' },
   // the big update's radar parts (planes and helicopters; last, so the ground and drone tabs keep their places)
   { id: 'radar', name: 'Radar' },
 ];
@@ -45,6 +52,8 @@ const VEHICLE_KINDS = {
   tank: { id: 'tank', name: 'Armour', site: 'runway', launchRot: 0, cats: ['hulls', 'turrets', 'drive', 'guns', 'launchers', 'crew', 'kit'] },
   // (the big update: drones, built from their own small parts and flown by their own laws, drone.js)
   drone: { id: 'drone', name: 'Drone', site: 'helipad', launchRot: 0, cats: ['drFrame', 'drPower', 'drLink', 'drPay'] },
+  // (the ships update: ships, built bow-right from hull segments, as Armour is: +x the bow, +y up, +z starboard; ship.js)
+  ship: { id: 'ship', name: 'Ship', site: 'bay', launchRot: 0, cats: ['shHull', 'shSuper', 'shDrive', 'shArms', 'shKit'] },
 };
 // The kinds that drive on the ground (tracks, armour and aimed guns work on any of them; behaviour comes from parts).
 const GROUND_KINDS = new Set(['car', 'tank']);
@@ -53,6 +62,10 @@ function isGround(kind) { return GROUND_KINDS.has(kind); }
 // harmless before it exists.
 const AIR_KINDS = new Set(['plane', 'heli', 'drone']);
 function isAirKind(kind) { return AIR_KINDS.has(kind); }
+// The kinds that sail (the ships update): ship.js floats any craft with a hull part (def.hull: v.hydro); this only says
+// what a craft *is* (a surface contact, never an air target; zones at sea; the helm keys and HUD; knots)
+const SEA_KINDS = new Set(['ship']);
+function isSea(kind) { return SEA_KINDS.has(kind); }
 // A vessel's running gear (v.gear) when it has none: every old design.
 const NO_GEAR = Object.freeze([]);
 
@@ -1353,6 +1366,62 @@ const PARTS = {
   cdCage: { gv: true, family: 'Drones', place: 'top', cat: 'kit', name: 'Roof Cage', w: 3.0, h: 0.75, depth: 3.0, mass: 0.35, shape: 'tkit', style: 'cage', body3d: 'cage', flush: true, hp: 300,
     armour: { mm: 2, mat: 'steel' }, slat: 0.5, cage: true,
     tier: 1, cost: 1500, desc: 'A slatted cage over the turret: half the plain shaped charges that hit it are crushed. Tandem charges get through.' },
+
+  // ---- the ships update (ship.js; the Ship kind's five tabs). Built bow-right as Armour is: +x the bow, +y up, +z to
+  // starboard; aimed parts fire along their own +y, so they go on at rot 3. Every ship part is gv: true (turrets, Aim,
+  // armour, crew, modules, repairs and X-ray come with it) and ship: true (the ships update's own; greppable as gv and
+  // drone are). What a ship part may carry, beside the ground update's fields (above):
+  // - hull: true: it floats (any craft with one is v.hydro, ship.js). shull: its shape, stations along its own x (stern ->
+  //   bow), sampled by shullOf (at the end of this file) into the rings that are its 2D outline, its 3D loft, its clash
+  //   shape, where it is hit and what floats: { cls: the joint class ('S', 'M', 'L', 'X'; 'one' for one-piece hulls), wl:
+  //   the design waterline's y, st: [[x, yd (deck), yk (keel), bd (half-breadth at the deck), bw (at the waterline), nb
+  //   (the bilge's exponent: 1 a V, 2 an ellipse, 4-8 a flat bottom)], ...], ends: { aft, fore }: 'joint' (meets the
+  //   next segment: open if nothing does), 'closed' (a transom or a stem) or 'ramp'; plane: a planing bottom; k: the
+  //   form factor on friction; pump: its own bilge pump, m³/s; bk: bilge keels (roll damping) }. armour on a hull: { mm,
+  //   plate (the plain plating, mm), deck (the deck's share), belt: [y0, y1] (a belt band, opt-in), mat: 'steel', 'alu'
+  //   (0.34 of steel's weight per mm) or 'grp' (glass fibre: no armour) }.
+  // - place: where a tap in the tray puts it (Ship.spotOf): keel, deck, super, inside, stern, bow, mast, edge.
+  // - engine: { kw, fuel: 'diesel' | 'petrol' | 'turbine', spool: s from idle to full }: shaft power (a tank's engine and
+  //   a ship's are one pool). screw: { D: m, eta } a propeller, thrust along its own +x. jet: { D, steer: ° } a
+  //   waterjet. steer: ° an outboard turns with the helm. foil: { kind: 'rudder' | 'foil' | 'skeg', area: m², ar, n:
+  //   'z' | 'y' (its lift's normal), max: ° (a rudder's throw), inc: ° (a hydrofoil's incidence), chord: m, load: kN }.
+  // - deck: { hl, hw } a landable deck (helipads); ciws: { range, missiles, air } a close-in gun that fires by itself;
+  //   bulkhead: splits its host hull's compartment; stealth: a share off a radar's reach; pump: m³/s.
+  // family: its tray group (Boats, Escorts, Destroyers, Naval). Real ships appear in comments only.
+  // ==== shHull ====
+  // (the M class: a 32 m patrol boat's segments, after the Cyclone class; the joint section deck +2.0, keel -2.0, beam
+  // 7.0 m, waterline -0.4 in a midsection's frame. The bow's centre sits 0.3 m higher than a midsection's: bottoms level)
+  hbBowM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Bow', w: 10, h: 4.6, depth: 7.0, mass: 9, shape: 'shull', hull: true,
+    shull: { cls: 'M', wl: -0.7, st: [[-5, 1.7, -2.3, 3.5, 3.45, 1.2], [-2, 1.85, -2.3, 3.3, 3.15, 1.1], [1, 2.0, -2.05, 2.6, 2.2, 1.0], [3.5, 2.15, -1.2, 1.4, 0.8, 1.0], [5, 2.3, 0.2, 0.15, 0.05, 1]],
+      ends: { aft: 'joint', fore: 'closed' }, plane: true, k: 0.15, pump: 0.01 },
+    armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2200, breakSpeed: 6,
+    tier: 1, cost: 2000, desc: 'The front of a patrol boat: a hard chine and a flared bow that throws the spray aside. Put it on the front of a Patrol Midsection.' },
+  hbMidM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Midsection', w: 8, h: 4.0, depth: 7.0, mass: 8, shape: 'shull', hull: true,
+    shull: { cls: 'M', wl: -0.4, st: [[-4, 2.0, -2.0, 3.5, 3.45, 1.2], [4, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'joint', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
+    armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2000, breakSpeed: 6,
+    tier: 1, cost: 1600, desc: 'An 8 m length of aluminium patrol-boat hull, a watertight compartment of its own. Fast enough to start lifting onto the plane. Add as many as you like between a bow and a stern.' },
+  hbSternM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Stern', w: 6, h: 4.0, depth: 7.0, mass: 5.5, shape: 'shull', hull: true,
+    shull: { cls: 'M', wl: -0.4, st: [[-3, 2.0, -1.7, 3.3, 3.2, 1.6], [3, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'closed', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
+    armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 1500, breakSpeed: 6,
+    tier: 1, cost: 1200, desc: 'The back of a patrol boat, closed by a flat transom: propellers, waterjets and rudders hang under it.' },
+  // ==== shSuper ====
+  bridgeM: { gv: true, ship: true, family: 'Naval', place: 'deck', cat: 'shSuper', name: 'Wheelhouse', w: 5, h: 3, depth: 5, mass: 6, control: 1, shape: 'tkit', style: 'bridge', hp: 1200,
+    armour: { mm: 6, mat: 'steel' },
+    mods: [{ k: 'crew', role: 'driver', at: [0.25, 0, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'commander', at: [0.25, 0.1, 0.2], r: 0.45, hp: 100 },
+      { k: 'crew', role: 'gunner', at: [-0.15, 0, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'radio', at: [-0.15, 0, 0.2], r: 0.45, hp: 100 }],
+    tier: 1, cost: 2500, desc: 'A small ship\'s bridge: the helmsman, the captain, a gunner and the radio operator stand behind its windows. Every ship needs one (or a bigger bridge) to be steered.' },
+  // ==== shDrive ====
+  dieselM: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shDrive', name: 'Large Marine Diesel', w: 3.5, h: 2.2, depth: 1.8, mass: 7, shape: 'tkit', style: 'engine', inner: true, flush: true, module: 'engine', hp: 600,
+    engine: { kw: 2000, fuel: 'diesel' },
+    tier: 1, cost: 2500, desc: 'A 2,000 kW diesel for patrol boats and landing craft. Put it inside a hull, low down; it turns every propeller and waterjet aboard.' },
+  screwM: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Propeller', w: 0.6, h: 2.2, depth: 2.2, mass: 2.5, shape: 'tkit', style: 'screw', hp: 300,
+    screw: { D: 2.2, eta: 0.62 },
+    tier: 1, cost: 900, desc: 'A 2.2 m propeller on its shaft. Hang it under the stern, well below the waterline: out of the water it pushes nothing.' },
+  rudderM: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Rudder', w: 1.4, h: 1.8, depth: 0.15, mass: 1, shape: 'tkit', style: 'rudder', hp: 300,
+    foil: { kind: 'rudder', area: 2.5, ar: 1.3, n: 'z', max: 35, chord: 1.4, load: 300 },
+    tier: 1, cost: 500, desc: 'A rudder for boats and small ships, turning 35° each way. Put it just behind a propeller: the screw\'s wash steers her even at low speed.' },
+  // ==== shArms ====
+  // ==== shKit ====
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -2638,6 +2707,9 @@ function partPath0(ctx, p) {
     case 'dframe': case 'dmotor': case 'dbox': case 'dlegs': case 'dguard': case 'dbody': case 'dcharge': case 'dspool': case 'dmissile':
       drPath(ctx, p); // (the big update's drones, at the end of this file)
       break;
+    case 'shull':
+      shullPath(ctx, p); // (the ships update's hull segments, at the end of this file)
+      break;
     default:
       ctx.rect(l, b, w, h);
   }
@@ -3385,6 +3457,9 @@ function drawPart0(ctx, p, lw) {
       break;
     case 'dframe': case 'dmotor': case 'dbox': case 'dlegs': case 'dguard': case 'dbody': case 'dcharge': case 'dspool': case 'dmissile':
       drDraw(ctx, p, lw); // (the big update's drones, at the end of this file)
+      break;
+    case 'shull':
+      shullDraw(ctx, p, lw); // (the ships update's hull segments, at the end of this file)
       break;
   }
   // heat glow
@@ -6151,4 +6226,130 @@ function drKitPlan(ctx, p, lw) {
     ctx.lineWidth = Math.max(lw, 0.025); ctx.strokeStyle = 'rgba(255,214,64,0.8)'; ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.32, 0, TAU); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-0.12, -0.15); ctx.lineTo(-0.12, 0.15); ctx.moveTo(0.12, -0.15); ctx.lineTo(0.12, 0.15); ctx.moveTo(-0.12, 0); ctx.lineTo(0.12, 0); ctx.stroke();
   }
+}
+
+// ===========================================================================
+// ==== ships: hull geometry (the ships update; shullOf, shullPts) ====
+// A hull part's def.shull (its fields: the ships update's comment in PARTS) sampled once per def into rings. The section
+// at a station is a flat deck at yd across ±bd; above the waterline wl the side runs straight from (bw, wl) to (bd, yd)
+// (flare when bd > bw, tumblehome when less); below it the bilge is the superellipse quadrant from (bw, wl) to (0, yk),
+// (z / bw)^nb + ((wl − y) / (wl − yk))^nb = 1 (nb 1: a straight V from the chine, 2 an ellipse, 4-8 a flat bottom with
+// round corners). Where the keel rises above the waterline (a stem's forefoot) the section is the straight-sided part
+// above yk only. Every section is convex. The same rings are the 2D outline (shullPath), the clash shape and the 3D loft
+// (parts3d), where shells meet the hull (armour.js, Ship.hullRay) and what floats (ship.js): 2D = 3D = hit = buoyancy.
+//
+// shullOf(def) -> { rings, nr, K, phys, x0, x1, wl, vol, fill, comp, st }:
+// - rings: one per max(0.5, w/24) m along the part (and one at every station), each { x, P (a Float32Array of K [y, z]
+//   pairs: the keel point, SHULL_NK bilge points, the waterline point and the deck edge up the port side (−z), then the
+//   same down the starboard side; counter-clockwise seen from the bow, so its area as [y, z] pairs is positive), K, A
+//   (its area to the deck), cy (its centroid's y; z is 0), girth (from the keel to one deck edge), yd, yk, bd, bw, nb };
+// - phys: the rings physics uses, clamp(round(w/4), 3, 8) of them evenly from x0 to x1, each with dx (its trapezoid share);
+// - vol: the closed volume to the deck (m³); fill: { y, v }, the volume under each of SHULL_FILL heights from the lowest
+//   keel to the highest deck (flood levels); comp: the one compartment it makes unless bulkheaded, { x0, x1, V }.
+// All in the part's own frame (its box's centre, unturned): ship.js turns them into part space (partPt) in Ship.groups.
+const SHULL_NK = 5, SHULL_K = 2 * (SHULL_NK + 2) + 1, SHULL_FILL = 16;
+const SHULL_CACHE = new Map();
+// a station table's section at x (linear between stations; the end ones past them): [yd, yk, bd, bw, nb]
+function shullSec(st, x) {
+  if (x <= st[0][0]) return st[0].slice(1);
+  for (let i = 1; i < st.length; i++) {
+    const a = st[i - 1], b = st[i];
+    if (x <= b[0]) { const t = b[0] > a[0] ? (x - a[0]) / (b[0] - a[0]) : 0; return [1, 2, 3, 4, 5].map((k) => a[k] + (b[k] - a[k]) * t); }
+  }
+  return st[st.length - 1].slice(1);
+}
+// one ring's polygon (a Float32Array of [y, z] pairs) for the section [yd, yk, bd, bw, nb] with the waterline at wl
+function shullPoly(sec, wl) {
+  const [yd, yk, bd, bw, nb] = sec, n = SHULL_NK, side = [[yk, 0]]; // (one side, keel to deck edge, as [y, half-breadth])
+  if (yk < wl) {
+    const D = wl - yk, e = 2 / Math.max(nb, 0.5);
+    for (let i = 1; i <= n; i++) { const th = (Math.PI / 2) * (1 - i / (n + 1)); side.push([wl - D * Math.pow(Math.sin(th), e), bw * Math.pow(Math.cos(th), e)]); }
+    side.push([wl, bw]);
+  } else { // the forefoot above the waterline: a flat bottom at yk, as wide as the topsides there
+    const b0 = yd > wl ? bw + ((bd - bw) * (yk - wl)) / (yd - wl) : bw;
+    for (let i = 1; i <= n + 1; i++) side.push([yk, (b0 * i) / (n + 1)]);
+  }
+  side.push([yd, bd]);
+  const P = new Float32Array(SHULL_K * 2);
+  P[0] = side[0][0]; P[1] = 0; // the keel
+  for (let i = 1; i < side.length; i++) { P[2 * i] = side[i][0]; P[2 * i + 1] = -side[i][1]; } // up the port side
+  for (let i = 1; i < side.length; i++) { const j = SHULL_K - i; P[2 * j] = side[i][0]; P[2 * j + 1] = side[i][1]; } // down the starboard side
+  return P;
+}
+// a ring's area and its centroid's y, of the part of it at or under y = ylim (Infinity: all of it)
+function shullArea(P, ylim = Infinity) {
+  const n = P.length / 2, pts = [];
+  for (let i = 0; i < n; i++) { // (clipped to y <= ylim: one Sutherland-Hodgman pass)
+    const j = (i + 1) % n, ay = P[2 * i], az = P[2 * i + 1], by = P[2 * j], bz = P[2 * j + 1], ia = ay <= ylim, ib = by <= ylim;
+    if (ia) pts.push(ay, az);
+    if (ia !== ib) pts.push(ylim, az + ((bz - az) * (ylim - ay)) / (by - ay));
+  }
+  let A = 0, cy = 0;
+  for (let i = 0, m = pts.length / 2; i < m; i++) {
+    const j = (i + 1) % m, c = pts[2 * i] * pts[2 * j + 1] - pts[2 * j] * pts[2 * i + 1];
+    A += c / 2; cy += ((pts[2 * i] + pts[2 * j]) * c) / 6;
+  }
+  return { A, cy: A ? cy / A : 0 };
+}
+function shullRing(S, x) {
+  const sec = shullSec(S.st, x), P = shullPoly(sec, S.wl), { A, cy } = shullArea(P);
+  let girth = 0;
+  for (let i = 0; i < SHULL_NK + 2; i++) girth += Math.hypot(P[2 * i + 2] - P[2 * i], P[2 * i + 3] - P[2 * i + 1]);
+  return { x, P, K: SHULL_K, A, cy, girth, yd: sec[0], yk: sec[1], bd: sec[2], bw: sec[3], nb: sec[4] };
+}
+function shullOf(def) {
+  let H = SHULL_CACHE.get(def);
+  if (H) return H;
+  const S = def.shull, st = S.st, x0 = st[0][0], x1 = st[st.length - 1][0], step = Math.max(0.5, def.w / 24), xs = [x0];
+  for (let i = 1; i < st.length; i++) {
+    const a = st[i - 1][0], b = st[i][0], n = Math.max(1, Math.ceil((b - a) / step - 1e-9));
+    for (let k = 1; k <= n; k++) xs.push(a + ((b - a) * k) / n);
+  }
+  const rings = xs.map((x) => shullRing(S, x)), np = clamp(Math.round(def.w / 4), 3, 8), phys = [];
+  for (let i = 0; i < np; i++) {
+    const r = shullRing(S, x0 + ((x1 - x0) * i) / (np - 1));
+    r.dx = ((x1 - x0) / (np - 1)) * (i === 0 || i === np - 1 ? 0.5 : 1);
+    phys.push(r);
+  }
+  const integ = (f) => { let v = 0; for (let i = 1; i < rings.length; i++) v += ((f(rings[i - 1]) + f(rings[i])) / 2) * (rings[i].x - rings[i - 1].x); return v; };
+  const vol = integ((r) => r.A);
+  let lo = Infinity, hi = -Infinity;
+  for (const r of rings) { lo = Math.min(lo, r.yk); hi = Math.max(hi, r.yd); }
+  const fy = new Float32Array(SHULL_FILL), fv = new Float32Array(SHULL_FILL);
+  for (let i = 0; i < SHULL_FILL; i++) { fy[i] = lo + ((hi - lo) * i) / (SHULL_FILL - 1); fv[i] = i === SHULL_FILL - 1 ? vol : integ((r) => Math.max(0, shullArea(r.P, fy[i]).A)); }
+  H = { rings, nr: rings.length, K: SHULL_K, phys, x0, x1, wl: S.wl, vol, fill: { y: fy, v: fv }, comp: { x0, x1, V: vol }, st };
+  SHULL_CACHE.set(def, H);
+  return H;
+}
+// A hull part's points the ground can touch (Vessel.computeHull's add(p, x, y, z), z about the part's own depth): per
+// physics ring the keel point and both deck edges, and both waterline points on the end rings
+function shullPts(p, add) {
+  const H = shullOf(p.def), n = H.phys.length;
+  for (let i = 0; i < n; i++) {
+    const r = H.phys[i], k = partPt(p, r.x, r.yk), d = partPt(p, r.x, r.yd);
+    add(p, k.x, k.y, 0); add(p, d.x, d.y, -r.bd); add(p, d.x, d.y, r.bd);
+    if (i === 0 || i === n - 1) { const w = partPt(p, r.x, H.wl), b = r.yk < H.wl ? r.bw : r.bd; add(p, w.x, w.y, -b); add(p, w.x, w.y, b); }
+  }
+}
+
+// ==== ships: hull art (shullPath, shullDraw: the 2D outline, and a plain first art the sea package replaces) ====
+// The side outline (also the clash shape, and the 3D extrusion until the hull's own loft): the keel from stern to bow,
+// up the stem, the deck back aft, down the transom
+function shullPath(ctx, p) {
+  const R = shullOf(p.def).rings, x = p.x, y = p.y;
+  ctx.moveTo(x + R[0].x, y + R[0].yk);
+  for (let i = 1; i < R.length; i++) ctx.lineTo(x + R[i].x, y + R[i].yk);
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(x + R[i].x, y + R[i].yd);
+  ctx.closePath();
+}
+// the plating (its paint, else haze grey) above a black boot-top, antifouling red below the design waterline
+function shullDraw(ctx, p, lw) {
+  const H = shullOf(p.def), d = p.def, x = p.x, y = p.y, l = x - d.w / 2, wl = y + H.wl, bt = d.shull.cls === 'S' ? 0.25 : d.shull.cls === 'M' ? 0.4 : 0.8;
+  ctx.beginPath(); shullPath(ctx, p);
+  ctx.fillStyle = PartPaint.skin ? hullGradient(ctx, l, l + d.w) : '#8a9096'; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = '#7a2a22'; ctx.fillRect(l, y - d.h, d.w, wl - (y - d.h));
+  ctx.fillStyle = '#1d2024'; ctx.fillRect(l, wl - bt / 2, d.w, bt);
+  ctx.restore();
+  ctx.beginPath(); shullPath(ctx, p); ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(8,11,16,0.9)'; ctx.stroke();
 }

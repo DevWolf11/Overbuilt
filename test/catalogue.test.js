@@ -14,7 +14,8 @@ const bad = (list, f) => list.filter((k) => !f(k));
 const show = (l) => (l.length ? l.slice(0, 6).join(', ') + (l.length > 6 ? ` (+${l.length - 6})` : '') : undefined);
 
 // ---------------------------------------------------------------- the parts
-const GV = Object.keys(PARTS).filter((k) => PARTS[k].gv);
+const GV = Object.keys(PARTS).filter((k) => PARTS[k].gv && !PARTS[k].ship); // (the ground update's own: the ships update's are gv too, checked at the end)
+const SHIPP = Object.keys(PARTS).filter((k) => PARTS[k].ship);
 const CATS = R('VEHICLE_KINDS.tank.cats'); // the Armour kind's seven tabs
 const FAMILIES = ['WWII', 'Cold War', 'Modern', 'AA', 'Drones']; // (Drones: the big update's drone bays and counter-drone kit)
 const PLACES = ['hull', 'roof', 'ring', 'side', 'inside', 'front', 'top', 'flank', 'face', 'skirt'];
@@ -24,7 +25,7 @@ const ROLES = ['driver', 'gunner', 'commander', 'loader', 'radio'];
 // real vehicles and weapons appear in code comments only: never in what a player reads
 const REAL = /\b(tiger|panther|sherman|abrams|leopard|gepard|shilka|tunguska|pantsir|hellcat|puma|bradley|marder|javelin|stinger|grad|osa|kornet|konkurs|malyutka|patriot|stug|bofors|oerlikon|flak|kwk|t-?34|t-?72|t-?80|m1a1|m4|m18|bmp|brdm|bm-?21|zsu|9k\d+|strela|igla|tow|hellfire|maverick|katyusha|chieftain|centurion|challenger)\b/i;
 
-t('81 ground parts (71, and the big update\'s 3 drone bays and 7 counter-drone parts; PARTS 257 -> 328, 337 with its nine radar parts, 382 with its 35 drone parts and those 10)', GV.length === 81 && Object.keys(PARTS).length === 382, `${GV.length} of ${Object.keys(PARTS).length}`);
+t('81 ground parts (71, and the big update\'s 3 drone bays and 7 counter-drone parts; PARTS 257 -> 328, 337 with its nine radar parts, 382 with its 35 drone parts and those 10, 389 with the ships update\'s first seven)', GV.length === 81 && Object.keys(PARTS).length === 389, `${GV.length} of ${Object.keys(PARTS).length}`);
 t('each is in one of the seven ground tabs, and every tab has parts', CATS.length === 7 && CATS.every((c) => R('PART_CATEGORIES').some((q) => q.id === c) && GV.some((k) => PARTS[k].cat === c))
   && !bad(GV, (k) => CATS.includes(PARTS[k].cat)).length, show(bad(GV, (k) => CATS.includes(PARTS[k].cat))));
 t('each has a family, a place and a known shape', !bad(GV, (k) => FAMILIES.includes(PARTS[k].family) && PLACES.includes(PARTS[k].place) && SHAPES.includes(PARTS[k].shape)).length,
@@ -299,5 +300,40 @@ t('heightAt and surfaceAt are bit for bit as before at 2,000 points outside the 
 t('...and at 500 points anywhere without the Earth map, the arena included', nowNo.nomap.join() === REF.nomap.join());
 t('fieldAt is as before round every airfield and site (with and without the map; with it, as recorded since the spawn points update levelled its pads)', now.field === REF.field && nowNo.field === REF.nomapField);
 t('...and the ground over the whole of the Scotland airfield\'s strip and blend (4,424 points), its end in the arena\'s fade included', now.wick === REF.wick, now.wick);
+
+// ---------------------------------------------------------------- the ships update's parts (its first slice: three patrol-boat hull segments, a
+// wheelhouse, a diesel, a propeller and a rudder; spec §6): gv and ship, in the Ship kind's tabs; each hull's sections
+// convex and inside its box, the joint sections of a class matching to 1 cm, its sampled volume and fill table sound
+const SH_CATS = R('VEHICLE_KINDS.ship.cats'), SH_FAM = ['Boats', 'Escorts', 'Destroyers', 'Naval'], SH_PLACES = ['keel', 'deck', 'super', 'inside', 'stern', 'bow', 'mast', 'edge'];
+t('the ships update\'s first seven parts, gv and ship, each in one of the Ship kind\'s five tabs, with a family and a place', SHIPP.join() === 'hbBowM,hbMidM,hbSternM,bridgeM,dieselM,screwM,rudderM'
+  && SHIPP.every((k) => PARTS[k].gv === true && SH_CATS.includes(PARTS[k].cat) && SH_FAM.includes(PARTS[k].family) && SH_PLACES.includes(PARTS[k].place)), SHIPP.join());
+t('...tier 0-4, a price, a mass, hit points, a size and a description; no real designation; none of the fields old code reads', !bad(SHIPP, (k) => { const d = PARTS[k];
+  return Number.isInteger(d.tier) && d.tier >= 0 && d.tier <= 4 && d.cost > 0 && d.mass > 0 && d.hp > 0 && d.w > 0 && d.h > 0 && d.depth > 0 && typeof d.desc === 'string' && d.desc.length > 20
+    && !REAL.test(d.name) && !REAL.test(d.desc) && !/\b(cyclone|perry|burke|visby|pegasus|catalina|higgins)\b/i.test(d.name + d.desc)
+    && !['twinZ', 'mount', 'crew', 'smoke', 'armor', 'radar', 'retired', 'wheel', 'pod', 'wing', 'thrust'].some((f) => f in d); }).length);
+t('...and no other part floats, nor carries a ship field', Object.keys(PARTS).filter((k) => !PARTS[k].ship).every((k) => !['hull', 'shull', 'screw', 'jet', 'foil', 'steer', 'ciws', 'bulkhead'].some((f) => f in PARTS[k])));
+const SHULL = SHIPP.filter((k) => PARTS[k].shull);
+t('the hulls: hull: true with a shull (stations stern to bow across the part, a class, a waterline, their ends), and only they', SHULL.join() === 'hbBowM,hbMidM,hbSternM' && SHIPP.every((k) => !!PARTS[k].hull === !!PARTS[k].shull)
+  && SHULL.every((k) => { const d = PARTS[k], S = d.shull, st = S.st;
+    return ['S', 'M', 'L', 'X', 'one'].includes(S.cls) && fin(S.wl) && Math.abs(st[0][0] + d.w / 2) < 1e-9 && Math.abs(st[st.length - 1][0] - d.w / 2) < 1e-9 && st.every((r, i) => r.length === 6 && r.every(fin) && (i === 0 || r[0] > st[i - 1][0]))
+      && ['joint', 'closed', 'ramp'].includes(S.ends.aft) && ['joint', 'closed', 'ramp'].includes(S.ends.fore); }));
+const ringsBad = R(`(() => { const out = [];
+  for (const k of ${JSON.stringify(SHULL)}) { const d = PARTS[k], H = shullOf(d);
+    for (const r of H.rings.concat(H.phys)) { const P = r.P, n = r.K;
+      let turn = 0; for (let i = 0; i < n; i++) { const a = i, b = (i + 1) % n, c = (i + 2) % n, cr = (P[2 * b] - P[2 * a]) * (P[2 * c + 1] - P[2 * b + 1]) - (P[2 * b + 1] - P[2 * a + 1]) * (P[2 * c] - P[2 * b]); if (cr < -1e-6) turn++; }
+      let inside = true; for (let i = 0; i < n; i++) if (Math.abs(P[2 * i]) > d.h / 2 + 1e-4 || Math.abs(P[2 * i + 1]) > d.depth / 2 + 1e-4) inside = false;
+      if (turn || !inside || !(r.A > 0) || n !== 15 || Math.abs(r.x) > d.w / 2 + 1e-9) out.push(k + '@' + r.x.toFixed(2)); } }
+  return out; })()`);
+t('every ring of every hull (15 points: the keel, five bilge points, the waterline and the deck edge each side) is convex, counter-clockwise and inside the part\'s box', !ringsBad.length, show(ringsBad));
+const joints = R(`(() => { const out = {}; // (each class's joint sections, keel-relative: [height to the deck, bd, bw, waterline above the keel, nb])
+  for (const k of ${JSON.stringify(SHULL)}) { const S = PARTS[k].shull, H = shullOf(PARTS[k]);
+    for (const [end, r] of [['aft', H.rings[0]], ['fore', H.rings[H.nr - 1]]]) if (S.ends[end] === 'joint') (out[S.cls] = out[S.cls] || []).push([k + ' ' + end, [r.yd - r.yk, r.bd, r.bw, S.wl - r.yk, r.nb]]); }
+  return out; })()`);
+const offJoint = Object.values(joints).flatMap((L) => L.filter(([, s]) => s.some((x, i) => Math.abs(x - L[0][1][i]) > 0.01)).map(([k]) => k));
+t('the joint sections of each class match to 1 cm (a bow\'s aft end, a midsection\'s two ends, a stern\'s fore end: deck, beam, waterline and bilge alike)', !offJoint.length && joints.M.length === 4, show(offJoint) || JSON.stringify(joints));
+t('volumes: a midsection\'s closed volume is its section\'s area × its length (within 0.1 %), the fill table rising from 0 at the keel to it at the deck, the physics rings spanning the part', R(`(() => {
+  const H = shullOf(PARTS.hbMidM), A = H.rings[0].A;
+  return Math.abs(H.vol - A * PARTS.hbMidM.w) < 1e-3 * H.vol && H.fill.v[0] === 0 && Math.abs(H.fill.v[15] - H.vol) < 1e-4 * H.vol && Array.from(H.fill.v).every((x, i, a) => i === 0 || x >= a[i - 1])
+    && ['hbBowM', 'hbMidM', 'hbSternM'].every((k) => { const P = shullOf(PARTS[k]).phys, w = PARTS[k].w; return P.length >= 3 && P.length <= 8 && P[0].x === -w / 2 && P[P.length - 1].x === w / 2 && Math.abs(P.reduce((s, r) => s + r.dx, 0) - w) < 1e-9; }); })()`));
 
 t.done();

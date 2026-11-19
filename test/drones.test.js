@@ -51,8 +51,8 @@ const KIT = ['dockRack', 'dockHangar', 'dockTubes', 'cdJam', 'cdJamL', 'cdDetect
 const bad = (list, f) => list.filter((k) => !f(k));
 t('35 drone parts in the four tabs (13 frames, 9 motors and power, 7 links and sensors, 6 payloads)', DR.length === 35 && TABS.map((c) => DR.filter((k) => PARTS[k].cat === c).length).join() === '13,9,7,6',
   TABS.map((c) => DR.filter((k) => PARTS[k].cat === c).length).join());
-t('the Drone kind: the helipad, rot 0, its four tabs in order, and its categories after Kit and before Radar', R(`(() => { const K = VEHICLE_KINDS.drone, ids = PART_CATEGORIES.map((c) => c.id);
-  return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0 && K.cats.join() === 'drFrame,drPower,drLink,drPay' && ids.slice(21, 25).join() === K.cats.join() && ids[25] === 'radar'
+t('the Drone kind: the helipad, rot 0, its four tabs in order, and its categories after Kit (Radar still last)', R(`(() => { const K = VEHICLE_KINDS.drone, ids = PART_CATEGORIES.map((c) => c.id);
+  return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0 && K.cats.join() === 'drFrame,drPower,drLink,drPay' && ids.slice(21, 25).join() === K.cats.join() && ids[ids.length - 1] === 'radar'
     && PART_CATEGORIES.slice(21, 25).map((c) => c.name).join('|') === 'Frames|Motors & power|Links & sensors|Payloads'; })()`));
 t('each has a mass, a price, a tier 1-4, a size, a drag area (wings excepted), hit points, maxTemp 1500 and a description', !bad(DR, (k) => { const d = PARTS[k];
   return d.mass > 0 && d.cost > 0 && Number.isInteger(d.tier) && d.tier >= 1 && d.tier <= 4 && d.w > 0 && d.h > 0 && R(`partDepth({ def: PARTS.${k} })`) > 0 && (d.wing ? true : d.cda > 0)
@@ -104,9 +104,9 @@ t('names and descriptions use no real product or system name', !bad([...DR, ...K
 {
   const tk = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'drone' || ['bmk2d', 'ma1c'].includes(k));
   t(`...nor do the drone templates' names and blurbs (${tk.length}: the five drones, the BMK-2D Nest and the MA-1C Abrahm)`, tk.length === 7 && tk.every((k) => !REAL_DRONE.test(ctx.TEMPLATES[k].name) && ctx.TEMPLATES[k].blurb.length >= 40 && !REAL_DRONE.test(ctx.TEMPLATES[k].blurb)));
-  t('the drone templates: after the jets and before the Armour, none military, career tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
+  t('the drone templates: after the jets and before the Armour (the two tanks last of the ground block, before the ships update\'s ships), none military, career tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
     const K = Object.keys(TEMPLATES), d = K.filter((k) => TEMPLATES[k].kind === 'drone');
-    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.slice(-2).join() === 'bmk2d,ma1c'
+    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.filter((k) => TEMPLATES[k].kind !== 'ship').slice(-2).join() === 'bmk2d,ma1c'
       && ${JSON.stringify(tk)}.every((k) => { const T = TEMPLATES[k]; return !T.military && T.tier === Math.max(...T.parts.map((r) => PARTS[r[0]].tier || 0)) && (T.kind === 'drone') === !T.dw
         && Object.keys(T.paint || {}).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); }); })()`));
 }
