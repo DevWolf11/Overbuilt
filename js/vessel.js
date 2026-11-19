@@ -7,6 +7,13 @@
 // velocity in sim axes. Positions and velocities are relative to the body's centre.
 
 const DEFAULT_BREAK_SPEED = 9;
+// (into the sea: fast skims break up) an aircraft's part meeting the water breaks when it goes fast (v m/s or more, past
+// any ditching speed) and into it at all (s m/s or more), or at 60 m/s or more with its speed into the water times its
+// whole speed at k m²/s² or more (the slam of the water on it: a fighter skimming in at 200 m/s and 5°, about 3,400; a
+// ditching, a Mustang at 70 m/s sinking 10 m/s or a Jumbo at 80 sinking 12, 750-1,000): at that speed water is concrete,
+// and nothing skips on across it like a stone. Floats skim as ever
+const WATER_SLAM = { v: 100, s: 2, k: 1200 };
+const waterSlam = (s, sp) => (sp >= WATER_SLAM.v && s >= WATER_SLAM.s) || (sp >= 60 && s * sp >= WATER_SLAM.k);
 const hasCombat = () => typeof Combat !== 'undefined'; // (the physics also runs without weapons, in tests)
 const ROUND3D = new Set(['pod', 'probe', 'probeL', 'tank', 'fuselage', 'srb', 'sep', 'nose', 'adapter', 'tailcone', 'engine', 'spike', 'ion', 'shield', 'chute', 'jet', 'cockpit', 'rotor', 'prop',
   'jetnose', 'airnose', 'float', 'droptank', 'tcast', 'tring']);
@@ -1516,6 +1523,7 @@ class Vessel {
       this.pointVel(k.r, vp);
       const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : k.bed ? SHIP.BED_CRASH : 1), s = -dot3(vp, k.n);
       if (k.side || s > lim * (hasCombat() ? 1.6 : 1)) broken.add(k.p);
+      else if (k.water && !k.float && s > 0 && isAirKind(this.kind) && waterSlam(s, len3(vp))) broken.add(k.p); // (into the sea fast: no skipping on like a stone. Only vessel.js's: gear.js's copy is for ground vehicles)
       else if (hasCombat() && s > lim * 0.75) dents.set(k.p, Math.max(dents.get(k.p) || 0, s / lim));
       // a spinning propeller or rotor that touches the ground shatters
       const air = k.p.def.air;

@@ -1641,6 +1641,7 @@ const MP = {
       const D = typeof Death !== 'undefined' ? Death : null, vel = { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 };
       if (hulk && D) D.deathFX(g, Flight, m.x === 1 ? 'ammo' : 'ko', undefined, at); // (the death its owner saw: a detonation, or a knock-out's fire)
       else if (D && isAirKind(kind) && !g.hiddenUntilSnap && (g.groundAltitude() < 30 || this.aglAt(g.body, at) < 30)) this.crashAt(g, at); // (it crashed: the fireball its owner saw, and the crash site)
+      else if (D && D.seaDown && isGround(kind) && !hulk && !g.hiddenUntilSnap && D.seaDown(g, Flight, at)) { /* (sea crash fix: a ground vehicle that went under on its owner's screen goes under here too: render3d draws its ghost sinking) */ }
       else {
         FX.explosion(g.body, at, vel, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01); // (mid-air, never seen, or no damage model: as ever)
         if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
@@ -1699,6 +1700,7 @@ const MP = {
     const L = Terrain.locate(g.body, at.x, at.y, at.z, {}), wet = !!Terrain.waterAt(g.body, L.a, L.z);
     const k = Death.deathFX(g, Flight, 'crash', undefined, at, { water: wet });
     if (k >= 2.5) Death.pyre(g.body, at, k, wet, Flight);
+    if (wet && Death.sea) Death.sea(g, Flight, L, at); // (sea crash fix: in the water it goes under here as on its owner's screen, ploughing in when fast: render3d draws the ghost going down)
   },
   // A peer's aircraft shot down in the air (its down's fall): on our screen it becomes a hulk of our own physics (P's
   // ghost no more: never locked, tagged, spotted or hit, no score; foreign: hits never look in it, only a picture), with
