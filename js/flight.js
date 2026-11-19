@@ -354,7 +354,8 @@ const Flight = {
   // TEL_REPEAT s), set at once by Z (Flank), X (Stop) and the touch lever; the rudder is the stick, v.ctl.h (−1 port …
   // +1 starboard, readControls as a car's steering); v.sas 'hold' (the helm holds her heading when the rudder is let go)
   // or 'manual' (hand steering). Ship.pre (ship.js core) turns ctl.h and sas into the rudder (sh.rud, sh.hold) and the
-  // telegraph into her engines' demand. A ship with no hull aboard (no v.sh) has no helm: nothing to ring.
+  // telegraph into her engines' demand; for a ship readControls keeps ctl.v at 0, so its own stepping of the telegraph
+  // from ctl.v (for a craft driven that way) never rings a second step. A ship with no hull aboard (no v.sh) has no helm.
   helmOf(v) { return !!v && v.kind === 'ship' && !!v.sh && !v.dead ? v.sh : null; },
   // (a key's press rings its step at once, shipKey, however short the tap; held, readControls rings on: helmKeys)
   helmKeys(v, dir, dt) {
@@ -917,8 +918,8 @@ const Flight = {
 
   canRecover() {
     const v = this.active;
-    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
-      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies)
+    return !this.mp && !GroundAI.battle && v && v.parts.length && !v.dead && (v.landed || v.splashed || (v.hydro && v.afloat && isSea(v.kind))) && v.body === EARTH && v.speed() < 1.2 && this.time > 3 // (a Practice Battle's vehicles are free: nothing to recover)
+      && !v.carrier && !(v.drone && !v.drone.dead); // (the big update: not a drone from a bay, nor its tank while it flies; the ships update: a ship stopped afloat)
   },
 
   recover() {
@@ -1109,7 +1110,7 @@ const Flight = {
       ${this.mp ? '' : `<div>${f('warpDown', 'warpUp')}<span>Time warp down / up</span></div>`}
       <div>${f('prevCraft', 'nextCraft')}<span>${this.mp ? 'After you are sunk: watch another player' : 'Switch between your vessels'}</span></div>
       <div><kbd>Esc</kbd>${K('menu')}<span>Menu (Esc also lets the mouse go)</span></div>
-      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : ''}
+      ${this.mp ? `<div>${f('chat', 'score')}<span>Chat · scoreboard (hold)</span></div>` : `<div>${K('recover')}<span>Recover (stopped, afloat or aground)</span></div>`}
       ${T ? '' : touch}
     </div>${T ? '</details>' : ''}`;
   },
@@ -1251,7 +1252,7 @@ const Flight = {
     const v = this.active;
     if (!v) return;
     const st = this.stick, sv = this.flyAim ? 0 : st.v, sh = this.flyAim ? 0 : st.h;
-    v.ctl.v = clamp(key('fwd') - key('back') + (v.kind === 'ship' ? 0 : sv), -1, 1); // (a ship's stick is her rudder alone: the lever is her telegraph)
+    v.ctl.v = v.kind === 'ship' ? 0 : clamp(key('fwd') - key('back') + sv, -1, 1); // (a ship: W/S ring her telegraph here, shipKey and helmKeys, so Ship.pre's own stepping from ctl.v never doubles them; her stick is her rudder alone)
     v.ctl.h = clamp(key('right') - key('left') + sh, -1, 1);
     v.ctl.r = clamp(key('rollR') - key('rollL') + st.r, -1, 1);
     if (Silly.on('drunk')) { // the stick wanders off on its own, in waves

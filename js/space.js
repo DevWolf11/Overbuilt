@@ -194,7 +194,7 @@ EARTH.spawns = [
   { id: 'carrierW', name: 'Off Carrier West', region: 'Faroes', kinds: ['ship'], sea: { e: -7000, z: 2200, yaw: 0, side: -1 }, blurb: 'Abeam of the western carrier, 300 m off' },
   { id: 'shetlandHbr', name: 'Off Shetland harbour', region: 'Shetland', kinds: ['ship'], sea: { e: 17420, z: 150, yaw: Math.PI }, blurb: 'Off the port town, bow out to sea' },
   { id: 'carrierE', name: 'Off Carrier East', region: 'Shetland', kinds: ['ship'], sea: { e: 24000, z: 1800, yaw: Math.PI, side: -1 }, blurb: 'Abeam of the eastern carrier, 300 m off' },
-  { id: 'caithness', name: 'Off Caithness', region: 'Scotland', kinds: ['ship'], sea: { e: 17700, z: 11000, yaw: Math.PI / 2 }, blurb: 'Off the north coast of Scotland, heading north' },
+  { id: 'caithness', name: 'Off Caithness', region: 'Scotland', kinds: ['ship'], sea: { e: 17700, z: 11000, yaw: Math.PI }, blurb: 'Off the north coast of Scotland, heading west' }, // (bow to the swell: beam-on she rolled 9° in her first seconds)
   { id: 'carrierS', name: 'Off Carrier South', region: 'Scotland', kinds: ['ship'], sea: { e: 22269, z: 13691, yaw: Math.PI * 0.72, side: -1 }, blurb: 'Abeam of the southern carrier, 300 m off' },
 ];
 

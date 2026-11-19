@@ -925,7 +925,7 @@ const Ship = (() => {
   // (a key of what it shows), from Flight.updateHUD's tick (12 a second) and at once when the telegraph is rung.
   // The helm's state it reads (ship.js core's, Flight's inputs): sh.tel (-3..4), sh.rud (the commanded rudder, ° to
   // starboard), each rudder part's p.rud (its angle now, °; none yet: the command), v.sas ('hold' | 'manual') and sh.hold
-  // (the heading held, rad, in v.heading()'s frame; null: none caught yet).
+  // (the heading held, rad clockwise from game north as Ship.heading; null: none caught yet).
   const HUD = { el: null, key: '', RUD: 35 };
   function hudEl() {
     if (HUD.el || typeof document === 'undefined') return HUD.el;
@@ -942,7 +942,8 @@ const Ship = (() => {
     HUD.fill = box.querySelector('.sh-fill'); HUD.cmd = box.querySelector('.sh-cmd'); HUD.ang = box.querySelector('.sh-ang');
     return box;
   }
-  // a heading (rad, v.heading()'s frame) as the compass reads it (Flight.compass's rule: real north on the real Earth)
+  // a heading (rad clockwise from game north, Ship.heading's) as the compass reads it (Flight.compass's rule: real north on
+  // the real Earth: its game east and north shares, sin and cos)
   function bearing(v, h) {
     if (v.body !== EARTH || !EARTH.mapped) return ((((h * 180) / Math.PI) % 360) + 360) % 360;
     return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
