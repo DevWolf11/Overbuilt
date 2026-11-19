@@ -887,9 +887,9 @@ function spawnMapGrid(ctx, W, H, M, dpr, cell) {
 }
 
 // ------------------------------------------------------------------ the sandbox's spawn points (the spawn points update)
-// Where a solo flight in Sandbox starts (and a craft in a multiplayer sandbox room): EARTH.spawns, a few for each kind of
-// craft on the Faroes, Shetland and in Scotland, picked in the hangar (the Start button beside Launch) and remembered per
-// kind (rss.spawn). Nothing chosen (or Career) starts as ever: the kind's own site, Armour on Highland Ridge's north pad.
+// Where a solo flight starts (and a craft in a multiplayer sandbox room): EARTH.spawns, a few for each kind of craft on
+// the Faroes, Shetland and in Scotland, picked in the hangar (the Start button beside Launch) and remembered per kind
+// (rss.spawn). Nothing chosen starts as ever: the kind's own site, Armour on Highland Ridge's north pad.
 // A spot off its kind's own site needs the real Earth map and the 3D view; without them the flight starts as ever.
 const Spawns = {
   KEY: 'rss.spawn',
@@ -917,10 +917,10 @@ const Spawns = {
     store.set(this.KEY, o);
     return true;
   },
-  // where the picker is offered: a solo flight in Sandbox, or a multiplayer sandbox room (a battle has its own)
+  // where the picker is offered: a solo flight (always sandbox), or a multiplayer sandbox room (a battle has its own)
   offered() {
     const live = typeof MP !== 'undefined' && MP.live;
-    return live ? !MP.pvp && !MP.ground : !!(Career.data && Career.sandbox);
+    return live ? !MP.pvp && !MP.ground : true;
   },
   // the real map in and the 3D view: what every spot off its kind's own site needs
   ready() { return !!(Terrain.earthMap && Terrain.earthMap.state === 'ready' && EARTH.mapped && App.use3D()); },

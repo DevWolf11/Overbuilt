@@ -2,7 +2,7 @@
 // their props in props.js). The list: every kind's spots by region as the owner asked (Armour four on the Faroes, two in
 // Scotland, two on Shetland; drones beside the tanks in each region and the helipad; planes, helicopters and rockets on
 // Shetland and in Scotland too), one default per kind, today's start. Each spot dry, flat and clear of every prop; each
-// drone pad within 150 m of a tank spot. Spawns.solo: nothing chosen (or Career) starts exactly as before, a stored
+// drone pad within 150 m of a tank spot. Spawns.solo: nothing chosen (or a battle room) starts exactly as before, a stored
 // choice starts there, forged choices are ignored, no map falls back. A room's next players stand apart on the pad.
 // Then physics: each kind's stock craft started at each of its spots and stepped 5 s (as the game steps a flight) stays
 // put, upright, whole and on its ground; the air starts fly. No prop of the new maps on its pad's spots, the track, an
@@ -14,7 +14,7 @@ const ctx = G.load({ combat: true, ground: true, props: true, flight: true }), R
 // Spawns from mpui.js and airfieldPlacement from mp.js, over stand-ins for the page (the map in, the 3D view on)
 const src = (f) => fs.readFileSync(path.join(G.ROOT, 'js', f), 'utf8');
 R(`var __ls = new Map(); var localStorage = { getItem: (k) => (__ls.has(k) ? __ls.get(k) : null), setItem: (k, v) => __ls.set(k, String(v)), removeItem: (k) => __ls.delete(k) };
-var Career = { data: { mode: 'sandbox' }, sandbox: true }; var App = { use3D: () => !App.flat, flat: false, afterEarth(f) { f(); } };
+var App = { use3D: () => !App.flat, flat: false, afterEarth(f) { f(); } };
 var $ = () => null;`);
 R(src('mp.js').match(/function airfieldPlacement\(af, slot, kind\) \{[\s\S]*?\n\}/)[0]);
 R(src('mpui.js').match(/const Spawns = \{[\s\S]*?\n\};/)[0] + '\nthis.Spawns = Spawns;');
@@ -83,8 +83,8 @@ t('nothing chosen: every kind starts exactly where it did (Armour on Highland Ri
 R(`Spawns.choose('tank', 'watten'); Spawns.choose('drone', 'wattenDrone'); Spawns.choose('rocket', 'lunna'); Spawns.choose('plane', 'airHighland');`);
 t('a choice is remembered per kind (rss.spawn) and the flight starts there', R(`Spawns.solo('tank').sp.id === 'watten' && Spawns.solo('tank').place.spot === 'watten' && Spawns.solo('drone').place.spot === 'wattenDrone' && Spawns.solo('rocket').place.spot === 'lunna' && Spawns.solo('plane').place.air.alt === 1000
   && JSON.parse(localStorage.getItem('rss.spawn')).tank === 'watten' && soloOf('car') === oldStart('car') && soloOf('heli') === oldStart('heli')`));
-t('...a spot chosen that is its kind\'s default starts as ever, and Career ignores the choice', R(`(() => { Spawns.choose('rocket', 'pad'); const a = soloOf('rocket') === oldStart('rocket'); Spawns.choose('rocket', 'lunna');
-  Career.sandbox = false; const b = ${J(KINDS)}.every((k) => soloOf(k) === oldStart(k)); Career.sandbox = true; return a && b; })()`));
+t('...a spot chosen that is its kind\'s default starts as ever; solo play always offers the choice (every flight is sandbox), a battle room ignores it', R(`(() => { Spawns.choose('rocket', 'pad'); const a = soloOf('rocket') === oldStart('rocket'); Spawns.choose('rocket', 'lunna');
+  const solo = Spawns.offered(); this.MP = { live: true, pvp: true, ground: false }; const b = !Spawns.offered() && ${J(KINDS)}.every((k) => soloOf(k) === oldStart(k)); delete this.MP; return a && b && solo; })()`));
 t('forged or stale choices are ignored: another kind\'s spot, unknown ids, __proto__, numbers, an array, junk', R(`(() => { const ok = [];
   for (const raw of ['{"tank":"lunna"}', '{"tank":"nowhere"}', '{"__proto__":"yard","tank":"__proto__"}', '{"tank":7}', '["watten"]', 'junk', '{"tank":{"id":"watten"}}']) {
     localStorage.setItem('rss.spawn', raw); ok.push(soloOf('tank') === oldStart('tank') && Spawns.choose('car', 'nowhere') === false && Spawns.choose('rocket', 'yard') === false); }

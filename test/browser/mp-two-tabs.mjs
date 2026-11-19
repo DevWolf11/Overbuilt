@@ -27,7 +27,6 @@ await openGame(A, srv.url);
 const B = await mk('B');
 await B.goto(srv.url + 'index.html');
 await B.waitForTimeout(300);
-if (await B.isVisible('[data-mode="sandbox"]')) await B.click('[data-mode="sandbox"]');
 for (const p of [A, B]) await p.evaluate(() => { Render3D.skipDraw = true; });
 log('NET_VERSION', await A.evaluate(() => NET_VERSION));
 await A.click('#home-mp');
@@ -163,7 +162,6 @@ await B.evaluate((n) => Net.send({ t: 'fallen', r: 0, L: [[2, Props.areas().find
 const C = await mk('C');
 await C.goto(srv.url + 'index.html');
 await C.waitForTimeout(300);
-if (await C.isVisible('[data-mode="sandbox"]')) await C.click('[data-mode="sandbox"]');
 await C.evaluate(() => { Render3D.skipDraw = true; });
 await C.click('#home-mp');
 await C.fill('#mp-name', 'Cy'); await C.dispatchEvent('#mp-name', 'change');

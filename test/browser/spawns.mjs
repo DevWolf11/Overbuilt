@@ -29,7 +29,7 @@ const bar = () => {
   return { bad: out, start: s ? { id: s.id, w: Math.round(sr.width), text: s.textContent, label: s.getAttribute('aria-label') } : null };
 };
 
-// ---- the button in every size (and none in Career)
+// ---- the button in every size (and with an old career save, which is ignored now: every solo flight is sandbox)
 for (const [w, h] of [[360, 640], [390, 844], [641, 900], [861, 700], [1000, 800], [1280, 720], [1920, 1080]]) {
   const ctx = await b.newContext({ viewport: { width: w, height: h }, ...(w < 500 ? { hasTouch: true, isMobile: true } : {}) });
   const page = await ctx.newPage();
@@ -45,14 +45,15 @@ for (const [w, h] of [[360, 640], [390, 844], [641, 900], [861, 700], [1000, 800
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await ctx.newPage();
-  watch(page, errs, 'career ');
+  watch(page, errs, 'old career save ');
   await page.goto(srv.url + 'index.html');
-  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('rss.seenHelp', 'true'); localStorage.setItem('rss.settings', JSON.stringify({ hints: false, targets: 'off', quality: 'low' })); });
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('rss.seenHelp', 'true'); localStorage.setItem('rss.settings', JSON.stringify({ hints: false, targets: 'off', quality: 'low' }));
+    localStorage.setItem('rss.career', JSON.stringify({ mode: 'career', funds: 50000, tier: 0, done: {}, flights: 0 })); });
   await page.reload(); await page.waitForTimeout(400);
-  if (await page.isVisible('[data-mode="career"]')) await page.click('[data-mode="career"]');
   await page.waitForFunction(mapIn, null, { timeout: 180000 });
-  const hid = await page.evaluate(() => { App.toBuild(); return !Career.sandbox && document.querySelector('#btn-start').hidden; });
-  ok('Career: no Start button (every craft starts where it always has)', hid);
+  const r = await page.evaluate(() => { const home = !$('#home-main').hidden && !document.querySelector('[data-mode]'); App.toBuild();
+    return { home, start: !document.querySelector('#btn-start').hidden, kept: localStorage.getItem('rss.career') !== null }; });
+  ok('an old career save: Home shows its buttons (no mode to pick), the hangar has the Start button (sandbox), and the save is left alone', r.home && r.start && r.kept, r);
   await ctx.close();
 }
 
@@ -89,7 +90,6 @@ for (const [w, h, tag] of [[1280, 720, '1280x720'], [390, 844, '390x844']]) {
   ok(`${tag}: Revert starts there again`, Math.hypot(at2.e - W.e, at2.z - W.z) < 3, at2);
   // a reload: still remembered; a rocket keeps its own (the pad)
   await page.reload(); await page.waitForTimeout(400);
-  if (await page.isVisible('[data-mode="sandbox"]')) await page.click('[data-mode="sandbox"]');
   await page.waitForFunction(mapIn, null, { timeout: 180000 });
   const again = await ev(() => { App.toBuild(); Builder.loadTemplate('tk34'); const a = document.querySelector('#btn-start').getAttribute('aria-label'); Builder.loadTemplate('pathfinder'); Builder.changed(true); return { tank: a, rocket: document.querySelector('#btn-start').getAttribute('aria-label') }; });
   ok(`${tag}: after a reload Armour still starts at Watten; a rocket at the launch pad`, /Watten/.test(again.tank) && /Launch pad/.test(again.rocket), again);

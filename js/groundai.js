@@ -728,8 +728,8 @@ const GroundAI = (() => {
   }
 
   // ---------------------------------------------------------------- knocked out (Combat.aiDown) and back again
-  // (kit: a drone the player's automatic counter-drone kit brought down: on the range's tally, but the career's award
-  // wants three of the player's own, never won with no hand on the controls; P4-AI-4)
+  // (kit: a drone the player's automatic counter-drone kit brought down: on the range's tally, but the Tank Range
+  // milestone wants three of the player's own, never won with no hand on the controls; P4-AI-4)
   function score(F, v, kit) {
     const R0 = S.range, A = F.active, d = A ? len(A.x - v.x, A.y - v.y, A.z - v.z) : 0;
     if (!R0) return;
@@ -932,12 +932,11 @@ const GroundAI = (() => {
     return { design: { name: T.name, kind: T.kind, key, parts: T.rows.map((q) => ({ ...q })) }, why: d && isGround(d.kind) ? `Your ${d.name || 'design'} costs more than ${money$(money)}` : 'Practice battles are for Armour and cars' };
   }
   const money$ = (n) => (typeof money === 'function' ? money(n) : '$' + Math.round(n).toLocaleString('en-US'));
-  // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks; a practice launch is free
+  // start (or come back in) the player's vehicle at its pad, keeping the AI and the wrecks
   function launch(F, design, place, fresh) {
     const keep = fresh || !F.vessels ? [] : F.vessels.filter((o) => !o.dead && ((o.ai && (o.ai.ground || o.ai.drone)) || o.wreck || o.tossed || o === S.fall)); // (and the AI's drones) // (thrown turrets too: they lie by their wrecks; the last hulk still falling, a wreck once it lands)
     F.start(design, { place, keep, time: fresh ? undefined : F.time }); // (the clock runs on: the battle's timers keep it)
     if (typeof store !== 'undefined') store.set('rss.flight', null); // (Flight.start saved it: a lent vehicle in a battle that can't be saved is never resumed)
-    if (typeof Career !== 'undefined' && F.launchCost) { Career.earn(F.launchCost); F.launchCost = 0; }
     Combat.S.gai = 1; // (Combat.reset cleared it)
     S.b.cost = designCost(F.active.parts); S.b.kind = F.active.kind; S.b.design = design;
     F.active.spawnAt = F.time || 0; // (4 s of spawn protection, as in a room)

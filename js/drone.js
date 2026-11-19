@@ -399,12 +399,12 @@ const Drone = (() => {
     const sys = typeof Combat !== 'undefined' ? Combat.systems(v)[v.wsel] : null, t = sys && sys.w.kind === 'bomb' ? -1.2217 : c.tilt || 0;
     return v.axis(Math.cos(t), Math.sin(t), 0, out);
   }
-  // (the drones' balance) Is a bay's price cap off? In sandbox play (Career.sandbox) and in a sandbox room a bay takes a
-  // drone of any price; career, battles and the rooms' battles keep the cap (F: a flight, for its room's mode)
+  // (the drones' balance) Is a bay's price cap off? In solo play (every flight is sandbox) and in a sandbox room a bay
+  // takes a drone of any price; the rooms' battles keep the cap (F: a flight, for its room's mode)
   function freeBays(F) {
     if (typeof MP !== 'undefined' && MP.live && MP.state) return MP.state.mode === 'sandbox';
     if (F && F.mp) return F.mp.mode === 'sandbox';
-    return typeof Career !== 'undefined' && !!Career.sandbox;
+    return true;
   }
   // Does a design fit a bay (def.dock)? { ok, why } with the picker's words. A design object ({ kind, parts }) must be a
   // drone; rows or parts are taken as one. free: no price cap (freeBays): its weight, width, parts and kind still count.

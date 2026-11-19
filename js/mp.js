@@ -187,7 +187,7 @@ const MP = {
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
     if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
-    this.pushCareer();
+    this.borrow();
     if (!this.bound) this.bind();
     clearInterval(this.tickTimer);
     this.tickTimer = setInterval(() => this.tick(), 250); // keeps running in a background tab
@@ -205,25 +205,25 @@ const MP = {
     this.extra.clear(); this.mainDown = false;
     this.state = null;
     Builder.mp = null;
-    this.popCareer();
+    this.giveBack();
     if (App.scene === 'flight') { Flight.stop(); Flight.mp = null; }
     UI.closeModal();
     MPUI.hide();
     App.toHome();
     if (reason) UI.toast(reason, 'warn');
   },
-  // Builds in a match use their own money and never touch the player's career or saved blueprint.
-  pushCareer() {
-    if (this.savedCareer) return;
-    this.savedCareer = { data: Career.data, save: Career.save, design: store.get('rss.design', null) };
-    Career.data = { mode: 'sandbox', funds: 0, tier: TIERS.length - 1, done: {}, flights: 0 };
-    Career.save = () => {};
+  // A room borrows the builder: builds in a match use the battle's money (Budget, util.js: none until a budget is set)
+  // and never touch the player's saved blueprint (borrowed holds it, and Builder.save holds off while it is set).
+  borrow() {
+    if (this.borrowed) return;
+    this.borrowed = { design: store.get('rss.design', null) };
+    Budget.funds = null;
   },
-  popCareer() {
-    const s = this.savedCareer;
+  giveBack() {
+    const s = this.borrowed;
     if (!s) return;
-    Career.data = s.data; Career.save = s.save;
-    this.savedCareer = null;
+    Budget.funds = null;
+    this.borrowed = null;
     store.set('rss.design', s.design);
     Builder.savedAs = null;
     if (s.design && s.design.parts && s.design.parts.length) {
@@ -233,10 +233,10 @@ const MP = {
     } else Builder.loadTemplate('hopper');
     Builder.buildPalette();
   },
+  // the builder's money in a match: the budget for the chosen spawn, or none (null: a sandbox room)
   setMoney(budget) {
-    if (!this.savedCareer) return;
-    Career.data = budget == null ? { mode: 'sandbox', funds: 0, tier: TIERS.length - 1, done: {}, flights: 0 }
-      : { mode: 'career', funds: budget, tier: TIERS.length - 1, done: {}, flights: 0 };
+    if (!this.borrowed) return;
+    Budget.funds = budget == null ? null : budget;
   },
 
   // Keep the screen on while in a room: a sleeping phone can't let friends in, and drops out of the room.

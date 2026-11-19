@@ -679,7 +679,7 @@ const Builder = {
   serialize() { const d = { name: this.name, kind: this.kind, parts: designRows(this.parts) }; if (this.droneChoice && this.parts.some((p) => p.def.dock)) d.drone = this.droneChoice; return d; },
   // the bays' drone a design names, cleaned (Drone.cleanChoice), when it has a bay aboard; else null
   choiceIn(d, ps) { return d && d.drone && typeof Drone !== 'undefined' && (ps || partsFromDesign(d.parts)).some((p) => p.def.dock) ? Drone.cleanChoice(d.drone) : null; },
-  save() { if (typeof MP !== 'undefined' && MP.savedCareer) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
+  save() { if (typeof MP !== 'undefined' && MP.borrowed) return; store.set('rss.design', { ...this.serialize(), savedAs: this.savedAs || null }); }, // (not while a match borrows the builder)
   loadDesign(d, keepHistory) {
     this.parts = partsFromDesign(d.parts);
     this.droneChoice = d.drone && typeof Drone !== 'undefined' ? Drone.cleanChoice(d.drone) : null;
@@ -765,10 +765,9 @@ const Builder = {
     }
     this.col = la ? { x: lx / la, y: ly / la } : null;
     const vStall = (cl) => (cl > 0 ? Math.sqrt((2 * mass * G0) / (1.225 * cl)) : 0);
-    const locked = this.parts.filter((p) => !Career.unlocked(p.def));
     this.statsData = {
       mass, thrust, twr: thrust / (mass * EARTH.surfaceG || 1), dv: dv.total, perStage: dv.perStage, stageTwr: dv.twr,
-      loose: this.parts.length - ps.length, cost: designCost(ps), locked, fuel: ps.reduce((f, p) => f + p.fuel, 0),
+      loose: this.parts.length - ps.length, cost: designCost(ps), fuel: ps.reduce((f, p) => f + p.fuel, 0),
       air: { stall: vStall(clS), stallFlaps: vStall(clF), wingArea, length: this.length(ps), ...(() => { const w = wingStrength(ps); return { g: mass ? w.S / (mass * G0) : 0, vne: w.vne, mmax: w.mmax }; })() },
     };
     this.statsData.radar = radarSummary(ps); // (the radar row and the Fit button)
@@ -1122,7 +1121,6 @@ const Builder = {
   // paint of what it is put on (a wing on a stealth fuselage comes in stealth grey).
   addPart(type, x, y, rot = 0, ex = {}) {
     const def = PARTS[type];
-    if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
     const att = ex.att || null, host = ex.host || att;
     const skin = ex.skin !== undefined ? cleanSkin(ex.skin, def) : host ? cleanSkin(skinOf(host), def) : null;
     const p = makePart(type, x, y, { flip: x < 0, rot, z: cleanZ(ex.z, def), att: att ? att.id : null, skin }), mm = cleanMm(ex.mm, def);
@@ -1402,8 +1400,8 @@ const Builder = {
   // they can be dragged into place. Parts keep their depth, paint and what they hang on among themselves.
   paste(clip = this.clip) {
     if (!clip || !clip.parts || !clip.parts.length) { UI.toast('Nothing copied yet'); return; }
-    const all = partsFromDesign(clip.parts), made = cleanAtt(all.filter((p) => Career.unlocked(p.def)));
-    if (!made.length) { UI.toast(all.length ? 'Those parts aren’t unlocked yet' : 'Nothing copied yet'); return; }
+    const made = cleanAtt(partsFromDesign(clip.parts));
+    if (!made.length) { UI.toast('Nothing copied yet'); return; }
     let b = -Infinity, t = Infinity;
     for (const p of made) { const r = partRect(p); b = Math.max(b, r.t); t = Math.min(t, r.b); }
     const h = b - t, src = made.map((p) => ({ x: p.x, y: p.y }));
@@ -1479,14 +1477,12 @@ const Builder = {
       if (def.cat !== this.category) continue;
       const g = fam.of.get(type) || null;
       if (g !== group) { group = g; if (g) items.append(el('div', { class: 'tray-group', text: g })); } // (each look-alike jet's parts together)
-      const locked = !Career.unlocked(def);
-      const item = el('button', { class: 'part-item' + (locked ? ' locked' : ''), title: def.desc || def.name });
+      const item = el('button', { class: 'part-item', title: def.desc || def.name });
       item.append(renderPartIcon(type, 56, dpr, this.viewRot)); // drawn the way the blueprint shows it
       item.append(el('span', { class: 'part-name', text: def.name }));
-      item.append(el('span', { class: 'part-spec', text: locked ? `Tier ${def.tier}` : this.specLine(def) }));
-      if (!Career.sandbox && !locked) item.append(el('span', { class: 'part-cost', text: money(def.cost) }));
-      if (locked) item.append(el('span', { class: 'lock', text: 'Locked' }));
-      this.bindPaletteItem(item, type, locked);
+      item.append(el('span', { class: 'part-spec', text: this.specLine(def) }));
+      if (Budget.on) item.append(el('span', { class: 'part-cost', text: money(def.cost) })); // (prices only in a battle with a budget)
+      this.bindPaletteItem(item, type);
       items.append(item);
     }
     this.layout();
@@ -1535,11 +1531,11 @@ const Builder = {
     return kg < 1 ? `${Math.round(kg * 1000)} g` : `${+kg.toFixed(1)} kg`;
   },
 
-  bindPaletteItem(item, type, locked) {
+  bindPaletteItem(item, type) {
     let start = null;
     item.addEventListener('pointerdown', (e) => { start = { x: e.clientX, y: e.clientY, id: e.pointerId, drag: false }; });
     item.addEventListener('pointermove', (e) => {
-      if (!start || start.id !== e.pointerId || locked) return;
+      if (!start || start.id !== e.pointerId) return;
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (!start.drag && ((dy < -8 && Math.abs(dy) > Math.abs(dx) * 0.8) || (!isTouch && Math.hypot(dx, dy) > 6))) {
         start.drag = true;
@@ -1555,21 +1551,11 @@ const Builder = {
       const wasDrag = start.drag;
       start = null;
       if (e.type === 'pointercancel') { this.cancelDrag(); return; }
-      if (locked) { this.showLocked(type); return; }
       if (wasDrag) this.dropDrag(e.clientY);
       else { this.cancelDrag(); this.quickAdd(type); }
     };
     item.addEventListener('pointerup', end);
     item.addEventListener('pointercancel', end);
-  },
-
-  showLocked(type) {
-    const d = PARTS[type];
-    UI.modal({
-      kicker: `Tier ${d.tier} · ${TIERS[d.tier].name}`, title: d.name,
-      body: `<p>${d.desc}</p><p class="muted">Unlock it in Research &amp; Development.</p>`,
-      actions: [{ label: 'Close' }, { label: 'Open R&D', primary: true, onClick: () => App.showResearch() }],
-    });
   },
 
   // Tap on a palette item: attach it somewhere sensible (on armour, where the part goes on a tank: tankSpot; on a drone,
@@ -1590,7 +1576,6 @@ const Builder = {
       const s = Ship.spotOf(type, this.parts, { x: centre.x, y: centre.y, sym: this.symmetry, rot });
       if (s && s.why) { UI.toast(s.why); return; }
       if (s && s.shift) { // (a midsection in behind the bow: the bow, and what is on it, forward first)
-        if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
         if (!this.shift(s.shift.parts, s.shift.dx, s.shift.dy)) { UI.toast('No room there. Drag the part into place instead.'); return; }
       }
       spot = s;
@@ -1669,7 +1654,6 @@ const Builder = {
     for (const H of hosts) {
       const s = insideSpot(type, rot, H, null, others, fwd);
       if (!s) continue;
-      if (!Career.unlocked(def)) { UI.toast(`${def.name} unlocks with ${TIERS[def.tier].name}`); return; }
       if (old) this.parts = this.parts.filter((p) => p !== old && p.att !== old.id); // (out with the old one: one step to undo, with the new one in)
       this.addPart(type, s.x, s.y, rot, { z: s.z, att: H, host: H });
       if (!this.in3D()) { // (the nose seen, not under the set's card or a button: the set brought to the middle if it is)
@@ -2419,13 +2403,11 @@ const Builder = {
     if (link.hidden !== !drone) link.hidden = !drone;
     $('#stats').classList.toggle('drone', drone); // (its battery and top-speed rows are wider: css)
     if (drone) this.renderDroneStats(s);
-    $('#career-row').hidden = Career.sandbox;
-    if (!Career.sandbox) {
+    $('#budget-row').hidden = !Budget.on; // (a battle's money: Budget, util.js; none in solo play or a sandbox room)
+    if (Budget.on) {
       set('#s-cost', money(s.cost));
-      set('#s-funds', money(Career.data.funds));
-      $('#s-cost').className = s.cost > Career.data.funds ? 'bad' : '';
-      $('#career-row').querySelectorAll('.cr-label')[1].textContent = this.mp ? 'Budget' : 'Funds';
-      const btns = $('#career-row .cr-btns'); if (btns) btns.hidden = !!this.mp; // (no research or missions in a battle)
+      set('#s-funds', money(Budget.funds));
+      $('#s-cost').className = Budget.over(s.cost) ? 'bad' : '';
     }
     const warn = [], ps = this.parts.filter((p) => this.attached.has(p.id)), has = (f) => ps.some(f);
     if (ship) { // (the ships update: her hull's warnings show from the first segment, bridge or none; no rocket staging words)
@@ -2472,8 +2454,6 @@ const Builder = {
     if (ps.some((p) => { const h = onPs.get(p.att); return h && h.def.wing && !isSurface(p.def) && Math.abs(partZ(p)) - partDepth(p) / 2 > h.def.wing.span / 2; })) warn.push('Something hangs past a wing tip.');
     if (s.loose) warn.push(`${s.loose} part${s.loose > 1 ? 's' : ''} not attached. They stay behind.`);
     if (this.mp) warn.push(...MP.designProblems(s, ps, kind)); // the battle's budget, and the carrier's size limits
-    else if (s.locked.length) warn.push(`Uses ${s.locked.length} locked part${s.locked.length > 1 ? 's' : ''}. Unlock them in R&D.`);
-    else if (!Career.sandbox && s.cost > Career.data.funds) warn.push(`Costs ${money(s.cost - Career.data.funds)} more than you have.`);
     $('#s-warn').textContent = warn.join(' ');
     $('#s-warn').hidden = !warn.length;
     const gl = ship ? this.shipLine(s.ship) : s.ground ? this.groundLine(ps) : '', gEl = $('#s-ground');
@@ -2719,7 +2699,7 @@ const Builder = {
       const g = [...this.sel], mass = g.reduce((s, q) => s + (q.mm != null ? armourMassT(q.def, q.mm) : q.def.mass), 0), cost = g.reduce((s, q) => s + (q.def.cost || 0) + (q.mm != null ? armourCostDelta(q.def, q.mm) : 0), 0);
       this.renderHolds(null);
       $('#pi-name').textContent = `${g.length} parts selected`;
-      $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Career.sandbox ? '' : ` · ${money(cost)}`);
+      $('#pi-specs').textContent = `${mass.toFixed(2)} t` + (Budget.on ? ` · ${money(cost)}` : '');
       $('#pi-desc').textContent = isTouch ? 'Drag any of them to move them together. Copy to paste them again (here or in another design).'
         : 'Drag any of them to move them together · Ctrl+C / Ctrl+V copy and paste (also into another design) · R turns them · [ ] move them in and out · Delete removes them.';
       this.layout();
@@ -2756,7 +2736,7 @@ const Builder = {
     if (d.heatShield || d.maxTemp !== 2000) specs.push(`max ${d.maxTemp} K`);
     if (d.gv) specs.push(...this.groundSpecs(d));
     if (d.radarSet) specs.push(...radarSpecs(d.radarSet));
-    if (!Career.sandbox) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
+    if (Budget.on) specs.push(money(p.mm != null ? d.cost + armourCostDelta(d, p.mm) : d.cost));
     return specs.join(' · ');
   },
   // A drone part's panel line: its weight (with its charge and stores), its role's numbers, then the price.
@@ -2773,7 +2753,7 @@ const Builder = {
     if (w && w.kind === 'bomb') out.push(`${w.ammo} × ${w.each} kg`, `${w.blast} m burst`);
     if (w && w.kind === 'missile') out.push(`${w.ammo} missiles`, km(w.range), ...(w.heat ? [`${w.heat} mm`] : []));
     if (d.wing && !d.wing.control) { const W = wingAero(d); out.push(`breaks above ${Math.round(W.vne * 0.36) * 10} km/h`); }
-    if (!Career.sandbox) out.push(money(d.cost));
+    if (Budget.on) out.push(money(d.cost));
     return out;
   },
   // kinetic rounds lose penetration as they slow (by (v/v0)^1.43, slowed by the air as in flight); the rest don't
@@ -3072,7 +3052,7 @@ const Builder = {
           renderDesignThumb(s, 64, 64, dpr, (VEHICLE_KINDS[s.kind] || VEHICLE_KINDS.rocket).launchRot),
           el('span', { class: 'design-text' },
             el('span', { class: 'template-name', text: s.name }),
-            el('span', { class: 'template-blurb', text: `${kind} · ${known.length} parts${Career.sandbox ? '' : ' · ' + money(designCost(known))}${when ? ' · ' + when : ''}${current ? ' · on the blueprint' : ''}` })));
+            el('span', { class: 'template-blurb', text: `${kind} · ${known.length} parts${Budget.on ? ' · ' + money(designCost(known)) : ''}${when ? ' · ' + when : ''}${current ? ' · on the blueprint' : ''}` })));
         const code = el('button', { class: 'btn icon-only small', 'aria-label': `Copy a code for ${s.name}`, title: 'Copy as a code to share' });
         code.append(icon('copy'));
         const del = el('button', { class: 'btn icon-only small danger', 'aria-label': `Delete ${s.name}`, title: 'Delete' });
@@ -3107,9 +3087,9 @@ const Builder = {
       const tl = el('div', { class: 'template-list' });
       for (const key of keys) {
         const t = TEMPLATES[key];
-        const locked = !Career.sandbox && t.tier > Career.data.tier, cls = kind === 'tank' ? groundClass(t) : null;
-        const b = el('button', { class: 'template' + (locked ? ' locked' : '') },
-          el('span', { class: 'template-name', text: t.name + (locked ? ` · Tier ${t.tier}` : '') }),
+        const cls = kind === 'tank' ? groundClass(t) : null;
+        const b = el('button', { class: 'template' },
+          el('span', { class: 'template-name', text: t.name }),
           el('span', { class: 'template-blurb', text: cls ? `${cls} · ${t.blurb}` : t.blurb }));
         b.addEventListener('click', () => {
           const go = () => { UI.closeModal(); this.loadTemplate(key); };
@@ -3328,8 +3308,6 @@ const Builder = {
     tog.addEventListener('click', () => { const on = !stats.classList.contains('collapsed'); fold(on); store.set('rss.statsFolded', on); });
     $('#btn-templates').addEventListener('click', () => this.openHangar());
     document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => this.pickKind(b.dataset.kind)));
-    $('#btn-rd').addEventListener('click', () => App.showResearch());
-    $('#btn-missions').addEventListener('click', () => App.showMissions());
   },
 
   confirmClear() {
@@ -3567,9 +3545,6 @@ const Builder = {
         ctx.globalAlpha = (loose ? 0.4 : 1) * (hosts && hosts.has(p.id) ? 0.35 : 1);
         drawPart(ctx, p, lw);
         if (z < -0.05 && !p.def.twinZ) { partPath(ctx, p); ctx.fillStyle = `rgba(7,18,34,${Math.min(0.5, 0.15 + 0.04 * -z).toFixed(3)})`; ctx.fill(); }
-        if (!Career.unlocked(p.def)) {
-          ctx.globalAlpha = 0.45; partPath(ctx, p); ctx.fillStyle = '#ff5d5d'; ctx.fill(); ctx.globalAlpha = 1;
-        }
       }
       ctx.globalAlpha = 1;
       if (this.selected) {

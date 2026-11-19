@@ -72,7 +72,7 @@ g('the MA-1\'s blurb puts most of its rounds, not all, behind blow-out panels, a
   const ps = partsFromDesign(templateRows(TEMPLATES.ma1)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'tank'; v.rebuildGroups();
   const st = Armour.crewOf(v).stores, all = st.reduce((n, e) => n + e.cap, 0), bo = st.filter((e) => e.blowout).reduce((n, e) => n + e.cap, 0);
   return /Most of its rounds sit in the bustle behind blow-out panels/.test(TEMPLATES.ma1.blurb) && bo > all / 2 && bo < all; })()`), RW('TEMPLATES.ma1.blurb'));
-g('career tier: the highest of its parts\'', gv.every((k) => W.TEMPLATES[k].tier === Math.max(...W.TEMPLATES[k].parts.map((r) => W.PARTS[r[0]].tier || 0))));
+g('tier: the highest of its parts\'', gv.every((k) => W.TEMPLATES[k].tier === Math.max(...W.TEMPLATES[k].parts.map((r) => W.PARTS[r[0]].tier || 0))));
 g('paint: each paint names a part it carries and a skin those parts take', RW(`Object.keys(__G).every((k) => { const T = TEMPLATES[k]; return T.paint && Object.keys(T.paint).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); })`));
 RW(`var ground = {};
 for (const k in __G) {

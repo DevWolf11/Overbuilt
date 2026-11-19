@@ -26,7 +26,6 @@ await openGame(A, srv.url);
 const B = await mk('B');
 await B.goto(srv.url + 'index.html');
 await B.waitForTimeout(300);
-if (await B.isVisible('[data-mode="sandbox"]')) await B.click('[data-mode="sandbox"]');
 for (const p of [A, B]) await p.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 60000 });
 const mapState = await A.evaluate(() => Terrain.earthMap.state);
 log('map', mapState, 'NET_VERSION', await A.evaluate(() => NET_VERSION));

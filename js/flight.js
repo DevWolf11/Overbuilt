@@ -1,5 +1,5 @@
 'use strict';
-// Flight scene: simulation loop, time warp, camera, HUD, controls, missions and saving.
+// Flight scene: simulation loop, time warp, camera, HUD, controls, milestones and saving.
 
 const WARPS = [1, 2, 4, 8, 25, 100, 500, 2500, 10000, 50000, 250000, 1000000];
 const PHYS_WARP_MAX = 3; // index of the last physics warp (8x)
@@ -14,7 +14,47 @@ const NO_SAS_KEYS = {}; // (the ships update: a ship's helm keys are Flight.ship
 const SHIP_FATES = { sunk: 'Sunk', capsized: 'Capsized', magazine: 'Lost to a magazine explosion', action: 'Out of action' };
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
-const FLAG_NAMES = { liftoff: 'Liftoff', splashdown: 'Splashdown' };
+// every milestone's name: the flags award() raises that toast and go in the flight's summary (the rest only steer hints)
+const MILESTONES = (() => {
+  const n = { liftoff: 'Liftoff', alt1k: 'First Hop', space: 'Edge of Space', recoveredSpace: 'Safe Return', 'orbit:earth': 'Into Orbit',
+    splashdown: 'Splashdown', drive1k: 'Road Trip', tankRange: 'Tank Range', takeoff: 'Wheels Up', hover: 'Hover', runwayLanding: 'Greaser',
+    flyHigh: 'High Flyer', supersonic: 'Sound Barrier', mach2: 'Mach 2', seaplane: 'Seaplane', escapeSun: 'Interstellar', sunDive: 'Icarus' };
+  for (const b of [MOON, VENUS, MARS, MERCURY, PHOBOS, JUPITER, EUROPA]) {
+    n[`soi:${b.id}`] = `${b.name} Flyby`; n[`orbit:${b.id}`] = `${b.name} Orbit`;
+    if (b !== JUPITER) { n[`land:${b.id}`] = `${b.name} Landing`; n[`home:${b.id}`] = `Return from ${b.name}`; }
+  }
+  return n;
+})();
+// The milestones the player has reached (rss.milestones: a known flag -> true), so each toasts and is listed once ever,
+// unless Settings → Repeat milestones every flight (repeatMs). Cleaned on load; the first time, seeded from an old career
+// save's done missions (rss.career, read only: never written or deleted), so a returning player isn't congratulated again.
+// Held in memory too, so a storage that fails (a private window, the Node tests) still says each once a session.
+const Achieved = {
+  KEY: 'rss.milestones',
+  got: null,
+  OLD: { recoverSpace: 'recoveredSpace', orbitEarth: 'orbit:earth', splash: 'splashdown' }, // (the missions whose id wasn't their flag)
+  clean(m) {
+    const out = {};
+    if (m && typeof m === 'object' && !Array.isArray(m)) for (const k of Object.keys(m)) if (hasOwn(MILESTONES, k) && m[k] === true) out[k] = true;
+    return out;
+  },
+  load() {
+    if (this.got) return this.got;
+    const raw = store.get(this.KEY, null);
+    if (raw == null) { // never written: seed it from career's record, once
+      const c = store.get('rss.career', null), done = c && typeof c === 'object' && c.done && typeof c.done === 'object' && !Array.isArray(c.done) ? c.done : {};
+      const seed = {};
+      for (const id of Object.keys(done)) { const f = hasOwn(this.OLD, id) ? this.OLD[id] : id; if (done[id] && hasOwn(MILESTONES, f)) seed[f] = true; }
+      this.got = seed; store.set(this.KEY, seed);
+    } else {
+      this.got = this.clean(raw);
+      if (JSON.stringify(this.got) !== JSON.stringify(raw)) store.set(this.KEY, this.got); // (junk dropped)
+    }
+    return this.got;
+  },
+  has(f) { return !!this.load()[f]; },
+  add(f) { this.load()[f] = true; store.set(this.KEY, this.got); },
+};
 
 const Flight = {
   running: false,
@@ -91,8 +131,6 @@ const Flight = {
     if (!air && v.hydro && typeof Ship !== 'undefined' && Ship.overWater(v)) Ship.launch(v, P);
     if (v.kind === 'heli') v.throttle = 0;
     if (v.kind === 'drone') v.dl = { t: 0, at0: { x: v.x, y: v.y, z: v.z }, t0: 0 }; // (the law's state, drone.js: where it took off, for safe-arm and home)
-    this.launchCost = designCost(ps);
-    if (!this.mp) { Career.spend(this.launchCost); Career.data.flights++; Career.save(); }
     // a ground vehicle's battlefield props (props.js), laid out now if they aren't yet: part of the launch, not a stall a
     // frame or two into the drive
     if (typeof Props !== 'undefined' && (v.gv || v.gear.length)) Props.needNear(v.x, v.y, v.z);
@@ -125,6 +163,7 @@ const Flight = {
     this.mapMode = false;
     FX.clear();
     this.flags = {};
+    this.fresh = {}; // (the milestones this flight reached that the summary lists: new ones, or every one with repeatMs)
     this.stats = { maxAlt: 0, maxSpeed: 0, maxG: 0 };
     this.driven = 0; this.hoverSince = null; this.lastCheck = time;
     this.destroyed = false;
@@ -173,7 +212,6 @@ const Flight = {
   revert() {
     if (this.mp) { MP.respawn(); return; }
     if (GroundAI.battle && GroundAI.revert(this)) return; // (a Practice Battle: back on its pad, the AI kept)
-    Career.earn(this.launchCost);
     store.set('rss.flight', null);
     const k = this.design.kind, place = typeof Spawns !== 'undefined' ? Spawns.solo(k).place : k === 'tank' ? GroundMode.soloPlace(k) : null; // (back where it starts: the spot picked in Sandbox, else as ever, Armour on its range)
     this.start(this.design, place ? { place } : undefined);
@@ -211,8 +249,8 @@ const Flight = {
     const keep = this.vessels.filter((v) => (v.control || v === this.active) && !v.dead && !v.ai && !v.wreck && v.parts.length && !v.carrier);
     const a = this.active && this.active.carrier ? this.active.carrier : this.active;
     const out = {
-      v: 2, time: this.time, design: this.design, launchCost: this.launchCost,
-      active: keep.indexOf(a), flags: this.flags, stats: this.stats,
+      v: 2, time: this.time, design: this.design,
+      active: keep.indexOf(a), flags: this.flags, fresh: this.fresh, stats: this.stats,
       target: this.target ? this.target.id : null, scale: a && a !== this.active && a._scale != null ? a._scale : this.scale,
       vessels: keep.map((v) => v.serialize()),
     };
@@ -236,9 +274,9 @@ const Flight = {
     for (const v of vessels) if (v.docks.length && typeof Drone !== 'undefined') v.droneChoice = Drone.cleanChoice(d.design && d.design.drone); // (the drone its bays carry)
     const active = vessels[clamp(d.active, 0, vessels.length - 1)] || vessels[0];
     this.design = d.design;
-    this.launchCost = d.launchCost || 0;
     this.resetState(vessels, active, d.time || 0);
     this.flags = d.flags || {};
+    this.fresh = d.fresh && typeof d.fresh === 'object' && !Array.isArray(d.fresh) ? Achieved.clean(d.fresh) : {};
     this.stats = d.stats || this.stats;
     this.target = d.target ? BODY_BY_ID[d.target] : null;
     this.scale = d.scale || 12;
@@ -925,17 +963,15 @@ const Flight = {
   recover() {
     if (!this.canRecover()) return;
     const v = this.active;
-    const refund = Math.round(v.value() * 0.9);
     if (this.flags.space) this.award('recoveredSpace');
     for (const b of BODIES) if (this.flags[`land:${b.id}`]) this.award(`home:${b.id}`);
     if (v.splashed) this.award('splashdown');
-    Career.earn(refund);
     this.ended = true;
     this.setPaused(true);
     store.set('rss.flight', null);
     UI.modal({
       kicker: 'Recovered', title: Object.keys(this.flags).some((k) => k.startsWith('home:')) ? 'Welcome home' : this._bodyGround ? (GroundAI.range ? 'Off the range' : 'Back to the hangar') : 'Mission complete',
-      body: this.summaryHTML(Career.sandbox ? '' : `<p class="refund">Recovered parts refunded: <b>${money(refund)}</b></p>`),
+      body: this.summaryHTML(),
       actions: [
         { label: 'Fly again', onClick: () => this.revert() },
         { label: 'Back to hangar', primary: true, onClick: () => App.toBuild() },
@@ -944,11 +980,9 @@ const Flight = {
   },
 
   summaryHTML(extra = '', ground = !!this._bodyGround) {
-    const got = Object.keys(this.flags).map((f) => {
-      const m = MISSIONS.find((x) => x.flag === f);
-      return m ? m.title : FLAG_NAMES[f];
-    }).filter(Boolean);
-    const list = got.length ? got.map((a) => `<li>${a}</li>`).join('') : '<li class="muted">None this flight</li>';
+    // the milestones this flight reached for the first time (or all of them with repeatMs); none: no heading at all
+    const got = Object.keys(this.fresh || {}).map((f) => MILESTONES[f]).filter(Boolean);
+    const ms = got.length ? `<h3 class="summary-h">Milestones</h3><ul class="milestones">${got.map((a) => `<li>${a}</li>`).join('')}</ul>` : '';
     if (ground) { // (P4 play-test) a ground vehicle's: what it drove and how fast in km/h, and the Tank Range's tally (not a rocket's flight)
       const R0 = GroundAI.range, kos = R0 ? `<div><dt>Knock-outs</dt><dd>${R0.kos}${R0.best ? ` · best shot ${fmt.dist(R0.best)}` : ''}</dd></div>` : '';
       const sea = !!this.active && isSea(this.active.kind) && typeof SHIP !== 'undefined'; // (the ships update: sailed, in knots)
@@ -956,13 +990,13 @@ const Flight = {
       <div><dt>Time</dt><dd>${fmt.clock(this.time)}</dd></div>${kos}
       <div><dt>${sea ? 'Sailed' : 'Driven'}</dt><dd>${fmt.dist(this.driven || 0)}</dd></div>
       <div><dt>Top speed</dt><dd>${sea ? `${Math.round(this.stats.maxSpeed * SHIP.KN)} kn` : `${Math.round(this.stats.maxSpeed * 3.6)} km/h`}</dd></div>
-    </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
+    </dl>${extra}${ms}`;
     }
     return `<dl class="summary">
       <div><dt>Flight time</dt><dd>${fmt.clock(this.time)}</dd></div>
       <div><dt>Farthest</dt><dd>${fmt.dist(this.stats.maxAlt)}</dd></div>
       <div><dt>Top speed</dt><dd>${fmt.speed(this.stats.maxSpeed)}</dd></div>
-    </dl>${extra}<h3 class="summary-h">Milestones</h3><ul class="milestones">${list}</ul>`;
+    </dl>${extra}${ms}`;
   },
 
   openMenu() {
@@ -1773,12 +1807,14 @@ const Flight = {
   award(flag) {
     if (this.flags[flag]) return;
     this.flags[flag] = true;
-    const done = this.mp ? [] : Career.onFlag(flag);
-    for (const m of done) {
-      this.toast(Career.sandbox ? m.title : `${m.title} · +${money(m.reward)}`, 'achievement');
-      Sound.chime();
-    }
-    if (!done.length && FLAG_NAMES[flag]) this.toast(FLAG_NAMES[flag], 'achievement');
+    // a milestone toasts and goes in the summary the first time ever (with a chime), and again only with repeatMs
+    if (!hasOwn(MILESTONES, flag)) return;
+    const first = !Achieved.has(flag);
+    if (first) Achieved.add(flag);
+    else if (!Settings.get('repeatMs')) return;
+    (this.fresh || (this.fresh = {}))[flag] = true;
+    this.toast(MILESTONES[flag], 'achievement');
+    if (first) Sound.chime();
   },
 
   // A craft's height over the ground below, worked out once a frame: the milestones, engine dust, rotor wash,
@@ -2432,7 +2468,7 @@ const Flight = {
       if (this.target && this.window && this.window.wait <= 120 && !(this.approach && this.approach.encounter)) return 'Window open: burn prograde until the map shows an encounter.';
       const chute = v.parts.find((p) => p.def.chute && !p.deployed && !p.used);
       if (chute && alt < 9000 && (v.speed() < 250 || (v.dynP || 0) < 12000) && !v.landed && v.vSpeed() < 0) return 'Deploy the parachute now (STAGE).';
-      if (this.canRecover()) return 'Safely down. Tap Recover to finish the mission.';
+      if (this.canRecover()) return 'Safely down. Tap Recover to finish the flight.';
     }
     if (b !== EARTH && !b.star && v.landed && this.flags[`land:${b.id}`]) return `You landed on ${b.name}. Plan your trip home from the map.`;
     if (b !== EARTH && !b.star && o && !o.degenerate && o.e >= 1 && !v.landed) return `Burn retrograde (${Keys.k('sasRetro')}) near periapsis to be captured by ${b.name}.`;
