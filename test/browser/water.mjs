@@ -19,11 +19,10 @@
 //     her marks turns it on (128² cells of 4 m on High, 64² of 6 m on Low) with the ocean cut under it and a recentre's
 //     fill timed; the shader's wave function run on the GPU with the uniforms as drawn agrees with Ship.wave within 1 mm
 //     at 50 points (and the packer on the CPU); flattened, the grid draws the very ocean it covers (no seam), the waves
-//     on change the picture; under way she lays a wake (its pixels: bench.wake) and throws bow spray. Until the hydro core
-//     lands, the waves are the spec's copy (test/lib/seawaves.js); a tree with no ship skips 8b-e.
+//     on change the picture; under way she lays a wake (its pixels: bench.wake) and throws bow spray; the grid filled behind
+//     a slice a frame (none over 1.5 ms here, the whole fill timed apart) and swapped in. A tree with no ship skips 8b-e.
 // The console stays clean.     node test/browser/water.mjs
 import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
-import { seaWaves } from '../lib/seawaves.js';
 const srv = await serve(), b = await launch(), errs = [];
 const ok = checks('water: the sea and the lakes with depth');
 const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'ready' && Render3D.ready;
@@ -167,8 +166,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
     const s8a = await ev(async (SEA) => { await window.__start('falcon', SEA, [60, 1.2]); const I = Render3D.swellInfo(); return { shown: I.shown, on: I.on, hole: I.hole }; }, SEA);
     ok(`${T}: with no ship near, no swell: the grid not drawn, the ocean whole (hole ${s8a.hole})`, !s8a.shown && !s8a.on && s8a.hole.join() === '1,1,0,0', s8a);
     if (await ev(() => !TEMPLATES.cyclon)) { ok(`${T}: (no ship on this tree: the swell's checks skipped)`, true); continue; }
-    // b. a patrol boat at her marks in the open sea (the waves: the hydro core's, else the spec's copy, test/lib/seawaves.js)
-    const mock = await ev(seaWaves);
+    // b. a patrol boat at her marks in the open sea
     const s8b = await ev(async (SHIP_AT) => {
       await window.__start('cyclon', SHIP_AT, [45, 0.35]);
       const v = Flight.active, mid = v.parts.find((q) => q.def.hull && q.def.shull && q.def.shull.ends.fore === 'joint' && q.def.shull.ends.aft === 'joint') || v.parts.find((q) => q.def.hull);
@@ -179,12 +177,14 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       const I = Render3D.swellInfo();
       const ms = []; for (let i = 0; i < 5; i++) ms.push(Render3D.swellRefill());
       ms.sort((a, b) => a - b);
-      return { I, ms: +ms[2].toFixed(2), hydro: v.hydro };
+      Render3D.swellRefill(true); for (let i = 0; i < 60 && Render3D.swellInfo().filling; i++) window.__buf(); // (a recentre's fill, as the frames run it)
+      const J = Render3D.swellInfo();
+      return { I, ms: +ms[2].toFixed(2), hydro: v.hydro, sl: { frames: J.frames, slice: J.slice, filling: J.filling } };
     }, SHIP_AT);
     const amp = s8b.I.W ? [3, 7, 11, 15].map((i) => s8b.I.W[i]) : [];
-    ok(`${T}: a ship near: the swell on, ${s8b.I.N}² cells of ${s8b.I.cell} m round the camera, the ocean cut under it, the waves' amplitudes ${amp.map((a) => a.toFixed(2)).join(', ')} m${mock ? ' (the spec\'s copy of the waves)' : ''}`,
+    ok(`${T}: a ship near: the swell on, ${s8b.I.N}² cells of ${s8b.I.cell} m round the camera, the ocean cut under it, the waves' amplitudes ${amp.map((a) => a.toFixed(2)).join(', ')} m`,
       s8b.hydro && s8b.I.on && s8b.I.shown && s8b.I.N === (q === 'high' ? 128 : 64) && s8b.I.hole.join() !== '1,1,0,0' && s8b.I.hole[2] > s8b.I.hole[0] && amp.some((a) => a > 0.05), s8b.I);
-    ok(`${T}: filling the grid (a recentre) takes ${s8b.ms} ms (median of 5; spec ≤ 2 ms on the bench's desktop, ${q === 'high' ? 'High' : 'Low'})`, s8b.ms < (q === 'high' ? 6 : 3), s8b.ms);
+    ok(`${T}: filling the grid (a recentre) takes ${s8b.ms} ms in all (median of 5), and is done behind the one on show a slice a frame: ${s8b.sl.frames} frames, the worst ${s8b.sl.slice} ms`, s8b.ms < (q === 'high' ? 6 : 3) && s8b.sl.slice < 1.5 && s8b.sl.frames >= 1 && !s8b.sl.filling, { ms: s8b.ms, ...s8b.sl });
     // c. the GPU's swell is the physics' sea: the shader's own wave function (Render3D.swellGLSL) run on the GPU with the
     // uniforms as drawn, at 50 points over the grid, against Ship.wave there and then (height within 1 mm, slopes 1e-4)
     const s8c = await ev(() => {

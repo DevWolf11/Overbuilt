@@ -5953,7 +5953,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // drawn sea is the terrain patch's flat sheet everywhere but round a ship: while a hydro vessel (v.hydro) is within
   // SHIP.SWELL.near of the camera and the camera is under SHIP.SWELL.alt, a grid of N × N cells round the camera's point on
   // the sea (High 128 at 4 m, Low 64 at 6 m; its lattice fixed to whole cells of game east and z, recentred when the
-  // camera strays an eighth of it) is drawn instead, its vertices lifted in the vertex shader by the very same sines
+  // camera strays an eighth of it: the new one filled behind the one on show, SWL_SLICE ms a frame, and swapped in
+  // whole) is drawn instead, its vertices lifted in the vertex shader by the very same sines
   // (SWELL_FN, its uniforms Ship.waveUniforms packs: per component vec4(east, north, k, amplitude) and vec2(ω, phase at
   // the grid's origin now), folded on the CPU in double precision so no float32 phase blows up far from the pad), its
   // normals the sines' slopes. Each vertex's share of the swell (aSwell.z): the depth's fade (smoothstep over SHIP.FADE:
@@ -6029,7 +6030,8 @@ void main() {
   // breaking up; lifted 6 cm and drawn a little nearer than it is, so it lies on the water it was laid on)
   const SWL = {
     on: false, wantWarm: false, frame: null, mesh: null, mat: null, N: 0, cell: 0, half: 0, hi: null, aA: 0, zA: 0, eA: 0, b: null, pgen: -1, pver: -1,
-    built: false, recentres: 0, rebuilds: 0, ms: 0, msMax: 0, U: null, amax: 0, wk: new Map(), wmesh: null, wmat: null, wn: 0, wverts: 0, near: null,
+    bufs: [], cur: 0, job: null, jobBuf: null, jobA: null, due: Infinity, jobMs: 0, slices: 0, sliceLast: 0, slice: 0, sliceMax: 0, frames: 0,
+    recentres: 0, rebuilds: 0, ms: 0, msMax: 0, U: null, amax: 0, wk: new Map(), wmesh: null, wmat: null, wn: 0, wverts: 0, near: null,
     cols: null, rows: null, // (the bilinear lookups into the patch's grid: per column [i0, t], per row [j0, t])
   };
   const SWLOC = {}, SWLOC2 = {};
@@ -6038,13 +6040,14 @@ void main() {
   // The water's hook, then the swell: the grid's vertices lifted and their normals tilted (OB_SWELL)
   function swellHook(sh) {
     waterHook.call(this, sh);
-    sh.uniforms.uSwW = S.swU.uSwW; sh.uniforms.uSwP = S.swU.uSwP;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aSwell;' + SWELL_FN)
+    sh.uniforms.uSwW = S.swU.uSwW; sh.uniforms.uSwP = S.swU.uSwP; sh.uniforms.uSwUV = S.swU.uSwUV;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aSwell;\nuniform vec3 uSwUV;' + SWELL_FN)
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_NORMALMAP\n\tvNormalMapUv = ( normalMapTransform * vec3( uSwUV.xy + vec2( uv.x * uSwUV.z, uv.y ), 1 ) ).xy;\n#endif') // (its UVs: metres west and south of its middle; uSwUV, where that is in the patch's)
       .replace('#include <beginnormal_vertex>', SWELL_NV).replace('#include <begin_vertex>', '#include <begin_vertex>\n\ttransformed += obUp * obW.x;');
   }
   // its material: the ocean's (a clone, its defines and stencil kept in step with it each frame) with OB_SWELL
   function swellMat() {
-    if (!S.swU) S.swU = { uSwW: { value: new Float32Array(16) }, uSwP: { value: new Float32Array(8) } };
+    if (!S.swU) S.swU = { uSwW: { value: new Float32Array(16) }, uSwP: { value: new Float32Array(8) }, uSwUV: { value: new THREE.Vector3(0, 0, 1) } };
     if (!SWL.mat) {
       const m = (SWL.mat = terr.oceanMat.clone());
       m.defines = { ...terr.oceanMat.defines, OB_SWELL: '' }; m.onBeforeCompile = swellHook;
@@ -6055,24 +6058,31 @@ void main() {
     m.visible = o.visible;
     return m;
   }
-  // The grid (N cells a side, cell m each), made once per quality: positions, normals (the sphere's up), colours (rgba),
-  // the water attribute, UVs and aSwell, all filled by swellFill
+  // The grid (N cells a side, cell m each), made once per quality, twice over: positions, normals (the sphere's up),
+  // colours (rgba), the water attribute and aSwell filled by swellJob; UVs and the index fixed and shared
   function swellAlloc(hi) {
     const [N, cell] = hi ? SHIP.SWELL.high : SHIP.SWELL.low;
     if (SWL.mesh && SWL.N === N && SWL.cell === cell) return;
-    if (SWL.mesh) { SWL.frame.remove(SWL.mesh); SWL.mesh.geometry.dispose(); }
-    const n1 = N + 1, V = n1 * n1, g = new THREE.BufferGeometry(), A = (k) => new THREE.BufferAttribute(new Float32Array(V * k), k).setUsage(THREE.DynamicDrawUsage);
-    g.setAttribute('position', A(3)); g.setAttribute('normal', A(3)); g.setAttribute('color', A(4)); g.setAttribute('aWater', A(3)); g.setAttribute('uv', A(2)); g.setAttribute('aSwell', A(3));
-    const idx = new (V > 65535 ? Uint32Array : Uint16Array)(N * N * 6);
+    if (SWL.mesh) { SWL.frame.remove(SWL.mesh); for (const B of SWL.bufs) B.g.dispose(); }
+    const n1 = N + 1, V = n1 * n1, half = (N * cell) / 2, A = (k) => new THREE.BufferAttribute(new Float32Array(V * k), k).setUsage(THREE.DynamicDrawUsage);
+    const idx = new (V > 65535 ? Uint32Array : Uint16Array)(N * N * 6), uv = new Float32Array(V * 2);
     let k = 0;
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * n1 + i, b = a + 1, c = a + n1, d = c + 1; idx[k++] = a; idx[k++] = c; idx[k++] = b; idx[k++] = b; idx[k++] = c; idx[k++] = d; } // (its columns run east, the patch's west: turned the other way round)
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), (N * cell) / 2 * 1.5 + 10);
+    for (let j = 0; j < n1; j++) for (let i = 0; i < n1; i++) { uv[(j * n1 + i) * 2] = -(i * cell - half) / TILE; uv[(j * n1 + i) * 2 + 1] = (j * cell - half) / TILE; } // (where it is in the patch's UVs: uSwUV, the swell's hook)
+    const I = new THREE.BufferAttribute(idx, 1), UV = new THREE.BufferAttribute(uv, 2);
+    // two grids: the one on show and the one being filled behind it (swellJob), swapped when it is done
+    SWL.bufs = [0, 1].map(() => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', A(3)); g.setAttribute('normal', A(3)); g.setAttribute('color', A(4)); g.setAttribute('aWater', A(3)); g.setAttribute('uv', UV); g.setAttribute('aSwell', A(3));
+      g.setIndex(I);
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), half * 1.5 + 10);
+      return { g, anc: null, P: null, pgen: -1, pver: -1, cols: new Float64Array(n1 * 2), rows: new Float64Array(n1 * 2), cs: new Float64Array(n1 * 2) };
+    });
     if (!SWL.frame) { SWL.frame = new THREE.Group(); SWL.frame.visible = false; localWorld.add(SWL.frame); }
-    SWL.mesh = new THREE.Mesh(g, swellMat());
+    SWL.mesh = new THREE.Mesh(SWL.bufs[0].g, swellMat());
     SWL.mesh.renderOrder = 1; SWL.mesh.receiveShadow = false; SWL.mesh.frustumCulled = true;
     SWL.frame.add(SWL.mesh);
-    Object.assign(SWL, { N, cell, half: (N * cell) / 2, built: false, cols: new Float64Array(n1 * 2), rows: new Float64Array(n1 * 2) });
+    Object.assign(SWL, { N, cell, half, cur: 0, job: null, jobBuf: null });
   }
   // where the patch's grid has a point s m along its columns (or rows): the cell's first index and how far into it
   function gridAt(sx, n, span, s, out, k) {
@@ -6081,20 +6091,22 @@ void main() {
     if (sx[i] > s && i > 0) i--; else if (sx[i + 1] < s && i < 2 * n - 1) i++;
     out[k] = i; out[k + 1] = clamp((s - sx[i]) / Math.max(1e-9, sx[i + 1] - sx[i]), 0, 1);
   }
-  // Fill the grid round (aA, zA): positions on the sphere (from the frame at aA, the mesh at the anchor's point), the
-  // ocean's colours, water and UVs read off the patch on show, and each vertex's share of the swell
-  function swellFill(b) {
-    const t0 = performance.now(), P = patch, R = b.radius, N = SWL.N, n1 = N + 1, cell = SWL.cell, half = SWL.half, g = SWL.mesh.geometry, at = g.attributes;
-    const pos = at.position.array, nor = at.normal.array, col = at.color.array, wat = at.aWater.array, uv = at.uv.array, sw = at.aSwell.array;
+  // Fill grid B round (aA, zA) a row at a time, yielding once the frame's slice (SWL.due) is spent: positions on the
+  // sphere (from the frame at aA, the mesh at the anchor's point), the ocean's colours and water read off the patch on
+  // show (bilinear on its grid), each vertex's share of the swell. Its UVs are fixed (uSwUV places them in the patch's)
+  const SWL_SLICE = 0.6; // ms a frame (a 4× slowed phone's too: its rows are 30-40 µs, so a frame overruns by one at most)
+  function* swellJob(B, b, aA, zA, eA) {
+    const P = patch, R = b.radius, N = SWL.N, n1 = N + 1, cell = SWL.cell, half = SWL.half, at = B.g.attributes, gen = patchGen, ver = P.ver;
+    const pos = at.position.array, nor = at.normal.array, col = at.color.array, wat = at.aWater.array, sw = at.aSwell.array;
     const oc = P.ocean.geometry.attributes.color.array, ow = P.ocean.geometry.attributes.aWater.array, nc = P.nc, span = P.span, kl = P.kl;
-    const phA = SWL.zA / R, ya = R * Math.cos(phA) - R, za = R * Math.sin(phA), F0 = SHIP.FADE[0], F1 = SHIP.FADE[1], E0 = SHIP.SWELL.edge[0] * half, E1 = SHIP.SWELL.edge[1] * half;
-    const cols = SWL.cols, rows = SWL.rows, da = wrapAngle(SWL.aA - P.a0) * R * kl;
-    const cs = SWL.cs || (SWL.cs = new Float64Array(n1 * 2)); // (each column's sin and cos of its angle from the anchor)
+    const phA = zA / R, ya = R * Math.cos(phA) - R, za = R * Math.sin(phA), F0 = SHIP.FADE[0], F1 = SHIP.FADE[1], E0 = SHIP.SWELL.edge[0] * half, E1 = SHIP.SWELL.edge[1] * half;
+    const cols = B.cols, rows = B.rows, cs = B.cs, da = wrapAngle(aA - P.a0) * R * kl;
     for (let i = 0; i < n1; i++) { const le = i * cell - half; gridAt(P.sx, P.n, span, da - le * kl, cols, i * 2); cs[i * 2] = Math.sin(-le / R); cs[i * 2 + 1] = Math.cos(-le / R); } // (east is decreasing angle: the patch's columns run west)
-    for (let j = 0; j < n1; j++) gridAt(P.sz, P.m, span, SWL.zA + j * cell - half - P.z0, rows, j * 2);
+    for (let j = 0; j < n1; j++) gridAt(P.sz, P.m, span, zA + j * cell - half - P.z0, rows, j * 2);
     const sm = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
     for (let j = 0; j < n1; j++) {
-      const z = SWL.zA + j * cell - half, ph = z / R, cp = Math.cos(ph), sp = Math.sin(ph), j0 = rows[j * 2], tz = rows[j * 2 + 1], ln = -(j * cell - half), vv = (z - P.z0 + P.vo) / TILE, R0 = R * sp - za;
+      if (performance.now() > SWL.due) yield;
+      const z = zA + j * cell - half, ph = z / R, cp = Math.cos(ph), sp = Math.sin(ph), j0 = rows[j * 2], tz = rows[j * 2 + 1], ln = -(j * cell - half), R0 = R * sp - za;
       for (let i = 0; i < n1; i++) {
         const k = j * n1 + i, le = i * cell - half, ux = -cp * cs[i * 2], uy = cp * cs[i * 2 + 1], k3 = k * 3, k4 = k * 4;
         pos[k3] = R * ux; pos[k3 + 1] = R * uy - R - ya; pos[k3 + 2] = R0;
@@ -6108,16 +6120,31 @@ void main() {
         const dep = (wat[k3] = ow[a3] * w0 + ow[a3 + 3] * w1 + ow[c3] * w2 + ow[c3 + 3] * w3);
         wat[k3 + 1] = ow[a3 + 1] * w0 + ow[a3 + 4] * w1 + ow[c3 + 1] * w2 + ow[c3 + 4] * w3;
         wat[k3 + 2] = ow[a3 + 2] * w0 + ow[a3 + 5] * w1 + ow[c3 + 2] * w2 + ow[c3 + 5] * w3;
-        uv[k * 2] = (da - le * kl + P.uo) / TILE; uv[k * 2 + 1] = vv;
         const r = Math.sqrt(le * le + ln * ln);
         sw[k3] = le; sw[k3 + 1] = ln; sw[k3 + 2] = sm((dep - F0) / (F1 - F0)) * (1 - sm((r - E0) / (E1 - E0)));
       }
     }
-    for (const k of ['position', 'normal', 'color', 'aWater', 'uv', 'aSwell']) at[k].needsUpdate = true;
-    SWL.mesh.position.set(0, ya, za);
-    SWL.pgen = patchGen; SWL.pver = P.ver; SWL.built = true; SWL.rebuilds++;
+    for (const k of ['position', 'normal', 'color', 'aWater', 'aSwell']) at[k].needsUpdate = true;
+    Object.assign(B, { anc: { aA, zA, eA, ya, za }, P, pgen: gen, pver: ver });
+  }
+  // Run the fill behind a slice at a time (all of it with due Infinity); done and still the patch's: swap it in
+  function swellRun(due) {
+    const t0 = performance.now();
+    SWL.due = due;
+    let r = SWL.job.next();
     const ms = performance.now() - t0;
-    SWL.ms = ms; SWL.msMax = Math.max(SWL.msMax, ms); note('swell', ms);
+    SWL.jobMs += ms; SWL.slices++; SWL.sliceMax = Math.max(SWL.sliceMax, ms); SWL.sliceLast = Math.max(SWL.sliceLast, ms);
+    if (!r.done) return;
+    const B = SWL.jobBuf;
+    SWL.job = null; SWL.jobBuf = null;
+    if (B.P !== patch || B.pver !== patch.ver) return; // (the patch was replaced meanwhile: filled again next frame)
+    SWL.cur = SWL.bufs.indexOf(B); SWL.mesh.geometry = B.g;
+    SWL.rebuilds++; SWL.ms = SWL.jobMs; SWL.msMax = Math.max(SWL.msMax, SWL.jobMs); SWL.slice = SWL.sliceLast; SWL.frames = SWL.slices;
+    note('swell', SWL.jobMs); note('swellSlice', SWL.sliceLast);
+  }
+  function swellStart(b, aA, zA, eA) {
+    const B = SWL.bufs[1 - SWL.cur];
+    SWL.job = swellJob(B, b, aA, zA, eA); SWL.jobBuf = B; SWL.jobMs = 0; SWL.slices = 0; SWL.sliceLast = 0;
   }
 
   // the hole in the ocean: the grid less a quarter metre all round, in the patch's UVs
@@ -6138,26 +6165,41 @@ void main() {
     // the ocean's hole is compiled in only while this flight has a ship (one program built as she comes; none without)
     const od = terr.oceanMat.defines, hole = !!near;
     if (hole !== ('OB_SEAHOLE' in od)) { if (hole) od.OB_SEAHOLE = ''; else delete od.OB_SEAHOLE; terr.oceanMat.needsUpdate = true; }
-    const on = !!near && nd < SHIP.SWELL.near && camAlt < SHIP.SWELL.alt && patch.ready && patch.b === b && !!patch.ocean && patch.ocean.visible;
-    const warm = !on && !!near && S.warm > 0 && patch.ready && patch.b === b; // (a ship in this flight: its program compiled while loading)
-    if (!on && !warm) {
+    const want = !!near && nd < SHIP.SWELL.near && camAlt < SHIP.SWELL.alt && patch.ready && patch.b === b && !!patch.ocean && patch.ocean.visible;
+    const warm = !want && !!near && S.warm > 0 && patch.ready && patch.b === b; // (a ship in this flight: its program compiled while loading)
+    if (!want && !warm) {
       if (SWL.on || (SWL.frame && SWL.frame.visible)) { SWL.frame.visible = false; S.seaHole.value.set(1, 1, 0, 0); if (SWL.mesh) SWL.mesh.visible = false; }
-      SWL.on = false;
+      SWL.on = false; SWL.job = null; SWL.jobBuf = null;
       if (near) updateWakes(F, b, rx, ry, rz, false); else if (SWL.wmesh) { SWL.wmesh.visible = false; SWL.wk.clear(); }
       return;
     }
     swellAlloc(Settings.high);
     swellMat();
     SWL.b = b;
-    const L = Terrain.locate(b, rx, ry, rz, SWLOC), cell = SWL.cell, eC = -wrapAngle(L.a - EARTH.padAngle) * b.radius;
-    const moved = !SWL.built || Math.abs(eC - SWL.eA) > SWL.half * SHIP.SWELL.recentre || Math.abs(L.z - SWL.zA) > SWL.half * SHIP.SWELL.recentre;
-    if (moved) { SWL.eA = Math.round(eC / cell) * cell; SWL.zA = Math.round(L.z / cell) * cell; SWL.aA = EARTH.padAngle - SWL.eA / b.radius; SWL.recentres++; }
-    if (moved || SWL.pgen !== patchGen || SWL.pver !== patch.ver) swellFill(b);
+    // the grid on show; a new one filled behind it (a slice a frame) when the camera strays an eighth of it from its
+    // middle or the patch under it is replaced, swapped in when done; none on show yet: nothing drawn till the first is
+    const L = Terrain.locate(b, rx, ry, rz, SWLOC), cell = SWL.cell, eC = -wrapAngle(L.a - EARTH.padAngle) * b.radius, lim = SWL.half * SHIP.SWELL.recentre;
+    let A = SWL.bufs[SWL.cur].anc;
+    const strayed = !A || Math.abs(eC - A.eA) > lim || Math.abs(L.z - A.zA) > lim;
+    if (SWL.job && strayed && SWL.jobBuf && Math.abs(eC - SWL.jobA.eA) > 2 * lim) SWL.job = null; // (the camera ran off from the one being filled: start again)
+    if (!SWL.job && (strayed || SWL.bufs[SWL.cur].pgen !== patchGen || SWL.bufs[SWL.cur].pver !== patch.ver)) {
+      const eA = strayed ? Math.round(eC / cell) * cell : A.eA, zA = strayed ? Math.round(L.z / cell) * cell : A.zA;
+      SWL.jobA = { eA }; swellStart(b, EARTH.padAngle - eA / b.radius, zA, eA);
+      if (strayed) SWL.recentres++;
+    }
+    if (SWL.job) swellRun(A || !(S.warm > 0) ? performance.now() + SWL_SLICE : Infinity); // (all at once only while the flight loads)
+    A = SWL.bufs[SWL.cur].anc;
+    const on = want && !!A;
+    if (A) { SWL.aA = A.aA; SWL.zA = A.zA; SWL.eA = A.eA; SWL.mesh.position.set(0, A.ya, A.za); }
+    if (!A) { SWL.frame.visible = false; SWL.on = false; S.seaHole.value.set(1, 1, 0, 0); return; }
     placeFrame(SWL.frame, b, SWL.aA, F.time);
     SWL.frame.visible = true;
     SWL.on = on;
     SWL.mesh.visible = true;
     if (on) swellHole(); else S.seaHole.value.set(1, 1, 0, 0);
+    // the grid's UVs in the patch's (as the ocean's own: its columns along the equator at the patch's kl, rows in z)
+    const Pp = patch, R = b.radius;
+    S.swU.uSwUV.value.set((wrapAngle(SWL.aA - Pp.a0) * R * Pp.kl + Pp.uo) / TILE, (SWL.zA - Pp.z0 + Pp.vo) / TILE, Pp.kl);
     // the waves now: Ship.waveUniforms packs [east, north, k, amplitude, ω, phase] per component for the grid's origin
     if (!SWF) SWF = new Float32Array(SHIP.WAVES.length * 6);
     const U = Ship.waveUniforms(SWL.eA, -SWL.zA, Ship.seaT(F), SWF), W4 = S.swU.uSwW.value, P2 = S.swU.uSwP.value, n = Math.min(4, (U.length / 6) | 0);
@@ -6169,7 +6211,8 @@ void main() {
     SWL.amax = Math.abs(W4[3]) + Math.abs(W4[7]) + Math.abs(W4[11]) + Math.abs(W4[15]); // (the highest a crest can stand: the camera keeps over it)
     const g = SWL.mesh.geometry; // (warming: on show with nothing drawn, so three builds its program; the wakes' too)
     if (!on) { g.setDrawRange(0, 0); SWL.mesh.frustumCulled = false; wakeAlloc(); SWL.wmesh.visible = true; SWL.wmesh.geometry.setDrawRange(0, 0); return; }
-    if (g.drawRange.count !== Infinity) { g.setDrawRange(0, Infinity); SWL.mesh.frustumCulled = true; }
+    for (const B of SWL.bufs) if (B.g.drawRange.count !== Infinity) B.g.setDrawRange(0, Infinity);
+    SWL.mesh.frustumCulled = true;
     updateWakes(F, b, rx, ry, rz, on);
   }
 
@@ -6251,7 +6294,7 @@ void main() {
     const R = b.radius, aA = SWL.aA, zA = SWL.zA, phA = zA / R, ya = R * Math.cos(phA) - R, za = R * Math.sin(phA), half = SWL.half || 1, E = SHIP.SWELL.edge, TK = Math.tan((WK.kelvin * Math.PI) / 180);
     if (!SWL.frame.visible) { // (no swell: the wakes' frame on its own anchor, the camera's spot)
       const L = Terrain.locate(b, rx, ry, rz, SWLOC), cell = 4;
-      SWL.eA = Math.round(-wrapAngle(L.a - EARTH.padAngle) * R / cell) * cell; SWL.zA = Math.round(L.z / cell) * cell; SWL.aA = EARTH.padAngle - SWL.eA / R; SWL.built = false;
+      SWL.eA = Math.round(-wrapAngle(L.a - EARTH.padAngle) * R / cell) * cell; SWL.zA = Math.round(L.z / cell) * cell; SWL.aA = EARTH.padAngle - SWL.eA / R;
       placeFrame(SWL.frame, b, SWL.aA, F.time); SWL.frame.visible = true; if (SWL.mesh) SWL.mesh.visible = false;
       return updateWakes(F, b, rx, ry, rz, swell);
     }
@@ -7402,12 +7445,15 @@ void main() {
       const U = S.swU;
       return { on: SWL.on, shown: !!(SWL.frame && SWL.frame.visible && SWL.mesh && SWL.mesh.visible), N: SWL.N, cell: SWL.cell, half: SWL.half, eA: SWL.eA, zA: SWL.zA, aA: SWL.aA,
         hole: S.seaHole ? S.seaHole.value.toArray() : null, recentres: SWL.recentres, rebuilds: SWL.rebuilds, ms: +SWL.ms.toFixed(2), msMax: +SWL.msMax.toFixed(2),
+        slice: +SWL.slice.toFixed(3), sliceMax: +SWL.sliceMax.toFixed(3), frames: SWL.frames, filling: !!SWL.job,
         W: U ? [...U.uSwW.value] : null, P: U ? [...U.uSwP.value] : null, wakes: SWL.wn, wverts: SWL.wverts, near: SWL.near ? SWL.near.name : null,
         mat: !!SWL.mat, wmat: !!SWL.wmat };
     },
     swellGLSL: SWELL_FN,
     // tests: fill the grid again now (as a recentre does), returning what it took (ms); null with no grid on show
-    swellRefill() { if (!SWL.on || !SWL.b) return null; swellFill(SWL.b); return SWL.ms; },
+    // (a whole fill: the job a frame does a slice of, run to its end at once, and swapped in; sliced: only started, the
+    // frames drawn run it as a recentre's is run, swellInfo's slice its worst frame then)
+    swellRefill(sliced) { if (!SWL.on || !SWL.b) return null; const A = SWL.bufs[SWL.cur].anc; swellStart(SWL.b, A.aA, A.zA, A.eA); if (sliced) return null; swellRun(Infinity); return SWL.ms; },
     // the water's depth (tests): on (OB_DEEP), the sea's stencil test on, the veils on show, and each vessel drawn sinking
     // through water: its slot, its top's depth and the least of the water's colour over it, how far it is drawn down, a ghost
     waterInfo() {

@@ -6,7 +6,6 @@
 // wall time stands for GPU cost, as in render-bench.mjs.
 //   node test/bench/swell-bench.mjs [--profiles phone,desktop] [--quality low,high] [--rounds 16] [--alt 300]
 import { launch, serve, watch, openGame } from '../lib/browser.mjs';
-import { seaWaves } from '../lib/seawaves.js';
 const argv = process.argv.slice(2), opt = (k, d) => { const i = argv.indexOf('--' + k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'low,high').split(','), ROUNDS = +opt('rounds', 16), ALT = +opt('alt', 300);
 const PROFILES = {
@@ -24,7 +23,6 @@ for (const prof of PROF) for (const q of QUAL) {
   await page.waitForFunction(() => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'ready' && Render3D.ready, null, { timeout: 300000, polling: 250 });
   await page.evaluate(() => { window.requestAnimationFrame = () => 0; });
   if (!(await page.evaluate(() => !!TEMPLATES.cyclon))) { console.log('no ships on this tree'); break; }
-  await page.evaluate(seaWaves);
   const r = await page.evaluate(async ([SEA, T, ALT, rounds]) => {
     const tp = TEMPLATES.falcon;
     store.set('rss.flight', null); App.showScene('flight');
@@ -55,9 +53,11 @@ for (const prof of PROF) for (const q of QUAL) {
   const cdp = await ctx.newCDPSession(page), thr = PROFILES[prof].throttle;
   if (thr > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: thr });
   const fill = await page.evaluate(() => { const ms = []; for (let i = 0; i < 9; i++) ms.push(Render3D.swellRefill()); return ms.sort((a, c) => a - c)[4]; });
+  // a recentre's fill as the frames run it: a slice a frame behind the grid on show (the worst frame's share, ms)
+  const sl = await page.evaluate(() => { const out = []; for (let k = 0; k < 5; k++) { Render3D.swellRefill(true); Render3D.skipDraw = true; for (let i = 0; i < 200 && Render3D.swellInfo().filling; i++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } Render3D.skipDraw = false; const I = Render3D.swellInfo(); out.push([I.slice, I.frames]); } out.sort((a, c) => a[0] - c[0]); return out[2]; });
   if (thr > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
   const rt = med(r.ratio);
-  console.log(`${prof.padEnd(7)} ${q.padEnd(4)}  flat sea ${med(r.off).toFixed(2)} ms, with the swell ${med(r.on).toFixed(2)} ms: ×${rt.toFixed(3)} (${((rt - 1) * 100).toFixed(1)}%)${prof === 'phone' && q === 'low' ? (rt <= 1.05 ? '  (budget ≤ +5 %: met)' : '  (budget ≤ +5 %: OVER)') : ''}; the grid ${r.info.N}² of ${r.info.cell} m, on ${r.info.on}; a recentre's fill ${fill.toFixed(2)} ms${thr > 1 ? ` (${thr}× slowed)` : ''}`);
+  console.log(`${prof.padEnd(7)} ${q.padEnd(4)}  flat sea ${med(r.off).toFixed(2)} ms, with the swell ${med(r.on).toFixed(2)} ms: ×${rt.toFixed(3)} (${((rt - 1) * 100).toFixed(1)}%)${prof === 'phone' && q === 'low' ? (rt <= 1.05 ? '  (budget ≤ +5 %: met)' : '  (budget ≤ +5 %: OVER)') : ''}; the grid ${r.info.N}² of ${r.info.cell} m, on ${r.info.on}; a recentre's fill ${fill.toFixed(2)} ms in all, over ${sl[1]} frames at most ${sl[0].toFixed(2)} ms each${thr > 1 ? ` (${thr}× slowed)` : ''}`);
   if (prof === 'phone' && q === 'low' && rt > 1.05) process.exitCode = 1;
   await ctx.close();
 }

@@ -23,7 +23,6 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { execSync } from 'node:child_process';
 import { ROOT, launch, serve, watch, openGame } from '../lib/browser.mjs';
-import { seaWaves } from '../lib/seawaves.js';
 
 // ---------------------------------------------------------------------------------------------------------- constants
 // Found with --find-times (on big-ga, 2026-11-04) and committed, so every tree draws the same moments and places:
@@ -85,8 +84,7 @@ const SCENES = {
   // (the ships update's sea, spec-ships §15: named with --scenes only. seaRough: the open sea 20 m under a plane on a
   // Rough sea with no ship near, so the swell stays off: pictures and cost as the base tree's. shipnear: the chase camera
   // on a small hull at 40 kn in a Moderate sea (the swell round her, her wake and spray): she sails 12 s first, the
-  // render stepped as the game steps it (a tree with no ships: skipped). Until the hydro core's waves land, the spec's copy
-  // of them, test/lib/seawaves.js)
+  // render stepped as the game steps it (a tree with no ships: skipped))
   seaRough: { key: 'falcon', place: { ...SEA, air: { alt: 20, speed: 120 } }, time: 'noon', what: 'the open sea 20 m up, Rough, no ship near: the swell off', sea: true, seaState: 'rough' },
   shipnear: { key: 'cyclon', ship: true, place: { e: SEA.e, z: SEA.z, yaw: 0.5 }, time: 'noon', what: 'the chase camera on a small hull at 40 kn, Moderate: the swell, the wake, spray', wet: true, seaState: 'moderate', load: 'sail' },
 };
@@ -172,7 +170,6 @@ async function openTree(browser, dir, url, profile, quality, tag, errs) {
   await page.evaluate(() => { window.requestAnimationFrame = () => 0; });
   await page.waitForTimeout(300);
   await page.evaluate(ENV);
-  await page.evaluate(`window.__seaWaves = ${seaWaves.toString()};`); // (the ships update's waves until the hydro core's land)
   const cdp = await ctx.newCDPSession(page);
   return { ctx, page, cdp, dir, tag, ev: (f, a) => page.evaluate(f, a) };
 }
@@ -199,7 +196,7 @@ async function startScene(T, name) {
           ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })) };
       }
       if (S.ship && !TEMPLATES[key]) return { skip: 'no ships on this tree' };
-      if (S.seaState && typeof Ship !== 'undefined' && Ship.setSea) { Ship.setSea(S.seaState); if (window.__seaWaves) window.__seaWaves(); } // (the ships update's sea state; its waves, test/lib/seawaves.js)
+      if (S.seaState && typeof Ship !== 'undefined' && Ship.setSea) Ship.setSea(S.seaState); // (the ships update's sea state)
       const T = TEMPLATES[key], tp = { name: T.name, kind: T.kind, parts: templateRows(T) };
       if (S.targets) Settings.set('targets', S.targets); // (the range's mode: the fighters live only in Hostile)
       App.showScene('flight');
