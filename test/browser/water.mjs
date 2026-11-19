@@ -15,13 +15,21 @@
 //  7. no change inland: in Highland Ridge's village, the water's depth (against the old water shader, bench.oldWater)
 //     changes only pixels that are the water's (hiding the water changes them too), and no stencil or veil is on (the
 //     ground's colours away from the water are checked against the commit before by render-bench --same)
+//  8. the swell near a ship (the ships update): with no ship near, none (no grid drawn, the ocean whole); a patrol boat at
+//     her marks turns it on (128² cells of 4 m on High, 64² of 6 m on Low) with the ocean cut under it and a recentre's
+//     fill timed; the shader's wave function run on the GPU with the uniforms as drawn agrees with Ship.wave within 1 mm
+//     at 50 points (and the packer on the CPU); flattened, the grid draws the very ocean it covers (no seam), the waves
+//     on change the picture; under way she lays a wake (its pixels: bench.wake) and throws bow spray. Until the hydro core
+//     lands, the waves are the spec's copy (test/lib/seawaves.js); a tree with no ship skips 8b-e.
 // The console stays clean.     node test/browser/water.mjs
 import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
+import { seaWaves } from '../lib/seawaves.js';
 const srv = await serve(), b = await launch(), errs = [];
 const ok = checks('water: the sea and the lakes with depth');
 const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrain.earthMap.state === 'ready' && Render3D.ready;
 const T_NOON = 70500;
 const BAY = { e: 16400, z: 26400, yaw: 0, air: { alt: 60, speed: 0 } }, SEA = { e: -1344, z: 3967, yaw: 0, air: { alt: 60, speed: 0 } };
+const SHIP_AT = { e: -1344, z: 3967, yaw: 0.5 }; // (the open sea of the render bench, a ship's spawn: her heading)
 const SINK = { e: 3330, z: -30, yaw: 0, air: { alt: 12, speed: 0 } }, HL = { e: 18190, z: 15040, yaw: 0 }, LAND = { e: 1500, z: 0, yaw: 0, air: { alt: 12, speed: 0 } };
 // in the page: start a paused flight at a place (cam: distance, pitch), everything round it built; a frame's pixels in a
 // region (x0..x1, y0..y1 as shares of the screen) as mean RGB; a frame's whole buffer
@@ -154,6 +162,97 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       return { changed, dry, back: window.__same(a, a2), stencil: I.stencil, veils: I.veils };
     }, HL);
     ok(`${T}: inland (Highland Ridge's village) the water's depth changes the water's pixels only (${s7.changed} px, ${s7.dry} of them not water), no stencil or veil, and back to the byte`, s7.dry === 0 && s7.back === 0 && !s7.stencil && s7.veils === 0, s7);
+    // ---- 8. the swell near a ship (the ships update, render3d updateSwell)
+    // a. no ship, no swell: over the open sea a Falcon's frame has no grid on show and no hole in the ocean
+    const s8a = await ev(async (SEA) => { await window.__start('falcon', SEA, [60, 1.2]); const I = Render3D.swellInfo(); return { shown: I.shown, on: I.on, hole: I.hole }; }, SEA);
+    ok(`${T}: with no ship near, no swell: the grid not drawn, the ocean whole (hole ${s8a.hole})`, !s8a.shown && !s8a.on && s8a.hole.join() === '1,1,0,0', s8a);
+    if (await ev(() => !TEMPLATES.cyclon)) { ok(`${T}: (no ship on this tree: the swell's checks skipped)`, true); continue; }
+    // b. a patrol boat at her marks in the open sea (the waves: the hydro core's, else the spec's copy, test/lib/seawaves.js)
+    const mock = await ev(seaWaves);
+    const s8b = await ev(async (SHIP_AT) => {
+      await window.__start('cyclon', SHIP_AT, [45, 0.35]);
+      const v = Flight.active, mid = v.parts.find((q) => q.def.hull && q.def.shull && q.def.shull.ends.fore === 'joint' && q.def.shull.ends.aft === 'joint') || v.parts.find((q) => q.def.hull);
+      const w = v.toWorld(mid.x, mid.y + mid.def.shull.wl, 0), R = v.body.radius, alt = Math.hypot(w.x, w.y, w.z) - R, r0 = Math.hypot(v.x, v.y, v.z);
+      if (Math.abs(alt) > 0.05) { v.x *= (r0 - alt) / r0; v.y *= (r0 - alt) / r0; v.z *= (r0 - alt) / r0; } // (her design waterline at sea level)
+      await window.__settle();
+      window.__buf();
+      const I = Render3D.swellInfo();
+      const ms = []; for (let i = 0; i < 5; i++) ms.push(Render3D.swellRefill());
+      ms.sort((a, b) => a - b);
+      return { I, ms: +ms[2].toFixed(2), hydro: v.hydro };
+    }, SHIP_AT);
+    const amp = s8b.I.W ? [3, 7, 11, 15].map((i) => s8b.I.W[i]) : [];
+    ok(`${T}: a ship near: the swell on, ${s8b.I.N}² cells of ${s8b.I.cell} m round the camera, the ocean cut under it, the waves' amplitudes ${amp.map((a) => a.toFixed(2)).join(', ')} m${mock ? ' (the spec\'s copy of the waves)' : ''}`,
+      s8b.hydro && s8b.I.on && s8b.I.shown && s8b.I.N === (q === 'high' ? 128 : 64) && s8b.I.hole.join() !== '1,1,0,0' && s8b.I.hole[2] > s8b.I.hole[0] && amp.some((a) => a > 0.05), s8b.I);
+    ok(`${T}: filling the grid (a recentre) takes ${s8b.ms} ms (median of 5; spec ≤ 2 ms on the bench's desktop, ${q === 'high' ? 'High' : 'Low'})`, s8b.ms < (q === 'high' ? 6 : 3), s8b.ms);
+    // c. the GPU's swell is the physics' sea: the shader's own wave function (Render3D.swellGLSL) run on the GPU with the
+    // uniforms as drawn, at 50 points over the grid, against Ship.wave there and then (height within 1 mm, slopes 1e-4)
+    const s8c = await ev(() => {
+      const I = Render3D.swellInfo(), cv = document.createElement('canvas'), gl = cv.getContext('webgl2');
+      if (!gl || !gl.getExtension('EXT_color_buffer_float')) return { skip: 'no float render targets' };
+      const N = 50, pts = [];
+      let s = 7; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+      for (let i = 0; i < N; i++) pts.push([(rnd() * 2 - 1) * I.half, (rnd() * 2 - 1) * I.half]);
+      const vs = '#version 300 es\nin vec2 p; void main() { gl_Position = vec4( p, 0.0, 1.0 ); }';
+      const fs = '#version 300 es\nprecision highp float;\n' + Render3D.swellGLSL + `\nuniform vec2 uPts[ ${N} ];\nout vec4 o;\nvoid main() { int i = int( gl_FragCoord.x ); o = vec4( obSwell( uPts[ i ] ), 1.0 ); }`;
+      const sh = (t, src) => { const q = gl.createShader(t); gl.shaderSource(q, src); gl.compileShader(q); if (!gl.getShaderParameter(q, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(q)); return q; };
+      const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr); gl.useProgram(pr);
+      const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, N, 1);
+      const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      gl.viewport(0, 0, N, 1);
+      gl.uniform4fv(gl.getUniformLocation(pr, 'uSwW'), new Float32Array(I.W)); gl.uniform2fv(gl.getUniformLocation(pr, 'uSwP'), new Float32Array(I.P));
+      gl.uniform2fv(gl.getUniformLocation(pr, 'uPts'), new Float32Array(pts.flat()));
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const out = new Float32Array(N * 4); gl.readPixels(0, 0, N, 1, gl.RGBA, gl.FLOAT, out);
+      const t = Ship.seaT(Flight), o = [0, 0, 0];
+      let eh = 0, es = 0, amp = 0;
+      for (let i = 0; i < N; i++) {
+        Ship.wave(I.eA + pts[i][0], -I.zA + pts[i][1], t, o);
+        eh = Math.max(eh, Math.abs(out[i * 4] - o[0])); es = Math.max(es, Math.abs(out[i * 4 + 1] - o[1]), Math.abs(out[i * 4 + 2] - o[2])); amp = Math.max(amp, Math.abs(o[0]));
+      }
+      // (and the packer evaluated with the shader's formula in double precision, on the CPU)
+      let ec = 0;
+      for (let i = 0; i < N; i++) { let h = 0; for (let c = 0; c < 4; c++) { const w = I.W.slice(c * 4, c * 4 + 4); h += w[3] * Math.sin(w[2] * (w[0] * pts[i][0] + w[1] * pts[i][1]) + I.P[c * 2 + 1]); } Ship.wave(I.eA + pts[i][0], -I.zA + pts[i][1], t, o); ec = Math.max(ec, Math.abs(h - o[0])); }
+      return { eh, es, ec, amp };
+    });
+    ok(`${T}: the swell drawn is the physics' sea: the GPU's height within ${s8c.eh != null ? (s8c.eh * 1000).toFixed(3) : '?'} mm of Ship.wave at 50 points (waves up to ${(s8c.amp || 0).toFixed(2)} m), slopes within ${s8c.es != null ? s8c.es.toExponential(1) : '?'}; the packer on the CPU ${s8c.ec != null ? (s8c.ec * 1000).toFixed(3) : '?'} mm`,
+      !!s8c.skip || (s8c.eh <= 0.001 && s8c.es <= 1e-4 && s8c.ec <= 0.001 && s8c.amp > 0.05), s8c);
+    // d. no seam: with the waves flattened, the grid is the ocean it replaces (the same pixels within a hair, its edge
+    // invisible), and the waves on change the picture
+    const s8d = await ev(() => {
+      const v = Flight.active, wu = Ship.waveUniforms;
+      Ship.waveUniforms = (e, n, t, out) => { const o = wu(e, n, t, out); for (let i = 3; i < o.length; i += 6) o[i] = 0; return o; };
+      const flat = window.__buf().buf;
+      v.hydro = false; const sea = window.__buf().buf; const I0 = Render3D.swellInfo(); v.hydro = true;
+      Ship.waveUniforms = wu; const wav = window.__buf().buf;
+      let n = 0, big = 0, sum = 0, nw = 0;
+      for (let i = 0; i < flat.length; i += 4) { const d = Math.max(Math.abs(flat[i] - sea[i]), Math.abs(flat[i + 1] - sea[i + 1]), Math.abs(flat[i + 2] - sea[i + 2])); if (d > 3) n++; if (d > 12) big++; sum += d; if (Math.abs(wav[i] - sea[i]) + Math.abs(wav[i + 1] - sea[i + 1]) + Math.abs(wav[i + 2] - sea[i + 2]) > 12) nw++; }
+      const px = flat.length / 4;
+      return { off: !I0.shown && I0.hole.join() === '1,1,0,0', share: +(n / px).toFixed(5), big: +(big / px).toFixed(5), mean: +(sum / px).toFixed(4), waves: +(nw / px).toFixed(4) };
+    });
+    ok(`${T}: no seam: the swell's grid flattened draws the ocean it covers (${(s8d.share * 100).toFixed(2)}% of the pixels over 3/255 off, ${(s8d.big * 100).toFixed(3)}% over 12, ${s8d.mean}/255 on average), and the waves on change ${(s8d.waves * 100).toFixed(1)}% of the picture`,
+      s8d.off && s8d.share < 0.02 && s8d.big < 0.002 && s8d.mean < 1 && s8d.waves > 0.05, s8d); // (on Low the Fresnel is worked out a vertex: on the grid's 6 m cells a step or two of 255 off the ocean's own)
+    // e. under way: a wake laid behind her (one draw), bow spray; the wake's own pixels
+    const s8e = await ev(async () => {
+      const v = Flight.active, fw = v.axis(1, 0, 0), sp = 12, dt = 1 / 30;
+      v.vx = fw.x * sp; v.vy = fw.y * sp; v.vz = fw.z * sp; v.splashed = true;
+      Render3D.skipDraw = true;
+      let spray = 0;
+      for (let i = 0; i < 12 * 30; i++) {
+        v.x += v.vx * dt; v.y += v.vy * dt; v.z += v.vz * dt; Flight.time += dt;
+        const n0 = FX.list.length; Flight.emitParticles(dt); spray += FX.list.length - n0; FX.update(dt, Flight);
+        Flight.updateCamera(); Render3D.renderFlight(Flight, dt, true);
+        if ((i & 63) === 63) await new Promise((r) => setTimeout(r, 0));
+      }
+      Render3D.skipDraw = false;
+      const I = Render3D.swellInfo(), a = window.__buf().buf; Render3D.bench.wake = false; const c = window.__buf().buf; Render3D.bench.wake = true;
+      v.vx = v.vy = v.vz = 0;
+      return { wakes: I.wakes, wverts: I.wverts, recentres: I.recentres, spray, px: window.__diff(a, c).n };
+    });
+    ok(`${T}: under way at 12 m/s she lays a wake (${s8e.wakes} ribbon set, ${s8e.wverts} vertices, ${s8e.px} px of foam on screen) and throws bow spray (${s8e.spray} puffs in 12 s), the grid following (${s8e.recentres} recentres)`,
+      s8e.wakes === 1 && s8e.wverts > 50 && s8e.px > 200 && s8e.spray > 5 && s8e.spray < 12 * 30, s8e);
   }
   await ctx.close();
 }

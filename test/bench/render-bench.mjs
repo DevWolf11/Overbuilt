@@ -23,6 +23,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { execSync } from 'node:child_process';
 import { ROOT, launch, serve, watch, openGame } from '../lib/browser.mjs';
+import { seaWaves } from '../lib/seawaves.js';
 
 // ---------------------------------------------------------------------------------------------------------- constants
 // Found with --find-times (on big-ga, 2026-11-04) and committed, so every tree draws the same moments and places:
@@ -81,6 +82,13 @@ const SCENES = {
   // anti-drone gun's airbursts as in cuas, and a burning plane crossing overhead; the same calls on every tree, as battle's.
   // Judged only by its gpuMs B/A (≤ 1.25): its draws, textures and geometries grow by the drones' and wrecks' own models)
   combo: { key: 'tk34', place: HL, time: 'noon', what: 'eight wrecks (the 3 nearest burning and smoking, as the game has it), two drones under airburst fire and a burning plane overhead', props: ['hl'], pre: 'wrecks8', load: 'combo' },
+  // (the ships update's sea, spec-ships §15: named with --scenes only. seaRough: the open sea 20 m under a plane on a
+  // Rough sea with no ship near, so the swell stays off: pictures and cost as the base tree's. shipnear: the chase camera
+  // on a small hull at 40 kn in a Moderate sea (the swell round her, her wake and spray): she sails 12 s first, the
+  // render stepped as the game steps it (a tree with no ships: skipped). Until the hydro core's waves land, the spec's copy
+  // of them, test/lib/seawaves.js)
+  seaRough: { key: 'falcon', place: { ...SEA, air: { alt: 20, speed: 120 } }, time: 'noon', what: 'the open sea 20 m up, Rough, no ship near: the swell off', sea: true, seaState: 'rough' },
+  shipnear: { key: 'cyclon', ship: true, place: { e: SEA.e, z: SEA.z, yaw: 0.5 }, time: 'noon', what: 'the chase camera on a small hull at 40 kn, Moderate: the swell, the wake, spray', wet: true, seaState: 'moderate', load: 'sail' },
 };
 const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk', 'clouds1k', 'clouds2k', 'cloudsdusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'], COMBO = ['combo'];
 const PROFILES = {
@@ -96,7 +104,7 @@ const A_DIR = opt('base', null) ? path.resolve(opt('base')) : null, B_DIR = ROOT
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'high,low').split(',');
 const FRAMES = +opt('frames', 2), ROUNDS = +opt('rounds', 16), FOV = +opt('fov', 100), CPU_FRAMES = 12;
 const SAVE = opt('save', null), SHOTS = opt('shots', null);
-const WET = ['coast', 'slipway', 'lake', 'sea300', 'sea3k']; // (the water's depth's scenes: named with --scenes only)
+const WET = ['coast', 'slipway', 'lake', 'sea300', 'sea3k', 'seaRough', 'shipnear']; // (the water's depth's scenes and the ships update's sea: named with --scenes only)
 let LIST = opt('scenes', Object.keys(SCENES).filter((k) => !SCENES[k].drone && !SIM.includes(k) && !WET.includes(k)).join(',')).split(',');
 for (const k of [...PROF.filter((p) => !PROFILES[p]), ...LIST.filter((s) => !SCENES[s]), ...QUAL.filter((q) => !['high', 'low'].includes(q))]) throw new Error('unknown profile, scene or quality: ' + k);
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
@@ -164,6 +172,7 @@ async function openTree(browser, dir, url, profile, quality, tag, errs) {
   await page.evaluate(() => { window.requestAnimationFrame = () => 0; });
   await page.waitForTimeout(300);
   await page.evaluate(ENV);
+  await page.evaluate(`window.__seaWaves = ${seaWaves.toString()};`); // (the ships update's waves until the hydro core's land)
   const cdp = await ctx.newCDPSession(page);
   return { ctx, page, cdp, dir, tag, ev: (f, a) => page.evaluate(f, a) };
 }
@@ -189,6 +198,8 @@ async function startScene(T, name) {
           ['drLink', -0.1, 0.0325, 0, { att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: 0.15, att: 0 }], ['drMotorS', 0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drMotorS', -0.15, 0.0475, 0, { z: 0.15, att: 0 }],
           ['drMotorS', -0.15, 0.0475, 0, { z: -0.15, att: 0 }], ['drBattS', -0.03, -0.0425, 0, { att: 0 }], ['drCharge', 0.06, -0.1125, 3, { att: 8 }]].map((r) => ({ type: r[0], x: r[1], y: r[2], rot: r[3] || 0, flip: r[1] < 0, ...(r[4] || {}) })) };
       }
+      if (S.ship && !TEMPLATES[key]) return { skip: 'no ships on this tree' };
+      if (S.seaState && typeof Ship !== 'undefined' && Ship.setSea) { Ship.setSea(S.seaState); if (window.__seaWaves) window.__seaWaves(); } // (the ships update's sea state; its waves, test/lib/seawaves.js)
       const T = TEMPLATES[key], tp = { name: T.name, kind: T.kind, parts: templateRows(T) };
       if (S.targets) Settings.set('targets', S.targets); // (the range's mode: the fighters live only in Hostile)
       App.showScene('flight');
@@ -326,6 +337,17 @@ const LOAD = `window.__load = (kind) => {
     if (typeof Death !== 'undefined' && typeof Death.ignite === 'function') Death.ignite(e1, eng, 1, v, Flight);
     for (const e of [e1, e2]) Combat.damage(e, e.control, 1e6, 'shot', Flight, v);
     tracers(40, 30, 300, 0, 2);
+  } else if (kind === 'sail') {
+    // (the ships update) she sails 12 s at 40 kn on her heading, her design waterline at sea level, the render stepped as
+    // the game steps it (the wake laid, spray thrown, the grid recentred), then the chase camera settles behind her
+    const mid = v.parts.find((q) => q.def.hull && q.def.shull) || v.parts[0], w = v.toWorld(mid.x, mid.y + (mid.def.shull ? mid.def.shull.wl : 0), 0), alt = Math.hypot(w.x, w.y, w.z) - b.radius;
+    v.x -= up.x * alt; v.y -= up.y * alt; v.z -= up.z * alt; v.splashed = true;
+    const sp = 20.6, fx = v.axis(1, 0, 0), dt = 1 / 30; v.vx = fx.x * sp; v.vy = fx.y * sp; v.vz = fx.z * sp; v.av = { x: 0, y: 0, z: 0 };
+    for (const q of v.parts) { if (q.def.screw) q.rpm = 280; if (q.def.foil) q.rud = 0; }
+    const sk = Render3D.skipDraw; Render3D.skipDraw = true;
+    for (let i = 0; i < 12 * 30; i++) { v.x += v.vx * dt; v.y += v.vy * dt; v.z += v.vz * dt; Flight.time += dt; Flight.emitParticles(dt); FX.update(dt, Flight); Flight.updateCamera(); Render3D.renderFlight(Flight, dt, true); }
+    Render3D.skipDraw = sk;
+    return { fx: FX.list.length, swell: Render3D.swellInfo ? Render3D.swellInfo() : null };
   } else if (kind === 'wrecks8') {
     // (before the warm-up) eight TK-34s knocked out round the street, 30-95 m ahead, frozen where they stand: two by an
     // ammunition detonation 5 s ago (burning), three 60 s ago (smoking), three 150 s ago (a wisp); their blasts cleared

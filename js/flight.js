@@ -1779,6 +1779,7 @@ const Flight = {
         FX.splash(v.body, { x: v.x, y: v.y, z: v.z }, Terrain.normalAt(v.body, L.a, L.z), 30);
       }
       if (!v.splashed) v._splashFx = false;
+      if (v.hydro && typeof Ship !== 'undefined') Ship.fx(v, dt, this); // [WP2] (the ships update: bow spray, funnel smoke, the screws' wash)
     }
   },
 
