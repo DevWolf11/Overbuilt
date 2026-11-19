@@ -1413,6 +1413,9 @@ const Combat = (() => {
     // for an old flight, one look along the vessels a frame)
     S.dr = !!(typeof GroundAI !== 'undefined' && GroundAI.dw) || F.vessels.some((o) => o.kind === 'drone' || (o.cuas && o.cuas.length) || (o.docks && o.docks.length));
     if (S.dr) Drone.frame(F, dt); // (links, batteries, a carrier's last flight, clean-up, the AI's launches, marks, alarms)
+    // (the ships update: a craft afloat anywhere; for an old flight, one look along the vessels a frame)
+    S.sea = F.vessels.some((o) => o.hydro);
+    if (S.sea) Ship.frame(F, dt); // (mooring, collisions, flooding, fires, damage control, fate, the AI: ship.js)
     const onEarth = v.body === EARTH, near = onEarth && len(v.x - at(8000, 0, 0).x, v.y - at(8000, 0, 0).y, v.z - at(8000, 0, 0).z) < 60000;
     const m = mode();
     // the range: spawn once the player is near it (and on), keep it while they stay
@@ -1532,7 +1535,7 @@ const Combat = (() => {
   function reset(F) {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
-    S.smoke = []; S.gai = 0; S.rip = null; S.dr = false;
+    S.smoke = []; S.gai = 0; S.rip = null; S.dr = false; S.sea = false;
     // a new flight stands the props it knocked over up again (not a respawn in a battle, which keeps the field as it is,
     // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
     if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();

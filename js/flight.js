@@ -265,6 +265,8 @@ const Flight = {
     const v = this.active;
     if (!v || !v.parts.length) return false;
     if (v.landed && v.speed() < 0.2) return true;
+    // (the ships update: a ship afloat, still, her telegraph at Stop, is moored for the warp: she sleeps on the swell)
+    if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel) { Ship.moor(v, this); return true; }
     if (v.thrust > 0) return 'engines';
     if (v.altitude() < v.body.warpAlt) return v.body.atmoHeight ? 'atmosphere' : v.body.star ? 'star' : 'surface';
     return true;
@@ -1171,7 +1173,7 @@ const Flight = {
           if (v === this.active) { near.push(v); continue; }
           const d = this.dist(this.absPos(v), ap);
           if (this.stepsNear(v, d)) near.push(v);
-          else if (!v.landed) far.push(v);
+          else if (!v.landed && !v.hydro) far.push(v); // (the ships update: one afloat out of range waits where it is, never on rails)
         }
         // (frame times come in a hair over 1/60 s, 16.7 or 16.8 ms: a step may run up to 5% long rather than add a third)
         const n = Math.max(1, Math.ceil(total / (warp >= 4 ? PHYS_DT * 2 : PHYS_DT) - 0.05));
@@ -1239,7 +1241,8 @@ const Flight = {
   // falls and crashes, instead of vanishing on rails a few km off). d: its distance from the active craft.
   // A tank parked while its drone flies is always stepped, however far the drone (its kit, repairs and the AI's targeting
   // go on: plan I14).
-  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier); },
+  // (the ships update) and an AI ship out to SHIP.aiNear (12 km): the computer's fleet keeps sailing
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier) || (v.hydro && !!v.ai && d < SHIP.aiNear); },
 
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
@@ -1601,6 +1604,7 @@ const Flight = {
     for (const v of list.slice()) {
       if (v.dead) continue;
       if (v !== this.active && v.landed && v.restTime > 2 && !v.thrust) continue; // sleeping
+      if (v.moored && v !== this.active) { Ship.drift(v, h, this); continue; } // (the ships update: moored, it bobs on the swell, no physics)
       v.physicsStep(h, this);
       this.checkSOI(v, this.time);
     }
@@ -1647,7 +1651,8 @@ const Flight = {
 
   // On-rails Kepler propagation with event detection (atmosphere/surface, SOI changes).
   railsAdvance(v, T, isActive, t0) {
-    if (v.landed && v.speed() < 0.2) return T;
+    if ((v.landed || v.moored) && v.speed() < 0.2) return T;
+    if (v.hydro && (v.afloat || v.landed)) return T; // (the ships update: afloat is no orbit: it waits where it is)
     v.av = v3();
     let done = 0;
     const put = (s) => { v.x = s.x; v.y = s.y; v.z = s.z; v.vx = s.vx; v.vy = s.vy; v.vz = s.vz; };

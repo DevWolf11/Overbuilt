@@ -647,6 +647,7 @@ class Vessel {
   // levelling. null leaves it free.
   turnTarget(sim, engF, dt = 1 / 120) {
     if (this.gear.length) return null; // (running gear rights the hull itself: Gear.ground)
+    if (this.sh && this.kind === 'ship') return null; // (the ships update: a ship's rudders steer her, not reaction torques: Ship.pre)
     const P = this.pilot, c = this.ctl, wb = this.bodyAV();
     this.planeLaw = false; this.pitchLimit = null; this.limitOver = false; // (set below: a plane flown by its own laws; what held its pull back, and whether it is past it)
     const aimWas = this._aimOn; this._aimOn = false; // (was the instructor flying it last step: else it starts afresh)
@@ -1141,6 +1142,7 @@ class Vessel {
     const wb = this.bodyAV(v3());
 
     if (this.kind === 'drone' && !this.isDebris) Drone.pre(this, dt, sim); // (the big update: a drone's law sets its throttle first, drone.js)
+    if (this.sh) Ship.pre(this, dt, sim); // (the ships update: the helm, the telegraph and the engines' demand of a craft that floats, ship.js)
     const eng = this.applyEngines(dt, rho, vb, sim);
     this.spinRotors(dt);
     const T = eng.T, Fb = v3(eng.F.x, eng.F.y, eng.F.z); // torque and force, part axes
@@ -1386,6 +1388,9 @@ class Vessel {
       if (this.kind === 'plane') this.rollNat = 0;
       this.strain = 0; this.overspeed = 0; this.overWarn = 0; this.overMach = false; this.nz = 0;
     }
+    // (the ships update) the water on a craft that floats: buoyancy ring by ring, the hull's drag and lift, its screws and
+    // rudders, into this.hF and this.hT (part axes; ship.js). Not in this.lift (the air's alone), in gForce
+    if (this.sh) Ship.forces(this, dt, vb, wb, sim);
     if (this.updateHeat(dt, rho, v, vb, sim)) return;
 
     // integrate: forces into sim axes, then Euler's equations for the spin
@@ -1393,13 +1398,20 @@ class Vessel {
     ax += Fw.x * im; ay += Fw.y * im; az += Fw.z * im;
     const Fa = qrot(this.q, Fb.x - eng.F.x, Fb.y - eng.F.y, Fb.z - eng.F.z, _t2);
     this.lift = (Fa.x * this.x + Fa.y * this.y + Fa.z * this.z) / r; // aerodynamic force, upwards
+    const sh = this.sh;
+    if (sh && this.hF) { // (the water's force, and its added mass: the step's acceleration scaled on each part axis, ship.js)
+      const H = qrot(this.q, this.hF.x, this.hF.y, this.hF.z, _t3);
+      ax += H.x * im; ay += H.y * im; az += H.z * im;
+      if (sh.fsub > 0) { const A = Ship.addedMass(this, ax, ay, az, gk, _t3); ax = A.x; ay = A.y; az = A.z; }
+    }
     this.vx += ax * dt; this.vy += ay * dt; this.vz += az * dt;
     if (this.kind === 'plane') { // (the rate the flight path turns about the pitch axis: what holds the AoA, for a plane's AoA limit)
       const v2 = this.vx * this.vx + this.vy * this.vy + this.vz * this.vz, R = qrot(this.q, this.pilot.R.x, this.pilot.R.y, this.pilot.R.z, _t3);
       this.pathQ = v2 > 1 ? ((this.vy * az - this.vz * ay) * R.x + (this.vz * ax - this.vx * az) * R.y + (this.vx * ay - this.vy * ax) * R.z) / v2 : 0;
     }
     const Iw = this.mulI(wb, _t2), gyro = cross3(wb, Iw, _t3);
-    const dw = this.mulInvI(v3(T.x - gyro.x, T.y - gyro.y, T.z - gyro.z));
+    const dw = this.mulInvI(sh && this.hT ? v3(T.x + this.hT.x - gyro.x, T.y + this.hT.y - gyro.y, T.z + this.hT.z - gyro.z) : v3(T.x - gyro.x, T.y - gyro.y, T.z - gyro.z));
+    if (sh && sh.fsub > 0) { const k = sh.kI, f = sh.fsub; dw.x /= 1 + k.x * f; dw.y /= 1 + k.y * f; dw.z /= 1 + k.z * f; } // (the water's added inertia)
     wb.x += dw.x * dt; wb.y += dw.y * dt; wb.z += dw.z * dt;
     const sp = len3(wb);
     if (sp > MAX_SPIN) { wb.x *= MAX_SPIN / sp; wb.y *= MAX_SPIN / sp; wb.z *= MAX_SPIN / sp; }
@@ -1407,7 +1419,7 @@ class Vessel {
     this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
     this.integrateSpin(dt);
 
-    this.thrust = eng.total;
+    this.thrust = sh ? eng.total + sh.T : eng.total; // (a ship's screws push too)
     this.accel = eng.total / m0;
     this.gForce = Math.hypot(ax - gk * this.x, ay - gk * this.y, az - gk * this.z) / G0;
     this.ground(dt, sim);
@@ -1469,8 +1481,11 @@ class Vessel {
     // near, the same steps as ever
     const pb = b === EARTH && typeof Props !== 'undefined' ? Props.solidAt(this, dt) : null;
     if (!pb && r - this.reach > R + b.terrainMax + 5) return clear();
+    // (the ships update: a craft that floats meets the sea bed, the ground and the carriers' decks, never the sea's
+    // surface: ship.js floats it; one copy of the crash, dent, friction and rest rules below, with the bed's own limit)
+    const hy = this.sh, surf = hy ? Ship.floorAt : Terrain.surfaceAt;
     const L0 = this.surfaceSpot(), dk = Terrain.deckAt(b, L0.a, L0.z, this.reach + 2); // part of the craft may be over a carrier's deck
-    const h0 = Math.max(Terrain.surfaceAt(b, L0.a, L0.z), dk === dk ? dk : -Infinity), lim0 = R + h0 + 2 + this.reach * 0.3;
+    const h0 = Math.max(surf(b, L0.a, L0.z), dk === dk ? dk : -Infinity), lim0 = R + h0 + 2 + this.reach * 0.3;
     if (!pb && r - this.reach > lim0) return clear();
     const contacts = [], loc = {}, cz = this.com.z || 0;
     const probe = (k, rad, wheel) => {
@@ -1478,13 +1493,16 @@ class Vessel {
       const px = this.x + o.x, py = this.y + o.y, pz = this.z + o.z, pr = Math.hypot(px, py, pz);
       if (pr - rad > lim0) return;
       Terrain.locate(b, px, py, pz, loc);
-      const pen = R + Terrain.surfaceAt(b, loc.a, loc.z) - (pr - rad);
+      const pen = R + surf(b, loc.a, loc.z, pr - rad - R) - (pr - rad);
       if (pen <= 0) return;
-      const n = Terrain.normalAt(b, loc.a, loc.z);
+      const n = hy ? Ship.floorNormal(b, loc.a, loc.z) : Terrain.normalAt(b, loc.a, loc.z);
       if (rad) { o.x -= n.x * rad; o.y -= n.y * rad; o.z -= n.z * rad; }
-      // deep under a deck's edge: that's the ship's side, not the deck (a crash, not a lift onto it)
-      const side = pen > 4 && Terrain.deckAt(b, loc.a, loc.z) === Terrain.deckAt(b, loc.a, loc.z);
-      contacts.push({ p: k.p, k, r: o, pen, n, wheel, side, float: !!k.p.def.float, water: Terrain.waterAt(b, loc.a, loc.z) });
+      // deep under a deck's edge: that's the ship's side, not the deck (a crash, not a lift onto it; a craft that floats
+      // meets a carrier's hull as a box instead: Ship.bump)
+      const side = !hy && pen > 4 && Terrain.deckAt(b, loc.a, loc.z) === Terrain.deckAt(b, loc.a, loc.z);
+      const c = { p: k.p, k, r: o, pen, n, wheel, side, float: !!k.p.def.float, water: hy ? false : Terrain.waterAt(b, loc.a, loc.z) };
+      if (hy) c.bed = Terrain.waterAt(b, loc.a, loc.z); // (aground under water: the sea bed's limit and grip)
+      contacts.push(c);
     };
     for (const k of this.hull) probe(k, 0, false);
     for (const k of this.wheelPts) if (!(k.retract && this.gearUp)) probe(k, k.r, true);
@@ -1496,7 +1514,7 @@ class Vessel {
     const broken = new Set(), dents = new Map(), vp = v3();
     for (const k of contacts) {
       this.pointVel(k.r, vp);
-      const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : 1), s = -dot3(vp, k.n);
+      const lim = (k.p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (k.water ? 1.8 : k.bed ? SHIP.BED_CRASH : 1), s = -dot3(vp, k.n);
       if (k.side || s > lim * (hasCombat() ? 1.6 : 1)) broken.add(k.p);
       else if (hasCombat() && s > lim * 0.75) dents.set(k.p, Math.max(dents.get(k.p) || 0, s / lim));
       // a spinning propeller or rotor that touches the ground shatters
@@ -1562,7 +1580,7 @@ class Vessel {
           t.x = vp.x - n.x * vnn; t.y = vp.y - n.y * vnn; t.z = vp.z - n.z * vnn;
           const vt = len3(t);
           if (vt < 1e-6) continue;
-          const dir = v3(t.x / vt, t.y / vt, t.z / vt), mu = k.water ? 0.15 : 0.9;
+          const dir = v3(t.x / vt, t.y / vt, t.z / vt), mu = k.water ? 0.15 : k.bed ? SHIP.BED_MU : 0.9;
           impulse(k, dir, Math.max(-vt / effMass(k, dir), -mu * jn));
         }
       }

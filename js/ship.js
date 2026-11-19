@@ -34,6 +34,14 @@
 //   fsub      the submerged share of the weight (0..1); B (the buoyancy, N); Lwl, Swet (waterline length, wetted
 //             area); draft; level (still water's height: 0 at sea, a lake's surface inland); depth (water under her);
 //             fade (the waves' share there); moorT (s still, toward mooring); lodT
+//   (and the hydro core's: ax, ay the hull's axes; kM, kI the added mass per part axis; scr, fl screws and foils copy by
+//   copy; pow the engines' share now (spooling), dem the helm's demand, T the screws' thrust (N, in v.thrust too); tk,
+//   tkT, tkN the telegraph key; man the stick on the rudder; gm, Tbar, Vol, Awp, cb; the frame U, E, N / Ub, Eb, Nb)
+// Per vessel (hydro): afloat (her buoyancy over 5 % of her weight: not splashed, which stays the old solid sea's), heel
+// (+ starboard down), trim (+ bow down), draft; moored and mo (asleep on the swell, flight.js physicsTick drifts her).
+// The helm's interface (WP3's keys and touch, the AI): Ship.setTel(v, n) / telStep(v, ±1) or sh.tel; W/S on ctl.v step it
+// too (a tap a step, held a step every TEL_REPEAT s after TEL_HOLD s); the rudder is ctl.h × its throw, let go the heading
+// hold (sas 'hold'; 'manual' centres it); Ship.heading(v, v.sh) her heading (rad, clockwise from game north).
 // Saved per part (GV_SAVE, when the damage package adds them): p.holes, p.water, p.rud, p.fire; per vessel: sh: { tel,
 // dcPri, ciwsOn } and sas.
 
@@ -41,10 +49,13 @@
 const SHIP = {
   // ---- water and the hull's forces (§4.2-4.3)
   RHO: 1025, NU: 1.19e-6,            // sea water's density (kg/m³) and kinematic viscosity (m²/s)
-  latLin: 1.0, cross: 0.9,           // lateral force: linear lift C_lin = latLin·π·T̄/L_wl (refreshed every LAT_T s), cross-flow drag C_x
+  latLin: 2.0, cross: 0.9,           // lateral force: linear lift C_lin = latLin·π·T̄/L_wl (each step from the last T̄, L_wl), cross-flow drag C_x
+  //   (latLin 2, the spec's 1: Clarke's (1 + 0.4·C_B·B/T) for a beamy hull, tuned by the Cyclon's turning trial)
   LAT_T: 0.5,
-  planeK: 1.3, dispK: 0.2,           // strip planing lift on plane: true hulls, and on the rest
+  planeK: 0.6, dispK: 0.2,           // strip planing lift on plane: true hulls, and on the rest (planeK 0.6, the spec's 1.3: at 1.3 the 110 t
+  //   Cyclon planed at 1° of trim and 43 kn on 4 MW, half again Savitsky's lift; tuned by her speed trial: 33 kn)
   heaveCd: 1.0, planeFade: 0.15,     // heave drag; the vertical terms fade in over the first planeFade m of immersion
+  heaveLin: 0.4,                     // and linear heave damping (the waves a heaving hull makes), heaveLin·ρ·√(g·T̄) per m² of waterplane
   CF_RE: 1e5, CF_LOW: 0.0083,        // ITTC-57 friction C_f = 0.075/(log10 Re − 2)², and its value under Re 1e5
   // wave-making and residual resistance R_w = B·C_wr(Fn), piecewise linear (flat past the last Froude number)
   CWR_FN: [0, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.80, 1.2, 2.0],
@@ -55,6 +66,7 @@ const SHIP = {
   // ---- added mass and damping (§4.7): a step's acceleration ÷ (1 + k·fsub), per part axis
   ADD_M: { x: 0.05, y: 0.8, z: 0.6 }, ADD_I: { x: 0.15, y: 0.6, z: 0.8 }, // (rotations: x roll, y yaw, z pitch)
   rollZeta: 0.07, bilgeKeel: 0.03,   // roll damping ratio (+ def.shull.bk on hulls with bilge keels)
+  rollZV: 0.15,                      // + this × her Froude number (to 1.5): the lift a hull under way meets rolling (Ikeda's lift damping)
   STAB_T: 0.5, STAB_HEEL: 1,         // GM_now from the last STAB_T s's righting slope, past STAB_HEEL° of heel
   // ---- foils: rudders, hydrofoils, skegs (§4.4)
   FOIL: { slope: 0.9, stall: 22, post: 65, postMin: 0.5, cd0: 0.012, e: 0.8, stallCd: 1.2, sub: 0.8, wash: 0.8, washL: 3, washZ: 0.6, washY: 1, brk: 1.5 },
@@ -67,8 +79,9 @@ const SHIP = {
   TEL: [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.8, 1.0], // the telegraph's demand, Full Astern … Flank (tel −3 … 4)
   TEL_NAMES: ['Full astern', 'Half astern', 'Slow astern', 'Stop', 'Slow', 'Half', 'Full', 'Flank'],
   ASTERN: 0.7,                       // thrust efficiency going astern
+  SPOOL: 8,                          // s a diesel takes from idle to full load (an engine's own def.engine.spool: a gas turbine's 15)
   TEL_HOLD: 0.5, TEL_REPEAT: 0.35,   // a held W/S steps again after TEL_HOLD s, then every TEL_REPEAT s
-  SCREW: { k0: 0.75, va: 0.9, vmin: 0.5, sub: 0.5, rpm: 600 }, // static thrust k0·(2ρA·P²)^(1/3); advance speed va·u; surfaces over sub·D; rpm = rpm/D·√|demand|
+  SCREW: { k0: 0.75, va: 1.1, vmin: 0.5, sub: 0.5, rpm: 600, app: 0.012 }, // static thrust k0·(2ρA·P²)^(1/3); advance speed va·u (past 1: the thrust deduction of a fast hull with no wake to gain from); surfaces over sub·D; rpm = rpm/D·√|demand|; its shaft and brackets' drag area app·D²
   JET: { t0: 0.6, eta0: 0.35, eta1: 0.35, v0: 5, v1: 18, bucket: 0.5 }, // a waterjet: t0 of a screw's static thrust; η = eta0 + eta1·smoothstep(v0, v1, V); astern bucket
   OUTBOARD_STEER: 30,
   // ---- the helm (§4.6)
@@ -137,6 +150,12 @@ const Ship = (() => {
   // which hull segments meet and which ends lie open, its screws, foils, rudders, engines and decks. The helm's state
   // (telegraph, rudder, heading hold, damage control's priority, point defence) carries over a rebuild, as do the water
   // in a compartment whose hull part is still aboard.
+  // Each ring also carries what the hydro step reads every step: its base point bx, by, bz (the part's own y = 0, z = 0
+  // at the ring's station, part space), tau (the keel's slope there in the part's own frame, rad, + rising toward the
+  // bow: her trim comes in through the flow), cb2 (cos² of its deadrise), cpl (its planing lift coefficient), kf (its
+  // hull's form factor) and depth (keel to deck). v.sh gains the hull's axes (ax along it, ay up it, part space), the
+  // added mass's coefficients on the part axes (kM, kI), the screws and foils copy by copy (scr, fl), the propulsion's
+  // and the helm's state, the frame and the water under her, and the last step's per-ring results.
   function groups(v) {
     const was = v.sh, hulls = [], rings = [], comps = [], thrust = [], foils = [], rudders = [], engines = [], decks = [];
     for (const p of v.parts) {
@@ -149,16 +168,22 @@ const Ship = (() => {
       if (d.deck) decks.push(p);
     }
     const old = new Map(was ? was.comps.map((c) => [c.parts[0].id, c]) : []);
+    let big = null; // (the longest hull part: its axes are the hull's)
     for (const p of hulls) {
       const H = shullOf(p.def), o = partPt(p, 0, 0), ax = partPt(p, 1, 0), ay = partPt(p, 0, 1), z0 = partZ(p);
       const ex = { x: ax.x - o.x, y: ax.y - o.y, z: 0 }, ey = { x: ay.x - o.x, y: ay.y - o.y, z: 0 }, ci = comps.length;
       const at = (lx, ly, lz, out, k) => { const q = partPt(p, lx, ly); out[k] = q.x; out[k + 1] = q.y; out[k + 2] = z0 + lz; };
+      const S = p.def.shull;
       for (const R of H.phys) {
         const P = new Float32Array(R.K * 3);
         for (let i = 0; i < R.K; i++) at(R.x, R.P[2 * i], R.P[2 * i + 1], P, 3 * i);
-        const c = partPt(p, R.x, R.yk);
-        rings.push({ p, ci, R, x: c.x, y: c.y, z: z0, ex, ey, P, dx: R.dx, A: R.A, cy: R.cy });
+        const c = partPt(p, R.x, R.yk), b = partPt(p, R.x, 0);
+        const k0 = shullSec(S.st, R.x - 0.25)[1], k1 = shullSec(S.st, R.x + 0.25)[1];
+        const beta = R.yk < S.wl ? Math.atan((S.wl - R.yk) / Math.max(R.bw, 0.05)) / Math.max(1, R.nb) : 0;
+        rings.push({ p, ci, R, x: c.x, y: c.y, z: z0, ex, ey, P, dx: R.dx, A: R.A, cy: R.cy, bx: b.x, by: b.y, bz: z0,
+          tau: Math.atan((k1 - k0) / 0.5), cb2: Math.cos(beta) ** 2, cpl: S.plane ? SHIP.planeK : SHIP.dispK, kf: S.k || 0.15, depth: Math.max(0.05, R.yd - R.yk) });
       }
+      if (!big || p.def.w > big.def.w) big = p;
       const a = partPt(p, H.x0, 0), b = partPt(p, H.x1, 0), prev = old.get(p.id);
       comps.push({ parts: [p], x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), V: H.vol, W: prev ? prev.W : Number.isFinite(p.water) ? p.water : 0, holes: prev ? prev.holes : [] });
     }
@@ -176,47 +201,677 @@ const Ship = (() => {
       if (E.aft === 'joint' && !met.has(p.id + 'a')) open.push({ p, end: 'aft' });
       if (E.fore === 'joint' && !met.has(p.id + 'f')) open.push({ p, end: 'fore' });
     }
+    // the hull's axes in part space (a ship's: x along, y up; pontoons turned along a seaplane's nose: +y along, −x up),
+    // and the added mass's coefficients on the part axes they fall on
+    let ax = { x: 1, y: 0, z: 0 }, ay = { x: 0, y: 1, z: 0 };
+    if (big) { const o = partPt(big, 0, 0), a = partPt(big, 1, 0), u = partPt(big, 0, 1); ax = { x: a.x - o.x, y: a.y - o.y, z: 0 }; ay = { x: u.x - o.x, y: u.y - o.y, z: 0 }; }
+    const M = SHIP.ADD_M, I = SHIP.ADD_I, alongX = Math.abs(ax.x) >= Math.abs(ax.y);
+    const kM = alongX ? { x: M.x, y: M.y, z: M.z } : { x: M.y, y: M.x, z: M.z }, kI = alongX ? { x: I.x, y: I.y, z: I.z } : { x: I.y, y: I.x, z: I.z };
+    // screws and foils copy by copy (a twin pair's two), each with its own axes in part space
+    const axes = (p) => { const o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1); return { o, ex: { x: a.x - o.x, y: a.y - o.y, z: 0 }, ey: { x: u.x - o.x, y: u.y - o.y, z: 0 } }; };
+    const scr = [], fl = [];
+    for (const p of thrust) if (p.def.screw) { const U = axes(p); for (const z of partZs(p)) scr.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, D: p.def.screw.D, eta: p.def.screw.eta || 0.6, T: 0 }); }
+    for (const p of foils) { const U = axes(p); for (const z of partZs(p)) fl.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, ey: U.ey, f: p.def.foil, F: 0 }); }
+    const n = rings.length;
     v.sh = {
       rings, comps, hulls, joins, open, thrust, foils, rudders, engines, decks,
       tel: was ? was.tel : 0, rud: was ? was.rud : 0, hold: was ? was.hold : null, dcPri: was ? was.dcPri : 'auto', ciwsOn: was ? was.ciwsOn : true,
       fsub: was ? was.fsub : 0, B: was ? was.B : 0, Lwl: was ? was.Lwl : 0, Swet: was ? was.Swet : 0, draft: was ? was.draft : 0,
       level: was ? was.level : 0, depth: was ? was.depth : Infinity, fade: was ? was.fade : 0, moorT: 0, lodT: 0,
+      // (the hull's axes and added mass; the screws and foils; pow: the share of the shaft power the engines give now, dem:
+      // what the helm asks, T: the screws' thrust (N); tk, tkT, tkN: the telegraph key held, for how long, the next step's
+      // time; man: the stick has the rudder; lake; wx, wy, wz: where the water was last looked at; gm: her metacentric
+      // height now; Tbar: mean draft; the frame (U, E, N sim axes; Ub, Eb, Nb part axes; e0, n0 her east and north);
+      // per ring: immersed area, local centroid, waterline chord, wetted girth, keel depth)
+      ax, ay, kM, kI, scr, fl, pow: was ? was.pow : 0, dem: was ? was.dem : 0, T: 0, lake: was ? was.lake : false,
+      tk: 0, tkT: 0, tkN: 0, man: false, gm: was ? was.gm : 1, gmT: 0, Tbar: was ? was.Tbar : 0, Vol: 0, Awp: 0, cb: v3(),
+      wx: NaN, wy: 0, wz: 0, U: v3(), E: v3(), N: v3(), Ub: v3(), Eb: v3(), Nb: v3(), e0: 0, n0: 0,
+      ra: new Float64Array(n), rly: new Float64Array(n), rlz: new Float64Array(n), rb: new Float64Array(n), rg: new Float64Array(n), rk: new Float64Array(n),
     };
+    if (v.afloat === undefined) { v.afloat = false; v.moored = false; v.heel = 0; v.trim = 0; v.draft = 0; }
     return v.sh;
   }
-  // The helm and the engines' demand, before applyEngines (vessel.js physicsStep, v.hydro): the telegraph and rudder
-  // from the kind's inputs, the heading hold, ride control; v.throttle for air engines on a ship. [WP1]
-  function pre(v, dt, sim) {}
+
+  // ---- the frame and the water under her
+  const _L = {}, WV = [0, 0, 0], ZUP = { x: 0, y: 0, z: 1 };
+  // the local up, east and game north (sim axes) at her centre of mass, the same in part axes, and her east and north (m)
+  function frameOf(v, S) {
+    const r = Math.hypot(v.x, v.y, v.z) || 1, U = S.U, E = S.E, N = S.N;
+    U.x = v.x / r; U.y = v.y / r; U.z = v.z / r;
+    cross3(U, ZUP, E); if (len3(E) < 1e-9) { E.x = 1; E.y = 0; E.z = 0; } norm3(E);
+    cross3(U, E, N); // (game north is the sim's −north: up × east)
+    qunrot(v.q, U.x, U.y, U.z, S.Ub); qunrot(v.q, E.x, E.y, E.z, S.Eb); qunrot(v.q, N.x, N.y, N.z, S.Nb);
+    const b = v.body;
+    Terrain.locate(b, v.x, v.y, v.z, _L);
+    S.e0 = b.padAngle != null ? -wrapAngle(_L.a - b.padAngle) * b.radius : _L.a * b.radius; S.n0 = -_L.z;
+    return r;
+  }
+  // The still water's level under her (0 at sea, a lake's surface inland; −Infinity: no water on this body), the depth
+  // and the waves' share there, looked at again every REFRESH m she moves (Gear's cache)
+  function waterOf(v, S) {
+    const dx = v.x - S.wx, dy = v.y - S.wy, dz = v.z - S.wz;
+    if (dx * dx + dy * dy + dz * dz < SHIP.REFRESH * SHIP.REFRESH) return;
+    S.wx = v.x; S.wy = v.y; S.wz = v.z;
+    const b = v.body;
+    Terrain.locate(b, v.x, v.y, v.z, _L);
+    const h = Terrain.heightAt(b, _L.a, _L.z);
+    if (b.ocean && h < 0) { S.level = 0; S.depth = -h; S.lake = false; }
+    else {
+      const w = b.mapped ? Terrain.inlandAt(b, _L.a, _L.z) : NaN;
+      if (w === w && w > h) { S.level = w; S.depth = w - h; S.lake = true; }
+      else if (b.ocean) { S.level = 0; S.depth = -h; S.lake = false; } // (over land: the sea's level, so nothing up here floats)
+      else { S.level = -Infinity; S.depth = 0; S.lake = false; }
+    }
+    S.fade = S.lake ? 0 : fadeAt(S.depth);
+  }
+
+  // ---- the helm (Ship.pre)
+  // The engine-order telegraph, −3 (full astern) … 0 (stop) … 4 (flank). setTel rings n; telStep moves it by d's sign
+  // (WP3's keys and touch lever, the AI); Ship.pre also steps it from W/S (ctl.v) for kind ship.
+  function setTel(v, n) { const S = v && v.sh; if (!S || !Number.isFinite(n)) return S ? S.tel : 0; S.tel = clamp(Math.round(n), -3, 4); return S.tel; }
+  function telStep(v, d) { const S = v && v.sh; return S ? setTel(v, S.tel + Math.sign(d || 0)) : 0; }
+  // her heading (rad, clockwise from game north: the hull's axis), and its rate (rad/s, + turning to starboard)
+  const _hd = v3();
+  function heading(v, S) { const F = qrot(v.q, S.ax.x, S.ax.y, S.ax.z, _hd); return Math.atan2(dot3(F, S.E), dot3(F, S.N)); }
+  function yawRate(v, S) { return -dot3(v.av, S.U); }
+  function rudMax(S) {
+    let m = 0;
+    for (const p of S.rudders) m = Math.max(m, p.def.foil ? p.def.foil.max || 35 : p.def.steer || (p.def.jet && p.def.jet.steer) || 30);
+    return m || 35;
+  }
+  // The helm and the engines' demand, before applyEngines (vessel.js physicsStep, v.hydro). Kind ship: the telegraph
+  // (sh.tel, stepped by W/S: ctl.v) and the rudder (ctl.h × its throw; let go with sas 'hold', the default, she holds the
+  // heading she had, led by her yaw rate; sas 'manual': the rudder centres). v.throttle for air engines on a ship. Other
+  // kinds with marine parts: a car's or tank's drive (ctl.v) and steering (ctl.h), else the throttle and the yaw (ctl.r).
+  function pre(v, dt, sim) {
+    const S = v.sh;
+    if (!S) return;
+    if (v.moored) { v.moored = false; v.mo = null; } // (stepped: awake)
+    frameOf(v, S);
+    const c = v.ctl || {}, H = SHIP.HOLD;
+    let dem, rin = null;
+    if (v.kind === 'ship') {
+      const k = c.v > 0.5 ? 1 : c.v < -0.5 ? -1 : 0;
+      if (k !== S.tk) { S.tk = k; S.tkT = 0; S.tkN = SHIP.TEL_HOLD; if (k) telStep(v, k); }
+      else if (k) { S.tkT += dt; if (S.tkT >= S.tkN) { S.tkN += SHIP.TEL_REPEAT; telStep(v, k); } }
+      S.tel = clamp(Math.round(Number.isFinite(S.tel) ? S.tel : 0), -3, 4);
+      dem = SHIP.TEL[S.tel + 3];
+      const h = Number.isFinite(c.h) ? c.h : 0, max = rudMax(S);
+      if (Math.abs(h) >= H.dead) { S.rud = clamp(h, -1, 1) * max; S.hold = null; S.man = true; }
+      else if (v.sas !== 'manual') {
+        const psi = heading(v, S), r = yawRate(v, S);
+        if (S.hold == null || !Number.isFinite(S.hold)) S.hold = wrapAngle(psi + (S.man ? r * H.lead : 0));
+        const vb = qunrot(v.q, v.vx, v.vy, v.vz, _hd), V = Math.max(Math.abs(vb.x * S.ax.x + vb.y * S.ax.y), H.vmin), L = Math.max(S.Lwl || 0, 2);
+        const cmd = -(H.kp * wrapAngle(psi - S.hold) + H.kd * (L / V) * r);
+        S.rud = clamp((cmd * 180) / Math.PI, -max, max); S.man = false;
+      } else { S.rud = 0; S.hold = null; S.man = false; }
+      v.throttle = Math.max(0, dem); // (air engines on a ship: an airboat)
+    } else if (isGround(v.kind)) { dem = clamp(c.v || 0, -1, 1); rin = clamp(c.h || 0, -1, 1); }
+    else { dem = clamp(v.throttle || 0, 0, 1); rin = clamp(c.r || 0, -1, 1); }
+    if (rin != null) { S.rud = rin * rudMax(S); S.hold = null; }
+    S.dem = dem;
+    // the engines' power follows the demand over the slowest one's spool (s from idle to full: a diesel's load
+    // acceptance, SHIP.SPOOL, a gas turbine's own)
+    let sp = 0;
+    for (const p of S.engines) sp = Math.max(sp, p.def.engine.spool || SHIP.SPOOL);
+    S.pow = sp > 0 ? S.pow + clamp(dem - S.pow, -dt / sp, dt / sp) : dem;
+    // each rudder follows the helm at rudRate, within its own throw
+    const rr = SHIP.rudRate * dt;
+    for (const p of S.rudders) {
+      const m = p.def.foil ? p.def.foil.max || 35 : p.def.steer || (p.def.jet && p.def.jet.steer) || 30, now = Number.isFinite(p.rud) ? p.rud : 0;
+      p.rud = now + clamp(clamp(S.rud, -m, m) - now, -rr, rr);
+    }
+  }
+  // the shaft power the working engines give (W): a damaged one less (Combat.engineK, as Gear's), none with no one at the helm
+  function shaftPower(v, S) {
+    let P = 0;
+    const cb = typeof Combat !== 'undefined';
+    for (const p of S.engines) if (!p.broken && v.byId.has(p.id)) P += p.def.engine.kw * 1000 * (cb && p.hp != null ? Combat.engineK(p) : 1);
+    if (P > 0 && v.gv && typeof Armour !== 'undefined' && !Armour.has(v, 'driver')) P = 0;
+    return P;
+  }
+
+  // ---- the water's forces (Ship.forces)
+  const CLIP = new Float64Array(64);
+  const _u = v3(), _f = v3(), _t = v3(), _w = v3(), _c = v3(), _n = v3(), _ir = v3(), EZ = Object.freeze({ x: 0, y: 0, z: 1 });
+  // add the force f (part axes) at the part-space point X to hF and hT (about the centre of mass)
+  function push(v, X, f) {
+    const c = v.com, hF = v.hF, hT = v.hT, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    hF.x += f.x; hF.y += f.y; hF.z += f.z;
+    hT.x += ry * f.z - rz * f.y; hT.y += rz * f.x - rx * f.z; hT.z += rx * f.y - ry * f.x;
+  }
+  // the velocity through the water of a part-space point (part axes; the water at rest)
+  function pointU(v, vb, wb, X, o) {
+    const c = v.com, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    o.x = vb.x + wb.y * rz - wb.z * ry; o.y = vb.y + wb.z * rx - wb.x * rz; o.z = vb.z + wb.x * ry - wb.y * rx;
+    return o;
+  }
+  // the effective mass at X along the unit dir (part axes): what an impulse there along dir meets (ground()'s effMass)
+  function effMass(v, X, dir) {
+    const c = v.com, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    _t.x = ry * dir.z - rz * dir.y; _t.y = rz * dir.x - rx * dir.z; _t.z = rx * dir.y - ry * dir.x;
+    v.mulInvI(_t, _ir);
+    return 1 / (1 / v.mass + _t.x * _ir.x + _t.y * _ir.y + _t.z * _ir.z);
+  }
+  // a damping force, held to at most CLAMP of the momentum it opposes a step (m: the effective mass, its share)
+  function capF(F, u, m, dt) { const lim = (SHIP.CLAMP * m * Math.abs(u)) / dt; return F > lim ? lim : F < -lim ? -lim : F; }
+  // how deep a part-space point lies under the water's surface (m, + under), the waves there included
+  function depthOf(v, S, X, h0, t) {
+    const c = v.com, ox = X.x - c.x, oy = X.y - c.y, oz = X.z - (c.z || 0), Ub = S.Ub;
+    let eta = 0;
+    if (S.fade > 0) eta = wave(S.e0 + ox * S.Eb.x + oy * S.Eb.y + oz * S.Eb.z, S.n0 + ox * S.Nb.x + oy * S.Nb.y + oz * S.Nb.z, t, WV)[0] * S.fade;
+    return -(h0 + Ub.x * ox + Ub.y * oy + Ub.z * oz - eta);
+  }
+  // the wave-making and residual resistance's coefficient at the Froude number Fn (SHIP.CWR, flat past its last)
+  function cwr(Fn) {
+    const X = SHIP.CWR_FN, Y = SHIP.CWR;
+    if (Fn >= X[X.length - 1]) return Y[Y.length - 1];
+    for (let i = 1; i < X.length; i++) if (Fn <= X[i]) return Y[i - 1] + ((Y[i] - Y[i - 1]) * (Fn - X[i - 1])) / (X[i] - X[i - 1]);
+    return 0;
+  }
+  // Buoyancy, ring by ring (§4.2): each ring's polygon clipped by the water's plane at it (the wave's height and slope
+  // there, × fade), ρ·g·area·dx up along the local vertical at the immersed part's centroid. Fills the per-ring results
+  // and S's sums (B, Vol, Awp, Swet, Lwl, Tbar, cb), returns B (N). still: no waves (the launch's float).
+  function buoy(v, S, h0, t, gl, still) {
+    const rho = SHIP.RHO, com = v.com, cz = com.z || 0, Ub = S.Ub, Eb = S.Eb, Nb = S.Nb, rings = S.rings, n = rings.length, fade = still ? 0 : S.fade;
+    let B = 0, Awp = 0, Vol = 0, Swet = 0, kmax = 0, lo = Infinity, hi = -Infinity, Mx = 0, My = 0, Mz = 0;
+    for (let i = 0; i < n; i++) {
+      const g = rings[i], ox = g.bx - com.x, oy = g.by - com.y, oz = g.bz - cz;
+      let eta = 0, Gx = 0, Gy = 0, Gz = 0;
+      if (fade > 0) {
+        wave(S.e0 + ox * Eb.x + oy * Eb.y + oz * Eb.z, S.n0 + ox * Nb.x + oy * Nb.y + oz * Nb.z, t, WV);
+        eta = WV[0] * fade; const ge = WV[1] * fade, gn = WV[2] * fade;
+        Gx = ge * Eb.x + gn * Nb.x; Gy = ge * Eb.y + gn * Nb.y; Gz = ge * Eb.z + gn * Nb.z;
+      }
+      // a point's height over the water (−: under): d(y, z) = d0 + dy·y + dz·z over the ring's own [y, z]
+      const d0 = h0 + Ub.x * ox + Ub.y * oy + Ub.z * oz - eta, Wx = Ub.x - Gx, Wy = Ub.y - Gy, Wz = Ub.z - Gz;
+      const dy = Wx * g.ey.x + Wy * g.ey.y, dz = Wz, P = g.R.P, K = g.R.K;
+      let dmin = Infinity, dmax = -Infinity;
+      for (let j = 0; j < K; j++) { const d = d0 + dy * P[2 * j] + dz * P[2 * j + 1]; if (d < dmin) dmin = d; if (d > dmax) dmax = d; }
+      S.ra[i] = 0; S.rb[i] = 0; S.rg[i] = 0; S.rk[i] = 0;
+      if (dmin >= 0) continue; // (clear of the water)
+      let a, ly, lz, chord = 0, girth = 0;
+      if (dmax < 0) { a = g.A; ly = g.cy; lz = 0; girth = 2 * g.R.girth + 2 * g.R.bd; } // (all of it under)
+      else { // one Sutherland-Hodgman pass, keeping the girth of the hull's own edges under the water
+        let m2 = 0;
+        for (let j = 0; j < K; j++) {
+          const k = j + 1 < K ? j + 1 : 0, ay = P[2 * j], az = P[2 * j + 1], by = P[2 * k], bz = P[2 * k + 1];
+          const da = d0 + dy * ay + dz * az, db = d0 + dy * by + dz * bz, ia = da < 0, ib = db < 0;
+          if (ia) { CLIP[m2++] = ay; CLIP[m2++] = az; }
+          if (ia !== ib) {
+            const s = da / (da - db), qy = ay + (by - ay) * s, qz = az + (bz - az) * s;
+            CLIP[m2++] = qy; CLIP[m2++] = qz;
+            girth += ia ? Math.hypot(qy - ay, qz - az) : Math.hypot(by - qy, bz - qz);
+          } else if (ia) girth += Math.hypot(by - ay, bz - az);
+        }
+        const np = m2 / 2, W2 = Math.hypot(dy, dz) || 1;
+        let A2 = 0, sy = 0, sz = 0, cmin = Infinity, cmax = -Infinity;
+        for (let j = 0; j < np; j++) {
+          const k = j + 1 < np ? j + 1 : 0, y0 = CLIP[2 * j], z0 = CLIP[2 * j + 1], y1 = CLIP[2 * k], z1 = CLIP[2 * k + 1], cr = y0 * z1 - y1 * z0;
+          A2 += cr; sy += (y0 + y1) * cr; sz += (z0 + z1) * cr;
+          if (d0 + dy * y0 + dz * z0 > -1e-6) { const s = (-dz * y0 + dy * z0) / W2; if (s < cmin) cmin = s; if (s > cmax) cmax = s; } // (on the waterline)
+        }
+        if (A2 <= 2e-9) continue;
+        a = A2 / 2; ly = sy / (3 * A2); lz = sz / (3 * A2);
+        if (cmax > cmin) chord = cmax - cmin;
+      }
+      const k = -dmin, Fb = rho * gl * a * g.dx;
+      S.ra[i] = a; S.rly[i] = ly; S.rlz[i] = lz; S.rb[i] = chord; S.rg[i] = girth; S.rk[i] = k;
+      _c.x = g.bx + g.ey.x * ly; _c.y = g.by + g.ey.y * ly; _c.z = g.bz + lz;
+      _f.x = Ub.x * Fb; _f.y = Ub.y * Fb; _f.z = Ub.z * Fb;
+      push(v, _c, _f);
+      B += Fb; Mx += Fb * _c.x; My += Fb * _c.y; Mz += Fb * _c.z;
+      Awp += chord * g.dx; Vol += a * g.dx; Swet += girth * g.dx;
+      if (k > kmax) kmax = k;
+      if (chord > 0) { const s = _c.x * S.ax.x + _c.y * S.ax.y; if (s - g.dx / 2 < lo) lo = s - g.dx / 2; if (s + g.dx / 2 > hi) hi = s + g.dx / 2; }
+    }
+    S.B = B; S.Swet = Swet; S.Vol = Vol; S.Awp = Awp; S.kmax = kmax;
+    if (hi > lo) S.Lwl = hi - lo; else if (!(B > 0)) S.Lwl = 0;
+    if (Awp > 0.01) S.Tbar = Vol / Awp;
+    if (B > 0) { S.cb.x = Mx / B; S.cb.y = My / B; S.cb.z = Mz / B; }
+    return B;
+  }
   // The water's force and torque on the hull this step, into v.hF and v.hT (part axes), and v.sh.fsub: buoyancy ring by
-  // ring, resistance, lateral and planing forces, foils, thrust, flood water's weight. vb, wb: the water-relative velocity
-  // and spin in part axes. [WP1]
-  function forces(v, dt, vb, wb, sim) {}
-  // the step's acceleration with the added mass (§4.7), into out (default: unchanged) [WP1]
-  function addedMass(v, ax, ay, az, gk, out) { out = out || v3(); out.x = ax; out.y = ay; out.z = az; return out; }
-  // What a hydro vessel's probes meet (vessel.js ground): a carrier's deck, else the ground and the sea bed. Default: the
-  // old surface (Terrain's), so the gate changes nothing until the core fills it. [WP1]
-  function floorAt(b, a, z, alt) { return Terrain.surfaceAt(b, a, z); }
-  function floorNormal(b, a, z, o) { return Terrain.normalAt(b, a, z, o); }
-  function overWater(v) { return false; } // is she over water deep enough to float? [WP1]
-  function launch(v, place) { return false; } // set her afloat at her marks at the launch spot (Flight.start) [WP1]
-  function seaPlace(v, e, z, yaw) { return { e, z, yaw }; } // a launch spot moved out to deep enough water [WP1]
-  function drift(v, h, F) {} // a moored ship's pose on the waves, no physics (flight.js physicsTick) [WP1]
-  function stab(v) { return null; } // her metacentric height now (m), null: unknown [WP1]
-  // a grounding's broken parts (Death.impact): hull parts holed and kept; the rest go on breaking. Default: all of them [WP1]
+  // ring, resistance, lateral and planing forces, roll damping, foils, thrust. vb, wb: her velocity and spin in part axes
+  // (the water is at rest: orbital velocities are left out). LOD: a hydro vessel not the active one, over SHIP.LOD m from
+  // it, works them out every other step and holds them between (their damping held to half as much a step).
+  function forces(v, dt, vb, wb, sim) {
+    const S = v.sh;
+    if (!S) return;
+    const A = sim && sim.active, far = A && A !== v && A.body === v.body && (A.x - v.x) ** 2 + (A.y - v.y) ** 2 + (A.z - v.z) ** 2 > SHIP.LOD * SHIP.LOD;
+    if (far && v.hF && (S.lodT = S.lodT ? 0 : 1) === 0) return; // (the step between: last step's forces again)
+    const hF = v.hF || (v.hF = v3()), hT = v.hT || (v.hT = v3());
+    hF.x = hF.y = hF.z = 0; hT.x = hT.y = hT.z = 0;
+    S.T = 0;
+    waterOf(v, S);
+    const r = frameOf(v, S), b = v.body;
+    if (!(S.level > -Infinity)) { S.fsub = 0; S.B = 0; v.afloat = false; return; }
+    const gl = b.mu / (r * r), W = v.mass * gl, h0 = r - b.radius - S.level, t = seaT(sim), lod = far ? 0.5 : 1;
+    const B = buoy(v, S, h0, t, gl, false), Ub = S.Ub;
+    S.fsub = clamp(B / Math.max(W, 1), 0, 1);
+    v.afloat = B > 0.05 * W;
+    v.draft = S.kmax;
+    const upA = Ub.x * S.ay.x + Ub.y * S.ay.y;
+    v.heel = Math.atan2(-Ub.z, upA); v.trim = Math.atan2(-(Ub.x * S.ax.x + Ub.y * S.ax.y), upA); // (+: starboard down, bow down)
+    // her metacentric height now: the buoyancy's righting moment (all of hT so far) over W·sin(heel), every STAB_T s
+    S.gmT += dt;
+    if (S.gmT >= SHIP.STAB_T && Math.abs(v.heel) > (SHIP.STAB_HEEL * Math.PI) / 180 && v.afloat) {
+      S.gmT = 0;
+      const gm = -(hT.x * S.ax.x + hT.y * S.ax.y) / (W * Math.sin(v.heel));
+      if (Number.isFinite(gm)) S.gm = clamp(gm, -20, 50);
+    }
+    // (the flood water's weight: WP8's floodStep keeps comps[].W, and its force joins here)
+    if (!S.rings.length) { sink(v, S, dt, vb, wb, h0, t); return; }
+    if (B > 0) hull(v, S, dt, vb, wb, gl, W, lod);
+    propel(v, S, dt, vb, wb, h0, t, B > 0);
+  }
+  // §4.3: the hull moving through the water: lateral lift and cross-flow drag (at the immersed section's middle: a turn
+  // heels her outward), strip planing lift and heave damping on the bottom, friction (ITTC-57) on the wetted girth and the
+  // wave-making resistance shared by immersed volume, all at each ring's immersed centroid; then roll damping (§4.7)
+  function hull(v, S, dt, vb, wb, gl, W, lod) {
+    const rings = S.rings, n = rings.length, rho = SHIP.RHO, q = 0.5 * rho, ax = S.ax, Vol = Math.max(S.Vol, 1e-6), Ub = S.Ub;
+    const Vx = vb.x * ax.x + vb.y * ax.y + vb.z * ax.z, Lwl = Math.max(S.Lwl, 0.5), V = Math.abs(Vx);
+    const Re = (V * Lwl) / SHIP.NU, Cf = Re < SHIP.CF_RE ? SHIP.CF_LOW : 0.075 / Math.pow(Math.log10(Re) - 2, 2);
+    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)), Tb = Math.max(S.Tbar || 0.1, 0.1);
+    const Clin = (SHIP.latLin * Math.PI * Tb) / Lwl, heaveL = SHIP.heaveLin * rho * Math.sqrt(gl * Tb), cap = dt / lod;
+    for (let i = 0; i < n; i++) {
+      const a = S.ra[i];
+      if (a <= 0) continue;
+      const g = rings[i], dx = g.dx, share = (a * dx) / Vol, ex = g.ex, ey = g.ey;
+      _c.x = g.bx + ey.x * S.rly[i]; _c.y = g.by + ey.y * S.rly[i]; _c.z = g.bz + S.rlz[i];
+      pointU(v, vb, wb, _c, _u);
+      // (the bottom's normal in the vertical plane through her keel line: square to the hull's axis, so a trim tilts
+      // the planing lift back (its drag) while a heel doesn't turn it into a push sideways)
+      const ue = Ub.x * ex.x + Ub.y * ex.y + Ub.z * ex.z, nx = Ub.x - ue * ex.x, ny = Ub.y - ue * ex.y, nz = Ub.z - ue * ex.z, nl = Math.hypot(nx, ny, nz) || 1;
+      _n.x = nx / nl; _n.y = ny / nl; _n.z = nz / nl;
+      const ua = _u.x * ex.x + _u.y * ex.y, uy = _u.x * _n.x + _u.y * _n.y + _u.z * _n.z, uz = _u.z;
+      const k = S.rk[i], Tr = Math.min(k, g.depth), b = S.rb[i], fin = Math.min(1, k / SHIP.planeFade);
+      const Fl = capF(-q * (Clin * Math.abs(ua) * uz + SHIP.cross * Math.abs(uz) * uz) * Tr * dx, uz, effMass(v, _c, EZ) * share, cap);
+      const Vn = ua * Math.sin(g.tau) - uy;
+      const Fd = capF((-q * SHIP.heaveCd * Math.abs(uy) * uy - heaveL * uy) * b * dx * fin, uy, effMass(v, _c, _n) * share, cap);
+      const Fv = q * g.cpl * Math.max(0, Vn) * Math.abs(ua) * b * dx * g.cb2 * fin + Fd;
+      const Fa = capF(-Math.sign(ua) * q * ua * ua * S.rg[i] * dx * Cf * (1 + g.kf) - Math.sign(Vx) * Rw * share, ua, effMass(v, _c, ex) * share, cap);
+      _f.x = ex.x * Fa + _n.x * Fv; _f.y = ex.y * Fa + _n.y * Fv; _f.z = Fl + _n.z * Fv;
+      push(v, _c, _f);
+    }
+    // roll damping about the hull's axis, in its exponential form (it never overshoots)
+    const I = v.I, Iaa = Math.max(1, ax.x * ax.x * I.xx + 2 * ax.x * ax.y * I.xy + ax.y * ax.y * I.yy), p = wb.x * ax.x + wb.y * ax.y;
+    const om = Math.sqrt(Math.max(W * S.gm, 1) / (Iaa * (1 + SHIP.ADD_I.x))), z = SHIP.rollZeta + rollBk(S) + SHIP.rollZV * Math.min(V / Math.sqrt(gl * Lwl), 1.5);
+    const M = ((-Iaa * p * (1 - Math.exp(-2 * z * om * dt))) / dt) * S.fsub;
+    v.hT.x += ax.x * M; v.hT.y += ax.y * M;
+  }
+  function rollBk(S) { let k = 0; for (const p of S.hulls) if (p.def.shull.bk) k = Math.max(k, p.def.shull.bk === true ? SHIP.bilgeKeel : +p.def.shull.bk || 0); return k; }
+  // §4.4-4.5: screws from the shaft power, and the foils (rudders, skegs, fixed hydrofoils) at water density: never the
+  // wings' code (water is ~850× denser than air: its deflection caps, load ratings, flutter and strain would all break)
+  function propel(v, S, dt, vb, wb, h0, t, wet) {
+    const rho = SHIP.RHO, q = 0.5 * rho, SC = SHIP.SCREW, dem = S.pow;
+    let live = 0;
+    for (const s of S.scr) if (!s.p.broken && v.byId.has(s.p.id)) live++;
+    const each = live ? (shaftPower(v, S) * Math.abs(dem)) / live : 0, dir = dem >= 0 ? 1 : -1;
+    let Tsum = 0;
+    for (const s of S.scr) {
+      const p = s.p;
+      s.T = 0;
+      if (p.broken || !v.byId.has(p.id)) { p.rpm = 0; continue; }
+      p.rpm = (dir * SC.rpm * Math.sqrt(Math.abs(dem))) / s.D; // (+ ahead, − astern: the art spins it)
+      _c.x = s.x; _c.y = s.y; _c.z = s.z;
+      const sub = smoothstep(0, SC.sub * s.D, depthOf(v, S, _c, h0, t)); // (out of the water it races and pushes nothing)
+      if (sub <= 0) continue;
+      pointU(v, vb, wb, _c, _u);
+      { // its shaft and brackets' drag, turning or not
+        const U = Math.hypot(_u.x, _u.y, _u.z), k = q * SC.app * s.D * s.D * U * sub;
+        _f.x = -k * _u.x; _f.y = -k * _u.y; _f.z = -k * _u.z;
+        push(v, _c, _f);
+      }
+      if (!(each > 0)) continue;
+      const T0 = SC.k0 * Math.cbrt(2 * rho * ((Math.PI * s.D * s.D) / 4) * each * each), Va = SC.va * dir * (_u.x * s.ex.x + _u.y * s.ex.y);
+      const T = Math.min(T0, (s.eta * each) / Math.max(Va, SC.vmin)) * sub * (dir < 0 ? SHIP.ASTERN : 1);
+      s.T = dir * T; Tsum += T;
+      _f.x = s.ex.x * s.T; _f.y = s.ex.y * s.T; _f.z = 0;
+      push(v, _c, _f);
+    }
+    S.T = Tsum;
+    if (!wet) return;
+    const FO = SHIP.FOIL, as = (FO.stall * Math.PI) / 180, post = (FO.post * Math.PI) / 180;
+    for (const o of S.fl) {
+      const p = o.p, f = o.f;
+      o.F = 0;
+      if (p.broken || !v.byId.has(p.id)) continue;
+      _c.x = o.x; _c.y = o.y; _c.z = o.z;
+      const s = smoothstep(0, FO.sub * (f.chord || 1), depthOf(v, S, _c, h0, t)); // (a foil that surfaces loses its lift)
+      if (s <= 0) continue;
+      pointU(v, vb, wb, _c, _u);
+      // a rudder in the slipstream of a screw just ahead of it (pushing ahead): it steers her at low speed
+      if (f.kind === 'rudder') for (const sc of S.scr) {
+        if (!(sc.T > 0)) continue;
+        const ddx = sc.x - o.x, ddy = sc.y - o.y, along = ddx * sc.ex.x + ddy * sc.ex.y, up = -ddx * sc.ex.y + ddy * sc.ex.x;
+        if (along > 0 && along < FO.washL * sc.D && Math.abs(sc.z - o.z) < FO.washZ * sc.D && Math.abs(up) < FO.washY * sc.D) {
+          const w = Math.sqrt((FO.wash * 2 * sc.T) / (rho * Math.PI * sc.D * sc.D * 0.25));
+          _u.x += sc.ex.x * w; _u.y += sc.ex.y * w;
+          break;
+        }
+      }
+      // its normal and chord: its own z (a rudder, a skeg) turned about its stock (own y) by p.rud (+: the trailing edge
+      // to starboard, her stern pushed to port: a turn to starboard), or its own y (a hydrofoil) pitched up by inc
+      let cx, cy, cz, nx, ny, nz;
+      if (f.n === 'y') {
+        const inc = ((f.inc || 0) * Math.PI) / 180, ci = Math.cos(inc), si = Math.sin(inc);
+        cx = o.ex.x * ci + o.ey.x * si; cy = o.ex.y * ci + o.ey.y * si; cz = 0;
+        nx = o.ey.x * ci - o.ex.x * si; ny = o.ey.y * ci - o.ex.y * si; nz = 0;
+      } else {
+        const th = ((f.kind === 'rudder' ? p.rud || 0 : 0) * Math.PI) / 180, cs = Math.cos(th), sn = Math.sin(th);
+        nx = o.ey.y * sn; ny = -o.ey.x * sn; nz = cs; // (ez·cos + (ey × ez)·sin)
+        cx = o.ex.x * cs; cy = o.ex.y * cs; cz = (o.ey.x * o.ex.y - o.ey.y * o.ex.x) * sn; // (ex·cos + (ey × ex)·sin)
+      }
+      const U2 = _u.x * _u.x + _u.y * _u.y + _u.z * _u.z;
+      if (U2 < 1e-6) continue;
+      const Um = Math.sqrt(U2), hx = _u.x / Um, hy = _u.y / Um, hz = _u.z / Um;
+      const uc = _u.x * cx + _u.y * cy + _u.z * cz, un = _u.x * nx + _u.y * ny + _u.z * nz;
+      // the angle of attack (+: it pushes along its normal); going astern the flow meets it from behind, weaker
+      const al = Math.atan2(-un, uc), aa = Math.abs(al), back = aa > Math.PI / 2, ae = back ? Math.PI - aa : aa, ar = f.ar || 2;
+      const slope = (FO.slope * 2 * Math.PI * ar) / (ar + 2), stalled = ae > as;
+      const CL = Math.sign(al) * (back ? 0.7 : 1) * (stalled ? slope * as * Math.max(FO.postMin, 1 - (ae - as) / post) : slope * ae);
+      const CD = FO.cd0 + (CL * CL) / (FO.e * Math.PI * ar) + (stalled ? FO.stallCd * Math.sin(al) ** 2 : 0);
+      const qs = q * U2 * (f.area || 1) * s, dn = nx * hx + ny * hy + nz * hz;
+      let lx = nx - dn * hx, ly = ny - dn * hy, lz = nz - dn * hz;
+      const ll = Math.hypot(lx, ly, lz) || 1;
+      lx /= ll; ly /= ll; lz /= ll;
+      _f.x = qs * (CL * lx - CD * hx); _f.y = qs * (CL * ly - CD * hy); _f.z = qs * (CL * lz - CD * hz);
+      o.F = Math.hypot(_f.x, _f.y, _f.z);
+      push(v, _c, _f);
+      // past its load a foil strains; past FOIL.brk × it, it breaks off (queued as a wing's rip is)
+      if (f.load) {
+        const k = o.F / (f.load * 1000);
+        p.strain = k;
+        if (k > FO.brk && Array.isArray(v.rip) && !v.rip.includes(p)) v.rip.push(p);
+      }
+    }
+  }
+  // A hydro vessel with no hull left (a turret, a mast, a bridge blown off a ship): nothing holds it up; it sinks on its
+  // drag (a turret at about 5 m/s), its tumbling damped, and lies on the bed
+  function sink(v, S, dt, vb, wb, h0, t) {
+    const dep = depthOf(v, S, v.com, h0, t), k = smoothstep(-v.reach * 0.5, v.reach * 0.5, dep);
+    S.fsub = 0; v.afloat = false; v.draft = 0;
+    if (k <= 0) return;
+    const A = Math.max(v.area.x, v.area.y, v.area.z, 0.25), U = Math.hypot(vb.x, vb.y, vb.z);
+    if (U > 1e-6) {
+      const F = Math.min(0.5 * SHIP.RHO * A * U * U * k, (SHIP.CLAMP * v.mass * U) / dt);
+      v.hF.x -= (vb.x / U) * F; v.hF.y -= (vb.y / U) * F; v.hF.z -= (vb.z / U) * F;
+    }
+    const d = (1 - Math.exp(-2 * k * dt)) / dt, Iw = v.mulI(wb, _w);
+    v.hT.x -= Iw.x * d; v.hT.y -= Iw.y * d; v.hT.z -= Iw.z * d;
+  }
+  // The step's acceleration with the water's added mass (§4.7): divided on each part axis by 1 + k·fsub, so a ship feels
+  // heavy and heaves smoothly; at rest (no net force) and out of the water (fsub 0) unchanged. (The spin's: vessel.js,
+  // with sh.kI.)
+  const _am = v3();
+  function addedMass(v, ax, ay, az, gk, out) {
+    out = out || v3();
+    const S = v.sh, f = S ? S.fsub : 0;
+    if (!(f > 0)) { out.x = ax; out.y = ay; out.z = az; return out; }
+    const a = qunrot(v.q, ax, ay, az, _am), k = S.kM;
+    a.x /= 1 + k.x * f; a.y /= 1 + k.y * f; a.z /= 1 + k.z * f;
+    return qrot(v.q, a.x, a.y, a.z, out);
+  }
+  // What a hydro vessel's probes meet (vessel.js ground): a carrier's deck when the point is no lower than DECK_BAND under
+  // it (alt: the point's height; none: the deck), else the ground, and under water the sea bed
+  function floorAt(b, a, z, alt) {
+    const dk = Terrain.deckAt(b, a, z);
+    if (dk === dk && !(alt < dk - SHIP.DECK_BAND)) return dk;
+    return Terrain.heightAt(b, a, z);
+  }
+  // the floor's outward normal there (sim axes, a new vector unless o): Terrain.normalAt's sums on the bed
+  function floorNormal(b, a, z, o) {
+    o = o || v3();
+    const R = b.radius, lat = z / R, cl = Math.max(0.05, Math.cos(lat)), sl = Math.sin(lat), ca = Math.cos(a), sa = Math.sin(a), d = 1.5;
+    const dk = Terrain.deckAt(b, a, z);
+    if (dk === dk) { o.x = cl * ca; o.y = cl * sa; o.z = sl; return norm3(o); } // (a deck is flat to its edge)
+    const da = d / (R * cl), H = Terrain.heightAt;
+    const se = (H(b, a - da, z) - H(b, a + da, z)) / (2 * d), sn = (H(b, a, z + d) - H(b, a, z - d)) / (2 * d);
+    o.x = cl * ca - se * sa + sn * ca * sl; o.y = cl * sa + se * ca + sn * sa * sl; o.z = sl - sn * cl;
+    return norm3(o);
+  }
+  // is she over water (the sea, a lake)?
+  function overWater(v) {
+    if (!v || !v.body) return false;
+    Terrain.locate(v.body, v.x, v.y, v.z, _L);
+    return !!Terrain.waterAt(v.body, _L.a, _L.z);
+  }
+
+  // ---- launch: afloat at her marks
+  // her net upward force (N) and her moments in pitch (about part z) and roll (about the hull's axis), in still water
+  const _sF = v3(), _sT = v3();
+  function stillLoads(v, S) {
+    const hF = v.hF, hT = v.hT;
+    v.hF = _sF; v.hT = _sT; _sF.x = _sF.y = _sF.z = 0; _sT.x = _sT.y = _sT.z = 0;
+    const r = frameOf(v, S), gl = v.body.mu / (r * r);
+    buoy(v, S, r - v.body.radius - S.level, 0, gl, true);
+    v.hF = hF; v.hT = hT;
+    return [dot3(_sF, S.Ub) - v.mass * gl, _sT.z, _sT.x * S.ax.x + _sT.y * S.ax.y];
+  }
+  // her pose with its centre of mass h along U from P0 and the level attitude q0 turned by trim th (+ bow up, about
+  // part z) and heel ph (+ starboard down, about the hull's axis)
+  function poseAt(v, P0, q0, U, h, th, ph) {
+    const ax = v.sh.ax;
+    v.q = qnorm(qmul(q0, qmul(qaxis(0, 0, 1, th), qaxis(ax.x, ax.y, ax.z, ph))));
+    v.x = P0.x + U.x * h; v.y = P0.y + U.y * h; v.z = P0.z + U.z * h;
+  }
+  // Her float in still water where she is, heading kept (Newton's method on heave, trim and heel over the very rings the
+  // physics floats her on): her pose, at rest. false: she can't float (no hull, too heavy, no water)
+  function settle(v) {
+    const S = v.sh;
+    if (!S || !S.rings.length) return false;
+    S.wx = NaN; waterOf(v, S);
+    if (!(S.level > -Infinity)) return false;
+    const r0 = Math.hypot(v.x, v.y, v.z), U = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+    // the level attitude with her heading: the hull's axis horizontal (ax -> Fh, ay -> U, ax × ay -> Fh × U)
+    const Fw = qrot(v.q, S.ax.x, S.ax.y, S.ax.z), fu = dot3(Fw, U), Fh = norm3({ x: Fw.x - U.x * fu, y: Fw.y - U.y * fu, z: Fw.z - U.z * fu });
+    const q0 = qmul(qbasis(Fh, U, cross3(Fh, U)), qconj(qbasis(S.ax, S.ay, cross3(S.ax, S.ay))));
+    const R = v.body.radius + S.level, P0 = { x: U.x * R, y: U.y * R, z: U.z * R };
+    const f = (h, th, ph) => { poseAt(v, P0, q0, U, h, th, ph); return stillLoads(v, S); };
+    let lo = -v.reach - 2, hi = v.reach + 2;
+    if (f(lo, 0, 0)[0] < 0) return false; // (all under and still too heavy)
+    for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (f(mid, 0, 0)[0] > 0) lo = mid; else hi = mid; }
+    const X = [(lo + hi) / 2, 0, 0], W = v.mass * 9.8, L = Math.max(1, v.reach), dX = [0.005, 0.001, 0.001], lim = [0.5, 0.05, 0.05];
+    for (let it = 0; it < 30; it++) {
+      const F0 = f(X[0], X[1], X[2]);
+      if (Math.abs(F0[0]) < 1e-6 * W && Math.abs(F0[1]) < 1e-6 * W * L && Math.abs(F0[2]) < 1e-6 * W * L) break;
+      const J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let k = 0; k < 3; k++) {
+        const Y = X.slice(); Y[k] += dX[k];
+        const F1 = f(Y[0], Y[1], Y[2]);
+        for (let i = 0; i < 3; i++) J[i][k] = (F1[i] - F0[i]) / dX[k];
+      }
+      const d = solve3(J, [-F0[0], -F0[1], -F0[2]]);
+      if (!d) break;
+      for (let k = 0; k < 3; k++) X[k] += clamp(d[k], -lim[k], lim[k]);
+      X[1] = clamp(X[1], -0.6, 0.6); X[2] = clamp(X[2], -1.2, 1.2);
+    }
+    poseAt(v, P0, q0, U, X[0], X[1], X[2]);
+    v.vx = v.vy = v.vz = 0; v.av = v3();
+    S.wx = NaN; waterOf(v, S); frameOf(v, S);
+    return true;
+  }
+  function solve3(A, b) {
+    const M = A.map((r, i) => [r[0], r[1], r[2], b[i]]);
+    for (let c = 0; c < 3; c++) {
+      let p = c;
+      for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      if (!(Math.abs(M[p][c]) > 1e-12)) return null;
+      const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+      for (let r = 0; r < 3; r++) if (r !== c) { const k = M[r][c] / M[c][c]; for (let j = c; j < 4; j++) M[r][j] -= k * M[c][j]; }
+    }
+    return [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]];
+  }
+  // the least clearance (m) between her keel and the bed along her hull as she lies (Infinity: no hull)
+  function keelClear(v) {
+    const S = v.sh, b = v.body, c = v.com, cz = c.z || 0;
+    let low = Infinity;
+    for (const g of S.rings) {
+      const o = qrot(v.q, g.x - c.x, g.y - c.y, g.z - cz), px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z;
+      Terrain.locate(b, px, py, pz, _L);
+      low = Math.min(low, Math.hypot(px, py, pz) - b.radius - Terrain.heightAt(b, _L.a, _L.z));
+    }
+    return low;
+  }
+  // A launch spot (e, z, yaw as placeOnSurface takes them: the nose along (cos yaw, −sin yaw) in (e, z)) moved out ahead
+  // to water deep enough (the keel LAUNCH.shallow m over the bed all along her), LAUNCH.step m at a time up to LAUNCH.max.
+  // Leaves her afloat there. { e, z, yaw, ok, moved }
+  function seaPlace(v, e, z, yaw) {
+    const L = SHIP.LAUNCH, b = v.body, rot = (VEHICLE_KINDS[v.kind] || {}).launchRot || 0;
+    for (let s = 0; s <= L.max; s += L.step) {
+      const E = e + Math.cos(yaw) * s, Z = z - Math.sin(yaw) * s;
+      v.placeOnSurface(b, siteAngle(b, E), rot, Z, yaw);
+      if (!settle(v)) continue;
+      if (keelClear(v) >= L.shallow) return { e: E, z: Z, yaw, ok: true, moved: s };
+    }
+    v.placeOnSurface(b, siteAngle(b, e), rot, z, yaw);
+    return { e, z, yaw, ok: false, moved: 0 };
+  }
+  // Set her afloat at her marks at the launch spot (Flight.start, after placeOnSurface, for a hydro vessel over water):
+  // the draft, trim and heel her weight gives, heading kept, at rest; moved out to sea when it is too shallow there.
+  // place: { e, z, yaw } (Flight.start's spot; none: where and as placeOnSurface left her). false: she couldn't float.
+  function launch(v, place) {
+    const S = v && v.sh;
+    if (!S || !S.rings.length) return false;
+    const b = v.body;
+    let e, z, yaw;
+    if (place && Number.isFinite(place.e)) { e = place.e; z = Number.isFinite(place.z) ? place.z : 0; yaw = Number.isFinite(place.yaw) ? place.yaw : 0; }
+    else {
+      frameOf(v, S);
+      Terrain.locate(b, v.x, v.y, v.z, _L);
+      e = -wrapAngle(_L.a - b.padAngle) * b.radius; z = _L.z;
+      const F = qrot(v.q, S.ax.x, S.ax.y, S.ax.z), fe = dot3(F, S.E), fn = dot3(F, S.N);
+      yaw = Math.atan2(fn, fe); // (the nose along (cos, −sin) in (e, z), and z is game south: −sin yaw = −fn)
+    }
+    const P = seaPlace(v, e, z, yaw);
+    if (!P.ok && !settle(v)) return false;
+    v.landed = false; v.splashed = false; v.afloat = true; v.moored = false; v.mo = null;
+    v.contactTime = 0; v.restTime = 0;
+    S.tel = 0; S.pow = 0; S.dem = 0; S.hold = null; S.man = false; S.rud = 0; S.tk = 0;
+    for (const p of S.rudders) p.rud = 0;
+    if (v.kind === 'ship') v.sas = 'hold';
+    S.gm = stabProbe(v);
+    const r = Math.hypot(v.x, v.y, v.z), gl = b.mu / (r * r);
+    S.B = v.mass * gl; S.fsub = 1; S.Lwl = S.Lwl || v.reach;
+    return P;
+  }
+  // her metacentric height in still water, from a 2° heel (the buoyancy's righting moment over W·sin 2°)
+  function stabProbe(v) {
+    const S = v.sh, q = v.q, ph = (2 * Math.PI) / 180;
+    v.q = qnorm(qmul(q, qaxis(S.ax.x, S.ax.y, S.ax.z, ph)));
+    const L = stillLoads(v, S), r = Math.hypot(v.x, v.y, v.z), W = v.mass * (v.body.mu / (r * r));
+    v.q = q; frameOf(v, S);
+    const gm = -L[2] / (W * Math.sin(ph));
+    return Number.isFinite(gm) ? gm : 1;
+  }
+  function stab(v) { return v && v.sh ? v.sh.gm : null; } // her metacentric height now (m)
+
+  // ---- mooring (§4.10): a ship afloat, still and left alone sleeps on the swell: no physics, its pose bobs on the waves
+  function moor(v, F) {
+    const S = v && v.sh;
+    if (!S || v.moored) return;
+    frameOf(v, S); waterOf(v, S);
+    v.vx = v.vy = v.vz = 0; v.av = v3();
+    const t = seaT(F), w = bob(v, S, t);
+    v.moored = true;
+    v.mo = { q0: quat(v.q.w, v.q.x, v.q.y, v.q.z), r0: Math.hypot(v.x, v.y, v.z), U: { x: S.U.x, y: S.U.y, z: S.U.z }, w0: w, A: w, B: w, ta: t, tb: t, hp: hpSum(v), n: v.parts.length, W: waterSum(S) };
+    S.moorT = 0;
+  }
+  function hpSum(v) { let s = 0; for (const p of v.parts) s += p.hp == null ? 1e6 : p.hp; return s; }
+  function waterSum(S) { let s = 0; for (const c of S.comps) s += (c.W || 0) + c.holes.length; return s; }
+  // the waves' heave, pitch and roll on a moored hull (the surface averaged over her length and beam: a long ship barely moves)
+  function bob(v, S, t) {
+    if (!(S.fade > 0)) return { h: 0, p: 0, r: 0 };
+    const L = Math.max(S.Lwl || v.reach, 1), Bm = Math.max(v.depth || 2, 1), ax = S.ax;
+    const at = (s, l) => wave(S.e0 + ax.x * s * S.Eb.x + ax.y * s * S.Eb.y + l * S.Eb.z, S.n0 + ax.x * s * S.Nb.x + ax.y * s * S.Nb.y + l * S.Nb.z, t, WV)[0] * S.fade;
+    const f = at(L / 2, 0), a = at(-L / 2, 0), c = at(0, 0), pt = at(0, -Bm / 2), sb = at(0, Bm / 2);
+    return { h: (f + a + 2 * c + pt + sb) / 6, p: Math.atan((f - a) / L), r: Math.atan((pt - sb) / Bm) };
+  }
+  // a moored ship's pose this tick (flight.js physicsTick): its pose when moored, moved as the waves have moved since,
+  // looked at MOOR.hz times a second and eased between
+  function drift(v, h, F) {
+    const S = v.sh, M = v.mo;
+    if (!S || !M) { v.moored = false; return; }
+    const t = seaT(F) + h, dl = 1 / SHIP.MOOR.hz;
+    if (t >= M.tb) { M.A = M.B; M.ta = M.tb; M.tb = Math.max(t, M.tb + dl); M.B = bob(v, S, M.tb); }
+    const k = M.tb > M.ta ? clamp((t - M.ta) / (M.tb - M.ta), 0, 1) : 1;
+    const dh = lerp(M.A.h, M.B.h, k) - M.w0.h, dp = lerp(M.A.p, M.B.p, k) - M.w0.p, dr = lerp(M.A.r, M.B.r, k) - M.w0.r, r = M.r0 + dh, U = M.U;
+    v.x = U.x * r; v.y = U.y * r; v.z = U.z * r;
+    const F0 = qrot(M.q0, S.ax.x, S.ax.y, S.ax.z), Lt = qrot(M.q0, 0, 0, 1);
+    v.q = qnorm(qmul(qaxis(F0.x, F0.y, F0.z, dr), qmul(qaxis(Lt.x, Lt.y, Lt.z, dp), M.q0)));
+    v.vx = v.vy = v.vz = 0;
+  }
+  // wake a moored ship
+  function unmoor(v) { if (v && v.moored) { v.moored = false; v.mo = null; if (v.sh) v.sh.moorT = 0; } }
+  // once a frame (Ship.frame): who moors (afloat, not the player's, telegraph at Stop, no thrust, still for MOOR.t s) and
+  // who wakes (the player's craft, the telegraph, a hit, a part lost, water or holes changing, a craft close by under way)
+  function moorCheck(F, dt) {
+    const M = SHIP.MOOR;
+    for (const v of F.vessels) {
+      const S = v.sh;
+      if (!v.hydro || !S || v.remote || v.dead || !v.parts.length) continue;
+      if (v.moored) {
+        const o = v.mo;
+        let wake = v === F.active || !o || S.tel !== 0 || hpSum(v) !== o.hp || v.parts.length !== o.n || waterSum(S) !== o.W || (v.kind !== 'ship' && v.thrust > 0);
+        if (!wake) for (const u of F.vessels) {
+          if (u === v || u.dead || u.moored || !u.speed) continue;
+          if ((u.x - v.x) ** 2 + (u.y - v.y) ** 2 + (u.z - v.z) ** 2 < M.wake * M.wake && u.speed() > M.wakeV) { wake = true; break; }
+        }
+        if (wake) unmoor(v);
+        continue;
+      }
+      if (v === F.active || !v.afloat || v.landed || S.tel !== 0 || S.T > 0 || (v.thrust || 0) > 0 || v.speed() > M.v) { S.moorT = 0; continue; }
+      S.moorT += dt;
+      if (S.moorT >= M.t) moor(v, F);
+    }
+  }
+
+  // a grounding's broken parts (Death.impact): hull parts holed and kept; the rest go on breaking. Default: all of them [WP6]
   function impactSea(v, parts, sim) { return parts; }
   function bump(F) {} // ship against ship, carrier hulls and gear vessels (once a physics tick) [WP6]
 
   // ==== waves ====
-  // The sea: one deterministic function of (east, north, time), four directional sines (SHIP.WAVES × the sea state), faded
-  // in shallow water. Every caller copies the shared out array. [WP1]
-  const W3 = [0, 0, 0];
-  function wave(e, n, t, out) { out = out || W3; out[0] = 0; out[1] = 0; out[2] = 0; return out; }
+  // The sea: one deterministic function of (east, north, time) (m, m, s: the game's east and north, Ship.seaT's clock),
+  // four directional sines (SHIP.WAVES × the sea state's amplitude and period factors) with deep-water dispersion (k =
+  // ω²/g), faded in shallow water by the caller (fadeAt: none in harbours, on lakes, inland). wave() returns [η, ∂η/∂e,
+  // ∂η/∂n] in a shared array: copy it.
+  const W3 = [0, 0, 0], GW = 9.8, NW = SHIP.WAVES.length, TAU2 = 2 * Math.PI;
+  const WA = new Float64Array(NW), WK = new Float64Array(NW), WO = new Float64Array(NW), WDE = new Float64Array(NW), WDN = new Float64Array(NW), WP = new Float64Array(NW);
+  function waveSetup() {
+    const s = SHIP.SEA[S.sea] || SHIP.SEA.moderate;
+    for (let i = 0; i < NW; i++) {
+      const [a, T, th, ph] = SHIP.WAVES[i], om = TAU2 / (T * s.t), dir = ((SHIP.swellDir + th) * Math.PI) / 180;
+      WA[i] = a * s.a; WO[i] = om; WK[i] = (om * om) / GW; WDE[i] = Math.sin(dir); WDN[i] = Math.cos(dir); WP[i] = ph;
+    }
+  }
+  function wave(e, n, t, out) {
+    out = out || W3;
+    let h = 0, ge = 0, gn = 0;
+    for (let i = 0; i < NW; i++) {
+      const k = WK[i], ph = k * (WDE[i] * e + WDN[i] * n) - WO[i] * t + WP[i], a = WA[i], c = a * k * Math.cos(ph);
+      h += a * Math.sin(ph); ge += c * WDE[i]; gn += c * WDN[i];
+    }
+    out[0] = h; out[1] = ge; out[2] = gn;
+    return out;
+  }
   function seaT(F) { return (F && Number.isFinite(F.time) ? F.time : 0) + S.seaOff; } // the sea's clock
-  function setSea(state) { if (SHIP.SEAS.includes(state)) S.sea = state; return S.sea; }
+  function setSea(state) { if (SHIP.SEAS.includes(state) && state !== S.sea) { S.sea = state; waveSetup(); } return S.sea; }
   function sea() { return S.sea; }
-  function fadeAt(depth) { return 0; } // the waves' share in water this deep (0..1) [WP1]
-  // the shader's uniforms for a patch at (P0e, P0n), time t: per component vec4(dir, k, amplitude) and vec2(ω, phase) [WP1, WP2]
-  function waveUniforms(P0e, P0n, t, out) { return out || new Float32Array(SHIP.WAVES.length * 6); }
+  function fadeAt(depth) { return depth > 0 ? smoothstep(SHIP.FADE[0], SHIP.FADE[1], depth) : 0; } // the waves' share in water this deep (0..1)
+  // The shader's uniforms for a swell patch whose origin is at (P0e, P0n), at time t: per component [d.e, d.n, k, a, ω,
+  // φ'], φ' = k·(d·P0) − ω·t + φ folded into [0, 2π) in double precision, so the shader's η = Σ a·sin(k·(d·local) + φ')
+  // (local = the point's (e, n) less P0) never meets float32's big numbers far from the pad. [WP1; WP2 draws with it]
+  function waveUniforms(P0e, P0n, t, out) {
+    out = out || new Float32Array(NW * 6);
+    for (let i = 0; i < NW; i++) {
+      let ph = (WK[i] * (WDE[i] * P0e + WDN[i] * P0n) - WO[i] * t + WP[i]) % TAU2;
+      if (ph < 0) ph += TAU2;
+      out[6 * i] = WDE[i]; out[6 * i + 1] = WDN[i]; out[6 * i + 2] = WK[i]; out[6 * i + 3] = WA[i]; out[6 * i + 4] = WO[i]; out[6 * i + 5] = ph;
+    }
+    return out;
+  }
+  waveSetup();
 
   // ==== builder ====
   // (pure: no DOM, so the tests run them headless) [WP4, WP7]
@@ -254,7 +909,10 @@ const Ship = (() => {
 
   // ---- the frame (Combat.frame, when Combat.S.sea): collisions, flooding, fires, damage control, fate, mooring, the AI,
   // the Naval Range [WP1's loop; the others add their calls]
-  function frame(F, dt) {}
+  function frame(F, dt) {
+    moorCheck(F, dt); // (who moors on the swell, who wakes)
+    bump(F); // [WP6]
+  }
   function fx(v, dt, F) {} // spray and funnel smoke [WP2]
 
   // ==== hud ====
@@ -340,6 +998,7 @@ const Ship = (() => {
     S,
     // core
     groups, pre, forces, addedMass, floorAt, floorNormal, overWater, launch, seaPlace, drift, stab, impactSea, bump,
+    setTel, telStep, settle, moor, unmoor, heading,
     // waves
     wave, seaT, setSea, sea, fadeAt, waveUniforms,
     // builder
