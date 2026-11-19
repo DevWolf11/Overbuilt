@@ -1766,6 +1766,34 @@ const runD1 = (ab) => {
   t('B11 a buggy and a TK-34 whose hull or cab breaks on the sea at 50 m/s: knocked out (the end of the drive once) and gone under (no wreck standing); the buggy at 10 m/s a wreck as ever; the buggy never calls the ground update\'s code',
     g50.dead && g50.fast && g50.ko && !g50.wreck && g50.ondead === 1 && g50.gv === 0 && !g10.dead && g10.ko && g10.wreck && t50.dead && t50.fast && t50.ko && !t50.wreck && t50.ondead === 1, { g50, g10, t50 });
   Death.reset({}); deaths = [];
+  // B12 (into the sea, the owner's follow-up) 1 fast skims break up (vessel.js WATER_SLAM): an FS-16 skimming in at 200 m/s,
+  // 5° (only dents before: it skipped on like a stone, alive) and at 150 m/s, 2°: lost whole, a fast plunge; a Jumbo
+  // ditching at 80 m/s, 3°, floats with its pilot as ever (the Mustang at 70, and the Seagull on its floats: B11)
+  const skim = (key, h, V, dive) => { Death.reset({}); deaths = []; const v = seaCraft(key, 'plane', h, V, dive), F = fsim(v); v.throttle = 0; fly(F, 12, () => v.dead); return { dead: !!v.dead, fast: !!(v.sea && v.sea.fast), deaths: deaths.join(), ctl: !!v.control, sp: +v.speed().toFixed(2), ondead: F.ondead }; };
+  const s5 = skim('fs16', 10, 200, 5), s2 = skim('fs16', 6, 150, 2), jb = skim('jumbo', 8, 80, 3);
+  t('B12 an FS-16 skimming into the sea at 200 m/s and 5°, and at 150 m/s and 2°: breaks up and goes under (one fireball, a fast plunge), no skipping on; a Jumbo ditching at 80 m/s and 3°: afloat with its pilot, still',
+    s5.dead && s5.fast && s5.deaths === 'crash' && s2.dead && s2.fast && s2.deaths === 'crash' && !jb.dead && jb.ctl && jb.ondead === 0 && jb.sp < 0.5 && !jb.deaths.includes('crash'), { s5, s2, jb });
+  // 2 out of its depth (death.js swamp): driven at full throttle, ticked as the game ticks; a car or a tank in water
+  // deeper than it is tall for SEA.swamp s goes under, its crew lost; the Pumo swims on; a tank fords and floods in
+  // water shallower than it is tall as ever
+  const drive = (key, e, secs) => {
+    Death.reset({}); deaths = [];
+    const v = G.craft(ctx, rows(key), TEMPLATES[key].kind, 'site'), F = fsim(v);
+    v.placeOnSurface(EARTH, R('siteAngle')(EARTH, e), ctx.VEHICLE_KINDS[v.kind].launchRot);
+    let wetAt = null, deepest = 0;
+    const n = sysCalls(() => fly(F, secs, () => { v.ctl.v = 1; if (v.splashed && wetAt == null) wetAt = F.time; if (!v.dead && v.splashed) { const f = floor(v); deepest = Math.max(deepest, f.lvl - f.bed); } return v.dead; }));
+    const H = v.bounds.maxY - v.bounds.minY;
+    return { dead: !!v.dead, wetAt: wetAt && +wetAt.toFixed(2), goneAt: v.dead ? +F.time.toFixed(2) : null, deep: +deepest.toFixed(2), H: +H.toFixed(2), ko: v.ko && v.ko.why, slow: !!(v.sea && !v.sea.fast), wreck: !!v.wreck, log: F.log.join('|'), ondead: F.ondead, sp: +v.speed().toFixed(2), flooded: !!v.flooded, gv: Object.keys(n).length };
+  };
+  const bay = drive('buggy', EARTH.sites.bay.east, 8), slip = drive('buggy', 2700, 40);
+  t(`B12 a Dune Buggy driven off the bay's shore (the water 50 m deep) and down the headland's slipway: it goes under ${bay.goneAt && (bay.goneAt - bay.wetAt).toFixed(1)} s and ${slip.goneAt && (slip.goneAt - slip.wetAt).toFixed(1)} s after it reaches the water (once the water is deeper than its ${slip.H} m), "Sunk!", the end of the drive once, no wreck standing; it never calls the ground update's code`,
+    bay.dead && bay.goneAt - bay.wetAt < 3.5 && bay.slow && bay.ko === 'hull' && !bay.wreck && bay.log === 'Sunk!' && bay.ondead === 1 && bay.gv === 0
+    && slip.dead && slip.goneAt - slip.wetAt > 3 && slip.goneAt - slip.wetAt < 12 && slip.slow && slip.log === 'Sunk!' && slip.ondead === 1 && slip.gv === 0 && !deaths.includes('ko'), { bay, slip });
+  const tk = drive('tk34', 2900, 60), pumo = drive('pumo', 2900, 60);
+  t(`B12 a TK-34 down the slipway: it fords and floods as ever while the water is shallower than its ${tk.H} m (to ${tk.deep} m), then goes under, its crew lost ("Engine flooded!", "Knocked out!"); the Pumo swims on out to sea (${pumo.sp} m/s over ${pumo.deep} m of water, never flooded)`,
+    tk.dead && tk.slow && tk.ko === 'crew' && !tk.wreck && tk.log === 'Engine flooded!|Knocked out!' && tk.ondead === 1 && tk.deep > tk.H && tk.deep < tk.H + 1
+    && !pumo.dead && !pumo.flooded && pumo.deep > 10 && pumo.sp > 2.6 && pumo.ondead === 0 && !pumo.log, { tk, pumo });
+  Death.reset({}); deaths = [];
 }
 
 t.done();

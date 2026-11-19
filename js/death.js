@@ -43,6 +43,7 @@ const SEA = {
   life: 4.5, slow: 8,                        // s a fast plunge is drawn, from the crash to gone; a slow one's float and sink
   tilt: 1.1,                                 // rad: at most this much further nose-down along its path as it slows in the water
   float: 15,                                 // s a piece with nobody in it floats at rest on the water before it sinks (90 on land)
+  swamp: 3,                                  // s a ground vehicle that can't swim stands in water deeper than it is tall before it goes under
 };
 const FIRE = {
   lit30: { eng: 0.4, fuel: 0.3 },            // odds a hit taking an engine / a fuel part (> 50 kg) from ≥ 30 % to under 30 % lights it
@@ -63,7 +64,7 @@ const Death = (() => {
   // and where and how big the craft that went up was (taken before today's body breaks it); crash: a crash's old body
   // under way (Combat.destroyPart for a dent or a burn-up), so the fuel and stores it sets off break every aircraft
   // they reach the old way: a crash is no hit (§3.1)
-  const DET = { n: 0, seq: 0, at: null, size: 0, crash: 0 };
+  const DET = { n: 0, seq: 0, at: null, size: 0, crash: 0, quiet: 0 };
 
   // A number in [0, 1) from a part's id and a salt: the same part and salt, the same number; no random stream consumed.
   // Salts: fire p.fireN (1, 2, …) and 100 + p.fireN; detonation 900 + v.detN; its pieces 960-963; burn-through 950;
@@ -86,6 +87,7 @@ const Death = (() => {
   // centre of mass unless given, size from the craft (ground kinds: the 'ammo' blast 1.4×, a plain knock-out 0.6×),
   // the sound where the sim can say how far off the camera is, a buzz when it is the player's.
   function deathFX(v, sim, kind, size, at, opt) {
+    if (DET.quiet) return 0; // (the sea rule: a knock-out under the water makes no fire of its own)
     const P = at || v.toWorld(v.com.x, v.com.y, v.com.z || 0), vel = { x: (v.vx || 0) * 0.2, y: (v.vy || 0) * 0.2, z: (v.vz || 0) * 0.2 };
     const s = size > 0 ? size : isGround(v.kind) ? groundSize(v) * ({ ammo: 1.4, ko: 0.6 }[kind] || 1) : airSize(v);
     const air = airDensity(v.body, Math.hypot(P.x, P.y, P.z) - v.body.radius) > 0.01;
@@ -652,7 +654,7 @@ const Death = (() => {
   // driver knocked out (why 'crew'), or the car wrecked in a crash ('hull'); every control part out of charge, the
   // throttle closed, our HUD's banner when we did it, the player's toast and the end of their drive, the small 'ko'
   // death effect, an AI's knock-out counted.
-  function groundKO(v, sim, why) {
+  function groundKO(v, sim, why, say) {
     if (v.ko) return;
     const t = sim.time || 0;
     v.ko = { why, x: false, t };
@@ -662,10 +664,45 @@ const Death = (() => {
       feedback('KNOCKED OUT', sim);
       if (typeof Armour !== 'undefined' && sim.active.gv) Armour.fb.ko = { text: 'Knocked out!', t }; // (the ground HUD's banner: a property, no call)
     }
-    if (v === sim.active && sim.toast) sim.toast(why === 'hull' ? 'Wrecked!' : 'Driver knocked out!', 'warn');
+    if (v === sim.active && sim.toast) sim.toast(say || (why === 'hull' ? 'Wrecked!' : 'Driver knocked out!'), 'warn');
     deathFX(v, sim, 'ko');
     if (v === sim.active && sim.onDestroyed) sim.onDestroyed();
     if (v.ai && !v.ai.down) Combat.aiDown(v, sim);
+  }
+  // (the sea rule) A ground vehicle gone under (impactGround's fast crash, swamp): its plunge recorded, gone from the sim
+  // (dead before the knock-out books it, so no wreck is sent to a room or stands on anyone's surface), its crew lost (the
+  // knock-out, quietly: no fire under the water), a splash
+  function goUnder(v, sim, w, why) {
+    sea(v, sim, w.L, w.c);
+    v.dead = true;
+    DET.quiet++;
+    try { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, why); else groundKO(v, sim, why, 'Sunk!'); } finally { DET.quiet--; }
+    v.throttle = 0;
+    deathFX(v, sim, 'thud', groundSize(v), w.c, { water: true });
+  }
+  // (the sea rule) A ground vehicle of ours that can't swim (no amphibious hull) standing in water deeper than it is tall
+  // (its roof under: to the physics the sea is a floor, so it stands on the surface) for SEA.swamp s goes under, its
+  // crew lost: it floats a moment and sinks to the bed (the slow plunge). Shallower water is wading (Gear's ford and
+  // flooding) as ever. Not a knocked-out one (its wreck is the room's), the ground AI's or a thrown turret. e: s since
+  // the last tick. true: it went under
+  function swamp(o, F, e) {
+    if (!o.splashed || o.ko || o.kin || o.tossed || o.foreign || o.hydro || !isGround(o.kind)) { if (o.swampT) o.swampT = 0; return false; }
+    const w = seaAt(o);
+    if (!w || w.lvl - Terrain.heightAt(o.body, w.L.a, w.L.z) <= o.bounds.maxY - o.bounds.minY || o.parts.some((p) => p.def.amph)) { o.swampT = 0; return false; }
+    o.swampT = (o.swampT || 0) + (e > 0 ? e : 0);
+    if (o.swampT < SEA.swamp) return false;
+    goUnder(o, F, w, o.gv ? 'crew' : 'hull');
+    return true;
+  }
+  // A peer's ground vehicle down in the water with no wreck (mp.js onDown: it went under on its owner's screen, goUnder):
+  // here too, at its owner's place `at`, from its ghost's velocity. true: it was in the water
+  function seaDown(g, sim, at) {
+    if (!g || !g.body || !at || typeof Terrain === 'undefined') return false;
+    const L = Terrain.locate(g.body, at.x, at.y, at.z, {});
+    if (!Terrain.waterAt(g.body, L.a, L.z) || L.r - g.body.radius - Terrain.surfaceAt(g.body, L.a, L.z) > (g.reach || 0) + 2) return false;
+    sea(g, sim, L, at);
+    deathFX(g, sim, 'thud', groundSize(g), at, { water: true });
+    return true;
   }
   // A knocked-out hulk becomes a wreck: frozen where it stands (no longer stepped, solid to everything, charred)
   function settle(v) { v.wreck = true; v.vx = v.vy = v.vz = 0; v.av = v3(0, 0, 0); }
@@ -705,11 +742,7 @@ const Death = (() => {
     // stands on the surface on anyone's screen: mp.js's down sends none for a craft that is gone)
     const w = !v.tossed && v.speed() >= SEA.fast ? seaAt(v) : null;
     if (w) {
-      sea(v, sim, w.L, w.c);
-      v.dead = true;
-      if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull');
-      deathFX(v, sim, 'thud', groundSize(v), w.c, { water: true });
-      v.throttle = 0;
+      goUnder(v, sim, w, 'hull');
       return null;
     }
     if (!v.tossed) { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, 'hull'); else groundKO(v, sim, 'hull'); }
@@ -787,12 +820,12 @@ const Death = (() => {
   // after the knock-out), thrown turrets (ours or a peer's) once they lie still, then the fire and smoke of the 3
   // knocked-out vehicles nearest the camera within 4 km (ours, the AI's, peers' wrecks), none above 4× warp.
   function groundTick(F, e, n) {
-    void e;
     if (!F || !F.vessels) return;
     const t = F.time || 0, A = F.active, L = WRK;
     L.length = 0;
     for (const o of F.vessels) {
       if (o.dead) continue;
+      if ((o.splashed || o.swampT) && !o.wreck && !o.remote && swamp(o, F, e)) continue; // (the sea rule: one that can't swim, out of its depth)
       if (!o.wreck && !o.remote) {
         const down = o.landed || o.splashed || o.contactTime > 0;
         if (o.ko && !o.kin && !o.foreign) { if (down && (o.speed() < DEATH.settleV || t - (o.ko.t || 0) > DEATH.settleT)) settle(o); }
@@ -966,6 +999,7 @@ const Death = (() => {
     groundPart,
     groundKO, settle, groundPieces, wreckFX, _g: { impactGround, groundTick, koPartFX, burnPoint }, // (the ground section's: an old car's knock-out, a hulk made a wreck, a wreck's fire and smoke; _g for the tests)
     clearSpawn, // (multiplayer's: a spawn on top of a wreck sinks it, mp.js)
+    seaDown, // (multiplayer's: a peer's ground vehicle gone under, mp.js)
     feedback, hit, drawHits, lose, holdLost, flushLost, // (the HUD section's: banners and ticks, the losses of one hit window in one toast)
     _t: { detRoll, state, intactClS, tearOff, loaded, FB, fireTick, airPartFX, partAt, T, lostText, TOP },
   };

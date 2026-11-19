@@ -1641,6 +1641,7 @@ const MP = {
       const D = typeof Death !== 'undefined' ? Death : null, vel = { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 };
       if (hulk && D) D.deathFX(g, Flight, m.x === 1 ? 'ammo' : 'ko', undefined, at); // (the death its owner saw: a detonation, or a knock-out's fire)
       else if (D && isAirKind(kind) && !g.hiddenUntilSnap && (g.groundAltitude() < 30 || this.aglAt(g.body, at) < 30)) this.crashAt(g, at); // (it crashed: the fireball its owner saw, and the crash site)
+      else if (D && D.seaDown && isGround(kind) && !hulk && !g.hiddenUntilSnap && D.seaDown(g, Flight, at)) { /* (sea crash fix: a ground vehicle that went under on its owner's screen goes under here too: render3d draws its ghost sinking) */ }
       else {
         FX.explosion(g.body, at, vel, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01); // (mid-air, never seen, or no damage model: as ever)
         if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
