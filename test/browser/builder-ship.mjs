@@ -203,6 +203,31 @@ await page.waitForTimeout(2500);
 await page.screenshot({ path: SHOTS + 'ship-phone-3d.png' });
 await page.close();
 
+// ---- 4. the kind strip, seven buttons, at every size from a small phone to a big desktop, in 2D and 3D, folded and open,
+// at the smallest and largest UI size: every button inside the panel and inside the strip, its label whole (the lead's
+// review: at 1280 × 720 in 3D Ship was cut off at the panel's edge)
+const stripOf = (pg) => pg.evaluate(() => {
+  const s = $('#kind-select'), p = $('#stats'), S = s.getBoundingClientRect(), P = p.getBoundingClientRect(), bs = [...s.querySelectorAll('.kind-btn')];
+  const bad = bs.filter((b) => { const r = b.getBoundingClientRect(); return !(r.width > 25 && r.left >= S.left - 0.5 && r.right <= S.right + 0.5 && r.left >= P.left - 0.5 && r.right <= P.right + 0.5 && b.scrollWidth <= b.clientWidth); }).map((b) => b.dataset.kind);
+  return { shown: getComputedStyle(s).display !== 'none', n: bs.length, bad, folded: p.classList.contains('collapsed'), strip: [Math.round(S.left), Math.round(S.right)], panel: [Math.round(P.left), Math.round(P.right)] };
+});
+for (const [W, H, touch] of [[360, 640, true], [390, 844, true], [844, 390, true], [768, 1024, true], [1280, 720, false], [1920, 1080, false]]) {
+  for (const ui of [0.5, 1.5]) for (const d3 of [false, true]) {
+    const pg = await open(W, H, touch, { uiSize: ui, build3d: d3 });
+    await pg.evaluate(() => Builder.loadTemplate('cyclon'));
+    if (d3) await pg.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 30000 }).catch(() => {});
+    await frames(pg, 3);
+    for (const fold of [true, false]) {
+      await pg.evaluate((fold) => { $('#stats').classList.toggle('collapsed', fold); Builder.layout(); }, fold);
+      await frames(pg, 2);
+      const r = await stripOf(pg), is3 = await pg.evaluate(() => App.preview3D());
+      if (r.shown) ok(`${W}×${H} ${is3 ? '3D' : '2D'} ${fold ? 'folded' : 'open'} UI ${ui * 100}%: all seven kind buttons inside the panel, labels whole`, r.n === 7 && !r.bad.length && is3 === d3, JSON.stringify(r));
+      if (W === 1280 && d3 && !fold && ui === 1.5) await pg.screenshot({ path: SHOTS + 'ship-kinds-1280-3d.png' });
+    }
+    await pg.close();
+  }
+}
+
 ok('no page errors', errs.length === 0, errs.slice(0, 5).join('\n'));
 await b.close(); srv.close();
 ok.done();

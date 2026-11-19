@@ -489,7 +489,7 @@ const TEMPLATES = {
     name: 'Cyclon Patrol Boat', kind: 'ship', tier: 1,
     blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. Ring the telegraph up to Flank and she runs at over 30 knots.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
-      ['dieselM', -6, -0.8, 0, { z: -1.4, att: 1 }], ['dieselM', -6, -0.8, 0, { z: 1.4, att: 1 }],
+      ['dieselM', -6, -0.209, 0, { z: -0.91, att: 1 }], ['dieselM', -6, -0.209, 0, { z: 0.91, att: 1 }], // (inside the V bottom, as a tap puts them: Ship.spotOf)
       ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
       ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }]],
   },

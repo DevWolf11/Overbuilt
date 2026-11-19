@@ -46,7 +46,7 @@ t('a design with no hull: hull false, nothing floats', R(`(() => { const s = Shi
 // (the update's first slice, as the contract's Cyclon template has it: its own rows here, so the catalogue's later Cyclon
 // (armed, ballasted) moves nothing in this suite)
 const SLICE = [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
-  ['dieselM', -6, -0.8, 0, { z: -1.4, att: 1 }], ['dieselM', -6, -0.8, 0, { z: 1.4, att: 1 }],
+  ['dieselM', -6, -0.209, 0, { z: -0.91, att: 1 }], ['dieselM', -6, -0.209, 0, { z: 0.91, att: 1 }],
   ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
   ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }]];
 ctx.__SLICE = SLICE;
@@ -59,6 +59,19 @@ t('...floats with her draught under her hull\'s depth, upright, a level trim (<1
 t('...a top speed and a turning circle (both "~": between 15 and 60 knots, 2-15 lengths)', S.top * 1.9438 > 15 && S.top * 1.9438 < 60 && S.turn > 2 * S.Lwl && S.turn < 15 * S.Lwl, { kn: S.top * 1.9438, turn: S.turn, Lwl: S.Lwl });
 t('...no warnings', R(`(() => { const ps = partsFromDesign(sliceRows()), w = []; Ship.warnings(ps, Ship.stats(ps), w); return w.length === 0; })()`));
 t('Ship.stats is quick enough to run on every edit (the slice ship < 15 ms here)', R(`(() => { const ps = partsFromDesign(sliceRows()); Ship.stats(ps); const t0 = Date.now(); for (let i = 0; i < 10; i++) Ship.stats(ps); return (Date.now() - t0) / 10; })()`) < 15);
+
+// every stock ship's inner parts (engines, stores) wholly inside the hull segment they hang on: each corner of the box, at
+// both its ends, inside that section's polygon (the Cyclon's diesels once poked 35 cm out of her V bottom)
+const inner = R(`(() => { const out = [];
+  const inPoly = (P, y, z) => { const n = P.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n, ay = P[2 * i], az = P[2 * i + 1], by = P[2 * j], bz = P[2 * j + 1]; if ((by - ay) * (z - az) - (bz - az) * (y - ay) < -1e-6) return false; } return true; };
+  for (const k of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'ship')) {
+    const ps = partsFromDesign(templateRows(TEMPLATES[k])), by = new Map(ps.map((p) => [p.id, p]));
+    for (const p of ps) { const H = by.get(p.att); if (!p.def.inner || !H || !H.def.shull) continue;
+      const { w, h } = partDims(p), d = partDepth(p), z = partZ(p) - partZ(H), S = H.def.shull;
+      const okp = [p.x - w / 2, p.x + w / 2].every((x) => { const P = shullPoly(shullSec(S.st, x - H.x), S.wl); return [-1, 1].every((a) => [-1, 1].every((b) => inPoly(P, p.y + (a * h) / 2 - H.y, z + (b * d) / 2))); });
+      if (!okp) out.push(k + ':' + p.type + '@' + [p.x, p.y, partZ(p)].join()); } }
+  return out; })()`);
+t('every stock ship\'s inner parts lie wholly inside the hull they hang on', inner.length === 0, inner);
 
 // ================================================================ 3. placement (Ship.spotOf)
 // a tap as the builder makes it: the pose, its twin across with symmetry on, a midsection's shift of the bow first
