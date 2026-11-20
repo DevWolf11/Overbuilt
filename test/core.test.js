@@ -70,9 +70,15 @@ g('the ships: kind ship, not military, a blurb; tier the highest of their parts\
     && v.sh.joins.length === v.sh.hulls.filter((p) => p.def.shull.cls !== 'one').length - (v.sh.hulls.some((p) => p.def.shull.cls !== 'one') ? 1 : 0) && v.sh.comps.length === v.sh.hulls.length; })`));
 // (WP5) each ship floats at her design marks (Ship.stats' still-water float: her draught within 0.3 m of her longest hull
 // part's waterline over its keel), upright, trimmed within 1°, no builder warning; editable: her design rows (as the
-// builder saves them) load back to the same parts. The flying boat floats on her hull too (ships.test: in flight)
+// builder saves them) load back to the same parts. The flying boat floats on her hull too (ships.test: in flight).
+// Her guns' arcs as the builder's warnings get them (Builder.shipArcs: each turret's sweep, its main gun's x)
 const marks = RW(`__SHIPS.filter((k) => TEMPLATES[k].kind === 'ship').map((k) => {
-  const T = TEMPLATES[k], ps = partsFromDesign(templateRows(T)), st = Ship.stats(ps), w = []; Ship.warnings(ps, st, w);
+  const T = TEMPLATES[k], ps = partsFromDesign(templateRows(T)), st = Ship.stats(ps), w = [], arcs = [];
+  for (const g of Aim.groupsOfParts(ps, buildAdjacency(ps))) {
+    let gun = null; for (const p of g.members) if (p.def.aim && (p.def.weapon ? !gun || !gun.def.weapon || (p.def.weapon.cal || 0) > (gun.def.weapon.cal || 0) : !gun)) gun = p;
+    const r = Aim.sweep(ps, g); if (r && gun && gun.def.weapon) arcs.push({ x: gun.x, deg: r.yawLim ? ((r.yawLim[1] - r.yawLim[0]) * 180) / Math.PI : 360 });
+  }
+  Ship.warnings(ps, st, w, { arcs });
   const H = ps.filter((p) => p.def.shull).sort((a, b) => b.def.w - a.def.w)[0], S = shullOf(H.def), mark = S.wl - Math.min(...S.rings.map((r) => r.yk));
   const back = partsFromDesign(designRows(ps).map((r) => ({ ...r }))), same = back.length === ps.length && back.every((q, i) => q.type === ps[i].type && Math.abs(q.x - ps[i].x) < 1e-6 && Math.abs(q.y - ps[i].y) < 1e-6 && Math.abs(partZ(q) - partZ(ps[i])) < 1e-6 && (q.att == null) === (ps[i].att == null));
   return [k, +st.draft.toFixed(2), +mark.toFixed(2), +st.trim.toFixed(2), +st.heel.toFixed(2), w.length, same, st.sinks]; })`);

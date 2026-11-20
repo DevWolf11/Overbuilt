@@ -302,7 +302,7 @@ const Aim = {
     if (res) return res;
     const mem = [], obs = [];
     for (const p of parts) {
-      if (p === R || p.def.inner || p.def.cage) continue; // (a roof cage turns no ring's arc)
+      if (p === R || p.def.inner || p.def.cage || p.def.shull) continue; // (a roof cage turns no ring's arc; [ships] nor a ship's hull: a ring stands on her deck, and her box's top is her stem's sheer, not a wall round the ring)
       const r = partRect(p);
       if (ids.has(p.id)) { if (r.b >= top - 0.05) mem.push(...aimFeet(p)); }
       else if (r.t > top + 0.05) obs.push(...aimFeet(p));
