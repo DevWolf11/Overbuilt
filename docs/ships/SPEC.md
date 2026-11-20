@@ -432,6 +432,36 @@ when the telegraph is rung; within `SPRAY.near` 800 m of the view's craft; FX's 
 - **WP12:** the bridge view in a Rough sea (built `setBridge`): its horizon's roll is the ship's own; no smoothing beyond
   the camera's (a check in ship-flight.mjs that the view never shows the inside of the hull).
 
+### 5.5 The sea's looks (WP15: added at the owner's request during the update)
+The owner: "is this update going to further improve the sea looks? They need an upgrade definitely". The sea is now where
+a whole kind of craft lives, so its looks are part of this update, as their own package. What exists (PR #52 and §5.2-5.3):
+drifting ripples (one normal map, a second set on High) at about 1 m/s, the water's depth (Beer absorption over the seabed,
+turquoise shallows), shore foam and a line at the waterline, Fresnel and a sky mirror at a glance, a Sun path that widens
+far off; real waves only in the swell patch round a ship; Kelvin wakes, spray and funnel smoke. What it lacks, judged from
+a plane's cockpit at 50 m-3 km, from a deck and from the chase camera:
+- **The sea state from anywhere.** Beyond the swell patch the sea is the same flat ripples whatever Settings → Sea says.
+  The far sea takes wave-scale normals from the same four sines (`SWELL_FN`'s slopes, with the waves the pixel can't hold
+  faded out by distance so nothing shimmers), so a Rough sea reads as rough from 3 km up, the swell patch's edge can't be
+  seen, and the drawn sea agrees with the physics' wherever a ship could be. Calm stays glassy.
+- **No tiling.** The 48 m ripple tile repeats visibly from altitude: a second sample at a larger scale and another angle,
+  and a slow variation in roughness and colour over kilometres (wind patches, slicks), as the ground's far variation does.
+- **Whitecaps.** Foam on the crests by sea state (none in Calm, scattered in Moderate, many in Rough) from the wave
+  function's steepness, broken up by the ripple noise, drifting with the wind, fading over a few seconds as real
+  whitecaps do; streaks along the wind in Rough.
+- **Light in the waves.** A blue-green glow through the thin crests facing the Sun (a cheap subsurface term from the wave
+  slope and the Sun's direction), the troughs darker, so the swell has shape in the low Sun the Faroes mostly have.
+- **Ships in the water.** A bow wave and a foam collar where the hull meets the swell (the swell patch knows the hull's
+  waterline), the wake's foam lasting longer and spreading (about a minute) behind a ship making way, a propeller wash.
+- **Gates and budget.** Old scenes' pictures of the sea change by design (the only intended change to an old scene's
+  picture in this update: graphics.mjs's water checks re-baselined with screenshots looked at); everything else in an old
+  scene stays identical. Phone Low within ±3 % of today's frame time in the bench's sea scenes (`sea300`, `seaRough`,
+  the water scenes of water.mjs), High within +10 % over the sea and no change where no sea is on screen; no new program
+  in an old scene beyond the ocean's own variants (the program count checked); the drift on real frame time (paused:
+  still), frame-rate independent; the near ground, the arena's ground and the sinking veils (water.mjs) unchanged.
+- **Tests.** water.mjs's checks hold; new screenshots (Calm, Moderate, Rough from 50 m, 500 m and 3 km; dusk and night;
+  a destroyer at 25 kn from the chase camera and her bridge; the Faroes' coast from a plane) on phone and desktop, looked
+  at; the bench before/after on phone Low and desktop High.
+
 ---
 
 ## 6. The parts (59 new, all `gv: true, ship: true`; 389 → 441)
@@ -1300,6 +1330,7 @@ Measured on the bench rig (desktop; phone = 4× CPU throttle) before/after; budg
 | `Ship.bump` | ≤ 0.05 ms a frame with two ships touching; nothing without pairs in reach | WP6 |
 | CIWS | ≤ 15 simulated rounds a second a mount; ≤ 0.05 ms a frame a mount | WP9 |
 | Hull art | vertex colours, no texture per hull | built |
+| The sea's looks (§5.5) | phone Low within ±3 % in the sea scenes, High ≤ +10 % over the sea, nothing where no sea shows | WP15 |
 New bench scenes: `ship1k` (the destroyer at 25 kn, camera 1 km off), `shipnear` (built: chase cam on a small hull at
 speed), `fleet` (Hostile wave 3 from the player's bridge), `seaRough` (built: camera at 20 m over Rough sea, no ship near:
 proves the swell is off).
@@ -1360,12 +1391,14 @@ Ship = {
 | **WP8 Damage, flooding, sinking** | ship.js `damage` (§8.3 hullRay/hullMm/hullDist, §8.4 holes, §8.7 flooding and `floodForce` at forces' marked line, §8.8 fires/DC/magazine, §8.9 holed through, fate, doom, wrecks); parts.js `shullTris`, `massPerMm`/`armourMassT` belt; parts3d `shipHullGeo` reads `shullTris` (the picture unchanged); armour.js `recsOf`/`test`, `faceMm`, `resolve` (S1), `apply` holes, `cookOff` → magazine, `repairStep` ship skip; combat.js `explode` (hullDist, `under`), `damage` (S6), `destroyPart` (holed through), `moveShot` bombs under water (S4); death.js `impact` (with WP6's line), `swamp` (the knocked-out wreck in deep water), wreck list for sunk ships; flight.js `afterFall` ship wait; vessel.js serialize/restore (§10.5) | ships.test §damage: hole areas per weapon class; flooding equilibria (a 1 m² hole 1 m deep in the Olivar: lists, survives with pumps; three compartments: sinks in < 300 s); free-surface capsize; pumps and DC timings; a magazine breaks her in two; each doom reason; a wreck on a shallow bed vs removal in deep water; derelicts; a knocked-out tank in deep water goes under; armour.test unchanged; death.test A7/B3 unchanged; saves round-trip | ships die by water, fire and magazines, as physics says |
 | **WP9 Naval weapons and sensors** | parts.js region `shArms` (§6.4) and the kit's `decoy`/`torpDecoy` behaviour; armour.js naval `SHELLS` block, `moveShell`'s CIWS line, `ground()` splashes; aim.js `rangeTable`/`solve`/`aimLift` naval gate, `stepAll` AI line, `trackStep`/`searchStep` (S3, sea), the torpedo `fire` path; combat.js `isFighter` (never a ship), `candidates`, `swim`, `moveShot` (`stor`, `asm`), `launchMissile`/`guide`/`guideAir` flags, `turretStep` (S8), `frame`'s `S.pd` and `ciwsStep`; radar.js classification; drone.js `lockable` (ships); ghud.js `GHUD.reach`, zero ladder; ship.js `combat`; the warships armed: `osca`, `pegazus`, `vizby`, `olivar`, `arley` (their own keys) | ships.test §combat: a 127 mm range table hits at 5 km within one hull length; CIWS kill odds (§8.10); torpedo homing and hull hit; the old air torpedo hits a ship; an ASM sea-skims and hits; VLS pitch-over; a SAM kills an ASM; classification (ship ghosts never air candidates nor air radar contacts); §8.12's damage targets; a TK-34 with a 127 mm gun hits at 3 km; combat.test, radar.test, aim.test unchanged | the four warships fight as §8 says |
 
-### Phase 4: AI, play, multiplayer, polish, the matrix. Four packages; merge WP10 → WP11 → WP12 → WP14.
+### Phase 4: AI, play, multiplayer, polish, the matrix, the sea. Five packages; merge WP10 → WP11 → WP12 → WP15 → WP14.
+(WP15 owns nothing the combat packages touch, so it may start beside Phase 3 once Phase 2 is merged.)
 | WP | Owns | Tests | Done when |
 |---|---|---|---|
 | **WP10 AI, range, practice** | ship.js `ai` (§9); combat.js `frame`'s AI-loop and `aiDown` lines; groundai.js `aimAt` factored out (no behaviour change: groundcombat.json identical); space.js `EARTH.navalRange`; gmode.js `NAVAL_STOCK`; mpui.js the Naval practice button and its panel. (No career awards: §21.) | `test/navalai.test.js` (the helm reaches waypoints, avoids land at the islands, keeps range, hits a target at 4 km within N salvos by skill, torpedoes, evades, engages a tank on the shore); browser `naval-range.mjs` (Practice: sink a target; Hostile: survive a wave 60 s of `Flight.time`); bench `fleet` | Practice and Hostile ranges and the practice battle play end to end |
 | **WP11 Multiplayer** | mp.js (§10.4), mpui.js lobby, settings, placement and respawn for naval, net.js `NET_VERSION` 14, gmode.js (`capturer` kinds, `placement` sea, `pickNaval`), space.js `EARTH.arenas.sound`, ship.js `mp` and `slew` | mp.test naval trace → new `baseline/mp-naval.json`; `mp-air.json` identical; gmode.test naval placement and capture (`'boat'` still doesn't); spawns.test the Sound's starts and zones deep enough; net.test unchanged; browser `naval-battle.mjs` (two tabs, BroadcastChannel) | a 1v1 naval battle plays in two windows |
 | **WP12 HUD and feel** | ship.js `hud` (the hull diagram, banners, missile warnings from radar parts), ghud.js `drawTorps`, render3d decals for holes, audio.js, controls.js touch buttons (`hold`, `dc`, `ciws`), style.css | controls.mjs at all sizes, ship-flight.mjs (screenshots: helm, hull diagram, a sinking ship, the bridge view in Rough sea) looked at, redraw.mjs | it reads clearly on a 360×640 phone in portrait |
+| **WP15 The sea's looks** (§5.5) | render3d.js: the ocean material's hooks (`waterHook` and the water shader's ripple, foam and light code), the swell patch's material (`updateSwell`'s), the wakes' material; world.js only if the 2D view's sea must agree (§3.7's table); ship.js `waveUniforms` (read only) | water.mjs; graphics.mjs (the sea's checks re-baselined, every other check identical); the bench's sea scenes before/after; screenshots per §5.5, looked at | from a plane, a deck and a phone, the sea looks like the sea in each state, at today's cost on phone Low |
 | **WP14 Combat matrix** | `test/matrix.test.js` (§20: reach, effort with `baseline/matrix.json` and rating bands, hard cases), the old-kind fixes O1 (drone.js `lockable`), O3 (`def.warhead` rocket part), O5 (combat.js `Death.hit` for rockets), the 7×7 table for the handbook and PR | matrix.test (≈ 50 s); the old 36 pairs identical with and without ship.js; every old baseline identical | every pair has a way; the table's bands hold |
 
 ### Phase 5: docs, review, ship (lead + reviewers)
