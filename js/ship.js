@@ -1312,7 +1312,7 @@ const Ship = (() => {
     const turret = parts.some((p) => p.def.place === 'ring'), ground = def.place === 'ring' || def.place === 'front' || def.place === 'top' || def.place === 'flank';
     if (ground && !hulls.length) return null;
     if (def.place === 'ring') {
-      const rings = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id && o.def.place === 'ring')).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt));
+      const rings = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt)); // (bare rings: a gun on one is its own mount)
       for (const g of rings) { const q = pose(g.x, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
       return rings.length ? room : { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} turns on it.` };
     }
@@ -1320,6 +1320,7 @@ const Ship = (() => {
       const piv = def.aim && def.aim.pivot != null ? def.aim.pivot : 0.5, off = rot === 3 ? def.h / 2 - piv * def.h : 0;
       const bare = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt));
       if (def.place === 'front' || def.aim) for (const g of bare) { const q = pose(g.x + off, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      if (def.place === 'front' && bare.length) return room;
       if (def.place === 'front') return { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} goes on it.` };
       const q = onSuper(xt + off) || onDeck(xt + off);
       return q || room;
@@ -1332,7 +1333,9 @@ const Ship = (() => {
 
     // ---- the deck
     // a gun ring: the foremost clear spot on the centre line ahead of the superstructure, then the aftmost behind it
-    if (role === 'gunRing') return scan([...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])], [0], deckPose) || room;
+    // (rings far enough apart for the gun houses on them: 1.6 m between them)
+    if (role === 'gunRing') return scan([...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])], [0],
+      (x, z) => (parts.some((o) => o.def.ring && Math.abs(o.x - x) < (w + o.def.w) / 2 + 1.6) ? null : deckPose(x, z))) || room;
     // the helicopter deck: the aftmost clear stretch of deck
     if (role === 'pad') return scan(up(X0 + w / 2, X1 - w / 2), [0], deckPose) || room;
     // vertical launch cells, flush in the deck (their top at the deck line, inside the hull), ahead of the superstructure,
@@ -1604,7 +1607,7 @@ const Ship = (() => {
     if (has((d) => d.weapon && d.weapon.vls) && !has((d) => d.trackRadar)) warn.push('The vertical launcher\'s missiles need a Fire-Control Radar aboard.');
     for (const pad of all((d) => d.deck)) {
       const R = partRect(pad), hz = partZ(pad), hd = partDepth(pad) / 2;
-      const on = ps.some((q) => q !== pad && q.att !== pad.id && pad.att !== q.id && !q.def.shull && (() => {
+      const on = ps.some((q) => q !== pad && pad.att !== q.id && !q.def.shull && (() => {
         const Q = partRect(q), qd = partDepth(q) / 2;
         return spanOverlap(Q.l, Q.r, R.l, R.r) > 0.02 && Q.t > R.t + 0.02 && Q.b < R.t + 4 && partZs(q).some((z) => spanOverlap(z - qd, z + qd, hz - hd, hz + hd) > 0.02);
       })());
@@ -1632,7 +1635,7 @@ const Ship = (() => {
       warn.push(`The ${a.x >= mid ? 'forward' : 'after'} gun can only fire over ${Math.round(a.deg)}°: raise it or move the superstructure.`);
       break;
     }
-    const n = stationsOf(ps), g = gunnersOf(ps);
+    const n = st ? stationsOf(ps) : 0, g = st ? gunnersOf(ps) : 0; // (a ship's crew: other kinds fire as they always have)
     if (n > g) warn.push(g ? `${n} weapon stations, ${g} gunner${g === 1 ? '' : 's'}: only ${NUM[g] || g} fire${g === 1 ? 's' : ''} at once. A bigger bridge or gun houses bring more.` : `${n} weapon station${n === 1 ? '' : 's'} and no gunner: nothing fires. A bridge or a gun house brings gunners.`);
     const funnels = all((d) => d.funnel);
     if (funnels.length && all(isRadar).some((r) => funnels.some((f) => Math.hypot(r.x - f.x, partZ(r) - partZ(f)) <= 10 && partRect(r).t < partRect(f).t))) warn.push('The radar sits below the funnel: smoke blinds it aft. Raise it on a mast.');
@@ -1735,6 +1738,7 @@ const Ship = (() => {
     if (d.bulkhead) return 'watertight';
     if (isPump(d)) return `${d.pump} m³/s`;
     if (isMag(d) && d.store) return `${d.store.rounds} rounds`;
+    if (d.ballast || d.type === 'ballast') return `${d.mass} t, low`;
     if (isDC(d)) return `${d.mods.filter((m) => m.role === 'dc').length} crew`;
     if (d.place === 'mast') return `${tTxt(d.h)} m`;
     if (d.control) { const c = (d.mods || []).filter((m) => m.k === 'crew').length; return c ? `helm · crew ${c}` : 'helm'; }

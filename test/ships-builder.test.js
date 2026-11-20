@@ -165,6 +165,149 @@ const cases = [
 for (const [name, code, re] of cases) { const w = W(code); t(`warning: ${name}`, re.test(w), w); }
 t('none of them ever says the rocket\'s "No engine fires in stage 1" (that is the builder\'s, never reached for a ship)', !cases.some(([, code]) => /stage 1/.test(W(code))));
 
+// ================================================================ 7. placement for every place (WP7, spec §11.2)
+// The spec's parts that aren't in the catalogue yet come from test/lib/shipdefs.js (test-only defs with §6's keys, sizes and
+// fields; a key already in PARTS is left alone, so this runs on the real parts as they land). A destroyer's hull (the X
+// class) by taps, then every kind of part tapped onto it: on an empty design, on the bare hull, and on a full design.
+R(require('fs').readFileSync(require('path').join(__dirname, 'lib', 'shipdefs.js'), 'utf8'));
+R(`var hullX = () => { const ps = []; for (const k of ['hbMidX', 'hbBowX', 'hbSternX', 'hbMidX']) tap(ps, k, true); return ps; };
+  var deckOf = (ps, x) => ps.filter((p) => p.def.shull).reduce((m, p) => { const H = shullOf(p.def); return x >= p.x + H.x0 - 1e-6 && x <= p.x + H.x1 + 1e-6 ? Math.max(m, p.y + shullSec(p.def.shull.st, x - p.x)[0]) : m; }, -Infinity);
+  var keelOf = (ps, x) => ps.filter((p) => p.def.shull).reduce((m, p) => { const H = shullOf(p.def); return x >= p.x + H.x0 - 1e-6 && x <= p.x + H.x1 + 1e-6 ? Math.min(m, p.y + shullSec(p.def.shull.st, x - p.x)[1]) : m; }, Infinity);
+  var deckTop = (ps, q) => { let t = -Infinity; const R = partRect(q); for (let x = R.l; x <= R.r + 1e-9; x += 0.25) t = Math.max(t, deckOf(ps, Math.min(x, R.r))); return t; };
+  var ext = (ps) => { let a = Infinity, b = -Infinity; for (const p of ps) if (p.def.shull) { const H = shullOf(p.def); a = Math.min(a, p.x + H.x0); b = Math.max(b, p.x + H.x1); } return [a, b]; };
+  var where = (q) => (q && !q.why ? { x: q.x, y: q.y, z: q.z, rot: q.rot, on: q.att && q.att.type, R: partRect(q) } : q);`);
+const PLACES = ['bridgeL', 'stealthHouse', 'deckhouseL', 'funnel', 'hangar', 'helipad', 'consoleS', 'mastLattice', 'mastPole', 'nRadarAir', 'nRadarFC', 'nRadarSea',
+  'nRingM', 'ciws', 'asm4', 'vls8', 'torpTube', 'decoy', 'turbine', 'dieselS', 'outboard', 'screwS', 'screwL', 'waterjet', 'rudderL', 'foilBow', 'foilAft',
+  'bulkhead', 'pump', 'ballast', 'dcLocker', 'magazine', 'torpDecoy'];
+r = R(`(() => { const ps = []; return ${JSON.stringify(PLACES)}.map((k) => [k, Ship.spotOf(k, ps, {})]).filter(([, s]) => !(s && /Put a hull down first/.test(s.why))).map(([k]) => k); })()`);
+t('empty: every ship part that goes on a hull (deck, superstructure, masts, the edge, inside, the stern, the bow, under the keel) asks for a hull first', r.length === 0, r);
+r = R(`(() => { const ps = []; return ['ribHull', 'pontoon', 'hbBowX'].map((k) => { const s = Ship.spotOf(k, ps, {}); return [s.x, s.y, s.z]; }); })()`);
+t('empty: any hull (a one-piece RIB hull, a float, a destroyer\'s bow) goes at the origin', r.every((q) => q.join() === '0,0,0'), r);
+r = R(`(() => { const ps = []; return ['nHouse127', 'nGun76', 'mgHeavy'].map((k) => Ship.spotOf(k, ps, {})); })()`);
+t('empty: a gun house, a naval gun, a pintle gun: null (the builder\'s own rules)', r.every((q) => q === null), r);
+// the bare hull: each part alone on it, from the same view (its middle)
+r = R(`(() => { const out = {}, ps0 = hullX(), [X0, X1] = ext(ps0), L = X1 - X0, s0 = Ship.stats(ps0);
+  for (const k of ${JSON.stringify(PLACES)}) { const ps = hullX(), q = Ship.spotOf(k, ps, { sym: true }); out[k] = where(q); if (q && !q.why) out[k].deck = deckTop(ps, q); }
+  return { out, X0, X1, L, n: ps0.length, open: s0.open, cg: s0.cg }; })()`);
+const B = r.out, X0 = r.X0, X1 = r.X1, Lx = r.L, onDeck = (q) => !!q && !q.why && Math.abs(q.R.b - q.deck) < 0.02;
+t('the X hull by four taps (a midsection, the bow, the stern, a second midsection in behind the bow): 108 m, closed', r.n === 4 && Math.abs(Lx - 108) < 0.01 && r.open === 0, { n: r.n, L: Lx, open: r.open });
+t('a hulled design: every part gets a pose (none refused, none left to the builder)', PLACES.every((k) => B[k] && !B[k].why), PLACES.filter((k) => !B[k] || B[k].why).map((k) => k + ':' + JSON.stringify(B[k])));
+t('...a gun ring: on the deck, on the centre line, as far forward as the bow\'s beam lets it', onDeck(B.nRingM) && B.nRingM.z === 0 && B.nRingM.x > X1 - 0.12 * Lx && B.nRingM.on === 'hbBowX', B.nRingM);
+t('...the helicopter deck: on the deck at her very stern', onDeck(B.helipad) && Math.abs(B.helipad.R.l - X0) < 0.3, B.helipad);
+t('...a bridge: on the deck, its front 30-40 % of her length from the bow', onDeck(B.bridgeL) && B.bridgeL.R.r >= X1 - 0.4 * Lx - 1e-6 && B.bridgeL.R.r <= X1 - 0.3 * Lx + 1e-6 && B.bridgeL.z === 0, B.bridgeL);
+t('...the stealth superstructure: a bridge too (its front 30-40 % from the bow)', onDeck(B.stealthHouse) && B.stealthHouse.R.r >= X1 - 0.4 * Lx - 1e-6 && B.stealthHouse.R.r <= X1 - 0.3 * Lx + 1e-6, B.stealthHouse);
+t('...a helm console: on the deck a little aft of amidships', onDeck(B.consoleS) && B.consoleS.x < (X0 + X1) / 2 && B.consoleS.x > X0 + 0.3 * Lx, B.consoleS);
+t('...vertical launch cells: flush, their top at the deck line, on the centre line, in the hull', !!B.vls8 && Math.abs(B.vls8.R.t - B.vls8.deck) < 0.3 && B.vls8.z === 0 && /^hb/.test(B.vls8.on), B.vls8);
+t('...anti-ship missiles (symmetry on): on the deck at its edge (the twin across), over the deck', onDeck(B.asm4) && B.asm4.z > 4 && B.asm4.z + 2.3 <= 8.01, B.asm4);
+t('...torpedo tubes and decoys: at the deck edge', onDeck(B.torpTube) && B.torpTube.z > 7 && onDeck(B.decoy) && B.decoy.z > 7, [B.torpTube, B.decoy]);
+t('...with no superstructure: a funnel, a deckhouse, a hangar, masts and radars on the deck; the close-in gun on the deck aft', ['funnel', 'deckhouseL', 'hangar', 'mastLattice', 'nRadarAir'].every((k) => onDeck(B[k])) && onDeck(B.ciws) && B.ciws.x < X0 + 0.1 * Lx, ['funnel', 'ciws'].map((k) => B[k]));
+t('...inside: engines, a pump, ballast, a damage control party and a magazine low in the hull (under the waterline)', ['turbine', 'dieselS', 'pump', 'ballast', 'dcLocker', 'magazine'].every((k) => B[k].R.b < -3 && /^hb/.test(B[k].on)), ['turbine', 'ballast', 'magazine'].map((k) => B[k]));
+t('...ballast the lowest of them (its middle: her weight low); the damage control party amidships', B.ballast.y <= Math.min(B.turbine.y, B.pump.y, B.magazine.y, B.dcLocker.y, B.dieselS.y) + 0.01 && Math.abs(B.dcLocker.x - (X0 + X1) / 2) < 10, [['turbine', 'pump', 'magazine', 'dcLocker', 'dieselS', 'ballast'].map((k) => B[k].y), B.dcLocker.x]);
+t('...a bulkhead: across the middle of a compartment (a segment\'s middle), on the centre line', B.bulkhead.z === 0 && R(`hullX().some((p) => p.def.shull && Math.abs(p.x - ${B.bulkhead.x}) < 0.01)`), B.bulkhead);
+t('...the stern: propellers and a rudder under it, an outboard on the transom\'s aft face (its foot under the keel), a waterjet in the transom at the keel line',
+  B.screwL.on === 'hbSternX' && B.rudderL.on === 'hbSternX' && B.outboard.R.r <= X0 + 1e-6 && B.outboard.R.r > X0 - 0.1 && B.outboard.R.b < -3 + 0.01 && B.waterjet.R.l < X0 && B.waterjet.R.r > X0 && Math.abs(B.waterjet.R.b - (-3 + 0.01)) < 0.05,
+  ['screwL', 'rudderL', 'outboard', 'waterjet'].map((k) => B[k]));
+t('...a torpedo decoy on the stern\'s deck', onDeck(B.torpDecoy) && B.torpDecoy.x < X0 + 0.1 * Lx, B.torpDecoy);
+{
+  const kb = R(`keelOf(hullX(), ${B.foilBow.x})`), ka = R(`keelOf(hullX(), ${B.foilAft.x})`);
+  t('...the bow hydrofoil under the forefoot, in her foremost fifth, its top at the keel', B.foilBow.x >= X1 - 0.2 * Lx && B.foilBow.R.t <= kb + 1e-6 && B.foilBow.z === 0, { ...B.foilBow, kb });
+  t('...the main hydrofoil under her 10 % of her length aft of the centre of gravity, its top at the keel', Math.abs(B.foilAft.x - (r.cg.x - 0.1 * Lx)) < 0.5 && B.foilAft.R.t <= ka + 1e-6, { ...B.foilAft, ka, cg: r.cg.x });
+}
+// one-piece hulls beside one another (a catamaran of RIBs; floats in a pair)
+r = R(`(() => { const ps = [], a = tap(ps, 'ribHull', true), b = tap(ps, 'ribHull', true), H = shullOf(PARTS.ribHull), hb = Math.max(...H.rings.map((r) => r.bd));
+  const keel = (p) => p.y + Math.min(...H.rings.map((r) => r.yk));
+  return { n: ps.length, z: b.z, want: 2 * hb + 0.5, level: Math.abs(keel(ps[1]) - keel(ps[0])) < 1e-6, pair: !!ps[2] && partZ(ps[2]) === -partZ(ps[1]) }; })()`);
+t('one-piece hulls: a second RIB hull goes beside the first, both half-beams and 0.5 m out, keels level, a pair with symmetry on (a catamaran)', r.n === 3 && Math.abs(r.z - r.want) < 0.01 && r.level && r.pair, r);
+// the ground update's places on a ship: a gun on a bare ring with no house aboard, roof kit on the superstructure, a gun
+// house on the free ring nearest the view, and with one aboard, its gun left to the builder's tank rules
+r = R(`(() => { const ps = hullX(), ring = tap(ps, 'nRingM', true), gun = tap(ps, 'nGun76', true), br = tap(ps, 'bridgeL', true), mg = tap(ps, 'mgHeavy', true), ring2 = tap(ps, 'nRingM', true), house = tap(ps, 'nHouse127', true);
+  const g = ps.find((p) => p.type === 'nGun76'), rg = ps.find((p) => p.type === 'nRingM'), d = PARTS.nGun76;
+  return { gun: [gun.att === rg, +(gun.x - (rg.x + d.h / 2 - d.aim.pivot * d.h)).toFixed(3), Math.abs(partRect(g).b - partRect(rg).t) < 1e-6, gun.rot],
+    mg: [mg.att && mg.att.type, Math.abs(partRect(ps.find((p) => p.type === 'mgHeavy')).b - partRect(ps.find((p) => p.type === 'bridgeL')).t) < 1e-6],
+    ring1: rg.x, br: partRect(ps.find((p) => p.type === 'bridgeL')).r, ring2: where(ring2), house: [house.att === ps.filter((p) => p.type === 'nRingM')[1], house.x === ring2.x], then: Ship.spotOf('nGun76', ps, {}), noRing: Ship.spotOf('nHouse127', hullX(), {}) }; })()`);
+t('a naval gun with no gun house aboard: on the bare ring, its trunnion over the ring\'s middle, pointing forward', r.gun[0] && r.gun[1] === 0 && r.gun[2] && r.gun[3] === 3, r.gun);
+t('a pintle gun with no turret aboard: on the bridge\'s roof', r.mg[0] === 'bridgeL' && r.mg[1], r.mg);
+t('a second gun ring: still ahead of the bridge, room for both gun houses between them (5 m apart); a gun house on the free ring', !!r.ring2 && r.ring2.R.l >= r.br - 1e-6 && r.ring1 - r.ring2.x >= 5 - 1e-6 && r.house[0] && r.house[1], r);
+t('...with a gun house aboard, a tapped gun is left to the builder (null: into the house\'s face, as on a tank); a house with no ring aboard says why', r.then === null && /Put a gun ring on the deck first/.test(r.noRing.why), r);
+
+// the full design: every kind of part tapped onto the hull in turn (symmetry on), each where it should be among the rest
+const FULL = ['bridgeL', 'nRingM', 'nHouse127', 'deckhouseL', 'funnel', 'helipad', 'hangar', 'ciws', 'mastLattice', 'nRadarAir', 'nRadarFC', 'nRadarSea', 'vls8', 'asm4',
+  'torpTube', 'decoy', 'turbine', 'turbine', 'screwL', 'rudderL', 'magazine', 'pump', 'dcLocker', 'ballast', 'bulkhead', 'torpDecoy', 'foilBow', 'foilAft'];
+R(`var full = () => { const ps = hullX(), why = []; for (const k of ${JSON.stringify(FULL)}) { const s = tap(ps, k, true); if (!s || s.why) why.push(k + ': ' + (s && s.why)); } return { ps, why }; };`);
+r = R(`(() => { const { ps, why } = full(), one = (k) => ps.find((p) => p.type === k), all = (k) => ps.filter((p) => p.type === k), Rc = (k) => partRect(one(k));
+  const adj = buildAdjacency(ps), c = findControlPart(ps), comp = componentOf(c.id, adj);
+  const sup = ps.filter((p) => ['bridgeL', 'deckhouseL', 'hangar'].includes(p.type)), sx0 = Math.min(...sup.map((p) => partRect(p).l)), sx1 = Math.max(...sup.map((p) => partRect(p).r));
+  return { n: ps.length, joined: comp.size, why, clean: clean(ps),
+    ring: [Rc('nRingM').l >= Rc('bridgeL').r - 1e-6, one('nHouse127').att === one('nRingM').id],
+    house: Math.abs(Rc('deckhouseL').r - Rc('bridgeL').l) < 0.02, funnel: one('funnel').att === one('deckhouseL').id,
+    hangar: Math.abs(Rc('hangar').l - Rc('helipad').r) < 0.3, ciws: [one('ciws').att === one('hangar').id, Math.abs(Rc('ciws').b - Rc('hangar').t) < 1e-6],
+    mast: one('mastLattice').att === one('bridgeL').id, radar: one('nRadarAir').att === one('mastLattice').id && Math.abs(Rc('nRadarAir').b - Rc('mastLattice').t) < 1e-6,
+    vls: Rc('vls8').l >= sx1 - 1e-6 || Rc('vls8').r <= sx0 + 1e-6, edge: all('torpTube').length === 2 && all('decoy').length === 2,
+    mag: Math.abs(one('magazine').x - one('nRingM').x) < 25, pumpLow: Rc('pump').b < -3, sym: all('asm4').length === 2 && all('turbine').length === 4 }; })()`);
+t('the full design: 28 taps put every part on (each found a place), every one joined, nothing clashes', !r.why.length && r.joined === r.n && r.clean, r);
+t('...the gun ring ahead of the bridge, its gun house on it; the deckhouse just aft of the bridge, the funnel on the deckhouse', r.ring.every(Boolean) && r.house && r.funnel, r);
+t('...the hangar just ahead of the helicopter deck, the close-in gun on the hangar\'s roof (the aftmost superstructure)', r.hangar && r.ciws.every(Boolean), r);
+t('...the lattice mast on the bridge (the highest superstructure), the air radar on the mast\'s top', r.mast && r.radar, r);
+t('...the cells clear of the superstructure; tubes and decoys in pairs at the edge; the magazine toward the gun ring; pairs with symmetry', r.vls && r.edge && r.mag && r.sym && r.pumpLow, r);
+
+// ================================================================ 8. the kit's warnings (WP7, spec §11.3): each fires, then clears
+// Each from a design that has the fault and the same design with it put right. A sound base: the slice ship (no warnings),
+// and a destroyer's hull with a bridge, turbines, screws and rudders (warns only what a case adds).
+R(`var dd = () => { const ps = hullX(); for (const k of ['bridgeL', 'turbine', 'turbine', 'screwL', 'rudderL', 'pump']) tap(ps, k, true); return ps; };
+  var ww = (ps, extra) => { const w = []; Ship.warnings(ps, Ship.stats(ps), w, extra); return w.join(' '); };
+  var put = (ps, k, x, y, z, on) => { const p = makePart(k, x, y, { z: z || 0, att: on ? on.id : null }); ps.push(p); return p; };
+  var kind = (ps, t) => ps.find((p) => p.type === t);`);
+t('the destroyer base: no warnings', R(`ww(dd())`) === '', R(`ww(dd())`));
+const W8 = [
+  ['torpedo tubes with no water under them (no hull, no wings)', `[makePart('bridgeM', 0, 0, {}), makePart('torpTube', 0, 2, {})]`, `(() => { const ps = slice(); tap(ps, 'torpTube', true); return ps; })()`, /Torpedo tubes need water under them/],
+  ['vertical launch cells with no fire-control radar', `(() => { const ps = dd(); tap(ps, 'vls8', true); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'vls8', true); tap(ps, 'nRadarFC', true); return ps; })()`, /The vertical launcher's missiles need a Fire-Control Radar aboard/],
+  ['something on the helicopter deck', `(() => { const ps = dd(); tap(ps, 'helipad', true); const H = kind(ps, 'helipad'); put(ps, 'ballast', H.x, partRect(H).t + 1, 0, H); return ps; })()`,
+    `(() => { const ps = dd(); tap(ps, 'helipad', true); const H = kind(ps, 'helipad'); put(ps, 'ballast', H.x, partRect(H).t + 4.5, 0, H); return ps; })()`, /Something stands on the helicopter deck/],
+  ['hydrofoils that can\'t lift her (a destroyer on a patrol hydrofoil\'s foils)', `(() => { const ps = dd(); tap(ps, 'foilBow', true); tap(ps, 'foilAft', true); return ps; })()`,
+    `(() => { const ps = slice(); tap(ps, 'foilBow', true); tap(ps, 'foilAft', true); return ps; })()`, /Her foils can't lift her: they hold \d+ t at 40 kn and she weighs [\d,]+ t/],
+  ['a bulkhead outside every hull', `(() => { const ps = dd(); const H = ps[0]; put(ps, 'bulkhead', H.x, H.y + 9, 0, H); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'bulkhead', true); return ps; })()`, /A bulkhead only works inside a hull segment/],
+  ['more weapon stations than gunners', `(() => { const ps = slice(); for (const k of ['nRingM', 'nGun76', 'torpTube']) tap(ps, k, true); return ps; })()`,
+    `(() => { const ps = slice(); for (const k of ['nRingM', 'nGun76']) tap(ps, k, true); return ps; })()`, /3 weapon stations, 1 gunner: only one fires at once/],
+  ['a radar below the funnel', `(() => { const ps = dd(); tap(ps, 'deckhouseL', true); tap(ps, 'funnel', true); const F = kind(ps, 'funnel'), D = kind(ps, 'deckhouseL'); put(ps, 'nRadarSea', F.x - 4, partRect(D).t + 0.3, 0, D); return ps; })()`,
+    `(() => { const ps = dd(); tap(ps, 'deckhouseL', true); tap(ps, 'funnel', true); tap(ps, 'mastLattice', true); tap(ps, 'nRadarSea', true); return ps; })()`, /The radar sits below the funnel: smoke blinds it aft/],
+  ['anti-ship missiles with no surface radar', `(() => { const ps = dd(); tap(ps, 'asm4', true); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'asm4', true); tap(ps, 'mastLattice', true); tap(ps, 'nRadarSea', true); return ps; })()`, /Anti-ship missiles need a target/],
+  ['a magazine above the waterline', `(() => { const ps = dd(); const H = ps[0]; put(ps, 'magazine', H.x, H.y + 3.5, 0, H); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'magazine', true); return ps; })()`, /A magazine above the waterline goes up more easily/],
+  ['over 500 t with no pump or damage control party', `dd().filter((p) => p.type !== 'pump')`, `(() => { const ps = dd().filter((p) => p.type !== 'pump'); tap(ps, 'dcLocker', true); return ps; })()`, /No pumps or damage control: one hole could sink her/],
+];
+for (const [name, bad, good, re] of W8) {
+  const a = R(`ww(${bad})`), b = R(`ww(${good})`);
+  t(`warning: ${name} fires, and clears when put right`, re.test(a) && !re.test(b), { fires: a, cleared: b });
+}
+r = [R(`ww(dd(), { arcs: [{ x: 60, deg: 80 }] })`), R(`ww(dd(), { arcs: [{ x: -30, deg: 45 }] })`), R(`ww(dd(), { arcs: [{ x: 60, deg: 200 }, { x: -30, deg: 360 }] })`)];
+t('warning: a gun whose arcs the superstructure blocks past 270° (the turret sweep\'s arc): "the forward gun can only fire over 80°", "the after gun"; clear over 90°',
+  /The forward gun can only fire over 80°: raise it or move the superstructure/.test(r[0]) && /The after gun can only fire over 45°/.test(r[1]) && !/can only fire/.test(r[2]), r);
+t('the red ones before the amber ones (the hints last)', R(`(() => { const ps = dd(); tap(ps, 'vls8', true); tap(ps, 'asm4', true); return ww(ps); })()`).search(/Fire-Control/) < R(`(() => { const ps = dd(); tap(ps, 'vls8', true); tap(ps, 'asm4', true); return ww(ps); })()`).search(/Anti-ship missiles need/));
+t('Ship.kitWarnings alone (any kind carrying ship parts): torpedo tubes on a tank warn (and nothing about gunners: another kind\'s crew is its own); on a plane (wings) they don\'t',
+  R(`(() => { const w = []; Ship.kitWarnings([makePart('hullLight', 0, 0, {}), makePart('torpTube', 0, 2, {})], null, w); const v = []; Ship.kitWarnings([makePart('wing', 0, 0, {}), makePart('torpTube', 0, 2, {})], null, v); return w.length === 1 && /need water/.test(w[0]) && !v.length; })()`));
+
+// ================================================================ 9. cards, tray lines, X-ray, ship classes (WP7, spec §11.4)
+r = R(`(() => { const o = {}; for (const k of ['hbMidM', 'hbBowX', 'ribHull', 'dieselM', 'turbine', 'outboard', 'screwM', 'screwL', 'waterjet', 'rudderM', 'foilBow', 'foilAft', 'nGun76', 'asm4', 'vls8', 'ciws', 'torpTube', 'decoy', 'nRadarAir', 'nRadarSea', 'nRadarFC',
+  'helipad', 'hangar', 'funnel', 'bulkhead', 'pump', 'magazine', 'dcLocker', 'ballast', 'mastLattice', 'bridgeM', 'stealthHouse', 'torpDecoy']) o[k] = [Ship.specs(PARTS[k]).join(' · '), Ship.line(PARTS[k])]; return o; })()`);
+const C = r;
+t('every ship part has card lines and a tray line', Object.entries(C).every(([, [a, b]]) => a.length > 0 && b), Object.entries(C).filter(([, [a, b]]) => !a || !b).map(([k]) => k));
+t('a hull segment: what it floats, what it draws at her marks, one watertight compartment and its length', /^Floats up to 190 t of ship · draws 1\.6 m at her marks · one watertight compartment, 8 m/.test(C.hbMidM[0]) && /^190 t · draws 1\.6 m$/.test(C.hbMidM[1]), C.hbMidM);
+t('...a one-piece hull says so; a destroyer\'s plating in steel', /a one-piece hull, 9 m/.test(C.ribHull[0]) && /glass fibre/.test(C.ribHull[0]) && /12 mm steel/.test(C.hbBowX[0]), [C.ribHull, C.hbBowX]);
+t('an engine its power ("2,000 kW"); a turbine its spool; an outboard its own propeller and steering', C.dieselM[1] === '2,000 kW' && /2,000 kW/.test(C.dieselM[0]) && /full power in 15 s/.test(C.turbine[0]) && /its own propeller · steers 30°/.test(C.outboard[0]), [C.dieselM, C.turbine, C.outboard]);
+t('a propeller its push in knots ("about 150 kN at 15 kn on 2 MW"); the large one full power astern; a waterjet its push and steering', /^about 150 kN at 15 kn on 2 MW/.test(C.screwM[0]) && /full power astern/.test(C.screwL[0]) && /at 30 kn/.test(C.waterjet[0]) && /reverses/.test(C.waterjet[0]), [C.screwM, C.screwL, C.waterjet]);
+t('a rudder its throw and area ("turns 35° · 0.8 m²"); a hydrofoil its lift at 40 kn', C.rudderM[0] === 'turns 35° · 0.8 m²' && /^lifts \d+ t at 40 kn/.test(C.foilBow[0]) && /ride control/.test(C.foilAft[0]), [C.rudderM, C.foilBow]);
+t('weapons: a gun\'s calibre and rate a minute, missiles\' range and skimming height, the cells\' SAMs, the close-in gun by itself, tubes, decoys',
+  /^76 mm · 80 a minute/.test(C.nGun76[0]) && /18 km · skims at 8 m/.test(C.asm4[0]) && /^8 SAMs · 12 km · shoots missiles too/.test(C.vls8[0]) && /^1\.5 km · fires by itself/.test(C.ciws[0]) && /3 torpedoes · 8 km/.test(C.torpTube[0]) && /12 rockets of chaff and flares/.test(C.decoy[0]),
+  [C.nGun76, C.asm4, C.vls8, C.ciws, C.torpTube, C.decoy]);
+t('radars: "sees ships 14 km (the horizon permitting)", aircraft 18 km, the fire-control radar tracks and guides SAMs', /sees ships 14 km \(the horizon permitting\)/.test(C.nRadarSea[0]) && /sees aircraft 18 km/.test(C.nRadarAir[0]) && /tracks 14 km · guides SAMs/.test(C.nRadarFC[0]), [C.nRadarSea, C.nRadarAir, C.nRadarFC]);
+t('the helicopter deck "a helicopter lands and is lashed"; the rest of the kit in plain words', /a helicopter lands and is lashed/.test(C.helipad[0]) && /pumps 0\.15 m³\/s/.test(C.pump[0]) && /400 rounds/.test(C.magazine[0]) && /4 damage control crew/.test(C.dcLocker[0]) && /radars see her 40% less far/.test(C.stealthHouse[0]),
+  [C.helipad, C.pump, C.magazine, C.dcLocker, C.stealthHouse]);
+t('old parts: no ship line (the builder\'s own)', R(`Ship.line(PARTS.gun75) === null && Ship.line(PARTS.engine) === null && Ship.specs(PARTS.wing).length === 0`));
+r = R(`(() => { const ps = dd(); tap(ps, 'bulkhead', true); tap(ps, 'magazine', true); tap(ps, 'dcLocker', true); const X = Ship.xray(ps);
+  return { comps: X.comps.map((c) => [c.n, +c.x0.toFixed(2), +c.x1.toFixed(2)]), bh: X.bulkheads.map((b) => b.x), belts: X.belts.length, marks: X.marks.map((m) => m.kind).sort().join() }; })()`);
+t('X-ray: her compartments numbered from the bow (a bulkhead cuts one in two), the bulkhead\'s line, the belt bands, the magazine, engines, pump and party', r.comps.length === 5 && r.comps[0][0] === 1 && r.comps[0][2] === 70 && r.bh.length === 1 && r.belts === 2 && r.marks === 'dc,dc,engine,engine,engine,engine,mag,mag,pump,pump', r);
+r = R(`(() => { const t = (parts, kind = 'ship') => shipClass({ kind, parts }); return [t([['ribHull', 0, 0]]), t(TEMPLATES.cyclon.parts), t([['hbSternX', -25, 0], ['hbMidX', 0, 0], ['hbBowX', 29, 0.5]]), t([['hbSternM', -13, 0], ...[...Array(8)].map((_, i) => ['hbMidM', -6 + 8 * i, 0]), ['hbBowM', 59, 0.3]]), t([['ribHull', 0, 0]], 'plane')].map((c) => c.name + ' ' + Math.round(c.len)); })()`);
+t('ship classes for the hangar: a boat (9 m), the Cyclon a patrol boat (32 m), an 84 m destroyer hull of 3,200 t a destroyer, an 80 m light hull an escort; a flying boat last', r.join() === 'Boat 9,Patrol boat 32,Destroyer 84,Escort 80,Flying boat 9', r);
+
 // ================================================================ 6. the flight agrees (the hydro core, WP1, floats her)
 // The slice ship off the bay in a calm sea: settled 40 s, then her draught and GM (Ship.stab) averaged over 10 s; then the
 // telegraph at Flank (v.sh.tel 4) for 180 s and her speed over the last 20 s.
