@@ -458,6 +458,9 @@ a plane's cockpit at 50 m-3 km, from a deck and from the chase camera:
   the water scenes of water.mjs), High within +10 % over the sea and no change where no sea is on screen; no new program
   in an old scene beyond the ocean's own variants (the program count checked); the drift on real frame time (paused:
   still), frame-rate independent; the near ground, the arena's ground and the sinking veils (water.mjs) unchanged.
+- **Done already (the lead, from the owner's screenshot):** the black-green specks in the middle distance, worst in clear
+  shallows: a ripple tilted away from the eye reflected the ray below the horizon into the env cube's ground colour. The
+  water's `getIBLRadiance` keeps the reflected ray at least 0.02 above the horizon (`waterEnv`, `WATER_RV`). Keep it.
 - **Tests.** water.mjs's checks hold; new screenshots (Calm, Moderate, Rough from 50 m, 500 m and 3 km; dusk and night;
   a destroyer at 25 kn from the chase camera and her bridge; the Faroes' coast from a plane) on phone and desktop, looked
   at; the bench before/after on phone Low and desktop High.

@@ -1697,9 +1697,17 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // The water's sky light (OB_DEEP): the light its own colour scatters from the sky worked out as the ground's is (the sky
   // light's formula, SKY_IBL), not looked up in the filtered cube; its reflection keeps the real cube (three's radiance).
   // One cube lookup a water pixel less pays for its depth (spec: within +3% of a phone's frame at the coast)
+  // (and the water's reflection never looks below the horizon: a ripple tilted away from the eye at a glance reflects
+  // the ray down, where the env cube holds the ground's dark green (uGround), and the sea showed black-green specks in
+  // the middle distance, worst in clear shallows. A ray reflected down meets the next wave and sees the sky low down
+  // again, so it is kept just above the horizon: the haze's colour, as the sea round it reflects there)
+  const WATER_RV = 'reflectVec = inverseTransformDirection( reflectVec, viewMatrix );';
   const waterEnv = () => {
     const E = THREE.ShaderChunk.envmap_physical_pars_fragment, i0 = E.indexOf('vec3 getIBLIrradiance'), i1 = E.indexOf('vec3 getIBLRadiance');
-    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + E.slice(i1);
+    let R = E.slice(i1);
+    if (R.includes(WATER_RV)) R = R.replace(WATER_RV, WATER_RV + '\n\t\t\treflectVec.y = max( reflectVec.y, 0.02 );');
+    else warnOnce('waterRV', 'three.js\'s env map chunk isn\'t r159\'s: the water may reflect the ground below the horizon');
+    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + R;
   };
   // The water's depth, a pixel (OB_DEEP): vWat.x the water's depth under it (m; below 0 the ground stands over it, hidden),
   // .y the surf (patchJob), .z how much water there is (a lake's edge, a river's). The light from below is the ground drawn
