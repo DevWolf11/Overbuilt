@@ -581,3 +581,77 @@ and crews all work unchanged. Naval shells are new `SHELLS` keys (§8.1).
 The existing `troopBay` (Crew & ammo) goes inside the landing craft: troops aboard a ship capture sea zones half as fast
 again, as on land (gmode.js `TROOPS`). The landing craft's ramp (`ends.fore: 'ramp'`): the art drops it when she is
 stopped with her bow on the bed (`v.landed` and her foremost ring aground), a picture only (no tank deck: §19).
+
+---
+
+## 7. The stock ships (nine templates: eight ships and a flying boat) — *re-derived*
+
+The original §7 was lost (only its heading survived). These are rebuilt from the reports' summary (Zodiak RIB, Cyclon,
+Higgens, Osca, Pegazus, Vizby, Olivar Perri, Arley Berk, the Catalyna flying boat; the destroyer about $120k) and the real
+ships the altered names point to (comments only). Templates go in the ships block after `cyclon` (inside the one
+`TEMPLATES` literal: test/lib/game.js reads it with a regex), each `kind: 'ship'` except the Catalyna (`kind: 'plane'`,
+`group: 'ship'`: the hangar files her under Ships; `Builder` hangar grouping reads `t.group` first). 59 → 67 templates.
+Every one: joined (one craft), no open ends, clash-free, priced within its battle tier, floats within ±0.3 m of her marks
+(core.test `SHIPS`), placed by the builder's own taps where possible (`Ship.spotOf`, as the Cyclon's diesels were).
+
+**Balance targets** (`ships.test.js` §trials, seeded, Calm for speed, Moderate for seakeeping): displacement ±10 %, top
+speed ±12 %, turning circle (lengths across at full speed, hard over) in the band, roll beam-on in Moderate under the
+limit, cost ±10 % (and within the tier). Paint: `SKINS` gain `navyGrey` (haze grey, `#8b939a`), `navyDark` (dark
+blue-grey, `#5d666e`), `navySplinter` (a two-tone splinter camouflage), `patrolWhite` (white with a red band); hulls bake
+them into their vertex colours (built `SKIN_GEO`).
+
+| Key | Name (real, comments only) | Kind / class | L (m) | Disp. | Speed | Turn (L) | Roll ≤ | Cost | Battle tier |
+|---|---|---|---|---|---|---|---|---|---|
+| zodiak | Zodiak RIB (a 9 m RIB) | boat | 9 | 3.6 t | 40 kn | 2-4 | 15° | $6k | 45k |
+| cyclon | Cyclon Patrol Boat (*Cyclone* class) *built, slice* | patrol | 32 | 116 t | 33 kn | 3-5 | 8° | $28k | 45k |
+| higgens | Higgens Landing Craft (LCVP) | boat | 12 | 13 t | 12 kn | 2-4 | 10° | $12k | 45k |
+| osca | Osca Missile Boat (*Osa*) | patrol | 40 | 210 t | 38 kn | 3-5 | 8° | $50k | 75k |
+| pegazus | Pegazus Hydrofoil (*Pegasus*) | patrol | 40 | 200 t | 48 kn foilborne, 12 hullborne | 4-7 | 5° foilborne | $58k | 75k |
+| vizby | Vizby Stealth Corvette (*Visby*) | escort | 72 | 650 t | 35 kn | 3-5 | 7° | $75k | 75k |
+| olivar | Olivar Perri Frigate (*Oliver Hazard Perry*) | destroyer | 108 | 5,000 t | 29 kn | 4-6 | 5° | $103k | 120k |
+| arley | Arley Berk Destroyer (*Arleigh Burke*) | destroyer | 156 | 8,000 t | 30 kn | 4-6 | 4° | $120k | 120k |
+| catalyna | Catalyna Flying Boat (*PBY Catalina*) | plane (hull) | 18 | 12 t | lifts off ~70 kn, 150 kn top | — | — | $25k | 45k |
+
+**What each carries** (parts by key; positions are WP5's, by taps where the builder can place them):
+
+- **zodiak** — `ribHull`; `consoleS` amidships; `outboard` ×2 on the transom (330 kW: she planes in 6 s, trims 3-6°);
+  `mgHeavy` on the console's top (a gunner standing); paint `navyDark`. The fast, fragile scout: any gun shreds her, and
+  she carries nothing that hurts a ship except, in the cross-kind spirit, a drone bay or a torpedo the player adds.
+- **cyclon** (the slice, finished: re-baseline only her own keys) — the built hull, wheelhouse, diesels, screws and
+  rudders; `ringS` + `ac30` on the foredeck (her 25 mm Bushmaster becomes the existing 30 mm), `ringS` + `mgHeavy` ×2 aft
+  quarters; `mastPole` on the wheelhouse with `nRadarSea`; `dcLocker`; `bk` on her hulls (§4.3); paint `patrolWhite`.
+  Existing guns only (as WP5's brief says), so she shows the cross-kind rule from the first slice.
+- **higgens** — `lcHull`; `consoleS` aft; `dieselS` inside aft; `screwS`, `rudderM` under the stern; `troopBay` ×2
+  inside (12 troops: she captures zones fast); `mgHeavy` ×2 on the console; paint `navyGrey`. She drops her ramp when
+  beached (art).
+- **osca** — M hull (stern, 3 mids, bow), `bridgeM`, `dieselM` ×3, `screwM` ×3, `rudderM` ×2; `asm2` ×2 aft, angled out
+  each side (4 missiles); `ringS` + `ac30` fore and aft; `mastPole` + `nRadarSea` + `nRadarFC`; `decoy`; `magazine`;
+  paint `navySplinter`.
+- **pegazus** — M hull (stern, 3 mids, bow), `foilBow`, `foilAft`, `bridgeM`, `turbine` ×1 and `dieselS` ×2 (hullborne),
+  `waterjet` ×1, `rudderM` ×2 (hullborne steering; foilborne she banks on her foils); `nRingM` + `nHouse127` + `nGun76`
+  forward; `asm4` ×2 aft (8 missiles); `mastPole` + `nRadarSea` + `nRadarFC`; `decoy`; `magazine`; `ballast` ×1; paint
+  `navyGrey`. Hullborne at 12 kn on her diesels' share; past 17 kn the foils fly her up; foilborne at 48 kn.
+- **vizby** — L hull (stern, 2 mids, bow), `stealthHouse`, `turbine`, `dieselM` ×2, `waterjet` ×2; `nRingM` + `nHouse127`
+  + `nGun57` forward; `asm4` ×2 inside the superstructure's aft end (on deck, hidden by the house: her stealth); `torpTube`
+  ×2; `nRadarAir`, `nRadarSea`, `nRadarFC` on the house's top (no mast: stealth); `decoy` ×2; `helipad` aft; `magazine`;
+  `dcLocker`; paint `navyDark`. Her `stealth` 0.4 shortens every radar's reach on her (§8.11).
+- **olivar** — X hull (stern, 2 mids, bow), `bridgeL`, `deckhouseL` ×2, `mastLattice` ×2, `funnel`, `hangar` + `helipad`
+  aft, `turbine` ×2, `screwL` ×1, `rudderL` ×1; `nRingM` + `nHouse127` + `nGun76` amidships on the deckhouse; `ciws` aft
+  on the hangar; `vls8` ×2 forward (her single-arm launcher becomes cells); `asm4` ×1; `torpTube` ×2; `nRadarAir`,
+  `nRadarSea`, `nRadarFC` ×2; `decoy` ×2; `magazine`; `dcLocker` ×2; `pump`; `bulkhead` ×2; paint `navyGrey`. A
+  helicopter (the stock `dragonfly`) can land on her deck and is lashed (§4.8).
+- **arley** — X hull (stern, 4 mids, bow), `bridgeL`, `deckhouseL` ×2, `mastLattice`, `funnel` ×2, `helipad` aft,
+  `turbine` ×4, `screwL` ×2, `rudderL` ×2; `nRingM` + `nHouse127` + `nGun127` forward; `vls8` ×2 (one forward, one aft);
+  `asm4` ×1 aft; `ciws` ×1; `torpTube` ×1; `nRadarAir`, `nRadarSea`, `nRadarFC` ×2; `decoy` ×2; `magazine` ×2;
+  `dcLocker` ×1; `pump` ×2; `bulkhead` ×4; belt 12 mm (stock: none dialled); paint `navyGrey`. About $120k: the biggest
+  thing in a 120k battle.
+- **catalyna** — `stepHull` along her nose (rot 1); existing plane parts: a cockpit, a high straight wing on a pylon
+  (`wingStraight` pair or the longest stock wing), two `pontoon`s at the wingtips (z ± 0.42 of the span), two existing
+  propeller engines on the wing, a tail; an old air `torpedo` under the wing and two MGs (`gun` parts); paint `navyGrey`.
+  On her old plane laws (§4.12): floats, runs up on the step, lifts off at about 70 kn; torpedo-bombs a ship (S7's
+  aerial torpedo is the `torpTube` on an aircraft; hers is the old air torpedo, which with ships in play homes on them:
+  §8.5).
+
+**Hangar classes** (`shipClass(t)`: builder.js, WP7, from the template's hulls): boat (under 25 m), patrol (25-60 m),
+escort (60-120 m and under 3,000 t), destroyer (the rest); the Ships group lists them by class, then cost; the
+Catalyna last.
