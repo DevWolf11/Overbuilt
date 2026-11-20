@@ -157,7 +157,7 @@ const SHIP = {
   SLEW: 0.05,                        // s/s the sea clock slews toward the host's in a room
   // ---- drawing (§5.2-5.3)
   SWELL: { high: [128, 4], low: [64, 6], near: 2000, alt: 1500, grid: 33, recentre: 1 / 8, edge: [0.7, 0.95] }, // cells and their size; shown with a hydro vessel within near m and the camera under alt m
-  WAKE: { n: 6, pts: 48, dt: 0.25, grow: 0.15, life: 12, kelvin: 19.5, kelvinT: 6, near: 1500, vmin: 1 },
+  WAKE: { n: 6, pts: 64, dt: 0.25, grow: 0.15, life: 60, kelvin: 19.5, kelvinT: 6, near: 1500, vmin: 1, thin: [6, 25], wash: 4, collar: 48 }, // [WP15] the foam lasts a minute (life 60, pts 64: a point every dt s, every 4th kept past thin[0] s, every 10th past thin[1] s), the screws' wash its first `wash` s, a foam collar and bow wave along each side's waterline (at most `collar` rings a side)
   SPRAY: { v0: 3, k: 0.6, max: 8, near: 800 },
 };
 SHIP.SEAS = Object.keys(SHIP.SEA); // ('calm', 'moderate', 'rough')
