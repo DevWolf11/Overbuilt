@@ -93,7 +93,7 @@ there.
 - `SEA_KINDS`, `isSea` beside `GROUND_KINDS`/`AIR_KINDS`.
 - The def fields are documented in the comment above `// ==== shHull ====` (parts.js:1371-1390); region markers
   `// ==== shHull|shSuper|shDrive|shArms|shKit ====` close PARTS. Packages add parts inside their region only.
-- New globals stay unique: `grep -n "^const NAME\|^function NAME" js/*.js` for every new one (`NAVAL_STOCK`, `NAVAL_RANGE`,
+- New globals stay unique: `grep -n "^const NAME\|^function NAME" js/*.js` for every new one (`NAVAL_STOCK`, `shullTris`,
   `SHIP_FATES` exists in flight.js).
 
 ### 2.2 The per-vessel flag (vessel.js) — *built*
@@ -159,7 +159,7 @@ stations 5 cm apart (the sampler interpolates linearly, so the keel jumps there)
   waterline point and the deck edge up the **port** side (−z), then the same down the starboard side (counter-clockwise
   seen from the bow; area positive).
 - **phys**: `clamp(round(w/4), 3, 8)` rings evenly from `x0` to `x1`, each with `dx` (its trapezoid share). (A 24 m X
-  midsection has 6; the Arley Berk of §7 has 3 + ... = 35 phys rings, the budget's figure.)
+  midsection has 6; the Arley Berk of §7 has 39 phys rings: §6.1.)
 - **vol**: the closed volume to the deck; **fill**: `{ y, v }`, the volume under each of `SHULL_FILL` 16 heights from the
   lowest keel to the highest deck (WP8's flood levels); **comp** `{ x0, x1, V }`.
 - Users (nothing else redraws a hull another way): `partPath0`/`drawPart0` (`case 'shull'`: `shullPath`, `shullDraw`),
@@ -561,11 +561,11 @@ and crews all work unchanged. Naval shells are new `SHELLS` keys (§8.1).
 | asm2 | Twin Anti-ship Missiles | 6 × 1.8 × 2.6 | 4 | 5,000 | 600 | deck | two canisters angled 15° up: `weapon: { kind: 'missile', asm: true, ammo: 2, range: 18000, speed: 260, seek: 'sea', dmg: 3000, blast: 12, he: 120, arm: 1 }` (§8.6); each canister a magazine (`MAG`) |
 | asm4 | Quad Anti-ship Missiles | 6 × 2.4 × 4.6 | 8 | 9,000 | 900 | deck | the same, four |
 | vls8 | Vertical Launcher | 3.2 × 2.4 × 3.2 | 14 | 9,000 | 1,500 | deck | eight cells flush in the deck (`inner`, its hatches on top): `weapon: { kind: 'missile', vls: true, ammo: 8, seek: 'radar', range: 12000, speed: 900, boost: 2, dmg: 900, blast: 8, prox: 8, missiles: true }`: SAMs that climb out and pitch over (`VLS`), guided by a fire-control radar aboard (§8.6); each cell a magazine |
-| torpTube | Torpedo Tubes | 3.4 × 0.8 × 1.0 | 1.2 | 3,000 | 500 | edge | three lightweight torpedoes: `weapon: { kind: 'torp', ammo: 3, speed: 22, range: 8000, depth: 6, seek: 'active', cone: 30, acquire: 1500, dmg: 4000, blast: 12 }` (§8.5); trained outboard |
+| torpTube | Torpedo Tubes | 3.4 × 0.8 × 1.0 | 1.2 | 3,000 | 500 | edge | three lightweight torpedoes: `weapon: { kind: 'torp', ammo: 3, speed: 22, range: 8000, depth: 6, seek: 'active', cone: 30, acquire: 1500, dmg: 4000, blast: 12 }` (§8.5); `side: true`: fires outboard by its side (§8 correction) |
 | nRadarAir | Air Search Radar | 4 × 1.2 × 1.2 | 2 | 3,000 | 400 | mast | `searchRadar: { range: 18000, rpm: 15, air: true }`: aircraft and missiles above `RADAR.lowAir` 100 m (§8.11) |
 | nRadarFC | Fire-Control Radar | 1.2 × 1.2 × 1.2 | 1.2 | 3,000 | 300 | mast | `trackRadar: { range: 14000, cone: 0.5, missiles: true, sea: true }`, `aim` (it trains); guides VLS SAMs at aircraft and anti-ship missiles (S3) and ranges the guns on a ship (auto zero) |
 | nRadarSea | Surface Search Radar | 2.4 × 0.6 × 0.6 | 0.8 | 2,000 | 250 | mast | `searchRadar: { range: 14000, rpm: 24, sea: true, low: true }`: ships, and anything under 100 m (sea-skimmers within 10 km, low helicopters) |
-| decoy | Decoy Launcher | 1.2 × 1.0 × 1.0 | 0.8 | 1,500 | 200 | edge | `weapon: { kind: 'chaff', ammo: 12, flare: true }`: the countermeasure key fires a rocket pair of chaff (radar seekers) and flares (heat seekers) out to 300 m |
+| decoy | Decoy Launcher | 1.2 × 1.0 × 1.0 | 0.8 | 1,500 | 200 | edge | `weapon: { kind: 'chaff', ammo: 12, flare: true, side: true }`: the countermeasure key fires a rocket pair of chaff (radar seekers) and flares (heat seekers) out to 300 m |
 
 ### 6.5 Ship kit (`shKit`, 6)
 
@@ -1121,18 +1121,15 @@ rudder. Added (red: she won't work; amber: a hint):
 
 ---
 
-## 12. HUD, camera, keys, touch and sound
+## 12. HUD, camera, keys, touch, sound and models
+(Numbered as the original's §12.1-12.6, which the briefs cite.)
 
-### 12.1 Built (WP3)
-The helm panel (`Ship.hud`: the telegraph's eight rungs and its order, HOLD with the heading held or HAND, the rudder bar
-with the command and the rudders' own angle) inside the telemetry box; `body.ship` (the throttle box as the telegraph
-lever with eight detents, FLANK and STOP buttons; the stick the rudder); speed in knots and the heading in the flight
-data; the keys (`KEY_ACTIONS`: `fwd`/`back` ring the telegraph, `left`/`right` the rudder, `thrFull`/`thrCut` flank and
-stop, `sHold` 5, `sCiws` 6, `sDc` 7, `sView` H, the Ships group, the `ship` context beside `ground` while she aims); the
-bridge view (`setBridge`); `Flight.shipHelp` and `App.showHelp`; the end screen's words (`SHIP_FATES`) and distance
-sailed; the aim mode for ships; controls.mjs's ship layouts at every size.
-
-### 12.2 Remaining (WP12)
+### 12.1 The HUD
+**Built (WP3):** the helm panel (`Ship.hud`: the telegraph's eight rungs and its order, HOLD with the heading held or HAND,
+the rudder bar with the command and the rudders' own angle) inside the telemetry box; speed in knots and the heading in
+the flight data; the aim mode's ground HUD for ships (`body.ship` over `body.ground`); the end screen's words
+(`SHIP_FATES`) and distance sailed.
+**Remaining (WP12):**
 - **The hull diagram** (`Ship.hud`'s second panel): her side outline, a cell per compartment filling blue with `W/V`,
   holes as red dots, fires orange, the DC party white, heel and trim in degrees; under the helm panel on a desktop; on a
   phone a compact strip of cells in the same box. A small canvas redrawn at 4 Hz, only when its key changes.
@@ -1142,13 +1139,42 @@ sailed; the aim mode for ships; controls.mjs's ship layouts at every size.
   "Target sunk".
 - **Torpedo lines** (ghud.js `drawTorps`, after WP9's mechanics): our torpedoes' predicted runs, and incoming torpedo
   tracks seen within 1.5 km as dashed lines.
-- **Touch:** three buttons in the ship layer, `hold`, `dc`, `ciws` (`Controls.CTL` entries, in the layout editor), the
-  sizes checked by controls.mjs at 360×640 … 1920×1080, the desktop's key hints from the bindings (`Keys.k`).
-- **Sound** (audio.js, procedural, only with a ship active or within 1.5 km): the diesels' throb by the telegraph, a
-  turbine's whine with its spool, the bow wave's hiss with speed, the telegraph's bell on a step, the CIWS's buzz, a
-  torpedo's launch, hull hits (a deep clang), flooding (a gurgle in the bridge view), a magazine (the big explosion).
-- **Camera:** the chase distance from her reach (a 150 m ship framed whole), checked at both ends of the fleet.
-- README's Ships controls block (WP13) from the bindings.
+- **Hole decals** (render3d's decals): dark scorched patches where `p.holes` are, read-only of the sim (CLAUDE.md).
+
+### 12.2 The camera
+**Built:** the aim camera's reach for a ship (render3d `aimDist`: by her length), the bridge view (Ships: H, `setBridge`:
+the eye over her wheelhouse, rolling with her). **Remaining (WP12):** the chase distance from her reach (a 156 m ship
+framed whole, a RIB close), checked at both ends of the fleet; the bridge view in Rough sea never shows the inside of the
+hull.
+
+### 12.3 Keys
+**Built (WP3):** `KEY_ACTIONS` rows: `fwd`/`back` ring the telegraph a step (held: on), `left`/`right` the rudder,
+`thrFull`/`thrCut` flank and stop, `sHold` 5, `sCiws` 6, `sDc` 7, `sView` H (the Ships group, the `ship` context, live
+beside `ground` while she aims: the shell keys 1-4, `fire`, `weapon`, `sight`, `lock`, `spot`, `tacMap`, `cm`);
+`Flight.shipKey`, `helmKeys`, `shipHelp`, `App.showHelp`. **Remaining:** none new; WP13 writes README's Ships block from
+the bindings (CLAUDE.md's three places in sync).
+
+### 12.4 Touch
+**Built (WP3):** the throttle box as the telegraph lever (eight detents, Stop three-sevenths up, FLANK and STOP buttons),
+the floating stick as the rudder, controls.mjs's ship layouts. **Remaining (WP12):** three buttons in the ship layer,
+`hold`, `dc`, `ciws` (`Controls.CTL` entries, in the layout editor, `Controls.fit` keeps them clear), checked by
+controls.mjs at 360×640 … 1920×1080; the desktop's key hints from the bindings (`Keys.k`).
+
+### 12.5 Sound (WP12)
+audio.js, procedural, only with a ship active or within 1.5 km of the view: the diesels' throb by the telegraph, a
+turbine's whine with its spool, the bow wave's hiss with speed, the telegraph's bell on a step, the CIWS's buzz, a
+torpedo's launch, hull hits (a deep clang), flooding (a gurgle in the bridge view), a magazine (the big explosion).
+
+### 12.6 Models (parts3d.js)
+**Built (WP2):** `BUILD.shipHull` (`shipHullGeo`: the rings lofted, vertex colours by band: the paint above, a black
+boot-top at `wl ± bt` (0.25 m S, 0.4 M, 0.8 L/X), antifouling red below; `SKIN_GEO` bakes a paint into them), the screw's
+spinning rig (`rig.shScrew`, by `p.rpm`), the rudder's (`rig.shRud`, by `p.rud`), the wheelhouse's prism with glass.
+**Remaining:** WP5 the other parts' models by style (`plated` prisms for superstructure; lathe/extrude recipes for masts,
+funnels, the gun house, the CIWS dome, canisters, radars that turn (`rig` by `sh`'s radar sweep), foils on struts,
+outboards that turn with `p.rud`, waterjets' nozzles); the RIB's tubes, the landing craft's ramp (dropped when beached),
+the floats' and flying-boat hull's step in `shipHullGeo` from `shull.tubes`/`ends.ramp`/`shull.step`. WP8 has
+`shipHullGeo` read its positions from `shullTris` (§8.3) without moving the picture. builder-shapes.mjs: every model
+within its clash shape.
 
 ---
 
