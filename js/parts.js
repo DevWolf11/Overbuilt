@@ -1448,7 +1448,7 @@ const PARTS = {
     tier: 3, cost: 6000, desc: 'The front of a destroyer (16 m across, 34 m long), its flared bow throwing green seas aside: room for a gun and missile cells on its deck. Put it on the front of a Destroyer Midsection.' },
   hbMidX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Midsection', w: 24, h: 11, depth: 16, mass: 1400, shape: 'shull', hull: true,
     shull: { cls: 'X', wl: -0.5, st: [[-12, 5.5, -5.5, 8.0, 7.8, 2.4], [12, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'joint', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
-    armour: { mm: 12, plate: 12, deck: 10, mat: 'steel', belt: { y: [-2.0, 2.0] } }, hp: 20000, breakSpeed: 8,
+    armour: { mm: 12, min: 12, max: 150, plate: 12, deck: 10, mat: 'steel', belt: { y: [-2.0, 2.0] } }, hp: 20000, breakSpeed: 8, // ([WP8] min, max: the belt's dial)
     tier: 3, cost: 3000, desc: 'A 24 m length of steel destroyer hull: her machinery, magazines and a watertight compartment of its own. Its side can carry an armour belt along the waterline.' },
   hbSternX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Stern', w: 26, h: 11, depth: 16, mass: 850, shape: 'shull', hull: true,
     shull: { cls: 'X', wl: -0.5, st: [[-13, 5.5, -3.0, 7.0, 6.6, 3.2], [-4, 5.5, -4.9, 7.9, 7.6, 2.6], [13, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'closed', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
@@ -1607,7 +1607,9 @@ function massPerMm(def) {
   if (k != null) return k;
   const a = def.armour, w = def.w, h = def.h, d = partDepth({ def });
   let A = 0;
-  if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
+  const belt = def.shull && a.belt && (Array.isArray(a.belt) ? a.belt : a.belt.y); // [WP8]
+  if (belt) A = 2 * w * Math.abs(belt[1] - belt[0]); // ([WP8] a ship's armour belt: its band along both sides is what the dial thickens)
+  else if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
   else if (a.slab) A = w * d; // (a solid plate, thin in h: one sheet, though each face is hit at its full thickness)
   else {
     const o = def.outline || BOX_OUTLINE, n = o.length, open = a.open || [];

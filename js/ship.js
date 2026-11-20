@@ -2542,8 +2542,9 @@ const Ship = (() => {
   }
 
   // ---- compartments (Ship.groups: §3.3) and the water in them (§4.2's flood weight, §8.7)
-  // A compartment's rings: the hull's own (every max(0.5, w/24) m) between lo and hi of its own x, with one at each end,
-  // and their trapezoid weights; its volume to the deck and its whole centroid (own frame). Cached per def and stretch.
+  // A compartment's rings: its stretch lo..hi of the hull's own x in even steps of at most 3 m (at least two rings, at
+  // most nine: a flood level is found by clipping them several times a second), with their trapezoid weights; its volume
+  // to the deck and its whole centroid (own frame). Cached per def and stretch.
   const CR = new Map();
   function compRings(def, lo, hi) {
     let M = CR.get(def);
@@ -2551,9 +2552,8 @@ const Ship = (() => {
     const key = lo.toFixed(3) + ':' + hi.toFixed(3);
     let L = M.get(key);
     if (L) return L;
-    const H = shullOf(def), xs = [lo];
-    for (const r of H.rings) if (r.x > lo + 1e-6 && r.x < hi - 1e-6) xs.push(r.x);
-    xs.push(hi);
+    const H = shullOf(def), m = clamp(Math.ceil((hi - lo) / 3), 1, 8), xs = [];
+    for (let i = 0; i <= m; i++) xs.push(lo + ((hi - lo) * i) / m);
     const R = xs.map((x, i) => {
       const r = H.rings.find((q) => Math.abs(q.x - x) < 1e-9) || shullRing(def.shull, x);
       return { x, P: r.P, A: r.A, cy: r.cy, bd: r.bd, w: ((i + 1 < xs.length ? xs[i + 1] : x) - (i > 0 ? xs[i - 1] : x)) / 2 };
@@ -2659,16 +2659,18 @@ const Ship = (() => {
     const sp = spanOf(c, K);
     let lo = sp[0], hi = sp[1];
     if (c.W >= c.V - 1e-6) { c.lev = hi; c.fs = 0; setFc(c, K, hi, c.cx, c.cy, 0, Ub); return hi; }
-    let L = f && Number.isFinite(c.lev) ? clamp(c.lev, lo, hi) : lo + (hi - lo) * (c.W / c.V);
+    let L = f && Number.isFinite(c.lev) ? clamp(c.lev, lo, hi) : lo + (hi - lo) * (c.W / c.V), q = null;
     for (let it = 0; it < 12; it++) {
-      const q = clipComp(c, K, L), e = c.W - q.V;
-      if (Math.abs(e) <= 1e-4 * c.V + 1e-6) break;
+      q = clipComp(c, K, L);
+      const e = c.W - q.V;
+      if (Math.abs(e) <= 1e-3 * c.V + 1e-6) break;
       if (e > 0) lo = L; else hi = L;
       let nL = q.A > 1e-6 ? L + e / q.A : (lo + hi) / 2;
       if (!(nL > lo && nL < hi)) nL = (lo + hi) / 2;
       L = nL;
+      q = null;
     }
-    const q = clipComp(c, K, L);
+    if (!q) q = clipComp(c, K, L);
     c.lev = L; c.fs = q.A;
     setFc(c, K, L, q.x, q.y, clamp(q.z, -SHIP.FLOOD.fsMax * c.beam, SHIP.FLOOD.fsMax * c.beam), Ub);
     return L;
@@ -2720,19 +2722,7 @@ const Ship = (() => {
     for (const c of S.comps) if (c.W > 1e-6 || c.holes.length) { busy = true; break; }
     const r = frameOf(v, S), gl = v.body.mu / (r * r), h0 = r - v.body.radius - S.level, t = seaT(sim), FL = SHIP.FLOOD;
     // (downflooding: a deck edge under the water for FLOOD.downT s)
-    const n = S.rings.length;
-    if (!S.dfT || S.dfT.length !== 2 * n) S.dfT = new Float32Array(2 * n);
-    let deck = false;
-    if (busy || S.fsub > 0.6) for (let i = 0; i < n; i++) {
-      const g = S.rings[i];
-      for (let s = 0; s < 2; s++) {
-        const j = s ? SHULL_K - 7 : 7;
-        _hX.x = g.P[3 * j]; _hX.y = g.P[3 * j + 1]; _hX.z = g.P[3 * j + 2];
-        const dep = depthOf(v, S, _hX, h0, t);
-        S.dfT[2 * i + s] = dep > 0 ? S.dfT[2 * i + s] + dt : 0;
-        if (S.dfT[2 * i + s] >= FL.downT) deck = true;
-      }
-    }
+    const n = S.rings.length, deck = deckScan(v, S, h0, t, dt);
     if (!busy && !deck) { S.wet = null; return; }
     const comps = S.comps;
     DW.length = comps.length;
@@ -2811,11 +2801,35 @@ const Ship = (() => {
     if (worst >= 0 && cap > 0) DW[worst] -= cap * dt;
     let moved = false;
     for (let i = 0; i < comps.length; i++) {
-      const c = comps[i], W = clamp(c.W + DW[i], 0, c.V);
+      const c = comps[i], W = c.W + DW[i] < 1e-6 ? 0 : clamp(c.W + DW[i], 0, c.V);
       if (W !== c.W) { c.W = W; moved = true; }
     }
     if (moved) for (const p of S.hulls) { let w = 0; for (const c of comps) if (c.p === p) w += c.W; p.water = w; }
     wetOf(v, S);
+  }
+  // Her deck edges against the sea (FLOOD.hz, floodStep): how long each has been under (S.dfT: downflooding past
+  // FLOOD.downT), and how deep her highest deck edge is (S.deckMin, + under: the fate's "every deck under"). A deck edge
+  // higher over the still water than the highest wave can reach skips the waves. true: some edge is past downT.
+  function deckScan(v, S, h0, t, dt) {
+    const n = S.rings.length, U = S.Ub, c = v.com, cz = c.z || 0;
+    let wm = 0;
+    for (let i = 0; i < NW; i++) wm += Math.abs(WA[i]);
+    wm = wm * (S.fade || 0) + 0.01;
+    if (!S.dfT || S.dfT.length !== 2 * n) S.dfT = new Float32Array(2 * n);
+    let past = false, top = Infinity;
+    for (let i = 0; i < n; i++) {
+      const g = S.rings[i];
+      for (let s = 0; s < 2; s++) {
+        const j = s ? SHULL_K - 7 : 7, x = g.P[3 * j], y = g.P[3 * j + 1], z = g.P[3 * j + 2], still = -(h0 + (x - c.x) * U.x + (y - c.y) * U.y + (z - cz) * U.z);
+        let dep = still;
+        if (still > -wm) { _hX.x = x; _hX.y = y; _hX.z = z; dep = depthOf(v, S, _hX, h0, t); }
+        if (dep < top) top = dep;
+        S.dfT[2 * i + s] = dep > 0 ? S.dfT[2 * i + s] + dt : 0;
+        if (S.dfT[2 * i + s] >= SHIP.FLOOD.downT) past = true;
+      }
+    }
+    S.deckMin = top;
+    return past;
   }
   // the engines (and pumps) under her flood water now (Ship.shaftPower leaves them out: §4.8's engine flooding, through
   // its compartment): Ship.wetAt
@@ -2968,7 +2982,7 @@ const Ship = (() => {
   // puts out a fire (FIRE.dc s), mends a broken engine, gun, ring or radar (DC.repair × armour.js's REPAIR_T). A ship with
   // no locker has one party of her bridge crew at DC.bridge the rate. Jobs by sh.dcPri: 'auto' flooding first when a
   // compartment is past DC.flood full, else fires, else repairs, else the holes left; 'flood', 'fire' first. A doomed
-  // ship's crew abandon her.
+  // ship's crew abandon her, as does a derelict's (nobody at a helm).
   function partyList(v, S) {
     const key = v.parts.length;
     if (S.dc && S.dcN === key) return S.dc;
@@ -2988,7 +3002,7 @@ const Ship = (() => {
   }
   function dcStep(v, dt, sim) {
     const S = v && v.sh;
-    if (!S || v.remote || v.dead || v.wreck || v.fate || !(dt > 0)) return;
+    if (!S || v.remote || v.dead || v.wreck || v.fate || !v.control || !(dt > 0)) return; // (a doomed ship's crew, or a derelict's, abandon her)
     const D = SHIP.DC, list = partyList(v, S), taken = new Set();
     for (const e of list) {
       const k = strengthOf(v, e);
@@ -3095,8 +3109,7 @@ const Ship = (() => {
       if (S.vtot == null) hullVol(S);
       let W = 0;
       for (const c of S.comps) W += c.W;
-      let deck = Infinity;
-      for (const g of S.rings) for (const j of [7, SHULL_K - 7]) { _tp.x = g.P[3 * j]; _tp.y = g.P[3 * j + 1]; _tp.z = g.P[3 * j + 2]; deck = Math.min(deck, depthOf(v, S, _tp, h0, t)); }
+      const deck = Number.isFinite(S.deckMin) ? S.deckMin : -Infinity; // (floodStep's deckScan, ten times a second)
       S.sinkT = (v.mass + SHIP.RHO * W) > FA.reserve * SHIP.RHO * S.vtot || deck > FA.deckUnder ? (S.sinkT || 0) + dt : 0; // (held a moment: a sea breaking over her isn't foundering)
       if (S.sinkT >= FA.sinkT) { doom(v, sim, 'sunk'); return; }
       // out of action: knocked out, or nobody at the helm for helmT s (after she had someone)
@@ -3176,17 +3189,20 @@ const Ship = (() => {
   }
   // the steps, from Ship.frame: flooding at FLOOD.hz, fires, damage control and fate at FATE.hz, for each of our hydro
   // vessels with a hull (a moored one's water still flows: it wakes her)
+  const WRK = { t: 0 }; // (the wrecks' clock)
   function damageFrame(F, dt) {
     if (!(dt > 0)) return;
     const fh = 1 / SHIP.FLOOD.hz, kh = 1 / SHIP.FATE.hz;
-    let tick = false;
+    WRK.t = Math.min(WRK.t + dt, 1);
+    const tick = WRK.t >= kh;
+    if (tick) WRK.t -= kh;
     for (const v of F.vessels.slice()) {
       const S = v.sh;
       if (!S || v.remote || v.dead || v.wreck || !S.rings.length) continue;
       S.fT = Math.min((S.fT || 0) + dt, 1);
       while (S.fT >= fh) { S.fT -= fh; floodStep(v, fh, F); }
       S.kT = Math.min((S.kT || 0) + dt, 1);
-      while (S.kT >= kh) { S.kT -= kh; tick = true; fireStep(v, kh, F); dcStep(v, kh, F); fateStep(v, kh, F); if (v.dead || v.wreck) break; }
+      while (S.kT >= kh) { S.kT -= kh; fireStep(v, kh, F); dcStep(v, kh, F); fateStep(v, kh, F); if (v.dead || v.wreck) break; }
     }
     if (tick) wrecks(F);
   }
