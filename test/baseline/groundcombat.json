@@ -820,5 +820,41 @@
    "aphe85:nopen:0:|hullMBT=8.7|",
    "apfsds120:nopen:0:|hullMBT=9.6|"
   ]
+ },
+ "catalyna": {
+  "body": "-4.005,1.6,-9,9,-15,15",
+  "groups": [],
+  "muzzles": [],
+  "launch": [],
+  "rays": [
+   "stepHull0@0.4323754153 wingStraightL-5@0.5111254153",
+   "stepHull-1@0.425 wingStraightL-5@0.512846523",
+   "stepHull-1@0.4566987298 wingStraightL-5@0.5222508306",
+   "torpedo-5@0.42625 stepHull-1@0.4625",
+   "wingStraightL-5@0.4477491694 stepHull2@0.4752491694",
+   "wingStraightL-5@0.4698329689 stepHull2@0.4857101013",
+   "wingStraightL-5@0.4738745847 stepHull2@0.4876245847",
+   "wingStraightL-5@0.4698329689 stepHull2@0.4857101013",
+   "wingStraightL-5@0.4477491694 stepHull2@0.4752491694",
+   "torpedo-5@0.42625 stepHull-1@0.4625",
+   "stepHull-1@0.4566987298 wingStraightL-5@0.5222508306",
+   "stepHull-1@0.425 wingStraightL-5@0.512846523",
+   "stepHull0@0.4323754153",
+   "stepHull-1@0.425",
+   "stepHull-1@0.4566987298",
+   "stepHull-1@0.4625",
+   "stepHull2@0.4752491694",
+   "stepHull2@0.4857101013",
+   "stepHull2@0.4876245847",
+   "stepHull2@0.4857101013",
+   "stepHull2@0.4752491694",
+   "stepHull-1@0.4625",
+   "stepHull-1@0.4566987298",
+   "stepHull-1@0.425"
+  ],
+  "shots": [
+   "aphe85:pen:0:|stepHull=29|",
+   "apfsds120:pen:0:|stepHull=32|"
+  ]
  }
 }
