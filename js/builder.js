@@ -625,8 +625,8 @@ const TRAY_ORDER = ['Inside a nose', 'Outside', 'Controllers', 'Multirotor', 'Fi
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
-  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
-  for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
+  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru[A-Z0-9]|us4|us5)/.test(r[0])));
+  for (const t of jets) for (const [type] of t.parts) if (/^(ru[A-Z0-9]|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name); // [WP5] (ru then a capital: the look-alike jets' parts, not the ships' rudders)
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
   const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
   for (const k of keys) { const f = PARTS[k].family; if (f && !of.has(k)) { of.set(k, f); rank.set(f, jets.length + 1 + Math.max(0, PART_ERAS.indexOf(f))); } }
