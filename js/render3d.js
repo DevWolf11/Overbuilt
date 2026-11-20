@@ -1869,8 +1869,8 @@ vec4 obSin4( vec4 a ) { vec4 x = fract( a * 0.15915494 + 0.5 ) * 2.0 - 1.0, y = 
 	vec2 obCi = mod( floor( obPh.yw * 0.15915494 ) + uSeaN.xy, 1024.0 );
 	float obR0 = obH21( obCi ), obLf = fract( uSeaW.w + obR0 ), obCy = mod( floor( uSeaW.w + obR0 ), 64.0 );
 	float obBr = step( fract( obR0 * 137.31 + obCy * 0.6180339 ), uSeaN.z * ( 0.4 + 1.2 * vSeaB.z ) ) * smoothstep( 0.0, 0.05, obLf ) * ( 1.0 - obLf ) * ( 1.0 - obLf );
-	float obWc = smoothstep( uSeaW.x - 0.16 * obLf, uSeaW.x - 0.16 * obLf + 0.07, obCr + 0.45 * ( obRip - 0.5 ) ) * obBr * vSeaB.w;
-	obWc = obWc * obWc * ( 1.0 - vSeaC.y ) + uSeaW.y * vSeaC.y;
+	float obWc = smoothstep( uSeaW.x - 0.12 * obLf, uSeaW.x - 0.12 * obLf + 0.07, obCr + 0.45 * ( obRip - 0.5 ) ) * obBr * vSeaB.w;
+	obWc = obWc * obWc * mix( 0.3, 1.0, smoothstep( 0.3, 0.75, obRip + 0.3 * obLf ) ) * ( 1.0 - vSeaC.y ) + uSeaW.y * vSeaC.y; // (foam, broken up by the ripples, not a solid oval)
 #ifdef OB_HI
 	// (Rough: faint foam lanes along the wind, wavering, 4 m across, broken every few tens of metres, only where a pixel
 	// is under a metre or two: they'd only flicker further off)
@@ -1907,7 +1907,7 @@ vec4 obSin4( vec4 a ) { vec4 x = fract( a * 0.15915494 + 0.5 ) * 2.0 - 1.0, y = 
 #ifdef OB_SEA
 #if NUM_DIR_LIGHTS > 0
 	float obBk = clamp( dot( normalize( vViewPosition ), - directionalLights[ 0 ].direction ), 0.0, 1.0 ), obHc = max( obEn, 0.0 );
-	obC += directionalLights[ 0 ].color * vec3( 0.025, 0.16, 0.13 ) * ( uSeaF.w * vSeaB.w * vSeaC.x * obHc * obHc * ( 1.0 - obFr ) * ( 1.0 - obFo ) * ( 0.25 + 2.0 * obBk * obBk * obBk * obBk ) );
+	obC += directionalLights[ 0 ].color * vec3( 0.012, 0.075, 0.062 ) * ( uSeaF.w * vSeaB.w * vSeaC.x * obHc * obHc * ( 1.0 - obFr ) * ( 1.0 - obFo ) * ( 0.2 + 1.3 * obBk * obBk * obBk * obBk ) );
 #endif
 #endif`;
   // What pays for the sea's looks (OB_SEA only; copies of three's chunks, each left alone if its r159 text isn't there):
@@ -6195,7 +6195,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   // and their time in gate cells. Off the Earth, without ship.js or with no patch: uSeaS.w 0, every pixel the old water's.
   const SEA_LOOK = {
     calm: { rip: 0.3, rN: 0.035, rF: 0.12, wc: 9, br: 0, cov: 0, st: 0, sss: 0.6 },
-    moderate: { rip: 1, rN: 0.08, rF: 0.22, wc: 0.62, br: 0.3, cov: 0.008, st: 0, sss: 1 },
+    moderate: { rip: 1, rN: 0.08, rF: 0.22, wc: 0.65, br: 0.3, cov: 0.008, st: 0, sss: 1 },
     rough: { rip: 1.5, rN: 0.13, rF: 0.32, wc: 0.47, br: 0.6, cov: 0.05, st: 1, sss: 1.3 },
     gateT: 5, gateV: 4, per: 32768, // (the whitecaps' gate: a new one every gateT s, drifting gateV m/s downwind; the noises' period, m)
   };
