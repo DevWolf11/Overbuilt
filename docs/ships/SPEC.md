@@ -234,6 +234,15 @@ bilge keels (`def.shull.bk`: `bilgeKeel` 0.03 or its own number) + `rollZV` 0.15
 Cyclon (110 t, 4 MW) 25 kn at 10 s, 33.2 kn top in calm water; hard over at 19.7 kn, 9.4°/s, a circle 4.1 lengths across,
 heel 9.8° outward; 7.3 µs a step for 12 rings (≈ 21 µs scaled to 35: the budget is 40).
 
+**Phase 2 fixes (the WP5/WP6 finish):** `shull.cw` multiplies `R_w` once (the whole hull's, as the builder's
+`resistance()`; it was applied per ring too after the merge: 6.25×). The planing lift is weighted along the waterline,
+`(n + 1)·(1 − ξ)^n` from its fore end (`SHIP.planeCP` 1: its centre of pressure 2/3 of the wetted length ahead of the
+transom, inside Savitsky's 0.55-0.75; the builder keeps an even share). `sh.gm` (Ship.stab) is the buoyancy's righting
+moment over `B·sin φ_w`, φ_w her heel against the water's surface under her (the buoyancy's mean normal), measured past
+`STAB_HEEL` of it: against the vertical a small boat lying with a wave's slope read a fifth of her GM. Open: a planing
+hull skids through its turns (the Zodiak about 30 lengths hard over at full speed, against §7's 2-4, itself 3-6 g at
+40 kn): real deep-V hulls bank into a turn; the model heels them outward.
+
 **Remaining (WP5):** a patrol boat beam-on to Moderate seas rolls 12-13°; real ones roll 5-8°. Fix with data: `bk: true`
 on every stock M, L and X hull segment (`bk: 0.05` on X), re-measured by the trial (§17.1). If that is not enough, WP6
 (owner of core) may raise `SHIP.bilgeKeel`; never touch `rollZeta` (the box hull's period test pins the bare hull).
@@ -243,6 +252,11 @@ Built (`propel`'s foil loop): every `def.foil` part, copy by copy (`sh.fl`), at 
 slope `FOIL.slope`·2π·ar/(ar+2), stall at 22° falling over 65° to half, induced and stall drag, lift faded in over
 `sub`·chord of depth, a rudder in a screw's slipstream (`wash`), strain past `load` and a rip past `brk` 1.5 × it.
 `foil.n: 'z'` (a rudder or skeg, turned by `p.rud` about its stock) or `'y'` (a hydrofoil, at fixed incidence `inc`).
+Phase 2: a hydrofoil (`foil.kind: 'foil'`) and its struts cavitate: past the cavitation number's inception (σ = (p_atm +
+ρ·g·depth − p_v)/q under `FOIL.sig` 0.5) their drag gains `FOIL.cav`·(sig/σ − 1) (`cav` 0.13): a subcavitating foil's
+limit, so the Pegazus tops out at 48.6 kn on 20 MW (83 kn without it). The builder's top speed flies her too: below
+take-off her foils lift what they can at full incidence and the hull the rest; past `RIDE.v`, once they can lift her,
+the foils' and struts' drag at her ride height (`foilsOf`, `foilDrag`, `dragAt`): 47.7 kn.
 
 **Remaining: ride control (WP6).** A foil with `foil.ride: true` (foilBow, foilAft: §6.3) is flown by a controller in
 `Ship.pre` (any kind: a part's behaviour, not the kind's):
@@ -379,7 +393,9 @@ and the Naval Range's spots (WP10, §9.2).
   junk: after `SEA.float` s at rest (death.js `junkLife`) it is scuttled (`sh.scuttle = true`: its buoyancy off) and sinks
   by physics; death.js's `seaTick`/`seaAt` keep excluding hydro vessels (built).
 - **The Catalyna's take-off** (a hydro vessel of kind plane): her planing hull carries her onto the step and her wings lift
-  her off at about 70 kn on her old plane laws. Gates: vessel.js `planeTarget` and flight.js `planeTick` treat
+  her off at about 85 kn on her old plane laws, flaps down (Phase 2 fix: "about 70 kn" needs a lighter wing loading than
+  her 55 m² Long Straight Wing gives 12 t: it stalls at 88 kn clean, 72 kn with full flaps, and the hold law rotates her
+  gently on the water; measured 83 kn, then 184 kn level at full power, the real PBY's 170). Gates: vessel.js `planeTarget` and flight.js `planeTick` treat
   `v.sh && v.afloat` as on the ground wherever they read `v.landed` for the ground roll (Aim's take-off steering, hold's
   wings-level on the ground), so the laws don't fight the water; on the water she steers by her air rudder and, slow, by
   the yaw input on any water rudder aboard (built: `Ship.pre`'s other-kinds branch). A touchdown under `SLAM.k` ×
@@ -640,7 +656,7 @@ them into their vertex colours (built `SKIN_GEO`).
 | vizby | Vizby Stealth Corvette (*Visby*) | escort | 72 | 650 t | 35 kn | 3-5 | 7° | $75k | 75k |
 | olivar | Olivar Perri Frigate (*Oliver Hazard Perry*) | destroyer | 108 | 5,000 t | 29 kn | 4-6 | 5° | $103k | 120k |
 | arley | Arley Berk Destroyer (*Arleigh Burke*) | destroyer | 156 | 8,000 t | 30 kn | 4-6 | 4° | $120k | 120k |
-| catalyna | Catalyna Flying Boat (*PBY Catalina*) | plane (hull) | 18 | 12 t | lifts off ~70 kn, 150 kn top | — | — | $25k | 45k |
+| catalyna | Catalyna Flying Boat (*PBY Catalina*) | plane (hull) | 18 | 12 t | lifts off ~85 kn (flaps), 185 kn top (§4.12) | — | — | $25k | 45k |
 
 **What each carries** (parts by key; positions are WP5's, by taps where the builder can place them):
 
@@ -678,7 +694,7 @@ them into their vertex colours (built `SKIN_GEO`).
 - **catalyna** — `stepHull` along her nose (rot 1); existing plane parts: a cockpit, a high straight wing on a pylon
   (a `wingStraightL` pair: Long Straight Wing), two `pontoon`s at the wingtips (z ± 0.42 of the span), two existing
   `propL` radial engines on the wing, a tail; an old air `torpedo` under the wing and two MGs (`gun` parts); paint `navyGrey`.
-  On her old plane laws (§4.12): floats, runs up on the step, lifts off at about 70 kn; torpedo-bombs a ship (S7's
+  On her old plane laws (§4.12): floats, runs up on the step, lifts off at about 85 kn with her flaps down; torpedo-bombs a ship (S7's
   aerial torpedo is the `torpTube` on an aircraft; hers is the old air torpedo, which with ships in play homes on them:
   §8.5).
 
@@ -1420,7 +1436,7 @@ tables (the matrix, the stock ships' trials, the budgets).
     hard rudder 20 s, Moderate sea, seeded) so later changes are pinned.
   - *waves* (built).
   - *damage* and *combat*: §16 WP8/WP9 lists, seeded.
-  - *cross-kind*: TK-34 + 127 mm gun; a tank with a hull floats; the Catalyna floats, planes and lifts off at about 70 kn;
+  - *cross-kind*: TK-34 + 127 mm gun; a tank with a hull floats; the Catalyna floats, planes and lifts off at about 85 kn (flaps down);
     the Cyclon with two `wingL`s at Flank has wing lift under 30 % of her weight; air engines on an S hull push it (an
     airboat); a helicopter on a moving deck; a tank turret (ringM + gun75) on the Cyclon aims through the aim mode.
   - *gates* (built): every old template with and without ship.js: identical traces; `Combat.S.sea`/`S.pd` never open;
