@@ -1065,6 +1065,8 @@ const Ship = (() => {
   // The water's resistance at V m/s (§4.3: ITTC-57 friction on the wetted hull with its form factors, and wave-making on
   // the weight the water still carries once the strip planing lift has taken its share), at the still-water float; fA: the
   // foils' area in the water (rudders, hydrofoils: their profile drag, §4.4's cd0, straight ahead). (cwr: the core's own)
+  // [WP5] a planing hull's wetted area shrinks as the water lifts her: friction × (1 − lift/W)^⅓ (her running trim isn't
+  // worked out here, so a planing boat's top speed came out 20 % under the flight's: the RIB's 37 kn against 45)
   function resistance(M, H, V, fA = 0) {
     if (!(V > 0) || !(H.Lwl > 0)) return 0;
     const rho = SHIP.RHO, g = gSea(), L = H.Lwl, Re = (V * L) / SHIP.NU;
@@ -1075,7 +1077,7 @@ const Ship = (() => {
       if (o.b > 0 && tau > 0) lift += 0.5 * rho * (r.plane ? SHIP.planeK : SHIP.dispK) * V * Math.sin(tau) * V * o.b * r.dx * Math.cos(r.beta) ** 2 * Math.min(1, o.k / SHIP.planeFade);
     });
     const W = H.mass * g;
-    return Rf + Math.max(0, W - lift) * cwr(V / Math.sqrt(g * L)) * cwOf(M.hulls) + 0.5 * rho * V * V * fA * SHIP.FOIL.cd0; // [WP5] (cwOf: as the flight's)
+    return Rf * Math.pow(clamp(1 - lift / W, 0.3, 1), 1 / 3) + Math.max(0, W - lift) * cwr(V / Math.sqrt(g * L)) * cwOf(M.hulls) + 0.5 * rho * V * V * fA * SHIP.FOIL.cd0; // [WP5] (cwOf: as the flight's)
   }
   // what pushes her (§4.5): the engines' shaft power shared by the screws and waterjets (an outboard turns its own), each
   // as deep in the still water as it sits, along its own +x; air engines as ever. thrustAt: the push at V m/s, full ahead

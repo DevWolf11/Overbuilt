@@ -191,4 +191,26 @@ t('none of them ever says the rocket\'s "No engine fires in stage 1" (that is th
     t(`full ahead she makes the builder's top speed ±12 % (builder ~${(st.top * 1.9438).toFixed(1)} kn, flight ${(v1 * 1.9438).toFixed(1)} kn over 160-180 s)`, pct(v1, st.top) < 0.12, { st, v1 });
   }
 }
+// ================================================================ 7. every stock ship (WP5): the flight agrees with the builder
+// Each stock ship of kind ship, as in 6: draught ±10 %, GM ±0.15 m, top speed ±12 %. A ship that goes by waterjets alone
+// (the Pegazus, the Vizby) is compared on speed once waterjets push in flight (WP6): until then it says so.
+for (const key of G.run(G.load({ earth: false }), `Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'ship')`)) {
+  const live = G.load({});
+  const L2 = (c) => G.run(live, c);
+  const v = G.craft(live, G.templateRows(live, key), 'ship');
+  live.__v = v; live.__s = G.sim();
+  L2('__v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.bay.east), 0, 0, Math.PI); Ship.launch(__v)');
+  L2(`Ship.setSea('calm'); var steps = (v, s, secs, each) => { for (let i = 0, n = Math.round(secs * 120); i < n; i++) { v.physicsStep(1 / 120, s); s.time = (s.time || 0) + 1 / 120; if (each && i % 60 === 59) each(); } };
+    var mean = (secs, f) => { let n = 0, m = 0; steps(__v, __s, secs, () => { const x = f(); if (Number.isFinite(x)) { m += x; n++; } }); return n ? m / n : null; };`);
+  const st = L2(`(() => { const s = Ship.stats(__v.parts); return { draft: s.draft, GM: s.GM, top: s.top }; })()`);
+  L2('steps(__v, __s, 40)');
+  const fl = L2(`({ draft: mean(10, () => __v.draft), GM: mean(10, () => Ship.stab(__v)) })`);
+  const jetsOnly = L2(`__v.parts.some((p) => p.def.jet) && !__v.parts.some((p) => p.def.screw)`), jetsPush = L2(`!!__v.sh.scr.some((s) => s.p.def.jet)`);
+  let v1 = null;
+  if (!jetsOnly || jetsPush) { L2('__v.sh.tel = 4; __v.sas = "hold"; steps(__v, __s, 160)'); v1 = L2('mean(20, () => __v.speed())'); }
+  const kn = (x) => (x * 1.9438).toFixed(1);
+  t(`${key}: the flight floats her at the builder's draught ±10 % (${st.draft.toFixed(2)} / ${fl.draft.toFixed(2)} m) and GM ±0.15 m (${st.GM.toFixed(2)} / ${fl.GM.toFixed(2)} m)${v1 == null ? '' : `, and makes its top speed ±12 % (~${kn(st.top)} / ${kn(v1)} kn)`}`,
+    pct(fl.draft, st.draft) < 0.1 && Math.abs(fl.GM - st.GM) <= 0.15 && (v1 == null || pct(v1, st.top) < 0.12), { st, fl, v1 });
+  if (v1 == null) console.log(`     (skip) ${key}: her top speed waits for waterjets that push in flight (WP6)`);
+}
 t.done();

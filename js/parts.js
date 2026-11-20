@@ -1455,9 +1455,9 @@ const PARTS = {
     armour: { mm: 12, plate: 12, deck: 10, mat: 'steel' }, hp: 17000, breakSpeed: 8,
     tier: 3, cost: 4000, desc: 'The back of a destroyer: a broad transom stern over two big propellers and their rudders, and a long flat quarterdeck for a helicopter.' },
   // [WP5] one-piece hulls (they join nothing): a RIB, a landing craft, a float for seaplanes and a flying boat's hull
-  ribHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'RIB Hull', w: 9, h: 1.6, depth: 3.2, mass: 2.2, shape: 'shull', hull: true,
+  ribHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'RIB Hull', w: 9, h: 1.6, depth: 3.2, mass: 2.5, shape: 'shull', hull: true,
     shull: { cls: 'one', wl: -0.3, st: [[-4.5, 0.6, -0.55, 1.6, 1.45, 1.0], [-1, 0.65, -0.62, 1.6, 1.5, 1.0], [2, 0.7, -0.45, 1.35, 1.1, 1.0], [3.8, 0.75, -0.05, 0.75, 0.45, 1.0], [4.5, 0.8, 0.35, 0.15, 0.05, 1]],
-      ends: { aft: 'closed', fore: 'closed' }, plane: true, tubes: true, k: 0.12, pump: 0.005 },
+      ends: { aft: 'closed', fore: 'closed' }, plane: true, tubes: true, k: 0.35, pump: 0.005 }, // (k: the tubes' drag on top of the hull's: 0.12 made her 46 knots)
     armour: { mm: 4, plate: 4, mat: 'grp' }, hp: 500, breakSpeed: 5,
     tier: 1, cost: 1200, desc: 'A 9 m rigid-hulled inflatable: a deep-V glass-fibre hull ringed by buoyancy tubes. Hang outboards on its transom and it planes at 40 knots. Bullets go straight through it.' },
   lcHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Landing Craft Hull', w: 12, h: 2.8, depth: 3.4, mass: 8.5, shape: 'shull', hull: true,

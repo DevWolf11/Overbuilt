@@ -856,7 +856,7 @@ const Parts3D = (() => {
     const paintEmit = (poly) => {
       if (!SP) { emit(poly, C.paint, 1); return; }
       let rest = poly;
-      for (const [c0, c1, col] of SP.bands) { emit(fcut(rest, c0, false), C.paint, 1); const mid = fcut(rest, c0, true); emit(fcut(mid, c1, false), lin(S.band[col]), 1); rest = fcut(mid, c1, true); }
+      for (const [c0, c1, col] of [...SP.bands].sort((a, b) => a[0] - b[0])) { emit(fcut(rest, c0, false), C.paint, 1); const mid = fcut(rest, c0, true); emit(fcut(mid, c1, false), lin(S.band[col]), 1); rest = fcut(mid, c1, true); }
       emit(rest, C.paint, 1);
     };
     for (const [a, b, c, deck] of faces) {

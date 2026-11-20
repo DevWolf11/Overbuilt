@@ -502,16 +502,16 @@ const TEMPLATES = {
   zodiak: { // (a 9 m rigid inflatable: two outboards, a console, a heavy MG) [WP5]
     name: 'Zodiak RIB', kind: 'ship', tier: 1,
     blurb: 'A fast 9 m inflatable on two big outboards: up on the plane in seconds and over 35 knots. A heavy machine gun on the console, and nothing between her crew and the bullets.',
-    parts: [['ribHull', 0, 0], ['consoleS', -0.6, 1.367, 0, { att: 0 }], ['outboard', -4.9, -0.2, 0, { z: -0.5, att: 0 }],
-      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -0.6, 2.317, 3, { att: 1 }]],
+    parts: [['ribHull', 0, 0], ['consoleS', -1.4, 1.353, 0, { att: 0 }], ['outboard', -4.9, -0.2, 0, { z: -0.5, att: 0 }],
+      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -1.4, 2.303, 3, { att: 1 }]],
     paint: { ribHull: 'navyDark', consoleS: 'navyDark' },
   },
   higgens: { // (the LCVP: a plywood-and-steel box with a bow ramp, a small diesel, two MGs at the stern) [WP5]
     name: 'Higgens Landing Craft', kind: 'ship', tier: 1,
     blurb: 'A 12 m landing craft: twelve troops in the well and a ramp for a bow. Slow (her blunt front pushes a wall of water), but she runs right up a beach. Troops aboard take zones fast.',
-    parts: [['lcHull', 0, 0], ['consoleS', -4.6, 2.1, 0, { att: 0 }], ['dieselS', -4, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
+    parts: [['lcHull', 0, 0], ['consoleS', -1.4, 2.1, 0, { att: 0 }], ['dieselS', -4, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
       ['rudderM', -6.34, -2.182, 0, { att: 0 }], ['troopBay', -2.2, -0.814, 0, { att: 0 }], ['troopBay', 0, -0.814, 0, { att: 0 }],
-      ['mgHeavy', -4.6, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -4.6, 3.05, 3, { z: 0.25, att: 1 }]],
+      ['mgHeavy', -1.4, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -1.4, 3.05, 3, { z: 0.25, att: 1 }]],
     paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
   },
   pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels; her gun
@@ -520,9 +520,9 @@ const TEMPLATES = {
     blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
       ['foilBow', 18.6, -3.75, 0, { att: 4 }], ['foilAft', -5, -3.8, 0, { att: 1 }], ['turbine', -6, -0.05, 0, { att: 1 }],
-      ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['waterjet', -15.16, -1.35, 0, { att: 0 }],
-      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }], ['mastPole', 8.5, 8, 0, { att: 5 }],
-      ['magazine', 11.97, -0.111, 0, { att: 3 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
+      ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['dieselS', 0.3, -1.37, 0, { att: 2 }],
+      ['waterjet', -15.16, -1.35, 0, { att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['mastPole', 8.5, 8, 0, { att: 5 }], ['magazine', 11.97, -0.111, 0, { att: 3 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
     paint: { hbSternM: 'navyGrey', hbMidM: 'navyGrey', hbBowM: 'navyGrey', bridgeM: 'navyGrey', mastPole: 'navyGrey' },
   },
   osca: { // (an Osa-class missile boat: an M hull, three diesels and three screws; her missiles and guns are WP9's, to come) [WP5]
@@ -583,7 +583,7 @@ const TEMPLATES = {
       ['pontoon', 0.18, 1, 1, { z: 12.6, att: 2 }], ['vtailL', -2.45, -7, 0, { att: 0 }], ['elevatorL', -3.83, -7.6, 0, { att: 7 }],
       ['torpedo', -1.2, 0.8, 0, { z: 2.6, att: 2 }], ['gun', -1.78, 7.9, 0, { z: -0.4, att: 0 }], ['gun', -1.78, 7.9, 0, { z: 0.4, att: 0 }]],
     paint: { stepHull: 'navyGrey', cockpit: 'navyGrey', wingStraightL: 'navyGrey', pontoon: 'navyGrey', vtailL: 'navyGrey', elevatorL: 'navyGrey' },
-  },
+  }
 };
 
 // A template's parts as design rows (extras: z, att, skin, mm).
@@ -2509,7 +2509,7 @@ const Builder = {
       const com = this.com, col = this.col, L = Math.max(4, s.air.length);
       if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
       if (!has((p) => p.def.thrust)) warn.push('Add an engine: a propeller or a jet.');
-      if (!has((p) => p.def.wheel) && !has((p) => p.def.float)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).');
+      if (!has((p) => p.def.wheel) && !has((p) => p.def.float || p.def.hull)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).'); // [WP5] (a hull floats as floats do: a flying boat)
       else if (has((p) => p.def.wheel) && com) {
         const ahead = ps.some((p) => p.def.wheel && p.y > com.y), behind = ps.some((p) => p.def.wheel && p.y < com.y);
         if (!ahead || !behind) warn.push('Put landing gear both ahead of and behind the centre of mass, or it will tip onto its nose or tail.');
