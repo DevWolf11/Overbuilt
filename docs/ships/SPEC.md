@@ -178,7 +178,7 @@ stations 5 cm apart (the sampler interpolates linearly, so the keel jumps there)
   ring gets the `ci` of the side its x lies on. One-piece hulls are one compartment unless bulkheaded.
 - An end that is `'joint'` but unjoined (the builder forgot the stern, or a segment was shot away) is an **open end**
   (`sh.open: [{ p, end }]`, *built*): WP8 turns it into a permanent hole of the end ring's area below the deck, at the end
-  ring's centroid (§8.5). A bow without a stern sinks by the stern.
+  ring's centroid (§8.4). A bow without a stern sinks by the stern.
 
 ---
 
@@ -361,7 +361,7 @@ Mooring (`MOOR`: still 5 s under 0.5 m/s at Stop, not the player's: no physics, 
 woken by the player, the telegraph, a hit, a part lost, water or holes changing, a craft within 200 m faster than 2 m/s);
 `canRails` moors the player's still ship for warp; a far hydro vessel is never railed (it waits); AI hydro vessels are
 stepped out to `aiNear` 12 km; `railsAdvance` leaves afloat or landed hydro vessels where they are.
-**Remaining (WP8):** a doomed ship (§8.8) is never moored and is stepped until she is gone or a wreck; a wreck on the bed
+**Remaining (WP8):** a doomed ship (§8.9) is never moored and is stepped until she is gone or a wreck; a wreck on the bed
 is `kin` (frozen), like every ground wreck.
 
 ### 4.11 Launch — *built*
@@ -485,9 +485,9 @@ fuel, stores and fitting-out, so a ship built from them with her kit sits near h
 | hbBowL | Corvette Bow | 22 × 7.2 × 11 | 0.6 | 130 | 4,000 | 7,000 | 2 | −1.8 | `[-11, 2.4, -3.6, 5.5, 5.35, 1.6], [-4, 2.6, -3.6, 5.3, 5.0, 1.5], [3, 2.85, -3.4, 4.3, 3.6, 1.3], [8, 3.2, -2.4, 2.4, 1.4, 1.1], [11, 3.6, -.6, .2, .05, 1]` |
 | hbMidL | Corvette Midsection | 16 × 6 × 11 | 0 | 115 | 3,000 | 6,000 | 2 | −1.2 | `[-8, 3, -3, 5.5, 5.35, 1.6], [8, …same]` |
 | hbSternL | Corvette Stern | 18 × 6 × 11 | 0 | 115 | 3,500 | 5,500 | 2 | −1.2 | `[-9, 3, -1.6, 5.2, 5.0, 3.0], [-3, 3, -2.8, 5.45, 5.3, 1.8], [9, 3, -3, 5.5, 5.35, 1.6]` (a flat run aft for waterjets) |
-| hbBowX | Destroyer Bow | 34 × 13 × 16 | 0.5 | 1,050 | 7,000 | 22,000 | 3 | −1.0 | `[-17, 5.0, -6.0, 8.0, 7.8, 2.4], [-6, 5.3, -6.0, 7.7, 7.1, 2.1], [5, 5.8, -5.6, 6.0, 4.6, 1.7], [12, 6.2, -4.0, 3.6, 1.8, 1.4], [17, 6.5, -.5, .3, .05, 1]` (flared) |
-| hbMidX | Destroyer Midsection | 24 × 11 × 16 | 0 | 1,300 | 4,500 | 20,000 | 3 | −0.5 | `[-12, 5.5, -5.5, 8.0, 7.8, 2.4], [12, …same]`; `armour.belt` (below) |
-| hbSternX | Destroyer Stern | 26 × 11 × 16 | 0 | 850 | 5,000 | 17,000 | 3 | −0.5 | `[-13, 5.5, -3.0, 7.0, 6.6, 3.2], [-4, 5.5, -4.9, 7.9, 7.6, 2.6], [13, 5.5, -5.5, 8.0, 7.8, 2.4]` |
+| hbBowX | Destroyer Bow | 34 × 13 × 16 | 0.5 | 1,050 | 6,000 | 22,000 | 3 | −1.0 | `[-17, 5.0, -6.0, 8.0, 7.8, 2.4], [-6, 5.3, -6.0, 7.7, 7.1, 2.1], [5, 5.8, -5.6, 6.0, 4.6, 1.7], [12, 6.2, -4.0, 3.6, 1.8, 1.4], [17, 6.5, -.5, .3, .05, 1]` (flared) |
+| hbMidX | Destroyer Midsection | 24 × 11 × 16 | 0 | 1,300 | 3,000 | 20,000 | 3 | −0.5 | `[-12, 5.5, -5.5, 8.0, 7.8, 2.4], [12, …same]`; `armour.belt` (below) |
+| hbSternX | Destroyer Stern | 26 × 11 × 16 | 0 | 850 | 4,000 | 17,000 | 3 | −0.5 | `[-13, 5.5, -3.0, 7.0, 6.6, 3.2], [-4, 5.5, -4.9, 7.9, 7.6, 2.6], [13, 5.5, -5.5, 8.0, 7.8, 2.4]` |
 
 **One-piece hulls** (`cls: 'one'`; they join nothing; `ends` both `'closed'` unless said):
 
@@ -516,8 +516,8 @@ a 100 mm belt on a 24 m midsection weighs +33 t. Design rows carry the dial in t
 | consoleS | Helm Console | 1.2 × 1.4 × 1.0 | 0.3 | 600 | 200 | deck | `control: 1`; crew driver, commander standing at it (exposed: any hit near them reaches them); for RIBs and small boats |
 | bridgeL | Bridge | 10 × 7 × 12 | 120 | 4,000 | 6,000 | super | `control: 1`; two decks (pilot house over the operations room), raked windows; crew driver, commander, gunner, radio, 2 more `gunner`s (one per extra weapon station: §8.2 crew rule); steel 10 mm |
 | deckhouseL | Deckhouse | 14 × 5 × 12 | 90 | 2,000 | 5,000 | super | a block of superstructure (quarters, stores): a base for masts, guns and funnels, a target that keeps hits off the hull; steel 8 mm |
-| stealthHouse | Stealth Superstructure | 30 × 6 × 10 | 70 | 6,000 | 6,000 | super | faceted composite (`mat: 'composite'`); `control: 1`; crew driver, commander, gunner, radio; `stealth: 0.4` (a radar's reach on her × 0.6: §8.10; only the largest `stealth` aboard counts) |
-| mastLattice | Lattice Mast | 3 × 14 × 3 | 8 | 800 | 900 | mast | a perch: radars on it see from its height (the horizon, §8.10); its top is a `mast` place |
+| stealthHouse | Stealth Superstructure | 30 × 6 × 10 | 70 | 6,000 | 6,000 | super | faceted composite (`mat: 'composite'`); `control: 1`; crew driver, commander, gunner, radio; `stealth: 0.4` (a radar's reach on her × 0.6: §8.11; only the largest `stealth` aboard counts) |
+| mastLattice | Lattice Mast | 3 × 14 × 3 | 8 | 800 | 900 | mast | a perch: radars on it see from its height (the horizon, §8.11); its top is a `mast` place |
 | mastPole | Pole Mast | 0.6 × 6 × 0.6 | 0.6 | 200 | 200 | mast | a small boat's mast (radar, lights) |
 | funnel | Funnel | 5 × 6 × 4 | 12 | 600 | 1,500 | super | `funnel: true`: smoke (built `Ship.fx`); broken, it smokes black and the engines give `0.85` of their power (the uptakes wrecked) |
 | helipad | Helicopter Deck | 16 × 0.4 × 14 | 25 | 1,500 | 2,500 | deck | `deck: { hl: 7.5, hw: 6.5 }` (a moving deck: §4.8); a landing circle and lights in the art; must be clear above (§11.3 warning) |
@@ -557,12 +557,12 @@ and crews all work unchanged. Naval shells are new `SHELLS` keys (§8.1).
 | nGun76 | 76 mm Rapid Gun | 0.6 × 5.2 × 0.8 | 4.5 | 4,000 | 900 | front | `weapon: { kind: 'tgun', cal: 76, reload: 0.75, ammo: 80, shells: ['he76n', 'hevt76n'], each: 6 }`, `aim: { el: [-15, 85], elRate: 35, pivot: 0.18, disp: 0.25 }` (80 a minute) |
 | nGun127 | 127 mm Naval Gun | 0.8 × 7.2 × 1.0 | 18 | 5,000 | 1,500 | front | `weapon: { kind: 'tgun', cal: 127, reload: 3, ammo: 20, shells: ['he127', 'sap127', 'hevt127'], each: 25 }`, `aim: { el: [-15, 65], elRate: 20, pivot: 0.18, disp: 0.3 }` (20 a minute; 20 ready, more from magazines: §8.1) |
 | nGun152 | 152 mm Naval Gun | 1.0 × 8.5 × 1.2 | 30 | 6,000 | 2,000 | front | `weapon: { kind: 'tgun', cal: 152, reload: 6, ammo: 12, shells: ['he152n', 'sap152'], each: 45 }`, `aim: { el: [-10, 45], elRate: 12, pivot: 0.18, disp: 0.3 }` |
-| ciws | Close-In Gun | 2.2 × 4.2 × 2.2 | 6 | 5,000 | 800 | deck | a self-contained mount (a dome over a six-barrel 20 mm): `ciws: { range: 1500, rate: 75, ammo: 1500, reload: 30, yaw: [-150, 150], el: [-25, 85], slew: 115, missiles: true, air: true, drones: true }`; fires by itself (§8.9); `module: 'breech'` |
+| ciws | Close-In Gun | 2.2 × 4.2 × 2.2 | 6 | 5,000 | 800 | deck | a self-contained mount (a dome over a six-barrel 20 mm): `ciws: { range: 1500, rate: 75, ammo: 1500, reload: 30, yaw: [-150, 150], el: [-25, 85], slew: 115, missiles: true, air: true, drones: true }`; fires by itself (§8.10); `module: 'breech'` |
 | asm2 | Twin Anti-ship Missiles | 6 × 1.8 × 2.6 | 4 | 5,000 | 600 | deck | two canisters angled 15° up: `weapon: { kind: 'missile', asm: true, ammo: 2, range: 18000, speed: 260, seek: 'sea', dmg: 3000, blast: 12, he: 120, arm: 1 }` (§8.6); each canister a magazine (`MAG`) |
 | asm4 | Quad Anti-ship Missiles | 6 × 2.4 × 4.6 | 8 | 9,000 | 900 | deck | the same, four |
-| vls8 | Vertical Launcher | 3.2 × 2.4 × 3.2 | 14 | 9,000 | 1,500 | deck | eight cells flush in the deck (`inner`, its hatches on top): `weapon: { kind: 'missile', vls: true, ammo: 8, seek: 'radar', range: 12000, speed: 900, boost: 2, dmg: 900, blast: 8, prox: 8, missiles: true }`: SAMs that climb out and pitch over (`VLS`), guided by a fire-control radar aboard (§8.7); each cell a magazine |
+| vls8 | Vertical Launcher | 3.2 × 2.4 × 3.2 | 14 | 9,000 | 1,500 | deck | eight cells flush in the deck (`inner`, its hatches on top): `weapon: { kind: 'missile', vls: true, ammo: 8, seek: 'radar', range: 12000, speed: 900, boost: 2, dmg: 900, blast: 8, prox: 8, missiles: true }`: SAMs that climb out and pitch over (`VLS`), guided by a fire-control radar aboard (§8.6); each cell a magazine |
 | torpTube | Torpedo Tubes | 3.4 × 0.8 × 1.0 | 1.2 | 3,000 | 500 | edge | three lightweight torpedoes: `weapon: { kind: 'torp', ammo: 3, speed: 22, range: 8000, depth: 6, seek: 'active', cone: 30, acquire: 1500, dmg: 4000, blast: 12 }` (§8.5); trained outboard |
-| nRadarAir | Air Search Radar | 4 × 1.2 × 1.2 | 2 | 3,000 | 400 | mast | `searchRadar: { range: 18000, rpm: 15, air: true }`: aircraft and missiles above `RADAR.lowAir` 100 m (§8.10) |
+| nRadarAir | Air Search Radar | 4 × 1.2 × 1.2 | 2 | 3,000 | 400 | mast | `searchRadar: { range: 18000, rpm: 15, air: true }`: aircraft and missiles above `RADAR.lowAir` 100 m (§8.11) |
 | nRadarFC | Fire-Control Radar | 1.2 × 1.2 × 1.2 | 1.2 | 3,000 | 300 | mast | `trackRadar: { range: 14000, cone: 0.5, missiles: true, sea: true }`, `aim` (it trains); guides VLS SAMs at aircraft and anti-ship missiles (S3) and ranges the guns on a ship (auto zero) |
 | nRadarSea | Surface Search Radar | 2.4 × 0.6 × 0.6 | 0.8 | 2,000 | 250 | mast | `searchRadar: { range: 14000, rpm: 24, sea: true, low: true }`: ships, and anything under 100 m (sea-skimmers within 10 km, low helicopters) |
 | decoy | Decoy Launcher | 1.2 × 1.0 × 1.0 | 0.8 | 1,500 | 200 | edge | `weapon: { kind: 'chaff', ammo: 12, flare: true }`: the countermeasure key fires a rocket pair of chaff (radar seekers) and flares (heat seekers) out to 300 m |
@@ -572,9 +572,9 @@ and crews all work unchanged. Naval shells are new `SHELLS` keys (§8.1).
 | Key | Name | w × h × depth | t | $ | hp | place | Fields and what it does |
 |---|---|---|---|---|---|---|---|
 | bulkhead | Watertight Bulkhead | 0.3 × 2 × 2 | 1.5 | 400 | 800 | inside | `bulkhead: true`: splits its host hull's compartment at its x (§3.3); drawn as its host's section there (2D) and a plate filling the section (3D); its own clash box is its nominal size |
-| pump | Salvage Pump | 1.2 × 1.0 × 1.0 | 1 | 800 | 300 | inside | `pump: 0.15` m³/s, `module: 'engine'` (at 0 hp it stops): pumps the worst flooded compartment (§8.6) |
+| pump | Salvage Pump | 1.2 × 1.0 × 1.0 | 1 | 800 | 300 | inside | `pump: 0.15` m³/s, `module: 'engine'` (at 0 hp it stops): pumps the worst flooded compartment (§8.7) |
 | ballast | Fuel and Ballast | 3 × 0.8 × 2.5 | 10 | 100 | 2,000 | inside | weight, low down: trims her and lowers her centre of gravity; inert |
-| dcLocker | Damage Control Party | 2 × 2 × 2 | 1.5 | 1,500 | 300 | inside | crew `dc` × 4 (mods: `{ k: 'crew', role: 'dc' }`; `GV_ROLES` gains `'dc'`): a party that patches holes, fights fires and mends parts under way (§8.7) |
+| dcLocker | Damage Control Party | 2 × 2 × 2 | 1.5 | 1,500 | 300 | inside | crew `dc` × 4 (mods: `{ k: 'crew', role: 'dc' }`; `GV_ROLES` gains `'dc'`): a party that patches holes, fights fires and mends parts under way (§8.8) |
 | magazine | Shell Magazine | 4 × 2.5 × 4 | 12 | 1,500 | 1,200 | inside | `module: 'ammo'`, `store: { rounds: 400 }`: feeds every naval gun aboard (§8.1); it can go up (§8.8) |
 | torpDecoy | Torpedo Decoy | 1.5 × 0.6 × 0.6 | 0.4 | 1,000 | 150 | stern | `decoy: { torp: true, ammo: 4, life: 60, p: 0.6 }`: the countermeasure key, with a torpedo in the water within 3 km, streams a noisemaker astern; each homing torpedo within 1.5 km of it goes for it with p 0.6 (once) |
 
