@@ -6575,14 +6575,14 @@ void main() {
   }
   const WKP = { a: 0, z: 0, la: 0, lz: 0 }, WKB = { a: 0, z: 0, la: 0, lz: 0 };
   // [WP15] the hull's design waterline, bow to stern (cached per v.sh): each physics ring that has one (its keel under
-  // the waterline), its two waterline points in part space (the ring's points SHULL_NK + 1 and K − SHULL_NK − 2) and how
+  // the waterline), its two waterline points in part space (the ring's points SHULL_NK + 1 and K − SHULL_NK − 1) and how
   // far forward it is; the foam collar and the bow wave lie along it
   function wakeCollar(v) {
     const sh = v.sh;
     if (sh._wc) return sh._wc;
     const F0 = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 }, L = [], i = SHULL_NK + 1;
     for (const r of sh.rings) {
-      const R = r.R, S = r.p && r.p.def.shull, P = r.P, j = (R && R.K ? R.K : 0) - 1 - i;
+      const R = r.R, S = r.p && r.p.def.shull, P = r.P, j = (R && R.K ? R.K : 0) - i;
       if (!R || !S || !(R.yk < S.wl) || j <= i || P.length < 3 * R.K) continue;
       L.push({ f: P[3 * i] * F0.x + P[3 * i + 1] * F0.y, p: [P[3 * i], P[3 * i + 1], P[3 * i + 2]], s: [P[3 * j], P[3 * j + 1], P[3 * j + 2]] });
     }
@@ -6683,8 +6683,8 @@ void main() {
             const c = C[k], u = (f0 - c.f) / sp, bow = 1 - smoothstep(0, 0.22, u), stern = smoothstep(0.85, 1, u);
             const a = v.toWorld(c.p[0], c.p[1], c.p[2]), L1 = Terrain.locate(b, a.x, a.y, a.z, WCL), b2 = v.toWorld(c.s[0], c.s[1], c.s[2]), L2 = Terrain.locate(b, b2.x, b2.y, b2.z, WCR);
             let la = -wrapAngle(L1.a - L2.a) * R, lz = L1.z - L2.z; const l = Math.hypot(la, lz) || 1; la /= l; lz /= l; // (across her, port-ward)
-            const hw = 0.3 + V * (0.025 + 0.11 * bow) + 0.25 * stern * mv, al = clamp(mv * (0.32 + 0.6 * bow + 0.25 * stern) + slap * (0.6 + 0.4 * bow), 0, 0.95), fr = 0.4 + 0.5 * bow;
-            sides[0].push([L1.a, L1.z, la, lz, hw, al, w.dep || 0, fr]); sides[1].push([L2.a, L2.z, -la, -lz, hw, al, w.dep || 0, fr]);
+            const hw = 0.45 + V * (0.04 + 0.16 * bow) + 0.3 * stern * mv, al = clamp(mv * (0.4 + 0.55 * bow + 0.25 * stern) + slap * (0.6 + 0.4 * bow), 0, 0.95), fr = 0.4 + 0.5 * bow, o = 0.7 * hw; // (most of it outside her side: o)
+            sides[0].push([L1.a - (la * o) / R, L1.z + lz * o, la, lz, hw, al, w.dep || 0, fr]); sides[1].push([L2.a + (la * o) / R, L2.z - lz * o, -la, -lz, hw, al, w.dep || 0, fr]);
           }
           // (the stem: the two sides meet ahead of the first waterline ring, by its half-breadth, along her way there)
           const c0 = sides[0][0], d0 = sides[1][0], c1 = sides[0][1], d1 = sides[1][1], m0a = (c0[0] + d0[0]) / 2, m0z = (c0[1] + d0[1]) / 2;
