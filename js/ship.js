@@ -628,7 +628,7 @@ const Ship = (() => {
     return sg < FO.sig ? FO.cav * (FO.sig / sg - 1) : 0;
   }
   // the planing lift's weight at ξ along the waterline (0 its fore end, 1 its aft end): (n + 1)·(1 − ξ)^n, 1 on average
-  function planeW(xi) { const n = SHIP.planeCP; return n > 0 ? (n + 1) * (1 - clamp(xi, 0, 1)) ** n : 1; }
+  function planeW(xi) { const n = SHIP.planeCP; return n > 0 && xi === xi ? (n + 1) * (1 - clamp(xi, 0, 1)) ** n : 1; } // (no waterline yet, all of her under: an even share)
   function rollBk(S) { let k = 0; for (const p of S.hulls) if (p.def.shull.bk) k = Math.max(k, p.def.shull.bk === true ? SHIP.bilgeKeel : +p.def.shull.bk || 0); return k; }
   // §4.4-4.5: screws from the shaft power, and the foils (rudders, skegs, fixed hydrofoils) at water density: never the
   // wings' code (water is ~850× denser than air: its deflection caps, load ratings, flutter and strain would all break)
