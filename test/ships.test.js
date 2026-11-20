@@ -168,7 +168,7 @@ R(`Ship.setSea('moderate');`);
 {
   R(`var nearOf = (o, d) => Flight.stepsNear.call({ active: cy }, o, d); var ai = cyclon({ e: -2300, z: -2400, yaw: 0 }); ai.ai = { sea: true }; ai.control = ai.control;`);
   // (a hull with nobody aboard: the Cyclon's hull cut loose from her wheelhouse)
-  R(`var hk = cyclon({ e: -2300, z: -3600, yaw: 0 }), whk = hk.parts.find((p) => p.type === 'bridgeM'); for (const n of [...hk.adj.get(whk.id)]) { hk.adj.get(whk.id).delete(n); hk.adj.get(n).delete(whk.id); }
+  R(`var hk = cyclon({ e: -2300, z: -3600, yaw: 0 }); for (const whk of hk.parts.filter((p) => p.type === 'bridgeM' || p.type === 'ringS')) for (const n of [...hk.adj.get(whk.id)]) if (hk.byId.get(n).def.hull) { hk.adj.get(whk.id).delete(n); hk.adj.get(n).delete(whk.id); } // (the wheelhouse and the gun's ring off the hull: nobody aboard)
   var hkP = hk.splitComponents().find((o) => o.parts.some((p) => p.def.hull));`);
   const near = R('[nearOf(ai, 9000), nearOf(ai, 11900), !!hkP && !hkP.control && hkP.hydro, nearOf(hkP, 9000)]');
   t('far ships: an AI ship 9 and 11.9 km off is stepped (any ship with a crew afloat is, by the old rule for craft under way); a derelict hull 9 km off is not', near.join() === 'true,true,true,false', near);
@@ -181,7 +181,7 @@ R(`Ship.setSea('moderate');`);
 {
   // (cut loose by hand and split, as Flight.ripParts does: the craft keeps its control part, the wheelhouse; the hull is a piece)
   R(`var sh2 = cyclon({ e: -2300, z: -900, yaw: 0 }), F2 = fsim(sh2); var wh = sh2.parts.find((p) => p.type === 'bridgeM');
-  for (const n of [...sh2.adj.get(wh.id)]) { sh2.adj.get(wh.id).delete(n); sh2.adj.get(n).delete(wh.id); }
+  for (const n of [...sh2.adj.get(wh.id)]) if (sh2.byId.get(n).def.hull) { sh2.adj.get(wh.id).delete(n); sh2.adj.get(n).delete(wh.id); } // (off the hull: its mast stays on it)
   var out = sh2.splitComponents(); F2.vessels = [sh2, ...out]; var hullP = F2.vessels.find((o) => o.parts.some((p) => p.def.hull)), whP = F2.vessels.find((o) => o.parts.includes(wh));
   var bed = Terrain.heightAt(EARTH, Terrain.locate(EARTH, whP.x, whP.y, whP.z).a, Terrain.locate(EARTH, whP.x, whP.y, whP.z).z), pnan = false, sinkV = 0;
   tick(F2, 60, (tt) => { for (const o of F2.vessels) if (bad(o)) pnan = true; if (tt > 3 && tt < 6) sinkV = Math.max(sinkV, whP.speed()); });`);
@@ -222,7 +222,7 @@ R(`Ship.setSea('moderate');`);
 // Each stock ship launched off the bay heading west, out to sea. Calm sea: her displacement (±10 %), her draught at her
 // marks (her longest hull's waterline over its keel, ±0.3 m), Flank for 100 s (her speed over the last 20 s, ±12 %), hard
 // over for 40 s (the turning circle in her band of lengths, from her yaw rate and speed past 25 s). Moderate sea, beam-on
-// both ways (headings 340° and 160°, across the swell running to 250°), stopped, 90 s after 30 s to settle: her roll's
+// both ways (launched heading 340° and 160°, across the swell running to 250°), stopped, 90 s after 30 s to settle: her roll's
 // significant amplitude (2 × its rms) under her limit. The Zodiak's turning waits for outboards that steer (WP6), the
 // Pegazus' hullborne run for waterjets that push (WP6): each says so and is skipped until then.
 R(`var stock = (key, yaw, sea) => { Ship.setSea(sea || 'calm'); const T = TEMPLATES[key], rows = templateRows(T).map((r) => ({ ...r })), parts = partsFromDesign(rows), adjAll = buildAdjacency(parts), ctrl = findControlPart(parts), keep = componentOf(ctrl.id, adjAll);
@@ -251,7 +251,7 @@ for (const [key, W] of Object.entries(TRIALS)) {
     o.n === o.of && Math.abs(o.mass / W.t - 1) <= 0.1 && o.afloat && Math.abs(o.draft - o.marks) <= 0.3 && Math.abs(o.kn / W.kn - 1) <= 0.12 && !o.nan, o);
   if (W.turn) t(`...hard over at full speed: a circle ${f(o.turnL)} lengths across at ${f(o.turnKn)} kn (${W.turn.join('-')}), heeling ${f(o.turnHeel)}° (under 20°)`, o.turnL >= W.turn[0] && o.turnL <= W.turn[1] && o.turnHeel < 20, o);
   else console.log(`     (skip) ${key}: turning waits for outboards that steer with the helm (WP6)`);
-  t(`...beam-on in a Moderate sea, stopped: her roll ${o.roll.map((q) => `${f(q.sig)}° (max ${f(q.max)}°) heading ${q.hdg}°`).join(', ')}: under ${W.roll}° significant`, sig <= W.roll, o.roll);
+  t(`...launched beam-on in a Moderate sea and left stopped (no way on: the swell turns a small boat where it likes): her roll ${o.roll.map((q) => `${f(q.sig)}° (max ${f(q.max)}°), heading ${q.hdg}° at the end`).join('; ')}: under ${W.roll}° significant`, sig <= W.roll, o.roll);
   if (key === 'zodiak') t(`...she planes: at Flank the water carries ${f((1 - o.fsub) * 100, 0)} % of her weight on her bottom's lift (over half), trimmed ${f(-o.runTrim)}° bow up (0-6°)`, o.fsub < 0.5 && -o.runTrim > -0.5 && -o.runTrim < 6, o);
 }
 // the Pegazus hullborne: afloat at her marks with her foils in the water (WP6 flies her on them); her turbine shut down,
@@ -271,11 +271,11 @@ for (const [key, W] of Object.entries(TRIALS)) {
 {
   const o = R(`(() => { Ship.setSea('moderate'); const T = TEMPLATES.catalyna, ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), v = new Vessel(ps, adj, EARTH); v.kind = 'plane'; v.stages = computeStages(ps, adj, findControlPart(ps).id); v.rebuildGroups();
     v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.bay.east), VEHICLE_KINDS.plane.launchRot, 0, Math.PI); const L = Ship.launch(v), F = fsim(v); let nan = false, heel = 0, low = Infinity;
-    const r0 = { hydro: v.hydro, afloat: v.afloat, draft: v.draft, marks: marks(v), mass: v.mass / 1000, L: !!(L && L.ok) };
-    tick(F, 30, () => { if (bad(v)) nan = true; heel = Math.max(heel, Math.abs(v.heel)); low = Math.min(low, v.sh.fsub); });
-    return { ...r0, nan, heel: heel * ${D}, fsub: low, after: v.afloat, parts: v.parts.length, of: ps.length, splashed: v.splashed }; })()`);
-  t(`catalyna: a flying boat (kind plane) afloat off the bay on her hull, ${o.mass.toFixed(1)} t (spec 12 t ±10 %), drawing ${o.draft.toFixed(2)} m at her ${o.marks.toFixed(2)} m marks (±0.3)`, o.hydro && o.L && o.afloat && Math.abs(o.mass / 12 - 1) <= 0.1 && Math.abs(o.draft - o.marks) <= 0.3, o);
-  t(`...30 s of a Moderate sea: still afloat, all her parts aboard, heeling at most ${o.heel.toFixed(1)}° (under 10°: her wingtip floats), no NaN`, o.after && o.parts === o.of && o.heel < 10 && !o.nan && o.fsub > 0.5, o);
+    const r0 = { hydro: v.hydro, marks: marks(v), mass: v.mass / 1000, L: !!(L && L.ok) }; let dr = 0, fs = 0, n = 0;
+    tick(F, 30, (tt) => { if (bad(v)) nan = true; heel = Math.max(heel, Math.abs(v.heel)); if (tt > 20) { dr += v.draft; fs += v.sh.fsub; n++; } });
+    return { ...r0, nan, heel: heel * ${D}, draft: dr / n, fsub: fs / n, afloat: v.afloat, parts: v.parts.length, of: ps.length, splashed: v.splashed }; })()`);
+  t(`catalyna: a flying boat (kind plane) launched afloat off the bay on her hull, ${o.mass.toFixed(1)} t (spec 12 t ±10 %), drawing ${o.draft.toFixed(2)} m at her ${o.marks.toFixed(2)} m marks (±0.3)`, o.hydro && o.L && Math.abs(o.mass / 12 - 1) <= 0.1 && Math.abs(o.draft - o.marks) <= 0.3, o);
+  t(`...30 s of a Moderate sea: still afloat (the water carrying ${(o.fsub * 100).toFixed(0)} % of her weight over the last 10 s), all her parts aboard, heeling at most ${o.heel.toFixed(1)}° (under 10°: her wingtip floats), no NaN`, o.afloat && o.parts === o.of && o.heel < 10 && !o.nan && o.fsub > 0.9, o);
 }
 
 // ================================================================ §waves

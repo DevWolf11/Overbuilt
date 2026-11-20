@@ -1473,8 +1473,8 @@ const PARTS = {
     tier: 1, cost: 400, desc: 'A 6 m aluminium float with a planing step: it holds up 2 tonnes. Put a pair under a plane (symmetry on) and it floats and takes off from the water; one under each wingtip keeps a flying boat level.' },
   stepHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Flying-boat Hull', w: 18, h: 3.2, depth: 3.0, mass: 4.5, shape: 'shull', hull: true,
     // (on a plane it goes on turned along the nose, rot 1: its bow is the plane's nose)
-    shull: { cls: 'one', wl: -0.8, st: [[-9, 1.0, 0.6, 0.3, 0.2, 1], [-5, 1.3, -0.5, 1.1, 0.9, 1.2], [-1, 1.5, -1.05, 1.5, 1.45, 1.3], [-0.95, 1.5, -1.3, 1.5, 1.45, 1.3], [5, 1.6, -1.1, 1.5, 1.45, 1.3], [8, 1.6, -0.4, 0.9, 0.6, 1.2], [9, 1.6, 0.4, 0.2, 0.05, 1]],
-      ends: { aft: 'closed', fore: 'closed' }, plane: true, step: -0.97, k: 0.12, pump: 0.01 },
+    shull: { cls: 'one', wl: -0.8, st: [[-9, 1.0, 0.6, 0.3, 0.2, 1], [-5, 1.3, -0.5, 1.1, 0.9, 1.2], [-1.1, 1.5, -1.05, 1.5, 1.45, 1.3], [-0.95, 1.5025, -1.3, 1.5, 1.45, 1.3], [5, 1.6, -1.1, 1.5, 1.45, 1.3], [8, 1.6, -0.4, 0.9, 0.6, 1.2], [9, 1.6, 0.4, 0.2, 0.05, 1]],
+      ends: { aft: 'closed', fore: 'closed' }, plane: true, step: -1.02, k: 0.12, pump: 0.01 },
     armour: { mm: 3, plate: 3, mat: 'alu' }, hp: 1500, breakSpeed: 5,
     tier: 1, cost: 3000, desc: 'An 18 m boat hull for a flying boat, stepped under its middle so it skims up onto the plane and breaks free of the water. Turn it along a plane\'s nose and build the plane on top.' },
   // ==== shSuper ====
@@ -6761,7 +6761,7 @@ function shJetLay(d) {
 function shFoilLay(d) {
   const w = d.w, h = d.h, D = d.depth, f = d.foil || {}, c = Math.min(f.chord || w * 0.6, w * 0.95), yf = clamp(f.y != null ? f.y : -h / 2 + 0.2, -h / 2 + c * 0.1, h / 2);
   const two = d.style === 'foilAft', zs = two ? [-(D / 2 - D * 0.18), D / 2 - D * 0.18] : [0];
-  return { c, yf, t: c * 0.12, span: D / 2, sc: Math.min(w * 0.8, c * 0.8), st: Math.max(0.08, c * 0.09), zs, top: h / 2, pod: two ? { r: Math.min(0.28, c * 0.18), x0: -w / 2 + 0.05, x1: w / 2 - 0.05 } : null };
+  return { c, yf, t: c * 0.12, span: D / 2, sc: Math.min(w * 0.8, c * 0.8), st: Math.max(0.08, c * 0.09), zs, top: h / 2, pod: two ? { r: Math.max(0.05, Math.min(c * 0.18, yf + h / 2 - 0.01)), x0: -w / 2 + 0.05, x1: w / 2 - 0.05 } : null };
 }
 // A lattice mast (part frame): four legs tapering from the base to the top, braced, and a platform at the top
 function shLatticeLay(d) { const w = d.w, h = d.h, D = d.depth; return { b: [w / 2 - 0.1, D / 2 - 0.1], t: [w * 0.18, D * 0.18], y0: -h / 2, y1: h / 2 - 0.5, plat: { y: h / 2 - 0.5, th: 0.12, r: Math.min(w, D) * 0.42 }, bays: Math.max(3, Math.round(h / 2.2)), r: Math.min(0.09, w * 0.03) }; }

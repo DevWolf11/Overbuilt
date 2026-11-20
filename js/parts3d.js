@@ -965,7 +965,7 @@ const Parts3D = (() => {
       const C = [[1, 1], [1, -1], [-1, -1], [-1, 1]];
       for (const [sx, sz] of C) g.push(rod([sx * L.b[0], L.y0, sz * L.b[1]], [sx * L.t[0], L.y1, sz * L.t[1]], L.r, 6));
       for (let i = 0; i < L.bays; i++) {
-        const ya = L.y0 + ((L.y1 - L.y0) * i) / L.bays, yb = L.y0 + ((L.y1 - L.y0) * (i + 1)) / L.bays, A = at(ya), B = at(yb);
+        const ya = Math.max(L.y0 + 0.1, L.y0 + ((L.y1 - L.y0) * i) / L.bays), yb = L.y0 + ((L.y1 - L.y0) * (i + 1)) / L.bays, A = at(ya), B = at(yb); // (a brace's foot clear of the mast's own: its end cap stays in the box)
         for (let k = 0; k < 4; k++) { const [s0x, s0z] = C[k], [s1x, s1z] = C[(k + 1) % 4]; g.push(rod([s0x * A[0], ya, s0z * A[1]], [s1x * B[0], yb, s1z * B[1]], L.r * 0.6, 5), rod([s0x * B[0], yb, s0z * B[1]], [s1x * B[0], yb, s1z * B[1]], L.r * 0.6, 5)); }
       }
       const R = L.plat.r, rail = [];
@@ -1627,8 +1627,8 @@ const Parts3D = (() => {
         list.push([merge(g), 'ribTube']);
       }
       if (H.ends && H.ends.fore === 'ramp') { // [WP5] a landing craft's ramp, hinged at its foot (rig.shRamp: it drops when she is beached)
-        const R = shRampLay(d), pl = box(R.t, R.h, R.z * 2, -R.t / 2, R.h / 2, 0), ribs = [];
-        for (let i = 1; i < 5; i++) ribs.push(box(R.t * 0.6, 0.06, R.z * 2 - 0.1, -R.t - R.t * 0.3, (R.h * i) / 5, 0));
+        const R = shRampLay(d), pl = box(R.t, R.h, R.z * 2, -R.t / 2 + 0.01, R.h / 2, 0), ribs = []; // (its face 1 cm proud of the hull's end: no fighting over its pixels)
+        for (let i = 1; i < 5; i++) ribs.push(box(R.t * 0.6, 0.06, R.z * 2 - 0.1, -R.t - R.t * 0.3 + 0.01, (R.h * i) / 5, 0));
         subs.push({ role: 'shRamp', pos: [R.x, R.y, 0], pieces: [[merge([pl, ...ribs]), 'shipGrey']], subs: [] });
       }
       return node(list, subs);
