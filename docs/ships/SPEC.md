@@ -918,3 +918,309 @@ drones, helicopters and missiles; VLS SAMs reach aircraft at 12 km; a gun hits a
 water), **S5** (CIWS never notches), **S6** (hit ticks), **S7** (aerial torpedoes; none on land), **S8** (old turrets
 fire afloat), **S9** (the naval AI engages shore targets), **S10** (ship ghosts collide: §4.8). The old-kind fixes
 **O1**, **O3**, **O5** are WP14's (§16).
+
+**Correction to §6.4 (aimed parts and the z axis).** A part's rotation is a quarter turn in the blueprint's plane, so no
+part can point its own +y across the ship (±z). Torpedo tubes and decoy launchers therefore fire *outboard by their
+place*: `weapon.side: true` launches along +z or −z by the sign of the part's own z (on the centre line: forward), level
+for tubes, 45° up for decoys. ASM canisters fire along +y at rot 3 (forward), 15° up.
+
+---
+
+## 9. AI, the Naval Range and the Naval Practice battle (ship.js §ai; WP10)
+
+### 9.1 The computer's ships
+Real Vessels from the stock templates (the same parts, hulls, flooding and hits as anyone's) on the real physics (never
+`kin`, unlike the ground AI), marked `v.ai = { sea: true, team, role, skill, state, tgt, … }` and `ai.sea` (the gate).
+They are stepped out to `SHIP.aiNear` 12 km (built `stepsNear`) with the physics' LOD (built).
+- **The helm** is the player's interface (§4.6): `sh.tel` and a heading order (`sh.hold`, `man = false`, `ctl.h` 0).
+- **Thinking** (`AI.think` 4 a second, ≤ 0.1 ms a ship): its target, where to go, what to fire.
+- **Land and shallows** (`AI.look` 1 a second): probes `AI.ahead` [1, 2, 3] × max(`aheadMin` 300 m, V·`aheadT` 25 s / 3)
+  along her heading and on a fan at ±`fan` [30, 60]° (9 `heightAt` a second): any probe in water shallower than her draft
+  + 3 m (or land) turns her to the clearest fan direction; she keeps `avoid` 500 m from shores and from other ships not in
+  her column (`column` 600 m between ships of a side steaming together).
+- **Targets:** hostile hydro vessels afloat and sea-kind ghosts she sees (`Ship.surface`, eyes, `seesSea`), hostile
+  aircraft within her AA reach, and **shore targets (S9)**: hostile ground vehicles within her guns' reach that she sees.
+- **Range keeping:** she holds the target between `gunK` [0.5, 0.8] × the lesser of her main gun's reach and what she can
+  see, closing at Full, turning to open her arcs (broadside for a ship with guns fore and aft) at Half.
+- **Gunnery:** aims through Aim as the ground AI does (`v.aimP`, `v.aimFire`; `Aim.stepAll`'s AI loop takes `ai.sea`): the
+  lead from the target's velocity and the range table's time of flight, an error of `err` [0.003, 0.001] rad by skill
+  (worst to best), and after each salvo `walk` 0.3 of the observed miss corrected (fall of shot: the splash against the
+  target), so a skilled ship straddles in two or three salvos. WP10 factors `GroundAI.aimAt(v, target, F)` out of
+  groundai.js into a shared helper with **no behaviour change** (groundcombat.json identical) and both AIs call it.
+- **Missiles and torpedoes:** SAMs at aircraft within `missile` [8000, 12000] m by skill and at missiles within 6 km homing
+  on her or her side; ASMs at ships within `asm` [3000, 12000] m, every `asmEvery` 20 s (two at once at the best skill);
+  torpedoes within `torpR` 3,000 m, `torpN` 2 in a spread of ±`torpSpread` 4°, every `torpEvery` 60 s.
+- **Evasion:** under fire (hit, or a splash within 100 m in the last 10 s) she zigzags ±`zig` 30° every `zigT` 20 s; a
+  torpedo seen within 3 km: she turns to comb its track and rings Flank; a missile homing: decoys, CIWS (always on).
+- **Retreat** under `retreat` 0.5 of her reserve buoyancy or of her crew: away at Flank, smoke.
+- `Ship.aiDown(v, F)`: an AI ship doomed: the kill's credit, banner and toast, the range's or the battle's bookkeeping.
+- Nothing of this runs in a room (as the ground AI).
+
+### 9.2 The Naval Range
+`EARTH.navalRange = { e: 9000, z: 0, r: 9000, spot: 'slipway' }` (space.js): the sea east of the islands (40-250 m deep,
+probed). It is on with Settings → Targets at Practice or Hostile (the Tank Range's and the target range's setting), the
+player's craft a sea kind (or any hydro vessel afloat) within `r` + 6 km of its middle, no room, no battle; `Ship.range(F)`
+from `Ship.frame` (its checks once a second). The old range targets round (8000, 0) (boats, the frigate, the AA sites)
+stay as they are, alongside.
+- **Practice:** targets that never fire: a moored hulk (an unmanned `cyclon`, `passive`) 2 km out from the slipway; a
+  `cyclon` and an `osca` steaming a 3 km loop at 12 and 18 kn; an `olivar` steaming a 6 km loop at 15 kn further east.
+  One sunk or out of action comes back 60 s later at its loop's far point.
+- **Hostile:** waves from the east (from e 16,000, heading west), 30 s apart: wave 1 two `cyclon`s (skill 0.2); 2 an
+  `osca` and a `cyclon`; 3 a `vizby` and an `osca`; 4 an `olivar` and a `vizby`; 5 and on an `arley` and an `olivar`,
+  one more ship each wave to four, skill rising 0.1 a wave to 0.9. From wave 2, a strike aircraft every `STRIKE.every`
+  180 s, `max` 2 at once: the stock `striker` flown by `Ship.flyStriker(v, F, dt)`: in at `alt` 300 m, down to `low` 60 m
+  for the last `lowR` 3 km, its bombs released `rel` 800 m out (it leads the ship), away and round again; shot down, the
+  next comes in its time.
+- **The bar** (GroundAI's style): "Naval Range · Hostile · wave 3 · 2 ships left".
+
+### 9.3 The Naval Practice battle
+`Ship.practice(opts)`: you and two computer ships against three on the **Shetland Sound** arena (§10.2), the Naval
+Battle's rules (GroundMode run here, its objective in `Ship.battle.obj`), the respawn panel shared with the Practice
+Battle's (mpui.js). The money tier picks the ships from `NAVAL_STOCK` (gmode.js, beside `GROUND_STOCK`):
+`{ 45000: ['cyclon', 'osca', 'zodiak'], 75000: ['vizby', 'pegazus', 'osca'], 120000: ['arley', 'olivar', 'vizby'], fallback: 'cyclon' }`.
+Allies steam in column with you and take zones; enemies the same. mpui.js: a **Naval practice** button beside Practice
+(`#mp-practice-naval`), disabled without the Earth map (the Sound needs it).
+
+---
+
+## 10. Multiplayer and the Naval Battle (mp.js, mpui.js, net.js, gmode.js; WP11)
+
+### 10.1 The mode
+`settings.game: 'naval'` (`MP_SET_OK.game` gains `'naval'`); `MP.naval` (new getter: `pvp && settings.game ===
+'naval'`); `MP.ground` stays false in a naval battle (Highland Ridge's props and the gv gates it opens stay shut).
+Settings as a ground battle's: format 1v1/2v2/3v3 (no ffa), budget [45k, 75k, 120k], tickets, respawn, limit, `air`
+(aircraft may join: planes, helicopters, drones). New: `settings.sea` (`'calm' | 'moderate' | 'rough'`, default
+`'moderate'`; also in sandbox rooms). `#mp-create-naval` (index.html) beside the other create buttons; the lobby's
+mode line; without the Earth map a naval battle can't be made (the button says why).
+
+### 10.2 The Shetland Sound arena (space.js `EARTH.arenas.sound`)
+The water between Shetland (north, z under 2,000) and the north of Scotland (south, z over 7,500), 15-35 m deep
+(probed at 500 m; the wave fade is full past 25 m):
+```js
+sound: { name: 'Shetland Sound', sea: true, map: true, kinds: ['ship'], box: { e0: 15500, e1: 24000, z0: 2500, z1: 7000 },
+  pads: [{ name: 'West', e: 16200, z: 4600, yaw: 0, hl: 150, hw: 400 }, { name: 'East', e: 23300, z: 4600, yaw: Math.PI, hl: 150, hw: 400 }],
+  zones: [{ id: 'A', name: 'West Narrows', e: 18200, z: 3800, r: 350 }, { id: 'B', name: 'East Narrows', e: 21400, z: 3800, r: 350 },
+    { id: 'C', name: 'Mid-Sound', e: 19800, z: 5000, r: 350, rDuel: 450 }],
+  air: [{ e: 15000, z: 4600, yaw: 0, air: { alt: 1000, speed: 140 } }, { e: 24800, z: 4600, yaw: Math.PI, air: { alt: 1000, speed: 140 } }],
+  berms: [] },
+```
+Teams start 7 km apart (out of each other's sight: the horizon), at either end. `sea: true` arenas level no ground, build
+no props and no arena mesh (`clear`, `map` checks in ghud.js and render3d skip `sea`); spawns.test checks every zone and
+start is deeper than the deepest stock draft + 2 m.
+
+### 10.3 Placement and capture (gmode.js)
+- `GroundMode.placement(arenaId, team, slot, kind)`: on a `sea` arena, kind `'ship'`: abreast across the pad at 120 m
+  (`abreast(k) × 120` along the pad's across axis), a second row 250 m astern for slots past 6; `{ e, z, yaw }` and
+  Flight.start's `Ship.launch` floats her (built). Aircraft from `air` (built rule); helicopters and drones in the air 300 m
+  over their side's start.
+- **Capture:** `capturer(u, GK)` takes the arena's `kinds` when it has them (the Sound: `['ship']`, afloat), else the
+  ground kinds as now; `CAP_SPEED` 30 m/s stays. gmode.test: `'boat'` still doesn't capture; a ship does in the Sound.
+- `GroundMode.pickNaval(mapReady)` → `'sound'` | null. Tickets, deaths (a ship's cost), the result: GroundMode's own.
+
+### 10.4 Messages (`NET_VERSION` 13 → 14: an older peer would turn a ship into a plane)
+Every new field is cleaned; peers are untrusted; no peer text in `innerHTML`.
+- **Spawn rows:** no new column (kind `'ship'`, the ship parts, their armour column: `cleanMm`).
+- **Snapshots:** a ship's `sh: [tel, rud]` (`Ship.snap`: the ghost's screws and rudders) and `af: 1` when afloat (the
+  classification, §8.11); the host's snapshots carry `st` (its sea clock, §5.4). Cleaned: tel an integer −3…4, rud finite
+  within ±40, st finite.
+- **Ghosts:** a ship ghost is a Vessel from its spawn rows, so `v.hydro` and `v.sh` (its hull for `bump` and `hullRay`,
+  its decks in `Ship.D`: a helicopter can land on a teammate's ship); it never runs the hydro physics (`Ship.forces` skips
+  `v.remote`); `Ship.ghost(g)`, `Ship.unsnap(g, m)`.
+- **Hits:** `hit` gains `ho: [[partIndex, x, y, z, a], …]`, the holes our shots made in the target's hull parts (part
+  frame); `Ship.cleanHoles(rows, v)` on the owner's side: our own hull parts only, finite, inside the part's box + 1 m,
+  `a` in (0, 20], at most 16 rows a message. The owner applies damage and holes; flooding, fires and fate are the owner's.
+- **`mkill` `{ pid, id }`:** our CIWS or SAM killed peer `pid`'s missile `id`. The owner ends it (`netMissileEnd`) only if
+  one of the sender's vessels is within 3 km of where the missile was; at most 10 a second from a peer.
+- **Shots:** `shot` with k `'stor'` (a ship torpedo: its place, heading, depth, seek): cleaned as other shots; peers swim a
+  copy for show that never hits.
+- **`down.sea` `{ why, at }`** (`Ship.downSea`, `Ship.onDownSea`): why one of `SHIP_FATES`' keys, at her pose; the owner
+  keeps sending snapshots of a sinking ship until she is gone or 60 s, so peers see her go down; a shallow wreck joins
+  `wrecks` (built for ground wrecks).
+- **Settings:** `game: 'naval'`, `sea` through `MP_SET_OK`.
+- The NET_VERSION comment gains: "14: the ships update: ships (kind `ship`), their parts and paints (an older peer would
+  drop them or make a plane of them), holes on hits (`ho`), missiles killed by point defence (`mkill`), ship torpedoes
+  (`stor`), a ship's fate (`down.sea`), naval battles (`game: 'naval'`, the Sound) and the room's sea (`sea`, `st`)".
+
+### 10.5 Saving and loading (WP8 with WP11's cleaning rules)
+`Vessel.serialize`/`restore` (and `gvLoad`): per part `holes`, `water`, `rud`, `fire`; per vessel `sh: { tel, dcPri,
+ciwsOn }`, `fate`, `hydroFrom`, a lashed craft's deck part id. Restore cleans: `tel` integer −3…4, `dcPri` one of three,
+`ciwsOn` boolean, holes as `cleanHoles`, `water` finite in [0, V], `fate` one of the four or none.
+
+### 10.6 Old play
+`mp-air.json` identical; a ground battle (`groundcombat.json`, mp.test's ground traces) identical; `net.test` unchanged; a
+new `baseline/mp-naval.json` (two ships, a shell exchange with holes, a torpedo, a CIWS kill, a sinking `down`).
+
+---
+
+## 11. The builder (builder.js, ship.js §builder; WP4 built the basics, WP7 completes)
+
+### 11.1 Built (WP4, WP0)
+The kind (`KIND_TAB.ship`, `pickKind`, `setKind`), symmetry across (`mirrorOf`, `symKey` `rss.symmetryShip`), turning
+(`turnGroups`), `zText`, guns at rot 3 (`defaultRot`), the zoom floor 1.2 px/m (`zoomMin`: a 152 m hull fits 360 px),
+`keepInView`, the stat rows (displacement, draught, stability, top speed in knots: `renderShipStats`), `shipLine`
+(freeboard, compartments, power, turning), the warnings' dispatch (`Ship.warnings` first, no rocket staging words), the
+blue waterline in 2D (`drawWaterline`) and 3D, tap placement for `keel`, `deck`, `inside`, and `stern` screws and rudders
+(`Ship.spotOf`), the hangar's Ships group, `PART_ERAS` Boats/Escorts/Destroyers/Naval.
+
+### 11.2 Placement for every place (WP7: `Ship.spotOf`, ship.js §builder)
+Pure, on an empty, a hulled and a full design (ships-builder.test); `at` the view's middle; `sym` pairs off the centre
+line. Returns a pose, `{ why }` or null, as built.
+- **keel** (built) and **one-piece hulls:** on an empty design at the origin; beside another one-piece hull with symmetry
+  on: a pair off the centre line at ±(the first hull's half-beam + its own + 0.5 m) (a catamaran, pontoons).
+- **deck** (built) refined by part: `helipad` the aftmost clear stretch of deck; `nRingM` the foremost clear spot on the
+  centre line ahead of the superstructure (then the aftmost behind it); `vls8` ahead of the superstructure then aft,
+  flush (its top at the deck line); `ciws` on the centre line on top of the aftmost superstructure, else the deck aft;
+  `asm2`/`asm4` aft of the superstructure, a pair at ±(beam/2 − its depth/2) with symmetry; `consoleS` amidships aft of
+  the middle; `torpDecoy` the stern's deck.
+- **super:** `bridgeL`, `stealthHouse` with their front 30-40 % of her length from the bow; `deckhouseL` just behind the
+  last superstructure; `funnel` on top of a deckhouse, else on deck amidships; `hangar` just ahead of a helipad. When the
+  deck is full there, on top of the superstructure below the view's middle (its top face).
+- **mast:** a mast on top of the highest superstructure, on the centre line; a radar on the highest free mast top, else
+  on the highest superstructure top.
+- **inside** (built) refined: `magazine` low, under the nearest gun ring; `pump` in the largest compartment; `dcLocker`
+  amidships; `ballast` lowest; `bulkhead` at the middle x of the compartment under the view's middle (spanning its
+  section); `troopBay` as any inside part.
+- **stern** (built) plus `outboard` on the transom's aft face (its propeller under the keel line; a pair at ±0.5 m with
+  symmetry), `waterjet` in the transom at the keel line (one on the centre line, a pair at ±beam/4).
+- **bow:** `foilBow` under the forefoot, at the bow's foremost fifth, its top at the keel there.
+- **keel** for `foilAft`: under the hull 10 % of her length aft of the centre of gravity, its top at the keel there.
+- **edge:** `torpTube`, `decoy` at the deck edge (z at ±(half-beam − its depth/2)), aft of the superstructure, a pair
+  with symmetry (they fire outboard by their side: §8 correction).
+- **ring**, **front**, **top** (the ground update's): their own rules, unchanged.
+
+### 11.3 Warnings (WP7 completes `Ship.warnings`)
+Built: no hull, sinks, overloaded, open ends, top-heavy/low GM, list, trim, no screw, no engine, dry screw, no rudder, dry
+rudder. Added (red: she won't work; amber: a hint):
+- red: torpedo tubes on a design with no hull and no wings: "Torpedo tubes need water under them: put them on a ship (or a
+  plane, to drop them)".
+- red: a `vls8` with no `nRadarFC`: "The vertical launcher's missiles need a Fire-Control Radar aboard".
+- red: something on the helicopter deck (any part's box within 4 m over it): "Something stands on the helicopter deck".
+- red: hydrofoils that can't lift her (their lift at 40 kn at `inc0 + RIDE.lim` under her weight): "Her foils can't lift
+  her: she'll never fly on them".
+- red: a bulkhead outside every hull: "A bulkhead only works inside a hull segment".
+- amber: a gun whose swept arcs (`Aim.limits`) are blocked over more than 270° by superstructure: "The forward gun can only
+  fire over 80°: raise it or move the superstructure".
+- amber: more weapon stations (gun houses, launchers, tubes) than gunners aboard: "4 weapon stations, 2 gunners: only two
+  fire at once".
+- amber: a radar lower than a funnel's top within 10 m: "The radar sits below the funnel: smoke blinds it aft".
+- amber: an ASM launcher with no `nRadarSea`: "Anti-ship missiles need a target: a Surface Search Radar finds one past your
+  eyes".
+- amber: a magazine above the waterline: "A magazine above the waterline goes up more easily".
+- amber: over 500 t with no pump and no damage control party: "No pumps or damage control: one hole could sink her".
+
+### 11.4 Cards, tray lines, X-ray, hangar (WP7)
+- `Ship.specs(def)` (the part card's lines) and `Ship.line(def)` (the tray's one line), speeds in knots: a hull segment
+  "Floats up to 868 t of ship · draws 1.6 m at her marks · one watertight compartment, 8 m"; an engine "2,000 kW";
+  a screw "about 120 kN at 15 kn on 2 MW"; a waterjet; a rudder "turns 35° · 0.8 m²"; a foil "lifts 160 t at 40 kn"; a
+  gun "127 mm · 20 a minute · reaches 20 km"; an ASM "18 km · skims at 8 m"; a VLS "8 SAMs · 12 km · shoots missiles too";
+  the CIWS "1.5 km · fires by itself"; radars "sees ships 14 km (the horizon permitting)"; the helipad "a helicopter lands
+  and is lashed". `builder.js` asks `Ship.specs`/`Ship.line` first for `def.ship` parts.
+- **X-ray** (`bXray`, 2D) for ships: compartments as bands between their x0 and x1 (bulkheads as lines), the belt band, the
+  magazines (red), engines, pumps, DC parties and crews.
+- **Hangar:** the Ships group sorted by `shipClass` (§7) then cost; a template's `group` field files the Catalyna there.
+
+---
+
+## 12. HUD, camera, keys, touch and sound
+
+### 12.1 Built (WP3)
+The helm panel (`Ship.hud`: the telegraph's eight rungs and its order, HOLD with the heading held or HAND, the rudder bar
+with the command and the rudders' own angle) inside the telemetry box; `body.ship` (the throttle box as the telegraph
+lever with eight detents, FLANK and STOP buttons; the stick the rudder); speed in knots and the heading in the flight
+data; the keys (`KEY_ACTIONS`: `fwd`/`back` ring the telegraph, `left`/`right` the rudder, `thrFull`/`thrCut` flank and
+stop, `sHold` 5, `sCiws` 6, `sDc` 7, `sView` H, the Ships group, the `ship` context beside `ground` while she aims); the
+bridge view (`setBridge`); `Flight.shipHelp` and `App.showHelp`; the end screen's words (`SHIP_FATES`) and distance
+sailed; the aim mode for ships; controls.mjs's ship layouts at every size.
+
+### 12.2 Remaining (WP12)
+- **The hull diagram** (`Ship.hud`'s second panel): her side outline, a cell per compartment filling blue with `W/V`,
+  holes as red dots, fires orange, the DC party white, heel and trim in degrees; under the helm panel on a desktop; on a
+  phone a compact strip of cells in the same box. A small canvas redrawn at 4 Hz, only when its key changes.
+- **Banners and warnings** (Death's banner and merged toasts): "FLOODING · compartment 3", "FIRE aft", "Magazine fire!",
+  "Abandon ship" (her fate), "Torpedo in the water · 120° · 1.4 km", "Missile inbound" (a ship with a sea or air radar
+  aboard hears incoming missiles as an Advanced RWR would: the warning's source is her radar part, so no magic radar),
+  "Target sunk".
+- **Torpedo lines** (ghud.js `drawTorps`, after WP9's mechanics): our torpedoes' predicted runs, and incoming torpedo
+  tracks seen within 1.5 km as dashed lines.
+- **Touch:** three buttons in the ship layer, `hold`, `dc`, `ciws` (`Controls.CTL` entries, in the layout editor), the
+  sizes checked by controls.mjs at 360×640 … 1920×1080, the desktop's key hints from the bindings (`Keys.k`).
+- **Sound** (audio.js, procedural, only with a ship active or within 1.5 km): the diesels' throb by the telegraph, a
+  turbine's whine with its spool, the bow wave's hiss with speed, the telegraph's bell on a step, the CIWS's buzz, a
+  torpedo's launch, hull hits (a deep clang), flooding (a gurgle in the bridge view), a magazine (the big explosion).
+- **Camera:** the chase distance from her reach (a 150 m ship framed whole), checked at both ends of the fleet.
+- README's Ships controls block (WP13) from the bindings.
+
+---
+
+## 13. Every hook and gate (file:function) — ✓ built, otherwise the package that adds it
+
+| File:function | Hook | Gate | Status |
+|---|---|---|---|
+| parts.js PART_CATEGORIES, VEHICLE_KINDS, SEA_KINDS/isSea | the kind, tabs | data | ✓ WP0 |
+| parts.js shullOf/shullPts/shullPath/shullDraw, partPath0/drawPart0 `case 'shull'`, PART_RECIPE.shull, clashShape loft | hull geometry | `def.shull` | ✓ WP0/WP2 |
+| parts.js `shullTris` (new) | hit triangles, shared with parts3d | `def.shull` | WP8 |
+| parts.js massPerMm/armourMassT | the belt's mass | `armour.belt` | WP8 |
+| vessel.js constructor, rebuildGroups (`aircraft`, `ciws`, `hydro` → Ship.groups) | the flag | parts | ✓ WP0 |
+| vessel.js computeHull | `shullPts` | `def.shull` | ✓ WP0 |
+| vessel.js physicsStep | Ship.pre, Ship.forces, hF/hT, added mass and inertia | `this.sh` | ✓ WP1 |
+| vessel.js turnTarget | null for a ship | `this.sh && kind ship` | ✓ WP1 |
+| vessel.js ground | Ship.floorAt/floorNormal, `bed` | `this.sh` | ✓ WP1 |
+| vessel.js ground | `_bedHit` per part; `Ship.deckContacts`; `Ship.deckRel` | `this.sh`; `Ship.D.length`; `k.deck` | WP6 |
+| vessel.js splitComponents | `hydroFrom` | `this.hydro` | ✓ WP0 |
+| vessel.js serialize/restore, gvLoad | holes, water, rud, fire, sh, fate, hydroFrom, lash | fields present | WP8 |
+| vessel.js planeTarget | afloat as on the ground | `v.sh && v.afloat` | WP6 |
+| gear.js Gear.ground | the bed, no wading, drive only on the bed, no engine flooding; deck contacts | `v.sh`; `Ship.D.length` | WP6 |
+| flight.js start | Ship.launch | `v.hydro` over water | ✓ WP3 |
+| flight.js canRails, update far list, stepsNear, physicsTick (moored), railsAdvance | mooring, far ships | `v.sh`/`v.hydro`/`v.moored` | ✓ WP1 |
+| flight.js physicsTick | `Ship.lashStep` | `v.lash` | WP6 |
+| flight.js planeTick | afloat as on the ground | `v.sh && v.afloat` | WP6 |
+| flight.js groundTick, readControls, shipKey, helmKeys, setBridge, updateHUD, shipHelp, death words, knots | helm and HUD | `isSea(kind)` | ✓ WP3 |
+| flight.js afterFall | waits for a ship to sink (≤ 15 s) | `v.fate` | WP8 |
+| flight.js emitParticles | Ship.fx | `v.hydro` | ✓ WP2 |
+| combat.js frame | `S.sea`, Ship.frame | any hydro vessel | ✓ WP1 |
+| combat.js frame | `S.pd`, Ship.ciwsStep | any `v.ciws.length` | WP9 |
+| combat.js reset | `S.sea`, `S.pd` false | — | ✓ / WP9 |
+| combat.js damage | Death.hit for sea kinds (S6) | `isSea(v.kind)` | WP8 |
+| combat.js destroyPart | holed through | `p.def.shull && v.sh` | WP8 |
+| combat.js explode | `Ship.hullDist`; `under` holes | `p.def.shull` | WP8 |
+| combat.js moveShot | `'stor'` → Ship.torpStep; `s.asm` → Ship.asmStep; bombs under water (S4) | the shot's kind/flag; `S.sea` | WP9, WP8 |
+| combat.js swim | old torpedo homes on and hits ships | `S.sea` | WP9 |
+| combat.js candidates | ships out of the air list, into the ground list | `isSea`/`v.sh && afloat` | WP9 |
+| combat.js turretStep/turretFire | old turrets fire afloat (S8) | `v.sh` | WP9 |
+| combat.js launchMissile, guide, guideAir | ASM, VLS flags | `w.asm`, `w.vls` | WP9 |
+| combat.js aiDown | AI ships | `v.ai.sea` | WP10 |
+| armour.js SHELLS | naval shells, ciws20 | new keys | WP9 |
+| armour.js recsOf/test, faceMm | Ship.hullRay, Ship.hullMm | `d.shull`; `edge <= -6` | WP8 |
+| armour.js resolve | drone charge's reference hp (S1) | `D.ship` | WP8 |
+| armour.js apply | holes | hull parts | WP8 |
+| armour.js moveShell | Ship.shotMissiles | `s.ciws` | WP9 |
+| armour.js ground | big splashes | `SH.naval` | WP9 |
+| armour.js cookOff | Ship.magazine | `v.sh` | WP8 |
+| armour.js repairStep | ship fires and repairs are ship.js's | `v.sh` | WP8 |
+| aim.js rangeTable/solve, aimLift | the long table | `SH.naval` | WP9 |
+| aim.js stepAll | AI ships aim | `ai.sea` | WP9/WP10 |
+| aim.js trackStep/searchStep | missiles (S3), sea contacts | `trackRadar.missiles`, `.sea` | WP9 |
+| radar.js contact lists, sees | ships never air contacts | `isSea`, `v.sh && afloat` | WP9 |
+| drone.js lockable | ships lockable (and O1) | kind | WP9, WP14 |
+| death.js impact | Ship.impactSea first | `v.sh` | WP6 |
+| death.js seaAt, seaTick, swamp | hydro excluded | `v.hydro` | ✓ sea fix |
+| death.js swamp | a knocked-out wreck in deep water goes under | `o.ko`, water deeper than it | WP8 |
+| death.js wreck list | sunk ships on a shallow bed | `v.fate` | WP8 |
+| ghud.js aimUpdate, zero | 20 km ray, `GHUD.reach(v)` | sea kind or naval gun | WP9 |
+| ghud.js drawTorps | torpedo lines | torpedoes in the water | WP12 |
+| render3d.js swell, wakes, uSeaHole, aimDist | the drawn sea | a hydro vessel near | ✓ WP2 |
+| render3d.js decals | holes on hulls | `p.holes` | WP12 |
+| parts3d.js BUILD.shipHull, screw/rudder rigs | hull loft | `def.shull` | ✓ WP2 (WP8: from `shullTris`) |
+| builder.js kind wiring, stats, waterline, warnings, quickAdd | the builder | kind ship | ✓ WP4 |
+| builder.js specs/tray, X-ray, hangar classes, `t.group` | | kind ship / `def.ship` | WP7 |
+| gmode.js capturer, placement, pickNaval, NAVAL_STOCK | the naval battle | `arena.kinds`, `arena.sea` | WP11 |
+| mp.js MP.naval, MP_SET_OK, snap/unsnap, hit `ho`, `mkill`, `stor`, `down.sea`, `settings.sea`, `st` | the room | `MP.naval`, the new fields | WP11 |
+| net.js NET_VERSION 14 | — | — | WP11 |
+| mpui.js Spawns.place sea branch | sandbox spots | `sp.sea` | ✓ WP3 |
+| mpui.js lobby, naval practice button, respawn | | `MP.naval`, the button | WP10/WP11 |
+| space.js EARTH.spawns sea entries | | kind ship | ✓ WP3 |
+| space.js EARTH.navalRange, EARTH.arenas.sound | | | WP10, WP11 |
+| main.js Settings → Sea | Ship.setSea | — | ✓ WP3 |
+| controls.js KEY_ACTIONS Ships, contexts, CTL | | `ship` context | ✓ WP3; WP12 (touch buttons) |
+| audio.js | ship sounds | a ship active or near | WP12 |
+| test/ground.test.js SYSTEMS | Ship counted | — | ✓ WP0 |
