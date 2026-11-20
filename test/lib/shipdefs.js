@@ -9,6 +9,7 @@
     if (PARTS[k]) return;
     const d = { ...(base ? PARTS[base] : {}), gv: true, ship: true, family: 'Naval', tier: 1, cost: 1000, hp: 500, desc: 'A test part (the ships update).', ...o, test: true };
     d.type = k;
+    d.maxTemp = d.maxTemp || 2000; // (as parts.js sets every part's at load)
     PARTS[k] = d;
   };
   const kit = (o) => ({ shape: 'tkit', style: 'engine', ...o });

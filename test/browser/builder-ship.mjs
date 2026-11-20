@@ -5,7 +5,11 @@
 // stability, top speed in knots; no thrust, Δv or stages) and the blue waterline is drawn at her draft in 2D and 3D; a
 // 152 m hull fits a 360×640 phone and a 1280×720 desktop; each warning fires (no hull, no bridge, no screw, no rudder, no
 // engine, open stern and bow, top-heavy, a list, down by the bow, overloaded, sinks, a propeller out of the water), the
-// rocket's "No engine fires in stage 1" never; and she launches, console clean.
+// rocket's "No engine fires in stage 1" never; and she launches, console clean. Then (WP7) the builder complete, on a phone
+// in portrait and a desktop: a destroyer built by 32 taps from an empty blueprint (every place: hulls, the bridge, a gun
+// ring, its gun house and the gun into it, deckhouse, funnel, helideck, hangar, close-in gun, mast and radars, cells,
+// launchers, tubes and decoys at the edge, turbines, propellers, rudders, the hold's kit, a bulkhead, a bow foil), the
+// tray's lines and a part's card in a ship's words, X-ray numbering her compartments, 3D, the hangar's Ships group by class.
 //   node test/browser/builder-ship.mjs        (screenshots: SHOTS=<dir>, default test/.cache/shots/)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -226,6 +230,104 @@ for (const [W, H, touch] of [[360, 640, true], [390, 844, true], [844, 390, true
     }
     await pg.close();
   }
+}
+
+// ---- 5. (WP7) the builder complete: every place by taps from the tray (a destroyer built from an empty blueprint), a
+// gun tapped into its gun house, the tray's lines and a part's card in a ship's words, X-ray of her insides, the hangar's
+// Ships group by class; on a phone in portrait and a desktop, 2D, 3D and X-ray. The spec's parts not in the catalogue
+// yet come from test/lib/shipdefs.js (test-only defs, the real parts left alone as they land).
+const DEFS = fs.readFileSync(path.join(ROOT, 'test', 'lib', 'shipdefs.js'), 'utf8');
+const SEQ = [['Ship hulls', 'Destroyer Midsection'], ['Ship hulls', 'Destroyer Bow'], ['Ship hulls', 'Destroyer Stern'], ['Ship hulls', 'Destroyer Midsection'],
+  ['Superstructure', 'Bridge'], ['Naval weapons', 'Naval Gun Ring'], ['Naval weapons', 'Gun House'], ['Naval weapons', '76 mm Rapid Gun'], ['Superstructure', 'Deckhouse'],
+  ['Superstructure', 'Funnel'], ['Superstructure', 'Helicopter Deck'], ['Superstructure', 'Helicopter Hangar'], ['Naval weapons', 'Close-In Gun'], ['Superstructure', 'Lattice Mast'],
+  ['Naval weapons', 'Air Search Radar'], ['Naval weapons', 'Fire-Control Radar'], ['Naval weapons', 'Surface Search Radar'], ['Naval weapons', 'Vertical Launcher'],
+  ['Naval weapons', 'Quad Anti-ship Missiles'], ['Naval weapons', 'Torpedo Tubes'], ['Naval weapons', 'Decoy Launcher'], ['Propulsion', 'Gas Turbine'], ['Propulsion', 'Gas Turbine'],
+  ['Propulsion', 'Large Propeller'], ['Propulsion', 'Large Rudder'], ['Ship kit', 'Shell Magazine'], ['Ship kit', 'Salvage Pump'], ['Ship kit', 'Damage Control Party'],
+  ['Ship kit', 'Fuel and Ballast'], ['Ship kit', 'Watertight Bulkhead'], ['Ship kit', 'Torpedo Decoy'], ['Propulsion', 'Bow Hydrofoil']];
+for (const [W, H, touch] of [[390, 844, true], [1280, 720, false]]) {
+  const tag = touch ? 'phone' : 'desktop', pg = await open(W, H, touch);
+  await pg.evaluate(DEFS);
+  await pg.evaluate(() => { Builder.loadTemplate('hopper'); Builder.pickKind('ship'); Builder.buildPalette(); window.__toasts = []; const t0 = UI.toast; UI.toast = (m, ...a) => { window.__toasts.push(m); return t0.call(UI, m, ...a); }; });
+  const miss = [];
+  for (const [tab, name] of SEQ) {
+    const n0 = await pg.evaluate(() => Builder.parts.length);
+    await tapPart(pg, tab, name, touch);
+    const n1 = await pg.evaluate(() => Builder.parts.length);
+    if (n1 <= n0) miss.push(name + ': ' + (await pg.evaluate(() => window.__toasts.slice(-1)[0])));
+  }
+  r = await pg.evaluate(() => {
+    const ps = Builder.parts, one = (t) => ps.find((p) => p.type === t), clash = ps.some((a, i) => ps.some((b, j) => j > i && partsClash(a, b)));
+    const adj = buildAdjacency(ps), c = findControlPart(ps), comp = c ? componentOf(c.id, adj) : new Set(), gun = one('nGun76'), house = one('nHouse127');
+    return { n: ps.length, joined: comp.size, clash, gunIn: !!gun && !!house && gun.att === house.id, deckOn: one('funnel') && one('funnel').att === (one('deckhouseL') || {}).id, kind: Builder.kind };
+  });
+  ok(`${tag}: 32 taps from the tray build a destroyer, every part placed (none refused), every one joined, nothing clashing`, !miss.length && r.joined === r.n && !r.clash && r.kind === 'ship', JSON.stringify({ miss, ...r }));
+  ok(`${tag}: ...the gun tapped after its gun house goes into the house (the tank's rules), the funnel onto the deckhouse`, r.gunIn && r.deckOn, JSON.stringify(r));
+  await pg.evaluate(() => { Builder.selected = null; Builder.renderInfo(); Builder.setXray(false); Builder.fitView(); });
+  await frames(pg, 3);
+  r = await inSight(pg);
+  ok(`${tag}: ...and Fit shows all of her on the bare blueprint`, r.vis === r.n, JSON.stringify(r));
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-2d.png` });
+  // the tray in a ship's words: each item's line is Ship.line's
+  r = await pg.evaluate(() => {
+    const bad = [], seen = [];
+    for (const c of ['shHull', 'shSuper', 'shDrive', 'shArms', 'shKit']) {
+      Builder.category = c; Builder.buildPalette();
+      for (const it of document.querySelectorAll('#palette-items .part-item')) {
+        const name = it.querySelector('.part-name').textContent, spec = it.querySelector('.part-spec').textContent, k = Object.keys(PARTS).find((q) => PARTS[q].name === name && PARTS[q].ship);
+        if (!k) continue;
+        seen.push(name);
+        const want = Ship.line(PARTS[k]);
+        if (want && spec !== want) bad.push(`${name}: ${spec} ≠ ${want}`);
+        const sp = it.querySelector('.part-spec'), lh = parseFloat(getComputedStyle(sp).lineHeight) || 14;
+        if (want && sp.getBoundingClientRect().height > 1.5 * lh) bad.push(`${name}: "${spec}" wraps`);
+      }
+    }
+    return { n: seen.length, bad, prop: [...document.querySelectorAll('#palette-items .part-item')].length };
+  });
+  ok(`${tag}: the tray's line under each ship part is its own ("2,000 kW", "35° · 0.8 m²", "8 SAMs"), one line each`, r.n >= 30 && !r.bad.length, JSON.stringify(r));
+  await pg.evaluate(() => { Builder.category = 'shDrive'; Builder.buildPalette(); });
+  await frames(pg, 2);
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-tray.png` });
+  // a part's card: the turbine's and the propeller's lines
+  r = await pg.evaluate(() => {
+    const out = {};
+    for (const t of ['turbine', 'screwL', 'hbMidX', 'vls8']) { Builder.selected = Builder.parts.find((p) => p.type === t); Builder.renderInfo(); out[t] = $('#pi-specs').textContent; }
+    Builder.selected = Builder.parts.find((p) => p.type === 'screwL'); Builder.renderInfo(); Builder.layout();
+    return out;
+  });
+  ok(`${tag}: a part's card speaks ship: the turbine's power and spool, the propeller's push in knots, a hull's float and compartment, the cells' SAMs`,
+    /22 t · 20,000 kW · turbine · full power in 15 s/.test(r.turbine) && /about \d+ kN at 15 kn on \d+(\.\d)? MW/.test(r.screwL) && /Floats up to [\d,]+ t of ship · draws \d+\.\d m at her marks · one watertight compartment, 24 m/.test(r.hbMidX) && /8 SAMs · 12 km/.test(r.vls8), JSON.stringify(r));
+  await frames(pg, 3);
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-card.png` });
+  // X-ray: her compartments numbered, the bulkhead, the belt, the magazine; off again: gone
+  await pg.evaluate(() => { Builder.selected = null; Builder.renderInfo(); Builder.setXray(true); Builder.fitView(); });
+  await frames(pg, 3);
+  r = await pg.evaluate(() => ({ on: Builder.xrayShown(), labels: (Builder.xrayLabels || []).map((l) => l[2]) }));
+  ok(`${tag}: X-ray on a ship: her watertight compartments numbered from the bow (a bulkhead making five of four segments)`, r.on && r.labels.join() === '1,2,3,4,5', JSON.stringify(r));
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-xray.png` });
+  await pg.evaluate(() => Builder.setXray(false));
+  await frames(pg, 3);
+  r = await pg.evaluate(() => ({ on: Builder.xrayShown(), labels: Builder.xrayLabels }));
+  ok(`${tag}: ...X-ray off: the bands and numbers go`, !r.on && !r.labels, JSON.stringify(r));
+  // 3D
+  await pg.evaluate(() => App.setPreview3D(true));
+  await pg.waitForFunction(() => Render3D.ready && App.preview3D(), null, { timeout: 30000 }).catch(() => {});
+  await pg.evaluate(() => Render3D.orbitBy && Render3D.orbitBy(0.6, -0.2));
+  await pg.waitForTimeout(2500);
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-3d.png` });
+  await pg.evaluate(() => App.setPreview3D(false));
+  // the hangar: the Ships group first while building a ship, by class then cost
+  r = await pg.evaluate(() => {
+    Builder.openHangar();
+    const hs = [...document.querySelectorAll('.hangar h3.summary-h')].map((h) => h.textContent), i = hs.indexOf('Ships'), list = document.querySelectorAll('.hangar .template-list')[0];
+    const cards = list ? [...list.querySelectorAll('.template')].map((b) => b.querySelector('.template-blurb').textContent) : [];
+    return { hs, i, cards };
+  });
+  ok(`${tag}: the hangar while building a ship: Ships is the first stock group, each card saying her class ("Patrol boat · …")`, r.hs.filter((h) => !/Your designs/.test(h))[0] === 'Ships' && r.cards.length >= 1 && r.cards.every((c) => /^(Boat|Patrol boat|Escort|Destroyer|Flying boat) · /.test(c)), JSON.stringify(r));
+  await frames(pg, 2);
+  await pg.screenshot({ path: SHOTS + `ship-wp7-${tag}-hangar.png` });
+  await pg.evaluate(() => UI.closeModal());
+  await pg.close();
 }
 
 ok('no page errors', errs.length === 0, errs.slice(0, 5).join('\n'));

@@ -2601,7 +2601,7 @@ const Builder = {
       ctx.fillRect(c.x0, R.b - 1, c.x1 - c.x0, R.t - R.b + 2);
       ctx.restore();
       const xm = (c.x0 + c.x1) / 2, sec = shullSec(S.st, xm - c.H.x);
-      if (c.x1 - c.x0 > 1.5) labels.push([...XY(xm, c.H.y + sec[1] + 0.3 * (sec[0] - sec[1])), String(c.n)]);
+      if (c.x1 - c.x0 > 1.5) labels.push([...XY(xm, c.H.y + sec[1] + 0.62 * (sec[0] - sec[1])), String(c.n)]); // (over the hold's kit, under the deck's)
     }
     ctx.lineWidth = 2.5 * lw; ctx.strokeStyle = '#7fc8ff';
     for (const b of X.bulkheads) { const sec = shullSec(b.H.def.shull.st, b.x - b.H.x); ctx.beginPath(); ctx.moveTo(b.x, b.H.y + sec[1]); ctx.lineTo(b.x, b.H.y + sec[0]); ctx.stroke(); }

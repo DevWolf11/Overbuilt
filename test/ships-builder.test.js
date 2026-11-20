@@ -272,7 +272,7 @@ const W8 = [
     `(() => { const ps = dd(); tap(ps, 'deckhouseL', true); tap(ps, 'funnel', true); tap(ps, 'mastLattice', true); tap(ps, 'nRadarSea', true); return ps; })()`, /The radar sits below the funnel: smoke blinds it aft/],
   ['anti-ship missiles with no surface radar', `(() => { const ps = dd(); tap(ps, 'asm4', true); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'asm4', true); tap(ps, 'mastLattice', true); tap(ps, 'nRadarSea', true); return ps; })()`, /Anti-ship missiles need a target/],
   ['a magazine above the waterline', `(() => { const ps = dd(); const H = ps[0]; put(ps, 'magazine', H.x, H.y + 3.5, 0, H); return ps; })()`, `(() => { const ps = dd(); tap(ps, 'magazine', true); return ps; })()`, /A magazine above the waterline goes up more easily/],
-  ['over 500 t with no pump or damage control party', `dd().filter((p) => p.type !== 'pump')`, `(() => { const ps = dd().filter((p) => p.type !== 'pump'); tap(ps, 'dcLocker', true); return ps; })()`, /No pumps or damage control: one hole could sink her/],
+  ['over 500 t with no pump or damage control party', `dd().filter((p) => p.type !== 'pump')`, `(() => { const ps = dd().filter((p) => p.type !== 'pump'); tap(ps, 'dcLocker', true); return ps; })()`, /No pumps or damage control: one hole could be the end of her/],
 ];
 for (const [name, bad, good, re] of W8) {
   const a = R(`ww(${bad})`), b = R(`ww(${good})`);
@@ -290,7 +290,7 @@ r = R(`(() => { const o = {}; for (const k of ['hbMidM', 'hbBowX', 'ribHull', 'd
   'helipad', 'hangar', 'funnel', 'bulkhead', 'pump', 'magazine', 'dcLocker', 'ballast', 'mastLattice', 'bridgeM', 'stealthHouse', 'torpDecoy']) o[k] = [Ship.specs(PARTS[k]).join(' · '), Ship.line(PARTS[k])]; return o; })()`);
 const C = r;
 t('every ship part has card lines and a tray line', Object.entries(C).every(([, [a, b]]) => a.length > 0 && b), Object.entries(C).filter(([, [a, b]]) => !a || !b).map(([k]) => k));
-t('a hull segment: what it floats, what it draws at her marks, one watertight compartment and its length', /^Floats up to 190 t of ship · draws 1\.6 m at her marks · one watertight compartment, 8 m/.test(C.hbMidM[0]) && /^190 t · draws 1\.6 m$/.test(C.hbMidM[1]), C.hbMidM);
+t('a hull segment: what it floats, what it draws at her marks, one watertight compartment and its length', /^Floats up to 190 t of ship · draws 1\.6 m at her marks · one watertight compartment, 8 m/.test(C.hbMidM[0]) && /^draws 1\.6 m$/.test(C.hbMidM[1]), C.hbMidM);
 t('...a one-piece hull says so; a destroyer\'s plating in steel', /a one-piece hull, 9 m/.test(C.ribHull[0]) && /glass fibre/.test(C.ribHull[0]) && /12 mm steel/.test(C.hbBowX[0]), [C.ribHull, C.hbBowX]);
 t('an engine its power ("2,000 kW"); a turbine its spool; an outboard its own propeller and steering', C.dieselM[1] === '2,000 kW' && /2,000 kW/.test(C.dieselM[0]) && /full power in 15 s/.test(C.turbine[0]) && /its own propeller · steers 30°/.test(C.outboard[0]), [C.dieselM, C.turbine, C.outboard]);
 t('a propeller its push in knots ("about 150 kN at 15 kn on 2 MW"); the large one full power astern; a waterjet its push and steering', /^about 150 kN at 15 kn on 2 MW/.test(C.screwM[0]) && /full power astern/.test(C.screwL[0]) && /at 30 kn/.test(C.waterjet[0]) && /reverses/.test(C.waterjet[0]), [C.screwM, C.screwL, C.waterjet]);

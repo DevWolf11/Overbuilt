@@ -1641,7 +1641,7 @@ const Ship = (() => {
     if (funnels.length && all(isRadar).some((r) => funnels.some((f) => Math.hypot(r.x - f.x, partZ(r) - partZ(f)) <= 10 && partRect(r).t < partRect(f).t))) warn.push('The radar sits below the funnel: smoke blinds it aft. Raise it on a mast.');
     if (has((d) => d.weapon && d.weapon.asm) && !has((d) => d.searchRadar && d.searchRadar.sea)) warn.push('Anti-ship missiles need a target: a Surface Search Radar finds one past your eyes.');
     if (afloat && st.plane && all(isMag).some((p) => p.y > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
-    if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could sink her. Add a Salvage Pump or a Damage Control Party.');
+    if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could be the end of her. Add a Salvage Pump or a Damage Control Party.');
   }
 
   // ---- cards and tray lines (§11.4): a ship part's card lines (Ship.specs) and its tray line (Ship.line), speeds in knots.
@@ -1715,33 +1715,34 @@ const Ship = (() => {
     }
     return out;
   }
+  // (short: a tray item's line fits on one line, so the tray keeps its height)
   function line(def) {
     const d = def, w = (d && d.weapon) || {};
     if (!d || !d.ship) return null;
-    if (d.shull) { const H = shullOf(d); return `${tTxt((H.vol * SHIP.RHO) / 1000)} t · draws ${(H.wl - Math.min(...H.rings.map((r) => r.yk))).toFixed(1)} m`; }
+    if (d.shull) { const H = shullOf(d); return `draws ${(H.wl - Math.min(...H.rings.map((r) => r.yk))).toFixed(1)} m`; }
     if (d.engine) return `${d.engine.kw.toLocaleString('en-US')} kW`;
-    if (d.screw) return `${d.screw.D} m · ~${Math.round(pushOf(d, refKw(d) * 1000, 15 / SHIP.KN) / 10000) * 10} kN`;
-    if (d.jet) return `${d.jet.D} m jet · steers`;
+    if (d.screw) return `~${Math.round(pushOf(d, refKw(d) * 1000, 15 / SHIP.KN) / 10000) * 10} kN`;
+    if (d.jet) return `steers ${d.jet.steer || 30}°`;
     if (d.foil && d.foil.kind === 'rudder') return `${d.foil.max || 35}° · ${d.foil.area} m²`;
     if (d.foil) return `lifts ${tTxt(foilLift({ def: d, x: 0, y: 0 }, 40 / SHIP.KN) / gSea() / 1000)} t`;
-    if (d.ciws) return `${kmTxt(d.ciws.range)} · by itself`;
-    if (w.vls) return `${w.ammo} SAMs · ${kmTxt(w.range)}`;
+    if (d.ciws) return kmTxt(d.ciws.range);
+    if (w.vls) return `${w.ammo} SAMs`;
     if (w.asm) return `${w.ammo} × ${kmTxt(w.range)}`;
-    if (w.kind === 'torp') return `${w.ammo} torpedoes · ${kmTxt(w.range)}`;
+    if (w.kind === 'torp') return `${w.ammo} · ${kmTxt(w.range)}`;
     if (w.kind === 'chaff') return `${w.ammo} decoys`;
-    if (d.decoy && d.decoy.torp) return `${d.decoy.ammo} noisemakers`;
-    if (w.kind === 'tgun') return `${w.cal} mm · ${Math.round(60 / w.reload)}/min`;
+    if (d.decoy && d.decoy.torp) return `${d.decoy.ammo} decoys`;
+    if (w.kind === 'tgun') return `${Math.round(60 / w.reload)}/min`;
     if (d.searchRadar || d.trackRadar) return `${kmTxt((d.searchRadar || d.trackRadar).range)}`;
-    if (d.deck) return 'helicopters land';
-    if (d.hangar) return 'mends helicopters';
+    if (d.deck) return 'helicopters';
+    if (d.hangar) return 'repairs';
     if (d.funnel) return 'smoke';
     if (d.bulkhead) return 'watertight';
     if (isPump(d)) return `${d.pump} m³/s`;
     if (isMag(d) && d.store) return `${d.store.rounds} rounds`;
-    if (d.ballast || d.type === 'ballast') return `${d.mass} t, low`;
+    if (d.ballast || d.type === 'ballast') return `${d.mass} t`;
     if (isDC(d)) return `${d.mods.filter((m) => m.role === 'dc').length} crew`;
     if (d.place === 'mast') return `${tTxt(d.h)} m`;
-    if (d.control) { const c = (d.mods || []).filter((m) => m.k === 'crew').length; return c ? `helm · crew ${c}` : 'helm'; }
+    if (d.control) { const c = (d.mods || []).filter((m) => m.k === 'crew').length; return c ? `crew ${c}` : 'helm'; }
     return null;
   }
 
