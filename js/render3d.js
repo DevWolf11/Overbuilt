@@ -6210,11 +6210,26 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   const seaFade = () => { const F = typeof SHIP !== 'undefined' && SHIP.FADE ? SHIP.FADE : [3, 25]; return `\n#define OB_FADE vec2( ${(+F[0]).toFixed(3)}, ${(+F[1]).toFixed(3)} )`; };
   const SEAW = new Float32Array(24), SEALOC = {}, md = (x, m) => ((x % m) + m) % m;
   const set4 = (v, f) => v.set(f(0), f(1), f(2), f(3));
+  // the lakes' program (terr.lakeMat: the old water's) compiled while a flight loads, as the effect meshes' are (S.warm),
+  // not when the first loch comes into view: a speck with no area drawn with it
+  function seaWarm() {
+    if (terr.lakeMat === terr.oceanMat) return;
+    if (!S.lakeWarm) {
+      if (!(S.warm > 0)) return;
+      const g = new THREE.BufferGeometry(), A = (n, k) => new THREE.BufferAttribute(new Float32Array(n * k), k);
+      g.setAttribute('position', A(3, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+      g.setAttribute('color', A(3, 4)); g.setAttribute('uv', A(3, 2)); g.setAttribute('aWater', A(3, 3));
+      S.lakeWarm = new THREE.Mesh(g, terr.lakeMat); S.lakeWarm.frustumCulled = false; S.lakeWarm.renderOrder = 1;
+      localWorld.add(S.lakeWarm);
+    }
+    S.lakeWarm.visible = S.warm > 0;
+  }
   function seaFrame(F, b, rx, ry, rz) {
     const U = seaUniforms(), P = patch;
     const on = !!(b && b === EARTH && b.ocean && swellOK() && P.ready && P.b === b && 'OB_SEA' in terr.oceanMat.defines);
     U.uSeaS.value.w = on ? 1 : 0;
     S.seaOn = on;
+    seaWarm();
     const C0 = S.skyL && S.skyL.snap, E = S.seaEnv; // (the cube as drawn: renderFlight moves envUni's zenith on after it)
     if (C0) { E.obEnvZ.value.copy(C0.zen); E.obEnvH.value.copy(C0.hor); E.obEnvS.value.copy(C0.sun); E.obEnvK.value.set(C0.sunK, C0.fx); }
     U.uSeaZ.value.set(0, 0, 1).applyQuaternion(localWorld.quaternion).transformDirection(camera.matrixWorldInverse); // (the planet's axis in the view: the ripple map's frame)

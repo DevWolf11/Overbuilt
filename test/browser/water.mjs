@@ -200,46 +200,60 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       const s9a = await ev(async (SEA) => { await window.__start('falcon', SEA, [60, 1.2]); window.__buf(); return Render3D.seaInfo(); }, SEA);
       ok(`${T}: the sea's looks are on (OB_SEA, the waves' uniforms live: k ${s9a.k && s9a.k.map((k) => k.toFixed(3)).join(', ')}); lakes and rivers keep the old water (their own material, no OB_SEA)`,
         s9a.on && s9a.define && s9a.lakeOwn && s9a.inland && !!s9a.lake && !('OB_SEA' in s9a.lake) && 'OB_DEEP' in s9a.lake && s9a.k.every((k) => k > 0.05) && s9a.a.some((a) => a > 0.05), s9a);
-      // b. whitecaps by sea state: 150 m over the open sea looking steeply down, the Sun behind (no glint), the plane's
-      // own model hidden, the white pixels (each channel over 190, grey within 40) averaged over three moments 2.5 s apart
+      // b. whitecaps by sea state: 300 m over the open sea looking steeply down, the Sun behind (no glint), the plane's
+      // own model hidden, the white pixels (each channel over 175, grey within 45) averaged over six moments 2.5 s apart
       const s9b = await ev(async (SEA) => {
-        await window.__start('falcon', { ...SEA, yaw: Math.PI, air: { alt: 150, speed: 0 } }, [30, 1.3]);
+        await window.__start('falcon', { ...SEA, yaw: Math.PI, air: { alt: 300, speed: 0 } }, [30, 1.3]);
         Render3D.meshOf(Flight.active).group.visible = false;
         const t0 = Flight.time, out = {};
         for (const st of ['calm', 'moderate', 'rough']) {
           Ship.setSea(st);
           let w = 0, n = 0;
-          for (const dt of [0, 2.5, 5]) {
+          for (const dt of [0, 2.5, 5, 7.5, 10, 12.5]) {
             Flight.time = t0 + dt;
             const { buf } = window.__buf();
-            for (let i = 0; i < buf.length; i += 4) { const r = buf[i], g = buf[i + 1], b2 = buf[i + 2], lo = Math.min(r, g, b2); n++; if (lo > 190 && Math.max(r, g, b2) - lo < 40) w++; }
+            for (let i = 0; i < buf.length; i += 4) { const r = buf[i], g = buf[i + 1], b2 = buf[i + 2], lo = Math.min(r, g, b2); n++; if (lo > 175 && Math.max(r, g, b2) - lo < 45) w++; }
           }
           out[st] = +((100 * w) / n).toFixed(3);
         }
         Ship.setSea('moderate'); Flight.time = t0; Render3D.meshOf(Flight.active).group.visible = true;
         return out;
       }, SEA);
-      ok(`${T}: whitecaps by sea state from 150 m: Calm ${s9b.calm}%, Moderate ${s9b.moderate}% (scattered), Rough ${s9b.rough}% (many)`,
-        s9b.calm < 0.05 && s9b.moderate > s9b.calm + 0.05 && s9b.rough > 2 * s9b.moderate && s9b.moderate < 3 && s9b.rough < 20, s9b);
-      // c. the sea state from 3 km: looking down through the haze (the plane hidden, the Sun to the side), the texture of the waves (the mean
-      // difference between neighbouring pixels of the sea, not the clouds': blue over red by 40) grows Calm < Moderate <
-      // Rough, where the old sea was the same in all three
+      ok(`${T}: whitecaps by sea state from 300 m: Calm ${s9b.calm}%, Moderate ${s9b.moderate}% (scattered), Rough ${s9b.rough}% (many)`,
+        s9b.calm < 0.01 && s9b.moderate > s9b.calm + 0.02 && s9b.rough > 2 * s9b.moderate && s9b.moderate < 3 && s9b.rough < 20, s9b);
+      // c. the sea state from 3 km: looking down through the haze (the plane hidden, the Sun to the side), the waves'
+      // contrast at their own scale (the luminance 4x4-averaged, its spread within 32 px blocks wholly of sea, not cloud:
+      // blue over red by 40) and the white flecks (25 over their 9x9 neighbourhood) grow Calm < Moderate < Rough, where the
+      // old sea was the same in all three
       const s9c = await ev(async (SEA) => {
         await window.__start('falcon', { ...SEA, yaw: Math.PI / 2, air: { alt: 3000, speed: 0 } }, [30, 1.35]); // (the Sun to the side: no glitter in view)
         Render3D.meshOf(Flight.active).group.visible = false;
-        const out = {}, sea = (b, i) => b[i + 2] > b[i] + 40;
+        const out = {};
         for (const st of ['calm', 'moderate', 'rough']) {
           Ship.setSea(st);
-          const { buf, w, h } = window.__buf();
-          let s = 0, n = 0;
-          for (let y = 2; y < h - 2; y += 2) for (let x = 2; x < w - 2; x += 2) { const i = (y * w + x) * 4, j = i + 4; if (!sea(buf, i) || !sea(buf, j)) continue; s += Math.abs(buf[i] - buf[j]) + Math.abs(buf[i + 1] - buf[j + 1]) + Math.abs(buf[i + 2] - buf[j + 2]); n++; }
-          out[st] = +(s / Math.max(1, n) / 3).toFixed(3); out[st + 'N'] = n;
+          const { buf, w, h } = window.__buf(), L = new Float32Array(w * h), sea = new Uint8Array(w * h);
+          for (let k = 0; k < w * h; k++) { const i = k * 4; L[k] = 0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2]; sea[k] = buf[i + 2] > buf[i] + 40 ? 1 : 0; }
+          const bw = w >> 2, bh = h >> 2, B = new Float32Array(bw * bh), BS = new Uint8Array(bw * bh);
+          for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) { let s = 0, all = 1; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) { const k = (y * 4 + j) * w + x * 4 + i; s += L[k]; all &= sea[k]; } B[y * bw + x] = s / 16; BS[y * bw + x] = all; }
+          let sd = 0, nb = 0;
+          for (let y = 0; y + 8 <= bh; y += 8) for (let x = 0; x + 8 <= bw; x += 8) {
+            let m = 0, m2 = 0, all = 1;
+            for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) { const k = (y + j) * bw + x + i; m += B[k]; m2 += B[k] * B[k]; all &= BS[k]; }
+            if (all) { m /= 64; sd += Math.sqrt(Math.max(0, m2 / 64 - m * m)); nb++; }
+          }
+          let fl = 0, ns = 0;
+          for (let y = 4; y < h - 4; y += 2) for (let x = 4; x < w - 4; x += 2) {
+            const k = y * w + x; if (!sea[k]) continue;
+            let m = 0; for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) m += L[k + j * w + i];
+            ns++; if (L[k] > m / 81 + 25) fl++;
+          }
+          out[st] = { sd: +(sd / Math.max(1, nb)).toFixed(3), blocks: nb, flecks: +((100 * fl) / Math.max(1, ns)).toFixed(3) };
         }
         Ship.setSea('moderate'); Render3D.meshOf(Flight.active).group.visible = true;
         return out;
       }, SEA);
-      ok(`${T}: the sea state reads from 3 km up: the waves' texture ${s9c.calm} (Calm) < ${s9c.moderate} (Moderate) < ${s9c.rough} (Rough) /255 between neighbouring pixels`,
-        s9c.calm < s9c.moderate && s9c.moderate < s9c.rough && s9c.rough > 1.3 * s9c.calm && s9c.calmN > 1000, s9c);
+      ok(`${T}: the sea state reads from 3 km up: the waves' contrast ${s9c.calm.sd} (Calm) < ${s9c.moderate.sd} (Moderate) < ${s9c.rough.sd} (Rough), white flecks ${s9c.calm.flecks}% < ${s9c.rough.flecks}%`,
+        s9c.calm.sd < s9c.moderate.sd && s9c.moderate.sd < s9c.rough.sd && s9c.rough.sd > 1.4 * s9c.calm.sd && s9c.calm.flecks < s9c.rough.flecks && s9c.calm.blocks > 20, s9c);
       // d. no shimmer far off, and still while paused: 500 m up looking at the horizon, two frames 1/60 s apart (the sea's
       // clock and the ripples' drift both moving) differ little where the sea is far (the upper half of the sea: a pixel
       // there is metres across), and two frames while paused not at all
