@@ -276,7 +276,7 @@ const Ship = (() => {
       rk0: new Float64Array(n), slam: [], ride: rideOf(rings, fl, ax, ay), intake: fl.some((o) => o.f.intake) ? fl.filter((o) => o.f.intake) : null, x0: Infinity, x1: -Infinity,
     };
     holesOf(v.sh); hullVol(v.sh); // [WP8] (each compartment's holes; her intact volume and plan area)
-    if (was) { for (const k of ['fT', 'kT', 'capT', 'helmT', 'derT', 'bedT', 'sinkT', 'ctl0', 'derelict', 'scuttled', 'dfT']) if (was[k] != null) v.sh[k] = was[k]; if (was.dfT && was.dfT.length !== 2 * n) v.sh.dfT = null; }
+    if (was) { for (const k of ['fT', 'kT', 'capT', 'helmT', 'derT', 'bedT', 'sinkT', 'ctl0', 'derelict', 'scuttled', 'dfT', 'dc', 'deckMin']) if (was[k] != null) v.sh[k] = was[k]; if (was.dfT && was.dfT.length !== 2 * n) v.sh.dfT = null; }
     const bb = (v.sh.bb = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, z0: Infinity, z1: -Infinity }); // (her hull's box in part space: Ship.bump's first look)
     for (const g of rings) for (let i = 0; i < g.R.K; i++) {
       const X = g.P[3 * i], Y = g.P[3 * i + 1], Z = g.P[3 * i + 2], s = X * ax.x + Y * ax.y;

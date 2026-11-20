@@ -21,7 +21,7 @@ const SHOTS = process.env.SHOTS || path.join(ROOT, 'test', '.cache', 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const shot = async (page, name) => page.screenshot({ path: path.join(SHOTS, `ship-${name}.png`) });
 const srv = await serve(), b = await launch(), errs = [];
-const ok = checks('ship flight: launch at the bay, the helm (telegraph and rudder) by keys and touch, the helm panel, the sea spots');
+const ok = checks('ship flight: launch at the bay, the helm (telegraph and rudder) by keys and touch, the helm panel, a sinking, the sea spots');
 
 const instrument = () => {
   window.__errs = [];
@@ -249,6 +249,37 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
   // Settings → Sea
   const sea = await page.evaluate(() => { App.showSettings(); const s = document.querySelector('#set-sea'), opts = [...s.options].map((o) => o.value), was = s.value; s.value = 'rough'; s.dispatchEvent(new Event('change')); UI.closeModal(); const r = [opts, was, Ship.sea(), Settings.get('sea')]; Ship.setSea('moderate'); Settings.set('sea', 'moderate'); return r; });
   ok('Settings → Sea: Calm, Moderate (the default) or Rough, kept, and the sea follows (Ship.setSea)', sea[0].join() === 'calm,moderate,rough' && sea[1] === 'moderate' && sea[2] === 'rough' && sea[3] === 'rough', sea);
+  await pageErrors(page, tag);
+  await ctx.close();
+}
+
+// ================================================================ a sinking (WP8, spec §8.4-§8.9): a bomb's near miss
+// A 500 lb bomb dropped into the sea 27 m off the Cyclon's port side (S4: it goes on down and bursts under the water, the
+// near miss that springs her plates): holes all along her port side, the water in; she lists to port and settles by the
+// stern, founders and goes down; the strip says how she was lost; the console stays clean. Screenshots every 3 s of it
+// (ship-sink-*.png), then after she has gone (Render3D.skipDraw while waiting: headless Chromium runs the sim slowly).
+{
+  const tag = 'sink ', { ctx, page } = await open([1280, 720, false], tag);
+  await sail(page);
+  const state = () => page.evaluate(() => { const v = Flight.active, sh = v.sh, r = Math.hypot(v.x, v.y, v.z) - EARTH.radius, al = document.querySelector('#flight-alert');
+    const s = { t: +(Flight.time - window.__sink.t0).toFixed(1), W: Math.round(sh ? sh.comps.reduce((s, c) => s + c.W, 0) : 0), holes: sh ? sh.hulls.reduce((s, p) => s + (p.holes ? p.holes.length : 0), 0) : 0,
+      heel: +(v.heel * 57.3).toFixed(1), trim: +(v.trim * 57.3).toFixed(1), alt: +r.toFixed(1), fate: v.fate || '', sunk: v.sunk != null, wreck: !!v.wreck, dead: !!v.dead, strip: al.hidden ? '' : al.textContent };
+    if (s.strip && !window.__sink.strip) window.__sink.strip = s.strip; s.firstStrip = window.__sink.strip || ''; return s; });
+  await page.evaluate(() => {
+    const v = Flight.active, me = { parts: [], name: 'Bomber', kind: 'plane', body: EARTH, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+    const c = v.toWorld(v.com.x - 4, v.com.y, (v.com.z || 0) - 27), r = Math.hypot(c.x, c.y, c.z), up = { x: c.x / r, y: c.y / r, z: c.z / r };
+    Combat.S.shots.push({ k: 'bomb', b: EARTH, x: c.x + up.x * 40, y: c.y + up.y * 40, z: c.z + up.z * 40, vx: -up.x * 50, vy: -up.y * 50, vz: -up.z * 50, dx: 0, dy: 0, dz: 0, t: 1, life: 30, dmg: 1200, blast: 30, cluster: 0, torpedo: false, owner: me });
+    window.__sink = { t0: Flight.time };
+  });
+  const seen = [];
+  for (const t of [3, 6, 9, 12, 15]) { await page.waitForFunction((t) => Flight.time - window.__sink.t0 > t || !Flight.active || Flight.active.dead, t, { timeout: 600000 }); await frames(page, 2); await shot(page, `sink-${t}s-1280x720`); seen.push(await state()); }
+  await page.evaluate(() => { Render3D.skipDraw = true; });
+  await page.waitForFunction(() => { const v = Flight.active; return !v || v.dead || v.wreck || Flight.time - window.__sink.t0 > 120; }, null, { timeout: 900000 });
+  await page.evaluate(() => { Render3D.skipDraw = false; });
+  await frames(page, 3); await shot(page, 'sink-gone-1280x720');
+  const end = await state(), first = seen[0], mid = seen[1];
+  ok(`a sinking: a near miss tears ${first.holes} holes along her port side (${first.W} m³ aboard at 3 s); she lists and settles (${seen.map((s) => `${s.t} s: heel ${s.heel}°, trim ${s.trim}°, ${s.W} m³`).join('; ')}), is lost ('${end.fate}'), and goes down (${end.dead ? 'gone' : end.wreck ? 'a wreck' : 'still sinking'} at ${end.t} s); the strip: "${end.firstStrip}"`,
+    first.holes >= 2 && first.W > 0 && mid.W > first.W && seen.some((s) => Math.abs(s.heel) > 5 || Math.abs(s.trim) > 5) && end.fate && (end.sunk || end.dead || end.wreck) && /^(Sunk|Capsized|Out of action)/.test(end.firstStrip), { seen, end });
   await pageErrors(page, tag);
   await ctx.close();
 }
