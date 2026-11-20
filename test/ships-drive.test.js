@@ -76,7 +76,10 @@ var rib = build(ribRows(), 'ship', { e: -2300, z: 0, yaw: 0 }), ribF = fsim(rib)
 {
   const s0 = R(`({ ok: !!rib.launchedAt && rib.launchedAt.ok, n: rib.parts.length, scr: rib.sh.scr.map((s) => s.kind), rud: rib.sh.rudders.length, mass: rib.mass, draft: (Ship.forces(rib, 1 / 120, v3(), v3(), ribF), rib.draft) })`);
   t(`the RIB (${(s0.mass / 1000).toFixed(1)} t) floats at her marks (${s0.draft.toFixed(2)} m); her outboards are thrusters of their own and steer`, s0.ok && s0.scr.join() === 'outboard,outboard' && s0.rud === 2 && s0.draft > 0.2 && s0.draft < 0.8, s0);
-  R(`rib.sh.tel = 4; var rs = []; tick(ribF, 40, (tt, i) => { if (i % 240 === 0) rs.push(+kn(rib).toFixed(1)); }); var ribA = { kn: kn(rib), trim: -rib.trim * ${D}, fsub: rib.sh.fsub, wet: rib.sh.Vol, vol: shullOf(rib.sh.hulls[0].def).vol, B: rib.sh.B };`);
+  // (her running trim and immersion: their means over the last 10 s, as the trials' are: at 42 kn in a calm sea's chop she
+  // bounces, her bow rising and falling a few degrees a second, so one instant says little)
+  R(`rib.sh.tel = 4; var rs = [], rm = { n: 0, trim: 0, wet: 0, fsub: 0 }; tick(ribF, 40, (tt, i) => { if (i % 240 === 0) rs.push(+kn(rib).toFixed(1)); if (tt >= 30) { rm.n++; rm.trim += -rib.trim * ${D}; rm.wet += rib.sh.Vol; rm.fsub += rib.sh.fsub; } });
+  var ribA = { kn: kn(rib), trim: rm.trim / rm.n, fsub: rm.fsub / rm.n, wet: rm.wet / rm.n, vol: shullOf(rib.sh.hulls[0].def).vol, B: rib.sh.B };`);
   const a = R('ribA'), rs = R('rs');
   t(`...Flank: she planes at ${a.kn.toFixed(1)} kn (34-46) trimmed ${a.trim.toFixed(1)}° bow-up (2-6°), her immersed volume ${a.wet.toFixed(2)} m³: under half of the ${(a.vol).toFixed(1)} m³ hull and under half her weight's still-water displacement (${(s0.mass / 1025).toFixed(2)} m³)`,
     a.kn > 34 && a.kn < 46 && a.trim > 2 && a.trim < 6 && a.wet < 0.5 * (s0.mass / 1025), { a, rs });
@@ -159,10 +162,10 @@ Ship.setSea('moderate'); var pg = build(pgRows(), 'ship', { e: -2300, z: -1500, 
   var hp0 = (v) => v.parts.filter((p) => p.def.shull).reduce((s, p) => s + (p.hp == null ? p.def.hp : p.hp), 0), ha = hp0(ca), hb = hp0(cb), col = { nan: false, deep: 0, t: null, vb: 0 };
   var ins = (A, B) => { let m = 0; for (const g of B.sh.rings) for (const i of [6, 7, 8, 9]) { const W = B.toWorld(g.P[3 * i], g.P[3 * i + 1], g.P[3 * i + 2]), L = A.toLocal(W.x, W.y, W.z), h = Ship.insideHull(A, L); if (h) m = Math.max(m, h.pen); } return m; };
   tick(cF, 20, (tt, i) => { if (bad(ca) || bad(cb)) { col.nan = true; return false; } if (i % 4 === 1) { const d = Math.max(ins(ca, cb), ins(cb, ca)); col.deep = Math.max(col.deep, d); if (d > 0 && col.t == null) col.t = tt; } col.vb = Math.max(col.vb, cb.speed()); });`);
-  const c = R(`({ ...col, end: Math.max(ins(ca, cb), ins(cb, ca)), va: fwd(ca), dA: ha - hp0(ca), dB: hb - hp0(cb), parts: [ca.parts.length, cb.parts.length], HO, broken: cF.broken })`);
+  const c = R(`({ ...col, end: Math.max(ins(ca, cb), ins(cb, ca)), va: fwd(ca), dA: ha - hp0(ca), dB: hb - hp0(cb), parts: [ca.parts.length, cb.parts.length], of: [ca.of, cb.of], HO, broken: cF.broken })`);
   t(`two ships collide (6 m/s, broadside on at ${c.t && c.t.toFixed(1)} s): no NaN, they bounce apart (the rammer's way along her bow ${c.va.toFixed(2)} m/s after, the rammed one pushed to ${c.vb.toFixed(2)} m/s), at most ${c.deep.toFixed(2)} m into each other and clear at the end`,
     !c.nan && c.t != null && c.va < 3 && c.vb > 1 && c.deep < 1.5 && c.end < 0.05, c);
-  t(`...each side's touching hull part hurt (${c.dA.toFixed(0)} and ${c.dB.toFixed(0)} hp) and holed (the hook called: ${c.HO.length} times), nothing torn off`, c.dA > 100 && c.dB > 100 && c.HO.some((h) => h[0] === 'A') && c.HO.some((h) => h[0] === 'B') && c.parts.join() === '11,11', c);
+  t(`...each side's touching hull part hurt (${c.dA.toFixed(0)} and ${c.dB.toFixed(0)} hp) and holed (the hook called: ${c.HO.length} times), nothing torn off`, c.dA > 100 && c.dB > 100 && c.HO.some((h) => h[0] === 'A') && c.HO.some((h) => h[0] === 'B') && c.parts.join() === c.of.join(), c); // (every part aboard: the Cyclon's whole template)
 }
 
 // 7. Ramming a carrier: a Cyclon at 4 m/s into Carrier West's side stops against it (the carrier's hull a box from its
@@ -172,9 +175,9 @@ Ship.setSea('moderate'); var pg = build(pgRows(), 'ship', { e: -2300, z: -1500, 
   { const f = qrot(cv.q, 1, 0, 0); cv.vx = f.x * 4; cv.vy = f.y * 4; cv.vz = f.z * 4; }
   var zOf = (v) => Terrain.locate(EARTH, v.x, v.y, v.z).z, rm = { zmin: 1e9, nan: false, hit: null };
   tick(cvF, 25, (tt) => { if (bad(cv)) { rm.nan = true; return false; } const z = zOf(cv); rm.zmin = Math.min(rm.zmin, z); if (rm.hit == null && fwd(cv) < 2) rm.hit = tt; });`);
-  const r = R(`({ ...rm, v: fwd(cv), side: C0.z + C0.hw, bow: cv.sh.x1 - cv.com.x, parts: cv.parts.length })`);
+  const r = R(`({ ...rm, v: fwd(cv), side: C0.z + C0.hw, bow: cv.sh.x1 - cv.com.x, parts: cv.parts.length, of: cv.of })`);
   t(`ramming a carrier at 4 m/s: she stops against its side (her way ${r.v.toFixed(2)} m/s after), her bow never past it (her centre ${(r.zmin - r.side).toFixed(1)} m off its side, her bow ${r.bow.toFixed(1)} m ahead of it), no NaN`,
-    !r.nan && r.hit != null && r.v < 0.5 && r.zmin - r.side > r.bow - 1.2 && r.parts === 11, r);
+    !r.nan && r.hit != null && r.v < 0.5 && r.zmin - r.side > r.bow - 1.2 && r.parts === r.of, r);
 }
 
 // 8. Groundings and slams hole a hull and keep it (Ship.impactSea, Death.impact's first line for a hydro vessel): a hull
@@ -242,18 +245,22 @@ Ship.setSea('moderate'); var pg = build(pgRows(), 'ship', { e: -2300, z: -1500, 
 }
 
 // 12. The Catalyna (or a stand-in: the Seagull on two hull floats instead of its old ones): she floats on the water at
-// the bay, runs up on her floats, planes and lifts off on her old plane laws (hold; the stick eased back on the step, as a
-// pilot does, and let go once she is off)
+// the bay, runs up on her floats, planes and lifts off on her old plane laws (hold; flaps down for the take-off and the
+// stick eased back on the step, as a pilot does, and let go once she is flying, 8 m up: let go as soon as her hull first
+// skipped clear of the water, at 56 kn and far under her stall, hold kept her nose at the step's 2-3° and she skimmed the
+// sea at 180 kn in ground effect). She lifts off when her wings carry her clear of the water: her 55 m² wing on 12 t
+// stalls at 88 kn clean, 72 kn with full flaps; the hold law rotates her gently on the water, so she unsticks at 80-90 kn
 {
   R(`Ship.setSea('calm'); var cat = build(TEMPLATES.catalyna ? tpl('catalyna') : [...tpl('seagull').filter((r) => r.type !== 'floats'), { type: 'tstPontoon', x: 1.5, y: 4.3, rot: 1, flip: false, z: -1.6, att: 1 }, { type: 'tstPontoon', x: 1.5, y: 4.3, rot: 1, flip: false, z: 1.6, att: 1 }], 'plane', { e: EARTH.sites.bay.east, z: 0, yaw: Math.PI }), catF = fsim(cat);
   var c0 = { launched: cat.launchedAt, hydro: cat.hydro, kind: cat.kind, mass: cat.mass }; tick(catF, 5); c0.afloat = cat.afloat; c0.alt = alt(cat); c0.draft = cat.draft;
-  stageAll(cat); cat.throttle = 1; cat.sas = 'hold'; var ct = { plane: null, off: null, vmax: 0, nan: false };
-  tick(catF, 60, (tt) => { if (bad(cat)) { ct.nan = true; return false; } const V = cat.speed(); cat.ctl.v = cat.afloat && V > 15 ? -0.3 : 0; if (ct.plane == null && cat.sh.fsub < 0.5 && V > 5) ct.plane = V * ${KN}; if (ct.off == null && !cat.afloat) ct.off = V * ${KN}; });
+  stageAll(cat); cat.throttle = 1; cat.flaps = 1; cat.sas = 'hold'; var ct = { plane: null, off: null, vmax: 0, nan: false };
+  tick(catF, 60, (tt) => { if (bad(cat)) { ct.nan = true; return false; } const V = cat.speed(); cat.ctl.v = (cat.afloat || alt(cat) < 8) && V > 15 ? -0.3 : 0; if (ct.plane == null && cat.sh.fsub < 0.5 && V > 5) ct.plane = V * ${KN};
+    if (ct.off == null && !cat.afloat && cat.lift >= 0.95 * cat.mass * EARTH.mu / Math.hypot(cat.x, cat.y, cat.z) ** 2) ct.off = V * ${KN}; });
   ct.alt = alt(cat); ct.parts = cat.parts.length; ct.of = cat.of; ct.broken = catF.broken;`);
   const c = R('c0'), k = R('ct');
   t(`the Catalyna (${R('!!TEMPLATES.catalyna') ? 'her template' : 'a Seagull on two hull floats'}, ${(c.mass / 1000).toFixed(1)} t) floats at the bay (${c.alt.toFixed(2)} m, drawing ${c.draft.toFixed(2)} m), a plane with a hull`, c.launched && c.launched.ok && c.hydro && c.kind === 'plane' && c.afloat, c);
-  t(`...full throttle: she gets onto the step (her hull carrying under half of her at ${k.plane && k.plane.toFixed(0)} kn) and leaves the water at ${k.off && k.off.toFixed(0)} kn (her wings carrying her: 30-80), climbing (${k.alt.toFixed(0)} m at 60 s), unbroken`,
-    !k.nan && k.plane != null && k.off > 30 && k.off < 80 && k.alt > 20 && k.parts === k.of, k);
+  t(`...full throttle, flaps down: she gets onto the step (her hull carrying under half of her at ${k.plane && k.plane.toFixed(0)} kn) and lifts off at ${k.off && k.off.toFixed(0)} kn (her wings carrying her clear of the water: 70-95), climbing (${k.alt.toFixed(0)} m at 60 s), unbroken`,
+    !k.nan && k.plane != null && k.off > 70 && k.off < 95 && k.alt > 100 && k.parts === k.of, k);
 }
 
 // ================================================================ §cost (spec §15)

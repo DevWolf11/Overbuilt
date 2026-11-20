@@ -2415,7 +2415,10 @@ void main() {
   function pylonsFor(rig, parts, group) {
     dropPylons(rig);
     const p = rig.part, d = p.def;
-    if (d.float || d.shape === 'skid' || d.gv || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return; // floats and skids carry their own struts (armour sits on what it is joined to)
+    // floats and skids carry their own struts (armour sits on what it is joined to); [ships] a hull hung under a wing (a
+    // flying boat's wingtip float) is strutted to it as a pod is: it floats clear of the wing
+    const onWing = d.shull && p.att != null && parts.some((q) => q.id === p.att && q.def.wing);
+    if (d.float || d.shape === 'skid' || (d.gv && !onWing) || !(d.twinZ || d.pod || recipe(d) === 'ecm' || p.att != null)) return;
     // (an old pair moved in or out along a wing it is mounted on in the side view hangs on that wing)
     const old = d.twinZ && p.att == null, area = (q) => { const A = partRect(p), B = partRect(q); return spanOverlap(A.l, A.r, B.l, B.r) * spanOverlap(A.b, A.t, B.b, B.t); };
     const wing = old && Math.abs(partZ(p) - d.twinZ) > 5e-4 && parts.filter((q) => q.def.wing && !q.def.twinZ && partsMounted2D(p, q)).sort((a, b) => area(b) - area(a))[0];

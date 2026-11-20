@@ -148,6 +148,7 @@ await ev(() => { Builder.removeParts(Builder.parts.filter((p) => p.type === 'hbB
 await frames(2);
 const xr1 = await ev(() => (Builder.xrayLabels || []).map((l) => l[2]).join());
 ok('2D X-ray: a ship\'s compartments renumber at once when an edit from code takes a segment off', xr0 === '1,2,3,4' && xr1 === '1,2,3', JSON.stringify({ xr0, xr1 }));
+await page.waitForTimeout(500); // (the finished Cyclon carries a turret: its sweep lands 150 ms after the edit and redraws once, as a tank's)
 n = await idle('b2', 600);
 ok('...and then the X-ray blueprint is idle again', n === 0, `${n} draws`);
 await ev(() => Builder.setXray(false));
