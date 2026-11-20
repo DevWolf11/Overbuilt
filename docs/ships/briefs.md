@@ -1,0 +1,127 @@
+# Work-package briefs as sent (for re-launching)
+
+## Ships WP0: the contract commit
+
+You are implementing WP0 ("the contract") of Overbuilt's ships update. Repo: your worktree of DevWolf11/Overbuilt; it should be at branch ccr-932b9082-m4kox7's tip, 71c3af7 (if not, `git merge --ff-only ccr-932b9082-m4kox7`). CLAUDE.md's rules apply in full (old designs byte-identical, no modules, duplicate-global check, sanitising, chores).
+
+The design spec: /home/user/ships-notes/SPEC.md (also code maps map-physics.md, map-combat.md, map-builder.md beside it). Read §0, §2, §3, §6.1 and §6.3 (the slice parts' fields), §7 (cyclon), §13 (hooks), §14, §16 "Phase 0: WP0" and "The Ship API" closely; skim the rest so your stubs fit. Where the spec and the code disagree, the code wins: adapt and note it.
+
+Build exactly WP0:
+- js/ship.js: handbook-style header comment, the `// ==== core|waves|builder|damage|combat|hud|ai|mp ====` sections, `SHIP` with every tuning number the spec gives (grouped and commented), and the WHOLE `Ship` API as stubs with the signatures and default return shapes of §16 (no-ops), plus a per-vessel `v.sh` layout comment. `Ship.groups(v)` may build the real `v.sh` skeleton (rings in part space from shullOf, comps per hull part, thrust/foils/rudders lists) since later packages read it; no forces yet.
+- parts.js: SEA_KINDS/isSea, VEHICLE_KINDS.ship, the 5 tabs inserted before radar (category count 26 → 31; check every test/slice that depends on tab indices), `shullOf` + `shullPts` (pure, cached per def; the sampler as §3.2 says), def fields documented, the slice-1 parts hbBowM, hbMidM, hbSternM, bridgeM, dieselM, screwM, rudderM as data (with `gv: true, ship: true`, shull on hulls; art may be simple boxes or the shull outline for now: WP2 does real art). Region markers (`// ==== shHull ====` etc.) for later packages.
+- vessel.js: constructor defaults (hydro, sh, hF, hT, ciws), PILOT.ship, rebuildGroups (aircraft excludes ship; ciws; hydro → Ship.groups), computeHull's shullPts branch, splitComponents' hydroFrom. Nothing that changes any non-hull vessel.
+- builder.js: the `cyclon` template in its slice form (§16 WP0) inside the TEMPLATES literal, ship kind button wiring only as far as needed for the template to load/launch without errors (the full builder is WP4).
+- index.html script tag after drone.js + kind button; sw.js SHELL + 'js/ship.js', CACHE 'overbuilt-v41'; ui.js ICONS.ship; style.css 7-column kind strip.
+- tests: test/lib/game.js loads ship.js and exports Ship, SHIP, SEA_KINDS, isSea, shullOf (+ a `ship: false` option like `drone: false`); ground.test SYSTEMS += 'Ship', category counts, the new defaults in "old vessels carry the new fields' defaults"; catalogue counts; core.test template-order rule rewritten (ground block, then ships); new template keys in fingerprint/traces only (re-baseline only those suites with --update and PROVE with `node test/tools/keydiff.mjs 71c3af7 --add <suite>:<key>,...` that only the cyclon keys were added and nothing moved). Read test/README.md for how.
+- Check duplicates: grep -n "^const NAME\|^function NAME" js/*.js for every new global.
+
+Done-criteria: `node test/run.mjs` all green; keydiff shows only added cyclon keys; ground.test's zero-call contract holds with 'Ship' in SYSTEMS; the game loads in headless Chromium with no console errors (a quick Playwright check: open index.html, open the builder, pick the Ship kind, load the cyclon, launch it: it may sit on the old solid sea for now, that's expected; no exceptions in App.frame — check console and pageerror). Then run the browser suites builder-shapes.mjs and controls.mjs and fix anything you broke.
+
+Commit in your worktree branch with a subject like "Ships: the ship kind, the Ship module's contract and the first hull parts" and a prose body, ending with these two lines exactly:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019sDgipUc8ms82QNRTPgYyT
+Do not push. Do not edit CLAUDE.md or README yet (docs come at the end). Report: the commit id, your worktree path and branch, what you changed per file, every spec deviation and why, test results (suite counts), and anything the later packages must know.
+
+## Ships WP1: hydro core physics
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP1 Hydro core** of the ships update (spec §4 physics in full, §5.1 the wave function, §4.8 grounding, §4.10 sleeping/rails/warp, §16 WP1 row).
+
+You own: ship.js `core` and `waves` sections; the vessel.js hooks in physicsStep (Ship.pre, Ship.forces, the hF/hT integration and added mass), turnTarget's ship line, ground()'s hydro probe gate (the probe meets the sea bed for hydro vessels; one copy of the crash/rest rules), splitComponents; flight.js `update`'s far list, `stepsNear`, `physicsTick`, `canRails`, `railsAdvance` (NOT `start`: WP3 adds Ship.launch there; but you implement `Ship.launch(v, place)`/`seaPlace` in ship.js core so a ship is set floating at her marks); combat.js `frame`'s `S.sea` gate and the `Ship.frame` call.
+
+Implement: ring-by-ring buoyancy against the wave-sloped plane, friction + wave-making resistance, lateral hull force, strip planing lift, foils (rudders) in their own routine at water density (never the wing code), screws from shaft power of any def.engine, the helm in Ship.pre (telegraph Stop/Slow/Half/Full/Flank and astern, rudder with return/hold heading; inputs as the spec's §4.6 / §12.3 describe — expose a clean input interface WP3's keys will drive, e.g. v.sh.tel/rud/hold set by Ship.keys or flight controls; until WP3 lands, test through the interface), added mass by acceleration scaling, clamped damping, grounding on the bed, `afloat` state (separate from `splashed`), sleeping/moored ships, warp, far ships, pieces of a hydro vessel sinking, and Ship.wave (4 directional sines, sea states Calm/Moderate/Rough, shallow fade, lakes zero) + waveUniforms agreeing with it within 1 mm.
+
+The slice ship is the `cyclon` template (WP0 placed it; it's light at 57 t vs a 110 t design: you may add ballast/weight via existing parts to its template only if needed for the slice to sit at sensible marks, and you may adjust slice part numbers in parts.js data for the 7 slice parts if physics demands — report each change; WP5 owns the final catalogue). Its fingerprint/traces/mp-measure keys will move with real physics: that's expected (only cyclon's).
+
+Tests: create test/ships.test.js (add it to test/run.mjs's suite list) with §17.1 *hydro* and *waves* sections and the WP1 row: analytic box hull draft ±1 %, GM ±3 %, roll period ±15 %, settles, waves deterministic and Hs per state ±10 %, no NaN/runaway in 600 s of Rough sea stopped and at full speed, grounding at 10 kn stops her without blowing up, moored/warp, far AI not railed, pieces sink; the cyclon reaches about 30 kn, turns, holds heading. ground.test zero calls must still hold; driving.json's `buggy sea` and `buggy headland`, death.test A7/B3 identical (the solid sea for every non-hydro craft). Measure Ship.forces cost (spec §15 budget).
+
+Done when: the slice ship floats at her marks, steams at ~30 kn, turns and heels, holds heading, rides the swell, runs aground without exploding, and every old baseline is identical.
+
+## Ships WP2: the drawn sea and hulls
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP2 Sea rendering** of the ships update (spec §5.2 rendering agreement, §5.3 wake/spray/smoke, §3.2 the 2D/3D hull, §12.6 models, §15 budgets, §16 WP2 row). Read CLAUDE.md's renderer gotchas carefully (log depth buffer chunks, depthBias, floating origin F.camAbs, patchFog/obFog for custom shaders, the sky light, background jobs and jobLate, S.engine flashes, battery).
+
+You own: render3d.js (the swell patch round the camera, shown only while a hydro vessel is within 2 km; the ocean cut under it by a UV-hole uniform; wake ribbons; bow spray via FX; funnel smoke; the aim camera's reach for ships), parts3d.js `BUILD.shipHull` (loft the shullOf rings; vertex colours, no texture: grey above a black boot-top, antifouling red below; + screw spin and rudder deflection animation for the slice parts), parts.js's shullPath/shullDraw region (proper 2D art: plating, boot-top band, antifouling, deck edge, weld seams, hawse pipe) and the clashShape loft line + PART_RECIPE.shull = 'shipHull', and ship.js `fx`. Models for the other slice parts (bridgeM, dieselM, screwM, rudderM) look right in 2D and 3D.
+
+The wave function: `Ship.wave(e, n, t, out)` and `Ship.waveUniforms(...)` are WP1's (being written in parallel). Code against the API in the spec (§5.1-5.2: 4 directional sines, sea states, shallow fade, the same constants on the GPU). Until WP1 lands, implement your shader from the spec's formula and a local test copy of the constants; write a check (browser or node) that the GPU displacement equals Ship.wave's within 1 mm for given uniforms so the lead can run it after merging. Read v.sh fields (tel, rud) and p.rpm/p.rud defensively (may be undefined).
+
+Critical: with no hydro vessel near, every old scene must render byte-identically and cost the same (test/browser/graphics.mjs old scenes identical; water.mjs; render-bench old scenes within ±2 %). Phone Low budget: swell GPU ≤ +5 % over the flat sea (sea300). Add bench scenes `seaRough` (no ship near: proves the swell is off) and `shipnear` (chase on a small hull at speed) to test/bench/render-bench.mjs. builder-shapes.mjs must pass for the slice parts (model within tolerance of its clash shape).
+
+Done when: the swell near a ship looks right and agrees with the wave function, wakes and spray look right, the slice hull looks right in 2D and 3D (screenshots at 1280×720 and 390×844, looked at), and old scenes are unchanged.
+
+## Ships WP3: helm, HUD, launch
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP3 Helm, HUD and launch** of the ships update (spec §4.6 the helm's inputs, §4.11 launch, §12.1-12.4 HUD/camera/keys/touch, the knots rule, §16 WP3 row). Read CLAUDE.md's Controls chore rule carefully (KEY_ACTIONS is the source of truth; Keys.is/Keys.held; words from Keys.k; README table, App.showHelp and Flight.controlsHelp kept in sync — but README is end-of-update docs, so keep App.showHelp and Flight's help in sync now and list the README rows you'd add in your report) and the zoomed-HUD gotcha (Controls.z).
+
+You own: flight.js `start` (ship name, yaw (bow out to sea), sas, calling `Ship.launch(v, place)`), `groundTick` (aim-mode gate widened to sea kinds so turrets aim on ships as on tanks), `readControls` ship keys, the `updateHUD` call to `Ship.hud(F)`, controlsHelp/shipHelp, death words, knots on ship displays; controls.js: a `Ships` group in KEY_ACTIONS (telegraph up/down, rudder port/starboard, hold heading, etc. with sensible defaults W/S/A/D like a car; check clashes), `clash`, `LATE`, `CTL`, keyHints, and the touch controls for a ship on a phone in portrait (telegraph lever + rudder; reuse existing patterns); main.js help, tip, and a Settings "Sea" (sea state: Calm / Moderate / Rough → Ship.setSea); ship.js `hud` section (the helm panel: telegraph order, rudder angle, speed in knots, heading); style.css for the ship HUD; space.js `EARTH.spawns` sea entries (the bay, the headland slipway, Shetland harbour, off the carriers; check depth along a ship's length); mpui.js `Spawns.place` sea branch.
+
+The physics is WP1's (in parallel). Drive it through `v.sh.tel`, `v.sh.rud`, `v.sh.hold` (and `Ship.keys(F, e, down)` if you route keys through ship.js) as the spec says; agree the interface from the spec's §4.6 and implement your side; if WP1 hasn't landed, Ship.pre is a no-op stub and the ship won't move yet: test your inputs by reading v.sh values. `Ship.launch` is WP1's: call it; it's a stub now.
+
+Tests: controls.mjs (the ship HUD at all its sizes 360×640 to 1920×1080, desktop key hints and phone touch), spawns.test (sea spots: depth > draft + 2 m along each ship), a new test/browser/ship-flight.mjs (launch the cyclon at the bay; telegraph and rudder set v.sh; HUD shows; help lists the keys; console clean). Screenshots of the phone portrait and desktop HUD, looked at.
+
+Done when: you can launch at the bay (and the other sea spots) and give helm orders with keys and with a phone's touch controls; the help lists the keys; nothing overlaps on a phone.
+
+## Ships WP4: builder basics
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP4 Builder basics** of the ships update (spec §11.1 kind wiring, §11.2 placement for keel/deck/inside/stern, §11.3 numbers and warnings, §1 "Building", §16 WP4 row). Read CLAUDE.md's "Drawing is on demand" gotcha (Builder.redraw / changed / renderInfo) and the phone-layout notes.
+
+You own: builder.js kind wiring (pickKind, mirrorOf, symKey, turnGroups, zText, defaultRot, the zoom floor so a 152 m hull fits a 360×640 phone (fitView/zoomAt), stats rows and statsData.ship, the blue waterline overlay at the draft and trim she'll float at, warnings dispatch, quickAdd for kind ship calling Ship.spotOf); ship.js `builder` section (`Ship.stats(parts)` pure: displacement, draft, GM, trim, ~top speed from power and hull, compartments; `Ship.hydrostatics`; `Ship.spotOf(type, parts, at)` for keel/deck/inside/stern placement: tapping hull segments adds them end to end, bow forward, stern aft; `Ship.warnings`: top-heavy GM < 0 will capsize, open stern/bow will flood, no screw or waterjet, no bridge, overloaded/sinks, etc.); index.html stat rows. Suppress the generic rocket staging warning ("No engine fires in stage 1") for ships.
+
+Use shullOf (parts.js, WP0) for hydrostatics; the physics' numbers are WP1's (in parallel) — your static numbers must agree with the flight's draft ±10 %, GM ±0.15 m, top speed ±12 % once WP1 lands: write that check in test/ships.test.js §builder guarded so it runs once WP1's physics exists (or put it in a separate test file the lead can enable), and keep your formulas consistent with spec §4.2-4.5 (same water density, same resistance model).
+
+Tests: a new test/browser/builder-ship.mjs (the kind strip with Ship, the Ship tabs, a quickAdd chain building a hull by taps, fit a 152 m hull at 360×640 and at 1280×720, stats and waterline shown, each warning fires), ships.test §builder (pure: stats, spotOf on an empty, a hulled and a full design). redraw.mjs: the waterline redraws on change. Screenshots looked at (phone portrait and desktop, 2D and 3D).
+
+Done when: you can build the slice ship by tapping, see her waterline, displacement, draft, GM and speed, get sensible warnings, and launch.
+
+## Find the background-job slice overrun
+
+Regression hunt in Overbuilt (repo DevWolf11/Overbuilt). In your worktree first `git merge --ff-only ccr-932b9082-m4kox7` (tip fbeeb00). Read CLAUDE.md (especially "Background jobs keep to their slice (render3d runJobs)": a generator must check jobLate() inside its loops; lazy jobs; battery). Never push.
+
+Symptom: test/browser/graphics.mjs's check "...and a 4 ms slice of the queue keeps to its time" (graphics.mjs ~line 142-156: a TK-34 at Highland Ridge's village, paused, then six `Render3D._t.runJobs(4)` slices; must stay under 10 ms) fails on the branch on a quiet machine in 2 of 2 runs (worst 10.0 ms on phone in one run, 10.5 ms on desktop in another; slices like [5.3, 4.2, 5.6, 10.5, 4.6, 4.1]). On main (71c3af7, a checkout is at /tmp/claude-0/-home-user-Overbuilt/0587f056-6c41-58cd-9f76-3deee688a95a/scratchpad/base-71c) it passes with worst 4.2-4.6 ms. So something added on the ships branch (js/ship.js, the swell/wakes/builderWater in render3d.js, parts3d.js shipHull, the sea-crash sinking code in render3d.js/death.js, career removal, WP3/WP4 changes) makes a background job overrun its slice, even in a flight with no ship.
+
+Find it: instrument runJobs (which job, which step, how long) on both commits under the test's exact scenario (run graphics.mjs's section or a small Playwright script reproducing it), identify the job/step that now takes ~6 ms more in one unit, and fix it so it keeps to its slice (jobLate() inside its loop, split the work, or don't queue it at all when no ship is in play: old flights must not pay for ship work). Keep pictures identical (graphics.mjs's other checks, water.mjs). Then run graphics.mjs at least 3 times on your fix (all must pass, report the worst-slice numbers each time) and water.mjs once, plus `node test/run.mjs` (all green; quiet-ish machine). Commit ("Ships: <what>, so background work keeps to its slice again" or similar; prose body; ending with exactly:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019sDgipUc8ms82QNRTPgYyT
+) and report: the cause (file:function), the fix, the before/after slice numbers, test results.
+
+## Ships WP5: catalogue and ships
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP5 Catalogue and non-combat ships** of the ships update (spec /home/user/ships-notes/SPEC.md: §6.1 hulls, §6.2 superstructure, §6.3 propulsion, §6.5 ship kit (non-weapon parts), §7 stock ships, §12.6 models, §16 WP5 row, §20 the every-kind-can-fight rule as a design constraint).
+
+Phase 1 is merged on the branch: the hydro core (Ship.forces/pre/launch, waves), the drawn swell, wakes and the `shipHull` loft (parts3d BUILD.shipHull, parts.js shullPath/shullDraw), the helm/HUD/launch, the builder basics (Ship.stats/hydrostatics/spotOf/warnings). Read js/ship.js's header and sections, and the slice parts in parts.js's `// ==== shHull ====` region to follow their pattern.
+
+You own: parts.js data regions shHull, shSuper, shDrive, shKit (non-weapon parts only; shArms is WP9's), their 2D art and 3D models (parts3d.js recipes for the new parts; hull segments use BUILD.shipHull), ship paints (SKINS entries: haze grey, navy blue-grey, a camouflage or two, a white patrol scheme); templates zodiak, cyclon (from the slice to its full unarmed-then-lightly-armed-with-EXISTING-guns form per §7, re-baselining only its own keys), higgens (troops only), pegazus (foils: the foil parts' data and art are yours; their physics is WP6's), catalyna (the flying boat, kind plane, old plane parts + hull parts + pontoons: it must float, plane and lift off once WP6 lands; at least float now). Every part's numbers (mass, cost, size, hp) as §6 gives, tuned so the stock ships meet §7's balance targets (speed ±12 %, displacement, draught at her marks — fix the slice issue that the Cyclon floats ~0.35 m high: move `wl`/stations or set masses so she sits at her design marks).
+
+Ship roll: a 32 m patrol boat beam-on to the default Moderate swell rolls 12-13° (Phase 1). Give hulls bilge keels / roll damping as part data (or a `bilgeKeel` kit part) so a stock ship rolls realistically (a patrol boat beam-on in 1 m seas ~5-8°), coordinating any physics change with WP6 (WP6 owns ship.js core; if you need a coefficient read in forces, add it as a def field and mark the one-line ship.js change `// [WP5]`).
+
+Owner rules: names are generic or altered (never real designations/nicknames in player text; comments may name the real ship). No career content. Every part usable on any kind (no kind gates).
+
+Tests: catalogue.test (counts, sections convex, joints match, every ship part's fields), builder-shapes.mjs (models vs clash shapes; the tray), core.test (every ship template joined, editable, priced, floats, no open ends), ships.test trials for these five (speed, turning, planing for the RIB, hullborne Pegazus), ships-builder.test (stats vs flight agree for every stock ship), fingerprint/traces/mp-measure: the new templates as ADDED keys only (keydiff 71c3af7 --add ...). Screenshots of every new part in the tray and every ship in 2D and 3D (phone and desktop), looked at; fix what looks wrong.
+
+Done when: every non-weapon part exists, looks right in 2D and 3D, floats or does its job; the five ships meet their targets; old baselines identical.
+
+## Ships WP6: propulsion, foils, decks
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP6 Propulsion, foils, decks, collisions** of the ships update (spec /home/user/ships-notes/SPEC.md: §4.4 foils and ride control, §4.5 outboards/waterjets/turbines, §4.8 grounding/bed/carriers/other ships, §6.2's helipad and decks (moving-deck contact and lashing), §16 WP6 row, §20 S10: ship ghosts collide).
+
+Phase 1 is merged: js/ship.js core (Ship.groups/pre/forces with screws, rudders as foils, planing, added mass, grounding, mooring), its stubs `impactSea` and `bump`. Read ship.js's core section first.
+
+You own: ship.js `core` additions (outboard motors that steer, waterjets with steering/reversing buckets, gas-turbine spool, hydrofoils with ride control so a hydrofoil flies level on its foils at speed, `Ship.bump` (ship–ship and ship–carrier-hull collisions, ship ghosts in rooms included, with dents/holes hooks left for WP8), the carriers' hull boxes so ships can't pass through the static carriers, `impactSea`, decks and lashing (a helicopter lands on a ship's helipad while she's under way and stays on it, moving with her; it can take off again), tiny floating pieces); vessel.js deck contact and the solver line for it; flight.js physicsTick lash line; gear.js's hydro gate (an Armour vehicle with a hull part floats: its tracks don't drive it in the water, its screws/waterjets do; on land Gear drives it as before; an amphibious tank with a hull floats and climbs out up the slipway). WP5 is building the parts' data in parallel (outboards, waterjets, turbines, foils, helipad, pontoons) in parts.js: agree field names from the spec (§6.3, §6.5) and test with test-only defs until WP5 lands.
+
+Also the Catalyna flying boat (WP5's template: a plane with hull parts and pontoons): it must float, run up on the water, plane and lift off at ~70 kn with its old plane laws (a hydro vessel of kind plane keeps planeTarget/laws: only kind ship gets the helm). And the owner's rule: a ship with stubby wings gets their real lift (< 30 % of her weight at full speed) and stays down; jet engines on a hull push it (an airboat).
+
+Tests (ships.test, add sections): a hydrofoil foilborne above 30 kn and stable for 120 s in Moderate seas; a RIB with outboards planes (trim 2-6°, half its hull out); a waterjet boat turns and reverses; a helicopter lands on a deck at 15 kn underway and stays 60 s, then lifts off; two ships colliding bounce without NaN (and dents hook called); ramming a carrier stops her; an amphibious tank with a hull floats and drives up the slipway; the Catalyna floats, planes and lifts off; jet boat; winged ship stays down. Old craft unchanged (zero calls, keydiff). Measure costs (§15).
+
+Done when those all pass and play right in the browser (a quick Playwright run with screenshots of the hydrofoil foilborne and a helicopter on a deck, looked at).
+
+## Ships WP7: builder complete
+
+Read /home/user/ships-notes/BRIEF-common.md first and follow it. Your package: **WP7 Builder complete** of the ships update (spec /home/user/ships-notes/SPEC.md: §11 the builder in full, §16 WP7 row).
+
+Phase 1 is merged: builder basics (kind wiring, zoom floor, waterline overlay, stats rows, Ship.stats/hydrostatics, Ship.spotOf for hull/deck/inside/stern, Ship.warnings). Read js/ship.js's builder section and the [WP4] parts of builder.js.
+
+You own: builder.js specs and tray lines for ship parts (what each part card says: displacement/power/thrust/foil lift/etc.), X-ray for ships (compartments, bulkheads, the belt band, magazines), the hangar's Ships group (WP0 added a 'Ships' group: complete it, ships sorted by class), `shipClass` (boat / patrol / escort / destroyer by length/displacement), `pickKind` for ship, and in ship.js's builder section `Ship.spotOf` for EVERY `place` the spec defines (super, mast, edge, bow, deck turret rings, helipad aft, funnels, radar masts, VLS cells, torpedo tubes at the deck edge, etc.) and `Ship.warnings` complete (§11.3: e.g. no bridge, guns that can't traverse past the superstructure, a radar mast below the funnel, torpedo tubes facing inboard, a helipad with something on it, foils with no ride control, too few crew for the weapons, overloaded, etc.). WP5 is creating the non-weapon parts' data and WP9 (later) the weapons: write spotOf/warnings against the spec's `place` values and test with test-only defs where a part doesn't exist yet, so they work as parts land.
+
+Tests: builder-ship.mjs full (tap-to-place every place type on a hull, X-ray, hangar group, tray cards on phone and desktop), ships-builder.test (spotOf for every place on an empty, a hulled and a full design; each warning fires and clears). Screenshots (phone portrait and desktop, 2D/3D/X-ray) looked at. redraw.mjs: anything you draw redraws on change.
+
+Done when every ship part type has a sensible tap placement and its warnings, the X-ray shows a ship's insides, and the hangar lists ships by class.
+
