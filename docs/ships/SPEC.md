@@ -658,7 +658,13 @@ them into their vertex colours (built `SKIN_GEO`).
 | arley | Arley Berk Destroyer (*Arleigh Burke*) | destroyer | 156 | 8,000 t | 30 kn | 4-6 | 4° | $120k | 120k |
 | catalyna | Catalyna Flying Boat (*PBY Catalina*) | plane (hull) | 18 | 12 t | lifts off ~85 kn (flaps), 185 kn top (§4.12) | — | — | $25k | 45k |
 
-**What each carries** (parts by key; positions are WP5's, by taps where the builder can place them):
+**What each carries** (parts by key; positions are WP5's, by taps where the builder can place them). Phase 2 finish: each
+ship carries a gunner for every weapon station (§11.3): a `seatGunner` inside the hull where a tap puts it, one on the
+Cyclon (her after MGs), one on the Zodiak, two on the Higgens (a console's crew are the coxswain and the captain). The
+Higgens' troop bays stand forward in the well (trim 0.8° by the stern). Measured afloat: the Zodiak runs at 2.9° bow-up
+in a calm sea (2/3 Savitsky's planing centre of pressure, §4.3), the Higgens 12.4 kn, the Pegazus 48.6 kn foilborne;
+the hull-only drafts (builder ≈ flight): Osca 37 kn, Vizby 27 kn (spec 35: under), Olivar 25 kn (spec 29: under), Arley
+30 kn.
 
 - **zodiak** — `ribHull`; `consoleS` amidships; `outboard` ×2 on the transom (330 kW: she planes in 6 s, trims 3-6°);
   `mgHeavy` on the console's top (a gunner standing); paint `navyDark`. The fast, fragile scout: any gun shreds her, and
@@ -1151,7 +1157,8 @@ rudder. Added (red: she won't work; amber: a hint):
 - amber: a radar lower than a funnel's top within 10 m: "The radar sits below the funnel: smoke blinds it aft".
 - amber: an ASM launcher with no `nRadarSea`: "Anti-ship missiles need a target: a Surface Search Radar finds one past your
   eyes".
-- amber: a magazine above the waterline: "A magazine above the waterline goes up more easily".
+- amber: a magazine above the waterline: "A magazine above the waterline goes up more easily" (Phase 2: wholly above it,
+  its bottom over the water: a 2.5 m magazine can't sit lower than half under in a patrol boat drawing 1.3 m).
 - amber: over 500 t with no pump and no damage control party: "No pumps or damage control: one hole could sink her".
 
 ### 11.4 Cards, tray lines, X-ray, hangar (WP7)
