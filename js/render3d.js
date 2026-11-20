@@ -6889,10 +6889,10 @@ void main() {
       N[i * 3] = wx / wr; N[i * 3 + 1] = wy / wr; N[i * 3 + 2] = wz / wr;
       if (patch.b === b) { const L = Terrain.locate(b, wx, wy, wz, LOCW); U[i * 2] = (wrapAngle(L.a - patch.a0) * b.radius * patch.kl + patch.uo) / TILE; U[i * 2 + 1] = (L.z - patch.z0 + patch.vo) / TILE; }
     }
-    const dep = V.lvl - V.bed, col = b.ocean && V.lvl === 0 ? seaBody(dep, 0, T1) : mixC(LAKE_D, LAKE_B, smoothstep(4, 30, dep) * 0.5, T1);
-    for (let i = 0; i < 4; i++) { Cl[i * 4] = lin(col[0]); Cl[i * 4 + 1] = lin(col[1]); Cl[i * 4 + 2] = lin(col[2]); Cl[i * 4 + 3] = 1; }
-    for (const a of ['position', 'normal', 'uv', 'color']) g.attributes[a].needsUpdate = true;
-    q.material.userData.veil.value.set(V.dep, V.min, 0, 0);
+    const dep = V.lvl - V.bed, sea = !!b.ocean && V.lvl === 0, col = sea ? seaBody(dep, 0, T1) : mixC(LAKE_D, LAKE_B, smoothstep(4, 30, dep) * 0.5, T1), Aw = g.attributes.aWater.array;
+    for (let i = 0; i < 4; i++) { Cl[i * 4] = lin(col[0]); Cl[i * 4 + 1] = lin(col[1]); Cl[i * 4 + 2] = lin(col[2]); Cl[i * 4 + 3] = 1; Aw[i * 3] = dep; } // ([WP15] the water's depth there: the waves' share, SEA_VS)
+    for (const a of ['position', 'normal', 'uv', 'color', 'aWater']) g.attributes[a].needsUpdate = true;
+    q.material.userData.veil.value.set(V.dep, V.min, sea ? 1 : 0, 0); // ([WP15] z: the sea's water, so the veil carries its waves as the sea round it does)
     q.userData.mul.material.uniforms.uD.value = V.dep;
     q.visible = true;
   }
