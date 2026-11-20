@@ -290,7 +290,10 @@ r = R(`(() => { const o = {}; for (const k of ['hbMidM', 'hbBowX', 'ribHull', 'd
   'helipad', 'hangar', 'funnel', 'bulkhead', 'pump', 'magazine', 'dcLocker', 'ballast', 'mastLattice', 'bridgeM', 'stealthHouse', 'torpDecoy']) o[k] = [Ship.specs(PARTS[k]).join(' · '), Ship.line(PARTS[k])]; return o; })()`);
 const C = r;
 t('every ship part has card lines and a tray line', Object.entries(C).every(([, [a, b]]) => a.length > 0 && b), Object.entries(C).filter(([, [a, b]]) => !a || !b).map(([k]) => k));
-t('a hull segment: what it floats, what it draws at her marks, one watertight compartment and its length', /^Floats up to 190 t of ship · draws 1\.6 m at her marks · one watertight compartment, 8 m/.test(C.hbMidM[0]) && /^draws 1\.6 m$/.test(C.hbMidM[1]), C.hbMidM);
+// (the patrol midsection's own numbers: its hull's volume to the deck × the sea's density, its waterline over its keel:
+// WP5's −0.7 over −2.0, 1.3 m)
+const HM = R(`(() => { const d = PARTS.hbMidM, S = d.shull; return { t: Math.round((shullOf(d).vol * 1025) / 1000), d: (S.wl - Math.min(...S.st.map((s) => s[2]))).toFixed(1), len: d.w }; })()`);
+t(`a hull segment: what it floats (${HM.t} t), what it draws at her marks (${HM.d} m), one watertight compartment and its length`, C.hbMidM[0].startsWith(`Floats up to ${HM.t} t of ship · draws ${HM.d} m at her marks · one watertight compartment, ${HM.len} m`) && C.hbMidM[1] === `draws ${HM.d} m`, { C: C.hbMidM, HM });
 t('...a one-piece hull says so; a destroyer\'s plating in steel', /a one-piece hull, 9 m/.test(C.ribHull[0]) && /glass fibre/.test(C.ribHull[0]) && /12 mm steel/.test(C.hbBowX[0]), [C.ribHull, C.hbBowX]);
 t('an engine its power ("2,000 kW"); a turbine its spool; an outboard its own propeller and steering', C.dieselM[1] === '2,000 kW' && /2,000 kW/.test(C.dieselM[0]) && /full power in 15 s/.test(C.turbine[0]) && /its own propeller · steers 30°/.test(C.outboard[0]), [C.dieselM, C.turbine, C.outboard]);
 t('a propeller its push in knots ("about 150 kN at 15 kn on 2 MW"); the large one full power astern; a waterjet its push and steering', /^about 150 kN at 15 kn on 2 MW/.test(C.screwM[0]) && /full power astern/.test(C.screwL[0]) && /at 30 kn/.test(C.waterjet[0]) && /reverses/.test(C.waterjet[0]), [C.screwM, C.screwL, C.waterjet]);

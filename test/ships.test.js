@@ -106,7 +106,10 @@ R(`var cy = cyclon(), cyF = fsim(cy);`);
     r > 0 && Dt / Lwl > 3 && Dt / Lwl < 6 && tr.heel * D < 15, { r: r * D, V, Dt, Lwl, heel: tr.heel * D });
   R(`var outw = []; cy.ctl.h = 1; tick(cyF, 2, (tt, i) => { if (i % 30 === 0) outw.push(cy.heel); });`);
   t('...her heel in the turn is outward (to port, turning to starboard)', R('outw.reduce((a, b) => a + b, 0) / outw.length') < 0, R('outw'));
-  R(`cy.ctl.h = 0; var hd = []; tick(cyF, 30, (tt, i) => { if (i % 120 === 0) hd.push(Ship.heading(cy, cy.sh) * ${D}); });`);
+  // (still hard over until she heads out to sea, west, within 20°: let go heading east, at 32 kn she ran onto the shore
+  // east of the bay before the 30 s were out)
+  R(`tick(cyF, 60, () => Math.abs(wrapAngle(Ship.heading(cy, cy.sh) - 1.5 * Math.PI)) > 0.35 ? undefined : false);
+  cy.ctl.h = 0; var hd = []; tick(cyF, 30, (tt, i) => { if (i % 120 === 0) hd.push(Ship.heading(cy, cy.sh) * ${D}); });`);
   const hd = R('hd'), held = hd.slice(10), sw = Math.max(...held.map((h) => Math.abs(((h - held[0] + 540) % 360) - 180)));
   t(`let go, the heading hold catches her within 10 s and holds it (${held[0].toFixed(1)}°, swinging ${sw.toFixed(2)}° over 20 s)`, sw < 1.5, hd.map((h) => +h.toFixed(1)));
 }
@@ -223,8 +226,9 @@ R(`Ship.setSea('moderate');`);
 // marks (her longest hull's waterline over its keel, ±0.3 m), Flank for 100 s (her speed over the last 20 s, ±12 %), hard
 // over for 40 s (the turning circle in her band of lengths, from her yaw rate and speed past 25 s). Moderate sea, beam-on
 // both ways (launched heading 340° and 160°, across the swell running to 250°), stopped, 90 s after 30 s to settle: her roll's
-// significant amplitude (2 × its rms) under her limit. The Zodiak's turning waits for outboards that steer (WP6), the
-// Pegazus' hullborne run for waterjets that push (WP6): each says so and is skipped until then.
+// significant amplitude (2 × its rms) under her limit. The Zodiak's turning circle is left out (it says so): her outboards
+// steer her (ships-drive.test), but hard over at 34 kn she turns about 30 lengths across, at a quarter of a g: in this hull
+// model a planing hull skids rather than banking into its turn, and the spec's 2-4 lengths at 40 kn would take 3-6 g.
 R(`var stock = (key, yaw, sea) => { Ship.setSea(sea || 'calm'); const T = TEMPLATES[key], rows = templateRows(T).map((r) => ({ ...r })), parts = partsFromDesign(rows), adjAll = buildAdjacency(parts), ctrl = findControlPart(parts), keep = componentOf(ctrl.id, adjAll);
   const ps = parts.filter((p) => keep.has(p.id)), adj = new Map(); for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
   const v = new Vessel(ps, adj, EARTH); v.kind = T.kind; v.name = T.name; v.stages = computeStages(ps, adj, ctrl.id); v.rebuildGroups(); v.of = parts.length;
@@ -250,7 +254,7 @@ for (const [key, W] of Object.entries(TRIALS)) {
   t(`${key}: ${f(o.mass, 2)} t (spec ${W.t} t ±10 %), afloat drawing ${f(o.draft, 2)} m at her ${f(o.marks, 2)} m marks (±0.3), Flank ${f(o.kn)} kn (spec ${W.kn} ±12 %), all ${o.of} parts aboard, no NaN`,
     o.n === o.of && Math.abs(o.mass / W.t - 1) <= 0.1 && o.afloat && Math.abs(o.draft - o.marks) <= 0.3 && Math.abs(o.kn / W.kn - 1) <= 0.12 && !o.nan, o);
   if (W.turn) t(`...hard over at full speed: a circle ${f(o.turnL)} lengths across at ${f(o.turnKn)} kn (${W.turn.join('-')}), heeling ${f(o.turnHeel)}° (under 20°)`, o.turnL >= W.turn[0] && o.turnL <= W.turn[1] && o.turnHeel < 20, o);
-  else console.log(`     (skip) ${key}: turning waits for outboards that steer with the helm (WP6)`);
+  else console.log(`     (skip) ${key}: her turning circle (a planing hull skids through its turns in this model: about 30 lengths at full speed; an open item)`);
   t(`...launched beam-on in a Moderate sea and left stopped (no way on: the swell turns a small boat where it likes): her roll ${o.roll.map((q) => `${f(q.sig)}° (max ${f(q.max)}°), heading ${q.hdg}° at the end`).join('; ')}: under ${W.roll}° significant`, sig <= W.roll, o.roll);
   if (key === 'zodiak') t(`...she planes: at Flank the water carries ${f((1 - o.fsub) * 100, 0)} % of her weight on her bottom's lift (over half), trimmed ${f(-o.runTrim)}° bow up (0-6°)`, o.fsub < 0.5 && -o.runTrim > -0.5 && -o.runTrim < 6, o);
 }
