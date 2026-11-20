@@ -349,8 +349,56 @@
  },
  "cyclon": {
   "span": 7,
-  "length": 9,
+  "length": 15,
   "height": 32.25,
-  "mass": 110000
+  "mass": 124460
+ },
+ "zodiak": {
+  "span": 3.2,
+  "length": 3.553,
+  "height": 9.8,
+  "mass": 3620
+ },
+ "higgens": {
+  "span": 3.4,
+  "length": 6.382,
+  "height": 13.04,
+  "mass": 13040
+ },
+ "pegazus": {
+  "span": 12,
+  "length": 16.6,
+  "height": 40.66,
+  "mass": 178200
+ },
+ "osca": {
+  "span": 7,
+  "length": 15.125,
+  "height": 40.21,
+  "mass": 165600
+ },
+ "vizby": {
+  "span": 14,
+  "length": 12.057,
+  "height": 72.34,
+  "mass": 627500
+ },
+ "olivar": {
+  "span": 16,
+  "length": 35.229,
+  "height": 109.5,
+  "mass": 5206000
+ },
+ "arley": {
+  "span": 16,
+  "length": 35.038,
+  "height": 157.5,
+  "mass": 8038500
+ },
+ "catalyna": {
+  "span": 30,
+  "length": 18,
+  "height": 5.605,
+  "mass": 12040
  }
 }

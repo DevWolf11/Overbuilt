@@ -113,8 +113,9 @@ const Flight = {
     if (v.aimed.length) Aim.limits(v); // (how far its turrets turn and its guns dip: worked out now, not on the first frame it aims)
     // each kind starts at its own site: the pad, the runway or the helipad
     const K = VEHICLE_KINDS[v.kind];
-    // a plane on floats and no wheels starts on the water, nose out to sea (and a ship, the ships update: her site is the bay)
-    const sea = v.kind === 'plane' && v.parts.some((p) => p.def.float) && !v.wheels.length, bay = sea || K.site === 'bay';
+    // a plane on floats and no wheels starts on the water, nose out to sea (and a ship, the ships update: her site is the bay;
+    // [WP5] a plane with a hull part too, a flying boat: def.hull is only ever a ship part's)
+    const sea = v.kind === 'plane' && v.parts.some((p) => p.def.float || p.def.hull) && !v.wheels.length, bay = sea || K.site === 'bay';
     const P = opts && opts.place && !(sea && opts.place.soft) ? opts.place : null; // a spawn point: an airfield or a carrier's deck
     if (P) v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), K.launchRot, P.z, P.yaw || 0);
     else v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites[sea ? 'bay' : K.site].east), K.launchRot, 0, bay ? Math.PI : 0);

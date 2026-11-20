@@ -219,7 +219,7 @@ const Ship = (() => {
     // screws and foils copy by copy (a twin pair's two), each with its own axes in part space
     const axes = (p) => { const o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1); return { o, ex: { x: a.x - o.x, y: a.y - o.y, z: 0 }, ey: { x: u.x - o.x, y: u.y - o.y, z: 0 } }; };
     const scr = [], fl = [];
-    for (const p of thrust) if (p.def.screw) { const U = axes(p); for (const z of partZs(p)) scr.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, D: p.def.screw.D, eta: p.def.screw.eta || 0.6, T: 0 }); }
+    for (const p of thrust) if (p.def.screw) { const U = axes(p), yh = p.def.screw.y ? partPt(p, 0, p.def.screw.y) : U.o; for (const z of partZs(p)) scr.push({ p, x: yh.x, y: yh.y, z, ex: U.ex, D: p.def.screw.D, eta: p.def.screw.eta || 0.6, T: 0 }); } // [WP5] (screw.y: the propeller's height in its part, an outboard's at the foot of its leg)
     for (const p of foils) { const U = axes(p); for (const z of partZs(p)) fl.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, ey: U.ey, f: p.def.foil, F: 0 }); }
     const n = rings.length;
     v.sh = {
@@ -371,6 +371,8 @@ const Ship = (() => {
     if (S.fade > 0) eta = wave(S.e0 + ox * S.Eb.x + oy * S.Eb.y + oz * S.Eb.z, S.n0 + ox * S.Nb.x + oy * S.Nb.y + oz * S.Nb.z, t, WV)[0] * S.fade;
     return -(h0 + Ub.x * ox + Ub.y * oy + Ub.z * oz - eta);
   }
+  // [WP5] a hull's wave-making factor (§4.12: shull.cw, a blunt bow's; the biggest aboard, 1 for every other hull)
+  function cwOf(hulls) { let k = 1; for (const p of hulls) if (p.def.shull.cw > k) k = p.def.shull.cw; return k; }
   // the wave-making and residual resistance's coefficient at the Froude number Fn (SHIP.CWR, flat past its last)
   function cwr(Fn) {
     const X = SHIP.CWR_FN, Y = SHIP.CWR;
@@ -427,7 +429,7 @@ const Ship = (() => {
       const k = -dmin, Fb = rho * gl * a * g.dx;
       S.ra[i] = a; S.rly[i] = ly; S.rlz[i] = lz; S.rb[i] = chord; S.rg[i] = girth; S.rk[i] = k;
       _c.x = g.bx + g.ey.x * ly; _c.y = g.by + g.ey.y * ly; _c.z = g.bz + lz;
-      _f.x = Ub.x * Fb; _f.y = Ub.y * Fb; _f.z = Ub.z * Fb;
+      { const wn = Math.hypot(Wx, Wy, Wz) || 1; _f.x = (Wx / wn) * Fb; _f.y = (Wy / wn) * Fb; _f.z = (Wz / wn) * Fb; } // [WP5] along the wave surface's normal (the pressure gradient: Froude-Krylov), not the plain vertical: a small boat then lies with the wave slope instead of rolling past it (beam-on in Moderate: 13.6° → 8° significant)
       push(v, _c, _f);
       B += Fb; Mx += Fb * _c.x; My += Fb * _c.y; Mz += Fb * _c.z;
       Awp += chord * g.dx; Vol += a * g.dx; Swet += girth * g.dx;
@@ -481,7 +483,7 @@ const Ship = (() => {
     const rings = S.rings, n = rings.length, rho = SHIP.RHO, q = 0.5 * rho, ax = S.ax, Vol = Math.max(S.Vol, 1e-6), Ub = S.Ub;
     const Vx = vb.x * ax.x + vb.y * ax.y + vb.z * ax.z, Lwl = Math.max(S.Lwl, 0.5), V = Math.abs(Vx);
     const Re = (V * Lwl) / SHIP.NU, Cf = Re < SHIP.CF_RE ? SHIP.CF_LOW : 0.075 / Math.pow(Math.log10(Re) - 2, 2);
-    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)), Tb = Math.max(S.Tbar || 0.1, 0.1);
+    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)) * (S.cw || (S.cw = cwOf(S.hulls))), Tb = Math.max(S.Tbar || 0.1, 0.1); // [WP5] (× a blunt hull's shull.cw, §4.12: the landing craft's ramp bow)
     const Clin = (SHIP.latLin * Math.PI * Tb) / Lwl, heaveL = SHIP.heaveLin * rho * Math.sqrt(gl * Tb), cap = dt / lod;
     for (let i = 0; i < n; i++) {
       const a = S.ra[i];
@@ -1063,6 +1065,8 @@ const Ship = (() => {
   // The water's resistance at V m/s (§4.3: ITTC-57 friction on the wetted hull with its form factors, and wave-making on
   // the weight the water still carries once the strip planing lift has taken its share), at the still-water float; fA: the
   // foils' area in the water (rudders, hydrofoils: their profile drag, §4.4's cd0, straight ahead). (cwr: the core's own)
+  // [WP5] a planing hull's wetted area shrinks as the water lifts her: friction × (1 − lift/W)^⅓ (her running trim isn't
+  // worked out here, so a planing boat's top speed came out 20 % under the flight's: the RIB's 37 kn against 45)
   function resistance(M, H, V, fA = 0) {
     if (!(V > 0) || !(H.Lwl > 0)) return 0;
     const rho = SHIP.RHO, g = gSea(), L = H.Lwl, Re = (V * L) / SHIP.NU;
@@ -1073,7 +1077,7 @@ const Ship = (() => {
       if (o.b > 0 && tau > 0) lift += 0.5 * rho * (r.plane ? SHIP.planeK : SHIP.dispK) * V * Math.sin(tau) * V * o.b * r.dx * Math.cos(r.beta) ** 2 * Math.min(1, o.k / SHIP.planeFade);
     });
     const W = H.mass * g;
-    return Rf + Math.max(0, W - lift) * cwr(V / Math.sqrt(g * L)) + 0.5 * rho * V * V * fA * SHIP.FOIL.cd0;
+    return Rf * Math.pow(clamp(1 - lift / W, 0.3, 1), 1 / 3) + Math.max(0, W - lift) * cwr(V / Math.sqrt(g * L)) * cwOf(M.hulls) + 0.5 * rho * V * V * fA * SHIP.FOIL.cd0; // [WP5] (cwOf: as the flight's)
   }
   // what pushes her (§4.5): the engines' shaft power shared by the screws and waterjets (an outboard turns its own), each
   // as deep in the still water as it sits, along its own +x; air engines as ever. thrustAt: the push at V m/s, full ahead
@@ -1085,7 +1089,7 @@ const Ship = (() => {
       const d = p.def;
       if (d.thrust && !(d.air && d.air.kind === 'rotor')) out.air += d.thrust * 1000 * partAxis(p).x;
       if (!d.screw && !d.jet) continue;
-      const D = (d.screw || d.jet).D, o = partPt(p, 0, 0), e = partPt(p, 1, 0), copies = partZs(p);
+      const D = (d.screw || d.jet).D, o = partPt(p, 0, (d.screw && d.screw.y) || 0), e = partPt(p, 1, (d.screw && d.screw.y) || 0), copies = partZs(p); // [WP5] (screw.y: as the flight's)
       let sub = 0;
       for (const z of copies) sub += smoothstep(0, SHIP.SCREW.sub * D, -(n.x * o.x + n.y * o.y + n.z * z - c));
       const P = (d.engine ? d.engine.kw * 1000 : shared.length ? (out.kw * 1000) / shared.length : 0) * copies.length;
@@ -1412,6 +1416,7 @@ const Ship = (() => {
     if (!f || f.body !== v.body || Math.hypot(v.x - f.x, v.y - f.y, v.z - f.z) > SHIP.SPRAY.near) return;
     const X = fxShape(v), b = v.body, R = b.radius, r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0, q = FX.q();
     const V = v.speed(), wet = sh.fsub > 0.02 || v.splashed, k = clamp(X.beam / 7, 0.3, 3); // (k: spray to her size)
+    for (const p of sh.hulls) if (p.def.shull.ends && p.def.shull.ends.fore === 'ramp') p.ramp = !!v.landed && V < 1.5; // [WP5] (a landing craft's ramp drops in the art when she is beached and stopped)
     // the screws' wash when the telegraph is rung
     if (X.tel !== sh.tel) {
       X.tel = sh.tel;

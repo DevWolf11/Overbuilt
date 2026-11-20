@@ -1392,26 +1392,128 @@ const PARTS = {
   // (the M class: a 32 m patrol boat's segments, after the Cyclone class; the joint section deck +2.0, keel -2.0, beam
   // 7.0 m, waterline -0.4 in a midsection's frame. The bow's centre sits 0.3 m higher than a midsection's: bottoms level.
   // [WP1] Their masses take in the fuel, stores and fitting-out (24, 22, 15 t, were 9, 8, 5.5): the Cyclon's slice is 110 t,
-  // as the spec's Cyclon, and makes 33 knots on her two diesels; at 57 t she planed at 49)
+  // as the spec's Cyclon, and makes 33 knots on her two diesels; at 57 t she planed at 49. [WP5] The waterline 15 cm lower
+  // (−0.55, was −0.4; the bow's −0.85): the finished Cyclon, 124 t, floats at it (she rode 0.3 m over the old marks, her
+  // boot-top clear of the water); bilge keels, bk 0.1, so she rolls 8° beam-on in a Moderate sea, not 13°)
   hbBowM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Bow', w: 10, h: 4.6, depth: 7.0, mass: 24, shape: 'shull', hull: true,
-    shull: { cls: 'M', wl: -0.7, st: [[-5, 1.7, -2.3, 3.5, 3.45, 1.2], [-2, 1.85, -2.3, 3.3, 3.15, 1.1], [1, 2.0, -2.05, 2.6, 2.2, 1.0], [3.5, 2.15, -1.2, 1.4, 0.8, 1.0], [5, 2.3, 0.2, 0.15, 0.05, 1]],
-      ends: { aft: 'joint', fore: 'closed' }, plane: true, k: 0.15, pump: 0.01 },
+    shull: { cls: 'M', wl: -1.0, st: [[-5, 1.7, -2.3, 3.5, 3.45, 1.2], [-2, 1.85, -2.3, 3.3, 3.15, 1.1], [1, 2.0, -2.05, 2.6, 2.2, 1.0], [3.5, 2.15, -1.2, 1.4, 0.8, 1.0], [5, 2.3, 0.2, 0.15, 0.05, 1]],
+      ends: { aft: 'joint', fore: 'closed' }, plane: true, k: 0.15, pump: 0.01, bk: 0.1 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2200, breakSpeed: 6,
     tier: 1, cost: 2000, desc: 'The front of a patrol boat: a hard chine and a flared bow that throws the spray aside. Put it on the front of a Patrol Midsection.' },
   hbMidM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Midsection', w: 8, h: 4.0, depth: 7.0, mass: 22, shape: 'shull', hull: true,
-    shull: { cls: 'M', wl: -0.4, st: [[-4, 2.0, -2.0, 3.5, 3.45, 1.2], [4, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'joint', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
+    shull: { cls: 'M', wl: -0.7, st: [[-4, 2.0, -2.0, 3.5, 3.45, 1.2], [4, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'joint', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01, bk: 0.1 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 2000, breakSpeed: 6,
     tier: 1, cost: 1600, desc: 'An 8 m length of aluminium patrol-boat hull, a watertight compartment of its own. Fast enough to start lifting onto the plane. Add as many as you like between a bow and a stern.' },
   hbSternM: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Patrol Stern', w: 6, h: 4.0, depth: 7.0, mass: 15, shape: 'shull', hull: true,
-    shull: { cls: 'M', wl: -0.4, st: [[-3, 2.0, -1.7, 3.3, 3.2, 1.6], [3, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'closed', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01 },
+    shull: { cls: 'M', wl: -0.7, st: [[-3, 2.0, -1.7, 3.3, 3.2, 1.6], [3, 2.0, -2.0, 3.5, 3.45, 1.2]], ends: { aft: 'closed', fore: 'joint' }, plane: true, k: 0.15, pump: 0.01, bk: 0.1 },
     armour: { mm: 6, plate: 6, mat: 'alu' }, hp: 1500, breakSpeed: 6,
     tier: 1, cost: 1200, desc: 'The back of a patrol boat, closed by a flat transom: propellers, waterjets and rudders hang under it.' },
+  // [WP5] (the S class: a boat's segments, 8-20 m; joint section deck +0.9, keel -0.9, beam 3.0 m, waterline -0.3 in a
+  // midsection's frame; the bow's centre 0.15 m higher. Aluminium, a planing bottom, no bilge keels)
+  hbBowS: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Small Bow', w: 5, h: 2.1, depth: 3.0, mass: 2.0, shape: 'shull', hull: true,
+    shull: { cls: 'S', wl: -0.45, st: [[-2.5, 0.75, -1.05, 1.5, 1.45, 1.1], [-1, 0.82, -1.05, 1.4, 1.3, 1.0], [0.5, 0.9, -0.9, 1.1, 0.9, 1.0], [1.75, 0.97, -0.5, 0.6, 0.35, 1.0], [2.5, 1.05, 0.1, 0.07, 0.02, 1]],
+      ends: { aft: 'joint', fore: 'closed' }, plane: true, k: 0.12, pump: 0.005 },
+    armour: { mm: 4, plate: 4, mat: 'alu' }, hp: 600, breakSpeed: 5,
+    tier: 1, cost: 600, desc: 'The front of a small boat (3 m across): a sharp V that cuts through a chop. Put it on the front of a Small Midsection.' },
+  hbMidS: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Small Midsection', w: 4, h: 1.8, depth: 3.0, mass: 1.8, shape: 'shull', hull: true,
+    shull: { cls: 'S', wl: -0.3, st: [[-2, 0.9, -0.9, 1.5, 1.45, 1.1], [2, 0.9, -0.9, 1.5, 1.45, 1.1]], ends: { aft: 'joint', fore: 'joint' }, plane: true, k: 0.12, pump: 0.005 },
+    armour: { mm: 4, plate: 4, mat: 'alu' }, hp: 550, breakSpeed: 5,
+    tier: 1, cost: 500, desc: 'A 4 m length of small aluminium hull with a planing bottom: launches, workboats and gunboats. A watertight compartment of its own.' },
+  hbSternS: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Small Stern', w: 3, h: 1.8, depth: 3.0, mass: 1.4, shape: 'shull', hull: true,
+    shull: { cls: 'S', wl: -0.3, st: [[-1.5, 0.9, -0.75, 1.4, 1.35, 1.5], [1.5, 0.9, -0.9, 1.5, 1.45, 1.1]], ends: { aft: 'closed', fore: 'joint' }, plane: true, k: 0.12, pump: 0.005 },
+    armour: { mm: 4, plate: 4, mat: 'alu' }, hp: 450, breakSpeed: 5,
+    tier: 1, cost: 400, desc: 'The back of a small boat, a flat transom for an outboard, a small propeller or a waterjet.' },
+  // [WP5] (the L class: corvettes, 60-110 m, after a Visby or a big offshore patrol ship; joint section deck +3.0, keel
+  // -3.0, beam 11 m, waterline -1.2; steel, bilge keels. The stern's flat run aft carries waterjets)
+  hbBowL: { gv: true, ship: true, family: 'Escorts', place: 'keel', cat: 'shHull', name: 'Corvette Bow', w: 22, h: 7.2, depth: 11, mass: 130, shape: 'shull', hull: true,
+    shull: { cls: 'L', wl: -1.8, st: [[-11, 2.4, -3.6, 5.5, 5.35, 1.6], [-4, 2.6, -3.6, 5.3, 5.0, 1.5], [3, 2.85, -3.4, 4.3, 3.6, 1.3], [8, 3.2, -2.4, 2.4, 1.4, 1.1], [11, 3.6, -0.6, 0.2, 0.05, 1]],
+      ends: { aft: 'joint', fore: 'closed' }, k: 0.18, pump: 0.03, bk: true },
+    armour: { mm: 8, plate: 8, mat: 'steel' }, hp: 7000, breakSpeed: 7,
+    tier: 2, cost: 4000, desc: 'The front of a corvette (11 m across, 22 m long): a fine entry and a high flared stem for the open sea. Put it on the front of a Corvette Midsection.' },
+  hbMidL: { gv: true, ship: true, family: 'Escorts', place: 'keel', cat: 'shHull', name: 'Corvette Midsection', w: 16, h: 6, depth: 11, mass: 115, shape: 'shull', hull: true,
+    shull: { cls: 'L', wl: -1.2, st: [[-8, 3, -3, 5.5, 5.35, 1.6], [8, 3, -3, 5.5, 5.35, 1.6]], ends: { aft: 'joint', fore: 'joint' }, k: 0.18, pump: 0.03, bk: true },
+    armour: { mm: 8, plate: 8, mat: 'steel' }, hp: 6000, breakSpeed: 7,
+    tier: 2, cost: 3000, desc: 'A 16 m length of steel corvette hull with bilge keels to damp her roll: engine rooms, mess decks, magazines. A watertight compartment of its own.' },
+  hbSternL: { gv: true, ship: true, family: 'Escorts', place: 'keel', cat: 'shHull', name: 'Corvette Stern', w: 18, h: 6, depth: 11, mass: 115, shape: 'shull', hull: true,
+    shull: { cls: 'L', wl: -1.2, st: [[-9, 3, -2.2, 5.2, 5.0, 3.0], [-3, 3, -2.8, 5.45, 5.3, 1.8], [9, 3, -3, 5.5, 5.35, 1.6]], ends: { aft: 'closed', fore: 'joint' }, k: 0.18, pump: 0.03, bk: true },
+    armour: { mm: 8, plate: 8, mat: 'steel' }, hp: 5500, breakSpeed: 7,
+    tier: 2, cost: 3500, desc: 'The back of a corvette, its bottom running flat to a wide transom: room for big propellers, or waterjets right at the keel.' },
+  // [WP5] (the X class: frigates and destroyers, 100-200 m, after an Arleigh Burke's lines; joint section deck +5.5, keel
+  // -5.5, beam 16 m, waterline -0.5 (a 5 m draught); steel 12 mm, the deck 10; bilge keels; a midsection may take a belt.
+  // The bow's flare is the spec's less 0.3-1.1 m at the waterline: a flare over a round bilge is a hollow section)
+  hbBowX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Bow', w: 34, h: 13, depth: 16, mass: 1050, shape: 'shull', hull: true,
+    shull: { cls: 'X', wl: -1.0, st: [[-17, 5.0, -6.0, 8.0, 7.8, 2.4], [-6, 5.3, -6.0, 7.7, 7.4, 2.1], [5, 5.8, -5.6, 6.0, 5.4, 1.7], [12, 6.2, -4.0, 3.6, 2.9, 1.4], [17, 6.5, -0.5, 0.3, 0.05, 1]],
+      ends: { aft: 'joint', fore: 'closed' }, k: 0.2, pump: 0.08, bk: 0.05 },
+    armour: { mm: 12, plate: 12, deck: 10, mat: 'steel' }, hp: 22000, breakSpeed: 8,
+    tier: 3, cost: 6000, desc: 'The front of a destroyer (16 m across, 34 m long), its flared bow throwing green seas aside: room for a gun and missile cells on its deck. Put it on the front of a Destroyer Midsection.' },
+  hbMidX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Midsection', w: 24, h: 11, depth: 16, mass: 1400, shape: 'shull', hull: true,
+    shull: { cls: 'X', wl: -0.5, st: [[-12, 5.5, -5.5, 8.0, 7.8, 2.4], [12, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'joint', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
+    armour: { mm: 12, plate: 12, deck: 10, mat: 'steel', belt: { y: [-2.0, 2.0] } }, hp: 20000, breakSpeed: 8,
+    tier: 3, cost: 3000, desc: 'A 24 m length of steel destroyer hull: her machinery, magazines and a watertight compartment of its own. Its side can carry an armour belt along the waterline.' },
+  hbSternX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Stern', w: 26, h: 11, depth: 16, mass: 850, shape: 'shull', hull: true,
+    shull: { cls: 'X', wl: -0.5, st: [[-13, 5.5, -3.0, 7.0, 6.6, 3.2], [-4, 5.5, -4.9, 7.9, 7.6, 2.6], [13, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'closed', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
+    armour: { mm: 12, plate: 12, deck: 10, mat: 'steel' }, hp: 17000, breakSpeed: 8,
+    tier: 3, cost: 4000, desc: 'The back of a destroyer: a broad transom stern over two big propellers and their rudders, and a long flat quarterdeck for a helicopter.' },
+  // [WP5] one-piece hulls (they join nothing): a RIB, a landing craft, a float for seaplanes and a flying boat's hull
+  ribHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'RIB Hull', w: 9, h: 1.6, depth: 3.2, mass: 2.5, shape: 'shull', hull: true,
+    shull: { cls: 'one', wl: -0.3, st: [[-4.5, 0.6, -0.55, 1.6, 1.45, 1.0], [-1, 0.65, -0.62, 1.6, 1.5, 1.0], [2, 0.7, -0.45, 1.35, 1.1, 1.0], [3.8, 0.75, -0.05, 0.75, 0.45, 1.0], [4.5, 0.8, 0.35, 0.15, 0.05, 1]],
+      ends: { aft: 'closed', fore: 'closed' }, plane: true, tubes: true, k: 0.35, pump: 0.005 }, // (k: the tubes' drag on top of the hull's: 0.12 made her 46 knots)
+    armour: { mm: 4, plate: 4, mat: 'grp' }, hp: 500, breakSpeed: 5,
+    tier: 1, cost: 1200, desc: 'A 9 m rigid-hulled inflatable: a deep-V glass-fibre hull ringed by buoyancy tubes. Hang outboards on its transom and it planes at 40 knots. Bullets go straight through it.' },
+  lcHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Landing Craft Hull', w: 12, h: 2.8, depth: 3.4, mass: 8.5, shape: 'shull', hull: true,
+    shull: { cls: 'one', wl: -0.7, st: [[-6, 1.4, -1.2, 1.7, 1.7, 6], [-5, 1.4, -1.4, 1.7, 1.7, 6], [4.5, 1.4, -1.4, 1.7, 1.7, 6], [6, 1.4, -0.6, 1.7, 1.7, 6]],
+      ends: { aft: 'closed', fore: 'ramp' }, k: 0.3, cw: 2.5, pump: 0.01 },
+    armour: { mm: 6, plate: 6, mat: 'steel' }, hp: 2500, breakSpeed: 6,
+    tier: 1, cost: 2500, desc: 'A 12 m steel box with a ramp for a bow: slow (its blunt front pushes a wall of water), but it runs up a beach and its troops wade ashore. The ramp drops when she grounds.' },
+  pontoon: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Float', w: 6, h: 0.9, depth: 0.9, mass: 0.25, shape: 'shull', hull: true,
+    // (the step: the keel jumps 10 cm up just aft of the middle, so the float lifts onto its forebody and the water breaks clean)
+    shull: { cls: 'one', wl: -0.1, st: [[-3, 0.45, 0.15, 0.15, 0.12, 1], [-0.6, 0.45, -0.3, 0.42, 0.4, 1.4], [0, 0.45, -0.32, 0.45, 0.44, 1.4], [0.05, 0.45, -0.42, 0.45, 0.44, 1.4], [2.3, 0.45, -0.3, 0.43, 0.42, 1.4], [3, 0.45, 0.25, 0.1, 0.05, 1]],
+      ends: { aft: 'closed', fore: 'closed' }, plane: true, step: 0.03, k: 0.1 },
+    armour: { mm: 2, plate: 2, mat: 'alu' }, hp: 300, breakSpeed: 4,
+    tier: 1, cost: 400, desc: 'A 6 m aluminium float with a planing step: it holds up 2 tonnes. Put a pair under a plane (symmetry on) and it floats and takes off from the water; one under each wingtip keeps a flying boat level.' },
+  stepHull: { gv: true, ship: true, family: 'Boats', place: 'keel', cat: 'shHull', name: 'Flying-boat Hull', w: 18, h: 3.2, depth: 3.0, mass: 4.5, shape: 'shull', hull: true,
+    // (on a plane it goes on turned along the nose, rot 1: its bow is the plane's nose)
+    shull: { cls: 'one', wl: -0.8, st: [[-9, 1.0, 0.6, 0.3, 0.2, 1], [-5, 1.3, -0.5, 1.1, 0.9, 1.2], [-1.1, 1.5, -1.05, 1.5, 1.45, 1.3], [-0.95, 1.5025, -1.3, 1.5, 1.45, 1.3], [5, 1.6, -1.1, 1.5, 1.45, 1.3], [8, 1.6, -0.4, 0.9, 0.6, 1.2], [9, 1.6, 0.4, 0.2, 0.05, 1]],
+      ends: { aft: 'closed', fore: 'closed' }, plane: true, step: -1.02, k: 0.12, pump: 0.01 },
+    armour: { mm: 3, plate: 3, mat: 'alu' }, hp: 1500, breakSpeed: 5,
+    tier: 1, cost: 3000, desc: 'An 18 m boat hull for a flying boat, stepped under its middle so it skims up onto the plane and breaks free of the water. Turn it along a plane\'s nose and build the plane on top.' },
   // ==== shSuper ====
   bridgeM: { gv: true, ship: true, family: 'Naval', place: 'deck', cat: 'shSuper', name: 'Wheelhouse', w: 5, h: 3, depth: 5, mass: 6, control: 1, shape: 'tkit', style: 'bridge', hp: 1200,
     armour: { mm: 6, mat: 'steel' },
     mods: [{ k: 'crew', role: 'driver', at: [0.25, 0, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'commander', at: [0.25, 0.1, 0.2], r: 0.45, hp: 100 },
       { k: 'crew', role: 'gunner', at: [-0.15, 0, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'radio', at: [-0.15, 0, 0.2], r: 0.45, hp: 100 }],
     tier: 1, cost: 2500, desc: 'A small ship\'s bridge: the helmsman, the captain, a gunner and the radio operator stand behind its windows. Every ship needs one (or a bigger bridge) to be steered.' },
+  // [WP5] the rest of the superstructure (tkit styles drawn by shKit: parts.js's hull art; 3D by parts3d shipKit)
+  consoleS: { gv: true, ship: true, family: 'Boats', place: 'deck', cat: 'shSuper', name: 'Helm Console', w: 1.2, h: 1.4, depth: 1.0, mass: 0.3, control: 1, shape: 'tkit', style: 'console', hp: 200,
+    mods: [{ k: 'crew', role: 'driver', at: [-0.15, 0.25, -0.15], r: 0.3, hp: 100 }, { k: 'crew', role: 'commander', at: [-0.15, 0.25, 0.25], r: 0.3, hp: 100 }],
+    tier: 1, cost: 600, desc: 'A boat\'s helm under a little windscreen: the coxswain and the boat\'s captain stand at it in the open, so any hit nearby reaches them.' },
+  bridgeL: { gv: true, ship: true, family: 'Naval', place: 'super', cat: 'shSuper', name: 'Bridge', w: 10, h: 7, depth: 12, mass: 120, control: 1, shape: 'tkit', style: 'bridgeL', hp: 6000,
+    armour: { mm: 10, mat: 'steel' },
+    mods: [{ k: 'crew', role: 'driver', at: [0.3, 0.25, -0.1], r: 0.45, hp: 100 }, { k: 'crew', role: 'commander', at: [0.3, 0.25, 0.1], r: 0.45, hp: 100 },
+      { k: 'crew', role: 'gunner', at: [0, -0.2, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'radio', at: [0, -0.2, 0.2], r: 0.45, hp: 100 },
+      { k: 'crew', role: 'gunner', at: [-0.2, -0.2, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'gunner', at: [-0.2, -0.2, 0.2], r: 0.45, hp: 100 }],
+    tier: 2, cost: 4000, desc: 'A warship\'s bridge on two decks: the pilot house with its raked windows over the operations room. Six aboard: the helmsman, the captain, the radio and three gunners for her weapons.' },
+  deckhouseL: { gv: true, ship: true, family: 'Naval', place: 'super', cat: 'shSuper', name: 'Deckhouse', w: 14, h: 5, depth: 12, mass: 90, shape: 'tkit', style: 'house', hp: 5000,
+    armour: { mm: 8, mat: 'steel' },
+    tier: 2, cost: 2000, desc: 'A block of superstructure (quarters, stores, workshops): a base for masts, guns and funnels, and steel that keeps hits off the hull.' },
+  stealthHouse: { gv: true, ship: true, family: 'Naval', place: 'super', cat: 'shSuper', name: 'Stealth Superstructure', w: 30, h: 6, depth: 10, mass: 70, control: 1, shape: 'tkit', style: 'shStealth', hp: 6000,
+    armour: { mm: 10, mat: 'composite' }, stealth: 0.4,
+    mods: [{ k: 'crew', role: 'driver', at: [0.38, 0.1, -0.1], r: 0.45, hp: 100 }, { k: 'crew', role: 'commander', at: [0.38, 0.1, 0.1], r: 0.45, hp: 100 },
+      { k: 'crew', role: 'gunner', at: [0.3, -0.2, -0.2], r: 0.45, hp: 100 }, { k: 'crew', role: 'radio', at: [0.3, -0.2, 0.2], r: 0.45, hp: 100 }],
+    tier: 3, cost: 6000, desc: 'A faceted composite superstructure, the bridge in its front: flat slanted walls and nothing sticking out, so radars see her about 40 % nearer than a plain ship. Hide missiles and radars in it.' },
+  mastLattice: { gv: true, ship: true, family: 'Naval', place: 'mast', cat: 'shSuper', name: 'Lattice Mast', w: 3, h: 14, depth: 3, mass: 8, shape: 'tkit', style: 'lattice', hp: 900,
+    tier: 2, cost: 800, desc: 'A 14 m steel lattice mast: radars on top of it see from its height, further over the horizon.' },
+  mastPole: { gv: true, ship: true, family: 'Boats', place: 'mast', cat: 'shSuper', name: 'Pole Mast', w: 0.6, h: 6, depth: 0.6, mass: 0.6, shape: 'tkit', style: 'pole', hp: 200,
+    tier: 1, cost: 200, desc: 'A 6 m pole mast for a boat or a small ship: navigation lights, aerials and a small radar on top.' },
+  funnel: { gv: true, ship: true, family: 'Naval', place: 'super', cat: 'shSuper', name: 'Funnel', w: 5, h: 6, depth: 4, mass: 12, shape: 'tkit', style: 'funnel', funnel: true, hp: 1500,
+    armour: { mm: 6, mat: 'steel' },
+    tier: 2, cost: 600, desc: 'A raked funnel for the engines\' exhausts: smoke when she makes way. Shot through, it smokes black and the engines lose 15 % of their power.' },
+  helipad: { gv: true, ship: true, family: 'Naval', place: 'deck', cat: 'shSuper', name: 'Helicopter Deck', w: 16, h: 0.4, depth: 14, mass: 25, shape: 'tkit', style: 'helipad', hp: 2500,
+    deck: { hl: 7.5, hw: 6.5 },
+    tier: 2, cost: 1500, desc: 'A 16 by 14 m landing deck with its circle and lights: a helicopter can land on it while she is under way and stays put. Keep it clear above.' },
+  hangar: { gv: true, ship: true, family: 'Naval', place: 'super', cat: 'shSuper', name: 'Helicopter Hangar', w: 12, h: 6, depth: 10, mass: 60, shape: 'tkit', style: 'hangar', hangar: true, hp: 3500,
+    armour: { mm: 8, mat: 'steel' },
+    tier: 2, cost: 1500, desc: 'A hangar for one helicopter, its door aft: a helicopter on a deck of hers within 20 m of the door is repaired and rearmed in a minute.' },
   // ==== shDrive ====
   dieselM: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shDrive', name: 'Large Marine Diesel', w: 3.5, h: 2.2, depth: 1.8, mass: 7, shape: 'tkit', style: 'engine', inner: true, flush: true, module: 'engine', hp: 600,
     engine: { kw: 2000, fuel: 'diesel' },
@@ -1422,8 +1524,51 @@ const PARTS = {
   rudderM: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Rudder', w: 1.4, h: 1.8, depth: 0.15, mass: 1, shape: 'tkit', style: 'rudder', hp: 300,
     foil: { kind: 'rudder', area: 0.8, ar: 1.3, n: 'z', max: 35, chord: 1.4, load: 300 }, // (area: the blade's, behind its stock and horn: [WP1] 2.5 turned a 110 t boat in 2.4 lengths at 34 kn and heeled her 30°)
     tier: 1, cost: 500, desc: 'A rudder for boats and small ships, turning 35° each way. Put it just behind a propeller: the screw\'s wash steers her even at low speed.' },
+  // [WP5] the rest of propulsion. Outboards, waterjets and hydrofoils' ride control are flown by ship.js's core (WP6)
+  dieselS: { gv: true, ship: true, family: 'Boats', place: 'inside', cat: 'shDrive', name: 'Small Marine Diesel', w: 1.6, h: 1.0, depth: 0.9, mass: 1.2, shape: 'tkit', style: 'engine', inner: true, flush: true, module: 'engine', hp: 300,
+    engine: { kw: 300, fuel: 'diesel' },
+    tier: 1, cost: 800, desc: 'A 300 kW diesel for boats and landing craft, or to potter about on when the big engines are off. Put it inside a hull, low down.' },
+  turbine: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shDrive', name: 'Gas Turbine', w: 8, h: 3, depth: 3, mass: 22, shape: 'tkit', style: 'engine', inner: true, flush: true, module: 'engine', hp: 2500,
+    engine: { kw: 20000, fuel: 'turbine', spool: 15 },
+    tier: 3, cost: 4000, desc: 'A 20,000 kW gas turbine and its gearbox: frigates and destroyers make 30 knots on two to four. It takes 15 s to spool up. Put it inside a hull, low down.' },
+  outboard: { gv: true, ship: true, family: 'Boats', place: 'stern', cat: 'shDrive', name: 'Outboard Motor', w: 0.8, h: 1.6, depth: 0.6, mass: 0.35, shape: 'tkit', style: 'outboard', hp: 150,
+    engine: { kw: 165, fuel: 'petrol', spool: 2 }, screw: { D: 0.36, eta: 0.6, y: -0.62 }, steer: 30, // (screw.y: its propeller's height in the part, at the foot of its leg: shOutboardLay's hub)
+    tier: 1, cost: 1200, desc: 'A 165 kW outboard with its own propeller: clamp it on a transom, its leg under the keel. It swings 30° with the helm to steer.' },
+  screwS: { gv: true, ship: true, family: 'Boats', place: 'stern', cat: 'shDrive', name: 'Small Propeller', w: 0.3, h: 0.8, depth: 0.8, mass: 0.2, shape: 'tkit', style: 'screw', hp: 120,
+    screw: { D: 0.8, eta: 0.58 },
+    tier: 1, cost: 300, desc: 'A 0.8 m propeller for boats and landing craft. Hang it under the stern, below the waterline.' },
+  screwL: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Large Propeller', w: 1.2, h: 4.5, depth: 4.5, mass: 18, shape: 'tkit', style: 'screw', hp: 1200,
+    screw: { D: 4.5, eta: 0.68, astern: 0.9 },
+    tier: 2, cost: 2500, desc: 'A 4.5 m controllable-pitch propeller for frigates and destroyers: it pushes nearly as hard astern as ahead. Hang it well under the stern.' },
+  waterjet: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Waterjet', w: 3, h: 1.4, depth: 1.4, mass: 4, shape: 'tkit', style: 'waterjet', flush: true, hp: 600,
+    jet: { D: 1.4, steer: 30, bucket: 0.5 },
+    tier: 2, cost: 2500, desc: 'A waterjet in the transom at the keel: no propeller to foul, a nozzle that swings 30° to steer and a bucket that throws the jet forward to go astern. Best at high speed.' },
+  rudderL: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shDrive', name: 'Large Rudder', w: 4, h: 5, depth: 0.5, mass: 12, shape: 'tkit', style: 'rudder', hp: 1500,
+    foil: { kind: 'rudder', area: 14, ar: 1.5, n: 'z', max: 35, chord: 4, load: 3000 },
+    tier: 2, cost: 1500, desc: 'A big spade rudder for frigates and destroyers, 35° each way. Put it just behind a Large Propeller.' },
+  foilBow: { gv: true, ship: true, family: 'Naval', place: 'bow', cat: 'shDrive', name: 'Bow Hydrofoil', w: 2, h: 3.6, depth: 6, mass: 4, shape: 'tkit', style: 'foil', hp: 500,
+    foil: { kind: 'foil', n: 'y', area: 7, ar: 5, chord: 1.2, inc: 2, y: -1.6, ride: true, load: 1500 },
+    tier: 2, cost: 3000, desc: 'An upside-down T of a foil on a strut under the bow. With a Main Hydrofoil aft, past about 30 knots they lift the whole hull out of the water and she flies on them, level, over the waves.' },
+  foilAft: { gv: true, ship: true, family: 'Naval', place: 'keel', cat: 'shDrive', name: 'Main Hydrofoil', w: 2.4, h: 3.6, depth: 12, mass: 9, shape: 'tkit', style: 'foilAft', hp: 900,
+    foil: { kind: 'foil', n: 'y', area: 15, ar: 6, chord: 1.6, inc: 2, y: -1.6, ride: true, intake: true, h: 1.6, load: 3500 },
+    tier: 2, cost: 5000, desc: 'A 12 m foil on two struts, aft of her middle: it carries most of her weight foilborne, and its pod feeds her waterjets when the hull is clear of the sea.' },
   // ==== shArms ====
   // ==== shKit ====
+  // [WP5] (inside a hull: drawn by shKit; what flooding, fires and the damage-control party do with them is WP8's)
+  bulkhead: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Watertight Bulkhead', w: 0.3, h: 2, depth: 2, mass: 1.5, shape: 'tkit', style: 'bulkhead', inner: true, flush: true, bulkhead: true, hp: 800,
+    tier: 1, cost: 400, desc: 'A steel wall across the hull: it splits the compartment it stands in, so a hole floods only one side of it.' },
+  pump: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Salvage Pump', w: 1.2, h: 1.0, depth: 1.0, mass: 1, shape: 'tkit', style: 'pump', inner: true, flush: true, module: 'engine', pump: 0.15, hp: 300,
+    tier: 1, cost: 800, desc: 'A big pump that throws 150 litres a second overboard from the worst flooded compartment. Shot to pieces, it stops.' },
+  ballast: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Fuel and Ballast', w: 3, h: 0.8, depth: 2.5, mass: 10, shape: 'tkit', style: 'ballast', inner: true, flush: true, hp: 2000,
+    tier: 1, cost: 100, desc: '10 tonnes of fuel and water low in the hull: it trims her level, brings her down to her marks and makes her steadier.' },
+  dcLocker: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Damage Control Party', w: 2, h: 2, depth: 2, mass: 1.5, shape: 'tkit', style: 'locker', inner: true, flush: true, hp: 300,
+    mods: [{ k: 'crew', role: 'dc', at: [-0.25, 0, -0.25], r: 0.4, hp: 100 }, { k: 'crew', role: 'dc', at: [0.25, 0, -0.25], r: 0.4, hp: 100 },
+      { k: 'crew', role: 'dc', at: [-0.25, 0, 0.25], r: 0.4, hp: 100 }, { k: 'crew', role: 'dc', at: [0.25, 0, 0.25], r: 0.4, hp: 100 }],
+    tier: 1, cost: 1500, desc: 'Four sailors with pumps, plugs and hoses: they patch holes, fight fires and mend what is broken while she fights on.' },
+  magazine: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Shell Magazine', w: 4, h: 2.5, depth: 4, mass: 12, shape: 'tkit', style: 'magazine', inner: true, flush: true, module: 'ammo', store: { rounds: 400 }, hp: 1200,
+    tier: 2, cost: 1500, desc: '400 shells deep in the hull, feeding every naval gun aboard. Keep it low and well inside: if a fire reaches it, she goes up.' },
+  torpDecoy: { gv: true, ship: true, family: 'Naval', place: 'stern', cat: 'shKit', name: 'Torpedo Decoy', w: 1.5, h: 0.6, depth: 0.6, mass: 0.4, shape: 'tkit', style: 'tdecoy', decoy: { torp: true, ammo: 4, life: 60, p: 0.6 }, hp: 150,
+    tier: 2, cost: 1000, desc: 'Four noisemakers streamed astern on a cable: with a torpedo in the water, the countermeasure key lets one go, and a homing torpedo near it chases it more often than not.' },
 };
 for (const k in PARTS) {
   const d = PARTS[k];
@@ -2334,6 +2479,12 @@ const SKINS = {
   ambush: { name: 'Ambush three-tone', base: '#b9a46e', camo: { k: 'blotch', c: ['#5b6a3d', '#7a5136'], seed: 41, n: 52, r: 0.34 }, accent: null, rough: 0.82, metal: 0.05 },
   woodland: { name: 'Woodland three-tone', base: '#55603e', camo: { k: 'blotch', c: ['#614b34', '#24261f'], seed: 53, n: 56, r: 0.32 }, accent: null, rough: 0.82, metal: 0.05 },
   whitewash: { name: 'Winter whitewash', base: '#e2e4df', camo: { k: 'splinter', c: ['#5a623f', '#9a9e92'], seed: 61, n: 26, r: 0.5 }, accent: null, rough: 0.86, metal: 0.03 },
+  // [WP5] the ships update's: haze grey, a dark blue-grey, a splinter scheme in ship-sized patches and a patrol boat's white
+  // with a slanted red band at the bow (band: the stripe's colours, drawn on a hull's closed bow by shullDraw and the loft)
+  navyGrey: { name: 'Haze grey', base: '#8b939a', accent: null, rough: 0.72, metal: 0.15 },
+  navyDark: { name: 'Dark blue-grey', base: '#5d666e', accent: null, rough: 0.75, metal: 0.12 },
+  navySplinter: { name: 'Naval splinter', base: '#9aa3aa', camo: { k: 'splinter', c: ['#6b757e', '#454e57'], seed: 83, n: 10, r: 1.6 }, accent: null, rough: 0.72, metal: 0.12 },
+  patrolWhite: { name: 'Patrol white', base: '#e6e9ea', band: ['#c8322b', '#24477f'], accent: null, rough: 0.6, metal: 0.12 },
 };
 const SKIN_IDS = Object.keys(SKINS);
 // Shapes that are all structure, rubber or cloth: nothing to paint. (A track's fender and road wheels, and an armoured
@@ -6362,6 +6513,21 @@ function shullStem(R, yy) {
   for (let i = n - 1; i > 0; i--) { const a = R[i - 1], b = R[i]; if ((a.yk - yy) * (b.yk - yy) <= 0 && a.yk !== b.yk) return a.x + ((b.x - a.x) * (yy - a.yk)) / (b.yk - a.yk); }
   return null;
 }
+// [WP5] a paint's band on a closed bow (skin.band: its colours; bands [c0, c1, colour index] along f = x − k·y, part frame),
+// a RIB's tubes (points along the gunwale, x, y and z of the tube's centre line, and its radius) and a landing craft's ramp
+// (its hinge at the fore end's foot, its height and half-width): the 2D art's and the 3D loft's
+function shStripe(d) {
+  const E = d.shull.ends || {};
+  if (E.fore !== 'closed') return null;
+  const H = shullOf(d), s = clamp(shullBand(d) / 0.4, 0.5, 2.5), c = H.x1 - Math.min(0.42 * d.w, 7 * s), k = 0.55;
+  return { k, bands: [[c - 0.6 * s, c + 0.6 * s, 0], [c - 1.15 * s, c - 0.8 * s, 1]] };
+}
+function shTubeLay(d) {
+  const H = shullOf(d), r = Math.min(0.25, d.h * 0.16), pts = [];
+  for (const q of H.rings) if (q.x >= H.x0 + r && q.x <= H.x1 - r * 0.8) pts.push([q.x, q.yd - r, Math.max(0.02, q.bd - r)]);
+  return { r, pts };
+}
+function shRampLay(d) { const H = shullOf(d), q = H.rings[H.nr - 1]; return { x: q.x, y: q.yk, h: q.yd - q.yk, z: Math.max(0.1, q.bd - 0.05), t: 0.08 }; }
 // The plating in its paint (haze grey unless painted), lighter up to the deck edge; plate seams along the sheer and
 // welded frames every 4 m; the black boot-top band round the design waterline and the antifouling red under it; the
 // deck edge and a rubbing strake under it; on a bow (a closed fore end) the hawse pipe and its anchor, and draft marks
@@ -6379,6 +6545,8 @@ function shullDraw(ctx, p, lw) {
     g.addColorStop(0, 'rgba(0,0,0,0.16)'); g.addColorStop(0.7, 'rgba(255,255,255,0.03)'); g.addColorStop(1, 'rgba(255,255,255,0.12)');
     ctx.fillStyle = g; ctx.fillRect(l, wl, r - l, hi - wl);
   }
+  const SP = sk && sk.band && !sk.camo ? shStripe(d) : null; // [WP5] (a paint's slanted band on a bow: patrol white's)
+  if (SP) for (const [c0, c1, ci] of SP.bands) { ctx.fillStyle = sk.band[ci]; ctx.beginPath(); ctx.moveTo(x + c0 + SP.k * (lo - y), lo); ctx.lineTo(x + c1 + SP.k * (lo - y), lo); ctx.lineTo(x + c1 + SP.k * (hi - y), hi); ctx.lineTo(x + c0 + SP.k * (hi - y), hi); ctx.closePath(); ctx.fill(); }
   // the antifouling and the boot-top
   ctx.fillStyle = SH_RED; ctx.fillRect(l, lo, r - l, wl - bt / 2 - lo);
   ctx.fillStyle = SH_BOOT; ctx.fillRect(l, wl - bt / 2, r - l, bt);
@@ -6422,7 +6590,23 @@ function shullDraw(ctx, p, lw) {
     if (E.aft === 'closed' && yy > R[0].yk + 0.1) ctx.fillRect(l + 0.25 * k, y + yy, bw, bh);
   }
   if (E.aft === 'closed') { ctx.fillStyle = 'rgba(10,14,18,0.3)'; ctx.fillRect(l, lo, 0.12 * k, hi - lo); } // the transom's edge
+  if (E.fore === 'ramp') { // [WP5] the ramp across the fore end: its plate, ribs and the hinge at its foot
+    const RL = shRampLay(d), rx = x + RL.x, ry = y + RL.y;
+    ctx.fillStyle = shTone(-0.12); ctx.fillRect(rx - 0.35, ry, 0.35, RL.h);
+    ctx.fillStyle = 'rgba(10,14,18,0.35)'; for (let i = 1; i < 5; i++) ctx.fillRect(rx - 0.35, ry + (RL.h * i) / 5, 0.35, 0.05);
+    ctx.fillRect(rx - 0.38, ry, 0.05, RL.h);
+    ctx.beginPath(); ctx.arc(rx - 0.15, ry + 0.12, 0.09, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill();
+  }
+  if (S.step != null) { ctx.fillStyle = 'rgba(10,14,18,0.55)'; const sx = x + S.step; ctx.fillRect(sx - 0.03, lo, 0.06, wl - lo + 0.05); } // [WP5] (a planing step's edge)
   ctx.restore();
+  if (S.tubes && !X) { // [WP5] a RIB's buoyancy tubes along the gunwale (shTubeLay), a lit top and their seams
+    const T = shTubeLay(d), path = () => { ctx.beginPath(); T.pts.forEach(([px, py], i) => (i ? ctx.lineTo(x + px, y + py) : ctx.moveTo(x + px, y + py))); };
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    path(); ctx.lineWidth = T.r * 2; ctx.strokeStyle = '#3b4046'; ctx.stroke();
+    path(); ctx.lineWidth = T.r * 0.5; ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.save(); ctx.translate(0, T.r * 0.45); ctx.stroke(); ctx.restore();
+    ctx.lineCap = 'butt'; ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    for (let i = 1; i < T.pts.length - 1; i += 6) { const [px, py] = T.pts[i]; ctx.fillRect(x + px - 0.02, y + py - T.r, 0.04, T.r * 2); }
+  }
   ctx.globalAlpha = a0;
   ctx.beginPath(); shullPath(ctx, p);
   if (X) {
@@ -6435,9 +6619,16 @@ function shullDraw(ctx, p, lw) {
 // ---- the slice's ship kit (gvKit's tkit styles, dispatched from there: SH_KIT): the wheelhouse (a deckhouse with a raked
 // front, windows round its upper half), the propeller (seen edge on: its hub, shaft and two blades) and the rudder (a
 // spade on its stock, the leading edge forward, under the waterline in antifouling red)
-const SH_KIT = new Set(['bridge', 'screw', 'rudder']);
+// [WP5] the rest of the ships' kit (SH_KIT2: shKit2 and its plan and end views, after shKitEnd) joins them
+const SH_KIT2 = new Set(['bridgeL', 'console', 'house', 'shStealth', 'lattice', 'pole', 'funnel', 'helipad', 'hangar', 'outboard', 'waterjet', 'foil', 'foilAft',
+  'bulkhead', 'pump', 'ballast', 'locker', 'magazine', 'tdecoy']);
+const SH_KIT = new Set(['bridge', 'screw', 'rudder', ...SH_KIT2]);
 // the wheelhouse's side outline (part frame, convex, counter-clockwise): the raked windows at the front (+x)
-function shBridgePts(d) { const w = d.w, h = d.h; return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, -h / 2 + h * 0.5], [w / 2 - w * 0.13, h / 2], [-w / 2, h / 2]]; }
+function shBridgePts(d) {
+  const w = d.w, h = d.h;
+  if (d.style === 'bridgeL') return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h * 0.12], [w / 2 - w * 0.1, h / 2], [-w / 2, h / 2]]; // [WP5] (the big bridge: its pilot house raked over the operations room)
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, -h / 2 + h * 0.5], [w / 2 - w * 0.13, h / 2], [-w / 2, h / 2]];
+}
 // the rudder's blade (part frame): its leading edge (forward, +x), trailing edge, the blade's top and bottom; the stock
 // (at xs, radius rs) up from the blade's top; t, its thickness
 function shRudderLay(d) { const w = d.w, h = d.h; return { le: w / 2, te: -w / 2, top: h / 2 - Math.min(0.35, h * 0.2), bot: -h / 2, xs: w / 2 - w * 0.28, rs: Math.min(0.08, w * 0.06), t: d.depth || 0.15 }; }
@@ -6456,6 +6647,7 @@ function shWindows(ctx, x0, x1, y0, y1, n) {
 function shKit(ctx, p, lw) {
   const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, st = d.style;
   ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  if (SH_KIT2.has(st)) { shKit2(ctx, p, lw); return; } // [WP5]
   if (st === 'bridge') {
     const P = shBridgePts(d).map(([u, v]) => [x + u, y + v]), sk = PartPaint.skin;
     gvPoly(ctx, P); ctx.fillStyle = sk && (sk.camo || sk.paint) ? skinFill(ctx, l, r) : shBase(); ctx.fill();
@@ -6510,6 +6702,7 @@ function shKit(ctx, p, lw) {
 function shKitPlan(ctx, p, lw) {
   const d = p.def, w = d.w, D = d.depth || w, l = -w / 2, r = w / 2, n = -D / 2, f = D / 2;
   ctx.fillStyle = shBase(); ctx.fillRect(l - 0.2, n - 0.2, w + 0.4, D + 0.4);
+  if (SH_KIT2.has(d.style)) { shKit2Plan(ctx, p, lw); return; } // [WP5]
   if (d.style !== 'bridge') return;
   ctx.fillStyle = shTone(-0.28); ctx.fillRect(l, n, w, 0.12); ctx.fillRect(l, f - 0.12, w, 0.12); ctx.fillRect(r - 0.12, n, 0.12, D); // the roof's edge
   ctx.fillStyle = SH_DECK; ctx.fillRect(l + 0.25, n + 0.25, w * 0.55, D - 0.5); // a walkway of deck grey
@@ -6520,6 +6713,7 @@ function shKitPlan(ctx, p, lw) {
 function shKitEnd(ctx, p, lw, end) {
   const d = p.def, w = d.w, h = d.h, D = d.depth || w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2;
   ctx.fillStyle = shBase(); ctx.fillRect(n - 0.2, b - 0.2, D + 0.4, h + 0.4);
+  if (SH_KIT2.has(d.style)) { shKit2End(ctx, p, lw, end); return; } // [WP5]
   if (d.style !== 'bridge') return;
   if (!PartPaint.flat) { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0.1)'); ctx.fillStyle = g; ctx.fillRect(n, b, D, h); }
   ctx.fillStyle = shTone(-0.12); ctx.fillRect(n, b + h * 0.48, D, h * 0.035);
@@ -6534,4 +6728,208 @@ function shKitEnd(ctx, p, lw, end) {
     for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * D * 0.3, t - h * 0.28, Math.min(0.15, h * 0.05), 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); ctx.strokeStyle = shTone(-0.35); ctx.stroke(); }
   }
   ctx.fillStyle = shTone(-0.32); ctx.fillRect(n, t - h * 0.06, D, h * 0.06);
+}
+
+// ==== ships: the rest of the kit's art [WP5] (SH_KIT2: superstructure, masts, the funnel, the helicopter deck and hangar,
+// outboards, waterjets, hydrofoils and what goes inside a hull) ====
+// Each is a side view in its part's box (x forward, y up), its plan and end views for a plated part's 3D texture after it.
+// The numbers the 3D models are built from (parts3d shipKit) are here too, so the 2D art and the models agree.
+// A plated part's side outline (part frame, convex, counter-clockwise): the 3D prism's (parts3d) and the art's
+function shKitPts(d) {
+  const w = d.w, h = d.h, st = d.style;
+  if (st === 'bridge' || st === 'bridgeL') return shBridgePts(d);
+  if (st === 'console') return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h * 0.1], [-w * 0.1, h * 0.2], [-w / 2, h * 0.2]]; // (its body: the windscreen above is glass)
+  if (st === 'shStealth') return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2 - w * 0.12, h / 2], [-w / 2 + w * 0.05, h / 2]]; // (faceted: both ends slanted)
+  if (st === 'funnel') return [[-w * 0.4, -h / 2], [w * 0.5, -h / 2], [w * 0.4, h / 2], [-w * 0.5, h / 2]]; // (raked aft)
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+}
+// An outboard (part frame): the cowl on top, its clamp at the front (+x, on the transom), the leg down to the gearcase and
+// the propeller behind it at the bottom; it swings about the clamp's vertical axis (x = cl)
+function shOutboardLay(d) {
+  const w = d.w, h = d.h, R = d.screw ? d.screw.D / 2 : 0.18;
+  return { cl: w / 2 - w * 0.12, cowl: { x0: -w / 2 + 0.02, x1: w / 2 - 0.02, y0: h / 2 - h * 0.3, y1: h / 2 }, leg: { x0: -w * 0.08, x1: w * 0.22, y0: -h / 2 + R * 2 * 0.55, y1: h / 2 - h * 0.3 },
+    plate: { x0: -w * 0.28, x1: w * 0.3, y: -h / 2 + R * 2 + 0.1 }, hub: { x: -w * 0.12, y: -h / 2 + R, r: Math.min(0.07, R * 0.35), R }, z: d.depth / 2 };
+}
+// A waterjet (part frame): its duct along x, the intake's lip under the front, the nozzle at the back (it swings about
+// y at xn, p.rud) and the reversing bucket over it
+function shJetLay(d) {
+  const w = d.w, h = d.h, R = Math.min(h, d.depth) / 2;
+  return { R, xn: -w / 2 + w * 0.22, duct: { x0: -w / 2 + w * 0.22, x1: w / 2, r: R * 0.82 }, noz: { x0: -w / 2, r0: R * 0.45, r1: R * 0.62 }, lip: { x0: w * 0.1, x1: w / 2, y: -R } };
+}
+// A hydrofoil (part frame): struts down from the top to the foil, which spans the part's depth at foil.y; foilAft has two
+// struts near its tips and a pod at each foot (the waterjets' intakes)
+function shFoilLay(d) {
+  const w = d.w, h = d.h, D = d.depth, f = d.foil || {}, c = Math.min(f.chord || w * 0.6, w * 0.95), yf = clamp(f.y != null ? f.y : -h / 2 + 0.2, -h / 2 + c * 0.1, h / 2);
+  const two = d.style === 'foilAft', zs = two ? [-(D / 2 - D * 0.18), D / 2 - D * 0.18] : [0];
+  return { c, yf, t: c * 0.12, span: D / 2, sc: Math.min(w * 0.8, c * 0.8), st: Math.max(0.08, c * 0.09), zs, top: h / 2, pod: two ? { r: Math.max(0.05, Math.min(c * 0.18, yf + h / 2 - 0.01)), x0: -w / 2 + 0.05, x1: w / 2 - 0.05 } : null };
+}
+// A lattice mast (part frame): four legs tapering from the base to the top, braced, and a platform at the top
+function shLatticeLay(d) { const w = d.w, h = d.h, D = d.depth; return { b: [w / 2 - 0.1, D / 2 - 0.1], t: [w * 0.18, D * 0.18], y0: -h / 2, y1: h / 2 - 0.5, plat: { y: h / 2 - 0.5, th: 0.12, r: Math.min(w, D) * 0.42 }, bays: Math.max(3, Math.round(h / 2.2)), r: Math.min(0.09, w * 0.03) }; }
+// a foil section's half-thickness at u (0 the leading edge, 1 the trailing), for a thickness t (NACA 00xx)
+function shFoilT(u, t) { return 0.5 * t * 5 * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1015 * u ** 4); }
+function shKit2(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, l = x - w / 2, r = x + w / 2, b = y - h / 2, t = y + h / 2, st = d.style, sk = PartPaint.skin;
+  const paint = () => (sk && (sk.camo || sk.paint) ? skinFill(ctx, l, r) : shBase());
+  const lit = (P) => { if (PartPaint.flat) return; ctx.save(); gvPoly(ctx, P); ctx.clip(); const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0.1)'); ctx.fillStyle = g; ctx.fillRect(l, b, w, h); ctx.restore(); };
+  const ink = (a = 0.7) => { ctx.lineWidth = lw * a; ctx.strokeStyle = GV_INK; };
+  const port = (px, py, rr) => { ctx.beginPath(); ctx.arc(px, py, rr, 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); ctx.lineWidth = Math.max(lw * 0.6, rr * 0.25); ctx.strokeStyle = shTone(-0.35); ctx.stroke(); };
+  const door = (dx, dw, dh) => { ctx.fillStyle = shTone(-0.2); ctx.fillRect(dx, b + 0.05, dw, dh); ink(); ctx.strokeRect(dx, b + 0.05, dw, dh); ctx.fillStyle = '#20262b'; ctx.fillRect(dx + dw * 0.78, b + dh * 0.45, Math.min(0.05, dw * 0.1), Math.min(0.12, dh * 0.08)); };
+  const rail = (y0, x0, x1) => { ctx.lineWidth = Math.max(lw * 0.6, 0.025); ctx.strokeStyle = shTone(-0.3); ctx.beginPath(); ctx.moveTo(x0, y0 + 0.9); ctx.lineTo(x1, y0 + 0.9); ctx.moveTo(x0, y0 + 0.45); ctx.lineTo(x1, y0 + 0.45); for (let xx = x0; xx <= x1 + 1e-6; xx += 1.2) { ctx.moveTo(xx, y0); ctx.lineTo(xx, y0 + 0.9); } ctx.stroke(); };
+  const plated = (P, fn) => { gvPoly(ctx, P); ctx.fillStyle = paint(); ctx.fill(); lit(P); ctx.save(); gvPoly(ctx, P); ctx.clip(); fn(); ctx.restore(); ink(); gvPoly(ctx, P); ctx.stroke(); };
+  const P = shKitPts(d).map(([u, v]) => [x + u, y + v]);
+  switch (st) {
+    case 'bridgeL': plated(P, () => { // two decks: portholes and a door below, the pilot house's raked window band above, a visor and a bridge wing
+      const ym = b + h * 0.48;
+      ctx.fillStyle = shTone(-0.14); ctx.fillRect(l, ym, w, h * 0.03);
+      for (let i = 0; i < Math.floor(w / 1.6); i++) port(l + 1.4 + i * 1.6, b + h * 0.26, Math.min(0.2, h * 0.035));
+      door(l + w * 0.05, w * 0.07, h * 0.3);
+      shWindows(ctx, l + w * 0.12, r - w * 0.14, t - h * 0.3, t - h * 0.1, 6);
+      ctx.fillStyle = SH_GLASS; ctx.beginPath(); ctx.moveTo(r - w * 0.01, y + h * 0.16); ctx.lineTo(r - w * 0.085, t - h * 0.08); ctx.lineTo(r - w * 0.11, t - h * 0.08); ctx.lineTo(r - w * 0.035, y + h * 0.16); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = shTone(-0.32); ctx.fillRect(l, t - h * 0.05, w, h * 0.05);
+      ctx.fillStyle = shTone(-0.08); ctx.fillRect(r - w * 0.3, ym + h * 0.02, w * 0.28, h * 0.035); // a bridge wing's deck
+      rail(ym + h * 0.055, r - w * 0.3, r - w * 0.04);
+    }); return;
+    case 'console': {
+      plated(P, () => { ctx.fillStyle = shTone(-0.25); ctx.fillRect(l + w * 0.1, b + h * 0.1, w * 0.55, h * 0.35); ctx.fillStyle = '#1f2a33'; ctx.fillRect(l + w * 0.25, y + h * 0.02, w * 0.3, h * 0.12); }); // (a locker, the instruments)
+      ctx.fillStyle = 'rgba(150,200,230,0.45)'; ctx.beginPath(); ctx.moveTo(x + w * 0.08, y + h * 0.17); ctx.lineTo(x + w * 0.42, y + h * 0.08); ctx.lineTo(x + w * 0.12, t); ctx.lineTo(x - w * 0.12, t); ctx.closePath(); ctx.fill(); // the windscreen
+      ink(); ctx.stroke();
+      ctx.lineWidth = Math.max(lw, 0.035); ctx.strokeStyle = '#c9ced3'; ctx.beginPath(); ctx.moveTo(l + 0.03, y + h * 0.2); ctx.lineTo(l + 0.03, y - h * 0.05); ctx.moveTo(l + 0.03, y + h * 0.2); ctx.lineTo(x - w * 0.15, y + h * 0.2); ctx.stroke(); // a grab rail
+      ctx.beginPath(); ctx.arc(x - w * 0.02, y + h * 0.28, w * 0.09, 0, TAU); ctx.lineWidth = Math.max(lw, 0.03); ctx.strokeStyle = '#2b2f34'; ctx.stroke(); // the wheel
+      return;
+    }
+    case 'house': plated(P, () => { // portholes in rows, doors, a ladder, the roof's edge
+      const rows = Math.max(1, Math.floor(h / 2.4));
+      for (let k = 0; k < rows; k++) for (let i = 0; i < Math.floor(w / 1.8); i++) port(l + 1.2 + i * 1.8, b + h * (0.3 + k * 0.4) + 0.4, Math.min(0.2, h * 0.04));
+      door(l + w * 0.42, Math.min(1, w * 0.07), Math.min(2, h * 0.4)); door(l + w * 0.08, Math.min(1, w * 0.07), Math.min(2, h * 0.4));
+      ctx.fillStyle = shTone(-0.3); ctx.fillRect(l, t - h * 0.05, w, h * 0.05);
+      ctx.lineWidth = Math.max(lw, 0.03); ctx.strokeStyle = shTone(-0.3); ctx.beginPath(); for (const fx of [0.93, 0.955]) { ctx.moveTo(l + w * fx, b); ctx.lineTo(l + w * fx, t); } for (let yy = b + 0.3; yy < t; yy += 0.3) { ctx.moveTo(l + w * 0.93, yy); ctx.lineTo(l + w * 0.955, yy); } ctx.stroke();
+    }); return;
+    case 'shStealth': plated(P, () => { // smooth faceted panels, the bridge's dark glass band in the front facet, flush doors
+      ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath();
+      for (let fx = 0.12; fx < 0.9; fx += 0.13) { ctx.moveTo(l + w * fx, b); ctx.lineTo(l + w * fx, t); }
+      ctx.moveTo(l, y - h * 0.1); ctx.lineTo(r, y - h * 0.1); ctx.stroke();
+      ctx.fillStyle = '#1a2229'; ctx.beginPath(); ctx.moveTo(r - w * 0.1, y + h * 0.15); ctx.lineTo(r - w * 0.035, y + h * 0.15); ctx.lineTo(r - w * 0.055, y + h * 0.33); ctx.lineTo(r - w * 0.115, y + h * 0.33); ctx.closePath(); ctx.fill();
+      ctx.fillRect(x + w * 0.12, y + h * 0.16, w * 0.2, h * 0.13);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.strokeRect(l + w * 0.3, b + 0.1, w * 0.035, h * 0.38); ctx.strokeRect(l + w * 0.08, b + 0.1, w * 0.035, h * 0.38);
+    }); return;
+    case 'funnel': plated(P, () => { // its casing, a louvre, the black top
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; for (let i = 0; i < 4; i++) ctx.fillRect(x - w * 0.2, b + h * (0.2 + i * 0.07), w * 0.35, h * 0.03);
+      ctx.fillStyle = '#16191c'; ctx.fillRect(l - w, t - h * 0.14, w * 3, h * 0.14);
+      ctx.fillStyle = shTone(-0.3); ctx.fillRect(l - w, t - h * 0.17, w * 3, h * 0.03);
+    }); return;
+    case 'helipad': { // the deck's edge: a safety net under it, lights along the rim
+      ctx.fillStyle = shTone(-0.35); ctx.fillRect(l, b, w, h); ink(); ctx.strokeRect(l, b, w, h);
+      ctx.fillStyle = 'rgba(30,34,38,0.6)'; ctx.fillRect(l, b, w, h * 0.35);
+      for (let i = 0; i < 8; i++) { ctx.fillStyle = i % 2 ? '#d9e6f2' : '#f1d36b'; ctx.fillRect(l + w * (0.05 + i * 0.128), t - h * 0.35, 0.18, h * 0.3); }
+      return;
+    }
+    case 'hangar': plated(P, () => { // corrugated walls, a door (the roller door is its back end), the deck edge
+      ctx.lineWidth = lw * 0.4; ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); for (let xx = l + 0.5; xx < r; xx += 0.5) { ctx.moveTo(xx, b + 0.3); ctx.lineTo(xx, t - 0.4); } ctx.stroke();
+      ctx.fillStyle = shTone(-0.3); ctx.fillRect(l, t - h * 0.06, w, h * 0.06); ctx.fillRect(l, b, w * 0.04, h);
+      door(l + w * 0.7, Math.min(1, w * 0.08), Math.min(2, h * 0.36));
+      for (let i = 0; i < 3; i++) port(l + w * (0.25 + i * 0.12), b + h * 0.6, Math.min(0.2, h * 0.035));
+    }); return;
+    case 'lattice': { // its legs from the side, the bracing between, the platform and its rail
+      const L = shLatticeLay(d), xa = (yy) => L.b[0] + ((L.t[0] - L.b[0]) * (yy - L.y0)) / (L.y1 - L.y0);
+      ctx.lineWidth = Math.max(lw * 1.4, L.r * 2); ctx.strokeStyle = shTone(-0.15); ctx.beginPath();
+      for (const s of [-1, 1]) { ctx.moveTo(x + s * L.b[0], y + L.y0); ctx.lineTo(x + s * L.t[0], y + L.y1); }
+      for (let i = 0; i <= L.bays; i++) { const yy = L.y0 + ((L.y1 - L.y0) * i) / L.bays; ctx.moveTo(x - xa(yy), y + yy); ctx.lineTo(x + xa(yy), y + yy); }
+      ctx.stroke();
+      ctx.lineWidth = Math.max(lw, L.r * 1.2); ctx.beginPath();
+      for (let i = 0; i < L.bays; i++) { const ya = L.y0 + ((L.y1 - L.y0) * i) / L.bays, yb = L.y0 + ((L.y1 - L.y0) * (i + 1)) / L.bays; ctx.moveTo(x - xa(ya), y + ya); ctx.lineTo(x + xa(yb), y + yb); ctx.moveTo(x + xa(ya), y + ya); ctx.lineTo(x - xa(yb), y + yb); }
+      ctx.stroke();
+      ctx.fillStyle = shTone(-0.25); ctx.fillRect(x - L.plat.r, y + L.plat.y, L.plat.r * 2, L.plat.th); ink(); ctx.strokeRect(x - L.plat.r, y + L.plat.y, L.plat.r * 2, L.plat.th);
+      rail(y + L.plat.y + L.plat.th - 0.5, x - L.plat.r, x + L.plat.r);
+      return;
+    }
+    case 'pole': { // a tapering pole, a yard across, its lights
+      ctx.fillStyle = shTone(-0.1); ctx.beginPath(); ctx.moveTo(x - w * 0.28, b); ctx.lineTo(x + w * 0.28, b); ctx.lineTo(x + w * 0.12, t - 0.15); ctx.lineTo(x - w * 0.12, t - 0.15); ctx.closePath(); ctx.fill(); ink(); ctx.stroke();
+      ctx.fillStyle = shTone(-0.3); ctx.fillRect(l, y + h * 0.18, w, 0.08); ctx.fillRect(x - w * 0.25, b, w * 0.5, 0.15);
+      ctx.fillStyle = '#ffefa8'; ctx.beginPath(); ctx.arc(x, t - 0.1, 0.08, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#e04b3a'; ctx.beginPath(); ctx.arc(l + 0.06, y + h * 0.18, 0.05, 0, TAU); ctx.fill(); ctx.fillStyle = '#3fd07a'; ctx.beginPath(); ctx.arc(r - 0.06, y + h * 0.18, 0.05, 0, TAU); ctx.fill();
+      return;
+    }
+    case 'outboard': { // seen from the side: the cowl, the clamp bracket at the front, the leg, the anti-ventilation plate, the propeller
+      const L = shOutboardLay(d), C = L.cowl, G = L.leg, Hb = L.hub;
+      ctx.fillStyle = '#3a3f45'; ctx.fillRect(x + L.cl - 0.04, y + G.y1 - 0.25, w / 2 - (L.cl - 0.04), 0.35); ctx.strokeRect(x + L.cl - 0.04, y + G.y1 - 0.25, w / 2 - (L.cl - 0.04), 0.35); // the clamp
+      ctx.fillStyle = '#2b2f34'; ctx.beginPath(); ctx.moveTo(x + G.x0, y + G.y1); ctx.lineTo(x + G.x1, y + G.y1); ctx.lineTo(x + G.x1 - 0.04, y + G.y0); ctx.lineTo(x + G.x0 + 0.02, y + G.y0); ctx.closePath(); ctx.fill(); ctx.stroke(); // the leg
+      ctx.fillRect(x + L.plate.x0, y + L.plate.y, L.plate.x1 - L.plate.x0, 0.04);
+      ctx.beginPath(); ctx.ellipse(x + (G.x0 + G.x1) / 2, y + Hb.y, (G.x1 - G.x0) * 0.75, Hb.r * 1.3, 0, 0, TAU); ctx.fill(); ctx.stroke(); // the gearcase
+      ctx.fillStyle = '#9aa1a8'; ctx.beginPath(); ctx.moveTo(x + Hb.x, y + Hb.y + Hb.R); ctx.quadraticCurveTo(x + Hb.x - 0.12, y + Hb.y, x + Hb.x, y + Hb.y - Hb.R); ctx.quadraticCurveTo(x + Hb.x + 0.05, y + Hb.y, x + Hb.x, y + Hb.y + Hb.R); ctx.fill(); ctx.stroke(); // the propeller, edge on
+      ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x + C.x0, y + C.y0, C.x1 - C.x0, C.y1 - C.y0, (C.y1 - C.y0) * 0.35); else ctx.rect(x + C.x0, y + C.y0, C.x1 - C.x0, C.y1 - C.y0);
+      ctx.fillStyle = sk ? paint() : '#20242a'; ctx.fill(); ctx.stroke(); // the cowl (black, unless painted)
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(x + C.x0 + 0.05, y + C.y1 - (C.y1 - C.y0) * 0.35, (C.x1 - C.x0) * 0.6, 0.04);
+      ctx.fillStyle = '#d2a134'; ctx.fillRect(x + C.x0 + 0.08, y + C.y0 + (C.y1 - C.y0) * 0.4, (C.x1 - C.x0) * 0.35, 0.05); // its stripe
+      return;
+    }
+    case 'waterjet': { // its duct (the intake under the hull, ahead), the nozzle and the reversing bucket over it
+      const L = shJetLay(d), U = L.duct, N = L.noz;
+      ctx.fillStyle = '#5a6067'; ctx.fillRect(x + U.x0, y - U.r, U.x1 - U.x0, U.r * 2); ink(); ctx.strokeRect(x + U.x0, y - U.r, U.x1 - U.x0, U.r * 2);
+      ctx.fillStyle = '#2b2f34'; ctx.fillRect(x + L.lip.x0, y + L.lip.y, L.lip.x1 - L.lip.x0, 0.12); // the intake's grille
+      ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); for (let xx = x + L.lip.x0; xx < x + L.lip.x1; xx += 0.15) { ctx.moveTo(xx, y + L.lip.y); ctx.lineTo(xx, y + L.lip.y + 0.12); } ctx.stroke();
+      ctx.fillStyle = '#7d848b'; ctx.beginPath(); ctx.moveTo(x + U.x0, y - N.r1); ctx.lineTo(x + N.x0, y - N.r0); ctx.lineTo(x + N.x0, y + N.r0); ctx.lineTo(x + U.x0, y + N.r1); ctx.closePath(); ctx.fill(); ink(); ctx.stroke(); // the nozzle
+      ctx.fillStyle = '#4a5056'; ctx.beginPath(); ctx.moveTo(x + U.x0 + 0.1, y + U.r); ctx.quadraticCurveTo(x + N.x0 + 0.05, y + U.r, x + N.x0 + 0.05, y + N.r0 * 0.2); ctx.lineTo(x + N.x0 + 0.15, y + N.r0 * 0.2); ctx.quadraticCurveTo(x + N.x0 + 0.15, y + U.r * 0.8, x + U.x0 + 0.1, y + U.r * 0.75); ctx.closePath(); ctx.fill(); ctx.stroke(); // the bucket, raised
+      return;
+    }
+    case 'foil': case 'foilAft': { // a strut down to the foil (seen end on: its section, in antifouling); a pod at each foot
+      const L = shFoilLay(d);
+      ctx.fillStyle = '#5a6168'; ctx.beginPath(); ctx.moveTo(x + L.sc / 2, y + L.top); ctx.lineTo(x + L.sc / 2, y + L.yf); ctx.lineTo(x - L.sc / 2, y + L.yf); ctx.lineTo(x - L.sc / 2, y + L.top); ctx.closePath(); ctx.fill(); ink(); ctx.stroke();
+      if (L.pod) { ctx.beginPath(); ctx.ellipse(x, y + L.yf, (L.pod.x1 - L.pod.x0) / 2, L.pod.r, 0, 0, TAU); ctx.fillStyle = '#41474e'; ctx.fill(); ctx.stroke(); }
+      ctx.fillStyle = SH_RED; ctx.beginPath();
+      for (let i = 0; i <= 16; i++) { const u = i / 16; ctx[i ? 'lineTo' : 'moveTo'](x + L.c / 2 - u * L.c, y + L.yf + shFoilT(u, L.t)); }
+      for (let i = 16; i >= 0; i--) { const u = i / 16; ctx.lineTo(x + L.c / 2 - u * L.c, y + L.yf - shFoilT(u, L.t)); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      return;
+    }
+    case 'tdecoy': { // a reel of cable in a box and the noisemaker on its cradle
+      ctx.fillStyle = '#4a5056'; ctx.fillRect(l, b, w * 0.45, h); ink(); ctx.strokeRect(l, b, w * 0.45, h);
+      ctx.beginPath(); ctx.arc(l + w * 0.22, y, h * 0.36, 0, TAU); ctx.fillStyle = '#2b2f34'; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(l + w * 0.22, y, h * 0.12, 0, TAU); ctx.fillStyle = '#c9a24a'; ctx.fill();
+      ctx.fillStyle = '#d6dadd'; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - w * 0.02, y - h * 0.2, w * 0.5, h * 0.4, h * 0.2); else ctx.rect(x - w * 0.02, y - h * 0.2, w * 0.5, h * 0.4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e8762b'; ctx.fillRect(x + w * 0.3, y - h * 0.2, w * 0.06, h * 0.4);
+      return;
+    }
+  }
+  // what goes inside a hull, on its dark compartment (gvKit filled it)
+  const box = (x0, y0, ww, hh, c) => { ctx.fillStyle = c; ctx.fillRect(x0, y0, ww, hh); ink(); ctx.strokeRect(x0, y0, ww, hh); };
+  if (st === 'bulkhead') { box(l, b, w, h, '#6d747b'); ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (let i = 1; i < 4; i++) ctx.fillRect(l, b + (h * i) / 4, w, 0.05); return; } // (its stiffeners)
+  if (st === 'pump') { box(l + w * 0.05, b, w * 0.4, h * 0.85, '#3d6e9a'); ctx.beginPath(); ctx.arc(x + w * 0.2, y - h * 0.08, h * 0.36, 0, TAU); ctx.fillStyle = '#5a6168'; ctx.fill(); ctx.stroke(); ctx.fillStyle = '#4a5056'; ctx.fillRect(x + w * 0.15, y + h * 0.2, w * 0.1, h * 0.3); return; } // (its motor and its volute)
+  if (st === 'ballast') { box(l + 0.05, b + 0.05, w - 0.1, h - 0.1, '#5b4a2a'); ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (let i = 1; i < 3; i++) ctx.fillRect(l + (w * i) / 3, b + 0.05, 0.06, h - 0.1); ctx.fillStyle = '#c9a24a'; ctx.fillRect(l + 0.2, t - 0.2, 0.25, 0.1); return; } // (tanks)
+  if (st === 'locker') { box(l + 0.05, b + 0.05, w * 0.4, h * 0.9, '#a3392f'); box(x + 0.05, b + 0.05, w * 0.4, h * 0.9, '#a3392f'); ctx.beginPath(); ctx.arc(x + w * 0.25, y, h * 0.2, 0, TAU); ctx.lineWidth = Math.max(lw, 0.06); ctx.strokeStyle = '#e8c35a'; ctx.stroke(); return; } // (lockers and a hose reel)
+  if (st === 'magazine') { box(l + 0.05, b + 0.05, w - 0.1, h - 0.1, '#3b3f38'); const n = Math.max(4, Math.round(w / 0.35)); for (let k = 0; k < 2; k++) for (let i = 0; i < n; i++) gvShell(ctx, l + 0.2 + ((w - 0.4) * (i + 0.5)) / n, b + 0.15 + k * (h * 0.45), Math.min(0.09, (w - 0.4) / n / 2.6), h * 0.38, k ? '#d8c24a' : '#c4502e'); }
+}
+// their plan views (from above: x along, z across) and ends (end 1 the front, -1 the back) for a plated part's 3D texture
+function shKit2Plan(ctx, p, lw) {
+  const d = p.def, w = d.w, D = d.depth || w, l = -w / 2, r = w / 2, n = -D / 2, f = D / 2, st = d.style;
+  const roofEdge = () => { ctx.fillStyle = shTone(-0.28); ctx.fillRect(l, n, w, 0.15); ctx.fillRect(l, f - 0.15, w, 0.15); ctx.fillRect(l, n, 0.15, D); ctx.fillRect(r - 0.15, n, 0.15, D); };
+  if (st === 'helipad') { // the landing circle, the H, the deck's markings and its edge lights
+    ctx.fillStyle = '#3d4247'; ctx.fillRect(l, n, w, D);
+    ctx.lineWidth = Math.min(w, D) * 0.03; ctx.strokeStyle = '#e8e4d0'; ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.36, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#f2d34b'; ctx.lineWidth = Math.min(w, D) * 0.015; ctx.beginPath(); ctx.moveTo(l + 0.4, 0); ctx.lineTo(r - 0.4, 0); ctx.stroke(); // the centre line
+    ctx.fillStyle = '#e8e4d0'; const s = Math.min(w, D) * 0.16; ctx.fillRect(-s * 0.6, -s, s * 0.25, s * 2); ctx.fillRect(s * 0.35, -s, s * 0.25, s * 2); ctx.fillRect(-s * 0.6, -s * 0.12, s * 1.2, s * 0.24);
+    ctx.strokeStyle = '#e8e4d0'; ctx.lineWidth = Math.min(w, D) * 0.012; ctx.strokeRect(l + 0.25, n + 0.25, w - 0.5, D - 0.5);
+    for (let i = 0; i < 10; i++) for (const zz of [n + 0.12, f - 0.12]) { ctx.fillStyle = i % 2 ? '#d9e6f2' : '#3fd07a'; ctx.beginPath(); ctx.arc(l + (w * (i + 0.5)) / 10, zz, 0.1, 0, TAU); ctx.fill(); }
+    return;
+  }
+  if (st === 'funnel') { const P = shKitPts(d); ctx.fillStyle = '#16191c'; ctx.fillRect(P[3][0], n, P[2][0] - P[3][0], D); ctx.fillStyle = '#2b2f33'; for (const [fx, fz] of [[-0.2, -0.2], [-0.2, 0.2], [0.15, 0]]) { ctx.beginPath(); ctx.arc(fx * w, fz * D, Math.min(w, D) * 0.12, 0, TAU); ctx.fill(); } return; }
+  if (st === 'bridgeL' || st === 'house' || st === 'hangar') {
+    roofEdge();
+    ctx.fillStyle = SH_DECK; ctx.fillRect(l + 0.4, n + 0.4, w - 0.8, D - 0.8);
+    if (st === 'house') for (const [fx, fz] of [[-0.3, -0.25], [0.2, 0.25], [0.1, -0.3]]) { ctx.fillStyle = shTone(-0.2); ctx.fillRect(fx * w - 0.4, fz * D - 0.4, 0.8, 0.8); ctx.strokeStyle = GV_INK; ctx.lineWidth = lw; ctx.strokeRect(fx * w - 0.4, fz * D - 0.4, 0.8, 0.8); } // (vents)
+    if (st === 'bridgeL') { ctx.fillStyle = shTone(-0.35); ctx.beginPath(); ctx.arc(-w * 0.15, 0, 0.4, 0, TAU); ctx.fill(); gvHatch(ctx, lw, -w * 0.32, D * 0.25, 0.35, -0.12); }
+    return;
+  }
+  if (st === 'shStealth') { ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); for (let fx = 0.12; fx < 0.9; fx += 0.13) { ctx.moveTo(l + w * fx, n); ctx.lineTo(l + w * fx, f); } ctx.stroke(); return; }
+  if (st === 'console') { ctx.fillStyle = '#1f2a33'; ctx.fillRect(-w * 0.1, n + D * 0.15, w * 0.5, D * 0.7); }
+}
+function shKit2End(ctx, p, lw, end) {
+  const d = p.def, h = d.h, D = d.depth || d.w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2, st = d.style;
+  if (!PartPaint.flat) { const g = ctx.createLinearGradient(0, b, 0, t); g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(1, 'rgba(255,255,255,0.1)'); ctx.fillStyle = g; ctx.fillRect(n, b, D, h); }
+  const doorE = (dw, dh) => { ctx.fillStyle = shTone(-0.2); ctx.fillRect(-dw / 2, b + 0.05, dw, dh); ctx.lineWidth = lw; ctx.strokeStyle = GV_INK; ctx.strokeRect(-dw / 2, b + 0.05, dw, dh); };
+  if (st === 'hangar' && end < 0) { ctx.fillStyle = shTone(-0.15); ctx.fillRect(n + D * 0.08, b + 0.05, D * 0.84, h * 0.82); ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); for (let yy = b + 0.3; yy < b + h * 0.85; yy += 0.3) { ctx.moveTo(n + D * 0.08, yy); ctx.lineTo(f - D * 0.08, yy); } ctx.stroke(); return; } // (the roller door)
+  if (st === 'bridgeL' && end > 0) { shWindows(ctx, n + D * 0.08, f - D * 0.08, b + h * 0.62, t - h * 0.1, 7); for (let i = 0; i < Math.floor(D / 1.6); i++) { ctx.beginPath(); ctx.arc(n + 1.2 + i * 1.6, b + h * 0.26, 0.2, 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); } return; }
+  if (st === 'shStealth' && end > 0) { ctx.fillStyle = '#1a2229'; ctx.fillRect(n + D * 0.12, b + h * 0.65, D * 0.76, h * 0.18); return; }
+  if (st === 'house' || st === 'bridgeL' || st === 'hangar') { doorE(Math.min(1, D * 0.1), Math.min(2, h * 0.4)); for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * D * 0.3, b + h * 0.6, 0.2, 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); } return; }
+  if (st === 'funnel') { ctx.fillStyle = '#16191c'; ctx.fillRect(n, t - h * 0.14, D, h * 0.14); return; }
+  if (st === 'console' && end > 0) { ctx.fillStyle = 'rgba(150,200,230,0.45)'; ctx.fillRect(n + D * 0.1, t - h * 0.3, D * 0.8, h * 0.28); }
 }

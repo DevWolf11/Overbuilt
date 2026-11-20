@@ -485,14 +485,105 @@ const TEMPLATES = {
   },
   // ---- the ships update's ships (kind 'ship', after the ground block): built bow-right as Armour is, hull segments end to
   // end along x (their bottoms level), the superstructure on the deck, engines inside, screws and rudders under the stern
-  cyclon: { // (a Cyclone-class patrol ship, in the update's first slice: hull, wheelhouse, two diesels, two screws and two rudders, unarmed)
-    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 1,
-    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. Ring the telegraph up to Flank and she runs at over 30 knots.',
+  cyclon: { // (a Cyclone-class patrol ship: hull, wheelhouse, two diesels, two screws and two rudders; [WP5] finished with the
+    // existing guns (her 25 mm Bushmaster the 30 mm autocannon in a small turret on the foredeck, a heavy MG each side aft),
+    // a pole mast on the wheelhouse, a damage-control party and 10 t of fuel and ballast aft: 124 t, at her marks)
+    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 2,
+    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. A 30 mm autocannon forward and two heavy machine guns aft. Ring the telegraph up to Flank and she runs at over 30 knots.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
       ['dieselM', -6, -0.209, 0, { z: -0.91, att: 1 }], ['dieselM', -6, -0.209, 0, { z: 0.91, att: 1 }], // (inside the V bottom, as a tap puts them: Ship.spotOf)
       ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
-      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }]],
+      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['ringS', 7.5, 2.21, 0, { att: 3 }], ['turretSmall', 7.5, 2.685, 0, { att: 11 }], ['ac30', 9.032, 2.685, 3, { att: 12 }],
+      ['mgHeavy', -13.6, 2.25, 3, { z: -2.6, att: 0 }], ['mgHeavy', -13.6, 2.25, 3, { z: 2.6, att: 0 }],
+      ['mastPole', 2, 8, 0, { att: 4 }], ['dcLocker', 2, -0.709, 0, { att: 2 }], ['ballast', -14, -1.131, 0, { att: 0 }]],
+    paint: { hbSternM: 'patrolWhite', hbMidM: 'patrolWhite', hbBowM: 'patrolWhite', bridgeM: 'patrolWhite', mastPole: 'patrolWhite', ringS: 'patrolWhite', turretSmall: 'patrolWhite' },
   },
+  zodiak: { // (a 9 m rigid inflatable: two outboards, a console, a heavy MG) [WP5]
+    name: 'Zodiak RIB', kind: 'ship', tier: 1,
+    blurb: 'A fast 9 m inflatable on two big outboards: up on the plane in seconds and over 35 knots. A heavy machine gun on the console, and nothing between her crew and the bullets.',
+    parts: [['ribHull', 0, 0], ['consoleS', -1.4, 1.353, 0, { att: 0 }], ['outboard', -4.9, -0.2, 0, { z: -0.5, att: 0 }],
+      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -1.4, 2.303, 3, { att: 1 }]],
+    paint: { ribHull: 'navyDark', consoleS: 'navyDark' },
+  },
+  higgens: { // (the LCVP: a plywood-and-steel box with a bow ramp, a small diesel, two MGs at the stern) [WP5]
+    name: 'Higgens Landing Craft', kind: 'ship', tier: 1,
+    blurb: 'A 12 m landing craft: twelve troops in the well and a ramp for a bow. Slow (her blunt front pushes a wall of water), but she runs right up a beach. Troops aboard take zones fast.',
+    parts: [['lcHull', 0, 0], ['consoleS', -1.4, 2.1, 0, { att: 0 }], ['dieselS', -4, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
+      ['rudderM', -6.34, -2.182, 0, { att: 0 }], ['troopBay', -2.2, -0.814, 0, { att: 0 }], ['troopBay', 0, -0.814, 0, { att: 0 }],
+      ['mgHeavy', -1.4, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -1.4, 3.05, 3, { z: 0.25, att: 1 }]],
+    paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
+  },
+  pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels; her gun
+    // and missiles are WP9's, to come) [WP5]
+    name: 'Pegazus Hydrofoil', kind: 'ship', tier: 3,
+    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
+      ['foilBow', 18.6, -3.75, 0, { att: 4 }], ['foilAft', -5, -3.8, 0, { att: 1 }], ['turbine', -6, -0.05, 0, { att: 1 }],
+      ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['dieselS', 0.3, -1.37, 0, { att: 2 }],
+      ['waterjet', -15.16, -1.35, 0, { att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['mastPole', 8.5, 8, 0, { att: 5 }], ['magazine', 11.97, -0.111, 0, { att: 3 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
+    paint: { hbSternM: 'navyGrey', hbMidM: 'navyGrey', hbBowM: 'navyGrey', bridgeM: 'navyGrey', mastPole: 'navyGrey' },
+  },
+  osca: { // (an Osa-class missile boat: an M hull, three diesels and three screws; her missiles and guns are WP9's, to come) [WP5]
+    name: 'Osca Missile Boat', kind: 'ship', tier: 2,
+    blurb: 'A 40 m missile boat on three big diesels: fast and low, built to dash in, fire and run. Her missiles and guns are still to come.',
+    parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
+      ['dieselM', -6, -0.333, 0, { z: 0.91, att: 1 }], ['dieselM', -6, -0.333, 0, { z: -0.91, att: 1 }], ['dieselM', 2, -0.63, 0, { att: 2 }],
+      ['screwM', -14.46, -2.902, 0, { z: 1.4, att: 0 }], ['screwM', -14.46, -2.902, 0, { z: -1.4, att: 0 }], ['screwM', -12.4, -3.025, 0, { att: 0 }],
+      ['rudderM', -15.51, -2.669, 0, { z: 1.4, att: 0 }], ['rudderM', -15.51, -2.669, 0, { z: -1.4, att: 0 }], ['mastPole', 8.5, 8, 0, { att: 5 }],
+      ['magazine', 11.97, -0.111, 0, { att: 3 }], ['dcLocker', 4.97, -0.709, 0, { att: 2 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
+    paint: { hbSternM: 'navySplinter', hbMidM: 'navySplinter', hbBowM: 'navySplinter', bridgeM: 'navySplinter', mastPole: 'navySplinter' },
+  },
+  vizby: { // (a Visby-class corvette: an L hull under a faceted superstructure, a turbine and two diesels on two waterjets, a
+    // helicopter deck aft; her weapons, hidden inside, are WP9's, to come) [WP5]
+    name: 'Vizby Stealth Corvette', kind: 'ship', tier: 3,
+    blurb: 'A 72 m stealth corvette: flat slanted walls that radars barely see, waterjets that turn her on a coin, a helicopter deck aft. Her weapons, hidden inside, are still to come.',
+    parts: [['hbSternL', -25, 0], ['hbMidL', -8, 0], ['hbMidL', 8, 0], ['hbBowL', 27, 0.6], ['stealthHouse', 3, 6.057, 0, { att: 2 }],
+      ['turbine', -8, -1.299, 0, { att: 1 }], ['dieselM', 2, -1.645, 0, { z: 0.91, att: 2 }], ['dieselM', 2, -1.645, 0, { z: -0.91, att: 2 }],
+      ['waterjet', -32.84, -2.15, 0, { z: -1.6, att: 0 }], ['waterjet', -32.84, -2.15, 0, { z: 1.6, att: 0 }], ['helipad', -24, 3.2, 0, { att: 0 }],
+      ['magazine', 13.97, -1.462, 0, { att: 2 }], ['dcLocker', 8, -1.886, 0, { att: 2 }]],
+    paint: { hbSternL: 'navyDark', hbMidL: 'navyDark', hbBowL: 'navyDark', stealthHouse: 'navyDark' },
+  },
+  olivar: { // (an Oliver Hazard Perry frigate: an X hull, two turbines on one big screw, a hangar and a helicopter deck; her weapons
+    // are WP9's, to come) [WP5]
+    name: 'Olivar Perri Frigate', kind: 'ship', tier: 3,
+    blurb: 'A 108 m frigate on two gas turbines and a single big propeller, with a hangar and a deck for a helicopter. Her guns and missiles are still to come.',
+    parts: [['hbSternX', -37, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbBowX', 41, 0.5], ['bridgeL', 26, 9.191, 0, { att: 3 }],
+      ['deckhouseL', 14, 8, 0, { att: 2 }], ['deckhouseL', 0, 8, 0, { att: 1 }], ['mastLattice', 24, 19.691, 0, { att: 4 }],
+      ['mastLattice', -3, 17.5, 0, { att: 6 }], ['funnel', 12, 13.5, 0, { att: 5 }], ['hangar', -19, 8.5, 0, { att: 1 }],
+      ['helipad', -39, 5.7, 0, { att: 0 }], ['turbine', -10, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -10, -3.711, 0, { z: -1.51, att: 1 }],
+      ['screwL', -46.85, -6.052, 0, { att: 0 }], ['rudderL', -49.5, -6.038, 0, { att: 0 }], ['magazine', 30, -4.074, 0, { att: 3 }],
+      ['dcLocker', 10, -4.355, 0, { z: 1.01, att: 2 }], ['dcLocker', 10, -4.355, 0, { z: -1.01, att: 2 }], ['pump', -5, -4.94, 0, { att: 1 }],
+      ['bulkhead', -0.18, -4.412, 0, { att: 1 }], ['bulkhead', 23.82, -4.412, 0, { att: 2 }]],
+    paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey', hangar: 'navyGrey' },
+  },
+  arley: { // (an Arleigh Burke destroyer: an X hull, four turbines on two screws, a helicopter deck aft; her weapons are WP9's,
+    // to come) [WP5]
+    name: 'Arley Berk Destroyer', kind: 'ship', tier: 3,
+    blurb: 'A 156 m destroyer, 8,000 tonnes, four gas turbines on two propellers: the biggest thing afloat in a battle. Her guns and missile cells are still to come.',
+    parts: [['hbSternX', -61, 0], ['hbMidX', -36, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbMidX', 36, 0], ['hbBowX', 65, 0.5],
+      ['bridgeL', 42, 9, 0, { att: 4 }], ['deckhouseL', 28, 8, 0, { att: 4 }], ['deckhouseL', -12, 8, 0, { att: 2 }],
+      ['mastLattice', 39, 19.5, 0, { att: 6 }], ['funnel', 26, 13.5, 0, { att: 7 }], ['funnel', -10, 13.5, 0, { att: 8 }],
+      ['helipad', -63, 5.7, 0, { att: 0 }], ['turbine', -28.03, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -28.03, -3.711, 0, { z: -1.51, att: 1 }],
+      ['turbine', -36.25, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -36.25, -3.711, 0, { z: -1.51, att: 1 }],
+      ['screwL', -70.85, -6.052, 0, { z: 3.2, att: 0 }], ['screwL', -70.85, -6.052, 0, { z: -3.2, att: 0 }],
+      ['rudderL', -73.5, -6.038, 0, { z: 3.2, att: 0 }], ['rudderL', -73.5, -6.038, 0, { z: -3.2, att: 0 }], ['magazine', 52, -4.083, 0, { att: 5 }],
+      ['magazine', -45.97, -4.106, 0, { att: 1 }], ['dcLocker', -1.03, -4.412, 0, { att: 2 }], ['pump', -12, -4.911, 0, { z: 0.51, att: 2 }],
+      ['pump', -12, -4.911, 0, { z: -0.51, att: 2 }], ['bulkhead', -40.43, -4.412, 0, { att: 1 }], ['bulkhead', -2.18, -4.412, 0, { att: 2 }],
+      ['bulkhead', 23.82, -4.412, 0, { att: 3 }], ['bulkhead', 47.82, -4.412, 0, { att: 4 }]],
+    paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey' },
+  },
+  catalyna: { // (a PBY Catalina: a plane built on a flying-boat hull, wingtip floats, two radial engines, a torpedo and two MGs;
+    // kind plane, filed under Ships in the hangar: group) [WP5]
+    name: 'Catalyna Flying Boat', kind: 'plane', tier: 2, group: 'ship',
+    blurb: 'A flying boat: she starts on the water, floats on her hull and wingtip floats, runs up onto the step at full throttle and lifts off. A torpedo under her wing and two guns in the bow.',
+    parts: [['stepHull', 0, 0, 1], ['cockpit', -2.6, 5.5, 0, { att: 0 }], ['wingStraightL', -1.85, 1, 0, { att: 0 }],
+      ['propL', -1.85, 3.4, 0, { z: -3.2, att: 2 }], ['propL', -1.85, 3.4, 0, { z: 3.2, att: 2 }], ['pontoon', 0.18, 1, 1, { z: -12.6, att: 2 }],
+      ['pontoon', 0.18, 1, 1, { z: 12.6, att: 2 }], ['vtailL', -2.45, -7, 0, { att: 0 }], ['elevatorL', -3.83, -7.6, 0, { att: 7 }],
+      ['torpedo', -1.2, 0.8, 0, { z: 2.6, att: 2 }], ['gun', -1.78, 7.9, 0, { z: -0.4, att: 0 }], ['gun', -1.78, 7.9, 0, { z: 0.4, att: 0 }]],
+    paint: { stepHull: 'navyGrey', cockpit: 'navyGrey', wingStraightL: 'navyGrey', pontoon: 'navyGrey', vtailL: 'navyGrey', elevatorL: 'navyGrey' },
+  }
 };
 
 // A template's parts as design rows (extras: z, att, skin, mm).
@@ -534,8 +625,8 @@ const TRAY_ORDER = ['Inside a nose', 'Outside', 'Controllers', 'Multirotor', 'Fi
 let PART_FAMILIES = null;
 function partFamilies() {
   if (PART_FAMILIES) return PART_FAMILIES;
-  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru|us4|us5)/.test(r[0])));
-  for (const t of jets) for (const [type] of t.parts) if (/^(ru|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name);
+  const of = new Map(), jets = Object.values(TEMPLATES).filter((t) => t.parts.some((r) => /^(ru[A-Z0-9]|us4|us5)/.test(r[0])));
+  for (const t of jets) for (const [type] of t.parts) if (/^(ru[A-Z0-9]|us4|us5)/.test(type) && !of.has(type)) of.set(type, t.name); // [WP5] (ru then a capital: the look-alike jets' parts, not the ships' rudders)
   for (const type in PARTS) { const m = /^(FS|MyG|Sugoi)-\d+/.exec(PARTS[type].name); if (m && jets.some((t) => t.name === m[0])) of.set(type, m[0]); }
   const rank = new Map(jets.map((t, i) => [t.name, i + 1])), keys = Object.keys(PARTS).filter((k) => !PARTS[k].retired);
   for (const k of keys) { const f = PARTS[k].family; if (f && !of.has(k)) { of.set(k, f); rank.set(f, jets.length + 1 + Math.max(0, PART_ERAS.indexOf(f))); } }
@@ -2418,7 +2509,7 @@ const Builder = {
       const com = this.com, col = this.col, L = Math.max(4, s.air.length);
       if (!has((p) => p.def.wing && !p.def.wing.control)) warn.push('Add a wing to fly: drop it through the fuselage near the yellow centre of mass.');
       if (!has((p) => p.def.thrust)) warn.push('Add an engine: a propeller or a jet.');
-      if (!has((p) => p.def.wheel) && !has((p) => p.def.float)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).');
+      if (!has((p) => p.def.wheel) && !has((p) => p.def.float || p.def.hull)) warn.push('Add landing gear under the fuselage to roll down the runway (or floats to start on the water).'); // [WP5] (a hull floats as floats do: a flying boat)
       else if (has((p) => p.def.wheel) && com) {
         const ahead = ps.some((p) => p.def.wheel && p.y > com.y), behind = ps.some((p) => p.def.wheel && p.y < com.y);
         if (!ahead || !behind) warn.push('Put landing gear both ahead of and behind the centre of mass, or it will tip onto its nose or tail.');
