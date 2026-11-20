@@ -219,7 +219,7 @@ const Ship = (() => {
     // screws and foils copy by copy (a twin pair's two), each with its own axes in part space
     const axes = (p) => { const o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1); return { o, ex: { x: a.x - o.x, y: a.y - o.y, z: 0 }, ey: { x: u.x - o.x, y: u.y - o.y, z: 0 } }; };
     const scr = [], fl = [];
-    for (const p of thrust) if (p.def.screw) { const U = axes(p); for (const z of partZs(p)) scr.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, D: p.def.screw.D, eta: p.def.screw.eta || 0.6, T: 0 }); }
+    for (const p of thrust) if (p.def.screw) { const U = axes(p), yh = p.def.screw.y ? partPt(p, 0, p.def.screw.y) : U.o; for (const z of partZs(p)) scr.push({ p, x: yh.x, y: yh.y, z, ex: U.ex, D: p.def.screw.D, eta: p.def.screw.eta || 0.6, T: 0 }); } // [WP5] (screw.y: the propeller's height in its part, an outboard's at the foot of its leg)
     for (const p of foils) { const U = axes(p); for (const z of partZs(p)) fl.push({ p, x: U.o.x, y: U.o.y, z, ex: U.ex, ey: U.ey, f: p.def.foil, F: 0 }); }
     const n = rings.length;
     v.sh = {
@@ -1087,7 +1087,7 @@ const Ship = (() => {
       const d = p.def;
       if (d.thrust && !(d.air && d.air.kind === 'rotor')) out.air += d.thrust * 1000 * partAxis(p).x;
       if (!d.screw && !d.jet) continue;
-      const D = (d.screw || d.jet).D, o = partPt(p, 0, 0), e = partPt(p, 1, 0), copies = partZs(p);
+      const D = (d.screw || d.jet).D, o = partPt(p, 0, (d.screw && d.screw.y) || 0), e = partPt(p, 1, (d.screw && d.screw.y) || 0), copies = partZs(p); // [WP5] (screw.y: as the flight's)
       let sub = 0;
       for (const z of copies) sub += smoothstep(0, SHIP.SCREW.sub * D, -(n.x * o.x + n.y * o.y + n.z * z - c));
       const P = (d.engine ? d.engine.kw * 1000 : shared.length ? (out.kw * 1000) / shared.length : 0) * copies.length;

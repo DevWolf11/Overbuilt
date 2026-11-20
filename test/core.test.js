@@ -52,9 +52,12 @@ const GROUND = { // key: [name, money tier it fits ($)]
 };
 W.__G = GROUND;
 // (the ships update's ships carry gv parts too: they come after the ground block, and are not ground vehicles)
-const SHIPS = { cyclon: ['Cyclon Patrol Boat', 45000] }; // key: [name, money tier it fits ($)]
-const keys = Object.keys(W.TEMPLATES), ships = keys.filter((k) => W.TEMPLATES[k].kind === 'ship'), gv = keys.filter((k) => W.TEMPLATES[k].parts.some((r) => W.PARTS[r[0]] && W.PARTS[r[0]].gv) && !ships.includes(k));
-g('59 templates; the eighteen ground ones (after the jets and the drones), then the ships last, under their own names', keys.length === 59 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(ships) === JSON.stringify(Object.keys(SHIPS))
+// (WP5: the nine of spec §7, the flying boat last: kind plane, filed under Ships, group 'ship'; the warships' weapons are WP9's)
+const SHIPS = { cyclon: ['Cyclon Patrol Boat', 45000], zodiak: ['Zodiak RIB', 45000], higgens: ['Higgens Landing Craft', 45000], pegazus: ['Pegazus Hydrofoil', 75000],
+  osca: ['Osca Missile Boat', 75000], vizby: ['Vizby Stealth Corvette', 75000], olivar: ['Olivar Perri Frigate', 120000], arley: ['Arley Berk Destroyer', 120000],
+  catalyna: ['Catalyna Flying Boat', 45000] }; // key: [name, money tier it fits ($)]
+const keys = Object.keys(W.TEMPLATES), ships = keys.filter((k) => W.TEMPLATES[k].kind === 'ship' || W.TEMPLATES[k].group === 'ship'), gv = keys.filter((k) => W.TEMPLATES[k].parts.some((r) => W.PARTS[r[0]] && W.PARTS[r[0]].gv) && !ships.includes(k));
+g('67 templates; the eighteen ground ones (after the jets and the drones), then the ships last, under their own names', keys.length === 67 && JSON.stringify(gv) === JSON.stringify(Object.keys(GROUND)) && JSON.stringify(ships) === JSON.stringify(Object.keys(SHIPS))
   && JSON.stringify(keys.slice(-(18 + ships.length))) === JSON.stringify([...gv, ...ships]) && gv.every((k) => W.TEMPLATES[k].name === GROUND[k][0]) && ships.every((k) => W.TEMPLATES[k].name === SHIPS[k][0]),
   gv.concat(ships).map((k) => W.TEMPLATES[k].name).join(', '));
 W.__SHIPS = ships;
@@ -62,8 +65,18 @@ g('the ships: kind ship, not military, a blurb; tier the highest of their parts\
   const T = TEMPLATES[k], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), ctrl = findControlPart(ps), v = new Vessel(ps, adj, EARTH);
   v.kind = T.kind; v.rebuildGroups();
   let clash = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) clash++;
-  return T.kind === 'ship' && !T.military && T.blurb.length > 40 && T.tier === Math.max(...ps.map((p) => p.def.tier || 0)) && ctrl && componentOf(ctrl.id, adj).size === ps.length && !clash
-    && designCost(ps) <= ${JSON.stringify(Object.fromEntries(Object.entries(SHIPS).map(([k, v]) => [k, v[1]])))}[k] && v.hydro && v.sh.open.length === 0 && v.sh.joins.length === v.sh.hulls.length - 1 && v.sh.comps.length === v.sh.hulls.length; })`));
+  return (T.kind === 'ship' || (T.kind === 'plane' && T.group === 'ship')) && !T.military && T.blurb.length > 40 && T.tier === Math.max(...ps.map((p) => p.def.tier || 0)) && ctrl && componentOf(ctrl.id, adj).size === ps.length && !clash
+    && designCost(ps) <= ${JSON.stringify(Object.fromEntries(Object.entries(SHIPS).map(([k, v]) => [k, v[1]])))}[k] && v.hydro && v.sh.open.length === 0
+    && v.sh.joins.length === v.sh.hulls.filter((p) => p.def.shull.cls !== 'one').length - (v.sh.hulls.some((p) => p.def.shull.cls !== 'one') ? 1 : 0) && v.sh.comps.length === v.sh.hulls.length; })`));
+// (WP5) each ship floats at her design marks (Ship.stats' still-water float: her draught within 0.3 m of her longest hull
+// part's waterline over its keel), upright, trimmed within 1°, no builder warning; editable: her design rows (as the
+// builder saves them) load back to the same parts. The flying boat floats on her hull too (ships.test: in flight)
+const marks = RW(`__SHIPS.filter((k) => TEMPLATES[k].kind === 'ship').map((k) => {
+  const T = TEMPLATES[k], ps = partsFromDesign(templateRows(T)), st = Ship.stats(ps), w = []; Ship.warnings(ps, st, w);
+  const H = ps.filter((p) => p.def.shull).sort((a, b) => b.def.w - a.def.w)[0], S = shullOf(H.def), mark = S.wl - Math.min(...S.rings.map((r) => r.yk));
+  const back = partsFromDesign(designRows(ps).map((r) => ({ ...r }))), same = back.length === ps.length && back.every((q, i) => q.type === ps[i].type && Math.abs(q.x - ps[i].x) < 1e-6 && Math.abs(q.y - ps[i].y) < 1e-6 && Math.abs(partZ(q) - partZ(ps[i])) < 1e-6 && (q.att == null) === (ps[i].att == null));
+  return [k, +st.draft.toFixed(2), +mark.toFixed(2), +st.trim.toFixed(2), +st.heel.toFixed(2), w.length, same, st.sinks]; })`);
+g('every ship floats within 0.3 m of her marks, upright, trimmed within 1°, no warnings, her rows load back as they were', marks.length === 8 && marks.every(([, d, m, tr, he, w, same, sinks]) => Math.abs(d - m) <= 0.3 && Math.abs(tr) < 1 && Math.abs(he) < 0.1 && w === 0 && same && !sinks), JSON.stringify(marks));
 g('seventeen are Armour (kind tank), the Desert Technical a car; none of them military; each with a blurb', gv.filter((k) => W.TEMPLATES[k].kind === 'tank').length === 17 && W.TEMPLATES.technical.kind === 'car'
   && gv.every((k) => !W.TEMPLATES[k].military && W.TEMPLATES[k].blurb.length > 40));
 // (P4 review) a blurb says what the vehicle does: most of the MA-1's rounds (34 of 50) sit behind blow-out panels, not all
