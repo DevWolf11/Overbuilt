@@ -655,3 +655,266 @@ them into their vertex colours (built `SKIN_GEO`).
 **Hangar classes** (`shipClass(t)`: builder.js, WP7, from the template's hulls): boat (under 25 m), patrol (25-60 m),
 escort (60-120 m and under 3,000 t), destroyer (the rest); the Ships group lists them by class, then cost; the
 Catalyna last.
+
+---
+
+## 8. Combat, damage and sinking (ship.js §damage and §combat; WP8, WP9)
+
+Everything here is gated: a hull part (`def.shull`), a hydro vessel (`v.sh`), a ship-update weapon (`w.asm`, `w.vls`,
+`w.kind === 'torp'`, `def.ciws`, `SH.naval`), `Combat.S.sea` (a hydro vessel in play) or `Combat.S.pd` (a CIWS aboard
+anything). Old play reaches none of it (§13, §14).
+
+### 8.1 Naval guns and shells (WP9)
+New `SHELLS` keys in armour.js (a `// ==== naval ====` block at the end of the table), each with `naval: true` and its own
+`life` (s; `moveShell` and `Aim.shoot` already read `SH.life`). Drag coefficients `k` are low (streamlined, heavy shells):
+a 127 mm round reaches about 20 km at 45° and spends about 60 s getting there.
+
+| Key | Type / label | cal | v0 | k | kg | pen | dmg | he | blast | other | life |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| he57n | he HE | 57 | 1035 | 3.5e-5 | 2.4 | 0 | 150 | 9 | 2.5 | | 25 |
+| hevt57n | hevt HE-VT | 57 | 1035 | 3.5e-5 | 2.4 | 0 | 110 | 8 | 5 | prox 6, arm 0.4 | 25 |
+| he76n | he HE | 76 | 920 | 2.4e-5 | 6.3 | 0 | 260 | 16 | 3.5 | | 30 |
+| hevt76n | hevt HE-VT | 76 | 920 | 2.4e-5 | 6.3 | 0 | 200 | 14 | 6 | prox 8, arm 0.6 | 30 |
+| he127 | he HE | 127 | 810 | 1.4e-5 | 31 | 0 | 700 | 40 | 7 | | 60 |
+| sap127 | aphe SAP | 127 | 810 | 1.4e-5 | 31 | 90 | 500 | — | — | burst 500, r 2.5 | 60 |
+| hevt127 | hevt HE-VT | 127 | 810 | 1.4e-5 | 31 | 0 | 500 | 35 | 12 | prox 15, arm 1.0 | 60 |
+| he152n | he HE | 152 | 850 | 1.1e-5 | 45 | 0 | 1000 | 60 | 9 | | 70 |
+| sap152 | aphe SAP | 152 | 850 | 1.1e-5 | 45 | 130 | 700 | — | — | burst 800, r 3 | 70 |
+| ciws20 | ap AP (CIWS) | 20 | 1100 | 6e-5 | 0.1 | 30 | 30 | — | — | tracer 5, `ciws` | 2 |
+
+- **Range tables.** `Aim.rangeTable(def, body)` integrates to `SH.life` s for naval shells (on the body: at 1/20 scale the
+  Earth's curvature drops a point 20 km off by 635 m, which the integration has for free); `Aim.solve` and `aimLift` use the
+  table past 3 km for `SH.naval` shells (gated: every old shell's path is the old one; aim.test unchanged). Cached per def
+  (§15: ≤ 30 ms once).
+- **Long flights** run on `moveShell`'s cheap stepping beyond 1 km from any vessel (built `s.cheap`, `CHEAP_H`).
+- **Ready rounds and magazines.** A naval gun's `ammo` is its ready rounds; with a whole `magazine` part aboard, an empty
+  naval gun refills its ready rounds from the magazines' pool (`store.rounds`, each round any naval calibre) over
+  `4 × reload` s. Without one, the ready rounds are all.
+- **Splashes:** big columns (§5.4). **Recoil:** gv's gun kick, scaled by `kg × v0` (a 127 mm on a tank rocks it hard).
+
+### 8.2 Aiming at sea; old weapons on ships (WP9)
+- The aim mode (the tank's) is on for ships (*built*: flight.js `groundTick`). The camera's reach for a ship is built
+  (render3d `aimDist`).
+- **The 20 km ray.** ghud.js `aimUpdate`'s ray length (`best = 3000`) and the sight's zero ladder (`F.zero` 200-3000) become
+  `GHUD.reach(v)`: `SHIP.AIM.ray` 20,000 m and a zero of `SHIP.AIM.zero` [100, 20000] (100 m steps to 3 km, 500 m beyond)
+  for a sea kind or any craft carrying a naval gun (a TK-34 with a 127 mm gets the long ray); 3,000 for everything else
+  (old play unchanged). Auto-ranging: a whole `nRadarFC` aboard is a laser rangefinder (`lrf(v)`), and the zero snaps to
+  the surface contact under the crosshair.
+- **Old turrets fire from a ship afloat (S8).** combat.js `turretStep`/`turretFire`'s "hold fire on the ground or water"
+  (PR #37) stays for every old craft; a hydro vessel afloat is the exception (`&& !v.sh`): the rule is for aircraft sat on
+  the ground or the water, never a ship.
+- **Crews:** a gun house's gunner works its gun (existing crew rules); the Bridge's two extra gunners man a ship's other
+  weapon stations (missile launchers, torpedo tubes) so a ship that loses her bridge loses them too.
+- **AI aiming:** `Aim.stepAll`'s loop gains AI ships: `o.ai && (o.ai.ground || o.ai.sea)` (gated on `ai.sea`, §9).
+- **Torpedo tubes and launchers** fire from the weapon list (`Combat.systems`) with the fire key while aiming; ASM and
+  VLS launchers aim at the surface or air contact under the crosshair (§8.6).
+
+### 8.3 Where hits land on a hull (WP8)
+- `Ship.hullRay(p, A, B, H)`: the segment A → B (the part's own frame) against the hull's own triangles: a pure
+  `shullTris(def)` (new, parts.js, cached per def) builds them from `shullOf(def).rings` (each pair of neighbouring rings:
+  `K` quads of two triangles, the deck strip between the deck edges, the end caps: transom, stem, or nothing at an open
+  joint) with a face code per triangle: **−6 deck** (the strip between the deck edges), **−7 side** (from the deck edge
+  down to the lowest bilge point whose outward normal is more across than down), **−8 bottom** (the rest), **−9 open**
+  (an unjoined joint end: no plate). parts3d's `shipHullGeo` builds its positions from the same `shullTris` (WP8 changes
+  it to read them; the picture must not move: `builder-shapes.mjs`), so what is hit is what is drawn, exactly.
+- Culling: only the slabs whose x span meets the segment's (a broadside shot: 1-2 slabs, ~60 triangle tests).
+- Fills `H` as `prism` does: `t0`, `t1` (entry and exit along A → B), `edge` and `edge1` (the face codes), `n`, `n1`
+  (outward normals), `u` (the entry's y in the part's frame: the belt test), `box = false`.
+- armour.js: `recsOf` adds `sh: !!d.shull`; `test()` sends `r.sh` records to `Ship.hullRay(p, PA, PB, H)` after `ownR`
+  (instead of `prism`); `faceMm(p, edge, u)` sends `edge <= -6` to `Ship.hullMm(p, edge, u)`: deck `A.deck ?? A.plate`;
+  side: `p.mm ?? A.mm` inside `A.belt.y`, else `A.plate`; bottom `A.plate`; open 0; `mat: 'grp'` 0 (no armour: holes).
+- After penetrating, a round goes on inside (`postPen`): the hull's insides are its `inner` parts (engines, magazines,
+  pumps, crews) as a tank's; a kinetic round that misses them leaves through the far side (a second hole).
+- Blasts: combat.js `explode`'s distance for a hull part is `Ship.hullDist(v, p, at)` (to its nearest triangle, 0
+  inside) instead of `centre − max(w, h)/2` (which would put a 150 m hull "touching" any burst within 75 m): gated on
+  `p.def.shull`.
+
+### 8.4 Holes (WP8)
+`p.holes = [{ x, y, z, a, t, fix }]` per hull part (part frame; `a` m²; `fix` 0..1 patched), at most `HOLE.max` 16 (a new
+one past that merges into the nearest: areas add, `HOLE.cap` 20 m² a hole). Made by `Ship.addHoles(v, [[p, x, y, z, a], …])`
+from: Armour's `apply` for hull parts (from the resolve result `R`: entry and exit points), `explode`'s hull path, the
+torpedo and ASM hits, `impactSea`, `bump`, the magazine. Areas:
+- a round through the plate (each side it goes through): `HOLE.kin`·π·(cal/2000)² (127 mm: 0.019 m²; 20 mm: 0.0005);
+- high explosive bursting inside: + `HOLE.heIn`·blast² (127 mm HE: 0.20 m²; an ASM: 0.58);
+- high explosive on or near the hull: `HOLE.he`·blast²·(1 − d/blast), × `HOLE.tamp` 3 when the burst is more than
+  `tampD` 0.5 m under the water (127 mm HE on the plate: 0.98 m²; at the waterline under: 2.9);
+- a bullet through glass fibre: `HOLE.grp` 0.002;
+- **a drone's charge (S1):** its plate-wear share uses a fixed reference, never the part's own max hp: in armour.js
+  `resolve`, `Combat.maxHp(D)` becomes `(D.ship ? SHIP.DRONE.ref : Combat.maxHp(D))` in both `dj.host` and `dj.np` lines
+  (`SHIP.DRONE = { ref: 2000 }`: a patrol boat's midsection), plus a hole of `he·blast²` with the charge's own blast.
+  Target bands (S2, §8.12): a Bumble needs 3-8 hits to sink a patrol boat, 40-120 a destroyer;
+- **bombs under water (S4):** with `Combat.S.sea` and a hydro vessel within the bomb's blast + 20 m of where it meets the
+  water, a bomb hitting the sea doesn't burst at the surface: it sinks on at 10 m/s for 0.5 s and bursts there (tamped:
+  ×3 holes, the near miss that springs plates). combat.js `moveShot`'s bomb branch, gated so the old ranges never see it;
+- open ends: permanent, the end ring's area below the deck (§3.3);
+- a hull part at 0 hp: "holed through" (§8.9): `HOLE.cap` 20 m² at its waterline amidships.
+Holes show as dark scorched decals on the hull (render3d's decals, WP12) and in the X-ray. Saved (`p.holes`), cleaned on
+load (finite, in the part's box, `a` in (0, cap], at most `max`).
+
+### 8.5 Torpedoes (WP9)
+- **Ship torpedoes** (`weapon.kind: 'torp'`): `Ship.fireTorp(v, p, F)` (from Aim's `fire` / `Combat`'s weapon fire for
+  that kind) puts a shot `{ k: 'stor', … }` in `Combat.S.shots`; combat.js `moveShot`: `if (s.k === 'stor') return
+  Ship.torpStep(s, h, F)`. It leaves the tube along the tube's +y (trained outboard), runs `depth` 6 m down (reached in
+  3 s), at `speed` 22 m/s, straight for 1 s; then, `seek: 'active'`, it looks ahead within `cone` 30° and `acquire`
+  1,500 m for a hydro vessel afloat that isn't its owner's or an ally's, and homes at `TORP.turn` 6 °/s; it dies after
+  `range` 8,000 m, or runs aground where the bed is shallower than `TORP.aground` 4 m (a burst at half power). Bubbles
+  every `TORP.bubbles` s (§5.4).
+- **The hit:** `Ship.torpHit`: its step's segment, under the water, against each hydro vessel's hull under the local
+  waterline (`insideHull` at its points): an explosion at the hull (`Combat.explode` with `under: true`: holes ×3), blast
+  12, dmg 4,000. Under the keel of a hull part of class M or smaller (within 3 m under its keel line), it breaks her back:
+  the part is holed through and the vessel split there (as a magazine's break, §8.8).
+- **On an aircraft (S7):** a `torpTube` on a craft in the air drops its torpedo: it falls as a bomb until it meets the
+  water; entering faster than 70 m/s along its path or steeper than 45°, it breaks (a splash, a dud); otherwise it runs
+  from there as above. **On land** (no water under the tube, or the tube more than 3 m above it on a craft that isn't
+  airborne) it fires nothing (a toast: "Torpedo tubes need water under them"; the builder warns, §11.3).
+- **The old air torpedo** (the `torpedo` part: `swim`): with `Combat.S.sea` it also homes on hostile hydro vessels afloat
+  within 4,000 m (as it homes on the range's boats) and hits them through `Ship.torpHit(s, a, F)` (true: it hit). combat.js
+  `swim`: target choice and the hit line gated on `S.sea`; the old range (no hydro vessel) is unchanged (combat.test).
+- **Decoys:** `torpDecoy` (§6.5).
+- **In a room:** a `stor` shot is sent as other shots are (`MP.sendShot`); a peer flies a copy for show; only the owner's
+  copy hits, through `MP.sendHits` with `ho` holes rows (§10.4).
+
+### 8.6 Anti-ship missiles and vertical-launch SAMs (WP9)
+- **Anti-ship missiles** (`w.asm`): launched (Combat `launchMissile`) at the surface contact under the crosshair (or, if
+  none, the nearest surface contact in a 60° arc ahead of the launcher: fire and forget). Its own flight
+  (`Ship.asmStep(s, h, F)`, called first in `moveShot`'s missile branch for `s.asm`; Combat's hit tests stay): out of the
+  canister it climbs to 30 m, then cruises at `ASM.skim` 8 m (new) over the waves (`Ship.wave` at its point × fade) at
+  `speed` 260 m/s (the motor burns all the way; `range` 18 km: 70 s); lead pursuit in the horizontal plane (Combat's
+  `guide`); at `ASM.term` 2,000 m from the target its radar seeker goes active and it drops to `ASM.termH` 3 m. Chaff
+  decoys it at the existing `decoyed` odds (a radar seeker). It hits the hull: `he` 120 penetrates plating up to 120 mm and
+  bursts inside (blast 12, dmg 3,000: holes 0.58 m² inside plus the burst's damage to what is in there), or bursts on a
+  thicker belt.
+- **Vertical-launch SAMs** (`w.vls`): out of the cell straight up (the cell's +y), climbing `VLS.t` 0.8 s, then pitching
+  over at `VLS.rate` 60 °/s toward the target, then the ground update's radar SAM guidance (semi-active: a whole
+  `nRadarFC` aboard tracking the target, `Aim.trackStep`), `prox` 8 m. **S3:** `trackRadar.missiles` lets `Aim.trackStep`
+  lock an incoming missile (`Combat.S.shots` k `'missile'`, hostile, closing) as its target; the SAM's proximity burst
+  kills a missile with p 0.7. The player locks with the existing radar-lock key; the AI fires at aircraft within 10 km and
+  at missiles within 6 km homing on her or a ship of her side.
+- Seen by radars: both are missiles to a sea radar (`low`) and to CIWS; an ASM skimming at 8 m is seen by an air radar
+  only inside 4 km (the radar horizon over the waves: `seesSea` with the missile's height).
+
+### 8.7 Flooding, pumps and the free surface (WP8)
+`Ship.floodStep(v, dt, sim)`, `FLOOD.hz` 10 times a second from `Ship.frame` for every hydro vessel that isn't a ghost:
+- **Inside level** of each compartment: the height of its flood plane (level in the world) whose clipped volume of its
+  own rings is `W` (§4.2's routine: the same numbers that push her down).
+- **Each hole** (and open end): its point in the world, the water outside there (the sea's level + the wave × fade), the
+  level inside; through it flows `Q = FLOOD.cd·a·(1 − fix·0.9)·√(2g·Δ)` from the higher side to the lower, `Δ` measured
+  above the hole (water inside above a hole above the sea runs out of it).
+- **Downflooding:** a stretch of deck edge under the water for `downT` 2 s lets in water through `downA` 0.05 m² per m of
+  it into the compartment under (hatches and vents: a ship settling past her deck goes quickly).
+- **Broken boundaries:** a hull part holed through (0 hp) opens its joints: water flows between it and its joined
+  neighbours through `FLOOD.leak` 1 m² (new) by their levels.
+- **Pumps:** each hull part's `shull.pump` and each whole `pump` part's `0.15 × health` m³/s, all working the compartment
+  damage control chooses (the fullest by share, unless `sh.dcPri` says fires), only while some engine still runs.
+- `W` clamped to [0, V]; `p.water` keeps it on the hull part for saves. ≤ 0.02 ms a ship a call (§15).
+- What she does about it is physics alone (§4.2): she lists to the flooded side, trims by the flooded end, settles.
+  Target: a 1 m² hole 1 m under the waterline in the Olivar's midsection: she lists and settles and survives with her
+  pumps; holes in three compartments: she sinks in under 300 s.
+
+### 8.8 Fires, magazines and damage control (WP8)
+- **Fires** (`FIRE`, `Ship.fireStep` at `FIRE.hz` 4): a burst inside a hull (HE, an ASM, a SAP round's burst) or a
+  penetrating round into an engine, a magazine or fuel lights `p.fire` with odds `odds0 + odds1·(blast/9)`; a burning part
+  loses `FIRE.hp` 4 hp/s and burns crews within 3 m (5 hp/s); each second a fire spreads to each part within 6 m with odds
+  `spread` 0.02; black smoke rises from it (FX). Armour's own fire rule (out after 4 s stopped) doesn't apply to a hydro
+  vessel's parts (`repairStep` skips `v.sh`'s fires: ship.js owns them).
+- **Damage control** (`Ship.dcStep`, `DC`): each `dcLocker` is a party of four (`dc` crew; its strength the living
+  members); a ship with none has one party of her bridge crew at half rate. A party walks to its job at 2 m/s along her
+  length and, by `sh.dcPri` ('auto': flooding when a compartment is over a fifth full, else fires, else repairs; 'flood';
+  'fire'): patches a hole at `DC.patch` 0.02 m²/s (at least `DC.minT` 15 s a hole; a patched hole still lets in a tenth),
+  never in a compartment past `DC.full` 0.7 full; puts a fire out in `FIRE.dc` 20 s; mends broken parts at `DC.repair` ×
+  Armour's `REPAIR_T` (under way: armour.js `repairStep`'s "stopped" rule is skipped for `v.sh`, whose repairs are
+  ship.js's).
+- **Magazines** (`Ship.magazine(v, sim, part)`, from armour.js `cookOff` for a hydro vessel's ammo modules: `magazine`
+  parts, VLS cells, ASM canisters; and from a fire within `MAG.near` 6 m of one for `MAG.t` 5 s): a blast of
+  `MAG.r0 + rounds·MAG.rk` m (a full magazine: 28 m) at it, holes of `MAG.hole` 6 m² in every compartment within it, and
+  when its rounds are at least `MAG.brk` 100 (new; a magazine 400, a VLS module 8 × 20 = 160; an ASM canister 20 each:
+  never) the hull part it sits in or on is destroyed: removed, `splitComponents` makes two hydro pieces, each with an open
+  end, both doomed `'magazine'`: she breaks in two and each half sinks on its own.
+
+### 8.9 Hull damage, doom and wrecks (WP8)
+- **A hull part at 0 hp** is holed through, never blown off: combat.js `destroyPart`'s first lines (beside the inner-radar
+  rule): `if (p.def.shull && v.sh) { Ship.holedThrough(v, p, cause, sim); return; }`: `broken` kept, a 20 m² hole at its
+  waterline amidships, its joints opened (`leak`). Only a magazine (§8.8), a back-breaking torpedo (§8.5) or a grounding
+  past `IMPACT.remove` (§4.8) removes one.
+- **Fate** (`Ship.fateStep`, `FATE.hz` 4, the player's ship and every AI ship): **capsized** — `|heel|` past
+  `FATE.capsize` 60° for `capsizeT` 4 s; **sunk (foundering)** — her weight and water past `reserve` 0.97 of the intact
+  hull's whole buoyancy, or her highest deck `deckUnder` 1 m under; **out of action** — no `driver` left alive aboard
+  (`Armour.has(v, 'driver')`) or no control part whole; **magazine** (§8.8). `Ship.doom(v, sim, why, by)`: `v.fate = why`
+  (flight.js `SHIP_FATES` words, built), `v.doomed = sim.time`, credit to `by` (`v.lastHitBy`: `Combat.byMe` decides the
+  player's kill), the kill toast and the banner (Death's HUD); an AI ship stops fighting; the player's end screen goes
+  through `Flight.afterFall` and waits until she is sunk or `FATE.wait` 15 s. A capsized or out-of-action ship is scuttled
+  (`scuttleA` 1 m² at the keel of every compartment after `scuttleT` 60 s) so she goes down within a few minutes.
+- **Sunk** (her top `under` 3 m under, or `bedT` 10 s on the bed): on a bed shallower than `wreckDepth` 40 m she is a
+  wreck (`v.wreck`, frozen `kin`, death.js's wreck list: five minutes, eight standing, shared in rooms by `down.w`); deeper,
+  removed once her highest point is `gone` 40 m down (the renderer draws her going down).
+- **Derelicts:** a hydro vessel afloat with nobody at a control part for `derelictT` 120 s (a piece, an abandoned ship)
+  is holed `derelictA` 0.5 m² a compartment and sinks.
+- **A ground vehicle knocked out in deep water** (the case the sea fix left): death.js `swamp` returns early for `o.ko`;
+  now a knocked-out non-hydro ground vehicle whose wreck stands in water deeper than it is tall goes under after
+  `SEA.swamp` s like any other (`goUnder(o, F, w, 'wreck')`), and its wreck record leaves the wreck list (every screen
+  runs the same rule from the shared wreck's place and the terrain: no message). A hydro ground vehicle (a tank with a
+  hull) knocked out is doomed `'action'` and sinks by physics (never a wreck frozen on the water). Gated on water deeper
+  than the vehicle: every old test path (wrecks on land, `death.test` A7/B3) is unchanged; ground.test checks.
+- **Hit ticks (S6):** combat.js `damage`'s `Death.hit` gate gains `|| isSea(v.kind)`.
+
+### 8.10 CIWS (WP9)
+`Ship.ciwsStep(F, dt)` from `Combat.frame` while `Combat.S.pd` (new: any live vessel with `v.ciws.length`, set beside
+`S.sea`), for each vessel with CIWS parts (any kind: a tank with one defends itself; the player's only while
+`sh.ciwsOn`, or always for a non-ship craft with no helm), each whole `ciws` part:
+- **Targets:** the threat with the least time to reach her among hostile missiles (`Combat.S.shots` k `'missile'`, closing,
+  heading within `CIWS.cone` 30° of her), aircraft (`air`), drones (`drones`), within `range` 1,500 m and in the mount's
+  arcs. **Never the low-and-slow notch rule (S5):** a hovering helicopter, a slow drone and a sea-skimmer are all seen.
+- **Firing:** the mount slews at `slew` 115 °/s within `yaw`/`el`; within `CIWS.on` 1° of the lead point it fires `burst`
+  1 s bursts: a simulated round every 1/15 s carrying `n` 5 (`k: 'shell'`, `sh: 'ciws20'`, `ciws: 5`), dispersion
+  `CIWS.disp` 2 mrad, every third drawn as a streak tracer. armour.js `moveShell` (one line, gated on `s.ciws`):
+  `if (s.ciws && Ship.shotMissiles(s, a, e, F)) return false;`: a missile within `CIWS.kill` 2.5 m of the round's segment
+  is killed with p `1 − (1 − CIWS.p)^n` (0.88); aircraft and drones are hit by the round as by any shell. `ammo` 1,500,
+  `reload` 30 s when empty.
+- Expected: one CIWS against one subsonic ASM kills it 65-95 % of the time (ships.test, 100 seeded engagements); two at
+  once, about half each.
+- In a room, a CIWS kill of another player's missile is an `mkill` to its owner (§10.4).
+
+### 8.11 Seeing ships (WP9)
+- **Surface, never air.** A hydro vessel afloat (`v.sh && v.afloat`) and a ghost of a sea kind (or a ghost carrying the
+  `afloat` flag of its snapshot, §10.4) is a surface contact: combat.js `candidates` (out of the air list; in the ground
+  list, for `seek: 'ground'`, `'sea'`, IR, TV and anti-radar missiles: a ship's radar is an emitter), radar.js (the
+  aircraft radar's contact lists: `!isSea(g.kind) && !(g.sh && g.afloat)`; **no magic radar:** an aircraft's radar part
+  never sees a ship: eyes and the missiles' own seekers do), drone.js `lockable` (ships yes), aim.js search and track
+  (sea radars: `searchRadar.sea`, `trackRadar.sea`), the ground AI's targets (a ship in reach is a target: S9's mirror).
+  A flying boat in the air is an aircraft; on the water, a surface contact.
+- **The horizon:** `Ship.seesSea(a, b)`: within `√(2R·ha) + √(2R·hb)` (R the body's radius; ha the eye's height over the
+  water: a radar part's top, the bridge's; hb the target's highest point), and no land in the way (sampled every
+  `LOS.step` 200 m within `LOS.land` 3 km of land: a per-`LOS.cell` 500 m land mask built once per map), and no smoke
+  (`Aim.smokeBlocks`). Two 20 m masts: about 7 km.
+- **Radar reach:** `Ship.rcs(v)` = `clamp((L_wl / RADAR.rcsL)^rcsExp, rcsMin, 1) × (1 − stealth)` (a destroyer the full
+  reach, a RIB 0.4, the Vizby × 0.6).
+- **`Ship.surface(v, F)`:** v's sea radars' contacts (hydro vessels and sea-kind ghosts within radar range × rcs and
+  `seesSea`; with `low`, anything under `RADAR.lowAir` 100 m within 10 km: sea-skimmers, helicopters), four times a second;
+  GHUD's radar scope and minimap show them (built for the ground radars).
+- **Eyes:** `EYES.day` 8 km (`night` 3 km) within the horizon: spotting (GHUD's, and `seen`/`spot` in rooms) takes ships.
+
+### 8.12 Weapons against ships, ships against everything (§20; WP8, WP9, WP14)
+The owner's rule (§20): every kind can destroy every kind. The damage targets (S2) the tests hold (`ships.test` §combat
+seeded; `matrix.test` reach and effort), as hits to sink or put out of action, seeded, Moderate sea:
+
+| Weapon (carried by) | Zodiak (RIB) | Cyclon (patrol) | Vizby (corvette) | Arley (destroyer) |
+|---|---|---|---|---|
+| 12.7 mm MG (car, heli, ship) | 30-80 rounds | out of action 200-600 (bridge crew); never sinks her (pumps keep up) | almost harmless | almost harmless |
+| 30 mm cannon (IFV, ship) | 5-15 | out of action 40-120, sunk 300+ | 400+ | almost harmless |
+| tank 120 mm APFSDS | 1-2 | sunk 20-60 | 80+ | out of action 20-40 (bridge, guns), sunk 300+ |
+| tank 120 mm HE | 1 | 4-10 | 15-30 | 40-100 |
+| naval 127 mm HE/SAP | 1 | 3-6 | 8-15 | 15-40 |
+| anti-ship missile | 1 | 1 | 1-2 | 3-5 |
+| torpedo (ship's or the old air one) | 1 | 1 | 1 | 1-2 |
+| 500 lb bomb: direct / 5 m near miss | 1 / 1 | 1 / 1-2 | 2 / 3-4 | 3-5 / 6-10 |
+| air rockets | 1 | 6-15 | 20-40 | 60+ |
+| drone charge (a Bumble, S1) | 1 | 3-8 | 15-35 | 40-120 |
+| ramming at 15 kn by a Cyclon | 1 | 2-3 | holes only | holes only |
+
+And the other way (ships against everything): a naval 127 mm HE knocks out a tank on the shore in 1-3 hits (S9: the AI
+engages shore targets in gun range); `hevt` proximity rounds bring down a plane in 10-30 rounds within 5 km; CIWS shreds
+drones, helicopters and missiles; VLS SAMs reach aircraft at 12 km; a gun hits a rocket on its pad. Folded decisions:
+**S1** (fixed reference for drone charges), **S2** (this table), **S3** (SAMs shoot missiles), **S4** (bombs under
+water), **S5** (CIWS never notches), **S6** (hit ticks), **S7** (aerial torpedoes; none on land), **S8** (old turrets
+fire afloat), **S9** (the naval AI engages shore targets), **S10** (ship ghosts collide: §4.8). The old-kind fixes
+**O1**, **O3**, **O5** are WP14's (§16).
