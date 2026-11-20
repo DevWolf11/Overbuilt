@@ -263,13 +263,15 @@ Ship.setSea('moderate'); var pg = build(pgRows(), 'ship', { e: -2300, z: -1500, 
   const time = (code, n) => { R(`var __f = () => { ${code} };`); R(`for (let i = 0; i < ${Math.ceil(n / 10)}; i++) __f();`); const t0 = process.hrtime.bigint(); R(`for (let i = 0; i < ${n}; i++) __f();`); return Number(process.hrtime.bigint() - t0) / 1e3 / n; };
   R(`Ship.setSea('calm'); var ba = build(tpl('cyclon'), 'ship', { e: -2400, z: -3200, yaw: 0 }), bb = build(tpl('cyclon'), 'ship', { e: -2380, z: -3200 + 6.5, yaw: 0 }), bF = fsim(ba, [ba, bb]); var bx0 = [bb.x, bb.y, bb.z];
   var touch = Ship.insideHull(ba, bb.toLocal(...(() => { const g = ba.sh.rings[3], W = ba.toWorld(g.P[3 * 9], g.P[3 * 9 + 1], g.P[3 * 9 + 2]); return [W.x, W.y, W.z]; })()));`);
-  const us = time('bb.x = bx0[0]; bb.y = bx0[1]; bb.z = bx0[2]; Ship.bump(bF);', 2000);
-  const none = time(`Ship.bump({ vessels: [ba] });`, 20000);
-  t(`Ship.bump with two ships alongside, touching: ${us.toFixed(1)} µs a frame in the VM (budget 50 µs in a page); with one ship alone ${none.toFixed(2)} µs`, us < 100 && none < 20, { us, none });
   R(`var vbF = qunrot(pg.q, pg.vx, pg.vy, pg.vz), wbF = pg.bodyAV(); pg.sh.tel = 4; tick(pgF, 40);`);
   const fu = time('Ship.pre(pg, 1 / 120, pgF); Ship.forces(pg, 1 / 120, qunrot(pg.q, pg.vx, pg.vy, pg.vz), pg.bodyAV(), pgF);', 5000), cy = R(`build(tpl('cyclon'), 'ship', { e: -2300, z: 3000, yaw: 0 })`);
   R(`var cyT = build(tpl('cyclon'), 'ship', { e: -2300, z: 3000, yaw: 0 }), cyF = fsim(cyT); cyT.sh.tel = 4; tick(cyF, 20);`);
   const fc = time('Ship.pre(cyT, 1 / 120, cyF); Ship.forces(cyT, 1 / 120, qunrot(cyT.q, cyT.vx, cyT.vy, cyT.vz), cyT.bodyAV(), cyF);', 5000);
+  const us = time('bb.x = bx0[0]; bb.y = bx0[1]; bb.z = bx0[2]; Ship.bump(bF);', 2000);
+  const none = time(`Ship.bump({ vessels: [ba] });`, 20000);
+  // (against the Cyclon's own water step in the same run, so a busy machine moves both: the budget's 50 µs is about six of
+  // her 8 µs steps in a page; in the VM alone, 33 µs against her 67)
+  t(`Ship.bump with two ships alongside, touching: ${us.toFixed(1)} µs a frame in the VM, ${(us / fc).toFixed(2)} of the Cyclon's water step (under 2: the budget, 50 µs in a page, is six); with one ship alone ${none.toFixed(2)} µs`, us < 2 * fc && none < 0.3 * fc, { us, none, fc });
   t(`the hydrofoil's water step foilborne (${R('pg.sh.rings.length')} rings, ${R('pg.sh.fl.length')} foils and struts, the ride control): ${fu.toFixed(1)} µs, the Cyclon's ${fc.toFixed(1)} µs (in the VM; within 3× of each other)`, fu < 3 * fc + 20, { fu, fc, cy: !!cy });
 }
 
