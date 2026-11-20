@@ -1224,3 +1224,297 @@ sailed; the aim mode for ships; controls.mjs's ship layouts at every size.
 | controls.js KEY_ACTIONS Ships, contexts, CTL | | `ship` context | ✓ WP3; WP12 (touch buttons) |
 | audio.js | ship sounds | a ship active or near | WP12 |
 | test/ground.test.js SYSTEMS | Ship counted | — | ✓ WP0 |
+
+---
+
+## 14. Invariants and their proofs
+- **Old designs byte-identical**: `traces.json`, `fingerprint.json`, `handling.json`, `driving.json` (`buggy sea`, `buggy
+  headland`: the solid sea), `combat.test.js` (the frigate's SAM, the range torpedo), `mp-air.json`, `groundcombat.json`,
+  `death.test.js` A7 and B3 (a burning craft on the sea, hulks afloat) all **unchanged**; the new templates appear in
+  fingerprint/traces/mp-measure as **added keys only**, proven with `node test/tools/keydiff.mjs 71c3af7 --add
+  fingerprint:<key>,traces:<key>,mp-measure:<key>` for the eight new keys, and `--allow` for `cyclon`'s own keys (they move
+  as she is finished). *Corrections:* mp-measure.json carries every template, so it gains the keys too (WP0); combat.test's
+  `groundFinger` leaves out kind `'ship'` (groundcombat.json is the ground vehicles' fingerprint; the naval one is
+  `baseline/ships.json`, §17).
+- **Zero calls** (§13). `test/lib/game.js` has a `ship: false` option (built); `ships.test.js` §gates runs old templates'
+  12 s traces with and without ship.js and finds them identical, and ground.test counts no calls into `Ship` and no
+  `Combat.S.sea`/`S.pd`/`Ship.D.length` opening (built; WP9 adds `S.pd` to the counter's list if it isn't).
+- **2D = 3D = clash = hit = buoyancy for hulls**: catalogue.test (sections convex and inside the box, joints match within
+  1 cm), builder-shapes (model vs clash), ships.test (`hullRay` against the loft's own triangles at 200 random rays: the
+  same entry within 2 cm, true by construction through `shullTris`; the buoyancy of a fully sunk hull = `ρ·g·shullOf(def).vol`
+  within 0.5 %).
+- **The solid sea for everyone else**: a Seagull, a buggy, an amphibious Pumo and a splashing rocket behave as before
+  (driving, ground.test's water section, death.test A7/B3, ships.test §hydro 11: built).
+- **Wave agreement**: `waveUniforms` vs `wave` within 1 mm (built), water.mjs's swell seam check (built).
+- **No magic radar** holds: ships are never air contacts; an aircraft's radar part never sees a ship; naval radars are
+  parts; a ship's missile warning comes from her radar parts.
+- **Peers untrusted**: `ho`, `mkill`, `stor` shots, `down.sea`, `sh`/`af`/`st` in snapshots, `settings.sea` and
+  `game: 'naval'` cleaned (finite, ranges, our own parts, enemy only, rates); no peer text in `innerHTML`.
+- **Props deterministic**: the sea spots and the Sound add no props (keep-outs unaffected); spawns.test checks the sea
+  spots' depth instead (built for the sandbox spots; WP11 adds the Sound's starts and zones).
+- **What 0 hp does** (CLAUDE.md's damage-model invariant): a hull part at 0 hp is holed through, never blown up (§8.9);
+  every old part's 0 hp is as before.
+
+---
+
+## 15. Performance budget (phone first)
+
+Measured on the bench rig (desktop; phone = 4× CPU throttle) before/after; budgets the PR must meet:
+| Item | Budget | Today |
+|---|---|---|
+| Old scenes (every existing render-bench scene, graphics.mjs) | identical pictures and within ±2 % frame time (no swell, no hole, no wakes) | built: held (graphics.mjs; the background-job slice fixed on the branch) |
+| `Ship.forces` for the Arley Berk (39 phys rings, 4 sines each) | ≤ 0.04 ms desktop / 0.16 ms phone a step | 7.3 µs for the Cyclon's 12 rings → ≈ 24 µs |
+| A Naval Range Hostile wave (player + 3 AI ships, LOD) | physics ≤ 1.5 % of a desktop core, ≤ 8 % on the phone at 120 Hz | WP10 |
+| Flooding, fires, DC, fate | 10 Hz / 4 Hz, ≤ 0.02 ms a ship a call | WP8 |
+| AI think | 4 Hz, ≤ 0.1 ms a ship; look-ahead 9 `heightAt` a second | WP10 |
+| Swell patch | GPU ≤ +5 % frame time over the flat sea in `sea300` on phone Low; CPU recentre ≤ 2 ms (≤ every 4 s at 30 kn) | built (refilled behind the one on show) |
+| Wakes | ≤ 6 ribbons, one draw, ≤ 0.1 ms CPU | built |
+| Spray and smoke | within FX's caps (900 High, 350 Low), ≤ 30 particles/s a ship within 800 m | built |
+| `Aim.limits` / range tables for the Arley Berk | ≤ 30 ms once at launch (cached per template for the AI) | WP9 |
+| `Ship.bump` | ≤ 0.05 ms a frame with two ships touching; nothing without pairs in reach | WP6 |
+| CIWS | ≤ 15 simulated rounds a second a mount; ≤ 0.05 ms a frame a mount | WP9 |
+| Hull art | vertex colours, no texture per hull | built |
+New bench scenes: `ship1k` (the destroyer at 25 kn, camera 1 km off), `shipnear` (built: chase cam on a small hull at
+speed), `fleet` (Hostile wave 3 from the player's bridge), `seaRough` (built: camera at 20 m over Rough sea, no ship near:
+proves the swell is off).
+
+---
+
+## 16. Phases and work packages
+
+One branch for the update (`ccr-932b9082-m4kox7`), one PR at the end (as PR #47 was built); each package in its own
+worktree off the branch's tip at the start of its phase, merged back by the lead in the order given. **Ownership rule**:
+a package edits only the files (or the named regions of shared files) listed as its own; anything else goes through the
+lead or is marked `// [WPn]` and reported. Shared files are split by named function or by the `// ==== region ====`
+markers (ship.js sections, parts.js's ship tabs, armour.js's naval block). Every package reads `BRIEF-common.md` first.
+
+### Phase 0: the contract — ✓ done (WP0, 95bf553)
+ship.js skeleton with `SHIP` and the whole API as stubs; the kind, tabs, `shullOf`/`shullPts`, the seven slice parts;
+vessel.js's flag; the `cyclon` slice; shell files (`CACHE` v41, now v42 on the branch); tests (ground.test SYSTEMS, the
+category count 31, catalogue, core.test's order rule, ship: false).
+
+### Phase 1: hulls that float — ✓ done
+WP1 hydro core (fd56f26), WP2 drawn sea and hulls (5e93c3e, 25271b0), WP3 helm/HUD/launch (c63e93f, b17cefd), WP4 builder
+basics (31364f0, 8356ebc, 30cada0); then career removed (ea446cd), the sea-crash fix (3da4a41, 7748548), milestones
+(dec4f39). Tests: `test/ships.test.js` (§hydro, §waves, §gates), `test/ships-builder.test.js`, browser `ship-flight.mjs`,
+`builder-ship.mjs`. The slice is fun to drive at the bay on a phone and a desktop; old baselines identical.
+
+### The Ship API (current: built, stubs, and what this spec adds)
+```js
+Ship = {
+  D: [], S, battle: null,
+  // core — built: groups, pre, forces, addedMass, floorAt, floorNormal, overWater, launch, seaPlace, drift, stab, setTel,
+  //   telStep, settle, moor, unmoor, heading. Stubs → WP6: impactSea(v, parts, sim), bump(F).
+  //   New (WP6): deckContacts(v, contacts, loc), deckRel(k, vp), deckVel(D, at, out), lashStep(v, h, F), insideHull(v, X).
+  // waves — built: wave, seaT, setSea, sea, fadeAt, waveUniforms. New (WP11): slew(st, F).
+  // builder — built: stats, hydrostatics, spotOf (keel/deck/inside/stern), warnings (basics). Stubs → WP7: specs(def),
+  //   line(def); spotOf and warnings completed.
+  // damage — stubs → WP8: hullRay(p, A, B, H), hullMm(p, edge, u), hullDist(v, p, at), addHoles(v, holes), floodStep,
+  //   fireStep, dcStep, fateStep, doom(v, sim, why, by), magazine(v, sim, part). New: holedThrough(v, p, cause, sim),
+  //   wetAt(v, p), floodForce(v, S) (the flood water's weight, called at forces' marked line).
+  // combat — stubs → WP9: fireTorp, torpStep, torpHit, ciwsStep, shotMissiles, surface, seesSea, rcs. New: asmStep(s, h, F).
+  // frame — built: frame(F, dt) (moorCheck, bump); fx(v, dt, F). WP8/WP9/WP10 add their calls to frame in that order:
+  //   bump → flood (10 Hz) → fire, dc, fate (4 Hz) → ciws (when S.pd: called from Combat.frame instead) → ai → range.
+  // hud — built: hud (helm panel), help, keys. WP12: the hull diagram, banners.
+  // ai — stubs → WP10: aiDown, flyStriker, range, practice.
+  // mp — stubs → WP11: snap, unsnap, ghost, downSea, onDownSea, cleanHoles.
+};
+```
+
+### Phase 2: parts, propulsion, the builder. Three packages in parallel; merge WP5 → WP6 → WP7.
+| WP | Owns | Interfaces | Tests | Done when |
+|---|---|---|---|---|
+| **WP5 Catalogue and non-combat ships** | parts.js regions `shHull`, `shSuper`, `shDrive`, `shKit` (the parts of §6.1, §6.2, §6.3, §6.5 except weapons; the 7 built ones untouched), their 2D art (`shullDraw` gains tubes/ramp/step; gvKit styles and `plated` outlines) and 3D models (parts3d recipes; hulls by `BUILD.shipHull`), `SKINS` ship paints, `shull.bk`/`cw` data; builder.js `TEMPLATES` ships block: `zodiak`, `cyclon` (finished, existing guns only), `higgens`, `pegazus` (unarmed of naval weapons until WP9: its gun and ASM slots filled by WP9), `catalyna` (`group: 'ship'`) and the hull-only drafts of `osca`, `vizby`, `olivar`, `arley` (hull, superstructure, propulsion; WP9 arms them) | §6 numbers; `shullOf`; `Ship.stats` | catalogue.test (441 parts after WP9; this WP's counts; sections convex and in the box; joints within 1 cm per class; every ship part's fields), builder-shapes.mjs (models vs clash; More shows 32), core.test (67 templates after WP9; every ship joined, editable, priced in tier, floats within ±0.3 m of her marks, no open ends), ships.test §trials for zodiak, cyclon, higgens, pegazus hullborne, catalyna floats; ships-builder.test (stats vs flight for every stock ship); keydiff (added keys; `--allow` cyclon) | every non-weapon part exists, looks right in 2D and 3D, floats or does its job; the five ships meet §7's targets; screenshots looked at |
+| **WP6 Propulsion, foils, decks, collisions** | ship.js `core` additions (§4.4 ride control and halves, §4.5 outboards and waterjets, §4.8 `impactSea`, slams, `bump` with carriers and ghosts, decks and lashing, §4.12 tiny pieces, the Catalyna's gates, `shull.cw` in `hull()`); vessel.js `ground()` (`_bedHit`, deck contacts, `deckRel`), `planeTarget`'s afloat gate; flight.js `physicsTick` lash line, `planeTick`'s afloat gate; gear.js `Gear.ground`'s hydro gate and deck contacts; death.js `impact`'s first line; ship.js builder's `resistance()` `cw` (one line, with WP7's agreement) | §4; WP5's field names (`jet`, `steer`, `foil.ride/intake/h/y`, `deck`); test-only defs until WP5 lands | ships.test: a hydrofoil foilborne above 30 kn and stable 120 s in Moderate; the Zodiak planes (trim 2-6°, half her hull out); a waterjet boat turns and reverses; a helicopter (`dragonfly`) lands on a deck at 15 kn underway, stays 60 s lashed, lifts off; two ships collide and bounce without NaN (holes hook called); ramming a carrier stops her; an amphibious tank with a hull floats and climbs the slipway; the Catalyna floats, planes and lifts off; a jet boat; a winged ship stays down (lift < 30 %); old craft unchanged (zero calls, keydiff); costs (§15) | those pass and play right in the browser (screenshots: a hydrofoil foilborne, a helicopter on a deck) |
+| **WP7 Builder complete** | builder.js: `Ship.specs`/`line` use on cards and the tray, X-ray for ships, the hangar's classes (`shipClass`) and `t.group`; ship.js §builder: `spotOf` for every place (§11.2), `warnings` complete (§11.3), `specs`, `line` | `place` values of §6; test-only defs where a part isn't in yet | builder-ship.mjs full (tap-to-place every place on a hull, X-ray, hangar group, cards on phone and desktop); ships-builder.test (spotOf for every place on an empty, a hulled and a full design; each warning fires and clears); redraw.mjs | every ship part has a sensible tap placement and its warnings; the X-ray shows a ship's insides; the hangar lists ships by class |
+
+### Phase 3: combat. Two packages; merge WP8 first.
+| WP | Owns | Tests | Done when |
+|---|---|---|---|
+| **WP8 Damage, flooding, sinking** | ship.js `damage` (§8.3 hullRay/hullMm/hullDist, §8.4 holes, §8.7 flooding and `floodForce` at forces' marked line, §8.8 fires/DC/magazine, §8.9 holed through, fate, doom, wrecks); parts.js `shullTris`, `massPerMm`/`armourMassT` belt; parts3d `shipHullGeo` reads `shullTris` (the picture unchanged); armour.js `recsOf`/`test`, `faceMm`, `resolve` (S1), `apply` holes, `cookOff` → magazine, `repairStep` ship skip; combat.js `explode` (hullDist, `under`), `damage` (S6), `destroyPart` (holed through), `moveShot` bombs under water (S4); death.js `impact` (with WP6's line), `swamp` (the knocked-out wreck in deep water), wreck list for sunk ships; flight.js `afterFall` ship wait; vessel.js serialize/restore (§10.5) | ships.test §damage: hole areas per weapon class; flooding equilibria (a 1 m² hole 1 m deep in the Olivar: lists, survives with pumps; three compartments: sinks in < 300 s); free-surface capsize; pumps and DC timings; a magazine breaks her in two; each doom reason; a wreck on a shallow bed vs removal in deep water; derelicts; a knocked-out tank in deep water goes under; armour.test unchanged; death.test A7/B3 unchanged; saves round-trip | ships die by water, fire and magazines, as physics says |
+| **WP9 Naval weapons and sensors** | parts.js region `shArms` (§6.4) and the kit's `decoy`/`torpDecoy` behaviour; armour.js naval `SHELLS` block, `moveShell`'s CIWS line, `ground()` splashes; aim.js `rangeTable`/`solve`/`aimLift` naval gate, `stepAll` AI line, `trackStep`/`searchStep` (S3, sea), the torpedo `fire` path; combat.js `isFighter` (never a ship), `candidates`, `swim`, `moveShot` (`stor`, `asm`), `launchMissile`/`guide`/`guideAir` flags, `turretStep` (S8), `frame`'s `S.pd` and `ciwsStep`; radar.js classification; drone.js `lockable` (ships); ghud.js `GHUD.reach`, zero ladder; ship.js `combat`; the warships armed: `osca`, `pegazus`, `vizby`, `olivar`, `arley` (their own keys) | ships.test §combat: a 127 mm range table hits at 5 km within one hull length; CIWS kill odds (§8.10); torpedo homing and hull hit; the old air torpedo hits a ship; an ASM sea-skims and hits; VLS pitch-over; a SAM kills an ASM; classification (ship ghosts never air candidates nor air radar contacts); §8.12's damage targets; a TK-34 with a 127 mm gun hits at 3 km; combat.test, radar.test, aim.test unchanged | the four warships fight as §8 says |
+
+### Phase 4: AI, play, multiplayer, polish, the matrix. Four packages; merge WP10 → WP11 → WP12 → WP14.
+| WP | Owns | Tests | Done when |
+|---|---|---|---|
+| **WP10 AI, range, practice** | ship.js `ai` (§9); combat.js `frame`'s AI-loop and `aiDown` lines; groundai.js `aimAt` factored out (no behaviour change: groundcombat.json identical); space.js `EARTH.navalRange`; gmode.js `NAVAL_STOCK`; mpui.js the Naval practice button and its panel. (No career awards: §21.) | `test/navalai.test.js` (the helm reaches waypoints, avoids land at the islands, keeps range, hits a target at 4 km within N salvos by skill, torpedoes, evades, engages a tank on the shore); browser `naval-range.mjs` (Practice: sink a target; Hostile: survive a wave 60 s of `Flight.time`); bench `fleet` | Practice and Hostile ranges and the practice battle play end to end |
+| **WP11 Multiplayer** | mp.js (§10.4), mpui.js lobby, settings, placement and respawn for naval, net.js `NET_VERSION` 14, gmode.js (`capturer` kinds, `placement` sea, `pickNaval`), space.js `EARTH.arenas.sound`, ship.js `mp` and `slew` | mp.test naval trace → new `baseline/mp-naval.json`; `mp-air.json` identical; gmode.test naval placement and capture (`'boat'` still doesn't); spawns.test the Sound's starts and zones deep enough; net.test unchanged; browser `naval-battle.mjs` (two tabs, BroadcastChannel) | a 1v1 naval battle plays in two windows |
+| **WP12 HUD and feel** | ship.js `hud` (the hull diagram, banners, missile warnings from radar parts), ghud.js `drawTorps`, render3d decals for holes, audio.js, controls.js touch buttons (`hold`, `dc`, `ciws`), style.css | controls.mjs at all sizes, ship-flight.mjs (screenshots: helm, hull diagram, a sinking ship, the bridge view in Rough sea) looked at, redraw.mjs | it reads clearly on a 360×640 phone in portrait |
+| **WP14 Combat matrix** | `test/matrix.test.js` (§20: reach, effort with `baseline/matrix.json` and rating bands, hard cases), the old-kind fixes O1 (drone.js `lockable`), O3 (`def.warhead` rocket part), O5 (combat.js `Death.hit` for rockets), the 7×7 table for the handbook and PR | matrix.test (≈ 50 s); the old 36 pairs identical with and without ship.js; every old baseline identical | every pair has a way; the table's bands hold |
+
+### Phase 5: docs, review, ship (lead + reviewers)
+**WP13**: README, HANDBOOK §11 (Ships), CLAUDE.md, ROADMAP, test/README, sw.js final `CACHE`, the history row (§18); then
+the **adversarial review** (independent reviewers write repro scripts trying to break: old designs, the solid sea, MP
+hostility checks, NaN in physics, saves round-trip, performance), fix, verify, benches before/after, the PR body with
+tables (the matrix, the stock ships' trials, the budgets).
+
+---
+
+## 17. Test plan
+
+### 17.1 Node suites (in `test/run.mjs`'s lists, documented in `test/README.md`)
+- **`test/ships.test.js`** (*built*: §hydro, §waves, §gates), sections to add:
+  - *hydro* (built; add): every stock ship settles in 20 s within §7's marks (±0.3 m); tiny pieces float or sink by their
+    density; a doomed ship never moors.
+  - *trials* (WP5, WP6): speed, turning, stopping, roll beam-on, planing (Zodiak), foilborne (Pegazus), take-off (Catalyna)
+    against §7's targets; a new `baseline/ships.json` (each stock ship's 60 s pose/speed trace: settle 10 s, Flank 30 s,
+    hard rudder 20 s, Moderate sea, seeded) so later changes are pinned.
+  - *waves* (built).
+  - *damage* and *combat*: §16 WP8/WP9 lists, seeded.
+  - *cross-kind*: TK-34 + 127 mm gun; a tank with a hull floats; the Catalyna floats, planes and lifts off at about 70 kn;
+    the Cyclon with two `wingL`s at Flank has wing lift under 30 % of her weight; air engines on an S hull push it (an
+    airboat); a helicopter on a moving deck; a tank turret (ringM + gun75) on the Cyclon aims through the aim mode.
+  - *gates* (built): every old template with and without ship.js: identical traces; `Combat.S.sea`/`S.pd` never open;
+    `hydro === false`.
+- **`test/ships-builder.test.js`** (*built*; WP7 extends): spotOf for every place; every warning fires and clears; stats
+  vs flight for every stock ship (draught ±10 %, GM ±0.15 m, top speed ±12 %).
+- **`test/navalai.test.js`** (new, WP10), **`test/matrix.test.js`** (new, WP14).
+- Extended: `catalogue.test` (441 parts, 140 gv: 81 ground + 59 ship; ship field checks), `core.test` (67 templates; the
+  order rule: the ground block, then the ships block, which may hold a flying boat: kind plane with a hull part), `ground.test`
+  (SYSTEMS, categories 31, defaults: built), `gmode.test` (the Sound, capture by an afloat ship, placement; `'boat'` still
+  doesn't capture), `spawns.test` (built for the sandbox's sea spots; the Sound's starts and zones), `mp.test`
+  (`mp-naval.json`), `fx.test` (caps with spray and CIWS tracers), `death.test` (A7/B3 unchanged; a ship's doom; the
+  knocked-out tank in deep water), `armour.test`/`aim.test` (unchanged for old shells; naval shells' tables).
+- Baselines: `baseline/ships.json`, `baseline/mp-naval.json`, `baseline/matrix.json` (new); fingerprint, traces and
+  mp-measure: new keys only.
+
+### 17.2 Browser suites
+`builder-ship.mjs` (built; WP7 extends), `ship-flight.mjs` (built; WP8/WP9/WP12 extend: aim and fire, a sinking
+screenshot, the hull diagram; `App.frame` console clean), `naval-range.mjs` (WP10), `naval-battle.mjs` (WP11: two tabs,
+BroadcastChannel), `water.mjs` (built §swell), `controls.mjs` (ship HUD sizes, built; WP12 the touch buttons),
+`graphics.mjs` (old scenes identical), `builder-shapes.mjs` (new parts; More shows 32 buttons: 31 tabs + Fewer; built),
+`builder-tank.mjs` (7 kind buttons; built), `redraw.mjs` (the waterline, the X-ray and turret arcs redraw on change).
+Headless runs at about 0.08× real time: measure `Flight.time`; `Render3D.skipDraw = true` where the picture doesn't matter.
+
+### 17.3 Bench
+`test/bench/render-bench.mjs`: `ship1k`, `shipnear` (built), `fleet`, `seaRough` (built), phone and desktop, High and Low,
+before/after; `test/bench/naval-bench.mjs` (from `ground-bench.mjs`): physics ms a step a ship at 4× throttle, AI think cost.
+
+---
+
+## 18. Chores (in the same commits as the changes; the docs at the end, WP13)
+- **README.md**: "What's in it" gains a **Ships** bullet ("a seventh kind of craft"); the builder line's kind list and the
+  hangar count ("sixty-seven examples": the ship group listed); "441 parts in thirty-one categories" with the five ship
+  tabs' sub-bullets; the Controls table's **Ships** block (from the bindings) and the touch description; Multiplayer: the
+  Naval Battle and the sea state; Modes: the Naval Range and Naval Practice; Project layout: a `js/ship.js` line; "Ideas
+  for later": remove "boats", add "submarines (and depth charges)" and "landing craft that carry a tank"; limits: "no
+  depth charges: there's nothing under the water to hit yet", "wings never act as hydrofoils", "a ship's mixed engines
+  spool at the slowest one's rate".
+- **sw.js**: `CACHE` bumped at every cached change (v42 on the branch now), `SHELL` has `'js/ship.js'` (built).
+- **index.html**: the script tag and kind button (built), stat rows (built), `#mp-create-naval`, `#mp-practice-naval`.
+- **CLAUDE.md**: the architecture row for `ship.js` (and the parts.js/builder.js counts: 441 parts, 140 gv, 59 ship; 67
+  templates, eight ships and a flying boat); the Coordinates note (ships: as cars and Armour); an Invariant "**The ship code
+  is shut for old designs**" naming the gates (§13) and the proofs (§14); console handles (`Ship`, `SHIP`, `v.sh`,
+  `Combat.S.sea`, `Combat.S.pd`, `Ship.D`, `Ship.wave`, `Render3D.info().swell`); the History row; the Gotchas: "the swell
+  patch is the sea only near a ship: anything that changes how the ocean is drawn must keep `uSeaHole` and the swell
+  agreeing"; "a hull's hits are its drawn triangles (`shullTris`): change the loft and the hits move with it".
+- **docs/HANDBOOK.md**: a new **§11 Ships** in the format of §8 and §10 (files, where old code calls in, gates, data,
+  physics, waves, damage, builder, AI, MP, invariants, tests), and §1.2 (catalogue), §1.5 (templates and codes), §5.1
+  (script order), §5.8 (README counts), §6 (tests) updated. `docs/ships/` is folded into it and removed.
+- **docs/ROADMAP.md**: the ships entry (if any) moved to History; add submarines, a vehicle deck, cranes, sea drones.
+- **Duplicate globals** checked (`grep -n "^const NAME\|^function NAME" js/*.js`) for every new one: `NAVAL_STOCK`,
+  `shullTris`, and any ship.js top-level name.
+
+---
+
+## 19. Design concerns and open risks
+
+**Where the decisions are pushed on (none reversed, three amended):**
+1. **Decision 10, the landing craft carrying a tank: no, in this update.** A tank on a moving deck needs Gear-on-deck
+   contact (tracks against a moving vessel) or a lashed second craft with a drive-off and the drone-style second-craft MP
+   messages. Doing it well is a package of its own; done badly it's the feature the owner will break first. The Higgens
+   carries troops (which already capture zones) and lowers her ramp when beached. Recommended as the first follow-up
+   ("vehicle deck": `def.vdeck`, a lashed stock or saved Armour design that drives off down the ramp at a beach, the drone
+   bay's patterns reversed). *Now that WP6 builds deck contacts and lashing for helicopters, the follow-up is smaller.*
+2. **Decision 9, the crane/davit: dropped** (no physics need; cosmetic only). **Helipad: kept**, real new physics
+   (moving-deck contact and lashing, §4.8, WP6) with its own tests; if WP6 runs late, ship it with lashing only for
+   helicopters landing at < 3 m/s relative and say so.
+3. **Decision 6, flood water as mass: amended to "as weight"** (a force at the free-surface-shifted centroid, not part of
+   `v.mass`). Statics (list, trim, sinking, capsizing) are exact; a flooded ship only accelerates slightly too easily. It
+   avoids a `recompute` and an inertia rebuild at 10 Hz on every damaged ship.
+4. **Decision 7, belt armour: the opt-in field on hull midsections only** (`armour.belt`), read by the hull face codes
+   in `faceMm`. Separate belt plate parts would need hull-conforming geometry and would break 2D = 3D at the bow.
+5. **Wings never act as hydrofoils.** A plane's wing dipped in water still only feels air (only `def.foil` parts see water).
+   Physically incomplete under the owner's rule, but routing wings through water would reach into PR #40's plane code.
+   Listed in README's limits.
+6. **Ship parts on drones**: the drone builder refuses gv parts (drone.js), so no sea drones yet. Left as is (a follow-up
+   "sea drones" would open it).
+
+**Risks:**
+- **Physics feel**: the strip planing model and the resistance table are tuned by tests (WP1 tuned `planeK` 0.6, `latLin`
+  2, `SCREW.va` 1.1); the foils' ride control is next. The trials are the guard; tune `RIDE`, `planeK`, `C_wr`, added mass
+  first.
+- **Cost on phones**: AI fleets at full physics are the biggest new CPU cost (LOD and the 12 km step limit are the levers);
+  the swell patch's fragment cost on Low is held by its 6 m cells.
+- **Old sea behaviour**: every water rule old craft use is untouched only because the hydro flag is opt-in per vessel. Any
+  "simplification" that changes `surfaceAt`, `waterAt`, the probe for non-hydro vessels, `splashed` or the sea fix's
+  `SEA` rules breaks `driving.json`/`death.test`. Don't.
+- **MP clocks**: the wave phase slews toward the host's clock; on a very slow phone the drawn sea and a ghost's bob can be up
+  to ~0.25 s apart (centimetres). Acceptable; the physics is each owner's.
+- **Big parts**: a 24 m, 1,300 t hull part is far outside what `Combat.maxHp`, `explode` and `Aim.sweep` were sized for.
+  Every such use is gated on `def.shull` (hp set explicitly, `hullDist`, the sweep's cost measured in the bench).
+- **The 1/20 world**: horizons of ~7 km make long-range gunnery mostly radar- and spotter-driven; the 20 km ray is for
+  shells over the horizon at radar contacts. Fun first: if fights feel too close, raise masts (radar height) rather than
+  bending the planet.
+- **Carriers**: static carriers stay terrain; ships meet their hull boxes (`Ship.bump`), never the breaking `side` rule. A
+  sailing carrier the planes can land on is out of scope (deck contact would make it possible later; the arresting gear
+  and catapults are terrain-bound).
+- **Save size**: per-part holes and water are small (holes capped at 16 a part); `rss.flight` stays well under its quota.
+- **`TEMPLATES` regex** in test/lib/game.js (`/const TEMPLATES = \{[\s\S]*?\n\};/`): ship templates stay inside the one
+  literal, with no `\n};` inside.
+- **`MP_MAX_PARTS` 600**: the Arley Berk is ~70 parts; a player's 300 m battleship of 900 parts needs the cap off, as now.
+- **Olivar's length** (new, from the hull classes): one X class can't make both a 4,100 t, 136 m frigate and an 8,300 t
+  destroyer sit at their marks; the Olivar is 108 m (two midsections) at 5,000 t (§7). If the owner wants her longer,
+  the fix is a narrower frigate class, not lighter segments.
+
+---
+
+## 20. The owner's second standing rule: every kind can fight every kind (added after Phase 0)
+
+The owner, in their words: "every vehicle should be able to combat every type of vehicle, some less effective and some
+more sure, some almost harmless, keep realism, but every one should have a way to destroy another type of vehicle
+someway."
+
+Reading (decided): for every attacker kind A and target kind T among the seven (rocket, plane, car, helicopter, drone,
+Armour `tank`, ship), there is at least one way, with parts A can carry (cross-kind parts included), for A to destroy T:
+knock it out, shoot it down, sink it. Effectiveness follows realism: a drone's charge against a destroyer is almost
+harmless (a small hole, a fire), enough of them still sink her; a rifle-calibre MG against a tank only kills crew through
+open hatches / tracks and optics, an AT weapon does the job; a ship's CIWS or SAM shreds a drone or a plane; a tank's main
+gun can hit a hovering helicopter or a slow plane low down; a car with an AA gun or MANPADS-style launcher can shoot down
+aircraft. No "immune" pairs: every damage path must reach every kind of target (shells, bullets, blasts, missiles,
+torpedoes, rams, charges), and every targeting path that is kind-gated (air vs ground vs sea classification, seekers,
+locks, AI target lists) must have an answer for every target kind (e.g. an air-to-air missile can't lock a ship, but a
+radar/IR/TV anti-ship or anti-ground missile can; a torpedo only hits things in the water).
+
+Proof: `test/matrix.test.js` (WP14): a 7×7 table; for each pair a representative attacker (a stock template, or a stock
+template plus cross-kind parts) and the target, a seeded scripted engagement (or, where an engagement is impractical
+headless, the direct damage path: a hit of that weapon on that target's parts) asserting the target can be destroyed
+within a bound (time or number of hits), and recording the effort (hits/time) so the table shows "sure / takes work /
+almost harmless". The table goes in the handbook and the PR body. Old kinds' gaps found by the audit (its summary:
+`reports-recovered.md`; the full file `matrix-audit.md` was lost with the container) are fixed with gates that keep every
+old baseline identical (no old test path changes what it does).
+
+### 20.1 Lead's decisions on the audit
+- Old kinds: no impossible pair today. Do fixes **O1** (drone lock-on accepts landed craft, rockets on the pad, slow low
+  helicopters; still refuses drones), **O3** (a rocket warhead part, `def.warhead`, so a rocket can be flown as a missile;
+  old crashes stay harmless), **O5** (rockets in the `Death.hit` gate for hit markers). All gated so no old baseline moves.
+- Ships: **S1** is a must (a drone charge's "55 % of the part's own max hp" must not apply to hull/ship parts: a fixed
+  reference hp, `SHIP.DRONE.ref`; targets per S2's bands: a Bumble needs ~3-8 hits on a patrol boat, 40-120 on a
+  destroyer). **S2**: §8.12's damage targets for drones, MGs, bombs and aircraft weapons. **S3**: naval SAMs DO engage
+  anti-ship missiles (`trackRadar.missiles`). **S4**: a bomb/charge near a hull bursts after a short delay under water
+  (gated on a hydro vessel in play). **S5**: CIWS never uses the low-and-slow notch rule. **S6**: ships in the `Death.hit`
+  gate. **S7**: torpedo tubes on aircraft drop the torpedo into the water (an aerial torpedo); on land they fire nothing
+  (a builder warning). **S8**: old turrets DO fire from a ship afloat (the "hold fire on the ground/water" rule applies to
+  aircraft only). **S9**: the naval AI engages shore targets in range. **S10**: ship ghosts collide (`Ship.bump` covers
+  ghosts). Where each lands: §8 (S1-S8), §9.1 (S9), §4.8 (S10).
+- **WP14 Combat matrix** (Phase 4, after WP8/WP9): `test/matrix.test.js` as the audit designed it (reach, effort with
+  `baseline/matrix.json` and rating bands, hard cases), the old-kind fixes O1/O3/O5, and the 7×7 table for the handbook
+  and PR. The old 36 pairs identical with and without ship.js.
+
+---
+
+## 21. Career removed (owner's decision during the update) — *done* (ea446cd)
+The owner: "delete career and future career additions, it's a very unused game and extra charge in every update." Career
+mode (funds, tiers, R&D, missions, refunds, the mode picker) is deleted on this branch. Nothing in the ships update adds
+career content (no missions, no awards, no tier locks for ship parts). Part costs and `tier`s stay as data: battles'
+budgets (`Budget`, util.js) and the hangar's price tiers use them; prices show only when `Budget.on`.
