@@ -106,7 +106,7 @@ t('names and descriptions use no real product or system name', !bad([...DR, ...K
   t(`...nor do the drone templates' names and blurbs (${tk.length}: the five drones, the BMK-2D Nest and the MA-1C Abrahm)`, tk.length === 7 && tk.every((k) => !REAL_DRONE.test(ctx.TEMPLATES[k].name) && ctx.TEMPLATES[k].blurb.length >= 40 && !REAL_DRONE.test(ctx.TEMPLATES[k].blurb)));
   t('the drone templates: after the jets and before the Armour (the two tanks last of the ground block, before the ships update\'s ships), none military, tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
     const K = Object.keys(TEMPLATES), d = K.filter((k) => TEMPLATES[k].kind === 'drone');
-    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.filter((k) => TEMPLATES[k].kind !== 'ship').slice(-2).join() === 'bmk2d,ma1c'
+    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.filter((k) => TEMPLATES[k].kind !== 'ship' && TEMPLATES[k].group !== 'ship').slice(-2).join() === 'bmk2d,ma1c'
       && ${JSON.stringify(tk)}.every((k) => { const T = TEMPLATES[k]; return !T.military && T.tier === Math.max(...T.parts.map((r) => PARTS[r[0]].tier || 0)) && (T.kind === 'drone') === !T.dw
         && Object.keys(T.paint || {}).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); }); })()`));
 }

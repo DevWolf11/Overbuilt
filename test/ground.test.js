@@ -98,7 +98,7 @@ t('...and every craft and every round in flight ends exactly where it does in a 
 // 2. the combat fingerprint's operations on every stock plane and the raider (boxes, muzzles, blasts, guns, flares,
 // chaff, turrets), then every store fired and the rounds flown until they land; other players' shots and flares
 R(`var Tt = Combat._t, fp = 0;
-for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane').concat(['RAIDER'])) {
+for (const key of Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane' && TEMPLATES[k].group !== 'ship').concat(['RAIDER'])) { // (not the ships update's flying boat: she floats)
   const rows = key === 'RAIDER' ? RAIDER : TEMPLATES[key].parts;
   const ps = rows.map(([type, x, y, rot, o]) => makePart(type, x, y, Object.assign({ flip: x < 0, rot: rot || 0 }, o || {}, { att: null })));
   rows.forEach((r, i) => { const a = r[4] && r[4].att; if (Number.isInteger(a) && a !== i && ps[a]) ps[i].att = ps[a].id; });

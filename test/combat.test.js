@@ -403,7 +403,7 @@ u.done();
 const r = (x) => +(+x).toPrecision(10);
 function finger() {
   const out = {};
-  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane').concat(['RAIDER']);
+  const keys = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && ctx.TEMPLATES[k].group !== 'ship').concat(['RAIDER']); // (not the ships update's flying boat: ships.test's)
   for (const key of keys) {
     const rows = key === 'RAIDER' ? ctx.RAIDER : ctx.TEMPLATES[key].parts;
     const { v } = craft(ctx, rows, 'plane');

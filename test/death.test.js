@@ -14,7 +14,7 @@ const { Combat, Death, FX, TEMPLATES, PARTS, EARTH } = ctx;
 const SILLY = R('Silly.flags'), wingAero = R('wingAero');
 const t = G.checks('death: the damage model (death.js)');
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e;
-const PLANES = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane');
+const PLANES = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'plane' && TEMPLATES[k].group !== 'ship'); // (not the ships update's flying boat: ships.test's)
 const HELIS = Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'heli');
 const maxHp = (p) => Combat.maxHp(p.def);
 const dmgTo = (p, f) => (maxHp(p) * f) / (1 - (p.def.armor || 0)); // (what takes a part from full health to f of its own; armour turns the rest)
