@@ -387,3 +387,47 @@ and the Naval Range's spots (WP10, §9.2).
 - **A ship with wings** (the owner's rule): their lift is real (aero block, ground effect), `aircraft` is false (no
   `planeTarget`), so she never flies them; two `wingStraight`s on the Cyclon at Flank: lift < 30 % of her weight.
 - **A jet boat:** air engines on a hull push through `applyEngines`; `v.throttle` comes from the telegraph (built).
+- **`shull.cw`** (new, WP5/WP6): a blunt hull's wave-making factor, × `C_wr` in both `hull()` and the builder's
+  `resistance()` (one formula: the two must agree). Default 1; the landing craft's `lcHull` 2.5 (a bluff ramp bow: without
+  it a 13 t box on 300 kW makes 18 kn instead of the real 12).
+
+---
+
+## 5. Waves and the drawn sea (ship.js §waves, render3d.js)
+
+### 5.1 The function — *built*
+`Ship.wave(e, n, t, out)` → `[η, ∂η/∂e, ∂η/∂n]` (a shared array: copy it): four directional sines `SHIP.WAVES`
+(`[a, T, θ, φ]`: 0.28 m 5.5 s 0°, 0.18 m 4.4 s 25°, 0.12 m 6.6 s −20°, 0.07 m 3.3 s 50°, at Moderate), running toward
+`swellDir` 250° (from the WSW), deep-water dispersion `k = ω²/g`, each state's factors `SEA` (calm a 0.3 t 0.75; moderate
+1 1; rough 2.5 1.36). `Ship.seaT(F)` the sea's clock (`F.time + S.seaOff`); `setSea(state)` (Settings → Sea, main.js;
+built), `sea()`; `fadeAt(depth)` (smoothstep 3-25 m); `waveUniforms(P0e, P0n, t, out)` (per component `[dE, dN, k, a, ω,
+φ′]`, φ′ folded in double precision). Measured Hs 0.31 / 1.03 / 2.58 m; the uniforms agree with `wave` to 0.001 mm.
+
+### 5.2 Rendering agreement — *built*
+render3d.js `updateSwell` (the ships update's region, "the sea near a ship"): a grid round the camera (High 128 at 4 m, Low
+64 at 6 m), shown while a hydro vessel is within `SWELL.near` 2 km and the camera under 1.5 km; recentred when the camera
+strays an eighth of it (the new grid filled behind the one on show, `SWL_SLICE` ms a frame); vertices lifted by `SWELL_FN`
+(the same sines); each vertex's share the depth fade × an edge fade (flat at its border, where it meets the ocean); the
+patch's own ocean colours, water attribute and UVs carried over; the ocean cut away under it (`uSeaHole`). With no ship
+near: hidden, never built, the hole `(1, 1, 0, 0)`, nothing called (old scenes identical). Wakes: one ribbon mesh for the
+nearest `WAKE.n` 6 hydro vessels within 1.5 km making way, Kelvin arms, one draw.
+
+### 5.3 Wake, spray, smoke — *built* (`Ship.fx`, from `Flight.emitParticles`)
+Bow spray (pairs from the stem, more as the bow slams, at the chines on the plane), funnel smoke from `def.funnel` parts
+(or `style: 'funnel'`: grey for diesels, faint for turbines, more with the telegraph), a burst of white water at the stern
+when the telegraph is rung; within `SPRAY.near` 800 m of the view's craft; FX's caps.
+
+### 5.4 Remaining
+- **WP11:** in a room the sea state is the host's (`settings.sea`: `'calm' | 'moderate' | 'rough'`, cleaned with
+  `SHIP.SEAS.includes`) and the sea clock slews toward the host's: each snapshot from the host carries `st` (its `Ship.seaT`
+  then); a peer moves `S.seaOff` by at most `SLEW` 0.05 s a second toward `st − (F.time + latency/2)`. A peer's own
+  Settings → Sea is ignored in a room and restored after.
+- **WP9:** big shells' splashes: armour.js `ground()`'s water splash scales with calibre for naval shells
+  (`FX.splash(b, at, n, SH.cal >= 57 ? SH.cal / 25 : 3)`: a 127 mm round throws a 5× column), gated on `SH.naval`.
+  Torpedo tracks: a bubbling line of `smoke` particles (white, `heavy`) every `TORP.bubbles` 0.2 s behind a ship
+  torpedo within 1.5 km of the camera; the old air torpedo keeps its own.
+- **WP8:** a ship going down is drawn by her own geometry under the water (the swell patch and the water's depth shading
+  cover her); a hull below `SINK_MAX` 16 m keeps drawing (render3d's sinking veil `WATER.sinks` is for the old plunge only:
+  a hydro vessel never enters it). Check in `ship-flight.mjs` (a screenshot of a sinking destroyer, looked at).
+- **WP12:** the bridge view in a Rough sea (built `setBridge`): its horizon's roll is the ship's own; no smoothing beyond
+  the camera's (a check in ship-flight.mjs that the view never shows the inside of the hull).
