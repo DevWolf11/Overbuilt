@@ -179,3 +179,211 @@ stations 5 cm apart (the sampler interpolates linearly, so the keel jumps there)
 - An end that is `'joint'` but unjoined (the builder forgot the stern, or a segment was shot away) is an **open end**
   (`sh.open: [{ p, end }]`, *built*): WP8 turns it into a permanent hole of the end ring's area below the deck, at the end
   ring's centroid (§8.5). A bow without a stern sinks by the stern.
+
+---
+
+## 4. Physics (ship.js §core)
+
+### 4.1 Where it runs — *built*
+`Vessel.physicsStep` (vessel.js), new lines gated on `this.sh` (null for every non-hydro craft and without ship.js):
+1. star check; gravity; `Drone.pre` for drones.
+2. `if (this.sh) Ship.pre(this, dt, sim)` (vessel.js:1152): the helm (telegraph, rudder, heading hold), the engines'
+   demand and spool, each rudder's angle; `v.throttle` for air engines on a ship (an airboat). Wakes a moored ship.
+3. `applyEngines`, `spinRotors` (air engines on a hull push exactly as anywhere).
+4. control: `turnTarget` returns `null` for `this.sh && kind === 'ship'` (vessel.js:657): rudders steer, not reaction
+   torques. A hydro plane, helicopter or tank keeps its own laws.
+5. aero block unchanged (the hull's air drag; wings' real lift with ground effect over the sea).
+6. `if (this.sh) Ship.forces(this, dt, vb, wb, sim)` (vessel.js:1400): writes `v.hF`, `v.hT` (part axes) and `sh.fsub`.
+7. `updateHeat`.
+8. integrate: after `this.lift` (aerodynamic only: Death's air rule reads it) the water's force joins the acceleration;
+   `Ship.addedMass` scales it per part axis by `1 + kM·fsub`; `hT` joins the torque before `gyro`, and `dw` is divided
+   per axis by `1 + kI·fsub` (the water's added inertia).
+9. `ground()`: for hydro vessels `surf = Ship.floorAt`, normals `Ship.floorNormal`; contacts carry `bed` (crash limit
+   × `SHIP.BED_CRASH` 1.5, friction `BED_MU` 0.4) and never `side` or `water`.
+10. rips (a foil past `FOIL.brk` × its load is queued on `v.rip` as a wing's rip is).
+
+### 4.2 Buoyancy, ring by ring — *built* (ship.js `buoy`)
+Once a step, `frameOf` gives the local up/east/north (sim and part axes) and her east and north (`S.e0`, `S.n0`); `waterOf`
+(every `REFRESH` 0.5 m moved) the still water's level (0 at sea, a lake's surface inland, `−Infinity` off any water), the
+depth and the wave fade (`fadeAt`, 0 on lakes). For each phys ring: the water plane at the ring (its wave height and slope
+× fade) gives each polygon point's signed height; the polygon is clipped once (Sutherland-Hodgman), its immersed area `a`,
+centroid, waterline chord and wetted girth found; `ρ·g·a·dx` pushes up along the local vertical at the centroid. Sums:
+`B`, `Vol`, `Awp`, `Swet`, `Lwl`, `Tbar`, `cb`; `fsub = clamp(B/W, 0, 1)`; `v.afloat = B > 0.05·W` (never `splashed`,
+which stays the old solid sea's); `v.draft`, `v.heel` (+ starboard down), `v.trim` (+ bow down); `sh.gm` from the
+righting moment every `STAB_T` 0.5 s past `STAB_HEEL` 1° of heel. A hydro vessel with no rings left (a turret, a bridge)
+sinks on its drag (`sink`). Measured: an analytic box hull's draft 1.4635 vs 1.4634 m, GM 0.367 vs 0.365 m, roll period
+7.60 vs 7.60 s.
+
+**Remaining (WP8): the flood water's weight.** At the marked line in `forces` (`// (the flood water's weight …)`): for
+each compartment with `W > 0`, a force `ρ·g·W` straight down (the local −U) at the water's centroid in part space, found
+from the compartment's own rings clipped by the *flood plane* (level in the world, so it shifts as she heels: the free
+surface) at the height whose clipped volume is `W` (a start from `shullOf(def).fill`, then at most 4 bisection clips),
+its lateral shift capped at `FLOOD.fsMax` 0.45 × the beam. Added to `hF`/`hT` with `push`; not to `v.mass` (§19.3: water
+as weight). A full compartment (`W ≥ V`): the force is `ρ·g·V` at the compartment's centroid; its rings still displace,
+so the net is the steel's weight: she settles. Cached per compartment while `W` and the heel move less than 1 % / 0.5°.
+
+### 4.3 Hull resistance and lateral force — *built* (ship.js `hull`)
+At each immersed ring's centroid: lateral lift `C_lin = latLin·π·T̄/L_wl` (`latLin` 2) and cross-flow drag (`cross` 0.9)
+on its immersed depth (a turn heels her outward); strip planing lift `cpl·max(0, V_n)·|u_a|·b·dx·cos²β` (`planeK` 0.6 on
+`plane: true` hulls, `dispK` 0.2 else) with heave drag (`heaveCd` 1.0) and linear heave damping (`heaveLin` 0.4·ρ·√(g·T̄)
+per m² of waterplane), both along the keel line's vertical plane; ITTC-57 friction on the wetted girth × `(1 + k)`; the
+wave-making resistance `R_w = B·C_wr(Fn)` (`CWR` table) shared by immersed volume. Every quadratic term is clamped to
+`CLAMP` 0.8 of the momentum it opposes a step (`capF`, `effMass`). Roll damping: exponential, ratio `rollZeta` 0.07 +
+bilge keels (`def.shull.bk`: `bilgeKeel` 0.03 or its own number) + `rollZV` 0.15 × Fn (to 1.5). LOD: a hydro vessel over
+`LOD` 1.5 km from the active craft works out its forces every other step (held between, damping halved). Measured: the
+Cyclon (110 t, 4 MW) 25 kn at 10 s, 33.2 kn top in calm water; hard over at 19.7 kn, 9.4°/s, a circle 4.1 lengths across,
+heel 9.8° outward; 7.3 µs a step for 12 rings (≈ 21 µs scaled to 35: the budget is 40).
+
+**Remaining (WP5):** a patrol boat beam-on to Moderate seas rolls 12-13°; real ones roll 5-8°. Fix with data: `bk: true`
+on every stock M, L and X hull segment (`bk: 0.05` on X), re-measured by the trial (§17.1). If that is not enough, WP6
+(owner of core) may raise `SHIP.bilgeKeel`; never touch `rollZeta` (the box hull's period test pins the bare hull).
+
+### 4.4 Foils: rudders, hydrofoils, skegs — *rudders and fixed foils built*; ride control remains (WP6)
+Built (`propel`'s foil loop): every `def.foil` part, copy by copy (`sh.fl`), at water density, never the wing code: lift
+slope `FOIL.slope`·2π·ar/(ar+2), stall at 22° falling over 65° to half, induced and stall drag, lift faded in over
+`sub`·chord of depth, a rudder in a screw's slipstream (`wash`), strain past `load` and a rip past `brk` 1.5 × it.
+`foil.n: 'z'` (a rudder or skeg, turned by `p.rud` about its stock) or `'y'` (a hydrofoil, at fixed incidence `inc`).
+
+**Remaining: ride control (WP6).** A foil with `foil.ride: true` (foilBow, foilAft: §6.3) is flown by a controller in
+`Ship.pre` (any kind: a part's behaviour, not the kind's):
+- *Halves.* `Ship.groups` makes two `sh.fl` entries for each ride foil (its copies split at `z ± depth/4`, `area/2`
+  each), so the controller can roll her. A ride foil's entries carry `inc` (the commanded incidence, °) and `inc0` (its
+  def's `inc`); the foil loop reads the entry's `inc` before the def's.
+- *Measure* (every step, before `forces`): the keel's clearance over the waves at the foremost and aftmost phys rings,
+  `cF`, `cA` (`−depthOf` of each ring's keel point), `c = (cF + cA)/2`, its rate `ċ` (her velocity along `S.U`), the trim
+  error `ε = (cF − cA)/L` (L the rings' span), the heel `φ = v.heel`.
+- *Target* `h* = max over ride foils of (foil.h ?? RIDE.h)` (foilAft's `h` 1.6 for the Pegazus: her keel 1.6 m over the
+  waves on 3.2 m struts). Foilborne only past `RIDE.v` 9 m/s (17 kn): below it every ride foil holds `inc0 + RIDE.lim`
+  (all the lift there is: she climbs onto her foils as speed builds).
+- *Command* per entry: `inc = inc0 + clamp(RIDE.kh·(h* − c) − RIDE.kv·ċ ∓ RIDE.kt·ε, −lim, +lim) + RIDE.kphi·(φ − φ*)·sign(z)`
+  (°; `∓`: − for a foil ahead of the centre of mass, + behind; `sign(z)`: a starboard half takes more lift as she heels to
+  starboard), with a bank into a turn `φ* = −(sh.rud/rudMax)·RIDE.bank`. Each entry's incidence moves at most
+  `RIDE.rate` °/s. `RIDE` today: `{ h: 0.8, kh: 4, kv: 2, lim: 6, kphi: 15 }`; add `v: 9, kt: 30, bank: 8, rate: 20`.
+- *Intakes.* A foil with `foil.intake: true` (foilAft) lends its depth to the waterjets: a waterjet's submergence is the
+  greater of its own and that of the deepest intake foil aboard (§4.5), so the Pegazus' jets keep drinking foilborne.
+- *Lost foils.* A ride foil broken or shot off: its entries go (`groups` rebuilds); with none left the hull comes down.
+- Old foils (no `ride`) behave exactly as built; the Cyclon's rudders are untouched.
+
+### 4.5 Propulsion — *screws and spool built*; outboards, waterjets remain (WP6)
+Built (`propel`): the working engines' shaft power (`shaftPower`: `def.engine.kw` × `Combat.engineK(p)` for a damaged
+one; none with no `driver` aboard a gv vessel) shared equally by the live screws; per screw static thrust
+`k0·(2ρA·P²)^(1/3)`, capped by `η·P/max(va·u, vmin)`, astern × `ASTERN` 0.7; `p.rpm` signed; out of the water it races
+and pushes nothing (`smoothstep` over 0.5 D); its shaft's drag. The engines' share `S.pow` follows the demand over the
+slowest engine's spool (`SHIP.SPOOL` 8 s, or `def.engine.spool`: a turbine's 15).
+
+Remaining (WP6), each a branch in `propel`'s thrust loop, with `Ship.groups` putting outboards and jets in `sh.scr`
+(`kind: 'screw' | 'outboard' | 'jet'`):
+- **Outboards** (`def.screw` + `def.engine` + `def.steer` on one part: §6.3 `outboard`): its own engine's power, not the
+  pool's (`shaftPower` skips engines that are also screws; the pool's share counts only screws and jets without one: as
+  the builder's `propulsion` already does). Its thrust turns about the part's own y by `p.rud` (it is in `sh.rudders`,
+  built). Tilted out of the water it races. Its own spool 2 s (`def.engine.spool`).
+- **Waterjets** (`def.jet: { D, steer, bucket }`): the builder's `thrustAt` formula (built) in flight too:
+  `T = min(JET.t0·T0, (eta0 + eta1·smoothstep(v0, v1, V))·P/max(V, vmin))`; the nozzle turns the thrust by `p.rud` (its
+  `jet.steer` 30° at most); astern the bucket reverses it: `−JET.bucket`·T (no `ASTERN` factor). Submergence: the greater
+  of its intake's (the part's point, over 0.5 D) and the deepest `foil.intake` part's (§4.4). A jet makes no slipstream
+  for a rudder. `p.rpm` spins its impeller in the art.
+- **Turbines:** nothing new in the physics (spool is built). **Mixed plants** spool at the slowest engine (README limit).
+- The builder's `thrustAt` and the flight's must stay one formula: `ships-builder.test.js` compares top speeds (±12 %).
+
+### 4.6 The helm (`Ship.pre`, kind ship) — *built*
+The telegraph `sh.tel` −3…4 (`SHIP.TEL` demands −0.75 … 1.0, `TEL_NAMES`), stepped by `Ship.setTel`/`telStep`, by
+Flight's `shipKey`/`helmKeys` (W/S, the throttle keys; Z flank, X stop) and the touch lever; Ship.pre's own stepping from
+`ctl.v` is for a craft driven that way (readControls keeps `ctl.v` 0 for a ship, so steps never double). The rudder:
+`ctl.h` × the rudders' throw (`rudMax`: a foil's `max` 35°, an outboard's or jet's `steer`); let go with `sas 'hold'`
+(the default) she holds the heading she had, led by her yaw rate (`HOLD`: lead 1.5 s, kp 2, kd 2.5·L/V); `sas 'manual'`
+centres it. Each rudder follows at `rudRate` 12 °/s. `Ship.heading(v, sh)`: rad clockwise from game north.
+**Remaining (WP10):** the AI drives the same interface: `sh.tel` and a heading order `sh.hold` (with `ctl.h` 0 and
+`man = false`), never keys (§9.1).
+
+### 4.7 Added mass and damping — *built*
+`ADD_M { x 0.05, y 0.8, z 0.6 }`, `ADD_I { x 0.15, y 0.6, z 0.8 }` per part axis (turned onto a seaplane's pontoons'
+axes in `groups`), × `fsub`.
+
+### 4.8 Grounding, carriers, other ships, decks
+**Built:** the bed (above). A ship aground at 10 kn on the island's shore stops, `landed`, 11/11 parts, nothing broken.
+
+**Remaining (WP6):**
+- **`Ship.impactSea(v, parts, sim)`** (death.js `impact` calls it first for `v.sh`, before its air/ground rules; the
+  stub returns `parts`): of the parts the crash rule broke, hull parts (`def.shull`) are taken out of the list unless the
+  contact's speed was past `IMPACT.remove` 2× their limit; each kept one takes `IMPACT.hp` 0.4 × its max hp
+  (`Combat.damage`, cause `'crash'`) and a hole of `IMPACT.hole` 0.02 m² per m/s over its limit at the contact point
+  (`Ship.addHoles`: WP8; a no-op until then). Returns the rest (masts, guns: they break as ever). The contact speed per
+  part: vessel.js `ground()` keeps, for hydro vessels only, a `Map` part → worst speed/limit beside `broken` (`v._bedHit`).
+- **Slams.** A hull ring entering the water faster than `SLAM.k` 1.8 × its part's `breakSpeed` (the old water's ×1.8)
+  along the local vertical queues the part on `sh.slam` → `Death.impact` → `impactSea` (holes, never a shattered hull).
+  `SHIP.SLAM = { k: 1.8 }`. Found in `forces`: a ring's `rk` going from 0 to > 0 with `uy < −lim`.
+- **`Ship.bump(F)`** (from `Ship.frame`, once a frame: the call is built): every pair of hydro vessels (ghosts included:
+  S10), each hydro vessel against non-hydro vessels and the static carriers, within the sum of their `reach`:
+  - *Narrow phase:* `insideHull(S, X)`: a part-space point X against ship S's hull: S's phys rings either side of X's x
+    (kept sorted by x in `groups`), their polygons' half-breadth at X's y interpolated; inside when `|z − zc| < half` and
+    `yk < y < yd`: penetration `half − |z − zc|` along ±z, or past her ends the distance to the end ring along ±x. Points
+    tested: the other ship's phys rings' waterline points and deck edges (4 a ring), a non-hydro vessel's `hull` points.
+  - *Response:* relative velocity along the normal `vn`; if closing, an impulse `j = −(1 + BUMP.e)·vn / (1/m_A + 1/m_B)`
+    (effective masses at the contact, `effMass`), at most once a pair a frame; push-out `BUMP.push` 0.5 of the penetration
+    each (all of it to ours when the other is a ghost or a carrier). A ghost (`v.remote`) is never moved or damaged here:
+    its owner runs the same rule on their screen (no message).
+  - *Damage* past `BUMP.v` 2.5 m/s closing: each side's touching hull part takes `BUMP.dmg`·μ·s²/1000 hp (μ the reduced
+    mass, kg; cause `'crash'`, by the other vessel) and a hole of `BUMP.hole`·s² m² at the contact (`addHoles`). A 110 t
+    Cyclon into a moored destroyer at 10 m/s: ≈ 5,500 hp to her bow (2,200 hp: it breaks, `impactSea` holes it).
+  - *Carriers:* `EARTH.carriers` as boxes from the deck (`deck` m) down to `CARRIER_DEPTH` 9 m under the sea, `±hl` ×
+    `±hw` along `yaw`; immovable; a ship's ring points against the box (the nearest face's normal). Ramming one stops her;
+    nothing passes under a carrier's deck (`floorAt` returns a deck only within `DECK_BAND` 1.5 m of it).
+  - Cost: pairs within reach only; ≤ 0.05 ms a frame with two ships touching.
+- **Decks and lashing** (helipads: `def.deck: { hl, hw }`):
+  - `Ship.D` (built, empty) is refilled by `Ship.frame` when the vessel list or a part list changes: `{ v, p, hl, hw, top }`
+    per deck part of a live hydro vessel (top: its top face's y in part space; ghosts' decks too: §10).
+  - *Contact* (vessel.js `ground()` and gear.js `Gear.ground`, one call each, gated on `Ship.D.length`):
+    `Ship.deckContacts(v, contacts, loc)` adds, for each deck not on `v`, every probe point within the deck's rectangle and
+    within `DECK_BAND` under its top: `{ p, k, r, pen, n: the deck's up (world), deck: D }`. In the solver the contact's
+    velocity is taken relative to the deck's point velocity: one line `if (k.deck) Ship.deckRel(k, vp)` after
+    `this.pointVel(k.r, vp)` (in vessel.js and in gear.js's copy). Crash limits as a carrier deck's. No reaction on the ship.
+  - *Lashing:* a craft on a deck whose speed relative to it stays under `LASH.v` 0.3 m/s for `LASH.t` 1 s, with lift (its
+    rotors' or wings') under `LASH.lift` 0.3 of its weight, is lashed: `v.lash = { s: ship, p: deck part, q, X }` (its pose
+    in the ship's part space). flight.js `physicsTick`: `if (v.lash) { Ship.lashStep(v, h, this); continue; }`: not
+    stepped; its pose the ship's pose × that, its velocity the deck point's, `landed = true`, `restTime` counting. Unlashed
+    when its lift passes `LASH.lift` × its weight (collective up, throttle open), when the deck tilts past `LASH.tilt` 25°,
+    when the deck part breaks or the ship is doomed (it falls with the deck's velocity), or on `Flight.start`/respawn.
+  - A moored ship with a lashed craft: `drift` moves her and `lashStep` follows. Saved as the deck part's id on the craft
+    (`rss.flight`), restored only when that part is aboard a hydro vessel in the save.
+- **Gear's hydro gate** (gear.js `Gear.ground`: amphibious Armour with a hull): for `v.sh`, the probes' heights are
+  `Ship.floorAt` (the bed) and normals `Ship.floorNormal`; `M.water` false (no wading or swim drag, no `GEAR.swim` speed
+  cap: the water's forces are ship.js's); the drive force acts only through contacts on the bed (none afloat: her screws or
+  waterjets drive her through `Ship.pre`'s ground-kind branch, built); the engine-flooding rule (`C.eng.length && !C.amph`)
+  skips `v.sh` (WP8 floods her engine through its compartment instead: `Ship.wetAt(v, p)`). Up the slipway the tracks meet
+  the shoaling bed, buoyancy falls away, traction returns. Gear's copies of vessel.js's rules stay in step (CLAUDE.md).
+
+### 4.9 Stability numbers — *built*
+`Ship.stab(v)`: `sh.gm` (from the righting moment in flight; `stabProbe`'s 2° heel at launch). The builder's GM is
+`Ship.hydrostatics` (§11).
+
+### 4.10 Sleeping, rails, warp, far ships — *built*
+Mooring (`MOOR`: still 5 s under 0.5 m/s at Stop, not the player's: no physics, the pose bobs on the waves at 10 Hz;
+woken by the player, the telegraph, a hit, a part lost, water or holes changing, a craft within 200 m faster than 2 m/s);
+`canRails` moors the player's still ship for warp; a far hydro vessel is never railed (it waits); AI hydro vessels are
+stepped out to `aiNear` 12 km; `railsAdvance` leaves afloat or landed hydro vessels where they are.
+**Remaining (WP8):** a doomed ship (§8.8) is never moored and is stepped until she is gone or a wreck; a wreck on the bed
+is `kin` (frozen), like every ground wreck.
+
+### 4.11 Launch — *built*
+`Flight.start` calls `Ship.launch(v, P)` for a hydro vessel started on water (not an air start): `seaPlace` moves the spot
+out to sea in 50 m steps (up to 1 km) until the keel clears the bed by 2 m all along her; `settle` floats her at her marks
+(Newton on heave, trim and heel over the very rings), at rest, telegraph Stop, `sas 'hold'` for kind ship. Spawn spots:
+`EARTH.spawns` ships' entries (the bay, off the slipway, off Shetland harbour, off each carrier, off Caithness),
+`Spawns.place`'s sea branch (a room's next ships abreast 120 m apart). **Remaining:** battle placement at sea (WP11, §10.3)
+and the Naval Range's spots (WP10, §9.2).
+
+### 4.12 Remaining odds and ends (WP6)
+- **Tiny pieces.** A hydro piece with no hull part and under `TINY` 200 kg floats as a box: buoyancy `ρ·g·V_sub`, `V_sub`
+  the submerged share of its bounds box × `TINY_FILL` 0.6 (lighter than 0.6 of its box's water: it floats), velocity and
+  spin damped `e^(−TINY_DAMP·dt)`. Heavier hull-less pieces sink (`sink`, built). A floating piece with nobody in it is
+  junk: after `SEA.float` s at rest (death.js `junkLife`) it is scuttled (`sh.scuttle = true`: its buoyancy off) and sinks
+  by physics; death.js's `seaTick`/`seaAt` keep excluding hydro vessels (built).
+- **The Catalyna's take-off** (a hydro vessel of kind plane): her planing hull carries her onto the step and her wings lift
+  her off at about 70 kn on her old plane laws. Gates: vessel.js `planeTarget` and flight.js `planeTick` treat
+  `v.sh && v.afloat` as on the ground wherever they read `v.landed` for the ground roll (Aim's take-off steering, hold's
+  wings-level on the ground), so the laws don't fight the water; on the water she steers by her air rudder and, slow, by
+  the yaw input on any water rudder aboard (built: `Ship.pre`'s other-kinds branch). A touchdown under `SLAM.k` ×
+  breakSpeed is a planing run-out; harder, holes. These gates are `v.sh`-only: every old seaplane keeps its floats' rules.
+- **A ship with wings** (the owner's rule): their lift is real (aero block, ground effect), `aircraft` is false (no
+  `planeTarget`), so she never flies them; two `wingStraight`s on the Cyclon at Flank: lift < 30 % of her weight.
+- **A jet boat:** air engines on a hull push through `applyEngines`; `v.throttle` comes from the telegraph (built).
