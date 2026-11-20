@@ -2183,7 +2183,7 @@ const Builder = {
     this.peekUntil = 0; clearTimeout(this._peekT);
     this.renderTools();
     this.redraw();
-    UI.toast(!on ? 'X-ray off' : armour ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray on: the noses holding a radar are see-through');
+    UI.toast(!on ? 'X-ray off' : this.kind === 'ship' && armour ? 'X-ray on: her watertight compartments (numbered from the bow), magazines in red, engines and crew' : armour ? 'X-ray on: the armour is see-through, so you can see the crew, ammunition and engine inside' : 'X-ray on: the noses holding a radar are see-through');
   },
   // A look inside for 1.6 s (a set just fitted, swapped or dropped): one redraw now and one when it ends, then idle.
   peek() {
