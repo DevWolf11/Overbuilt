@@ -49,6 +49,9 @@ async function sail(page, spot) {
   await page.evaluate(async (spot) => {
     await Render3D.load();
     App.toBuild(); Builder.loadTemplate('cyclon'); store.set('rss.flight', null);
+    // [WP5] the finished Cyclon carries guns (a turret, two MGs): with them she takes the armed HUD (the aim view, its
+    // keys); the helm's checks here are the unarmed ship's, so her guns come off first (the armed ship: WP9's, WP12's)
+    Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret')); Builder.changed();
     if (spot) Spawns.choose('ship', spot);
     App.launch();
   }, spot || null);
