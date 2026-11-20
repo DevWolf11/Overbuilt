@@ -65,14 +65,15 @@ var bx = box(2.5), bxF = fsim(bx), bxL = Ship.launch(bx);`);
     Math.abs(st.dz) < 0.02 && st.v < 0.1 && st.w < 0.01 && Math.abs(st.heel) < 0.5 && Math.abs(st.trim) < 0.3, st);
 }
 
-// 2. The slice ship, the Cyclon (110 t), at the bay: afloat at her float, level, settled
+// 2. The Cyclon (124 t: the slice's 110 t, her guns, mast, damage-control party and 10 t of ballast, WP5), at the bay:
+// afloat at her float, level, settled
 R(`var cy = cyclon(), cyF = fsim(cy);`);
 {
   const L = R('cy.launchedAt'), p = R(`({ heel: cy.heel * ${D}, trim: cy.trim * ${D}, mass: cy.mass, gm: Ship.stab(cy), afloat: cy.afloat, landed: cy.landed })`);
   R('Ship.forces(cy, 1 / 120, v3(), v3(), cyF)');
   const f = R(`({ draft: cy.draft, fsub: cy.sh.fsub, B: cy.sh.B, W: cy.mass * EARTH.mu / Math.hypot(cy.x, cy.y, cy.z) ** 2, heel: cy.heel * ${D}, trim: cy.trim * ${D} })`);
   t(`the Cyclon launches afloat at the bay (where she was put: ${L && L.moved} m out), level (heel ${f.heel.toFixed(2)}°, trim ${f.trim.toFixed(2)}°), her buoyancy her weight, drawing ${f.draft.toFixed(2)} m, GM ${p.gm.toFixed(2)} m`,
-    L && L.ok && p.afloat && !p.landed && Math.abs(f.heel) < 1 && Math.abs(f.trim) < 1 && Math.abs(f.B / f.W - 1) < 0.002 && f.draft > 1 && f.draft < 1.7 && p.gm > 1 && p.mass === 110000, { L, p, f });
+    L && L.ok && p.afloat && !p.landed && Math.abs(f.heel) < 1 && Math.abs(f.trim) < 1 && Math.abs(f.B / f.W - 1) < 0.002 && f.draft > 1 && f.draft < 1.7 && p.gm > 1 && Math.abs(p.mass - 124460) < 1, { L, p, f });
   R(`still(false); tick(cyF, 20);`);
   const s = R(`({ v: cy.speed(), heel: cy.heel * ${D}, trim: cy.trim * ${D}, afloat: cy.afloat, alt: cy.radius() - EARTH.radius })`);
   t('...and rides the Moderate swell 20 s at her mooring spot: afloat, under 3° of heel and trim, drifting under 1 m/s', s.afloat && Math.abs(s.heel) < 3 && Math.abs(s.trim) < 3 && s.v < 1, s);
@@ -115,7 +116,7 @@ for (const sea of ['moderate', 'rough']) for (const tel of [0, 4]) {
   tick(rvF, 600, (tt, i) => { if (bad(rv)) { wild.nan = true; return false; } wild.v = Math.max(wild.v, rv.speed()); wild.w = Math.max(wild.w, len3(rv.av)); wild.heel = Math.max(wild.heel, Math.abs(rv.heel)); if (tt > 120 && i % 600 === 0) wild.hd.push(Ship.heading(rv, rv.sh) * ${D}); });`);
   const w = R('wild'), dh = w.hd.length ? Math.max(...w.hd.map((h) => Math.abs(((h - 90 + 540) % 360) - 180))) : 0;
   t(`${sea} sea, ${tel ? 'Flank' : 'stopped'}, 600 s: no NaN, under 25 m/s and 1.5 rad/s, heel at most ${(w.heel * D).toFixed(1)}° (under 45°)${tel ? `, her heading within ${dh.toFixed(1)}° of 090 (under 5°)` : ''}`,
-    !w.nan && w.v < 25 && w.w < 1.5 && w.heel * D < 45 && (!tel || dh < 5) && R('!rv.dead && rv.parts.length') === 11, { v: w.v, w: w.w, heel: w.heel * D, dh, nan: w.nan });
+    !w.nan && w.v < 25 && w.w < 1.5 && w.heel * D < 45 && (!tel || dh < 5) && R('!rv.dead && rv.parts.length') === R('TEMPLATES.cyclon.parts.length'), { v: w.v, w: w.w, heel: w.heel * D, dh, nan: w.nan });
 }
 R(`Ship.setSea('moderate');`);
 
@@ -127,7 +128,7 @@ R(`Ship.setSea('moderate');`);
   tick(grF, 160, (tt) => { if (bad(gr)) { gnan = true; return false; } if (tt < 60) { const s = gr.speed(); gr.sh.tel = s < 5.1 ? 2 : 1; } else gr.sh.tel = 0; if (gr.landed && gv0 == null) gv0 = tt; gmax = Math.max(gmax, Math.abs(gr.heel)); });`);
   const g = R(`({ landed: gr.landed, at: gv0, v: gr.speed(), parts: gr.parts.length, broken: grF.broken, nan: gnan, heel: gmax * ${D}, bed: Terrain.heightAt(EARTH, Terrain.locate(EARTH, gr.x, gr.y, gr.z).a, Terrain.locate(EARTH, gr.x, gr.y, gr.z).z), e: -wrapAngle(Terrain.locate(EARTH, gr.x, gr.y, gr.z).a - EARTH.padAngle) * EARTH.radius })`);
   t(`aground at 10 kn on the island's shore (${g.e.toFixed(0)} m east, the bed ${g.bed.toFixed(1)} m): she stops on it (landed at ${g.at && g.at.toFixed(0)} s, ${g.v.toFixed(2)} m/s at the end), every part aboard, nothing broken, no NaN, heel under 20°`,
-    g.landed && g.v < 0.5 && g.parts === 11 && !g.broken.length && !g.nan && g.heel < 20, g);
+    g.landed && g.v < 0.5 && g.parts === R('TEMPLATES.cyclon.parts.length') && !g.broken.length && !g.nan && g.heel < 20, g);
 }
 
 // 7. Mooring (§4.10): a ship that isn't the player's, afloat at Stop, still 5 s: moored; it bobs on the swell with no

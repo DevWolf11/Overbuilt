@@ -485,13 +485,19 @@ const TEMPLATES = {
   },
   // ---- the ships update's ships (kind 'ship', after the ground block): built bow-right as Armour is, hull segments end to
   // end along x (their bottoms level), the superstructure on the deck, engines inside, screws and rudders under the stern
-  cyclon: { // (a Cyclone-class patrol ship, in the update's first slice: hull, wheelhouse, two diesels, two screws and two rudders, unarmed)
-    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 1,
-    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. Ring the telegraph up to Flank and she runs at over 30 knots.',
+  cyclon: { // (a Cyclone-class patrol ship: hull, wheelhouse, two diesels, two screws and two rudders; [WP5] finished with the
+    // existing guns (her 25 mm Bushmaster the 30 mm autocannon in a small turret on the foredeck, a heavy MG each side aft),
+    // a pole mast on the wheelhouse, a damage-control party and 10 t of fuel and ballast aft: 124 t, at her marks)
+    name: 'Cyclon Patrol Boat', kind: 'ship', tier: 2,
+    blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. A 30 mm autocannon forward and two heavy machine guns aft. Ring the telegraph up to Flank and she runs at over 30 knots.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
       ['dieselM', -6, -0.209, 0, { z: -0.91, att: 1 }], ['dieselM', -6, -0.209, 0, { z: 0.91, att: 1 }], // (inside the V bottom, as a tap puts them: Ship.spotOf)
       ['screwM', -14.5, -2.9, 0, { z: -1.4, att: 0 }], ['screwM', -14.5, -2.9, 0, { z: 1.4, att: 0 }],
-      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }]],
+      ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
+      ['ringS', 7.5, 2.21, 0, { att: 3 }], ['turretSmall', 7.5, 2.685, 0, { att: 11 }], ['ac30', 9.032, 2.685, 3, { att: 12 }],
+      ['mgHeavy', -13.6, 2.25, 3, { z: -2.6, att: 0 }], ['mgHeavy', -13.6, 2.25, 3, { z: 2.6, att: 0 }],
+      ['mastPole', 2, 8, 0, { att: 4 }], ['dcLocker', 2, -0.709, 0, { att: 2 }], ['ballast', -14, -1.131, 0, { att: 0 }]],
+    paint: { hbSternM: 'patrolWhite', hbMidM: 'patrolWhite', hbBowM: 'patrolWhite', bridgeM: 'patrolWhite', mastPole: 'patrolWhite', ringS: 'patrolWhite', turretSmall: 'patrolWhite' },
   },
 };
 
