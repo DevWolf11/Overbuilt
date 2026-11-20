@@ -385,7 +385,7 @@ and the Naval Range's spots (WP10, §9.2).
   the yaw input on any water rudder aboard (built: `Ship.pre`'s other-kinds branch). A touchdown under `SLAM.k` ×
   breakSpeed is a planing run-out; harder, holes. These gates are `v.sh`-only: every old seaplane keeps its floats' rules.
 - **A ship with wings** (the owner's rule): their lift is real (aero block, ground effect), `aircraft` is false (no
-  `planeTarget`), so she never flies them; two `wingStraight`s on the Cyclon at Flank: lift < 30 % of her weight.
+  `planeTarget`), so she never flies them; two `wingL`s (Large Wing) on the Cyclon at Flank: lift < 30 % of her weight.
 - **A jet boat:** air engines on a hull push through `applyEngines`; `v.throttle` comes from the telegraph (built).
 - **`shull.cw`** (new, WP5/WP6): a blunt hull's wave-making factor, × `C_wr` in both `hull()` and the builder's
   `resistance()` (one formula: the two must agree). Default 1; the landing craft's `lcHull` 2.5 (a bluff ramp bow: without
@@ -646,8 +646,8 @@ them into their vertex colours (built `SKIN_GEO`).
   `dcLocker` ×1; `pump` ×2; `bulkhead` ×4; belt 12 mm (stock: none dialled); paint `navyGrey`. About $120k: the biggest
   thing in a 120k battle.
 - **catalyna** — `stepHull` along her nose (rot 1); existing plane parts: a cockpit, a high straight wing on a pylon
-  (`wingStraight` pair or the longest stock wing), two `pontoon`s at the wingtips (z ± 0.42 of the span), two existing
-  propeller engines on the wing, a tail; an old air `torpedo` under the wing and two MGs (`gun` parts); paint `navyGrey`.
+  (a `wingStraightL` pair: Long Straight Wing), two `pontoon`s at the wingtips (z ± 0.42 of the span), two existing
+  `propL` radial engines on the wing, a tail; an old air `torpedo` under the wing and two MGs (`gun` parts); paint `navyGrey`.
   On her old plane laws (§4.12): floats, runs up on the step, lifts off at about 70 kn; torpedo-bombs a ship (S7's
   aerial torpedo is the `torpTube` on an aircraft; hers is the old air torpedo, which with ships in play homes on them:
   §8.5).
