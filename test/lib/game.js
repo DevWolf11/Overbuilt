@@ -69,6 +69,8 @@ function load(opts = {}) {
   run(b.match(/const TEMPLATES = \{[\s\S]*?\n\};/)[0] + '\nthis.TEMPLATES = TEMPLATES;', 'builder.js (TEMPLATES)');
   const tr = b.match(/function templateRows\(t\) \{[\s\S]*?\n\}/);
   if (tr) run(tr[0], 'builder.js (templateRows)');
+  const sc = b.match(/const SHIP_CLASSES = [^\n]*\nfunction shipClass\(t\) \{[\s\S]*?\n\}/); // (the hangar's ship classes, the ships update)
+  if (sc) run(sc[0] + '\nthis.shipClass = shipClass;', 'builder.js (shipClass)');
   if (!opts.combat) run(src(root, 'combat.js').match(/const RAIDER = \[[\s\S]*?\]\];/)[0] + '\nthis.RAIDER = RAIDER;', 'combat.js (RAIDER)');
   else run('this.RAIDER = RAIDER;');
   if (opts.flight) run(src(root, 'flight.js') + '\nthis.Flight = Flight;', 'flight.js');

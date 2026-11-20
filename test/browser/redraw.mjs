@@ -139,6 +139,18 @@ const wl1 = await wlRow();
 ok('2D: the waterline moves at once when an edit from code weighs her down', wl1.best > 100 && Math.abs(wl1.at - wl1.want) <= 3 && Math.abs(wl1.at - wl0.at) >= 5, JSON.stringify({ wl0, wl1 }));
 n = await idle('b2', 600);
 ok('...and then the ship\'s blueprint is idle again', n === 0, `${n} draws`);
+// (WP7) a ship's X-ray: her compartments numbered; an edit from code that takes a hull segment off renumbers them at once
+await ev(() => { Builder.loadTemplate('cyclon'); Builder.selected = null; Builder.setXray(true); Builder.renderInfo(); });
+await frames(4); await page.waitForTimeout(300);
+const xr0 = await ev(() => (Builder.xrayLabels || []).map((l) => l[2]).join());
+await idle('b2', 300);
+await ev(() => { Builder.removeParts(Builder.parts.filter((p) => p.type === 'hbBowM')); });
+await frames(2);
+const xr1 = await ev(() => (Builder.xrayLabels || []).map((l) => l[2]).join());
+ok('2D X-ray: a ship\'s compartments renumber at once when an edit from code takes a segment off', xr0 === '1,2,3,4' && xr1 === '1,2,3', JSON.stringify({ xr0, xr1 }));
+n = await idle('b2', 600);
+ok('...and then the X-ray blueprint is idle again', n === 0, `${n} draws`);
+await ev(() => Builder.setXray(false));
 
 // ---- a radar set's peek (the big update): fitted from code, its nose see-through for 1.6 s; the peek's end is exactly
 // one more redraw, and then the blueprint is idle again

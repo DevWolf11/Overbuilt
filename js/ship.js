@@ -1619,22 +1619,56 @@ const Ship = (() => {
 
   // ---- placement: where a tapped part goes on a ship (§11.2): a pose { def, type, x, y, z, rot, host, att } (att: the
   // part it hangs on; shift: { parts, dx, dy } to move first, a midsection going in behind the bow), { why } for a toast,
-  // or null (the builder's own rules). at: the view's middle in part space { x, y }, and sym (symmetry on: pairs go off
-  // the centre line, the builder adds the twin). [WP4: keel, deck, inside, stern (screws, rudders); WP7 the rest]
+  // or null (the builder's own rules: the ground update's tankSpot for a gun house's guns and roof kit, then the usual
+  // tap). at: the view's middle in part space { x, y }, and sym (symmetry on: pairs go off the centre line, the builder
+  // adds the twin). Every pose is clear of every part (partsClash). Parts are told apart by their fields, not their
+  // keys (§6's), so a part another package adds lands by what it is. [WP4: keel, deck, inside, stern screws and rudders;
+  // WP7: every place]
+  // What a ship part is, for placement and the warnings: the superstructure (what stands on the deck as a building:
+  // bridges, deckhouses, the hangar, a helm console; not funnels, masts or guns), a radar, a magazine, a damage control
+  // party, a gun ring (a naval ring on the deck, or a tank's turret ring put on a ship)
+  const isHouse = (d) => !!d.ship && !d.shull && !d.funnel && (d.place === 'super' || (d.place === 'deck' && !!d.control));
+  const isRadar = (d) => !!(d.searchRadar || d.trackRadar || d.radarSet);
+  const isMag = (d) => !!d.ship && (!!d.store || d.module === 'ammo');
+  const isDC = (d) => !!(d.mods && d.mods.some((m) => m.k === 'crew' && m.role === 'dc'));
+  const isPump = (d) => !!d.pump && !d.shull;
+  const isRing = (d) => !!d.ring && (d.place === 'deck' || d.place === 'roof');
+  function roleOf(d, type) {
+    const w = d.weapon || {}, f = d.foil;
+    if (d.shull) { const en = d.shull.ends || {}; return en.aft === 'joint' || en.fore === 'joint' ? 'segment' : 'onePiece'; }
+    if (isRing(d)) return 'gunRing';
+    if (d.deck) return 'pad';
+    if (w.vls) return 'vls';
+    if (d.ciws) return 'ciws';
+    if (w.asm) return 'asm';
+    if (d.decoy && d.decoy.torp) return 'torpDecoy';
+    if (f && f.kind === 'foil') return d.place === 'bow' ? 'foilBow' : 'foilKeel';
+    if (d.jet) return 'jet';
+    if (d.steer && (d.screw || d.engine)) return 'outboard';
+    if (d.bulkhead) return 'bulkhead';
+    if (d.place === 'inside') return isMag(d) ? 'magazine' : isPump(d) ? 'pump' : isDC(d) ? 'dc' : d.ballast || type === 'ballast' ? 'ballast' : 'inside';
+    if (d.place === 'mast') return isRadar(d) ? 'radar' : 'mast';
+    if (d.funnel) return 'funnel';
+    if (d.hangar) return 'hangar';
+    if (d.place === 'deck' && d.control && !d.shull && d.w <= 2) return 'console';
+    if (d.place === 'super') return d.control ? 'bridge' : 'house';
+    return d.place || null;
+  }
   function spotOf(type, parts, at) {
     const def = hasOwn(PARTS, type) ? PARTS[type] : null;
     if (!def || !Array.isArray(parts)) return null;
     at = at || {};
     const BD = B0(), rot = Number.isInteger(at.rot) ? at.rot & 3 : def.aim ? 3 : 0, { w, h } = partDims({ def, rot }), dep = partDepth({ def });
     const pose = (x, y, z, host) => ({ def, type, x: +x.toFixed(3), y: +y.toFixed(3), z: cleanZ(+z.toFixed(3), def), rot, host, att: host });
-    const free = (q, skip) => !parts.some((o) => !(skip && skip.has(o)) && partsClash(q, o));
+    const free = (q, skip) => !!q && !parts.some((o) => !(skip && skip.has(o)) && partsClash(q, o));
     const hulls = parts.filter((p) => p.def.shull && (p.rot & 3) === 0);
     const room = { why: `No room for the ${def.name} there: drag it into place instead.` }, first = { why: `Put a hull down first (Ship hulls): the ${def.name} goes on it.` };
-    // the hull's extent along x, the deck's and the keel's height there (the segments that span x)
+    // the hull's extent along x, the deck's and the keel's height there (the segments that span x), the deck's half-breadth
     const span = (p) => { const H = shullOf(p.def); return [p.x + H.x0, p.x + H.x1]; };
     const over = (x) => hulls.filter((p) => { const [a, b] = span(p); return x >= a - 1e-6 && x <= b + 1e-6; });
     const deckAt = (x) => over(x).reduce((m, p) => Math.max(m, p.y + shullSec(p.def.shull.st, x - p.x)[0]), -Infinity);
     const keelAt = (x) => over(x).reduce((m, p) => Math.min(m, p.y + shullSec(p.def.shull.st, x - p.x)[1]), Infinity);
+    const beamAt = (x) => over(x).reduce((m, p) => Math.max(m, shullSec(p.def.shull.st, x - p.x)[2] + Math.abs(partZ(p))), -Infinity);
     const samples = (x0, x1) => { const n = Math.max(1, Math.ceil((x1 - x0) / 0.25)), o = []; for (let i = 0; i <= n; i++) o.push(x0 + ((x1 - x0) * i) / n); return o; };
     const near = (xt, lo, hi) => { // (lo..hi every BD.step m, the nearest xt first)
       const s = BD.step, o = [];
@@ -1644,12 +1678,54 @@ const Ship = (() => {
       for (let k = 1; c - k * s >= lo - 1e-9 || c + k * s <= hi + 1e-9; k++) { if (c + k * s <= hi + 1e-9) o.push(c + k * s); if (c - k * s >= lo - 1e-9) o.push(c - k * s); }
       return o;
     };
+    const down = (hi, lo) => { const o = []; for (let x = hi; x >= lo - 1e-9; x -= BD.step) o.push(x); return o; }; // (from hi aft to lo)
+    const up = (lo, hi) => { const o = []; for (let x = lo; x <= hi + 1e-9; x += BD.step) o.push(x); return o; }; // (from lo forward to hi)
+    const scan = (xs, zs, make) => { for (const x of xs) for (const z of zs) { const q = make(x, z); if (free(q)) return q; } return null; };
+    const pairs = (z) => (Math.abs(z) < 0.005 ? [0] : at.sym ? [z] : [z, -z]); // (a pair with symmetry on: the builder adds the twin)
     let X0 = Infinity, X1 = -Infinity;
     for (const p of hulls) { const [a, b] = span(p); X0 = Math.min(X0, a); X1 = Math.max(X1, b); }
-    const xt = Number.isFinite(at.x) && at.x >= X0 && at.x <= X1 ? at.x : (X0 + X1) / 2;
+    const L = X1 - X0, mid = (X0 + X1) / 2;
+    const xt = Number.isFinite(at.x) && at.x >= X0 && at.x <= X1 ? at.x : mid;
+    const role = roleOf(def, type);
+    // the superstructure's extent along her (SX0..SX1), and its parts
+    const houses = parts.filter((p) => isHouse(p.def));
+    let SX0 = Infinity, SX1 = -Infinity;
+    for (const p of houses) { const R = partRect(p); SX0 = Math.min(SX0, R.l); SX1 = Math.max(SX1, R.r); }
+    const sup = houses.length > 0;
+    // on the deck at x, z across: its bottom on the deck's highest point under it, over the deck along all its length (no
+    // more than a quarter of its width past the deck edge either side: nothing wide at a narrow bow)
+    const deckPose = (x, z = 0) => {
+      let top = -Infinity;
+      for (const s of samples(x - w / 2, x + w / 2)) { const d = deckAt(s); if (!Number.isFinite(d) || !(Math.abs(z) + dep / 2 <= beamAt(s) + 0.25 * dep + 1e-6)) return null; top = Math.max(top, d); }
+      return pose(x, top + h / 2, z, over(x)[0]);
+    };
+    // on a part's roof (a house, a mast), its middle over the roof, x along it, z across it
+    const roofPose = (H, x, z) => {
+      const R = partRect(H), hz = partZ(H);
+      if (Math.abs(z - hz) + dep / 2 > partDepth(H) / 2 + 0.25 * dep + 1e-6) return null;
+      return pose(x, R.t + h / 2, z, H);
+    };
+    const roofScan = (H, x0, zs) => { const R = partRect(H), xs = R.r - R.l >= w ? near(x0, R.l + w / 2, R.r - w / 2) : [H.x]; return scan(xs, zs, (x, z) => roofPose(H, x, z)); };
+    // the superstructure under the view's middle, then the rest nearest it: their roofs (the deck full there)
+    const onSuper = (x0 = xt) => {
+      for (const H of [...houses].sort((a, b) => Math.abs(a.x - x0) - Math.abs(b.x - x0))) { const q = roofScan(H, x0, [partZ(H)]); if (q) return q; }
+      return null;
+    };
+    const onDeck = (x0 = xt, zs = [0]) => scan(near(x0, X0 + w / 2, X1 - w / 2), zs, deckPose);
 
+    // ---- hulls
+    // a one-piece hull (a RIB's, a float) beside the hulls there: off the centre line by both half-beams and 0.5 m, its
+    // keel level with theirs and its middle beside theirs (a catamaran; a pair of floats with symmetry on)
+    if (role === 'onePiece' && parts.some((p) => p.def.shull)) {
+      if (!hulls.length) return room;
+      const H1 = shullOf(def), k1 = Math.min(...H1.rings.map((r) => r.yk)), b1 = Math.max(...H1.rings.map((r) => r.bd));
+      const F = [...hulls].sort((a, b) => Math.abs(partZ(a)) - Math.abs(partZ(b)))[0], H0 = shullOf(F.def), k0 = F.y + Math.min(...H0.rings.map((r) => r.yk)), b0 = Math.max(...H0.rings.map((r) => r.bd));
+      const x = F.x + (H0.x0 + H0.x1) / 2 - (H1.x0 + H1.x1) / 2, y = k0 - k1, zo = Math.abs(partZ(F)) + b0 + b1 + 0.5;
+      for (const z of at.sym ? [zo] : [zo, -zo]) { const q = pose(x, y, z, F); if (free(q)) return q; }
+      return room;
+    }
     // keel: hull segments end to end, bow forward, stern aft, their keels level
-    if (def.shull && def.place === 'keel') {
+    if (def.shull) {
       const H = shullOf(def), ra = H.rings[0], rf = H.rings[H.nr - 1], en = def.shull.ends || {}, jA = en.aft === 'joint', jF = en.fore === 'joint';
       if (!parts.some((p) => p.def.shull)) return free(pose(0, 0, 0, null)) ? pose(0, 0, 0, null) : room;
       const E = hullEnds(hulls);
@@ -1684,52 +1760,178 @@ const Ship = (() => {
       for (const q of ends) if (free(q)) return q;
       return room;
     }
-    // deck: on the deck line of the hull under the view's middle (or amidships), on the centre line; along it till clear
-    if (def.place === 'deck') {
-      if (!hulls.length) return first;
-      for (const x of near(xt, X0 + w / 2, X1 - w / 2)) {
-        let top = -Infinity;
-        for (const s of samples(x - w / 2, x + w / 2)) { const d = deckAt(s); if (!Number.isFinite(d)) { top = NaN; break; } top = Math.max(top, d); }
-        if (!Number.isFinite(top)) continue;
-        const q = pose(x, top + h / 2, 0, over(x)[0]);
-        if (free(q)) return q;
-      }
-      return room;
+
+    // ---- the ground update's places on a ship: a gun house (or a tank turret) on the free ring nearest the view's middle;
+    // a gun with no gun house aboard on a bare ring, its trunnion over the ring's middle; roof kit with no turret aboard
+    // on the superstructure's roof. With a house or turret aboard, its guns and roof kit go as on a tank (null: tankSpot).
+    const turret = parts.some((p) => p.def.place === 'ring'), ground = def.place === 'ring' || def.place === 'front' || def.place === 'top' || def.place === 'flank';
+    if (ground && !hulls.length) return null;
+    if (def.place === 'ring') {
+      const rings = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt)); // (bare rings: a gun on one is its own mount)
+      for (const g of rings) { const q = pose(g.x, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      return rings.length ? room : { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} turns on it.` };
     }
-    // inside: in the hull segment under the view's middle (else the nearest), as low as it goes, the nearest the middle at
-    // that height; a pair off the centre line with symmetry on (the centre line if no pair fits), else on it
+    if ((def.place === 'front' || def.place === 'top' || def.place === 'flank') && !turret) {
+      const piv = def.aim && def.aim.pivot != null ? def.aim.pivot : 0.5, off = rot === 3 ? def.h / 2 - piv * def.h : 0;
+      const bare = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt));
+      if (def.place === 'front' || def.aim) for (const g of bare) { const q = pose(g.x + off, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      if (def.place === 'front' && bare.length) return room;
+      if (def.place === 'front') return { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} goes on it.` };
+      const q = onSuper(xt + off) || onDeck(xt + off);
+      return q || room;
+    }
+    if (def.place === 'front' || def.place === 'top' || def.place === 'flank') return null; // (a gun house aboard: tankSpot)
+
+    const onHull = ['deck', 'super', 'mast', 'inside', 'stern', 'bow', 'edge', 'keel'].includes(def.place) || role === 'gunRing' || role === 'torpDecoy';
+    if (!onHull) return null;
+    if (!hulls.length) return first;
+
+    // ---- the deck
+    // a gun ring: the foremost clear spot on the centre line ahead of the superstructure, then the aftmost behind it
+    // (rings far enough apart for the gun houses on them: 1.6 m between them)
+    if (role === 'gunRing') return scan([...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])], [0],
+      (x, z) => (parts.some((o) => o.def.ring && Math.abs(o.x - x) < (w + o.def.w) / 2 + 1.6) ? null : deckPose(x, z))) || room;
+    // the helicopter deck: the aftmost clear stretch of deck
+    if (role === 'pad') return scan(up(X0 + w / 2, X1 - w / 2), [0], deckPose) || room;
+    // vertical launch cells, flush in the deck (their top at the deck line, inside the hull), ahead of the superstructure,
+    // then aft of it; a launcher that isn't set into the deck stands on it there
+    if (role === 'vls') {
+      const xs = [...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])];
+      if (def.flush || def.inner) {
+        const q = scan(xs, [0], (x) => {
+          const H = over(x)[0], d = deckAt(x);
+          if (!H || !Number.isFinite(d)) return null;
+          const S = H.def.shull, y0 = d - h - H.y, zm = dep / 2 + BD.inM;
+          for (const s of samples(x - w / 2, x + w / 2)) {
+            const G = over(s)[0];
+            if (G !== H) return null;
+            const P = shullPoly(shullSec(S.st, s - H.x), S.wl);
+            if (!(halfAt(P, y0) >= zm - 1e-9) || !(halfAt(P, y0 + h - 1e-6) >= zm - 1e-9)) return null;
+          }
+          return pose(x, d - h / 2, 0, H);
+        });
+        if (q) return q;
+      }
+      return scan(xs, [0], deckPose) || room;
+    }
+    // the close-in gun: on the centre line on top of the aftmost superstructure, else on the deck aft
+    if (role === 'ciws') {
+      for (const H of [...houses].sort((a, b) => partRect(a).l - partRect(b).l)) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+      return scan(up(X0 + w / 2, X1 - w / 2), [0], deckPose) || room;
+    }
+    // anti-ship missiles: aft of the superstructure, a pair at the deck's edges with symmetry on (else on the centre line)
+    if (role === 'asm') {
+      const xs = sup ? [...down(SX0 - w / 2, X0 + w / 2), ...up(SX1 + w / 2, X1 - w / 2)] : near(mid - 0.15 * L, X0 + w / 2, X1 - w / 2);
+      return scan(xs, [0], (x) => { const b = Math.min(...samples(x - w / 2, x + w / 2).map(beamAt)); if (!(b > 0)) return null; const z = at.sym ? Math.max(0, b - dep / 2) : 0; return deckPose(x, z); }) || room;
+    }
+    // a torpedo decoy streams from the stern: on the stern's deck
+    if (role === 'torpDecoy') return scan(up(X0 + w / 2, X1 - w / 2), [0, ...pairs(Math.max(0, beamAt(X0 + w / 2) - dep / 2 - 0.1))], deckPose) || room;
+    // a helm console: amidships, a little aft of the middle
+    if (role === 'console') return onDeck(mid - 0.12 * L) || room;
+    // the rest on the deck: under the view's middle (or amidships), on the centre line, along it till clear
+    if (def.place === 'deck') return onDeck() || room;
+
+    // ---- superstructure
+    if (def.place === 'super') {
+      if (role === 'bridge') { // a bridge: its front 30-40 % of her length from the bow
+        const a = X1 - 0.4 * L - w / 2, b = X1 - 0.3 * L - w / 2;
+        return scan(near((a + b) / 2, Math.max(a, X0 + w / 2), Math.min(b, X1 - w / 2)), [0], deckPose) || onDeck((a + b) / 2) || onSuper() || room;
+      }
+      if (role === 'house' && sup) return scan(down(SX0 - w / 2, X0 + w / 2), [0], deckPose) || onDeck() || onSuper() || room; // (just behind the last superstructure)
+      if (role === 'funnel') { // on a deckhouse's roof (the one under the view's middle first), else on deck amidships
+        const hs = [...houses].sort((a, b) => (a.def.control ? 1 : 0) - (b.def.control ? 1 : 0) || Math.abs(a.x - xt) - Math.abs(b.x - xt));
+        for (const H of hs) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+        return onDeck(mid) || room;
+      }
+      if (role === 'hangar') { // just ahead of the helicopter deck
+        const pad = parts.filter((p) => p.def.deck).sort((a, b) => a.x - b.x)[0];
+        if (pad) { const q = scan(up(partRect(pad).r + w / 2, X1 - w / 2), [0], deckPose); if (q) return q; }
+      }
+      return onDeck() || onSuper() || room;
+    }
+    // ---- masts and radars: a mast on top of the highest superstructure, on the centre line; a radar on the highest free
+    // mast top, else on the highest superstructure's roof
+    if (def.place === 'mast') {
+      const high = [...houses].sort((a, b) => partRect(b).t - partRect(a).t);
+      if (role === 'radar') {
+        const masts = parts.filter((p) => p.def.place === 'mast' && !isRadar(p.def)).sort((a, b) => partRect(b).t - partRect(a).t);
+        for (const M of masts) { const q = pose(M.x, partRect(M).t + h / 2, partZ(M), M); if (free(q)) return q; }
+      }
+      for (const H of high) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+      return onDeck() || room;
+    }
+
+    // ---- inside a hull: in the segment under the view's middle (else the nearest), as low as it goes, the nearest the
+    // middle at that height; a pair off the centre line with symmetry on (the centre line if no pair fits), else on it.
+    // A magazine under the nearest gun ring, a pump in the largest compartment, a damage control party amidships, ballast
+    // the lowest anywhere; a bulkhead across the middle of the compartment under the view's middle.
+    if (role === 'bulkhead') {
+      const gap = (p) => { const [a, b] = span(p); return xt < a ? a - xt : xt > b ? xt - b : 0; };
+      const H = [...hulls].sort((a, b) => gap(a) - gap(b))[0], [a, b] = span(H);
+      const cuts = [a, ...parts.filter((p) => p.def.bulkhead && p.att === H.id).map((p) => p.x).sort((u, v) => u - v), b];
+      const c = clamp(xt, a, b);
+      let i = 0;
+      while (i < cuts.length - 2 && c > cuts[i + 1]) i++;
+      const xm = (cuts[i] + cuts[i + 1]) / 2, S = H.def.shull;
+      const at2 = (x) => { const s = shullSec(S.st, x - H.x); return pose(x, H.y + (s[0] + s[1]) / 2, partZ(H), H); };
+      return scan(near(xm, Math.max(cuts[i] + w, a + w / 2), Math.min(cuts[i + 1] - w, b - w / 2)), [0], at2) || room;
+    }
     if (def.place === 'inside') {
-      if (!hulls.length) return first;
-      const m = BD.inM, gap = (p) => { const [a, b] = span(p); return xt < a ? a - xt : xt > b ? xt - b : 0; };
-      const order = [...hulls].sort((a, b) => gap(a) - gap(b) || Math.abs(a.x - xt) - Math.abs(b.x - xt));
+      const m = BD.inM, gap = (p, x) => { const [a, b] = span(p); return x < a ? a - x : x > b ? x - b : 0; };
+      let x0 = xt, lowest = role === 'ballast';
+      if (role === 'magazine') { const g = parts.filter((p) => p.def.ring).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt))[0]; if (g) x0 = g.x; }
+      if (role === 'dc') x0 = mid;
+      let order = [...hulls].sort((a, b) => gap(a, x0) - gap(b, x0) || Math.abs(a.x - x0) - Math.abs(b.x - x0));
+      if (role === 'pump') { order = [...hulls].sort((a, b) => shullOf(b.def).vol - shullOf(a.def).vol); x0 = (span(order[0])[0] + span(order[0])[1]) / 2; }
+      const all = [];
       for (const H of order) {
-        const S = H.def.shull, Hs = shullOf(H.def), lim = Hs.rings.reduce((s, r) => Math.max(s, r.bd), 0), pairs = [], cands = [];
-        for (let z = dep / 2 + 0.01; z + dep / 2 + m <= lim + 1e-9; z += BD.step) pairs.push(z);
-        const zs = at.sym ? [...pairs.map((z) => [z, 0]), [0, 1]] : [[0, 0], ...pairs.flatMap((z) => [[z, 1], [-z, 1]])];
+        const S = H.def.shull, Hs = shullOf(H.def), lim = Hs.rings.reduce((s, r) => Math.max(s, r.bd), 0), zz = [], cands = [];
+        for (let z = dep / 2 + 0.01; z + dep / 2 + m <= lim + 1e-9; z += BD.step) zz.push(z);
+        const zs = at.sym ? [...zz.map((z) => [z, 0]), [0, 1]] : [[0, 0], ...zz.flatMap((z) => [[z, 1], [-z, 1]])];
         const secsAt = (x) => samples(x - w / 2, x + w / 2).map((s) => shullPoly(shullSec(S.st, s - H.x), S.wl));
-        for (const x of near(xt, H.x + Hs.x0 + w / 2 + m, H.x + Hs.x1 - w / 2 - m)) {
+        for (const x of near(x0, H.x + Hs.x0 + w / 2 + m, H.x + Hs.x1 - w / 2 - m)) {
           const secs = secsAt(x);
           for (const [z, tier] of zs) {
             const y0 = lowIn(secs, Math.abs(z) + dep / 2 + m, h, m);
-            if (y0 != null) cands.push({ x, z, y0, secs, s: tier * 1000 + y0 + 0.08 * Math.abs(x - xt) + 0.01 * Math.abs(z) });
+            if (y0 != null) cands.push({ H, x, z: z + partZ(H), y0, secs, s: tier * 1000 + (lowest ? H.y + y0 : y0) + 0.08 * Math.abs(x - x0) + 0.01 * Math.abs(z) });
           }
         }
+        if (lowest) { all.push(...cands); continue; }
         cands.sort((a, b) => a.s - b.s);
         for (const c of cands) { const q = pose(c.x, H.y + c.y0 + h / 2, c.z, H); if (free(q)) return q; }
         for (const c of cands) for (let dy = 0.1; dy < 8; dy += 0.1) { // (stacked on what is there already)
-          if (!fitsIn(c.secs, c.y0 + dy, h, Math.abs(c.z) + dep / 2 + m, m)) break;
+          if (!fitsIn(c.secs, c.y0 + dy, h, Math.abs(c.z - partZ(H)) + dep / 2 + m, m)) break;
           const q = pose(c.x, H.y + c.y0 + dy + h / 2, c.z, H);
           if (free(q)) return q;
         }
       }
+      all.sort((a, b) => a.s - b.s);
+      for (const c of all) { const q = pose(c.x, c.H.y + c.y0 + h / 2, c.z, c.H); if (free(q)) return q; }
       return room;
     }
-    // stern: a screw under the aftmost segment's keel a little ahead of the transom (a pair with symmetry on); a rudder
-    // just behind a screw that has none, else under the transom
+
+    // ---- under her: a hydrofoil under the forefoot (the bow's foremost fifth of her length) or under the hull 10 % of her
+    // length aft of her centre of gravity, its top at the keel there
+    if (role === 'foilBow' || role === 'foilKeel') {
+      const cg = model(parts).cg.x, xf = role === 'foilBow' ? X1 - 0.1 * L : cg - 0.1 * L, lo = role === 'foilBow' ? Math.max(X0 + w / 2, X1 - 0.2 * L) : X0 + w / 2;
+      return scan(near(xf, lo, X1 - w / 2), [0], (x) => { let k = Infinity; for (const s of samples(x - w / 2, x + w / 2)) k = Math.min(k, keelAt(s)); return Number.isFinite(k) ? pose(x, k - 0.01 - h / 2, 0, over(x)[0]) : null; }) || room;
+    }
+
+    // ---- the stern: screws under the aftmost segment's keel a little ahead of the transom (a pair with symmetry on); a
+    // rudder just behind a screw that has none, else under the transom; an outboard on the transom's aft face, its
+    // propeller under the keel line (a pair 0.5 m either side with symmetry on); a waterjet in the transom at the keel line
+    // (one on the centre line, a pair at a quarter of the beam out)
+    const A = hulls.reduce((m, p) => (!m || span(p)[0] < span(m)[0] ? p : m), null), xa = span(A)[0], hb = shullOf(A.def).rings.reduce((s, r) => Math.max(s, r.bd), 0);
+    const under = (x) => { let k = Infinity; for (const s of samples(Math.max(xa, x - w / 2), Math.min(X1, Math.max(xa, x + w / 2)))) k = Math.min(k, keelAt(s)); return k; };
+    if (role === 'outboard') {
+      const k = keelAt(xa + 0.01), x = xa - w / 2 - 0.02, y = k - 0.25 + h / 2;
+      return scan([x], at.sym ? [0.5, 0] : [0, 0.5, -0.5], (x, z) => pose(x, y, z + partZ(A), A)) || room;
+    }
+    if (role === 'jet') {
+      const k = keelAt(xa + 0.01), x = xa + w / 2 - 0.4, zs = at.sym ? [hb / 2, 0] : [0, hb / 2, -hb / 2];
+      return scan([x], zs, (x, z) => pose(x, k + h / 2 + 0.01, z + partZ(A), A)) || scan([xa + w / 2], zs, (x, z) => pose(x, under(x) - 0.01 - h / 2, z + partZ(A), A)) || room;
+    }
     if (def.place === 'stern' && ((def.screw && !def.steer) || (def.foil && def.foil.kind === 'rudder'))) {
-      if (!hulls.length) return first;
-      const A = hulls.reduce((m, p) => (!m || span(p)[0] < span(m)[0] ? p : m), null), xa = span(A)[0], hb = shullOf(A.def).rings.reduce((s, r) => Math.max(s, r.bd), 0);
-      const under = (x) => { let k = Infinity; for (const s of samples(Math.max(xa, x - w / 2), Math.min(X1, Math.max(xa, x + w / 2)))) k = Math.min(k, keelAt(s)); return k; };
       if (def.screw) {
         const D = def.screw.D, k = BD.pair * hb, k2 = k + D + 0.2, x = xa + Math.max(0.7 * D, w / 2), zs = at.sym ? [k, 0, k2] : [0, k, -k, k2, -k2];
         for (const z of zs) { if (Math.abs(z) + dep / 2 > hb + 0.2) continue; const q = pose(x, under(x) - 0.01 - h / 2, z, A); if (free(q)) return q; } // (within the beam)
@@ -1744,6 +1946,13 @@ const Ship = (() => {
       }
       for (const z of at.sym ? [BD.pair * hb, 0] : [0]) { const x = xa + w / 2 - 0.25, q = pose(x, under(x) - 0.01 - h / 2, z, A); if (free(q)) return q; }
       return room;
+    }
+
+    // ---- the deck edge: torpedo tubes and decoy launchers at the deck's edge, facing outboard, aft of the superstructure
+    // (then ahead of it), a pair with symmetry on
+    if (def.place === 'edge') {
+      const xs = sup ? [...down(SX0 - w / 2, X0 + w / 2), ...up(SX1 + w / 2, X1 - w / 2)] : near(mid - 0.15 * L, X0 + w / 2, X1 - w / 2);
+      return scan(xs, at.sym ? [1] : [1, -1], (x, s) => { const b = Math.min(...samples(x - w / 2, x + w / 2).map(beamAt)); return b > dep / 2 ? deckPose(x, s * (b - dep / 2)) : null; }) || room;
     }
     return null;
   }
@@ -1782,11 +1991,13 @@ const Ship = (() => {
     return fitsIn(secs, y0, h, zm, m) ? y0 : null;
   }
   // The ship's warnings (renderStats, kind ship), plainly: no hull, she sinks or is overloaded, open ends, she capsizes or
-  // rolls, lists or trims, nothing pushes or steers her, a screw or rudder out of the water. (No bridge is the builder's
-  // first line, as every kind's control part; loose parts, the budget and the rest come after, everyone's.)
-  function warnings(ps, st, warn) {
+  // rolls, lists or trims, nothing pushes or steers her, a screw or rudder out of the water; then her kit's (kitWarnings).
+  // (No bridge is the builder's first line, as every kind's control part; loose parts, the budget and the rest come
+  // after, everyone's.) extra: what the builder knows and a pure function can't, { arcs: [{ x, deg }] } each gun
+  // turret's traverse (Aim.sweep's, degrees; 360 all round).
+  function warnings(ps, st, warn, extra) {
     const BD = B0(), t = (kg) => { const v = kg / 1000; return v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString('en-US'); };
-    if (!st || !st.hull) { warn.push('No hull: she can\'t float. Start with hull segments (Ship hulls): a bow, a midsection and a stern.'); return; }
+    if (!st || !st.hull) { warn.push('No hull: she can\'t float. Start with hull segments (Ship hulls): a bow, a midsection and a stern.'); kitWarnings(ps, st, warn, extra); return; }
     if (st.sinks) warn.push(`Too heavy for her hull: ${t(st.mass)} t on a hull that floats ${t(st.cap)} t. She'll sink: lighten her or lengthen the hull.`);
     else if (st.freeboard < BD.free) warn.push(`Overloaded: her deck is only ${Math.max(0, st.freeboard).toFixed(1)} m above the water. Lighten her or lengthen the hull.`);
     const open = (w) => (st.openEnds || []).some((o) => o.at === w);
@@ -1804,9 +2015,216 @@ const Ship = (() => {
     if (st.dryScrews && st.dryScrews.length) warn.push('A propeller is out of the water: hang it lower, under the stern.');
     if (!st.rudder) warn.push('No rudder: she can\'t steer. Hang one just behind a propeller.');
     else if (st.dryRudders && st.dryRudders.length) warn.push('A rudder is out of the water: it can\'t steer her. Hang it lower.');
+    kitWarnings(ps, st, warn, extra);
   }
-  function specs(def) { return []; } // a ship part's card lines
-  function line(def) { return null; } // a ship part's tray line (null: the gv one)
+  // A hydrofoil's lift at V m/s with its incidence and the ride control's whole range (inc + RIDE.lim, under the stall):
+  // newtons, both copies of a pair
+  function foilLift(p, V) {
+    const f = p.def.foil, F = SHIP.FOIL, ar = f.ar || 5, a = (Math.min(F.stall, (f.inc || 0) + SHIP.RIDE.lim) * Math.PI) / 180;
+    return 0.5 * SHIP.RHO * V * V * (f.area || 0) * F.slope * ((2 * Math.PI * ar) / (ar + 2)) * a * partZs(p).length;
+  }
+  const NUM = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  // her crew's gunners (as the builder's crewOf counts crew: a hull's or a house's own crew until a seat is put in it)
+  function gunnersOf(ps) {
+    const seated = new Set();
+    for (const p of ps) if (p.def.seat && p.att != null) seated.add(p.att);
+    let n = 0;
+    for (const p of ps) {
+      const d = p.def, k = partZs(p).length;
+      if (d.mods && !seated.has(p.id)) for (const m of d.mods) if (m.k === 'crew' && (m.role === 'gunner' || m.also === 'gunner')) n += k;
+      if (d.seat === 'gunner') n += k;
+    }
+    return n;
+  }
+  // her weapon stations: each gun house or turret (whatever it holds), and each weapon not in one (a launcher, a tube, a
+  // gun on a bare ring); not what fires by itself (the close-in gun, counter-drone kit) or countermeasures
+  function stationsOf(ps) {
+    const by = new Map(ps.map((p) => [p.id, p])), inHouse = (p) => { for (let q = by.get(p.att), i = 0; q && i < 50; q = by.get(q.att), i++) if (q.def.place === 'ring') return true; return false; };
+    let n = 0;
+    const arms = (d) => !!d.weapon && !d.ciws && !d.cuas && d.weapon.kind !== 'chaff' && d.weapon.kind !== 'smoke';
+    for (const p of ps) {
+      const d = p.def, k = partZs(p).length;
+      if (d.place === 'ring') { if (attachedTo(ps, [p]).some((q) => arms(q.def))) n += k; }
+      else if (arms(d) && !inHouse(p)) n += k;
+    }
+    return n;
+  }
+  // The kit's warnings (any design with ship parts aboard: the builder asks for every kind that carries one). Red first
+  // (she won't work): torpedo tubes with no water under them, vertical launch cells with no fire-control radar, something
+  // on the helicopter deck, hydrofoils that can't lift her, a bulkhead outside every hull. Then amber (a hint): a gun
+  // whose arcs the superstructure blocks, more weapon stations than gunners, a radar below a funnel, anti-ship missiles
+  // with no surface radar, a magazine above the waterline, a big ship with no pumps or damage control.
+  function kitWarnings(ps, st, warn, extra) {
+    const has = (f) => ps.some((p) => f(p.def)), all = (f) => ps.filter((p) => f(p.def));
+    const hulls = all((d) => d.shull), afloat = !!(st && st.hull && !st.sinks);
+    // ---- red
+    if (has((d) => d.weapon && d.weapon.kind === 'torp') && !has((d) => d.hull) && !has((d) => d.wing)) warn.push('Torpedo tubes need water under them: put them on a ship (or a plane, to drop them).');
+    if (has((d) => d.weapon && d.weapon.vls) && !has((d) => d.trackRadar)) warn.push('The vertical launcher\'s missiles need a Fire-Control Radar aboard.');
+    for (const pad of all((d) => d.deck)) {
+      const R = partRect(pad), hz = partZ(pad), hd = partDepth(pad) / 2;
+      const on = ps.some((q) => q !== pad && pad.att !== q.id && !q.def.shull && (() => {
+        const Q = partRect(q), qd = partDepth(q) / 2;
+        return spanOverlap(Q.l, Q.r, R.l, R.r) > 0.02 && Q.t > R.t + 0.02 && Q.b < R.t + 4 && partZs(q).some((z) => spanOverlap(z - qd, z + qd, hz - hd, hz + hd) > 0.02);
+      })());
+      if (on) { warn.push('Something stands on the helicopter deck: a helicopter can\'t land there. Clear it.'); break; }
+    }
+    const foils = all((d) => d.foil && d.foil.kind === 'foil');
+    if (foils.length) {
+      const m = st && st.mass > 0 ? st.mass : ps.reduce((s, p) => s + partKg(p), 0), L = foils.reduce((s, p) => s + foilLift(p, 40 / SHIP.KN), 0);
+      if (L < m * gSea()) warn.push(`Her foils can't lift her: they hold ${Math.round(L / gSea() / 1000).toLocaleString('en-US')} t at 40 kn and she weighs ${Math.round(m / 1000).toLocaleString('en-US')} t. She'll never fly on them: bigger foils, or a lighter ship.`);
+    }
+    for (const b of all((d) => d.bulkhead)) {
+      const z = partZ(b), inHull = hulls.some((H) => {
+        if (H.rot & 3) return false;
+        const S = H.def.shull, Hs = shullOf(H.def);
+        if (b.x < H.x + Hs.x0 || b.x > H.x + Hs.x1) return false;
+        const P = shullPoly(shullSec(S.st, b.x - H.x), S.wl);
+        return halfAt(P, b.y - H.y) >= Math.abs(z - partZ(H)) - 1e-6;
+      });
+      if (!inHull) { warn.push('A bulkhead only works inside a hull segment: move it into the hull.'); break; }
+    }
+    // ---- amber
+    const x0 = st && st.hull ? st.x0 : 0, x1 = st && st.hull ? st.x1 : 0, mid = (x0 + x1) / 2;
+    for (const a of (extra && extra.arcs) || []) {
+      if (!(a.deg < 90)) continue;
+      warn.push(`The ${a.x >= mid ? 'forward' : 'after'} gun can only fire over ${Math.round(a.deg)}°: raise it or move the superstructure.`);
+      break;
+    }
+    const n = st ? stationsOf(ps) : 0, g = st ? gunnersOf(ps) : 0; // (a ship's crew: other kinds fire as they always have)
+    if (n > g) warn.push(g ? `${n} weapon stations, ${g} gunner${g === 1 ? '' : 's'}: only ${NUM[g] || g} fire${g === 1 ? 's' : ''} at once. A bigger bridge or gun houses bring more.` : `${n} weapon station${n === 1 ? '' : 's'} and no gunner: nothing fires. A bridge or a gun house brings gunners.`);
+    const funnels = all((d) => d.funnel);
+    if (funnels.length && all(isRadar).some((r) => funnels.some((f) => Math.hypot(r.x - f.x, partZ(r) - partZ(f)) <= 10 && partRect(r).t < partRect(f).t))) warn.push('The radar sits below the funnel: smoke blinds it aft. Raise it on a mast.');
+    if (has((d) => d.weapon && d.weapon.asm) && !has((d) => d.searchRadar && d.searchRadar.sea)) warn.push('Anti-ship missiles need a target: a Surface Search Radar finds one past your eyes.');
+    if (afloat && st.plane && all(isMag).some((p) => p.y > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
+    if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could be the end of her. Add a Salvage Pump or a Damage Control Party.');
+  }
+
+  // ---- cards and tray lines (§11.4): a ship part's card lines (Ship.specs) and its tray line (Ship.line), speeds in knots.
+  // [] / null: the builder's own (the ground update's lines)
+  const kmTxt = (m) => `${+(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
+  const tTxt = (t) => (t < 10 ? `${+t.toFixed(1)}` : Math.round(t).toLocaleString('en-US'));
+  const kwTxt = (kw) => (kw >= 1000 ? `${+(kw / 1000).toFixed(1)} MW` : `${Math.round(kw)} kW`);
+  // a propeller's (or waterjet's) push at V m/s on P watts, as thrustAt reckons it, full ahead and fully under (N)
+  function pushOf(d, P, V) { return thrustAt({ air: 0, list: [{ D: (d.screw || d.jet).D, jet: !!d.jet, eta: d.screw ? d.screw.eta || 0.6 : 0, P, sub: 1, dir: 1, n: 1 }] }, V); }
+  // the power a screw of this size is meant for: 2 MW on the patrol boat's 2.2 m propeller, as the disc's area
+  const refKw = (d) => (d.jet ? 2500 * (d.jet.D / 1.4) ** 2 : 2000 * (d.screw.D / 2.2) ** 2);
+  // how far a gun's best shell carries (its muzzle speed and drag as armour.js flies it: v' = −k·ρ·v², the best angle
+  // up to the gun's elevation), at most a ship's aim ray (m); 0 without a shell to fly
+  function gunReach(d) {
+    const w = d.weapon, S = typeof SHELLS !== 'undefined' && w.shells ? w.shells.map((k) => SHELLS[k]).filter((s) => s && s.v0 > 0) : [];
+    if (!S.length) return 0;
+    const s = S.reduce((a, b) => (b.v0 > a.v0 ? b : a)), rho = 1.2, g = 9.8, el = Math.min(45, (d.aim && d.aim.el && d.aim.el[1]) || 45), dt = 0.05;
+    let best = 0;
+    for (let a = 5; a <= el + 1e-9; a += 5) {
+      let vx = s.v0 * Math.cos((a * Math.PI) / 180), vy = s.v0 * Math.sin((a * Math.PI) / 180), x = 0, y = 0;
+      for (let i = 0; i < 4000 && y >= 0; i++) { const v = Math.hypot(vx, vy), k = s.k * rho * v; vx -= k * vx * dt; vy -= (k * vy + g) * dt; x += vx * dt; y += vy * dt; }
+      best = Math.max(best, x);
+    }
+    return Math.min(best, SHIP.AIM.ray);
+  }
+  function specs(def) {
+    const d = def, w = d.weapon || {}, out = [], crew = (d.mods || []).filter((m) => m.k === 'crew').length;
+    if (!d) return out;
+    if (d.shull) {
+      const H = shullOf(d), S = d.shull, draw = H.wl - Math.min(...H.rings.map((r) => r.yk)), len = +(H.x1 - H.x0).toFixed(1), one = S.ends && S.ends.aft !== 'joint' && S.ends.fore !== 'joint';
+      out.push(`Floats up to ${tTxt((H.vol * SHIP.RHO) / 1000)} t of ship`, `draws ${draw.toFixed(1)} m at her marks`, one ? `a one-piece hull, ${len} m` : `one watertight compartment, ${len} m`);
+      const A = d.armour;
+      if (A) out.push(`${A.plate || A.mm} mm ${A.mat === 'alu' ? 'aluminium' : A.mat === 'grp' ? 'glass fibre' : 'steel'}${A.belt ? ' · a belt to dial' : ''}`);
+      if (S.plane) out.push('a planing bottom');
+      if (S.bk) out.push('bilge keels');
+      return out;
+    }
+    if (d.engine && (d.steer || d.screw)) { out.push(`${kwTxt(d.engine.kw)} outboard`, 'its own propeller', `steers ${d.steer || SHIP.OUTBOARD_STEER}°`); return out; }
+    if (d.engine) { out.push(`${d.engine.kw.toLocaleString('en-US')} kW`, `${d.engine.fuel || 'diesel'}`, `full power in ${d.engine.spool || SHIP.SPOOL} s`, 'turns every propeller and waterjet aboard'); return out; }
+    if (d.screw) { const P = refKw(d); out.push(`about ${Math.round(pushOf(d, P * 1000, 15 / SHIP.KN) / 10000) * 10} kN at 15 kn on ${kwTxt(P)}`, `${d.screw.D} m`, d.screw.astern ? 'full power astern too' : 'astern at 70%'); return out; }
+    if (d.jet) { const P = refKw(d); out.push(`about ${Math.round(pushOf(d, P * 1000, 30 / SHIP.KN) / 10000) * 10} kN at 30 kn on ${kwTxt(P)}`, `steers ${d.jet.steer || 30}°`, 'reverses with its bucket'); return out; }
+    if (d.foil && d.foil.kind === 'rudder') { out.push(`turns ${d.foil.max || 35}°`, `${d.foil.area} m²`); return out; }
+    if (d.foil) { out.push(`lifts ${tTxt(foilLift({ def: d, x: 0, y: 0 }, 40 / SHIP.KN) / gSea() / 1000)} t at 40 kn`, `${d.foil.area} m²`, ...(d.foil.ride ? ['ride control'] : [])); return out; }
+    if (d.ciws) { out.push(`${kmTxt(d.ciws.range)}`, 'fires by itself', ...(d.ciws.missiles ? ['shoots missiles'] : [])); return out; }
+    if (w.vls) { out.push(`${w.ammo} SAMs`, kmTxt(w.range), ...(w.missiles ? ['shoots missiles too'] : [])); return out; }
+    if (w.asm) { out.push(`${w.ammo} anti-ship missile${w.ammo === 1 ? '' : 's'}`, kmTxt(w.range), `skims at ${w.skim || 8} m`); return out; }
+    if (w.kind === 'torp') { out.push(`${w.ammo} torpedoes`, kmTxt(w.range), `${Math.round(w.speed * SHIP.KN)} kn`, w.seek ? 'homing' : 'straight runners'); return out; }
+    if (w.kind === 'chaff') { out.push(`${w.ammo} rockets of chaff${w.flare ? ' and flares' : ''}`); return out; }
+    if (d.decoy && d.decoy.torp) { out.push(`${d.decoy.ammo} noisemakers`, 'draws homing torpedoes'); return out; }
+    if (w.kind === 'tgun' && d.ship) { const r = gunReach(d); out.push(`${w.cal} mm`, `${Math.round(60 / w.reload)} a minute`, ...(r ? [`reaches ${kmTxt(r)}`] : []), `${w.ammo} ready`); return out; }
+    if (d.searchRadar || d.trackRadar) {
+      const R = d.searchRadar || d.trackRadar;
+      if (d.trackRadar) out.push(`tracks ${kmTxt(R.range)}`, ...(R.missiles ? ['guides SAMs'] : []), ...(R.sea ? ['ranges the guns'] : []));
+      else out.push(R.sea || R.low ? `sees ships ${kmTxt(R.range)} (the horizon permitting)` : `sees aircraft ${kmTxt(R.range)}`);
+      return out;
+    }
+    if (d.deck) { out.push('a helicopter lands and is lashed', `${d.w} × ${d.depth || d.w} m`); return out; }
+    if (d.hangar) { out.push('repairs and rearms a helicopter on the deck'); return out; }
+    if (d.funnel) { out.push('her smoke', 'broken: the engines lose 15%'); return out; }
+    if (d.bulkhead) { out.push('splits a compartment in two'); return out; }
+    if (isPump(d)) { out.push(`pumps ${d.pump} m³/s`); return out; }
+    if (isMag(d) && d.store) { out.push(`${d.store.rounds} rounds for the naval guns`); return out; }
+    if (isDC(d)) { out.push(`${d.mods.filter((m) => m.role === 'dc').length} damage control crew`, 'patch holes, fight fires'); return out; }
+    if (d.ballast || d.type === 'ballast') { out.push(`${d.mass} t, low down`); return out; }
+    if (d.place === 'mast') { out.push(`a perch for radars ${tTxt(d.h)} m up`); return out; }
+    if (d.ship && (d.control || isHouse(d))) {
+      if (d.control) out.push('the helm');
+      if (crew) out.push(`crew ${crew}`);
+      if (d.stealth) out.push(`radars see her ${Math.round(d.stealth * 100)}% less far`);
+      return out;
+    }
+    return out;
+  }
+  // (short: a tray item's line fits on one line, so the tray keeps its height)
+  function line(def) {
+    const d = def, w = (d && d.weapon) || {};
+    if (!d || !d.ship) return null;
+    if (d.shull) { const H = shullOf(d); return `draws ${(H.wl - Math.min(...H.rings.map((r) => r.yk))).toFixed(1)} m`; }
+    if (d.engine) return `${d.engine.kw.toLocaleString('en-US')} kW`;
+    if (d.screw) return `~${Math.round(pushOf(d, refKw(d) * 1000, 15 / SHIP.KN) / 10000) * 10} kN`;
+    if (d.jet) return `steers ${d.jet.steer || 30}°`;
+    if (d.foil && d.foil.kind === 'rudder') return `${d.foil.max || 35}° · ${d.foil.area} m²`;
+    if (d.foil) return `lifts ${tTxt(foilLift({ def: d, x: 0, y: 0 }, 40 / SHIP.KN) / gSea() / 1000)} t`;
+    if (d.ciws) return kmTxt(d.ciws.range);
+    if (w.vls) return `${w.ammo} SAMs`;
+    if (w.asm) return `${w.ammo} × ${kmTxt(w.range)}`;
+    if (w.kind === 'torp') return `${w.ammo} · ${kmTxt(w.range)}`;
+    if (w.kind === 'chaff') return `${w.ammo} decoys`;
+    if (d.decoy && d.decoy.torp) return `${d.decoy.ammo} decoys`;
+    if (w.kind === 'tgun') return `${Math.round(60 / w.reload)}/min`;
+    if (d.searchRadar || d.trackRadar) return `${kmTxt((d.searchRadar || d.trackRadar).range)}`;
+    if (d.deck) return 'helicopters';
+    if (d.hangar) return 'repairs';
+    if (d.funnel) return 'smoke';
+    if (d.bulkhead) return 'watertight';
+    if (isPump(d)) return `${d.pump} m³/s`;
+    if (isMag(d) && d.store) return `${d.store.rounds} rounds`;
+    if (d.ballast || d.type === 'ballast') return `${d.mass} t`;
+    if (isDC(d)) return `${d.mods.filter((m) => m.role === 'dc').length} crew`;
+    if (d.place === 'mast') return `${tTxt(d.h)} m`;
+    if (d.control) { const c = (d.mods || []).filter((m) => m.k === 'crew').length; return c ? `crew ${c}` : 'helm'; }
+    return null;
+  }
+
+  // ---- X-ray (§11.4): a ship's insides for the blueprint (builder drawShipXray), part space. comps: each watertight
+  // compartment { H (its hull part), x0, x1, n (numbered from the bow) }, bulkheads { x, H }, belts { H, x0, x1, y0, y1 }
+  // (the side band), marks { p, kind: 'mag' | 'engine' | 'pump' | 'dc' } (what is inside, by colour)
+  function xray(parts) {
+    const out = { comps: [], bulkheads: [], belts: [], marks: [] };
+    const hulls = parts.filter((p) => p.def.shull && (p.rot & 3) === 0);
+    for (const H of hulls) {
+      const Hs = shullOf(H.def), a = H.x + Hs.x0, b = H.x + Hs.x1, cuts = parts.filter((p) => p.def.bulkhead && p.att === H.id && p.x > a && p.x < b).map((p) => p.x).sort((u, v) => u - v);
+      const xs = [a, ...cuts, b];
+      for (let i = 0; i + 1 < xs.length; i++) out.comps.push({ H, x0: xs[i], x1: xs[i + 1] });
+      for (const x of cuts) out.bulkheads.push({ x, H });
+      const A = H.def.armour, belt = A && A.belt && (Array.isArray(A.belt) ? A.belt : A.belt.y);
+      if (belt && belt.length === 2) out.belts.push({ H, x0: a, x1: b, y0: H.y + belt[0], y1: H.y + belt[1] });
+    }
+    out.comps.sort((p, q) => q.x1 - p.x1).forEach((c, i) => { c.n = i + 1; });
+    for (const p of parts) {
+      const d = p.def;
+      if (isMag(d)) out.marks.push({ p, kind: 'mag' });
+      else if (d.engine && d.ship) out.marks.push({ p, kind: 'engine' });
+      else if (isPump(d)) out.marks.push({ p, kind: 'pump' });
+      else if (isDC(d)) out.marks.push({ p, kind: 'dc' });
+    }
+    return out;
+  }
 
   // ==== damage ====
   // [WP8]
@@ -2006,7 +2424,7 @@ const Ship = (() => {
     // waves
     wave, seaT, setSea, sea, fadeAt, waveUniforms,
     // builder
-    stats, hydrostatics, spotOf, warnings, specs, line,
+    stats, hydrostatics, spotOf, warnings, kitWarnings, specs, line, xray,
     // damage
     hullRay, hullMm, hullDist, addHoles, floodStep, fireStep, dcStep, fateStep, doom, magazine,
     // combat
