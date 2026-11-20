@@ -263,7 +263,7 @@ for (const [key, W] of Object.entries(TRIALS)) {
 {
   const o = R(`(() => { still(true); const v = stock('pegazus', Math.PI), F = fsim(v); tick(F, 20); const foils = v.parts.filter((p) => p.def.foil && p.def.foil.kind === 'foil');
     const r = { draft: v.draft, marks: marks(v), afloat: v.afloat, heel: v.heel * ${D}, trim: v.trim * ${D}, wet: foils.map((p) => { const q = v.toWorld(p.x, p.y + p.def.foil.y, 0); return Math.hypot(q.x, q.y, q.z) - EARTH.radius; }), jets: !!v.sh.scr.some((s) => s.p.def.jet) };
-    if (r.jets) { for (const p of v.parts) if (p.type === 'turbine') p.broken = true; v.sh.tel = 4; let s = 0, n = 0; tick(F, 120, (tt) => { if (tt > 100) { s += kn(v); n++; } }); r.kn = s / n; }
+    if (r.jets) { for (const p of v.parts) if (p.type === 'turbine') p.broken = true; v.sh.dc = []; v.sh.dcN = v.parts.length; v.sh.tel = 4; // ([WP8] her damage control stood down: it would mend the turbine) let s = 0, n = 0; tick(F, 120, (tt) => { if (tt > 100) { s += kn(v); n++; } }); r.kn = s / n; }
     still(false); return r; })()`);
   t(`pegazus: afloat hullborne at her marks (drawing ${o.draft.toFixed(2)} m, marks ${o.marks.toFixed(2)} m), level, both hydrofoils deep in the water (${o.wet.map((w) => w.toFixed(1)).join(', ')} m)`,
     o.afloat && Math.abs(o.draft - o.marks) <= 0.3 && Math.abs(o.heel) < 1 && Math.abs(o.trim) < 1 && o.wet.length === 2 && o.wet.every((w) => w < -2), o);

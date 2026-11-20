@@ -159,7 +159,7 @@ const Armour = (() => {
     const list = v.parts.map((p) => {
       const d = p.def, gv = !!d.gv, part = gv && !!(d.inner || d.module === 'breech' || d.module === 'ring');
       return { p, d, gv, zc: partZ(p), G: gv ? geo(d) : null, round: !!d.round, aim: !!d.aim && !d.ring, ty: d.aim ? -d.h / 2 + (d.aim.pivot ?? 0.5) * d.h : 0,
-        rot: p.rot & 3, g: (v.tgOf && v.tgOf.get(p.id)) || null, part, cand: part || (gv && !!d.mods) };
+        rot: p.rot & 3, g: (v.tgOf && v.tgOf.get(p.id)) || null, part, cand: part || (gv && !!d.mods), sh: !!d.shull }; // ([WP8] sh: a ship's hull, hit by its own triangles: Ship.hullRay)
     });
     v._arm = { parts: v.parts, n: v.parts.length, tg: v.tgOf, list };
     return list;
@@ -306,7 +306,7 @@ const Armour = (() => {
     if (segD2(A, B, cx, cy, r.zc) > R * R) return false;
     PA.x = A.x; PA.y = A.y; PA.z = A.z; PB.x = B.x; PB.y = B.y; PB.z = B.z;
     ownR(r, PA, true); ownR(r, PB, true);
-    return r.round ? cyl(p, PA, PB, H) : prism(p, PA, PB, H);
+    return r.round ? cyl(p, PA, PB, H) : r.sh ? Ship.hullRay(p, PA, PB, H) : prism(p, PA, PB, H); // ([WP8] a hull: what is drawn is what is hit)
   }
   // the squared distance from (x, y, z) to the segment A -> B
   function segD2(A, B, x, y, z) {
@@ -349,6 +349,7 @@ const Armour = (() => {
   // A plate's thickness where hit H went in (mm; 0: an open face, as an open roof): the nominal mm (the player's p.mm)
   // times the face's share (an outline edge's, the sides', a round part's by bearing or its roof's)
   function faceMm(p, edge, u) {
+    if (edge <= -6) return Ship.hullMm(p, edge, u); // ([WP8] a ship's hull faces: the deck, a side and its belt, the bottom, an open joint)
     const A = p.def.armour;
     if (!A) return 0;
     const mm = p.mm ?? A.mm;
@@ -456,6 +457,7 @@ const Armour = (() => {
       if (!R.at) R.at = at;
       if (heat && jet) { pen -= 250 * len(at.x - jet.x, at.y - jet.y, at.z - jet.z); jet = at; if (pen <= 0) { R.r = R.r === 'miss' ? 'nopen' : R.r; R.k = 'np'; break; } } // (a jet weakens 250 mm a metre in the open)
       if (!plated || (!A && !D.era)) { // unarmoured (0 mm): the shell's whole damage, as a bullet's today
+        if (D.shull && v.sh && !boom) { holeAt(v, R, p, at, SH.cal); if (kin) holeAt(v, R, p, at3(hits, h.t1), SH.cal); } // ([WP8] a bare hull: a hole in and, a round going on, one out)
         if (boom) { R.burst = { at, blast: SH.blast || 1, dmg: hesh ? dmg * 0.5 : dmg, he: SH.he }; R.r = 'hit'; what(R, whatOf(D)); break; }
         add(R.rows, p, dmg); R.r = 'hit'; what(R, whatOf(D));
         if (heat) { if (!plated) break; jet = at3(hits, h.t1); continue; } // (it goes off on whatever it touches first; the jet goes on from its far side)
@@ -502,7 +504,7 @@ const Armour = (() => {
         if (!s.legacy) R.ric = bounce(s, at, n, dx, dy, dz, spd, pen, !kin);
         break;
       }
-      if (boom && !hesh) { R.burst = { at, blast: SH.blast || 1, dmg, he: SH.he }; R.r = (SH.he || 0) >= t ? 'pen' : 'nopen'; R.k = R.r === 'pen' ? 'pen' : 'np'; break; } // (the blast decides: blastK)
+      if (boom && !hesh) { R.burst = { at, blast: SH.blast || 1, dmg, he: SH.he }; R.r = (SH.he || 0) >= t ? 'pen' : 'nopen'; R.k = R.r === 'pen' ? 'pen' : 'np'; if (D.shull && R.r === 'pen') R.burst.inside = true; break; } // (the blast decides: blastK; [WP8] through a hull's plate it bursts inside her)
       if (heat && !jet) jet = at;
       const sx = (h.t1 - Math.max(0, h.t0)) * hits.L; // (how far through it the far face is)
       if (hesh) { // a squash head: angle-blind to 60°, it knocks fragments off the inside of plates up to its 120 mm
@@ -511,10 +513,12 @@ const Armour = (() => {
         else { R.r = 'nopen'; R.k = 'np'; add(R.rows, p, 0.03 * dmg); }
         break;
       }
-      if (pen >= eff) { R.r = 'pen'; R.k = 'pen'; add(R.rows, p, 0.1 * dmg); if (dj) add(R.rows, p, dj.host * Combat.maxHp(D) * dmg / 500); postPen(v, h, at, dx, dy, dz, pen - eff, SH, T, R, sx, false, s.legacy); } // (a drone's charge: the plate it went through takes host of its strength)
-      else {
+      if (pen >= eff) {
+        R.r = 'pen'; R.k = 'pen'; add(R.rows, p, 0.1 * dmg); if (dj) add(R.rows, p, dj.host * (D.ship ? SHIP.DRONE.ref : Combat.maxHp(D)) * dmg / 500); postPen(v, h, at, dx, dy, dz, pen - eff, SH, T, R, sx, false, s.legacy); // (a drone's charge: the plate it went through takes host of its strength; [WP8] a ship part's as one of SHIP.DRONE.ref hp, S1)
+        if (D.shull && v.sh) { holeAt(v, R, p, at, SH.cal); if (R.out != null) holeAt(v, R, p, { x: at.x + dx * R.out, y: at.y + dy * R.out, z: at.z + dz * R.out }, SH.cal); } // ([WP8] a hole where it went in, and one where it left her)
+      } else {
         R.r = 'nopen'; R.k = 'np'; add(R.rows, p, (s.legacy ? 0.05 : 0.03) * dmg);
-        if (dj) { add(R.rows, p, dj.np * Combat.maxHp(D) * dmg / 500); if (dj.npn) { cands(v, at, 3); spall(v, at, dx, dy, dz, dj.npn, T.cone || 20, R); } } // (a drone's charge that didn't get through: the plate takes np of its strength, and the blow knocks npn fragments off the inside)
+        if (dj) { add(R.rows, p, dj.np * (D.ship ? SHIP.DRONE.ref : Combat.maxHp(D)) * dmg / 500); if (dj.npn) { cands(v, at, 3); spall(v, at, dx, dy, dz, dj.npn, T.cone || 20, R); } } // (a drone's charge that didn't get through: the plate takes np of its strength, and the blow knocks npn fragments off the inside)
         else if (pen >= 0.8 * eff && rnd() < 0.3) { cands(v, at, 3); spall(v, at, dx, dy, dz, 2, T.cone || 20, R); } // (a near thing: two fragments off the inside)
       }
       break;
@@ -536,6 +540,9 @@ const Armour = (() => {
     return { k: 'shell', sh: s.sh, b: s.b, x: at.x + n.x * 0.05, y: at.y + n.y * 0.05, z: at.z + n.z * 0.05, vx: rx * sp, vy: ry * sp, vz: rz * sp, t: s.t, life: s.life,
       owner: s.owner, enemy: s.enemy, net: 0, cal: s.cal, pen: 0.5 * pen, v0: sp, spare: s.spare, tracer: s.tracer, prox: 0, ric: true, gTop: s.gTop, cheap: s.cheap, dud, n: ++serial };
   }
+  // [WP8] a hole a round tears in a ship's hull part at the sim point P (resolve's result: ship.js adds it in apply)
+  const HP = v3();
+  function holeAt(v, R, p, P, cal) { inPart(v, P, HP); (R.ho || (R.ho = [])).push([p, HP.x, HP.y, HP.z, Ship.roundHole(p, cal)]); }
   // how many crew this result kills (the shooter assumes a ghost's crew unhurt: its owner decides)
   function crewHit(v, R) {
     let n = 0;
@@ -606,7 +613,8 @@ const Armour = (() => {
   }
   function postPen(v, h, at, dx, dy, dz, res, SH, T, R, sx, hesh, legacy) {
     const J = legacy ? dj : null; // (a drone's charge: its own way in, below)
-    const L = hesh ? 0 : J ? J.L : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
+    const thru = !!h.p.def.shull && !hesh && !J && !!KIN[SH.type]; // ([WP8] a kinetic round through a hull's plate: its way in runs on to her far side, and out through it if it still can: R.out)
+    const L = thru ? sx : hesh ? 0 : J ? J.L : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
     cands(v, at, Math.max(L, 2.5) + 0.5);
     // the way in: everything it crosses takes dmg·(1 - 0.5·s/L); an engine takes 30 mm out of it, ammunition 10. It
     // leaves through the far face of what it went into only if what it has left beats that face.
@@ -626,6 +634,11 @@ const Armour = (() => {
         const d = e.f.p.def, k = e.i < 0 ? (d.engine ? 'engine' : d.rack ? 'ammo' : null) : d.mods[e.i].k;
         res -= k === 'engine' ? 30 : k === 'ammo' ? 10 : 0;
         if (res <= 0) { stop = s; break; }
+      }
+      if (thru && (SH.cal || 0) >= 20) add(R.rows, h.p, 0.5 * dmgP); // ([WP8] her frames and decks it tears through on its way: a gun's round, not a bullet)
+      if (thru && stop >= L - 1e-6 && res > 0) { // [WP8]
+        const n = ownOut(v, h.p, h.n1, N1), c = Math.abs(dx * n.x + dy * n.y + dz * n.z);
+        if (res >= effOf(faceMm(h.p, h.edge1, h.u1), Math.acos(clamp(c, 0, 1)) / RAD, SH, T, 0)[0]) R.out = sx;
       }
     }
     // fragments off the inside of the plate, in a cone along its path: n × clamp(left/40 + 0.5, 0.5, 1.5); none through an
@@ -716,7 +729,8 @@ const Armour = (() => {
     if (R.r === 'pen' && R.at) FX.puff(b, R.at, { x: v.vx, y: v.vy, z: v.vz }, 3, '#8b8f96');
     const sp = s ? len(s.vx, s.vy, s.vz) || 1 : 1, back = s ? { x: -s.vx / sp, y: -s.vy / sp, z: -s.vz / sp } : null;
     if (v.remote) { if (mpOn() && ours(by) && (R.rows.length || R.mods.length)) MP.sendHits(v, R.rows, R.k, R.mods, back && [back.x, back.y, back.z], R.hot); }
-    else if (R.rows.length || R.mods.length) {
+    else if (R.rows.length || R.mods.length || R.ho) {
+      if (v.sh) Ship.roundHit(v, R, s && (s.legacy || SHELLS[s.sh] || s), by, F); // ([WP8] the holes it tore in her hull, a fire where it went into an engine or a magazine)
       Armour.hot = R.hot;
       for (const [h, i, k] of R.mods) modDamage(v, h, i, k, F, by);
       for (const [p, k] of R.rows) Combat.damage(v, p, k, 'shot', F, by);
@@ -728,7 +742,7 @@ const Armour = (() => {
     if (R.burst) {
       const B = R.burst;
       tal = T; talV = v; talR = R;
-      try { Combat.explode(b, B.at, B.blast, B.dmg, by, F, B.quiet ?? !!(s && s.cheap), B.he, s && s.t < 0.6 ? s.spare : undefined); } finally { tal = talV = talR = null; }
+      try { Combat.explode(b, B.at, B.blast, B.dmg, by, F, B.quiet ?? !!(s && s.cheap), B.he, s && s.t < 0.6 ? s.spare : undefined, undefined, B.inside ? { inside: true } : undefined); } finally { tal = talV = talR = null; } // ([WP8] inside: through a hull's plate)
     }
     if (R.ric) Combat.S.shots.push(R.ric);
     if (me && R.r !== 'miss') {
@@ -1162,7 +1176,7 @@ const Armour = (() => {
     const m = p.def.module;
     if (!m) { if (p.def.control) knockOut(v, sim, 'hull'); return; }
     if (m === 'crew') { say(v, sim, `${ROLE[p.role || p.def.seat] || 'Crewman'} knocked out`); crewDied(v, p.role || p.def.seat, sim); return; }
-    if (m === 'ammo') { const C = crewOf(v), st = C.stores.find((e) => e.part === p); if (st) cookOff(v, st, sim, p); return; }
+    if (m === 'ammo') { if (v.sh && Ship.magazine(v, sim, p)) return; const C = crewOf(v), st = C.stores.find((e) => e.part === p); if (st) cookOff(v, st, sim, p); return; } // ([WP8] a ship's magazine, launcher or rack: ship.js)
     if (m === 'engine') {
       say(v, sim, 'Engine destroyed');
       if (vrnd() < (FIRE_ODDS[p.def.engine && p.def.engine.fuel] ?? 0.2)) { p.fire = 25; say(v, sim, 'Fire!'); }
@@ -1208,6 +1222,7 @@ const Armour = (() => {
     const r = st.rounds, cap = st.cap || 1, odds = clamp((0.5 + (0.4 * r) / cap) * (st.cook ?? 1) + (hot || Armour.hot ? 0.2 : 0), 0, 0.95);
     st.rounds = 0;
     if (!(r > 0) || vrnd() >= odds) { say(v, sim, 'Ammo rack destroyed'); return; }
+    if (v.sh && Ship.magazine(v, sim, part || st.host, r)) return; // ([WP8] aboard a ship it goes up as a magazine does: holes, and past MAG.brk rounds she breaks in two; never a tank's knock-out)
     if (st.blowout) { v.vent = { host: st.host, i: st.i, t: simTime(sim) }; say(v, sim, 'Ammo blow-out: the crew is safe'); return; }
     knockOut(v, sim, 'ammo', { st, rounds: r + totalRounds(v) });
   }
@@ -1229,6 +1244,7 @@ const Armour = (() => {
     const now = simTime(sim);
     v.ko = { why, x: !!det, t: now };
     for (const p of v.parts) if (p.def.control) p.ko = true;
+    if (v.sh && !det) { Ship.doom(v, sim, 'action'); return; } // ([WP8] a ship out of action: ship.js's doom says it, ends it, and she is scuttled)
     if (shooterOf(v) === sim.active) fb.ko = { text: det ? 'Ammo detonation!' : 'Knocked out!', t: now };
     if (v === sim.active && sim.toast) sim.toast(det ? 'Ammo detonation!' : 'Knocked out!', 'warn');
     if (det) {
@@ -1294,9 +1310,9 @@ const Armour = (() => {
   // the worst broken module is repaired, one at a time (v.repair: { p, name, t, T, on }).
   function repairStep(v, dt, sim) {
     if (!v || v.dead || v.remote || !v.gv || !(dt > 0)) return;
-    const now = simTime(sim), still = v.speed() < 1;
+    const now = simTime(sim), still = v.speed() < 1, sea = !!v.sh; // ([WP8] a ship's fires and repairs are ship.js's: her damage control, under way)
     v.stillT = still ? (v.stillT || 0) + dt : 0;
-    for (const p of v.parts) {
+    if (!sea) for (const p of v.parts) {
       if (!(p.fire > 0)) continue;
       p.fire = v.stillT >= 4 ? 0 : Math.max(0, p.fire - dt);
       if (!p.fire) { if (!v.ko) say(v, sim, 'Fire out', 'info'); continue; }
@@ -1304,7 +1320,7 @@ const Armour = (() => {
       if (!fuel) p.hp = Math.max(0, partHp(p) - 6 * dt);
       if (!v.ko) crewNear(v, p, fuel ? Infinity : 2.5, (e) => burnCrew(v, e, (fuel ? 15 : 3) * dt, sim));
     }
-    if (v.mfire) for (const f of v.mfire) {
+    if (v.mfire && !sea) for (const f of v.mfire) {
       f.t = v.stillT >= 4 ? 0 : f.t - dt;
       if (f.t > 0 && !v.ko) for (const e of crewOf(v).crew) if (e.alive && e.host === f.host) burnCrew(v, e, 15 * dt, sim);
     }
@@ -1327,6 +1343,7 @@ const Armour = (() => {
       }
     }
     // repairs: the worst first
+    if (sea) { v.repair = null; return; } // ([WP8] Ship.dcStep's)
     let need = null, nf = 2;
     for (const p of v.parts) {
       const m = p.def.module;
@@ -1398,6 +1415,7 @@ const Armour = (() => {
 
   return {
     fb, hot: false,
+    REPAIR_T, // ([WP8] what ship.js's damage control mends, and how long)
     DRONE_JET, hitAll, hitFirst, moveShell, netShell, coarseH, resolve, apply, legacyHit, blastK, moduleDown, modDamage, knockOut, crewOf, has, repairStep, partFX, summary,
     hurt, toss, tally, tallyMods,
     seed(n) { vs = mix(n | 0); }, // (the victim's dice: tests)

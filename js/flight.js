@@ -305,7 +305,7 @@ const Flight = {
     if (!v || !v.parts.length) return false;
     if (v.landed && v.speed() < 0.2) return true;
     // (the ships update: a ship afloat, still, her telegraph at Stop, is moored for the warp: she sleeps on the swell)
-    if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel) { Ship.moor(v, this); return true; }
+    if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel && !v.fate) { Ship.moor(v, this); return true; } // ([WP8] never a doomed one: she is going down)
     if (v.thrust > 0) return 'engines';
     if (v.altitude() < v.body.warpAlt) return v.body.atmoHeight ? 'atmosphere' : v.body.star ? 'star' : 'surface';
     return true;
@@ -927,6 +927,7 @@ const Flight = {
   },
   fallDone() {
     const v = this.active, t = this.time || 0, D = typeof DEATH !== 'undefined' ? DEATH : { endAfter: 1.2, endMax: 10 };
+    if (v && v.fate && v.sh && typeof SHIP !== 'undefined' && this.running && this.diedAt != null && t >= this.diedAt) return t - this.diedAt >= SHIP.FATE.wait || !!(v.dead || v.wreck || v.sunk != null); // ([WP8] a ship lost: until she has gone down, at most FATE.wait s)
     if (!this.running || this.diedAt == null || t - this.diedAt >= D.endMax || t < this.diedAt) return true;
     const falling = !!v && v.hulk != null && !v.dead && v.parts.length > 0 && !v.landed && !v.splashed;
     const crashed = this.crashedAt != null && t >= this.crashedAt && t - this.crashedAt < D.endAfter;
@@ -1278,7 +1279,7 @@ const Flight = {
   // A tank parked while its drone flies is always stepped, however far the drone (its kit, repairs and the AI's targeting
   // go on: plan I14).
   // (the ships update) and an AI ship out to SHIP.aiNear (12 km): the computer's fleet keeps sailing
-  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier) || (v.hydro && !!v.ai && d < SHIP.aiNear); },
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier) || (v.hydro && (!!v.ai || !!v.fate) && d < SHIP.aiNear); }, // ([WP8] a doomed ship is stepped until she is gone or a wreck)
 
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.

@@ -776,50 +776,20 @@ const Parts3D = (() => {
   // what floats): two triangles per ring edge between neighbouring rings, the deck the ring's top edge, each end closed by
   // a fan (a transom or the stem's last section; a joint's end too, so the hull is a closed solid and the flat water
   // never shows inside it). Normals smooth round the bilge and along the hull, hard at a chine, the keel of a V and the
-  // deck edge (a ring corner turning more than 40°). Coloured by height against the design waterline, the triangles cut
+  // deck edge (a ring corner turning more than 40°: parts.js's SHULL_CREASE). Coloured by height against the design waterline, the triangles cut
   // at the boot-top's edges so its bands are sharp: the paint above, the boot-top black round the waterline, antifouling
   // red under it, the deck in deck grey. No texture (a camouflage: its pattern laid on in metres, vcCamo).
-  const SH_CREASE = Math.cos((40 * Math.PI) / 180);
   function shipHullGeo(d, S) {
-    const H = shullOf(d), R = H.rings, n = R.length, K = H.K, bt = shullBand(d), lo = H.wl - bt / 2, hi = H.wl + bt / 2, camo = !!(S && S.camo);
+    const H = shullOf(d), R = H.rings, bt = shullBand(d), lo = H.wl - bt / 2, hi = H.wl + bt / 2, camo = !!(S && S.camo);
     const C = { paint: camo ? [1, 1, 1] : lin(S ? S.base : SH_HAZE), deck: lin(SH_DECK).map((c) => c * 0.8), boot: lin(SH_BOOT), red: lin(SH_RED) };
-    const pos = [], acc = [], faces = []; // (vertices; their normals summed from the faces round them; faces [a, b, c, deck, cap normal])
-    const vtx = (x, y, z) => { pos.push(x, y, z); acc.push(0, 0, 0); return pos.length / 3 - 1; };
-    // each ring's vertices: one per corner, two where it creases (ids[i][j] = [the id the edge before it uses, the one after])
-    const ids = R.map((r) => {
-      const P = r.P, out = [];
-      for (let j = 0; j < K; j++) {
-        const a = (j + K - 1) % K, c = (j + 1) % K;
-        const ux = P[2 * j] - P[2 * a], uz = P[2 * j + 1] - P[2 * a + 1], vx = P[2 * c] - P[2 * j], vz = P[2 * c + 1] - P[2 * j + 1];
-        const L = Math.hypot(ux, uz) * Math.hypot(vx, vz), deckEdge = j === K / 2 - 0.5 || j === K / 2 + 0.5; // (corners 7 and 8: the deck's edges)
-        const crease = deckEdge || (L > 1e-12 && (ux * vx + uz * vz) / L < SH_CREASE);
-        const id = vtx(r.x, P[2 * j], P[2 * j + 1]);
-        out.push(crease ? [id, vtx(r.x, P[2 * j], P[2 * j + 1])] : [id, id]);
-      }
-      return out;
-    });
-    const D0 = (K - 1) / 2; // (the deck: the edge from corner 7 to 8)
-    const face = (a, b, c, deck, out) => { // a triangle facing away from out (a point inside), its normal into its corners
-      const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-      const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az, vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az;
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * nx + ny * ny + nz * nz < 1e-14) return;
-      const mx = (ax + pos[b * 3] + pos[c * 3]) / 3 - out[0], my = (ay + pos[b * 3 + 1] + pos[c * 3 + 1]) / 3 - out[1], mz = (az + pos[b * 3 + 2] + pos[c * 3 + 2]) / 3 - out[2];
-      if (nx * mx + ny * my + nz * mz < 0) { const t = b; b = c; c = t; nx = -nx; ny = -ny; nz = -nz; }
+    // [WP8] the vertices and triangles are the hull's hit shape (parts.js shullTris: each ring's corners, two where it
+    // creases; K quads between neighbouring rings, the deck strip among them; a fan closing each end), in its order;
+    // each vertex's normal the sum of the raw normals of the faces round it (faces [a, b, c, deck])
+    const TR = shullTris(d), pos = TR.pos, acc = new Float64Array(pos.length), faces = [];
+    for (let f = 0, m = TR.code.length; f < m; f++) {
+      const a = TR.tri[3 * f], b = TR.tri[3 * f + 1], c = TR.tri[3 * f + 2], nx = TR.nrm[3 * f], ny = TR.nrm[3 * f + 1], nz = TR.nrm[3 * f + 2];
       for (const q of [a, b, c]) { acc[q * 3] += nx; acc[q * 3 + 1] += ny; acc[q * 3 + 2] += nz; }
-      faces.push([a, b, c, deck]);
-    };
-    for (let i = 0; i + 1 < n; i++) {
-      const A = ids[i], B = ids[i + 1], o = [(R[i].x + R[i + 1].x) / 2, (R[i].cy + R[i + 1].cy) / 2, 0];
-      for (let j = 0; j < K; j++) {
-        const j1 = (j + 1) % K, deck = j === D0;
-        face(A[j][1], A[j1][0], B[j1][0], deck, o); face(A[j][1], B[j1][0], B[j][1], deck, o);
-      }
-    }
-    for (const [i, s] of [[0, -1], [n - 1, 1]]) { // the ends: a fan round the ring's centroid, flat
-      const r = R[i], c = vtx(r.x, r.cy, 0), e = [];
-      for (let j = 0; j < K; j++) e.push(vtx(r.x, r.P[2 * j], r.P[2 * j + 1]));
-      for (let j = 0; j < K; j++) face(c, e[j], e[(j + 1) % K], false, [r.x - s, r.cy, 0]);
+      faces.push([a, b, c, TR.code[f] === -6]);
     }
     // the triangles cut at the boot-top's edges, each piece in its band's colour (the deck in its own)
     const P = [], N = [], Col = [], U = camo ? [] : null, T = CAMO_M;
