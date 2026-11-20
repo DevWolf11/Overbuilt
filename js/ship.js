@@ -2153,7 +2153,9 @@ const Ship = (() => {
     const funnels = all((d) => d.funnel);
     if (funnels.length && all(isRadar).some((r) => funnels.some((f) => Math.hypot(r.x - f.x, partZ(r) - partZ(f)) <= 10 && partRect(r).t < partRect(f).t))) warn.push('The radar sits below the funnel: smoke blinds it aft. Raise it on a mast.');
     if (has((d) => d.weapon && d.weapon.asm) && !has((d) => d.searchRadar && d.searchRadar.sea)) warn.push('Anti-ship missiles need a target: a Surface Search Radar finds one past your eyes.');
-    if (afloat && st.plane && all(isMag).some((p) => p.y > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
+    // (wholly above it: a magazine reaching under the waterline is as low as a patrol boat's 1.3 m draught takes one, and
+    // it floods first; its middle over the water warned on every small hull with nowhere lower to put it)
+    if (afloat && st.plane && all(isMag).some((p) => partRect(p).b > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
     if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could be the end of her. Add a Salvage Pump or a Damage Control Party.');
   }
 

@@ -75,7 +75,7 @@ R(`var cy = cyclon(), cyF = fsim(cy);`);
   R('Ship.forces(cy, 1 / 120, v3(), v3(), cyF)');
   const f = R(`({ draft: cy.draft, fsub: cy.sh.fsub, B: cy.sh.B, W: cy.mass * EARTH.mu / Math.hypot(cy.x, cy.y, cy.z) ** 2, heel: cy.heel * ${D}, trim: cy.trim * ${D} })`);
   t(`the Cyclon launches afloat at the bay (where she was put: ${L && L.moved} m out), level (heel ${f.heel.toFixed(2)}°, trim ${f.trim.toFixed(2)}°), her buoyancy her weight, drawing ${f.draft.toFixed(2)} m, GM ${p.gm.toFixed(2)} m`,
-    L && L.ok && p.afloat && !p.landed && Math.abs(f.heel) < 1 && Math.abs(f.trim) < 1 && Math.abs(f.B / f.W - 1) < 0.002 && f.draft > 1 && f.draft < 1.7 && p.gm > 1 && Math.abs(p.mass - 124460) < 1, { L, p, f });
+    L && L.ok && p.afloat && !p.landed && Math.abs(f.heel) < 1 && Math.abs(f.trim) < 1 && Math.abs(f.B / f.W - 1) < 0.002 && f.draft > 1 && f.draft < 1.7 && p.gm > 1 && Math.abs(p.mass - 124560) < 1, { L, p, f }); // (her template's 124.56 t: the finished slice and a gunner's seat)
   R(`still(false); tick(cyF, 20);`);
   const s = R(`({ v: cy.speed(), heel: cy.heel * ${D}, trim: cy.trim * ${D}, afloat: cy.afloat, alt: cy.radius() - EARTH.radius })`);
   t('...and rides the Moderate swell 20 s at her mooring spot: afloat, under 3° of heel and trim, drifting under 1 m/s', s.afloat && Math.abs(s.heel) < 3 && Math.abs(s.trim) < 3 && s.v < 1, s);
@@ -168,7 +168,7 @@ R(`Ship.setSea('moderate');`);
 {
   R(`var nearOf = (o, d) => Flight.stepsNear.call({ active: cy }, o, d); var ai = cyclon({ e: -2300, z: -2400, yaw: 0 }); ai.ai = { sea: true }; ai.control = ai.control;`);
   // (a hull with nobody aboard: the Cyclon's hull cut loose from her wheelhouse)
-  R(`var hk = cyclon({ e: -2300, z: -3600, yaw: 0 }); for (const whk of hk.parts.filter((p) => p.type === 'bridgeM' || p.type === 'ringS')) for (const n of [...hk.adj.get(whk.id)]) if (hk.byId.get(n).def.hull) { hk.adj.get(whk.id).delete(n); hk.adj.get(n).delete(whk.id); } // (the wheelhouse and the gun's ring off the hull: nobody aboard)
+  R(`var hk = cyclon({ e: -2300, z: -3600, yaw: 0 }); for (const whk of hk.parts.filter((p) => p.type === 'bridgeM' || p.type === 'ringS' || p.def.seat)) for (const n of [...hk.adj.get(whk.id)]) if (hk.byId.get(n).def.hull) { hk.adj.get(whk.id).delete(n); hk.adj.get(n).delete(whk.id); } // (the wheelhouse, the gunner's seat and the gun's ring off the hull: nobody aboard)
   var hkP = hk.splitComponents().find((o) => o.parts.some((p) => p.def.hull));`);
   const near = R('[nearOf(ai, 9000), nearOf(ai, 11900), !!hkP && !hkP.control && hkP.hydro, nearOf(hkP, 9000)]');
   t('far ships: an AI ship 9 and 11.9 km off is stepped (any ship with a crew afloat is, by the old rule for craft under way); a derelict hull 9 km off is not', near.join() === 'true,true,true,false', near);

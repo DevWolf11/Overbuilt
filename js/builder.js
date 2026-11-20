@@ -487,7 +487,8 @@ const TEMPLATES = {
   // end along x (their bottoms level), the superstructure on the deck, engines inside, screws and rudders under the stern
   cyclon: { // (a Cyclone-class patrol ship: hull, wheelhouse, two diesels, two screws and two rudders; [WP5] finished with the
     // existing guns (her 25 mm Bushmaster the 30 mm autocannon in a small turret on the foredeck, a heavy MG each side aft),
-    // a pole mast on the wheelhouse, a damage-control party and 10 t of fuel and ballast aft: 124 t, at her marks)
+    // a pole mast on the wheelhouse, a damage-control party, 10 t of fuel and ballast aft and a gunner's seat for the after
+    // MGs: 125 t, at her marks)
     name: 'Cyclon Patrol Boat', kind: 'ship', tier: 2,
     blurb: 'A 32 m aluminium patrol boat with two big diesels: quick, handy and cheap. A 30 mm autocannon forward and two heavy machine guns aft. Ring the telegraph up to Flank and she runs at over 30 knots.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbBowM', 11, 0.3], ['bridgeM', 3, 3.5, 0, { att: 2 }],
@@ -496,22 +497,24 @@ const TEMPLATES = {
       ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
       ['ringS', 7.5, 2.21, 0, { att: 3 }], ['turretSmall', 7.5, 2.685, 0, { att: 11 }], ['ac30', 9.032, 2.685, 3, { att: 12 }],
       ['mgHeavy', -13.6, 2.25, 3, { z: -2.6, att: 0 }], ['mgHeavy', -13.6, 2.25, 3, { z: 2.6, att: 0 }],
-      ['mastPole', 2, 8, 0, { att: 4 }], ['dcLocker', 2, -0.709, 0, { att: 2 }], ['ballast', -14, -1.131, 0, { att: 0 }]],
+      ['mastPole', 2, 8, 0, { att: 4 }], ['dcLocker', 2, -0.709, 0, { att: 2 }], ['ballast', -14, -1.131, 0, { att: 0 }],
+      ['seatGunner', -12, -1.351, 0, { att: 0 }]], // (a gunner for the after MGs: her three weapon stations, three gunners)
     paint: { hbSternM: 'patrolWhite', hbMidM: 'patrolWhite', hbBowM: 'patrolWhite', bridgeM: 'patrolWhite', mastPole: 'patrolWhite', ringS: 'patrolWhite', turretSmall: 'patrolWhite' },
   },
   zodiak: { // (a 9 m rigid inflatable: two outboards, a console, a heavy MG) [WP5]
     name: 'Zodiak RIB', kind: 'ship', tier: 1,
     blurb: 'A fast 9 m inflatable on two big outboards: up on the plane in seconds and over 35 knots. A heavy machine gun on the console, and nothing between her crew and the bullets.',
     parts: [['ribHull', 0, 0], ['consoleS', -1.4, 1.353, 0, { att: 0 }], ['outboard', -4.9, -0.2, 0, { z: -0.5, att: 0 }],
-      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -1.4, 2.303, 3, { att: 1 }]],
+      ['outboard', -4.9, -0.2, 0, { z: 0.5, att: 0 }], ['mgHeavy', -1.4, 2.303, 3, { att: 1 }], ['seatGunner', -2.6, -0.028, 0, { att: 0 }]], // (her gunner, behind the console)
     paint: { ribHull: 'navyDark', consoleS: 'navyDark' },
   },
   higgens: { // (the LCVP: a plywood-and-steel box with a bow ramp, a small diesel, two MGs at the stern) [WP5]
     name: 'Higgens Landing Craft', kind: 'ship', tier: 1,
     blurb: 'A 12 m landing craft: twelve troops in the well and a ramp for a bow. Slow (her blunt front pushes a wall of water), but she runs right up a beach. Troops aboard take zones fast.',
-    parts: [['lcHull', 0, 0], ['consoleS', -1.4, 2.1, 0, { att: 0 }], ['dieselS', -4, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
-      ['rudderM', -6.34, -2.182, 0, { att: 0 }], ['troopBay', -2.2, -0.814, 0, { att: 0 }], ['troopBay', 0, -0.814, 0, { att: 0 }],
-      ['mgHeavy', -1.4, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -1.4, 3.05, 3, { z: 0.25, att: 1 }]],
+    parts: [['lcHull', 0, 0], ['consoleS', -1.4, 2.1, 0, { att: 0 }], ['dieselS', -2.8, -0.866, 0, { att: 0 }], ['screwS', -5.44, -1.752, 0, { att: 0 }],
+      ['rudderM', -6.34, -2.182, 0, { att: 0 }], ['troopBay', 1.2, -0.814, 0, { att: 0 }], ['troopBay', 3.4, -0.814, 0, { att: 0 }],
+      ['mgHeavy', -1.4, 3.05, 3, { z: -0.25, att: 1 }], ['mgHeavy', -1.4, 3.05, 3, { z: 0.25, att: 1 }],
+      ['seatGunner', -0.6, -0.917, 0, { z: -0.4, att: 0 }], ['seatGunner', -0.6, -0.917, 0, { z: 0.4, att: 0 }]], // (the troops forward in the well and two gunners for the MGs: trimmed 0.8° by the stern, as a loaded LCVP)
     paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
   },
   pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels; her gun
