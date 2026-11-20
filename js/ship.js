@@ -54,6 +54,10 @@ const SHIP = {
   LAT_T: 0.5,
   planeK: 0.6, dispK: 0.2,           // strip planing lift on plane: true hulls, and on the rest (planeK 0.6, the spec's 1.3: at 1.3 the 110 t
   //   Cyclon planed at 1° of trim and 43 kn on 4 MW, half again Savitsky's lift; tuned by her speed trial: 33 kn)
+  planeCP: 1,                        // the planing lift along her waterline, (n + 1)·(1 − ξ)^n from its fore end (ξ 0) to its aft end (ξ 1): its
+  //   centre of pressure 2/3 of the wetted length ahead of the transom, inside Savitsky's 0.55-0.75 at planing speeds (a
+  //   strip's even share put it halfway: the RIB ran nearly flat, her bow resting on the water, 2.3° in a calm sea, now 2.9°;
+  //   at 2, 0.75, she turned half as fast again: her lateral plane all aft)
   heaveCd: 1.0, planeFade: 0.15,     // heave drag; the vertical terms fade in over the first planeFade m of immersion
   heaveLin: 0.4,                     // and linear heave damping (the waves a heaving hull makes), heaveLin·ρ·√(g·T̄) per m² of waterplane
   CF_RE: 1e5, CF_LOW: 0.0083,        // ITTC-57 friction C_f = 0.075/(log10 Re − 2)², and its value under Re 1e5
@@ -196,7 +200,7 @@ const Ship = (() => {
         const k0 = shullSec(S.st, R.x - 0.25)[1], k1 = shullSec(S.st, R.x + 0.25)[1];
         const beta = R.yk < S.wl ? Math.atan((S.wl - R.yk) / Math.max(R.bw, 0.05)) / Math.max(1, R.nb) : 0;
         rings.push({ p, ci, R, x: c.x, y: c.y, z: z0, ex, ey, P, dx: R.dx, A: R.A, cy: R.cy, bx: b.x, by: b.y, bz: z0,
-          tau: Math.atan((k1 - k0) / 0.5), cb2: Math.cos(beta) ** 2, cpl: S.plane ? SHIP.planeK : SHIP.dispK, kf: S.k || 0.15, cw: S.cw > 0 ? +S.cw : 1, depth: Math.max(0.05, R.yd - R.yk) }); // [WP6] cw: a blunt hull's wave-making factor (§4.12)
+          tau: Math.atan((k1 - k0) / 0.5), cb2: Math.cos(beta) ** 2, cpl: S.plane ? SHIP.planeK : SHIP.dispK, kf: S.k || 0.15, depth: Math.max(0.05, R.yd - R.yk) });
       }
       if (!big || p.def.w > big.def.w) big = p;
       const a = partPt(p, H.x0, 0), b = partPt(p, H.x1, 0), prev = old.get(p.id);
@@ -477,7 +481,7 @@ const Ship = (() => {
   // and S's sums (B, Vol, Awp, Swet, Lwl, Tbar, cb), returns B (N). still: no waves (the launch's float).
   function buoy(v, S, h0, t, gl, still) {
     const rho = SHIP.RHO, com = v.com, cz = com.z || 0, Ub = S.Ub, Eb = S.Eb, Nb = S.Nb, rings = S.rings, n = rings.length, fade = still ? 0 : S.fade;
-    let B = 0, Awp = 0, Vol = 0, Swet = 0, kmax = 0, lo = Infinity, hi = -Infinity, Mx = 0, My = 0, Mz = 0;
+    let B = 0, Awp = 0, Vol = 0, Swet = 0, kmax = 0, lo = Infinity, hi = -Infinity, Mx = 0, My = 0, Mz = 0, Ny = 0, Nz = 0;
     for (let i = 0; i < n; i++) {
       const g = rings[i], ox = g.bx - com.x, oy = g.by - com.y, oz = g.bz - cz;
       let eta = 0, Gx = 0, Gy = 0, Gz = 0;
@@ -521,7 +525,7 @@ const Ship = (() => {
       const k = -dmin, Fb = rho * gl * a * g.dx;
       S.ra[i] = a; S.rly[i] = ly; S.rlz[i] = lz; S.rb[i] = chord; S.rg[i] = girth; S.rk[i] = k;
       _c.x = g.bx + g.ey.x * ly; _c.y = g.by + g.ey.y * ly; _c.z = g.bz + lz;
-      { const wn = Math.hypot(Wx, Wy, Wz) || 1; _f.x = (Wx / wn) * Fb; _f.y = (Wy / wn) * Fb; _f.z = (Wz / wn) * Fb; } // [WP5] along the wave surface's normal (the pressure gradient: Froude-Krylov), not the plain vertical: a small boat then lies with the wave slope instead of rolling past it (beam-on in Moderate: 13.6° → 8° significant)
+      { const wn = Math.hypot(Wx, Wy, Wz) || 1; _f.x = (Wx / wn) * Fb; _f.y = (Wy / wn) * Fb; _f.z = (Wz / wn) * Fb; Ny += _f.x * S.ay.x + _f.y * S.ay.y; Nz += _f.z; } // [WP5] along the wave surface's normal (the pressure gradient: Froude-Krylov), not the plain vertical: a small boat then lies with the wave slope instead of rolling past it (beam-on in Moderate: 13.6° → 8° significant)
       push(v, _c, _f);
       B += Fb; Mx += Fb * _c.x; My += Fb * _c.y; Mz += Fb * _c.z;
       Awp += chord * g.dx; Vol += a * g.dx; Swet += girth * g.dx;
@@ -529,7 +533,8 @@ const Ship = (() => {
       if (chord > 0) { const s = _c.x * S.ax.x + _c.y * S.ax.y; if (s - g.dx / 2 < lo) lo = s - g.dx / 2; if (s + g.dx / 2 > hi) hi = s + g.dx / 2; }
     }
     S.B = B; S.Swet = Swet; S.Vol = Vol; S.Awp = Awp; S.kmax = kmax;
-    if (hi > lo) S.Lwl = hi - lo; else if (!(B > 0)) S.Lwl = 0;
+    S.hw = B > 0 ? Math.atan2(-Nz, Ny) : 0; // (her heel against the water's surface under her, the buoyancy's mean normal: in still water her heel)
+    if (hi > lo) { S.Lwl = hi - lo; S.wlF = hi; } else if (!(B > 0)) S.Lwl = 0;
     if (Awp > 0.01) S.Tbar = Vol / Awp;
     if (B > 0) { S.cb.x = Mx / B; S.cb.y = My / B; S.cb.z = Mz / B; }
     return B;
@@ -557,11 +562,13 @@ const Ship = (() => {
     v.draft = S.kmax;
     const upA = Ub.x * S.ay.x + Ub.y * S.ay.y;
     v.heel = Math.atan2(-Ub.z, upA); v.trim = Math.atan2(-(Ub.x * S.ax.x + Ub.y * S.ax.y), upA); // (+: starboard down, bow down)
-    // her metacentric height now: the buoyancy's righting moment (all of hT so far) over W·sin(heel), every STAB_T s
+    // her metacentric height now: the buoyancy's righting moment (all of hT so far) over B·sin(heel), every STAB_T s
     S.gmT += dt;
-    if (S.gmT >= SHIP.STAB_T && Math.abs(v.heel) > (SHIP.STAB_HEEL * Math.PI) / 180 && v.afloat) {
+    // (heeled against the water under her, not the vertical: the buoyancy pushes along the waves' normal, so a small boat
+    // lying with a wave's slope has nothing to right; against the vertical her GM read a fifth of itself in a calm sea)
+    if (S.gmT >= SHIP.STAB_T && Math.abs(S.hw) > (SHIP.STAB_HEEL * Math.PI) / 180 && v.afloat) {
       S.gmT = 0;
-      const gm = -(hT.x * S.ax.x + hT.y * S.ax.y) / (W * Math.sin(v.heel));
+      const gm = -(hT.x * S.ax.x + hT.y * S.ax.y) / (B * Math.sin(S.hw));
       if (Number.isFinite(gm)) S.gm = clamp(gm, -20, 50);
     }
     // (the flood water's weight: WP8's floodStep keeps comps[].W, and its force joins here)
@@ -576,7 +583,7 @@ const Ship = (() => {
     const rings = S.rings, n = rings.length, rho = SHIP.RHO, q = 0.5 * rho, ax = S.ax, Vol = Math.max(S.Vol, 1e-6), Ub = S.Ub;
     const Vx = vb.x * ax.x + vb.y * ax.y + vb.z * ax.z, Lwl = Math.max(S.Lwl, 0.5), V = Math.abs(Vx);
     const Re = (V * Lwl) / SHIP.NU, Cf = Re < SHIP.CF_RE ? SHIP.CF_LOW : 0.075 / Math.pow(Math.log10(Re) - 2, 2);
-    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)) * (S.cw || (S.cw = cwOf(S.hulls))), Tb = Math.max(S.Tbar || 0.1, 0.1); // [WP5] (× a blunt hull's shull.cw, §4.12: the landing craft's ramp bow)
+    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)) * (S.cw || (S.cw = cwOf(S.hulls))), Tb = Math.max(S.Tbar || 0.1, 0.1); // (× a blunt hull's shull.cw, §4.12: the landing craft's ramp bow; once, as the builder's resistance() has it)
     const Clin = (SHIP.latLin * Math.PI * Tb) / Lwl, heaveL = SHIP.heaveLin * rho * Math.sqrt(gl * Tb), cap = dt / lod;
     for (let i = 0; i < n; i++) {
       const a = S.ra[i];
@@ -595,8 +602,9 @@ const Ship = (() => {
       // ([WP6] the quadratic heave drag only for a bottom pressed into the water: one drawn away from it (rising, or a bow
       // trimmed down at speed: its bottom running away from the flow) separates, and the water doesn't suck it down)
       const Fd = capF((-q * SHIP.heaveCd * (uy < 0 ? -uy * uy : 0) - heaveL * uy) * b * dx * fin, uy, effMass(v, _c, _n) * share, cap);
-      const Fv = q * g.cpl * Math.max(0, Vn) * Math.abs(ua) * b * dx * g.cb2 * fin + Fd;
-      const Fa = capF(-Math.sign(ua) * q * ua * ua * S.rg[i] * dx * Cf * (1 + g.kf) - Math.sign(Vx) * Rw * share * g.cw, ua, effMass(v, _c, ex) * share, cap);
+      const wpl = planeW((S.wlF - (_c.x * ax.x + _c.y * ax.y)) / Lwl); // (the planing lift's share here: SHIP.planeCP)
+      const Fv = q * g.cpl * Math.max(0, Vn) * Math.abs(ua) * b * dx * g.cb2 * fin * wpl + Fd;
+      const Fa = capF(-Math.sign(ua) * q * ua * ua * S.rg[i] * dx * Cf * (1 + g.kf) - Math.sign(Vx) * Rw * share, ua, effMass(v, _c, ex) * share, cap);
       // [WP6] a slam: the ring was clear of the water last step and meets it now faster than SLAM.k × its part's limit
       if (S.rk0[i] === 0 && uy < 0) { const lim = SHIP.SLAM.k * (g.p.def.breakSpeed || DEFAULT_BREAK_SPEED); if (-uy > lim && !S.slam.some((o) => o[0] === g.p)) S.slam.push([g.p, -uy / lim, _c.x, _c.y, -uy]); }
       _f.x = ex.x * Fa + _n.x * Fv; _f.y = ex.y * Fa + _n.y * Fv; _f.z = Fl + _n.z * Fv;
@@ -612,6 +620,15 @@ const Ship = (() => {
   }
   function rollBk(S) { let k = 0; for (const p of S.hulls) if (p.def.shull.bk) k = Math.max(k, p.def.shull.bk === true ? SHIP.bilgeKeel : +p.def.shull.bk || 0); return k; }
   // §4.4-4.5: screws from the shaft power, and the foils (rudders, skegs, fixed hydrofoils) at water density: never the
+  // A hydrofoil's (and its strut's) cavitation: past its inception (the cavitation number σ = (p_atm + ρ·g·depth − p_v)/q
+  // under FOIL.sig) the water boils off its back and its drag climbs, FOIL.cav·(sig/σ − 1): steeply, so a subcavitating
+  // foil tops out about 50 kn whatever the power (a real hydrofoil's limit; without it the Pegazus' 20 MW flew her at 83)
+  function cavCd(U2, dep) {
+    const FO = SHIP.FOIL, sg = (FO.p0 + SHIP.RHO * G0 * Math.max(0, dep) - FO.pv) / (0.5 * SHIP.RHO * Math.max(U2, 1e-6));
+    return sg < FO.sig ? FO.cav * (FO.sig / sg - 1) : 0;
+  }
+  // the planing lift's weight at ξ along the waterline (0 its fore end, 1 its aft end): (n + 1)·(1 − ξ)^n, 1 on average
+  function planeW(xi) { const n = SHIP.planeCP; return n > 0 ? (n + 1) * (1 - clamp(xi, 0, 1)) ** n : 1; }
   // wings' code (water is ~850× denser than air: its deflection caps, load ratings, flutter and strain would all break)
   function propel(v, S, dt, vb, wb, h0, t, wet) {
     const rho = SHIP.RHO, q = 0.5 * rho, SC = SHIP.SCREW, J = SHIP.JET, dem = S.pow;

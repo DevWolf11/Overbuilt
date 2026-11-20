@@ -76,7 +76,10 @@ var rib = build(ribRows(), 'ship', { e: -2300, z: 0, yaw: 0 }), ribF = fsim(rib)
 {
   const s0 = R(`({ ok: !!rib.launchedAt && rib.launchedAt.ok, n: rib.parts.length, scr: rib.sh.scr.map((s) => s.kind), rud: rib.sh.rudders.length, mass: rib.mass, draft: (Ship.forces(rib, 1 / 120, v3(), v3(), ribF), rib.draft) })`);
   t(`the RIB (${(s0.mass / 1000).toFixed(1)} t) floats at her marks (${s0.draft.toFixed(2)} m); her outboards are thrusters of their own and steer`, s0.ok && s0.scr.join() === 'outboard,outboard' && s0.rud === 2 && s0.draft > 0.2 && s0.draft < 0.8, s0);
-  R(`rib.sh.tel = 4; var rs = []; tick(ribF, 40, (tt, i) => { if (i % 240 === 0) rs.push(+kn(rib).toFixed(1)); }); var ribA = { kn: kn(rib), trim: -rib.trim * ${D}, fsub: rib.sh.fsub, wet: rib.sh.Vol, vol: shullOf(rib.sh.hulls[0].def).vol, B: rib.sh.B };`);
+  // (her running trim and immersion: their means over the last 10 s, as the trials' are: at 42 kn in a calm sea's chop she
+  // bounces, her bow rising and falling a few degrees a second, so one instant says little)
+  R(`rib.sh.tel = 4; var rs = [], rm = { n: 0, trim: 0, wet: 0, fsub: 0 }; tick(ribF, 40, (tt, i) => { if (i % 240 === 0) rs.push(+kn(rib).toFixed(1)); if (tt >= 30) { rm.n++; rm.trim += -rib.trim * ${D}; rm.wet += rib.sh.Vol; rm.fsub += rib.sh.fsub; } });
+  var ribA = { kn: kn(rib), trim: rm.trim / rm.n, fsub: rm.fsub / rm.n, wet: rm.wet / rm.n, vol: shullOf(rib.sh.hulls[0].def).vol, B: rib.sh.B };`);
   const a = R('ribA'), rs = R('rs');
   t(`...Flank: she planes at ${a.kn.toFixed(1)} kn (34-46) trimmed ${a.trim.toFixed(1)}° bow-up (2-6°), her immersed volume ${a.wet.toFixed(2)} m³: under half of the ${(a.vol).toFixed(1)} m³ hull and under half her weight's still-water displacement (${(s0.mass / 1025).toFixed(2)} m³)`,
     a.kn > 34 && a.kn < 46 && a.trim > 2 && a.trim < 6 && a.wet < 0.5 * (s0.mass / 1025), { a, rs });
