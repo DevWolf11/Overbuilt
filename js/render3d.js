@@ -1341,17 +1341,28 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const G = grid(TW, 1, no), hs = new Float32Array(TW * TH), dk = new Float32Array(TW * TH), ns = new Float32Array(TW * TH), cs = new Float32Array(TW * TH);
     const lk = c.mapped ? new Float32Array(TW * TH) : null; // lakes
     const cell = (TAU * c.R) / TW;
-    for (let i = 0; i < TW; i++) setCol(c, G, i, ((i + 0.5) / TW) * TAU, cell);
+    for (let i = 0; i < TW; i++) { setCol(c, G, i, ((i + 0.5) / TW) * TAU, cell); if ((i & 255) === 255 && jobLate()) yield; }
     yield;
+    // (the continents' heights on the rows either side of a band of SUB rows: slot 0 the band's top, 1 its bottom. The next
+    // band's top is this one's bottom, so it is moved up, not worked out again: on the real Earth's map (SUB 1) that halved
+    // the work at each row's end: two rows of the map's lookups (2049 each), 1-3 ms here and 3-4 ms on a 4× slowed CPU, that
+    // ran without a look at the slice's time and overran it by that much (test/browser/graphics.mjs's 4 ms slice). Now they
+    // look at it every 64 lookups, as the pixels do every 32)
     const SUB = c.mapped ? 1 : 4, sw = TW / SUB + 1, sub = new Float32Array(sw * 2);
     let prevRow = -1;
-    const fillSub = (ry, slot) => {
+    function* fillSub(ry, slot) {
       const phi = Math.PI / 2 - ((Math.min(ry * SUB, TH - 1) + 0.5) / TH) * Math.PI;
-      for (let k = 0; k < sw; k++) sub[slot * sw + k] = contAt(c, ((Math.min(k * SUB, TW) + 0.5) / TW) * TAU, phi);
-    };
+      for (let k = 0; k < sw; k++) {
+        sub[slot * sw + k] = contAt(c, ((Math.min(k * SUB, TW) + 0.5) / TW) * TAU, phi);
+        if ((k & 63) === 63 && jobLate()) yield;
+      }
+    }
     for (let y = 0; y < TH; y++) {
       const ry = Math.floor(y / SUB);
-      if (ry !== prevRow) { fillSub(ry, 0); fillSub(ry + 1, 1); prevRow = ry; yield; }
+      if (ry !== prevRow) {
+        if (prevRow >= 0 && ry === prevRow + 1) sub.copyWithin(0, sw, 2 * sw); else yield* fillSub(ry, 0);
+        yield* fillSub(ry + 1, 1); prevRow = ry; yield;
+      }
       const ty = (y - ry * SUB) / SUB, phi = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI;
       setRow(c, G, 0, phi * c.R, cell);
       for (let x = 0; x < TW; x++) {
@@ -1366,40 +1377,44 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     }
     const cv = document.createElement('canvas'); cv.width = TW; cv.height = TH;
     const nv = document.createElement('canvas'); nv.width = TW; nv.height = TH;
-    const g = cv.getContext('2d'), gn = nv.getContext('2d'), im = g.createImageData(TW, TH), imn = gn.createImageData(TW, TH);
+    // (the pixels go into each canvas a band of BAND rows at a time, painted into one band's image and put as it fills: the
+    // whole map's four images were 32 MB to make and four puts at the end that took 20-25 ms in one step on the full Earth)
+    const BAND = 64, g = cv.getContext('2d'), gn = nv.getContext('2d'), im = g.createImageData(TW, BAND), imn = gn.createImageData(TW, BAND);
     let rv = null, imr = null, lv = null, iml = null;
-    if (b.ocean) { rv = document.createElement('canvas'); rv.width = TW; rv.height = TH; imr = rv.getContext('2d').createImageData(TW, TH); }
-    if (c.mapped && Terrain.earthMap.night) { lv = document.createElement('canvas'); lv.width = TW; lv.height = TH; iml = lv.getContext('2d').createImageData(TW, TH); }
+    if (b.ocean) { rv = document.createElement('canvas'); rv.width = TW; rv.height = TH; imr = rv.getContext('2d').createImageData(TW, BAND); }
+    if (c.mapped && Terrain.earthMap.night) { lv = document.createElement('canvas'); lv.width = TW; lv.height = TH; iml = lv.getContext('2d').createImageData(TW, BAND); }
+    const puts = [[g, im], [gn, imn]];
+    if (imr) puts.push([rv.getContext('2d'), imr]);
+    if (iml) puts.push([lv.getContext('2d'), iml]);
     const out = [0, 0, 0], k = c.relief;
     for (let y = 0; y < TH; y++) {
-      const lat = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI, dxm = cell * Math.max(Math.cos(lat), 0.02), dym = (Math.PI * c.R) / TH;
+      const lat = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI, dxm = cell * Math.max(Math.cos(lat), 0.02), dym = (Math.PI * c.R) / TH, yb = y % BAND;
       for (let x = 0; x < TW; x++) {
-        const i = y * TW + x, h = hs[i];
+        const i = y * TW + x, h = hs[i], i4 = (yb * TW + x) * 4;
         if (c.mapped) bioAt(((x + 0.5) / TW) * TAU, lat * c.R);
         paint(c, h, ns[i], cs[i], dk[i], 0, lat, true, out);
         if (lk && lk[i] > 0.05) mixC(out, LAKE_D, lk[i] * 0.85, out);
-        if (iml) { const v = 255 * Math.pow(clamp((Terrain.nightAt(((x + 0.5) / TW) * TAU, lat * c.R) - 0.1) / 0.6, 0, 1), 1.3); iml.data[i * 4] = iml.data[i * 4 + 1] = iml.data[i * 4 + 2] = v; iml.data[i * 4 + 3] = 255; }
-        im.data[i * 4] = out[0]; im.data[i * 4 + 1] = out[1]; im.data[i * 4 + 2] = out[2]; im.data[i * 4 + 3] = 255;
+        if (iml) { const v = 255 * Math.pow(clamp((Terrain.nightAt(((x + 0.5) / TW) * TAU, lat * c.R) - 0.1) / 0.6, 0, 1), 1.3); iml.data[i4] = iml.data[i4 + 1] = iml.data[i4 + 2] = v; iml.data[i4 + 3] = 255; }
+        im.data[i4] = out[0]; im.data[i4 + 1] = out[1]; im.data[i4 + 2] = out[2]; im.data[i4 + 3] = 255;
         const sea = b.ocean && h < 0;
         const hx = (q) => (b.ocean ? Math.max(0, q) : q);
         const gx = sea ? 0 : (hx(hs[y * TW + ((x + 1) % TW)]) - hx(hs[y * TW + ((x + TW - 1) % TW)])) / (2 * dxm) * k;
         const gy = sea ? 0 : (hx(hs[Math.max(0, y - 1) * TW + x]) - hx(hs[Math.min(TH - 1, y + 1) * TW + x])) / (2 * dym) * k;
         const l = Math.hypot(gx, gy, 1);
-        imn.data[i * 4] = (-gx / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 1] = (-gy / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 2] = (0.5 / l + 0.5) * 255; imn.data[i * 4 + 3] = 255;
-        if (imr) { const r = c.mapped ? lerp(90, 255, smoothstep(-5, 5, h)) : sea ? 90 : 255; imr.data[i * 4] = imr.data[i * 4 + 1] = imr.data[i * 4 + 2] = r; imr.data[i * 4 + 3] = 255; }
+        imn.data[i4] = (-gx / l * 0.5 + 0.5) * 255; imn.data[i4 + 1] = (-gy / l * 0.5 + 0.5) * 255; imn.data[i4 + 2] = (0.5 / l + 0.5) * 255; imn.data[i4 + 3] = 255;
+        if (imr) { const r = c.mapped ? lerp(90, 255, smoothstep(-5, 5, h)) : sea ? 90 : 255; imr.data[i4] = imr.data[i4 + 1] = imr.data[i4 + 2] = r; imr.data[i4 + 3] = 255; }
         if ((x & 63) === 63 && jobLate()) yield;
       }
+      if (yb === BAND - 1 || y === TH - 1) for (const [q, d] of puts) { q.putImageData(d, 0, y - yb, 0, 0, TW, yb + 1); if (jobLate()) yield; } // (the band filled: into its canvas)
       if ((y & 15) === 15) yield;
     }
-    g.putImageData(im, 0, 0); gn.putImageData(imn, 0, 0);
     const old = [e.mat.map, e.mat.normalMap !== S.flatN ? e.mat.normalMap : null, e.mat.roughnessMap];
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = maxAniso;
     e.mat.map = tex;
     e.mat.normalMap = new THREE.CanvasTexture(nv);
-    if (imr) { rv.getContext('2d').putImageData(imr, 0, 0); e.mat.roughnessMap = new THREE.CanvasTexture(rv); }
+    if (imr) e.mat.roughnessMap = new THREE.CanvasTexture(rv);
     if (iml) { // city lights on the night side
-      lv.getContext('2d').putImageData(iml, 0, 0);
       const nt = new THREE.CanvasTexture(lv);
       nt.colorSpace = THREE.SRGBColorSpace;
       e.mat.emissiveMap = nt; e.mat.emissive.setRGB(1, 0.78, 0.5); e.mat.emissiveIntensity = 1.3;
