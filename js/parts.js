@@ -6462,7 +6462,9 @@ function shullOf(def) {
     const a = st[i - 1][0], b = st[i][0], n = Math.max(1, Math.ceil((b - a) / step - 1e-9));
     for (let k = 1; k <= n; k++) xs.push(a + ((b - a) * k) / n);
   }
-  const rings = xs.map((x) => shullRing(S, x)), np = clamp(Math.round(def.w / 4), 3, 8), phys = [];
+  // ([WP6] a one-piece hull (a RIB, a float, a flying boat's) is all the hull its craft has: sampled finer, so its waterplane
+  // spans its length and it has a pitch stiffness; segments chain into a ship's many rings)
+  const rings = xs.map((x) => shullRing(S, x)), np = S.cls === 'one' ? clamp(Math.round(def.w / 1.2), 5, 9) : clamp(Math.round(def.w / 4), 3, 8), phys = [];
   for (let i = 0; i < np; i++) {
     const r = shullRing(S, x0 + ((x1 - x0) * i) / (np - 1));
     r.dx = ((x1 - x0) / (np - 1)) * (i === 0 || i === np - 1 ? 0.5 : 1);

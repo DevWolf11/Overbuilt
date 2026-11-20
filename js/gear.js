@@ -247,6 +247,7 @@ const Gear = {
   ground(v, dt, sim) {
     const b = v.body, R = b.radius, r = v.radius(), h = dt;
     this.calls = 0;
+    const hy = this.hy = !!v.sh; // [WP6] (an Armour vehicle with a hull part afloat: its probes meet the sea bed, never the water's surface; ship.js floats it)
     if (r - v.reach > R + b.terrainMax + 5) return gearClear(v);
     // the spot under the centre of mass (its height, a deck, water), read again once it has moved half a metre (or 8
     // times a second): it only culls, and says whether it's wading
@@ -254,8 +255,8 @@ const Gear = {
     if (!(M.qn > 0 && M.qb === b && mx * mx + my * my + mz * mz < 0.25)) {
       const L0 = v.surfaceSpot();
       M.ga = L0.a; M.gz = L0.z; M.qb = b; M.qx = v.x; M.qy = v.y; M.qz = v.z; M.qn = 15;
-      M.dk = Terrain.deckAt(b, L0.a, L0.z, v.reach + 2); M.gh = Terrain.surfaceAt(b, L0.a, L0.z); // (part of it may be over a carrier's deck)
-      M.water = Terrain.waterAt(b, L0.a, L0.z); // (water is the spot's: one call)
+      M.dk = Terrain.deckAt(b, L0.a, L0.z, v.reach + 2); M.gh = hy ? Ship.floorAt(b, L0.a, L0.z) : Terrain.surfaceAt(b, L0.a, L0.z); // (part of it may be over a carrier's deck)
+      M.water = hy ? false : Terrain.waterAt(b, L0.a, L0.z); // (water is the spot's: one call. [WP6] Afloat, no wading: the water's forces are ship.js's)
       this.calls = 3;
     } else M.qn--;
     const La = M.ga, Lz = M.gz, dk = M.dk, sh = M.gh, water = M.water;
@@ -297,7 +298,7 @@ const Gear = {
     }
     if (fit) { nG.x = U.x - pb * E1.x - pc * E2.x; nG.y = U.y - pb * E1.y - pc * E2.y; nG.z = U.z - pb * E1.z - pc * E2.z; gNorm(nG); }
     else { // no plane (one track down, on its side or roof): the ground's own normal under the centre of mass
-      Terrain.normalAt(b, La, Lz, nG); this.calls += 4;
+      if (hy) Ship.floorNormal(b, La, Lz, nG); else Terrain.normalAt(b, La, Lz, nG); this.calls += 4;
       const cu = gDot(nG, U) || 1;
       pa = R + h0 - r; pb = -gDot(nG, E1) / cu; pc = -gDot(nG, E2) / cu;
     }
@@ -357,9 +358,9 @@ const Gear = {
     for (let i = 0; i < nG0 + nH; i++) {
       const s = i < nG0 ? _gGo[i] : _gHo[i - nG0], p = s.p;
       const vn = (v.vx + av.y * s.rz - av.z * s.ry) * nG.x + (v.vy + av.z * s.rx - av.x * s.rz) * nG.y + (v.vz + av.x * s.ry - av.y * s.rx) * nG.z;
-      const lim = (p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (water ? 1.8 : 1), sp = -vn;
+      const lim = (p.def.breakSpeed || DEFAULT_BREAK_SPEED) * (water ? 1.8 : hy ? SHIP.BED_CRASH : 1), sp = -vn;
       if (s.isSide) sideHit = true;
-      if (s.isSide || sp > lim * (combat ? 1.6 : 1)) nB = gearOnce(_gBrk, nB, p);
+      if (s.isSide || sp > lim * (combat ? 1.6 : 1)) { nB = gearOnce(_gBrk, nB, p); if (hy) v.bedHit({ p, r: { x: s.rx, y: s.ry, z: s.rz } }, sp, lim); } // [WP6] (Ship.impactSea's)
       else if (combat && sp > lim * 0.75) {
         let j = 0; while (j < nD && _gDentP[j] !== p) j++;
         if (j === nD) { _gDentP[nD] = p; _gDentR[nD++] = sp / lim; } else _gDentR[j] = gMath.max(_gDentR[j], sp / lim);
@@ -368,7 +369,7 @@ const Gear = {
       const air = p.def.air;
       if (air && (air.kind === 'prop' || air.kind === 'rotor') && (p.rpm || 0) > 8 && !water && !(v.dr && v.dr.guarded.has(p.id) && sp < 6)) nB = gearOnce(_gBrk, nB, p); // (vessel.js's guarded drone motor, kept line for line)
     }
-    if (nB && (!bouncy || sideHit)) { const list = _gBrk.slice(0, nB); _gBrk.length = 0; sim.breakParts(v, list, 'impact'); return; }
+    if (nB && (!bouncy || sideHit)) { const list = _gBrk.slice(0, nB); _gBrk.length = 0; sim.breakParts(v, list, 'impact'); if (!hy || v.dead || list.some((p) => !v.byId.has(p.id))) return; } // [WP6] (a hull holed and kept: on)
     if (nD && sim.vessels && !bouncy) for (let j = 0; j < nD; j++) Combat.impact(v, _gDentP[j], _gDentR[j], sim);
     if (v.dead || !v.parts.length || v._gear !== C || C.wp !== v.wheelPts) return; // (a dent that cost a part changed the craft: next step)
     const bounce = bouncy ? 0.75 : 0;
@@ -592,7 +593,7 @@ const Gear = {
 
     // flooding: water deeper than the ford over the lowest engine part (an amphibious hull floats). The engine stops,
     // coughs back at a fifth of its power after 5 s so the crew can crawl out, and runs again 5 s out of the water.
-    if (C.eng.length && !C.amph) {
+    if (C.eng.length && !C.amph && !hy) { // ([WP6] a hull afloat: its engine floods with its compartment, ship.js's)
       let deep = false;
       if (water) { const depth = sh - Terrain.heightAt(b, La, Lz); this.calls++; deep = depth > GEAR.ford && depth > C.engLow; }
       if (deep) {
@@ -632,7 +633,7 @@ const Gear = {
     s.qb = b; s.qx = px; s.qy = py; s.qz = pz; s.qn = 120;
     s.ga = J.a + J.ax * ex + J.ay * ey; s.gz = (J.lat + J.lx * ex + J.ly * ey + J.lz * ez) * b.radius;
     this.calls++;
-    return (s.gh = Terrain.surfaceAt(b, s.ga, s.gz));
+    return (s.gh = this.hy ? Ship.floorAt(b, s.ga, s.gz) : Terrain.surfaceAt(b, s.ga, s.gz)); // ([WP6] a hull afloat: the sea bed)
   },
   // One hull corner (its offset s.o already turned): true when it's in the ground
   corner(v, s, b, R) {

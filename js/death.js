@@ -129,6 +129,7 @@ const Death = (() => {
   // breakage still takes, or none (null or []) when the craft went up in one piece. Aircraft: the crash section's;
   // ground vehicles: the ground section's; rockets and everything else: untouched.
   function impact(v, parts, sim) {
+    if (v.sh && typeof Ship !== 'undefined') { parts = Ship.impactSea(v, parts, sim); if (!parts.length) return parts; } // [WP6] (a hull holed and kept, ship.js: the ships update)
     if (isAirKind(v.kind)) return impactAir(v, parts, sim);
     if (isGround(v.kind)) return impactGround(v, parts, sim);
     return parts;

@@ -1637,13 +1637,16 @@ const Flight = {
   },
 
   physicsTick(h, list) {
+    let lashed = null;
     for (const v of list.slice()) {
       if (v.dead) continue;
+      if (v.lash) { (lashed || (lashed = [])).push(v); continue; } // [WP6] (lashed to a ship's deck: it rides her, after she has moved)
       if (v !== this.active && v.landed && v.restTime > 2 && !v.thrust) continue; // sleeping
       if (v.moored && v !== this.active) { Ship.drift(v, h, this); continue; } // (the ships update: moored, it bobs on the swell, no physics)
       v.physicsStep(h, this);
       this.checkSOI(v, this.time);
     }
+    if (lashed) for (const v of lashed) if (!v.dead) Ship.lashStep(v, h, this); // [WP6]
     // other players' craft coast between snapshots, so rounds and missiles meet them where they are now
     if (this.mp) for (const v of this.vessels) if (v.remote && !v.wreck) { v.x += v.vx * h; v.y += v.vy * h; v.z += v.vz * h; }
     if (this.catapult) this.catapultStep(h);
