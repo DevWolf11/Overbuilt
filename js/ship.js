@@ -2808,10 +2808,10 @@ const Ship = (() => {
     wetOf(v, S);
   }
   // Her deck edges against the sea (FLOOD.hz, floodStep): how long each has been under (S.dfT: downflooding past
-  // FLOOD.downT), and how deep her highest deck edge is (S.deckMin, + under: the fate's "every deck under"). A deck edge
+  // FLOOD.downT; a ship's only), and how deep her highest deck edge is (S.deckMin, + under: the fate's "every deck under"). A deck edge
   // higher over the still water than the highest wave can reach skips the waves. true: some edge is past downT.
   function deckScan(v, S, h0, t, dt) {
-    const n = S.rings.length, U = S.Ub, c = v.com, cz = c.z || 0;
+    const n = S.rings.length, U = S.Ub, c = v.com, cz = c.z || 0, open = v.kind === 'ship'; // (a ship's deck has its hatches and vents; a float's, an amphibious tank's hull under its hull, are sealed)
     let wm = 0;
     for (let i = 0; i < NW; i++) wm += Math.abs(WA[i]);
     wm = wm * (S.fade || 0) + 0.01;
@@ -2824,7 +2824,7 @@ const Ship = (() => {
         let dep = still;
         if (still > -wm) { _hX.x = x; _hX.y = y; _hX.z = z; dep = depthOf(v, S, _hX, h0, t); }
         if (dep < top) top = dep;
-        S.dfT[2 * i + s] = dep > 0 ? S.dfT[2 * i + s] + dt : 0;
+        S.dfT[2 * i + s] = dep > 0 && open ? S.dfT[2 * i + s] + dt : 0;
         if (S.dfT[2 * i + s] >= SHIP.FLOOD.downT) past = true;
       }
     }
