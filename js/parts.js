@@ -1547,10 +1547,10 @@ const PARTS = {
     foil: { kind: 'rudder', area: 14, ar: 1.5, n: 'z', max: 35, chord: 4, load: 3000 },
     tier: 2, cost: 1500, desc: 'A big spade rudder for frigates and destroyers, 35° each way. Put it just behind a Large Propeller.' },
   foilBow: { gv: true, ship: true, family: 'Naval', place: 'bow', cat: 'shDrive', name: 'Bow Hydrofoil', w: 2, h: 3.6, depth: 6, mass: 4, shape: 'tkit', style: 'foil', hp: 500,
-    foil: { kind: 'foil', n: 'y', area: 7, ar: 5, chord: 1.2, inc: 2, y: -1.6, ride: true, load: 1500 },
-    tier: 2, cost: 3000, desc: 'An upside-down T of a foil on a strut under the bow. With a Main Hydrofoil aft, past about 30 knots they lift the whole hull out of the water and she flies on them, level, over the waves.' },
+    foil: { kind: 'foil', n: 'y', area: 7, ar: 5, chord: 1.2, inc: 2, y: -1.6, ride: true, max: 8, load: 1500 }, // (max: its strut turns 8° with the helm: she steers by it foilborne, as the real one did)
+    tier: 2, cost: 3000, desc: 'An upside-down T of a foil on a strut under the bow, the strut turning 8° with the helm. With a Main Hydrofoil aft, past about 30 knots they lift the whole hull out of the water and she flies on them, level, over the waves.' },
   foilAft: { gv: true, ship: true, family: 'Naval', place: 'keel', cat: 'shDrive', name: 'Main Hydrofoil', w: 2.4, h: 3.6, depth: 12, mass: 9, shape: 'tkit', style: 'foilAft', hp: 900,
-    foil: { kind: 'foil', n: 'y', area: 15, ar: 6, chord: 1.6, inc: 2, y: -1.6, ride: true, intake: true, h: 1.6, load: 3500 },
+    foil: { kind: 'foil', n: 'y', area: 15, ar: 6, chord: 1.6, inc: 2, y: -1.6, ride: true, intake: true, h: 1.6, struts: 2, load: 3500 }, // (struts: its two, the skegs that hold her straight foilborne)
     tier: 2, cost: 5000, desc: 'A 12 m foil on two struts, aft of her middle: it carries most of her weight foilborne, and its pod feeds her waterjets when the hull is clear of the sea.' },
   // ==== shArms ====
   // ==== shKit ====
