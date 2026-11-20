@@ -1416,6 +1416,7 @@ const Combat = (() => {
     // (the ships update: a craft afloat anywhere; for an old flight, one look along the vessels a frame)
     S.sea = F.vessels.some((o) => o.hydro);
     if (S.sea) Ship.frame(F, dt); // (mooring, collisions, flooding, fires, damage control, fate, the AI: ship.js)
+    else if (typeof Ship !== 'undefined' && Ship.D.length) Ship.D.length = 0; // [WP6] (no ship afloat: no moving decks)
     const onEarth = v.body === EARTH, near = onEarth && len(v.x - at(8000, 0, 0).x, v.y - at(8000, 0, 0).y, v.z - at(8000, 0, 0).z) < 60000;
     const m = mode();
     // the range: spawn once the player is near it (and on), keep it while they stay
