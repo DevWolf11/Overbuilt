@@ -23,6 +23,12 @@
 //     at 50 points (and the packer on the CPU); flattened, the grid draws the very ocean it covers (no seam), the waves
 //     on change the picture; under way she lays a wake (its pixels: bench.wake) and throws bow spray; the grid filled behind
 //     a slice a frame (none over 1.5 ms here, the whole fill timed apart) and swapped in. A tree with no ship skips 8b-e.
+//  9. the sea's looks (the ships update, WP15: OB_SEA, seaFrame): on, lakes on the old water, the whitecaps' clock a half
+//     float holds, no warm-up mesh kept (a); whitecaps by sea state, no program built at a change of it (b); the sea state
+//     from 3 km (c), the same with every vertex's noises (c2); no shimmer, still while paused (d), gliding under rails
+//     warp (d2); the swell grid's edge unseen (e);
+//     the wake's foam a minute long, kept while the camera is far (f); a wreck in a loch veiled by the old water (g); with
+//     no sea in view, the sheet on the old water's program, the same picture (h)
 // The console stays clean.     node test/browser/water.mjs
 import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
 const srv = await serve(), b = await launch(), errs = [];
@@ -31,6 +37,7 @@ const mapIn = () => typeof Terrain !== 'undefined' && Terrain.earthMap && Terrai
 const T_NOON = 70500;
 const BAY = { e: 16400, z: 26400, yaw: 0, air: { alt: 60, speed: 0 } }, SEA = { e: -1344, z: 3967, yaw: 0, air: { alt: 60, speed: 0 } };
 const SHIP_AT = { e: -1344, z: 3967, yaw: 0.5 }; // (the open sea of the render bench, a ship's spawn: her heading)
+const LOCH = { e: 22670, z: 35050, yaw: 0, air: { alt: 12, speed: 0 } }; // (a loch in Caithness, 10 m up, 4-7 m deep)
 const SINK = { e: 3330, z: -30, yaw: 0, air: { alt: 12, speed: 0 } }, HL = { e: 18190, z: 15040, yaw: 0 }, LAND = { e: 1500, z: 0, yaw: 0, air: { alt: 12, speed: 0 } };
 // in the page: start a paused flight at a place (cam: distance, pitch), everything round it built; a frame's pixels in a
 // region (x0..x1, y0..y1 as shares of the screen) as mean RGB; a frame's whole buffer
@@ -193,21 +200,57 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       return { changed, dry, back: window.__same(a, a2), stencil: I.stencil, veils: I.veils };
     }, HL);
     ok(`${T}: inland (Highland Ridge's village) the water's depth changes the water's pixels only (${s7.changed} px, ${s7.dry} of them not water), no stencil or veil, and back to the byte`, s7.dry === 0 && s7.back === 0 && !s7.stencil && s7.veils === 0, s7);
+    // 9g. (the sea's looks) a wreck sinking in a loch is veiled by the old water, as the loch round it: its pixels with
+    // the veils on the sea's program (OB_SEA, uVeil.z 0) against the old water's (bench.oldSea) within a step of 255
+    if (await ev(() => typeof Ship !== 'undefined' && !!Render3D.seaInfo)) {
+      const s9g = await ev(async (LOCH) => {
+        await window.__start('falcon', LOCH, [60, 1.2]);
+        const w = window.__junk(0.5); for (let i = 0; i < 3; i++) window.__buf();
+        const v = Flight.active, L = Terrain.locate(v.body, w.x, w.y, w.z, {}), lvl = Terrain.surfaceAt(v.body, L.a, L.z), I = Render3D.waterInfo();
+        const a = window.__buf().buf; Render3D.bench.oldSea = true; window.__buf(); const b2 = window.__buf().buf; Render3D.bench.oldSea = false; window.__buf();
+        const m = Render3D.meshOf(w); m.group.visible = false; const c = window.__buf().buf; m.group.visible = true;
+        let mine = 0, off = 0, max = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          if (a[i] === c[i] && a[i + 1] === c[i + 1] && a[i + 2] === c[i + 2]) continue;
+          mine++; const d = Math.max(Math.abs(a[i] - b2[i]), Math.abs(a[i + 1] - b2[i + 1]), Math.abs(a[i + 2] - b2[i + 2])); if (d > 1) off++; max = Math.max(max, d);
+        }
+        Flight.vessels.splice(Flight.vessels.indexOf(w), 1);
+        return { lvl: +lvl.toFixed(2), veils: I.veils, mine, off, max };
+      }, LOCH);
+      ok(`${T}: a wreck sinking in a loch (${s9g.lvl} m up) is veiled by the old water: ${s9g.off} of its ${s9g.mine} px off the old water's veil by over 1/255 (at most ${s9g.max})`,
+        s9g.lvl > 1 && s9g.veils === 1 && s9g.mine > 300 && s9g.off === 0 && s9g.max <= 1, s9g);
+      // 9h. with no sea in view (300 m over it, looking up past the horizon) the sea's sheet is drawn by the old water's
+      // program (seaSheet: the old cost), and the picture is the one with it on the sea's (bench.seaAll); looking down
+      // again, the sea's
+      const s9h = await ev(async (SEA) => {
+        await window.__start('falcon', { ...SEA, air: { alt: 300, speed: 0 } }, [30, -0.5]);
+        const a = window.__buf().buf, up = Render3D.seaInfo().sheet; Render3D.bench.seaAll = true; const b2 = window.__buf().buf, all = Render3D.seaInfo().sheet; Render3D.bench.seaAll = false;
+        await window.__start('falcon', { ...SEA, air: { alt: 300, speed: 0 } }, [30, 1.2]); window.__buf();
+        return { up, all, down: Render3D.seaInfo().sheet, px: window.__same(a, b2) };
+      }, SEA);
+      ok(`${T}: with no sea in view (looking up) the sea's sheet is drawn as the old water (${s9h.up}; ${s9h.px} px off the sea's program's picture), looking down as the sea (${s9h.down})`,
+        s9h.up === 'old' && s9h.all === 'sea' && s9h.px === 0 && s9h.down === 'sea', s9h);
+    }
     // ---- 9. the sea's looks (the ships update, WP15: render3d OB_SEA, seaFrame), on the open sea with no ship near
     if (await ev(() => typeof Ship !== 'undefined' && !!Render3D.seaInfo)) {
       // a. the hooks: OB_SEA in the ocean's program and its uniforms live; lakes and rivers on their own material, the
       // water as it was (no OB_SEA)
       const s9a = await ev(async (SEA) => { await window.__start('falcon', SEA, [60, 1.2]); window.__buf(); return Render3D.seaInfo(); }, SEA);
       ok(`${T}: the sea's looks are on (OB_SEA, the waves' uniforms live: k ${s9a.k && s9a.k.map((k) => k.toFixed(3)).join(', ')}); lakes and rivers keep the old water (their own material, no OB_SEA)`,
-        s9a.on && s9a.define && s9a.lakeOwn && s9a.inland && !!s9a.lake && !('OB_SEA' in s9a.lake) && 'OB_DEEP' in s9a.lake && s9a.k.every((k) => k > 0.05) && s9a.a.some((a) => a > 0.05), s9a);
+        s9a.on && s9a.define && s9a.sheet === 'sea' && s9a.lakeOwn && s9a.inland && !!s9a.lake && !('OB_SEA' in s9a.lake) && 'OB_DEEP' in s9a.lake && s9a.k.every((k) => k > 0.05) && s9a.a.some((a) => a > 0.05), s9a);
+      // (the whitecaps' clock folded small enough for a half float to hold its fraction: a GPU without highp fragments
+      // keeps them; the lakes' warm-up mesh let go once the flight has loaded: no geometry kept for it)
+      ok(`${T}: the whitecaps' clock is folded under 16 (${s9a.w && s9a.w[3].toFixed(3)}: a half float's fraction holds), and the lakes' warm-up mesh is gone after the warm-up`,
+        !!s9a.w && s9a.w[3] >= 0 && s9a.w[3] < 16 && !s9a.warmMesh, { w: s9a.w, warmMesh: s9a.warmMesh });
       // b. whitecaps by sea state: 300 m over the open sea looking steeply down, the Sun behind (no glint), the plane's
       // own model hidden, the white pixels (each channel over 175, grey within 45) averaged over six moments 2.5 s apart
       const s9b = await ev(async (SEA) => {
         await window.__start('falcon', { ...SEA, yaw: Math.PI, air: { alt: 300, speed: 0 } }, [30, 1.3]);
         Render3D.meshOf(Flight.active).group.visible = false;
-        const t0 = Flight.time, out = {};
+        const t0 = Flight.time, out = { ver: [] };
         for (const st of ['calm', 'moderate', 'rough']) {
           Ship.setSea(st);
+          window.__buf(); out.ver.push(Render3D.seaInfo().ver); // (the ocean's material: a rebuild bumps its version)
           let w = 0, n = 0;
           for (const dt of [0, 2.5, 5, 7.5, 10, 12.5]) {
             Flight.time = t0 + dt;
@@ -221,6 +264,7 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: whitecaps by sea state from 300 m: Calm ${s9b.calm}%, Moderate ${s9b.moderate}% (scattered), Rough ${s9b.rough}% (many)`,
         s9b.calm < 0.01 && s9b.moderate > s9b.calm + 0.02 && s9b.rough > 2 * s9b.moderate && s9b.moderate < 3 && s9b.rough < 20, s9b);
+      ok(`${T}: a change of the sea state builds no program mid-flight (the ocean's material version ${s9b.ver.join(' → ')})`, s9b.ver.every((v) => v === s9b.ver[0]), s9b.ver);
       // c. the sea state from 3 km: looking down through the haze (the plane hidden, the Sun to the side), the waves'
       // contrast at their own scale (the luminance 4x4-averaged, its spread within 32 px blocks wholly of sea, not cloud:
       // blue over red by 40) and the white flecks (25 over their 9x9 neighbourhood) grow Calm < Moderate < Rough, where the
@@ -254,6 +298,26 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: the sea state reads from 3 km up: the waves' contrast ${s9c.calm.sd} (Calm) < ${s9c.moderate.sd} (Moderate) < ${s9c.rough.sd} (Rough), white flecks ${s9c.calm.flecks}% < ${s9c.rough.flecks}%`,
         s9c.calm.sd < s9c.moderate.sd && s9c.moderate.sd < s9c.rough.sd && s9c.rough.sd > 1.4 * s9c.calm.sd && s9c.calm.flecks < s9c.rough.flecks && s9c.calm.blocks > 20, s9c);
+      // c2. the sea's sheet skips its vertex noises where no triangle of it can come on screen (SEA_VS: the frustum's
+      // margin): the picture is the very one with every vertex working them out (bench.seaAll), low over the sea, looking
+      // down from 300 m, at the horizon from 3 km, and over a bay's shore from 120 m, in Calm and in Rough
+      // (the pixels the hook changes that a frame drawn again without it leaves be: anything else that moves from frame to
+      // frame, a beacon, smoke, isn't counted)
+      const s9c2 = await ev(async ([SEA, BAY]) => {
+        const out = [];
+        for (const [place, cam] of [[{ ...SEA, air: { alt: 30, speed: 0 } }, [30, 0.2]], [{ ...SEA, yaw: 2, air: { alt: 300, speed: 0 } }, [30, 1.2]], [{ ...SEA, yaw: 4, air: { alt: 3000, speed: 0 } }, [30, 0.4]], [{ ...BAY, yaw: 1, air: { alt: 120, speed: 0 } }, [30, 0.25]]]) {
+          await window.__start('falcon', place, cam);
+          for (const st of ['calm', 'rough']) {
+            Ship.setSea(st);
+            const a = window.__buf().buf; Render3D.bench.seaAll = true; const b2 = window.__buf().buf; Render3D.bench.seaAll = false; const c = window.__buf().buf;
+            let n = 0; for (let i = 0; i < a.length; i += 4) if ((a[i] !== b2[i] || a[i + 1] !== b2[i + 1] || a[i + 2] !== b2[i + 2]) && a[i] === c[i] && a[i + 1] === c[i + 1] && a[i + 2] === c[i + 2]) n++;
+            out.push(n);
+          }
+        }
+        Ship.setSea('moderate');
+        return out;
+      }, [SEA, BAY]);
+      ok(`${T}: the sea's sheet skips its noises only where nothing of it shows: the pictures with every vertex working them out are the same (${s9c2.join(', ')} px apart in 8 views)`, s9c2.every((n) => n === 0), s9c2);
       // d. no shimmer far off, and still while paused: 500 m up looking at the horizon, two frames 1/60 s apart (the sea's
       // clock and the ripples' drift both moving) differ little where the sea is far (the upper half of the sea: a pixel
       // there is metres across), and two frames while paused not at all
@@ -273,6 +337,30 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: no shimmer far off in Rough: two frames 1/60 s apart differ by ${s9d.mean}/255 on average over the far sea (${s9d.rows} rows), ${(s9d.big * 100).toFixed(3)}% of it over 24/255; paused, ${s9d.still} px change`,
         s9d.rows > 20 && s9d.mean < 2 && s9d.big < 0.01 && s9d.still === 0, s9d);
+      // d2. under rails time warp (500×) the drawn sea runs at the fastest physics warp's pace on real time (seaClock): two
+      // frames 1/60 s apart, the sim 8.3 s on, differ no more than two at 8× physics warp do (they jumped to a new pattern
+      // each frame), its clock steps 8/60 s, and the warp's end puts it back on the sea's clock
+      const s9d2 = await ev(async (SEA) => {
+        await window.__start('falcon', { ...SEA, air: { alt: 30, speed: 0 } }, [30, 0.3]);
+        Ship.setSea('rough');
+        const wi = Flight.warpIdx, t0 = Flight.time, I0 = Render3D.seaInfo().t, out = {};
+        Flight.paused = false;
+        for (const x of [8, 500]) {
+          Flight.warpIdx = WARPS.indexOf(x); Flight.time = t0;
+          const a = window.__buf(), ta = Render3D.seaInfo().t;
+          Flight.time += x / 60; const b2 = window.__buf().buf, tb = Render3D.seaInfo().t;
+          const { w, h } = a;
+          let n = 0, s = 0;
+          for (let sy = Math.floor(h * 0.6); sy < h; sy++) for (let q = 0; q < w; q++) { const i = ((h - 1 - sy) * w + q) * 4; if (a.buf[i + 2] < a.buf[i] + 20) continue; s += (Math.abs(a.buf[i] - b2[i]) + Math.abs(a.buf[i + 1] - b2[i + 1]) + Math.abs(a.buf[i + 2] - b2[i + 2])) / 3; n++; }
+          out[x] = { px: n, mean: +(s / Math.max(1, n)).toFixed(3), step: +(tb - ta).toFixed(4) };
+        }
+        Flight.warpIdx = wi; Flight.paused = true; window.__buf();
+        out.back = +(Render3D.seaInfo().t - Ship.seaT(Flight)).toFixed(4); out.was = +(I0 - Ship.seaT({ time: t0 })).toFixed(4);
+        Flight.time = t0; Ship.setSea('moderate');
+        return out;
+      }, SEA);
+      ok(`${T}: under rails warp (500×) the near sea glides: two frames differ by ${s9d2[500].mean}/255 on average, as at 8× physics warp (${s9d2[8].mean}), its drawn clock stepping ${s9d2[500].step} s a frame; the warp's end puts it back on the sea's clock`,
+        s9d2[500].px > 1000 && s9d2[500].step > 0 && s9d2[500].step < 0.2 && s9d2[500].mean <= 1.25 * s9d2[8].mean + 0.5 && Math.abs(s9d2.back) < 1e-6 && Math.abs(s9d2.was) < 1e-6, s9d2);
     }
     // ---- 8. the swell near a ship (the ships update, render3d updateSwell)
     // a. no ship, no swell: over the open sea a Falcon's frame has no grid on show and no hole in the ocean
@@ -393,11 +481,18 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
         for (let i = 0; i < 62 * 10; i++) { v.x += v.vx * dt; v.y += v.vy * dt; v.z += v.vz * dt; Flight.time += dt; Flight.updateCamera(); Render3D.renderFlight(Flight, dt, true); if ((i & 63) === 63) await new Promise((r) => setTimeout(r, 0)); }
         Render3D.skipDraw = false;
         const I = Render3D.swellInfo(), a = window.__buf().buf; Render3D.bench.wake = false; const c = window.__buf().buf; Render3D.bench.wake = true;
+        // (the camera pulled 4 km off, past WAKE.near: the wake no longer drawn but still recorded; and back: all there)
+        const sc = Flight.scale, cam = () => { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); return Render3D.swellInfo(); };
+        Flight.scale = (innerHeight / 2) / 4000 / Math.tan((25 * Math.PI) / 180); const far = cam();
+        Flight.scale = sc; const back = cam();
         v.vx = v.vy = v.vz = 0;
-        return { age: +I.wakeAge.toFixed(1), pts: I.wakePts, collar: I.collar, wverts: I.wverts, px: window.__diff(a, c).n, cap: SHIP.WAKE.pts };
+        return { age: +I.wakeAge.toFixed(1), pts: I.wakePts, collar: I.collar, wverts: I.wverts, px: window.__diff(a, c).n, cap: SHIP.WAKE.pts, a50: +I.wakeA50.toFixed(4), gap: +I.wakeGap.toFixed(2),
+          far: { drawn: far.wakePts, rec: far.wakeRec }, back: +back.wakeAge.toFixed(1) };
       });
-      ok(`${T}: the wake's foam lasts a minute: after 62 s at 12 m/s its oldest is ${s9f.age} s old on ${s9f.pts} points (at most ${s9f.cap}), a collar of ${s9f.collar} rings a side, ${s9f.px} px of foam`,
-        s9f.age >= 50 && s9f.age <= 61 && s9f.pts <= s9f.cap && s9f.pts >= 30 && s9f.collar >= 4 && s9f.px > 200, s9f);
+      ok(`${T}: the wake's foam lasts a minute: after 62 s at 12 m/s its oldest is ${s9f.age} s old on ${s9f.pts} points (at most ${s9f.cap}, ${s9f.gap} s apart at most), drawn at ${s9f.a50} opacity 50 s old, a collar of ${s9f.collar} rings a side, ${s9f.px} px of foam`,
+        s9f.age >= 50 && s9f.age <= 61 && s9f.pts <= s9f.cap && s9f.pts >= 30 && s9f.gap <= 2.6 && s9f.a50 >= 0.05 && s9f.collar >= 4 && s9f.px > 200, s9f);
+      ok(`${T}: the camera 4 km off, the wake isn't drawn but is kept (${s9f.far.rec} recorded, ${s9f.far.drawn} points drawn); back, its oldest foam is ${s9f.back} s old`,
+        s9f.far.rec === 1 && s9f.far.drawn === 0 && s9f.back >= s9f.age - 0.1, s9f);
     }
   }
   await ctx.close();
