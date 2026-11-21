@@ -197,16 +197,26 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
   t(`...the Pegazus, with no locker, patches with her bridge crew at half the rate (${o.osca && o.osca.toFixed(0)} s: 50 s and the walk)`, o.bridge && o.osca > 49 && o.osca < 65, o);
 }
 // 11. Fires: lit in a part (a burst inside her, a round into her engine), a fire spreads to what is within 6 m (2 % a
-// second), burns the crew within 3 m, and a magazine beside it for 5 s goes up; one under her flood water goes out
+// second), burns the crew within 3 m, and a magazine beside it for 5 s goes up; one under her flood water goes out. A
+// hull burns where it was lit: a fire at the far end of the Arley's stern, 15 m from her aft magazine, never sets it off;
+// her turbines, 2.6 m under the sea in a dry engine room, burn (only the water in their own compartment puts them out)
 {
   const o = R(`(() => { const v = ship('olivar'), F = fsim(v); noDC(v); tick(F, 1); const mag = v.parts.find((p) => p.type === 'magazine'), host = v.byId.get(mag.att);
-    let spread = 0; const near = [host]; host.fire = 1;
+    Ship.ignite(v, host, 1, null, F, { x: mag.x, y: mag.y, z: partZ(mag) }); // (lit beside her magazine)
+    let spread = 0; const near = [host];
     let up = null; tick(F, 30, (tt) => { if (up == null && mag.magUp) up = tt; spread = Math.max(spread, v.parts.filter((p) => p.fire > 0).length); });
     const w = ship('cyclon', { e: -3000, z: 600, yaw: Math.PI }), G2 = fsim(w), dz = w.parts.find((p) => p.type === 'dieselM'); noDC(w); tick(G2, 1); dz.fire = 1; const c = Ship.wetAt;
     const comp = w.sh.comps.find((q) => q.p.id === dz.att); comp.W = comp.V * 0.9; comp.p.water = comp.W; tick(G2, 2);
-    return { near: near.map((p) => p.type), up, spread, drown: dz.fire, wet: Ship.wetAt(w, dz) }; })()`);
-  t(`a fire in the Olivar's bow (her magazine in it) spreads (${o.spread} parts burning) and sets it off after 5 s (at ${o.up && o.up.toFixed(1)} s)`, o.up != null && o.up >= 4.7 && o.up < 12, o); // (five seconds of the fire's steps, FIRE.hz)
+    const a = ship('arley', { e: -3000, z: 1200, yaw: Math.PI }), G3 = fsim(a); noDC(a); tick(G3, 1); const st = a.parts.find((p) => p.type === 'hbSternX'), H = shullOf(st.def), aft = a.parts.filter((p) => p.type === 'magazine').map((m) => [m, Math.hypot(m.x - st.x, m.y - st.y)]).sort((x, y) => x[1] - y[1])[0][0];
+    const far = partPt(st, H.x0 + 2, 0); Ship.ignite(a, st, 1, null, G3, { x: far.x, y: far.y, z: partZ(st) }); const dFar = Math.hypot(far.x - aft.x, far.y - aft.y);
+    let magT = 0; tick(G3, 20, () => { magT = Math.max(magT, aft.magT || 0); });
+    const b = ship('arley', { e: -3000, z: -1200, yaw: Math.PI }), G4 = fsim(b); noDC(b); tick(G4, 1);
+    const tb = b.parts.filter((p) => p.type === 'turbine'); for (const q of tb) Ship.ignite(b, q, 1, null, G4); const tw = b.toWorld(tb[0].x, tb[0].y, partZ(tb[0])), under = -(Math.hypot(tw.x, tw.y, tw.z) - EARTH.radius); tick(G4, 20);
+    return { near: near.map((p) => p.type), up, spread, drown: dz.fire, wet: Ship.wetAt(w, dz), far: { d: dFar, magT, up: !!aft.magUp, fate: a.fate || '' }, turbines: { under, burning: tb.filter((q) => q.fire > 0).length, of: tb.length } }; })()`);
+  t(`a fire lit beside the Olivar's magazine (in her bow) spreads (${o.spread} parts burning) and sets it off after 5 s (at ${o.up && o.up.toFixed(1)} s)`, o.up != null && o.up >= 4.7 && o.up < 12, o); // (five seconds of the fire's steps, FIRE.hz)
   t('...a fire in an engine under her flood water goes out, and the engine is wet (it gives no power)', o.drown === 0 && o.wet, o);
+  t(`...a fire at the far end of the Arley's stern, ${o.far.d.toFixed(1)} m from her aft magazine, burns 20 s without setting it off (its clock ${o.far.magT.toFixed(2)} s)`, o.far.d > 12 && !o.far.up && o.far.magT === 0 && o.far.fate === '', o.far);
+  t(`...her ${o.turbines.of} turbines, ${o.turbines.under.toFixed(1)} m under the sea in her dry engine room, still burn 20 s on (${o.turbines.burning} burning; only flood water over them puts them out)`, o.turbines.under > 2 && o.turbines.burning === o.turbines.of, o.turbines);
 }
 
 // ================================================================ magazines and fate (§8.8-§8.9)
@@ -263,24 +273,37 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
   t(`...in ${(-o.deep.bed).toFixed(0)} m of water: gone at ${o.deep.at && o.deep.at.toFixed(0)} s, no wreck`, o.deep.dead && !o.deep.wreck, o.deep);
   t('a doomed ship never moors; the end screen waits for the player\'s ship to go down (2 s and 14 s after: waiting, 16 s: done; gone down: done)', !o.moored && o.wait.join() === 'false,false,true,true', o);
 }
-// 16. Our kill: a ship of theirs we doom gets the banner (SUNK), our toast, and the credit (doomBy)
+// 16. Our kill: a ship of theirs we doom gets the banner of her fate (CAPSIZED, OUT OF ACTION, SUNK), our toast, and the
+// credit (doomBy); one we put out of action shows SUNK when she goes down
 {
   const o = R(`(() => { const me = ship('cyclon', { e: -3000, z: 1200, yaw: Math.PI }), v = ship('cyclon'), F = fsim(me, [me, v]); v.lastHitBy = me; Death.fb.text = ''; F.toasts.length = 0;
-    Ship.doom(v, F, 'capsized'); return { by: v.doomBy === me, banner: Death.fb.text, toast: F.toasts.join('|'), again: Ship.doom(v, F, 'sunk'), fate: v.fate }; })()`);
-  t(`our kill: "${o.toast}", the ${o.banner} banner, the credit ours; doomed once (a second doom is nothing)`, o.by && o.banner === 'SUNK' && /capsized/.test(o.toast) && o.again === false && o.fate === 'capsized', o);
+    Ship.doom(v, F, 'capsized'); const r = { by: v.doomBy === me, banner: Death.fb.text, toast: F.toasts.join('|'), again: Ship.doom(v, F, 'sunk'), fate: v.fate };
+    const u = ship('cyclon', { e: -3000, z: -1200, yaw: Math.PI }), G2 = fsim(me, [me, u]); u.lastHitBy = me; Death.fb.text = ''; Ship.doom(u, G2, 'action'); r.action = Death.fb.text;
+    u.sh.hulls.forEach((p) => Ship.addHoles(u, [[p, p.x, p.y - 1, partZ(p), 4]], G2.time)); Death.fb.text = ''; let down = null;
+    tick(G2, 90, (tt) => { if (down == null && u.sunk != null) down = { t: tt, banner: Death.fb.text }; });
+    r.down = down; return r; })()`);
+  t(`our kill: "${o.toast}", the ${o.banner} banner, the credit ours; doomed once (a second doom is nothing)`, o.by && o.banner === 'CAPSIZED' && /capsized/.test(o.toast) && o.again === false && o.fate === 'capsized', o);
+  t(`...one we put out of action: ${o.action}, and ${o.down && o.down.banner} as she goes down (${o.down && o.down.t.toFixed(0)} s on)`, o.action === 'OUT OF ACTION' && o.down && o.down.banner === 'SUNK', o);
 }
 
 // ================================================================ ground vehicles in deep water (§8.9)
 // 17. A TK-34 knocked out where it stands on the sea (to old physics the sea is a floor) goes under in SEA.swamp s and is
-// gone (its wreck never stands on the water); one knocked out on land, and one in shallow water, stay wrecks as ever
+// gone (its wreck never stands on the water), and a detonation's thrown turret with it; one knocked out on land, and one
+// in a ford shallower than it stood (2.25 m on the headland's slipway, the tank 2.9 m tall), stay wrecks as ever, its
+// ammunition gone up or not (the hull left after its turret was thrown is 1.95 m: the water is measured against the tank)
 {
-  const o = R(`(() => { const run = (e, z) => { const rows = templateRows(TEMPLATES.tk34).map((r) => ({ ...r })), ps = partsFromDesign(rows), adj = buildAdjacency(ps);
+  const o = R(`(() => { const run = (e, z, det) => { const rows = templateRows(TEMPLATES.tk34).map((r) => ({ ...r })), ps = partsFromDesign(rows), adj = buildAdjacency(ps);
       const v = new Vessel(ps, adj, EARTH); v.kind = 'tank'; v.name = 'TK-34'; v.stages = []; v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, 0);
-      const F = fsim(v); for (let i = 0; i < 120; i++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; } Armour.knockOut(v, F, 'crew');
-      for (let k = 0; k < 120; k++) { for (let i = 0; i < 8; i++) { if (!v.dead && !v.wreck) v.physicsStep(1 / 120, F); F.time += 1 / 120; } Death.tick(F, 8 / 120, k); }
-      return { dead: !!v.dead, wreck: !!v.wreck, sea: !!v.sea, splashed: !!v.splashed }; };
-    return { deep: run(-3000, 0), land: run(EARTH.sites.pad.east, 0) }; })()`);
+      const F = fsim(v); for (let i = 0; i < 240; i++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; }
+      const L = Terrain.locate(EARTH, v.x, v.y, v.z, {}), depth = Terrain.surfaceAt(EARTH, L.a, L.z) - Terrain.heightAt(EARTH, L.a, L.z), H = v.bounds.maxY - v.bounds.minY;
+      if (det) Armour.knockOut(v, F, 'ammo', { st: Armour.crewOf(v).stores.find((s) => s.rounds > 0), rounds: 40 }); else Armour.knockOut(v, F, 'crew');
+      for (let k = 0; k < 120; k++) { for (let i = 0; i < 8; i++) { for (const q of F.vessels) if (!q.dead && !q.wreck) q.physicsStep(1 / 120, F); F.time += 1 / 120; } Death.tick(F, 8 / 120, k); }
+      const tur = (v.bits || []).find((q) => q.tossed);
+      return { depth: +Math.max(0, depth).toFixed(2), H: +H.toFixed(2), dead: !!v.dead, wreck: !!v.wreck, sea: !!v.sea, splashed: !!v.splashed, turret: tur ? { dead: !!tur.dead, wreck: !!tur.wreck } : null }; };
+    return { deep: run(-3000, 0), land: run(EARTH.sites.pad.east, 0), ford: run(3240, 0), fordDet: run(3240, 0, true), deepDet: run(-3000, 0, true) }; })()`);
   t('a TK-34 knocked out standing on deep water goes under (gone, its plunge drawn); one knocked out on land is a wreck as ever', o.deep.dead && o.deep.sea && !o.land.dead && o.land.wreck, o);
+  t(`...in a ${o.ford.depth} m ford (the tank ${o.ford.H} m tall): a wreck as ever, knocked out or its ammunition gone up (its turret thrown, a wreck beside it)`, o.ford.depth > 1.95 && o.ford.depth < o.ford.H && o.ford.wreck && !o.ford.dead && o.fordDet.wreck && !o.fordDet.dead && o.fordDet.turret && !o.fordDet.turret.dead, { ford: o.ford, fordDet: o.fordDet });
+  t('...its ammunition gone up on deep water: the hull goes under and takes its thrown turret with it', o.deepDet.dead && o.deepDet.sea && o.deepDet.turret && o.deepDet.turret.dead, o.deepDet);
 }
 
 // ================================================================ saves (§10.5)
@@ -299,12 +322,19 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     const junk = { holes: jmm.holes.length, fix: Math.max(...jmm.holes.map((h) => h.fix)), water: jmm.water, rud: jr.parts.find((p) => p.type === 'rudderM').rud, fate: jr.fate, tel: jr.sh.tel, pri: jr.sh.dcPri, ciws: jr.sh.ciwsOn };
     const tk = new Vessel(partsFromDesign(templateRows(TEMPLATES.tk34)), buildAdjacency(partsFromDesign(templateRows(TEMPLATES.tk34))), EARTH); tk.kind = 'tank'; tk.rebuildGroups(); tk.parts.find((p) => p.def.engine).fire = 9;
     const ts = JSON.stringify(tk.serialize()), tr = Vessel.restore(JSON.parse(ts));
-    return { back, junk, old: /"holes"|"water"|"rud"|"fire"|"fate"|"hydroFrom"|"sh":/.test(ts), oldFire: tr.parts.some((p) => p.fire != null) }; })()`);
+    const tj = JSON.parse(ts); tj.hydroFrom = true; tj.fate = 'action'; const th = Vessel.restore(tj);
+    const sk = new Vessel(partsFromDesign(templateRows(TEMPLATES.skylark)), buildAdjacency(partsFromDesign(templateRows(TEMPLATES.skylark))), EARTH); sk.kind = 'plane'; sk.rebuildGroups();
+    const sj = JSON.parse(JSON.stringify(sk.serialize())); sj.hydroFrom = true; const sh = Vessel.restore(sj);
+    const pc = JSON.parse(JSON.stringify(v.serialize())); pc.parts = pc.parts.filter((q) => !PARTS[q.type].shull && !PARTS[q.type].hull); pc.hydroFrom = true; const piece = Vessel.restore(pc);
+    const hostile = { tank: { hydro: !!th.hydro, sh: !!th.sh, fate: th.fate || null, ko: th.ko || null }, plane: { hydro: !!sh.hydro, sh: !!sh.sh }, piece: { hydro: !!piece.hydro, from: !!piece.hydroFrom } };
+    return { back, junk, hostile, old: /"holes"|"water"|"rud"|"fire"|"fate"|"hydroFrom"|"sh":/.test(ts), oldFire: tr.parts.some((p) => p.fire != null) }; })()`);
   t(`a saved ship comes back with her holes (${o.back.holes.map((h) => h.join('@')).join(', ')}), ${o.back.W} m³ aboard, her diesel burning, rudder 14°, telegraph Full, damage control on fires, doomed 'sunk'`,
     o.back.holes.length === 2 && o.back.holes[0][1] === 0.5 && o.back.W === 12 && o.back.fire === 1 && o.back.rud === 14 && o.back.tel === 3 && o.back.pri === 'fire' && o.back.fate === 'sunk' && o.back.holesComp === 2, o.back);
   t(`...junk cleaned: ${o.junk.holes} holes kept (of 33: none not finite, outside the part or past 20 m²; at most 16), patches within 1, no water below 0 (none aboard), the rudder within 60°, no false fate, the telegraph and priority kept in range`,
     o.junk.holes === 16 && o.junk.fix === 1 && o.junk.water === 0 && o.junk.rud === 60 && o.junk.fate === undefined && o.junk.tel === 4 && o.junk.pri === 'auto' && o.junk.ciws === true, o.junk);
   t('an old craft\'s save (a TK-34 with its engine on fire) carries none of it, and its fire isn\'t restored, as before', !o.old && !o.oldFire, o);
+  t('...a hand-edited save of an old craft with hydroFrom (a TK-34 with a ship\'s fate too, a Skylark) restores as that craft: no ship rules, no fate; a ship\'s own piece keeps it',
+    !o.hostile.tank.hydro && !o.hostile.tank.sh && !o.hostile.tank.fate && !o.hostile.tank.ko && !o.hostile.plane.hydro && !o.hostile.plane.sh && o.hostile.piece.hydro && o.hostile.piece.from, o.hostile);
 }
 
 // ================================================================ today's weapons against ships (§8.12)
@@ -331,7 +361,7 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
   var trial = (key, fire, max, every) => { Combat.S.shots.length = 0; const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
     for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
   const rows = [
-    ['12.7 mm MG (rounds)', 'cyclon', "Combat.S.shots.push(shell('ball13', aimAt(v, target(v, 'any'), 150, 1)))", 1500, 0.1, [200, 600]],
+    ['12.7 mm MG (rounds)', 'cyclon', "Combat.S.shots.push(shell('ball13', aimAt(v, target(v, 'any'), 150, 1)))", 3000, 0.1, [200, 600]],
     ['30 mm cannon', 'cyclon', "Combat.S.shots.push(shell(rnd() < 0.5 ? 'apds30' : 'hei30', aimAt(v, target(v, 'any'), 150, 1)))", 600, 0.15, [40, 120]],
     ['120 mm APFSDS', 'cyclon', "Combat.S.shots.push(shell('apfsds120', aimAt(v, target(v, 'hull'), 150, 1)))", 300, 0.5, [20, 60]],
     ['120 mm HE', 'cyclon', "Combat.S.shots.push(shell('he120', aimAt(v, target(v, 'any'), 150, 1)))", 120, 2, [4, 10]],
@@ -353,13 +383,140 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
   R(`Ship.setSea('calm');`);
 }
 
-// ================================================================ cost (§15)
-// 20. Flooding, fires, damage control and fate: at most 0.02 ms a ship a call (the Olivar flooding through three holes,
-// a fire aboard; asserted at three times it, other suites sharing the machine)
+// ================================================================ the review's cases (WP8 round 1)
+// 21. A blast meets the plate it faces (armour.js thinnest/hostDist for a hull: Ship.hullPlate, hullDist): a 500 lb burst
+// 0.3 m over the Olivar's midsection deck (10 mm) and a torpedo's burst 2 m under her keel (12 mm) do the same to her and
+// what is inside whether her belt is dialled to 12 mm or 150; a burst against her side within the belt's band is kept
+// from what is inside by a 150 mm belt
 {
-  const o = R(`(() => { const v = ship('olivar'), F = fsim(v); tick(F, 2); const ps = v.parts.filter((p) => p.def.shull); holeIn(v, ps[0], 0, 1, 1, F); holeIn(v, ps[1], -4, 1, 1, F); holeIn(v, ps[3], 0, 1, 1, F);
-    v.parts.find((p) => p.type === 'turbine').fire = 1; tick(F, 20); const n = 400, t0 = performance.now(); let k = 0;
-    const T0 = Date.now(); for (let i = 0; i < n; i++) { Ship.floodStep(v, 0.1, F); Ship.fireStep(v, 0.25, F); Ship.dcStep(v, 0.25, F); Ship.fateStep(v, 0.25, F); } return { ms: (Date.now() - T0) / n / 4 }; })()`);
-  t(`flooding, fires, damage control and fate: ${(o.ms * 1000).toFixed(1)} µs a call for the Olivar flooding and burning (20 µs; asserted under 40, other suites sharing the machine)`, o.ms < 0.04, o);
+  const o = R(`(() => { const run = (mm, where) => { const v = ship('olivar', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 1); const mids = v.parts.filter((p) => p.type === 'hbMidX'); for (const m of mids) m.mm = mm;
+      const mid = mids[0], sec = shullSec(mid.def.shull.st, 0), hp = () => new Map(v.parts.map((p) => [p, p.hp ?? Combat.maxHp(p.def)]));
+      const P = where === 'deck' ? v.toWorld(mid.x + 3, mid.y + sec[0] + 0.3, partZ(mid) + 1) : where === 'keel' ? v.toWorld(mid.x + 4, mid.y + sec[1] - 2, partZ(mid)) : v.toWorld(mid.x + 3, mid.y + 0.5, partZ(mid) + sec[3] + 0.3);
+      const h0 = hp(); if (where === 'keel') Combat._t.explode(EARTH, P, 12, 4000, null, F, true, undefined, undefined, undefined, { under: true }); else Combat._t.explode(EARTH, P, where === 'deck' ? 30 : 8, where === 'deck' ? 1200 : 600, null, F, true, where === 'side' ? 60 : undefined);
+      const h1 = hp(); let hull = 0, inner = 0; for (const [p, a] of h0) { const b = h1.has(p) ? h1.get(p) : 0, d = a - b; if (!(d > 0)) continue; if (p === mid) hull += d; else if (p.att === mid.id && p.def.inner) inner += d; }
+      return { hull: Math.round(hull), inner: Math.round(inner), plate: Ship.hullPlate(v, mid, P) }; };
+    return { deck: [run(12, 'deck'), run(150, 'deck')], keel: [run(12, 'keel'), run(150, 'keel')], side: [run(12, 'side'), run(150, 'side')] }; })()`);
+  t(`a bomb on her deck (plate ${o.deck[0].plate} mm) and a torpedo under her keel (${o.keel[0].plate} mm): the same whatever her belt (inside her ${o.deck[0].inner} and ${o.deck[1].inner} hp; ${o.keel[0].inner} and ${o.keel[1].inner} hp)`,
+    o.deck[0].plate === 10 && o.deck[1].plate === 10 && o.keel[0].plate === 12 && o.keel[1].plate === 12 && o.deck[0].inner > 0 && o.deck[0].inner === o.deck[1].inner && o.deck[0].hull === o.deck[1].hull && o.keel[0].inner > 0 && o.keel[0].inner === o.keel[1].inner, o);
+  t(`...a burst against her side in the belt's band: the plate ${o.side[0].plate} mm or ${o.side[1].plate} (dialled); what is inside takes ${o.side[0].inner} hp behind 12 mm, ${o.side[1].inner} behind 150`, o.side[0].plate === 12 && o.side[1].plate === 150 && o.side[1].inner < o.side[0].inner, o.side);
+}
+// 22. A gun's ready rounds going up on its mount (the Cyclon's deck turret, 3.5 m over the sea: armour.js cookOff's
+// built-in store, Ship.rack) wreck the mount and hole the deck under it, never her bottom: she stays afloat and fighting;
+// a magazine's holes are where its blast meets each compartment (the Arley's aft magazine: her plating nearest it)
+{
+  const o = R(`(() => { Armour.seed(1); const v = ship('cyclon', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 2); const tur = v.parts.find((p) => p.type === 'turretSmall');
+    Armour.modDamage(v, tur, 1, 1e5, F, null); const holes = v.sh.hulls.flatMap((p) => (p.holes || []).map((h) => { const q = v.toWorld(h.x, h.y, h.z); return { a: h.a, alt: Math.hypot(q.x, q.y, q.z) - EARTH.radius }; }));
+    tick(F, 60); const r = { holes, turret: tur.hp, fate: v.fate || '', W: +water(v).toFixed(1), magUp: !!tur.magUp };
+    const a = ship('arley', { e: -6000, z: 3600, yaw: Math.PI }), G2 = fsim(a); G2.active = null; tick(G2, 1); const mag = a.parts.filter((p) => p.type === 'magazine').find((p) => a.byId.get(p.att).type === 'hbMidX'), c = { x: mag.x, y: mag.y, z: partZ(mag) };
+    Ship.magazine(a, G2, mag, 40); r.mag = a.sh.hulls.flatMap((p) => (p.holes || []).map((h) => +Math.hypot(h.x - c.x, h.y - c.y, h.z - c.z).toFixed(2)));
+    r.plate = a.sh.comps.filter((k) => k.holes.length).map((k) => { const H = k.p, o = { x: 0, y: 0, z: 0 }, h = k.holes[0], q = (function () { const T = shullTris(H.def); return T; })(); return Ship.hullDist(a, H, a.toWorld(h.x, h.y, h.z)); });
+    return r; })()`);
+  t(`the Cyclon's deck gun's ready rounds go up: the mount wrecked (${Math.round(o.turret)} hp), ${o.holes.length} holes all above the sea (${o.holes.map((h) => h.a.toFixed(2) + ' m² at +' + h.alt.toFixed(1) + ' m').join(', ')}), no magazine's; 60 s on she floats, not doomed (${o.W} m³ aboard)`,
+    o.holes.length >= 1 && o.holes.every((h) => h.alt > 1) && !o.magUp && o.fate === '' && o.W < 1 && o.turret < 600, o);
+  t(`...a magazine's holes are on her plating where its blast meets each compartment (${o.mag.length}: ${o.mag.join(', ')} m from it, each on the plate)`, o.mag.length >= 1 && o.plate.every((d) => d < 0.05), o);
+}
+// 23. Pumps need an engine that runs: the Olivar's engine room flooded over her turbines (wet, no shaft power) pumps
+// nothing out
+{
+  const o = R(`(() => { const v = ship('olivar', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; noDC(v); tick(F, 2); const tb = v.parts.find((p) => p.type === 'turbine'), c = v.sh.comps.find((k) => k.holes !== undefined && (k.p.id === tb.att));
+    c.W = c.V * 0.8; c.p.water = c.W; tick(F, 1); const w0 = water(v), wet = v.parts.filter((p) => p.type === 'turbine').map((p) => Ship.wetAt(v, p)); tick(F, 30); return { wet, removed: +(w0 - water(v)).toFixed(2) }; })()`);
+  t(`her engine room flooded over both turbines (wet: ${o.wet.join(', ')}): her pumps stop (${o.removed} m³ out in 30 s)`, o.wet.every(Boolean) && o.removed < 0.5, o);
+}
+// 24. The sea alone never sinks her: an undamaged Zodiak at Flank into a Rough sea slams (her hull hurt, small cracks)
+// but is never holed through, and stopped she floats on
+{
+  const o = R(`(() => { Ship.setSea('rough'); const v = ship('zodiak', { e: -6000, z: 3000, yaw: 0 }), F = fsim(v); v.sh.tel = 4; v.sas = 'hold'; const H = v.sh.hulls[0]; let broken = false;
+    tick(F, 60, () => { if (H.broken) broken = true; }); const hp = H.hp, holes = (H.holes || []).map((h) => +h.a.toFixed(3)); v.sh.tel = 0; tick(F, 40, () => { if (H.broken) broken = true; }); Ship.setSea('calm');
+    return { broken, hp, max: H.def.hp, holes, fate: v.fate || '', W: +water(v).toFixed(2), end: v.dead ? 'gone' : v.sunk != null ? 'sunk' : 'afloat' }; })()`);
+  t(`an undamaged Zodiak at Flank in a Rough sea: her slams hurt her hull (${o.hp} of ${o.max} hp, ${o.holes.length} cracks ${o.holes.join(', ')} m²) but never hole it through; stopped, she floats (${o.W} m³ aboard)`,
+    !o.broken && o.hp >= 0.3 * o.max && o.holes.every((a) => a <= 0.01) && o.fate === '' && o.end === 'afloat', o);
+}
+// 25. Every piece of a broken ship goes: the Arley's aft magazine breaks her, and her turbines (pieces with no hull, with
+// nothing to stand on) are gone as they reach the sea bed, never falling on through it; the Vizby's superstructure, blown
+// off her, comes to rest on the bed and is a wreck there (the wreck list takes it away after five minutes)
+{
+  const o = R(`(() => { const run = (key, i) => { const v = ship(key, { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 1); const mag = v.parts.filter((p) => p.def.module === 'ammo')[i]; Combat.damage(v, mag, 1e6, 'shot', F, null);
+      const deb = F.vessels.filter((q) => q !== v && !(q.sh && q.sh.hulls.length)), L = Terrain.locate(EARTH, v.x, v.y, v.z), bed = -Terrain.heightAt(EARTH, L.a, L.z); let low = 0;
+      tick(F, 120, () => { for (const q of deb) if (!q.dead) low = Math.min(low, Math.hypot(q.x, q.y, q.z) - EARTH.radius); });
+      return { n: deb.length, parts: deb.map((q) => q.parts.map((p) => p.type).join('+') + ':' + (q.dead ? 'gone' : q.wreck ? 'wreck' : 'adrift')), left: deb.filter((q) => !q.dead && !q.wreck).length, low: +low.toFixed(1), bed: +bed.toFixed(0) }; };
+    return { arley: run('arley', 1), vizby: run('vizby', 0) }; })()`);
+  t(`pieces with no hull: the Arley's (${o.arley.parts.join(', ')}) and the Vizby's (${o.vizby.parts.join(', ')}) each gone or a wreck on the bed within 120 s, none below ${Math.min(o.arley.low, o.vizby.low)} m (the bed ${o.arley.bed} m down)`,
+    o.arley.n >= 1 && o.vizby.n >= 1 && o.arley.left === 0 && o.vizby.left === 0 && o.arley.low > -o.arley.bed - 6 && o.vizby.low > -o.vizby.bed - 6, o);
+}
+// 26. An amphibious tank (a BMK-2 with a boat hull) knocked out ashore is a tank knocked out: "Knocked out!", a wreck, no
+// ship's fate or SUNK banner; afloat it is a ship out of action
+{
+  const o = R(`(() => { PARTS.tstAmph = PARTS.tstAmph || { gv: true, ship: true, place: 'keel', cat: 'shHull', name: 'Test amphibious hull', w: 6.4, h: 1.8, depth: 2.4, mass: 1, shape: 'shull', hull: true, hp: 2000, breakSpeed: 6, tier: 1, cost: 1,
+      shull: { cls: 'one', wl: 0, st: [[-3.2, .9, -.7, 1.2, 1.2, 6], [-2.6, .9, -.9, 1.2, 1.2, 6], [2.6, .9, -.9, 1.2, 1.2, 6], [3.2, .9, -.3, 1.2, 1.1, 4]], ends: { aft: 'closed', fore: 'closed' }, k: 0.3, cw: 2.5 }, type: 'tstAmph', maxTemp: 2000 };
+    const rows = templateRows(TEMPLATES.bmk2).map((r) => ({ ...r })).concat([{ type: 'tstAmph', x: 0, y: 1.35, rot: 0, att: 0 }]), parts = partsFromDesign(rows), adjAll = buildAdjacency(parts), ctrl = findControlPart(parts), keep = componentOf(ctrl.id, adjAll);
+    const ps = parts.filter((p) => keep.has(p.id)), adj = new Map(); for (const p of ps) adj.set(p.id, new Set([...adjAll.get(p.id)].filter((id) => keep.has(id))));
+    const v = new Vessel(ps, adj, EARTH); v.kind = 'tank'; v.name = 'BMK-2'; v.stages = computeStages(ps, adj, ctrl.id); v.rebuildGroups(); v.placeOnSurface(EARTH, siteAngle(EARTH, EARTH.sites.pad.east + 200), VEHICLE_KINDS.tank.launchRot, 0, 0);
+    const me = ship('cyclon', { e: -3000, z: 1200, yaw: Math.PI }), F = fsim(v, [v]); F.toasts.length = 0; tick(F, 2); v.lastHitBy = me; Death.fb.text = ''; Armour.fb.ko = null;
+    Armour.knockOut(v, F, 'crew'); for (let k = 0; k < 120; k++) { tick(F, 1 / 15); Death.tick(F, 1 / 15, k); }
+    return { hydro: !!v.hydro, afloat: !!v.afloat, fate: v.fate || '', wreck: !!v.wreck, sunk: v.sunk != null, toasts: F.toasts.slice(0, 3), banner: Death.fb.text }; })()`);
+  t(`a hydro BMK-2 knocked out ashore: "${o.toasts.join('|')}", a tank's wreck, no ship's fate (${o.fate || 'none'}) and no SUNK`, o.hydro && !o.afloat && o.fate === '' && o.wreck && !o.sunk && o.toasts[0] === 'Knocked out!' && o.banner !== 'SUNK', o);
+}
+// 27. No rails warp while she floods, burns or her crew fight the damage (the rails never step them): the Olivar with a
+// hole under her waterline is refused ('damage'); a sound ship at Stop is moored for it as ever
+{
+  const o = R(`(() => { const v = ship('olivar', { e: -6000, z: 3000, yaw: Math.PI }), F0 = fsim(v); noDC(v); tick(F0, 3); const Fl = Object.assign(Object.create(Flight), { active: v, vessels: [v], time: F0.time, mp: null, toast() {} });
+    const clean = Fl.canRails(); Ship.unmoor(v); holeIn(v, v.sh.hulls[1], -4, 1, 1, F0); tick(F0, 2); const holed = Fl.canRails(); return { clean, holed, busy: Ship.busy(v) }; })()`);
+  t(`rails warp: a sound ship at Stop ${o.clean === true ? 'moored for it' : o.clean}; one flooding through a hole refused ('${o.holed}')`, o.clean === true && o.holed === 'damage' && o.busy, o);
+}
+// 28. Two bulkheads at one station make one cut (no compartment with no room in it): water leaking across a holed-through
+// part (its bulkheads open) is kept, every m³ of it (the Olivar's forward midsection, pumps and damage control off)
+{
+  const o = R(`(() => { const run = (twin) => { const T = JSON.parse(JSON.stringify(TEMPLATES.olivar)); T.parts.push(['bulkhead', -4, -4.412, 0, { att: 1, z: 3 }]); if (twin) T.parts.push(['bulkhead', -4, -4.412, 0, { att: 1, z: -3 }]);
+      TEMPLATES.olivarTwin = T; const v = ship('olivarTwin', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; noDC(v); for (const p of v.parts) if (p.def.engine) p.broken = true; tick(F, 2);
+      const mid = v.sh.hulls[1], cs = v.sh.comps.filter((c) => c.p === mid); cs[0].W = 1500; mid.water = 1500; mid.broken = true; const w0 = water(v);
+      tick(F, 120); delete TEMPLATES.olivarTwin; return { lens: cs.map((c) => +(c.hi - c.lo).toFixed(2)), V0: cs.some((c) => !(c.V > 0.01)), W0: +w0.toFixed(0), W: +water(v).toFixed(0) }; };
+    return { one: run(false), twin: run(true) }; })()`);
+  t(`two bulkheads side by side at one station: one cut (${o.twin.lens.join(', ')} m stretches, none empty), and the water leaking across a holed-through part kept (${o.twin.W} of ${o.twin.W0} m³; ${o.one.W} with one bulkhead)`,
+    !o.twin.V0 && o.twin.lens.join() === o.one.lens.join() && o.twin.W0 === 1500 && Math.abs(o.twin.W - o.twin.W0) < 15 && Math.abs(o.one.W - o.one.W0) < 15, o);
+}
+// 29. A tank's dart into a warship's bridge runs on through its rooms (a ship part's whole depth, not 4.5 m): aimed at
+// the Arley's bridge from abeam through her helmsman's seat, 9 m in from the far side, it reaches him
+{
+  R(`var me = me || { parts: [], x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, name: 'Shooter', kind: 'tank', body: EARTH };`);
+  const o = R(`(() => { Combat.S.shots.length = 0; const v = ship('arley', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 1); const b = v.parts.find((p) => p.type === 'bridgeL'), d = b.def, dep = partDepth(b);
+    const crew = Armour.crewOf(v).crew.filter((e) => e.host === b), e = crew.find((q) => q.role === 'driver' || (d.mods[q.i] && d.mods[q.i].role === 'driver')) || crew[0], M = d.mods[e.i];
+    const X = { x: b.x + M.at[0] * d.w, y: b.y + M.at[1] * d.h, z: partZ(b) - Math.sign(M.at[2] || -1) * dep / 2 }, T = v.toWorld(X.x, X.y, X.z), u = qrot(v.q, 0, 0, 1), s = Math.sign(M.at[2] || -1) * -1, from = { x: T.x + u.x * s * 150, y: T.y + u.y * s * 150, z: T.z + u.z * s * 150 }, dir = { x: -u.x * s, y: -u.y * s, z: -u.z * s };
+    const SH = SHELLS.apfsds120, hp0 = b.mods ? b.mods[e.i] : M.hp; Combat.S.shots.push({ k: 'shell', sh: 'apfsds120', b: EARTH, x: from.x, y: from.y, z: from.z, vx: dir.x * SH.v0, vy: dir.y * SH.v0, vz: dir.z * SH.v0, t: 0, life: 6, owner: me, net: 0, cal: SH.cal });
+    tick(F, 0.5); const into = dep / 2 + Math.abs(M.at[2] * dep); return { depth: dep, into: +into.toFixed(1), hp0, hp1: b.mods ? b.mods[e.i] : null, alive: Armour.crewOf(v).crew.find((q) => q.host === b && q.i === e.i).alive }; })()`);
+  t(`a dart through the Arley's bridge (${o.depth} m deep) reaches her helmsman ${o.into} m in (${o.hp0} → ${o.hp1} hp${o.alive ? '' : ': killed'})`, o.into > 4.5 && o.hp1 != null && o.hp1 < o.hp0, o);
+}
+// 30. Nothing between a boat's crew and a blast beside them (an open station: a ship part with no armour): an air
+// rocket bursting 0.5 m from the middle of the Zodiak's console kills both of her crew (out of action); 4 m off, it
+// hurts them
+{
+  const o = R(`(() => { const run = (off) => { const v = ship('zodiak', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 1); const c = v.parts.find((p) => p.type === 'consoleS'), side = qrot(v.q, 0, 0, 1), P0 = v.toWorld(c.x, c.y, partZ(c)), P = { x: P0.x + side.x * off, y: P0.y + side.y * off, z: P0.z + side.z * off };
+      Combat._t.explode(EARTH, P, 9, 110, null, F, true); tick(F, 0.5); const cr = Armour.crewOf(v).crew.filter((e) => e.host === c); return { alive: cr.filter((e) => e.alive).length, hp: cr.map((e) => Math.round(c.mods ? c.mods[e.i] : 100)), fate: v.fate || '' }; };
+    return { near: run(0.5), far: run(4) }; })()`);
+  t(`an air rocket 0.5 m off the Zodiak's open console: ${2 - o.near.alive} of her 2 crew killed (${o.near.fate}); 4 m off they are hurt (${o.far.hp.join(', ')} hp of 100)`, o.near.alive === 0 && o.near.fate === 'action' && o.far.alive === 2 && o.far.hp.every((h) => h < 100), o);
+}
+
+// ================================================================ cost (§15)
+// 20. Flooding, fires, damage control and fate: at most 0.02 ms a ship a call (desktop), each on its own: floodStep with
+// holes in four compartments of the Olivar (16 holes, water flowing in, her physics stepped between calls), fireStep with
+// three fires burning (kept lit), dcStep with her parties at work, fateStep; the median call reported and
+// asserted under twice the budget (other suites share the machine; node's vm makes Math and globals slower than a page)
+{
+  ctx.__hr = () => Number(process.hrtime.bigint()) / 1000;
+  const o = R(`(() => { const med = (a) => { const s = a.slice(100).sort((x, y) => x - y); return s[s.length >> 1]; };
+    const v = ship('olivar', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 2); const hs = v.sh.hulls;
+    for (const p of hs) { const H = shullOf(p.def); for (let i = 0; i < 4; i++) holeIn(v, p, H.x0 + (H.x1 - H.x0) * (i + 0.5) / 4, 1.5, i === 0 ? 0.3 : 0.01, F); } tick(F, 5);
+    const W0 = v.sh.comps.map((c) => c.W), wet = v.sh.comps.filter((c) => c.W > 0.01).length, Tf = [], Tx = [], Td = [], Tt = [], add = FX.add; FX.add = () => {};
+    const fires = v.parts.filter((p) => p.type === 'turbine' || p.type === 'dcLocker').slice(0, 3), relight = () => { for (const p of fires) { p.fire = 1; p.hp = Combat.maxHp(p.def); } }, sp = SHIP.FIRE.spread; SHIP.FIRE.spread = 0; // (these three, kept burning)
+    for (let i = 0; i < 1100; i++) {
+      for (let k = 0; k < 3; k++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; }
+      let t = __hr(); Ship.floodStep(v, 0.1, F); Tf.push(__hr() - t);
+      relight(); t = __hr(); Ship.fireStep(v, 0.25, F); Tx.push(__hr() - t);
+      t = __hr(); Ship.dcStep(v, 0.25, F); Td.push(__hr() - t);
+      t = __hr(); Ship.fateStep(v, 0.25, F); Tt.push(__hr() - t);
+      if (i % 10 === 9) v.sh.comps.forEach((c, j) => { c.W = W0[j]; });
+    }
+    FX.add = add; SHIP.FIRE.spread = sp; return { holes: hs.reduce((s, p) => s + p.holes.length, 0), wet, burning: v.parts.filter((p) => p.fire > 0).length, flood: med(Tf), fire: med(Tx), dc: med(Td), fate: med(Tt) }; })()`);
+  t(`floodStep alone: ${o.flood.toFixed(1)} µs a call (median) for the Olivar flooding through ${o.holes} holes in ${o.wet} compartments (20 µs; asserted under 40)`, o.holes >= 16 && o.wet >= 4 && o.flood < 40, o);
+  t(`...fireStep ${o.fire.toFixed(1)} µs with ${o.burning} fires burning, dcStep ${o.dc.toFixed(1)}, fateStep ${o.fate.toFixed(1)} (each 20 µs; asserted under 40)`, o.burning >= 3 && o.fire < 40 && o.dc < 40 && o.fate < 40, o);
 }
 t.done();
