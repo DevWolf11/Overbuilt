@@ -340,8 +340,9 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
 
 // ================================================================ today's weapons against ships (§8.12)
 // 19. Hits to put her out of action or sink her (a Moderate sea; seeded shots at random points of her side from 150 m,
-// her own damage control at work): every weapon gets there (no immune pair: §20); each row's band from §8.12 checked,
-// the measured number reported when it falls outside (WP14's matrix balances them across every kind)
+// her own damage control at work): every weapon gets the Cyclon and the Zodiak there (no immune pair: §20); each row's
+// band from §8.12 checked for all four (the Vizby and the Arley too: "N+" met by holding out N, "almost harmless" by
+// never being lost), the measured number reported when it falls outside (WP14's matrix balances them across every kind)
 {
   R(`Ship.setSea('moderate'); var me = { parts: [], x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, name: 'Shooter', kind: 'tank', body: EARTH };
   var rng = 12345; var rnd = () => { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; return (rng >>> 0) / 4294967296; };
@@ -359,6 +360,8 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     if (q) Armour.legacyHit(s, v, q.p, { x: A.from.x + (e.x - A.from.x) * q.t, y: A.from.y + (e.y - A.from.y) * q.t, z: A.from.z + (e.z - A.from.z) * q.t }, F); };
   var ram = (v, F) => { const o = ship('cyclon', { e: -3000, z: 400, yaw: Math.PI / 2 }), to = { x: v.x - o.x, y: v.y - o.y, z: v.z - o.z }, d = Math.hypot(to.x, to.y, to.z); F.vessels.push(o);
     o.x = v.x - to.x / d * 22; o.y = v.y - to.y / d * 22; o.z = v.z - to.z / d * 22; o.vx = to.x / d * 7.7; o.vy = to.y / d * 7.7; o.vz = to.z / d * 7.7; o.sh.tel = 4; tick(F, 6); F.vessels = F.vessels.filter((q) => q !== o); };
+  var bridgeT = (v) => { const b = v.parts.find((p) => p.def.control && p.def.mods), d = partDims(b); return { x: b.x + (rnd() - 0.5) * d.w * 0.8, y: b.y + (rnd() - 0.5) * d.h * 0.8, z: partZ(b) }; };
+  var nearOff = (v) => Math.max(...v.sh.hulls.map((p) => shullSec(p.def.shull.st, 0)[3])) + 5;
   var trial = (key, fire, max, every) => { Combat.S.shots.length = 0; const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
     for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
   const rows = [
@@ -375,12 +378,35 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     ['30 mm cannon', 'zodiak', "Combat.S.shots.push(shell(rnd() < 0.5 ? 'apds30' : 'hei30', aimAt(v, target(v, 'any'), 150, 1)))", 300, 0.15, [5, 15]],
     ['120 mm HE', 'zodiak', "Combat.S.shots.push(shell('he120', aimAt(v, target(v, 'any'), 150, 1)))", 60, 4, [1, 1]],
     ['drone charge (S1)', 'zodiak', "charge(v, F, target(v, 'any'))", 30, 6, [1, 1]],
+    // [WP8 round 2] the corvette and the destroyer (WP9 arms them; their magazines are aboard already): Infinity as the
+    // band's top is "N+" (held out N: met), as its bottom "almost harmless" (never lost in the cap)
+    ['12.7 mm MG (rounds)', 'vizby', "Combat.S.shots.push(shell('ball13', aimAt(v, target(v, 'any'), 150, 1)))", 1000, 0.1, [Infinity, Infinity]],
+    ['30 mm cannon', 'vizby', "Combat.S.shots.push(shell(rnd() < 0.5 ? 'apds30' : 'hei30', aimAt(v, target(v, 'any'), 150, 1)))", 400, 0.15, [400, Infinity]],
+    ['120 mm APFSDS', 'vizby', "Combat.S.shots.push(shell('apfsds120', aimAt(v, target(v, 'hull'), 150, 1)))", 80, 0.5, [80, Infinity]],
+    ['120 mm HE', 'vizby', "Combat.S.shots.push(shell('he120', aimAt(v, target(v, 'any'), 150, 1)))", 60, 2, [15, 30]],
+    ['500 lb bomb, direct', 'vizby', "Combat.S.shots.push(bomb(v, target(v, 'hull'), 0))", 6, 8, [2, 2]],
+    ['500 lb bomb, 5 m off', 'vizby', "Combat.S.shots.push(bomb(v, target(v, 'hull'), nearOff(v)))", 8, 8, [3, 4]],
+    ['air rockets', 'vizby', "Combat.S.shots.push(rocket(aimAt(v, target(v, 'hull'), 200, 5)))", 60, 1, [20, 40]],
+    ['drone charge (S1)', 'vizby', "charge(v, F, target(v, 'any'))", 50, 4, [15, 35]],
+    ['ramming at 15 kn', 'vizby', 'ram(v, F)', 2, 4, [Infinity, Infinity]],
+    ['12.7 mm MG (rounds)', 'arley', "Combat.S.shots.push(shell('ball13', aimAt(v, target(v, 'any'), 150, 1)))", 600, 0.1, [Infinity, Infinity]],
+    ['30 mm cannon', 'arley', "Combat.S.shots.push(shell(rnd() < 0.5 ? 'apds30' : 'hei30', aimAt(v, target(v, 'any'), 150, 1)))", 300, 0.15, [Infinity, Infinity]],
+    ['120 mm APFSDS, at her bridge', 'arley', "Combat.S.shots.push(shell('apfsds120', aimAt(v, bridgeT(v), 150, 1)))", 60, 0.5, [20, 40]],
+    ['120 mm HE', 'arley', "Combat.S.shots.push(shell('he120', aimAt(v, target(v, 'any'), 150, 1)))", 120, 2, [40, 100]],
+    ['500 lb bomb, direct', 'arley', "Combat.S.shots.push(bomb(v, target(v, 'hull'), 0))", 7, 8, [3, 5]],
+    ['500 lb bomb, 5 m off', 'arley', "Combat.S.shots.push(bomb(v, target(v, 'hull'), nearOff(v)))", 12, 8, [6, 10]],
+    ['air rockets', 'arley', "Combat.S.shots.push(rocket(aimAt(v, target(v, 'hull'), 200, 5)))", 60, 1, [60, Infinity]],
+    ['drone charge (S1)', 'arley', "charge(v, F, target(v, 'any'))", 130, 4, [40, 120]],
+    ['ramming at 15 kn', 'arley', 'ram(v, F)', 2, 4, [Infinity, Infinity]],
   ];
-  const got = rows.map(([w, key, fire, max, every, band]) => { const o = R(`trial('${key}', (v, F) => { ${fire}; }, ${max}, ${every})`); return { w, key, band, ...o, inBand: o.n != null && o.n >= band[0] && o.n <= band[1] }; });
+  const inBand = (n, b) => (n == null ? b[1] === Infinity : n >= b[0] && n <= b[1]), bandS = (b) => (b[0] === Infinity ? 'harmless' : b[1] === Infinity ? b[0] + '+' : b.join('-'));
+  const got = rows.map(([w, key, fire, max, every, band]) => { const o = R(`trial('${key}', (v, F) => { ${fire}; }, ${max}, ${every})`); return { w, key, band, max, ...o, inBand: inBand(o.n, band) }; });
   console.log('      weapon against ship: hits to put her out of action or sink her (band §8.12) — measured');
-  for (const g of got) console.log(`        ${(g.w + ' vs ' + g.key).padEnd(38)} ${String(g.band.join('-')).padEnd(8)} ${g.n == null ? 'not in ' + g.n : g.n} (${g.fate})${g.inBand ? '' : '  <- outside the band: reported'}`);
-  t(`every weapon of today puts the Cyclon and the Zodiak out of action or sinks them (no immune pair); ${got.filter((g) => g.inBand).length} of ${got.length} rows in §8.12's bands, the rest reported above`, got.every((g) => g.n != null), got.map((g) => [g.w, g.key, g.n]));
-  t('the big blows land in their bands: a 500 lb bomb sinks or stops the Cyclon in one direct hit, a near miss in one or two; a drone charge stops the Zodiak at once', got.filter((g) => /bomb/.test(g.w) || (g.key === 'zodiak' && /drone/.test(g.w))).every((g) => g.inBand), got);
+  for (const g of got) console.log(`        ${(g.w + ' vs ' + g.key).padEnd(42)} ${bandS(g.band).padEnd(9)} ${g.n == null ? 'held out ' + g.max : g.n + ' (' + g.fate + ')'}${g.inBand ? '' : '  <- outside the band: reported'}`);
+  const two = got.filter((g) => g.key === 'cyclon' || g.key === 'zodiak');
+  t(`every weapon of today puts the Cyclon and the Zodiak out of action or sinks them (no immune pair); ${got.filter((g) => g.inBand).length} of ${got.length} rows (all four ships) in §8.12's bands, the rest reported above`, two.every((g) => g.n != null), got.map((g) => [g.w, g.key, g.n]));
+  t('the big blows land in their bands: a 500 lb bomb sinks or stops the Cyclon in one direct hit, a near miss in one or two; a drone charge stops the Zodiak at once', got.filter((g) => (g.key === 'cyclon' && /bomb/.test(g.w)) || (g.key === 'zodiak' && /drone/.test(g.w))).every((g) => g.inBand), got.filter((g) => g.key === 'cyclon' || g.key === 'zodiak'));
+  t(`small arms are all but harmless to the corvette and the destroyer: 12.7 mm ball never loses the Vizby (1,000 rounds) or the Arley (600), nor 30 mm the Arley (300)`, got.filter((g) => g.band[0] === Infinity && !/ramming/.test(g.w)).every((g) => g.n == null), got.filter((g) => g.band[0] === Infinity));
   R(`Ship.setSea('calm');`);
 }
 
