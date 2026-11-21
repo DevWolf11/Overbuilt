@@ -33,7 +33,7 @@ const D = 180 / Math.PI, dt = 1 / 120, G0 = 9.80665;
 const only = (process.argv[2] || '').split(',').filter(Boolean).map(Number);
 const want = (n) => !only.length || only.includes(n);
 G.run(ctx, 'this.__air = airDensity; this.__sf = surfaceFrame; this.__qaxis = qaxis; this.__qmul = qmul;');
-const PLANES = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane');
+const PLANES = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'plane' && ctx.TEMPLATES[k].group !== 'ship'); // (not the ships update's flying boat: ships.test's)
 const FIGHTERS = ['hornet', 'viper', 'falcon', 'myg21', 'fs4', 'fs16', 'myg29', 'fs15', 'sugoi27', 'sugoi35', 'fs22', 'fs35', 'sugoi57'];
 
 // ---- helpers (as test/planes.test.js and the play-test's lab)

@@ -145,8 +145,20 @@ const Silly = {
   get unlocked() { return !!store.get('rss.sillyUnlocked', false); },
   unlock() { store.set('rss.sillyUnlocked', true); },
 };
-// The Mach number the sound-barrier effects use (only effects: missions read v.mach).
+// The Mach number the sound-barrier effects use (only effects: the flight's milestones read v.mach).
 function effectMach(v) { return Silly.on('boomy') ? (v.airspeed || 0) / 25 : v.mach || 0; }
+
+function money(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+
+// A multiplayer battle's budget: what the builder shows and checks while a room borrows it (mp.js sets it, MP.borrow).
+// Outside a room, and in a sandbox room, there is none (funds null): every flight is sandbox, so the builder shows no
+// prices, costs or money warnings. In a battle, funds is the budget for the chosen spawn: the builder's Cost / Budget
+// row and its over-budget warning (as MP.problems has it for the lobby).
+const Budget = {
+  funds: null,
+  get on() { return this.funds != null; },
+  over(cost) { return this.on && cost > this.funds; },
+};
 
 // Tiny DOM helpers
 const $ = (sel) => document.querySelector(sel);

@@ -1341,17 +1341,28 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const G = grid(TW, 1, no), hs = new Float32Array(TW * TH), dk = new Float32Array(TW * TH), ns = new Float32Array(TW * TH), cs = new Float32Array(TW * TH);
     const lk = c.mapped ? new Float32Array(TW * TH) : null; // lakes
     const cell = (TAU * c.R) / TW;
-    for (let i = 0; i < TW; i++) setCol(c, G, i, ((i + 0.5) / TW) * TAU, cell);
+    for (let i = 0; i < TW; i++) { setCol(c, G, i, ((i + 0.5) / TW) * TAU, cell); if ((i & 255) === 255 && jobLate()) yield; }
     yield;
+    // (the continents' heights on the rows either side of a band of SUB rows: slot 0 the band's top, 1 its bottom. The next
+    // band's top is this one's bottom, so it is moved up, not worked out again: on the real Earth's map (SUB 1) that halved
+    // the work at each row's end: two rows of the map's lookups (2049 each), 1-3 ms here and 3-4 ms on a 4× slowed CPU, that
+    // ran without a look at the slice's time and overran it by that much (test/browser/graphics.mjs's 4 ms slice). Now they
+    // look at it every 64 lookups, as the pixels do every 32)
     const SUB = c.mapped ? 1 : 4, sw = TW / SUB + 1, sub = new Float32Array(sw * 2);
     let prevRow = -1;
-    const fillSub = (ry, slot) => {
+    function* fillSub(ry, slot) {
       const phi = Math.PI / 2 - ((Math.min(ry * SUB, TH - 1) + 0.5) / TH) * Math.PI;
-      for (let k = 0; k < sw; k++) sub[slot * sw + k] = contAt(c, ((Math.min(k * SUB, TW) + 0.5) / TW) * TAU, phi);
-    };
+      for (let k = 0; k < sw; k++) {
+        sub[slot * sw + k] = contAt(c, ((Math.min(k * SUB, TW) + 0.5) / TW) * TAU, phi);
+        if ((k & 63) === 63 && jobLate()) yield;
+      }
+    }
     for (let y = 0; y < TH; y++) {
       const ry = Math.floor(y / SUB);
-      if (ry !== prevRow) { fillSub(ry, 0); fillSub(ry + 1, 1); prevRow = ry; yield; }
+      if (ry !== prevRow) {
+        if (prevRow >= 0 && ry === prevRow + 1) sub.copyWithin(0, sw, 2 * sw); else yield* fillSub(ry, 0);
+        yield* fillSub(ry + 1, 1); prevRow = ry; yield;
+      }
       const ty = (y - ry * SUB) / SUB, phi = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI;
       setRow(c, G, 0, phi * c.R, cell);
       for (let x = 0; x < TW; x++) {
@@ -1366,40 +1377,44 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     }
     const cv = document.createElement('canvas'); cv.width = TW; cv.height = TH;
     const nv = document.createElement('canvas'); nv.width = TW; nv.height = TH;
-    const g = cv.getContext('2d'), gn = nv.getContext('2d'), im = g.createImageData(TW, TH), imn = gn.createImageData(TW, TH);
+    // (the pixels go into each canvas a band of BAND rows at a time, painted into one band's image and put as it fills: the
+    // whole map's four images were 32 MB to make and four puts at the end that took 20-25 ms in one step on the full Earth)
+    const BAND = 64, g = cv.getContext('2d'), gn = nv.getContext('2d'), im = g.createImageData(TW, BAND), imn = gn.createImageData(TW, BAND);
     let rv = null, imr = null, lv = null, iml = null;
-    if (b.ocean) { rv = document.createElement('canvas'); rv.width = TW; rv.height = TH; imr = rv.getContext('2d').createImageData(TW, TH); }
-    if (c.mapped && Terrain.earthMap.night) { lv = document.createElement('canvas'); lv.width = TW; lv.height = TH; iml = lv.getContext('2d').createImageData(TW, TH); }
+    if (b.ocean) { rv = document.createElement('canvas'); rv.width = TW; rv.height = TH; imr = rv.getContext('2d').createImageData(TW, BAND); }
+    if (c.mapped && Terrain.earthMap.night) { lv = document.createElement('canvas'); lv.width = TW; lv.height = TH; iml = lv.getContext('2d').createImageData(TW, BAND); }
+    const puts = [[g, im], [gn, imn]];
+    if (imr) puts.push([rv.getContext('2d'), imr]);
+    if (iml) puts.push([lv.getContext('2d'), iml]);
     const out = [0, 0, 0], k = c.relief;
     for (let y = 0; y < TH; y++) {
-      const lat = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI, dxm = cell * Math.max(Math.cos(lat), 0.02), dym = (Math.PI * c.R) / TH;
+      const lat = Math.PI / 2 - ((y + 0.5) / TH) * Math.PI, dxm = cell * Math.max(Math.cos(lat), 0.02), dym = (Math.PI * c.R) / TH, yb = y % BAND;
       for (let x = 0; x < TW; x++) {
-        const i = y * TW + x, h = hs[i];
+        const i = y * TW + x, h = hs[i], i4 = (yb * TW + x) * 4;
         if (c.mapped) bioAt(((x + 0.5) / TW) * TAU, lat * c.R);
         paint(c, h, ns[i], cs[i], dk[i], 0, lat, true, out);
         if (lk && lk[i] > 0.05) mixC(out, LAKE_D, lk[i] * 0.85, out);
-        if (iml) { const v = 255 * Math.pow(clamp((Terrain.nightAt(((x + 0.5) / TW) * TAU, lat * c.R) - 0.1) / 0.6, 0, 1), 1.3); iml.data[i * 4] = iml.data[i * 4 + 1] = iml.data[i * 4 + 2] = v; iml.data[i * 4 + 3] = 255; }
-        im.data[i * 4] = out[0]; im.data[i * 4 + 1] = out[1]; im.data[i * 4 + 2] = out[2]; im.data[i * 4 + 3] = 255;
+        if (iml) { const v = 255 * Math.pow(clamp((Terrain.nightAt(((x + 0.5) / TW) * TAU, lat * c.R) - 0.1) / 0.6, 0, 1), 1.3); iml.data[i4] = iml.data[i4 + 1] = iml.data[i4 + 2] = v; iml.data[i4 + 3] = 255; }
+        im.data[i4] = out[0]; im.data[i4 + 1] = out[1]; im.data[i4 + 2] = out[2]; im.data[i4 + 3] = 255;
         const sea = b.ocean && h < 0;
         const hx = (q) => (b.ocean ? Math.max(0, q) : q);
         const gx = sea ? 0 : (hx(hs[y * TW + ((x + 1) % TW)]) - hx(hs[y * TW + ((x + TW - 1) % TW)])) / (2 * dxm) * k;
         const gy = sea ? 0 : (hx(hs[Math.max(0, y - 1) * TW + x]) - hx(hs[Math.min(TH - 1, y + 1) * TW + x])) / (2 * dym) * k;
         const l = Math.hypot(gx, gy, 1);
-        imn.data[i * 4] = (-gx / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 1] = (-gy / l * 0.5 + 0.5) * 255; imn.data[i * 4 + 2] = (0.5 / l + 0.5) * 255; imn.data[i * 4 + 3] = 255;
-        if (imr) { const r = c.mapped ? lerp(90, 255, smoothstep(-5, 5, h)) : sea ? 90 : 255; imr.data[i * 4] = imr.data[i * 4 + 1] = imr.data[i * 4 + 2] = r; imr.data[i * 4 + 3] = 255; }
+        imn.data[i4] = (-gx / l * 0.5 + 0.5) * 255; imn.data[i4 + 1] = (-gy / l * 0.5 + 0.5) * 255; imn.data[i4 + 2] = (0.5 / l + 0.5) * 255; imn.data[i4 + 3] = 255;
+        if (imr) { const r = c.mapped ? lerp(90, 255, smoothstep(-5, 5, h)) : sea ? 90 : 255; imr.data[i4] = imr.data[i4 + 1] = imr.data[i4 + 2] = r; imr.data[i4 + 3] = 255; }
         if ((x & 63) === 63 && jobLate()) yield;
       }
+      if (yb === BAND - 1 || y === TH - 1) for (const [q, d] of puts) { q.putImageData(d, 0, y - yb, 0, 0, TW, yb + 1); if (jobLate()) yield; } // (the band filled: into its canvas)
       if ((y & 15) === 15) yield;
     }
-    g.putImageData(im, 0, 0); gn.putImageData(imn, 0, 0);
     const old = [e.mat.map, e.mat.normalMap !== S.flatN ? e.mat.normalMap : null, e.mat.roughnessMap];
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = maxAniso;
     e.mat.map = tex;
     e.mat.normalMap = new THREE.CanvasTexture(nv);
-    if (imr) { rv.getContext('2d').putImageData(imr, 0, 0); e.mat.roughnessMap = new THREE.CanvasTexture(rv); }
+    if (imr) e.mat.roughnessMap = new THREE.CanvasTexture(rv);
     if (iml) { // city lights on the night side
-      lv.getContext('2d').putImageData(iml, 0, 0);
       const nt = new THREE.CanvasTexture(lv);
       nt.colorSpace = THREE.SRGBColorSpace;
       e.mat.emissiveMap = nt; e.mat.emissive.setRGB(1, 0.78, 0.5); e.mat.emissiveIntensity = 1.3;
@@ -1561,6 +1576,9 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // widens towards the horizon. Foam and depth stay in the vertex colours
     S.waveB = { value: new THREE.Vector2() };
     S.veil0 = { value: new THREE.Vector4() }; // (the water's own veil uniform: unused, OB_VEIL off)
+    // [WP2] the ocean cut away under the swell near a ship (updateSwell): a rectangle in the patch's UVs, none while it is
+    // (1, 1, 0, 0); only where the water is the sea's (a vertex at sea level, uSeaR from the planet's centre)
+    S.seaHole = { value: new THREE.Vector4(1, 1, 0, 0) }; S.seaR = { value: EARTH.radius };
     if (Settings.high) terr.oceanMat.defines.OB_HI = '';
     terr.oceanMat.onBeforeCompile = waterHook;
     // Water with depth (waterHook, OB_DEEP): the water takes the light from the ground under it by how much of it the eye
@@ -1679,9 +1697,17 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // The water's sky light (OB_DEEP): the light its own colour scatters from the sky worked out as the ground's is (the sky
   // light's formula, SKY_IBL), not looked up in the filtered cube; its reflection keeps the real cube (three's radiance).
   // One cube lookup a water pixel less pays for its depth (spec: within +3% of a phone's frame at the coast)
+  // (and the water's reflection never looks below the horizon: a ripple tilted away from the eye at a glance reflects
+  // the ray down, where the env cube holds the ground's dark green (uGround), and the sea showed black-green specks in
+  // the middle distance, worst in clear shallows. A ray reflected down meets the next wave and sees the sky low down
+  // again, so it is kept just above the horizon: the haze's colour, as the sea round it reflects there)
+  const WATER_RV = 'reflectVec = inverseTransformDirection( reflectVec, viewMatrix );';
   const waterEnv = () => {
     const E = THREE.ShaderChunk.envmap_physical_pars_fragment, i0 = E.indexOf('vec3 getIBLIrradiance'), i1 = E.indexOf('vec3 getIBLRadiance');
-    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + E.slice(i1);
+    let R = E.slice(i1);
+    if (R.includes(WATER_RV)) R = R.replace(WATER_RV, WATER_RV + '\n\t\t\treflectVec.y = max( reflectVec.y, 0.02 );');
+    else warnOnce('waterRV', 'three.js\'s env map chunk isn\'t r159\'s: the water may reflect the ground below the horizon');
+    return E.slice(0, i0) + SKY_IBL.slice(SKY_IBL.indexOf('uniform vec3 obUp'), SKY_IBL.indexOf('vec3 getIBLRadiance')) + R;
   };
   // The water's depth, a pixel (OB_DEEP): vWat.x the water's depth under it (m; below 0 the ground stands over it, hidden),
   // .y the surf (patchJob), .z how much water there is (a lake's edge, a river's). The light from below is the ground drawn
@@ -1730,6 +1756,12 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     if (!nm.includes(WATER_NM) || !sh.fragmentShader.includes('#include <roughnessmap_fragment>')) { warnOnce('water', 'three.js\'s normal map chunk isn\'t r159\'s: the water keeps still ripples'); return; }
     const deep = S.deepW && 'OB_DEEP' in sh.defines;
     sh.uniforms.uWaveB = S.waveB;
+    // [WP2] the sea's hole under the swell (OB_SEAHOLE: the ocean's own material while a flight has a ship in it, so an old
+    // flight's program is the old one; never the swell itself nor a veil): its UVs, and whether it is the sea's water
+    sh.uniforms.uSeaHole = S.seaHole; sh.uniforms.uSeaR = S.seaR;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n#if defined( OB_SEAHOLE ) && ! defined( OB_SWELL ) && ! defined( OB_VEIL )\nvarying vec3 vSeaH;\nuniform float uSeaR;\n#endif')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n#if defined( OB_SEAHOLE ) && ! defined( OB_SWELL ) && ! defined( OB_VEIL )\n\tvSeaH = vec3( uv, step( abs( length( position + vec3( 0.0, uSeaR, 0.0 ) ) - uSeaR ), 0.5 ) );\n#endif');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n#if defined( OB_SEAHOLE ) && ! defined( OB_SWELL ) && ! defined( OB_VEIL )\n\tif ( vSeaH.z > 0.5 && vSeaH.x > uSeaHole.x && vSeaH.x < uSeaHole.z && vSeaH.y > uSeaHole.y && vSeaH.y < uSeaHole.w ) discard;\n#endif');
     if (deep) {
       sh.uniforms.uVeil = this && this.userData && this.userData.veil ? this.userData.veil : S.veil0; // (a veil's own: its material's)
       Object.assign(sh.uniforms, S.skyL);
@@ -1741,7 +1773,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
 	vWatL = vec2( obC, 0.02 + 0.98 * obF2 * obF2 * obF1 ); // (Low: the eye's angle to the water and its Fresnel, a vertex: on the unrippled surface)
 #endif`);
     }
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;' + (deep ? `\nvarying vec3 vWat;\nuniform vec4 uVeil;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif\n#define OB_SIG ${WATER.sig.toFixed(4)}` : ''))
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec2 uWaveB;\n#if defined( OB_SEAHOLE ) && ! defined( OB_SWELL ) && ! defined( OB_VEIL )\nvarying vec3 vSeaH;\nuniform vec4 uSeaHole;\n#endif' + (deep ? `\nvarying vec3 vWat;\nuniform vec4 uVeil;\n#ifndef OB_HI\nvarying vec2 vWatL;\n#endif\n#define OB_SIG ${WATER.sig.toFixed(4)}` : ''))
       .replace('#include <normal_fragment_maps>', nm.replace(WATER_NM, `vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
 #ifdef OB_HI
 	vec3 mapB = texture2D( normalMap, vec2( - vNormalMapUv.y, vNormalMapUv.x ) * 3.0 + uWaveB ).xyz * 2.0 - 1.0;
@@ -5239,11 +5271,13 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     out.x += -D.x * dist + ux; out.y += -D.y * dist + uy; out.z += -D.z * dist + uz;
     return out;
   }
-  const aimDist = (F) => clamp((H / 2) / F.scale / TANH50, 7, 30); // (how far behind the pivot: the aim camera's zoom)
+  // (how far behind the pivot: the aim camera's zoom; [WP2] a ship's reaches back 1.2 of her length, up to 200 m, so
+  // her own superstructure and the sea round her stay in view)
+  const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); const B = v.bounds, L = Math.max(B.maxX - B.minX, B.maxY - B.minY, 10); return clamp(z, 7, clamp(1.2 * L, 30, 200)); };
   // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
-    return b.radius + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz)) : groundAt(b, ca, gz)) + lift;
+    return b.radius + (b === EARTH ? Math.max(groundAt(b, ca, gz), shipTop(ca, gz), SWL.on ? SWL.amax : 0) : groundAt(b, ca, gz)) + lift; // ([WP2] over the swell's highest crest while it is drawn)
   }
   // A drone's camera (the big update): the eye on its camera part's front face (+x, 2 cm out), from the body's centre, and
   // the way it looks (D) and its up (U), in the sim. FPV: tilted up by the camera's tilt and rolling with the drone (or, with
@@ -5272,6 +5306,13 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     v.axis(ct, st, 0, Dv);
     if (Settings.get('droneView') === 'fpvLevel') { U.x = ux; U.y = uy; U.z = uz; } // (the horizon held level: the OSD draws the bank)
     else v.axis(-st, ct, 0, U);
+  }
+  // [WP3] (the ships update) a ship's bridge view: the eye 1.2 m over her control part (the wheelhouse), at its fore edge,
+  // looking along the bow (+x) and rolling and pitching with her
+  function bridgeEye(v, E, Dv, U) {
+    const c = v.control, R0 = partRect(c), e = v.toWorld(R0.r, R0.t + 1.2, partZ(c));
+    E.x = e.x; E.y = e.y; E.z = e.z;
+    v.axis(1, 0, 0, Dv); v.axis(0, 1, 0, U);
   }
   function aimPivot(v, out) {
     let c = v._piv;
@@ -5318,7 +5359,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     const FA = !IM && !AC && !!(F.flyAim && F.flyCamDir && v === F.active), PD = F.flyCamDir, PU = F.flyCamUp;
     // (the big update) a drone's first-person view (F.fpv): from its camera part, looking along it (FPV: tilted up, rolling
     // with the drone, or with the horizon held level; a gimbal: along the heading, level, turned and zoomed by the player)
-    const FP = !IM && !AC && !FA && !!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed);
+    const FP = !IM && !AC && !FA && (!!(F.fpv && v === F.active && v.kind === 'drone' && v.dr && v.dr.cam && !F.destroyed)
+      || !!(F.bridge && v === F.active && v.sh && !F.destroyed && v.control)); // [WP3] (the ships update: a ship's bridge view, bridgeEye)
     if (FP ? FOV !== S.fpvFov && S.fpvFov > 0 : !S.sightOn && FOV !== 50) setFov(FP ? S.fpvFov : 50); // (the drone's camera's field of view, kept across the map's and the hangar's 50°)
     let dist, rx, ry, rz;
     if (IM) {
@@ -5326,11 +5368,11 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       fc.vessel = null;
     } else if (FP) {
       dist = 0.3;
-      fpvEye(F, v, FPE, FPD, FPU);
+      if (v.kind === 'drone') fpvEye(F, v, FPE, FPD, FPU); else bridgeEye(v, FPE, FPD, FPU); // [WP3]
       rx = FPE.x; ry = FPE.y; rz = FPE.z; S.fpvAt = frameNo;
       fc.vessel = null;
     } else if (AC) {
-      dist = aimDist(F);
+      dist = aimDist(F, v);
       aimEye(v, S.sightOn, D, dist, T3);
       rx = T3.x; ry = T3.y; rz = T3.z;
       fc.vessel = null; // (the follow camera starts afresh after aiming)
@@ -5451,6 +5493,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     updateScenery(F, b, near, dist);
     updateProps(F, b);
     updateClouds(F, b, camAlt);
+    updateSwell(F, b, rx, ry, rz, camAlt); // [WP2] (the swell and the wakes round a ship: nothing without one)
 
     // ---- vessels, engine glow, plasma, vapour cone, particles
     syncVessels(F, dt, dist);
@@ -5936,15 +5979,415 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     terr.oceanMat.visible = B.water !== false;
     if (S.oldWater) S.oldWater.visible = B.water !== false;
   }
+  // ------------------------------------------------------------------ the sea near a ship (the ships update) [WP2]
+  // The physics' sea has swell (ship.js §waves: Ship.wave(e, n, t), four directional sines, faded in shallow water). The
+  // drawn sea is the terrain patch's flat sheet everywhere but round a ship: while a hydro vessel (v.hydro) is within
+  // SHIP.SWELL.near of the camera and the camera is under SHIP.SWELL.alt, a grid of N × N cells round the camera's point on
+  // the sea (High 128 at 4 m, Low 64 at 6 m; its lattice fixed to whole cells of game east and z, recentred when the
+  // camera strays an eighth of it: the new one filled behind the one on show, SWL_SLICE ms a frame, and swapped in
+  // whole) is drawn instead, its vertices lifted in the vertex shader by the very same sines
+  // (SWELL_FN, its uniforms Ship.waveUniforms packs: per component vec4(east, north, k, amplitude) and vec2(ω, phase at
+  // the grid's origin now), folded on the CPU in double precision so no float32 phase blows up far from the pad), its
+  // normals the sines' slopes. Each vertex's share of the swell (aSwell.z): the depth's fade (smoothstep over SHIP.FADE:
+  // none in harbours and the shallows) times the edge's (1 − smoothstep(0.7, 0.95) of its half width: flat sea at its
+  // border, where it meets the ocean exactly). Its colours, its water attribute (depth, surf, presence) and its UVs are
+  // the patch's own ocean's at each vertex (bilinear on the patch's grid, worked out again when the patch is replaced),
+  // so the water's depth, foam, Fresnel and ripples (waterHook) carry on across its edge. The ocean is cut away under it
+  // (uSeaHole: a rectangle in the patch's UVs, in the ocean's own fragments only: a vertex at sea level; lakes and the
+  // veils over sinking things keep theirs). With no ship near, the grid is hidden (never built in a flight without
+  // one), the hole is (1, 1, 0, 0) and nothing is called: an old scene draws and costs as before.
+  // Wakes: the nearest SHIP.WAKE.n hydro vessels within WAKE.near of the camera making way leave a ribbon of foam dropped
+  // at the stern every WAKE.dt s (WAKE.pts points: its life), widening by WAKE.grow of the beam a second and fading, and
+  // two thin Kelvin arms spreading at WAKE.kelvin° from the bow for WAKE.kelvinT s; their points are where the water was,
+  // so the wake stays where it was laid. One mesh, one draw, lifted by the same sines and drawn over the water (WAKE_VS).
+  const SWELL_FN = `
+uniform vec4 uSwW[ 4 ];
+uniform vec2 uSwP[ 4 ];
+vec3 obSwell( vec2 p ) {
+	vec3 o = vec3( 0.0 );
+	for ( int i = 0; i < 4; i ++ ) {
+		vec4 w = uSwW[ i ];
+		float ph = w.z * dot( w.xy, p ) + uSwP[ i ].y;
+		o.x += w.w * sin( ph );
+		o.yz += ( w.w * w.z * cos( ph ) ) * w.xy;
+	}
+	return o;
+}`;
+  // (obSwell: the height (x) and its slopes east (y) and north (z) at p, metres east and north of the grid's origin, as
+  // Ship.wave(e, n, t) has them there)
+  const SWELL_NV = `#include <beginnormal_vertex>
+	vec3 obUp = objectNormal, obE = normalize( vec3( obUp.y, - obUp.x, 0.0 ) ), obN = cross( obUp, obE );
+	vec3 obW = obSwell( aSwell.xy ) * aSwell.z;
+	objectNormal = normalize( obUp - obW.y * obE - obW.z * obN );`;
+  // (the grid's frame: x east, y up, z south; a vertex's up its normal attribute, east (up.y, −up.x, 0) and north up × east)
+  const WAKE_VS = `${LOGV}#include <fog_pars_vertex>
+${SWELL_FN}
+attribute vec3 aSwell;
+attribute vec4 aWk;
+varying vec4 vWk;
+void main() {
+	vec3 w = obSwell( aSwell.xy ) * aSwell.z;
+	vec4 mvPosition = modelViewMatrix * vec4( position + normal * ( w.x + 0.06 ), 1.0 );
+	float d = max( length( mvPosition.xyz ), 1e-3 );
+	gl_Position = projectionMatrix * vec4( mvPosition.xyz * ( 1.0 - min( 0.2, ( 0.05 + 2e-4 * d ) / d ) ), 1.0 );
+	vWk = aWk;
+	#include <logdepthbuf_vertex>
+	#include <fog_vertex>
+}`;
+  const WAKE_FS = `${LOGF}#include <fog_pars_fragment>
+uniform vec3 uFoam;
+varying vec4 vWk;
+float obN2( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+	float a = fract( sin( dot( i, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ), b = fract( sin( dot( i + vec2( 1.0, 0.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+	float c = fract( sin( dot( i + vec2( 0.0, 1.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 ), e = fract( sin( dot( i + vec2( 1.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+	return mix( mix( a, b, f.x ), mix( c, e, f.x ), f.y ); }
+void main() {
+	#include <logdepthbuf_fragment>
+	float x = abs( vWk.x ), core = 1.0 - x * x;
+	float n = 0.55 * obN2( vWk.zw * 0.45 ) + 0.45 * obN2( vWk.zw * 1.7 );
+	float a = vWk.y * core * core * smoothstep( 0.25, 0.75, n + 0.45 * core );
+#ifdef OB_FOG
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+	a *= 1.0 - obFog( fogDensity, length( vFogPos ), dot( vFogPos, viewMatrix[ 1 ].xyz ) );
+#else
+	a *= 1.0 - obHaze();
+#endif
+#endif
+	if ( a < 0.004 ) discard;
+	gl_FragColor = vec4( uFoam, a );
+	${OUT}
+}`;
+  // (vWk: x across the ribbon −1..1, y its opacity, zw where it is (m east and north, wrapped every 2 km) for the foam's
+  // breaking up; lifted 6 cm and drawn a little nearer than it is, so it lies on the water it was laid on)
+  const SWL = {
+    on: false, wantWarm: false, frame: null, mesh: null, mat: null, N: 0, cell: 0, half: 0, hi: null, aA: 0, zA: 0, eA: 0, b: null, pgen: -1, pver: -1,
+    bufs: [], cur: 0, job: null, jobBuf: null, jobA: null, due: Infinity, jobMs: 0, slices: 0, sliceLast: 0, slice: 0, sliceMax: 0, frames: 0,
+    recentres: 0, rebuilds: 0, ms: 0, msMax: 0, U: null, amax: 0, wk: new Map(), wmesh: null, wmat: null, wn: 0, wverts: 0, near: null,
+    cols: null, rows: null, // (the bilinear lookups into the patch's grid: per column [i0, t], per row [j0, t])
+  };
+  const SWLOC = {}, SWLOC2 = {};
+  let SWF = null; // (Ship.waveUniforms' answer: 6 numbers a component)
+  const swellOK = () => typeof Ship !== 'undefined' && typeof SHIP !== 'undefined';
+  // The water's hook, then the swell: the grid's vertices lifted and their normals tilted (OB_SWELL)
+  function swellHook(sh) {
+    waterHook.call(this, sh);
+    sh.uniforms.uSwW = S.swU.uSwW; sh.uniforms.uSwP = S.swU.uSwP; sh.uniforms.uSwUV = S.swU.uSwUV;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aSwell;\nuniform vec3 uSwUV;' + SWELL_FN)
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_NORMALMAP\n\tvNormalMapUv = ( normalMapTransform * vec3( uSwUV.xy + vec2( uv.x * uSwUV.z, uv.y ), 1 ) ).xy;\n#endif') // (its UVs: metres west and south of its middle; uSwUV, where that is in the patch's)
+      .replace('#include <beginnormal_vertex>', SWELL_NV).replace('#include <begin_vertex>', '#include <begin_vertex>\n\ttransformed += obUp * obW.x;');
+  }
+  // its material: the ocean's (a clone, its defines and stencil kept in step with it each frame) with OB_SWELL
+  function swellMat() {
+    if (!S.swU) S.swU = { uSwW: { value: new Float32Array(16) }, uSwP: { value: new Float32Array(8) }, uSwUV: { value: new THREE.Vector3(0, 0, 1) } };
+    if (!SWL.mat) {
+      const m = (SWL.mat = terr.oceanMat.clone());
+      m.defines = { ...terr.oceanMat.defines, OB_SWELL: '' }; m.onBeforeCompile = swellHook;
+    }
+    const m = SWL.mat, o = terr.oceanMat;
+    for (const k of ['OB_HI', 'OB_DEEP']) if ((k in o.defines) !== (k in m.defines)) { if (k in o.defines) m.defines[k] = ''; else delete m.defines[k]; m.needsUpdate = true; }
+    if (m.stencilWrite !== o.stencilWrite) Object.assign(m, { stencilWrite: o.stencilWrite, stencilWriteMask: o.stencilWriteMask, stencilFunc: o.stencilFunc, stencilRef: o.stencilRef, stencilFuncMask: o.stencilFuncMask });
+    m.visible = o.visible;
+    return m;
+  }
+  // The grid (N cells a side, cell m each), made once per quality, twice over: positions, normals (the sphere's up),
+  // colours (rgba), the water attribute and aSwell filled by swellJob; UVs and the index fixed and shared
+  function swellAlloc(hi) {
+    const [N, cell] = hi ? SHIP.SWELL.high : SHIP.SWELL.low;
+    if (SWL.mesh && SWL.N === N && SWL.cell === cell) return;
+    if (SWL.mesh) { SWL.frame.remove(SWL.mesh); for (const B of SWL.bufs) B.g.dispose(); }
+    const n1 = N + 1, V = n1 * n1, half = (N * cell) / 2, A = (k) => new THREE.BufferAttribute(new Float32Array(V * k), k).setUsage(THREE.DynamicDrawUsage);
+    const idx = new (V > 65535 ? Uint32Array : Uint16Array)(N * N * 6), uv = new Float32Array(V * 2);
+    let k = 0;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const a = j * n1 + i, b = a + 1, c = a + n1, d = c + 1; idx[k++] = a; idx[k++] = c; idx[k++] = b; idx[k++] = b; idx[k++] = c; idx[k++] = d; } // (its columns run east, the patch's west: turned the other way round)
+    for (let j = 0; j < n1; j++) for (let i = 0; i < n1; i++) { uv[(j * n1 + i) * 2] = -(i * cell - half) / TILE; uv[(j * n1 + i) * 2 + 1] = (j * cell - half) / TILE; } // (where it is in the patch's UVs: uSwUV, the swell's hook)
+    const I = new THREE.BufferAttribute(idx, 1), UV = new THREE.BufferAttribute(uv, 2);
+    // two grids: the one on show and the one being filled behind it (swellJob), swapped when it is done
+    SWL.bufs = [0, 1].map(() => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', A(3)); g.setAttribute('normal', A(3)); g.setAttribute('color', A(4)); g.setAttribute('aWater', A(3)); g.setAttribute('uv', UV); g.setAttribute('aSwell', A(3));
+      g.setIndex(I);
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), half * 1.5 + 10);
+      return { g, anc: null, P: null, pgen: -1, pver: -1, cols: new Float64Array(n1 * 2), rows: new Float64Array(n1 * 2), cs: new Float64Array(n1 * 2) };
+    });
+    if (!SWL.frame) { SWL.frame = new THREE.Group(); SWL.frame.visible = false; localWorld.add(SWL.frame); }
+    SWL.mesh = new THREE.Mesh(SWL.bufs[0].g, swellMat());
+    SWL.mesh.renderOrder = 1; SWL.mesh.receiveShadow = false; SWL.mesh.frustumCulled = true;
+    SWL.frame.add(SWL.mesh);
+    Object.assign(SWL, { N, cell, half, cur: 0, job: null, jobBuf: null });
+  }
+  // where the patch's grid has a point s m along its columns (or rows): the cell's first index and how far into it
+  function gridAt(sx, n, span, s, out, k) {
+    const u = clamp(s / span, -1, 1), f = n + n * Math.sign(u) * Math.pow(Math.abs(u), 1 / PW);
+    let i = clamp(Math.floor(f), 0, 2 * n - 1);
+    if (sx[i] > s && i > 0) i--; else if (sx[i + 1] < s && i < 2 * n - 1) i++;
+    out[k] = i; out[k + 1] = clamp((s - sx[i]) / Math.max(1e-9, sx[i + 1] - sx[i]), 0, 1);
+  }
+  // Fill grid B round (aA, zA) a row at a time, yielding once the frame's slice (SWL.due) is spent: positions on the
+  // sphere (from the frame at aA, the mesh at the anchor's point), the ocean's colours and water read off the patch on
+  // show (bilinear on its grid), each vertex's share of the swell. Its UVs are fixed (uSwUV places them in the patch's)
+  const SWL_SLICE = 0.6; // ms a frame (a 4× slowed phone's too: its rows are 30-40 µs, so a frame overruns by one at most)
+  function* swellJob(B, b, aA, zA, eA) {
+    const P = patch, R = b.radius, N = SWL.N, n1 = N + 1, cell = SWL.cell, half = SWL.half, at = B.g.attributes, gen = patchGen, ver = P.ver;
+    const pos = at.position.array, nor = at.normal.array, col = at.color.array, wat = at.aWater.array, sw = at.aSwell.array;
+    const oc = P.ocean.geometry.attributes.color.array, ow = P.ocean.geometry.attributes.aWater.array, nc = P.nc, span = P.span, kl = P.kl;
+    const phA = zA / R, ya = R * Math.cos(phA) - R, za = R * Math.sin(phA), F0 = SHIP.FADE[0], F1 = SHIP.FADE[1], E0 = SHIP.SWELL.edge[0] * half, E1 = SHIP.SWELL.edge[1] * half;
+    const cols = B.cols, rows = B.rows, cs = B.cs, da = wrapAngle(aA - P.a0) * R * kl;
+    for (let i = 0; i < n1; i++) { const le = i * cell - half; gridAt(P.sx, P.n, span, da - le * kl, cols, i * 2); cs[i * 2] = Math.sin(-le / R); cs[i * 2 + 1] = Math.cos(-le / R); } // (east is decreasing angle: the patch's columns run west)
+    for (let j = 0; j < n1; j++) gridAt(P.sz, P.m, span, zA + j * cell - half - P.z0, rows, j * 2);
+    const sm = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+    for (let j = 0; j < n1; j++) {
+      if (performance.now() > SWL.due) yield;
+      const z = zA + j * cell - half, ph = z / R, cp = Math.cos(ph), sp = Math.sin(ph), j0 = rows[j * 2], tz = rows[j * 2 + 1], ln = -(j * cell - half), R0 = R * sp - za;
+      for (let i = 0; i < n1; i++) {
+        const k = j * n1 + i, le = i * cell - half, ux = -cp * cs[i * 2], uy = cp * cs[i * 2 + 1], k3 = k * 3, k4 = k * 4;
+        pos[k3] = R * ux; pos[k3 + 1] = R * uy - R - ya; pos[k3 + 2] = R0;
+        nor[k3] = ux; nor[k3 + 1] = uy; nor[k3 + 2] = sp;
+        const i0 = cols[i * 2], tx = cols[i * 2 + 1], a = j0 * nc + i0, c = a + nc, a4 = a * 4, c4 = c * 4, a3 = a * 3, c3 = c * 3;
+        const w0 = (1 - tx) * (1 - tz), w1 = tx * (1 - tz), w2 = (1 - tx) * tz, w3 = tx * tz;
+        col[k4] = oc[a4] * w0 + oc[a4 + 4] * w1 + oc[c4] * w2 + oc[c4 + 4] * w3;
+        col[k4 + 1] = oc[a4 + 1] * w0 + oc[a4 + 5] * w1 + oc[c4 + 1] * w2 + oc[c4 + 5] * w3;
+        col[k4 + 2] = oc[a4 + 2] * w0 + oc[a4 + 6] * w1 + oc[c4 + 2] * w2 + oc[c4 + 6] * w3;
+        col[k4 + 3] = oc[a4 + 3] * w0 + oc[a4 + 7] * w1 + oc[c4 + 3] * w2 + oc[c4 + 7] * w3;
+        const dep = (wat[k3] = ow[a3] * w0 + ow[a3 + 3] * w1 + ow[c3] * w2 + ow[c3 + 3] * w3);
+        wat[k3 + 1] = ow[a3 + 1] * w0 + ow[a3 + 4] * w1 + ow[c3 + 1] * w2 + ow[c3 + 4] * w3;
+        wat[k3 + 2] = ow[a3 + 2] * w0 + ow[a3 + 5] * w1 + ow[c3 + 2] * w2 + ow[c3 + 5] * w3;
+        const r = Math.sqrt(le * le + ln * ln);
+        sw[k3] = le; sw[k3 + 1] = ln; sw[k3 + 2] = sm((dep - F0) / (F1 - F0)) * (1 - sm((r - E0) / (E1 - E0)));
+      }
+    }
+    for (const k of ['position', 'normal', 'color', 'aWater', 'aSwell']) at[k].needsUpdate = true;
+    Object.assign(B, { anc: { aA, zA, eA, ya, za }, P, pgen: gen, pver: ver });
+  }
+  // Run the fill behind a slice at a time (all of it with due Infinity); done and still the patch's: swap it in
+  function swellRun(due) {
+    const t0 = performance.now();
+    SWL.due = due;
+    let r = SWL.job.next();
+    const ms = performance.now() - t0;
+    SWL.jobMs += ms; SWL.slices++; SWL.sliceMax = Math.max(SWL.sliceMax, ms); SWL.sliceLast = Math.max(SWL.sliceLast, ms);
+    if (!r.done) return;
+    const B = SWL.jobBuf;
+    SWL.job = null; SWL.jobBuf = null;
+    if (B.P !== patch || B.pver !== patch.ver) return; // (the patch was replaced meanwhile: filled again next frame)
+    SWL.cur = SWL.bufs.indexOf(B); SWL.mesh.geometry = B.g;
+    SWL.rebuilds++; SWL.ms = SWL.jobMs; SWL.msMax = Math.max(SWL.msMax, SWL.jobMs); SWL.slice = SWL.sliceLast; SWL.frames = SWL.slices;
+    note('swell', SWL.jobMs); note('swellSlice', SWL.sliceLast);
+  }
+  function swellStart(b, aA, zA, eA) {
+    const B = SWL.bufs[1 - SWL.cur];
+    SWL.job = swellJob(B, b, aA, zA, eA); SWL.jobBuf = B; SWL.jobMs = 0; SWL.slices = 0; SWL.sliceLast = 0;
+  }
+
+  // the hole in the ocean: the grid less a quarter metre all round, in the patch's UVs
+  function swellHole() {
+    const P = patch, R = SWL.b.radius, h = SWL.half - 0.25, da = wrapAngle(SWL.aA - P.a0) * R * P.kl, u = (s) => (s + P.uo) / TILE;
+    S.seaHole.value.set(u(da - h * P.kl), (SWL.zA - h - P.z0 + P.vo) / TILE, u(da + h * P.kl), (SWL.zA + h - P.z0 + P.vo) / TILE);
+  }
+  // Each frame: is a ship near (the swell on), where the grid is, the waves' uniforms now, the wakes. cam: the camera's
+  // place (body-relative sim), camAlt its height; F's vessels are only looked at for v.hydro
+  function updateSwell(F, b, rx, ry, rz, camAlt) {
+    let near = null, nd = Infinity;
+    if (b && b.ocean && swellOK()) for (const v of F.vessels) {
+      if (!v.hydro || v.body !== b || !v.parts.length) continue;
+      const d = Math.hypot(v.x - rx, v.y - ry, v.z - rz);
+      if (d < nd) { nd = d; near = v; }
+    }
+    SWL.near = near;
+    // the ocean's hole is compiled in only while this flight has a ship (one program built as she comes; none without)
+    const od = terr.oceanMat.defines, hole = !!near;
+    if (hole !== ('OB_SEAHOLE' in od)) { if (hole) od.OB_SEAHOLE = ''; else delete od.OB_SEAHOLE; terr.oceanMat.needsUpdate = true; }
+    const want = !!near && nd < SHIP.SWELL.near && camAlt < SHIP.SWELL.alt && patch.ready && patch.b === b && !!patch.ocean && patch.ocean.visible;
+    const warm = !want && !!near && S.warm > 0 && patch.ready && patch.b === b; // (a ship in this flight: its program compiled while loading)
+    if (!want && !warm) {
+      if (SWL.on || (SWL.frame && SWL.frame.visible)) { SWL.frame.visible = false; S.seaHole.value.set(1, 1, 0, 0); if (SWL.mesh) SWL.mesh.visible = false; }
+      SWL.on = false; SWL.job = null; SWL.jobBuf = null;
+      if (near) updateWakes(F, b, rx, ry, rz, false); else if (SWL.wmesh) { SWL.wmesh.visible = false; SWL.wk.clear(); }
+      return;
+    }
+    swellAlloc(Settings.high);
+    swellMat();
+    SWL.b = b;
+    // the grid on show; a new one filled behind it (a slice a frame) when the camera strays an eighth of it from its
+    // middle or the patch under it is replaced, swapped in when done; none on show yet: nothing drawn till the first is
+    const L = Terrain.locate(b, rx, ry, rz, SWLOC), cell = SWL.cell, eC = -wrapAngle(L.a - EARTH.padAngle) * b.radius, lim = SWL.half * SHIP.SWELL.recentre;
+    let A = SWL.bufs[SWL.cur].anc;
+    const strayed = !A || Math.abs(eC - A.eA) > lim || Math.abs(L.z - A.zA) > lim;
+    if (SWL.job && strayed && SWL.jobBuf && Math.abs(eC - SWL.jobA.eA) > 2 * lim) SWL.job = null; // (the camera ran off from the one being filled: start again)
+    if (!SWL.job && (strayed || SWL.bufs[SWL.cur].pgen !== patchGen || SWL.bufs[SWL.cur].pver !== patch.ver)) {
+      const eA = strayed ? Math.round(eC / cell) * cell : A.eA, zA = strayed ? Math.round(L.z / cell) * cell : A.zA;
+      SWL.jobA = { eA }; swellStart(b, EARTH.padAngle - eA / b.radius, zA, eA);
+      if (strayed) SWL.recentres++;
+    }
+    if (SWL.job) swellRun(A || !(S.warm > 0) ? performance.now() + SWL_SLICE : Infinity); // (all at once only while the flight loads)
+    A = SWL.bufs[SWL.cur].anc;
+    const on = want && !!A;
+    if (A) { SWL.aA = A.aA; SWL.zA = A.zA; SWL.eA = A.eA; SWL.mesh.position.set(0, A.ya, A.za); }
+    if (!A) { SWL.frame.visible = false; SWL.on = false; S.seaHole.value.set(1, 1, 0, 0); return; }
+    placeFrame(SWL.frame, b, SWL.aA, F.time);
+    SWL.frame.visible = true;
+    SWL.on = on;
+    SWL.mesh.visible = true;
+    if (on) swellHole(); else S.seaHole.value.set(1, 1, 0, 0);
+    // the grid's UVs in the patch's (as the ocean's own: its columns along the equator at the patch's kl, rows in z)
+    const Pp = patch, R = b.radius;
+    S.swU.uSwUV.value.set((wrapAngle(SWL.aA - Pp.a0) * R * Pp.kl + Pp.uo) / TILE, (SWL.zA - Pp.z0 + Pp.vo) / TILE, Pp.kl);
+    // the waves now: Ship.waveUniforms packs [east, north, k, amplitude, ω, phase] per component for the grid's origin
+    if (!SWF) SWF = new Float32Array(SHIP.WAVES.length * 6);
+    const U = Ship.waveUniforms(SWL.eA, -SWL.zA, Ship.seaT(F), SWF), W4 = S.swU.uSwW.value, P2 = S.swU.uSwP.value, n = Math.min(4, (U.length / 6) | 0);
+    for (let i = 0; i < 4; i++) {
+      const o = i * 6, ok = i < n;
+      W4[i * 4] = ok ? U[o] : 1; W4[i * 4 + 1] = ok ? U[o + 1] : 0; W4[i * 4 + 2] = ok ? U[o + 2] : 0; W4[i * 4 + 3] = ok && on ? U[o + 3] : 0;
+      P2[i * 2] = ok ? U[o + 4] : 0; P2[i * 2 + 1] = ok ? U[o + 5] : 0;
+    }
+    SWL.amax = Math.abs(W4[3]) + Math.abs(W4[7]) + Math.abs(W4[11]) + Math.abs(W4[15]); // (the highest a crest can stand: the camera keeps over it)
+    const g = SWL.mesh.geometry; // (warming: on show with nothing drawn, so three builds its program; the wakes' too)
+    if (!on) { g.setDrawRange(0, 0); SWL.mesh.frustumCulled = false; wakeAlloc(); SWL.wmesh.visible = true; SWL.wmesh.geometry.setDrawRange(0, 0); return; }
+    for (const B of SWL.bufs) if (B.g.drawRange.count !== Infinity) B.g.setDrawRange(0, Infinity);
+    SWL.mesh.frustumCulled = true;
+    updateWakes(F, b, rx, ry, rz, on);
+  }
+
+  // ---- wakes
+  function wakeMat() {
+    if (SWL.wmat) return SWL.wmat;
+    S.wakeU = Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), { uSwW: S.swU.uSwW, uSwP: S.swU.uSwP, uFoam: { value: new THREE.Color(1, 1, 1) } });
+    SWL.wmat = smat({ uniforms: S.wakeU, vertexShader: WAKE_VS, fragmentShader: WAKE_FS, defines: { OB_NOFOG: '' }, fog: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    return SWL.wmat;
+  }
+  const WK_MAX = () => SHIP.WAKE.n * (SHIP.WAKE.pts + 1 + 2 * (Math.ceil(SHIP.WAKE.kelvinT / SHIP.WAKE.dt) + 1)) * 2;
+  function wakeAlloc() {
+    if (SWL.wmesh) return;
+    const V = WK_MAX(), g = new THREE.BufferGeometry(), A = (k) => new THREE.BufferAttribute(new Float32Array(V * k), k).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', A(3)); g.setAttribute('normal', A(3)); g.setAttribute('aSwell', A(3)); g.setAttribute('aWk', A(4));
+    g.setIndex(new THREE.BufferAttribute(new Uint16Array(V * 3), 1).setUsage(THREE.DynamicDrawUsage));
+    if (!S.swU) swellMat();
+    SWL.wmesh = new THREE.Mesh(g, wakeMat());
+    SWL.wmesh.renderOrder = 1.5; SWL.wmesh.frustumCulled = false; SWL.wmesh.visible = false;
+    if (!SWL.frame) { SWL.frame = new THREE.Group(); SWL.frame.visible = false; localWorld.add(SWL.frame); }
+    SWL.frame.add(SWL.wmesh);
+  }
+  // A hydro vessel's wake geometry (cached per v.sh): its stern and bow along its forward axis, its beam
+  function wakeShape(v) {
+    const sh = v.sh;
+    if (sh._wk) return sh._wk;
+    const F0 = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
+    let lo = Infinity, hi = -Infinity, zl = Infinity, zh = -Infinity, sx = 0, sy = 0, bx = 0, by = 0;
+    for (const r of sh.rings) for (let k = 0; k < r.P.length; k += 3) {
+      const x = r.P[k], y = r.P[k + 1], z = r.P[k + 2], f = x * F0.x + y * F0.y;
+      if (f < lo) { lo = f; sx = x; sy = y; }
+      if (f > hi) { hi = f; bx = x; by = y; }
+      zl = Math.min(zl, z); zh = Math.max(zh, z);
+    }
+    if (!(hi > lo)) { const B = v.bounds; sx = B.minX; bx = B.maxX; sy = by = v.com.y; zl = -1; zh = 1; }
+    return (sh._wk = { sx, sy, bx, by, zc: (zl + zh) / 2, beam: Math.max(0.5, zh - zl) });
+  }
+  // where a part-space point lies on the sea: its (a, z) and the vessel's starboard there, m east and z per m
+  function wakeSpot(v, x, y, z, o) {
+    const p = v.toWorld(x, y, z), L = Terrain.locate(v.body, p.x, p.y, p.z, SWLOC2), R = v.body.radius;
+    const s = v.axis(0, 0, 1), q = { x: p.x + s.x, y: p.y + s.y, z: p.z + s.z }, a = L.a, zz = L.z, M = Terrain.locate(v.body, q.x, q.y, q.z, SWLOC2);
+    o.a = a; o.z = zz; o.la = -wrapAngle(M.a - a) * R; o.lz = M.z - zz;
+    const l = Math.hypot(o.la, o.lz) || 1; o.la /= l; o.lz /= l;
+    return o;
+  }
+  const WKP = { a: 0, z: 0, la: 0, lz: 0 }, WKB = { a: 0, z: 0, la: 0, lz: 0 };
+  function updateWakes(F, b, rx, ry, rz, swell) {
+    const WK = SHIP.WAKE, t = F.time, list = [];
+    for (const v of F.vessels) {
+      if (!v.hydro || v.body !== b || !v.parts.length || !v.sh || !v.sh.rings || !v.sh.rings.length) continue;
+      const d = Math.hypot(v.x - rx, v.y - ry, v.z - rz);
+      if (d < WK.near) list.push([d, v]);
+    }
+    list.sort((p, q) => p[0] - q[0]);
+    if (list.length > WK.n) list.length = WK.n;
+    for (const [v, w] of SWL.wk) if (!list.some((e) => e[1] === v) || t < w.t - 1) SWL.wk.delete(v); // (gone, out of reach, or the time went back)
+    if (!list.length && !SWL.wk.size) { if (SWL.wmesh) SWL.wmesh.visible = false; return; }
+    wakeAlloc();
+    // drop points: the stern's middle and the bow every WAKE.dt s while she makes way
+    for (const [, v] of list) {
+      let w = SWL.wk.get(v);
+      if (!w) SWL.wk.set(v, (w = { pts: [], bow: [], t: -Infinity }));
+      const V = v.speed();
+      if (t - w.t >= WK.dt && V > WK.vmin && !v.dead) {
+        w.t = t;
+        const S0 = wakeShape(v), s = wakeSpot(v, S0.sx, S0.sy, S0.zc, WKP), c = wakeSpot(v, S0.bx, S0.by, S0.zc, WKB);
+        const dep = swell ? Math.max(0, -Terrain.heightAt(b, s.a, s.z)) : 0; // (the water's depth there, once: the swell's share at its points)
+        w.dep = dep;
+        w.pts.push({ a: s.a, z: s.z, la: s.la, lz: s.lz, t, hw: S0.beam * 0.42, V, dep });
+        w.bow.push({ a: c.a, z: c.z, la: c.la, lz: c.lz, t, V, dep });
+      }
+      while (w.pts.length && t - w.pts[0].t > WK.life) w.pts.shift();
+      while (w.bow.length && t - w.bow[0].t > WK.kelvinT) w.bow.shift();
+      if (w.pts.length > WK.pts) w.pts.splice(0, w.pts.length - WK.pts);
+      w.v = v;
+    }
+    // fill the mesh: positions on the sphere from the grid's frame (its anchor), the swell's share there
+    const g = SWL.wmesh.geometry, at = g.attributes, P = at.position.array, Nn = at.normal.array, Sw = at.aSwell.array, Wk = at.aWk.array, I = g.index.array;
+    const R = b.radius, aA = SWL.aA, zA = SWL.zA, phA = zA / R, ya = R * Math.cos(phA) - R, za = R * Math.sin(phA), half = SWL.half || 1, E = SHIP.SWELL.edge, TK = Math.tan((WK.kelvin * Math.PI) / 180);
+    if (!SWL.frame.visible) { // (no swell: the wakes' frame on its own anchor, the camera's spot)
+      const L = Terrain.locate(b, rx, ry, rz, SWLOC), cell = 4;
+      SWL.eA = Math.round(-wrapAngle(L.a - EARTH.padAngle) * R / cell) * cell; SWL.zA = Math.round(L.z / cell) * cell; SWL.aA = EARTH.padAngle - SWL.eA / R;
+      placeFrame(SWL.frame, b, SWL.aA, F.time); SWL.frame.visible = true; if (SWL.mesh) SWL.mesh.visible = false;
+      return updateWakes(F, b, rx, ry, rz, swell);
+    }
+    let nv = 0, ni = 0;
+    const cap = WK_MAX();
+    const vert = (a, z, across, alpha, dep) => {
+      const le = -wrapAngle(a - aA) * R, ph = z / R, cp = Math.cos(ph), d = a - aA, ux = -cp * Math.sin(d), uy = cp * Math.cos(d), uz = Math.sin(ph), k = nv * 3;
+      P[k] = R * ux; P[k + 1] = R * uy - R - ya; P[k + 2] = R * uz - za; Nn[k] = ux; Nn[k + 1] = uy; Nn[k + 2] = uz;
+      const ln = -(z - zA), r = Math.hypot(le, ln);
+      let f = 0;
+      if (swell) f = smoothstep(SHIP.FADE[0], SHIP.FADE[1], dep) * (1 - smoothstep(E[0] * half, E[1] * half, r));
+      Sw[k] = le; Sw[k + 1] = ln; Sw[k + 2] = f;
+      const e = -wrapAngle(a - EARTH.padAngle) * R, q = nv * 4;
+      Wk[q] = across; Wk[q + 1] = alpha; Wk[q + 2] = ((e % 2048) + 2048) % 2048; Wk[q + 3] = ((-z % 2048) + 2048) % 2048;
+      return nv++;
+    };
+    const ribbon = (pts) => { // pts: [a, z, la, lz, half width, alpha, depth] from the oldest; quads between neighbours
+      let prev = -1;
+      for (const p of pts) {
+        if (nv + 2 > cap) break;
+        const L = p[4], i0 = vert(p[0] - (p[2] * L) / R, p[1] + p[3] * L, 1, p[5], p[6]), i1 = vert(p[0] + (p[2] * L) / R, p[1] - p[3] * L, -1, p[5], p[6]);
+        if (prev >= 0) { I[ni++] = prev; I[ni++] = prev + 1; I[ni++] = i0; I[ni++] = prev + 1; I[ni++] = i1; I[ni++] = i0; }
+        prev = i0;
+      }
+    };
+    // (a point's lateral offset: east by la·L, an angle of −la·L/R, and z by lz·L)
+    for (const [v, w] of SWL.wk) {
+      if (!w.pts.length && !w.bow.length) continue;
+      const S0 = v.sh && v.sh._wk;
+      const main = w.pts.map((p) => { const age = t - p.t, k = 1 - age / WK.life; return [p.a, p.z, p.la, p.lz, p.hw * (1 + WK.grow * age), 0.85 * k * k * clamp(p.V / 8, 0.3, 1), p.dep]; });
+      if (S0 && !v.dead && w.pts.length && v.speed() > WK.vmin) { const s = wakeSpot(v, S0.sx, S0.sy, S0.zc, WKP); main.push([s.a, s.z, s.la, s.lz, S0.beam * 0.42, 0.85 * clamp(v.speed() / 8, 0.3, 1), w.dep || 0]); }
+      ribbon(main);
+      for (const sg of [-1, 1]) {
+        const arm = w.bow.map((p) => { const age = t - p.t, off = sg * p.V * age * TK, k = 1 - age / WK.kelvinT; return [p.a - (p.la * off) / R, p.z + p.lz * off, p.la, p.lz, 0.4 + 0.02 * age * p.V, 0.32 * k * smoothstep(0, 0.6, age) * clamp((p.V - 2) / 6, 0, 1), p.dep]; }); // (thin at the bow, spreading and fading as it runs out)
+        ribbon(arm);
+      }
+    }
+    g.setDrawRange(0, ni);
+    for (const k of ['position', 'normal', 'aSwell', 'aWk']) { const A = at[k]; A.clearUpdateRanges(); A.addUpdateRange(0, Math.max(1, nv) * A.itemSize); A.needsUpdate = true; }
+    g.index.clearUpdateRanges(); g.index.addUpdateRange(0, Math.max(1, ni)); g.index.needsUpdate = true;
+    SWL.wmesh.position.set(0, ya, za);
+    SWL.wmesh.visible = ni > 0 && api.bench.wake !== false;
+    SWL.wn = SWL.wk.size; SWL.wverts = nv;
+    // the foam's light: the Sun's on it and the sky's, as the water's diffuse sees them
+    const sunUp = Math.max(0, S.sunV.y), c = S.wakeU.uFoam.value;
+    const ks = S.sun.intensity * sunUp * 0.22, kh = S.hemi.intensity * 0.3, sc = S.sun.color, hc = S.hemi.color;
+    c.r = Math.min(sc.r * ks + hc.r * kh, 1.2) * 0.93; c.g = Math.min(sc.g * ks + hc.g * kh, 1.2) * 0.96; c.b = Math.min(sc.b * ks + hc.b * kh, 1.2);
+  }
+
   // ------------------------------------------------------------------ things sinking away through the water
-  // Render only: when they go is the sim's (death.js: junk, ground wrecks), and nothing here is read back. A wreck or a
-  // cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most SINK_MAX m, slowly
-  // at first), and an aircraft that crashed into the water (v.dead, death.js's crash) is drawn sinking for SINK_GHOST s of
-  // the sim's time (sinkGhost: its mesh kept, as it was when it hit). Each is drawn through the water by its own depth,
-  // not the bottom's: its pixels are marked in the stencil (its slot, 1..WATER.sinks, nearest first), the water isn't
-  // drawn there, and a veil of the same water (OB_VEIL) is drawn there instead, over it, absorbing by the depth of its
-  // top (sinkVeil), wholly the water's colour by the end. No sinking thing, no stencil: the water draws as without them.
-  const SINK_MAX = 16, SINK_GHOST = 8, LOCW = {}, VP = v3(), sinkCand = [];
+  // Render only: when they go is the sim's (death.js: junk, ground wrecks, the sea rule), and nothing here is read back.
+  // A wreck or a cold piece sinking away (v.sink) over water goes down through it (sinkDrop: to the bottom, at most
+  // SINK_MAX m, slowly at first), and a craft that crashed into the water (v.dead, death.js's crash and sea rule) is
+  // drawn going down (sinkGhost: its mesh kept, as it was when it hit): one with v.sea (death.js's record of how it went
+  // in) by Death.seaPose, ploughing on along its way, nosing down and sinking fast when it hit fast, floating a moment
+  // and sinking over SEA.slow s when it didn't; an aircraft without one (no death.js) sinking for SINK_GHOST s of the
+  // sim's time. Each is drawn through the water by its own depth, not the bottom's: its pixels are marked in the stencil
+  // (its slot, 1..WATER.sinks, nearest first), the water isn't drawn there, and a veil of the same water (OB_VEIL) is
+  // drawn there instead, over it, absorbing by the depth of its top (sinkVeil), wholly the water's colour by the end.
+  // No sinking thing, no stencil: the water draws as without them. (Sea crash fix: SINK_MAX 16 -> 60, so what sinks goes
+  // to the sea bed or out of sight instead of hanging 16 m down; v.sea's plunge; up to SINK_SEA of them at once.)
+  const SINK_MAX = 60, SINK_GHOST = 8, SINK_SEA = 6, LOCW = {}, VP = v3(), sinkCand = [], SQ = { x: 0, y: 0, z: 0, w: 1 }, QO = { x: 0, y: 0, z: 0, w: 1 }, GQ = { dt: 0, time: 0, rho: 0, quality: 'high' };
   // the water at a vessel (its surface's level and the bottom's, m), or null over dry ground or a deck
   function wetUnder(v) {
     const b = v.body;
@@ -5967,27 +6410,53 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     V.lvl = e.wet.level; V.bed = e.wet.bed;
     sinkCand.push(e);
   }
-  // An aircraft that crashed into the water (dead, in one piece, drawn the frame before, its centre within its own size of
-  // the surface, over water): its mesh is kept and drawn sinking for SINK_GHOST s of the sim's time, at most 3 at once; a
-  // new flight (Flight's flags object renewed) or the time going back ends it. true: it is drawn this frame
+  // A craft that crashed into the water (dead, in one piece, drawn the frame before): one death.js sent under (v.sea: any
+  // kind, a peer's too) is drawn by Death.seaPose for its time, at most SINK_SEA at once; else an aircraft (not a
+  // rocket, a peer's or a wreck) with its centre within its own size of the surface, over water, sinks for SINK_GHOST s
+  // of the sim's time, at most 3 at once. A new flight (Flight's flags object renewed) or the time going back ends it.
+  // true: it is drawn this frame
   function sinkGhost(F, v, e, camSim) {
     if (!e.ghost) {
-      if (!(v.dead && v.parts.length && v.body && isAirKind(v.kind) && v.kind !== 'rocket' && !v.wreck && !v.remote && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
+      const rec = v.sea && typeof Death !== 'undefined' && Death.seaPose ? v.sea : null;
+      if (!(v.dead && v.parts.length && v.body && (rec || (isAirKind(v.kind) && v.kind !== 'rocket' && !v.remote)) && !v.wreck && !(v.sink > 0) && e.seen === frameNo - 1 && e.root.visible)) return false;
       let n = 0;
-      for (const o of vessels.values()) if (o.ghost) n++;
-      if (n >= 3) return false;
-      const w = wetUnder(v);
+      for (const o of vessels.values()) if (o.ghost && !!o.ghost.rec === !!rec) n++;
+      if (n >= (rec ? SINK_SEA : 3)) return false;
+      const w = rec ? { level: rec.lvl, bed: rec.bed } : wetUnder(v);
       if (!w) return false;
       const ext = Math.max(v.bounds.maxX - v.bounds.minX, v.bounds.maxY - v.bounds.minY, 1), r = Math.hypot(v.x, v.y, v.z);
-      if (r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
-      e.ghost = { t0: F.time, flags: F.flags, ext }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+      if (!rec && r - v.body.radius - w.level > 0.5 * ext + 4) return false; // (it went up in the air, not in the water)
+      e.ghost = { t0: rec ? rec.t : F.time, flags: F.flags, ext, rec }; e.wet = w; e.sinkH = ext; e.topH = 0.5 * standH(v);
+      GQ.time = F.time; GQ.quality = Settings.high ? 'high' : 'low';
+      try { e.vm.sync(v, GQ); } catch (err) { console.error('Render3D: a craft going under could not be drawn afresh', err); } // (once, as it went in: its engines out, so no plume is drawn on down through the water)
     }
-    const G = e.ghost, u = (F.time - G.t0) / SINK_GHOST;
-    if (!(u >= 0 && u < 1) || F.flags !== G.flags) return false;
-    e.seen = frameNo;
-    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, s = sinkDrop(e, u);
-    const x = bp.x + v.x - camAbs.x - (v.x / r) * s, y = bp.y + v.y - camAbs.y - (v.y / r) * s, z = v.z - camAbs.z - (v.z / r) * s;
+    const G = e.ghost, R0 = G.rec;
+    if (F.flags !== G.flags) return false;
+    let u, s, a = 0, k = 0;
+    if (R0) {
+      const P = Death.seaPose(R0, F.time - G.t0);
+      if (!P) return false;
+      u = P.u; a = P.a; k = P.k;
+      s = P.d == null ? sinkDrop(e, u) : Math.min(P.d, Math.max(e.sinkH + 1, Math.min(e.wet.level - e.wet.bed + 0.5 * e.sinkH, SINK_MAX))); // (fast: down at once, to the bed or out of sight)
+    } else {
+      u = (F.time - G.t0) / SINK_GHOST;
+      if (!(u >= 0 && u < 1)) return false;
+      s = sinkDrop(e, u);
+    }
+    e.seen = frameNo; e.seaA = a; e.seaS = s; // (waterInfo's: how far on and down it is drawn)
+    const bp = bodyPos(v.body, F.time), r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
+    const hx = R0 ? R0.hx * a : 0, hy = R0 ? R0.hy * a : 0, hz = R0 ? R0.hz * a : 0; // (on along its way)
+    const x = bp.x + v.x - camAbs.x - ux * s + hx, y = bp.y + v.y - camAbs.y - uy * s + hy, z = v.z - camAbs.z - uz * s + hz;
     e.root.position.set(x, y, z);
+    if (R0) { // (nosing down along its way: turned k about its way × down, from the pose it hit in)
+      let q = v.q;
+      if (k > 0) {
+        const ax = uy * R0.hz - uz * R0.hy, ay = uz * R0.hx - ux * R0.hz, az = ux * R0.hy - uy * R0.hx; // (up × h = h × down)
+        const L = Math.hypot(ax, ay, az);
+        if (L > 1e-6) { const h = 0.5 * k, sn = Math.sin(h) / L; SQ.w = Math.cos(h); SQ.x = ax * sn; SQ.y = ay * sn; SQ.z = az * sn; q = qmul(SQ, v.q, QO); }
+      }
+      e.root.quaternion.set(q.x, q.y, q.z, q.w);
+    }
     sinkVeil(e, v, r, s, u, Math.hypot(x - camSim.x, y - camSim.y, z - camSim.z), G.ext);
     return true;
   }
@@ -6480,6 +6949,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     S.design.updateMatrixWorld();
     builderMarkers(B, dist);
     builderArcs(B);
+    builderWater(B); // [WP4] (the ships update: a ship's waterline)
     // lights and shadow box sized to the craft
     S.key.position.set(tx + size * 1.2, ty + size * 2.2, size * 1.6);
     S.key.target.position.set(tx, ty * 0.5, 0);
@@ -6511,6 +6981,22 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     g.position.set(A.c.x, A.c.y + 0.03, A.c.z || 0);
     S.design.add(g);
     S.arcs = g;
+  }
+  // [WP4] (the ships update) building a ship: a pale blue sheet at the waterline she floats at (B.waterline3d: the sea plane
+  // in part space, a little past her length and beam; red when she sinks); made again only when it moves
+  function builderWater(B) {
+    const W = B.waterline3d ? B.waterline3d() : null, key = W ? [W.x0, W.x1, W.z0, W.z1, W.a, W.bx, W.bz].map((v) => v.toFixed(3)).join() + W.bad : '';
+    if (key === S.wlKey) return;
+    S.wlKey = key;
+    if (S.wl) { S.design.remove(S.wl); S.wl.geometry.dispose(); S.wl = null; }
+    if (!W) return;
+    if (!S.wlMat) S.wlMat = [0x4fb6ff, 0xff5d5d].map((color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+    const g = new THREE.BufferGeometry(), y = (x, z) => W.a + W.bx * x + W.bz * z;
+    g.setAttribute('position', new THREE.Float32BufferAttribute([W.x0, y(W.x0, W.z0), W.z0, W.x1, y(W.x1, W.z0), W.z0, W.x1, y(W.x1, W.z1), W.z1, W.x0, y(W.x0, W.z1), W.z1], 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    S.wl = new THREE.Mesh(g, S.wlMat[W.bad ? 1 : 0]);
+    S.wl.renderOrder = 5;
+    S.design.add(S.wl);
   }
   // Centre of mass (yellow and black) and, for planes, centre of lift (blue), drawn over the craft at a
   // fixed size on screen, as on the blueprint.
@@ -6873,6 +7359,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       fogK: 1,
       proxyCap: 0,
       ground: true, water: true, oldWater: false, // (the water's depth: benchWater)
+      wake: true, // [WP2] (false: the wakes not drawn, for their pixels)
     },
     shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
     propsCastOff: false, // measuring only: the props cast no shadow
@@ -7029,11 +7516,27 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
     meshOf(v) { const e = vessels.get(v); return e ? e.vm : null; },
+    // [WP2] the swell and the wakes near a ship (tests and the console): on, its grid (cells, size, the anchor's east and z),
+    // the ocean's hole, how often it was recentred and filled (and the last and worst fill, ms), the waves' uniforms as
+    // drawn, the wakes (vessels, vertices); swellGLSL: the shader's wave function (test/browser/water.mjs runs it on the GPU)
+    swellInfo() {
+      const U = S.swU;
+      return { on: SWL.on, shown: !!(SWL.frame && SWL.frame.visible && SWL.mesh && SWL.mesh.visible), N: SWL.N, cell: SWL.cell, half: SWL.half, eA: SWL.eA, zA: SWL.zA, aA: SWL.aA,
+        hole: S.seaHole ? S.seaHole.value.toArray() : null, recentres: SWL.recentres, rebuilds: SWL.rebuilds, ms: +SWL.ms.toFixed(2), msMax: +SWL.msMax.toFixed(2),
+        slice: +SWL.slice.toFixed(3), sliceMax: +SWL.sliceMax.toFixed(3), frames: SWL.frames, filling: !!SWL.job,
+        W: U ? [...U.uSwW.value] : null, P: U ? [...U.uSwP.value] : null, wakes: SWL.wn, wverts: SWL.wverts, near: SWL.near ? SWL.near.name : null,
+        mat: !!SWL.mat, wmat: !!SWL.wmat };
+    },
+    swellGLSL: SWELL_FN,
+    // tests: fill the grid again now (as a recentre does), returning what it took (ms); null with no grid on show
+    // (a whole fill: the job a frame does a slice of, run to its end at once, and swapped in; sliced: only started, the
+    // frames drawn run it as a recentre's is run, swellInfo's slice its worst frame then)
+    swellRefill(sliced) { if (!SWL.on || !SWL.b) return null; const A = SWL.bufs[SWL.cur].anc; swellStart(SWL.b, A.aA, A.zA, A.eA); if (sliced) return null; swellRun(Infinity); return SWL.ms; },
     // the water's depth (tests): on (OB_DEEP), the sea's stencil test on, the veils on show, and each vessel drawn sinking
     // through water: its slot, its top's depth and the least of the water's colour over it, how far it is drawn down, a ghost
     waterInfo() {
       const sinks = [];
-      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
+      for (const [v, e] of vessels) if (e.wet && (v.sink > 0 || e.ghost)) sinks.push({ name: v.name, slot: e.slot || 0, dep: e.veil ? +e.veil.dep.toFixed(2) : null, min: e.veil ? +e.veil.min.toFixed(3) : null, ghost: !!e.ghost, sea: !!(e.ghost && e.ghost.rec), on: e.ghost && e.ghost.rec ? +(e.seaA || 0).toFixed(1) : null, down: e.ghost && e.ghost.rec ? +(e.seaS || 0).toFixed(1) : null, level: e.wet.level, bed: +e.wet.bed.toFixed(2) });
       return { deep: !!S.deepW, stencil: !!(terr.oceanMat && terr.oceanMat.stencilWrite), veils: S.veils ? S.veils.filter((q) => q.visible).length : 0, sinks };
     },
     // the arena's ground: { on, built, vertices, triangles, leaves, evals, ms } (for tests and tuning); arenaGeo(id, hi)
@@ -7132,7 +7635,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // it starts. For Flight.setSight, which keeps the crosshair's point. null without a flight frame, or P at the eye.
     aimWay(v, sight, P, out, eye) {
       if (!api.ready || !camera || mode !== 'flight' || !v || !v.aimed || !v.aimed.length) return null;
-      const b = v.body, dist = aimDist(Flight), E = eye || AWE;
+      const b = v.body, dist = aimDist(Flight, v), E = eye || AWE;
       aimEye(v, sight, AW0, 0, E); // (first along the line through the eye's pivot: 1 m over the turret's, or the sight)
       for (let i = 0; i < 6; i++) {
         const dx = P.x - E.x, dy = P.y - E.y, dz = P.z - E.z, L = Math.hypot(dx, dy, dz);

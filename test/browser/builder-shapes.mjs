@@ -23,7 +23,7 @@ t = await tabs();
 ok('a plane shows cockpits, fuselage, wings, aero engines, gear, weapons and radar', t.join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar|More…', t.join('|'));
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'More…').click());
 t = await tabs();
-ok('More shows every tab, the plane ones first', t.length === 27 && t.slice(0, 7).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar' && t.includes('Command') && t.includes('Hulls') && t.includes('Frames') && t[26] === 'Fewer', t.join('|'));
+ok('More shows every tab, the plane ones first', t.length === 32 && t.slice(0, 7).join('|') === 'Cockpits*|Fuselage|Wings|Aero engines|Gear|Weapons|Radar' && t.includes('Command') && t.includes('Hulls') && t.includes('Frames') && t.includes('Ship hulls') && t[31] === 'Fewer', t.join('|')); // (the ships update's five tabs too)
 await ev(() => [...document.querySelectorAll('#palette-tabs .tab')].find((b) => b.textContent === 'Engines').click());
 let items = await ev(() => [...document.querySelectorAll('#palette-items .part-item')].length);
 ok('a rocket engine can still go on a plane', items > 5, items);
@@ -168,6 +168,36 @@ r = await ev(() => {
   return { n, out };
 });
 ok(`every drone part's and counter-drone part's 3D model lies inside its box (${r.n} parts)`, r.n === 41 && !r.out.length, r.out.join(' '));
+// 3e. the ships update's parts: a hull's loft is checked against its clash shape above (its side outline across the beam);
+// the kit that clashes as a box (the wheelhouse, propeller and rudder) has its model inside its box, at rest
+r = await ev(() => {
+  const out = [], inv = new THREE.Matrix4(), m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let n = 0, hulls = 0;
+  for (const type in PARTS) {
+    const d = PARTS[type];
+    if (!d.ship) continue;
+    if (d.shull) { hulls += clashShape(d, false).box ? 0 : 1; continue; }
+    if (d.inner) continue; // (inside a hull: never drawn in flight, its box model the ground update's)
+    const p = makePart(type, 0, 0), root = Parts3D.buildPart(p, true), hd = partDepth(p) / 2;
+    root.updateMatrixWorld(true);
+    let worst = 0, meshes = 0;
+    for (const H of root.userData.rig.holders) {
+      inv.copy(H.matrixWorld).invert();
+      H.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return;
+        for (let q = o; q; q = q.parent) if (!q.visible) return;
+        meshes++;
+        m.multiplyMatrices(inv, o.matrixWorld);
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m); worst = Math.max(worst, Math.abs(v.x) - d.w / 2, Math.abs(v.y) - d.h / 2, Math.abs(v.z) - hd); }
+      });
+    }
+    n++;
+    if (worst > 0.015 || !meshes) out.push(`${type} ${meshes ? worst.toFixed(3) : 'no mesh'}`);
+  }
+  return { n, hulls, out };
+});
+ok(`every ship hull is lofted (clashing as its loft: ${r.hulls}) and every other ship part's model lies inside its box (${r.n} parts)`, r.hulls >= 3 && r.n >= 3 && !r.out.length, JSON.stringify(r));
 await ev(() => App.setPreview3D(false));
 
 // 4. cheap enough to run on every pointer move: snap against a whole jet
@@ -192,7 +222,7 @@ ok(`dragging a big lofted part about its own jet: ${r.toFixed(2)} ms a move`, r 
   watch(ph, errs);
   await openGame(ph, srv.url, { build3d: false });
   await ph.evaluate(() => App.toBuild());
-  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli', 'tank']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
+  r = await ph.evaluate(() => [...['rocket', 'plane', 'car', 'heli', 'tank', 'ship']].map((k) => { Builder.setKind(k); const strip = $('#palette-tabs').getBoundingClientRect(), m = [...document.querySelectorAll('#palette-tabs .tab')].find((t) => t.textContent === 'More…').getBoundingClientRect(); return m.right <= strip.right + 1 && m.left >= strip.left; }));
   ok('phone portrait: More is in sight for every kind of craft', r.every(Boolean), JSON.stringify(r));
 }
 

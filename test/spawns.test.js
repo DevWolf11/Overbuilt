@@ -2,7 +2,7 @@
 // their props in props.js). The list: every kind's spots by region as the owner asked (Armour four on the Faroes, two in
 // Scotland, two on Shetland; drones beside the tanks in each region and the helipad; planes, helicopters and rockets on
 // Shetland and in Scotland too), one default per kind, today's start. Each spot dry, flat and clear of every prop; each
-// drone pad within 150 m of a tank spot. Spawns.solo: nothing chosen (or Career) starts exactly as before, a stored
+// drone pad within 150 m of a tank spot. Spawns.solo: nothing chosen (or a battle room) starts exactly as before, a stored
 // choice starts there, forged choices are ignored, no map falls back. A room's next players stand apart on the pad.
 // Then physics: each kind's stock craft started at each of its spots and stepped 5 s (as the game steps a flight) stays
 // put, upright, whole and on its ground; the air starts fly. No prop of the new maps on its pad's spots, the track, an
@@ -14,7 +14,7 @@ const ctx = G.load({ combat: true, ground: true, props: true, flight: true }), R
 // Spawns from mpui.js and airfieldPlacement from mp.js, over stand-ins for the page (the map in, the 3D view on)
 const src = (f) => fs.readFileSync(path.join(G.ROOT, 'js', f), 'utf8');
 R(`var __ls = new Map(); var localStorage = { getItem: (k) => (__ls.has(k) ? __ls.get(k) : null), setItem: (k, v) => __ls.set(k, String(v)), removeItem: (k) => __ls.delete(k) };
-var Career = { data: { mode: 'sandbox' }, sandbox: true }; var App = { use3D: () => !App.flat, flat: false, afterEarth(f) { f(); } };
+var App = { use3D: () => !App.flat, flat: false, afterEarth(f) { f(); } };
 var $ = () => null;`);
 R(src('mp.js').match(/function airfieldPlacement\(af, slot, kind\) \{[\s\S]*?\n\}/)[0]);
 R(src('mpui.js').match(/const Spawns = \{[\s\S]*?\n\};/)[0] + '\nthis.Spawns = Spawns;');
@@ -25,13 +25,13 @@ const A = (e) => ctx.siteAngle(E, e), gH = (e, z) => T.surfaceAt(E, A(e), z), we
 const J = (o) => JSON.stringify(o);
 
 // ---------------------------------------------------------------- the list
-const KINDS = ['rocket', 'plane', 'car', 'heli', 'drone', 'tank'], L = E.spawns;
+const KINDS = ['rocket', 'plane', 'car', 'heli', 'drone', 'tank', 'ship'], L = E.spawns;
 const by = (kind, region) => L.filter((s) => s.kinds.includes(kind) && (!region || s.region === region)).map((s) => s.id);
-t('ids unique, every spot a known kind in a known region with a name and a blurb, exactly one of site, pad, airfield, arena and air',
+t('ids unique, every spot a known kind in a known region with a name and a blurb, exactly one of site, pad, airfield, arena, air and sea',
   new Set(L.map((s) => s.id)).size === L.length && L.every((s) => s.kinds.length && s.kinds.every((k) => KINDS.includes(k)) && ['Faroes', 'Shetland', 'Scotland'].includes(s.region) && s.name && s.blurb
-    && ['site', 'pad', 'airfield', 'arena', 'air'].filter((f) => s[f] != null).length === 1 && (!s.pad || E.groundPads[s.pad]) && (!s.airfield || E.airfields[s.airfield]) && (!s.site || E.sites[s.site])));
-t('one default a kind, today\'s start: the pad, the runway (planes and cars), the helipad (helicopters and drones), Highland Ridge\'s north pad (Armour)',
-  J(KINDS.map((k) => L.filter((s) => s.def && s.def.includes(k)).map((s) => s.id))) === J([['pad'], ['runway'], ['runway'], ['helipad'], ['helipad'], ['highlandN']]));
+    && ['site', 'pad', 'airfield', 'arena', 'air', 'sea'].filter((f) => s[f] != null).length === 1 && (!s.pad || E.groundPads[s.pad]) && (!s.airfield || E.airfields[s.airfield]) && (!s.site || E.sites[s.site])));
+t('one default a kind, today\'s start: the pad, the runway (planes and cars), the helipad (helicopters and drones), Highland Ridge\'s north pad (Armour), the bay (ships)',
+  J(KINDS.map((k) => L.filter((s) => s.def && s.def.includes(k)).map((s) => s.id))) === J([['pad'], ['runway'], ['runway'], ['helipad'], ['helipad'], ['highlandN'], ['bay']]));
 t('Armour: four on the Faroes (the Tank Yard and three outposts), two in Scotland (Highland Ridge, Watten), two on Shetland',
   J(by('tank', 'Faroes')) === J(['yard', 'funningur', 'vidareidi', 'tvoroyri']) && J(by('tank', 'Scotland')) === J(['highlandN', 'watten']) && J(by('tank', 'Shetland')) === J(['northRoe', 'bixter']));
 t('cars: the runway and every Armour spot', J(by('car')) === J(['runway', ...by('tank')].sort((a, b) => L.findIndex((s) => s.id === a) - L.findIndex((s) => s.id === b))));
@@ -40,6 +40,9 @@ t('planes: the runway, the Shetland and Scotland airfields, two air starts; heli
   J(by('plane')) === J(['runway', 'shetlandAir', 'scotlandAir', 'airFaroes', 'airHighland']) && J(by('heli')) === J(['helipad', 'shetlandAir', 'scotlandAir']) && J(by('rocket')) === J(['pad', 'lunna', 'bettyhill']));
 
 // ---------------------------------------------------------------- where each puts a craft
+t('ships (the ships update): the bay (their own site), off the slipway and Carrier West on the Faroes, off Shetland harbour and Carrier East, off Caithness and Carrier South; only ships at sea, and no ship on land',
+  J(by('ship', 'Faroes')) === J(['bay', 'slipway', 'carrierW']) && J(by('ship', 'Shetland')) === J(['shetlandHbr', 'carrierE']) && J(by('ship', 'Scotland')) === J(['caithness', 'carrierS'])
+  && L.every((s) => !s.sea === !s.kinds.includes('ship') || s.site === 'bay') && L.filter((s) => s.kinds.includes('ship')).every((s) => s.kinds.join() === 'ship'));
 const ALL = [];
 for (const s of L) for (const k of s.kinds) if (!s.site) ALL.push([s, k, R(`JSON.stringify(Spawns.place(Spawns.byId('${s.id}'), '${k}', 0))`)]);
 const places = ALL.map(([s, k, j]) => [s, k, JSON.parse(j)]);
@@ -47,7 +50,7 @@ t('every spot off a site gives a place (with its spot\'s id; planes on the groun
 // a ground spot: dry and flat under a 16 m square, no prop's solid footprint within 9 m (a drone or helicopter pad's 7 m)
 const bad = [];
 for (const [s, k, p] of places) {
-  if (p.air) continue;
+  if (p.air || s.sea) continue; // (a sea spot's water: below)
   let lo = Infinity, hi = -Infinity, w = 0;
   for (let u = -8; u <= 8; u += 2) for (let v = -8; v <= 8; v += 2) { const h = gH(p.e + u, p.z + v); lo = Math.min(lo, h); hi = Math.max(hi, h); if (wet(p.e + u, p.z + v)) w++; }
   const slope = Math.atan((hi - lo) / 16) * 180 / Math.PI, clear = P.freeAt(p.e, p.z, k === 'drone' || k === 'heli' ? 7 : 9);
@@ -80,8 +83,8 @@ t('nothing chosen: every kind starts exactly where it did (Armour on Highland Ri
 R(`Spawns.choose('tank', 'watten'); Spawns.choose('drone', 'wattenDrone'); Spawns.choose('rocket', 'lunna'); Spawns.choose('plane', 'airHighland');`);
 t('a choice is remembered per kind (rss.spawn) and the flight starts there', R(`Spawns.solo('tank').sp.id === 'watten' && Spawns.solo('tank').place.spot === 'watten' && Spawns.solo('drone').place.spot === 'wattenDrone' && Spawns.solo('rocket').place.spot === 'lunna' && Spawns.solo('plane').place.air.alt === 1000
   && JSON.parse(localStorage.getItem('rss.spawn')).tank === 'watten' && soloOf('car') === oldStart('car') && soloOf('heli') === oldStart('heli')`));
-t('...a spot chosen that is its kind\'s default starts as ever, and Career ignores the choice', R(`(() => { Spawns.choose('rocket', 'pad'); const a = soloOf('rocket') === oldStart('rocket'); Spawns.choose('rocket', 'lunna');
-  Career.sandbox = false; const b = ${J(KINDS)}.every((k) => soloOf(k) === oldStart(k)); Career.sandbox = true; return a && b; })()`));
+t('...a spot chosen that is its kind\'s default starts as ever; solo play always offers the choice (every flight is sandbox), a battle room ignores it', R(`(() => { Spawns.choose('rocket', 'pad'); const a = soloOf('rocket') === oldStart('rocket'); Spawns.choose('rocket', 'lunna');
+  const solo = Spawns.offered(); this.MP = { live: true, pvp: true, ground: false }; const b = !Spawns.offered() && ${J(KINDS)}.every((k) => soloOf(k) === oldStart(k)); delete this.MP; return a && b && solo; })()`));
 t('forged or stale choices are ignored: another kind\'s spot, unknown ids, __proto__, numbers, an array, junk', R(`(() => { const ok = [];
   for (const raw of ['{"tank":"lunna"}', '{"tank":"nowhere"}', '{"__proto__":"yard","tank":"__proto__"}', '{"tank":7}', '["watten"]', 'junk', '{"tank":{"id":"watten"}}']) {
     localStorage.setItem('rss.spawn', raw); ok.push(soloOf('tank') === oldStart('tank') && Spawns.choose('car', 'nowhere') === false && Spawns.choose('rocket', 'yard') === false); }
@@ -116,7 +119,7 @@ var mk = (design, P) => {
   return v; };
 var go = (F, secs) => { for (let f = 0, N = Math.round(secs * 60); f < N; f++) { for (let i = 0; i < 2; i++) { for (const v of F.vessels.slice()) if (!v.dead && v.parts.length) v.physicsStep(1 / 120, F); Combat.step(1 / 120, F); F.time += 1 / 120; }
   Combat.frame(F, 1 / 60); F.cleanup(); } };
-var STOCK = { tank: ['tk34', 'ma1c'], car: ['buggy', 'technical'], drone: ['bumble', 'lancett'], heli: ['dragonfly'], plane: ['falcon'], rocket: ['pathfinder'] };
+var STOCK = { tank: ['tk34', 'ma1c'], car: ['buggy', 'technical'], drone: ['bumble', 'lancett'], heli: ['dragonfly'], plane: ['falcon'], rocket: ['pathfinder'], ship: [] }; // (ships: their own trial, below)
 var trial = (id, kind, key) => { const P = Spawns.place(Spawns.byId(id), kind, 0), F = world(), v = mk(designOf(key), P), n = v.parts.length;
   F.vessels = [v]; F.active = v; Combat.reset(F); go(F, 0.5);
   const x0 = { x: v.x, y: v.y, z: v.z }, up0 = v.axis(0, 1, 0), fw0 = v.axis(1, 0, 0), g0 = v.altitude();
@@ -132,6 +135,46 @@ const rest = ground.filter((r) => r.dead || r.lost || r.turn > 3 || r.moved > 1 
 t(`each kind's stock craft at each of its ground spots (${ground.length} starts) stays put 5 s: whole, upright (under 3° of tilt), under 1 m of travel and at rest, on its ground`, !rest.length && ground.length > 40, rest.length ? rest.slice(0, 6) : { n: ground.length, most: Math.max(...ground.map((r) => r.moved)), tilt: Math.max(...ground.map((r) => r.turn)) });
 const fly = flying.filter((r) => r.dead || r.lost || r.alt < 0.6 * r.alt0 || r.speed < 15);
 t(`the air starts (${flying.length}: planes over the Faroes and Highland Ridge, a winged drone over its pads) fly on, whole and up`, !fly.length && flying.length >= 6, fly.length ? fly : flying.map((r) => `${r.id} ${r.key} ${r.alt}/${r.alt0} m ${r.speed} m/s`));
+
+// ---------------------------------------------------------------- the ships update: the sea spots
+// Every ship spot (the bay's own site too), and a room's first six places at each (abreast, 120 m apart): the water under
+// a box round each stock ship there (her length plus 20 m, her beam plus 4 m, along her yaw) deeper than her draft + 2 m
+// everywhere (her draft: what ship.js's hydrostatics says she draws, or, before it does, her hull's whole depth, keel to
+// deck: more than she can draw), and the spot clear of the carriers' hulls; the abreast places 120 m apart.
+{
+  const SHIPS = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'ship');
+  R(`var shipDims = (key) => { const ps = partsFromDesign(templateRows(TEMPLATES[key])); const hs = ps.filter((p) => p.def.shull); let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, b = 0;
+    for (const p of ps) { const r = partRect(p); x0 = Math.min(x0, r.l); x1 = Math.max(x1, r.r); }
+    for (const p of hs) { const r = partRect(p); y0 = Math.min(y0, r.b); y1 = Math.max(y1, r.t); b = Math.max(b, p.def.depth || 0); }
+    const hy = typeof Ship !== 'undefined' ? Ship.hydrostatics(ps) : null, draft = hy && hy.draft > 0 ? hy.draft : y1 - y0;
+    return { L: x1 - x0, B: b, draft, hull: hs.length }; };`);
+  const dims = Object.fromEntries(SHIPS.map((k) => [k, JSON.parse(R(`JSON.stringify(shipDims('${k}'))`))]));
+  const spots = L.filter((s) => s.kinds.includes('ship')), bad = [], near = [];
+  for (const s of spots) {
+    const ps = s.site ? [{ e: E.sites[s.site].east, z: 0, yaw: Math.PI }] : JSON.parse(R(`JSON.stringify([0, 1, 2, 3, 4, 5].map((n) => Spawns.place(Spawns.byId('${s.id}'), 'ship', n)))`));
+    for (const [n, P] of ps.entries()) for (const k of SHIPS) {
+      const d = dims[k], c = Math.cos(P.yaw), sn = -Math.sin(P.yaw), hl = d.L / 2 + 10, hw = d.B / 2 + 2;
+      let lo = Infinity;
+      for (let u = -hl; u <= hl; u += 4) for (let v = -hw; v <= hw; v += 2) lo = Math.min(lo, -T.heightAt(E, A(P.e + u * c - v * sn), P.z + u * sn + v * c));
+      if (!(lo > d.draft + 2)) bad.push(`${s.id}#${n} ${k}: ${lo.toFixed(1)} m of water, draws ${d.draft.toFixed(1)}`);
+      for (const C of Object.values(E.carriers)) if (Math.hypot(P.e - C.e, P.z - C.z) < C.hl + d.L / 2 + 40) near.push(`${s.id}#${n} by ${C.name}`);
+    }
+    if (!s.site) for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (Math.hypot(ps[i].e - ps[j].e, ps[i].z - ps[j].z) < 119) near.push(`${s.id} ${i}-${j} close`);
+  }
+  t(`every ship spot and a room's six places at each: deeper than each stock ship's draft + 2 m under her whole length and beam (${SHIPS.join(', ')}), clear of the carriers, 120 m apart`,
+    SHIPS.length > 0 && Object.values(dims).every((d) => d.hull > 0 && d.L > 5) && !bad.length && !near.length, bad.length || near.length ? [...bad, ...near].slice(0, 8) : dims);
+  // her start as Flight.start makes it: placed on the water at the spot, then (when ship.js's core floats her) afloat at her
+  // marks (Ship.launch); 5 s on she is whole, upright and where she started (no slipway, carrier or shore under her)
+  R(`var shipTrial = (id, key) => { const sp = Spawns.byId(id), P = sp.site ? { e: EARTH.sites[sp.site].east, z: 0, yaw: Math.PI } : Spawns.place(sp, 'ship', 0), F = world(), v = mk(designOf(key), P), n = v.parts.length;
+    if (v.hydro && Ship.overWater(v)) Ship.launch(v, P);
+    F.vessels = [v]; F.active = v; Combat.reset(F); const x0 = { x: v.x, y: v.y, z: v.z }, up0 = v.axis(0, 1, 0); go(F, 5);
+    const up1 = v.axis(0, 1, 0), tilt = Math.acos(Math.min(1, up0.x * up1.x + up0.y * up1.y + up0.z * up1.z)) * 180 / Math.PI;
+    return { id, key, dead: !!(F.destroyed || v.dead), lost: n - v.parts.length, tilt: +tilt.toFixed(2), moved: +Math.hypot(v.x - x0.x, v.y - x0.y, v.z - x0.z).toFixed(2), hydro: v.hydro }; };`);
+  const st = [];
+  for (const s of spots) for (const k of SHIPS) st.push(JSON.parse(R(`JSON.stringify(shipTrial('${s.id}', '${k}'))`)));
+  const sick = st.filter((r) => r.dead || r.lost || r.tilt > 6 || r.moved > 15 || !r.hydro);
+  t(`each stock ship started at each ship spot (${st.length} starts) is whole, upright (under 6° on the swell) and where she started 5 s on`, !sick.length && st.length >= spots.length, sick.length ? sick.slice(0, 6) : { most: Math.max(...st.map((r) => r.moved)), tilt: Math.max(...st.map((r) => r.tilt)) });
+}
 
 // ---------------------------------------------------------------- the props round them
 const NEW = ['funningur', 'vidareidi', 'tvoroyri', 'northRoe', 'bixter', 'lunna', 'shAir', 'watten', 'bettyhill', 'gbAir'];

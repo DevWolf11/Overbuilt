@@ -1,0 +1,2501 @@
+'use strict';
+// Ships (the ships update). A ship is a craft of kind 'ship' built bow-right from hull segments (the Ship kind's five
+// tabs: def.ship), as Armour is: +x the bow, +y up, +z starboard. What floats is any craft with a hull part (def.hull,
+// whatever its kind: a tank with a boat hull swims, a seaplane on pontoons floats) or a piece split off one: v.hydro
+// (Vessel.rebuildGroups). A hydro vessel meets the water ring by ring (each hull part's def.shull, sampled by parts.js's
+// shullOf: the same rings are its 2D outline, its 3D loft, its clash shape and where it is hit), is pushed by its screws
+// and waterjets, steered by its rudders, floods through holes compartment by compartment, burns, and sinks by physics.
+// isSea(kind) (parts.js) only says what a craft *is*: a surface contact (never an air target), the helm keys and HUD,
+// knots, zones at sea.
+//
+// Old designs never reach any of it: every hook in the other files opens only for v.hydro, def.ship / def.shull /
+// def.hull, kind 'ship', Combat.S.sea, Combat.S.pd, Ship.D.length, ai.sea, MP.naval or a message's new field
+// (test/ground.test.js counts the calls into Ship; spec §13 lists every hook). No top-level DOM or THREE: the file
+// loads headless (test/lib/game.js; G.load({ ship: false }) leaves it out, to prove old play is the same without it).
+//
+// Sections, in order: core (hydro physics, the helm, grounding, mooring) · waves · builder (hydrostatics, placement,
+// warnings) · damage (holes, flooding, fires, damage control, fate) · combat (torpedoes, CIWS, anti-ship missiles,
+// surface contacts) · hud · ai · mp. Each package of the update fills its own section's bodies; the contract (WP0)
+// gives every one of them as a stub with its signature and its default answer, so they all build against it.
+//
+// Per-vessel state, v.sh (made by Ship.groups from Vessel.rebuildGroups, for hydro vessels only; null otherwise):
+//   rings     every physics ring of every hull part, in part space: { p (its part), ci (its compartment's index),
+//             R (the shullOf phys ring: P, K, A, cy, girth, yd, yk, bd, bw, nb, dx; in the part's own frame), x, y, z
+//             (the ring's keel-line point at its station, part space), ex, ey (the part's own x and y in part space:
+//             the hull's fore-aft and up), P (a Float32Array of the K points [x, y, z] in part space), dx, A, cy }
+//   comps     the watertight compartments: [{ parts, x0, x1 (part-space x along the hull), V (m³ to the deck), W (water
+//             aboard, m³), holes: [{ p, x, y, a (m²), t, fix }] }]
+//   hulls     the hull parts; joins: [[aft part, fore part], …] (segments that meet section to section); open: the
+//             'joint' ends nothing meets ([{ p, end: 'aft' | 'fore' }]: a permanent hole of the end ring's area)
+//   thrust    screws, waterjets and outboards; foils (every def.foil part); rudders (foils of kind 'rudder', and
+//             outboards and waterjets that steer); engines (def.engine parts: the shaft-power pool); decks (def.deck)
+//   tel       the engine-order telegraph, -3..4 (Stop 0; SHIP.TEL's index − 3); rud: the helm's rudder command (°);
+//             hold: the heading the helm holds (rad, null: none); dcPri: 'auto' | 'flood' | 'fire'; ciwsOn
+//   fsub      the submerged share of the weight (0..1); B (the buoyancy, N); Lwl, Swet (waterline length, wetted
+//             area); draft; level (still water's height: 0 at sea, a lake's surface inland); depth (water under her);
+//             fade (the waves' share there); moorT (s still, toward mooring); lodT
+//   (and the hydro core's: ax, ay the hull's axes; kM, kI the added mass per part axis; scr, fl screws and foils copy by
+//   copy; pow the engines' share now (spooling), dem the helm's demand, T the screws' thrust (N, in v.thrust too); tk,
+//   tkT, tkN the telegraph key; man the stick on the rudder; gm, Tbar, Vol, Awp, cb; the frame U, E, N / Ub, Eb, Nb)
+// Per vessel (hydro): afloat (her buoyancy over 5 % of her weight: not splashed, which stays the old solid sea's), heel
+// (+ starboard down), trim (+ bow down), draft; moored and mo (asleep on the swell, flight.js physicsTick drifts her).
+// The helm's interface (WP3's keys and touch, the AI): Ship.setTel(v, n) / telStep(v, ±1) or sh.tel; W/S on ctl.v step it
+// too (a tap a step, held a step every TEL_REPEAT s after TEL_HOLD s); the rudder is ctl.h × its throw, let go the heading
+// hold (sas 'hold'; 'manual' centres it); Ship.heading(v, v.sh) her heading (rad, clockwise from game north).
+// Saved per part (GV_SAVE, when the damage package adds them): p.holes, p.water, p.rud, p.fire; per vessel: sh: { tel,
+// dcPri, ciwsOn } and sas.
+
+// All tuning in one table (lengths m, speeds m/s, angles ° unless said, times s, areas m², volumes m³, power kW).
+const SHIP = {
+  // ---- water and the hull's forces (§4.2-4.3)
+  RHO: 1025, NU: 1.19e-6,            // sea water's density (kg/m³) and kinematic viscosity (m²/s)
+  latLin: 2.0, cross: 0.9,           // lateral force: linear lift C_lin = latLin·π·T̄/L_wl (each step from the last T̄, L_wl), cross-flow drag C_x
+  //   (latLin 2, the spec's 1: Clarke's (1 + 0.4·C_B·B/T) for a beamy hull, tuned by the Cyclon's turning trial)
+  LAT_T: 0.5,
+  planeK: 0.6, dispK: 0.2,           // strip planing lift on plane: true hulls, and on the rest (planeK 0.6, the spec's 1.3: at 1.3 the 110 t
+  //   Cyclon planed at 1° of trim and 43 kn on 4 MW, half again Savitsky's lift; tuned by her speed trial: 33 kn)
+  planeCP: 1,                        // the planing lift along her waterline, (n + 1)·(1 − ξ)^n from its fore end (ξ 0) to its aft end (ξ 1): its
+  //   centre of pressure 2/3 of the wetted length ahead of the transom, inside Savitsky's 0.55-0.75 at planing speeds (a
+  //   strip's even share put it halfway: the RIB ran nearly flat, her bow resting on the water, 2.3° in a calm sea, now 2.9°;
+  //   at 2, 0.75, she turned half as fast again: her lateral plane all aft)
+  heaveCd: 1.0, planeFade: 0.15,     // heave drag; the vertical terms fade in over the first planeFade m of immersion
+  heaveLin: 0.4,                     // and linear heave damping (the waves a heaving hull makes), heaveLin·ρ·√(g·T̄) per m² of waterplane
+  CF_RE: 1e5, CF_LOW: 0.0083,        // ITTC-57 friction C_f = 0.075/(log10 Re − 2)², and its value under Re 1e5
+  // wave-making and residual resistance R_w = B·C_wr(Fn), piecewise linear (flat past the last Froude number)
+  CWR_FN: [0, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.80, 1.2, 2.0],
+  CWR: [0, 0.0003, 0.0008, 0.002, 0.005, 0.010, 0.019, 0.032, 0.048, 0.062, 0.075, 0.070, 0.055, 0.040],
+  CLAMP: 0.8,                        // a quadratic term's impulse a step: at most this share of the momentum it opposes
+  TINY: 200, TINY_FILL: 0.6, TINY_DAMP: 2, // pieces under TINY kg float as boxes (their bounds × TINY_FILL), damped e^(−TINY_DAMP·dt)
+  REFRESH: 0.5,                      // m moved between looks at the water's depth, level and the waves' fade (Gear's cache)
+  // ---- added mass and damping (§4.7): a step's acceleration ÷ (1 + k·fsub), per part axis
+  ADD_M: { x: 0.05, y: 0.8, z: 0.6 }, ADD_I: { x: 0.15, y: 0.6, z: 0.8 }, // (rotations: x roll, y yaw, z pitch)
+  rollZeta: 0.07, bilgeKeel: 0.03,   // roll damping ratio (+ def.shull.bk on hulls with bilge keels)
+  rollZV: 0.15,                      // + this × her Froude number (to 1.5): the lift a hull under way meets rolling (Ikeda's lift damping)
+  STAB_T: 0.5, STAB_HEEL: 1,         // GM_now from the last STAB_T s's righting slope, past STAB_HEEL° of heel
+  // ---- foils: rudders, hydrofoils, skegs (§4.4)
+  FOIL: { slope: 0.9, stall: 22, post: 65, postMin: 0.5, cd0: 0.012, e: 0.8, stallCd: 1.2, sub: 0.8, wash: 0.8, washL: 3, washZ: 0.6, washY: 1, brk: 1.5,
+          sig: 0.5, cav: 0.13, p0: 101325, pv: 1700 },
+  //   (slope × 2π·ar/(ar + 2); stall angle; past it C_L falls over `post`° to postMin of its peak; C_D = cd0 + C_L²/(e·π·ar)
+  //   + stallCd·sin²α stalled; lift fades in over sub × chord of depth; a rudder within washL·D behind a screw (|Δz| <
+  //   washZ·D, |Δy| < washY·D) feels wash × its slipstream; a foil past brk × its load breaks; a hydrofoil cavitates
+  //   under the cavitation number sig (p0 the air's pressure, pv the water's vapour pressure, Pa): + cav·(sig/σ − 1))
+  rudRate: 12,                       // °/s a rudder turns
+  RIDE: { h: 0.8, kh: 4, kv: 2, lim: 6, kphi: 60, kp: 20, v: 9, kt: 30, bank: 8, rate: 20, vRef: 25, steer: 0.25 }, // hydrofoil ride control [WP6]: the keel's target
+  //   clearance over the waves (m; a foil's own foil.h first), °/m of it, °·s/m of her rise rate, ±° at most, ° per rad of heel
+  //   and °·s per rad of roll rate;
+  //   foilborne past v m/s; ° per unit of trim (bow over stern ÷ length); ° of bank into a turn at full rudder; °/s a foil turns;
+  //   the gains × (vRef/V)² past vRef m/s (48 kn: a degree lifts as much again at 68 kn); foilborne, steer of each
+  //   rudder's, strut's and jet's throw (she turns by banking)
+  // ---- propulsion (§4.5)
+  TEL: [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.8, 1.0], // the telegraph's demand, Full Astern … Flank (tel −3 … 4)
+  TEL_NAMES: ['Full astern', 'Half astern', 'Slow astern', 'Stop', 'Slow', 'Half', 'Full', 'Flank'],
+  ASTERN: 0.7,                       // thrust efficiency going astern
+  SPOOL: 8,                          // s a diesel takes from idle to full load (an engine's own def.engine.spool: a gas turbine's 15)
+  TEL_HOLD: 0.5, TEL_REPEAT: 0.35,   // a held W/S steps again after TEL_HOLD s, then every TEL_REPEAT s
+  SCREW: { k0: 0.75, va: 1.1, vmin: 0.5, sub: 0.5, rpm: 600, app: 0.012 }, // static thrust k0·(2ρA·P²)^(1/3); advance speed va·u (past 1: the thrust deduction of a fast hull with no wake to gain from); surfaces over sub·D; rpm = rpm/D·√|demand|; its shaft and brackets' drag area app·D²
+  JET: { t0: 0.6, eta0: 0.35, eta1: 0.35, v0: 5, v1: 18, bucket: 0.5 }, // a waterjet: t0 of a screw's static thrust; η = eta0 + eta1·smoothstep(v0, v1, V); astern bucket
+  OUTBOARD_STEER: 30,
+  // ---- the helm (§4.6)
+  HOLD: { lead: 1.5, kp: 2.0, kd: 2.5, vmin: 2, dead: 0.05 }, // heading hold: ψ* = ψ + r·lead on release; rud = −(kp·Δψ + kd·(L_wl/max(V, vmin))·r)
+  // ---- grounding, carriers, other ships (§4.8)
+  BED_CRASH: 1.5, BED_MU: 0.4,       // a sea-bed contact's crash limit × and friction
+  IMPACT: { hp: 0.4, hole: 0.02, remove: 2 }, // a grounding past a hull's limit: 40 % of its hp, a hole of 0.02 m² per m/s over, removed past 2×
+  SLAM: { k: 1.8 },                  // a hull ring meeting the water faster than k × its part's breakSpeed: a slam (holes, never a shattered hull) [WP6]
+  DECK_BAND: 1.5, CARRIER_DEPTH: 9,  // a deck (carrier or ship) is met from DECK_BAND m under it; a carrier's hull box reaches CARRIER_DEPTH m under the sea
+  BUMP: { e: 0.1, push: 0.5, v: 2.5, dmg: 0.5, hole: 0.002 }, // ship on ship: restitution, push-out share, damage from v m/s (0.5·μ·s²/1000 hp), holes 0.002·s² m²
+  LASH: { v: 0.3, t: 1, lift: 0.3, tilt: 25 }, // a craft on a moving deck is lashed under v m/s for t s with no lift; let go past lift or tilt°
+  // ---- mooring, warp, far ships (§4.10)
+  MOOR: { t: 5, v: 0.5, wake: 200, wakeV: 2, hz: 10 }, // still for t s under v m/s: moored (drifts on the waves at hz); woken by a craft within wake m faster than wakeV
+  aiNear: 12000,                     // m: AI ships are stepped this far from the player
+  LOD: 1500,                         // m from the camera: every other ring, forces every other step
+  // ---- launch (§4.11)
+  LAUNCH: { shallow: 2, step: 50, max: 1000 }, // a spot with the keel within `shallow` m of the bed moves out to sea in `step` m steps, up to `max`
+  // ---- units
+  KN: 1.943844,                      // knots per m/s (ship displays speak knots)
+  // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
+  BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
+           vMax: 40, vStep: 0.25, turn: [4.5, 0.25, 1.2, 10], steerA: 1.5, inM: 0.03, step: 0.25, pair: 0.4, wash: 0.05, dry: 0.5 },
+  //   (the float found to tol m of CB under CG in at most iters Newton steps, dA rad apart for the slopes; GM from ±dGM rad of
+  //   heel; warnings: GM under gmLow m, a list past heel°, a trim past trim°, the deck within free m of the water, capsized past
+  //   capsize°; top speed searched to vMax m/s in vStep steps; turning ≈ turn[0]·L·(turn[1] + turn[2]·A_lat/(A_rudder·turn[3]))
+  //   with steerA m² of rudder for each steering thruster; tap placement: inM m inside the skin, candidates every step m, a
+  //   pair of screws pair × the hull's half-beam apart, a rudder wash m behind its screw; a screw or rudder under dry of its
+  //   depth in water is out of it)
+  // ---- damage (§8.4-8.8)
+  HOLE: { kin: 1.5, heIn: 0.004, he: 0.02, tamp: 3, tampD: 0.5, cap: 20, grp: 0.002, max: 16 },
+  //   (a round through the plate: kin·π·(cal/2000)²; HE bursting inside: + heIn·blast²; HE on or near the hull: he·blast²·(1 −
+  //   d/blast), × tamp under water (deeper than tampD); at most cap m² a hole; a bullet through glass fibre grp m²; max
+  //   holes kept per part)
+  FLOOD: { cd: 0.6, hz: 10, downT: 2, downA: 0.05, fsMax: 0.45 }, // orifice coefficient; steps a second; downflooding after downT s (downA m² per m of deck edge under); free-surface shift cap (× beam)
+  FIRE: { hz: 4, odds0: 0.15, odds1: 0.35, blast: 9, hp: 4, spread: 0.02, dc: 20 }, // fire odds odds0 + odds1·(blast/9); hp/s; spread a second; s to fight one
+  MAG: { near: 6, t: 5, r0: 8, rk: 1 / 20, hole: 6 }, // a fire within `near` m for t s; the blast's size r0 + rounds·rk m; holes in the neighbours
+  DC: { patch: 0.02, minT: 15, full: 0.7, repair: 2 }, // a party patches 0.02 m²/s (at least minT s a hole), not past full of its compartment; repairs × REPAIR_T
+  FATE: { hz: 4, capsize: 60, capsizeT: 4, reserve: 0.97, deckUnder: 1, scuttleT: 60, scuttleA: 1, under: 3, bedT: 10, wreckDepth: 40, gone: 40, derelictT: 120, derelictA: 0.5, wait: 15 },
+  //   (capsized: heel past capsize° for capsizeT s; foundering: weight + water past reserve × the intact hull's buoyancy, or
+  //   the highest deck deckUnder m under; out of action: scuttled after scuttleT s, a scuttleA m² hole a compartment; sunk
+  //   when the top is `under` m under or bedT s on the bed; a wreck stays on a bed shallower than wreckDepth, else gone
+  //   `gone` m down; a derelict holed after derelictT s; the end screen waits up to `wait` s)
+  // ---- combat (§8.9-8.11)
+  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p
+  TORP: { turn: 6, aground: 4, bubbles: 0.2, depthOff: 0 }, // °/s homing turn; runs aground where the bed is shallower; s between bubble puffs
+  ASM: { term: 2000, termH: 3 },     // an anti-ship missile sea-skims until term m out, then goes in at termH m
+  VLS: { t: 0.8, rate: 60 },         // a vertical launch pitches over for t s at rate °/s
+  RADAR: { lowAir: 100, rcsL: 150, rcsExp: 0.35, rcsMin: 0.4 }, // aircraft under lowAir m are surface contacts; reach × clamp((L_wl/rcsL)^rcsExp, rcsMin, 1)
+  EYES: { day: 8000, night: 3000 },  // m within the horizon
+  LOS: { step: 200, land: 3000, cell: 500 }, // a look over water samples the ground every step m within land m of land (a mask per cell m)
+  AIM: { ray: 20000, zero: [100, 20000] }, // a ship's aim ray and her guns' zero
+  // ---- the AI (§9.1)
+  AI: { think: 4, look: 1, gunK: [0.5, 0.8], missile: [8000, 12000], ahead: [1, 2, 3], aheadMin: 300, aheadT: 25, fan: [30, 60],
+        avoid: 500, err: [0.003, 0.001], walk: 0.3, torpR: 3000, torpN: 2, torpSpread: 4, torpEvery: 60, asm: [3000, 12000], asmEvery: 20,
+        zig: 30, zigT: 20, retreat: 0.5, column: 600, losT: 0.5 },
+  STRIKE: { alt: 300, low: 60, lowR: 3000, rel: 800, every: 180, max: 2 }, // strike aircraft: run in at alt m, low for the last lowR m, release at rel m; one every `every` s, at most max
+  // ---- waves (§5.1): at Moderate, [amplitude m, period s, direction ° from the swell's heading, phase rad]
+  SEA: { calm: { a: 0.3, t: 0.75 }, moderate: { a: 1.0, t: 1.0 }, rough: { a: 2.5, t: 1.36 } }, // amplitude and period factors
+  WAVES: [[0.28, 5.5, 0, 0.0], [0.18, 4.4, 25, 1.7], [0.12, 6.6, -20, 4.1], [0.07, 3.3, 50, 2.6]],
+  swellDir: 250,                     // the swell runs toward this bearing (° from game north, clockwise): from the WSW
+  FADE: [3, 25],                     // no swell in water shallower than 3 m, all of it past 25 m
+  SLEW: 0.05,                        // s/s the sea clock slews toward the host's in a room
+  // ---- drawing (§5.2-5.3)
+  SWELL: { high: [128, 4], low: [64, 6], near: 2000, alt: 1500, grid: 33, recentre: 1 / 8, edge: [0.7, 0.95] }, // cells and their size; shown with a hydro vessel within near m and the camera under alt m
+  WAKE: { n: 6, pts: 48, dt: 0.25, grow: 0.15, life: 12, kelvin: 19.5, kelvinT: 6, near: 1500, vmin: 1 },
+  SPRAY: { v0: 3, k: 0.6, max: 8, near: 800 },
+};
+SHIP.SEAS = Object.keys(SHIP.SEA); // ('calm', 'moderate', 'rough')
+
+const Ship = (() => {
+  const NONE = Object.freeze([]);
+  const S = { sea: 'moderate', seaOff: 0 }; // (the sea state and the sea clock's offset from the flight's: §waves)
+
+  // ==== core ====
+  // A hydro vessel's groups (from Vessel.rebuildGroups, v.hydro only): its hull rings in part space, its compartments,
+  // which hull segments meet and which ends lie open, its screws, foils, rudders, engines and decks. The helm's state
+  // (telegraph, rudder, heading hold, damage control's priority, point defence) carries over a rebuild, as do the water
+  // in a compartment whose hull part is still aboard.
+  // Each ring also carries what the hydro step reads every step: its base point bx, by, bz (the part's own y = 0, z = 0
+  // at the ring's station, part space), tau (the keel's slope there in the part's own frame, rad, + rising toward the
+  // bow: her trim comes in through the flow), cb2 (cos² of its deadrise), cpl (its planing lift coefficient), kf (its
+  // hull's form factor) and depth (keel to deck). v.sh gains the hull's axes (ax along it, ay up it, part space), the
+  // added mass's coefficients on the part axes (kM, kI), the screws and foils copy by copy (scr, fl), the propulsion's
+  // and the helm's state, the frame and the water under her, and the last step's per-ring results.
+  function groups(v) {
+    const was = v.sh, hulls = [], rings = [], comps = [], thrust = [], foils = [], rudders = [], engines = [], decks = [];
+    for (const p of v.parts) {
+      const d = p.def;
+      if (d.shull) hulls.push(p);
+      if (d.screw || d.jet) thrust.push(p);
+      if (d.foil) { foils.push(p); if (d.foil.kind === 'rudder' || (d.foil.ride && d.foil.max)) rudders.push(p); } // ([WP6] a ride foil with a throw: its strut steers)
+      if (d.steer || (d.jet && d.jet.steer)) rudders.push(p); // (an outboard turns whole, a waterjet's nozzle turns)
+      if (d.engine) engines.push(p);
+      if (d.deck) decks.push(p);
+    }
+    const old = new Map(was ? was.comps.map((c) => [c.parts[0].id, c]) : []);
+    let big = null; // (the longest hull part: its axes are the hull's)
+    for (const p of hulls) {
+      const H = shullOf(p.def), o = partPt(p, 0, 0), ax = partPt(p, 1, 0), ay = partPt(p, 0, 1), z0 = partZ(p);
+      const ex = { x: ax.x - o.x, y: ax.y - o.y, z: 0 }, ey = { x: ay.x - o.x, y: ay.y - o.y, z: 0 }, ci = comps.length;
+      const at = (lx, ly, lz, out, k) => { const q = partPt(p, lx, ly); out[k] = q.x; out[k + 1] = q.y; out[k + 2] = z0 + lz; };
+      const S = p.def.shull;
+      for (const R of H.phys) {
+        const P = new Float32Array(R.K * 3);
+        for (let i = 0; i < R.K; i++) at(R.x, R.P[2 * i], R.P[2 * i + 1], P, 3 * i);
+        const c = partPt(p, R.x, R.yk), b = partPt(p, R.x, 0);
+        const k0 = shullSec(S.st, R.x - 0.25)[1], k1 = shullSec(S.st, R.x + 0.25)[1];
+        const beta = R.yk < S.wl ? Math.atan((S.wl - R.yk) / Math.max(R.bw, 0.05)) / Math.max(1, R.nb) : 0;
+        rings.push({ p, ci, R, x: c.x, y: c.y, z: z0, ex, ey, P, dx: R.dx, A: R.A, cy: R.cy, bx: b.x, by: b.y, bz: z0,
+          tau: Math.atan((k1 - k0) / 0.5), cb2: Math.cos(beta) ** 2, cpl: S.plane ? SHIP.planeK : SHIP.dispK, kf: S.k || 0.15, depth: Math.max(0.05, R.yd - R.yk) });
+      }
+      if (!big || p.def.w > big.def.w) big = p;
+      const a = partPt(p, H.x0, 0), b = partPt(p, H.x1, 0), prev = old.get(p.id);
+      comps.push({ parts: [p], x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), V: H.vol, W: prev ? prev.W : Number.isFinite(p.water) ? p.water : 0, holes: prev ? prev.holes : [] });
+    }
+    // segments that meet: adjacent, of one class, the fore end of one within 2 cm of the aft end of the other (keels level)
+    const joins = [], end = (p, fore) => { const H = shullOf(p.def), R = fore ? H.rings[H.nr - 1] : H.rings[0], q = partPt(p, R.x, R.yk); return { x: q.x, y: q.y, z: partZ(p) }; };
+    const met = new Set();
+    for (const a of hulls) for (const b of hulls) {
+      if (a === b || a.def.shull.cls !== b.def.shull.cls || !(v.adj.get(a.id) && v.adj.get(a.id).has(b.id))) continue;
+      const f = end(a, true), t = end(b, false);
+      if (Math.abs(f.x - t.x) <= 0.02 && Math.abs(f.y - t.y) <= 0.02 && Math.abs(f.z - t.z) <= 0.02) { joins.push([a, b]); met.add(a.id + 'f'); met.add(b.id + 'a'); }
+    }
+    const open = [];
+    for (const p of hulls) {
+      const E = p.def.shull.ends || {};
+      if (E.aft === 'joint' && !met.has(p.id + 'a')) open.push({ p, end: 'aft' });
+      if (E.fore === 'joint' && !met.has(p.id + 'f')) open.push({ p, end: 'fore' });
+    }
+    // the hull's axes in part space (a ship's: x along, y up; pontoons turned along a seaplane's nose: +y along, −x up),
+    // and the added mass's coefficients on the part axes they fall on
+    let ax = { x: 1, y: 0, z: 0 }, ay = { x: 0, y: 1, z: 0 };
+    if (big) { const o = partPt(big, 0, 0), a = partPt(big, 1, 0), u = partPt(big, 0, 1); ax = { x: a.x - o.x, y: a.y - o.y, z: 0 }; ay = { x: u.x - o.x, y: u.y - o.y, z: 0 }; }
+    const M = SHIP.ADD_M, I = SHIP.ADD_I, alongX = Math.abs(ax.x) >= Math.abs(ax.y);
+    const kM = alongX ? { x: M.x, y: M.y, z: M.z } : { x: M.y, y: M.x, z: M.z }, kI = alongX ? { x: I.x, y: I.y, z: I.z } : { x: I.y, y: I.x, z: I.z };
+    // screws and foils copy by copy (a twin pair's two), each with its own axes in part space
+    const axes = (p) => { const o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1); return { o, ex: { x: a.x - o.x, y: a.y - o.y, z: 0 }, ey: { x: u.x - o.x, y: u.y - o.y, z: 0 } }; };
+    // [WP6] each thruster's kind: a screw on the engines' shared shaft power, an outboard (a screw with its own engine:
+    // it turns with the helm) or a waterjet (its nozzle turns, its bucket reverses it); an outboard's propeller sits at its
+    // screw.y (own frame: none, at its foot, under the keel line), a hydrofoil at its foil.y (the foil, not the strut's
+    // middle). A ride foil (foil.ride) is two halves, port and starboard (its copies' z ± depth/4, area/2 each), so the
+    // ride control can roll her as well as lift her: each half carries its commanded incidence inc and its def's inc0.
+    const scr = [], fl = [], at = (p, ly) => { const U = axes(p), q = ly ? partPt(p, 0, ly) : U.o; return { U, x: q.x, y: q.y }; };
+    for (const p of thrust) {
+      const d = p.def, kind = d.jet ? 'jet' : d.engine ? 'outboard' : 'screw', D = (d.jet || d.screw).D;
+      const Q = at(p, d.screw && Number.isFinite(d.screw.y) ? d.screw.y : kind === 'outboard' ? -d.h / 2 + D / 2 : 0);
+      for (const z of partZs(p)) scr.push({ p, kind, own: !!d.engine, x: Q.x, y: Q.y, z, ex: Q.U.ex, ey: Q.U.ey, D, eta: d.screw ? d.screw.eta || 0.6 : 0, T: 0 });
+    }
+    for (const p of foils) {
+      const f = p.def.foil, Q = at(p, Number.isFinite(f.y) ? f.y : 0);
+      for (const z of partZs(p)) {
+        if (!f.ride) { fl.push({ p, x: Q.x, y: Q.y, z, ex: Q.U.ex, ey: Q.U.ey, f, F: 0 }); continue; }
+        const dz = partDepth(p) / 4, inc0 = f.inc || 0, was0 = was && was.fl.find((o) => o.p === p && o.z === z - dz), was1 = was && was.fl.find((o) => o.p === p && o.z === z + dz);
+        fl.push({ p, x: Q.x, y: Q.y, z: z - dz, ex: Q.U.ex, ey: Q.U.ey, f, F: 0, ride: true, area: (f.area || 1) / 2, inc0, inc: was0 ? was0.inc : inc0, side: -1 });
+        fl.push({ p, x: Q.x, y: Q.y, z: z + dz, ex: Q.U.ex, ey: Q.U.ey, f, F: 0, ride: true, area: (f.area || 1) / 2, inc0, inc: was1 ? was1.inc : inc0, side: 1 });
+        // and its struts (foil.struts of them, 1 unless said; chord foil.strutC or 0.6 of the foil's), from the foil up to the
+        // part's top: skegs that hold her straight when her hull is out of the water (strut: their length)
+        fl.push({ p, x: Q.x, y: Q.y, z, ex: Q.U.ex, ey: Q.U.ey, f, F: 0, strut: Math.max(0.1, p.def.h / 2 - (Number.isFinite(f.y) ? f.y : 0)), ch: f.strutC || 0.6 * (f.chord || 1), ns: f.struts || 1, steer: !!f.max });
+      }
+    }
+    const n = rings.length;
+    v.sh = {
+      rings, comps, hulls, joins, open, thrust, foils, rudders, engines, decks,
+      tel: was ? was.tel : 0, rud: was ? was.rud : 0, hold: was ? was.hold : null, dcPri: was ? was.dcPri : 'auto', ciwsOn: was ? was.ciwsOn : true,
+      fsub: was ? was.fsub : 0, B: was ? was.B : 0, Lwl: was ? was.Lwl : 0, Swet: was ? was.Swet : 0, draft: was ? was.draft : 0,
+      level: was ? was.level : 0, depth: was ? was.depth : Infinity, fade: was ? was.fade : 0, moorT: 0, lodT: 0,
+      // (the hull's axes and added mass; the screws and foils; pow: the share of the shaft power the engines give now, dem:
+      // what the helm asks, T: the screws' thrust (N); tk, tkT, tkN: the telegraph key held, for how long, the next step's
+      // time; man: the stick has the rudder; lake; wx, wy, wz: where the water was last looked at; gm: her metacentric
+      // height now; Tbar: mean draft; the frame (U, E, N sim axes; Ub, Eb, Nb part axes; e0, n0 her east and north);
+      // per ring: immersed area, local centroid, waterline chord, wetted girth, keel depth)
+      ax, ay, kM, kI, scr, fl, pow: was ? was.pow : 0, dem: was ? was.dem : 0, T: 0, lake: was ? was.lake : false,
+      tk: 0, tkT: 0, tkN: 0, man: false, gm: was ? was.gm : 1, gmT: 0, Tbar: was ? was.Tbar : 0, Vol: 0, Awp: 0, cb: v3(),
+      wx: NaN, wy: 0, wz: 0, U: v3(), E: v3(), N: v3(), Ub: v3(), Eb: v3(), Nb: v3(), e0: 0, n0: 0,
+      ra: new Float64Array(n), rly: new Float64Array(n), rlz: new Float64Array(n), rb: new Float64Array(n), rg: new Float64Array(n), rk: new Float64Array(n),
+      // [WP6] rk0: last step's keel depths (a slam: a ring entering the water fast); slam: the hull parts slammed this
+      // step, [p, ratio, x, y] for Ship.frame; ride: the ride control's state (null: no ride foil aboard); x0, x1: her
+      // ends along her axis (part space: Ship.bump's end test)
+      rk0: new Float64Array(n), slam: [], ride: rideOf(rings, fl, ax, ay), intake: fl.some((o) => o.f.intake) ? fl.filter((o) => o.f.intake) : null, x0: Infinity, x1: -Infinity,
+    };
+    const bb = (v.sh.bb = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, z0: Infinity, z1: -Infinity }); // (her hull's box in part space: Ship.bump's first look)
+    for (const g of rings) for (let i = 0; i < g.R.K; i++) {
+      const X = g.P[3 * i], Y = g.P[3 * i + 1], Z = g.P[3 * i + 2], s = X * ax.x + Y * ax.y;
+      if (s < v.sh.x0) v.sh.x0 = s; if (s > v.sh.x1) v.sh.x1 = s;
+      if (X < bb.x0) bb.x0 = X; if (X > bb.x1) bb.x1 = X; if (Y < bb.y0) bb.y0 = Y; if (Y > bb.y1) bb.y1 = Y; if (Z < bb.z0) bb.z0 = Z; if (Z > bb.z1) bb.z1 = Z;
+    }
+    if (v.afloat === undefined) { v.afloat = false; v.moored = false; v.heel = 0; v.trim = 0; v.draft = 0; }
+    return v.sh;
+  }
+
+  // ---- the frame and the water under her
+  const _L = {}, WV = [0, 0, 0], ZUP = { x: 0, y: 0, z: 1 };
+  // the local up, east and game north (sim axes) at her centre of mass, the same in part axes, and her east and north (m)
+  function frameOf(v, S) {
+    const r = Math.hypot(v.x, v.y, v.z) || 1, U = S.U, E = S.E, N = S.N;
+    U.x = v.x / r; U.y = v.y / r; U.z = v.z / r;
+    cross3(U, ZUP, E); if (len3(E) < 1e-9) { E.x = 1; E.y = 0; E.z = 0; } norm3(E);
+    cross3(U, E, N); // (game north is the sim's −north: up × east)
+    qunrot(v.q, U.x, U.y, U.z, S.Ub); qunrot(v.q, E.x, E.y, E.z, S.Eb); qunrot(v.q, N.x, N.y, N.z, S.Nb);
+    const b = v.body;
+    Terrain.locate(b, v.x, v.y, v.z, _L);
+    S.e0 = b.padAngle != null ? -wrapAngle(_L.a - b.padAngle) * b.radius : _L.a * b.radius; S.n0 = -_L.z;
+    return r;
+  }
+  // The still water's level under her (0 at sea, a lake's surface inland; −Infinity: no water on this body), the depth
+  // and the waves' share there, looked at again every REFRESH m she moves (Gear's cache)
+  function waterOf(v, S) {
+    const dx = v.x - S.wx, dy = v.y - S.wy, dz = v.z - S.wz;
+    if (dx * dx + dy * dy + dz * dz < SHIP.REFRESH * SHIP.REFRESH) return;
+    S.wx = v.x; S.wy = v.y; S.wz = v.z;
+    const b = v.body;
+    Terrain.locate(b, v.x, v.y, v.z, _L);
+    const h = Terrain.heightAt(b, _L.a, _L.z);
+    if (b.ocean && h < 0) { S.level = 0; S.depth = -h; S.lake = false; }
+    else {
+      const w = b.mapped ? Terrain.inlandAt(b, _L.a, _L.z) : NaN;
+      if (w === w && w > h) { S.level = w; S.depth = w - h; S.lake = true; }
+      else if (b.ocean) { S.level = 0; S.depth = -h; S.lake = false; } // (over land: the sea's level, so nothing up here floats)
+      else { S.level = -Infinity; S.depth = 0; S.lake = false; }
+    }
+    S.fade = S.lake ? 0 : fadeAt(S.depth);
+  }
+
+  // ---- the helm (Ship.pre)
+  // The engine-order telegraph, −3 (full astern) … 0 (stop) … 4 (flank). setTel rings n; telStep moves it by d's sign
+  // (WP3's keys and touch lever, the AI); Ship.pre also steps it from W/S (ctl.v) for kind ship.
+  function setTel(v, n) { const S = v && v.sh; if (!S || !Number.isFinite(n)) return S ? S.tel : 0; S.tel = clamp(Math.round(n), -3, 4); return S.tel; }
+  function telStep(v, d) { const S = v && v.sh; return S ? setTel(v, S.tel + Math.sign(d || 0)) : 0; }
+  // her heading (rad, clockwise from game north: the hull's axis), and its rate (rad/s, + turning to starboard)
+  const _hd = v3();
+  function heading(v, S) { const F = qrot(v.q, S.ax.x, S.ax.y, S.ax.z, _hd); return Math.atan2(dot3(F, S.E), dot3(F, S.N)); }
+  function yawRate(v, S) { return -dot3(v.av, S.U); }
+  function rudMax(S) {
+    let m = 0;
+    for (const p of S.rudders) m = Math.max(m, p.def.foil ? p.def.foil.max || 35 : p.def.steer || (p.def.jet && p.def.jet.steer) || 30);
+    return m || 35;
+  }
+  // ---- ride control (§4.4) [WP6]: a hydrofoil's ride foils (foil.ride, two halves each) flown by a controller, any kind
+  // (a part's behaviour, not the kind's). Below RIDE.v every half holds all the lift it has (inc0 + lim: she climbs onto
+  // her foils as she gathers way); past it each half's incidence holds the keel h* over the waves (the highest foil.h
+  // aboard, RIDE.h without one), led by her rise rate, trims her level (− ahead of the centre of mass, + behind) and
+  // rolls her upright, or into a turn by RIDE.bank at full rudder; each half's incidence moves at most RIDE.rate °/s.
+  // (iF, iA: the foremost and aftmost rings; kF, kA: how far their keel points stand over her deepest keel, along her
+  // up: a stem's forefoot rises, so its clearance is read less that, as if her keel ran level at its deepest)
+  function rideOf(rings, fl, ax, ay) {
+    if (!fl.some((o) => o.ride)) return null;
+    let iF = -1, iA = -1, sF = -Infinity, sA = Infinity, h = 0, k0 = Infinity;
+    rings.forEach((g, i) => { const s = g.x * ax.x + g.y * ax.y; if (s > sF) { sF = s; iF = i; } if (s < sA) { sA = s; iA = i; } k0 = Math.min(k0, g.x * ay.x + g.y * ay.y); });
+    for (const o of fl) if (o.ride) h = Math.max(h, Number.isFinite(o.f.h) ? o.f.h : SHIP.RIDE.h);
+    const kOf = (i) => (i < 0 ? 0 : rings[i].x * ay.x + rings[i].y * ay.y - k0);
+    return { iF, iA, L: Math.max(sF - sA, 1), h, kF: kOf(iF), kA: kOf(iA), c: 0, cF: 0, cA: 0, on: false };
+  }
+  const _rk = v3(), _rF = v3();
+  function rideStep(v, S, dt, sim) {
+    const R = S.ride, RD = SHIP.RIDE;
+    if (R.iF < 0) return;
+    waterOf(v, S);
+    if (!(S.level > -Infinity)) return;
+    const r = Math.hypot(v.x, v.y, v.z), h0 = r - v.body.radius - S.level, t = seaT(sim), ax = S.ax, com = v.com, cz = com.z || 0;
+    const gF = S.rings[R.iF], gA = S.rings[R.iA];
+    _rk.x = gF.x; _rk.y = gF.y; _rk.z = gF.z; const cF = -depthOf(v, S, _rk, h0, t) - R.kF;
+    _rk.x = gA.x; _rk.y = gA.y; _rk.z = gA.z; const cA = -depthOf(v, S, _rk, h0, t) - R.kA;
+    const c = (cF + cA) / 2, cd = v.vx * S.U.x + v.vy * S.U.y + v.vz * S.U.z, eps = (cF - cA) / R.L;
+    const vb = qunrot(v.q, v.vx, v.vy, v.vz, _rk), V = vb.x * ax.x + vb.y * ax.y, sc = com.x * ax.x + com.y * ax.y;
+    const lim = RD.lim, phiS = (clamp(S.rud / rudMax(S), -1, 1) * RD.bank * Math.PI) / 180, phi = v.heel || 0, k = RD.rate * dt;
+    const F = qrot(v.q, ax.x, ax.y, 0, _rF), pr = v.av.x * F.x + v.av.y * F.y + v.av.z * F.z; // (her roll rate, + rolling to starboard)
+    R.c = c; R.cF = cF; R.cA = cA; R.on = V >= RD.v;
+    for (const o of S.fl) {
+      if (!o.ride) continue;
+      let want = o.inc0 + lim;
+      if (R.on) { // (scheduled by the dynamic pressure past vRef: at twice it a degree lifts four times as much)
+        const ahead = o.x * ax.x + o.y * ax.y > sc ? 1 : -1, g = clamp((RD.vRef / Math.max(V, 1)) ** 2, 0.2, 1);
+        want = g * (o.inc0 + clamp(RD.kh * (R.h - c) - RD.kv * cd - ahead * RD.kt * eps, -lim, lim) + clamp((RD.kphi * (phi - phiS) + RD.kp * pr) * o.side, -lim, lim));
+      }
+      o.inc += clamp(want - o.inc, -k, k);
+    }
+  }
+  // how deep the deepest intake foil aboard runs (m; −Infinity: none in the water) [WP6]
+  function intakeDepth(v, S, h0, t) {
+    let d = -Infinity;
+    for (const o of S.intake) { if (o.p.broken || !v.byId.has(o.p.id)) continue; _rk.x = o.x; _rk.y = o.y; _rk.z = o.z; d = Math.max(d, depthOf(v, S, _rk, h0, t)); }
+    return d;
+  }
+
+  // The helm and the engines' demand, before applyEngines (vessel.js physicsStep, v.hydro). Kind ship: the telegraph
+  // (sh.tel, stepped by W/S: ctl.v) and the rudder (ctl.h × its throw; let go with sas 'hold', the default, she holds the
+  // heading she had, led by her yaw rate; sas 'manual': the rudder centres). v.throttle for air engines on a ship. Other
+  // kinds with marine parts: a car's or tank's drive (ctl.v) and steering (ctl.h), else the throttle and the yaw (ctl.r).
+  function pre(v, dt, sim) {
+    const S = v.sh;
+    if (!S) return;
+    if (v.moored) { v.moored = false; v.mo = null; } // (stepped: awake)
+    frameOf(v, S);
+    const c = v.ctl || {}, H = SHIP.HOLD;
+    let dem, rin = null;
+    if (v.kind === 'ship') {
+      const k = c.v > 0.5 ? 1 : c.v < -0.5 ? -1 : 0;
+      if (k !== S.tk) { S.tk = k; S.tkT = 0; S.tkN = SHIP.TEL_HOLD; if (k) telStep(v, k); }
+      else if (k) { S.tkT += dt; if (S.tkT >= S.tkN) { S.tkN += SHIP.TEL_REPEAT; telStep(v, k); } }
+      S.tel = clamp(Math.round(Number.isFinite(S.tel) ? S.tel : 0), -3, 4);
+      dem = SHIP.TEL[S.tel + 3];
+      const h = Number.isFinite(c.h) ? c.h : 0, max = rudMax(S);
+      if (Math.abs(h) >= H.dead) { S.rud = clamp(h, -1, 1) * max; S.hold = null; S.man = true; }
+      else if (v.sas !== 'manual') {
+        const psi = heading(v, S), r = yawRate(v, S);
+        if (S.hold == null || !Number.isFinite(S.hold)) S.hold = wrapAngle(psi + (S.man ? r * H.lead : 0));
+        const vb = qunrot(v.q, v.vx, v.vy, v.vz, _hd), V = Math.max(Math.abs(vb.x * S.ax.x + vb.y * S.ax.y), H.vmin), L = Math.max(S.Lwl || 0, 2);
+        const cmd = -(H.kp * wrapAngle(psi - S.hold) + H.kd * (L / V) * r);
+        S.rud = clamp((cmd * 180) / Math.PI, -max, max); S.man = false;
+      } else { S.rud = 0; S.hold = null; S.man = false; }
+      v.throttle = Math.max(0, dem); // (air engines on a ship: an airboat)
+    } else if (isGround(v.kind)) { dem = clamp(c.v || 0, -1, 1); rin = clamp(c.h || 0, -1, 1); }
+    else { dem = clamp(v.throttle || 0, 0, 1); rin = clamp(c.r || 0, -1, 1); }
+    if (rin != null) { S.rud = rin * rudMax(S); S.hold = null; }
+    S.dem = dem;
+    // the engines' power follows the demand over the slowest one's spool (s from idle to full: a diesel's load
+    // acceptance, SHIP.SPOOL, a gas turbine's own)
+    let sp = 0;
+    for (const p of S.engines) sp = Math.max(sp, p.def.engine.spool || SHIP.SPOOL);
+    S.pow = sp > 0 ? S.pow + clamp(dem - S.pow, -dt / sp, dt / sp) : dem;
+    // each rudder follows the helm at rudRate, within its own throw
+    const rr = SHIP.rudRate * dt;
+    const fb = S.ride && S.ride.on ? SHIP.RIDE.steer : 1; // ([WP6] foilborne: a share of the throw, her banked turn does the rest)
+    for (const p of S.rudders) {
+      const m = (p.def.foil ? p.def.foil.max || 35 : p.def.steer || (p.def.jet && p.def.jet.steer) || 30) * fb, now = Number.isFinite(p.rud) ? p.rud : 0;
+      p.rud = now + clamp(clamp(S.rud, -m, m) - now, -rr, rr);
+    }
+    if (S.ride) rideStep(v, S, dt, sim); // [WP6]
+  }
+  // the shaft power the working engines give (W): a damaged one less (Combat.engineK, as Gear's), none with no one at the helm
+  // (an engine that is its own thruster's, an outboard's, isn't in the pool: [WP6] ownPower)
+  function shaftPower(v, S) {
+    let P = 0;
+    const cb = typeof Combat !== 'undefined';
+    for (const p of S.engines) if (!p.broken && v.byId.has(p.id) && !p.def.screw && !p.def.jet) P += p.def.engine.kw * 1000 * (cb && p.hp != null ? Combat.engineK(p) : 1);
+    if (P > 0 && v.gv && typeof Armour !== 'undefined' && !Armour.has(v, 'driver')) P = 0;
+    return P;
+  }
+  // an outboard's own engine's power (W), as the pool's rules have it [WP6]
+  function ownPower(v, p) {
+    let P = p.def.engine.kw * 1000 * (typeof Combat !== 'undefined' && p.hp != null ? Combat.engineK(p) : 1);
+    if (v.gv && typeof Armour !== 'undefined' && !Armour.has(v, 'driver')) P = 0;
+    return P;
+  }
+
+  // ---- the water's forces (Ship.forces)
+  const CLIP = new Float64Array(64);
+  const _u = v3(), _f = v3(), _t = v3(), _w = v3(), _c = v3(), _n = v3(), _ir = v3(), EZ = Object.freeze({ x: 0, y: 0, z: 1 });
+  // add the force f (part axes) at the part-space point X to hF and hT (about the centre of mass)
+  function push(v, X, f) {
+    const c = v.com, hF = v.hF, hT = v.hT, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    hF.x += f.x; hF.y += f.y; hF.z += f.z;
+    hT.x += ry * f.z - rz * f.y; hT.y += rz * f.x - rx * f.z; hT.z += rx * f.y - ry * f.x;
+  }
+  // the velocity through the water of a part-space point (part axes; the water at rest)
+  function pointU(v, vb, wb, X, o) {
+    const c = v.com, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    o.x = vb.x + wb.y * rz - wb.z * ry; o.y = vb.y + wb.z * rx - wb.x * rz; o.z = vb.z + wb.x * ry - wb.y * rx;
+    return o;
+  }
+  // the effective mass at X along the unit dir (part axes): what an impulse there along dir meets (ground()'s effMass)
+  function effMass(v, X, dir) {
+    const c = v.com, rx = X.x - c.x, ry = X.y - c.y, rz = X.z - (c.z || 0);
+    _t.x = ry * dir.z - rz * dir.y; _t.y = rz * dir.x - rx * dir.z; _t.z = rx * dir.y - ry * dir.x;
+    v.mulInvI(_t, _ir);
+    return 1 / (1 / v.mass + _t.x * _ir.x + _t.y * _ir.y + _t.z * _ir.z);
+  }
+  // a damping force, held to at most CLAMP of the momentum it opposes a step (m: the effective mass, its share)
+  function capF(F, u, m, dt) { const lim = (SHIP.CLAMP * m * Math.abs(u)) / dt; return F > lim ? lim : F < -lim ? -lim : F; }
+  // how deep a part-space point lies under the water's surface (m, + under), the waves there included
+  function depthOf(v, S, X, h0, t) {
+    const c = v.com, ox = X.x - c.x, oy = X.y - c.y, oz = X.z - (c.z || 0), Ub = S.Ub;
+    let eta = 0;
+    if (S.fade > 0) eta = wave(S.e0 + ox * S.Eb.x + oy * S.Eb.y + oz * S.Eb.z, S.n0 + ox * S.Nb.x + oy * S.Nb.y + oz * S.Nb.z, t, WV)[0] * S.fade;
+    return -(h0 + Ub.x * ox + Ub.y * oy + Ub.z * oz - eta);
+  }
+  // [WP5] a hull's wave-making factor (§4.12: shull.cw, a blunt bow's; the biggest aboard, 1 for every other hull)
+  function cwOf(hulls) { let k = 1; for (const p of hulls) if (p.def.shull.cw > k) k = p.def.shull.cw; return k; }
+  // the wave-making and residual resistance's coefficient at the Froude number Fn (SHIP.CWR, flat past its last)
+  function cwr(Fn) {
+    const X = SHIP.CWR_FN, Y = SHIP.CWR;
+    if (Fn >= X[X.length - 1]) return Y[Y.length - 1];
+    for (let i = 1; i < X.length; i++) if (Fn <= X[i]) return Y[i - 1] + ((Y[i] - Y[i - 1]) * (Fn - X[i - 1])) / (X[i] - X[i - 1]);
+    return 0;
+  }
+  // Buoyancy, ring by ring (§4.2): each ring's polygon clipped by the water's plane at it (the wave's height and slope
+  // there, × fade), ρ·g·area·dx up along the local vertical at the immersed part's centroid. Fills the per-ring results
+  // and S's sums (B, Vol, Awp, Swet, Lwl, Tbar, cb), returns B (N). still: no waves (the launch's float).
+  function buoy(v, S, h0, t, gl, still) {
+    const rho = SHIP.RHO, com = v.com, cz = com.z || 0, Ub = S.Ub, Eb = S.Eb, Nb = S.Nb, rings = S.rings, n = rings.length, fade = still ? 0 : S.fade;
+    let B = 0, Awp = 0, Vol = 0, Swet = 0, kmax = 0, lo = Infinity, hi = -Infinity, Mx = 0, My = 0, Mz = 0, Ny = 0, Nz = 0;
+    for (let i = 0; i < n; i++) {
+      const g = rings[i], ox = g.bx - com.x, oy = g.by - com.y, oz = g.bz - cz;
+      let eta = 0, Gx = 0, Gy = 0, Gz = 0;
+      if (fade > 0) {
+        wave(S.e0 + ox * Eb.x + oy * Eb.y + oz * Eb.z, S.n0 + ox * Nb.x + oy * Nb.y + oz * Nb.z, t, WV);
+        eta = WV[0] * fade; const ge = WV[1] * fade, gn = WV[2] * fade;
+        Gx = ge * Eb.x + gn * Nb.x; Gy = ge * Eb.y + gn * Nb.y; Gz = ge * Eb.z + gn * Nb.z;
+      }
+      // a point's height over the water (−: under): d(y, z) = d0 + dy·y + dz·z over the ring's own [y, z]
+      const d0 = h0 + Ub.x * ox + Ub.y * oy + Ub.z * oz - eta, Wx = Ub.x - Gx, Wy = Ub.y - Gy, Wz = Ub.z - Gz;
+      const dy = Wx * g.ey.x + Wy * g.ey.y, dz = Wz, P = g.R.P, K = g.R.K;
+      let dmin = Infinity, dmax = -Infinity;
+      for (let j = 0; j < K; j++) { const d = d0 + dy * P[2 * j] + dz * P[2 * j + 1]; if (d < dmin) dmin = d; if (d > dmax) dmax = d; }
+      S.ra[i] = 0; S.rb[i] = 0; S.rg[i] = 0; S.rk[i] = 0;
+      if (dmin >= 0) continue; // (clear of the water)
+      let a, ly, lz, chord = 0, girth = 0;
+      if (dmax < 0) { a = g.A; ly = g.cy; lz = 0; girth = 2 * g.R.girth + 2 * g.R.bd; } // (all of it under)
+      else { // one Sutherland-Hodgman pass, keeping the girth of the hull's own edges under the water
+        let m2 = 0;
+        for (let j = 0; j < K; j++) {
+          const k = j + 1 < K ? j + 1 : 0, ay = P[2 * j], az = P[2 * j + 1], by = P[2 * k], bz = P[2 * k + 1];
+          const da = d0 + dy * ay + dz * az, db = d0 + dy * by + dz * bz, ia = da < 0, ib = db < 0;
+          if (ia) { CLIP[m2++] = ay; CLIP[m2++] = az; }
+          if (ia !== ib) {
+            const s = da / (da - db), qy = ay + (by - ay) * s, qz = az + (bz - az) * s;
+            CLIP[m2++] = qy; CLIP[m2++] = qz;
+            girth += ia ? Math.hypot(qy - ay, qz - az) : Math.hypot(by - qy, bz - qz);
+          } else if (ia) girth += Math.hypot(by - ay, bz - az);
+        }
+        const np = m2 / 2, W2 = Math.hypot(dy, dz) || 1;
+        let A2 = 0, sy = 0, sz = 0, cmin = Infinity, cmax = -Infinity;
+        for (let j = 0; j < np; j++) {
+          const k = j + 1 < np ? j + 1 : 0, y0 = CLIP[2 * j], z0 = CLIP[2 * j + 1], y1 = CLIP[2 * k], z1 = CLIP[2 * k + 1], cr = y0 * z1 - y1 * z0;
+          A2 += cr; sy += (y0 + y1) * cr; sz += (z0 + z1) * cr;
+          if (d0 + dy * y0 + dz * z0 > -1e-6) { const s = (-dz * y0 + dy * z0) / W2; if (s < cmin) cmin = s; if (s > cmax) cmax = s; } // (on the waterline)
+        }
+        if (A2 <= 2e-9) continue;
+        a = A2 / 2; ly = sy / (3 * A2); lz = sz / (3 * A2);
+        if (cmax > cmin) chord = cmax - cmin;
+      }
+      const k = -dmin, Fb = rho * gl * a * g.dx;
+      S.ra[i] = a; S.rly[i] = ly; S.rlz[i] = lz; S.rb[i] = chord; S.rg[i] = girth; S.rk[i] = k;
+      _c.x = g.bx + g.ey.x * ly; _c.y = g.by + g.ey.y * ly; _c.z = g.bz + lz;
+      { const wn = Math.hypot(Wx, Wy, Wz) || 1; _f.x = (Wx / wn) * Fb; _f.y = (Wy / wn) * Fb; _f.z = (Wz / wn) * Fb; Ny += _f.x * S.ay.x + _f.y * S.ay.y; Nz += _f.z; } // [WP5] along the wave surface's normal (the pressure gradient: Froude-Krylov), not the plain vertical: a small boat then lies with the wave slope instead of rolling past it (beam-on in Moderate: 13.6° → 8° significant)
+      push(v, _c, _f);
+      B += Fb; Mx += Fb * _c.x; My += Fb * _c.y; Mz += Fb * _c.z;
+      Awp += chord * g.dx; Vol += a * g.dx; Swet += girth * g.dx;
+      if (k > kmax) kmax = k;
+      if (chord > 0) { const s = _c.x * S.ax.x + _c.y * S.ax.y; if (s - g.dx / 2 < lo) lo = s - g.dx / 2; if (s + g.dx / 2 > hi) hi = s + g.dx / 2; }
+    }
+    S.B = B; S.Swet = Swet; S.Vol = Vol; S.Awp = Awp; S.kmax = kmax;
+    S.hw = B > 0 ? Math.atan2(-Nz, Ny) : 0; // (her heel against the water's surface under her, the buoyancy's mean normal: in still water her heel)
+    if (hi > lo) { S.Lwl = hi - lo; S.wlF = hi; } else if (!(B > 0)) S.Lwl = 0;
+    if (Awp > 0.01) S.Tbar = Vol / Awp;
+    if (B > 0) { S.cb.x = Mx / B; S.cb.y = My / B; S.cb.z = Mz / B; }
+    return B;
+  }
+  // The water's force and torque on the hull this step, into v.hF and v.hT (part axes), and v.sh.fsub: buoyancy ring by
+  // ring, resistance, lateral and planing forces, roll damping, foils, thrust. vb, wb: her velocity and spin in part axes
+  // (the water is at rest: orbital velocities are left out). LOD: a hydro vessel not the active one, over SHIP.LOD m from
+  // it, works them out every other step and holds them between (their damping held to half as much a step).
+  function forces(v, dt, vb, wb, sim) {
+    const S = v.sh;
+    if (!S) return;
+    const A = sim && sim.active, far = A && A !== v && A.body === v.body && (A.x - v.x) ** 2 + (A.y - v.y) ** 2 + (A.z - v.z) ** 2 > SHIP.LOD * SHIP.LOD;
+    if (far && v.hF && (S.lodT = S.lodT ? 0 : 1) === 0) return; // (the step between: last step's forces again)
+    const hF = v.hF || (v.hF = v3()), hT = v.hT || (v.hT = v3());
+    hF.x = hF.y = hF.z = 0; hT.x = hT.y = hT.z = 0;
+    S.T = 0;
+    waterOf(v, S);
+    const r = frameOf(v, S), b = v.body;
+    if (!(S.level > -Infinity)) { S.fsub = 0; S.B = 0; v.afloat = false; return; }
+    const gl = b.mu / (r * r), W = v.mass * gl, h0 = r - b.radius - S.level, t = seaT(sim), lod = far ? 0.5 : 1;
+    S.rk0.set(S.rk); // [WP6] (last step's keel depths: a ring meeting the water)
+    const B = buoy(v, S, h0, t, gl, false), Ub = S.Ub;
+    S.fsub = clamp(B / Math.max(W, 1), 0, 1);
+    v.afloat = B > 0.05 * W;
+    v.draft = S.kmax;
+    const upA = Ub.x * S.ay.x + Ub.y * S.ay.y;
+    v.heel = Math.atan2(-Ub.z, upA); v.trim = Math.atan2(-(Ub.x * S.ax.x + Ub.y * S.ax.y), upA); // (+: starboard down, bow down)
+    // her metacentric height now: the buoyancy's righting moment (all of hT so far) over B·sin(heel), every STAB_T s
+    S.gmT += dt;
+    // (heeled against the water under her, not the vertical: the buoyancy pushes along the waves' normal, so a small boat
+    // lying with a wave's slope has nothing to right; against the vertical her GM read a fifth of itself in a calm sea)
+    if (S.gmT >= SHIP.STAB_T && Math.abs(S.hw) > (SHIP.STAB_HEEL * Math.PI) / 180 && v.afloat) {
+      S.gmT = 0;
+      const gm = -(hT.x * S.ax.x + hT.y * S.ax.y) / (B * Math.sin(S.hw));
+      if (Number.isFinite(gm)) S.gm = clamp(gm, -20, 50);
+    }
+    // (the flood water's weight: WP8's floodStep keeps comps[].W, and its force joins here)
+    if (!S.rings.length) { if (v.mass < SHIP.TINY && !S.scuttle) tiny(v, S, dt, vb, wb, h0, t, gl, W); else sink(v, S, dt, vb, wb, h0, t); return; } // [WP6] (a tiny piece floats as a box)
+    if (B > 0) hull(v, S, dt, vb, wb, gl, W, lod);
+    propel(v, S, dt, vb, wb, h0, t, B > 0);
+  }
+  // §4.3: the hull moving through the water: lateral lift and cross-flow drag (at the immersed section's middle: a turn
+  // heels her outward), strip planing lift and heave damping on the bottom, friction (ITTC-57) on the wetted girth and the
+  // wave-making resistance shared by immersed volume, all at each ring's immersed centroid; then roll damping (§4.7)
+  function hull(v, S, dt, vb, wb, gl, W, lod) {
+    const rings = S.rings, n = rings.length, rho = SHIP.RHO, q = 0.5 * rho, ax = S.ax, Vol = Math.max(S.Vol, 1e-6), Ub = S.Ub;
+    const Vx = vb.x * ax.x + vb.y * ax.y + vb.z * ax.z, Lwl = Math.max(S.Lwl, 0.5), V = Math.abs(Vx);
+    const Re = (V * Lwl) / SHIP.NU, Cf = Re < SHIP.CF_RE ? SHIP.CF_LOW : 0.075 / Math.pow(Math.log10(Re) - 2, 2);
+    const Rw = S.B * cwr(V / Math.sqrt(gl * Lwl)) * (S.cw || (S.cw = cwOf(S.hulls))), Tb = Math.max(S.Tbar || 0.1, 0.1); // (× a blunt hull's shull.cw, §4.12: the landing craft's ramp bow; once, as the builder's resistance() has it)
+    const Clin = (SHIP.latLin * Math.PI * Tb) / Lwl, heaveL = SHIP.heaveLin * rho * Math.sqrt(gl * Tb), cap = dt / lod;
+    for (let i = 0; i < n; i++) {
+      const a = S.ra[i];
+      if (a <= 0) continue;
+      const g = rings[i], dx = g.dx, share = (a * dx) / Vol, ex = g.ex, ey = g.ey;
+      _c.x = g.bx + ey.x * S.rly[i]; _c.y = g.by + ey.y * S.rly[i]; _c.z = g.bz + S.rlz[i];
+      pointU(v, vb, wb, _c, _u);
+      // (the bottom's normal in the vertical plane through her keel line: square to the hull's axis, so a trim tilts
+      // the planing lift back (its drag) while a heel doesn't turn it into a push sideways)
+      const ue = Ub.x * ex.x + Ub.y * ex.y + Ub.z * ex.z, nx = Ub.x - ue * ex.x, ny = Ub.y - ue * ex.y, nz = Ub.z - ue * ex.z, nl = Math.hypot(nx, ny, nz) || 1;
+      _n.x = nx / nl; _n.y = ny / nl; _n.z = nz / nl;
+      const ua = _u.x * ex.x + _u.y * ex.y, uy = _u.x * _n.x + _u.y * _n.y + _u.z * _n.z, uz = _u.z;
+      const k = S.rk[i], Tr = Math.min(k, g.depth), b = S.rb[i], fin = Math.min(1, k / SHIP.planeFade);
+      const Fl = capF(-q * (Clin * Math.abs(ua) * uz + SHIP.cross * Math.abs(uz) * uz) * Tr * dx, uz, effMass(v, _c, EZ) * share, cap);
+      const Vn = ua * Math.sin(g.tau) - uy;
+      // ([WP6] the quadratic heave drag only for a bottom pressed into the water: one drawn away from it (rising, or a bow
+      // trimmed down at speed: its bottom running away from the flow) separates, and the water doesn't suck it down)
+      const Fd = capF((-q * SHIP.heaveCd * (uy < 0 ? -uy * uy : 0) - heaveL * uy) * b * dx * fin, uy, effMass(v, _c, _n) * share, cap);
+      const wpl = planeW((S.wlF - (_c.x * ax.x + _c.y * ax.y)) / Lwl); // (the planing lift's share here: SHIP.planeCP)
+      const Fv = q * g.cpl * Math.max(0, Vn) * Math.abs(ua) * b * dx * g.cb2 * fin * wpl + Fd;
+      const Fa = capF(-Math.sign(ua) * q * ua * ua * S.rg[i] * dx * Cf * (1 + g.kf) - Math.sign(Vx) * Rw * share, ua, effMass(v, _c, ex) * share, cap);
+      // [WP6] a slam: the ring was clear of the water last step and meets it now faster than SLAM.k × its part's limit
+      if (S.rk0[i] === 0 && uy < 0) { const lim = SHIP.SLAM.k * (g.p.def.breakSpeed || DEFAULT_BREAK_SPEED); if (-uy > lim && !S.slam.some((o) => o[0] === g.p)) S.slam.push([g.p, -uy / lim, _c.x, _c.y, -uy]); }
+      _f.x = ex.x * Fa + _n.x * Fv; _f.y = ex.y * Fa + _n.y * Fv; _f.z = Fl + _n.z * Fv;
+      push(v, _c, _f);
+    }
+    // roll damping about the hull's axis, in its exponential form (it never overshoots)
+    const I = v.I, Iaa = Math.max(1, ax.x * ax.x * I.xx + 2 * ax.x * ax.y * I.xy + ax.y * ax.y * I.yy), p = wb.x * ax.x + wb.y * ax.y;
+    const om = Math.sqrt(Math.max(W * S.gm, 1) / (Iaa * (1 + SHIP.ADD_I.x))), z = SHIP.rollZeta + rollBk(S) + SHIP.rollZV * Math.min(V / Math.sqrt(gl * Lwl), 1.5);
+    // (× the share of her weight the water carries: [WP6] its dynamic lift too, so a boat on the plane keeps her roll damping)
+    const wet = Math.max(S.fsub, clamp((v.hF.x * Ub.x + v.hF.y * Ub.y + v.hF.z * Ub.z) / Math.max(W, 1), 0, 1));
+    const M = ((-Iaa * p * (1 - Math.exp(-2 * z * om * dt))) / dt) * wet;
+    v.hT.x += ax.x * M; v.hT.y += ax.y * M;
+  }
+  // A hydrofoil's (and its strut's) cavitation: past its inception (the cavitation number σ = (p_atm + ρ·g·depth − p_v)/q
+  // under FOIL.sig) the water boils off its back and its drag climbs, FOIL.cav·(sig/σ − 1): steeply, so a subcavitating
+  // foil tops out about 50 kn whatever the power (a real hydrofoil's limit; without it the Pegazus' 20 MW flew her at 83)
+  function cavCd(U2, dep) {
+    const FO = SHIP.FOIL, sg = (FO.p0 + SHIP.RHO * G0 * Math.max(0, dep) - FO.pv) / (0.5 * SHIP.RHO * Math.max(U2, 1e-6));
+    return sg < FO.sig ? FO.cav * (FO.sig / sg - 1) : 0;
+  }
+  // the planing lift's weight at ξ along the waterline (0 its fore end, 1 its aft end): (n + 1)·(1 − ξ)^n, 1 on average
+  function planeW(xi) { const n = SHIP.planeCP; return n > 0 && xi === xi ? (n + 1) * (1 - clamp(xi, 0, 1)) ** n : 1; } // (no waterline yet, all of her under: an even share)
+  function rollBk(S) { let k = 0; for (const p of S.hulls) if (p.def.shull.bk) k = Math.max(k, p.def.shull.bk === true ? SHIP.bilgeKeel : +p.def.shull.bk || 0); return k; }
+  // §4.4-4.5: screws from the shaft power, and the foils (rudders, skegs, fixed hydrofoils) at water density: never the
+  // wings' code (water is ~850× denser than air: its deflection caps, load ratings, flutter and strain would all break)
+  function propel(v, S, dt, vb, wb, h0, t, wet) {
+    const rho = SHIP.RHO, q = 0.5 * rho, SC = SHIP.SCREW, J = SHIP.JET, dem = S.pow;
+    let live = 0, intake = NaN;
+    for (const s of S.scr) if (!s.own && !s.p.broken && v.byId.has(s.p.id)) live++;
+    const each = live ? (shaftPower(v, S) * Math.abs(dem)) / live : 0, dir = dem >= 0 ? 1 : -1;
+    let Tsum = 0;
+    for (const s of S.scr) {
+      const p = s.p, jet = s.kind === 'jet';
+      s.T = 0;
+      if (p.broken || !v.byId.has(p.id)) { p.rpm = 0; continue; }
+      p.rpm = (dir * SC.rpm * Math.sqrt(Math.abs(dem))) / s.D; // (+ ahead, − astern: the art spins it)
+      _c.x = s.x; _c.y = s.y; _c.z = s.z;
+      let sub = smoothstep(0, SC.sub * s.D, depthOf(v, S, _c, h0, t)); // (out of the water it races and pushes nothing)
+      if (jet && S.intake) { if (intake !== intake) intake = intakeDepth(v, S, h0, t); sub = Math.max(sub, smoothstep(0, SC.sub * s.D, intake)); } // [WP6] (foilborne a waterjet drinks through the main foil's pod)
+      if (sub <= 0) continue;
+      pointU(v, vb, wb, _c, _u);
+      if (!jet) { // its shaft and brackets' drag, turning or not
+        const U = Math.hypot(_u.x, _u.y, _u.z), k = q * SC.app * s.D * s.D * U * sub;
+        _f.x = -k * _u.x; _f.y = -k * _u.y; _f.z = -k * _u.z;
+        push(v, _c, _f);
+      }
+      if (s.kind === 'screw') {
+        if (!(each > 0)) continue;
+        const T0 = SC.k0 * Math.cbrt(2 * rho * ((Math.PI * s.D * s.D) / 4) * each * each), Va = SC.va * dir * (_u.x * s.ex.x + _u.y * s.ex.y);
+        const T = Math.min(T0, (s.eta * each) / Math.max(Va, SC.vmin)) * sub * (dir < 0 ? p.def.screw.astern || SHIP.ASTERN : 1);
+        s.T = dir * T; Tsum += T;
+        _f.x = s.ex.x * s.T; _f.y = s.ex.y * s.T; _f.z = 0;
+        push(v, _c, _f);
+        continue;
+      }
+      // [WP6] an outboard (its own engine; it turns whole with the helm) or a waterjet (the pool's power, or its own
+      // engine's; its nozzle turns, and astern its bucket throws the jet forward: −bucket of the thrust, no ASTERN)
+      const P = s.own ? ownPower(v, p) * Math.abs(dem) : each;
+      if (!(P > 0)) continue;
+      const T0 = SC.k0 * Math.cbrt(2 * rho * ((Math.PI * s.D * s.D) / 4) * P * P), ua = _u.x * s.ex.x + _u.y * s.ex.y;
+      let T;
+      if (jet) { const V = Math.abs(ua); T = Math.min(J.t0 * T0, ((J.eta0 + J.eta1 * smoothstep(J.v0, J.v1, V)) * P) / Math.max(V, SC.vmin)) * sub * (dir < 0 ? p.def.jet.bucket || J.bucket : 1); }
+      else T = Math.min(T0, (s.eta * P) / Math.max(SC.va * dir * ua, SC.vmin)) * sub * (dir < 0 ? p.def.screw.astern || SHIP.ASTERN : 1);
+      // the thrust turned about the part's own y by p.rud (+: her stern pushed to port, a turn to starboard: as a rudder's chord)
+      const th = ((p.rud || 0) * Math.PI) / 180, cs = Math.cos(th), sn = Math.sin(th);
+      s.T = dir * T; Tsum += T;
+      _f.x = s.ex.x * cs * s.T; _f.y = s.ex.y * cs * s.T; _f.z = (s.ey.x * s.ex.y - s.ey.y * s.ex.x) * sn * s.T;
+      push(v, _c, _f);
+    }
+    S.T = Tsum;
+    if (!wet && !S.ride) return; // ([WP6] a hydrofoil flies with her hull clear of the water: her foils still in it)
+    const FO = SHIP.FOIL, as = (FO.stall * Math.PI) / 180, post = (FO.post * Math.PI) / 180;
+    for (const o of S.fl) {
+      const p = o.p, f = o.f;
+      o.F = 0;
+      if (p.broken || !v.byId.has(p.id)) continue;
+      _c.x = o.x; _c.y = o.y; _c.z = o.z;
+      let s, area = o.ride ? o.area : f.area || 1, ar = f.ar || 2, dep;
+      if (o.strut) { // [WP6] a hydrofoil's strut: a skeg as deep as it is in the water, its force halfway up that
+        const imm = clamp(depthOf(v, S, _c, h0, t), 0, o.strut);
+        if (imm < 0.05) continue;
+        area = o.ch * imm * o.ns; ar = Math.max(0.5, imm / o.ch); s = 1; dep = imm * 0.5;
+        _c.x += o.ey.x * imm * 0.5; _c.y += o.ey.y * imm * 0.5;
+      } else { dep = depthOf(v, S, _c, h0, t); s = smoothstep(0, FO.sub * (f.chord || 1), dep); } // (a foil that surfaces loses its lift)
+      if (s <= 0) continue;
+      pointU(v, vb, wb, _c, _u);
+      // a rudder in the slipstream of a screw just ahead of it (pushing ahead): it steers her at low speed
+      if (f.kind === 'rudder') for (const sc of S.scr) {
+        if (!(sc.T > 0) || sc.kind === 'jet') continue; // (a waterjet makes no slipstream for a rudder)
+        const ddx = sc.x - o.x, ddy = sc.y - o.y, along = ddx * sc.ex.x + ddy * sc.ex.y, up = -ddx * sc.ex.y + ddy * sc.ex.x;
+        if (along > 0 && along < FO.washL * sc.D && Math.abs(sc.z - o.z) < FO.washZ * sc.D && Math.abs(up) < FO.washY * sc.D) {
+          const w = Math.sqrt((FO.wash * 2 * sc.T) / (rho * Math.PI * sc.D * sc.D * 0.25));
+          _u.x += sc.ex.x * w; _u.y += sc.ex.y * w;
+          break;
+        }
+      }
+      // its normal and chord: its own z (a rudder, a skeg) turned about its stock (own y) by p.rud (+: the trailing edge
+      // to starboard, her stern pushed to port: a turn to starboard), or its own y (a hydrofoil) pitched up by inc
+      let cx, cy, cz, nx, ny, nz;
+      if (f.n === 'y' && !o.strut) {
+        const inc = ((o.ride ? o.inc : f.inc || 0) * Math.PI) / 180, ci = Math.cos(inc), si = Math.sin(inc);
+        cx = o.ex.x * ci + o.ey.x * si; cy = o.ex.y * ci + o.ey.y * si; cz = 0;
+        nx = o.ey.x * ci - o.ex.x * si; ny = o.ey.y * ci - o.ex.y * si; nz = 0;
+      } else {
+        // (a steering strut ahead of her centre of mass turns the other way: a bow rudder's trailing edge to port turns her to starboard)
+        const fore = o.steer && (o.x - v.com.x) * S.ax.x + (o.y - v.com.y) * S.ax.y > 0 ? -1 : 1;
+        const th = (((f.kind === 'rudder' && !o.strut) || o.steer ? fore * (p.rud || 0) : 0) * Math.PI) / 180, cs = Math.cos(th), sn = Math.sin(th);
+        nx = o.ey.y * sn; ny = -o.ey.x * sn; nz = cs; // (ez·cos + (ey × ez)·sin)
+        cx = o.ex.x * cs; cy = o.ex.y * cs; cz = (o.ey.x * o.ex.y - o.ey.y * o.ex.x) * sn; // (ex·cos + (ey × ex)·sin)
+      }
+      const U2 = _u.x * _u.x + _u.y * _u.y + _u.z * _u.z;
+      if (U2 < 1e-6) continue;
+      const Um = Math.sqrt(U2), hx = _u.x / Um, hy = _u.y / Um, hz = _u.z / Um;
+      const uc = _u.x * cx + _u.y * cy + _u.z * cz, un = _u.x * nx + _u.y * ny + _u.z * nz;
+      // the angle of attack (+: it pushes along its normal); going astern the flow meets it from behind, weaker
+      const al = Math.atan2(-un, uc), aa = Math.abs(al), back = aa > Math.PI / 2, ae = back ? Math.PI - aa : aa;
+      const slope = (FO.slope * 2 * Math.PI * ar) / (ar + 2), stalled = ae > as;
+      const CL = Math.sign(al) * (back ? 0.7 : 1) * (stalled ? slope * as * Math.max(FO.postMin, 1 - (ae - as) / post) : slope * ae);
+      const CD = FO.cd0 + (CL * CL) / (FO.e * Math.PI * ar) + (stalled ? FO.stallCd * Math.sin(al) ** 2 : 0) + (f.kind === 'foil' ? cavCd(U2, dep) : 0);
+      const qs = q * U2 * area * s, dn = nx * hx + ny * hy + nz * hz;
+      let lx = nx - dn * hx, ly = ny - dn * hy, lz = nz - dn * hz;
+      const ll = Math.hypot(lx, ly, lz) || 1;
+      lx /= ll; ly /= ll; lz /= ll;
+      _f.x = qs * (CL * lx - CD * hx); _f.y = qs * (CL * ly - CD * hy); _f.z = qs * (CL * lz - CD * hz);
+      o.F = Math.hypot(_f.x, _f.y, _f.z);
+      push(v, _c, _f);
+      // past its load a foil strains; past FOIL.brk × it, it breaks off (queued as a wing's rip is)
+      if (f.load && !o.strut) {
+        const k = (o.ride ? 2 * o.F : o.F) / (f.load * 1000); // (a ride foil's half carries half its load)
+        p.strain = k;
+        if (k > FO.brk && Array.isArray(v.rip) && !v.rip.includes(p)) v.rip.push(p);
+      }
+    }
+  }
+  // A hydro vessel with no hull left (a turret, a mast, a bridge blown off a ship): nothing holds it up; it sinks on its
+  // drag (a turret at about 5 m/s), its tumbling damped, and lies on the bed
+  function sink(v, S, dt, vb, wb, h0, t) {
+    const dep = depthOf(v, S, v.com, h0, t), k = smoothstep(-v.reach * 0.5, v.reach * 0.5, dep);
+    S.fsub = 0; v.afloat = false; v.draft = 0;
+    if (k <= 0) return;
+    const A = Math.max(v.area.x, v.area.y, v.area.z, 0.25), U = Math.hypot(vb.x, vb.y, vb.z);
+    if (U > 1e-6) {
+      const F = Math.min(0.5 * SHIP.RHO * A * U * U * k, (SHIP.CLAMP * v.mass * U) / dt);
+      v.hF.x -= (vb.x / U) * F; v.hF.y -= (vb.y / U) * F; v.hF.z -= (vb.z / U) * F;
+    }
+    const d = (1 - Math.exp(-2 * k * dt)) / dt, Iw = v.mulI(wb, _w);
+    v.hT.x -= Iw.x * d; v.hT.y -= Iw.y * d; v.hT.z -= Iw.z * d;
+  }
+  // [WP6] A tiny hull-less piece (under TINY kg: a mast, a gun shield, a raft of junk) floats as a box: its parts' boxes ×
+  // TINY_FILL of water held up by its submerged share (from its centre's depth over its box's height), its motion and spin
+  // through the water damped e^(−TINY_DAMP·dt). Lighter than that much water, it floats; until it is junk (Ship.frame
+  // scuttles it after SEA.float s adrift: sh.scuttle) and sinks as the heavy ones do.
+  function tiny(v, S, dt, vb, wb, h0, t, gl, W) {
+    if (!(S.box > 0)) { let V = 0; for (const p of v.parts) { const d = partDims(p); V += d.w * d.h * partDepth(p) * partZs(p).length; } S.box = Math.max(V, 1e-3); }
+    const hh = Math.cbrt(S.box) / 2, dep = depthOf(v, S, v.com, h0, t), k = clamp((dep + hh) / (2 * hh), 0, 1);
+    const B = SHIP.RHO * gl * S.box * SHIP.TINY_FILL * k;
+    S.B = B; S.fsub = clamp(B / Math.max(W, 1e-6), 0, 1); v.afloat = B > 0.05 * W; v.draft = Math.max(0, dep + hh);
+    if (k <= 0) return;
+    const Ub = S.Ub, hF = v.hF, hT = v.hT, d = ((1 - Math.exp(-SHIP.TINY_DAMP * dt)) / dt) * k, Iw = v.mulI(wb, _w);
+    hF.x += Ub.x * B - v.mass * vb.x * d; hF.y += Ub.y * B - v.mass * vb.y * d; hF.z += Ub.z * B - v.mass * vb.z * d;
+    hT.x -= Iw.x * d; hT.y -= Iw.y * d; hT.z -= Iw.z * d;
+  }
+  // The step's acceleration with the water's added mass (§4.7): divided on each part axis by 1 + k·fsub, so a ship feels
+  // heavy and heaves smoothly; at rest (no net force) and out of the water (fsub 0) unchanged. (The spin's: vessel.js,
+  // with sh.kI.)
+  const _am = v3();
+  function addedMass(v, ax, ay, az, gk, out) {
+    out = out || v3();
+    const S = v.sh, f = S ? S.fsub : 0;
+    if (!(f > 0)) { out.x = ax; out.y = ay; out.z = az; return out; }
+    const a = qunrot(v.q, ax, ay, az, _am), k = S.kM;
+    a.x /= 1 + k.x * f; a.y /= 1 + k.y * f; a.z /= 1 + k.z * f;
+    return qrot(v.q, a.x, a.y, a.z, out);
+  }
+  // What a hydro vessel's probes meet (vessel.js ground): a carrier's deck when the point is no lower than DECK_BAND under
+  // it (alt: the point's height; none: the deck), else the ground, and under water the sea bed
+  function floorAt(b, a, z, alt) {
+    const dk = Terrain.deckAt(b, a, z);
+    if (dk === dk && !(alt < dk - SHIP.DECK_BAND)) return dk;
+    return Terrain.heightAt(b, a, z);
+  }
+  // the floor's outward normal there (sim axes, a new vector unless o): Terrain.normalAt's sums on the bed
+  function floorNormal(b, a, z, o) {
+    o = o || v3();
+    const R = b.radius, lat = z / R, cl = Math.max(0.05, Math.cos(lat)), sl = Math.sin(lat), ca = Math.cos(a), sa = Math.sin(a), d = 1.5;
+    const dk = Terrain.deckAt(b, a, z);
+    if (dk === dk) { o.x = cl * ca; o.y = cl * sa; o.z = sl; return norm3(o); } // (a deck is flat to its edge)
+    const da = d / (R * cl), H = Terrain.heightAt;
+    const se = (H(b, a - da, z) - H(b, a + da, z)) / (2 * d), sn = (H(b, a, z + d) - H(b, a, z - d)) / (2 * d);
+    o.x = cl * ca - se * sa + sn * ca * sl; o.y = cl * sa + se * ca + sn * sa * sl; o.z = sl - sn * cl;
+    return norm3(o);
+  }
+  // is she over water (the sea, a lake)?
+  function overWater(v) {
+    if (!v || !v.body) return false;
+    Terrain.locate(v.body, v.x, v.y, v.z, _L);
+    return !!Terrain.waterAt(v.body, _L.a, _L.z);
+  }
+
+  // ---- launch: afloat at her marks
+  // her net upward force (N) and her moments in pitch (about part z) and roll (about the hull's axis), in still water
+  const _sF = v3(), _sT = v3();
+  function stillLoads(v, S) {
+    const hF = v.hF, hT = v.hT;
+    v.hF = _sF; v.hT = _sT; _sF.x = _sF.y = _sF.z = 0; _sT.x = _sT.y = _sT.z = 0;
+    const r = frameOf(v, S), gl = v.body.mu / (r * r);
+    buoy(v, S, r - v.body.radius - S.level, 0, gl, true);
+    v.hF = hF; v.hT = hT;
+    return [dot3(_sF, S.Ub) - v.mass * gl, _sT.z, _sT.x * S.ax.x + _sT.y * S.ax.y];
+  }
+  // her pose with its centre of mass h along U from P0 and the level attitude q0 turned by trim th (+ bow up, about
+  // part z) and heel ph (+ starboard down, about the hull's axis)
+  function poseAt(v, P0, q0, U, h, th, ph) {
+    const ax = v.sh.ax;
+    v.q = qnorm(qmul(q0, qmul(qaxis(0, 0, 1, th), qaxis(ax.x, ax.y, ax.z, ph))));
+    v.x = P0.x + U.x * h; v.y = P0.y + U.y * h; v.z = P0.z + U.z * h;
+  }
+  // Her float in still water where she is, heading kept (Newton's method on heave, trim and heel over the very rings the
+  // physics floats her on): her pose, at rest. false: she can't float (no hull, too heavy, no water)
+  function settle(v) {
+    const S = v.sh;
+    if (!S || !S.rings.length) return false;
+    S.wx = NaN; waterOf(v, S);
+    if (!(S.level > -Infinity)) return false;
+    const r0 = Math.hypot(v.x, v.y, v.z), U = { x: v.x / r0, y: v.y / r0, z: v.z / r0 };
+    // the level attitude with her heading: the hull's axis horizontal (ax -> Fh, ay -> U, ax × ay -> Fh × U)
+    const Fw = qrot(v.q, S.ax.x, S.ax.y, S.ax.z), fu = dot3(Fw, U), Fh = norm3({ x: Fw.x - U.x * fu, y: Fw.y - U.y * fu, z: Fw.z - U.z * fu });
+    const q0 = qmul(qbasis(Fh, U, cross3(Fh, U)), qconj(qbasis(S.ax, S.ay, cross3(S.ax, S.ay))));
+    const R = v.body.radius + S.level, P0 = { x: U.x * R, y: U.y * R, z: U.z * R };
+    const f = (h, th, ph) => { poseAt(v, P0, q0, U, h, th, ph); return stillLoads(v, S); };
+    let lo = -v.reach - 2, hi = v.reach + 2;
+    if (f(lo, 0, 0)[0] < 0) return false; // (all under and still too heavy)
+    for (let i = 0; i < 50; i++) { const mid = (lo + hi) / 2; if (f(mid, 0, 0)[0] > 0) lo = mid; else hi = mid; }
+    const X = [(lo + hi) / 2, 0, 0], W = v.mass * 9.8, L = Math.max(1, v.reach), dX = [0.005, 0.001, 0.001], lim = [0.5, 0.05, 0.05];
+    for (let it = 0; it < 30; it++) {
+      const F0 = f(X[0], X[1], X[2]);
+      if (Math.abs(F0[0]) < 1e-6 * W && Math.abs(F0[1]) < 1e-6 * W * L && Math.abs(F0[2]) < 1e-6 * W * L) break;
+      const J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      for (let k = 0; k < 3; k++) {
+        const Y = X.slice(); Y[k] += dX[k];
+        const F1 = f(Y[0], Y[1], Y[2]);
+        for (let i = 0; i < 3; i++) J[i][k] = (F1[i] - F0[i]) / dX[k];
+      }
+      const d = solve3(J, [-F0[0], -F0[1], -F0[2]]);
+      if (!d) break;
+      for (let k = 0; k < 3; k++) X[k] += clamp(d[k], -lim[k], lim[k]);
+      X[1] = clamp(X[1], -0.6, 0.6); X[2] = clamp(X[2], -1.2, 1.2);
+    }
+    poseAt(v, P0, q0, U, X[0], X[1], X[2]);
+    v.vx = v.vy = v.vz = 0; v.av = v3();
+    S.wx = NaN; waterOf(v, S); frameOf(v, S);
+    return true;
+  }
+  function solve3(A, b) {
+    const M = A.map((r, i) => [r[0], r[1], r[2], b[i]]);
+    for (let c = 0; c < 3; c++) {
+      let p = c;
+      for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      if (!(Math.abs(M[p][c]) > 1e-12)) return null;
+      const tmp = M[c]; M[c] = M[p]; M[p] = tmp;
+      for (let r = 0; r < 3; r++) if (r !== c) { const k = M[r][c] / M[c][c]; for (let j = c; j < 4; j++) M[r][j] -= k * M[c][j]; }
+    }
+    return [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]];
+  }
+  // the least clearance (m) between her keel and the bed along her hull as she lies (Infinity: no hull)
+  function keelClear(v) {
+    const S = v.sh, b = v.body, c = v.com, cz = c.z || 0;
+    let low = Infinity;
+    for (const g of S.rings) {
+      const o = qrot(v.q, g.x - c.x, g.y - c.y, g.z - cz), px = v.x + o.x, py = v.y + o.y, pz = v.z + o.z;
+      Terrain.locate(b, px, py, pz, _L);
+      low = Math.min(low, Math.hypot(px, py, pz) - b.radius - Terrain.heightAt(b, _L.a, _L.z));
+    }
+    return low;
+  }
+  // A launch spot (e, z, yaw as placeOnSurface takes them: the nose along (cos yaw, −sin yaw) in (e, z)) moved out ahead
+  // to water deep enough (the keel LAUNCH.shallow m over the bed all along her), LAUNCH.step m at a time up to LAUNCH.max.
+  // Leaves her afloat there. { e, z, yaw, ok, moved }
+  function seaPlace(v, e, z, yaw) {
+    const L = SHIP.LAUNCH, b = v.body, rot = (VEHICLE_KINDS[v.kind] || {}).launchRot || 0;
+    for (let s = 0; s <= L.max; s += L.step) {
+      const E = e + Math.cos(yaw) * s, Z = z - Math.sin(yaw) * s;
+      v.placeOnSurface(b, siteAngle(b, E), rot, Z, yaw);
+      if (!settle(v)) continue;
+      if (keelClear(v) >= L.shallow) return { e: E, z: Z, yaw, ok: true, moved: s };
+    }
+    v.placeOnSurface(b, siteAngle(b, e), rot, z, yaw);
+    return { e, z, yaw, ok: false, moved: 0 };
+  }
+  // Set her afloat at her marks at the launch spot (Flight.start, after placeOnSurface, for a hydro vessel over water):
+  // the draft, trim and heel her weight gives, heading kept, at rest; moved out to sea when it is too shallow there.
+  // place: { e, z, yaw } (Flight.start's spot; none: where and as placeOnSurface left her). false: she couldn't float.
+  function launch(v, place) {
+    const S = v && v.sh;
+    if (!S || !S.rings.length) return false;
+    const b = v.body;
+    let e, z, yaw;
+    if (place && Number.isFinite(place.e)) { e = place.e; z = Number.isFinite(place.z) ? place.z : 0; yaw = Number.isFinite(place.yaw) ? place.yaw : 0; }
+    else {
+      frameOf(v, S);
+      Terrain.locate(b, v.x, v.y, v.z, _L);
+      e = -wrapAngle(_L.a - b.padAngle) * b.radius; z = _L.z;
+      const F = qrot(v.q, S.ax.x, S.ax.y, S.ax.z), fe = dot3(F, S.E), fn = dot3(F, S.N);
+      yaw = Math.atan2(fn, fe); // (the nose along (cos, −sin) in (e, z), and z is game south: −sin yaw = −fn)
+    }
+    const P = seaPlace(v, e, z, yaw);
+    if (!P.ok && !settle(v)) return false;
+    v.landed = false; v.splashed = false; v.afloat = true; v.moored = false; v.mo = null;
+    v.contactTime = 0; v.restTime = 0;
+    S.tel = 0; S.pow = 0; S.dem = 0; S.hold = null; S.man = false; S.rud = 0; S.tk = 0;
+    for (const p of S.rudders) p.rud = 0;
+    if (v.kind === 'ship') v.sas = 'hold';
+    S.gm = stabProbe(v);
+    const r = Math.hypot(v.x, v.y, v.z), gl = b.mu / (r * r);
+    S.B = v.mass * gl; S.fsub = 1; S.Lwl = S.Lwl || v.reach;
+    return P;
+  }
+  // her metacentric height in still water, from a 2° heel (the buoyancy's righting moment over W·sin 2°)
+  function stabProbe(v) {
+    const S = v.sh, q = v.q, ph = (2 * Math.PI) / 180;
+    v.q = qnorm(qmul(q, qaxis(S.ax.x, S.ax.y, S.ax.z, ph)));
+    const L = stillLoads(v, S), r = Math.hypot(v.x, v.y, v.z), W = v.mass * (v.body.mu / (r * r));
+    v.q = q; frameOf(v, S);
+    const gm = -L[2] / (W * Math.sin(ph));
+    return Number.isFinite(gm) ? gm : 1;
+  }
+  function stab(v) { return v && v.sh ? v.sh.gm : null; } // her metacentric height now (m)
+
+  // ---- mooring (§4.10): a ship afloat, still and left alone sleeps on the swell: no physics, its pose bobs on the waves
+  function moor(v, F) {
+    const S = v && v.sh;
+    if (!S || v.moored) return;
+    frameOf(v, S); waterOf(v, S);
+    v.vx = v.vy = v.vz = 0; v.av = v3();
+    const t = seaT(F), w = bob(v, S, t);
+    v.moored = true;
+    v.mo = { q0: quat(v.q.w, v.q.x, v.q.y, v.q.z), r0: Math.hypot(v.x, v.y, v.z), U: { x: S.U.x, y: S.U.y, z: S.U.z }, w0: w, A: w, B: w, ta: t, tb: t, hp: hpSum(v), n: v.parts.length, W: waterSum(S) };
+    S.moorT = 0;
+  }
+  function hpSum(v) { let s = 0; for (const p of v.parts) s += p.hp == null ? 1e6 : p.hp; return s; }
+  function waterSum(S) { let s = 0; for (const c of S.comps) s += (c.W || 0) + c.holes.length; return s; }
+  // the waves' heave, pitch and roll on a moored hull (the surface averaged over her length and beam: a long ship barely moves)
+  function bob(v, S, t) {
+    if (!(S.fade > 0)) return { h: 0, p: 0, r: 0 };
+    const L = Math.max(S.Lwl || v.reach, 1), Bm = Math.max(v.depth || 2, 1), ax = S.ax;
+    const at = (s, l) => wave(S.e0 + ax.x * s * S.Eb.x + ax.y * s * S.Eb.y + l * S.Eb.z, S.n0 + ax.x * s * S.Nb.x + ax.y * s * S.Nb.y + l * S.Nb.z, t, WV)[0] * S.fade;
+    const f = at(L / 2, 0), a = at(-L / 2, 0), c = at(0, 0), pt = at(0, -Bm / 2), sb = at(0, Bm / 2);
+    return { h: (f + a + 2 * c + pt + sb) / 6, p: Math.atan((f - a) / L), r: Math.atan((pt - sb) / Bm) };
+  }
+  // a moored ship's pose this tick (flight.js physicsTick): its pose when moored, moved as the waves have moved since,
+  // looked at MOOR.hz times a second and eased between
+  function drift(v, h, F) {
+    const S = v.sh, M = v.mo;
+    if (!S || !M) { v.moored = false; return; }
+    const t = seaT(F) + h, dl = 1 / SHIP.MOOR.hz;
+    if (t >= M.tb) { M.A = M.B; M.ta = M.tb; M.tb = Math.max(t, M.tb + dl); M.B = bob(v, S, M.tb); }
+    const k = M.tb > M.ta ? clamp((t - M.ta) / (M.tb - M.ta), 0, 1) : 1;
+    const dh = lerp(M.A.h, M.B.h, k) - M.w0.h, dp = lerp(M.A.p, M.B.p, k) - M.w0.p, dr = lerp(M.A.r, M.B.r, k) - M.w0.r, r = M.r0 + dh, U = M.U;
+    v.x = U.x * r; v.y = U.y * r; v.z = U.z * r;
+    const F0 = qrot(M.q0, S.ax.x, S.ax.y, S.ax.z), Lt = qrot(M.q0, 0, 0, 1);
+    v.q = qnorm(qmul(qaxis(F0.x, F0.y, F0.z, dr), qmul(qaxis(Lt.x, Lt.y, Lt.z, dp), M.q0)));
+    v.vx = v.vy = v.vz = 0;
+  }
+  // wake a moored ship
+  function unmoor(v) { if (v && v.moored) { v.moored = false; v.mo = null; if (v.sh) v.sh.moorT = 0; } }
+  // once a frame (Ship.frame): who moors (afloat, not the player's, telegraph at Stop, no thrust, still for MOOR.t s) and
+  // who wakes (the player's craft, the telegraph, a hit, a part lost, water or holes changing, a craft close by under way)
+  function moorCheck(F, dt) {
+    const M = SHIP.MOOR;
+    for (const v of F.vessels) {
+      const S = v.sh;
+      if (!v.hydro || !S || v.remote || v.dead || !v.parts.length) continue;
+      if (v.moored) {
+        const o = v.mo;
+        let wake = v === F.active || !o || S.tel !== 0 || hpSum(v) !== o.hp || v.parts.length !== o.n || waterSum(S) !== o.W || (v.kind !== 'ship' && v.thrust > 0);
+        if (!wake) for (const u of F.vessels) {
+          if (u === v || u.dead || u.moored || !u.speed) continue;
+          if ((u.x - v.x) ** 2 + (u.y - v.y) ** 2 + (u.z - v.z) ** 2 < M.wake * M.wake && u.speed() > M.wakeV) { wake = true; break; }
+        }
+        if (wake) unmoor(v);
+        continue;
+      }
+      if (v === F.active || !v.afloat || v.landed || S.tel !== 0 || S.T > 0 || (v.thrust || 0) > 0 || v.speed() > M.v) { S.moorT = 0; continue; }
+      S.moorT += dt;
+      if (S.moorT >= M.t) moor(v, F);
+    }
+  }
+
+  // ---- hulls meeting things: groundings, slams, other ships, carriers (§4.8) [WP6]
+  // a hull part's hp (its def's, as Combat.maxHp has it)
+  function hpOf(p) { return p.def.hp || (typeof Combat !== 'undefined' && Combat.maxHp ? Combat.maxHp(p.def) : 1000); }
+  // a hull part holed and kept by a grounding or a slam: IMPACT.hp of its hp, and a hole of IMPACT.hole m² for each m/s
+  // over its limit where it struck (addHoles: the damage package's; a no-op until it lands). h: { s, lim, x, y } or none
+  function holeHull(v, p, h, sim) {
+    if (typeof Combat !== 'undefined' && sim && sim.vessels) Combat.damage(v, p, SHIP.IMPACT.hp * hpOf(p), 'crash', sim);
+    if (h && h.s > h.lim && v.parts.includes(p)) Ship.addHoles(v, [[p, h.x, h.y, SHIP.IMPACT.hole * (h.s - h.lim)]]);
+  }
+  // A crash's broken parts (Death.impact's first line, for v.sh): its hull parts are holed and kept unless the contact
+  // was past IMPACT.remove × their limit (vessel.js ground() and Gear.ground keep, for a hydro vessel, each broken part's
+  // worst contact: v._bedHit, part -> { r: speed ÷ limit, s, lim, x, y }); the rest (masts, guns, rotors) break as ever
+  function impactSea(v, parts, sim) {
+    if (!v || !v.sh || !Array.isArray(parts)) return parts;
+    const H = v._bedHit, out = [];
+    for (const p of parts) {
+      const h = H && H.get(p);
+      if (!p.def.shull || (h && h.r > SHIP.IMPACT.remove)) out.push(p);
+      else holeHull(v, p, h, sim);
+    }
+    if (H) H.clear();
+    return out;
+  }
+  // a hydro vessel's slams this step (forces queues them on sh.slam): holed and kept, or past IMPACT.remove torn off
+  function slams(F, v) {
+    const L = v.sh.slam, rip = [];
+    for (const [p, r, x, y, s] of L) {
+      if (!v.parts.includes(p)) continue;
+      if (r > SHIP.IMPACT.remove) rip.push(p);
+      else holeHull(v, p, { s, lim: s / r, x, y }, F);
+    }
+    L.length = 0;
+    if (rip.length && F.breakParts && !v.dead) F.breakParts(v, rip, 'slam');
+  }
+
+  // a section's [yd, yk, bd, bw, nb] at x into o (shullSec's, without its arrays)
+  const SEC = [0, 0, 0, 0, 0];
+  function secAt(st, x, o) {
+    let a = st[0], b = st[0], k = 0;
+    if (x > st[0][0]) {
+      b = st[st.length - 1];
+      for (let i = 1; i < st.length; i++) if (x <= st[i][0]) { a = st[i - 1]; b = st[i]; k = b[0] > a[0] ? (x - a[0]) / (b[0] - a[0]) : 0; break; }
+      if (x > b[0]) a = b;
+    }
+    for (let j = 0; j < 5; j++) o[j] = a[j + 1] + (b[j + 1] - a[j + 1]) * k;
+    return o;
+  }
+  // Where a part-space point X lies against her hull: null outside; else IH = { p (the hull part), pen (m), n (part
+  // space, out of her: the way out that is nearest: through her side, her deck, her bottom or past her ends) }. Each
+  // hull part's own section at X's station (the same superellipse and topsides shullOf samples), X in its own frame.
+  const IH = { p: null, pen: 0, n: v3() };
+  function insideHull(v, X) {
+    const S = v && v.sh, B = S && S.bb;
+    if (!S || !B || X.x < B.x0 || X.x > B.x1 || X.y < B.y0 || X.y > B.y1 || X.z < B.z0 || X.z > B.z1) return null;
+    let best = null;
+    for (const p of S.hulls) {
+      const d = p.def, sh = d.shull, H = shullOf(d), dx = X.x - p.x, dy = X.y - p.y;
+      let lx, ly;
+      switch (p.rot & 3) { case 1: lx = dy; ly = -dx; break; case 2: lx = -dx; ly = -dy; break; case 3: lx = -dy; ly = dx; break; default: lx = dx; ly = dy; }
+      if (lx < H.x0 || lx > H.x1) continue;
+      secAt(sh.st, lx, SEC);
+      const yd = SEC[0], yk = SEC[1], bd = SEC[2], bw = SEC[3], nb = SEC[4], wl = sh.wl;
+      if (ly <= yk || ly >= yd) continue;
+      let half;
+      if (yk < wl && ly < wl) { const u = (wl - ly) / (wl - yk); half = bw * Math.pow(Math.max(0, 1 - Math.pow(u, nb)), 1 / nb); }
+      else if (yk < wl) half = yd > wl ? bw + ((bd - bw) * (ly - wl)) / (yd - wl) : bw;
+      else { const b0 = yd > wl ? bw + ((bd - bw) * (yk - wl)) / (yd - wl) : bw; half = b0 + ((bd - b0) * (ly - yk)) / Math.max(yd - yk, 1e-6); }
+      for (const z0 of partZs(p)) {
+        const lz = X.z - z0, side = half - Math.abs(lz);
+        if (side <= 0) continue;
+        const s = X.x * S.ax.x + X.y * S.ax.y, fore = S.x1 - s, aft = s - S.x0, up = yd - ly, down = ly - yk;
+        let pen = side, k = 0;
+        if (up < pen) { pen = up; k = 1; }
+        if (down < pen) { pen = down; k = 2; }
+        if (fore < pen) { pen = fore; k = 3; }
+        if (aft < pen) { pen = aft; k = 4; }
+        if (best && pen <= best.pen) continue;
+        best = IH; IH.p = p; IH.pen = pen;
+        const n = IH.n;
+        if (k === 0) { n.x = 0; n.y = 0; n.z = lz < 0 ? -1 : 1; }
+        else if (k === 3 || k === 4) { const g = k === 3 ? 1 : -1; n.x = S.ax.x * g; n.y = S.ax.y * g; n.z = 0; }
+        else { const g = k === 1 ? 1 : -1, u = partPt(p, 0, 1); n.x = (u.x - p.x) * g; n.y = (u.y - p.y) * g; n.z = 0; }
+      }
+    }
+    return best;
+  }
+
+  // Ship.bump (Ship.frame, once a frame): every pair of hydro vessels within reach of each other (ghosts in a room too:
+  // S10), each hydro vessel against the other craft (their hull points) and the carriers (boxes from the deck down to
+  // CARRIER_DEPTH under the sea). The deepest point of either inside the other's hull is the contact: a closing impulse
+  // (restitution BUMP.e), the two pushed apart (BUMP.push of it each; all of it to ours against a ghost or a carrier: a
+  // ghost is never moved or hurt here, its owner runs this on their screen), and past BUMP.v closing each side's touching
+  // part takes BUMP.dmg·μ·s²/1000 hp and its hull a hole of BUMP.hole·s² m² (μ the reduced mass at the contact, kg).
+  const BV = [], BC = { P: v3(), n: v3(), pen: 0, pa: null, pb: null, xa: 0, ya: 0, xb: 0, yb: 0 }, _bX = v3(), _bW = v3(), _bS = v3(), _bI = v3(), _bO = v3(), _bQ = quat(), _bQ2 = quat();
+  function bump(F) {
+    const list = F && F.vessels;
+    if (!list) return;
+    BV.length = 0;
+    for (const v of list) if (v.sh && !v.dead && !v.lash && v.parts.length && v.body) BV.push(v);
+    for (let i = 0; i < BV.length; i++) {
+      const A = BV[i];
+      for (let j = i + 1; j < BV.length; j++) { const B = BV[j]; if (!(A.remote && B.remote) && near(A, B)) pairHit(A, B, F); }
+      if (A.remote) continue;
+      for (const o of list) if (!o.sh && !o.dead && !o.lash && o.parts.length && o.body === A.body && o.hull && o.hull.length && near(A, o)) pairHit(A, o, F);
+      if (A.body === EARTH && EARTH.carriers) carriers(A, F);
+    }
+  }
+  function near(A, B) { const r = A.reach + B.reach; return A.body === B.body && (A.x - B.x) ** 2 + (A.y - B.y) ** 2 + (A.z - B.z) ** 2 < r * r; }
+  // the world point (sim, absolute) of part-space (x, y, z) on v, into o; and back
+  function worldOf(v, x, y, z, o) { const c = v.com; qrot(v.q, x - c.x, y - c.y, z - (c.z || 0), o); o.x += v.x; o.y += v.y; o.z += v.z; return o; }
+  function localOf(v, P, o) { const c = v.com; qunrot(v.q, P.x - v.x, P.y - v.y, P.z - v.z, o); o.x += c.x; o.y += c.y; o.z += c.z || 0; return o; }
+  // each test point of v (part space) to fn(x, y, z, part): a hydro vessel's rings' waterline points and deck edges, any
+  // other craft's hull points
+  const RP = [6, 7, SHULL_K - 7, SHULL_K - 6]; // (a ring's port waterline point and deck edge, then the starboard deck edge and waterline point)
+  function eachPt(v, fn) {
+    if (v.sh) { for (const g of v.sh.rings) for (const i of RP) fn(g.P[3 * i], g.P[3 * i + 1], g.P[3 * i + 2], g.p); }
+    else for (const k of v.hull) fn(k.x, k.y, k.z, k.p);
+  }
+  // the deepest point of B inside A (and of A inside B, if B floats): BC (n from A into B), or null
+  function contactOf(A, B) {
+    let best = 0;
+    const one = (S, T, flip) => {
+      // (T's part space into S's: one relative turn, q = S⁻¹·T, and an offset, for every point)
+      const q = qmul(qconj(S.q, _bQ), T.q, _bQ2), sc = S.com, tc = T.com;
+      qunrot(S.q, T.x - S.x, T.y - S.y, T.z - S.z, _bO);
+      eachPt(T, (x, y, z, part) => {
+      qrot(q, x - tc.x, y - tc.y, z - (tc.z || 0), _bX); _bX.x += _bO.x + sc.x; _bX.y += _bO.y + sc.y; _bX.z += _bO.z + (sc.z || 0);
+      const h = insideHull(S, _bX);
+      if (!h || h.pen <= best) return;
+      worldOf(S, _bX.x, _bX.y, _bX.z, _bW);
+      best = h.pen; BC.pen = h.pen; BC.P.x = _bW.x; BC.P.y = _bW.y; BC.P.z = _bW.z;
+      qrot(S.q, h.n.x, h.n.y, h.n.z, BC.n);
+      if (flip) { BC.n.x = -BC.n.x; BC.n.y = -BC.n.y; BC.n.z = -BC.n.z; BC.pa = part; BC.pb = h.p; BC.xa = x; BC.ya = y; BC.xb = _bX.x; BC.yb = _bX.y; }
+      else { BC.pa = h.p; BC.pb = part; BC.xa = _bX.x; BC.ya = _bX.y; BC.xb = x; BC.yb = y; }
+      });
+    };
+    one(A, B, false);
+    if (B.sh) one(B, A, true);
+    return best > 0 ? BC : null;
+  }
+  function pairHit(A, B, F) { const C = contactOf(A, B); if (C) resolve(A, B, C, F); }
+  // 1/(effective mass) of v at world offset r along unit n (sim axes)
+  function effInv(v, r, n) { cross3(r, n, _bS); v.invIWorld(_bS, _bI); cross3(_bI, r, _bS); return 1 / v.mass + dot3(_bS, n); }
+  // the contact C between A and B (B null: a carrier, immovable): impulse, push-out, damage
+  function resolve(A, B, C, F) {
+    const n = C.n, P = C.P, fixA = !!A.remote, fixB = !B || !!B.remote;
+    if (fixA && fixB) return;
+    const rA = v3(P.x - A.x, P.y - A.y, P.z - A.z), vA = A.pointVel(rA, v3()), kA = effInv(A, rA, n);
+    let vn = -dot3(vA, n), kB = 0, rB = null;
+    if (B) { rB = v3(P.x - B.x, P.y - B.y, P.z - B.z); const vB = B.pointVel(rB, v3()); vn += dot3(vB, n); kB = effInv(B, rB, n); }
+    const ka = fixA ? 0 : kA, kb = fixB ? 0 : kB;
+    if (vn < 0) { // closing: an impulse j along n on B, −j on A, once a pair a frame
+      const j = (-(1 + SHIP.BUMP.e) * vn) / (ka + kb);
+      if (!fixA) push3(A, rA, n, -j);
+      if (!fixB) push3(B, rB, n, j);
+    }
+    // apart: half the penetration each, or all of it to the one that moves
+    const sa = fixA ? 0 : fixB ? 1 : SHIP.BUMP.push, sb = fixB ? 0 : fixA ? 1 : SHIP.BUMP.push;
+    if (sa) { A.x -= n.x * C.pen * sa; A.y -= n.y * C.pen * sa; A.z -= n.z * C.pen * sa; }
+    if (sb) { B.x += n.x * C.pen * sb; B.y += n.y * C.pen * sb; B.z += n.z * C.pen * sb; }
+    if (A.moored) unmoor(A);
+    if (B && B.moored) unmoor(B);
+    const s = -vn;
+    if (!(s > SHIP.BUMP.v) || typeof Combat === 'undefined' || !F.vessels) return;
+    const mu = 1 / (kA + kB), dmg = (SHIP.BUMP.dmg * mu * s * s) / 1000, hole = SHIP.BUMP.hole * s * s;
+    if (!fixB && C.pb) { if (C.pb.def.shull && B.sh) Ship.addHoles(B, [[C.pb, C.xb, C.yb, hole]]); Combat.damage(B, C.pb, dmg, 'crash', F, A); }
+    if (!fixA && C.pa) { if (C.pa.def.shull) Ship.addHoles(A, [[C.pa, C.xa, C.ya, hole]]); Combat.damage(A, C.pa, dmg, 'crash', F, B || undefined); }
+  }
+  function push3(v, r, n, j) {
+    const im = j / v.mass;
+    v.vx += n.x * im; v.vy += n.y * im; v.vz += n.z * im;
+    cross3(r, n, _bS); v.invIWorld(_bS, _bI);
+    v.av.x += _bI.x * j; v.av.y += _bI.y * j; v.av.z += _bI.z * j;
+  }
+  // a hydro vessel against the carriers' hulls: boxes ±hl × ±hw along each one's yaw, from its deck down to CARRIER_DEPTH
+  // under the sea; her rings' points tested in the carrier's (east, south, up) from her own frame at her centre
+  function carriers(A, F) {
+    const S = A.sh, C = EARTH.carriers;
+    if (!(S.U.x || S.U.y || S.U.z)) frameOf(A, S);
+    let best = 0, bC = null;
+    const R = EARTH.radius, h0 = Math.hypot(A.x, A.y, A.z) - R, ze = -S.n0;
+    for (const k in C) {
+      const d = C[k], de0 = S.e0 - d.e, dz0 = ze - d.z, m = d.hl + A.reach + 10;
+      if (Math.abs(de0) > m || Math.abs(dz0) > m) continue;
+      eachPt(A, (x, y, z) => {
+        worldOf(A, x, y, z, _bW);
+        const ox = _bW.x - A.x, oy = _bW.y - A.y, oz = _bW.z - A.z;
+        const de = de0 + ox * S.E.x + oy * S.E.y + oz * S.E.z, dz = dz0 - (ox * S.N.x + oy * S.N.y + oz * S.N.z), h = h0 + ox * S.U.x + oy * S.U.y + oz * S.U.z;
+        if (h > d.deck || h < -SHIP.CARRIER_DEPTH) return;
+        const u = de * d.c + dz * d.s, w = -de * d.s + dz * d.c, pu = d.hl - Math.abs(u), pw = d.hw - Math.abs(w);
+        if (pu <= 0 || pw <= 0) return;
+        const pen = Math.min(pu, pw);
+        if (pen <= best) return;
+        best = pen; bC = BC;
+        // the carrier's outward normal at the point, (e, z) -> sim: e along E, z (game south) along −N
+        let ne, nz;
+        if (pu < pw) { const g = u < 0 ? -1 : 1; ne = d.c * g; nz = d.s * g; } else { const g = w < 0 ? -1 : 1; ne = -d.s * g; nz = d.c * g; }
+        BC.n.x = -(ne * S.E.x - nz * S.N.x); BC.n.y = -(ne * S.E.y - nz * S.N.y); BC.n.z = -(ne * S.E.z - nz * S.N.z); // (from her into the carrier)
+        BC.pen = pen; BC.P.x = _bW.x; BC.P.y = _bW.y; BC.P.z = _bW.z;
+        const L = localOf(A, _bW, _bX), hh = insideHull(A, L);
+        BC.pa = hh ? hh.p : null; BC.xa = L.x; BC.ya = L.y; BC.pb = null;
+      });
+    }
+    if (bC) { if (!bC.pa) bC.pa = S.hulls[0] || null; resolve(A, null, bC, F); }
+  }
+
+  // ---- decks and lashing (§4.8) [WP6]
+  // Ship.D: every landable moving deck (def.deck: { hl, hw }) aboard a live hydro vessel, ghosts' too, refilled by
+  // Ship.frame: { v, p, hl, hw, top (its top face's y, its own frame), x, y, z (its middle, part space), ex, ey (its own
+  // axes in part space) }. vessel.js ground() asks deckContacts for every probe point of another craft within a deck's
+  // rectangle and within DECK_BAND under its top: the deck pushes it up along its own up, and the solver takes the
+  // contact's velocity relative to the deck (deckRel), so a craft on a deck rides with her. Crash limits: a carrier deck's.
+  const DECKS = [];
+  function decksOf(F) {
+    DECKS.length = 0;
+    for (const v of F.vessels) {
+      const S = v.sh;
+      if (!S || v.dead || !S.decks.length) continue;
+      if (!S.dk) S.dk = S.decks.flatMap((p) => { const o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1), d = p.def.deck;
+        return partZs(p).map((z) => ({ v, p, hl: d.hl || p.def.w / 2, hw: d.hw || partDepth(p) / 2, top: p.def.h / 2, x: o.x, y: o.y, z, ex: { x: a.x - o.x, y: a.y - o.y }, ey: { x: u.x - o.x, y: u.y - o.y } })); });
+      for (const D of S.dk) if (!D.p.broken && v.byId.has(D.p.id)) DECKS.push(D);
+    }
+  }
+  const _dU = v3(), _dO = v3(), _dL = v3(), _dV = v3();
+  // the world up of a deck (sim axes), into o
+  function deckUp(D, o) { return qrot(D.v.q, D.ey.x, D.ey.y, 0, o); }
+  // the highest deck top near v (m over the body's radius; −Infinity: none): vessel.js ground()'s reach for its probes
+  function deckTop(v) {
+    let h = -Infinity;
+    for (const D of DECKS) {
+      const s = D.v;
+      if (s === v || s.dead || s.body !== v.body || !near(s, v)) continue;
+      worldOf(s, D.x + D.ey.x * D.top, D.y + D.ey.y * D.top, D.z, _dO);
+      h = Math.max(h, Math.hypot(_dO.x, _dO.y, _dO.z) - v.body.radius);
+    }
+    return h;
+  }
+  // a deck's point velocity at the world point P (sim, absolute), into o
+  function deckVel(D, P, o) { const s = D.v; return s.pointVel(v3(P.x - s.x, P.y - s.y, P.z - s.z), o || v3()); }
+  // vessel.js ground() (one call, when Ship.D.length): the probe points of v on a deck, as contacts
+  function deckContacts(v, contacts) {
+    const q = v.q, c = v.com, cz = c.z || 0;
+    for (const D of DECKS) {
+      const s = D.v;
+      if (s === v || s.dead || s.body !== v.body || !near(s, v)) continue;
+      const up = deckUp(D, _dU);
+      const probe = (k, rad) => {
+        const o = qrot(q, k.x - c.x, k.y - c.y, k.z - cz, v3());
+        if (rad) { o.x -= up.x * rad; o.y -= up.y * rad; o.z -= up.z * rad; }
+        _dO.x = v.x + o.x; _dO.y = v.y + o.y; _dO.z = v.z + o.z;
+        localOf(s, _dO, _dL);
+        const ex = _dL.x - D.x, ey = _dL.y - D.y, lx = ex * D.ex.x + ey * D.ex.y, ly = ex * D.ey.x + ey * D.ey.y, lz = _dL.z - D.z;
+        if (Math.abs(lx) > D.hl || Math.abs(lz) > D.hw) return;
+        const pen = D.top - ly;
+        if (pen <= 0 || pen > SHIP.DECK_BAND) return;
+        // (a wheel on a deck is chocked: it holds as a skid does, 0.9 of grip, so a craft set down on a deck rolling about
+        // the swell stays where it was put)
+        contacts.push({ p: k.p, k, r: o, pen, n: v3(up.x, up.y, up.z), wheel: false, side: false, float: !!k.p.def.float, water: false, deck: D, P: v3(_dO.x, _dO.y, _dO.z) });
+        v._deckHit = D;
+      };
+      for (const k of v.hull) probe(k, 0);
+      for (const k of v.wheelPts) if (!(k.retract && v.gearUp)) probe(k, k.r);
+    }
+  }
+  // a deck contact's velocity made relative to the deck (the solver's: after pointVel)
+  function deckRel(k, vp) { deckVel(k.deck, k.P, _dV); vp.x -= _dV.x; vp.y -= _dV.y; vp.z -= _dV.z; return vp; }
+  // Lashing: a craft (not a hydro one) on a deck, its speed relative to it under LASH.v for LASH.t s with its lift (its
+  // wings' and its engines' and rotors' push) under LASH.lift of its weight, is lashed there: v.lash = { s: the ship, p:
+  // the deck part, D, q: its attitude in her part axes, X: its centre in her part space, thr: its throttle then }. Not
+  // stepped (flight.js physicsTick calls lashStep instead): it rides her. Let go when its throttle opens past LASH.lift
+  // (and past what it was lashed at), the deck tilts past LASH.tilt, the deck part breaks or she is gone.
+  function lashCheck(F, dt) {
+    for (const v of F.vessels) {
+      const D = v._deckHit;
+      if (D) v._deckHit = null;
+      if (v.lash) continue;
+      if (!D || v.sh || v.dead || v.remote || !v.parts.length) { if (v._lashT) v._lashT = 0; continue; }
+      const r = Math.hypot(v.x, v.y, v.z), W = (v.mass * v.body.mu) / (r * r), L = Math.max(0, v.lift || 0) + (v.thrust || 0);
+      deckVel(D, v, _dV);
+      const rel = Math.hypot(v.vx - _dV.x, v.vy - _dV.y, v.vz - _dV.z);
+      if (rel < SHIP.LASH.v && L < SHIP.LASH.lift * W && tiltOk(D)) { v._lashT = (v._lashT || 0) + dt; if (v._lashT >= SHIP.LASH.t) lash(v, D); }
+      else v._lashT = 0;
+    }
+  }
+  function tiltOk(D) { const s = D.v, up = deckUp(D, _dU), r = Math.hypot(s.x, s.y, s.z) || 1; return (up.x * s.x + up.y * s.y + up.z * s.z) / r > Math.cos((SHIP.LASH.tilt * Math.PI) / 180); }
+  function lash(v, D) {
+    const s = D.v;
+    v.lash = { s, p: D.p, D, q: qmul(qconj(s.q), v.q), X: localOf(s, v, v3()), thr: v.throttle || 0 };
+    v._lashT = 0; v.landed = true;
+  }
+  function unlash(v) { if (v) { v.lash = null; v._lashT = 0; } }
+  // flight.js physicsTick, for a lashed craft (instead of its physics step): her pose × its own, her velocity at its
+  // centre; or let go (and stepped) when it lifts, the deck tilts or breaks or she is gone
+  function lashStep(v, h, F) {
+    const L = v.lash, s = L && L.s;
+    const go = !s || s.dead || !s.parts.length || !s.byId.has(L.p.id) || L.p.broken || (F && F.vessels && !F.vessels.includes(s))
+      || (v.throttle || 0) > Math.max(SHIP.LASH.lift, L.thr + 0.1) || !tiltOk(L.D);
+    if (go) { unlash(v); v.physicsStep(h, F); return false; }
+    v.q = qnorm(qmul(s.q, L.q));
+    worldOf(s, L.X.x, L.X.y, L.X.z, _dO);
+    v.x = _dO.x; v.y = _dO.y; v.z = _dO.z;
+    deckVel(L.D, v, _dV);
+    v.vx = _dV.x; v.vy = _dV.y; v.vz = _dV.z;
+    v.av.x = s.av.x; v.av.y = s.av.y; v.av.z = s.av.z;
+    v.landed = true; v.splashed = false; v.contactTime += h; v.restTime += h;
+    return true;
+  }
+  // tiny pieces adrift with nobody in them: junk after SEA.float s (death.js's), scuttled (their buoyancy off: they sink)
+  function junk(F, dt) {
+    const T = typeof SEA !== 'undefined' && SEA.float ? SEA.float : 15;
+    for (const v of F.vessels) {
+      const S = v.sh;
+      if (!S || S.rings.length || S.scuttle || v.control || v.remote || v.dead) continue;
+      if (v.afloat && v.speed() < 1) { S.junkT = (S.junkT || 0) + dt; if (S.junkT >= T) S.scuttle = true; } else S.junkT = 0;
+    }
+  }
+
+  // ==== waves ====
+  // The sea: one deterministic function of (east, north, time) (m, m, s: the game's east and north, Ship.seaT's clock),
+  // four directional sines (SHIP.WAVES × the sea state's amplitude and period factors) with deep-water dispersion (k =
+  // ω²/g), faded in shallow water by the caller (fadeAt: none in harbours, on lakes, inland). wave() returns [η, ∂η/∂e,
+  // ∂η/∂n] in a shared array: copy it.
+  const W3 = [0, 0, 0], GW = 9.8, NW = SHIP.WAVES.length, TAU2 = 2 * Math.PI;
+  const WA = new Float64Array(NW), WK = new Float64Array(NW), WO = new Float64Array(NW), WDE = new Float64Array(NW), WDN = new Float64Array(NW), WP = new Float64Array(NW);
+  function waveSetup() {
+    const s = SHIP.SEA[S.sea] || SHIP.SEA.moderate;
+    for (let i = 0; i < NW; i++) {
+      const [a, T, th, ph] = SHIP.WAVES[i], om = TAU2 / (T * s.t), dir = ((SHIP.swellDir + th) * Math.PI) / 180;
+      WA[i] = a * s.a; WO[i] = om; WK[i] = (om * om) / GW; WDE[i] = Math.sin(dir); WDN[i] = Math.cos(dir); WP[i] = ph;
+    }
+  }
+  function wave(e, n, t, out) {
+    out = out || W3;
+    let h = 0, ge = 0, gn = 0;
+    for (let i = 0; i < NW; i++) {
+      const k = WK[i], ph = k * (WDE[i] * e + WDN[i] * n) - WO[i] * t + WP[i], a = WA[i], c = a * k * Math.cos(ph);
+      h += a * Math.sin(ph); ge += c * WDE[i]; gn += c * WDN[i];
+    }
+    out[0] = h; out[1] = ge; out[2] = gn;
+    return out;
+  }
+  function seaT(F) { return (F && Number.isFinite(F.time) ? F.time : 0) + S.seaOff; } // the sea's clock
+  function setSea(state) { if (SHIP.SEAS.includes(state) && state !== S.sea) { S.sea = state; waveSetup(); } return S.sea; }
+  function sea() { return S.sea; }
+  function fadeAt(depth) { return depth > 0 ? smoothstep(SHIP.FADE[0], SHIP.FADE[1], depth) : 0; } // the waves' share in water this deep (0..1)
+  // The shader's uniforms for a swell patch whose origin is at (P0e, P0n), at time t: per component [d.e, d.n, k, a, ω,
+  // φ'], φ' = k·(d·P0) − ω·t + φ folded into [0, 2π) in double precision, so the shader's η = Σ a·sin(k·(d·local) + φ')
+  // (local = the point's (e, n) less P0) never meets float32's big numbers far from the pad. [WP1; WP2 draws with it]
+  function waveUniforms(P0e, P0n, t, out) {
+    out = out || new Float32Array(NW * 6);
+    for (let i = 0; i < NW; i++) {
+      let ph = (WK[i] * (WDE[i] * P0e + WDN[i] * P0n) - WO[i] * t + WP[i]) % TAU2;
+      if (ph < 0) ph += TAU2;
+      out[6 * i] = WDE[i]; out[6 * i + 1] = WDN[i]; out[6 * i + 2] = WK[i]; out[6 * i + 3] = WA[i]; out[6 * i + 4] = WO[i]; out[6 * i + 5] = ph;
+    }
+    return out;
+  }
+  waveSetup();
+
+  // ==== builder ====
+  // (pure: no DOM, so the tests run them headless) [WP4, WP7]
+  // The still-water float of a design (§11.3), worked out the way the sea floats her: her weight and centre of gravity as
+  // Vessel.recompute has them (partKg at each part's middle; a pair's mass on the centre line), and her hull as the very
+  // physics rings ship.js floats her on (each hull part's shullOf phys rings, turned into part space as Ship.groups turns
+  // them), each clipped by a flat sea (one Sutherland-Hodgman pass on the ring's own polygon) and weighted by its trapezoid
+  // share dx. The sea is the plane n·X = c in part space, n the world's up seen from the hull: n = normalize(−tan θ, 1,
+  // −tan φ), θ the trim (bow down +), φ the heel (starboard down +); a point is under water where n·X − c < 0, that much
+  // deep. For each (θ, φ) the level c floats her weight (regula falsi on the displaced volume, which only grows with c);
+  // Newton on (θ, φ) puts the centre of buoyancy under the centre of gravity. GM is the righting arm's slope there (±dGM of
+  // heel), so it is the physics' own stability, rings and all, not a formula's.
+  const B0 = () => SHIP.BUILD;
+  const gSea = () => (typeof EARTH !== 'undefined' && EARTH.surfaceG) || G0;
+  const STATS0 = Object.freeze({ hull: false, mass: 0, disp: 0, draft: 0, freeboard: 0, trim: 0, heel: 0, GM: 0, KB: 0, BM: 0, KG: 0, top: 0, turn: 0, comps: 0, open: 0, sinks: false, thrust: false, rudder: false });
+  // a design's mass, centre of gravity and hull rings, in part space
+  function model(parts) {
+    let m = 0, cx = 0, cy = 0, cz = 0;
+    for (const p of parts) { const k = partKg(p); m += k; cx += k * p.x; cy += k * p.y; cz += k * partZc(p); }
+    const M = { mass: m, cg: m > 0 ? { x: cx / m, y: cy / m, z: cz / m } : { x: 0, y: 0, z: 0 }, rings: [], hulls: [], vol: 0, keel: Infinity, x0: Infinity, x1: -Infinity, hb: 0 };
+    const DE = SHULL_NK + 2; // (a ring's deck edges: points DE (port) and K − DE (starboard))
+    for (const p of parts) {
+      const d = p.def;
+      if (!d.shull) continue;
+      M.hulls.push(p);
+      const H = shullOf(d), S = d.shull, z0 = partZ(p), o = partPt(p, 0, 0), ay = partPt(p, 0, 1), ax = partPt(p, 1, 0);
+      const eyx = ay.x - o.x, eyy = ay.y - o.y, exx = ax.x - o.x, exy = ax.y - o.y;
+      for (const R of H.phys) {
+        const K = R.K, X = new Float64Array(3 * K), c = partPt(p, R.x, 0);
+        let per = 0;
+        for (let i = 0; i < K; i++) {
+          const ly = R.P[2 * i], lz = R.P[2 * i + 1];
+          X[3 * i] = c.x + ly * eyx; X[3 * i + 1] = c.y + ly * eyy; X[3 * i + 2] = z0 + lz;
+          const j = (i + 1) % K; per += Math.hypot(R.P[2 * j] - ly, R.P[2 * j + 1] - lz);
+          M.keel = Math.min(M.keel, X[3 * i + 1]); M.x0 = Math.min(M.x0, X[3 * i]); M.x1 = Math.max(M.x1, X[3 * i]);
+        }
+        // the keel's slope along the hull here (bow up +: a planing bottom meets the water at it), and the deadrise
+        const h = 0.25, xa = Math.max(H.x0, R.x - h), xb = Math.min(H.x1, R.x + h), s = xb > xa ? (shullSec(S.st, xb)[1] - shullSec(S.st, xa)[1]) / (xb - xa) : 0;
+        const kx = exx + s * eyx, ky = exy + s * eyy;
+        M.rings.push({ p, X, L: R.P, K, dx: R.dx, A: R.A, per, cx: c.x, cy: c.y, z0, eyx, eyy, fy: R.cy, de: DE,
+          k: S.k || 0, plane: !!S.plane, tau: Math.abs(kx) > 1e-6 ? Math.atan(ky / kx) : 0,
+          beta: R.yk < H.wl ? Math.atan((H.wl - R.yk) / (Math.max(R.bw, 0.01) * Math.max(1, R.nb))) : 0 });
+        M.vol += R.A * R.dx;
+        M.hb = Math.max(M.hb, R.bd);
+      }
+    }
+    return M;
+  }
+  // one ring under the sea n·X = c: its immersed area a, the area's centroid (part space), the waterline chord b, the
+  // wetted girth g (the polygon's edges under water), the depth of its deepest point k and its deck edges' height
+  const DS = new Float64Array(64), PS = new Float64Array(140), CUT = new Float64Array(4);
+  function clipRing(r, n, c, o) {
+    const K = r.K, X = r.X, L = r.L;
+    let dmin = Infinity, dmax = -Infinity;
+    for (let i = 0; i < K; i++) { const d = n.x * X[3 * i] + n.y * X[3 * i + 1] + n.z * X[3 * i + 2] - c; DS[i] = d; if (d < dmin) dmin = d; if (d > dmax) dmax = d; }
+    o.k = Math.max(0, -dmin); o.deck = Math.min(DS[r.de], DS[K - r.de]);
+    o.a = 0; o.b = 0; o.g = 0; o.x = r.cx + r.fy * r.eyx; o.y = r.cy + r.fy * r.eyy; o.z = r.z0;
+    if (dmin >= 0) return o;
+    if (dmax <= 0) { o.a = r.A; o.g = r.per; return o; }
+    let m = 0, nc = 0, g = 0;
+    for (let i = 0; i < K; i++) {
+      const j = (i + 1) % K, di = DS[i], dj = DS[j], ii = di < 0, ij = dj < 0;
+      const ay = L[2 * i], az = L[2 * i + 1], by = L[2 * j], bz = L[2 * j + 1], e = Math.hypot(by - ay, bz - az);
+      if (ii) { PS[m++] = ay; PS[m++] = az; }
+      if (ii && ij) g += e;
+      else if (ii !== ij) {
+        const t = di / (di - dj), qy = ay + (by - ay) * t, qz = az + (bz - az) * t;
+        PS[m++] = qy; PS[m++] = qz;
+        if (nc < 2) { CUT[2 * nc] = qy; CUT[2 * nc + 1] = qz; nc++; }
+        g += ii ? e * t : e * (1 - t);
+      }
+    }
+    let A = 0, my = 0, mz = 0;
+    for (let i = 0, q = m / 2; i < q; i++) {
+      const j = (i + 1) % q, y0 = PS[2 * i], z0 = PS[2 * i + 1], y1 = PS[2 * j], z1 = PS[2 * j + 1], cr = y0 * z1 - y1 * z0;
+      A += cr / 2; my += ((y0 + y1) * cr) / 6; mz += ((z0 + z1) * cr) / 6;
+    }
+    if (!(Math.abs(A) > 1e-12)) return o;
+    const ly = my / A, lz = mz / A;
+    o.a = Math.abs(A); o.g = g; o.b = nc === 2 ? Math.hypot(CUT[2] - CUT[0], CUT[3] - CUT[1]) : 0;
+    o.x = r.cx + ly * r.eyx; o.y = r.cy + ly * r.eyy; o.z = r.z0 + lz;
+    return o;
+  }
+  // the whole hull under the sea n·X = c: the displaced volume and its centroid (CB); keep: the rings' own answers too
+  const RO = { a: 0, b: 0, g: 0, k: 0, deck: 0, x: 0, y: 0, z: 0 };
+  function immerse(M, n, c, keep) {
+    let V = 0, bx = 0, by = 0, bz = 0;
+    const out = keep ? [] : null;
+    for (const r of M.rings) {
+      const o = clipRing(r, n, c, keep ? {} : RO), v = o.a * r.dx;
+      V += v; bx += v * o.x; by += v * o.y; bz += v * o.z;
+      if (keep) out.push(o);
+    }
+    return { V, x: V > 0 ? bx / V : 0, y: V > 0 ? by / V : 0, z: V > 0 ? bz / V : 0, rings: out };
+  }
+  const upOf = (th, ph) => { const x = -Math.tan(th), z = -Math.tan(ph), l = Math.hypot(x, 1, z); return { x: x / l, y: 1 / l, z: z / l }; };
+  // the level c at which the sea under n holds volume Vt (regula falsi, Illinois; from a bracket round hint when there is
+  // one, the last float's level), or the top of the hull if it can't
+  function levelFor(M, n, Vt, hint) {
+    let lo = Infinity, hi = -Infinity;
+    for (const r of M.rings) for (let i = 0; i < r.K; i++) { const d = n.x * r.X[3 * i] + n.y * r.X[3 * i + 1] + n.z * r.X[3 * i + 2]; if (d < lo) lo = d; if (d > hi) hi = d; }
+    if (!(hi > lo)) return lo;
+    const V = (c) => immerse(M, n, c).V - Vt;
+    let fa = -Vt, fb = V(hi), a = lo, b = hi, side = 0;
+    if (fb <= 0) return hi;
+    if (Number.isFinite(hint) && hint > lo && hint < hi) { // (narrow the bracket round the hint first: a few looks, not the whole hull's)
+      for (let s = 0.02 * (hi - lo); ; s *= 4) {
+        const a1 = Math.max(lo, hint - s), b1 = Math.min(hi, hint + s), fa1 = a1 > lo ? V(a1) : -Vt, fb1 = b1 < hi ? V(b1) : fb;
+        if (fa1 <= 0 && fb1 >= 0) { a = a1; fa = fa1; b = b1; fb = fb1; break; }
+        if (a1 <= lo && b1 >= hi) break;
+      }
+      if (fa === 0) return a;
+    }
+    for (let it = 0; it < 60; it++) {
+      const c = (a * fb - b * fa) / (fb - fa), f = V(c);
+      if (Math.abs(f) <= Vt * 1e-7 || b - a < 1e-6) return c;
+      if (f * fb > 0) { b = c; fb = f; if (side === -1) fa /= 2; side = -1; }
+      else { a = c; fa = f; if (side === 1) fb /= 2; side = 1; }
+    }
+    return (a + b) / 2;
+  }
+  // CB − CG along the sea's two horizontals at (θ, φ): fore-aft (+: CB ahead) and across (+: CB to starboard)
+  function resid(M, th, ph, Vt, hint) {
+    const n = upOf(th, ph), c = levelFor(M, n, Vt, hint), B = immerse(M, n, c), G = M.cg;
+    const dx = B.x - G.x, dy = B.y - G.y, dz = B.z - G.z;
+    const e1 = [1 - n.x * n.x, -n.x * n.y, -n.x * n.z], e2 = [-n.z * n.x, -n.z * n.y, 1 - n.z * n.z];
+    const l1 = Math.hypot(...e1) || 1, l2 = Math.hypot(...e2) || 1;
+    return { n, c, f1: (dx * e1[0] + dy * e1[1] + dz * e1[2]) / l1, f2: (dx * e2[0] + dy * e2[1] + dz * e2[2]) / l2 };
+  }
+  // The still-water float: { hull, mass (kg), cg, vol (m³ displaced), cap (kg the closed hull floats), sinks, up (the
+  // world's up in part axes at rest), c (n·X − c is a point's height above the sea), plane: the waterline in part space,
+  // y = a + bx·x + bz·z, wl (its height at the centre of gravity); trim, heel (rad: bow down +, starboard down +), draft
+  // (m: the deepest hull point), freeboard (the lowest deck edge above the water), GM, GML, KB, KG, BM (m; K the lowest
+  // hull point), cb, rings (each phys ring's immersion: a, b, g, k, deck), Lwl, Swet, SwetK (Σ girth·dx·(1 + k)), T (the
+  // mean draught), x0, x1, hb (the hull's length and half-beam), keel, capsize (no float within BUILD.capsize° of heel) }.
+  // Flight.start's launch puts her on the sea this way (Ship.launch).
+  function hydrostatics(parts, M = model(parts)) {
+    const BD = B0(), rho = SHIP.RHO;
+    const H = { hull: M.rings.length > 0, mass: M.mass, cg: M.cg, vol: 0, cap: M.vol * rho, sinks: false, up: { x: 0, y: 1, z: 0 }, c: 0,
+      plane: { a: 0, bx: 0, bz: 0 }, wl: 0, trim: 0, heel: 0, draft: 0, freeboard: 0, GM: 0, GML: 0, KB: 0, KG: 0, BM: 0, cb: { ...M.cg },
+      rings: [], Lwl: 0, Swet: 0, SwetK: 0, T: 0, x0: M.x0, x1: M.x1, hb: M.hb, keel: M.keel, capsize: false };
+    if (!H.hull || !(M.mass > 0)) return H;
+    const Vt = M.mass / rho;
+    let th = 0, ph = 0, R = null;
+    if (Vt >= M.vol) H.sinks = true;
+    else {
+      R = resid(M, th, ph, Vt);
+      for (let it = 0; it < BD.iters && Math.max(Math.abs(R.f1), Math.abs(R.f2)) > BD.tol; it++) {
+        const h = BD.dA, A = resid(M, th + h, ph, Vt, R.c), B = resid(M, th, ph + h, Vt, R.c);
+        const j11 = (A.f1 - R.f1) / h, j12 = (B.f1 - R.f1) / h, j21 = (A.f2 - R.f2) / h, j22 = (B.f2 - R.f2) / h, det = j11 * j22 - j12 * j21;
+        let dt, dp;
+        if (Math.abs(det) > 1e-9) { dt = -(j22 * R.f1 - j12 * R.f2) / det; dp = -(-j21 * R.f1 + j11 * R.f2) / det; }
+        else { dt = j11 ? -R.f1 / j11 : 0; dp = j22 ? -R.f2 / j22 : 0; }
+        th = clamp(th + clamp(dt, -0.1, 0.1), -0.6, 0.6); ph = clamp(ph + clamp(dp, -0.25, 0.25), -1.3, 1.3);
+        R = resid(M, th, ph, Vt, R.c);
+      }
+      if (Math.abs(ph) * (180 / Math.PI) > BD.capsize) H.capsize = true;
+    }
+    const n = R ? R.n : upOf(0, 0), c = R ? R.c : levelFor(M, n, Infinity), I = immerse(M, n, c, true);
+    H.up = n; H.c = c; H.trim = th; H.heel = ph; H.vol = I.V; H.cb = { x: I.x, y: I.y, z: I.z }; H.rings = I.rings;
+    H.plane = { a: c / n.y, bx: -n.x / n.y, bz: -n.z / n.y }; H.wl = H.plane.a + H.plane.bx * M.cg.x + H.plane.bz * M.cg.z;
+    let lo = Infinity, hi = -Infinity, kk = 0, nk = 0;
+    H.freeboard = Infinity;
+    I.rings.forEach((o, i) => {
+      const r = M.rings[i];
+      H.draft = Math.max(H.draft, o.k); H.freeboard = Math.min(H.freeboard, o.deck);
+      H.Swet += o.g * r.dx; H.SwetK += o.g * r.dx * (1 + r.k);
+      if (o.b > 0) { lo = Math.min(lo, r.cx); hi = Math.max(hi, r.cx); }
+      if (o.a > 0) { kk += o.k; nk++; }
+    });
+    H.Lwl = hi > lo ? hi - lo : 0; H.T = nk ? kk / nk : 0;
+    if (!Number.isFinite(H.freeboard)) H.freeboard = 0;
+    if (R) { // the righting arms' slopes either side of the float: GM (heel), GML (trim)
+      const d = BD.dGM, P = resid(M, th, ph + d, Vt, c), Q = resid(M, th, ph - d, Vt, c), U = resid(M, th + d, ph, Vt, c), W = resid(M, th - d, ph, Vt, c);
+      H.GM = (P.f2 - Q.f2) / (2 * Math.sin(d)); H.GML = (U.f1 - W.f1) / (2 * Math.sin(d));
+    }
+    H.KB = H.cb.y - M.keel; H.KG = M.cg.y - M.keel; H.BM = H.GM - H.KB + H.KG;
+    return H;
+  }
+  // The water's resistance at V m/s (§4.3: ITTC-57 friction on the wetted hull with its form factors, and wave-making on
+  // the weight the water still carries once the strip planing lift has taken its share), at the still-water float; fA: the
+  // foils' area in the water (rudders, hydrofoils: their profile drag, §4.4's cd0, straight ahead). (cwr: the core's own)
+  // [WP5] a planing hull's wetted area shrinks as the water lifts her: friction × (1 − lift/W)^⅓ (her running trim isn't
+  // worked out here, so a planing boat's top speed came out 20 % under the flight's: the RIB's 37 kn against 45)
+  // Lf: the weight her hydrofoils carry (N; hullborne, climbing onto them): the hull carries the rest
+  function resistance(M, H, V, fA = 0, Lf = 0) {
+    if (!(V > 0) || !(H.Lwl > 0)) return 0;
+    const rho = SHIP.RHO, g = gSea(), L = H.Lwl, Re = (V * L) / SHIP.NU;
+    const Cf = Re < SHIP.CF_RE ? SHIP.CF_LOW : 0.075 / Math.pow(Math.log10(Re) - 2, 2), Rf = 0.5 * rho * V * V * H.SwetK * Cf;
+    let lift = 0;
+    H.rings.forEach((o, i) => {
+      const r = M.rings[i], tau = r.tau - H.trim;
+      if (o.b > 0 && tau > 0) lift += 0.5 * rho * (r.plane ? SHIP.planeK : SHIP.dispK) * V * Math.sin(tau) * V * o.b * r.dx * Math.cos(r.beta) ** 2 * Math.min(1, o.k / SHIP.planeFade);
+    });
+    const W = H.mass * g;
+    lift += Lf;
+    return Rf * Math.pow(clamp(1 - lift / W, 0.3, 1), 1 / 3) + Math.max(0, W - lift) * cwr(V / Math.sqrt(g * L)) * cwOf(M.hulls) + 0.5 * rho * V * V * fA * SHIP.FOIL.cd0; // [WP5] (cwOf: as the flight's)
+  }
+  // what pushes her (§4.5): the engines' shaft power shared by the screws and waterjets (an outboard turns its own), each
+  // as deep in the still water as it sits, along its own +x; air engines as ever. thrustAt: the push at V m/s, full ahead
+  function propulsion(parts, H) {
+    const n = H.up, c = H.c, out = { kw: 0, list: [], air: 0, need: 0 };
+    for (const p of parts) if (p.def.engine && !p.def.screw && !p.def.jet) out.kw += p.def.engine.kw;
+    const shared = parts.filter((p) => (p.def.screw || p.def.jet) && !p.def.engine);
+    for (const p of parts) {
+      const d = p.def;
+      if (d.thrust && !(d.air && d.air.kind === 'rotor')) out.air += d.thrust * 1000 * partAxis(p).x;
+      if (!d.screw && !d.jet) continue;
+      const D = (d.screw || d.jet).D, o = partPt(p, 0, (d.screw && d.screw.y) || 0), e = partPt(p, 1, (d.screw && d.screw.y) || 0), copies = partZs(p); // [WP5] (screw.y: as the flight's)
+      let sub = 0;
+      for (const z of copies) sub += smoothstep(0, SHIP.SCREW.sub * D, -(n.x * o.x + n.y * o.y + n.z * z - c));
+      const P = (d.engine ? d.engine.kw * 1000 : shared.length ? (out.kw * 1000) / shared.length : 0) * copies.length;
+      out.list.push({ p, D, jet: !!d.jet, eta: d.screw ? d.screw.eta || 0.6 : 0, P, sub: sub / copies.length, dir: e.x - o.x, n: copies.length });
+      if (!d.engine) out.need++;
+    }
+    return out;
+  }
+  function thrustAt(Pr, V) {
+    let T = Pr.air;
+    for (const t of Pr.list) {
+      if (!(t.P > 0) || !(t.sub > 0)) continue;
+      const P = t.P / t.n, A = (Math.PI * t.D * t.D) / 4, T0 = SHIP.SCREW.k0 * Math.cbrt(2 * SHIP.RHO * A * P * P), J = SHIP.JET;
+      const one = t.jet ? Math.min(J.t0 * T0, ((J.eta0 + J.eta1 * smoothstep(J.v0, J.v1, V)) * P) / Math.max(V, SHIP.SCREW.vmin))
+        : Math.min(T0, (t.eta * P) / Math.max(SHIP.SCREW.va * V, SHIP.SCREW.vmin));
+      T += one * t.n * t.sub * t.dir;
+    }
+    return T;
+  }
+  // the speed she reaches from rest at full power: the first at which the push no longer beats the water (m/s)
+  // Her hydrofoils (foil kind 'foil') as the flight flies them (§4.4): each copy's area, aspect ratio, full incidence
+  // (inc0 + RIDE.lim, under the stall), its depth in the still water and foilborne (her deepest keel the ride height h*
+  // over the water: the highest foil.h aboard), and its struts. null: none aboard
+  function foilsOf(parts, M, H) {
+    const F = parts.filter((p) => p.def.foil && p.def.foil.kind === 'foil');
+    if (!F.length) return null;
+    let h = 0, ride = false;
+    for (const p of F) if (p.def.foil.ride) { ride = true; h = Math.max(h, Number.isFinite(p.def.foil.h) ? p.def.foil.h : SHIP.RIDE.h); }
+    const FO = SHIP.FOIL, n = H.up, list = F.map((p) => {
+      const f = p.def.foil, ly = Number.isFinite(f.y) ? f.y : 0, X = partPt(p, 0, ly), ar = f.ar || 2, k = partZs(p).length;
+      const inc = Math.min(FO.stall, (f.inc || 0) + (f.ride ? SHIP.RIDE.lim : 0)), slope = (FO.slope * 2 * Math.PI * ar) / (ar + 2);
+      const still = Math.max(0, ...partZs(p).map((z) => -(n.x * X.x + n.y * X.y + n.z * z - H.c)));
+      return { A: (f.area || 1) * k, ar, cl: (slope * inc * Math.PI) / 180, still, up: M.keel - h - X.y, strut: Math.max(0.1, p.def.h / 2 - ly), ch: f.strutC || 0.6 * (f.chord || 1), ns: (f.struts || 1) * k };
+    });
+    return { list, ride, A: list.reduce((a, o) => a + o.A, 0) };
+  }
+  // the hydrofoils' drag at V m/s, each lifting cl (its own, or the share that holds her up), at depth dep (m) and its
+  // struts to it: profile, induced (as the flight's foil loop) and cavitation
+  function foilDrag(Fo, V, cl, foilborne) {
+    const FO = SHIP.FOIL, q = 0.5 * SHIP.RHO * V * V;
+    let D = 0;
+    for (const o of Fo.list) {
+      const c = cl == null ? o.cl : cl, dep = foilborne ? o.up : o.still;
+      D += q * o.A * (FO.cd0 + (c * c) / (FO.e * Math.PI * o.ar) + cavCd(V * V, dep));
+      if (foilborne) { const imm = clamp(dep, 0, o.strut); D += q * o.ch * imm * o.ns * (FO.cd0 + cavCd(V * V, imm / 2)); }
+    }
+    return D;
+  }
+  // the water's drag on her at V m/s: the hull's (resistance), or a hydrofoil's: her ride foils fly her clear of the water
+  // past RIDE.v when at full incidence they can lift her (the foils' and struts' drag then, at the lift that holds her up);
+  // below that they lift what they can at full incidence and the hull carries the rest (spec §4.4; the flight's ride control)
+  function dragAt(M, H, V, fA, Fo) {
+    if (!Fo) return resistance(M, H, V, fA);
+    const W = H.mass * gSea(), q = 0.5 * SHIP.RHO * V * V, Lmax = Fo.list.reduce((a, o) => a + q * o.A * o.cl, 0);
+    if (Fo.ride && V >= SHIP.RIDE.v && Lmax >= W) return foilDrag(Fo, V, W / (q * Fo.A), true);
+    return resistance(M, H, V, fA, Math.min(W, Lmax)) + foilDrag(Fo, V, null, false);
+  }
+  function topSpeed(M, H, Pr, fA, Fo) {
+    const BD = B0(), f = (V) => thrustAt(Pr, V) - dragAt(M, H, V, fA, Fo);
+    if (!(f(BD.vStep) > 0)) return 0;
+    let a = BD.vStep, b = 0;
+    for (let V = 2 * BD.vStep; V <= BD.vMax + 1e-9; V += BD.vStep) { if (f(V) <= 0) { b = V; break; } a = V; }
+    if (!b) return BD.vMax;
+    for (let i = 0; i < 14; i++) { const m = (a + b) / 2; if (f(m) > 0) a = m; else b = m; }
+    return (a + b) / 2;
+  }
+  // the hull segments' ends: which meet another of their class section to section (as Ship.groups joins them, within 2
+  // cm in x, y and z: segments that meet touch, so they are adjacent too), each end's kind, fore and aft in part space
+  const CLS = ['S', 'M', 'L', 'X'];
+  function hullEnds(parts) {
+    const E = [];
+    for (const p of parts) {
+      if (!p.def.shull) continue;
+      const H = shullOf(p.def), a = H.rings[0], f = H.rings[H.nr - 1], A = partPt(p, a.x, a.yk), F = partPt(p, f.x, f.yk), en = p.def.shull.ends || {};
+      const rev = A.x > F.x; // (a segment turned end for end: its fore end is aft)
+      E.push({ p, cls: p.def.shull.cls, z: partZ(p), aft: rev ? F : A, fore: rev ? A : F, aftT: (rev ? en.fore : en.aft) || 'closed', foreT: (rev ? en.aft : en.fore) || 'closed', aftJ: null, foreJ: null });
+    }
+    const meet = (u, v) => Math.abs(u.x - v.x) <= 0.02 && Math.abs(u.y - v.y) <= 0.02;
+    for (const a of E) for (const b of E) if (a !== b && a.cls === b.cls && Math.abs(a.z - b.z) <= 0.02 && meet(a.fore, b.aft)) { a.foreJ = b; b.aftJ = a; }
+    return E;
+  }
+  // The builder's numbers (statsData.ship): the float (above, with trim and heel in degrees here), displacement (t), top
+  // speed (m/s), the turning circle (m, ~), compartments, the open ends ({ p, end, at: 'bow' | 'stern' | 'gap' }), what
+  // pushes and steers her (thrust, noEngine, rudder, kw) and what is out of the water (dryScrews, dryRudders)
+  function stats(parts) {
+    const M = model(parts), H = hydrostatics(parts, M), BD = B0(), st = { ...STATS0, ...H };
+    st.mass = M.mass; st.disp = M.mass / 1000;
+    st.trim = (H.trim * 180) / Math.PI; st.heel = (H.heel * 180) / Math.PI;
+    const E = hullEnds(parts), open = [];
+    for (const e of E) {
+      if (e.aftT === 'joint' && !e.aftJ) open.push({ p: e.p, end: 'aft' });
+      if (e.foreT === 'joint' && !e.foreJ) open.push({ p: e.p, end: 'fore' });
+    }
+    const fore = E.reduce((m, e) => (!m || e.fore.x > m.fore.x ? e : m), null), aft = E.reduce((m, e) => (!m || e.aft.x < m.aft.x ? e : m), null);
+    for (const o of open) o.at = o.end === 'fore' && o.p === fore.p ? 'bow' : o.end === 'aft' && o.p === aft.p ? 'stern' : 'gap';
+    st.openEnds = open; st.open = open.length;
+    st.comps = E.length + parts.filter((p) => p.def.bulkhead && p.att != null && E.some((e) => e.p.id === p.att)).length;
+    const Pr = propulsion(parts, H);
+    st.kw = Pr.kw;
+    st.thrust = Pr.list.length > 0 || Pr.air > 0;
+    st.noEngine = Pr.need > 0 && !(Pr.kw > 0);
+    st.dryScrews = H.hull && !H.sinks ? Pr.list.filter((t) => t.sub < BD.dry).map((t) => t.p) : [];
+    const steer = parts.filter((p) => p.def.steer || (p.def.jet && p.def.jet.steer)), rud = parts.filter((p) => p.def.foil && p.def.foil.kind === 'rudder');
+    st.rudder = rud.length + steer.length > 0;
+    st.dryRudders = H.hull && !H.sinks ? rud.filter((p) => { const o = partPt(p, 0, 0), h = partDims(p).h; return partZs(p).every((z) => -(H.up.x * o.x + H.up.y * o.y + H.up.z * z - H.c) < (BD.dry * h) / 2); }) : [];
+    const wet = (p) => partZs(p).filter((z) => { const o = partPt(p, 0, 0); return H.up.x * o.x + H.up.y * o.y + H.up.z * z - H.c < 0; }).length;
+    const fA = parts.reduce((a, p) => a + (p.def.foil && p.def.foil.kind !== 'foil' ? p.def.foil.area * wet(p) : 0), 0); // (rudders and skegs: the hydrofoils are dragAt's)
+    st.top = H.hull && !H.sinks ? topSpeed(M, H, Pr, fA, foilsOf(parts, M, H)) : 0;
+    const Ar = rud.reduce((s, p) => s + p.def.foil.area * partZs(p).length, 0) + BD.steerA * steer.length, T = BD.turn;
+    st.turn = Ar > 0 && H.Lwl > 0 && !H.sinks ? T[0] * H.Lwl * (T[1] + (T[2] * H.Lwl * H.T) / (Ar * T[3])) : 0;
+    return st;
+  }
+
+  // ---- placement: where a tapped part goes on a ship (§11.2): a pose { def, type, x, y, z, rot, host, att } (att: the
+  // part it hangs on; shift: { parts, dx, dy } to move first, a midsection going in behind the bow), { why } for a toast,
+  // or null (the builder's own rules: the ground update's tankSpot for a gun house's guns and roof kit, then the usual
+  // tap). at: the view's middle in part space { x, y }, and sym (symmetry on: pairs go off the centre line, the builder
+  // adds the twin). Every pose is clear of every part (partsClash). Parts are told apart by their fields, not their
+  // keys (§6's), so a part another package adds lands by what it is. [WP4: keel, deck, inside, stern screws and rudders;
+  // WP7: every place]
+  // What a ship part is, for placement and the warnings: the superstructure (what stands on the deck as a building:
+  // bridges, deckhouses, the hangar, a helm console; not funnels, masts or guns), a radar, a magazine, a damage control
+  // party, a gun ring (a naval ring on the deck, or a tank's turret ring put on a ship)
+  const isHouse = (d) => !!d.ship && !d.shull && !d.funnel && (d.place === 'super' || (d.place === 'deck' && !!d.control));
+  const isRadar = (d) => !!(d.searchRadar || d.trackRadar || d.radarSet);
+  const isMag = (d) => !!d.ship && (!!d.store || d.module === 'ammo');
+  const isDC = (d) => !!(d.mods && d.mods.some((m) => m.k === 'crew' && m.role === 'dc'));
+  const isPump = (d) => !!d.pump && !d.shull;
+  const isRing = (d) => !!d.ring && (d.place === 'deck' || d.place === 'roof');
+  function roleOf(d, type) {
+    const w = d.weapon || {}, f = d.foil;
+    if (d.shull) { const en = d.shull.ends || {}; return en.aft === 'joint' || en.fore === 'joint' ? 'segment' : 'onePiece'; }
+    if (isRing(d)) return 'gunRing';
+    if (d.deck) return 'pad';
+    if (w.vls) return 'vls';
+    if (d.ciws) return 'ciws';
+    if (w.asm) return 'asm';
+    if (d.decoy && d.decoy.torp) return 'torpDecoy';
+    if (f && f.kind === 'foil') return d.place === 'bow' ? 'foilBow' : 'foilKeel';
+    if (d.jet) return 'jet';
+    if (d.steer && (d.screw || d.engine)) return 'outboard';
+    if (d.bulkhead) return 'bulkhead';
+    if (d.place === 'inside') return isMag(d) ? 'magazine' : isPump(d) ? 'pump' : isDC(d) ? 'dc' : d.ballast || type === 'ballast' ? 'ballast' : 'inside';
+    if (d.place === 'mast') return isRadar(d) ? 'radar' : 'mast';
+    if (d.funnel) return 'funnel';
+    if (d.hangar) return 'hangar';
+    if (d.place === 'deck' && d.control && !d.shull && d.w <= 2) return 'console';
+    if (d.place === 'super') return d.control ? 'bridge' : 'house';
+    return d.place || null;
+  }
+  function spotOf(type, parts, at) {
+    const def = hasOwn(PARTS, type) ? PARTS[type] : null;
+    if (!def || !Array.isArray(parts)) return null;
+    at = at || {};
+    const BD = B0(), rot = Number.isInteger(at.rot) ? at.rot & 3 : def.aim ? 3 : 0, { w, h } = partDims({ def, rot }), dep = partDepth({ def });
+    const pose = (x, y, z, host) => ({ def, type, x: +x.toFixed(3), y: +y.toFixed(3), z: cleanZ(+z.toFixed(3), def), rot, host, att: host });
+    const free = (q, skip) => !!q && !parts.some((o) => !(skip && skip.has(o)) && partsClash(q, o));
+    const hulls = parts.filter((p) => p.def.shull && (p.rot & 3) === 0);
+    const room = { why: `No room for the ${def.name} there: drag it into place instead.` }, first = { why: `Put a hull down first (Ship hulls): the ${def.name} goes on it.` };
+    // the hull's extent along x, the deck's and the keel's height there (the segments that span x), the deck's half-breadth
+    const span = (p) => { const H = shullOf(p.def); return [p.x + H.x0, p.x + H.x1]; };
+    const over = (x) => hulls.filter((p) => { const [a, b] = span(p); return x >= a - 1e-6 && x <= b + 1e-6; });
+    const deckAt = (x) => over(x).reduce((m, p) => Math.max(m, p.y + shullSec(p.def.shull.st, x - p.x)[0]), -Infinity);
+    const keelAt = (x) => over(x).reduce((m, p) => Math.min(m, p.y + shullSec(p.def.shull.st, x - p.x)[1]), Infinity);
+    const beamAt = (x) => over(x).reduce((m, p) => Math.max(m, shullSec(p.def.shull.st, x - p.x)[2] + Math.abs(partZ(p))), -Infinity);
+    const samples = (x0, x1) => { const n = Math.max(1, Math.ceil((x1 - x0) / 0.25)), o = []; for (let i = 0; i <= n; i++) o.push(x0 + ((x1 - x0) * i) / n); return o; };
+    const near = (xt, lo, hi) => { // (lo..hi every BD.step m, the nearest xt first)
+      const s = BD.step, o = [];
+      if (hi < lo - 1e-9) return o;
+      const c = clamp(xt, lo, hi);
+      o.push(c);
+      for (let k = 1; c - k * s >= lo - 1e-9 || c + k * s <= hi + 1e-9; k++) { if (c + k * s <= hi + 1e-9) o.push(c + k * s); if (c - k * s >= lo - 1e-9) o.push(c - k * s); }
+      return o;
+    };
+    const down = (hi, lo) => { const o = []; for (let x = hi; x >= lo - 1e-9; x -= BD.step) o.push(x); return o; }; // (from hi aft to lo)
+    const up = (lo, hi) => { const o = []; for (let x = lo; x <= hi + 1e-9; x += BD.step) o.push(x); return o; }; // (from lo forward to hi)
+    const scan = (xs, zs, make) => { for (const x of xs) for (const z of zs) { const q = make(x, z); if (free(q)) return q; } return null; };
+    const pairs = (z) => (Math.abs(z) < 0.005 ? [0] : at.sym ? [z] : [z, -z]); // (a pair with symmetry on: the builder adds the twin)
+    let X0 = Infinity, X1 = -Infinity;
+    for (const p of hulls) { const [a, b] = span(p); X0 = Math.min(X0, a); X1 = Math.max(X1, b); }
+    const L = X1 - X0, mid = (X0 + X1) / 2;
+    const xt = Number.isFinite(at.x) && at.x >= X0 && at.x <= X1 ? at.x : mid;
+    const role = roleOf(def, type);
+    // the superstructure's extent along her (SX0..SX1), and its parts
+    const houses = parts.filter((p) => isHouse(p.def));
+    let SX0 = Infinity, SX1 = -Infinity;
+    for (const p of houses) { const R = partRect(p); SX0 = Math.min(SX0, R.l); SX1 = Math.max(SX1, R.r); }
+    const sup = houses.length > 0;
+    // on the deck at x, z across: its bottom on the deck's highest point under it, over the deck along all its length (no
+    // more than a quarter of its width past the deck edge either side: nothing wide at a narrow bow)
+    const deckPose = (x, z = 0) => {
+      let top = -Infinity;
+      for (const s of samples(x - w / 2, x + w / 2)) { const d = deckAt(s); if (!Number.isFinite(d) || !(Math.abs(z) + dep / 2 <= beamAt(s) + 0.25 * dep + 1e-6)) return null; top = Math.max(top, d); }
+      return pose(x, top + h / 2, z, over(x)[0]);
+    };
+    // on a part's roof (a house, a mast), its middle over the roof, x along it, z across it
+    const roofPose = (H, x, z) => {
+      const R = partRect(H), hz = partZ(H);
+      if (Math.abs(z - hz) + dep / 2 > partDepth(H) / 2 + 0.25 * dep + 1e-6) return null;
+      return pose(x, R.t + h / 2, z, H);
+    };
+    const roofScan = (H, x0, zs) => { const R = partRect(H), xs = R.r - R.l >= w ? near(x0, R.l + w / 2, R.r - w / 2) : [H.x]; return scan(xs, zs, (x, z) => roofPose(H, x, z)); };
+    // the superstructure under the view's middle, then the rest nearest it: their roofs (the deck full there)
+    const onSuper = (x0 = xt) => {
+      for (const H of [...houses].sort((a, b) => Math.abs(a.x - x0) - Math.abs(b.x - x0))) { const q = roofScan(H, x0, [partZ(H)]); if (q) return q; }
+      return null;
+    };
+    const onDeck = (x0 = xt, zs = [0]) => scan(near(x0, X0 + w / 2, X1 - w / 2), zs, deckPose);
+
+    // ---- hulls
+    // a one-piece hull (a RIB's, a float) beside the hulls there: off the centre line by both half-beams and 0.5 m, its
+    // keel level with theirs and its middle beside theirs (a catamaran; a pair of floats with symmetry on)
+    if (role === 'onePiece' && parts.some((p) => p.def.shull)) {
+      if (!hulls.length) return room;
+      const H1 = shullOf(def), k1 = Math.min(...H1.rings.map((r) => r.yk)), b1 = Math.max(...H1.rings.map((r) => r.bd));
+      const F = [...hulls].sort((a, b) => Math.abs(partZ(a)) - Math.abs(partZ(b)))[0], H0 = shullOf(F.def), k0 = F.y + Math.min(...H0.rings.map((r) => r.yk)), b0 = Math.max(...H0.rings.map((r) => r.bd));
+      const x = F.x + (H0.x0 + H0.x1) / 2 - (H1.x0 + H1.x1) / 2, y = k0 - k1, zo = Math.abs(partZ(F)) + b0 + b1 + 0.5;
+      for (const z of at.sym ? [zo] : [zo, -zo]) { const q = pose(x, y, z, F); if (free(q)) return q; }
+      return room;
+    }
+    // keel: hull segments end to end, bow forward, stern aft, their keels level
+    if (def.shull) {
+      const H = shullOf(def), ra = H.rings[0], rf = H.rings[H.nr - 1], en = def.shull.ends || {}, jA = en.aft === 'joint', jF = en.fore === 'joint';
+      if (!parts.some((p) => p.def.shull)) return free(pose(0, 0, 0, null)) ? pose(0, 0, 0, null) : room;
+      const E = hullEnds(hulls);
+      if (!E.length || (!jA && !jF)) return null; // (a one-piece hull beside another one: the builder's rules)
+      const F = E.reduce((m, e) => (!m || e.fore.x > m.fore.x ? e : m), null), A = E.reduce((m, e) => (!m || e.aft.x < m.aft.x ? e : m), null);
+      const size = (e) => ({ why: `That ${def.name} is for a ${CLS.indexOf(def.shull.cls) > CLS.indexOf(e.cls) ? 'bigger' : 'smaller'} hull than this one.` });
+      const atFore = (e) => pose(e.fore.x - ra.x, e.fore.y - ra.yk, e.z, e.p); // (its aft section on e's fore one)
+      const atAft = (e) => pose(e.aft.x - rf.x, e.aft.y - rf.yk, e.z, e.p);
+      const ends = [];
+      if (jA && !jF) { // a bow: on the foremost segment's open front
+        if (F.foreT !== 'joint') return { why: 'She has a bow already: add midsections behind it, or take it off first.' };
+        if (F.cls !== def.shull.cls) return size(F);
+        ends.push(atFore(F));
+      } else if (jF && !jA) { // a stern: on the aftmost one's open back
+        if (A.aftT !== 'joint') return { why: 'She has a stern already: add midsections ahead of it, or take it off first.' };
+        if (A.cls !== def.shull.cls) return size(A);
+        ends.push(atAft(A));
+      } else { // a midsection: on an open front, else an open back, else in behind the bow (the bow and what is on it go forward)
+        const opens = [...(F.foreT === 'joint' && !F.foreJ ? [['f', F]] : []), ...(A.aftT === 'joint' && !A.aftJ ? [['a', A]] : []),
+          ...E.filter((e) => e !== F && e.foreT === 'joint' && !e.foreJ).map((e) => ['f', e]), ...E.filter((e) => e !== A && e.aftT === 'joint' && !e.aftJ).map((e) => ['a', e])];
+        const fit = opens.filter(([, e]) => e.cls === def.shull.cls);
+        if (!fit.length && opens.length) return size(opens[0][1]);
+        for (const [s, e] of fit) ends.push(s === 'f' ? atFore(e) : atAft(e));
+        if (!fit.length) {
+          const bow = F.foreT !== 'joint' && F.aftJ ? F : null;
+          if (!bow) return room;
+          if (bow.cls !== def.shull.cls) return size(bow);
+          const q = atFore(bow.aftJ), dx = q.x + rf.x - bow.aft.x, dy = q.y + rf.yk - bow.aft.y, moved = new Set([bow.p, ...attachedTo(parts, [bow.p])]);
+          return free(q, moved) ? { ...q, shift: { parts: [bow.p], dx: +dx.toFixed(3), dy: +dy.toFixed(3) } } : room;
+        }
+      }
+      for (const q of ends) if (free(q)) return q;
+      return room;
+    }
+
+    // ---- the ground update's places on a ship: a gun house (or a tank turret) on the free ring nearest the view's middle;
+    // a gun with no gun house aboard on a bare ring, its trunnion over the ring's middle; roof kit with no turret aboard
+    // on the superstructure's roof. With a house or turret aboard, its guns and roof kit go as on a tank (null: tankSpot).
+    const turret = parts.some((p) => p.def.place === 'ring'), ground = def.place === 'ring' || def.place === 'front' || def.place === 'top' || def.place === 'flank';
+    if (ground && !hulls.length) return null;
+    if (def.place === 'ring') {
+      const rings = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt)); // (bare rings: a gun on one is its own mount)
+      for (const g of rings) { const q = pose(g.x, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      return rings.length ? room : { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} turns on it.` };
+    }
+    if ((def.place === 'front' || def.place === 'top' || def.place === 'flank') && !turret) {
+      const piv = def.aim && def.aim.pivot != null ? def.aim.pivot : 0.5, off = rot === 3 ? def.h / 2 - piv * def.h : 0;
+      const bare = parts.filter((p) => p.def.ring && !(p.rot & 3) && !parts.some((o) => o.att === p.id)).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt));
+      if (def.place === 'front' || def.aim) for (const g of bare) { const q = pose(g.x + off, partRect(g).t + h / 2, partZ(g), g); if (free(q)) return q; }
+      if (def.place === 'front' && bare.length) return room;
+      if (def.place === 'front') return { why: `Put a gun ring on the deck first (Naval weapons, or a turret ring): the ${def.name} goes on it.` };
+      const q = onSuper(xt + off) || onDeck(xt + off);
+      return q || room;
+    }
+    if (def.place === 'front' || def.place === 'top' || def.place === 'flank') return null; // (a gun house aboard: tankSpot)
+
+    const onHull = ['deck', 'super', 'mast', 'inside', 'stern', 'bow', 'edge', 'keel'].includes(def.place) || role === 'gunRing' || role === 'torpDecoy';
+    if (!onHull) return null;
+    if (!hulls.length) return first;
+
+    // ---- the deck
+    // a gun ring: the foremost clear spot on the centre line ahead of the superstructure, then the aftmost behind it
+    // (rings far enough apart for the gun houses on them: 1.6 m between them)
+    if (role === 'gunRing') return scan([...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])], [0],
+      (x, z) => (parts.some((o) => o.def.ring && Math.abs(o.x - x) < (w + o.def.w) / 2 + 1.6) ? null : deckPose(x, z))) || room;
+    // the helicopter deck: the aftmost clear stretch of deck
+    if (role === 'pad') return scan(up(X0 + w / 2, X1 - w / 2), [0], deckPose) || room;
+    // vertical launch cells, flush in the deck (their top at the deck line, inside the hull), ahead of the superstructure,
+    // then aft of it; a launcher that isn't set into the deck stands on it there
+    if (role === 'vls') {
+      const xs = [...down(X1 - w / 2, sup ? SX1 + w / 2 : X0 + w / 2), ...(sup ? up(X0 + w / 2, SX0 - w / 2) : [])];
+      if (def.flush || def.inner) {
+        const q = scan(xs, [0], (x) => {
+          const H = over(x)[0], d = deckAt(x);
+          if (!H || !Number.isFinite(d)) return null;
+          const S = H.def.shull, y0 = d - h - H.y, zm = dep / 2 + BD.inM;
+          for (const s of samples(x - w / 2, x + w / 2)) {
+            const G = over(s)[0];
+            if (G !== H) return null;
+            const P = shullPoly(shullSec(S.st, s - H.x), S.wl);
+            if (!(halfAt(P, y0) >= zm - 1e-9) || !(halfAt(P, y0 + h - 1e-6) >= zm - 1e-9)) return null;
+          }
+          return pose(x, d - h / 2, 0, H);
+        });
+        if (q) return q;
+      }
+      return scan(xs, [0], deckPose) || room;
+    }
+    // the close-in gun: on the centre line on top of the aftmost superstructure, else on the deck aft
+    if (role === 'ciws') {
+      for (const H of [...houses].sort((a, b) => partRect(a).l - partRect(b).l)) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+      return scan(up(X0 + w / 2, X1 - w / 2), [0], deckPose) || room;
+    }
+    // anti-ship missiles: aft of the superstructure, a pair at the deck's edges with symmetry on (else on the centre line)
+    if (role === 'asm') {
+      const xs = sup ? [...down(SX0 - w / 2, X0 + w / 2), ...up(SX1 + w / 2, X1 - w / 2)] : near(mid - 0.15 * L, X0 + w / 2, X1 - w / 2);
+      return scan(xs, [0], (x) => { const b = Math.min(...samples(x - w / 2, x + w / 2).map(beamAt)); if (!(b > 0)) return null; const z = at.sym ? Math.max(0, b - dep / 2) : 0; return deckPose(x, z); }) || room;
+    }
+    // a torpedo decoy streams from the stern: on the stern's deck
+    if (role === 'torpDecoy') return scan(up(X0 + w / 2, X1 - w / 2), [0, ...pairs(Math.max(0, beamAt(X0 + w / 2) - dep / 2 - 0.1))], deckPose) || room;
+    // a helm console: amidships, a little aft of the middle
+    if (role === 'console') return onDeck(mid - 0.12 * L) || room;
+    // the rest on the deck: under the view's middle (or amidships), on the centre line, along it till clear
+    if (def.place === 'deck') return onDeck() || room;
+
+    // ---- superstructure
+    if (def.place === 'super') {
+      if (role === 'bridge') { // a bridge: its front 30-40 % of her length from the bow
+        const a = X1 - 0.4 * L - w / 2, b = X1 - 0.3 * L - w / 2;
+        return scan(near((a + b) / 2, Math.max(a, X0 + w / 2), Math.min(b, X1 - w / 2)), [0], deckPose) || onDeck((a + b) / 2) || onSuper() || room;
+      }
+      if (role === 'house' && sup) return scan(down(SX0 - w / 2, X0 + w / 2), [0], deckPose) || onDeck() || onSuper() || room; // (just behind the last superstructure)
+      if (role === 'funnel') { // on a deckhouse's roof (the one under the view's middle first), else on deck amidships
+        const hs = [...houses].sort((a, b) => (a.def.control ? 1 : 0) - (b.def.control ? 1 : 0) || Math.abs(a.x - xt) - Math.abs(b.x - xt));
+        for (const H of hs) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+        return onDeck(mid) || room;
+      }
+      if (role === 'hangar') { // just ahead of the helicopter deck
+        const pad = parts.filter((p) => p.def.deck).sort((a, b) => a.x - b.x)[0];
+        if (pad) { const q = scan(up(partRect(pad).r + w / 2, X1 - w / 2), [0], deckPose); if (q) return q; }
+      }
+      return onDeck() || onSuper() || room;
+    }
+    // ---- masts and radars: a mast on top of the highest superstructure, on the centre line; a radar on the highest free
+    // mast top, else on the highest superstructure's roof
+    if (def.place === 'mast') {
+      const high = [...houses].sort((a, b) => partRect(b).t - partRect(a).t);
+      if (role === 'radar') {
+        const masts = parts.filter((p) => p.def.place === 'mast' && !isRadar(p.def)).sort((a, b) => partRect(b).t - partRect(a).t);
+        for (const M of masts) { const q = pose(M.x, partRect(M).t + h / 2, partZ(M), M); if (free(q)) return q; }
+      }
+      for (const H of high) { const q = roofScan(H, H.x, [partZ(H)]); if (q) return q; }
+      return onDeck() || room;
+    }
+
+    // ---- inside a hull: in the segment under the view's middle (else the nearest), as low as it goes, the nearest the
+    // middle at that height; a pair off the centre line with symmetry on (the centre line if no pair fits), else on it.
+    // A magazine under the nearest gun ring, a pump in the largest compartment, a damage control party amidships, ballast
+    // the lowest anywhere; a bulkhead across the middle of the compartment under the view's middle.
+    if (role === 'bulkhead') {
+      const gap = (p) => { const [a, b] = span(p); return xt < a ? a - xt : xt > b ? xt - b : 0; };
+      const H = [...hulls].sort((a, b) => gap(a) - gap(b))[0], [a, b] = span(H);
+      const cuts = [a, ...parts.filter((p) => p.def.bulkhead && p.att === H.id).map((p) => p.x).sort((u, v) => u - v), b];
+      const c = clamp(xt, a, b);
+      let i = 0;
+      while (i < cuts.length - 2 && c > cuts[i + 1]) i++;
+      const xm = (cuts[i] + cuts[i + 1]) / 2, S = H.def.shull;
+      const at2 = (x) => { const s = shullSec(S.st, x - H.x); return pose(x, H.y + (s[0] + s[1]) / 2, partZ(H), H); };
+      return scan(near(xm, Math.max(cuts[i] + w, a + w / 2), Math.min(cuts[i + 1] - w, b - w / 2)), [0], at2) || room;
+    }
+    if (def.place === 'inside') {
+      const m = BD.inM, gap = (p, x) => { const [a, b] = span(p); return x < a ? a - x : x > b ? x - b : 0; };
+      let x0 = xt, lowest = role === 'ballast';
+      if (role === 'magazine') { const g = parts.filter((p) => p.def.ring).sort((a, b) => Math.abs(a.x - xt) - Math.abs(b.x - xt))[0]; if (g) x0 = g.x; }
+      if (role === 'dc') x0 = mid;
+      let order = [...hulls].sort((a, b) => gap(a, x0) - gap(b, x0) || Math.abs(a.x - x0) - Math.abs(b.x - x0));
+      if (role === 'pump') { order = [...hulls].sort((a, b) => shullOf(b.def).vol - shullOf(a.def).vol); x0 = (span(order[0])[0] + span(order[0])[1]) / 2; }
+      const all = [];
+      for (const H of order) {
+        const S = H.def.shull, Hs = shullOf(H.def), lim = Hs.rings.reduce((s, r) => Math.max(s, r.bd), 0), zz = [], cands = [];
+        for (let z = dep / 2 + 0.01; z + dep / 2 + m <= lim + 1e-9; z += BD.step) zz.push(z);
+        const zs = at.sym ? [...zz.map((z) => [z, 0]), [0, 1]] : [[0, 0], ...zz.flatMap((z) => [[z, 1], [-z, 1]])];
+        const secsAt = (x) => samples(x - w / 2, x + w / 2).map((s) => shullPoly(shullSec(S.st, s - H.x), S.wl));
+        for (const x of near(x0, H.x + Hs.x0 + w / 2 + m, H.x + Hs.x1 - w / 2 - m)) {
+          const secs = secsAt(x);
+          for (const [z, tier] of zs) {
+            const y0 = lowIn(secs, Math.abs(z) + dep / 2 + m, h, m);
+            if (y0 != null) cands.push({ H, x, z: z + partZ(H), y0, secs, s: tier * 1000 + (lowest ? H.y + y0 : y0) + 0.08 * Math.abs(x - x0) + 0.01 * Math.abs(z) });
+          }
+        }
+        if (lowest) { all.push(...cands); continue; }
+        cands.sort((a, b) => a.s - b.s);
+        for (const c of cands) { const q = pose(c.x, H.y + c.y0 + h / 2, c.z, H); if (free(q)) return q; }
+        for (const c of cands) for (let dy = 0.1; dy < 8; dy += 0.1) { // (stacked on what is there already)
+          if (!fitsIn(c.secs, c.y0 + dy, h, Math.abs(c.z - partZ(H)) + dep / 2 + m, m)) break;
+          const q = pose(c.x, H.y + c.y0 + dy + h / 2, c.z, H);
+          if (free(q)) return q;
+        }
+      }
+      all.sort((a, b) => a.s - b.s);
+      for (const c of all) { const q = pose(c.x, c.H.y + c.y0 + h / 2, c.z, c.H); if (free(q)) return q; }
+      return room;
+    }
+
+    // ---- under her: a hydrofoil under the forefoot (the bow's foremost fifth of her length) or under the hull 10 % of her
+    // length aft of her centre of gravity, its top at the keel there
+    if (role === 'foilBow' || role === 'foilKeel') {
+      const cg = model(parts).cg.x, xf = role === 'foilBow' ? X1 - 0.1 * L : cg - 0.1 * L, lo = role === 'foilBow' ? Math.max(X0 + w / 2, X1 - 0.2 * L) : X0 + w / 2;
+      return scan(near(xf, lo, X1 - w / 2), [0], (x) => { let k = Infinity; for (const s of samples(x - w / 2, x + w / 2)) k = Math.min(k, keelAt(s)); return Number.isFinite(k) ? pose(x, k - 0.01 - h / 2, 0, over(x)[0]) : null; }) || room;
+    }
+
+    // ---- the stern: screws under the aftmost segment's keel a little ahead of the transom (a pair with symmetry on); a
+    // rudder just behind a screw that has none, else under the transom; an outboard on the transom's aft face, its
+    // propeller under the keel line (a pair 0.5 m either side with symmetry on); a waterjet in the transom at the keel line
+    // (one on the centre line, a pair at a quarter of the beam out)
+    const A = hulls.reduce((m, p) => (!m || span(p)[0] < span(m)[0] ? p : m), null), xa = span(A)[0], hb = shullOf(A.def).rings.reduce((s, r) => Math.max(s, r.bd), 0);
+    const under = (x) => { let k = Infinity; for (const s of samples(Math.max(xa, x - w / 2), Math.min(X1, Math.max(xa, x + w / 2)))) k = Math.min(k, keelAt(s)); return k; };
+    if (role === 'outboard') {
+      const k = keelAt(xa + 0.01), x = xa - w / 2 - 0.02, y = k - 0.25 + h / 2;
+      return scan([x], at.sym ? [0.5, 0] : [0, 0.5, -0.5], (x, z) => pose(x, y, z + partZ(A), A)) || room;
+    }
+    if (role === 'jet') {
+      const k = keelAt(xa + 0.01), x = xa + w / 2 - 0.4, zs = at.sym ? [hb / 2, 0] : [0, hb / 2, -hb / 2];
+      return scan([x], zs, (x, z) => pose(x, k + h / 2 + 0.01, z + partZ(A), A)) || scan([xa + w / 2], zs, (x, z) => pose(x, under(x) - 0.01 - h / 2, z + partZ(A), A)) || room;
+    }
+    if (def.place === 'stern' && ((def.screw && !def.steer) || (def.foil && def.foil.kind === 'rudder'))) {
+      if (def.screw) {
+        const D = def.screw.D, k = BD.pair * hb, k2 = k + D + 0.2, x = xa + Math.max(0.7 * D, w / 2), zs = at.sym ? [k, 0, k2] : [0, k, -k, k2, -k2];
+        for (const z of zs) { if (Math.abs(z) + dep / 2 > hb + 0.2) continue; const q = pose(x, under(x) - 0.01 - h / 2, z, A); if (free(q)) return q; } // (within the beam)
+        return room;
+      }
+      const screws = parts.filter((p) => p.def.screw && !p.def.steer).sort((a, b) => (at.sym ? partZ(b) - partZ(a) : Math.abs(partZ(a)) - Math.abs(partZ(b))));
+      for (const s of screws) {
+        const sz = partZ(s), x = partRect(s).l - BD.wash - w / 2;
+        if (parts.some((r) => r.def.foil && r.def.foil.kind === 'rudder' && Math.abs(partZ(r) - sz) < 0.3 && r.x < s.x && r.x > s.x - 4)) continue;
+        const q = pose(x, under(x) - 0.01 - h / 2, sz, A);
+        if (free(q)) return q;
+      }
+      for (const z of at.sym ? [BD.pair * hb, 0] : [0]) { const x = xa + w / 2 - 0.25, q = pose(x, under(x) - 0.01 - h / 2, z, A); if (free(q)) return q; }
+      return room;
+    }
+
+    // ---- the deck edge: torpedo tubes and decoy launchers at the deck's edge, facing outboard, aft of the superstructure
+    // (then ahead of it), a pair with symmetry on
+    if (def.place === 'edge') {
+      const xs = sup ? [...down(SX0 - w / 2, X0 + w / 2), ...up(SX1 + w / 2, X1 - w / 2)] : near(mid - 0.15 * L, X0 + w / 2, X1 - w / 2);
+      return scan(xs, at.sym ? [1] : [1, -1], (x, s) => { const b = Math.min(...samples(x - w / 2, x + w / 2).map(beamAt)); return b > dep / 2 ? deckPose(x, s * (b - dep / 2)) : null; }) || room;
+    }
+    return null;
+  }
+  // Inside a hull section (a ring polygon: convex, the same either side; its starboard half runs from the keel up to the
+  // deck edge): its half-breadth at y (NaN under the keel or over the deck), the lowest y a box h tall reaching zm across
+  // fits at in every one of secs m clear of the skin (null: nowhere), and whether one fits at y0
+  const chainOf = (P) => { const K = P.length / 2, c = [0]; for (let i = 1; i <= SHULL_NK + 2; i++) c.push(K - i); return c; };
+  function halfAt(P, y) {
+    const ch = chainOf(P);
+    if (y < P[0] - 1e-9) return NaN;
+    for (let i = 1; i < ch.length; i++) {
+      const a = ch[i - 1], b = ch[i], ya = P[2 * a], yb = P[2 * b];
+      if (y <= yb + 1e-9) return yb > ya ? P[2 * a + 1] + ((P[2 * b + 1] - P[2 * a + 1]) * (y - ya)) / (yb - ya) : Math.max(P[2 * a + 1], P[2 * b + 1]);
+    }
+    return NaN;
+  }
+  function fitsIn(secs, y0, h, zm, m) {
+    for (const P of secs) {
+      const yd = P[2 * chainOf(P)[SHULL_NK + 2]];
+      if (y0 + h > yd - m + 1e-9 || !(halfAt(P, y0) >= zm - 1e-9) || !(halfAt(P, y0 + h) >= zm - 1e-9)) return false;
+    }
+    return true;
+  }
+  function lowIn(secs, zm, h, m) {
+    let y0 = -Infinity;
+    for (const P of secs) { // (the half-breadth grows from the keel: the first height it reaches zm)
+      const ch = chainOf(P);
+      let y = null;
+      for (let i = 1; i < ch.length && y == null; i++) {
+        const a = ch[i - 1], b = ch[i], za = P[2 * a + 1], zb = P[2 * b + 1];
+        if (zb >= zm) y = zb > za && za < zm ? P[2 * a] + ((P[2 * b] - P[2 * a]) * (zm - za)) / (zb - za) : P[2 * a];
+      }
+      if (y == null) return null;
+      y0 = Math.max(y0, y + m);
+    }
+    return fitsIn(secs, y0, h, zm, m) ? y0 : null;
+  }
+  // The ship's warnings (renderStats, kind ship), plainly: no hull, she sinks or is overloaded, open ends, she capsizes or
+  // rolls, lists or trims, nothing pushes or steers her, a screw or rudder out of the water; then her kit's (kitWarnings).
+  // (No bridge is the builder's first line, as every kind's control part; loose parts, the budget and the rest come
+  // after, everyone's.) extra: what the builder knows and a pure function can't, { arcs: [{ x, deg }] } each gun
+  // turret's traverse (Aim.sweep's, degrees; 360 all round).
+  function warnings(ps, st, warn, extra) {
+    const BD = B0(), t = (kg) => { const v = kg / 1000; return v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString('en-US'); };
+    if (!st || !st.hull) { warn.push('No hull: she can\'t float. Start with hull segments (Ship hulls): a bow, a midsection and a stern.'); kitWarnings(ps, st, warn, extra); return; }
+    if (st.sinks) warn.push(`Too heavy for her hull: ${t(st.mass)} t on a hull that floats ${t(st.cap)} t. She'll sink: lighten her or lengthen the hull.`);
+    else if (st.freeboard < BD.free) warn.push(`Overloaded: her deck is only ${Math.max(0, st.freeboard).toFixed(1)} m above the water. Lighten her or lengthen the hull.`);
+    const open = (w) => (st.openEnds || []).some((o) => o.at === w);
+    if (open('stern')) warn.push('The stern is open: she will flood. Close it with a stern.');
+    if (open('bow')) warn.push('The bow is open: she will flood. Close it with a bow.');
+    if (open('gap')) warn.push('There\'s a gap between hull segments (or two that don\'t match): she will flood there.');
+    if (!st.sinks) {
+      if (st.capsize || st.GM < 0) warn.push(`Top-heavy: GM ${st.GM < 0 ? '−' : ''}${Math.abs(st.GM).toFixed(1)} m, she will capsize. Put weight low (engines, ballast) or widen the hull.`);
+      else if (st.GM < BD.gmLow) warn.push(`GM under ${BD.gmLow} m: she'll roll heavily. Put weight lower.`);
+      if (!st.capsize && Math.abs(st.heel) > BD.heel) warn.push(`She lists ${Math.round(Math.abs(st.heel))}° to ${st.heel > 0 ? 'starboard' : 'port'}: move weight across.`);
+      if (Math.abs(st.trim) > BD.trim) warn.push(`Down by the ${st.trim > 0 ? 'bow' : 'stern'} ${Math.abs(st.trim).toFixed(1)}°: move weight ${st.trim > 0 ? 'aft' : 'forward'}.`);
+    }
+    if (!st.thrust) warn.push('No screw or waterjet: nothing pushes her. Hang propellers under the stern (Propulsion).');
+    else if (st.noEngine) warn.push('No engine turns her propellers: put a marine diesel inside the hull.');
+    if (st.dryScrews && st.dryScrews.length) warn.push('A propeller is out of the water: hang it lower, under the stern.');
+    if (!st.rudder) warn.push('No rudder: she can\'t steer. Hang one just behind a propeller.');
+    else if (st.dryRudders && st.dryRudders.length) warn.push('A rudder is out of the water: it can\'t steer her. Hang it lower.');
+    kitWarnings(ps, st, warn, extra);
+  }
+  // A hydrofoil's lift at V m/s with its incidence and the ride control's whole range (inc + RIDE.lim, under the stall):
+  // newtons, both copies of a pair
+  function foilLift(p, V) {
+    const f = p.def.foil, F = SHIP.FOIL, ar = f.ar || 5, a = (Math.min(F.stall, (f.inc || 0) + SHIP.RIDE.lim) * Math.PI) / 180;
+    return 0.5 * SHIP.RHO * V * V * (f.area || 0) * F.slope * ((2 * Math.PI * ar) / (ar + 2)) * a * partZs(p).length;
+  }
+  const NUM = ['none', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  // her crew's gunners (as the builder's crewOf counts crew: a hull's or a house's own crew until a seat is put in it)
+  function gunnersOf(ps) {
+    const seated = new Set();
+    for (const p of ps) if (p.def.seat && p.att != null) seated.add(p.att);
+    let n = 0;
+    for (const p of ps) {
+      const d = p.def, k = partZs(p).length;
+      if (d.mods && !seated.has(p.id)) for (const m of d.mods) if (m.k === 'crew' && (m.role === 'gunner' || m.also === 'gunner')) n += k;
+      if (d.seat === 'gunner') n += k;
+    }
+    return n;
+  }
+  // her weapon stations: each gun house or turret (whatever it holds), and each weapon not in one (a launcher, a tube, a
+  // gun on a bare ring); not what fires by itself (the close-in gun, counter-drone kit) or countermeasures
+  function stationsOf(ps) {
+    const by = new Map(ps.map((p) => [p.id, p])), inHouse = (p) => { for (let q = by.get(p.att), i = 0; q && i < 50; q = by.get(q.att), i++) if (q.def.place === 'ring') return true; return false; };
+    let n = 0;
+    const arms = (d) => !!d.weapon && !d.ciws && !d.cuas && d.weapon.kind !== 'chaff' && d.weapon.kind !== 'smoke';
+    for (const p of ps) {
+      const d = p.def, k = partZs(p).length;
+      if (d.place === 'ring') { if (attachedTo(ps, [p]).some((q) => arms(q.def))) n += k; }
+      else if (arms(d) && !inHouse(p)) n += k;
+    }
+    return n;
+  }
+  // The kit's warnings (any design with ship parts aboard: the builder asks for every kind that carries one). Red first
+  // (she won't work): torpedo tubes with no water under them, vertical launch cells with no fire-control radar, something
+  // on the helicopter deck, hydrofoils that can't lift her, a bulkhead outside every hull. Then amber (a hint): a gun
+  // whose arcs the superstructure blocks, more weapon stations than gunners, a radar below a funnel, anti-ship missiles
+  // with no surface radar, a magazine above the waterline, a big ship with no pumps or damage control.
+  function kitWarnings(ps, st, warn, extra) {
+    const has = (f) => ps.some((p) => f(p.def)), all = (f) => ps.filter((p) => f(p.def));
+    const hulls = all((d) => d.shull), afloat = !!(st && st.hull && !st.sinks);
+    // ---- red
+    if (has((d) => d.weapon && d.weapon.kind === 'torp') && !has((d) => d.hull) && !has((d) => d.wing)) warn.push('Torpedo tubes need water under them: put them on a ship (or a plane, to drop them).');
+    if (has((d) => d.weapon && d.weapon.vls) && !has((d) => d.trackRadar)) warn.push('The vertical launcher\'s missiles need a Fire-Control Radar aboard.');
+    for (const pad of all((d) => d.deck)) {
+      const R = partRect(pad), hz = partZ(pad), hd = partDepth(pad) / 2;
+      const on = ps.some((q) => q !== pad && pad.att !== q.id && !q.def.shull && (() => {
+        const Q = partRect(q), qd = partDepth(q) / 2;
+        return spanOverlap(Q.l, Q.r, R.l, R.r) > 0.02 && Q.t > R.t + 0.02 && Q.b < R.t + 4 && partZs(q).some((z) => spanOverlap(z - qd, z + qd, hz - hd, hz + hd) > 0.02);
+      })());
+      if (on) { warn.push('Something stands on the helicopter deck: a helicopter can\'t land there. Clear it.'); break; }
+    }
+    const foils = all((d) => d.foil && d.foil.kind === 'foil');
+    if (foils.length) {
+      const m = st && st.mass > 0 ? st.mass : ps.reduce((s, p) => s + partKg(p), 0), L = foils.reduce((s, p) => s + foilLift(p, 40 / SHIP.KN), 0);
+      if (L < m * gSea()) warn.push(`Her foils can't lift her: they hold ${Math.round(L / gSea() / 1000).toLocaleString('en-US')} t at 40 kn and she weighs ${Math.round(m / 1000).toLocaleString('en-US')} t. She'll never fly on them: bigger foils, or a lighter ship.`);
+    }
+    for (const b of all((d) => d.bulkhead)) {
+      const z = partZ(b), inHull = hulls.some((H) => {
+        if (H.rot & 3) return false;
+        const S = H.def.shull, Hs = shullOf(H.def);
+        if (b.x < H.x + Hs.x0 || b.x > H.x + Hs.x1) return false;
+        const P = shullPoly(shullSec(S.st, b.x - H.x), S.wl);
+        return halfAt(P, b.y - H.y) >= Math.abs(z - partZ(H)) - 1e-6;
+      });
+      if (!inHull) { warn.push('A bulkhead only works inside a hull segment: move it into the hull.'); break; }
+    }
+    // ---- amber
+    const x0 = st && st.hull ? st.x0 : 0, x1 = st && st.hull ? st.x1 : 0, mid = (x0 + x1) / 2;
+    for (const a of (extra && extra.arcs) || []) {
+      if (!(a.deg < 90)) continue;
+      warn.push(`The ${a.x >= mid ? 'forward' : 'after'} gun can only fire over ${Math.round(a.deg)}°: raise it or move the superstructure.`);
+      break;
+    }
+    const n = st ? stationsOf(ps) : 0, g = st ? gunnersOf(ps) : 0; // (a ship's crew: other kinds fire as they always have)
+    if (n > g) warn.push(g ? `${n} weapon stations, ${g} gunner${g === 1 ? '' : 's'}: only ${NUM[g] || g} fire${g === 1 ? 's' : ''} at once. A bigger bridge or gun houses bring more.` : `${n} weapon station${n === 1 ? '' : 's'} and no gunner: nothing fires. A bridge or a gun house brings gunners.`);
+    const funnels = all((d) => d.funnel);
+    if (funnels.length && all(isRadar).some((r) => funnels.some((f) => Math.hypot(r.x - f.x, partZ(r) - partZ(f)) <= 10 && partRect(r).t < partRect(f).t))) warn.push('The radar sits below the funnel: smoke blinds it aft. Raise it on a mast.');
+    if (has((d) => d.weapon && d.weapon.asm) && !has((d) => d.searchRadar && d.searchRadar.sea)) warn.push('Anti-ship missiles need a target: a Surface Search Radar finds one past your eyes.');
+    // (wholly above it: a magazine reaching under the waterline is as low as a patrol boat's 1.3 m draught takes one, and
+    // it floods first; its middle over the water warned on every small hull with nowhere lower to put it)
+    if (afloat && st.plane && all(isMag).some((p) => partRect(p).b > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
+    if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could be the end of her. Add a Salvage Pump or a Damage Control Party.');
+  }
+
+  // ---- cards and tray lines (§11.4): a ship part's card lines (Ship.specs) and its tray line (Ship.line), speeds in knots.
+  // [] / null: the builder's own (the ground update's lines)
+  const kmTxt = (m) => `${+(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
+  const tTxt = (t) => (t < 10 ? `${+t.toFixed(1)}` : Math.round(t).toLocaleString('en-US'));
+  const kwTxt = (kw) => (kw >= 1000 ? `${+(kw / 1000).toFixed(1)} MW` : `${Math.round(kw)} kW`);
+  // a propeller's (or waterjet's) push at V m/s on P watts, as thrustAt reckons it, full ahead and fully under (N)
+  function pushOf(d, P, V) { return thrustAt({ air: 0, list: [{ D: (d.screw || d.jet).D, jet: !!d.jet, eta: d.screw ? d.screw.eta || 0.6 : 0, P, sub: 1, dir: 1, n: 1 }] }, V); }
+  // the power a screw of this size is meant for: 2 MW on the patrol boat's 2.2 m propeller, as the disc's area
+  const refKw = (d) => (d.jet ? 2500 * (d.jet.D / 1.4) ** 2 : 2000 * (d.screw.D / 2.2) ** 2);
+  // how far a gun's best shell carries (its muzzle speed and drag as armour.js flies it: v' = −k·ρ·v², the best angle
+  // up to the gun's elevation), at most a ship's aim ray (m); 0 without a shell to fly
+  function gunReach(d) {
+    const w = d.weapon, S = typeof SHELLS !== 'undefined' && w.shells ? w.shells.map((k) => SHELLS[k]).filter((s) => s && s.v0 > 0) : [];
+    if (!S.length) return 0;
+    const s = S.reduce((a, b) => (b.v0 > a.v0 ? b : a)), rho = 1.2, g = 9.8, el = Math.min(45, (d.aim && d.aim.el && d.aim.el[1]) || 45), dt = 0.05;
+    let best = 0;
+    for (let a = 5; a <= el + 1e-9; a += 5) {
+      let vx = s.v0 * Math.cos((a * Math.PI) / 180), vy = s.v0 * Math.sin((a * Math.PI) / 180), x = 0, y = 0;
+      for (let i = 0; i < 4000 && y >= 0; i++) { const v = Math.hypot(vx, vy), k = s.k * rho * v; vx -= k * vx * dt; vy -= (k * vy + g) * dt; x += vx * dt; y += vy * dt; }
+      best = Math.max(best, x);
+    }
+    return Math.min(best, SHIP.AIM.ray);
+  }
+  function specs(def) {
+    const d = def, w = d.weapon || {}, out = [], crew = (d.mods || []).filter((m) => m.k === 'crew').length;
+    if (!d) return out;
+    if (d.shull) {
+      const H = shullOf(d), S = d.shull, draw = H.wl - Math.min(...H.rings.map((r) => r.yk)), len = +(H.x1 - H.x0).toFixed(1), one = S.ends && S.ends.aft !== 'joint' && S.ends.fore !== 'joint';
+      out.push(`Floats up to ${tTxt((H.vol * SHIP.RHO) / 1000)} t of ship`, `draws ${draw.toFixed(1)} m at her marks`, one ? `a one-piece hull, ${len} m` : `one watertight compartment, ${len} m`);
+      const A = d.armour;
+      if (A) out.push(`${A.plate || A.mm} mm ${A.mat === 'alu' ? 'aluminium' : A.mat === 'grp' ? 'glass fibre' : 'steel'}${A.belt ? ' · a belt to dial' : ''}`);
+      if (S.plane) out.push('a planing bottom');
+      if (S.bk) out.push('bilge keels');
+      return out;
+    }
+    if (d.engine && (d.steer || d.screw)) { out.push(`${kwTxt(d.engine.kw)} outboard`, 'its own propeller', `steers ${d.steer || SHIP.OUTBOARD_STEER}°`); return out; }
+    if (d.engine) { out.push(`${d.engine.kw.toLocaleString('en-US')} kW`, `${d.engine.fuel || 'diesel'}`, `full power in ${d.engine.spool || SHIP.SPOOL} s`, 'turns every propeller and waterjet aboard'); return out; }
+    if (d.screw) { const P = refKw(d); out.push(`about ${Math.round(pushOf(d, P * 1000, 15 / SHIP.KN) / 10000) * 10} kN at 15 kn on ${kwTxt(P)}`, `${d.screw.D} m`, d.screw.astern ? 'full power astern too' : 'astern at 70%'); return out; }
+    if (d.jet) { const P = refKw(d); out.push(`about ${Math.round(pushOf(d, P * 1000, 30 / SHIP.KN) / 10000) * 10} kN at 30 kn on ${kwTxt(P)}`, `steers ${d.jet.steer || 30}°`, 'reverses with its bucket'); return out; }
+    if (d.foil && d.foil.kind === 'rudder') { out.push(`turns ${d.foil.max || 35}°`, `${d.foil.area} m²`); return out; }
+    if (d.foil) { out.push(`lifts ${tTxt(foilLift({ def: d, x: 0, y: 0 }, 40 / SHIP.KN) / gSea() / 1000)} t at 40 kn`, `${d.foil.area} m²`, ...(d.foil.ride ? ['ride control'] : [])); return out; }
+    if (d.ciws) { out.push(`${kmTxt(d.ciws.range)}`, 'fires by itself', ...(d.ciws.missiles ? ['shoots missiles'] : [])); return out; }
+    if (w.vls) { out.push(`${w.ammo} SAMs`, kmTxt(w.range), ...(w.missiles ? ['shoots missiles too'] : [])); return out; }
+    if (w.asm) { out.push(`${w.ammo} anti-ship missile${w.ammo === 1 ? '' : 's'}`, kmTxt(w.range), `skims at ${w.skim || 8} m`); return out; }
+    if (w.kind === 'torp') { out.push(`${w.ammo} torpedoes`, kmTxt(w.range), `${Math.round(w.speed * SHIP.KN)} kn`, w.seek ? 'homing' : 'straight runners'); return out; }
+    if (w.kind === 'chaff') { out.push(`${w.ammo} rockets of chaff${w.flare ? ' and flares' : ''}`); return out; }
+    if (d.decoy && d.decoy.torp) { out.push(`${d.decoy.ammo} noisemakers`, 'draws homing torpedoes'); return out; }
+    if (w.kind === 'tgun' && d.ship) { const r = gunReach(d); out.push(`${w.cal} mm`, `${Math.round(60 / w.reload)} a minute`, ...(r ? [`reaches ${kmTxt(r)}`] : []), `${w.ammo} ready`); return out; }
+    if (d.searchRadar || d.trackRadar) {
+      const R = d.searchRadar || d.trackRadar;
+      if (d.trackRadar) out.push(`tracks ${kmTxt(R.range)}`, ...(R.missiles ? ['guides SAMs'] : []), ...(R.sea ? ['ranges the guns'] : []));
+      else out.push(R.sea || R.low ? `sees ships ${kmTxt(R.range)} (the horizon permitting)` : `sees aircraft ${kmTxt(R.range)}`);
+      return out;
+    }
+    if (d.deck) { out.push('a helicopter lands and is lashed', `${d.w} × ${d.depth || d.w} m`); return out; }
+    if (d.hangar) { out.push('repairs and rearms a helicopter on the deck'); return out; }
+    if (d.funnel) { out.push('her smoke', 'broken: the engines lose 15%'); return out; }
+    if (d.bulkhead) { out.push('splits a compartment in two'); return out; }
+    if (isPump(d)) { out.push(`pumps ${d.pump} m³/s`); return out; }
+    if (isMag(d) && d.store) { out.push(`${d.store.rounds} rounds for the naval guns`); return out; }
+    if (isDC(d)) { out.push(`${d.mods.filter((m) => m.role === 'dc').length} damage control crew`, 'patch holes, fight fires'); return out; }
+    if (d.ballast || d.type === 'ballast') { out.push(`${d.mass} t, low down`); return out; }
+    if (d.place === 'mast') { out.push(`a perch for radars ${tTxt(d.h)} m up`); return out; }
+    if (d.ship && (d.control || isHouse(d))) {
+      if (d.control) out.push('the helm');
+      if (crew) out.push(`crew ${crew}`);
+      if (d.stealth) out.push(`radars see her ${Math.round(d.stealth * 100)}% less far`);
+      return out;
+    }
+    return out;
+  }
+  // (short: a tray item's line fits on one line, so the tray keeps its height)
+  function line(def) {
+    const d = def, w = (d && d.weapon) || {};
+    if (!d || !d.ship) return null;
+    if (d.shull) { const H = shullOf(d); return `draws ${(H.wl - Math.min(...H.rings.map((r) => r.yk))).toFixed(1)} m`; }
+    if (d.engine) return `${d.engine.kw.toLocaleString('en-US')} kW`;
+    if (d.screw) return `~${Math.round(pushOf(d, refKw(d) * 1000, 15 / SHIP.KN) / 10000) * 10} kN`;
+    if (d.jet) return `steers ${d.jet.steer || 30}°`;
+    if (d.foil && d.foil.kind === 'rudder') return `${d.foil.max || 35}° · ${d.foil.area} m²`;
+    if (d.foil) return `lifts ${tTxt(foilLift({ def: d, x: 0, y: 0 }, 40 / SHIP.KN) / gSea() / 1000)} t`;
+    if (d.ciws) return kmTxt(d.ciws.range);
+    if (w.vls) return `${w.ammo} SAMs`;
+    if (w.asm) return `${w.ammo} × ${kmTxt(w.range)}`;
+    if (w.kind === 'torp') return `${w.ammo} · ${kmTxt(w.range)}`;
+    if (w.kind === 'chaff') return `${w.ammo} decoys`;
+    if (d.decoy && d.decoy.torp) return `${d.decoy.ammo} decoys`;
+    if (w.kind === 'tgun') return `${Math.round(60 / w.reload)}/min`;
+    if (d.searchRadar || d.trackRadar) return `${kmTxt((d.searchRadar || d.trackRadar).range)}`;
+    if (d.deck) return 'helicopters';
+    if (d.hangar) return 'repairs';
+    if (d.funnel) return 'smoke';
+    if (d.bulkhead) return 'watertight';
+    if (isPump(d)) return `${d.pump} m³/s`;
+    if (isMag(d) && d.store) return `${d.store.rounds} rounds`;
+    if (d.ballast || d.type === 'ballast') return `${d.mass} t`;
+    if (isDC(d)) return `${d.mods.filter((m) => m.role === 'dc').length} crew`;
+    if (d.place === 'mast') return `${tTxt(d.h)} m`;
+    if (d.control) { const c = (d.mods || []).filter((m) => m.k === 'crew').length; return c ? `crew ${c}` : 'helm'; }
+    return null;
+  }
+
+  // ---- X-ray (§11.4): a ship's insides for the blueprint (builder drawShipXray), part space. comps: each watertight
+  // compartment { H (its hull part), x0, x1, n (numbered from the bow) }, bulkheads { x, H }, belts { H, x0, x1, y0, y1 }
+  // (the side band), marks { p, kind: 'mag' | 'engine' | 'pump' | 'dc' } (what is inside, by colour)
+  function xray(parts) {
+    const out = { comps: [], bulkheads: [], belts: [], marks: [] };
+    const hulls = parts.filter((p) => p.def.shull && (p.rot & 3) === 0);
+    for (const H of hulls) {
+      const Hs = shullOf(H.def), a = H.x + Hs.x0, b = H.x + Hs.x1, cuts = parts.filter((p) => p.def.bulkhead && p.att === H.id && p.x > a && p.x < b).map((p) => p.x).sort((u, v) => u - v);
+      const xs = [a, ...cuts, b];
+      for (let i = 0; i + 1 < xs.length; i++) out.comps.push({ H, x0: xs[i], x1: xs[i + 1] });
+      for (const x of cuts) out.bulkheads.push({ x, H });
+      const A = H.def.armour, belt = A && A.belt && (Array.isArray(A.belt) ? A.belt : A.belt.y);
+      if (belt && belt.length === 2) out.belts.push({ H, x0: a, x1: b, y0: H.y + belt[0], y1: H.y + belt[1] });
+    }
+    out.comps.sort((p, q) => q.x1 - p.x1).forEach((c, i) => { c.n = i + 1; });
+    for (const p of parts) {
+      const d = p.def;
+      if (isMag(d)) out.marks.push({ p, kind: 'mag' });
+      else if (d.engine && d.ship) out.marks.push({ p, kind: 'engine' });
+      else if (isPump(d)) out.marks.push({ p, kind: 'pump' });
+      else if (isDC(d)) out.marks.push({ p, kind: 'dc' });
+    }
+    return out;
+  }
+
+  // ==== damage ====
+  // [WP8]
+  function hullRay(p, A, B, H) { return false; } // where the segment A -> B (the part's own frame) meets a hull part (H: as armour.js's prism)
+  function hullMm(p, edge, u) { return 0; } // a hull face's thickness (edge: the hull face codes -6 deck, -7 side, -8 bottom, -9 open)
+  function hullDist(v, p, at) { return Infinity; } // a blast's distance to a hull part (0 inside)
+  function addHoles(v, holes) {} // [[p, x, y, a], …] from a hit
+  function floodStep(v, dt, sim) {}
+  function fireStep(v, dt, sim) {}
+  function dcStep(v, dt, sim) {}
+  function fateStep(v, dt, sim) {}
+  function doom(v, sim, why, by) {} // why: 'sunk' | 'capsized' | 'magazine' | 'action'
+  function magazine(v, sim, part) { return false; } // a magazine going up aboard a hydro vessel (true: handled)
+
+  // ==== combat ====
+  // [WP9]
+  function fireTorp(v, p, F) { return false; }
+  function torpStep(s, h, F) { return false; } // a torpedo shot's step (true: it is gone)
+  function torpHit(s, a, F) { return false; } // the old air torpedo against hydro vessels (true: it hit)
+  function ciwsStep(F, dt) {}
+  function shotMissiles(s, a, e, F) { return false; } // a CIWS round's segment against missiles (true: one killed)
+  function surface(v, F) { return NONE; } // the surface contacts v's sea radars may see
+  function seesSea(a, b) { return true; } // a clear look over water from a to b (the horizon, land in the way)
+  function rcs(v) { return 1; } // her radar size (× a radar's reach)
+
+  // ---- the frame (Combat.frame, when Combat.S.sea): collisions, flooding, fires, damage control, fate, mooring, the AI,
+  // the Naval Range [WP1's loop; the others add their calls]
+  function frame(F, dt) {
+    moorCheck(F, dt); // (who moors on the swell, who wakes)
+    decksOf(F); // [WP6] (the moving decks: Ship.D)
+    bump(F); // [WP6]
+    lashCheck(F, dt); // [WP6]
+    for (const v of F.vessels) if (v.sh && v.sh.slam.length) slams(F, v); // [WP6]
+    junk(F, dt); // [WP6]
+  }
+  // Spray, funnel smoke and the screws' wash (Flight.emitParticles, for a hydro vessel; render3d draws the swell and the
+  // wakes) [WP2]. Bow spray: white spray thrown out both sides of the stem where it meets the water, SPRAY.k a second for
+  // each m/s over SPRAY.v0 (at most SPRAY.max), half again and more as the bow slams down into a sea, none with the bow out
+  // of the water (a boat on the plane throws hers further aft, at her chines: from the forward third of her waterline);
+  // funnel smoke from funnel parts (grey for diesels, faint for turbines, more as the engines are pushed); a burst of white
+  // water at the stern when the telegraph is rung. Within SPRAY.near of the view's craft, half on Low; FX's own caps.
+  const FXW = { v: null }, FXP = { x: 0, y: 0, z: 0 };
+  function fxShape(v) {
+    const sh = v.sh;
+    if (sh._fx && sh._fx.n === v.parts.length) return sh._fx;
+    const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
+    let bow = null, bf = -Infinity, stern = null, sf = Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const p of sh.hulls) {
+      const H = shullOf(p.def), d = p.def, x = H.x1 - 0.12 * (H.x1 - H.x0), q = partPt(p, x, H.wl), f = q.x * Fd.x + q.y * Fd.y;
+      if (f > bf) { bf = f; bow = { x: q.x, y: q.y, z: partZ(p), p }; }
+      const s = partPt(p, H.x0, H.wl), g = s.x * Fd.x + s.y * Fd.y;
+      if (g < sf) { sf = g; stern = { x: s.x, y: s.y, z: partZ(p) }; }
+      for (const R of H.rings) { z0 = Math.min(z0, partZ(p) - R.bw); z1 = Math.max(z1, partZ(p) + R.bw); }
+    }
+    const funnels = v.parts.filter((p) => p.def.funnel || p.def.style === 'funnel'), eng = sh.engines[0];
+    return (sh._fx = { n: v.parts.length, bow, stern, beam: Number.isFinite(z1 - z0) ? z1 - z0 : 2, funnels, fuel: eng && eng.def.engine ? eng.def.engine.fuel : 'diesel', tel: sh.tel, spray: 0, smoke: 0 });
+  }
+  function fx(v, dt, F) {
+    const sh = v.sh;
+    if (!sh || !sh.hulls || !sh.hulls.length || !(dt > 0) || typeof FX === 'undefined' || v.dead || !v.body || !v.body.radius) return;
+    const f = F && (F.viewVessel || F.active);
+    if (!f || f.body !== v.body || Math.hypot(v.x - f.x, v.y - f.y, v.z - f.z) > SHIP.SPRAY.near) return;
+    const X = fxShape(v), b = v.body, R = b.radius, r0 = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r0, uy = v.y / r0, uz = v.z / r0, q = FX.q();
+    const V = v.speed(), wet = sh.fsub > 0.02 || v.splashed, k = clamp(X.beam / 7, 0.3, 3); // (k: spray to her size)
+    for (const p of sh.hulls) if (p.def.shull.ends && p.def.shull.ends.fore === 'ramp') p.ramp = !!v.landed && V < 1.5; // [WP5] (a landing craft's ramp drops in the art when she is beached and stopped)
+    // the screws' wash when the telegraph is rung
+    if (X.tel !== sh.tel) {
+      X.tel = sh.tel;
+      if (wet) for (const p of sh.thrust) {
+        const w = v.toWorld(p.x, p.y, partZ(p)), r = Math.hypot(w.x, w.y, w.z) || 1, s = (R + (sh.level || 0)) / r;
+        FXP.x = w.x * s; FXP.y = w.y * s; FXP.z = w.z * s;
+        FX.puff(b, FXP, { x: v.vx, y: v.vy, z: v.vz }, Math.ceil(6 * q), '#f2f7fb');
+      }
+    }
+    // bow spray
+    if (wet && X.bow && V > SHIP.SPRAY.v0) {
+      const B = X.bow, w = v.toWorld(B.x, B.y, B.z), rw = Math.hypot(w.x, w.y, w.z) || 1, lift = rw - R - (sh.level || 0);
+      let eta = 0;
+      if (b === EARTH) { const L = Terrain.locate(b, w.x, w.y, w.z, FXW), o = wave(-wrapAngle(L.a - EARTH.padAngle) * R, -L.z, seaT(F)); eta = o[0] * (sh.fade == null ? 1 : sh.fade); }
+      if (Math.abs(lift - eta) < 1.5 * k) {
+        const av = v.av || { x: 0, y: 0, z: 0 }, dx = w.x - v.x, dy = w.y - v.y, dz = w.z - v.z;
+        const uyv = (v.vx + av.y * dz - av.z * dy) * ux + (v.vy + av.z * dx - av.x * dz) * uy + (v.vz + av.x * dy - av.y * dx) * uz; // (the bow's speed up and down)
+        const slam = clamp(-uyv * 0.5, 0, 2), rate = Math.min(15, clamp((V - SHIP.SPRAY.v0) * SHIP.SPRAY.k, 0, SHIP.SPRAY.max) * (0.6 + slam)) * q; // (a pair each: at most 30 a second)
+        X.spray += rate * dt;
+        const side = v.axis(0, 0, 1), fw = v.axis(v.pilot.F.x, v.pilot.F.y, v.pilot.F.z);
+        while (X.spray >= 1) {
+          X.spray -= 1;
+          for (const sg of [-1, 1]) {
+          const s = (2 + Math.random() * 4) * Math.min(1.5, V / 12), up = 2 + Math.random() * 3 + slam * 2;
+          const hw = X.beam * 0.18;
+          FX.add({ kind: 'smoke', b, x: w.x + side.x * sg * hw, y: w.y + side.y * sg * hw, z: w.z + side.z * sg * hw,
+            vx: v.vx * 0.7 + side.x * sg * s + ux * up - fw.x * 1.5, vy: v.vy * 0.7 + side.y * sg * s + uy * up - fw.y * 1.5, vz: v.vz * 0.7 + side.z * sg * s + uz * up - fw.z * 1.5,
+            max: 0.8 + Math.random() * 0.7, size: 0.4 * k, grow: 2 * k, color: '#eef5fb', alpha: 0.5, heavy: true });
+          }
+        }
+      } else X.spray = 0;
+    }
+    // funnel smoke
+    if (X.funnels.length) {
+      const dem = Math.abs(SHIP.TEL[clamp((sh.tel | 0) + 3, 0, SHIP.TEL.length - 1)] || 0), turb = X.fuel === 'turbine';
+      X.smoke += (2 + 6 * dem) * q * X.funnels.length * dt;
+      while (X.smoke >= 1) {
+        X.smoke -= 1;
+        const p = X.funnels[(X.fi = ((X.fi || 0) + 1) % X.funnels.length)], t = partPt(p, 0, p.def.h / 2), w = v.toWorld(t.x, t.y, partZ(p)), up = 3 + 4 * dem, j = 0.6;
+        FX.add({ kind: 'smoke', b, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9 + ux * up + (Math.random() - 0.5) * j, vy: v.vy * 0.9 + uy * up + (Math.random() - 0.5) * j, vz: v.vz * 0.9 + uz * up + (Math.random() - 0.5) * j,
+          max: 2.5 + Math.random() * 2, size: Math.max(0.6, p.def.w * 0.5), grow: Math.max(2, p.def.w * 2.2), color: turb ? '#b9bdc2' : '#55595e', alpha: turb ? 0.14 : 0.32 + 0.2 * dem });
+      }
+    }
+  }
+
+  // ==== hud ====
+  // [WP3, WP12] The helm panel (WP3): under the flight data, in the telemetry panel itself, so it sits wherever that does
+  // (top left on a desktop and a phone alike, and zoomed with the HUD: nothing new to fit round the thumbs). Three lines:
+  // the telegraph's eight rungs (astern on the left, Stop, ahead to Flank on the right) with the rung one lit and its
+  // order; the rudder bar (±HUD.RUD°: the commanded angle a hollow mark, the rudders' own angle the fill) and its angle;
+  // and the helm's mode, HOLD and the heading it holds, or HAND (hand steering). Speed in knots and the heading are the
+  // flight data's own rows (Flight.updateHUD). Built once, on the first ship; each piece written only when it changes
+  // (a key of what it shows), from Flight.updateHUD's tick (12 a second) and at once when the telegraph is rung.
+  // The helm's state it reads (ship.js core's, Flight's inputs): sh.tel (-3..4), sh.rud (the commanded rudder, ° to
+  // starboard), each rudder part's p.rud (its angle now, °; none yet: the command), v.sas ('hold' | 'manual') and sh.hold
+  // (the heading held, rad clockwise from game north as Ship.heading; null: none caught yet).
+  const HUD = { el: null, key: '', RUD: 35 };
+  function hudEl() {
+    if (HUD.el || typeof document === 'undefined') return HUD.el;
+    const tel = document.querySelector('#flight-ui .telemetry');
+    if (!tel) return null;
+    const box = document.createElement('div');
+    box.id = 'ship-helm'; box.className = 'ship-helm'; box.hidden = true;
+    box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Helm');
+    box.innerHTML = '<div class="sh-tel"><span class="sh-rungs" aria-hidden="true">' + '<i></i>'.repeat(8) + '</span></div>'
+      + '<div class="sh-line"><b class="sh-order" role="status">Stop</b><span class="sh-mode"></span></div>'
+      + '<div class="sh-rud"><span class="sh-bar" aria-hidden="true"><i class="sh-fill"></i><i class="sh-cmd"></i></span><span class="sh-ang">0°</span></div>';
+    tel.append(box);
+    HUD.el = box; HUD.rungs = [...box.querySelectorAll('.sh-rungs i')]; HUD.order = box.querySelector('.sh-order'); HUD.mode = box.querySelector('.sh-mode');
+    HUD.fill = box.querySelector('.sh-fill'); HUD.cmd = box.querySelector('.sh-cmd'); HUD.ang = box.querySelector('.sh-ang');
+    return box;
+  }
+  // a heading (rad clockwise from game north, Ship.heading's) as the compass reads it (Flight.compass's rule: real north on
+  // the real Earth: its game east and north shares, sin and cos)
+  function bearing(v, h) {
+    if (v.body !== EARTH || !EARTH.mapped) return ((((h * 180) / Math.PI) % 360) + 360) % 360;
+    return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
+  }
+  function hud(F) {
+    const v = F && F.active, sh = v && isSea(v.kind) && !F.destroyed && !v.dead ? v.sh : null, E = hudEl();
+    if (!E) return;
+    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; return; }
+    const tel = clamp(Math.round(sh.tel) || 0, -3, 4), R = HUD.RUD;
+    let act = 0, n = 0;
+    for (const p of sh.rudders) if (Number.isFinite(p.rud) && !p.broken) { act += p.rud; n++; }
+    const cmd = Number.isFinite(sh.rud) ? clamp(sh.rud, -R, R) : 0, now = n ? clamp(act / n, -R, R) : cmd;
+    const hand = v.sas === 'manual', hold = !hand && Number.isFinite(sh.hold) ? String(Math.round(bearing(v, sh.hold)) % 360).padStart(3, '0') : '';
+    const key = `${tel}|${Math.round(cmd)}|${Math.round(now)}|${hand}|${hold}|${sh.rudders.length}`;
+    if (E.hidden) E.hidden = false;
+    if (key === HUD.key) return;
+    HUD.key = key;
+    HUD.rungs.forEach((r, i) => { const c = i === tel + 3 ? 'on' + (tel < 0 ? ' astern' : '') : i === 3 ? 'stop' : ''; if (r.className !== c) r.className = c; });
+    HUD.order.textContent = Flight.telWord ? Flight.telWord(tel) : SHIP.TEL_NAMES[tel + 3];
+    HUD.order.classList.toggle('astern', tel < 0);
+    HUD.mode.textContent = hand ? 'HAND' : hold ? `HOLD ${hold}°` : 'HOLD';
+    HUD.mode.classList.toggle('on', !hand);
+    // (the bar: its middle is amidships; the fill runs from there to the rudders' angle, the mark is the command)
+    const pc = (a) => 50 + (a / R) * 50;
+    HUD.fill.style.left = `${Math.min(50, pc(now)).toFixed(1)}%`; HUD.fill.style.width = `${Math.abs(pc(now) - 50).toFixed(1)}%`;
+    HUD.cmd.style.left = `${pc(cmd).toFixed(1)}%`;
+    const a = Math.round(now);
+    HUD.ang.textContent = !sh.rudders.length ? 'no rudder' : a === 0 ? '0°' : `${Math.abs(a)}° ${a > 0 ? 'stbd' : 'port'}`;
+  }
+  // the ship's controls, from the bindings (Flight.shipHelp's list: README's Ships block and the manual's)
+  function help(F) { return F && typeof F.shipHelp === 'function' ? F.shipHelp() : ''; }
+  // a key for the ship (true: taken): Flight.shipKey's (flank, stop, the heading hold, CIWS, damage control, the bridge view)
+  function keys(F, e, down) { return !!(down && F && typeof F.shipKey === 'function' && F.shipKey(e)); }
+
+  // ==== ai ====
+  // [WP10]
+  function aiDown(v, F) {}
+  function flyStriker(v, F, dt) {}
+  function range(F) {} // the Naval Range
+  function practice(opts) {} // the Naval Practice battle
+
+  // ==== mp ====
+  // [WP11]
+  function snap(v) { return null; } // a ship's snapshot field (sh: [tel, rudder°])
+  function unsnap(g, m) {}
+  function ghost(g) {} // a remote ship ghost: its decks into Ship.D
+  function downSea(v) { return null; } // a ship's down message's sea field
+  function onDownSea(m) {}
+  function cleanHoles(rows, v) { return []; } // a peer's hit.ho rows, cleaned (our own hull parts, finite, capped)
+
+  return {
+    D: DECKS, // every landable moving deck: { v, p, hl, hw, top, x, y, z, ex, ey } [WP6]
+    S,
+    // core
+    groups, pre, forces, addedMass, floorAt, floorNormal, overWater, launch, seaPlace, drift, stab, impactSea, bump,
+    insideHull, deckContacts, deckRel, deckVel, deckTop, lashStep, unlash, // [WP6]
+    setTel, telStep, settle, moor, unmoor, heading,
+    // waves
+    wave, seaT, setSea, sea, fadeAt, waveUniforms,
+    // builder
+    stats, hydrostatics, spotOf, warnings, kitWarnings, specs, line, xray,
+    // damage
+    hullRay, hullMm, hullDist, addHoles, floodStep, fireStep, dcStep, fateStep, doom, magazine,
+    // combat
+    fireTorp, torpStep, torpHit, ciwsStep, shotMissiles, surface, seesSea, rcs,
+    // frame
+    frame, fx,
+    // hud
+    hud, help, keys,
+    // ai
+    aiDown, flyStriker, range, practice, battle: null,
+    // mp
+    snap, unsnap, ghost, downSea, onDownSea, cleanHoles,
+  };
+})();

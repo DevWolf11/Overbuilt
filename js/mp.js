@@ -187,7 +187,7 @@ const MP = {
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
     if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
-    this.pushCareer();
+    this.borrow();
     if (!this.bound) this.bind();
     clearInterval(this.tickTimer);
     this.tickTimer = setInterval(() => this.tick(), 250); // keeps running in a background tab
@@ -205,25 +205,25 @@ const MP = {
     this.extra.clear(); this.mainDown = false;
     this.state = null;
     Builder.mp = null;
-    this.popCareer();
+    this.giveBack();
     if (App.scene === 'flight') { Flight.stop(); Flight.mp = null; }
     UI.closeModal();
     MPUI.hide();
     App.toHome();
     if (reason) UI.toast(reason, 'warn');
   },
-  // Builds in a match use their own money and never touch the player's career or saved blueprint.
-  pushCareer() {
-    if (this.savedCareer) return;
-    this.savedCareer = { data: Career.data, save: Career.save, design: store.get('rss.design', null) };
-    Career.data = { mode: 'sandbox', funds: 0, tier: TIERS.length - 1, done: {}, flights: 0 };
-    Career.save = () => {};
+  // A room borrows the builder: builds in a match use the battle's money (Budget, util.js: none until a budget is set)
+  // and never touch the player's saved blueprint (borrowed holds it, and Builder.save holds off while it is set).
+  borrow() {
+    if (this.borrowed) return;
+    this.borrowed = { design: store.get('rss.design', null) };
+    Budget.funds = null;
   },
-  popCareer() {
-    const s = this.savedCareer;
+  giveBack() {
+    const s = this.borrowed;
     if (!s) return;
-    Career.data = s.data; Career.save = s.save;
-    this.savedCareer = null;
+    Budget.funds = null;
+    this.borrowed = null;
     store.set('rss.design', s.design);
     Builder.savedAs = null;
     if (s.design && s.design.parts && s.design.parts.length) {
@@ -233,10 +233,10 @@ const MP = {
     } else Builder.loadTemplate('hopper');
     Builder.buildPalette();
   },
+  // the builder's money in a match: the budget for the chosen spawn, or none (null: a sandbox room)
   setMoney(budget) {
-    if (!this.savedCareer) return;
-    Career.data = budget == null ? { mode: 'sandbox', funds: 0, tier: TIERS.length - 1, done: {}, flights: 0 }
-      : { mode: 'career', funds: budget, tier: TIERS.length - 1, done: {}, flights: 0 };
+    if (!this.borrowed) return;
+    Budget.funds = budget == null ? null : budget;
   },
 
   // Keep the screen on while in a room: a sleeping phone can't let friends in, and drops out of the room.
@@ -1641,6 +1641,7 @@ const MP = {
       const D = typeof Death !== 'undefined' ? Death : null, vel = { x: g.vx * 0.3, y: g.vy * 0.3, z: g.vz * 0.3 };
       if (hulk && D) D.deathFX(g, Flight, m.x === 1 ? 'ammo' : 'ko', undefined, at); // (the death its owner saw: a detonation, or a knock-out's fire)
       else if (D && isAirKind(kind) && !g.hiddenUntilSnap && (g.groundAltitude() < 30 || this.aglAt(g.body, at) < 30)) this.crashAt(g, at); // (it crashed: the fireball its owner saw, and the crash site)
+      else if (D && D.seaDown && isGround(kind) && !hulk && !g.hiddenUntilSnap && D.seaDown(g, Flight, at)) { /* (sea crash fix: a ground vehicle that went under on its owner's screen goes under here too: render3d draws its ghost sinking) */ }
       else {
         FX.explosion(g.body, at, vel, hulk && m.x !== 1 ? 2.5 : hulk ? 6 : 5, airDensity(g.body, g.altitude()) > 0.01); // (mid-air, never seen, or no damage model: as ever)
         if (Flight.dist(Flight.absPos(g), Flight.camAbs) < 4000) Sound.explode();
@@ -1699,6 +1700,7 @@ const MP = {
     const L = Terrain.locate(g.body, at.x, at.y, at.z, {}), wet = !!Terrain.waterAt(g.body, L.a, L.z);
     const k = Death.deathFX(g, Flight, 'crash', undefined, at, { water: wet });
     if (k >= 2.5) Death.pyre(g.body, at, k, wet, Flight);
+    if (wet && Death.sea) Death.sea(g, Flight, L, at); // (sea crash fix: in the water it goes under here as on its owner's screen, ploughing in when fast: render3d draws the ghost going down)
   },
   // A peer's aircraft shot down in the air (its down's fall): on our screen it becomes a hulk of our own physics (P's
   // ghost no more: never locked, tagged, spotted or hit, no score; foreign: hits never look in it, only a picture), with

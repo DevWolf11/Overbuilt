@@ -194,7 +194,6 @@ const ROOM = `var __T = 1000, __P = 0, __timers = [], __handlers = new Map(), __
     var sent = (t) => (Net.out || []).filter(([m]) => m.t === t);
     var MPUI = new Proxy({}, { get: (o, k) => (k in o ? o[k] : (...a) => { __ui.push([k, ...a]); }) });
     var App = { scene: 'mp', afterEarth: (fn) => fn(), showScene(s) { App.scene = s; }, showMP() {}, toBuild() { App.scene = 'build'; }, toHome() {}, use3D: () => true };
-    var Career = { data: { mode: 'career', funds: 0, tier: 4, done: {}, flights: 0 }, save() {} };
     UI.closeModal = () => {}; UI.modal = () => {};
     // Flight.start as the game's: the part tree holding the control part, placed at opts.place, the kept vessels kept
     Object.assign(Flight, { running: false, mp: null, vessels: [], time: 50, destroyed: false, spectate: null, starts: [],

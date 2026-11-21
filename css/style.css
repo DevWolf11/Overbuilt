@@ -410,39 +410,30 @@ kbd {
   letter-spacing: 0.02em; text-transform: uppercase; text-wrap: balance;
 }
 .home-tag { margin: 0; max-width: 38ch; font-size: 15px; line-height: 1.5; color: #b7c3d4; }
-.home-main, .home-modes { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
-.home-btn, .mode-card {
+.home-main { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
+.home-btn {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
   padding: 14px 16px; border-radius: 10px; cursor: pointer; font-family: var(--display); color: var(--text);
   background: var(--panel); border: 1px solid var(--line-strong); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   transition: border-color 0.15s, transform 0.15s;
 }
-.home-btn:hover, .mode-card:hover { border-color: var(--amber); }
-.home-btn:focus-visible, .mode-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.home-btn:hover { border-color: var(--amber); }
+.home-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .home-btn.primary { background: var(--amber); color: #1a1205; border-color: var(--amber); }
 .home-btn:disabled { cursor: not-allowed; filter: grayscale(0.85) brightness(0.5); } /* (dimmed, not see-through: the map is behind) */
 .home-btn.primary .hb-sub { color: rgba(26, 18, 5, 0.75); }
 .home-btn.resume { border-color: var(--cyan); }
-.hb-name, .mode-name { font-weight: 700; font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; }
-.hb-sub, .mode-desc { font-size: 13px; color: var(--muted); line-height: 1.4; }
-.mode-name { color: var(--amber); }
-.home-choose { margin: 0 0 4px; color: #b7c3d4; }
+.hb-name { font-weight: 700; font-size: 17px; letter-spacing: 0.08em; text-transform: uppercase; }
+.hb-sub { font-size: 13px; color: var(--muted); line-height: 1.4; }
 .home-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 
 /* ---- builder additions */
 .brand .btn.icon-only { width: 36px; }
 .s-name { font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); font-size: 13px; }
-.career-row { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.budget-row { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .cr-money { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
 .cr-label { font: 600 10px var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); align-self: center; }
-.cr-btns { display: flex; gap: 6px; }
-.cr-btns .btn { flex: 1; }
 .part-item { position: relative; }
-.part-item.locked { opacity: 0.5; cursor: help; }
-.part-item .lock {
-  position: absolute; top: 6px; right: 6px; font: 600 9px var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
-  color: #1a1205; background: var(--amber); border-radius: 3px; padding: 1px 4px;
-}
 .part-cost { font: 500 10px var(--mono); color: var(--amber); }
 .pi-btns { display: flex; gap: 6px; }
 .hangar-save { display: flex; gap: 8px; margin-bottom: 14px; }
@@ -453,28 +444,9 @@ kbd {
 .hangar-save input:focus-visible, .settings select:focus-visible, .settings input:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 .template.row { flex-direction: row; align-items: center; gap: 8px; padding: 0 8px 0 0; }
 .template-main { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; cursor: pointer; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-family: var(--display); }
-.template.locked .template-name { color: var(--muted); }
 .hangar .summary-h { margin-top: 16px; }
 
-/* ---- R&D, missions, Δv, settings */
-.tiers { display: flex; flex-direction: column; gap: 8px; }
-.tier { padding: 10px 12px; border-radius: 8px; background: rgba(20, 32, 54, 0.5); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.tier.owned { border-color: rgba(95, 227, 154, 0.35); }
-.tier-head { display: flex; gap: 10px; align-items: baseline; width: 100%; }
-.tier-num { font: 600 11px var(--mono); color: var(--amber); }
-.tier-name { font-weight: 700; flex: 1; }
-.tier-cost { font: 500 12px var(--mono); color: var(--muted); }
-.tier.owned .tier-cost { color: var(--good); }
-.tier-parts { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
-.missions { display: flex; flex-direction: column; gap: 6px; }
-.missions .summary-h { margin: 10px 0 2px; }
-.mission { display: grid; grid-template-columns: 20px 1fr auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
-.mission-check { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: 11px; color: #062012; }
-.mission.done .mission-check { background: var(--good); border-color: var(--good); }
-.mission-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.mission-text span { font-size: 12px; color: var(--muted); }
-.mission.done .mission-text b { color: var(--good); }
-.mission-reward { font: 500 12px var(--mono); color: var(--amber); }
+/* ---- Δv, settings */
 .dv-wrap { overflow-x: auto; }
 .dv-table { width: 100%; border-collapse: collapse; font: 500 12px var(--mono); font-variant-numeric: tabular-nums; }
 .dv-table th { font: 600 10px var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
@@ -486,7 +458,6 @@ kbd {
 .setting input[type="range"] { width: 100%; accent-color: var(--amber); }
 .setting input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--amber); justify-self: start; }
 .setting-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--line); }
-.refund { margin: 0 0 14px; color: var(--good); }
 
 /* ---- flight additions */
 .t-where { font-size: 11px; color: var(--cyan); margin: -4px 0 6px; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -527,9 +498,8 @@ kbd {
   .home { background: linear-gradient(to top, rgba(4, 6, 12, 0.94) 0%, rgba(4, 6, 12, 0.75) 55%, rgba(4, 6, 12, 0.2) 100%); }
   .stats { gap: 6px 10px; }
   .s-name { flex: 1 1 100%; }
-  .career-row { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: space-between; padding-top: 6px; }
+  .budget-row { flex: 1 1 100%; flex-direction: row; align-items: center; justify-content: space-between; padding-top: 6px; }
   .cr-money { grid-template-columns: auto auto auto auto; }
-  .cr-btns .btn { flex: none; }
   .setting { grid-template-columns: 110px 1fr; }
 }
 @media (max-height: 500px) {
@@ -643,7 +613,7 @@ kbd {
 .stats-toggle::before { content: '▴'; }
 .stats.collapsed .stats-toggle::before { content: '▾'; }
 .stats-toggle:hover { color: var(--amber); border-color: var(--amber); }
-.stats.collapsed .kind-select, .stats.collapsed .career-row, .stats.collapsed .stage-details, .stats.collapsed .air-info { display: none !important; }
+.stats.collapsed .kind-select, .stats.collapsed .budget-row, .stats.collapsed .stage-details, .stats.collapsed .air-info { display: none !important; }
 #btn-sym .icon { display: none; }
 .palette.drop-remove { transition: background 0.15s, border-color 0.15s; }
 .palette.drop-remove::after {
@@ -1387,14 +1357,25 @@ body.ctl-edit .air-btns { display: flex !important; }
 body.ground #btn-radar { display: none; }
 
 /* == big: drones == */
-/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide) */
-#kind-select { grid-template-columns: repeat(6, 1fr); }
+/* the builder: Drone, a sixth button in the kind strip (the phone label stays 9 px, and 8 px under 360 px wide); the ships
+   update's Ship a seventh */
+#kind-select { grid-template-columns: repeat(7, 1fr); }
 @media (max-width: 359.98px) { #kind-select .kind-btn { font-size: 8px; } }
+/* [WP4] a desktop's side panel (236 px) has no room for seven abreast (Ship ran off its edge): two rows, four and three */
+@media (min-width: 761px) { #kind-select { grid-template-columns: repeat(4, 1fr); } }
+/* [WP4] folded on a narrow phone, the seven in one slim row: their words alone, a size smaller (with the icons beside them
+   the row ran out of the panel and Ship went off its edge) */
+@media (max-width: 400px) {
+  .stats.collapsed #kind-select { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .stats.collapsed #kind-select .kind-btn { font-size: 8px; letter-spacing: 0; padding: 3px 0; }
+  .stats.collapsed #kind-select .kind-btn .icon { display: none; }
+}
 /* the drone's line under the stats: its notes (no camera, more parts than a bay takes) in grey */
 .air-info .s-note { color: var(--muted); }
 /* a short phone building a drone, as building armour: while a part's card is up the kind buttons give way */
 @media (max-width: 760px) and (max-height: 700px) {
   #build-ui.has-info:has(#kind-select [data-kind="drone"][aria-checked="true"]) #kind-select { display: none; }
+  #build-ui.has-info:has(#kind-select [data-kind="ship"][aria-checked="true"]) #kind-select { display: none; } /* (and a ship, the ships update) */
 }
 /* its battery ("50 Wh · hover 7.5 min") and top speed ("Level 97 km/h · Acro 160") rows take two columns, a size smaller on a
    desktop's narrow panel to keep to one line (a phone's wrap at the " · ") */
@@ -1447,3 +1428,33 @@ body.impactcam #flight-ui :is(.left-controls, .weapon-box, .throttle-box, #gmap,
 #sight-vig.alarm { display: block; background: radial-gradient(ellipse 80% 80% at 50% 50%, rgba(255, 40, 40, 0) 60%, rgba(255, 40, 40, 0.45) 100%); }
 
 /* == big: graphics == */
+
+/* == ships: the helm (the ships update, WP3) == */
+/* a ship sails with the ground HUD (body.ground: her guns aim as a tank's) and body.ship over it: the throttle box is her
+   engine-order telegraph (Flight.telDom: eight detents, the line at Stop three-sevenths up, the fill from Stop to the rung
+   order, astern in blue; FLANK and STOP over and under its label), the stick her rudder */
+body.ship .throttle-ticks { background: repeating-linear-gradient(to top, transparent 0, transparent calc(100% / 7 - 1px), rgba(5, 9, 18, 0.55) calc(100% / 7 - 1px), rgba(5, 9, 18, 0.55) calc(100% / 7)); }
+body.ship .throttle-track::after { content: ''; position: absolute; left: -1px; right: -1px; top: calc(400% / 7 - 1px); height: 2px; background: rgba(255, 255, 255, 0.85); pointer-events: none; }
+body.ship .throttle-fill.astern { background: linear-gradient(to bottom, #2f86b8, var(--cyan)); }
+body.ship .throttle-label { white-space: pre; text-align: center; font-size: 11px; line-height: 1.15; padding: 2px 4px; min-width: 44px; }
+body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-left: 6px; padding-right: 6px; font-size: 12px; }
+@media (max-width: 760px) { body.ship.g-thrust:not(.g-stages) .throttle-box { bottom: calc(150px + var(--safe-b)); } } /* (no brake to stand over: just over the stick) */
+/* the helm panel (Ship.hud), under the flight data: the telegraph's rungs and order, the helm's mode, the rudder bar */
+.ship-helm { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font: 500 11px var(--mono); display: grid; gap: 4px; }
+.ship-helm[hidden] { display: none; }
+.sh-rungs { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.sh-rungs i { height: 7px; border-radius: 2px; background: rgba(150, 185, 230, 0.16); }
+.sh-rungs i.stop { background: rgba(219, 228, 240, 0.45); }
+.sh-rungs i.on { background: var(--amber); }
+.sh-rungs i.on.astern { background: var(--cyan); }
+.sh-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; }
+.sh-order { font: 700 12px var(--display); letter-spacing: 0.04em; color: var(--amber); }
+.sh-order.astern { color: var(--cyan); }
+.sh-mode { color: var(--muted); font-size: 10px; letter-spacing: 0.06em; }
+.sh-mode.on { color: #7dffb0; }
+.sh-rud { display: flex; align-items: center; gap: 6px; }
+.sh-bar { position: relative; flex: 1; height: 8px; border-radius: 4px; background: rgba(150, 185, 230, 0.12); border: 1px solid var(--line); }
+.sh-bar::after { content: ''; position: absolute; left: calc(50% - 0.5px); top: -2px; bottom: -2px; width: 1px; background: rgba(219, 228, 240, 0.6); }
+.sh-fill { position: absolute; top: 0; bottom: 0; background: var(--amber); border-radius: 3px; }
+.sh-cmd { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; }
+.sh-ang { min-width: 54px; text-align: right; white-space: nowrap; }

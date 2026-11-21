@@ -3,7 +3,7 @@
 const G = require('./lib/game.js');
 const ctx = G.load({ flight: true });
 const R = (code) => G.run(ctx, code);
-const t = G.checks('flight: ripParts, breakParts, 2D draw order');
+const t = G.checks('flight: ripParts, breakParts, milestones, 2D draw order');
 R(`var rowsOf = (k) => TEMPLATES[k].parts.map(([type, x, y, rot]) => ({ type, x, y, flip: x < 0, rot: rot || 0 }));
 var craft = (rows, kind = 'plane') => {
   const parts = partsFromDesign(rows), adjAll = buildAdjacency(parts), ctrl = findControlPart(parts), keep = componentOf(ctrl.id, adjAll);
@@ -63,6 +63,32 @@ var tk = craft(templateRows(TEMPLATES.tk34), 'tank'), bug = craft(rowsOf('buggy'
 var RH = [hintOf(tk, true, true), hintOf(tk, true, false), hintOf(tk, false, true), hintOf(tk, false, false), hintOf(bug, true, false)];`);
 t('"Righting…" while the helping hand rolls a tank back (hints on or off), then nothing; an old car\'s levelling says nothing',
   R(`RH.join('|') === 'Righting…|Righting…|||' && tk.gear.length > 0 && !bug.gear.length`), R('JSON.stringify(RH)'));
+
+// milestones: each toasts and goes in the summary the first time ever (rss.milestones), again only with Settings repeatMs;
+// an old career save's done missions seed the record once (read only); junk in rss.milestones is cleaned
+R(`var __ls = new Map(); var localStorage = { getItem: (k) => (__ls.has(k) ? __ls.get(k) : null), setItem: (k, v) => __ls.set(k, String(v)), removeItem: (k) => __ls.delete(k) };
+var msF = () => ({ flags: {}, fresh: {}, said: [], toast(m) { this.said.push(m); }, time: 1, stats: { maxAlt: 0, maxSpeed: 0 }, driven: 0, _bodyGround: false });
+var msFly = (fs) => { const F = msF(); for (const f of fs) Flight.award.call(F, f); return { said: F.said, flags: Object.keys(F.flags), sum: Flight.summaryHTML.call(F) }; };
+Achieved.got = null; Settings.set('repeatMs', false);
+var MS1 = msFly(['liftoff', 'alt1k', 'machOne']), MS2 = msFly(['liftoff', 'alt1k', 'takeoff']), MS3 = msFly(['liftoff', 'alt1k']);
+var MSstored = JSON.parse(localStorage.getItem('rss.milestones'));
+Settings.set('repeatMs', true); var MS4 = msFly(['liftoff', 'alt1k']); Settings.set('repeatMs', false);
+Achieved.got = null; var MSre = msFly(['alt1k']);`);
+t('milestones: the first flight toasts each new one (Liftoff, First Hop) and lists them; an unnamed flag (machOne) is kept but says nothing',
+  R(`MS1.said.join('|') === 'Liftoff|First Hop' && MS1.flags.join() === 'liftoff,alt1k,machOne' && MS1.sum.includes('Milestones</h3><ul class="milestones"><li>Liftoff</li><li>First Hop</li></ul>')`), R('MS1'));
+t('...the second: only the new one (Wheels Up) toasts and is listed; every flag still raised for the hints', R(`MS2.said.join('|') === 'Wheels Up' && MS2.flags.join() === 'liftoff,alt1k,takeoff' && MS2.sum.includes('<li>Wheels Up</li></ul>') && !/Liftoff/.test(MS2.sum)`), R('MS2'));
+t('...nothing new: no toast and no Milestones heading at all', R(`MS3.said.length === 0 && !/Milestones|milestones/.test(MS3.sum)`), R('MS3'));
+t('...remembered in rss.milestones (and after a reload: a fresh read of it)', R(`MSstored.liftoff === true && MSstored.alt1k === true && MSstored.takeoff === true && !('machOne' in MSstored) && MSre.said.length === 0`), R('[MSstored, MSre]'));
+t('...Settings → Repeat milestones every flight: toasted and listed every flight again', R(`MS4.said.join('|') === 'Liftoff|First Hop' && MS4.sum.includes('<li>Liftoff</li><li>First Hop</li>')`), R('MS4'));
+R(`__ls.clear(); __ls.set('rss.career', JSON.stringify({ mode: 'career', funds: 9, tier: 1, done: { alt1k: 1, splash: 2, orbitEarth: 3, 'land:moon': 4, nope: 5, __proto__x: 6 }, flights: 2 }));
+Achieved.got = null; var CS = msFly(['alt1k', 'splashdown', 'orbit:earth', 'land:moon', 'liftoff']), CSkept = __ls.get('rss.career'), CSrec = JSON.parse(__ls.get('rss.milestones'));
+__ls.set('rss.career', JSON.stringify({ done: { space: 1 } })); Achieved.got = null; var CS2 = msFly(['space']);`);
+t('an old career save seeds the record once: its done missions (ids mapped to flags) say nothing again, the rest do; rss.career untouched',
+  R(`CS.said.join('|') === 'Liftoff' && CSrec.alt1k && CSrec.splashdown && CSrec['orbit:earth'] && CSrec['land:moon'] && !('nope' in CSrec) && JSON.parse(CSkept).funds === 9 && CS2.said.join() === 'Edge of Space'`), R('[CS, CSrec, CS2]'));
+R(`var JUNK = {}; for (const [k, raw] of [['array', '["alt1k"]'], ['string', '"alt1k"'], ['number', '7'], ['bad', '{bad json'], ['mixed', '{"alt1k":true,"liftoff":1,"__proto__":true,"nope":true,"space":"yes","hover":true}']]) {
+  __ls.clear(); __ls.set('rss.milestones', raw); Achieved.got = null; const r = msFly(['alt1k', 'hover', 'liftoff']); JUNK[k] = { said: r.said, stored: __ls.get('rss.milestones') }; }`);
+t('a garbage rss.milestones is cleaned (only a known flag set to true is kept), and never throws', R(`JUNK.mixed.said.join('|') === 'Liftoff' && ['array', 'string', 'number', 'bad'].every((k) => JUNK[k].said.join('|') === 'First Hop|Hover|Liftoff')
+  && Object.keys(JSON.parse(JUNK.mixed.stored)).sort().join() === 'alt1k,hover,liftoff'`), R('JUNK'));
 
 // the 2D flight view: canopies first, then sideOrder
 R(`var drawn = []; var _dp = drawPart, _dc = drawCanopy; drawPart = (c, p) => drawn.push(p); drawCanopy = (c, p) => drawn.push('canopy');

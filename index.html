@@ -29,22 +29,10 @@
       <h1>Overbuilt</h1>
       <p class="home-tag">Build rockets, planes, helicopters, cars and tanks from parts, then see what they can do: cross the real Earth, reach orbit, land on the Moon and Mars, or take on other players in the air and on the ground.</p>
     </div>
-    <div id="home-modes" class="home-modes" hidden>
-      <p class="home-choose">Choose how you want to play. You can switch later.</p>
-      <button class="mode-card" data-mode="career">
-        <span class="mode-name">Career</span>
-        <span class="mode-desc">Start with $50,000 and the basics. Fly missions to earn funds, unlock better parts tier by tier, and push outward planet by planet.</span>
-      </button>
-      <button class="mode-card" data-mode="sandbox">
-        <span class="mode-name">Sandbox</span>
-        <span class="mode-desc">Every part unlocked, money no object. Build whatever you can imagine.</span>
-      </button>
-    </div>
-    <div id="home-main" class="home-main" hidden>
+    <div id="home-main" class="home-main">
       <button id="home-resume" class="home-btn resume" hidden><span class="hb-name">Resume flight</span><span id="home-resume-sub" class="hb-sub"></span></button>
       <button id="home-build" class="home-btn primary"><span class="hb-name">Enter the hangar</span><span class="hb-sub">Build and launch a rocket, plane, car, helicopter or tank</span></button>
       <button id="home-mp" class="home-btn mp-btn"><span class="hb-name">Multiplayer</span><span class="hb-sub">Fly with friends: a shared sandbox, or build-and-fight battles</span></button>
-      <button id="home-mode" class="home-btn"><span id="home-mode-label" class="hb-name">Career</span><span id="home-mode-sub" class="hb-sub"></span></button>
       <div class="home-row">
         <button id="home-dv" class="btn">Δv map</button>
         <button id="home-help" class="btn">How to fly</button>
@@ -141,9 +129,13 @@
       <button class="kind-btn" role="radio" data-kind="heli" data-icon="heli" title="Helicopter: lifts off from the helipad"><span>Heli</span></button>
       <button class="kind-btn" role="radio" data-kind="tank" data-icon="tank" title="Armour: tanks and armoured vehicles, built nose-right"><span>Armour</span></button>
       <button class="kind-btn" role="radio" data-kind="drone" data-icon="drone" title="Drone: quadcopters and winged munitions, built nose-right, lift off from the helipad"><span>Drone</span></button>
+      <button class="kind-btn" role="radio" data-kind="ship" data-icon="ship" title="Ship: boats and warships, built bow-right from hull segments, launch on the water"><span>Ship</span></button>
     </div>
     <dl class="stat-grid">
-      <div><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
+      <div id="s-mass-row"><dt>Mass</dt><dd id="s-mass">0 t</dd></div>
+      <div id="s-disp-row" hidden><dt>Displacement</dt><dd id="s-disp">—</dd></div>
+      <div id="s-draught-row" hidden><dt>Draught</dt><dd id="s-draught">—</dd></div>
+      <div id="s-stab-row" hidden><dt>Stability</dt><dd id="s-gm">—</dd></div>
       <div id="s-thrust-row"><dt>Thrust</dt><dd id="s-thrust">0 kN</dd></div>
       <div id="s-twr-row"><dt id="s-twr-label">TWR</dt><dd><span id="s-twr">—</span></dd></div>
       <div id="s-dv-row"><dt id="s-dv-label">Δv vac</dt><dd id="s-dv">0 m/s</dd></div>
@@ -153,9 +145,8 @@
       <div id="s-front-row" hidden><dt>Front</dt><dd id="s-front">—</dd></div>
       <div id="s-radar-row" hidden><dt>Radar</dt><dd id="s-radar">—</dd></div>
     </dl>
-    <div id="career-row" class="career-row">
-      <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Funds</span><span id="s-funds">$0</span></div>
-      <div class="cr-btns"><button id="btn-rd" class="btn small">R&amp;D</button><button id="btn-missions" class="btn small">Missions</button></div>
+    <div id="budget-row" class="budget-row" hidden>
+      <div class="cr-money"><span class="cr-label">Cost</span><span id="s-cost">$0</span><span class="cr-label">Budget</span><span id="s-funds">$0</span></div>
     </div>
     <details id="s-stage-box" class="stage-details" open>
       <summary><span id="s-stages">0</span> stages</summary>
@@ -427,7 +418,6 @@
 <script src="js/parts3d.js"></script>
 <script src="js/render3d.js"></script>
 <script src="js/audio.js"></script>
-<script src="js/career.js"></script>
 <script src="js/map.js"></script>
 <script src="js/globe.js"></script>
 <script src="js/combat.js"></script>
@@ -436,6 +426,7 @@
 <script src="js/gmode.js"></script>
 <script src="js/groundai.js"></script>
 <script src="js/drone.js"></script>
+<script src="js/ship.js"></script>
 <script src="js/builder.js"></script>
 <script src="js/flight.js"></script>
 <script src="js/vendor/peer.min.js"></script>

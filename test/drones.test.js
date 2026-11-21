@@ -51,8 +51,8 @@ const KIT = ['dockRack', 'dockHangar', 'dockTubes', 'cdJam', 'cdJamL', 'cdDetect
 const bad = (list, f) => list.filter((k) => !f(k));
 t('35 drone parts in the four tabs (13 frames, 9 motors and power, 7 links and sensors, 6 payloads)', DR.length === 35 && TABS.map((c) => DR.filter((k) => PARTS[k].cat === c).length).join() === '13,9,7,6',
   TABS.map((c) => DR.filter((k) => PARTS[k].cat === c).length).join());
-t('the Drone kind: the helipad, rot 0, its four tabs in order, and its categories after Kit and before Radar', R(`(() => { const K = VEHICLE_KINDS.drone, ids = PART_CATEGORIES.map((c) => c.id);
-  return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0 && K.cats.join() === 'drFrame,drPower,drLink,drPay' && ids.slice(21, 25).join() === K.cats.join() && ids[25] === 'radar'
+t('the Drone kind: the helipad, rot 0, its four tabs in order, and its categories after Kit (Radar still last)', R(`(() => { const K = VEHICLE_KINDS.drone, ids = PART_CATEGORIES.map((c) => c.id);
+  return K.name === 'Drone' && K.site === 'helipad' && K.launchRot === 0 && K.cats.join() === 'drFrame,drPower,drLink,drPay' && ids.slice(21, 25).join() === K.cats.join() && ids[ids.length - 1] === 'radar'
     && PART_CATEGORIES.slice(21, 25).map((c) => c.name).join('|') === 'Frames|Motors & power|Links & sensors|Payloads'; })()`));
 t('each has a mass, a price, a tier 1-4, a size, a drag area (wings excepted), hit points, maxTemp 1500 and a description', !bad(DR, (k) => { const d = PARTS[k];
   return d.mass > 0 && d.cost > 0 && Number.isInteger(d.tier) && d.tier >= 1 && d.tier <= 4 && d.w > 0 && d.h > 0 && R(`partDepth({ def: PARTS.${k} })`) > 0 && (d.wing ? true : d.cda > 0)
@@ -104,9 +104,9 @@ t('names and descriptions use no real product or system name', !bad([...DR, ...K
 {
   const tk = Object.keys(ctx.TEMPLATES).filter((k) => ctx.TEMPLATES[k].kind === 'drone' || ['bmk2d', 'ma1c'].includes(k));
   t(`...nor do the drone templates' names and blurbs (${tk.length}: the five drones, the BMK-2D Nest and the MA-1C Abrahm)`, tk.length === 7 && tk.every((k) => !REAL_DRONE.test(ctx.TEMPLATES[k].name) && ctx.TEMPLATES[k].blurb.length >= 40 && !REAL_DRONE.test(ctx.TEMPLATES[k].blurb)));
-  t('the drone templates: after the jets and before the Armour, none military, career tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
+  t('the drone templates: after the jets and before the Armour (the two tanks last of the ground block, before the ships update\'s ships), none military, tier the highest of their parts\', each paint a skin its part takes; the two tanks out of old Hostile waves (dw)', R(`(() => {
     const K = Object.keys(TEMPLATES), d = K.filter((k) => TEMPLATES[k].kind === 'drone');
-    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.slice(-2).join() === 'bmk2d,ma1c'
+    return d.join() === 'bumble,bumbleF,mavik,babaYara,lancett' && K.indexOf('bumble') === K.indexOf('sugoi57') + 1 && K.indexOf('tk34') === K.indexOf('lancett') + 1 && K.filter((k) => TEMPLATES[k].kind !== 'ship' && TEMPLATES[k].group !== 'ship').slice(-2).join() === 'bmk2d,ma1c'
       && ${JSON.stringify(tk)}.every((k) => { const T = TEMPLATES[k]; return !T.military && T.tier === Math.max(...T.parts.map((r) => PARTS[r[0]].tier || 0)) && (T.kind === 'drone') === !T.dw
         && Object.keys(T.paint || {}).every((type) => T.parts.some((r) => r[0] === type) && cleanSkin(T.paint[type], PARTS[type]) === T.paint[type]); }); })()`));
 }
@@ -268,14 +268,18 @@ t('nothing broke and nothing was said (the battery far from 25 %)', B.broken ===
   const T18 = { // §18: parts, kg, $, thrust/weight, hover min, top km/h (Level; the Lancett's at 0.6 throttle), the bays it fits
     bumble: [10, 1.68, 1920, 3.88, 7.5, 97, 'dockRack,dockHangar'], bumbleF: [10, 3.08, 2870, 2.12, 8.3, 102, 'dockRack,dockHangar'], mavik: [10, 1.15, 3190, 2.84, 31.5, 54, 'dockHangar'],
     babaYara: [14, 21.5, 7830, 1.71, 27.5, 55, 'dockHangar'], lancett: [10, 4.56, 3630, 0.66, 0, 115, 'dockTubes'] };
-  const got = JSON.parse(R(`JSON.stringify(Object.fromEntries(${JSON.stringify(STOCK)}.map((k) => { const ps = partsFromDesign(rowsOf(k)), s = Drone.stats(ps);
-    return [k, { n: ps.length, kg: s.kg, cost: designCost(ps), twr: s.twr, hover: s.hoverMin, top: s.vTop * 3.6, fits: s.fits.join(), why: s.why }]; })))`));
+  // (the bays' price cap holds only in a battle room since career mode went: these run under a stand-in battle's, MP, as
+  // the cap's numbers are §18's; solo play's, any price, below)
+  const got = JSON.parse(R(`(() => { this.MP = { live: true, state: { mode: 'pvp' } }; try { return JSON.stringify(Object.fromEntries(${JSON.stringify(STOCK)}.map((k) => { const ps = partsFromDesign(rowsOf(k)), s = Drone.stats(ps);
+    return [k, { n: ps.length, kg: s.kg, cost: designCost(ps), twr: s.twr, hover: s.hoverMin, top: s.vTop * 3.6, fits: s.fits.join(), why: s.why }]; }))); } finally { delete this.MP; } })()`));
+  const solo = R(`Drone.stats(partsFromDesign(rowsOf('mavik'))).fits.join()`);
   const near = (a, b) => (b === 0 ? a === 0 : Math.abs(a / b - 1) <= 0.03);
   const offS = STOCK.filter((k) => { const [n, kg, $, twr, hov, top] = T18[k], g = got[k]; return g.n !== n || !near(g.kg, kg) || g.cost !== $ || !near(g.twr, twr) || !near(g.hover, hov) || !near(g.top, top); });
   t('Drone.stats for each stock drone: parts, mass, price, thrust/weight, hover time and top speed within 3 % of §18', !offS.length,
     offS.map((k) => `${k} ${JSON.stringify(fx(got[k]))}`).join('; ') || STOCK.map((k) => `${k} ${got[k].kg.toFixed(2)} kg ${got[k].top.toFixed(0)} km/h`).join(', '));
-  t('...and the bays each fits: Bumble and Bumble Fibre a Rack or a Hangar, the Mavik and Baba Yara a Hangar, the Lancett the Tubes', STOCK.every((k) => got[k].fits === T18[k][6]), STOCK.map((k) => `${k}: ${got[k].fits}`).join('; '));
-  t('the Mavik\'s reason at a Rack: "Too dear: $3,190 of $3,000"; the Lancett\'s at a Hangar "Takes multirotors only", a Bumble\'s at the Tubes "Takes winged drones only"',
+  t('...and the bays each fits in a battle: Bumble and Bumble Fibre a Rack or a Hangar, the Mavik and Baba Yara a Hangar, the Lancett the Tubes', STOCK.every((k) => got[k].fits === T18[k][6]), STOCK.map((k) => `${k}: ${got[k].fits}`).join('; '));
+  t('...in solo play (sandbox: no price cap) the Mavik fits a Rack too', solo === 'dockRack,dockHangar', solo);
+  t('the Mavik\'s reason at a Rack in a battle: "Too dear: $3,190 of $3,000"; the Lancett\'s at a Hangar "Takes multirotors only", a Bumble\'s at the Tubes "Takes winged drones only"',
     got.mavik.why.dockRack === 'Too dear: $3,190 of $3,000' && got.lancett.why.dockHangar === 'Takes multirotors only' && got.bumble.why.dockTubes === 'Takes winged drones only', [got.mavik.why, got.lancett.why, got.bumble.why]);
   const F = JSON.parse(R(`(() => { const D = PARTS.dockRack.dock, b = rowsOf('bumble');
     const big = rowsOf('babaYara'), wide = b.map((r) => (r.type === 'drMotorS' ? { ...r, z: Math.sign(r.z) * 0.5 } : r)), tank = b.concat([{ type: 'cdJam', x: 0, y: 0.5, rot: 0, flip: false }]);
@@ -598,11 +602,11 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     return { n: data.vessels.length, kinds: data.vessels.map((x) => x.kind), active: data.active, docked: bay && bay.docked, left: T && Drone.left(T), live, rescale: data.scale, ok, a2: F2.active && F2.active.kind, ch: F2.active && F2.active.droneChoice }; })();`);
   const SV = JSON.parse(RB('JSON.stringify(SV)'));
   t('9 a save with the drone up: the tank alone, the craft flown, its bay full again (3) in the save and still 2 aboard; it restores with the tank active', SV.n === 1 && SV.kinds[0] === 'tank' && SV.active === 0 && SV.docked === 3 && SV.left === 3 && SV.live.docked === 2 && SV.rescale === 12 && SV.ok === true && SV.a2 === 'tank' && SV.ch == null, SV);
-  // a stored choice that doesn't fit
-  RB(`var CH = (() => { const F = world(), d0 = nest(); d0.drone = { key: 'mavik' }; const C = F.start(d0); go(F, 1.5); Drone.key(F); const a = F.active; const l1 = F.log.slice(-2);
-    Drone.key(F); go(F, 0.5); Drone.key(F); go(F, 0.1); return { name: a.name, said: l1, again: F.log.filter((m) => /doesn't fit/.test(m)).length, choice: C.droneChoice }; })();`);
+  // a stored choice that doesn't fit (the price cap: a battle room's, F.mp, since career mode went)
+  RB(`var CH = (() => { const F = world(), d0 = nest(); d0.drone = { key: 'mavik' }; const C = F.start(d0); go(F, 1.5); F.mp = { mode: 'pvp' }; Drone.key(F); const a = F.active; const l1 = F.log.slice(-2);
+    Drone.key(F); go(F, 0.5); Drone.key(F); go(F, 0.1); F.mp = null; return { name: a.name, said: l1, again: F.log.filter((m) => /doesn't fit/.test(m)).length, choice: C.droneChoice }; })();`);
   const CH = JSON.parse(RB('JSON.stringify(CH)'));
-  t('9 a stored drone that doesn\'t fit the rack (the Mavik Scout, $3,190 of $3,000): the rack\'s stock Bumble FPV goes up, said once', CH.name === 'Bumble FPV' && CH.said.includes('The Mavik Scout doesn\'t fit a Drone Rack: launching a Bumble FPV') && CH.again === 1, CH);
+  t('9 a stored drone that doesn\'t fit the rack in a battle (the Mavik Scout, $3,190 of $3,000): the rack\'s stock Bumble FPV goes up, said once', CH.name === 'Bumble FPV' && CH.said.includes('The Mavik Scout doesn\'t fit a Drone Rack: launching a Bumble FPV') && CH.again === 1, CH);
   // the rest of flight.js's share
   RB(`var FL = (() => { const { F, C, d } = launched(); go(F, 1);
     const rec = Flight.canRecover.call(F), near = Flight.stepsNear.call(F, C, 9000), farOld = Flight.stepsNear.call(F, mk(designOf('tk34')), 9000);
@@ -842,20 +846,18 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
     ML.on.ang < 2 && ML.on.lockAt != null && ML.on.lockAt <= 1.5 && ML.on.hit != null && ML.on.left === 1, ML.on);
   t('balance: ...40° off the camera\'s middle it doesn\'t lock (the seeker\'s cone 0.35 rad)', ML.off.lockAt == null && Math.abs(ML.off.ang - 40) < 2, ML.off);
 
-  // sandbox bays (the drones' balance): in sandbox play and in a sandbox room a bay takes a drone of any price (not of
-  // any weight, width or kind); career and the rooms' battles keep the cap
+  // sandbox bays (the drones' balance): in solo play (always sandbox) and in a sandbox room a bay takes a drone of any
+  // price (not of any weight, width or kind); the rooms' battles keep the cap
   RB(`var SB = (() => { const out = {}, rk = PARTS.dockRack.dock, m = { kind: 'drone', parts: rowsOf('mavik') };
     out.cap = Drone.fits(m, rk).why; out.free = Drone.fits(m, rk, true).ok; out.heavy = Drone.fits({ kind: 'drone', parts: rowsOf('babaYara') }, rk, true).why;
-    out.none = Drone.freeBays();
-    const fly = () => { const F = world(), d0 = nest(); d0.drone = { key: 'mavik' }; F.start(d0); go(F, 1.5); Drone.key(F); return F.active.name; };
-    this.Career = { sandbox: true }; out.sand = Drone.freeBays(); out.pvp = Drone.freeBays({ mp: { mode: 'pvp' } }); out.room = Drone.freeBays({ mp: { mode: 'sandbox' } }); out.sandFly = fly();
-    this.Career = { sandbox: false }; out.career = Drone.freeBays(); out.carFly = fly();
-    delete this.Career;
+    const fly = (mp) => { const F = world(), d0 = nest(); d0.drone = { key: 'mavik' }; F.start(d0); go(F, 1.5); F.mp = mp; const bay = Drone.freeBays(F); Drone.key(F); F.mp = null; return [F.active.name, bay]; };
+    out.sand = Drone.freeBays(); out.pvp = Drone.freeBays({ mp: { mode: 'pvp' } }); out.room = Drone.freeBays({ mp: { mode: 'sandbox' } }); out.sandFly = fly(null);
+    out.pvpFly = fly({ mode: 'pvp' });
     return out; })();`);
   const SB = JSON.parse(RB('JSON.stringify(SB)'));
-  t('balance: sandbox bays: a Mavik ($3,190) is "Too dear" for a Rack ($3,000) in career, and fits it in sandbox play and a sandbox room (never a battle\'s); a Baba Yara is still too heavy',
-    /^Too dear/.test(SB.cap) && SB.free && /^Too heavy/.test(SB.heavy) && !SB.none && SB.sand && !SB.pvp && SB.room && !SB.career, SB);
-  t('balance: ...a Nest picked to carry the Mavik launches it in sandbox play, its Bumble in career', SB.sandFly === 'Mavik Scout' && SB.carFly === 'Bumble FPV', [SB.sandFly, SB.carFly]);
+  t('balance: sandbox bays: a Mavik ($3,190) is "Too dear" for a Rack ($3,000) under the cap, and fits it in solo play and a sandbox room (never a battle\'s); a Baba Yara is still too heavy',
+    /^Too dear/.test(SB.cap) && SB.free && /^Too heavy/.test(SB.heavy) && SB.sand && !SB.pvp && SB.room, SB);
+  t('balance: ...a Nest picked to carry the Mavik launches it in solo play, its Bumble in a battle', SB.sandFly[0] === 'Mavik Scout' && SB.sandFly[1] && SB.pvpFly[0] === 'Bumble FPV' && !SB.pvpFly[1], [SB.sandFly, SB.pvpFly]);
 
   // ---------------------------------------------------------------- 10. counter-drone
   RB(`var hostile = (F, k, de, h, rows) => { const b = Drone.build(rows || rowsOf(k), 'Foe ' + k); b.placeOnSurface(EARTH, siteAngle(EARTH, NPAD.e), 0, NPAD.z); putAt(b, de, h);
@@ -1151,7 +1153,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
   const R15 = JSON.parse(RB('JSON.stringify(R15)'));
   t('P4-AI-2 with the player on the south pad the attack drone appears 1.6 km off (it appeared inside the tank)', R15.dist != null && Math.abs(R15.dist - 1600) < 30, R15);
   // P4-AI-4, P4-AI-5: practice drones downed by the MA-1C's automatic gun, or dropped by a Wide-band Jammer, go on the tally
-  // ("Enemy drone down!") but never win the career's Tank Range mission with no hand on the controls
+  // ("Enemy drone down!") but never win the Tank Range milestone with no hand on the controls
   RB(`var R16 = (() => { const out = {}; SET.targets = 'practice';
     for (const [k, more] of [['ma1c', []], ['tk34', [{ type: 'cdJamL', x: -2.4, y: 2.0, rot: 0, flip: false, att: 0 }]]]) {
       Math.random = mulberry32(3); const F = world(), C = F.start(more.length ? kit(k, more) : designOf(k), { place: NPAD }), n0 = F.log.length;
@@ -1160,7 +1162,7 @@ t('a bay\'s anti-drone gun is loaded (150 rounds) and a tank\'s kit is listed (c
       GroundAI.reset(F); }
     SET.targets = 'off'; return out; })();`);
   const R16 = JSON.parse(RB('JSON.stringify(R16)'));
-  t('P4-AI-4, P4-AI-5 the automatic gun\'s and a jammer\'s downed practice drones count on the tally ("Enemy drone down!") but win no career mission with no input',
+  t('P4-AI-4, P4-AI-5 the automatic gun\'s and a jammer\'s downed practice drones count on the tally ("Enemy drone down!") but win no Tank Range milestone with no input',
     R16.ma1c.kos >= 2 && !R16.ma1c.award && R16['tk34+jamL'].kos >= 2 && R16['tk34+jamL'].down >= 2 && !R16['tk34+jamL'].award, R16);
   // P4-AI-6: a Drone Radar or a Roof Cage alone brings the drone war (range and Practice Battle)
   RB(`var R17 = (() => { const out = {}; const SP = { cdCage: { x: 0, y: 2.2 }, cdRadar: { x: -2.4, y: 2.06 } };
