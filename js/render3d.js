@@ -1587,6 +1587,7 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
     // water is drawn as before (patchJob then puts its alpha in its colours, as it did)
     S.deepW = deepOK();
     if (S.deepW) terr.oceanMat.defines.OB_DEEP = '';
+    else warnOnce('deep', 'three.js\'s chunks aren\'t r159\'s: the water is drawn without its depth');
     // [WP15] the sea's looks (OB_SEA: the waves everywhere at sea, whitecaps, the sea state; seaFrame) on the ocean; lakes
     // and rivers keep the water as it was, the very program (terr.lakeMat: the ocean's defines but OB_SEA), so an inland
     // scene draws them to the bit and at the same cost
@@ -1595,7 +1596,6 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
       terr.lakeMat = terr.oceanMat.clone(); terr.lakeMat.onBeforeCompile = waterHook; terr.lakeMat.defines = { ...terr.oceanMat.defines };
       terr.oceanMat.defines.OB_SEA = '';
     }
-    else warnOnce('deep', 'three.js\'s chunks aren\'t r159\'s: the water is drawn without its depth');
     for (const P of [patch, patchB]) { P.frame = new THREE.Group(); P.frame.visible = false; localWorld.add(P.frame); }
     allocPatch();
     // scenery: trees (Earth) and rocks, placed per grid cell around the craft
@@ -1989,8 +1989,14 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
 	vec3 mapB = texture2D( normalMap, vec2( - vNormalMapUv.y, vNormalMapUv.x ) * 3.0 + uWaveB ).xyz * 2.0 - 1.0;
 	mapN = normalize( vec3( mapN.xy + vec2( mapB.y, - mapB.x ) * 0.6, mapN.z * mapB.z ) );
 #ifdef OB_SEA
+#ifdef OB_VEIL
+	if ( uVeil.z > 0.5 ) { // (a veil over a lake: the old water's ripples, as the lake round it)
+#endif
 	vec3 mapC = texture2D( normalMap, mat2( 0.7986, 0.6018, - 0.6018, 0.7986 ) * vNormalMapUv * 0.29 + vec2( 0.31, 0.77 ) ).xyz * 2.0 - 1.0; // ([WP15] no tiling: 3.4× the tile, turned 37°)
 	mapN = normalize( vec3( mapN.xy + mat2( 0.7986, - 0.6018, 0.6018, 0.7986 ) * mapC.xy * 0.7, mapN.z * mapC.z ) );
+#ifdef OB_VEIL
+	}
+#endif
 #endif
 #endif
 	float obRip = clamp( 0.5 + 0.9 * ( mapN.x - mapN.y ), 0.0, 1.0 );` + (deep ? SEA_FS_A : `
@@ -6195,6 +6201,9 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     terr.oceanMat.visible = terr.lakeMat.visible = B.water !== false;
     if (S.oldWater) S.oldWater.visible = B.water !== false;
     if (S.oldSea) { S.oldSea.visible = B.water !== false; S.oldSea.stencilWrite = terr.oceanMat.stencilWrite; }
+    // (and the veils over sinking things: theirs without the sea's looks too, the water's veil as it was)
+    const vs = 'OB_SEA' in terr.oceanMat.defines && !os;
+    if (S.veils) for (const q of S.veils) { const m = q.material; if (('OB_SEA' in m.defines) !== vs) { if (vs) m.defines.OB_SEA = ''; else delete m.defines.OB_SEA; m.needsUpdate = true; } }
   }
   // ------------------------------------------------------------------ the sea's looks (the ships update) [WP15]
   // The ocean's uniforms a frame for OB_SEA (waterHook: SEA_VS, SEA_FS_A-D). The waves' anchor: the swell grid's middle
