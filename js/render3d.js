@@ -6732,39 +6732,43 @@ void main() {
     if (L.length > n) { const K = []; for (let k = 0; k < n; k++) K.push(L[Math.round((k * (L.length - 1)) / Math.max(1, n - 1))]); L.length = 0; L.push(...K); }
     return (sh._wc = L);
   }
-  const WCL = {}, WCR = {}, SEA_SLAP = { calm: 0, moderate: 0.1, rough: 0.22 };
+  const WCL = { x: 0, y: 0, z: 0, a: 0 }, WCR = { x: 0, y: 0, z: 0, a: 0 }, SEA_SLAP = { calm: 0, moderate: 0.1, rough: 0.22 };
   function updateWakes(F, b, rx, ry, rz, swell) {
-    const WK = SHIP.WAKE, t = F.time, list = [];
+    // ([WP15] a ship's wake is recorded while she is within WAKE.keep m (the 2n nearest), drawn while within WAKE.near
+    // (the n nearest): a minute-long wake is there whole when the camera comes back, or a plane comes in from afar)
+    const WK = SHIP.WAKE, t = F.time, list = [], keep = Math.max(WK.near, WK.keep || 0);
     for (const v of F.vessels) {
       if (!v.hydro || v.body !== b || !v.parts.length || !v.sh || !v.sh.rings || !v.sh.rings.length) continue;
       const d = Math.hypot(v.x - rx, v.y - ry, v.z - rz);
-      if (d < WK.near) list.push([d, v]);
+      if (d < keep) list.push([d, v]);
     }
     list.sort((p, q) => p[0] - q[0]);
-    if (list.length > WK.n) list.length = WK.n;
+    if (list.length > 2 * WK.n) list.length = 2 * WK.n;
     for (const [v, w] of SWL.wk) if (!list.some((e) => e[1] === v) || t < w.t - 1) SWL.wk.delete(v); // (gone, out of reach, or the time went back)
     if (!list.length && !SWL.wk.size) { if (SWL.wmesh) SWL.wmesh.visible = false; return; }
     wakeAlloc();
     // drop points: the stern's middle and the bow every WAKE.dt s while she makes way
-    for (const [, v] of list) {
+    const TH = WK.thin || [Infinity, Infinity];
+    let shown = 0;
+    for (const [d, v] of list) {
       let w = SWL.wk.get(v);
-      if (!w) SWL.wk.set(v, (w = { pts: [], bow: [], t: -Infinity, n: 0 }));
+      if (!w) SWL.wk.set(v, (w = { pts: [], bow: [], t: -Infinity, n: 0, rows: [], cs: [[], []] }));
+      w.d = d; w.show = d < WK.near && shown < WK.n; if (w.show) shown++;
       const V = v.speed();
       if (t - w.t >= WK.dt && V > WK.vmin && !v.dead) {
         w.t = t;
         const S0 = wakeShape(v), s = wakeSpot(v, S0.sx, S0.sy, S0.zc, WKP), c = wakeSpot(v, S0.bx, S0.by, S0.zc, WKB);
-        const dep = swell ? Math.max(0, -Terrain.heightAt(b, s.a, s.z)) : 0; // (the water's depth there, once: the swell's share at its points)
+        const dep = Math.max(0, -Terrain.heightAt(b, s.a, s.z)); // (the water's depth there, once: the swell's share at its points, whenever it comes on)
         w.dep = dep;
         w.pts.push({ a: s.a, z: s.z, la: s.la, lz: s.lz, t, hw: S0.beam * 0.42, V, dep, n: w.n++ });
         w.bow.push({ a: c.a, z: c.z, la: c.la, lz: c.lz, t, V, dep });
+        // ([WP15] the old wake thinned as a point is dropped: every 4th point kept past thin[0] s, every 8th past
+        // thin[1] s (2 s apart); the newest and the oldest always, so the ribbon keeps its ends)
+        if (w.pts.length > 2) { let k = 0; for (let i = 0; i < w.pts.length; i++) { const q = w.pts[i], age = t - q.t; if (i === 0 || i === w.pts.length - 1 || age < TH[0] || q.n % (age < TH[1] ? 4 : 8) === 0) w.pts[k++] = q; } w.pts.length = k; }
+        if (w.pts.length > WK.pts) w.pts.splice(0, w.pts.length - WK.pts);
       }
       while (w.pts.length && t - w.pts[0].t > WK.life) w.pts.shift();
       while (w.bow.length && t - w.bow[0].t > WK.kelvinT) w.bow.shift();
-      // ([WP15] the old wake thinned: every 4th point kept past thin[0] s, every 10th past thin[1] s; the newest and
-      // the oldest always, so the ribbon keeps its ends)
-      const TH = WK.thin || [Infinity, Infinity];
-      if (w.pts.length > 2) { let k = 0; for (let i = 0; i < w.pts.length; i++) { const q = w.pts[i], age = t - q.t; if (i === 0 || i === w.pts.length - 1 || age < TH[0] || (age < TH[1] ? q.n % 4 === 0 : q.n % 10 === 0)) w.pts[k++] = q; } w.pts.length = k; }
-      if (w.pts.length > WK.pts) w.pts.splice(0, w.pts.length - WK.pts);
       w.v = v;
     }
     // fill the mesh: positions on the sphere from the grid's frame (its anchor), the swell's share there
@@ -6778,73 +6782,95 @@ void main() {
     }
     let nv = 0, ni = 0;
     const cap = WK_MAX();
+    // ([WP15] a vertex, cheaply: its angle from the anchor and its latitude from the anchor's are small (a few km over the
+    // radius), so their sines and cosines by their series, exact to double precision there; no hypot, no fmod: % on a
+    // float is a call)
+    const cA = Math.cos(phA), sA = Math.sin(phA), E0 = -wrapAngle(aA - EARTH.padAngle) * R, F0 = SHIP.FADE[0], F1 = SHIP.FADE[1], H0 = E[0] * half, H1 = E[1] * half;
     const vert = (a, z, across, alpha, dep, fresh) => {
-      const le = -wrapAngle(a - aA) * R, ph = z / R, cp = Math.cos(ph), d = a - aA, ux = -cp * Math.sin(d), uy = cp * Math.cos(d), uz = Math.sin(ph), k = nv * 3;
+      const d0 = a - aA, d = d0 > -Math.PI && d0 < Math.PI ? d0 : wrapAngle(d0), le = -d * R, g = (z - zA) / R, g2 = g * g, d2 = d * d, k = nv * 3;
+      const cg = 1 - g2 * (0.5 - g2 / 24), sg = g * (1 - g2 * (1 / 6 - g2 / 120)), cd = 1 - d2 * (0.5 - d2 / 24), sd = d * (1 - d2 * (1 / 6 - d2 / 120));
+      const cp = cA * cg - sA * sg, ux = -cp * sd, uy = cp * cd, uz = sA * cg + cA * sg;
       P[k] = R * ux; P[k + 1] = R * uy - R - ya; P[k + 2] = R * uz - za; Nn[k] = ux; Nn[k + 1] = uy; Nn[k + 2] = uz;
-      const ln = -(z - zA), r = Math.hypot(le, ln);
+      const ln = -(z - zA);
       let f = 0;
-      if (swell) f = smoothstep(SHIP.FADE[0], SHIP.FADE[1], dep) * (1 - smoothstep(E[0] * half, E[1] * half, r));
+      if (swell) f = smoothstep(F0, F1, dep) * (1 - smoothstep(H0, H1, Math.sqrt(le * le + ln * ln)));
       Sw[k] = le; Sw[k + 1] = ln; Sw[k + 2] = f;
-      const e = -wrapAngle(a - EARTH.padAngle) * R, q = nv * 4;
-      Wk[q] = across; Wk[q + 1] = alpha; Wk[q + 2] = ((e % 2048) + 2048) % 2048; Wk[q + 3] = ((-z % 2048) + 2048) % 2048; Wf[nv] = fresh || 0;
+      const e = le + E0, q = nv * 4;
+      Wk[q] = across; Wk[q + 1] = alpha; Wk[q + 2] = e - Math.floor(e / 2048) * 2048; Wk[q + 3] = -z - Math.floor(-z / 2048) * 2048; Wf[nv] = fresh || 0;
       return nv++;
     };
-    const ribbon = (pts) => { // pts: [a, z, la, lz, half width, alpha, depth, fresh] from the oldest; quads between neighbours
+    const ribbon = (pts, n = pts.length) => { // pts: [a, z, la, lz, half width, alpha, depth, fresh] from the oldest; quads between neighbours
       let prev = -1;
-      for (const p of pts) {
+      for (let j = 0; j < n; j++) {
+        const p = pts[j];
         if (nv + 2 > cap) break;
         const L = p[4], i0 = vert(p[0] - (p[2] * L) / R, p[1] + p[3] * L, 1, p[5], p[6], p[7]), i1 = vert(p[0] + (p[2] * L) / R, p[1] - p[3] * L, -1, p[5], p[6], p[7]);
         if (prev >= 0) { I[ni++] = prev; I[ni++] = prev + 1; I[ni++] = i0; I[ni++] = prev + 1; I[ni++] = i1; I[ni++] = i0; }
         prev = i0;
       }
     };
+    const row = (A, i, a, z, la, lz, hw, al, dep, fr) => { const r = A[i] || (A[i] = new Array(8)); r[0] = a; r[1] = z; r[2] = la; r[3] = lz; r[4] = hw; r[5] = al; r[6] = dep; r[7] = fr; return r; }; // (the rows kept per wake: nothing made a frame)
+    // ([WP15] the foam lasts about a minute: bright and churning in the screws' wash (WAKE.wash s), then spreading as
+    // the square root of its age and fading to a faint trail (an eighth of its first), which goes in its last fifth)
+    const wa = WK.wash || 4, foam = (age, V) => 0.85 * (0.12 + 0.88 * Math.exp(-age / 12)) * (1 - smoothstep(0.8 * WK.life, WK.life, age)) * clamp(V / 8, 0.3, 1) * (1 + 0.25 * (1 - smoothstep(0, wa, age)));
     // (a point's lateral offset: east by la·L, an angle of −la·L/R, and z by lz·L)
     for (const [v, w] of SWL.wk) {
+      if (!w.show) continue; // (recorded, not drawn: out of reach)
       if (!w.pts.length && !w.bow.length) continue;
-      const S0 = v.sh && v.sh._wk;
-      // ([WP15] the foam lasts about a minute: bright and churning in the screws' wash (WAKE.wash s), then spreading as
-      // the square root of its age and fading, a faint trail by the end)
-      const wa = WK.wash || 4, foam = (age, V) => 0.85 * Math.exp(-age / 16) * (1 - age / WK.life) * clamp(V / 8, 0.3, 1) * (1 + 0.25 * (1 - smoothstep(0, wa, age)));
-      const main = w.pts.map((p) => { const age = t - p.t; return [p.a, p.z, p.la, p.lz, p.hw * (1 + 0.45 * Math.sqrt(age) + 0.02 * age), foam(age, p.V), p.dep, 1 - smoothstep(0, wa, age)]; });
-      if (S0 && !v.dead && w.pts.length && v.speed() > WK.vmin) { const s = wakeSpot(v, S0.sx, S0.sy, S0.zc, WKP); main.push([s.a, s.z, s.la, s.lz, S0.beam * 0.42, foam(0, v.speed()), w.dep || 0, 1]); }
-      ribbon(main);
+      const S0 = v.sh && v.sh._wk, M = w.rows;
+      let m = 0;
+      for (const p of w.pts) { const age = t - p.t; row(M, m++, p.a, p.z, p.la, p.lz, p.hw * (1 + 0.45 * Math.sqrt(age) + 0.02 * age), foam(age, p.V), p.dep, 1 - smoothstep(0, wa, age)); }
+      if (S0 && !v.dead && w.pts.length && v.speed() > WK.vmin) { const s = wakeSpot(v, S0.sx, S0.sy, S0.zc, WKP); row(M, m++, s.a, s.z, s.la, s.lz, S0.beam * 0.42, foam(0, v.speed()), w.dep || 0, 1); }
+      ribbon(M, m);
       for (const sg of [-1, 1]) {
         const arm = w.bow.map((p) => { const age = t - p.t, off = sg * p.V * age * TK, k = 1 - age / WK.kelvinT; return [p.a - (p.la * off) / R, p.z + p.lz * off, p.la, p.lz, 0.4 + 0.02 * age * p.V, 0.32 * k * smoothstep(0, 0.6, age) * clamp((p.V - 2) / 6, 0, 1), p.dep, 0.3]; }); // (thin at the bow, spreading and fading as it runs out)
         ribbon(arm);
       }
       // ([WP15] the foam collar where the hull meets the water, both sides, bow to stern, as she lies now: the bow wave
       // a white wedge at the stem growing with her speed, a thin collar along her sides, a little more at the stern; in
-      // a sea, the waves slapping her sides even when she lies still)
-      if (!v.dead) {
+      // a sea, the waves slapping her sides even when she lies still. Within WAKE.cnear m of the camera only (a metre
+      // or two of foam: a pixel or less past it), and cheaply: each waterline point's spot from her centre's by
+      // locate's own derivatives (within a few cm over a hull's length), the rows kept per ship)
+      if (!v.dead && w.d < (WK.cnear || Infinity)) {
         const C = wakeCollar(v), V = v.speed(), slap = SEA_SLAP[Ship.sea()] || 0, n = C.length;
         if (n >= 2 && (V > 0.5 || slap > 0)) {
-          const f0 = C[0].f, f1 = C[n - 1].f, sp = Math.max(1e-3, f0 - f1), mv = clamp(V / 5, 0, 1);
-          const sides = [[], []];
+          const f0 = C[0].f, f1 = C[n - 1].f, sp = Math.max(1e-3, f0 - f1), mv = clamp(V / 5, 0, 1), dep = w.dep || 0, A0 = w.cs[0], A1 = w.cs[1];
+          const x0 = v.x, y0 = v.y, z0 = v.z, rh2 = x0 * x0 + y0 * y0, rh = Math.sqrt(rh2) || 1, r2 = rh2 + z0 * z0 || 1, a0 = Math.atan2(y0, x0), zc = Math.asin(clamp(z0 / Math.sqrt(r2), -1, 1)) * R;
+          const ka = 1 / (rh2 || 1), kz = R / (rh * r2), cx = v.com.x, cy = v.com.y, cz = v.com.z || 0;
+          const spot = (p, o) => { const d = qrot(v.q, p[0] - cx, p[1] - cy, p[2] - cz, o); o.a = a0 + (x0 * d.y - y0 * d.x) * ka; o.z = zc + (rh2 * d.z - z0 * (x0 * d.x + y0 * d.y)) * kz; return o; };
           for (let k = 0; k < n; k++) {
             const c = C[k], u = (f0 - c.f) / sp, bow = 1 - smoothstep(0, 0.22, u), stern = smoothstep(0.85, 1, u);
-            const a = v.toWorld(c.p[0], c.p[1], c.p[2]), L1 = Terrain.locate(b, a.x, a.y, a.z, WCL), b2 = v.toWorld(c.s[0], c.s[1], c.s[2]), L2 = Terrain.locate(b, b2.x, b2.y, b2.z, WCR);
-            let la = -wrapAngle(L1.a - L2.a) * R, lz = L1.z - L2.z; const l = Math.hypot(la, lz) || 1; la /= l; lz /= l; // (across her, port-ward)
+            const L1 = spot(c.p, WCL), L2 = spot(c.s, WCR);
+            let la = -(L1.a - L2.a) * R, lz = L1.z - L2.z; const l = Math.hypot(la, lz) || 1; la /= l; lz /= l; // (across her, port-ward)
             const hw = 0.45 + V * (0.04 + 0.16 * bow) + 0.3 * stern * mv, al = clamp(mv * (0.4 + 0.55 * bow + 0.25 * stern) + slap * (0.6 + 0.4 * bow), 0, 0.95), fr = 0.4 + 0.5 * bow, o = 0.7 * hw; // (most of it outside her side: o)
-            sides[0].push([L1.a - (la * o) / R, L1.z + lz * o, la, lz, hw, al, w.dep || 0, fr]); sides[1].push([L2.a + (la * o) / R, L2.z - lz * o, -la, -lz, hw, al, w.dep || 0, fr]);
+            row(A0, k + 1, L1.a - (la * o) / R, L1.z + lz * o, la, lz, hw, al, dep, fr); row(A1, k + 1, L2.a + (la * o) / R, L2.z - lz * o, -la, -lz, hw, al, dep, fr);
           }
           // (the stem: the two sides meet ahead of the first waterline ring, by its half-breadth, along her way there)
-          const c0 = sides[0][0], d0 = sides[1][0], c1 = sides[0][1], d1 = sides[1][1], m0a = (c0[0] + d0[0]) / 2, m0z = (c0[1] + d0[1]) / 2;
+          const c0 = A0[1], d0 = A1[1], c1 = A0[2], d1 = A1[2], m0a = (c0[0] + d0[0]) / 2, m0z = (c0[1] + d0[1]) / 2;
           let fe = -wrapAngle(m0a - (c1[0] + d1[0]) / 2) * R, fz = m0z - (c1[1] + d1[1]) / 2; const fl = Math.hypot(fe, fz) || 1; fe /= fl; fz /= fl;
           const hb = Math.hypot(-wrapAngle(c0[0] - d0[0]) * R, c0[1] - d0[1]) / 2;
-          for (const S2 of sides) { const q = S2[0]; S2.unshift([m0a - (fe * hb) / R, m0z + fz * hb, q[2], q[3], q[4] * 0.7, q[5], q[6], q[7]]); }
-          ribbon(sides[0]); ribbon(sides[1]);
+          for (const A of w.cs) { const q = A[1]; row(A, 0, m0a - (fe * hb) / R, m0z + fz * hb, q[2], q[3], q[4] * 0.7, q[5], q[6], q[7]); }
+          ribbon(A0, n + 1); ribbon(A1, n + 1);
         }
       }
     }
-    if (S.wakeU) S.wakeU.uWkT.value = typeof Ship !== 'undefined' ? Ship.seaT(F) % 1000 : 0;
+    if (S.wakeU) S.wakeU.uWkT.value = md(S.seaTD || 0, 1000); // (the drawn sea's clock: seaClock)
     g.setDrawRange(0, ni);
     for (const k of ['position', 'normal', 'aSwell', 'aWk', 'aWf']) { const A = at[k]; A.clearUpdateRanges(); A.addUpdateRange(0, Math.max(1, nv) * A.itemSize); A.needsUpdate = true; }
     g.index.clearUpdateRanges(); g.index.addUpdateRange(0, Math.max(1, ni)); g.index.needsUpdate = true;
     SWL.wmesh.position.set(0, ya, za);
     SWL.wmesh.visible = ni > 0 && api.bench.wake !== false;
     SWL.wn = SWL.wk.size; SWL.wverts = nv;
-    let wAge = 0, wPts = 0, wCol = 0; for (const [v, w] of SWL.wk) { if (w.pts.length) wAge = Math.max(wAge, t - w.pts[0].t); wPts += w.pts.length; if (v.sh && v.sh._wc) wCol = Math.max(wCol, v.sh._wc.length); }
-    SWL.wAge = wAge; SWL.wPts = wPts; SWL.wCol = wCol; // (tests: swellInfo)
+    let wAge = 0, wPts = 0, wCol = 0, wA = 0, wGap = 0, wRec = 0;
+    for (const [v, w] of SWL.wk) {
+      wRec++;
+      if (!w.show) continue;
+      if (w.pts.length) wAge = Math.max(wAge, t - w.pts[0].t);
+      for (const q of w.pts) if (Math.abs(t - q.t - 50) < 1.5) wA = Math.max(wA, foam(t - q.t, q.V)); // (the foam 50 s old)
+      for (let i = 1; i < w.pts.length; i++) wGap = Math.max(wGap, w.pts[i].t - w.pts[i - 1].t);
+      wPts += w.pts.length; if (v.sh && v.sh._wc) wCol = Math.max(wCol, v.sh._wc.length);
+    }
+    Object.assign(SWL, { wAge, wPts, wCol, wA, wGap, wRec }); // (tests: swellInfo)
     // the foam's light: the Sun's on it and the sky's, as the water's diffuse sees them
     const sunUp = Math.max(0, S.sunV.y), c = S.wakeU.uFoam.value;
     const ks = S.sun.intensity * sunUp * 0.22, kh = S.hemi.intensity * 0.3, sc = S.sun.color, hc = S.hemi.color;
@@ -8003,18 +8029,21 @@ void main() {
         hole: S.seaHole ? S.seaHole.value.toArray() : null, recentres: SWL.recentres, rebuilds: SWL.rebuilds, ms: +SWL.ms.toFixed(2), msMax: +SWL.msMax.toFixed(2),
         slice: +SWL.slice.toFixed(3), sliceMax: +SWL.sliceMax.toFixed(3), frames: SWL.frames, filling: !!SWL.job,
         W: U ? [...U.uSwW.value] : null, P: U ? [...U.uSwP.value] : null, wakes: SWL.wn, wverts: SWL.wverts, near: SWL.near ? SWL.near.name : null,
-        wakeAge: SWL.wAge || 0, wakePts: SWL.wPts || 0, collar: SWL.wCol || 0, // ([WP15] the oldest foam drawn (s), the wake's points, the collar's rings a side)
+        wakeAge: SWL.wAge || 0, wakePts: SWL.wPts || 0, collar: SWL.wCol || 0, // ([WP15] the oldest foam drawn (s), the wake's points, the collar's rings a side,
+        wakeA50: SWL.wA || 0, wakeGap: SWL.wGap || 0, wakeRec: SWL.wRec || 0, // the foam's opacity 50 s old, the widest gap between points (s), the wakes recorded)
         mat: !!SWL.mat, wmat: !!SWL.wmat };
     },
     swellGLSL: SWELL_FN,
     // [WP15] the sea's looks (tests and the console): on (OB_SEA in the ocean's program and seaFrame's uniforms live this
     // frame), the sea state's look, the waves' anchor and their uniforms as drawn (k, a, directions, phases), the pixel's
-    // angle, the whitecaps' gate time
+    // angle, the drawn sea's clock (t: seaClock), the whitecaps' (w), the look's (f, g), the lakes' warm-up mesh
     seaInfo() {
       const U = S.seaU, a4 = (v) => (v ? v.value.toArray() : null);
       return { on: !!S.seaOn, define: !!(terr.oceanMat && 'OB_SEA' in terr.oceanMat.defines), sea: typeof Ship !== 'undefined' ? Ship.sea() : null,
         look: typeof Ship !== 'undefined' ? { ...(SEA_LOOK[Ship.sea()] || {}) } : null, uv: U && a4(U.uSeaUV), k: U && a4(U.uSeaK), a: U && a4(U.uSeaA), de: U && a4(U.uSeaDE), dn: U && a4(U.uSeaDN),
-        ph: U && a4(U.uSeaPh), s: U && a4(U.uSeaS), o: U && a4(U.uSeaO), t: U ? U.uSeaT.value : null,
+        ph: U && a4(U.uSeaPh), s: U && a4(U.uSeaS), o: U && a4(U.uSeaO), t: U ? U.uSeaT.value : null, w: U && a4(U.uSeaW), g: U && a4(U.uSeaG), f: U && a4(U.uSeaF), warmMesh: !!S.lakeWarm,
+        ver: terr.oceanMat ? terr.oceanMat.version : null, swellVer: SWL.mat ? SWL.mat.version : null, // (the materials' versions: a rebuild bumps them)
+        sheet: S.seaSheet === false ? 'old' : 'sea', // (the sea's sheet this frame: the sea's looks, or the old water's with no sea in view: seaSheet)
         lake: terr.lakeMat ? { ...terr.lakeMat.defines } : null, lakeOwn: !!terr.lakeMat && terr.lakeMat !== terr.oceanMat, inland: !!(patch.inland && patch.inland.material === terr.lakeMat) };
     },
     // tests: fill the grid again now (as a recentre does), returning what it took (ms); null with no grid on show
