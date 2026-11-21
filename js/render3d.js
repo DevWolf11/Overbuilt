@@ -1789,17 +1789,18 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // its wavelength: nothing shimmers far off), what is faded out widening the Sun's path instead (the roughness takes its
   // slope variance); per pixel their phases, slopes (the normal: tilted along the ripple map's own frame, tbn, whose u
   // runs west and v south), height and the crests' sharpness (Σ a·k²·sin), cheaply (obSin4: |error| < 0.002). Whitecaps
-  // on the sharpest crests by the sea state (none Calm), broken up by the ripples and gated by a slow noise in space and
-  // time (128 m cells drifting downwind, a new one every SEA_LOOK.gateT s: they flare and fade over seconds), an even
-  // whitening where the waves are too small to see; streaks along the wind in Rough. The ripples' strength and the
-  // roughness by sea state (Calm glassy), and kilometre-wide wind patches and slicks (a vertex's value noise, 2 and 1 km,
-  // periodic over SEA_PER m so the anchor can wrap) varying both and the colour. Light through thin crests facing the Sun
-  // (a blue-green glow by the height and how far the eye looks into the Sun) and darker troughs. Lakes and rivers keep
-  // the old water's program (terr.lakeMat), and a veil over something sinking in a lake is the old water (obSea).
+  // on the sharpest crests by the sea state (none Calm), each crossing of waves 1 and 3 flaring and fading in its own
+  // cycle (SEA_LOOK.gateT s) and fading out toward its cell's edges, broken up by the ripples, likelier where waves 1 and
+  // 3 run in big groups and the wind patch blows (the gate: a smooth shift of their threshold, so no edge is straight),
+  // an even whitening where the waves are too small to see; faint foam lanes along the wind near the eye in Rough (High).
+  // The ripples' strength and the roughness by sea state (Calm glassy, its swell gentler and in groups), and
+  // kilometre-wide wind patches and slicks (a vertex's value noise, 2 and 1 km, periodic over SEA_LOOK.per m so the anchor
+  // can wrap) varying both and the colour. Light through the thin crests' tops facing the Sun while it is up (a
+  // blue-green glow by the height and how far the eye looks into the Sun) and darker troughs. Lakes and rivers keep the
+  // old water's program (terr.lakeMat), and a veil over something sinking in a lake is the old water (obSea).
   const SEA_VS_PARS = `
 #ifdef OB_SEA
-uniform vec4 uSeaUV, uSeaK, uSeaIK, uSeaA, uSeaS, uSeaO, uSeaF;
-uniform float uSeaT;
+uniform vec4 uSeaUV, uSeaK, uSeaIK, uSeaA, uSeaS, uSeaO, uSeaF, uSeaG;
 #if defined( OB_VEIL )
 uniform vec4 uVeil;
 #endif
@@ -1819,6 +1820,17 @@ vec4 obVN4( vec2 p, float per ) { vec2 i = floor( p ), f = fract( p ); f = f * f
   // obSea, a constant 1 in every other program, so its mixes fold away)
   const SEA_VS = `
 #ifdef OB_SEA
+	// (a vertex of the sea's sheet that no triangle of it can bring on screen works nothing out: further outside the
+	// view's frustum than its cells reach (patchJob's spacing: a cell is under 0.33 of its distance from the eye plus 2 % of
+	// the patch's span and 200 m, with the eye anywhere up to a quarter span off its middle; the margin, half the distance
+	// plus uSeaS.z, 3 % of the span and 300 m, is half as much again). Most of the sheet lies there, all round the eye, so a
+	// scene with little or no sea on screen pays little for the sea's looks; bench.seaAll turns it off, the same picture)
+#if ! defined( OB_SWELL ) && ! defined( OB_VEIL )
+	vec2 obTn = vec2( 1.0 / projectionMatrix[ 0 ][ 0 ], 1.0 / projectionMatrix[ 1 ][ 1 ] ), obOf = ( abs( mvPosition.xy ) + mvPosition.z * obTn ) * inversesqrt( 1.0 + obTn * obTn );
+	if ( max( max( obOf.x, obOf.y ), mvPosition.z ) > 0.5 * length( mvPosition.xyz ) + uSeaS.z ) {
+		vSeaP = vec2( 0.0 ); vSeaA = vec4( 0.0 ); vSeaB = vec4( 0.0 ); vSeaC = vec2( 0.0 );
+	} else {
+#endif
 #if defined( OB_SWELL )
 	vec2 obSp = aSwell.xy; // (the swell's grid: its metres east and north of its middle, the anchor)
 	float obSs = uSeaS.w;
@@ -1831,19 +1843,31 @@ vec4 obVN4( vec2 p, float per ) { vec2 i = floor( p ), f = fract( p ); f = f * f
 #endif
 	vSeaP = obSp;
 	float obDf = obSs * smoothstep( OB_FADE.x, OB_FADE.y, aWater.x ), obVd = length( mvPosition.xyz );
-	float obFt = obVd * uSeaS.x / max( abs( dot( normalize( vNormal ), normalize( mvPosition.xyz ) ) ), 0.03 );
+	float obFt = obVd * uSeaS.x / max( abs( dot( vNormal, mvPosition.xyz ) ) / obVd, 0.03 ); // (vNormal: three's, normalised)
 	vec4 obLw = 6.2831853 * uSeaIK, obFd = 1.0 - smoothstep( obLw * 0.1, obLw * 0.33, vec4( obFt ) ), obAk = uSeaA * uSeaK;
 	vec2 obQ = obSp + uSeaO.xy;
-	vSeaA = obAk * obFd * obDf * mix( vec4( 1.0 ), 0.2 + 1.6 * obVN4( obQ / 256.0, 128.0 ), smoothstep( 250.0, 700.0, obVd ) );
-	float obWp = mix( 0.5, 0.62 * obVN( obQ / 2048.0, 16.0 ) + 0.38 * obVN( obQ / 1024.0 + 17.3, 32.0 ), obSs ); // (the wind patches: 0.5 off the sea)
+	// (the noises only where they can show: the wave groups where the waves are, the wind patches on the sea and its
+	// shore; a vertex well under the ground (40 m: the sea's sheet runs on under the land) takes the patches' mean, 0.5, as
+	// a vertex off the sea does)
+	vec4 obGr = vec4( 0.5 );
+	float obWp = 0.5;
+	if ( obDf > 0.0 ) obGr = obVN4( obQ / 256.0, 128.0 );
+	if ( obSs > 0.0 && aWater.x > - 40.0 ) obWp = mix( 0.5, 0.62 * obVN( obQ / 2048.0, 16.0 ) + 0.38 * obVN( obQ / 1024.0 + 17.3, 32.0 ), obSs ); // (the wind patches)
+	// (the slopes shaded: each wave's in the groups (256 m) past 250-700 m, everywhere in Calm (uSeaG.z), scaled by the
+	// sea state's uSeaG.y (Calm's gentler: a glassy sea, not corduroy))
+	vSeaA = obAk * obFd * obDf * uSeaG.y * mix( vec4( 1.0 ), 0.2 + 1.6 * obGr, max( smoothstep( 250.0, 700.0, obVd ), uSeaG.z ) );
 	// (the roughness: the sea state's, near and far, by the wind patch, widened by the slopes faded out; the ripples'
 	// strength: the sea state's by the wind patch, calming from 300 m to 3 km as the water's always did)
 	float obRo = mix( uSeaF.x, uSeaF.y, smoothstep( 200.0, 4000.0, obVd ) ) * ( 0.75 + 0.5 * obWp );
 	obRo = sqrt( sqrt( obRo * obRo * obRo * obRo + 0.5 * dot( obAk * obAk, 1.0 - obFd * obFd ) * obDf ) );
-	vec2 obG = ( obQ - uSeaO.zw ) / 128.0;
-	float obTi = floor( uSeaT ), obGt = mix( obVN( obG + 37.0 * mod( obTi, 64.0 ), 256.0 ), obVN( obG + 37.0 * mod( obTi + 1.0, 64.0 ), 256.0 ), smoothstep( 0.0, 1.0, uSeaT - obTi ) );
+	// (the whitecaps' gate: more where waves 1 and 3, whose crossings break, run in big groups and where the wind patch
+	// blows harder; it moves their threshold, smoothly, so a whitecap's edge is never a triangle's straight line)
+	float obGt = clamp( 0.5 * ( obGr.y + obGr.w ) + 0.8 * ( obWp - 0.5 ), 0.0, 1.0 );
 	vSeaB = vec4( uSeaS.y * ( 0.55 + 0.9 * obWp ) * mix( 1.0, 0.3, smoothstep( 300.0, 3000.0, obVd ) ), obRo, obGt, obDf );
 	vSeaC = vec2( obDf * ( 1.0 - obFd.x ), 0.93 + 0.14 * obWp );
+#if ! defined( OB_SWELL ) && ! defined( OB_VEIL )
+	}
+#endif
 #endif`;
   const SEA_FS_PARS = `
 #ifdef OB_SEA
@@ -1873,23 +1897,31 @@ vec4 obSin4( vec4 a ) { vec4 x = fract( a * 0.15915494 + 0.5 ) * 2.0 - 1.0, y = 
 	vec2 obSl = vec2( dot( obAc, uSeaDE ), dot( obAc, uSeaDN ) ); // (the slopes east and north)
 	float obEn = dot( obSA * uSeaIK, obSn ) * uSeaF.z; // (the height over the most the sea state's can be: -1..1, less where the waves fade out far off)
 	float obCr = dot( obSA * uSeaK, obSn ) * uSeaW.z; // (the crest's sharpness over the sea state's sharpest: -1..1 where the waves are whole)
-	// (each crossing of waves 1 and 3 (whole periods: the cell an interference peak rides in, moving with it) breaks or
-	// not at random, in cycles of SEA_LOOK.gateT s at a random phase: a whitecap flares and fades, spreading thin)
-	vec2 obCi = mod( floor( obPh.yw * 0.15915494 ) + uSeaN.xy, 1024.0 );
-	float obR0 = obH21( obCi ), obLf = fract( uSeaW.w + obR0 ), obCy = mod( floor( uSeaW.w + obR0 ), 64.0 );
-	float obBr = step( fract( obR0 * 137.31 + obCy * 0.6180339 ), uSeaN.z * ( 0.4 + 1.2 * vSeaB.z ) ) * smoothstep( 0.0, 0.05, obLf ) * ( 1.0 - obLf ) * ( 1.0 - obLf );
-	float obWc = smoothstep( uSeaW.x - 0.12 * obLf, uSeaW.x - 0.12 * obLf + 0.07, obCr + 0.45 * ( obRip - 0.5 ) ) * obBr * vSeaB.w;
+	// (each crossing of waves 1 and 3 (whole periods, centred on their crests: the cell an interference peak rides in,
+	// moving with it) breaks or not at random, in cycles of SEA_LOOK.gateT s at a random phase: a whitecap flares and
+	// fades, spreading thin, and fades out toward its cell's edges (the two waves' troughs), so none is cut off straight.
+	// The cycles' clock, uSeaW.w, is folded to 16 cycles: a half float holds its fraction (a GPU without highp))
+	vec2 obCq = obPh.yw * 0.15915494 + 0.25, obCf = fract( obCq );
+	vec2 obCi = mod( floor( obCq ) + uSeaN.xy, 1024.0 ), obCw = smoothstep( 0.0, 0.2, obCf ) * smoothstep( 0.0, 0.2, 1.0 - obCf );
+	float obR0 = obH21( obCi ), obLf = fract( uSeaW.w + obR0 ), obCy = mod( floor( uSeaW.w + obR0 ), 16.0 );
+	float obBr = step( fract( obR0 * 13.71 + obCy * 0.6180339 ), uSeaN.z ) * smoothstep( 0.0, 0.05, obLf ) * ( 1.0 - obLf ) * ( 1.0 - obLf ) * obCw.x * obCw.y;
+	float obTh = uSeaW.x - 0.12 * obLf + 0.2 * ( 0.5 - vSeaB.z ); // (the gate: the crests break lower where it is high)
+	float obWc = smoothstep( obTh, obTh + 0.07, obCr + 0.45 * ( obRip - 0.5 ) ) * obBr * vSeaB.w;
 	obWc = obWc * obWc * mix( 0.3, 1.0, smoothstep( 0.3, 0.75, obRip + 0.3 * obLf ) ) * ( 1.0 - vSeaC.x ) + uSeaW.y * vSeaC.x; // (foam, broken up by the ripples, not a solid oval)
-#if defined( OB_HI ) && defined( OB_STREAK )
-	// (Rough: faint foam lanes along the wind, wavering, 4 m across, broken every few tens of metres, only where a pixel
-	// is under a metre or two: they'd only flicker further off)
-	vec2 obWd = vec2( uSeaDE.x, uSeaDN.x ), obSq = vec2( dot( vSeaP, vec2( - obWd.y, obWd.x ) ), dot( vSeaP, obWd ) );
-	obSq = vec2( ( obSq.x + 2.5 * obSn.x + 1.5 * obSn.z ) / 4.0, obSq.y / 28.0 + 13.0 ); // (wavering with the swell itself)
-	vec2 obSi = floor( obSq ), obSf = fract( obSq );
-	obSf = obSf * obSf * ( 3.0 - 2.0 * obSf );
-	vec2 obSn2 = mix( vec2( obH21( vec2( mod( obSi.x, 1024.0 ), 3.0 ) ), obH21( vec2( mod( obSi.y, 1024.0 ), obSi.x ) ) ), vec2( obH21( vec2( mod( obSi.x + 1.0, 1024.0 ), 3.0 ) ), obH21( vec2( mod( obSi.y + 1.0, 1024.0 ), obSi.x ) ) ), obSf );
-	vec2 obFw = fwidth( vSeaP );
-	obWc = max( obWc, 0.22 * uSeaG.x * smoothstep( 0.8, 0.95, obSn2.x ) * smoothstep( 0.45, 0.8, obSn2.y ) * obRip * vSeaB.w * ( 1.0 - smoothstep( 0.6, 2.0, max( obFw.x, obFw.y ) ) ) );
+#ifdef OB_HI
+	if ( uSeaG.x > 0.0 ) {
+		// (Rough: faint foam lanes along the wind near the eye (gone by 220 m, and where a pixel spans a lane): one in a
+		// few 6 m strips across the wind, a soft line under a metre wide, near straight (a metre's waver), broken along
+		// its length every few tens of metres, tapering in and out)
+		vec2 obWd = vec2( uSeaDE.x, uSeaDN.x );
+		float obLx = dot( vSeaP, vec2( - obWd.y, obWd.x ) ) / 6.0 + 0.15 * obSn.x, obLi = floor( obLx ), obLr = obH21( vec2( mod( obLi, 1024.0 ), 3.0 ) );
+		float obLy = dot( vSeaP, obWd ) / 36.0 + 17.0 * obLr, obLj = floor( obLy ), obLt = fract( obLy );
+		obLt = obLt * obLt * ( 3.0 - 2.0 * obLt );
+		float obLa = mix( obH21( vec2( mod( obLj, 1024.0 ), obLi ) ), obH21( vec2( mod( obLj + 1.0, 1024.0 ), obLi ) ), obLt );
+		float obLu = ( fract( obLx ) - 0.5 - 0.3 * ( fract( obLr * 3.1 ) - 0.5 ) ) / ( 0.06 + 0.05 * fract( obLr * 7.3 ) );
+		float obLn = step( 0.62, obLr ) * exp2( - 1.44 * obLu * obLu ) * smoothstep( 0.45, 0.85, obLa ) * ( 1.0 - smoothstep( 60.0, 220.0, length( vViewPosition ) ) ) * ( 1.0 - smoothstep( 0.12, 0.3, fwidth( obLx ) ) );
+		obWc = max( obWc, 0.04 * uSeaG.x * obLn * ( 0.5 + obRip ) * vSeaB.w );
+	}
 #endif
 	roughnessFactor = mix( roughnessFactor, max( vSeaB.y, 0.5 * obWc ), obSea );
 #ifdef OB_VEIL
@@ -1913,13 +1945,14 @@ vec4 obSin4( vec4 a ) { vec4 x = fract( a * 0.15915494 + 0.5 ) * 2.0 - 1.0, y = 
 	obAl = mix( obAl, obAl2, obSea );
 	obFo = mix( obFo, 1.0 - ( 1.0 - obFo ) * ( 1.0 - obWc ), obSea );
 #endif`;
-  // the light through thin crests: the Sun's, by the crest's height and how far the eye looks into the Sun (High: on Low
-  // the troughs' shading alone, SEA_FS_C, to keep a phone's frame time)
+  // the light through thin crests: the Sun's, on the crests' tops (the height's top third), most where the eye looks into
+  // the Sun, gone as it sets (uSeaF.w) (High: on Low the troughs' shading alone, SEA_FS_C, to keep a phone's frame time)
   const SEA_FS_D = `
 #if defined( OB_SEA ) && defined( OB_HI )
 #if NUM_DIR_LIGHTS > 0
-	float obBk = clamp( dot( normalize( vViewPosition ), - directionalLights[ 0 ].direction ), 0.0, 1.0 ), obHc = max( obEn, 0.0 );
-	obC += directionalLights[ 0 ].color * vec3( 0.012, 0.075, 0.062 ) * ( uSeaF.w * vSeaB.w * obHc * obHc * ( 1.0 - obFr ) * ( 1.0 - obFo ) * ( 0.2 + 1.3 * obBk * obBk * obBk * obBk ) );
+	float obBk = clamp( dot( normalize( vViewPosition ), - directionalLights[ 0 ].direction ), 0.0, 1.0 ), obHc = smoothstep( 0.3, 0.9, obEn );
+	obBk *= obBk;
+	obC += directionalLights[ 0 ].color * vec3( 0.012, 0.075, 0.062 ) * ( uSeaF.w * vSeaB.w * obHc * obHc * ( 1.0 - obFr ) * ( 1.0 - obFo ) * ( 0.04 + obBk * obBk ) );
 #endif
 #endif`;
   // What pays for the sea's looks (OB_SEA only; copies of three's chunks, each left alone if its r159 text isn't there):
@@ -6215,11 +6248,13 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   // through the crests); the anchor and the whitecaps' drift wrapped every SEA_LOOK.per m (the noises are periodic on it)
   // and their time in gate cells. Off the Earth, without ship.js or with no patch: uSeaS.w 0, every pixel the old water's.
   const SEA_LOOK = {
-    calm: { rip: 0.3, rN: 0.035, rF: 0.12, wc: 9, br: 0, cov: 0, st: 0, sss: 0.6 },
-    moderate: { rip: 1, rN: 0.08, rF: 0.22, wc: 0.65, br: 0.3, cov: 0.008, st: 0, sss: 1 },
-    rough: { rip: 1.5, rN: 0.13, rF: 0.32, wc: 0.47, br: 0.6, cov: 0.05, st: 1, sss: 1.3 },
-    gateT: 5, gateV: 4, per: 32768, // (the whitecaps' gate: a new one every gateT s, drifting gateV m/s downwind; the noises' period, m)
+    calm: { rip: 0.3, rN: 0.035, rF: 0.12, wc: 9, br: 0, cov: 0, st: 0, sss: 0.6, sl: 0.35, grp: 1 },
+    moderate: { rip: 1, rN: 0.08, rF: 0.22, wc: 0.65, br: 0.3, cov: 0.008, st: 0, sss: 1, sl: 1, grp: 0 },
+    rough: { rip: 1.5, rN: 0.13, rF: 0.32, wc: 0.47, br: 0.6, cov: 0.05, st: 1, sss: 1.3, sl: 1, grp: 0 },
+    gateT: 5, per: 32768, // (the whitecaps' cycles, s; the noises' period, m)
   };
+  // (sl: the shaded slopes' scale; grp: the wave groups near the eye too (Calm: its gentle swell broken into groups, not
+  // corduroy stripes; the others keep the physics' waves exact within 250 m, where a ship's swell patch is))
   function seaUniforms() {
     if (S.seaU) return S.seaU;
     const v4 = () => ({ value: new THREE.Vector4() });
@@ -6232,18 +6267,82 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   const SEAW = new Float32Array(24), SEALOC = {}, md = (x, m) => ((x % m) + m) % m;
   const set4 = (v, f) => v.set(f(0), f(1), f(2), f(3));
   // the lakes' program (terr.lakeMat: the old water's) compiled while a flight loads, as the effect meshes' are (S.warm),
-  // not when the first loch comes into view: a speck with no area drawn with it
+  // not when the first loch comes into view: a speck with no area drawn with it, made for the warm-up (and a quality
+  // change's) and let go after it, so a flight keeps no geometry of its own for it
   function seaWarm() {
     if (terr.lakeMat === terr.oceanMat) return;
+    if (!(S.warm > 0)) {
+      if (S.lakeWarm) { localWorld.remove(S.lakeWarm); S.lakeWarm.geometry.dispose(); S.lakeWarm = null; }
+      return;
+    }
     if (!S.lakeWarm) {
-      if (!(S.warm > 0)) return;
       const g = new THREE.BufferGeometry(), A = (n, k) => new THREE.BufferAttribute(new Float32Array(n * k), k);
       g.setAttribute('position', A(3, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
       g.setAttribute('color', A(3, 4)); g.setAttribute('uv', A(3, 2)); g.setAttribute('aWater', A(3, 3));
       S.lakeWarm = new THREE.Mesh(g, terr.lakeMat); S.lakeWarm.frustumCulled = false; S.lakeWarm.renderOrder = 1;
       localWorld.add(S.lakeWarm);
     }
-    S.lakeWarm.visible = S.warm > 0;
+  }
+  // The drawn sea's clock (S.seaTD): the sea's own (Ship.seaT: the physics' waves, a room's host's), but under rails
+  // time warp it runs on at the fastest physics warp's pace on real time (S.waterT, the ripples' clock), so the waves,
+  // the whitecaps and the wakes' churn glide instead of jumping to a new pattern each frame; back on the sea's clock the
+  // frame the warp ends. The swell grid's heights keep the sea's clock (a moored ship bobs on it)
+  function seaClock(F) {
+    const ts = typeof Ship !== 'undefined' ? Ship.seaT(F) : 0, wt = S.waterT || 0;
+    const rails = typeof PHYS_WARP_MAX !== 'undefined' && typeof WARPS !== 'undefined' && F.warpIdx > PHYS_WARP_MAX;
+    S.seaTD = rails && Number.isFinite(S.seaTD) ? S.seaTD + Math.max(0, wt - (S.seaWT || 0)) * WARPS[PHYS_WARP_MAX] : ts;
+    S.seaWT = wt;
+    return S.seaTD;
+  }
+  // Which program draws the sea's sheet this frame: the sea's looks (terr.oceanMat) while any of its sea could be on
+  // screen, else the water as it was (terr.lakeMat: the lakes' own program, the old water's, built while the flight
+  // loads), so a scene with no sea in view (Highland Ridge, a flight inland) draws the old picture at the old cost on any
+  // GPU. Per patch, each block of SEAB × SEAB cells with a sea vertex in it (its depth over 0) gets a box round its sea
+  // vertices and the ones next to them (every triangle a sea vertex is in lies inside it) and 50 m; a frame tests them
+  // against the view's frustum and the camera's horizon, in the sheet's own frame, until one is in view. With the swell on, while the flight loads, or off
+  // the sea's looks: the sea's
+  const SEAB = 8, SEAV = {}; // (the frustum, its matrices, a box and the camera: made at first use, three.js loading late)
+  function seaBlocks(P) {
+    if (P.seaB && P.seaB.ver === P.ver) return P.seaB.list;
+    const { nc, nr } = P, pos = P.ocean.geometry.attributes.position.array, aw = P.ocean.geometry.attributes.aWater.array, list = [];
+    for (let j0 = 0; j0 < nr - 1; j0 += SEAB) for (let i0 = 0; i0 < nc - 1; i0 += SEAB) {
+      const i1 = Math.min(nc - 1, i0 + SEAB), j1 = Math.min(nr - 1, j0 + SEAB);
+      let sea = false;
+      for (let j = j0; j <= j1 && !sea; j++) for (let i = i0; i <= i1; i++) if (aw[(j * nc + i) * 3] > 0) { sea = true; break; }
+      if (!sea) continue;
+      // (the box round the block's sea vertices and the vertices next to each: every triangle a sea vertex is in)
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        if (!(aw[(j * nc + i) * 3] > 0)) continue;
+        for (let jj = Math.max(0, j - 1); jj <= Math.min(nr - 1, j + 1); jj++) for (let ii = Math.max(0, i - 1); ii <= Math.min(nc - 1, i + 1); ii++) {
+          const k = (jj * nc + ii) * 3, x = pos[k], y = pos[k + 1], z = pos[k + 2];
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+      }
+      list.push(x0 - 50, y0 - 50, z0 - 50, x1 + 50, y1 + 50, z1 + 50); // (and 50 m more)
+    }
+    P.seaB = { ver: P.ver, list };
+    return list;
+  }
+  // (hc: the camera's height over the sea: a block wholly past its horizon is under it too)
+  function seaSheet(P, on, hc) {
+    let m = terr.oceanMat;
+    if (on && terr.lakeMat !== terr.oceanMat && !SWL.on && !(S.warm > 0) && !api.bench.seaAll) {
+      const L = seaBlocks(P), V = SEAV.f ? SEAV : Object.assign(SEAV, { f: new THREE.Frustum(), m: new THREE.Matrix4(), i: new THREE.Matrix4(), b: new THREE.Box3(), c: new THREE.Vector3() });
+      const hz = Math.sqrt(2 * P.b.radius * Math.max(0, hc) + hc * hc) * 1.02 + 200;
+      // (the frustum and the camera in the sheet's own frame: its blocks' boxes as they are)
+      P.ocean.updateWorldMatrix(true, false);
+      V.f.setFromProjectionMatrix(V.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(P.ocean.matrixWorld));
+      V.c.copy(camera.position).applyMatrix4(V.i.copy(P.ocean.matrixWorld).invert());
+      let seen = false;
+      for (let i = 0; i < L.length && !seen; i += 6) {
+        V.b.min.set(L[i], L[i + 1], L[i + 2]); V.b.max.set(L[i + 3], L[i + 4], L[i + 5]);
+        seen = V.b.distanceToPoint(V.c) < hz && V.f.intersectsBox(V.b);
+      }
+      if (!seen) m = terr.lakeMat;
+    }
+    if (P.ocean.material !== m) P.ocean.material = m;
+    S.seaSheet = m === terr.oceanMat;
   }
   function seaFrame(F, b, rx, ry, rz) {
     const U = seaUniforms(), P = patch;
@@ -6251,11 +6350,12 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     U.uSeaS.value.w = on ? 1 : 0;
     S.seaOn = on;
     seaWarm();
+    if (P.ocean && P.ocean.geometry.attributes.aWater) seaSheet(P, on, b ? Math.hypot(rx, ry, rz) - b.radius : 0);
     const C0 = S.skyL && S.skyL.snap, E = S.seaEnv; // (the cube as drawn: renderFlight moves envUni's zenith on after it)
     if (C0) { E.obEnvZ.value.copy(C0.zen); E.obEnvH.value.copy(C0.hor); E.obEnvS.value.copy(C0.sun); E.obEnvK.value.set(C0.sunK, C0.fx); }
     U.uSeaZ.value.set(0, 0, 1).applyQuaternion(localWorld.quaternion).transformDirection(camera.matrixWorldInverse); // (the planet's axis in the view: the ripple map's frame)
     if (!on) { U.uSeaS.value.y = 1; U.uSeaF.value.set(0.08, 0.22, 0, 0); U.uSeaA.value.set(0, 0, 0, 0); return; } // (the water as it was: its ripples, its roughness near and far)
-    const R = b.radius, st = SEA_LOOK[Ship.sea()] || SEA_LOOK.moderate, t = Ship.seaT(F);
+    const R = b.radius, st = SEA_LOOK[Ship.sea()] || SEA_LOOK.moderate, t = S.seaTD;
     let e0, n0;
     if (SWL.on) { e0 = SWL.eA; n0 = -SWL.zA; } // (the swell grid's middle: its aSwell.xy are metres from it)
     else { const L = Terrain.locate(b, rx, ry, rz, SEALOC); e0 = -wrapAngle(L.a - EARTH.padAngle) * R; n0 = -L.z; }
@@ -6263,23 +6363,21 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     const W = Ship.waveUniforms(e0, n0, t, SEAW), n = Math.min(4, (W.length / 6) | 0), at = (i, k, d) => (i < n ? W[i * 6 + k] : d);
     set4(U.uSeaDE.value, (i) => at(i, 0, 1)); set4(U.uSeaDN.value, (i) => at(i, 1, 0)); set4(U.uSeaK.value, (i) => at(i, 2, 1) || 1);
     set4(U.uSeaIK.value, (i) => 1 / (at(i, 2, 1) || 1)); set4(U.uSeaA.value, (i) => at(i, 3, 0)); set4(U.uSeaPh.value, (i) => at(i, 5, 0));
-    U.uSeaS.value.set((2 * TANH) / Math.max(1, H * renderer.getPixelRatio()), st.rip, 0, 1);
+    U.uSeaS.value.set((2 * TANH) / Math.max(1, H * renderer.getPixelRatio()), st.rip, api.bench.seaAll ? 1e9 : 0.03 * P.span + 300, 1); // (z: the sheet's cells' reach past the frustum, SEA_VS; bench.seaAll: every vertex's noises, tests)
     let sk = 0; for (let i = 0; i < n; i++) sk += W[i * 6 + 3] * W[i * 6 + 2] * W[i * 6 + 2];
-    U.uSeaW.value.set(st.wc, st.cov, sk > 0 ? 1 / sk : 0, md(t / SEA_LOOK.gateT, 4096));
+    U.uSeaW.value.set(st.wc, st.cov, sk > 0 ? 1 / sk : 0, md(t / SEA_LOOK.gateT, 16)); // (w: the whitecaps' cycles, folded to 16: a half float holds the fraction)
     // (waves 1 and 3: the whole periods at the anchor, so a crest keeps its number as the anchor moves: the folded phase's
     // own count, less a constant)
     const cnt = (i) => (i < n ? md(Math.floor((W[i * 6 + 2] * (W[i * 6] * e0 + W[i * 6 + 1] * n0) - W[i * 6 + 4] * t - W[i * 6 + 5]) / (2 * Math.PI) + 0.5), 1024) : 0);
     U.uSeaN.value.set(cnt(1), cnt(3), st.br, 0);
     let sa = 0; for (let i = 0; i < n; i++) sa += W[i * 6 + 3];
-    U.uSeaF.value.set(st.rN, st.rF, sa > 0 ? 1 / sa : 0, st.sss); // (z: 1 / the sea state's highest crest, for the heights' share)
-    U.uSeaG.value.set(st.st, 0, 0, 0); // (Rough's streaks)
-    // (and compiled in only for Rough on High, OB_STREAK: the other sea states don't pay for them; a change of the sea
-    // state's setting builds the other program, as a change of quality does)
-    const od = terr.oceanMat.defines, sw = st.st > 0 && 'OB_HI' in od;
-    if (sw !== ('OB_STREAK' in od)) { if (sw) od.OB_STREAK = ''; else delete od.OB_STREAK; terr.oceanMat.needsUpdate = true; }
-    const dir = (SHIP.swellDir * Math.PI) / 180, g = SEA_LOOK.gateV * t, pe = SEA_LOOK.per;
-    U.uSeaO.value.set(md(e0, pe), md(n0, pe), md(Math.sin(dir) * g, pe), md(Math.cos(dir) * g, pe));
-    U.uSeaT.value = md(t / SEA_LOOK.gateT, 64);
+    // (z: 1 / the sea state's highest crest, for the heights' share; w: the light through the crests, the sea state's
+    // while the Sun is up, gone as it sets)
+    U.uSeaF.value.set(st.rN, st.rF, sa > 0 ? 1 / sa : 0, st.sss * smoothstep(0, 0.1, S.sunV.y));
+    U.uSeaG.value.set(st.st, st.sl, st.grp, 0); // (Rough's foam lanes (a uniform's branch: no other program), the slopes' scale, the groups near)
+    const pe = SEA_LOOK.per;
+    U.uSeaO.value.set(md(e0, pe), md(n0, pe), 0, 0);
+    U.uSeaT.value = t; // (seaInfo: the drawn clock)
   }
 
   // ------------------------------------------------------------------ the sea near a ship (the ships update) [WP2]
@@ -6399,7 +6497,7 @@ void main() {
       m.defines = { ...terr.oceanMat.defines, OB_SWELL: '' }; m.onBeforeCompile = swellHook;
     }
     const m = SWL.mat, o = terr.oceanMat;
-    for (const k of ['OB_HI', 'OB_DEEP', 'OB_SEA', 'OB_STREAK']) if ((k in o.defines) !== (k in m.defines)) { if (k in o.defines) m.defines[k] = ''; else delete m.defines[k]; m.needsUpdate = true; }
+    for (const k of ['OB_HI', 'OB_DEEP', 'OB_SEA']) if ((k in o.defines) !== (k in m.defines)) { if (k in o.defines) m.defines[k] = ''; else delete m.defines[k]; m.needsUpdate = true; }
     if (m.stencilWrite !== o.stencilWrite) Object.assign(m, { stencilWrite: o.stencilWrite, stencilWriteMask: o.stencilWriteMask, stencilFunc: o.stencilFunc, stencilRef: o.stencilRef, stencilFuncMask: o.stencilFuncMask });
     m.visible = o.visible;
     // ([WP15] with the sea's looks the grid is drawn before the ocean and a hair nearer (swellHook), so the ocean fails
@@ -6508,6 +6606,7 @@ void main() {
   // place (body-relative sim), camAlt its height; F's vessels are only looked at for v.hydro
   // (each frame: the swell and the wakes, then the sea's looks, which take their anchor from the swell's grid: seaFrame)
   function updateSwell(F, b, rx, ry, rz, camAlt) {
+    seaClock(F); // [WP15]
     swellFrame(F, b, rx, ry, rz, camAlt);
     seaFrame(F, b, rx, ry, rz); // [WP15]
   }
@@ -7736,7 +7835,8 @@ void main() {
       proxyCap: 0,
       ground: true, water: true, oldWater: false, // (the water's depth: benchWater)
       wake: true, // [WP2] (false: the wakes not drawn, for their pixels)
-      oldSea: false, // [WP15] (the ocean drawn without the sea's looks, OB_SEA: its cost and picture in the same page; benchWater)
+      seaAll: false, // [WP15] (every vertex of the sea's sheet works out its noises, even those no triangle brings on screen: tests, the picture must be the same)
+      oldSea: false, // [WP15] (the ocean and the veils drawn without the sea's looks, OB_SEA: their cost and picture in the same page; benchWater)
       swellFlat: false, // [WP15] (the swell's grid with its heights flat and its shading on: drawn as the ocean round it, edge and all)
     },
     shadowAll: false, // tests: the city buildings cast their own shadows whole (the shadow stand-ins' byte-identity check)
