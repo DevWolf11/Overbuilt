@@ -1880,7 +1880,7 @@ vec4 obSin4( vec4 a ) { vec4 x = fract( a * 0.15915494 + 0.5 ) * 2.0 - 1.0, y = 
 	float obBr = step( fract( obR0 * 137.31 + obCy * 0.6180339 ), uSeaN.z * ( 0.4 + 1.2 * vSeaB.z ) ) * smoothstep( 0.0, 0.05, obLf ) * ( 1.0 - obLf ) * ( 1.0 - obLf );
 	float obWc = smoothstep( uSeaW.x - 0.12 * obLf, uSeaW.x - 0.12 * obLf + 0.07, obCr + 0.45 * ( obRip - 0.5 ) ) * obBr * vSeaB.w;
 	obWc = obWc * obWc * mix( 0.3, 1.0, smoothstep( 0.3, 0.75, obRip + 0.3 * obLf ) ) * ( 1.0 - vSeaC.x ) + uSeaW.y * vSeaC.x; // (foam, broken up by the ripples, not a solid oval)
-#ifdef OB_HI
+#if defined( OB_HI ) && defined( OB_STREAK )
 	// (Rough: faint foam lanes along the wind, wavering, 4 m across, broken every few tens of metres, only where a pixel
 	// is under a metre or two: they'd only flicker further off)
 	vec2 obWd = vec2( uSeaDE.x, uSeaDN.x ), obSq = vec2( dot( vSeaP, vec2( - obWd.y, obWd.x ) ), dot( vSeaP, obWd ) );
@@ -6264,6 +6264,10 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     let sa = 0; for (let i = 0; i < n; i++) sa += W[i * 6 + 3];
     U.uSeaF.value.set(st.rN, st.rF, sa > 0 ? 1 / sa : 0, st.sss); // (z: 1 / the sea state's highest crest, for the heights' share)
     U.uSeaG.value.set(st.st, 0, 0, 0); // (Rough's streaks)
+    // (and compiled in only for Rough on High, OB_STREAK: the other sea states don't pay for them; a change of the sea
+    // state's setting builds the other program, as a change of quality does)
+    const od = terr.oceanMat.defines, sw = st.st > 0 && 'OB_HI' in od;
+    if (sw !== ('OB_STREAK' in od)) { if (sw) od.OB_STREAK = ''; else delete od.OB_STREAK; terr.oceanMat.needsUpdate = true; }
     const dir = (SHIP.swellDir * Math.PI) / 180, g = SEA_LOOK.gateV * t, pe = SEA_LOOK.per;
     U.uSeaO.value.set(md(e0, pe), md(n0, pe), md(Math.sin(dir) * g, pe), md(Math.cos(dir) * g, pe));
     U.uSeaT.value = md(t / SEA_LOOK.gateT, 64);
@@ -6386,7 +6390,7 @@ void main() {
       m.defines = { ...terr.oceanMat.defines, OB_SWELL: '' }; m.onBeforeCompile = swellHook;
     }
     const m = SWL.mat, o = terr.oceanMat;
-    for (const k of ['OB_HI', 'OB_DEEP', 'OB_SEA']) if ((k in o.defines) !== (k in m.defines)) { if (k in o.defines) m.defines[k] = ''; else delete m.defines[k]; m.needsUpdate = true; }
+    for (const k of ['OB_HI', 'OB_DEEP', 'OB_SEA', 'OB_STREAK']) if ((k in o.defines) !== (k in m.defines)) { if (k in o.defines) m.defines[k] = ''; else delete m.defines[k]; m.needsUpdate = true; }
     if (m.stencilWrite !== o.stencilWrite) Object.assign(m, { stencilWrite: o.stencilWrite, stencilWriteMask: o.stencilWriteMask, stencilFunc: o.stencilFunc, stencilRef: o.stencilRef, stencilFuncMask: o.stencilFuncMask });
     m.visible = o.visible;
     // ([WP15] with the sea's looks the grid is drawn before the ocean and a hair nearer (swellHook), so the ocean fails
