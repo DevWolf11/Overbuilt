@@ -1867,14 +1867,14 @@ class Vessel {
     v.av = d.av ? v3(...d.av) : v3(0, 0, d.w || 0);
     for (const p of parts) if (p.def.wheel && p.def.wheel.retract) p.retracted = v.gearUp;
     if (v.kind === 'drone' && v.sas !== 'hold' && v.sas !== 'acro') v.sas = 'hold'; // (a drone flies Level or Acro)
-    if (d.hydroFrom === true) v.hydroFrom = true; // ([WP8] a piece of a ship reloads in the water: before rebuildGroups' hydro flag)
+    if (d.hydroFrom === true && (isSea(v.kind) || parts.some((p) => p.def.ship))) v.hydroFrom = true; // ([WP8] a piece of a ship reloads in the water: before rebuildGroups' hydro flag; only a sea kind's piece, or one with ship parts aboard: an old craft's save restores as that craft)
     v.rebuildGroups();
     if (v.sh && d.sh && typeof d.sh === 'object') { // [WP8] (her helm, cleaned)
       if (Number.isFinite(d.sh.tel)) v.sh.tel = clamp(Math.round(d.sh.tel), -3, 4);
       if (d.sh.dcPri === 'auto' || d.sh.dcPri === 'flood' || d.sh.dcPri === 'fire') v.sh.dcPri = d.sh.dcPri;
       if (typeof d.sh.ciwsOn === 'boolean') v.sh.ciwsOn = d.sh.ciwsOn;
     }
-    if (v.sh && (d.fate === 'sunk' || d.fate === 'capsized' || d.fate === 'magazine' || d.fate === 'action')) { v.fate = d.fate; v.doomed = 0; v.ko = { why: 'ship', x: d.fate === 'magazine', t: 0 }; } // ([WP8] still going down)
+    if (v.sh && v.sh.hulls.length && (d.fate === 'sunk' || d.fate === 'capsized' || d.fate === 'magazine' || d.fate === 'action')) { v.fate = d.fate; v.doomed = 0; v.ko = { why: 'ship', x: d.fate === 'magazine', t: 0 }; } // ([WP8] still going down)
     if (d.tailLost === true && v.rotors.length && !v.tailRotors.length) v.tailLost = true;
     if (v.gv && Array.isArray(d.swaps)) { const sw = d.swaps.filter((q) => q && (q.role === 'driver' || q.role === 'gunner') && Number.isFinite(q.t)).slice(0, 4).map((q) => ({ role: q.role, t: clamp(q.t, 0, 4) })); if (sw.length) v.swaps = sw; }
     // rebuildGroups shifts position for the COM; restore the saved values
