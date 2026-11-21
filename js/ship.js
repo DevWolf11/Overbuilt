@@ -2663,26 +2663,31 @@ const Ship = (() => {
     return SP2;
   }
   // The flood level of compartment c (the height, K's, whose water under it is c.W: Newton from the last one, kept
-  // inside the span's bracket), its free surface (c.fs) and the water's centroid in part space (c.fx, fy, fz); none
-  // aboard: −Infinity. Cached while W and her up (Ub) move less than 1 % and 0.5°; [WP8] with her up held, up to a tenth
-  // more or less water moves the level by itself over the last free surface (solved again past that).
+  // inside the span's bracket, to a thousandth of the water or of the room left, whichever is less), its free surface
+  // (c.fs) and the water's centroid in part space (c.fx, fy, fz); none aboard: −Infinity. Cached while W and her up (Ub)
+  // move less than 1 % and 0.5°; [WP8] with her up held, a little more or less water moves the level by itself over the
+  // last free surface: up to a tenth of the water or of the room left at the last solve, and a tenth of the way from its
+  // level to the span's nearer end (a V keel's free surface grows as it fills, a full one's shrinks: solved again past
+  // that). The solve's own water (the clip's, fc.W) is the start, so a solve short of c.W is made good by the next step.
   const COS05 = Math.cos((0.5 * PI) / 180);
   function levelOf(v, S, c) {
     if (!(c.W > 1e-6)) { c.lev = -Infinity; c.fs = 0; return c.lev; }
     const K = kOf(v, S, c, KQ), Ub = S.Ub, f = c.fc;
     if (f && Ub.x * f.ux + Ub.y * f.uy + Ub.z * f.uz > COS05) {
-      const dW = c.W - f.W;
-      if (mabs(dW) <= 0.01 * mmax(f.W, 1e-3)) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)); return c.lev; } // (the plane moves with her centre of mass: its height over the compartment's centre kept)
-      if (f.A > 1e-3 && mabs(dW) <= 0.1 * mmax(f.W, 0.5) && c.W < c.V - 1e-6) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)) + dW / f.A; return c.lev; } // ([WP8] a little more or less water: the level moves by it over the free surface, until it has moved a tenth: solved again)
+      const dW = c.W - f.W, room = f.W < c.V - f.W ? f.W : c.V - f.W, adW = mabs(dW);
+      if (adW <= 0.01 * mmax(room, 1e-4)) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)); return c.lev; } // (the plane moves with her centre of mass: its height over the compartment's centre kept)
+      if (f.A > 1e-3 && adW <= 0.1 * room && adW <= 0.1 * f.A * f.d && c.W < c.V - 1e-6) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)) + dW / f.A; return c.lev; } // ([WP8] a little more or less water: the level moves by it over the free surface)
     }
     const sp = spanOf(c, K);
     let lo = sp[0], hi = sp[1];
+    const s0 = lo, s1 = hi;
     if (c.W >= c.V - 1e-6) { c.lev = hi; c.fs = 0; setFc(c, K, hi, c.cx, c.cy, 0, Ub); return hi; }
     let L = f && Number.isFinite(c.lev) ? mclamp(c.lev, lo, hi) : lo + (hi - lo) * (c.W / c.V), q = null;
+    const tol = 1e-3 * (c.W < c.V - c.W ? c.W : c.V - c.W) + 1e-6;
     for (let it = 0; it < 12; it++) {
       q = clipComp(c, K, L);
       const e = c.W - q.V;
-      if (mabs(e) <= 1e-3 * c.V + 1e-6) break;
+      if (mabs(e) <= tol) break;
       if (e > 0) lo = L; else hi = L;
       let nL = q.A > 1e-6 ? L + e / q.A : (lo + hi) / 2;
       if (!(nL > lo && nL < hi)) nL = (lo + hi) / 2;
@@ -2691,12 +2696,12 @@ const Ship = (() => {
     }
     if (!q) q = clipComp(c, K, L);
     c.lev = L; c.fs = q.A;
-    setFc(c, K, L, q.x, q.y, mclamp(q.z, -SHIP.FLOOD.fsMax * c.beam, SHIP.FLOOD.fsMax * c.beam), Ub, q.A);
+    setFc(c, K, L, q.x, q.y, mclamp(q.z, -SHIP.FLOOD.fsMax * c.beam, SHIP.FLOOD.fsMax * c.beam), Ub, q.A, q.V, mmin(L - s0, s1 - L));
     return L;
   }
-  function setFc(c, K, L, x, y, z, Ub, A) {
-    const f = c.fc || (c.fc = { W: 0, ux: 0, uy: 0, uz: 0, L: 0, k: 0, x: 0, y: 0, z: 0, A: 0 });
-    f.W = c.W; f.ux = Ub.x; f.uy = Ub.y; f.uz = Ub.z; f.L = L; f.k = K.b + K.x * c.cx; f.A = A || 0;
+  function setFc(c, K, L, x, y, z, Ub, A, W, d) {
+    const f = c.fc || (c.fc = { W: 0, ux: 0, uy: 0, uz: 0, L: 0, k: 0, x: 0, y: 0, z: 0, A: 0, d: 0 });
+    f.W = W != null ? W : c.W; f.ux = Ub.x; f.uy = Ub.y; f.uz = Ub.z; f.L = L; f.k = K.b + K.x * c.cx; f.A = A || 0; f.d = d > 0 ? d : 0;
     f.x = c.ox + c.ex.x * x + c.ey.x * y; f.y = c.oy + c.ex.y * x + c.ey.y * y; f.z = c.oz + z;
   }
   // The flood water's weight (Ship.forces' marked line, every step): ρ·g·W straight down at each compartment's water's
