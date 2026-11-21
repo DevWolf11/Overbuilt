@@ -613,8 +613,8 @@ const Armour = (() => {
   }
   function postPen(v, h, at, dx, dy, dz, res, SH, T, R, sx, hesh, legacy) {
     const J = legacy ? dj : null; // (a drone's charge: its own way in, below)
-    const thru = !!h.p.def.shull && !hesh && !J && !!KIN[SH.type]; // ([WP8] a kinetic round through a hull's plate: its way in runs on to her far side, and out through it if it still can: R.out)
-    const L = thru ? sx : hesh ? 0 : J ? J.L : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
+    const run = !!h.p.def.ship && !hesh && !J && !!KIN[SH.type], thru = run && !!h.p.def.shull; // ([WP8] a kinetic round into a ship's part runs on to its far side (a bridge's rooms, her hull's insides: the people and machines there), and through a hull's plate out through her far side if it still can: R.out)
+    const L = thru ? sx : run ? Math.max(sx, T.L || 0) : hesh ? 0 : J ? J.L : legacy ? 1.5 : T.L || 0, dmgP = legacy ? 3 * SH.dmg : SH.dmg, res0 = res;
     cands(v, at, Math.max(L, 2.5) + 0.5);
     // the way in: everything it crosses takes dmg·(1 - 0.5·s/L); an engine takes 30 mm out of it, ammunition 10. It
     // leaves through the far face of what it went into only if what it has left beats that face.
@@ -1079,7 +1079,7 @@ const Armour = (() => {
       return he0 * Math.pow(1 - Math.max(0, dh) / blast, 1.5) >= thinnest(v, host, at) ? 0.5 * k : null;
     }
     if (D.gv && (D.track || D.awheel || D.weapon || D.searchRadar || D.trackRadar || D.module === 'sight' || D.module === 'breech' || D.module === 'launcher' || D.module === 'radar')) return hd >= 20 ? k : 0.3 * k;
-    if (!D.armour) return k;
+    if (!D.armour) { if (D.ship && mods && D.mods && at) openMods(v, p, d, blast, k, mods, at); return k; } // ([WP8] a ship's open station: the blast reaches its crew)
     if (!at || hd < thinnest(v, p, at)) return 0.15 * k;
     if (mods && D.mods) {
       const off = offOf(v, p);
@@ -1092,7 +1092,24 @@ const Armour = (() => {
     }
     return k;
   }
+  // [WP8] A ship part with no armour at all (a boat's open helm console, a gun's open mount): nothing between its crew
+  // and a blast beside them, so each of its modules within the blast takes its own share, by its own distance from it
+  // (k: the part's, d from it)
+  function openMods(v, p, d, blast, k, mods, at) {
+    const D = p.def, f = Math.pow(1 - Math.max(0, d) / blast, 1.5);
+    if (!(f > 0)) return;
+    const off = offOf(v, p), k0 = k / f;
+    simOwn(v, p, at, blastTmp);
+    for (let i = 0; i < D.mods.length; i++) {
+      const M = D.mods[i];
+      if (off && off[i]) continue;
+      const dm = len(blastTmp.x - M.at[0] * D.w, blastTmp.y - M.at[1] * D.h, blastTmp.z - M.at[2] * partDepth(p)) - M.r;
+      if (dm >= blast) continue;
+      addMod(mods, p, i, k0 * Math.pow(1 - Math.max(0, dm) / blast, 1.5));
+    }
+  }
   function hostDist(v, p, at, blast) {
+    if (p.def.shull && v.sh) return Ship.hullDist(v, p, at); // ([WP8] a ship's hull: to its nearest plate, 0 inside)
     Aim.pose(v, p, { x: p.x, y: p.y, z: partZ(p) }, blastTmp);
     outPart(v, blastTmp, blastTmp);
     return len(blastTmp.x - at.x, blastTmp.y - at.y, blastTmp.z - at.z) - Math.max(p.def.w, p.def.h) / 2;
@@ -1100,6 +1117,7 @@ const Armour = (() => {
   // the thinnest face of p that looks toward the point (sim; one on a face, or just under it, faces it): 0 for an open
   // one, or with the point deep inside
   function thinnest(v, p, at) {
+    if (p.def.shull && v.sh) return Ship.hullPlate(v, p, at); // ([WP8] a ship's hull: the plate nearest the blast, its deck, side or bottom; the belt only within its band)
     const D = p.def, L = simOwn(v, p, at, blastTmp), w = D.w, h = D.h, hd = partDepth(p) / 2, m0 = 0.1;
     let t = Infinity;
     if (D.round) {
@@ -1176,7 +1194,7 @@ const Armour = (() => {
     const m = p.def.module;
     if (!m) { if (p.def.control) knockOut(v, sim, 'hull'); return; }
     if (m === 'crew') { say(v, sim, `${ROLE[p.role || p.def.seat] || 'Crewman'} knocked out`); crewDied(v, p.role || p.def.seat, sim); return; }
-    if (m === 'ammo') { if (v.sh && Ship.magazine(v, sim, p)) return; const C = crewOf(v), st = C.stores.find((e) => e.part === p); if (st) cookOff(v, st, sim, p); return; } // ([WP8] a ship's magazine, launcher or rack: ship.js)
+    if (m === 'ammo') { if (v.sh && (isSea(v.kind) || p.def.ship) && Ship.magazine(v, sim, p)) return; const C = crewOf(v), st = C.stores.find((e) => e.part === p); if (st) cookOff(v, st, sim, p); return; } // ([WP8] a ship's magazine, launcher or rack: ship.js; a tank's rack, an amphibious one's too, cooks off as ever)
     if (m === 'engine') {
       say(v, sim, 'Engine destroyed');
       if (vrnd() < (FIRE_ODDS[p.def.engine && p.def.engine.fuel] ?? 0.2)) { p.fire = 25; say(v, sim, 'Fire!'); }
@@ -1222,7 +1240,7 @@ const Armour = (() => {
     const r = st.rounds, cap = st.cap || 1, odds = clamp((0.5 + (0.4 * r) / cap) * (st.cook ?? 1) + (hot || Armour.hot ? 0.2 : 0), 0, 0.95);
     st.rounds = 0;
     if (!(r > 0) || vrnd() >= odds) { say(v, sim, 'Ammo rack destroyed'); return; }
-    if (v.sh && Ship.magazine(v, sim, part || st.host, r)) return; // ([WP8] aboard a ship it goes up as a magazine does: holes, and past MAG.brk rounds she breaks in two; never a tank's knock-out)
+    if (v.sh && isSea(v.kind) && (part ? Ship.magazine(v, sim, part, r) : Ship.rack(v, sim, st.host, modAt(v, st.host, st.i, v3()), r))) return; // ([WP8] aboard a ship a magazine part goes up as a magazine does (holes where it meets her, past MAG.brk rounds she breaks in two), a gun's ready rounds on their mount (Ship.rack); never a tank's knock-out)
     if (st.blowout) { v.vent = { host: st.host, i: st.i, t: simTime(sim) }; say(v, sim, 'Ammo blow-out: the crew is safe'); return; }
     knockOut(v, sim, 'ammo', { st, rounds: r + totalRounds(v) });
   }
@@ -1244,7 +1262,7 @@ const Armour = (() => {
     const now = simTime(sim);
     v.ko = { why, x: !!det, t: now };
     for (const p of v.parts) if (p.def.control) p.ko = true;
-    if (v.sh && !det) { Ship.doom(v, sim, 'action'); return; } // ([WP8] a ship out of action: ship.js's doom says it, ends it, and she is scuttled)
+    if (v.sh && !det && (!isGround(v.kind) || v.afloat)) { Ship.doom(v, sim, 'action'); return; } // ([WP8] a ship out of action (an amphibious tank's afloat): ship.js's doom says it, ends it, and she is scuttled; ashore a tank's knock-out)
     if (shooterOf(v) === sim.active) fb.ko = { text: det ? 'Ammo detonation!' : 'Knocked out!', t: now };
     if (v === sim.active && sim.toast) sim.toast(det ? 'Ammo detonation!' : 'Knocked out!', 'warn');
     if (det) {
@@ -1269,6 +1287,7 @@ const Armour = (() => {
   function toss(v, sim, st) {
     const g = tossGroup(v, st);
     if (!g) return [];
+    v.koH = v.bounds.maxY - v.bounds.minY; // ([WP8] how tall it stood before its turret went: death.js's swamp measures the water against this)
     for (const id of g.ids) for (const n of [...(v.adj.get(id) || [])]) if (!g.ids.has(n)) { v.adj.get(id).delete(n); if (v.adj.get(n)) v.adj.get(n).delete(id); }
     const i0 = v.parts.findIndex((p) => !g.ids.has(p.id)); // (the hulk keeps what isn't the turret)
     if (i0 > 0) { const t = v.parts[0]; v.parts[0] = v.parts[i0]; v.parts[i0] = t; }

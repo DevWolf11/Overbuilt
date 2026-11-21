@@ -100,7 +100,7 @@ const SHIP = {
   // ---- grounding, carriers, other ships (§4.8)
   BED_CRASH: 1.5, BED_MU: 0.4,       // a sea-bed contact's crash limit × and friction
   IMPACT: { hp: 0.4, hole: 0.02, remove: 2 }, // a grounding past a hull's limit: 40 % of its hp, a hole of 0.02 m² per m/s over, removed past 2×
-  SLAM: { k: 1.8 },                  // a hull ring meeting the water faster than k × its part's breakSpeed: a slam (holes, never a shattered hull) [WP6]
+  SLAM: { k: 1.8, floor: 0.3, hole: 0.01 }, // a hull ring meeting the water faster than k × its part's breakSpeed: a slam (holes, never a shattered hull) [WP6]; [WP8] its hp taken never below `floor` of the hull's, and a hull there takes no more; a slam's hole a crack of `hole` m² at most (the sea alone never sinks her)
   DECK_BAND: 1.5, CARRIER_DEPTH: 9,  // a deck (carrier or ship) is met from DECK_BAND m under it; a carrier's hull box reaches CARRIER_DEPTH m under the sea
   BUMP: { e: 0.1, push: 0.5, v: 2.5, dmg: 0.5, hole: 0.002 }, // ship on ship: restitution, push-out share, damage from v m/s (0.5·μ·s²/1000 hp), holes 0.002·s² m²
   LASH: { v: 0.3, t: 1, lift: 0.3, tilt: 25 }, // a craft on a moving deck is lashed under v m/s for t s with no lift; let go past lift or tilt°
@@ -128,7 +128,7 @@ const SHIP = {
   //   holes kept per part)
   FLOOD: { cd: 0.6, hz: 10, downT: 2, downA: 0.05, fsMax: 0.45, leak: 1, sinkCd: 1, under: 0.95 }, // orifice coefficient; steps a second; downflooding after downT s (downA m² per m of deck edge under); free-surface shift cap (× beam); [WP8] a holed-through part's joints and bulkheads leak through `leak` m²; a hull all but under (under of her volume) with water aboard sinks against a drag sinkCd on her plan area
   FIRE: { hz: 4, odds0: 0.15, odds1: 0.35, blast: 9, hp: 4, spread: 0.02, dc: 20, crew: 5, crewR: 3, spreadR: 6 }, // fire odds odds0 + odds1·(blast/9); hp/s; spread a second; s to fight one; [WP8] crew within crewR m burn crew hp/s; it spreads to parts within spreadR m
-  MAG: { near: 6, t: 5, r0: 8, rk: 1 / 20, hole: 6, brk: 100, missile: 20, dmg: 1500, dmgK: 5 }, // a fire within `near` m for t s; the blast's size r0 + rounds·rk m; holes in the neighbours; [WP8] brk rounds or more break her in two; a missile counts as `missile` rounds; the blast's damage dmg + rounds·dmgK
+  MAG: { near: 6, t: 5, r0: 8, rk: 1 / 20, hole: 6, brk: 100, missile: 20, dmg: 1500, dmgK: 5, rack: { r0: 2, rk: 0.1, dmg: 150, dmgK: 10 } }, // a fire within `near` m for t s; the blast's size r0 + rounds·rk m; holes in the neighbours; [WP8] brk rounds or more break her in two; a missile counts as `missile` rounds; the blast's damage dmg + rounds·dmgK; a gun's ready rounds (`rack`) going up on its mount: a blast of r0 + rounds·rk m, dmg + rounds·dmgK, no magazine's holes
   DC: { patch: 0.02, minT: 15, full: 0.7, repair: 2, walk: 2, party: 4, bridge: 0.5, flood: 0.2 }, // a party patches 0.02 m²/s (at least minT s a hole), not past full of its compartment; repairs × REPAIR_T; [WP8] walks walk m/s along her; party crew a locker; none aboard: the bridge crew at `bridge` the rate; 'auto' patches first past `flood` of a compartment full
   DRONE: { ref: 2000 },              // [WP8] (S1) a drone's charge wears a ship part's plate as one of ref hp (a patrol boat's midsection), never by the part's own hp
   FATE: { hz: 4, capsize: 60, capsizeT: 4, reserve: 0.97, deckUnder: 1, scuttleT: 60, scuttleA: 1, under: 3, bedT: 10, wreckDepth: 40, gone: 40, derelictT: 120, derelictA: 0.5, wait: 15, helmT: 6, sinkT: 2 },
@@ -1005,9 +1005,11 @@ const Ship = (() => {
   function hpOf(p) { return p.def.hp || (typeof Combat !== 'undefined' && Combat.maxHp ? Combat.maxHp(p.def) : 1000); }
   // a hull part holed and kept by a grounding or a slam: IMPACT.hp of its hp, and a hole of IMPACT.hole m² for each m/s
   // over its limit where it struck (addHoles: the damage package's; a no-op until it lands). h: { s, lim, x, y } or none
-  function holeHull(v, p, h, sim) {
-    if (typeof Combat !== 'undefined' && sim && sim.vessels) Combat.damage(v, p, SHIP.IMPACT.hp * hpOf(p), 'crash', sim);
-    if (h && h.s > h.lim && v.parts.includes(p)) Ship.addHoles(v, [[p, h.x, h.y, SHIP.IMPACT.hole * (h.s - h.lim)]]);
+  function holeHull(v, p, h, sim, slam) {
+    let k = SHIP.IMPACT.hp * hpOf(p);
+    if (slam) { k = Math.min(k, (p.hp ?? hpOf(p)) - SHIP.SLAM.floor * hpOf(p)); if (!(k > 0)) return; } // ([WP8] the sea alone never sinks her: a slam's hp stop at SLAM.floor of the hull's, and a hull there takes no more)
+    if (typeof Combat !== 'undefined' && sim && sim.vessels) Combat.damage(v, p, k, 'crash', sim);
+    if (h && h.s > h.lim && v.parts.includes(p)) Ship.addHoles(v, [[p, h.x, h.y, slam ? Math.min(SHIP.SLAM.hole, SHIP.IMPACT.hole * (h.s - h.lim)) : SHIP.IMPACT.hole * (h.s - h.lim)]]); // ([WP8] a slam's a crack: SLAM.hole at most)
   }
   // A crash's broken parts (Death.impact's first line, for v.sh): its hull parts are holed and kept unless the contact
   // was past IMPACT.remove × their limit (vessel.js ground() and Gear.ground keep, for a hydro vessel, each broken part's
@@ -1029,7 +1031,7 @@ const Ship = (() => {
     for (const [p, r, x, y, s] of L) {
       if (!v.parts.includes(p)) continue;
       if (r > SHIP.IMPACT.remove) rip.push(p);
-      else holeHull(v, p, { s, lim: s / r, x, y }, F);
+      else holeHull(v, p, { s, lim: s / r, x, y }, F, true);
     }
     L.length = 0;
     if (rip.length && F.breakParts && !v.dead) F.breakParts(v, rip, 'slam');
@@ -2308,6 +2310,8 @@ const Ship = (() => {
   // (she had someone at a helm); v.fate ('sunk' | 'capsized' | 'magazine' | 'action'), v.doomed (when), v.doomBy, v.sunk
   // (gone under: a wreck on a shallow bed, else gone 40 m down), v.wreckAt.
   const FATES = new Set(['sunk', 'capsized', 'magazine', 'action']);
+  // (Math's, held here: the flooding runs ten times a second for every compartment and hole aboard)
+  const msin = Math.sin, msqrt = Math.sqrt, mabs = Math.abs, mmax = Math.max, mmin = Math.min, mhypot = Math.hypot, PI = Math.PI, mclamp = (x, a, b) => (x < a ? a : x > b ? b : x);
   let rs = ((Math.random() * 4294967296) | 0) || 7; // (the damage's own dice: fires and their spread; Ship.seed for tests)
   const rnd = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return (rs >>> 0) / 4294967296; };
   function seed(n) { rs = (n | 0) || 7; }
@@ -2414,12 +2418,24 @@ const Ship = (() => {
     partOf(p, CP[0], CP[1], CP[2], HC);
     return d;
   }
-  // (own frame) the distance from (x, y, z) to the hull, its nearest point in CP; 0 inside (CP the point itself)
+  // The plate a blast at the sim point `at` meets on hull part p (armour.js thinnest for a hull, blastK: what it must beat
+  // to reach her and what is inside): the face nearest it, its deck's, its side's (the belt within its band), its
+  // bottom's (hullMm); 0 with the burst inside her
+  function hullPlate(v, p, at) {
+    if (!v || !p || !p.def.shull || !at) return 0;
+    localOf(v, at, _hq);
+    const o = ownPt(p, _hq, _ho), d = ownDist(p.def, o.x, o.y, o.z);
+    return d > 0 && CF >= 0 ? hullMm(p, shullTris(p.def).code[CF], CP[1]) : 0;
+  }
+  // (own frame) the distance from (x, y, z) to the hull, its nearest point in CP and its triangle in CF; 0 inside (CP
+  // the point itself, CF −1)
+  let CF = -1;
   function ownDist(d, x, y, z) {
+    CF = -1;
     if (insideOwn(d, x, y, z)) { CP[0] = x; CP[1] = y; CP[2] = z; return 0; }
     const T = shullTris(d), xs = T.xs, n = T.n;
     let best = Infinity;
-    const test = (f0, f1) => { for (let f = f0; f < f1; f++) { const q = triDist2(T, f, x, y, z); if (q < best) { best = q; CP[0] = TD[0]; CP[1] = TD[1]; CP[2] = TD[2]; } } };
+    const test = (f0, f1) => { for (let f = f0; f < f1; f++) { const q = triDist2(T, f, x, y, z); if (q < best) { best = q; CF = f; CP[0] = TD[0]; CP[1] = TD[1]; CP[2] = TD[2]; } } };
     let i0 = 0;
     while (i0 + 2 < n && xs[i0 + 1] < x) i0++;
     for (let i = i0; i + 1 < n; i++) { const g = Math.max(0, xs[i] - x); if (g * g > best) break; test(T.slab[2 * i], T.slab[2 * i + 1]); }
@@ -2512,7 +2528,7 @@ const Ship = (() => {
       localOf(v, at, _hq);
       let q = p, qd = Infinity;
       for (const c of v.parts) if (c.def.inner && c.att === p.id && whole(v, c)) { const dd = Math.hypot(c.x - _hq.x, c.y - _hq.y, partZ(c) - _hq.z); if (dd < qd && dd < blast) { qd = dd; q = c; } }
-      ignite(v, q, SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast), by, sim);
+      ignite(v, q, SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast), by, sim, _hq);
     }
   }
   // A penetrating round's result on a hydro vessel (armour.js apply, R from resolve): its holes (R.ho), and a fire where
@@ -2524,7 +2540,7 @@ const Ship = (() => {
     if (R.r !== 'pen') return;
     const blast = SH && (SH.blast || 0), odds = SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast);
     for (const [p] of R.rows) if (p.def.engine || p.def.module === 'engine' || p.def.module === 'ammo' || p.def.module === 'fuel') { ignite(v, p, odds, by, sim); return; }
-    for (const [h, i] of R.mods) { const k = h.def.mods[i].k; if (k === 'ammo' || k === 'fuel') { ignite(v, h, odds, by, sim); return; } }
+    for (const [h, i] of R.mods) { const k = h.def.mods[i].k; if (k === 'ammo' || k === 'fuel') { ignite(v, h, odds, by, sim, h.def.shull && R.at ? localOf(v, R.at, _hq) : null); return; } }
   }
   // A hull part at 0 hp (combat.js destroyPart's first line for a hull part aboard a hydro vessel): holed through, never
   // blown off: kept, broken, a HOLE.cap hole at its waterline amidships, its joints and bulkheads open (FLOOD.leak)
@@ -2570,6 +2586,7 @@ const Ship = (() => {
     const H = shullOf(p.def), cuts = [];
     for (const q of v.parts) if (q.def.bulkhead && q.att === p.id && !q.broken) { const lx = ownPt(p, q, _ho).x; if (lx > H.x0 + 0.05 && lx < H.x1 - 0.05) cuts.push(lx); }
     cuts.sort((a, b) => a - b);
+    for (let i = cuts.length - 1; i > 0; i--) if (cuts[i] - cuts[i - 1] < 0.3) cuts.splice(i, 1); // (bulkheads at one station, side by side: one cut, never a compartment with no room in it)
     const xs = [H.x0, ...cuts, H.x1], o = partPt(p, 0, 0), a = partPt(p, 1, 0), u = partPt(p, 0, 1);
     for (let i = 0; i + 1 < xs.length; i++) {
       const C = compRings(p.def, xs[i], xs[i + 1]);
@@ -2631,7 +2648,7 @@ const Ship = (() => {
       if (!(A2 > 1e-9)) continue;
       const a = A2 / 2;
       V += a * r.w; mx += a * r.w * r.x; my += (sy / 6) * r.w; mz += (sz / 6) * r.w;
-      if (cs >= 2) Aw += Math.hypot(c1y - c0y, c1z - c0z) * r.w;
+      if (cs >= 2) Aw += mhypot(c1y - c0y, c1z - c0z) * r.w;
     }
     CL.V = V; CL.A = Aw;
     if (V > 1e-9) { CL.x = mx / V; CL.y = my / V; CL.z = mz / V; } else { CL.x = c.cx; CL.y = c.cy; CL.z = 0; }
@@ -2647,23 +2664,25 @@ const Ship = (() => {
   }
   // The flood level of compartment c (the height, K's, whose water under it is c.W: Newton from the last one, kept
   // inside the span's bracket), its free surface (c.fs) and the water's centroid in part space (c.fx, fy, fz); none
-  // aboard: −Infinity. Cached while W and her up (Ub) move less than 1 % and 0.5°.
-  const COS05 = Math.cos((0.5 * Math.PI) / 180);
+  // aboard: −Infinity. Cached while W and her up (Ub) move less than 1 % and 0.5°; [WP8] with her up held, up to a tenth
+  // more or less water moves the level by itself over the last free surface (solved again past that).
+  const COS05 = Math.cos((0.5 * PI) / 180);
   function levelOf(v, S, c) {
     if (!(c.W > 1e-6)) { c.lev = -Infinity; c.fs = 0; return c.lev; }
     const K = kOf(v, S, c, KQ), Ub = S.Ub, f = c.fc;
-    if (f && Math.abs(c.W - f.W) <= 0.01 * Math.max(f.W, 1e-3) && Ub.x * f.ux + Ub.y * f.uy + Ub.z * f.uz > COS05) {
-      c.lev = f.L - (f.k - (K.b + K.x * c.cx)); // (the plane moves with her centre of mass: its height over the compartment's centre kept)
-      return c.lev;
+    if (f && Ub.x * f.ux + Ub.y * f.uy + Ub.z * f.uz > COS05) {
+      const dW = c.W - f.W;
+      if (mabs(dW) <= 0.01 * mmax(f.W, 1e-3)) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)); return c.lev; } // (the plane moves with her centre of mass: its height over the compartment's centre kept)
+      if (f.A > 1e-3 && mabs(dW) <= 0.1 * mmax(f.W, 0.5) && c.W < c.V - 1e-6) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)) + dW / f.A; return c.lev; } // ([WP8] a little more or less water: the level moves by it over the free surface, until it has moved a tenth: solved again)
     }
     const sp = spanOf(c, K);
     let lo = sp[0], hi = sp[1];
     if (c.W >= c.V - 1e-6) { c.lev = hi; c.fs = 0; setFc(c, K, hi, c.cx, c.cy, 0, Ub); return hi; }
-    let L = f && Number.isFinite(c.lev) ? clamp(c.lev, lo, hi) : lo + (hi - lo) * (c.W / c.V), q = null;
+    let L = f && Number.isFinite(c.lev) ? mclamp(c.lev, lo, hi) : lo + (hi - lo) * (c.W / c.V), q = null;
     for (let it = 0; it < 12; it++) {
       q = clipComp(c, K, L);
       const e = c.W - q.V;
-      if (Math.abs(e) <= 1e-3 * c.V + 1e-6) break;
+      if (mabs(e) <= 1e-3 * c.V + 1e-6) break;
       if (e > 0) lo = L; else hi = L;
       let nL = q.A > 1e-6 ? L + e / q.A : (lo + hi) / 2;
       if (!(nL > lo && nL < hi)) nL = (lo + hi) / 2;
@@ -2672,12 +2691,12 @@ const Ship = (() => {
     }
     if (!q) q = clipComp(c, K, L);
     c.lev = L; c.fs = q.A;
-    setFc(c, K, L, q.x, q.y, clamp(q.z, -SHIP.FLOOD.fsMax * c.beam, SHIP.FLOOD.fsMax * c.beam), Ub);
+    setFc(c, K, L, q.x, q.y, mclamp(q.z, -SHIP.FLOOD.fsMax * c.beam, SHIP.FLOOD.fsMax * c.beam), Ub, q.A);
     return L;
   }
-  function setFc(c, K, L, x, y, z, Ub) {
-    const f = c.fc || (c.fc = { W: 0, ux: 0, uy: 0, uz: 0, L: 0, k: 0, x: 0, y: 0, z: 0 });
-    f.W = c.W; f.ux = Ub.x; f.uy = Ub.y; f.uz = Ub.z; f.L = L; f.k = K.b + K.x * c.cx;
+  function setFc(c, K, L, x, y, z, Ub, A) {
+    const f = c.fc || (c.fc = { W: 0, ux: 0, uy: 0, uz: 0, L: 0, k: 0, x: 0, y: 0, z: 0, A: 0 });
+    f.W = c.W; f.ux = Ub.x; f.uy = Ub.y; f.uz = Ub.z; f.L = L; f.k = K.b + K.x * c.cx; f.A = A || 0;
     f.x = c.ox + c.ex.x * x + c.ey.x * y; f.y = c.oy + c.ex.y * x + c.ey.y * y; f.z = c.oz + z;
   }
   // The flood water's weight (Ship.forces' marked line, every step): ρ·g·W straight down at each compartment's water's
@@ -2689,14 +2708,14 @@ const Ship = (() => {
     for (const c of S.comps) {
       if (!(c.W > 1e-6)) continue;
       levelOf(v, S, c);
-      const f = c.fc, F = SHIP.RHO * gl * Math.min(c.W, c.V);
+      const f = c.fc, F = SHIP.RHO * gl * mmin(c.W, c.V);
       _ff.x = -S.Ub.x * F; _ff.y = -S.Ub.y * F; _ff.z = -S.Ub.z * F;
       _fX.x = f.x; _fX.y = f.y; _fX.z = f.z;
       push(v, _fX, _ff);
       W += c.W;
     }
     if (!(W > 0) || !(S.Vol > SHIP.FLOOD.under * (S.vtot || Infinity))) return;
-    const u = vb.x * S.Ub.x + vb.y * S.Ub.y + vb.z * S.Ub.z, D = capF(-0.5 * SHIP.RHO * SHIP.FLOOD.sinkCd * (S.plan || 1) * u * Math.abs(u), u, v.mass, dt);
+    const u = vb.x * S.Ub.x + vb.y * S.Ub.y + vb.z * S.Ub.z, D = capF(-0.5 * SHIP.RHO * SHIP.FLOOD.sinkCd * (S.plan || 1) * u * mabs(u), u, v.mass, dt);
     _ff.x = S.Ub.x * D; _ff.y = S.Ub.y * D; _ff.z = S.Ub.z * D;
     push(v, v.com, _ff);
   }
@@ -2723,40 +2742,23 @@ const Ship = (() => {
     const r = frameOf(v, S), gl = v.body.mu / (r * r), h0 = r - v.body.radius - S.level, t = seaT(sim), FL = SHIP.FLOOD;
     // (downflooding: a deck edge under the water for FLOOD.downT s)
     const n = S.rings.length, deck = deckScan(v, S, h0, t, dt);
-    if (!busy && !deck) { S.wet = null; return; }
+    if (!busy && !deck) { S.wet = null; S.flow = 0; return; }
     const comps = S.comps;
     DW.length = comps.length;
     for (let i = 0; i < comps.length; i++) { DW[i] = 0; levelOf(v, S, comps[i]); }
-    const g2 = 2 * gl, hOf = (X) => (X.x - v.com.x) * S.Ub.x + (X.y - v.com.y) * S.Ub.y + (X.z - (v.com.z || 0)) * S.Ub.z;
-    // the flow between the sea and compartment i through a (m², at X: a round hole r m across its middle, or a point), by
-    // the water over each strip of it outside and inside (a hole astride the waterline lets in what laps over its lower
-    // half), never past level in a step (the free surface's area × the head at its foot)
-    const sea = (i, a, X, r) => {
-      if (!(a > 0)) return;
-      const c = comps[i], lo = depthOf(v, S, X, h0, t), li = c.lev - hOf(X);
-      r = r > 0.05 ? r : 0;
-      if (lo <= -r && li <= -r) return;
-      let q = 0;
-      if (!r) { const D = Math.max(0, lo) - Math.max(0, li); q = FL.cd * a * Math.sqrt(g2 * Math.abs(D)) * Math.sign(D); }
-      else for (let k = 0; k < 6; k++) { // (six strips up the hole, each its own head)
-        const z = -r + ((k + 0.5) * r) / 3, w = 2 * Math.sqrt(Math.max(0, r * r - z * z)) * (r / 3), D = Math.max(0, lo - z) - Math.max(0, li - z);
-        q += FL.cd * w * Math.sqrt(g2 * Math.abs(D)) * Math.sign(D);
-      }
-      if (r) q *= a / (Math.PI * r * r);
-      const cap = Math.abs(Math.max(0, lo + r) - Math.max(0, li + r)) * Math.max(c.fs, 0.25 * c.len * c.beam);
-      DW[i] += clamp(q * dt, -cap, cap);
-    };
-    for (let i = 0; i < comps.length; i++) for (const h of comps[i].holes) sea(i, h.a * (1 - 0.9 * clamp(h.fix || 0, 0, 1)), h, Math.sqrt(h.a / Math.PI));
+    FS.v = v; FS.S = S; FS.h0 = h0; FS.t = t; FS.g2 = 2 * gl; FS.dt = dt; FS.cd = FL.cd;
+    const hOf = flHeight, sea = flowSea, g2 = FS.g2;
+    for (let i = 0; i < comps.length; i++) { const L = comps[i].holes; for (let j = 0; j < L.length; j++) { const h = L[j], f = h.fix > 0 ? (h.fix < 1 ? h.fix : 1) : 0; sea(i, h.a * (1 - 0.9 * f), h, msqrt(h.a / PI)); } }
     // the open ends: the end ring's section under the water outside (or under the water inside, going out), at its keel
     for (const o of S.open) {
       const cs = comps.filter((c) => c.p === o.p), i = comps.indexOf(o.end === 'aft' ? cs[0] : cs[cs.length - 1]);
       if (i < 0) continue;
       const H = shullOf(o.p.def), R = o.end === 'aft' ? H.rings[0] : H.rings[H.nr - 1];
       partOf(o.p, R.x, R.yk, 0, _hX);
-      const out = depthOf(v, S, _hX, h0, t), inn = comps[i].lev - hOf(_hX), head = Math.max(out, inn, 0);
+      const out = depthOf(v, S, _hX, h0, t), inn = comps[i].lev - hOf(_hX), head = mmax(out, inn, 0);
       if (!(head > 0)) continue;
-      const a = shullArea(R.P, R.yk + Math.min(head, R.yd - R.yk)).A; // (its area under the higher water)
-      partOf(o.p, R.x, R.yk + Math.min(head, R.yd - R.yk) / 3, 0, _hX); // (its centroid, near enough: a third up)
+      const a = shullArea(R.P, R.yk + mmin(head, R.yd - R.yk)).A; // (its area under the higher water)
+      partOf(o.p, R.x, R.yk + mmin(head, R.yd - R.yk) / 3, 0, _hX); // (its centroid, near enough: a third up)
       sea(i, a, _hX);
     }
     // downflooding: each stretch of deck edge under the water past downT lets in downA per m of it
@@ -2772,11 +2774,11 @@ const Ship = (() => {
     // broken boundaries: a hull holed through leaks to its joined neighbours and across its bulkheads
     const pair = (i, j, X) => {
       if (i < 0 || j < 0 || i === j) return;
-      const A = comps[i], B = comps[j], hX = hOf(X), a = Math.max(0, A.lev - hX), b = Math.max(0, B.lev - hX), D = a - b;
-      if (Math.abs(D) < 1e-5) return;
-      let q = FL.cd * FL.leak * Math.sqrt(g2 * Math.abs(D)) * dt;
-      q = Math.min(q, Math.abs(D) * Math.max(Math.min(A.fs || 1e9, B.fs || 1e9), 0.25 * Math.min(A.len, B.len) * Math.min(A.beam, B.beam)) / 2);
-      if (D > 0) { q = Math.min(q, A.W); DW[i] -= q; DW[j] += q; } else { q = Math.min(q, B.W); DW[j] -= q; DW[i] += q; }
+      const A = comps[i], B = comps[j], hX = hOf(X), a = mmax(0, A.lev - hX), b = mmax(0, B.lev - hX), D = a - b;
+      if (mabs(D) < 1e-5) return;
+      let q = FL.cd * FL.leak * msqrt(g2 * mabs(D)) * dt;
+      q = mmin(q, mabs(D) * mmax(mmin(A.fs || 1e9, B.fs || 1e9), 0.25 * mmin(A.len, B.len) * mmin(A.beam, B.beam)) / 2);
+      if (D > 0) { q = mmin(q, A.W); DW[i] -= q; DW[j] += q; } else { q = mmin(q, B.W); DW[j] -= q; DW[i] += q; }
     };
     for (const [a, b] of S.joins) {
       if (!a.broken && !b.broken) continue;
@@ -2789,23 +2791,60 @@ const Ship = (() => {
       const sec = secAt(A.p.def.shull.st, A.hi, SEC2);
       pair(i, i + 1, partOf(A.p, A.hi, sec[1], 0, _hX));
     }
-    // pumps: every hull's own and each whole pump (by its health) on the fullest compartment, while an engine runs
+    // pumps: every hull's own and each whole pump (by its health) on the fullest compartment, while an engine runs (a
+    // whole one above her flood water)
     let cap = 0, run = false;
-    for (const p of S.engines) if (whole(v, p)) { run = true; break; }
+    for (const p of S.engines) if (whole(v, p) && !(S.wet && S.wet.has(p))) { run = true; break; } // (an engine under her flood water gives nothing: §4.8)
     if (run) {
       for (const p of S.hulls) if (whole(v, p)) cap += p.def.shull.pump || 0;
-      for (const p of v.parts) if (p.def.pump && !p.def.shull && whole(v, p)) cap += p.def.pump * hpFracOf(p);
+      for (const e of machinesOf(v, S)) if (e.p.def.pump && whole(v, e.p)) cap += e.p.def.pump * hpFracOf(e.p);
     }
     let worst = -1, ws = 0;
     for (let i = 0; i < comps.length; i++) { const c = comps[i], f = (c.W + DW[i]) / c.V; if (c.W + DW[i] > 1e-6 && f > ws) { ws = f; worst = i; } }
     if (worst >= 0 && cap > 0) DW[worst] -= cap * dt;
-    let moved = false;
+    let moved = false, flow = 0;
     for (let i = 0; i < comps.length; i++) {
-      const c = comps[i], W = c.W + DW[i] < 1e-6 ? 0 : clamp(c.W + DW[i], 0, c.V);
-      if (W !== c.W) { c.W = W; moved = true; }
+      const c = comps[i], W = c.W + DW[i] < 1e-6 ? 0 : mclamp(c.W + DW[i], 0, c.V);
+      if (W !== c.W) { flow += mabs(W - c.W); c.W = W; moved = true; }
     }
+    S.flow = flow / dt; // (m³/s moved this step: Ship.busy)
     if (moved) for (const p of S.hulls) { let w = 0; for (const c of comps) if (c.p === p) w += c.W; p.water = w; }
     wetOf(v, S);
+  }
+  // (floodStep's) the flow between the sea and compartment i through a (m², at the part-space point X: a round hole r m
+  // across its middle, or a point), by the water over each strip of it outside and inside (a hole astride the waterline
+  // lets in what laps over its lower half), never past level in a step (the free surface's area × the head at its foot):
+  // into DW[i]. FS: the step's ship, her height over the still water h0, the sea's clock t, 2g, dt
+  const FS = { v: null, S: null, h0: 0, t: 0, g2: 0, dt: 0, cd: 0 };
+  function flHeight(X) { const v = FS.v, U = FS.S.Ub, c = v.com; return (X.x - c.x) * U.x + (X.y - c.y) * U.y + (X.z - (c.z || 0)) * U.z; }
+  function flowSea(i, a, X, r) {
+    if (!(a > 0)) return;
+    const v = FS.v, S = FS.S, c = S.comps[i], cd = FS.cd, g2 = FS.g2, hX = flHeight(X), lo = seaOver(v, S, X, hX), li = c.lev - hX;
+    r = r > 0.05 ? r : 0;
+    if (lo <= -r && li <= -r) return;
+    if (r && (lo >= r || lo <= -r) && (li >= r || li <= -r)) r = 0; // (neither level crosses it: its middle's head is all of it's)
+    let q = 0;
+    if (!r) { const D = (lo > 0 ? lo : 0) - (li > 0 ? li : 0); q = D >= 0 ? cd * a * msqrt(g2 * D) : -cd * a * msqrt(-g2 * D); }
+    else {
+      for (let k = 0; k < 6; k++) { // (six strips up the hole, each its own head)
+        const z = -r + ((k + 0.5) * r) / 3, w = 2 * msqrt(r * r - z * z) * (r / 3), D = (lo > z ? lo - z : 0) - (li > z ? li - z : 0);
+        q += D >= 0 ? cd * w * msqrt(g2 * D) : -cd * w * msqrt(-g2 * D);
+      }
+      q *= a / (PI * r * r);
+    }
+    const ho = lo + r > 0 ? lo + r : 0, hi = li + r > 0 ? li + r : 0, fa = 0.25 * c.len * c.beam, cap = (ho > hi ? ho - hi : hi - ho) * (c.fs > fa ? c.fs : fa), dq = q * FS.dt;
+    DW[i] += dq > cap ? cap : dq < -cap ? -cap : dq;
+  }
+  // how deep a part-space point X is under the sea outside her (+ under: its wave there), hX its height over her centre of
+  // mass along her up (depthOf's, the wave's height alone)
+  function seaOver(v, S, X, hX) {
+    let eta = 0;
+    if (S.fade > 0) {
+      const c = v.com, ox = X.x - c.x, oy = X.y - c.y, oz = X.z - (c.z || 0), e = S.e0 + ox * S.Eb.x + oy * S.Eb.y + oz * S.Eb.z, n = S.n0 + ox * S.Nb.x + oy * S.Nb.y + oz * S.Nb.z, t = FS.t;
+      for (let i = 0; i < NW; i++) eta += WA[i] * msin(WK[i] * (WDE[i] * e + WDN[i] * n) - WO[i] * t + WP[i]);
+      eta *= S.fade;
+    }
+    return -(FS.h0 + hX - eta);
   }
   // Her deck edges against the sea (FLOOD.hz, floodStep): how long each has been under (S.dfT: downflooding past
   // FLOOD.downT; a ship's only), and how deep her highest deck edge is (S.deckMin, + under: the fate's "every deck under"). A deck edge
@@ -2813,7 +2852,7 @@ const Ship = (() => {
   function deckScan(v, S, h0, t, dt) {
     const n = S.rings.length, U = S.Ub, c = v.com, cz = c.z || 0, open = v.kind === 'ship'; // (a ship's deck has its hatches and vents; a float's, an amphibious tank's hull under its hull, are sealed)
     let wm = 0;
-    for (let i = 0; i < NW; i++) wm += Math.abs(WA[i]);
+    for (let i = 0; i < NW; i++) wm += mabs(WA[i]);
     wm = wm * (S.fade || 0) + 0.01;
     if (!S.dfT || S.dfT.length !== 2 * n) S.dfT = new Float32Array(2 * n);
     let past = false, top = Infinity;
@@ -2839,14 +2878,20 @@ const Ship = (() => {
     if (!any) { S.wet = null; return; }
     const set = S.wet || (S.wet = new Set());
     set.clear();
-    for (const p of v.parts) {
-      if (!(p.def.engine || p.def.pump) || p.def.shull) continue;
-      const c = compAt(v, S, p, partZ(p));
+    for (const e of machinesOf(v, S)) {
+      const c = e.c, p = e.p;
       if (!c || !(c.W > 1e-6)) continue;
-      _hX.x = p.x; _hX.y = p.y; _hX.z = partZ(p);
-      const h = (_hX.x - v.com.x) * S.Ub.x + (_hX.y - v.com.y) * S.Ub.y + (_hX.z - (v.com.z || 0)) * S.Ub.z;
+      const h = (p.x - v.com.x) * S.Ub.x + (p.y - v.com.y) * S.Ub.y + (e.z - (v.com.z || 0)) * S.Ub.z;
       if (h < c.lev) set.add(p);
     }
+  }
+  // her engines and pumps (not a hull's own), each with its compartment and depth: worked out once a rebuild (Ship.groups)
+  function machinesOf(v, S) {
+    if (S.mach && S.machN === v.parts.length) return S.mach;
+    const L = [];
+    for (const p of v.parts) if ((p.def.engine || p.def.pump) && !p.def.shull) { const z = partZ(p); L.push({ p, z, c: compAt(v, S, p, z) }); }
+    S.mach = L; S.machN = v.parts.length;
+    return L;
   }
   // the compartment a part-space point lies in (its hull part by its host, else by insideHull), or null
   function compAt(v, S, p, z) {
@@ -2859,57 +2904,138 @@ const Ship = (() => {
     return last;
   }
   function wetAt(v, p) { return !!(v && v.sh && v.sh.wet && v.sh.wet.has(p)); }
+  // Is damage being done or fought aboard her (flight.js canRails: no rails warp then, as with her engines running; the
+  // rails never step her flooding, fires or damage control)? A fire burning, water moving in or out of her, or her
+  // damage control at a job (a hole to patch, a part to mend)
+  function busy(v) {
+    const S = v && v.sh;
+    if (!S || v.dead) return false;
+    for (const p of v.parts) if (p.fire > 0) return true;
+    if (S.flow > 1e-3) return true;
+    if (S.dc) for (const e of S.dc) if (e.job) return true;
+    return false;
+  }
 
   // ---- fires (§8.8): FIRE.hz times a second
   // A part lit (p.fire = 1) with the odds given (the damage's dice); a part under her flood water or the sea doesn't catch
-  function ignite(v, p, odds, by, sim) {
+  function ignite(v, p, odds, by, sim, at) {
     if (!v || !v.sh || !p || !whole(v, p) || p.fire > 0 || !(rnd() < odds)) return false;
     p.fire = 1; p.fireBy = by || null;
+    if (p.def.shull) p.fireAt = at && Number.isFinite(at.x) && Number.isFinite(at.y) && Number.isFinite(at.z) ? boxed(p, at.x, at.y, at.z) : null; // (a hull burns where it was lit: at (part space), else its middle)
     if (v === (sim && sim.active) && !v.ai && sim.toast && !sim.destroyed) sim.toast(`Fire in the ${p.def.name}!`, 'warn');
     return true;
   }
+  // Is the fire in part p drowned? Inside her hull (a hull part's own, or a part within its plating) only by the flood
+  // water in its compartment over it, the sea outside the plating never (a dry engine room burns, down there too); a part
+  // outside her hull (on deck, the superstructure) by the sea over it; any once she has gone under. k: p's place in the
+  // layout (layoutOf: which hull it is inside, if any)
   const _fw = v3();
+  function drowned(v, S, p, k, L) {
+    if (v.sunk != null) return true;
+    if (k >= 0 && !p.def.shull) { _fw.x = L.x[k]; _fw.y = L.y[k]; _fw.z = L.z[k]; } else fireSpot(p, _fw);
+    const H = p.def.shull ? p : k >= 0 ? L.in[k] : insideHull(v, _fw) ? IH.p : null;
+    if (!H) { if (!FW.ok) { const r = frameOf(v, S); FW.h0 = r - v.body.radius - S.level; FW.t = seaT(FW.sim); FW.ok = true; } return depthOf(v, S, _fw, FW.h0, FW.t) > 0.3; }
+    const lx = ownPt(H, _fw, _ho).x;
+    let c = null;
+    for (const q of S.comps) if (q.p === H) { c = q; if (lx <= q.hi + 1e-6) break; }
+    if (!c || !(c.W > 1e-6)) return false;
+    levelOf(v, S, c);
+    return (_fw.x - v.com.x) * S.Ub.x + (_fw.y - v.com.y) * S.Ub.y + (_fw.z - (v.com.z || 0)) * S.Ub.z < c.lev;
+  }
+  const FW = { ok: false, h0: 0, t: 0, sim: null }; // (fireStep's: her height over the water, looked at once a step if a fire outside her hull asks)
   function fireStep(v, dt, sim) {
     const S = v && v.sh;
     if (!S || v.remote || v.dead || v.wreck || !(dt > 0)) return;
     let n = 0;
     for (const p of v.parts) if (p.fire > 0) { n++; break; }
     if (!n) return;
-    const F = SHIP.FIRE, M = SHIP.MAG, r = frameOf(v, S), h0 = r - v.body.radius - S.level, t = seaT(sim), list = v.parts.filter((p) => p.fire > 0);
+    const F = SHIP.FIRE, M = SHIP.MAG, list = FIRES, mags = MAGN;
+    list.length = 0;
+    for (const p of v.parts) if (p.fire > 0) list.push(p); // (the fires burning as the step starts: one lit by them burns from the next)
+    const P = layoutOf(v, S), C = v.gv && typeof Armour !== 'undefined' ? crewAt(v, S) : null; // (where her parts and crew are)
+    FW.ok = false; FW.sim = sim;
+    const cr2 = F.crewR * F.crewR, reach = mmax(F.spreadR, M.near);
+    mags.clear();
     let drawn = 0;
     for (const p of list) {
       if (!v.byId.has(p.id)) { p.fire = 0; continue; }
       if (p.fire > 1) p.fire = 1; // (armour.js lights an engine with seconds of fire: a ship's burns until it is fought)
-      _fw.x = p.x; _fw.y = p.y; _fw.z = partZ(p);
-      if (depthOf(v, S, _fw, h0, t) > 0.3 || wetAt(v, p) || (p.hp != null && p.hp <= 0 && !p.def.shull)) { p.fire = 0; continue; } // (drowned, or burnt out)
+      const k0 = P.p.indexOf(p);
+      if (drowned(v, S, p, k0, P) || (p.hp != null && p.hp <= 0 && !p.def.shull)) { p.fire = 0; continue; } // (drowned, or burnt out)
       if (typeof Combat !== 'undefined') Combat.damage(v, p, F.hp * dt, 'fire', sim, p.fireBy || undefined);
       if (!v.byId.has(p.id)) { p.fire = 0; continue; }
       if (p.def.shull && p.broken) { p.fire = 0; continue; } // (a hull burnt through: nothing left to burn)
+      const f = k0 >= 0 && !p.def.shull ? ((_fs.x = P.x[k0]), (_fs.y = P.y[k0]), (_fs.z = P.z[k0]), _fs) : fireSpot(p, _fs), fx = f.x, fy = f.y, fz = f.z; // (where it burns: a hull's fire where it was lit, not anywhere along her)
       // the crew within FIRE.crewR m
-      if (v.gv && typeof Armour !== 'undefined') for (const e of Armour.crewOf(v).crew) {
-        if (!e.alive) continue;
-        const h = e.host, q = e.i >= 0 ? h.def.mods[e.i].at : null, x = q ? h.x + q[0] * h.def.w : e.part.x, y = q ? h.y + q[1] * h.def.h : e.part.y, z = q ? partZ(h) + q[2] * partDepth(h) : partZ(e.part);
-        if (Math.hypot(x - p.x, y - p.y, z - partZ(p)) > F.crewR + (p.def.shull ? Math.max(p.def.w, p.def.h) / 2 : 0)) continue;
-        if (e.i >= 0) Armour.modDamage(v, h, e.i, F.crew * dt, sim, p.fireBy || undefined);
+      if (C) for (let k = 0; k < C.n; k++) {
+        const e = C.list[k], ex = C.x[k] - fx, ey = C.y[k] - fy, ez = C.z[k] - fz;
+        if (!e.alive || ex * ex + ey * ey + ez * ez > cr2) continue;
+        if (e.i >= 0) Armour.modDamage(v, e.host, e.i, F.crew * dt, sim, p.fireBy || undefined);
         else if (typeof Combat !== 'undefined') Combat.damage(v, e.part, F.crew * dt, 'fire', sim, p.fireBy || undefined);
       }
-      // it spreads, and a magazine near it for MAG.t s goes up
-      for (const q of v.parts) {
-        if (q === p || !whole(v, q)) continue;
-        const dd = Math.hypot(q.x - p.x, q.y - p.y, partZ(q) - partZ(p)) - Math.max(q.def.w, q.def.h) / 2 - (p.def.shull ? Math.max(p.def.w, p.def.h) / 2 : 0);
-        if (!(q.fire > 0) && dd < F.spreadR && rnd() < F.spread * dt) { q.fire = 1; q.fireBy = p.fireBy; }
-        if (q.def.module === 'ammo' && dd < M.near) { q.magT = (q.magT || 0) + dt; if (q.magT >= M.t) magazine(v, sim, q); }
+      // it spreads (a hull it spreads to burns from where it came in), and a magazine near it for MAG.t s goes up (one
+      // clock a magazine, however many fires are near it)
+      for (let k = 0; k < P.n; k++) {
+        const q = P.p[k], qx = P.x[k] - fx, qy = P.y[k] - fy, qz = P.z[k] - fz, r = reach + P.hw[k];
+        if (q === p || qx * qx + qy * qy + qz * qz >= r * r || !whole(v, q)) continue; // (out of reach of its box, a hull's: of it too)
+        const dd = q.def.shull ? boxDistOwn(q, P, k, fx, fy, fz) : msqrt(qx * qx + qy * qy + qz * qz) - P.hw[k];
+        if (!(q.fire > 0) && dd < F.spreadR && rnd() < F.spread * dt) { q.fire = 1; q.fireBy = p.fireBy; if (q.def.shull) q.fireAt = boxed(q, fx, fy, fz); }
+        if (q.def.module === 'ammo' && dd < M.near) mags.add(q);
       }
-      // black smoke from it (the view's ship and those near: FX's caps)
+      // black smoke from it (the view's ship and those near: FX's caps): a hull's from her deck over the fire
       if (drawn < 6 && typeof FX !== 'undefined' && FX.add && v.body) {
         drawn++;
-        const w = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p)), up = Math.hypot(w.x, w.y, w.z) || 1;
+        let w;
+        if (p.def.shull) { const lx = ownPt(p, f, _ho).x, sec = secAt(p.def.shull.st, lx, SEC2); w = partOf(p, lx, sec[0], fz - partZ(p), _fd); w = v.toWorld(w.x, w.y, w.z); }
+        else w = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p));
+        const up = Math.hypot(w.x, w.y, w.z) || 1;
         FX.add({ kind: 'smoke', b: v.body, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9 + (w.x / up) * 4, vy: v.vy * 0.9 + (w.y / up) * 4, vz: v.vz * 0.9 + (w.z / up) * 4,
           max: 4 + rnd() * 2, size: 1.2, grow: 6, color: '#25272b', alpha: 0.65 });
         if (rnd() < 0.6) FX.add({ kind: 'fire', b: v.body, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9, vy: v.vy * 0.9, vz: v.vz * 0.9, max: 0.4, size: 1.1, grow: 1.4, color: '#ff8a30', alpha: 1 });
       }
     }
-    for (const q of v.parts) if (q.magT && !list.some((p) => p.fire > 0 && Math.hypot(q.x - p.x, q.y - p.y) < M.near + 20)) q.magT = 0;
+    for (const q of v.parts) if (q.magT && !mags.has(q)) q.magT = 0; // (no fire near it now: its clock starts again)
+    for (const q of mags) { q.magT = (q.magT || 0) + dt; if (q.magT >= M.t && whole(v, q)) magazine(v, sim, q); }
+    mags.clear();
+  }
+  // where part p burns (part space): a hull's fire where it was lit or came in (p.fireAt; else its middle), a part's
+  // its middle
+  const MAGN = new Set(), FIRES = [], _fs = v3(), _fd = v3();
+  function fireSpot(p, o) {
+    const a = p.def.shull && p.fireAt;
+    if (a && Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.z)) { o.x = a.x; o.y = a.y; o.z = a.z; }
+    else { o.x = p.x; o.y = p.y; o.z = partZ(p); }
+    return o;
+  }
+  // her parts' middles (part space) and each one's reach from it (a hull's half diagonal, else its half size): what a
+  // fire looks at, worked out again when her parts change
+  function layoutOf(v, S) {
+    const L = S.lay;
+    if (L && L.of === v.parts && L.n === v.parts.length) return L;
+    const n = v.parts.length, o = { of: v.parts, n, p: v.parts.slice(), x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), hw: new Float64Array(n), hd: new Float64Array(n), in: new Array(n) };
+    for (let k = 0; k < n; k++) {
+      const q = v.parts[k], d = q.def;
+      o.x[k] = q.x; o.y[k] = q.y; o.z[k] = partZ(q); o.hd[k] = partDepth(q) / 2; o.hw[k] = d.shull ? mhypot(d.w, d.h, partDepth(q)) / 2 : mmax(d.w, d.h) / 2;
+      _fw.x = q.x; _fw.y = q.y; _fw.z = o.z[k]; o.in[k] = d.shull ? q : insideHull(v, _fw) ? IH.p : null; // (the hull it is inside)
+    }
+    return (S.lay = o);
+  }
+  // where her crew are now (part space), for the fires: { list, n, x, y, z }
+  function crewAt(v, S) {
+    const list = Armour.crewOf(v).crew, L = S.crw;
+    if (L && L.list === list && L.n === list.length && L.of === v.parts) return L;
+    const n = list.length, o = { list, n, of: v.parts, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n) };
+    for (let k = 0; k < n; k++) {
+      const e = list[k], h = e.host, q = e.i >= 0 ? h.def.mods[e.i].at : null;
+      o.x[k] = q ? h.x + q[0] * h.def.w : e.part.x; o.y[k] = q ? h.y + q[1] * h.def.h : e.part.y; o.z[k] = q ? partZ(h) + q[2] * partDepth(h) : partZ(e.part);
+    }
+    return (S.crw = o);
+  }
+  // the distance (m) from a part-space point to hull part q's box (0 inside it): near enough for a fire's reach
+  function boxDistOwn(q, L, k, x, y, z) {
+    const d = q.def, dx = x - L.x[k], dy = y - L.y[k], r = q.rot & 3, ox = r === 1 ? dy : r === 2 ? -dx : r === 3 ? -dy : dx, oy = r === 1 ? -dx : r === 2 ? -dy : r === 3 ? dx : dy; // (ownPt's turn)
+    const ax = mabs(ox) - d.w / 2, ay = mabs(oy) - d.h / 2, az = mabs(z - L.z[k]) - L.hd[k];
+    return msqrt((ax > 0 ? ax * ax : 0) + (ay > 0 ? ay * ay : 0) + (az > 0 ? az * az : 0));
   }
 
   // ---- magazines (§8.8)
@@ -2941,17 +3067,39 @@ const Ship = (() => {
     if (!H || !H.def.shull) { const h = insideHull(v, c); H = h ? h.p : S.hulls.reduce((m, q) => (!m || Math.hypot(q.x - c.x, q.y - c.y) < Math.hypot(m.x - c.x, m.y - c.y) ? q : m), null); }
     const brk = n >= M.brk && H;
     if (brk) doom(v, sim, 'magazine', by === v ? undefined : by);
-    // a hole low in every compartment within its reach (at the keel, the nearest station to it)
+    // a hole in every compartment within its reach, where the blast meets it: its plating nearest the magazine
     const rows = [];
-    for (const k of S.comps) {
-      const x = clamp(ownPt(k.p, c, _ho).x, k.lo, k.hi), sec = secAt(k.p.def.shull.st, x, SEC2), X = partOf(k.p, x, sec[1], 0, v3());
-      if (Math.hypot(X.x - c.x, X.y - c.y, X.z - c.z) <= R) rows.push([k.p, X.x, X.y, X.z, M.hole]);
-    }
+    for (const k of S.comps) { const d = plateNear(k, c, _pn); if (d <= R) rows.push([k.p, _pn.x, _pn.y, _pn.z, M.hole]); }
     addHoles(v, rows, clockOf(sim));
     if (typeof Combat !== 'undefined' && sim && sim.vessels) Combat.explode(b, P, R, M.dmg + n * M.dmgK, by, sim, false, undefined, undefined, undefined, { noHoles: true });
     if (typeof Death !== 'undefined' && Death.deathFX) Death.deathFX(v, sim, 'ammo', clamp(R / 4, 3, 9), P);
     if (sim && v === sim.active && sim.toast && !v.ai && !brk) sim.toast(`${part.def.name} went up!`, 'warn');
     if (brk && v.byId.has(H.id) && !v.dead) breakAt(v, sim, H, part);
+    return true;
+  }
+  // The plating of compartment k nearest the part-space point X (its sides, deck and bottom within its stretch of its
+  // hull part, not an open joint's end): the point into o (part space), the distance (m)
+  const _pn = v3(), PN = [0, 0, 0];
+  function plateNear(k, X, o) {
+    const p = k.p, T = shullTris(p.def), xs = T.xs, n = T.n, q = ownPt(p, X, _ho), x = q.x, y = q.y, z = q.z;
+    let best = Infinity;
+    const test = (f0, f1) => { for (let f = f0; f < f1; f++) { if (T.code[f] === -9) continue; const d = triDist2(T, f, x, y, z); if (d < best) { best = d; PN[0] = TD[0]; PN[1] = TD[1]; PN[2] = TD[2]; } } };
+    for (let i = 0; i + 1 < n; i++) if (xs[i + 1] >= k.lo - 1e-6 && xs[i] <= k.hi + 1e-6) test(T.slab[2 * i], T.slab[2 * i + 1]);
+    if (k.k === 0) test(T.cap[0][0], T.cap[0][1]);
+    if (k.k === k.n - 1) test(T.cap[1][0], T.cap[1][1]);
+    if (best === Infinity) { partOf(p, (k.lo + k.hi) / 2, 0, 0, o); return Math.hypot(o.x - X.x, o.y - X.y, o.z - X.z); }
+    partOf(p, clamp(PN[0], k.lo, k.hi), PN[1], PN[2], o);
+    return Math.sqrt(best);
+  }
+  // A gun's ready rounds going up on its mount aboard a ship (armour.js cookOff, a built-in store: never a magazine's
+  // rule): a blast at the store (sim point P) of MAG.rack's size, the mount and what is near it wrecked, a hole where it
+  // meets the hull (the deck under it: Combat.explode's blastHull); no keel holes, never her back broken. true: handled
+  function rack(v, sim, host, P, rounds) {
+    if (!v || !v.sh || v.remote || v.dead || !P) return false;
+    const K = SHIP.MAG.rack, n = Number.isFinite(rounds) && rounds > 0 ? rounds : 0, by = v.lastHitBy && v.lastHitBy !== v ? v.lastHitBy : undefined;
+    if (n > 0 && typeof Combat !== 'undefined' && sim && sim.vessels) Combat.explode(v.body, P, K.r0 + n * K.rk, K.dmg + n * K.dmgK, by, sim, false);
+    if (n > 0 && typeof Death !== 'undefined' && Death.deathFX) Death.deathFX(v, sim, 'ammo', clamp((K.r0 + n * K.rk) / 3, 1, 4), P);
+    if (sim && v === sim.active && sim.toast && !v.ai && !sim.destroyed) sim.toast(`${host && host.def ? host.def.name : 'Mount'}: ready rounds went up`, 'warn');
     return true;
   }
   // She breaks where hull part H was: it is gone (and the magazine with it), the rest falls into pieces (each a hydro
@@ -3102,6 +3250,7 @@ const Ship = (() => {
     const h0 = r - v.body.radius - S.level, t = seaT(sim), air = isAirKind(v.kind);
     if (!v.fate) {
       if (air && !v.afloat) { S.capT = 0; return; } // (a flying boat in the air is the air rule's)
+      if (isGround(v.kind) && !v.afloat) { S.capT = S.sinkT = S.helmT = 0; return; } // ([WP8] an amphibious tank ashore is a tank: armour.js's knock-out, death.js's wreck)
       // capsized
       S.capT = Math.abs(v.heel || 0) > (FA.capsize * Math.PI) / 180 && v.afloat ? (S.capT || 0) + dt : 0;
       if (S.capT >= FA.capsizeT) { doom(v, sim, 'capsized'); return; }
@@ -3131,6 +3280,7 @@ const Ship = (() => {
     if (!v.sunk && (top > FA.under || S.bedT >= FA.bedT)) {
       v.sunk = clockOf(sim);
       if (v === sim.active && sim.toast && !v.ai && !sim.destroyed) sim.toast(v.fate === 'sunk' ? 'She has gone down' : 'She sinks', 'warn');
+      else if ((v.fate === 'action' || v.fate === 'capsized') && v.doomBy && typeof Combat !== 'undefined' && Combat.byMe && Combat.byMe(v.doomBy, sim) && typeof Death !== 'undefined' && Death.feedback) Death.feedback('SUNK', sim); // (one we put out of action or capsized: SUNK as she goes down)
     }
     if (v.sunk != null) { // (on the bed: a wreck there, a shallow bed's; gone FATE.gone m down before she reaches one)
       if (S.bedT >= FA.bedT || (S.depth < FA.wreckDepth && S.bedT > 0)) { wreckOf(v, sim); return; }
@@ -3141,6 +3291,20 @@ const Ship = (() => {
       FX.smoke(v.body, w, { x: v.vx, y: v.vy, z: v.vz }, 'column', clamp(Math.cbrt(v.mass / 1000) / 3, 0.6, 2));
     }
   }
+  // A hydro piece with no hull (a turret, a turbine, a bridge: a broken ship's, or one blown off her), FATE.hz times a
+  // second: it sinks to the bed and, resting there (or ashore) for bedT s, is a wreck (the wreck list: five minutes, then
+  // it sinks away); one that has gone through the bed (a turbine has nothing to stand on) is gone. Every piece of a ship
+  // goes in the end.
+  function debrisStep(v, dt, sim) {
+    const S = v.sh;
+    if (!S || S.rings.length || v.remote || v.dead || v.wreck || v.hulk != null || !(dt > 0)) return;
+    waterOf(v, S);
+    if (!(S.level > -Infinity)) return;
+    const alt = frameOf(v, S) - v.body.radius;
+    if (alt < S.level - S.depth - (v.reach || 1) - 2) { v.dead = true; return; }
+    S.bedT = (v.landed || v.contactTime > 0) && v.speed() < 1 ? (S.bedT || 0) + dt : 0;
+    if (S.bedT >= SHIP.FATE.bedT) wreckOf(v, sim);
+  }
   // holes of a m² at the keel of every compartment (scuttling, a derelict's end)
   function keelHoles(v, S, a, sim) {
     const rows = [];
@@ -3150,6 +3314,7 @@ const Ship = (() => {
   // A ship doomed: v.fate (flight.js SHIP_FATES says it), when, and whose kill (by, else her last hitter: Combat.byMe
   // decides the player's); out of action from now (v.ko: no helm, no guns, no engines), never moored; our kill's banner and
   // toast, the player's end (afterFall waits for her to go), an AI ship stops fighting. false: already doomed.
+  const BANNER = { sunk: 'SUNK', magazine: 'SUNK', capsized: 'CAPSIZED', action: 'OUT OF ACTION' }; // (Death's banner for a ship we doomed)
   function doom(v, sim, why, by) {
     if (!v || !v.sh || v.fate || v.dead) return false;
     const now = clockOf(sim), word = typeof SHIP_FATES !== 'undefined' && SHIP_FATES[why] ? SHIP_FATES[why] : why;
@@ -3160,7 +3325,7 @@ const Ship = (() => {
     if (sim) {
       const mine = v !== sim.active && v.doomBy && v.doomBy !== v && typeof Combat !== 'undefined' && Combat.byMe && Combat.byMe(v.doomBy, sim);
       if (mine) {
-        if (typeof Death !== 'undefined' && Death.feedback) Death.feedback('SUNK', sim);
+        if (typeof Death !== 'undefined' && Death.feedback) Death.feedback(BANNER[v.fate] || 'SUNK', sim); // (her fate's word: SUNK once she goes down, fateStep)
         if (typeof Armour !== 'undefined') Armour.fb.ko = { text: `${word}!`, t: now };
         if (sim.toast) sim.toast(`Enemy ${v.name || 'ship'}: ${word.toLowerCase()}!`, 'kill');
       }
@@ -3198,7 +3363,8 @@ const Ship = (() => {
     if (tick) WRK.t -= kh;
     for (const v of F.vessels.slice()) {
       const S = v.sh;
-      if (!S || v.remote || v.dead || v.wreck || !S.rings.length) continue;
+      if (!S || v.remote || v.dead || v.wreck) continue;
+      if (!S.rings.length) { S.kT = Math.min((S.kT || 0) + dt, 1); while (S.kT >= kh) { S.kT -= kh; debrisStep(v, kh, F); if (v.dead || v.wreck) break; } continue; } // (a piece with no hull)
       S.fT = Math.min((S.fT || 0) + dt, 1);
       while (S.fT >= fh) { S.fT -= fh; floodStep(v, fh, F); }
       S.kT = Math.min((S.kT || 0) + dt, 1);
@@ -3396,7 +3562,7 @@ const Ship = (() => {
     stats, hydrostatics, spotOf, warnings, kitWarnings, specs, line, xray,
     // damage
     hullRay, hullMm, hullDist, addHoles, floodStep, fireStep, dcStep, fateStep, doom, magazine,
-    holedThrough, wetAt, floodForce, blastHull, roundHit, roundHole, ignite, levelOf, seed, // [WP8]
+    holedThrough, wetAt, floodForce, blastHull, roundHit, roundHole, ignite, levelOf, seed, hullPlate, rack, busy, // [WP8]
     // combat
     fireTorp, torpStep, torpHit, ciwsStep, shotMissiles, surface, seesSea, rcs,
     // frame
