@@ -490,6 +490,17 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     const clean = Fl.canRails(); Ship.unmoor(v); holeIn(v, v.sh.hulls[1], -4, 1, 1, F0); tick(F0, 2); const holed = Fl.canRails(); return { clean, holed, busy: Ship.busy(v) }; })()`);
   t(`rails warp: a sound ship at Stop ${o.clean === true ? 'moored for it' : o.clean}; one flooding through a hole refused ('${o.holed}')`, o.clean === true && o.holed === 'damage' && o.busy, o);
 }
+// 27b. ...aground too (review round 2: canRails' landed shortcut came first): in the headland slipway's shallows the
+// Higgens beached and the Cyclon resting on the bed may warp while sound, and are refused once a fire burns or water comes in
+{
+  const o = R(`(() => { const Fl = (v, F) => Object.assign(Object.create(Flight), { active: v, vessels: [v], time: F.time, mp: null, toast() {} });
+    const h = ship('higgens', { e: 3215, z: 0, yaw: Math.PI }), Fh = fsim(h); h.sh.tel = 0; tick(Fh, 8); const hl = !!h.landed, sound = Fl(h, Fh).canRails();
+    h.parts.find((p) => p.def.engine).fire = 1; tick(Fh, 0.5); const fire = Fl(h, Fh).canRails();
+    const c = ship('cyclon', { e: 3230, z: 0, yaw: Math.PI }), Fc = fsim(c); noDC(c); c.sh.tel = 0; tick(Fc, 8); const cl = !!c.landed, csound = Fl(c, Fc).canRails();
+    holeIn(c, c.sh.hulls[1], 0, 0.3, 0.3, Fc); tick(Fc, 3); const holed = Fl(c, Fc).canRails(); return { hl, sound, fire, cl, csound, holed }; })()`);
+  t(`rails warp aground: the beached Higgens ${o.sound === true ? 'may warp' : o.sound}, on fire refused ('${o.fire}'); the Cyclon on the bed ${o.csound === true ? 'may warp' : o.csound}, holed refused ('${o.holed}')`,
+    o.hl && o.cl && o.sound === true && o.csound === true && o.fire === 'damage' && o.holed === 'damage', o);
+}
 // 28. Two bulkheads at one station make one cut (no compartment with no room in it): water leaking across a holed-through
 // part (its bulkheads open) is kept, every m³ of it (the Olivar's forward midsection, pumps and damage control off)
 {

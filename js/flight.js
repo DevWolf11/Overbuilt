@@ -304,9 +304,9 @@ const Flight = {
   canRails() {
     const v = this.active;
     if (!v || !v.parts.length) return false;
+    if (v.sh && Ship.busy(v)) return 'damage'; // ([WP8] water coming in, a fire, her damage control at work: the rails would stop it all; aground as well as afloat)
     if (v.landed && v.speed() < 0.2) return true;
     // (the ships update: a ship afloat, still, her telegraph at Stop, is moored for the warp: she sleeps on the swell)
-    if (v.sh && Ship.busy(v)) return 'damage'; // ([WP8] water coming in, a fire, her damage control at work: the rails would stop it all)
     if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel && !v.fate) { Ship.moor(v, this); return true; } // ([WP8] never a doomed one: she is going down)
     if (v.thrust > 0) return 'engines';
     if (v.altitude() < v.body.warpAlt) return v.body.atmoHeight ? 'atmosphere' : v.body.star ? 'star' : 'surface';
