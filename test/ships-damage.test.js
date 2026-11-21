@@ -197,14 +197,15 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
   t(`...the Pegazus, with no locker, patches with her bridge crew at half the rate (${o.osca && o.osca.toFixed(0)} s: 50 s and the walk)`, o.bridge && o.osca > 49 && o.osca < 65, o);
 }
 // 11. Fires: lit in a part (a burst inside her, a round into her engine), a fire spreads to what is within 6 m (2 % a
-// second), burns the crew within 3 m, and a magazine beside it for 5 s goes up; one under her flood water goes out. A
+// second), burns the crew within 3 m, and a magazine beside it for 30 s with nobody fighting it goes up (MAG.t: §8.8's
+// 5 s left no party time to reach one); one under her flood water goes out. A
 // hull burns where it was lit: a fire at the far end of the Arley's stern, 15 m from her aft magazine, never sets it off;
 // her turbines, 2.6 m under the sea in a dry engine room, burn (only the water in their own compartment puts them out)
 {
   const o = R(`(() => { const v = ship('olivar'), F = fsim(v); noDC(v); tick(F, 1); const mag = v.parts.find((p) => p.type === 'magazine'), host = v.byId.get(mag.att);
     Ship.ignite(v, host, 1, null, F, { x: mag.x, y: mag.y, z: partZ(mag) }); // (lit beside her magazine)
     let spread = 0; const near = [host];
-    let up = null; tick(F, 30, (tt) => { if (up == null && mag.magUp) up = tt; spread = Math.max(spread, v.parts.filter((p) => p.fire > 0).length); });
+    let up = null; tick(F, 40, (tt) => { if (up == null && mag.magUp) up = tt; spread = Math.max(spread, v.parts.filter((p) => p.fire > 0).length); });
     const w = ship('cyclon', { e: -3000, z: 600, yaw: Math.PI }), G2 = fsim(w), dz = w.parts.find((p) => p.type === 'dieselM'); noDC(w); tick(G2, 1); dz.fire = 1; const c = Ship.wetAt;
     const comp = w.sh.comps.find((q) => q.p.id === dz.att); comp.W = comp.V * 0.9; comp.p.water = comp.W; tick(G2, 2);
     const a = ship('arley', { e: -3000, z: 1200, yaw: Math.PI }), G3 = fsim(a); noDC(a); tick(G3, 1); const st = a.parts.find((p) => p.type === 'hbSternX'), H = shullOf(st.def), aft = a.parts.filter((p) => p.type === 'magazine').map((m) => [m, Math.hypot(m.x - st.x, m.y - st.y)]).sort((x, y) => x[1] - y[1])[0][0];
@@ -213,7 +214,7 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     const b = ship('arley', { e: -3000, z: -1200, yaw: Math.PI }), G4 = fsim(b); noDC(b); tick(G4, 1);
     const tb = b.parts.filter((p) => p.type === 'turbine'); for (const q of tb) Ship.ignite(b, q, 1, null, G4); const tw = b.toWorld(tb[0].x, tb[0].y, partZ(tb[0])), under = -(Math.hypot(tw.x, tw.y, tw.z) - EARTH.radius); tick(G4, 20);
     return { near: near.map((p) => p.type), up, spread, drown: dz.fire, wet: Ship.wetAt(w, dz), far: { d: dFar, magT, up: !!aft.magUp, fate: a.fate || '' }, turbines: { under, burning: tb.filter((q) => q.fire > 0).length, of: tb.length } }; })()`);
-  t(`a fire lit beside the Olivar's magazine (in her bow) spreads (${o.spread} parts burning) and sets it off after 5 s (at ${o.up && o.up.toFixed(1)} s)`, o.up != null && o.up >= 4.7 && o.up < 12, o); // (five seconds of the fire's steps, FIRE.hz)
+  t(`a fire lit beside the Olivar's magazine (in her bow), her damage control stood down, spreads (${o.spread} parts burning) and sets it off after 30 s (at ${o.up && o.up.toFixed(1)} s)`, o.up != null && o.up >= 29.7 && o.up < 37, o); // (thirty seconds of the fire's steps, FIRE.hz)
   t('...a fire in an engine under her flood water goes out, and the engine is wet (it gives no power)', o.drown === 0 && o.wet, o);
   t(`...a fire at the far end of the Arley's stern, ${o.far.d.toFixed(1)} m from her aft magazine, burns 20 s without setting it off (its clock ${o.far.magT.toFixed(2)} s)`, o.far.d > 12 && !o.far.up && o.far.magT === 0 && o.far.fate === '', o.far);
   t(`...her ${o.turbines.of} turbines, ${o.turbines.under.toFixed(1)} m under the sea in her dry engine room, still burn 20 s on (${o.turbines.burning} burning; only flood water over them puts them out)`, o.turbines.under > 2 && o.turbines.burning === o.turbines.of, o.turbines);
@@ -493,6 +494,70 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
       Combat._t.explode(EARTH, P, 9, 110, null, F, true); tick(F, 0.5); const cr = Armour.crewOf(v).crew.filter((e) => e.host === c); return { alive: cr.filter((e) => e.alive).length, hp: cr.map((e) => Math.round(c.mods ? c.mods[e.i] : 100)), fate: v.fate || '' }; };
     return { near: run(0.5), far: run(4) }; })()`);
   t(`an air rocket 0.5 m off the Zodiak's open console: ${2 - o.near.alive} of her 2 crew killed (${o.near.fate}); 4 m off they are hurt (${o.far.hp.join(', ')} hp of 100)`, o.near.alive === 0 && o.near.fate === 'action' && o.far.alive === 2 && o.far.hp.every((h) => h < 100), o);
+}
+
+// ================================================================ the review's cases (WP8 round 2)
+// 31. Small arms light nothing: 150 rounds of 12.7 mm ball aimed at the Vizby's magazine from 150 m reach it (its hp
+// falls) but light no fire anywhere, and she sails on (a bullet under FIRE.cal mm with no burst: §8.12's "almost
+// harmless"); and a fire lit beside the Olivar's magazine with her damage control at work is reached by a party (10 m
+// along her), the magazine's clock held while they fight it, the fire put out: the magazine never goes up (stood down:
+// check 11, it goes up at 30 s)
+{
+  const o = R(`(() => { Ship.seed(11); Armour.seed(11); rng = 4711; Combat.S.shots.length = 0; const v = ship('vizby', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 1);
+      const mag = v.parts.find((p) => p.def.module === 'ammo'), hp0 = mag.hp ?? Combat.maxHp(mag.def); let lit = 0;
+      for (let n = 0; n < 150; n++) { const X = { x: mag.x + (rnd() - 0.5), y: mag.y + (rnd() - 0.5), z: partZ(mag) }; Combat.S.shots.push(shell('ball13', aimAt(v, X, 150, 0))); tick(F, 0.1); lit = Math.max(lit, v.parts.filter((p) => p.fire > 0).length); }
+      tick(F, 2); const mg = { lit, hp0, hp: Math.round(mag.hp ?? hp0), up: !!mag.magUp, fate: v.fate || '' };
+      Ship.seed(12); const w = ship('olivar', { e: -6000, z: 3000, yaw: Math.PI }), G2 = fsim(w); G2.active = null; tick(G2, 1); const m2 = w.parts.find((p) => p.type === 'magazine'), host = w.byId.get(m2.att);
+      Ship.ignite(w, host, 1, null, G2, { x: m2.x, y: m2.y, z: partZ(m2) });
+      let magT = 0, at = null, out = null; tick(G2, 60, (tt) => { magT = Math.max(magT, m2.magT || 0); if (at == null && (w.sh.dc || []).some((e) => e.at && e.job && e.job.o === host)) at = tt; if (out == null && !(host.fire > 0)) out = tt; });
+      return { mg, dc: { magT, at, out, up: !!m2.magUp, burning: w.parts.filter((p) => p.fire > 0).length, fate: w.fate || '' } }; })()`);
+  t(`150 rounds of 12.7 mm ball aimed at the Vizby's magazine: it takes them (${o.mg.hp0} → ${o.mg.hp} hp) but nothing catches fire (${o.mg.lit} burning), and she is not lost`, o.mg.lit === 0 && !o.mg.up && o.mg.fate === '' && o.mg.hp < o.mg.hp0, o.mg);
+  t(`...a fire beside the Olivar's magazine, her damage control at work: a party there at ${o.dc.at && o.dc.at.toFixed(1)} s, the fire out at ${o.dc.out && o.dc.out.toFixed(1)} s, the magazine's clock at most ${o.dc.magT.toFixed(1)} s of 30: it never goes up`, o.dc.at != null && o.dc.at < 20 && o.dc.out != null && !o.dc.up && o.dc.magT < 30 && o.dc.fate === '', o.dc);
+}
+// 32. A reload changes nothing (§10.5): a fire lit 2 m in from the far end of the Vizby's midsection (12 m from her
+// magazine) burns there after a save and resume (fireAt saved), so her magazine's clock never starts; a holed
+// compartment's water comes back in that compartment, never across a bulkhead (the Olivar's 29 m³ one beside a 3,793 m³
+// one: p.wc), and the Arley flooding through a 2 m² hole with her pumps and damage control at work (a party's place:
+// p.dcS) takes in the same water 20 s on as the same ship never saved
+{
+  const o = R(`(() => { const noDC2 = (o, on) => { if (!on) noDC(o); };
+    const fire = (save) => { Ship.seed(3); Armour.seed(3); let a = ship('vizby', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(a); F.active = null; noDC(a); tick(F, 1);
+      const mag = a.parts.find((p) => p.def.module === 'ammo'), st = a.parts.filter((p) => p.type === 'hbMidL').sort((x, y) => Math.hypot(x.x - mag.x, x.y - mag.y) - Math.hypot(y.x - mag.x, y.y - mag.y))[0], H = shullOf(st.def), far = partPt(st, H.x0 + 2, 0);
+      Ship.ignite(a, st, 1, null, F, { x: far.x, y: far.y, z: partZ(st) }); tick(F, 3); const at0 = { ...st.fireAt };
+      if (save) { const d = JSON.parse(JSON.stringify(a.serialize())), t0 = F.time; a = Vessel.restore(d); noDC(a); F.vessels = [a]; F.time = t0; }
+      const st2 = a.byId.get(st.id), m2 = a.parts.find((p) => p.id === mag.id); let magT = 0; tick(F, 30, () => { magT = Math.max(magT, m2.magT || 0); });
+      return { d: Math.hypot(far.x - mag.x, far.y - mag.y), moved: st2.fireAt ? Math.hypot(st2.fireAt.x - at0.x, st2.fireAt.y - at0.y, st2.fireAt.z - at0.z) : null, magT, up: !!m2.magUp }; };
+    const flood = (key, a, on) => { Ship.seed(5); const make = () => { const v = ship(key, { e: -6000, z: 3000, yaw: Math.PI }); if (!on) { noDC(v); for (const p of v.parts) if (p.def.pump || p.def.engine) p.broken = true; } return v; };
+      const v = make(), F = fsim(v); F.active = null; tick(F, 2); const byPart = new Map(); for (const c of v.sh.comps) { const L = byPart.get(c.p) || []; L.push(c); byPart.set(c.p, L); }
+      const two = [...byPart.entries()].find(([p, L]) => L.length >= 2), p = two[0], c = two[1][two[1].length - 1], x = (c.lo + c.hi) / 2, sec = shullSec(p.def.shull.st, x), q = partPt(p, x, sec[1] + 0.4);
+      Ship.addHoles(v, [[p, q.x, q.y, partZ(p) + sec[3] * 0.5, a]], F.time); tick(F, 40);
+      const Ws = (u) => u.sh.comps.map((k) => k.W), before = Ws(v), w = Vessel.restore(JSON.parse(JSON.stringify(v.serialize()))), G2 = fsim(w); G2.active = null; G2.time = F.time; if (!on) noDC(w);
+      const after = Ws(w); tick(F, 20); tick(G2, 20); const tot = (u) => u.sh.comps.reduce((s, k) => s + k.W, 0);
+      return { worst: Math.max(...before.map((W, i) => Math.abs(W - after[i]))), W: +before.reduce((s, x) => s + x, 0).toFixed(1), kept: +tot(v).toFixed(1), reloaded: +tot(w).toFixed(1) }; };
+    return { kept: fire(false), saved: fire(true), olivar: flood('olivar', 0.5, false), arley: flood('arley', 2, true) }; })()`);
+  t(`a hull fire 2 m from the far end of the Vizby's midsection (${o.saved.d.toFixed(1)} m from her magazine), saved and resumed, burns where it was lit (moved ${o.saved.moved} m): her magazine's clock ${o.saved.magT.toFixed(1)} s (never saved ${o.kept.magT.toFixed(1)}), not gone up`, o.saved.moved === 0 && o.saved.magT === 0 && !o.saved.up && o.kept.magT === 0 && !o.kept.up, o);
+  t(`...the Olivar's water (${o.olivar.W} m³ in a compartment by a bulkhead) comes back compartment by compartment (at most ${o.olivar.worst.toFixed(3)} m³ off); 20 s on ${o.olivar.reloaded} m³ against ${o.olivar.kept} never saved`, o.olivar.worst < 0.01 && Math.abs(o.olivar.reloaded - o.olivar.kept) < 0.02 * o.olivar.kept + 0.1, o.olivar);
+  t(`...the Arley with her pumps and damage control at work (${o.arley.W} m³ aboard): ${o.arley.reloaded} m³ 20 s after the resume against ${o.arley.kept} never saved`, o.arley.worst < 0.01 && Math.abs(o.arley.reloaded - o.arley.kept) < 0.01 * o.arley.kept + 0.5, o.arley);
+}
+// 33. A flying boat lost on the water says how (the strip, Flight.deathLine, and the end screen's title from the same
+// words): the Catalyna afloat, capsized, reads "Capsized · by …", not "Shot down"; an old plane's line is as ever
+{
+  const o = R(`(() => { const v = ship('catalyna', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = v; tick(F, 1); v.lastHitBy = me; v.lastHitAt = F.time; Flight.time = F.time;
+      const afloat = !!v.afloat; Ship.doom(v, F, 'capsized', me); const line = Flight.deathLine(v);
+      const sk = ship('catalyna', { e: -6000, z: 3200, yaw: Math.PI }); sk.down = true; sk.lastHitBy = me; sk.lastHitAt = F.time; const air = Flight.deathLine(sk);
+      return { afloat, kind: v.kind, fate: v.fate, line, air }; })()`);
+  t(`the Catalyna (a ${o.kind}) capsized on the water: "${o.line}"; one shot down in the air: "${o.air}"`, o.kind === 'plane' && o.fate === 'capsized' && /^Capsized · by /.test(o.line) && /^Shot down/.test(o.air), o);
+}
+// 34. She stays in sight as she goes: a doomed Cyclon with ten fires aboard (her crew gone) sends up at most three
+// fires' smoke, a puff every other step, rising off her, and the smoke of her going is one puff a second the size of
+// a boat her length (the gunner's 8× sight had shown only a black column the width of the view for 95 s)
+{
+  const o = R(`(() => { const v = ship('cyclon', { e: -6000, z: 3000, yaw: Math.PI }), F = fsim(v); F.active = null; tick(F, 1); Ship.doom(v, F, 'action');
+      const sp = SHIP.FIRE.spread; SHIP.FIRE.spread = 0; let n = 0; for (const p of v.parts) if (n < 10 && Ship.ignite(v, p, 1, null, F)) n++;
+      FX.list.length = 0; const seen = new Set(); let puffs = 0, big = 0, col = 0;
+      tick(F, 10, () => { for (const q of FX.list) if (q.kind === 'smoke' && !seen.has(q)) { seen.add(q); puffs++; big = Math.max(big, q.size + q.grow * q.max); if (q.color === '#303236') col++; } });
+      SHIP.FIRE.spread = sp; return { fires: n, burning: v.parts.filter((p) => p.fire > 0).length, perS: puffs / 10, colPerS: col / 10, big }; })()`);
+  t(`a doomed Cyclon with ${o.fires} fires lit (${o.burning} still burning 10 s on): ${o.perS.toFixed(1)} smoke puffs a second (${o.colPerS.toFixed(1)} of them her going's), the largest ${o.big.toFixed(0)} m across at the end of its life`, o.fires >= 8 && o.burning >= 3 && o.perS <= 8 && o.colPerS <= 1.6 && o.big <= 60, o);
 }
 
 // ================================================================ cost (§15)

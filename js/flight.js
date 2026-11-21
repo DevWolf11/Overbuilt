@@ -768,7 +768,7 @@ const Flight = {
         { label: 'Revert to launch', primary: !others.length, onClick: () => this.revert() },
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
-      const sea = !!v && isSea(v.kind), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…)
+      const sea = !!v && (isSea(v.kind) || !!(v.sh && v.fate)), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…; [WP8] a flying boat or an amphibious tank lost on the water too)
       UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: fate || (ground ? 'Knocked out' : 'Vessel destroyed'), body: this.summaryHTML('', ground), actions: acts });
     });
   },
@@ -779,7 +779,7 @@ const Flight = {
     const t = this.time || 0, hit = v && v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null;
     const by = (v && v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
     let what = 'Destroyed';
-    if (v && isSea(v.kind)) what = SHIP_FATES[v.fate] || 'Destroyed'; // (the ships update: what ship.js's fate says, v.fate)
+    if (v && (isSea(v.kind) || (v.sh && v.fate))) what = SHIP_FATES[v.fate] || 'Destroyed'; // (the ships update: what ship.js's fate says, v.fate; [WP8] a flying boat's or an amphibious tank's lost on the water)
     else if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
     else if (v && isAirKind(v.kind)) {
       what = v.kind === 'drone' ? 'Drone lost' : v.hulkWhy === 'pilot' ? 'Pilot knocked out' : v.down || (v.hulk != null && v.doomBy) ? 'Shot down'

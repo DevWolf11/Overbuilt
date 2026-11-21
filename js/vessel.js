@@ -162,17 +162,20 @@ const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shell
 const GV_ROLES = new Set(['driver', 'gunner', 'commander', 'loader', 'radio', 'dc']); // ([WP8] dc: a ship's damage-control party)
 function gvSave(p, o, sea) {
   if (p.def.gv) for (const k of GV_SAVE) if (p[k] != null) o[k] = p[k];
-  if (sea) for (const k of SEA_SAVE) if (p[k] != null && !(k === 'fire' && !(p[k] > 0))) o[k] = p[k]; // ([WP8] aboard a ship only)
+  if (sea) for (const k of SEA_SAVE) if (p[k] != null && !((k === 'fire' || k === 'fireAt') && !(p.fire > 0))) o[k] = p[k]; // ([WP8] aboard a ship only)
   return o;
 }
 // [WP8] (the ships update) What a part aboard a ship keeps in a saved flight (Vessel.serialize, for a hydro vessel only):
-// a hull part's holes and the water in it, a rudder's angle, a fire burning; read back sanitised by seaLoad on any part
-// (an old part never has them): holes finite, inside the part's box, of (0, HOLE.cap] m², a patch in [0, 1], at most
-// HOLE.max; water within the hull's volume; a rudder within ±60°; a fire on (1) or gone
-const SEA_SAVE = ['holes', 'water', 'rud', 'fire'];
+// a hull part's holes and the water in it (wc: each of its compartments' when bulkheads cut it), a rudder's angle, a fire
+// burning (a hull's where it was lit: fireAt); read back sanitised by seaLoad on any part (an old part never has them):
+// holes finite, inside the part's box, of (0, HOLE.cap] m², a patch in [0, 1], at most HOLE.max; water within the hull's
+// volume, a compartment's at least 0 (at most 64 of them); a rudder within ±60°; a fire on (1) or gone, a hull's place
+// for it finite and in the part's box; where a damage-control party (its locker's, or a bridge crew's) has walked to
+// along her (dcS, m)
+const SEA_SAVE = ['holes', 'water', 'wc', 'rud', 'fire', 'fireAt', 'dcS'];
 function seaLoad(p) {
   const d = p.def, H = typeof SHIP !== 'undefined' ? SHIP.HOLE : { cap: 20, max: 16 };
-  if (!d.shull) { delete p.holes; delete p.water; }
+  if (!d.shull) { delete p.holes; delete p.water; delete p.wc; }
   else {
     if (Array.isArray(p.holes)) {
       const D = partDims(p), zc = partZ(p), hd = partDepth(p) / 2, m = 0.05;
@@ -181,9 +184,14 @@ function seaLoad(p) {
       if (L.length) p.holes = L; else delete p.holes;
     } else delete p.holes;
     if (Number.isFinite(p.water) && p.water > 0) p.water = Math.min(p.water, shullOf(d).vol); else delete p.water;
+    if (p.water > 0 && Array.isArray(p.wc) && p.wc.length > 1 && p.wc.length <= 64 && p.wc.every((w) => Number.isFinite(w))) p.wc = p.wc.map((w) => Math.max(0, w)); else delete p.wc; // (Ship.groups' carryWater clamps each into its compartment)
   }
   if (!(Number.isFinite(p.rud) && (d.foil || d.steer || d.jet))) delete p.rud; else p.rud = clamp(p.rud, -60, 60);
   if (Number.isFinite(p.fire) && p.fire > 0 && d.gv) p.fire = Math.min(p.fire, 1); else delete p.fire;
+  const a = p.fireAt;
+  if (d.shull && p.fire > 0 && a && Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.z)) { const D = partDims(p), zc = partZ(p), hd = partDepth(p) / 2; p.fireAt = { x: clamp(a.x, p.x - D.w / 2, p.x + D.w / 2), y: clamp(a.y, p.y - D.h / 2, p.y + D.h / 2), z: clamp(a.z, zc - hd, zc + hd) }; }
+  else delete p.fireAt;
+  if (!(Number.isFinite(p.dcS) && Math.abs(p.dcS) < 2000 && (d.control || (d.mods && d.mods.some((m) => m.role === 'dc'))))) delete p.dcS;
 }
 function gvLoad(p) {
   const d = p.def, w = d.weapon, set = (k, v) => { if (v === undefined) delete p[k]; else p[k] = v; };

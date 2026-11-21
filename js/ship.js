@@ -42,8 +42,8 @@
 // The helm's interface (WP3's keys and touch, the AI): Ship.setTel(v, n) / telStep(v, ±1) or sh.tel; W/S on ctl.v step it
 // too (a tap a step, held a step every TEL_REPEAT s after TEL_HOLD s); the rudder is ctl.h × its throw, let go the heading
 // hold (sas 'hold'; 'manual' centres it); Ship.heading(v, v.sh) her heading (rad, clockwise from game north).
-// Saved per part (GV_SAVE, when the damage package adds them): p.holes, p.water, p.rud, p.fire; per vessel: sh: { tel,
-// dcPri, ciwsOn } and sas.
+// Saved per part (vessel.js SEA_SAVE, cleaned by seaLoad): p.holes, p.water (p.wc each compartment's), p.rud, p.fire (p.fireAt
+// a hull's); per vessel: sh: { tel, dcPri, ciwsOn }, sas, fate and hydroFrom.
 
 // All tuning in one table (lengths m, speeds m/s, angles ° unless said, times s, areas m², volumes m³, power kW).
 const SHIP = {
@@ -126,9 +126,9 @@ const SHIP = {
   //   (a round through the plate: kin·π·(cal/2000)²; HE bursting inside: + heIn·blast²; HE on or near the hull: he·blast²·(1 −
   //   d/blast), × tamp under water (deeper than tampD); at most cap m² a hole; a bullet through glass fibre grp m²; max
   //   holes kept per part)
-  FLOOD: { cd: 0.6, hz: 10, downT: 2, downA: 0.05, fsMax: 0.45, leak: 1, sinkCd: 1, under: 0.95 }, // orifice coefficient; steps a second; downflooding after downT s (downA m² per m of deck edge under); free-surface shift cap (× beam); [WP8] a holed-through part's joints and bulkheads leak through `leak` m²; a hull all but under (under of her volume) with water aboard sinks against a drag sinkCd on her plan area
-  FIRE: { hz: 4, odds0: 0.15, odds1: 0.35, blast: 9, hp: 4, spread: 0.02, dc: 20, crew: 5, crewR: 3, spreadR: 6 }, // fire odds odds0 + odds1·(blast/9); hp/s; spread a second; s to fight one; [WP8] crew within crewR m burn crew hp/s; it spreads to parts within spreadR m
-  MAG: { near: 6, t: 5, r0: 8, rk: 1 / 20, hole: 6, brk: 100, missile: 20, dmg: 1500, dmgK: 5, rack: { r0: 2, rk: 0.1, dmg: 150, dmgK: 10 } }, // a fire within `near` m for t s; the blast's size r0 + rounds·rk m; holes in the neighbours; [WP8] brk rounds or more break her in two; a missile counts as `missile` rounds; the blast's damage dmg + rounds·dmgK; a gun's ready rounds (`rack`) going up on its mount: a blast of r0 + rounds·rk m, dmg + rounds·dmgK, no magazine's holes
+  FLOOD: { cd: 0.6, hz: 10, downT: 2, downA: 0.05, fsMax: 0.45, leak: 1, sinkCd: 1, under: 0.95, wMin: 0.05 }, // orifice coefficient; steps a second; downflooding after downT s (downA m² per m of deck edge under); free-surface shift cap (× beam); [WP8] a holed-through part's joints and bulkheads leak through `leak` m²; a hull all but under (under of her volume) with water aboard sinks against a drag sinkCd on her plan area; under wMin m³ in a compartment (her pumps keeping up with a few small holes) its level is its lowest point, never solved
+  FIRE: { hz: 4, odds0: 0.15, odds1: 0.35, blast: 9, hp: 4, spread: 0.02, dc: 20, crew: 5, crewR: 3, spreadR: 6, cal: 20 }, // fire odds odds0 + odds1·(blast/9); hp/s; spread a second; s to fight one; [WP8] crew within crewR m burn crew hp/s; it spreads to parts within spreadR m; a round under cal mm with no burst (small arms) lights none
+  MAG: { near: 6, t: 30, r0: 8, rk: 1 / 20, hole: 6, brk: 100, missile: 20, dmg: 1500, dmgK: 5, rack: { r0: 2, rk: 0.1, dmg: 150, dmgK: 10 } }, // a fire within `near` m (or in it) for t s, [WP8] unfought (§8.8's 5 s: no party could ever reach one); the blast's size r0 + rounds·rk m; holes in the neighbours; [WP8] brk rounds or more break her in two; a missile counts as `missile` rounds; the blast's damage dmg + rounds·dmgK; a gun's ready rounds (`rack`) going up on its mount: a blast of r0 + rounds·rk m, dmg + rounds·dmgK, no magazine's holes
   DC: { patch: 0.02, minT: 15, full: 0.7, repair: 2, walk: 2, party: 4, bridge: 0.5, flood: 0.2 }, // a party patches 0.02 m²/s (at least minT s a hole), not past full of its compartment; repairs × REPAIR_T; [WP8] walks walk m/s along her; party crew a locker; none aboard: the bridge crew at `bridge` the rate; 'auto' patches first past `flood` of a compartment full
   DRONE: { ref: 2000 },              // [WP8] (S1) a drone's charge wears a ship part's plate as one of ref hp (a patrol boat's midsection), never by the part's own hp
   FATE: { hz: 4, capsize: 60, capsizeT: 4, reserve: 0.97, deckUnder: 1, scuttleT: 60, scuttleA: 1, under: 3, bedT: 10, wreckDepth: 40, gone: 40, derelictT: 120, derelictA: 0.5, wait: 15, helmT: 6, sinkT: 2 },
@@ -2532,13 +2532,14 @@ const Ship = (() => {
     }
   }
   // A penetrating round's result on a hydro vessel (armour.js apply, R from resolve): its holes (R.ho), and a fire where
-  // it went into an engine, a magazine or fuel (odds by its burst's size)
+  // it went into an engine, a magazine or fuel (odds by its burst's size; a bullet's none)
   function roundHit(v, R, SH, by, sim) {
     const S = v && v.sh;
     if (!S || v.remote || !R) return;
     if (R.ho && R.ho.length) addHoles(v, R.ho, clockOf(sim));
     if (R.r !== 'pen') return;
     const blast = SH && (SH.blast || 0), odds = SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast);
+    if (!(blast > 0) && !(SH && SH.he > 0) && !((SH && SH.cal) >= SHIP.FIRE.cal)) return; // ([WP8] a bullet (no burst, under FIRE.cal mm) lights nothing: small arms are all but harmless to a warship, §8.12)
     for (const [p] of R.rows) if (p.def.engine || p.def.module === 'engine' || p.def.module === 'ammo' || p.def.module === 'fuel') { ignite(v, p, odds, by, sim); return; }
     for (const [h, i] of R.mods) { const k = h.def.mods[i].k; if (k === 'ammo' || k === 'fuel') { ignite(v, h, odds, by, sim, h.def.shull && R.at ? localOf(v, R.at, _hq) : null); return; } }
   }
@@ -2596,7 +2597,8 @@ const Ship = (() => {
     return cuts;
   }
   // the water carried into a rebuilt hull (the hull parts' compartments as they were, or a saved part's p.water): each
-  // part's water shared among its compartments as they were, else by their volume
+  // part's water shared among its compartments as they were (a saved part's: each compartment's own, p.wc), else by
+  // their volume
   function carryWater(was, comps) {
     const by = new Map();
     if (was) for (const c of was.comps) { const e = by.get(c.p.id) || { W: 0, list: [] }; e.W += c.W || 0; e.list.push(c); by.set(c.p.id, e); }
@@ -2605,8 +2607,20 @@ const Ship = (() => {
     for (const [p, L] of parts) {
       const e = by.get(p.id), W = e ? e.W : Number.isFinite(p.water) ? p.water : 0;
       if (e && e.list.length === L.length) L.forEach((c, i) => { c.W = clamp(e.list[i].W || 0, 0, c.V); });
+      else if (!e && Array.isArray(p.wc) && p.wc.length === L.length) L.forEach((c, i) => { c.W = clamp(+p.wc[i] || 0, 0, c.V); }); // ([WP8] a saved flight: each compartment's water where it was, never across a bulkhead)
       else { const V = L.reduce((s, c) => s + c.V, 0) || 1; for (const c of L) c.W = clamp((W * c.V) / V, 0, c.V); }
-      p.water = L.reduce((s, c) => s + c.W, 0);
+    }
+    partWater(comps, parts.keys());
+  }
+  // each hull part's water (p.water: the HUD's, a save's) and, a part cut by bulkheads, each of its compartments' in
+  // order (p.wc: a reload puts it back where it was)
+  function partWater(comps, hulls) {
+    for (const p of hulls) {
+      let w = 0, n = 0;
+      for (const c of comps) if (c.p === p) { w += c.W; n++; }
+      p.water = w;
+      if (n > 1) { const a = Array.isArray(p.wc) && p.wc.length === n ? p.wc : (p.wc = new Array(n)); let i = 0; for (const c of comps) if (c.p === p) a[i++] = c.W; }
+      else if (p.wc) delete p.wc;
     }
   }
   // her flood heights: a point's height along U over her centre of mass is K.b + K.x·x + K.y·y + K.z·z (compartment c's
@@ -2669,10 +2683,14 @@ const Ship = (() => {
   // last free surface: up to a tenth of the water or of the room left at the last solve, and a tenth of the way from its
   // level to the span's nearer end (a V keel's free surface grows as it fills, a full one's shrinks: solved again past
   // that). The solve's own water (the clip's, fc.W) is the start, so a solve short of c.W is made good by the next step.
+  // [WP8] Under FLOOD.wMin m³ (a bucketful: her pumps keeping up with a few small holes, the water coming and going each
+  // step) the level is the compartment's lowest point and its free surface none: no solve (a centimetre's error at most,
+  // and no weight to speak of).
   const COS05 = Math.cos((0.5 * PI) / 180);
   function levelOf(v, S, c) {
     if (!(c.W > 1e-6)) { c.lev = -Infinity; c.fs = 0; return c.lev; }
     const K = kOf(v, S, c, KQ), Ub = S.Ub, f = c.fc;
+    if (c.W < SHIP.FLOOD.wMin) { const lo = spanOf(c, K)[0]; c.lev = lo; c.fs = 0; setFc(c, K, lo, c.cx, c.cy, 0, Ub, 0, 0, 0); return lo; }
     if (f && Ub.x * f.ux + Ub.y * f.uy + Ub.z * f.uz > COS05) {
       const dW = c.W - f.W, room = f.W < c.V - f.W ? f.W : c.V - f.W, adW = mabs(dW);
       if (adW <= 0.01 * mmax(room, 1e-4)) { c.lev = f.L - (f.k - (K.b + K.x * c.cx)); return c.lev; } // (the plane moves with her centre of mass: its height over the compartment's centre kept)
@@ -2813,7 +2831,7 @@ const Ship = (() => {
       if (W !== c.W) { flow += mabs(W - c.W); c.W = W; moved = true; }
     }
     S.flow = flow / dt; // (m³/s moved this step: Ship.busy)
-    if (moved) for (const p of S.hulls) { let w = 0; for (const c of comps) if (c.p === p) w += c.W; p.water = w; }
+    if (moved) partWater(comps, S.hulls);
     wetOf(v, S);
   }
   // (floodStep's) the flow between the sea and compartment i through a (m², at the part-space point X: a round hole r m
@@ -2954,8 +2972,9 @@ const Ship = (() => {
     let n = 0;
     for (const p of v.parts) if (p.fire > 0) { n++; break; }
     if (!n) return;
-    const F = SHIP.FIRE, M = SHIP.MAG, list = FIRES, mags = MAGN;
-    list.length = 0;
+    const F = SHIP.FIRE, M = SHIP.MAG, list = FIRES, mags = MAGN, fought = FOUGHT, thr = S.threat || (S.threat = new Set());
+    list.length = 0; fought.clear(); thr.clear();
+    if (S.dc) for (const e of S.dc) if (e.at && e.job && e.job.kind === 'fire') fought.add(e.job.o); // (the fires a party is at work on: [WP8] they keep a magazine beside them cool)
     for (const p of v.parts) if (p.fire > 0) list.push(p); // (the fires burning as the step starts: one lit by them burns from the next)
     const P = layoutOf(v, S), C = v.gv && typeof Armour !== 'undefined' ? crewAt(v, S) : null; // (where her parts and crew are)
     FW.ok = false; FW.sim = sim;
@@ -2978,34 +2997,45 @@ const Ship = (() => {
         if (e.i >= 0) Armour.modDamage(v, e.host, e.i, F.crew * dt, sim, p.fireBy || undefined);
         else if (typeof Combat !== 'undefined') Combat.damage(v, e.part, F.crew * dt, 'fire', sim, p.fireBy || undefined);
       }
-      // it spreads (a hull it spreads to burns from where it came in), and a magazine near it for MAG.t s goes up (one
-      // clock a magazine, however many fires are near it)
+      // it spreads (a hull it spreads to burns from where it came in), and a magazine near it (or burning itself) for
+      // MAG.t s while nobody fights it goes up (one clock a magazine, however many fires are near it; held while a party is
+      // at work on every one of them, started again once none is near)
+      if (p.def.module === 'ammo') heat(mags, thr, p, p, fought);
       for (let k = 0; k < P.n; k++) {
         const q = P.p[k], qx = P.x[k] - fx, qy = P.y[k] - fy, qz = P.z[k] - fz, r = reach + P.hw[k];
         if (q === p || qx * qx + qy * qy + qz * qz >= r * r || !whole(v, q)) continue; // (out of reach of its box, a hull's: of it too)
         const dd = q.def.shull ? boxDistOwn(q, P, k, fx, fy, fz) : msqrt(qx * qx + qy * qy + qz * qz) - P.hw[k];
         if (!(q.fire > 0) && dd < F.spreadR && rnd() < F.spread * dt) { q.fire = 1; q.fireBy = p.fireBy; if (q.def.shull) q.fireAt = boxed(q, fx, fy, fz); }
-        if (q.def.module === 'ammo' && dd < M.near) mags.add(q);
+        if (q.def.module === 'ammo' && dd < M.near) heat(mags, thr, q, p, fought);
       }
-      // black smoke from it (the view's ship and those near: FX's caps): a hull's from her deck over the fire
-      if (drawn < 6 && typeof FX !== 'undefined' && FX.add && v.body) {
+      // black smoke from it (the view's ship and those near: FX's caps): a hull's from her deck over the fire. [WP8] Three
+      // of her fires at most, a puff every other step each, rising off her (the black preset's lift): a burning boat stays
+      // in sight (seven or more fires once her crew abandon her hid a patrol boat in the gunner's sight). FX's own dice,
+      // never the simulation's.
+      if (drawn < 3 && typeof FX !== 'undefined' && FX.smoke && v.body) {
         drawn++;
         let w;
         if (p.def.shull) { const lx = ownPt(p, f, _ho).x, sec = secAt(p.def.shull.st, lx, SEC2); w = partOf(p, lx, sec[0], fz - partZ(p), _fd); w = v.toWorld(w.x, w.y, w.z); }
         else w = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p));
         const up = Math.hypot(w.x, w.y, w.z) || 1;
-        FX.add({ kind: 'smoke', b: v.body, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9 + (w.x / up) * 4, vy: v.vy * 0.9 + (w.y / up) * 4, vz: v.vz * 0.9 + (w.z / up) * 4,
-          max: 4 + rnd() * 2, size: 1.2, grow: 6, color: '#25272b', alpha: 0.65 });
-        if (rnd() < 0.6) FX.add({ kind: 'fire', b: v.body, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9, vy: v.vy * 0.9, vz: v.vz * 0.9, max: 0.4, size: 1.1, grow: 1.4, color: '#ff8a30', alpha: 1 });
+        if (FX.rnd() < 0.5) { _fv.x = v.vx * 0.9 + (w.x / up) * 3; _fv.y = v.vy * 0.9 + (w.y / up) * 3; _fv.z = v.vz * 0.9 + (w.z / up) * 3; FX.smoke(v.body, w, _fv, 'black', 0.9); }
+        if (FX.rnd() < 0.6) FX.add({ kind: 'fire', b: v.body, x: w.x, y: w.y, z: w.z, vx: v.vx * 0.9, vy: v.vy * 0.9, vz: v.vz * 0.9, max: 0.4, size: 1.1, grow: 1.4, color: '#ff8a30', alpha: 1 });
       }
     }
     for (const q of v.parts) if (q.magT && !mags.has(q)) q.magT = 0; // (no fire near it now: its clock starts again)
-    for (const q of mags) { q.magT = (q.magT || 0) + dt; if (q.magT >= M.t && whole(v, q)) magazine(v, sim, q); }
+    for (const [q, hot] of mags) if (hot) { q.magT = (q.magT || 0) + dt; if (q.magT >= M.t && whole(v, q)) magazine(v, sim, q); }
     mags.clear();
+  }
+  // (fireStep's) magazine q has fire p near it (or in it): p threatens a magazine (damage control fights it first), and
+  // q's clock runs unless a party is at work on p (and on every other fire near q)
+  function heat(mags, thr, q, p, fought) {
+    thr.add(p);
+    if (!fought.has(p)) mags.set(q, true);
+    else if (!mags.has(q)) mags.set(q, false);
   }
   // where part p burns (part space): a hull's fire where it was lit or came in (p.fireAt; else its middle), a part's
   // its middle
-  const MAGN = new Set(), FIRES = [], _fs = v3(), _fd = v3();
+  const MAGN = new Map(), FOUGHT = new Set(), FIRES = [], _fs = v3(), _fd = v3(), _fv = v3();
   function fireSpot(p, o) {
     const a = p.def.shull && p.fireAt;
     if (a && Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.z)) { o.x = a.x; o.y = a.y; o.z = a.z; }
@@ -3134,14 +3164,16 @@ const Ship = (() => {
   // her to a job and does it: patches a hole (DC.patch m²/s, at least DC.minT s; never in a compartment past DC.full),
   // puts out a fire (FIRE.dc s), mends a broken engine, gun, ring or radar (DC.repair × armour.js's REPAIR_T). A ship with
   // no locker has one party of her bridge crew at DC.bridge the rate. Jobs by sh.dcPri: 'auto' flooding first when a
-  // compartment is past DC.flood full, else fires, else repairs, else the holes left; 'flood', 'fire' first. A doomed
-  // ship's crew abandon her, as does a derelict's (nobody at a helm).
+  // compartment is past DC.flood full, else fires, else repairs, else the holes left; 'flood', 'fire' first. [WP8] A fire
+  // beside a magazine (fireStep's S.threat) comes first in 'auto' and 'fire' (a party at work on it keeps the magazine
+  // cool: MAG.t runs only while nobody fights it), and of the fires the nearest. A doomed ship's crew abandon her, as does
+  // a derelict's (nobody at a helm).
   function partyList(v, S) {
     const key = v.parts.length;
     if (S.dc && S.dcN === key) return S.dc;
     const was = S.dc || [], out = [];
-    for (const p of v.parts) if (p.def.mods && p.def.mods.some((m) => m.role === 'dc')) out.push(was.find((e) => e.host === p) || { host: p, s: alongOf(S, p), job: null, prog: 0 });
-    if (!out.length) { const c = v.control || v.parts.find((p) => p.def.control); if (c) out.push(was.find((e) => e.host === c) || { host: c, s: alongOf(S, c), job: null, prog: 0, bridge: true }); }
+    for (const p of v.parts) if (p.def.mods && p.def.mods.some((m) => m.role === 'dc')) out.push(was.find((e) => e.host === p) || { host: p, s: Number.isFinite(p.dcS) ? p.dcS : alongOf(S, p), job: null, prog: 0 }); // ([WP8] p.dcS: where a saved flight left the party)
+    if (!out.length) { const c = v.control || v.parts.find((p) => p.def.control); if (c) out.push(was.find((e) => e.host === c) || { host: c, s: Number.isFinite(c.dcS) ? c.dcS : alongOf(S, c), job: null, prog: 0, bridge: true }); }
     S.dc = out; S.dcN = key;
     return out;
   }
@@ -3155,17 +3187,21 @@ const Ship = (() => {
   }
   function dcStep(v, dt, sim) {
     const S = v && v.sh;
-    if (!S || v.remote || v.dead || v.wreck || v.fate || !v.control || !(dt > 0)) return; // (a doomed ship's crew, or a derelict's, abandon her)
+    if (!S || v.remote || v.dead || v.wreck || !(dt > 0)) return;
+    if (v.fate || !v.control) { if (S.dc) for (const e of S.dc) e.at = false; return; } // (a doomed ship's crew, or a derelict's, abandon her)
     const D = SHIP.DC, list = partyList(v, S), taken = new Set();
     for (const e of list) {
       const k = strengthOf(v, e);
+      e.at = false; // (at work on its job this step: fireStep's fought fires)
       if (!(k > 0)) { e.job = null; continue; }
       if (e.job && !jobOk(v, S, e.job)) e.job = null;
-      if (!e.job || (S.dcPri === 'auto' && e.job.kind !== 'flood' && floodJob(v, S, taken))) { e.job = pickJob(v, S, taken); e.prog = 0; }
+      const hot = !!e.job && e.job.kind === 'fire' && !!S.threat && S.threat.has(e.job.o); // ([WP8] a fire beside a magazine: never left for another job)
+      if (!e.job || (!hot && ((S.dcPri === 'auto' && e.job.kind !== 'flood' && floodJob(v, S, taken)) || ((S.dcPri === 'auto' || S.dcPri === 'fire') && threatJob(v, S, taken, e))))) { e.job = pickJob(v, S, taken, e); e.prog = 0; }
       if (!e.job) continue;
       taken.add(e.job.o);
       const s = jobS(S, e.job), ds = s - e.s;
-      if (Math.abs(ds) > 1) { e.s += Math.sign(ds) * Math.min(Math.abs(ds), D.walk * dt); continue; }
+      if (Math.abs(ds) > 1) { e.s += Math.sign(ds) * Math.min(Math.abs(ds), D.walk * dt); e.host.dcS = e.s; continue; } // (where the party is: a save keeps it)
+      e.at = true;
       const j = e.job;
       if (j.kind === 'hole' || j.kind === 'flood') {
         const h = j.o, T = Math.max(D.minT, h.a / D.patch);
@@ -3193,7 +3229,7 @@ const Ship = (() => {
     if (j.kind === 'fire') return o.fire > 0 && v.byId.has(o.id);
     return v.byId.has(o.id) && (o.broken || hpFracOf(o) < 0.5);
   }
-  const jobS = (S, j) => alongOf(S, j.o); // (a hole's place, or a part's)
+  const _js = v3(), jobS = (S, j) => alongOf(S, j.kind === 'fire' ? fireSpot(j.o, _js) : j.o); // (a hole's place, a fire's (a hull's where it burns), or a part's)
   // the worst hole to patch in a compartment past DC.flood full (and under DC.full), not taken
   function floodJob(v, S, taken) {
     let best = null, bf = SHIP.DC.flood;
@@ -3213,7 +3249,17 @@ const Ship = (() => {
     }
     return best;
   }
-  function fireJob(v, taken) { for (const p of v.parts) if (p.fire > 0 && !taken.has(p)) return { kind: 'fire', o: p }; return null; }
+  // ([WP8] a fire beside a magazine first, then the nearest to the party e: along her length)
+  function fireJob(v, S, taken, e) {
+    let best = null, bd = Infinity;
+    for (const p of v.parts) {
+      if (!(p.fire > 0) || taken.has(p)) continue;
+      const d = (S.threat && S.threat.has(p) ? 0 : 1e6) + (e ? mabs(alongOf(S, fireSpot(p, _js)) - e.s) : 0);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best ? { kind: 'fire', o: best } : null;
+  }
+  function threatJob(v, S, taken, e) { if (!S.threat || !S.threat.size) return null; const j = fireJob(v, S, taken, e); return j && S.threat.has(j.o) ? j : null; }
   function repairJob(v, taken) {
     for (const p of v.parts) {
       const m = p.def.module, T = m ? repT(m) : 0;
@@ -3222,11 +3268,11 @@ const Ship = (() => {
     }
     return null;
   }
-  function pickJob(v, S, taken) {
+  function pickJob(v, S, taken, e) {
     const pri = S.dcPri;
-    if (pri === 'fire') return fireJob(v, taken) || floodJob(v, S, taken) || holeJob(S, taken) || repairJob(v, taken);
-    if (pri === 'flood') return floodJob(v, S, taken) || holeJob(S, taken) || fireJob(v, taken) || repairJob(v, taken);
-    return floodJob(v, S, taken) || fireJob(v, taken) || repairJob(v, taken) || holeJob(S, taken);
+    if (pri === 'fire') return fireJob(v, S, taken, e) || floodJob(v, S, taken) || holeJob(S, taken) || repairJob(v, taken);
+    if (pri === 'flood') return floodJob(v, S, taken) || holeJob(S, taken) || fireJob(v, S, taken, e) || repairJob(v, taken);
+    return threatJob(v, S, taken, e) || floodJob(v, S, taken) || fireJob(v, S, taken, e) || repairJob(v, taken) || holeJob(S, taken);
   }
 
   // ---- fate (§8.9): FATE.hz times a second, for every hydro vessel of ours with a hull
@@ -3291,9 +3337,10 @@ const Ship = (() => {
       if (S.bedT >= FA.bedT || (S.depth < FA.wreckDepth && S.bedT > 0)) { wreckOf(v, sim); return; }
       if (top > FA.gone) { v.dead = true; return; }
     }
-    if (top < 0 && typeof FX !== 'undefined' && FX.smoke && v.body && rnd() < 0.5) { // (the smoke of her going, while any of her is above water)
-      const w = v.toWorld(v.com.x, v.com.y + (v.bounds.maxY - v.com.y) * 0.6, v.com.z || 0);
-      FX.smoke(v.body, w, { x: v.vx, y: v.vy, z: v.vz }, 'column', clamp(Math.cbrt(v.mass / 1000) / 3, 0.6, 2));
+    if (top < 0 && typeof FX !== 'undefined' && FX.smoke && v.body && FX.rnd() < 0.25) { // (the smoke of her going, while any of her is above water: [WP8] one puff a second from over her top, its size by her length (a patrol boat's a third of a destroyer's), rising off her so the player sees her list, settle and go; FX's dice)
+      const w = v.toWorld(v.com.x, v.bounds.maxY + 1, v.com.z || 0), up = Math.hypot(w.x, w.y, w.z) || 1;
+      _fv.x = v.vx + (w.x / up) * 3; _fv.y = v.vy + (w.y / up) * 3; _fv.z = v.vz + (w.z / up) * 3;
+      FX.smoke(v.body, w, _fv, 'column', clamp((v.bounds.maxX - v.bounds.minX) / 150, 0.25, 1));
     }
   }
   // A hydro piece with no hull (a turret, a turbine, a bridge: a broken ship's, or one blown off her), FATE.hz times a
