@@ -138,10 +138,10 @@ const SHIP = {
   //   `gone` m down; a derelict holed after derelictT s; the end screen waits up to `wait` s; [WP8] no one at the helm for
   //   helmT s (a dead helmsman's seat is taken in 4: armour.js) is out of action)
   // ---- combat (§8.9-8.11)
-  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35, err: 0.02, errD: 600, errT: 0.4, leak: 300, assess: 1 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p;
-  //   [WP9] its fire control's error (rad, × the range over errD m past it; a random walk easing over errT s: the radar's
-  //   track of a weaving sea-skimmer, the lead's guess; tuned so one gun stops a subsonic ASM 4 times in 5, two at once
-  //   about half each), inside leak m of her it is too late (what is
+  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35, err: 0.015, errD: 600, leak: 300, assess: 1 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p;
+  //   [WP9] its fire control's error (rad, each round's own, × the range over errD m past it: the radar's track of a
+  //   weaving sea-skimmer, the lead's guess; tuned so one gun stops a subsonic ASM 4 times in 5, two at once about half
+  //   each), inside leak m of her it is too late (what is
   //   left of a missile carries on into her: no kill there), and a kill is checked for assess s before it turns to the next
   TORP: { turn: 6, aground: 4, bubbles: 0.2, depthOff: 0 }, // °/s homing turn; runs aground where the bed is shallower; s between bubble puffs
   ASM: { term: 2000, termH: 3, skim: 8, climb: 30 }, // an anti-ship missile climbs to climb m, sea-skims at skim m over the waves until term m out, then goes in at termH m [WP9: skim, climb]
@@ -3569,7 +3569,7 @@ const Ship = (() => {
       if (s.tgt && !aliveTgt(s.tgt)) s.tgt = null;
       if ((s.look -= h) <= 0) {
         s.look = 0.25;
-        if (!s.tgt || !s.tgt.noise) { const n = noiseFor(s); if (n) s.tgt = n; }
+        if (!s.tgt || !s.tgt.noise) { const n = noiseFor(s, F); if (n) s.tgt = n; }
         if (!s.tgt) s.tgt = acquire(s, F);
       }
     }
@@ -3687,9 +3687,9 @@ const Ship = (() => {
   // ---- torpedo decoys (the kit's torpDecoy): noisemakers streamed TORP_DECOY.m astern on a cable for its life; each
   // homing torpedo within TORP_DECOY.r of one weighs it once and goes for it with its p
   const NOISE = [], TORP_DECOY = { m: 150, r: 1500, near: 3000, dep: 5 };
-  function noiseFor(s) {
+  function noiseFor(s, F) {
     for (const n of NOISE) {
-      if (n.t >= n.life || n.b !== s.b || (s.heard && s.heard.has(n)) || foe(s.owner, n.owner) === false) continue;
+      if (n.t >= n.life || n.F !== F || n.b !== s.b || (s.heard && s.heard.has(n)) || foe(s.owner, n.owner) === false) continue; // (this flight's only)
       if (Math.hypot(n.x - s.x, n.y - s.y, n.z - s.z) > TORP_DECOY.r) continue;
       (s.heard || (s.heard = new Set())).add(n);
       if (crnd() < n.p) return n;
@@ -3700,7 +3700,7 @@ const Ship = (() => {
     for (let i = NOISE.length - 1; i >= 0; i--) {
       const n = NOISE[i], v = n.owner;
       n.t += dt;
-      if (n.t >= n.life || !v || v.dead) { NOISE.splice(i, 1); continue; }
+      if (n.t >= n.life || !v || v.dead || n.F !== F) { NOISE.splice(i, 1); continue; } // (spent, its ship gone, or another flight's)
       // (towed astern: TORP_DECOY.m behind her stern, TORP_DECOY.dep down)
       const st = v.toWorld(n.px, n.py, n.pz), back = v.axis(-n.fx, -n.fy, 0), r = Math.hypot(st.x, st.y, st.z) || 1, k = TORP_DECOY.m;
       n.x = st.x + back.x * k; n.y = st.y + back.y * k; n.z = st.z + back.z * k;
@@ -3740,7 +3740,7 @@ const Ship = (() => {
       if (!(p.dAmmo > 0)) continue;
       p.dAmmo--;
       const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
-      NOISE.push({ noise: true, owner: v, b: v.body, px: p.x, py: p.y, pz: partZ(p), fx: Fd.x, fy: Fd.y, x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz, t: 0, life: D.life || 60, p: D.p ?? 0.6 });
+      NOISE.push({ noise: true, owner: v, F, b: v.body, px: p.x, py: p.y, pz: partZ(p), fx: Fd.x, fy: Fd.y, x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz, t: 0, life: D.life || 60, p: D.p ?? 0.6 });
       any = true;
     }
     if (any && F && v === F.active && !v.ai && F.toast) F.toast(torp ? 'Decoys away: chaff, flares and a torpedo noisemaker' : 'Decoys away', 'info');
@@ -3924,7 +3924,6 @@ const Ship = (() => {
         mount(v, p, F, dt);
       }
     }
-    if (NOISE.length) noiseStep(F, dt);
   }
   function mount(v, p, F, dt) {
     const C = p.def.ciws, K = SHIP.CIWS;
@@ -3945,11 +3944,8 @@ const Ship = (() => {
       const r = Math.hypot(M.x, M.y, M.z) || 1, g = v.body.mu / (r * r), dropK = 0.5 * g * tt * tt;
       _cl.x = T.x + (T.vx - v.vx) * tt - M.x + (M.x / r) * dropK; _cl.y = T.y + (T.vy - v.vy) * tt - M.y + (M.y / r) * dropK; _cl.z = T.z + (T.vz - v.vz) * tt - M.z + (M.z / r) * dropK;
       qunrot(v.q, _cl.x, _cl.y, _cl.z, _cu); unrotPart(p, _cu);
-      // (its fire control's error: a random walk on each axis, easing toward a fresh guess every errT s)
-      const ek = K.err * Math.max(1, Math.hypot(_cl.x, _cl.y, _cl.z) / K.errD); // (its error grows with the range past errD m: its track firms up as the threat closes)
-      if ((p.eT = (p.eT || 0) - dt) <= 0) { p.eT = K.errT; p.eY1 = gauss() * ek; p.eE1 = gauss() * ek; }
-      const ke = Math.min(1, dt / K.errT); p.eY = (p.eY || 0) + ((p.eY1 || 0) - (p.eY || 0)) * ke; p.eE = (p.eE || 0) + ((p.eE1 || 0) - (p.eE || 0)) * ke;
-      wantY = Math.atan2(_cu.z, _cu.x) + p.eY; wantE = Math.atan2(_cu.y, Math.hypot(_cu.x, _cu.z)) + p.eE;
+      p.eK = K.err * Math.max(1, Math.hypot(_cl.x, _cl.y, _cl.z) / K.errD); // (its fire control's error there, each round's own: it grows with the range past errD m, its track firming up as the threat closes)
+      wantY = Math.atan2(_cu.z, _cu.x); wantE = Math.atan2(_cu.y, Math.hypot(_cu.x, _cu.z));
       wantY = clamp(wantY, C.yaw[0] * DEG, C.yaw[1] * DEG); wantE = clamp(wantE, C.el[0] * DEG, C.el[1] * DEG);
     }
     const m = C.slew * DEG * dt, y0 = p.aimYaw || 0, e0 = p.aimEl || 0;
@@ -3975,7 +3971,7 @@ const Ship = (() => {
     let ex = -d.y, ey = d.x, ez = 0;
     if (Math.abs(d.z) > 0.9) { ex = 0; ey = -d.z; ez = d.y; }
     const el = Math.hypot(ex, ey, ez) || 1; ex /= el; ey /= el; ez /= el;
-    const fx = d.y * ez - d.z * ey, fy = d.z * ex - d.x * ez, fz = d.x * ey - d.y * ex, rr = SHIP.CIWS.disp * Math.sqrt(crnd()), a = crnd() * TAU, c = rr * Math.cos(a), s = rr * Math.sin(a);
+    const fx = d.y * ez - d.z * ey, fy = d.z * ex - d.x * ez, fz = d.x * ey - d.y * ex, rr = SHIP.CIWS.disp * Math.sqrt(crnd()), a = crnd() * TAU, c = rr * Math.cos(a) + gauss() * (p.eK || 0), s = rr * Math.sin(a) + gauss() * (p.eK || 0); // (its spread, and its fire control's error)
     d.x += ex * c + fx * s; d.y += ey * c + fy * s; d.z += ez * c + fz * s;
     const l = Math.hypot(d.x, d.y, d.z); d.x /= l; d.y /= l; d.z /= l;
     p.shots = (p.shots || 0) + 1; p.ammo = Math.max(0, p.ammo - CIWS_N); p.shotAt = F.time || 0;
@@ -4305,7 +4301,7 @@ const Ship = (() => {
     return Combat.launchMissile(v, p, t, F);
   }
   function ciwsOn(v, on) { if (v && v.sh) v.sh.ciwsOn = on !== false; return !!(v && v.sh && v.sh.ciwsOn); }
-  function resetCombat() { NOISE.length = 0; }
+  function resetCombat() { NOISE.length = 0; } // (the tests')
 
   // ---- the frame (Combat.frame, when Combat.S.sea): collisions, flooding, fires, damage control, fate, mooring, the AI,
   // the Naval Range [WP1's loop; the others add their calls]
@@ -4317,6 +4313,7 @@ const Ship = (() => {
     for (const v of F.vessels) if (v.sh && v.sh.slam.length) slams(F, v); // [WP6]
     junk(F, dt); // [WP6]
     damageFrame(F, dt); // [WP8] (flooding, fires, damage control, fate, the sunk ships' wrecks)
+    if (NOISE.length) noiseStep(F, dt); // [WP9] (torpedo noisemakers towed astern)
   }
   // Spray, funnel smoke and the screws' wash (Flight.emitParticles, for a hydro vessel; render3d draws the swell and the
   // wakes) [WP2]. Bow spray: white spray thrown out both sides of the stem where it meets the water, SPRAY.k a second for

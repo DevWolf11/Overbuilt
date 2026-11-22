@@ -2178,7 +2178,7 @@ function radarSpecs(R) {
 // inside a body, active missiles that can't go on alone, and two radars looking forward.
 function radarProblems(parts) {
   const out = [], radars = parts.filter((p) => p.def.radarSet), byId = new Map(parts.map((p) => [p.id, p]));
-  const rocks = parts.filter((p) => { const w = p.def.weapon; return w && w.radar && w.seek === 'air' && !p.def.aim; });
+  const rocks = parts.filter((p) => { const w = p.def.weapon; return w && w.radar && w.seek === 'air' && !p.def.aim && !w.vls; }); // ([WP9] a ship's launch cells ride her fire-control radar: Ship.kitWarnings)
   const guides = radars.filter((p) => p.def.radarSet.guide >= 1);
   if (rocks.length && !guides.length) {
     if (!radars.length) out.push('Radar-guided missiles need a radar to lock on: fit one inside the nose.');

@@ -1602,7 +1602,6 @@ const Combat = (() => {
     S.shots = []; S.flares = []; S.targets = []; S.spawned = false; S.lock = S.cand = null; S.lockT = 0; S.warn = S.warnR = false; S.threats = []; S.rwr = 0; S.fighterT = 20; S.wasFiring = false;
     S.cmAt = -9; S.gunKey = null; S.lockPid = 0; // (the other players' missile copies and flares went with shots and flares)
     S.smoke = []; S.gai = 0; S.rip = null; S.dr = false; S.sea = false; S.pd = false;
-    if (typeof Ship !== 'undefined' && Ship.resetCombat) Ship.resetCombat(); // ([WP9] the torpedo noisemakers in the water)
     // a new flight stands the props it knocked over up again (not a respawn in a battle, which keeps the field as it is,
     // nor any flight in a room: there the room's set rules, and a new battle stands them up, mp.js)
     if (typeof Props !== 'undefined' && Props.crushed && !(F && F.spawnOpts && Array.isArray(F.spawnOpts.keep) && F.spawnOpts.keep.length) && !mpOn()) Props.reset();
@@ -2027,7 +2026,7 @@ const Combat = (() => {
     const cur = sys[v.wsel], w = cur.w;
     const o = { name: w.label || SHORT[w.kind === 'missile' ? (w.seek === 'ground' ? 'agm' : w.radar ? 'radar' : 'aam') : w.kind] || cur.def.name, ammo: ammoOf(cur), n: sys.length,
       lock: !!S.lock, kills: S.kills, flares: sum('flare'), chaff: sum('chaff'), stealth: v.stealth || 0 };
-    if (w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && typeof Radar !== 'undefined') o.radar = Radar.chipState(v, cur); // ('ok', 'off', 'none', 'guns', 'out': the chip's ⊘)
+    if (w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && !w.vls && typeof Radar !== 'undefined') o.radar = Radar.chipState(v, cur); // ('ok', 'off', 'none', 'guns', 'out': the chip's ⊘; [WP9] never a ship's launch cells)
     if ((w.kind === 'tgun' || w.kind === 'agun') && cur.def.aim) { // (an aimed gun: '85 mm APHE', every round it has, its reload)
       const a = Aim.status(v), sh = a && a.shells[a.sel];
       o.name = (w.cal < 15 ? 'MG' : `${w.cal} mm`) + (sh && w.shells.length > 1 ? ` ${sh.label}` : '');

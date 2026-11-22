@@ -367,33 +367,33 @@
  },
  "pegazus": {
   "span": 12,
-  "length": 16.6,
-  "height": 40.66,
-  "mass": 178200
+  "length": 17.200000000000003,
+  "height": 44.414,
+  "mass": 211840
  },
  "osca": {
   "span": 7,
-  "length": 15.125,
-  "height": 40.21,
-  "mass": 165600
+  "length": 15.725000000000001,
+  "height": 41.392,
+  "mass": 178900
  },
  "vizby": {
   "span": 14,
-  "length": 12.057,
-  "height": 72.34,
-  "mass": 627500
+  "length": 13.257,
+  "height": 75.602,
+  "mass": 656220
  },
  "olivar": {
   "span": 16,
-  "length": 35.229,
-  "height": 109.5,
-  "mass": 5206000
+  "length": 36.429,
+  "height": 113.254,
+  "mass": 5271320
  },
  "arley": {
   "span": 16,
-  "length": 35.038,
-  "height": 157.5,
-  "mass": 8038500
+  "length": 36.238,
+  "height": 162.894,
+  "mass": 8113850
  },
  "catalyna": {
   "span": 30,
