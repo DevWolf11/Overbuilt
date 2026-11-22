@@ -2060,6 +2060,7 @@ const MP = {
     if (!v) return;
     const bits = Array.isArray(m.bits) ? m.bits.slice(0, 2).map(one).filter(Boolean) : [];
     for (const q of bits) { q.remote = 0; q.foreign = m.p; q.isDebris = true; q.tossed = true; } // (its pieces carry its owner's part ids: hits never look in them)
+    if (bits.length) v.koH = Math.max(v.bounds.maxY, ...bits.map((q) => q.bounds.maxY)) - Math.min(v.bounds.minY, ...bits.map((q) => q.bounds.minY)); // ([WP8] as tall as it stood, its turret on: death.js swamp, as on its owner's screen)
     const now = performance.now(), age = clamp(m.a, 0, MP_WRECK_MS);
     v.ko = { why: m.why === 'ammo' || m.why === 'crew' ? m.why : 'hull', x: m.x === 1, t: (Flight.running ? Flight.time || 0 : 0) - age / 1000 }; // (it burns, then smokes, as any wreck: death.js)
     this.addWreck(v, m.p, bits, now - age);

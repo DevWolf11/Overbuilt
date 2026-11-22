@@ -1448,7 +1448,7 @@ const PARTS = {
     tier: 3, cost: 6000, desc: 'The front of a destroyer (16 m across, 34 m long), its flared bow throwing green seas aside: room for a gun and missile cells on its deck. Put it on the front of a Destroyer Midsection.' },
   hbMidX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Midsection', w: 24, h: 11, depth: 16, mass: 1400, shape: 'shull', hull: true,
     shull: { cls: 'X', wl: -0.5, st: [[-12, 5.5, -5.5, 8.0, 7.8, 2.4], [12, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'joint', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
-    armour: { mm: 12, plate: 12, deck: 10, mat: 'steel', belt: { y: [-2.0, 2.0] } }, hp: 20000, breakSpeed: 8,
+    armour: { mm: 12, min: 12, max: 150, plate: 12, deck: 10, mat: 'steel', belt: { y: [-2.0, 2.0] } }, hp: 20000, breakSpeed: 8, // ([WP8] min, max: the belt's dial)
     tier: 3, cost: 3000, desc: 'A 24 m length of steel destroyer hull: her machinery, magazines and a watertight compartment of its own. Its side can carry an armour belt along the waterline.' },
   hbSternX: { gv: true, ship: true, family: 'Destroyers', place: 'keel', cat: 'shHull', name: 'Destroyer Stern', w: 26, h: 11, depth: 16, mass: 850, shape: 'shull', hull: true,
     shull: { cls: 'X', wl: -0.5, st: [[-13, 5.5, -3.0, 7.0, 6.6, 3.2], [-4, 5.5, -4.9, 7.9, 7.6, 2.6], [13, 5.5, -5.5, 8.0, 7.8, 2.4]], ends: { aft: 'closed', fore: 'joint' }, k: 0.2, pump: 0.08, bk: 0.05 },
@@ -1607,7 +1607,9 @@ function massPerMm(def) {
   if (k != null) return k;
   const a = def.armour, w = def.w, h = def.h, d = partDepth({ def });
   let A = 0;
-  if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
+  const belt = def.shull && a.belt && (Array.isArray(a.belt) ? a.belt : a.belt.y); // [WP8]
+  if (belt) A = 2 * w * Math.abs(belt[1] - belt[0]); // ([WP8] a ship's armour belt: its band along both sides is what the dial thickens)
+  else if (a.round) { const R = a.round, r = w / 2; A = Math.PI * w * h * ((R.f ?? 1) + 2 * (R.s ?? 1) + (R.r ?? 1)) / 4 + Math.PI * r * r * (R.t ?? 1); }
   else if (a.slab) A = w * d; // (a solid plate, thin in h: one sheet, though each face is hit at its full thickness)
   else {
     const o = def.outline || BOX_OUTLINE, n = o.length, open = a.open || [];
@@ -6489,6 +6491,72 @@ function shullPts(p, add) {
     add(p, k.x, k.y, 0); add(p, d.x, d.y, -r.bd); add(p, d.x, d.y, r.bd);
     if (i === 0 || i === n - 1) { const w = partPt(p, r.x, H.wl), b = r.yk < H.wl ? r.bw : r.bd; add(p, w.x, w.y, -b); add(p, w.x, w.y, b); }
   }
+}
+// [WP8] A hull part's own triangles (pure, once per def): what is hit is what is drawn. Between each pair of neighbouring
+// rings K quads of two triangles round the section (the deck strip between the deck edges among them), and each end
+// closed by a fan round its ring's centroid (a transom, the stem's last section, or a joint's end: the hull a closed
+// solid). parts3d's shipHullGeo builds its loft from these very vertices and triangles, in this order (its normals
+// summed from tri's raw normals, nrm), so the picture is the hit shape exactly; Ship.hullRay meets shells with them.
+// Vertices are made as the loft's: one per ring corner, two where it creases (a chine, a V's keel, the deck edges: a
+// corner turning more than 40°), so a crease's two faces keep their own normals there.
+// shullTris(def) -> { pos (Float64Array of vertices [x, y, z], the part's own frame), tri (Uint32Array, [a, b, c] a
+// triangle, wound with its normal outward), nrm (Float64Array, each triangle's raw normal (b − a) × (c − a): outward,
+// not unit), un (its unit normal), code (Int8Array: −6 the deck, −7 a side (its normal more across than down: the
+// topsides and the upper bilge, a closed end's plate), −8 the bottom, −9 a joint's open end: no plate), slab (Uint32Array:
+// slab i, between rings i and i + 1, holds triangles slab[2i] … slab[2i + 1] − 1), cap ([[first, end] the aft fan, the
+// fore one]), xs (Float64Array: each ring's x, ascending), n (rings) }. Degenerate triangles (a stem's last section shrunk
+// to a point) are left out, as the loft leaves them.
+const SHULL_TRI_CACHE = new Map(), SHULL_CREASE = Math.cos((40 * Math.PI) / 180);
+function shullTris(def) {
+  let T = SHULL_TRI_CACHE.get(def);
+  if (T) return T;
+  const H = shullOf(def), R = H.rings, n = R.length, K = H.K, E = def.shull.ends || {};
+  const pos = [], tri = [], nrm = [], un = [], code = [], slab = [], cap = [];
+  const vtx = (x, y, z) => { pos.push(x, y, z); return pos.length / 3 - 1; };
+  // each ring's vertices: one per corner, two where it creases (ids[i][j] = [the id the edge before it uses, the one after])
+  const ids = R.map((r) => {
+    const P = r.P, out = [];
+    for (let j = 0; j < K; j++) {
+      const a = (j + K - 1) % K, c = (j + 1) % K;
+      const ux = P[2 * j] - P[2 * a], uz = P[2 * j + 1] - P[2 * a + 1], vx = P[2 * c] - P[2 * j], vz = P[2 * c + 1] - P[2 * j + 1];
+      const L = Math.hypot(ux, uz) * Math.hypot(vx, vz), deckEdge = j === K / 2 - 0.5 || j === K / 2 + 0.5; // (corners 7 and 8: the deck's edges)
+      const crease = deckEdge || (L > 1e-12 && (ux * vx + uz * vz) / L < SHULL_CREASE);
+      const id = vtx(r.x, P[2 * j], P[2 * j + 1]);
+      out.push(crease ? [id, vtx(r.x, P[2 * j], P[2 * j + 1])] : [id, id]);
+    }
+    return out;
+  });
+  const D0 = (K - 1) / 2; // (the deck: the edge from corner 7 to 8)
+  const face = (a, b, c, k, out) => { // a triangle facing away from out (a point inside); k: its face code (0: by its normal)
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+    const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az, vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    if (nx * nx + ny * ny + nz * nz < 1e-14) return;
+    const mx = (ax + pos[b * 3] + pos[c * 3]) / 3 - out[0], my = (ay + pos[b * 3 + 1] + pos[c * 3 + 1]) / 3 - out[1], mz = (az + pos[b * 3 + 2] + pos[c * 3 + 2]) / 3 - out[2];
+    if (nx * mx + ny * my + nz * mz < 0) { const t = b; b = c; c = t; nx = -nx; ny = -ny; nz = -nz; }
+    const L = Math.hypot(nx, ny, nz);
+    tri.push(a, b, c); nrm.push(nx, ny, nz); un.push(nx / L, ny / L, nz / L);
+    code.push(k || (Math.abs(nz) >= -ny ? -7 : -8));
+  };
+  for (let i = 0; i + 1 < n; i++) {
+    const A = ids[i], B = ids[i + 1], o = [(R[i].x + R[i + 1].x) / 2, (R[i].cy + R[i + 1].cy) / 2, 0];
+    slab.push(code.length);
+    for (let j = 0; j < K; j++) {
+      const j1 = (j + 1) % K, k = j === D0 ? -6 : 0;
+      face(A[j][1], A[j1][0], B[j1][0], k, o); face(A[j][1], B[j1][0], B[j][1], k, o);
+    }
+    slab.push(code.length);
+  }
+  for (const [i, s, e] of [[0, -1, E.aft], [n - 1, 1, E.fore]]) { // the ends: a fan round the ring's centroid, flat
+    const r = R[i], c = vtx(r.x, r.cy, 0), v = [], k = e === 'joint' ? -9 : -7, c0 = code.length;
+    for (let j = 0; j < K; j++) v.push(vtx(r.x, r.P[2 * j], r.P[2 * j + 1]));
+    for (let j = 0; j < K; j++) face(c, v[j], v[(j + 1) % K], k, [r.x - s, r.cy, 0]);
+    cap.push([c0, code.length]);
+  }
+  T = { pos: Float64Array.from(pos), tri: Uint32Array.from(tri), nrm: Float64Array.from(nrm), un: Float64Array.from(un), code: Int8Array.from(code),
+    slab: Uint32Array.from(slab), cap, xs: Float64Array.from(R.map((r) => r.x)), n };
+  SHULL_TRI_CACHE.set(def, T);
+  return T;
 }
 
 // ==== ships: hull art (shullPath, shullDraw; the slice's ship kit: the wheelhouse, propeller and rudder) [WP2] ====

@@ -12,6 +12,7 @@ const DRONE_KEYS = { dLevel: 'hold', dAcro: 'acro' }; // (the big update: a dron
 const NO_SAS_KEYS = {}; // (the ships update: a ship's helm keys are Flight.shipKey's)
 // (the ships update) how a ship was lost, v.fate (ship.js's doom: Ship.doom(v, sim, why) sets it), in the strip and the end screen
 const SHIP_FATES = { sunk: 'Sunk', capsized: 'Capsized', magazine: 'Lost to a magazine explosion', action: 'Out of action' };
+const SHIP_ROW = { sunk: 'Sunk', capsized: 'Capsized', magazine: 'Broken in two', action: 'Out of action' }; // ([WP8] the flight data's damage row: narrow, so short)
 const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const PLANE_SAS = new Set(['hold', 'level', 'heading', 'off', 'aim']); // (the Off button flies the manual law: sas 'manual', PR #40)
 // every milestone's name: the flags award() raises that toast and go in the flight's summary (the rest only steer hints)
@@ -303,9 +304,10 @@ const Flight = {
   canRails() {
     const v = this.active;
     if (!v || !v.parts.length) return false;
+    if (v.sh && Ship.busy(v)) return 'damage'; // ([WP8] water coming in, a fire, her damage control at work: the rails would stop it all; aground as well as afloat)
     if (v.landed && v.speed() < 0.2) return true;
     // (the ships update: a ship afloat, still, her telegraph at Stop, is moored for the warp: she sleeps on the swell)
-    if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel) { Ship.moor(v, this); return true; }
+    if (v.sh && v.afloat && v.speed() < 0.5 && !(v.thrust > 0) && !v.sh.tel && !v.fate) { Ship.moor(v, this); return true; } // ([WP8] never a doomed one: she is going down)
     if (v.thrust > 0) return 'engines';
     if (v.altitude() < v.body.warpAlt) return v.body.atmoHeight ? 'atmosphere' : v.body.star ? 'star' : 'surface';
     return true;
@@ -318,7 +320,7 @@ const Flight = {
     if (i > PHYS_WARP_MAX) {
       const ok = this.canRails();
       if (ok !== true) {
-        const why = { engines: 'Cut the engines to time warp faster', atmosphere: 'Can’t time warp faster inside an atmosphere', star: 'Too close to the Sun for faster time warp' }[ok]
+        const why = { engines: 'Cut the engines to time warp faster', atmosphere: 'Can’t time warp faster inside an atmosphere', star: 'Too close to the Sun for faster time warp', damage: 'Can’t time warp faster while she floods, burns or her crew fight the damage' }[ok] // ([WP8] damage: Ship.busy)
           || 'Too close to the surface for faster time warp';
         this.toast(why);
         i = Math.min(i, PHYS_WARP_MAX);
@@ -766,7 +768,7 @@ const Flight = {
         { label: 'Revert to launch', primary: !others.length, onClick: () => this.revert() },
       ];
       if (others.length) acts.push({ label: `Switch to ${others[0].name}`, primary: true, onClick: () => this.switchTo(others[0]) });
-      const sea = !!v && isSea(v.kind), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…)
+      const sea = !!v && (isSea(v.kind) || !!(v.sh && v.fate)), fate = sea ? SHIP_FATES[v.fate] || 'Ship lost' : null; // (the ships update: Sunk, Capsized…; [WP8] a flying boat or an amphibious tank lost on the water too)
       UI.modal({ kicker: ground && GroundAI.range ? 'Tank Range' : 'Mission update', title: fate || (ground ? 'Knocked out' : 'Vessel destroyed'), body: this.summaryHTML('', ground), actions: acts });
     });
   },
@@ -777,7 +779,7 @@ const Flight = {
     const t = this.time || 0, hit = v && v.lastHitBy && v.lastHitBy !== v && t - (v.lastHitAt ?? -99) < 20 ? v.lastHitBy : null;
     const by = (v && v.doomBy && v.doomBy !== v ? v.doomBy : null) || hit;
     let what = 'Destroyed';
-    if (v && isSea(v.kind)) what = SHIP_FATES[v.fate] || 'Destroyed'; // (the ships update: what ship.js's fate says, v.fate)
+    if (v && (isSea(v.kind) || (v.sh && v.fate))) what = SHIP_FATES[v.fate] || 'Destroyed'; // (the ships update: what ship.js's fate says, v.fate; [WP8] a flying boat's or an amphibious tank's lost on the water)
     else if (v && isGround(v.kind)) what = v.ko && v.ko.x ? 'Ammo detonation' : v.ko && v.ko.why === 'hull' && !by ? 'Wrecked' : 'Knocked out';
     else if (v && isAirKind(v.kind)) {
       what = v.kind === 'drone' ? 'Drone lost' : v.hulkWhy === 'pilot' ? 'Pilot knocked out' : v.down || (v.hulk != null && v.doomBy) ? 'Shot down'
@@ -927,6 +929,7 @@ const Flight = {
   },
   fallDone() {
     const v = this.active, t = this.time || 0, D = typeof DEATH !== 'undefined' ? DEATH : { endAfter: 1.2, endMax: 10 };
+    if (v && v.fate && v.sh && typeof SHIP !== 'undefined' && this.running && this.diedAt != null && t >= this.diedAt) return t - this.diedAt >= SHIP.FATE.wait || !!(v.dead || v.wreck || v.sunk != null); // ([WP8] a ship lost: until she has gone down, at most FATE.wait s)
     if (!this.running || this.diedAt == null || t - this.diedAt >= D.endMax || t < this.diedAt) return true;
     const falling = !!v && v.hulk != null && !v.dead && v.parts.length > 0 && !v.landed && !v.splashed;
     const crashed = this.crashedAt != null && t >= this.crashedAt && t - this.crashedAt < D.endAfter;
@@ -1278,7 +1281,7 @@ const Flight = {
   // A tank parked while its drone flies is always stepped, however far the drone (its kit, repairs and the AI's targeting
   // go on: plan I14).
   // (the ships update) and an AI ship out to SHIP.aiNear (12 km): the computer's fleet keeps sailing
-  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier) || (v.hydro && !!v.ai && d < SHIP.aiNear); },
+  stepsNear(v, d) { return d < NEAR_DIST || (v.control && !v.landed && v.altitude() < v.body.warpAlt) || (v.hulk != null && d < DEATH.hulkFar) || (!!this.active.carrier && v === this.active.carrier) || (v.hydro && (!!v.ai || !!v.fate) && d < SHIP.aiNear); }, // ([WP8] a doomed ship is stepped until she is gone or a wreck)
 
   // The stick: W/S (↑/↓), A/D (←/→) and Q/E (or the keys bound in their place), plus the touch joystick and roll
   // buttons. A plane in Aim: the stick moves the circle (planeTick), not the plane; keys still fly it by hand.
@@ -2613,7 +2616,7 @@ const Flight = {
     const hurt = integ <= 0.995, air = isAirKind(v.kind) && typeof Death !== 'undefined', fire = hurt && air ? Death.burning(v) : null;
     const pct = `${Math.max(1, Math.round((1 - integ) * 100))}%`;
     // (the row is narrow: "Pilot knocked out" took two lines on a phone and a desktop alike; the strip says it in full)
-    const dmg = v.ko ? 'Knocked out' : v.down ? (v.hulkWhy === 'pilot' && v.kind !== 'drone' ? 'Pilot KO' : 'Shot down') // (P4 play-test: not "8%" with its turret thrown)
+    const dmg = v.fate && v.sh ? SHIP_ROW[v.fate] || 'Lost' : v.ko ? 'Knocked out' : v.down ? (v.hulkWhy === 'pilot' && v.kind !== 'drone' ? 'Pilot KO' : 'Shot down') // (P4 play-test: not "8%" with its turret thrown)
       : v.hulk != null && air ? `Crippled · ${pct}` : fire ? `On fire · ${pct}` : null;
     $('#row-dmg').hidden = !hurt && !dmg;
     if (dmg) { set('t-dmg', dmg); $('#row-dmg').classList.add('danger'); }

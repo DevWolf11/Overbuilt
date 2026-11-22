@@ -64,7 +64,7 @@ const Combat = (() => {
     if (v.gv) v.hurtAt = sim.time || 0; // (repairs wait until 6 s after the last hit)
     if (v.parked && sim.active && v === sim.active.carrier) Drone.alarm(sim); // (the big update: our tank hit while its drone flies)
     const after = hpFrac(p);
-    if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit)
+    if (by && cause !== 'fire' && byMe(by, sim) && v !== sim.active && (isAirKind(v.kind) || isGround(v.kind) || isSea(v.kind))) Death.hit(sim); // (our hit: the HUD's tick; a fire we lit burning on is no hit; [WP8] a ship too, S6)
     const own = v === sim.active && !v.ai; // (the player's own losses from this hit: one toast for all of it, death.js)
     if (own) Death.holdLost();
     try { hurtPart(v, p, cause, sim, by, side, before, after); } finally { if (own) Death.flushLost(); }
@@ -88,6 +88,7 @@ const Combat = (() => {
   // tanks, loaded weapons and cockpits blow up; the rest break off. A pair goes up where each one hangs, its fuel shared
   // between them. The order of the lines is fixed (each package of the big update has its slot).
   function destroyPart(v, p, cause, sim, side) {
+    if (p.def.shull && v.sh) { Ship.holedThrough(v, p, cause, sim); return; } // ([WP8] a ship's hull at 0 hp is holed through, never blown off: ship.js)
     if (innerRadar(p.def)) { // (a radar set at 0 hp stays where it is inside its nose, dead: the player hears it once, in the hit's one toast)
       if (!p.broken) { p.broken = true; const say = `${p.def.name} knocked out: radar out`; if (v === sim.active && !v.ai && sim.toast && !sim.destroyed && !Death.lose(v, sim, { name: p.def.name, k: 'out', text: say })) sim.toast(say, 'warn'); }
       return;
@@ -224,7 +225,9 @@ const Combat = (() => {
   }
   // (he: the blast's penetration against armour; spare: a craft it leaves alone, a shell's own just after firing;
   // fx: its look, undefined today's, 'ab' an airburst round's)
-  function explode(b, at, blast, dmg, by, sim, quiet, he, spare, fx) {
+  // ([WP8] o: { under (a torpedo's: its holes tamped), inside (high explosive through a hull's plate), noHoles (a
+  // magazine's: it tears its own) }: what the ships update's hulls make of it, ship.js blastHull)
+  function explode(b, at, blast, dmg, by, sim, quiet, he, spare, fx, o) {
     if (fx === 'ab') abFX(b, at); else boomFX(b, at, blast, quiet, sim);
     // our own fire reaching someone else's craft goes to its owner as hits, one message per craft
     const mine = typeof MP !== 'undefined' && ours(by);
@@ -240,12 +243,17 @@ const Combat = (() => {
         for (const p of v.parts.slice()) {
           if (!v.parts.includes(p)) continue;
           let d = Infinity;
-          for (const z of partZs(p)) {
-            const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
-            d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+          const hull = !!p.def.shull && !!v.sh; // ([WP8] a ship's hull part: to its nearest plate, 0 inside: ship.js)
+          if (hull) d = Ship.hullDist(v, p, at);
+          else {
+            for (const z of partZs(p)) {
+              const c = mods ? Aim.pose(v, p, { x: p.x, y: p.y, z }, { x: 0, y: 0, z: 0 }) : null, w = c ? v.toWorld(c.x, c.y, c.z) : v.toWorld(p.x, p.y, z);
+              d = Math.min(d, len(w.x - at.x, w.y - at.y, w.z - at.z));
+            }
+            d -= Math.max(p.def.w, p.def.h) / 2;
           }
-          d -= Math.max(p.def.w, p.def.h) / 2;
           if (d >= blast) continue;
+          if (hull) Ship.blastHull(v, p, d, at, blast, by, sim, o); // ([WP8] the hole it tears there, tamped under the water; a fire if it burst inside)
           let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
           if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; Armour.tally(v, p, k); } // (tally: what the shooter's HUD hears)
           const side = wingSide(v, p, at); // (an aircraft's plain wing: the half the blast is on)
@@ -726,6 +734,7 @@ const Combat = (() => {
     if (s.k === 'shell') return Armour.moveShell(s, h, F); // (the ground update's shells: armour.js)
     if (s.k === 'torp') return swim(s, h, F);
     if (s.netId != null) return moveReplica(s, h, F);
+    if (s.uw != null) return underwater(s, h, F); // ([WP8] a bomb gone into the sea beside a ship, S4)
     const b = s.b, r0 = len(s.x, s.y, s.z), g = b.mu / (r0 * r0);
     s.t += h;
     const spare = s.t < 0.6 ? s.spare : undefined; // (a ground launcher's own blast doesn't hurt it at the muzzle)
@@ -825,6 +834,11 @@ const Combat = (() => {
         Object.assign(s, { k: 'torp', x: e.x, y: e.y, z: e.z, dx: hx / hl, dy: hy / hl, dz: hz / hl, life: s.t + 100, run: 0 });
         return true;
       }
+      if (S.sea && water && s.k === 'bomb' && s.blast > 0 && !s.net && seaNear(b, e, s.blast + 20, F)) { // ([WP8] S4: beside a ship it goes on down and bursts under the water, the near miss that springs her plates)
+        FX.splash(b, e, { x: e.x / L.r, y: e.y / L.r, z: e.z / L.r }, 4);
+        s.x = e.x; s.y = e.y; s.z = e.z; s.uw = 0.5;
+        return true;
+      }
       if (s.blast > 0 && s.net) { if (s.blast < 8) boomFX(b, e, s.blast, true, F); } // (a big one: its owner's boom shows it)
       else if (s.blast > 0) explode(b, e, s.blast, s.dmg, s.owner, F, s.k === 'bullet', s.he, spare);
       else if (Math.random() < 0.35) {
@@ -837,6 +851,17 @@ const Combat = (() => {
     return true;
   }
   const lerp3 = (a, e, t) => ({ x: a.x + (e.x - a.x) * t, y: a.y + (e.y - a.y) * t, z: a.z + (e.z - a.z) * t });
+  // [WP8] (S4) is a ship afloat within d m of the point P (her hull's reach)? And a bomb gone into the sea beside one: it
+  // sinks on at 10 m/s for 0.5 s and bursts there, tamped (holes ×SHIP.HOLE.tamp: ship.js blastHull)
+  function seaNear(b, P, d, F) { for (const o of F.vessels) if (o.sh && !o.dead && o.body === b && len(o.x - P.x, o.y - P.y, o.z - P.z) - (o.reach || 10) < d) return true; return false; }
+  function underwater(s, h, F) {
+    s.uw -= h; s.t += h;
+    const r = len(s.x, s.y, s.z) || 1;
+    s.x -= (s.x / r) * 10 * h; s.y -= (s.y / r) * 10 * h; s.z -= (s.z / r) * 10 * h;
+    if (s.uw > 0) return true;
+    explode(s.b, { x: s.x, y: s.y, z: s.z }, s.blast, s.dmg, s.owner, F, false, s.he, undefined, undefined, { under: true });
+    return false;
+  }
   // a shot into a prop (Props.hit: what it met): a blast bursts there (a copy: its look only, a big one shown by its
   // owner's boom, as on the ground); a plain round stops in it, with a puff of what the prop is made of, or sparks
   const PROP_PUFF = { stone: '#a49c8c', wood: '#7a5f42', earth: '#9a8a68', leaf: '#5d7a3e' };

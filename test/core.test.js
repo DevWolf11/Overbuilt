@@ -67,7 +67,7 @@ g('the ships: kind ship, not military, a blurb; tier the highest of their parts\
   let clash = 0; for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (partsClash(ps[i], ps[j])) clash++;
   return (T.kind === 'ship' || (T.kind === 'plane' && T.group === 'ship')) && !T.military && T.blurb.length > 40 && T.tier === Math.max(...ps.map((p) => p.def.tier || 0)) && ctrl && componentOf(ctrl.id, adj).size === ps.length && !clash
     && designCost(ps) <= ${JSON.stringify(Object.fromEntries(Object.entries(SHIPS).map(([k, v]) => [k, v[1]])))}[k] && v.hydro && v.sh.open.length === 0
-    && v.sh.joins.length === v.sh.hulls.filter((p) => p.def.shull.cls !== 'one').length - (v.sh.hulls.some((p) => p.def.shull.cls !== 'one') ? 1 : 0) && v.sh.comps.length === v.sh.hulls.length; })`));
+    && v.sh.joins.length === v.sh.hulls.filter((p) => p.def.shull.cls !== 'one').length - (v.sh.hulls.some((p) => p.def.shull.cls !== 'one') ? 1 : 0) && v.sh.comps.length === v.sh.hulls.length + ps.filter((p) => p.def.bulkhead && v.sh.hulls.some((h) => h.id === p.att)).length; })`)); // ([WP8] a bulkhead cuts its hull's compartment in two)
 // (WP5) each ship floats at her design marks (Ship.stats' still-water float: her draught within 0.3 m of her longest hull
 // part's waterline over its keel), upright, trimmed within 1°, no builder warning; editable: her design rows (as the
 // builder saves them) load back to the same parts. The flying boat floats on her hull too (ships.test: in flight).

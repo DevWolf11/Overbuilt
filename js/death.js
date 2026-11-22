@@ -680,19 +680,27 @@ const Death = (() => {
     try { if (v.gv && typeof Armour !== 'undefined') Armour.knockOut(v, sim, why); else groundKO(v, sim, why, 'Sunk!'); } finally { DET.quiet--; }
     v.throttle = 0;
     deathFX(v, sim, 'thud', groundSize(v), w.c, { water: true });
+    if (why === 'wreck' && Array.isArray(v.bits)) for (const q of v.bits) { // ([WP8] a wreck going under takes its thrown turret, where it lies in water deeper than it is tall)
+      if (q.dead || !q.tossed || !q.parts.length) continue;
+      const wq = seaAt(q);
+      if (wq && wq.lvl - Terrain.heightAt(q.body, wq.L.a, wq.L.z) > q.bounds.maxY - q.bounds.minY) { sea(q, sim, wq.L, wq.c); q.dead = true; }
+    }
   }
   // (the sea rule) A ground vehicle of ours that can't swim (no amphibious hull) standing in water deeper than it is tall
   // (its roof under: to the physics the sea is a floor, so it stands on the surface) for SEA.swamp s goes under, its
   // crew lost: it floats a moment and sinks to the bed (the slow plunge). Shallower water is wading (Gear's ford and
-  // flooding) as ever. Not a knocked-out one (its wreck is the room's), the ground AI's or a thrown turret. e: s since
-  // the last tick. true: it went under
+  // flooding) as ever. Not the ground AI's or a thrown turret. [WP8] A knocked-out one (ours, the AI's or a room's wreck:
+  // every screen runs this from the wreck's place and the ground, no message) goes under too: never a wreck standing on
+  // the water (its wreck record goes with it: the lists drop the dead). A hydro one is ship.js's: it sinks by physics.
+  // e: s since the last tick. true: it went under
   function swamp(o, F, e) {
-    if (!o.splashed || o.ko || o.kin || o.tossed || o.foreign || o.hydro || !isGround(o.kind)) { if (o.swampT) o.swampT = 0; return false; }
-    const w = seaAt(o);
-    if (!w || w.lvl - Terrain.heightAt(o.body, w.L.a, w.L.z) <= o.bounds.maxY - o.bounds.minY || o.parts.some((p) => p.def.amph)) { o.swampT = 0; return false; }
+    const ko = !!o.ko && !o.hydro && !o.tossed && !o.foreign && isGround(o.kind); // [WP8]
+    if ((!o.splashed && !ko) || (o.ko && !ko) || (o.kin && !ko) || o.tossed || o.foreign || o.hydro || !isGround(o.kind)) { if (o.swampT) o.swampT = 0; return false; }
+    const w = seaAt(o), H = o.bounds.maxY - o.bounds.minY;
+    if (!w || w.lvl - Terrain.heightAt(o.body, w.L.a, w.L.z) <= (ko && o.koH > H ? o.koH : H) || o.parts.some((p) => p.def.amph)) { o.swampT = 0; return false; } // ([WP8] a wreck: as tall as it stood, its thrown turret too: Armour.toss's koH)
     o.swampT = (o.swampT || 0) + (e > 0 ? e : 0);
     if (o.swampT < SEA.swamp) return false;
-    goUnder(o, F, w, o.gv ? 'crew' : 'hull');
+    goUnder(o, F, w, o.ko ? 'wreck' : o.gv ? 'crew' : 'hull');
     return true;
   }
   // A peer's ground vehicle down in the water with no wreck (mp.js onDown: it went under on its owner's screen, goUnder):
@@ -817,6 +825,9 @@ const Death = (() => {
     return A ? Math.hypot(o.x - A.x, o.y - A.y, o.z - A.z) : 0;
   }
   const WRK = []; // (groundTick's knocked-out vehicles, reused)
+  // [WP8] a ship lost by ship.js's rules (her fate: she sinks by physics, her fires and her wreck are ship.js's), never
+  // an amphibious tank knocked out ashore (a tank's wreck)
+  const shipLost = (o) => !!o.sh && (!!o.fate || !isGround(o.kind));
   // tick()'s last part: knocked-out hulks of ours settling into wrecks (on the ground or in water, under 2 m/s, or 6 s
   // after the knock-out), thrown turrets (ours or a peer's) once they lie still, then the fire and smoke of the 3
   // knocked-out vehicles nearest the camera within 4 km (ours, the AI's, peers' wrecks), none above 4× warp.
@@ -826,13 +837,13 @@ const Death = (() => {
     L.length = 0;
     for (const o of F.vessels) {
       if (o.dead) continue;
-      if ((o.splashed || o.swampT) && !o.wreck && !o.remote && swamp(o, F, e)) continue; // (the sea rule: one that can't swim, out of its depth)
+      if ((o.splashed || o.swampT || (o.ko && !o.hydro)) && (o.ko || (!o.wreck && !o.remote)) && swamp(o, F, e)) continue; // (the sea rule: one that can't swim, out of its depth; [WP8] a wreck too)
       if (!o.wreck && !o.remote) {
         const down = o.landed || o.splashed || o.contactTime > 0;
-        if (o.ko && !o.kin && !o.foreign) { if (down && (o.speed() < DEATH.settleV || t - (o.ko.t || 0) > DEATH.settleT)) settle(o); }
+        if (o.ko && !o.kin && !o.foreign && !shipLost(o)) { if (down && (o.speed() < DEATH.settleV || t - (o.ko.t || 0) > DEATH.settleT)) settle(o); } // ([WP8] a ship: ship.js's fate makes her a wreck, on a shallow bed)
         else if (o.tossed && down && o.speed() < 1) settle(o);
       }
-      if (o.ko && !o.tossed && A && o.body === A.body && o.parts.length) L.push(o); // (a thrown turret's crew knocked out as it lands: no fire of its own)
+      if (o.ko && !o.tossed && !shipLost(o) && A && o.body === A.body && o.parts.length) L.push(o); // (a thrown turret's crew knocked out as it lands: no fire of its own; [WP8] a ship's fires and smoke are ship.js's)
     }
     if (L.length && !((F.warpIdx || 0) > 2)) {
       const near = [];
@@ -854,7 +865,8 @@ const Death = (() => {
   // toast, with one bang and one buzz. The words for the end of a life (Flight's strip, Flight.deathLine).
   const FB = { 'HIT': ['#f2f5f7', 0, 0.6], 'ENGINE OUT': ['#ffd23f', 1, 1.5], 'ON FIRE': ['#ffa040', 2, 1.5],
     'WING OFF': ['#ffd23f', 3, 1.5], 'TAIL OFF': ['#ffd23f', 3, 1.5], 'FIN OFF': ['#ffd23f', 3, 1.5], 'ROTOR OFF': ['#ffd23f', 3, 1.5], 'ENGINE OFF': ['#ffd23f', 3, 1.5],
-    'PILOT KO': ['#ff5d5d', 4, 2.2], 'SHOT DOWN': ['#ff5d5d', 5, 2.2], 'KNOCKED OUT': ['#ff5d5d', 5, 2.2] };
+    'PILOT KO': ['#ff5d5d', 4, 2.2], 'SHOT DOWN': ['#ff5d5d', 5, 2.2], 'KNOCKED OUT': ['#ff5d5d', 5, 2.2], 'SUNK': ['#ff5d5d', 5, 2.2],
+    'OUT OF ACTION': ['#ff5d5d', 5, 2.2], 'CAPSIZED': ['#ff5d5d', 5, 2.2] }; // ([WP8] a ship of theirs doomed by us (ship.js doom: her fate's word), and SUNK when she goes down)
   const now = (sim) => (sim && Number.isFinite(sim.time) ? sim.time : typeof Flight !== 'undefined' && Number.isFinite(Flight.time) ? Flight.time : 0);
   // a banner up (shown, not over; a clock that went back ends it)
   const showing = (t) => !!fb.text && t >= fb.t && t - fb.t < fb.life;
