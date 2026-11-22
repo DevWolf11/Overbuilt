@@ -507,10 +507,10 @@ const Combat = (() => {
   // x axis, elevation away from its mount. Only in the air: touching the ground or the water it parks its guns
   // and holds its fire (a field of turrets round a parked plane, or on a car, shot down anything that came near).
   function turretStep(v, p, h, F) {
-    const w = p.def.weapon, k = p.rot & 3, C = F.catapult, grounded = (v.contactTime > 0 && !(v.sh && v.afloat)) || (!!C && C.v === v && C.state !== 'done'); // (on a catapult: held on the deck; [WP9] S8: a ship afloat fires, the rule is for aircraft sat on the ground or the water)
+    const w = p.def.weapon, k = p.rot & 3, C = F.catapult, grounded = (v.contactTime > 0 && !(v.sh && v.afloat && isSea(v.kind))) || (!!C && C.v === v && C.state !== 'done'); // (on a catapult: held on the deck; [WP9] S8: a ship afloat fires, the rule is for aircraft sat on the ground or the water: a flying boat holds)
     let best = null, bd = w.range;
     if (!grounded) for (const c of candidates(v, 'air', F)) { const d = len(c.x - v.x, c.y - v.y, c.z - v.z); if (d < bd) { bd = d; best = c.ref; } }
-    if (!grounded && v.sh && v.afloat && S.sea) for (const o of Ship.airFoes(v, F, bd)) { const d = len(o.x - v.x, o.y - v.y, o.z - v.z); if (d < bd) { bd = d; best = o; } } // ([WP9] afloat, a ship's own foes in the air too: the computer's aircraft)
+    if (!grounded && v.sh && v.afloat && isSea(v.kind) && S.sea) for (const o of Ship.airFoes(v, F, bd)) { const d = len(o.x - v.x, o.y - v.y, o.z - v.z); if (d < bd) { bd = d; best = o; } } // ([WP9] afloat, a ship's own foes in the air too: the computer's aircraft)
     const want = grounded ? { yaw: 0, el: 0 } : { yaw: p.aimYaw || 0, el: p.aimEl || 0 };
     let on = false;
     if (best) {
@@ -777,7 +777,7 @@ const Combat = (() => {
         if (s.asm) { // ([WP9] an anti-ship missile flies itself (ship.js); its seeker, active, may take chaff for the ship)
           Ship.asmStep(s, h, F);
           const t = s.target, tp = t && !t.flare ? refPos(t) : null;
-          if (tp && tp.alive) { let rx = tp.x - s.x, ry = tp.y - s.y, rz = tp.z - s.z; const d = len(rx, ry, rz) || 1; rx /= d; ry /= d; rz /= d; if (d < 4000) decoyed(s, t, tp, rx, ry, rz, d); }
+          if (tp && tp.alive) { let rx = tp.x - s.x, ry = tp.y - s.y, rz = tp.z - s.z; const d = len(rx, ry, rz) || 1; rx /= d; ry /= d; rz /= d; if (d < 4000 && decoyed(s, t, tp, rx, ry, rz, d)) Ship.asmLured(s, t, F); } // (taken in by chaff: it flies at the cloud)
         } else if (s.vls && Ship.vlsStep(s, h, F)) { /* ([WP9] a vertical-launch SAM out of its cell and over) */ }
         else if (s.air) pulled = guideAir(s, h, spd, rho); else guide(s, h, spd);
       }

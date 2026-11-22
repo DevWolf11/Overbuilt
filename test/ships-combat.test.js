@@ -91,4 +91,126 @@ Ship.seed(9090); Armour.seed(77); Ship.setSea('calm'); Combat.reset({});`);
   t(`the Arley's 127 mm, laid by the aim on the Olivar ${o.arley.d} m off: ${o.arley.fired} rounds, her hull holed (${o.arley.holes} m²), ${o.arley.dhp} hp of her taken`, o.arley.fired >= 3 && o.arley.dhp > 0 && o.arley.holes > 0, o.arley);
   t(`a TK-34 with a 127 mm hits a patrol boat ${o.tk.d} m off (${o.tk.shots} rounds: ${o.tk.dhp} hp, ${o.tk.holes} m² of holes)`, o.tk.shots >= 1 && o.tk.dhp > 0, o.tk);
 }
+
+// ================================================================ the close-in gun (§8.10)
+// 4. The Arley's close-in gun against an Osca's anti-ship missiles fired 6 km off (the ships held still: the gun and the
+// missiles alone, each engagement seeded): 100 engagements against one, it stops 65-95 %; two at once from bearings 57°
+// apart (one launched a quarter second ahead, by turns), about half each, the gun busy with the first in; at most 15
+// simulated rounds a second; its step and its rounds' flight at most 0.05 ms a frame while it fires
+{
+  ctx.__hr = () => Number(process.hrtime.bigint()) / 1e6;
+  const o = R(`(() => {
+    const A0 = { e: -3000, z: 0, yaw: 0 }, P1 = { e: -3000, z: -6000 }, P2 = { e: -3000 - 6000 * Math.sin(1), z: -6000 * Math.cos(1) };
+    // an Osca's heading with her launchers (along her bow) on the Arley
+    const yawAt = (P) => { const A = ship('arley', A0); let best = 0, bk = -2; for (let i = 0; i < 32; i++) { const yaw = (i / 32) * TAU, o = ship('osca', { ...P, yaw }), f = o.axis(1, 0, 0), u = unitTo(o, A), k = f.x * u.x + f.y * u.y + f.z * u.z; if (k > bk) { bk = k; best = yaw; } } return best; };
+    const y1 = yawAt(P1), y2 = yawAt(P2);
+    // its cost: each physics step's time (the gap between one step's start and the next), those with the gun firing or its
+    // rounds in flight against those with only the missile flying (the difference: the gun's own work)
+    let rate = 0; const T = { busy: 0, nb: 0, idle: 0, ni: 0 };
+    const fight = (k, two) => {
+      Combat.reset({}); Ship.seed(1000 + k);
+      const a = ship('arley', A0), b = ship('osca', { ...P1, yaw: y1 }), c = ship('osca', { ...P2, yaw: y2 }), F = fsim(a, [a, b, c]);
+      b.ai = { sea: true }; c.ai = { sea: true }; tick(F, 1, null, true);
+      const fire = (o) => Combat.launchMissile(o, o.parts.find((q) => q.type === 'asm2'), a, F), ss = [], from = [];
+      if (!two) { ss.push(fire(b)); from.push('b'); }
+      else { const [p, q] = k % 2 ? [c, b] : [b, c]; ss.push(fire(p)); from.push(p === b ? 'b' : 'c'); tick(F, 0.25, null, true); ss.push(fire(q)); from.push(q === b ? 'b' : 'c'); }
+      const gun = a.ciws[0]; let n0 = 0, last = 0, was = null;
+      tick(F, 45, (tt, i) => {
+        const now = __hr();
+        if (was) { T[was] += now - last; T[was === 'busy' ? 'nb' : 'ni']++; }
+        if (i % 120 === 0) { rate = Math.max(rate, (gun.shots || 0) - n0); n0 = gun.shots || 0; }
+        if (ss.every((s) => s.dead || !Combat.S.shots.includes(s))) return false;
+        was = gun.gunOn || Combat.S.shots.some((q) => q.ciws) ? 'busy' : 'idle'; last = __hr(); }, true);
+      return ss.map((s, j) => ({ k: s.killedBy === a, from: from[j] }));
+    };
+    let one = 0; for (let k = 0; k < 100; k++) one += fight(k, false)[0].k ? 1 : 0;
+    const per = { first: 0, second: 0, b: 0, c: 0 }, N2 = 40;
+    for (let k = 0; k < N2; k++) fight(200 + k, true).forEach((r, j) => { if (r.k) { per[j ? 'second' : 'first']++; per[r.from]++; } });
+    return { one, per, N2, rate, msF: 2 * (T.busy / Math.max(1, T.nb) - T.idle / Math.max(1, T.ni)), steps: [T.nb, T.ni] }; })()`);
+  t(`one CIWS against one subsonic anti-ship missile: ${o.one} of 100 shot down (65-95)`, o.one >= 65 && o.one <= 95, o);
+  t(`...two at once from two bearings: one Osca's ${o.per.b} of ${o.N2}, the other's ${o.per.c} (about half each; the first in ${o.per.first}, the second ${o.per.second})`,
+    [o.per.b, o.per.c].every((n) => n >= 0.25 * o.N2 && n <= 0.75 * o.N2) && o.per.first + o.per.second <= 1.3 * o.N2, o);
+  t(`...at most ${o.rate} simulated rounds a second (≤ 15), ${(o.msF * 1000).toFixed(1)} µs a frame while it fires (≤ 50: its step and its rounds' flight)`, o.rate <= 15 && o.rate >= 10 && o.msF <= 0.05, { rate: o.rate, msF: o.msF, steps: o.steps });
+}
+
+// ================================================================ torpedoes (§8.5)
+// 5. The Arley's torpedo set to run at the Olivar 1.5 km off (its gyro, then its seeker): it finds her and goes off under
+// her (the magnetic fuze under the keel, or into the hull under the waterline); its holes tamped ×3 (the same burst at the
+// same spot in a fresh Olivar: ×3 against her sea level put far below it)
+{
+  const o = R(`(() => { Combat.reset({}); Ship.resetCombat(); Ship.seed(5150);
+    const a = ship('arley', { e: -3000, z: 0, yaw: Math.PI / 2 }), tg = ship('olivar', { e: -3000, z: -1500, yaw: 0 }), F = fsim(a, [a, tg]); tick(F, 1, null, true);
+    const ex = Combat.explode; let at = null;
+    Combat.explode = function (b, P) { const o = arguments[10]; if (o && o.under && !at) at = { x: P.x, y: P.y, z: P.z }; return ex.apply(this, arguments); };
+    const tube = a.parts.find((p) => p.type === 'torpTube'), s = Ship.fireTorp(a, tube, F, unitTo(a, tg));
+    let acq = null, end = null;
+    tick(F, 150, (tt) => { if (s.tgt === tg && !acq) acq = { t: +tt.toFixed(1), d: Math.round(dist(s, tg)) }; if (s.dead || !Combat.S.shots.includes(s)) { end = +tt.toFixed(1); return false; } }, true);
+    Combat.explode = ex;
+    const A = holeA(tg), r = at && Math.hypot(at.x, at.y, at.z) - EARTH.radius;
+    const twin = () => { const v = ship('olivar', { e: -3000, z: -1500, yaw: 0 }); return [v, fsim(v, [v])]; };
+    const [t3, G3] = twin(); ex(EARTH, at, s.blast, s.dmg, a, G3, false, undefined, undefined, undefined, { under: true });
+    const [t1, G1] = twin(), lv = t1.sh.level; t1.sh.level = -1e4; ex(EARTH, at, s.blast, s.dmg, a, G1, false, undefined, undefined, undefined, {}); t1.sh.level = lv;
+    return { acq, end, hit: !!at && s.dead === true, depth: r && +(-r).toFixed(1), A: +A.toFixed(3), A3: +holeA(t3).toFixed(3), A1: +holeA(t1).toFixed(3), ammo: tube.ammo }; })()`);
+  t(`a torpedo set at the Olivar 1.5 km off: its seeker finds her ${o.acq && o.acq.d} m off, it goes off under her ${o.depth} m down at ${o.end} s, her hull holed ${o.A} m²`, !!o.acq && o.hit && o.A > 0 && o.depth > 2, o);
+  t(`...its holes tamped ×3: ${o.A3} m² against ${o.A1} m² for the same burst in the air (×${(o.A3 / o.A1).toFixed(2)}), the run's own ${o.A} m²`, o.A1 > 0 && Math.abs(o.A3 / o.A1 - 3) < 0.15 && Math.abs(o.A - o.A3) < 0.1 * o.A3 + 1e-3, o);
+}
+// 6. Under a patrol boat's keel (class M): her back broken (she falls in two, doomed: sunk); aground in the shallows off
+// the island it goes off on the bed (half power) short of its range; a torpedo decoy streamed astern pulls a homing
+// torpedo off about 3 times in 5 (16 seeded runs; a pulled one passes her by)
+{
+  const o = R(`(() => { Combat.reset({}); Ship.resetCombat(); Ship.seed(616);
+    const a = ship('arley', { e: -3000, z: 0, yaw: Math.PI / 2 }), c = ship('cyclon', { e: -3000, z: -1200, yaw: 0 }), F = fsim(a, [a, c]); tick(F, 1, null, true);
+    const s = Ship.fireTorp(a, a.parts.find((p) => p.type === 'torpTube'), F, unitTo(a, c)), n0 = F.vessels.length;
+    tick(F, 120, () => { if (s.dead || !Combat.S.shots.includes(s)) return false; }, true); tick(F, 2, null, true);
+    const back = { pieces: F.vessels.length - n0 + 1, fate: c.fate || null, sunk: c.fate === 'sunk' || F.vessels.some((v) => v !== a && v.fate === 'sunk'), cls: c.sh ? c.sh.hulls.map((p) => p.def.shull.cls).join('') : '' };
+    // aground: run toward the island's shore from 1.8 km out (her bow's way)
+    Combat.reset({}); Ship.resetCombat();
+    const b = ship('arley', { e: -3200, z: 0, yaw: 0 }), G = fsim(b, [b]); tick(G, 1, null, true);
+    const g = b.axis(1, 0, 0), t2 = Ship.fireTorp(b, b.parts.find((p) => p.type === 'torpTube'), G, { x: g.x, y: g.y, z: g.z });
+    let at = null; const ex = Combat.explode; Combat.explode = function (bb, P) { if (!at) at = { x: P.x, y: P.y, z: P.z, dmg: arguments[3] }; return ex.apply(this, arguments); };
+    tick(G, 300, () => { if (t2.dead || !Combat.S.shots.includes(t2)) return false; }, true); Combat.explode = ex;
+    const L = at && Terrain.locate(EARTH, at.x, at.y, at.z, {}), bed = L && Terrain.heightAt(EARTH, L.a, L.z);
+    const aground = { dead: t2.dead === true, run: Math.round(t2.run), range: t2.range, bed: bed != null && +bed.toFixed(1), dmg: at && at.dmg };
+    // the decoy: the Cyclon with a Torpedo Decoy on her stern, streamed when the torpedo is in the water
+    const rows = templateRows(TEMPLATES.cyclon), ps = partsFromDesign(rows), sp = Ship.spotOf('torpDecoy', ps), extra = [{ type: 'torpDecoy', x: sp.x, y: sp.y, rot: sp.rot, att: ps.indexOf(sp.att) }];
+    let pulled = 0, hitP = 0, hitN = 0; const N = 16;
+    for (let k = 0; k < N; k++) {
+      Combat.reset({}); Ship.resetCombat(); Ship.seed(700 + k);
+      const A = ship('arley', { e: -3000, z: 0, yaw: Math.PI / 2 }), C = ship('cyclon', { e: -3000, z: -1200, yaw: 0 }, extra), H = fsim(A, [A, C]); tick(H, 1, null, true);
+      const q = Ship.fireTorp(A, A.parts.find((p) => p.type === 'torpTube'), H, unitTo(A, C)); let lured = false;
+      tick(H, 2, null, true); Ship.decoy(C, H);
+      tick(H, 120, () => { if (q.tgt && q.tgt.noise) lured = true; if (q.dead || !Combat.S.shots.includes(q)) return false; }, true);
+      const holed = holeA(C) > 0 || !!C.fate;
+      if (lured) { pulled++; if (holed) hitP++; } else if (holed) hitN++;
+    }
+    return { back, aground, decoy: { pulled, N, hitP, hitN } }; })()`);
+  t(`under a patrol boat's keel (hulls ${o.back.cls}): her back broken, ${o.back.pieces} pieces, sunk`, o.back.pieces >= 2 && o.back.sunk, o.back);
+  t(`...run at the shore: it goes off aground on a ${o.aground.bed} m bed at half power (${o.aground.dmg}), ${o.aground.run} m into its ${o.aground.range} m`, o.aground.dead && o.aground.bed > -6 && o.aground.run < o.aground.range && o.aground.dmg <= 2000, o.aground);
+  t(`...a torpedo decoy streamed astern pulls it off ${o.decoy.pulled} times in ${o.decoy.N} (about 3 in 5); a pulled one hits her ${o.decoy.hitP} times, the others ${o.decoy.hitN} of ${o.decoy.N - o.decoy.pulled}`,
+    o.decoy.pulled >= 0.3 * o.decoy.N && o.decoy.pulled <= 0.9 * o.decoy.N && o.decoy.hitP <= 1 && o.decoy.hitN >= o.decoy.N - o.decoy.pulled - 1, o.decoy);
+}
+// 7. The old air torpedo (the Catalyna's, k 'torp': combat.js swim) with ships in play finds a hostile ship afloat and
+// goes off against her hull (Ship.torpHit); with none afloat it runs the old way at the range's patrol boat (no call into
+// Ship at all) and hits it
+{
+  const o = R(`(() => { Combat.reset({}); Ship.resetCombat(); Ship.seed(77);
+    const me = { parts: [], aimed: [], x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, name: 'Catalyna', kind: 'plane', body: EARTH };
+    const c = ship('cyclon', { e: -3000, z: -900, yaw: 0 }), F = fsim(c, [c]); F.active = me; tick(F, 1, null, true);
+    const torp = (P, to) => { const u = unitTo(P, to), r = Math.hypot(P.x, P.y, P.z), k = (EARTH.radius - 1.2) / r; return { k: 'torp', b: EARTH, x: P.x * k, y: P.y * k, z: P.z * k, vx: u.x * 30, vy: u.y * 30, vz: u.z * 30, dx: u.x, dy: u.y, dz: u.z, t: 0, life: 100, run: 0, dmg: 2200, blast: 16, owner: me }; };
+    const from = ship('zodiak', { e: -3000, z: 0, yaw: 0 }), P0 = { x: from.x, y: from.y, z: from.z }, s = torp(P0, c);
+    Combat.S.shots.push(s); let end = null;
+    tick(F, 60, (tt) => { if (!Combat.S.shots.includes(s)) { end = +tt.toFixed(1); return false; } }, true);
+    const ship1 = { end, A: +holeA(c).toFixed(2), fate: c.fate || null };
+    // the old way: no ship afloat (Combat.S.sea false), the range's patrol boat 900 m on
+    Combat.reset({});
+    const boatAt = ship('zodiak', { e: -3000, z: -900, yaw: 0 }), boat = { kind: 'boat', def: TARGET_KINDS.boat, e: -3000, z: -900, hp: TARGET_KINDS.boat.hp, alive: true, heading: 0, turnT: 1e9, fireT: 1e9, burst: 0, firing: false, pos: { x: boatAt.x, y: boatAt.y, z: boatAt.z }, h: 0 };
+    Combat.S.targets = [boat]; const G = fsim(me, []); G.active = me;
+    let calls = 0; const tp = Ship.torpPick, th = Ship.torpHit; Ship.torpPick = function () { calls++; return tp.apply(this, arguments); }; Ship.torpHit = function () { calls++; return th.apply(this, arguments); };
+    const s2 = torp(P0, boat.pos); Combat.S.shots.push(s2); let end2 = null;
+    tick(G, 60, (tt) => { if (!Combat.S.shots.includes(s2)) { end2 = +tt.toFixed(1); return false; } }, true);
+    Ship.torpPick = tp; Ship.torpHit = th; Combat.S.targets = [];
+    return { ship: ship1, old: { end: end2, hp: boat.hp, alive: boat.alive, sea: Combat.S.sea, calls } }; })()`);
+  t(`the old air torpedo finds the Cyclon and goes off against her (${o.ship.end} s): ${o.ship.A} m² of holes${o.ship.fate ? ', ' + o.ship.fate : ''}`, o.ship.end != null && (o.ship.A > 0 || !!o.ship.fate), o.ship);
+  t(`...with no ship afloat it runs the old way at the range's patrol boat and hits it (${o.old.end} s, ${o.old.alive ? o.old.hp + ' hp left' : 'sunk'}), never calling into Ship (${o.old.calls} calls)`, o.old.end != null && (!o.old.alive || o.old.hp < 520) && o.old.calls === 0 && !o.old.sea, o.old);
+}
 t.done();

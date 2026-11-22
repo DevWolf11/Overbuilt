@@ -51,7 +51,7 @@ const SHELLS = {
   ball13: { type: 'ball', label: 'Ball', cal: 12.7, v0: 890, pen: 22, k: 11e-5, kg: 0.05, dmg: 16 },
   // ==== naval ==== [WP9] the ships update's naval guns' shells (naval: their range tables past 3 km, Aim.rangeTable, and
   // a long life; their splashes are big columns, ground) and the close-in gun's round (ciws: ship.js fires it, a simulated
-  // round standing for five: Ship.shotMissiles). k tuned to this world's air (its scale height 5.2 km: the spec's 1.4e-5
+  // round standing for five: Ship.ciwsRound). k tuned to this world's air (its scale height 5.2 km: the spec's 1.4e-5
   // sent a 127 mm 58 km at 45°): a 127 mm reaches 20 km at 30° in a minute and 24 km at 45° (the real gun's), 5 km in 8 s.
   he57n: { type: 'he', label: 'HE', cal: 57, v0: 1035, pen: 0, k: 1.7e-4, kg: 2.4, dmg: 150, he: 9, blast: 2.5, naval: true, life: 80 },
   hevt57n: { type: 'hevt', label: 'HE-VT', cal: 57, v0: 1035, pen: 0, k: 1.7e-4, kg: 2.4, dmg: 110, he: 8, blast: 5, prox: 6, arm: 0.4, naval: true, life: 25 },
@@ -817,7 +817,7 @@ const Armour = (() => {
     s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
     const ax = s.x, ay = s.y, az = s.z, ex = ax + s.vx * h, ey = ay + s.vy * h, ez = az + s.vz * h;
     TA.x = ax; TA.y = ay; TA.z = az; TE.x = ex; TE.y = ey; TE.z = ez;
-    if (s.ciws && Ship.shotMissiles(s, TA, TE, F)) return false; // ([WP9] a close-in gun's round through a missile's path: ship.js)
+    if (s.ciws && Ship.ciwsRound(s, TA, TE, F)) return false; // ([WP9] a close-in gun's round through a missile's path, the ground's top under it: ship.js)
     // vessels (not its own for 1.5 s, nor one it already went through). On its first step from the muzzle, a part it
     // starts inside (point blank: a muzzle pushed into the turret in front of it; barrels aren't in the collision
     // boxes) counts as met where the line goes into it (t0 < 0), so that plate is hit by its face. (Later, a shell
