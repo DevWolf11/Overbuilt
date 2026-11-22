@@ -872,6 +872,7 @@ const Armour = (() => {
       TA.x = at.x - s.vx * k * 0.05; TA.y = at.y - s.vy * k * 0.05; TA.z = at.z - s.vz * k * 0.05;
       TE.x = at.x + s.vx * k * R1; TE.y = at.y + s.vy * k * R1; TE.z = at.z + s.vz * k * R1;
       const R = resolve(s, hv, hitAll(hv, TA, TE, HR), F);
+      if (s.ciws > 1) for (const r of R.rows) r[1] *= s.ciws; // ([WP9] a close-in gun's round stands for five, close together)
       apply(hv, R, F, s.owner, s);
       if (!R.go) return false;
       const sp = len(s.vx, s.vy, s.vz) || 1; // (through an old craft: on it flies, with what it has left)

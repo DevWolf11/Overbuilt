@@ -213,4 +213,234 @@ Ship.seed(9090); Armour.seed(77); Ship.setSea('calm'); Combat.reset({});`);
   t(`the old air torpedo finds the Cyclon and goes off against her (${o.ship.end} s): ${o.ship.A} m² of holes${o.ship.fate ? ', ' + o.ship.fate : ''}`, o.ship.end != null && (o.ship.A > 0 || !!o.ship.fate), o.ship);
   t(`...with no ship afloat it runs the old way at the range's patrol boat and hits it (${o.old.end} s, ${o.old.alive ? o.old.hp + ' hp left' : 'sunk'}), never calling into Ship (${o.old.calls} calls)`, o.old.end != null && (!o.old.alive || o.old.hp < 520) && o.old.calls === 0 && !o.old.sea, o.old);
 }
+// ================================================================ anti-ship missiles (§8.6)
+// 8. The Olivar's anti-ship missile at the Vizby 9 km off, over a Moderate and a Rough sea: out of its canister it climbs
+// to about 30 m, skims at 8 m over the waves (never within 4 m of them), drops to 3 m at 2 km and hits her (holes, and
+// the missile spent); with her decoys fired 3.8 km out, chaff takes it in about 3 times in 4 or more (12 seeded runs: the
+// existing odds, a cloud each side) and the missile it takes in passes her by
+{
+  const o = R(`(() => { const out = {};
+    for (const sea of ['moderate', 'rough']) {
+      Ship.setSea(sea); Combat.reset({}); Ship.seed(31);
+      const a = ship('olivar', { e: -3000, z: 0, yaw: 0 }), tg = ship('vizby', { e: -3000, z: -9000, yaw: Math.PI / 2 }), F = fsim(a, [a, tg]);
+      tg.ai = { sea: true }; tick(F, 1, null, true);
+      const s = Combat.launchMissile(a, a.parts.find((p) => p.type === 'asm4'), tg, F), L = {}, cr = [], A0 = holeA(tg);
+      let top = 0, term = null, minT = Infinity, minC = Infinity;
+      tick(F, 60, (tt) => {
+        if (!Combat.S.shots.includes(s)) return false;
+        Terrain.locate(EARTH, s.x, s.y, s.z, L);
+        const wv = Ship.wave(-wrapAngle(L.a - EARTH.padAngle) * EARTH.radius, -L.z, Ship.seaT(F))[0] * Ship.fadeAt(-Terrain.heightAt(EARTH, L.a, L.z)), over = L.r - EARTH.radius - wv, d = dist(s, tg);
+        if (tt < 4) top = Math.max(top, over);
+        if (s.seen && term == null) term = Math.round(d);
+        if (tt > 6 && !s.seen) { cr.push(over); minC = Math.min(minC, over); }
+        if (s.seen && d > 300) minT = Math.min(minT, over);
+      }, true);
+      out[sea] = { top: +top.toFixed(1), mean: +(cr.reduce((q, x) => q + x, 0) / cr.length).toFixed(2), minC: +minC.toFixed(2), term, minT: +minT.toFixed(2), holes: +(holeA(tg) - A0).toFixed(3), spent: s.dead === true };
+    }
+    Ship.setSea('calm');
+    // chaff (the decoyed odds draw on Math.random: seeded here)
+    const rnd0 = Math.random; let q = 99; Math.random = () => { q ^= q << 13; q ^= q >>> 17; q ^= q << 5; return (q >>> 0) / 4294967296; };
+    let lured = 0, hitL = 0, hitN = 0; const N = 12;
+    for (let k = 0; k < N; k++) {
+      Combat.reset({}); Ship.seed(400 + k);
+      const a = ship('olivar', { e: -3000, z: 0, yaw: 0 }), tg = ship('vizby', { e: -3000, z: -9000, yaw: Math.PI / 2 }), F = fsim(a, [a, tg]);
+      tg.ai = { sea: true }; tick(F, 1, null, true);
+      const s = Combat.launchMissile(a, a.parts.find((p) => p.type === 'asm4'), tg, F), A0 = holeA(tg);
+      let fired = false, was = false;
+      tick(F, 60, () => { if (!Combat.S.shots.includes(s)) return false; if (!fired && dist(s, tg) < 3800) fired = Ship.decoy(tg, F); if (s.lure) was = true; }, true);
+      const hit = holeA(tg) > A0 + 1e-6;
+      if (was) { lured++; if (hit) hitL++; } else if (hit) hitN++;
+    }
+    Math.random = rnd0;
+    out.chaff = { N, lured, hitL, hitN };
+    return out; })()`);
+  for (const sea of ['moderate', 'rough']) {
+    const m = o[sea];
+    t(`an anti-ship missile over a ${sea} sea: up to ${m.top} m out of its canister, skimming ${m.mean} m over the waves (never under ${m.minC} m), down to ${m.minT} m from ${m.term} m out, into her side (${m.holes} m² of holes)`,
+      m.top > 25 && m.top < 36 && Math.abs(m.mean - 8) < 1 && m.minC > 4 && m.term > 1900 && m.term <= 2000 && m.minT > 1 && m.minT < 4 && m.holes > 0 && m.spent, m);
+  }
+  t(`...her decoys' chaff takes it in ${o.chaff.lured} times in ${o.chaff.N} (the existing odds, a cloud each side), and every one it took in passes her by (${o.chaff.hitL} hit her; ${o.chaff.hitN} of the rest)`,
+    o.chaff.lured >= 0.6 * o.chaff.N && o.chaff.hitL === 0, o.chaff);
+}
+
+// ================================================================ vertical-launch SAMs (§8.6, S3)
+// 9. The Arley's SAM at a jet crossing 10-11 km off, 3 km up (three seeded runs): straight up out of its cell, over toward
+// it in about 2 s, guided by her fire-control radar's lock, and the jet down at 10-12 km; at an Osca's anti-ship missile
+// 5 km off (her close-in gun held: 16 seeded runs) its burst beside the missile kills it with p 0.7, and she is unhurt
+{
+  const o = R(`(() => { const air = [], asm = [];
+    for (let k = 0; k < 3; k++) {
+      Combat.reset({}); Ship.seed(55 + k);
+      const a = ship('arley', { e: -3000, z: 0, yaw: 0 }), F = fsim(a, [a]);
+      const jet = build(templateRows(TEMPLATES.fs16), 'plane', 'FS-16'); jet.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, -9600 - 300 * k, 0);
+      { const r = Math.hypot(jet.x, jet.y, jet.z), q = (r + 3000) / r; jet.x *= q; jet.y *= q; jet.z *= q; }
+      const u = unitTo(jet, a), r0 = Math.hypot(jet.x, jet.y, jet.z), up = { x: jet.x / r0, y: jet.y / r0, z: jet.z / r0 }, cx = up.y * u.z - up.z * u.y, cy = up.z * u.x - up.x * u.z, cz = up.x * u.y - up.y * u.x, cl = Math.hypot(cx, cy, cz);
+      jet.vx = (cx / cl) * 250; jet.vy = (cy / cl) * 250; jet.vz = (cz / cl) * 250; jet.ai = {}; jet.landed = false; jet.contactTime = 0;
+      F.vessels.push(jet); tick(F, 1, null, true);
+      const d0 = Math.round(dist(a, jet)), s = Ship.samAt(a, jet, F);
+      if (!s) { air.push({ d0, none: true }); continue; }
+      let up0 = null, over = null, at = null;
+      tick(F, 40, (tt) => { jet.x += jet.vx / 120; jet.y += jet.vy / 120; jet.z += jet.vz / 120;
+        const r = Math.hypot(s.x, s.y, s.z), kk = (s.dx * s.x + s.dy * s.y + s.dz * s.z) / r;
+        if (tt > 0.3 && up0 == null) up0 = +kk.toFixed(3);
+        if (s.pitch === 2 && over == null) over = +tt.toFixed(2);
+        if (!Combat.S.shots.includes(s)) { at = Math.round(dist(jet, a)); return false; } }, true);
+      air.push({ d0, up0, over, at, down: jet.hulk != null || !!jet.dead });
+    }
+    for (let k = 0; k < 16; k++) {
+      Combat.reset({}); Ship.seed(300 + k);
+      const a = ship('arley', { e: -3000, z: 0, yaw: 0 }), b = ship('osca', { e: -3000, z: -9000, yaw: 4.712 }), F = fsim(a, [a, b]);
+      b.ai = { sea: true }; Ship.ciwsOn(a, false); tick(F, 1, null, true);
+      const m = Combat.launchMissile(b, b.parts.find((q) => q.type === 'asm2'), a, F); let s = null;
+      tick(F, 50, () => { if (!s && dist(m, a) < 5000) s = Ship.samAt(a, m, F); if (!Combat.S.shots.includes(m)) return false; }, true);
+      asm.push({ fired: !!s, killed: m.killedBy === a, at: m.killedBy === a ? Math.round(dist(m, a)) : null, holes: +holeA(a).toFixed(2) });
+    }
+    return { air, asm }; })()`);
+  const A = o.air, K = o.asm.filter((r) => r.killed);
+  t(`a vertical-launch SAM at a jet crossing ${A.map((r) => (r.d0 / 1000).toFixed(1)).join(', ')} km off: straight up out of its cell (${A.map((r) => r.up0).join(', ')}), over toward it by ${A.map((r) => r.over).join(', ')} s, the jet down at ${A.map((r) => (r.at / 1000).toFixed(1)).join(', ')} km`,
+    A.every((r) => !r.none && r.up0 > 0.95 && r.over > 1 && r.over < 4 && r.down && r.at >= 10000 && r.at <= 12000), A);
+  t(`...at an anti-ship missile 5 km off (her close-in gun held): fired ${o.asm.filter((r) => r.fired).length} of ${o.asm.length}, the missile killed ${K.length} times (p 0.7) ${K.length ? Math.min(...K.map((r) => r.at)) + '-' + Math.max(...K.map((r) => r.at)) + ' m out' : ''}, and then she is unhurt`,
+    o.asm.every((r) => r.fired) && K.length >= 0.45 * o.asm.length && K.length <= 0.95 * o.asm.length && K.every((r) => r.holes === 0), o.asm);
+}
+
+// ================================================================ seeing ships (§8.11)
+// 10. A ship is a surface contact, never an air one: another player's ship (a ghost) is never in an air-to-air missile's
+// list but is in the ground, anti-radar and anti-ship seekers'; neither it nor the computer's is an aircraft radar's
+// contact (a bandit ahead of the same radar is); the computer's ships are never bandits; a drone can lock one
+{
+  const o = R(`(() => { Combat.reset({});
+    const raise = (v, h) => { const r = Math.hypot(v.x, v.y, v.z), k = (r + h) / r; v.x *= k; v.y *= k; v.z *= k; v.landed = false; v.contactTime = 0; return v; };
+    const sh = ship('arley', { e: -3000, z: -6000, yaw: 0 }), cy = ship('cyclon', { e: -3000, z: -4000, yaw: 0 }); sh.ai = { sea: true }; cy.ai = { sea: true };
+    const jet = build(templateRows(TEMPLATES.fs16), 'plane', 'FS-16'); jet.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, 0, -Math.PI / 2); raise(jet, 2000);
+    const gShip = ship('vizby', { e: -3000, z: -5000, yaw: 0 }); gShip.remote = 'peer';
+    const gJet = build(templateRows(TEMPLATES.myg29), 'plane', 'MyG-29'); gJet.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, -5000, 0); raise(gJet, 2000); gJet.remote = 'peer';
+    const F = fsim(jet, [jet, sh, cy]); Combat.S.sea = true;
+    globalThis.MP = { enemyGhosts: () => [gShip, gJet], active: false, enemy: () => true };
+    const refs = (seek) => Combat.candidates(jet, seek, F).map((c) => c.ref), air = refs('air'), gr = refs('ground'), rad = refs('radar'), sea = refs('sea');
+    delete globalThis.MP;
+    const tp = (v) => ({ x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz, alive: true }), nose = jet.axis(0, 1, 0);
+    const bandit = build(templateRows(TEMPLATES.myg29), 'plane', 'Bandit'); bandit.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, 0, 0); bandit.x = jet.x + nose.x * 5000; bandit.y = jet.y + nose.y * 5000; bandit.z = jet.z + nose.z * 5000; bandit.ai = {};
+    const drone = build(templateRows(TEMPLATES.bumble), 'drone', 'Bumble');
+    return { airShip: [sh, cy, gShip].some((v) => air.includes(v)), airJet: air.includes(gJet), gr: [sh, cy, gShip].every((v) => gr.includes(v)), rad: rad.includes(sh), sea: [sh, cy, gShip].every((v) => sea.includes(v)),
+      radarShip: Radar.sees(jet, cy, tp(cy), 'scan') || Radar.sees(jet, sh, tp(sh), 'scan') || Radar.sees(jet, gShip, tp(gShip), 'scan'), radarBandit: Radar.sees(jet, bandit, tp(bandit), 'scan') === true,
+      fighter: Combat.isFighter(cy) || Combat.isFighter(sh), drone: Drone.lockable(drone, cy) && Drone.lockable(drone, sh) }; })()`);
+  t('another player\'s ship is never an air-to-air missile\'s target (their jet is); every ship is a ground, anti-ship and (her radars on) anti-radar seeker\'s', !o.airShip && o.airJet && o.gr && o.sea && o.rad, o);
+  t('...no aircraft radar sees a ship (the same radar sees a bandit ahead); the computer\'s ships are never bandits; a drone can lock on to one', !o.radarShip && o.radarBandit && !o.fighter && o.drone, o);
+}
+// 11. seesSea: two 20 m masts see each other about 7 km apart over the sea's curve (not 8); the island between two ships
+// 7 km apart blocks the line that the open sea leaves clear
+{
+  const o = R(`(() => {
+    const at = (e, z, h) => { const a = siteAngle(EARTH, e), lat = z / EARTH.radius, r = EARTH.radius + h; return { body: EARTH, x: r * Math.cos(lat) * Math.cos(a), y: r * Math.cos(lat) * Math.sin(a), z: r * Math.sin(lat) }; };
+    let far = 0; for (let d = 5000; d <= 9000; d += 50) if (Ship.seesSea(at(-3000, 0, 20), at(-3000, -d, 20), 20, 20)) far = d;
+    const sea = Ship.seesSea(at(-3000, 0, 30), at(-3000, -7000, 30), 30, 30), land = Ship.seesSea(at(-3000, 0, 30), at(4000, 0, 30), 30, 30);
+    return { far, sea, land }; })()`);
+  t(`two 20 m masts see each other ${(o.far / 1000).toFixed(2)} km apart over the open sea (about 7 km); the island in the way blocks a 7 km line the open sea leaves clear`, o.far > 6800 && o.far < 7400 && o.sea && !o.land, o);
+}
+// ================================================================ these weapons against ships, ships against the rest (§8.12)
+// 12. Hits to put her out of action or sink her (a Moderate sea, seeded; ships-damage's method: her own damage control at
+// work): a naval 127 mm (explosive and semi-armour-piercing by turns, from 300 m at random points of her), an anti-ship
+// missile (an Osca's, from 3 km), a torpedo (run at her beam from 300 m), each after the one before had its time (2 s for a
+// shell; for the corvette and the destroyer a minute for a missile, a minute and a half for a torpedo, to founder); every
+// row against the Zodiak and the Cyclon ends with her out of action or sunk; each row's §8.12 band checked for all four,
+// the measured number reported when it falls outside (WP14's matrix balances them)
+{
+  R(`Ship.setSea('moderate'); var me = { parts: [], aimed: [], x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, name: 'Shooter', kind: 'ship', body: EARTH };
+  var rng = 4242; var rnd = () => { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; return (rng >>> 0) / 4294967296; };
+  var aimAt = (v, X, d, el) => { const T = v.toWorld(X.x, X.y, X.z), u = qrot(v.q, 0, 0, 1), r = Math.hypot(T.x, T.y, T.z), up = { x: T.x / r, y: T.y / r, z: T.z / r }, e = el / ${D};
+    const dir = { x: -u.x * Math.cos(e) - up.x * Math.sin(e), y: -u.y * Math.cos(e) - up.y * Math.sin(e), z: -u.z * Math.cos(e) - up.z * Math.sin(e) };
+    return { from: { x: T.x - dir.x * d, y: T.y - dir.y * d, z: T.z - dir.z * d }, dir }; };
+  var shell = (key, A, owner) => { const SH = SHELLS[key]; return { k: 'shell', sh: key, b: EARTH, x: A.from.x, y: A.from.y, z: A.from.z, vx: A.dir.x * SH.v0, vy: A.dir.y * SH.v0, vz: A.dir.z * SH.v0, t: 0, life: 6, owner: owner || me, net: 0, cal: SH.cal, pen: SH.pen, v0: SH.v0 }; };
+  var target = (v, mode) => { const hs = v.sh.hulls, p = hs[Math.floor(rnd() * hs.length)], H = shullOf(p.def), x = H.x0 + (H.x1 - H.x0) * (0.1 + 0.8 * rnd()), sec = shullSec(p.def.shull.st, x);
+    const y = mode === 'any' ? sec[1] + p.def.h * 1.6 * rnd() : p.def.shull.wl + (sec[0] - p.def.shull.wl) * (0.15 + 0.7 * rnd()), q = partPt(p, x, y); return { x: q.x, y: q.y, z: partZ(p) }; };
+  var torpAt = (v) => { const X = target(v, 'hull'), T = v.toWorld(X.x, X.y, X.z), u = qrot(v.q, 0, 0, 1), side = rnd() < 0.5 ? 1 : -1, r = Math.hypot(T.x, T.y, T.z), k = (r - 6) / r;
+    const P = { x: (T.x - u.x * side * 300) * k, y: (T.y - u.y * side * 300) * k, z: (T.z - u.z * side * 300) * k }, d = { x: u.x * side, y: u.y * side, z: u.z * side };
+    return { k: 'stor', b: EARTH, x: P.x, y: P.y, z: P.z, vx: d.x * 22, vy: d.y * 22, vz: d.z * 22, dx: d.x, dy: d.y, dz: d.z, t: 2, t0: 0, run: 0, ph: 'run', owner: me, spd: 22, depth: 6, dep: 6, range: 8000, cone: 30 / ${D}, acquire: 1500,
+      dmg: 4000, blast: 12, seek: 'active', drop: false, gyro: d, tgt: null, look: 0, bub: 0, ship: true, life: 600 }; };
+  var launcher = null;
+  var asmAt = (v, F) => { if (!launcher || !F.vessels.includes(launcher)) { const P = { e: -3000, z: -3000 }; let best = 0, bk = -2; for (let i = 0; i < 16; i++) { const o = ship('osca', { ...P, yaw: (i / 16) * TAU }), f = o.axis(1, 0, 0), u = unitTo(o, v), k = f.x * u.x + f.y * u.y + f.z * u.z; if (k > bk) { bk = k; best = (i / 16) * TAU; } }
+      launcher = ship('osca', { ...P, yaw: best }); launcher.ai = { sea: true }; F.vessels.push(launcher); }
+    const p = launcher.parts.find((q) => q.type === 'asm2'); p.ammo = 2; Combat.launchMissile(launcher, p, v, F); };
+  var trial = (key, fire, max, every) => { Combat.reset({}); Ship.resetCombat(); launcher = null; const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
+    for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
+  const g127 = "Combat.S.shots.push(shell(rnd() < 0.5 ? 'he127' : 'sap127', aimAt(v, target(v, 'any'), 300, 2)))", asm = 'asmAt(v, F)', torp = 'Combat.S.shots.push(torpAt(v))';
+  const rows = [
+    ['127 mm HE/SAP', 'zodiak', g127, 6, 2, [1, 1]], ['127 mm HE/SAP', 'cyclon', g127, 20, 2, [3, 6]], ['127 mm HE/SAP', 'vizby', g127, 40, 2, [8, 15]], ['127 mm HE/SAP', 'arley', g127, 80, 2, [15, 40]],
+    ['anti-ship missile', 'zodiak', asm, 4, 16, [1, 1]], ['anti-ship missile', 'cyclon', asm, 4, 16, [1, 1]], ['anti-ship missile', 'vizby', asm, 6, 60, [1, 2]], ['anti-ship missile', 'arley', asm, 10, 60, [3, 5]],
+    ['torpedo', 'zodiak', torp, 3, 20, [1, 1]], ['torpedo', 'cyclon', torp, 3, 20, [1, 1]], ['torpedo', 'vizby', torp, 3, 90, [1, 1]], ['torpedo', 'arley', torp, 5, 90, [1, 2]],
+  ];
+  const inBand = (n, b) => n != null && n >= b[0] && n <= b[1];
+  const got = rows.map(([w, key, fire, max, every, band]) => { const o = R(`trial('${key}', (v, F) => { ${fire}; }, ${max}, ${every})`); return { w, key, band, max, ...o, inBand: inBand(o.n, band) }; });
+  R(`Ship.setSea('calm');`);
+  console.log('      weapon against ship: hits to put her out of action or sink her (band §8.12) — measured');
+  for (const g of got) console.log(`        ${(g.w + ' vs ' + g.key).padEnd(34)} ${g.band.join('-').padEnd(6)} ${g.n == null ? 'held out ' + g.max : g.n + ' (' + g.fate + ')'}${g.inBand ? '' : '  <- outside the band: reported'}`);
+  const two = got.filter((g) => g.key === 'cyclon' || g.key === 'zodiak');
+  t(`the naval gun, the anti-ship missile and the torpedo put the Zodiak and the Cyclon out of action or sink them; ${got.filter((g) => g.inBand).length} of ${got.length} rows (all four ships) in §8.12's bands, the rest reported above`, two.every((g) => g.n != null), got.map((g) => [g.w, g.key, g.n]));
+  t('...one torpedo or one anti-ship missile is enough for the Zodiak and the Cyclon', two.filter((g) => g.w !== '127 mm HE/SAP').every((g) => g.n === 1), two);
+}
+// 13. The other way: a 127 mm's explosive shell knocks out a tank on the shore in 1-3 hits (from 300 m, at random parts:
+// 8 seeded tanks); proximity-fused 127 mm rounds bring down a jet crossing 3 km off in 10-30 rounds (laid with the
+// table's lead and a fire-control error of 1.5 mrad); the close-in gun shreds a drone hovering 600 m off and a
+// helicopter 900 m off within seconds
+{
+  const o = R(`(() => { const tank = [];
+    for (let k = 0; k < 8; k++) {
+      Combat.reset({}); Armour.seed(300 + k); let q = 900 + k; const rr = () => { q ^= q << 13; q ^= q >>> 17; q ^= q << 5; return (q >>> 0) / 4294967296; };
+      const tk = build(templateRows(TEMPLATES.tk34), 'tank', 'TK-34'); tk.placeOnSurface(EARTH, siteAngle(EARTH, 1000), 0, 300 * k, rr() * TAU);
+      const F = fsim(tk, [tk]); F.active = me; tick(F, 1.5);
+      let n = 0;
+      for (; n < 8 && !tk.ko; ) { const p = tk.parts[Math.floor(rr() * tk.parts.length)]; Combat.S.shots.push(shell('he127', aimAt(tk, { x: p.x, y: p.y, z: partZ(p) }, 300, 3))); n++; tick(F, 0.6); }
+      tank.push(tk.ko ? n : null);
+    }
+    // HE-VT at a jet crossing 3 km off, 1.5 km up
+    Combat.reset({}); Ship.seed(4); let q = 77; const g = () => { q ^= q << 13; q ^= q >>> 17; q ^= q << 5; const u = Math.max(1e-9, (q >>> 0) / 4294967296); q ^= q << 13; q ^= q >>> 17; q ^= q << 5; return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * (q >>> 0) / 4294967296); };
+    const a = ship('arley', { e: -3000, z: 0, yaw: 0 }), F = fsim(a, [a]);
+    const jet = build(templateRows(TEMPLATES.fs16), 'plane', 'FS-16'); jet.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, -2600, 0);
+    { const r = Math.hypot(jet.x, jet.y, jet.z), k = (r + 1500) / r; jet.x *= k; jet.y *= k; jet.z *= k; }
+    { const u = unitTo(jet, a), r0 = Math.hypot(jet.x, jet.y, jet.z), up = { x: jet.x / r0, y: jet.y / r0, z: jet.z / r0 }, cx = up.y * u.z - up.z * u.y, cy = up.z * u.x - up.x * u.z, cz = up.x * u.y - up.y * u.x, cl = Math.hypot(cx, cy, cz);
+      jet.vx = (cx / cl) * 200; jet.vy = (cy / cl) * 200; jet.vz = (cz / cl) * 200; }
+    jet.ai = {}; jet.landed = false; jet.contactTime = 0; F.vessels.push(jet); tick(F, 0.5, null, true);
+    const gun = a.parts.find((p) => p.type === 'nGun127'), M = a.toWorld(gun.x, gun.y, partZ(gun)), rM = Math.hypot(M.x, M.y, M.z), upM = { x: M.x / rM, y: M.y / rM, z: M.z / rM };
+    let rounds = 0, d0 = Math.round(dist(a, jet));
+    for (; rounds < 60 && jet.hulk == null && !jet.dead; ) {
+      let t = 0, P = null;
+      for (let i = 0; i < 4; i++) { P = { x: jet.x + jet.vx * t, y: jet.y + jet.vy * t, z: jet.z + jet.vz * t }; const rx = P.x - M.x, ry = P.y - M.y, rz = P.z - M.z, dH = rx * upM.x + ry * upM.y + rz * upM.z, Dh = Math.hypot(rx - upM.x * dH, ry - upM.y * dH, rz - upM.z * dH), sv = Aim.solve('hevt127', Dh, dH, EARTH, 15); t = sv.t; P.el = sv.el; P.dH = dH; }
+      const rx = P.x - M.x, ry = P.y - M.y, rz = P.z - M.z, hx = rx - upM.x * P.dH, hy = ry - upM.y * P.dH, hz = rz - upM.z * P.dH, hl = Math.hypot(hx, hy, hz), el = P.el + g() * 0.0015, yaw = g() * 0.0015;
+      const sx = upM.y * hz - upM.z * hy, sy = upM.z * hx - upM.x * hz, sz = upM.x * hy - upM.y * hx, sl = Math.hypot(sx, sy, sz);
+      const d = { x: (hx / hl) * Math.cos(el) + upM.x * Math.sin(el) + (sx / sl) * yaw, y: (hy / hl) * Math.cos(el) + upM.y * Math.sin(el) + (sy / sl) * yaw, z: (hz / hl) * Math.cos(el) + upM.z * Math.sin(el) + (sz / sl) * yaw };
+      Combat.S.shots.push(shell('hevt127', { from: { x: M.x + d.x * 4, y: M.y + d.y * 4, z: M.z + d.z * 4 }, dir: d }, a)); Combat.S.shots[Combat.S.shots.length - 1].life = SHELLS.hevt127.life; rounds++;
+      tick(F, 0.5, () => { jet.x += jet.vx / 120; jet.y += jet.vy / 120; jet.z += jet.vz / 120; }, true);
+    }
+    tick(F, 6, () => { jet.x += jet.vx / 120; jet.y += jet.vy / 120; jet.z += jet.vz / 120; }, true);
+    const vt = { rounds, down: jet.hulk != null || !!jet.dead, d0 };
+    // the close-in gun at a drone and a helicopter
+    const ciws = (key, kind, off, h) => { Combat.reset({}); Ship.seed(8);
+      const a2 = ship('arley', { e: -3000, z: 0, yaw: 0 }), G = fsim(a2, [a2]), o2 = build(templateRows(TEMPLATES[key]), kind, key); o2.placeOnSurface(EARTH, siteAngle(EARTH, -3000), kind === 'drone' ? 0 : 0, -off, 0);
+      { const r = Math.hypot(o2.x, o2.y, o2.z), k = (r + h) / r; o2.x *= k; o2.y *= k; o2.z *= k; } o2.landed = false; o2.contactTime = 0; G.vessels.push(o2); const n0 = o2.parts.length, gun2 = a2.ciws[0];
+      let first = null, down = null;
+      tick(G, 12, (tt) => { if (first == null && gun2.shots) first = tt; if (down == null && (o2.dead || o2.hulk != null || o2.down || !G.vessels.includes(o2) || o2.parts.length < n0 * 0.5)) { down = tt; return false; } }, true);
+      return { first: first && +first.toFixed(2), after: down != null && first != null ? +(down - first).toFixed(2) : null, rounds: (gun2.shots || 0) * 5 }; };
+    return { tank, vt, drone: ciws('bumble', 'drone', 600, 30), heli: ciws('dragonfly', 'heli', 900, 120) }; })()`);
+  const kt = o.tank.filter((n) => n != null);
+  t(`a 127 mm explosive shell knocks out a TK-34 on the shore in ${o.tank.map((n) => n == null ? '8+' : n).join(', ')} hits (1-3)`, kt.length >= 6 && kt.every((n) => n <= 3), o.tank);
+  t(`...proximity-fused 127 mm rounds bring down a jet crossing ${(o.vt.d0 / 1000).toFixed(1)} km off in ${o.vt.rounds} rounds (10-30), reported`, o.vt.down, o.vt);
+  t(`...the close-in gun shreds a drone 600 m off in ${o.drone.after} s (${o.drone.rounds} rounds) and a helicopter 900 m off in ${o.heli.after} s (${o.heli.rounds} rounds)`, o.drone.after != null && o.drone.after < 4 && o.heli.after != null && o.heli.after < 6, o);
+}
+// 14. S8: an old Gun Turret on a ship afloat (the Cyclon, on her bridge's roof) fires at a bandit 900 m off; the same
+// turret on a bomber sat on the ground holds its fire
+{
+  const o = R(`(() => { Combat.reset({});
+    const bandit = (near, off) => { const j = build(templateRows(TEMPLATES.fs16), 'plane', 'Bandit'); j.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, -off, 0); const r = Math.hypot(j.x, j.y, j.z), k = (r + 300) / r; j.x *= k; j.y *= k; j.z *= k; j.ai = {}; j.landed = false; j.contactTime = 0; j.control = j.control || j.parts.find((p) => p.def.control); return j; };
+    const rows = templateRows(TEMPLATES.cyclon).map((r) => ({ ...r })), ps = partsFromDesign(rows), bi = ps.findIndex((p) => p.def.control), B = ps[bi], top = partRect(B).t;
+    const c = ship('cyclon', { e: -3000, z: 0, yaw: 0 }, [{ type: 'turretL', x: B.x, y: +(top + PARTS.turretL.w / 2).toFixed(3), rot: 3, att: bi }]), j1 = bandit(c, 900), F = fsim(c, [c, j1]);
+    tick(F, 1, null, true); const tu = c.parts.find((p) => p.type === 'turretL'), n0 = Combat.S.shots.length; let on = false;
+    tick(F, 4, () => { if (tu.gunOn) on = true; }, true);
+    const bullets = Combat.S.shots.filter((s) => s.owner === c).length;
+    Combat.reset({});
+    const bo = build(templateRows(TEMPLATES.bomber), 'plane', 'Stratobomber'); bo.placeOnSurface(EARTH, siteAngle(EARTH, -3000), -Math.PI / 2, 0, 0); bo.contactTime = 1; bo.landed = true;
+    const j2 = bandit(bo, 900), G = fsim(bo, [bo, j2]); tick(G, 1, null, true); const tb = bo.parts.find((p) => p.type === 'turretL'); let onB = false;
+    tick(G, 4, () => { bo.contactTime = 1; if (tb.gunOn) onB = true; }, true);
+    return { afloat: !!c.afloat, ship: on, bullets, bomber: onB, n0 }; })()`);
+  t(`S8: an old Gun Turret on a ship afloat fires at a bandit 900 m off (${o.bullets} rounds in the air); on a bomber sat on the ground it holds`, o.afloat && o.ship && o.bullets > 0 && !o.bomber, o);
+}
 t.done();

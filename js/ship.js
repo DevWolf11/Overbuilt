@@ -138,11 +138,12 @@ const SHIP = {
   //   `gone` m down; a derelict holed after derelictT s; the end screen waits up to `wait` s; [WP8] no one at the helm for
   //   helmT s (a dead helmsman's seat is taken in 4: armour.js) is out of action)
   // ---- combat (§8.9-8.11)
-  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35, err: 0.018, errD: 600, leak: 300, assess: 1 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p;
+  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35, err: 0.018, errD: 600, errV: 250, errMin: 0.1, leak: 300, assess: 1 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p;
   //   [WP9] its fire control's error (rad, each round's own, × the range over errD m past it: the radar's track of a
   //   weaving sea-skimmer, the lead's guess; tuned so one gun stops a subsonic ASM 4 times in 5, two at once about half
-  //   each), inside leak m of her it is too late (what is
-  //   left of a missile carries on into her: no kill there), and a kill is checked for assess s before it turns to the next
+  //   each; against an aircraft or a drone × its speed over errV m/s, at least errMin: a hovering one tracked steadily),
+  //   inside leak m of her it is too late (what is left of a missile carries on into her: no kill there), and a kill is
+  //   checked for assess s before it turns to the next
   TORP: { turn: 6, aground: 4, bubbles: 0.2, depthOff: 0 }, // °/s homing turn; runs aground where the bed is shallower; s between bubble puffs
   ASM: { term: 2000, termH: 3, skim: 8, climb: 30 }, // an anti-ship missile climbs to climb m, sea-skims at skim m over the waves until term m out, then goes in at termH m [WP9: skim, climb]
   VLS: { t: 0.8, rate: 60 },         // a vertical launch pitches over for t s at rate °/s
@@ -3963,7 +3964,8 @@ const Ship = (() => {
       const r = Math.hypot(M.x, M.y, M.z) || 1, g = v.body.mu / (r * r), dropK = 0.5 * g * tt * tt;
       _cl.x = T.x + (T.vx - v.vx) * tt - M.x + (M.x / r) * dropK; _cl.y = T.y + (T.vy - v.vy) * tt - M.y + (M.y / r) * dropK; _cl.z = T.z + (T.vz - v.vz) * tt - M.z + (M.z / r) * dropK;
       qunrot(v.q, _cl.x, _cl.y, _cl.z, _cu); unrotPart(p, _cu);
-      p.eK = K.err * Math.max(1, Math.hypot(_cl.x, _cl.y, _cl.z) / K.errD); // (its fire control's error there, each round's own: it grows with the range past errD m, its track firming up as the threat closes)
+      const rel = Math.hypot(T.vx - v.vx, T.vy - v.vy, T.vz - v.vz);
+      p.eK = K.err * Math.max(1, Math.hypot(_cl.x, _cl.y, _cl.z) / K.errD) * (T.k === 'missile' ? 1 : clamp(rel / K.errV, K.errMin, 1)); // (its fire control's error there, each round's own: it grows with the range past errD m, its track firming up as the threat closes; an aircraft's or a drone's track the steadier the slower it goes)
       wantY = Math.atan2(_cu.z, _cu.x); wantE = Math.atan2(_cu.y, Math.hypot(_cu.x, _cu.z));
       wantY = clamp(wantY, C.yaw[0] * DEG, C.yaw[1] * DEG); wantE = clamp(wantE, C.el[0] * DEG, C.el[1] * DEG);
     }

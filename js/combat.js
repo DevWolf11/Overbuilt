@@ -825,7 +825,7 @@ const Combat = (() => {
     // missiles burst when they pass close: the proximity fuse
     if (s.k === 'missile' && s.target && !hit && !he && armed) {
       const tp = refPos(s.target);
-      if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < (s.prox || s.blast * 0.45)) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F, undefined, s.he, spare); if (s.target.k === 'missile') Ship.samKill(s, s.target, F); return false; } } // ([WP9] prox: a vertical-launch SAM's fuze; S3: a missile it bursts beside is killed with p 0.7)
+      if (tp && tp.alive) { const [ft, d] = segPoint(a.x, a.y, a.z, e.x, e.y, e.z, tp.x, tp.y, tp.z); if (d < (s.prox || s.blast * 0.45) && !(s.vls && ft > 1 - 1e-9)) { const at = lerp3(a, e, ft); explode(b, at, s.blast, s.dmg, s.owner, F, undefined, s.he, spare); if (s.target.k === 'missile') Ship.samKill(s, s.target, F); return false; } } // ([WP9] prox: a vertical-launch SAM's fuze, which waits for its closest pass (still closing at the step's end: the next step); S3: a missile it bursts beside is killed with p 0.7)
     }
     // (the big update) an anti-drone gun's airburst round bursts as it passes within ab m of its drone (or on it), a
     // light burst with no harm to armour (he 2): drone.js's gun fires them
