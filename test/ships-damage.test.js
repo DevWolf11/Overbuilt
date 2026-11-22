@@ -362,7 +362,8 @@ Ship.seed(4242); Armour.seed(77); Ship.setSea('calm');`);
     o.x = v.x - to.x / d * 22; o.y = v.y - to.y / d * 22; o.z = v.z - to.z / d * 22; o.vx = to.x / d * 7.7; o.vy = to.y / d * 7.7; o.vz = to.z / d * 7.7; o.sh.tel = 4; tick(F, 6); F.vessels = F.vessels.filter((q) => q !== o); };
   var bridgeT = (v) => { const b = v.parts.find((p) => p.def.control && p.def.mods), d = partDims(b); return { x: b.x + (rnd() - 0.5) * d.w * 0.8, y: b.y + (rnd() - 0.5) * d.h * 0.8, z: partZ(b) }; };
   var nearOff = (v) => Math.max(...v.sh.hulls.map((p) => shullSec(p.def.shull.st, 0)[3])) + 5;
-  var trial = (key, fire, max, every) => { Combat.S.shots.length = 0; const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
+  var trial = (key, fire, max, every) => { Armour.seed(77); Ship.seed(77); Combat.S.shots.length = 0; // ([WP9] each row seeded on its own: its number no longer hangs on what the sections before it drew, the warships armed)
+    const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
     for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
   const rows = [
     ['12.7 mm MG (rounds)', 'cyclon', "Combat.S.shots.push(shell('ball13', aimAt(v, target(v, 'any'), 150, 1)))", 3000, 0.1, [200, 600]],

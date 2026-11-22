@@ -1525,7 +1525,7 @@ const Combat = (() => {
     }
     for (const t of S.targets) if (!t.alive && t.fv) fallTarget(t, dt, F); // (drones shot down fall: the range's and the Tank Range's)
     for (const o of F.vessels) if (o.ai && !o.dead) {
-      if (o.ai.ground || o.ai.drone) continue; // (the ground AI: groundai.js runs it, and says when it goes; an AI drone is drone.js's, never flyFighter's)
+      if (o.ai.ground || o.ai.drone || o.ai.sea) continue; // (the ground AI: groundai.js runs it, and says when it goes; an AI drone is drone.js's, never flyFighter's; [WP9] the computer's ships ship.js's, never flown as bandits nor cleared with them: WP10 runs them)
       if (o.control && !o.ai.down) flyFighter(o, F, dt);
       if (!o.control && !o.ai.down) aiDown(o, F);
       if (!hostile() || !near) o.dead = true;

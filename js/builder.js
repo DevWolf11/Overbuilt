@@ -518,16 +518,18 @@ const TEMPLATES = {
     paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
   },
   pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels) [WP5]
-    // ([WP9] armed: a 76 mm in a gun house on the bow, two quad anti-ship launchers aft, a surface and a fire-control radar, decoys)
+    // ([WP9] armed: a 76 mm in a gun house on the bow, two twin anti-ship launchers aft at the stern, a surface and a
+    // fire-control radar, decoys; the spec's quads and shell magazine would sink her onto her foils (212 t: her hull leaves
+    // the water at 43 kn and flies 0.2 m over a Moderate sea), so twins, and the gun's 80 ready rounds: 192 t, as WP5 tuned)
     name: 'Pegazus Hydrofoil', kind: 'ship', tier: 3,
-    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves. A 76 mm gun forward and eight anti-ship missiles aft.',
+    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves. A 76 mm gun forward and four anti-ship missiles aft.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
       ['foilBow', 18.6, -3.75, 0, { att: 4 }], ['foilAft', -5, -3.8, 0, { att: 1 }], ['turbine', -6, -0.05, 0, { att: 1 }],
       ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['dieselS', 0.3, -1.37, 0, { att: 2 }],
       ['waterjet', -15.16, -1.35, 0, { att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
-      ['mastPole', 8.5, 8, 0, { att: 5 }], ['magazine', 11.97, -0.111, 0, { att: 3 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
-      ['nRingM', 21.3, 2.65, 0, { att: 4 }], ['nHouse127', 21.3, 4.3, 0, { att: 18 }], ['nGun76', 25.154, 4.3, 3, { att: 19 }],
-      ['asm4', 3.5, 3.2, 0, { att: 2 }], ['asm4', -2.5, 3.2, 0, { att: 1 }], ['nRadarSea', 8.5, 11.3, 0, { att: 15 }],
+      ['mastPole', 8.5, 8, 0, { att: 5 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
+      ['nRingM', 21.3, 2.65, 0, { att: 4 }], ['nHouse127', 21.3, 4.3, 0, { att: 17 }], ['nGun76', 25.154, 4.3, 3, { att: 18 }],
+      ['asm2', -13, 2.9, 0, { att: 0 }], ['asm2', -6.5, 2.9, 0, { att: 1 }], ['nRadarSea', 8.5, 11.3, 0, { att: 15 }],
       ['nRadarFC', 9.5, 5.6, 0, { att: 5 }], ['decoy', 5.9, 2.5, 0, { z: 3, att: 2 }], ['decoy', 5.9, 2.5, 0, { z: -3, att: 2 }],
       ['seatGunner', 4, -1.442, 0, { att: 2 }]],
     paint: { hbSternM: 'navyGrey', hbMidM: 'navyGrey', hbBowM: 'navyGrey', bridgeM: 'navyGrey', mastPole: 'navyGrey' },
@@ -562,7 +564,7 @@ const TEMPLATES = {
       ['asm2', 21, 4.136, 0, { z: 3.857, att: 3 }], ['asm2', 21, 4.136, 0, { z: -3.857, att: 3 }], ['torpTube', -13.7, 3.4, 0, { z: 5, att: 1 }],
       ['torpTube', -13.7, 3.4, 0, { z: -5, att: 1 }], ['nRadarAir', 3, 9.657, 0, { att: 4 }], ['nRadarSea', 6.25, 9.357, 0, { att: 4 }],
       ['nRadarFC', 0.25, 9.657, 0, { att: 4 }], ['decoy', -32.6, 3.5, 0, { z: 4.733, att: 0 }], ['decoy', -32.6, 3.5, 0, { z: -4.733, att: 0 }],
-      ['seatGunner', 4.25, -2.491, 0, { att: 2 }], ['seatGunner', 5.25, -2.491, 0, { att: 2 }], ['seatGunner', 6.25, -2.491, 0, { att: 2 }]],
+      ['seatGunner', -12.5, -2.491, 0, { att: 1 }], ['seatGunner', -13.5, -2.491, 0, { att: 1 }], ['seatGunner', -14.5, -2.491, 0, { att: 1 }]], // (her gunners aft by the tubes)
     paint: { hbSternL: 'navyDark', hbMidL: 'navyDark', hbBowL: 'navyDark', stealthHouse: 'navyDark' },
   },
   olivar: { // (an Oliver Hazard Perry frigate: an X hull, two turbines on one big screw, a hangar and a helicopter deck) [WP5]

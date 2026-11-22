@@ -361,7 +361,8 @@ Ship.seed(9090); Armour.seed(77); Ship.setSea('calm'); Combat.reset({});`);
   var asmAt = (v, F) => { if (!launcher || !F.vessels.includes(launcher)) { const P = { e: -3000, z: -3000 }; let best = 0, bk = -2; for (let i = 0; i < 16; i++) { const o = ship('osca', { ...P, yaw: (i / 16) * TAU }), f = o.axis(1, 0, 0), u = unitTo(o, v), k = f.x * u.x + f.y * u.y + f.z * u.z; if (k > bk) { bk = k; best = (i / 16) * TAU; } }
       launcher = ship('osca', { ...P, yaw: best }); launcher.ai = { sea: true }; F.vessels.push(launcher); }
     const p = launcher.parts.find((q) => q.type === 'asm2'); p.ammo = 2; Combat.launchMissile(launcher, p, v, F); };
-  var trial = (key, fire, max, every) => { Combat.reset({}); Ship.resetCombat(); launcher = null; const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
+  var trial = (key, fire, max, every) => { Combat.reset({}); Ship.resetCombat(); Armour.seed(77); Ship.seed(77); launcher = null; // (each row seeded on its own)
+    const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
     for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
   const g127 = "Combat.S.shots.push(shell(rnd() < 0.5 ? 'he127' : 'sap127', aimAt(v, target(v, 'any'), 300, 2)))", asm = 'asmAt(v, F)', torp = 'Combat.S.shots.push(torpAt(v))';
   const rows = [
