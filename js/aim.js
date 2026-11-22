@@ -53,6 +53,7 @@ function aimUnrot(p, o) { for (let i = 0, k = p.rot & 3; i < k; i++) { const t =
 // where a missile's or a radar's target is and how it moves (Combat.refPos's sums, into out): null once it is gone
 function aimPos(t, o) {
   if (!t) return null;
+  if (t.k === 'missile') { if (t.dead) return null; o.x = t.x; o.y = t.y; o.z = t.z; o.vx = t.vx; o.vy = t.vy; o.vz = t.vz; return o; } // ([WP9] S3: a missile a fire-control radar locks)
   if (t.flare) { if (!(t.t < t.life)) return null; o.x = t.x; o.y = t.y; o.z = t.z; o.vx = t.vx; o.vy = t.vy; o.vz = t.vz; return o; }
   if (t.def) { // a range target: its middle
     if (!t.alive || !t.pos) return null;
@@ -85,7 +86,8 @@ function aimDrop(SH, R, th, rho, g) {
 function aimLift(p, w, R, s, c, ux, uy, uz, rho, gr, real, zero, o) {
   const SH = aimShell(p);
   if (!SH) return o;
-  const Rz = real && w.kind === 'tgun' ? zero : R, d = aimDrop(SH, Rz, Math.asin(s), rho, gr), dl = Math.atan2(d.drop, Rz), cd = Math.cos(dl), sd = Math.sin(dl);
+  const Rz = real && w.kind === 'tgun' ? zero : R, nv = SH.naval && Rz > AIM_NV_NEAR ? Aim.navalEl(SH, Rz * c, Rz * s) : null; // ([WP9] a naval shell past 3 km: its range table)
+  const dl = nv ? nv.el - Math.asin(s) : Math.atan2(aimDrop(SH, Rz, Math.asin(s), rho, gr).drop, Rz), cd = Math.cos(dl), sd = Math.sin(dl);
   const lx = o.x, ly = o.y, lz = o.z;
   o.x = lx * cd + ((ux - lx * s) / c) * sd; o.y = ly * cd + ((uy - ly * s) / c) * sd; o.z = lz * cd + ((uz - lz * s) / c) * sd;
   return o;
@@ -370,12 +372,12 @@ const Aim = {
       this.assist(v, h, F);
       this.hold(v, h, F, !!F.firing, !!F.mgFiring);
     }
-    if (Combat.S.gai) for (const o of F.vessels) {
-      if (o === v || !o.ai || !o.ai.ground || o.dead || o.remote || !o.aimed.length || !o.parts.length) continue;
+    if (Combat.S.gai || Combat.S.sea) for (const o of F.vessels) { // ([WP9] S.sea: the computer's ships too)
+      if (o === v || !o.ai || !(o.ai.ground || o.ai.sea) || o.dead || o.remote || !o.aimed.length || !o.parts.length) continue;
       this.step(o, h, F, o.aimP || null);
       this.hold(o, h, F, !!o.aimFire, !!o.mgFire);
       const cur = o.aimFire && Combat.systems(o)[o.wsel];
-      if (cur && (cur.w.kind === 'tgun' || cur.w.kind === 'missile' || cur.w.kind === 'rocket')) this.fire(o, cur, h, F, o.aimT || null);
+      if (cur && (cur.w.kind === 'tgun' || cur.w.kind === 'missile' || cur.w.kind === 'rocket' || cur.w.kind === 'torp')) this.fire(o, cur, h, F, o.aimT || null);
     }
   },
   // held fire: each automatic gun at its own rate (the chosen one on trig, the machine guns on mg)
@@ -402,7 +404,7 @@ const Aim = {
     else if (v === F.active && F.groundAim && F.aim && F.aim.P) P = F.aim.P;
     if (!P || !man || v.remote || !Number.isFinite(P.x)) { v._aimN = 0; v.leadOk = false; return; } // (holding: hull-relative, nothing held in the world)
     const dep = this.limits(v), b = v.body, r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
-    const rho = airDensity(b, r - b.radius), gr = b.mu / (r * r), real = !want && this.realistic(), zero = clamp(F.zero || 800, 100, 5000);
+    const rho = airDensity(b, r - b.radius), gr = b.mu / (r * r), real = !want && this.realistic(), zero = clamp(F.zero || 800, 100, F.zero > 5000 ? 20000 : 5000); // ([WP9] a naval gun's sight to 20 km: GHUD.reach)
     const n = (v._aimN || 0) + 1, cur = Combat.systems(v)[v.wsel];
     // a lock: the guns lead the target (else the lead is only the HUD's marker)
     const lead = this.leadAt(v, cur, rho), Pg = v.trk && v.trk.lock && lead ? lead : P;
@@ -526,8 +528,9 @@ const Aim = {
     v.leadOk = false;
     if (!SH || !aimPos(t, aimTp)) return null;
     const T = this.trunnion(v, G, aimM), L = v.leadP || (v.leadP = v3()), rx = aimTp.vx - v.vx, ry = aimTp.vy - v.vy, rz = aimTp.vz - v.vz;
-    let tt = aimTof(SH, Math.hypot(aimTp.x - T.x, aimTp.y - T.y, aimTp.z - T.z), rho);
-    for (let i = 0; i < 2; i++) tt = aimTof(SH, Math.hypot(aimTp.x + rx * tt - T.x, aimTp.y + ry * tt - T.y, aimTp.z + rz * tt - T.z), rho);
+    const tof = SH.naval ? (D) => this.navalTof(SH, D, rho) : (D) => aimTof(SH, D, rho); // ([WP9] a naval shell's from its range table past 3 km)
+    let tt = tof(Math.hypot(aimTp.x - T.x, aimTp.y - T.y, aimTp.z - T.z));
+    for (let i = 0; i < 2; i++) tt = tof(Math.hypot(aimTp.x + rx * tt - T.x, aimTp.y + ry * tt - T.y, aimTp.z + rz * tt - T.z));
     L.x = aimTp.x + rx * tt; L.y = aimTp.y + ry * tt; L.z = aimTp.z + rz * tt;
     v.leadOk = true;
     return L;
@@ -557,6 +560,7 @@ const Aim = {
       if (!w) continue;
       if (w.kind === 'tgun') {
         if (p.reload > 0 && (p.reload -= h) <= 0) { p.reload = 0; if (p.shellNext) { p.shellSel = p.shellNext; p.shellNext = null; } }
+        if (w.naval && !(p.ammo > 0)) Ship.refill(v, p, h, F); // ([WP9] its ready rounds again from a magazine aboard)
         continue;
       }
       if (!(w.kind === 'missile' || w.kind === 'rocket') || !w.stow) continue;
@@ -578,7 +582,12 @@ const Aim = {
   solve(key, D, dH, body = EARTH, alt = 0) {
     const SH = typeof SHELLS !== 'undefined' && hasOwn(SHELLS, key) ? SHELLS[key] : null;
     if (!SH || !(D >= 0) || !Number.isFinite(dH)) return null;
-    const R = Math.hypot(D, dH) || 1e-6, th = Math.atan2(dH, D), r0 = body.radius + alt, rho = airDensity(body, alt + dH / 2), o = aimDrop(SH, R, th, rho, body.mu / (r0 * r0));
+    const R = Math.hypot(D, dH) || 1e-6, th = Math.atan2(dH, D), r0 = body.radius + alt, rho = airDensity(body, alt + dH / 2);
+    if (SH.naval && R > AIM_NV_NEAR) { // ([WP9] a naval shell past 3 km: its range table, on the body (the drop of the Earth's curve in it))
+      const n = this.navalEl(SH, D, dH, body);
+      if (n) return { el: n.el, t: n.t, drop: R * Math.tan(n.el - th), v: n.v, out: n.out };
+    }
+    const o = aimDrop(SH, R, th, rho, body.mu / (r0 * r0));
     return { el: th + Math.atan2(o.drop, R), t: o.t, drop: o.drop, v: SH.v0 * Math.exp(-SH.k * rho * R) };
   },
   // A rocket launcher's range table (built once per part type and body): a rocket flown as moveShot flies it (its motor
@@ -587,6 +596,7 @@ const Aim = {
   // ground with its time, until it is AIM_RK_FLOOR m below it, up to the first past its longest shot: [{ el, d (m along
   // the ground to the level it left), t (s), fall (its dive there, rad), H, T (heights and times along the ground) }]
   rangeTable(def, body = EARTH) {
+    if (def && def.naval) return this.navalTable(def, body); // ([WP9] a naval shell's)
     const w = def.weapon;
     if (!w || w.kind !== 'rocket') return null;
     let B = aimTables.get(def);
@@ -651,6 +661,73 @@ const Aim = {
     return a + (b - a) * f;
   },
 
+  // ---- [WP9] the naval guns' range tables (§8.1): past AIM_NV_NEAR m a naval shell (SHELLS' naval) is laid from its
+  // table, not aimDrop's flat sums (which miss the Earth's curve: 635 m at 20 km at 1/20 scale, and the thinner air up
+  // high). Built once per shell and body for the flight Armour.moveShell flies (its drag k·ρ·v² in this world's air,
+  // gravity toward the planet's middle; midpoint steps of AIM_NV_STEP s: within 20 m of the physics' 1/120 s steps at
+  // 15 km, at a fifth of the cost), from AIM_NV_H m up: at each elevation of AIM_NV_EL its height
+  // over the launch level every AIM_NV_DX m along the ground with its time and speed there, to AIM_RK_FLOOR m under
+  // that level or its life, up to the first elevation past its longest shot. [{ el, d, t, H, T, V }]
+  navalTable(SH, body = EARTH) {
+    let B = aimTables.get(SH);
+    if (!B) aimTables.set(SH, (B = new Map()));
+    if (B.has(body)) return B.get(body);
+    const out = [], R0 = body.radius + AIM_NV_H, h = AIM_NV_STEP, life = SH.life || 60, k = SH.k, atm = body.atmoHeight, rho0 = body.rho0, sH = body.scaleH, mu = body.mu, Rb = body.radius;
+    const sqrt = Math.sqrt, exp = Math.exp, top = atm ? 0.8 * atm : -Infinity, A = [0, 0], acc = (x, y, vx, vy) => { // (the shell's acceleration there: moveShell's drag and gravity)
+      const r0 = sqrt(x * x + y * y), g = mu / (r0 * r0 * r0), alt = r0 - Rb, rho = alt < top ? rho0 * exp(-(alt > 0 ? alt : 0) / sH) : airDensity(body, alt), kk = k * rho * sqrt(vx * vx + vy * vy);
+      A[0] = -vx * kk - x * g; A[1] = -vy * kk - y * g;
+    };
+    for (const e of AIM_NV_EL) {
+      const c = Math.cos(e * AIM_RAD), s = Math.sin(e * AIM_RAD), H = [0], T = [0], V = [SH.v0], row = { el: e * AIM_RAD, d: 0, t: 0, H: null, T: null, V: null };
+      let x = 0, y = R0, vx = c * SH.v0, vy = s * SH.v0, t = 0, d0 = 0, h0 = 0, n = 1;
+      while (t < life) {
+        acc(x, y, vx, vy);
+        const mx = x + vx * h * 0.5, my = y + vy * h * 0.5, mvx = vx + A[0] * h * 0.5, mvy = vy + A[1] * h * 0.5;
+        acc(mx, my, mvx, mvy);
+        x += mvx * h; y += mvy * h; vx += A[0] * h; vy += A[1] * h; t += h;
+        const d1 = R0 * Math.atan2(x, y), h1 = sqrt(x * x + y * y) - R0;
+        while (n * AIM_NV_DX <= d1) { const f = (n * AIM_NV_DX - d0) / (d1 - d0); H.push(h0 + (h1 - h0) * f); T.push(t - h * (1 - f)); V.push(sqrt(vx * vx + vy * vy)); n++; }
+        if (h0 >= 0 && h1 < 0) { const f = h0 / (h0 - h1); row.d = d0 + (d1 - d0) * f; row.t = t - h * (1 - f); }
+        d0 = d1; h0 = h1;
+        if (h1 < -AIM_RK_FLOOR) break;
+      }
+      row.H = Float32Array.from(H); row.T = Float32Array.from(T); row.V = Float32Array.from(V);
+      out.push(row);
+      if (out.length > 2 && row.d < out[out.length - 2].d) break; // (past its longest shot)
+    }
+    B.set(body, out);
+    return out;
+  },
+  // The elevation (rad above the level) that puts naval shell SH on a point D m off along the level and dH up (in the
+  // gun's level plane, as solve's: the body's curve is the table's), from its table: the flattest path of its rising
+  // half that passes at or over that point, between it and the one under it, with its time and speed there; out: none
+  // reaches it (then its longest). null: no table.
+  navalEl(SH, D, dH, body = EARTH, out = aimNv) {
+    const T = this.navalTable(SH, body);
+    if (!T || !T.length) return null;
+    const Rb = body.radius + AIM_NV_H, Y = Rb + dH, x = (Rb * Math.atan2(D, Y)) / AIM_NV_DX, hA = Math.hypot(D, Y) - Rb;
+    let top = 0;
+    while (top + 1 < T.length && T[top + 1].d >= T[top].d) top++;
+    const at = (q, A) => { const k = Math.floor(x); if (k + 1 >= q.H.length) return -Infinity; const f = x - k; return A[k] + (A[k + 1] - A[k]) * f; };
+    let lo = -Infinity;
+    for (let i = 0; i <= top; i++) {
+      const q = T[i], hi = at(q, q.H);
+      if (hi < hA) { lo = hi; continue; }
+      if (i === 0 || lo === -Infinity) { out.el = q.el; out.t = at(q, q.T); out.v = at(q, q.V); }
+      else { const p = T[i - 1], f = (hA - lo) / (hi - lo); out.el = lerp(p.el, q.el, f); out.t = lerp(at(p, p.T), at(q, q.T), f); out.v = lerp(at(p, p.V), at(q, q.V), f); }
+      out.out = false;
+      return out;
+    }
+    out.el = T[top].el; out.t = T[top].t; out.v = SH.v0 * 0.3; out.out = true;
+    return out;
+  },
+  // a naval shell's time over D m straight out (aimTof's under AIM_NV_NEAR, its table's past it)
+  navalTof(SH, D, rho) {
+    if (!(D > AIM_NV_NEAR)) return aimTof(SH, D, rho);
+    const n = this.navalEl(SH, D, 0);
+    return n && Number.isFinite(n.t) ? n.t : aimTof(SH, D, rho);
+  },
+
   // ---- firing (Phase 2C)
   // Fire system sys (a Combat.systems entry): a main gun's loaded round; a launcher's missile (target: its lock); an
   // automatic gun's or rocket rails' share of this substep h (held: call it every substep). The player is told why not
@@ -661,6 +738,13 @@ const Aim = {
     const say = (t) => { if (me && now - (v._sayAt ?? -9) > 1.2) { v._sayAt = now; F.toast(t); } };
     if (!this.manned(v)) { say('No gunner to fire'); return false; }
     if (w.kind === 'tgun') return this.fireMain(v, sys, F, say);
+    if (w.kind === 'torp') { // ([WP9] a torpedo out over its side, two seconds apart at most)
+      const p = sys.parts.find((q) => !q.broken && q.ammo > 0);
+      if (!p) { say(`${sys.def.name}: empty`); return false; }
+      if (now - (v._torpAt ?? -9) < 2) return false;
+      v._torpAt = now;
+      return !!Ship.fireTorp(v, p, F);
+    }
     if (w.kind === 'agun') { let any = false; for (const p of sys.parts) any = this.burst(v, p, h, F, true) || any; return any; }
     const ok = sys.parts.filter((p) => !p.broken && p.ammo > 0);
     if (!ok.length) {
@@ -933,13 +1017,14 @@ const Aim = {
     const arc = turn * S.acc, from = S.last, now = F.time || 0, O = this.trunnion(v, p, aimL);
     S.last = S.a; S.acc = 0;
     const r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r, f = v.axis(1, 0, 0, aimS), sd = v.axis(0, 0, 1, aimW);
-    for (const c of Combat.candidates(v, 'air', F)) {
+    const naval = sr.sea || sr.air; // ([WP9] a ship's sea or air search radar: its own contacts, over its horizon already)
+    for (const c of sr.sea ? Ship.surface(v, F) : sr.air ? Ship.airContacts(v, p, F) : Combat.candidates(v, 'air', F)) {
       const dx = c.x - O.x, dy = c.y - O.y, dz = c.z - O.z, d = Math.hypot(dx, dy, dz);
       if (d > sr.range || d < 30) continue;
       const fu = dx * ux + dy * uy + dz * uz, brg = Math.atan2(dx * sd.x + dy * sd.y + dz * sd.z - fu * (sd.x * ux + sd.y * uy + sd.z * uz), dx * f.x + dy * f.y + dz * f.z - fu * (f.x * ux + f.y * uy + f.z * uz));
       if (arc < TAU && (((brg - from) % TAU) + TAU) % TAU > arc) continue; // (the sweep hasn't passed it)
       const t = c.ref, tp = aimPos(t, aimTp);
-      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(t, tp, O, v)) continue;
+      if (!tp || (!naval && (!aimClear(v.body, O, tp, d) || aimNotch(t, tp, O, v)))) continue;
       let B = S.blips.find((q) => q.ref === t);
       if (!B) S.blips.push((B = { ref: t }));
       B.a = brg; B.d = d; B.alt = Math.hypot(tp.x, tp.y, tp.z) - v.body.radius; B.t = now;
@@ -961,8 +1046,9 @@ const Aim = {
     if (T.lock) {
       const t = T.lock, tp = aimPos(t, aimTp), d = tp ? Math.hypot(tp.x - O.x, tp.y - O.y, tp.z - O.z) : Infinity;
       if (d <= tr.range) {
-        T.blockT = aimClear(v.body, O, tp, d) ? 0 : T.blockT + st;
-        T.notchT = aimNotch(t, tp, O, v) ? T.notchT + st : 0;
+        const sea = (tr.missiles || tr.sea) && (t.k === 'missile' || !!t.sh || isSea(t.kind) || (t.def && t.def.sea)); // ([WP9] a missile or a ship: over its horizon, never lost in clutter)
+        T.blockT = (sea ? Ship.holds(v, p, t) : aimClear(v.body, O, tp, d)) ? 0 : T.blockT + st;
+        T.notchT = !sea && aimNotch(t, tp, O, v) ? T.notchT + st : 0;
         if (T.blockT <= 0.5 && T.notchT <= 1 && !Combat.chaffBreaks(v, t)) return;
       }
       T.lock = T.cand = null; T.lockT = 0;
@@ -972,13 +1058,14 @@ const Aim = {
     if (!T.on) { T.cand = null; T.lockT = 0; return; }
     const ax = this.lockAxis(v, p, F, O, aimS);
     let best = null, ba = tr.cone || 0.5;
-    for (const c of Combat.candidates(v, 'air', F)) {
+    const base = Combat.candidates(v, 'air', F);
+    for (const c of tr.missiles || tr.sea ? Ship.trackContacts(v, p, F, base) : base) { // ([WP9] S3: missiles closing on her; ships)
       const dx = c.x - O.x, dy = c.y - O.y, dz = c.z - O.z, d = Math.hypot(dx, dy, dz);
       if (d > tr.range || d < 100) continue;
       const ang = Math.acos(clamp((dx * ax.x + dy * ax.y + dz * ax.z) / d, -1, 1));
       if (ang >= ba) continue;
       const tp = aimPos(c.ref, aimTp);
-      if (!tp || !aimClear(v.body, O, tp, d) || aimNotch(c.ref, tp, O, v) || this.smokeBlocks(O, tp)) continue;
+      if (!tp || (!c.sea && (!aimClear(v.body, O, tp, d) || aimNotch(c.ref, tp, O, v))) || this.smokeBlocks(O, tp)) continue;
       ba = ang; best = c.ref;
     }
     if (best && best === T.cand) T.lockT += st; else { T.cand = best; T.lockT = 0; }
@@ -1017,10 +1104,11 @@ const Aim = {
     if (!p || p.broken || !L.trk || L.trk.lock !== t) return false;
     const O = this.trunnion(L, p, aimL), d = Math.hypot(tp.x - O.x, tp.y - O.y, tp.z - O.z);
     if (d > p.def.trackRadar.range) return false;
+    const tr = p.def.trackRadar, sea = (tr.missiles || tr.sea) && (t.k === 'missile' || !!t.sh || isSea(t.kind)); // ([WP9] a missile or a ship: over the fire-control radar's horizon)
     let clear;
     if (s && s.losAt != null && s.t - s.losAt < 0.25) clear = s.los;
-    else { clear = aimClear(L.body, O, tp, d); if (s) { s.losAt = s.t; s.los = clear; } }
-    return !clear ? false : aimNotch(t, tp, O, L) ? 'notch' : true;
+    else { clear = sea ? Ship.holds(L, p, t) : aimClear(L.body, O, tp, d); if (s) { s.losAt = s.t; s.los = clear; } }
+    return !clear ? false : !sea && aimNotch(t, tp, O, L) ? 'notch' : true;
   },
 
   // ---- guidance (Phase 2C): Combat's guide hands these missiles over
@@ -1267,6 +1355,13 @@ const aimTables = new Map(), aimRk = { el: 0, t: 0, out: false, d: 0 }; // (rock
 // 500 m below the launch level
 const AIM_RK_EL = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40, 42.5, 45, 47.5, 50, 52.5, 55];
 const AIM_RK_DX = 50, AIM_RK_FLOOR = 500;
+// [WP9] the naval range tables' elevations (°: every quarter degree to 5°, every half to 15°, then every 1.5°), their
+// paths kept every AIM_NV_DX m; used past AIM_NV_NEAR m; built AIM_NV_H m up (a gun on a deck)
+const AIM_NV_EL = [];
+for (let e = -2; e < 5 - 1e-9; e += 0.25) AIM_NV_EL.push(e);
+for (let e = 5; e < 15 - 1e-9; e += 0.5) AIM_NV_EL.push(e);
+for (let e = 15; e <= 65; e += 1.5) AIM_NV_EL.push(e);
+const AIM_NV_DX = 100, AIM_NV_NEAR = 3000, AIM_NV_H = 15, AIM_NV_STEP = 1 / 20, aimNv = { el: 0, t: 0, v: 0, out: false };
 // an angle as a ring may hold it: within its free arc (the turn of it nearest where it is now; else the arc's nearer
 // end), or anywhere round without one
 function aimFit(a, cur, lim) {

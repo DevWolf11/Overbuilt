@@ -1553,6 +1553,66 @@ const PARTS = {
     foil: { kind: 'foil', n: 'y', area: 15, ar: 6, chord: 1.6, inc: 2, y: -1.6, ride: true, intake: true, h: 1.6, struts: 2, load: 3500 }, // (struts: its two, the skegs that hold her straight foilborne)
     tier: 2, cost: 5000, desc: 'A 12 m foil on two struts, aft of her middle: it carries most of her weight foilborne, and its pod feeds her waterjets when the hull is clear of the sea.' },
   // ==== shArms ====
+  // [WP9] Naval weapons and sensors (ship.js combat). The guns are the ground update's pattern on a bigger scale: a ring on
+  // the deck, a gun house on it (its gunner and loader) and the gun in the house's front, so Aim, the sight, reloads, crews
+  // and repairs work as on a tank; weapon.naval: its ready rounds are refilled from a Shell Magazine aboard (Ship.refill)
+  // and its shells (SHELLS' naval block) fly by the long range tables past 3 km. The close-in gun fires by itself (ciws:
+  // Ship.ciwsStep); anti-ship missiles (asm) sea-skim to a surface contact (Ship.asmStep); the vertical launcher's SAMs
+  // (vls) climb out of the deck and ride a fire-control radar's lock, at aircraft or at missiles (S3); torpedo tubes
+  // (kind 'torp') and decoy launchers fire outboard by the side they stand on (weapon.side: + or - z, never across a
+  // part's own axes); the radars are surface (sea), air (air) and fire-control ones. Launchers and cells are magazines
+  // (module 'ammo': Ship.magazine counts their missiles × MAG.missile rounds). Real ships' names in comments only.
+  nRingM: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'deck', cat: 'shArms', name: 'Naval Gun Ring', w: 3.4, h: 0.3, depth: 3.4, mass: 3, shape: 'tring', module: 'ring',
+    ring: { rate: 30, cap: 60, stab: 1 }, round: { slope: 0 }, armour: { mm: 20, mat: 'steel', round: { f: 1, s: 1, r: 1, t: 0.5 } }, hp: 1500,
+    tier: 2, cost: 1200, desc: 'A powered ring for a naval gun: it turns 30° a second with up to 60 t on it. Lay it on the centre line of a deck and put a Gun House on it.' },
+  nHouse127: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'ring', cat: 'shArms', name: 'Gun House', w: 5, h: 3, depth: 4.4, mass: 6, control: 1, shape: 'tturret', style: 'naval',
+    outline: [[-0.5, -0.5], [0.5, -0.5], [0.5, -0.12], [0.18, 0.5], [-0.42, 0.5], [-0.5, 0.3]], // (faceted: a raked front and a chamfered back)
+    armour: { mm: 12, min: 6, max: 40, mat: 'steel' }, hp: 3000, breakSpeed: 15,
+    mods: [{ k: 'crew', role: 'gunner', at: [0.1, -0.15, -0.25], r: 0.4, hp: 100 }, { k: 'crew', role: 'loader', at: [-0.25, -0.2, 0.2], r: 0.4, hp: 100 }],
+    tier: 2, cost: 2500, desc: 'A faceted splinter-proof house for a naval gun, its gunner and loader inside. Sit it on a Naval Gun Ring and put any naval gun in its front.' },
+  nGun57: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'front', cat: 'shArms', name: '57 mm Naval Gun', w: 0.5, h: 4.6, depth: 0.7, mass: 3, shape: 'tgun', style: 'naval', flush: true, module: 'breech', hp: 600,
+    weapon: { kind: 'tgun', cal: 57, reload: 0.27, ammo: 120, shells: ['he57n', 'hevt57n'], each: 4, naval: true },
+    aim: { el: [-10, 77], elRate: 40, pivot: 0.18, disp: 0.2 },
+    tier: 2, cost: 3500, desc: 'A quick-firing 57 mm gun, 220 rounds a minute while you hold FIRE: explosive shells for boats, and proximity-fused ones that burst beside aircraft and missiles.' },
+  nGun76: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'front', cat: 'shArms', name: '76 mm Rapid Gun', w: 0.6, h: 5.2, depth: 0.8, mass: 4.5, shape: 'tgun', style: 'naval', flush: true, module: 'breech', hp: 900,
+    weapon: { kind: 'tgun', cal: 76, reload: 0.75, ammo: 80, shells: ['he76n', 'hevt76n'], each: 6, naval: true },
+    aim: { el: [-15, 85], elRate: 35, pivot: 0.18, disp: 0.25 },
+    tier: 2, cost: 4000, desc: 'A 76 mm rapid-fire gun, 80 rounds a minute while you hold FIRE: it reaches about 17 km and its proximity shells bring down aircraft.' },
+  nGun127: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'front', cat: 'shArms', name: '127 mm Naval Gun', w: 0.8, h: 7.2, depth: 1.0, mass: 18, shape: 'tgun', style: 'naval', flush: true, module: 'breech', hp: 1500,
+    weapon: { kind: 'tgun', cal: 127, reload: 3, ammo: 20, shells: ['he127', 'sap127', 'hevt127'], each: 25, naval: true },
+    aim: { el: [-15, 65], elRate: 20, pivot: 0.18, disp: 0.3 },
+    tier: 3, cost: 5000, desc: 'A destroyer\'s 127 mm gun: 20 rounds a minute out to 24 km (20 km takes a minute), explosive, semi-armour-piercing or proximity-fused. 20 ready rounds; a Shell Magazine aboard refills them.' },
+  nGun152: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'front', cat: 'shArms', name: '152 mm Naval Gun', w: 1.0, h: 8.5, depth: 1.2, mass: 30, shape: 'tgun', style: 'naval', flush: true, module: 'breech', hp: 2000,
+    weapon: { kind: 'tgun', cal: 152, reload: 6, ammo: 12, shells: ['he152n', 'sap152'], each: 45, naval: true },
+    aim: { el: [-10, 45], elRate: 12, pivot: 0.18, disp: 0.3 },
+    tier: 3, cost: 6000, desc: 'A cruiser\'s 152 mm gun: slow and heavy, its 45 kg shells reach 28 km and its armour-piercing round goes through 130 mm of belt.' },
+  ciws: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'deck', cat: 'shArms', name: 'Close-In Gun', w: 2.2, h: 4.2, depth: 2.2, mass: 6, shape: 'tkit', style: 'nvCiws', module: 'breech', hp: 800,
+    ciws: { range: 1500, rate: 75, ammo: 1500, reload: 30, yaw: [-150, 150], el: [-25, 85], slew: 115, missiles: true, air: true, drones: true },
+    tier: 3, cost: 5000, desc: 'A six-barrelled 20 mm gun under a radar dome that fires by itself: 4,500 rounds a minute at missiles, aircraft and drones inside 1.5 km. On by default (CIWS key to hold fire).' },
+  asm2: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'deck', cat: 'shArms', name: 'Twin Anti-ship Missiles', w: 6, h: 1.8, depth: 2.6, mass: 2.6, shape: 'tkit', style: 'nvAsm', module: 'ammo', hp: 600,
+    weapon: { kind: 'missile', asm: true, seek: 'sea', label: 'ASM', ammo: 2, range: 18000, speed: 260, turn: 6, dmg: 3000, blast: 12, he: 120, arm: 1, life: 75, each: 700 },
+    tier: 2, cost: 5000, desc: 'Two anti-ship missiles in canisters angled up over the bow: each skims the waves 8 m up at 260 m/s to a ship 18 km off and goes in through her side. Fire them at the ship under the crosshair, or ahead at the nearest one.' },
+  asm4: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'deck', cat: 'shArms', name: 'Quad Anti-ship Missiles', w: 6, h: 2.4, depth: 4.6, mass: 5.2, shape: 'tkit', style: 'nvAsm', module: 'ammo', hp: 900,
+    weapon: { kind: 'missile', asm: true, seek: 'sea', label: 'ASM', ammo: 4, range: 18000, speed: 260, turn: 6, dmg: 3000, blast: 12, he: 120, arm: 1, life: 75, each: 700 },
+    tier: 3, cost: 9000, desc: 'Four anti-ship missiles in two pairs of canisters: sea-skimmers that reach 18 km and burst inside a ship\'s hull. Hit by a shell, they can go up.' },
+  vls8: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'deck', cat: 'shArms', name: 'Vertical Launcher', w: 3.2, h: 2.4, depth: 3.2, mass: 9.2, shape: 'tkit', style: 'nvVls', flush: true, module: 'ammo', hp: 1500,
+    weapon: { kind: 'missile', vls: true, seek: 'air', radar: true, label: 'SAM', ammo: 8, range: 12000, speed: 900, accel: 320, burn: 5, vmax: 950, turn: 30, cone: 0.6, dmg: 900, blast: 8, prox: 8, life: 30, missiles: true, each: 600 },
+    tier: 3, cost: 9000, desc: 'Eight missile cells set into the deck: their SAMs climb straight out, pitch over and ride a Fire-Control Radar\'s lock to aircraft 12 km off, or to an incoming missile. Lock with the radar (L), then fire.' },
+  torpTube: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'edge', cat: 'shArms', name: 'Torpedo Tubes', w: 3.4, h: 0.8, depth: 1.0, mass: 0.5, shape: 'tkit', style: 'nvTorp', module: 'launcher', hp: 500,
+    weapon: { kind: 'torp', label: 'TORP', ammo: 3, speed: 22, range: 8000, depth: 6, seek: 'active', cone: 30, acquire: 1500, dmg: 4000, blast: 12, side: true, each: 230 },
+    tier: 2, cost: 3000, desc: 'Three homing torpedoes fired out over the side they stand on: they run 6 m down at 43 knots, look for a ship within 1.5 km and burst under her keel. On a plane they drop into the sea; on land they fire nothing.' },
+  nRadarAir: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'mast', cat: 'shArms', name: 'Air Search Radar', w: 4, h: 1.2, depth: 1.2, mass: 2, shape: 'tradar', style: 'search', module: 'radar', hp: 400,
+    searchRadar: { range: 18000, rpm: 15, air: true },
+    tier: 2, cost: 3000, desc: 'A big turning radar that shows aircraft and missiles over 100 m up out to 18 km. A sea-skimming missile hides under its horizon until it is about 4 km off. Put it high on a mast.' },
+  nRadarFC: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'mast', cat: 'shArms', name: 'Fire-Control Radar', w: 1.2, h: 1.2, depth: 1.2, mass: 1.2, shape: 'tradar', style: 'track', module: 'radar', hp: 300,
+    trackRadar: { range: 14000, cone: 0.5, missiles: true, sea: true }, aim: { el: [-10, 85], elRate: 60, trav: [-180, 180], travRate: 90, pivot: 0.3 },
+    tier: 2, cost: 3000, desc: 'A dish that locks an aircraft or an incoming missile (L) for the vertical launcher\'s SAMs, and ranges the guns on a ship: in Realistic aim it is the gunner\'s rangefinder.' },
+  nRadarSea: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'mast', cat: 'shArms', name: 'Surface Search Radar', w: 2.4, h: 0.6, depth: 0.6, mass: 0.8, shape: 'tradar', style: 'search', module: 'radar', hp: 250,
+    searchRadar: { range: 14000, rpm: 24, sea: true, lowAir: true }, // (lowAir: and anything under 100 m within 10 km; never `low`, the Drone Radar's mark)
+    tier: 1, cost: 2000, desc: 'A turning radar that finds ships over the horizon (14 km from a high mast) and anything low: sea-skimming missiles inside 10 km, helicopters. It shows them on the scope.' },
+  decoy: { gv: true, ship: true, family: 'Naval', look: 'navyGrey', place: 'edge', cat: 'shArms', name: 'Decoy Launcher', w: 1.2, h: 1.0, depth: 1.0, mass: 0.6, shape: 'tkit', style: 'nvDecoy', hp: 200,
+    weapon: { kind: 'chaff', ammo: 12, flare: true, side: true, each: 15 },
+    tier: 1, cost: 1500, desc: 'Rockets that burst 300 m out over the side: a chaff cloud for radar missiles and flares for heat seekers. The countermeasure key fires a pair from every launcher.' },
   // ==== shKit ====
   // [WP5] (inside a hull: drawn by shKit; what flooding, fires and the damage-control party do with them is WP8's)
   bulkhead: { gv: true, ship: true, family: 'Naval', place: 'inside', cat: 'shKit', name: 'Watertight Bulkhead', w: 0.3, h: 2, depth: 2, mass: 1.5, shape: 'tkit', style: 'bulkhead', inner: true, flush: true, bulkhead: true, hp: 800,
@@ -5496,6 +5556,7 @@ function gvKit(ctx, p, lw) {
   if (d.inner) { ctx.fillStyle = '#2b3035'; ctx.fillRect(l, b, w, h); } // (the compartment round it, so its 3D box is not bare)
   if (DR_KIT.has(st)) { drKit(ctx, p, lw); return; } // (the big update's counter-drone kit and drone bays)
   if (SH_KIT.has(st)) { shKit(ctx, p, lw); return; } // [WP2] (the ships update's wheelhouse, propeller and rudder)
+  if (NV_KIT.has(st)) { nvKit(ctx, p, lw); return; } // [WP9] (the ships update's naval weapons)
   switch (st) {
     case 'engine': {
       const turb = d.engine && d.engine.fuel === 'turbine';
@@ -5722,6 +5783,7 @@ function gvPlan(ctx, p, lw) {
     else if (st === 'seat' || st === 'troops') { ctx.fillStyle = '#353a33'; ctx.fillRect(l, n, w, D); ctx.fillStyle = '#2b2a26'; const k = st === 'troops' ? 3 : 1; for (let i = 0; i < k; i++) for (const s of k > 1 ? [-1, 1] : [0]) { ctx.beginPath(); ctx.arc(l + (w * (i + 0.5)) / k, s * D * 0.25, Math.min(0.12, w * 0.15), 0, TAU); ctx.fill(); } }
     else if (DR_KIT.has(st)) drKitPlan(ctx, p, lw); // (the big update's counter-drone kit and drone bays)
     else if (SH_KIT.has(st)) shKitPlan(ctx, p, lw); // [WP2] (the ships update's kit)
+    else if (NV_KIT.has(st)) nvKitPlan(ctx, p, lw); // [WP9] (its naval weapons)
     else if (st === 'loader') { ctx.fillStyle = '#3b3f38'; ctx.fillRect(l, n, w, D); ctx.beginPath(); ctx.arc(0, 0, Math.min(w, D) * 0.46, 0, TAU); ctx.fillStyle = '#5b4a2a'; ctx.fill(); ctx.fillStyle = '#c9a24a'; for (let i = 0; i < 22; i++) { const a = (i / 22) * TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * w * 0.36, Math.sin(a) * D * 0.36, 0.05, 0, TAU); ctx.fill(); } }
     return;
   }
@@ -5760,6 +5822,7 @@ function gvPlan(ctx, p, lw) {
 }
 function gvEnd(ctx, p, lw, end) {
   if (SH_KIT.has(p.def.style)) { shKitEnd(ctx, p, lw, end); return; } // [WP2] (the ships update's kit)
+  if (NV_KIT.has(p.def.style)) { nvKitEnd(ctx, p, lw, end); return; } // [WP9] (its naval weapons)
   const d = p.def, w = d.w, h = d.h, D = d.depth || w, n = -D / 2, f = D / 2, b = -h / 2, t = h / 2, ty = d.type;
   ctx.fillStyle = gvFill(ctx, b, t, n, f); ctx.fillRect(n - 0.2, b - 0.2, D + 0.4, h + 0.4);
   gvShade(ctx, n, f, b, t);
@@ -7002,4 +7065,157 @@ function shKit2End(ctx, p, lw, end) {
   if (st === 'house' || st === 'bridgeL' || st === 'hangar') { doorE(Math.min(1, D * 0.1), Math.min(2, h * 0.4)); for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * D * 0.3, b + h * 0.6, 0.2, 0, TAU); ctx.fillStyle = SH_GLASS; ctx.fill(); } return; }
   if (st === 'funnel') { ctx.fillStyle = '#16191c'; ctx.fillRect(n, t - h * 0.14, D, h * 0.14); return; }
   if (st === 'console' && end > 0) { ctx.fillStyle = 'rgba(150,200,230,0.45)'; ctx.fillRect(n + D * 0.1, t - h * 0.3, D * 0.8, h * 0.28); }
+}
+
+// ==== ships: the naval weapons' art [WP9] (NV_KIT: the close-in gun, anti-ship canisters, launch cells, torpedo tubes and
+// decoy launchers; the rings, gun houses, guns and radars are the ground update's recipes) ====
+// Each a side view in its part's box (x forward, y up), with its plan and end views for a plated part's texture. The
+// layouts are what the 3D models (parts3d navalKit) and ship.js (where a CIWS round, a missile or a torpedo leaves) use.
+const NV_KIT = new Set(['nvCiws', 'nvAsm', 'nvVls', 'nvTorp', 'nvDecoy']);
+const NV_LAY = new Map();
+// The close-in gun (part frame): its pedestal on the deck; the mount turning on it (about x = 0, at yb) carrying the white
+// radome over the gun; the six barrels out of the mount's front, elevating about their trunnion (gun: x, y), L long
+function nvCiwsLay(d) {
+  let L = NV_LAY.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h, b = -h / 2, yb = b + h * 0.24;
+  L = { yb, base: { r: w * 0.4, y0: b, y1: yb }, mount: { x0: -w * 0.44, x1: w * 0.16, y0: yb, y1: b + h * 0.6, z: w * 0.36 },
+    dome: { x: -w * 0.12, r: w * 0.3, y0: b + h * 0.55, y1: h / 2 - 0.01 }, gun: { x: w * 0.12, y: b + h * 0.42, L: w * 0.36, r: w * 0.075, br: w * 0.02 } };
+  NV_LAY.set(d, L);
+  return L;
+}
+// Anti-ship canisters (part frame): rows stacked across their own up, two columns across z; their axis forward and 15°
+// up, their back-bottom corner at O; their legs. box(r): row r's four corners; mouth(k): the k-th canister's mouth (z too)
+function nvAsmLay(d) {
+  let L = NV_LAY.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h, D = d.depth, rows = (d.weapon && d.weapon.ammo) > 2 ? 2 : 1, a = (15 * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a), ch = 0.45, cw = Math.min(0.8, D / 2 - 0.25);
+  const len = 4.6, legs = rows > 1 ? 0.25 : 0.15, ox = -(len * c - ch * rows * s) / 2 - 0.05, oy = -h / 2 + legs;
+  L = { rows, cols: 2, len, ch, cw, c, s, O: [ox + ch * rows * s, oy], zs: [-D / 4, D / 4].map((z) => Math.sign(z) * Math.min(Math.abs(z), D / 2 - cw / 2 - 0.05)), legs };
+  L.box = (r) => { const [X, Y] = L.O, n0 = r * ch, n1 = (r + 1) * ch; return [[X - s * n0, Y + c * n0], [X + c * len - s * n0, Y + s * len + c * n0], [X + c * len - s * n1, Y + s * len + c * n1], [X - s * n1, Y + c * n1]]; };
+  L.mouth = (k) => { const r = k % rows, col = Math.floor(k / rows) % 2, B = L.box(r); return { x: (B[1][0] + B[2][0]) / 2, y: (B[1][1] + B[2][1]) / 2, z: L.zs[col] }; };
+  NV_LAY.set(d, L);
+  return L;
+}
+// Vertical launch cells: nx along x by nz across z, their hatches on top
+function nvVlsLay(d) {
+  let L = NV_LAY.get(d);
+  if (L) return L;
+  const w = d.w, D = d.depth, nx = 4, nz = 2, g = 0.08, cx = (w - g * (nx + 1)) / nx, cz = (D - g * (nz + 1)) / nz, cells = [];
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) cells.push({ x: -w / 2 + g + cx / 2 + i * (cx + g), z: -D / 2 + g + cz / 2 + j * (cz + g) });
+  L = { nx, nz, cx, cz, cells };
+  NV_LAY.set(d, L);
+  return L;
+}
+// Torpedo tubes: three side by side across z on a training pedestal, along x (their muzzles forward)
+function nvTorpLay(d) {
+  let L = NV_LAY.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h, D = d.depth, r = Math.min(0.15, D / 6.6), y = h / 2 - r - 0.02;
+  L = { r, y, x0: -w / 2 + 0.05, x1: w / 2 - 0.05, zs: [-2.15 * r, 0, 2.15 * r], post: { r: Math.min(0.12, D * 0.12), y0: -h / 2 + 0.06, y1: y - r }, plate: { y0: -h / 2, y1: -h / 2 + 0.06, hx: w * 0.12, hz: D * 0.4 } };
+  NV_LAY.set(d, L);
+  return L;
+}
+// A decoy launcher: a base and a block of tubes (rows × cols of mouths, seen end on from the side)
+function nvDecoyLay(d) {
+  let L = NV_LAY.get(d);
+  if (L) return L;
+  const w = d.w, h = d.h;
+  L = { base: { y0: -h / 2, y1: -h / 2 + h * 0.32, hx: w * 0.3 }, block: { x0: -w * 0.42, x1: w * 0.42, y0: -h / 2 + h * 0.32, y1: h / 2 - 0.02 }, r: Math.min(w, h) * 0.11, rows: 2, cols: 3 };
+  NV_LAY.set(d, L);
+  return L;
+}
+function nvKit(ctx, p, lw) {
+  const d = p.def, x = p.x, y = p.y, w = d.w, h = d.h, st = d.style;
+  ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+  if (st === 'nvCiws') {
+    const L = nvCiwsLay(d), B = L.base, M = L.mount, Dm = L.dome, G = L.gun;
+    ctx.fillStyle = gvTone(-0.18); ctx.fillRect(x - B.r, y + B.y0, B.r * 2, B.y1 - B.y0); ctx.strokeRect(x - B.r, y + B.y0, B.r * 2, B.y1 - B.y0); // the pedestal
+    ctx.fillStyle = gvTone(-0.05); ctx.fillRect(x + M.x0, y + M.y0, M.x1 - M.x0, M.y1 - M.y0); ctx.strokeRect(x + M.x0, y + M.y0, M.x1 - M.x0, M.y1 - M.y0); // the mount
+    ctx.fillStyle = 'rgba(10,12,14,0.35)'; ctx.fillRect(x + M.x0 + 0.08, y + M.y0 + 0.1, (M.x1 - M.x0) * 0.35, (M.y1 - M.y0) * 0.55); // its ammunition drum's side
+    // the radome: a white barrel with a rounded top
+    const dx = x + Dm.x, r = Dm.r, y0 = y + Dm.y0, y1 = y + Dm.y1;
+    ctx.beginPath(); ctx.moveTo(dx - r, y0); ctx.lineTo(dx - r, y1 - r); ctx.arc(dx, y1 - r, r, Math.PI, 0, true); ctx.lineTo(dx + r, y0); ctx.closePath();
+    let g = '#e9ecee';
+    if (!PartPaint.flat) { g = ctx.createLinearGradient(dx - r, 0, dx + r, 0); g.addColorStop(0, '#c7ccd0'); g.addColorStop(0.45, '#f4f6f7'); g.addColorStop(1, '#b9bfc4'); }
+    ctx.fillStyle = g; ctx.fill(); ctx.stroke();
+    ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(dx - r, y0 + (y1 - y0) * 0.35); ctx.lineTo(dx + r, y0 + (y1 - y0) * 0.35); ctx.stroke(); // its seam
+    // the barrels (the near one of six), their clamps and muzzle
+    const gx = x + G.x, gy = y + G.y;
+    ctx.fillStyle = GV_GUN; ctx.fillRect(gx, gy - G.r, G.L, G.r * 2); ctx.lineWidth = lw * 0.6; ctx.strokeStyle = GV_INK; ctx.strokeRect(gx, gy - G.r, G.L, G.r * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(gx, gy + G.r * 0.2, G.L, G.r * 0.4);
+    for (const f of [0.3, 0.92]) { ctx.fillStyle = '#1d2024'; ctx.fillRect(gx + G.L * f - 0.03, gy - G.r * 1.25, 0.06, G.r * 2.5); }
+    return;
+  }
+  if (st === 'nvAsm') {
+    const L = nvAsmLay(d), n = p.ammo == null ? Infinity : p.ammo;
+    // the legs: an A-frame under the canisters' back and front, on a deck plate
+    ctx.fillStyle = gvTone(-0.25);
+    const B0 = L.box(0);
+    for (const f of [0.18, 0.78]) { const lx = B0[0][0] + (B0[1][0] - B0[0][0]) * f, ly = B0[0][1] + (B0[1][1] - B0[0][1]) * f; ctx.fillRect(x + lx - 0.06, y - h / 2, 0.12, ly + h / 2); ctx.strokeRect(x + lx - 0.06, y - h / 2, 0.12, ly + h / 2); }
+    ctx.fillRect(x + B0[0][0] - 0.1, y - h / 2, B0[1][0] - B0[0][0] + 0.2, 0.06);
+    for (let r = 0; r < L.rows; r++) {
+      const B = L.box(r).map(([u, v]) => [x + u, y + v]);
+      gvPoly(ctx, B); ctx.fillStyle = gvFill(ctx, B[0][1], B[2][1], B[0][0], B[1][0]); ctx.fill(); ctx.stroke();
+      // ribs round the canister, and its front cover (dark once fired: the near column's)
+      ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(10,12,14,0.35)'; ctx.beginPath();
+      for (const f of [0.08, 0.3, 0.55, 0.8]) { ctx.moveTo(B[0][0] + (B[1][0] - B[0][0]) * f, B[0][1] + (B[1][1] - B[0][1]) * f); ctx.lineTo(B[3][0] + (B[2][0] - B[3][0]) * f, B[3][1] + (B[2][1] - B[3][1]) * f); }
+      ctx.stroke();
+      ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+      const fired = r >= n;
+      ctx.beginPath(); ctx.moveTo(B[1][0], B[1][1]); ctx.lineTo(B[2][0], B[2][1]); ctx.lineTo(B[2][0] - L.c * 0.08, B[2][1] - L.s * 0.08); ctx.lineTo(B[1][0] - L.c * 0.08, B[1][1] - L.s * 0.08); ctx.closePath();
+      ctx.fillStyle = fired ? '#121416' : '#d8d2bd'; ctx.fill(); ctx.stroke();
+      if (!fired) { const cx = (B[1][0] + B[2][0]) / 2 - L.c * 0.35, cy = (B[1][1] + B[2][1]) / 2 - L.s * 0.35; ctx.fillStyle = '#b23a2c'; ctx.fillRect(cx - 0.04, cy - 0.04, 0.08, 0.08); } // (its stencil)
+    }
+    return;
+  }
+  if (st === 'nvVls') {
+    const L = nvVlsLay(d), l = x - w / 2, b = y - h / 2, t = y + h / 2;
+    ctx.fillStyle = '#3a3f45'; ctx.fillRect(l, b, w, h); ctx.strokeRect(l, b, w, h); // (the module, down in the hull)
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(l, b, w, h * 0.2);
+    ctx.lineWidth = lw * 0.5; ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath();
+    for (let i = 1; i < L.nx; i++) { const xx = l + (w * i) / L.nx; ctx.moveTo(xx, b); ctx.lineTo(xx, t - 0.12); }
+    ctx.stroke();
+    ctx.lineWidth = lw * 0.7; ctx.strokeStyle = GV_INK;
+    for (let i = 0; i < L.nx; i++) { const c = L.cells[i * L.nz]; ctx.fillStyle = gvTone(0.04); ctx.fillRect(x + c.x - L.cx / 2, t - 0.1, L.cx, 0.1); ctx.strokeRect(x + c.x - L.cx / 2, t - 0.1, L.cx, 0.1); } // (the hatches, flush with the deck)
+    return;
+  }
+  if (st === 'nvTorp') {
+    const L = nvTorpLay(d), P = L.plate;
+    ctx.fillStyle = gvTone(-0.25); ctx.fillRect(x - P.hx, y + P.y0, P.hx * 2, P.y1 - P.y0); ctx.strokeRect(x - P.hx, y + P.y0, P.hx * 2, P.y1 - P.y0);
+    ctx.fillRect(x - L.post.r, y + L.post.y0, L.post.r * 2, L.post.y1 - L.post.y0); ctx.strokeRect(x - L.post.r, y + L.post.y0, L.post.r * 2, L.post.y1 - L.post.y0);
+    const ty = y + L.y, r = L.r;
+    ctx.fillStyle = gvFill(ctx, ty - r, ty + r, x + L.x0, x + L.x1); ctx.fillRect(x + L.x0, ty - r, L.x1 - L.x0, r * 2); ctx.strokeRect(x + L.x0, ty - r, L.x1 - L.x0, r * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(x + L.x0, ty + r * 0.3, L.x1 - L.x0, r * 0.35);
+    for (const f of [0.03, 0.5, 0.97]) { ctx.fillStyle = gvTone(-0.3); ctx.fillRect(x + L.x0 + (L.x1 - L.x0) * f - 0.05, ty - r * 1.15, 0.1, r * 2.3); } // (bands; the breech and muzzle doors)
+    return;
+  }
+  if (st === 'nvDecoy') {
+    const L = nvDecoyLay(d), B = L.block;
+    ctx.fillStyle = gvTone(-0.22); ctx.fillRect(x - L.base.hx, y + L.base.y0, L.base.hx * 2, L.base.y1 - L.base.y0); ctx.strokeRect(x - L.base.hx, y + L.base.y0, L.base.hx * 2, L.base.y1 - L.base.y0);
+    ctx.fillStyle = gvFill(ctx, y + B.y0, y + B.y1, x + B.x0, x + B.x1); ctx.fillRect(x + B.x0, y + B.y0, B.x1 - B.x0, B.y1 - B.y0); ctx.strokeRect(x + B.x0, y + B.y0, B.x1 - B.x0, B.y1 - B.y0);
+    const n = p.ammo == null ? Infinity : p.ammo;
+    for (let i = 0; i < L.rows; i++) for (let j = 0; j < L.cols; j++) {
+      const cx = x + B.x0 + ((B.x1 - B.x0) * (j + 0.5)) / L.cols, cy = y + B.y0 + ((B.y1 - B.y0) * (i + 0.5)) / L.rows, k = i * L.cols + j;
+      ctx.beginPath(); ctx.arc(cx, cy, L.r, 0, TAU); ctx.fillStyle = '#16191c'; ctx.fill();
+      if (k * 2 < n) { ctx.beginPath(); ctx.arc(cx, cy, L.r * 0.6, 0, TAU); ctx.fillStyle = '#c9b26a'; ctx.fill(); } // (a rocket's nose, while it has them)
+    }
+  }
+}
+// their plan views (x along, z across, the part's middle at the origin) and ends, for a plated part's texture
+function nvKitPlan(ctx, p, lw) {
+  const d = p.def, w = d.w, D = d.depth || w;
+  if (d.style !== 'nvVls') return;
+  const L = nvVlsLay(d), n = p.ammo == null ? Infinity : p.ammo;
+  ctx.fillStyle = '#2e3338'; ctx.fillRect(-w / 2, -D / 2, w, D);
+  L.cells.forEach((c, i) => {
+    ctx.fillStyle = i < n ? gvTone(0.03) : '#0f1113'; ctx.fillRect(c.x - L.cx / 2, c.z - L.cz / 2, L.cx, L.cz);
+    ctx.lineWidth = lw; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.strokeRect(c.x - L.cx / 2, c.z - L.cz / 2, L.cx, L.cz);
+    if (i < n) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(c.x - L.cx * 0.3, c.z - 0.03, L.cx * 0.6, 0.06); } // (each hatch's hinge line)
+  });
+}
+function nvKitEnd(ctx, p, lw, end) {
+  const d = p.def, h = d.h, D = d.depth || d.w;
+  if (d.style === 'nvVls') { ctx.fillStyle = '#3a3f45'; ctx.fillRect(-D / 2, -h / 2, D, h); }
+  void lw; void end;
 }

@@ -2312,7 +2312,7 @@ const Flight = {
       if (Keys.mod(k)) this._shiftTap = true; else this.setSight(!this.sight); // (a modifier: on the keyup, unless it was one)
       return true;
     }
-    if ((K('zeroUp') || K('zeroDown')) && Aim.realistic()) { e.preventDefault(); this.zero = clamp((this.zero || 800) + (K('zeroUp') ? 100 : -100), 200, 3000); this.updateHUD(true); return true; } // (Realistic: the sight's range)
+    if ((K('zeroUp') || K('zeroDown')) && Aim.realistic()) { e.preventDefault(); GHUD.zeroStep(this, K('zeroUp')); this.updateHUD(true); return true; } // (Realistic: the sight's range; [WP9] GHUD.zeroStep: to 20 km in 500 m steps past 3 km on a ship)
     if (K('lock')) { const on = Aim.lockKey(v); if (Aim.kit(v).track) { this.toast(on ? 'Radar: looking for a lock' : 'Radar lock off'); this.updateHUD(true); } return true; }
     if (K('spot')) { GHUD.spot(this); return true; }
     if (K('tacMap')) { GHUD.tactical(!GHUD.tacOpen); return true; }

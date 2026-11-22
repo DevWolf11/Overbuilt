@@ -117,6 +117,7 @@ const Radar = (() => {
   function sees(L, t, tp, job = 'guide', memo, keep = 0.25) {
     if (!L || L.dead || L.down || !L.parts || !L.parts.length || L.radarOff || !t || !tp || !tp.alive) return false; // (down: a pilot knocked out leaves the set aboard, unread)
     if ((t.kind === 'drone' && !t.def) || (t.ai && t.ai.drone)) return false; // (real drones: the counter-drone kit's job, not an aircraft radar's; the range's Target drone (a def) is an air target: P5-OLD-1)
+    if (!t.def && (isSea(t.kind) || (t.sh && t.afloat) || t.afloat)) return false; // ([WP9] a ship afloat is a surface contact: an aircraft's radar never sees one (no magic radar; eyes and the missiles' own seekers do))
     const rl = radars(L);
     if (rl === NONE) return false;
     const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = Math.hypot(dx, dy, dz) || 1;
@@ -245,7 +246,7 @@ const Radar = (() => {
     const air = [];
     for (const o of fighters(F)) if (!o.landed) air.push(o);
     for (const e of Combat.S.targets) if (e.alive && e.def.air) air.push(e);
-    if (typeof MP !== 'undefined' && MP.active && MP.ghosts) for (const g of MP.ghosts()) if (!g.hiddenUntilSnap && !g.landed && !isGround(g.kind) && g.kind !== 'drone' && g !== v) air.push(g);
+    if (typeof MP !== 'undefined' && MP.active && MP.ghosts) for (const g of MP.ghosts()) if (!g.hiddenUntilSnap && !g.landed && !isGround(g.kind) && g.kind !== 'drone' && !isSea(g.kind) && !g.afloat && g !== v) air.push(g); // ([WP9] never a ship)
     for (const o of air) {
       const tp = Combat.refPos(o);
       if (!tp || !tp.alive) continue;

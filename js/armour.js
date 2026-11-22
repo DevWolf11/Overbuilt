@@ -49,6 +49,20 @@ const SHELLS = {
   apds35: { type: 'apds', label: 'APDS', cal: 35, v0: 1385, pen: 80, k: 4.5e-5, kg: 0.38, dmg: 70 },
   ball8: { type: 'ball', label: 'Ball', cal: 7.6, v0: 850, pen: 10, k: 12e-5, kg: 0.01, dmg: 9 },
   ball13: { type: 'ball', label: 'Ball', cal: 12.7, v0: 890, pen: 22, k: 11e-5, kg: 0.05, dmg: 16 },
+  // ==== naval ==== [WP9] the ships update's naval guns' shells (naval: their range tables past 3 km, Aim.rangeTable, and
+  // a long life; their splashes are big columns, ground) and the close-in gun's round (ciws: ship.js fires it, a simulated
+  // round standing for five: Ship.shotMissiles). k tuned to this world's air (its scale height 5.2 km: the spec's 1.4e-5
+  // sent a 127 mm 58 km at 45°): a 127 mm reaches 20 km at 30° in a minute and 24 km at 45° (the real gun's), 5 km in 8 s.
+  he57n: { type: 'he', label: 'HE', cal: 57, v0: 1035, pen: 0, k: 1.7e-4, kg: 2.4, dmg: 150, he: 9, blast: 2.5, naval: true, life: 80 },
+  hevt57n: { type: 'hevt', label: 'HE-VT', cal: 57, v0: 1035, pen: 0, k: 1.7e-4, kg: 2.4, dmg: 110, he: 8, blast: 5, prox: 6, arm: 0.4, naval: true, life: 25 },
+  he76n: { type: 'he', label: 'HE', cal: 76, v0: 920, pen: 0, k: 1.4e-4, kg: 6.3, dmg: 260, he: 16, blast: 3.5, naval: true, life: 80 },
+  hevt76n: { type: 'hevt', label: 'HE-VT', cal: 76, v0: 920, pen: 0, k: 1.4e-4, kg: 6.3, dmg: 200, he: 14, blast: 6, prox: 8, arm: 0.6, naval: true, life: 30 },
+  he127: { type: 'he', label: 'HE', cal: 127, v0: 810, pen: 0, k: 8e-5, kg: 31, dmg: 700, he: 40, blast: 7, naval: true, life: 90 },
+  sap127: { type: 'aphe', label: 'SAP', cal: 127, v0: 810, pen: 90, k: 8e-5, kg: 31, dmg: 500, burst: 500, r: 2.5, naval: true, life: 90 },
+  hevt127: { type: 'hevt', label: 'HE-VT', cal: 127, v0: 810, pen: 0, k: 8e-5, kg: 31, dmg: 500, he: 35, blast: 12, prox: 15, arm: 1.0, naval: true, life: 60 },
+  he152n: { type: 'he', label: 'HE', cal: 152, v0: 850, pen: 0, k: 7e-5, kg: 45, dmg: 1000, he: 60, blast: 9, naval: true, life: 100 },
+  sap152: { type: 'aphe', label: 'SAP', cal: 152, v0: 850, pen: 130, k: 7e-5, kg: 45, dmg: 700, burst: 800, r: 3, naval: true, life: 100 },
+  ciws20: { type: 'ap', label: 'AP', cal: 20, v0: 1100, pen: 30, k: 6e-5, kg: 0.1, dmg: 30, tracer: 3, ciws: true, life: 2 },
 };
 // How each type meets a plate. ric: the angle from the plate's normal (°) over which ricochet goes from never to
 // certain (a shaped charge's fuze fails there instead; past a squash head's, it slips off); norm: how far the round
@@ -803,6 +817,7 @@ const Armour = (() => {
     s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
     const ax = s.x, ay = s.y, az = s.z, ex = ax + s.vx * h, ey = ay + s.vy * h, ez = az + s.vz * h;
     TA.x = ax; TA.y = ay; TA.z = az; TE.x = ex; TE.y = ey; TE.z = ez;
+    if (s.ciws && Ship.shotMissiles(s, TA, TE, F)) return false; // ([WP9] a close-in gun's round through a missile's path: ship.js)
     // vessels (not its own for 1.5 s, nor one it already went through). On its first step from the muzzle, a part it
     // starts inside (point blank: a muzzle pushed into the turret in front of it; barrels aren't in the collision
     // boxes) counts as met where the line goes into it (t0 < 0), so that plate is hit by its face. (Later, a shell
@@ -1002,6 +1017,7 @@ const Armour = (() => {
   // into the ground: high explosive bursts (a copy only shows it), anything else puffs dust or splashes
   function ground(s, b, P, F, SH, spare) {
     const at = { x: P.x, y: P.y, z: P.z };
+    if (SH.naval && b.ocean) { Terrain.locate(b, at.x, at.y, at.z, LOC); if (Terrain.waterAt(b, LOC.a, LOC.z)) Ship.column(b, at, SH.cal / 35); } // ([WP9] a naval shell into the sea: a big column of water a spotter sees kilometres off)
     if ((BURST[SH.type] || SH.type === 'hesh') && !s.dud) {
       if (s.net) Combat.boomFX(b, at, SH.blast || 1, true, F);
       else Combat.explode(b, at, SH.blast || 1, SH.dmg, s.owner, F, !!s.cheap, SH.he, spare);

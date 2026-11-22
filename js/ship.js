@@ -138,9 +138,13 @@ const SHIP = {
   //   `gone` m down; a derelict holed after derelictT s; the end screen waits up to `wait` s; [WP8] no one at the helm for
   //   helmT s (a dead helmsman's seat is taken in 4: armour.js) is out of action)
   // ---- combat (§8.9-8.11)
-  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p
+  CIWS: { cone: 30, disp: 0.002, burst: 1, on: 1, kill: 2.5, p: 0.35, err: 0.02, errD: 600, errT: 0.4, leak: 300, assess: 1 }, // a missile heading within cone° of her; 2 mrad; 1 s bursts within on°; a round within kill m kills with p;
+  //   [WP9] its fire control's error (rad, × the range over errD m past it; a random walk easing over errT s: the radar's
+  //   track of a weaving sea-skimmer, the lead's guess; tuned so one gun stops a subsonic ASM 4 times in 5, two at once
+  //   about half each), inside leak m of her it is too late (what is
+  //   left of a missile carries on into her: no kill there), and a kill is checked for assess s before it turns to the next
   TORP: { turn: 6, aground: 4, bubbles: 0.2, depthOff: 0 }, // °/s homing turn; runs aground where the bed is shallower; s between bubble puffs
-  ASM: { term: 2000, termH: 3 },     // an anti-ship missile sea-skims until term m out, then goes in at termH m
+  ASM: { term: 2000, termH: 3, skim: 8, climb: 30 }, // an anti-ship missile climbs to climb m, sea-skims at skim m over the waves until term m out, then goes in at termH m [WP9: skim, climb]
   VLS: { t: 0.8, rate: 60 },         // a vertical launch pitches over for t s at rate °/s
   RADAR: { lowAir: 100, rcsL: 150, rcsExp: 0.35, rcsMin: 0.4 }, // aircraft under lowAir m are surface contacts; reach × clamp((L_wl/rcsL)^rcsExp, rcsMin, 1)
   EYES: { day: 8000, night: 3000 },  // m within the horizon
@@ -1723,7 +1727,7 @@ const Ship = (() => {
     const def = hasOwn(PARTS, type) ? PARTS[type] : null;
     if (!def || !Array.isArray(parts)) return null;
     at = at || {};
-    const BD = B0(), rot = Number.isInteger(at.rot) ? at.rot & 3 : def.aim ? 3 : 0, { w, h } = partDims({ def, rot }), dep = partDepth({ def });
+    const BD = B0(), rot = Number.isInteger(at.rot) ? at.rot & 3 : def.aim && !def.trackRadar ? 3 : 0, { w, h } = partDims({ def, rot }), dep = partDepth({ def }); // ([WP9] a tracking dish stands upright: rot 0, as on a tank)
     const pose = (x, y, z, host) => ({ def, type, x: +x.toFixed(3), y: +y.toFixed(3), z: cleanZ(+z.toFixed(3), def), rot, host, att: host });
     const free = (q, skip) => !!q && !parts.some((o) => !(skip && skip.has(o)) && partsClash(q, o));
     const hulls = parts.filter((p) => p.def.shull && (p.rot & 3) === 0);
@@ -2162,7 +2166,7 @@ const Ship = (() => {
     if (has((d) => d.weapon && d.weapon.asm) && !has((d) => d.searchRadar && d.searchRadar.sea)) warn.push('Anti-ship missiles need a target: a Surface Search Radar finds one past your eyes.');
     // (wholly above it: a magazine reaching under the waterline is as low as a patrol boat's 1.3 m draught takes one, and
     // it floods first; its middle over the water warned on every small hull with nowhere lower to put it)
-    if (afloat && st.plane && all(isMag).some((p) => partRect(p).b > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.');
+    if (afloat && st.plane && all((d) => isMag(d) && !d.weapon).some((p) => partRect(p).b > st.plane.a + st.plane.bx * p.x + st.plane.bz * partZ(p))) warn.push('A magazine above the waterline goes up more easily: put it low in the hull.'); // ([WP9] a deck launcher's missiles are magazines too (module 'ammo'), but on deck is where they go)
     if (st && st.mass > 500e3 && !has(isPump) && !has(isDC)) warn.push('No pumps or damage control: one hole could be the end of her. Add a Salvage Pump or a Damage Control Party.');
   }
 
@@ -2314,7 +2318,7 @@ const Ship = (() => {
   const msin = Math.sin, msqrt = Math.sqrt, mabs = Math.abs, mmax = Math.max, mmin = Math.min, mhypot = Math.hypot, PI = Math.PI, mclamp = (x, a, b) => (x < a ? a : x > b ? b : x);
   let rs = ((Math.random() * 4294967296) | 0) || 7; // (the damage's own dice: fires and their spread; Ship.seed for tests)
   const rnd = () => { rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5; return (rs >>> 0) / 4294967296; };
-  function seed(n) { rs = (n | 0) || 7; }
+  function seed(n) { rs = (n | 0) || 7; cs = (Math.imul(rs, 0x9e3779b1) >>> 0) || 7; } // ([WP9] and the combat's dice: cs)
   const clockOf = (sim) => (sim && Number.isFinite(sim.time) ? sim.time : typeof Flight !== 'undefined' && Number.isFinite(Flight.time) ? Flight.time : 0);
   const hpFracOf = (p) => (typeof Combat !== 'undefined' && Combat.hpFrac ? Combat.hpFrac(p) : 1);
   const whole = (v, p) => !!p && v.byId.has(p.id) && !p.broken && (p.hp == null || p.hp > 0);
@@ -3139,7 +3143,7 @@ const Ship = (() => {
   }
   // She breaks where hull part H was: it is gone (and the magazine with it), the rest falls into pieces (each a hydro
   // vessel, each with an open end), every one of them doomed 'magazine', the pieces into the flight
-  function breakAt(v, sim, H, part) {
+  function breakAt(v, sim, H, part, why = 'magazine') { // ([WP9] why: a torpedo under her keel breaks her back 'sunk')
     const gone = [H];
     if (part && part !== H && v.byId.has(part.id)) gone.push(part);
     for (const p of gone) {
@@ -3154,9 +3158,9 @@ const Ship = (() => {
     for (const q of pieces) {
       q.isDebris = !q.control;
       if (sim && Array.isArray(sim.vessels)) sim.vessels.push(q);
-      if (q.sh) { q.fate = 'magazine'; q.doomed = clockOf(sim); q.doomBy = v.doomBy || null; }
+      if (q.sh) { q.fate = why; q.doomed = clockOf(sim); q.doomBy = v.doomBy || null; }
     }
-    if (v.sh && !v.fate) doom(v, sim, 'magazine');
+    if (v.sh && !v.fate) doom(v, sim, why);
   }
 
   // ---- damage control (§8.8): FATE.hz times a second
@@ -3426,15 +3430,882 @@ const Ship = (() => {
   }
 
   // ==== combat ====
-  // [WP9]
-  function fireTorp(v, p, F) { return false; }
-  function torpStep(s, h, F) { return false; } // a torpedo shot's step (true: it is gone)
-  function torpHit(s, a, F) { return false; } // the old air torpedo against hydro vessels (true: it hit)
-  function ciwsStep(F, dt) {}
-  function shotMissiles(s, a, e, F) { return false; } // a CIWS round's segment against missiles (true: one killed)
-  function surface(v, F) { return NONE; } // the surface contacts v's sea radars may see
-  function seesSea(a, b) { return true; } // a clear look over water from a to b (the horizon, land in the way)
-  function rcs(v) { return 1; } // her radar size (× a radar's reach)
+  // [WP9] Naval weapons and sensors (spec §8.1, §8.2, §8.5, §8.6, §8.10, §8.11). Everything here runs only for the ships
+  // update's weapons and kit (weapon.kind 'torp', w.asm, w.vls, w.naval, def.ciws, def.decoy, the sea radars) or what
+  // the other files call it with behind those gates and Combat.S.sea / Combat.S.pd (old play never reaches it):
+  // - torpedoes: shots { k: 'stor' } in Combat.S.shots, stepped by torpStep (combat.js moveShot); fireTorp from a tube
+  //   (outboard by its side; dropped from an aircraft; nothing on land), torpHit for them and the old air torpedo;
+  // - anti-ship missiles: Combat's missiles with s.asm, flown by asmStep (climb, skim, terminal dive), asmHit through the
+  //   hull's plate; asmTarget picks one; vertical-launch SAMs (s.vls) out of the cell and over (vlsStep), then Combat's
+  //   semi-active guidance on the fire-control radar's lock; samKill: a SAM's burst against a missile (S3);
+  // - the close-in gun: ciwsStep (Combat.frame, when Combat.S.pd) aims and fires simulated rounds; shotMissiles (one line
+  //   in armour.js moveShell) kills the missiles they pass;
+  // - decoys: decoy (the countermeasure key): chaff and flare rockets 300 m out, torpedo noisemakers astern;
+  // - seeing ships: seesSea (the horizon, land in the way, smoke), rcs (her radar size), surface (a sea radar's contacts,
+  //   4 Hz), foe (whose side a craft is on);
+  // - the naval guns' magazines: refill (aim.js tick, w.naval);
+  // - calls for the AI (WP10): salvo, torpAt, asmAt, samAt, ciwsOn.
+  // In a room (WP11): a torpedo is a shot ('stor'); its hits (and an ASM's, a CIWS kill of a peer's missile: m.ciwsKill)
+  // are the owner's to send; here they work locally and in solo play.
+  let cs = ((Math.random() * 4294967296) | 0) || 11; // (the combat's own dice: Ship.seed sets them too)
+  const crnd = () => { cs ^= cs << 13; cs ^= cs >>> 17; cs ^= cs << 5; return (cs >>> 0) / 4294967296; };
+  const DEG = Math.PI / 180;
+  const _ca = v3(), _cb = v3(), _cc = v3(), _cd = v3(), _ce = v3(), _cf = v3(), _cg = v3();
+  // ---- whose side a craft is on: a's foe o? (the player's side against a computer's that isn't an ally or its team-mate,
+  // another player's that is an enemy (MP.enemy), or a stand-in with no AI at all; a computer's against the player's and
+  // other teams'; never itself, its carrier or drone, wreckage or a ship already going down)
+  function teamOf(o) {
+    if (!o.ai || o.ai.ally) return 'p';
+    const B = typeof GroundAI !== 'undefined' && GroundAI.battle;
+    return o.ai.team != null ? (B && o.ai.team === B.team ? 'p' : 't' + o.ai.team) : 'ai';
+  }
+  function foe(a, o) {
+    if (!a || !o || a === o || o.dead || o.isDebris || o.fate || o.hulk != null || a.carrier === o || o.carrier === a) return false;
+    if (o.remote) return !a.ai && typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, o.remote);
+    if (a.remote) return false;
+    if (!a.ai && !o.ai) return true; // (a stand-in target: two local craft, neither the computer's)
+    return teamOf(a) !== teamOf(o);
+  }
+  // is it night where v is (the Sun under her horizon: render3d envAt's line): eyes see EYES.night m, not EYES.day
+  function night(v, F) {
+    if (!v || !v.body || typeof bodyPos !== 'function') return false;
+    const bp = bodyPos(v.body, (F && F.time) || 0), l = Math.hypot(bp.x, bp.y) || 1, r = Math.hypot(v.x, v.y, v.z) || 1;
+    return (v.x * -bp.x + v.y * -bp.y) / (l * r) < -0.06;
+  }
+  // a shot hostile to v (a missile v's close-in gun or SAMs may engage): a craft's (its owner a foe), else an enemy one
+  const shotFoe = (v, m) => (m.owner === v ? false : m.owner && m.owner.parts ? foe(v, m.owner) : !!m.enemy && !(v.ai && !v.ai.ally));
+  // ---- the water at a sim point: the still water's level (0 at sea, a lake's surface; −Infinity none), the bed, depth,
+  // the point's height over the sphere (alt) and its body angle and depth (a, z: Terrain.locate's)
+  const WT = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false }, _wl = {};
+  function waterPt(b, P, o = WT) {
+    Terrain.locate(b, P.x, P.y, P.z, _wl);
+    const h = Terrain.heightAt(b, _wl.a, _wl.z);
+    o.a = _wl.a; o.z = _wl.z; o.alt = _wl.r - b.radius; o.bed = h; o.lake = false;
+    if (b.ocean && h < 0) o.level = 0;
+    else { const w = b.mapped ? Terrain.inlandAt(b, _wl.a, _wl.z) : NaN; if (w === w && w > h) { o.level = w; o.lake = true; } else o.level = -Infinity; }
+    o.depth = o.level > -Infinity ? o.level - h : 0;
+    return o;
+  }
+  // the waves' height at a point WT describes (Earth's open sea; none on a lake or another body)
+  function waveAt(b, W, F) { if (b !== EARTH || W.lake || !(W.level > -Infinity)) return 0; return wave(-wrapAngle(W.a - EARTH.padAngle) * b.radius, -W.z, seaT(F))[0] * fadeAt(W.depth); }
+  // a big column of white water (a naval shell's splash, a torpedo's burst: armour.js ground, torpHit), size m across
+  function column(b, P, size) {
+    if (typeof FX === 'undefined') return;
+    const r = Math.hypot(P.x, P.y, P.z) || 1, u = { x: P.x / r, y: P.y / r, z: P.z / r }, k = clamp(size, 0.5, 6), n = Math.max(4, Math.round(FX.nq ? FX.nq(6 + 3 * k) : 6 + 3 * k));
+    for (let i = 0; i < n; i++) {
+      const d = FX.dir(), up = (6 + 10 * k) * (0.6 + 0.4 * FX.rnd()), s = 1.5 * k * FX.rnd();
+      FX.add({ kind: 'smoke', b, x: P.x, y: P.y, z: P.z, vx: u.x * up + d.x * s, vy: u.y * up + d.y * s, vz: u.z * up + d.z * s, max: 1.4 + 0.8 * FX.rnd() + 0.25 * k, size: 0.6 * k, grow: 1.8 * k, color: '#eef6fb', alpha: 0.85, heavy: true });
+    }
+    FX.splash(b, P, u, Math.round(4 + 2 * k));
+  }
+
+  // ---- torpedoes (§8.5)
+  // A tube fires outboard by its side (weapon.side: + or − z by where it stands; on the centre line, ahead), level; v's
+  // way ahead in part space: a ship's +x, a plane's +y (its pilot frame)
+  function sideDir(v, p, out) {
+    const z = partZ(p);
+    if (p.def.weapon && p.def.weapon.side && Math.abs(z) > 0.05) { out.x = 0; out.y = 0; out.z = Math.sign(z); return out; }
+    const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
+    out.x = Fd.x; out.y = Fd.y; out.z = Fd.z || 0;
+    return out;
+  }
+  const flying = (v) => !v.hydro && !v.landed && !(v.contactTime > 0) && !v.afloat; // (a craft in the air: not on the ground, the water or afloat)
+  // A torpedo out of tube p (Combat's weapon list, Aim's fire): it leaves outboard (a ship's tubes eject it at 15 m/s to
+  // fall into the sea), or drops from an aircraft (S7); on land, or more than 3 m over the water from a craft that is
+  // neither afloat nor flying, nothing (a toast). gyro: the heading it turns to after its straight run (sim, unit; an
+  // AI's bearing), else it holds the tube's. The shot, or null.
+  const TQ = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false };
+  function fireTorp(v, p, F, gyro) {
+    if (!v || !p || v.dead || v.remote || v.ko || !v.parts.includes(p) || p.broken || !(p.ammo > 0) || !p.def.weapon) return null;
+    const w = p.def.weapon, b = v.body, me = !!F && v === F.active && !v.ai, say = (t) => { if (me && F.toast) F.toast(t, 'warn'); };
+    const d = sideDir(v, p, _ca), out = Math.abs(d.z) > 0.5 ? (partDepth(p) / 2) * d.z : 0, m = v.toWorld(p.x, p.y, partZ(p) + out), dir = v.axis(d.x, d.y, d.z);
+    const W = waterPt(b, m, TQ), air = flying(v);
+    if (!(W.level > -Infinity) || W.depth < SHIP.TORP.aground) { say('Torpedo tubes need water under them'); return null; }
+    if (!air && !v.hydro && W.alt - W.level > 3) { say('Torpedo tubes need water under them'); return null; }
+    const ej = air ? 0 : 15, r = Math.hypot(m.x, m.y, m.z) || 1;
+    const s = { k: 'stor', b, x: m.x, y: m.y, z: m.z, vx: v.vx + dir.x * ej, vy: v.vy + dir.y * ej, vz: v.vz + dir.z * ej, dx: dir.x, dy: dir.y, dz: dir.z,
+      t: 0, run: 0, ph: 'air', owner: v, spd: w.speed || 22, depth: w.depth || 6, dep: 0, range: w.range || 8000, cone: (w.cone || 30) * DEG, acquire: w.acquire || 1500,
+      dmg: w.dmg || 4000, blast: w.blast || 12, seek: w.seek || 'active', drop: air, gyro: gyro || null, tgt: null, look: 0, bub: 0, ship: !!v.hydro, life: 600, part: p };
+    if (typeof Combat !== 'undefined') { Combat.release(v, p); Combat.S.shots.push(s); }
+    if (typeof FX !== 'undefined' && F && F.active && Math.hypot(m.x - F.active.x, m.y - F.active.y, m.z - F.active.z) < 3000) FX.puff(b, m, { x: v.vx + dir.x * 4, y: v.vy + dir.y * 4, z: v.vz + dir.z * 4 }, 4, '#dfe3e6');
+    if (me && typeof Sound !== 'undefined' && Sound.separate) Sound.separate();
+    void r;
+    return s;
+  }
+  // a torpedo's step (Combat.moveShot for k 'stor'): true while it runs, false when it is gone. In the air it falls (a
+  // drop breaks up entering faster than 70 m/s along its path or steeper than 45°); in the water it runs at its depth (in
+  // 3 s), straight for a second, then (seek 'active') looks for a ship in its cone ahead within `acquire` m, its noise
+  // decoys first, and homes at TORP.turn °/s, deep enough to pass a metre and a half under her keel; it dies after
+  // `range` m, or bursts at half power where the bed is shallower than TORP.aground; bubbles every TORP.bubbles s.
+  const TW = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false }, _tA = v3();
+  function torpStep(s, h, F) {
+    if (s.dead) return false;
+    const b = s.b, T = SHIP.TORP;
+    s.t += h;
+    if (s.t > s.life) return false;
+    if (s.ph === 'air') { // falling
+      const r0 = Math.hypot(s.x, s.y, s.z), g = b.mu / (r0 * r0), sp0 = Math.hypot(s.vx, s.vy, s.vz), kd = 0.00003 * airDensity(b, r0 - b.radius) * sp0 * h;
+      s.vx -= s.vx * kd + (s.x / r0) * g * h; s.vy -= s.vy * kd + (s.y / r0) * g * h; s.vz -= s.vz * kd + (s.z / r0) * g * h;
+      s.x += s.vx * h; s.y += s.vy * h; s.z += s.vz * h;
+      const W = waterPt(b, s, TW);
+      if (!(W.level > -Infinity)) { if (W.alt < W.bed) { if (typeof FX !== 'undefined') FX.puff(b, s, { x: 0, y: 0, z: 0 }, 3, '#9a8f7c'); return false; } return true; } // (over land: down on it, a dud)
+      if (W.alt > W.level) return true;
+      // into the water: a drop too fast or too steep breaks up
+      const r = Math.hypot(s.x, s.y, s.z), ux = s.x / r, uy = s.y / r, uz = s.z / r, sp = Math.hypot(s.vx, s.vy, s.vz) || 1, vn = s.vx * ux + s.vy * uy + s.vz * uz;
+      if (typeof FX !== 'undefined') FX.splash(b, s, { x: ux, y: uy, z: uz }, 6);
+      if (s.drop && (sp > 70 || -vn / sp > Math.sin(45 * DEG))) { if (F && s.owner === F.active && F.toast) F.toast('Torpedo broke up: drop it slower and flatter', 'warn'); return false; }
+      let hx = s.vx - ux * vn, hy = s.vy - uy * vn, hz = s.vz - uz * vn, hl = Math.hypot(hx, hy, hz);
+      if (hl < 1) { const k = s.dx * ux + s.dy * uy + s.dz * uz; hx = s.dx - ux * k; hy = s.dy - uy * k; hz = s.dz - uz * k; hl = Math.hypot(hx, hy, hz) || 1; }
+      s.dx = hx / hl; s.dy = hy / hl; s.dz = hz / hl; s.ph = 'run'; s.dep = 0; s.run = 0; s.t0 = s.t;
+      const k = (b.radius + W.level) / r; s.x *= k; s.y *= k; s.z *= k;
+      return true;
+    }
+    // running
+    const r = Math.hypot(s.x, s.y, s.z), ux = s.x / r, uy = s.y / r, uz = s.z / r, spd = s.spd;
+    s.run += spd * h;
+    if (s.run > s.range) return false; // (its fuel spent: it sinks)
+    const run1 = s.t - (s.t0 || 0) > 1;
+    if (run1 && s.seek === 'active') {
+      if (s.tgt && !aliveTgt(s.tgt)) s.tgt = null;
+      if ((s.look -= h) <= 0) {
+        s.look = 0.25;
+        if (!s.tgt || !s.tgt.noise) { const n = noiseFor(s); if (n) s.tgt = n; }
+        if (!s.tgt) s.tgt = acquire(s, F);
+      }
+    }
+    // steer: at its target (led a little), else its gyro's heading, else straight
+    let wx = 0, wy = 0, wz = 0, want = s.depth;
+    if (run1 && s.tgt) {
+      const t = s.tgt, tt = Math.hypot(t.x - s.x, t.y - s.y, t.z - s.z) / spd, lead = t.noise ? 0 : Math.min(tt, 30);
+      wx = t.x + (t.vx || 0) * lead - s.x; wy = t.y + (t.vy || 0) * lead - s.y; wz = t.z + (t.vz || 0) * lead - s.z;
+      if (!t.noise) want = Math.min(s.depth, Math.max(2, (t.draft || 2) + 1.5));
+    } else if (run1 && s.gyro) { wx = s.gyro.x; wy = s.gyro.y; wz = s.gyro.z; }
+    const k0 = wx * ux + wy * uy + wz * uz; wx -= ux * k0; wy -= uy * k0; wz -= uz * k0;
+    let dx = s.dx, dy = s.dy, dz = s.dz;
+    const kd = dx * ux + dy * uy + dz * uz; dx -= ux * kd; dy -= uy * kd; dz -= uz * kd;
+    let dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    const wl = Math.hypot(wx, wy, wz);
+    if (wl > 1e-6) { // (turn toward it at TORP.turn °/s: about the local up)
+      wx /= wl; wy /= wl; wz /= wl;
+      const c = clamp(dx * wx + dy * wy + dz * wz, -1, 1), sg = Math.sign((dy * wz - dz * wy) * ux + (dz * wx - dx * wz) * uy + (dx * wy - dy * wx) * uz) || 1, a = Math.min(Math.acos(c), T.turn * DEG * h) * sg;
+      const ca = Math.cos(a), sa = Math.sin(a), qx = uy * dz - uz * dy, qy = uz * dx - ux * dz, qz = ux * dy - uy * dx; // (up × heading: its left)
+      dx = dx * ca + qx * sa; dy = dy * ca + qy * sa; dz = dz * ca + qz * sa;
+      dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+    }
+    s.dx = dx; s.dy = dy; s.dz = dz;
+    s.dep += clamp(want - s.dep, -(s.depth / 3) * h, (s.depth / 3) * h); // (to its depth in 3 s)
+    _tA.x = s.x; _tA.y = s.y; _tA.z = s.z;
+    s.x += dx * spd * h; s.y += dy * spd * h; s.z += dz * spd * h;
+    const W = waterPt(b, s, TW), lev = W.level > -Infinity ? W.level : 0, rr = Math.hypot(s.x, s.y, s.z) || 1, kr = (b.radius + lev - s.dep) / rr;
+    s.x *= kr; s.y *= kr; s.z *= kr;
+    s.vx = dx * spd; s.vy = dy * spd; s.vz = dz * spd;
+    if (torpHit(s, _tA, F)) return false;
+    if (s.tgt && s.tgt.noise && Math.hypot(s.tgt.x - s.x, s.tgt.y - s.y, s.tgt.z - s.z) < 8) { burst(s, s, 0.5, F); return false; } // (on the noisemaker: it goes off there)
+    if (!(W.level > -Infinity) || W.bed > lev - T.aground) { burst(s, s, 0.5, F); return false; } // (aground)
+    if ((s.bub -= h) <= 0 && typeof FX !== 'undefined' && F && F.active && !(F.warpIdx > 1) && Math.hypot(s.x - F.active.x, s.y - F.active.y, s.z - F.active.z) < 3000) {
+      s.bub = T.bubbles;
+      const k = (b.radius + lev + 0.2) / rr;
+      FX.add({ kind: 'smoke', b, x: s.x * k, y: s.y * k, z: s.z * k, vx: ux * 0.6, vy: uy * 0.6, vz: uz * 0.6, max: 2.2, size: 0.35, grow: 1.2, color: '#eef6fb', alpha: 0.55 });
+    }
+    return true;
+  }
+  const aliveTgt = (t) => (t.noise ? t.t < t.life : !t.dead && !t.fate && t.parts && t.parts.length > 0 && (!!t.remote || !!t.afloat));
+  // the ship a torpedo's seeker finds: hydro vessels afloat (and other players' ships), foes of its owner, in its cone
+  // ahead within its acquire range: the nearest
+  function acquire(s, F) {
+    let best = null, bd = s.acquire;
+    for (const o of F.vessels) {
+      if (o.dead || o.body !== s.b || !(o.sh ? o.afloat : o.remote && isSea(o.kind)) || !foe(s.owner, o)) continue;
+      const dx = o.x - s.x, dy = o.y - s.y, dz = o.z - s.z, d = Math.hypot(dx, dy, dz);
+      if (d > bd || (dx * s.dx + dy * s.dy + dz * s.dz) / (d || 1) < Math.cos(s.cone)) continue;
+      bd = d; best = o;
+    }
+    return best;
+  }
+  // (the old air torpedo with ships in play, combat.js swim) the nearest hostile hydro vessel afloat within d m
+  function torpPick(s, d, F) {
+    let best = null, bd = d;
+    for (const o of F.vessels) {
+      if (o.dead || o.body !== s.b || !o.sh || !o.afloat || !foe(s.owner, o)) continue;
+      const e = Math.hypot(o.x - s.x, o.y - s.y, o.z - s.z);
+      if (e < bd) { bd = e; best = o; }
+    }
+    return best;
+  }
+  // A torpedo's step from a (sim) to it, under the water, against every hydro vessel's hull (not its own ship's for 5 s):
+  // into her hull under the waterline, or passing within 3 m under her keel (its magnetic fuze). It bursts there
+  // (Combat.explode, under: its holes tamped ×3); under the keel of a hull part of class M or smaller it breaks her back
+  // (the part gone, she falls in two: breakAt, doomed 'sunk'). true: it hit. (Also the old air torpedo's, combat.js swim.)
+  const _th = v3(), _to = v3(), SEC3 = [0, 0, 0, 0, 0];
+  function torpHit(s, a, F) {
+    const b = s.b;
+    for (const o of F.vessels) {
+      if (!o.sh || o.dead || o.wreck || o.body !== b || !o.sh.hulls.length || (o === s.owner && s.t < 5)) continue;
+      const rr = (o.reach || 10) + 6;
+      if ((o.x - s.x) ** 2 + (o.y - s.y) ** 2 + (o.z - s.z) ** 2 > rr * rr) continue;
+      for (const f of [0.5, 1]) {
+        _th.x = a.x + (s.x - a.x) * f; _th.y = a.y + (s.y - a.y) * f; _th.z = a.z + (s.z - a.z) * f;
+        const X = localOf(o, _th, _to);
+        for (const p of o.sh.hulls) {
+          if (p.broken && p.def.shull.cls === 'one') continue;
+          const q = ownPt(p, X, _cg), H = shullOf(p.def);
+          if (q.x < H.x0 || q.x > H.x1) continue;
+          const sec = secAt(p.def.shull.st, q.x, SEC3), yk = sec[1], wl = p.def.shull.wl, foot = Math.max(sec[3], 0.6);
+          let keel = false;
+          for (const z0 of partZs(p)) {
+            const lz = X.z - z0;
+            if (insideOwn(p.def, q.x, q.y, lz) && q.y < wl) { boom(s, o, p, _th, false, F); return true; }
+            if (q.y <= yk && q.y >= yk - 3 && Math.abs(lz) <= foot) keel = true;
+          }
+          if (keel) { boom(s, o, p, _th, true, F); return true; }
+        }
+      }
+    }
+    return false;
+  }
+  function boom(s, o, p, P, keel, F) {
+    const b = s.b, by = s.owner && s.owner.parts ? s.owner : undefined, at = { x: P.x, y: P.y, z: P.z };
+    if (typeof Combat !== 'undefined') Combat.explode(b, at, s.blast || 12, s.dmg || 4000, by, F, false, undefined, undefined, undefined, { under: true });
+    const r = Math.hypot(at.x, at.y, at.z) || 1, k = (b.radius + Math.max(0, waterPt(b, at, TW).level > -Infinity ? TW.level : 0)) / r;
+    column(b, { x: at.x * k, y: at.y * k, z: at.z * k }, 5);
+    if (keel && ['S', 'M', 'one'].includes(p.def.shull.cls) && o.byId.has(p.id) && !o.dead && !o.remote) { // (her back broken: she falls in two)
+      if (by && by !== o) { o.lastHitBy = by; o.lastHitAt = clockOf(F); }
+      holedThrough(o, p, 'torpedo', F);
+      doom(o, F, 'sunk', by);
+      if (o.byId.has(p.id) && !o.dead) breakAt(o, F, p, null, 'sunk');
+    }
+    s.dead = true;
+  }
+  // a torpedo going off where it is (aground, on a noisemaker): a burst at k of its power, under the water
+  function burst(s, P, k, F) {
+    const at = { x: P.x, y: P.y, z: P.z }, by = s.owner && s.owner.parts ? s.owner : undefined;
+    if (typeof Combat !== 'undefined') Combat.explode(s.b, at, (s.blast || 12) * k, (s.dmg || 4000) * k, by, F, false, undefined, undefined, undefined, { under: true });
+    const r = Math.hypot(at.x, at.y, at.z) || 1, kk = (s.b.radius + (TW.level > -Infinity ? TW.level : 0)) / r;
+    column(s.b, { x: at.x * kk, y: at.y * kk, z: at.z * kk }, 3 * k);
+    s.dead = true;
+  }
+  // ---- torpedo decoys (the kit's torpDecoy): noisemakers streamed TORP_DECOY.m astern on a cable for its life; each
+  // homing torpedo within TORP_DECOY.r of one weighs it once and goes for it with its p
+  const NOISE = [], TORP_DECOY = { m: 150, r: 1500, near: 3000, dep: 5 };
+  function noiseFor(s) {
+    for (const n of NOISE) {
+      if (n.t >= n.life || n.b !== s.b || (s.heard && s.heard.has(n)) || foe(s.owner, n.owner) === false) continue;
+      if (Math.hypot(n.x - s.x, n.y - s.y, n.z - s.z) > TORP_DECOY.r) continue;
+      (s.heard || (s.heard = new Set())).add(n);
+      if (crnd() < n.p) return n;
+    }
+    return null;
+  }
+  function noiseStep(F, dt) {
+    for (let i = NOISE.length - 1; i >= 0; i--) {
+      const n = NOISE[i], v = n.owner;
+      n.t += dt;
+      if (n.t >= n.life || !v || v.dead) { NOISE.splice(i, 1); continue; }
+      // (towed astern: TORP_DECOY.m behind her stern, TORP_DECOY.dep down)
+      const st = v.toWorld(n.px, n.py, n.pz), back = v.axis(-n.fx, -n.fy, 0), r = Math.hypot(st.x, st.y, st.z) || 1, k = TORP_DECOY.m;
+      n.x = st.x + back.x * k; n.y = st.y + back.y * k; n.z = st.z + back.z * k;
+      const rr = Math.hypot(n.x, n.y, n.z) || 1, kr = (v.body.radius - TORP_DECOY.dep) / rr;
+      n.x *= kr; n.y *= kr; n.z *= kr; n.vx = v.vx; n.vy = v.vy; n.vz = v.vz;
+      void r;
+    }
+  }
+  // ---- decoys (the countermeasure key, combat.js countermeasures): every Decoy Launcher with rockets fires a pair, a chaff
+  // cloud (a dispenser's bundle: radar seekers weigh it once the missile is within 4 km) and flares, bursting 300 m out
+  // over its side; every Torpedo Decoy, with a torpedo in the water within 3 km, streams a noisemaker. true: something went.
+  function decoy(v, F) {
+    if (!v || v.dead || v.remote || !v.parts.length) return false;
+    let any = false;
+    for (const p of v.parts) {
+      const w = p.def.weapon;
+      if (!w || w.kind !== 'chaff' || !w.side || p.broken || !(p.ammo > 0)) continue;
+      const d = sideDir(v, p, _ca), r = Math.hypot(v.x, v.y, v.z) || 1, out = v.axis(d.x, d.y, d.z), m = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p));
+      const sp = 150, c = Math.cos(25 * DEG), sn = Math.sin(25 * DEG), ux = v.x / r, uy = v.y / r, uz = v.z / r; // (out over its side, 25° up: the local up)
+      for (const kind of ['chaff', 'flare']) {
+        const k = kind === 'flare' ? 1.1 : 1, vx = (out.x * c + ux * sn) * k, vy = (out.y * c + uy * sn) * k, vz = (out.z * c + uz * sn) * k;
+        const f = { b: v.body, x: m.x, y: m.y, z: m.z, vx: v.vx + vx * sp, vy: v.vy + vy * sp, vz: v.vz + vz * sp, t: 0, life: kind === 'chaff' ? 12 : 5 };
+        if (kind === 'chaff') { f.chaff = true; f.str = 2; } else f.flare = true;
+        if (typeof Combat !== 'undefined') { Combat.S.flares.push(f); if (typeof MP !== 'undefined' && MP.sendFlares) MP.sendFlares(v, f); }
+      }
+      if (typeof Combat !== 'undefined') Combat.release(v, p); else p.ammo--;
+      if (typeof FX !== 'undefined') FX.puff(v.body, m, { x: v.vx + out.x * 20, y: v.vy + out.y * 20, z: v.vz + out.z * 20 }, 3, '#d9dde0');
+      any = true;
+    }
+    // torpedo noisemakers, with one in the water within 3 km
+    let torp = false;
+    if (typeof Combat !== 'undefined') for (const s of Combat.S.shots) if ((s.k === 'stor' || s.k === 'torp') && s.ph !== 'air' && Math.hypot(s.x - v.x, s.y - v.y, s.z - v.z) < TORP_DECOY.near && s.owner !== v) { torp = true; break; }
+    if (torp) for (const p of v.parts) {
+      const D = p.def.decoy;
+      if (!D || !D.torp || p.broken) continue;
+      if (p.dAmmo == null) p.dAmmo = D.ammo;
+      if (!(p.dAmmo > 0)) continue;
+      p.dAmmo--;
+      const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 };
+      NOISE.push({ noise: true, owner: v, b: v.body, px: p.x, py: p.y, pz: partZ(p), fx: Fd.x, fy: Fd.y, x: v.x, y: v.y, z: v.z, vx: v.vx, vy: v.vy, vz: v.vz, t: 0, life: D.life || 60, p: D.p ?? 0.6 });
+      any = true;
+    }
+    if (any && F && v === F.active && !v.ai && F.toast) F.toast(torp ? 'Decoys away: chaff, flares and a torpedo noisemaker' : 'Decoys away', 'info');
+    if (any) noiseStep(F, 0);
+    return any;
+  }
+
+  // ---- anti-ship missiles and vertical-launch SAMs (§8.6)
+  // The ship under the crosshair, or the nearest in a 60° arc ahead of v (what an anti-ship missile is fired at): a foe's
+  // hydro vessel afloat (another player's ship), or the range's boats and frigate; null: none (it flies straight on and
+  // its seeker looks ahead)
+  function seaTargets(v, F, out) {
+    out.length = 0;
+    for (const o of F.vessels) if (o.body === v.body && !o.dead && (o.sh ? o.afloat : o.remote && (isSea(o.kind) || o.afloat)) && foe(v, o)) out.push(o);
+    if (typeof Combat !== 'undefined' && !(typeof MP !== 'undefined' && MP.active)) for (const e of Combat.S.targets) if (e.alive && e.def.sea) out.push(e);
+    return out;
+  }
+  const ST = [];
+  const posOf = (t, o) => { if (t.def && t.pos) { const c = Combat.targetCentre(t); o.x = c.x; o.y = c.y; o.z = c.z; o.vx = t.vel ? t.vel.x : 0; o.vy = t.vel ? t.vel.y : 0; o.vz = t.vel ? t.vel.z : 0; return o; } o.x = t.x; o.y = t.y; o.z = t.z; o.vx = t.vx || 0; o.vy = t.vy || 0; o.vz = t.vz || 0; return o; };
+  const TPO = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+  function asmTarget(v, F) {
+    if (!v || !F) return null;
+    const A = F.groundAim && v === F.active ? F.aim : null, L = seaTargets(v, F, ST);
+    if (A && A.v && L.includes(A.v)) return A.v;
+    let best = null, bk = -2;
+    if (A && A.dir) for (const t of L) { // (within 3° of the crosshair)
+      const P = posOf(t, TPO), dx = P.x - A.o.x, dy = P.y - A.o.y, dz = P.z - A.o.z, d = Math.hypot(dx, dy, dz) || 1, k = (dx * A.dir.x + dy * A.dir.y + dz * A.dir.z) / d;
+      if (k > Math.cos(3 * DEG) && k > bk && d < 18000) { bk = k; best = t; }
+    }
+    if (best) return best;
+    const Fd = v.pilot && v.pilot.F ? v.pilot.F : { x: 1, y: 0, z: 0 }, f = v.axis(Fd.x, Fd.y, Fd.z || 0);
+    let bd = 18000;
+    for (const t of L) {
+      const P = posOf(t, TPO), dx = P.x - v.x, dy = P.y - v.y, dz = P.z - v.z, d = Math.hypot(dx, dy, dz) || 1;
+      if ((dx * f.x + dy * f.y + dz * f.z) / d > Math.cos(30 * DEG) && d < bd) { bd = d; best = t; }
+    }
+    return best;
+  }
+  // A launcher's missile set going (combat.js launchMissile, for w.asm or w.vls; s already Combat's): an anti-ship
+  // missile out of its canister (the part's +x, 15° up: ASM canisters stand on deck at rot 0, angled over the bow) at 40
+  // m/s, its motor holding `speed`; a SAM straight up out of its cell (the part's +y) at 30 m/s, guided semi-actively on
+  // the fire-control radar's lock (s.gr: Aim.radarSees) once it has pitched over (vlsStep)
+  function armShot(s, v, p, w, F) {
+    const k = p.rot & 3, c = Math.cos(15 * DEG), sn = Math.sin(15 * DEG), i = Math.max(0, (p.ammo || 1) - 1); // (the canister or cell it leaves: the last loaded)
+    let lx, ly, mx, my, mz = 0;
+    if (w.asm) { lx = c; ly = sn; const M = typeof nvAsmLay === 'function' ? nvAsmLay(p.def).mouth(i) : { x: p.def.w / 2, y: 0, z: 0 }; mx = M.x; my = M.y; mz = M.z; }
+    else { lx = 0; ly = 1; const C = typeof nvVlsLay === 'function' ? nvVlsLay(p.def).cells[(p.def.weapon.ammo || 8) - 1 - i] : null; mx = C ? C.x : 0; my = p.def.h / 2; mz = C ? C.z : 0; }
+    const R = (x, y) => { for (let j = 0; j < k; j++) { const t = x; x = -y; y = t; } return [x, y]; }, [dx, dy] = R(lx, ly), [ox, oy] = R(mx, my);
+    const m = v.toWorld(p.x + ox, p.y + oy, partZ(p) + mz), dir = v.axis(dx, dy, 0), e = w.asm ? 40 : 30;
+    s.x = m.x + dir.x * 0.5; s.y = m.y + dir.y * 0.5; s.z = m.z + dir.z * 0.5;
+    s.vx = v.vx + dir.x * e; s.vy = v.vy + dir.y * e; s.vz = v.vz + dir.z * e; s.dx = dir.x; s.dy = dir.y; s.dz = dir.z;
+    s.spare = v; s.part = p; s.sim = F; s.enemy = !!v.ai && !v.ai.ally; s.gvp = true;
+    if (w.asm) {
+      s.asm = true; s.accel = 0; s.burn = s.life = w.life || 75; s.spd = w.speed || 260; s.coast = 0; s.gt = 0.4; s.he = w.he; s.cm = new WeakSet(); s.ph = 0; s.big = true;
+      s.range = w.range || 18000; s.run = 0;
+    } else {
+      s.vls = true; s.coast = 0; s.gt = 0; s.gr = true; s.prox = w.prox || 8; s.big = true; s.pitch = 0;
+    }
+  }
+  // An anti-ship missile's flight (Combat.moveShot, ahead of its hit tests): out of the canister it climbs to 30 m, then
+  // skims ASM.skim m over the waves (the sea under it, Ship.wave × the fade) at its speed (the motor burns all the way),
+  // steering in the horizontal plane by lead pursuit (Combat's guide, at turn g); ASM.term m from its target the seeker
+  // goes active and it drops to ASM.termH m. With no target it flies on and its seeker looks 30° either side within
+  // 10 km for a ship. Its velocity is set here; Combat's drag and gravity act on it for the step.
+  const AW = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false };
+  function asmStep(s, h, F) {
+    const b = s.b, A = SHIP.ASM, r = Math.hypot(s.x, s.y, s.z), ux = s.x / r, uy = s.y / r, uz = s.z / r;
+    s.run = (s.run || 0) + (s.spd || 260) * h;
+    if ((s.wT = (s.wT || 0) - h) <= 0) { s.wT = 0.25; waterPt(b, s, AW); s.lev = AW.level > -Infinity ? AW.level : 0; s.wh = waveAt(b, AW, F); } // (the sea under it: four looks a second)
+    const over = r - b.radius - (s.lev || 0) - (s.wh || 0);
+    if (s.target && (s.target.dead || s.target.alive === false || (s.target.fate && !s.target.remote))) s.target = null;
+    if (!s.target && s.t > 2 && (s.lookT = (s.lookT || 0) - h) <= 0) { // (its seeker, on its own: a ship ahead)
+      s.lookT = 0.5;
+      let bd = 10000;
+      for (const t of seaTargets(s.owner && s.owner.parts ? s.owner : { ai: { ally: !s.enemy } }, F, ST)) {
+        const P = posOf(t, TPO), dx = P.x - s.x, dy = P.y - s.y, dz = P.z - s.z, d = Math.hypot(dx, dy, dz) || 1;
+        if ((dx * s.dx + dy * s.dy + dz * s.dz) / d > Math.cos(30 * DEG) && d < bd) { bd = d; s.target = t; }
+      }
+    }
+    // the horizontal: lead pursuit
+    let hx = s.dx - ux * (s.dx * ux + s.dy * uy + s.dz * uz), hy = s.dy - uy * (s.dx * ux + s.dy * uy + s.dz * uz), hz = s.dz - uz * (s.dx * ux + s.dy * uy + s.dz * uz), d = Infinity;
+    let hl = Math.hypot(hx, hy, hz) || 1; hx /= hl; hy /= hl; hz /= hl;
+    if (s.target && s.t > 1) {
+      const P = posOf(s.target, TPO), spd = s.spd || 260;
+      d = Math.hypot(P.x - s.x, P.y - s.y, P.z - s.z);
+      const tgo = Math.min(d / spd, 30);
+      let wx = P.x + P.vx * tgo - s.x, wy = P.y + P.vy * tgo - s.y, wz = P.z + P.vz * tgo - s.z;
+      const k = wx * ux + wy * uy + wz * uz; wx -= ux * k; wy -= uy * k; wz -= uz * k;
+      const wl = Math.hypot(wx, wy, wz);
+      if (wl > 1) {
+        wx /= wl; wy /= wl; wz /= wl;
+        const c = clamp(hx * wx + hy * wy + hz * wz, -1, 1), sg = Math.sign((hy * wz - hz * wy) * ux + (hz * wx - hx * wz) * uy + (hx * wy - hy * wx) * uz) || 1;
+        const a = Math.min(Math.acos(c), ((s.turn || 6) * 9.81 / Math.max(spd, 50)) * h) * sg, ca = Math.cos(a), sa = Math.sin(a);
+        const qx = uy * hz - uz * hy, qy = uz * hx - ux * hz, qz = ux * hy - uy * hx;
+        hx = hx * ca + qx * sa; hy = hy * ca + qy * sa; hz = hz * ca + qz * sa;
+        hl = Math.hypot(hx, hy, hz) || 1; hx /= hl; hy /= hl; hz /= hl;
+      }
+      if (d < A.term) s.seen = true; // (its own radar on: terminal)
+    }
+    // the vertical: up out of the canister to 30 m, then down to the skim height, the terminal height inside ASM.term
+    if (s.ph === 0 && (over >= A.climb || s.t > 4)) s.ph = 1;
+    const want = s.ph === 0 ? A.climb : s.seen ? A.termH : A.skim;
+    const spd = Math.min(s.spd || 260, 40 + (s.spd || 260) * Math.min(1, s.t / 1.5)); // (its booster: to full speed in 1.5 s)
+    const vz = s.ph === 0 ? Math.max(12, Math.min(spd * 0.45, (A.climb - over) * 2 + 8)) : clamp((want - over) * 2.2, -0.2 * spd, 0.25 * spd);
+    const vh = Math.sqrt(Math.max(0, spd * spd - vz * vz));
+    s.vx = hx * vh + ux * vz; s.vy = hy * vh + uy * vz; s.vz = hz * vh + uz * vz;
+    s.dx = s.vx / spd; s.dy = s.vy / spd; s.dz = s.vz / spd;
+    if (s.run > (s.range || 18000) + 500) s.life = Math.min(s.life, s.t); // (out of fuel past its range: down it goes)
+    return d;
+  }
+  // An anti-ship missile into vessel o's part p at `at` (combat.js moveShot's hit, for s.asm): through a hull's plate up to
+  // its he mm (120: a destroyer's 12 mm side, never a thick belt) it bursts inside, 1.5 m in (Combat.explode, inside:
+  // HOLE.heIn·blast² more hole, a fire); against thicker plate, or anything but a hull, it bursts where it hit. false: spent
+  const _ah = [], _aA = v3(), _aE = v3(), _aI = v3();
+  function asmHit(s, o, p, at, F) {
+    const b = s.b, by = s.owner && s.owner.parts ? s.owner : undefined, sp = Math.hypot(s.vx, s.vy, s.vz) || 1, ux = s.vx / sp, uy = s.vy / sp, uz = s.vz / sp;
+    let inside = false, P = at;
+    if (p && p.def.shull && o.sh && typeof Armour !== 'undefined') {
+      _aA.x = at.x - ux * 0.5; _aA.y = at.y - uy * 0.5; _aA.z = at.z - uz * 0.5; _aE.x = at.x + ux * 3; _aE.y = at.y + uy * 3; _aE.z = at.z + uz * 3;
+      const H = Armour.hitAll(o, _aA, _aE, _ah).find((q) => q.p === p);
+      const mm = H ? hullMm(p, H.edge, H.u) : Infinity;
+      if (mm <= (s.he || 0)) {
+        for (const k of [1.5, 0.8, 0.3]) { _aI.x = at.x + ux * k; _aI.y = at.y + uy * k; _aI.z = at.z + uz * k; if (insideHull(o, localOf(o, _aI, _cf))) { inside = true; P = { x: _aI.x, y: _aI.y, z: _aI.z }; break; } }
+      }
+    }
+    if (typeof Combat !== 'undefined') Combat.explode(b, { x: P.x, y: P.y, z: P.z }, s.blast || 12, s.dmg || 3000, by, F, false, s.he, undefined, undefined, inside ? { inside: true } : undefined);
+    if (typeof Death !== 'undefined' && Death.deathFX) Death.deathFX(o, F, 'ammo', 4, { x: P.x, y: P.y, z: P.z });
+    s.dead = true;
+    return false;
+  }
+  // A vertical-launch SAM's first seconds (combat.js moveShot, s.vls): straight up out of its cell for VLS.t s, then over
+  // toward its target at VLS.rate °/s until it points within 10° of it; true while it steers itself (then Combat's
+  // semi-active guidance has it). With no target it pitches over along the cell's way and flies on.
+  function vlsStep(s, h, F) {
+    if (s.pitch > 1) return false;
+    if (s.t < SHIP.VLS.t) { s.vx = s.dx * Math.hypot(s.vx, s.vy, s.vz); s.vy = s.dy * Math.hypot(s.vx, s.vy, s.vz); s.vz = s.dz * Math.hypot(s.vx, s.vy, s.vz); return true; }
+    const t = s.target, P = t ? (t.k === 'missile' ? t : posOf(t, TPO)) : null;
+    if (!P) { s.pitch = 2; return false; }
+    let wx = P.x - s.x, wy = P.y - s.y, wz = P.z - s.z;
+    const wl = Math.hypot(wx, wy, wz) || 1; wx /= wl; wy /= wl; wz /= wl;
+    const c = clamp(s.dx * wx + s.dy * wy + s.dz * wz, -1, 1), ang = Math.acos(c);
+    if (ang < 10 * DEG) { s.pitch = 2; return false; }
+    const m = Math.min(1, (SHIP.VLS.rate * DEG * h) / ang), spd = Math.hypot(s.vx, s.vy, s.vz);
+    let nx = s.dx + (wx - s.dx) * m, ny = s.dy + (wy - s.dy) * m, nz = s.dz + (wz - s.dz) * m;
+    const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+    s.dx = nx; s.dy = ny; s.dz = nz; s.vx = nx * spd; s.vy = ny * spd; s.vz = nz * spd;
+    s.pitch = 1;
+    return true;
+  }
+  // (S3) a SAM's proximity burst beside the missile it was guided at (combat.js moveShot): the missile is killed with
+  // p 0.7. true: killed.
+  const SAM_P = 0.7;
+  function samKill(s, m, F) {
+    if (!m || m.k !== 'missile' || m.dead) return false;
+    if (crnd() >= SAM_P) return false;
+    kill(m, s.owner, F);
+    return true;
+  }
+  function kill(m, by, F) {
+    m.dead = true; m.killedBy = by || null;
+    if (m.netId != null || m.net) m.ciwsKill = true; // ([WP11] a copy of another player's missile: its owner must hear it (mkill))
+    if (typeof FX !== 'undefined') FX.explosion(m.b, { x: m.x, y: m.y, z: m.z }, { x: m.vx * 0.3, y: m.vy * 0.3, z: m.vz * 0.3 }, 1.6, true);
+  }
+
+  // ---- the close-in gun (§8.10)
+  // Ship.ciwsStep (Combat.frame, while Combat.S.pd: any live craft with a CIWS aboard), for each whole mount of each craft
+  // (the player's ship's while sh.ciwsOn; a craft with no helm, and the computer's, always): its target ten times a second,
+  // the threat with the least time to reach her (hostile missiles closing within CIWS.cone of her, aircraft, drones;
+  // within range and its arcs; never the low-and-slow notch: a hovering helicopter, a slow drone, a sea-skimmer are all
+  // seen), the mount slewing to the lead point at `slew` °/s, and within CIWS.on° of it 1 s bursts: a simulated round
+  // every 1/15 s carrying 5 (k 'shell', sh 'ciws20', ciws 5), CIWS.disp rad of dispersion, every third a tracer. `ammo`
+  // rounds, `reload` s to fill again. The mount's own frame: its +x ahead (on deck at rot 0), +y up.
+  const CIWS_DT = 1 / 15, CIWS_N = 5, CIWS_V = 1100, _cw = v3(), _cu = v3(), _cl = v3(), CT = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+  function ciwsStep(F, dt) {
+    if (!(dt > 0) || !F || !F.vessels) return;
+    for (const v of F.vessels) {
+      if (!v.ciws || !v.ciws.length || v.dead || v.remote || v.ko || v.wreck || v.fate || !v.parts.length) continue;
+      const on = v.ai || !v.sh || !isSea(v.kind) ? true : v.sh.ciwsOn !== false;
+      for (const p of v.ciws) {
+        if (!on || !v.parts.includes(p) || p.broken || (p.hp != null && p.hp <= 0)) { p.gunOn = false; continue; }
+        mount(v, p, F, dt);
+      }
+    }
+    if (NOISE.length) noiseStep(F, dt);
+  }
+  function mount(v, p, F, dt) {
+    const C = p.def.ciws, K = SHIP.CIWS;
+    if (p.ammo == null) p.ammo = C.ammo;
+    if (!(p.ammo > 0)) { p.gunOn = false; p.cR = (p.cR || 0) + dt; if (p.cR >= C.reload) { p.ammo = C.ammo; p.cR = 0; } return; }
+    // its target, ten times a second (after a kill, CIWS.assess s checking it first)
+    const t0 = p.tgt;
+    if (t0 && !(t0.k === 'missile' ? !t0.dead : !t0.dead && t0.parts && t0.parts.length)) { p.tgt = null; p.cA = K.assess; p.bT = 0; }
+    if (p.cA > 0) { p.cA -= dt; p.gunOn = false; p.cF = 0; return; }
+    if ((p.cT = (p.cT || 0) - dt) <= 0) { p.cT = 0.1; p.tgt = threat(v, p, F); }
+    // the lead point (sim): the target ahead by the rounds' time (their drag), raised for their drop; into the mount's frame
+    let wantY = 0, wantE = 0, on = false;
+    const M = muzzleOf(v, p, _cw);
+    if (p.tgt) {
+      const T = p.tgt, rho = airDensity(v.body, Math.hypot(M.x, M.y, M.z) - v.body.radius), kr = Math.max(SHELLS.ciws20.k * rho, 1e-9);
+      let tt = 0;
+      for (let i = 0; i < 3; i++) { const D = Math.hypot(T.x + (T.vx - v.vx) * tt - M.x, T.y + (T.vy - v.vy) * tt - M.y, T.z + (T.vz - v.vz) * tt - M.z); tt = Math.expm1(kr * D) / (kr * CIWS_V); }
+      const r = Math.hypot(M.x, M.y, M.z) || 1, g = v.body.mu / (r * r), dropK = 0.5 * g * tt * tt;
+      _cl.x = T.x + (T.vx - v.vx) * tt - M.x + (M.x / r) * dropK; _cl.y = T.y + (T.vy - v.vy) * tt - M.y + (M.y / r) * dropK; _cl.z = T.z + (T.vz - v.vz) * tt - M.z + (M.z / r) * dropK;
+      qunrot(v.q, _cl.x, _cl.y, _cl.z, _cu); unrotPart(p, _cu);
+      // (its fire control's error: a random walk on each axis, easing toward a fresh guess every errT s)
+      const ek = K.err * Math.max(1, Math.hypot(_cl.x, _cl.y, _cl.z) / K.errD); // (its error grows with the range past errD m: its track firms up as the threat closes)
+      if ((p.eT = (p.eT || 0) - dt) <= 0) { p.eT = K.errT; p.eY1 = gauss() * ek; p.eE1 = gauss() * ek; }
+      const ke = Math.min(1, dt / K.errT); p.eY = (p.eY || 0) + ((p.eY1 || 0) - (p.eY || 0)) * ke; p.eE = (p.eE || 0) + ((p.eE1 || 0) - (p.eE || 0)) * ke;
+      wantY = Math.atan2(_cu.z, _cu.x) + p.eY; wantE = Math.atan2(_cu.y, Math.hypot(_cu.x, _cu.z)) + p.eE;
+      wantY = clamp(wantY, C.yaw[0] * DEG, C.yaw[1] * DEG); wantE = clamp(wantE, C.el[0] * DEG, C.el[1] * DEG);
+    }
+    const m = C.slew * DEG * dt, y0 = p.aimYaw || 0, e0 = p.aimEl || 0;
+    p.aimYaw = y0 + clamp(wantY - y0, -m, m); p.aimEl = e0 + clamp(wantE - e0, -m, m);
+    if (p.tgt) on = Math.hypot(wantY - p.aimYaw, wantE - p.aimEl) < K.on * DEG;
+    if (on) p.bT = K.burst; else if (p.bT > 0) p.bT -= dt; // (a burst runs its second out)
+    p.gunOn = on || p.bT > 0;
+    if (!p.gunOn) { p.cF = 0; return; }
+    p.cF = (p.cF || 0) + dt;
+    while (p.cF >= CIWS_DT && p.ammo > 0) { p.cF -= CIWS_DT; round(v, p, F, M); }
+  }
+  const gauss = () => Math.sqrt(-2 * Math.log(Math.max(1e-12, crnd()))) * Math.cos(TAU * crnd()); // (a normal deviate: the combat's dice)
+  // the mount's muzzle (sim): its top, a little ahead along its barrels
+  function muzzleOf(v, p, o) { const G = typeof nvCiwsLay === 'function' ? nvCiwsLay(p.def).gun : { y: 0 }, q = partPt(p, 0, G.y), w = v.toWorld(q.x, q.y, partZ(p)); o.x = w.x; o.y = w.y; o.z = w.z; return o; } // (its barrels' trunnion line, over the turning axis)
+  // a part-space direction into a rot-k part's own frame (and back)
+  function unrotPart(p, o) { for (let i = 0, k = p.rot & 3; i < k; i++) { const t = o.x; o.x = o.y; o.y = -t; } return o; }
+  function rotPart(p, o) { for (let i = 0, k = p.rot & 3; i < k; i++) { const t = o.x; o.x = -o.y; o.y = t; } return o; }
+  function round(v, p, F, M) {
+    const ce = Math.cos(p.aimEl || 0), d = _cd;
+    d.x = ce * Math.cos(p.aimYaw || 0); d.y = Math.sin(p.aimEl || 0); d.z = ce * Math.sin(p.aimYaw || 0);
+    rotPart(p, d); qrot(v.q, d.x, d.y, d.z, d);
+    // dispersion: within CIWS.disp of the line (a disc, the combat's dice)
+    let ex = -d.y, ey = d.x, ez = 0;
+    if (Math.abs(d.z) > 0.9) { ex = 0; ey = -d.z; ez = d.y; }
+    const el = Math.hypot(ex, ey, ez) || 1; ex /= el; ey /= el; ez /= el;
+    const fx = d.y * ez - d.z * ey, fy = d.z * ex - d.x * ez, fz = d.x * ey - d.y * ex, rr = SHIP.CIWS.disp * Math.sqrt(crnd()), a = crnd() * TAU, c = rr * Math.cos(a), s = rr * Math.sin(a);
+    d.x += ex * c + fx * s; d.y += ey * c + fy * s; d.z += ez * c + fz * s;
+    const l = Math.hypot(d.x, d.y, d.z); d.x /= l; d.y /= l; d.z /= l;
+    p.shots = (p.shots || 0) + 1; p.ammo = Math.max(0, p.ammo - CIWS_N); p.shotAt = F.time || 0;
+    const SH = SHELLS.ciws20;
+    const out = typeof nvCiwsLay === 'function' ? (() => { const G = nvCiwsLay(p.def).gun; return G.x + G.L; })() : 1.2;
+    Combat.S.shots.push({ k: 'shell', sh: 'ciws20', b: v.body, x: M.x + d.x * out, y: M.y + d.y * out, z: M.z + d.z * out, vx: v.vx + d.x * CIWS_V, vy: v.vy + d.y * CIWS_V, vz: v.vz + d.z * CIWS_V,
+      t: 0, life: SH.life, owner: v, enemy: !!v.ai && !v.ai.ally, net: 0, cal: SH.cal, pen: SH.pen, v0: CIWS_V, spare: v, tracer: p.shots % 3 === 0, prox: 0, ric: false, cheap: true, ciws: CIWS_N });
+    if (typeof FX !== 'undefined' && p.shots % 2 === 0 && F.active && Math.hypot(M.x - F.active.x, M.y - F.active.y, M.z - F.active.z) < 3000) FX.add({ kind: 'flash', b: v.body, x: M.x + d.x * (out + 0.2), y: M.y + d.y * (out + 0.2), z: M.z + d.z * (out + 0.2), vx: v.vx, vy: v.vy, vz: v.vz, max: 0.05, size: 0.5, grow: 1.4, color: '#ffd27a', alpha: 1, nolight: true });
+  }
+  // the threat with the least time to reach v, in mount p's reach and arcs (sim position and velocity into the result)
+  function threat(v, p, F) {
+    const C = p.def.ciws, K = SHIP.CIWS, R = C.range, M = muzzleOf(v, p, _cw);
+    let best = null, bt = Infinity;
+    const arcs = (x, y, z) => { _cu.x = x - M.x; _cu.y = y - M.y; _cu.z = z - M.z; qunrot(v.q, _cu.x, _cu.y, _cu.z, _cu); unrotPart(p, _cu); const yw = Math.atan2(_cu.z, _cu.x) / DEG, e = Math.atan2(_cu.y, Math.hypot(_cu.x, _cu.z)) / DEG; return yw >= C.yaw[0] && yw <= C.yaw[1] && e >= C.el[0] && e <= C.el[1]; };
+    const time = (x, y, z, vx, vy, vz) => { const dx = v.x - x, dy = v.y - y, dz = v.z - z, d = Math.hypot(dx, dy, dz) || 1, cl = ((vx - v.vx) * dx + (vy - v.vy) * dy + (vz - v.vz) * dz) / d; return d / Math.max(cl, 20); };
+    if (C.missiles && typeof Combat !== 'undefined') for (const m of Combat.S.shots) {
+      if (m.k !== 'missile' || m.dead || !shotFoe(v, m)) continue;
+      const dx = v.x - m.x, dy = v.y - m.y, dz = v.z - m.z, d = Math.hypot(dx, dy, dz) || 1;
+      if (d > R + (v.reach || 10)) continue;
+      const sp = Math.hypot(m.vx - v.vx, m.vy - v.vy, m.vz - v.vz) || 1;
+      if (((m.vx - v.vx) * dx + (m.vy - v.vy) * dy + (m.vz - v.vz) * dz) / (sp * d) < Math.cos(K.cone * DEG)) continue; // (closing on her, within CIWS.cone)
+      if (!arcs(m.x, m.y, m.z)) continue;
+      const t = time(m.x, m.y, m.z, m.vx, m.vy, m.vz);
+      if (t < bt) { bt = t; best = m; }
+    }
+    if (C.air || C.drones) for (const o of F.vessels) {
+      if (o === v || o.dead || o.wreck || !o.parts.length || o.body !== v.body || (o.sh && o.afloat) || !foe(v, o)) continue;
+      const drone = o.kind === 'drone';
+      if (drone ? !C.drones : !C.air || !(isAirKind(o.kind) || flying(o))) continue;
+      if (o.landed || o.contactTime > 0) continue; // (an aircraft or a drone on the ground or a deck)
+      const d = Math.hypot(o.x - M.x, o.y - M.y, o.z - M.z);
+      if (d > R || !arcs(o.x, o.y, o.z)) continue;
+      const t = time(o.x, o.y, o.z, o.vx, o.vy, o.vz) + 0.5; // (a missile first, when both close as fast)
+      if (t < bt) { bt = t; best = o; }
+    }
+    return best;
+  }
+  // A CIWS round's segment a -> e (armour.js moveShell, for s.ciws) against the missiles hostile to its mount's craft: a
+  // missile within CIWS.kill m of it (each missile's own step taken into account) is killed with p 1 − (1 − CIWS.p)^n
+  // (n the rounds it stands for: 0.88). true: one killed (the round is spent).
+  const _sq = v3();
+  function shotMissiles(s, a, e, F) {
+    if (typeof Combat === 'undefined') return false;
+    const v = s.owner, K = SHIP.CIWS, n = s.ciws || 1, ex = e.x - a.x, ey = e.y - a.y, ez = e.z - a.z, L2 = ex * ex + ey * ey + ez * ez, h = 1 / 120;
+    for (const m of Combat.S.shots) {
+      if (m.k !== 'missile' || m.dead || (v && !shotFoe(v, m))) continue;
+      const cx = (a.x + e.x) / 2 - m.x, cy = (a.y + e.y) / 2 - m.y, cz = (a.z + e.z) / 2 - m.z, reach = Math.sqrt(L2) / 2 + Math.hypot(m.vx, m.vy, m.vz) * h + K.kill;
+      if (cx * cx + cy * cy + cz * cz > reach * reach) continue;
+      if (segSeg(a, ex, ey, ez, m.x - m.vx * h, m.y - m.vy * h, m.z - m.vz * h, m.vx * h, m.vy * h, m.vz * h) > K.kill * K.kill) continue;
+      m.ciwsNear = (m.ciwsNear || 0) + 1; // (rounds that passed close enough: the tests count them)
+      if (v && (m.x - v.x) ** 2 + (m.y - v.y) ** 2 + (m.z - v.z) ** 2 < K.leak * K.leak) continue; // (too late: what is left of it carries on into her)
+      if (crnd() < 1 - Math.pow(1 - K.p, n)) { kill(m, v, F); return true; }
+    }
+    return false;
+  }
+  // the squared distance between the segments a + s·d1 and b + t·d2 (s, t in 0..1)
+  function segSeg(a, d1x, d1y, d1z, bx, by, bz, d2x, d2y, d2z) {
+    const rx = a.x - bx, ry = a.y - by, rz = a.z - bz, A = d1x * d1x + d1y * d1y + d1z * d1z, E = d2x * d2x + d2y * d2y + d2z * d2z, f = d2x * rx + d2y * ry + d2z * rz;
+    let s, t;
+    if (A < 1e-12 && E < 1e-12) { s = t = 0; }
+    else if (A < 1e-12) { s = 0; t = clamp(f / E, 0, 1); }
+    else {
+      const c = d1x * rx + d1y * ry + d1z * rz;
+      if (E < 1e-12) { t = 0; s = clamp(-c / A, 0, 1); }
+      else {
+        const B = d1x * d2x + d1y * d2y + d1z * d2z, den = A * E - B * B;
+        s = den > 1e-12 ? clamp((B * f - c * E) / den, 0, 1) : 0;
+        t = (B * s + f) / E;
+        if (t < 0) { t = 0; s = clamp(-c / A, 0, 1); } else if (t > 1) { t = 1; s = clamp((B - c) / A, 0, 1); }
+      }
+    }
+    const qx = rx + d1x * s - d2x * t, qy = ry + d1y * s - d2y * t, qz = rz + d1z * s - d2z * t;
+    return qx * qx + qy * qy + qz * qz;
+  }
+
+  // ---- seeing ships (§8.11)
+  // A clear look over water from a to b (sim points; ha, hb their heights over the water, else over the sphere): within
+  // the horizon √(2R·ha) + √(2R·hb) (R the body's radius), no land in the way (sampled every LOS.step m where a cell of the
+  // per-map land mask (LOS.cell m, built as it is first asked) holds land), no smoke (Aim.smokeBlocks)
+  const LMASK = new Map(), _ll = {};
+  function seesSea(a, b, ha, hb) {
+    const B = (a && a.body) || (b && b.body) || EARTH, R = B.radius;
+    if (!a || !b) return false;
+    if (!Number.isFinite(ha)) ha = Math.hypot(a.x, a.y, a.z) - R;
+    if (!Number.isFinite(hb)) hb = Math.hypot(b.x, b.y, b.z) - R;
+    const d = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    if (d > Math.sqrt(2 * R * Math.max(0.5, ha)) + Math.sqrt(2 * R * Math.max(0.5, hb))) return false;
+    if (!landClear(B, a, b, d)) return false;
+    if (typeof Combat !== 'undefined' && Combat.S.smoke.length && typeof Aim !== 'undefined' && Aim.smokeBlocks(a, b)) return false;
+    return true;
+  }
+  function landClear(B, a, b, d) {
+    const L = SHIP.LOS, n = Math.max(1, Math.ceil(d / L.step)), R = B.radius;
+    const ra = Math.hypot(a.x, a.y, a.z), rb = Math.hypot(b.x, b.y, b.z);
+    for (let i = 1; i < n; i++) {
+      const k = i / n, x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k, z = a.z + (b.z - a.z) * k;
+      Terrain.locate(B, x, y, z, _ll);
+      if (!(cellTop(B, _ll.a, _ll.z) > 0)) continue; // (all sea there)
+      const g = Terrain.heightAt(B, _ll.a, _ll.z), line = _ll.r - R;
+      if (g > line + 1) return false;
+    }
+    void ra; void rb;
+    return true;
+  }
+  // the highest ground in a LOS.cell m cell round (a, z) (−Infinity: none; the mask, built a cell at a time)
+  function cellTop(B, a, z) {
+    const c = SHIP.LOS.cell, R = B.radius, ia = Math.floor((a * R) / c), iz = Math.floor(z / c), key = (B.id || 'b') + ':' + ia + ':' + iz;
+    let h = LMASK.get(key);
+    if (h === undefined) {
+      if (LMASK.size > 60000) LMASK.clear();
+      h = -Infinity;
+      for (let i = 0; i <= 3; i++) for (let j = 0; j <= 3; j++) h = Math.max(h, Terrain.heightAt(B, ((ia + i / 3) * c) / R, (iz + j / 3) * c));
+      LMASK.set(key, h);
+    }
+    return h;
+  }
+  // Her radar size (× a radar's reach on her): clamp((L_wl / RADAR.rcsL)^rcsExp, rcsMin, 1) × (1 − her stealth) (a
+  // destroyer the whole reach, a RIB 0.4, the Vizby × 0.6: only her stealthiest part's counts)
+  function rcs(v) {
+    if (!v || !v.parts) return 1;
+    if (v._rcs && v._rcsN === v.parts.length) return v._rcs;
+    const R = SHIP.RADAR, L = v.sh && v.sh.Lwl > 0 ? v.sh.Lwl : 2 * (v.reach || 5);
+    let st = 0;
+    for (const p of v.parts) if (p.def.ship && p.def.stealth > st) st = p.def.stealth;
+    v._rcsN = v.parts.length;
+    return (v._rcs = clamp(Math.pow(L / R.rcsL, R.rcsExp), R.rcsMin, 1) * (1 - st));
+  }
+  // where a craft is seen from or looks from: its highest point (sim) and its height over the water
+  const EYE = { x: 0, y: 0, z: 0, h: 0 };
+  function topOf(o, out = EYE) {
+    if (o.def && o.pos) { const c = Combat.targetCentre(o); out.x = c.x; out.y = c.y; out.z = c.z; out.h = o.def.h; return out; }
+    if (o.k === 'missile') { out.x = o.x; out.y = o.y; out.z = o.z; out.h = Math.max(0.5, Math.hypot(o.x, o.y, o.z) - o.b.radius); return out; }
+    const c = o.com || { x: 0, y: 0, z: 0 }, top = o.bounds ? o.bounds.maxY : c.y + 2;
+    const w = o.toWorld ? o.toWorld(c.x, top, c.z || 0) : o;
+    out.x = w.x; out.y = w.y; out.z = w.z; out.h = Math.max(0.5, Math.hypot(w.x, w.y, w.z) - o.body.radius - (o.sh && o.sh.level > -Infinity ? o.sh.level : 0));
+    return out;
+  }
+  // a radar part's eye: its top (sim) and height over the water
+  function eyeOf(v, p, out) {
+    const w = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p));
+    out.x = w.x; out.y = w.y; out.z = w.z; out.h = Math.max(0.5, Math.hypot(w.x, w.y, w.z) - v.body.radius - (v.sh && v.sh.level > -Infinity ? v.sh.level : 0));
+    return out;
+  }
+  // Ship.surface: what v's sea radars see, four times a second: ships (hydro vessels afloat, other players' ships, the
+  // range's boats) within a whole radar's reach × their radar size and over its horizon (seesSea); with lowAir, anything
+  // under RADAR.lowAir m within 10 km (sea-skimming missiles, low helicopters and planes). [{ ref, x, y, z, d, k: 'sea' |
+  // 'low' }], nearest first; the same array until the next look
+  const SE = { x: 0, y: 0, z: 0, h: 0 }, ST2 = { x: 0, y: 0, z: 0, h: 0 };
+  function surface(v, F) {
+    if (!v || !v.parts || !F) return NONE;
+    const now = clockOf(F), C = v._surf || (v._surf = { t: -9, n: -1, list: [] });
+    if (now - C.t < 0.25 && now >= C.t && C.n === v.parts.length) return C.list;
+    C.t = now; C.n = v.parts.length;
+    const out = C.list;
+    out.length = 0;
+    const radars = v.parts.filter((p) => p.def.searchRadar && p.def.searchRadar.sea && !p.broken && !(p.hp != null && p.hp <= 0));
+    if (!radars.length || v.ko || v.dead) return out;
+    let top = radars[0];
+    for (const p of radars) if (p.y + p.def.h / 2 > top.y + top.def.h / 2) top = p;
+    const E = eyeOf(v, top, SE), R = top.def.searchRadar, seen = new Set();
+    const add = (ref, P, d, k) => { if (seen.has(ref)) return; seen.add(ref); out.push({ ref, x: P.x, y: P.y, z: P.z, d, k }); };
+    for (const t of seaTargets(v, F, ST)) {
+      const T = topOf(t, ST2), P = t.def ? T : t, d = Math.hypot(P.x - E.x, P.y - E.y, P.z - E.z);
+      if (d > R.range * (t.def ? 1 : rcs(t)) || !seesSea(E, T, E.h, T.h)) continue;
+      add(t, P, d, 'sea');
+    }
+    if (R.lowAir) {
+      const lo = SHIP.RADAR.lowAir, far = 10000;
+      for (const o of F.vessels) {
+        if (o === v || o.dead || o.body !== v.body || !o.parts.length || o.kind === 'drone' || (o.sh && o.afloat) || !(isAirKind(o.kind) || flying(o)) || o.landed || !foe(v, o)) continue;
+        const T = topOf(o, ST2), d = Math.hypot(o.x - E.x, o.y - E.y, o.z - E.z);
+        if (d > far || T.h > lo || !seesSea(E, T, E.h, T.h)) continue;
+        add(o, o, d, 'low');
+      }
+      if (typeof Combat !== 'undefined') for (const m of Combat.S.shots) {
+        if (m.k !== 'missile' || m.dead || !shotFoe(v, m)) continue;
+        const T = topOf(m, ST2), d = Math.hypot(m.x - E.x, m.y - E.y, m.z - E.z);
+        if (d > far || T.h > lo || !seesSea(E, T, E.h, T.h)) continue;
+        add(m, m, d, 'low');
+      }
+    }
+    out.sort((p, q) => p.d - q.d);
+    return out;
+  }
+  // An air search radar's contacts (aim.js searchStep, searchRadar.air): aircraft and missiles over RADAR.lowAir m, and
+  // lower ones once over its horizon (a sea-skimmer at 8 m inside about 4 km), within reach: [{ ref, x, y, z }]
+  const AIRL = [];
+  function airContacts(v, p, F) {
+    AIRL.length = 0;
+    const E = eyeOf(v, p, SE), R = p.def.searchRadar.range;
+    for (const o of F.vessels) {
+      if (o === v || o.dead || o.body !== v.body || !o.parts.length || o.kind === 'drone' || (o.sh && o.afloat) || !(isAirKind(o.kind) || flying(o)) || o.landed || o.contactTime > 0 || !foe(v, o)) continue;
+      const T = topOf(o, ST2), d = Math.hypot(o.x - E.x, o.y - E.y, o.z - E.z);
+      if (d > R * rcsAir(o) || !seesSea(E, T, E.h, T.h)) continue;
+      AIRL.push({ x: o.x, y: o.y, z: o.z, ref: o });
+    }
+    if (typeof Combat !== 'undefined') {
+      for (const e of Combat.S.targets) if (e.alive && e.def.air) { const c = Combat.targetCentre(e), d = Math.hypot(c.x - E.x, c.y - E.y, c.z - E.z); if (d < R) AIRL.push({ ...c, ref: e }); }
+      for (const m of Combat.S.shots) {
+        if (m.k !== 'missile' || m.dead || !shotFoe(v, m)) continue;
+        const T = topOf(m, ST2), d = Math.hypot(m.x - E.x, m.y - E.y, m.z - E.z);
+        if (d > R || !seesSea(E, T, E.h, T.h)) continue;
+        AIRL.push({ x: m.x, y: m.y, z: m.z, ref: m });
+      }
+    }
+    return AIRL;
+  }
+  // the craft in the air (and drones) hostile to v within R m of her (a ship's old turrets afloat, combat.js turretStep)
+  const AF = [];
+  function airFoes(v, F, R) {
+    AF.length = 0;
+    for (const o of F.vessels) {
+      if (o === v || o.dead || o.body !== v.body || !o.parts.length || (o.sh && o.afloat) || !(isAirKind(o.kind) || flying(o)) || o.landed || o.contactTime > 0 || !foe(v, o)) continue;
+      if ((o.x - v.x) ** 2 + (o.y - v.y) ** 2 + (o.z - v.z) ** 2 < R * R) AF.push(o);
+    }
+    return AF;
+  }
+  const rcsAir = (o) => (typeof Combat !== 'undefined' && Combat.stealthOf ? 1 - (o._stl ?? (o._stl = Combat.stealthOf(o))) : 1);
+  // what a fire-control radar may lock (aim.js trackStep, trackRadar.missiles / .sea): hostile missiles closing on her
+  // within its reach and over its horizon (S3), and with sea, ships (as surface)
+  const TRKL = [];
+  function trackContacts(v, p, F, base) {
+    TRKL.length = 0;
+    for (const c of base) TRKL.push(c);
+    const tr = p.def.trackRadar, E = eyeOf(v, p, SE);
+    if (tr.missiles && typeof Combat !== 'undefined') for (const m of Combat.S.shots) {
+      if (m.k !== 'missile' || m.dead || !shotFoe(v, m)) continue;
+      const dx = v.x - m.x, dy = v.y - m.y, dz = v.z - m.z, d = Math.hypot(dx, dy, dz) || 1;
+      if (d > tr.range || (m.vx - v.vx) * dx + (m.vy - v.vy) * dy + (m.vz - v.vz) * dz <= 0) continue; // (closing)
+      const T = topOf(m, ST2);
+      if (!seesSea(E, T, E.h, T.h)) continue;
+      TRKL.push({ x: m.x, y: m.y, z: m.z, ref: m, sea: true });
+    }
+    if (tr.sea) for (const t of seaTargets(v, F, ST)) {
+      const T = topOf(t, ST2), P = t.def ? T : t, d = Math.hypot(P.x - E.x, P.y - E.y, P.z - E.z);
+      if (d > tr.range * (t.def ? 1 : rcs(t)) || !seesSea(E, T, E.h, T.h)) continue;
+      TRKL.push({ x: P.x, y: P.y, z: P.z, ref: t, sea: true });
+    }
+    return TRKL;
+  }
+  // can v's fire-control radar p still hold t (a missile or a ship: over its horizon), for aim.js trackStep and radarSees
+  function holds(v, p, t) {
+    const E = eyeOf(v, p, SE), T = topOf(t, ST2);
+    return seesSea(E, T, E.h, T.h);
+  }
+  // the surface contact (radar or eyes) a ship's guns are on (ghud.js: the rangefinder, the crosshair past the horizon):
+  // the nearest within `deg`° of the ray o + dir (sim), within reach; null: none
+  function contactOn(v, F, o, dir, deg, reach) {
+    let best = null, bk = Math.cos(deg * DEG);
+    const L = surface(v, F), eye = topOf(v, SE), eyes = SHIP.EYES[night(v, F) ? 'night' : 'day'];
+    const look = (ref, P) => { const dx = P.x - o.x, dy = P.y - o.y, dz = P.z - o.z, d = Math.hypot(dx, dy, dz) || 1, k = (dx * dir.x + dy * dir.y + dz * dir.z) / d; if (k > bk && d < reach) { bk = k; best = ref; } };
+    for (const c of L) if (c.k === 'sea') look(c.ref, c);
+    for (const t of seaTargets(v, F, ST)) { // (and those in sight)
+      const T = topOf(t, ST2), P = t.def ? T : t, d = Math.hypot(P.x - eye.x, P.y - eye.y, P.z - eye.z);
+      if (d < eyes && seesSea(eye, T, eye.h, T.h)) look(t, P);
+    }
+    return best;
+  }
+
+  // ---- the naval guns' magazines (§8.1): an empty naval gun (w.naval: its `ammo` its ready rounds) with a whole Shell
+  // Magazine aboard refills its ready rounds from the magazines' pool (store.rounds, each round any calibre) over 4 ×
+  // its reload (aim.js tick). Without one, its ready rounds are all.
+  function refill(v, p, h, F) {
+    const w = p.def.weapon;
+    if (!w || p.broken || p.ammo > 0) { p.refT = 0; return false; }
+    let pool = 0;
+    for (const q of v.parts) if (q.def.store && q.def.store.rounds > 0 && !q.broken && !q.magUp) pool += Number.isFinite(q.rounds) ? q.rounds : q.def.store.rounds;
+    if (!(pool > 0)) { p.refT = 0; return false; }
+    p.refT = (p.refT || 0) + h;
+    if (p.refT < 4 * (w.reload || 3)) return false;
+    p.refT = 0;
+    let need = w.ammo;
+    for (const q of v.parts) {
+      if (!(need > 0)) break;
+      if (!q.def.store || !(q.def.store.rounds > 0) || q.broken || q.magUp) continue;
+      const have = Number.isFinite(q.rounds) ? q.rounds : q.def.store.rounds, k = Math.min(have, need);
+      q.rounds = have - k; need -= k;
+    }
+    p.ammo = w.ammo - need; p.store = p.ammo * (w.each || 0); p.reload = 0;
+    if (F && v === F.active && !v.ai && F.toast) F.toast(`${p.def.name}: ${p.ammo} rounds up from the magazine`);
+    return true;
+  }
+
+  // ---- the AI's calls (WP10's ships fight with these)
+  // every naval gun laid on P (sim) and fired if laid within 0.5° and loaded; the guns keep laying on it (v.aimP). The
+  // number fired.
+  function salvo(v, P, F) {
+    if (!v || !P || v.dead || v.ko || typeof Aim === 'undefined') return 0;
+    v.aimP = { x: P.x, y: P.y, z: P.z };
+    let n = 0;
+    const sys = Combat.systems(v);
+    for (const s of sys) if (s.w.kind === 'tgun' && s.w.naval) for (const p of s.parts) {
+      if (p.broken || !(p.ammo > 0) || p.reload > 0 || !(p._err < 0.5 * DEG)) continue;
+      if (Aim.shoot(v, p, F)) { p.ammo--; p.reload = p.reloadT = p.ammo > 0 ? Aim.reloadOf(v, p) : 0; n++; }
+    }
+    return n;
+  }
+  // a torpedo from the tube on the side facing `bearing` (rad, clockwise from game north as Ship.heading), set to run
+  // there after its straight run (its gyro). The shot, or null.
+  function torpAt(v, bearing, F) {
+    if (!v || !v.sh || v.dead || v.ko) return null;
+    const S = v.sh, r = frameOf(v, S), gx = S.N.x * Math.cos(bearing) + S.E.x * Math.sin(bearing), gy = S.N.y * Math.cos(bearing) + S.E.y * Math.sin(bearing), gz = S.N.z * Math.cos(bearing) + S.E.z * Math.sin(bearing);
+    void r;
+    let best = null, bk = -2;
+    for (const p of v.parts) {
+      const w = p.def.weapon;
+      if (!w || w.kind !== 'torp' || p.broken || !(p.ammo > 0)) continue;
+      const d = sideDir(v, p, _ca), D = v.axis(d.x, d.y, d.z), k = D.x * gx + D.y * gy + D.z * gz;
+      if (k > bk) { bk = k; best = p; }
+    }
+    return best ? fireTorp(v, best, F, { x: gx, y: gy, z: gz }) : null;
+  }
+  // an anti-ship missile at target t (a vessel or a range target) from the launcher with missiles left. The shot or null.
+  function asmAt(v, t, F) {
+    if (!v || v.dead || v.ko || typeof Combat === 'undefined') return null;
+    const p = v.parts.find((q) => q.def.weapon && q.def.weapon.asm && !q.broken && q.ammo > 0);
+    return p ? Combat.launchMissile(v, p, t || null, F) : null;
+  }
+  // a vertical-launch SAM at t (an aircraft or a missile): the fire-control radar's lock put on it if it sees it. The
+  // shot or null.
+  function samAt(v, t, F) {
+    if (!v || !t || v.dead || v.ko || typeof Combat === 'undefined' || typeof Aim === 'undefined') return null;
+    const fc = Aim.kit(v).track, p = v.parts.find((q) => q.def.weapon && q.def.weapon.vls && !q.broken && q.ammo > 0);
+    if (!fc || fc.broken || !p) return null;
+    const T = v.trk || (v.trk = { on: false, cand: null, lockT: 0, lock: null, notchT: 0, blockT: 0, acc: 0 });
+    if (T.lock !== t) { if (!holds(v, fc, t)) return null; T.lock = t; T.on = true; T.notchT = T.blockT = 0; }
+    return Combat.launchMissile(v, p, t, F);
+  }
+  function ciwsOn(v, on) { if (v && v.sh) v.sh.ciwsOn = on !== false; return !!(v && v.sh && v.sh.ciwsOn); }
+  function resetCombat() { NOISE.length = 0; }
 
   // ---- the frame (Combat.frame, when Combat.S.sea): collisions, flooding, fires, damage control, fate, mooring, the AI,
   // the Naval Range [WP1's loop; the others add their calls]
@@ -3617,6 +4488,8 @@ const Ship = (() => {
     holedThrough, wetAt, floodForce, blastHull, roundHit, roundHole, ignite, levelOf, seed, hullPlate, rack, busy, // [WP8]
     // combat
     fireTorp, torpStep, torpHit, ciwsStep, shotMissiles, surface, seesSea, rcs,
+    asmStep, asmHit, asmTarget, armShot, vlsStep, samKill, torpPick, decoy, refill, foe, column, airContacts, airFoes, trackContacts, holds, contactOn, night, // [WP9]
+    salvo, torpAt, asmAt, samAt, ciwsOn, resetCombat, // [WP9] (the AI's calls: WP10)
     // frame
     frame, fx,
     // hud
