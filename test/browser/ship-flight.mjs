@@ -315,7 +315,8 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
 // ================================================================ [WP9] gunnery and missiles (spec §8.1, §8.6, §8.10)
 // The Arley from the hangar, armed, at the bay, on a phone in portrait (390×844) and a desktop (1280×720):
 //  - gunnery: her 127 mm through the gunner's sight (×6) at an Olivar 5 km out, FIRE held: rounds away as it loads, the
-//    first laid 400 m short of her (their columns of water, a spotter's splash at 5 km, in the sight: ship-gun-splash-*),
+//    first laid on the sea beside her, past the crosshair's 1° snap to a ship (their columns of water in the sight:
+//    ship-gun-splash-*),
 //    then on her: hits (her hull holed);
 //  - missiles: her anti-ship missile (the crosshair on a Cyclon 8 km out, FIRE): out of its canister (ship-asm-*), into
 //    the Cyclon; then an Osca's anti-ship missiles at her from 6 km, one at a time: her close-in gun firing (its tracers:
@@ -332,11 +333,11 @@ async function sailArmed(page, key) {
     window.__mk = (key, e, z, yaw) => { const T = TEMPLATES[key], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
       t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups(); t.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, yaw); Ship.launch(t, { e, z, yaw }); Flight.vessels.push(t); return t; };
     window.__simWait = async (dt, draw) => { Render3D.skipDraw = !draw; const f = () => new Promise((r) => requestAnimationFrame(r)), t0 = Flight.time, w0 = performance.now(); while (Flight.time < t0 + dt && performance.now() - w0 < 600000) await f(); Render3D.skipDraw = false; };
-    window.__aimAt = async (t, short = 0) => { const v = Flight.active, RAY = { o: v3(), d: v3() };
+    window.__aimAt = async (t, side = 0) => { const v = Flight.active, RAY = { o: v3(), d: v3() };
       for (let i = 0; i < 4; i++) {
         const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
-        const O = Render3D.aimRay(RAY).o, tr = Math.hypot(t.x, t.y, t.z), L = Math.hypot(t.x - v.x, t.y - v.y, t.z - v.z), k = short / L, up = short ? -0.5 : 3; // (short: on the sea that far short of her)
-        const px = t.x - (t.x - v.x) * k, py = t.y - (t.y - v.y) * k, pz = t.z - (t.z - v.z) * k, dx = px + (t.x / tr) * up - O.x, dy = py + (t.y / tr) * up - O.y, dz = pz + (t.z / tr) * up - O.z, d = Math.hypot(dx, dy, dz);
+        const O = Render3D.aimRay(RAY).o, tr = Math.hypot(t.x, t.y, t.z), lx = t.x - v.x, ly = t.y - v.y, lz = t.z - v.z, sx = uy * lz - uz * ly, sy = uz * lx - ux * lz, sz = ux * ly - uy * lx, sl = Math.hypot(sx, sy, sz) || 1, up = side ? -0.5 : 3; // (side: on the sea that far beside her, past the crosshair's 1° snap to a ship)
+        const px = t.x + (sx / sl) * side, py = t.y + (sy / sl) * side, pz = t.z + (sz / sl) * side, dx = px + (t.x / tr) * up - O.x, dy = py + (t.y / tr) * up - O.y, dz = pz + (t.z / tr) * up - O.z, d = Math.hypot(dx, dy, dz);
         Flight.aimYaw = Math.atan2(-(dx * nx + dy * ny + dz * nz) / d, (dx * ex + dy * ey) / d); Flight.aimPitch = Math.asin((dx * ux + dy * uy + dz * uz) / d);
         await window.__simWait(0.1, true);
       }
@@ -353,7 +354,7 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
     const { ctx, page } = await open(vp, tag + 'gun ');
     await sailArmed(page, 'arley');
     const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('olivar', -7300, 0, Math.PI / 2); await window.__simWait(1); const sel = window.__sel('nGun127');
-      Flight.setSight(true, 6); const on = await window.__aimAt(window.__tg); await window.__aimAt(window.__tg, 400); const gun = v.parts.find((p) => p.type === 'nGun127');
+      Flight.setSight(true, 6); const on = await window.__aimAt(window.__tg); await window.__aimAt(window.__tg, 150); const gun = v.parts.find((p) => p.type === 'nGun127');
       return { sel, on, ammo: gun.ammo, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)), sight: !!Flight.sight }; });
     // FIRE held (the fire button: Flight.touchFire); the first round's column (its time of flight about 8 s): the picture half a second after it rises
     await page.evaluate(async () => { Flight.touchFire = true; const f = () => new Promise((r) => requestAnimationFrame(r)), w0 = performance.now(); Render3D.skipDraw = true;
