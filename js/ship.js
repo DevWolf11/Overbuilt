@@ -4702,16 +4702,17 @@ const Ship = (() => {
     }
     return n;
   }
-  // The room's sea clock (the host's st, on a client): our sea's offset slews toward it at SHIP.SLEW s a second (more
-  // than 2 s off, or the first since a reset: a jump). age: how old the snapshot is (s). slew() with no st: back to 0
-  // (a new flight, a room left). Returns the offset.
+  // The room's sea clock (the host's st, on a client): our sea's offset slews toward it at SHIP.SLEW s a second, and half
+  // the error a second more (a device whose sim runs behind real time, its frames long, keeps up without jumping); more
+  // than 2 s off, or the first since a reset: a jump. age: how old the snapshot is (s). slew() with no st: back to 0 (a
+  // new flight, a room left). Returns the offset.
   const SLW = { at: null };
   function slew(st, F, age) {
     if (st === undefined || st === null) { S.seaOff = 0; SLW.at = null; return 0; }
     if (typeof st !== 'number' || !Number.isFinite(st) || Math.abs(st) > 1e10 || !F || !Number.isFinite(F.time)) return S.seaOff;
     const want = st + clamp(Number.isFinite(age) ? age : 0, 0, 2) - F.time, err = want - S.seaOff;
     if (SLW.at === null || Math.abs(err) > 2) S.seaOff = want;
-    else { const dt = clamp(F.time - SLW.at, 0, 1); S.seaOff += clamp(err, -SHIP.SLEW * dt, SHIP.SLEW * dt); }
+    else { const dt = clamp(F.time - SLW.at, 0, 1), k = (SHIP.SLEW + 0.5 * Math.abs(err)) * dt; S.seaOff += clamp(err, -k, k); }
     SLW.at = F.time;
     return S.seaOff;
   }

@@ -796,8 +796,9 @@ const MPUI = {
       for (const c of C) R.opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}${c.arms != null ? ` · ${c.arms || 'unarmed'}` : ''}`, () => go(c.design));
       if (!C.length) R.list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : sea ? 'No ship fits the money.' : 'No vehicle fits the money.' }));
     };
-    const lost = sea && Flight.active && Flight.active.fate && typeof SHIP_FATES !== 'undefined' ? SHIP_FATES[Flight.active.fate] : null; // ([WP11] her fate's word: Sunk, Capsized, …)
-    this.rsp({ kicker: 'Respawn', title: lost ? (by ? `${lost}: ${MP.nameOf(by)}` : lost) : by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
+    const fate = sea && Flight.active && Flight.active.fate, lost = fate && typeof SHIP_FATES !== 'undefined' ? SHIP_FATES[fate] : null; // ([WP11] her fate's word: Sunk, Capsized, …)
+    const byWord = { sunk: 'Sunk by', capsized: 'Capsized by', action: 'Put out of action by' }[fate];
+    this.rsp({ kicker: 'Respawn', title: lost ? (by ? (byWord ? `${byWord} ${MP.nameOf(by)}` : `${lost} · ${MP.nameOf(by)}`) : lost) : by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
   },
   // The Respawn panel itself, a room's and the Practice Battle's (groundai.js): a line counting down to the respawn time
   // and big buttons for thumbs, built with el() (names from peers stay text). o: { kicker, title, actions, state () ->

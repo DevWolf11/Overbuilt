@@ -92,9 +92,12 @@ log('A at', JSON.stringify([wa.e, wa.z, wa.name]), 'B at', JSON.stringify([wb.e,
 ok('both start at their own ends of the Sound (A West, B East: 7 km apart), afloat; each sees the other\'s ship as a hydro ghost, afloat',
   Math.hypot(wa.e - 16200, wa.z - 4600) < 5 && Math.hypot(wb.e - 23300, wb.z - 4600) < 5 && wa.afloat && wb.afloat && wa.kind === 'ship' && wa.ghost.afloat && wa.ghost.hydro && wb.ghost.afloat, [wa, wb]);
 ok('the objective: tickets for both, the zones at sea (a duel: Mid-Sound alone, 450 m)', wa.obj && wa.obj.tk.join() === '600,600' && wb.obj.zones.length === 1 && wb.obj.zones[0].id === 'C' && wb.obj.zones[0].r === 450, wa.obj);
-const seaT = await Promise.all([A, B].map((p) => p.evaluate(() => Ship.seaT(Flight))));
-log('sea clocks', JSON.stringify(seaT));
-ok('B\'s sea runs on the host\'s clock (within half a second: the two tabs\' frames apart)', Math.abs(seaT[0] - seaT[1]) < 0.5, seaT);
+// (the host's sea clock now, as B reckons it from the host's last snapshot: its st and how old it is; B's own sea slews to
+// it. Against A's own clock read a moment apart, a tab whose sim runs behind real time (software WebGL) reads further off)
+const seaT = await B.evaluate(() => { const S = MP.peers.get(1).snap; return { st: S.st, host: S.st + (Net.hostNow() - S.th) / 1000, ours: Ship.seaT(Flight), off: Ship.S.seaOff }; });
+const seaA = await A.evaluate(() => Ship.seaT(Flight));
+log('sea clocks', JSON.stringify(seaT), 'A\'s own', seaA);
+ok('B\'s sea runs on the host\'s clock (the host\'s snapshots carry st; B\'s sea within a quarter second of it as B reckons it)', Number.isFinite(seaT.st) && Math.abs(seaT.ours - seaT.host) < 0.25 && Math.abs(seaT.ours - seaA) < 5, { seaT, seaA });
 await flightShot(B, 'battle-start');
 
 // ---- B's corvette brought 700 m off A's starboard beam (as if she had steamed there), bow on to her
@@ -150,7 +153,8 @@ await B.waitForFunction(() => Flight.active.fate, null, { timeout: 240000 });
 await A.waitForFunction(() => MP.peers.get(2) && MP.peers.get(2).sink, null, { timeout: 30000 });
 r = await A.evaluate(() => { const g = MP.peers.get(2).ghost; return { fate: g.fate, sink: MP.peers.get(2).sink.why, ghosts: MP.ghosts().length, alt: Math.hypot(g.x, g.y, g.z) - EARTH.radius }; });
 log('A sees her doomed', JSON.stringify(r));
-ok('B\'s corvette founders (doomed: sunk); on A\'s screen her ghost stays, doomed and going down (no fireball, no drop)', r.fate === 'sunk' && r.sink === 'sunk' && r.ghosts === 1, r);
+const fateB = await B.evaluate(() => Flight.active.fate);
+ok('B\'s corvette founders (doomed: sunk, or capsized as the water ran to one side); on A\'s screen her ghost stays, doomed as she is and going down (no fireball, no drop)', ['sunk', 'capsized'].includes(fateB) && r.fate === fateB && r.sink === fateB && r.ghosts === 1, [fateB, r]);
 await A.evaluate(() => { const g = MP.peers.get(2).ghost; Flight.spectate = g; });
 await flightShot(A, 'sinking', [[1280, 720], [390, 844]]);
 await A.evaluate(() => { Flight.spectate = null; });
@@ -170,7 +174,7 @@ await shot(B, 'respawn', [[390, 844], [1280, 720]]);
 await B.evaluate(() => { Render3D.skipDraw = true; });
 r = await B.evaluate(() => ({ title: $('#modal-card .modal-title').textContent, opts: [...document.querySelectorAll('#modal .rsp-opt')].map((b) => b.querySelector('b').textContent) }));
 log('B respawn panel', JSON.stringify(r));
-ok('the Respawn panel: her fate and who did it, her ship to come back in, another one', /Sunk: Alice/.test(r.title) && r.opts.some((t) => /Your ship \(Vizby/.test(t)) && r.opts.some((t) => /Change ship/.test(t)), r);
+ok('the Respawn panel: her fate and who did it, her ship to come back in, another one', /^(Sunk|Capsized) by Alice$/.test(r.title) && r.opts.some((t) => /Your ship \(Vizby/.test(t)) && r.opts.some((t) => /Change ship/.test(t)), r);
 await B.waitForFunction(() => { const b = [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /Your ship/.test(x.textContent)); return b && !b.disabled; }, null, { timeout: 30000 });
 await B.evaluate(() => [...document.querySelectorAll('#modal .rsp-opt')].find((x) => /Your ship/.test(x.textContent)).click());
 await B.waitForFunction(() => !Flight.destroyed && Flight.active && !Flight.active.fate && Flight.time > 0.3, null, { timeout: 60000 });

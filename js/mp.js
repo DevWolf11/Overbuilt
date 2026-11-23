@@ -354,7 +354,7 @@ const MP = {
       const o = s.obj;
       if (s.settings.respawn !== 'lineup' || !Number.isInteger(v) || v < 0 || v > 2 || ((p.slots || 0) & (1 << v)) || !o || !(o.tk[p.team] > 0) || Net.hostNow() < (p.respawnAt || 0) - 300) return;
       p.slot = v;
-    } else if (k === 'troops' && this.ground) { if (!Number.isInteger(v) || v < 0 || v > 12 || p.troops === v) return; p.troops = v; } // (living troops aboard: captures)
+    } else if (k === 'troops' && this.zoned) { if (!Number.isInteger(v) || v < 0 || v > 12 || p.troops === v) return; p.troops = v; } // (living troops aboard: captures)
     else if (k === 'airSlots' && this.zoned) { if (!Number.isInteger(v) || v < 0 || v > 7 || (p.airSlots || 0) === v) return; p.airSlots = v; } // (the lineup's aircraft, a bit a slot: they need a sortie point)
     else return;
     if (s.phase === 'build' || s.phase === 'polish') this.maybeAllReady();
