@@ -25,10 +25,12 @@
 //     a slice a frame (none over 1.5 ms here, the whole fill timed apart) and swapped in. A tree with no ship skips 8b-e.
 //  9. the sea's looks (the ships update, WP15: OB_SEA, seaFrame): on, lakes on the old water, the whitecaps' clock a half
 //     float holds, no warm-up mesh kept (a); whitecaps by sea state, no program built at a change of it (b); the sea state
-//     from 3 km (c), the same with every vertex's noises (c2); no shimmer, still while paused (d), gliding under rails
-//     warp (d2); the swell grid's edge unseen (e);
+//     from 3 km (c), the same with every vertex's work (c2); no shimmer, still while paused (d), gliding under rails
+//     warp (d2); the swell grid's edge unseen (e); the sheet's noises from the CPU, the GPU's picture (c3); a quality
+//     change far above the ground drawing every frame (j);
 //     the wake's foam a minute long, kept while the camera is far (f); a wreck in a loch veiled by the old water (g); with
-//     no sea in view, the sheet on the old water's program, the same picture (h)
+//     no sea in view, the sheet on the old water's program, the same picture (h); turning round at Highland Ridge, only
+//     its blocks in view drawn, on the sea's program wherever a block of sea is in view, the same picture (i)
 // The console stays clean.     node test/browser/water.mjs
 import { launch, serve, watch, openGame, checks } from '../lib/browser.mjs';
 const srv = await serve(), b = await launch(), errs = [];
@@ -230,6 +232,29 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: with no sea in view (looking up) the sea's sheet is drawn as the old water (${s9h.up}; ${s9h.px} px off the sea's program's picture), looking down as the sea (${s9h.down})`,
         s9h.up === 'old' && s9h.all === 'sea' && s9h.px === 0 && s9h.down === 'sea', s9h);
+      // 9i. Highland Ridge's tank, the coast a few km off and mostly behind the hills: turning round 45° a step, the sheet
+      // drawn only in the blocks in view (seaSheet), on the sea's program whenever a block of sea is among them (every
+      // frame of the turn, as the camera eases round), on the old water's only where none is; in each view the picture the
+      // very one with every block drawn on the sea's program (bench.seaAll)
+      const s9i = await ev(async (HL) => {
+        await window.__start('tk34', HL, [20, 0.25]);
+        const views = [], turns = { sea: 0, old: 0, bad: 0 };
+        for (let i = 0; i < 8; i++) {
+          if (i) { // (the camera eases round: each frame, which program the sheet is drawn with and whether a block of sea is in view)
+            Render3D.orbitBy(130, 0); Render3D.skipDraw = true;
+            for (let n = 0; n < 150; n++) { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); const I = Render3D.seaInfo(); turns[I.sheet]++; if ((I.sheet === 'sea') !== I.cull.sea) turns.bad++; }
+            Render3D.skipDraw = false;
+          }
+          const a = window.__buf().buf, I = Render3D.seaInfo();
+          Render3D.bench.seaAll = true; window.__buf(); const sa = window.__buf().buf; Render3D.bench.seaAll = false;
+          Render3D.bench.oldSea = true; window.__buf(); const so = window.__buf().buf; Render3D.bench.oldSea = false; window.__buf();
+          views.push({ sheet: I.sheet, sea: I.cull.sea, blocks: I.cull.blocks, ocean: window.__same(sa, so), px: window.__same(a, sa) });
+        }
+        return { views, turns };
+      }, HL);
+      const v9i = s9i.views;
+      ok(`${T}: turning round at Highland Ridge, the sea's sheet is drawn in its blocks in view only (${v9i.map((v) => v.blocks).join(', ')}), on the sea's program wherever a block of sea is in view (${s9i.turns.sea} frames of the turns, ${s9i.turns.old} on the old water's with none, ${s9i.turns.bad} otherwise), the picture the one with every block drawn on the sea's program in all 8 views (${v9i.map((v) => v.px).join(', ')} px off; the sea showing in ${v9i.filter((v) => v.ocean > 0).length})`,
+        v9i.every((v) => v.px === 0 && (v.sheet === 'sea') === v.sea && (v.ocean === 0 || v.sheet === 'sea')) && s9i.turns.bad === 0 && s9i.turns.sea > 0 && v9i.some((v) => v.ocean > 0), s9i);
     }
     // ---- 9. the sea's looks (the ships update, WP15: render3d OB_SEA, seaFrame), on the open sea with no ship near
     if (await ev(() => typeof Ship !== 'undefined' && !!Render3D.seaInfo)) {
@@ -298,8 +323,9 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: the sea state reads from 3 km up: the waves' contrast ${s9c.calm.sd} (Calm) < ${s9c.moderate.sd} (Moderate) < ${s9c.rough.sd} (Rough), white flecks ${s9c.calm.flecks}% < ${s9c.rough.flecks}%`,
         s9c.calm.sd < s9c.moderate.sd && s9c.moderate.sd < s9c.rough.sd && s9c.rough.sd > 1.4 * s9c.calm.sd && s9c.calm.flecks < s9c.rough.flecks && s9c.calm.blocks > 20, s9c);
-      // c2. the sea's sheet skips its vertex noises where no triangle of it can come on screen (SEA_VS: the frustum's
-      // margin): the picture is the very one with every vertex working them out (bench.seaAll), low over the sea, looking
+      // c2. the sea's sheet skips its vertices' work where no triangle of it can come on screen (SEA_VS: the frustum's
+      // margin), and draws only its blocks in view (seaSheet): the picture is the very one with every block drawn and every
+      // vertex working it out (bench.seaAll), low over the sea, looking
       // down from 300 m, at the horizon from 3 km, and over a bay's shore from 120 m, in Calm and in Rough
       // (the pixels the hook changes that a frame drawn again without it leaves be: anything else that moves from frame to
       // frame, a beacon, smoke, isn't counted)
@@ -317,7 +343,30 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
         Ship.setSea('moderate');
         return out;
       }, [SEA, BAY]);
-      ok(`${T}: the sea's sheet skips its noises only where nothing of it shows: the pictures with every vertex working them out are the same (${s9c2.join(', ')} px apart in 8 views)`, s9c2.every((n) => n === 0), s9c2);
+      ok(`${T}: the sea's sheet skips its vertices' work and its blocks only where nothing of them shows: the pictures with every block drawn and every vertex working it out are the same (${s9c2.join(', ')} px apart in 8 views)`, s9c2.every((n) => n === 0), s9c2);
+      // c3. the sea's sheet takes its vertices' noises (the waves' groups, the wind patches) from its attributes, worked out
+      // once a patch on the CPU (seaNoiseAt); with them worked out on the GPU every frame instead, as the swell grid's are
+      // (bench.seaGPU: its own program), the picture is the same within a step of 255, low over the sea, from 300 m and over
+      // a bay's shore, in Moderate and in Rough (as c2: pixels a frame drawn again leaves be)
+      const s9c3 = await ev(async ([SEA, BAY]) => {
+        const out = [];
+        for (const [place, cam] of [[{ ...SEA, air: { alt: 30, speed: 0 } }, [30, 0.2]], [{ ...SEA, yaw: 2, air: { alt: 300, speed: 0 } }, [30, 1.2]], [{ ...BAY, yaw: 1, air: { alt: 120, speed: 0 } }, [30, 0.25]]]) {
+          await window.__start('falcon', place, cam);
+          for (const st of ['moderate', 'rough']) {
+            Ship.setSea(st);
+            const v0 = Render3D.seaInfo().ver, a = window.__buf().buf; Render3D.bench.seaGPU = true; window.__buf(); const b2 = window.__buf().buf, v1 = Render3D.seaInfo().ver; Render3D.bench.seaGPU = false; const c = window.__buf().buf;
+            let n = 0, mx = 0;
+            for (let i = 0; i < a.length; i += 4) {
+              if (a[i] !== c[i] || a[i + 1] !== c[i + 1] || a[i + 2] !== c[i + 2]) continue;
+              const d = Math.max(Math.abs(a[i] - b2[i]), Math.abs(a[i + 1] - b2[i + 1]), Math.abs(a[i + 2] - b2[i + 2])); if (d > 1) n++; mx = Math.max(mx, d);
+            }
+            out.push({ n, mx, rebuilt: v1 > v0 });
+          }
+        }
+        Ship.setSea('moderate');
+        return out;
+      }, [SEA, BAY]);
+      ok(`${T}: the sea's sheet's noises worked out once a patch on the CPU draw the sea the GPU's draw (${s9c3.map((r) => r.n).join(', ')} px over a step of 255 apart in 6 views, at most ${Math.max(...s9c3.map((r) => r.mx))})`, s9c3.every((r) => r.n === 0 && r.rebuilt), s9c3);
       // d. no shimmer far off, and still while paused: 500 m up looking at the horizon, two frames 1/60 s apart (the sea's
       // clock and the ripples' drift both moving) differ little where the sea is far (the upper half of the sea: a pixel
       // there is metres across), and two frames while paused not at all
@@ -361,6 +410,24 @@ for (const [w, h, dpr, tag] of [[390, 844, 2, 'phone'], [1280, 720, 1, 'desktop'
       }, SEA);
       ok(`${T}: under rails warp (500×) the near sea glides: two frames differ by ${s9d2[500].mean}/255 on average, as at 8× physics warp (${s9d2[8].mean}), its drawn clock stepping ${s9d2[500].step} s a frame; the warp's end puts it back on the sea's clock`,
         s9d2[500].px > 1000 && s9d2[500].step > 0 && s9d2[500].step < 0.2 && s9d2[500].mean <= 1.25 * s9d2[8].mean + 0.5 && Math.abs(s9d2.back) < 1e-6 && Math.abs(s9d2.was) < 1e-6, s9d2);
+      // j. (High's pass) the quality changed to Low 200 km up, no terrain patch near (the sea's sheet's blocks made for the
+      // old size of it, and the patch's body let go): the view turning draws every frame (renderFlight throws nothing: App.frame
+      // would swallow it, the view frozen), and back down the sea's sheet is cut into the new size's blocks
+      if (q === 'high') {
+        const s9j = await ev(async (SEA) => {
+          await window.__start('falcon', { ...SEA, air: { alt: 300, speed: 0 } }, [30, 1.2]);
+          const v = Flight.active, r0 = Math.hypot(v.x, v.y, v.z), k = (r0 + 200000) / r0, of = Render3D.seaInfo().cull.of, thrown = [];
+          const go = (n, turn) => { for (let i = 0; i < n; i++) { if (turn) Render3D.orbitBy(40, 5); try { Flight.updateCamera(); Render3D.renderFlight(Flight, 1 / 60, true); } catch (e) { thrown.push(String(e)); } } };
+          v.x *= k; v.y *= k; v.z *= k; go(10, false);
+          Settings.set('quality', 'low'); go(40, true);
+          v.x /= k; v.y /= k; v.z /= k; go(60, false);
+          const I = Render3D.seaInfo();
+          Settings.set('quality', 'high'); await window.__start('falcon', { ...SEA, air: { alt: 300, speed: 0 } }, [30, 1.2]);
+          return { thrown: thrown.length, first: thrown[0] || null, of, low: I.cull && I.cull.of, sheet: I.sheet, back: Render3D.seaInfo().cull.of };
+        }, SEA);
+        ok(`${T}: the quality changed 200 km up, no ground near, every frame drawn (${s9j.thrown} thrown${s9j.first ? ': ' + s9j.first : ''}); back down the sea's sheet in Low's blocks (${s9j.of} → ${s9j.low}), High's again after (${s9j.back})`,
+          s9j.thrown === 0 && s9j.low > 0 && s9j.low < s9j.of && s9j.back === s9j.of && s9j.sheet === 'sea', s9j);
+      }
     }
     // ---- 8. the swell near a ship (the ships update, render3d updateSwell)
     // a. no ship, no swell: over the open sea a Falcon's frame has no grid on show and no hole in the ocean

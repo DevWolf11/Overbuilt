@@ -1795,7 +1795,8 @@ vec3 getIBLRadiance( const in vec3 viewDir, const in vec3 normal, const in float
   // an even whitening where the waves are too small to see; faint foam lanes along the wind near the eye in Rough (High).
   // The ripples' strength and the roughness by sea state (Calm glassy, its swell gentler and in groups), and
   // kilometre-wide wind patches and slicks (a vertex's value noise, 2 and 1 km, periodic over SEA_LOOK.per m so the anchor
-  // can wrap) varying both and the colour. Light through the thin crests' tops facing the Sun while it is up (a
+  // can wrap; the sea's sheet has its vertices' noises, these and the waves' groups, worked out once a patch on the CPU:
+  // seaNoiseAt) varying both and the colour. Light through the thin crests' tops facing the Sun while it is up (a
   // blue-green glow by the height and how far the eye looks into the Sun) and darker troughs. Lakes and rivers keep the
   // old water's program (terr.lakeMat), and a veil over something sinking in a lake is the old water (obSea).
   const SEA_VS_PARS = `
@@ -1807,6 +1808,10 @@ uniform vec4 uVeil;
 varying vec2 vSeaP;
 varying vec4 vSeaA, vSeaB;
 varying vec2 vSeaC;
+#if ! defined( OB_SWELL ) && ! defined( OB_VEIL ) && ! defined( OB_SEAGN )
+attribute vec4 aSeaN; // (the sea's sheet: its noises a vertex, worked out once a patch on the CPU: seaNoiseAt)
+attribute float aSeaP;
+#endif
 float obH21( vec2 p ) { vec3 q = fract( vec3( p.xyx ) * 0.1031 ); q += dot( q, q.yzx + 33.33 ); return fract( ( q.x + q.y ) * q.z ); }
 vec4 obH24( vec2 p ) { vec4 q = fract( vec4( p.xyxy ) * vec4( 0.1031, 0.103, 0.0973, 0.1099 ) ); q += dot( q, q.wzxy + 33.33 ); return fract( ( q.xxyz + q.yzzw ) * q.zywx ); }
 float obVN( vec2 p, float per ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
@@ -1824,7 +1829,8 @@ vec4 obVN4( vec2 p, float per ) { vec2 i = floor( p ), f = fract( p ); f = f * f
 	// view's frustum than its cells reach (patchJob's spacing: a cell is under 0.33 of its distance from the eye plus 2 % of
 	// the patch's span and 200 m, with the eye anywhere up to a quarter span off its middle; the margin, half the distance
 	// plus uSeaS.z, 3 % of the span and 300 m, is half as much again). Most of the sheet lies there, all round the eye, so a
-	// scene with little or no sea on screen pays little for the sea's looks; bench.seaAll turns it off, the same picture)
+	// scene with little or no sea on screen pays little for the sea's looks; bench.seaAll turns it off, the same picture.
+	// The sheet's blocks out of view aren't drawn at all, seaSheet: this is for the vertices of a block partly in view)
 #if ! defined( OB_SWELL ) && ! defined( OB_VEIL )
 	vec2 obTn = vec2( 1.0 / projectionMatrix[ 0 ][ 0 ], 1.0 / projectionMatrix[ 1 ][ 1 ] ), obOf = ( abs( mvPosition.xy ) + mvPosition.z * obTn ) * inversesqrt( 1.0 + obTn * obTn );
 	if ( max( max( obOf.x, obOf.y ), mvPosition.z ) > 0.5 * length( mvPosition.xyz ) + uSeaS.z ) {
@@ -1845,14 +1851,19 @@ vec4 obVN4( vec2 p, float per ) { vec2 i = floor( p ), f = fract( p ); f = f * f
 	float obDf = obSs * smoothstep( OB_FADE.x, OB_FADE.y, aWater.x ), obVd = length( mvPosition.xyz );
 	float obFt = obVd * uSeaS.x / max( abs( dot( vNormal, mvPosition.xyz ) ) / obVd, 0.03 ); // (vNormal: three's, normalised)
 	vec4 obLw = 6.2831853 * uSeaIK, obFd = 1.0 - smoothstep( obLw * 0.1, obLw * 0.33, vec4( obFt ) ), obAk = uSeaA * uSeaK;
-	vec2 obQ = obSp + uSeaO.xy;
 	// (the noises only where they can show: the wave groups where the waves are, the wind patches on the sea and its
 	// shore; a vertex well under the ground (40 m: the sea's sheet runs on under the land) takes the patches' mean, 0.5, as
-	// a vertex off the sea does)
+	// a vertex off the sea does. The sea's sheet has them from its attributes, worked out once a patch: seaNoiseAt)
+#if ! defined( OB_SWELL ) && ! defined( OB_VEIL ) && ! defined( OB_SEAGN )
+	vec4 obGr = aSeaN;
+	float obWp = mix( 0.5, aSeaP, obSs ); // (the wind patches)
+#else
+	vec2 obQ = obSp + uSeaO.xy;
 	vec4 obGr = vec4( 0.5 );
 	float obWp = 0.5;
 	if ( obDf > 0.0 ) obGr = obVN4( obQ / 256.0, 128.0 );
 	if ( obSs > 0.0 && aWater.x > - 40.0 ) obWp = mix( 0.5, 0.62 * obVN( obQ / 2048.0, 16.0 ) + 0.38 * obVN( obQ / 1024.0 + 17.3, 32.0 ), obSs ); // (the wind patches)
+#endif
 	// (the slopes shaded: each wave's in the groups (256 m) past 250-700 m, everywhere in Calm (uSeaG.z), scaled by the
 	// sea state's uSeaG.y (Calm's gentler: a glassy sea, not corduroy))
 	vSeaA = obAk * obFd * obDf * uSeaG.y * mix( vec4( 1.0 ), 0.2 + 1.6 * obGr, max( smoothstep( 250.0, 700.0, obVd ), uSeaG.z ) );
@@ -2053,6 +2064,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
       n, m, nc, nr, sx: new Float64Array(nc), sz: new Float64Array(nr), h: new Float32Array(N), dk: new Float32Array(N), cont: new Float32Array(N), tn: new Float32Array(N),
       wl: new Float32Array(N), wp: new Float32Array(N), lk: new Float32Array(N), road: new Float32Array(N), river: new Float32Array(N), // inland water, roads, rivers (the real Earth)
       hide: new Uint8Array(N), // water vertices out of sight (cullWater)
+      seaBk: null, // ([WP15] the sea's sheet's blocks: seaCullBuild, made with its geometry's index)
       G: null, b: null, a0: 0, span: 0, at: -9, active: false,
     });
     const idx = new Uint16Array((nc - 1) * (nr - 1) * 6);
@@ -2081,6 +2093,11 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     patch.mesh = new THREE.Mesh(tg, terr.mat);
     patch.mesh.receiveShadow = true;
     patch.ocean = new THREE.Mesh(mk(4), terr.oceanMat);
+    if ('OB_SEA' in terr.oceanMat.defines) { // [WP15] (the sea's noises a vertex, patchJob: seaNoiseAt; SEA_VS)
+      const og = patch.ocean.geometry;
+      og.setAttribute('aSeaN', new THREE.BufferAttribute(new Float32Array(N * 4).fill(0.5), 4).setUsage(THREE.DynamicDrawUsage));
+      og.setAttribute('aSeaP', new THREE.BufferAttribute(new Float32Array(N).fill(0.5), 1).setUsage(THREE.DynamicDrawUsage));
+    }
     patch.ocean.receiveShadow = false; // shadows fall on the sea floor, seen through the water
     patch.ocean.renderOrder = 1;
     // lakes and rivers: their own water surface, at their own level
@@ -2245,9 +2262,13 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     for (const g of [tg, patch.ocean.geometry, patch.inland.geometry]) g.boundingSphere.center.set(pos[mid], pos[mid + 1], pos[mid + 2]);
     tg.boundingSphere.radius = span * 1.6 + c.hmax;
     patch.ocean.visible = !!b.ocean;
+    if (!b.ocean) patch.seaBk = null; // ([WP15] no sea's sheet to cut into blocks: seaSheet leaves it be)
     if (b.ocean) {
       const og = patch.ocean.geometry, op = og.attributes.position.array, on = og.attributes.normal.array, oc = og.attributes.color.array, ow = og.attributes.aWater.array;
       const deep = SEA_DEEP, shal = C('#2b8bb8');
+      // [WP15] the sea's noises a vertex (seaNoiseAt: Earth's sea only), at its game east and north: the UVs' metres as
+      // seaFrame's uSeaUV has them, without the anchor
+      const sN = b === EARTH && S.deepW && og.attributes.aSeaN ? og.attributes.aSeaN.array : null, sP = sN && og.attributes.aSeaP.array, eW = -wrapAngle(a0 - EARTH.padAngle) * R;
       for (let j = 0; j < nr; j++) {
         const cp = Math.cos(G.phi[j]), sp = Math.sin(G.phi[j]);
         for (let i = 0; i < nc; i++) {
@@ -2259,6 +2280,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
           if (S.deepW) { // (the water's depth, waterHook: the colour of the water itself, deepening offshore; foam and depth apart)
             seaBody(-hs[k], far, out);
             ow[k * 3] = -hs[k]; ow[k * 3 + 1] = foam; ow[k * 3 + 2] = 1;
+            if (sN) seaNoiseAt(eW - sx[i] / kl, -z0 - sz[j], -hs[k], sN, sP, k); // [WP15]
             oc[k * 4] = lin(out[0]); oc[k * 4 + 1] = lin(out[1]); oc[k * 4 + 2] = lin(out[2]); oc[k * 4 + 3] = 1;
             continue;
           }
@@ -2269,6 +2291,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
         if ((j & 7) === 7) yield;
       }
       for (const a of ['position', 'normal', 'color', 'aWater']) og.attributes[a].needsUpdate = true;
+      if (sN) og.attributes.aSeaN.needsUpdate = og.attributes.aSeaP.needsUpdate = true; // [WP15]
       og.boundingSphere.radius = span * 1.6;
       // the sea runs on under the land, out of sight wherever a triangle's corners all stand well above it: those are
       // left out, within half the horizon. "Well above": 1.5 m, and more far off, where a pixel spans more ground (the
@@ -2278,7 +2301,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
         const k = j * nc + i;
         hide[k] = Math.abs(sx[i]) <= lim && Math.abs(sz[j]) <= lim && hs[k] >= Math.max(1.5, Math.hypot(sx[i], sz[j], camAlt) / 200) ? 1 : 0;
       }
-      cullWater(patch, og);
+      if (terr.lakeMat !== terr.oceanMat) seaCullBuild(patch, og); else cullWater(patch, og); // ([WP15] the sea's sheet in blocks, drawn as they come into view: seaSheet)
     }
     // lakes and rivers: a water surface at their own level where there is water, tucked under the ground elsewhere
     let inland = false;
@@ -6264,6 +6287,57 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     return S.seaU;
   }
   const seaFade = () => { const F = typeof SHIP !== 'undefined' && SHIP.FADE ? SHIP.FADE : [3, 25]; return `\n#define OB_FADE vec2( ${(+F[0]).toFixed(3)}, ${(+F[1]).toFixed(3)} )`; };
+  // The sea's noises at a vertex of its sheet (SEA_VS: the four waves' groups, obVN4 over 256 m cells, and the wind
+  // patches, obVN over 2 and 1 km), worked out on the CPU once a patch (patchJob, into its attributes aSeaN and aSeaP)
+  // instead of per vertex on the GPU every frame: from the very lattices SEA_VS_PARS's hashes give (obH24, obH21, in
+  // float32 as a GPU has them, tabled at first use) and the same smooth mix, at the vertex's own game east and north
+  // (m, wrapped every SEA_LOOK.per m, as the GPU's are); as SEA_VS had them, the groups only where the waves are (deeper
+  // than SHIP.FADE[0]), the wind patches on the sea and its shore (to 40 m under the ground), 0.5 elsewhere. The swell
+  // grid and the veils keep the GPU's (their vertices are few and the swell's move)
+  function seaNoiseT() {
+    if (S.seaNT) return S.seaNT;
+    const f = Math.fround, fr = (x) => f(x - Math.floor(x)), K = f(33.33);
+    const h21 = (x, y) => {
+      let a = fr(f(x * f(0.1031))), b = fr(f(y * f(0.1031))), c = a;
+      const d = f(f(f(a * f(b + K)) + f(b * f(c + K))) + f(c * f(a + K)));
+      a = f(a + d); b = f(b + d); c = f(c + d);
+      return fr(f(f(a + b) * c));
+    };
+    const g = new Float32Array(128 * 128 * 4), w1 = new Float32Array(16 * 16), w2 = new Float32Array(32 * 32);
+    for (let j = 0; j < 128; j++) for (let i = 0; i < 128; i++) {
+      let a = fr(f(i * f(0.1031))), b = fr(f(j * f(0.103))), c = fr(f(i * f(0.0973))), d = fr(f(j * f(0.1099)));
+      const t = f(f(f(f(a * f(d + K)) + f(b * f(c + K))) + f(c * f(a + K))) + f(d * f(b + K)));
+      a = f(a + t); b = f(b + t); c = f(c + t); d = f(d + t);
+      const k = (j * 128 + i) * 4;
+      g[k] = fr(f(f(a + b) * c)); g[k + 1] = fr(f(f(a + c) * b)); g[k + 2] = fr(f(f(b + c) * d)); g[k + 3] = fr(f(f(c + d) * a));
+    }
+    for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) w1[j * 16 + i] = h21(i, j);
+    for (let j = 0; j < 32; j++) for (let i = 0; i < 32; i++) w2[j * 32 + i] = h21(i, j);
+    return (S.seaNT = { g, w1, w2, f0: typeof SHIP !== 'undefined' && SHIP.FADE ? +SHIP.FADE[0] : 3 });
+  }
+  // (the noises at game east e, north n (m) over a vertex depth dep (m: under 0 the ground stands over it), into
+  // N4[4k..4k+3] and P1[k]: each a smooth mix of its lattice's four corners round it)
+  function seaNoiseAt(e, n, dep, N4, P1, k) {
+    const T = S.seaNT || seaNoiseT(), pe = SEA_LOOK.per;
+    let E = e % pe, Nn = n % pe;
+    if (E < 0) E += pe;
+    if (Nn < 0) Nn += pe;
+    const o = k * 4;
+    if (dep > T.f0) {
+      const x = E / 256, y = Nn / 256, ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+      const g = T.g, j0 = (iy & 127) << 7, j1 = ((iy + 1) & 127) << 7, i0 = ix & 127, i1 = (ix + 1) & 127;
+      const a = (j0 + i0) << 2, b = (j0 + i1) << 2, c = (j1 + i0) << 2, d = (j1 + i1) << 2;
+      for (let q = 0; q < 4; q++) { const p0 = g[a + q] + (g[b + q] - g[a + q]) * su, p1 = g[c + q] + (g[d + q] - g[c + q]) * su; N4[o + q] = p0 + (p1 - p0) * sv; }
+    } else N4[o] = N4[o + 1] = N4[o + 2] = N4[o + 3] = 0.5;
+    if (dep > -40) P1[k] = 0.62 * seaVN(T.w1, 16, E / 2048, Nn / 2048) + 0.38 * seaVN(T.w2, 32, E / 1024 + 17.3, Nn / 1024 + 17.3);
+    else P1[k] = 0.5;
+  }
+  function seaVN(T, n, x, y) { // (one value noise on a table of side n, a power of two, at x, y in its cells)
+    const ix = Math.floor(x), iy = Math.floor(y), u = x - ix, v = y - iy, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v), m = n - 1;
+    const i0 = ix & m, i1 = (ix + 1) & m, j0 = (iy & m) * n, j1 = ((iy + 1) & m) * n;
+    const p0 = T[j0 + i0] + (T[j0 + i1] - T[j0 + i0]) * su, p1 = T[j1 + i0] + (T[j1 + i1] - T[j1 + i0]) * su;
+    return p0 + (p1 - p0) * sv;
+  }
   const SEAW = new Float32Array(24), SEALOC = {}, md = (x, m) => ((x % m) + m) % m;
   const set4 = (v, f) => v.set(f(0), f(1), f(2), f(3));
   // the lakes' program (terr.lakeMat: the old water's) compiled while a flight loads, as the effect meshes' are (S.warm),
@@ -6296,50 +6370,92 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   }
   // Which program draws the sea's sheet this frame: the sea's looks (terr.oceanMat) while any of its sea could be on
   // screen, else the water as it was (terr.lakeMat: the lakes' own program, the old water's, built while the flight
-  // loads), so a scene with no sea in view (Highland Ridge, a flight inland) draws the old picture at the old cost on any
-  // GPU. Per patch, each block of SEAB × SEAB cells with a sea vertex in it (its depth over 0) gets a box round its sea
-  // vertices and the ones next to them (every triangle a sea vertex is in lies inside it) and 50 m; a frame tests them
-  // against the view's frustum and the camera's horizon, in the sheet's own frame, until one is in view. With the swell on, while the flight loads, or off
-  // the sea's looks: the sea's
+  // loads), so a scene with no sea in view (Highland Ridge's battles looking inland, a flight inland) draws the old
+  // picture at the old cost on any GPU. The sheet's blocks (seaCullBuild: SEAB × SEAB cells, a box round each one's
+  // vertices) are tested each frame against the view's frustum and the camera's horizon, in the sheet's own frame: those
+  // in view are drawn, and the sea's program is wanted while one with a sea vertex (its depth over 0) is among them. A
+  // block of sea in view behind the hills keeps the sea's program, its vertices' work cheap (the noises worked out once a
+  // patch: seaNoiseAt) and its fragments failing the depth test. With the swell on, while the flight loads, with
+  // bench.seaAll or off the sea's looks: the sea's program, as before
   const SEAB = 8, SEAV = {}; // (the frustum, its matrices, a box and the camera: made at first use, three.js loading late)
-  function seaBlocks(P) {
-    if (P.seaB && P.seaB.ver === P.ver) return P.seaB.list;
-    const { nc, nr } = P, pos = P.ocean.geometry.attributes.position.array, aw = P.ocean.geometry.attributes.aWater.array, list = [];
+  // The sea's sheet's index block by block (patchJob, in place of cullWater for it: the same triangles by the same rule,
+  // in blocks of SEAB × SEAB cells): the whole of it in P.seaBk.ix, and per block its start and count there, the box round
+  // its vertices (the sheet's own frame) and whether a sea vertex (its depth over 0) is one of them. Each frame seaSheet
+  // draws the blocks in the view's frustum and short of the camera's horizon, alone (the others can't put a fragment on
+  // screen, and the sheet, a convex surface seen from outside, never covers itself: the same picture in any order), so a
+  // GPU runs the sheet's vertices in view, a twentieth of them or less (Low: 6-9 of its 141-144 blocks at Highland Ridge,
+  // over the lowland and on the coast), not all of them every frame (SEA_VS's skip of a vertex out of view saved
+  // SwiftShader, the bench's renderer, little); as the near ground's tiles are (nearCull). The index changes only on a
+  // frame a block comes into view or leaves it (the visible blocks' few thousand indices sent again)
+  function seaCullBuild(P, g) {
+    const { nc, nr, hide } = P, pos = g.attributes.position.array, aw = g.attributes.aWater.array, NI = g.index.array.length;
+    const ix = P.seaBk && P.seaBk.ix.length === NI ? P.seaBk.ix : new Uint16Array(NI), list = [];
+    let n = 0;
     for (let j0 = 0; j0 < nr - 1; j0 += SEAB) for (let i0 = 0; i0 < nc - 1; i0 += SEAB) {
-      const i1 = Math.min(nc - 1, i0 + SEAB), j1 = Math.min(nr - 1, j0 + SEAB);
-      let sea = false;
-      for (let j = j0; j <= j1 && !sea; j++) for (let i = i0; i <= i1; i++) if (aw[(j * nc + i) * 3] > 0) { sea = true; break; }
-      if (!sea) continue;
-      // (the box round the block's sea vertices and the vertices next to each: every triangle a sea vertex is in)
-      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-        if (!(aw[(j * nc + i) * 3] > 0)) continue;
-        for (let jj = Math.max(0, j - 1); jj <= Math.min(nr - 1, j + 1); jj++) for (let ii = Math.max(0, i - 1); ii <= Math.min(nc - 1, i + 1); ii++) {
-          const k = (jj * nc + ii) * 3, x = pos[k], y = pos[k + 1], z = pos[k + 2];
-          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
-        }
+      const i1 = Math.min(nc - 1, i0 + SEAB), j1 = Math.min(nr - 1, j0 + SEAB), n0 = n;
+      for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
+        const p = j * nc + i, q = p + 1, r = p + nc, t = r + 1;
+        if (!(hide[p] && hide[q] && hide[r])) { ix[n++] = p; ix[n++] = q; ix[n++] = r; }
+        if (!(hide[q] && hide[t] && hide[r])) { ix[n++] = q; ix[n++] = t; ix[n++] = r; }
       }
-      list.push(x0 - 50, y0 - 50, z0 - 50, x1 + 50, y1 + 50, z1 + 50); // (and 50 m more)
+      if (n === n0) continue;
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, sea = 0;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const k = j * nc + i, x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2];
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+        if (aw[k * 3] > 0) sea = 1;
+      }
+      list.push(n0, n - n0, x0 - 1, y0 - 1, z0 - 1, x1 + 1, y1 + 1, z1 + 1, sea); // (and a metre)
     }
-    P.seaB = { ver: P.ver, list };
-    return list;
+    P.seaBk = { ix, n, list: Float64Array.from(list), vis: new Uint8Array(list.length / 9), drawn: -1, seen: false };
+    g.index.array.set(ix.subarray(0, n)); g.setDrawRange(0, n); // (all of it, until seaSheet's first frame with it)
+    g.index.clearUpdateRanges(); g.index.addUpdateRange(0, Math.max(n, 1)); g.index.needsUpdate = true;
   }
-  // (hc: the camera's height over the sea: a block wholly past its horizon is under it too)
+  // (hc: the camera's height over the sea: a block wholly past its horizon is under it too, its triangles facing away)
   function seaSheet(P, on, hc) {
     let m = terr.oceanMat;
-    if (on && terr.lakeMat !== terr.oceanMat && !SWL.on && !(S.warm > 0) && !api.bench.seaAll) {
-      const L = seaBlocks(P), V = SEAV.f ? SEAV : Object.assign(SEAV, { f: new THREE.Frustum(), m: new THREE.Matrix4(), i: new THREE.Matrix4(), b: new THREE.Box3(), c: new THREE.Vector3() });
+    const K = P.seaBk, pick = on && terr.lakeMat !== terr.oceanMat && !SWL.on && !(S.warm > 0) && !api.bench.seaAll;
+    if (K && P.b) {
+      const L = K.list, vis = K.vis, g = P.ocean.geometry, all = !!api.bench.seaAll, V = SEAV.f ? SEAV : Object.assign(SEAV, { f: new THREE.Frustum(), m: new THREE.Matrix4(), i: new THREE.Matrix4(), c: new THREE.Vector3(), e: new Float64Array(16) });
       const hz = Math.sqrt(2 * P.b.radius * Math.max(0, hc) + hc * hc) * 1.02 + 200;
       // (the frustum and the camera in the sheet's own frame: its blocks' boxes as they are)
       P.ocean.updateWorldMatrix(true, false);
-      V.f.setFromProjectionMatrix(V.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(P.ocean.matrixWorld));
-      V.c.copy(camera.position).applyMatrix4(V.i.copy(P.ocean.matrixWorld).invert());
-      let seen = false;
-      for (let i = 0; i < L.length && !seen; i += 6) {
-        V.b.min.set(L[i], L[i + 1], L[i + 2]); V.b.max.set(L[i + 3], L[i + 4], L[i + 5]);
-        seen = V.b.distanceToPoint(V.c) < hz && V.f.intersectsBox(V.b);
+      const me = V.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(P.ocean.matrixWorld).elements, E = V.e;
+      // (the very view of the same blocks as the last frame, a still camera: what was in view still is, nothing to test)
+      let same = V.K === K && K.drawn >= 0 && V.hz === hz && V.all === all;
+      for (let i = 0; i < 16 && same; i++) same = E[i] === me[i];
+      if (!same) {
+        for (let i = 0; i < 16; i++) E[i] = me[i];
+        V.K = K; V.hz = hz; V.all = all;
+        V.f.setFromProjectionMatrix(V.m);
+        V.c.copy(camera.position).applyMatrix4(V.i.copy(P.ocean.matrixWorld).invert());
+        // (each block's box: within the horizon's reach of the camera (Box3.distanceToPoint) and not wholly outside a
+        // plane of the frustum (Frustum.intersectsBox: the corner furthest along its normal), worked out as three does)
+        const pl = V.f.planes, cx = V.c.x, cy = V.c.y, cz = V.c.z, h2 = hz * hz;
+        let seen = false, changed = K.drawn < 0; // (another patch: its blocks are new)
+        for (let o = 0, k = 0; o < L.length; o += 9, k++) {
+          const x0 = L[o + 2], y0 = L[o + 3], z0 = L[o + 4], x1 = L[o + 5], y1 = L[o + 6], z1 = L[o + 7];
+          let s = 1;
+          if (!all) { // (bench.seaAll: every block, tests)
+            const dx = Math.max(x0 - cx, 0, cx - x1), dy = Math.max(y0 - cy, 0, cy - y1), dz = Math.max(z0 - cz, 0, cz - z1);
+            if (dx * dx + dy * dy + dz * dz >= h2) s = 0;
+            else for (let q = 0; q < 6; q++) { const n = pl[q].normal; if (n.x * (n.x > 0 ? x1 : x0) + n.y * (n.y > 0 ? y1 : y0) + n.z * (n.z > 0 ? z1 : z0) + pl[q].constant < 0) { s = 0; break; } }
+          }
+          if (s && L[o + 8]) seen = true;
+          if (s !== vis[k]) { vis[k] = s; changed = true; }
+        }
+        if (changed) { // (the blocks in view, alone)
+          const a = g.index.array;
+          let n = 0;
+          for (let o = 0, k = 0; o < L.length; o += 9, k++) if (vis[k]) { a.set(K.ix.subarray(L[o], L[o] + L[o + 1]), n); n += L[o + 1]; }
+          g.setDrawRange(0, n);
+          g.index.clearUpdateRanges(); g.index.addUpdateRange(0, Math.max(n, 1)); g.index.needsUpdate = true;
+          K.drawn = n;
+        }
+        K.seen = seen;
       }
-      if (!seen) m = terr.lakeMat;
+      S.seaSeen = K.seen; // (a block of sea in view: seaInfo)
+      if (pick && !K.seen) m = terr.lakeMat;
     }
     if (P.ocean.material !== m) P.ocean.material = m;
     S.seaSheet = m === terr.oceanMat;
@@ -6350,6 +6466,8 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     U.uSeaS.value.w = on ? 1 : 0;
     S.seaOn = on;
     seaWarm();
+    const gn = !!api.bench.seaGPU, od = terr.oceanMat.defines; // (bench.seaGPU: the sheet's noises worked out on the GPU, as SEA_VS did: tests)
+    if (gn !== ('OB_SEAGN' in od)) { if (gn) od.OB_SEAGN = ''; else delete od.OB_SEAGN; terr.oceanMat.needsUpdate = true; }
     if (P.ocean && P.ocean.geometry.attributes.aWater) seaSheet(P, on, b ? Math.hypot(rx, ry, rz) - b.radius : 0);
     const C0 = S.skyL && S.skyL.snap, E = S.seaEnv; // (the cube as drawn: renderFlight moves envUni's zenith on after it)
     if (C0) { E.obEnvZ.value.copy(C0.zen); E.obEnvH.value.copy(C0.hor); E.obEnvS.value.copy(C0.sun); E.obEnvK.value.set(C0.sunK, C0.fx); }
@@ -6363,7 +6481,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     const W = Ship.waveUniforms(e0, n0, t, SEAW), n = Math.min(4, (W.length / 6) | 0), at = (i, k, d) => (i < n ? W[i * 6 + k] : d);
     set4(U.uSeaDE.value, (i) => at(i, 0, 1)); set4(U.uSeaDN.value, (i) => at(i, 1, 0)); set4(U.uSeaK.value, (i) => at(i, 2, 1) || 1);
     set4(U.uSeaIK.value, (i) => 1 / (at(i, 2, 1) || 1)); set4(U.uSeaA.value, (i) => at(i, 3, 0)); set4(U.uSeaPh.value, (i) => at(i, 5, 0));
-    U.uSeaS.value.set((2 * TANH) / Math.max(1, H * renderer.getPixelRatio()), st.rip, api.bench.seaAll ? 1e9 : 0.03 * P.span + 300, 1); // (z: the sheet's cells' reach past the frustum, SEA_VS; bench.seaAll: every vertex's noises, tests)
+    U.uSeaS.value.set((2 * TANH) / Math.max(1, H * renderer.getPixelRatio()), st.rip, api.bench.seaAll ? 1e9 : 0.03 * P.span + 300, 1); // (z: the sheet's cells' reach past the frustum, SEA_VS; bench.seaAll: every vertex's work, tests)
     let sk = 0; for (let i = 0; i < n; i++) sk += W[i * 6 + 3] * W[i * 6 + 2] * W[i * 6 + 2];
     U.uSeaW.value.set(st.wc, st.cov, sk > 0 ? 1 / sk : 0, md(t / SEA_LOOK.gateT, 16)); // (w: the whitecaps' cycles, folded to 16: a half float holds the fraction)
     // (waves 1 and 3: the whole periods at the anchor, so a crest keeps its number as the anchor moves: the folded phase's
@@ -7861,7 +7979,8 @@ void main() {
       proxyCap: 0,
       ground: true, water: true, oldWater: false, // (the water's depth: benchWater)
       wake: true, // [WP2] (false: the wakes not drawn, for their pixels)
-      seaAll: false, // [WP15] (every vertex of the sea's sheet works out its noises, even those no triangle brings on screen: tests, the picture must be the same)
+      seaGPU: false, // [WP15] (the sea's sheet works its vertices' noises out on the GPU, as the swell grid does, not from its attributes (seaNoiseAt): tests, the same picture within a step of 255)
+      seaAll: false, // [WP15] (every block of the sea's sheet drawn and every vertex of it worked out, even those no triangle brings on screen, on the sea's program: tests, the picture must be the same)
       oldSea: false, // [WP15] (the ocean and the veils drawn without the sea's looks, OB_SEA: their cost and picture in the same page; benchWater)
       swellFlat: false, // [WP15] (the swell's grid with its heights flat and its shading on: drawn as the ocean round it, edge and all)
     },
@@ -8044,6 +8163,7 @@ void main() {
         ph: U && a4(U.uSeaPh), s: U && a4(U.uSeaS), o: U && a4(U.uSeaO), t: U ? U.uSeaT.value : null, w: U && a4(U.uSeaW), g: U && a4(U.uSeaG), f: U && a4(U.uSeaF), warmMesh: !!S.lakeWarm,
         ver: terr.oceanMat ? terr.oceanMat.version : null, swellVer: SWL.mat ? SWL.mat.version : null, // (the materials' versions: a rebuild bumps them)
         sheet: S.seaSheet === false ? 'old' : 'sea', // (the sea's sheet this frame: the sea's looks, or the old water's with no sea in view: seaSheet)
+        cull: patch.seaBk ? { blocks: patch.seaBk.vis.reduce((a, v) => a + v, 0), of: patch.seaBk.vis.length, tris: Math.max(0, patch.seaBk.drawn) / 3, all: patch.seaBk.n / 3, sea: !!S.seaSeen } : null, // (the sheet's blocks drawn, of all, and their triangles: seaCullBuild)
         lake: terr.lakeMat ? { ...terr.lakeMat.defines } : null, lakeOwn: !!terr.lakeMat && terr.lakeMat !== terr.oceanMat, inland: !!(patch.inland && patch.inland.material === terr.lakeMat) };
     },
     // tests: fill the grid again now (as a recentre does), returning what it took (ms); null with no grid on show
