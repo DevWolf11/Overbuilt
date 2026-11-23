@@ -88,9 +88,10 @@ const SCENES = {
   seaRough: { key: 'falcon', place: { ...SEA, air: { alt: 20, speed: 120 } }, time: 'noon', what: 'the open sea 20 m up, Rough, no ship near: the swell off', sea: true, seaState: 'rough' },
   shipnear: { key: 'cyclon', ship: true, place: { e: SEA.e, z: SEA.z, yaw: 0.5 }, time: 'noon', what: 'the chase camera on a small hull at 40 kn, Moderate: the swell, the wake, spray', wet: true, seaState: 'moderate', load: 'sail' },
   // ([WP10] the computer's ships, spec-ships §15: Hostile wave 3, a Vizby and an Osca 2.5-3 km ahead coming at her, seen
-  // from the Arley Berk's bridge, Moderate; the sim stepped in every timed frame (their physics, the AI, their guns, the
-  // wakes): reported with the sim scenes, named with --scenes only)
-  fleet: { key: 'arley', ship: true, place: { e: 9500, z: 0, yaw: 0 }, time: 'noon', what: 'Hostile wave 3 from the Arley\'s bridge: two computer\'s ships 2.5-3 km ahead, the sim stepped', wet: true, seaState: 'moderate', load: 'fleet', sim: true },
+  // over the Arley Berk's bow (her guns have the camera: an armed ship's view; the bridge view is for an unarmed one),
+  // Moderate; the sim stepped in every timed frame (their physics, the AI, their guns, the wakes): reported with the sim
+  // scenes, named with --scenes only)
+  fleet: { key: 'arley', ship: true, place: { e: 9500, z: 0, yaw: 0 }, time: 'noon', what: 'Hostile wave 3 over the Arley\'s bow: two computer\'s ships 2.5-3 km ahead, the sim stepped', wet: true, seaState: 'moderate', load: 'fleet', sim: true },
 };
 const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk', 'clouds1k', 'clouds2k', 'cloudsdusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8', 'fleet'], COMBO = ['combo'];
 const PROFILES = {
@@ -351,14 +352,12 @@ const LOAD = `window.__load = (kind) => {
     return { fx: FX.list.length, swell: Render3D.swellInfo ? Render3D.swellInfo() : null };
   } else if (kind === 'fleet') {
     // ([WP10]) Hostile wave 3 as the range sends it (skill 0.3): a Vizby 2.5 km ahead and an Osca 3 km ahead and 400 m to
-    // starboard, heading west at her, the Osca following the Vizby; her bridge view (on a tree without the computer's
-    // ships: none, the bridge alone)
+    // starboard, heading west at her, the Osca following the Vizby (on a tree without the computer's ships: none)
     const P = { e: 9500, z: 0 };
     if (typeof Ship !== 'undefined' && Ship.aiSpawn) {
       const a = Ship.aiSpawn(Flight, 'vizby', { e: P.e + 2500, z: P.z, yaw: Math.PI }, { role: 'fight', skill: 0.3, course: [P] });
       if (a) Ship.aiSpawn(Flight, 'osca', { e: P.e + 3000, z: P.z + 400, yaw: Math.PI }, { role: 'fight', skill: 0.3, lead: a });
     }
-    if (Flight.setBridge) Flight.setBridge(true);
     return { vessels: Flight.vessels.length, ai: Flight.vessels.filter((o) => o.ai && o.ai.sea).length };
   } else if (kind === 'wrecks8') {
     // (before the warm-up) eight TK-34s knocked out round the street, 30-95 m ahead, frozen where they stand: two by an
