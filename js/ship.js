@@ -5261,7 +5261,6 @@ const Ship = (() => {
         const h = Math.max(1, alt - (T.sh && T.sh.level > -Infinity ? T.sh.level : 0)), vd = Math.max(0, 2 - vs), tf = (Math.sqrt(vd * vd + 2 * 9.81 * h) - vd) / 9.81, TVx = T.vx * tf, TVy = T.vy * tf, TVz = T.vz * tf;
         const px = gx + TVx - hx * tf, py = gy + TVy - hy * tf, pz = gz + TVz - hz * tf; // (the target then, from where the bombs would land)
         const sAlong = (px * hx + py * hy + pz * hz) / Vh, sLat = Math.hypot(px - (hx / Vh) * sAlong, py - (hy / Vh) * sAlong, pz - (hz / Vh) * sAlong);
-        ai.dbg = [Math.round(gd), Math.round(sAlong), Math.round(sLat), Math.round(alt), +tf.toFixed(2)];
         altWant = gd > STR.lowR ? STR.alt : STR.low;
         want.x = gx + TVx; want.y = gy + TVy; want.z = gz + TVz; // (at where the ship will be)
         if (bombs.length) {
