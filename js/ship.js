@@ -119,7 +119,7 @@ const SHIP = {
   //   for floodT s after its water last rose; the flooding line adds her list past `list`°, a list alone warns past
   //   listAlone°; it is critical past sinkK of her reserve buoyancy taken; ship sounds within `hear` m of the view; heel,
   //   trim and the waterline eased over `smooth` s for the diagram)
-  CAM: { frame: 0.9, near: 1.5 },    // [WP12] the chase view frames her reach × 2 within `frame` of the screen; the bridge eye `near` m clear of her own parts
+  CAM: { near: 0.8, sea: 0.3 },      // [WP12] the bridge view's eye at least `near` m over any of her own parts it would be in, and `sea` m over the wave at it
   // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
   BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
            vMax: 40, vStep: 0.25, turn: [4.5, 0.25, 1.2, 10], steerA: 1.5, inM: 0.03, step: 0.25, pair: 0.4, wash: 0.05, dry: 0.5 },
@@ -4599,16 +4599,18 @@ const Ship = (() => {
     const k = dt > 0 ? 1 - Math.exp(-dt / SHIP.HUD.smooth) : 1, h0 = seaH(v, S);
     if (HD.v !== v || !(HD.h0 === HD.h0)) { HD.v = v; HD.heel = v.heel || 0; HD.trim = v.trim || 0; HD.h0 = h0; }
     else { HD.heel += ((v.heel || 0) - HD.heel) * k; HD.trim += ((v.trim || 0) - HD.trim) * k; HD.h0 += (h0 - HD.h0) * k; }
-    if (!HD.sz) { const r = cv.getBoundingClientRect(); HD.sz = { w: r.width, h: r.height }; }
     const z = (typeof Controls !== 'undefined' && Controls.z) || 1, dpr = (typeof App !== 'undefined' && App.dpr) || (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    if (!HD.sz || HD.sz.z !== z) { const r = cv.getBoundingClientRect(); HD.sz = { w: r.width, h: r.height, z }; } // (measured again when it resizes, ResizeObserver, or the HUD's size changes)
     const W = HD.sz.w / z, H = HD.sz.h / z;
-    if (!(W > 4 && H > 4)) return;
+    if (!(W > 4 && H > 4)) { HD.sz = null; return; }
     const G = hullGeo(v, S), deg = 180 / Math.PI, fl = Math.floor(now / 250) & 1;
     let key = `${W.toFixed(1)}|${H.toFixed(1)}|${dpr}|${z}|${v.fate || ''}|${Math.round(HD.heel * deg)}|${Math.round(HD.trim * deg * 4)}|${Math.round(HD.h0 * 10)}`;
     for (const c of S.comps) key += `|${Math.round(24 * clamp(c.W / Math.max(c.V, 1e-6), 0, 1))}`;
     for (const p of S.hulls) { if (p.broken) key += 'B' + p.id; if (p.holes) for (const h of p.holes) key += `,${Math.round(h.a * 200)}${(h.fix || 0) >= 1 ? 'f' : ''}`; }
     for (const p of v.parts) if (p.fire > 0) key += `!${p.id}${fl}`;
     if (S.dc && !v.fate) for (const e of S.dc) key += `@${Math.round(e.s)}${e.at ? 'w' : ''}`;
+    const rising = (c) => !v.fate && c._hT != null && now >= c._hT && now - c._hT < SHIP.HUD.floodT * 1000; // (taking water now: alert's flooding, its outline blinks amber)
+    for (const q of G.comps) if (rising(q.c)) key += `~${q.no}${fl}`;
     if (key === HD.key) return;
     HD.key = key;
     const bw = Math.max(1, Math.round(W * z * dpr)), bh = Math.max(1, Math.round(H * z * dpr));
@@ -4648,6 +4650,12 @@ const Ship = (() => {
     }
     g.lineWidth = small ? 0.75 : 1; g.strokeStyle = EDGE_;
     for (const q of G.polys) { path(q.P); g.stroke(); }
+    for (const q of G.comps) { // (a compartment taking water: its stretch of her outline amber, blinking)
+      if (!q.poly || !rising(q.c)) continue;
+      g.save(); g.beginPath(); g.rect(X(q.a0), 0, X(q.a1) - X(q.a0), H); g.clip();
+      path(q.poly.P); g.strokeStyle = fl ? '#ffb547' : 'rgba(255, 181, 71, 0.45)'; g.lineWidth = small ? 1.5 : 2; g.stroke();
+      g.restore();
+    }
     // the bulkheads (between compartments of one hull part), and the numbers from the bow (on a desktop, where they fit)
     g.strokeStyle = 'rgba(219, 228, 240, 0.4)';
     for (const q of G.comps) {
@@ -4927,6 +4935,35 @@ const Ship = (() => {
     if (!B) return 30;
     return clamp(1.2 * Math.max(B.maxX - B.minX, B.maxY - B.minY, 10), 30, 200);
   }
+  // The bridge view (render3d, Ships: H): the drawn sea's height at body-relative point P (m over the sphere: the still
+  // water's level and the swell's height there, as the swell patch draws it from Ship.wave; −Infinity over land), so the
+  // eye keeps over the wave it is at and no higher (over the highest crest anywhere, the eye of a boat in a trough stood
+  // metres over her); and the eye clear of her own parts: a point inside a part's box or her hull is lifted along her up
+  // to CAM.near m over that part's top (at most four times), so a rolling, pitching ship in a Rough sea never puts the
+  // camera inside her. out: the point (body-relative); true when it moved.
+  const WTB = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false };
+  function seaAt(b, P, F) { const W = waterPt(b, P, WTB); return W.level > -Infinity ? W.level + waveAt(b, W, F) : -Infinity; }
+  function eyeOut(v, P, out) {
+    out.x = P.x; out.y = P.y; out.z = P.z;
+    if (!v || !v.parts || !v.sh) return false;
+    const L = v.toLocal(P.x, P.y, P.z), U = SHIP.CAM.near;
+    let moved = false;
+    for (let it = 0; it < 4; it++) {
+      let top = -Infinity;
+      for (const p of v.parts) {
+        const R = partRect(p), hz = partDepth(p) / 2, z0 = partZ(p);
+        if (L.x > R.l && L.x < R.r && L.y > R.b && L.y < R.t && Math.abs(L.z - z0) < hz && (!p.def.shull || insideOwn(p.def, ...ownXY(p, L)))) top = Math.max(top, R.t);
+      }
+      if (top === -Infinity) break;
+      L.y = top + U; moved = true;
+    }
+    if (!moved) return false;
+    const w = v.toWorld(L.x, L.y, L.z);
+    out.x = w.x; out.y = w.y; out.z = w.z;
+    return true;
+  }
+  const _ox = [0, 0, 0];
+  function ownXY(p, L) { const q = ownPt(p, L, _ho); _ox[0] = q.x; _ox[1] = q.y; _ox[2] = q.z; return _ox; }
   // the ship's controls, from the bindings (Flight.shipHelp's list: README's Ships block and the manual's)
   function help(F) { return F && typeof F.shipHelp === 'function' ? F.shipHelp() : ''; }
   // a key for the ship (true: taken): Flight.shipKey's (flank, stop, the heading hold, CIWS, damage control, the bridge view)
@@ -4969,7 +5006,7 @@ const Ship = (() => {
     // frame
     frame, fx,
     // hud
-    hud, help, keys, alert, act: helmAct, holeMarks, sounds, aimFar, diagram: (F) => { const v = F && F.active; if (v && v.sh && HUD.el) { HD.key = ''; HD.at = -1e9; diagram(F, v, v.sh); } }, _hud: { HUD, HD, AL, hullGeo }, // [WP12]
+    hud, help, keys, alert, act: helmAct, holeMarks, sounds, aimFar, seaAt, eyeOut, diagram: (F) => { const v = F && F.active; if (v && v.sh && HUD.el) { HD.key = ''; HD.at = -1e9; diagram(F, v, v.sh); } }, _hud: { HUD, HD, AL, hullGeo }, // [WP12]
     // ai
     aiDown, flyStriker, range, practice, battle: null,
     // mp

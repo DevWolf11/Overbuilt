@@ -5550,6 +5550,15 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   // (how far behind the pivot: the aim camera's zoom; [WP2] a ship's reaches back 1.2 of her length, up to 200 m, so
   // her own superstructure and the sea round her stay in view)
   const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); return clamp(z, 7, typeof Ship !== 'undefined' ? Ship.aimFar(v) : 30); }; // ([WP12] Ship.aimFar: the same reach, Flight.zoomBy's too)
+  // [WP12] a ship's bridge eye at (x, y, z): over the ground and the carriers as camFloor has it, and over the drawn sea
+  // where it is (Ship.seaAt: the swell's own wave there, while the swell is drawn), SHIP.CAM.sea m
+  const BE = v3();
+  function bridgeFloor(F, b, x, y, z, r3) {
+    const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
+    BE.x = x; BE.y = y; BE.z = z;
+    const sea = b === EARTH && SWL.on ? Ship.seaAt(b, BE, F) : 0;
+    return b.radius + Math.max(groundAt(b, ca, gz), b === EARTH ? shipTop(ca, gz) : -Infinity, sea > -Infinity ? sea : 0) + SHIP.CAM.sea;
+  }
   // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
@@ -5672,8 +5681,14 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
     updateArena(F, b, v);
     updateNear(F, b, v); // (and then the patch waiting for its seams goes up: seamSync)
     if (!b.star) {
-      const need = camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
+      const brg = FP && v.kind !== 'drone' && typeof Ship !== 'undefined'; // [WP12] (a ship's bridge view: over the wave at the eye, not the highest crest anywhere, and out of her own parts)
+      const need = brg ? bridgeFloor(F, b, rx, ry, rz, r3) : camFloor(b, rx, ry, rz, r3, (AC && S.sightOn) || FP || IM ? 0.3 : 2); // (and out of the carriers; a gunner's sight, a drone's camera may sit low)
       if (r3 < need) { const k = need / r3; rx *= k; ry *= k; rz *= k; r3 = need; camAlt = r3 - R; }
+      if (brg) {
+        BE.x = rx; BE.y = ry; BE.z = rz;
+        if (Ship.eyeOut(v, BE, BE)) { rx = BE.x; ry = BE.y; rz = BE.z; r3 = Math.hypot(rx, ry, rz); camAlt = r3 - R; }
+        const E = S.fpE || (S.fpE = v3()); E.x = rx; E.y = ry; E.z = rz; // (where the eye ended up: the tests')
+      }
     }
     toView(rx - vx, ry - vy, rz - vz, T3);
     camera.position.set(T3.x, T3.y, T3.z);
@@ -8175,7 +8190,7 @@ void main() {
     // sight closing meanwhile goes back to it, not to 50°)
     setFpv(on, fov) { S.fpvFov = on ? clamp(+fov || 50, 4, 120) : 0; setFov(S.fpvFov || 50); },
     // the drone camera's way and up as last drawn (sim; shared: copy them), for the OSD's horizon; null when it wasn't
-    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU } : null; },
+    fpvCam() { return S.fpvAt === frameNo ? { D: FPD, U: FPU, E: S.fpE || null } : null; }, // ([WP12] E: a ship's bridge eye where it ended up, body-relative)
     // how far a far ground vehicle is drawn raised (m, along the up; reseat) this frame: the aim ray meets it there
     reseatOf(v) { const e = vessels.get(v); return (e && e.rsO) || 0; },
     // tests only: a vessel's model in the flight view (Parts3D.VesselMesh: .baked once a wreck is baked), or null
