@@ -362,7 +362,7 @@ Ship.seed(9090); Armour.seed(77); Ship.setSea('calm'); Combat.reset({});`);
       launcher = ship('osca', { ...P, yaw: best }); launcher.ai = { sea: true }; F.vessels.push(launcher); }
     const p = launcher.parts.find((q) => q.type === 'asm2'); p.ammo = 2; Combat.launchMissile(launcher, p, v, F); };
   var trial = (key, fire, max, every) => { Combat.reset({}); Ship.resetCombat(); Armour.seed(77); Ship.seed(77); launcher = null; // (each row seeded on its own)
-    const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; tick(F, 2); let n, done = null;
+    const v = ship(key, { e: -3000, z: 0, yaw: Math.PI }), F = fsim(v); F.active = me; F.vessels = [v]; Ship.ciwsOn(v, false); tick(F, 2); let n, done = null; // (her close-in gun held: the row measures the weapon, not her CIWS)
     for (n = 1; n <= max && !done; n++) { fire(v, F); tick(F, every); if (v.fate || v.sunk != null) done = n; } return { n: done, fate: v.fate || '' }; };`);
   const g127 = "Combat.S.shots.push(shell(rnd() < 0.5 ? 'he127' : 'sap127', aimAt(v, target(v, 'any'), 300, 2)))", asm = 'asmAt(v, F)', torp = 'Combat.S.shots.push(torpAt(v))';
   const rows = [

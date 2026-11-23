@@ -3510,7 +3510,7 @@ const Ship = (() => {
     out.x = Fd.x; out.y = Fd.y; out.z = Fd.z || 0;
     return out;
   }
-  const flying = (v) => !v.hydro && !v.landed && !(v.contactTime > 0) && !v.afloat; // (a craft in the air: not on the ground, the water or afloat)
+  const flying = (v) => (!v.hydro || isAirKind(v.kind)) && !v.landed && !(v.contactTime > 0) && !v.afloat; // (a craft in the air: not on the ground, the water or afloat; [WP9 review] a flying boat in the air too, §8.11, never a ship on her foils)
   // A torpedo out of tube p (Combat's weapon list, Aim's fire): it leaves outboard (a ship's tubes eject it at 15 m/s to
   // fall into the sea), or drops from an aircraft (S7); on land, or more than 3 m over the water from a craft that is
   // neither afloat nor flying, nothing (a toast). gyro: the heading it turns to after its straight run (sim, unit; an
@@ -3578,7 +3578,15 @@ const Ship = (() => {
     let wx = 0, wy = 0, wz = 0, want = s.depth;
     if (run1 && s.tgt) {
       const t = s.tgt, tt = Math.hypot(t.x - s.x, t.y - s.y, t.z - s.z) / spd, lead = t.noise ? 0 : Math.min(tt, 30);
-      wx = t.x + (t.vx || 0) * lead - s.x; wy = t.y + (t.vy || 0) * lead - s.y; wz = t.z + (t.vz || 0) * lead - s.z;
+      // ([WP9 review] a ship's hull at a point of its own along her length, within the middle 70 %: torpedo after torpedo
+      // into one compartment had a destroyer shrug off twenty)
+      let ox = t.x, oy = t.y, oz = t.z;
+      if (t.sh && t.bounds && t.toWorld) {
+        if (s.ao == null || s.aoT !== t) { s.aoT = t; s.ao = (crnd() * 2 - 1) * 0.35; }
+        const B = t.bounds, c = t.com || { x: 0, y: 0, z: 0 }, Q = t.toWorld((B.minX + B.maxX) / 2 + s.ao * (B.maxX - B.minX), c.y, 0);
+        ox = Q.x; oy = Q.y; oz = Q.z;
+      }
+      wx = ox + (t.vx || 0) * lead - s.x; wy = oy + (t.vy || 0) * lead - s.y; wz = oz + (t.vz || 0) * lead - s.z;
       if (!t.noise) want = Math.min(s.depth, Math.max(2, (t.draft || 2) + 1.5));
     } else if (run1 && s.gyro) { wx = s.gyro.x; wy = s.gyro.y; wz = s.gyro.z; }
     const k0 = wx * ux + wy * uy + wz * uz; wx -= ux * k0; wy -= uy * k0; wz -= uz * k0;
@@ -3641,7 +3649,7 @@ const Ship = (() => {
   function torpHit(s, a, F) {
     const b = s.b;
     for (const o of F.vessels) {
-      if (!o.sh || o.dead || o.wreck || o.body !== b || !o.sh.hulls.length || (o === s.owner && s.t < 5)) continue;
+      if (!o.sh || o.dead || o.wreck || o.body !== b || !o.sh.hulls.length || o === s.owner) continue; // ([WP9 review] never its owner: §8.5)
       const rr = (o.reach || 10) + 6;
       if ((o.x - s.x) ** 2 + (o.y - s.y) ** 2 + (o.z - s.z) ** 2 > rr * rr) continue;
       for (const f of [0.5, 1]) {
@@ -3720,7 +3728,7 @@ const Ship = (() => {
       const w = p.def.weapon;
       if (!w || w.kind !== 'chaff' || !w.side || p.broken || !(p.ammo > 0)) continue;
       const d = sideDir(v, p, _ca), r = Math.hypot(v.x, v.y, v.z) || 1, out = v.axis(d.x, d.y, d.z), m = v.toWorld(p.x, p.y + p.def.h / 2, partZ(p));
-      const sp = 150, c = Math.cos(25 * DEG), sn = Math.sin(25 * DEG), ux = v.x / r, uy = v.y / r, uz = v.z / r; // (out over its side, 25° up: the local up)
+      const sp = 190, c = Math.cos(25 * DEG), sn = Math.sin(25 * DEG), ux = v.x / r, uy = v.y / r, uz = v.z / r; // (out over its side, 25° up: the local up; [WP9 review] 190 m/s against the flares' drag: about 300 m out)
       for (const kind of ['chaff', 'flare']) {
         const k = kind === 'flare' ? 1.1 : 1, vx = (out.x * c + ux * sn) * k, vy = (out.y * c + uy * sn) * k, vz = (out.z * c + uz * sn) * k;
         const f = { b: v.body, x: m.x, y: m.y, z: m.z, vx: v.vx + vx * sp, vy: v.vy + vy * sp, vz: v.vz + vz * sp, t: 0, life: kind === 'chaff' ? 12 : 5 };
@@ -3762,9 +3770,22 @@ const Ship = (() => {
   const ST = [];
   const posOf = (t, o) => { if (t.def && t.pos) { const c = Combat.targetCentre(t); o.x = c.x; o.y = c.y; o.z = c.z; o.vx = t.vel ? t.vel.x : 0; o.vy = t.vel ? t.vel.y : 0; o.vz = t.vel ? t.vel.z : 0; return o; } o.x = t.x; o.y = t.y; o.z = t.z; o.vx = t.vx || 0; o.vy = t.vy || 0; o.vz = t.vz || 0; return o; };
   const TPO = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+  // ([WP9 review] the ships v can see to fire at: its sea radars' contacts (Ship.surface) and those in sight of its top
+  // (EYES, over the horizon: seesSea); no magic radar)
+  const SEEN = [];
+  function seenSea(v, F, out) {
+    out.length = 0;
+    const R = surface(v, F), L = seaTargets(v, F, []), eye = topOf(v, SE), ex = eye.x, ey = eye.y, ez = eye.z, eh = eye.h, eyes = SHIP.EYES[night(v, F) ? 'night' : 'day'];
+    for (const t of L) {
+      let ok = R.some((c) => c.ref === t && c.k === 'sea');
+      if (!ok) { const T = topOf(t, ST2), P = t.def ? T : t; ok = Math.hypot(P.x - ex, P.y - ey, P.z - ez) < eyes && seesSea({ x: ex, y: ey, z: ez }, T, eh, T.h); }
+      if (ok) out.push(t);
+    }
+    return out;
+  }
   function asmTarget(v, F) {
     if (!v || !F) return null;
-    const A = F.groundAim && v === F.active ? F.aim : null, L = seaTargets(v, F, ST);
+    const A = F.groundAim && v === F.active ? F.aim : null, L = seenSea(v, F, SEEN);
     if (A && A.v && L.includes(A.v)) return A.v;
     let best = null, bk = -2;
     if (A && A.dir) for (const t of L) { // (within 3° of the crosshair)
@@ -3832,6 +3853,11 @@ const Ship = (() => {
     const aim = s.target || s.lure;
     if (aim && s.t > 1) {
       const P = posOf(aim, TPO), spd = s.spd || 260;
+      if (aim.sh && aim.bounds && aim.toWorld) { // ([WP9 review] a ship at a point of her own along her length (the middle 70 %), as a torpedo: every missile at her middle merged into one capped hole)
+        if (s.ao == null || s.aoT !== aim) { s.aoT = aim; s.ao = (crnd() * 2 - 1) * 0.35; }
+        const B = aim.bounds, c = aim.com || { x: 0, y: 0, z: 0 }, Q = aim.toWorld((B.minX + B.maxX) / 2 + s.ao * (B.maxX - B.minX), c.y, 0);
+        P.x = Q.x; P.y = Q.y; P.z = Q.z;
+      }
       d = Math.hypot(P.x - s.x, P.y - s.y, P.z - s.z);
       const tgo = Math.min(d / spd, 30);
       let wx = P.x + P.vx * tgo - s.x, wy = P.y + P.vy * tgo - s.y, wz = P.z + P.vz * tgo - s.z;
@@ -4115,6 +4141,17 @@ const Ship = (() => {
     void ra; void rb;
     return true;
   }
+  // ([WP9 review] a naval shell's gTop, armour.js moveShell: over a cell all sea, the sea's level (0); over land, the
+  // highest ground the mask found in its cell and SEA_TOP_M m more (the mask samples a cell every LOS.cell/3 m))
+  const _stl = {}, SEA_TOP_M = 50;
+  // (s, dt: also where it will be dt s on, at its velocity)
+  function seaTop(B, P, s, dt) {
+    if (!B || !B.ocean || typeof Terrain === 'undefined') return Infinity;
+    Terrain.locate(B, P.x, P.y, P.z, _stl);
+    let top = cellTop(B, _stl.a, _stl.z);
+    if (s && dt > 0) { Terrain.locate(B, P.x + s.vx * dt, P.y + s.vy * dt, P.z + s.vz * dt, _stl); top = Math.max(top, cellTop(B, _stl.a, _stl.z)); }
+    return top < 0 ? 0 : top + SEA_TOP_M;
+  }
   // the highest ground in a LOS.cell m cell round (a, z) (−Infinity: none; the mask, built a cell at a time)
   function cellTop(B, a, z) {
     const c = SHIP.LOS.cell, R = B.radius, ia = Math.floor((a * R) / c), iz = Math.floor(z / c), key = (B.id || 'b') + ':' + ia + ':' + iz;
@@ -4297,8 +4334,10 @@ const Ship = (() => {
   // ---- the AI's calls (WP10's ships fight with these)
   // every naval gun laid on P (sim) and fired if laid within 0.5° and loaded; the guns keep laying on it (v.aimP). The
   // number fired.
+  // ([WP9 review] each call refuses as the player's fire key does: no crew to fire, or doomed)
+  const aiCan = (v) => !!v && !v.dead && !v.ko && !v.fate && (typeof Aim === 'undefined' || Aim.manned(v));
   function salvo(v, P, F) {
-    if (!v || !P || v.dead || v.ko || typeof Aim === 'undefined') return 0;
+    if (!P || !aiCan(v) || typeof Aim === 'undefined') return 0;
     v.aimP = { x: P.x, y: P.y, z: P.z };
     let n = 0;
     const sys = Combat.systems(v);
@@ -4311,7 +4350,7 @@ const Ship = (() => {
   // a torpedo from the tube on the side facing `bearing` (rad, clockwise from game north as Ship.heading), set to run
   // there after its straight run (its gyro). The shot, or null.
   function torpAt(v, bearing, F) {
-    if (!v || !v.sh || v.dead || v.ko) return null;
+    if (!v || !v.sh || !aiCan(v)) return null;
     const S = v.sh, r = frameOf(v, S), gx = S.N.x * Math.cos(bearing) + S.E.x * Math.sin(bearing), gy = S.N.y * Math.cos(bearing) + S.E.y * Math.sin(bearing), gz = S.N.z * Math.cos(bearing) + S.E.z * Math.sin(bearing);
     void r;
     let best = null, bk = -2;
@@ -4321,18 +4360,18 @@ const Ship = (() => {
       const d = sideDir(v, p, _ca), D = v.axis(d.x, d.y, d.z), k = D.x * gx + D.y * gy + D.z * gz;
       if (k > bk) { bk = k; best = p; }
     }
-    return best ? fireTorp(v, best, F, { x: gx, y: gy, z: gz }) : null;
+    return best && bk > -0.1 ? fireTorp(v, best, F, { x: gx, y: gy, z: gz }) : null; // ([WP9 review] none from a tube facing away (ahead and astern still): its run would cross her)
   }
   // an anti-ship missile at target t (a vessel or a range target) from the launcher with missiles left. The shot or null.
   function asmAt(v, t, F) {
-    if (!v || v.dead || v.ko || typeof Combat === 'undefined') return null;
+    if (!aiCan(v) || typeof Combat === 'undefined') return null;
     const p = v.parts.find((q) => q.def.weapon && q.def.weapon.asm && !q.broken && q.ammo > 0);
     return p ? Combat.launchMissile(v, p, t || null, F) : null;
   }
   // a vertical-launch SAM at t (an aircraft or a missile): the fire-control radar's lock put on it if it sees it. The
   // shot or null.
   function samAt(v, t, F) {
-    if (!v || !t || v.dead || v.ko || typeof Combat === 'undefined' || typeof Aim === 'undefined') return null;
+    if (!t || !aiCan(v) || typeof Combat === 'undefined' || typeof Aim === 'undefined') return null;
     const fc = Aim.kit(v).track, p = v.parts.find((q) => q.def.weapon && q.def.weapon.vls && !q.broken && q.ammo > 0);
     if (!fc || fc.broken || !p) return null;
     const T = v.trk || (v.trk = { on: false, cand: null, lockT: 0, lock: null, notchT: 0, blockT: 0, acc: 0 });
@@ -4523,7 +4562,7 @@ const Ship = (() => {
     hullRay, hullMm, hullDist, addHoles, floodStep, fireStep, dcStep, fateStep, doom, magazine,
     holedThrough, wetAt, floodForce, blastHull, roundHit, roundHole, ignite, levelOf, seed, hullPlate, rack, busy, // [WP8]
     // combat
-    fireTorp, torpStep, torpHit, ciwsStep, ciwsRound, shotMissiles, surface, seesSea, rcs,
+    fireTorp, torpStep, torpHit, ciwsStep, ciwsRound, seaTop, shotMissiles, surface, seesSea, rcs,
     asmStep, asmLured, asmHit, asmTarget, armShot, vlsStep, samKill, torpPick, decoy, refill, foe, column, airContacts, airFoes, trackContacts, holds, contactOn, night, // [WP9]
     salvo, torpAt, asmAt, samAt, ciwsOn, resetCombat, // [WP9] (the AI's calls: WP10)
     // frame

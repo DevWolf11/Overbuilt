@@ -818,6 +818,7 @@ const Armour = (() => {
     const ax = s.x, ay = s.y, az = s.z, ex = ax + s.vx * h, ey = ay + s.vy * h, ez = az + s.vz * h;
     TA.x = ax; TA.y = ay; TA.z = az; TE.x = ex; TE.y = ey; TE.z = ez;
     if (s.ciws && Ship.ciwsRound(s, TA, TE, F)) return false; // ([WP9] a close-in gun's round through a missile's path, the ground's top under it: ship.js)
+    if (SH.naval && !s.ciws && !((s.gtT = (s.gtT || 0) - h) > 0)) { s.gtT = 0.1; s.gTop = Ship.seaTop(b, TE, s, 0.1); } // ([WP9 review] a naval shell's ground top every 0.1 s: the land mask's cells under it and where it will be (the sea's level over open water), so a long flight at sea skips the ground and props tests above it)
     // vessels (not its own for 1.5 s, nor one it already went through). On its first step from the muzzle, a part it
     // starts inside (point blank: a muzzle pushed into the turret in front of it; barrels aren't in the collision
     // boxes) counts as met where the line goes into it (t0 < 0), so that plate is hit by its face. (Later, a shell
