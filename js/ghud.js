@@ -38,6 +38,7 @@ const GHUD = (() => {
   function aimUpdate(F, now) {
     const v = F.active, A = F.aim, D = F.aimDir;
     if (!v || !A || !D) return;
+    if (F.zero > 3000 || F.zero < 200) { const L = zeroLim(v); if (F.zero > L[1] || F.zero < L[0]) F.zero = clamp(F.zero, L[0], L[1]); } // ([WP9] a ship's long or short zero never carries into another craft's sight)
     A.dir.x = D.x; A.dir.y = D.y; A.dir.z = D.z;
     const r = Render3D.aimRay(RAY), E = S.eye;
     if (E.f === Render3D.frameNo) { A.o.x = E.x; A.o.y = E.y; A.o.z = E.z; }
@@ -926,7 +927,7 @@ const GHUD = (() => {
     }
     const L = zeroLim(v); // ([WP9] to 20 km on a ship)
     F.zero = clamp(Math.round(d / 50) * 50, L[0], L[1]);
-    F.toast(`Sight set to ${F.zero.toLocaleString('en-US')} m`); Sound.click();
+    F.toast(`Sight set to ${F.zero > 9999 ? F.zero.toLocaleString('en-US') : F.zero} m`); Sound.click();
   }
   // In the sight the wheel steps its zoom, or (Realistic aim, the pointer free at the right edge) the range ladder 100 m.
   // Under the pointer lock clientX stands where the lock began, so it is never the ladder there (PgUp / PgDn are). A

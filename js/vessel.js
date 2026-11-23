@@ -158,7 +158,7 @@ const _ia = v3(), _ib = v3(), _ic = v3(); // (applyImpulse's)
 // What a ground-update part (def.gv) keeps in a saved flight, on top of every part's fields; read back sanitised.
 // (rounds: a rack's left, mrounds: a host's built-in stores'; roles: who sits in a host's crew seats now, role: a placed
 // seat's: armour.js's stores and seat swaps)
-const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel', 'rounds', 'mrounds', 'roles', 'role', 'docked']; // (docked: drones left in a bay, the big update)
+const GV_SAVE = ['aimYaw', 'aimEl', 'mm', 'mods', 'broken', 'ko', 'stow', 'shellSel', 'rounds', 'mrounds', 'roles', 'role', 'docked', 'dAmmo']; // (docked: drones left in a bay, the big update; [WP9] dAmmo: a torpedo decoy's noisemakers left)
 const GV_ROLES = new Set(['driver', 'gunner', 'commander', 'loader', 'radio', 'dc']); // ([WP8] dc: a ship's damage-control party)
 function gvSave(p, o, sea) {
   if (p.def.gv) for (const k of GV_SAVE) if (p[k] != null) o[k] = p[k];
@@ -203,7 +203,8 @@ function gvLoad(p) {
   set('broken', p.broken ? true : undefined);
   set('ko', p.ko ? true : undefined);
   set('stow', Number.isFinite(p.stow) ? clamp(Math.round(p.stow), 0, 100000) : undefined);
-  set('rounds', d.rack && Number.isFinite(p.rounds) ? clamp(Math.round(p.rounds), 0, d.rack.rounds || 0) : undefined);
+  set('rounds', d.rack && Number.isFinite(p.rounds) ? clamp(Math.round(p.rounds), 0, d.rack.rounds || 0) : d.store && Number.isFinite(p.rounds) ? clamp(Math.round(p.rounds), 0, d.store.rounds || 0) : undefined); // ([WP9] a ship's magazine: its rounds left)
+  set('dAmmo', d.decoy && Number.isFinite(p.dAmmo) ? clamp(Math.round(p.dAmmo), 0, d.decoy.ammo || 0) : undefined); // ([WP9] a torpedo decoy's noisemakers left)
   set('mrounds', Array.isArray(p.mrounds) && d.mods ? d.mods.map((m, i) => (m.k === 'ammo' && Number.isFinite(p.mrounds[i]) ? clamp(Math.round(p.mrounds[i]), 0, m.rounds || 0) : null)) : undefined);
   set('roles', Array.isArray(p.roles) && d.mods ? d.mods.map((m, i) => (m.k === 'crew' && GV_ROLES.has(p.roles[i]) ? p.roles[i] : null)) : undefined);
   set('role', d.seat && GV_ROLES.has(p.role) ? p.role : undefined);

@@ -404,7 +404,7 @@ const Aim = {
     else if (v === F.active && F.groundAim && F.aim && F.aim.P) P = F.aim.P;
     if (!P || !man || v.remote || !Number.isFinite(P.x)) { v._aimN = 0; v.leadOk = false; return; } // (holding: hull-relative, nothing held in the world)
     const dep = this.limits(v), b = v.body, r = Math.hypot(v.x, v.y, v.z) || 1, ux = v.x / r, uy = v.y / r, uz = v.z / r;
-    const rho = airDensity(b, r - b.radius), gr = b.mu / (r * r), real = !want && this.realistic(), zero = clamp(F.zero || 800, 100, F.zero > 5000 ? 20000 : 5000); // ([WP9] a naval gun's sight to 20 km: GHUD.reach)
+    const rho = airDensity(b, r - b.radius), gr = b.mu / (r * r), real = !want && this.realistic(), zero = (typeof GHUD !== 'undefined' && GHUD.reach ? GHUD.reach(v) : 3000) > 3000 ? clamp(F.zero || 800, 100, 20000) : clamp(F.zero || 800, 200, 3000); // ([WP9] a naval gun's sight to 20 km: GHUD.reach; any other craft's within [200, 3000], all the old setters ever gave, whatever a ship left in F.zero)
     const n = (v._aimN || 0) + 1, cur = Combat.systems(v)[v.wsel];
     // a lock: the guns lead the target (else the lead is only the HUD's marker)
     const lead = this.leadAt(v, cur, rho), Pg = v.trk && v.trk.lock && lead ? lead : P;
@@ -669,18 +669,24 @@ const Aim = {
   // over the launch level every AIM_NV_DX m along the ground with its time and speed there, to AIM_RK_FLOOR m under
   // that level or its life, up to the first elevation past its longest shot. [{ el, d, t, H, T, V }]
   navalTable(SH, body = EARTH) {
-    let B = aimTables.get(SH);
-    if (!B) aimTables.set(SH, (B = new Map()));
+    const key = 'nv' + SH.v0 + '|' + SH.k; // ([WP9 review] one table for every naval shell that flies alike (a gun's HE, SAP and HE-VT), to the
+    // longest life among them: navalEl keeps each shell to its own)
+    let B = aimTables.get(key);
+    if (!B) aimTables.set(key, (B = new Map()));
     if (B.has(body)) return B.get(body);
-    const out = [], R0 = body.radius + AIM_NV_H, h = AIM_NV_STEP, life = SH.life || 60, k = SH.k, atm = body.atmoHeight, rho0 = body.rho0, sH = body.scaleH, mu = body.mu, Rb = body.radius;
+    let life = SH.life || 60;
+    if (typeof SHELLS !== 'undefined') for (const q of Object.values(SHELLS)) if (q.naval && q.v0 === SH.v0 && q.k === SH.k) life = Math.max(life, q.life || 60);
+    const out = [], R0 = body.radius + AIM_NV_H, h = AIM_NV_STEP, k = SH.k, atm = body.atmoHeight, rho0 = body.rho0, sH = body.scaleH, mu = body.mu, Rb = body.radius;
     const sqrt = Math.sqrt, exp = Math.exp, top = atm ? 0.8 * atm : -Infinity, A = [0, 0], acc = (x, y, vx, vy) => { // (the shell's acceleration there: moveShell's drag and gravity)
       const r0 = sqrt(x * x + y * y), g = mu / (r0 * r0 * r0), alt = r0 - Rb, rho = alt < top ? rho0 * exp(-(alt > 0 ? alt : 0) / sH) : airDensity(body, alt), kk = k * rho * sqrt(vx * vx + vy * vy);
       A[0] = -vx * kk - x * g; A[1] = -vy * kk - y * g;
     };
+    let far = 0, loft = false; // (past its longest shot: the lofted rows, for aircraft high up, flown only AIM_NV_LOFT s)
     for (const e of AIM_NV_EL) {
       const c = Math.cos(e * AIM_RAD), s = Math.sin(e * AIM_RAD), H = [0], T = [0], V = [SH.v0], row = { el: e * AIM_RAD, d: 0, t: 0, H: null, T: null, V: null };
       let x = 0, y = R0, vx = c * SH.v0, vy = s * SH.v0, t = 0, d0 = 0, h0 = 0, n = 1;
-      while (t < life) {
+      const tEnd = loft ? Math.min(life, AIM_NV_LOFT) : life;
+      while (t < tEnd) {
         acc(x, y, vx, vy);
         const mx = x + vx * h * 0.5, my = y + vy * h * 0.5, mvx = vx + A[0] * h * 0.5, mvy = vy + A[1] * h * 0.5;
         acc(mx, my, mvx, mvy);
@@ -692,8 +698,10 @@ const Aim = {
         if (h1 < -AIM_RK_FLOOR) break;
       }
       row.H = Float32Array.from(H); row.T = Float32Array.from(T); row.V = Float32Array.from(V);
-      out.push(row);
-      if (out.length > 2 && row.d < out[out.length - 2].d) break; // (past its longest shot)
+      if (!loft && out.length > 2 && row.d < far) loft = true;
+      far = Math.max(far, row.d);
+      out.push(row); // ([WP9 review] every elevation of AIM_NV_EL, the lofted half past the longest shot too, and a short-lived HE-VT's
+      // that never come back to the level within its life: an aircraft high up or overhead is laid from them)
     }
     B.set(body, out);
     return out;
@@ -706,11 +714,11 @@ const Aim = {
     const T = this.navalTable(SH, body);
     if (!T || !T.length) return null;
     const Rb = body.radius + AIM_NV_H, Y = Rb + dH, x = (Rb * Math.atan2(D, Y)) / AIM_NV_DX, hA = Math.hypot(D, Y) - Rb;
-    let top = 0;
-    while (top + 1 < T.length && T[top + 1].d >= T[top].d) top++;
-    const at = (q, A) => { const k = Math.floor(x); if (k + 1 >= q.H.length) return -Infinity; const f = x - k; return A[k] + (A[k + 1] - A[k]) * f; };
+    let top = 0; // (its longest shot's row within its own life: what a point out of its reach is given)
+    for (let i = 1; i < T.length; i++) if (T[i].t <= (SH.life || 60) && T[i].d > T[top].d) top = i;
+    const life = SH.life || 60, at = (q, A) => { const k = Math.floor(x); if (k + 1 >= q.H.length || q.T[k + 1] > life) return -Infinity; const f = x - k; return A[k] + (A[k + 1] - A[k]) * f; }; // (past its own life: never there)
     let lo = -Infinity;
-    for (let i = 0; i <= top; i++) {
+    for (let i = 0; i < T.length; i++) { // ([WP9 review] the flattest of every row, past its longest shot too: a point high up)
       const q = T[i], hi = at(q, q.H);
       if (hi < hA) { lo = hi; continue; }
       if (i === 0 || lo === -Infinity) { out.el = q.el; out.t = at(q, q.T); out.v = at(q, q.V); }
@@ -1355,13 +1363,13 @@ const aimTables = new Map(), aimRk = { el: 0, t: 0, out: false, d: 0 }; // (rock
 // 500 m below the launch level
 const AIM_RK_EL = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 9, 10, 12.5, 15, 17.5, 20, 22.5, 25, 27.5, 30, 32.5, 35, 37.5, 40, 42.5, 45, 47.5, 50, 52.5, 55];
 const AIM_RK_DX = 50, AIM_RK_FLOOR = 500;
-// [WP9] the naval range tables' elevations (°: every quarter degree to 5°, every half to 15°, then every 1.5°), their
+// [WP9] the naval range tables' elevations (°: every quarter degree to 5°, every half to 15°, then every 1.5° to 84°), their
 // paths kept every AIM_NV_DX m; used past AIM_NV_NEAR m; built AIM_NV_H m up (a gun on a deck)
 const AIM_NV_EL = [];
 for (let e = -2; e < 5 - 1e-9; e += 0.25) AIM_NV_EL.push(e);
 for (let e = 5; e < 15 - 1e-9; e += 0.5) AIM_NV_EL.push(e);
-for (let e = 15; e <= 65; e += 1.5) AIM_NV_EL.push(e);
-const AIM_NV_DX = 100, AIM_NV_NEAR = 3000, AIM_NV_H = 15, AIM_NV_STEP = 1 / 20, aimNv = { el: 0, t: 0, v: 0, out: false };
+for (let e = 15; e <= 85; e += 1.5) AIM_NV_EL.push(e); // ([WP9 review] to 84°: the 76 mm's 85° and the 57 mm's 77° laid on aircraft overhead)
+const AIM_NV_DX = 100, AIM_NV_NEAR = 3000, AIM_NV_H = 15, AIM_NV_STEP = 1 / 20, AIM_NV_LOFT = 30, aimNv = { el: 0, t: 0, v: 0, out: false }; // (LOFT: s a lofted row is flown: an aircraft is never engaged at a longer time of flight)
 // an angle as a ring may hold it: within its free arc (the turn of it nearest where it is now; else the arc's nearer
 // end), or anywhere round without one
 function aimFit(a, cur, lim) {
