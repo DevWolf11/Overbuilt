@@ -905,6 +905,7 @@ const MP = {
       // a spawn on top of a wreck: it starts sinking, here and (at our first snapshot) on every other screen alike
       if (!solo && typeof Death !== 'undefined' && Flight.active) { const a = Flight.active; Death.clearSpawn(a.body, a.toWorld(a.com.x, a.com.y, a.com.z || 0)); }
       if (ground && Flight.active) Flight.active.spawnAt = Flight.time; // (4 s of spawn protection: Armour)
+      if (place && place.air && kind === 'heli' && Flight.active) this.hover(Flight.active); // [WP11] (a helicopter joining a naval battle over the sea: its rotor turning, hovering)
       Builder.mp = null;
       if (!solo) { this.sendSpawn(); this.setMine('flying', true); if (this.pvp) this.setMine('kind', kind); }
       if (ground && s.settings.respawn === 'lineup') { // (which slots are aircraft, so the host knows when none we can take is left)
@@ -1024,6 +1025,15 @@ const MP = {
       return { e: EARTH.sites.runway.east + slot * 230, z: 0, yaw: 0 };
     }
     return airfieldPlacement(EARTH.airfields[sp.airfield], slot, kind);
+  },
+  // [WP11] A helicopter started in the air (a sea arena's start: nothing to stand on): its engines started (as STAGE would)
+  // and its collective at a hover (its weight over its rotors' thrust), so it hangs there for the player to fly off
+  hover(v) {
+    if (!v || v.kind !== 'heli' || !v.stages) return;
+    if ((v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; }) && typeof Flight.stage === 'function') Flight.stage();
+    let T = 0;
+    for (const p of v.parts) if (p.def.air && p.def.air.kind === 'rotor' && p.active) T += p.def.thrust * 1000;
+    if (T > 0) v.throttle = clamp((v.mass * 9.81) / T, 0.3, 1);
   },
   // A spot at the sandbox's tank yard (Props.yardPlace): our own, or the next of its eight that no other player's craft
   // stands within 10 m of (one parked on ours)

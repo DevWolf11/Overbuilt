@@ -979,6 +979,14 @@ async function roomNaval() {
   t('old rooms: ...a peer\'s ship arrives: her ghost afloat at her telegraph and rudder (sh: [2, -5]), a hydro ghost (her hull, never stepped), and the host\'s snapshots carry its sea clock (st, last)',
     X(`!!gh && gh.hydro && !!gh.sh && gh.afloat && gh.sh.tel === 2 && gh.sh.rud === -5 && gh.sh.rudders.every((p) => p.rud === -5) && gh.draft > 0.5 && Object.keys(s2).join() === 't,th,b,P,V,Q,W,C,g,l,st' && Math.abs(s2.st - Ship.seaT(Flight)) < 1e-3`), X('[Object.keys(s2), gh && gh.sh.tel, gh && gh.draft]'));
   t('old rooms: the sandbox\'s host sets its sea at any time (rough): everyone\'s waves', X(`st2 === 'rough' && sea2 === 'rough'`), X('[st2, sea2]'));
+  // a helicopter joining a naval battle starts 300 m over the sea (GroundMode.placement): its engine started and its
+  // collective at a hover (MP.hover), so it hangs there for its player rather than dropping into the sea
+  X(`var hv = (() => { const ps = partsFromDesign(templateRows(TEMPLATES.dragonfly)), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'heli'; v.stages = computeStages(ps, v.adj, findControlPart(ps).id); v.rebuildGroups();
+      const P = GroundMode.placement('sound', 0, 0, 'heli'); v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.heli.launchRot, P.z, P.yaw); const r = v.radius(); for (const k of ['x', 'y', 'z']) v[k] += (v[k] / r) * P.air.alt; v.landed = false; v.throttle = 0;
+      Flight.stage = () => { for (const id of v.stages[v.stageIdx] || []) { const p = v.byId.get(id); if (p && p.def.thrust) p.active = true; } v.stageIdx++; };
+      MP.hover(v); const thr = v.throttle, a0 = v.altitude(), F = { time: 0, toast() {}, vessels: [v], active: v, broken: [], ripParts() {}, breakParts() {} };
+      for (let i = 0; i < 600; i++) { v.physicsStep(1 / 120, F); F.time += 1 / 120; } return { thr, on: v.rotors.every((p) => p.active), drop: a0 - v.altitude(), air: P.air }; })();`);
+  t('naval: a helicopter joining over the sea starts 300 m up with its rotor turning at a hover (it holds within 15 m over 5 s)', X(`hv.air.alt === 300 && hv.on && hv.thr >= 0.3 && hv.thr <= 1 && Math.abs(hv.drop) < 15`), X('hv'));
 }
 
 (async () => {

@@ -293,7 +293,7 @@ const MPUI = {
   renderNaval(box, st, host, seg, set, sea) {
     set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3']], st.format, true));
     const cls = el('div', { class: 'kind-select mp-money' });
-    for (const [v, m, e] of [[45000, '$45k', 'Patrol boats'], [75000, '$75k', 'Corvettes'], [120000, '$120k', 'Destroyers']]) {
+    for (const [v, m, e] of [[45000, '$45k', 'Patrol'], [75000, '$75k', 'Corvettes'], [120000, '$120k', 'Destroyers']]) {
       const b = el('button', { class: 'kind-btn' }, el('b', { text: m }), el('small', { text: e }));
       b.setAttribute('aria-checked', String(st.budget === v)); b.disabled = !host;
       b.addEventListener('click', () => { MP.setSetting('budget', v); Sound.click(); });
