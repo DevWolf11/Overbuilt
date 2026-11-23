@@ -101,7 +101,7 @@ const GHUD = (() => {
       return LOC.r - R - Math.max(sea, Terrain.surfaceAt(b, LOC.a, LOC.z));
     };
     let gs = -1;
-    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += s < 3000 ? 25 : 100) { // ([WP9] past 3 km, 100 m a step)
+    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += s < 3000 || far <= 3000 ? 25 : 100) { // ([WP9] past 3 km, 100 m a step on a ship; every other craft's steps as ever)
       if (gap(Math.min(s, best)) >= 0) continue;
       let lo = prev, hi = Math.min(s, best);
       for (let i = 0; i < 6; i++) { const m = (lo + hi) / 2; if (real(m) < 0) hi = m; else lo = m; }
