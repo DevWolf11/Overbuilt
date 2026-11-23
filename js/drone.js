@@ -2136,7 +2136,7 @@ const Drone = (() => {
   // the vehicles a drone may lock: ground vehicles at work, not its own tank, an ally or a teammate
   function lockable(v, o) {
     if (!o || o === v || o === v.carrier || o.kind === 'drone' || o.isDebris || o.hulk != null || !working(o)) return false;
-    if (!(isGround(o.kind) || o.gv || (o.gear && o.gear.length))) return false;
+    if (!(isGround(o.kind) || o.gv || (o.gear && o.gear.length) || isSea(o.kind) || (o.sh && o.afloat))) return false; // ([WP9] ships too: a boat, a frigate)
     if (o.ai && (o.ai.ally || o.ai.down)) return false;
     if (o.remote) return typeof MP !== 'undefined' && typeof Net !== 'undefined' && !!MP.enemy && MP.enemy(Net.me, o.remote);
     return true;

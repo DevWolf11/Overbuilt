@@ -25,7 +25,7 @@ const ROLES = ['driver', 'gunner', 'commander', 'loader', 'radio'];
 // real vehicles and weapons appear in code comments only: never in what a player reads
 const REAL = /\b(tiger|panther|sherman|abrams|leopard|gepard|shilka|tunguska|pantsir|hellcat|puma|bradley|marder|javelin|stinger|grad|osa|kornet|konkurs|malyutka|patriot|stug|bofors|oerlikon|flak|kwk|t-?34|t-?72|t-?80|m1a1|m4|m18|bmp|brdm|bm-?21|zsu|9k\d+|strela|igla|tow|hellfire|maverick|katyusha|chieftain|centurion|challenger)\b/i;
 
-t('81 ground parts (71, and the big update\'s 3 drone bays and 7 counter-drone parts; PARTS 257 -> 328, 337 with its nine radar parts, 382 with its 35 drone parts and those 10, 389 with the ships update\'s first seven, 426 with its catalogue\'s 37: WP5)', GV.length === 81 && Object.keys(PARTS).length === 426, `${GV.length} of ${Object.keys(PARTS).length}`);
+t('81 ground parts (71, and the big update\'s 3 drone bays and 7 counter-drone parts; PARTS 257 -> 328, 337 with its nine radar parts, 382 with its 35 drone parts and those 10, 389 with the ships update\'s first seven, 426 with its catalogue\'s 37: WP5, 441 with its 15 naval weapons: WP9)', GV.length === 81 && Object.keys(PARTS).length === 441, `${GV.length} of ${Object.keys(PARTS).length}`);
 t('each is in one of the seven ground tabs, and every tab has parts', CATS.length === 7 && CATS.every((c) => R('PART_CATEGORIES').some((q) => q.id === c) && GV.some((k) => PARTS[k].cat === c))
   && !bad(GV, (k) => CATS.includes(PARTS[k].cat)).length, show(bad(GV, (k) => CATS.includes(PARTS[k].cat))));
 t('each has a family, a place and a known shape', !bad(GV, (k) => FAMILIES.includes(PARTS[k].family) && PLACES.includes(PARTS[k].place) && SHAPES.includes(PARTS[k].shape)).length,
@@ -144,9 +144,11 @@ t('stored rounds weigh something and a fresh part is loaded', W.every((k) => { c
 }
 
 // ---------------------------------------------------------------- shells
-const LABELS = ['AP', 'APHE', 'APCR', 'APDS', 'APFSDS', 'HEAT', 'HESH', 'HE', 'HE-VT', 'HEI', 'Ball'];
-const SK = Object.keys(SHELLS), used = new Set(W.flatMap((k) => PARTS[k].weapon.shells || []));
-t('37 shells, every one a gun fires', SK.length === 37 && SK.every((k) => used.has(k)), `${SK.length}`);
+const LABELS = ['AP', 'APHE', 'APCR', 'APDS', 'APFSDS', 'HEAT', 'HESH', 'HE', 'HE-VT', 'HEI', 'Ball', 'SAP']; // ([WP9] SAP: a naval gun's semi-armour-piercing round, type aphe)
+const SK = Object.keys(SHELLS), used = new Set(Object.keys(PARTS).filter((k) => PARTS[k].weapon).flatMap((k) => PARTS[k].weapon.shells || [])); // ([WP9] the naval guns' too)
+t('47 shells (37, and the ships update\'s ten naval ones: WP9), every one a gun fires (the close-in gun\'s, ciws20, ship.js)', SK.length === 47 && SK.every((k) => used.has(k) || k === 'ciws20'), `${SK.length}`);
+t('...the naval shells: naval and a life of their own, past 3 km on their range tables (aim.js); the close-in gun\'s round with them', SK.slice(37).join() === 'he57n,hevt57n,he76n,hevt76n,he127,sap127,hevt127,he152n,sap152,ciws20'
+  && SK.slice(37, 46).every((k) => SHELLS[k].naval && SHELLS[k].life >= 25) && SHELLS.ciws20.ciws && !SHELLS.ciws20.naval && SK.slice(0, 37).every((k) => !SHELLS[k].naval && !SHELLS[k].ciws));
 t('every shell a gun names exists', [...used].every((k) => Object.prototype.hasOwnProperty.call(SHELLS, k)), show([...used].filter((k) => !SHELLS[k])));
 t('every shell has a known type, a generic label and finite numbers', !bad(SK, (k) => { const s = SHELLS[k];
   return Object.prototype.hasOwnProperty.call(SHELL_TYPES, s.type) && LABELS.includes(s.label) && ['cal', 'v0', 'pen', 'k', 'kg', 'dmg'].every((q) => fin(s[q]) && s[q] >= 0) && s.v0 > 0 && s.k > 0 && s.k < 3e-4
@@ -308,15 +310,15 @@ t('...and the ground over the whole of the Scotland airfield\'s strip and blend 
 // ---------------------------------------------------------------- the ships update's parts (its first slice: three patrol-boat hull segments, a
 // wheelhouse, a diesel, a propeller and a rudder; spec §6): gv and ship, in the Ship kind's tabs; each hull's sections
 // convex and inside its box, the joint sections of a class matching to 1 cm, its sampled volume and fill table sound
-const SH_CATS = R('VEHICLE_KINDS.ship.cats'), SH_FAM = ['Boats', 'Escorts', 'Destroyers', 'Naval'], SH_PLACES = ['keel', 'deck', 'super', 'inside', 'stern', 'bow', 'mast', 'edge'];
+const SH_CATS = R('VEHICLE_KINDS.ship.cats'), SH_FAM = ['Boats', 'Escorts', 'Destroyers', 'Naval'], SH_PLACES = ['keel', 'deck', 'super', 'inside', 'stern', 'bow', 'mast', 'edge', 'ring', 'front']; // ([WP9] a gun house on its ring, a gun in its front)
 // (WP5's catalogue: 13 more hulls (the S, L and X classes, the RIB, the landing craft, the float and the flying boat's hull),
 // 9 more superstructure parts, 9 more propulsion parts and 6 of ship kit; the naval weapons, shArms, are WP9's)
 const SH_BY = (c) => SHIPP.filter((k) => PARTS[k].cat === c).join();
-t('the ships update\'s parts: its first seven and WP5\'s 37 (44), gv and ship, each in one of the Ship kind\'s five tabs, with a family and a place', SHIPP.length === 44
+t('the ships update\'s parts: its first seven, WP5\'s 37 and WP9\'s 15 naval weapons (59), gv and ship, each in one of the Ship kind\'s five tabs, with a family and a place', SHIPP.length === 59
   && SH_BY('shHull') === 'hbBowM,hbMidM,hbSternM,hbBowS,hbMidS,hbSternS,hbBowL,hbMidL,hbSternL,hbBowX,hbMidX,hbSternX,ribHull,lcHull,pontoon,stepHull'
   && SH_BY('shSuper') === 'bridgeM,consoleS,bridgeL,deckhouseL,stealthHouse,mastLattice,mastPole,funnel,helipad,hangar'
   && SH_BY('shDrive') === 'dieselM,screwM,rudderM,dieselS,turbine,outboard,screwS,screwL,waterjet,rudderL,foilBow,foilAft'
-  && SH_BY('shKit') === 'bulkhead,pump,ballast,dcLocker,magazine,torpDecoy' && !SH_BY('shArms')
+  && SH_BY('shKit') === 'bulkhead,pump,ballast,dcLocker,magazine,torpDecoy' && SH_BY('shArms') === 'nRingM,nHouse127,nGun57,nGun76,nGun127,nGun152,ciws,asm2,asm4,vls8,torpTube,nRadarAir,nRadarFC,nRadarSea,decoy'
   && SHIPP.every((k) => PARTS[k].gv === true && SH_CATS.includes(PARTS[k].cat) && SH_FAM.includes(PARTS[k].family) && SH_PLACES.includes(PARTS[k].place)), SHIPP.join());
 t('...tier 0-4, a price, a mass, hit points, a size and a description; no real designation; none of the fields old code reads', !bad(SHIPP, (k) => { const d = PARTS[k];
   return Number.isInteger(d.tier) && d.tier >= 0 && d.tier <= 4 && d.cost > 0 && d.mass > 0 && d.hp > 0 && d.w > 0 && d.h > 0 && d.depth > 0 && typeof d.desc === 'string' && d.desc.length > 20
@@ -355,8 +357,20 @@ t('what each part does, as data: engines (kW, fuel, spool), screws (diameter, ef
     && ['consoleS', 'bridgeL', 'stealthHouse'].every((k) => P[k].control === 1 && P[k].mods.some((m) => m.role === 'driver')) && P.bridgeL.mods.filter((m) => m.role === 'gunner').length === 3
     && P.lcHull.shull.ends.fore === 'ramp' && P.lcHull.shull.cw === 2.5 && P.ribHull.shull.tubes && P.pontoon.shull.step != null && P.stepHull.shull.step != null
     && ['hbMidM', 'hbMidL', 'hbMidX'].every((k) => P[k].shull.bk) && !P.hbMidS.shull.bk && P.hbMidX.armour.belt && P.ribHull.armour.mat === 'grp'; })()`));
-t('...inside parts are inner and flush (in a hull, low down), the waterjet flush in its transom; every one of the 37 is drawn by the ships\' art (shull, or a kit style of its own)', R(`['dieselS', 'turbine', 'bulkhead', 'pump', 'ballast', 'dcLocker', 'magazine'].every((k) => PARTS[k].inner && PARTS[k].flush && PARTS[k].place === 'inside') && PARTS.waterjet.flush
-  && Object.keys(PARTS).filter((k) => PARTS[k].ship).every((k) => PARTS[k].shape === 'shull' || SH_KIT.has(PARTS[k].style) || PARTS[k].style === 'engine')`));
+t('...inside parts are inner and flush (in a hull, low down), the waterjet flush in its transom; every one of the 59 is drawn by the ships\' art (shull, or a kit style of its own; WP9\'s naval weapons the ground update\'s ring, house, gun and radar recipes or a naval kit style)', R(`['dieselS', 'turbine', 'bulkhead', 'pump', 'ballast', 'dcLocker', 'magazine'].every((k) => PARTS[k].inner && PARTS[k].flush && PARTS[k].place === 'inside') && PARTS.waterjet.flush
+  && Object.keys(PARTS).filter((k) => PARTS[k].ship).every((k) => PARTS[k].shape === 'shull' || SH_KIT.has(PARTS[k].style) || NV_KIT.has(PARTS[k].style) || PARTS[k].style === 'engine' || (PARTS[k].cat === 'shArms' && ['tring', 'tturret', 'tgun', 'tradar'].includes(PARTS[k].shape)))`));
+// [WP9] the naval weapons as data (spec §6.4): the guns on the ground update's pattern (naval: their ready rounds and the
+// magazines), the close-in gun's mount, the launchers' and the tubes' (missiles and cells are magazines: module 'ammo'),
+// the radars (lowAir, never the Drone Radar's low), the decoy launcher on a side
+t('the naval weapons as data: guns (calibre, reload, ready rounds, shells, naval), the close-in gun, anti-ship missiles, the launch cells, torpedo tubes, the three radars and the decoys', R(`(() => { const P = PARTS, w = (k) => P[k].weapon;
+  return [['nGun57', 57, 0.27, 120], ['nGun76', 76, 0.75, 80], ['nGun127', 127, 3, 20], ['nGun152', 152, 6, 12]].every(([k, c, r, a]) => P[k].shape === 'tgun' && P[k].place === 'front' && w(k).kind === 'tgun' && w(k).cal === c && w(k).reload === r && w(k).ammo === a && w(k).naval && P[k].aim)
+    && P.nRingM.ring.cap === 60 && P.nRingM.place === 'deck' && P.nHouse127.place === 'ring' && P.nHouse127.control === 1 && P.nHouse127.mods.map((m) => m.role).join() === 'gunner,loader'
+    && P.ciws.ciws.range === 1500 && P.ciws.ciws.missiles && P.ciws.ciws.air && P.ciws.ciws.drones && !P.ciws.weapon && !P.ciws.aim && P.ciws.module === 'breech'
+    && ['asm2', 'asm4'].every((k) => w(k).asm && w(k).seek === 'sea' && w(k).he === 120 && P[k].module === 'ammo' && !P[k].aim) && w('asm2').ammo === 2 && w('asm4').ammo === 4
+    && w('vls8').vls && w('vls8').ammo === 8 && w('vls8').radar && w('vls8').seek === 'air' && w('vls8').prox === 8 && P.vls8.module === 'ammo' && P.vls8.flush
+    && w('torpTube').kind === 'torp' && w('torpTube').side && w('torpTube').ammo === 3 && w('torpTube').depth === 6 && P.torpTube.place === 'edge'
+    && P.nRadarAir.searchRadar.air && P.nRadarSea.searchRadar.sea && P.nRadarSea.searchRadar.lowAir && !P.nRadarSea.searchRadar.low && P.nRadarFC.trackRadar.missiles && P.nRadarFC.trackRadar.sea && P.nRadarFC.aim
+    && w('decoy').kind === 'chaff' && w('decoy').side && P.decoy.place === 'edge' && Object.keys(P).filter((k) => P[k].cat === 'shArms').every((k) => P[k].look === 'navyGrey'); })()`));
 t('volumes: a midsection\'s closed volume is its section\'s area × its length (within 0.1 %), the fill table rising from 0 at the keel to it at the deck, the physics rings spanning the part', R(`(() => {
   const H = shullOf(PARTS.hbMidM), A = H.rings[0].A;
   return Math.abs(H.vol - A * PARTS.hbMidM.w) < 1e-3 * H.vol && H.fill.v[0] === 0 && Math.abs(H.fill.v[15] - H.vol) < 1e-4 * H.vol && Array.from(H.fill.v).every((x, i, a) => i === 0 || x >= a[i - 1])

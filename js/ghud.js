@@ -38,6 +38,7 @@ const GHUD = (() => {
   function aimUpdate(F, now) {
     const v = F.active, A = F.aim, D = F.aimDir;
     if (!v || !A || !D) return;
+    if (F.zero > 3000 || F.zero < 200) { const L = zeroLim(v); if (F.zero > L[1] || F.zero < L[0]) F.zero = clamp(F.zero, L[0], L[1]); } // ([WP9] a ship's long or short zero never carries into another craft's sight)
     A.dir.x = D.x; A.dir.y = D.y; A.dir.z = D.z;
     const r = Render3D.aimRay(RAY), E = S.eye;
     if (E.f === Render3D.frameNo) { A.o.x = E.x; A.o.y = E.y; A.o.z = E.z; }
@@ -55,9 +56,25 @@ const GHUD = (() => {
   }
   // (Flight.keepAimPoint) the view now looks out from E: the camera still where the last frame drew it
   function holdEye(E) { const h = S.eye; h.x = E.x; h.y = E.y; h.z = E.z; h.f = Render3D.frameNo; }
+  // [WP9] How far the aim ray reaches for v (m): SHIP.AIM.ray (20 km) for a sea kind or any craft carrying a naval gun (a
+  // TK-34 with a 127 mm too), 3 km for everything else (as ever); and the sight's zero within [lo, hi], in 100 m steps
+  // to 3 km and 500 m beyond (zeroStep)
+  function reach(v) {
+    if (!v || !v.parts || typeof SHIP === 'undefined') return 3000;
+    if (v._reachN !== v.parts.length) { v._reachN = v.parts.length; v._reach = isSea(v.kind) || v.parts.some((p) => p.def.weapon && p.def.weapon.naval) ? SHIP.AIM.ray : 3000; }
+    return v._reach;
+  }
+  const zeroLim = (v) => (reach(v) > 3000 ? SHIP.AIM.zero : [200, 3000]);
+  function zeroStep(F, up, wrap) {
+    const L = zeroLim(F.active), z = F.zero || 800;
+    if (L[1] <= 3000) { F.zero = wrap ? (z >= 3000 ? 200 : z + 100) : clamp(z + (up ? 100 : -100), 200, 3000); return; } // (as it always was)
+    if (wrap && up && z >= L[1]) { F.zero = L[0]; return; }
+    const n = up ? (z < 3000 ? Math.min(3000, z + 100) : (Math.floor(z / 500) + 1) * 500) : z > 3000 ? Math.max(3000, (Math.ceil(z / 500) - 1) * 500) : z - 100;
+    F.zero = clamp(n, L[0], L[1]);
+  }
   function look(F, v, A) {
-    const o = A.o, d = A.dir, b = v.body, R = b.radius;
-    let best = 3000, hitV = null, Px = 0, Py = 0, Pz = 0;
+    const o = A.o, d = A.dir, b = v.body, R = b.radius, far = reach(v); // ([WP9] 20 km for a ship's guns)
+    let best = far, hitV = null, Px = 0, Py = 0, Pz = 0;
     // 1. vessels and wrecks within 3 km, as they are drawn (a far one is drawn raised or lowered: Render3D.reseatOf)
     for (const w of F.vessels) {
       if (w === v || w.dead || !w.parts.length || w.body !== b || w.isDebris) continue;
@@ -84,7 +101,7 @@ const GHUD = (() => {
       return LOC.r - R - Math.max(sea, Terrain.surfaceAt(b, LOC.a, LOC.z));
     };
     let gs = -1;
-    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += 25) {
+    for (let s = 25, prev = 0; s <= best + 25; prev = s, s += s < 3000 || far <= 3000 ? 25 : 100) { // ([WP9] past 3 km, 100 m a step on a ship; every other craft's steps as ever)
       if (gap(Math.min(s, best)) >= 0) continue;
       let lo = prev, hi = Math.min(s, best);
       for (let i = 0; i < 6; i++) { const m = (lo + hi) / 2; if (real(m) < 0) hi = m; else lo = m; }
@@ -97,9 +114,13 @@ const GHUD = (() => {
     else if (gs >= 0 && gs < best) { best = gs; hitV = null; A.src = 'ground'; }
     else A.src = hitV ? 'vessel' : 'none';
     A.v = hitV;
+    if (far > 3000 && !hitV && typeof Ship !== 'undefined') { // ([WP9] a ship's guns: the surface contact (radar or eyes) under the crosshair, past the horizon too)
+      const c = Ship.contactOn(v, F, o, d, 1, far);
+      if (c) { const P = c.def ? Combat.targetCentre(c) : c; Px = P.x; Py = P.y; Pz = P.z; best = Math.hypot(Px - o.x, Py - o.y, Pz - o.z); hitV = c.def ? null : c; A.v = hitV; A.src = 'vessel'; }
+    }
     if (A.src === 'none') best = 1500;
     A.d = best;
-    if (hitV) { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
+    if (hitV || A.src === 'vessel') { A.P.x = Px; A.P.y = Py; A.P.z = Pz; } else { A.P.x = o.x + d.x * best; A.P.y = o.y + d.y * best; A.P.z = o.z + d.z * best; }
     blocked(v, A);
   }
   // Where the chosen gun's round meets the ground short of the crosshair's point: the barrel sits lower than the camera,
@@ -249,7 +270,7 @@ const GHUD = (() => {
   // the range the sight can be set to: the rangefinder's, else the commander's reading (null: none yet)
   const readRange = (F, v) => { const P = F.aim.P, D = Math.hypot(P.x - v.x, P.y - v.y, P.z - v.z); return lrf(v) ? D : Aim.realistic() ? cmdRange(F, v, D) : null; };
   const fmtR = (d) => `${Math.round(d / 10) * 10 >= 1000 ? (Math.round(d / 10) * 10).toLocaleString('en-US') : Math.round(d / 10) * 10} m`;
-  const lrf = (v) => { if (v._lrfN !== v.parts.length) { v._lrfN = v.parts.length; v._lrf = v.parts.find((p) => p.def.lrf) || null; } return !!v._lrf && !v._lrf.broken; };
+  const lrf = (v) => { if (v._lrfN !== v.parts.length) { v._lrfN = v.parts.length; v._lrf = v.parts.find((p) => p.def.lrf || (p.def.trackRadar && p.def.trackRadar.sea)) || null; } return !!v._lrf && !v._lrf.broken; }; // ([WP9] a ship's fire-control radar ranges her guns)
   // text with a dark rim (Combat's hudText), counted as two calls
   function text(ctx, t, x, y) {
     ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(8, 11, 16, 0.6)'; ctx.strokeText(t, x, y);
@@ -356,12 +377,13 @@ const GHUD = (() => {
     if (sh && Aim.realistic()) { // (each range's drop against the zero's: how far under the chevron to put the target)
       const z0 = Aim.solve(sh.key, F.zero, 0, v.body), e0 = z0 ? z0.el : 0;
       ctx.beginPath();
-      for (let d = 200; d <= 3000; d += 100) {
+      const top = zeroLim(v)[1]; // ([WP9] a naval gun's to 20 km: 500 m ticks past 3 km)
+      for (let d = 200; d <= top; d += d < 3000 ? 100 : 500) {
         const o = Aim.solve(sh.key, d, 0, v.body);
         if (!o) break;
         const y = cy + (o.el - e0) * px;
         if (y > H - 20) break;
-        const big = d % 400 === 0;
+        const big = d < 3000 ? d % 400 === 0 : d % 2000 === 0;
         ctx.moveTo(cx + 26, y); ctx.lineTo(cx + (big ? 38 : 32), y);
         if (big) ctx.fillText(String(d / 100), cx + 42, y + 4);
       }
@@ -903,8 +925,9 @@ const GHUD = (() => {
         : 'No rangefinder aboard: set the sight with PgUp / PgDn, or the wheel on its range ladder (right)');
       return;
     }
-    F.zero = clamp(Math.round(d / 50) * 50, 200, 3000);
-    F.toast(`Sight set to ${F.zero} m`); Sound.click();
+    const L = zeroLim(v); // ([WP9] to 20 km on a ship)
+    F.zero = clamp(Math.round(d / 50) * 50, L[0], L[1]);
+    F.toast(`Sight set to ${F.zero > 9999 ? F.zero.toLocaleString('en-US') : F.zero} m`); Sound.click();
   }
   // In the sight the wheel steps its zoom, or (Realistic aim, the pointer free at the right edge) the range ladder 100 m.
   // Under the pointer lock clientX stands where the lock began, so it is never the ladder there (PgUp / PgDn are). A
@@ -917,7 +940,7 @@ const GHUD = (() => {
     S.whT = e.timeStamp; S.wh += dy;
     if (Math.abs(S.wh) < 40) return true;
     const up = S.wh < 0; S.wh = 0;
-    if (Aim.realistic() && !F._locked && e.clientX > innerWidth * 0.82) { F.zero = clamp(F.zero + (up ? 100 : -100), 200, 3000); F.updateHUD(true); return true; } // (the range ladder)
+    if (Aim.realistic() && !F._locked && e.clientX > innerWidth * 0.82) { zeroStep(F, up); F.updateHUD(true); return true; } // (the range ladder; [WP9] 500 m steps past 3 km on a ship)
     const Z = [3, 6, 8], i = Z.indexOf(F.zoom), j = clamp((i < 0 ? 0 : i) + (up ? 1 : -1), 0, 2);
     if (Z[j] !== F.zoom) F.setSight(true, Z[j]);
     return true;
@@ -939,7 +962,7 @@ const GHUD = (() => {
       if (!v) return;
       // (the commander's reading the first tap, if the sight isn't on it already; after that, 100 m steps)
       const c = !lrf(v) && F.aim ? readRange(F, v) : null;
-      if (lrf(v) || (c != null && clamp(Math.round(c / 50) * 50, 200, 3000) !== F.zero)) zeroKey(F); else { F.zero = F.zero >= 3000 ? 200 : F.zero + 100; F.updateHUD(true); }
+      if (lrf(v) || (c != null && clamp(Math.round(c / 50) * 50, 200, 3000) !== F.zero)) zeroKey(F); else { zeroStep(F, true, true); F.updateHUD(true); } // ([WP9] round to the first again past the last)
     });
     // the shell chips: a tap loads that round next; held 0.5 s, it comes out of the breech and that one goes in now.
     // Which it was is told on release by the events' own times (a frame that stalls between the finger going down and
@@ -990,6 +1013,7 @@ const GHUD = (() => {
     draw, frame,
     place: (W, H) => place(W, H, typeof Flight !== 'undefined' ? Flight : {}),
     aimUpdate, holdEye, sync, bind, tactical, wheel, press, dragged, spot, zeroKey, team: myTeam, resultText, // (a drone's impact view prints the shot's result as the sight does)
+    reach, zeroStep, // ([WP9] the aim ray's reach and the sight's zero: 20 km on a ship)
     get tacOpen() { return !!S.tacOpen; },
     set redrawDiagram(on) { if (on) S.diagKey = ''; },
     _S: S, // (the tests read where things went)

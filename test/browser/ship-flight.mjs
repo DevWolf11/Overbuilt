@@ -312,6 +312,106 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
   await ctx.close();
 }
 
+// ================================================================ [WP9] gunnery and missiles (spec §8.1, §8.6, §8.10)
+// The Arley from the hangar, armed, at the bay, on a phone in portrait (390×844) and a desktop (1280×720):
+//  - gunnery: her 127 mm through the gunner's sight (×6) at an Olivar 5 km out, FIRE held: rounds away as it loads, the
+//    first laid on the sea beside her, past the crosshair's 1° snap to a ship (their columns of water in the sight:
+//    ship-gun-splash-*),
+//    then on her: hits (her hull holed);
+//  - missiles: her anti-ship missile (the crosshair on a Cyclon 8 km out, FIRE): out of its canister (ship-asm-*), into
+//    the Cyclon; then an Osca's anti-ship missiles at her from 6 km, one at a time: her close-in gun firing (its tracers:
+//    ship-ciws-*) and one shot down.
+// Waits on Flight.time with the drawing off (Render3D.skipDraw: headless Chromium is slow), on again for each picture.
+async function sailArmed(page, key) {
+  await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
+  await page.evaluate(async (key) => { await Render3D.load(); App.toBuild(); Builder.loadTemplate(key); store.set('rss.flight', null); App.launch(); }, key);
+  await page.waitForFunction((key) => Flight.running && Flight.active && Flight.active.name === TEMPLATES[key].name && Flight.time > 0.6, key, { timeout: 180000 });
+  await page.waitForTimeout(1200); await frames(page, 2);
+  await page.evaluate(() => {
+    // a ship of the stock templates afloat e m east of the pad and z across, her bow along yaw; and the aim (in the sight
+    // or out) put on a vessel's middle (ground-hud.mjs's way: the camera's ray, a few frames to settle)
+    window.__mk = (key, e, z, yaw) => { const T = TEMPLATES[key], ps = partsFromDesign(templateRows(T)), adj = buildAdjacency(ps), t = new Vessel(ps, adj, EARTH);
+      t.kind = T.kind; t.name = T.name; t.stages = computeStages(ps, adj, findControlPart(ps).id); t.rebuildGroups(); t.placeOnSurface(EARTH, siteAngle(EARTH, e), 0, z, yaw); Ship.launch(t, { e, z, yaw }); Flight.vessels.push(t); return t; };
+    window.__simWait = async (dt, draw) => { Render3D.skipDraw = !draw; const f = () => new Promise((r) => requestAnimationFrame(r)), t0 = Flight.time, w0 = performance.now(); while (Flight.time < t0 + dt && performance.now() - w0 < 600000) await f(); Render3D.skipDraw = false; };
+    window.__aimAt = async (t, side = 0) => { const v = Flight.active, RAY = { o: v3(), d: v3() };
+      for (let i = 0; i < 4; i++) {
+        const r = Math.hypot(v.x, v.y, v.z), ux = v.x / r, uy = v.y / r, uz = v.z / r, el = Math.hypot(ux, uy), ex = uy / el, ey = -ux / el, nx = ey * uz, ny = -ex * uz, nz = ex * uy - ey * ux;
+        const O = Render3D.aimRay(RAY).o, tr = Math.hypot(t.x, t.y, t.z), lx = t.x - v.x, ly = t.y - v.y, lz = t.z - v.z, sx = uy * lz - uz * ly, sy = uz * lx - ux * lz, sz = ux * ly - uy * lx, sl = Math.hypot(sx, sy, sz) || 1, up = side ? -0.5 : 3; // (side: on the sea that far beside her, past the crosshair's 1° snap to a ship)
+        const px = t.x + (sx / sl) * side, py = t.y + (sy / sl) * side, pz = t.z + (sz / sl) * side, dx = px + (t.x / tr) * up - O.x, dy = py + (t.y / tr) * up - O.y, dz = pz + (t.z / tr) * up - O.z, d = Math.hypot(dx, dy, dz);
+        Flight.aimYaw = Math.atan2(-(dx * nx + dy * ny + dz * nz) / d, (dx * ex + dy * ey) / d); Flight.aimPitch = Math.asin((dx * ux + dy * uy + dz * uz) / d);
+        await window.__simWait(0.1, true);
+      }
+      GHUD._S.aimAt = -1e9; GHUD.aimUpdate(Flight); return Flight.aim && Flight.aim.v === t; };
+    window.__sel = (key) => { const v = Flight.active, i = Combat.systems(v).findIndex((s) => s.key === key); if (i >= 0) v.wsel = i; return i; };
+    window.__cols = []; const C = Ship.column; Ship.column = function (b, P, k) { window.__cols.push({ t: Flight.time, k }); return C.apply(this, arguments); };
+  });
+}
+const holes = (page, w) => page.evaluate((w) => { const v = window[w]; return v.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0) + (v.fate ? 1000 : 0); }, w);
+for (const vp of [[390, 844, true], [1280, 720, false]]) {
+  const tag = `${vp[0]}×${vp[1]} `, sz = `${vp[0]}x${vp[1]}`;
+  // ---- gunnery
+  {
+    const { ctx, page } = await open(vp, tag + 'gun ');
+    await sailArmed(page, 'arley');
+    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('olivar', -7300, 0, Math.PI / 2); await window.__simWait(1); const sel = window.__sel('nGun127');
+      Flight.setSight(true, 6); const on = await window.__aimAt(window.__tg); await window.__aimAt(window.__tg, 150); const gun = v.parts.find((p) => p.type === 'nGun127');
+      return { sel, on, ammo: gun.ammo, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)), sight: !!Flight.sight }; });
+    // FIRE held (the fire button: Flight.touchFire); the first round's column (its time of flight about 8 s): the picture half a second after it rises
+    await page.evaluate(async () => { Flight.touchFire = true; const f = () => new Promise((r) => requestAnimationFrame(r)), w0 = performance.now(); Render3D.skipDraw = true;
+      while (!window.__cols.length && Flight.time < 90 && performance.now() - w0 < 900000) await f();
+      Render3D.skipDraw = false; await window.__simWait(0.5, true); });
+    await shot(page, `gun-splash-${sz}`);
+    await page.evaluate(async () => { await window.__aimAt(window.__tg); await window.__simWait(14); Flight.touchFire = false; await window.__simWait(9); }); // (then on her)
+    const got = await page.evaluate(() => { const v = Flight.active, gun = v.parts.find((p) => p.type === 'nGun127'), t = window.__tg; return { ammo: gun.ammo, cols: window.__cols.length, big: window.__cols.filter((c) => c.k > 3).length, holes: +t.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0).toFixed(2), hp: Math.round(t.parts.reduce((s, p) => s + (p.hp == null ? Combat.maxHp(p.def) : Math.max(0, p.hp)), 0)), hp0: Math.round(t.parts.reduce((s, p) => s + Combat.maxHp(p.def), 0)) }; });
+    await frames(page, 3); await shot(page, `gun-after-${sz}`);
+    ok(`${tag}gunnery: the Arley's 127 mm through the gunner's sight at an Olivar ${set.d} m out: ${set.ammo - got.ammo} rounds away with FIRE held, ${got.big} columns of water, her hull holed (${got.holes} m², ${got.hp0 - got.hp} hp)`,
+      set.sel >= 0 && set.on && set.sight && set.ammo - got.ammo >= 3 && got.big >= 1 && got.holes > 0, { set, got });
+    await pageErrors(page, tag + 'gun ');
+    await ctx.close();
+  }
+  // ---- missiles
+  {
+    const { ctx, page } = await open(vp, tag + 'asm ');
+    await sailArmed(page, 'arley');
+    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('cyclon', -7800, 400, Math.PI / 2); /* (5.5 km: inside her radar's horizon on a patrol boat, so the lock takes her: no magic radar) */ await window.__simWait(1); const sel = window.__sel('asm4'); const on = await window.__aimAt(window.__tg); await window.__simWait(0.3, true);
+      Flight.fireTap = true; await window.__simWait(0.2, true); const m = Combat.S.shots.find((s) => s.asm && s.owner === v); window.__m = m; return { sel, on, fired: !!m, at: m && m.target === window.__tg, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)) }; });
+    await page.evaluate(async () => { await window.__simWait(1.2, true); });
+    await shot(page, `asm-launch-${sz}`);
+    await page.evaluate(async () => { const m = window.__m; const f = () => new Promise((r) => requestAnimationFrame(r)); Render3D.skipDraw = true; const w0 = performance.now(); while (Combat.S.shots.includes(m) && performance.now() - w0 < 900000) await f(); Render3D.skipDraw = false; await window.__simWait(2); });
+    const hit = await page.evaluate(() => { const t = window.__tg; return { holes: +t.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0).toFixed(2), fate: t.fate || '', spent: !!window.__m.dead }; });
+    ok(`${tag}missiles: the Arley's anti-ship missile at a Cyclon ${set.d} m out (the crosshair on her: the ship it flies at) goes and hits her (${hit.holes} m² of holes${hit.fate ? ', ' + hit.fate : ''})`, set.sel >= 0 && set.fired && set.at && hit.spent && (hit.holes > 0 || !!hit.fate), { set, hit });
+    // an Osca's at her from 6 km, one at a time until her close-in gun has shot one down (at most three)
+    const run = page.evaluate(async () => { const v = Flight.active, o = window.__mk('osca', -8300, 0, 0); o.ai = { sea: true }; await window.__simWait(1);
+      let best = 0, bk = -2; for (let i = 0; i < 16; i++) { const y = (i / 16) * TAU; o.placeOnSurface(EARTH, siteAngle(EARTH, -8300), 0, 0, y); const f = o.axis(1, 0, 0), dx = v.x - o.x, dy = v.y - o.y, dz = v.z - o.z, l = Math.hypot(dx, dy, dz), k = (f.x * dx + f.y * dy + f.z * dz) / l; if (k > bk) { bk = k; best = y; } }
+      o.placeOnSurface(EARTH, siteAngle(EARTH, -8300), 0, 0, best); Ship.launch(o, { e: -8300, z: 0, yaw: best });
+      const gun = v.parts.find((p) => p.type === 'ciws'), out = [];
+      for (let k = 0; k < 3; k++) {
+        const L = o.parts.find((p) => p.type === 'asm2'); L.ammo = 2; const m = Combat.launchMissile(o, L, v, Flight); let firing = null;
+        const f = () => new Promise((r) => requestAnimationFrame(r)); Render3D.skipDraw = true; const w0 = performance.now();
+        while (Combat.S.shots.includes(m) && !m.dead && performance.now() - w0 < 900000) { await f(); if (gun.gunOn && firing == null) { firing = Flight.time; Render3D.skipDraw = false; window.__ciwsAt = firing; break; } }
+        if (firing != null) { await window.__simWait(0.4, true); window.__shotNow = true; while (!window.__shotDone && performance.now() - w0 < 900000) await f(); window.__shotDone = false; window.__shotNow = false; Render3D.skipDraw = true; }
+        while (Combat.S.shots.includes(m) && !m.dead && performance.now() - w0 < 900000) await f();
+        Render3D.skipDraw = false;
+        out.push({ killed: m.killedBy === v, rounds: (gun.shots || 0) * 5, at: Math.round(Math.hypot(m.x - v.x, m.y - v.y, m.z - v.z)) });
+        if (m.killedBy === v) break;
+        await window.__simWait(2);
+      }
+      return out; });
+    // (the picture while the gun fires: taken from here as the page waits for it)
+    let took = false;
+    for (;;) {
+      const st = await Promise.race([run.then(() => 'done'), page.waitForFunction(() => window.__shotNow, null, { timeout: 0, polling: 250 }).then(() => 'shot').catch(() => 'done')]);
+      if (st === 'done') break;
+      if (!took) { await shot(page, `ciws-${sz}`); took = true; }
+      await page.evaluate(() => { window.__shotNow = false; window.__shotDone = true; });
+    }
+    const cw = await run;
+    ok(`${tag}...an Osca's anti-ship missiles at her from 6 km: her close-in gun fires (${cw.map((c) => c.rounds).join(', ')} rounds) and shoots one down (${cw.map((c) => c.killed ? 'down ' + c.at + ' m out' : 'it got through').join('; ')})`, cw.some((c) => c.killed), cw);
+    await pageErrors(page, tag + 'asm ');
+    await ctx.close();
+  }
+}
+
 ok('no console errors', !errs.length, errs.slice(0, 6).join('\n'));
 await b.close(); srv.close();
 ok.done();

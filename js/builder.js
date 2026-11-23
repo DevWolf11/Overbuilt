@@ -517,54 +517,83 @@ const TEMPLATES = {
       ['seatGunner', -0.6, -0.917, 0, { z: -0.4, att: 0 }], ['seatGunner', -0.6, -0.917, 0, { z: 0.4, att: 0 }]], // (the troops forward in the well and two gunners for the MGs: trimmed 0.8° by the stern, as a loaded LCVP)
     paint: { lcHull: 'navyGrey', consoleS: 'navyGrey' },
   },
-  pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels; her gun
-    // and missiles are WP9's, to come) [WP5]
+  pegazus: { // (the Pegasus-class hydrofoil: an M hull, a bow and a main foil, a gas turbine for the waterjet and two diesels) [WP5]
+    // ([WP9] armed: a 76 mm in a gun house on the bow, two twin anti-ship launchers aft at the stern, a surface and a
+    // fire-control radar, decoys; the spec's quads and shell magazine would sink her onto her foils (212 t: her hull leaves
+    // the water at 43 kn and flies 0.2 m over a Moderate sea), so twins, and the gun's 80 ready rounds: 192 t, as WP5 tuned)
     name: 'Pegazus Hydrofoil', kind: 'ship', tier: 3,
-    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves.',
+    blurb: 'A 40 m hydrofoil: hullborne on her diesels she potters at 12 knots; open up the gas turbine and past 30 she rises onto her foils and flies over the waves. A 76 mm gun forward and four anti-ship missiles aft.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
       ['foilBow', 18.6, -3.75, 0, { att: 4 }], ['foilAft', -5, -3.8, 0, { att: 1 }], ['turbine', -6, -0.05, 0, { att: 1 }],
       ['dieselS', 2, -1.234, 0, { z: 0.46, att: 2 }], ['dieselS', 2, -1.234, 0, { z: -0.46, att: 2 }], ['dieselS', 0.3, -1.37, 0, { att: 2 }],
       ['waterjet', -15.16, -1.35, 0, { att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: -1.4, att: 0 }], ['rudderM', -15.55, -2.67, 0, { z: 1.4, att: 0 }],
-      ['mastPole', 8.5, 8, 0, { att: 5 }], ['magazine', 11.97, -0.111, 0, { att: 3 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
+      ['mastPole', 8.5, 8, 0, { att: 5 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
+      ['nRingM', 21.3, 2.65, 0, { att: 4 }], ['nHouse127', 21.3, 4.3, 0, { att: 17 }], ['nGun76', 25.154, 4.3, 3, { att: 18 }],
+      ['asm2', -13, 2.9, 0, { att: 0 }], ['asm2', -6.5, 2.9, 0, { att: 1 }], ['nRadarSea', 8.5, 11.3, 0, { att: 15 }],
+      ['nRadarFC', 9.5, 5.6, 0, { att: 5 }], ['decoy', 5.9, 2.5, 0, { z: 3, att: 2 }], ['decoy', 5.9, 2.5, 0, { z: -3, att: 2 }],
+      ['seatGunner', 4, -1.442, 0, { att: 2 }]],
     paint: { hbSternM: 'navyGrey', hbMidM: 'navyGrey', hbBowM: 'navyGrey', bridgeM: 'navyGrey', mastPole: 'navyGrey' },
   },
-  osca: { // (an Osa-class missile boat: an M hull, three diesels and three screws; her missiles and guns are WP9's, to come) [WP5]
+  osca: { // (an Osa-class missile boat: an M hull, three diesels and three screws) [WP5] ([WP9] armed: two twin anti-ship launchers
+    // amidships, angled over the bow, a 30 mm in a small turret ring at each end, a surface radar on her mast and a fire-control
+    // radar on her wheelhouse, decoys, three gunners' seats)
     name: 'Osca Missile Boat', kind: 'ship', tier: 2,
-    blurb: 'A 40 m missile boat on three big diesels: fast and low, built to dash in, fire and run. Her missiles and guns are still to come.',
+    blurb: 'A 40 m missile boat on three big diesels: fast and low, built to dash in, fire four anti-ship missiles and run. A 30 mm gun at each end and a surface radar on her mast.',
     parts: [['hbSternM', -13, 0], ['hbMidM', -6, 0], ['hbMidM', 2, 0], ['hbMidM', 10, 0], ['hbBowM', 19, 0.3], ['bridgeM', 9, 3.5, 0, { att: 3 }],
       ['dieselM', -6, -0.333, 0, { z: 0.91, att: 1 }], ['dieselM', -6, -0.333, 0, { z: -0.91, att: 1 }], ['dieselM', 2, -0.63, 0, { att: 2 }],
       ['screwM', -14.46, -2.902, 0, { z: 1.4, att: 0 }], ['screwM', -14.46, -2.902, 0, { z: -1.4, att: 0 }], ['screwM', -12.4, -3.025, 0, { att: 0 }],
       ['rudderM', -15.51, -2.669, 0, { z: 1.4, att: 0 }], ['rudderM', -15.51, -2.669, 0, { z: -1.4, att: 0 }], ['mastPole', 8.5, 8, 0, { att: 5 }],
-      ['magazine', 11.97, -0.111, 0, { att: 3 }], ['dcLocker', 4.97, -0.709, 0, { att: 2 }], ['ballast', -11.53, -1.193, 0, { att: 0 }]],
+      ['magazine', 11.97, -0.111, 0, { att: 3 }], ['dcLocker', 4.97, -0.709, 0, { att: 2 }], ['ballast', -11.53, -1.193, 0, { att: 0 }],
+      ['ringS', 23.05, 2.675, 0, { att: 4 }], ['ringS', -10.5, 2.1, 0, { att: 0 }], ['ac30', -9.668, 2.35, 3, { att: 19 }],
+      ['ac30', 23.882, 2.925, 3, { att: 18 }], ['asm2', 3.5, 2.9, 0, { z: 2.2, att: 2 }], ['asm2', 3.5, 2.9, 0, { z: -2.2, att: 2 }],
+      ['nRadarSea', 8.5, 11.3, 0, { att: 14 }], ['nRadarFC', 9.5, 5.6, 0, { att: 5 }], ['decoy', -0.1, 2.5, 0, { z: 3, att: 2 }],
+      ['decoy', -0.1, 2.5, 0, { z: -3, att: 2 }], ['seatGunner', -0.25, -1.442, 0, { att: 2 }], ['seatGunner', -1.25, -1.442, 0, { att: 2 }],
+      ['seatGunner', 4, -1.017, 0, { z: 1.36, att: 2 }]],
     paint: { hbSternM: 'navySplinter', hbMidM: 'navySplinter', hbBowM: 'navySplinter', bridgeM: 'navySplinter', mastPole: 'navySplinter' },
   },
   vizby: { // (a Visby-class corvette: an L hull under a faceted superstructure, a turbine and two diesels on two waterjets, a
-    // helicopter deck aft; her weapons, hidden inside, are WP9's, to come) [WP5]
+    // helicopter deck aft) [WP5] ([WP9] armed: a 57 mm in a gun house on the bow, two twin anti-ship launchers (two, not the
+    // spec's quads: her money tier), torpedo tubes either side, her three radars flat on the superstructure's roof, decoys)
     name: 'Vizby Stealth Corvette', kind: 'ship', tier: 3,
-    blurb: 'A 72 m stealth corvette: flat slanted walls that radars barely see, waterjets that turn her on a coin, a helicopter deck aft. Her weapons, hidden inside, are still to come.',
+    blurb: 'A 72 m stealth corvette: flat slanted walls that radars barely see, waterjets that turn her on a coin, a helicopter deck aft. A 57 mm gun, four anti-ship missiles and torpedo tubes either side.',
     parts: [['hbSternL', -25, 0], ['hbMidL', -8, 0], ['hbMidL', 8, 0], ['hbBowL', 27, 0.6], ['stealthHouse', 3, 6.057, 0, { att: 2 }],
       ['turbine', -8, -1.299, 0, { att: 1 }], ['dieselM', 2, -1.645, 0, { z: 0.91, att: 2 }], ['dieselM', 2, -1.645, 0, { z: -0.91, att: 2 }],
       ['waterjet', -32.84, -2.15, 0, { z: -1.6, att: 0 }], ['waterjet', -32.84, -2.15, 0, { z: 1.6, att: 0 }], ['helipad', -24, 3.2, 0, { att: 0 }],
-      ['magazine', 13.97, -1.462, 0, { att: 2 }], ['dcLocker', 8, -1.886, 0, { att: 2 }]],
+      ['magazine', 13.97, -1.462, 0, { att: 2 }], ['dcLocker', 8, -1.886, 0, { att: 2 }],
+      ['nRingM', 35.3, 4.217, 0, { att: 3 }], ['nHouse127', 35.3, 5.867, 0, { att: 13 }], ['nGun57', 38.962, 5.867, 3, { att: 14 }],
+      ['asm2', 21, 4.136, 0, { z: 3.857, att: 3 }], ['asm2', 21, 4.136, 0, { z: -3.857, att: 3 }], ['torpTube', -13.7, 3.4, 0, { z: 5, att: 1 }],
+      ['torpTube', -13.7, 3.4, 0, { z: -5, att: 1 }], ['nRadarAir', 3, 9.657, 0, { att: 4 }], ['nRadarSea', 6.25, 9.357, 0, { att: 4 }],
+      ['nRadarFC', 0.25, 9.657, 0, { att: 4 }], ['decoy', -32.6, 3.5, 0, { z: 4.733, att: 0 }], ['decoy', -32.6, 3.5, 0, { z: -4.733, att: 0 }],
+      ['seatGunner', -12.5, -2.491, 0, { att: 1 }], ['seatGunner', -13.5, -2.491, 0, { att: 1 }], ['seatGunner', -14.5, -2.491, 0, { att: 1 }]], // (her gunners aft by the tubes)
     paint: { hbSternL: 'navyDark', hbMidL: 'navyDark', hbBowL: 'navyDark', stealthHouse: 'navyDark' },
   },
-  olivar: { // (an Oliver Hazard Perry frigate: an X hull, two turbines on one big screw, a hangar and a helicopter deck; her weapons
-    // are WP9's, to come) [WP5]
+  olivar: { // (an Oliver Hazard Perry frigate: an X hull, two turbines on one big screw, a hangar and a helicopter deck) [WP5]
+    // ([WP9] armed: a 76 mm on the bow (her real one stands on the deckhouse, where the funnel leaves no room for its barrel),
+    // two eight-cell launchers forward for her single-arm one, a quad anti-ship launcher aft, a close-in gun on the hangar,
+    // torpedo tubes either side, air and surface radars on her masts, two fire-control radars on the bridge, decoys)
     name: 'Olivar Perri Frigate', kind: 'ship', tier: 3,
-    blurb: 'A 108 m frigate on two gas turbines and a single big propeller, with a hangar and a deck for a helicopter. Her guns and missiles are still to come.',
+    blurb: 'A 108 m frigate on two gas turbines and a single big propeller, with a hangar and a deck for a helicopter. A 76 mm gun, sixteen SAM cells, four anti-ship missiles, torpedoes and a close-in gun on the hangar.',
     parts: [['hbSternX', -37, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbBowX', 41, 0.5], ['bridgeL', 26, 9.191, 0, { att: 3 }],
       ['deckhouseL', 14, 8, 0, { att: 2 }], ['deckhouseL', 0, 8, 0, { att: 1 }], ['mastLattice', 24, 19.691, 0, { att: 4 }],
       ['mastLattice', -3, 17.5, 0, { att: 6 }], ['funnel', 12, 13.5, 0, { att: 5 }], ['hangar', -19, 8.5, 0, { att: 1 }],
       ['helipad', -39, 5.7, 0, { att: 0 }], ['turbine', -10, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -10, -3.711, 0, { z: -1.51, att: 1 }],
       ['screwL', -46.85, -6.052, 0, { att: 0 }], ['rudderL', -49.5, -6.038, 0, { att: 0 }], ['magazine', 30, -4.074, 0, { att: 3 }],
       ['dcLocker', 10, -4.355, 0, { z: 1.01, att: 2 }], ['dcLocker', 10, -4.355, 0, { z: -1.01, att: 2 }], ['pump', -5, -4.94, 0, { att: 1 }],
-      ['bulkhead', -0.18, -4.412, 0, { att: 1 }], ['bulkhead', 23.82, -4.412, 0, { att: 2 }]],
+      ['bulkhead', -0.18, -4.412, 0, { att: 1 }], ['bulkhead', 23.82, -4.412, 0, { att: 2 }],
+      ['nRingM', 55.3, 7.09, 0, { att: 3 }], ['nHouse127', 55.3, 8.74, 0, { att: 22 }], ['nGun76', 59.154, 8.74, 3, { att: 23 }],
+      ['ciws', -19, 13.6, 0, { att: 10 }], ['vls8', 45, 5.055, 0, { att: 3 }], ['vls8', 48.4, 5.237, 0, { att: 3 }], ['asm4', -28, 6.7, 0, { att: 0 }],
+      ['torpTube', -26.7, 5.9, 0, { z: 7.474, att: 0 }], ['torpTube', -26.7, 5.9, 0, { z: -7.474, att: 0 }], ['nRadarAir', 24, 27.291, 0, { att: 7 }],
+      ['nRadarSea', -3, 24.8, 0, { att: 8 }], ['nRadarFC', 26.25, 13.291, 0, { att: 4 }], ['nRadarFC', 27.5, 13.291, 0, { att: 4 }],
+      ['decoy', -29.1, 6, 0, { z: 7.466, att: 0 }], ['decoy', -29.1, 6, 0, { z: -7.466, att: 0 }], ['seatGunner', 4, -4.999, 0, { att: 2 }],
+      ['seatGunner', 5, -4.999, 0, { att: 2 }]],
     paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey', hangar: 'navyGrey' },
   },
-  arley: { // (an Arleigh Burke destroyer: an X hull, four turbines on two screws, a helicopter deck aft; her weapons are WP9's,
-    // to come) [WP5]
+  arley: { // (an Arleigh Burke destroyer: an X hull, four turbines on two screws, a helicopter deck aft) [WP5] ([WP9] armed: a
+    // 127 mm in a gun house on the bow, eight-cell launchers fore and aft, a quad anti-ship launcher amidships, a close-in gun
+    // on the after deckhouse, a torpedo tube, an air radar on the mast, a surface and a fire-control radar on the bridge (one,
+    // not the spec's two: her money tier, with one pump fewer), decoys)
     name: 'Arley Berk Destroyer', kind: 'ship', tier: 3,
-    blurb: 'A 156 m destroyer, 8,000 tonnes, four gas turbines on two propellers: the biggest thing afloat in a battle. Her guns and missile cells are still to come.',
+    blurb: 'A 156 m destroyer, 8,000 tonnes, four gas turbines on two propellers: the biggest thing afloat in a battle. A 127 mm gun, sixteen SAM cells, four anti-ship missiles, a close-in gun and torpedoes.',
     parts: [['hbSternX', -61, 0], ['hbMidX', -36, 0], ['hbMidX', -12, 0], ['hbMidX', 12, 0], ['hbMidX', 36, 0], ['hbBowX', 65, 0.5],
       ['bridgeL', 42, 9, 0, { att: 4 }], ['deckhouseL', 28, 8, 0, { att: 4 }], ['deckhouseL', -12, 8, 0, { att: 2 }],
       ['mastLattice', 39, 19.5, 0, { att: 6 }], ['funnel', 26, 13.5, 0, { att: 7 }], ['funnel', -10, 13.5, 0, { att: 8 }],
@@ -572,9 +601,13 @@ const TEMPLATES = {
       ['turbine', -36.25, -3.711, 0, { z: 1.51, att: 1 }], ['turbine', -36.25, -3.711, 0, { z: -1.51, att: 1 }],
       ['screwL', -70.85, -6.052, 0, { z: 3.2, att: 0 }], ['screwL', -70.85, -6.052, 0, { z: -3.2, att: 0 }],
       ['rudderL', -73.5, -6.038, 0, { z: 3.2, att: 0 }], ['rudderL', -73.5, -6.038, 0, { z: -3.2, att: 0 }], ['magazine', 52, -4.083, 0, { att: 5 }],
-      ['magazine', -45.97, -4.106, 0, { att: 1 }], ['dcLocker', -1.03, -4.412, 0, { att: 2 }], ['pump', -12, -4.911, 0, { z: 0.51, att: 2 }],
-      ['pump', -12, -4.911, 0, { z: -0.51, att: 2 }], ['bulkhead', -40.43, -4.412, 0, { att: 1 }], ['bulkhead', -2.18, -4.412, 0, { att: 2 }],
-      ['bulkhead', 23.82, -4.412, 0, { att: 3 }], ['bulkhead', 47.82, -4.412, 0, { att: 4 }]],
+      ['magazine', -45.97, -4.106, 0, { att: 1 }], ['dcLocker', -1.03, -4.412, 0, { att: 2 }], ['pump', -12, -4.911, 0, { att: 2 }],
+      ['bulkhead', -40.43, -4.412, 0, { att: 1 }], ['bulkhead', -2.18, -4.412, 0, { att: 2 }], ['bulkhead', 23.82, -4.412, 0, { att: 3 }],
+      ['bulkhead', 47.82, -4.412, 0, { att: 4 }], ['nRingM', 79.3, 7.09, 0, { att: 5 }], ['nHouse127', 79.3, 8.74, 0, { att: 29 }],
+      ['nGun127', 83.794, 8.74, 3, { att: 30 }], ['vls8', 62, 4.736, 0, { att: 5 }], ['vls8', -72.4, 4.3, 0, { att: 0 }],
+      ['asm4', -22, 6.7, 0, { att: 2 }], ['ciws', -13.75, 12.6, 0, { att: 8 }], ['torpTube', -20.7, 5.9, 0, { z: 7.5, att: 2 }],
+      ['nRadarAir', 39, 27.1, 0, { att: 9 }], ['nRadarSea', 42, 12.8, 0, { att: 6 }], ['nRadarFC', 44, 13.1, 0, { att: 6 }],
+      ['decoy', -23.1, 6, 0, { z: 7.5, att: 2 }], ['decoy', -23.1, 6, 0, { z: -7.5, att: 2 }], ['seatGunner', 4, -4.999, 0, { att: 3 }]],
     paint: { hbSternX: 'navyGrey', hbMidX: 'navyGrey', hbBowX: 'navyGrey', bridgeL: 'navyGrey', deckhouseL: 'navyGrey', mastLattice: 'navyGrey', funnel: 'navyGrey' },
   },
   catalyna: { // (a PBY Catalina: a plane built on a flying-boat hull, wingtip floats, two radial engines, a torpedo and two MGs;

@@ -330,6 +330,34 @@ for (const [W, H, touch] of [[390, 844, true], [1280, 720, false]]) {
   await pg.close();
 }
 
+// ---- 6. (WP9) every naval weapon by a tap: the Arley's hulls and superstructure with her weapons taken off, then each of
+// the fifteen tapped from the Naval weapons tab (each gun into a gun house on a ring of its own, the tank's rules): each
+// one placed (none refused), joined to her, nothing clashing; on a phone in portrait and a desktop
+const ARMS = [['Naval Gun Ring', 'Gun House', '57 mm Naval Gun'], ['Naval Gun Ring', 'Gun House', '76 mm Rapid Gun'], ['Naval Gun Ring', 'Gun House', '127 mm Naval Gun'], ['Naval Gun Ring', 'Gun House', '152 mm Naval Gun'],
+  ['Close-In Gun'], ['Twin Anti-ship Missiles'], ['Quad Anti-ship Missiles'], ['Vertical Launcher'], ['Torpedo Tubes'], ['Air Search Radar'], ['Fire-Control Radar'], ['Surface Search Radar'], ['Decoy Launcher']];
+for (const [W, H, touch] of [[390, 844, true], [1280, 720, false]]) {
+  const tag = touch ? 'phone' : 'desktop', pg = await open(W, H, touch), miss = [], got = [];
+  for (const group of ARMS) {
+    await pg.evaluate(() => { Builder.loadTemplate('arley'); Builder.parts = Builder.parts.filter((p) => p.def.cat !== 'shArms'); Builder.changed(); Builder.category = 'shArms'; Builder.buildPalette(); window.__toasts = window.__toasts || []; if (!window.__tw) { window.__tw = true; const t0 = UI.toast; UI.toast = (m, ...a) => { window.__toasts.push(m); return t0.call(UI, m, ...a); }; } });
+    for (const name of group) {
+      const n0 = await pg.evaluate(() => Builder.parts.length);
+      await tapPart(pg, 'Naval weapons', name, touch);
+      const n1 = await pg.evaluate(() => Builder.parts.length);
+      if (n1 <= n0) miss.push(name + ': ' + (await pg.evaluate(() => window.__toasts.slice(-1)[0])));
+    }
+    const r = await pg.evaluate((last) => { const ps = Builder.parts, adj = buildAdjacency(ps), c = findControlPart(ps), comp = c ? componentOf(c.id, adj) : new Set(), p = ps.find((q) => q.def.name === last && q.def.cat === 'shArms');
+      const clash = ps.some((a, i) => ps.some((b, j) => j > i && partsClash(a, b))), house = p && p.def.weapon && p.def.weapon.naval ? ps.find((q) => q.type === 'nHouse127') : null;
+      return { name: last, placed: !!p, joined: !!p && comp.has(p.id), clash, inHouse: house ? p.att === house.id : null }; }, group[group.length - 1]);
+    got.push(r);
+  }
+  await pg.evaluate(() => { Builder.selected = null; Builder.renderInfo(); Builder.fitView(); });
+  await frames(pg, 3);
+  await pg.screenshot({ path: SHOTS + `ship-wp9-${tag}-decoy.png` });
+  const bad = got.filter((r) => !r.placed || !r.joined || r.clash || r.inHouse === false);
+  ok(`${tag}: (WP9) all fifteen naval weapons placed by taps on the Arley's bare hull (the four guns each into a gun house on a ring of its own), joined, nothing clashing`, !miss.length && !bad.length, JSON.stringify({ miss, bad }));
+  await pg.close();
+}
+
 ok('no page errors', errs.length === 0, errs.slice(0, 5).join('\n'));
 await b.close(); srv.close();
 ok.done();

@@ -117,6 +117,7 @@ const Radar = (() => {
   function sees(L, t, tp, job = 'guide', memo, keep = 0.25) {
     if (!L || L.dead || L.down || !L.parts || !L.parts.length || L.radarOff || !t || !tp || !tp.alive) return false; // (down: a pilot knocked out leaves the set aboard, unread)
     if ((t.kind === 'drone' && !t.def) || (t.ai && t.ai.drone)) return false; // (real drones: the counter-drone kit's job, not an aircraft radar's; the range's Target drone (a def) is an air target: P5-OLD-1)
+    if (!t.def && (isSea(t.kind) || (t.sh && t.afloat) || t.afloat)) return false; // ([WP9] a ship afloat is a surface contact: an aircraft's radar never sees one (no magic radar; eyes and the missiles' own seekers do))
     const rl = radars(L);
     if (rl === NONE) return false;
     const dx = tp.x - L.x, dy = tp.y - L.y, dz = tp.z - L.z, d = Math.hypot(dx, dy, dz) || 1;
@@ -213,7 +214,7 @@ const Radar = (() => {
   function chip(v, F) {
     if (!F.toast) return;
     const sys = Combat.systems(v), cur = sys[v.wsel];
-    if (!cur || !cur.w || !(cur.w.kind === 'missile' && cur.w.radar && cur.w.seek === 'air') || cur.def.aim) return;
+    if (!cur || !cur.w || !(cur.w.kind === 'missile' && cur.w.radar && cur.w.seek === 'air') || cur.def.aim || cur.w.vls) return; // ([WP9] a ship's launch cells: her fire-control radar's)
     const st = chipState(v, cur);
     if (st === 'ok' || S.said[st]) return;
     S.said[st] = true;
@@ -245,7 +246,7 @@ const Radar = (() => {
     const air = [];
     for (const o of fighters(F)) if (!o.landed) air.push(o);
     for (const e of Combat.S.targets) if (e.alive && e.def.air) air.push(e);
-    if (typeof MP !== 'undefined' && MP.active && MP.ghosts) for (const g of MP.ghosts()) if (!g.hiddenUntilSnap && !g.landed && !isGround(g.kind) && g.kind !== 'drone' && g !== v) air.push(g);
+    if (typeof MP !== 'undefined' && MP.active && MP.ghosts) for (const g of MP.ghosts()) if (!g.hiddenUntilSnap && !g.landed && !isGround(g.kind) && g.kind !== 'drone' && !isSea(g.kind) && !g.afloat && g !== v) air.push(g); // ([WP9] never a ship)
     for (const o of air) {
       const tp = Combat.refPos(o);
       if (!tp || !tp.alive) continue;
@@ -498,7 +499,7 @@ const Radar = (() => {
     if (pit) { ctx.strokeStyle = '#e9edf1'; ctx.lineWidth = 1; ctx.beginPath(); for (const p of pit) { ctx.moveTo(p.x + 4, p.y); ctx.arc(p.x, p.y, 4, 0, TAU2); } ctx.stroke(); }
     // 7. a radar missile chosen: its reach, dashed, across the main radar's wedge
     const cur = Combat.systems(v)[v.wsel], w = cur && cur.w;
-    if (w && w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && main && !main.R.warn && !off) {
+    if (w && w.kind === 'missile' && w.radar && w.seek === 'air' && !cur.def.aim && !w.vls && main && !main.R.warn && !off) {
       const g = Math.min(w.range, guideRange(v));
       if (g > 0) {
         const c = main.R.cone >= 180 ? Math.PI : (main.R.cone * Math.PI) / 180;
