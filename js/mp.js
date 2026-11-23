@@ -1109,6 +1109,7 @@ const MP = {
     const a = Flight.active, main = a && a.carrier ? a.carrier : a, S = this.sent, Z = this.seaSink;
     const sinking = !!Z && Z.v === main && !Z.done && !main.dead && performance.now() - Z.t < MP_SEA_MS; // ([WP11] our doomed ship going down: everyone sees her go, MP_SEA_MS at most)
     if (main && S && !((Flight.destroyed && !last && !sinking) || !main.parts.length) && (!this.mainDown || last || sinking)) this.stream(main, S, 0, null, last);
+    if (Z && Z.done && !Z.kept && Z.v === main) { Z.kept = true; this.addWreck(main, Net.me); } // ([WP11] our sunk ship on a shallow bed: one of the room's wrecks, as on every other screen, kept at our respawn)
     if (this.extra.size) for (const [c, E] of this.extra) if (!E.v.dead && E.v.parts.length) this.stream(E.v, E.sent, c, E, false);
   },
   // One craft's updates (c: its craft index, 0 the main craft; E its extra's record): the parts it has left on a change,
@@ -1483,7 +1484,7 @@ const MP = {
     }
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
-    if (m.f === 1 && !Net.isHost && m.st !== undefined && typeof Ship !== 'undefined' && Flight.running) Ship.slew(m.st, Flight, (Net.hostNow() - m.th) / 1000); // [WP11] (the host's sea clock: ours slews to it)
+    if (m.f === 1 && !Net.isHost && typeof m.st === 'number' && typeof Ship !== 'undefined' && Flight.running) Ship.slew(m.st, Flight, (Net.hostNow() - m.th) / 1000); // [WP11] (the host's sea clock: ours slews to it; a number only)
     if (!P.design && this.shared && P.recv - (P.asked || 0) > 3000) { P.asked = P.recv; Net.send({ t: 'want' }, m.f); }
     if (!P.ghost && P.design && Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
   },

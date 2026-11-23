@@ -174,6 +174,23 @@ t(`the air starts (${flying.length}: planes over the Faroes and Highland Ridge, 
   for (const s of spots) for (const k of SHIPS) st.push(JSON.parse(R(`JSON.stringify(shipTrial('${s.id}', '${k}'))`)));
   const sick = st.filter((r) => r.dead || r.lost || r.tilt > 6 || r.moved > 15 || !r.hydro);
   t(`each stock ship started at each ship spot (${st.length} starts) is whole, upright (under 6° on the swell) and where she started 5 s on`, !sick.length && st.length >= spots.length, sick.length ? sick.slice(0, 6) : { most: Math.max(...st.map((r) => r.moved)), tilt: Math.max(...st.map((r) => r.tilt)) });
+  // [WP11] the Naval Battle's arena, the Shetland Sound (EARTH.arenas.sound): each team's twelve starts (GroundMode.placement:
+  // abreast 120 m apart, a second row astern) deep enough under every stock ship's box there, and every zone's water (its
+  // duel ring too) deeper than the deepest stock ship's draft + 2 m, sampled every 25 m; nothing of it on land
+  const S = E.arenas.sound, deep = Math.max(...Object.values(dims).map((d) => d.draft)) + 2, sb = [];
+  for (const tm of [0, 1]) for (let k = 0; k < 12; k++) {
+    const P = ctx.GroundMode.placement('sound', tm, k, 'ship');
+    for (const key of SHIPS) {
+      const d = dims[key], c = Math.cos(P.yaw), sn = -Math.sin(P.yaw), hl = d.L / 2 + 10, hw = d.B / 2 + 2;
+      let lo = Infinity;
+      for (let u = -hl; u <= hl; u += 4) for (let v = -hw; v <= hw; v += 2) lo = Math.min(lo, -T.heightAt(E, A(P.e + u * c - v * sn), P.z + u * sn + v * c));
+      if (!(lo > d.draft + 2)) sb.push(`team ${tm} #${k} ${key}: ${lo.toFixed(1)} m`);
+    }
+  }
+  let zlo = Infinity;
+  for (const zn of S.zones) { const r = Math.max(zn.r, zn.rDuel || 0); for (let u = -r; u <= r; u += 25) for (let v = -r; v <= r; v += 25) if (u * u + v * v <= r * r) zlo = Math.min(zlo, -T.heightAt(E, A(zn.e + u), zn.z + v)); }
+  t(`the Shetland Sound: each team's twelve starts deeper than each stock ship's draft + 2 m under her whole box, and every zone (its duel ring too) ${zlo.toFixed(1)} m deep at its shallowest, past the deepest draft + 2 m (${deep.toFixed(1)} m)`,
+    !sb.length && zlo > deep && S.pads.every((f) => !!wet(f.e, f.z)), sb.slice(0, 6));
 }
 
 // ---------------------------------------------------------------- the props round them

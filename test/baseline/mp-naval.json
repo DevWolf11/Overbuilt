@@ -1,0 +1,1021 @@
+{
+ "01 host and join": {
+  "host": {
+   "sent": [
+    "2x {\"t\":\"state\",\"phase\":\"lobby\",\"game\":\"naval\",\"sea\":\"calm\"}"
+   ],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "lobby",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "lobby",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "02 a client cannot change the sea": {
+  "host": {
+   "sent": [],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "lobby",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "{\"t\":\"set\",\"k\":\"sea\"}>1"
+   ],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "lobby",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "03 start: build": {
+  "host": {
+   "sent": [
+    "2x {\"t\":\"state\",\"phase\":\"build\",\"game\":\"naval\",\"sea\":\"calm\"}"
+   ],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "build",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "build",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "04 both ready: the battle": {
+  "host": {
+   "sent": [
+    "{\"t\":\"state\",\"phase\":\"build\",\"game\":\"naval\",\"sea\":\"calm\"}"
+   ],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "build",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "{\"t\":\"set\",\"k\":\"ready\"}>1"
+   ],
+   "sees": {
+    "me": null,
+    "ghost": null,
+    "wreck": null,
+    "phase": "build",
+    "tk": null,
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "05 the battle starts": {
+  "host": {
+   "sent": [
+    "3x {\"t\":\"state\",\"phase\":\"battle\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/600\"}",
+    "{\"t\":\"spawn\",\"kind\":\"ship\",\"n\":43}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": false,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": false,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "06 a few seconds afloat: snapshots both ways, ghosts at sea": {
+  "host": {
+   "sent": [
+    "28x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"pv\"}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "28x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"pv\"}",
+    "2x {\"t\":\"seen\"}>1",
+    "{\"t\":\"set\",\"k\":\"troops\"}>1"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "07 closing to 700 m off her beam": {
+  "host": {
+   "sent": [
+    "18x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"pv\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "18x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"pv\"}",
+    "{\"t\":\"seen\"}>1"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "08 the host fires three 127 mm rounds at her": {
+  "host": {
+   "sent": [
+    "3x {\"t\":\"shot\",\"k\":\"shell\",\"sh\":\"sap127\"}",
+    "21x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "{\"t\":\"pv\"}",
+    "3x {\"t\":\"hit\",\"n\":1,\"k\":\"pen\",\"ho\":2}>2"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "21x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"seen\"}>1",
+    "{\"t\":\"pv\"}",
+    "{\"t\":\"hp\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0.114,
+     "water": 0,
+     "hp": 174750,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "09 the host fires a torpedo": {
+  "host": {
+   "sent": [
+    "2x {\"t\":\"shot\",\"k\":\"stor\",\"id\":1}",
+    "15x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"pv\"}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 1
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "{\"t\":\"seen\"}>1",
+    "15x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0.114,
+     "water": 0,
+     "hp": 174750,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 1
+   },
+   "err": []
+  }
+ },
+ "10 the torpedo runs and hits": {
+  "host": {
+   "sent": [
+    "536x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "20x {\"t\":\"pv\"}",
+    "27x {\"t\":\"shot\",\"k\":\"stor\",\"id\":1}",
+    "19x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "{\"t\":\"boom\"}",
+    "{\"t\":\"hit\",\"n\":1,\"k\":\"blast\",\"ho\":1}>2",
+    "{\"t\":\"shot\",\"k\":\"stor\",\"id\":1,\"end\":1,\"x\":1}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "40x {\"t\":\"seen\"}>1",
+    "536x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "20x {\"t\":\"pv\"}",
+    "{\"t\":\"hp\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 6.65,
+     "water": 384.9,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "11 the client fires an anti-ship missile": {
+  "host": {
+   "sent": [
+    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "{\"t\":\"msl\",\"id\":1,\"tg\":1,\"asm\":1}",
+    "5x {\"t\":\"mp\"}",
+    "{\"t\":\"pv\"}",
+    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"seen\"}>1"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 6.65,
+     "water": 400.4,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "12 the missile flies; the close-in gun shoots": {
+  "host": {
+   "sent": [
+    "96x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"mkill\",\"pid\":2,\"id\":1}>2",
+    "4x {\"t\":\"pv\"}",
+    "4x {\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "96x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "11x {\"t\":\"mp\"}",
+    "7x {\"t\":\"seen\"}>1",
+    "{\"t\":\"mx\"}",
+    "4x {\"t\":\"pv\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 6.65,
+     "water": 635.4,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "13 she founders": {
+  "host": {
+   "sent": [
+    "447x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "13x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "15x {\"t\":\"pv\"}",
+    "{\"t\":\"state\",\"phase\":\"battle\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/522\"}",
+    "3x {\"t\":\"obj\",\"tk\":\"600/522\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": "sunk",
+     "sinking": true,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "28x {\"t\":\"seen\"}>1",
+    "447x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "15x {\"t\":\"pv\"}",
+    "{\"t\":\"down\",\"by\":1,\"sea\":\"sunk@\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": "sunk",
+     "wreck": false,
+     "holes": 156.65,
+     "water": 18730.9,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "14 she goes down": {
+  "host": {
+   "sent": [
+    "180x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "6x {\"t\":\"pv\"}",
+    "6x {\"t\":\"obj\",\"tk\":\"600/522\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": null,
+    "wreck": {
+     "pid": 2,
+     "kind": "ship"
+    },
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "131x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "4x {\"t\":\"pv\"}",
+    "{\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,sk\",\"sh\":0,\"af\":1,\"sk\":2}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": "sunk",
+     "wreck": true,
+     "holes": 156.65,
+     "water": 22989.1,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "15 on the bed": {
+  "host": {
+   "sent": [
+    "90x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "3x {\"t\":\"pv\"}",
+    "3x {\"t\":\"obj\",\"tk\":\"600/522\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": null,
+    "wreck": {
+     "pid": 2,
+     "kind": "ship"
+    },
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": "sunk",
+     "wreck": true,
+     "holes": 156.65,
+     "water": 22989.1,
+     "hp": 172118,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "16 the client respawns": {
+  "host": {
+   "sent": [
+    "{\"t\":\"obj\",\"tk\":\"600/522\"}",
+    "7x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": {
+     "pid": 2,
+     "kind": "ship"
+    },
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
+    "{\"t\":\"despawn\"}",
+    "{\"t\":\"spawn\",\"kind\":\"ship\",\"n\":43}",
+    "{\"t\":\"set\",\"k\":\"flying\"}>1",
+    "{\"t\":\"set\",\"k\":\"kind\"}>1",
+    "8x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"pv\"}",
+    "{\"t\":\"seen\"}>1"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/522",
+    "seaOff": -2,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "17 time is up: the result": {
+  "host": {
+   "sent": [
+    "{\"t\":\"state\",\"phase\":\"results\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/522\"}",
+    "{\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": {
+     "pid": 2,
+     "kind": "ship"
+    },
+    "phase": "results",
+    "tk": "600/522",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43
+    },
+    "wreck": null,
+    "phase": "results",
+    "tk": "600/522",
+    "seaOff": -2,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ }
+}
