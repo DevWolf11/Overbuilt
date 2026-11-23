@@ -445,10 +445,14 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await page.evaluate(strokes);
   await page.evaluate(() => { window.__snd = { bell: 0, sea: [] }; const b = Sound.bell, sea = Sound.sea; Sound.bell = function (...a) { window.__snd.bell++; return b.apply(this, a); }; Sound.sea = function (L) { if (L && window.__snd.sea.length < 400) window.__snd.sea.push(L.diesel || L.turbine || 0); return sea.apply(this, arguments); }; });
   const L0 = await page.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
-    return { cv: r('#ship-helm .sh-cv'), tel: r('#flight-ui .telemetry'), H: innerHeight }; });
+    return { cv: r('#ship-helm .sh-cv'), tel: r('#flight-ui .telemetry'), rungs: r('#ship-helm .sh-rungs'), hl: r('#ship-helm .sh-hl'), H: innerHeight }; });
   const h0 = await hudOf(page);
   ok(`${tag}the hull diagram under her helm panel, inside the flight data (${L0.cv ? Math.round(L0.cv.r - L0.cv.l) + '×' + Math.round(L0.cv.b - L0.cv.t) : 'none'}), "${h0.hl}" under it; ${vp[2] ? 'HOLD, DC and CIWS over the lever, lit as she is' : 'no touch buttons on a desktop'}`,
-    h0.hull && !!L0.cv && L0.cv.l >= L0.tel.l && L0.cv.r <= L0.tel.r && L0.cv.b <= L0.tel.b && L0.tel.b < L0.H && /^Heel \d+°/.test(h0.hl) && (vp[2] ? h0.btn.join() === 'HOLD:true,DCANY:false,CIWS:true' : h0.btn.join() === ',,'), { h0, L0 });
+    h0.hull && !!L0.cv && L0.cv.l >= L0.tel.l && L0.cv.r <= L0.tel.r && L0.cv.b <= L0.tel.b && L0.rungs.r <= L0.tel.r && L0.hl.r <= L0.tel.r && L0.tel.b < L0.H && (vp[2] ? /^(no heel|\d+° (port|stbd))/ : /^Heel \d+°/).test(h0.hl) && (vp[2] ? h0.btn.join() === 'HOLD:true,DCANY:false,CIWS:true' : h0.btn.join() === ',,'), { h0, L0 });
+  // her longest heel and trim words still inside the flight data (they once widened the helm panel past it)
+  const lw = await page.evaluate(() => { const v = Flight.active, h = v.heel, t = v.trim; v.heel = 0.21; v.trim = -0.06; Ship._hud.HD.v = null; Ship.diagram(Flight); v.heel = h; v.trim = t;
+    const r = (s) => document.querySelector(s).getBoundingClientRect(), T = r('#flight-ui .telemetry'); return { hl: document.querySelector('#ship-helm .sh-hl').textContent, in: r('#ship-helm .sh-hl').right <= T.right + 0.5 && r('#ship-helm .sh-rungs').right <= T.right + 0.5 && r('#ship-helm .sh-bar').right <= T.right + 0.5 }; });
+  ok(`${tag}her heel and trim at their longest ("${lw.hl}") keep the helm panel inside the flight data`, lw.in && /12° stbd/.test(lw.hl) && /3° stern/.test(lw.hl), lw);
   {
     const L = await page.evaluate(layout);
     for (const [k, s2] of [['hold', '#btn-shold'], ['dc', '#btn-sdc'], ['ciws', '#btn-sciws']]) L.items[k] = await page.evaluate((s2) => { const r = document.querySelector(s2).getBoundingClientRect(); return r.width ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; }, s2);

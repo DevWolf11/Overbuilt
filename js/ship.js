@@ -4690,7 +4690,9 @@ const Ship = (() => {
     }
     // the line under it: heel and trim (eased), or her fate
     const lost = !!v.fate, hd = Math.round(HD.heel * deg), td = Math.round(HD.trim * deg);
-    const t1 = lost ? 'ABANDON SHIP' : `Heel ${Math.abs(hd)}°${hd ? (hd > 0 ? ' stbd' : ' port') : ''}`, t2 = lost ? '' : `Trim ${Math.abs(td)}°${td ? (td > 0 ? ' bow' : ' stern') : ''}`;
+    // (on a phone's strip the short words: "12° stbd", "3° stern", "no heel", "no trim"; else "Heel 12° stbd", "Trim 3° stern")
+    const hv = hd ? `${Math.abs(hd)}° ${hd > 0 ? 'stbd' : 'port'}` : '', tv = td ? `${Math.abs(td)}° ${td > 0 ? 'bow' : 'stern'}` : '';
+    const t1 = lost ? 'ABANDON SHIP' : small ? hv || 'no heel' : `Heel ${hv || '0°'}`, t2 = lost ? '' : small ? tv || 'no trim' : `Trim ${tv || '0°'}`;
     if (HUD.heel.textContent !== t1) HUD.heel.textContent = t1;
     if (HUD.trim.textContent !== t2) HUD.trim.textContent = t2;
     if (HUD.hl.classList.contains('lost') !== lost) HUD.hl.classList.toggle('lost', lost);
