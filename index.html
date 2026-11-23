@@ -340,10 +340,12 @@
   <button id="btn-range" class="pill g-range" hidden title="Sight's range (Y: from the rangefinder, or the commander's reading)" data-k="zero" data-tip="Sight's range ({k}: from the rangefinder, or the commander's reading)">Zero 800 m</button>
   <div id="ammo-stack" class="ammo-stack" role="group" aria-label="Shells" hidden></div>
   <button id="btn-drone" class="round gbtn g-drone" hidden data-k="drone" title="Launch a drone (U)" data-tip="Launch a drone ({k})" aria-label="Launch a drone (U)" data-aria="Launch a drone ({k})">DRONE<span class="badge">×3</span></button>
-  <!-- [WP12] a ship's own touch buttons (ship.js hud shows them; style.css "ships: the HUD"): the heading hold, damage control's priority, her close-in guns -->
+  <!-- [WP12] a ship's own touch buttons (ship.js hud shows them; style.css "ships: the HUD"): the heading hold, damage control's priority, her close-in guns, in a row over the telegraph lever -->
+  <div id="ship-btns" class="ship-btns">
   <button id="btn-shold" class="round gbtn g-ship" hidden aria-pressed="true" data-k="sHold" title="Heading hold or hand steering (5)" data-tip="Heading hold or hand steering ({k})" aria-label="Heading hold or hand steering (5)" data-aria="Heading hold or hand steering ({k})">HOLD</button>
   <button id="btn-sdc" class="round gbtn g-ship" hidden aria-pressed="false" data-k="sDc" title="Damage control first on: anything, flooding, fires (7)" data-tip="Damage control first on: anything, flooding, fires ({k})" aria-label="Damage control first on: anything, flooding, fires (7)" data-aria="Damage control first on: anything, flooding, fires ({k})">DC<span class="sb-sub">ANY</span></button>
   <button id="btn-sciws" class="round gbtn g-ship" hidden aria-pressed="true" data-k="sCiws" title="CIWS fires by itself (6)" data-tip="CIWS fires by itself ({k})" aria-label="CIWS fires by itself (6)" data-aria="CIWS fires by itself ({k})">CIWS</button>
+  </div>
   <canvas id="gmap" class="gmap" hidden aria-label="Minimap: tap for the tactical map"></canvas>
   <div id="gtac" class="gtac" hidden>
     <canvas id="gtac-canvas" class="gtac-canvas" aria-label="Tactical map"></canvas>

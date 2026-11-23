@@ -1475,21 +1475,22 @@ body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-lef
 @media (max-width: 760px) { .sh-cv { height: 20px; } }
 @media (max-height: 500px) { .sh-cv { height: 14px; } }
 /* her touch buttons (ship.js hud: btns): HOLD, DC (its priority under it) and CIWS, in a row over the telegraph lever;
-   only in the ship layer, never on a desktop (the key hints say them); lit while on */
+   only in the ship layer, never on a desktop (the key hints say them); lit while on. Their row stands on the lever's foot
+   and is exactly as tall as its track (the track's own height, its vh over --ui-scale: inside the HUD's zoom a vh isn't
+   scaled, and with the plain 14vh the row sat on the lever at UI size 60%), the buttons 8 px over its top */
+.ship-btns { position: absolute; left: var(--gut-l); bottom: calc(140px + var(--safe-b)); height: clamp(96px, calc(14vh / var(--ui-scale)), 130px); display: none; gap: 6px; align-items: flex-start; pointer-events: none !important; }
+body.ship:not(.pc) .ship-btns { display: flex; }
+.ship-btns .g-ship { position: relative; pointer-events: auto; margin-top: -52px; }
 .g-ship { display: none; width: 44px; height: 44px; font-size: 11px; letter-spacing: 0.04em; padding: 0; line-height: 1; }
 body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
 .g-ship .sb-sub { font: 600 8px var(--mono); letter-spacing: 0; color: var(--muted); }
 .g-ship[aria-pressed="true"] { background: rgba(125, 255, 176, 0.16); border-color: #7dffb0; color: #b9ffd4; }
 #btn-sdc[aria-pressed="true"] { background: rgba(255, 181, 71, 0.18); border-color: var(--amber); color: var(--amber); }
 #btn-sdc[aria-pressed="true"] .sb-sub { color: var(--amber); }
-#btn-shold, #btn-sdc, #btn-sciws { left: var(--gut-l); bottom: calc(148px + clamp(96px, 14vh, 130px) + var(--safe-b)); }
-#btn-sdc { left: calc(var(--gut-l) + 50px); }
-#btn-sciws { left: calc(var(--gut-l) + 100px); }
-@media (max-width: 760px) { #btn-shold, #btn-sdc, #btn-sciws { bottom: calc(158px + clamp(96px, 14vh, 130px) + var(--safe-b)); } } /* (8 px over the lever: the radar scope's place under the diagram stays clear on a 360 × 640 phone) */
+@media (max-width: 760px) { .ship-btns { bottom: calc(150px + var(--safe-b)); } } /* (8 px over the lever: the radar scope's place under the diagram stays clear on a 360 × 640 phone) */
 @media (max-height: 500px) {
   .g-ship { width: 42px; height: 42px; }
-  #btn-shold, #btn-sdc, #btn-sciws { left: calc(var(--gut-l) + 170px); bottom: calc(122px + var(--safe-b)); }
-  #btn-sdc { left: calc(var(--gut-l) + 218px); }
-  #btn-sciws { left: calc(var(--gut-l) + 266px); }
+  .ship-btns { left: calc(var(--gut-l) + 170px); bottom: calc(14px + var(--safe-b)); }
+  .ship-btns .g-ship { margin-top: -50px; }
 }
 body.ctl-edit.ship :is(#btn-shold, #btn-sdc, #btn-sciws) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }
