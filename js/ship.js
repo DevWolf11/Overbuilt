@@ -4605,7 +4605,7 @@ const Ship = (() => {
     if (!(W > 4 && H > 4)) { HD.sz = null; return; }
     const G = hullGeo(v, S), deg = 180 / Math.PI, fl = Math.floor(now / 250) & 1;
     let key = `${W.toFixed(1)}|${H.toFixed(1)}|${dpr}|${z}|${v.fate || ''}|${Math.round(HD.heel * deg)}|${Math.round(HD.trim * deg * 4)}|${Math.round(HD.h0 * 10)}`;
-    for (const c of S.comps) key += `|${Math.round(24 * clamp(c.W / Math.max(c.V, 1e-6), 0, 1))}`;
+    for (const c of S.comps) key += `|${Math.ceil(48 * clamp(c.W / Math.max(c.V, 1e-6), 0, 1))}`;
     for (const p of S.hulls) { if (p.broken) key += 'B' + p.id; if (p.holes) for (const h of p.holes) key += `,${Math.round(h.a * 200)}${(h.fix || 0) >= 1 ? 'f' : ''}`; }
     for (const p of v.parts) if (p.fire > 0) key += `!${p.id}${fl}`;
     if (S.dc && !v.fate) for (const e of S.dc) key += `@${Math.round(e.s)}${e.at ? 'w' : ''}`;
@@ -4623,9 +4623,11 @@ const Ship = (() => {
     const X = (a) => pad + (a - G.a0) * kx, Y = (u) => H / 2 - (u - um) * ky;
     const path = (P) => { g.beginPath(); for (let i = 0; i < P.length; i += 2) { if (i) g.lineTo(X(P[i]), Y(P[i + 1])); else g.moveTo(X(P[i]), Y(P[i + 1])); } g.closePath(); };
     // the sea's line: where her still water stands along her (heel left out: her side, at the centre line)
-    const c0 = v.com, Ub = S.Ub, au = Ub.x * S.ay.x + Ub.y * S.ay.y, aa = Ub.x * S.ax.x + Ub.y * S.ax.y, cU = c0.x * Ub.x + c0.y * Ub.y + (c0.z || 0) * Ub.z;
+    // (her height and trim eased; with her up Ub her centre's height over the sea is HD.h0, so a point (a, u) of her side
+    // stands (a·ax + u·ay − com)·Ub + h0 over it: the line is where that is 0, tilted by the eased trim)
+    const c0 = v.com, Ub = S.Ub, au = Ub.x * S.ay.x + Ub.y * S.ay.y, cU = c0.x * Ub.x + c0.y * Ub.y + (c0.z || 0) * Ub.z, tt = Math.tan(HD.trim);
     if (!v.fate && Math.abs(au) > 0.3 && Number.isFinite(HD.h0)) {
-      const wu = (a) => (-HD.h0 + cU - a * aa) / au, ya = Y(wu(G.a0 - 2)), yb = Y(wu(G.a1 + 2));
+      const wu = (a) => (cU - HD.h0) / au + a * tt, ya = Y(wu(G.a0 - pad / kx)), yb = Y(wu(G.a1 + pad / kx));
       g.fillStyle = SEA_ + '0.16)';
       g.beginPath(); g.moveTo(0, ya); g.lineTo(W, yb); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
       g.strokeStyle = SEA_ + '0.8)'; g.lineWidth = small ? 0.8 : 1;
@@ -4643,7 +4645,8 @@ const Ship = (() => {
         if (lo > hi) {
           g.save(); path(P); g.clip();
           g.fillStyle = f > SHIP.DC.full ? '#2f7fd0' : '#3d8fd6';
-          g.fillRect(x0, lo - (lo - hi) * f, x1 - x0, (lo - hi) * f + 1);
+          const hgt = Math.max((lo - hi) * f, c.W > SHIP.FLOOD.wMin ? (small ? 1.5 : 2) : 0); // (any water past what her pumps keep down shows)
+          g.fillRect(x0, lo - hgt, x1 - x0, hgt + 1);
           g.restore();
         }
       }
@@ -4738,7 +4741,12 @@ const Ship = (() => {
     const dt = AL.v === v ? Math.min(2, (now - AL.at) / 1000) : 0;
     AL.v = v; AL.at = now;
     AL.heel = dt > 0 ? AL.heel + ((v.heel || 0) - AL.heel) * (1 - Math.exp(-dt / SHIP.HUD.smooth)) : v.heel || 0;
-    return (AL.out = alertNow(v, S, F, now));
+    AL.out = alertNow(v, S, F, now);
+    // (and heard: a missile her radar hears, a fast high beep as a warning receiver's; a torpedo, a slow low one)
+    const k = AL.out && AL.out.k;
+    if (k === 'missile' || k === 'torp') { AL.bt = (AL.bt || 0) - dt; if (AL.bt <= 0 && !F.paused && typeof Sound !== 'undefined' && Sound.beep) { Sound.beep(k === 'missile' ? 1500 : 640); AL.bt = k === 'missile' ? 0.25 : 1; } }
+    else AL.bt = 0;
+    return AL.out;
   }
   function alertNow(v, S, F, now) {
     const HU = SHIP.HUD, shots = typeof Combat !== 'undefined' ? Combat.S.shots : NONE;
@@ -4771,7 +4779,7 @@ const Ship = (() => {
     for (const q of G.comps) {
       const c = q.c;
       W += c.W;
-      if (c._hw != null && c.W > c._hw + 1e-3 && c.W > 0.01 * c.V) c._hT = now;
+      if (c._hw != null && c.W > c._hw + 0.005 && c.W > SHIP.FLOOD.wMin) c._hT = now; // (water coming in faster than her pumps take it out: a small leak they keep up with says nothing)
       c._hw = c.W;
       if (c._hT != null && now - c._hT < HU.floodT * 1000 && now >= c._hT) fl.push(q.no);
     }

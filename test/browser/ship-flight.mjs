@@ -472,6 +472,7 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await page.evaluate(() => {
     const v = Flight.active, S = v.sh, c0 = S.comps[Math.floor(S.comps.length / 2)], c1 = S.comps[1], rows = [];
     for (const c of [c0, c1]) { const p = c.p, x = (c.lo + c.hi) / 2, P = partPt(p, x, 0); rows.push([p, P.x, P.y - 1.5, partZ(p) + 6, 0.5]); }
+    { const p = c0.p, P = partPt(p, (c0.lo + c0.hi) / 2 + 3, 0); rows.push([p, P.x, P.y + p.def.h * 0.3, partZ(p) + 6, 0.3]); } // (and a shell's, over the waterline: its scorch in sight)
     Ship.addHoles(v, rows, Flight.time);
     const eng = v.parts.find((q) => q.def.engine); if (eng) eng.fire = 1;
   });
@@ -480,12 +481,12 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await shot(page, `flooding-${sz}`);
   ok(`${tag}flooding: the water in (${f1.W.toFixed(1)} m³), the diagram redrawn with it, the alert line "${f1.alert}"`, f1.W > 0 && f1.key !== k0 && /^Flooding · compartments? \d/.test(f1.alert), { f1, k0 });
   // her holes on her skin: scorches and dark holes (the decals), seen from her starboard side
-  const dk = await page.evaluate(async () => { Flight.aimYaw = -Math.PI / 2; Flight.aimPitch = -0.05; await window.__simWait(0.4, true); const D = Render3D.info().decals || []; return { n: D.length, k: D.filter((d) => d.k >= 1).length, core: D.filter((d) => d.k === 0 && d.a > 0.9).length }; });
+  const dk = await page.evaluate(async () => { Flight.aimYaw = -Math.PI / 2; Flight.aimPitch = -0.05; await window.__simWait(0.4, true); const D = (Render3D.gfx() || {}).decals || []; return { n: D.length, k: D.filter((d) => d.k >= 1).length, core: D.filter((d) => d.k === 0 && d.a > 0.9).length }; });
   await shot(page, `holes-${sz}`);
   ok(`${tag}her holes drawn on her skin: ${dk.k} scorches and ${dk.core} dark holes (the decals' mesh)`, dk.k >= 2 && dk.core >= 2, dk);
-  await page.evaluate(async () => { Flight.aimYaw = 0; Flight.aimPitch = 0; for (const p of Flight.active.sh.hulls) if (p.holes) for (const h of p.holes) h.fix = 1; for (const c of Flight.active.sh.comps) c._hT = null; await window.__simWait(2.6); });
+  await page.evaluate(async () => { Flight.aimYaw = 0; Flight.aimPitch = 0; for (const p of Flight.active.sh.hulls) if (p.holes) for (const h of p.holes) { h.a = 1e-6; h.fix = 1; } await window.__simWait(2.6); }); // (a patched hole still leaks a tenth: these made pinholes her pumps keep up with)
   const f2 = await hudOf(page);
-  ok(`${tag}the holes patched and the water still: the fire's line ("${f2.alert}")`, /^Fires? (aft|forward|amidships)/.test(f2.alert), f2);
+  ok(`${tag}the holes stopped and the water still: the fire's line ("${f2.alert}")`, /^Fires? (aft|forward|amidships)/.test(f2.alert), f2);
   // a hostile torpedo 1.2 km off her starboard beam, running at her; then one of hers
   await page.evaluate(() => {
     const v = Flight.active, side = v.axis(0, 0, 1), P = { x: v.x + side.x * 1200, y: v.y + side.y * 1200, z: v.z + side.z * 1200 }, k = (EARTH.radius - 6) / Math.hypot(P.x, P.y, P.z); P.x *= k; P.y *= k; P.z *= k;
