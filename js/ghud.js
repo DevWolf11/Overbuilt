@@ -623,7 +623,10 @@ const GHUD = (() => {
     if (!fb || !SEA_WORDS.has(fb.text) || !(t >= fb.t && t - fb.t < fb.life) || (ko && t >= ko.t && t - ko.t < 2.2)) return;
     ctx.save(); ctx.globalAlpha = clamp(3 * (fb.life - (t - fb.t)), 0, 1);
     ctx.font = '700 20px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = fb.col || COL.enemy; ctx.textAlign = 'center';
-    text(ctx, fb.text, cx, cy - 74);
+    let y = cy - 74;
+    const al = document.querySelector('#flight-alert'), r = al && !al.hidden ? al.getBoundingClientRect() : null, w = ctx.measureText(fb.text).width;
+    if (r && r.width > 0 && cx + w / 2 + 6 > r.left && cx - w / 2 - 6 < r.right && y + 6 > r.top && y - 26 < r.bottom) y = cy + 84; // (under the cross when the alert line sits where it would go: a phone's)
+    text(ctx, fb.text, cx, y);
     ctx.restore();
   }
 

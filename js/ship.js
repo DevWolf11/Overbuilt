@@ -4790,7 +4790,7 @@ const Ship = (() => {
       const which = fl.length === 1 ? `compartment ${fl[0]}` : fl.length <= 3 ? `compartments ${fl.join(', ')}` : `${fl.length} compartments`;
       return { text: `Flooding · ${which}${list}`, crit: (S.vtot > 0 && SHIP.RHO * W > HU.sinkK * res) || Math.abs(ld) >= 20, k: 'flood' };
     }
-    if (Math.abs(ld) >= HU.listAlone) return { text: `List ${Math.abs(ld)}° to ${ld > 0 ? 'starboard' : 'port'}`, crit: Math.abs(ld) >= 30, k: 'list' };
+    if (Math.abs(ld) >= HU.listAlone && (W > 4 * SHIP.FLOOD.wMin || Math.abs(ld) >= 25)) return { text: `List ${Math.abs(ld)}° to ${ld > 0 ? 'starboard' : 'port'}`, crit: Math.abs(ld) >= 30, k: 'list' }; // (water aboard, or past 25°: a patrol boat heeling out of a hard turn is no list)
     // a fire: where along her (aft, amidships, forward)
     const at = new Set();
     for (const p of v.parts) if (p.fire > 0) { const P = fireAt(p), f = (_ha(S, P.x, P.y) - G.a0) / Math.max(G.a1 - G.a0, 1); at.add(f < 1 / 3 ? 'aft' : f > 2 / 3 ? 'forward' : 'amidships'); }
