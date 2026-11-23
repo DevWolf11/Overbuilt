@@ -53,6 +53,7 @@ const MP_SEA_PADS = [
 ];
 const MP_SEA_MS = 180000; // (our doomed ship's snapshots go on while she goes down: until she is gone or a wreck, 3 minutes at most)
 const MP_MKILL = 10; // (a peer's mkill messages believed a second at most)
+const MP_HULL_MS = 500; // (a ship's holes and fires to everyone, when they change: twice a second at most)
 // What the host may set in the lobby, and to what (anything else is refused)
 const MP_SET_OK = {
   format: (v, st) => hasOwn(MP_FORMATS, v) && !((st.game === 'ground' || st.game === 'naval') && v === 'ffa'), budget: [45000, 75000, 120000], build: [120, 180, 300],
@@ -289,6 +290,7 @@ const MP = {
     Net.on('pv', (m) => this.onPartVis(m));
     Net.on('parts', (m) => this.onParts(m));
     Net.on('hp', (m) => this.onHp(m));
+    Net.on('hull', (m) => { const P = this.peers.get(m.f); if (P && P.ghost && m.c === undefined && typeof Ship !== 'undefined') Ship.unhull(P.ghost, m); }); // [WP11] (a ship's holes and fires, on her ghost)
     Net.on('down', (m) => this.onDown(m));
     Net.on('gun', (m) => { const P = this.peers.get(m.f); if (P) P.gun[m.k] = !!m.on; });
     Net.on('hit', (m) => this.onHit(m));
@@ -1096,7 +1098,7 @@ const MP = {
     Net.send(this.spawnMsg, pid);
     Net.send({ t: 'parts', ids: v.parts.map((p) => p.id) }, pid);
     if (v.radarOff) Net.send({ t: 'rdr', on: 0 }, pid); // (the spawn turned our radar on again on their screen)
-    if (this.sent) { this.sent.hpSig = ''; this.sent.pvFull = 0; } // and the damage and moving parts, with the next updates
+    if (this.sent) { this.sent.hpSig = ''; this.sent.pvFull = 0; this.sent.hullSig = ''; } // and the damage and moving parts, with the next updates ([WP11] a ship's holes too)
   },
   // after each Flight.update: snapshots of our craft, at fixed wall-clock rates. last: our hulk's last word as it starts
   // to fall on everyone else's screen (onLocalDestroyed): everything now, whatever the clocks, though we are destroyed
@@ -1154,6 +1156,11 @@ const MP = {
         list.push(row);
       }
       if (list.length) Net.send(c ? { t: 'pv', list, c } : { t: 'pv', list });
+    }
+    if (!c && v.sh && typeof Ship !== 'undefined' && (last || now - (S.hull || 0) >= MP_HULL_MS)) { // [WP11] (a ship's holes and fires, when they change; an intact ship's: nothing)
+      S.hull = now;
+      const h = Ship.hullMsg(v), sig = h ? JSON.stringify(h) : '';
+      if (sig !== (S.hullSig || '')) { S.hullSig = sig; Net.send(h || { t: 'hull', ho: [], fi: [] }); }
     }
     if (!c && v.radarOff && !last && now - (S.rdr || 0) >= 5000) this.sendRadar(false); // (our radar off: said again every 5 s, for those who joined since; nothing while it is on; the main craft's only)
     if (last || now - S.hp >= MP_HP_MS) {

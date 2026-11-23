@@ -4569,7 +4569,9 @@ const Ship = (() => {
   // Ship torpedoes ('stor' shots, id'd: mp.js sendTorp, syncMissiles) run here as copies for show (netTorp, torpRep);
   // a close-in gun's or a SAM's kill of another player's missile is an mkill to its owner (kill above).
   // Ships in a Naval Battle see by Ship.spots (eyes within the horizon, the sea radars' contacts).
-  const NET = { TEL: [-3, 4], RUD: 40, HOLES: 16, FIRES: 4, BOX: 1, A: SHIP.HOLE.cap, ODDS: 0.95, TORP_SILENT: 4, TORPS: 16 };
+  // Her owner also tells everyone her holes and fires as they change (hull: hullMsg, unhull), so the others' ghost of her
+  // carries them (p.holes, p.fire): her hole decals and her fires drawn there too; a picture only, nothing floods there.
+  const NET = { TEL: [-3, 4], RUD: 40, HOLES: 16, FIRES: 4, BOX: 1, A: SHIP.HOLE.cap, ODDS: 0.95, TORP_SILENT: 4, TORPS: 16, HULL_ROWS: 256, FIRE_IDS: 64 };
   // her snapshot's sh field: [telegraph, rudder angle (°, a tenth)], or null (not a ship)
   function snap(v) {
     const S = v && v.sh;
@@ -4770,6 +4772,38 @@ const Ship = (() => {
     if (end) { const m = { t: 'shot', k: 'stor', id, end: 1, P: [r(s.x), r(s.y), r(s.z)] }; if (s.dead) m.x = 1; return m; }
     return { t: 'shot', k: 'stor', id, b: s.b.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], dep: r(s.dep || 0) };
   }
+  // ---- her holes and fires for the others' ghost of her (mp.js stream, MP_HULL_MS at most, when they change): { t: 'hull',
+  // ho: [[part id, x, y, z, a, fix], …] (part space, m², patched 0..1), fi: [part ids burning] }, or null (none of either)
+  function hullMsg(v) {
+    const S = v && v.sh;
+    if (!S || v.remote) return null;
+    const ho = [], fi = [];
+    for (const p of v.parts) {
+      if (p.fire > 0 && fi.length < NET.FIRE_IDS) fi.push(p.id);
+      if (!p.def.shull || !Array.isArray(p.holes)) continue;
+      for (const h of p.holes) if (ho.length < NET.HULL_ROWS) ho.push([p.id, r2(h.x), r2(h.y), r2(h.z), sig4(h.a), Math.round(clamp(h.fix || 0, 0, 1) * 100) / 100]);
+    }
+    return ho.length || fi.length ? { t: 'hull', ho, fi } : null;
+  }
+  // a peer's hull message onto their ghost g: each hull part's holes (finite, inside its box + 1 m, a in (0, 20], fix 0..1,
+  // at most HOLE.max a part), the parts burning (theirs, whole); everything else as it was. Anything malformed: ignored.
+  function unhull(g, m) {
+    if (!g || !g.sh || !g.remote || !m || !Array.isArray(m.ho) || !Array.isArray(m.fi)) return 0;
+    const by = new Map();
+    for (const r of m.ho.slice(0, NET.HULL_ROWS)) {
+      if (!Array.isArray(r) || r.length !== 6 || !r.every((x) => typeof x === 'number' && Number.isFinite(x))) continue;
+      const p = g.byId.get(r[0]);
+      if (!p || !p.def.shull || !g.parts.includes(p) || !(r[4] > 0) || r[4] > NET.A || !inBox(p, r[1], r[2], r[3], NET.BOX)) continue;
+      const L = by.get(p) || [];
+      if (L.length < SHIP.HOLE.max) L.push({ x: r[1], y: r[2], z: r[3], a: r[4], t: 0, fix: clamp(r[5], 0, 1) });
+      by.set(p, L);
+    }
+    let n = 0;
+    for (const p of g.sh.hulls) { const L = by.get(p) || null; if (L) n += L.length; if (L || p.holes) p.holes = L; }
+    const burn = new Set(m.fi.slice(0, NET.FIRE_IDS).filter((id) => Number.isSafeInteger(id)));
+    for (const p of g.parts) { const f = burn.has(p.id) && !p.broken ? 1 : 0; if (f || p.fire) p.fire = f; }
+    return n;
+  }
   // ---- seeing in a Naval Battle (mp.js MP.sees): does me see g, d m off? By eye (EYES.day, EYES.night at night) within
   // the horizon with no land or smoke between (seesSea, from each one's top), or g is a contact of me's sea radars
   // (surface: ships, and with a low-air radar what flies under 100 m)
@@ -4807,6 +4841,6 @@ const Ship = (() => {
     // ai
     aiDown, flyStriker, range, practice, battle: null,
     // mp
-    snap, unsnap, ghost, downSea, onDownSea, cleanHoles, cleanFires, netRows, netHoles, netHit, slew, netTorp, torpMsg, spots, // [WP11]
+    snap, unsnap, ghost, downSea, onDownSea, cleanHoles, cleanFires, netRows, netHoles, netHit, slew, netTorp, torpMsg, spots, hullMsg, unhull, // [WP11]
   };
 })();

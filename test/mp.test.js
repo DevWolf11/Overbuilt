@@ -891,6 +891,9 @@ async function roomNaval() {
   t('naval: the host\'s torpedo runs as an id\'d stor shot (its launch and an update a second): a copy runs on her screen beside the real one, and ends with it (x: it went off)',
     tr[0].fired && tr[0].ours === 1 && tr[1].copies === 1 && st('torpedo runs').host.sent.some((x) => /"k":"stor","id":1,"end":1,"x":1/.test(x)) && th.copies === 0, [tr, th]);
   t(`naval: ...and holes her under the water (${(th.holes - th.was).toFixed(2)} m² more, ${th.water} m³ in), sent as a blast with its holes`, th.holes - th.was > 1 && th.water > 10 && st('torpedo runs').host.sent.some((x) => /"t":"hit".*"k":"blast","ho":\d/.test(x)), th);
+  const gh1 = J(F.shells.host), gh2 = J(F.torpHit.host);
+  t(`naval: her holes and fires go to everyone as they change (hull, twice a second at most): the host's ghost of her carries the same holes (${gh2.ghostHoles} m² against her ${th.holes}) and fires`,
+    Math.abs(gh1.ghostHoles - shl.holes) < 0.01 && Math.abs(gh2.ghostHoles - th.holes) < 0.05 && gh2.ghostFires === th.fires && Object.values(T).some((s) => s.client.sent.some((x) => /"t":"hull","ho":\d+,"fi":\d+/.test(x))) && !Object.values(T).some((s) => s.host.sent.some((x) => /"t":"hull"/.test(x))), [gh1, gh2, th]);
   const am = [J(F.asm.client), J(F.asm.host)];
   t('naval: her anti-ship missile (msl with asm) is shot down by the host\'s close-in gun on the host\'s screen: an mkill to her, who ends it (killed, gone: mx), the host\'s ship unhurt',
     st('fires an anti-ship').client.sent.some((x) => /"t":"msl","id":1,"tg":1,"asm":1/.test(x)) && st('close-in gun').host.sent.some((x) => /"t":"mkill","pid":2,"id":1/.test(x)) && am[0].fired && !am[0].live && am[0].dead && am[0].killedBy === 1 && am[1].copies === 0 && !am[1].hit, am);

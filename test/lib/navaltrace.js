@@ -61,13 +61,14 @@ module.exports = async function navaltrace(G, ROOM) {
       else if (m.t === 'set') { o.k = m.k; }
       else if (m.t === 'obj') { o.tk = m.tk.join('/'); }
       else if (m.t === 'spawn') { o.kind = m.kind; o.n = m.parts.length; }
+      else if (m.t === 'hull') { o.ho = m.ho.length; o.fi = m.fi.length; }
       return JSON.stringify(o); };
     // the messages sent since the last look, digested and counted (a digest x its count, in the order first sent)
     var outs = () => { const L = Net.out || [], c = new Map(); for (const [m, to] of L) { const k = dig(m) + (to ? '>' + to : ''); c.set(k, (c.get(k) || 0) + 1); } return [...c].map(([k, n]) => (n > 1 ? n + 'x ' : '') + k); };
     // what this screen sees: our ship and the other player's ghost (or wreck)
     var view = () => { const v = Flight.active, P = [...MP.peers.values()][0], g = P && P.ghost, w = MP.wrecks.find((x) => x.pid !== Net.me);
       const me = v ? { kind: v.kind, afloat: !!v.afloat, fate: v.fate || null, wreck: !!v.wreck, holes: holeA(v), water: water(v), hp: hpOf(v), tel: v.sh ? v.sh.tel : null } : null;
-      const gh = g ? { afloat: !!g.afloat, tel: g.sh ? g.sh.tel : null, fate: g.fate || null, sinking: !!(P && P.sink), parts: g.parts.length } : null;
+      const gh = g ? { afloat: !!g.afloat, tel: g.sh ? g.sh.tel : null, fate: g.fate || null, sinking: !!(P && P.sink), parts: g.parts.length, holes: holeA(g), fires: g.parts.filter((p) => p.fire > 0).length } : null;
       return { me, ghost: gh, wreck: w ? { pid: w.pid, kind: w.v.kind } : null, phase: MP.phase, tk: MP.state && MP.state.obj ? MP.state.obj.tk.join('/') : null, seaOff: r1(Ship.S.seaOff), sea: Ship.sea(), torps: Combat.shots.filter((s) => s.k === 'stor').length }; };`;
   const mk = async (host) => {
     const Q = G.load({ mp: true, combat: true }), X = (c) => G.run(Q, c);
@@ -134,14 +135,15 @@ module.exports = async function navaltrace(G, ROOM) {
     var hb = null;`);
   B(`var h0 = holeA(Flight.active), w0 = water(Flight.active);`);
   step('the host fires three 127 mm rounds at her', { a: `hb = holeA(MP.peers.get(2).ghost); for (let k = 0; k < 3; k++) shoot(Object.keys(SHELLS).includes('sap127') ? 'sap127' : 'he127', k);` }, 90);
-  facts.shells = { client: B(`JSON.stringify({ holes: holeA(Flight.active), was: h0, water: water(Flight.active) })`) };
+  facts.shells = { client: B(`JSON.stringify({ holes: holeA(Flight.active), was: h0, water: water(Flight.active) })`), host: A(`JSON.stringify({ ghostHoles: holeA(MP.peers.get(2).ghost) })`) };
 
   // ---- the host's torpedo, at her: a copy runs on her screen, the real one holes her under the water
   step('the host fires a torpedo', { a: `var tp = (() => { const v = Flight.active, g = MP.peers.get(2).ghost, q = eOf(v), r = eOf(g); return Ship.torpAt(v, Math.atan2(r.e - q.e, -(r.z - q.z)), Flight); })(); var tpOk = !!tp;` }, 60);
   facts.torpRun = { host: A(`JSON.stringify({ fired: tpOk, ours: Combat.shots.filter((s) => s.k === 'stor' && !s.net).length })`), client: B(`JSON.stringify({ copies: Combat.shots.filter((s) => s.k === 'stor' && s.net === 1).length })`) };
   B(`var h1 = holeA(Flight.active);`);
   step('the torpedo runs and hits', null, 60 * 40);
-  facts.torpHit = { client: B(`JSON.stringify({ holes: holeA(Flight.active), was: h1, copies: Combat.shots.filter((s) => s.k === 'stor').length, water: water(Flight.active) })`), host: A(`JSON.stringify({ ours: Combat.shots.filter((s) => s.k === 'stor').length })`) };
+  facts.torpHit = { client: B(`JSON.stringify({ holes: holeA(Flight.active), was: h1, copies: Combat.shots.filter((s) => s.k === 'stor').length, water: water(Flight.active), fires: Flight.active.parts.filter((p) => p.fire > 0).map((p) => p.id).join() })`),
+    host: A(`JSON.stringify({ ours: Combat.shots.filter((s) => s.k === 'stor').length, ghostHoles: holeA(MP.peers.get(2).ghost), ghostFires: MP.peers.get(2).ghost.parts.filter((p) => p.fire > 0).map((p) => p.id).join() })`) };
 
   // ---- the client's anti-ship missile at the host's ship: the host's close-in gun kills its copy (mkill), the client ends it
   B(`var asm = null, asmIds = [];`);
