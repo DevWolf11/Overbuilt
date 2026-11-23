@@ -2520,21 +2520,26 @@ const Ship = (() => {
   // hull's nearest point, HOLE.he·blast²·(1 − d/blast), ×HOLE.tamp when it bursts more than tampD under the water (or
   // o.under: a torpedo's), + HOLE.heIn·blast² when it burst inside (o.inside: high explosive through the plate); and a
   // burst inside lights a fire. o.noHoles: none (a magazine makes its own).
+  // ([WP11] another player's ship (a ghost): nothing here; what it would tear and light, { ho: [p, x, y, z, a] | null, fi:
+  // [part, odds, at] | null }, is returned for her owner to apply (combat.js explode: MP.sendHits' ho and fi))
   function blastHull(v, p, d, at, blast, by, sim, o) {
     const S = v && v.sh;
-    if (!S || v.remote || !(blast > 0) || !(d < blast) || (o && o.noHoles)) return;
+    if (!S || !(blast > 0) || !(d < blast) || (o && o.noHoles)) return;
+    const net = v.remote ? { ho: null, fi: null } : null; // [WP11]
     const HO = SHIP.HOLE, r = Math.hypot(at.x, at.y, at.z), b = v.body;
     const deep = (S.level > -Infinity ? S.level : 0) - (r - b.radius), under = !!(o && o.under) || (b.ocean && deep > HO.tampD);
     hullDist(v, p, at);
     const inside = !!(o && o.inside) && d <= 0.05;
     const a = HO.he * blast * blast * (1 - Math.max(0, d) / blast) * (under ? HO.tamp : 1) + (inside ? HO.heIn * blast * blast : 0);
-    if (a > 1e-5) addHoles(v, [[p, HC.x, HC.y, HC.z, a]], clockOf(sim));
+    if (a > 1e-5) { if (net) net.ho = [p, HC.x, HC.y, HC.z, a]; else addHoles(v, [[p, HC.x, HC.y, HC.z, a]], clockOf(sim)); }
     if (inside || d <= 0) { // (a burst inside the hull: a fire, in what is nearest it inside, else the hull)
       localOf(v, at, _hq);
       let q = p, qd = Infinity;
       for (const c of v.parts) if (c.def.inner && c.att === p.id && whole(v, c)) { const dd = Math.hypot(c.x - _hq.x, c.y - _hq.y, partZ(c) - _hq.z); if (dd < qd && dd < blast) { qd = dd; q = c; } }
-      ignite(v, q, SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast), by, sim, _hq);
+      const odds = SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast);
+      if (net) net.fi = [q, odds, { x: _hq.x, y: _hq.y, z: _hq.z }]; else ignite(v, q, odds, by, sim, _hq);
     }
+    return net || undefined;
   }
   // A penetrating round's result on a hydro vessel (armour.js apply, R from resolve): its holes (R.ho), and a fire where
   // it went into an engine, a magazine or fuel (odds by its burst's size; a bullet's none)
@@ -2542,11 +2547,18 @@ const Ship = (() => {
     const S = v && v.sh;
     if (!S || v.remote || !R) return;
     if (R.ho && R.ho.length) addHoles(v, R.ho, clockOf(sim));
-    if (R.r !== 'pen') return;
+    const f = roundFire(v, R, SH); // ([WP11] the fire it may light: a ghost's goes to its owner, Ship.netHoles)
+    if (f) ignite(v, f[0], f[1], by, sim, f[2]);
+  }
+  // the fire a penetrating round may light ([part, odds, at | null]: in an engine, a magazine or fuel it went into, odds
+  // by its burst's size; a bullet's none), or null
+  function roundFire(v, R, SH) {
+    if (R.r !== 'pen') return null;
     const blast = SH && (SH.blast || 0), odds = SHIP.FIRE.odds0 + SHIP.FIRE.odds1 * (blast / SHIP.FIRE.blast);
-    if (!(blast > 0) && !(SH && SH.he > 0) && !((SH && SH.cal) >= SHIP.FIRE.cal)) return; // ([WP8] a bullet (no burst, under FIRE.cal mm) lights nothing: small arms are all but harmless to a warship, §8.12)
-    for (const [p] of R.rows) if (p.def.engine || p.def.module === 'engine' || p.def.module === 'ammo' || p.def.module === 'fuel') { ignite(v, p, odds, by, sim); return; }
-    for (const [h, i] of R.mods) { const k = h.def.mods[i].k; if (k === 'ammo' || k === 'fuel') { ignite(v, h, odds, by, sim, h.def.shull && R.at ? localOf(v, R.at, _hq) : null); return; } }
+    if (!(blast > 0) && !(SH && SH.he > 0) && !((SH && SH.cal) >= SHIP.FIRE.cal)) return null; // ([WP8] a bullet (no burst, under FIRE.cal mm) lights nothing: small arms are all but harmless to a warship, §8.12)
+    for (const [p] of R.rows) if (p.def.engine || p.def.module === 'engine' || p.def.module === 'ammo' || p.def.module === 'fuel') return [p, odds, null];
+    for (const [h, i] of R.mods) { const k = h.def.mods[i].k; if (k === 'ammo' || k === 'fuel') return [h, odds, h.def.shull && R.at ? localOf(v, R.at, _hq) : null]; }
+    return null;
   }
   // A hull part at 0 hp (combat.js destroyPart's first line for a hull part aboard a hydro vessel): holed through, never
   // blown off: kept, broken, a HOLE.cap hole at its waterline amidships, its joints and bulkheads open (FLOOD.leak)
@@ -3528,6 +3540,7 @@ const Ship = (() => {
       t: 0, run: 0, ph: 'air', owner: v, spd: w.speed || 22, depth: w.depth || 6, dep: 0, range: w.range || 8000, cone: (w.cone || 30) * DEG, acquire: w.acquire || 1500,
       dmg: w.dmg || 4000, blast: w.blast || 12, seek: w.seek || 'active', drop: air, gyro: gyro || null, tgt: null, look: 0, bub: 0, ship: !!v.hydro, life: 600, part: p };
     if (typeof Combat !== 'undefined') { Combat.release(v, p); Combat.S.shots.push(s); }
+    if (typeof MP !== 'undefined' && MP.sendTorp && !v.ai) MP.sendTorp(s); // [WP11] (in a room: the others run a copy, MP.syncMissiles keeps it in step)
     if (typeof FX !== 'undefined' && F && F.active && Math.hypot(m.x - F.active.x, m.y - F.active.y, m.z - F.active.z) < 3000) FX.puff(b, m, { x: v.vx + dir.x * 4, y: v.vy + dir.y * 4, z: v.vz + dir.z * 4 }, 4, '#dfe3e6');
     if (me && typeof Sound !== 'undefined' && Sound.separate) Sound.separate();
     void r;
@@ -3541,6 +3554,7 @@ const Ship = (() => {
   const TW = { level: 0, bed: 0, depth: 0, alt: 0, a: 0, z: 0, lake: false }, _tA = v3();
   function torpStep(s, h, F) {
     if (s.dead) return false;
+    if (s.netId != null) return torpRep(s, h, F); // [WP11] (a copy of another player's: for show, it never hits)
     const b = s.b, T = SHIP.TORP;
     s.t += h;
     if (s.t > s.life) return false;
@@ -3682,7 +3696,7 @@ const Ship = (() => {
       holedThrough(o, p, 'torpedo', F);
       doom(o, F, 'sunk', by);
       if (o.byId.has(p.id) && !o.dead) breakAt(o, F, p, null, 'sunk');
-    }
+    } else if (keel && ['S', 'M', 'one'].includes(p.def.shull.cls) && o.remote && typeof MP !== 'undefined' && MP.sendHits && by && !by.remote && !by.ai) MP.sendHits(o, [], 'blast', null, null, false, { kb: p }); // [WP11] (another player's: her owner breaks her)
     s.dead = true;
   }
   // a torpedo going off where it is (aground, on a noisemaker): a burst at k of its power, under the water
@@ -3947,7 +3961,7 @@ const Ship = (() => {
   }
   function kill(m, by, F) {
     m.dead = true; m.killedBy = by || null;
-    if (m.netId != null || m.net) m.ciwsKill = true; // ([WP11] a copy of another player's missile: its owner must hear it (mkill))
+    if (m.netId != null || m.net) { m.ciwsKill = true; if (typeof MP !== 'undefined' && MP.sendMkill) MP.sendMkill(m, by); } // ([WP11] a copy of another player's missile: its owner hears it (mkill))
     if (typeof FX !== 'undefined') FX.explosion(m.b, { x: m.x, y: m.y, z: m.z }, { x: m.vx * 0.3, y: m.vy * 0.3, z: m.vz * 0.3 }, 1.6, true);
   }
 
@@ -4539,13 +4553,234 @@ const Ship = (() => {
   function practice(opts) {} // the Naval Practice battle
 
   // ==== mp ====
-  // [WP11]
-  function snap(v) { return null; } // a ship's snapshot field (sh: [tel, rudder°])
-  function unsnap(g, m) {}
-  function ghost(g) {} // a remote ship ghost: its decks into Ship.D
-  function downSea(v) { return null; } // a ship's down message's sea field
-  function onDownSea(m) {}
-  function cleanHoles(rows, v) { return []; } // a peer's hit.ho rows, cleaned (our own hull parts, finite, capped)
+  // [WP11] A ship in a room (mp.js carries the messages; NET_VERSION 14). Her owner runs her: physics, flooding, fires,
+  // fate. The others see a ghost (Vessel from her spawn rows: v.sh for her hull, so shells, torpedoes and bumps meet the
+  // real hull; never stepped by the hydro physics, Ship.forces skips v.remote), posed by her snapshots, which carry:
+  //   sh: [tel, rud] her telegraph (−3..4) and rudders (°): the ghost's screws' wash and rudders (unsnap);
+  //   af: 1 while she is afloat (a surface contact, §8.11; and what takes a zone at sea, gmode.js);
+  //   st: the host's sea clock (seaT, s), on the host's snapshots while any hydro vessel is in play: everyone's waves
+  //       slew toward it at SHIP.SLEW s a second (slew), so the swell is the same swell on every screen;
+  //   sk: 2 on the last snapshot of a doomed ship become a wreck (on the others' screens the ghost stays one, MP.addWreck).
+  // Hits on her are judged by the shooter against the ghost (armour.js, Combat.explode) and go to her owner as hit rows
+  // (damage) and, for her hull, ho: [[part id, x, y, z, a], …] (the holes, part space, m²), fi: [[part id, odds, x?, y?,
+  // z?], …] (a fire the hit may light, rolled by her owner), kb: part id (a torpedo under her keel broke her back): netRows
+  // writes them, netHit (cleanHoles, cleanFires) takes them, our own parts only. Her owner says when she is doomed with
+  // down.sea { why: a SHIP_FATES key, at: where } (downSea, onDownSea) and keeps sending snapshots while she goes down.
+  // Ship torpedoes ('stor' shots, id'd: mp.js sendTorp, syncMissiles) run here as copies for show (netTorp, torpRep);
+  // a close-in gun's or a SAM's kill of another player's missile is an mkill to its owner (kill above).
+  // Ships in a Naval Battle see by Ship.spots (eyes within the horizon, the sea radars' contacts).
+  const NET = { TEL: [-3, 4], RUD: 40, HOLES: 16, FIRES: 4, BOX: 1, A: SHIP.HOLE.cap, ODDS: 0.95, TORP_SILENT: 4, TORPS: 16 };
+  // her snapshot's sh field: [telegraph, rudder angle (°, a tenth)], or null (not a ship)
+  function snap(v) {
+    const S = v && v.sh;
+    if (!S || v.remote) return null;
+    let a = 0, n = 0;
+    for (const p of S.rudders) if (Number.isFinite(p.rud) && !p.broken) { a += p.rud; n++; }
+    const rud = n ? a / n : Number.isFinite(S.rud) ? S.rud : 0;
+    return [clamp(Math.round(S.tel) || 0, NET.TEL[0], NET.TEL[1]), Math.round(clamp(rud, -NET.RUD, NET.RUD) * 10) / 10];
+  }
+  // a snapshot m onto ghost g (mp.js poseGhost): her telegraph and rudders (the wash, the rudders' angle drawn), afloat or
+  // not (cleaned: tel an integer −3…4, rud finite within ±40; anything else leaves them as they were)
+  function unsnap(g, m) {
+    const S = g && g.sh;
+    if (!S || !m) return;
+    const h = m.sh;
+    if (Array.isArray(h) && h.length === 2 && Number.isInteger(h[0]) && h[0] >= NET.TEL[0] && h[0] <= NET.TEL[1] && Number.isFinite(h[1]) && Math.abs(h[1]) <= NET.RUD) {
+      S.tel = h[0]; S.rud = h[1];
+      for (const p of S.rudders) p.rud = h[1];
+    }
+    g.afloat = m.af === 1;
+    S.fsub = g.afloat ? 0.5 : 0; // (her bow spray and the wash: Ship.fx reads it)
+  }
+  // a remote ship's ghost, once built (mp.js buildGhost): afloat only when her snapshots say so; her draft (what a
+  // torpedo's seeker runs under) from her hull as built; her decks join Ship.D at the next frame (decksOf takes ghosts')
+  function ghost(g) {
+    const S = g && g.sh;
+    if (!S) return;
+    g.afloat = false; g.moored = false; g.heel = 0; g.trim = 0;
+    let hy = null;
+    try { hy = hydrostatics(g.parts); } catch (e) { hy = null; }
+    g.draft = hy && hy.draft > 0 && hy.draft < 50 ? hy.draft : 2;
+  }
+  // our ship's down message's sea field: { why (her fate: a SHIP_FATES key), at: [x, y, z] (sim, where she went, 0.1 m) }
+  function downSea(v) {
+    if (!v || !v.sh || !v.fate || v.remote) return null;
+    const c = v.toWorld(v.com.x, v.com.y, v.com.z || 0), r = (x) => Math.round(x * 10) / 10;
+    return { why: FATES.has(v.fate) ? v.fate : 'sunk', at: [r(c.x), r(c.y), r(c.z)] };
+  }
+  // a peer's down.sea, cleaned: { why, at } (why one of the fates, at three finite numbers or null), or null
+  function onDownSea(m) {
+    const o = m && m.sea;
+    if (!o || typeof o !== 'object' || typeof o.why !== 'string' || !FATES.has(o.why)) return null;
+    const at = Array.isArray(o.at) && o.at.length === 3 && o.at.every(Number.isFinite) ? { x: o.at[0], y: o.at[1], z: o.at[2] } : null;
+    return { why: o.why, at };
+  }
+  // What a hit on another player's ship tore and lit, as hit-message fields: { ho, fi, kb } (only those it has), or null.
+  // x: { ho: [[p, x, y, z, a], …], fi: [[p, odds, at | null], …], kb: p } with our ghost's parts (their ids its owner's)
+  const r2 = (x) => Math.round(x * 100) / 100, sig4 = (x) => +x.toPrecision(4);
+  function netRows(x) {
+    if (!x) return null;
+    const out = {};
+    const ho = (x.ho || []).filter((h) => h && h[0] && h[0].def && h[0].def.shull && h[4] > 0).slice(0, NET.HOLES)
+      .map(([p, hx, hy, hz, a]) => [p.id, r2(hx), r2(hy), r2(hz), sig4(Math.min(a, NET.A))]);
+    if (ho.length) out.ho = ho;
+    const fi = (x.fi || []).filter((f) => f && f[0] && f[0].id != null && f[1] > 0).slice(0, NET.FIRES)
+      .map(([p, odds, at]) => { const o = Math.round(clamp(odds, 0, NET.ODDS) * 1000) / 1000; return at ? [p.id, o, r2(at.x), r2(at.y), r2(at.z)] : [p.id, o]; });
+    if (fi.length) out.fi = fi;
+    if (x.kb && x.kb.def && x.kb.def.shull) out.kb = x.kb.id;
+    return Object.keys(out).length ? out : null;
+  }
+  // (the shooter, armour.js apply on a ghost) a round's holes and the fire it may light on another player's ship:
+  // netRows' input ({ ho, fi }), or undefined
+  function netHoles(v, R, SH) {
+    if (!v || !v.sh || !R) return undefined;
+    const f = roundFire(v, R, SH), x = { ho: R.ho || [], fi: f ? [f] : [] };
+    return x.ho.length || x.fi.length ? x : undefined;
+  }
+  // a part of ours by id (in any of our vessels vs: a piece broken off too), with its vessel: [v, p] or null
+  function ourPart(vs, id) {
+    if (!Number.isSafeInteger(id)) return null;
+    for (const v of vs) { if (!v || v.remote || v.dead || v.foreign || !v.byId) continue; const p = v.byId.get(id); if (p && v.parts.includes(p)) return [v, p]; }
+    return null;
+  }
+  // (x, y, z) inside part p's box (part space), give or take pad m
+  function inBox(p, x, y, z, pad) {
+    const D = partDims(p), zc = partZ(p), hd = partDepth(p) / 2;
+    return Math.abs(x - p.x) <= D.w / 2 + pad && Math.abs(y - p.y) <= D.h / 2 + pad && Math.abs(z - zc) <= hd + pad;
+  }
+  // A peer's hit.ho rows, cleaned (on the owner's side): our own hull parts (aboard a hydro vessel of ours), every number
+  // finite, inside the part's box + 1 m, a in (0, 20], at most 16 rows a message: [[v, p, x, y, z, a], …]
+  function cleanHoles(rows, vs) {
+    const out = [], L = Array.isArray(vs) ? vs : vs ? [vs] : [];
+    if (!Array.isArray(rows)) return out;
+    for (const r of rows.slice(0, NET.HOLES)) {
+      if (!Array.isArray(r) || r.length !== 5 || !r.every((x) => typeof x === 'number' && Number.isFinite(x))) continue;
+      const q = ourPart(L, r[0]);
+      if (!q || !q[0].sh || !q[1].def.shull) continue;
+      const [, x, y, z, a] = r;
+      if (!(a > 0) || a > NET.A || !inBox(q[1], x, y, z, NET.BOX)) continue;
+      out.push([q[0], q[1], x, y, z, a]);
+    }
+    return out;
+  }
+  // A peer's hit.fi rows, cleaned: our own parts aboard a hydro vessel, odds in (0, 0.95], a place (a hull's fire) inside
+  // its box + 1 m or none; at most 4: [[v, p, odds, at | null], …]
+  function cleanFires(rows, vs) {
+    const out = [], L = Array.isArray(vs) ? vs : vs ? [vs] : [];
+    if (!Array.isArray(rows)) return out;
+    for (const r of rows.slice(0, NET.FIRES)) {
+      if (!Array.isArray(r) || (r.length !== 2 && r.length !== 5) || !r.every((x) => typeof x === 'number' && Number.isFinite(x))) continue;
+      const q = ourPart(L, r[0]);
+      if (!q || !q[0].sh || !(r[1] > 0)) continue;
+      const at = r.length === 5 && inBox(q[1], r[2], r[3], r[4], NET.BOX) ? { x: r[2], y: r[3], z: r[4] } : null;
+      out.push([q[0], q[1], Math.min(r[1], NET.ODDS), at]);
+    }
+    return out;
+  }
+  // (the owner, mp.js onHit) a peer's hit on our ship: its holes (each vessel's in one addHoles), the fires it may light
+  // (our own dice), and a torpedo's broken back (kb: an S or M hull, or a one-piece hull: holed through, doomed, in two).
+  // The number of things it did.
+  function netHit(m, vs, by, F) {
+    if (!m) return 0;
+    let n = 0;
+    const byV = new Map();
+    for (const [v, p, x, y, z, a] of cleanHoles(m.ho, vs)) { if (!byV.has(v)) byV.set(v, []); byV.get(v).push([p, x, y, z, a]); }
+    for (const [v, rows] of byV) n += addHoles(v, rows, clockOf(F));
+    for (const [v, p, odds, at] of cleanFires(m.fi, vs)) if (ignite(v, p, odds, by, F, at)) n++;
+    if (m.kb !== undefined) {
+      const q = ourPart(Array.isArray(vs) ? vs : [vs], m.kb);
+      if (q && q[0].sh && q[1].def.shull && ['S', 'M', 'one'].includes(q[1].def.shull.cls) && !q[0].fate) {
+        const [o, p] = q;
+        o.lastHitBy = by; o.lastHitAt = clockOf(F);
+        holedThrough(o, p, 'torpedo', F);
+        doom(o, F, 'sunk', by);
+        if (o.byId.has(p.id) && !o.dead) breakAt(o, F, p, null, 'sunk');
+        n++;
+      }
+    }
+    return n;
+  }
+  // The room's sea clock (the host's st, on a client): our sea's offset slews toward it at SHIP.SLEW s a second (more
+  // than 2 s off, or the first since a reset: a jump). age: how old the snapshot is (s). slew() with no st: back to 0
+  // (a new flight, a room left). Returns the offset.
+  const SLW = { at: null };
+  function slew(st, F, age) {
+    if (st === undefined || st === null) { S.seaOff = 0; SLW.at = null; return 0; }
+    if (typeof st !== 'number' || !Number.isFinite(st) || Math.abs(st) > 1e10 || !F || !Number.isFinite(F.time)) return S.seaOff;
+    const want = st + clamp(Number.isFinite(age) ? age : 0, 0, 2) - F.time, err = want - S.seaOff;
+    if (SLW.at === null || Math.abs(err) > 2) S.seaOff = want;
+    else { const dt = clamp(F.time - SLW.at, 0, 1); S.seaOff += clamp(err, -SHIP.SLEW * dt, SHIP.SLEW * dt); }
+    SLW.at = F.time;
+    return S.seaOff;
+  }
+  // ---- ship torpedoes in a room: a copy of another player's runs here for show (it never hits): from where its owner
+  // said last (eased in over a second), on along its heading at its speed and depth, bubbling; its end (x: it went off:
+  // a column of water there; a hit's blast comes as its boom) or TORP_SILENT s of silence ends it. m: { id, b, P, V, D,
+  // dep } (end: 1, P, x: 1 at its end). At most 16 of a player's in the water.
+  function netTorp(g, m, F) {
+    if (!g || !m || typeof Combat === 'undefined' || !Number.isSafeInteger(m.id) || m.id <= 0) return null;
+    const pid = g.remote, P = Array.isArray(m.P) && m.P.length === 3 && m.P.every(Number.isFinite) ? m.P : null;
+    let s = null;
+    for (const q of Combat.S.shots) if (q.k === 'stor' && q.netId === m.id && q.net === pid) { s = q; break; }
+    if (m.end === 1) {
+      if (!s) return null;
+      if (m.x === 1 && P && Math.hypot(P[0] - s.x, P[1] - s.y, P[2] - s.z) < 400) column(s.b, { x: P[0], y: P[1], z: P[2] }, 3);
+      s.dead = true;
+      return null;
+    }
+    const V = Array.isArray(m.V) && m.V.length === 3 && m.V.every(Number.isFinite) ? m.V : null, D = Array.isArray(m.D) && m.D.length === 3 && m.D.every(Number.isFinite) ? m.D : null;
+    if (!P || !V || Math.hypot(V[0], V[1], V[2]) > 200 || Math.abs(Math.hypot(P[0], P[1], P[2]) - g.body.radius) > 20000) return null;
+    const dep = clamp(Number.isFinite(m.dep) ? m.dep : 0, 0, 30), b = (typeof BODY_BY_ID !== 'undefined' && typeof m.b === 'string' && Object.prototype.hasOwnProperty.call(BODY_BY_ID, m.b) && BODY_BY_ID[m.b]) || g.body;
+    if (!s) {
+      let n = 0;
+      for (const q of Combat.S.shots) if (q.k === 'stor' && q.net === pid) n++;
+      if (n >= NET.TORPS) return null;
+      s = { k: 'stor', b, x: P[0], y: P[1], z: P[2], vx: 0, vy: 0, vz: 0, dx: 0, dy: 0, dz: 0, t: 0, seen: 0, dep, ph: 'run', owner: g, net: pid, netId: m.id, dmg: 0, blast: 0, bub: 0, ex: 0, ey: 0, ez: 0, bt: 0, life: 600 };
+      Combat.S.shots.push(s);
+    } else {
+      s.ex = P[0] - s.x; s.ey = P[1] - s.y; s.ez = P[2] - s.z; s.bt = 1;
+      if (Math.hypot(s.ex, s.ey, s.ez) > 300) { s.x = P[0]; s.y = P[1]; s.z = P[2]; s.ex = s.ey = s.ez = 0; s.bt = 0; }
+    }
+    s.vx = V[0]; s.vy = V[1]; s.vz = V[2]; s.dep = dep; s.seen = s.t;
+    const l = Math.hypot(V[0], V[1], V[2]) || 1;
+    if (D && Math.abs(Math.hypot(D[0], D[1], D[2]) - 1) < 0.1) { s.dx = D[0]; s.dy = D[1]; s.dz = D[2]; } else { s.dx = V[0] / l; s.dy = V[1] / l; s.dz = V[2] / l; }
+    return s;
+  }
+  // a copy's step (torpStep, s.netId set): on along its velocity, eased toward its owner's word, kept at its depth under
+  // the still water, bubbling as the real one does; gone at its end, after silence, or at its life
+  function torpRep(s, h, F) {
+    s.t += h;
+    if (s.t > s.life || s.t - (s.seen || 0) > NET.TORP_SILENT) return false;
+    if (s.bt > 0) { const k = Math.min(1, h / s.bt); s.x += s.ex * k; s.y += s.ey * k; s.z += s.ez * k; s.ex -= s.ex * k; s.ey -= s.ey * k; s.ez -= s.ez * k; s.bt -= h; }
+    s.x += s.vx * h; s.y += s.vy * h; s.z += s.vz * h;
+    const b = s.b, W = waterPt(b, s, TW), lev = W.level > -Infinity ? W.level : 0, rr = Math.hypot(s.x, s.y, s.z) || 1;
+    const kr = (b.radius + lev - s.dep) / rr;
+    s.x *= kr; s.y *= kr; s.z *= kr;
+    if ((s.bub -= h) <= 0 && typeof FX !== 'undefined' && F && F.active && !(F.warpIdx > 1) && Math.hypot(s.x - F.active.x, s.y - F.active.y, s.z - F.active.z) < 3000) {
+      s.bub = SHIP.TORP.bubbles;
+      const r = Math.hypot(s.x, s.y, s.z) || 1, k = (b.radius + lev + 0.2) / r, ux = s.x / r, uy = s.y / r, uz = s.z / r;
+      FX.add({ kind: 'smoke', b, x: s.x * k, y: s.y * k, z: s.z * k, vx: ux * 0.6, vy: uy * 0.6, vz: uz * 0.6, max: 2.2, size: 0.35, grow: 1.2, color: '#eef6fb', alpha: 0.55 });
+    }
+    return true;
+  }
+  // (the owner, mp.js) one of our torpedoes as a 'stor' shot message: where it is (its launch, its updates), or its end
+  // (end: 1, x: 1 when it went off)
+  function torpMsg(s, id, end) {
+    const r = (x) => Math.round(x * 10) / 10;
+    if (end) { const m = { t: 'shot', k: 'stor', id, end: 1, P: [r(s.x), r(s.y), r(s.z)] }; if (s.dead) m.x = 1; return m; }
+    return { t: 'shot', k: 'stor', id, b: s.b.id, P: [r(s.x), r(s.y), r(s.z)], V: [r(s.vx), r(s.vy), r(s.vz)], D: [+s.dx.toFixed(3), +s.dy.toFixed(3), +s.dz.toFixed(3)], dep: r(s.dep || 0) };
+  }
+  // ---- seeing in a Naval Battle (mp.js MP.sees): does me see g, d m off? By eye (EYES.day, EYES.night at night) within
+  // the horizon with no land or smoke between (seesSea, from each one's top), or g is a contact of me's sea radars
+  // (surface: ships, and with a low-air radar what flies under 100 m)
+  const SPA = { x: 0, y: 0, z: 0, h: 0 }, SPB = { x: 0, y: 0, z: 0, h: 0 };
+  function spots(me, g, d, F) {
+    if (!me || !g || me.body !== g.body || !me.parts || !g.parts) return false;
+    const eyes = night(me, F) ? SHIP.EYES.night : SHIP.EYES.day;
+    if (d < eyes) { const T = topOf(me, SPA), U = topOf(g, SPB); if (seesSea(T, U, T.h, U.h)) return true; }
+    if (me.sh && F) for (const c of surface(me, F)) if (c.ref === g) return true;
+    return false;
+  }
 
   return {
     D: DECKS, // every landable moving deck: { v, p, hl, hw, top, x, y, z, ex, ey } [WP6]
@@ -4572,6 +4807,6 @@ const Ship = (() => {
     // ai
     aiDown, flyStriker, range, practice, battle: null,
     // mp
-    snap, unsnap, ghost, downSea, onDownSea, cleanHoles,
+    snap, unsnap, ghost, downSea, onDownSea, cleanHoles, cleanFires, netRows, netHoles, netHit, slew, netTorp, torpMsg, spots, // [WP11]
   };
 })();

@@ -667,8 +667,15 @@ const GHUD = (() => {
   function arenaBox(v) {
     if (!EARTH.arenas || v.body !== EARTH) return null;
     const p = eZ(v);
-    for (const k in EARTH.arenas) { const A = EARTH.arenas[k], B = A.box; if (B && (A.clear ? EARTH.mapped : true) && p.e > B.e0 - 1500 && p.e < B.e1 + 1500 && p.z > B.z0 - 1500 && p.z < B.z1 + 1500) return B; }
+    for (const k in EARTH.arenas) { const A = EARTH.arenas[k], B = A.box; if (B && (A.sea ? seaArena(k) : A.clear ? EARTH.mapped : true) && p.e > B.e0 - 1500 && p.e < B.e1 + 1500 && p.z > B.z0 - 1500 && p.z < B.z1 + 1500) return B; }
     return null;
+  }
+  // [WP11] a sea arena (the Sound) frames the map only in a battle fought on it (a naval battle's room, the Naval Practice
+  // battle: Ship.battle); anywhere else its water is just the sea, so old play's map is as it was
+  function seaArena(k) {
+    if (!EARTH.mapped) return false;
+    if (typeof MP !== 'undefined' && MP.live && MP.naval) return MP.state.settings.arena === k;
+    return typeof Ship !== 'undefined' && !!Ship.battle && Ship.battle.arena === k;
   }
   function units(F, v) { // [x e, z, kind: 0 us, 1 friend, 2 enemy, 3 wreck, yaw]
     const out = [];

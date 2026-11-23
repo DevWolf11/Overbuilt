@@ -41,11 +41,24 @@ const MP_PADS = [
   { id: 'pad0', name: 'North pad', kind: 'pad', team: 0, desc: 'Your team’s start, at the north end of the battlefield.' },
   { id: 'pad1', name: 'South pad', kind: 'pad', team: 1, desc: 'Your team’s start, at the south end of the battlefield.' },
 ];
+// [WP11] (the ships update) Naval battles: a game of their own inside 'pvp' too, settings.game 'naval', fought over three
+// zones at sea in the Shetland Sound (space.js EARTH.arenas.sound) by ships (aircraft at a respawn with air support on),
+// with the ground battle's rules (gmode.js: tickets, zones, respawns, the lineup); MP.ground stays false in one (Highland
+// Ridge's props and the ground update's gates stay shut), MP.naval is true, and MP.zoned is either. settings.sea: the
+// room's sea state ('calm' | 'moderate' | 'rough'; none: moderate), everyone's (a sandbox room's too).
+const MP_NAVAL = { game: 'naval', tickets: 600, respawn: 'free', air: false, aim: 'arcade', arena: 'sound', sea: 'moderate' };
+const MP_SEA_PADS = [
+  { id: 'sea0', name: 'West', kind: 'pad', team: 0, desc: 'Your team’s start, at the west end of the Sound.' },
+  { id: 'sea1', name: 'East', kind: 'pad', team: 1, desc: 'Your team’s start, at the east end of the Sound.' },
+];
+const MP_SEA_MS = 180000; // (our doomed ship's snapshots go on while she goes down: until she is gone or a wreck, 3 minutes at most)
+const MP_MKILL = 10; // (a peer's mkill messages believed a second at most)
 // What the host may set in the lobby, and to what (anything else is refused)
 const MP_SET_OK = {
-  format: (v, st) => hasOwn(MP_FORMATS, v) && !(st.game === 'ground' && v === 'ffa'), budget: [45000, 75000, 120000], build: [120, 180, 300],
+  format: (v, st) => hasOwn(MP_FORMATS, v) && !((st.game === 'ground' || st.game === 'naval') && v === 'ffa'), budget: [45000, 75000, 120000], build: [120, 180, 300],
   test: [true, false], carriers: [true, false], ff: [true, false], tod: ['day', 'dusk', 'night'], limit: [600, 900, 1500], cap: [true, false],
-  game: ['air', 'ground'], tickets: [400, 600, 900], respawn: ['free', 'lineup'], air: [true, false], aim: ['arcade', 'realistic'],
+  game: ['air', 'ground', 'naval'], tickets: [400, 600, 900], respawn: ['free', 'lineup'], air: [true, false], aim: ['arcade', 'realistic'],
+  sea: ['calm', 'moderate', 'rough'], // [WP11]
 };
 const MP_WRECKS = 8, MP_WRECK_MS = 300000, MP_SINK_MS = 6000; // the most wrecks standing on the field, how long each stays (from its `down`), the last ms of it sinking into the ground
 const MP_WRECK_AGL = 10; // (a knocked-out ground vehicle higher than this off the ground leaves no wreck: none hangs in the air)
@@ -133,6 +146,9 @@ const MP = {
   get pvp() { return !!this.state && this.state.mode === 'pvp'; },
   // a ground battle (settings.game 'ground'); every new branch in an air battle's way checks this first
   get ground() { return !!this.state && this.state.mode === 'pvp' && this.state.settings.game === 'ground'; },
+  // [WP11] a naval battle (settings.game 'naval': the Sound); and a battle over zones with tickets, ground or naval
+  get naval() { return !!this.state && this.state.mode === 'pvp' && this.state.settings.game === 'naval'; },
+  get zoned() { return this.ground || this.naval; },
   // Is this client stuck in the 2D view (no WebGL)? A ground battle can't be seen there: the 2D view is a side cut
   // through the launch site, far from Highland Ridge. (Retro 2D flight, a silly setting, is off in any battle.)
   no3D() { return typeof Render3D !== 'undefined' && (!Render3D.supported || !!Render3D.failed); },
@@ -159,6 +175,7 @@ const MP = {
     this.begin();
     const st = { ...MP_DEFAULTS };
     if (mode === 'pvp' && settings && settings.game === 'ground') this.groundSettings(st);
+    if (mode === 'pvp' && settings && settings.game === 'naval') this.navalSettings(st); // [WP11]
     if (settings) for (const k of Object.keys(settings)) if (k !== 'game' && this.settingOk(k, settings[k], st)) st[k] = settings[k];
     this.state = {
       mode, phase: mode === 'sandbox' ? 'free' : 'lobby', ends: 0, endsLen: 0, round: 0, result: null,
@@ -186,6 +203,8 @@ const MP = {
     this.peers.clear(); this.rwr.clear(); this.missiles.clear(); this.extra.clear(); this.mainDown = false;
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
+    this.torps = new Map(); this.seaSink = null; this.mkillAt = new Map(); this.nextTorp = 1; // [WP11]
+    if (typeof Ship !== 'undefined') Ship.slew(); // [WP11] (the sea clock: the host's from its first snapshot)
     if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
     this.borrow();
     if (!this.bound) this.bind();
@@ -206,6 +225,7 @@ const MP = {
     this.state = null;
     Builder.mp = null;
     this.giveBack();
+    if (typeof Ship !== 'undefined') { Ship.slew(); Ship.setSea((typeof Settings !== 'undefined' && Settings.get('sea')) || 'moderate'); } // [WP11] (our own sea again)
     if (App.scene === 'flight') { Flight.stop(); Flight.mp = null; }
     UI.closeModal();
     MPUI.hide();
@@ -273,10 +293,11 @@ const MP = {
     Net.on('gun', (m) => { const P = this.peers.get(m.f); if (P) P.gun[m.k] = !!m.on; });
     Net.on('hit', (m) => this.onHit(m));
     Net.on('boom', (m) => this.onBoom(m));
-    Net.on('shot', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) { if (m.k === 'shell' && !c) P.firedAt = performance.now(); Combat.netShot(g, m); } }); // (a main gun's flash gives it away: spotted; c: their drone's)
+    Net.on('shot', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) { if (m.k === 'stor') { if (!c && typeof Ship !== 'undefined') Ship.netTorp(g, m, Flight); return; } if (m.k === 'shell' && !c) P.firedAt = performance.now(); Combat.netShot(g, m); } }); // (a main gun's flash gives it away: spotted; c: their drone's; [WP11] stor: a ship's torpedo, a copy for show)
     Net.on('msl', (m) => this.onMissile(m));
     Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? this.mine(m.tc) : null)); // (tc: after our drone)
     Net.on('mx', (m) => Combat.netMissileEnd(m.f, m.id));
+    Net.on('mkill', (m) => this.onMkill(m)); // [WP11] (their close-in gun or SAM killed our missile)
     Net.on('cm', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) Combat.netFlares(g, m); }); // (c: from their drone)
     Net.on('lock', (m) => { if (m.on) this.rwr.set(m.f, performance.now()); else this.rwr.delete(m.f); });
     Net.on('rdr', (m) => { const P = this.peers.get(m.f); if (P && (m.on === 0 || m.on === 1)) P.radarOff = m.on === 0; }); // (their radar off: it paints nobody's search strobes; anything else ignored)
@@ -319,7 +340,7 @@ const MP = {
     const s = this.state, p = this.player(pid);
     if (!s || !p) return;
     // (a ground battle under way: who is on the field is the host's to say, from spawns and downs, never a client's)
-    if (pid !== Net.me && this.ground && s.phase === 'battle' && (k === 'flying' || k === 'ready' || k === 'spawn')) return;
+    if (pid !== Net.me && this.zoned && s.phase === 'battle' && (k === 'flying' || k === 'ready' || k === 'spawn')) return;
     if (k === 'ready') p.ready = !!v;
     else if (k === 'spawn') { if (this.spawnsFor(p).some((sp) => sp.id === v)) p.spawn = v; }
     else if (k === 'kind') p.kind = String(v).slice(0, 8);
@@ -327,12 +348,12 @@ const MP = {
     else if (k === 'team') { if (s.phase === 'lobby' && s.mode === 'pvp' && s.format !== 'ffa' && (v === 0 || v === 1)) p.team = v; }
     else if (k === 'name') p.name = String(v).slice(0, 18) || p.name;
     else if (k === 'dmg') { if (s.phase === 'battle' || s.mode === 'sandbox') this.addDamage(pid, clamp(+v || 0, 0, 20000)); }
-    else if (k === 'slot' && this.ground) { // the lineup slot to spawn next: unused, the respawn time come, the team's tickets left
+    else if (k === 'slot' && this.zoned) { // the lineup slot to spawn next: unused, the respawn time come, the team's tickets left
       const o = s.obj;
       if (s.settings.respawn !== 'lineup' || !Number.isInteger(v) || v < 0 || v > 2 || ((p.slots || 0) & (1 << v)) || !o || !(o.tk[p.team] > 0) || Net.hostNow() < (p.respawnAt || 0) - 300) return;
       p.slot = v;
     } else if (k === 'troops' && this.ground) { if (!Number.isInteger(v) || v < 0 || v > 12 || p.troops === v) return; p.troops = v; } // (living troops aboard: captures)
-    else if (k === 'airSlots' && this.ground) { if (!Number.isInteger(v) || v < 0 || v > 7 || (p.airSlots || 0) === v) return; p.airSlots = v; } // (the lineup's aircraft, a bit a slot: they need a sortie point)
+    else if (k === 'airSlots' && this.zoned) { if (!Number.isInteger(v) || v < 0 || v > 7 || (p.airSlots || 0) === v) return; p.airSlots = v; } // (the lineup's aircraft, a bit a slot: they need a sortie point)
     else return;
     if (s.phase === 'build' || s.phase === 'polish') this.maybeAllReady();
     this.push();
@@ -345,11 +366,11 @@ const MP = {
   setSetting(k, v) {
     if (!Net.isHost || !this.state) return;
     const s = this.state;
-    if (s.phase !== 'lobby' && !(k === 'cap' && s.mode === 'sandbox')) return; // (a sandbox's part limit changes any time: it is for the next craft flown)
+    if (s.phase !== 'lobby' && !((k === 'cap' || k === 'sea') && s.mode === 'sandbox')) return; // (a sandbox's part limit changes any time: it is for the next craft flown; [WP11] and its sea)
     if (!this.settingOk(k, v, s.settings) || (k === 'game' && s.mode !== 'pvp')) return; // (each key to its own values only)
-    if (k === 'game' && v === 'ground') {
-      this.groundSettings(s.settings);
-      if (s.settings.format === 'ffa') { k = 'format'; v = '1v1'; } // (ground battles are team games)
+    if (k === 'game' && (v === 'ground' || v === 'naval')) {
+      if (v === 'ground') this.groundSettings(s.settings); else this.navalSettings(s.settings); // ([WP11] naval: the Sound's)
+      if (s.settings.format === 'ffa') { k = 'format'; v = '1v1'; } // (ground and naval battles are team games)
       else { this.push(); return; }
     }
     if (k === 'format') {
@@ -366,10 +387,16 @@ const MP = {
     st.arena = GroundMode.pick(this.mapReady());
     return st;
   },
+  // [WP11] a naval battle's settings over these (as a ground battle's, and the sea; the arena is the Sound, which needs the
+  // real map: the lobby's button says so without it)
+  navalSettings(st) {
+    for (const k of Object.keys(MP_NAVAL)) if (k === 'game' || k === 'arena' || !hasOwn(st, k)) st[k] = MP_NAVAL[k];
+    return st;
+  },
   mapReady() { return typeof Terrain !== 'undefined' && !!Terrain.earthMap && Terrain.earthMap.state === 'ready'; },
   // the kinds a battle takes from the builder: planes, helicopters and cars in the air; Armour and cars on the ground
   // (aircraft join a ground battle only at a respawn, with air support on: designProblems' `air`)
-  kindsFor(st) { return st && st.game === 'ground' ? ['tank', 'car'] : MP_KINDS_PVP; },
+  kindsFor(st) { return st && st.game === 'ground' ? ['tank', 'car'] : st && st.game === 'naval' ? ['ship'] : MP_KINDS_PVP; }, // ([WP11] a naval battle: ships)
   // the most parts a craft in this room may have: the part limit, or (off) what a spawn message carries
   maxParts() { return this.state && this.state.settings && this.state.settings.cap === false ? MP_NET_PARTS : MP_MAX_PARTS; },
   // host: send the session to everyone (and apply it here)
@@ -394,6 +421,7 @@ const MP = {
     this.state = Net.isHost ? s : JSON.parse(JSON.stringify(s));
     const me = this.me;
     if (!me) { if (!Net.isHost && this.active && prev) this.end('You were removed from the room'); return; }
+    this.roomSea(); // [WP11]
     const ids = new Set(this.state.players.map((p) => p.pid));
     for (const pid of [...this.peers.keys()]) if (!ids.has(pid)) { this.dropGhost(pid, true); this.peers.delete(pid); this.rwr.delete(pid); }
     // kill feed and chat-like notices
@@ -406,6 +434,12 @@ const MP = {
       this.onPhase(prevPhase, this.state.phase);
     }
     MPUI.refresh();
+  },
+  // [WP11] the room's sea state, everyone's (none set: moderate), whatever Settings → Sea says outside the room
+  roomSea() {
+    if (typeof Ship === 'undefined' || !this.state || !this.state.settings) return;
+    const want = SHIP.SEAS.includes(this.state.settings.sea) ? this.state.settings.sea : 'moderate';
+    if (Ship.sea() !== want) Ship.setSea(want);
   },
   onPhase(from, to) {
     const s = this.state;
@@ -425,7 +459,7 @@ const MP = {
         this.spawnId = this.me.spawn || this.defaultSpawn();
         if (this.me.spawn !== this.spawnId) this.setMine('spawn', this.spawnId);
         this.enterBuild(true);
-        if (this.ground) MPUI.mapCheck(); // (our ground isn't the host's without the same map)
+        if (this.zoned) MPUI.mapCheck(); // (our ground isn't the host's without the same map; [WP11] the Sound needs it)
         break;
       case 'test':
         this.startFlight(true);
@@ -437,7 +471,7 @@ const MP = {
         UI.toast('Test flight over: polish your design');
         break;
       case 'battle':
-        if (this.ground) { this.spawned = false; this.spots.clear(); this.pings.length = 0; this.troopsSent = -1; }
+        if (this.zoned) { this.spawned = false; this.spots.clear(); this.pings.length = 0; this.troopsSent = -1; }
         this.startFlight(false);
         break;
       case 'results':
@@ -452,9 +486,9 @@ const MP = {
     if (!Net.isHost || !s || s.mode !== 'pvp' || s.phase !== 'lobby') return;
     s.round++;
     for (const p of s.players) Object.assign(p, { ready: false, alive: false, kills: 0, deaths: 0, dmg: 0, spawn: null, flying: false });
-    if (this.ground) { // (a ground battle's own score: captures, score, sortie points for aircraft, the lineup's slots used)
+    if (this.zoned) { // (a ground battle's own score: captures, score, sortie points for aircraft, the lineup's slots used; [WP11] a naval battle's too)
       for (const p of s.players) Object.assign(p, { caps: 0, score: 0, sorties: 0, respawnAt: 0, slot: 0, slots: 0, airSlots: 0, troops: 0, cost: 0, sortieEnd: 0 });
-      s.settings.arena = GroundMode.pick(this.mapReady());
+      s.settings.arena = this.naval ? 'sound' : GroundMode.pick(this.mapReady());
       delete s.obj;
       this.battleCost.clear(); this.battleKind.clear();
     }
@@ -470,7 +504,7 @@ const MP = {
     s.allReadyAt = 0;
     if (phase === 'build' || phase === 'polish') for (const p of s.players) p.ready = false;
     if (phase === 'battle') { for (const p of s.players) { p.alive = true; p.flying = false; } s.battleAt = Net.hostNow(); s.tod = this.timeOfDay(s.settings.tod); s.sides = [...new Set(s.players.map((p) => p.team))]; }
-    if (phase === 'battle' && this.ground) { // the zones and the tickets (gmode.js)
+    if (phase === 'battle' && this.zoned) { // the zones and the tickets (gmode.js)
       s.obj = GroundMode.init(s.settings.arena, s.settings, [0, 1].map((t) => s.players.filter((p) => p.team === t).length));
       this.gt = { at: Net.hostNow(), sent: 0, sig: '', tenth: [10, 10] };
     }
@@ -493,9 +527,10 @@ const MP = {
       if (s.ends && now >= s.ends) this.advance();
       // refresh pings in the lobby now and then (and a ground battle's arena, once the host's map is in)
       if ((s.phase === 'lobby' || s.phase === 'free') && now - (this.pingPushed || 0) > 4000) { this.pingPushed = now; if (this.ground) s.settings.arena = GroundMode.pick(this.mapReady()); this.push(); }
-      if (this.ground && s.phase === 'battle' && s.obj) { try { this.groundTick(now); } catch (e) { console.error(e); } }
+      if (this.zoned && s.phase === 'battle' && s.obj) { try { this.groundTick(now); } catch (e) { console.error(e); } }
     }
-    if (this.ground && this.phase === 'battle') this.groundReports();
+    if (this.zoned && this.phase === 'battle') this.groundReports();
+    if (this.state && this.state.settings && this.state.settings.sea) this.roomSea(); // [WP11] (Settings → Sea changed in a room: the room's again)
     this.sendCrush();
     // clients report the damage they dealt about once a second (the host keeps the score)
     if (!Net.isHost && this.dmgOut > 0 && performance.now() - (this.dmgSent || 0) > 1000) {
@@ -518,7 +553,7 @@ const MP = {
   checkWin() {
     const s = this.state;
     if (!Net.isHost || !s || s.phase !== 'battle' || this.finishing) return;
-    if (this.ground) return this.checkGround(); // (tickets and zones, not the last team flying)
+    if (this.zoned) return this.checkGround(); // (tickets and zones, not the last team flying)
     const teams = new Set(s.players.filter((p) => p.alive).map((p) => p.team));
     const started = new Set(s.sides || s.players.map((p) => p.team));
     if (teams.size > 1 || (started.size <= 1 && teams.size === 1)) return;
@@ -528,9 +563,10 @@ const MP = {
   finish(winner, why) {
     const s = this.state;
     if (!s || s.phase !== 'battle') return;
-    if (this.ground) { // on time: more tickets wins (GroundMode.result); the result keeps the tickets and the arena
+    if (this.zoned) { // on time: more tickets wins (GroundMode.result); the result keeps the tickets and the arena
       if (why === 'time') { const r = s.obj && GroundMode.result(s.obj, true, this.aliveByTeam()); winner = r ? r.winner : null; why = r ? r.why : 'draw'; }
       s.result = { winner, why, ffa: false, ground: true, tk: s.obj ? s.obj.tk.slice() : [0, 0], arena: s.settings.arena, players: s.players.map((p) => ({ ...p })) };
+      if (this.naval) s.result.naval = true; // [WP11]
       this.setPhase('results', 0);
       return;
     }
@@ -594,12 +630,12 @@ const MP = {
       units.push({ team: p.team, e: q.e, z: q.z, kind, speed: Math.hypot(V[0], V[1], V[2]), gd: !!gd, troops: p.troops || 0 });
       pids.push(pid);
     };
-    const v = this.main(); // (our tank while we fly its drone)
-    if (this.shared && v && !Flight.destroyed && v.body === EARTH) add(Net.me, v.x, v.y, v.z, [v.vx, v.vy, v.vz], v.kind, performance.now() - (this.gdAt || -1e9) < 500);
+    const v = this.main(), sea = this.naval; // (our tank while we fly its drone; [WP11] at sea: a ship afloat, her snapshots' af)
+    if (this.shared && v && !Flight.destroyed && v.body === EARTH) add(Net.me, v.x, v.y, v.z, [v.vx, v.vy, v.vz], v.kind, sea ? !!v.afloat : performance.now() - (this.gdAt || -1e9) < 500);
     for (const [pid, P] of this.peers) {
       const S = P.snap;
-      if (!S || !P.design || performance.now() - (P.recv || 0) > 2000 || S.b !== EARTH.id) continue;
-      add(pid, S.P[0], S.P[1], S.P[2], S.V, P.design.kind, S.gd === 1);
+      if (!S || !P.design || performance.now() - (P.recv || 0) > 2000 || S.b !== EARTH.id || P.sink) continue;
+      add(pid, S.P[0], S.P[1], S.P[2], S.V, P.design.kind, sea ? S.af === 1 : S.gd === 1);
     }
     return { units, pids };
   },
@@ -628,6 +664,7 @@ const MP = {
     const s = this.state;
     if (!s || !p) return [];
     if (this.ground) return MP_PADS.filter((sp) => sp.team === p.team); // (each team its pad; no carriers)
+    if (this.naval) return MP_SEA_PADS.filter((sp) => sp.team === p.team); // [WP11] (each team its end of the Sound)
     const ffa = s.format === 'ffa';
     return MP_SPAWNS.filter((sp) => (sp.kind !== 'carrier' || s.settings.carriers) && (ffa ? true : sp.team === p.team));
   },
@@ -641,14 +678,14 @@ const MP = {
     }
     return (list.find((sp) => sp.kind === 'base') || list[0]).id;
   },
-  spawnDef(id) { return MP_SPAWNS.find((sp) => sp.id === id) || (this.ground && MP_PADS.find((sp) => sp.id === id)) || MP_SPAWNS[0]; },
+  spawnDef(id) { return MP_SPAWNS.find((sp) => sp.id === id) || (this.ground && MP_PADS.find((sp) => sp.id === id)) || (this.naval && MP_SEA_PADS.find((sp) => sp.id === id)) || MP_SPAWNS[0]; },
   budgetFor(spawnId) {
     const s = this.state;
     if (!this.pvp) return null;
-    if (this.ground) return s.settings.budget; // (a pad: no bonus, whatever spawn an air battle left behind)
+    if (this.zoned) return s.settings.budget; // (a pad: no bonus, whatever spawn an air battle left behind)
     return Math.round(s.settings.budget * (this.spawnDef(spawnId).kind === 'carrier' ? MP_CARRIER.bonus : 1));
   },
-  limitsFor(spawnId) { return this.pvp && !this.ground && this.spawnDef(spawnId).kind === 'carrier' ? MP_CARRIER : null; },
+  limitsFor(spawnId) { return this.pvp && !this.zoned && this.spawnDef(spawnId).kind === 'carrier' ? MP_CARRIER : null; },
   // The size of a design: span across (wings, pods wherever they hang), length along, mass.
   measure(parts) {
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity, mass = 0;
@@ -678,6 +715,11 @@ const MP = {
         out.push(mpAir(kind) && this.state.settings.air ? 'Aircraft join a ground battle when you respawn: build Armour or a car.' : 'Ground battles are for Armour and cars: switch the vehicle type.');
       return out;
     }
+    if (this.naval) { // [WP11]
+      if (!this.kindsFor(this.state.settings).includes(kind) && !(air && this.state.settings.air && mpAir(kind)))
+        out.push(mpAir(kind) && this.state.settings.air ? 'Aircraft join a naval battle when you respawn: build a ship.' : 'Naval battles are for ships: switch the vehicle type.');
+      return out;
+    }
     if (!MP_KINDS_PVP.includes(kind)) out.push('Battles are for planes, helicopters and cars: switch the vehicle type.');
     const L = this.limitsFor(this.spawnId);
     if (L && parts.length) {
@@ -692,6 +734,14 @@ const MP = {
   // a design that flies in this match: the player's, if it passes, or a stock one that fits the budget
   battleDesign() {
     const d = this.myDesign || Builder.serialize();
+    if (this.naval) { // [WP11] a naval battle's stock: the money tier's ships (GroundMode.navalStock), then the patrol boat
+      if (this.fits(d, this.spawnAir)) return d;
+      const keys = GroundMode.navalStock(this.state.settings.budget), key = keys.find((k) => hasOwn(TEMPLATES, k) && this.fits({ kind: TEMPLATES[k].kind, parts: templateRows(TEMPLATES[k]) }))
+        || keys.find((k) => hasOwn(TEMPLATES, k)) || Object.keys(TEMPLATES).find((k) => TEMPLATES[k].kind === 'ship');
+      const t = TEMPLATES[key];
+      UI.toast(`Your design can’t fight in this battle: you get the ${t.name} instead`, 'warn');
+      return { name: t.name, kind: t.kind, key, parts: templateRows(t) };
+    }
     if (this.ground) { // a ground battle's stock: the money tier's vehicles (GROUND_STOCK), then the technical; never a plane
       if (this.fits(d, this.spawnAir)) return d;
       const key = GroundMode.stock(this.state.settings.budget).find((k) => hasOwn(TEMPLATES, k) && this.fits({ kind: TEMPLATES[k].kind, parts: templateRows(TEMPLATES[k]) }))
@@ -723,7 +773,7 @@ const MP = {
   // What a player may come back in at a ground battle's respawn: their saved designs of those kinds that fit the
   // battle, then the stock ones (TEMPLATES; worked out once per money and kind of craft). air: planes and helicopters.
   choices(air) {
-    const kinds = air ? ['plane', 'heli', 'drone'] : ['tank', 'car'], out = [], st = this.state.settings;
+    const kinds = air ? ['plane', 'heli', 'drone'] : this.naval ? ['ship'] : ['tank', 'car'], out = [], st = this.state.settings; // ([WP11] a naval battle: ships)
     // (P4 play-test) aircraft are air support: what each carries (guns, rockets, missiles, bombs), the armed ones first
     const arms = (rows) => { if (!air) return undefined; const k = new Set(); for (const p of partsFromDesign(rows)) { const w = p.def.weapon; if (w && MP_ARMS[w.kind]) k.add(MP_ARMS[w.kind]); } return [...k].join(', '); };
     for (const d of Builder.designs ? Builder.designs() : []) {
@@ -731,7 +781,7 @@ const MP = {
       const des = { name: String(d.name).slice(0, 40), kind: d.kind, parts: d.parts };
       if (this.fits(des, air)) out.push({ name: des.name, design: des, cost: designCost(partsFromDesign(d.parts)), saved: true, arms: arms(d.parts) });
     }
-    const key = st.budget + (air ? 'a' : 'g') + (st.air ? '+' : '-');
+    const key = st.budget + (air ? 'a' : this.naval ? 's' : 'g') + (st.air ? '+' : '-');
     if (!this.stockMemo || this.stockMemo.key !== key) {
       const list = [];
       for (const k of Object.keys(TEMPLATES)) {
@@ -782,7 +832,7 @@ const MP = {
     if (!me.ready) {
       this.myDesign = Builder.serialize();
       const probs = this.designProblems(Builder.statsData, Builder.parts.filter((p) => Builder.attached.has(p.id)), Builder.kind);
-      if (!Builder.ctrl) { UI.toast(this.ground ? 'Add a hull (or a car’s chassis and cab) first' : 'Add a cockpit or command part first'); return; }
+      if (!Builder.ctrl) { UI.toast(this.ground ? 'Add a hull (or a car’s chassis and cab) first' : this.naval ? 'Add a hull and a bridge first' : 'Add a cockpit or command part first'); return; }
       if (probs.length) { UI.toast(probs[0], 'warn'); return; }
     }
     this.setMine('ready', !me.ready);
@@ -803,13 +853,24 @@ const MP = {
       Builder.buildPalette(); Builder.changed(true);
       return; // (no spawn map: the arena shows in the lobby)
     }
+    if (this.naval) { // [WP11] a ship: start from the money's stock ship when the hangar holds something else
+      const stock = GroundMode.navalStock(s.settings.budget).filter((k) => hasOwn(TEMPLATES, k));
+      if (first && !kinds.includes(Builder.kind)) {
+        const key = stock.find((k) => this.fits({ kind: TEMPLATES[k].kind, parts: templateRows(TEMPLATES[k]) })) || stock[0];
+        if (key && Builder.loadTemplate) { Builder.loadTemplate(key); UI.toast(`Naval battle: start from the ${TEMPLATES[key].name}, or build your own`); }
+        else if (Builder.setKind) Builder.setKind('ship');
+      }
+      if (first) this.lineup = [null, ...stock.filter((k) => this.fits({ kind: TEMPLATES[k].kind, parts: templateRows(TEMPLATES[k]) })).slice(0, 2).map((k) => ({ name: TEMPLATES[k].name, kind: TEMPLATES[k].kind, key: k, parts: templateRows(TEMPLATES[k]) }))];
+      Builder.buildPalette(); Builder.changed(true);
+      return;
+    }
     if (first && !MP_KINDS_PVP.includes(Builder.kind)) Builder.setKind && Builder.setKind('plane');
     Builder.buildPalette(); Builder.changed(true);
     if (first && s.mode === 'pvp') setTimeout(() => MPUI.openSpawnMap(), 400);
   },
   // Fly: a test flight (alone) or into the shared world (sandbox, battle).
   startFlight(solo) {
-    const s = this.state, ground = this.ground && !solo && s.phase === 'battle';
+    const s = this.state, ground = this.zoned && !solo && s.phase === 'battle'; // ([WP11] a naval battle's spawns and respawns are a ground battle's)
     UI.closeModal(); MPUI.closeSpawnMap();
     // our knocked-out hulk, a wreck in MP.wrecks since its `down` (onLocalDestroyed), stays where it stopped, with its
     // thrown turret: in every shared mode (a sandbox's too). Its pieces now carry the ids our new craft has: hits never
@@ -819,6 +880,8 @@ const MP = {
     if (H) for (const q of H.bits || []) q.foreign = Net.me;
     this.dropExtras(); // (our drone goes with the craft it came from)
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
+    this.seaSink = null; if (this.torps && this.torps.size) this.torps.clear(); // [WP11] (our old ship's going down, and her torpedoes, are no longer told)
+    if (typeof Ship !== 'undefined' && !Net.isHost) Ship.slew(); // [WP11] (the host's sea clock afresh: its first snapshot puts us on it)
     let design;
     if (this.pvp) {
       this.myDesign = Builder.mp ? Builder.serialize() : this.myDesign;
@@ -847,9 +910,9 @@ const MP = {
         if (this.me && (this.me.airSlots || 0) !== a) this.setMine('airSlots', a);
       }
       MPUI.refresh();
-      if (this.ground && this.no3D()) { Flight._warn2d = true; UI.toast('Ground battles need the 3D view: this device can’t show it', 'warn'); } // (in place of flight.js's 'Ground combat needs the 3D view')
+      if (this.zoned && this.no3D()) { Flight._warn2d = true; UI.toast(this.naval ? 'Naval battles need the 3D view: this device can’t show it' : 'Ground battles need the 3D view: this device can’t show it', 'warn'); } // (in place of flight.js's 'Ground combat needs the 3D view')
       const tip = place && place.carrier ? 'Throttle up, then hit LAUNCH (L) for the catapult' : null;
-      if (solo) UI.toast(this.ground ? 'Test drive: one minute on your pad, nobody can hurt you' : 'Test flight: one minute, nobody can hurt you');
+      if (solo) UI.toast(this.ground ? 'Test drive: one minute on your pad, nobody can hurt you' : this.naval ? 'Sea trial: one minute at your start, nobody can hurt you' : 'Test flight: one minute, nobody can hurt you');
       else if (ground) UI.toast(again ? `Back in the fight: ${design.name || VEHICLE_KINDS[kind].name}` : `Battle! Hold the zones: ${s.settings.tickets || 600} tickets each`);
       else if (this.pvp) UI.toast(tip || 'Battle! Last team flying wins');
       else if (tip) UI.toast(tip);
@@ -859,7 +922,7 @@ const MP = {
   // (the design and slot the Respawn panel chose: respawnWith), once the host's row says we may.
   respawn() {
     if (!this.live) return;
-    if (this.pvp) { if (this.ground) this.respawnWith(this.groundDesign || this.myDesign); return; }
+    if (this.pvp) { if (this.zoned) this.respawnWith(this.groundDesign || this.myDesign); return; }
     if (Flight.running && !Flight.destroyed && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' });
     this.startFlight(false);
   },
@@ -867,7 +930,7 @@ const MP = {
   // and the host's respawn time come (300 ms early for the trip there)
   canSpawnNow(slot) {
     const s = this.state, me = this.me;
-    if (!this.ground || !me || s.phase !== 'battle' || !s.obj || (Flight.running && !Flight.destroyed)) return false;
+    if (!this.zoned || !me || s.phase !== 'battle' || !s.obj || (Flight.running && !Flight.destroyed)) return false;
     if (!(s.obj.tk[me.team] > 0) || Net.hostNow() < (me.respawnAt || 0) - 300) return false;
     if (s.settings.respawn === 'lineup') { const k = slot == null ? me.slot || 0 : slot; return Number.isInteger(k) && k >= 0 && k <= 2 && !((me.slots || 0) & (1 << k)); }
     return true;
@@ -945,7 +1008,7 @@ const MP = {
       if (kind === 'heli' || kind === 'drone') return { e: EARTH.sites.helipad.east + (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * 35, z: 0, yaw: 0, soft: true }; // (a drone from the helipad too)
       return null; // rockets share the pad
     }
-    if (this.ground) { // a ground battle: the team's pad (gmode.js), the slot by player number among the team
+    if (this.zoned) { // a ground battle: the team's pad (gmode.js), the slot by player number among the team ([WP11] a naval battle's end of the Sound)
       const me = this.me, team = me && me.team === 1 ? 1 : 0;
       const slot = Math.max(0, this.state.players.filter((p) => p.team === team).map((p) => p.pid).sort((a, b) => a - b).indexOf(Net.me));
       return this.padPlace(this.state.settings.arena, team, slot, kind);
@@ -973,13 +1036,13 @@ const MP = {
   padPlace(arena, team, slot, kind) {
     const first = GroundMode.placement(arena, team, slot, kind);
     if (!first || first.air || kind === 'heli' || kind === 'drone') return first;
-    const at = [], now = performance.now();
+    const at = [], now = performance.now(), A = GroundMode.arena(arena), clear = A && A.sea ? 90 : 12; // ([WP11] at sea: a ship's length clear)
     for (const w of this.wrecks) if (w.v.body === EARTH && !w.v.dead) at.push(mpEZ(w.v.x, w.v.y, w.v.z, {}));
     for (const [, P] of this.peers) if (P.snap && P.snap.b === EARTH.id && now - (P.recv || 0) < 6000) at.push(mpEZ(P.snap.P[0], P.snap.P[1], P.snap.P[2], {}));
     if (!at.length) return first;
     for (let k = 0; k < 6; k++) {
       const pl = k ? GroundMode.placement(arena, team, slot + k, kind) : first;
-      if (pl && !at.some((a) => Math.hypot(a.e - pl.e, a.z - pl.z) < 12)) return pl;
+      if (pl && !at.some((a) => Math.hypot(a.e - pl.e, a.z - pl.z) < clear)) return pl;
     }
     return first;
   },
@@ -992,7 +1055,7 @@ const MP = {
     this.sent = { s: 0, pv: 0, hp: 0, hpSig: '' };
     this.spawnMsg = { t: 'spawn', name: v.name, kind: v.kind, parts: this.spawnRows(v) };
     Net.send(this.spawnMsg);
-    if (Net.isHost && this.ground) this.priceSpawn(Net.me, mpSpawnRows(this.spawnMsg.parts, this.maxParts()), v.kind);
+    if (Net.isHost && this.zoned) this.priceSpawn(Net.me, mpSpawnRows(this.spawnMsg.parts, this.maxParts()), v.kind);
   },
   // host, a ground battle: what a player's new craft costs, from the spawn rows as everyone builds it (their armour
   // too); it prices the tickets they lose with it (never their own word). A lineup slot is used; an aircraft spends a
@@ -1043,8 +1106,9 @@ const MP = {
     // (the big update's drones) our main craft (the tank while its drone is flown: inline, as mptrace's stand-in has no
     // carrier) and our second craft, each with its own clocks; a main craft's down told (announceDown) sends no more
     // (but its last word: a hulk's fall)
-    const a = Flight.active, main = a && a.carrier ? a.carrier : a, S = this.sent;
-    if (main && S && !((Flight.destroyed && !last) || !main.parts.length) && (!this.mainDown || last)) this.stream(main, S, 0, null, last);
+    const a = Flight.active, main = a && a.carrier ? a.carrier : a, S = this.sent, Z = this.seaSink;
+    const sinking = !!Z && Z.v === main && !Z.done && !main.dead && performance.now() - Z.t < MP_SEA_MS; // ([WP11] our doomed ship going down: everyone sees her go, MP_SEA_MS at most)
+    if (main && S && !((Flight.destroyed && !last && !sinking) || !main.parts.length) && (!this.mainDown || last || sinking)) this.stream(main, S, 0, null, last);
     if (this.extra.size) for (const [c, E] of this.extra) if (!E.v.dead && E.v.parts.length) this.stream(E.v, E.sent, c, E, false);
   },
   // One craft's updates (c: its craft index, 0 the main craft; E its extra's record): the parts it has left on a change,
@@ -1067,6 +1131,7 @@ const MP = {
         Q: [r4(v.q.w), r4(v.q.x), r4(v.q.y), r4(v.q.z)], W: [r4(v.av.x), r4(v.av.y), r4(v.av.z)], C: [r4(v.com.x), r4(v.com.y), r4(v.com.z || 0)],
         g: v.gearUp ? 1 : 0, l: v.landed ? 1 : 0 };
       if (ground) snap.gd = now - (this.gdAt || -1e9) < 500 ? 1 : 0;
+      if (!c && typeof Ship !== 'undefined') this.seaSnap(v, snap); // [WP11] (a ship's sh, af and sk; the host's sea clock st: ship rooms only)
       if (c) snap.c = c;
       Net.send(snap);
     }
@@ -1097,6 +1162,18 @@ const MP = {
       const sig = list.join(';');
       if (sig !== S.hpSig) { S.hpSig = sig; Net.send(c ? { t: 'hp', list, c } : { t: 'hp', list }); }
     }
+  },
+  // [WP11] a ship's fields on our main craft's snapshot: sh (her telegraph and rudders), af (afloat), sk (2: our doomed ship
+  // is a wreck now: the last of her snapshots); on the host's, st (its sea clock) while any hydro vessel is in play. An old
+  // craft's snapshot in a room with no ship gets none of them (Combat.S.sea shut).
+  seaSnap(v, snap) {
+    if (v.sh) {
+      const sh = Ship.snap(v);
+      if (sh) { snap.sh = sh; if (v.afloat) snap.af = 1; }
+      const Z = this.seaSink;
+      if (Z && Z.v === v && v.wreck && !Z.done) { snap.sk = 2; Z.done = true; }
+    }
+    if (Net.isHost && typeof Combat !== 'undefined' && Combat.S && Combat.S.sea && Flight.running) snap.st = Math.round(Ship.seaT(Flight) * 1000) / 1000;
   },
   // our main craft: the tank while its drone is flown, else the craft we fly (or nothing)
   main() { const a = Flight.active; return a && a.carrier ? a.carrier : a; },
@@ -1165,7 +1242,7 @@ const MP = {
       return true;
     }
     if (!this.shared) return false;
-    const s = this.state, battle = this.ground && s.phase === 'battle';
+    const s = this.state, battle = this.zoned && s.phase === 'battle';
     // (the big update's drones) a tank knocked out under its flown drone was told at once (Drone.lastFlight:
     // announceDown); its LAST FLIGHT over, only the timers are left. (mptrace's stand-in never sets mainDown.)
     const by = this.mainDown && !!Flight.carrierDown && Flight.active === Flight.carrierDown ? this.downBy || 0 : this.announceDown(Flight.active);
@@ -1173,7 +1250,7 @@ const MP = {
     if (battle) { // knocked out: the Respawn panel
       Flight.ended = false;
       setTimeout(this.afterFall(() => {
-        if (!this.live || !this.ground || this.phase !== 'battle' || !Flight.destroyed) return;
+        if (!this.live || !this.zoned || this.phase !== 'battle' || !Flight.destroyed) return;
         const me = this.me;
         if (me && me.alive) MPUI.respawnPanel(by);
         else { MPUI.spectate(1); UI.toast(`${by ? `Knocked out by ${this.nameOf(by)}` : 'Knocked out'}. No respawns left: spectating (${MPUI.switchWord()} to switch)`, 'warn'); }
@@ -1197,7 +1274,7 @@ const MP = {
   // when a tank is knocked out under its flown drone): who did it, the wreck it leaves or its fall, the host's
   // book-keeping. The `by` it told (kept in downBy for the end screen's words).
   announceDown(v) {
-    const s = this.state, battle = this.ground && s.phase === 'battle';
+    const s = this.state, battle = this.zoned && s.phase === 'battle';
     // who did it: whoever crippled it (doomBy, death.js: an aircraft shot apart, however long it then fell or burned),
     // else the last hit within 20 s. (mptrace's stand-in craft has no doomBy, down or ko: every new read stops there.)
     const src = this.pidOf(v.doomBy) ? v.doomBy : this.pidOf(v.lastHitBy) && Flight.time - (v.lastHitAt || -99) < 20 ? v.lastHitBy : null;
@@ -1221,6 +1298,9 @@ const MP = {
       this.hulk = { v, bits };
     }
     if (wreck || battle) msg.why = ko ? (ko.why === 'hull' ? 'parts' : ko.why) : 'parts';
+    // [WP11] a doomed ship (sunk, capsized, her magazine gone, out of action): sea { why, at }; she goes on being sent
+    // while she goes down (afterUpdate: seaSink), and a wreck on a shallow bed stays one on every screen (sk)
+    if (v.sh && v.fate && typeof Ship !== 'undefined') { const d = Ship.downSea(v); if (d) { msg.sea = d; this.seaSink = { v, t: performance.now(), done: false }; } }
     // falling: the last word waits for the hit under way to end (a hit message's later rows, the rest of a blast's
     // parts: what they take here goes there too), at the end of this task; first everything that hit changed (the
     // parts it took, a wing's half, what burns, where it is), then the down with where it goes. Crashed by then: no fall.
@@ -1251,7 +1331,7 @@ const MP = {
     const s = this.state, p = this.player(pid);
     if (!s || !p || !p.flying) return;
     p.flying = false;
-    const ground = this.ground && s.phase === 'battle' && s.obj;
+    const ground = this.zoned && s.phase === 'battle' && s.obj;
     if (s.phase === 'battle' && !ground) p.alive = false;
     p.deaths++;
     const k = by && by !== pid ? this.player(by) : null;
@@ -1262,7 +1342,7 @@ const MP = {
       if (k && k.team !== p.team) { k.score = (k.score || 0) + 3; k.sorties = (k.sorties || 0) + 1; }
       p.respawnAt = Net.hostNow() + 5000;
       p.alive = this.canRespawn(p);
-      if (k) { k.kills++; this.feed(`${k.name} ⟶ ${p.name}`); } else this.feed(mpAir(kind) ? `${p.name} crashed` : `${p.name} is out`);
+      if (k) { k.kills++; this.feed(`${k.name} ⟶ ${p.name}`); } else this.feed(mpAir(kind) ? `${p.name} crashed` : kind === 'ship' ? `${p.name} went down` : `${p.name} is out`);
       if (this.gt) this.gt.sig = ''; // (the tickets went out with this state)
     } else if (k) { k.kills++; this.feed(`${k.name} ⟶ ${p.name}`); } else this.feed(`${p.name} crashed`);
     if (s.phase === 'battle') this.checkWin();
@@ -1283,6 +1363,7 @@ const MP = {
     const parts = mpSpawnRows(m.parts, this.maxParts());
     if (!parts) return;
     const P = this.peer(m.f);
+    if (P.sink) this.sinkDone(m.f, P, false); // [WP11] (their old ship, still going down: under now)
     this.dropGhost(m.f, false);
     P.design = { kind: typeof m.kind === 'string' && hasOwn(VEHICLE_KINDS, m.kind) ? m.kind : 'plane', parts }; // (never the raw message)
     P.bays = parts.map((r) => r[1]).filter((k) => hasOwn(PARTS, k) && PARTS[k].dock); // (kept past its down: its LAST FLIGHT's drone still comes from one)
@@ -1291,7 +1372,7 @@ const MP = {
     P.radarOff = false; // (a new craft starts with its radar on: its owner says otherwise with 'rdr')
     if (Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
     if (Net.isHost && this.state) {
-      const p = this.player(m.f), priced = this.ground && this.priceSpawn(m.f, parts, P.design.kind); // (a ground battle: priced here)
+      const p = this.player(m.f), priced = this.zoned && this.priceSpawn(m.f, parts, P.design.kind); // (a ground battle: priced here; [WP11] a naval one too)
       if (p && (!p.flying || priced)) { p.flying = true; this.push(); }
     }
   },
@@ -1325,6 +1406,7 @@ const MP = {
     for (const p of v.parts) if (p.def.weapon) p.ammo = p.def.weapon.ammo; // (kept in step by the owner's part states)
     v.hiddenUntilSnap = true;
     if (E) { v.craft = E.c; v.name = `${this.nameOf(pid)}'s drone`; } // (text only: never innerHTML)
+    if (v.sh && typeof Ship !== 'undefined') Ship.ghost(v); // [WP11] (a ship: afloat when her snapshots say so, her draft)
     R.ghost = v;
     if (R.snap) this.poseGhost(R, 0, true);
   },
@@ -1401,6 +1483,7 @@ const MP = {
     }
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
+    if (m.f === 1 && !Net.isHost && m.st !== undefined && typeof Ship !== 'undefined' && Flight.running) Ship.slew(m.st, Flight, (Net.hostNow() - m.th) / 1000); // [WP11] (the host's sea clock: ours slews to it)
     if (!P.design && this.shared && P.recv - (P.asked || 0) > 3000) { P.asked = P.recv; Net.send({ t: 'want' }, m.f); }
     if (!P.ghost && P.design && Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
   },
@@ -1426,6 +1509,7 @@ const MP = {
     const c0 = g.com0 || (g.com0 = { ...g.com }), C = S.C; // (fuel moves it, but never off the craft: a forged one would move the hit boxes away)
     if (Math.hypot(C[0] - c0.x, C[1] - c0.y, (C[2] || 0) - (c0.z || 0)) <= (g.reach || 30) + 1) g.com = { x: C[0], y: C[1], z: C[2] || 0 };
     g.gearUp = !!S.g; g.landed = !!S.l;
+    if (g.sh && typeof Ship !== 'undefined') Ship.unsnap(g, S); // [WP11] (a ship: her telegraph, rudders, afloat)
     g.lastSeen = P.recv;
     // a craft just spawned (its first snapshot since its spawn) on top of a wreck: the wreck starts sinking, as its owner
     // saw at its start (death.js clearSpawn)
@@ -1438,6 +1522,7 @@ const MP = {
     for (const [pid, P] of this.peers) {
       if (P.x && P.x.size) this.extrasUpdate(pid, P, dt, list); // (their drone: it flies on whatever became of their tank)
       try {
+        if (P.sink && this.sinkStep(pid, P, dt)) continue; // [WP11] (their doomed ship going down: posed from her snapshots until she is gone or a wreck)
         if (!P.ghost && P.design && P.snap) this.buildGhost(pid);
         const g = P.ghost;
         if (!g) continue;
@@ -1545,7 +1630,7 @@ const MP = {
       for (const z of zs) { const wp = g.toWorld(p.x, p.y, z); FX.sparks(g.body, wp, vel, 12 / zs.length); FX.puff(g.body, wp, vel, 6 / zs.length, '#cfd5dc'); }
     }
     // (the big update) what came off falls here too, as pieces of our own physics, before the ghost lets go of them
-    if (this.near(g)) this.chips(g, gone, m.f);
+    if (this.near(g)) this.chips(g, g.sh ? gone.filter((p) => !p.def.hull) : gone, m.f); // ([WP11] a ship's hull broken off: its owner sinks it, here it goes with its sparks)
     if (isAirKind(g.kind)) { // (our HUD's word for a loss of ours: a hit of ours on it in the last 8 s)
       if (gone.some((p) => p.def.wing && !p.def.wing.control)) this.lostByMe(g, 'WING OFF');
       else if (gone.some((p) => (p.def.wing && p.def.wing.control) || p.def.shape === 'vtail' || p.def.fin)) this.lostByMe(g, 'TAIL OFF');
@@ -1627,8 +1712,9 @@ const MP = {
   },
   onDown(m) {
     if (m.c !== undefined) return this.onExtraDown(m); // (their drone: nothing booked)
-    const P = this.peers.get(m.f), ground = this.ground, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null; // (a down with no place: no blast, the rest as ever)
+    const P = this.peers.get(m.f), ground = this.zoned, at = mpNums(m.P, 3) ? { x: m.P[0], y: m.P[1], z: m.P[2] } : null; // (a down with no place: no blast, the rest as ever)
     const g = P && P.ghost, kind = (P && P.design && P.design.kind) || (g && g.kind);
+    if (m.sea !== undefined && typeof Ship !== 'undefined' && this.downSea(m, P, g)) return; // [WP11] (a ship doomed: she goes down on every screen)
     // a knocked-out ground vehicle (w) stays as a wreck, on every screen, in every mode; an ammunition detonation (x)
     // throws its turret here too. (Never an aircraft's, nor one in the sky or never seen yet: that one goes. Its owner
     // sends w on the ground only: the margin is for the ghost's lag.)
@@ -1735,17 +1821,20 @@ const MP = {
   // ammunition and fuel, as m rows; dir: [x, y, z] toward us, for their hit arc; hot: a shaped charge, APHE or HE.
   // A wreck takes nothing, nor a peer's falling hulk on our screen: no longer theirs to hurt. The big update: a row's
   // 3rd element, the wing half [part, damage, side], so the same half goes on every screen; our HUD's hit tick.)
-  sendHits(ghost, list, kind, mods, dir, hot) {
-    if (!this.shared || !ghost || !ghost.remote || ghost.wreck || !this.hostile(Net.me, ghost.remote)) return;
+  // ([WP11] sea: what it tore and lit in another player's ship's hull, { ho, fi, kb }: Ship.netRows writes them, last)
+  sendHits(ghost, list, kind, mods, dir, hot, sea) {
+    if (!this.shared || !ghost || !ghost.remote || ghost.wreck || ghost.fate || !this.hostile(Net.me, ghost.remote)) return; // ([WP11] a ship going down takes nothing more)
     const out = [], m = [];
     let total = 0;
     for (const [p, d, sd] of list) if (p && d > 0.05) { out.push(sd === 1 || sd === -1 ? [p.id, Math.round(d * 10) / 10, sd] : [p.id, Math.round(d * 10) / 10]); total += d; }
     if (mods) for (const [p, i, d] of mods) if (p && d > 0.05 && m.length < 32) { m.push([p.id, i, Math.round(d * 10) / 10]); total += d; }
-    if (!out.length && !m.length) return;
+    const x = sea && ghost.sh && typeof Ship !== 'undefined' ? Ship.netRows(sea) : null; // [WP11]
+    if (!out.length && !m.length && !x) return;
     const msg = { t: 'hit', to: ghost.remote, list: out, k: kind || 'shot' };
     if (m.length) msg.m = m;
     if (dir && dir.length === 3 && dir.every(Number.isFinite)) msg.d = dir.map((x) => Math.round(x * 1000) / 1000);
     if (hot) msg.h = 1;
+    if (x) Object.assign(msg, x); // [WP11] (ho, fi, kb)
     Net.send(msg, ghost.remote);
     if (Net.isHost) this.addDamage(Net.me, total); else this.dmgOut = (this.dmgOut || 0) + total;
     ghost.hitByMeAt = performance.now(); // (its losses in the next 8 s show on our HUD: lostByMe)
@@ -1774,6 +1863,7 @@ const MP = {
     if (carrierHit && typeof Drone !== 'undefined' && Drone.alarm) Drone.alarm(Flight);
     if (m.h === 1) Armour.hot = true; // (a shaped charge, APHE or HE: our ammunition cooks off more easily)
     let first = true, hitV = false;
+    if ((m.ho !== undefined || m.fi !== undefined || m.kb !== undefined) && typeof Ship !== 'undefined') Ship.netHit(m, mine, by, Flight); // [WP11] (a ship: the holes and fires it made, our own parts only: Ship.cleanHoles)
     Combat.holdRips(); // (the ground update's kit it strips goes in one piece: Combat.flushRips)
     try {
       for (const row of list) {
@@ -1821,6 +1911,7 @@ const MP = {
     this.missiles.set(s, { id, at: 0, quiet });
     const tgt = s.target && s.target.remote && !quiet ? s.target.remote : 0;
     const m = { t: 'msl', id, b: s.b.id, P: [s.x, s.y, s.z], V: [s.vx, s.vy, s.vz], D: [s.dx, s.dy, s.dz], tg: tgt, radar: w.radar ? 1 : 0, glide: w.glide ? 1 : 0, agm: gr ? 1 : 0 };
+    if (s.asm) m.asm = 1; else if (s.vls) m.vls = 1; // [WP11] (an anti-ship missile, a vertical-launch SAM: what the copy is)
     if (tgt && s.target.craft) m.tc = s.target.craft; // (the big update's drones: after their drone, not their main craft)
     if (s.owner && s.owner.craft && !s.owner.remote) m.c = s.owner.craft; // (fired by our drone)
     Net.send(m);
@@ -1829,9 +1920,33 @@ const MP = {
     const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; // (c: their drone fired it)
     if (!P || !g || !Flight.running) return;
     Combat.netMissile(g, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? this.mine(m.tc) : null); // (tc: after our drone)
+    if (m.asm === 1 || m.vls === 1) { const r = Combat.shots[Combat.shots.length - 1]; if (r && r.netId === m.id && r.net === m.f) { if (m.asm === 1) r.asm = true; else r.vls = true; r.big = true; } } // [WP11] (a ship's missile: its thick trail, and what it is to the HUD and the close-in gun)
+  },
+  // [WP11] our close-in gun or SAM killed a copy of another player's missile (ship.js kill): its owner ends it (mkill)
+  sendMkill(m) {
+    if (!this.shared || !m || !Number.isSafeInteger(m.net) || m.net === Net.me || m.netId == null) return;
+    Net.send({ t: 'mkill', pid: m.net, id: m.netId }, m.net);
+  },
+  // a peer says their close-in gun or SAM killed our missile `id`: ended (a burst where it is, and its end to everyone:
+  // syncMissiles' mx) only if one of their craft is within 3 km of it, at most MP_MKILL of theirs a second
+  onMkill(m) {
+    if (!this.shared || m.pid !== Net.me || !Number.isSafeInteger(m.id) || !Number.isSafeInteger(m.f) || m.f === Net.me) return false;
+    const R = this.mkillAt || (this.mkillAt = new Map()), now = performance.now(), q = R.get(m.f) || { t: now, tok: MP_MKILL };
+    q.tok = Math.min(MP_MKILL, q.tok + Math.max(0, now - q.t) * (MP_MKILL / 1000)); q.t = now; R.set(m.f, q);
+    if (q.tok < 1) return false;
+    q.tok -= 1;
+    let s = null;
+    for (const [k, M] of this.missiles) if (M.id === m.id) { s = k; break; }
+    if (!s || s.dead || !Combat.shots.includes(s)) return false;
+    const P = this.peers.get(m.f), theirs = [P && P.ghost, ...(P && P.x ? [...P.x.values()].map((E) => E.ghost) : [])].filter((g) => g && !g.dead && g.parts.length);
+    if (!theirs.some((g) => g.body === s.b && Math.hypot(g.x - s.x, g.y - s.y, g.z - s.z) < 3000)) return false;
+    s.dead = true; s.killedBy = P && P.ghost ? P.ghost : null;
+    FX.explosion(s.b, { x: s.x, y: s.y, z: s.z }, { x: s.vx * 0.3, y: s.vy * 0.3, z: s.vz * 0.3 }, 1.6, true);
+    return true;
   },
   // each frame: where our missiles are (10 Hz), and which have gone
   syncMissiles() {
+    if (this.torps && this.torps.size) this.syncTorps(); // [WP11]
     if (!this.shared || !this.missiles.size) return;
     const now = performance.now(), live = new Set(Combat.shots);
     for (const [s, M] of this.missiles) {
@@ -1843,6 +1958,25 @@ const MP = {
       if (s.pit) m.a = 1; // (an active radar missile on its own seeker now: the target's warning says MISSILE ACTIVE; absent otherwise)
       if (m.tg && s.target.craft) m.tc = s.target.craft; // (after their drone)
       Net.send(m);
+    }
+  },
+  // [WP11] (the ships update) our ship's torpedo (ship.js fireTorp): a 'stor' shot with an id, then where it is every
+  // second, and its end, so the others' copies run with it (Ship.netTorp)
+  sendTorp(s) {
+    if (!this.shared || !s || s.k !== 'stor' || !s.owner || s.owner.remote || s.owner.ai) return;
+    const id = this.nextTorp++;
+    if (!this.torps) this.torps = new Map();
+    this.torps.set(s, { id, at: performance.now() });
+    Net.send(Ship.torpMsg(s, id, false));
+  },
+  syncTorps() {
+    if (!this.shared) { this.torps.clear(); return; }
+    const now = performance.now(), live = new Set(Combat.shots);
+    for (const [s, T] of this.torps) {
+      if (!live.has(s) || s.dead) { Net.send(Ship.torpMsg(s, T.id, true)); this.torps.delete(s); continue; }
+      if (now - T.at < 1000) continue;
+      T.at = now;
+      Net.send(Ship.torpMsg(s, T.id, false));
     }
   },
   sendShot(s) { // bombs, rockets and shells: the others fly a copy for show
@@ -1894,7 +2028,7 @@ const MP = {
   // the host's tickets and zones, between whole states: { tk: [a, b], z: [[own, p×100], ...] }, one row a zone
   onObj(m) {
     const o = this.state && this.state.obj;
-    if (Net.isHost || m.f !== 1 || !o || !this.ground) return;
+    if (Net.isHost || m.f !== 1 || !o || !this.zoned) return;
     if (!mpNums(m.tk, 2) || !Array.isArray(m.z) || m.z.length !== o.zones.length || !m.z.every((r) => mpNums(r, 2))) return;
     o.tk[0] = clamp(Math.round(m.tk[0]), 0, 99999); o.tk[1] = clamp(Math.round(m.tk[1]), 0, 99999);
     m.z.forEach(([own, p], i) => { const zn = o.zones[i]; zn.own = own === 0 || own === 1 ? own : -1; zn.p = clamp(Math.round(p), -100, 100) / 100; });
@@ -1903,7 +2037,7 @@ const MP = {
   // their team hears it as `spot`. Only real enemies of theirs count, twice a second at most.
   onSeen(m) {
     const s = this.state, p = this.player(m.f);
-    if (!Net.isHost || !this.ground || !s || s.phase !== 'battle' || !p) return;
+    if (!Net.isHost || !this.zoned || !s || s.phase !== 'battle' || !p) return;
     const now = performance.now(), R = this.seenAt || (this.seenAt = new Map()), last = R.get(m.f) || [-1e9, -1e9];
     if (now - last[0] < 1000) return; // (two in the last second already)
     R.set(m.f, [last[1], now]);
@@ -1920,7 +2054,7 @@ const MP = {
   },
   // a teammate spotted these (the host passes it on): marked for 3 s, 15 s when they did it by hand; a map ping for 10 s
   onSpot(m) {
-    if (m.f !== 1 || !this.ground || !Array.isArray(m.ids)) return;
+    if (m.f !== 1 || !this.zoned || !Array.isArray(m.ids)) return;
     const now = performance.now(), man = m.man === 1;
     for (const id of m.ids.slice(0, 6)) if (Number.isSafeInteger(id) && this.enemy(Net.me, id)) { const S = this.spots.get(id); this.spots.set(id, { t: now, man: man || !!(S && S.man && now - S.t < 15000) }); }
     if (mpNums(m.pt, 2) && Number.isSafeInteger(m.by)) {
@@ -1930,7 +2064,7 @@ const MP = {
   },
   // (for the HUD) we spot these enemies (by hand: man; pt: a place on the map, [e, z]): our team marks them too
   sendSeen(ids, man, pt) {
-    if (!this.shared || !this.ground || this.phase !== 'battle') return;
+    if (!this.shared || !this.zoned || this.phase !== 'battle') return;
     const msg = { t: 'seen', ids: (Array.isArray(ids) ? ids : []).filter(Number.isSafeInteger).slice(0, 6), man: man ? 1 : 0 };
     if (pt && Number.isFinite(pt[0]) && Number.isFinite(pt[1])) msg.pt = [Math.round(pt[0]), Math.round(pt[1])];
     if (man) for (const id of msg.ids) this.spots.set(id, { t: performance.now(), man: true }); // (we see our own marks)
@@ -1946,7 +2080,7 @@ const MP = {
     if (!g || g.dead || !g.parts.length) return false;
     const me = eye || Flight.spectate || Flight.active;
     if (!me) return false;
-    if (!this.ground) return MPUI.spotted(g, me, Flight);
+    if (!this.zoned) return MPUI.spotted(g, me, Flight);
     const now = performance.now(), S = this.spots.get(pid);
     if (S && now - S.t < (S.man ? 15000 : 3000)) return true;
     const d = Math.hypot(g.x - me.x, g.y - me.y, g.z - me.z);
@@ -1962,6 +2096,11 @@ const MP = {
     // 600 m); a drone is seen as our sensors and eyes mark it (Drone.marked: 400 m by eye, a detector, a Drone Radar)
     if (me.kind === 'drone' && typeof Drone !== 'undefined') return d < (Drone.spotR(me) || 600) && Aim.sees(me, g, Aim.eyes(me));
     if (g.kind === 'drone' && typeof Drone !== 'undefined') return Drone.marked(me, g) > 0;
+    // [WP11] at sea (a naval battle: a ship looking, or a ship looked at): eyes within the horizon, the sea radars' contacts
+    if (this.naval && typeof Ship !== 'undefined' && (me.sh || g.sh || isSea(me.kind) || isSea(g.kind))) {
+      if (Ship.spots(me, g, d, Flight)) return true;
+      if (!(mpAir(me.kind) && mpAir(g.kind))) return false;
+    }
     const airMe = mpAir(me.kind), airG = mpAir(g.kind);
     if (airMe && airG) return d < 6000 * (1 - 0.5 * Combat.stealthOf(g)) || (me === Flight.active && typeof Radar !== 'undefined' && Radar.has(g)); // (and further on our radar: air contacts only, a mast's ground ones stay ours)
     const reach = airMe !== airG ? 3000 : me.gv && Armour.has(me, 'commander') ? 1875 : 1500;
@@ -2019,6 +2158,57 @@ const MP = {
     if (Net.isHost || m.f !== 1 || !this.live || typeof Props === 'undefined' || m.r !== this.crushEpoch() || !Array.isArray(m.L) || m.L.length > 8) return;
     for (const b of m.L) if (Array.isArray(b) && b.length === 4) Props.netFall(b[0], b[1], b[2], b[3], -1e9);
   },
+  // ------------------------------------------------------------------ [WP11] ships going down on every screen
+  // A peer's doomed ship (their down's sea: Ship.onDownSea): her ghost stays, posed from her snapshots as she goes down
+  // (P.sink; never hit, targeted or taking a zone: g.fate); nothing booked beyond the down itself. true: handled.
+  downSea(m, P, g) {
+    const D = Ship.onDownSea(m);
+    if (!D || !P || !g || !g.sh || g.dead || !g.parts.length || !Flight.running || g.hiddenUntilSnap) return false;
+    g.fate = D.why;
+    P.sink = { t: performance.now(), why: D.why };
+    if (m.by === Net.me) {
+      Combat.S.kills++;
+      const word = typeof SHIP_FATES !== 'undefined' && SHIP_FATES[D.why] ? SHIP_FATES[D.why] : 'Sunk'; // (flight.js's words: Sunk, Capsized, …)
+      UI.toast(`${this.nameOf(m.f)}: ${word.toLowerCase()}!`, 'kill'); Sound.chime(); // (a peer's name: a toast is text)
+      if (typeof Death !== 'undefined') Death.feedback(D.why === 'action' ? 'OUT OF ACTION' : D.why === 'capsized' ? 'CAPSIZED' : 'SUNK', Flight);
+      if (this.zoned && typeof Armour !== 'undefined') Armour.fb.ko = { text: `${word}!`, t: Flight.time || 0 };
+    }
+    if (Net.isHost) this.recordDown(m.f, m.by);
+    return true;
+  },
+  // a sinking ghost each frame (beforeUpdate): posed from her snapshots while they come; her last one says she is a wreck
+  // (sk 2: she stays one, a room's wreck); silent 3 s, or past MP_SEA_MS, she is gone (sinkDone). true: dealt with.
+  sinkStep(pid, P, dt) {
+    const g = P.ghost, now = performance.now();
+    if (!g || g.dead) { P.sink = null; return false; }
+    if (P.snap && P.snap.sk === 2 && (P.recv || 0) >= P.sink.t) { this.sinkDone(pid, P, true); return true; }
+    if (now - (P.recv || 0) > 3000 || now - P.sink.t > MP_SEA_MS + 5000) { this.sinkDone(pid, P, false); return true; }
+    this.poseGhost(P, dt, false);
+    if (!Flight.vessels.includes(g)) Flight.vessels.push(g);
+    return true;
+  },
+  // her going down ends: a wreck where she lies (a room's wreck: five minutes, solid), or under (the sea takes what is
+  // left of her: death.js's plunge where the water is, then she is gone)
+  sinkDone(pid, P, wreck) {
+    const g = P.ghost;
+    P.sink = null;
+    if (!g) { P.design = null; return; }
+    if (wreck && Flight.running) {
+      if (P.snap) this.poseGhost(P, 0, true);
+      P.ghost = null; P.gun = {};
+      g.ko = g.ko || { why: 'ship', x: false, t: Flight.time || 0 };
+      this.addWreck(g, pid, null);
+      if (!Flight.vessels.includes(g)) Flight.vessels.push(g);
+    } else {
+      const D = typeof Death !== 'undefined' ? Death : null;
+      if (D && D.sea && Flight.running && g.body) {
+        const c = g.toWorld(g.com.x, g.com.y, g.com.z || 0), L = Terrain.locate(g.body, c.x, c.y, c.z, {});
+        if (Terrain.waterAt(g.body, L.a, L.z)) { g.vx = g.vy = g.vz = 0; D.sea(g, Flight, L, c); }
+      }
+      this.dropGhost(pid, false);
+    }
+    P.design = null;
+  },
   // (review MP-P2-1) host: the room's wrecks, to a player who just joined, one a message (a wreck is a design's rows), so
   // a late joiner meets the same wrecks as everyone else (they stop shells and block sight): its owner, kind, the parts
   // left on it as spawn rows, where it lies (P, Q, C: its centre of mass), how old it is (a, ms) and how long it has been
@@ -2044,7 +2234,7 @@ const MP = {
   // a wreck from the host as we join (sendWrecks): built from its rows, where it lies, as old as it is; a ground
   // vehicle's only, at most 2·MP_WRECKS held
   onWrecks(m) {
-    if (Net.isHost || m.f !== 1 || !this.live || this.wrecks.length >= 2 * MP_WRECKS || !Number.isSafeInteger(m.p) || m.p <= 0 || typeof m.k !== 'string' || !isGround(m.k) || !hasOwn(VEHICLE_KINDS, m.k)) return;
+    if (Net.isHost || m.f !== 1 || !this.live || this.wrecks.length >= 2 * MP_WRECKS || !Number.isSafeInteger(m.p) || m.p <= 0 || typeof m.k !== 'string' || !(isGround(m.k) || m.k === 'ship') || !hasOwn(VEHICLE_KINDS, m.k)) return; // ([WP11] a ship's wreck too)
     if (!Number.isFinite(m.a) || !Number.isFinite(m.s)) return;
     const one = (o) => {
       if (!o || !mpNums(o.P, 3) || !mpNums(o.Q, 4) || !mpNums(o.C, 3) || !(Math.hypot(...o.Q) > 0.5) || !mpBody(o.b)) return null;
@@ -2062,7 +2252,7 @@ const MP = {
     for (const q of bits) { q.remote = 0; q.foreign = m.p; q.isDebris = true; q.tossed = true; } // (its pieces carry its owner's part ids: hits never look in them)
     if (bits.length) v.koH = Math.max(v.bounds.maxY, ...bits.map((q) => q.bounds.maxY)) - Math.min(v.bounds.minY, ...bits.map((q) => q.bounds.minY)); // ([WP8] as tall as it stood, its turret on: death.js swamp, as on its owner's screen)
     const now = performance.now(), age = clamp(m.a, 0, MP_WRECK_MS);
-    v.ko = { why: m.why === 'ammo' || m.why === 'crew' ? m.why : 'hull', x: m.x === 1, t: (Flight.running ? Flight.time || 0 : 0) - age / 1000 }; // (it burns, then smokes, as any wreck: death.js)
+    v.ko = { why: m.why === 'ammo' || m.why === 'crew' || (m.why === 'ship' && v.sh) ? m.why : 'hull', x: m.x === 1, t: (Flight.running ? Flight.time || 0 : 0) - age / 1000 }; // (it burns, then smokes, as any wreck: death.js; [WP11] a ship's: 'ship')
     this.addWreck(v, m.p, bits, now - age);
     if (m.s >= 0) { const w = this.wrecks.at(-1); if (w.v === v) w.sinkAt = now - clamp(m.s, 0, MP_SINK_MS); }
   },
