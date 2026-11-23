@@ -3,7 +3,7 @@
 //    second the bar ("Naval Range: 0 sunk", "Practice · they don't shoot back"), the hulk moored 2 km ahead and three
 //    ships steaming their loops; her 127 mm through the gunner's sight on the hulk, FIRE held, until it sinks: SUNK, the
 //    bar's "1 sunk" and the best shot (ships held to their own physics: nothing scripted but the aim);
-//  - Hostile, her bow east 3 km short of the waves' line (Flight.start at a sea place): "the first ships come from the
+//  - Hostile, her bow east 2 km short of the waves' line (Flight.start at a sea place): "the first ships come from the
 //    east", the first wave 20 s in, two Cyclons that close and fight; she survives 60 s of Flight.time with her own guns,
 //    CIWS and the computer's ships' fire about her; the bar's wave and ships left;
 //  - on a phone in portrait (390×844) and a desktop (1280×720): the bar on the screen, clear of the helm panel and the
@@ -99,21 +99,22 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
   // ---- Hostile: a wave survived for 60 s
   {
     const { ctx, page } = await open(vp, tag + 'hostile ', { targets: 'hostile' });
-    await sail(page, { e: 13000, z: -1100, yaw: 0 });
+    await sail(page, { e: 14000, z: -1100, yaw: 0 });
     const set = await page.evaluate(async () => { await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
     const bar0 = await barOf(page);
     const wave = await page.evaluate(async () => { await window.__until(() => Ship.naval && Ship.naval.left.length > 0, 30); const L = Ship.naval.left; return { wave: Ship.naval.wave, ships: L.map((v) => v.ai.key + '@' + v.ai.skill.toFixed(1)), d: L.map((v) => Math.round(Math.hypot(v.x - Flight.active.x, v.y - Flight.active.y, v.z - Flight.active.z))), t: Flight.time }; });
     // 60 s of the wave: she holds her ground (Half ahead, the heading held) and fights with her guns and CIWS on the aim
     // nearest her, as a player would; a picture once they are firing
     const fight = await page.evaluate(async () => { const v = Flight.active, L = Ship.naval.left.slice(); Ship.setTel(v, 2); window.__sel('nGun127'); const t0 = Flight.time; let fired = 0, seenAt = null;
+      const rounds = () => L.reduce((s, o) => s + o.parts.reduce((q, p) => q + (p.def.weapon && p.def.aim ? (p.shots || 0) : 0), 0), 0), r0 = rounds(); // (their guns' rounds: shots counted at the gun)
       while (Flight.time < t0 + 60 && !Flight.destroyed) {
         const near = L.filter((o) => !o.dead && !o.fate).sort((a, b) => Math.hypot(a.x - v.x, a.y - v.y, a.z - v.z) - Math.hypot(b.x - v.x, b.y - v.y, b.z - v.z))[0];
         if (near) { await window.__aimAt(near); Flight.touchFire = true; }
         await window.__simWait(5);
-        if (seenAt == null && L.some((o) => o.ai && o.ai.fired > 0)) seenAt = Flight.time;
+        if (seenAt == null && rounds() > r0) seenAt = Flight.time;
       }
       Flight.touchFire = false;
-      for (const o of L) fired += (o.ai && o.ai.fired) || 0;
+      fired = rounds() - r0;
       return { secs: Math.round(Flight.time - t0), alive: !Flight.destroyed && !v.fate, fate: v.fate || '', fired, seenAt, holes: +v.parts.reduce((s, p) => s + (p.holes ? p.holes.reduce((q, h) => q + h.a, 0) : 0), 0).toFixed(2), left: Ship.naval ? Ship.naval.left.length : -1, d: L.map((o) => Math.round(Math.hypot(o.x - v.x, o.y - v.y, o.z - v.z))), st: L.map((o) => o.ai && o.ai.state) }; });
     await page.evaluate(async () => { await window.__simWait(0.6, true); });
     const bar1 = await barOf(page);
