@@ -26,6 +26,15 @@ const GROUND_STOCK = Object.freeze({
   120000: Object.freeze(['ma1', 'tk72', 'leapard1']), // modern
   fallback: 'technical',
 });
+// [WP10] (the ships update) The stock ships the Naval Practice battle (spec §9.3) picks at each money tier, best first,
+// as GROUND_STOCK's; below the cheapest, the Cyclon. Data only: the battle that reads it comes after the multiplayer
+// package's sea arena.
+const NAVAL_STOCK = Object.freeze({
+  45000: Object.freeze(['cyclon', 'osca', 'zodiak']),
+  75000: Object.freeze(['vizby', 'pegazus', 'osca']),
+  120000: Object.freeze(['arley', 'olivar', 'vizby']),
+  fallback: 'cyclon',
+});
 
 const GroundMode = (() => {
   const CAP_RATE = 1 / 20; // zone progress a second for one vehicle: a neutral zone in 20 s, an enemy's in 40 s
