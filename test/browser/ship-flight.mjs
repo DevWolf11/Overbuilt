@@ -263,9 +263,9 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
   await sail(page);
   const state = () => page.evaluate(() => { const v = Flight.active, sh = v.sh, r = Math.hypot(v.x, v.y, v.z) - EARTH.radius, al = document.querySelector('#flight-alert');
     const s = { t: +(Flight.time - window.__sink.t0).toFixed(1), W: Math.round(sh ? sh.comps.reduce((s, c) => s + c.W, 0) : 0), holes: sh ? sh.hulls.reduce((s, p) => s + (p.holes ? p.holes.length : 0), 0) : 0,
-      heel: +(v.heel * 57.3).toFixed(1), trim: +(v.trim * 57.3).toFixed(1), alt: +r.toFixed(1), fate: v.fate || '', sunk: v.sunk != null, wreck: !!v.wreck, dead: !!v.dead, strip: al.hidden ? '' : al.textContent,
+      heel: +(v.heel * 57.3).toFixed(1), trim: +(v.trim * 57.3).toFixed(1), alt: +r.toFixed(1), fate: v.fate || '', sunk: v.sunk != null, wreck: !!v.wreck, dead: !!v.dead, strip: al.hidden || !al.classList.contains('lost') ? '' : al.textContent, warn: al.hidden || al.classList.contains('lost') ? '' : al.textContent, // ([WP12] the lost strip; before it, her warnings)
       dmg: (() => { const r = document.querySelector('#row-dmg'), e = document.querySelector('#t-dmg'); return r && !r.hidden && e ? e.textContent : ''; })() };
-    if (s.strip && !window.__sink.strip) window.__sink.strip = s.strip; s.firstStrip = window.__sink.strip || ''; return s; });
+    if (s.strip && !window.__sink.strip) window.__sink.strip = s.strip; s.firstStrip = window.__sink.strip || ''; if (s.warn && !window.__sink.warn) window.__sink.warn = s.warn; s.firstWarn = window.__sink.warn || ''; return s; });
   await page.evaluate(() => {
     const v = Flight.active, me = { parts: [], name: 'Bomber', kind: 'plane', body: EARTH, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
     const c = v.toWorld(v.com.x - 4, v.com.y, (v.com.z || 0) - 27), r = Math.hypot(c.x, c.y, c.z), up = { x: c.x / r, y: c.y / r, z: c.z / r };
@@ -281,6 +281,7 @@ for (const vp of [[390, 844, true], [360, 640, true]]) {
   const end = await state(), first = seen[0], mid = seen[1];
   ok(`a sinking: a near miss tears ${first.holes} holes along her port side (${first.W} m³ aboard at 3 s); she lists and settles (${seen.map((s) => `${s.t} s: heel ${s.heel}°, trim ${s.trim}°, ${s.W} m³`).join('; ')}), is lost ('${end.fate}'), and goes down (${end.dead ? 'gone' : end.wreck ? 'a wreck' : 'still sinking'} at ${end.t} s); the strip: "${end.firstStrip}"`,
     first.holes >= 2 && first.W > 0 && mid.W > first.W && seen.some((s) => Math.abs(s.heel) > 5 || Math.abs(s.trim) > 5) && end.fate && (end.sunk || end.dead || end.wreck) && /^(Sunk|Capsized|Out of action)/.test(end.firstStrip), { seen, end });
+  ok(`...[WP12] before she was lost the alert line warned of it ("${end.firstWarn}")`, /^(Flooding|List|Fire)/.test(end.firstWarn), end.firstWarn);
   const fated = [...seen, end].filter((s) => s.fate && s.dmg);
   ok(`...the flight data's damage row says how she was lost (${[...new Set(fated.map((s) => s.dmg))].join(', ') || 'never shown'}), never a tank's "Knocked out"`, fated.length > 0 && fated.every((s) => /^(Sunk|Capsized|Out of action|Broken in two)$/.test(s.dmg)), fated);
   await pageErrors(page, tag);
