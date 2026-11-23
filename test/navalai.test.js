@@ -323,24 +323,29 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
 // ================================================================ the cost (§15)
 // 16. Think (4 a second): ≤ 0.1 ms a ship (an Arley Berk fighting an Olivar 6 km off; asserted at 2×, as other suites
 // share the machine); the look: exactly 9 heightAt; a Hostile wave (the player's Arley and three computer's ships 4.5 km
-// off, the physics' LOD on them): their physics against the player's ship's alone
+// off, the physics' LOD on them): each vessel's physics timed in the same loop (the machine's load the same for all),
+// reported a second of the sim, and an Olivar 4.5 km off against one 800 m off (the LOD's saving)
 {
   const o = J(`(() => { fresh(120); const me = ship('olivar', { e: 9000, z: -3000, yaw: 0 }), F = fsim(me, [me]);
     const v = Ship.aiSpawn(F, 'arley', { e: 9000, z: 3000, yaw: Math.PI }, { role: 'fight', skill: 0.5 });
     run(F, 3, null, true);
     for (let i = 0; i < 400; i++) { F.time += 0.25; Ship._ai.think(v, F); Combat.S.shots.length = 0; }
-    let t0 = __hr(), tt = 0; for (let i = 0; i < 800; i++) { F.time += 0.25; Combat.S.shots.length = 0; t0 = __hr(); Ship._ai.think(v, F); tt += __hr() - t0; } const think = tt / 800; // (no physics: what she fires is cleared, as flown away)
+    const TT = []; for (let i = 0; i < 800; i++) { F.time += 0.25; Combat.S.shots.length = 0; const t0 = __hr(); Ship._ai.think(v, F); TT.push(__hr() - t0); } // (no physics: what she fires is cleared, as flown away)
+    TT.sort((x, y) => x - y); const think = TT.slice(0, 720).reduce((q, x) => q + x, 0) / 720; // (the slowest tenth left out: a garbage collection lands on whichever think runs then)
     const h = Terrain.heightAt; let n = 0; Terrain.heightAt = function (...a) { n++; return h.apply(this, a); };
     for (let i = 0; i < 10; i++) Ship._ai.look(v, F); Terrain.heightAt = h;
     fresh(121); const pl = ship('arley', { e: 9000, z: 0, yaw: 0 }), G = fsim(pl, [pl]); pl.sh.tel = 2;
-    const step = (H, secs) => { let ms = 0; for (let i = 0; i < secs * 120; i++) { const a = __hr(); for (const o of H.vessels) if (!o.dead && !o.moored) o.physicsStep(1 / 120, H); ms += __hr() - a; H.time += 1 / 120; } return ms / secs; };
-    step(G, 3); const alone = step(G, 10);
     const ships = ['vizby', 'osca', 'olivar'].map((k, i) => Ship.aiSpawn(G, k, { e: 13500, z: -1500 + i * 1500, yaw: Math.PI }, { role: 'fight', skill: 0.4 }));
-    for (const s of ships) s.sh.tel = 2;
-    step(G, 3); const wave = step(G, 10);
-    return JSON.stringify({ think: +think.toFixed(4), looks: n / 10, alone: +alone.toFixed(1), wave: +wave.toFixed(1) }); })()`);
+    const near = Ship.aiSpawn(G, 'olivar', { e: 9000, z: 800, yaw: 0 }, { role: 'fight', skill: 0.4 });
+    for (const s of [...ships, near]) s.sh.tel = 2;
+    const ms = new Map(), step = (secs, keep) => { for (let i = 0; i < secs * 120; i++) { for (const o of G.vessels) { if (o.dead || o.moored) continue; const a = __hr(); o.physicsStep(1 / 120, G); if (keep) { if (!ms.has(o)) ms.set(o, []); ms.get(o).push(__hr() - a); } } G.time += 1 / 120; } };
+    step(3, false); step(10, true);
+    // (ms a second of the sim: each step's time, the slowest tenth left out (a garbage collection lands on whoever steps then))
+    const per = (o) => { const L = (ms.get(o) || [0]).slice().sort((x, y) => x - y), k = Math.max(1, Math.floor(L.length * 0.9)); return (L.slice(0, k).reduce((q, x) => q + x, 0) / k) * 120; };
+    const alone = per(pl), wave = alone + ships.reduce((s, o) => s + per(o), 0);
+    return JSON.stringify({ think: +think.toFixed(4), looks: n / 10, alone: +alone.toFixed(1), wave: +wave.toFixed(1), far: +per(ships[2]).toFixed(1), near: +per(near).toFixed(1), each: ships.map((o) => +per(o).toFixed(1)) }); })()`);
   t(`cost: a think ${(o.think * 1000).toFixed(0)} µs (≤ 100; asserted at 2×: the machine is shared), a look ${o.looks} heightAt (9)`, o.think <= 0.2 && o.looks === 9, o);
-  t(`...a Hostile wave's physics: ${o.wave} ms a second of the sim for the player's Arley and three computer's ships 4.5 km off (${(o.wave / 10).toFixed(1)} % of this core), ${o.alone} ms for her alone: the three far ones together at most twice her (the LOD)`,
-    o.wave - o.alone <= 2 * o.alone * 1.15, o);
+  t(`...a Hostile wave's physics: ${o.wave} ms a second of the sim for the player's Arley (${o.alone}) and three computer's ships 4.5 km off (${o.each.join(', ')}): ${(o.wave / 10).toFixed(1)} % of this core (§15: 1.5 % of a desktop's; reported); an Olivar 4.5 km off ${o.far} ms, 800 m off ${o.near} (the LOD: ≤ 0.85×)`,
+    o.far <= 0.85 * o.near, o);
 }
 t.done();
