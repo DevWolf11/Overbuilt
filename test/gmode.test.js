@@ -396,13 +396,13 @@ placementChecks(ctx, 'highland', 'Highland Ridge');
     && GM.pickNaval(true) === 'sound' && GM.pickNaval(false) === null && !('kinds' in EARTH.arenas.highland) && !('kinds' in EARTH.arenas.runway));
   const ships = [0, 1].map((tm) => Array.from({ length: 12 }, (_, k) => GM.placement('sound', tm, k, 'ship')));
   const pairs = []; for (const L of ships) for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) pairs.push(dist(L[i], L[j]));
-  t('naval: each team\'s ships start at its end of the Sound (West faces east, East west), six abreast 120 m apart across the pad, the next six 250 m astern; 7 km between the ends',
-    ships[0].every((P) => P.yaw === 0) && ships[1].every((P) => P.yaw === Math.PI) && near(dist(ships[0][0], ships[1][0]), 7100, 1e-6) && Math.min(...pairs) >= 120 - 1e-9
-    && ships[0].slice(0, 6).every((P) => P.e === 16200) && ships[0].slice(6).every((P) => P.e === 16200 - 250) && ships[1].slice(6).every((P) => P.e === 23300 + 250)
+  t('naval: each team\'s ships start at its end of the Sound (West faces east, East west), six abreast 120 m apart across the pad, the next six 250 m astern; 9.4 km between the ends (out of two destroyers\' sight: review play-1)',
+    ships[0].every((P) => P.yaw === 0) && ships[1].every((P) => P.yaw === Math.PI) && near(dist(ships[0][0], ships[1][0]), 9400, 1e-6) && Math.min(...pairs) >= 120 - 1e-9
+    && ships[0].slice(0, 6).every((P) => P.e === 15100) && ships[0].slice(6).every((P) => P.e === 15100 - 250) && ships[1].slice(6).every((P) => P.e === 24500 + 250)
     && J(GM.placement('sound', 0, 12, 'ship')) === J(ships[0][0]), ships[0].map((P) => [P.e, P.z]));
   const h = GM.placement('sound', 0, 1, 'heli'), d = GM.placement('sound', 1, 0, 'drone'), pl = GM.placement('sound', 1, 0, 'plane');
   t('naval: helicopters and drones start 300 m up over their side\'s start (hovering), planes from the Sound\'s air starts at 1 km',
-    h.air && h.air.alt === 300 && h.air.speed === 0 && near(dist(h, S.pads[0]), 60, 1e-6) && d.air && d.air.alt === 300 && dist(d, S.pads[1]) < 1e-6 && pl.air.alt === 1000 && near(pl.e, 24800, 1e-9));
+    h.air && h.air.alt === 300 && h.air.speed === 0 && near(dist(h, S.pads[0]), 60, 1e-6) && d.air && d.air.alt === 300 && dist(d, S.pads[1]) < 1e-6 && pl.air.alt === 1000 && near(pl.e, 25200, 1e-9));
   const o = GM.init('sound', { format: '2v2' }, [2, 2]), o1 = GM.init('sound', { format: '1v1' }, [1, 1]);
   t('naval: a battle in the Sound has its three zones at sea (350 m), a duel zone C alone at 450 m', o.arena === 'sound' && o.zones.map((z) => z.id + z.r).join() === 'A350,B350,C350' && o1.zones.length === 1 && o1.zones[0].r === 450);
   const ship = (team, zn, more) => unit(team, zn, Object.assign({ kind: 'ship', speed: 8 }, more));

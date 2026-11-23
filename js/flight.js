@@ -2669,7 +2669,7 @@ const Flight = {
     set('t-ap', ap); set('t-apt', apT);
     set('t-pe', pe); set('t-pet', peT);
     set('t-dv', `${Math.round(this.dvLeft).toLocaleString('en-US')} m/s`);
-    set('t-time', this.mp && MP.ground ? '' : fmt.clock(this.time)); // (a ground battle: its clock is the bar's, not the room's day count, "5d 13:53")
+    set('t-time', this.mp && MP.zoned ? '' : fmt.clock(this.time)); // (a ground battle: its clock is the bar's, not the room's day count, "5d 13:53"; [WP11] a naval battle's too)
     // heat
     $('#row-heat').hidden = !(v.maxHeat > 0.3);
     $('#heat-fill').style.width = `${clamp(v.maxHeat, 0, 1) * 100}%`;

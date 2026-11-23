@@ -155,16 +155,18 @@ EARTH.arenas = {
   },
   // [WP11] (the ships update) The Naval Battle's arena (real map only): the open water between Shetland (north, z under
   // 2,000) and the north of Scotland (south, z over 7,500), 15-35 m deep (probed at 250 m; the waves' fade is whole past
-  // 25 m). The teams start 7 km apart at either end, out of each other's sight over the horizon; their pads are spots on
+  // 25 m). The teams start 9.4 km apart at either end, out of each other's sight over the horizon (two destroyers' 28.7 m
+  // tops see each other 8.5 km apart, a little more on a rough sea's crests; 7 km, the spec's, had them in sight and in
+  // reach of each other's missiles at their starts); their pads are spots on
   // the water (ships abreast 120 m apart across them, gmode.js placement), and its three zones lie at sea. sea: no
   // levelled ground, no props and no arena mesh (terrain.js, props.js and render3d's arena ground never look at it: it is
   // neither a ground pad nor `clear`); kinds: who takes its zones (ships afloat: GroundMode.tick).
   sound: {
-    name: 'Shetland Sound', sea: true, map: true, kinds: ['ship'], box: { e0: 15500, e1: 24000, z0: 2500, z1: 7000 },
-    pads: [{ name: 'West', e: 16200, z: 4600, yaw: 0, hl: 150, hw: 400 }, { name: 'East', e: 23300, z: 4600, yaw: Math.PI, hl: 150, hw: 400 }],
+    name: 'Shetland Sound', sea: true, map: true, kinds: ['ship'], box: { e0: 14300, e1: 25300, z0: 2500, z1: 7000 },
+    pads: [{ name: 'West', e: 15100, z: 4600, yaw: 0, hl: 150, hw: 400 }, { name: 'East', e: 24500, z: 4600, yaw: Math.PI, hl: 150, hw: 400 }],
     zones: [{ id: 'A', name: 'West Narrows', e: 18200, z: 3800, r: 350 }, { id: 'B', name: 'East Narrows', e: 21400, z: 3800, r: 350 },
       { id: 'C', name: 'Mid-Sound', e: 19800, z: 5000, r: 350, rDuel: 450 }],
-    air: [{ e: 15000, z: 4600, yaw: 0, air: { alt: 1000, speed: 140 } }, { e: 24800, z: 4600, yaw: Math.PI, air: { alt: 1000, speed: 140 } }],
+    air: [{ e: 14400, z: 4600, yaw: 0, air: { alt: 1000, speed: 140 } }, { e: 25200, z: 4600, yaw: Math.PI, air: { alt: 1000, speed: 140 } }],
     berms: [],
   },
 };

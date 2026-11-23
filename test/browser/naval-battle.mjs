@@ -1,7 +1,8 @@
 // A naval battle between two tabs of one browser (the "This device" transport, as a player would test it; the ships
 // update, spec §10): A creates a naval battle from its own button, B joins; the lobby shows the naval settings (the sea,
 // the Shetland Sound); both build from the money's stock corvette and the host skips to the battle; both start at their
-// own ends of the Sound, afloat, 7 km apart, each with the other's ghost. B's corvette is brought 700 m off A's beam: a
+// own ends of the Sound, afloat, 9.4 km apart (out of each other's sight), each with the other's ghost. A's corvette is
+// brought west of the zones (a bed shallow enough for a wreck) and B's 700 m off her beam: a
 // 57 mm round from A holes her (the hit's ho rows), her holes on both screens (her own hull, and A's ghost of her: hull);
 // A's torpedo runs on both screens (B's copy beside A's own) and holes her under the water; then, holed past saving, she
 // sinks on both screens (down.sea: A's ghost of her goes down with her snapshots, and settles as a wreck on the bed at
@@ -30,6 +31,8 @@ for (const p of [A, B]) await p.waitForFunction(() => Terrain.earthMap.state !==
 const mapState = await A.evaluate(() => Terrain.earthMap.state);
 log('map', mapState, 'NET_VERSION', await A.evaluate(() => NET_VERSION));
 ok('the real map is in (the Sound is on it) and NET_VERSION is 14', mapState === 'ready' && (await A.evaluate(() => NET_VERSION)) === 14);
+// (the capture rings' LineSegments caught as render3d makes them, to read where they are drawn: a wrapper, the game as it is)
+for (const p of [A, B]) await p.evaluate(() => Render3D.load().then(() => { const LS = THREE.LineSegments; window.__ls = []; THREE.LineSegments = function (g, m) { const o = new LS(g, m); window.__ls.push(o); return o; }; THREE.LineSegments.prototype = LS.prototype; }));
 const shot = async (page, name, sizes = [[390, 844], [1280, 720]]) => {
   for (const [w, h] of sizes) {
     await page.setViewportSize({ width: w, height: h });
@@ -89,8 +92,8 @@ const where = (p) => p.evaluate(() => { const v = Flight.active, q = mpEZ(v.x, v
 await simWait(A, 2); await simWait(B, 2);
 const wa = await where(A), wb = await where(B);
 log('A at', JSON.stringify([wa.e, wa.z, wa.name]), 'B at', JSON.stringify([wb.e, wb.z, wb.name]));
-ok('both start at their own ends of the Sound (A West, B East: 7 km apart), afloat; each sees the other\'s ship as a hydro ghost, afloat',
-  Math.hypot(wa.e - 16200, wa.z - 4600) < 5 && Math.hypot(wb.e - 23300, wb.z - 4600) < 5 && wa.afloat && wb.afloat && wa.kind === 'ship' && wa.ghost.afloat && wa.ghost.hydro && wb.ghost.afloat, [wa, wb]);
+ok('both start at their own ends of the Sound (A West, B East: 9.4 km apart), afloat; each sees the other\'s ship as a hydro ghost, afloat',
+  Math.hypot(wa.e - 15100, wa.z - 4600) < 5 && Math.hypot(wb.e - 24500, wb.z - 4600) < 5 && wa.afloat && wb.afloat && wa.kind === 'ship' && wa.ghost.afloat && wa.ghost.hydro && wb.ghost.afloat, [wa, wb]);
 ok('the objective: tickets for both, the zones at sea (a duel: Mid-Sound alone, 450 m)', wa.obj && wa.obj.tk.join() === '600,600' && wb.obj.zones.length === 1 && wb.obj.zones[0].id === 'C' && wb.obj.zones[0].r === 450, wa.obj);
 // (the host's sea clock now, as B reckons it from the host's last snapshot: its st and how old it is; B's own sea slews to
 // it. Against A's own clock read a moment apart, a tab whose sim runs behind real time (software WebGL) reads further off)
@@ -99,8 +102,17 @@ const seaA = await A.evaluate(() => Ship.seaT(Flight));
 log('sea clocks', JSON.stringify(seaT), 'A\'s own', seaA);
 ok('B\'s sea runs on the host\'s clock (the host\'s snapshots carry st; B\'s sea within a quarter second of it as B reckons it)', Number.isFinite(seaT.st) && Math.abs(seaT.ours - seaT.host) < 0.25 && Math.abs(seaT.ours - seaA) < 5, { seaT, seaA });
 await flightShot(B, 'battle-start');
+r = await B.evaluate(() => {
+  const L = (window.__ls || []).find((o) => o.renderOrder === 6 && o.material && o.material.vertexColors), R = EARTH.radius, out = { found: !!L, clock: $('#t-time') ? $('#t-time').textContent : null };
+  if (L) { const P = L.geometry.attributes.position.array, n = L.geometry.drawRange.count; let lo = Infinity, hi = -Infinity; for (let i = 0; i < n; i++) { const h = Math.hypot(P[i * 3], P[i * 3 + 1] + R, P[i * 3 + 2]) - R; lo = Math.min(lo, h); hi = Math.max(hi, h); } Object.assign(out, { n, lo: +lo.toFixed(2), hi: +hi.toFixed(2), visible: !!(L.parent && L.parent.visible) }); }
+  return out; });
+log('the zone ring and the clock', JSON.stringify(r));
+ok('the zone ring rides on the water (each vertex just over the calm sea\'s crest, never on the bed 25-29 m under it), and the HUD hides the room\'s day count (the bar\'s timer is the battle\'s)', r.found && r.visible && r.n > 0 && r.lo > 0 && r.hi < 2 && r.clock === '', r);
 
-// ---- B's corvette brought 700 m off A's starboard beam (as if she had steamed there), bow on to her
+// ---- A's corvette 1.1 km on from her start, west of the zones (the bed there, 38 m, shallow enough for a wreck; the
+// starts lie in 43-45 m), then B's brought 700 m off her starboard beam (as if they had steamed there), bow on to her
+await A.evaluate(() => { const v = Flight.active, P = { e: 16200, z: 4600, yaw: 0 }; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.ship.launchRot, P.z, P.yaw); Ship.launch(v, P); });
+await B.waitForFunction(() => { const g = MP.peers.get(1).ghost; return g && Math.abs(mpEZ(g.x, g.y, g.z, {}).e - 16200) < 50; }, null, { timeout: 20000 });
 await B.evaluate(() => { const v = Flight.active, H = MP.peers.get(1).ghost, q = mpEZ(H.x, H.y, H.z, {}), P = { e: q.e, z: q.z + 700, yaw: Math.PI / 2 }; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.ship.launchRot, P.z, P.yaw); Ship.launch(v, P); });
 await A.waitForFunction(() => { const g = MP.peers.get(2).ghost, v = Flight.active; return g && Math.hypot(g.x - v.x, g.y - v.y, g.z - v.z) < 800; }, null, { timeout: 20000 });
 await simWait(A, 1);
@@ -182,7 +194,7 @@ await A.waitForFunction(() => MP.peers.get(2) && MP.peers.get(2).ghost && MP.pla
 r = await B.evaluate(() => { const v = Flight.active, q = mpEZ(v.x, v.y, v.z, {}); return { e: q.e, z: q.z, wrecks: MP.wrecks.length, kept: MP.wrecks.every((w) => Flight.vessels.includes(w.v)) }; });
 const rA = await A.evaluate(() => ({ wrecks: MP.wrecks.length, kept: MP.wrecks.every((w) => Flight.vessels.includes(w.v)) }));
 log('B back in', JSON.stringify(r), 'A', JSON.stringify(rA));
-ok('B is back in at her end of the Sound; her wreck stays on both screens', Math.hypot(r.e - 23300, r.z - 4600) < 150 && r.wrecks === 1 && r.kept && rA.wrecks === 1 && rA.kept, [r, rA]);
+ok('B is back in at her end of the Sound; her wreck stays on both screens', Math.hypot(r.e - 24500, r.z - 4600) < 150 && r.wrecks === 1 && r.kept && rA.wrecks === 1 && rA.kept, [r, rA]);
 const bytes1 = await Promise.all([A, B].map((p) => p.evaluate(() => ({ i: Net.bytesIn, o: Net.bytesOut, t: performance.now() }))));
 const rate = [0, 1].map((i) => { const s = (bytes1[i].t - bytes0[i].t) / 1000; return { in: Math.round((bytes1[i].i - bytes0[i].i) / s), out: Math.round((bytes1[i].o - bytes0[i].o) / s), s: +s.toFixed(1) }; });
 log('bytes a second in the battle (host A, client B):', JSON.stringify(rate));

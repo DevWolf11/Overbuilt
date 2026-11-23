@@ -117,11 +117,14 @@ module.exports = async function navaltrace(G, ROOM) {
   step('the battle starts', { a: `__T += 4000; MP.tick(); flush();` }, 2);
   B('flush();'); A('flush();');
   facts.starts = { host: A('JSON.stringify([Flight.starts.at(-1), eOf(Flight.active)])'), client: B('JSON.stringify([Flight.starts.at(-1), eOf(Flight.active)])') };
-  step('a few seconds afloat: snapshots both ways, ghosts at sea', null, 120);
+  step('a few seconds afloat: snapshots both ways and ghosts at sea', null, 120);
   facts.sea = { host: A('JSON.stringify([Ship.S.seaOff, Flight.time, Ship.seaT(Flight)])'), client: B('JSON.stringify([Ship.S.seaOff, Flight.time, Ship.seaT(Flight)])') };
 
-  // ---- the client's ship brought 700 m off the host's starboard beam (south of her: her torpedo tube's side), bow on to
-  // her (as if she had steamed there)
+  // ---- the host's ship 1.1 km on from her start, west of the zones (as if she had steamed there: the Sound's 38 m bed
+  // there is shallow enough for a wreck; the starts lie in 43-45 m), then the client's brought 700 m off her starboard
+  // beam (south of her: her torpedo tube's side), bow on to her
+  A(`(() => { const v = Flight.active, P = { e: 16200, z: 4600, yaw: 0 }; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.ship.launchRot, P.z, P.yaw); Ship.launch(v, P); })();`);
+  step('the host west of the zones', null, 30);
   B(`(() => { const v = Flight.active, H = MP.peers.get(1).ghost, q = eOf(H), P = { e: q.e, z: q.z + 700, yaw: Math.PI / 2 }; v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.ship.launchRot, P.z, P.yaw); Ship.launch(v, P); })();`);
   step('closing to 700 m off her beam', null, 90);
 

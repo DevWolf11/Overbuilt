@@ -1542,7 +1542,7 @@ const Combat = (() => {
     // Highland Ridge's are open to old weapons and vessels in ground play only, where they're on show (render3d.js)
     if (typeof Props !== 'undefined') {
       let gv = v.kind === 'tank' || v.kind === 'drone' || !!S.gai || !!(GroundAI.battle || GroundAI.range) || (typeof MP !== 'undefined' && MP.live && MP.ground); // (a drone flown alone too: the spawn points update starts one beside the tanks' pad)
-      if (!gv) for (const o of F.vessels) if (o.gv || (o.gear && o.gear.length)) { gv = true; break; }
+      if (!gv) for (const o of F.vessels) if ((o.gv && !isSea(o.kind)) || (o.gear && o.gear.length)) { gv = true; break; } // ([WP11] a ship's parts are gv, but no props stand at sea and render3d never shows Highland's for one: a naval battle's ships leave them shut)
       Props.play = gv;
       Props.crushStep(F);
     }

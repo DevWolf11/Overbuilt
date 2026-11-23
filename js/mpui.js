@@ -317,9 +317,9 @@ const MPUI = {
     this.partCap(st, host, set);
     const A = EARTH.arenas && EARTH.arenas.sound, flat = MP.no3D(), map = MP.mapReady();
     set('Arena', el('div', { class: 'mp-arena' }, el('b', { text: A ? A.name : 'Shetland Sound' }),
-      el('span', { class: 'muted small', text: map ? ' · three zones at sea between Shetland and Scotland, the teams 7 km apart' : ' · The real map didn’t load here: the shores and shallows you see differ from the others’' }),
+      el('span', { class: 'muted small', text: map ? ' · three zones at sea between Shetland and Scotland, the teams 9 km apart' : ' · The real map didn’t load here: the shores and shallows you see differ from the others’' }),
       ...(flat ? [el('span', { class: 'small mp-flat', text: ' · Naval battles need the 3D view: this device can’t show it' })] : [])));
-    box.append(el('p', { class: 'mp-explain', text: `Build a ship, then hold the zones at sea: each team starts with ${st.tickets} tickets, and every ship lost costs some (a dear one more). ${st.respawn === 'lineup' ? 'Three ships each, every one sails once.' : 'Respawn as often as your team has tickets.'} Ships see each other within the horizon, about 7 km mast to mast; radar sees a little further.${st.air ? ' Sinkings and captures earn sortie points for aircraft.' : ''}` }));
+    box.append(el('p', { class: 'mp-explain', text: `Build a ship, then hold the zones at sea: each team starts with ${st.tickets} tickets, and every ship lost costs some (a dear one more). ${st.respawn === 'lineup' ? 'Three ships each, every one sails once.' : 'Respawn as often as your team has tickets.'} Ships see each other within the horizon: two destroyers about 8 km mast to mast, small boats much nearer; radar sees a little further.${st.air ? ' Sinkings and captures earn sortie points for aircraft.' : ''}` }));
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
     else if (MP.state.phase === 'lobby') this.stayHint(box);
   },

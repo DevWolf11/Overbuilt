@@ -191,6 +191,18 @@ t(`the air starts (${flying.length}: planes over the Faroes and Highland Ridge, 
   for (const zn of S.zones) { const r = Math.max(zn.r, zn.rDuel || 0); for (let u = -r; u <= r; u += 25) for (let v = -r; v <= r; v += 25) if (u * u + v * v <= r * r) zlo = Math.min(zlo, -T.heightAt(E, A(zn.e + u), zn.z + v)); }
   t(`the Shetland Sound: each team's twelve starts deeper than each stock ship's draft + 2 m under her whole box, and every zone (its duel ring too) ${zlo.toFixed(1)} m deep at its shallowest, past the deepest draft + 2 m (${deep.toFixed(1)} m)`,
     !sb.length && zlo > deep && S.pads.every((f) => !!wet(f.e, f.z)), sb.slice(0, 6));
+  // (review play-1) the two starts out of each other's sight at every money tier: each stock ship afloat at the West start,
+  // her top over the water (where Ship.spots and the sea radars look from and at), on a rough sea's highest crest; the
+  // tallest two see each other over the horizon √(2R·h₁) + √(2R·h₂) apart, which must fall short of the starts' 9.4 km
+  const tops = JSON.parse(R(`JSON.stringify(Object.keys(TEMPLATES).filter((k) => TEMPLATES[k].kind === 'ship').map((key) => {
+    const P = GroundMode.placement('sound', 0, 0, 'ship'), ps = partsFromDesign(templateRows(TEMPLATES[key])), v = new Vessel(ps, buildAdjacency(ps), EARTH); v.kind = 'ship'; v.rebuildGroups();
+    v.placeOnSurface(EARTH, siteAngle(EARTH, P.e), VEHICLE_KINDS.ship.launchRot, P.z, P.yaw); Ship.launch(v, P);
+    const c = v.com, w = v.toWorld(c.x, v.bounds.maxY, c.z || 0);
+    return [key, +(Math.hypot(w.x, w.y, w.z) - EARTH.radius).toFixed(2)]; }))`));
+  const crest = JSON.parse(R(`JSON.stringify(SHIP.WAVES.reduce((a, w) => a + w[0], 0) * SHIP.SEA.rough.a)`)), hmax = Math.max(...tops.map((x) => x[1])) + crest;
+  const sees = 2 * Math.sqrt(2 * E.radius * hmax), apart = Math.hypot(S.pads[0].e - S.pads[1].e, S.pads[0].z - S.pads[1].z);
+  t(`the Shetland Sound: its starts ${(apart / 1000).toFixed(1)} km apart, out of sight of each other for every stock ship (the tallest, ${tops.reduce((m, x) => (x[1] > m[1] ? x : m))[0]}, on a rough crest: ${(sees / 1000).toFixed(2)} km over the horizon), so no start is shot at from the other`,
+    tops.length >= 8 && sees < apart - 300, tops);
 }
 
 // ---------------------------------------------------------------- the props round them

@@ -53,6 +53,14 @@ const MP_SEA_PADS = [
 ];
 const MP_SEA_MS = 180000; // (our doomed ship's snapshots go on while she goes down: until she is gone or a wreck, 3 minutes at most)
 const MP_MKILL = 10; // (a peer's mkill messages believed a second at most)
+// [WP11] how near a missile one of a player's craft must be to have killed it (an mkill, MP.onMkill): 3 km with a
+// close-in gun aboard (its reach and the lag), a vertical launcher's SAMs' reach (+1 km) with one that shoots missiles,
+// 0 with neither (no point defence: it can't have)
+function mpPdReach(g) {
+  let r = g && g.ciws && g.ciws.some((p) => !p.broken) ? 3000 : 0;
+  if (g) for (const p of g.parts) { const w = p.def.weapon; if (w && w.vls && w.missiles && !p.broken) r = Math.max(r, (w.range || 0) + 1000); }
+  return r;
+}
 const MP_HULL_MS = 500; // (a ship's holes and fires to everyone, when they change: twice a second at most)
 // What the host may set in the lobby, and to what (anything else is refused)
 const MP_SET_OK = {
@@ -62,6 +70,7 @@ const MP_SET_OK = {
   sea: ['calm', 'moderate', 'rough'], // [WP11]
 };
 const MP_WRECKS = 8, MP_WRECK_MS = 300000, MP_SINK_MS = 6000; // the most wrecks standing on the field, how long each stays (from its `down`), the last ms of it sinking into the ground
+const MP_SEA_WRECK = 30; // ([WP11] m a sunk ship's last snapshot may put her wreck from where her ghost was going down)
 const MP_WRECK_AGL = 10; // (a knocked-out ground vehicle higher than this off the ground leaves no wreck: none hangs in the air)
 const mpAir = (kind) => kind === 'plane' || kind === 'heli' || kind === 'drone';
 // The craft index of a message (the big update's drones): 0 for a player's main craft (no `c`: every message of one
@@ -205,7 +214,7 @@ const MP = {
     this.wrecks = []; this.battleCost.clear(); this.battleKind.clear(); this.spots.clear(); this.pings.length = 0;
     this.myDesign = null; this.spawnId = null; this.feedSeen = 0; this.seenPhase = null; this.seenRound = null; this.seenEpoch = null; this.crushRate = new Map();
     this.torps = new Map(); this.seaSink = null; this.mkillAt = new Map(); this.nextTorp = 1; // [WP11]
-    if (typeof Ship !== 'undefined') Ship.slew(); // [WP11] (the sea clock: the host's from its first snapshot)
+    this.ownClock(); // [WP11] (the sea clock: the host's from its first snapshot that carries one)
     if (typeof Props !== 'undefined') { Props.reset(); Props.sync(true); } // (the room's props: everything stood up, and what falls is shared)
     this.borrow();
     if (!this.bound) this.bind();
@@ -226,7 +235,7 @@ const MP = {
     this.state = null;
     Builder.mp = null;
     this.giveBack();
-    if (typeof Ship !== 'undefined') { Ship.slew(); Ship.setSea((typeof Settings !== 'undefined' && Settings.get('sea')) || 'moderate'); } // [WP11] (our own sea again)
+    this.ownClock(); this.ownSea(); // [WP11] (our own sea again, if the room's had replaced it)
     if (App.scene === 'flight') { Flight.stop(); Flight.mp = null; }
     UI.closeModal();
     MPUI.hide();
@@ -300,7 +309,7 @@ const MP = {
     Net.on('mp', (m) => Combat.netMissileUpdate(m.f, m.id, m, m.tg === Net.me && this.hostile(m.f, Net.me) ? this.mine(m.tc) : null)); // (tc: after our drone)
     Net.on('mx', (m) => Combat.netMissileEnd(m.f, m.id));
     Net.on('mkill', (m) => this.onMkill(m)); // [WP11] (their close-in gun or SAM killed our missile)
-    Net.on('cm', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) Combat.netFlares(g, m); }); // (c: from their drone)
+    Net.on('cm', (m) => { const P = this.peers.get(m.f), c = mpC(m), g = c > 0 ? this.ghostOf(m.f, c) : c ? null : P && P.ghost; if (P && g && Flight.running) { if (m.nz !== undefined) { if (!c && typeof Ship !== 'undefined') Ship.netNoise(g, m, Flight); return; } Combat.netFlares(g, m); } }); // (c: from their drone; [WP11] nz: a ship's torpedo noisemaker)
     Net.on('lock', (m) => { if (m.on) this.rwr.set(m.f, performance.now()); else this.rwr.delete(m.f); });
     Net.on('rdr', (m) => { const P = this.peers.get(m.f); if (P && (m.on === 0 || m.on === 1)) P.radarOff = m.on === 0; }); // (their radar off: it paints nobody's search strobes; anything else ignored)
     // ground battles: the zones and tickets (host), what each player sees (to the host) and their team's spots (host)
@@ -437,11 +446,26 @@ const MP = {
     }
     MPUI.refresh();
   },
-  // [WP11] the room's sea state, everyone's (none set: moderate), whatever Settings → Sea says outside the room
+  // [WP11] the room's sea state, everyone's, in a naval battle or a sandbox room (none set: moderate), whatever Settings →
+  // Sea says outside the room. An air or a ground battle has no sea of its own: the player's own, untouched (given back
+  // if a naval lobby had set it), and no call into ship.js at all
   roomSea() {
     if (typeof Ship === 'undefined' || !this.state || !this.state.settings) return;
+    if (!this.naval && this.state.mode !== 'sandbox') { this.ownSea(); return; }
     const want = SHIP.SEAS.includes(this.state.settings.sea) ? this.state.settings.sea : 'moderate';
+    this.seaSet = true;
     if (Ship.sea() !== want) Ship.setSea(want);
+  },
+  // [WP11] the player's own sea again (Settings → Sea), once the room's had replaced it
+  ownSea() {
+    if (!this.seaSet || typeof Ship === 'undefined') return;
+    this.seaSet = false;
+    Ship.setSea((typeof Settings !== 'undefined' && Settings.get('sea')) || 'moderate');
+  },
+  // [WP11] the sea's clock our own again (it followed the host's from a snapshot carrying st: a room with a ship in it)
+  ownClock() {
+    if (this.seaClk && typeof Ship !== 'undefined') Ship.slew();
+    this.seaClk = false;
   },
   onPhase(from, to) {
     const s = this.state;
@@ -637,7 +661,7 @@ const MP = {
     for (const [pid, P] of this.peers) {
       const S = P.snap;
       if (!S || !P.design || performance.now() - (P.recv || 0) > 2000 || S.b !== EARTH.id || P.sink) continue;
-      add(pid, S.P[0], S.P[1], S.P[2], S.V, P.design.kind, sea ? S.af === 1 : S.gd === 1);
+      add(pid, S.P[0], S.P[1], S.P[2], S.V, P.design.kind, sea ? S.af === 1 && typeof Ship !== 'undefined' && Ship.netAfloat(EARTH, S.P[0], S.P[1], S.P[2]) : S.gd === 1); // ([WP11] af believed only where a ship can float: Ship.netAfloat)
     }
     return { units, pids };
   },
@@ -883,7 +907,7 @@ const MP = {
     this.dropExtras(); // (our drone goes with the craft it came from)
     if (App.scene === 'flight' || Flight.running) { if (Flight.running && Flight.mp && !Flight.mp.solo) Net.send({ t: 'despawn' }); Flight.stop(); this.dropAllGhosts(); }
     this.seaSink = null; if (this.torps && this.torps.size) this.torps.clear(); // [WP11] (our old ship's going down, and her torpedoes, are no longer told)
-    if (typeof Ship !== 'undefined' && !Net.isHost) Ship.slew(); // [WP11] (the host's sea clock afresh: its first snapshot puts us on it)
+    if (!Net.isHost) this.ownClock(); // [WP11] (the host's sea clock afresh: its next snapshot puts us on it)
     let design;
     if (this.pvp) {
       this.myDesign = Builder.mp ? Builder.serialize() : this.myDesign;
@@ -905,7 +929,7 @@ const MP = {
       // a spawn on top of a wreck: it starts sinking, here and (at our first snapshot) on every other screen alike
       if (!solo && typeof Death !== 'undefined' && Flight.active) { const a = Flight.active; Death.clearSpawn(a.body, a.toWorld(a.com.x, a.com.y, a.com.z || 0)); }
       if (ground && Flight.active) Flight.active.spawnAt = Flight.time; // (4 s of spawn protection: Armour)
-      if (place && place.air && kind === 'heli' && Flight.active) this.hover(Flight.active); // [WP11] (a helicopter joining a naval battle over the sea: its rotor turning, hovering)
+      this.hoverHold = null; if (place && place.air && kind === 'heli' && Flight.active) this.hover(Flight.active); // [WP11] (a helicopter joining a naval battle over the sea: its rotor turning, hovering)
       Builder.mp = null;
       if (!solo) { this.sendSpawn(); this.setMine('flying', true); if (this.pvp) this.setMine('kind', kind); }
       if (ground && s.settings.respawn === 'lineup') { // (which slots are aircraft, so the host knows when none we can take is left)
@@ -1027,13 +1051,33 @@ const MP = {
     return airfieldPlacement(EARTH.airfields[sp.airfield], slot, kind);
   },
   // [WP11] A helicopter started in the air (a sea arena's start: nothing to stand on): its engines started (as STAGE would)
-  // and its collective at a hover (its weight over its rotors' thrust), so it hangs there for the player to fly off
+  // and its collective at a hover, held there (hoverStep) until its player first touches the stick or the throttle, so it
+  // hangs where it started for the player to fly off
   hover(v) {
     if (!v || v.kind !== 'heli' || !v.stages) return;
     if ((v.stages[v.stageIdx] || []).some((id) => { const p = v.byId.get(id); return p && p.def.thrust && p.def.air; }) && typeof Flight.stage === 'function') Flight.stage();
+    const t = this.hoverThrottle(v);
+    if (t == null) return;
+    v.throttle = t;
+    this.hoverHold = { v, alt: v.altitude(), thr: v.throttle };
+  },
+  // the throttle at which v's rotors hold its weight where it is (the air there: airThrust's), or null (no rotor turning)
+  hoverThrottle(v) {
+    const rho = airDensity(v.body, v.altitude()), r = v.radius(), g = v.body.mu / (r * r);
     let T = 0;
-    for (const p of v.parts) if (p.def.air && p.def.air.kind === 'rotor' && p.active) T += p.def.thrust * 1000;
-    if (T > 0) v.throttle = clamp((v.mass * 9.81) / T, 0.3, 1);
+    for (const p of v.parts) if (p.def.air && p.def.air.kind === 'rotor' && p.active) T += p.def.thrust * 1000 * airThrust(p.def.air, rho, 0);
+    return T > 0 ? clamp((v.mass * g) / T, 0.05, 1) : null;
+  },
+  // each frame while the hold lasts: the collective about the hover throttle (its weight now, as fuel burns) to hold the
+  // height it started at; let go for good once its player touches the throttle (it is no longer what we set) or the
+  // stick, or it is no longer the craft flown
+  hoverStep() {
+    const H = this.hoverHold, v = H && H.v, c = v && v.ctl;
+    if (!H || v !== Flight.active || v.dead || Flight.destroyed || v.landed || v.throttle !== H.thr || (c && (c.v || c.h || c.r))) { this.hoverHold = null; return; }
+    const t0 = this.hoverThrottle(v);
+    if (t0 == null) { this.hoverHold = null; return; }
+    const err = H.alt - v.altitude(), vs = v.vSpeed();
+    v.throttle = H.thr = clamp(t0 * (1 + clamp(0.02 * err - 0.08 * vs, -0.3, 0.3)), 0, 1);
   },
   // A spot at the sandbox's tank yard (Props.yardPlace): our own, or the next of its eight that no other player's craft
   // stands within 10 m of (one parked on ours)
@@ -1424,7 +1468,7 @@ const MP = {
     for (const p of v.parts) if (p.def.weapon) p.ammo = p.def.weapon.ammo; // (kept in step by the owner's part states)
     v.hiddenUntilSnap = true;
     if (E) { v.craft = E.c; v.name = `${this.nameOf(pid)}'s drone`; } // (text only: never innerHTML)
-    if (v.sh && typeof Ship !== 'undefined') Ship.ghost(v); // [WP11] (a ship: afloat when her snapshots say so, her draft)
+    if (v.sh && typeof Ship !== 'undefined') Ship.ghost(v, R.design.parts); // [WP11] (a ship: afloat when her snapshots say so; her draft when a torpedo first needs it, once a design)
     R.ghost = v;
     if (R.snap) this.poseGhost(R, 0, true);
   },
@@ -1501,7 +1545,7 @@ const MP = {
     }
     const P = this.peer(m.f);
     P.snap = m; P.recv = performance.now();
-    if (m.f === 1 && !Net.isHost && typeof m.st === 'number' && typeof Ship !== 'undefined' && Flight.running) Ship.slew(m.st, Flight, (Net.hostNow() - m.th) / 1000); // [WP11] (the host's sea clock: ours slews to it; a number only)
+    if (m.f === 1 && !Net.isHost && typeof m.st === 'number' && typeof Ship !== 'undefined' && Flight.running) { Ship.slew(m.st, Flight, (Net.hostNow() - m.th) / 1000); this.seaClk = true; } // [WP11] (the host's sea clock: ours slews to it; a number only)
     if (!P.design && this.shared && P.recv - (P.asked || 0) > 3000) { P.asked = P.recv; Net.send({ t: 'want' }, m.f); }
     if (!P.ghost && P.design && Flight.running && Flight.mp && !Flight.mp.solo) this.buildGhost(m.f);
   },
@@ -1510,9 +1554,9 @@ const MP = {
     const g = P.ghost, S = P.snap;
     if (!g || !S) return;
     if (S.b !== g.body.id) g.body = mpBody(S.b) || g.body;
-    const age = clamp((Net.hostNow() - S.th) / 1000, 0, 0.75);
-    const tx = S.P[0] + S.V[0] * age, ty = S.P[1] + S.V[1] * age, tz = S.P[2] + S.V[2] * age;
-    const W = S.W, wl = Math.hypot(W[0], W[1], W[2]);
+    const age = clamp((Net.hostNow() - S.th) / 1000, 0, 0.75), SV = g.sh && typeof Ship !== 'undefined' ? Ship.netVW(g, S) : S; // ([WP11] a ship's speed and spin as a ship's can be)
+    const tx = S.P[0] + SV.V[0] * age, ty = S.P[1] + SV.V[1] * age, tz = S.P[2] + SV.V[2] * age;
+    const W = SV.W, wl = Math.hypot(W[0], W[1], W[2]);
     let tq = quat(S.Q[0], S.Q[1], S.Q[2], S.Q[3]);
     if (wl > 1e-6) tq = qnorm(qmul(tq, qaxis(W[0] / wl, W[1] / wl, W[2] / wl, wl * age))); // body-frame spin
     const ex = tx - g.x, ey = ty - g.y, ez = tz - g.z, err = Math.hypot(ex, ey, ez), first = g.hiddenUntilSnap;
@@ -1522,7 +1566,7 @@ const MP = {
       g.x += ex * k; g.y += ey * k; g.z += ez * k;
       g.q = qnorm(qslerp(g.q, tq, Math.min(1, dt * 14)));
     }
-    g.vx = S.V[0]; g.vy = S.V[1]; g.vz = S.V[2];
+    g.vx = SV.V[0]; g.vy = SV.V[1]; g.vz = SV.V[2];
     g.av = v3(W[0], W[1], W[2]);
     const c0 = g.com0 || (g.com0 = { ...g.com }), C = S.C; // (fuel moves it, but never off the craft: a forged one would move the hit boxes away)
     if (Math.hypot(C[0] - c0.x, C[1] - c0.y, (C[2] || 0) - (c0.z || 0)) <= (g.reach || 30) + 1) g.com = { x: C[0], y: C[1], z: C[2] || 0 };
@@ -1535,6 +1579,7 @@ const MP = {
   },
   // before each Flight.update: put every ghost where it should be and make sure the flight lists it
   beforeUpdate(dt) {
+    if (this.hoverHold) this.hoverStep(); // [WP11] (a helicopter that joined over the sea, hovering until its player flies it)
     if (!this.shared) return;
     const list = Flight.vessels;
     for (const [pid, P] of this.peers) {
@@ -1946,7 +1991,9 @@ const MP = {
     Net.send({ t: 'mkill', pid: m.net, id: m.netId }, m.net);
   },
   // a peer says their close-in gun or SAM killed our missile `id`: ended (a burst where it is, and its end to everyone:
-  // syncMissiles' mx) only if one of their craft is within 3 km of it, at most MP_MKILL of theirs a second
+  // syncMissiles' mx) only if one of their craft that could have done it is near enough (mpPdReach: a close-in gun
+  // within 3 km of it, a vertical launcher's SAMs within their reach; a craft with neither can't: an air or a ground
+  // battle's never could), at most MP_MKILL of theirs a second
   onMkill(m) {
     if (!this.shared || m.pid !== Net.me || !Number.isSafeInteger(m.id) || !Number.isSafeInteger(m.f) || m.f === Net.me) return false;
     const R = this.mkillAt || (this.mkillAt = new Map()), now = performance.now(), q = R.get(m.f) || { t: now, tok: MP_MKILL };
@@ -1957,7 +2004,7 @@ const MP = {
     for (const [k, M] of this.missiles) if (M.id === m.id) { s = k; break; }
     if (!s || s.dead || !Combat.shots.includes(s)) return false;
     const P = this.peers.get(m.f), theirs = [P && P.ghost, ...(P && P.x ? [...P.x.values()].map((E) => E.ghost) : [])].filter((g) => g && !g.dead && g.parts.length);
-    if (!theirs.some((g) => g.body === s.b && Math.hypot(g.x - s.x, g.y - s.y, g.z - s.z) < 3000)) return false;
+    if (!theirs.some((g) => g.body === s.b && Math.hypot(g.x - s.x, g.y - s.y, g.z - s.z) < mpPdReach(g))) return false;
     s.dead = true; s.killedBy = P && P.ghost ? P.ghost : null;
     FX.explosion(s.b, { x: s.x, y: s.y, z: s.z }, { x: s.vx * 0.3, y: s.vy * 0.3, z: s.vz * 0.3 }, 1.6, true);
     return true;
@@ -2009,6 +2056,7 @@ const MP = {
   ourCm(v) { return v === Flight.active || (!!v && (v === (Flight.active && Flight.active.carrier) || (!!v.craft && !v.remote && this.extra.has(v.craft)))); },
   sendSmoke(v, c) { if (this.shared && this.ourCm(v)) { const m = { t: 'cm', smoke: 1, P: [c.x, c.y, c.z], D: [c.dx || 0, c.dy || 0, c.dz || 0] }; if (v && v.craft && !v.remote) m.c = v.craft; Net.send(m); } }, // (a smoke grenade's cloud: Aim.netSmoke)
   sendFlares(v, f) { if (this.shared && this.ourCm(v)) { const m = { t: 'cm', P: [f.x, f.y, f.z], V: [f.vx, f.vy, f.vz], chaff: f.chaff ? (f.str > 1 ? 2 : 1) : 0 }; if (v && v.craft && !v.remote) m.c = v.craft; Net.send(m); } }, // (chaff 2: a dispenser's bundle)
+  sendNoise(v, p, Fd) { if (this.shared && v === this.main() && v.sh && p && Fd) Net.send({ t: 'cm', nz: [p.id, +(+Fd.x || 0).toFixed(3), +(+Fd.y || 0).toFixed(3)] }); }, // [WP11] (our Torpedo Decoy's noisemaker, streamed astern: their torpedoes weigh it too, Ship.netNoise)
   // our radar on or off (radar.js toggle; every 5 s while off, from afterUpdate): their advanced warning receivers hear
   // the search of a radar that is on (the main craft's only)
   sendRadar(on) {
@@ -2206,13 +2254,21 @@ const MP = {
     return true;
   },
   // her going down ends: a wreck where she lies (a room's wreck: five minutes, solid), or under (the sea takes what is
-  // left of her: death.js's plunge where the water is, then she is gone)
+  // left of her: death.js's plunge where the water is, then she is gone). A wreck only where a sunk ship can lie: her
+  // last snapshot within MP_SEA_WRECK m of where her ghost was going down, her centre no more than MP_WRECK_AGL over the
+  // sea and her keel within MP_WRECK_AGL × 3 of what is under her (the ground rule's margin); else she goes under, no
+  // wreck (a forged last snapshot can neither carry her off nor hang a solid wreck in the air)
   sinkDone(pid, P, wreck) {
     const g = P.ghost;
     P.sink = null;
     if (!g) { P.design = null; return; }
     if (wreck && Flight.running) {
+      const was = { x: g.x, y: g.y, z: g.z };
       if (P.snap) this.poseGhost(P, 0, true);
+      wreck = Math.hypot(g.x - was.x, g.y - was.y, g.z - was.z) <= MP_SEA_WRECK && g.altitude() <= MP_WRECK_AGL && g.groundAltitude() < MP_WRECK_AGL * 3;
+      if (!wreck) { g.x = was.x; g.y = was.y; g.z = was.z; } // (she goes under where she was going down)
+    }
+    if (wreck && Flight.running) {
       P.ghost = null; P.gun = {};
       g.ko = g.ko || { why: 'ship', x: false, t: Flight.time || 0 };
       this.addWreck(g, pid, null);

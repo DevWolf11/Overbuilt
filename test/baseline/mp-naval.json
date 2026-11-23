@@ -197,7 +197,7 @@
    "err": []
   }
  },
- "06 a few seconds afloat: snapshots both ways, ghosts at sea": {
+ "06 a few seconds afloat: snapshots both ways and ghosts at sea": {
   "host": {
    "sent": [
     "28x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
@@ -237,7 +237,6 @@
    "sent": [
     "28x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
     "{\"t\":\"pv\"}",
-    "2x {\"t\":\"seen\"}>1",
     "{\"t\":\"set\",\"k\":\"troops\"}>1"
    ],
    "sees": {
@@ -270,10 +269,10 @@
    "err": []
   }
  },
- "07 closing to 700 m off her beam": {
+ "07 the host west of the zones": {
   "host": {
    "sent": [
-    "18x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
     "{\"t\":\"pv\"}"
    ],
    "sees": {
@@ -307,8 +306,77 @@
   },
   "client": {
    "sent": [
+    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "{\"t\":\"pv\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43,
+     "holes": 0,
+     "fires": 0
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  }
+ },
+ "08 closing to 700 m off her beam": {
+  "host": {
+   "sent": [
+    "18x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+   ],
+   "sees": {
+    "me": {
+     "kind": "ship",
+     "afloat": true,
+     "fate": null,
+     "wreck": false,
+     "holes": 0,
+     "water": 0,
+     "hp": 175650,
+     "tel": 0
+    },
+    "ghost": {
+     "afloat": true,
+     "tel": 0,
+     "fate": null,
+     "sinking": false,
+     "parts": 43,
+     "holes": 0,
+     "fires": 0
+    },
+    "wreck": null,
+    "phase": "battle",
+    "tk": "600/600",
+    "seaOff": 0,
+    "sea": "calm",
+    "torps": 0
+   },
+   "err": []
+  },
+  "client": {
+   "sent": [
     "18x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "{\"t\":\"pv\"}",
     "{\"t\":\"seen\"}>1"
    ],
    "sees": {
@@ -341,12 +409,11 @@
    "err": []
   }
  },
- "08 the host fires three 127 mm rounds at her": {
+ "09 the host fires three 127 mm rounds at her": {
   "host": {
    "sent": [
     "3x {\"t\":\"shot\",\"k\":\"shell\",\"sh\":\"sap127\"}",
-    "21x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "{\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "23x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
     "{\"t\":\"pv\"}",
     "3x {\"t\":\"hit\",\"n\":1,\"k\":\"pen\",\"ho\":2}>2"
    ],
@@ -381,8 +448,8 @@
   },
   "client": {
    "sent": [
-    "21x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "{\"t\":\"seen\"}>1",
+    "2x {\"t\":\"seen\"}>1",
+    "23x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
     "{\"t\":\"pv\"}",
     "{\"t\":\"hull\",\"ho\":6,\"fi\":0}",
     "{\"t\":\"hp\"}"
@@ -417,12 +484,12 @@
    "err": []
   }
  },
- "09 the host fires a torpedo": {
+ "10 the host fires a torpedo": {
   "host": {
    "sent": [
     "2x {\"t\":\"shot\",\"k\":\"stor\",\"id\":1}",
     "15x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "{\"t\":\"pv\"}",
+    "2x {\"t\":\"pv\"}",
     "{\"t\":\"obj\",\"tk\":\"600/600\"}"
    ],
    "sees": {
@@ -456,8 +523,9 @@
   },
   "client": {
    "sent": [
+    "15x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
     "{\"t\":\"seen\"}>1",
-    "15x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}"
+    "{\"t\":\"pv\"}"
    ],
    "sees": {
     "me": {
@@ -489,13 +557,13 @@
    "err": []
   }
  },
- "10 the torpedo runs and hits": {
+ "11 the torpedo runs and hits": {
   "host": {
    "sent": [
-    "536x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "20x {\"t\":\"pv\"}",
+    "534x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
     "27x {\"t\":\"shot\",\"k\":\"stor\",\"id\":1}",
-    "19x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "20x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "19x {\"t\":\"pv\"}",
     "{\"t\":\"boom\"}",
     "{\"t\":\"hit\",\"n\":1,\"k\":\"blast\",\"ho\":1}>2",
     "{\"t\":\"shot\",\"k\":\"stor\",\"id\":1,\"end\":1,\"x\":1}"
@@ -517,7 +585,7 @@
      "fate": null,
      "sinking": false,
      "parts": 43,
-     "holes": 6.65,
+     "holes": 6.574,
      "fires": 0
     },
     "wreck": null,
@@ -531,9 +599,9 @@
   },
   "client": {
    "sent": [
+    "534x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
     "40x {\"t\":\"seen\"}>1",
-    "536x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "20x {\"t\":\"pv\"}",
+    "19x {\"t\":\"pv\"}",
     "10x {\"t\":\"hull\",\"ho\":6,\"fi\":0}",
     "20x {\"t\":\"hull\",\"ho\":7,\"fi\":0}",
     "{\"t\":\"hp\"}"
@@ -544,9 +612,9 @@
      "afloat": true,
      "fate": null,
      "wreck": false,
-     "holes": 6.65,
-     "water": 384.9,
-     "hp": 172118,
+     "holes": 6.574,
+     "water": 379,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -568,11 +636,10 @@
    "err": []
   }
  },
- "11 the client fires an anti-ship missile": {
+ "12 the client fires an anti-ship missile": {
   "host": {
    "sent": [
-    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "{\"t\":\"obj\",\"tk\":\"600/600\"}"
+    "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}"
    ],
    "sees": {
     "me": {
@@ -591,7 +658,7 @@
      "fate": null,
      "sinking": false,
      "parts": 43,
-     "holes": 6.65,
+     "holes": 6.574,
      "fires": 0
     },
     "wreck": null,
@@ -607,9 +674,8 @@
    "sent": [
     "{\"t\":\"msl\",\"id\":1,\"tg\":1,\"asm\":1}",
     "5x {\"t\":\"mp\"}",
-    "{\"t\":\"pv\"}",
     "6x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "{\"t\":\"seen\"}>1"
+    "{\"t\":\"pv\"}"
    ],
    "sees": {
     "me": {
@@ -617,9 +683,9 @@
      "afloat": true,
      "fate": null,
      "wreck": false,
-     "holes": 6.65,
-     "water": 400.4,
-     "hp": 172118,
+     "holes": 6.574,
+     "water": 394.4,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -641,13 +707,13 @@
    "err": []
   }
  },
- "12 the missile flies; the close-in gun shoots": {
+ "13 the missile flies; the close-in gun shoots": {
   "host": {
    "sent": [
     "96x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "{\"t\":\"mkill\",\"pid\":2,\"id\":1}>2",
     "4x {\"t\":\"pv\"}",
-    "4x {\"t\":\"obj\",\"tk\":\"600/600\"}"
+    "4x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "{\"t\":\"mkill\",\"pid\":2,\"id\":1}>2"
    ],
    "sees": {
     "me": {
@@ -666,7 +732,7 @@
      "fate": null,
      "sinking": false,
      "parts": 43,
-     "holes": 6.65,
+     "holes": 6.574,
      "fires": 0
     },
     "wreck": null,
@@ -682,9 +748,9 @@
    "sent": [
     "96x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
     "11x {\"t\":\"mp\"}",
-    "7x {\"t\":\"seen\"}>1",
-    "{\"t\":\"mx\"}",
-    "4x {\"t\":\"pv\"}"
+    "8x {\"t\":\"seen\"}>1",
+    "4x {\"t\":\"pv\"}",
+    "{\"t\":\"mx\"}"
    ],
    "sees": {
     "me": {
@@ -692,9 +758,9 @@
      "afloat": true,
      "fate": null,
      "wreck": false,
-     "holes": 6.65,
-     "water": 635.4,
-     "hp": 172118,
+     "holes": 6.574,
+     "water": 626.3,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -716,11 +782,11 @@
    "err": []
   }
  },
- "13 she founders": {
+ "14 she founders": {
   "host": {
    "sent": [
-    "447x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
-    "13x {\"t\":\"obj\",\"tk\":\"600/600\"}",
+    "448x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
+    "14x {\"t\":\"obj\",\"tk\":\"600/600\"}",
     "15x {\"t\":\"pv\"}",
     "{\"t\":\"state\",\"phase\":\"battle\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/522\"}",
     "3x {\"t\":\"obj\",\"tk\":\"600/522\"}"
@@ -737,12 +803,12 @@
      "tel": 0
     },
     "ghost": {
-     "afloat": true,
+     "afloat": false,
      "tel": 0,
      "fate": "sunk",
      "sinking": true,
      "parts": 43,
-     "holes": 156.65,
+     "holes": 156.574,
      "fires": 0
     },
     "wreck": null,
@@ -757,8 +823,8 @@
   "client": {
    "sent": [
     "{\"t\":\"hull\",\"ho\":17,\"fi\":0}",
-    "28x {\"t\":\"seen\"}>1",
-    "447x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "448x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
+    "27x {\"t\":\"seen\"}>1",
     "15x {\"t\":\"pv\"}",
     "{\"t\":\"down\",\"by\":1,\"sea\":\"sunk@\"}"
    ],
@@ -768,9 +834,9 @@
      "afloat": true,
      "fate": "sunk",
      "wreck": false,
-     "holes": 156.65,
-     "water": 18730.9,
-     "hp": 172118,
+     "holes": 156.574,
+     "water": 18718.1,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -792,7 +858,7 @@
    "err": []
   }
  },
- "14 she goes down": {
+ "15 she goes down": {
   "host": {
    "sent": [
     "180x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
@@ -826,7 +892,7 @@
   "client": {
    "sent": [
     "131x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "4x {\"t\":\"pv\"}",
+    "5x {\"t\":\"pv\"}",
     "{\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,sk\",\"sh\":0,\"af\":1,\"sk\":2}"
    ],
    "sees": {
@@ -835,9 +901,9 @@
      "afloat": true,
      "fate": "sunk",
      "wreck": true,
-     "holes": 156.65,
+     "holes": 156.574,
      "water": 22989.1,
-     "hp": 172118,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -859,7 +925,7 @@
    "err": []
   }
  },
- "15 on the bed": {
+ "16 on the bed": {
   "host": {
    "sent": [
     "90x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
@@ -898,9 +964,9 @@
      "afloat": true,
      "fate": "sunk",
      "wreck": true,
-     "holes": 156.65,
+     "holes": 156.574,
      "water": 22989.1,
-     "hp": 172118,
+     "hp": 172164,
      "tel": 0
     },
     "ghost": {
@@ -922,11 +988,12 @@
    "err": []
   }
  },
- "16 the client respawns": {
+ "17 the client respawns": {
   "host": {
    "sent": [
+    "8x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}",
     "{\"t\":\"obj\",\"tk\":\"600/522\"}",
-    "7x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}"
+    "{\"t\":\"pv\"}"
    ],
    "sees": {
     "me": {
@@ -967,8 +1034,7 @@
     "{\"t\":\"set\",\"k\":\"flying\"}>1",
     "{\"t\":\"set\",\"k\":\"kind\"}>1",
     "8x {\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af\",\"sh\":0,\"af\":1}",
-    "{\"t\":\"pv\"}",
-    "{\"t\":\"seen\"}>1"
+    "{\"t\":\"pv\"}"
    ],
    "sees": {
     "me": {
@@ -1000,11 +1066,10 @@
    "err": []
   }
  },
- "17 time is up: the result": {
+ "18 time is up: the result": {
   "host": {
    "sent": [
-    "{\"t\":\"state\",\"phase\":\"results\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/522\"}",
-    "{\"t\":\"s\",\"k\":\"t,th,b,P,V,Q,W,C,g,l,sh,af,st\",\"sh\":0,\"af\":1,\"st\":1}"
+    "{\"t\":\"state\",\"phase\":\"results\",\"game\":\"naval\",\"sea\":\"calm\",\"tk\":\"600/522\"}"
    ],
    "sees": {
     "me": {
