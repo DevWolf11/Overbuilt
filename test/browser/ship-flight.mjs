@@ -423,9 +423,11 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
 //    track dashed red in the aim view; one of her own: its run drawn solid;
 //  - a missile coming in: "Missile inbound · …" from her radars, and nothing once they are knocked out (no magic radar);
 //  - a magazine with a fire at it; a ship of theirs we doomed: SUNK in the aim view;
-//  - the holes as scorched patches on her skin (Render3D's decals), her aim camera's zoom out to her length and in to 7 m;
+//  - the holes as scorched patches on her skin (Render3D's decals); her aim camera framing her whole as she sets out, its
+//    zoom out to her length and in to 7 m;
 //  - her sounds (the telegraph's bell, the engines' level by the telegraph).
-// Then the bridge view in a Rough sea (the RIB, the Cyclon): the eye never inside her, over the wave at it; and a
+// Then the follow camera as an unarmed ship sets out (the RIB close, the Cyclon whole) and the bridge view in a Rough sea
+// (the RIB on a phone, the Cyclon on a desktop): the eye never inside her, over the wave at it; and a
 // phone's sinking: the diagram filling, ABANDON SHIP. Screenshots: ship-hud-*, ship-flooding-*, ship-holes-*,
 // ship-torpedo-*, ship-torprun-*, ship-sunk-banner-*, ship-bridge-rough-*, ship-sink-phone-*.
 const strokes = () => { // (the canvas's strokes from now on, their colour and dash: the torpedo lines; and its words)
@@ -440,9 +442,21 @@ const hudOf = (page) => page.evaluate(() => {
     W: v && v.sh ? v.sh.comps.reduce((a, c) => a + c.W, 0) : 0, sas: v && v.sas, dc: v && v.sh && v.sh.dcPri, ciws: v && v.sh && v.sh.ciwsOn,
     btn: ['#btn-shold', '#btn-sdc', '#btn-sciws'].map((s) => { const e = q(s), r = e.getBoundingClientRect(); return r.width > 0 ? `${e.textContent}:${e.getAttribute('aria-pressed')}` : ''; }) };
 });
+// her camera as she sets out (spec §12.2: the chase framed from her size): how far it stands from her middle, which camera
+// (the aim camera of an armed ship, else the follow camera), and where her bow and stern fall on the screen (both on it:
+// framed whole; span: their distance apart over the screen's narrower side)
+const framing = (page) => page.evaluate(() => {
+  const v = Flight.active, B = v.bounds, b0 = bodyPos(v.body, Flight.time), bp = { x: b0.x, y: b0.y, z: b0.z || 0 }, C = Render3D.gfx().camAt, ym = (B.minY + B.maxY) / 2;
+  const abs = (x) => { const w = v.toWorld(x, ym, v.com.z || 0); return { x: bp.x + w.x, y: bp.y + w.y, z: bp.z + w.z }; };
+  const m = abs(v.com.x), E = [abs(B.maxX), abs(B.minX)].map((P) => Render3D.project(P.x, P.y, P.z));
+  return { d: Math.hypot(C.x - m.x, C.y - m.y, C.z - m.z), L: B.maxX - B.minX, aim: !!Flight.aimCam, far: Ship.aimFar(v), on: E.every((q) => !q.behind && q.x >= 0 && q.x <= innerWidth && q.y >= 0 && q.y <= innerHeight),
+    span: Math.hypot(E[0].x - E[1].x, E[0].y - E[1].y) / Math.min(innerWidth, innerHeight), ends: E.map((q) => [Math.round(q.x), Math.round(q.y)]) };
+});
 for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   const tag = `${vp[0]}×${vp[1]} `, sz = `${vp[0]}x${vp[1]}`, { ctx, page } = await open(vp, tag + 'hud ');
   await sailArmed(page, 'arley');
+  const fr = await framing(page);
+  ok(`${tag}the destroyer's camera as she sets out: the aim camera ${fr.d.toFixed(0)} m from her middle (her reach ${fr.far.toFixed(0)} m), her ${fr.L.toFixed(0)} m framed whole (bow and stern on the screen: ${JSON.stringify(fr.ends)})`, fr.aim && fr.on && fr.d <= fr.far + 1 && fr.d > 0.5 * fr.L, fr);
   await page.evaluate(strokes);
   await page.evaluate(() => { window.__snd = { bell: 0, sea: [] }; const b = Sound.bell, sea = Sound.sea; Sound.bell = function (...a) { window.__snd.bell++; return b.apply(this, a); }; Sound.sea = function (L) { if (L && window.__snd.sea.length < 400) window.__snd.sea.push(L.diesel || L.turbine || 0); return sea.apply(this, arguments); }; });
   const L0 = await page.evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return b.width ? { l: b.left, t: b.top, r: b.right, b: b.bottom } : null; };
@@ -538,12 +552,19 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await pageErrors(page, tag + 'hud ');
   await ctx.close();
 }
-// ---- the bridge view in a Rough sea: the eye never inside her (her parts' boxes, her hull), over the wave at it
-for (const key of ['zodiak', 'cyclon']) {
-  const tag = `bridge ${key} `, { ctx, page } = await open([1280, 720, false], tag, { sea: 'rough' });
+// ---- the bridge view in a Rough sea: the eye never inside her (her parts' boxes, her hull), over the wave at it (the RIB on
+// a phone in portrait, the Cyclon on a desktop); first, unarmed, the follow camera: the RIB close, the Cyclon whole
+for (const [key, vp] of [['zodiak', [360, 640, true]], ['cyclon', [1280, 720, false]]]) {
+  const tag = `bridge ${key} `, { ctx, page } = await open(vp, tag, { sea: 'rough' });
   await page.waitForFunction(() => Terrain.earthMap.state !== 'loading', null, { timeout: 120000 });
   await page.evaluate(async (key) => { await Render3D.load(); App.toBuild(); Builder.loadTemplate(key); Builder.parts = Builder.parts.filter((p) => !(p.def.weapon || p.def.ring || p.def.shape === 'tturret' || p.def.trackRadar || p.def.searchRadar)); Builder.changed(); store.set('rss.flight', null); App.launch(); }, key);
   await page.waitForFunction(() => Flight.running && Flight.active && Flight.active.kind === 'ship' && Flight.time > 0.6, null, { timeout: 180000 });
+  await frames(page, 3);
+  const fr = await framing(page);
+  await shot(page, `chase-${key}-${vp[0]}x${vp[1]}`);
+  const rib = key === 'zodiak';
+  ok(`${tag}${vp[0]}×${vp[1]}: the follow camera as she sets out, ${fr.d.toFixed(0)} m from her middle: her ${fr.L.toFixed(0)} m on the screen (bow and stern: ${JSON.stringify(fr.ends)}, ${(fr.span * 100).toFixed(0)}% of its width)${rib ? ', close' : ''}`,
+    !fr.aim && fr.on && (rib ? fr.d < 45 && fr.span > 0.15 : fr.d < 6 * fr.L), fr);
   await page.evaluate(() => {
     Ship.setSea('rough'); Flight.setTel(Flight.active, 3); Flight.setBridge(true); window.__eyes = [];
     const R = Render3D.renderFlight;
