@@ -3,9 +3,9 @@
 //    second the bar ("Naval Range: 0 sunk", "Practice · they don't shoot back"), the hulk moored 2 km ahead and three
 //    ships steaming their loops; her 127 mm through the gunner's sight on the hulk, FIRE held, until it sinks: SUNK, the
 //    bar's "1 sunk" and the best shot (ships held to their own physics: nothing scripted but the aim);
-//  - Hostile, her bow east 5 km nearer Shetland (Flight.start at a sea place): "the first ships come from the east", the
-//    first wave 20 s in, two Cyclons that close and fight; she survives 60 s of Flight.time with her own guns, CIWS and
-//    the computer's ships' fire about her; the bar's wave and ships left;
+//  - Hostile, her bow east 3 km short of the waves' line (Flight.start at a sea place): "the first ships come from the
+//    east", the first wave 20 s in, two Cyclons that close and fight; she survives 60 s of Flight.time with her own guns,
+//    CIWS and the computer's ships' fire about her; the bar's wave and ships left;
 //  - on a phone in portrait (390×844) and a desktop (1280×720): the bar on the screen, clear of the helm panel and the
 //    minimap, screenshots (naval-*.png) to look at; no console errors (App.frame swallows them).
 // Times on Flight.time (headless Chromium runs the sim at about 0.08× real time: the drawing is off while waiting,
@@ -99,7 +99,7 @@ for (const vp of [[1280, 720, false], [390, 844, true]]) {
   // ---- Hostile: a wave survived for 60 s
   {
     const { ctx, page } = await open(vp, tag + 'hostile ', { targets: 'hostile' });
-    await sail(page, { e: 9500, z: 0, yaw: 0 });
+    await sail(page, { e: 13000, z: -1100, yaw: 0 });
     const set = await page.evaluate(async () => { await window.__simWait(1.5); return { mode: Ship.naval && Ship.naval.mode, toasts: [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | ') }; });
     const bar0 = await barOf(page);
     const wave = await page.evaluate(async () => { await window.__until(() => Ship.naval && Ship.naval.left.length > 0, 30); const L = Ship.naval.left; return { wave: Ship.naval.wave, ships: L.map((v) => v.ai.key + '@' + v.ai.skill.toFixed(1)), d: L.map((v) => Math.round(Math.hypot(v.x - Flight.active.x, v.y - Flight.active.y, v.z - Flight.active.z))), t: Flight.time }; });

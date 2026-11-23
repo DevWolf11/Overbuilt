@@ -4622,7 +4622,7 @@ const Ship = (() => {
     if (v.ctl) { v.ctl.v = v.ctl.h = v.ctl.r = 0; }
     v.ai = { sea: true, key, role: o.role || 'fight', skill: s, team: o.team, ally: !!o.ally, cost: T.cost, down: false, gone: false, state: 'idle',
       thinkT: AIS.rnd() * (1 / AIC.think), lookT: AIS.rnd() / AIC.look, born: now,
-      tgt: null, tAt: -9, tSeen: -9, tLast: null, air: null, shore: null, shoreAt: -9, shoreD: Infinity, gt: null, gk: null, D: 0, seeR: 0, reach: 0, seeFor: null, seeAt: -9,
+      tgt: null, tAt: -9, tSeen: -9, seenAt: 0, lookN: 0, airs: null, tLast: null, air: null, shore: null, shoreAt: -9, shoreD: Infinity, gt: null, gk: null, D: 0, seeR: 0, reach: 0, seeFor: null, seeAt: -9,
       gtAt: -9, P: v3(), ea: 0, eb: 0, errAt: -9, errK: sk(AIC.err, s), corr: v3(), corrFor: null, fo: [], tof: 0, salvoN: 0, fired: 0,
       asmAt: -Infinity, asm2: null, torpAt: -Infinity, samAt: -Infinity, sams: [], decoyAt: -Infinity, hitAt: v.lastHitAt ?? null, fireAt: -Infinity, zig: AIS.rnd() < 0.5 ? -1 : 1, zigAt: now,
       torp: null, retreat: false, smokeAt: -9, avoid: null, want: null, telAt: -9, loop: o.loop || null, wp: 0, wave: o.wave || 0, slot: o.slot || 0, lead: o.lead || null, course: o.course || null };
@@ -4635,7 +4635,7 @@ const Ship = (() => {
 
   // ---- what she sees (think): ships (seenSea: her sea radars and lookouts), aircraft (airSeen), ground vehicles ashore
   // within her guns' reach that her lookouts see (S9), torpedoes running at her side and missiles homing on it
-  const SEEA = [], AIRS = [], SHR = [], _eye = { x: 0, y: 0, z: 0, h: 0 }, _ot = { x: 0, y: 0, z: 0, h: 0 };
+  const SEEA = [], SHR = [], _eye = { x: 0, y: 0, z: 0, h: 0 }, _ot = { x: 0, y: 0, z: 0, h: 0 };
   // (night or day where the computer's ships are: looked at once a second of the sim's clock, for all of them)
   const NIGHT = { t: -1, v: false };
   function eyesOf(v, F) { const s = Math.floor(clockOf(F)); if (s !== NIGHT.t) { NIGHT.t = s; NIGHT.v = night(v, F); } return SHIP.EYES[NIGHT.v ? 'night' : 'day']; }
@@ -4792,12 +4792,17 @@ const Ship = (() => {
     const A = a.avoid && clockOf(F) < a.avoid.until ? a.avoid : null;
     order(v, A ? hdg + A.off : hdg, A && A.slow ? 1 : telFor(v, (L.kn || 12) / SHIP.KN, F), F);
   }
+  // (her picture of the sea and of the air, each looked at afresh twice a second, on alternate thinks: a look over the
+  // sea's horizon costs tens of µs a contact; in between, what she saw is kept and only its range worked out again)
   function sense(v, F, now) {
-    const a = v.ai;
+    const a = v.ai, seaNow = (a.lookN = (a.lookN || 0) + 1) % 2 === 1 || !a.seenAt || now < a.seenAt;
     // ships: the one she has while she sees it (or saw it within 10 s), else the nearest she sees
-    const L = seaSeen(v, F, SEEA);
     let best = null, bd = Infinity;
-    for (const t of L) { const d = hdist(t, v); if (t === a.tgt) { best = t; bd = d; break; } if (d < bd) { bd = d; best = t; } }
+    if (seaNow) {
+      a.seenAt = now;
+      const L = seaSeen(v, F, SEEA);
+      for (const t of L) { const d = hdist(t, v); if (t === a.tgt) { best = t; bd = d; break; } if (d < bd) { bd = d; best = t; } }
+    } else if (a.seen && a.tgt && !a.tgt.dead && !a.tgt.fate) { best = a.tgt; bd = hdist(best, v); }
     if (best) { if (best !== a.tgt) newTarget(v, best, now); a.tgt = best; a.tSeen = now; a.D = bd; a.tLast = { x: best.x, y: best.y, z: best.z }; }
     else if (a.tgt && (now - a.tSeen > 10 || a.tgt.dead || a.tgt.fate || (a.tgt.def && !a.tgt.alive))) { const T = a.tgt; a.tgt = null; if (T.dead || T.fate) a.tLast = null; } // (lost: she hunts where she saw it last, helm's)
     a.seen = !!best;
@@ -4813,8 +4818,9 @@ const Ship = (() => {
       else if (shoreNow && !ground && d2 < gr * gr && isGround(o.kind) && !o.wreck && foe(v, o)) ground = true;
       if (air && (ground || !shoreNow)) break;
     }
-    const A = air ? airSeen(v, F, AIRS) : ((AIRS.length = 0), AIRS);
-    a.air = A.length ? A[0].ref : null; a.airD = A.length ? A[0].d : Infinity; a.airs = A;
+    if (!air) { a.airs = []; a.air = null; a.airD = Infinity; }
+    else if (!seaNow || !a.airs) { a.airs = airSeen(v, F, []); a.air = a.airs.length ? a.airs[0].ref : null; a.airD = a.airs.length ? a.airs[0].d : Infinity; }
+    else { a.airs = a.airs.filter((c) => !c.ref.dead && !(c.ref.ai && c.ref.ai.down)); for (const c of a.airs) c.d = hdist(c.ref, v); a.air = a.airs.length ? a.airs[0].ref : null; a.airD = a.airs.length ? a.airs[0].d : Infinity; }
     if (shoreNow) {
       a.shoreAt = now;
       const Sh = ground ? shoreSeen(v, F, gr, SHR) : ((SHR.length = 0), SHR);
@@ -5045,7 +5051,7 @@ const Ship = (() => {
       const m = a.errK * (a.gk === 'air' ? 3 : 1) * Math.sqrt(AIS.rnd()), q = AIS.rnd() * TAU;
       a.ea = Math.cos(q) * m; a.eb = Math.sin(q) * m;
     }
-    const tt = t.def ? Combat.targetCentre(t) : t, up = a.gk === 'air' ? 0 : t.def ? 0.5 : 1.5;
+    const tt = t.def ? Combat.targetCentre(t) : t, up = a.gk === 'air' ? 0 : a.gk === 'sea' && !t.def ? 1.5 : 0.5; // (a ship's side over her waterline; a vehicle's middle as the ground AI's)
     if (typeof GroundAI !== 'undefined' && GroundAI.aimAt) GroundAI.aimAt(v, t.def ? { x: tt.x, y: tt.y, z: tt.z, vx: t.vel ? t.vel.x : 0, vy: t.vel ? t.vel.y : 0, vz: t.vel ? t.vel.z : 0 } : t, a.P, a.ea, a.eb, a.tof, up);
     else { a.P.x = tt.x; a.P.y = tt.y; a.P.z = tt.z; }
     if ((a.gk === 'sea' || a.gk === 'shore') && a.corrFor === t) { a.P.x += a.corr.x; a.P.y += a.corr.y; a.P.z += a.corr.z; }
@@ -5056,13 +5062,18 @@ const Ship = (() => {
   function aiFrame(F, dt) {
     if (!F || !F.vessels) return;
     if (mpLive()) { if (AIS.R || AIS.ships.length || AIS.strikers.length) aiReset(F); bar(F); return; }
+    if (AIS.R && F.active && AIS.R.me !== (F.active.carrier || F.active)) aiReset(F); // (a flight begun again, or another craft taken: the range starts afresh)
     rangeFrame(F, dt);
     if (!(dt > 0)) return;
     let gone = 0;
     for (const v of AIS.ships) {
       const a = v.ai;
       if (v.dead || !a || a.down) { gone++; continue; }
-      if ((a.thinkT -= dt) <= 0) { a.thinkT += 1 / AIC.think; if (a.thinkT <= 0) a.thinkT = 1 / AIC.think; think(v, F); }
+      if ((a.thinkT -= dt) <= 0) {
+        a.thinkT += 1 / AIC.think; if (a.thinkT <= 0) a.thinkT = 1 / AIC.think;
+        if (!F.vessels.includes(v)) { v.dead = true; gone++; continue; } // (a flight begun again: she went with the last one)
+        think(v, F);
+      }
       if ((a.lookT -= dt) <= 0) { a.lookT += 1 / AIC.look; if (a.lookT <= 0) a.lookT = 1 / AIC.look; look(v, F); }
       aimStep(v, F);
     }
@@ -5096,9 +5107,11 @@ const Ship = (() => {
   const mapReady = () => typeof Terrain !== 'undefined' && !!Terrain.earthMap && Terrain.earthMap.state === 'ready' && !!EARTH.mapped;
   const NZ = { e: 0, z: 0 };
   // wanted: the player's craft a sea kind, or any craft afloat, on Earth with the map in, within r + RANGE.far m of the
-  // range's middle; targets on; no room, no battle. Its mode, or null
+  // range's middle; targets on; no room, no battle; in the game's own flight (a test's stand-in for it only when it says
+  // so: F.navalRange, so no other suite meets the range's ships). Its mode, or null
   function rangeWanted(F) {
     const N = NR(), me = F && F.active && (F.active.carrier || F.active), m = targetsMode();
+    if (!F || !(F.navalRange || (typeof Flight !== 'undefined' && F === Flight))) return null;
     if (!N || !me || m === 'off' || mpLive() || Ship.battle || (typeof GroundAI !== 'undefined' && GroundAI.battle) || me.body !== EARTH || !mapReady()) return null;
     if (!isSea(me.kind) && !(me.hydro && me.afloat)) return null;
     ezOf(me, NZ);

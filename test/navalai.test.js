@@ -95,7 +95,7 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
 {
   const o = J(`(() => { fresh(6); const me = ship('cyclon', { e: 9000, z: -4000, yaw: 0 }), F = fsim(me, [me]);
     const v = Ship.aiSpawn(F, 'arley', { e: 9000, z: 2000, yaw: Math.PI / 2 }, { role: 'fight', skill: 0.5 }); // (her bow at her)
-    unarm(v); v.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; }); // (she only steers; the target can't sink)
+    unarm(v, (w) => !w.naval); v.ciws = []; v.ai.born = Infinity; // (she only steers: her guns never ready, her missiles and torpedoes out; her reach her 127 mm's)
     const st = [];
     run(F, 160, (t, f) => { if (f % 1200 === 0) st.push([Math.round(t), v.ai.state, v.sh.tel, Math.round(dist(v, me))]); });
     return JSON.stringify({ d: Math.round(dist(v, me)), R: Math.round(v.ai.reach), st, state: v.ai.state, tel: v.sh.tel }); })()`);
@@ -238,7 +238,7 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
 // later at its loop's far point
 {
   const o = J(`(() => { fresh(90); Settings.data.targets = 'practice';
-    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F = fsim(me, [me]);
+    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; // (the range in a test's stand-in for the flight: only when it says so)
     run(F, 2);
     const R0 = Ship.naval, ships = Ship.aiShips.slice(), roles = ships.map((v) => v.ai.key + ':' + v.ai.role), hulk = ships.find((v) => v.ai.role === 'passive');
     const rad = [], kn = {};
@@ -260,7 +260,7 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
 // wave a strike aircraft; targets set Off: all of it gone
 {
   const o = J(`(() => { fresh(100); Settings.data.targets = 'hostile';
-    const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
+    const me = ship('arley', { e: 6000, z: 0, yaw: 0 }), F = fsim(me, [me]); F.navalRange = true; unarm(me); me.ciws = []; me.parts.forEach((p) => { p.hp = 1e9; });
     run(F, 1.5);
     const w0 = Ship.naval.wave;
     run(F, 20);
@@ -298,23 +298,26 @@ const deg = (a) => Math.abs((((a + 180) % 360) + 360) % 360 - 180);
       Settings.data.targets = m; Combat.reset({});
       const pl = build(templateRows(TEMPLATES.falcon), 'plane', 'Falcon'); pl.placeOnSurface(EARTH, siteAngle(EARTH, 9000), 0, 0, 0);
       const k = (EARTH.radius + 600) / Math.hypot(pl.x, pl.y, pl.z); pl.x *= k; pl.y *= k; pl.z *= k; pl.landed = false; // (600 m up over the range)
-      const F = fsim(pl, [pl]); run(F, 3, null, true);
+      const F = fsim(pl, [pl]); F.navalRange = true; run(F, 3, null, true);
       out[m] = { sea: Combat.S.sea, on: Ship.aiOn, ships: F.vessels.filter((v) => v.ai && v.ai.sea).length };
     }
     Settings.data.targets = 'practice'; Combat.reset({});
-    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F2 = fsim(me, [me]);
+    const me = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F2 = fsim(me, [me]); F2.navalRange = true;
     this.MP = { active: true, live: false, shared: false, enemy: () => false, enemyGhosts: () => [], sendShot() {}, sendMissile() {}, sendFlares() {}, sendLock() {}, sendGun() {} };
     run(F2, 3);
     const room = { naval: !!Ship.naval, ai: Ship.aiShips.length };
     delete this.MP;
     Settings.data.targets = 'off'; Combat.reset({}); Ship.aiReset(null);
-    const me3 = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F3 = fsim(me3, [me3]); run(F3, 3);
+    const me3 = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F3 = fsim(me3, [me3]); F3.navalRange = true; run(F3, 3);
     const off = { naval: !!Ship.naval, ai: Ship.aiShips.length };
+    Settings.data.targets = 'hostile'; Combat.reset({}); Ship.aiReset(null);
+    const me4 = ship('cyclon', { e: 3540, z: 0, yaw: 0 }), F4 = fsim(me4, [me4]); run(F4, 3); // (another suite's stand-in for the flight)
+    const stand = { naval: !!Ship.naval, ai: Ship.aiShips.length };
     for (const k of Object.keys(calls)) delete calls[k];
-    return JSON.stringify({ out, room, off }); })()`);
+    return JSON.stringify({ out, room, off, stand }); })()`);
   t(`gates: a Falcon over the range with targets at Practice and Hostile: no ship afloat, no AI, no ship comes (${JSON.stringify(o.out)})`,
     ['practice', 'hostile'].every((m) => !o.out[m].sea && !o.out[m].on && o.out[m].ships === 0), o);
-  t(`...a ship in a room starts no range (${JSON.stringify(o.room)}), nor with targets Off (${JSON.stringify(o.off)})`, !o.room.naval && o.room.ai === 0 && !o.off.naval && o.off.ai === 0, o);
+  t(`...a ship in a room starts no range (${JSON.stringify(o.room)}), nor with targets Off (${JSON.stringify(o.off)}), nor in another suite's stand-in for the flight (${JSON.stringify(o.stand)})`, !o.room.naval && o.room.ai === 0 && !o.off.naval && o.off.ai === 0 && !o.stand.naval && o.stand.ai === 0, o);
 }
 
 // ================================================================ the cost (§15)
