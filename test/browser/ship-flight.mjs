@@ -373,7 +373,7 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
   {
     const { ctx, page } = await open(vp, tag + 'asm ');
     await sailArmed(page, 'arley');
-    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('cyclon', -10300, 400, Math.PI / 2); await window.__simWait(1); const sel = window.__sel('asm4'); const on = await window.__aimAt(window.__tg); await window.__simWait(0.3, true);
+    const set = await page.evaluate(async () => { const v = Flight.active; window.__tg = window.__mk('cyclon', -7800, 400, Math.PI / 2); /* (5.5 km: inside her radar's horizon on a patrol boat, so the lock takes her: no magic radar) */ await window.__simWait(1); const sel = window.__sel('asm4'); const on = await window.__aimAt(window.__tg); await window.__simWait(0.3, true);
       Flight.fireTap = true; await window.__simWait(0.2, true); const m = Combat.S.shots.find((s) => s.asm && s.owner === v); window.__m = m; return { sel, on, fired: !!m, at: m && m.target === window.__tg, d: Math.round(Math.hypot(window.__tg.x - v.x, window.__tg.y - v.y, window.__tg.z - v.z)) }; });
     await page.evaluate(async () => { await window.__simWait(1.2, true); });
     await shot(page, `asm-launch-${sz}`);
