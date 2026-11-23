@@ -112,6 +112,14 @@ const SHIP = {
   LAUNCH: { shallow: 2, step: 50, max: 1000 }, // a spot with the keel within `shallow` m of the bed moves out to sea in `step` m steps, up to `max`
   // ---- units
   KN: 1.943844,                      // knots per m/s (ship displays speak knots)
+  // ---- the HUD, sound and feel (§12) [WP12]
+  HUD: { hz: 4, torpSee: 1500, torpRun: 3000, track: 1500, floodT: 2, list: 8, listAlone: 15, sinkK: 0.5, hear: 1500, smooth: 2 },
+  //   (the hull diagram and the warnings looked at hz times a second; an incoming torpedo seen (its bubble track) within
+  //   torpSee m, our own runs drawn torpRun m at most and an incoming one's track ahead `track` m; a compartment is flooding
+  //   for floodT s after its water last rose; the flooding line adds her list past `list`°, a list alone warns past
+  //   listAlone°; it is critical past sinkK of her reserve buoyancy taken; ship sounds within `hear` m of the view; heel,
+  //   trim and the waterline eased over `smooth` s for the diagram)
+  CAM: { frame: 0.9, near: 1.5 },    // [WP12] the chase view frames her reach × 2 within `frame` of the screen; the bridge eye `near` m clear of her own parts
   // ---- the builder (§11.3) [WP4]: the still-water float, top speed, tap placement and the warnings
   BUILD: { tol: 2e-4, iters: 8, dA: 0.003, dGM: 0.02, gmLow: 0.3, heel: 2, trim: 1, free: 0.25, capsize: 60,
            vMax: 40, vStep: 0.25, turn: [4.5, 0.25, 1.2, 10], steerA: 1.5, inM: 0.03, step: 0.25, pair: 0.4, wash: 0.05, dry: 0.5 },
@@ -4479,7 +4487,15 @@ const Ship = (() => {
   // The helm's state it reads (ship.js core's, Flight's inputs): sh.tel (-3..4), sh.rud (the commanded rudder, ° to
   // starboard), each rudder part's p.rud (its angle now, °; none yet: the command), v.sas ('hold' | 'manual') and sh.hold
   // (the heading held, rad clockwise from game north as Ship.heading; null: none caught yet).
-  const HUD = { el: null, key: '', RUD: 35 };
+  // [WP12] Under it the hull diagram (diagram): her side, bow to the right as the blueprint has it, a cell per compartment
+  // (numbered from the bow on a desktop) filling blue with its water, holes red, fires orange, the damage-control parties
+  // white, the sea's line where she floats and her heel and trim; a 148 × 44 picture on a desktop, a compact strip on a
+  // phone, the same drawing at whatever size the style sheet gives its canvas. Drawn HUD.hz times a second at most and
+  // only when what it shows changes (its key). Lost (doomed or the flight over), the helm's lines go and the diagram stays
+  // while she goes down, ABANDON SHIP under it. The warnings (alert: the alert line, Flight.updateHUD) and the touch
+  // buttons (btns: HOLD, DC, CIWS) are this section's too, as are the hole decals' places (holeMarks, render3d) and the
+  // ship sounds (sounds, Flight.update).
+  const HUD = { el: null, key: '', RUD: 35, tel: null };
   function hudEl() {
     if (HUD.el || typeof document === 'undefined') return HUD.el;
     const tel = document.querySelector('#flight-ui .telemetry');
@@ -4489,10 +4505,13 @@ const Ship = (() => {
     box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Helm');
     box.innerHTML = '<div class="sh-tel"><span class="sh-rungs" aria-hidden="true">' + '<i></i>'.repeat(8) + '</span></div>'
       + '<div class="sh-line"><b class="sh-order" role="status">Stop</b><span class="sh-mode"></span></div>'
-      + '<div class="sh-rud"><span class="sh-bar" aria-hidden="true"><i class="sh-fill"></i><i class="sh-cmd"></i></span><span class="sh-ang">0°</span></div>';
+      + '<div class="sh-rud"><span class="sh-bar" aria-hidden="true"><i class="sh-fill"></i><i class="sh-cmd"></i></span><span class="sh-ang">0°</span></div>'
+      + '<div class="sh-hull" hidden><canvas class="sh-cv" aria-label="Hull diagram: her compartments, their water, holes, fires and damage control"></canvas><div class="sh-hl"><span class="sh-heel"></span><span class="sh-trim"></span></div></div>'; // [WP12]
     tel.append(box);
     HUD.el = box; HUD.rungs = [...box.querySelectorAll('.sh-rungs i')]; HUD.order = box.querySelector('.sh-order'); HUD.mode = box.querySelector('.sh-mode');
     HUD.fill = box.querySelector('.sh-fill'); HUD.cmd = box.querySelector('.sh-cmd'); HUD.ang = box.querySelector('.sh-ang');
+    HUD.hull = box.querySelector('.sh-hull'); HUD.cv = box.querySelector('.sh-cv'); HUD.heel = box.querySelector('.sh-heel'); HUD.trim = box.querySelector('.sh-trim'); HUD.hl = box.querySelector('.sh-hl');
+    if (typeof ResizeObserver === 'function') { HD.ro = new ResizeObserver(() => { HD.sz = null; }); HD.ro.observe(HUD.cv); } // (its size looked at again only when it changes)
     return box;
   }
   // a heading (rad clockwise from game north, Ship.heading's) as the compass reads it (Flight.compass's rule: real north on
@@ -4502,16 +4521,23 @@ const Ship = (() => {
     return Terrain.bearingAt(Math.atan2(v.y, v.x), Math.asin(clamp(v.z / v.radius(), -1, 1)), Math.sin(h), Math.cos(h));
   }
   function hud(F) {
-    const v = F && F.active, sh = v && isSea(v.kind) && !F.destroyed && !v.dead ? v.sh : null, E = hudEl();
+    const v = F && F.active, sh = v && isSea(v.kind) && !v.dead && v.parts.length ? v.sh : null, E = hudEl();
+    btns(F, sh ? v : null); // [WP12] (the touch buttons: shown with a ship's helm)
     if (!E) return;
-    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; return; }
+    if (!sh) { if (!E.hidden) E.hidden = true; HUD.key = ''; HD.key = ''; HUD.tel = null; return; }
+    const lost = !!F.destroyed || !!v.fate; // [WP12] (lost: the diagram alone, while she goes down)
+    if (E.hidden) E.hidden = false;
+    if (E.classList.contains('lost') !== lost) E.classList.toggle('lost', lost);
+    diagram(F, v, sh);
+    if (lost) { HUD.key = ''; HUD.tel = null; return; }
     const tel = clamp(Math.round(sh.tel) || 0, -3, 4), R = HUD.RUD;
+    if (HUD.tel != null && tel !== HUD.tel && typeof Sound !== 'undefined' && Sound.bell) Sound.bell(tel === 0 ? 1 : 2); // [WP12] (the telegraph's bell as it is rung: once to Stop, twice to an order)
+    HUD.tel = tel;
     let act = 0, n = 0;
     for (const p of sh.rudders) if (Number.isFinite(p.rud) && !p.broken) { act += p.rud; n++; }
     const cmd = Number.isFinite(sh.rud) ? clamp(sh.rud, -R, R) : 0, now = n ? clamp(act / n, -R, R) : cmd;
     const hand = v.sas === 'manual', hold = !hand && Number.isFinite(sh.hold) ? String(Math.round(bearing(v, sh.hold)) % 360).padStart(3, '0') : '';
     const key = `${tel}|${Math.round(cmd)}|${Math.round(now)}|${hand}|${hold}|${sh.rudders.length}`;
-    if (E.hidden) E.hidden = false;
     if (key === HUD.key) return;
     HUD.key = key;
     HUD.rungs.forEach((r, i) => { const c = i === tel + 3 ? 'on' + (tel < 0 ? ' astern' : '') : i === 3 ? 'stop' : ''; if (r.className !== c) r.className = c; });
@@ -4525,6 +4551,381 @@ const Ship = (() => {
     HUD.cmd.style.left = `${pc(cmd).toFixed(1)}%`;
     const a = Math.round(now);
     HUD.ang.textContent = !sh.rudders.length ? 'no rudder' : a === 0 ? '0°' : `${Math.abs(a)}° ${a > 0 ? 'stbd' : 'port'}`;
+  }
+
+  // ---- the hull diagram [WP12]
+  // Her side as the diagram draws it (hullGeo, once for her parts): along a (part space · sh.ax, m: the bow the larger)
+  // and up u (· sh.ay): each hull part's outline (its rings' deck and keel points: [a, u, …], deck forward then keel aft),
+  // each compartment's stretch [a0, a1] and its number from the bow, and her extent.
+  const HD = { key: '', at: -1e9, sz: null, ro: null, of: null, heel: 0, trim: 0, h0: NaN, t: -1, v: null };
+  const _ha = (S, x, y) => x * S.ax.x + y * S.ax.y, _hu = (S, x, y) => x * S.ay.x + y * S.ay.y;
+  function hullGeo(v, S) {
+    const G = S._hg;
+    if (G && G.of === v.parts && G.n === v.parts.length && G.nc === S.comps.length) return G;
+    const out = { of: v.parts, n: v.parts.length, nc: S.comps.length, polys: [], comps: [], a0: Infinity, a1: -Infinity, u0: Infinity, u1: -Infinity };
+    for (const p of S.hulls) {
+      const H = shullOf(p.def), top = [], bot = [];
+      for (const r of H.rings) {
+        const d = partPt(p, r.x, r.yd), k = partPt(p, r.x, r.yk), ad = _ha(S, d.x, d.y), ud = _hu(S, d.x, d.y), ak = _ha(S, k.x, k.y), uk = _hu(S, k.x, k.y);
+        top.push(ad, ud); bot.push(ak, uk);
+        out.a0 = Math.min(out.a0, ad, ak); out.a1 = Math.max(out.a1, ad, ak); out.u0 = Math.min(out.u0, uk, ud); out.u1 = Math.max(out.u1, ud, uk);
+      }
+      const P = top.slice();
+      for (let i = bot.length - 2; i >= 0; i -= 2) P.push(bot[i], bot[i + 1]);
+      out.polys.push({ p, P });
+    }
+    S.comps.forEach((c, i) => {
+      const A = partPt(c.p, c.lo, 0), B = partPt(c.p, c.hi, 0), a = _ha(S, A.x, A.y), b = _ha(S, B.x, B.y);
+      out.comps.push({ c, i, a0: Math.min(a, b), a1: Math.max(a, b), poly: out.polys.find((q) => q.p === c.p) || null, no: 0 });
+    });
+    [...out.comps].sort((x, y) => y.a0 + y.a1 - x.a0 - x.a1).forEach((q, k) => { q.no = k + 1; }); // (numbered from the bow, as a ship's are)
+    return (S._hg = out);
+  }
+  const DC_ = '#ffffff', SEA_ = 'rgba(52, 140, 214, ', HULL_ = 'rgba(150, 185, 230, 0.16)', EDGE_ = 'rgba(219, 228, 240, 0.6)';
+  // where fire p burns on her (part space): a hull's where it was lit (fireSpot), anything else its middle
+  const _fsp = v3();
+  function fireAt(p) { return p.def.shull ? fireSpot(p, _fsp) : ((_fsp.x = p.x), (_fsp.y = p.y), (_fsp.z = partZ(p)), _fsp); }
+  // her still water's height under her centre of mass (m: + she rides over it), the waterline's reference
+  function seaH(v, S) { return Math.hypot(v.x, v.y, v.z) - v.body.radius - (S.level > -Infinity ? S.level : 0); }
+  function diagram(F, v, S) {
+    const box = HUD.hull, cv = HUD.cv, show = S.comps.length > 0 && !!cv;
+    if (box.hidden === show) box.hidden = !show;
+    if (!show) { HD.key = ''; return; }
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (HD.key && now >= HD.at && now - HD.at < 1000 / SHIP.HUD.hz) return;
+    const dt = HD.v === v && now > HD.at ? Math.min(2, (now - HD.at) / 1000) : 0;
+    HD.at = now;
+    // (heel, trim and her height over the still water, eased: what flooding does to her, not each wave's lift)
+    const k = dt > 0 ? 1 - Math.exp(-dt / SHIP.HUD.smooth) : 1, h0 = seaH(v, S);
+    if (HD.v !== v || !(HD.h0 === HD.h0)) { HD.v = v; HD.heel = v.heel || 0; HD.trim = v.trim || 0; HD.h0 = h0; }
+    else { HD.heel += ((v.heel || 0) - HD.heel) * k; HD.trim += ((v.trim || 0) - HD.trim) * k; HD.h0 += (h0 - HD.h0) * k; }
+    if (!HD.sz) { const r = cv.getBoundingClientRect(); HD.sz = { w: r.width, h: r.height }; }
+    const z = (typeof Controls !== 'undefined' && Controls.z) || 1, dpr = (typeof App !== 'undefined' && App.dpr) || (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+    const W = HD.sz.w / z, H = HD.sz.h / z;
+    if (!(W > 4 && H > 4)) return;
+    const G = hullGeo(v, S), deg = 180 / Math.PI, fl = Math.floor(now / 250) & 1;
+    let key = `${W.toFixed(1)}|${H.toFixed(1)}|${dpr}|${z}|${v.fate || ''}|${Math.round(HD.heel * deg)}|${Math.round(HD.trim * deg * 4)}|${Math.round(HD.h0 * 10)}`;
+    for (const c of S.comps) key += `|${Math.round(24 * clamp(c.W / Math.max(c.V, 1e-6), 0, 1))}`;
+    for (const p of S.hulls) { if (p.broken) key += 'B' + p.id; if (p.holes) for (const h of p.holes) key += `,${Math.round(h.a * 200)}${(h.fix || 0) >= 1 ? 'f' : ''}`; }
+    for (const p of v.parts) if (p.fire > 0) key += `!${p.id}${fl}`;
+    if (S.dc && !v.fate) for (const e of S.dc) key += `@${Math.round(e.s)}${e.at ? 'w' : ''}`;
+    if (key === HD.key) return;
+    HD.key = key;
+    const bw = Math.max(1, Math.round(W * z * dpr)), bh = Math.max(1, Math.round(H * z * dpr));
+    if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+    const g = cv.getContext('2d');
+    if (!g) return;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(bw / W, 0, 0, bh / H, 0, 0);
+    const small = H < 30, pad = small ? 1.5 : 3, L = Math.max(G.a1 - G.a0, 1), D = Math.max(G.u1 - G.u0, 0.5);
+    const kx = (W - 2 * pad) / L, ky = Math.min(kx * 4, (H - 2 * pad) / D), um = (G.u0 + G.u1) / 2;
+    const X = (a) => pad + (a - G.a0) * kx, Y = (u) => H / 2 - (u - um) * ky;
+    const path = (P) => { g.beginPath(); for (let i = 0; i < P.length; i += 2) { if (i) g.lineTo(X(P[i]), Y(P[i + 1])); else g.moveTo(X(P[i]), Y(P[i + 1])); } g.closePath(); };
+    // the sea's line: where her still water stands along her (heel left out: her side, at the centre line)
+    const c0 = v.com, Ub = S.Ub, au = Ub.x * S.ay.x + Ub.y * S.ay.y, aa = Ub.x * S.ax.x + Ub.y * S.ax.y, cU = c0.x * Ub.x + c0.y * Ub.y + (c0.z || 0) * Ub.z;
+    if (!v.fate && Math.abs(au) > 0.3 && Number.isFinite(HD.h0)) {
+      const wu = (a) => (-HD.h0 + cU - a * aa) / au, ya = Y(wu(G.a0 - 2)), yb = Y(wu(G.a1 + 2));
+      g.fillStyle = SEA_ + '0.16)';
+      g.beginPath(); g.moveTo(0, ya); g.lineTo(W, yb); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fill();
+      g.strokeStyle = SEA_ + '0.8)'; g.lineWidth = small ? 0.8 : 1;
+      g.beginPath(); g.moveTo(0, ya); g.lineTo(W, yb); g.stroke();
+    }
+    // the hull, and each compartment's water from its bottom: W/V of its height
+    for (const q of G.polys) { path(q.P); g.fillStyle = q.p.broken ? 'rgba(255, 93, 93, 0.3)' : HULL_; g.fill(); }
+    for (const q of G.comps) {
+      if (!q.poly) continue;
+      const c = q.c, f = clamp(c.W / Math.max(c.V, 1e-6), 0, 1), x0 = X(q.a0), x1 = X(q.a1);
+      if (f > 0.004) {
+        let lo = -Infinity, hi = Infinity; // (its keel's lowest and its deck's highest across its stretch, screen y)
+        const P = q.poly.P, m = P.length / 2;
+        for (let i = 0; i < m; i++) { const a = P[2 * i]; if (a < q.a0 - 0.01 || a > q.a1 + 0.01) continue; const y = Y(P[2 * i + 1]); if (y > lo) lo = y; if (y < hi) hi = y; }
+        if (lo > hi) {
+          g.save(); path(P); g.clip();
+          g.fillStyle = f > SHIP.DC.full ? '#2f7fd0' : '#3d8fd6';
+          g.fillRect(x0, lo - (lo - hi) * f, x1 - x0, (lo - hi) * f + 1);
+          g.restore();
+        }
+      }
+    }
+    g.lineWidth = small ? 0.75 : 1; g.strokeStyle = EDGE_;
+    for (const q of G.polys) { path(q.P); g.stroke(); }
+    // the bulkheads (between compartments of one hull part), and the numbers from the bow (on a desktop, where they fit)
+    g.strokeStyle = 'rgba(219, 228, 240, 0.4)';
+    for (const q of G.comps) {
+      if (!q.poly) continue;
+      for (const a of [q.a0, q.a1]) {
+        if (a <= G.a0 + 0.05 || a >= G.a1 - 0.05) continue;
+        let yt = Infinity, yb = -Infinity;
+        const P = q.poly.P;
+        for (let i = 0; i < P.length; i += 2) if (Math.abs(P[i] - a) < L / 40) { const y = Y(P[i + 1]); yt = Math.min(yt, y); yb = Math.max(yb, y); }
+        if (yb > yt) { g.beginPath(); g.moveTo(X(a), yt); g.lineTo(X(a), yb); g.stroke(); }
+      }
+    }
+    if (!small) {
+      g.font = '600 7px "IBM Plex Mono", ui-monospace, monospace'; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillStyle = 'rgba(233, 237, 241, 0.75)';
+      for (const q of G.comps) if (X(q.a1) - X(q.a0) >= 9 && q.poly) g.fillText(String(q.no), (X(q.a0) + X(q.a1)) / 2, pad + 1);
+    }
+    // holes (red; patched: a dark ring), fires (orange, flickering), the damage-control parties (white; at work: ringed)
+    const dot = (x, y, r, fill, stroke) => { g.beginPath(); g.arc(x, y, r, 0, 2 * Math.PI); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = 1; g.stroke(); } };
+    for (const p of S.hulls) if (p.holes) for (const h of p.holes) {
+      const r = clamp(Math.sqrt(h.a) * 2.2, small ? 1 : 1.4, small ? 2 : 3.2), x = X(_ha(S, h.x, h.y)), y = Y(_hu(S, h.x, h.y));
+      if ((h.fix || 0) >= 1) dot(x, y, r, null, 'rgba(255, 93, 93, 0.45)'); else dot(x, y, r, '#ff5d5d', 'rgba(10, 14, 20, 0.6)');
+    }
+    for (const p of v.parts) if (p.fire > 0) { const P = fireAt(p); dot(X(_ha(S, P.x, P.y)), Y(_hu(S, P.x, P.y)), small ? 2 : 3, fl ? '#ff8a2a' : '#ffd23f', 'rgba(10, 14, 20, 0.6)'); }
+    if (S.dc && !v.fate) for (const e of S.dc) {
+      if (!v.byId.has(e.host.id) || e.host.broken) continue;
+      const x = X(e.s), y = Y(G.u0 + D * 0.4);
+      dot(x, y, small ? 1.4 : 1.8, DC_, null);
+      if (e.at && !small) dot(x, y, 3.6, null, 'rgba(255, 255, 255, 0.8)');
+    }
+    // the line under it: heel and trim (eased), or her fate
+    const lost = !!v.fate, hd = Math.round(HD.heel * deg), td = Math.round(HD.trim * deg);
+    const t1 = lost ? 'ABANDON SHIP' : `Heel ${Math.abs(hd)}°${hd ? (hd > 0 ? ' stbd' : ' port') : ''}`, t2 = lost ? '' : `Trim ${Math.abs(td)}°${td ? (td > 0 ? ' bow' : ' stern') : ''}`;
+    if (HUD.heel.textContent !== t1) HUD.heel.textContent = t1;
+    if (HUD.trim.textContent !== t2) HUD.trim.textContent = t2;
+    if (HUD.hl.classList.contains('lost') !== lost) HUD.hl.classList.toggle('lost', lost);
+    HUD.heel.classList.toggle('warn', !lost && Math.abs(hd) >= SHIP.HUD.list);
+    HUD.trim.classList.toggle('warn', !lost && Math.abs(td) >= SHIP.HUD.list);
+  }
+
+  // ---- the warnings [WP12]: the alert line's words for the player's ship (Flight.updateHUD asks; null: none), HUD.hz
+  // times a second, the most pressing one: a torpedo in the water seen within HUD.torpSee m (its bearing and range), a
+  // missile coming in that her own radar hears (a sea or air search radar, or a fire-control radar that tracks missiles,
+  // with its horizon: no radar part aboard, no warning; no magic radar), a magazine with a fire at it (the seconds
+  // before it goes), flooding (the compartments taking water, by their numbers on the diagram; her list past HUD.list°),
+  // a list alone, a fire (where along her). { text, crit }. Torpedoes and missiles are read from Combat.S.shots as they
+  // are: a computer's ship's, a room's peer's (k 'stor') and one put there by a test warn alike (shotFoe).
+  const AL = { v: null, at: -1e9, out: null, heel: 0, rad: null, radN: -1 };
+  const rngTxt = (d) => (d < 1000 ? `${Math.max(10, Math.round(d / 10) * 10)} m` : `${(d / 1000).toFixed(1)} km`);
+  function brgTo(v, S, P) {
+    const dx = P.x - v.x, dy = P.y - v.y, dz = P.z - v.z;
+    return String(Math.round(bearing(v, Math.atan2(dx * S.E.x + dy * S.E.y + dz * S.E.z, dx * S.N.x + dy * S.N.y + dz * S.N.z))) % 360).padStart(3, '0');
+  }
+  // her radars that hear a missile coming: [part, kind 'air' | 'low' | 'track', reach]
+  function earsOf(v) {
+    if (AL.rad && AL.radV === v && AL.radN === v.parts.length) return AL.rad;
+    const out = [];
+    for (const p of v.parts) {
+      const sr = p.def.searchRadar, tr = p.def.trackRadar;
+      if (sr && !sr.low) out.push([p, sr.sea && !sr.air ? 'low' : 'air', sr.sea && !sr.air ? Math.min(sr.range, 10000) : sr.range]);
+      else if (tr && tr.missiles) out.push([p, 'track', tr.range]);
+    }
+    AL.rad = out; AL.radV = v; AL.radN = v.parts.length;
+    return out;
+  }
+  const _ae = { x: 0, y: 0, z: 0, h: 0 }, _at = { x: 0, y: 0, z: 0, h: 0 };
+  function hears(v, m) {
+    for (const [p, k, R] of earsOf(v)) {
+      if (p.broken || (p.hp != null && p.hp <= 0) || !v.parts.includes(p)) continue;
+      const E = eyeOf(v, p, _ae), T = topOf(m, _at), d = Math.hypot(T.x - E.x, T.y - E.y, T.z - E.z);
+      if (d > R || (k === 'low' && T.h > SHIP.RADAR.lowAir)) continue;
+      if (seesSea(E, T, E.h, T.h)) return true;
+    }
+    return false;
+  }
+  function alert(v, F) {
+    const S = v && v.sh;
+    if (!S || !F || !isSea(v.kind) || v.dead || v.fate || F.destroyed) return null;
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (AL.v === v && now >= AL.at && now - AL.at < 1000 / SHIP.HUD.hz) return AL.out;
+    const dt = AL.v === v ? Math.min(2, (now - AL.at) / 1000) : 0;
+    AL.v = v; AL.at = now;
+    AL.heel = dt > 0 ? AL.heel + ((v.heel || 0) - AL.heel) * (1 - Math.exp(-dt / SHIP.HUD.smooth)) : v.heel || 0;
+    return (AL.out = alertNow(v, S, F, now));
+  }
+  function alertNow(v, S, F, now) {
+    const HU = SHIP.HUD, shots = typeof Combat !== 'undefined' ? Combat.S.shots : NONE;
+    if (S.vtot == null) hullVol(S);
+    // a torpedo, the nearest (closing on her, or homing on her) within sight of its bubbles
+    let tb = null, td = HU.torpSee, mb = null, md = Infinity;
+    for (const s of shots) {
+      if (s.dead) continue;
+      if ((s.k === 'stor' && s.ph === 'run') || s.k === 'torp') {
+        if (!shotFoe(v, s)) continue;
+        const dx = v.x - s.x, dy = v.y - s.y, dz = v.z - s.z, d = Math.hypot(dx, dy, dz);
+        if (d >= td || (s.tgt !== v && (s.vx - v.vx) * dx + (s.vy - v.vy) * dy + (s.vz - v.vz) * dz <= 0)) continue;
+        tb = s; td = d;
+      } else if (s.k === 'missile') {
+        if (!shotFoe(v, s)) continue;
+        const dx = v.x - s.x, dy = v.y - s.y, dz = v.z - s.z, d = Math.hypot(dx, dy, dz);
+        if (d >= md || (s.target !== v && (s.vx - v.vx) * dx + (s.vy - v.vy) * dy + (s.vz - v.vz) * dz <= 0) || !hears(v, s)) continue;
+        mb = s; md = d;
+      }
+    }
+    if (tb) return { text: `Torpedo in the water · ${brgTo(v, S, tb)}° · ${rngTxt(td)}`, crit: true, k: 'torp' };
+    if (mb) return { text: `Missile inbound · ${brgTo(v, S, mb)}° · ${rngTxt(md)}`, crit: true, k: 'missile' };
+    // a magazine heating by a fire nobody fights
+    let mt = 0;
+    for (const p of v.parts) if (p.magT > mt && !p.magUp) mt = p.magT;
+    if (mt > 0) return { text: `Magazine fire! · ${Math.max(1, Math.ceil(SHIP.MAG.t - mt))} s`, crit: true, k: 'mag' };
+    // flooding: a compartment whose water rose in the last HUD.floodT s
+    const G = hullGeo(v, S), fl = [];
+    let W = 0;
+    for (const q of G.comps) {
+      const c = q.c;
+      W += c.W;
+      if (c._hw != null && c.W > c._hw + 1e-3 && c.W > 0.01 * c.V) c._hT = now;
+      c._hw = c.W;
+      if (c._hT != null && now - c._hT < HU.floodT * 1000 && now >= c._hT) fl.push(q.no);
+    }
+    const ld = Math.round((AL.heel * 180) / Math.PI), list = Math.abs(ld) >= HU.list ? ` · list ${Math.abs(ld)}° ${ld > 0 ? 'stbd' : 'port'}` : '';
+    if (fl.length) {
+      fl.sort((a, b) => a - b);
+      const res = Math.max(1, SHIP.RHO * (S.vtot || 0) * SHIP.FATE.reserve - v.mass); // (her reserve: what more she could take, kg)
+      const which = fl.length === 1 ? `compartment ${fl[0]}` : fl.length <= 3 ? `compartments ${fl.join(', ')}` : `${fl.length} compartments`;
+      return { text: `Flooding · ${which}${list}`, crit: (S.vtot > 0 && SHIP.RHO * W > HU.sinkK * res) || Math.abs(ld) >= 20, k: 'flood' };
+    }
+    if (Math.abs(ld) >= HU.listAlone) return { text: `List ${Math.abs(ld)}° to ${ld > 0 ? 'starboard' : 'port'}`, crit: Math.abs(ld) >= 30, k: 'list' };
+    // a fire: where along her (aft, amidships, forward)
+    const at = new Set();
+    for (const p of v.parts) if (p.fire > 0) { const P = fireAt(p), f = (_ha(S, P.x, P.y) - G.a0) / Math.max(G.a1 - G.a0, 1); at.add(f < 1 / 3 ? 'aft' : f > 2 / 3 ? 'forward' : 'amidships'); }
+    if (at.size) {
+      const w = ['forward', 'amidships', 'aft'].filter((x) => at.has(x));
+      return { text: w.length === 1 ? `Fire ${w[0]}` : w.length === 2 ? `Fires ${w[0]} and ${w[1]}` : 'Fires all along her', crit: false, k: 'fire' };
+    }
+    return null;
+  }
+
+  // ---- the touch buttons [WP12]: HOLD (the heading hold or hand steering: Ships' hold key), DC (damage control's
+  // priority: anything, flooding, fires: its key) and CIWS (her close-in guns by themselves or holding fire: its key, only
+  // with one aboard), in the ship layer (body.ship; never on a desktop: the key hints say them). Each does what its key
+  // does (Flight.shipKey's words); shown and lit from Flight.updateHUD's tick, written only on a change.
+  const BT = { el: null, key: '' };
+  function btnEls() {
+    if (BT.el || typeof document === 'undefined') return BT.el;
+    const h = document.querySelector('#btn-shold'), d = document.querySelector('#btn-sdc'), c = document.querySelector('#btn-sciws');
+    if (!h || !d || !c) return null;
+    BT.el = { h, d, c, dl: d.querySelector('.sb-sub') };
+    h.addEventListener('click', () => helmAct(typeof Flight !== 'undefined' ? Flight : null, 'hold'));
+    d.addEventListener('click', () => helmAct(typeof Flight !== 'undefined' ? Flight : null, 'dc'));
+    c.addEventListener('click', () => helmAct(typeof Flight !== 'undefined' ? Flight : null, 'ciws'));
+    return BT.el;
+  }
+  function btns(F, v) {
+    const E = btnEls();
+    if (!E) return;
+    const sh = v && !F.destroyed && !v.fate && v.sh, cw = !!sh && v.ciws.length > 0;
+    const key = !sh ? '' : `${v.sas}|${sh.dcPri}|${sh.ciwsOn}|${cw}`;
+    if (key === BT.key) return;
+    BT.key = key;
+    const hide = (e, x) => { if (e.hidden !== x) e.hidden = x; };
+    hide(E.h, !sh); hide(E.d, !sh); hide(E.c, !cw);
+    if (!sh) return;
+    E.h.setAttribute('aria-pressed', String(v.sas !== 'manual'));
+    E.h.firstChild.textContent = v.sas === 'manual' ? 'HAND' : 'HOLD';
+    const P = { auto: 'ANY', flood: 'FLOOD', fire: 'FIRE' };
+    if (E.dl) E.dl.textContent = P[sh.dcPri] || 'ANY';
+    E.d.setAttribute('aria-pressed', String(sh.dcPri !== 'auto'));
+    E.c.setAttribute('aria-pressed', String(!!sh.ciwsOn));
+  }
+  // what a button does: the key's own (Flight.shipKey: the same state and words)
+  function helmAct(F, what) {
+    const v = F && F.active, sh = F && F.helmOf ? F.helmOf(v) : null;
+    if (!sh || F.destroyed || (F.inert && F.inert(v))) return false;
+    if (what === 'hold') {
+      v.sas = v.sas === 'manual' ? 'hold' : 'manual'; sh.hold = null;
+      F.toast(v.sas === 'manual' ? 'Hand steering: the rudder centres when you let go' : 'Heading hold: let go of the rudder and she holds her heading');
+    } else if (what === 'ciws') {
+      sh.ciwsOn = !sh.ciwsOn;
+      F.toast(!v.ciws.length ? 'No CIWS aboard' : sh.ciwsOn ? 'CIWS: firing by itself at anything coming in' : 'CIWS: holding fire');
+    } else if (what === 'dc') {
+      const P = ['auto', 'flood', 'fire'], i = (P.indexOf(sh.dcPri) + 1) % P.length;
+      sh.dcPri = P[i];
+      F.toast(`Damage control: ${['anything first', 'flooding first', 'fires first'][i]}`);
+    } else return false;
+    if (typeof Sound !== 'undefined') Sound.click();
+    if (typeof haptic === 'function') haptic(12);
+    if (F.updateHUD) F.updateHUD(true);
+    return true;
+  }
+
+  // ---- the hole decals' places [WP12] (render3d syncDecals: read only): each hole of v's hull parts on her skin, in
+  // part space: the point (x, y, z), the outward normal (nx, ny, nz: a deck's up, a side's out, the bottom's down) and the
+  // hole's own radius r (m), patched (fix 1) or not. Worked out again only when her holes change (their count and sizes).
+  const HM = new WeakMap(), SECH = [0, 0, 0, 0, 0], _hp = v3();
+  function holeMarks(v) {
+    const S = v && v.sh;
+    if (!S) return NONE;
+    let key = '', n = 0;
+    for (const p of S.hulls) if (p.holes && p.holes.length) { key += `${p.id}:`; for (const h of p.holes) { key += `${Math.round(h.a * 1e3)}${(h.fix || 0) >= 1 ? 'f' : ''},`; n++; } }
+    if (!n) return NONE;
+    const was = HM.get(v);
+    if (was && was.key === key && was.of === v.parts) return was.list;
+    const list = [];
+    for (const p of S.hulls) {
+      if (!p.holes || !p.holes.length || !v.byId.has(p.id)) continue;
+      const d = p.def, H = shullOf(d);
+      for (const h of p.holes) {
+        const q = ownPt(p, h, _hp), x = clamp(q.x, H.x0, H.x1), sec = secAt(d.shull.st, x, SECH), yd = sec[0], yk = sec[1];
+        let y = clamp(q.y, yk, yd), z = q.z, ny = 0, nz = 0;
+        if (yd - y < 0.25 * (yd - yk) && Math.abs(z) < 0.6 * Math.max(sec[2], 0.1)) { y = yd; ny = 1; } // (on her deck)
+        else if (y - yk < 0.1 * (yd - yk) && Math.abs(z) < 0.3 * Math.max(sec[3], 0.1)) { y = yk; ny = -1; } // (her bottom)
+        else { const hb = secHalf(sec, d.shull.wl, clamp(y, yk + 1e-3, yd - 1e-3)), b = hb > 0 ? hb : Math.max(sec[3], 0.1); nz = z < 0 ? -1 : 1; z = nz * b; } // (her side, where it stands at that height)
+        const P = partOf(p, x, y, z, v3()), o = partPt(p, 0, 0), ax = partPt(p, 0, ny);
+        list.push({ x: P.x, y: P.y, z: P.z, nx: ny ? ax.x - o.x : 0, ny: ny ? ax.y - o.y : 0, nz, r: Math.sqrt(Math.max(h.a, 1e-4) / Math.PI), fix: (h.fix || 0) >= 1, p });
+      }
+    }
+    HM.set(v, { key, of: v.parts, list });
+    return list;
+  }
+
+  // ---- sound (§12.5) [WP12]: with the player's ship, or a ship within HUD.hear m of the view (Flight.update, while any
+  // hydro vessel is in the flight or a ship's sound still plays): her engines (the diesels' throb by the telegraph's
+  // demand and their spool, a gas turbine's whine with its spool), the bow wave's hiss with her speed, the gurgle of
+  // flooding in the bridge view; a close-in gun's buzz while one fires near the view; a torpedo's launch and a deep
+  // clang when a hull is holed, near the view. (The telegraph's bell rings from hud; a magazine's blast is the damage
+  // model's: Death.deathFX.) Every level a loop's (Sound.sea), set to nothing when nothing near makes it.
+  const SN = { shot: new WeakSet(), holes: new WeakMap(), on: false };
+  const _sv = v3();
+  function sounds(F, dt) {
+    if (typeof Sound === 'undefined' || !Sound.sea) return;
+    const v = F && F.active, view = F && (F.viewVessel || v), quiet = !F || !F.running || F.paused || !view;
+    if (quiet) { if (SN.on) { Sound.sea(null); SN.on = false; } return; }
+    const HU = SHIP.HUD, cam = F.camAbs, bp = cam && view.body ? bodyPos(view.body, F.time) : null;
+    // (how far a point (body coordinates) is from the camera; the view's craft when no camera is known)
+    const far = (P) => (bp ? Math.hypot(bp.x + P.x - cam.x, bp.y + P.y - cam.y, P.z - (cam.z || 0)) : Math.hypot(P.x - view.x, P.y - view.y, P.z - view.z));
+    // the ship heard: the player's own, else the nearest within reach of the view
+    let s = v && isSea(v.kind) && v.sh && !v.dead && v.sh.rings.length ? v : null, sd = s ? far(s) : Infinity;
+    if (!s) for (const o of F.vessels) { if (o.dead || !o.sh || !o.sh.rings.length || !isSea(o.kind) || o.body !== view.body || o.wreck) continue; const d = far(o); if (d < HU.hear && d < sd) { s = o; sd = d; } }
+    const L = { diesel: 0, turbine: 0, rpm: 0, hiss: 0, gurgle: 0, ciws: 0 };
+    if (s && !(s.sunk != null)) {
+      const S = s.sh, k = s === v ? 1 : clamp(1 - sd / HU.hear, 0, 1), pow = clamp(S.pow || 0, 0, 1);
+      let turb = false;
+      for (const p of S.engines) if (p.def.engine && p.def.engine.fuel === 'turbine' && !p.broken) { turb = true; break; }
+      const run = s.ko || s.fate ? 0 : 1, dem = Math.abs(SHIP.TEL[clamp((S.tel | 0) + 3, 0, SHIP.TEL.length - 1)] || 0);
+      if (turb) { L.turbine = k * run * (0.25 + 0.75 * pow); L.rpm = pow; }
+      else { L.diesel = k * run * (0.3 + 0.7 * Math.max(pow, dem * 0.3)); L.rpm = Math.max(pow, 0.1); }
+      const sp = s.afloat ? s.speed() : 0;
+      L.hiss = k * clamp(sp / 15, 0, 1);
+      if (s === v && F.bridge) { let up = false; for (const c of S.comps) if (c._hT != null && performance.now() - c._hT < HU.floodT * 1000) { up = true; break; } L.gurgle = up ? 0.6 : 0; }
+    }
+    // a close-in gun firing near the view, and a torpedo's launch and a hull holed near it
+    for (const o of F.vessels) {
+      if (o.dead || !o.parts.length || o.body !== view.body) continue;
+      if (o.ciws && o.ciws.length) for (const p of o.ciws) if (p.gunOn) { const d = far(o); if (d < HU.hear) L.ciws = Math.max(L.ciws, 1 - d / HU.hear); }
+      if (!o.sh) continue;
+      let a = 0;
+      for (const p of o.sh.hulls) if (p.holes) for (const h of p.holes) a += h.a;
+      const was = SN.holes.get(o);
+      if (was != null && a > was + 1e-4) { const d = far(o); if (d < HU.hear * 2 && Sound.clang) Sound.clang(clamp(Math.sqrt(a - was), 0.2, 2), d); }
+      if (was == null ? a > 0 : a !== was) SN.holes.set(o, a);
+    }
+    if (typeof Combat !== 'undefined') for (const t of Combat.S.shots) {
+      if (t.k !== 'stor' || SN.shot.has(t)) continue;
+      SN.shot.add(t);
+      if (t.t < 0.5 && Sound.torpedo) { _sv.x = t.x; _sv.y = t.y; _sv.z = t.z; const d = far(_sv); if (d < HU.hear) Sound.torpedo(d, !!t.drop); }
+    }
+    const any = L.diesel + L.turbine + L.hiss + L.gurgle + L.ciws > 0;
+    if (any || SN.on) Sound.sea(L);
+    SN.on = any;
+    void dt;
+  }
+  // ---- the camera [WP12]: how far back a ship's aim camera may stand (m): 1.2 of her length (her box's longer side, 10 m
+  // at least), 30 to 200 m, so a 156 m destroyer is framed whole and a patrol boat close (render3d aimDist; Flight.zoomBy
+  // keeps the zoom to it, which held every craft to 30 m and threw a destroyer's camera onto her funnel at the first notch)
+  function aimFar(v) {
+    const B = v && v.bounds;
+    if (!B) return 30;
+    return clamp(1.2 * Math.max(B.maxX - B.minX, B.maxY - B.minY, 10), 30, 200);
   }
   // the ship's controls, from the bindings (Flight.shipHelp's list: README's Ships block and the manual's)
   function help(F) { return F && typeof F.shipHelp === 'function' ? F.shipHelp() : ''; }
@@ -4568,7 +4969,7 @@ const Ship = (() => {
     // frame
     frame, fx,
     // hud
-    hud, help, keys,
+    hud, help, keys, alert, act: helmAct, holeMarks, sounds, aimFar, diagram: (F) => { const v = F && F.active; if (v && v.sh && HUD.el) { HD.key = ''; HD.at = -1e9; diagram(F, v, v.sh); } }, _hud: { HUD, HD, AL, hullGeo }, // [WP12]
     // ai
     aiDown, flyStriker, range, practice, battle: null,
     // mp

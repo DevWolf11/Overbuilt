@@ -1458,3 +1458,36 @@ body.ship .throttle-box :is(#btn-tmax, #btn-tcut) { min-width: 44px; padding-lef
 .sh-fill { position: absolute; top: 0; bottom: 0; background: var(--amber); border-radius: 3px; }
 .sh-cmd { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; border-radius: 1px; }
 .sh-ang { min-width: 54px; text-align: right; white-space: nowrap; }
+
+/* == ships: the HUD (the ships update, WP12) == */
+/* the hull diagram (ship.js hud: diagram) under the helm panel: her side, bow to the right, a cell per compartment with its
+   water, holes, fires and damage control, the sea's line; her heel and trim under it (ABANDON SHIP once she is lost, the
+   helm's lines gone); a compact strip on a phone */
+.ship-helm.lost { margin-top: 4px; }
+.ship-helm.lost > :not(.sh-hull) { display: none; }
+.sh-hull { display: grid; gap: 2px; }
+.sh-cv { display: block; width: 100%; height: 44px; }
+.sh-hl { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; white-space: nowrap; font: 500 10px var(--mono); color: var(--muted); }
+.sh-hl .warn { color: var(--amber); }
+.sh-hl.lost { justify-content: center; color: #ff5d5d; font: 700 12px var(--display); letter-spacing: 0.1em; }
+@media (max-width: 760px) { .sh-cv { height: 20px; } .sh-hl { font-size: 9px; } }
+@media (max-height: 500px) { .sh-cv { height: 14px; } .sh-hl { font-size: 9px; } }
+/* her touch buttons (ship.js hud: btns): HOLD, DC (its priority under it) and CIWS, in a row over the telegraph lever;
+   only in the ship layer, never on a desktop (the key hints say them); lit while on */
+.g-ship { display: none; width: 48px; height: 48px; font-size: 11px; letter-spacing: 0.04em; padding: 0; line-height: 1; }
+body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.g-ship .sb-sub { font: 600 8px var(--mono); letter-spacing: 0; color: var(--muted); }
+.g-ship[aria-pressed="true"] { background: rgba(125, 255, 176, 0.16); border-color: #7dffb0; color: #b9ffd4; }
+#btn-sdc[aria-pressed="true"] { background: rgba(255, 181, 71, 0.18); border-color: var(--amber); color: var(--amber); }
+#btn-sdc[aria-pressed="true"] .sb-sub { color: var(--amber); }
+#btn-shold, #btn-sdc, #btn-sciws { left: var(--gut-l); bottom: calc(152px + clamp(96px, 14vh, 130px) + var(--safe-b)); }
+#btn-sdc { left: calc(var(--gut-l) + 56px); }
+#btn-sciws { left: calc(var(--gut-l) + 112px); }
+@media (max-width: 760px) { #btn-shold, #btn-sdc, #btn-sciws { bottom: calc(162px + clamp(96px, 14vh, 130px) + var(--safe-b)); } }
+@media (max-height: 500px) {
+  .g-ship { width: 44px; height: 44px; }
+  #btn-shold, #btn-sdc, #btn-sciws { left: calc(var(--gut-l) + 170px); bottom: calc(122px + var(--safe-b)); }
+  #btn-sdc { left: calc(var(--gut-l) + 220px); }
+  #btn-sciws { left: calc(var(--gut-l) + 270px); }
+}
+body.ctl-edit.ship :is(#btn-shold, #btn-sdc, #btn-sciws) { outline: 1px dashed rgba(255, 181, 71, 0.75); outline-offset: 3px; cursor: move; pointer-events: auto; touch-action: none; }

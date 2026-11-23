@@ -206,7 +206,7 @@ const Flight = {
   stop() {
     this.running = false;
     this.setFpv(false, true); this.clearImpact();
-    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0);
+    Sound.engine(0, 0); Sound.wind(0); Sound.buzz(0); Sound.laser(0); if (Sound.sea) Sound.sea(null); // ([WP12] a ship's)
     this.aimReset();
     this.syncAwake();
   },
@@ -1261,6 +1261,7 @@ const Flight = {
         if (st.level > 1) haptic(25);
       }
     } else { Sound.engine(0, 0); Sound.wind(0); }
+    if (typeof Ship !== 'undefined' && (Combat.S.sea || Sound.seaOn === true)) Ship.sounds(this, rdt); // [WP12] (a ship's engines, bow wave, close-in guns, torpedoes and hits: only with one in the flight)
 
     if (!this.paused) { // (nothing changes while paused: setPaused brought these up to date)
       this.predTimer -= rdt;
@@ -2361,7 +2362,8 @@ const Flight = {
     if (this.mapMode) { if (GlobeView.active) GlobeView.zoom(f); else MapView.zoom(f, cx, cy); return; }
     // (the aim camera stands 7-30 m back, render3d.js: the scale kept to that, so no notch is lost past either end)
     const k = this.groundAim ? ((typeof App !== 'undefined' && App.H) || innerHeight) / 2 / Math.tan((25 * Math.PI) / 180) : 0;
-    this.scale = this.groundAim ? clamp(this.scale * f, k / 30, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
+    const far = this.groundAim && this.active && isSea(this.active.kind) && typeof Ship !== 'undefined' ? Ship.aimFar(this.active) : 30; // ([WP12] a ship's aim camera reaches back by her length: render3d aimDist)
+    this.scale = this.groundAim ? clamp(this.scale * f, k / far, Math.min(80, k / 7)) : clamp(this.scale * f, 0.00005, this.active && this.active.kind === 'drone' ? DRONE.LAUNCH.ZOOM : 80);
   },
 
   toggleMap() {
@@ -2644,7 +2646,9 @@ const Flight = {
         return st.kind === 'g' ? `Over-g · ${v.nz.toFixed(1)} g · ease off` : `Overspeed · ${fast}${st.level > 1 ? ' · slow down' : ''}`;
       };
       const dm = v.carrier && typeof Drone !== 'undefined' ? Drone.alertText(this) : null; // (a drone from a bay: its LAST FLIGHT, its tank hit; plan I6)
+      const sw = !dm && v.sh && typeof Ship !== 'undefined' ? Ship.alert(v, this) : null; // [WP12] (a ship's: a torpedo, a missile her radar hears, a magazine fire, flooding, her list, a fire)
       if (dm) { msg = dm; crit = true; }
+      else if (sw) { msg = sw.text; crit = sw.crit; }
       else if (st && st.level > 1) { msg = struct(); crit = true; }
       else if (fire) { msg = fire.def.thrust ? 'Engine fire · throttle back or dive' : 'Fire · dive to put it out'; crit = true; }
       else if (st) msg = struct();

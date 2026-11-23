@@ -5549,7 +5549,7 @@ void obDirectCheap( const in IncidentLight L, const in vec3 n, const in vec3 v, 
   }
   // (how far behind the pivot: the aim camera's zoom; [WP2] a ship's reaches back 1.2 of her length, up to 200 m, so
   // her own superstructure and the sea round her stay in view)
-  const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); const B = v.bounds, L = Math.max(B.maxX - B.minX, B.maxY - B.minY, 10); return clamp(z, 7, clamp(1.2 * L, 30, 200)); };
+  const aimDist = (F, v) => { const z = (H / 2) / F.scale / TANH50; if (!v || !isSea(v.kind)) return clamp(z, 7, 30); return clamp(z, 7, typeof Ship !== 'undefined' ? Ship.aimFar(v) : 30); }; // ([WP12] Ship.aimFar: the same reach, Flight.zoomBy's too)
   // how far from the body's centre a camera at (x, y, z), r3 out, must stay: lift over the drawn ground and the carriers
   function camFloor(b, x, y, z, r3, lift) {
     const ca = Math.atan2(y, x), gz = Math.asin(clamp(z / r3, -1, 1)) * b.radius;
@@ -7292,6 +7292,7 @@ void main() {
       for (const v of F.vessels) {
         const e = vessels.get(v);
         if (!e || e.seen !== frameNo || !e.root.visible || v.dead || v.body !== b || v.kind === 'rocket' || !v.parts.length) continue;
+        if (v.sh && typeof Ship !== 'undefined') n = holesOf(v, e, bp, n); // [WP12] (the holes in a ship's hull)
         n = blobOf(F, v, e, b, bp, dt, n);
       }
       n = scorchOf(F, b, bp, n);
@@ -7347,6 +7348,46 @@ void main() {
     const A = kk * (Lx * Math.abs(ex.x * u.x + ex.y * u.y + ex.z * u.z) + Ly * Math.abs(ey.x * u.x + ey.y * u.y + ey.z * u.z) + Lz * Math.abs(ez.x * u.x + ez.y * u.y + ez.z * u.z));
     const Bw = kk * (Lx * Math.abs(ex.x * w.x + ex.y * w.y + ex.z * w.z) + Ly * Math.abs(ey.x * w.x + ey.y * w.y + ey.z * w.z) + Lz * Math.abs(ez.x * w.x + ez.y * w.y + ez.z * w.z));
     return decalPut(n, G, ux, uy, uz, bp, u, w, Math.max(A, 0.05), Math.max(Bw, 0.05), a, k, d);
+  }
+  // [WP12] The holes in a hull (Ship.holeMarks: each on her skin, in part space, with its outward normal; read only, the
+  // sim never reads these): a scorch round each (a blotch of the atlas, 2.2 × the hole's radius and 0.35 m more) and the
+  // hole itself dark in its middle (a soft blob, 1.1 × its radius), a patched one fainter; laid on her skin across its
+  // normal, along her length. Within SCORCH_FAR of the camera, and never on a wreck or on one going down (the renderer
+  // moves those), so a ship nothing has holed costs a look at her hull parts' hole lists.
+  const HQ = { nx: 0, ny: 0, nz: 1 }, HP = v3(), HN = v3(), HA = v3();
+  function holesOf(v, e, bp, n) {
+    if (v.wreck || v.sink > 0 || v.sunk != null) return n;
+    const L = Ship.holeMarks(v);
+    if (!L.length) return n;
+    const r0 = Math.hypot(v.x, v.y, v.z) || 1, rs = e.rsO || 0, ox = v.x + (v.x / r0) * rs, oy = v.y + (v.y / r0) * rs, oz = v.z + (v.z / r0) * rs, c = v.com, S = v.sh;
+    if (Math.hypot(bp.x + ox - camAbs.x - CAM_A.x, bp.y + oy - camAbs.y - CAM_A.y, oz - camAbs.z - CAM_A.z) > SCORCH_FAR + (v.reach || 10)) return n;
+    v.axis(S.ax.x, S.ax.y, S.ax.z || 0, HA);
+    for (let i = 0; i < L.length; i++) {
+      const h = L[i];
+      qrot(v.q, h.x - c.x, h.y - c.y, h.z - (c.z || 0), HP);
+      v.axis(h.nx, h.ny, h.nz, HN);
+      HP.x += ox + HN.x * 0.03; HP.y += oy + HN.y * 0.03; HP.z += oz + HN.z * 0.03;
+      HQ.nx = HN.x; HQ.ny = HN.y; HQ.nz = HN.z;
+      if (!onPlane(HQ, HA, DK.u) && !onPlane(HQ, v.axis(0, 1, 0, DK.ay), DK.u)) continue;
+      across(HQ, DK.u, DK.w);
+      const d = Math.hypot(bp.x + HP.x - camAbs.x - CAM_A.x, bp.y + HP.y - camAbs.y - CAM_A.y, HP.z - camAbs.z - CAM_A.z);
+      if (d > SCORCH_FAR) continue;
+      const sc = Math.min(4, 2.2 * h.r + 0.35), core = Math.min(2.5, 1.1 * h.r + 0.1);
+      n = decalOn(n, HQ, HP, bp, DK.u, DK.w, sc, h.fix ? 0.45 : 0.8, 1 + ((((h.p.id * 7 + i * 3) % 4) + 4) % 4), d);
+      n = decalOn(n, HQ, HP, bp, DK.u, DK.w, core, h.fix ? 0.3 : 0.95, 0, d);
+    }
+    return n;
+  }
+  // one quad into the candidates as decalPut's, its centre at body-relative point P itself (on a hull's side: no ground plane
+  // to meet), its face along G's normal
+  function decalOn(n, G, P, bp, u, w, A, a, k, d) {
+    const c = DK.c[n] || (DK.c[n] = { d: 0, m: new Float64Array(16) }), m = c.m;
+    c.d = d;
+    m[0] = u.x * 2 * A; m[1] = u.y * 2 * A; m[2] = u.z * 2 * A; m[3] = a;
+    m[4] = -w.x * 2 * A; m[5] = -w.y * 2 * A; m[6] = -w.z * 2 * A; m[7] = k;
+    m[8] = G.nx; m[9] = G.ny; m[10] = G.nz; m[11] = 0;
+    m[12] = bp.x + P.x - camAbs.x; m[13] = bp.y + P.y - camAbs.y; m[14] = P.z - camAbs.z; m[15] = 1;
+    return n + 1;
   }
   // the crash sites' scorches: each dry pyre copied once (n < 0: only age and drop them)
   function scorchOf(F, b, bp, n) {

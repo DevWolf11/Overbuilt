@@ -226,6 +226,74 @@ const Sound = {
     }
     this.glide('ls', this.lasG.gain, k, 0.05, 1e-4);
   },
+  // (the ships update, WP12) A ship's loops, made on first use, each glided to the level asked (ship.js sounds: the
+  // player's ship, or one within 1.5 km of the view; null or 0: all of them to nothing): her diesels' throb (low
+  // noise, beaten by a pulse that quickens with their load: rpm 0..1), a gas turbine's whine (a thin note rising with its
+  // spool), the bow wave's hiss with her speed, flooding's gurgle (the bridge view), a close-in gun's buzz while it fires.
+  // seaOn: any of them still playing (Flight.update keeps asking while so).
+  seaOn: false,
+  sea(L) {
+    if (!this.ctx) { this.seaOn = false; return; }
+    const ctx = this.ctx, G = this._sea || (this._sea = {}), on = !!L;
+    const lv = (k, m) => (on ? clamp(+L[k] || 0, 0, 1) * m : 0);
+    const want = { diesel: lv('diesel', 0.32), turbine: lv('turbine', 0.05), hiss: lv('hiss', 0.16), gurgle: lv('gurgle', 0.14), ciws: lv('ciws', 0.22) }, rpm = on ? clamp(+L.rpm || 0, 0, 1) : 0;
+    const noise = (type, f, q) => { const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; if (q) fl.Q.value = q; const g = ctx.createGain(); g.gain.value = 0; src.connect(fl); fl.connect(g); g.connect(this.master); src.start(0, Math.random() * 1.5); return { f: fl, g }; };
+    const lfo = (target, f, depth, type = 'sine') => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = f; const d = ctx.createGain(); d.gain.value = depth; o.connect(d); d.connect(target); o.start(); return o; };
+    if (want.diesel > 0 && !G.diesel) { const n = noise('lowpass', 110); const amp = ctx.createGain(); amp.gain.value = 0.55; n.g.disconnect(); n.g.connect(amp); amp.connect(this.master); n.lfo = lfo(amp.gain, 4, 0.45); G.diesel = n; }
+    if (want.turbine > 0 && !G.turbine) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 700; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 6; const g = ctx.createGain(); g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.master); o.start(); G.turbine = { o, f, g }; }
+    if (want.hiss > 0 && !G.hiss) G.hiss = noise('bandpass', 2200, 0.6);
+    if (want.gurgle > 0 && !G.gurgle) { const n = noise('bandpass', 420, 5); n.lfo = lfo(n.f.frequency, 3.3, 160, 'triangle'); G.gurgle = n; }
+    if (want.ciws > 0 && !G.ciws) { const n = noise('bandpass', 1300, 1.5); const amp = ctx.createGain(); amp.gain.value = 0.5; n.g.disconnect(); n.g.connect(amp); amp.connect(this.master); n.lfo = lfo(amp.gain, 75, 0.5, 'square'); G.ciws = n; }
+    for (const k in want) if (G[k]) this.glide('sea' + k, G[k].g.gain, want[k], k === 'ciws' ? 0.03 : 0.25, 1e-4);
+    if (G.diesel) { this.glide('seadf', G.diesel.f.frequency, 80 + 90 * rpm, 0.4, 1); this.glide('seadl', G.diesel.lfo.frequency, 3 + 7 * rpm, 0.4, 0.05); }
+    if (G.turbine) { this.glide('seatf', G.turbine.o.frequency, 500 + 1500 * rpm, 0.6, 2); this.glide('seatb', G.turbine.f.frequency, 1000 + 3000 * rpm, 0.6, 2); }
+    this.seaOn = want.diesel + want.turbine + want.hiss + want.gurgle + want.ciws > 0;
+  },
+  // the engine-order telegraph's bell: n strokes of a small brass bell (three partials, a quick decay), 0.2 s apart
+  bell(n = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    this.oneOff(0.2 * n + 0.9);
+    for (let i = 0; i < n; i++) {
+      const t = ctx.currentTime + 0.2 * i;
+      for (const [f, v, d] of [[1180, 0.07, 0.8], [2710, 0.035, 0.45], [4020, 0.02, 0.25]]) {
+        const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g); g.connect(this.master); o.start(t); o.stop(t + d + 0.05);
+      }
+    }
+  },
+  // a torpedo out of its tube (a puff of air and a splash; dropped from a plane: the splash), dist m from the camera:
+  // quieter, duller and later (340 m/s) further off
+  torpedo(dist = 0, drop = false) {
+    const d = Math.max(0, +dist || 0);
+    if (!this.ctx || d > 2000) return;
+    const fall = 1 / (1 + d / 200), late = d / 340, ctx = this.ctx, t = ctx.currentTime + late;
+    this.oneOff(1 + late);
+    const hit = (dt, dur, f, type, vol) => { const src = ctx.createBufferSource(); src.buffer = this.noise; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t + dt); g.gain.linearRampToValueAtTime(vol * fall, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dt + dur); src.connect(fl); fl.connect(g); g.connect(this.master); src.start(t + dt, Math.random()); src.stop(t + dt + dur + 0.05); };
+    if (!drop) hit(0, 0.3, 380, 'lowpass', 0.7);
+    hit(drop ? 0 : 0.35, 0.6, 1500, 'bandpass', 0.35);
+  },
+  // a hull holed: a deep clang of steel (inharmonic low partials and a crack of noise), k its size (0.2..2), dist m from the
+  // camera (quieter and later further off; nothing past 3 km); at most three a second
+  clang(k = 1, dist = 0) {
+    const d = Math.max(0, +dist || 0);
+    if (!this.ctx || d > 3000) return;
+    const now = performance.now(), B = this._clangs || (this._clangs = []);
+    while (B.length && now - B[0] > 1000) B.shift();
+    if (B.length >= 3) return;
+    B.push(now);
+    const s = clamp(+k || 1, 0.2, 2), fall = 1 / (1 + d / 250), late = d / 340, ctx = this.ctx, t = ctx.currentTime + late;
+    this.oneOff(1.4 + late);
+    for (const [f, v, dur] of [[72, 0.5, 1.1], [117, 0.3, 0.8], [191, 0.18, 0.55], [305, 0.08, 0.35]]) {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'triangle'; o.frequency.value = f * (1.15 - 0.15 * (s / 2));
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v * fall * (0.5 + 0.5 * s), t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.05);
+    }
+    const src = ctx.createBufferSource(); src.buffer = this.noise; const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 900; fl.Q.value = 0.8;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.3 * fall, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    src.connect(fl); fl.connect(g); g.connect(this.master); src.start(t, Math.random()); src.stop(t + 0.15);
+  },
   chime() {
     if (!this.ctx) return;
     this.oneOff(0.9);

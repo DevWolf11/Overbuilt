@@ -224,6 +224,9 @@ const Controls = (() => {
     sight: ['#btn-sight', 'Sight', 'ground'], mg: ['#btn-mg', 'Machine guns', 'ground'], lock: ['#btn-lock', 'Radar lock', 'ground'], ammo: ['#ammo-stack', 'Shell chips', 'ground'],
     range: ['#btn-range', 'Sight\'s range', 'ground'], gmap: ['#gmap', 'Minimap', 'ground'], hints: ['#key-hints', 'Key hints', 'both'],
     radar: ['#btn-radar', 'Radar', 'air'], drone: ['#btn-drone', 'Drone', 'ground'],
+    // [WP12] a ship's own (the ships update: a ship sails with the ground HUD and its ship layer, body.ship; the style
+    // sheet shows these only there, so a tank's HUD, its fit and its editor never meet them)
+    hold: ['#btn-shold', 'Heading hold', 'ground'], dc: ['#btn-sdc', 'Damage control', 'ground'], ciws: ['#btn-sciws', 'CIWS', 'ground'],
   };
   const has = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
   // the panels the controls must stay clear of when the HUD grows (fit)
