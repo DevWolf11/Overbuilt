@@ -4767,8 +4767,9 @@ const Ship = (() => {
         mb = s; md = d;
       }
     }
-    if (tb) return { text: `Torpedo in the water · ${brgTo(v, S, tb)}° · ${rngTxt(td)}`, crit: true, k: 'torp' };
-    if (mb) return { text: `Missile inbound · ${brgTo(v, S, mb)}° · ${rngTxt(md)}`, crit: true, k: 'missile' };
+    const narrow = typeof innerWidth !== 'undefined' && innerWidth < 500; // (a phone in portrait: the short words, so the line finds room clear of her flight data)
+    if (tb) return { text: `${narrow ? 'Torpedo' : 'Torpedo in the water'} · ${brgTo(v, S, tb)}° · ${rngTxt(td)}`, crit: true, k: 'torp' };
+    if (mb) return { text: `${narrow ? 'Missile' : 'Missile inbound'} · ${brgTo(v, S, mb)}° · ${rngTxt(md)}`, crit: true, k: 'missile' };
     // a magazine heating by a fire nobody fights
     let mt = 0;
     for (const p of v.parts) if (p.magT > mt && !p.magUp) mt = p.magT;

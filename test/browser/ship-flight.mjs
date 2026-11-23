@@ -418,7 +418,7 @@ for (const vp of [[390, 844, true], [1280, 720, false]]) {
 //    CIWS) over the lever, clear of everything, and what each does; none on a desktop (the key hints);
 //  - flooding (holes in two compartments, the water rising): the diagram redrawn with it (its key, at most 4 a second),
 //    the alert line "Flooding · compartment N", then, the holes patched, the fire's "Fire …";
-//  - a hostile torpedo 1.2 km off her beam, running at her: "Torpedo in the water · NNN° · 1.2 km" (critical) and its
+//  - a hostile torpedo 1.2 km off her beam, running at her: "Torpedo in the water · NNN° · 1.2 km" (on a phone "Torpedo · …"; critical) and its
 //    track dashed red in the aim view; one of her own: its run drawn solid;
 //  - a missile coming in: "Missile inbound · …" from her radars, and nothing once they are knocked out (no magic radar);
 //  - a magazine with a fire at it; a ship of theirs we doomed: SUNK in the aim view;
@@ -497,7 +497,7 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
   await page.evaluate(() => window.__simWait(0.6, true)); await frames(page, 2);
   const t1 = await hudOf(page), ts = await page.evaluate(() => window.__strokes.filter((x) => /^#ff5d5d\|7,6$/.test(x)).length);
   await shot(page, `torpedo-${sz}`);
-  ok(`${tag}a torpedo off her beam: "${t1.alert}" (critical), its track dashed red in the aim view (${ts} strokes)`, /^Torpedo in the water · \d{3}° · 1\.\d km$/.test(t1.alert) && t1.crit && ts > 0, { t1, ts });
+  ok(`${tag}a torpedo off her beam: "${t1.alert}" (critical), its track dashed red in the aim view (${ts} strokes)`, /^Torpedo( in the water)? · \d{3}° · 1\.\d km$/.test(t1.alert) && /in the water/.test(t1.alert) === !vp[2] && t1.crit && ts > 0, { t1, ts });
   await page.evaluate(() => { window.__torp.dead = true; const v = Flight.active, p = v.parts.find((q) => q.type === 'torpTube'); window.__strokes.length = 0; window.__mine = Ship.fireTorp(v, p, Flight); Flight.aimYaw = Math.PI / 2; });
   await page.evaluate(() => window.__simWait(2, true)); await frames(page, 2);
   const ms = await page.evaluate(() => ({ fired: !!window.__mine, n: window.__strokes.filter((x) => /^#(62d0ff|7dffb0)\|$/.test(x)).length }));
@@ -516,7 +516,7 @@ for (const vp of [[360, 640, true], [390, 844, true], [1280, 720, false]]) {
     for (const p of rad) p.broken = false;
     m.dead = true; return { a1, a2 };
   });
-  ok(`${tag}a missile coming in: her radars hear it ("${mis.a1}"); with them knocked out, nothing ("${mis.a2}": no magic radar)`, /^Missile inbound · \d{3}° · \d\.\d km$/.test(mis.a1) && !/Missile/.test(mis.a2), mis);
+  ok(`${tag}a missile coming in: her radars hear it ("${mis.a1}"); with them knocked out, nothing ("${mis.a2}": no magic radar)`, /^Missile( inbound)? · \d{3}° · \d\.\d km$/.test(mis.a1) && !/Missile/.test(mis.a2), mis);
   // a magazine with a fire at it
   const mg = await page.evaluate(() => { const v = Flight.active, p = v.parts.find((q) => q.def.module === 'ammo'); p.magT = 10; Ship._hud.AL.at = -1e9; Flight.updateHUD(true); const a = document.querySelector('#flight-alert'); const t = a.hidden ? '' : a.textContent; p.magT = 0; return t; });
   ok(`${tag}a fire at her magazine: "${mg}"`, /^Magazine fire! · 20 s$/.test(mg), mg);
