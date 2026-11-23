@@ -87,8 +87,12 @@ const SCENES = {
   // render stepped as the game steps it (a tree with no ships: skipped))
   seaRough: { key: 'falcon', place: { ...SEA, air: { alt: 20, speed: 120 } }, time: 'noon', what: 'the open sea 20 m up, Rough, no ship near: the swell off', sea: true, seaState: 'rough' },
   shipnear: { key: 'cyclon', ship: true, place: { e: SEA.e, z: SEA.z, yaw: 0.5 }, time: 'noon', what: 'the chase camera on a small hull at 40 kn, Moderate: the swell, the wake, spray', wet: true, seaState: 'moderate', load: 'sail' },
+  // ([WP10] the computer's ships, spec-ships §15: Hostile wave 3, a Vizby and an Osca 2.5-3 km ahead coming at her, seen
+  // from the Arley Berk's bridge, Moderate; the sim stepped in every timed frame (their physics, the AI, their guns, the
+  // wakes): reported with the sim scenes, named with --scenes only)
+  fleet: { key: 'arley', ship: true, place: { e: 9500, z: 0, yaw: 0 }, time: 'noon', what: 'Hostile wave 3 from the Arley\'s bridge: two computer\'s ships 2.5-3 km ahead, the sim stepped', wet: true, seaState: 'moderate', load: 'fleet', sim: true },
 };
-const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk', 'clouds1k', 'clouds2k', 'cloudsdusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8'], COMBO = ['combo'];
+const QUIET = ['runway', 'lowland', 'sea', 'alt10k', 'highland', 'dusk', 'clouds1k', 'clouds2k', 'cloudsdusk'], BUSY = ['battle', 'dogfight', 'cuas'], SIM = ['rangefight', 'wrecks8', 'fleet'], COMBO = ['combo'];
 const PROFILES = {
   phone: { context: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true }, throttle: 4 },
   desktop: { context: { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 }, throttle: 1 },
@@ -102,7 +106,7 @@ const A_DIR = opt('base', null) ? path.resolve(opt('base')) : null, B_DIR = ROOT
 const PROF = opt('profiles', 'phone,desktop').split(','), QUAL = opt('quality', 'high,low').split(',');
 const FRAMES = +opt('frames', 2), ROUNDS = +opt('rounds', 16), FOV = +opt('fov', 100), CPU_FRAMES = 12;
 const SAVE = opt('save', null), SHOTS = opt('shots', null);
-const WET = ['coast', 'slipway', 'lake', 'sea300', 'sea3k', 'seaRough', 'shipnear']; // (the water's depth's scenes and the ships update's sea: named with --scenes only)
+const WET = ['coast', 'slipway', 'lake', 'sea300', 'sea3k', 'seaRough', 'shipnear', 'fleet']; // (the water's depth's scenes and the ships update's sea: named with --scenes only)
 let LIST = opt('scenes', Object.keys(SCENES).filter((k) => !SCENES[k].drone && !SIM.includes(k) && !WET.includes(k)).join(',')).split(',');
 for (const k of [...PROF.filter((p) => !PROFILES[p]), ...LIST.filter((s) => !SCENES[s]), ...QUAL.filter((q) => !['high', 'low'].includes(q))]) throw new Error('unknown profile, scene or quality: ' + k);
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
@@ -345,6 +349,17 @@ const LOAD = `window.__load = (kind) => {
     for (let i = 0; i < 12 * 30; i++) { v.x += v.vx * dt; v.y += v.vy * dt; v.z += v.vz * dt; Flight.time += dt; Flight.emitParticles(dt); FX.update(dt, Flight); Flight.updateCamera(); Render3D.renderFlight(Flight, dt, true); }
     Render3D.skipDraw = sk;
     return { fx: FX.list.length, swell: Render3D.swellInfo ? Render3D.swellInfo() : null };
+  } else if (kind === 'fleet') {
+    // ([WP10]) Hostile wave 3 as the range sends it (skill 0.3): a Vizby 2.5 km ahead and an Osca 3 km ahead and 400 m to
+    // starboard, heading west at her, the Osca following the Vizby; her bridge view (on a tree without the computer's
+    // ships: none, the bridge alone)
+    const P = { e: 9500, z: 0 };
+    if (typeof Ship !== 'undefined' && Ship.aiSpawn) {
+      const a = Ship.aiSpawn(Flight, 'vizby', { e: P.e + 2500, z: P.z, yaw: Math.PI }, { role: 'fight', skill: 0.3, course: [P] });
+      if (a) Ship.aiSpawn(Flight, 'osca', { e: P.e + 3000, z: P.z + 400, yaw: Math.PI }, { role: 'fight', skill: 0.3, lead: a });
+    }
+    if (Flight.setBridge) Flight.setBridge(true);
+    return { vessels: Flight.vessels.length, ai: Flight.vessels.filter((o) => o.ai && o.ai.sea).length };
   } else if (kind === 'wrecks8') {
     // (before the warm-up) eight TK-34s knocked out round the street, 30-95 m ahead, frozen where they stand: two by an
     // ammunition detonation 5 s ago (burning), three 60 s ago (smoking), three 150 s ago (a wisp); their blasts cleared
