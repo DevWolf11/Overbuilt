@@ -2490,6 +2490,7 @@ const Flight = {
     if (isSea(v.kind)) { // (the ships update: her helm, for her first moments)
       const sh = v.sh;
       if (!sh || this.time > 30 || this.mp || this.shotYet || (sh.tel !== 0 && this.time > 12)) return '';
+      if (typeof Ship !== 'undefined' && Ship.alert(v, this)) return ''; // ([WP12] a warning takes the tip's place: on a small phone the alert line had no room beside it and lay over her hull diagram)
       if (sh.tel === 0) return T ? 'The lever on the left is her engine telegraph: push it up to ring ahead. The stick is the rudder.' : `${k('fwd')} rings the telegraph ahead a step at a time (${k('thrFull')}: flank, ${k('thrCut')}: stop), ${ad} put the rudder over.`;
       return T ? 'Let go of the stick and she holds her new heading.' : `Let go of ${ad} and she holds her new heading (${k('sHold')}: hand steering).`;
     }
