@@ -7732,7 +7732,11 @@ void main() {
       RG.frame = new THREE.Group(); RG.frame.add(RG.lines); localWorld.add(RG.frame);
     }
     const me = typeof GHUD !== 'undefined' && GHUD.team ? GHUD.team() : 0;
-    let key = `${patchGen}|${AR.on}|${me}`;
+    // ([WP11] a sea arena's zones (the Sound) ride on the water, not on the bed far under it: a little over the highest
+    // crest of the room's sea, wherever the drawn ground is lower)
+    const AS = O.arena && EARTH.arenas && Object.prototype.hasOwnProperty.call(EARTH.arenas, O.arena) ? EARTH.arenas[O.arena] : null;
+    const crest = AS && AS.sea && typeof SHIP !== 'undefined' && typeof Ship !== 'undefined' ? SHIP.WAVES.reduce((a, w) => a + w[0], 0) * (SHIP.SEA[Ship.sea()] || SHIP.SEA.moderate).a : null;
+    let key = `${patchGen}|${AR.on}|${me}${crest != null ? '|' + crest : ''}`;
     for (const z of Z) key += `|${z.id},${z.e},${z.z},${z.r},${z.own},${Math.round((z.p || 0) * N)}`;
     if (key !== RG.key) {
       RG.key = key;
@@ -7742,7 +7746,7 @@ void main() {
       for (const z of Z.slice(0, MAXZ)) {
         const p = z.p || 0, taker = p < 0 ? 0 : 1, share = Math.round(Math.abs(p) * N);
         const pt = (k, o) => {
-          const t = (k / N) * TAU, e = z.e + Math.cos(t) * z.r, zz = z.z + Math.sin(t) * z.r, a = siteAngle(EARTH, e), ph = zz / R, r = R + drawnAt(EARTH, a, zz) + 0.35, cp = Math.cos(ph);
+          const t = (k / N) * TAU, e = z.e + Math.cos(t) * z.r, zz = z.z + Math.sin(t) * z.r, a = siteAngle(EARTH, e), ph = zz / R, gr = drawnAt(EARTH, a, zz), r = R + (crest != null ? Math.max(gr, crest) : gr) + 0.35, cp = Math.cos(ph);
           pos[o] = -r * cp * Math.sin(a - a0); pos[o + 1] = r * cp * Math.cos(a - a0) - R; pos[o + 2] = r * Math.sin(ph);
         };
         for (let k = 0; k < N; k++) {

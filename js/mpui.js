@@ -10,6 +10,8 @@ const MPUI = {
     this.bind();
     App.showMP();
     this.refresh();
+    const em = Terrain.earthMap; // [WP11] (the naval battle's button waits for the map: it says so until then)
+    if (em && em.state === 'loading' && em.promise && !this.mapWait) { this.mapWait = true; em.promise.then(() => { this.mapWait = false; this.refresh(); }, () => { this.mapWait = false; this.refresh(); }); }
     if (!MP.active) setTimeout(() => { const n = $('#mp-name'); if (!n.value && !isTouch) n.focus(); }, 50);
   },
   bind() {
@@ -25,6 +27,7 @@ const MPUI = {
     setTr(tr);
     const busy = (on, text, err) => {
       for (const id of ['#mp-create-sandbox', '#mp-create-pvp', '#mp-create-ground', '#mp-practice']) $(id).disabled = on;
+      this.navalBtn(on); // [WP11]
       const jb = $('#mp-join'), joining = on && this.connecting && this.connecting.join; // (a join can wait a minute on a host: let the player call it off)
       jb.textContent = joining ? 'Cancel' : 'Join'; jb.classList.toggle('primary', !joining); jb.disabled = on && !joining;
       const st = $('#mp-status'); st.textContent = text || ''; st.classList.toggle('err', !!err);
@@ -47,6 +50,7 @@ const MPUI = {
     $('#mp-create-sandbox').addEventListener('click', () => go(() => MP.host('sandbox', transport()), 'Opening a room…'));
     $('#mp-create-pvp').addEventListener('click', () => go(() => MP.host('pvp', transport()), 'Opening a room…'));
     $('#mp-create-ground').addEventListener('click', () => go(() => MP.host('pvp', transport(), { game: 'ground' }), 'Opening a room…'));
+    $('#mp-create-naval').addEventListener('click', () => { if (MP.mapReady()) go(() => MP.host('pvp', transport(), { game: 'naval' }), 'Opening a room…'); else UI.toast('Naval battles need the real map of the Earth: it hasn’t loaded on this device', 'warn'); }); // [WP11]
     $('#mp-practice').addEventListener('click', () => { if (!this.connecting && !MP.active) this.practice(); });
     const join = () => go((status) => MP.join($('#mp-join-code').value, transport(), status), 'Joining…', true);
     const stoppable = () => this.connecting && this.connecting.join && !MP.active; // (still looking for the host, not yet in)
@@ -64,7 +68,7 @@ const MPUI = {
     $('#mp-hangar').addEventListener('click', () => { App.toBuild(); });
     // overlays
     $('#mp-ready-btn').addEventListener('click', () => { MP.toggleReady(); Sound.click(); });
-    $('#mp-spawn-btn').addEventListener('click', () => { if (MP.ground) this.respawnPanel(this.koBy || 0); else this.openSpawnMap(); }); // (a ground battle: Respawn)
+    $('#mp-spawn-btn').addEventListener('click', () => { if (MP.zoned) this.respawnPanel(this.koBy || 0); else this.openSpawnMap(); }); // (a ground battle: Respawn; [WP11] a naval one too)
     $('#mp-lineup').addEventListener('click', (e) => { const b = e.target.closest('[data-slot]'); if (b && +b.dataset.slot > 0) this.lineupPick(+b.dataset.slot); });
     $('#mp-score-btn').addEventListener('click', () => this.toggleScore());
     $('#spawn-done').addEventListener('click', () => this.closeSpawnMap());
@@ -145,6 +149,16 @@ const MPUI = {
     go();
   },
 
+  // [WP11] the naval battle's button: off while a room opens, and without the Earth map (the Sound is on it), saying why
+  navalBtn(busy) {
+    const b = $('#mp-create-naval');
+    if (!b) return;
+    const ok = MP.mapReady(), sub = b.querySelector('.hb-sub');
+    b.disabled = !!busy || !ok;
+    const t = ok ? 'Warships, 1v1 to 3v3, in the Shetland Sound. Build a ship, then hold three zones at sea: respawn while your team has tickets.'
+      : Terrain.earthMap && Terrain.earthMap.state === 'loading' ? 'Waiting for the map of the Earth: the battle is fought in the Shetland Sound, on it.' : 'Needs the real map of the Earth, which didn’t load on this device: the battle is fought in the Shetland Sound, on it.';
+    if (sub && sub.textContent !== t) sub.textContent = t;
+  },
   // Redraw whatever is showing from MP.state.
   refresh() {
     const s = MP.state, live = MP.live;
@@ -152,7 +166,8 @@ const MPUI = {
     $('#mp-lobby').hidden = !live;
     $('#mp-code-box').hidden = !live;
     if (live) { $('#mp-code').textContent = Net.code; $('#mp-code-box .mp-code-label').textContent = Net.offline ? 'Joining paused: reconnecting…' : 'Room code'; }
-    $('#mp-kicker').textContent = live ? (s.mode === 'pvp' ? `${MP.ground ? 'Ground battle' : 'Battle'} · ${s.settings.format.toUpperCase()}` : 'Sandbox') + (Net.transport === 'local' ? ' · this device' : ' · online') : 'Multiplayer';
+    $('#mp-kicker').textContent = live ? (s.mode === 'pvp' ? `${MP.ground ? 'Ground battle' : MP.naval ? 'Naval battle' : 'Battle'} · ${s.settings.format.toUpperCase()}` : 'Sandbox') + (Net.transport === 'local' ? ' · this device' : ' · online') : 'Multiplayer';
+    if (!live && !this.connecting) this.navalBtn(false); // [WP11]
     $('#mp-heading').textContent = live ? (s.mode === 'pvp' ? (s.phase === 'lobby' ? 'Battle lobby' : 'Battle in progress') : 'Shared sandbox') : 'Play together';
     if (live) { this.renderPlayers(); this.renderSettings(); this.renderFoot(); }
     this.renderBar();
@@ -196,26 +211,29 @@ const MPUI = {
     box.innerHTML = '';
     $('#mp-settings-h').textContent = s.mode === 'pvp' ? 'Match' : 'How it works';
     const set = (label, ctl) => box.append(el('div', { class: 'mp-set' }, el('span', { text: label }), ctl));
-    if (s.mode === 'sandbox') {
-      box.append(el('p', { class: 'mp-explain', text: 'Everyone builds and flies whatever they like, from the usual pad, runway and helipad. You see each other’s craft, and guns and missiles hurt. Crash or get shot down and you can fly again straight away. No time warp in a shared world.' }),
-        el('p', { class: 'mp-explain', text: `Share the code ${Net.code} with up to four friends. ${Net.transport === 'local' ? 'This room is on this device: open the game in another tab to join it.' : 'They join from anywhere over the internet.'}` }));
-      this.partCap(st, host, set);
-      this.stayHint(box);
-      return;
-    }
     const seg = (key, opts, val, fit) => { // (fit: as many columns as choices; the air battle's keep their four)
       const g = el('div', { class: 'kind-select' + (fit ? ` n${opts.length}` : '') });
       for (const [v, label] of opts) {
         const b = el('button', { class: 'kind-btn', text: label });
         b.setAttribute('aria-checked', String(val === v));
-        b.disabled = !host;
+        b.disabled = !host || (key === 'game' && v === 'naval' && !MP.mapReady()); // ([WP11] the Sound needs the map)
         b.addEventListener('click', () => { MP.setSetting(key, v); Sound.click(); });
         g.append(b);
       }
       return g;
     };
-    set('Game', seg('game', [['air', 'Air'], ['ground', 'Ground']], st.game === 'ground' ? 'ground' : 'air', true));
+    const sea = () => set('Sea', seg('sea', [['calm', 'Calm'], ['moderate', 'Moderate'], ['rough', 'Rough']], SHIP.SEAS.includes(st.sea) ? st.sea : 'moderate', true)); // [WP11] (the room's sea, everyone's)
+    if (s.mode === 'sandbox') {
+      box.append(el('p', { class: 'mp-explain', text: 'Everyone builds and flies whatever they like, from the usual pad, runway and helipad. You see each other’s craft, and guns and missiles hurt. Crash or get shot down and you can fly again straight away. No time warp in a shared world.' }),
+        el('p', { class: 'mp-explain', text: `Share the code ${Net.code} with up to four friends. ${Net.transport === 'local' ? 'This room is on this device: open the game in another tab to join it.' : 'They join from anywhere over the internet.'}` }));
+      this.partCap(st, host, set);
+      if (typeof SHIP !== 'undefined') sea();
+      this.stayHint(box);
+      return;
+    }
+    set('Game', seg('game', [['air', 'Air'], ['ground', 'Ground'], ['naval', 'Naval']], st.game === 'ground' || st.game === 'naval' ? st.game : 'air', true));
     if (st.game === 'ground') { this.renderGround(box, st, host, seg, set); return; }
+    if (st.game === 'naval') { this.renderNaval(box, st, host, seg, set, sea); return; } // [WP11]
     set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3'], ['ffa', 'FFA']], st.format));
     set('Money', seg('budget', [[45000, '$45k'], [75000, '$75k'], [120000, '$120k']], st.budget));
     set('Build time', seg('build', [[120, '2 min'], [180, '3 min'], [300, '5 min']], st.build));
@@ -270,6 +288,41 @@ const MPUI = {
     if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
     else if (MP.state.phase === 'lobby') this.stayHint(box);
   },
+  // [WP11] A naval battle's settings: teams (no free-for-all), the money by class of ship, tickets, respawns, air support,
+  // the sea, aim, then as a ground battle's; the arena is the Sound (the real map's)
+  renderNaval(box, st, host, seg, set, sea) {
+    set('Format', seg('format', [['1v1', '1v1'], ['2v2', '2v2'], ['3v3', '3v3']], st.format, true));
+    const cls = el('div', { class: 'kind-select mp-money' });
+    for (const [v, m, e] of [[45000, '$45k', 'Patrol'], [75000, '$75k', 'Corvettes'], [120000, '$120k', 'Destroyers']]) {
+      const b = el('button', { class: 'kind-btn' }, el('b', { text: m }), el('small', { text: e }));
+      b.setAttribute('aria-checked', String(st.budget === v)); b.disabled = !host;
+      b.addEventListener('click', () => { MP.setSetting('budget', v); Sound.click(); });
+      cls.append(b);
+    }
+    set('Money', cls);
+    set('Tickets', seg('tickets', [[400, '400'], [600, '600'], [900, '900']], st.tickets, true));
+    set('Respawns', seg('respawn', [['free', 'Free'], ['lineup', 'Lineup of 3']], st.respawn, true));
+    set('Air support', seg('air', [[false, 'Off'], [true, 'On']], !!st.air, true));
+    sea();
+    set('Aim', seg('aim', [['arcade', 'Arcade'], ['realistic', 'Realistic']], st.aim, true));
+    set('Build time', seg('build', [[120, '2 min'], [180, '3 min'], [300, '5 min']], st.build, true));
+    const tf = el('input', { type: 'checkbox' }); tf.checked = !!st.test; tf.disabled = !host;
+    tf.addEventListener('change', () => MP.setSetting('test', tf.checked));
+    set('Sea trial', el('label', { class: 'mp-set-inline' }, tf, el('span', { class: 'muted small', text: ' 1 min at your start, then 2 min to polish' })));
+    const ff = el('input', { type: 'checkbox' }); ff.checked = !!st.ff; ff.disabled = !host;
+    ff.addEventListener('change', () => MP.setSetting('ff', ff.checked));
+    set('Friendly fire', ff);
+    set('Time of day', seg('tod', [['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']], st.tod, true));
+    set('Time limit', seg('limit', [[600, '10 min'], [900, '15 min'], [1500, '25 min']], st.limit, true));
+    this.partCap(st, host, set);
+    const A = EARTH.arenas && EARTH.arenas.sound, flat = MP.no3D(), map = MP.mapReady();
+    set('Arena', el('div', { class: 'mp-arena' }, el('b', { text: A ? A.name : 'Shetland Sound' }),
+      el('span', { class: 'muted small', text: map ? ' · three zones at sea between Shetland and Scotland, the teams 9 km apart' : ' · The real map didn’t load here: the shores and shallows you see differ from the others’' }),
+      ...(flat ? [el('span', { class: 'small mp-flat', text: ' · Naval battles need the 3D view: this device can’t show it' })] : [])));
+    box.append(el('p', { class: 'mp-explain', text: `Build a ship, then hold the zones at sea: each team starts with ${st.tickets} tickets, and every ship lost costs some (a dear one more). ${st.respawn === 'lineup' ? 'Three ships each, every one sails once.' : 'Respawn as often as your team has tickets.'} Ships see each other within the horizon: two destroyers about 8 km mast to mast, small boats much nearer; radar sees a little further.${st.air ? ' Sinkings and captures earn sortie points for aircraft.' : ''}` }));
+    if (!host) box.append(el('p', { class: 'mp-explain', text: 'The host sets up the match.' }));
+    else if (MP.state.phase === 'lobby') this.stayHint(box);
+  },
   // The host's game is the room: on a phone it can't let anyone in while the screen is off or another app is
   // in front (as when sending the code in a chat app), so say so, first thing in the card.
   // The part limit (settings.cap): on, MP_MAX_PARTS a craft; off, as many as the network carries. The host's to set: in
@@ -291,8 +344,8 @@ const MPUI = {
     $('#mp-start').hidden = !pvp || !Net.isHost || s.phase !== 'lobby';
     $('#mp-hangar').hidden = pvp;
     let note = '';
-    if (pvp && s.phase === 'lobby') note = Net.isHost ? (MP.ground ? 'Start when everyone’s in. Build, (test drive), then hold the zones.' : 'Start when everyone’s in. Build, (test), then fight: one life each.') : 'Waiting for the host to start the battle.';
-    else if (pvp) note = `Battle running: ${{ build: 'building', test: MP.ground ? 'test drives' : 'test flights', polish: 'final touches', battle: 'fighting', results: 'results' }[s.phase] || s.phase}.`;
+    if (pvp && s.phase === 'lobby') note = Net.isHost ? (MP.ground ? 'Start when everyone’s in. Build, (test drive), then hold the zones.' : MP.naval ? 'Start when everyone’s in. Build, (sea trial), then hold the zones at sea.' : 'Start when everyone’s in. Build, (test), then fight: one life each.') : 'Waiting for the host to start the battle.';
+    else if (pvp) note = `Battle running: ${{ build: 'building', test: MP.ground ? 'test drives' : MP.naval ? 'sea trials' : 'test flights', polish: 'final touches', battle: 'fighting', results: 'results' }[s.phase] || s.phase}.`;
     else note = 'Build anything, then fly it into the shared world.';
     $('#mp-foot-note').textContent = note;
   },
@@ -306,18 +359,18 @@ const MPUI = {
     if (App.scene !== 'flight' && !$('#mp-hud-chat').hidden) { $('#mp-hud-input').hidden = true; $('#mp-hud-input').blur(); $('#mp-hud-chat').hidden = true; }
     if (!show) { this.scoreSticky = false; $('#mp-score').hidden = true; return; }
     bar.classList.toggle('flight', App.scene === 'flight');
-    const label = s.mode === 'sandbox' ? 'Sandbox' : { build: 'Build', test: MP.ground ? 'Test drive' : 'Test flight', polish: 'Final touches', battle: 'Battle', results: 'Results' }[s.phase] || s.phase;
+    const label = s.mode === 'sandbox' ? 'Sandbox' : { build: 'Build', test: MP.ground ? 'Test drive' : MP.naval ? 'Sea trial' : 'Test flight', polish: 'Final touches', battle: 'Battle', results: 'Results' }[s.phase] || s.phase;
     $('#mp-phase').textContent = label;
     const building = s.mode === 'pvp' && (s.phase === 'build' || s.phase === 'polish');
     $('#mp-ready-btn').hidden = !building || App.scene !== 'build';
     $('#mp-ready-btn').setAttribute('aria-pressed', String(!!(MP.me && MP.me.ready)));
     $('#mp-ready-btn').textContent = MP.me && MP.me.ready ? 'Ready ✓' : 'Ready';
-    const sb = $('#mp-spawn-btn'), st = MP.ground ? 'Respawn' : 'Spawn';
+    const sb = $('#mp-spawn-btn'), st = MP.zoned ? 'Respawn' : 'Spawn'; // ([WP11] zoned: a ground or a naval battle)
     if (sb.textContent !== st) sb.textContent = st;
-    if (!MP.ground) sb.hidden = !building || App.scene !== 'build'; // (a ground battle: no spawn map; Respawn once knocked out: tickGround)
-    this.renderLineup(building && App.scene === 'build' && MP.ground && s.settings.respawn === 'lineup');
-    bar.classList.toggle('ground', MP.ground);
-    if (!MP.ground) { if ($('#mp-bar-info').hidden) $('#mp-bar-info').hidden = false; if (!$('#mp-ground').hidden) $('#mp-ground').hidden = true; if (!$('#mp-cap').hidden) $('#mp-cap').hidden = true; } // (after a ground battle)
+    if (!MP.zoned) sb.hidden = !building || App.scene !== 'build'; // (a ground battle: no spawn map; Respawn once knocked out: tickGround)
+    this.renderLineup(building && App.scene === 'build' && MP.zoned && s.settings.respawn === 'lineup');
+    bar.classList.toggle('ground', MP.zoned);
+    if (!MP.zoned) { if ($('#mp-bar-info').hidden) $('#mp-bar-info').hidden = false; if (!$('#mp-ground').hidden) $('#mp-ground').hidden = true; if (!$('#mp-cap').hidden) $('#mp-cap').hidden = true; } // (after a ground battle)
     $('#mp-score-btn').hidden = s.mode !== 'pvp' && App.scene !== 'flight';
     if ($('#mp-score-btn').hidden && !$('#mp-score').hidden) { this.scoreSticky = false; $('#mp-score').hidden = true; }
     this.tick();
@@ -334,7 +387,7 @@ const MPUI = {
     } else { timer.textContent = s.mode === 'sandbox' ? Net.code : ''; fill.style.transform = ''; $('#mp-bar').classList.remove('urgent'); }
     // the line under the timer
     const info = $('#mp-bar-info');
-    if (MP.ground) { this.tickGround(s, info); return; }
+    if (MP.zoned) { this.tickGround(s, info); return; }
     if (s.mode === 'sandbox') info.textContent = `${s.players.length} in the room · ${s.players.filter((p) => p.flying).length} flying`;
     else if (App.scene === 'build' && Builder.statsData) {
       const cost = Builder.statsData.cost || 0, budget = MP.budgetFor(MP.spawnId);
@@ -387,7 +440,7 @@ const MPUI = {
   // The battle area in the game's own frame: east along the runway to the right, game north up.
   MAP: { e0: -9000, e1: 31000, z0: -9000, z1: 21000 },
   openSpawnMap() {
-    if (!MP.live || !MP.pvp || MP.ground) return; // (a ground battle: each team its pad)
+    if (!MP.live || !MP.pvp || MP.zoned) return; // (a ground battle: each team its pad; [WP11] a naval one its end of the Sound)
     $('#spawn-map').hidden = false;
     App.afterEarth(() => this.drawSpawnMap());
     this.renderSpawnList();
@@ -514,13 +567,13 @@ const MPUI = {
     const box = $('#mp-score');
     if (!on || !MP.live) { box.hidden = true; return; }
     box.innerHTML = '';
-    const o = MP.ground && MP.state.obj, mine = MP.me && MP.me.team === 1 ? 1 : 0;
+    const o = MP.zoned && MP.state.obj, mine = MP.me && MP.me.team === 1 ? 1 : 0;
     box.append(el('h3', { text: MP.pvp ? `Scoreboard · ${MP.state.settings.format.toUpperCase()}${o ? ` · tickets ${o.tk[mine]} – ${o.tk[1 - mine]}` : ''}` : `Room ${Net.code}` }), this.scoreTable(MP.state.players));
     box.hidden = false;
   },
   scoreTable(players, ground) {
     const t = el('table', { class: 'dv-table' });
-    if (ground ?? MP.ground) return this.groundTable(t, players);
+    if (ground ?? MP.zoned) return this.groundTable(t, players);
     t.innerHTML = '<thead><tr><th>Player</th><th>Team</th><th>Kills</th><th>Lost</th><th>Damage</th><th>Ping</th></tr></thead>';
     const tb = el('tbody');
     const ffa = MP.ffa();
@@ -630,7 +683,7 @@ const MPUI = {
       if (d > 300) { ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.globalAlpha = 0.8; mpTag(ctx, fmt.dist(d), s.x, s.y - 32, W); ctx.globalAlpha = 1; }
     }
     // (a radar lock on us shows only with a warning receiver on board: Combat's RWR display)
-    if (!MP.ground) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js)
+    if (!MP.zoned) this.drawRadar(ctx, W, H, F, me); // (a ground battle has its own minimap: ghud.js; [WP11] a naval one too)
     if (F.destroyed && F.spectate) {
       ctx.font = '600 13px "Chakra Petch", system-ui, sans-serif'; ctx.fillStyle = '#e9edf1';
       ctx.fillText(`Watching ${MP.nameOf(MP.pidOf(F.spectate))} · ${this.switchWord()} to switch`, W / 2, H - 40); // (their craft, or its hulk falling: foreign)
@@ -642,7 +695,7 @@ const MPUI = {
   // eye (less for a stealthy one), or further while our own radar part holds them (radar.js).
   spotted(g, me, F) {
     if (!MP.pvp || (!MP.ffa() && MP.teamOf(g.remote) === MP.teamOf(Net.me))) return true;
-    if (MP.ground) return MP.spotted(g.remote, me); // (a ground battle: sight lines, spotting by the team, gun flashes)
+    if (MP.zoned) return MP.spotted(g.remote, me); // (a ground battle: sight lines, spotting by the team, gun flashes; [WP11] a naval one: the horizon, eyes and sea radars)
     const d = Math.hypot(g.x - me.x, g.y - me.y, g.z - me.z);
     if (d < 6000 * (1 - 0.5 * Combat.stealthOf(g))) return true;
     // further only on our own radar: what its last scan held (radar.js: its cone, its reach less their stealth, look-down,
@@ -706,15 +759,15 @@ const MPUI = {
   // design or a stock one within the money), or with air support and a sortie point an aircraft; a Lineup of 3: the
   // slots not yet used. Big buttons for thumbs; built with el() (names from peers stay text).
   respawnPanel(by) {
-    if (!MP.ground || !MP.live || MP.phase !== 'battle' || !Flight.destroyed || !MP.me) return;
+    if (!MP.zoned || !MP.live || MP.phase !== 'battle' || !Flight.destroyed || !MP.me) return;
     this.koBy = by || 0;
-    const st = MP.state.settings, lineup = st.respawn === 'lineup';
+    const st = MP.state.settings, lineup = st.respawn === 'lineup', sea = MP.naval; // ([WP11] a naval battle: ships)
     // the countdown to the host's respawn time (the buttons that spawn wait for it)
     const state = () => {
       const me = MP.me;
       if (!me || MP.phase !== 'battle') return null;
       const o = MP.state.obj, left = Math.ceil(((me.respawnAt || 0) - 300 - Net.hostNow()) / 1000), out = !o || !(o.tk[me.team] > 0), none = lineup && !me.alive && !me.flying; // (none: the host says no slot we can take is left)
-      return { text: out ? 'Your team is out of tickets.' : none ? 'No vehicle you can take: watching the rest of the battle' : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : 'Pick your vehicle', wait: out || none || left > 0 };
+      return { text: out ? 'Your team is out of tickets.' : none ? `No ${sea ? 'ship' : 'vehicle'} you can take: watching the rest of the battle` : left > 0 ? `Back in the fight in ${left} s` : lineup ? 'Pick a slot' : sea ? 'Pick your ship' : 'Pick your vehicle', wait: out || none || left > 0 };
     };
     const go = (d, slot) => { if (!MP.respawnWith(d, slot)) UI.toast('Not yet: wait for the timer', 'warn'); };
     const airOk = () => { const me = MP.me; return !!me && (me.sorties || 0) > 0 && Net.hostNow() - (me.sortieEnd || -1e9) >= 60000; };
@@ -732,18 +785,20 @@ const MPUI = {
         if (!R.list.childElementCount) R.list.append(el('p', { class: 'muted', text: 'Every slot is used: watch the rest of the battle.' }));
       } else {
         const d = MP.groundDesign || MP.myDesign;
-        if (d) R.opt(`Your vehicle (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
-        R.opt('Change vehicle…', 'Another of your designs, or a stock one within the money', () => R.page(pick(false)), true, true);
+        if (d) R.opt(`Your ${sea ? 'ship' : 'vehicle'} (${d.name || VEHICLE_KINDS[d.kind].name})`, money(designCost(partsFromDesign(d.parts))), () => go(d));
+        R.opt(sea ? 'Change ship…' : 'Change vehicle…', 'Another of your designs, or a stock one within the money', () => R.page(pick(false)), true, true);
         if (st.air) R.opt('Aircraft…', airText, () => R.page(pick(true)), airOk, true);
       }
     };
     const pick = (air) => (R) => {
-      R.opt('‹ Back', air ? 'The ground vehicles' : 'Your vehicle', () => R.page(main), true, true);
+      R.opt('‹ Back', air ? (sea ? 'The ships' : 'The ground vehicles') : sea ? 'Your ship' : 'Your vehicle', () => R.page(main), true, true);
       const C = MP.choices(air);
       for (const c of C) R.opt(c.name, `${money(c.cost)}${c.saved ? ' · your design' : ''}${c.arms != null ? ` · ${c.arms || 'unarmed'}` : ''}`, () => go(c.design));
-      if (!C.length) R.list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : 'No vehicle fits the money.' }));
+      if (!C.length) R.list.append(el('p', { class: 'muted', text: air ? 'No aircraft fits the money.' : sea ? 'No ship fits the money.' : 'No vehicle fits the money.' }));
     };
-    this.rsp({ kicker: 'Respawn', title: by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
+    const fate = sea && Flight.active && Flight.active.fate, lost = fate && typeof SHIP_FATES !== 'undefined' ? SHIP_FATES[fate] : null; // ([WP11] her fate's word: Sunk, Capsized, …)
+    const byWord = { sunk: 'Sunk by', capsized: 'Capsized by', action: 'Put out of action by' }[fate];
+    this.rsp({ kicker: 'Respawn', title: lost ? (by ? (byWord ? `${byWord} ${MP.nameOf(by)}` : `${lost} · ${MP.nameOf(by)}`) : lost) : by ? `Knocked out by ${MP.nameOf(by)}` : 'Knocked out', state, fill: main, actions: [{ label: 'Spectate', onClick: () => MPUI.spectate(1) }] });
   },
   // The Respawn panel itself, a room's and the Practice Battle's (groundai.js): a line counting down to the respawn time
   // and big buttons for thumbs, built with el() (names from peers stay text). o: { kicker, title, actions, state () ->
@@ -799,7 +854,7 @@ const MPUI = {
     }
   },
   lineupPick(i) {
-    if (!MP.ground || !MP.state || MP.state.settings.respawn !== 'lineup') return;
+    if (!MP.zoned || !MP.state || MP.state.settings.respawn !== 'lineup') return;
     const body = el('div', { class: 'rsp' }), list = el('div', { class: 'rsp-list' });
     body.append(list);
     const add = (c) => {
@@ -826,8 +881,9 @@ const MPUI = {
   // A ground battle's ground must be the same for everyone: say so when our map isn't the host's
   mapCheck() {
     const s = MP.state;
-    if (!MP.ground || !s || Net.isHost) return;
+    if (!MP.zoned || !s || Net.isHost) return;
     const mine = MP.mapReady();
+    if (MP.naval) { if (!mine) UI.toast('Your map didn’t load: the Sound’s shores and shallows you see differ from the others’', 'warn'); return; } // [WP11]
     if (s.settings.arena === 'highland' && !mine) UI.toast('Your map didn’t load: the hills you see differ from the others’', 'warn');
     else if (s.settings.arena === 'runway' && mine) UI.toast('The host’s map didn’t load, so the battle is on the runway: off it, your ground differs from theirs', 'warn');
   },

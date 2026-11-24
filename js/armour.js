@@ -742,7 +742,10 @@ const Armour = (() => {
     if (R.at) FX.sparks(b, R.at, { x: v.vx, y: v.vy, z: v.vz }, R.r === 'ric' ? 8 : R.r === 'pen' ? 10 : 4);
     if (R.r === 'pen' && R.at) FX.puff(b, R.at, { x: v.vx, y: v.vy, z: v.vz }, 3, '#8b8f96');
     const sp = s ? len(s.vx, s.vy, s.vz) || 1 : 1, back = s ? { x: -s.vx / sp, y: -s.vy / sp, z: -s.vz / sp } : null;
-    if (v.remote) { if (mpOn() && ours(by) && (R.rows.length || R.mods.length)) MP.sendHits(v, R.rows, R.k, R.mods, back && [back.x, back.y, back.z], R.hot); }
+    if (v.remote) {
+      const sea = v.sh ? Ship.netHoles(v, R, s && (s.legacy || SHELLS[s.sh] || s)) : undefined; // ([WP11] another player's ship: the holes it tore and the fire it may light, for her owner)
+      if (mpOn() && ours(by) && (R.rows.length || R.mods.length || sea)) { if (sea) MP.sendHits(v, R.rows, R.k, R.mods, back && [back.x, back.y, back.z], R.hot, sea); else MP.sendHits(v, R.rows, R.k, R.mods, back && [back.x, back.y, back.z], R.hot); }
+    }
     else if (R.rows.length || R.mods.length || R.ho) {
       if (v.sh) Ship.roundHit(v, R, s && (s.legacy || SHELLS[s.sh] || s), by, F); // ([WP8] the holes it tore in her hull, a fire where it went into an engine or a magazine)
       Armour.hot = R.hot;

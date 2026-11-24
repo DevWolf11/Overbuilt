@@ -1425,7 +1425,7 @@ function aimGTop(b, m) {
   Terrain.locate(b, m.x, m.y, m.z, aimLoc);
   const e = wrapAngle(EARTH.padAngle - aimLoc.a) * b.radius, z = aimLoc.z;
   for (const k in A) {
-    const B = A[k].box;
+    const B = A[k].sea ? null : A[k].box; // ([WP11] the Sound: open water, a naval shell has its own top, Ship.seaTop)
     if (!B || e < B.e0 || e > B.e1 || z < B.z0 || z > B.z1) continue;
     const key = k + (EARTH.mapped ? '+' : '-');
     let T = aimTops.get(key);

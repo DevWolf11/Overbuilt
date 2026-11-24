@@ -1015,6 +1015,14 @@ kbd {
 .home-btn.primary.ground { background: #79c04f; border-color: #79c04f; color: #0e1a06; }
 .home-btn.primary.ground .hb-name { color: #0e1a06; }
 .home-btn.primary.ground .hb-sub { color: rgba(14, 26, 6, 0.75); }
+/* [WP11] (the ships update) naval battles: sea blue; the button says why it can't be pressed without the Earth map */
+.home-btn.naval { border-color: rgba(76, 160, 230, 0.6); }
+.home-btn.naval .hb-name { color: #9ccdf3; }
+.home-btn.primary.naval { background: #3d8fd6; border-color: #3d8fd6; color: #04101c; }
+.home-btn.primary.naval .hb-name { color: #04101c; }
+.home-btn.primary.naval .hb-sub { color: rgba(4, 16, 28, 0.78); }
+.home-btn.primary.naval:disabled { background: rgba(61, 143, 214, 0.25); border-color: rgba(61, 143, 214, 0.45); }
+.home-btn.primary.naval:disabled .hb-name, .home-btn.primary.naval:disabled .hb-sub { color: #9ccdf3; }
 .mp-set .mp-money { grid-template-columns: repeat(3, 1fr); }
 .mp-money .kind-btn { flex-direction: column; gap: 0; line-height: 1.15; }
 .mp-money .kind-btn small { font-size: 9px; letter-spacing: 0.06em; color: var(--muted); }

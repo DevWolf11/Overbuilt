@@ -238,7 +238,7 @@ const Combat = (() => {
         if (v.dead || v === spare || v.body !== b || (v.remote && !mine) || v.wreck || v.foreign) continue; // (a wreck takes nothing more; someone else's falling hulk is only a picture)
         if (len(v.x - at.x, v.y - at.y, v.z - at.z) > (v.reach || 10) + blast) continue;
         // (armour: each part where it is, turrets turned, and what the blast's penetration overmatches: Armour.blastK)
-        const hits = v.remote ? [] : null, mods = v.plated ? [] : null;
+        const hits = v.remote ? [] : null, mods = v.plated ? [] : null, sea = hits && v.sh ? { ho: [], fi: [] } : null; // ([WP11] sea: the holes and fires a ghost ship's owner is told of)
         if (mods) Armour.hot = true; // (high explosive: ammunition it reaches cooks off more easily)
         for (const p of v.parts.slice()) {
           if (!v.parts.includes(p)) continue;
@@ -253,7 +253,7 @@ const Combat = (() => {
             d -= Math.max(p.def.w, p.def.h) / 2;
           }
           if (d >= blast) continue;
-          if (hull) Ship.blastHull(v, p, d, at, blast, by, sim, o); // ([WP8] the hole it tears there, tamped under the water; a fire if it burst inside)
+          if (hull) { const x = Ship.blastHull(v, p, d, at, blast, by, sim, o); if (sea && x) { if (x.ho) sea.ho.push(x.ho); if (x.fi) sea.fi.push(x.fi); } } // ([WP8] the hole it tears there, tamped under the water; a fire if it burst inside; [WP11] another player's ship: for her owner)
           let k = dmg * Math.pow(1 - Math.max(0, d) / blast, 1.5);
           if (mods) { k = Armour.blastK(v, p, d, blast, k, he, mods, at); if (k == null) continue; Armour.tally(v, p, k); } // (tally: what the shooter's HUD hears)
           const side = wingSide(v, p, at); // (an aircraft's plain wing: the half the blast is on)
@@ -262,10 +262,12 @@ const Combat = (() => {
         if (mods) Armour.tallyMods(v, mods);
         if (mods && !hits) for (const [h, i, k] of mods) Armour.modDamage(v, h, i, k, sim, by, true);
         if (mods) Armour.hot = false;
-        if (hits && (hits.length || (mods && mods.length))) {
+        const tore = !!sea && (sea.ho.length > 0 || sea.fi.length > 0); // [WP11]
+        if (hits && (hits.length || (mods && mods.length) || tore)) {
           // (a drone's own burst: toward it, so the hit marker points at the drone, not its owner's tank far off; P4-MP-3)
           const bl = spare && spare.kind === 'drone' ? len(at.x - v.x, at.y - v.y, at.z - v.z) : 0, dd = bl > 0.1 ? [(at.x - v.x) / bl, (at.y - v.y) / bl, (at.z - v.z) / bl] : null;
-          if (mods) MP.sendHits(v, hits, 'blast', mods, dd, true); else MP.sendHits(v, hits, 'blast', null, dd);
+          if (tore) MP.sendHits(v, hits, 'blast', mods, dd, !!mods, sea); // [WP11]
+          else if (mods) MP.sendHits(v, hits, 'blast', mods, dd, true); else MP.sendHits(v, hits, 'blast', null, dd);
         }
       }
     } finally { flushRips(); }
@@ -1540,7 +1542,7 @@ const Combat = (() => {
     // Highland Ridge's are open to old weapons and vessels in ground play only, where they're on show (render3d.js)
     if (typeof Props !== 'undefined') {
       let gv = v.kind === 'tank' || v.kind === 'drone' || !!S.gai || !!(GroundAI.battle || GroundAI.range) || (typeof MP !== 'undefined' && MP.live && MP.ground); // (a drone flown alone too: the spawn points update starts one beside the tanks' pad)
-      if (!gv) for (const o of F.vessels) if (o.gv || (o.gear && o.gear.length)) { gv = true; break; }
+      if (!gv) for (const o of F.vessels) if ((o.gv && !isSea(o.kind)) || (o.gear && o.gear.length)) { gv = true; break; } // ([WP11] a ship's parts are gv, but no props stand at sea and render3d never shows Highland's for one: a naval battle's ships leave them shut)
       Props.play = gv;
       Props.crushStep(F);
     }
