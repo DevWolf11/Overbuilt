@@ -1484,8 +1484,9 @@ body.ship:not(.pc) .ship-btns { display: flex; }
 .g-ship { display: none; width: 44px; height: 44px; font-size: 11px; letter-spacing: 0.04em; padding: 0; line-height: 1; }
 body.ship:not(.pc) .g-ship:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
 .g-ship .sb-sub { font: 600 8px var(--mono); letter-spacing: 0; color: var(--muted); }
-.g-ship[aria-pressed="true"] { background: rgba(125, 255, 176, 0.16); border-color: #7dffb0; color: #b9ffd4; }
-#btn-sdc[aria-pressed="true"] { background: rgba(255, 181, 71, 0.18); border-color: var(--amber); color: var(--amber); }
+/* (lit: the tint over the button's own dark panel, so a lit HOLD still reads over a bright sea or sky rather than looking switched off) */
+.g-ship[aria-pressed="true"] { background: linear-gradient(rgba(125, 255, 176, 0.2), rgba(125, 255, 176, 0.2)), var(--panel); border-color: #7dffb0; color: #b9ffd4; }
+#btn-sdc[aria-pressed="true"] { background: linear-gradient(rgba(255, 181, 71, 0.22), rgba(255, 181, 71, 0.22)), var(--panel); border-color: var(--amber); color: var(--amber); }
 #btn-sdc[aria-pressed="true"] .sb-sub { color: var(--amber); }
 @media (max-width: 760px) { .ship-btns { bottom: calc(150px + var(--safe-b)); } } /* (8 px over the lever: the radar scope's place under the diagram stays clear on a 360 × 640 phone) */
 /* (with stages left the lever stands higher, a Stage pill under it, as the layout editor always shows it: the row goes
